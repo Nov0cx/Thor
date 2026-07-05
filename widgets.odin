@@ -4,10 +4,151 @@ import rl "vendor:raylib"
 import "core:fmt"
 import "core:unicode/utf8"
 
-// ── Text editing state & helpers ───────────────────────────────────────────
+PieceSource :: enum { Original, Added }
+
+Piece :: struct {
+    source: PieceSource,
+    offset: int, // offset into original or added buffer
+    length: int,
+}
+
+PieceTable :: struct {
+    original: []u8,   // immutable
+    added:    [dynamic]u8,
+    pieces:   [dynamic]Piece,
+}
+
+piece_table_init :: proc(initial: string, allocator := context.allocator) -> PieceTable {
+    pt: PieceTable
+    pt.original = transmute([]u8)initial
+    pt.added = make([dynamic]u8, allocator)
+    pt.pieces = make([dynamic]Piece, allocator)
+    if len(initial) > 0 {
+        append(&pt.pieces, Piece{source = .Original, offset = 0, length = len(initial)})
+    }
+    return pt
+}
+
+piece_table_destroy :: proc(pt: ^PieceTable) {
+    delete(pt.added)
+    delete(pt.pieces)
+}
+
+piece_table_total_len :: proc(pt: ^PieceTable) -> int {
+    total := 0
+    for p in pt.pieces {
+        total += p.length
+    }
+    return total
+}
+
+insert :: proc(array: [dynamic]$T, index: int, value: T) -> [dynamic]T {
+    assert(index >= 0 && index <= len(array), "insert: index out of bounds")
+
+    result := make([dynamic]T, len(array) + 1)
+
+    copy(result[:index], array[:index])
+
+    result[index] = value
+
+    copy(result[index + 1:], array[index:])
+
+    return result
+}
+
+delete_range :: proc(array: [dynamic]$T, start: int, end: int) -> [dynamic]T {
+    assert(start >= 0 && end <= len(array) && start <= end,
+           "delete_range: invalid range")
+
+    count := end - start
+    result := make([dynamic]T, len(array) - count)
+
+    copy(result[:start], array[:start])
+    copy(result[start:], array[end:])
+
+    return result
+}
+
+piece_table_find_piece :: proc(pt: ^PieceTable, pos: int) -> (int, int) {
+    total := piece_table_total_len(pt)
+    if pos < 0 || pos > total do panic("piece_table: position out of bounds")
+    if pos == total && len(pt.pieces) > 0 {
+        last := len(pt.pieces) - 1
+        return last, pt.pieces[last].length
+    }
+    cum := 0
+    for i in 0 ..< len(pt.pieces) {
+        p := pt.pieces[i]
+        if pos < cum + p.length {
+            return i, pos - cum
+        }
+        cum += p.length
+    }
+    return 0, 0
+}
+
+piece_table_split_at :: proc(pt: ^PieceTable, pos: int) -> int {
+    total := piece_table_total_len(pt)
+    if pos == 0 { return 0 }
+    if pos == total { return len(pt.pieces) }
+
+    idx, off := piece_table_find_piece(pt, pos)
+    p := pt.pieces[idx]
+    if off == 0 { return idx }
+    if off == p.length { return idx + 1 }
+
+    new_piece := Piece{source = p.source, offset = p.offset + off, length = p.length - off}
+    pt.pieces[idx].length = off
+    pt.pieces = insert(pt.pieces, idx + 1, new_piece)
+    return idx + 1
+}
+
+piece_table_insert :: proc(pt: ^PieceTable, pos: int, bytes: []u8) {
+    if len(bytes) == 0 do return
+    idx := piece_table_split_at(pt, pos)
+    added_start := len(pt.added)
+    append(&pt.added, ..bytes)
+    pt.pieces = insert(pt.pieces, idx, Piece{source = .Added, offset = added_start, length = len(bytes)})
+}
+
+piece_table_delete_range :: proc(pt: ^PieceTable, start: int, end: int) {
+    if start >= end do return
+    start_idx := piece_table_split_at(pt, start)
+    end_idx   := piece_table_split_at(pt, end)
+    if start_idx < end_idx {
+        pt.pieces = delete_range(pt.pieces, start_idx, end_idx)
+    }
+}
+
+piece_table_get_string :: proc(pt: ^PieceTable) -> string {
+    total := piece_table_total_len(pt)
+    if total == 0 do return ""
+    buf := make([]u8, total)
+    offset := 0
+    for p in pt.pieces {
+        src := pt.original if p.source == .Original else pt.added[:]
+        copy(buf[offset:], src[p.offset:p.offset + p.length])
+        offset += p.length
+    }
+    return string(buf)
+}
+
+piece_table_get_lines :: proc(pt: ^PieceTable) -> []string {
+    s := piece_table_get_string(pt)
+    lines := make([dynamic]string, 0, 16)
+    start := 0
+    for i := 0; i < len(s); i += 1 {
+        if s[i] == '\n' {
+            append(&lines, s[start:i])
+            start = i + 1
+        }
+    }
+    append(&lines, s[start:])
+    return lines[:]
+}
 
 UITextState :: struct {
-    buffer:          [dynamic]u8,
+    pt:              PieceTable,
     cursor:          int,
     selection_start: int,
     scroll_x:        f32,
@@ -17,8 +158,7 @@ UITextState :: struct {
 
 init_text_state :: proc(initial: string, multiline: bool, allocator := context.allocator) -> UITextState {
     state: UITextState
-    state.buffer = make([dynamic]u8, len(initial), allocator)
-    copy(state.buffer[:], transmute([]u8)initial)
+    state.pt = piece_table_init(initial, allocator)
     state.cursor = len(initial)
     state.selection_start = len(initial)
     state.multiline = multiline
@@ -26,7 +166,7 @@ init_text_state :: proc(initial: string, multiline: bool, allocator := context.a
 }
 
 destroy_text_state :: proc(state: ^UITextState) {
-    delete(state.buffer)
+    piece_table_destroy(&state.pt)
 }
 
 text_insert_char :: proc(state: ^UITextState, r: rune) {
@@ -36,35 +176,33 @@ text_insert_char :: proc(state: ^UITextState, r: rune) {
     if state.cursor != state.selection_start {
         start := min(state.cursor, state.selection_start)
         end   := max(state.cursor, state.selection_start)
-        copy(state.buffer[start:], state.buffer[end:])
-        resize(&state.buffer, len(state.buffer) - (end - start))
+        piece_table_delete_range(&state.pt, start, end)
         state.cursor = start
         state.selection_start = start
     }
-
-    old_len := len(state.buffer)
-    resize(&state.buffer, old_len + n)
-    for i := old_len - 1; i >= state.cursor; i -= 1 {
-        state.buffer[i + n] = state.buffer[i]
-    }
-    copy(state.buffer[state.cursor:state.cursor+n], bytes)
+    piece_table_insert(&state.pt, state.cursor, bytes)
     state.cursor += n
     state.selection_start = state.cursor
+}
+
+text_insert_spaces :: proc(state: ^UITextState, count: int) {
+    for _ in 0 ..< count {
+        text_insert_char(state, ' ')
+    }
 }
 
 text_backspace :: proc(state: ^UITextState) {
     if state.cursor != state.selection_start {
         start := min(state.cursor, state.selection_start)
         end   := max(state.cursor, state.selection_start)
-        copy(state.buffer[start:], state.buffer[end:])
-        resize(&state.buffer, len(state.buffer) - (end - start))
+        piece_table_delete_range(&state.pt, start, end)
         state.cursor = start
         state.selection_start = start
     } else if state.cursor > 0 {
-        _, n := utf8.decode_last_rune(state.buffer[:state.cursor])
+        str := piece_table_get_string(&state.pt)
+        _, n := utf8.decode_last_rune(transmute([]u8)str[:state.cursor])
         if n > 0 {
-            copy(state.buffer[state.cursor-n:], state.buffer[state.cursor:])
-            resize(&state.buffer, len(state.buffer) - n)
+            piece_table_delete_range(&state.pt, state.cursor - n, state.cursor)
             state.cursor -= n
             state.selection_start = state.cursor
         }
@@ -75,15 +213,14 @@ text_delete :: proc(state: ^UITextState) {
     if state.cursor != state.selection_start {
         start := min(state.cursor, state.selection_start)
         end   := max(state.cursor, state.selection_start)
-        copy(state.buffer[start:], state.buffer[end:])
-        resize(&state.buffer, len(state.buffer) - (end - start))
+        piece_table_delete_range(&state.pt, start, end)
         state.cursor = start
         state.selection_start = start
-    } else if state.cursor < len(state.buffer) {
-        _, n := utf8.decode_rune(state.buffer[state.cursor:])
+    } else if state.cursor < piece_table_total_len(&state.pt) {
+        str := piece_table_get_string(&state.pt)
+        _, n := utf8.decode_rune(transmute([]u8)str[state.cursor:])
         if n > 0 {
-            copy(state.buffer[state.cursor:], state.buffer[state.cursor+n:])
-            resize(&state.buffer, len(state.buffer) - n)
+            piece_table_delete_range(&state.pt, state.cursor, state.cursor + n)
         }
     }
 }
@@ -95,7 +232,8 @@ text_move_cursor_left :: proc(state: ^UITextState, select: bool) {
         return
     }
     if state.cursor > 0 {
-        _, n := utf8.decode_last_rune(state.buffer[:state.cursor])
+        str := piece_table_get_string(&state.pt)
+        _, n := utf8.decode_last_rune(transmute([]u8)str[:state.cursor])
         state.cursor -= n
         if !select {
             state.selection_start = state.cursor
@@ -109,8 +247,9 @@ text_move_cursor_right :: proc(state: ^UITextState, select: bool) {
         state.selection_start = state.cursor
         return
     }
-    if state.cursor < len(state.buffer) {
-        _, n := utf8.decode_rune(state.buffer[state.cursor:])
+    if state.cursor < piece_table_total_len(&state.pt) {
+        str := piece_table_get_string(&state.pt)
+        _, n := utf8.decode_rune(transmute([]u8)str[state.cursor:])
         state.cursor += n
         if !select {
             state.selection_start = state.cursor
@@ -118,26 +257,13 @@ text_move_cursor_right :: proc(state: ^UITextState, select: bool) {
     }
 }
 
-get_lines :: proc(buf: []u8) -> []string {
-    s := string(buf)
-    lines := make([dynamic]string, 0, 16)
-    start := 0
-    for i := 0; i < len(s); i += 1 {
-        if s[i] == '\n' {
-            append(&lines, s[start:i])
-            start = i + 1
-        }
-    }
-    append(&lines, s[start:])
-    return lines[:]
-}
-
-cursor_line_col :: proc(buf: []u8, cursor: int) -> (line, col: int) {
-    s := string(buf)
+cursor_line_col :: proc(state: ^UITextState) -> (line, col: int) {
+    str := piece_table_get_string(&state.pt)
+    cursor := state.cursor
     line = 0
     col = 0
-    for i := 0; i < cursor && i < len(s); i += 1 {
-        if s[i] == '\n' {
+    for i := 0; i < cursor && i < len(str); i += 1 {
+        if str[i] == '\n' {
             line += 1
             col = 0
         } else {
@@ -147,7 +273,57 @@ cursor_line_col :: proc(buf: []u8, cursor: int) -> (line, col: int) {
     return
 }
 
-// ── Helper to get the active font (with fallback) ──────────────────────────
+line_start_offset :: proc(state: ^UITextState, line: int) -> int {
+    str := piece_table_get_string(&state.pt)
+    if line == 0 do return 0
+    cur, cnt := 0, 0
+    for cur < len(str) && cnt < line {
+        if str[cur] == '\n' {
+            cnt += 1
+            cur += 1
+        } else {
+            cur += 1
+        }
+    }
+    return cur
+}
+
+line_end_offset :: proc(state: ^UITextState, line: int) -> int {
+    str := piece_table_get_string(&state.pt)
+    cur := line_start_offset(state, line)
+    for cur < len(str) && str[cur] != '\n' {
+        cur += 1
+    }
+    return cur
+}
+
+move_cursor_vertical :: proc(state: ^UITextState, dir: int, select: bool) {
+    line, col := cursor_line_col(state)
+    target_line := line + dir
+    if target_line < 0 { target_line = 0 }
+    str := piece_table_get_string(&state.pt)
+    total_lines := 0
+    for ch in str {
+        if ch == '\n' do total_lines += 1
+    }
+    total_lines += 1
+    if target_line >= total_lines { target_line = total_lines - 1 }
+
+    start := line_start_offset(state, target_line)
+    end := line_end_offset(state, target_line)
+    line_len := end - start
+    if col > line_len do col = line_len
+    state.cursor = start + col
+    if !select do state.selection_start = state.cursor
+}
+
+get_selected_text :: proc(state: ^UITextState) -> string {
+    start := min(state.cursor, state.selection_start)
+    end   := max(state.cursor, state.selection_start)
+    str := piece_table_get_string(&state.pt)
+    return str[start:end]
+}
+
 get_font :: proc() -> rl.Font {
     if ui_ctx.font.texture.id != 0 {
         return ui_ctx.font
@@ -159,10 +335,9 @@ font_size :: proc() -> f32 {
     if ui_ctx.font.texture.id != 0 {
         return f32(ui_ctx.font.baseSize)
     }
-    return 16   // default raylib font size
+    return 16
 }
 
-// ── Widget: Text field ─────────────────────────────────────────────────────
 ui_text_field :: proc(label: string, state: ^UITextState, width: f32, height: f32 = 0) -> bool {
     id := widget_id(label)
     font := get_font()
@@ -188,7 +363,7 @@ ui_text_field :: proc(label: string, state: ^UITextState, width: f32, height: f3
 
     if inside && rl.IsMouseButtonPressed(.LEFT) && ui_ctx.interaction_ok {
         ui_ctx.active_item = id
-        state.cursor = len(state.buffer)
+        state.cursor = piece_table_total_len(&state.pt)
         state.selection_start = state.cursor
     }
     if !inside && rl.IsMouseButtonPressed(.LEFT) {
@@ -212,55 +387,11 @@ ui_text_field :: proc(label: string, state: ^UITextState, width: f32, height: f3
                 text_move_cursor_right(state, rl.IsKeyDown(.LEFT_SHIFT) || rl.IsKeyDown(.RIGHT_SHIFT))
             case key == .UP:
                 if state.multiline {
-                    line, col := cursor_line_col(state.buffer[:], state.cursor)
-                    if line > 0 {
-                        target_line := line - 1
-                        cur := 0
-                        lines := 0
-                        for cur < len(state.buffer) && lines < target_line {
-                            if state.buffer[cur] == '\n' {
-                                lines += 1
-                            }
-                            cur += 1
-                        }
-                        start_of_line := cur
-                        for col > 0 && cur < len(state.buffer) && state.buffer[cur] != '\n' {
-                            cur += 1
-                            col -= 1
-                        }
-                        state.cursor = start_of_line + (cur - start_of_line)
-                        if !rl.IsKeyDown(.LEFT_SHIFT) && !rl.IsKeyDown(.RIGHT_SHIFT) {
-                            state.selection_start = state.cursor
-                        }
-                    }
+                    move_cursor_vertical(state, -1, rl.IsKeyDown(.LEFT_SHIFT) || rl.IsKeyDown(.RIGHT_SHIFT))
                 }
             case key == .DOWN:
                 if state.multiline {
-                    line, col := cursor_line_col(state.buffer[:], state.cursor)
-                    cur := 0
-                    lines := 0
-                    for cur < len(state.buffer) && lines <= line {
-                        if state.buffer[cur] == '\n' {
-                            lines += 1
-                        }
-                        cur += 1
-                    }
-                    if cur < len(state.buffer) {
-                        start_of_line := cur
-                        for col > 0 && cur < len(state.buffer) && state.buffer[cur] != '\n' {
-                            cur += 1
-                            col -= 1
-                        }
-                        state.cursor = start_of_line + (cur - start_of_line)
-                        if !rl.IsKeyDown(.LEFT_SHIFT) && !rl.IsKeyDown(.RIGHT_SHIFT) {
-                            state.selection_start = state.cursor
-                        }
-                    } else {
-                        state.cursor = len(state.buffer)
-                        if !rl.IsKeyDown(.LEFT_SHIFT) && !rl.IsKeyDown(.RIGHT_SHIFT) {
-                            state.selection_start = state.cursor
-                        }
-                    }
+                    move_cursor_vertical(state, 1, rl.IsKeyDown(.LEFT_SHIFT) || rl.IsKeyDown(.RIGHT_SHIFT))
                 }
             case key == .HOME:
                 state.cursor = 0
@@ -268,15 +399,15 @@ ui_text_field :: proc(label: string, state: ^UITextState, width: f32, height: f3
                     state.selection_start = state.cursor
                 }
             case key == .END:
-                state.cursor = len(state.buffer)
+                state.cursor = piece_table_total_len(&state.pt)
                 if !(rl.IsKeyDown(.LEFT_SHIFT) || rl.IsKeyDown(.RIGHT_SHIFT)) {
                     state.selection_start = state.cursor
                 }
             case key == .A && (rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL)):
                 state.selection_start = 0
-                state.cursor = len(state.buffer)
+                state.cursor = piece_table_total_len(&state.pt)
             case key == .C && (rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL)):
-                selected := string(state.buffer[min(state.cursor, state.selection_start):max(state.cursor, state.selection_start)])
+                selected := get_selected_text(state)
                 rl.SetClipboardText(fmt.ctprintf("%s", selected))
             case key == .V && (rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL)):
                 clip := rl.GetClipboardText()
@@ -290,7 +421,7 @@ ui_text_field :: proc(label: string, state: ^UITextState, width: f32, height: f3
                     }
                 }
             case key == .X && (rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL)):
-                selected := string(state.buffer[min(state.cursor, state.selection_start):max(state.cursor, state.selection_start)])
+                selected := get_selected_text(state)
                 rl.SetClipboardText(fmt.ctprintf("%s", selected))
                 text_delete(state)
             case key == .ENTER:
@@ -319,7 +450,7 @@ ui_text_field :: proc(label: string, state: ^UITextState, width: f32, height: f3
 
     rl.BeginScissorMode(i32(rect.x)+1, i32(rect.y)+1, i32(rect.width)-2, i32(rect.height)-2)
 
-    lines := get_lines(state.buffer[:])
+    lines := piece_table_get_lines(&state.pt)
     text_x := rect.x + 4
     text_y := rect.y + 4 - state.scroll_y
     spacing : f32 = 1.0
@@ -332,26 +463,8 @@ ui_text_field :: proc(label: string, state: ^UITextState, width: f32, height: f3
     }
 
     if is_focused {
-        cursor_line, cursor_col := cursor_line_col(state.buffer[:], state.cursor)
-        line_start := 0
-        for i := 0; i < cursor_line; i += 1 {
-            for line_start < len(state.buffer) && state.buffer[line_start] != '\n' {
-                line_start += 1
-            }
-            line_start += 1
-        }
-        line_bytes := state.buffer[line_start:]
-        line_text: string
-        for b, j in line_bytes {
-            if b == '\n' {
-                line_text = string(line_bytes[:j])
-                break
-            }
-        }
-        if line_text == "" {
-            line_text = string(line_bytes)
-        }
-
+        cursor_line, cursor_col := cursor_line_col(state)
+        line_text := lines[cursor_line] if cursor_line < len(lines) else ""
         prefix := fmt.ctprintf("%s", line_text[:cursor_col])
         prefix_w := rl.MeasureTextEx(font, prefix, fs, spacing).x
         cursor_x := text_x + prefix_w
@@ -363,12 +476,13 @@ ui_text_field :: proc(label: string, state: ^UITextState, width: f32, height: f3
     return is_focused
 }
 
-// ── Widget: Checkbox ───────────────────────────────────────────────────────
+// Other widgets remain exactly as they were (they do not use the text buffer)
+
 ui_checkbox :: proc(label: string, checked: ^bool) -> bool {
     id := widget_id(label)
     font := get_font()
     fs := font_size()
-    size: f32 = fs   // use font height for checkbox
+    size: f32 = fs
     rect := rl.Rectangle{ ui_ctx.cursor.x, ui_ctx.cursor.y, size, size }
     changed := ui_item(rect, id)
     if changed {
@@ -393,7 +507,6 @@ ui_checkbox :: proc(label: string, checked: ^bool) -> bool {
     return changed
 }
 
-// ── Widget: Slider int ─────────────────────────────────────────────────────
 ui_slider_int :: proc(label: string, value: ^int, min, max: int, width: f32) -> bool {
     id := widget_id(label)
     font := get_font()
@@ -433,7 +546,6 @@ ui_slider_int :: proc(label: string, value: ^int, min, max: int, width: f32) -> 
     return changed
 }
 
-// ── Widget: Combo box ──────────────────────────────────────────────────────
 ui_combo :: proc(label: string, items: []string, selected_index: ^int, width: f32) -> bool {
     id := widget_id(label)
     font := get_font()
@@ -482,14 +594,12 @@ ui_combo :: proc(label: string, items: []string, selected_index: ^int, width: f3
         txt = items[selected_index^]
     }
     rl.DrawTextEx(font, fmt.ctprintf("%s", txt), rl.Vector2{rect.x+4, rect.y+2}, fs, 1, ui_theme.text)
-    // Dropdown arrow
     rl.DrawTextEx(font, "v", rl.Vector2{rect.x+width-16, rect.y+2}, fs, 1, ui_theme.foreground)
 
     ui_ctx.cursor.y += h + 4
     return changed
 }
 
-// ── Widget: Label ──────────────────────────────────────────────────────────
 ui_label :: proc(text: string) {
     font := get_font()
     fs := font_size()
@@ -500,7 +610,6 @@ ui_label :: proc(text: string) {
     ui_ctx.cursor.y += h + 2
 }
 
-// ── Widget: Button ─────────────────────────────────────────────────────────
 ui_button :: proc(label: string) -> bool {
     font := get_font()
     fs := font_size()
@@ -530,7 +639,6 @@ ui_button :: proc(label: string) -> bool {
     return pressed
 }
 
-// ── Full editor widget ─────────────────────────────────────────────────────
 ui_editor :: proc(
     state: ^UITextState,
     rect:  rl.Rectangle,
@@ -542,7 +650,6 @@ ui_editor :: proc(
     fs := font_size()
     line_h := ui_ctx.line_height
     if line_h <= 0 do line_h = fs + 2
-    // Ensure a valid line height is set
     if ui_ctx.line_height <= 0 {
         ui_ctx.line_height = fs + 2
         line_h = ui_ctx.line_height
@@ -571,16 +678,18 @@ ui_editor :: proc(
     text_area_w := rect.width - gutter_w - 8
     text_area_h := rect.height - 8
 
-    cursor_line, cursor_col := cursor_line_col(state.buffer[:], state.cursor)
+    cursor_line, cursor_col := cursor_line_col(state)
+    total_len := piece_table_total_len(&state.pt)
     visible_first_line := int(state.scroll_y / line_h)
     if cursor_line < visible_first_line {
         state.scroll_y = f32(cursor_line) * line_h
     } else if f32(cursor_line+1) * line_h > state.scroll_y + text_area_h {
         state.scroll_y = f32(cursor_line+1) * line_h - text_area_h
     }
+    str := piece_table_get_string(&state.pt)
     total_lines := 0
-    for b in state.buffer {
-        if b == '\n' do total_lines += 1
+    for ch in str {
+        if ch == '\n' do total_lines += 1
     }
     total_lines += 1
     max_scroll := f32(total_lines) * line_h - text_area_h
@@ -600,10 +709,10 @@ ui_editor :: proc(
         rl.DrawRectangleLinesEx(gutter_rect, 0, ui_theme.border)
     }
 
-    lines := get_lines(state.buffer[:])
+    lines := piece_table_get_lines(&state.pt)
     spacing : f32 = 1.0
 
-    for i in 0..<len(lines) {
+    for i in 0 ..< len(lines) {
         line_y := rect.y + 4 + f32(i) * line_h - state.scroll_y
         if line_y + line_h < rect.y || line_y > rect.y + rect.height {
             continue
@@ -623,7 +732,7 @@ ui_editor :: proc(
     }
 
     if is_focused {
-        cursor_line, cursor_col := cursor_line_col(state.buffer[:], state.cursor)
+        cursor_line, cursor_col := cursor_line_col(state)
         line_str := lines[cursor_line] if cursor_line < len(lines) else ""
         prefix := fmt.ctprintf("%s", line_str[:cursor_col])
         cursor_x := rect.x + gutter_w + 4 + rl.MeasureTextEx(font, prefix, fs, spacing).x
@@ -670,25 +779,25 @@ handle_editor_input :: proc(state: ^UITextState) {
             if ctrl {
                 state.cursor = 0
             } else {
-                line, _ := cursor_line_col(state.buffer[:], state.cursor)
-                state.cursor = line_start_offset(state.buffer[:], line)
+                line, _ := cursor_line_col(state)
+                state.cursor = line_start_offset(state, line)
             }
             if !shift do state.selection_start = state.cursor
         case key == .END:
             if ctrl {
-                state.cursor = len(state.buffer)
+                state.cursor = piece_table_total_len(&state.pt)
             } else {
-                line, _ := cursor_line_col(state.buffer[:], state.cursor)
-                state.cursor = line_end_offset(state.buffer[:], line)
+                line, _ := cursor_line_col(state)
+                state.cursor = line_end_offset(state, line)
             }
             if !shift do state.selection_start = state.cursor
         case key == .PAGE_UP:
-            for i in 0..<20 do move_cursor_vertical(state, -1, shift)
+            for i in 0 ..< 20 do move_cursor_vertical(state, -1, shift)
         case key == .PAGE_DOWN:
-            for i in 0..<20 do move_cursor_vertical(state, 1, shift)
+            for i in 0 ..< 20 do move_cursor_vertical(state, 1, shift)
         case key == .A && ctrl:
             state.selection_start = 0
-            state.cursor = len(state.buffer)
+            state.cursor = piece_table_total_len(&state.pt)
         case key == .C && ctrl:
             selected := get_selected_text(state)
             rl.SetClipboardText(fmt.ctprintf("%s", selected))
@@ -701,11 +810,12 @@ handle_editor_input :: proc(state: ^UITextState) {
             if clip != nil {
                 for r in string(clip) do text_insert_char(state, r)
             }
-        case key == .Z && ctrl: // simple undo not implemented, ignore
+        case key == .Z && ctrl:
+            // undo not implemented
         case key == .ENTER:
             text_insert_char(state, '\n')
         case key == .TAB:
-            text_insert_char(state, '\t')
+            text_insert_spaces(state, 4)
         case:
             if int(key) >= 32 && !ctrl {
                 text_insert_char(state, rune(key))
@@ -713,49 +823,4 @@ handle_editor_input :: proc(state: ^UITextState) {
         }
         key = rl.GetKeyPressed()
     }
-}
-
-line_start_offset :: proc(buf: []u8, line: int) -> int {
-    if line == 0 do return 0
-    cur, cnt := 0, 0
-    for cur < len(buf) && cnt < line {
-        if buf[cur] == '\n' {
-            cnt += 1
-            cur += 1
-        } else {
-            cur += 1
-        }
-    }
-    return cur
-}
-
-line_end_offset :: proc(buf: []u8, line: int) -> int {
-    cur := line_start_offset(buf, line)
-    for cur < len(buf) && buf[cur] != '\n' {
-        cur += 1
-    }
-    return cur
-}
-
-move_cursor_vertical :: proc(state: ^UITextState, dir: int, select: bool) {
-    line, col := cursor_line_col(state.buffer[:], state.cursor)
-    target_line := line + dir
-    if target_line < 0 { target_line = 0 }
-    total_lines := 0
-    for b in state.buffer do if b == '\n' do total_lines += 1
-    total_lines += 1
-    if target_line >= total_lines { target_line = total_lines - 1 }
-
-    start := line_start_offset(state.buffer[:], target_line)
-    end := line_end_offset(state.buffer[:], target_line)
-    line_len := end - start
-    if col > line_len do col = line_len
-    state.cursor = start + col
-    if !select do state.selection_start = state.cursor
-}
-
-get_selected_text :: proc(state: ^UITextState) -> string {
-    start := min(state.cursor, state.selection_start)
-    end   := max(state.cursor, state.selection_start)
-    return string(state.buffer[start:end])
 }
