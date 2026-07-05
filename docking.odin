@@ -23,6 +23,7 @@ Window :: struct {
     title:         string,
     rect:          rl.Rectangle,
     is_floating:   bool,
+    is_closed:     bool,
     leaf:          ^Container,
     resize_edge:   ResizeEdge,
     resize_start:  rl.Rectangle,
@@ -138,6 +139,49 @@ get_drop_edge :: proc(rect: rl.Rectangle, point: rl.Vector2) -> Edge {
     if point.y < rect.y + margin_y do return .Top
     if point.y > rect.y + rect.height - margin_y do return .Bottom
     return .None
+}
+
+close_window :: proc(ds: ^DockingSystem, w: ^Window) {
+    if w == nil do return
+    w.is_closed = true
+    if w.leaf != nil {
+        leaf := cast(^Leaf)w.leaf
+        if leaf != nil {
+            leaf.window = nil
+        }
+        w.leaf = nil
+    }
+
+    if ds.root != nil {
+        collapse_empty_containers(&ds.root)
+    }
+}
+
+collapse_empty_containers :: proc(root: ^^Container) {
+    if root^ == nil do return
+    if root^.type == .Leaf {
+        return
+    }
+
+    s := cast(^Split)root^
+    collapse_empty_containers(&s.left)
+    collapse_empty_containers(&s.right)
+
+    left_is_empty := s.left == nil || (s.left.type == .Leaf && (cast(^Leaf)s.left).window == nil)
+    right_is_empty := s.right == nil || (s.right.type == .Leaf && (cast(^Leaf)s.right).window == nil)
+
+    if left_is_empty && right_is_empty {
+        root^ = nil
+        return
+    }
+    if left_is_empty {
+        root^ = s.right
+        return
+    }
+    if right_is_empty {
+        root^ = s.left
+        return
+    }
 }
 
 dock_window_to_leaf :: proc(ds: ^DockingSystem, leaf: ^Container, edge: Edge, w: ^Window) {
@@ -261,6 +305,7 @@ update_docking :: proc(ds: ^DockingSystem) {
     if ds.drag_window == nil {
         for i := len(ds.windows) - 1; i >= 0; i -= 1 {
             w := &ds.windows[i]
+            if w.is_closed do continue
             if w.is_floating && w.resize_edge == .None {
                 if rl.CheckCollisionPointRec(mouse, w.rect) {
                     edge := get_resize_edge(w, mouse)
@@ -277,6 +322,7 @@ update_docking :: proc(ds: ^DockingSystem) {
     if rl.IsMouseButtonPressed(.LEFT) {
         for i := len(ds.windows) - 1; i >= 0; i -= 1 {
             w := &ds.windows[i]
+            if w.is_closed do continue
             if w.is_floating && rl.CheckCollisionPointRec(mouse, w.rect) {
                 edge := get_resize_edge(w, mouse)
                 if edge != .None {
@@ -291,6 +337,7 @@ update_docking :: proc(ds: ^DockingSystem) {
         if ds.drag_window == nil {
             for i := len(ds.windows) - 1; i >= 0; i -= 1 {
                 w := &ds.windows[i]
+                if w.is_closed do continue
                 if w.is_floating && w.resize_edge == .None {
                     title_rect := rl.Rectangle{
                         w.rect.x, w.rect.y,
@@ -311,7 +358,7 @@ update_docking :: proc(ds: ^DockingSystem) {
             leaf := find_leaf(ds.root, mouse)
             if leaf != nil {
                 l := cast(^Leaf)leaf
-                if l.window != nil {
+                if l.window != nil && !l.window.is_closed {
                     title_rect := rl.Rectangle{
                         l.rect.x, l.rect.y,
                         l.rect.width, TITLE_BAR_HEIGHT,
@@ -330,6 +377,7 @@ update_docking :: proc(ds: ^DockingSystem) {
 
     if rl.IsMouseButtonDown(.LEFT) {
         for &w in ds.windows {
+            if w.is_closed do continue
             if w.resize_edge != .None {
                 delta := mouse - w.resize_mouse
                 r := w.resize_start
@@ -418,7 +466,9 @@ update_docking :: proc(ds: ^DockingSystem) {
 
     if rl.IsMouseButtonReleased(.LEFT) {
         for &w in ds.windows {
-            w.resize_edge = .None
+            if !w.is_closed {
+                w.resize_edge = .None
+            }
         }
         set_resize_cursor(.None)
     }
@@ -428,7 +478,7 @@ draw_container :: proc(c: ^Container) {
     if c.type == .Leaf {
         leaf := cast(^Leaf)c
         rl.DrawRectangleRec(c.rect, rl.DARKGRAY)
-        if leaf.window != nil {
+        if leaf.window != nil && !leaf.window.is_closed {
             title_rect := rl.Rectangle{ c.rect.x, c.rect.y, c.rect.width, TITLE_BAR_HEIGHT }
             rl.DrawRectangleRec(title_rect, ui_theme.blue)
             rl.DrawText(
@@ -436,6 +486,9 @@ draw_container :: proc(c: ^Container) {
                 i32(title_rect.x) + 4, i32(title_rect.y) + 1,
                 14, rl.WHITE,
             )
+            close_rect := rl.Rectangle{ title_rect.x + title_rect.width - 16, title_rect.y + 2, 12, 12 }
+            rl.DrawRectangleRec(close_rect, rl.RED)
+            rl.DrawText("x", i32(close_rect.x) + 2, i32(close_rect.y) - 1, 10, rl.WHITE)
             content_rect := rl.Rectangle{
                 c.rect.x, c.rect.y + TITLE_BAR_HEIGHT,
                 c.rect.width, c.rect.height - TITLE_BAR_HEIGHT,
@@ -482,6 +535,7 @@ draw_floating_windows :: proc(ds: ^DockingSystem) {
     }
 
     for &w in ds.windows {
+        if w.is_closed do continue
         if w.is_floating {
             border_rect := rl.Rectangle{
                 w.rect.x - 2, w.rect.y - 2,
@@ -500,6 +554,9 @@ draw_floating_windows :: proc(ds: ^DockingSystem) {
                 i32(title_rect.x) + 4, i32(title_rect.y) + 1,
                 14, rl.WHITE,
             )
+            close_rect := rl.Rectangle{ title_rect.x + title_rect.width - 16, title_rect.y + 2, 12, 12 }
+            rl.DrawRectangleRec(close_rect, rl.RED)
+            rl.DrawText("x", i32(close_rect.x) + 2, i32(close_rect.y) - 1, 10, rl.WHITE)
 
             if w.resize_edge == .None && hovered_edge != .None &&
                rl.CheckCollisionPointRec(rl.GetMousePosition(), w.rect) {
@@ -515,7 +572,7 @@ draw_floating_windows :: proc(ds: ^DockingSystem) {
 collect_docked_windows_rec :: proc(c: ^Container, list: ^[dynamic]^Window) {
     if c.type == .Leaf {
         leaf := cast(^Leaf)c
-        if leaf.window != nil {
+        if leaf.window != nil && !leaf.window.is_closed {
             append(list, leaf.window)
         }
     } else {

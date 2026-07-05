@@ -18,6 +18,24 @@ PieceTable :: struct {
     pieces:   [dynamic]Piece,
 }
 
+TextSnapshot :: struct {
+    text:            []u8,
+    cursor:          int,
+    selection_start: int,
+}
+
+UITextState :: struct {
+    pt:              PieceTable,
+    cursor:          int,
+    selection_start: int,
+    scroll_x:        f32,
+    scroll_y:        f32,
+    multiline:       bool,
+    mouse_selecting: bool,
+    undo_stack:      [dynamic]TextSnapshot,
+    redo_stack:      [dynamic]TextSnapshot,
+}
+
 piece_table_init :: proc(initial: string, allocator := context.allocator) -> PieceTable {
     pt: PieceTable
     pt.original = transmute([]u8)initial
@@ -147,13 +165,47 @@ piece_table_get_lines :: proc(pt: ^PieceTable) -> []string {
     return lines[:]
 }
 
-UITextState :: struct {
-    pt:              PieceTable,
-    cursor:          int,
-    selection_start: int,
-    scroll_x:        f32,
-    scroll_y:        f32,
-    multiline:       bool,
+snapshot_text_state :: proc(state: ^UITextState) -> TextSnapshot {
+    text := piece_table_get_string(&state.pt)
+    buf := make([]u8, len(text))
+    copy(buf, transmute([]u8)text)
+    return TextSnapshot{text = buf, cursor = state.cursor, selection_start = state.selection_start}
+}
+
+delete_text_snapshot :: proc(snapshot: ^TextSnapshot) {
+    if len(snapshot.text) > 0 {
+        delete(snapshot.text)
+    }
+    snapshot.text = nil
+}
+
+restore_text_state :: proc(state: ^UITextState, snapshot: TextSnapshot) {
+    piece_table_destroy(&state.pt)
+    state.pt = piece_table_init(string(snapshot.text), context.allocator)
+    state.cursor = snapshot.cursor
+    state.selection_start = snapshot.selection_start
+}
+
+push_history_entry :: proc(state: ^UITextState) {
+    append(&state.undo_stack, snapshot_text_state(state))
+}
+
+apply_undo :: proc(state: ^UITextState) {
+    if len(state.undo_stack) == 0 do return
+    snapshot := pop(&state.undo_stack)
+    redo_snapshot := snapshot_text_state(state)
+    append(&state.redo_stack, redo_snapshot)
+    restore_text_state(state, snapshot)
+    delete_text_snapshot(&snapshot)
+}
+
+apply_redo :: proc(state: ^UITextState) {
+    if len(state.redo_stack) == 0 do return
+    snapshot := pop(&state.redo_stack)
+    undo_snapshot := snapshot_text_state(state)
+    append(&state.undo_stack, undo_snapshot)
+    restore_text_state(state, snapshot)
+    delete_text_snapshot(&snapshot)
 }
 
 init_text_state :: proc(initial: string, multiline: bool, allocator := context.allocator) -> UITextState {
@@ -162,14 +214,25 @@ init_text_state :: proc(initial: string, multiline: bool, allocator := context.a
     state.cursor = len(initial)
     state.selection_start = len(initial)
     state.multiline = multiline
+    state.undo_stack = make([dynamic]TextSnapshot, allocator)
+    state.redo_stack = make([dynamic]TextSnapshot, allocator)
     return state
 }
 
 destroy_text_state :: proc(state: ^UITextState) {
+    for &snapshot in state.undo_stack {
+        delete_text_snapshot(&snapshot)
+    }
+    for &snapshot in state.redo_stack {
+        delete_text_snapshot(&snapshot)
+    }
+    delete(state.undo_stack)
+    delete(state.redo_stack)
     piece_table_destroy(&state.pt)
 }
 
 text_insert_char :: proc(state: ^UITextState, r: rune) {
+    push_history_entry(state)
     buf, n := utf8.encode_rune(r)
     bytes := buf[:n]
 
@@ -186,12 +249,14 @@ text_insert_char :: proc(state: ^UITextState, r: rune) {
 }
 
 text_insert_spaces :: proc(state: ^UITextState, count: int) {
+    push_history_entry(state)
     for _ in 0 ..< count {
         text_insert_char(state, ' ')
     }
 }
 
 text_backspace :: proc(state: ^UITextState) {
+    push_history_entry(state)
     if state.cursor != state.selection_start {
         start := min(state.cursor, state.selection_start)
         end   := max(state.cursor, state.selection_start)
@@ -210,6 +275,7 @@ text_backspace :: proc(state: ^UITextState) {
 }
 
 text_delete :: proc(state: ^UITextState) {
+    push_history_entry(state)
     if state.cursor != state.selection_start {
         start := min(state.cursor, state.selection_start)
         end   := max(state.cursor, state.selection_start)
@@ -381,6 +447,10 @@ ui_text_field :: proc(label: string, state: ^UITextState, width: f32, height: f3
                 text_backspace(state)
             case key == .DELETE:
                 text_delete(state)
+            case key == .Z && (rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL)):
+                apply_undo(state)
+            case key == .Y && (rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL)):
+                apply_redo(state)
             case key == .LEFT:
                 text_move_cursor_left(state, rl.IsKeyDown(.LEFT_SHIFT) || rl.IsKeyDown(.RIGHT_SHIFT))
             case key == .RIGHT:
@@ -465,7 +535,8 @@ ui_text_field :: proc(label: string, state: ^UITextState, width: f32, height: f3
     if is_focused {
         cursor_line, cursor_col := cursor_line_col(state)
         line_text := lines[cursor_line] if cursor_line < len(lines) else ""
-        prefix := fmt.ctprintf("%s", line_text[:cursor_col])
+        safe_col := min(cursor_col, len(line_text))
+        prefix := fmt.ctprintf("%s", line_text[:safe_col])
         prefix_w := rl.MeasureTextEx(font, prefix, fs, spacing).x
         cursor_x := text_x + prefix_w
         cursor_y := text_y + f32(cursor_line) * line_h
@@ -475,8 +546,6 @@ ui_text_field :: proc(label: string, state: ^UITextState, width: f32, height: f3
     rl.EndScissorMode()
     return is_focused
 }
-
-// Other widgets remain exactly as they were (they do not use the text buffer)
 
 ui_checkbox :: proc(label: string, checked: ^bool) -> bool {
     id := widget_id(label)
@@ -639,6 +708,31 @@ ui_button :: proc(label: string) -> bool {
     return pressed
 }
 
+editor_offset_to_cursor :: proc(state: ^UITextState, rect: rl.Rectangle, mouse: rl.Vector2, gutter_w: f32, line_h: f32, font: rl.Font, fs: f32, spacing: f32) -> int {
+    rel_y := mouse.y - rect.y + state.scroll_y - 4
+    line_idx := int(rel_y / line_h)
+    if line_idx < 0 do line_idx = 0
+
+    lines := piece_table_get_lines(&state.pt)
+    if line_idx >= len(lines) do return piece_table_total_len(&state.pt)
+
+    line_text := lines[line_idx]
+    text_x := rect.x + gutter_w + 4
+    if mouse.x < text_x do return line_start_offset(state, line_idx)
+
+    best := 0
+    for i in 0 ..< len(line_text) {
+        prefix := line_text[:i + 1]
+        width := rl.MeasureTextEx(font, fmt.ctprintf("%s", prefix), fs, spacing).x
+        if mouse.x < text_x + width {
+            best = i + 1
+            break
+        }
+        best = i + 1
+    }
+    return line_start_offset(state, line_idx) + min(len(line_text), best)
+}
+
 ui_editor :: proc(
     state: ^UITextState,
     rect:  rl.Rectangle,
@@ -655,6 +749,8 @@ ui_editor :: proc(
         line_h = ui_ctx.line_height
     }
 
+    gutter_w: f32 = 40 if show_line_numbers else 0
+
     mouse := rl.GetMousePosition()
     inside := rl.CheckCollisionPointRec(mouse, rect)
 
@@ -662,19 +758,31 @@ ui_editor :: proc(
     if inside && ui_ctx.interaction_ok {
         ui_ctx.hot_item = id
     }
+    is_focused := ui_ctx.active_item == id && ui_ctx.interaction_ok
+
     if inside && rl.IsMouseButtonPressed(.LEFT) && ui_ctx.interaction_ok {
         ui_ctx.active_item = id
+        state.mouse_selecting = true
+        offset := editor_offset_to_cursor(state, rect, mouse, gutter_w, line_h, font, fs, 1.0)
+        state.cursor = offset
+        state.selection_start = offset
     }
     if !inside && rl.IsMouseButtonPressed(.LEFT) {
         ui_ctx.active_item = 0
+        state.mouse_selecting = false
     }
-    is_focused := ui_ctx.active_item == id && ui_ctx.interaction_ok
+    if state.mouse_selecting && is_focused && rl.IsMouseButtonDown(.LEFT) {
+        offset := editor_offset_to_cursor(state, rect, mouse, gutter_w, line_h, font, fs, 1.0)
+        state.cursor = offset
+    }
+    if state.mouse_selecting && rl.IsMouseButtonReleased(.LEFT) {
+        state.mouse_selecting = false
+    }
 
     if is_focused {
         handle_editor_input(state)
     }
 
-    gutter_w: f32 = 40 if show_line_numbers else 0
     text_area_w := rect.width - gutter_w - 8
     text_area_h := rect.height - 8
 
@@ -712,6 +820,30 @@ ui_editor :: proc(
     lines := piece_table_get_lines(&state.pt)
     spacing : f32 = 1.0
 
+    if state.cursor != state.selection_start {
+        selected_start := min(state.cursor, state.selection_start)
+        selected_end := max(state.cursor, state.selection_start)
+        for i in 0 ..< len(lines) {
+            line_y := rect.y + 4 + f32(i) * line_h - state.scroll_y
+            if line_y + line_h < rect.y || line_y > rect.y + rect.height {
+                continue
+            }
+            start_offset := line_start_offset(state, i)
+            end_offset := line_end_offset(state, i)
+            sel_start := max(start_offset, selected_start)
+            sel_end := min(end_offset, selected_end)
+            if sel_end > sel_start {
+                line_text := lines[i]
+                prefix_before := fmt.ctprintf("%s", line_text[:min(sel_start - start_offset, len(line_text))])
+                prefix_selected := fmt.ctprintf("%s", line_text[min(sel_start - start_offset, len(line_text)):min(sel_end - start_offset, len(line_text))])
+                prefix_w := rl.MeasureTextEx(font, prefix_before, fs, spacing).x
+                sel_w := rl.MeasureTextEx(font, prefix_selected, fs, spacing).x
+                highlight_rect := rl.Rectangle{ rect.x + gutter_w + 4 + prefix_w, line_y, sel_w, line_h - 2 }
+                rl.DrawRectangleRec(highlight_rect, ui_theme.selection_bg)
+            }
+        }
+    }
+
     for i in 0 ..< len(lines) {
         line_y := rect.y + 4 + f32(i) * line_h - state.scroll_y
         if line_y + line_h < rect.y || line_y > rect.y + rect.height {
@@ -734,7 +866,8 @@ ui_editor :: proc(
     if is_focused {
         cursor_line, cursor_col := cursor_line_col(state)
         line_str := lines[cursor_line] if cursor_line < len(lines) else ""
-        prefix := fmt.ctprintf("%s", line_str[:cursor_col])
+        safe_col := min(cursor_col, len(line_str))
+        prefix := fmt.ctprintf("%s", line_str[:safe_col])
         cursor_x := rect.x + gutter_w + 4 + rl.MeasureTextEx(font, prefix, fs, spacing).x
         cursor_y := rect.y + 4 + f32(cursor_line) * line_h - state.scroll_y
         if cursor_y >= rect.y && cursor_y + line_h <= rect.y + rect.height {
@@ -811,7 +944,9 @@ handle_editor_input :: proc(state: ^UITextState) {
                 for r in string(clip) do text_insert_char(state, r)
             }
         case key == .Z && ctrl:
-            // undo not implemented
+            apply_undo(state)
+        case key == .Y && ctrl:
+            apply_redo(state)
         case key == .ENTER:
             text_insert_char(state, '\n')
         case key == .TAB:
