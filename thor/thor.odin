@@ -59,7 +59,7 @@ init :: proc() -> ^Thor {
 
     thor := new(Thor)
     ui.context_init(&thor.ui_context)
-    thor.theme = ui.theme_load_from_file("material_deep_ocean.txt")
+    thor.theme = ui.theme_material_deep_ocean()
     thor.active_file = ui.make_signal(0)
     thor.explorer_visible = ui.make_signal(true)
     thor.console_visible = ui.make_signal(true)

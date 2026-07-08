@@ -4,11 +4,12 @@ import "core:fmt"
 import "core:strings"
 import rl "vendor:raylib"
 
+import "../piecetable"
 import "../ui"
 
 Editor :: struct {
     using widget: ui.Widget,
-    text:               [dynamic]u8,
+    text:               piecetable.Piece_Table,
     font_size:          i32,
     padding:            ui.Padding,
     gutter_width:       f32,
@@ -58,10 +59,7 @@ editor_set_colors :: proc(editor: ^Editor, text_color, line_number_color, backgr
 }
 
 editor_set_text :: proc(editor: ^Editor, text: string) {
-    clear(&editor.text)
-    for byte_value in text {
-        append(&editor.text, byte(byte_value))
-    }
+    piecetable.piecetable_set_text(&editor.text, text)
     editor.scroll_y = 0
     editor_clamp_scroll(editor)
 }
@@ -84,24 +82,26 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
         return true
     case .Text_Input:
         if event.codepoint >= 32 && event.codepoint < 127 {
-            append(&editor.text, byte(event.codepoint))
+            ch := [1]u8 {cast(u8) event.codepoint}
+            piecetable.piecetable_insert(&editor.text, piecetable.piecetable_length(&editor.text), string(ch[:]))
             editor_scroll_to_end(editor)
             return true
         }
     case .Key_Press:
         #partial switch event.key {
         case .BACKSPACE:
-            if len(editor.text) > 0 {
-                resize(&editor.text, len(editor.text) - 1)
+            length := piecetable.piecetable_length(&editor.text)
+            if length > 0 {
+                piecetable.piecetable_delete(&editor.text, length - 1, 1)
                 editor_scroll_to_end(editor)
             }
             return true
         case .ENTER, .KP_ENTER:
-            append(&editor.text, byte('\n'))
+            piecetable.piecetable_insert(&editor.text, piecetable.piecetable_length(&editor.text), "\n")
             editor_scroll_to_end(editor)
             return true
         case .TAB:
-            append(&editor.text, byte('\t'))
+            piecetable.piecetable_insert(&editor.text, piecetable.piecetable_length(&editor.text), "\t")
             editor_scroll_to_end(editor)
             return true
         case .PAGE_UP:
@@ -153,35 +153,40 @@ editor_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
 
     ui.begin_clip(editor.bounds)
 
-    line_index := 0
-    line_start := 0
-    line_y := inner_top - editor.scroll_y
-    source := editor.text[:]
+    caret_line := editor_line_count(editor) - 1
 
-    for i := 0; i <= len(source); i += 1 {
-        is_break := i == len(source) || source[i] == '\n'
+    line_index := 0
+    line_y := inner_top - editor.scroll_y
+    line_builder := strings.builder_make(context.temp_allocator)
+
+    it := piecetable.piecetable_iterator(&editor.text)
+    for {
+        byte_value, ok := piecetable.piecetable_iterator_next(&it)
+        is_break := !ok || byte_value == '\n'
+
         if !is_break {
+            strings.write_byte(&line_builder, byte_value)
             continue
         }
 
         if line_y + line_height >= inner_top && line_y <= inner_bottom {
-            line_number_text := fmt.tprintf("%d", line_index + 1)
-            line_text := strings.clone_from_bytes(source[line_start:i], context.temp_allocator)
+            displayed_number := line_index == caret_line ? line_index + 1 : abs(line_index - caret_line)
+            line_number_text := fmt.tprintf("%d", displayed_number)
+            line_text := strings.to_string(line_builder)
             ui.draw_text(line_number_text, line_number_x, cast(i32) line_y, editor.font_size, editor.line_number_color)
             ui.draw_text(line_text, text_x, cast(i32) line_y, editor.font_size, editor.text_color)
         }
 
+        strings.builder_reset(&line_builder)
         line_index += 1
-        line_start = i + 1
         line_y += line_height
 
-        if line_y > inner_bottom {
+        if !ok || line_y > inner_bottom {
             break
         }
     }
 
     if ctx.focused == widget {
-        caret_line := editor_line_count(editor) - 1
         caret_y := inner_top - editor.scroll_y + cast(f32) caret_line * line_height
         if caret_y >= inner_top && caret_y <= inner_bottom {
             last_line := editor_last_line_text(editor)
@@ -201,8 +206,7 @@ editor_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
 
 editor_destroy :: proc(widget: ^ui.Widget) {
     editor := cast(^Editor) widget
-    clear(&editor.text)
-    delete(editor.text)
+    piecetable.piecetable_destroy(&editor.text)
     free(editor)
 }
 
@@ -231,7 +235,12 @@ editor_scroll_to_end :: proc(editor: ^Editor) {
 
 editor_line_count :: proc(editor: ^Editor) -> int {
     count := 1
-    for byte_value in editor.text {
+    it := piecetable.piecetable_iterator(&editor.text)
+    for {
+        byte_value, ok := piecetable.piecetable_iterator_next(&it)
+        if !ok {
+            break
+        }
         if byte_value == '\n' {
             count += 1
         }
@@ -240,12 +249,18 @@ editor_line_count :: proc(editor: ^Editor) -> int {
 }
 
 editor_last_line_text :: proc(editor: ^Editor) -> string {
-    source := editor.text[:]
-    last_break := 0
-    for i := 0; i < len(source); i += 1 {
-        if source[i] == '\n' {
-            last_break = i + 1
+    builder := strings.builder_make(context.temp_allocator)
+    it := piecetable.piecetable_iterator(&editor.text)
+    for {
+        byte_value, ok := piecetable.piecetable_iterator_next(&it)
+        if !ok {
+            break
         }
+        if byte_value == '\n' {
+            strings.builder_reset(&builder)
+            continue
+        }
+        strings.write_byte(&builder, byte_value)
     }
-    return strings.clone_from_bytes(source[last_break:], context.temp_allocator)
+    return strings.to_string(builder)
 }

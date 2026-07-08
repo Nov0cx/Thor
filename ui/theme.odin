@@ -49,7 +49,7 @@ Theme :: struct {
 
 theme_material_deep_ocean :: proc() -> Theme {
     return Theme {
-        name = "Deep ocean",
+        name = "Material Theme Deep ocean",
         background = rl.Color {0x0F, 0x11, 0x1A, 0xFF},
         foreground = rl.Color {0x8F, 0x93, 0xA2, 0xFF},
         text = rl.Color {0x4B, 0x52, 0x6D, 0xFF},
@@ -88,52 +88,6 @@ theme_material_deep_ocean :: proc() -> Theme {
         numbers_color = rl.Color {0xF7, 0x8C, 0x6C, 0xFF},
         parameters_color = rl.Color {0xF7, 0x8C, 0x6C, 0xFF},
     }
-}
-
-theme_load_from_file :: proc(path: string) -> Theme {
-    theme := theme_material_deep_ocean()
-
-    data, read_err := os.read_entire_file(path, context.temp_allocator)
-    if read_err != nil {
-        log.warnf("Failed to read theme file %q, using built-in %q", path, theme.name)
-        return theme
-    }
-
-    text := string(data)
-    saw_name := false
-
-    for raw_line in strings.split_lines_iterator(&text) {
-        line := strings.trim_space(raw_line)
-        if line == "" {
-            continue
-        }
-
-        if !saw_name {
-            theme.name = line
-            saw_name = true
-            continue
-        }
-
-        separator := strings.index_byte(line, ':')
-        if separator < 0 {
-            log.warnf("Ignoring malformed theme line %q in %q", line, path)
-            continue
-        }
-
-        key := strings.trim_space(line[:separator])
-        value := strings.trim_space(line[separator+1:])
-        color, ok := parse_hex_color(value)
-        if !ok {
-            log.warnf("Ignoring invalid theme color %q for key %q in %q", value, key, path)
-            continue
-        }
-
-        if !theme_assign_color(&theme, key, color) {
-            log.warnf("Ignoring unknown theme key %q in %q", key, path)
-        }
-    }
-
-    return theme
 }
 
 parse_hex_color :: proc(value: string) -> (rl.Color, bool) {
