@@ -84,6 +84,8 @@ run :: proc(thor: ^Thor) {
         rl.ClearBackground(thor.theme.contrast)
         ui.context_draw(&thor.ui_context)
         rl.EndDrawing()
+
+        free_all(context.temp_allocator)
     }
 }
 

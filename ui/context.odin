@@ -98,6 +98,10 @@ context_collect_input :: proc(ctx: ^Context) {
         })
     }
 
+    ctrl_down := rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL)
+    shift_down := rl.IsKeyDown(.LEFT_SHIFT) || rl.IsKeyDown(.RIGHT_SHIFT)
+    alt_down := rl.IsKeyDown(.LEFT_ALT) || rl.IsKeyDown(.RIGHT_ALT)
+
     for {
         key := rl.GetKeyPressed()
         if key == cast(rl.KeyboardKey) 0 {
@@ -106,7 +110,10 @@ context_collect_input :: proc(ctx: ^Context) {
 
         event_queue_push(&ctx.events, Event {
             kind = .Key_Press,
-            key = key,
+            key = remap_key_to_layout(key),
+            ctrl = ctrl_down,
+            shift = shift_down,
+            alt = alt_down,
         })
     }
 
@@ -116,12 +123,16 @@ context_collect_input :: proc(ctx: ^Context) {
         .BACKSPACE, .DELETE, .ENTER, .KP_ENTER, .TAB,
         .LEFT, .RIGHT, .UP, .DOWN,
         .PAGE_UP, .PAGE_DOWN, .HOME, .END,
+        .Z, .Y,
     }
     for key in repeatable_keys {
         if rl.IsKeyPressedRepeat(key) {
             event_queue_push(&ctx.events, Event {
                 kind = .Key_Press,
-                key = key,
+                key = remap_key_to_layout(key),
+                ctrl = ctrl_down,
+                shift = shift_down,
+                alt = alt_down,
             })
         }
     }
@@ -135,6 +146,9 @@ context_collect_input :: proc(ctx: ^Context) {
         event_queue_push(&ctx.events, Event {
             kind = .Text_Input,
             codepoint = codepoint,
+            ctrl = ctrl_down,
+            shift = shift_down,
+            alt = alt_down,
         })
     }
 }

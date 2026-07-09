@@ -21,6 +21,9 @@ Event :: struct {
     mouse_button:   rl.MouseButton,
     key:            rl.KeyboardKey,
     codepoint:      rune,
+    ctrl:           bool,
+    shift:          bool,
+    alt:            bool,
     target:         ^Widget,
 }
 
