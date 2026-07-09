@@ -110,6 +110,22 @@ context_collect_input :: proc(ctx: ^Context) {
         })
     }
 
+    // GetKeyPressed only reports the initial press; held keys need the
+    // repeat flag so editing keys keep firing.
+    repeatable_keys := [?]rl.KeyboardKey {
+        .BACKSPACE, .DELETE, .ENTER, .KP_ENTER, .TAB,
+        .LEFT, .RIGHT, .UP, .DOWN,
+        .PAGE_UP, .PAGE_DOWN, .HOME, .END,
+    }
+    for key in repeatable_keys {
+        if rl.IsKeyPressedRepeat(key) {
+            event_queue_push(&ctx.events, Event {
+                kind = .Key_Press,
+                key = key,
+            })
+        }
+    }
+
     for {
         codepoint := rl.GetCharPressed()
         if codepoint == 0 {
@@ -174,8 +190,7 @@ context_process_events :: proc(ctx: ^Context) {
                 widget_dispatch_event(event.target, ctx, event)
             }
 
-        case .Key_Press:
-        case .Text_Input:
+        case .Key_Press, .Text_Input:
             if ctx.focused != nil {
                 event.target = ctx.focused
                 widget_dispatch_event(ctx.focused, ctx, event)

@@ -127,7 +127,7 @@ thor_build_content :: proc(thor: ^Thor) {
     ui.widget_set_grow(&explorer_title.widget, 1)
     explorer_title.min_size = rl.Vector2 {0, 24}
 
-    explorer_files := widgets.label_create("explorer-files", "src\n  main.odin\n  thor/\n  ui/\n  widgets/\nfonts\n  JetBrainsMono-Regular.ttf\nmaterial_deep_ocean.txt")
+    explorer_files := widgets.label_create("explorer-files", "src\n  main.odin\n  thor/\n  ui/\n  widgets/\nfonts\n  JetBrainsMono-Regular.ttf")
     widgets.label_set_text_color(explorer_files, thor.theme.foreground)
     widgets.label_set_background(explorer_files, thor.theme.second_background)
     widgets.label_set_top_align(explorer_files, true)
