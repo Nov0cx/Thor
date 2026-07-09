@@ -1,6 +1,7 @@
 package thor
 
 import "core:log"
+import "core:time"
 import rl "vendor:raylib"
 
 import "../ui"
@@ -52,10 +53,15 @@ Thor :: struct {
 }
 
 init :: proc() -> ^Thor {
+    start := time.tick_now()
+
+    // Rasterize every font size used at startup on worker threads while the
+    // main thread creates the window and builds the widget tree.
+    ui.text_begin_async_load("fonts\\JetBrainsMono-Regular.ttf", {17, 18, 20})
+
     rl.SetConfigFlags({.WINDOW_UNDECORATED, .WINDOW_RESIZABLE})
     rl.InitWindow(1280, 800, "Thor")
     rl.SetTargetFPS(60)
-    ui.text_init("fonts\\JetBrainsMono-Regular.ttf", 18)
 
     thor := new(Thor)
     ui.context_init(&thor.ui_context)
@@ -72,6 +78,12 @@ init :: proc() -> ^Thor {
     thor_set_active_file(thor, 0)
     thor_apply_layout_state(thor)
     ui.context_set_root(&thor.ui_context, &thor.root_panel.widget)
+
+    // Texture upload needs the GL context, so it happens here on the main
+    // thread once the rasterizer threads are done.
+    ui.text_finish_async_load()
+
+    log.infof("Startup took %.1f ms", time.duration_milliseconds(time.tick_since(start)))
 
     return thor
 }
