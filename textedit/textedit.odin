@@ -37,6 +37,9 @@ State :: struct {
     cursors:    [dynamic]Cursor,
     undo_stack: [dynamic]Undo_Entry,
     redo_stack: [dynamic]Undo_Entry,
+    // Bumped on every content change (edits, undo, redo); reset by set_text.
+    // Callers compare against a saved revision to detect unsaved changes.
+    revision:   u64,
 }
 
 init :: proc(state: ^State) {
@@ -58,6 +61,7 @@ set_text :: proc(state: ^State, new_text: string) {
     clear_entries(&state.redo_stack)
     clear(&state.cursors)
     append(&state.cursors, Cursor {})
+    state.revision = 0
 }
 
 // Materializes the buffer; valid until the allocator is reset.
@@ -395,6 +399,7 @@ undo :: proc(state: ^State) {
         append(&state.cursors, cursor)
     }
     append(&state.redo_stack, entry)
+    state.revision += 1
 }
 
 redo :: proc(state: ^State) {
@@ -417,6 +422,7 @@ redo :: proc(state: ^State) {
         append(&state.cursors, cursor)
     }
     append(&state.undo_stack, entry)
+    state.revision += 1
 }
 
 @(private)
@@ -429,6 +435,7 @@ finish_edit :: proc(state: ^State, entry: ^Undo_Entry) {
     entry.cursors_after = clone_cursors(state)
     append(&state.undo_stack, entry^)
     clear_entries(&state.redo_stack)
+    state.revision += 1
 }
 
 @(private)

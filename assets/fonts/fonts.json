@@ -1,0 +1,9 @@
+{
+    "default": "JetBrainsMono",
+    "fonts": {
+        "JetBrainsMono": {
+            "path": "JetBrainsMono/JetBrainsMono-Regular.ttf",
+            "preload_sizes": [15, 17, 18, 20]
+        }
+    }
+}

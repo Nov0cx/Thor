@@ -4,7 +4,7 @@ import "core:c"
 import "core:log"
 import "core:math"
 import "core:mem"
-import "core:os"
+import "core:mem/virtual"
 import "core:strings"
 import "core:thread"
 import rl "vendor:raylib"
@@ -12,50 +12,34 @@ import stbtt "vendor:stb/truetype"
 
 // Fonts are rasterized per size: drawing a bitmap atlas at any size other
 // than the one it was baked for gets scaled and turns blurry.
-font_file_path: string
-font_cache: map[i32]rl.Font
-font_available := false
 
 // Rasterizing a glyph atlas is pure CPU work (stb_truetype) and is done on
 // worker threads overlapping window creation; only the texture upload needs
 // the GL context and happens on the main thread in text_finish_async_load.
 @(private = "file")
 Font_Load_Job :: struct {
+    family:      ^Font_Family,
     size:        i32,
     glyphs:      [^]rl.GlyphInfo,
     recs:        [^]rl.Rectangle,
     glyph_count: i32,
     atlas:       rl.Image,
+    shaped:      map[u32]Shaped_Glyph,
     ok:          bool,
     worker:      ^thread.Thread,
 }
 
+// One glyph scheduled for rasterization: cmap glyphs carry their codepoint
+// (so the rl.Font codepoint lookup keeps working), ligature glyphs found by
+// shaping carry -1 and are only reachable through the shaped map.
+@(private = "file")
+Bake_Entry :: struct {
+    value: rune,
+    gid:   u32,
+}
+
 @(private = "file")
 async_jobs: [dynamic]^Font_Load_Job
-
-@(private = "file")
-async_file_data: []u8
-
-@(private = "file")
-async_codepoints: [dynamic]rune
-
-// Load ASCII, Latin-1 Supplement, and Latin Extended-A so characters
-// like äöüéè render instead of falling back to '?'.
-@(private = "file")
-build_codepoint_list :: proc(allocator := context.temp_allocator) -> [dynamic]rune {
-    codepoints := make([dynamic]rune, allocator)
-    for c: rune = 0x0020; c <= 0x007E; c += 1 {
-        append(&codepoints, c)
-    }
-    for c: rune = 0x00A0; c <= 0x017F; c += 1 {
-        append(&codepoints, c)
-    }
-    extras := [?]rune {'€', '–', '—', '‘', '’', '“', '”', '…'}
-    for c in extras {
-        append(&codepoints, c)
-    }
-    return codepoints
-}
 
 // Rasterizes glyphs and packs the atlas with stb_truetype directly, mirroring
 // raylib's LoadFontData/GenImageFontAtlas. raylib is deliberately not called
@@ -65,10 +49,15 @@ build_codepoint_list :: proc(allocator := context.temp_allocator) -> [dynamic]ru
 // libc-allocated so UnloadFont/UnloadImage can free them.
 @(private = "file")
 font_load_worker :: proc(job: ^Font_Load_Job) {
+    // The shaped map and scratch containers go into the font arena; its
+    // allocator is mutex-guarded, so concurrent workers can share it.
+    context.allocator = font_allocator
+
     PADDING :: 4
 
+    file_data := job.family.file_data
     info: stbtt.fontinfo
-    if !stbtt.InitFont(&info, raw_data(async_file_data), stbtt.GetFontOffsetForIndex(raw_data(async_file_data), 0)) {
+    if !stbtt.InitFont(&info, raw_data(file_data), stbtt.GetFontOffsetForIndex(raw_data(file_data), 0)) {
         return
     }
 
@@ -76,26 +65,38 @@ font_load_worker :: proc(job: ^Font_Load_Job) {
     ascent, descent, line_gap: c.int
     stbtt.GetFontVMetrics(&info, &ascent, &descent, &line_gap)
 
-    found := make([dynamic]rune)
-    defer delete(found)
-    for cp in async_codepoints {
-        if stbtt.FindGlyphIndex(&info, cp) != 0 {
-            append(&found, cp)
+    baked := make([dynamic]Bake_Entry)
+    seen := make(map[u32]bool)
+    for cp in job.family.codepoints {
+        gid := stbtt.FindGlyphIndex(&info, cp)
+        if gid != 0 {
+            append(&baked, Bake_Entry {value = cp, gid = cast(u32) gid})
+            seen[cast(u32) gid] = true
         }
     }
-    count := len(found)
-    if count == 0 {
+    if len(baked) == 0 {
         return
     }
 
+    // Ligature glyphs are only reachable through shaping; probe common
+    // sequences and bake whatever new glyph ids come back. The icon font
+    // has no ligatures, so skip the probing there.
+    if job.family.name != ICON_FAMILY {
+        for gid in shape_collect_ligature_glyphs(file_data, &seen) {
+            append(&baked, Bake_Entry {value = -1, gid = gid})
+        }
+    }
+
+    count := len(baked)
     glyphs := cast([^]rl.GlyphInfo) rl.MemAlloc(cast(c.uint) (count * size_of(rl.GlyphInfo)))
 
-    for cp, k in found {
+    for entry, k in baked {
+        cp := entry.value
         glyph := &glyphs[k]
         glyph.value = cp
 
         advance: c.int
-        stbtt.GetCodepointHMetrics(&info, cp, &advance, nil)
+        stbtt.GetGlyphHMetrics(&info, cast(c.int) entry.gid, &advance, nil)
         glyph.advanceX = cast(c.int) (cast(f32) advance * scale)
 
         if cp == 0x20 || cp == 0x3000 {
@@ -116,7 +117,7 @@ font_load_worker :: proc(job: ^Font_Load_Job) {
         }
 
         width, height, offset_x, offset_y: c.int
-        bitmap := stbtt.GetCodepointBitmap(&info, scale, scale, cp, &width, &height, &offset_x, &offset_y)
+        bitmap := stbtt.GetGlyphBitmap(&info, scale, scale, cast(c.int) entry.gid, &width, &height, &offset_x, &offset_y)
         glyph.offsetX = offset_x
         glyph.offsetY = offset_y + cast(c.int) (cast(f32) ascent * scale)
 
@@ -213,33 +214,89 @@ font_load_worker :: proc(job: ^Font_Load_Job) {
     job.glyphs = glyphs
     job.recs = recs
     job.glyph_count = cast(i32) count
+
+    job.shaped = make(map[u32]Shaped_Glyph, count)
+    for entry, k in baked {
+        job.shaped[entry.gid] = Shaped_Glyph {
+            rect = recs[k],
+            offset_x = cast(i32) glyphs[k].offsetX,
+            offset_y = cast(i32) glyphs[k].offsetY,
+            advance = cast(i32) glyphs[k].advanceX,
+        }
+    }
+
     job.ok = true
 }
 
-// Starts rasterizing the given font sizes on worker threads. Safe to call
-// before InitWindow; nothing here touches the GL context.
-text_begin_async_load :: proc(font_path: string, sizes: []i32) {
-    font_file_path = strings.clone(font_path)
-    font_cache = make(map[i32]rl.Font)
-
-    data, read_err := os.read_entire_file_from_path(font_path, context.allocator)
-    if read_err != nil {
-        return
-    }
-    async_file_data = data
-    async_codepoints = build_codepoint_list(context.allocator)
-
-    for size in sizes {
-        job := new(Font_Load_Job)
-        job.size = size
-        job.worker = thread.create_and_start_with_poly_data(job, font_load_worker)
-        append(&async_jobs, job)
-    }
+@(private = "file")
+Bootstrap_Args :: struct {
+    font_manifest: string,
+    icon_manifest: string,
 }
 
-// Joins the rasterizer threads and uploads the atlases as textures.
+@(private = "file")
+bootstrap_thread: ^thread.Thread
+
+@(private = "file")
+bootstrap_args: ^Bootstrap_Args
+
+// Manifest parsing (fonts.json is small, but icons.json maps ~5000 icons)
+// and the TTF file reads are pure CPU/IO work, so they run on the loader
+// thread too; the main thread only pays for spawning it.
+@(private = "file")
+bootstrap_worker :: proc(args: ^Bootstrap_Args) {
+    // All persistent font-system allocations land in the arena; it is only
+    // touched by this thread until text_finish_async_load joins it, then
+    // only by the main thread.
+    context.allocator = font_allocator
+
+    when ODIN_DEBUG {
+        context.logger = log.create_console_logger(opt = {.Level, .Terminal_Color})
+        defer log.destroy_console_logger(context.logger)
+    }
+
+    text_load_font_manifest(args.font_manifest)
+    text_load_icon_manifest(args.icon_manifest)
+
+    for _, family in families {
+        for size in family.preload_sizes {
+            job := new(Font_Load_Job)
+            job.family = family
+            job.size = size
+            job.worker = thread.create_and_start_with_poly_data(job, font_load_worker)
+            append(&async_jobs, job)
+        }
+    }
+
+    free_all(context.temp_allocator)
+}
+
+// Loads both manifests and rasterizes every registered family at its preload
+// sizes, all on worker threads. Safe to call before InitWindow; nothing here
+// touches the GL context.
+text_begin_async_load :: proc(font_manifest, icon_manifest: string) {
+    if arena_err := virtual.arena_init_growing(&font_arena); arena_err != nil {
+        log.warnf("Font arena init failed: %v; fonts disabled", arena_err)
+        return
+    }
+    font_allocator = virtual.arena_allocator(&font_arena)
+
+    bootstrap_args = new(Bootstrap_Args, font_allocator)
+    bootstrap_args.font_manifest = strings.clone(font_manifest, font_allocator)
+    bootstrap_args.icon_manifest = strings.clone(icon_manifest, font_allocator)
+    bootstrap_thread = thread.create_and_start_with_poly_data(bootstrap_args, bootstrap_worker)
+}
+
+// Joins the loader threads and uploads the atlases as textures.
 // Must run on the main thread after InitWindow, before the first frame.
 text_finish_async_load :: proc() {
+    if bootstrap_thread != nil {
+        thread.join(bootstrap_thread)
+        thread.destroy(bootstrap_thread)
+        bootstrap_thread = nil
+        bootstrap_args = nil
+    }
+
     for job in async_jobs {
         thread.join(job.worker)
         thread.destroy(job.worker)
@@ -254,75 +311,63 @@ text_finish_async_load :: proc() {
                 texture = rl.LoadTextureFromImage(job.atlas),
             }
             rl.UnloadImage(job.atlas)
-            font_cache[job.size] = font
-            font_available = true
+            job.family.cache[job.size] = font
+            job.family.shaped[job.size] = job.shaped
         } else {
-            log.warnf("Failed to rasterize font %q at size %d", font_file_path, job.size)
+            log.warnf("Failed to rasterize font %q at size %d", job.family.path, job.size)
         }
-        free(job)
     }
-    delete(async_jobs)
+    // Job records and the array itself are arena-owned; freed at shutdown.
     async_jobs = nil
-    delete(async_file_data)
-    async_file_data = nil
-    delete(async_codepoints)
-    async_codepoints = nil
 
-    if !font_available {
-        log.warnf("Failed to load font %q, using raylib default font", font_file_path)
+    for _, family in families {
+        shape_family_init(family)
+    }
+
+    if len(families) == 0 {
+        log.warn("No font families registered, using raylib default font")
     }
 }
 
-// Synchronous fallback for sizes not prepared at startup.
-@(private = "file")
-load_font_at_size :: proc(font_size: i32) -> (rl.Font, bool) {
-    codepoints := build_codepoint_list(context.temp_allocator)
-    path_c := strings.clone_to_cstring(font_file_path, context.temp_allocator)
-    font := rl.LoadFontEx(path_c, font_size, raw_data(codepoints[:]), cast(i32) len(codepoints))
-    if rl.IsFontReady(font) {
-        return font, true
+// Sizes not preloaded at startup are rasterized on first use from the
+// resident file data. Runs on the main thread (texture upload needs GL).
+get_font :: proc(font_size: i32, family_name := "") -> rl.Font {
+    name := family_name
+    if name == "" {
+        name = default_family_name
     }
-    return rl.GetFontDefault(), false
-}
 
-@(private = "file")
-get_font :: proc(font_size: i32) -> rl.Font {
-    if !font_available {
+    family, found := families[name]
+    if !found {
         return rl.GetFontDefault()
     }
 
-    if font, ok := font_cache[font_size]; ok {
+    if font, cached := family.cache[font_size]; cached {
         return font
     }
 
-    font, ok := load_font_at_size(font_size)
-    if !ok {
+    font := rl.LoadFontFromMemory(
+        ".ttf",
+        raw_data(family.file_data),
+        cast(i32) len(family.file_data),
+        font_size,
+        raw_data(family.codepoints),
+        cast(i32) len(family.codepoints),
+    )
+    if !rl.IsFontReady(font) {
         return rl.GetFontDefault()
     }
 
-    font_cache[font_size] = font
+    family.cache[font_size] = font
     return font
-}
-
-text_shutdown :: proc() {
-    default_texture_id := rl.GetFontDefault().texture.id
-    for _, font in font_cache {
-        if font.texture.id != default_texture_id {
-            rl.UnloadFont(font)
-        }
-    }
-    delete(font_cache)
-    delete(font_file_path)
-    font_file_path = ""
-    font_available = false
 }
 
 text_line_height :: proc(font_size: i32) -> i32 {
     return font_size + 6
 }
 
-measure_text :: proc(text: string, font_size: i32) -> i32 {
-    font := get_font(font_size)
+measure_text :: proc(text: string, font_size: i32, family := "") -> i32 {
+    font := get_font(font_size, family)
     max_width: f32 = 0
     source := text
 
@@ -343,25 +388,36 @@ measure_text :: proc(text: string, font_size: i32) -> i32 {
     return cast(i32) max_width
 }
 
-draw_text :: proc(text: string, x, y, font_size: i32, color: rl.Color) {
+draw_text :: proc(text: string, x, y, font_size: i32, color: rl.Color, family := "") {
     if text == "" {
         return
     }
 
-    font := get_font(font_size)
+    name := family
+    if name == "" {
+        name = default_family_name
+    }
+    fam := families[name]
+
+    font := get_font(font_size, family)
     source := text
     line_y := cast(f32) y
 
     for line in strings.split_lines_iterator(&source) {
-        line_c := strings.clone_to_cstring(line, context.temp_allocator)
-        rl.DrawTextEx(
-            font,
-            line_c,
-            rl.Vector2 {cast(f32) x, line_y},
-            cast(f32) font_size,
-            0,
-            color,
-        )
+        // Shaped path first (ligatures); falls back to the raylib codepoint
+        // path for sizes without shaping data (lazily loaded sizes, raylib
+        // default font).
+        if !draw_line_shaped(fam, font, font_size, line, x, cast(i32) line_y, color) {
+            line_c := strings.clone_to_cstring(line, context.temp_allocator)
+            rl.DrawTextEx(
+                font,
+                line_c,
+                rl.Vector2 {cast(f32) x, line_y},
+                cast(f32) font_size,
+                0,
+                color,
+            )
+        }
         line_y += cast(f32) text_line_height(font_size)
     }
 }

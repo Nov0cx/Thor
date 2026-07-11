@@ -14,21 +14,6 @@ thor_toggle_console :: proc(data: rawptr, _: ^ui.Context, _: ^ui.Widget) {
     thor_apply_layout_state(thor)
 }
 
-thor_activate_file_a :: proc(data: rawptr, _: ^ui.Context, _: ^ui.Widget) {
-    thor := cast(^Thor) data
-    thor_set_active_file(thor, 0)
-}
-
-thor_activate_file_b :: proc(data: rawptr, _: ^ui.Context, _: ^ui.Widget) {
-    thor := cast(^Thor) data
-    thor_set_active_file(thor, 1)
-}
-
-thor_activate_file_c :: proc(data: rawptr, _: ^ui.Context, _: ^ui.Widget) {
-    thor := cast(^Thor) data
-    thor_set_active_file(thor, 2)
-}
-
 thor_resize_explorer :: proc(data: rawptr, delta: f32) {
     thor := cast(^Thor) data
     thor.explorer_width += delta

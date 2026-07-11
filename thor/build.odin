@@ -56,12 +56,6 @@ thor_build_ui :: proc(thor: ^Thor) {
     widgets.stack_set_background(thor.editor_column, thor.theme.border)
     ui.widget_set_grow(&thor.editor_column.widget, 1)
 
-    thor.tabs_row = widgets.stack_create("tabs-row", .Horizontal)
-    widgets.stack_set_gap(thor.tabs_row, 6)
-    widgets.stack_set_padding(thor.tabs_row, ui.padding_xy(10, 8))
-    widgets.stack_set_background(thor.tabs_row, thor.theme.active)
-    thor.tabs_row.min_size = rl.Vector2 {0, 48}
-
     thor.editor_panel = widgets.panel_create("editor-panel", thor.theme.background)
     ui.widget_set_grow(&thor.editor_panel.widget, 1)
 
@@ -92,6 +86,7 @@ thor_build_ui :: proc(thor: ^Thor) {
 
     thor.dialog = widgets.dialog_create("floating-dialog", "Floating Dialog", rl.Vector2 {810, 120}, rl.Vector2 {320, 220})
     widgets.dialog_set_colors(thor.dialog, thor.theme.white_black_color, thor.theme.highlight, thor.theme.notifications, thor.theme.border)
+    thor.dialog.visible = false
     thor.dialog_stack = widgets.stack_create("dialog-stack", .Vertical)
     widgets.stack_set_gap(thor.dialog_stack, 10)
     widgets.stack_set_padding(thor.dialog_stack, ui.padding(0))
@@ -112,9 +107,6 @@ thor_build_controls :: proc(thor: ^Thor) {
     thor.explorer_restore_button = thor_create_icon_button(thor, "explorer-restore", ">", thor_toggle_explorer)
     thor.console_toggle_button = thor_create_icon_button(thor, "console-toggle", "v", thor_toggle_console)
     thor.console_restore_button = thor_create_icon_button(thor, "console-restore", "^", thor_toggle_console)
-    thor.file_a_button = thor_create_file_button(thor, "file-a", "main.odin", 0)
-    thor.file_b_button = thor_create_file_button(thor, "file-b", "ui/theme.odin", 1)
-    thor.file_c_button = thor_create_file_button(thor, "file-c", "widgets/dialog.odin", 2)
 }
 
 thor_build_content :: proc(thor: ^Thor) {
@@ -122,17 +114,53 @@ thor_build_content :: proc(thor: ^Thor) {
     widgets.label_set_text_color(top_title, thor.theme.accent_color)
     top_title.min_size = rl.Vector2 {70, 28}
 
+    // Empty flexible spacer so the titlebar keeps a draggable area on the
+    // right of the menu buttons.
+    top_spacer := widgets.label_create("top-spacer", "")
+    ui.widget_set_grow(&top_spacer.widget, 1)
+    top_spacer.min_size = rl.Vector2 {0, 28}
+
     explorer_title := widgets.label_create("explorer-title", "Explorer")
     widgets.label_set_text_color(explorer_title, thor.theme.white_black_color)
     ui.widget_set_grow(&explorer_title.widget, 1)
     explorer_title.min_size = rl.Vector2 {0, 24}
 
-    explorer_files := widgets.label_create("explorer-files", "src\n  main.odin\n  thor/\n  ui/\n  widgets/\nfonts\n  JetBrainsMono-Regular.ttf")
-    widgets.label_set_text_color(explorer_files, thor.theme.foreground)
-    widgets.label_set_background(explorer_files, thor.theme.second_background)
-    widgets.label_set_top_align(explorer_files, true)
-    ui.widget_set_grow(&explorer_files.widget, 1)
-    explorer_files.min_size = rl.Vector2 {0, 220}
+    thor.tree = widgets.tree_create("explorer-tree", thor.workspace_dir)
+    widgets.tree_set_colors(
+        thor.tree,
+        thor.theme.foreground,
+        thor.theme.white_black_color,
+        thor.theme.blue_color,
+        thor.theme.gray_color,
+        rl.Color {255, 255, 255, 14},
+        rl.Color {255, 255, 255, 28},
+        thor.theme.second_background,
+    )
+    widgets.tree_set_on_open(thor.tree, thor_tree_open, thor)
+    ui.widget_set_grow(&thor.tree.widget, 1)
+    thor.tree.min_size = rl.Vector2 {0, 120}
+
+    thor.tabbar = widgets.tabbar_create("tabbar")
+    widgets.tabbar_set_colors(
+        thor.tabbar,
+        thor.theme.foreground,
+        thor.theme.white_black_color,
+        thor.theme.active,
+        thor.theme.buttons,
+        thor.theme.background,
+        rl.Color {255, 255, 255, 14},
+        thor.theme.accent_color,
+    )
+    widgets.tabbar_set_callbacks(
+        thor.tabbar,
+        thor_tab_count,
+        thor_tab_info,
+        thor_tab_active,
+        thor_tab_select,
+        thor_tab_close,
+        thor,
+    )
+    thor.tabbar.min_size = rl.Vector2 {0, 38}
 
     thor.editor = widgets.editor_create("editor")
     widgets.editor_set_colors(
@@ -145,6 +173,7 @@ thor_build_content :: proc(thor: ^Thor) {
         thor.theme.accent_color,
         thor.theme.accent_color,
     )
+    widgets.editor_set_on_save(thor.editor, thor_request_save, thor)
     ui.widget_set_grow(&thor.editor.widget, 1)
 
     console_title := widgets.label_create("console-title", "Console")
@@ -160,11 +189,16 @@ thor_build_content :: proc(thor: ^Thor) {
     ui.widget_set_grow(&thor.console_label.widget, 1)
     thor.console_label.min_size = rl.Vector2 {0, 110}
 
-    thor.status_label = widgets.label_create("status-label", "")
-    widgets.label_set_text_color(thor.status_label, thor.theme.foreground)
-    widgets.label_bind_text(thor.status_label, thor_status_text, thor)
-    ui.widget_set_grow(&thor.status_label.widget, 1)
-    thor.status_label.min_size = rl.Vector2 {0, 28}
+    thor.statusbar = widgets.statusbar_create("statusbar")
+    widgets.statusbar_set_colors(
+        thor.statusbar,
+        thor.theme.foreground,
+        thor.theme.gray_color,
+        thor.theme.buttons,
+        thor.theme.accent_color,
+    )
+    widgets.statusbar_bind(thor.statusbar, thor_status_info, thor)
+    thor.statusbar.min_size = rl.Vector2 {0, 28}
 
     dialog_text := widgets.label_create("dialog-text", "Drag this dialog by its title bar.\n\nType into the editor, scroll it, and close this dialog with the x button.")
     widgets.label_set_text_color(dialog_text, thor.theme.white_black_color)
@@ -181,16 +215,12 @@ thor_build_content :: proc(thor: ^Thor) {
     widgets.append_child(&thor.top_bar.widget, &thor.menu_edit_button.widget)
     widgets.append_child(&thor.top_bar.widget, &thor.menu_view_button.widget)
     widgets.append_child(&thor.top_bar.widget, &thor.menu_help_button.widget)
-    widgets.append_child(&thor.top_bar.widget, &thor.status_label.widget)
+    widgets.append_child(&thor.top_bar.widget, &top_spacer.widget)
 
     widgets.append_child(&thor.explorer_stack.widget, &thor.explorer_header.widget)
-    widgets.append_child(&thor.explorer_stack.widget, &explorer_files.widget)
+    widgets.append_child(&thor.explorer_stack.widget, &thor.tree.widget)
     widgets.append_child(&thor.explorer_header.widget, &explorer_title.widget)
     widgets.append_child(&thor.explorer_header.widget, &thor.explorer_toggle_button.widget)
-
-    widgets.append_child(&thor.tabs_row.widget, &thor.file_a_button.widget)
-    widgets.append_child(&thor.tabs_row.widget, &thor.file_b_button.widget)
-    widgets.append_child(&thor.tabs_row.widget, &thor.file_c_button.widget)
 
     widgets.append_child(&thor.editor_panel.widget, &thor.editor.widget)
 
@@ -212,6 +242,7 @@ thor_connect_tree :: proc(thor: ^Thor) {
 
     widgets.append_child(&thor.root_stack.widget, &thor.top_bar.widget)
     widgets.append_child(&thor.root_stack.widget, &thor.workspace_row.widget)
+    widgets.append_child(&thor.root_stack.widget, &thor.statusbar.widget)
 
     widgets.append_child(&thor.workspace_row.widget, &thor.explorer_stub_panel.widget)
     widgets.append_child(&thor.workspace_row.widget, &thor.explorer_panel.widget)
@@ -221,7 +252,7 @@ thor_connect_tree :: proc(thor: ^Thor) {
     widgets.append_child(&thor.explorer_stub_panel.widget, &thor.explorer_stub_stack.widget)
     widgets.append_child(&thor.explorer_panel.widget, &thor.explorer_stack.widget)
 
-    widgets.append_child(&thor.editor_column.widget, &thor.tabs_row.widget)
+    widgets.append_child(&thor.editor_column.widget, &thor.tabbar.widget)
     widgets.append_child(&thor.editor_column.widget, &thor.editor_panel.widget)
     widgets.append_child(&thor.editor_column.widget, &thor.console_splitter.widget)
     widgets.append_child(&thor.editor_column.widget, &thor.console_panel.widget)
@@ -248,21 +279,5 @@ thor_create_icon_button :: proc(thor: ^Thor, id, text: string, on_click: widgets
     widgets.button_set_border_thickness(button, 0)
     widgets.button_set_on_click(button, on_click, thor)
     button.min_size = rl.Vector2 {28, 24}
-    return button
-}
-
-thor_create_file_button :: proc(thor: ^Thor, id, text: string, index: int) -> ^widgets.Button {
-    button := widgets.button_create(id, text)
-    widgets.button_set_font_size(button, 17)
-    widgets.button_set_border_thickness(button, 0)
-
-    switch index {
-    case 0: widgets.button_set_on_click(button, thor_activate_file_a, thor)
-    case 1: widgets.button_set_on_click(button, thor_activate_file_b, thor)
-    case 2: widgets.button_set_on_click(button, thor_activate_file_c, thor)
-    case: widgets.button_set_on_click(button, thor_activate_file_a, thor)
-    }
-
-    button.min_size = rl.Vector2 {180, 32}
     return button
 }

@@ -1,0 +1,3 @@
+[submodule "vendor/odin-harfbuzz"]
+	path = vendor/odin-harfbuzz
+	url = https://codeberg.org/mgavioli/odin-harfbuzz

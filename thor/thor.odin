@@ -1,6 +1,9 @@
 package thor
 
 import "core:log"
+import "core:os"
+import "core:strings"
+import "core:sync"
 import "core:time"
 import rl "vendor:raylib"
 
@@ -21,7 +24,6 @@ Thor :: struct {
     explorer_header:          ^widgets.Stack,
     explorer_splitter:        ^widgets.Splitter,
     editor_column:            ^widgets.Stack,
-    tabs_row:                 ^widgets.Stack,
     editor_panel:             ^widgets.Panel,
     console_splitter:         ^widgets.Splitter,
     console_panel:            ^widgets.Panel,
@@ -29,7 +31,9 @@ Thor :: struct {
     console_header:           ^widgets.Stack,
     console_stub_panel:       ^widgets.Panel,
     console_stub_stack:       ^widgets.Stack,
-    status_label:             ^widgets.Label,
+    tree:                     ^widgets.Tree,
+    tabbar:                   ^widgets.Tabbar,
+    statusbar:                ^widgets.Statusbar,
     editor:                   ^widgets.Editor,
     console_label:            ^widgets.Label,
     dialog:                   ^widgets.Dialog,
@@ -45,51 +49,102 @@ Thor :: struct {
     explorer_restore_button:  ^widgets.Button,
     console_toggle_button:    ^widgets.Button,
     console_restore_button:   ^widgets.Button,
-    file_a_button:            ^widgets.Button,
-    file_b_button:            ^widgets.Button,
-    file_c_button:            ^widgets.Button,
     explorer_width:           f32,
     console_height:           f32,
+    workspace_dir:            string,
+    git_branch:               string,
+    open_files:               [dynamic]^Open_File,
+    zombie_files:             [dynamic]^Open_File,
+    // Worker threads append finished jobs here; the queues are created on
+    // the main thread so appends go through the stored (mutex-guarded)
+    // allocator, and are drained on the main thread every frame.
+    io_mutex:                 sync.Mutex,
+    finished_loads:           [dynamic]^Load_Job,
+    finished_saves:           [dynamic]^Save_Job,
+    inflight_jobs:            int,
 }
 
 init :: proc() -> ^Thor {
     start := time.tick_now()
+    phase := start
+    lap :: proc(phase: ^time.Tick, name: string) {
+        log.infof("[startup] %-24s %.1f ms", name, time.duration_milliseconds(time.tick_since(phase^)))
+        phase^ = time.tick_now()
+    }
 
-    // Rasterize every font size used at startup on worker threads while the
-    // main thread creates the window and builds the widget tree.
-    ui.text_begin_async_load("fonts\\JetBrainsMono-Regular.ttf", {17, 18, 20})
+    // Parse the font/icon manifests and rasterize every preload size on
+    // worker threads while the main thread creates the window and builds
+    // the widget tree.
+    ui.text_begin_async_load("assets/fonts/fonts.json", "assets/icons/icons.json")
+    lap(&phase, "text_begin_async_load")
 
+    when !ODIN_DEBUG {
+        rl.SetTraceLogLevel(.WARNING)
+    }
     rl.SetConfigFlags({.WINDOW_UNDECORATED, .WINDOW_RESIZABLE})
     rl.InitWindow(1280, 800, "Thor")
+    lap(&phase, "InitWindow")
     rl.SetTargetFPS(60)
 
     thor := new(Thor)
     ui.context_init(&thor.ui_context)
     thor.theme = ui.theme_material_deep_ocean()
-    thor.active_file = ui.make_signal(0)
+    thor.active_file = ui.make_signal(-1)
     thor.explorer_visible = ui.make_signal(true)
     thor.console_visible = ui.make_signal(true)
     thor.explorer_width = 250
     thor.console_height = 190
+    workspace_dir, workspace_err := os.get_working_directory(context.allocator)
+    if workspace_err != nil {
+        workspace_dir = strings.clone(".")
+    }
+    thor.workspace_dir = workspace_dir
+    thor.git_branch = thor_read_git_branch()
+    thor.open_files = make([dynamic]^Open_File)
+    thor.zombie_files = make([dynamic]^Open_File)
+    thor.finished_loads = make([dynamic]^Load_Job)
+    thor.finished_saves = make([dynamic]^Save_Job)
 
     log.infof("Loaded theme: %s", thor.theme.name)
 
     thor_build_ui(thor)
-    thor_set_active_file(thor, 0)
+    thor_set_active_file(thor, -1)
     thor_apply_layout_state(thor)
     ui.context_set_root(&thor.ui_context, &thor.root_panel.widget)
+    lap(&phase, "build widget tree")
 
     // Texture upload needs the GL context, so it happens here on the main
     // thread once the rasterizer threads are done.
     ui.text_finish_async_load()
+    lap(&phase, "text_finish_async_load")
 
     log.infof("Startup took %.1f ms", time.duration_milliseconds(time.tick_since(start)))
 
     return thor
 }
 
+@(private = "file")
+thor_read_git_branch :: proc() -> string {
+    data, read_err := os.read_entire_file(".git/HEAD", context.temp_allocator)
+    if read_err != nil {
+        return ""
+    }
+
+    head := strings.trim_space(string(data))
+    REF_PREFIX :: "ref: refs/heads/"
+    if strings.has_prefix(head, REF_PREFIX) {
+        return strings.clone(head[len(REF_PREFIX):])
+    }
+    if len(head) >= 8 {
+        // Detached head: show the short commit hash.
+        return strings.clone(head[:8])
+    }
+    return ""
+}
+
 run :: proc(thor: ^Thor) {
     for !rl.WindowShouldClose() {
+        thor_update_files(thor)
         ui.context_update(&thor.ui_context)
 
         rl.BeginDrawing()
@@ -102,6 +157,18 @@ run :: proc(thor: ^Thor) {
 }
 
 shutdown :: proc(thor: ^Thor) {
+    thor_drain_io(thor)
+
+    for file in thor.open_files {
+        thor_free_open_file(file)
+    }
+    delete(thor.open_files)
+    delete(thor.zombie_files)
+    delete(thor.finished_loads)
+    delete(thor.finished_saves)
+    delete(thor.workspace_dir)
+    delete(thor.git_branch)
+
     ui.context_destroy(&thor.ui_context)
     ui.text_shutdown()
     rl.CloseWindow()

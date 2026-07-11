@@ -7,9 +7,17 @@ import rl "vendor:raylib"
 import "../textedit"
 import "../ui"
 
+Editor_Save_Proc :: #type proc(data: rawptr)
+
 Editor :: struct {
     using widget: ui.Widget,
-    state:              textedit.State,
+    // Borrowed from the owner of the open file (see thor/files.odin); nil
+    // when no file is open. Keeping the buffer outside the widget preserves
+    // undo history and cursors across tab switches.
+    state:              ^textedit.State,
+    on_save:            Editor_Save_Proc,
+    save_data:          rawptr,
+    placeholder:        string,
     font_size:          i32,
     padding:            ui.Padding,
     gutter_width:       f32,
@@ -34,7 +42,8 @@ editor_vtable := ui.Widget_VTable {
 editor_create :: proc(id: string) -> ^Editor {
     editor := new(Editor)
     ui.widget_init(&editor.widget, id, editor_vtable)
-    textedit.init(&editor.state)
+    editor.state = nil
+    editor.placeholder = "No file open"
     editor.font_size = 18
     editor.padding = ui.padding_xy(14, 12)
     editor.gutter_width = 58
@@ -62,8 +71,13 @@ editor_set_colors :: proc(editor: ^Editor, text_color, line_number_color, backgr
     return editor
 }
 
-editor_set_text :: proc(editor: ^Editor, text: string) {
-    textedit.set_text(&editor.state, text)
+editor_set_on_save :: proc(editor: ^Editor, on_save: Editor_Save_Proc, data: rawptr) {
+    editor.on_save = on_save
+    editor.save_data = data
+}
+
+editor_set_state :: proc(editor: ^Editor, state: ^textedit.State) {
+    editor.state = state
     editor.scroll_y = 0
     editor_clamp_scroll(editor)
 }
@@ -76,6 +90,9 @@ editor_layout :: proc(widget: ^ui.Widget, bounds: rl.Rectangle) {
 
 editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event) -> bool {
     editor := cast(^Editor) widget
+    if editor.state == nil {
+        return false
+    }
 
     #partial switch event.kind {
     case .Mouse_Down:
@@ -92,7 +109,7 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
         }
         if event.codepoint >= 32 && event.codepoint != 127 {
             buffer, width := utf8.encode_rune(event.codepoint)
-            textedit.insert_text(&editor.state, string(buffer[:width]))
+            textedit.insert_text(editor.state, string(buffer[:width]))
             editor_scroll_to_caret(editor)
             return true
         }
@@ -105,7 +122,7 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
 }
 
 editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
-    state := &editor.state
+    state := editor.state
     ctrl_only := event.ctrl && !event.alt
     alt_only := event.alt && !event.ctrl
 
@@ -212,6 +229,11 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
             editor_scroll_to_caret(editor)
             return true
         }
+    case .S:
+        if ctrl_only && editor.on_save != nil {
+            editor.on_save(editor.save_data)
+            return true
+        }
     case .P:
         if ctrl_only {
             textedit.move_to_matching_bracket(state, event.shift)
@@ -245,6 +267,14 @@ editor_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
 
     rl.DrawRectangleRec(editor.bounds, editor.background_color)
 
+    if editor.state == nil {
+        text_width := ui.measure_text(editor.placeholder, editor.font_size)
+        text_x := cast(i32) (editor.bounds.x + (editor.bounds.width - cast(f32) text_width) * 0.5)
+        text_y := cast(i32) (editor.bounds.y + (editor.bounds.height - cast(f32) editor.font_size) * 0.5)
+        ui.draw_text(editor.placeholder, text_x, text_y, editor.font_size, editor.line_number_color)
+        return
+    }
+
     gutter_rect := rl.Rectangle {
         x = editor.bounds.x,
         y = editor.bounds.y,
@@ -259,7 +289,7 @@ editor_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
     }
     rl.DrawRectangleLinesEx(editor.bounds, 1, border_color)
 
-    text := textedit.text(&editor.state)
+    text := textedit.text(editor.state)
     line_height := cast(f32) ui.text_line_height(editor.font_size)
     inner_top := editor.bounds.y + editor.padding.top
     inner_bottom := editor.bounds.y + editor.bounds.height - editor.padding.bottom
@@ -268,7 +298,7 @@ editor_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
 
     ui.begin_clip(editor.bounds)
 
-    caret_line := textedit.line_index(text, textedit.primary_cursor(&editor.state).caret)
+    caret_line := textedit.line_index(text, textedit.primary_cursor(editor.state).caret)
 
     line_index := 0
     line_start := 0
@@ -345,13 +375,12 @@ editor_draw_line_selections :: proc(editor: ^Editor, text: string, line_start, l
 }
 
 editor_destroy :: proc(widget: ^ui.Widget) {
-    editor := cast(^Editor) widget
-    textedit.destroy(&editor.state)
-    free(editor)
+    // The textedit state is owned by whoever opened the file, not the widget.
+    free(cast(^Editor) widget)
 }
 
 editor_place_caret_at :: proc(editor: ^Editor, position: rl.Vector2) {
-    text := textedit.text(&editor.state)
+    text := textedit.text(editor.state)
     line_height := cast(f32) ui.text_line_height(editor.font_size)
     inner_top := editor.bounds.y + editor.padding.top
     text_x := editor.bounds.x + editor.gutter_width + editor.padding.left
@@ -376,12 +405,12 @@ editor_place_caret_at :: proc(editor: ^Editor, position: rl.Vector2) {
         pos += width
     }
 
-    textedit.set_single_cursor(&editor.state, pos)
+    textedit.set_single_cursor(editor.state, pos)
 }
 
 editor_scroll_to_caret :: proc(editor: ^Editor) {
-    text := textedit.text(&editor.state)
-    line := textedit.line_index(text, textedit.primary_cursor(&editor.state).caret)
+    text := textedit.text(editor.state)
+    line := textedit.line_index(text, textedit.primary_cursor(editor.state).caret)
     line_height := cast(f32) ui.text_line_height(editor.font_size)
     view_height := editor.bounds.height - editor.padding.top - editor.padding.bottom
     caret_top := cast(f32) line * line_height
@@ -396,7 +425,11 @@ editor_scroll_to_caret :: proc(editor: ^Editor) {
 }
 
 editor_clamp_scroll :: proc(editor: ^Editor) {
-    line_count := textedit.line_count(textedit.text(&editor.state))
+    if editor.state == nil {
+        editor.scroll_y = 0
+        return
+    }
+    line_count := textedit.line_count(textedit.text(editor.state))
     content_height := cast(f32) line_count * cast(f32) ui.text_line_height(editor.font_size)
     view_height := editor.bounds.height - editor.padding.top - editor.padding.bottom
     max_scroll := content_height - view_height
