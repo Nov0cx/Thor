@@ -16,7 +16,7 @@ as a git submodule) for ligature shaping, so clone with submodules:
 git clone --recurse-submodules https://github.com/Nov0cx/Thor
 ```
 
-### Windows
+### Windows 
 
 The HarfBuzz static library is a local build artifact and must be built once
 per machine into `vendor/odin-harfbuzz/libs/harfbuzz.lib`. See

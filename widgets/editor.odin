@@ -249,7 +249,7 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
         editor_clamp_scroll(editor)
         return true
     case .Text_Input:
-        // Skip control chords; ctrl+alt is AltGr and must pass through.
+        // Skip Ctrl chords (AltGr is normalized to no modifiers upstream).
         if event.ctrl && !event.alt {
             return false
         }

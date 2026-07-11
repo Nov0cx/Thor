@@ -109,9 +109,13 @@ context_collect_input :: proc(ctx: ^Context) {
         })
     }
 
-    ctrl_down := rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL)
+    // AltGr (right Alt) is reserved for typing characters like { } @ on
+    // non-US layouts; it must never act as a shortcut modifier. Windows also
+    // reports it as left Ctrl, so suppress Ctrl while it is held.
+    alt_gr := rl.IsKeyDown(.RIGHT_ALT)
+    ctrl_down := (rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL)) && !alt_gr
     shift_down := rl.IsKeyDown(.LEFT_SHIFT) || rl.IsKeyDown(.RIGHT_SHIFT)
-    alt_down := rl.IsKeyDown(.LEFT_ALT) || rl.IsKeyDown(.RIGHT_ALT)
+    alt_down := rl.IsKeyDown(.LEFT_ALT)
 
     for {
         key := rl.GetKeyPressed()
