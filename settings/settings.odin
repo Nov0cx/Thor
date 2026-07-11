@@ -21,11 +21,20 @@ Keybind :: struct {
     alt:   bool,
 }
 
+// General editor preferences with sensible defaults, overridable via
+// settings.json.
+General :: struct {
+    tab_width:         int,
+    font_size:         int,
+    autosave_delay_ms: int,
+}
+
 Settings :: struct {
     // File extension (".odin") -> line-comment marker ("//").
     comments: map[string]string,
     // Action name ("toggle_line_comment") -> bound chord.
     keybinds: map[string]Keybind,
+    general:  General,
 }
 
 // Reads comments.json and keybinds.json from dir. Always returns an
@@ -34,9 +43,11 @@ load :: proc(dir: string) -> Settings {
     s: Settings
     s.comments = make(map[string]string)
     s.keybinds = make(map[string]Keybind)
+    s.general = General {tab_width = 4, font_size = 18, autosave_delay_ms = 1500}
 
     load_comments(&s, strings.concatenate({dir, "/comments.json"}, context.temp_allocator))
     load_keybinds(&s, strings.concatenate({dir, "/keybinds.json"}, context.temp_allocator))
+    load_general(&s, strings.concatenate({dir, "/settings.json"}, context.temp_allocator))
     return s
 }
 
@@ -66,6 +77,18 @@ comment_prefix :: proc(s: ^Settings, filename: string) -> string {
 keybind :: proc(s: ^Settings, action: string) -> (Keybind, bool) {
     kb, ok := s.keybinds[action]
     return kb, ok
+}
+
+tab_width :: proc(s: ^Settings) -> int {
+    return s.general.tab_width
+}
+
+font_size :: proc(s: ^Settings) -> int {
+    return s.general.font_size
+}
+
+autosave_delay_ms :: proc(s: ^Settings) -> int {
+    return s.general.autosave_delay_ms
 }
 
 // True when an incoming key event exactly matches the chord (modifiers must
@@ -135,8 +158,22 @@ key_from_name :: proc(name: string) -> (rl.KeyboardKey, bool) {
     case "delete":    return .DELETE, true
     // Physical key right of the home row: \ on US, # on QWERTZ.
     case "backslash": return .BACKSLASH, true
+    case ".", "period": return .PERIOD, true
+    case ",", "comma":  return .COMMA, true
     case "kp_add":      return .KP_ADD, true
     case "kp_subtract": return .KP_SUBTRACT, true
+    case "f1":  return .F1, true
+    case "f2":  return .F2, true
+    case "f3":  return .F3, true
+    case "f4":  return .F4, true
+    case "f5":  return .F5, true
+    case "f6":  return .F6, true
+    case "f7":  return .F7, true
+    case "f8":  return .F8, true
+    case "f9":  return .F9, true
+    case "f10": return .F10, true
+    case "f11": return .F11, true
+    case "f12": return .F12, true
     }
     return .KEY_NULL, false
 }
@@ -191,6 +228,28 @@ load_comments :: proc(s: ^Settings, path: string) {
             }
             s.comments[strings.clone(string(ext))] = strings.clone(string(line))
         }
+    }
+}
+
+@(private)
+load_general :: proc(s: ^Settings, path: string) {
+    root, ok := parse_object(path)
+    if !ok {
+        return
+    }
+    read_int(root, "tab_width", &s.general.tab_width)
+    read_int(root, "font_size", &s.general.font_size)
+    read_int(root, "autosave_delay_ms", &s.general.autosave_delay_ms)
+}
+
+// Reads an integer field into dst, leaving the default in place if absent.
+@(private)
+read_int :: proc(obj: json.Object, key: string, dst: ^int) {
+    #partial switch v in obj[key] {
+    case json.Integer:
+        dst^ = cast(int) v
+    case json.Float:
+        dst^ = cast(int) v
     }
 }
 

@@ -2,7 +2,9 @@ package thor
 
 import rl "vendor:raylib"
 
+import "../settings"
 import "../ui"
+import "../widgets"
 
 thor_minimize_window :: proc(_: rawptr, _: ^ui.Context, _: ^ui.Widget) {
     rl.MinimizeWindow()
@@ -21,10 +23,33 @@ thor_close_window :: proc(data: rawptr, _: ^ui.Context, _: ^ui.Widget) {
     thor.should_close = true
 }
 
+thor_toggle_fullscreen :: proc(_: ^Thor) {
+    rl.ToggleBorderlessWindowed()
+}
+
 // App-level shortcuts, dispatched before widget focus (see
 // ui.context_set_global_key): they work no matter what is focused.
 thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
     thor := cast(^Thor) data
+
+    // The command palette toggle works no matter what is focused.
+    if settings.keybind_matches(thor.command_palette_key, event.key, event.ctrl, event.shift, event.alt) {
+        thor_toggle_command_palette(thor)
+        return true
+    }
+    // While the palette is open it owns the keyboard (dispatched via focus),
+    // so app shortcuts below are suppressed.
+    if widgets.command_palette_is_open(thor.command_palette) {
+        return false
+    }
+
+    // Fullscreen toggle is a bare key (no ctrl), so it is matched before the
+    // ctrl-only guard below.
+    if settings.keybind_matches(thor.fullscreen_key, event.key, event.ctrl, event.shift, event.alt) {
+        thor_toggle_fullscreen(thor)
+        return true
+    }
+
     if !event.ctrl || event.alt {
         return false
     }

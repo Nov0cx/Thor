@@ -86,6 +86,52 @@ test_bracket_match :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_bracket_match_enclosing :: proc(t: ^testing.T) {
+    state: State
+    init(&state)
+    defer destroy(&state)
+
+    insert_text(&state, "call(a, b, c)")
+    set_single_cursor(&state, 8) // inside the parens, between "b," and " c"
+
+    // Not adjacent to a bracket: jumps out to the enclosing '('.
+    move_to_matching_bracket(&state, false)
+    testing.expect_value(t, primary_cursor(&state).caret, 4)
+
+    set_single_cursor(&state, 8)
+    move_to_matching_bracket(&state, true)
+    cursor := primary_cursor(&state)
+    lo, hi := selection_range(cursor)
+    testing.expect_value(t, lo, 4)
+    testing.expect_value(t, hi, 13) // whole "(a, b, c)" pair
+}
+
+@(test)
+test_select_between_brackets :: proc(t: ^testing.T) {
+    state: State
+    init(&state)
+    defer destroy(&state)
+
+    insert_text(&state, "call(a, b, c)")
+
+    // From inside the parens: selects "a, b, c" (brackets excluded).
+    set_single_cursor(&state, 8)
+    select_between_brackets(&state)
+    cursor := primary_cursor(&state)
+    lo, hi := selection_range(cursor)
+    testing.expect_value(t, lo, 5)  // just after '('
+    testing.expect_value(t, hi, 12) // just before ')'
+
+    // From directly next to the opening bracket: same span.
+    set_single_cursor(&state, 4)
+    select_between_brackets(&state)
+    cursor = primary_cursor(&state)
+    lo, hi = selection_range(cursor)
+    testing.expect_value(t, lo, 5)
+    testing.expect_value(t, hi, 12)
+}
+
+@(test)
 test_multi_cursor_insert :: proc(t: ^testing.T) {
     state: State
     init(&state)

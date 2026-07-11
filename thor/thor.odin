@@ -13,7 +13,7 @@ import "../widgets"
 
 Thor :: struct {
     ui_context:               ui.Context,
-    settings:                 settings.Settings,
+    config:                   settings.Settings,
     theme:                    ui.Theme,
     root_panel:               ^widgets.Panel,
     root_stack:               ^widgets.Stack,
@@ -40,6 +40,9 @@ Thor :: struct {
     console_label:            ^widgets.Label,
     dialog:                   ^widgets.Dialog,
     dialog_stack:             ^widgets.Stack,
+    command_palette:          ^widgets.Command_Palette,
+    command_palette_key:      settings.Keybind,
+    fullscreen_key:           settings.Keybind,
     active_file:              ui.Signal(int),
     explorer_visible:         ui.Signal(bool),
     console_visible:          ui.Signal(bool),
@@ -58,6 +61,7 @@ Thor :: struct {
     explorer_width:           f32,
     console_height:           f32,
     workspace_dir:            string,
+    workspace_prefix:         string, // workspace_dir + separator, for palette display
     git_branch:               string,
     open_files:               [dynamic]^Open_File,
     zombie_files:             [dynamic]^Open_File,
@@ -95,7 +99,7 @@ init :: proc() -> ^Thor {
 
     thor := new(Thor)
     ui.context_init(&thor.ui_context)
-    thor.settings = settings.load("settings")
+    thor.config = settings.load("settings")
     thor.theme = ui.theme_material_deep_ocean()
     thor.active_file = ui.make_signal(-1)
     thor.explorer_visible = ui.make_signal(true)
@@ -107,6 +111,7 @@ init :: proc() -> ^Thor {
         workspace_dir = strings.clone(".")
     }
     thor.workspace_dir = workspace_dir
+    thor.workspace_prefix = strings.concatenate({workspace_dir, "\\"})
     thor.git_branch = thor_read_git_branch()
     thor.open_files = make([dynamic]^Open_File)
     thor.zombie_files = make([dynamic]^Open_File)
@@ -116,9 +121,17 @@ init :: proc() -> ^Thor {
     log.infof("Loaded theme: %s", thor.theme.name)
 
     thor_build_ui(thor)
-    if kb, ok := settings.keybind(&thor.settings, "toggle_line_comment"); ok {
-        thor.editor.comment_keybind = kb
-    }
+    thor.command_palette.return_focus = &thor.editor.widget
+    widgets.command_palette_set_navigation(
+        thor.command_palette,
+        thor_palette_list_files,
+        thor_palette_open_file,
+        thor_palette_goto_line,
+        thor.workspace_prefix,
+        thor,
+    )
+    thor_register_commands(thor)
+    thor_apply_settings(thor)
     thor_set_active_file(thor, -1)
     thor_apply_layout_state(thor)
     ui.context_set_root(&thor.ui_context, &thor.root_panel.widget)
@@ -179,8 +192,9 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.finished_loads)
     delete(thor.finished_saves)
     delete(thor.workspace_dir)
+    delete(thor.workspace_prefix)
     delete(thor.git_branch)
-    settings.destroy(&thor.settings)
+    settings.destroy(&thor.config)
 
     ui.context_destroy(&thor.ui_context)
     ui.text_shutdown()

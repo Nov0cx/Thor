@@ -8,11 +8,9 @@ import win32 "core:sys/windows"
 import "core:thread"
 import "core:time"
 
+import "../settings"
 import "../textedit"
 import "../ui"
-
-// Quiet period after the last keystroke before a dirty buffer is autosaved.
-AUTOSAVE_DELAY :: 1500 * time.Millisecond
 
 // One open document. The textedit state lives here (not in the editor widget)
 // so undo history and cursors survive tab switches; the editor only borrows
@@ -231,6 +229,7 @@ thor_request_save :: proc(data: rawptr) {
 thor_update_files :: proc(thor: ^Thor) {
     thor_process_io(thor)
 
+    autosave_delay := time.Duration(settings.autosave_delay_ms(&thor.config)) * time.Millisecond
     for file in thor.open_files {
         if !file.loaded || file.saving {
             continue
@@ -243,7 +242,7 @@ thor_update_files :: proc(thor: ^Thor) {
         if file.state.revision == file.saved_revision {
             continue
         }
-        if time.tick_since(file.last_edit) >= AUTOSAVE_DELAY {
+        if time.tick_since(file.last_edit) >= autosave_delay {
             thor_save_file(thor, file)
         }
     }

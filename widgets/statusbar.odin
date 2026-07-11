@@ -15,6 +15,8 @@ Status_Info :: struct {
     // "Spaces: N", otherwise "Tab Size: N". A width of 0 hides the segment.
     indent_width:  int,
     indent_spaces: bool,
+    // Editor zoom as a percentage of the configured font size; 0 hides it.
+    zoom:          int,
     file_open:     bool,
     modified:      bool,
     saving:        bool,
@@ -146,6 +148,11 @@ statusbar_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
         }
         right -= statusbar_segment_width(statusbar, "", "UTF-8")
         statusbar_draw_segment(statusbar, right, "", "UTF-8", statusbar.dim_color)
+        if info.zoom > 0 {
+            zoom := fmt.tprintf("%d%%", info.zoom)
+            right -= statusbar_segment_width(statusbar, "", zoom)
+            statusbar_draw_segment(statusbar, right, "", zoom, statusbar.dim_color)
+        }
         right -= statusbar_segment_width(statusbar, "", position)
         statusbar_draw_segment(statusbar, right, "", position, statusbar.text_color)
     }

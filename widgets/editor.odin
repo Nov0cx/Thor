@@ -11,6 +11,16 @@ import "../ui"
 
 Editor_Save_Proc :: #type proc(data: rawptr)
 
+// One on-screen row of text. A logical line that overflows the view width is
+// split into several of these; `first` marks the row that carries the line
+// number. Rebuilt every layout from the buffer (see editor_rebuild_visual_rows).
+Visual_Row :: struct {
+    start: int, // byte offset of the row's first character
+    end:   int, // byte offset one past its last character (before any newline)
+    line:  int, // logical line index the row belongs to
+    first: bool, // true for the first visual row of the logical line
+}
+
 Editor :: struct {
     using widget: ui.Widget,
     // Borrowed from the owner of the open file (see thor/files.odin); nil
@@ -39,6 +49,10 @@ Editor :: struct {
     line_number_color:  rl.Color,
     caret_color:        rl.Color,
     selection_color:    rl.Color,
+    // Soft-wrap: overflowing lines continue on the next visual row. The row
+    // layout is rebuilt from the buffer every frame in editor_layout.
+    wrap:               bool,
+    visual_rows:        [dynamic]Visual_Row,
 }
 
 editor_vtable := ui.Widget_VTable {
@@ -66,6 +80,8 @@ editor_create :: proc(id: string) -> ^Editor {
     editor.line_number_color = rl.Color {113, 124, 180, 255}
     editor.caret_color = rl.Color {132, 255, 255, 255}
     editor.selection_color = rl.Color {132, 255, 255, 50}
+    editor.wrap = true
+    editor.visual_rows = make([dynamic]Visual_Row)
     editor.min_size = rl.Vector2 {0, 280}
     return editor
 }
@@ -100,7 +116,104 @@ editor_set_state :: proc(editor: ^Editor, state: ^textedit.State) {
 editor_layout :: proc(widget: ^ui.Widget, bounds: rl.Rectangle) {
     editor := cast(^Editor) widget
     editor.bounds = bounds
+    editor_rebuild_visual_rows(editor)
     editor_clamp_scroll(editor)
+}
+
+// Width available for text (inside the gutter, padding and scrollbar).
+@(private = "file")
+editor_text_width :: proc(editor: ^Editor) -> f32 {
+    return editor.bounds.width - editor.gutter_width - editor.padding.left - editor.padding.right - 10
+}
+
+// Rebuilds the visual-row list from the buffer. Wrapping uses the monospace
+// advance width, so this stays a cheap rune walk (no per-line shaping).
+editor_rebuild_visual_rows :: proc(editor: ^Editor) {
+    clear(&editor.visual_rows)
+    if editor.state == nil {
+        return
+    }
+
+    text := textedit.text(editor.state)
+    cols := max(int)
+    if editor.wrap {
+        char_width := ui.measure_text("0", editor.font_size)
+        if char_width > 0 {
+            cols = max(1, cast(int) (editor_text_width(editor) / cast(f32) char_width))
+        }
+    }
+
+    line_start := 0
+    line_index := 0
+    for {
+        line_end := textedit.line_end(text, line_start)
+        editor_wrap_line(editor, text, line_start, line_end, cols, line_index)
+        line_index += 1
+        if line_end >= len(text) {
+            break
+        }
+        line_start = line_end + 1
+    }
+}
+
+// Appends the visual rows for one logical line, breaking at the last space that
+// fits when a break is needed (falling back to a hard character break).
+@(private = "file")
+editor_wrap_line :: proc(editor: ^Editor, text: string, line_start, line_end, cols, line_index: int) {
+    if line_start == line_end {
+        append(&editor.visual_rows, Visual_Row {line_start, line_end, line_index, true})
+        return
+    }
+
+    seg_start := line_start
+    col := 0
+    last_break := -1 // byte offset just after the most recent space in this segment
+    first := true
+    i := line_start
+    for i < line_end {
+        r, w := utf8.decode_rune_in_string(text[i:])
+        if col >= cols {
+            brk := last_break > seg_start ? last_break : i
+            append(&editor.visual_rows, Visual_Row {seg_start, brk, line_index, first})
+            first = false
+            seg_start = brk
+            col = 0
+            last_break = -1
+            i = brk
+            continue
+        }
+        col += 1
+        i += w
+        if r == ' ' {
+            last_break = i
+        }
+    }
+    append(&editor.visual_rows, Visual_Row {seg_start, line_end, line_index, first})
+}
+
+// Index of the visual row that owns byte offset pos (the earliest row that
+// contains it); 0 when there are no rows.
+@(private = "file")
+editor_visual_row_index :: proc(editor: ^Editor, pos: int) -> int {
+    for row, index in editor.visual_rows {
+        if pos >= row.start && pos <= row.end {
+            return index
+        }
+    }
+    return max(0, len(editor.visual_rows) - 1)
+}
+
+// Byte offset of the rune at column `col` within [start, end].
+@(private = "file")
+editor_byte_at_col :: proc(text: string, start, end, col: int) -> int {
+    pos := start
+    n := 0
+    for pos < end && n < col {
+        _, w := utf8.decode_rune_in_string(text[pos:])
+        pos += w
+        n += 1
+    }
+    return pos
 }
 
 editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event) -> bool {
@@ -346,9 +459,14 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
             return true
         }
     case .P:
-        // Ctrl+Shift+P stays free (reserved for the command palette).
-        if ctrl_only && !event.shift {
-            textedit.move_to_matching_bracket(state, false)
+        // ctrl+p jumps to the matching/enclosing bracket; ctrl+shift+p
+        // selects everything between the brackets (excluding them).
+        if ctrl_only {
+            if event.shift {
+                textedit.select_between_brackets(state)
+            } else {
+                textedit.move_to_matching_bracket(state, false)
+            }
             editor_scroll_to_caret(editor)
             return true
         }
@@ -376,7 +494,11 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
 }
 
 editor_zoom :: proc(editor: ^Editor, delta: i32) {
-    editor.font_size = clamp(editor.font_size + delta, 10, 32)
+    editor_set_font_size(editor, editor.font_size + delta)
+}
+
+editor_set_font_size :: proc(editor: ^Editor, size: i32) {
+    editor.font_size = clamp(size, 10, 32)
     editor_clamp_scroll(editor)
 }
 
@@ -515,6 +637,29 @@ editor_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
     }
 
     ui.end_clip()
+
+    editor_draw_scrollbar(editor, text, line_height)
+}
+
+// Vertical scrollbar on the right edge, shown only when the document is taller
+// than the view. The thumb size and position track scroll_y.
+editor_draw_scrollbar :: proc(editor: ^Editor, text: string, line_height: f32) {
+    view_height := editor.bounds.height - editor.padding.top - editor.padding.bottom
+    content_height := cast(f32) textedit.line_count(text) * line_height
+    if content_height <= view_height {
+        return
+    }
+
+    width: f32 = 6
+    track_x := editor.bounds.x + editor.bounds.width - width - 2
+    track_y := editor.bounds.y + editor.padding.top
+    rl.DrawRectangleRec(rl.Rectangle {track_x, track_y, width, view_height}, editor.gutter_color)
+
+    thumb_height := max(view_height * view_height / content_height, 28)
+    max_scroll := content_height - view_height
+    t := max_scroll > 0 ? editor.scroll_y / max_scroll : 0
+    thumb_y := track_y + (view_height - thumb_height) * t
+    rl.DrawRectangleRec(rl.Rectangle {track_x, thumb_y, width, thumb_height}, editor.line_number_color)
 }
 
 editor_draw_line_selections :: proc(editor: ^Editor, text: string, line_start, line_end: int, text_x, line_y, line_height: f32) {
@@ -546,7 +691,9 @@ editor_draw_line_selections :: proc(editor: ^Editor, text: string, line_start, l
 
 editor_destroy :: proc(widget: ^ui.Widget) {
     // The textedit state is owned by whoever opened the file, not the widget.
-    free(cast(^Editor) widget)
+    editor := cast(^Editor) widget
+    delete(editor.visual_rows)
+    free(editor)
 }
 
 editor_place_caret_at :: proc(editor: ^Editor, position: rl.Vector2) {
@@ -599,8 +746,7 @@ editor_clamp_scroll :: proc(editor: ^Editor) {
         editor.scroll_y = 0
         return
     }
-    line_count := textedit.line_count(textedit.text(editor.state))
-    content_height := cast(f32) line_count * cast(f32) ui.text_line_height(editor.font_size)
+    content_height := cast(f32) len(editor.visual_rows) * cast(f32) ui.text_line_height(editor.font_size)
     view_height := editor.bounds.height - editor.padding.top - editor.padding.bottom
     max_scroll := content_height - view_height
     if max_scroll < 0 {

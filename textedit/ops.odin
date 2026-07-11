@@ -335,10 +335,31 @@ apply_line_edits :: proc(state: ^State, txt: string, edits: []Line_Edit) {
     finish_edit(state, &entry)
 }
 
-// Indentation is soft: a level is TAB_WIDTH spaces, and Tab never inserts a
-// literal tab character.
-TAB_WIDTH :: 4
-INDENT_UNIT :: "    " // TAB_WIDTH spaces
+// Indentation is soft: a level is tab_width() spaces, and Tab never inserts a
+// literal tab character. The width is configurable at runtime (settings), so
+// it lives in a package variable rather than a constant.
+@(private)
+g_tab_width := 4
+
+// Backing storage for indent_unit(); slicing gives 1..MAX_TAB_WIDTH spaces.
+@(private)
+MAX_TAB_WIDTH :: 16
+@(private)
+INDENT_SPACES :: "                " // MAX_TAB_WIDTH spaces
+
+tab_width :: proc() -> int {
+    return g_tab_width
+}
+
+set_tab_width :: proc(width: int) {
+    g_tab_width = clamp(width, 1, MAX_TAB_WIDTH)
+}
+
+@(private)
+indent_unit :: proc() -> string {
+    spaces := INDENT_SPACES
+    return spaces[:g_tab_width]
+}
 
 // Soft-tab insert at each caret: adds spaces up to the next TAB_WIDTH column so
 // indentation snaps to consistent stops. Used for Tab without a selection.
@@ -354,9 +375,9 @@ insert_soft_tab :: proc(state: ^State) {
             append(&entry.ops, Edit_Op {kind = .Delete, pos = lo + offset, text = strings.clone(txt[lo:hi])})
             piecetable.piecetable_delete(&state.table, lo + offset, hi - lo)
         }
-        count := TAB_WIDTH - (column(txt, lo) % TAB_WIDTH)
-        unit := INDENT_UNIT
-        spaces := unit[:count]
+        count := g_tab_width - (column(txt, lo) % g_tab_width)
+        all_spaces := INDENT_SPACES
+        spaces := all_spaces[:count]
         append(&entry.ops, Edit_Op {kind = .Insert, pos = lo + offset, text = strings.clone(spaces)})
         piecetable.piecetable_insert(&state.table, lo + offset, spaces)
         cursor.caret = lo + offset + count
@@ -372,7 +393,7 @@ indent_lines :: proc(state: ^State) {
     starts := covered_line_starts(txt, state)
     edits := make([dynamic]Line_Edit, context.temp_allocator)
     for start in starts {
-        append(&edits, Line_Edit {pos = start, insert = INDENT_UNIT})
+        append(&edits, Line_Edit {pos = start, insert = indent_unit()})
     }
     apply_line_edits(state, txt, edits[:])
 }
@@ -387,7 +408,7 @@ outdent_lines :: proc(state: ^State) {
             continue
         }
         spaces := 0
-        for start + spaces < len(txt) && spaces < 4 && txt[start + spaces] == ' ' {
+        for start + spaces < len(txt) && spaces < g_tab_width && txt[start + spaces] == ' ' {
             spaces += 1
         }
         if spaces > 0 {

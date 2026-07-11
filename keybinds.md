@@ -12,9 +12,9 @@ bindings are physical key positions, noted where they differ.
 | ctrl + page down / page up | next / previous tab |
 | ctrl + b | toggle explorer panel |
 | ctrl + j | toggle console panel |
+| ctrl + . | open the command palette |
 
-Reserved (not implemented yet): `ctrl + shift + p` command palette,
-`ctrl + tab` quick open, `ctrl + f` find.
+Reserved (not implemented yet): `ctrl + tab` quick open, `ctrl + f` find.
 
 ## Clipboard
 
@@ -36,8 +36,9 @@ Reserved (not implemented yet): `ctrl + shift + p` command palette,
 | alt + number | jump n lines down |
 | alt + shift + number | jump n lines up |
 | page up / page down | move 8 lines |
-| ctrl + p | jump to matching bracket |
-| ctrl + shift + # (ctrl + shift + \ on US) | select to matching bracket |
+| ctrl + p | jump to matching / enclosing bracket (works from inside a pair) |
+| ctrl + shift + p | select everything between the brackets (excludes them) |
+| ctrl + shift + # (ctrl + shift + \ on US) | select to matching bracket (includes them) |
 
 Add `shift` to any movement to extend the selection.
 
@@ -71,3 +72,12 @@ Add `shift` to any movement to extend the selection.
 | --- | --- |
 | ctrl + scroll wheel | zoom editor font |
 | ctrl + numpad + / numpad - | zoom editor font |
+| f12 | toggle borderless fullscreen |
+
+## Command palette
+
+`ctrl + .` opens the command palette. Type to fuzzy-filter, arrows/enter to run,
+escape to dismiss. "Go to File" and "Go to Line" switch it into file / line
+input modes. All bindings above live in `settings/keybinds.json`; comment
+markers in `settings/comments.json`; tab width, font size and autosave delay in
+`settings/settings.json`.

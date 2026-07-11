@@ -93,6 +93,19 @@ thor_build_ui :: proc(thor: ^Thor) {
     widgets.stack_set_background(thor.dialog_stack, rl.Color {0, 0, 0, 0})
     ui.widget_set_grow(&thor.dialog_stack.widget, 1)
 
+    thor.command_palette = widgets.command_palette_create("command-palette")
+    widgets.command_palette_set_colors(
+        thor.command_palette,
+        thor.theme.second_background,
+        thor.theme.accent_color,
+        thor.theme.background,
+        thor.theme.white_black_color,
+        thor.theme.gray_color,
+        rl.Color {thor.theme.accent_color.r, thor.theme.accent_color.g, thor.theme.accent_color.b, 40},
+        thor.theme.accent_color,
+    )
+    thor.command_palette.visible = false
+
     thor_build_controls(thor)
     thor_build_content(thor)
     thor_connect_tree(thor)
@@ -245,6 +258,8 @@ thor_build_content :: proc(thor: ^Thor) {
 thor_connect_tree :: proc(thor: ^Thor) {
     widgets.append_child(&thor.root_panel.widget, &thor.root_stack.widget)
     widgets.append_child(&thor.root_panel.widget, &thor.dialog.widget)
+    // Added last so it overlays everything and is hit-tested first.
+    widgets.append_child(&thor.root_panel.widget, &thor.command_palette.widget)
 
     widgets.append_child(&thor.root_stack.widget, &thor.top_bar.widget)
     widgets.append_child(&thor.root_stack.widget, &thor.workspace_row.widget)

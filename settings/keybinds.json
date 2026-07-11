@@ -1,5 +1,6 @@
 {
     "files_app": {
+        "command_palette": "ctrl+.",
         "save":            "ctrl+s",
         "close_tab":       "ctrl+w",
         "next_tab":        "ctrl+page_down",
@@ -26,6 +27,7 @@
         "page_up":                    "page_up",
         "page_down":                  "page_down",
         "matching_bracket":           "ctrl+p",
+        "select_between_brackets":     "ctrl+shift+p",
         "select_to_matching_bracket": "ctrl+shift+backslash"
     },
     "selection": {
@@ -54,12 +56,12 @@
         "toggle_line_comment":  "ctrl+k"
     },
     "view": {
-        "zoom_in":  "ctrl+kp_add",
-        "zoom_out": "ctrl+kp_subtract"
+        "zoom_in":          "ctrl+kp_add",
+        "zoom_out":         "ctrl+kp_subtract",
+        "toggle_fullscreen": "f12"
     },
     "reserved": {
-        "command_palette": "ctrl+shift+p",
-        "quick_open":      "ctrl+tab",
-        "find":            "ctrl+f"
+        "quick_open": "ctrl+tab",
+        "find":       "ctrl+f"
     }
 }

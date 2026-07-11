@@ -249,23 +249,54 @@ move_document_end :: proc(state: ^State, extend: bool) {
 move_to_matching_bracket :: proc(state: ^State, extend: bool) {
     txt := text(state)
     for &cursor in state.cursors {
-        bracket_pos, match_pos, forward, found := find_matching_bracket(txt, cursor.caret)
+        if bracket_pos, match_pos, forward, found := find_matching_bracket(txt, cursor.caret); found {
+            if extend {
+                // Select the bracketed range including both brackets.
+                if forward {
+                    cursor.anchor = bracket_pos
+                    cursor.caret = match_pos + 1
+                } else {
+                    cursor.anchor = bracket_pos + 1
+                    cursor.caret = match_pos
+                }
+            } else {
+                cursor.caret = match_pos
+                cursor.anchor = match_pos
+            }
+            cursor.preferred_column = column(txt, cursor.caret)
+            continue
+        }
+
+        // Not adjacent to a bracket: fall back to the nearest bracket pair
+        // that encloses the caret, so Ctrl+P works from inside/behind a
+        // paren. Jump to the opening bracket (extend selects the whole pair).
+        if open_pos, close_pos, found := find_enclosing_bracket(txt, cursor.caret); found {
+            if extend {
+                cursor.anchor = open_pos
+                cursor.caret = close_pos + 1
+            } else {
+                cursor.caret = open_pos
+                cursor.anchor = open_pos
+            }
+            cursor.preferred_column = column(txt, cursor.caret)
+        }
+    }
+    normalize_cursors(state)
+}
+
+// Selects the text between the innermost bracket pair around the caret,
+// excluding the brackets themselves. Like move_to_matching_bracket, it works
+// both when the caret sits next to a bracket and when it is somewhere inside
+// (behind) the pair.
+select_between_brackets :: proc(state: ^State) {
+    txt := text(state)
+    for &cursor in state.cursors {
+        open_pos, close_pos, found := bracket_span(txt, cursor.caret)
         if !found {
             continue
         }
-        if extend {
-            // Select the bracketed range including both brackets.
-            if forward {
-                cursor.anchor = bracket_pos
-                cursor.caret = match_pos + 1
-            } else {
-                cursor.anchor = bracket_pos + 1
-                cursor.caret = match_pos
-            }
-        } else {
-            cursor.caret = match_pos
-            cursor.anchor = match_pos
-        }
+        cursor.anchor = open_pos + 1
+        cursor.caret = close_pos
         cursor.preferred_column = column(txt, cursor.caret)
     }
     normalize_cursors(state)
@@ -660,4 +691,60 @@ find_matching_bracket :: proc(txt: string, pos: int) -> (bracket_pos, match_pos:
         }
     }
     return 0, 0, false, false
+}
+
+// Resolves the bracket pair to act on for a caret: prefers a bracket directly
+// adjacent to the caret, otherwise the innermost pair enclosing it.
+bracket_span :: proc(txt: string, pos: int) -> (open_pos, close_pos: int, found: bool) {
+    if bracket_pos, match_pos, forward, ok := find_matching_bracket(txt, pos); ok {
+        if forward {
+            return bracket_pos, match_pos, true
+        }
+        return match_pos, bracket_pos, true
+    }
+    return find_enclosing_bracket(txt, pos)
+}
+
+// Finds the innermost bracket pair enclosing pos: scans left for the nearest
+// unmatched opening bracket, then forward for its partner. Used as a fallback
+// when the caret is not sitting right next to a bracket.
+find_enclosing_bracket :: proc(txt: string, pos: int) -> (open_pos, close_pos: int, found: bool) {
+    // Per-type count of closing brackets seen while scanning left; an opening
+    // bracket with no outstanding closer of its type is the one we enclose.
+    pending: [3]int // ( ) , [ ] , { }
+    open_char: u8
+    open_pos = -1
+    for i := min(pos, len(txt)) - 1; i >= 0; i -= 1 {
+        switch txt[i] {
+        case ')': pending[0] += 1
+        case ']': pending[1] += 1
+        case '}': pending[2] += 1
+        case '(':
+            if pending[0] > 0 { pending[0] -= 1 } else { open_pos = i; open_char = '(' }
+        case '[':
+            if pending[1] > 0 { pending[1] -= 1 } else { open_pos = i; open_char = '[' }
+        case '{':
+            if pending[2] > 0 { pending[2] -= 1 } else { open_pos = i; open_char = '{' }
+        }
+        if open_pos >= 0 {
+            break
+        }
+    }
+    if open_pos < 0 {
+        return 0, 0, false
+    }
+
+    open, close, _, _ := bracket_kind(open_char)
+    depth := 1
+    for i := open_pos + 1; i < len(txt); i += 1 {
+        if txt[i] == open {
+            depth += 1
+        } else if txt[i] == close {
+            depth -= 1
+            if depth == 0 {
+                return open_pos, i, true
+            }
+        }
+    }
+    return 0, 0, false
 }
