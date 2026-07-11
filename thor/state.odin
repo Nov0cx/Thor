@@ -49,6 +49,7 @@ thor_set_active_file :: proc(thor: ^Thor, index: int) {
 
     widgets.editor_set_comment_prefix(thor.editor, settings.comment_prefix(&thor.config, file.name))
     widgets.editor_set_state(thor.editor, &file.state)
+    widgets.editor_set_highlights(thor.editor, file.highlights[:])
 }
 
 thor_status_info :: proc(data: rawptr) -> widgets.Status_Info {

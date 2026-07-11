@@ -30,6 +30,10 @@ Open_File :: struct {
     saved_revision:     u64,
     last_seen_revision: u64,
     last_edit:          time.Tick,
+    // Syntax highlight spans and the buffer revision they were computed from.
+    highlights:         [dynamic]widgets.Highlight_Span,
+    highlight_revision: u64,
+    highlighted:        bool,
 }
 
 // Loaded via a memory mapping on a worker thread; the main thread copies the
@@ -245,6 +249,13 @@ thor_update_files :: proc(thor: ^Thor) {
             thor_save_file(thor, file)
         }
     }
+
+    // Keep the visible buffer's highlighting current (parse only the active file).
+    if file := thor_active_open_file(thor); file != nil && file.loaded {
+        if !file.highlighted || file.state.revision != file.highlight_revision {
+            thor_update_highlights(thor, file)
+        }
+    }
 }
 
 thor_process_io :: proc(thor: ^Thor) {
@@ -345,6 +356,7 @@ thor_process_io :: proc(thor: ^Thor) {
 
 thor_free_open_file :: proc(file: ^Open_File) {
     textedit.destroy(&file.state)
+    delete(file.highlights)
     delete(file.path)
     free(file)
 }

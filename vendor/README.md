@@ -31,3 +31,26 @@ Notes:
   DLL CRT.
 - The `libharfbuzz.a` produced by meson is a regular COFF archive; the `.lib`
   extension is just what the binding's `foreign import` expects.
+
+## odin-tree-sitter (git submodule)
+
+Odin bindings for Tree-sitter, used for syntax highlighting in `syntax/`.
+
+The runtime static lib and each language parser are local build artifacts
+(gitignored inside the submodule), so they must be built once per machine from a
+Visual Studio developer shell (`Enter-VsDevShell`):
+
+```powershell
+cd vendor/odin-tree-sitter
+# Runtime -> tree-sitter/libtree-sitter.lib
+odin run build -- install
+# Grammar -> parsers/odin/parser.lib + generated bindings + queries
+odin run build -- install-parser https://github.com/tree-sitter-grammars/tree-sitter-odin -yes
+```
+
+Add a language: `install-parser <grammar-git-url>`, then register it in
+`syntax/syntax.odin` (`highlighter_create`) and map its file extension in
+`thor/highlight.odin` (`thor_syntax_language`).
+
+Because the app links `libtree-sitter.lib`, **Thor itself must now be built from
+the developer shell** (the MSVC linker must be on `PATH`).

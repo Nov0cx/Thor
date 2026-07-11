@@ -20,6 +20,14 @@ Visual_Row :: struct {
     first: bool, // true for the first visual row of the logical line
 }
 
+// A colored byte range for syntax highlighting; ascending and non-overlapping.
+// Owned by the file, borrowed by the editor for drawing.
+Highlight_Span :: struct {
+    start: int,
+    end:   int,
+    color: rl.Color,
+}
+
 Editor :: struct {
     using widget: ui.Widget,
     // Borrowed from the open file (thor/files.odin); nil when none open. Kept
@@ -48,6 +56,8 @@ Editor :: struct {
     // layout is rebuilt from the buffer every frame in editor_layout.
     wrap:               bool,
     visual_rows:        [dynamic]Visual_Row,
+    // Syntax highlight spans for the current buffer; borrowed from the owner.
+    highlights:         []Highlight_Span,
 }
 
 editor_vtable := ui.Widget_VTable {
@@ -105,7 +115,12 @@ editor_set_comment_prefix :: proc(editor: ^Editor, prefix: string) {
 editor_set_state :: proc(editor: ^Editor, state: ^textedit.State) {
     editor.state = state
     editor.scroll_y = 0
+    editor.highlights = nil
     editor_clamp_scroll(editor)
+}
+
+editor_set_highlights :: proc(editor: ^Editor, highlights: []Highlight_Span) {
+    editor.highlights = highlights
 }
 
 editor_layout :: proc(widget: ^ui.Widget, bounds: rl.Rectangle) {
@@ -237,7 +252,16 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
 
     #partial switch event.kind {
     case .Mouse_Down:
-        editor_place_caret_at(editor, event.mouse_position)
+        // Shift-click extends the selection; a plain click starts a new one.
+        if event.shift {
+            editor_select_to(editor, event.mouse_position)
+        } else {
+            editor_place_caret_at(editor, event.mouse_position)
+        }
+        return true
+    case .Mouse_Move:
+        // Only dispatched here while the button is held (drag), so extend.
+        editor_select_to(editor, event.mouse_position)
         return true
     case .Scroll:
         // Scroll events carry no modifier state; poll ctrl for zooming.
@@ -260,7 +284,7 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
         }
     case .Key_Press:
         return editor_handle_key(editor, event)
-    case .Mouse_Move, .Mouse_Up, .Click, .None:
+    case .Mouse_Up, .Click, .None:
     }
 
     return false
@@ -620,8 +644,13 @@ editor_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
 
     caret_line := textedit.line_index(text, textedit.primary_cursor(editor.state).caret)
 
+    // Monotonic cursor into the sorted highlight spans as rows advance.
+    hl := 0
     for row, index in editor.visual_rows {
         row_y := inner_top - editor.scroll_y + cast(f32) index * line_height
+        for hl < len(editor.highlights) && editor.highlights[hl].end <= row.start {
+            hl += 1
+        }
         if row_y + line_height < inner_top {
             continue
         }
@@ -640,7 +669,7 @@ editor_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
             number_x := cast(i32) (editor.bounds.x + editor.gutter_width - 8) - number_width
             ui.draw_text(line_number_text, number_x, cast(i32) row_y, editor.font_size, editor.line_number_color)
         }
-        ui.draw_text(text[row.start:row.end], text_x, cast(i32) row_y, editor.font_size, editor.text_color)
+        editor_draw_row_text(editor, text, row, hl, text_x, cast(i32) row_y)
     }
 
     if ctx.focused == widget {
@@ -690,6 +719,42 @@ editor_draw_scrollbar :: proc(editor: ^Editor, line_height: f32) {
     rl.DrawRectangleRec(rl.Rectangle {track_x, thumb_y, width, thumb_height}, editor.line_number_color)
 }
 
+// Draws one visual row, coloring byte ranges from the highlight spans and using
+// the default text color for the gaps. `hl_start` is the first span that may
+// touch this row. Falls back to a single flat draw when there are no spans.
+editor_draw_row_text :: proc(editor: ^Editor, text: string, row: Visual_Row, hl_start: int, text_x, row_y: i32) {
+    if len(editor.highlights) == 0 {
+        ui.draw_text(text[row.start:row.end], text_x, row_y, editor.font_size, editor.text_color)
+        return
+    }
+
+    pen := cast(f32) text_x
+    pos := row.start
+    j := hl_start
+    for pos < row.end {
+        for j < len(editor.highlights) && editor.highlights[j].end <= pos {
+            j += 1
+        }
+        if j >= len(editor.highlights) || editor.highlights[j].start >= row.end {
+            ui.draw_text(text[pos:row.end], cast(i32) pen, row_y, editor.font_size, editor.text_color)
+            return
+        }
+
+        span := editor.highlights[j]
+        if span.start > pos {
+            gap := text[pos:span.start]
+            ui.draw_text(gap, cast(i32) pen, row_y, editor.font_size, editor.text_color)
+            pen += cast(f32) ui.measure_text(gap, editor.font_size)
+            pos = span.start
+        }
+        seg_end := min(span.end, row.end)
+        seg := text[pos:seg_end]
+        ui.draw_text(seg, cast(i32) pen, row_y, editor.font_size, span.color)
+        pen += cast(f32) ui.measure_text(seg, editor.font_size)
+        pos = seg_end
+    }
+}
+
 editor_draw_line_selections :: proc(editor: ^Editor, text: string, line_start, line_end: int, text_x, line_y, line_height: f32) {
     for cursor in editor.state.cursors {
         lo, hi := textedit.selection_range(cursor)
@@ -724,9 +789,10 @@ editor_destroy :: proc(widget: ^ui.Widget) {
     free(editor)
 }
 
-editor_place_caret_at :: proc(editor: ^Editor, position: rl.Vector2) {
+// Byte offset of the character nearest the given screen position.
+editor_pos_at :: proc(editor: ^Editor, position: rl.Vector2) -> (int, bool) {
     if len(editor.visual_rows) == 0 {
-        return
+        return 0, false
     }
     text := textedit.text(editor.state)
     line_height := cast(f32) ui.text_line_height(editor.font_size)
@@ -748,8 +814,23 @@ editor_place_caret_at :: proc(editor: ^Editor, position: rl.Vector2) {
         }
         pos += width
     }
+    return pos, true
+}
 
-    textedit.set_single_cursor(editor.state, pos)
+// Click: places a single caret at the position.
+editor_place_caret_at :: proc(editor: ^Editor, position: rl.Vector2) {
+    if pos, ok := editor_pos_at(editor, position); ok {
+        textedit.set_single_cursor(editor.state, pos)
+    }
+}
+
+// Drag / shift-click: extends the selection to the position, keeping the anchor.
+editor_select_to :: proc(editor: ^Editor, position: rl.Vector2) {
+    if pos, ok := editor_pos_at(editor, position); ok {
+        anchor := textedit.primary_cursor(editor.state).anchor
+        textedit.select_range(editor.state, anchor, pos)
+        editor_scroll_to_caret(editor)
+    }
 }
 
 editor_scroll_to_caret :: proc(editor: ^Editor) {

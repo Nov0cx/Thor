@@ -8,12 +8,14 @@ import "core:time"
 import rl "vendor:raylib"
 
 import "../settings"
+import "../syntax"
 import "../ui"
 import "../widgets"
 
 Thor :: struct {
     ui_context:               ui.Context,
     config:                   settings.Settings,
+    highlighter:              syntax.Highlighter,
     theme:                    ui.Theme,
     root_panel:               ^widgets.Panel,
     root_stack:               ^widgets.Stack,
@@ -105,6 +107,7 @@ init :: proc() -> ^Thor {
     thor := new(Thor)
     ui.context_init(&thor.ui_context)
     thor.config = settings.load("settings")
+    thor.highlighter = syntax.highlighter_create()
     thor.theme = ui.theme_material_deep_ocean()
     thor.active_file = ui.make_signal(-1)
     thor.explorer_visible = ui.make_signal(true)
@@ -204,6 +207,7 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.workspace_prefix)
     delete(thor.git_branch)
     settings.destroy(&thor.config)
+    syntax.highlighter_destroy(&thor.highlighter)
 
     ui.context_destroy(&thor.ui_context)
     ui.text_shutdown()

@@ -1,3 +1,6 @@
 [submodule "vendor/odin-harfbuzz"]
 	path = vendor/odin-harfbuzz
 	url = https://codeberg.org/mgavioli/odin-harfbuzz
+[submodule "vendor/odin-tree-sitter"]
+	path = vendor/odin-tree-sitter
+	url = https://github.com/laytan/odin-tree-sitter
