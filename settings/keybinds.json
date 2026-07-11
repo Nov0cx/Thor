@@ -6,7 +6,7 @@
         "next_tab":        "ctrl+page_down",
         "previous_tab":    "ctrl+page_up",
         "toggle_explorer": "ctrl+b",
-        "toggle_console":  "ctrl+j"
+        "toggle_console":  "ctrl+t"
     },
     "clipboard": {
         "copy":  "ctrl+c",
@@ -60,8 +60,11 @@
         "zoom_out":         "ctrl+kp_subtract",
         "toggle_fullscreen": "f12"
     },
+    "search": {
+        "find":    "ctrl+f",
+        "replace": "ctrl+r"
+    },
     "reserved": {
-        "quick_open": "ctrl+tab",
-        "find":       "ctrl+f"
+        "quick_open": "ctrl+tab"
     }
 }

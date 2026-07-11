@@ -37,9 +37,19 @@ thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
         thor_toggle_command_palette(thor)
         return true
     }
-    // While the palette is open it owns the keyboard (dispatched via focus),
+    // Find / replace open on ctrl+f / ctrl+r (work regardless of focus).
+    if settings.keybind_matches(thor.find_key, event.key, event.ctrl, event.shift, event.alt) {
+        thor_open_find(thor, false)
+        return true
+    }
+    if settings.keybind_matches(thor.replace_key, event.key, event.ctrl, event.shift, event.alt) {
+        thor_open_find(thor, true)
+        return true
+    }
+
+    // While an overlay is open it owns the keyboard (dispatched via focus),
     // so app shortcuts below are suppressed.
-    if widgets.command_palette_is_open(thor.command_palette) {
+    if widgets.command_palette_is_open(thor.command_palette) || widgets.find_replace_is_open(thor.find_replace) {
         return false
     }
 
@@ -47,6 +57,10 @@ thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
     // ctrl-only guard below.
     if settings.keybind_matches(thor.fullscreen_key, event.key, event.ctrl, event.shift, event.alt) {
         thor_toggle_fullscreen(thor)
+        return true
+    }
+    if settings.keybind_matches(thor.console_toggle_key, event.key, event.ctrl, event.shift, event.alt) {
+        thor_toggle_console(thor, nil, nil)
         return true
     }
 
@@ -66,9 +80,6 @@ thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
         return true
     case .B:
         thor_toggle_explorer(thor, nil, nil)
-        return true
-    case .J:
-        thor_toggle_console(thor, nil, nil)
         return true
     }
     return false

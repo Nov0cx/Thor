@@ -11,10 +11,15 @@ bindings are physical key positions, noted where they differ.
 | ctrl + w | close tab |
 | ctrl + page down / page up | next / previous tab |
 | ctrl + b | toggle explorer panel |
-| ctrl + j | toggle console panel |
+| ctrl + t | toggle console panel (type a command, enter runs it) |
 | ctrl + . | open the command palette |
+| ctrl + f | find |
+| ctrl + r | find & replace |
 
-Reserved (not implemented yet): `ctrl + tab` quick open, `ctrl + f` find.
+In find/replace: enter / shift+enter jump to next / previous match, tab
+switches between the find and replace fields, escape closes.
+
+Reserved (not implemented yet): `ctrl + tab` quick open.
 
 ## Clipboard
 

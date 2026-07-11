@@ -98,6 +98,16 @@ set_single_cursor :: proc(state: ^State, pos: int) {
     append(&state.cursors, Cursor {caret = p, anchor = p, preferred_column = column(txt, p)})
 }
 
+// Replaces the cursor set with a single selection anchored at lo, caret at hi
+// (used by find to highlight a match).
+select_range :: proc(state: ^State, lo, hi: int) {
+    txt := text(state)
+    a := clamp(lo, 0, len(txt))
+    b := clamp(hi, 0, len(txt))
+    clear(&state.cursors)
+    append(&state.cursors, Cursor {anchor = a, caret = b, preferred_column = column(txt, b)})
+}
+
 collapse_to_primary :: proc(state: ^State) {
     primary := primary_cursor(state)
     clear(&state.cursors)
@@ -112,6 +122,12 @@ select_all :: proc(state: ^State) {
         anchor = 0,
         preferred_column = column(txt, len(txt)),
     })
+}
+
+// Public entry point for callers (e.g. the editor's visual movement) that set
+// cursor carets directly and need the sorted/merged invariant restored.
+normalize :: proc(state: ^State) {
+    normalize_cursors(state)
 }
 
 // Keeps cursors sorted by caret and merges duplicates.
@@ -350,6 +366,65 @@ insert_text :: proc(state: ^State, s: string) {
     }
 
     finish_edit(state, &entry)
+}
+
+// True when `query` occurs at byte offset `pos` in txt (ASCII case-insensitive
+// when insensitive).
+@(private)
+match_at :: proc(txt: string, pos: int, query: string, case_sensitive: bool) -> bool {
+    if pos + len(query) > len(txt) {
+        return false
+    }
+    for i in 0 ..< len(query) {
+        a := txt[pos + i]
+        b := query[i]
+        if !case_sensitive {
+            if a >= 'A' && a <= 'Z' {a += 32}
+            if b >= 'A' && b <= 'Z' {b += 32}
+        }
+        if a != b {
+            return false
+        }
+    }
+    return true
+}
+
+// Replaces every occurrence of `query` with `replacement` as a single undo
+// step. Returns the number of replacements made.
+replace_all :: proc(state: ^State, query, replacement: string, case_sensitive: bool) -> int {
+    if len(query) == 0 {
+        return 0
+    }
+    txt := text(state)
+    entry := Undo_Entry {cursors_before = clone_cursors(state)}
+
+    offset := 0
+    count := 0
+    i := 0
+    for i + len(query) <= len(txt) {
+        if !match_at(txt, i, query, case_sensitive) {
+            i += 1
+            continue
+        }
+        append(&entry.ops, Edit_Op {kind = .Delete, pos = i + offset, text = strings.clone(txt[i:i + len(query)])})
+        piecetable.piecetable_delete(&state.table, i + offset, len(query))
+        if len(replacement) > 0 {
+            append(&entry.ops, Edit_Op {kind = .Insert, pos = i + offset, text = strings.clone(replacement)})
+            piecetable.piecetable_insert(&state.table, i + offset, replacement)
+        }
+        offset += len(replacement) - len(query)
+        count += 1
+        i += len(query)
+    }
+
+    if count > 0 {
+        clear(&state.cursors)
+        append(&state.cursors, Cursor {caret = 0, anchor = 0})
+        finish_edit(state, &entry)
+    } else {
+        entry_destroy(&entry)
+    }
+    return count
 }
 
 delete_backward :: proc(state: ^State) {

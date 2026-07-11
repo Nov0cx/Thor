@@ -1,6 +1,7 @@
 package ui
 
 import "core:testing"
+import rl "vendor:raylib"
 
 // Runs manifest loading plus the full async CPU rasterization pipeline
 // headlessly (the texture upload is skipped by raylib when no GPU is ready).
@@ -86,6 +87,34 @@ test_async_font_load :: proc(t: ^testing.T) {
             }
             testing.expect_value(t, font.glyphCount, cast(i32) len(odin_icons.codepoints))
         }
+    }
+
+    // Backticks (and other characters JetBrains Mono substitutes via calt)
+    // must still render: the baked atlas has the backtick codepoint glyph, and
+    // draw_line_shaped falls back to it when shaping yields an unbaked glyph id.
+    if family, ok := families["JetBrainsMono"]; ok {
+        font := get_font(17, "JetBrainsMono")
+        backtick_index := rl.GetGlyphIndex(font, '`')
+        testing.expect(t, font.glyphs[backtick_index].value == '`', "backtick glyph not baked into the atlas")
+
+        fence := "```"
+        infos, n := shape_line(family, fence)
+        testing.expect_value(t, n, 3) // three glyphs, one per backtick (no ligature)
+        shaped := family.shaped[17]
+        unmapped := 0
+        for i in 0 ..< n {
+            gid := cast(u32) infos[i].codepoint
+            if _, mapped := shaped[gid]; !mapped {
+                unmapped += 1
+                // The unbaked case the fallback exists for; the source char is
+                // a backtick, which is baked, so it still draws.
+                cluster := cast(int) infos[i].cluster
+                testing.expect(t, fence[cluster] == '`', "fallback source char is not a backtick")
+            }
+        }
+        // JetBrains Mono substitutes every backtick with a contextual-alternate
+        // glyph that isn't in the atlas, so the fallback path must be exercised.
+        testing.expect(t, unmapped > 0, "expected backtick to hit the codepoint fallback")
     }
 
     codepoint, found := icon_codepoint("folder")

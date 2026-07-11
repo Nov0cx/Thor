@@ -24,6 +24,21 @@ thor_apply_settings :: proc(thor: ^Thor) {
     } else {
         thor.fullscreen_key = settings.Keybind {key = .F12}
     }
+    if kb, ok := settings.keybind(&thor.config, "toggle_console"); ok {
+        thor.console_toggle_key = kb
+    } else {
+        thor.console_toggle_key = settings.Keybind {key = .T, ctrl = true}
+    }
+    if kb, ok := settings.keybind(&thor.config, "find"); ok {
+        thor.find_key = kb
+    } else {
+        thor.find_key = settings.Keybind {key = .F, ctrl = true}
+    }
+    if kb, ok := settings.keybind(&thor.config, "replace"); ok {
+        thor.replace_key = kb
+    } else {
+        thor.replace_key = settings.Keybind {key = .R, ctrl = true}
+    }
 
     widgets.editor_set_font_size(thor.editor, cast(i32) settings.font_size(&thor.config))
     textedit.set_tab_width(settings.tab_width(&thor.config))
@@ -33,6 +48,10 @@ thor_reload_settings :: proc(thor: ^Thor) {
     settings.destroy(&thor.config)
     thor.config = settings.load("settings")
     thor_apply_settings(thor)
+}
+
+thor_open_find :: proc(thor: ^Thor, show_replace: bool) {
+    widgets.find_replace_open(thor.find_replace, &thor.ui_context, thor.editor, show_replace)
 }
 
 thor_toggle_command_palette :: proc(thor: ^Thor) {
@@ -55,6 +74,7 @@ thor_register_commands :: proc(thor: ^Thor) {
     widgets.command_palette_add(p, "View: Reset Zoom", thor_cmd_zoom_reset, thor)
     widgets.command_palette_add(p, "View: Toggle Maximize", thor_cmd_toggle_maximize, thor)
     widgets.command_palette_add(p, "View: Toggle Fullscreen", thor_cmd_toggle_fullscreen, thor)
+    widgets.command_palette_add(p, "View: Toggle Word Wrap", thor_cmd_toggle_wrap, thor)
 
     widgets.command_palette_add(p, "File: Save", thor_cmd_save, thor)
     widgets.command_palette_add(p, "File: Close Tab", thor_cmd_close_tab, thor)
@@ -65,6 +85,9 @@ thor_register_commands :: proc(thor: ^Thor) {
     // Data is the palette itself: these switch it into another input mode.
     widgets.command_palette_add(p, "Go to File", widgets.command_palette_goto_file_command, p)
     widgets.command_palette_add(p, "Go to Line", widgets.command_palette_goto_line_command, p)
+
+    widgets.command_palette_add(p, "Find", thor_cmd_find, thor)
+    widgets.command_palette_add(p, "Replace", thor_cmd_replace, thor)
 
     widgets.command_palette_add(p, "Edit: Toggle Line Comment", thor_cmd_toggle_comment, thor)
     widgets.command_palette_add(p, "Settings: Open Keybinds", thor_cmd_open_keybinds, thor)
@@ -79,6 +102,9 @@ thor_cmd_toggle_explorer :: proc(data: rawptr) {thor_toggle_explorer(data, nil, 
 thor_cmd_toggle_console :: proc(data: rawptr) {thor_toggle_console(data, nil, nil)}
 thor_cmd_toggle_maximize :: proc(data: rawptr) {thor_toggle_maximize(data, nil, nil)}
 thor_cmd_toggle_fullscreen :: proc(data: rawptr) {thor_toggle_fullscreen(cast(^Thor) data)}
+thor_cmd_toggle_wrap :: proc(data: rawptr) {widgets.editor_toggle_wrap((cast(^Thor) data).editor)}
+thor_cmd_find :: proc(data: rawptr) {thor_open_find(cast(^Thor) data, false)}
+thor_cmd_replace :: proc(data: rawptr) {thor_open_find(cast(^Thor) data, true)}
 thor_cmd_save :: proc(data: rawptr) {thor_request_save(data)}
 
 thor_cmd_zoom_in :: proc(data: rawptr) {widgets.editor_zoom((cast(^Thor) data).editor, 1)}

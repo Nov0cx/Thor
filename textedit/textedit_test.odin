@@ -107,6 +107,49 @@ test_bracket_match_enclosing :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_insert_newline_auto_indent :: proc(t: ^testing.T) {
+    state: State
+    init(&state)
+    defer destroy(&state)
+
+    // Caret at end of an indented line: the new line keeps the indent.
+    insert_text(&state, "    foo")
+    insert_newline(&state)
+    testing.expect_value(t, text(&state), "    foo\n    ")
+
+    // After an opening brace, add one more level (4 spaces).
+    brace: State
+    init(&brace)
+    defer destroy(&brace)
+    insert_text(&brace, "if x {")
+    insert_newline(&brace)
+    testing.expect_value(t, text(&brace), "if x {\n    ")
+}
+
+@(test)
+test_replace_all :: proc(t: ^testing.T) {
+    state: State
+    init(&state)
+    defer destroy(&state)
+
+    insert_text(&state, "foo bar Foo baz foo")
+
+    // Case-insensitive: replaces foo, Foo, foo.
+    count := replace_all(&state, "foo", "X", false)
+    testing.expect_value(t, count, 3)
+    testing.expect_value(t, text(&state), "X bar X baz X")
+
+    // Undo restores the original in one step.
+    undo(&state)
+    testing.expect_value(t, text(&state), "foo bar Foo baz foo")
+
+    // Case-sensitive: only the two lowercase.
+    count = replace_all(&state, "foo", "X", true)
+    testing.expect_value(t, count, 2)
+    testing.expect_value(t, text(&state), "X bar Foo baz X")
+}
+
+@(test)
 test_select_between_brackets :: proc(t: ^testing.T) {
     state: State
     init(&state)

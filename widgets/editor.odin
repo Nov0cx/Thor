@@ -116,8 +116,26 @@ editor_set_state :: proc(editor: ^Editor, state: ^textedit.State) {
 editor_layout :: proc(widget: ^ui.Widget, bounds: rl.Rectangle) {
     editor := cast(^Editor) widget
     editor.bounds = bounds
+    editor_update_gutter(editor)
     editor_rebuild_visual_rows(editor)
     editor_clamp_scroll(editor)
+}
+
+// Sizes the line-number gutter to just fit the widest line number, so small
+// files get a narrow gutter and large ones grow only as needed.
+@(private = "file")
+editor_update_gutter :: proc(editor: ^Editor) {
+    if editor.state == nil {
+        return
+    }
+    line_count := textedit.line_count(textedit.text(editor.state))
+    digits := 1
+    for n := line_count; n >= 10; n /= 10 {
+        digits += 1
+    }
+    char_width := cast(f32) ui.measure_text("0", editor.font_size)
+    // At least 2 digits wide, plus a little breathing room on each side.
+    editor.gutter_width = char_width * cast(f32) max(digits, 2) + 14
 }
 
 // Width available for text (inside the gutter, padding and scrollbar).
@@ -302,7 +320,7 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
                 textedit.insert_line_below(state)
             }
         } else {
-            textedit.insert_text(state, "\n")
+            textedit.insert_newline(state)
         }
         editor_scroll_to_caret(editor)
         return true
@@ -351,7 +369,7 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
                 textedit.move_lines(state, -1)
             }
         } else {
-            textedit.move_vertical(state, -1, event.shift)
+            editor_move_visual(editor, -1, event.shift)
         }
         editor_scroll_to_caret(editor)
         return true
@@ -367,16 +385,16 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
                 textedit.move_lines(state, 1)
             }
         } else {
-            textedit.move_vertical(state, 1, event.shift)
+            editor_move_visual(editor, 1, event.shift)
         }
         editor_scroll_to_caret(editor)
         return true
     case .PAGE_UP:
-        textedit.move_vertical(state, -8, event.shift)
+        editor_move_visual(editor, -8, event.shift)
         editor_scroll_to_caret(editor)
         return true
     case .PAGE_DOWN:
-        textedit.move_vertical(state, 8, event.shift)
+        editor_move_visual(editor, 8, event.shift)
         editor_scroll_to_caret(editor)
         return true
     case .HOME:
@@ -502,6 +520,12 @@ editor_set_font_size :: proc(editor: ^Editor, size: i32) {
     editor_clamp_scroll(editor)
 }
 
+editor_toggle_wrap :: proc(editor: ^Editor) {
+    editor.wrap = !editor.wrap
+    editor_rebuild_visual_rows(editor)
+    editor_clamp_scroll(editor)
+}
+
 editor_copy :: proc(editor: ^Editor) {
     payload, _ := textedit.copy_payload(editor.state, context.temp_allocator)
     if payload != "" {
@@ -582,46 +606,43 @@ editor_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
     inner_top := editor.bounds.y + editor.padding.top
     inner_bottom := editor.bounds.y + editor.bounds.height - editor.padding.bottom
     text_x := cast(i32) (editor.bounds.x + editor.gutter_width + editor.padding.left)
-    line_number_x := cast(i32) (editor.bounds.x + 10)
 
     ui.begin_clip(editor.bounds)
 
     caret_line := textedit.line_index(text, textedit.primary_cursor(editor.state).caret)
 
-    line_index := 0
-    line_start := 0
-    line_y := inner_top - editor.scroll_y
-
-    for {
-        line_end := textedit.line_end(text, line_start)
-
-        if line_y + line_height >= inner_top && line_y <= inner_bottom {
-            editor_draw_line_selections(editor, text, line_start, line_end, cast(f32) text_x, line_y, line_height)
-
-            displayed_number := line_index == caret_line ? line_index + 1 : abs(line_index - caret_line)
-            line_number_text := fmt.tprintf("%d", displayed_number)
-            ui.draw_text(line_number_text, line_number_x, cast(i32) line_y, editor.font_size, editor.line_number_color)
-            ui.draw_text(text[line_start:line_end], text_x, cast(i32) line_y, editor.font_size, editor.text_color)
+    for row, index in editor.visual_rows {
+        row_y := inner_top - editor.scroll_y + cast(f32) index * line_height
+        if row_y + line_height < inner_top {
+            continue
         }
-
-        line_index += 1
-        line_y += line_height
-
-        if line_end >= len(text) || line_y > inner_bottom {
+        if row_y > inner_bottom {
             break
         }
-        line_start = line_end + 1
+
+        editor_draw_line_selections(editor, text, row.start, row.end, cast(f32) text_x, row_y, line_height)
+
+        // Line number is drawn once per logical line, on its first visual row.
+        if row.first {
+            displayed_number := row.line == caret_line ? row.line + 1 : abs(row.line - caret_line)
+            line_number_text := fmt.tprintf("%d", displayed_number)
+            // Right-align the number against the text so the gutter stays tight.
+            number_width := ui.measure_text(line_number_text, editor.font_size)
+            number_x := cast(i32) (editor.bounds.x + editor.gutter_width - 8) - number_width
+            ui.draw_text(line_number_text, number_x, cast(i32) row_y, editor.font_size, editor.line_number_color)
+        }
+        ui.draw_text(text[row.start:row.end], text_x, cast(i32) row_y, editor.font_size, editor.text_color)
     }
 
     if ctx.focused == widget {
         for cursor in editor.state.cursors {
-            cursor_line := textedit.line_index(text, cursor.caret)
-            caret_y := inner_top - editor.scroll_y + cast(f32) cursor_line * line_height
+            row_index := editor_visual_row_index(editor, cursor.caret)
+            row := editor.visual_rows[row_index]
+            caret_y := inner_top - editor.scroll_y + cast(f32) row_index * line_height
             if caret_y + line_height < inner_top || caret_y > inner_bottom {
                 continue
             }
-            cursor_line_start := textedit.line_start(text, cursor.caret)
-            caret_x := cast(f32) text_x + cast(f32) ui.measure_text(text[cursor_line_start:cursor.caret], editor.font_size)
+            caret_x := cast(f32) text_x + cast(f32) ui.measure_text(text[row.start:cursor.caret], editor.font_size)
             // Text is top-aligned in the line (the line's extra spacing sits
             // below the glyphs), so anchor the caret to the line top and size
             // it to the glyph height instead of the full line height, which
@@ -638,14 +659,14 @@ editor_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
 
     ui.end_clip()
 
-    editor_draw_scrollbar(editor, text, line_height)
+    editor_draw_scrollbar(editor, line_height)
 }
 
 // Vertical scrollbar on the right edge, shown only when the document is taller
 // than the view. The thumb size and position track scroll_y.
-editor_draw_scrollbar :: proc(editor: ^Editor, text: string, line_height: f32) {
+editor_draw_scrollbar :: proc(editor: ^Editor, line_height: f32) {
     view_height := editor.bounds.height - editor.padding.top - editor.padding.bottom
-    content_height := cast(f32) textedit.line_count(text) * line_height
+    content_height := cast(f32) len(editor.visual_rows) * line_height
     if content_height <= view_height {
         return
     }
@@ -697,25 +718,24 @@ editor_destroy :: proc(widget: ^ui.Widget) {
 }
 
 editor_place_caret_at :: proc(editor: ^Editor, position: rl.Vector2) {
+    if len(editor.visual_rows) == 0 {
+        return
+    }
     text := textedit.text(editor.state)
     line_height := cast(f32) ui.text_line_height(editor.font_size)
     inner_top := editor.bounds.y + editor.padding.top
     text_x := editor.bounds.x + editor.gutter_width + editor.padding.left
 
-    target_line := cast(int) ((position.y - (inner_top - editor.scroll_y)) / line_height)
-    if target_line < 0 {
-        target_line = 0
-    }
-
-    line_start := textedit.line_start_of_index(text, target_line)
-    line_end := textedit.line_end(text, line_start)
+    target := cast(int) ((position.y - (inner_top - editor.scroll_y)) / line_height)
+    target = clamp(target, 0, len(editor.visual_rows) - 1)
+    row := editor.visual_rows[target]
     target_x := position.x - text_x
 
-    pos := line_start
-    for pos < line_end {
+    pos := row.start
+    for pos < row.end {
         _, width := utf8.decode_rune_in_string(text[pos:])
-        width_before := cast(f32) ui.measure_text(text[line_start:pos], editor.font_size)
-        width_after := cast(f32) ui.measure_text(text[line_start:pos + width], editor.font_size)
+        width_before := cast(f32) ui.measure_text(text[row.start:pos], editor.font_size)
+        width_after := cast(f32) ui.measure_text(text[row.start:pos + width], editor.font_size)
         if target_x < (width_before + width_after) / 2 {
             break
         }
@@ -726,11 +746,13 @@ editor_place_caret_at :: proc(editor: ^Editor, position: rl.Vector2) {
 }
 
 editor_scroll_to_caret :: proc(editor: ^Editor) {
-    text := textedit.text(editor.state)
-    line := textedit.line_index(text, textedit.primary_cursor(editor.state).caret)
+    // The buffer may have changed since the last layout (e.g. a keystroke), so
+    // refresh the row map before locating the caret.
+    editor_rebuild_visual_rows(editor)
+    row_index := editor_visual_row_index(editor, textedit.primary_cursor(editor.state).caret)
     line_height := cast(f32) ui.text_line_height(editor.font_size)
     view_height := editor.bounds.height - editor.padding.top - editor.padding.bottom
-    caret_top := cast(f32) line * line_height
+    caret_top := cast(f32) row_index * line_height
 
     if caret_top < editor.scroll_y {
         editor.scroll_y = caret_top
@@ -739,6 +761,30 @@ editor_scroll_to_caret :: proc(editor: ^Editor) {
         editor.scroll_y = caret_top + line_height - view_height
     }
     editor_clamp_scroll(editor)
+}
+
+// Moves every cursor by `delta` visual rows, mapping the caret's column within
+// its current row onto the target row. Used for plain Up/Down and Page keys so
+// vertical motion follows wrapped rows (like emacs visual-line movement).
+editor_move_visual :: proc(editor: ^Editor, delta: int, extend: bool) {
+    editor_rebuild_visual_rows(editor)
+    if len(editor.visual_rows) == 0 {
+        return
+    }
+    text := textedit.text(editor.state)
+    for &cursor in editor.state.cursors {
+        row_index := editor_visual_row_index(editor, cursor.caret)
+        row := editor.visual_rows[row_index]
+        col := utf8.rune_count_in_string(text[row.start:cursor.caret])
+
+        target := clamp(row_index + delta, 0, len(editor.visual_rows) - 1)
+        trow := editor.visual_rows[target]
+        cursor.caret = editor_byte_at_col(text, trow.start, trow.end, col)
+        if !extend {
+            cursor.anchor = cursor.caret
+        }
+    }
+    textedit.normalize(editor.state)
 }
 
 editor_clamp_scroll :: proc(editor: ^Editor) {

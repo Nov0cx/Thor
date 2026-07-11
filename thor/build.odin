@@ -106,6 +106,19 @@ thor_build_ui :: proc(thor: ^Thor) {
     )
     thor.command_palette.visible = false
 
+    thor.find_replace = widgets.find_replace_create("find-replace")
+    widgets.find_replace_set_colors(
+        thor.find_replace,
+        thor.theme.second_background,
+        thor.theme.accent_color,
+        thor.theme.background,
+        thor.theme.white_black_color,
+        thor.theme.gray_color,
+        thor.theme.buttons,
+        thor.theme.accent_color,
+    )
+    thor.find_replace.visible = false
+
     thor_build_controls(thor)
     thor_build_content(thor)
     thor_connect_tree(thor)
@@ -197,13 +210,16 @@ thor_build_content :: proc(thor: ^Thor) {
     ui.widget_set_grow(&console_title.widget, 1)
     console_title.min_size = rl.Vector2 {0, 24}
 
-    thor.console_label = widgets.label_create("console-label", "")
-    widgets.label_set_text_color(thor.console_label, thor.theme.green_color)
-    widgets.label_set_background(thor.console_label, thor.theme.second_background)
-    widgets.label_set_top_align(thor.console_label, true)
-    widgets.label_bind_text(thor.console_label, thor_console_text, thor)
-    ui.widget_set_grow(&thor.console_label.widget, 1)
-    thor.console_label.min_size = rl.Vector2 {0, 110}
+    thor.console = widgets.console_create("console")
+    widgets.console_set_colors(
+        thor.console,
+        thor.theme.foreground,
+        thor.theme.accent_color,
+        thor.theme.second_background,
+        thor.theme.accent_color,
+    )
+    ui.widget_set_grow(&thor.console.widget, 1)
+    thor.console.min_size = rl.Vector2 {0, 110}
 
     thor.statusbar = widgets.statusbar_create("statusbar")
     widgets.statusbar_set_colors(
@@ -244,7 +260,7 @@ thor_build_content :: proc(thor: ^Thor) {
     widgets.append_child(&thor.editor_panel.widget, &thor.editor.widget)
 
     widgets.append_child(&thor.console_stack.widget, &thor.console_header.widget)
-    widgets.append_child(&thor.console_stack.widget, &thor.console_label.widget)
+    widgets.append_child(&thor.console_stack.widget, &thor.console.widget)
     widgets.append_child(&thor.console_header.widget, &console_title.widget)
     widgets.append_child(&thor.console_header.widget, &thor.console_toggle_button.widget)
 
@@ -258,8 +274,9 @@ thor_build_content :: proc(thor: ^Thor) {
 thor_connect_tree :: proc(thor: ^Thor) {
     widgets.append_child(&thor.root_panel.widget, &thor.root_stack.widget)
     widgets.append_child(&thor.root_panel.widget, &thor.dialog.widget)
-    // Added last so it overlays everything and is hit-tested first.
+    // Added last so they overlay everything and are hit-tested first.
     widgets.append_child(&thor.root_panel.widget, &thor.command_palette.widget)
+    widgets.append_child(&thor.root_panel.widget, &thor.find_replace.widget)
 
     widgets.append_child(&thor.root_stack.widget, &thor.top_bar.widget)
     widgets.append_child(&thor.root_stack.widget, &thor.workspace_row.widget)

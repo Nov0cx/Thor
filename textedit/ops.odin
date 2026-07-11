@@ -388,6 +388,50 @@ insert_soft_tab :: proc(state: ^State) {
     finish_edit(state, &entry)
 }
 
+// Inserts a newline that keeps the current line's leading whitespace, and adds
+// one extra indent level when the caret follows an opening bracket. Replaces
+// any selection, like a normal newline insert.
+insert_newline :: proc(state: ^State) {
+    txt := text(state)
+    entry := Undo_Entry {cursors_before = clone_cursors(state)}
+
+    offset := 0
+    for &cursor in state.cursors {
+        lo, hi := selection_range(cursor)
+        if hi > lo {
+            append(&entry.ops, Edit_Op {kind = .Delete, pos = lo + offset, text = strings.clone(txt[lo:hi])})
+            piecetable.piecetable_delete(&state.table, lo + offset, hi - lo)
+        }
+
+        ls := line_start(txt, lo)
+        ws_end := ls
+        for ws_end < len(txt) && (txt[ws_end] == ' ' || txt[ws_end] == '\t') {
+            ws_end += 1
+        }
+        indent := txt[ls:min(ws_end, lo)]
+
+        // One extra level if the last non-blank character before the caret on
+        // this line opens a bracket.
+        j := lo - 1
+        for j >= ls && (txt[j] == ' ' || txt[j] == '\t') {
+            j -= 1
+        }
+        extra := ""
+        if j >= ls && (txt[j] == '{' || txt[j] == '[' || txt[j] == '(') {
+            extra = indent_unit()
+        }
+
+        insert_str := strings.concatenate({"\n", indent, extra}, context.temp_allocator)
+        append(&entry.ops, Edit_Op {kind = .Insert, pos = lo + offset, text = strings.clone(insert_str)})
+        piecetable.piecetable_insert(&state.table, lo + offset, insert_str)
+        cursor.caret = lo + offset + len(insert_str)
+        cursor.anchor = cursor.caret
+        offset += len(insert_str) - (hi - lo)
+    }
+
+    finish_edit(state, &entry)
+}
+
 indent_lines :: proc(state: ^State) {
     txt := text(state)
     starts := covered_line_starts(txt, state)

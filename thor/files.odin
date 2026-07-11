@@ -11,6 +11,7 @@ import "core:time"
 import "../settings"
 import "../textedit"
 import "../ui"
+import "../widgets"
 
 // One open document. The textedit state lives here (not in the editor widget)
 // so undo history and cursors survive tab switches; the editor only borrows
@@ -251,6 +252,7 @@ thor_update_files :: proc(thor: ^Thor) {
 thor_process_io :: proc(thor: ^Thor) {
     loads := make([dynamic]^Load_Job, context.temp_allocator)
     saves := make([dynamic]^Save_Job, context.temp_allocator)
+    console := make([dynamic]^Console_Job, context.temp_allocator)
 
     sync.lock(&thor.io_mutex)
     for job in thor.finished_loads {
@@ -259,8 +261,12 @@ thor_process_io :: proc(thor: ^Thor) {
     for job in thor.finished_saves {
         append(&saves, job)
     }
+    for job in thor.finished_console {
+        append(&console, job)
+    }
     clear(&thor.finished_loads)
     clear(&thor.finished_saves)
+    clear(&thor.finished_console)
     sync.unlock(&thor.io_mutex)
 
     for job in loads {
@@ -323,6 +329,19 @@ thor_process_io :: proc(thor: ^Thor) {
         file.pending_jobs -= 1
         thor.inflight_jobs -= 1
         thor_reap_file(thor, file)
+    }
+
+    for job in console {
+        thread.join(job.worker)
+        thread.destroy(job.worker)
+
+        widgets.console_append(thor.console, job.output)
+        widgets.console_command_finished(thor.console)
+
+        delete(job.output)
+        delete(job.command)
+        free(job)
+        thor.inflight_jobs -= 1
     }
 }
 

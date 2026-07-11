@@ -37,12 +37,16 @@ Thor :: struct {
     tabbar:                   ^widgets.Tabbar,
     statusbar:                ^widgets.Statusbar,
     editor:                   ^widgets.Editor,
-    console_label:            ^widgets.Label,
+    console:                  ^widgets.Console,
     dialog:                   ^widgets.Dialog,
     dialog_stack:             ^widgets.Stack,
     command_palette:          ^widgets.Command_Palette,
+    find_replace:             ^widgets.Find_Replace,
     command_palette_key:      settings.Keybind,
     fullscreen_key:           settings.Keybind,
+    console_toggle_key:       settings.Keybind,
+    find_key:                 settings.Keybind,
+    replace_key:              settings.Keybind,
     active_file:              ui.Signal(int),
     explorer_visible:         ui.Signal(bool),
     console_visible:          ui.Signal(bool),
@@ -71,6 +75,7 @@ Thor :: struct {
     io_mutex:                 sync.Mutex,
     finished_loads:           [dynamic]^Load_Job,
     finished_saves:           [dynamic]^Save_Job,
+    finished_console:         [dynamic]^Console_Job,
     inflight_jobs:            int,
 }
 
@@ -117,11 +122,13 @@ init :: proc() -> ^Thor {
     thor.zombie_files = make([dynamic]^Open_File)
     thor.finished_loads = make([dynamic]^Load_Job)
     thor.finished_saves = make([dynamic]^Save_Job)
+    thor.finished_console = make([dynamic]^Console_Job)
 
     log.infof("Loaded theme: %s", thor.theme.name)
 
     thor_build_ui(thor)
     thor.command_palette.return_focus = &thor.editor.widget
+    thor.find_replace.return_focus = &thor.editor.widget
     widgets.command_palette_set_navigation(
         thor.command_palette,
         thor_palette_list_files,
@@ -131,6 +138,7 @@ init :: proc() -> ^Thor {
         thor,
     )
     thor_register_commands(thor)
+    widgets.console_set_on_run(thor.console, thor_console_run, thor)
     thor_apply_settings(thor)
     thor_set_active_file(thor, -1)
     thor_apply_layout_state(thor)
@@ -191,6 +199,7 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.zombie_files)
     delete(thor.finished_loads)
     delete(thor.finished_saves)
+    delete(thor.finished_console)
     delete(thor.workspace_dir)
     delete(thor.workspace_prefix)
     delete(thor.git_branch)

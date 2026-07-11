@@ -1,6 +1,7 @@
 package ui
 
 import "core:c"
+import "core:unicode/utf8"
 import rl "vendor:raylib"
 
 import hb "../vendor/odin-harfbuzz/harfbuzz"
@@ -169,10 +170,32 @@ draw_line_shaped :: proc(family: ^Font_Family, font: rl.Font, size: i32, line: s
         gid := cast(u32) infos[i].codepoint
         glyph, mapped := shaped[gid]
         if !mapped {
-            // Tab or an exotic glyph outside the baked set: advance one
-            // blank cell so columns stay aligned with measure_text.
-            index := rl.GetGlyphIndex(font, ' ')
-            pen += cast(f32) font.glyphs[index].advanceX
+            // Shaping substituted a glyph outside the baked set (e.g. JetBrains
+            // Mono's contextual backtick/quote alternates). Fall back to the
+            // source character's own baked glyph so it still renders; genuine
+            // blanks (tabs, control chars) advance one empty cell.
+            cluster := cast(int) infos[i].cluster
+            r: rune = 0
+            if cluster >= 0 && cluster < len(line) {
+                r, _ = utf8.decode_rune_in_string(line[cluster:])
+            }
+            index := rl.GetGlyphIndex(font, r)
+            if r >= 32 && font.glyphs[index].value == r {
+                rec := font.recs[index]
+                info := font.glyphs[index]
+                if rec.width > 0 {
+                    rl.DrawTextureRec(
+                        font.texture,
+                        rec,
+                        rl.Vector2 {pen + cast(f32) info.offsetX, cast(f32) y + cast(f32) info.offsetY},
+                        color,
+                    )
+                }
+                pen += cast(f32) info.advanceX
+            } else {
+                space := rl.GetGlyphIndex(font, ' ')
+                pen += cast(f32) font.glyphs[space].advanceX
+            }
             continue
         }
 
