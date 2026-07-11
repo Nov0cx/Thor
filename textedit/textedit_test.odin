@@ -127,6 +127,40 @@ test_insert_newline_auto_indent :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_auto_pairing :: proc(t: ^testing.T) {
+    state: State
+    init(&state)
+    defer destroy(&state)
+
+    // Typing an opener inserts the pair with the caret between.
+    insert_pair(&state, '(', ')')
+    testing.expect_value(t, text(&state), "()")
+    testing.expect_value(t, primary_cursor(&state).caret, 1)
+
+    // Typing the closer over the auto-inserted one just steps past it.
+    insert_or_step(&state, ')')
+    testing.expect_value(t, text(&state), "()")
+    testing.expect_value(t, primary_cursor(&state).caret, 2)
+
+    // Backspace between an empty pair deletes both sides.
+    set_single_cursor(&state, 1)
+    delete_backward(&state)
+    testing.expect_value(t, text(&state), "")
+
+    // Quote wraps a selection.
+    insert_text(&state, "abc")
+    select_range(&state, 0, 3)
+    insert_quote(&state, '"')
+    testing.expect_value(t, text(&state), "\"abc\"")
+
+    // Apostrophe after a word char inserts a single quote, not a pair.
+    set_single_cursor(&state, 0)
+    insert_text(&state, "don")
+    insert_quote(&state, '\'')
+    testing.expect_value(t, text(&state), "don'\"abc\"")
+}
+
+@(test)
 test_replace_all :: proc(t: ^testing.T) {
     state: State
     init(&state)

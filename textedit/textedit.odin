@@ -356,6 +356,139 @@ insert_text :: proc(state: ^State, s: string) {
     finish_edit(state, &entry)
 }
 
+// Matching close for an auto-paired opener; ok=false if r is not an opener.
+auto_close_for :: proc(r: rune) -> (rune, bool) {
+    switch r {
+    case '(': return ')', true
+    case '[': return ']', true
+    case '{': return '}', true
+    }
+    return 0, false
+}
+
+is_close_bracket :: proc(r: rune) -> bool {
+    return r == ')' || r == ']' || r == '}'
+}
+
+is_quote :: proc(r: rune) -> bool {
+    return r == '"' || r == '\'' || r == '`'
+}
+
+@(private)
+is_word_byte_ascii :: proc(b: u8) -> bool {
+    return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '_'
+}
+
+// Types an opener: wraps a selection in open..close, or inserts the pair with
+// the caret left between them when there is no selection.
+insert_pair :: proc(state: ^State, open, close: rune) {
+    txt := text(state)
+    entry := Undo_Entry {cursors_before = clone_cursors(state)}
+    ob, ow := utf8.encode_rune(open)
+    cbuf, cw := utf8.encode_rune(close)
+    open_s := string(ob[:ow])
+    close_s := string(cbuf[:cw])
+
+    offset := 0
+    for &cursor in state.cursors {
+        lo, hi := selection_range(cursor)
+        piecetable.piecetable_insert(&state.table, lo + offset, open_s)
+        append(&entry.ops, Edit_Op {kind = .Insert, pos = lo + offset, text = strings.clone(open_s)})
+        close_pos := hi + offset + ow
+        piecetable.piecetable_insert(&state.table, close_pos, close_s)
+        append(&entry.ops, Edit_Op {kind = .Insert, pos = close_pos, text = strings.clone(close_s)})
+
+        cursor.anchor = lo + offset + ow
+        cursor.caret = hi > lo ? hi + offset + ow : cursor.anchor
+        offset += ow + cw
+    }
+    finish_edit(state, &entry)
+}
+
+// Types a closer: steps over an identical character already in front of the
+// caret (so typing `)` past an auto-inserted `)` just moves), else inserts it.
+insert_or_step :: proc(state: ^State, close: rune) {
+    txt := text(state)
+    entry := Undo_Entry {cursors_before = clone_cursors(state)}
+    cbuf, cw := utf8.encode_rune(close)
+    close_s := string(cbuf[:cw])
+
+    offset := 0
+    edited := false
+    for &cursor in state.cursors {
+        lo, hi := selection_range(cursor)
+        if hi == lo && match_at(txt, lo, close_s, true) {
+            cursor.caret = lo + offset + cw
+            cursor.anchor = cursor.caret
+            continue
+        }
+        if hi > lo {
+            piecetable.piecetable_delete(&state.table, lo + offset, hi - lo)
+            append(&entry.ops, Edit_Op {kind = .Delete, pos = lo + offset, text = strings.clone(txt[lo:hi])})
+        }
+        piecetable.piecetable_insert(&state.table, lo + offset, close_s)
+        append(&entry.ops, Edit_Op {kind = .Insert, pos = lo + offset, text = strings.clone(close_s)})
+        cursor.caret = lo + offset + cw
+        cursor.anchor = cursor.caret
+        offset += cw - (hi - lo)
+        edited = true
+    }
+    if edited {
+        finish_edit(state, &entry)
+    } else {
+        entry_destroy(&entry)
+    }
+}
+
+// Types a quote: wraps a selection, steps over an identical following quote,
+// inserts a single quote after a word character (apostrophes), else inserts a
+// matching pair with the caret between.
+insert_quote :: proc(state: ^State, q: rune) {
+    if has_any_selection(state) {
+        insert_pair(state, q, q)
+        return
+    }
+
+    txt := text(state)
+    entry := Undo_Entry {cursors_before = clone_cursors(state)}
+    qbuf, qw := utf8.encode_rune(q)
+    q_s := string(qbuf[:qw])
+
+    offset := 0
+    for &cursor in state.cursors {
+        lo, _ := selection_range(cursor)
+        if match_at(txt, lo, q_s, true) {
+            cursor.caret = lo + offset + qw
+            cursor.anchor = cursor.caret
+            continue
+        }
+        pair := !(lo > 0 && is_word_byte_ascii(txt[lo - 1]))
+        piecetable.piecetable_insert(&state.table, lo + offset, q_s)
+        append(&entry.ops, Edit_Op {kind = .Insert, pos = lo + offset, text = strings.clone(q_s)})
+        if pair {
+            piecetable.piecetable_insert(&state.table, lo + offset + qw, q_s)
+            append(&entry.ops, Edit_Op {kind = .Insert, pos = lo + offset + qw, text = strings.clone(q_s)})
+        }
+        cursor.caret = lo + offset + qw
+        cursor.anchor = cursor.caret
+        offset += pair ? qw * 2 : qw
+    }
+    finish_edit(state, &entry)
+}
+
+// True when open/close form an auto-inserted pair (used for pair-aware
+// backspace).
+@(private)
+is_auto_pair_bytes :: proc(open, close: u8) -> bool {
+    switch open {
+    case '(': return close == ')'
+    case '[': return close == ']'
+    case '{': return close == '}'
+    case '"', '\'', '`': return close == open
+    }
+    return false
+}
+
 // True when `query` occurs at byte offset `pos` in txt (ASCII case-insensitive
 // when insensitive).
 @(private)
@@ -424,8 +557,14 @@ delete_backward :: proc(state: ^State) {
     for &cursor in state.cursors {
         lo, hi := selection_range(cursor)
         if hi == lo && lo > 0 {
-            _, width := utf8.decode_last_rune_in_string(txt[:lo])
-            lo -= width
+            // Empty auto-pair (e.g. caret between "()"): delete both sides.
+            if lo < len(txt) && is_auto_pair_bytes(txt[lo - 1], txt[lo]) {
+                lo -= 1
+                hi += 1
+            } else {
+                _, width := utf8.decode_last_rune_in_string(txt[:lo])
+                lo -= width
+            }
         }
         if hi > lo {
             append(&entry.ops, Edit_Op {kind = .Delete, pos = lo + offset, text = strings.clone(txt[lo:hi])})

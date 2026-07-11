@@ -254,8 +254,7 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
             return false
         }
         if event.codepoint >= 32 && event.codepoint != 127 {
-            buffer, width := utf8.encode_rune(event.codepoint)
-            textedit.insert_text(editor.state, string(buffer[:width]))
+            editor_type_rune(editor, event.codepoint)
             editor_scroll_to_caret(editor)
             return true
         }
@@ -265,6 +264,21 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
     }
 
     return false
+}
+
+// Inserts a typed character, auto-pairing brackets and quotes.
+editor_type_rune :: proc(editor: ^Editor, r: rune) {
+    state := editor.state
+    if close, ok := textedit.auto_close_for(r); ok {
+        textedit.insert_pair(state, r, close)
+    } else if textedit.is_close_bracket(r) {
+        textedit.insert_or_step(state, r)
+    } else if textedit.is_quote(r) {
+        textedit.insert_quote(state, r)
+    } else {
+        buffer, width := utf8.encode_rune(r)
+        textedit.insert_text(state, string(buffer[:width]))
+    }
 }
 
 editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {

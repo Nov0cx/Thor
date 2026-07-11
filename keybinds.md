@@ -70,6 +70,12 @@ Add `shift` to any movement to extend the selection.
 | ctrl + enter / ctrl + shift + enter | insert line below / above |
 | tab / shift + tab (with selection) | indent / outdent lines |
 | ctrl + k | toggle line comment (per-language marker) |
+| enter | new line, keeping indent (extra level after an opening bracket) |
+
+Typing `(`, `[`, `{`, `"`, `'` or `` ` `` auto-inserts the closing pair with the
+cursor between them; typing over the closing character steps past it, and
+backspace on an empty pair deletes both. Selecting text and typing a bracket or
+quote wraps the selection.
 
 ## View
 
