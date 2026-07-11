@@ -116,6 +116,7 @@ init :: proc() -> ^Thor {
     thor_set_active_file(thor, -1)
     thor_apply_layout_state(thor)
     ui.context_set_root(&thor.ui_context, &thor.root_panel.widget)
+    ui.context_set_global_key(&thor.ui_context, thor_global_key, thor)
     lap(&phase, "build widget tree")
 
     // Texture upload needs the GL context, so it happens here on the main

@@ -1,6 +1,7 @@
 package widgets
 
 import "core:fmt"
+import "core:strings"
 import "core:unicode/utf8"
 import rl "vendor:raylib"
 
@@ -18,6 +19,9 @@ Editor :: struct {
     on_save:            Editor_Save_Proc,
     save_data:          rawptr,
     placeholder:        string,
+    // Line-comment marker for Ctrl+K; empty disables comment toggling
+    // (set per language by the owner when a file is activated).
+    comment_prefix:     string,
     font_size:          i32,
     padding:            ui.Padding,
     gutter_width:       f32,
@@ -44,6 +48,7 @@ editor_create :: proc(id: string) -> ^Editor {
     ui.widget_init(&editor.widget, id, editor_vtable)
     editor.state = nil
     editor.placeholder = "No file open"
+    editor.comment_prefix = "//"
     editor.font_size = 18
     editor.padding = ui.padding_xy(14, 12)
     editor.gutter_width = 58
@@ -76,6 +81,10 @@ editor_set_on_save :: proc(editor: ^Editor, on_save: Editor_Save_Proc, data: raw
     editor.save_data = data
 }
 
+editor_set_comment_prefix :: proc(editor: ^Editor, prefix: string) {
+    editor.comment_prefix = prefix
+}
+
 editor_set_state :: proc(editor: ^Editor, state: ^textedit.State) {
     editor.state = state
     editor.scroll_y = 0
@@ -99,6 +108,11 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
         editor_place_caret_at(editor, event.mouse_position)
         return true
     case .Scroll:
+        // Scroll events carry no modifier state; poll ctrl for zooming.
+        if rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL) {
+            editor_zoom(editor, event.wheel_delta > 0 ? 1 : -1)
+            return true
+        }
         editor.scroll_y -= event.wheel_delta * cast(f32) ui.text_line_height(editor.font_size) * 2
         editor_clamp_scroll(editor)
         return true
@@ -137,20 +151,45 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
 
     #partial switch event.key {
     case .BACKSPACE:
-        textedit.delete_backward(state)
+        if ctrl_only {
+            textedit.delete_word_backward(state)
+        } else {
+            textedit.delete_backward(state)
+        }
         editor_scroll_to_caret(editor)
         return true
     case .DELETE:
-        textedit.delete_forward(state)
+        if ctrl_only {
+            textedit.delete_word_forward(state)
+        } else {
+            textedit.delete_forward(state)
+        }
         editor_scroll_to_caret(editor)
         return true
     case .ENTER, .KP_ENTER:
-        textedit.insert_text(state, "\n")
+        if ctrl_only {
+            if event.shift {
+                textedit.insert_line_above(state)
+            } else {
+                textedit.insert_line_below(state)
+            }
+        } else {
+            textedit.insert_text(state, "\n")
+        }
         editor_scroll_to_caret(editor)
         return true
     case .TAB:
-        textedit.insert_text(state, "\t")
+        if event.shift {
+            textedit.outdent_lines(state)
+        } else if textedit.has_any_selection(state) {
+            textedit.indent_lines(state)
+        } else {
+            textedit.insert_text(state, "\t")
+        }
         editor_scroll_to_caret(editor)
+        return true
+    case .ESCAPE:
+        textedit.clear_selections(state)
         return true
     case .LEFT:
         if ctrl_only {
@@ -177,6 +216,12 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
             textedit.add_cursor_vertical(state, -1)
         } else if ctrl_only {
             textedit.move_document_start(state, event.shift)
+        } else if alt_only {
+            if event.shift {
+                textedit.duplicate_lines(state, -1)
+            } else {
+                textedit.move_lines(state, -1)
+            }
         } else {
             textedit.move_vertical(state, -1, event.shift)
         }
@@ -187,6 +232,12 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
             textedit.add_cursor_vertical(state, 1)
         } else if ctrl_only {
             textedit.move_document_end(state, event.shift)
+        } else if alt_only {
+            if event.shift {
+                textedit.duplicate_lines(state, 1)
+            } else {
+                textedit.move_lines(state, 1)
+            }
         } else {
             textedit.move_vertical(state, 1, event.shift)
         }
@@ -201,11 +252,19 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
         editor_scroll_to_caret(editor)
         return true
     case .HOME:
-        textedit.move_line_start(state, event.shift)
+        if ctrl_only {
+            textedit.move_document_start(state, event.shift)
+        } else {
+            textedit.move_line_start(state, event.shift)
+        }
         editor_scroll_to_caret(editor)
         return true
     case .END:
-        textedit.move_line_end(state, event.shift)
+        if ctrl_only {
+            textedit.move_document_end(state, event.shift)
+        } else {
+            textedit.move_line_end(state, event.shift)
+        }
         editor_scroll_to_caret(editor)
         return true
     case .A:
@@ -234,16 +293,110 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
             editor.on_save(editor.save_data)
             return true
         }
-    case .P:
+    case .C:
         if ctrl_only {
-            textedit.move_to_matching_bracket(state, event.shift)
+            editor_copy(editor)
+            return true
+        }
+    case .X:
+        if ctrl_only {
+            editor_cut(editor)
             editor_scroll_to_caret(editor)
+            return true
+        }
+    case .V:
+        if ctrl_only {
+            editor_paste(editor)
+            editor_scroll_to_caret(editor)
+            return true
+        }
+    case .D:
+        if ctrl_only {
+            textedit.select_word_or_next(state)
+            editor_scroll_to_caret(editor)
+            return true
+        }
+    case .L:
+        if ctrl_only {
+            textedit.select_line(state)
+            editor_scroll_to_caret(editor)
+            return true
+        }
+    case .K:
+        if ctrl_only {
+            if event.shift {
+                textedit.delete_lines(state)
+            } else if editor.comment_prefix != "" {
+                textedit.toggle_comment(state, editor.comment_prefix)
+            }
+            editor_scroll_to_caret(editor)
+            return true
+        }
+    case .P:
+        // Ctrl+Shift+P stays free (reserved for the command palette).
+        if ctrl_only && !event.shift {
+            textedit.move_to_matching_bracket(state, false)
+            editor_scroll_to_caret(editor)
+            return true
+        }
+    case .BACKSLASH:
+        // Physical key right of the home row: \ on US layouts, # on QWERTZ.
+        if ctrl_only && event.shift {
+            textedit.move_to_matching_bracket(state, true)
+            editor_scroll_to_caret(editor)
+            return true
+        }
+    case .KP_ADD:
+        if ctrl_only {
+            editor_zoom(editor, 1)
+            return true
+        }
+    case .KP_SUBTRACT:
+        if ctrl_only {
+            editor_zoom(editor, -1)
             return true
         }
     case:
     }
 
     return false
+}
+
+editor_zoom :: proc(editor: ^Editor, delta: i32) {
+    editor.font_size = clamp(editor.font_size + delta, 10, 32)
+    editor_clamp_scroll(editor)
+}
+
+editor_copy :: proc(editor: ^Editor) {
+    payload, _ := textedit.copy_payload(editor.state, context.temp_allocator)
+    if payload != "" {
+        rl.SetClipboardText(strings.clone_to_cstring(payload, context.temp_allocator))
+    }
+}
+
+editor_cut :: proc(editor: ^Editor) {
+    payload, had_selection := textedit.copy_payload(editor.state, context.temp_allocator)
+    if payload == "" {
+        return
+    }
+    rl.SetClipboardText(strings.clone_to_cstring(payload, context.temp_allocator))
+    if !had_selection {
+        textedit.select_line(editor.state)
+    }
+    textedit.delete_backward(editor.state)
+}
+
+editor_paste :: proc(editor: ^Editor) {
+    clip := rl.GetClipboardText()
+    if clip == nil {
+        return
+    }
+    // The buffer stores \n only; Windows clipboard text arrives as \r\n.
+    normalized, _ := strings.replace_all(string(clip), "\r\n", "\n", context.temp_allocator)
+    normalized, _ = strings.replace_all(normalized, "\r", "\n", context.temp_allocator)
+    if normalized != "" {
+        textedit.insert_text(editor.state, normalized)
+    }
 }
 
 editor_key_digit :: proc(key: rl.KeyboardKey) -> (int, bool) {

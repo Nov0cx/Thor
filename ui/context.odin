@@ -2,6 +2,8 @@ package ui
 
 import rl "vendor:raylib"
 
+Global_Key_Proc :: #type proc(data: rawptr, event: ^Event) -> bool
+
 Context :: struct {
     root:      ^Widget,
     events:    Event_Queue,
@@ -10,6 +12,10 @@ Context :: struct {
     focused:   ^Widget,
     mouse_pos: rl.Vector2,
     prev_mouse_pos: rl.Vector2,
+    // Application-level shortcuts (tab switching, panel toggles): runs on
+    // every Key_Press before focus dispatch; returning true consumes it.
+    global_key:      Global_Key_Proc,
+    global_key_data: rawptr,
 }
 
 context_init :: proc(ctx: ^Context) {
@@ -27,6 +33,11 @@ context_destroy :: proc(ctx: ^Context) {
 
 context_set_root :: proc(ctx: ^Context, root: ^Widget) {
     ctx.root = root
+}
+
+context_set_global_key :: proc(ctx: ^Context, global_key: Global_Key_Proc, data: rawptr) {
+    ctx.global_key = global_key
+    ctx.global_key_data = data
 }
 
 context_update :: proc(ctx: ^Context) {
@@ -205,6 +216,9 @@ context_process_events :: proc(ctx: ^Context) {
             }
 
         case .Key_Press, .Text_Input:
+            if event.kind == .Key_Press && ctx.global_key != nil && ctx.global_key(ctx.global_key_data, event) {
+                break
+            }
             if ctx.focused != nil {
                 event.target = ctx.focused
                 widget_dispatch_event(ctx.focused, ctx, event)
