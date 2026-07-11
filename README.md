@@ -2,6 +2,10 @@
 
 This an editor written in [Odin](https://odin-lang.org/) with [raylib](https://pkg.odin-lang.org/vendor/raylib/v6/).
 
+## Disclaimer
+
+This repo is still in development, everything can break or change at any time.
+
 ## Dependencies
 
 Thor uses [HarfBuzz](https://harfbuzz.github.io/) (via the
