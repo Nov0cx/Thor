@@ -4,6 +4,7 @@ import "core:fmt"
 import "core:strings"
 import "core:unicode/utf8"
 
+import "../settings"
 import "../textedit"
 import "../ui"
 import "../widgets"
@@ -49,27 +50,8 @@ thor_set_active_file :: proc(thor: ^Thor, index: int) {
         return
     }
 
-    widgets.editor_set_comment_prefix(thor.editor, thor_comment_prefix(file.name))
+    widgets.editor_set_comment_prefix(thor.editor, settings.comment_prefix(&thor.settings, file.name))
     widgets.editor_set_state(thor.editor, &file.state)
-}
-
-// Line-comment marker by file extension; empty disables Ctrl+K commenting.
-@(private = "file")
-thor_comment_prefix :: proc(name: string) -> string {
-    dot := strings.last_index_byte(name, '.')
-    if dot < 0 {
-        return ""
-    }
-
-    switch name[dot:] {
-    case ".odin", ".c", ".h", ".cpp", ".hpp", ".cc", ".rs", ".go", ".js", ".ts", ".zig", ".glsl", ".vert", ".frag":
-        return "//"
-    case ".py", ".sh", ".toml", ".yml", ".yaml", ".gitignore", ".gitmodules":
-        return "#"
-    case ".ini", ".cfg":
-        return ";"
-    }
-    return ""
 }
 
 thor_console_text :: proc(data: rawptr) -> string {

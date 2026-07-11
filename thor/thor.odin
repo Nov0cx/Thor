@@ -7,11 +7,13 @@ import "core:sync"
 import "core:time"
 import rl "vendor:raylib"
 
+import "../settings"
 import "../ui"
 import "../widgets"
 
 Thor :: struct {
     ui_context:               ui.Context,
+    settings:                 settings.Settings,
     theme:                    ui.Theme,
     root_panel:               ^widgets.Panel,
     root_stack:               ^widgets.Stack,
@@ -93,6 +95,7 @@ init :: proc() -> ^Thor {
 
     thor := new(Thor)
     ui.context_init(&thor.ui_context)
+    thor.settings = settings.load("settings")
     thor.theme = ui.theme_material_deep_ocean()
     thor.active_file = ui.make_signal(-1)
     thor.explorer_visible = ui.make_signal(true)
@@ -113,6 +116,9 @@ init :: proc() -> ^Thor {
     log.infof("Loaded theme: %s", thor.theme.name)
 
     thor_build_ui(thor)
+    if kb, ok := settings.keybind(&thor.settings, "toggle_line_comment"); ok {
+        thor.editor.comment_keybind = kb
+    }
     thor_set_active_file(thor, -1)
     thor_apply_layout_state(thor)
     ui.context_set_root(&thor.ui_context, &thor.root_panel.widget)
@@ -174,6 +180,7 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.finished_saves)
     delete(thor.workspace_dir)
     delete(thor.git_branch)
+    settings.destroy(&thor.settings)
 
     ui.context_destroy(&thor.ui_context)
     ui.text_shutdown()

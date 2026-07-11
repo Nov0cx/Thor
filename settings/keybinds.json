@@ -1,0 +1,65 @@
+{
+    "files_app": {
+        "save":            "ctrl+s",
+        "close_tab":       "ctrl+w",
+        "next_tab":        "ctrl+page_down",
+        "previous_tab":    "ctrl+page_up",
+        "toggle_explorer": "ctrl+b",
+        "toggle_console":  "ctrl+j"
+    },
+    "clipboard": {
+        "copy":  "ctrl+c",
+        "cut":   "ctrl+x",
+        "paste": "ctrl+v"
+    },
+    "movement": {
+        "word_left":                  "ctrl+left",
+        "word_right":                 "ctrl+right",
+        "line_start":                 "alt+left",
+        "line_end":                   "alt+right",
+        "line_start_home":            "home",
+        "line_end_home":              "end",
+        "file_start":                 "ctrl+home",
+        "file_end":                   "ctrl+end",
+        "file_start_up":              "ctrl+up",
+        "file_end_down":              "ctrl+down",
+        "page_up":                    "page_up",
+        "page_down":                  "page_down",
+        "matching_bracket":           "ctrl+p",
+        "select_to_matching_bracket": "ctrl+shift+backslash"
+    },
+    "selection": {
+        "select_all":       "ctrl+a",
+        "select_word":      "ctrl+d",
+        "select_line":      "ctrl+l",
+        "add_cursor_above": "ctrl+alt+up",
+        "add_cursor_below": "ctrl+alt+down",
+        "collapse_cursors": "escape"
+    },
+    "editing": {
+        "undo":                 "ctrl+z",
+        "redo":                 "ctrl+shift+z",
+        "redo_alt":             "ctrl+y",
+        "delete_word_left":     "ctrl+backspace",
+        "delete_word_right":    "ctrl+delete",
+        "delete_line":          "ctrl+shift+k",
+        "move_line_up":         "alt+up",
+        "move_line_down":       "alt+down",
+        "duplicate_line_up":    "shift+alt+up",
+        "duplicate_line_down":  "shift+alt+down",
+        "insert_line_below":    "ctrl+enter",
+        "insert_line_above":    "ctrl+shift+enter",
+        "indent":               "tab",
+        "outdent":              "shift+tab",
+        "toggle_line_comment":  "ctrl+k"
+    },
+    "view": {
+        "zoom_in":  "ctrl+kp_add",
+        "zoom_out": "ctrl+kp_subtract"
+    },
+    "reserved": {
+        "command_palette": "ctrl+shift+p",
+        "quick_open":      "ctrl+tab",
+        "find":            "ctrl+f"
+    }
+}

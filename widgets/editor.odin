@@ -5,6 +5,7 @@ import "core:strings"
 import "core:unicode/utf8"
 import rl "vendor:raylib"
 
+import "../settings"
 import "../textedit"
 import "../ui"
 
@@ -19,9 +20,13 @@ Editor :: struct {
     on_save:            Editor_Save_Proc,
     save_data:          rawptr,
     placeholder:        string,
-    // Line-comment marker for Ctrl+K; empty disables comment toggling
-    // (set per language by the owner when a file is activated).
+    // Line-comment marker for the comment-toggle chord; empty disables
+    // comment toggling (set per language by the owner when a file is
+    // activated).
     comment_prefix:     string,
+    // Chord that toggles the line comment; loaded from keybinds.json by the
+    // owner, defaults to Ctrl+K.
+    comment_keybind:    settings.Keybind,
     font_size:          i32,
     padding:            ui.Padding,
     gutter_width:       f32,
@@ -49,6 +54,7 @@ editor_create :: proc(id: string) -> ^Editor {
     editor.state = nil
     editor.placeholder = "No file open"
     editor.comment_prefix = "//"
+    editor.comment_keybind = settings.Keybind {key = .K, ctrl = true}
     editor.font_size = 18
     editor.padding = ui.padding_xy(14, 12)
     editor.gutter_width = 58
@@ -147,6 +153,15 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
             editor_scroll_to_caret(editor)
             return true
         }
+    }
+
+    // The comment-toggle chord is configurable (keybinds.json), so it is
+    // matched here rather than as a fixed case in the switch below.
+    if editor.comment_prefix != "" &&
+       settings.keybind_matches(editor.comment_keybind, event.key, event.ctrl, event.shift, event.alt) {
+        textedit.toggle_comment(state, editor.comment_prefix)
+        editor_scroll_to_caret(editor)
+        return true
     }
 
     #partial switch event.key {
@@ -323,12 +338,10 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
             return true
         }
     case .K:
-        if ctrl_only {
-            if event.shift {
-                textedit.delete_lines(state)
-            } else if editor.comment_prefix != "" {
-                textedit.toggle_comment(state, editor.comment_prefix)
-            }
+        // ctrl+k (no shift) is the comment toggle, handled above via the
+        // configurable keybind; ctrl+shift+k deletes the line.
+        if ctrl_only && event.shift {
+            textedit.delete_lines(state)
             editor_scroll_to_caret(editor)
             return true
         }

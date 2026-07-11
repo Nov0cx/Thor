@@ -1,0 +1,17 @@
+{
+    "odin":       { "line": "//", "extensions": [".odin"] },
+    "c":          { "line": "//", "extensions": [".c", ".h"] },
+    "cpp":        { "line": "//", "extensions": [".cpp", ".hpp", ".cc"] },
+    "rust":       { "line": "//", "extensions": [".rs"] },
+    "go":         { "line": "//", "extensions": [".go"] },
+    "javascript": { "line": "//", "extensions": [".js", ".ts"] },
+    "zig":        { "line": "//", "extensions": [".zig"] },
+    "glsl":       { "line": "//", "extensions": [".glsl", ".vert", ".frag"] },
+    "python":     { "line": "#",  "extensions": [".py"] },
+    "shell":      { "line": "#",  "extensions": [".sh"] },
+    "toml":       { "line": "#",  "extensions": [".toml"] },
+    "yaml":       { "line": "#",  "extensions": [".yml", ".yaml"] },
+    "git":        { "line": "#",  "extensions": [".gitignore", ".gitmodules"] },
+    "ini":        { "line": ";",  "extensions": [".ini", ".cfg"] },
+    "batch":      { "line": "::", "extensions": [".bat"] }
+}

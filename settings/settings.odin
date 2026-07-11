@@ -1,0 +1,224 @@
+package settings
+
+// Loads Thor's user-editable configuration from the settings/ folder:
+//   - comments.json: line-comment markers per language (drives Ctrl+K)
+//   - keybinds.json: action -> key chord bindings
+//
+// Missing or malformed files degrade gracefully: callers fall back to empty
+// lookups (no comment marker, no binding) rather than crashing.
+
+import "core:encoding/json"
+import "core:log"
+import "core:os"
+import "core:strings"
+import rl "vendor:raylib"
+
+// A parsed key chord, e.g. "ctrl+shift+k" -> {key = .K, ctrl, shift}.
+Keybind :: struct {
+    key:   rl.KeyboardKey,
+    ctrl:  bool,
+    shift: bool,
+    alt:   bool,
+}
+
+Settings :: struct {
+    // File extension (".odin") -> line-comment marker ("//").
+    comments: map[string]string,
+    // Action name ("toggle_line_comment") -> bound chord.
+    keybinds: map[string]Keybind,
+}
+
+// Reads comments.json and keybinds.json from dir. Always returns an
+// initialized Settings; parse failures just leave the maps sparse.
+load :: proc(dir: string) -> Settings {
+    s: Settings
+    s.comments = make(map[string]string)
+    s.keybinds = make(map[string]Keybind)
+
+    load_comments(&s, strings.concatenate({dir, "/comments.json"}, context.temp_allocator))
+    load_keybinds(&s, strings.concatenate({dir, "/keybinds.json"}, context.temp_allocator))
+    return s
+}
+
+destroy :: proc(s: ^Settings) {
+    for key, value in s.comments {
+        delete(key)
+        delete(value)
+    }
+    delete(s.comments)
+
+    for key in s.keybinds {
+        delete(key)
+    }
+    delete(s.keybinds)
+}
+
+// Line-comment marker for a file, or "" when the language is unknown (which
+// disables Ctrl+K commenting for that file).
+comment_prefix :: proc(s: ^Settings, filename: string) -> string {
+    dot := strings.last_index_byte(filename, '.')
+    if dot < 0 {
+        return ""
+    }
+    return s.comments[filename[dot:]]
+}
+
+keybind :: proc(s: ^Settings, action: string) -> (Keybind, bool) {
+    kb, ok := s.keybinds[action]
+    return kb, ok
+}
+
+// True when an incoming key event exactly matches the chord (modifiers must
+// match precisely so ctrl+k and ctrl+shift+k stay distinct).
+keybind_matches :: proc(kb: Keybind, key: rl.KeyboardKey, ctrl, shift, alt: bool) -> bool {
+    return kb.key == key && kb.ctrl == ctrl && kb.shift == shift && kb.alt == alt
+}
+
+// Parses "ctrl+shift+k" into a Keybind. Modifiers are order-insensitive; the
+// single non-modifier token names the key (see key_from_name).
+parse_keybind :: proc(spec: string) -> (Keybind, bool) {
+    kb: Keybind
+    key_set := false
+
+    parts := strings.split(spec, "+", context.temp_allocator)
+    for part in parts {
+        token := strings.to_lower(strings.trim_space(part), context.temp_allocator)
+        switch token {
+        case "ctrl", "control":
+            kb.ctrl = true
+        case "shift":
+            kb.shift = true
+        case "alt":
+            kb.alt = true
+        case:
+            key, ok := key_from_name(token)
+            if !ok {
+                return kb, false
+            }
+            kb.key = key
+            key_set = true
+        }
+    }
+    return kb, key_set
+}
+
+// --- internals -------------------------------------------------------------
+
+@(private)
+key_from_name :: proc(name: string) -> (rl.KeyboardKey, bool) {
+    if len(name) == 1 {
+        c := name[0]
+        switch {
+        case c >= 'a' && c <= 'z':
+            return rl.KeyboardKey(int(rl.KeyboardKey.A) + int(c - 'a')), true
+        case c >= 'A' && c <= 'Z':
+            return rl.KeyboardKey(int(rl.KeyboardKey.A) + int(c - 'A')), true
+        case c >= '0' && c <= '9':
+            return rl.KeyboardKey(int(rl.KeyboardKey.ZERO) + int(c - '0')), true
+        }
+    }
+
+    switch name {
+    case "page_up":   return .PAGE_UP, true
+    case "page_down": return .PAGE_DOWN, true
+    case "up":        return .UP, true
+    case "down":      return .DOWN, true
+    case "left":      return .LEFT, true
+    case "right":     return .RIGHT, true
+    case "home":      return .HOME, true
+    case "end":       return .END, true
+    case "enter":     return .ENTER, true
+    case "escape":    return .ESCAPE, true
+    case "tab":       return .TAB, true
+    case "space":     return .SPACE, true
+    case "backspace": return .BACKSPACE, true
+    case "delete":    return .DELETE, true
+    // Physical key right of the home row: \ on US, # on QWERTZ.
+    case "backslash": return .BACKSLASH, true
+    case "kp_add":      return .KP_ADD, true
+    case "kp_subtract": return .KP_SUBTRACT, true
+    }
+    return .KEY_NULL, false
+}
+
+@(private)
+parse_object :: proc(path: string) -> (json.Object, bool) {
+    data, read_err := os.read_entire_file_from_path(path, context.temp_allocator)
+    if read_err != nil {
+        log.warnf("Cannot read settings %q: %v", path, read_err)
+        return nil, false
+    }
+
+    root, parse_err := json.parse(data, allocator = context.temp_allocator)
+    if parse_err != .None {
+        log.warnf("Cannot parse settings %q: %v", path, parse_err)
+        return nil, false
+    }
+
+    obj, ok := root.(json.Object)
+    if !ok {
+        log.warnf("Settings %q: root is not an object", path)
+        return nil, false
+    }
+    return obj, true
+}
+
+@(private)
+load_comments :: proc(s: ^Settings, path: string) {
+    root, ok := parse_object(path)
+    if !ok {
+        return
+    }
+
+    for language, value in root {
+        entry, entry_ok := value.(json.Object)
+        if !entry_ok {
+            continue
+        }
+        line, line_ok := entry["line"].(json.String)
+        if !line_ok {
+            continue
+        }
+        extensions, ext_ok := entry["extensions"].(json.Array)
+        if !ext_ok {
+            log.warnf("Settings %q: language %q has no \"extensions\" array", path, language)
+            continue
+        }
+        for ext_value in extensions {
+            ext, ext_str_ok := ext_value.(json.String)
+            if !ext_str_ok {
+                continue
+            }
+            s.comments[strings.clone(string(ext))] = strings.clone(string(line))
+        }
+    }
+}
+
+@(private)
+load_keybinds :: proc(s: ^Settings, path: string) {
+    root, ok := parse_object(path)
+    if !ok {
+        return
+    }
+
+    // keybinds.json groups bindings (e.g. "editor", "global"); action names
+    // share one flat namespace regardless of group.
+    for group_name, group_value in root {
+        group, group_ok := group_value.(json.Object)
+        if !group_ok {
+            continue
+        }
+        for action, spec_value in group {
+            spec, spec_ok := spec_value.(json.String)
+            if !spec_ok {
+                continue
+            }
+            kb, parsed := parse_keybind(string(spec))
+            if !parsed {
+                log.warnf("Settings %q: %s.%s has invalid binding %q", path, group_name, action, spec)
+                continue
+            }
+            s.keybinds[strings.clone(action)] = kb
+        }
+    }
+}
