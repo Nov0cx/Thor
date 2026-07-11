@@ -6,14 +6,18 @@ import rl "vendor:raylib"
 import "../ui"
 
 Status_Info :: struct {
-    branch:    string,
-    file_name: string,
-    language:  string,
-    line:      int,
-    column:    int,
-    file_open: bool,
-    modified:  bool,
-    saving:    bool,
+    branch:        string,
+    file_name:     string,
+    language:      string,
+    line:          int,
+    column:        int,
+    // Spaces per indent level; when indent_spaces is true the segment reads
+    // "Spaces: N", otherwise "Tab Size: N". A width of 0 hides the segment.
+    indent_width:  int,
+    indent_spaces: bool,
+    file_open:     bool,
+    modified:      bool,
+    saving:        bool,
 }
 
 Status_Proc :: #type proc(data: rawptr) -> Status_Info
@@ -133,6 +137,12 @@ statusbar_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
         if info.language != "" {
             right -= statusbar_segment_width(statusbar, "", info.language)
             statusbar_draw_segment(statusbar, right, "", info.language, statusbar.text_color)
+        }
+        if info.indent_width > 0 {
+            label := info.indent_spaces ? "Spaces" : "Tab Size"
+            indent := fmt.tprintf("%s: %d", label, info.indent_width)
+            right -= statusbar_segment_width(statusbar, "", indent)
+            statusbar_draw_segment(statusbar, right, "", indent, statusbar.dim_color)
         }
         right -= statusbar_segment_width(statusbar, "", "UTF-8")
         statusbar_draw_segment(statusbar, right, "", "UTF-8", statusbar.dim_color)

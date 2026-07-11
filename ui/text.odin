@@ -79,9 +79,9 @@ font_load_worker :: proc(job: ^Font_Load_Job) {
     }
 
     // Ligature glyphs are only reachable through shaping; probe common
-    // sequences and bake whatever new glyph ids come back. The icon font
-    // has no ligatures, so skip the probing there.
-    if job.family.name != ICON_FAMILY {
+    // sequences and bake whatever new glyph ids come back. Icon fonts
+    // have no ligatures, so skip the probing there.
+    if !job.family.icon_font {
         for gid in shape_collect_ligature_glyphs(file_data, &seen) {
             append(&baked, Bake_Entry {value = -1, gid = gid})
         }

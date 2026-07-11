@@ -29,6 +29,8 @@ Font_Family :: struct {
     file_data:     []u8,
     codepoints:    []rune,
     preload_sizes: []i32,
+    // Icon fonts have no ligatures, so the shaping probes skip them.
+    icon_font:     bool,
     cache:         map[i32]rl.Font,
     // Per preloaded size: glyph index -> atlas entry, for the HarfBuzz
     // shaped draw path (includes ligature glyphs, which have no codepoint).
@@ -40,15 +42,24 @@ Font_Family :: struct {
     hb_font:       ^hb.font_t,
 }
 
-// Family name the icon manifest registers under. Widgets address icons by
-// icon name through draw_icon, never through this directly.
+// Family name of the manifest's primary (UI) icon set. Widgets address
+// icons by icon name through draw_icon, never through this directly.
 ICON_FAMILY :: "icons"
 
 families: map[string]^Font_Family
 default_family_name: string
 
+// Icons from every set in the manifest share one namespace; each name
+// carries the family it resolves in (e.g. tabler "folder" vs. devicon
+// "devicon-c-plain").
 @(private = "file")
-icon_map: map[string]rune
+Icon_Glyph :: struct {
+    family:    string,
+    codepoint: rune,
+}
+
+@(private = "file")
+icon_map: map[string]Icon_Glyph
 
 @(private = "file")
 icon_warned: map[string]bool
@@ -192,9 +203,10 @@ text_load_font_manifest :: proc(manifest_path: string) -> bool {
     return registered > 0
 }
 
-// Registers the icon font family and the icon name -> codepoint map. Only
-// the "preload" icons are baked into startup atlases; names outside that
-// list still resolve but render the font's fallback glyph.
+// Registers one icon font family per manifest "fonts" entry plus the icon
+// name -> (family, codepoint) map. Only the "preload" icons are baked into
+// startup atlases; names outside that list still resolve but render their
+// font's fallback glyph.
 text_load_icon_manifest :: proc(manifest_path: string) -> bool {
     root, root_ok := manifest_parse(manifest_path)
     if !root_ok {
@@ -202,57 +214,76 @@ text_load_icon_manifest :: proc(manifest_path: string) -> bool {
     }
     dir := manifest_dir(manifest_path)
 
-    rel, rel_ok := root["font"].(json.String)
-    if !rel_ok {
-        log.warnf("Icon manifest %q: missing \"font\"", manifest_path)
+    fonts, fonts_ok := root["fonts"].(json.Object)
+    if !fonts_ok {
+        log.warnf("Icon manifest %q: missing \"fonts\" object", manifest_path)
         return false
-    }
-
-    icons, icons_ok := root["icons"].(json.Object)
-    if !icons_ok {
-        log.warnf("Icon manifest %q: missing \"icons\" object", manifest_path)
-        return false
-    }
-
-    icon_map = make(map[string]rune)
-    icon_warned = make(map[string]bool)
-    for name, value in icons {
-        glyph, glyph_ok := value.(json.String)
-        if !glyph_ok || len(glyph) == 0 {
-            continue
-        }
-        codepoint, _ := utf8.decode_rune_in_string(string(glyph))
-        icon_map[strings.clone(name)] = codepoint
-    }
-
-    codepoints := make([dynamic]rune, context.temp_allocator)
-    if preload, preload_ok := root["preload"].(json.Array); preload_ok {
-        for value in preload {
-            name, name_ok := value.(json.String)
-            if !name_ok {
-                continue
-            }
-            if codepoint, found := icon_map[string(name)]; found {
-                append(&codepoints, codepoint)
-            } else {
-                log.warnf("Icon manifest %q: preload icon %q not in icon map", manifest_path, name)
-            }
-        }
     }
 
     sizes := manifest_sizes(root, "preload_sizes")
-    full_path := strings.concatenate({dir, strings.trim_prefix(string(rel), "./")}, context.temp_allocator)
-    return register_family(ICON_FAMILY, full_path, codepoints[:], sizes[:]) != nil
+    icon_map = make(map[string]Icon_Glyph)
+    icon_warned = make(map[string]bool)
+
+    registered := 0
+    for family_name, value in fonts {
+        entry, entry_ok := value.(json.Object)
+        if !entry_ok {
+            log.warnf("Icon manifest %q: entry %q is not an object", manifest_path, family_name)
+            continue
+        }
+        rel, rel_ok := entry["font"].(json.String)
+        if !rel_ok {
+            log.warnf("Icon manifest %q: entry %q has no \"font\"", manifest_path, family_name)
+            continue
+        }
+        icons, icons_ok := entry["icons"].(json.Object)
+        if !icons_ok {
+            log.warnf("Icon manifest %q: entry %q has no \"icons\" object", manifest_path, family_name)
+            continue
+        }
+
+        family_key := strings.clone(family_name)
+        for name, glyph_value in icons {
+            glyph, glyph_ok := glyph_value.(json.String)
+            if !glyph_ok || len(glyph) == 0 {
+                continue
+            }
+            codepoint, _ := utf8.decode_rune_in_string(string(glyph))
+            icon_map[strings.clone(name)] = Icon_Glyph {family = family_key, codepoint = codepoint}
+        }
+
+        codepoints := make([dynamic]rune, context.temp_allocator)
+        if preload, preload_ok := entry["preload"].(json.Array); preload_ok {
+            for preload_value in preload {
+                name, name_ok := preload_value.(json.String)
+                if !name_ok {
+                    continue
+                }
+                if glyph, found := icon_map[string(name)]; found && glyph.family == family_key {
+                    append(&codepoints, glyph.codepoint)
+                } else {
+                    log.warnf("Icon manifest %q: preload icon %q not in icon map", manifest_path, name)
+                }
+            }
+        }
+
+        full_path := strings.concatenate({dir, strings.trim_prefix(string(rel), "./")}, context.temp_allocator)
+        if family := register_family(family_key, full_path, codepoints[:], sizes[:]); family != nil {
+            family.icon_font = true
+            registered += 1
+        }
+    }
+    return registered > 0
 }
 
 icon_codepoint :: proc(name: string) -> (rune, bool) {
-    codepoint, ok := icon_map[name]
-    return codepoint, ok
+    glyph, ok := icon_map[name]
+    return glyph.codepoint, ok
 }
 
 // Draws a single icon glyph; size is the pixel height of the icon font.
 draw_icon :: proc(name: string, x, y, size: i32, color: rl.Color) {
-    codepoint, ok := icon_map[name]
+    glyph, ok := icon_map[name]
     if !ok {
         if !icon_warned[name] {
             icon_warned[strings.clone(name, font_allocator)] = true
@@ -260,18 +291,18 @@ draw_icon :: proc(name: string, x, y, size: i32, color: rl.Color) {
         }
         return
     }
-    font := get_font(size, ICON_FAMILY)
-    rl.DrawTextCodepoint(font, codepoint, rl.Vector2 {cast(f32) x, cast(f32) y}, cast(f32) size, color)
+    font := get_font(size, glyph.family)
+    rl.DrawTextCodepoint(font, glyph.codepoint, rl.Vector2 {cast(f32) x, cast(f32) y}, cast(f32) size, color)
 }
 
 measure_icon :: proc(name: string, size: i32) -> i32 {
-    codepoint, ok := icon_map[name]
+    glyph, ok := icon_map[name]
     if !ok {
         return 0
     }
 
-    font := get_font(size, ICON_FAMILY)
-    index := rl.GetGlyphIndex(font, codepoint)
+    font := get_font(size, glyph.family)
+    index := rl.GetGlyphIndex(font, glyph.codepoint)
     scale := cast(f32) size / cast(f32) font.baseSize
     advance := font.glyphs[index].advanceX
     if advance != 0 {

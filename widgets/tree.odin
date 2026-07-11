@@ -322,17 +322,117 @@ tree_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
     }
 }
 
+// Language files get their devicon glyph (the "devicon-" names live in the
+// devicons set of the icon manifest); everything else falls back to the
+// generic tabler file icons.
 @(private = "file")
 tree_file_icon :: proc(name: string) -> string {
+    switch name {
+    case "Dockerfile":
+        return "devicon-docker-plain"
+    case "CMakeLists.txt":
+        return "devicon-cmake-plain"
+    }
+
     dot := strings.last_index_byte(name, '.')
     if dot < 0 {
         return "file"
     }
 
     switch name[dot:] {
-    case ".odin", ".c", ".h", ".cpp", ".hpp", ".rs", ".go", ".py", ".js", ".ts", ".zig", ".glsl", ".vert", ".frag":
+    case ".c", ".h":
+        return "devicon-c-plain"
+    case ".cpp", ".hpp", ".cc", ".hh", ".cxx":
+        return "devicon-cplusplus-plain"
+    case ".rs":
+        return "devicon-rust-plain"
+    case ".go":
+        return "devicon-go-plain"
+    case ".py", ".pyw":
+        return "devicon-python-plain"
+    case ".js", ".mjs", ".cjs":
+        return "devicon-javascript-plain"
+    case ".ts":
+        return "devicon-typescript-plain"
+    case ".jsx", ".tsx":
+        return "devicon-react-original"
+    case ".zig":
+        return "devicon-zig-plain"
+    case ".glsl", ".vert", ".frag":
+        return "devicon-opengl-plain"
+    case ".md":
+        return "devicon-markdown-original"
+    case ".json":
+        return "devicon-json-plain"
+    case ".yml", ".yaml":
+        return "devicon-yaml-plain"
+    case ".xml":
+        return "devicon-xml-plain"
+    case ".html", ".htm":
+        return "devicon-html5-plain"
+    case ".css":
+        return "devicon-css3-plain"
+    case ".scss", ".sass":
+        return "devicon-sass-original"
+    case ".lua":
+        return "devicon-lua-plain"
+    case ".java":
+        return "devicon-java-plain"
+    case ".kt", ".kts":
+        return "devicon-kotlin-plain"
+    case ".cs":
+        return "devicon-csharp-plain"
+    case ".fs":
+        return "devicon-fsharp-plain"
+    case ".swift":
+        return "devicon-swift-plain"
+    case ".rb":
+        return "devicon-ruby-plain"
+    case ".php":
+        return "devicon-php-plain"
+    case ".hs":
+        return "devicon-haskell-plain"
+    case ".ex", ".exs":
+        return "devicon-elixir-plain"
+    case ".jl":
+        return "devicon-julia-plain"
+    case ".pl", ".pm":
+        return "devicon-perl-plain"
+    case ".dart":
+        return "devicon-dart-plain"
+    case ".scala":
+        return "devicon-scala-plain"
+    case ".clj", ".cljs":
+        return "devicon-clojure-plain"
+    case ".erl":
+        return "devicon-erlang-plain"
+    case ".ml", ".mli":
+        return "devicon-ocaml-plain"
+    case ".nim":
+        return "devicon-nim-plain"
+    case ".sh", ".bash", ".zsh":
+        return "devicon-bash-plain"
+    case ".ps1", ".psm1":
+        return "devicon-powershell-plain"
+    case ".vim":
+        return "devicon-vim-plain"
+    case ".tex", ".bib":
+        return "devicon-latex-plain"
+    case ".cmake":
+        return "devicon-cmake-plain"
+    case ".vue":
+        return "devicon-vuejs-plain"
+    case ".svelte":
+        return "devicon-svelte-plain"
+    case ".graphql", ".gql":
+        return "devicon-graphql-plain"
+    case ".gitignore", ".gitattributes", ".gitmodules":
+        return "devicon-git-plain"
+    case ".odin":
+        return "odin"
+    case ".asm", ".s", ".sql", ".bat":
         return "file-code"
-    case ".md", ".txt", ".json", ".toml", ".yml", ".yaml", ".xml", ".ini", ".cfg", ".log":
+    case ".txt", ".toml", ".ini", ".cfg", ".log":
         return "file-text"
     }
     return "file"

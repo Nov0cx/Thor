@@ -184,7 +184,7 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
         } else if textedit.has_any_selection(state) {
             textedit.indent_lines(state)
         } else {
-            textedit.insert_text(state, "\t")
+            textedit.insert_soft_tab(state)
         }
         editor_scroll_to_caret(editor)
         return true
@@ -487,11 +487,15 @@ editor_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
             }
             cursor_line_start := textedit.line_start(text, cursor.caret)
             caret_x := cast(f32) text_x + cast(f32) ui.measure_text(text[cursor_line_start:cursor.caret], editor.font_size)
+            // Text is top-aligned in the line (the line's extra spacing sits
+            // below the glyphs), so anchor the caret to the line top and size
+            // it to the glyph height instead of the full line height, which
+            // otherwise overhangs below the text.
             rl.DrawRectangle(
                 cast(i32) caret_x,
                 cast(i32) caret_y,
                 2,
-                ui.text_line_height(editor.font_size),
+                editor.font_size,
                 editor.caret_color,
             )
         }

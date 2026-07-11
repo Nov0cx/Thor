@@ -60,9 +60,45 @@ test_async_font_load :: proc(t: ^testing.T) {
         }
     }
 
+    devicons, devicons_ok := families["devicons"]
+    testing.expect(t, devicons_ok, "devicons family missing")
+    if devicons_ok {
+        testing.expect_value(t, len(devicons.cache), 2)
+        for size in ([2]i32 {16, 18}) {
+            font, ok := devicons.cache[size]
+            testing.expect(t, ok, "devicon size missing from cache")
+            if !ok {
+                continue
+            }
+            testing.expect_value(t, font.glyphCount, cast(i32) len(devicons.codepoints))
+        }
+    }
+
+    odin_icons, odin_ok := families["odin"]
+    testing.expect(t, odin_ok, "odin icon family missing")
+    if odin_ok {
+        testing.expect_value(t, len(odin_icons.cache), 2)
+        for size in ([2]i32 {16, 18}) {
+            font, ok := odin_icons.cache[size]
+            testing.expect(t, ok, "odin icon size missing from cache")
+            if !ok {
+                continue
+            }
+            testing.expect_value(t, font.glyphCount, cast(i32) len(odin_icons.codepoints))
+        }
+    }
+
     codepoint, found := icon_codepoint("folder")
     testing.expect(t, found, "folder icon missing from icon map")
     testing.expect(t, codepoint >= 0xE000, "folder icon not in private use area")
+
+    dev_codepoint, dev_found := icon_codepoint("devicon-c-plain")
+    testing.expect(t, dev_found, "devicon-c-plain missing from icon map")
+    testing.expect(t, dev_codepoint >= 0xE000, "devicon glyph not in private use area")
+
+    odin_codepoint, odin_found := icon_codepoint("odin")
+    testing.expect(t, odin_found, "odin icon missing from icon map")
+    testing.expect_value(t, odin_codepoint, rune(0xE900))
 
     // Shaping "->" must substitute the ligature glyphs, and every glyph the
     // shaper emits must be drawable from the baked atlas.

@@ -335,7 +335,37 @@ apply_line_edits :: proc(state: ^State, txt: string, edits: []Line_Edit) {
     finish_edit(state, &entry)
 }
 
-INDENT_UNIT :: "\t"
+// Indentation is soft: a level is TAB_WIDTH spaces, and Tab never inserts a
+// literal tab character.
+TAB_WIDTH :: 4
+INDENT_UNIT :: "    " // TAB_WIDTH spaces
+
+// Soft-tab insert at each caret: adds spaces up to the next TAB_WIDTH column so
+// indentation snaps to consistent stops. Used for Tab without a selection.
+insert_soft_tab :: proc(state: ^State) {
+    txt := text(state)
+    entry := Undo_Entry {cursors_before = clone_cursors(state)}
+
+    // Cursors are kept sorted; apply low to high, shifting later positions.
+    offset := 0
+    for &cursor in state.cursors {
+        lo, hi := selection_range(cursor)
+        if hi > lo {
+            append(&entry.ops, Edit_Op {kind = .Delete, pos = lo + offset, text = strings.clone(txt[lo:hi])})
+            piecetable.piecetable_delete(&state.table, lo + offset, hi - lo)
+        }
+        count := TAB_WIDTH - (column(txt, lo) % TAB_WIDTH)
+        unit := INDENT_UNIT
+        spaces := unit[:count]
+        append(&entry.ops, Edit_Op {kind = .Insert, pos = lo + offset, text = strings.clone(spaces)})
+        piecetable.piecetable_insert(&state.table, lo + offset, spaces)
+        cursor.caret = lo + offset + count
+        cursor.anchor = cursor.caret
+        offset += count - (hi - lo)
+    }
+
+    finish_edit(state, &entry)
+}
 
 indent_lines :: proc(state: ^State) {
     txt := text(state)

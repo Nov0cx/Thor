@@ -74,13 +74,31 @@ test_indent_outdent :: proc(t: ^testing.T) {
     state.cursors[0].caret = 5 // covers lines 1 and 2
 
     indent_lines(&state)
-    testing.expect_value(t, text(&state), "\taaa\n\tbbb\nccc")
+    testing.expect_value(t, text(&state), "    aaa\n    bbb\nccc")
 
     outdent_lines(&state)
     testing.expect_value(t, text(&state), "aaa\nbbb\nccc")
 
     outdent_lines(&state) // nothing left to remove: no-op
     testing.expect_value(t, text(&state), "aaa\nbbb\nccc")
+}
+
+@(test)
+test_insert_soft_tab :: proc(t: ^testing.T) {
+    state := ops_state("ab", 0)
+    defer destroy(&state)
+
+    // From column 0, a soft tab fills a whole TAB_WIDTH stop.
+    set_single_cursor(&state, 0)
+    insert_soft_tab(&state)
+    testing.expect_value(t, text(&state), "    ab")
+    testing.expect_value(t, primary_cursor(&state).caret, 4)
+
+    // From column 6, it only pads to the next stop (column 8): 2 spaces.
+    set_single_cursor(&state, 6)
+    insert_soft_tab(&state)
+    testing.expect_value(t, text(&state), "    ab  ")
+    testing.expect_value(t, primary_cursor(&state).caret, 8)
 }
 
 @(test)

@@ -102,6 +102,8 @@ thor_status_info :: proc(data: rawptr) -> widgets.Status_Info {
     info.file_open = true
     info.file_name = file.name
     info.language = thor_language_name(file.name)
+    info.indent_width = textedit.TAB_WIDTH
+    info.indent_spaces = true
     info.saving = file.saving
     info.modified = file.loaded && file.state.revision != file.saved_revision
 
