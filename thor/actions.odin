@@ -1,6 +1,25 @@
 package thor
 
+import rl "vendor:raylib"
+
 import "../ui"
+
+thor_minimize_window :: proc(_: rawptr, _: ^ui.Context, _: ^ui.Widget) {
+    rl.MinimizeWindow()
+}
+
+thor_toggle_maximize :: proc(_: rawptr, _: ^ui.Context, _: ^ui.Widget) {
+    if rl.IsWindowMaximized() {
+        rl.RestoreWindow()
+    } else {
+        rl.MaximizeWindow()
+    }
+}
+
+thor_close_window :: proc(data: rawptr, _: ^ui.Context, _: ^ui.Widget) {
+    thor := cast(^Thor) data
+    thor.should_close = true
+}
 
 thor_toggle_explorer :: proc(data: rawptr, _: ^ui.Context, _: ^ui.Widget) {
     thor := cast(^Thor) data

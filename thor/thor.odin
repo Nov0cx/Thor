@@ -49,6 +49,10 @@ Thor :: struct {
     explorer_restore_button:  ^widgets.Button,
     console_toggle_button:    ^widgets.Button,
     console_restore_button:   ^widgets.Button,
+    minimize_button:          ^widgets.Button,
+    maximize_button:          ^widgets.Button,
+    close_button:             ^widgets.Button,
+    should_close:             bool,
     explorer_width:           f32,
     console_height:           f32,
     workspace_dir:            string,
@@ -85,6 +89,7 @@ init :: proc() -> ^Thor {
     rl.InitWindow(1280, 800, "Thor")
     lap(&phase, "InitWindow")
     rl.SetTargetFPS(60)
+    rl.SetExitKey(.KEY_NULL)
 
     thor := new(Thor)
     ui.context_init(&thor.ui_context)
@@ -143,7 +148,7 @@ thor_read_git_branch :: proc() -> string {
 }
 
 run :: proc(thor: ^Thor) {
-    for !rl.WindowShouldClose() {
+    for !rl.WindowShouldClose() && !thor.should_close {
         thor_update_files(thor)
         ui.context_update(&thor.ui_context)
 

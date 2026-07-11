@@ -9,6 +9,9 @@ Button_Click_Proc :: #type proc(data: rawptr, ctx: ^ui.Context, widget: ^ui.Widg
 Button :: struct {
     using widget: ui.Widget,
     text:              string,
+    // When set, an icon glyph is drawn centered instead of the text.
+    icon:              string,
+    icon_size:         i32,
     on_click:          Button_Click_Proc,
     click_data:        rawptr,
     text_color:        rl.Color,
@@ -41,6 +44,12 @@ button_create :: proc(id, text: string) -> ^Button {
     button.padding = ui.padding_xy(14, 10)
     button.border_thickness = 1
     button.min_size = rl.Vector2 {180, 44}
+    return button
+}
+
+button_set_icon :: proc(button: ^Button, icon: string, icon_size: i32) -> ^Button {
+    button.icon = icon
+    button.icon_size = icon_size
     return button
 }
 
@@ -103,11 +112,17 @@ button_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
         rl.DrawRectangleLinesEx(button.bounds, button.border_thickness, button.border_color)
     }
 
-    text_width := ui.measure_text(button.text, button.font_size)
-    text_x := cast(i32) (button.bounds.x + (button.bounds.width - cast(f32) text_width) * 0.5)
-    text_y := cast(i32) (button.bounds.y + (button.bounds.height - cast(f32) button.font_size) * 0.5)
     ui.begin_clip(button.bounds)
-    ui.draw_text(button.text, text_x, text_y, button.font_size, button.text_color)
+    if button.icon != "" {
+        icon_x := cast(i32) (button.bounds.x + (button.bounds.width - cast(f32) button.icon_size) * 0.5)
+        icon_y := cast(i32) (button.bounds.y + (button.bounds.height - cast(f32) button.icon_size) * 0.5)
+        ui.draw_icon(button.icon, icon_x, icon_y, button.icon_size, button.text_color)
+    } else {
+        text_width := ui.measure_text(button.text, button.font_size)
+        text_x := cast(i32) (button.bounds.x + (button.bounds.width - cast(f32) text_width) * 0.5)
+        text_y := cast(i32) (button.bounds.y + (button.bounds.height - cast(f32) button.font_size) * 0.5)
+        ui.draw_text(button.text, text_x, text_y, button.font_size, button.text_color)
+    }
     ui.end_clip()
 }
 

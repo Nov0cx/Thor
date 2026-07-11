@@ -103,10 +103,13 @@ thor_build_controls :: proc(thor: ^Thor) {
     thor.menu_edit_button = thor_create_menu_button(thor, "menu-edit", "Edit")
     thor.menu_view_button = thor_create_menu_button(thor, "menu-view", "View")
     thor.menu_help_button = thor_create_menu_button(thor, "menu-help", "Help")
-    thor.explorer_toggle_button = thor_create_icon_button(thor, "explorer-toggle", "<", thor_toggle_explorer)
-    thor.explorer_restore_button = thor_create_icon_button(thor, "explorer-restore", ">", thor_toggle_explorer)
-    thor.console_toggle_button = thor_create_icon_button(thor, "console-toggle", "v", thor_toggle_console)
-    thor.console_restore_button = thor_create_icon_button(thor, "console-restore", "^", thor_toggle_console)
+    thor.explorer_toggle_button = thor_create_icon_button(thor, "explorer-toggle", "layout-sidebar-left-collapse", thor_toggle_explorer, thor.theme.highlight)
+    thor.explorer_restore_button = thor_create_icon_button(thor, "explorer-restore", "layout-sidebar-left-expand", thor_toggle_explorer, thor.theme.buttons)
+    thor.console_toggle_button = thor_create_icon_button(thor, "console-toggle", "layout-bottombar-collapse", thor_toggle_console, thor.theme.highlight)
+    thor.console_restore_button = thor_create_icon_button(thor, "console-restore", "layout-bottombar-expand", thor_toggle_console, thor.theme.buttons)
+    thor.minimize_button = thor_create_window_button(thor, "window-minimize", "minus", thor_minimize_window, thor.theme.highlight)
+    thor.maximize_button = thor_create_window_button(thor, "window-maximize", "square", thor_toggle_maximize, thor.theme.highlight)
+    thor.close_button = thor_create_window_button(thor, "window-close", "x", thor_close_window, thor.theme.red_color)
 }
 
 thor_build_content :: proc(thor: ^Thor) {
@@ -216,6 +219,9 @@ thor_build_content :: proc(thor: ^Thor) {
     widgets.append_child(&thor.top_bar.widget, &thor.menu_view_button.widget)
     widgets.append_child(&thor.top_bar.widget, &thor.menu_help_button.widget)
     widgets.append_child(&thor.top_bar.widget, &top_spacer.widget)
+    widgets.append_child(&thor.top_bar.widget, &thor.minimize_button.widget)
+    widgets.append_child(&thor.top_bar.widget, &thor.maximize_button.widget)
+    widgets.append_child(&thor.top_bar.widget, &thor.close_button.widget)
 
     widgets.append_child(&thor.explorer_stack.widget, &thor.explorer_header.widget)
     widgets.append_child(&thor.explorer_stack.widget, &thor.tree.widget)
@@ -272,12 +278,26 @@ thor_create_menu_button :: proc(thor: ^Thor, id, text: string) -> ^widgets.Butto
     return button
 }
 
-thor_create_icon_button :: proc(thor: ^Thor, id, text: string, on_click: widgets.Button_Click_Proc) -> ^widgets.Button {
-    button := widgets.button_create(id, text)
-    widgets.button_set_colors(button, thor.theme.white_black_color, thor.theme.highlight, thor.theme.blue_color, thor.theme.active, thor.theme.border)
-    widgets.button_set_font_size(button, 18)
+// Titlebar window controls (minimize/maximize/close): flat, icon-only, and
+// only tinted on hover like native captions.
+thor_create_window_button :: proc(thor: ^Thor, id, icon: string, on_click: widgets.Button_Click_Proc, hover: rl.Color) -> ^widgets.Button {
+    button := widgets.button_create(id, "")
+    widgets.button_set_icon(button, icon, 16)
+    widgets.button_set_colors(button, thor.theme.foreground, thor.theme.buttons, hover, thor.theme.active, thor.theme.buttons)
     widgets.button_set_border_thickness(button, 0)
     widgets.button_set_on_click(button, on_click, thor)
-    button.min_size = rl.Vector2 {28, 24}
+    button.min_size = rl.Vector2 {40, 28}
+    return button
+}
+
+// Flat icon-only buttons for panel collapse/restore; the background matches
+// the container they sit in so only the hover state reads as a button.
+thor_create_icon_button :: proc(thor: ^Thor, id, icon: string, on_click: widgets.Button_Click_Proc, background: rl.Color) -> ^widgets.Button {
+    button := widgets.button_create(id, "")
+    widgets.button_set_icon(button, icon, 18)
+    widgets.button_set_colors(button, thor.theme.foreground, background, thor.theme.active, thor.theme.border, background)
+    widgets.button_set_border_thickness(button, 0)
+    widgets.button_set_on_click(button, on_click, thor)
+    button.min_size = rl.Vector2 {30, 26}
     return button
 }
