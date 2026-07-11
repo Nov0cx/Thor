@@ -32,12 +32,10 @@ Open_File :: struct {
     last_edit:          time.Tick,
 }
 
-// Files are read on a worker thread through a memory mapping; the main thread
-// copies the view into the piece table (set_text clones) and unmaps. The
-// worker performs no Odin heap allocations of its own: the job record is
-// allocated and freed on the main thread, and the finished queues were
-// created on the main thread so their stored allocator is used for appends
-// (the debug tracking allocator is mutex-guarded and thread-safe).
+// Loaded via a memory mapping on a worker thread; the main thread copies the
+// view into the piece table and unmaps. The worker makes no Odin heap
+// allocations: the record is allocated/freed on the main thread, and appends
+// to the finished queues go through their (mutex-guarded) allocator.
 Load_Job :: struct {
     owner:   ^Thor,
     file:    ^Open_File,

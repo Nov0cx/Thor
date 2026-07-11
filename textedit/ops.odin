@@ -247,9 +247,6 @@ duplicate_lines :: proc(state: ^State, delta: int) {
     finish_edit(state, &entry)
 }
 
-// ---------------------------------------------------------------------------
-// Line-prefix edits (indent, outdent, comment toggling)
-
 @(private = "file")
 Line_Edit :: struct {
     pos:    int,    // position in the original text

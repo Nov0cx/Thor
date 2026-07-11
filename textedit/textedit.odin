@@ -73,9 +73,6 @@ length :: proc(state: ^State) -> int {
     return piecetable.piecetable_length(&state.table)
 }
 
-// ---------------------------------------------------------------------------
-// Cursors
-
 has_selection :: proc(cursor: Cursor) -> bool {
     return cursor.anchor != cursor.caret
 }
@@ -156,9 +153,6 @@ clone_cursors :: proc(state: ^State) -> [dynamic]Cursor {
     copy(out[:], state.cursors[:])
     return out
 }
-
-// ---------------------------------------------------------------------------
-// Movement
 
 move_horizontal :: proc(state: ^State, delta: int, extend: bool) {
     txt := text(state)
@@ -283,9 +277,8 @@ move_to_matching_bracket :: proc(state: ^State, extend: bool) {
             continue
         }
 
-        // Not adjacent to a bracket: fall back to the nearest bracket pair
-        // that encloses the caret, so Ctrl+P works from inside/behind a
-        // paren. Jump to the opening bracket (extend selects the whole pair).
+        // Not adjacent to a bracket: fall back to the enclosing pair, jumping
+        // to its opening bracket (extend selects the whole pair).
         if open_pos, close_pos, found := find_enclosing_bracket(txt, cursor.caret); found {
             if extend {
                 cursor.anchor = open_pos
@@ -301,9 +294,7 @@ move_to_matching_bracket :: proc(state: ^State, extend: bool) {
 }
 
 // Selects the text between the innermost bracket pair around the caret,
-// excluding the brackets themselves. Like move_to_matching_bracket, it works
-// both when the caret sits next to a bracket and when it is somewhere inside
-// (behind) the pair.
+// excluding the brackets. Works next to a bracket or from inside the pair.
 select_between_brackets :: proc(state: ^State) {
     txt := text(state)
     for &cursor in state.cursors {
@@ -339,9 +330,6 @@ add_cursor_vertical :: proc(state: ^State, delta: int) {
     }
     normalize_cursors(state)
 }
-
-// ---------------------------------------------------------------------------
-// Edits (all recorded for undo)
 
 insert_text :: proc(state: ^State, s: string) {
     if len(s) == 0 {
@@ -562,9 +550,6 @@ clear_entries :: proc(stack: ^[dynamic]Undo_Entry) {
     clear(stack)
 }
 
-// ---------------------------------------------------------------------------
-// String geometry helpers (byte offsets, UTF-8 aware columns)
-
 // Byte offset of the start of the line containing `pos`.
 line_start :: proc(txt: string, pos: int) -> int {
     start := pos
@@ -637,9 +622,6 @@ offset_for_column :: proc(txt: string, start: int, col: int) -> int {
     }
     return pos
 }
-
-// ---------------------------------------------------------------------------
-// Word and bracket scanning
 
 @(private)
 is_word_byte :: proc(b: u8) -> bool {

@@ -96,8 +96,6 @@ thor_register_commands :: proc(thor: ^Thor) {
     widgets.command_palette_add(p, "Settings: Reload", thor_cmd_reload_settings, thor)
 }
 
-// --- command handlers (proc(data: rawptr), data = ^Thor) -------------------
-
 thor_cmd_toggle_explorer :: proc(data: rawptr) {thor_toggle_explorer(data, nil, nil)}
 thor_cmd_toggle_console :: proc(data: rawptr) {thor_toggle_console(data, nil, nil)}
 thor_cmd_toggle_maximize :: proc(data: rawptr) {thor_toggle_maximize(data, nil, nil)}
@@ -145,8 +143,6 @@ thor_cmd_open_keybinds :: proc(data: rawptr) {thor_open_file(cast(^Thor) data, "
 thor_cmd_open_comments :: proc(data: rawptr) {thor_open_file(cast(^Thor) data, "settings/comments.json")}
 thor_cmd_open_settings :: proc(data: rawptr) {thor_open_file(cast(^Thor) data, "settings/settings.json")}
 thor_cmd_reload_settings :: proc(data: rawptr) {thor_reload_settings(cast(^Thor) data)}
-
-// --- palette navigation callbacks ------------------------------------------
 
 thor_palette_list_files :: proc(data: rawptr) -> []string {
     thor := cast(^Thor) data

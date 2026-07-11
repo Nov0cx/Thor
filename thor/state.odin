@@ -24,10 +24,8 @@ thor_apply_layout_state :: proc(thor: ^Thor) {
     thor.console_panel.min_size[1] = thor.console_height
 }
 
-// Points the editor at the buffer of the newly active file. A file that is
-// still loading keeps the editor empty (state nil) so nothing can be typed
-// into a buffer that set_text is about to replace; thor_process_io re-runs
-// this once the load lands.
+// Points the editor at the active file's buffer. A still-loading file leaves
+// the editor empty (state nil); thor_process_io re-runs this once it loads.
 thor_set_active_file :: proc(thor: ^Thor, index: int) {
     ui.signal_set(&thor.active_file, index)
 
@@ -115,8 +113,6 @@ thor_language_name :: proc(name: string) -> string {
     }
     return "Plain Text"
 }
-
-// --- Tabbar callbacks -------------------------------------------------------
 
 thor_tab_count :: proc(data: rawptr) -> int {
     thor := cast(^Thor) data

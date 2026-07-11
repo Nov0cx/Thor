@@ -11,9 +11,8 @@ import "../ui"
 
 Editor_Save_Proc :: #type proc(data: rawptr)
 
-// One on-screen row of text. A logical line that overflows the view width is
-// split into several of these; `first` marks the row that carries the line
-// number. Rebuilt every layout from the buffer (see editor_rebuild_visual_rows).
+// One on-screen row. Overflowing logical lines split into several; `first`
+// marks the row carrying the line number. Rebuilt each layout.
 Visual_Row :: struct {
     start: int, // byte offset of the row's first character
     end:   int, // byte offset one past its last character (before any newline)
@@ -23,19 +22,15 @@ Visual_Row :: struct {
 
 Editor :: struct {
     using widget: ui.Widget,
-    // Borrowed from the owner of the open file (see thor/files.odin); nil
-    // when no file is open. Keeping the buffer outside the widget preserves
-    // undo history and cursors across tab switches.
+    // Borrowed from the open file (thor/files.odin); nil when none open. Kept
+    // outside the widget so undo history and cursors survive tab switches.
     state:              ^textedit.State,
     on_save:            Editor_Save_Proc,
     save_data:          rawptr,
     placeholder:        string,
-    // Line-comment marker for the comment-toggle chord; empty disables
-    // comment toggling (set per language by the owner when a file is
-    // activated).
+    // Line-comment marker; empty disables comment toggling. Set per language.
     comment_prefix:     string,
-    // Chord that toggles the line comment; loaded from keybinds.json by the
-    // owner, defaults to Ctrl+K.
+    // Comment-toggle chord (from keybinds.json), defaults to Ctrl+K.
     comment_keybind:    settings.Keybind,
     font_size:          i32,
     padding:            ui.Padding,
@@ -643,10 +638,8 @@ editor_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
                 continue
             }
             caret_x := cast(f32) text_x + cast(f32) ui.measure_text(text[row.start:cursor.caret], editor.font_size)
-            // Text is top-aligned in the line (the line's extra spacing sits
-            // below the glyphs), so anchor the caret to the line top and size
-            // it to the glyph height instead of the full line height, which
-            // otherwise overhangs below the text.
+            // Text is top-aligned, so anchor the caret to the line top and
+            // size it to the glyph height (not the full line height).
             rl.DrawRectangle(
                 cast(i32) caret_x,
                 cast(i32) caret_y,
@@ -763,9 +756,8 @@ editor_scroll_to_caret :: proc(editor: ^Editor) {
     editor_clamp_scroll(editor)
 }
 
-// Moves every cursor by `delta` visual rows, mapping the caret's column within
-// its current row onto the target row. Used for plain Up/Down and Page keys so
-// vertical motion follows wrapped rows (like emacs visual-line movement).
+// Moves every cursor by `delta` visual rows, keeping its column. Used for plain
+// Up/Down and Page so vertical motion follows wrapped rows.
 editor_move_visual :: proc(editor: ^Editor, delta: int, extend: bool) {
     editor_rebuild_visual_rows(editor)
     if len(editor.visual_rows) == 0 {

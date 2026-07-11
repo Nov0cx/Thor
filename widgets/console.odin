@@ -6,14 +6,12 @@ import rl "vendor:raylib"
 
 import "../ui"
 
-// Invoked when the user presses Enter on a non-empty command line. The command
-// runs elsewhere (a worker thread in thor); output is streamed back via
-// console_append.
+// Called on Enter with a non-empty command; the command runs elsewhere and
+// output arrives via console_append.
 Console_Run_Proc :: #type proc(data: rawptr, command: string)
 
-// A minimal interactive console: a scrollback pane plus a prompt line. It does
-// not run commands itself — it echoes input and hands it to on_run, and shows
-// whatever text is fed back through console_append.
+// Scrollback pane plus a prompt line. Echoes input to on_run and displays
+// whatever text is fed back through console_append; it runs nothing itself.
 Console :: struct {
     using widget: ui.Widget,
     output:           strings.Builder,

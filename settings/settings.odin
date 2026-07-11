@@ -1,11 +1,7 @@
 package settings
 
-// Loads Thor's user-editable configuration from the settings/ folder:
-//   - comments.json: line-comment markers per language (drives Ctrl+K)
-//   - keybinds.json: action -> key chord bindings
-//
-// Missing or malformed files degrade gracefully: callers fall back to empty
-// lookups (no comment marker, no binding) rather than crashing.
+// Loads Thor's config from settings/ (comments.json, keybinds.json,
+// settings.json). Missing or malformed files degrade to empty lookups.
 
 import "core:encoding/json"
 import "core:log"
@@ -124,8 +120,6 @@ parse_keybind :: proc(spec: string) -> (Keybind, bool) {
     }
     return kb, key_set
 }
-
-// --- internals -------------------------------------------------------------
 
 @(private)
 key_from_name :: proc(name: string) -> (rl.KeyboardKey, bool) {

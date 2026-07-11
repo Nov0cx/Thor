@@ -8,18 +8,15 @@ import rl "vendor:raylib"
 
 import "../ui"
 
-// A single palette entry. `run` is invoked when the entry is activated; for
-// entries that switch the palette into another mode (Go to File / Go to Line)
-// `run` receives the palette itself as data and flips `mode`, which keeps the
-// palette open (see command_palette_activate).
+// Palette entry. Mode-switching entries (Go to File/Line) pass the palette as
+// `data` and flip `mode`, which keeps it open (see command_palette_activate).
 Command :: struct {
     title: string, // borrowed; owned by the registrar (thor)
     run:   proc(data: rawptr),
     data:  rawptr,
 }
 
-// Supplied by the owner so the palette can drive file navigation without
-// knowing about the workspace or the editor.
+// Owner hooks so the palette can navigate files without knowing the workspace.
 Palette_List_Files_Proc :: #type proc(data: rawptr) -> []string
 Palette_Open_File_Proc :: #type proc(data: rawptr, path: string)
 Palette_Goto_Line_Proc :: #type proc(data: rawptr, line: int)
@@ -54,14 +51,12 @@ Command_Palette :: struct {
     open_file:    Palette_Open_File_Proc,
     goto_line:    Palette_Goto_Line_Proc,
     cb_data:      rawptr,
-    // Layout metrics.
     box:          rl.Rectangle,
     width:        f32,
     row_height:   f32,
     input_height: f32,
     max_rows:     int,
     top_offset:   f32,
-    // Colors.
     backdrop_color:   rl.Color,
     background_color: rl.Color,
     border_color:     rl.Color,
@@ -155,8 +150,6 @@ command_palette_is_open :: proc(palette: ^Command_Palette) -> bool {
     return palette.visible
 }
 
-// --- internals -------------------------------------------------------------
-
 @(private = "file")
 command_palette_reset :: proc(palette: ^Command_Palette, mode: Palette_Mode) {
     palette.mode = mode
@@ -204,8 +197,7 @@ command_palette_source_count :: proc(palette: ^Command_Palette) -> int {
     return 0
 }
 
-// Rebuilds the visible match list from the current query. Empty query keeps the
-// source order; otherwise entries are fuzzy-scored and ranked best-first.
+// Rebuilds matches from the query: empty keeps source order, else fuzzy-ranked.
 @(private = "file")
 command_palette_refilter :: proc(palette: ^Command_Palette) {
     clear(&palette.matches)
@@ -505,9 +497,8 @@ command_palette_destroy :: proc(widget: ^ui.Widget) {
     free(palette)
 }
 
-// Case-insensitive subsequence fuzzy match. ok=false when a query character is
-// missing; score rewards consecutive runs and word-boundary starts so the most
-// relevant entries rank first. An empty query matches everything with score 0.
+// Case-insensitive subsequence match, scoring consecutive runs and word starts.
+// Empty query matches all (score 0); ok=false when a query char is missing.
 fuzzy_score :: proc(query, text: string) -> (score: int, ok: bool) {
     if len(query) == 0 {
         return 0, true

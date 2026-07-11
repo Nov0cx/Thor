@@ -9,11 +9,9 @@ import "core:thread"
 
 import "../widgets"
 
-// A shell command running on a worker thread. Its captured output is appended
-// to the console on the main thread once the process exits. Like the load/save
-// jobs, the record is allocated and freed on the main thread; the output buffer
-// is allocated through the main thread's (mutex-guarded) allocator so it can be
-// freed there safely.
+// A shell command run on a worker thread; output is appended to the console on
+// the main thread. The output buffer uses the owner's (mutex-guarded) allocator
+// so the main thread can free it.
 Console_Job :: struct {
     owner:     ^Thor,
     command:   string, // owned
@@ -37,8 +35,8 @@ thor_console_run :: proc(data: rawptr, command: string) {
 
 @(private = "file")
 console_worker :: proc(job: ^Console_Job) {
-    // Persistent output is allocated with the owner's allocator (shared, thread
-    // safe) so the main thread can free it; scratch stays on the worker's temp.
+    // Output uses the owner's allocator (freed on the main thread); scratch
+    // stays on the worker's temp.
     context.allocator = job.allocator
     defer free_all(context.temp_allocator)
 
@@ -49,8 +47,7 @@ console_worker :: proc(job: ^Console_Job) {
     sync.unlock(&job.owner.io_mutex)
 }
 
-// Runs `command` via cmd.exe with stdout+stderr redirected through a pipe, and
-// returns everything it printed. Blocks until the process exits.
+// Runs `command` via cmd.exe with stdout+stderr piped; blocks until it exits.
 @(private = "file")
 run_command :: proc(command: string, cwd: string) -> string {
     sa := win32.SECURITY_ATTRIBUTES {

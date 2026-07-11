@@ -41,12 +41,10 @@ Bake_Entry :: struct {
 @(private = "file")
 async_jobs: [dynamic]^Font_Load_Job
 
-// Rasterizes glyphs and packs the atlas with stb_truetype directly, mirroring
-// raylib's LoadFontData/GenImageFontAtlas. raylib is deliberately not called
-// here: its font procs are not thread-safe to use off the main thread (and the
-// vendor binding of LoadFontData is missing raylib 6.0's glyphCount out-param,
-// so calling it corrupts memory). All buffers handed to raylib structs are
-// libc-allocated so UnloadFont/UnloadImage can free them.
+// Rasterizes and packs the atlas with stb_truetype directly. raylib's font
+// procs aren't thread-safe off the main thread (and its LoadFontData binding is
+// missing raylib 6.0's glyphCount out-param, corrupting memory). Buffers handed
+// to raylib structs are libc-allocated so UnloadFont/UnloadImage can free them.
 @(private = "file")
 font_load_worker :: proc(job: ^Font_Load_Job) {
     // The shaped map and scratch containers go into the font arena; its

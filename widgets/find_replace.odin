@@ -7,9 +7,8 @@ import rl "vendor:raylib"
 import "../textedit"
 import "../ui"
 
-// Centered find / replace overlay (palette-styled). Operates directly on the
-// active editor's buffer: it highlights the current match by selecting it, and
-// edits go through the editor's textedit state so undo works normally.
+// Centered find/replace overlay. Shows the current match as a selection and
+// edits through the editor's textedit state, so undo works normally.
 Find_Replace :: struct {
     using widget: ui.Widget,
     editor:        ^Editor,
@@ -36,7 +35,6 @@ Find_Replace :: struct {
     width:         f32,
     row_height:    f32,
     top_offset:    f32,
-    // Colors.
     backdrop_color:   rl.Color,
     background_color: rl.Color,
     border_color:     rl.Color,
@@ -121,8 +119,6 @@ find_replace_is_open :: proc(fr: ^Find_Replace) -> bool {
     return fr.visible
 }
 
-// --- search / edit ---------------------------------------------------------
-
 @(private = "file")
 fr_match_at :: proc(text: string, pos: int, query: string) -> bool {
     if pos + len(query) > len(text) {
@@ -140,8 +136,7 @@ fr_match_at :: proc(text: string, pos: int, query: string) -> bool {
     return true
 }
 
-// Recomputes match offsets and points `current` at the first match at or after
-// the caret (so find jumps forward from where you are).
+// Recomputes match offsets; points `current` at the first match at/after the caret.
 @(private = "file")
 find_replace_recompute :: proc(fr: ^Find_Replace) {
     clear(&fr.matches)
@@ -220,8 +215,6 @@ find_replace_do_replace_all :: proc(fr: ^Find_Replace) {
 find_replace_active :: proc(fr: ^Find_Replace) -> ^[dynamic]u8 {
     return fr.replace_field && fr.show_replace ? &fr.replace : &fr.find
 }
-
-// --- widget hooks ----------------------------------------------------------
 
 find_replace_layout :: proc(widget: ^ui.Widget, bounds: rl.Rectangle) {
     fr := cast(^Find_Replace) widget

@@ -6,9 +6,8 @@ import rl "vendor:raylib"
 
 import hb "../vendor/odin-harfbuzz/harfbuzz"
 
-// One glyph in a baked atlas, addressed by glyph index instead of codepoint.
-// This is what makes ligatures drawable: ligature glyphs have no codepoint
-// and are only reachable through HarfBuzz shaping.
+// Atlas glyph keyed by glyph index, so ligature glyphs (which have no
+// codepoint) are drawable.
 Shaped_Glyph :: struct {
     rect:     rl.Rectangle,
     offset_x: i32,
@@ -16,10 +15,7 @@ Shaped_Glyph :: struct {
     advance:  i32,
 }
 
-// Sequences shaped at atlas-bake time to discover which ligature glyphs the
-// font actually produces; whatever new glyph ids come back get rasterized
-// into the same atlas. Unknown sequences simply add nothing. Covers the
-// JetBrains Mono / Fira Code style programming ligature sets.
+// Sequences shaped at bake time to discover ligature glyph ids to rasterize.
 @(private = "file")
 LIGATURE_PROBES := [?]string {
     "--", "---", "->", "->>", "-<", "-<<", "-~", "-|",
@@ -48,15 +44,12 @@ LIGATURE_PROBES := [?]string {
     "www", "0x", "9x9", "===>", "==>", "-->",
 }
 
-// Reused across draw calls; main thread only. Created on first use,
-// destroyed in text_shutdown.
+// Draw-time shaping buffer; main thread only, freed in text_shutdown.
 @(private = "file")
 shape_buffer: ^hb.buffer_t
 
-// Shapes probe sequences with a worker-local HarfBuzz font and returns the
-// glyph ids not already covered by the codepoint atlas. Runs on the atlas
-// rasterizer threads; every HarfBuzz object is created and destroyed here,
-// and the returned array uses context.allocator (the font arena).
+// Shapes the probes with a worker-local HarfBuzz font; returns glyph ids not
+// already covered by the codepoint atlas. Runs on the rasterizer threads.
 shape_collect_ligature_glyphs :: proc(file_data: []u8, seen: ^map[u32]bool) -> [dynamic]u32 {
     extra := make([dynamic]u32)
     if len(file_data) == 0 {
@@ -101,9 +94,8 @@ shape_into :: proc(buffer: ^hb.buffer_t, font: ^hb.font_t, text: string) -> ([^]
     return infos, glyph_count
 }
 
-// Creates the persistent HarfBuzz font used for shaping at draw time.
-// Main thread only; the blob borrows family.file_data, which stays resident
-// in the font arena until text_shutdown.
+// Creates the persistent draw-time HarfBuzz font. Main thread only; the blob
+// borrows family.file_data (resident until text_shutdown).
 shape_family_init :: proc(family: ^Font_Family) {
     if family.hb_font != nil || len(family.file_data) == 0 {
         return
@@ -132,8 +124,7 @@ shape_shutdown :: proc() {
     }
 }
 
-// Shapes one line with the family's persistent font. The returned slice
-// lives inside shape_buffer and is valid until the next shape_line call.
+// Shapes one line; the returned slice is valid until the next shape_line call.
 shape_line :: proc(family: ^Font_Family, line: string) -> ([^]hb.glyph_info_t, int) {
     if shape_buffer == nil {
         shape_buffer = hb.buffer_create()
@@ -142,15 +133,10 @@ shape_line :: proc(family: ^Font_Family, line: string) -> ([^]hb.glyph_info_t, i
     return infos, cast(int) glyph_count
 }
 
-// Draws one line through the shaping pipeline. Returns false when this
-// family/size has no shaping data (lazily loaded size, raylib fallback
-// font), in which case the caller draws through the codepoint path.
-//
-// HarfBuzz positions are deliberately not used: advances come from the
-// Shaped_Glyph entries, which were computed with the exact same
-// stb_truetype scaling and truncation as the codepoint atlas, so shaped
-// text stays pixel-aligned with measure_text (monospace fonts have no
-// kerning offsets to lose).
+// Draws one line via shaping. Returns false when the family/size has no
+// shaping data, so the caller falls back to the codepoint path. Advances come
+// from Shaped_Glyph (baked like the atlas), not HarfBuzz, to stay aligned with
+// measure_text.
 draw_line_shaped :: proc(family: ^Font_Family, font: rl.Font, size: i32, line: string, x, y: i32, color: rl.Color) -> bool {
     if family == nil || family.hb_font == nil {
         return false
@@ -170,10 +156,8 @@ draw_line_shaped :: proc(family: ^Font_Family, font: rl.Font, size: i32, line: s
         gid := cast(u32) infos[i].codepoint
         glyph, mapped := shaped[gid]
         if !mapped {
-            // Shaping substituted a glyph outside the baked set (e.g. JetBrains
-            // Mono's contextual backtick/quote alternates). Fall back to the
-            // source character's own baked glyph so it still renders; genuine
-            // blanks (tabs, control chars) advance one empty cell.
+            // Glyph substituted outside the baked set (e.g. JetBrains Mono's
+            // contextual backtick): draw the source char's baked glyph instead.
             cluster := cast(int) infos[i].cluster
             r: rune = 0
             if cluster >= 0 && cluster < len(line) {
