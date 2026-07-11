@@ -24,11 +24,6 @@ panel_create :: proc(id: string, background_color: rl.Color) -> ^Panel {
     return panel
 }
 
-panel_set_padding :: proc(panel: ^Panel, padding: ui.Padding) -> ^Panel {
-    panel.padding = padding
-    return panel
-}
-
 panel_layout :: proc(widget: ^ui.Widget, bounds: rl.Rectangle) {
     panel := cast(^Panel) widget
     panel.bounds = bounds

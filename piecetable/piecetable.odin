@@ -95,10 +95,6 @@ piecetable_delete :: proc(pt: ^Piece_Table, pos: int, delete_length: int) {
     remove_range(&pt.pieces, start_index, end_index)
 }
 
-piecetable_clear :: proc(pt: ^Piece_Table) {
-    piecetable_delete(pt, 0, piecetable_length(pt))
-}
-
 @(private)
 piecetable_piece_bytes :: proc(pt: ^Piece_Table, piece: Piece) -> string {
     switch piece.source {
@@ -118,31 +114,4 @@ piecetable_to_string :: proc(pt: ^Piece_Table, allocator := context.allocator) -
         strings.write_string(&builder, buffer[piece.start:piece.start + piece.length])
     }
     return strings.to_string(builder)
-}
-
-Piece_Table_Iterator :: struct {
-    pt:          ^Piece_Table,
-    piece_index: int,
-    offset:      int,
-}
-
-piecetable_iterator :: proc(pt: ^Piece_Table) -> Piece_Table_Iterator {
-    return Piece_Table_Iterator {pt = pt}
-}
-
-piecetable_iterator_next :: proc(it: ^Piece_Table_Iterator) -> (byte_value: u8, ok: bool) {
-    for it.piece_index < len(it.pt.pieces) {
-        piece := it.pt.pieces[it.piece_index]
-        if it.offset >= piece.length {
-            it.piece_index += 1
-            it.offset = 0
-            continue
-        }
-
-        buffer := piecetable_piece_bytes(it.pt, piece)
-        byte_value = buffer[piece.start + it.offset]
-        it.offset += 1
-        return byte_value, true
-    }
-    return 0, false
 }

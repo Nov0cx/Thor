@@ -5,13 +5,9 @@ import rl "vendor:raylib"
 import "../ui"
 import "core:strings"
 
-Label_Text_Proc :: #type proc(data: rawptr) -> string
-
 Label :: struct {
     using widget: ui.Widget,
     text:             string,
-    text_proc:        Label_Text_Proc,
-    text_data:        rawptr,
     text_color:       rl.Color,
     background_color: rl.Color,
     font_size:        i32,
@@ -37,33 +33,14 @@ label_create :: proc(id, text: string) -> ^Label {
     return label
 }
 
-label_bind_text :: proc(label: ^Label, text_proc: Label_Text_Proc, data: rawptr) -> ^Label {
-    label.text_proc = text_proc
-    label.text_data = data
-    return label
-}
-
 label_set_text_color :: proc(label: ^Label, text_color: rl.Color) -> ^Label {
     label.text_color = text_color
-    return label
-}
-
-label_set_background :: proc(label: ^Label, background_color: rl.Color) -> ^Label {
-    label.background_color = background_color
     return label
 }
 
 label_set_top_align :: proc(label: ^Label, top_align: bool) -> ^Label {
     label.top_align = top_align
     return label
-}
-
-label_current_text :: proc(label: ^Label) -> string {
-    if label.text_proc != nil {
-        return label.text_proc(label.text_data)
-    }
-
-    return label.text
 }
 
 label_layout :: proc(widget: ^ui.Widget, bounds: rl.Rectangle) {
@@ -77,7 +54,7 @@ label_draw :: proc(widget: ^ui.Widget, _: ^ui.Context) {
         rl.DrawRectangleRec(label.bounds, label.background_color)
     }
 
-    text := label_current_text(label)
+    text := label.text
     text_width := ui.measure_text(text, label.font_size)
     text_x := cast(i32) (label.bounds.x + label.padding.left)
     text_y := cast(i32) (label.bounds.y + (label.bounds.height - cast(f32) label.font_size) * 0.5)

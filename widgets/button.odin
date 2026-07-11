@@ -68,11 +68,6 @@ button_set_colors :: proc(button: ^Button, text_color, background_color, hover_c
     return button
 }
 
-button_set_font_size :: proc(button: ^Button, font_size: i32) -> ^Button {
-    button.font_size = font_size
-    return button
-}
-
 button_set_border_thickness :: proc(button: ^Button, border_thickness: f32) -> ^Button {
     button.border_thickness = border_thickness
     return button

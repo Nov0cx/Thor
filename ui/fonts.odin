@@ -12,11 +12,10 @@ import rl "vendor:raylib"
 
 import hb "../vendor/odin-harfbuzz/harfbuzz"
 
-// Everything the font system owns (families, atlas job records, the icon
-// map) lives in this arena. The bootstrap thread fills it, ownership hands
-// off to the main thread at text_finish_async_load, and text_shutdown frees
-// the whole plane at once. This avoids freeing memory across threads with
-// mismatched allocators (the debug tracking allocator panics on that).
+// Arena owning all font-system memory (families, job records, icon map). The
+// bootstrap thread fills it, ownership hands to the main thread at
+// text_finish_async_load, and text_shutdown frees it at once — avoiding
+// cross-thread frees with mismatched allocators.
 font_arena: virtual.Arena
 font_allocator: runtime.Allocator
 
@@ -295,21 +294,6 @@ draw_icon :: proc(name: string, x, y, size: i32, color: rl.Color) {
     rl.DrawTextCodepoint(font, glyph.codepoint, rl.Vector2 {cast(f32) x, cast(f32) y}, cast(f32) size, color)
 }
 
-measure_icon :: proc(name: string, size: i32) -> i32 {
-    glyph, ok := icon_map[name]
-    if !ok {
-        return 0
-    }
-
-    font := get_font(size, glyph.family)
-    index := rl.GetGlyphIndex(font, glyph.codepoint)
-    scale := cast(f32) size / cast(f32) font.baseSize
-    advance := font.glyphs[index].advanceX
-    if advance != 0 {
-        return cast(i32) (cast(f32) advance * scale)
-    }
-    return cast(i32) (font.recs[index].width * scale)
-}
 
 text_shutdown :: proc() {
     // Fonts hold raylib/libc-allocated glyph buffers and GPU textures, so
