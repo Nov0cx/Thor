@@ -96,6 +96,8 @@ theme_material_deep_ocean :: proc() -> Theme {
 // built-in default, so partial themes are valid. On any failure the default is returned.
 theme_load :: proc(path: string) -> (Theme, bool) {
     theme := theme_material_deep_ocean()
+    // Own the name on every path so theme_destroy can always free it.
+    theme.name = strings.clone(theme.name)
 
     data, read_err := os.read_entire_file_from_path(path, context.temp_allocator)
     if read_err != nil {
@@ -116,6 +118,7 @@ theme_load :: proc(path: string) -> (Theme, bool) {
     }
 
     if name, has_name := obj["name"].(json.String); has_name {
+        delete(theme.name)
         theme.name = strings.clone(string(name))
     }
 
@@ -141,6 +144,12 @@ theme_load :: proc(path: string) -> (Theme, bool) {
     }
 
     return theme, true
+}
+
+// Frees a theme's owned allocations. Pairs with theme_load.
+theme_destroy :: proc(theme: ^Theme) {
+    delete(theme.name)
+    theme.name = ""
 }
 
 parse_hex_color :: proc(value: string) -> (rl.Color, bool) {

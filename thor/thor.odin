@@ -209,6 +209,7 @@ shutdown :: proc(thor: ^Thor) {
     settings.destroy(&thor.config)
     syntax.highlighter_destroy(&thor.highlighter)
 
+    ui.theme_destroy(&thor.theme)
     ui.context_destroy(&thor.ui_context)
     ui.text_shutdown()
     rl.CloseWindow()
