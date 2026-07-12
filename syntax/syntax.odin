@@ -9,6 +9,7 @@ import "core:slice"
 import "core:strings"
 
 import ts "../vendor/odin-tree-sitter"
+import ts_lua "../vendor/odin-tree-sitter/parsers/lua"
 import ts_odin "../vendor/odin-tree-sitter/parsers/odin"
 
 // A resolved highlight span. `capture` is the tree-sitter capture name that won
@@ -38,6 +39,7 @@ highlighter_create :: proc() -> Highlighter {
     h.languages = make(map[string]Language_Entry)
     h.queries = make(map[string]ts.Query)
     h.languages["odin"] = Language_Entry{ts_odin.tree_sitter_odin(), ts_odin.HIGHLIGHTS}
+    h.languages["lua"] = Language_Entry{ts_lua.tree_sitter_lua(), ts_lua.HIGHLIGHTS}
     return h
 }
 

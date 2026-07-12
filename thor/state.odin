@@ -100,6 +100,7 @@ thor_language_name :: proc(name: string) -> string {
     case ".go": return "Go"
     case ".py": return "Python"
     case ".js": return "JavaScript"
+    case ".lua": return "Lua"
     case ".ts": return "TypeScript"
     case ".zig": return "Zig"
     case ".md": return "Markdown"

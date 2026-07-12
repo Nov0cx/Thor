@@ -114,6 +114,33 @@ main :: proc() {
     expect(t, spans, src, "data", "variables") // named param, not a type
 }
 
+// Loads the real plugins/lua/plugin.lua and highlights Lua through the
+// tree-sitter grammar, confirming captures resolve to the mapped color roles.
+@(test)
+test_lua_plugin_highlights :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+    manager_load(&m)
+    testing.expect(t, supports(&m, ".lua"), "lua language registered")
+
+    src := "local function add(a, b)\n    return a + b  -- sum\nend\nprint(\"hi\")\n"
+    spans := highlight(&m, src, ".lua", context.allocator)
+    defer delete(spans)
+    testing.expect(t, len(spans) > 0, "lua spans produced")
+
+    expect :: proc(t: ^testing.T, spans: []Span, src, needle, want: string) {
+        got := role_covering(spans, src, needle)
+        testing.expectf(t, got == want, "%q: role %q, want %q", needle, got, want)
+    }
+    expect(t, spans, src, "local", "keywords")
+    expect(t, spans, src, "add", "functions")   // function declaration name
+    expect(t, spans, src, "return", "keywords")
+    expect(t, spans, src, "\"hi\"", "strings")
+    expect(t, spans, src, "-- sum", "comments")
+    expect(t, spans, src, "print", "functions")  // builtin call
+}
+
 // Loads the real plugins/markdown/plugin.lua and highlights Markdown through
 // its pure-Lua line lexer, confirming block and inline constructs resolve to the
 // expected color roles and that the returned spans stay ascending and
