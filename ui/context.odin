@@ -4,6 +4,10 @@ import rl "vendor:raylib"
 
 Global_Key_Proc :: #type proc(data: rawptr, event: ^Event) -> bool
 
+// Max seconds and pixel drift between presses to count as a multi-click.
+DOUBLE_CLICK_SECS :: 0.4
+DOUBLE_CLICK_DIST :: 4
+
 Context :: struct {
     root:      ^Widget,
     events:    Event_Queue,
@@ -12,6 +16,10 @@ Context :: struct {
     focused:   ^Widget,
     mouse_pos: rl.Vector2,
     prev_mouse_pos: rl.Vector2,
+    // Double-click tracking for the left button.
+    last_click_time: f64,
+    last_click_pos:  rl.Vector2,
+    click_count:     int,
     // Application-level shortcuts (tab switching, panel toggles): runs on
     // every Key_Press before focus dispatch; returning true consumes it.
     global_key:      Global_Key_Proc,
@@ -75,6 +83,15 @@ context_collect_input :: proc(ctx: ^Context) {
         ctx.mouse_pos[1] - ctx.prev_mouse_pos[1],
     }
 
+    // AltGr (right Alt) is reserved for typing characters like { } @ on
+    // non-US layouts; it must never act as a shortcut modifier. Windows also
+    // reports it as left Ctrl, so suppress Ctrl while it is held. Computed
+    // before mouse events so clicks carry the current modifiers.
+    alt_gr := rl.IsKeyDown(.RIGHT_ALT)
+    ctrl_down := (rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL)) && !alt_gr
+    shift_down := rl.IsKeyDown(.LEFT_SHIFT) || rl.IsKeyDown(.RIGHT_SHIFT)
+    alt_down := rl.IsKeyDown(.LEFT_ALT)
+
     event_queue_push(&ctx.events, Event {
         kind = .Mouse_Move,
         mouse_position = ctx.mouse_pos,
@@ -82,11 +99,26 @@ context_collect_input :: proc(ctx: ^Context) {
     })
 
     if rl.IsMouseButtonPressed(.LEFT) {
+        now := rl.GetTime()
+        near := abs(ctx.mouse_pos[0] - ctx.last_click_pos[0]) <= DOUBLE_CLICK_DIST &&
+            abs(ctx.mouse_pos[1] - ctx.last_click_pos[1]) <= DOUBLE_CLICK_DIST
+        if near && now - ctx.last_click_time <= DOUBLE_CLICK_SECS {
+            ctx.click_count += 1
+        } else {
+            ctx.click_count = 1
+        }
+        ctx.last_click_time = now
+        ctx.last_click_pos = ctx.mouse_pos
+
         event_queue_push(&ctx.events, Event {
             kind = .Mouse_Down,
             mouse_position = ctx.mouse_pos,
             mouse_delta = mouse_delta,
             mouse_button = .LEFT,
+            ctrl = ctrl_down,
+            shift = shift_down,
+            alt = alt_down,
+            click_count = ctx.click_count,
         })
     }
 
@@ -96,6 +128,27 @@ context_collect_input :: proc(ctx: ^Context) {
             mouse_position = ctx.mouse_pos,
             mouse_delta = mouse_delta,
             mouse_button = .LEFT,
+            ctrl = ctrl_down,
+            shift = shift_down,
+            alt = alt_down,
+        })
+    }
+
+    if rl.IsMouseButtonPressed(.RIGHT) {
+        event_queue_push(&ctx.events, Event {
+            kind = .Mouse_Down,
+            mouse_position = ctx.mouse_pos,
+            mouse_delta = mouse_delta,
+            mouse_button = .RIGHT,
+        })
+    }
+
+    if rl.IsMouseButtonReleased(.RIGHT) {
+        event_queue_push(&ctx.events, Event {
+            kind = .Mouse_Up,
+            mouse_position = ctx.mouse_pos,
+            mouse_delta = mouse_delta,
+            mouse_button = .RIGHT,
         })
     }
 
@@ -108,14 +161,6 @@ context_collect_input :: proc(ctx: ^Context) {
             wheel_delta = wheel_delta,
         })
     }
-
-    // AltGr (right Alt) is reserved for typing characters like { } @ on
-    // non-US layouts; it must never act as a shortcut modifier. Windows also
-    // reports it as left Ctrl, so suppress Ctrl while it is held.
-    alt_gr := rl.IsKeyDown(.RIGHT_ALT)
-    ctrl_down := (rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL)) && !alt_gr
-    shift_down := rl.IsKeyDown(.LEFT_SHIFT) || rl.IsKeyDown(.RIGHT_SHIFT)
-    alt_down := rl.IsKeyDown(.LEFT_ALT)
 
     for {
         key := rl.GetKeyPressed()

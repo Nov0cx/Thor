@@ -24,6 +24,8 @@ Event :: struct {
     ctrl:           bool,
     shift:          bool,
     alt:            bool,
+    // Consecutive clicks at the same spot: 1 = single, 2 = double, ...
+    click_count:    int,
     target:         ^Widget,
 }
 

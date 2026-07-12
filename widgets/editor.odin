@@ -252,6 +252,15 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
 
     #partial switch event.kind {
     case .Mouse_Down:
+        if event.mouse_button != .LEFT {
+            return false
+        }
+        // Double-click selects the word under the cursor.
+        if event.click_count == 2 {
+            editor_place_caret_at(editor, event.mouse_position)
+            textedit.select_word_or_next(editor.state)
+            return true
+        }
         // Shift-click extends the selection; a plain click starts a new one.
         if event.shift {
             editor_select_to(editor, event.mouse_position)

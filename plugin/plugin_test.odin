@@ -7,7 +7,8 @@ import lua "vendor:lua/5.4"
 // Runs a Lua script and reads a global back: proves the VM links and executes.
 @(test)
 test_lua_runs :: proc(t: ^testing.T) {
-    m := manager_create()
+    m: Manager
+    manager_init(&m)
     defer manager_destroy(&m)
 
     testing.expect(t, lua.L_dostring(m.state, "result = 2 + 3 * 7") == 0, "script runs")
@@ -19,7 +20,8 @@ test_lua_runs :: proc(t: ^testing.T) {
 // the plugin registration API relies on works in both directions.
 @(test)
 test_lua_calls_odin :: proc(t: ^testing.T) {
-    m := manager_create()
+    m: Manager
+    manager_init(&m)
     defer manager_destroy(&m)
 
     add :: proc "c" (L: ^lua.State) -> i32 {
@@ -39,7 +41,8 @@ test_lua_calls_odin :: proc(t: ^testing.T) {
 // the Lua-lexer boundary.
 @(test)
 test_register_and_run_lexer :: proc(t: ^testing.T) {
-    m := manager_create()
+    m: Manager
+    manager_init(&m)
     defer manager_destroy(&m)
 
     script := `thor.register_language {
@@ -48,9 +51,7 @@ test_register_and_run_lexer :: proc(t: ^testing.T) {
             return { { 0, 3, thor.theme.keywords }, { 4, 7, thor.theme.strings } }
         end,
     }`
-    g_reg = &m
     ok := lua.L_dostring(m.state, strings.clone_to_cstring(script, context.temp_allocator)) == 0
-    g_reg = nil
     testing.expect(t, ok, "plugin script runs")
     testing.expect(t, supports(&m, ".ini"), "extension registered")
 
@@ -85,7 +86,8 @@ role_covering :: proc(spans: []Span, source, needle: string) -> string {
 // (including the named-parameter-in-#type-proc case).
 @(test)
 test_odin_plugin_highlights :: proc(t: ^testing.T) {
-    m := manager_create()
+    m: Manager
+    manager_init(&m)
     defer manager_destroy(&m)
     manager_load(&m)
     testing.expect(t, supports(&m, ".odin"), "odin language registered")

@@ -107,7 +107,7 @@ init :: proc() -> ^Thor {
     thor := new(Thor)
     ui.context_init(&thor.ui_context)
     thor.config = setting.load("settings")
-    thor.plugins = plugin.manager_create()
+    plugin.manager_init(&thor.plugins)
     plugin.manager_load(&thor.plugins)
     thor.theme, _ = ui.theme_load("assets/themes/material-deep-ocean.json")
     thor.active_file = ui.make_signal(-1)

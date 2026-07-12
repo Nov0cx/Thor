@@ -49,21 +49,17 @@ Manager :: struct {
     allocator:   runtime.Allocator,
 }
 
-// Set only while plugin scripts run, so the register_* C callbacks can reach
-// the manager. Loading is single-threaded and sequential.
-@(private)
-g_reg: ^Manager
-
-manager_create :: proc() -> Manager {
-    m: Manager
+// Initializes a manager in place. The address is captured as a Lua upvalue by
+// install_api, so the Manager must be owned by the caller (not returned by
+// value, which would leave the upvalue dangling).
+manager_init :: proc(m: ^Manager) {
     m.allocator = context.allocator
     m.state = lua.L_newstate()
     lua.L_openlibs(m.state)
     m.highlighter = syntax.highlighter_create()
     m.languages = make([dynamic]Language)
     m.by_ext = make(map[string]int)
-    install_api(&m)
-    return m
+    install_api(m)
 }
 
 manager_destroy :: proc(m: ^Manager) {
@@ -86,9 +82,6 @@ manager_destroy :: proc(m: ^Manager) {
 // Loads every plugin matching `pattern` (a folder per plugin, each with a
 // plugin.lua). Safe to call once after manager_create.
 manager_load :: proc(m: ^Manager, pattern := "plugins/*/plugin.lua") {
-    g_reg = m
-    defer g_reg = nil
-
     matches, err := filepath.glob(pattern, context.temp_allocator)
     if err != nil {
         return
@@ -131,16 +124,25 @@ install_api :: proc(m: ^Manager) {
     }
     lua.setfield(L, -2, "theme")
 
-    lua.pushcfunction(L, register_language)
+    // register_language carries the manager as a lightuserdata upvalue, so each
+    // manager routes its registrations to itself (no shared global state).
+    lua.pushlightuserdata(L, rawptr(m))
+    lua.pushcclosure(L, register_language, 1)
     lua.setfield(L, -2, "register_language")
 
     lua.setglobal(L, "thor")
 }
 
+// lua_upvalueindex: the pseudo-index of a C closure's i-th upvalue.
+@(private)
+upvalueindex :: proc "c" (i: c.int) -> c.int {
+    return lua.REGISTRYINDEX - i
+}
+
 @(private)
 register_language :: proc "c" (L: ^lua.State) -> c.int {
     context = runtime.default_context()
-    m := g_reg
+    m := cast(^Manager) lua.touserdata(L, upvalueindex(1))
     if m == nil || !lua.istable(L, 1) {
         return 0
     }
