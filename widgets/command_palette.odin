@@ -20,11 +20,14 @@ Command :: struct {
 Palette_List_Files_Proc :: #type proc(data: rawptr) -> []string
 Palette_Open_File_Proc :: #type proc(data: rawptr, path: string)
 Palette_Goto_Line_Proc :: #type proc(data: rawptr, line: int)
+// Single-line text prompt (New File/Folder name, etc.): fires on Enter.
+Palette_Prompt_Proc :: #type proc(data: rawptr, text: string)
 
 Palette_Mode :: enum {
     Commands,
     Files,
     Line,
+    Prompt,
 }
 
 @(private = "file")
@@ -51,6 +54,11 @@ Command_Palette :: struct {
     open_file:    Palette_Open_File_Proc,
     goto_line:    Palette_Goto_Line_Proc,
     cb_data:      rawptr,
+    // Prompt mode: placeholder text and the callback fired with the typed
+    // string on Enter. Set fresh each time the prompt is opened.
+    prompt_label: string,
+    prompt_run:   Palette_Prompt_Proc,
+    prompt_data:  rawptr,
     box:          rl.Rectangle,
     width:        f32,
     row_height:   f32,
@@ -150,6 +158,25 @@ command_palette_is_open :: proc(palette: ^Command_Palette) -> bool {
     return palette.visible
 }
 
+// Opens the palette as a single-line text prompt. `label` is the placeholder
+// (borrowed; must outlive the prompt) and `run` fires with the typed text on
+// Enter. Used for New File / New Folder name entry.
+command_palette_prompt :: proc(
+    palette: ^Command_Palette,
+    ctx: ^ui.Context,
+    label: string,
+    run: Palette_Prompt_Proc,
+    data: rawptr,
+) {
+    palette.prompt_label = label
+    palette.prompt_run = run
+    palette.prompt_data = data
+    palette.visible = true
+    command_palette_reset(palette, .Prompt)
+    ctx.focused = &palette.widget
+    ui.widget_bring_to_front(&palette.widget)
+}
+
 @(private = "file")
 command_palette_reset :: proc(palette: ^Command_Palette, mode: Palette_Mode) {
     palette.mode = mode
@@ -181,7 +208,7 @@ command_palette_display :: proc(palette: ^Command_Palette, index: int) -> string
         return palette.commands[index].title
     case .Files:
         return strings.trim_prefix(palette.files[index], palette.root_prefix)
-    case .Line:
+    case .Line, .Prompt:
         return ""
     }
     return ""
@@ -190,9 +217,9 @@ command_palette_display :: proc(palette: ^Command_Palette, index: int) -> string
 @(private = "file")
 command_palette_source_count :: proc(palette: ^Command_Palette) -> int {
     switch palette.mode {
-    case .Commands: return len(palette.commands)
-    case .Files:    return len(palette.files)
-    case .Line:     return 0
+    case .Commands:      return len(palette.commands)
+    case .Files:         return len(palette.files)
+    case .Line, .Prompt: return 0
     }
     return 0
 }
@@ -260,6 +287,12 @@ command_palette_activate :: proc(palette: ^Command_Palette, ctx: ^ui.Context) {
             palette.goto_line(palette.cb_data, line)
         }
         command_palette_close(palette, ctx)
+    case .Prompt:
+        text := strings.trim_space(string(palette.query[:]))
+        if text != "" && palette.prompt_run != nil {
+            palette.prompt_run(palette.prompt_data, text)
+        }
+        command_palette_close(palette, ctx)
     }
 }
 
@@ -278,7 +311,7 @@ command_palette_layout :: proc(widget: ^ui.Widget, bounds: rl.Rectangle) {
     palette.bounds = bounds
 
     visible_rows := min(len(palette.matches), palette.max_rows)
-    if palette.mode == .Line {
+    if palette.mode == .Line || palette.mode == .Prompt {
         visible_rows = 0
     }
     width := min(palette.width, bounds.width - 80)
@@ -409,7 +442,7 @@ command_palette_draw :: proc(widget: ^ui.Widget, _: ^ui.Context) {
     caret_x := text_x + ui.measure_text(query, 18) + 2
     rl.DrawRectangle(caret_x, text_y, 2, 18, palette.accent_color)
 
-    if palette.mode == .Line {
+    if palette.mode == .Line || palette.mode == .Prompt {
         return
     }
 
@@ -481,6 +514,7 @@ command_palette_placeholder :: proc(palette: ^Command_Palette) -> string {
     case .Commands: return "Type a command..."
     case .Files:    return "Go to file..."
     case .Line:     return "Go to line number..."
+    case .Prompt:   return palette.prompt_label
     }
     return ""
 }

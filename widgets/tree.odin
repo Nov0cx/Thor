@@ -32,6 +32,9 @@ Tree :: struct {
     selected_path:    string, // owned clone
     on_open:          Tree_Open_Proc,
     open_data:        rawptr,
+    // Right-click opens a context menu supplied by the owner.
+    on_context_menu:  Context_Menu_Proc,
+    context_menu_data: rawptr,
     text_color:       rl.Color,
     dir_color:        rl.Color,
     icon_color:       rl.Color,
@@ -95,6 +98,22 @@ tree_set_on_open :: proc(tree: ^Tree, on_open: Tree_Open_Proc, data: rawptr) -> 
     tree.on_open = on_open
     tree.open_data = data
     return tree
+}
+
+tree_set_on_context_menu :: proc(tree: ^Tree, on_context_menu: Context_Menu_Proc, data: rawptr) {
+    tree.on_context_menu = on_context_menu
+    tree.context_menu_data = data
+}
+
+// Full path of the node under `position`, or "" when the click is below the
+// last row. The returned string is borrowed from the node (owned by the tree).
+tree_path_at :: proc(tree: ^Tree, position: rl.Vector2) -> string {
+    index := cast(int) ((position.y - tree.bounds.y + tree.scroll_y) / tree.row_height)
+    rows := tree_visible_rows(tree)
+    if index < 0 || index >= len(rows) {
+        return ""
+    }
+    return rows[index].node.path
 }
 
 @(private = "file")
@@ -246,12 +265,24 @@ tree_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event) 
         index := cast(int) ((event.mouse_position.y - tree.bounds.y + tree.scroll_y) / tree.row_height)
         rows := tree_visible_rows(tree)
         if index < 0 || index >= len(rows) {
+            // Right-click on empty space still opens the menu (workspace root).
+            if event.mouse_button == .RIGHT && tree.on_context_menu != nil {
+                tree.on_context_menu(tree.context_menu_data, event.mouse_position)
+            }
             return true
         }
 
         node := rows[index].node
         delete(tree.selected_path)
         tree.selected_path = strings.clone(node.path)
+
+        // Right-click selects the row but opens the menu instead of toggling.
+        if event.mouse_button == .RIGHT {
+            if tree.on_context_menu != nil {
+                tree.on_context_menu(tree.context_menu_data, event.mouse_position)
+            }
+            return true
+        }
 
         if node.is_dir {
             node.expanded = !node.expanded

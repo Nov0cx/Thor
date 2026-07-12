@@ -44,6 +44,7 @@ Thor :: struct {
     dialog_stack:             ^widgets.Stack,
     command_palette:          ^widgets.Command_Palette,
     find_replace:             ^widgets.Find_Replace,
+    menu:                     ^widgets.Menu,
     command_palette_key:      setting.Keybind,
     fullscreen_key:           setting.Keybind,
     console_toggle_key:       setting.Keybind,
@@ -68,6 +69,9 @@ Thor :: struct {
     console_height:           f32,
     workspace_dir:            string,
     workspace_prefix:         string, // workspace_dir + separator, for palette display
+    // Directory a New File/Folder prompt creates into; set from the explorer
+    // right-click target or the workspace root. Owned clone.
+    menu_target_dir:          string,
     git_branch:               string,
     open_files:               [dynamic]^Open_File,
     zombie_files:             [dynamic]^Open_File,
@@ -133,6 +137,7 @@ init :: proc() -> ^Thor {
     thor_build_ui(thor)
     thor.command_palette.return_focus = &thor.editor.widget
     thor.find_replace.return_focus = &thor.editor.widget
+    thor.menu.return_focus = &thor.editor.widget
     widgets.command_palette_set_navigation(
         thor.command_palette,
         thor_palette_list_files,
@@ -142,6 +147,7 @@ init :: proc() -> ^Thor {
         thor,
     )
     thor_register_commands(thor)
+    thor_wire_menus(thor)
     widgets.console_set_on_run(thor.console, thor_console_run, thor)
     thor_apply_settings(thor)
     thor_set_active_file(thor, -1)
@@ -206,6 +212,7 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.finished_console)
     delete(thor.workspace_dir)
     delete(thor.workspace_prefix)
+    delete(thor.menu_target_dir)
     delete(thor.git_branch)
     setting.destroy(&thor.config)
     plugin.manager_destroy(&thor.plugins)

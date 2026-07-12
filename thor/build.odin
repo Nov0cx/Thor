@@ -119,6 +119,18 @@ thor_build_ui :: proc(thor: ^Thor) {
     )
     thor.find_replace.visible = false
 
+    thor.menu = widgets.menu_create("context-menu")
+    widgets.menu_set_colors(
+        thor.menu,
+        thor.theme.second_background,
+        thor.theme.accent_color,
+        thor.theme.white_black_color,
+        thor.theme.gray_color,
+        rl.Color {thor.theme.accent_color.r, thor.theme.accent_color.g, thor.theme.accent_color.b, 40},
+        thor.theme.border,
+    )
+    thor.menu.visible = false
+
     thor_build_controls(thor)
     thor_build_content(thor)
     thor_connect_tree(thor)
@@ -277,6 +289,9 @@ thor_connect_tree :: proc(thor: ^Thor) {
     // Added last so they overlay everything and are hit-tested first.
     widgets.append_child(&thor.root_panel.widget, &thor.command_palette.widget)
     widgets.append_child(&thor.root_panel.widget, &thor.find_replace.widget)
+    // The menu is added after the palette so it sits above it (bring_to_front
+    // on open keeps whichever overlay opened last on top anyway).
+    widgets.append_child(&thor.root_panel.widget, &thor.menu.widget)
 
     widgets.append_child(&thor.root_stack.widget, &thor.top_bar.widget)
     widgets.append_child(&thor.root_stack.widget, &thor.workspace_row.widget)

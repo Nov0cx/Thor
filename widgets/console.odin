@@ -29,6 +29,40 @@ Console :: struct {
     prompt_color:     rl.Color,
     background_color: rl.Color,
     caret_color:      rl.Color,
+    // Right-click opens a context menu supplied by the owner.
+    on_context_menu:   Context_Menu_Proc,
+    context_menu_data: rawptr,
+}
+
+console_set_on_context_menu :: proc(console: ^Console, on_context_menu: Context_Menu_Proc, data: rawptr) {
+    console.on_context_menu = on_context_menu
+    console.context_menu_data = data
+}
+
+// Wipes the scrollback and re-pins the view to the bottom.
+console_clear :: proc(console: ^Console) {
+    strings.builder_reset(&console.output)
+    console.scroll_y = 0
+    console.autoscroll = true
+}
+
+// The full scrollback text (borrowed; valid until the next append/clear).
+console_text :: proc(console: ^Console) -> string {
+    return strings.to_string(console.output)
+}
+
+// Appends UTF-8 text to the input line (used by the paste action). Newlines
+// are dropped since the prompt is single-line; ignored while a command runs.
+console_input_append :: proc(console: ^Console, text: string) {
+    if console.running {
+        return
+    }
+    for b in transmute([]u8) text {
+        if b == '\n' || b == '\r' {
+            continue
+        }
+        append(&console.input, b)
+    }
 }
 
 console_vtable := ui.Widget_VTable {
@@ -90,6 +124,12 @@ console_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Even
 
     #partial switch event.kind {
     case .Mouse_Down:
+        if event.mouse_button == .RIGHT {
+            if console.on_context_menu != nil {
+                console.on_context_menu(console.context_menu_data, event.mouse_position)
+            }
+            return true
+        }
         return true // take focus so typing goes here
     case .Scroll:
         console.scroll_y -= event.wheel_delta * console_line_height(console) * 2

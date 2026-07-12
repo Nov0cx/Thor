@@ -74,7 +74,8 @@ select_line :: proc(state: ^State) {
     normalize_cursors(state)
 }
 
-@(private = "file")
+// Returns the [start, end) byte range of the word-characters surrounding pos,
+// and whether any were found. Used by double-click / word-drag selection.
 word_range_at :: proc(txt: string, pos: int) -> (int, int, bool) {
     start := pos
     end := pos

@@ -58,6 +58,20 @@ Editor :: struct {
     visual_rows:        [dynamic]Visual_Row,
     // Syntax highlight spans for the current buffer; borrowed from the owner.
     highlights:         []Highlight_Span,
+    // Word-granular drag: after a double-click the selection extends by whole
+    // words. word_lo/word_hi bound the word that was double-clicked so drags
+    // in either direction keep it covered.
+    select_by_word:     bool,
+    word_lo:            int,
+    word_hi:            int,
+    // Right-click opens a context menu supplied by the owner.
+    on_context_menu:    Context_Menu_Proc,
+    context_menu_data:  rawptr,
+}
+
+editor_set_on_context_menu :: proc(editor: ^Editor, on_context_menu: Context_Menu_Proc, data: rawptr) {
+    editor.on_context_menu = on_context_menu
+    editor.context_menu_data = data
 }
 
 editor_vtable := ui.Widget_VTable {
@@ -252,15 +266,31 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
 
     #partial switch event.kind {
     case .Mouse_Down:
+        if event.mouse_button == .RIGHT {
+            if editor.on_context_menu != nil {
+                editor.on_context_menu(editor.context_menu_data, event.mouse_position)
+            }
+            return true
+        }
         if event.mouse_button != .LEFT {
             return false
         }
-        // Double-click selects the word under the cursor.
+        // Double-click selects the word under the cursor and arms word-drag.
         if event.click_count == 2 {
+            if pos, ok := editor_pos_at(editor, event.mouse_position); ok {
+                lo, hi, found := textedit.word_range_at(textedit.text(editor.state), pos)
+                if found {
+                    textedit.select_range(editor.state, lo, hi)
+                    editor.select_by_word = true
+                    editor.word_lo = lo
+                    editor.word_hi = hi
+                    return true
+                }
+            }
             editor_place_caret_at(editor, event.mouse_position)
-            textedit.select_word_or_next(editor.state)
             return true
         }
+        editor.select_by_word = false
         // Shift-click extends the selection; a plain click starts a new one.
         if event.shift {
             editor_select_to(editor, event.mouse_position)
@@ -270,7 +300,11 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
         return true
     case .Mouse_Move:
         // Only dispatched here while the button is held (drag), so extend.
-        editor_select_to(editor, event.mouse_position)
+        if editor.select_by_word {
+            editor_word_select_to(editor, event.mouse_position)
+        } else {
+            editor_select_to(editor, event.mouse_position)
+        }
         return true
     case .Scroll:
         // Scroll events carry no modifier state; poll ctrl for zooming.
@@ -840,6 +874,27 @@ editor_select_to :: proc(editor: ^Editor, position: rl.Vector2) {
         textedit.select_range(editor.state, anchor, pos)
         editor_scroll_to_caret(editor)
     }
+}
+
+// Word-drag after a double-click: extends selection by whole words, always
+// keeping the originally double-clicked word (word_lo..word_hi) covered.
+editor_word_select_to :: proc(editor: ^Editor, position: rl.Vector2) {
+    pos, ok := editor_pos_at(editor, position)
+    if !ok {
+        return
+    }
+    txt := textedit.text(editor.state)
+    lo, hi, found := textedit.word_range_at(txt, pos)
+    if !found {
+        lo, hi = pos, pos
+    }
+    if pos <= editor.word_lo {
+        // Dragging left of the anchor word: caret leads, anchor stays right.
+        textedit.select_range(editor.state, editor.word_hi, min(lo, editor.word_lo))
+    } else {
+        textedit.select_range(editor.state, editor.word_lo, max(hi, editor.word_hi))
+    }
+    editor_scroll_to_caret(editor)
 }
 
 editor_scroll_to_caret :: proc(editor: ^Editor) {

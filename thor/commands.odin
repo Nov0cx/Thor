@@ -79,6 +79,8 @@ thor_register_commands :: proc(thor: ^Thor) {
     widgets.command_palette_add(p, "View: Toggle Fullscreen", thor_cmd_toggle_fullscreen, thor)
     widgets.command_palette_add(p, "View: Toggle Word Wrap", thor_cmd_toggle_wrap, thor)
 
+    widgets.command_palette_add(p, "File: New File", thor_cmd_new_file, thor)
+    widgets.command_palette_add(p, "File: New Folder", thor_cmd_new_folder, thor)
     widgets.command_palette_add(p, "File: Save", thor_cmd_save, thor)
     widgets.command_palette_add(p, "File: Save All", thor_cmd_save_all, thor)
     widgets.command_palette_add(p, "File: Close Tab", thor_cmd_close_tab, thor)
@@ -199,9 +201,22 @@ thor_cmd_reveal :: proc(data: rawptr) {
     if file == nil {
         return
     }
-    native, _ := strings.replace_all(file.path, "/", "\\", context.temp_allocator)
+    thor_reveal_path(file.path)
+}
+
+// Opens the OS file explorer with `path` selected.
+thor_reveal_path :: proc(path: string) {
+    if path == "" {
+        return
+    }
+    native, _ := strings.replace_all(path, "/", "\\", context.temp_allocator)
     param := strings.concatenate({"/select,", native}, context.temp_allocator)
     win32.ShellExecuteW(nil, win32.utf8_to_wstring("open"), win32.utf8_to_wstring("explorer.exe"), win32.utf8_to_wstring(param), nil, win32.SW_SHOWNORMAL)
+}
+
+thor_cmd_command_palette :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    widgets.command_palette_open(thor.command_palette, &thor.ui_context)
 }
 
 thor_cmd_add_font :: proc(data: rawptr) {thor_open_file(cast(^Thor) data, "assets/fonts/fonts.json")}
