@@ -110,6 +110,8 @@ thor_language_name :: proc(name: string) -> string {
     case ".html": return "HTML"
     case ".css": return "CSS"
     case ".glsl", ".vert", ".frag": return "GLSL"
+    case ".bat", ".cmd": return "Batch"
+    case ".sh", ".bash", ".zsh", ".ksh", ".bashrc", ".zshrc": return "Shell"
     case ".txt": return "Plain Text"
     }
     return "Plain Text"

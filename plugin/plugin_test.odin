@@ -153,3 +153,116 @@ test_markdown_plugin_highlights :: proc(t: ^testing.T) {
         testing.expect(t, spans[i - 1].end <= spans[i].start, "spans overlap or unordered")
     }
 }
+
+// Loads the real plugins/batch/plugin.lua and highlights a Windows batch script
+// through its pure-Lua lexer, confirming comments, keywords, variables, labels
+// and operators resolve to the expected roles and that spans stay ordered and
+// non-overlapping.
+@(test)
+test_batch_plugin_highlights :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+    manager_load(&m)
+    testing.expect(t, supports(&m, ".bat"), "batch language registered")
+
+    src := "@echo off\nREM build script\nset NAME=thor\necho Building %NAME%\nif not exist bin goto :end\n:end\nexit /b 0\n"
+    spans := highlight(&m, src, ".bat", context.allocator)
+    defer {
+        for s in spans {
+            delete(s.role)
+        }
+        delete(spans)
+    }
+    testing.expect(t, len(spans) > 0, "batch spans produced")
+
+    expect :: proc(t: ^testing.T, spans: []Span, src, needle, want: string) {
+        got := role_covering(spans, src, needle)
+        testing.expectf(t, got == want, "%q: role %q, want %q", needle, got, want)
+    }
+    expect(t, spans, src, "@", "operators")
+    expect(t, spans, src, "echo", "keywords")
+    expect(t, spans, src, "REM build script", "comments")
+    expect(t, spans, src, "set", "keywords")
+    expect(t, spans, src, "%NAME%", "variables")
+    expect(t, spans, src, "goto", "keywords")
+    expect(t, spans, src, ":end", "functions")
+    expect(t, spans, src, "exit", "keywords")
+
+    for i in 1 ..< len(spans) {
+        testing.expect(t, spans[i - 1].end <= spans[i].start, "spans overlap or unordered")
+    }
+}
+
+// Loads the real plugins/shell/plugin.lua and highlights a shell script through
+// its pure-Lua lexer, confirming comments, keywords, variables and function
+// definitions resolve to the expected roles.
+@(test)
+test_shell_plugin_highlights :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+    manager_load(&m)
+    testing.expect(t, supports(&m, ".sh"), "shell language registered")
+
+    src := "#!/bin/bash\n# build\nNAME=thor\ncd $NAME\ngreet() {\n    echo hello\n}\nif [ -f bin ]; then\n    greet\nfi\n"
+    spans := highlight(&m, src, ".sh", context.allocator)
+    defer {
+        for s in spans {
+            delete(s.role)
+        }
+        delete(spans)
+    }
+    testing.expect(t, len(spans) > 0, "shell spans produced")
+
+    expect :: proc(t: ^testing.T, spans: []Span, src, needle, want: string) {
+        got := role_covering(spans, src, needle)
+        testing.expectf(t, got == want, "%q: role %q, want %q", needle, got, want)
+    }
+    expect(t, spans, src, "#!/bin/bash", "comments")
+    expect(t, spans, src, "# build", "comments")
+    expect(t, spans, src, "cd", "keywords")
+    expect(t, spans, src, "$NAME", "variables")
+    expect(t, spans, src, "greet", "functions")
+    expect(t, spans, src, "echo", "keywords")
+
+    for i in 1 ..< len(spans) {
+        testing.expect(t, spans[i - 1].end <= spans[i].start, "spans overlap or unordered")
+    }
+}
+
+// Loads the real plugins/json/plugin.lua and highlights JSON through its
+// pure-Lua lexer, confirming object keys, string values, numbers and literals
+// resolve to distinct roles.
+@(test)
+test_json_plugin_highlights :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+    manager_load(&m)
+    testing.expect(t, supports(&m, ".json"), "json language registered")
+
+    src := "{\n  \"name\": \"thor\",\n  \"version\": 2,\n  \"debug\": true,\n  \"nested\": null\n}\n"
+    spans := highlight(&m, src, ".json", context.allocator)
+    defer {
+        for s in spans {
+            delete(s.role)
+        }
+        delete(spans)
+    }
+    testing.expect(t, len(spans) > 0, "json spans produced")
+
+    expect :: proc(t: ^testing.T, spans: []Span, src, needle, want: string) {
+        got := role_covering(spans, src, needle)
+        testing.expectf(t, got == want, "%q: role %q, want %q", needle, got, want)
+    }
+    expect(t, spans, src, "\"name\"", "tags")   // object key
+    expect(t, spans, src, "\"thor\"", "strings") // string value
+    expect(t, spans, src, "2", "numbers")
+    expect(t, spans, src, "true", "keywords")
+    expect(t, spans, src, "null", "keywords")
+
+    for i in 1 ..< len(spans) {
+        testing.expect(t, spans[i - 1].end <= spans[i].start, "spans overlap or unordered")
+    }
+}

@@ -11,10 +11,9 @@ This repo is still in development, everything can break or change at any time.
 Thor depends on:
 
 - [HarfBuzz](https://harfbuzz.github.io/) (via the
-  [odin-harfbuzz](https://codeberg.org/mgavioli/odin-harfbuzz) bindings, git
-  submodule) for ligature shaping.
+  [odin-harfbuzz](https://codeberg.org/mgavioli/odin-harfbuzz) bindings) for ligature shaping.
 - [tree-sitter](https://tree-sitter.github.io/tree-sitter/) (via
-  [odin-tree-sitter](https://github.com/laytan/odin-tree-sitter), git submodule)
+  [odin-tree-sitter](https://github.com/laytan/odin-tree-sitter))
   for syntax highlighting.
 - Lua 5.4 (Odin's bundled `vendor:lua`) for the plugin system.
 
