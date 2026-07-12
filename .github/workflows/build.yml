@@ -1,0 +1,177 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+
+# Cancel superseded runs on the same ref.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Grammars that syntax/syntax.odin hard-imports; each must be installed before
+  # the app will type-check/build (see vendor/README.md).
+  TS_ODIN: https://github.com/tree-sitter-grammars/tree-sitter-odin
+  TS_LUA: https://github.com/tree-sitter-grammars/tree-sitter-lua
+  HARFBUZZ_VERSION: 12.1.0
+
+jobs:
+  # ---------------------------------------------------------------------------
+  windows:
+    name: Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # Puts cl/lib/link on PATH; required to build HarfBuzz, the tree-sitter
+      # runtime/parsers, and to link Thor (vendor:harfbuzz + libtree-sitter).
+      - uses: ilammy/msvc-dev-cmd@v1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - uses: laytan/setup-odin@v2
+        with:
+          release: latest
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # HarfBuzz is a local static-lib artifact on Windows (gitignored inside the
+      # submodule). Build it once with meson, using the /MT CRT so it links
+      # against Odin's static CRT (vendor/README.md).
+      - name: Build HarfBuzz (static, /MT)
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip meson ninja
+          curl.exe -LO https://github.com/harfbuzz/harfbuzz/releases/download/$env:HARFBUZZ_VERSION/harfbuzz-$env:HARFBUZZ_VERSION.tar.xz
+          python -c "import tarfile; tarfile.open('harfbuzz-$env:HARFBUZZ_VERSION.tar.xz').extractall(filter='data')"
+          cd harfbuzz-$env:HARFBUZZ_VERSION
+          meson setup build --buildtype=release -Db_vscrt=mt -Db_ndebug=true -Ddefault_library=static -Dtests=disabled -Ddocs=disabled -Dbenchmark=disabled -Dglib=disabled -Dgobject=disabled -Dcairo=disabled -Dicu=disabled -Dfreetype=disabled -Dchafa=disabled -Dutilities=disabled
+          meson compile -C build
+          New-Item -ItemType Directory -Force ..\vendor\odin-harfbuzz\libs | Out-Null
+          Copy-Item build\src\libharfbuzz.a ..\vendor\odin-harfbuzz\libs\harfbuzz.lib -Force
+
+      - name: Build tree-sitter runtime + parsers
+        shell: pwsh
+        working-directory: vendor/odin-tree-sitter
+        run: |
+          odin run build -- install
+          odin run build -- install-parser $env:TS_ODIN -yes
+          odin run build -- install-parser $env:TS_LUA -yes
+
+      - name: Build Thor
+        shell: pwsh
+        run: odin build . -debug
+
+  # ---------------------------------------------------------------------------
+  ubuntu:
+    name: Ubuntu
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # System HarfBuzz (foreign import is "system:harfbuzz" on Linux) plus the
+      # X11/Wayland/GL libraries raylib links against.
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libharfbuzz-dev \
+            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
+            libgl1-mesa-dev libwayland-dev libxkbcommon-dev
+
+      - uses: laytan/setup-odin@v2
+        with:
+          release: latest
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build tree-sitter runtime + parsers
+        working-directory: vendor/odin-tree-sitter
+        run: |
+          odin run build -- install
+          odin run build -- install-parser "$TS_ODIN" -yes
+          odin run build -- install-parser "$TS_LUA" -yes
+
+      - name: Build Thor
+        run: odin build . -debug
+
+  # ---------------------------------------------------------------------------
+  macos:
+    name: macOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install HarfBuzz
+        run: brew install harfbuzz
+
+      # The odin-harfbuzz binding only wires up Windows and Linux; on Darwin no
+      # `foreign import` matches and the build fails to link. Inject a Darwin
+      # branch (Homebrew's libharfbuzz, same as Linux) into every binding file.
+      - name: Add Darwin branch to HarfBuzz binding
+        run: |
+          find vendor/odin-harfbuzz -name '*.odin' -print0 | xargs -0 perl -0pi -e \
+            's/(else when ODIN_OS == \.Linux\s*\{\s*foreign import (\w+) "system:harfbuzz"\s*\})/$1 else when ODIN_OS == .Darwin \{ foreign import $2 "system:harfbuzz" \}/g'
+
+      - uses: laytan/setup-odin@v2
+        with:
+          release: latest
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build tree-sitter runtime + parsers
+        working-directory: vendor/odin-tree-sitter
+        run: |
+          odin run build -- install
+          odin run build -- install-parser "$TS_ODIN" -yes
+          odin run build -- install-parser "$TS_LUA" -yes
+
+      # Point the linker at Homebrew's lib dir so -lharfbuzz resolves.
+      - name: Build Thor
+        run: odin build . -debug -extra-linker-flags:"-L$(brew --prefix)/lib"
+
+  # ---------------------------------------------------------------------------
+  arch:
+    name: Arch Linux
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      # base image is bare: install the toolchain (Odin links via clang), the
+      # tools the actions need (git/nodejs), system HarfBuzz and raylib's deps.
+      - name: Install dependencies
+        run: |
+          pacman -Syu --noconfirm --needed \
+            base-devel git nodejs curl tar grep \
+            llvm clang \
+            harfbuzz \
+            libx11 libxrandr libxinerama libxcursor libxi mesa wayland libxkbcommon
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # No setup-odin here (it assumes an Ubuntu-style toolchain); grab the
+      # official prebuilt linux release instead — it runs fine on Arch's glibc.
+      - name: Install Odin
+        run: |
+          url=$(curl -sL https://api.github.com/repos/odin-lang/Odin/releases/latest \
+            | grep -oE 'https://[^"]*odin-linux-amd64[^"]*\.tar\.gz')
+          curl -L "$url" -o odin.tar.gz
+          mkdir -p /opt/odin && tar xzf odin.tar.gz -C /opt/odin
+          echo "$(dirname "$(find /opt/odin -maxdepth 3 -type f -name odin | head -1)")" >> "$GITHUB_PATH"
+
+      - name: Build tree-sitter runtime + parsers
+        working-directory: vendor/odin-tree-sitter
+        run: |
+          odin run build -- install
+          odin run build -- install-parser "$TS_ODIN" -yes
+          odin run build -- install-parser "$TS_LUA" -yes
+
+      - name: Build Thor
+        run: odin build . -debug
