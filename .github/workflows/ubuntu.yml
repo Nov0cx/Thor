@@ -1,0 +1,50 @@
+name: Ubuntu
+
+on:
+  push:
+  pull_request:
+
+# Cancel superseded runs on the same ref.
+concurrency:
+  group: ubuntu-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Grammars that syntax/syntax.odin hard-imports; each must be installed before
+  # the app will type-check/build (see vendor/README.md).
+  TS_ODIN: https://github.com/tree-sitter-grammars/tree-sitter-odin
+  TS_LUA: https://github.com/tree-sitter-grammars/tree-sitter-lua
+
+jobs:
+  ubuntu:
+    name: Ubuntu
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # System HarfBuzz (foreign import is "system:harfbuzz" on Linux) plus the
+      # X11/Wayland/GL libraries raylib links against.
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libharfbuzz-dev \
+            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
+            libgl1-mesa-dev libwayland-dev libxkbcommon-dev
+
+      - uses: laytan/setup-odin@v2
+        with:
+          release: latest
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build tree-sitter runtime + parsers
+        working-directory: vendor/odin-tree-sitter
+        run: |
+          odin run build -- install
+          odin run build -- install-parser "$TS_ODIN" -yes
+          odin run build -- install-parser "$TS_LUA" -yes
+
+      - name: Build Thor
+        run: odin build . -debug

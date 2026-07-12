@@ -1,0 +1,52 @@
+name: macOS
+
+on:
+  push:
+  pull_request:
+
+# Cancel superseded runs on the same ref.
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Grammars that syntax/syntax.odin hard-imports; each must be installed before
+  # the app will type-check/build (see vendor/README.md).
+  TS_ODIN: https://github.com/tree-sitter-grammars/tree-sitter-odin
+  TS_LUA: https://github.com/tree-sitter-grammars/tree-sitter-lua
+
+jobs:
+  macos:
+    name: macOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install HarfBuzz
+        run: brew install harfbuzz
+
+      # The odin-harfbuzz binding only wires up Windows and Linux; on Darwin no
+      # `foreign import` matches and the build fails to link. Inject a Darwin
+      # branch (Homebrew's libharfbuzz, same as Linux) into every binding file.
+      - name: Add Darwin branch to HarfBuzz binding
+        run: |
+          find vendor/odin-harfbuzz -name '*.odin' -print0 | xargs -0 perl -0pi -e \
+            's/(else when ODIN_OS == \.Linux\s*\{\s*foreign import (\w+) "system:harfbuzz"\s*\})/$1 else when ODIN_OS == .Darwin \{ foreign import $2 "system:harfbuzz" \}/g'
+
+      - uses: laytan/setup-odin@v2
+        with:
+          release: latest
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build tree-sitter runtime + parsers
+        working-directory: vendor/odin-tree-sitter
+        run: |
+          odin run build -- install
+          odin run build -- install-parser "$TS_ODIN" -yes
+          odin run build -- install-parser "$TS_LUA" -yes
+
+      # Point the linker at Homebrew's lib dir so -lharfbuzz resolves.
+      - name: Build Thor
+        run: odin build . -debug -extra-linker-flags:"-L$(brew --prefix)/lib"

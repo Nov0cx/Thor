@@ -1,0 +1,56 @@
+name: Arch Linux
+
+on:
+  push:
+  pull_request:
+
+# Cancel superseded runs on the same ref.
+concurrency:
+  group: arch-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Grammars that syntax/syntax.odin hard-imports; each must be installed before
+  # the app will type-check/build (see vendor/README.md).
+  TS_ODIN: https://github.com/tree-sitter-grammars/tree-sitter-odin
+  TS_LUA: https://github.com/tree-sitter-grammars/tree-sitter-lua
+
+jobs:
+  arch:
+    name: Arch Linux
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      # base image is bare: install the toolchain (Odin links via clang), the
+      # tools the actions need (git/nodejs), system HarfBuzz and raylib's deps.
+      - name: Install dependencies
+        run: |
+          pacman -Syu --noconfirm --needed \
+            base-devel git nodejs curl tar grep \
+            llvm clang \
+            harfbuzz \
+            libx11 libxrandr libxinerama libxcursor libxi mesa wayland libxkbcommon
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # No setup-odin here (it assumes an Ubuntu-style toolchain); grab the
+      # official prebuilt linux release instead — it runs fine on Arch's glibc.
+      - name: Install Odin
+        run: |
+          url=$(curl -sL https://api.github.com/repos/odin-lang/Odin/releases/latest \
+            | grep -oE 'https://[^"]*odin-linux-amd64[^"]*\.tar\.gz')
+          curl -L "$url" -o odin.tar.gz
+          mkdir -p /opt/odin && tar xzf odin.tar.gz -C /opt/odin
+          echo "$(dirname "$(find /opt/odin -maxdepth 3 -type f -name odin | head -1)")" >> "$GITHUB_PATH"
+
+      - name: Build tree-sitter runtime + parsers
+        working-directory: vendor/odin-tree-sitter
+        run: |
+          odin run build -- install
+          odin run build -- install-parser "$TS_ODIN" -yes
+          odin run build -- install-parser "$TS_LUA" -yes
+
+      - name: Build Thor
+        run: odin build . -debug
