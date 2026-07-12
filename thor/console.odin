@@ -48,7 +48,6 @@ console_worker :: proc(job: ^Console_Job) {
 }
 
 // Runs `command` via cmd.exe with stdout+stderr piped; blocks until it exits.
-@(private = "file")
 run_command :: proc(command: string, cwd: string) -> string {
     sa := win32.SECURITY_ATTRIBUTES {
         nLength        = size_of(win32.SECURITY_ATTRIBUTES),

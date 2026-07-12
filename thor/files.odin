@@ -379,6 +379,7 @@ thor_process_io :: proc(thor: ^Thor) {
     loads := make([dynamic]^Load_Job, context.temp_allocator)
     saves := make([dynamic]^Save_Job, context.temp_allocator)
     console := make([dynamic]^Console_Job, context.temp_allocator)
+    git := make([dynamic]^Git_Status_Job, context.temp_allocator)
 
     sync.lock(&thor.io_mutex)
     for job in thor.finished_loads {
@@ -390,9 +391,13 @@ thor_process_io :: proc(thor: ^Thor) {
     for job in thor.finished_console {
         append(&console, job)
     }
+    for job in thor.finished_git {
+        append(&git, job)
+    }
     clear(&thor.finished_loads)
     clear(&thor.finished_saves)
     clear(&thor.finished_console)
+    clear(&thor.finished_git)
     sync.unlock(&thor.io_mutex)
 
     for job in loads {
@@ -468,6 +473,16 @@ thor_process_io :: proc(thor: ^Thor) {
         delete(job.command)
         free(job)
         thor.inflight_jobs -= 1
+    }
+
+    for job in git {
+        thor_apply_git_status(thor, job)
+    }
+
+    // A save or a console command may have changed the working tree; refresh
+    // the status so the explorer highlighting stays current.
+    if len(saves) > 0 || len(console) > 0 {
+        thor_refresh_git_status(thor)
     }
 }
 

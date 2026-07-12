@@ -129,7 +129,11 @@ thor_menu_new_folder :: proc(data: rawptr) {
     widgets.command_palette_prompt(thor.command_palette, &thor.ui_context, "New folder name", thor_prompt_new_folder, thor)
 }
 
-thor_menu_explorer_refresh :: proc(data: rawptr) {widgets.tree_refresh((cast(^Thor) data).tree)}
+thor_menu_explorer_refresh :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    widgets.tree_refresh(thor.tree)
+    thor_refresh_git_status(thor)
+}
 
 thor_menu_explorer_reveal :: proc(data: rawptr) {
     thor := cast(^Thor) data
@@ -167,6 +171,7 @@ thor_prompt_new_file :: proc(data: rawptr, name: string) {
     if !os.exists(path) {
         _ = os.write_entire_file(path, []byte{})
         widgets.tree_refresh(thor.tree)
+        thor_refresh_git_status(thor)
     }
     thor_open_file(thor, path)
 }

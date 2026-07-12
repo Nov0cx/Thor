@@ -86,7 +86,13 @@ Thor :: struct {
     finished_loads:           [dynamic]^Load_Job,
     finished_saves:           [dynamic]^Save_Job,
     finished_console:         [dynamic]^Console_Job,
+    finished_git:             [dynamic]^Git_Status_Job,
     inflight_jobs:            int,
+    // Working-tree status keyed by absolute path (matches tree node paths),
+    // recomputed off-thread; git_status_inflight guards against overlapping runs.
+    git_status:               map[string]widgets.Git_Status,
+    git_status_inflight:      bool,
+    git_status_dirty:         bool, // a refresh was requested while one was running
 }
 
 init :: proc() -> ^Thor {
@@ -135,6 +141,7 @@ init :: proc() -> ^Thor {
     thor.finished_loads = make([dynamic]^Load_Job)
     thor.finished_saves = make([dynamic]^Save_Job)
     thor.finished_console = make([dynamic]^Console_Job)
+    thor.finished_git = make([dynamic]^Git_Status_Job)
 
     log.infof("Loaded theme: %s", thor.theme.name)
 
@@ -158,6 +165,7 @@ init :: proc() -> ^Thor {
     thor_apply_layout_state(thor)
     ui.context_set_root(&thor.ui_context, &thor.root_panel.widget)
     ui.context_set_global_key(&thor.ui_context, thor_global_key, thor)
+    thor_refresh_git_status(thor)
     lap(&phase, "build widget tree")
 
     // Texture upload needs the GL context, so it happens here on the main
@@ -214,6 +222,8 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.finished_loads)
     delete(thor.finished_saves)
     delete(thor.finished_console)
+    delete(thor.finished_git)
+    thor_clear_git_status(thor)
     delete(thor.workspace_dir)
     delete(thor.workspace_prefix)
     delete(thor.menu_target_dir)

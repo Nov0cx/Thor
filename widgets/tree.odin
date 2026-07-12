@@ -9,6 +9,21 @@ import "../ui"
 
 Tree_Open_Proc :: #type proc(data: rawptr, path: string)
 
+// Git working-tree status for a path, resolved by the owner (Tree_Status_Proc).
+// Directories report an aggregate (Modified / Conflict) when they contain
+// changes so the folder name can be tinted too.
+Git_Status :: enum u8 {
+    None,
+    Modified,
+    Added,
+    Untracked,
+    Deleted,
+    Renamed,
+    Conflict,
+}
+
+Tree_Status_Proc :: #type proc(data: rawptr, path: string, is_dir: bool) -> Git_Status
+
 Tree_Node :: struct {
     name:     string, // owned
     path:     string, // owned, full path
@@ -35,6 +50,9 @@ Tree :: struct {
     // Right-click opens a context menu supplied by the owner.
     on_context_menu:  Context_Menu_Proc,
     context_menu_data: rawptr,
+    // Owner hook mapping a path to its git status (nil = no git highlighting).
+    status_proc:      Tree_Status_Proc,
+    status_data:      rawptr,
     text_color:       rl.Color,
     dir_color:        rl.Color,
     icon_color:       rl.Color,
@@ -42,6 +60,10 @@ Tree :: struct {
     hover_color:      rl.Color,
     selected_color:   rl.Color,
     background_color: rl.Color,
+    git_modified_color: rl.Color,
+    git_added_color:    rl.Color,
+    git_deleted_color:  rl.Color,
+    git_conflict_color: rl.Color,
 }
 
 @(private = "file")
@@ -71,6 +93,10 @@ tree_create :: proc(id, root_path: string) -> ^Tree {
     tree.hover_color = rl.Color {255, 255, 255, 14}
     tree.selected_color = rl.Color {255, 255, 255, 26}
     tree.background_color = rl.Color {0, 0, 0, 0}
+    tree.git_modified_color = rl.Color {229, 192, 123, 255} // amber
+    tree.git_added_color = rl.Color {152, 195, 121, 255}    // green
+    tree.git_deleted_color = rl.Color {224, 108, 117, 255}  // red
+    tree.git_conflict_color = rl.Color {224, 108, 117, 255} // red
     tree.min_size = rl.Vector2 {0, 120}
 
     tree.root = new(Tree_Node)
@@ -103,6 +129,46 @@ tree_set_on_open :: proc(tree: ^Tree, on_open: Tree_Open_Proc, data: rawptr) -> 
 tree_set_on_context_menu :: proc(tree: ^Tree, on_context_menu: Context_Menu_Proc, data: rawptr) {
     tree.on_context_menu = on_context_menu
     tree.context_menu_data = data
+}
+
+// Enables git status highlighting: `status_proc` maps a path to its status.
+tree_set_git :: proc(tree: ^Tree, status_proc: Tree_Status_Proc, data: rawptr) {
+    tree.status_proc = status_proc
+    tree.status_data = data
+}
+
+tree_set_git_colors :: proc(tree: ^Tree, modified, added, deleted, conflict: rl.Color) {
+    tree.git_modified_color = modified
+    tree.git_added_color = added
+    tree.git_deleted_color = deleted
+    tree.git_conflict_color = conflict
+}
+
+@(private = "file")
+tree_status_color :: proc(tree: ^Tree, status: Git_Status) -> rl.Color {
+    switch status {
+    case .None:                return tree.text_color
+    case .Modified, .Renamed:  return tree.git_modified_color
+    case .Added, .Untracked:   return tree.git_added_color
+    case .Deleted:             return tree.git_deleted_color
+    case .Conflict:            return tree.git_conflict_color
+    }
+    return tree.text_color
+}
+
+// Single-letter badge drawn at the right of a file row (VS Code-style).
+@(private = "file")
+tree_status_letter :: proc(status: Git_Status) -> string {
+    switch status {
+    case .None:      return ""
+    case .Modified:  return "M"
+    case .Added:     return "A"
+    case .Untracked: return "U"
+    case .Deleted:   return "D"
+    case .Renamed:   return "R"
+    case .Conflict:  return "!"
+    }
+    return ""
 }
 
 // Full path of the node under `position`, or "" when the click is below the
@@ -348,8 +414,19 @@ tree_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
         x += cast(f32) tree.icon_size + 6
 
         text_y := cast(i32) (row_y + (tree.row_height - cast(f32) tree.font_size) * 0.5)
+        status := tree.status_proc != nil ? tree.status_proc(tree.status_data, node.path, node.is_dir) : Git_Status.None
         color := node.is_dir ? tree.dir_color : tree.text_color
+        if status != .None {
+            color = tree_status_color(tree, status)
+        }
         ui.draw_text(node.name, cast(i32) x, text_y, tree.font_size, color)
+
+        // Right-aligned status letter for files (folders only get the tint).
+        if status != .None && !node.is_dir {
+            letter := tree_status_letter(status)
+            badge_x := tree.bounds.x + tree.bounds.width - cast(f32) ui.measure_text(letter, tree.font_size) - 10
+            ui.draw_text(letter, cast(i32) badge_x, text_y, tree.font_size, color)
+        }
     }
 }
 

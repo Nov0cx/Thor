@@ -178,6 +178,14 @@ thor_build_content :: proc(thor: ^Thor) {
         thor.theme.second_background,
     )
     widgets.tree_set_on_open(thor.tree, thor_tree_open, thor)
+    widgets.tree_set_git_colors(
+        thor.tree,
+        thor.theme.yellow_color, // modified / renamed
+        thor.theme.green_color,  // added / untracked
+        thor.theme.red_color,    // deleted
+        thor.theme.orange_color, // conflict
+    )
+    widgets.tree_set_git(thor.tree, thor_tree_git_status, thor)
     ui.widget_set_grow(&thor.tree.widget, 1)
     thor.tree.min_size = rl.Vector2 {0, 120}
 
