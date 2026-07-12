@@ -10,12 +10,18 @@ thor_minimize_window :: proc(_: rawptr, _: ^ui.Context, _: ^ui.Widget) {
     rl.MinimizeWindow()
 }
 
-thor_toggle_maximize :: proc(_: rawptr, _: ^ui.Context, _: ^ui.Widget) {
-    if rl.IsWindowMaximized() {
+thor_toggle_maximize :: proc(data: rawptr, _: ^ui.Context, _: ^ui.Widget) {
+    thor := cast(^Thor) data
+    // IsWindowMaximized() can keep reporting false after MaximizeWindow() on an
+    // undecorated window, which left the button stuck (never taking the restore
+    // branch) once the window was filling the screen. Track the state ourselves
+    // so the toggle is always symmetric.
+    if thor.window_maximized {
         rl.RestoreWindow()
     } else {
         rl.MaximizeWindow()
     }
+    thor.window_maximized = !thor.window_maximized
 }
 
 thor_close_window :: proc(data: rawptr, _: ^ui.Context, _: ^ui.Widget) {
@@ -35,6 +41,12 @@ thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
     // The command palette toggle works no matter what is focused.
     if setting.keybind_matches(thor.command_palette_key, event.key, event.ctrl, event.shift, event.alt) {
         thor_toggle_command_palette(thor)
+        return true
+    }
+    // Quick-open (file search) works no matter what is focused, and re-triggers
+    // into file mode even if the palette is already open on the command list.
+    if setting.keybind_matches(thor.quick_open_key, event.key, event.ctrl, event.shift, event.alt) {
+        thor_quick_open(thor)
         return true
     }
     // Find / replace open on ctrl+f / ctrl+r (work regardless of focus).

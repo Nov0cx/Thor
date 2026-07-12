@@ -46,6 +46,7 @@ Thor :: struct {
     find_replace:             ^widgets.Find_Replace,
     menu:                     ^widgets.Menu,
     command_palette_key:      setting.Keybind,
+    quick_open_key:           setting.Keybind,
     fullscreen_key:           setting.Keybind,
     console_toggle_key:       setting.Keybind,
     find_key:                 setting.Keybind,
@@ -65,6 +66,9 @@ Thor :: struct {
     maximize_button:          ^widgets.Button,
     close_button:             ^widgets.Button,
     should_close:             bool,
+    // Tracked ourselves: IsWindowMaximized() is unreliable for an undecorated
+    // window, so the maximize button toggles against this flag instead.
+    window_maximized:         bool,
     explorer_width:           f32,
     console_height:           f32,
     workspace_dir:            string,

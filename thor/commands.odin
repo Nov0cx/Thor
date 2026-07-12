@@ -22,6 +22,11 @@ thor_apply_settings :: proc(thor: ^Thor) {
     } else {
         thor.command_palette_key = setting.Keybind {key = .PERIOD, ctrl = true}
     }
+    if kb, ok := setting.keybind(&thor.config, "quick_open"); ok {
+        thor.quick_open_key = kb
+    } else {
+        thor.quick_open_key = setting.Keybind {key = .TAB, ctrl = true}
+    }
     if kb, ok := setting.keybind(&thor.config, "toggle_fullscreen"); ok {
         thor.fullscreen_key = kb
     } else {
@@ -63,6 +68,11 @@ thor_toggle_command_palette :: proc(thor: ^Thor) {
     } else {
         widgets.command_palette_open(thor.command_palette, &thor.ui_context)
     }
+}
+
+// Quick-open: jumps straight into the palette's file search.
+thor_quick_open :: proc(thor: ^Thor) {
+    widgets.command_palette_open_files(thor.command_palette, &thor.ui_context)
 }
 
 // Registers every command shown in the palette. Titles are grouped by a

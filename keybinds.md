@@ -13,13 +13,12 @@ bindings are physical key positions, noted where they differ.
 | ctrl + b | toggle explorer panel |
 | ctrl + t | toggle console panel (type a command, enter runs it) |
 | ctrl + . | open the command palette |
+| ctrl + tab | quick open (jump straight to file search) |
 | ctrl + f | find |
 | ctrl + r | find & replace |
 
 In find/replace: enter / shift+enter jump to next / previous match, tab
 switches between the find and replace fields, escape closes.
-
-Reserved (not implemented yet): `ctrl + tab` quick open.
 
 ## Clipboard
 

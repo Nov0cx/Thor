@@ -147,6 +147,15 @@ command_palette_open :: proc(palette: ^Command_Palette, ctx: ^ui.Context) {
     ui.widget_bring_to_front(&palette.widget)
 }
 
+// Opens the palette straight into Files mode (quick-open), skipping the command
+// list. Used by the quick_open keybind so searching files to open is one chord.
+command_palette_open_files :: proc(palette: ^Command_Palette, ctx: ^ui.Context) {
+    palette.visible = true
+    command_palette_enter_files(palette)
+    ctx.focused = &palette.widget
+    ui.widget_bring_to_front(&palette.widget)
+}
+
 command_palette_close :: proc(palette: ^Command_Palette, ctx: ^ui.Context) {
     palette.visible = false
     if ctx.focused == &palette.widget {
