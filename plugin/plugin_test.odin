@@ -113,3 +113,43 @@ main :: proc() {
     expect(t, spans, src, "// note", "comments")
     expect(t, spans, src, "data", "variables") // named param, not a type
 }
+
+// Loads the real plugins/markdown/plugin.lua and highlights Markdown through
+// its pure-Lua line lexer, confirming block and inline constructs resolve to the
+// expected color roles and that the returned spans stay ascending and
+// non-overlapping (the editor renders them with a single forward cursor).
+@(test)
+test_markdown_plugin_highlights :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+    manager_load(&m)
+    testing.expect(t, supports(&m, ".md"), "markdown language registered")
+
+    src := "# Title\n\nSome **bold** and *slant* and `code`.\n\n- item one\n> quote\n\n```\nfenced\n```\n"
+    spans := highlight(&m, src, ".md", context.allocator)
+    defer {
+        for s in spans {
+            delete(s.role)
+        }
+        delete(spans)
+    }
+    testing.expect(t, len(spans) > 0, "markdown spans produced")
+
+    expect :: proc(t: ^testing.T, spans: []Span, src, needle, want: string) {
+        got := role_covering(spans, src, needle)
+        testing.expectf(t, got == want, "%q: role %q, want %q", needle, got, want)
+    }
+    expect(t, spans, src, "# Title", "keywords")
+    expect(t, spans, src, "**bold**", "orange")
+    expect(t, spans, src, "*slant*", "attributes")
+    expect(t, spans, src, "`code`", "strings")
+    expect(t, spans, src, "- ", "operators")
+    expect(t, spans, src, "> quote", "comments")
+    expect(t, spans, src, "fenced", "strings")
+
+    // Spans must be ordered and non-overlapping for the editor's row renderer.
+    for i in 1 ..< len(spans) {
+        testing.expect(t, spans[i - 1].end <= spans[i].start, "spans overlap or unordered")
+    }
+}

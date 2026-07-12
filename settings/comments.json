@@ -13,5 +13,6 @@
     "yaml":       { "line": "#",  "extensions": [".yml", ".yaml"] },
     "git":        { "line": "#",  "extensions": [".gitignore", ".gitmodules"] },
     "ini":        { "line": ";",  "extensions": [".ini", ".cfg"] },
-    "batch":      { "line": "::", "extensions": [".bat"] }
+    "batch":      { "line": "::", "extensions": [".bat"] },
+    "lua":        { "line": "--", "extensions": [".lua"] }
 }
