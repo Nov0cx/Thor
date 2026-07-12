@@ -20,6 +20,10 @@ import "../widgets"
 Open_File :: struct {
     path:               string, // owned
     name:               string, // slice into path, do not free separately
+    // Text shown on the tab: the base name, plus a trailing directory suffix
+    // when another open file shares the same base name. Owned; recomputed by
+    // thor_update_tab_labels whenever the open-file set changes.
+    tab_label:          string,
     state:              textedit.State,
     loaded:             bool,
     load_failed:        bool,
@@ -143,6 +147,109 @@ file_base_name :: proc(path: string) -> string {
     return path
 }
 
+// Directory portion of path, without the base name or a trailing separator.
+@(private = "file")
+file_dir :: proc(path: string) -> string {
+    for i := len(path) - 1; i >= 0; i -= 1 {
+        if path[i] == '\\' || path[i] == '/' {
+            return path[:i]
+        }
+    }
+    return ""
+}
+
+// Tail of dir containing its last `depth` path segments (separators kept as in
+// the source). Returns the whole dir when it has fewer than `depth` segments.
+@(private = "file")
+dir_tail :: proc(dir: string, depth: int) -> string {
+    seps := 0
+    for i := len(dir) - 1; i >= 0; i -= 1 {
+        if dir[i] == '\\' || dir[i] == '/' {
+            seps += 1
+            if seps == depth {
+                return dir[i + 1:]
+            }
+        }
+    }
+    return dir
+}
+
+@(private = "file")
+dir_segment_count :: proc(dir: string) -> int {
+    if len(dir) == 0 {
+        return 0
+    }
+    count := 1
+    for i in 0 ..< len(dir) {
+        if dir[i] == '\\' || dir[i] == '/' {
+            count += 1
+        }
+    }
+    return count
+}
+
+// Shortest trailing directory path that distinguishes `file` from the other
+// open files sharing its base name. The result is a slice into file.path (still
+// using the source separators); the caller copies and normalizes it.
+@(private = "file")
+thor_disambiguating_dir :: proc(thor: ^Thor, file: ^Open_File) -> string {
+    dir := file_dir(file.path)
+    max_depth := max(dir_segment_count(dir), 1)
+
+    for depth in 1 ..= max_depth {
+        tail := dir_tail(dir, depth)
+        unique := true
+        for other in thor.open_files {
+            if other == file || other.name != file.name {
+                continue
+            }
+            if dir_tail(file_dir(other.path), depth) == tail {
+                unique = false
+                break
+            }
+        }
+        if unique {
+            return tail
+        }
+    }
+    return dir
+}
+
+// Recomputes every open file's tab_label. A file whose base name is unique
+// among the open set shows just the base name; colliding files get a trailing
+// directory suffix (e.g. "state.odin — thor") so the tabs stay distinguishable.
+thor_update_tab_labels :: proc(thor: ^Thor) {
+    for file in thor.open_files {
+        collision := false
+        for other in thor.open_files {
+            if other != file && other.name == file.name {
+                collision = true
+                break
+            }
+        }
+
+        old := file.tab_label
+        if !collision {
+            file.tab_label = strings.clone(file.name)
+        } else {
+            suffix := thor_disambiguating_dir(thor, file)
+            b := strings.builder_make()
+            strings.write_string(&b, file.name)
+            if len(suffix) > 0 {
+                strings.write_string(&b, " — ") // em dash
+                for i in 0 ..< len(suffix) {
+                    c := suffix[i]
+                    strings.write_byte(&b, c == '\\' ? '/' : c)
+                }
+            }
+            file.tab_label = strings.to_string(b)
+        }
+        if len(old) > 0 {
+            delete(old)
+        }
+    }
+}
+
 thor_active_open_file :: proc(thor: ^Thor) -> ^Open_File {
     index := ui.signal_get(&thor.active_file)
     if index < 0 || index >= len(thor.open_files) {
@@ -180,6 +287,7 @@ thor_open_file :: proc(thor: ^Thor, path: string) {
     job.path = file.path
     job.worker = thread.create_and_start_with_poly_data(job, load_worker)
 
+    thor_update_tab_labels(thor)
     thor_set_active_file(thor, len(thor.open_files) - 1)
 }
 
@@ -189,6 +297,7 @@ thor_close_file :: proc(thor: ^Thor, index: int) {
     }
     file := thor.open_files[index]
     ordered_remove(&thor.open_files, index)
+    thor_update_tab_labels(thor)
 
     active := ui.signal_get(&thor.active_file)
     if active > index {
@@ -365,6 +474,7 @@ thor_process_io :: proc(thor: ^Thor) {
 thor_free_open_file :: proc(file: ^Open_File) {
     textedit.destroy(&file.state)
     delete(file.highlights)
+    delete(file.tab_label)
     delete(file.path)
     free(file)
 }

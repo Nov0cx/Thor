@@ -124,7 +124,7 @@ thor_tab_info :: proc(data: rawptr, index: int) -> widgets.Tab_Info {
     thor := cast(^Thor) data
     file := thor.open_files[index]
     return widgets.Tab_Info {
-        name = file.name,
+        name = len(file.tab_label) > 0 ? file.tab_label : file.name,
         modified = file.loaded && file.state.revision != file.saved_revision,
         loading = !file.loaded && !file.load_failed,
     }
