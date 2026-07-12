@@ -1,5 +1,6 @@
 package ui
 
+import "core:encoding/json"
 import "core:log"
 import "core:os"
 import "core:strconv"
@@ -88,6 +89,58 @@ theme_material_deep_ocean :: proc() -> Theme {
         numbers_color = rl.Color {0xF7, 0x8C, 0x6C, 0xFF},
         parameters_color = rl.Color {0xF7, 0x8C, 0x6C, 0xFF},
     }
+}
+
+// Loads a theme from a JSON file shaped `{ "name": string, "colors": { <key>: "#RRGGBB[AA]" } }`.
+// Keys are the display names accepted by theme_assign_color. Unspecified keys keep the
+// built-in default, so partial themes are valid. On any failure the default is returned.
+theme_load :: proc(path: string) -> (Theme, bool) {
+    theme := theme_material_deep_ocean()
+
+    data, read_err := os.read_entire_file_from_path(path, context.temp_allocator)
+    if read_err != nil {
+        log.warnf("Cannot read theme %q: %v", path, read_err)
+        return theme, false
+    }
+
+    root, parse_err := json.parse(data, allocator = context.temp_allocator)
+    if parse_err != .None {
+        log.warnf("Cannot parse theme %q: %v", path, parse_err)
+        return theme, false
+    }
+
+    obj, ok := root.(json.Object)
+    if !ok {
+        log.warnf("Theme %q: root is not an object", path)
+        return theme, false
+    }
+
+    if name, has_name := obj["name"].(json.String); has_name {
+        theme.name = strings.clone(string(name))
+    }
+
+    colors, has_colors := obj["colors"].(json.Object)
+    if !has_colors {
+        log.warnf("Theme %q: missing \"colors\" object", path)
+        return theme, false
+    }
+
+    for key, value in colors {
+        hex, is_string := value.(json.String)
+        if !is_string {
+            continue
+        }
+        color, color_ok := parse_hex_color(string(hex))
+        if !color_ok {
+            log.warnf("Theme %q: invalid color %q for %q", path, hex, key)
+            continue
+        }
+        if !theme_assign_color(&theme, key, color) {
+            log.warnf("Theme %q: unknown color key %q", path, key)
+        }
+    }
+
+    return theme, true
 }
 
 parse_hex_color :: proc(value: string) -> (rl.Color, bool) {

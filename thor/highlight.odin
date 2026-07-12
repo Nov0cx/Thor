@@ -53,7 +53,7 @@ thor_token_color :: proc(thor: ^Thor, kind: syntax.Token_Kind) -> rl.Color {
     case .String:      return t.strings_color
     case .Comment:     return t.comments_color
     case .Operator:    return t.operators_color
-    case .Namespace:   return t.cyan_color       // packages / imports
+    case .Namespace:   return t.cyan_color        // packages / imports
     case .Parameter:   return t.variables_color   // param names read as plain variables; only the type is colored
     case .Field:       return t.variables_color
     case .Variable:    return t.variables_color

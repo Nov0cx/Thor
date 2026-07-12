@@ -108,7 +108,7 @@ init :: proc() -> ^Thor {
     ui.context_init(&thor.ui_context)
     thor.config = settings.load("settings")
     thor.highlighter = syntax.highlighter_create()
-    thor.theme = ui.theme_material_deep_ocean()
+    thor.theme, _ = ui.theme_load("assets/themes/material-deep-ocean.json")
     thor.active_file = ui.make_signal(-1)
     thor.explorer_visible = ui.make_signal(true)
     thor.console_visible = ui.make_signal(true)
