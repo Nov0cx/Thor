@@ -5,7 +5,7 @@ import "core:strings"
 import "core:unicode/utf8"
 import rl "vendor:raylib"
 
-import "../settings"
+import "../setting"
 import "../textedit"
 import "../ui"
 
@@ -39,7 +39,7 @@ Editor :: struct {
     // Line-comment marker; empty disables comment toggling. Set per language.
     comment_prefix:     string,
     // Comment-toggle chord (from keybinds.json), defaults to Ctrl+K.
-    comment_keybind:    settings.Keybind,
+    comment_keybind:    setting.Keybind,
     font_size:          i32,
     padding:            ui.Padding,
     gutter_width:       f32,
@@ -73,7 +73,7 @@ editor_create :: proc(id: string) -> ^Editor {
     editor.state = nil
     editor.placeholder = "No file open"
     editor.comment_prefix = "//"
-    editor.comment_keybind = settings.Keybind {key = .K, ctrl = true}
+    editor.comment_keybind = setting.Keybind {key = .K, ctrl = true}
     editor.font_size = 18
     editor.padding = ui.padding_xy(14, 12)
     editor.gutter_width = 58
@@ -322,7 +322,7 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
     // The comment-toggle chord is configurable (keybinds.json), so it is
     // matched here rather than as a fixed case in the switch below.
     if editor.comment_prefix != "" &&
-       settings.keybind_matches(editor.comment_keybind, event.key, event.ctrl, event.shift, event.alt) {
+       setting.keybind_matches(editor.comment_keybind, event.key, event.ctrl, event.shift, event.alt) {
         textedit.toggle_comment(state, editor.comment_prefix)
         editor_scroll_to_caret(editor)
         return true

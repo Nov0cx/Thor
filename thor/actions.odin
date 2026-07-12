@@ -2,7 +2,7 @@ package thor
 
 import rl "vendor:raylib"
 
-import "../settings"
+import "../setting"
 import "../ui"
 import "../widgets"
 
@@ -33,16 +33,16 @@ thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
     thor := cast(^Thor) data
 
     // The command palette toggle works no matter what is focused.
-    if settings.keybind_matches(thor.command_palette_key, event.key, event.ctrl, event.shift, event.alt) {
+    if setting.keybind_matches(thor.command_palette_key, event.key, event.ctrl, event.shift, event.alt) {
         thor_toggle_command_palette(thor)
         return true
     }
     // Find / replace open on ctrl+f / ctrl+r (work regardless of focus).
-    if settings.keybind_matches(thor.find_key, event.key, event.ctrl, event.shift, event.alt) {
+    if setting.keybind_matches(thor.find_key, event.key, event.ctrl, event.shift, event.alt) {
         thor_open_find(thor, false)
         return true
     }
-    if settings.keybind_matches(thor.replace_key, event.key, event.ctrl, event.shift, event.alt) {
+    if setting.keybind_matches(thor.replace_key, event.key, event.ctrl, event.shift, event.alt) {
         thor_open_find(thor, true)
         return true
     }
@@ -55,11 +55,11 @@ thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
 
     // Fullscreen toggle is a bare key (no ctrl), so it is matched before the
     // ctrl-only guard below.
-    if settings.keybind_matches(thor.fullscreen_key, event.key, event.ctrl, event.shift, event.alt) {
+    if setting.keybind_matches(thor.fullscreen_key, event.key, event.ctrl, event.shift, event.alt) {
         thor_toggle_fullscreen(thor)
         return true
     }
-    if settings.keybind_matches(thor.console_toggle_key, event.key, event.ctrl, event.shift, event.alt) {
+    if setting.keybind_matches(thor.console_toggle_key, event.key, event.ctrl, event.shift, event.alt) {
         thor_toggle_console(thor, nil, nil)
         return true
     }

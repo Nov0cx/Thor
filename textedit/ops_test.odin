@@ -67,6 +67,19 @@ test_move_and_duplicate_lines :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_trim_trailing_whitespace :: proc(t: ^testing.T) {
+    state := ops_state("aaa  \nbbb\t\n\tccc \n", 0)
+    defer destroy(&state)
+
+    trim_trailing_whitespace(&state)
+    testing.expect_value(t, text(&state), "aaa\nbbb\n\tccc\n")
+
+    // Leading indentation is preserved; a clean buffer is left unchanged.
+    undo(&state)
+    testing.expect_value(t, text(&state), "aaa  \nbbb\t\n\tccc \n")
+}
+
+@(test)
 test_indent_outdent :: proc(t: ^testing.T) {
     state := ops_state("aaa\nbbb\nccc", 0)
     defer destroy(&state)

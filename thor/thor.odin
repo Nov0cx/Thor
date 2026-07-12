@@ -7,14 +7,14 @@ import "core:sync"
 import "core:time"
 import rl "vendor:raylib"
 
-import "../settings"
+import "../setting"
 import "../syntax"
 import "../ui"
 import "../widgets"
 
 Thor :: struct {
     ui_context:               ui.Context,
-    config:                   settings.Settings,
+    config:                   setting.Settings,
     highlighter:              syntax.Highlighter,
     theme:                    ui.Theme,
     root_panel:               ^widgets.Panel,
@@ -44,11 +44,11 @@ Thor :: struct {
     dialog_stack:             ^widgets.Stack,
     command_palette:          ^widgets.Command_Palette,
     find_replace:             ^widgets.Find_Replace,
-    command_palette_key:      settings.Keybind,
-    fullscreen_key:           settings.Keybind,
-    console_toggle_key:       settings.Keybind,
-    find_key:                 settings.Keybind,
-    replace_key:              settings.Keybind,
+    command_palette_key:      setting.Keybind,
+    fullscreen_key:           setting.Keybind,
+    console_toggle_key:       setting.Keybind,
+    find_key:                 setting.Keybind,
+    replace_key:              setting.Keybind,
     active_file:              ui.Signal(int),
     explorer_visible:         ui.Signal(bool),
     console_visible:          ui.Signal(bool),
@@ -106,7 +106,7 @@ init :: proc() -> ^Thor {
 
     thor := new(Thor)
     ui.context_init(&thor.ui_context)
-    thor.config = settings.load("settings")
+    thor.config = setting.load("settings")
     thor.highlighter = syntax.highlighter_create()
     thor.theme, _ = ui.theme_load("assets/themes/material-deep-ocean.json")
     thor.active_file = ui.make_signal(-1)
@@ -206,7 +206,7 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.workspace_dir)
     delete(thor.workspace_prefix)
     delete(thor.git_branch)
-    settings.destroy(&thor.config)
+    setting.destroy(&thor.config)
     syntax.highlighter_destroy(&thor.highlighter)
 
     ui.theme_destroy(&thor.theme)

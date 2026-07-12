@@ -1,4 +1,4 @@
-package plugins
+package plugin
 
 import "core:testing"
 import lua "vendor:lua/5.4"

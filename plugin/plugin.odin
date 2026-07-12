@@ -2,7 +2,7 @@
 // time. Syntax highlighting is the first capability: a plugin either declares a
 // tree-sitter language or supplies a pure-Lua lexer, and maps token categories
 // to theme color roles resolved by the editor at draw time.
-package plugins
+package plugin
 
 import lua "vendor:lua/5.4"
 

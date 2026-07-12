@@ -163,6 +163,28 @@ delete_lines :: proc(state: ^State) {
     delete_backward(state)
 }
 
+// Removes trailing spaces and tabs from every line as one undo entry.
+trim_trailing_whitespace :: proc(state: ^State) {
+    txt := text(state)
+    edits := make([dynamic]Line_Edit, context.temp_allocator)
+    pos := 0
+    for pos <= len(txt) {
+        end := line_end(txt, pos)
+        trim := end
+        for trim > pos && (txt[trim - 1] == ' ' || txt[trim - 1] == '\t') {
+            trim -= 1
+        }
+        if trim < end {
+            append(&edits, Line_Edit {pos = trim, remove = end - trim})
+        }
+        if end >= len(txt) {
+            break
+        }
+        pos = end + 1
+    }
+    apply_line_edits(state, txt, edits[:])
+}
+
 insert_line_below :: proc(state: ^State) {
     move_line_end(state, false)
     insert_text(state, "\n")

@@ -1,4 +1,4 @@
-package settings
+package setting
 
 // Loads Thor's config from settings/ (comments.json, keybinds.json,
 // settings.json). Missing or malformed files degrade to empty lookups.

@@ -8,7 +8,7 @@ import win32 "core:sys/windows"
 import "core:thread"
 import "core:time"
 
-import "../settings"
+import "../setting"
 import "../textedit"
 import "../ui"
 import "../widgets"
@@ -232,7 +232,7 @@ thor_request_save :: proc(data: rawptr) {
 thor_update_files :: proc(thor: ^Thor) {
     thor_process_io(thor)
 
-    autosave_delay := time.Duration(settings.autosave_delay_ms(&thor.config)) * time.Millisecond
+    autosave_delay := time.Duration(setting.autosave_delay_ms(&thor.config)) * time.Millisecond
     for file in thor.open_files {
         if !file.loaded || file.saving {
             continue

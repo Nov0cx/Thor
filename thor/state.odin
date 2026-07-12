@@ -3,7 +3,7 @@ package thor
 import "core:strings"
 import "core:unicode/utf8"
 
-import "../settings"
+import "../setting"
 import "../textedit"
 import "../ui"
 import "../widgets"
@@ -47,7 +47,7 @@ thor_set_active_file :: proc(thor: ^Thor, index: int) {
         return
     }
 
-    widgets.editor_set_comment_prefix(thor.editor, settings.comment_prefix(&thor.config, file.name))
+    widgets.editor_set_comment_prefix(thor.editor, setting.comment_prefix(&thor.config, file.name))
     widgets.editor_set_state(thor.editor, &file.state)
     widgets.editor_set_highlights(thor.editor, file.highlights[:])
 }
@@ -70,7 +70,7 @@ thor_status_info :: proc(data: rawptr) -> widgets.Status_Info {
     info.language = thor_language_name(file.name)
     info.indent_width = textedit.tab_width()
     info.indent_spaces = true
-    info.zoom = int(thor.editor.font_size) * 100 / max(settings.font_size(&thor.config), 1)
+    info.zoom = int(thor.editor.font_size) * 100 / max(setting.font_size(&thor.config), 1)
     info.saving = file.saving
     info.modified = file.loaded && file.state.revision != file.saved_revision
 
