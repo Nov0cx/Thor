@@ -2,6 +2,7 @@ package thor
 
 import "core:log"
 import "core:os"
+import "core:path/filepath"
 import "core:strings"
 import "core:sync"
 import win32 "core:sys/windows"
@@ -151,15 +152,22 @@ thor_active_open_file :: proc(thor: ^Thor) -> ^Open_File {
 }
 
 thor_open_file :: proc(thor: ^Thor, path: string) {
+    // Canonicalize so the same file opened via different path spellings (a
+    // relative command path vs. the explorer's) resolves to one tab.
+    canonical := path
+    if abs, err := filepath.abs(path, context.temp_allocator); err == nil {
+        canonical = abs
+    }
+
     for file, index in thor.open_files {
-        if file.path == path {
+        if file.path == canonical {
             thor_set_active_file(thor, index)
             return
         }
     }
 
     file := new(Open_File)
-    file.path = strings.clone(path)
+    file.path = strings.clone(canonical)
     file.name = file_base_name(file.path)
     textedit.init(&file.state)
     append(&thor.open_files, file)

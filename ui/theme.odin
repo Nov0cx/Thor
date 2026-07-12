@@ -146,6 +146,38 @@ theme_load :: proc(path: string) -> (Theme, bool) {
     return theme, true
 }
 
+// Resolves a short color-role id (as referenced by plugins via thor.theme.*) to
+// the theme's current color. Unknown roles fall back to the foreground, so a
+// plugin can never leave text uncolored by accident.
+theme_role_color :: proc(theme: Theme, role: string) -> rl.Color {
+    switch role {
+    case "background":  return theme.background
+    case "foreground":  return theme.foreground
+    case "keywords":    return theme.keywords_color
+    case "functions":   return theme.functions_color
+    case "strings":     return theme.strings_color
+    case "operators":   return theme.operators_color
+    case "comments":    return theme.comments_color
+    case "numbers":     return theme.numbers_color
+    case "parameters":  return theme.parameters_color
+    case "attributes":  return theme.attributes_color
+    case "variables":   return theme.variables_color
+    case "tags":        return theme.tags_color
+    case "links":       return theme.links_color
+    case "yellow":      return theme.yellow_color
+    case "orange":      return theme.orange_color
+    case "purple":      return theme.purple_color
+    case "cyan":        return theme.cyan_color
+    case "blue":        return theme.blue_color
+    case "red":         return theme.red_color
+    case "green":       return theme.green_color
+    case "gray":        return theme.gray_color
+    case "accent":      return theme.accent_color
+    case "error":       return theme.error_color
+    }
+    return theme.foreground
+}
+
 // Frees a theme's owned allocations. Pairs with theme_load.
 theme_destroy :: proc(theme: ^Theme) {
     delete(theme.name)

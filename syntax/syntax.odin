@@ -1,6 +1,7 @@
-// Tree-sitter backed syntax highlighting. Parses a buffer for a language and
-// runs its highlights query, producing non-overlapping colored spans keyed by
-// a small Token_Kind set that the UI maps to theme colors.
+// Tree-sitter backed parsing. Parses a buffer for a grammar and runs its
+// highlights query, producing non-overlapping spans tagged with the winning
+// tree-sitter capture name. Mapping capture names to colors is the caller's job
+// (the plugin layer), so this package stays free of any theme or role concept.
 package syntax
 
 import "base:runtime"
@@ -10,30 +11,12 @@ import "core:strings"
 import ts "../vendor/odin-tree-sitter"
 import ts_odin "../vendor/odin-tree-sitter/parsers/odin"
 
-Token_Kind :: enum {
-    Default,
-    Keyword,
-    Function,
-    Type,
-    Constant,
-    Number,
-    String,
-    Comment,
-    Operator,
-    Punctuation,
-    Namespace,
-    Parameter,
-    Field,
-    Variable,
-    Attribute,
-    Label,
-    Preproc,
-}
-
+// A resolved highlight span. `capture` is the tree-sitter capture name that won
+// this byte range (e.g. "keyword.return", "type.builtin", "function.call").
 Span :: struct {
-    start: int,
-    end:   int,
-    kind:  Token_Kind,
+    start:   int,
+    end:     int,
+    capture: string,
 }
 
 @(private)
@@ -67,13 +50,14 @@ highlighter_destroy :: proc(h: ^Highlighter) {
     ts.parser_delete(h.parser)
 }
 
-// True when highlighting is available for the language id.
+// True when a grammar is compiled in for the id.
 supports :: proc(h: ^Highlighter, lang_id: string) -> bool {
     return lang_id in h.languages
 }
 
-// Parses `source` and returns non-overlapping highlight spans (ascending, using
-// `allocator`). Empty when the language is unknown or parsing fails.
+// Parses `source` with the named grammar and returns non-overlapping spans
+// (ascending, using `allocator`), each tagged with its winning capture name.
+// Empty when the grammar is unknown or parsing fails.
 highlight :: proc(h: ^Highlighter, source: string, lang_id: string, allocator := context.allocator) -> []Span {
     entry, ok := h.languages[lang_id]
     if !ok {
@@ -110,14 +94,11 @@ highlight :: proc(h: ^Highlighter, source: string, lang_id: string, allocator :=
         }
         for i in 0 ..< int(match.capture_count) {
             c := match.captures[i]
-            kind := kind_for_capture(ts.query_capture_name_for_id(query, c.index))
-            if kind == .Default {
-                continue
-            }
+            name := ts.query_capture_name_for_id(query, c.index)
             start := int(ts.node_start_byte(c.node))
             end := int(ts.node_end_byte(c.node))
             if end > start {
-                append(&caps, Capture{start, end, kind, int(match.pattern_index)})
+                append(&caps, Capture{start, end, name, int(match.pattern_index)})
             }
         }
     }
@@ -128,8 +109,17 @@ highlight :: proc(h: ^Highlighter, source: string, lang_id: string, allocator :=
 Capture :: struct {
     start:   int,
     end:     int,
-    kind:    Token_Kind,
+    capture: string,
     pattern: int,
+}
+
+// Leading component of a capture name ("type.builtin" -> "type").
+@(private)
+capture_head :: proc(name: string) -> string {
+    if dot := strings.index_byte(name, '.'); dot >= 0 {
+        return name[:dot]
+    }
+    return name
 }
 
 // Flattens overlapping captures into ascending, non-overlapping, merged spans.
@@ -166,7 +156,7 @@ resolve_spans :: proc(caps: []Capture, allocator: runtime.Allocator) -> []Span {
                     best = a
                 }
             }
-            emit_span(&spans, prev, pos, caps[best].kind)
+            emit_span(&spans, prev, pos, caps[best].capture)
         }
         for i < len(events) && events[i].pos == pos {
             e := events[i]
@@ -192,10 +182,11 @@ better_capture :: proc(a, b: Capture) -> bool {
     // A named parameter's identifier is captured as both @parameter and @type
     // inside a procedure_type (`#type proc(data: rawptr)`); the name must stay a
     // parameter, so prefer it over the type regardless of pattern order.
-    if a.kind == .Parameter && b.kind == .Type {
+    ah, bh := capture_head(a.capture), capture_head(b.capture)
+    if ah == "parameter" && bh == "type" {
         return true
     }
-    if a.kind == .Type && b.kind == .Parameter {
+    if ah == "type" && bh == "parameter" {
         return false
     }
     if a.pattern != b.pattern {
@@ -205,15 +196,15 @@ better_capture :: proc(a, b: Capture) -> bool {
 }
 
 @(private)
-emit_span :: proc(spans: ^[dynamic]Span, start, end: int, kind: Token_Kind) {
+emit_span :: proc(spans: ^[dynamic]Span, start, end: int, capture: string) {
     if len(spans) > 0 {
         last := &spans[len(spans) - 1]
-        if last.kind == kind && last.end == start {
+        if last.capture == capture && last.end == start {
             last.end = end
             return
         }
     }
-    append(spans, Span{start, end, kind})
+    append(spans, Span{start, end, capture})
 }
 
 // Evaluates a pattern's predicates. Handles the common filtering predicates
@@ -285,49 +276,4 @@ highlighter_query :: proc(h: ^Highlighter, lang_id: string, entry: Language_Entr
     }
     h.queries[lang_id] = query
     return query
-}
-
-// Maps an nvim-treesitter capture name (e.g. "keyword.return", "type.builtin")
-// to a Token_Kind by its leading component.
-@(private)
-kind_for_capture :: proc(name: string) -> Token_Kind {
-    head := name
-    if dot := strings.index_byte(name, '.'); dot >= 0 {
-        head = name[:dot]
-    }
-    switch head {
-    case "keyword", "conditional", "repeat", "include", "storageclass", "exception":
-        return .Keyword
-    case "function", "method", "constructor":
-        return .Function
-    case "type":
-        return .Type
-    case "constant", "boolean", "character":
-        return .Constant
-    case "number", "float":
-        return .Number
-    case "string":
-        return .String
-    case "comment":
-        return .Comment
-    case "operator":
-        return .Operator
-    case "punctuation":
-        return .Punctuation
-    case "namespace", "module":
-        return .Namespace
-    case "parameter":
-        return .Parameter
-    case "field", "property":
-        return .Field
-    case "variable":
-        return .Variable
-    case "attribute":
-        return .Attribute
-    case "label":
-        return .Label
-    case "preproc", "define", "macro":
-        return .Preproc
-    }
-    return .Default
 }

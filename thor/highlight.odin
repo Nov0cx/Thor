@@ -1,23 +1,23 @@
 package thor
 
 import "core:strings"
-import rl "vendor:raylib"
 
-import "../syntax"
+import "../plugin"
 import "../textedit"
+import "../ui"
 import "../widgets"
 
 // Reparses `file` and rebuilds its highlight spans (resolved to theme colors).
 // Only the active file is highlighted, so this runs when its buffer changes.
 thor_update_highlights :: proc(thor: ^Thor, file: ^Open_File) {
     active := file == thor_active_open_file(thor)
-    lang := thor_syntax_language(file.name)
+    ext := thor_file_ext(file.name)
 
     clear(&file.highlights)
-    if syntax.supports(&thor.highlighter, lang) {
+    if plugin.supports(&thor.plugins, ext) {
         source := textedit.text(&file.state)
-        for span in syntax.highlight(&thor.highlighter, source, lang, context.temp_allocator) {
-            color := thor_token_color(thor, span.kind)
+        for span in plugin.highlight(&thor.plugins, source, ext, context.temp_allocator) {
+            color := ui.theme_role_color(thor.theme, span.role)
             append(&file.highlights, widgets.Highlight_Span{span.start, span.end, color})
         }
     }
@@ -29,39 +29,11 @@ thor_update_highlights :: proc(thor: ^Thor, file: ^Open_File) {
     }
 }
 
-// syntax language id for a file name, or "" when unsupported.
-thor_syntax_language :: proc(name: string) -> string {
+// File extension including the dot (".odin"), or "" when there is none.
+thor_file_ext :: proc(name: string) -> string {
     dot := strings.last_index_byte(name, '.')
     if dot < 0 {
         return ""
     }
-    switch name[dot:] {
-    case ".odin":
-        return "odin"
-    }
-    return ""
-}
-
-thor_token_color :: proc(thor: ^Thor, kind: syntax.Token_Kind) -> rl.Color {
-    t := thor.theme
-    switch kind {
-    case .Keyword:     return t.keywords_color
-    case .Function:    return t.functions_color  // procs
-    case .Type:        return t.yellow_color     // structs, enums, unions, types
-    case .Constant:    return t.orange_color
-    case .Number:      return t.numbers_color
-    case .String:      return t.strings_color
-    case .Comment:     return t.comments_color
-    case .Operator:    return t.operators_color
-    case .Namespace:   return t.cyan_color        // packages / imports
-    case .Parameter:   return t.variables_color   // param names read as plain variables; only the type is colored
-    case .Field:       return t.variables_color
-    case .Variable:    return t.variables_color
-    case .Attribute:   return t.attributes_color
-    case .Label:       return t.keywords_color
-    case .Preproc:     return t.orange_color
-    case .Punctuation, .Default:
-        return t.foreground
-    }
-    return t.foreground
+    return name[dot:]
 }

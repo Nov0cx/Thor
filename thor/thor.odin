@@ -7,15 +7,15 @@ import "core:sync"
 import "core:time"
 import rl "vendor:raylib"
 
+import "../plugin"
 import "../setting"
-import "../syntax"
 import "../ui"
 import "../widgets"
 
 Thor :: struct {
     ui_context:               ui.Context,
     config:                   setting.Settings,
-    highlighter:              syntax.Highlighter,
+    plugins:                  plugin.Manager,
     theme:                    ui.Theme,
     root_panel:               ^widgets.Panel,
     root_stack:               ^widgets.Stack,
@@ -107,7 +107,8 @@ init :: proc() -> ^Thor {
     thor := new(Thor)
     ui.context_init(&thor.ui_context)
     thor.config = setting.load("settings")
-    thor.highlighter = syntax.highlighter_create()
+    thor.plugins = plugin.manager_create()
+    plugin.manager_load(&thor.plugins)
     thor.theme, _ = ui.theme_load("assets/themes/material-deep-ocean.json")
     thor.active_file = ui.make_signal(-1)
     thor.explorer_visible = ui.make_signal(true)
@@ -207,7 +208,7 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.workspace_prefix)
     delete(thor.git_branch)
     setting.destroy(&thor.config)
-    syntax.highlighter_destroy(&thor.highlighter)
+    plugin.manager_destroy(&thor.plugins)
 
     ui.theme_destroy(&thor.theme)
     ui.context_destroy(&thor.ui_context)

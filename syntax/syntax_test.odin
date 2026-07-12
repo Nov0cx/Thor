@@ -3,19 +3,19 @@ package syntax
 import "core:strings"
 import "core:testing"
 
-// Kind of the span covering the first occurrence of `needle` in source.
+// Leading component of the capture covering the first occurrence of `needle`.
 @(private = "file")
-kind_at :: proc(spans: []Span, source, needle: string) -> (Token_Kind, bool) {
+head_at :: proc(spans: []Span, source, needle: string) -> (string, bool) {
     at := strings.index(source, needle)
     if at < 0 {
-        return .Default, false
+        return "", false
     }
     for s in spans {
         if s.start <= at && at < s.end {
-            return s.kind, true
+            return capture_head(s.capture), true
         }
     }
-    return .Default, false
+    return "", false
 }
 
 @(test)
@@ -47,20 +47,17 @@ main :: proc() {
     }
 
     // Precedence: specific captures override the broad (identifier) @variable.
-    expect_kind :: proc(t: ^testing.T, spans: []Span, src, needle: string, want: Token_Kind) {
-        got, ok := kind_at(spans, src, needle)
-        testing.expectf(t, ok && got == want, "%q: got %v (found=%v), want %v", needle, got, ok, want)
+    expect :: proc(t: ^testing.T, spans: []Span, src, needle, want: string) {
+        got, ok := head_at(spans, src, needle)
+        testing.expectf(t, ok && got == want, "%q: got %q (found=%v), want %q", needle, got, ok, want)
     }
-    expect_kind(t, spans, src, "demo", .Namespace)   // package name
-    expect_kind(t, spans, src, "Point", .Type)       // struct declaration
-    expect_kind(t, spans, src, "main", .Function)    // proc
-    expect_kind(t, spans, src, "int", .Type)         // builtin type via #any-of?
-    expect_kind(t, spans, src, "\"hi\"", .String)
-    expect_kind(t, spans, src, "// note", .Comment)
-
-    // A named parameter in a `#type proc(...)` keeps its parameter kind rather
-    // than being recolored as a type.
-    expect_kind(t, spans, src, "data", .Parameter)
+    expect(t, spans, src, "Point", "type")     // struct declaration
+    expect(t, spans, src, "main", "function")  // proc
+    expect(t, spans, src, "int", "type")       // builtin type via #any-of?
+    expect(t, spans, src, "\"hi\"", "string")
+    expect(t, spans, src, "// note", "comment")
+    // A named parameter in a `#type proc(...)` stays a parameter, not a type.
+    expect(t, spans, src, "data", "parameter")
 
     // Unknown language yields nothing.
     none := highlight(&h, src, "cobol", context.allocator)
