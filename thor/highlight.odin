@@ -46,15 +46,15 @@ thor_token_color :: proc(thor: ^Thor, kind: syntax.Token_Kind) -> rl.Color {
     t := thor.theme
     switch kind {
     case .Keyword:     return t.keywords_color
-    case .Function:    return t.functions_color
-    case .Type:        return t.orange_color
+    case .Function:    return t.functions_color  // procs
+    case .Type:        return t.yellow_color     // structs, enums, unions, types
     case .Constant:    return t.orange_color
     case .Number:      return t.numbers_color
     case .String:      return t.strings_color
     case .Comment:     return t.comments_color
     case .Operator:    return t.operators_color
-    case .Namespace:   return t.variables_color
-    case .Parameter:   return t.parameters_color
+    case .Namespace:   return t.cyan_color       // packages / imports
+    case .Parameter:   return t.variables_color   // param names read as plain variables; only the type is colored
     case .Field:       return t.variables_color
     case .Variable:    return t.variables_color
     case .Attribute:   return t.attributes_color

@@ -7,7 +7,7 @@ import "../ui"
 Button_Click_Proc :: #type proc(data: rawptr, ctx: ^ui.Context, widget: ^ui.Widget)
 
 Button :: struct {
-    using widget: ui.Widget,
+    using widget:      ui.Widget,
     text:              string,
     // When set, an icon glyph is drawn centered instead of the text.
     icon:              string,

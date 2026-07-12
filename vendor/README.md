@@ -51,6 +51,3 @@ odin run build -- install-parser https://github.com/tree-sitter-grammars/tree-si
 Add a language: `install-parser <grammar-git-url>`, then register it in
 `syntax/syntax.odin` (`highlighter_create`) and map its file extension in
 `thor/highlight.odin` (`thor_syntax_language`).
-
-Because the app links `libtree-sitter.lib`, **Thor itself must now be built from
-the developer shell** (the MSVC linker must be on `PATH`).
