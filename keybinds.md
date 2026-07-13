@@ -12,10 +12,26 @@ bindings are physical key positions, noted where they differ.
 | ctrl + page down / page up | next / previous tab |
 | ctrl + b | toggle explorer panel |
 | ctrl + t | toggle console panel (type a command, enter runs it) |
+| ctrl + shift + e | focus the editor |
+| ctrl + shift + b | focus the explorer (opens it if collapsed) |
+| ctrl + shift + t | focus the terminal / console (opens it if collapsed) |
 | ctrl + . | open the command palette |
 | ctrl + tab | quick open (jump straight to file search) |
 | ctrl + f | find |
 | ctrl + r | find & replace |
+
+## Explorer
+
+When the explorer has focus (e.g. via ctrl + shift + b) it can be driven from
+the keyboard:
+
+| Binding | Action |
+| --- | --- |
+| up / down | move the selection |
+| right | expand a folder, or step into its first child |
+| left | collapse a folder, or step out to its parent |
+| enter | open the selected file / toggle the selected folder |
+| delete | delete the selected file (after a confirmation dialog) |
 
 In find/replace: enter / shift+enter jump to next / previous match, tab
 switches between the find and replace fields, escape closes.
@@ -69,7 +85,17 @@ Add `shift` to any movement to extend the selection.
 | ctrl + enter / ctrl + shift + enter | insert line below / above |
 | tab / shift + tab (with selection) | indent / outdent lines |
 | ctrl + k | toggle line comment (per-language marker) |
+| ctrl + shift + w | trim trailing whitespace |
 | enter | new line, keeping indent (extra level after an opening bracket) |
+
+Typing `{` at the end of a line opens a three-line block, placing the caret on
+an indented middle line:
+
+```
+foo {
+    <caret>
+}
+```
 
 Typing `(`, `[`, `{`, `"`, `'` or `` ` `` auto-inserts the closing pair with the
 cursor between them; typing over the closing character steps past it, and
