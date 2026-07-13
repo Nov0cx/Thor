@@ -173,8 +173,8 @@ thor_build_content :: proc(thor: ^Thor) {
         thor.theme.white_black_color,
         thor.theme.blue_color,
         thor.theme.gray_color,
-        rl.Color {255, 255, 255, 14},
-        rl.Color {255, 255, 255, 28},
+        thor.theme.tree,                  // hover: subtle row tint
+        thor.theme.selection_background,  // selected: stronger overlay
         thor.theme.second_background,
     )
     widgets.tree_set_on_open(thor.tree, thor_tree_open, thor)
@@ -197,7 +197,7 @@ thor_build_content :: proc(thor: ^Thor) {
         thor.theme.active,
         thor.theme.buttons,
         thor.theme.background,
-        rl.Color {255, 255, 255, 14},
+        thor.theme.tree, // hover: subtle row tint
         thor.theme.accent_color,
     )
     widgets.tabbar_set_callbacks(

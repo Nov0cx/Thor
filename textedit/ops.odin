@@ -270,6 +270,151 @@ duplicate_lines :: proc(state: ^State, delta: int) {
     finish_edit(state, &entry)
 }
 
+Case_Transform :: enum {
+    Upper,
+    Lower,
+    Title, // capitalize the first letter of each word, lower-case the rest
+}
+
+// Upper/lower/title-cases each selection, or the word under the caret when a
+// cursor has no selection (Alt+U / Alt+L / Alt+C). ASCII-only, so byte lengths
+// are preserved and cursor positions stay valid across the whole edit; other
+// bytes pass through unchanged. Lands as one undo entry.
+transform_case :: proc(state: ^State, mode: Case_Transform) {
+    txt := text(state)
+    entry := Undo_Entry {cursors_before = clone_cursors(state)}
+    changed := false
+
+    for &cursor in state.cursors {
+        lo, hi := selection_range(cursor)
+        had_selection := hi > lo
+        if !had_selection {
+            start, end, found := word_range_at(txt, cursor.caret)
+            if !found {
+                continue
+            }
+            lo, hi = start, end
+        }
+
+        original := txt[lo:hi]
+        transformed := transform_case_bytes(original, mode)
+        if transformed == original {
+            continue
+        }
+
+        append(&entry.ops, Edit_Op {kind = .Delete, pos = lo, text = strings.clone(original)})
+        piecetable.piecetable_delete(&state.table, lo, hi - lo)
+        append(&entry.ops, Edit_Op {kind = .Insert, pos = lo, text = strings.clone(transformed)})
+        piecetable.piecetable_insert(&state.table, lo, transformed)
+        changed = true
+
+        if had_selection {
+            cursor.anchor = lo
+            cursor.caret = hi
+        }
+    }
+
+    if changed {
+        finish_edit(state, &entry)
+    } else {
+        entry_destroy(&entry)
+    }
+}
+
+@(private = "file")
+transform_case_bytes :: proc(s: string, mode: Case_Transform, allocator := context.temp_allocator) -> string {
+    buf := make([]u8, len(s), allocator)
+    at_word_start := true
+    for i in 0 ..< len(s) {
+        c := s[i]
+        switch mode {
+        case .Upper:
+            buf[i] = ascii_upper(c)
+        case .Lower:
+            buf[i] = ascii_lower(c)
+        case .Title:
+            word := is_word_byte(c)
+            switch {
+            case word && at_word_start:
+                buf[i] = ascii_upper(c)
+            case word:
+                buf[i] = ascii_lower(c)
+            case:
+                buf[i] = c
+            }
+            at_word_start = !word
+        }
+    }
+    return string(buf)
+}
+
+@(private = "file")
+ascii_upper :: proc(b: u8) -> u8 {
+    return b >= 'a' && b <= 'z' ? b - 32 : b
+}
+
+@(private = "file")
+ascii_lower :: proc(b: u8) -> u8 {
+    return b >= 'A' && b <= 'Z' ? b + 32 : b
+}
+
+// Joins the lines covered by the primary selection into one (Ctrl+J); with no
+// selection, joins the current line with the one below. Leading indentation of
+// each joined-in line is dropped and replaced by a single space, matching vim's
+// `J`. Multi-cursor joins are ambiguous, so secondary cursors collapse.
+join_lines :: proc(state: ^State) {
+    collapse_to_primary(state)
+    txt := text(state)
+    cursor := state.cursors[0]
+    lo, hi := selection_range(cursor)
+
+    first := line_start(txt, lo)
+    last_ls := line_start(txt, hi)
+    if last_ls == first {
+        // Single line selected: join it with the following line.
+        le := line_end(txt, first)
+        if le >= len(txt) {
+            return // nothing below to join
+        }
+        last_ls = le + 1
+    }
+    region_end := line_end(txt, last_ls)
+    region := txt[first:region_end]
+
+    joined := strings.builder_make(context.temp_allocator)
+    segments := strings.split(region, "\n", context.temp_allocator)
+    caret_at := first
+    for seg, i in segments {
+        if i == 0 {
+            head := strings.trim_right(seg, " \t\r")
+            strings.write_string(&joined, head)
+            caret_at = first + len(head)
+            continue
+        }
+        piece := strings.trim_space(seg)
+        if piece == "" {
+            continue
+        }
+        current := strings.to_string(joined)
+        if len(current) > 0 && current[len(current) - 1] != ' ' {
+            strings.write_byte(&joined, ' ')
+        }
+        strings.write_string(&joined, piece)
+    }
+    replacement := strings.to_string(joined)
+
+    entry := Undo_Entry {cursors_before = clone_cursors(state)}
+    removed := txt[first:region_end]
+    append(&entry.ops, Edit_Op {kind = .Delete, pos = first, text = strings.clone(removed)})
+    piecetable.piecetable_delete(&state.table, first, len(removed))
+    append(&entry.ops, Edit_Op {kind = .Insert, pos = first, text = strings.clone(replacement)})
+    piecetable.piecetable_insert(&state.table, first, replacement)
+
+    state.cursors[0].caret = caret_at
+    state.cursors[0].anchor = caret_at
+    finish_edit(state, &entry)
+}
+
 @(private = "file")
 Line_Edit :: struct {
     pos:    int,    // position in the original text

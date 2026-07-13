@@ -67,6 +67,16 @@ thor_apply_settings :: proc(thor: ^Thor) {
     } else {
         thor.trim_whitespace_key = setting.Keybind {key = .W, ctrl = true, shift = true}
     }
+    if kb, ok := setting.keybind(&thor.config, "goto_line"); ok {
+        thor.goto_line_key = kb
+    } else {
+        thor.goto_line_key = setting.Keybind {key = .G, ctrl = true}
+    }
+    if kb, ok := setting.keybind(&thor.config, "last_file"); ok {
+        thor.last_file_key = kb
+    } else {
+        thor.last_file_key = setting.Keybind {key = .E, ctrl = true}
+    }
 
     widgets.editor_set_font_size(thor.editor, cast(i32) setting.font_size(&thor.config))
     textedit.set_tab_width(setting.tab_width(&thor.config))
@@ -97,47 +107,64 @@ thor_quick_open :: proc(thor: ^Thor) {
 
 // Registers every command shown in the palette. Titles are grouped by a
 // "Category: Action" convention so fuzzy search on the category works too.
+// Chord label for a keybind action, as configured in keybinds.json; "" when the
+// action has no binding (the palette then shows no shortcut for that command).
+@(private = "file")
+thor_action_shortcut :: proc(thor: ^Thor, action: string) -> string {
+    if kb, ok := setting.keybind(&thor.config, action); ok {
+        return setting.keybind_to_string(kb, context.temp_allocator)
+    }
+    return ""
+}
+
 thor_register_commands :: proc(thor: ^Thor) {
     p := thor.command_palette
+    sc :: thor_action_shortcut
 
-    widgets.command_palette_add(p, "View: Toggle Explorer", thor_cmd_toggle_explorer, thor)
-    widgets.command_palette_add(p, "View: Toggle Console", thor_cmd_toggle_console, thor)
-    widgets.command_palette_add(p, "View: Zoom In", thor_cmd_zoom_in, thor)
-    widgets.command_palette_add(p, "View: Zoom Out", thor_cmd_zoom_out, thor)
+    widgets.command_palette_add(p, "View: Toggle Explorer", thor_cmd_toggle_explorer, thor, sc(thor, "toggle_explorer"))
+    widgets.command_palette_add(p, "View: Toggle Console", thor_cmd_toggle_console, thor, sc(thor, "toggle_console"))
+    widgets.command_palette_add(p, "View: Zoom In", thor_cmd_zoom_in, thor, sc(thor, "zoom_in"))
+    widgets.command_palette_add(p, "View: Zoom Out", thor_cmd_zoom_out, thor, sc(thor, "zoom_out"))
     widgets.command_palette_add(p, "View: Reset Zoom", thor_cmd_zoom_reset, thor)
     widgets.command_palette_add(p, "View: Toggle Maximize", thor_cmd_toggle_maximize, thor)
-    widgets.command_palette_add(p, "View: Toggle Fullscreen", thor_cmd_toggle_fullscreen, thor)
+    widgets.command_palette_add(p, "View: Toggle Fullscreen", thor_cmd_toggle_fullscreen, thor, sc(thor, "toggle_fullscreen"))
     widgets.command_palette_add(p, "View: Toggle Word Wrap", thor_cmd_toggle_wrap, thor)
+    widgets.command_palette_add(p, "View: Recenter", thor_cmd_recenter, thor, sc(thor, "recenter"))
 
     widgets.command_palette_add(p, "File: New File", thor_cmd_new_file, thor)
     widgets.command_palette_add(p, "File: New Folder", thor_cmd_new_folder, thor)
-    widgets.command_palette_add(p, "File: Save", thor_cmd_save, thor)
+    widgets.command_palette_add(p, "File: Save", thor_cmd_save, thor, sc(thor, "save"))
     widgets.command_palette_add(p, "File: Save All", thor_cmd_save_all, thor)
-    widgets.command_palette_add(p, "File: Close Tab", thor_cmd_close_tab, thor)
+    widgets.command_palette_add(p, "File: Close Tab", thor_cmd_close_tab, thor, sc(thor, "close_tab"))
     widgets.command_palette_add(p, "File: Close All Tabs", thor_cmd_close_all, thor)
-    widgets.command_palette_add(p, "File: Next Tab", thor_cmd_next_tab, thor)
-    widgets.command_palette_add(p, "File: Previous Tab", thor_cmd_prev_tab, thor)
+    widgets.command_palette_add(p, "File: Next Tab", thor_cmd_next_tab, thor, sc(thor, "next_tab"))
+    widgets.command_palette_add(p, "File: Previous Tab", thor_cmd_prev_tab, thor, sc(thor, "previous_tab"))
+    widgets.command_palette_add(p, "File: Switch to Last File", thor_cmd_last_file, thor, sc(thor, "last_file"))
     widgets.command_palette_add(p, "File: Copy Path", thor_cmd_copy_path, thor)
     widgets.command_palette_add(p, "File: Reveal in File Explorer", thor_cmd_reveal, thor)
 
     // Data is the palette itself: these switch it into another input mode.
-    widgets.command_palette_add(p, "Go to File", widgets.command_palette_goto_file_command, p)
-    widgets.command_palette_add(p, "Go to Line", widgets.command_palette_goto_line_command, p)
+    widgets.command_palette_add(p, "Go to File", widgets.command_palette_goto_file_command, p, sc(thor, "quick_open"))
+    widgets.command_palette_add(p, "Go to Line", widgets.command_palette_goto_line_command, p, sc(thor, "goto_line"))
 
-    widgets.command_palette_add(p, "Find", thor_cmd_find, thor)
-    widgets.command_palette_add(p, "Replace", thor_cmd_replace, thor)
+    widgets.command_palette_add(p, "Find", thor_cmd_find, thor, sc(thor, "find"))
+    widgets.command_palette_add(p, "Replace", thor_cmd_replace, thor, sc(thor, "replace"))
 
-    widgets.command_palette_add(p, "Edit: Toggle Line Comment", thor_cmd_toggle_comment, thor)
-    widgets.command_palette_add(p, "Edit: Select All", thor_cmd_select_all, thor)
-    widgets.command_palette_add(p, "Edit: Duplicate Line", thor_cmd_duplicate_line, thor)
-    widgets.command_palette_add(p, "Edit: Delete Line", thor_cmd_delete_line, thor)
-    widgets.command_palette_add(p, "Edit: Move Line Up", thor_cmd_move_line_up, thor)
-    widgets.command_palette_add(p, "Edit: Move Line Down", thor_cmd_move_line_down, thor)
-    widgets.command_palette_add(p, "Edit: Trim Trailing Whitespace", thor_cmd_trim_whitespace, thor)
+    widgets.command_palette_add(p, "Edit: Toggle Line Comment", thor_cmd_toggle_comment, thor, sc(thor, "toggle_line_comment"))
+    widgets.command_palette_add(p, "Edit: Select All", thor_cmd_select_all, thor, sc(thor, "select_all"))
+    widgets.command_palette_add(p, "Edit: Duplicate Line", thor_cmd_duplicate_line, thor, sc(thor, "duplicate_line_down"))
+    widgets.command_palette_add(p, "Edit: Delete Line", thor_cmd_delete_line, thor, sc(thor, "delete_line"))
+    widgets.command_palette_add(p, "Edit: Join Lines", thor_cmd_join_lines, thor, sc(thor, "join_lines"))
+    widgets.command_palette_add(p, "Edit: Move Line Up", thor_cmd_move_line_up, thor, sc(thor, "move_line_up"))
+    widgets.command_palette_add(p, "Edit: Move Line Down", thor_cmd_move_line_down, thor, sc(thor, "move_line_down"))
+    widgets.command_palette_add(p, "Edit: Uppercase", thor_cmd_uppercase, thor, sc(thor, "uppercase"))
+    widgets.command_palette_add(p, "Edit: Lowercase", thor_cmd_lowercase, thor, sc(thor, "lowercase"))
+    widgets.command_palette_add(p, "Edit: Capitalize", thor_cmd_capitalize, thor, sc(thor, "capitalize"))
+    widgets.command_palette_add(p, "Edit: Trim Trailing Whitespace", thor_cmd_trim_whitespace, thor, sc(thor, "trim_trailing_whitespace"))
 
-    widgets.command_palette_add(p, "Selection: Add Cursor Above", thor_cmd_add_cursor_above, thor)
-    widgets.command_palette_add(p, "Selection: Add Cursor Below", thor_cmd_add_cursor_below, thor)
-    widgets.command_palette_add(p, "Go to Matching Bracket", thor_cmd_matching_bracket, thor)
+    widgets.command_palette_add(p, "Selection: Add Cursor Above", thor_cmd_add_cursor_above, thor, sc(thor, "add_cursor_above"))
+    widgets.command_palette_add(p, "Selection: Add Cursor Below", thor_cmd_add_cursor_below, thor, sc(thor, "add_cursor_below"))
+    widgets.command_palette_add(p, "Go to Matching Bracket", thor_cmd_matching_bracket, thor, sc(thor, "matching_bracket"))
 
     widgets.command_palette_add(p, "Settings: Open Keybinds", thor_cmd_open_keybinds, thor)
     widgets.command_palette_add(p, "Settings: Open Comments", thor_cmd_open_comments, thor)
@@ -210,6 +237,12 @@ thor_cmd_trim_whitespace :: proc(data: rawptr) {if s := thor_edit_state(data); s
 thor_cmd_add_cursor_above :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.add_cursor_vertical(s, -1)}}
 thor_cmd_add_cursor_below :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.add_cursor_vertical(s, 1)}}
 thor_cmd_matching_bracket :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.move_to_matching_bracket(s, false)}}
+thor_cmd_join_lines :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.join_lines(s)}}
+thor_cmd_uppercase :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.transform_case(s, .Upper)}}
+thor_cmd_lowercase :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.transform_case(s, .Lower)}}
+thor_cmd_capitalize :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.transform_case(s, .Title)}}
+thor_cmd_recenter :: proc(data: rawptr) {widgets.editor_recenter((cast(^Thor) data).editor)}
+thor_cmd_last_file :: proc(data: rawptr) {thor_flip_last_file(cast(^Thor) data)}
 
 thor_cmd_save_all :: proc(data: rawptr) {
     thor := cast(^Thor) data

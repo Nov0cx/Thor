@@ -11,9 +11,10 @@ import "../ui"
 // Palette entry. Mode-switching entries (Go to File/Line) pass the palette as
 // `data` and flip `mode`, which keeps it open (see command_palette_activate).
 Command :: struct {
-    title: string, // borrowed; owned by the registrar (thor)
-    run:   proc(data: rawptr),
-    data:  rawptr,
+    title:    string, // borrowed; owned by the registrar (thor)
+    shortcut: string, // owned; "" when the command has no keybind
+    run:      proc(data: rawptr),
+    data:     rawptr,
 }
 
 // Owner hooks so the palette can navigate files without knowing the workspace.
@@ -142,8 +143,11 @@ command_palette_set_navigation :: proc(
 }
 
 // Appends a command. `title` must outlive the palette (string literals do).
-command_palette_add :: proc(palette: ^Command_Palette, title: string, run: proc(data: rawptr), data: rawptr) {
-    append(&palette.commands, Command {title = title, run = run, data = data})
+// `shortcut` is the chord shown right-aligned in the list; it is copied, so a
+// temporary string is fine, and "" hides it.
+command_palette_add :: proc(palette: ^Command_Palette, title: string, run: proc(data: rawptr), data: rawptr, shortcut := "") {
+    sc := shortcut == "" ? "" : strings.clone(shortcut)
+    append(&palette.commands, Command {title = title, shortcut = sc, run = run, data = data})
 }
 
 command_palette_open :: proc(palette: ^Command_Palette, ctx: ^ui.Context) {
@@ -158,6 +162,15 @@ command_palette_open :: proc(palette: ^Command_Palette, ctx: ^ui.Context) {
 command_palette_open_files :: proc(palette: ^Command_Palette, ctx: ^ui.Context) {
     palette.visible = true
     command_palette_enter_files(palette)
+    ctx.focused = &palette.widget
+    ui.widget_bring_to_front(&palette.widget)
+}
+
+// Opens the palette straight into Line mode (go-to-line), used by the ctrl+g
+// keybind so jumping to a line is a single chord.
+command_palette_open_line :: proc(palette: ^Command_Palette, ctx: ^ui.Context) {
+    palette.visible = true
+    command_palette_reset(palette, .Line)
     ctx.focused = &palette.widget
     ui.widget_bring_to_front(&palette.widget)
 }
@@ -519,7 +532,13 @@ command_palette_draw :: proc(widget: ^ui.Widget, _: ^ui.Context) {
         if palette.mode == .Files {
             command_palette_draw_file_row(palette, index, cast(i32) (palette.box.x + pad), row_text_y)
         } else {
-            ui.draw_text(palette.commands[index].title, cast(i32) (palette.box.x + pad), row_text_y, 17, palette.text_color)
+            command := palette.commands[index]
+            ui.draw_text(command.title, cast(i32) (palette.box.x + pad), row_text_y, 17, palette.text_color)
+            if len(command.shortcut) > 0 {
+                shortcut_width := ui.measure_text(command.shortcut, 15)
+                shortcut_x := cast(i32) (palette.box.x + palette.box.width - pad) - shortcut_width - 6
+                ui.draw_text(command.shortcut, shortcut_x, row_text_y, 15, palette.muted_color)
+            }
         }
     }
 
@@ -578,6 +597,11 @@ command_palette_destroy :: proc(widget: ^ui.Widget) {
         delete(path)
     }
     delete(palette.files)
+    for command in palette.commands {
+        if len(command.shortcut) > 0 {
+            delete(command.shortcut)
+        }
+    }
     delete(palette.commands)
     delete(palette.query)
     delete(palette.matches)

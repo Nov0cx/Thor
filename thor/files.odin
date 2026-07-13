@@ -296,6 +296,9 @@ thor_close_file :: proc(thor: ^Thor, index: int) {
         return
     }
     file := thor.open_files[index]
+    if thor.last_active_file == file {
+        thor.last_active_file = nil
+    }
     ordered_remove(&thor.open_files, index)
     thor_update_tab_labels(thor)
 

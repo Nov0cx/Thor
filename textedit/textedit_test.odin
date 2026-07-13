@@ -294,6 +294,78 @@ test_document_moves_and_select_all :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_transform_case :: proc(t: ^testing.T) {
+    state: State
+    init(&state)
+    defer destroy(&state)
+
+    // No selection: acts on the word under the caret.
+    insert_text(&state, "foo bar baz")
+    set_single_cursor(&state, 5) // inside "bar"
+    transform_case(&state, .Upper)
+    testing.expect_value(t, text(&state), "foo BAR baz")
+
+    undo(&state)
+    testing.expect_value(t, text(&state), "foo bar baz")
+
+    // Selection: title-cases every word in the range, keeps the selection.
+    select_range(&state, 0, 11)
+    transform_case(&state, .Title)
+    testing.expect_value(t, text(&state), "Foo Bar Baz")
+    cursor := primary_cursor(&state)
+    lo, hi := selection_range(cursor)
+    testing.expect_value(t, lo, 0)
+    testing.expect_value(t, hi, 11)
+
+    transform_case(&state, .Lower)
+    testing.expect_value(t, text(&state), "foo bar baz")
+}
+
+@(test)
+test_join_lines :: proc(t: ^testing.T) {
+    state: State
+    init(&state)
+    defer destroy(&state)
+
+    // No selection: joins the current line with the one below, dropping the
+    // next line's indentation down to a single space.
+    insert_text(&state, "foo\n    bar\nbaz")
+    set_single_cursor(&state, 1) // on the first line
+    join_lines(&state)
+    testing.expect_value(t, text(&state), "foo bar\nbaz")
+    testing.expect_value(t, primary_cursor(&state).caret, 3) // at the join
+
+    undo(&state)
+    testing.expect_value(t, text(&state), "foo\n    bar\nbaz")
+
+    // Selection spanning all three lines joins them into one.
+    select_range(&state, 0, 13)
+    join_lines(&state)
+    testing.expect_value(t, text(&state), "foo bar baz")
+}
+
+@(test)
+test_quote_delimiters :: proc(t: ^testing.T) {
+    state: State
+    init(&state)
+    defer destroy(&state)
+
+    // "select between" works inside a quoted string, excluding the quotes.
+    insert_text(&state, "x = \"hello\" + y")
+    set_single_cursor(&state, 7) // inside "hello"
+    select_between_brackets(&state)
+    cursor := primary_cursor(&state)
+    lo, hi := selection_range(cursor)
+    testing.expect_value(t, lo, 5)  // just after the opening quote
+    testing.expect_value(t, hi, 10) // just before the closing quote
+
+    // Jumping from just after the opening quote lands on the closing quote.
+    set_single_cursor(&state, 5)
+    move_to_matching_bracket(&state, false)
+    testing.expect_value(t, primary_cursor(&state).caret, 10)
+}
+
+@(test)
 test_relative_line_jump :: proc(t: ^testing.T) {
     state: State
     init(&state)

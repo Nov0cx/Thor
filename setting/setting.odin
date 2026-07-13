@@ -93,6 +93,73 @@ keybind_matches :: proc(kb: Keybind, key: rl.KeyboardKey, ctrl, shift, alt: bool
     return kb.key == key && kb.ctrl == ctrl && kb.shift == shift && kb.alt == alt
 }
 
+// Formats a chord for display, e.g. {key = .K, ctrl, shift} -> "Ctrl+Shift+K".
+// Returns "" for an unset key so callers can treat it as "no binding".
+keybind_to_string :: proc(kb: Keybind, allocator := context.temp_allocator) -> string {
+    if kb.key == .KEY_NULL {
+        return ""
+    }
+    b := strings.builder_make(allocator)
+    if kb.ctrl {
+        strings.write_string(&b, "Ctrl+")
+    }
+    if kb.shift {
+        strings.write_string(&b, "Shift+")
+    }
+    if kb.alt {
+        strings.write_string(&b, "Alt+")
+    }
+    write_key_name(&b, kb.key)
+    return strings.to_string(b)
+}
+
+@(private)
+write_key_name :: proc(b: ^strings.Builder, key: rl.KeyboardKey) {
+    #partial switch key {
+    case .PAGE_UP:      strings.write_string(b, "PgUp");  return
+    case .PAGE_DOWN:    strings.write_string(b, "PgDn");  return
+    case .UP:           strings.write_string(b, "Up");    return
+    case .DOWN:         strings.write_string(b, "Down");  return
+    case .LEFT:         strings.write_string(b, "Left");  return
+    case .RIGHT:        strings.write_string(b, "Right"); return
+    case .HOME:         strings.write_string(b, "Home");  return
+    case .END:          strings.write_string(b, "End");   return
+    case .ENTER, .KP_ENTER: strings.write_string(b, "Enter"); return
+    case .ESCAPE:       strings.write_string(b, "Esc");   return
+    case .TAB:          strings.write_string(b, "Tab");   return
+    case .SPACE:        strings.write_string(b, "Space"); return
+    case .BACKSPACE:    strings.write_string(b, "Backspace"); return
+    case .DELETE:       strings.write_string(b, "Del");   return
+    case .BACKSLASH:    strings.write_string(b, "\\");    return
+    case .PERIOD:       strings.write_string(b, ".");     return
+    case .COMMA:        strings.write_string(b, ",");     return
+    case .KP_ADD:       strings.write_string(b, "+");     return
+    case .KP_SUBTRACT:  strings.write_string(b, "-");     return
+    case .F1:  strings.write_string(b, "F1");  return
+    case .F2:  strings.write_string(b, "F2");  return
+    case .F3:  strings.write_string(b, "F3");  return
+    case .F4:  strings.write_string(b, "F4");  return
+    case .F5:  strings.write_string(b, "F5");  return
+    case .F6:  strings.write_string(b, "F6");  return
+    case .F7:  strings.write_string(b, "F7");  return
+    case .F8:  strings.write_string(b, "F8");  return
+    case .F9:  strings.write_string(b, "F9");  return
+    case .F10: strings.write_string(b, "F10"); return
+    case .F11: strings.write_string(b, "F11"); return
+    case .F12: strings.write_string(b, "F12"); return
+    }
+    ki := int(key)
+    if ki >= int(rl.KeyboardKey.A) && ki <= int(rl.KeyboardKey.Z) {
+        strings.write_byte(b, u8('A' + (ki - int(rl.KeyboardKey.A))))
+        return
+    }
+    if ki >= int(rl.KeyboardKey.ZERO) && ki <= int(rl.KeyboardKey.NINE) {
+        strings.write_byte(b, u8('0' + (ki - int(rl.KeyboardKey.ZERO))))
+        return
+    }
+    strings.write_string(b, "?")
+}
+
 // Parses "ctrl+shift+k" into a Keybind. Modifiers are order-insensitive; the
 // single non-modifier token names the key (see key_from_name).
 parse_keybind :: proc(spec: string) -> (Keybind, bool) {

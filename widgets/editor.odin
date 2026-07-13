@@ -72,6 +72,17 @@ Editor :: struct {
     // Right-click opens a context menu supplied by the owner.
     on_context_menu:    Context_Menu_Proc,
     context_menu_data:  rawptr,
+    // Emacs-style recenter (Ctrl+Shift+J): repeated presses cycle the caret line
+    // through center/top/bottom of the viewport. The phase resets whenever the
+    // caret moves somewhere new.
+    recenter_phase:     int,
+    recenter_caret:     int,
+    // Buffer-word autocompletion popup (VS Code style): appears while typing a
+    // word with more matches elsewhere in the buffer. Items are owned clones.
+    completion_active:   bool,
+    completion_items:    [dynamic]string,
+    completion_selected: int,
+    completion_prefix:   int, // byte length of the already-typed prefix
 }
 
 editor_set_on_context_menu :: proc(editor: ^Editor, on_context_menu: Context_Menu_Proc, data: rawptr) {
@@ -106,6 +117,8 @@ editor_create :: proc(id: string) -> ^Editor {
     editor.selection_color = rl.Color {132, 255, 255, 50}
     editor.wrap = true
     editor.visual_rows = make([dynamic]Visual_Row)
+    editor.recenter_caret = -1
+    editor.completion_items = make([dynamic]string)
     editor.min_size = rl.Vector2 {0, 280}
     return editor
 }
@@ -135,6 +148,8 @@ editor_set_state :: proc(editor: ^Editor, state: ^textedit.State) {
     editor.state = state
     editor.scroll_y = 0
     editor.highlights = nil
+    editor.recenter_caret = -1
+    editor_dismiss_completion(editor)
     editor_clamp_scroll(editor)
 }
 
@@ -328,6 +343,13 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
         }
         if event.codepoint >= 32 && event.codepoint != 127 {
             editor_type_rune(editor, event.codepoint)
+            // Refresh the autocompletion popup while typing a word; any other
+            // character (space, punctuation, a closed pair) dismisses it.
+            if editor_is_word_rune(event.codepoint) {
+                editor_update_completion(editor)
+            } else {
+                editor_dismiss_completion(editor)
+            }
             editor_scroll_to_caret(editor)
             return true
         }
@@ -363,6 +385,37 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
     ctrl_only := event.ctrl && !event.alt
     alt_only := event.alt && !event.ctrl
 
+    // While the autocompletion popup is up it owns the plain navigation and
+    // accept keys. Any modifier chord is a command, so it closes the popup and
+    // runs normally; Backspace/Delete fall through and refresh it afterwards.
+    if editor.completion_active {
+        if event.ctrl || event.alt {
+            editor_dismiss_completion(editor)
+        } else {
+            #partial switch event.key {
+            case .UP:
+                n := len(editor.completion_items)
+                editor.completion_selected = (editor.completion_selected - 1 + n) % n
+                return true
+            case .DOWN:
+                n := len(editor.completion_items)
+                editor.completion_selected = (editor.completion_selected + 1) % n
+                return true
+            case .TAB, .ENTER, .KP_ENTER:
+                editor_accept_completion(editor)
+                return true
+            case .ESCAPE:
+                editor_dismiss_completion(editor)
+                return true
+            case .LEFT, .RIGHT, .HOME, .END, .PAGE_UP, .PAGE_DOWN:
+                editor_dismiss_completion(editor) // then handled below
+            case .BACKSPACE, .DELETE:
+                // refreshed after the edit in the cases below
+            case:
+            }
+        }
+    }
+
     // alt+number: relative line down, alt+shift+number: relative line up.
     if alt_only {
         if digit, is_digit := editor_key_digit(event.key); is_digit {
@@ -385,8 +438,10 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
     case .BACKSPACE:
         if ctrl_only {
             textedit.delete_word_backward(state)
+            editor_dismiss_completion(editor)
         } else {
             textedit.delete_backward(state)
+            editor_update_completion(editor)
         }
         editor_scroll_to_caret(editor)
         return true
@@ -396,6 +451,7 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
         } else {
             textedit.delete_forward(state)
         }
+        editor_dismiss_completion(editor)
         editor_scroll_to_caret(editor)
         return true
     case .ENTER, .KP_ENTER:
@@ -529,6 +585,16 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
         if ctrl_only {
             editor_copy(editor)
             return true
+        } else if alt_only {
+            textedit.transform_case(state, .Title)
+            editor_scroll_to_caret(editor)
+            return true
+        }
+    case .U:
+        if alt_only {
+            textedit.transform_case(state, .Upper)
+            editor_scroll_to_caret(editor)
+            return true
         }
     case .X:
         if ctrl_only {
@@ -552,6 +618,21 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
         if ctrl_only {
             textedit.select_line(state)
             editor_scroll_to_caret(editor)
+            return true
+        } else if alt_only {
+            textedit.transform_case(state, .Lower)
+            editor_scroll_to_caret(editor)
+            return true
+        }
+    case .J:
+        // ctrl+j joins the line below; ctrl+shift+j recenters the view.
+        if ctrl_only {
+            if event.shift {
+                editor_recenter(editor)
+            } else {
+                textedit.join_lines(state)
+                editor_scroll_to_caret(editor)
+            }
             return true
         }
     case .K:
@@ -642,6 +723,145 @@ editor_paste :: proc(editor: ^Editor) {
     if normalized != "" {
         textedit.insert_text(editor.state, normalized)
     }
+}
+
+// Scrolls so the caret line sits at the center of the viewport; repeated calls
+// without the caret moving cycle center -> top -> bottom (emacs C-l).
+editor_recenter :: proc(editor: ^Editor) {
+    if editor.state == nil {
+        return
+    }
+    editor_rebuild_visual_rows(editor)
+    caret := textedit.primary_cursor(editor.state).caret
+    if caret != editor.recenter_caret {
+        editor.recenter_phase = 0
+        editor.recenter_caret = caret
+    } else {
+        editor.recenter_phase = (editor.recenter_phase + 1) % 3
+    }
+
+    line_height := cast(f32) ui.text_line_height(editor.font_size)
+    view_height := editor.bounds.height - editor.padding.top - editor.padding.bottom
+    caret_top := cast(f32) editor_visual_row_index(editor, caret) * line_height
+    switch editor.recenter_phase {
+    case 0: editor.scroll_y = caret_top - (view_height - line_height) * 0.5
+    case 1: editor.scroll_y = caret_top
+    case 2: editor.scroll_y = caret_top - (view_height - line_height)
+    }
+    editor_clamp_scroll(editor)
+}
+
+COMPLETION_MIN_PREFIX :: 2
+COMPLETION_MAX_ITEMS :: 50
+COMPLETION_MAX_ROWS :: 8
+
+@(private = "file")
+editor_is_word_byte :: proc(b: u8) -> bool {
+    return b == '_' || (b >= '0' && b <= '9') || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || b >= 0x80
+}
+
+@(private = "file")
+editor_is_word_rune :: proc(r: rune) -> bool {
+    return r == '_' || (r >= '0' && r <= '9') || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r >= 0x80
+}
+
+@(private = "file")
+editor_dismiss_completion :: proc(editor: ^Editor) {
+    if !editor.completion_active && len(editor.completion_items) == 0 {
+        return
+    }
+    editor.completion_active = false
+    for item in editor.completion_items {
+        delete(item)
+    }
+    clear(&editor.completion_items)
+    editor.completion_selected = 0
+    editor.completion_prefix = 0
+}
+
+// Rebuilds the completion candidate list from the word being typed at the caret:
+// distinct words elsewhere in the buffer that start with the same prefix. Only
+// runs for a single collapsed cursor; empty results dismiss the popup.
+@(private = "file")
+editor_update_completion :: proc(editor: ^Editor) {
+    if len(editor.state.cursors) != 1 || textedit.has_any_selection(editor.state) {
+        editor_dismiss_completion(editor)
+        return
+    }
+
+    txt := textedit.text(editor.state)
+    caret := textedit.primary_cursor(editor.state).caret
+    start := caret
+    for start > 0 && editor_is_word_byte(txt[start - 1]) {
+        start -= 1
+    }
+    prefix := txt[start:caret]
+    // Only complete at the end of a word and once enough has been typed.
+    if len(prefix) < COMPLETION_MIN_PREFIX || (caret < len(txt) && editor_is_word_byte(txt[caret])) {
+        editor_dismiss_completion(editor)
+        return
+    }
+
+    for item in editor.completion_items {
+        delete(item)
+    }
+    clear(&editor.completion_items)
+
+    i := 0
+    for i < len(txt) {
+        if !editor_is_word_byte(txt[i]) {
+            i += 1
+            continue
+        }
+        word_start := i
+        for i < len(txt) && editor_is_word_byte(txt[i]) {
+            i += 1
+        }
+        if word_start == start {
+            continue // the word currently being typed
+        }
+        word := txt[word_start:i]
+        if len(word) <= len(prefix) || !strings.has_prefix(word, prefix) {
+            continue
+        }
+        seen := false
+        for existing in editor.completion_items {
+            if existing == word {
+                seen = true
+                break
+            }
+        }
+        if seen {
+            continue
+        }
+        append(&editor.completion_items, strings.clone(word))
+        if len(editor.completion_items) >= COMPLETION_MAX_ITEMS {
+            break
+        }
+    }
+
+    if len(editor.completion_items) == 0 {
+        editor_dismiss_completion(editor)
+        return
+    }
+    editor.completion_active = true
+    editor.completion_prefix = len(prefix)
+    editor.completion_selected = 0
+}
+
+// Inserts the remainder of the selected candidate beyond the typed prefix.
+@(private = "file")
+editor_accept_completion :: proc(editor: ^Editor) {
+    if !editor.completion_active || len(editor.completion_items) == 0 {
+        return
+    }
+    word := editor.completion_items[editor.completion_selected]
+    if len(word) > editor.completion_prefix {
+        suffix := strings.clone(word[editor.completion_prefix:], context.temp_allocator)
+        textedit.insert_text(editor.state, suffix)
+    }
+    editor_dismiss_completion(editor)
+    editor_scroll_to_caret(editor)
 }
 
 editor_key_digit :: proc(key: rl.KeyboardKey) -> (int, bool) {
@@ -757,6 +977,88 @@ editor_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
     ui.end_clip()
 
     editor_draw_scrollbar(editor, line_height)
+
+    if ctx.focused == widget {
+        editor_draw_completion(editor)
+    }
+}
+
+// Screen position of the primary caret's baseline (x, top y) and the line
+// height, using the current row map and scroll. ok=false when there is nothing
+// to anchor to.
+@(private = "file")
+editor_caret_screen :: proc(editor: ^Editor) -> (x, y, line_height: f32, ok: bool) {
+    if editor.state == nil || len(editor.visual_rows) == 0 {
+        return 0, 0, 0, false
+    }
+    text := textedit.text(editor.state)
+    caret := textedit.primary_cursor(editor.state).caret
+    row_index := editor_visual_row_index(editor, caret)
+    row := editor.visual_rows[row_index]
+    lh := cast(f32) ui.text_line_height(editor.font_size)
+    inner_top := editor.bounds.y + editor.padding.top
+    text_x := editor.bounds.x + editor.gutter_width + editor.padding.left
+    yy := inner_top - editor.scroll_y + cast(f32) row_index * lh
+    xx := text_x + cast(f32) ui.measure_text(text[row.start:caret], editor.font_size)
+    return xx, yy, lh, true
+}
+
+// Draws the autocompletion popup anchored under the caret (flipping above when
+// there is no room below, and nudging left to stay inside the editor bounds).
+@(private = "file")
+editor_draw_completion :: proc(editor: ^Editor) {
+    if !editor.completion_active || len(editor.completion_items) == 0 {
+        return
+    }
+    caret_x, caret_y, lh, ok := editor_caret_screen(editor)
+    if !ok {
+        return
+    }
+
+    visible := min(len(editor.completion_items), COMPLETION_MAX_ROWS)
+    width: f32 = 140
+    for item in editor.completion_items {
+        w := cast(f32) ui.measure_text(item, editor.font_size) + 24
+        if w > width {
+            width = w
+        }
+    }
+    width = min(width, 420)
+
+    box_x := caret_x
+    box_y := caret_y + lh + 2
+    box_h := cast(f32) visible * lh + 4
+    if box_x + width > editor.bounds.x + editor.bounds.width {
+        box_x = editor.bounds.x + editor.bounds.width - width - 4
+    }
+    if box_x < editor.bounds.x {
+        box_x = editor.bounds.x
+    }
+    if box_y + box_h > editor.bounds.y + editor.bounds.height {
+        box_y = caret_y - box_h - 2 // flip above the caret
+    }
+
+    box := rl.Rectangle {box_x, box_y, width, box_h}
+    rl.DrawRectangleRec(box, editor.gutter_color)
+    rl.DrawRectangleLinesEx(box, 1, editor.border_color)
+
+    // Keep the selected item in view when the list is longer than the popup.
+    top := 0
+    if editor.completion_selected >= visible {
+        top = editor.completion_selected - visible + 1
+    }
+    for i in 0 ..< visible {
+        idx := top + i
+        if idx >= len(editor.completion_items) {
+            break
+        }
+        row_y := box_y + 2 + cast(f32) i * lh
+        if idx == editor.completion_selected {
+            rl.DrawRectangleRec(rl.Rectangle {box_x, row_y, width, lh}, editor.selection_color)
+        }
+        text_y := cast(i32) (row_y + (lh - cast(f32) editor.font_size) * 0.5)
+        ui.draw_text(editor.completion_items[idx], cast(i32) (box_x + 8), text_y, editor.font_size, editor.text_color)
+    }
 }
 
 // Vertical scrollbar on the right edge, shown only when the document is taller
@@ -847,6 +1149,10 @@ editor_destroy :: proc(widget: ^ui.Widget) {
     // The textedit state is owned by whoever opened the file, not the widget.
     editor := cast(^Editor) widget
     delete(editor.visual_rows)
+    for item in editor.completion_items {
+        delete(item)
+    }
+    delete(editor.completion_items)
     free(editor)
 }
 

@@ -55,7 +55,12 @@ Thor :: struct {
     focus_explorer_key:       setting.Keybind,
     focus_terminal_key:       setting.Keybind,
     trim_whitespace_key:      setting.Keybind,
+    goto_line_key:            setting.Keybind,
+    last_file_key:            setting.Keybind,
     active_file:              ui.Signal(int),
+    // Most-recently-active file before the current one, for the ctrl+e flip.
+    // Cleared when that file is closed so the pointer never dangles.
+    last_active_file:         ^Open_File,
     explorer_visible:         ui.Signal(bool),
     console_visible:          ui.Signal(bool),
     menu_file_button:         ^widgets.Button,

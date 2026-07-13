@@ -58,6 +58,16 @@ thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
         thor_open_find(thor, true)
         return true
     }
+    // Go to line opens the palette in line mode regardless of focus.
+    if setting.keybind_matches(thor.goto_line_key, event.key, event.ctrl, event.shift, event.alt) {
+        widgets.command_palette_open_line(thor.command_palette, &thor.ui_context)
+        return true
+    }
+    // Flip to the previously active file (ctrl+e), like vim's Ctrl-^.
+    if setting.keybind_matches(thor.last_file_key, event.key, event.ctrl, event.shift, event.alt) {
+        thor_flip_last_file(thor)
+        return true
+    }
 
     // While an overlay is open it owns the keyboard (dispatched via focus),
     // so app shortcuts below are suppressed.
@@ -114,6 +124,23 @@ thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
         return true
     }
     return false
+}
+
+// Switches to the file that was active before the current one, if it is still
+// open. Because thor_set_active_file records the file being left, pressing the
+// flip key twice returns to where you started (a two-file toggle).
+thor_flip_last_file :: proc(thor: ^Thor) {
+    target := thor.last_active_file
+    if target == nil {
+        return
+    }
+    for file, index in thor.open_files {
+        if file == target {
+            thor_set_active_file(thor, index)
+            return
+        }
+    }
+    thor.last_active_file = nil
 }
 
 thor_cycle_tab :: proc(thor: ^Thor, direction: int) {

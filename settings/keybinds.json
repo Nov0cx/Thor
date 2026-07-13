@@ -10,7 +10,9 @@
         "toggle_console":  "ctrl+t",
         "focus_editor":    "ctrl+shift+e",
         "focus_explorer":  "ctrl+shift+b",
-        "focus_terminal":  "ctrl+shift+t"
+        "focus_terminal":  "ctrl+shift+t",
+        "goto_line":       "ctrl+g",
+        "last_file":       "ctrl+e"
     },
     "clipboard": {
         "copy":  "ctrl+c",
@@ -55,15 +57,20 @@
         "duplicate_line_down":  "shift+alt+down",
         "insert_line_below":    "ctrl+enter",
         "insert_line_above":    "ctrl+shift+enter",
+        "join_lines":           "ctrl+j",
         "indent":               "tab",
         "outdent":              "shift+tab",
         "toggle_line_comment":  "ctrl+k",
-        "trim_trailing_whitespace": "ctrl+shift+w"
+        "trim_trailing_whitespace": "ctrl+shift+w",
+        "uppercase":            "alt+u",
+        "lowercase":            "alt+l",
+        "capitalize":           "alt+c"
     },
     "view": {
         "zoom_in":           "ctrl+kp_add",
         "zoom_out":          "ctrl+kp_subtract",
-        "toggle_fullscreen": "f12"
+        "toggle_fullscreen": "f12",
+        "recenter":          "ctrl+shift+j"
     },
     "search": {
         "find":    "ctrl+f",
