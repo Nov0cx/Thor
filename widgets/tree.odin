@@ -8,6 +8,9 @@ import rl "vendor:raylib"
 import "../ui"
 
 Tree_Open_Proc :: #type proc(data: rawptr, path: string)
+// Fired when Delete is pressed on a selected file; the owner confirms and
+// performs the removal (see thor_tree_delete).
+Tree_Delete_Proc :: #type proc(data: rawptr, path: string)
 
 // Git working-tree status for a path, resolved by the owner (Tree_Status_Proc).
 // Directories report an aggregate (Modified / Conflict) when they contain
@@ -30,6 +33,7 @@ Tree_Node :: struct {
     is_dir:   bool,
     expanded: bool,
     loaded:   bool, // directory contents read from disk
+    parent:   ^Tree_Node, // nil for the root; used for keyboard navigation
     children: [dynamic]^Tree_Node,
 }
 
@@ -47,6 +51,8 @@ Tree :: struct {
     selected_path:    string, // owned clone
     on_open:          Tree_Open_Proc,
     open_data:        rawptr,
+    on_delete:        Tree_Delete_Proc,
+    delete_data:      rawptr,
     // Right-click opens a context menu supplied by the owner.
     on_context_menu:  Context_Menu_Proc,
     context_menu_data: rawptr,
@@ -129,6 +135,11 @@ tree_set_on_open :: proc(tree: ^Tree, on_open: Tree_Open_Proc, data: rawptr) -> 
 tree_set_on_context_menu :: proc(tree: ^Tree, on_context_menu: Context_Menu_Proc, data: rawptr) {
     tree.on_context_menu = on_context_menu
     tree.context_menu_data = data
+}
+
+tree_set_on_delete :: proc(tree: ^Tree, on_delete: Tree_Delete_Proc, data: rawptr) {
+    tree.on_delete = on_delete
+    tree.delete_data = data
 }
 
 // Enables git status highlighting: `status_proc` maps a path to its status.
@@ -231,6 +242,7 @@ tree_load_children :: proc(node: ^Tree_Node) {
         child.name = strings.clone(info.name)
         child.path = strings.clone(info.fullpath)
         child.is_dir = info.type == .Directory
+        child.parent = node
         append(&node.children, child)
     }
 
@@ -323,6 +335,8 @@ tree_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event) 
     tree := cast(^Tree) widget
 
     #partial switch event.kind {
+    case .Key_Press:
+        return tree_handle_key(tree, event)
     case .Scroll:
         tree.scroll_y -= event.wheel_delta * tree.row_height * 2
         tree_clamp_scroll(tree)
@@ -358,6 +372,139 @@ tree_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event) 
             tree_clamp_scroll(tree)
         } else if tree.on_open != nil {
             tree.on_open(tree.open_data, node.path)
+        }
+        return true
+    }
+
+    return false
+}
+
+// Index of the selected row among the visible rows, or -1 when the selection is
+// unset or currently collapsed out of view.
+@(private = "file")
+tree_selected_index :: proc(tree: ^Tree, rows: []Tree_Row) -> int {
+    for row, index in rows {
+        if row.node.path == tree.selected_path {
+            return index
+        }
+    }
+    return -1
+}
+
+@(private = "file")
+tree_select_node :: proc(tree: ^Tree, node: ^Tree_Node) {
+    delete(tree.selected_path)
+    tree.selected_path = strings.clone(node.path)
+}
+
+// Scrolls so the selected row is fully inside the viewport.
+@(private = "file")
+tree_scroll_to_selection :: proc(tree: ^Tree) {
+    rows := tree_visible_rows(tree)
+    index := tree_selected_index(tree, rows[:])
+    if index < 0 {
+        return
+    }
+    row_top := cast(f32) index * tree.row_height
+    row_bottom := row_top + tree.row_height
+    if row_top < tree.scroll_y {
+        tree.scroll_y = row_top
+    } else if row_bottom > tree.scroll_y + tree.bounds.height {
+        tree.scroll_y = row_bottom - tree.bounds.height
+    }
+    tree_clamp_scroll(tree)
+}
+
+// Gives the tree a starting selection (the first row) when it gains focus with
+// nothing selected, so arrow-key navigation has an anchor and a visible cursor.
+tree_focus :: proc(tree: ^Tree) {
+    rows := tree_visible_rows(tree)
+    if len(rows) == 0 {
+        return
+    }
+    if tree_selected_index(tree, rows[:]) < 0 {
+        tree_select_node(tree, rows[0].node)
+    }
+}
+
+// Keyboard navigation, active while the tree holds focus: up/down move the
+// selection, left/right collapse/expand (or step to parent/child), enter opens
+// files or toggles folders, delete asks the owner to remove the file.
+@(private = "file")
+tree_handle_key :: proc(tree: ^Tree, event: ^ui.Event) -> bool {
+    rows := tree_visible_rows(tree)
+    if len(rows) == 0 {
+        return false
+    }
+    index := tree_selected_index(tree, rows[:])
+
+    #partial switch event.key {
+    case .UP:
+        index = index < 0 ? 0 : max(index - 1, 0)
+        tree_select_node(tree, rows[index].node)
+        tree_scroll_to_selection(tree)
+        return true
+    case .DOWN:
+        index = index < 0 ? 0 : min(index + 1, len(rows) - 1)
+        tree_select_node(tree, rows[index].node)
+        tree_scroll_to_selection(tree)
+        return true
+    case .LEFT:
+        if index < 0 {
+            return true
+        }
+        node := rows[index].node
+        if node.is_dir && node.expanded {
+            node.expanded = false
+            tree_clamp_scroll(tree)
+        } else if node.parent != nil && node.parent != tree.root {
+            tree_select_node(tree, node.parent)
+            tree_scroll_to_selection(tree)
+        }
+        return true
+    case .RIGHT:
+        if index < 0 {
+            return true
+        }
+        node := rows[index].node
+        if !node.is_dir {
+            return true
+        }
+        if !node.expanded {
+            node.expanded = true
+            if !node.loaded {
+                tree_load_children(node)
+            }
+            tree_clamp_scroll(tree)
+        } else if len(node.children) > 0 {
+            tree_select_node(tree, node.children[0])
+            tree_scroll_to_selection(tree)
+        }
+        return true
+    case .ENTER, .KP_ENTER:
+        if index < 0 {
+            return true
+        }
+        node := rows[index].node
+        if node.is_dir {
+            node.expanded = !node.expanded
+            if node.expanded && !node.loaded {
+                tree_load_children(node)
+            }
+            tree_clamp_scroll(tree)
+        } else if tree.on_open != nil {
+            tree.on_open(tree.open_data, node.path)
+        }
+        return true
+    case .DELETE:
+        if index < 0 {
+            return true
+        }
+        node := rows[index].node
+        // Only files are deletable via the keyboard (matches the requirement of
+        // "delete a file"); folders are left to the context menu.
+        if !node.is_dir && tree.on_delete != nil {
+            tree.on_delete(tree.delete_data, node.path)
         }
         return true
     }

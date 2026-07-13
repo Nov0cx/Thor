@@ -7,7 +7,10 @@
         "next_tab":        "ctrl+page_down",
         "previous_tab":    "ctrl+page_up",
         "toggle_explorer": "ctrl+b",
-        "toggle_console":  "ctrl+t"
+        "toggle_console":  "ctrl+t",
+        "focus_editor":    "ctrl+shift+e",
+        "focus_explorer":  "ctrl+shift+b",
+        "focus_terminal":  "ctrl+shift+t"
     },
     "clipboard": {
         "copy":  "ctrl+c",
@@ -28,7 +31,7 @@
         "page_up":                    "page_up",
         "page_down":                  "page_down",
         "matching_bracket":           "ctrl+p",
-        "select_between_brackets":     "ctrl+shift+p",
+        "select_between_brackets":    "ctrl+shift+p",
         "select_to_matching_bracket": "ctrl+shift+backslash"
     },
     "selection": {
@@ -54,7 +57,8 @@
         "insert_line_above":    "ctrl+shift+enter",
         "indent":               "tab",
         "outdent":              "shift+tab",
-        "toggle_line_comment":  "ctrl+k"
+        "toggle_line_comment":  "ctrl+k",
+        "trim_trailing_whitespace": "ctrl+shift+w"
     },
     "view": {
         "zoom_in":           "ctrl+kp_add",

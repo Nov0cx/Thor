@@ -76,6 +76,25 @@ thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
         return true
     }
 
+    // Focus shortcuts: open the target panel if it is collapsed, then move
+    // keyboard focus to it.
+    if setting.keybind_matches(thor.focus_editor_key, event.key, event.ctrl, event.shift, event.alt) {
+        thor_focus_editor(thor)
+        return true
+    }
+    if setting.keybind_matches(thor.focus_explorer_key, event.key, event.ctrl, event.shift, event.alt) {
+        thor_focus_explorer(thor)
+        return true
+    }
+    if setting.keybind_matches(thor.focus_terminal_key, event.key, event.ctrl, event.shift, event.alt) {
+        thor_focus_terminal(thor)
+        return true
+    }
+    if setting.keybind_matches(thor.trim_whitespace_key, event.key, event.ctrl, event.shift, event.alt) {
+        thor_cmd_trim_whitespace(thor)
+        return true
+    }
+
     if !event.ctrl || event.alt {
         return false
     }
@@ -104,6 +123,32 @@ thor_cycle_tab :: proc(thor: ^Thor, direction: int) {
     }
     active := ui.signal_get(&thor.active_file)
     thor_set_active_file(thor, ((active + direction) % count + count) % count)
+}
+
+// Moves keyboard focus to the editor. The editor pane is always present, so no
+// panel needs opening.
+thor_focus_editor :: proc(thor: ^Thor) {
+    thor.ui_context.focused = &thor.editor.widget
+}
+
+// Reveals the explorer panel if collapsed, then focuses the file tree so it can
+// be driven with the arrow keys.
+thor_focus_explorer :: proc(thor: ^Thor) {
+    if !ui.signal_get(&thor.explorer_visible) {
+        ui.signal_set(&thor.explorer_visible, true)
+        thor_apply_layout_state(thor)
+    }
+    widgets.tree_focus(thor.tree)
+    thor.ui_context.focused = &thor.tree.widget
+}
+
+// Reveals the console panel if collapsed, then focuses it for command input.
+thor_focus_terminal :: proc(thor: ^Thor) {
+    if !ui.signal_get(&thor.console_visible) {
+        ui.signal_set(&thor.console_visible, true)
+        thor_apply_layout_state(thor)
+    }
+    thor.ui_context.focused = &thor.console.widget
 }
 
 thor_toggle_explorer :: proc(data: rawptr, _: ^ui.Context, _: ^ui.Widget) {

@@ -525,3 +525,64 @@ thor_tree_open :: proc(data: rawptr, path: string) {
     thor := cast(^Thor) data
     thor_open_file(thor, path)
 }
+
+// True when two paths point at the same file, ignoring separator spelling and
+// (Windows) case differences.
+@(private = "file")
+thor_same_path :: proc(a, b: string) -> bool {
+    aa, bb := a, b
+    if abs, err := filepath.abs(a, context.temp_allocator); err == nil {
+        aa = abs
+    }
+    if abs, err := filepath.abs(b, context.temp_allocator); err == nil {
+        bb = abs
+    }
+    return strings.equal_fold(aa, bb)
+}
+
+// Tree widget callback: Delete was pressed on a file. Opens a confirmation
+// dialog; the actual removal happens in thor_confirm_delete on acceptance.
+thor_tree_delete :: proc(data: rawptr, path: string) {
+    thor := cast(^Thor) data
+
+    delete(thor.pending_delete_path)
+    thor.pending_delete_path = strings.clone(path)
+
+    delete(thor.delete_prompt)
+    thor.delete_prompt = strings.concatenate({"Delete \"", file_base_name(path), "\"?"})
+
+    widgets.command_palette_confirm(
+        thor.command_palette,
+        &thor.ui_context,
+        thor.delete_prompt,
+        thor_confirm_delete,
+        thor,
+    )
+}
+
+// Confirmation accepted: close any tab for the file, remove it from disk, and
+// refresh the explorer and git status.
+thor_confirm_delete :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    path := thor.pending_delete_path
+    if path == "" {
+        return
+    }
+
+    for file, index in thor.open_files {
+        if thor_same_path(file.path, path) {
+            thor_close_file(thor, index)
+            break
+        }
+    }
+
+    if err := os.remove(path); err != nil {
+        log.warnf("Failed to delete %q: %v", path, err)
+    }
+
+    delete(thor.pending_delete_path)
+    thor.pending_delete_path = ""
+
+    widgets.tree_refresh(thor.tree)
+    thor_refresh_git_status(thor)
+}

@@ -51,6 +51,10 @@ Thor :: struct {
     console_toggle_key:       setting.Keybind,
     find_key:                 setting.Keybind,
     replace_key:              setting.Keybind,
+    focus_editor_key:         setting.Keybind,
+    focus_explorer_key:       setting.Keybind,
+    focus_terminal_key:       setting.Keybind,
+    trim_whitespace_key:      setting.Keybind,
     active_file:              ui.Signal(int),
     explorer_visible:         ui.Signal(bool),
     console_visible:          ui.Signal(bool),
@@ -76,6 +80,12 @@ Thor :: struct {
     // Directory a New File/Folder prompt creates into; set from the explorer
     // right-click target or the workspace root. Owned clone.
     menu_target_dir:          string,
+    // Path awaiting a delete confirmation (set when Delete is pressed in the
+    // explorer, consumed when the confirm dialog is accepted). Owned clone.
+    pending_delete_path:      string,
+    // Message shown in the delete confirmation dialog; borrowed by the palette
+    // while it is open, so it must outlive the dialog. Owned clone.
+    delete_prompt:            string,
     git_branch:               string,
     open_files:               [dynamic]^Open_File,
     zombie_files:             [dynamic]^Open_File,
@@ -227,6 +237,8 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.workspace_dir)
     delete(thor.workspace_prefix)
     delete(thor.menu_target_dir)
+    delete(thor.pending_delete_path)
+    delete(thor.delete_prompt)
     delete(thor.git_branch)
     setting.destroy(&thor.config)
     plugin.manager_destroy(&thor.plugins)

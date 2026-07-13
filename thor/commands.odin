@@ -47,6 +47,26 @@ thor_apply_settings :: proc(thor: ^Thor) {
     } else {
         thor.replace_key = setting.Keybind {key = .R, ctrl = true}
     }
+    if kb, ok := setting.keybind(&thor.config, "focus_editor"); ok {
+        thor.focus_editor_key = kb
+    } else {
+        thor.focus_editor_key = setting.Keybind {key = .E, ctrl = true, shift = true}
+    }
+    if kb, ok := setting.keybind(&thor.config, "focus_explorer"); ok {
+        thor.focus_explorer_key = kb
+    } else {
+        thor.focus_explorer_key = setting.Keybind {key = .B, ctrl = true, shift = true}
+    }
+    if kb, ok := setting.keybind(&thor.config, "focus_terminal"); ok {
+        thor.focus_terminal_key = kb
+    } else {
+        thor.focus_terminal_key = setting.Keybind {key = .T, ctrl = true, shift = true}
+    }
+    if kb, ok := setting.keybind(&thor.config, "trim_trailing_whitespace"); ok {
+        thor.trim_whitespace_key = kb
+    } else {
+        thor.trim_whitespace_key = setting.Keybind {key = .W, ctrl = true, shift = true}
+    }
 
     widgets.editor_set_font_size(thor.editor, cast(i32) setting.font_size(&thor.config))
     textedit.set_tab_width(setting.tab_width(&thor.config))

@@ -56,6 +56,11 @@ Editor :: struct {
     // layout is rebuilt from the buffer every frame in editor_layout.
     wrap:               bool,
     visual_rows:        [dynamic]Visual_Row,
+    // Buffer revision the visual rows were last built from. Edits made outside
+    // the editor's own key handler (command palette, menus, global keybinds)
+    // mutate the buffer during the same frame's event pass without rebuilding
+    // rows; draw compares against this to re-sync before using row extents.
+    rows_revision:      u64,
     // Syntax highlight spans for the current buffer; borrowed from the owner.
     highlights:         []Highlight_Span,
     // Word-granular drag: after a double-click the selection extends by whole
@@ -175,6 +180,7 @@ editor_rebuild_visual_rows :: proc(editor: ^Editor) {
     if editor.state == nil {
         return
     }
+    editor.rows_revision = editor.state.revision
 
     text := textedit.text(editor.state)
     cols := max(int)
@@ -336,7 +342,11 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
 // Inserts a typed character, auto-pairing brackets and quotes.
 editor_type_rune :: proc(editor: ^Editor, r: rune) {
     state := editor.state
-    if close, ok := textedit.auto_close_for(r); ok {
+    // Typing `{` at the end of a line opens a three-line block with the caret
+    // indented on the middle line; elsewhere it falls back to a plain pair.
+    if r == '{' && textedit.brace_block_applies(state) {
+        textedit.insert_brace_block(state)
+    } else if close, ok := textedit.auto_close_for(r); ok {
         textedit.insert_pair(state, r, close)
     } else if textedit.is_close_bracket(r) {
         textedit.insert_or_step(state, r)
@@ -661,6 +671,14 @@ editor_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
         text_y := cast(i32) (editor.bounds.y + (editor.bounds.height - cast(f32) editor.font_size) * 0.5)
         ui.draw_text(editor.placeholder, text_x, text_y, editor.font_size, editor.line_number_color)
         return
+    }
+
+    // An edit made during this frame's event pass (command palette, menu or a
+    // global keybind) can leave the rows built at layout time pointing past the
+    // now-shorter buffer; re-sync before any row extent is used as a slice index.
+    if editor.state.revision != editor.rows_revision {
+        editor_rebuild_visual_rows(editor)
+        editor_clamp_scroll(editor)
     }
 
     gutter_rect := rl.Rectangle {

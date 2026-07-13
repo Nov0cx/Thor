@@ -14,6 +14,7 @@ thor_wire_menus :: proc(thor: ^Thor) {
     widgets.editor_set_on_context_menu(thor.editor, thor_editor_context_menu, thor)
     widgets.console_set_on_context_menu(thor.console, thor_console_context_menu, thor)
     widgets.tree_set_on_context_menu(thor.tree, thor_explorer_context_menu, thor)
+    widgets.tree_set_on_delete(thor.tree, thor_tree_delete, thor)
 
     widgets.button_set_on_click(thor.menu_file_button, thor_open_file_menu, thor)
     widgets.button_set_on_click(thor.menu_edit_button, thor_open_edit_menu, thor)

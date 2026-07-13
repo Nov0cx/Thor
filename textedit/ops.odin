@@ -452,6 +452,52 @@ insert_newline :: proc(state: ^State) {
     finish_edit(state, &entry)
 }
 
+// True when typing `{` should expand into a three-line block rather than a
+// plain `{}` pair: a single cursor with no selection sitting at the end of its
+// line (only whitespace, if any, follows the caret on that line).
+brace_block_applies :: proc(state: ^State) -> bool {
+    if len(state.cursors) != 1 {
+        return false
+    }
+    cursor := state.cursors[0]
+    if has_selection(cursor) {
+        return false
+    }
+    txt := text(state)
+    for i := cursor.caret; i < len(txt) && txt[i] != '\n'; i += 1 {
+        if txt[i] != ' ' && txt[i] != '\t' {
+            return false
+        }
+    }
+    return true
+}
+
+// Inserts a `{ }` block spread over three lines with the caret on the indented
+// middle line. Assumes brace_block_applies(state) held (single collapsed cursor).
+insert_brace_block :: proc(state: ^State) {
+    txt := text(state)
+    entry := Undo_Entry {cursors_before = clone_cursors(state)}
+
+    cursor := &state.cursors[0]
+    lo := cursor.caret
+    ls := line_start(txt, lo)
+    ws_end := ls
+    for ws_end < len(txt) && (txt[ws_end] == ' ' || txt[ws_end] == '\t') {
+        ws_end += 1
+    }
+    indent := txt[ls:min(ws_end, lo)]
+
+    head := strings.concatenate({"{\n", indent, indent_unit()}, context.temp_allocator)
+    full := strings.concatenate({head, "\n", indent, "}"}, context.temp_allocator)
+
+    piecetable.piecetable_insert(&state.table, lo, full)
+    append(&entry.ops, Edit_Op {kind = .Insert, pos = lo, text = strings.clone(full)})
+    cursor.caret = lo + len(head)
+    cursor.anchor = cursor.caret
+
+    finish_edit(state, &entry)
+}
+
 indent_lines :: proc(state: ^State) {
     txt := text(state)
     starts := covered_line_starts(txt, state)

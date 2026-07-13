@@ -14,5 +14,8 @@
     "git":        { "line": "#",  "extensions": [".gitignore", ".gitmodules"] },
     "ini":        { "line": ";",  "extensions": [".ini", ".cfg"] },
     "batch":      { "line": "::", "extensions": [".bat"] },
-    "lua":        { "line": "--", "extensions": [".lua"] }
+    "lua":        { "line": "--", "extensions": [".lua"] },
+    "jai":        { "line": "//", "extensions": [".jai"] },
+    "java":       { "line": "//", "extensions": [".java"] },
+    "kotlin":     { "line": "//", "extensions": [".kt"] }
 }

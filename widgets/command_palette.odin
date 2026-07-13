@@ -22,12 +22,15 @@ Palette_Open_File_Proc :: #type proc(data: rawptr, path: string)
 Palette_Goto_Line_Proc :: #type proc(data: rawptr, line: int)
 // Single-line text prompt (New File/Folder name, etc.): fires on Enter.
 Palette_Prompt_Proc :: #type proc(data: rawptr, text: string)
+// Yes/no confirmation (delete a file, etc.): fires on Enter, cancels on Escape.
+Palette_Confirm_Proc :: #type proc(data: rawptr)
 
 Palette_Mode :: enum {
     Commands,
     Files,
     Line,
     Prompt,
+    Confirm,
 }
 
 @(private = "file")
@@ -59,6 +62,9 @@ Command_Palette :: struct {
     prompt_label: string,
     prompt_run:   Palette_Prompt_Proc,
     prompt_data:  rawptr,
+    // Confirm mode: the message shown and the callback fired on Enter.
+    confirm_run:  Palette_Confirm_Proc,
+    confirm_data: rawptr,
     box:          rl.Rectangle,
     width:        f32,
     row_height:   f32,
@@ -186,6 +192,25 @@ command_palette_prompt :: proc(
     ui.widget_bring_to_front(&palette.widget)
 }
 
+// Opens the palette as a yes/no confirmation. `message` is shown (borrowed;
+// must outlive the dialog) and `run` fires when the user presses Enter; Escape
+// or a click outside dismisses without running it.
+command_palette_confirm :: proc(
+    palette: ^Command_Palette,
+    ctx: ^ui.Context,
+    message: string,
+    run: Palette_Confirm_Proc,
+    data: rawptr,
+) {
+    palette.prompt_label = message
+    palette.confirm_run = run
+    palette.confirm_data = data
+    palette.visible = true
+    command_palette_reset(palette, .Confirm)
+    ctx.focused = &palette.widget
+    ui.widget_bring_to_front(&palette.widget)
+}
+
 @(private = "file")
 command_palette_reset :: proc(palette: ^Command_Palette, mode: Palette_Mode) {
     palette.mode = mode
@@ -217,7 +242,7 @@ command_palette_display :: proc(palette: ^Command_Palette, index: int) -> string
         return palette.commands[index].title
     case .Files:
         return strings.trim_prefix(palette.files[index], palette.root_prefix)
-    case .Line, .Prompt:
+    case .Line, .Prompt, .Confirm:
         return ""
     }
     return ""
@@ -226,9 +251,9 @@ command_palette_display :: proc(palette: ^Command_Palette, index: int) -> string
 @(private = "file")
 command_palette_source_count :: proc(palette: ^Command_Palette) -> int {
     switch palette.mode {
-    case .Commands:      return len(palette.commands)
-    case .Files:         return len(palette.files)
-    case .Line, .Prompt: return 0
+    case .Commands:               return len(palette.commands)
+    case .Files:                  return len(palette.files)
+    case .Line, .Prompt, .Confirm: return 0
     }
     return 0
 }
@@ -302,6 +327,13 @@ command_palette_activate :: proc(palette: ^Command_Palette, ctx: ^ui.Context) {
             palette.prompt_run(palette.prompt_data, text)
         }
         command_palette_close(palette, ctx)
+    case .Confirm:
+        run := palette.confirm_run
+        data := palette.confirm_data
+        command_palette_close(palette, ctx)
+        if run != nil {
+            run(data)
+        }
     }
 }
 
@@ -320,7 +352,7 @@ command_palette_layout :: proc(widget: ^ui.Widget, bounds: rl.Rectangle) {
     palette.bounds = bounds
 
     visible_rows := min(len(palette.matches), palette.max_rows)
-    if palette.mode == .Line || palette.mode == .Prompt {
+    if palette.mode == .Line || palette.mode == .Prompt || palette.mode == .Confirm {
         visible_rows = 0
     }
     width := min(palette.width, bounds.width - 80)
@@ -342,6 +374,9 @@ command_palette_handle_event :: proc(widget: ^ui.Widget, ctx: ^ui.Context, event
 
     #partial switch event.kind {
     case .Text_Input:
+        if palette.mode == .Confirm {
+            return true // confirmation takes no text, only Enter/Escape
+        }
         if event.ctrl && !event.alt {
             return true // swallow control chords, don't type them
         }
@@ -432,6 +467,14 @@ command_palette_draw :: proc(widget: ^ui.Widget, _: ^ui.Context) {
     rl.DrawRectangleRec(palette.bounds, palette.backdrop_color)
     rl.DrawRectangleRec(palette.box, palette.background_color)
     rl.DrawRectangleLinesEx(palette.box, 1, palette.border_color)
+
+    if palette.mode == .Confirm {
+        message_x := cast(i32) (palette.box.x + 16)
+        message_y := cast(i32) (palette.box.y + 12)
+        ui.draw_text(palette.prompt_label, message_x, message_y, 18, palette.text_color)
+        ui.draw_text("Enter to confirm  ·  Esc to cancel", message_x, message_y + 24, 15, palette.muted_color)
+        return
+    }
 
     // Input row.
     pad: f32 = 12
@@ -524,6 +567,7 @@ command_palette_placeholder :: proc(palette: ^Command_Palette) -> string {
     case .Files:    return "Go to file..."
     case .Line:     return "Go to line number..."
     case .Prompt:   return palette.prompt_label
+    case .Confirm:  return palette.prompt_label
     }
     return ""
 }
