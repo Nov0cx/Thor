@@ -80,6 +80,36 @@ test_trim_trailing_whitespace :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_brace_block :: proc(t: ^testing.T) {
+    // At the end of a line, `{` opens a three-line block with the caret parked
+    // on the indented middle line.
+    state := ops_state("foo", 3)
+    defer destroy(&state)
+    testing.expect(t, brace_block_applies(&state), "should apply at line end")
+    insert_brace_block(&state)
+    testing.expect_value(t, text(&state), "foo{\n    \n}")
+    testing.expect_value(t, primary_cursor(&state).caret, 9)
+    undo(&state)
+    testing.expect_value(t, text(&state), "foo")
+
+    // The opening line's indentation is carried onto the closing brace.
+    state2 := ops_state("\tbar", 4)
+    defer destroy(&state2)
+    insert_brace_block(&state2)
+    testing.expect_value(t, text(&state2), "\tbar{\n\t    \n\t}")
+
+    // Mid-line, with a selection, or multi-cursor: the block form does not apply.
+    state3 := ops_state("foobar", 3)
+    defer destroy(&state3)
+    testing.expect(t, !brace_block_applies(&state3), "should not apply mid-line")
+
+    state4 := ops_state("foo", 3)
+    defer destroy(&state4)
+    state4.cursors[0].anchor = 0 // selection covering "foo"
+    testing.expect(t, !brace_block_applies(&state4), "should not apply with a selection")
+}
+
+@(test)
 test_indent_outdent :: proc(t: ^testing.T) {
     state := ops_state("aaa\nbbb\nccc", 0)
     defer destroy(&state)
