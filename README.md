@@ -63,7 +63,7 @@ package, so no shared library needs copying.
 
 ## Testing
 ```bash
-# from the repository root, in a Visual Studio developer shell
+# from the repository root
 odin test ui       # font/icon atlas pipeline + ligature shaping + theme loading
 odin test thor     # async file load/save round-trip
 odin test syntax   # tree-sitter highlighting

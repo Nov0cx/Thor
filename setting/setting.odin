@@ -45,10 +45,8 @@ load :: proc(dir: string) -> Settings {
     return s
 }
 
-// Overlays the config found in dir on top of an already-loaded Settings.
-// Per-key entries in dir win; a missing or malformed file leaves the base
-// untouched. Used to layer a workspace's .thor/ config over the global
-// defaults loaded by load().
+// Overlays the config in dir onto an already-loaded Settings: per-key entries
+// win, missing/malformed leaves the base untouched. Layers .thor/ over the defaults.
 load_overlay :: proc(s: ^Settings, dir: string) {
     load_dir(s, dir)
 }
@@ -305,9 +303,8 @@ load_comments :: proc(s: ^Settings, path: string) {
     }
 }
 
-// Inserts or overwrites a comment marker. On overwrite the existing owned
-// key is reused and the old value freed, so overlaying config over a base
-// entry does not leak (matters under the debug tracking allocator).
+// Inserts or overwrites a comment marker, reusing the owned key and freeing the
+// old value on overwrite so an overlay does not leak.
 @(private)
 put_comment :: proc(s: ^Settings, ext, line: string) {
     if old, ok := s.comments[ext]; ok {

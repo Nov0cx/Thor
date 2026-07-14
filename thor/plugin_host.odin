@@ -9,12 +9,10 @@ import "../textedit"
 import "../ui"
 import "../widgets"
 
-// Host services handed to the plugin manager (see plugin.manager_set_host).
-// These let a Lua plugin print to the console and read the live keybinds without
-// the plugin package depending on Thor.
+// Host services handed to the plugin manager (see plugin.manager_set_host),
+// so a Lua plugin can reach Thor without the plugin package depending on it.
 
-// thor.print(text): append plugin output to the console, revealing it if hidden
-// so the user actually sees interactive feedback (e.g. the tutorial).
+// thor.print(text): append plugin output to the console, revealing it if hidden.
 thor_plugin_print :: proc(host: rawptr, text: string) {
     thor := cast(^Thor) host
     if thor.console == nil {
@@ -39,11 +37,9 @@ thor_plugin_keybind :: proc(host: rawptr, action: string) -> (string, bool) {
     return "", false
 }
 
-// thor.doc(path, text, focus): renders plugin-authored text into an editor tab.
-// The file is written to disk (so it can be saved and reloaded like any other),
-// and if a tab for it is already open its buffer is replaced in place, so a
-// plugin can refresh a live view (the tutorial marks challenges done as you play)
-// without reopening the tab or stealing focus. `focus` reveals it the first time.
+// thor.doc(path, text, focus): renders plugin text into an editor tab. Writes
+// the file, and replaces an already-open buffer in place so a plugin can refresh
+// a live view without reopening or stealing focus. `focus` reveals it first time.
 thor_plugin_doc :: proc(host: rawptr, path: string, text: string, focus: bool) {
     thor := cast(^Thor) host
 
@@ -78,9 +74,8 @@ thor_plugin_doc :: proc(host: rawptr, path: string, text: string, focus: bool) {
     thor_open_file(thor, path)
 }
 
-// Help -> Tutorial: starts the interactive tutorial plugin. It opens a tutorial
-// document that explains every action and challenges you to perform each bound
-// shortcut, advancing as you do; see plugins/tutorial/plugin.lua.
+// Help -> Tutorial: starts the interactive tutorial plugin
+// (plugins/tutorial/plugin.lua).
 thor_cmd_tutorial :: proc(data: rawptr) {
     thor := cast(^Thor) data
     if !plugin.manager_run_command(&thor.plugins, "tutorial") {

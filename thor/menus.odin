@@ -117,9 +117,8 @@ thor_menu_console_paste :: proc(data: rawptr) {
 // Explorer menu actions
 // ---------------------------------------------------------------------------
 
-// menu_target holds the right-clicked path's directory; these open the shared
-// name prompt into it. Command-palette entries reset the target to the
-// workspace root first (see thor_cmd_new_file / thor_cmd_new_folder).
+// Open the shared name prompt into menu_target (the right-clicked directory).
+// Command-palette entries reset the target to the workspace root first.
 thor_menu_new_file :: proc(data: rawptr) {
     thor := cast(^Thor) data
     widgets.command_palette_prompt(thor.command_palette, &thor.ui_context, "New file name", thor_prompt_new_file, thor)

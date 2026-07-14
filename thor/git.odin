@@ -8,9 +8,8 @@ import "core:thread"
 import "../widgets"
 
 // Async `git status --porcelain`: a worker captures the output, the main thread
-// parses it into a path -> status map. Files are keyed by absolute path (so the
-// keys match the explorer tree's node paths); every ancestor directory of a
-// change is also marked so folders containing changes get tinted too.
+// parses it into an absolute-path -> status map. Every ancestor directory of a
+// change is marked too, so folders containing changes get tinted.
 Git_Status_Job :: struct {
     owner:     ^Thor,
     allocator: runtime.Allocator,

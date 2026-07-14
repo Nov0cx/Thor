@@ -946,9 +946,8 @@ is_quote_byte :: proc(b: u8) -> bool {
     return b == '"' || b == '\'' || b == '`'
 }
 
-// If a quote sits at pos or just before it, finds its partner quote on the same
-// line. Whether the quote opens or closes is decided by the parity of same-type
-// quotes before it on the line (even count => opening, partner to the right).
+// Partner of a quote at or just before pos, on the same line. Parity of
+// same-type quotes before it decides open vs close (even => opening, partner right).
 @(private)
 find_matching_quote :: proc(txt: string, pos: int) -> (quote_pos, match_pos: int, forward, found: bool) {
     candidates := [2]int {pos, pos - 1}
@@ -982,9 +981,8 @@ find_matching_quote :: proc(txt: string, pos: int) -> (quote_pos, match_pos: int
     return 0, 0, false, false
 }
 
-// Innermost quote pair on the caret's line that encloses pos (excludes the
-// quotes themselves). Quotes of the same type cannot nest, so pairs are formed
-// left-to-right per quote character; the pair with the closest opener wins.
+// Innermost quote pair on the caret's line enclosing pos (quotes excluded).
+// Same-type quotes cannot nest, so pairs form left-to-right; closest opener wins.
 @(private)
 find_enclosing_quote :: proc(txt: string, pos: int) -> (open_pos, close_pos: int, found: bool) {
     ls := line_start(txt, pos)
@@ -1014,12 +1012,11 @@ find_enclosing_quote :: proc(txt: string, pos: int) -> (open_pos, close_pos: int
     return best_open, best_close, true
 }
 
-// Finds the innermost bracket pair enclosing pos: scans left for the nearest
-// unmatched opening bracket, then forward for its partner. Used as a fallback
-// when the caret is not sitting right next to a bracket.
+// Innermost bracket pair enclosing pos: scans left for the nearest unmatched
+// opener, then forward for its partner. Fallback when not next to a bracket.
 find_enclosing_bracket :: proc(txt: string, pos: int) -> (open_pos, close_pos: int, found: bool) {
-    // Per-type count of closing brackets seen while scanning left; an opening
-    // bracket with no outstanding closer of its type is the one we enclose.
+    // Closers seen per type while scanning left; an opener with no outstanding
+    // closer of its type is the one we enclose.
     pending: [3]int // ( ) , [ ] , { }
     open_char: u8
     open_pos = -1

@@ -12,9 +12,8 @@ import "../textedit"
 import "../ui"
 import "../widgets"
 
-// Applies the configurable parts of the loaded settings to the live widgets.
-// Called at startup and whenever settings are reloaded, so both paths stay in
-// sync.
+// Applies the configurable settings to the live widgets. Called at startup and
+// on reload, so both paths stay in sync.
 thor_apply_settings :: proc(thor: ^Thor) {
     if kb, ok := setting.keybind(&thor.config, "toggle_line_comment"); ok {
         thor.editor.comment_keybind = kb
@@ -100,10 +99,8 @@ thor_workspace_config_dir :: proc(workspace_dir: string, allocator := context.te
     return strings.concatenate({workspace_dir, "/.thor"}, allocator)
 }
 
-// Loads the global settings/ config, then overlays the workspace's .thor/
-// config when the folder has been initialized (recording that in
-// workspace_initialized). Shared by startup and Settings: Reload so both paths
-// layer identically.
+// Loads the global settings/ config, then overlays the workspace's .thor/ config
+// when initialized (recorded in workspace_initialized). Shared by startup and reload.
 thor_load_config :: proc(thor: ^Thor, workspace_dir: string) {
     thor.config = setting.load("settings")
     cfg_dir := thor_workspace_config_dir(workspace_dir)
@@ -113,14 +110,13 @@ thor_load_config :: proc(thor: ^Thor, workspace_dir: string) {
     }
 }
 
-// Starter contents for a new .thor/settings.json (the current defaults, so the
-// file is a ready-to-edit template rather than empty).
+// Starter contents for a new .thor/settings.json: the current defaults, so the
+// file is a ready-to-edit template.
 @(private = "file")
 WORKSPACE_SETTINGS_TEMPLATE :: "{\n    \"tab_width\": 4,\n    \"font_size\": 18,\n    \"autosave_delay_ms\": 1500\n}\n"
 
 // Promotes the current folder to a workspace: creates <workspace>/.thor/ with a
-// starter settings.json (committable; nothing is gitignored) and reloads so the
-// overlay applies immediately. Already-initialized workspaces just reload.
+// starter settings.json and reloads so the overlay applies immediately.
 thor_cmd_init_workspace :: proc(data: rawptr) {
     thor := cast(^Thor) data
     cfg_dir := thor_workspace_config_dir(thor.workspace_dir)
@@ -156,10 +152,7 @@ thor_quick_open :: proc(thor: ^Thor) {
     widgets.command_palette_open_files(thor.command_palette, &thor.ui_context)
 }
 
-// Registers every command shown in the palette. Titles are grouped by a
-// "Category: Action" convention so fuzzy search on the category works too.
-// Chord label for a keybind action, as configured in keybinds.json; "" when the
-// action has no binding (the palette then shows no shortcut for that command).
+// Chord label for a keybind action; "" when unbound (no shortcut shown).
 @(private = "file")
 thor_action_shortcut :: proc(thor: ^Thor, action: string) -> string {
     if kb, ok := setting.keybind(&thor.config, action); ok {
@@ -168,6 +161,8 @@ thor_action_shortcut :: proc(thor: ^Thor, action: string) -> string {
     return ""
 }
 
+// Registers every palette command. Titles use a "Category: Action" convention
+// so fuzzy search on the category works too.
 thor_register_commands :: proc(thor: ^Thor) {
     p := thor.command_palette
     sc :: thor_action_shortcut

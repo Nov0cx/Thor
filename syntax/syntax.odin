@@ -1,7 +1,7 @@
-// Tree-sitter backed parsing. Parses a buffer for a grammar and runs its
+// Tree-sitter backed parsing: parses a buffer for a grammar and runs its
 // highlights query, producing non-overlapping spans tagged with the winning
-// tree-sitter capture name. Mapping capture names to colors is the caller's job
-// (the plugin layer), so this package stays free of any theme or role concept.
+// capture name. Mapping captures to colors is the caller's job, so this package
+// stays free of any theme or role concept.
 package syntax
 
 import "base:runtime"
@@ -85,10 +85,8 @@ highlight :: proc(h: ^Highlighter, source: string, lang_id: string, allocator :=
     defer ts.query_cursor_delete(cursor)
     ts.query_cursor_exec(cursor, query, ts.tree_root_node(tree))
 
-    // Collect every satisfied capture, then resolve overlaps by precedence: a
-    // later query pattern (more specific) and, on ties, a smaller range win.
-    // This lets specific captures (@type/@function/...) override the broad
-    // (identifier) @variable rule.
+    // Collect every satisfied capture; resolve_spans breaks overlaps by
+    // precedence so specific captures override the broad @variable rule.
     caps := make([dynamic]Capture, context.temp_allocator)
     for match in ts.query_cursor_next_match(cursor) {
         if !predicates_satisfied(query, match, source) {
@@ -181,9 +179,8 @@ resolve_spans :: proc(caps: []Capture, allocator: runtime.Allocator) -> []Span {
 
 @(private)
 better_capture :: proc(a, b: Capture) -> bool {
-    // A named parameter's identifier is captured as both @parameter and @type
-    // inside a procedure_type (`#type proc(data: rawptr)`); the name must stay a
-    // parameter, so prefer it over the type regardless of pattern order.
+    // A named parameter is captured as both @parameter and @type inside a
+    // procedure_type; keep it a parameter regardless of pattern order.
     ah, bh := capture_head(a.capture), capture_head(b.capture)
     if ah == "parameter" && bh == "type" {
         return true

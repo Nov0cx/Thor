@@ -277,10 +277,9 @@ Case_Transform :: enum {
     Title, // capitalize the first letter of each word, lower-case the rest
 }
 
-// Upper/lower/title-cases each selection, or the word under the caret when a
-// cursor has no selection (Alt+U / Alt+L / Alt+C). ASCII-only, so byte lengths
-// are preserved and cursor positions stay valid across the whole edit; other
-// bytes pass through unchanged. Lands as one undo entry.
+// Upper/lower/title-cases each selection, or the word under the caret when it
+// has none. ASCII-only, so byte lengths are preserved and cursors stay valid;
+// other bytes pass through. One undo entry.
 transform_case :: proc(state: ^State, mode: Case_Transform) {
     txt := text(state)
     entry := Undo_Entry {cursors_before = clone_cursors(state)}
@@ -359,10 +358,9 @@ ascii_lower :: proc(b: u8) -> u8 {
     return b >= 'A' && b <= 'Z' ? b + 32 : b
 }
 
-// Joins the lines covered by the primary selection into one (Ctrl+J); with no
-// selection, joins the current line with the one below. Leading indentation of
-// each joined-in line is dropped and replaced by a single space, matching vim's
-// `J`. Multi-cursor joins are ambiguous, so secondary cursors collapse.
+// Joins the lines covered by the primary selection into one; with no selection,
+// joins the current line with the one below. Each joined-in line's indentation
+// is replaced by a single space. Secondary cursors collapse.
 join_lines :: proc(state: ^State) {
     collapse_to_primary(state)
     txt := text(state)
@@ -501,9 +499,8 @@ apply_line_edits :: proc(state: ^State, txt: string, edits: []Line_Edit) {
     finish_edit(state, &entry)
 }
 
-// Indentation is soft: a level is tab_width() spaces, and Tab never inserts a
-// literal tab character. The width is configurable at runtime (settings), so
-// it lives in a package variable rather than a constant.
+// Soft indentation: a level is g_tab_width spaces, never a literal tab.
+// Configurable at runtime, so a package variable rather than a constant.
 @(private)
 g_tab_width := 4
 
@@ -728,13 +725,10 @@ toggle_comment :: proc(state: ^State, prefix: string) {
     apply_line_edits(state, txt, edits[:])
 }
 
-// Aligns the lines covered by the selection so the first occurrence of `target`
-// on each line lands in the same column. The whitespace directly before the
-// target is normalized to exactly the padding needed to reach that column (at
-// least one space), so under- and over-spaced lines both snap into place.
-// Lines without the target, or where it is the first non-blank character (so
-// aligning would eat their indentation), are left untouched. Lands as one undo
-// entry.
+// Aligns the covered lines so the first `target` on each lands in one column,
+// normalizing the whitespace before it to the needed padding (min one space).
+// Lines without the target, or where it is the first non-blank character, are
+// left untouched. One undo entry.
 align_at_char :: proc(state: ^State, target: rune) {
     txt := text(state)
     starts := covered_line_starts(txt, state)

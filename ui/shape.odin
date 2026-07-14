@@ -133,10 +133,9 @@ shape_line :: proc(family: ^Font_Family, line: string) -> ([^]hb.glyph_info_t, i
     return infos, cast(int) glyph_count
 }
 
-// Draws one line via shaping. Returns false when the family/size has no
-// shaping data, so the caller falls back to the codepoint path. Advances come
-// from Shaped_Glyph (baked like the atlas), not HarfBuzz, to stay aligned with
-// measure_text.
+// Draws one line via shaping; false when the family/size has no shaping data,
+// so the caller falls back to the codepoint path. Advances come from
+// Shaped_Glyph, not HarfBuzz, to stay aligned with measure_text.
 draw_line_shaped :: proc(family: ^Font_Family, font: rl.Font, size: i32, line: string, x, y: i32, color: rl.Color) -> bool {
     if family == nil || family.hb_font == nil {
         return false

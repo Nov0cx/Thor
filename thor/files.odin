@@ -14,15 +14,13 @@ import "../textedit"
 import "../ui"
 import "../widgets"
 
-// One open document. The textedit state lives here (not in the editor widget)
-// so undo history and cursors survive tab switches; the editor only borrows
-// a pointer to it.
+// One open document. The textedit state lives here, not in the editor widget,
+// so undo history and cursors survive tab switches; the editor only borrows it.
 Open_File :: struct {
     path:               string, // owned
     name:               string, // slice into path, do not free separately
-    // Text shown on the tab: the base name, plus a trailing directory suffix
-    // when another open file shares the same base name. Owned; recomputed by
-    // thor_update_tab_labels whenever the open-file set changes.
+    // Tab label: base name, plus a trailing directory suffix on collision.
+    // Owned; recomputed by thor_update_tab_labels when the open set changes.
     tab_label:          string,
     state:              textedit.State,
     loaded:             bool,
@@ -42,9 +40,7 @@ Open_File :: struct {
 }
 
 // Loaded via a memory mapping on a worker thread; the main thread copies the
-// view into the piece table and unmaps. The worker makes no Odin heap
-// allocations: the record is allocated/freed on the main thread, and appends
-// to the finished queues go through their (mutex-guarded) allocator.
+// view into the piece table and unmaps. The worker makes no Odin heap allocs.
 Load_Job :: struct {
     owner:   ^Thor,
     file:    ^Open_File,
@@ -188,9 +184,8 @@ dir_segment_count :: proc(dir: string) -> int {
     return count
 }
 
-// Shortest trailing directory path that distinguishes `file` from the other
-// open files sharing its base name. The result is a slice into file.path (still
-// using the source separators); the caller copies and normalizes it.
+// Shortest trailing directory that distinguishes `file` from other open files
+// sharing its base name. A slice into file.path; the caller copies and normalizes.
 @(private = "file")
 thor_disambiguating_dir :: proc(thor: ^Thor, file: ^Open_File) -> string {
     dir := file_dir(file.path)
@@ -215,9 +210,8 @@ thor_disambiguating_dir :: proc(thor: ^Thor, file: ^Open_File) -> string {
     return dir
 }
 
-// Recomputes every open file's tab_label. A file whose base name is unique
-// among the open set shows just the base name; colliding files get a trailing
-// directory suffix (e.g. "state.odin — thor") so the tabs stay distinguishable.
+// Recomputes every open file's tab_label. A unique base name shows alone;
+// colliding files get a trailing directory suffix (e.g. "state.odin — thor").
 thor_update_tab_labels :: proc(thor: ^Thor) {
     for file in thor.open_files {
         collision := false

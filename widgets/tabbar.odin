@@ -15,9 +15,8 @@ Tabbar_Info_Proc :: #type proc(data: rawptr, index: int) -> Tab_Info
 Tabbar_Active_Proc :: #type proc(data: rawptr) -> int
 Tabbar_Action_Proc :: #type proc(data: rawptr, index: int)
 
-// Editor tab strip. Tabs are drawn directly from callbacks into the owner
-// (count/info/active), so the widget never stores per-tab state and needs no
-// rebuilding when files open or close.
+// Editor tab strip. Tabs are drawn directly from owner callbacks, so the widget
+// stores no per-tab state and needs no rebuilding when files open or close.
 Tabbar :: struct {
     using widget: ui.Widget,
     scroll_x:          f32,
@@ -149,9 +148,8 @@ tabbar_close_rect :: proc(tabbar: ^Tabbar, tab_rect: rl.Rectangle) -> rl.Rectang
     }
 }
 
-// Walks tab rects left to right, invoking visit for each; returns early if
-// visit returns false. Shared by drawing and hit testing so both always agree
-// on geometry.
+// Walks tab rects left to right, invoking visit for each (stops when it returns
+// false). Shared by drawing and hit testing so both agree on geometry.
 @(private = "file")
 tabbar_each_tab :: proc(tabbar: ^Tabbar, visit: proc(tabbar: ^Tabbar, index: int, rect: rl.Rectangle, user: rawptr) -> bool, user: rawptr) {
     x := tabbar.bounds.x - tabbar.scroll_x

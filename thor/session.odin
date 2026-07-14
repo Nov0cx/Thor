@@ -1,10 +1,8 @@
 package thor
 
 // Per-workspace session state (open files, active tab, panel layout) persisted
-// under <exe>/sessions/. Sessions are keyed by absolute workspace path and do
-// NOT require an initialized (.thor/) workspace: every folder Thor opens gets
-// its "where was I" state restored. This is the personal/ephemeral counterpart
-// to the committable .thor/ config.
+// under <exe>/sessions/, keyed by absolute workspace path. The personal,
+// ephemeral counterpart to the committable .thor/ config; no workspace init needed.
 
 import "core:encoding/json"
 import "core:log"
@@ -27,10 +25,8 @@ Session :: struct {
     window_maximized: bool,
 }
 
-// Path of the session file for a workspace: sessions/<sanitized-abs-path>.json,
-// relative to the CWD (which startup points at the exe dir). The absolute path
-// is lowercased (Windows paths are case-insensitive, so this avoids two session
-// files for the same folder) and its separators/colon become '-'.
+// Session file for a workspace: sessions/<sanitized-abs-path>.json. The path is
+// lowercased (Windows is case-insensitive) with separators and colon mapped to '-'.
 @(private = "file")
 thor_session_file :: proc(workspace_dir: string, allocator := context.temp_allocator) -> string {
     lower := strings.to_lower(workspace_dir, context.temp_allocator)
@@ -83,11 +79,9 @@ thor_save_session :: proc(thor: ^Thor) {
     }
 }
 
-// Restores this workspace's session: applies the saved panel layout, then
-// reopens the previously open files (async loads handled by the main loop) and
-// re-selects the active tab. A missing or malformed session file is a no-op.
-// Must run after the UI is built (signals/panels exist) and before
-// thor_apply_layout_state so the restored sizes/visibility take effect.
+// Restores this workspace's session: panel layout, reopened files, and active
+// tab. Missing or malformed is a no-op. Must run after the UI is built and
+// before thor_apply_layout_state.
 thor_restore_session :: proc(thor: ^Thor) {
     path := thor_session_file(thor.workspace_dir)
     data, read_err := os.read_entire_file(path, context.temp_allocator)

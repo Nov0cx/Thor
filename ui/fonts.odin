@@ -12,16 +12,13 @@ import rl "vendor:raylib"
 
 import hb "../vendor/odin-harfbuzz/harfbuzz"
 
-// Arena owning all font-system memory (families, job records, icon map). The
-// bootstrap thread fills it, ownership hands to the main thread at
-// text_finish_async_load, and text_shutdown frees it at once — avoiding
-// cross-thread frees with mismatched allocators.
+// Arena owning all font-system memory. The bootstrap thread fills it, ownership
+// hands to the main thread at text_finish_async_load, and text_shutdown frees it.
 font_arena: virtual.Arena
 font_allocator: runtime.Allocator
 
-// A font family is one TTF file plus the codepoint set baked into its
-// atlases. Rasterization happens per size in text.odin; the file data stays
-// resident so sizes not preloaded at startup can be loaded on demand.
+// A font family is one TTF file plus the codepoint set baked into its atlases.
+// The file data stays resident so non-preloaded sizes load on demand.
 Font_Family :: struct {
     name:          string,
     path:          string,
@@ -48,9 +45,8 @@ ICON_FAMILY :: "icons"
 families: map[string]^Font_Family
 default_family_name: string
 
-// Icons from every set in the manifest share one namespace; each name
-// carries the family it resolves in (e.g. tabler "folder" vs. devicon
-// "devicon-c-plain").
+// Icons from every set share one namespace; each name carries the family it
+// resolves in (e.g. "folder" vs. "devicon-c-plain").
 @(private = "file")
 Icon_Glyph :: struct {
     family:    string,
@@ -149,9 +145,8 @@ manifest_sizes :: proc(entry: json.Object, key: string) -> [dynamic]i32 {
     return sizes
 }
 
-// Registers every text font family listed in the manifest. Paths are
-// relative to the manifest file. Safe to call before InitWindow; nothing
-// here touches the GL context.
+// Registers every text font family in the manifest (paths relative to it).
+// Safe before InitWindow; nothing here touches GL.
 text_load_font_manifest :: proc(manifest_path: string) -> bool {
     root, root_ok := manifest_parse(manifest_path)
     if !root_ok {
@@ -202,10 +197,8 @@ text_load_font_manifest :: proc(manifest_path: string) -> bool {
     return registered > 0
 }
 
-// Registers one icon font family per manifest "fonts" entry plus the icon
-// name -> (family, codepoint) map. Only the "preload" icons are baked into
-// startup atlases; names outside that list still resolve but render their
-// font's fallback glyph.
+// Registers one icon family per "fonts" entry plus the icon name ->
+// (family, codepoint) map. Only "preload" icons are baked into startup atlases.
 text_load_icon_manifest :: proc(manifest_path: string) -> bool {
     root, root_ok := manifest_parse(manifest_path)
     if !root_ok {
@@ -296,9 +289,8 @@ draw_icon :: proc(name: string, x, y, size: i32, color: rl.Color) {
 
 
 text_shutdown :: proc() {
-    // Fonts hold raylib/libc-allocated glyph buffers and GPU textures, so
-    // they are unloaded individually; all Odin-side memory goes with the
-    // arena in one call.
+    // Fonts hold raylib/libc glyph buffers and GPU textures, so unload them
+    // individually; all Odin-side memory goes with the arena.
     default_texture_id := rl.GetFontDefault().texture.id
     for _, family in families {
         for _, font in family.cache {

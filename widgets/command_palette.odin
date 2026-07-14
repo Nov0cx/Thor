@@ -142,9 +142,8 @@ command_palette_set_navigation :: proc(
     palette.cb_data = data
 }
 
-// Appends a command. `title` must outlive the palette (string literals do).
-// `shortcut` is the chord shown right-aligned in the list; it is copied, so a
-// temporary string is fine, and "" hides it.
+// Appends a command. `title` must outlive the palette; `shortcut` is copied
+// (shown right-aligned in the list, "" to hide it).
 command_palette_add :: proc(palette: ^Command_Palette, title: string, run: proc(data: rawptr), data: rawptr, shortcut := "") {
     sc := shortcut == "" ? "" : strings.clone(shortcut)
     append(&palette.commands, Command {title = title, shortcut = sc, run = run, data = data})
@@ -187,8 +186,7 @@ command_palette_is_open :: proc(palette: ^Command_Palette) -> bool {
 }
 
 // Opens the palette as a single-line text prompt. `label` is the placeholder
-// (borrowed; must outlive the prompt) and `run` fires with the typed text on
-// Enter. Used for New File / New Folder name entry.
+// (borrowed); `run` fires with the typed text on Enter.
 command_palette_prompt :: proc(
     palette: ^Command_Palette,
     ctx: ^ui.Context,
@@ -205,9 +203,8 @@ command_palette_prompt :: proc(
     ui.widget_bring_to_front(&palette.widget)
 }
 
-// Opens the palette as a yes/no confirmation. `message` is shown (borrowed;
-// must outlive the dialog) and `run` fires when the user presses Enter; Escape
-// or a click outside dismisses without running it.
+// Opens the palette as a yes/no confirmation. `message` is shown (borrowed);
+// `run` fires on Enter; Escape or an outside click dismisses.
 command_palette_confirm :: proc(
     palette: ^Command_Palette,
     ctx: ^ui.Context,

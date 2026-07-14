@@ -12,9 +12,8 @@ Tree_Open_Proc :: #type proc(data: rawptr, path: string)
 // performs the removal (see thor_tree_delete).
 Tree_Delete_Proc :: #type proc(data: rawptr, path: string)
 
-// Git working-tree status for a path, resolved by the owner (Tree_Status_Proc).
-// Directories report an aggregate (Modified / Conflict) when they contain
-// changes so the folder name can be tinted too.
+// Git working-tree status for a path, resolved by the owner. Directories report
+// an aggregate (Modified / Conflict) so the folder name can be tinted too.
 Git_Status :: enum u8 {
     None,
     Modified,
@@ -37,9 +36,8 @@ Tree_Node :: struct {
     children: [dynamic]^Tree_Node,
 }
 
-// Directory tree fed lazily from the filesystem; expanding a folder reads it
-// on first open. Rows are drawn directly (no child widgets), so open/close
-// costs nothing in the widget tree.
+// Directory tree fed lazily from the filesystem; a folder reads on first open.
+// Rows are drawn directly (no child widgets), so expanding costs nothing.
 Tree :: struct {
     using widget: ui.Widget,
     root:             ^Tree_Node,
@@ -427,9 +425,9 @@ tree_focus :: proc(tree: ^Tree) {
     }
 }
 
-// Keyboard navigation, active while the tree holds focus: up/down move the
-// selection, left/right collapse/expand (or step to parent/child), enter opens
-// files or toggles folders, delete asks the owner to remove the file.
+// Keyboard navigation while the tree holds focus: up/down move the selection,
+// left/right collapse/expand or step to parent/child, enter opens or toggles,
+// delete asks the owner to remove the file.
 @(private = "file")
 tree_handle_key :: proc(tree: ^Tree, event: ^ui.Event) -> bool {
     rows := tree_visible_rows(tree)
@@ -577,9 +575,8 @@ tree_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
     }
 }
 
-// Language files get their devicon glyph (the "devicon-" names live in the
-// devicons set of the icon manifest); everything else falls back to the
-// generic tabler file icons.
+// Language files get their devicon glyph; everything else falls back to the
+// generic file icons.
 @(private = "file")
 tree_file_icon :: proc(name: string) -> string {
     switch name {

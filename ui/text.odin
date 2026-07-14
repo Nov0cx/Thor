@@ -13,9 +13,8 @@ import stbtt "vendor:stb/truetype"
 // Fonts are rasterized per size: drawing a bitmap atlas at any size other
 // than the one it was baked for gets scaled and turns blurry.
 
-// Rasterizing a glyph atlas is pure CPU work (stb_truetype) and is done on
-// worker threads overlapping window creation; only the texture upload needs
-// the GL context and happens on the main thread in text_finish_async_load.
+// Rasterizing a glyph atlas is pure CPU work (stb_truetype), done on worker
+// threads; only the texture upload needs GL, on the main thread.
 @(private = "file")
 Font_Load_Job :: struct {
     family:      ^Font_Family,
@@ -29,9 +28,8 @@ Font_Load_Job :: struct {
     worker:      ^thread.Thread,
 }
 
-// One glyph scheduled for rasterization: cmap glyphs carry their codepoint
-// (so the rl.Font codepoint lookup keeps working), ligature glyphs found by
-// shaping carry -1 and are only reachable through the shaped map.
+// One glyph scheduled for rasterization: cmap glyphs carry their codepoint;
+// ligature glyphs found by shaping carry -1, reachable only via the shaped map.
 @(private = "file")
 Bake_Entry :: struct {
     value: rune,
@@ -41,14 +39,12 @@ Bake_Entry :: struct {
 @(private = "file")
 async_jobs: [dynamic]^Font_Load_Job
 
-// Rasterizes and packs the atlas with stb_truetype directly. raylib's font
-// procs aren't thread-safe off the main thread (and its LoadFontData binding is
-// missing raylib 6.0's glyphCount out-param, corrupting memory). Buffers handed
-// to raylib structs are libc-allocated so UnloadFont/UnloadImage can free them.
+// Rasterizes and packs the atlas with stb_truetype directly: raylib's font
+// procs aren't thread-safe, and its LoadFontData binding corrupts memory.
+// Buffers handed to raylib are libc-allocated so UnloadFont/UnloadImage free them.
 @(private = "file")
 font_load_worker :: proc(job: ^Font_Load_Job) {
-    // The shaped map and scratch containers go into the font arena; its
-    // allocator is mutex-guarded, so concurrent workers can share it.
+    // Scratch goes into the font arena; its allocator is mutex-guarded, shareable.
     context.allocator = font_allocator
 
     PADDING :: 4
@@ -76,9 +72,8 @@ font_load_worker :: proc(job: ^Font_Load_Job) {
         return
     }
 
-    // Ligature glyphs are only reachable through shaping; probe common
-    // sequences and bake whatever new glyph ids come back. Icon fonts
-    // have no ligatures, so skip the probing there.
+    // Ligature glyphs reach only through shaping; probe common sequences and
+    // bake the new glyph ids. Icon fonts have none, so skip them.
     if !job.family.icon_font {
         for gid in shape_collect_ligature_glyphs(file_data, &seen) {
             append(&baked, Bake_Entry {value = -1, gid = gid})
@@ -238,14 +233,12 @@ bootstrap_thread: ^thread.Thread
 @(private = "file")
 bootstrap_args: ^Bootstrap_Args
 
-// Manifest parsing (fonts.json is small, but icons.json maps ~5000 icons)
-// and the TTF file reads are pure CPU/IO work, so they run on the loader
-// thread too; the main thread only pays for spawning it.
+// Manifest parsing and TTF reads are pure CPU/IO work, so they run on the
+// loader thread; the main thread only pays for spawning it.
 @(private = "file")
 bootstrap_worker :: proc(args: ^Bootstrap_Args) {
-    // All persistent font-system allocations land in the arena; it is only
-    // touched by this thread until text_finish_async_load joins it, then
-    // only by the main thread.
+    // Persistent font allocations land in the arena, touched only by this
+    // thread until text_finish_async_load joins it.
     context.allocator = font_allocator
 
     when ODIN_DEBUG {
@@ -269,9 +262,8 @@ bootstrap_worker :: proc(args: ^Bootstrap_Args) {
     free_all(context.temp_allocator)
 }
 
-// Loads both manifests and rasterizes every registered family at its preload
-// sizes, all on worker threads. Safe to call before InitWindow; nothing here
-// touches the GL context.
+// Loads both manifests and rasterizes every family at its preload sizes on
+// worker threads. Safe before InitWindow; nothing here touches GL.
 text_begin_async_load :: proc(font_manifest, icon_manifest: string) {
     if arena_err := virtual.arena_init_growing(&font_arena); arena_err != nil {
         log.warnf("Font arena init failed: %v; fonts disabled", arena_err)
@@ -402,9 +394,8 @@ draw_text :: proc(text: string, x, y, font_size: i32, color: rl.Color, family :=
     line_y := cast(f32) y
 
     for line in strings.split_lines_iterator(&source) {
-        // Shaped path first (ligatures); falls back to the raylib codepoint
-        // path for sizes without shaping data (lazily loaded sizes, raylib
-        // default font).
+        // Shaped path first (ligatures); falls back to raylib's codepoint path
+        // for sizes without shaping data.
         if !draw_line_shaped(fam, font, font_size, line, x, cast(i32) line_y, color) {
             line_c := strings.clone_to_cstring(line, context.temp_allocator)
             rl.DrawTextEx(

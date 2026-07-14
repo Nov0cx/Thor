@@ -83,10 +83,9 @@ context_collect_input :: proc(ctx: ^Context) {
         ctx.mouse_pos[1] - ctx.prev_mouse_pos[1],
     }
 
-    // AltGr (right Alt) is reserved for typing characters like { } @ on
-    // non-US layouts; it must never act as a shortcut modifier. Windows also
-    // reports it as left Ctrl, so suppress Ctrl while it is held. Computed
-    // before mouse events so clicks carry the current modifiers.
+    // AltGr (right Alt) types { } @ on non-US layouts and must never act as a
+    // shortcut modifier; Windows also reports it as left Ctrl, so suppress Ctrl
+    // while it is held. Computed before mouse events so clicks carry modifiers.
     alt_gr := rl.IsKeyDown(.RIGHT_ALT)
     ctrl_down := (rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL)) && !alt_gr
     shift_down := rl.IsKeyDown(.LEFT_SHIFT) || rl.IsKeyDown(.RIGHT_SHIFT)

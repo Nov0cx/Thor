@@ -1,8 +1,6 @@
-// Plugin host. Owns the Lua VM plus the tree-sitter engine and the language
-// registry that plugins fill at load time. A language is either backed by a
-// tree-sitter grammar (declarative: capture name -> theme color role) or by a
-// pure-Lua lexer for formats without a grammar. Highlighting resolves to color
-// roles; the editor maps roles to the active theme's colors.
+// Plugin host: owns the Lua VM, the tree-sitter engine, and the language
+// registry plugins fill at load time. A language is backed by a tree-sitter
+// grammar or a pure-Lua lexer. Highlighting resolves to color roles.
 package plugin
 
 import "base:runtime"
@@ -15,11 +13,10 @@ import lua "vendor:lua/5.4"
 
 import "../syntax"
 
-// Lua's LUA_NOREF: "no reference", used when a language has no Lua lexer.
+// Lua's LUA_NOREF; marks a language with no Lua lexer.
 NOREF :: -2
 
-// Color roles exposed to plugins as `thor.theme.<role>`; each resolves to a
-// theme color in the editor (see ui.theme_role_color).
+// Color roles exposed to plugins as `thor.theme.<role>`.
 @(private)
 ROLES := []string {
     "background", "foreground", "keywords", "functions", "strings", "operators",
@@ -27,8 +24,7 @@ ROLES := []string {
     "yellow", "orange", "purple", "cyan", "blue", "red", "green", "gray", "accent", "error",
 }
 
-// A registered language. `grammar` names a compiled-in tree-sitter grammar, or
-// is empty when `lexer_ref` refers to a Lua highlight function instead.
+// A registered language; `grammar` is empty when `lexer_ref` names a Lua lexer.
 Language :: struct {
     name:       string,
     extensions: [dynamic]string,
@@ -37,42 +33,32 @@ Language :: struct {
     lexer_ref:  int,               // Lua registry ref, or NOREF
 }
 
-// Host services a plugin can call back into (owned by the embedding app, e.g.
-// Thor). Kept as plain function pointers so the plugin package stays free of any
-// dependency on the app or its widgets.
+// Host services a plugin can call back into, as plain function pointers so the
+// package stays free of any dependency on the app.
 Print_Proc :: #type proc(host: rawptr, text: string)
 Keybind_Proc :: #type proc(host: rawptr, action: string) -> (chord: string, ok: bool)
-// Renders `text` into a document tab at `path` (writing the file, then updating
-// the open buffer in place so repeated calls don't churn tabs or steal focus).
-// `focus` reveals and focuses the tab, used when the document is first shown.
+// Renders `text` into a document tab at `path`; `focus` reveals and focuses it.
 Doc_Proc :: #type proc(host: rawptr, path: string, text: string, focus: bool)
 
-// Manager holds the single Lua state shared by all plugins. Lua is not
-// reentrant, so every call into `state` must happen on one thread.
+// The single Lua state shared by all plugins. Not reentrant: one thread only.
 Manager :: struct {
     state:       ^lua.State,
     highlighter: syntax.Highlighter,
     languages:   [dynamic]Language,
     by_ext:      map[string]int, // ".odin" -> index into languages
-    // Registration runs inside Lua C callbacks with their own context, so the
-    // registry's allocator is captured here and used for every alloc and free.
+    // Used for every alloc and free, since Lua C callbacks run under a default context.
     allocator:   runtime.Allocator,
-    // Interactive hooks. `key_ref` is the Lua registry ref of the on_key
-    // handler (NOREF when a plugin never registered one); host/print/keybind
-    // are set by the app so plugins can print and read the live keybinds.
+    // on_key handler ref (NOREF when unset); host/print/keybind wired by the app.
     key_ref:      int,
     host:         rawptr,
     print_proc:   Print_Proc,
     keybind_proc: Keybind_Proc,
     doc_proc:     Doc_Proc,
-    // Named commands a plugin registered with thor.on_command, mapped to their
-    // Lua registry ref; the host invokes one by name via manager_run_command
-    // (e.g. Help -> Tutorial starts the interactive tutorial). Keys are owned.
+    // Named commands registered via thor.on_command -> Lua ref; keys are owned.
     command_refs: map[string]int,
 }
 
-// Wires the host services a plugin can call (thor.print / thor.keybind). Call
-// once after manager_init, before plugins are expected to interact.
+// Wires the host services a plugin can call. Call once after manager_init.
 manager_set_host :: proc(
     m: ^Manager,
     host: rawptr,
@@ -86,9 +72,8 @@ manager_set_host :: proc(
     m.doc_proc = doc_proc
 }
 
-// Initializes a manager in place. The address is captured as a Lua upvalue by
-// install_api, so the Manager must be owned by the caller (not returned by
-// value, which would leave the upvalue dangling).
+// Initializes a manager in place. The caller must own it: install_api captures
+// its address as a Lua upvalue.
 manager_init :: proc(m: ^Manager) {
     m.allocator = context.allocator
     m.state = lua.L_newstate()
@@ -127,8 +112,7 @@ manager_destroy :: proc(m: ^Manager) {
     }
 }
 
-// Loads every plugin matching `pattern` (a folder per plugin, each with a
-// plugin.lua). Safe to call once after manager_create.
+// Loads every plugin matching `pattern` (a folder per plugin, each a plugin.lua).
 manager_load :: proc(m: ^Manager, pattern := "plugins/*/plugin.lua") {
     matches, err := filepath.glob(pattern, context.temp_allocator)
     if err != nil {
@@ -157,8 +141,7 @@ free_language :: proc(lang: ^Language) {
     delete(lang.colors)
 }
 
-// Builds the `thor` global: a `theme` table of role handles plus the
-// register_language entry point.
+// Builds the `thor` global: a `theme` table of role handles plus the entry points.
 @(private)
 install_api :: proc(m: ^Manager) {
     L := m.state
@@ -172,8 +155,7 @@ install_api :: proc(m: ^Manager) {
     }
     lua.setfield(L, -2, "theme")
 
-    // Every entry point carries the manager as a lightuserdata upvalue, so each
-    // manager routes calls to itself (no shared global state).
+    // The manager travels as a lightuserdata upvalue so each routes calls to itself.
     lua.pushlightuserdata(L, rawptr(m))
     lua.pushcclosure(L, register_language, 1)
     lua.setfield(L, -2, "register_language")
@@ -201,9 +183,8 @@ install_api :: proc(m: ^Manager) {
     lua.setglobal(L, "thor")
 }
 
-// thor.on_key(fn): registers (or replaces) the handler invoked for every key
-// press. The handler receives a table {chord, ctrl, shift, alt}; returning true
-// consumes the key so normal handling is skipped.
+// thor.on_key(fn): handler run for every key press, given {chord, ctrl, shift,
+// alt}; returning true consumes the key.
 @(private)
 api_on_key :: proc "c" (L: ^lua.State) -> c.int {
     context = runtime.default_context()
@@ -219,8 +200,7 @@ api_on_key :: proc "c" (L: ^lua.State) -> c.int {
     return 0
 }
 
-// thor.print(text): appends a line of text to the host's output (Thor's
-// console). No-op if the host provided no sink.
+// thor.print(text): appends a line to the host's output. No-op without a sink.
 @(private)
 api_print :: proc "c" (L: ^lua.State) -> c.int {
     context = runtime.default_context()
@@ -228,17 +208,14 @@ api_print :: proc "c" (L: ^lua.State) -> c.int {
     if m == nil || m.print_proc == nil || lua.type(L, 1) != .STRING {
         return 0
     }
-    // Run under the app's allocator: the host appends into app-owned widget
-    // state, which must be freed by the same allocator (see api_doc).
+    // Host appends into app-owned state, so free under the app's allocator.
     context.allocator = m.allocator
     m.print_proc(m.host, string(lua.tostring(L, 1)))
     return 0
 }
 
-// thor.doc(path, text[, focus]): renders `text` into a document tab at `path`.
-// The host writes the file and updates the open buffer in place, so a plugin can
-// refresh a live view (e.g. the tutorial) without churning tabs. A truthy third
-// argument reveals and focuses the tab (used the first time it is shown).
+// thor.doc(path, text[, focus]): renders `text` into a document tab at `path`,
+// updating the open buffer in place. A truthy `focus` reveals and focuses it.
 @(private)
 api_doc :: proc "c" (L: ^lua.State) -> c.int {
     context = runtime.default_context()
@@ -246,18 +223,15 @@ api_doc :: proc "c" (L: ^lua.State) -> c.int {
     if m == nil || m.doc_proc == nil || lua.type(L, 1) != .STRING || lua.type(L, 2) != .STRING {
         return 0
     }
-    // The host opens/edits app-owned buffers here; run under the app's allocator
-    // (not the C callback's default context) so those allocations are freed by
-    // the same allocator later (otherwise the main loop bad-frees the load job).
+    // Host edits app-owned buffers, so run under the app's allocator rather than
+    // the C callback's default context, or the main loop later bad-frees them.
     context.allocator = m.allocator
     focus := bool(lua.toboolean(L, 3))
     m.doc_proc(m.host, string(lua.tostring(L, 1)), string(lua.tostring(L, 2)), focus)
     return 0
 }
 
-// thor.keybind(action): returns the chord string currently bound to `action`
-// (e.g. "Ctrl+S"), or nil when the action is unbound / no host is set. Lets a
-// plugin present the user's real, possibly-rebound shortcuts.
+// thor.keybind(action): the chord bound to `action` (e.g. "Ctrl+S"), or nil.
 @(private)
 api_keybind :: proc "c" (L: ^lua.State) -> c.int {
     context = runtime.default_context()
@@ -276,9 +250,8 @@ api_keybind :: proc "c" (L: ^lua.State) -> c.int {
     return 1
 }
 
-// thor.on_command(name, fn): registers (or replaces) a named command the host
-// can invoke later by name (see manager_run_command). Lets a plugin expose an
-// entry point the app can trigger from a menu, e.g. Help -> Tutorial.
+// thor.on_command(name, fn): registers a named command the host invokes by name
+// (see manager_run_command), e.g. Help -> Tutorial.
 @(private)
 api_on_command :: proc "c" (L: ^lua.State) -> c.int {
     context = runtime.default_context()
@@ -288,7 +261,7 @@ api_on_command :: proc "c" (L: ^lua.State) -> c.int {
     }
     context.allocator = m.allocator
     name := string(lua.tostring(L, 1))
-    // Replacing an existing command reuses its owned key; a new one clones.
+    // Reuse the existing owned key on replace; clone for a new one.
     if existing, ok := m.command_refs[name]; ok {
         lua.L_unref(L, lua.REGISTRYINDEX, c.int(existing))
         lua.pushvalue(L, 2)
@@ -300,8 +273,8 @@ api_on_command :: proc "c" (L: ^lua.State) -> c.int {
     return 0
 }
 
-// Invokes the plugin command registered under `name` with no arguments.
-// Returns whether such a command existed and ran without error.
+// Runs the plugin command registered under `name`. Returns whether it existed
+// and ran without error.
 manager_run_command :: proc(m: ^Manager, name: string) -> bool {
     ref, ok := m.command_refs[name]
     if !ok {
@@ -322,9 +295,8 @@ manager_run_command :: proc(m: ^Manager, name: string) -> bool {
     return true
 }
 
-// Dispatches a key press to the registered on_key handler. `chord` is the
-// display string for the pressed combination (same format as thor.keybind), so
-// a plugin can compare the two directly. Returns whether the plugin consumed it.
+// Dispatches a key press to the on_key handler. `chord` is the display string
+// (same format as thor.keybind). Returns whether the plugin consumed it.
 manager_dispatch_key :: proc(m: ^Manager, chord: string, ctrl, shift, alt: bool) -> (consumed: bool) {
     if m.key_ref == NOREF {
         return false

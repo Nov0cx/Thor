@@ -27,9 +27,8 @@ thor_apply_layout_state :: proc(thor: ^Thor) {
 // Points the editor at the active file's buffer. A still-loading file leaves
 // the editor empty (state nil); thor_process_io re-runs this once it loads.
 thor_set_active_file :: proc(thor: ^Thor, index: int) {
-    // Remember the file we are leaving so ctrl+e can flip back to it. Only a
-    // real switch to a different file updates it (a same-index refresh, e.g.
-    // after a load completes, must not overwrite the flip target).
+    // Remember the file we are leaving so ctrl+e can flip back. Only a switch to
+    // a different file updates it; a same-index refresh must not clobber it.
     previous := thor_active_open_file(thor)
     ui.signal_set(&thor.active_file, index)
 

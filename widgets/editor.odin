@@ -11,8 +11,8 @@ import "../ui"
 
 Editor_Save_Proc :: #type proc(data: rawptr)
 
-// One on-screen row. Overflowing logical lines split into several; `first`
-// marks the row carrying the line number. Rebuilt each layout.
+// One on-screen row. A wrapped logical line spans several; `first` carries the
+// line number. Rebuilt each layout.
 Visual_Row :: struct {
     start: int, // byte offset of the row's first character
     end:   int, // byte offset one past its last character (before any newline)
@@ -30,8 +30,8 @@ Highlight_Span :: struct {
 
 Editor :: struct {
     using widget: ui.Widget,
-    // Borrowed from the open file (thor/files.odin); nil when none open. Kept
-    // outside the widget so undo history and cursors survive tab switches.
+    // Borrowed from the open file; nil when none open. Held outside the widget
+    // so undo history and cursors survive tab switches.
     state:              ^textedit.State,
     on_save:            Editor_Save_Proc,
     save_data:          rawptr,
@@ -52,33 +52,28 @@ Editor :: struct {
     line_number_color:  rl.Color,
     caret_color:        rl.Color,
     selection_color:    rl.Color,
-    // Soft-wrap: overflowing lines continue on the next visual row. The row
-    // layout is rebuilt from the buffer every frame in editor_layout.
+    // Soft-wrap: overflowing lines continue on the next visual row.
     wrap:               bool,
     visual_rows:        [dynamic]Visual_Row,
-    // Buffer revision the visual rows were last built from. Edits made outside
-    // the editor's own key handler (command palette, menus, global keybinds)
-    // mutate the buffer during the same frame's event pass without rebuilding
-    // rows; draw compares against this to re-sync before using row extents.
+    // Revision the rows were last built from; draw re-syncs against it after
+    // out-of-band edits (palette, menus, global keybinds) made this frame.
     rows_revision:      u64,
     // Syntax highlight spans for the current buffer; borrowed from the owner.
     highlights:         []Highlight_Span,
-    // Word-granular drag: after a double-click the selection extends by whole
-    // words. word_lo/word_hi bound the word that was double-clicked so drags
-    // in either direction keep it covered.
+    // Word-drag: after a double-click the selection extends by whole words;
+    // word_lo/word_hi bound that word so drags in either direction keep it.
     select_by_word:     bool,
     word_lo:            int,
     word_hi:            int,
     // Right-click opens a context menu supplied by the owner.
     on_context_menu:    Context_Menu_Proc,
     context_menu_data:  rawptr,
-    // Emacs-style recenter (Ctrl+Shift+J): repeated presses cycle the caret line
-    // through center/top/bottom of the viewport. The phase resets whenever the
-    // caret moves somewhere new.
+    // recenter (Ctrl+Shift+J): repeated presses cycle the caret line
+    // center/top/bottom. Phase resets when the caret moves.
     recenter_phase:     int,
     recenter_caret:     int,
-    // Buffer-word autocompletion popup (VS Code style): appears while typing a
-    // word with more matches elsewhere in the buffer. Items are owned clones.
+    // Buffer-word autocompletion popup, shown while typing a word with matches
+    // elsewhere. Items are owned clones.
     completion_active:   bool,
     completion_items:    [dynamic]string,
     completion_selected: int,
@@ -165,8 +160,7 @@ editor_layout :: proc(widget: ^ui.Widget, bounds: rl.Rectangle) {
     editor_clamp_scroll(editor)
 }
 
-// Sizes the line-number gutter to just fit the widest line number, so small
-// files get a narrow gutter and large ones grow only as needed.
+// Sizes the gutter to fit the widest line number.
 @(private = "file")
 editor_update_gutter :: proc(editor: ^Editor) {
     if editor.state == nil {
@@ -189,7 +183,7 @@ editor_text_width :: proc(editor: ^Editor) -> f32 {
 }
 
 // Rebuilds the visual-row list from the buffer. Wrapping uses the monospace
-// advance width, so this stays a cheap rune walk (no per-line shaping).
+// advance, so this stays a cheap rune walk (no per-line shaping).
 editor_rebuild_visual_rows :: proc(editor: ^Editor) {
     clear(&editor.visual_rows)
     if editor.state == nil {
@@ -219,8 +213,8 @@ editor_rebuild_visual_rows :: proc(editor: ^Editor) {
     }
 }
 
-// Appends the visual rows for one logical line, breaking at the last space that
-// fits when a break is needed (falling back to a hard character break).
+// Appends the visual rows for one logical line, breaking at the last fitting
+// space (falling back to a hard character break).
 @(private = "file")
 editor_wrap_line :: proc(editor: ^Editor, text: string, line_start, line_end, cols, line_index: int) {
     if line_start == line_end {
@@ -254,8 +248,7 @@ editor_wrap_line :: proc(editor: ^Editor, text: string, line_start, line_end, co
     append(&editor.visual_rows, Visual_Row {seg_start, line_end, line_index, first})
 }
 
-// Index of the visual row that owns byte offset pos (the earliest row that
-// contains it); 0 when there are no rows.
+// Index of the earliest visual row that owns byte offset `pos`; 0 when empty.
 @(private = "file")
 editor_visual_row_index :: proc(editor: ^Editor, pos: int) -> int {
     for row, index in editor.visual_rows {
@@ -343,8 +336,7 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
         }
         if event.codepoint >= 32 && event.codepoint != 127 {
             editor_type_rune(editor, event.codepoint)
-            // Refresh the autocompletion popup while typing a word; any other
-            // character (space, punctuation, a closed pair) dismisses it.
+            // Refresh the popup while typing a word; any other character dismisses it.
             if editor_is_word_rune(event.codepoint) {
                 editor_update_completion(editor)
             } else {
@@ -364,8 +356,7 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
 // Inserts a typed character, auto-pairing brackets and quotes.
 editor_type_rune :: proc(editor: ^Editor, r: rune) {
     state := editor.state
-    // Typing `{` at the end of a line opens a three-line block with the caret
-    // indented on the middle line; elsewhere it falls back to a plain pair.
+    // `{` at the end of a line opens a three-line block; elsewhere a plain pair.
     if r == '{' && textedit.brace_block_applies(state) {
         textedit.insert_brace_block(state)
     } else if close, ok := textedit.auto_close_for(r); ok {
@@ -385,9 +376,8 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
     ctrl_only := event.ctrl && !event.alt
     alt_only := event.alt && !event.ctrl
 
-    // While the autocompletion popup is up it owns the plain navigation and
-    // accept keys. Any modifier chord is a command, so it closes the popup and
-    // runs normally; Backspace/Delete fall through and refresh it afterwards.
+    // While the popup is up it owns the plain navigation and accept keys. A
+    // modifier chord closes it and runs normally; Backspace/Delete refresh it.
     if editor.completion_active {
         if event.ctrl || event.alt {
             editor_dismiss_completion(editor)
@@ -425,8 +415,8 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
         }
     }
 
-    // The comment-toggle chord is configurable (keybinds.json), so it is
-    // matched here rather than as a fixed case in the switch below.
+    // The comment-toggle chord is configurable, so match it here rather than
+    // as a fixed case in the switch below.
     if editor.comment_prefix != "" &&
        setting.keybind_matches(editor.comment_keybind, event.key, event.ctrl, event.shift, event.alt) {
         textedit.toggle_comment(state, editor.comment_prefix)
@@ -636,16 +626,15 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
             return true
         }
     case .K:
-        // ctrl+k (no shift) is the comment toggle, handled above via the
-        // configurable keybind; ctrl+shift+k deletes the line.
+        // ctrl+shift+k deletes the line; ctrl+k is the comment toggle above.
         if ctrl_only && event.shift {
             textedit.delete_lines(state)
             editor_scroll_to_caret(editor)
             return true
         }
     case .P:
-        // ctrl+p jumps to the matching/enclosing bracket; ctrl+shift+p
-        // selects everything between the brackets (excluding them).
+        // ctrl+p jumps to the matching/enclosing bracket; ctrl+shift+p selects
+        // between them, excluding the brackets.
         if ctrl_only {
             if event.shift {
                 textedit.select_between_brackets(state)
@@ -725,8 +714,8 @@ editor_paste :: proc(editor: ^Editor) {
     }
 }
 
-// Scrolls so the caret line sits at the center of the viewport; repeated calls
-// without the caret moving cycle center -> top -> bottom (emacs C-l).
+// Scrolls the caret line to center; repeated calls without the caret moving
+// cycle center -> top -> bottom.
 editor_recenter :: proc(editor: ^Editor) {
     if editor.state == nil {
         return
@@ -779,9 +768,8 @@ editor_dismiss_completion :: proc(editor: ^Editor) {
     editor.completion_prefix = 0
 }
 
-// Rebuilds the completion candidate list from the word being typed at the caret:
-// distinct words elsewhere in the buffer that start with the same prefix. Only
-// runs for a single collapsed cursor; empty results dismiss the popup.
+// Rebuilds the candidate list: distinct words elsewhere in the buffer sharing
+// the typed prefix. Single collapsed cursor only; empty results dismiss the popup.
 @(private = "file")
 editor_update_completion :: proc(editor: ^Editor) {
     if len(editor.state.cursors) != 1 || textedit.has_any_selection(editor.state) {
@@ -893,9 +881,8 @@ editor_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
         return
     }
 
-    // An edit made during this frame's event pass (command palette, menu or a
-    // global keybind) can leave the rows built at layout time pointing past the
-    // now-shorter buffer; re-sync before any row extent is used as a slice index.
+    // An out-of-band edit this frame can leave the layout-time rows pointing
+    // past a now-shorter buffer; re-sync before a row extent is used as an index.
     if editor.state.revision != editor.rows_revision {
         editor_rebuild_visual_rows(editor)
         editor_clamp_scroll(editor)
@@ -962,8 +949,8 @@ editor_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
                 continue
             }
             caret_x := cast(f32) text_x + cast(f32) ui.measure_text(text[row.start:cursor.caret], editor.font_size)
-            // Text is top-aligned, so anchor the caret to the line top and
-            // size it to the glyph height (not the full line height).
+            // Text is top-aligned: anchor the caret to the line top, sized to
+            // the glyph height, not the full line height.
             rl.DrawRectangle(
                 cast(i32) caret_x,
                 cast(i32) caret_y,
@@ -983,9 +970,8 @@ editor_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
     }
 }
 
-// Screen position of the primary caret's baseline (x, top y) and the line
-// height, using the current row map and scroll. ok=false when there is nothing
-// to anchor to.
+// Screen x, top y, and line height of the primary caret. ok=false when there
+// is nothing to anchor to.
 @(private = "file")
 editor_caret_screen :: proc(editor: ^Editor) -> (x, y, line_height: f32, ok: bool) {
     if editor.state == nil || len(editor.visual_rows) == 0 {
@@ -1003,8 +989,8 @@ editor_caret_screen :: proc(editor: ^Editor) -> (x, y, line_height: f32, ok: boo
     return xx, yy, lh, true
 }
 
-// Draws the autocompletion popup anchored under the caret (flipping above when
-// there is no room below, and nudging left to stay inside the editor bounds).
+// Draws the completion popup under the caret, flipping above when there is no
+// room below and nudging left to stay inside the editor bounds.
 @(private = "file")
 editor_draw_completion :: proc(editor: ^Editor) {
     if !editor.completion_active || len(editor.completion_items) == 0 {
@@ -1061,8 +1047,8 @@ editor_draw_completion :: proc(editor: ^Editor) {
     }
 }
 
-// Vertical scrollbar on the right edge, shown only when the document is taller
-// than the view. The thumb size and position track scroll_y.
+// Vertical scrollbar on the right edge, shown only when the document overflows
+// the view. Thumb size and position track scroll_y.
 editor_draw_scrollbar :: proc(editor: ^Editor, line_height: f32) {
     view_height := editor.bounds.height - editor.padding.top - editor.padding.bottom
     content_height := cast(f32) len(editor.visual_rows) * line_height
@@ -1082,9 +1068,8 @@ editor_draw_scrollbar :: proc(editor: ^Editor, line_height: f32) {
     rl.DrawRectangleRec(rl.Rectangle {track_x, thumb_y, width, thumb_height}, editor.line_number_color)
 }
 
-// Draws one visual row, coloring byte ranges from the highlight spans and using
-// the default text color for the gaps. `hl_start` is the first span that may
-// touch this row. Falls back to a single flat draw when there are no spans.
+// Draws one visual row, coloring byte ranges from the highlight spans and the
+// default color for the gaps. `hl_start` is the first span that may touch it.
 editor_draw_row_text :: proc(editor: ^Editor, text: string, row: Visual_Row, hl_start: int, text_x, row_y: i32) {
     if len(editor.highlights) == 0 {
         ui.draw_text(text[row.start:row.end], text_x, row_y, editor.font_size, editor.text_color)
@@ -1200,8 +1185,8 @@ editor_select_to :: proc(editor: ^Editor, position: rl.Vector2) {
     }
 }
 
-// Word-drag after a double-click: extends selection by whole words, always
-// keeping the originally double-clicked word (word_lo..word_hi) covered.
+// Word-drag after a double-click: extends by whole words, always covering the
+// double-clicked word (word_lo..word_hi).
 editor_word_select_to :: proc(editor: ^Editor, position: rl.Vector2) {
     pos, ok := editor_pos_at(editor, position)
     if !ok {
@@ -1222,8 +1207,7 @@ editor_word_select_to :: proc(editor: ^Editor, position: rl.Vector2) {
 }
 
 editor_scroll_to_caret :: proc(editor: ^Editor) {
-    // The buffer may have changed since the last layout (e.g. a keystroke), so
-    // refresh the row map before locating the caret.
+    // The buffer may have changed since layout, so refresh the row map first.
     editor_rebuild_visual_rows(editor)
     row_index := editor_visual_row_index(editor, textedit.primary_cursor(editor.state).caret)
     line_height := cast(f32) ui.text_line_height(editor.font_size)
@@ -1239,8 +1223,8 @@ editor_scroll_to_caret :: proc(editor: ^Editor) {
     editor_clamp_scroll(editor)
 }
 
-// Moves every cursor by `delta` visual rows, keeping its column. Used for plain
-// Up/Down and Page so vertical motion follows wrapped rows.
+// Moves every cursor by `delta` visual rows, keeping its column, so vertical
+// motion follows wrapped rows (plain Up/Down and Page).
 editor_move_visual :: proc(editor: ^Editor, delta: int, extend: bool) {
     editor_rebuild_visual_rows(editor)
     if len(editor.visual_rows) == 0 {

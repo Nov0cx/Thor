@@ -13,10 +13,8 @@ thor_minimize_window :: proc(_: rawptr, _: ^ui.Context, _: ^ui.Widget) {
 
 thor_toggle_maximize :: proc(data: rawptr, _: ^ui.Context, _: ^ui.Widget) {
     thor := cast(^Thor) data
-    // IsWindowMaximized() can keep reporting false after MaximizeWindow() on an
-    // undecorated window, which left the button stuck (never taking the restore
-    // branch) once the window was filling the screen. Track the state ourselves
-    // so the toggle is always symmetric.
+    // IsWindowMaximized() can report false after MaximizeWindow() on an
+    // undecorated window, so track the state ourselves to keep the toggle symmetric.
     if thor.window_maximized {
         rl.RestoreWindow()
     } else {
@@ -39,10 +37,8 @@ thor_toggle_fullscreen :: proc(_: ^Thor) {
 thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
     thor := cast(^Thor) data
 
-    // Let plugins observe every key press (the interactive tutorial advances
-    // here). The chord uses the same display format as thor.keybind so a plugin
-    // can compare directly; a plugin normally observes without consuming, so the
-    // real action below still runs.
+    // Let plugins observe every key press. The chord matches thor.keybind's
+    // format; observing without consuming lets the real action below still run.
     if chord := setting.keybind_to_string(
         setting.Keybind{key = event.key, ctrl = event.ctrl, shift = event.shift, alt = event.alt},
         context.temp_allocator,
@@ -144,9 +140,8 @@ thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
     return false
 }
 
-// Switches to the file that was active before the current one, if it is still
-// open. Because thor_set_active_file records the file being left, pressing the
-// flip key twice returns to where you started (a two-file toggle).
+// Switches to the previously active file, if still open. Pressing twice toggles
+// back, since thor_set_active_file records the file being left.
 thor_flip_last_file :: proc(thor: ^Thor) {
     target := thor.last_active_file
     if target == nil {

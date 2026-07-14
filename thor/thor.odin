@@ -99,9 +99,8 @@ Thor :: struct {
     git_branch:               string,
     open_files:               [dynamic]^Open_File,
     zombie_files:             [dynamic]^Open_File,
-    // Worker threads append finished jobs here; the queues are created on
-    // the main thread so appends go through the stored (mutex-guarded)
-    // allocator, and are drained on the main thread every frame.
+    // Worker threads append finished jobs here under io_mutex; drained on the
+    // main thread every frame.
     io_mutex:                 sync.Mutex,
     finished_loads:           [dynamic]^Load_Job,
     finished_saves:           [dynamic]^Save_Job,
@@ -123,12 +122,9 @@ init :: proc() -> ^Thor {
         phase^ = time.tick_now()
     }
 
-    // Resolve the folder to open (the workspace) BEFORE we move the process
-    // CWD. A path argument wins; otherwise it is the directory Thor was
-    // launched from. This must run first: everything below (assets, settings,
-    // theme) loads relative to the CWD, which we then repoint at the
-    // executable's directory so those resolve no matter where Thor was
-    // launched from. workspace_dir stays an owned, absolute path.
+    // Resolve the workspace (owned, absolute) BEFORE moving the CWD: a path
+    // argument wins, else the launch directory. Everything below loads relative
+    // to the CWD, which we then repoint at the exe directory.
     workspace_dir: string
     if len(os.args) > 1 {
         abs, abs_err := filepath.abs(os.args[1], context.allocator)
@@ -145,9 +141,8 @@ init :: proc() -> ^Thor {
         log.warnf("Could not resolve executable path: %v", exe_err)
     }
 
-    // Parse the font/icon manifests and rasterize every preload size on
-    // worker threads while the main thread creates the window and builds
-    // the widget tree.
+    // Rasterize fonts on worker threads while the main thread creates the
+    // window and builds the widget tree.
     ui.text_begin_async_load("assets/fonts/fonts.json", "assets/icons/icons.json")
     lap(&phase, "text_begin_async_load")
 

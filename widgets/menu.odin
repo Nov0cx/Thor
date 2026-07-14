@@ -8,10 +8,9 @@ import "../ui"
 // click position; the owner (thor) populates and opens the shared Menu.
 Context_Menu_Proc :: #type proc(data: rawptr, position: rl.Vector2)
 
-// A floating menu used both for right-click context menus and top-bar
-// dropdowns. It draws its own rows (no child widgets) and, while open, captures
-// the whole screen so a click anywhere outside the box dismisses it — the same
-// overlay pattern as the command palette.
+// A floating menu for context menus and top-bar dropdowns. Draws its own rows
+// (no child widgets) and, while open, captures the whole screen so an outside
+// click dismisses it.
 Menu_Item :: struct {
     label:     string, // borrowed; caller owns (string literals are fine)
     run:       proc(data: rawptr),
@@ -205,8 +204,8 @@ menu_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
         return
     }
 
-    // Mouse_Move is only dispatched while a button is held, so track the
-    // hovered row here from the live cursor position (as the tree does).
+    // Mouse_Move fires only while a button is held, so track the hovered row
+    // here from the live cursor position.
     menu.hovered = menu_row_at(menu, ctx.mouse_pos)
 
     rl.DrawRectangleRec(menu.box, menu.background_color)
