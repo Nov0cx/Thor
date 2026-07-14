@@ -2,6 +2,7 @@ package thor
 
 import rl "vendor:raylib"
 
+import "../plugin"
 import "../setting"
 import "../ui"
 import "../widgets"
@@ -37,6 +38,19 @@ thor_toggle_fullscreen :: proc(_: ^Thor) {
 // ui.context_set_global_key): they work no matter what is focused.
 thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
     thor := cast(^Thor) data
+
+    // Let plugins observe every key press (the interactive tutorial advances
+    // here). The chord uses the same display format as thor.keybind so a plugin
+    // can compare directly; a plugin normally observes without consuming, so the
+    // real action below still runs.
+    if chord := setting.keybind_to_string(
+        setting.Keybind{key = event.key, ctrl = event.ctrl, shift = event.shift, alt = event.alt},
+        context.temp_allocator,
+    ); chord != "" {
+        if plugin.manager_dispatch_key(&thor.plugins, chord, event.ctrl, event.shift, event.alt) {
+            return true
+        }
+    }
 
     // The command palette toggle works no matter what is focused.
     if setting.keybind_matches(thor.command_palette_key, event.key, event.ctrl, event.shift, event.alt) {

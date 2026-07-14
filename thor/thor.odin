@@ -137,7 +137,8 @@ init :: proc() -> ^Thor {
     ui.context_init(&thor.ui_context)
     thor.config = setting.load("settings")
     plugin.manager_init(&thor.plugins)
-    plugin.manager_load(&thor.plugins)
+    // Plugins are loaded later (after the console exists and the host services
+    // are wired) so a plugin can print and read keybinds from its load body.
     thor.theme, _ = ui.theme_load("assets/themes/material-deep-ocean.json")
     thor.active_file = ui.make_signal(-1)
     thor.explorer_visible = ui.make_signal(true)
@@ -176,6 +177,11 @@ init :: proc() -> ^Thor {
     thor_wire_menus(thor)
     widgets.console_set_on_run(thor.console, thor_console_run, thor)
     thor_apply_settings(thor)
+
+    // Now that the console and keybinds exist, expose the host services and load
+    // plugins (their load body may print or query keybinds, e.g. the tutorial).
+    plugin.manager_set_host(&thor.plugins, thor, thor_plugin_print, thor_plugin_keybind, thor_plugin_doc)
+    plugin.manager_load(&thor.plugins)
     thor_set_active_file(thor, -1)
     thor_apply_layout_state(thor)
     ui.context_set_root(&thor.ui_context, &thor.root_panel.widget)

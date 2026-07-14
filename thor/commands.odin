@@ -166,6 +166,7 @@ thor_register_commands :: proc(thor: ^Thor) {
     widgets.command_palette_add(p, "Selection: Add Cursor Below", thor_cmd_add_cursor_below, thor, sc(thor, "add_cursor_below"))
     widgets.command_palette_add(p, "Go to Matching Bracket", thor_cmd_matching_bracket, thor, sc(thor, "matching_bracket"))
 
+    widgets.command_palette_add(p, "Help: Tutorial", thor_cmd_tutorial, thor)
     widgets.command_palette_add(p, "Settings: Open Keybinds", thor_cmd_open_keybinds, thor)
     widgets.command_palette_add(p, "Settings: Open Comments", thor_cmd_open_comments, thor)
     widgets.command_palette_add(p, "Settings: Open General Settings", thor_cmd_open_settings, thor)

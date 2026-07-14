@@ -246,6 +246,7 @@ thor_open_view_menu :: proc(data: rawptr, ctx: ^ui.Context, widget: ^ui.Widget) 
 thor_open_help_menu :: proc(data: rawptr, ctx: ^ui.Context, widget: ^ui.Widget) {
     thor := cast(^Thor) data
     widgets.menu_clear(thor.menu)
+    widgets.menu_add(thor.menu, "Tutorial", thor_cmd_tutorial, thor)
     widgets.menu_add(thor.menu, "Command Palette", thor_cmd_command_palette, thor)
     widgets.menu_add_separator(thor.menu)
     widgets.menu_add(thor.menu, "Open Keybinds", thor_cmd_open_keybinds, thor)
