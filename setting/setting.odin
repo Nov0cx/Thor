@@ -41,10 +41,23 @@ load :: proc(dir: string) -> Settings {
     s.keybinds = make(map[string]Keybind)
     s.general = General {tab_width = 4, font_size = 18, autosave_delay_ms = 1500}
 
-    load_comments(&s, strings.concatenate({dir, "/comments.json"}, context.temp_allocator))
-    load_keybinds(&s, strings.concatenate({dir, "/keybinds.json"}, context.temp_allocator))
-    load_general(&s, strings.concatenate({dir, "/settings.json"}, context.temp_allocator))
+    load_dir(&s, dir)
     return s
+}
+
+// Overlays the config found in dir on top of an already-loaded Settings.
+// Per-key entries in dir win; a missing or malformed file leaves the base
+// untouched. Used to layer a workspace's .thor/ config over the global
+// defaults loaded by load().
+load_overlay :: proc(s: ^Settings, dir: string) {
+    load_dir(s, dir)
+}
+
+@(private)
+load_dir :: proc(s: ^Settings, dir: string) {
+    load_comments(s, strings.concatenate({dir, "/comments.json"}, context.temp_allocator))
+    load_keybinds(s, strings.concatenate({dir, "/keybinds.json"}, context.temp_allocator))
+    load_general(s, strings.concatenate({dir, "/settings.json"}, context.temp_allocator))
 }
 
 destroy :: proc(s: ^Settings) {
@@ -287,8 +300,21 @@ load_comments :: proc(s: ^Settings, path: string) {
             if !ext_str_ok {
                 continue
             }
-            s.comments[strings.clone(string(ext))] = strings.clone(string(line))
+            put_comment(s, string(ext), string(line))
         }
+    }
+}
+
+// Inserts or overwrites a comment marker. On overwrite the existing owned
+// key is reused and the old value freed, so overlaying config over a base
+// entry does not leak (matters under the debug tracking allocator).
+@(private)
+put_comment :: proc(s: ^Settings, ext, line: string) {
+    if old, ok := s.comments[ext]; ok {
+        delete(old)
+        s.comments[ext] = strings.clone(line)
+    } else {
+        s.comments[strings.clone(ext)] = strings.clone(line)
     }
 }
 
@@ -338,7 +364,11 @@ load_keybinds :: proc(s: ^Settings, path: string) {
                 log.warnf("Settings %q: %s.%s has invalid binding %q", path, group_name, action, spec)
                 continue
             }
-            s.keybinds[strings.clone(action)] = kb
+            if _, ok := s.keybinds[action]; ok {
+                s.keybinds[action] = kb // reuse existing owned key
+            } else {
+                s.keybinds[strings.clone(action)] = kb
+            }
         }
     }
 }

@@ -84,6 +84,9 @@ Thor :: struct {
     console_height:           f32,
     workspace_dir:            string,
     workspace_prefix:         string, // workspace_dir + separator, for palette display
+    // True when workspace_dir has a .thor/ directory: its config overlays the
+    // global settings, and it is treated as an initialized workspace.
+    workspace_initialized:    bool,
     // Directory a New File/Folder prompt creates into; set from the explorer
     // right-click target or the workspace root. Owned clone.
     menu_target_dir:          string,
@@ -159,7 +162,7 @@ init :: proc() -> ^Thor {
 
     thor := new(Thor)
     ui.context_init(&thor.ui_context)
-    thor.config = setting.load("settings")
+    thor_load_config(thor, workspace_dir)
     plugin.manager_init(&thor.plugins)
     // Plugins are loaded later (after the console exists and the host services
     // are wired) so a plugin can print and read keybinds from its load body.

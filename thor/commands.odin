@@ -1,5 +1,6 @@
 package thor
 
+import "core:log"
 import "core:os"
 import "core:strings"
 import win32 "core:sys/windows"
@@ -90,8 +91,52 @@ thor_apply_settings :: proc(thor: ^Thor) {
 
 thor_reload_settings :: proc(thor: ^Thor) {
     setting.destroy(&thor.config)
-    thor.config = setting.load("settings")
+    thor_load_config(thor, thor.workspace_dir)
     thor_apply_settings(thor)
+}
+
+// Directory holding a workspace's config, i.e. <workspace>/.thor.
+thor_workspace_config_dir :: proc(workspace_dir: string, allocator := context.temp_allocator) -> string {
+    return strings.concatenate({workspace_dir, "/.thor"}, allocator)
+}
+
+// Loads the global settings/ config, then overlays the workspace's .thor/
+// config when the folder has been initialized (recording that in
+// workspace_initialized). Shared by startup and Settings: Reload so both paths
+// layer identically.
+thor_load_config :: proc(thor: ^Thor, workspace_dir: string) {
+    thor.config = setting.load("settings")
+    cfg_dir := thor_workspace_config_dir(workspace_dir)
+    thor.workspace_initialized = os.is_dir(cfg_dir)
+    if thor.workspace_initialized {
+        setting.load_overlay(&thor.config, cfg_dir)
+    }
+}
+
+// Starter contents for a new .thor/settings.json (the current defaults, so the
+// file is a ready-to-edit template rather than empty).
+@(private = "file")
+WORKSPACE_SETTINGS_TEMPLATE :: "{\n    \"tab_width\": 4,\n    \"font_size\": 18,\n    \"autosave_delay_ms\": 1500\n}\n"
+
+// Promotes the current folder to a workspace: creates <workspace>/.thor/ with a
+// starter settings.json (committable; nothing is gitignored) and reloads so the
+// overlay applies immediately. Already-initialized workspaces just reload.
+thor_cmd_init_workspace :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    cfg_dir := thor_workspace_config_dir(thor.workspace_dir)
+    if !os.is_dir(cfg_dir) {
+        if err := os.make_directory(cfg_dir); err != nil {
+            log.errorf("Could not create workspace dir %q: %v", cfg_dir, err)
+            return
+        }
+    }
+    settings_path := strings.concatenate({cfg_dir, "/settings.json"}, context.temp_allocator)
+    if !os.exists(settings_path) {
+        if err := os.write_entire_file(settings_path, transmute([]u8) string(WORKSPACE_SETTINGS_TEMPLATE)); err != nil {
+            log.errorf("Could not write %q: %v", settings_path, err)
+        }
+    }
+    thor_reload_settings(thor)
 }
 
 thor_open_find :: proc(thor: ^Thor, show_replace: bool) {
@@ -179,6 +224,7 @@ thor_register_commands :: proc(thor: ^Thor) {
     widgets.command_palette_add(p, "Settings: Open General Settings", thor_cmd_open_settings, thor)
     widgets.command_palette_add(p, "Settings: Add Font", thor_cmd_add_font, thor)
     widgets.command_palette_add(p, "Settings: Reload", thor_cmd_reload_settings, thor)
+    widgets.command_palette_add(p, "Workspace: Initialize", thor_cmd_init_workspace, thor)
     widgets.command_palette_add(p, "Preferences: New Theme", thor_cmd_new_theme, thor)
 }
 
