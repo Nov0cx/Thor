@@ -160,6 +160,11 @@ editor_layout :: proc(widget: ^ui.Widget, bounds: rl.Rectangle) {
     editor_clamp_scroll(editor)
 }
 
+// Space between the pane border and the line numbers, and between the numbers
+// and the text column. Kept apart so the numbers clear the border on the left.
+GUTTER_PAD_LEFT :: 14
+GUTTER_PAD_RIGHT :: 12
+
 // Sizes the gutter to fit the widest line number.
 @(private = "file")
 editor_update_gutter :: proc(editor: ^Editor) {
@@ -172,8 +177,7 @@ editor_update_gutter :: proc(editor: ^Editor) {
         digits += 1
     }
     char_width := cast(f32) ui.measure_text("0", editor.font_size)
-    // At least 2 digits wide, plus a little breathing room on each side.
-    editor.gutter_width = char_width * cast(f32) max(digits, 2) + 14
+    editor.gutter_width = GUTTER_PAD_LEFT + char_width * cast(f32) max(digits, 2) + GUTTER_PAD_RIGHT
 }
 
 // Width available for text (inside the gutter, padding and scrollbar).
@@ -932,9 +936,10 @@ editor_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
         if row.first {
             displayed_number := row.line == caret_line ? row.line + 1 : abs(row.line - caret_line)
             line_number_text := fmt.tprintf("%d", displayed_number)
-            // Right-align the number against the text so the gutter stays tight.
+            // Right-align the number within the gutter, leaving GUTTER_PAD_RIGHT
+            // before the text column so the digits clear both edges.
             number_width := ui.measure_text(line_number_text, editor.font_size)
-            number_x := cast(i32) (editor.bounds.x + editor.gutter_width - 8) - number_width
+            number_x := cast(i32) (editor.bounds.x + editor.gutter_width - GUTTER_PAD_RIGHT) - number_width
             ui.draw_text(line_number_text, number_x, cast(i32) row_y, editor.font_size, editor.line_number_color)
         }
         editor_draw_row_text(editor, text, row, hl, text_x, cast(i32) row_y)
