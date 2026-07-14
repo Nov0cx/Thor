@@ -24,38 +24,93 @@ thor_apply_layout_state :: proc(thor: ^Thor) {
     thor.console_panel.min_size[1] = thor.console_height
 }
 
-// Points the editor at the active file's buffer. A still-loading file leaves
-// the editor empty (state nil); thor_process_io re-runs this once it loads.
+// Widget for a pane index (0 = primary, 1 = split).
+@(private = "file")
+thor_pane_editor :: proc(thor: ^Thor, pane: int) -> ^widgets.Editor {
+    return pane == 0 ? thor.editor : thor.editor2
+}
+
+// Mirrors the focused pane's file into the active_file signal, the value the
+// tabbar, status bar and file commands read.
+thor_sync_active_signal :: proc(thor: ^Thor) {
+    ui.signal_set(&thor.active_file, thor.pane_file[thor.active_pane])
+}
+
+// Opens `index` in the focused pane. A still-loading file leaves the pane empty
+// (state nil); thor_process_io re-binds it once the load lands.
 thor_set_active_file :: proc(thor: ^Thor, index: int) {
     // Remember the file we are leaving so ctrl+e can flip back. Only a switch to
     // a different file updates it; a same-index refresh must not clobber it.
     previous := thor_active_open_file(thor)
-    ui.signal_set(&thor.active_file, index)
+    thor.pane_file[thor.active_pane] = index
+    thor_sync_active_signal(thor)
 
     file := thor_active_open_file(thor)
     if previous != nil && previous != file {
         thor.last_active_file = previous
     }
-    if file == nil {
-        thor.editor.placeholder = "No file open"
-        widgets.editor_set_state(thor.editor, nil)
-        return
-    }
+    thor_bind_pane(thor, thor.active_pane)
+}
 
-    if file.load_failed {
-        thor.editor.placeholder = "Could not open file"
-        widgets.editor_set_state(thor.editor, nil)
-        return
+// Points one pane's editor at whatever file its index names (or empties it).
+thor_bind_pane :: proc(thor: ^Thor, pane: int) {
+    index := thor.pane_file[pane]
+    file: ^Open_File
+    if index >= 0 && index < len(thor.open_files) {
+        file = thor.open_files[index]
     }
-    if !file.loaded {
-        thor.editor.placeholder = "Loading..."
-        widgets.editor_set_state(thor.editor, nil)
-        return
-    }
+    thor_bind_editor(thor, thor_pane_editor(thor, pane), file)
+}
 
-    widgets.editor_set_comment_prefix(thor.editor, setting.comment_prefix(&thor.config, file.name))
-    widgets.editor_set_state(thor.editor, &file.state)
-    widgets.editor_set_highlights(thor.editor, file.highlights[:])
+// Binds a single editor widget to a file's buffer, or shows a placeholder while
+// there is nothing loaded to draw.
+thor_bind_editor :: proc(thor: ^Thor, editor: ^widgets.Editor, file: ^Open_File) {
+    if file == nil || file.load_failed || !file.loaded {
+        editor.placeholder = "No file open"
+        if file != nil {
+            editor.placeholder = file.load_failed ? "Could not open file" : "Loading..."
+        }
+        widgets.editor_set_state(editor, nil)
+        return
+    }
+    widgets.editor_set_comment_prefix(editor, setting.comment_prefix(&thor.config, file.name))
+    widgets.editor_set_state(editor, &file.state)
+    widgets.editor_set_highlights(editor, file.highlights[:])
+}
+
+// Re-binds any pane currently showing `file` (used after its load completes).
+thor_rebind_file_panes :: proc(thor: ^Thor, file: ^Open_File) {
+    for index, pane in thor.pane_file {
+        if index >= 0 && index < len(thor.open_files) && thor.open_files[index] == file {
+            thor_bind_pane(thor, pane)
+        }
+    }
+}
+
+// Pushes `file`'s fresh highlight spans to every pane showing it.
+thor_apply_file_highlights :: proc(thor: ^Thor, file: ^Open_File) {
+    for index, pane in thor.pane_file {
+        if index >= 0 && index < len(thor.open_files) && thor.open_files[index] == file {
+            widgets.editor_set_highlights(thor_pane_editor(thor, pane), file.highlights[:])
+        }
+    }
+}
+
+// Follows keyboard focus: whichever editor pane holds focus becomes the active
+// pane, so the tabbar and status bar track it. Called once per frame.
+thor_sync_active_pane :: proc(thor: ^Thor) {
+    pane := thor.active_pane
+    if !thor.split_visible {
+        pane = 0
+    } else if thor.ui_context.focused == &thor.editor.widget {
+        pane = 0
+    } else if thor.ui_context.focused == &thor.editor2.widget {
+        pane = 1
+    }
+    if pane != thor.active_pane {
+        thor.active_pane = pane
+        thor_sync_active_signal(thor)
+    }
 }
 
 thor_status_info :: proc(data: rawptr) -> widgets.Status_Info {

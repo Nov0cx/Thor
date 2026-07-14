@@ -27,13 +27,16 @@ test_async_file_roundtrip :: proc(t: ^testing.T) {
     thor.zombie_files = make([dynamic]^Open_File)
     thor.finished_loads = make([dynamic]^Load_Job)
     thor.finished_saves = make([dynamic]^Save_Job)
+    thor.pane_file = {-1, -1}
     thor.editor = widgets.editor_create("test-editor")
+    thor.editor2 = widgets.editor_create("test-editor2")
     defer {
         delete(thor.open_files)
         delete(thor.zombie_files)
         delete(thor.finished_loads)
         delete(thor.finished_saves)
         widgets.editor_destroy(&thor.editor.widget)
+        widgets.editor_destroy(&thor.editor2.widget)
     }
 
     // Open: spawns the mmap loader thread and activates the tab.

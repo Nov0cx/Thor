@@ -83,8 +83,26 @@ thor_apply_settings :: proc(thor: ^Thor) {
     } else {
         thor.last_file_key = setting.Keybind {key = .E, ctrl = true}
     }
+    // Intentionally unbound by default: an empty chord (KEY_NULL) never matches,
+    // so the split only has a key once "toggle_split" is set in keybinds.json.
+    if kb, ok := setting.keybind(&thor.config, "toggle_split"); ok {
+        thor.split_key = kb
+    } else {
+        thor.split_key = setting.Keybind {}
+    }
+
+    // Resolve each bindable app command's chord from config; an absent or empty
+    // entry leaves it unbound (KEY_NULL), so it stays key-less until the user sets one.
+    for &bind in thor.app_binds {
+        if kb, ok := setting.keybind(&thor.config, bind.action); ok {
+            bind.key = kb
+        } else {
+            bind.key = setting.Keybind {}
+        }
+    }
 
     widgets.editor_set_font_size(thor.editor, cast(i32) setting.font_size(&thor.config))
+    widgets.editor_set_font_size(thor.editor2, cast(i32) setting.font_size(&thor.config))
     textedit.set_tab_width(setting.tab_width(&thor.config))
 }
 
@@ -161,6 +179,39 @@ thor_action_shortcut :: proc(thor: ^Thor, action: string) -> string {
     return ""
 }
 
+// A palette command that is also globally keybindable by its config action
+// name. Only commands with no editor-local key belong here (see app_binds).
+App_Bind :: struct {
+    action: string, // config key; borrowed static literal
+    key:    setting.Keybind,
+    run:    proc(data: rawptr),
+    data:   rawptr,
+}
+
+// Registers a palette command that can also be bound to a key. `action` is the
+// keybinds.json name (shipped empty, so unbound until the user sets a chord).
+@(private = "file")
+thor_add_bindable_command :: proc(thor: ^Thor, title, action: string, run: proc(data: rawptr), data: rawptr) {
+    widgets.command_palette_add(thor.command_palette, title, run, data, thor_action_shortcut(thor, action))
+    append(&thor.app_binds, App_Bind {action = action, run = run, data = data})
+}
+
+// Runs the app command bound to this chord, if any. Called from thor_global_key
+// after the built-in binds, so a user-set chord invokes an otherwise key-less
+// command. Unbound entries (KEY_NULL) never match a real press.
+thor_dispatch_app_bind :: proc(thor: ^Thor, event: ^ui.Event) -> bool {
+    for bind in thor.app_binds {
+        if bind.key.key != .KEY_NULL &&
+           setting.keybind_matches(bind.key, event.key, event.ctrl, event.shift, event.alt) {
+            if bind.run != nil {
+                bind.run(bind.data)
+            }
+            return true
+        }
+    }
+    return false
+}
+
 // Registers every palette command. Titles use a "Category: Action" convention
 // so fuzzy search on the category works too.
 thor_register_commands :: proc(thor: ^Thor) {
@@ -171,23 +222,24 @@ thor_register_commands :: proc(thor: ^Thor) {
     widgets.command_palette_add(p, "View: Toggle Console", thor_cmd_toggle_console, thor, sc(thor, "toggle_console"))
     widgets.command_palette_add(p, "View: Zoom In", thor_cmd_zoom_in, thor, sc(thor, "zoom_in"))
     widgets.command_palette_add(p, "View: Zoom Out", thor_cmd_zoom_out, thor, sc(thor, "zoom_out"))
-    widgets.command_palette_add(p, "View: Reset Zoom", thor_cmd_zoom_reset, thor)
-    widgets.command_palette_add(p, "View: Toggle Maximize", thor_cmd_toggle_maximize, thor)
+    thor_add_bindable_command(thor, "View: Reset Zoom", "reset_zoom", thor_cmd_zoom_reset, thor)
+    thor_add_bindable_command(thor, "View: Toggle Maximize", "toggle_maximize", thor_cmd_toggle_maximize, thor)
     widgets.command_palette_add(p, "View: Toggle Fullscreen", thor_cmd_toggle_fullscreen, thor, sc(thor, "toggle_fullscreen"))
-    widgets.command_palette_add(p, "View: Toggle Word Wrap", thor_cmd_toggle_wrap, thor)
+    thor_add_bindable_command(thor, "View: Toggle Word Wrap", "toggle_word_wrap", thor_cmd_toggle_wrap, thor)
+    widgets.command_palette_add(p, "View: Toggle Split Editor", thor_cmd_toggle_split, thor, sc(thor, "toggle_split"))
     widgets.command_palette_add(p, "View: Recenter", thor_cmd_recenter, thor, sc(thor, "recenter"))
 
-    widgets.command_palette_add(p, "File: New File", thor_cmd_new_file, thor)
-    widgets.command_palette_add(p, "File: New Folder", thor_cmd_new_folder, thor)
+    thor_add_bindable_command(thor, "File: New File", "new_file", thor_cmd_new_file, thor)
+    thor_add_bindable_command(thor, "File: New Folder", "new_folder", thor_cmd_new_folder, thor)
     widgets.command_palette_add(p, "File: Save", thor_cmd_save, thor, sc(thor, "save"))
-    widgets.command_palette_add(p, "File: Save All", thor_cmd_save_all, thor)
+    thor_add_bindable_command(thor, "File: Save All", "save_all", thor_cmd_save_all, thor)
     widgets.command_palette_add(p, "File: Close Tab", thor_cmd_close_tab, thor, sc(thor, "close_tab"))
-    widgets.command_palette_add(p, "File: Close All Tabs", thor_cmd_close_all, thor)
+    thor_add_bindable_command(thor, "File: Close All Tabs", "close_all_tabs", thor_cmd_close_all, thor)
     widgets.command_palette_add(p, "File: Next Tab", thor_cmd_next_tab, thor, sc(thor, "next_tab"))
     widgets.command_palette_add(p, "File: Previous Tab", thor_cmd_prev_tab, thor, sc(thor, "previous_tab"))
     widgets.command_palette_add(p, "File: Switch to Last File", thor_cmd_last_file, thor, sc(thor, "last_file"))
-    widgets.command_palette_add(p, "File: Copy Path", thor_cmd_copy_path, thor)
-    widgets.command_palette_add(p, "File: Reveal in File Explorer", thor_cmd_reveal, thor)
+    thor_add_bindable_command(thor, "File: Copy Path", "copy_path", thor_cmd_copy_path, thor)
+    thor_add_bindable_command(thor, "File: Reveal in File Explorer", "reveal_in_explorer", thor_cmd_reveal, thor)
 
     // Data is the palette itself: these switch it into another input mode.
     widgets.command_palette_add(p, "Go to File", widgets.command_palette_goto_file_command, p, sc(thor, "quick_open"))
@@ -213,14 +265,14 @@ thor_register_commands :: proc(thor: ^Thor) {
     widgets.command_palette_add(p, "Selection: Add Cursor Below", thor_cmd_add_cursor_below, thor, sc(thor, "add_cursor_below"))
     widgets.command_palette_add(p, "Go to Matching Bracket", thor_cmd_matching_bracket, thor, sc(thor, "matching_bracket"))
 
-    widgets.command_palette_add(p, "Help: Tutorial", thor_cmd_tutorial, thor)
-    widgets.command_palette_add(p, "Settings: Open Keybinds", thor_cmd_open_keybinds, thor)
-    widgets.command_palette_add(p, "Settings: Open Comments", thor_cmd_open_comments, thor)
-    widgets.command_palette_add(p, "Settings: Open General Settings", thor_cmd_open_settings, thor)
-    widgets.command_palette_add(p, "Settings: Add Font", thor_cmd_add_font, thor)
-    widgets.command_palette_add(p, "Settings: Reload", thor_cmd_reload_settings, thor)
-    widgets.command_palette_add(p, "Workspace: Initialize", thor_cmd_init_workspace, thor)
-    widgets.command_palette_add(p, "Preferences: New Theme", thor_cmd_new_theme, thor)
+    thor_add_bindable_command(thor, "Help: Tutorial", "tutorial", thor_cmd_tutorial, thor)
+    thor_add_bindable_command(thor, "Settings: Open Keybinds", "open_keybinds", thor_cmd_open_keybinds, thor)
+    thor_add_bindable_command(thor, "Settings: Open Comments", "open_comments", thor_cmd_open_comments, thor)
+    thor_add_bindable_command(thor, "Settings: Open General Settings", "open_settings", thor_cmd_open_settings, thor)
+    thor_add_bindable_command(thor, "Settings: Add Font", "add_font", thor_cmd_add_font, thor)
+    thor_add_bindable_command(thor, "Settings: Reload", "reload_settings", thor_cmd_reload_settings, thor)
+    thor_add_bindable_command(thor, "Workspace: Initialize", "init_workspace", thor_cmd_init_workspace, thor)
+    thor_add_bindable_command(thor, "Preferences: New Theme", "new_theme", thor_cmd_new_theme, thor)
 }
 
 thor_cmd_toggle_explorer :: proc(data: rawptr) {thor_toggle_explorer(data, nil, nil)}
@@ -228,16 +280,28 @@ thor_cmd_toggle_console :: proc(data: rawptr) {thor_toggle_console(data, nil, ni
 thor_cmd_toggle_maximize :: proc(data: rawptr) {thor_toggle_maximize(data, nil, nil)}
 thor_cmd_toggle_fullscreen :: proc(data: rawptr) {thor_toggle_fullscreen(cast(^Thor) data)}
 thor_cmd_toggle_wrap :: proc(data: rawptr) {widgets.editor_toggle_wrap((cast(^Thor) data).editor)}
+thor_cmd_toggle_split :: proc(data: rawptr) {thor_toggle_split(cast(^Thor) data)}
 thor_cmd_find :: proc(data: rawptr) {thor_open_find(cast(^Thor) data, false)}
 thor_cmd_replace :: proc(data: rawptr) {thor_open_find(cast(^Thor) data, true)}
 thor_cmd_save :: proc(data: rawptr) {thor_request_save(data)}
 
-thor_cmd_zoom_in :: proc(data: rawptr) {widgets.editor_zoom((cast(^Thor) data).editor, 1)}
-thor_cmd_zoom_out :: proc(data: rawptr) {widgets.editor_zoom((cast(^Thor) data).editor, -1)}
+// Zoom commands drive both panes so a command-triggered zoom keeps the split in
+// sync (ctrl+scroll still zooms only the hovered pane).
+thor_cmd_zoom_in :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    widgets.editor_zoom(thor.editor, 1)
+    widgets.editor_zoom(thor.editor2, 1)
+}
+thor_cmd_zoom_out :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    widgets.editor_zoom(thor.editor, -1)
+    widgets.editor_zoom(thor.editor2, -1)
+}
 
 thor_cmd_zoom_reset :: proc(data: rawptr) {
     thor := cast(^Thor) data
     widgets.editor_set_font_size(thor.editor, cast(i32) setting.font_size(&thor.config))
+    widgets.editor_set_font_size(thor.editor2, cast(i32) setting.font_size(&thor.config))
 }
 
 thor_cmd_close_tab :: proc(data: rawptr) {

@@ -118,6 +118,16 @@ quote wraps the selection.
 | ctrl + numpad + / numpad - | zoom editor font |
 | ctrl + shift + j | recenter the view on the caret (repeat cycles center / top / bottom) |
 | f12 | toggle borderless fullscreen |
+| (unbound) | toggle the editor split — see below |
+
+## Editor split
+
+"View: Toggle Split Editor" (command palette, or the View menu) shows a second
+editor pane beside the first. The two panes hold **independent files**: focus a
+pane and pick a tab or open a file to change what it shows; the tabbar and
+status bar follow whichever pane has focus. Drag the divider to resize, and each
+pane scrolls and zooms (ctrl + scroll) on its own. Opening the split puts the
+previously active file in the new pane when there is one.
 
 ## Autocompletion
 

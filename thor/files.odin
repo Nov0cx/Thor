@@ -296,13 +296,18 @@ thor_close_file :: proc(thor: ^Thor, index: int) {
     ordered_remove(&thor.open_files, index)
     thor_update_tab_labels(thor)
 
-    active := ui.signal_get(&thor.active_file)
-    if active > index {
-        active -= 1
-    } else if active == index {
-        active = min(index, len(thor.open_files) - 1)
+    // Fix up both panes for the shift: the closed slot falls back to its
+    // neighbour (or none), later slots shift down one.
+    for &pane_index in thor.pane_file {
+        if pane_index == index {
+            pane_index = min(index, len(thor.open_files) - 1)
+        } else if pane_index > index {
+            pane_index -= 1
+        }
     }
-    thor_set_active_file(thor, active)
+    thor_sync_active_signal(thor)
+    thor_bind_pane(thor, 0)
+    thor_bind_pane(thor, 1)
 
     if file.pending_jobs > 0 {
         file.closed = true
@@ -364,11 +369,23 @@ thor_update_files :: proc(thor: ^Thor) {
         }
     }
 
-    // Keep the visible buffer's highlighting current (parse only the active file).
-    if file := thor_active_open_file(thor); file != nil && file.loaded {
-        if !file.highlighted || file.state.revision != file.highlight_revision {
-            thor_update_highlights(thor, file)
-        }
+    // Keep each visible pane's buffer highlighted (only the two shown files).
+    thor_highlight_pane_file(thor, 0)
+    if thor.split_visible && thor.pane_file[1] != thor.pane_file[0] {
+        thor_highlight_pane_file(thor, 1)
+    }
+}
+
+// Re-parses the file shown in `pane` if its highlights are missing or stale.
+@(private = "file")
+thor_highlight_pane_file :: proc(thor: ^Thor, pane: int) {
+    index := thor.pane_file[pane]
+    if index < 0 || index >= len(thor.open_files) {
+        return
+    }
+    file := thor.open_files[index]
+    if file.loaded && (!file.highlighted || file.state.revision != file.highlight_revision) {
+        thor_update_highlights(thor, file)
     }
 }
 
@@ -431,8 +448,8 @@ thor_process_io :: proc(thor: ^Thor) {
         file.pending_jobs -= 1
         thor.inflight_jobs -= 1
 
-        if !file.closed && file == thor_active_open_file(thor) {
-            thor_set_active_file(thor, ui.signal_get(&thor.active_file))
+        if !file.closed {
+            thor_rebind_file_panes(thor, file)
         }
         thor_reap_file(thor, file)
     }

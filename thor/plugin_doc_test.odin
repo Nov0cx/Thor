@@ -26,7 +26,9 @@ test_plugin_doc_opens_and_refreshes :: proc(t: ^testing.T) {
     thor.zombie_files = make([dynamic]^Open_File)
     thor.finished_loads = make([dynamic]^Load_Job)
     thor.finished_saves = make([dynamic]^Save_Job)
+    thor.pane_file = {-1, -1}
     thor.editor = widgets.editor_create("test-editor")
+    thor.editor2 = widgets.editor_create("test-editor2")
     defer {
         for len(thor.open_files) > 0 {
             thor_close_file(thor, 0)
@@ -36,6 +38,7 @@ test_plugin_doc_opens_and_refreshes :: proc(t: ^testing.T) {
         delete(thor.finished_loads)
         delete(thor.finished_saves)
         widgets.editor_destroy(&thor.editor.widget)
+        widgets.editor_destroy(&thor.editor2.widget)
     }
     defer os.remove(PATH)
 

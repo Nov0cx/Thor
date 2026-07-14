@@ -8,9 +8,9 @@ import "../ui"
 import "../widgets"
 
 // Reparses `file` and rebuilds its highlight spans (resolved to theme colors).
-// Only the active file is highlighted, so this runs when its buffer changes.
+// Only the files shown in a pane are highlighted, so this runs when their
+// buffers change.
 thor_update_highlights :: proc(thor: ^Thor, file: ^Open_File) {
-    active := file == thor_active_open_file(thor)
     ext := thor_file_ext(file.name)
 
     clear(&file.highlights)
@@ -24,9 +24,7 @@ thor_update_highlights :: proc(thor: ^Thor, file: ^Open_File) {
 
     file.highlighted = true
     file.highlight_revision = file.state.revision
-    if active {
-        widgets.editor_set_highlights(thor.editor, file.highlights[:])
-    }
+    thor_apply_file_highlights(thor, file)
 }
 
 // File extension including the dot (".odin"), or "" when there is none.

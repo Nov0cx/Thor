@@ -144,6 +144,10 @@ editor_set_state :: proc(editor: ^Editor, state: ^textedit.State) {
     editor.scroll_y = 0
     editor.highlights = nil
     editor.recenter_caret = -1
+    // Rows were built from the previous buffer; drop them so layout/draw rebuild
+    // against the new one. A bare revision check can miss the swap when the two
+    // buffers happen to share a revision number.
+    clear(&editor.visual_rows)
     editor_dismiss_completion(editor)
     editor_clamp_scroll(editor)
 }
@@ -887,7 +891,9 @@ editor_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
 
     // An out-of-band edit this frame can leave the layout-time rows pointing
     // past a now-shorter buffer; re-sync before a row extent is used as an index.
-    if editor.state.revision != editor.rows_revision {
+    // Empty rows with a live state means the pane was shown after this frame's
+    // layout (e.g. the split just toggled on), so build them before drawing.
+    if editor.state.revision != editor.rows_revision || len(editor.visual_rows) == 0 {
         editor_rebuild_visual_rows(editor)
         editor_clamp_scroll(editor)
     }

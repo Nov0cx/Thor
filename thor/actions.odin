@@ -78,11 +78,23 @@ thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
         thor_flip_last_file(thor)
         return true
     }
+    // Toggle the editor split. split_key is KEY_NULL unless the user bound it,
+    // so this never matches a real press until "toggle_split" is set.
+    if setting.keybind_matches(thor.split_key, event.key, event.ctrl, event.shift, event.alt) {
+        thor_toggle_split(thor)
+        return true
+    }
 
     // While an overlay is open it owns the keyboard (dispatched via focus),
     // so app shortcuts below are suppressed.
     if widgets.command_palette_is_open(thor.command_palette) || widgets.find_replace_is_open(thor.find_replace) {
         return false
+    }
+
+    // User-bound app/file/view commands (unbound by default). Checked here so a
+    // bound chord fires regardless of focus, like the built-in binds below.
+    if thor_dispatch_app_bind(thor, event) {
+        return true
     }
 
     // Fullscreen toggle is a bare key (no ctrl), so it is matched before the
@@ -201,6 +213,66 @@ thor_toggle_console :: proc(data: rawptr, _: ^ui.Context, _: ^ui.Widget) {
     thor := cast(^Thor) data
     ui.signal_set(&thor.console_visible, !ui.signal_get(&thor.console_visible))
     thor_apply_layout_state(thor)
+}
+
+// Shows/hides the second editor pane and sizes both from split_ratio. The
+// panes share the active file's buffer; the ratio is pane 1's width share.
+thor_apply_split :: proc(thor: ^Thor) {
+    thor.editor2.visible = thor.split_visible
+    thor.editor_split_splitter.visible = thor.split_visible
+    thor.editor.grow = thor.split_ratio
+    thor.editor2.grow = 1 - thor.split_ratio
+    if thor.split_visible {
+        // Match pane 2's zoom to pane 1 when the split opens; afterwards each
+        // pane zooms independently (ctrl+scroll targets the hovered pane).
+        widgets.editor_set_font_size(thor.editor2, thor.editor.font_size)
+    }
+}
+
+thor_toggle_split :: proc(thor: ^Thor) {
+    thor.split_visible = !thor.split_visible
+    if thor.split_visible {
+        // Start pane 2 on a distinct file when possible (the ctrl+e target),
+        // else mirror pane 1 so there is always something to show.
+        if thor.pane_file[1] < 0 || thor.pane_file[1] >= len(thor.open_files) {
+            thor.pane_file[1] = thor_second_pane_default(thor)
+        }
+        thor_apply_split(thor)
+        thor_bind_pane(thor, 1)
+        thor.active_pane = 1
+        thor.ui_context.focused = &thor.editor2.widget
+    } else {
+        thor_apply_split(thor)
+        thor.active_pane = 0
+        thor.ui_context.focused = &thor.editor.widget
+    }
+    thor_sync_active_signal(thor)
+}
+
+// Index the split pane opens on: the previously active file if it is still open
+// and not already in pane 1, otherwise whatever pane 1 shows.
+@(private = "file")
+thor_second_pane_default :: proc(thor: ^Thor) -> int {
+    if thor.last_active_file != nil {
+        for file, index in thor.open_files {
+            if file == thor.last_active_file && index != thor.pane_file[0] {
+                return index
+            }
+        }
+    }
+    return thor.pane_file[0]
+}
+
+// Splitter drag: shift the pane-1 width share by the dragged fraction of the
+// row, clamped so neither pane collapses.
+thor_resize_split :: proc(data: rawptr, delta: f32) {
+    thor := cast(^Thor) data
+    width := thor.editor_split_row.bounds.width
+    if width <= 0 {
+        return
+    }
+    thor.split_ratio = clamp(thor.split_ratio + delta / width, 0.15, 0.85)
+    thor_apply_split(thor)
 }
 
 thor_resize_explorer :: proc(data: rawptr, delta: f32) {

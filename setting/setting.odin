@@ -172,9 +172,14 @@ write_key_name :: proc(b: ^strings.Builder, key: rl.KeyboardKey) {
 }
 
 // Parses "ctrl+shift+k" into a Keybind. Modifiers are order-insensitive; the
-// single non-modifier token names the key (see key_from_name).
+// single non-modifier token names the key (see key_from_name). An empty (or
+// whitespace-only) spec is an explicit unbind: a valid Keybind whose key is
+// KEY_NULL, which keybind_matches never matches against a real press.
 parse_keybind :: proc(spec: string) -> (Keybind, bool) {
     kb: Keybind
+    if strings.trim_space(spec) == "" {
+        return kb, true
+    }
     key_set := false
 
     parts := strings.split(spec, "+", context.temp_allocator)

@@ -40,6 +40,11 @@ Thor :: struct {
     tabbar:                   ^widgets.Tabbar,
     statusbar:                ^widgets.Statusbar,
     editor:                   ^widgets.Editor,
+    // Second editor pane, shown side-by-side with the first when the split is
+    // on. Both view the active file's buffer (shared state, independent scroll).
+    editor2:                  ^widgets.Editor,
+    editor_split_row:         ^widgets.Stack,
+    editor_split_splitter:    ^widgets.Splitter,
     console:                  ^widgets.Console,
     dialog:                   ^widgets.Dialog,
     dialog_stack:             ^widgets.Stack,
@@ -59,6 +64,9 @@ Thor :: struct {
     align_char_key:           setting.Keybind,
     goto_line_key:            setting.Keybind,
     last_file_key:            setting.Keybind,
+    // Toggles the editor split. Unbound by default (KEY_NULL), so it only fires
+    // once the user sets a "toggle_split" chord in keybinds.json.
+    split_key:                setting.Keybind,
     active_file:              ui.Signal(int),
     // Most-recently-active file before the current one, for the ctrl+e flip.
     // Cleared when that file is closed so the pointer never dangles.
@@ -82,6 +90,19 @@ Thor :: struct {
     window_maximized:         bool,
     explorer_width:           f32,
     console_height:           f32,
+    // Editor split: whether the second pane is shown, and pane 1's share of the
+    // width (0..1); the splitter drag adjusts the ratio.
+    split_visible:            bool,
+    split_ratio:              f32,
+    // Each pane's open-files index (-1 = none); the two panes can show different
+    // files. active_pane is the focused one, whose file the tabbar, status bar
+    // and file commands act on (mirrored into the active_file signal).
+    pane_file:                [2]int,
+    active_pane:              int,
+    // App/file/view commands that ship without a keybinding. Each carries its
+    // config action name and resolved chord; unbound ones (KEY_NULL) never fire.
+    // Dispatched globally, so only commands with no editor-local key belong here.
+    app_binds:                [dynamic]App_Bind,
     workspace_dir:            string,
     workspace_prefix:         string, // workspace_dir + separator, for palette display
     // True when workspace_dir has a .thor/ directory: its config overlays the
@@ -167,6 +188,8 @@ init :: proc() -> ^Thor {
     thor.console_visible = ui.make_signal(true)
     thor.explorer_width = 250
     thor.console_height = 190
+    thor.split_ratio = 0.5
+    thor.pane_file = {-1, -1}
     thor.workspace_dir = workspace_dir
     thor.workspace_prefix = strings.concatenate({workspace_dir, "\\"})
     thor.git_branch = thor_read_git_branch(workspace_dir)
@@ -203,6 +226,10 @@ init :: proc() -> ^Thor {
     thor_set_active_file(thor, -1)
     thor_restore_session(thor)
     thor_apply_layout_state(thor)
+    thor_apply_split(thor)
+    if thor.split_visible {
+        thor_bind_pane(thor, 1)
+    }
     ui.context_set_root(&thor.ui_context, &thor.root_panel.widget)
     ui.context_set_global_key(&thor.ui_context, thor_global_key, thor)
     thor_refresh_git_status(thor)
@@ -242,6 +269,7 @@ run :: proc(thor: ^Thor) {
     for !rl.WindowShouldClose() && !thor.should_close {
         thor_update_files(thor)
         ui.context_update(&thor.ui_context)
+        thor_sync_active_pane(thor)
 
         rl.BeginDrawing()
         rl.ClearBackground(thor.theme.contrast)
@@ -265,6 +293,7 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.finished_saves)
     delete(thor.finished_console)
     delete(thor.finished_git)
+    delete(thor.app_binds)
     thor_clear_git_status(thor)
     delete(thor.workspace_dir)
     delete(thor.workspace_prefix)

@@ -22,7 +22,10 @@ Session :: struct {
     console_visible:  bool,
     explorer_width:   f32,
     console_height:   f32,
-    window_maximized: bool,
+    window_maximized:  bool,
+    split_visible:     bool,
+    split_ratio:       f32,
+    split_second_file: int,
 }
 
 // Session file for a workspace: sessions/<sanitized-abs-path>.json. The path is
@@ -60,12 +63,15 @@ thor_save_session :: proc(thor: ^Thor) {
     session := Session {
         workspace        = thor.workspace_dir,
         open_files       = paths[:],
-        active_file      = ui.signal_get(&thor.active_file),
+        active_file      = thor.pane_file[0],
         explorer_visible = ui.signal_get(&thor.explorer_visible),
         console_visible  = ui.signal_get(&thor.console_visible),
         explorer_width   = thor.explorer_width,
         console_height   = thor.console_height,
-        window_maximized = thor.window_maximized,
+        window_maximized  = thor.window_maximized,
+        split_visible     = thor.split_visible,
+        split_ratio       = thor.split_ratio,
+        split_second_file = thor.pane_file[1],
     }
 
     data, err := json.marshal(session, {pretty = true}, context.temp_allocator)
@@ -105,6 +111,10 @@ thor_restore_session :: proc(thor: ^Thor) {
     }
     ui.signal_set(&thor.explorer_visible, session.explorer_visible)
     ui.signal_set(&thor.console_visible, session.console_visible)
+    thor.split_visible = session.split_visible
+    if session.split_ratio > 0 {
+        thor.split_ratio = clamp(session.split_ratio, 0.15, 0.85)
+    }
     if session.window_maximized {
         rl.MaximizeWindow()
         thor.window_maximized = true
@@ -117,5 +127,10 @@ thor_restore_session :: proc(thor: ^Thor) {
     }
     if session.active_file >= 0 && session.active_file < len(thor.open_files) {
         thor_set_active_file(thor, session.active_file)
+    }
+    // Pane 2's file (bound after the UI is up, in init). thor_toggle_split fills
+    // it in later if it was left unset.
+    if session.split_second_file >= 0 && session.split_second_file < len(thor.open_files) {
+        thor.pane_file[1] = session.split_second_file
     }
 }

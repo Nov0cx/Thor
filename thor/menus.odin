@@ -12,6 +12,7 @@ import "../widgets"
 // Called once during startup after the widget tree is built.
 thor_wire_menus :: proc(thor: ^Thor) {
     widgets.editor_set_on_context_menu(thor.editor, thor_editor_context_menu, thor)
+    widgets.editor_set_on_context_menu(thor.editor2, thor_editor_context_menu, thor)
     widgets.console_set_on_context_menu(thor.console, thor_console_context_menu, thor)
     widgets.tree_set_on_context_menu(thor.tree, thor_explorer_context_menu, thor)
     widgets.tree_set_on_delete(thor.tree, thor_tree_delete, thor)
@@ -238,6 +239,7 @@ thor_open_view_menu :: proc(data: rawptr, ctx: ^ui.Context, widget: ^ui.Widget) 
     widgets.menu_add(thor.menu, "Reset Zoom", thor_cmd_zoom_reset, thor)
     widgets.menu_add_separator(thor.menu)
     widgets.menu_add(thor.menu, "Toggle Word Wrap", thor_cmd_toggle_wrap, thor)
+    widgets.menu_add(thor.menu, "Toggle Split Editor", thor_cmd_toggle_split, thor)
     widgets.menu_add(thor.menu, "Toggle Fullscreen", thor_cmd_toggle_fullscreen, thor)
     thor_open_dropdown(thor, thor.menu_view_button)
 }

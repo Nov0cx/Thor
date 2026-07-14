@@ -225,6 +225,34 @@ thor_build_content :: proc(thor: ^Thor) {
     widgets.editor_set_on_save(thor.editor, thor_request_save, thor)
     ui.widget_set_grow(&thor.editor.widget, 1)
 
+    thor.editor2 = widgets.editor_create("editor2")
+    widgets.editor_set_colors(
+        thor.editor2,
+        thor.theme.white_black_color,
+        thor.theme.gray_color,
+        thor.theme.background,
+        thor.theme.second_background,
+        thor.theme.border,
+        thor.theme.border,
+        thor.theme.accent_color,
+    )
+    widgets.editor_set_on_save(thor.editor2, thor_request_save, thor)
+    ui.widget_set_grow(&thor.editor2.widget, 1)
+    thor.editor2.visible = false
+
+    // Holds the two editor panes side by side; the splitter between them (only
+    // shown while split) drags the divide. Gap 0 so the splitter is the seam.
+    thor.editor_split_row = widgets.stack_create("editor-split-row", .Horizontal)
+    widgets.stack_set_gap(thor.editor_split_row, 0)
+    widgets.stack_set_padding(thor.editor_split_row, ui.padding(0))
+    widgets.stack_set_background(thor.editor_split_row, thor.theme.border)
+    ui.widget_set_grow(&thor.editor_split_row.widget, 1)
+
+    thor.editor_split_splitter = widgets.splitter_create("editor-split-splitter", .Vertical)
+    widgets.splitter_set_on_drag(thor.editor_split_splitter, thor_resize_split, thor)
+    widgets.splitter_set_colors(thor.editor_split_splitter, thor.theme.border, thor.theme.highlight, thor.theme.accent_color)
+    thor.editor_split_splitter.visible = false
+
     console_title := widgets.label_create("console-title", "Console")
     widgets.label_set_text_color(console_title, thor.theme.white_black_color)
     ui.widget_set_grow(&console_title.widget, 1)
@@ -277,7 +305,10 @@ thor_build_content :: proc(thor: ^Thor) {
     widgets.append_child(&thor.explorer_header.widget, &explorer_title.widget)
     widgets.append_child(&thor.explorer_header.widget, &thor.explorer_toggle_button.widget)
 
-    widgets.append_child(&thor.editor_panel.widget, &thor.editor.widget)
+    widgets.append_child(&thor.editor_panel.widget, &thor.editor_split_row.widget)
+    widgets.append_child(&thor.editor_split_row.widget, &thor.editor.widget)
+    widgets.append_child(&thor.editor_split_row.widget, &thor.editor_split_splitter.widget)
+    widgets.append_child(&thor.editor_split_row.widget, &thor.editor2.widget)
 
     widgets.append_child(&thor.console_stack.widget, &thor.console_header.widget)
     widgets.append_child(&thor.console_stack.widget, &thor.console.widget)
