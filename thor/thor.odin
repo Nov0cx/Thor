@@ -2,6 +2,7 @@ package thor
 
 import "core:log"
 import "core:os"
+import "core:path/filepath"
 import "core:strings"
 import "core:sync"
 import "core:time"
@@ -119,6 +120,28 @@ init :: proc() -> ^Thor {
         phase^ = time.tick_now()
     }
 
+    // Resolve the folder to open (the workspace) BEFORE we move the process
+    // CWD. A path argument wins; otherwise it is the directory Thor was
+    // launched from. This must run first: everything below (assets, settings,
+    // theme) loads relative to the CWD, which we then repoint at the
+    // executable's directory so those resolve no matter where Thor was
+    // launched from. workspace_dir stays an owned, absolute path.
+    workspace_dir: string
+    if len(os.args) > 1 {
+        abs, abs_err := filepath.abs(os.args[1], context.allocator)
+        workspace_dir = abs_err == nil ? abs : strings.clone(os.args[1])
+    } else {
+        cwd, cwd_err := os.get_working_directory(context.allocator)
+        workspace_dir = cwd_err == nil ? cwd : strings.clone(".")
+    }
+    if exe_path, exe_err := os.get_executable_path(context.temp_allocator); exe_err == nil {
+        if set_err := os.set_working_directory(os.dir(exe_path)); set_err != nil {
+            log.warnf("Could not set working directory to exe dir: %v", set_err)
+        }
+    } else {
+        log.warnf("Could not resolve executable path: %v", exe_err)
+    }
+
     // Parse the font/icon manifests and rasterize every preload size on
     // worker threads while the main thread creates the window and builds
     // the widget tree.
@@ -146,13 +169,9 @@ init :: proc() -> ^Thor {
     thor.console_visible = ui.make_signal(true)
     thor.explorer_width = 250
     thor.console_height = 190
-    workspace_dir, workspace_err := os.get_working_directory(context.allocator)
-    if workspace_err != nil {
-        workspace_dir = strings.clone(".")
-    }
     thor.workspace_dir = workspace_dir
     thor.workspace_prefix = strings.concatenate({workspace_dir, "\\"})
-    thor.git_branch = thor_read_git_branch()
+    thor.git_branch = thor_read_git_branch(workspace_dir)
     thor.open_files = make([dynamic]^Open_File)
     thor.zombie_files = make([dynamic]^Open_File)
     thor.finished_loads = make([dynamic]^Load_Job)
@@ -201,8 +220,9 @@ init :: proc() -> ^Thor {
 }
 
 @(private = "file")
-thor_read_git_branch :: proc() -> string {
-    data, read_err := os.read_entire_file(".git/HEAD", context.temp_allocator)
+thor_read_git_branch :: proc(workspace_dir: string) -> string {
+    head_path := strings.concatenate({workspace_dir, "/.git/HEAD"}, context.temp_allocator)
+    data, read_err := os.read_entire_file(head_path, context.temp_allocator)
     if read_err != nil {
         return ""
     }
