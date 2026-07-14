@@ -18,6 +18,9 @@ Widget :: struct {
     id:           string,
     bounds:       rl.Rectangle,
     min_size:     rl.Vector2,
+    // Pixels the hit area grows past bounds on every side. Lets a thin divider
+    // draw as a 1px line yet stay grabbable over a wider zone.
+    hit_expand:   f32,
     grow:         f32,
     visible:      bool,
     enabled:      bool,
@@ -87,7 +90,14 @@ widget_append_child :: proc(parent, child: ^Widget) {
 }
 
 widget_contains_point :: proc(widget: ^Widget, point: rl.Vector2) -> bool {
-    return rl.CheckCollisionPointRec(point, widget.bounds)
+    bounds := widget.bounds
+    if widget.hit_expand != 0 {
+        bounds.x -= widget.hit_expand
+        bounds.y -= widget.hit_expand
+        bounds.width += widget.hit_expand * 2
+        bounds.height += widget.hit_expand * 2
+    }
+    return rl.CheckCollisionPointRec(point, bounds)
 }
 
 widget_hit_test :: proc(widget: ^Widget, point: rl.Vector2) -> ^Widget {
@@ -99,7 +109,17 @@ widget_hit_test :: proc(widget: ^Widget, point: rl.Vector2) -> ^Widget {
         return nil
     }
 
+    // Widgets that expand their hit area (dividers) win first, so a grab zone
+    // straddling a neighbor still catches the divider instead of the panel.
     child := widget.last_child
+    for child != nil {
+        if child.visible && child.hit_expand != 0 && widget_contains_point(child, point) {
+            return child
+        }
+        child = child.prev_sibling
+    }
+
+    child = widget.last_child
     for child != nil {
         hit := widget_hit_test(child, point)
         if hit != nil {

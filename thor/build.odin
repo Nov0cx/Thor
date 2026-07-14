@@ -19,7 +19,7 @@ thor_build_ui :: proc(thor: ^Thor) {
     thor.top_bar.min_size = rl.Vector2 {0, 44}
 
     thor.workspace_row = widgets.stack_create("workspace-row", .Horizontal)
-    widgets.stack_set_gap(thor.workspace_row, 1)
+    widgets.stack_set_gap(thor.workspace_row, 0)
     widgets.stack_set_padding(thor.workspace_row, ui.padding(0))
     widgets.stack_set_background(thor.workspace_row, thor.theme.border)
     ui.widget_set_grow(&thor.workspace_row.widget, 1)
@@ -51,7 +51,7 @@ thor_build_ui :: proc(thor: ^Thor) {
     widgets.splitter_set_colors(thor.explorer_splitter, thor.theme.border, thor.theme.highlight, thor.theme.accent_color)
 
     thor.editor_column = widgets.stack_create("editor-column", .Vertical)
-    widgets.stack_set_gap(thor.editor_column, 1)
+    widgets.stack_set_gap(thor.editor_column, 0)
     widgets.stack_set_padding(thor.editor_column, ui.padding(0))
     widgets.stack_set_background(thor.editor_column, thor.theme.border)
     ui.widget_set_grow(&thor.editor_column.widget, 1)

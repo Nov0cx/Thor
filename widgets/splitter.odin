@@ -32,11 +32,14 @@ splitter_create :: proc(id: string, axis: ui.Axis) -> ^Splitter {
     splitter.hover_color = rl.Color {31, 34, 51, 255}
     splitter.active_color = rl.Color {130, 170, 255, 255}
 
+    // A 1px seam that sits flush between panels, with the hit area grown so it
+    // stays easy to grab.
     if axis == .Horizontal {
-        splitter.min_size = rl.Vector2 {0, 6}
+        splitter.min_size = rl.Vector2 {0, 1}
     } else {
-        splitter.min_size = rl.Vector2 {6, 0}
+        splitter.min_size = rl.Vector2 {1, 0}
     }
+    splitter.hit_expand = 3
 
     return splitter
 }
