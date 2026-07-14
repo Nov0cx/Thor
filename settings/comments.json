@@ -1,10 +1,10 @@
 {
     "odin":       { "line": "//", "extensions": [".odin"] },
     "c":          { "line": "//", "extensions": [".c", ".h"] },
-    "cpp":        { "line": "//", "extensions": [".cpp", ".hpp", ".cc"] },
+    "cpp":        { "line": "//", "extensions": [".cpp", ".cc", ".cxx", ".c++", ".hpp", ".hh", ".hxx", ".h++", ".ipp"] },
     "rust":       { "line": "//", "extensions": [".rs"] },
     "go":         { "line": "//", "extensions": [".go"] },
-    "javascript": { "line": "//", "extensions": [".js", ".ts"] },
+    "javascript": { "line": "//", "extensions": [".js", ".jsx", ".mjs", ".cjs", ".ts", ".mts", ".cts", ".tsx"] },
     "zig":        { "line": "//", "extensions": [".zig"] },
     "glsl":       { "line": "//", "extensions": [".glsl", ".vert", ".frag"] },
     "python":     { "line": "#",  "extensions": [".py"] },

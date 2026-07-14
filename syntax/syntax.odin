@@ -9,8 +9,15 @@ import "core:slice"
 import "core:strings"
 
 import ts "../vendor/odin-tree-sitter"
+import ts_c "../vendor/odin-tree-sitter/parsers/c"
+import ts_cpp "../vendor/odin-tree-sitter/parsers/cpp"
+import ts_go "../vendor/odin-tree-sitter/parsers/go"
+import ts_jai "../vendor/odin-tree-sitter/parsers/jai"
+import ts_js "../vendor/odin-tree-sitter/parsers/javascript"
 import ts_lua "../vendor/odin-tree-sitter/parsers/lua"
 import ts_odin "../vendor/odin-tree-sitter/parsers/odin"
+import ts_ts "../vendor/odin-tree-sitter/parsers/typescript"
+import ts_tsx "../vendor/odin-tree-sitter/parsers/tsx"
 
 // A resolved highlight span. `capture` is the tree-sitter capture name that won
 // this byte range (e.g. "keyword.return", "type.builtin", "function.call").
@@ -40,6 +47,18 @@ highlighter_create :: proc() -> Highlighter {
     h.queries = make(map[string]ts.Query)
     h.languages["odin"] = Language_Entry{ts_odin.tree_sitter_odin(), ts_odin.HIGHLIGHTS}
     h.languages["lua"] = Language_Entry{ts_lua.tree_sitter_lua(), ts_lua.HIGHLIGHTS}
+    h.languages["c"] = Language_Entry{ts_c.tree_sitter_c(), ts_c.HIGHLIGHTS}
+    h.languages["cpp"] = Language_Entry{ts_cpp.tree_sitter_cpp(), ts_cpp.HIGHLIGHTS}
+    h.languages["go"] = Language_Entry{ts_go.tree_sitter_go(), ts_go.HIGHLIGHTS}
+    h.languages["jai"] = Language_Entry{ts_jai.tree_sitter_jai(), ts_jai.HIGHLIGHTS}
+    // The JS/TS grammars share a highlights base: the typescript and tsx queries
+    // only add type/keyword rules and rely on the javascript query for the rest,
+    // so the base is prepended (later patterns win, letting the specific queries
+    // override). tsx and js also need the JSX rules, which typescript must omit
+    // since its grammar has no JSX nodes (an unknown node type fails the query).
+    h.languages["javascript"] = Language_Entry{ts_js.tree_sitter_javascript(), ts_js.HIGHLIGHTS + "\n" + ts_js.HIGHLIGHTS_JSX}
+    h.languages["typescript"] = Language_Entry{ts_ts.tree_sitter_typescript(), ts_js.HIGHLIGHTS + "\n" + ts_ts.HIGHLIGHTS}
+    h.languages["tsx"] = Language_Entry{ts_tsx.tree_sitter_tsx(), ts_js.HIGHLIGHTS + "\n" + ts_js.HIGHLIGHTS_JSX + "\n" + ts_tsx.HIGHLIGHTS}
     return h
 }
 

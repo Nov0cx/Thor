@@ -141,6 +141,56 @@ test_lua_plugin_highlights :: proc(t: ^testing.T) {
     expect(t, spans, src, "print", "functions")  // builtin call
 }
 
+// Loads the real plugins/go/plugin.lua and highlights Go through the tree-sitter
+// grammar, confirming captures resolve to the mapped color roles.
+@(test)
+test_go_plugin_highlights :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+    manager_load(&m)
+    testing.expect(t, supports(&m, ".go"), "go language registered")
+
+    src := "package main\n\nfunc main() {\n\ts := \"hi\" // note\n}\n"
+    spans := highlight(&m, src, ".go", context.allocator)
+    defer delete(spans)
+    testing.expect(t, len(spans) > 0, "go spans produced")
+
+    expect :: proc(t: ^testing.T, spans: []Span, src, needle, want: string) {
+        got := role_covering(spans, src, needle)
+        testing.expectf(t, got == want, "%q: role %q, want %q", needle, got, want)
+    }
+    expect(t, spans, src, "func", "keywords")
+    expect(t, spans, src, "\"hi\"", "strings")
+    expect(t, spans, src, "// note", "comments")
+}
+
+// Loads the real plugins/typescript/plugin.lua and highlights TypeScript. The
+// typescript grammar's highlights query inherits javascript, so this also
+// exercises the combined-query path: the comment comes from the javascript base
+// and the type annotation from the typescript layer.
+@(test)
+test_typescript_plugin_highlights :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+    manager_load(&m)
+    testing.expect(t, supports(&m, ".ts"), "typescript language registered")
+
+    src := "const n: number = 1 // note\n"
+    spans := highlight(&m, src, ".ts", context.allocator)
+    defer delete(spans)
+    testing.expect(t, len(spans) > 0, "typescript spans produced")
+
+    expect :: proc(t: ^testing.T, spans: []Span, src, needle, want: string) {
+        got := role_covering(spans, src, needle)
+        testing.expectf(t, got == want, "%q: role %q, want %q", needle, got, want)
+    }
+    expect(t, spans, src, "const", "keywords")
+    expect(t, spans, src, "number", "yellow") // type, from the typescript layer
+    expect(t, spans, src, "// note", "comments") // from the javascript base
+}
+
 // Loads the real plugins/markdown/plugin.lua and highlights Markdown through
 // its pure-Lua line lexer, confirming block and inline constructs resolve to the
 // expected color roles and that the returned spans stay ascending and

@@ -14,6 +14,13 @@ env:
   # the app will type-check/build (see vendor/README.md).
   TS_ODIN: https://github.com/tree-sitter-grammars/tree-sitter-odin
   TS_LUA: https://github.com/tree-sitter-grammars/tree-sitter-lua
+  TS_C: https://github.com/tree-sitter/tree-sitter-c
+  TS_CPP: https://github.com/tree-sitter/tree-sitter-cpp
+  TS_GO: https://github.com/tree-sitter/tree-sitter-go
+  TS_JS: https://github.com/tree-sitter/tree-sitter-javascript
+  # typescript and tsx are two grammars in one repo, selected by subdirectory.
+  TS_TS: https://github.com/tree-sitter/tree-sitter-typescript
+  TS_JAI: https://github.com/constantitus/tree-sitter-jai
 
 jobs:
   arch:
@@ -51,6 +58,13 @@ jobs:
           odin run build -- install
           odin run build -- install-parser "$TS_ODIN" -yes
           odin run build -- install-parser "$TS_LUA" -yes
+          odin run build -- install-parser "$TS_C" -yes
+          odin run build -- install-parser "$TS_CPP" -yes
+          odin run build -- install-parser "$TS_GO" -yes
+          odin run build -- install-parser "$TS_JS" -yes
+          odin run build -- install-parser "$TS_TS" -path=typescript -name=typescript -yes
+          odin run build -- install-parser "$TS_TS" -path=tsx -name=tsx -yes
+          odin run build -- install-parser "$TS_JAI" -yes
 
       - name: Build Thor
         run: odin build . -debug

@@ -219,7 +219,7 @@ thor_build_content :: proc(thor: ^Thor) {
         thor.theme.background,
         thor.theme.second_background,
         thor.theme.border,
-        thor.theme.accent_color,
+        thor.theme.border,
         thor.theme.accent_color,
     )
     widgets.editor_set_on_save(thor.editor, thor_request_save, thor)

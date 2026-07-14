@@ -46,8 +46,23 @@ cd vendor/odin-tree-sitter
 odin run build -- install
 # Grammar -> parsers/odin/parser.lib + generated bindings + queries
 odin run build -- install-parser https://github.com/tree-sitter-grammars/tree-sitter-odin -yes
+odin run build -- install-parser https://github.com/tree-sitter-grammars/tree-sitter-lua -yes
+odin run build -- install-parser https://github.com/tree-sitter/tree-sitter-c -yes
+odin run build -- install-parser https://github.com/tree-sitter/tree-sitter-cpp -yes
+odin run build -- install-parser https://github.com/tree-sitter/tree-sitter-go -yes
+odin run build -- install-parser https://github.com/tree-sitter/tree-sitter-javascript -yes
+odin run build -- install-parser https://github.com/tree-sitter/tree-sitter-typescript "-path=typescript" "-name=typescript" -yes
+odin run build -- install-parser https://github.com/tree-sitter/tree-sitter-typescript "-path=tsx" "-name=tsx" -yes
+odin run build -- install-parser https://github.com/constantitus/tree-sitter-jai -yes
 ```
 
-Add a language: `install-parser <grammar-git-url>`, then register it in
-`syntax/syntax.odin` (`highlighter_create`) and map its file extension in
-`thor/highlight.odin` (`thor_syntax_language`).
+`syntax/syntax.odin` hard-imports every parser above, so a fresh checkout must
+install all of them (the exact list mirrors the CI workflows) before the app
+will build.
+
+Add a language: `install-parser <grammar-git-url>`, register the parser in
+`syntax/syntax.odin` (`highlighter_create`, one `h.languages["<id>"]` line), and
+add a `plugins/<id>/plugin.lua` that maps the file extensions to that grammar id
+and its capture heads to theme color roles. Grammars whose highlights query
+inherits another (typescript/tsx build on javascript) prepend the base query in
+`highlighter_create`.

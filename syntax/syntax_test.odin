@@ -63,3 +63,58 @@ main :: proc() {
     none := highlight(&h, src, "cobol", context.allocator)
     testing.expect(t, len(none) == 0, "unsupported language should have no spans")
 }
+
+@(private = "file")
+expect_head :: proc(t: ^testing.T, spans: []Span, src, needle, want: string) {
+    got, ok := head_at(spans, src, needle)
+    testing.expectf(t, ok && got == want, "%q: got %q (found=%v), want %q", needle, got, ok, want)
+}
+
+// Each newly added grammar must build its highlights query (the combined
+// javascript/typescript queries especially) and tag a few obvious tokens.
+@(test)
+test_highlight_c_family :: proc(t: ^testing.T) {
+    h := highlighter_create()
+    defer highlighter_destroy(&h)
+
+    c := "int main(void) {\n\treturn 0; // done\n}\n"
+    cs := highlight(&h, c, "c", context.temp_allocator)
+    testing.expect(t, len(cs) > 0, "expected c spans")
+    expect_head(t, cs, c, "// done", "comment")
+
+    cpp := "#include <vector>\nnamespace app { int x = 1; }\n"
+    cps := highlight(&h, cpp, "cpp", context.temp_allocator)
+    testing.expect(t, len(cps) > 0, "expected cpp spans")
+
+    go := "package main\nfunc main() {\n\ts := \"hi\" // note\n}\n"
+    gos := highlight(&h, go, "go", context.temp_allocator)
+    testing.expect(t, len(gos) > 0, "expected go spans")
+    expect_head(t, gos, go, "\"hi\"", "string")
+    expect_head(t, gos, go, "// note", "comment")
+
+    jai := "main :: () {\n\ts := \"hi\"; // note\n}\n"
+    jas := highlight(&h, jai, "jai", context.temp_allocator)
+    testing.expect(t, len(jas) > 0, "expected jai spans")
+}
+
+@(test)
+test_highlight_js_ts :: proc(t: ^testing.T) {
+    h := highlighter_create()
+    defer highlighter_destroy(&h)
+
+    js := "const x = 1 // note\nfunction f(a) { return \"hi\" }\n"
+    jss := highlight(&h, js, "javascript", context.temp_allocator)
+    testing.expect(t, len(jss) > 0, "expected javascript spans")
+    expect_head(t, jss, js, "// note", "comment")
+    expect_head(t, jss, js, "\"hi\"", "string")
+
+    ts := "const n: number = 1\ntype Id = string // alias\n"
+    tss := highlight(&h, ts, "typescript", context.temp_allocator)
+    testing.expect(t, len(tss) > 0, "expected typescript spans")
+    expect_head(t, tss, ts, "// alias", "comment") // from the javascript base
+    expect_head(t, tss, ts, "number", "type")      // from the typescript layer
+
+    tsx := "const el = <div className=\"a\">{x}</div>\n"
+    tsxs := highlight(&h, tsx, "tsx", context.temp_allocator)
+    testing.expect(t, len(tsxs) > 0, "expected tsx spans")
+}
