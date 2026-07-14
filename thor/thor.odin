@@ -206,6 +206,7 @@ init :: proc() -> ^Thor {
     plugin.manager_set_host(&thor.plugins, thor, thor_plugin_print, thor_plugin_keybind, thor_plugin_doc)
     plugin.manager_load(&thor.plugins)
     thor_set_active_file(thor, -1)
+    thor_restore_session(thor)
     thor_apply_layout_state(thor)
     ui.context_set_root(&thor.ui_context, &thor.root_panel.widget)
     ui.context_set_global_key(&thor.ui_context, thor_global_key, thor)
@@ -257,6 +258,7 @@ run :: proc(thor: ^Thor) {
 }
 
 shutdown :: proc(thor: ^Thor) {
+    thor_save_session(thor)
     thor_drain_io(thor)
 
     for file in thor.open_files {
