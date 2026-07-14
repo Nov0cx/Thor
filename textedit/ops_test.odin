@@ -80,6 +80,33 @@ test_trim_trailing_whitespace :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_align_at_char :: proc(t: ^testing.T) {
+    // Select the whole block and align the `=` into one column. Whitespace
+    // before the target is normalized, so both under- and over-spaced lines snap.
+    content := "a = 1\nbb = 2\nccc     = 3"
+    state := ops_state(content, 0)
+    defer destroy(&state)
+    state.cursors[0].anchor = 0
+    state.cursors[0].caret = len(content)
+
+    align_at_char(&state, '=')
+    testing.expect_value(t, text(&state), "a   = 1\nbb  = 2\nccc = 3")
+
+    // One undo entry restores the original block.
+    undo(&state)
+    testing.expect_value(t, text(&state), content)
+
+    // A line whose target is its first non-blank character keeps its indentation,
+    // and lines without the target are left alone.
+    state2 := ops_state("x = 1\n= 2\nnope", 0)
+    defer destroy(&state2)
+    state2.cursors[0].anchor = 0
+    state2.cursors[0].caret = len(text(&state2))
+    align_at_char(&state2, '=')
+    testing.expect_value(t, text(&state2), "x = 1\n= 2\nnope")
+}
+
+@(test)
 test_brace_block :: proc(t: ^testing.T) {
     // At the end of a line, `{` opens a three-line block with the caret parked
     // on the indented middle line.

@@ -55,6 +55,7 @@ Thor :: struct {
     focus_explorer_key:       setting.Keybind,
     focus_terminal_key:       setting.Keybind,
     trim_whitespace_key:      setting.Keybind,
+    align_char_key:           setting.Keybind,
     goto_line_key:            setting.Keybind,
     last_file_key:            setting.Keybind,
     active_file:              ui.Signal(int),

@@ -62,6 +62,7 @@
         "outdent":              "shift+tab",
         "toggle_line_comment":  "ctrl+k",
         "trim_trailing_whitespace": "ctrl+shift+w",
+        "align_at_char":        "ctrl+shift+a",
         "uppercase":            "alt+u",
         "lowercase":            "alt+l",
         "capitalize":           "alt+c"

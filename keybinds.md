@@ -93,6 +93,7 @@ Add `shift` to any movement to extend the selection.
 | ctrl + k | toggle line comment (per-language marker) |
 | alt + u / l / c | uppercase / lowercase / capitalize the selection (or the word under the caret) |
 | ctrl + shift + w | trim trailing whitespace |
+| ctrl + shift + a | align selected lines on a character (prompts for the char, e.g. `=`) |
 | enter | new line, keeping indent (extra level after an opening bracket) |
 
 Typing `{` at the end of a line opens a three-line block, placing the caret on

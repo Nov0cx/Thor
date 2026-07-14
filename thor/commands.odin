@@ -3,6 +3,7 @@ package thor
 import "core:os"
 import "core:strings"
 import win32 "core:sys/windows"
+import "core:unicode/utf8"
 import rl "vendor:raylib"
 
 import "../setting"
@@ -66,6 +67,11 @@ thor_apply_settings :: proc(thor: ^Thor) {
         thor.trim_whitespace_key = kb
     } else {
         thor.trim_whitespace_key = setting.Keybind {key = .W, ctrl = true, shift = true}
+    }
+    if kb, ok := setting.keybind(&thor.config, "align_at_char"); ok {
+        thor.align_char_key = kb
+    } else {
+        thor.align_char_key = setting.Keybind {key = .A, ctrl = true, shift = true}
     }
     if kb, ok := setting.keybind(&thor.config, "goto_line"); ok {
         thor.goto_line_key = kb
@@ -161,6 +167,7 @@ thor_register_commands :: proc(thor: ^Thor) {
     widgets.command_palette_add(p, "Edit: Lowercase", thor_cmd_lowercase, thor, sc(thor, "lowercase"))
     widgets.command_palette_add(p, "Edit: Capitalize", thor_cmd_capitalize, thor, sc(thor, "capitalize"))
     widgets.command_palette_add(p, "Edit: Trim Trailing Whitespace", thor_cmd_trim_whitespace, thor, sc(thor, "trim_trailing_whitespace"))
+    widgets.command_palette_add(p, "Edit: Align at Character", thor_cmd_align_at_char, thor, sc(thor, "align_at_char"))
 
     widgets.command_palette_add(p, "Selection: Add Cursor Above", thor_cmd_add_cursor_above, thor, sc(thor, "add_cursor_above"))
     widgets.command_palette_add(p, "Selection: Add Cursor Below", thor_cmd_add_cursor_below, thor, sc(thor, "add_cursor_below"))
@@ -242,6 +249,23 @@ thor_cmd_join_lines :: proc(data: rawptr) {if s := thor_edit_state(data); s != n
 thor_cmd_uppercase :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.transform_case(s, .Upper)}}
 thor_cmd_lowercase :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.transform_case(s, .Lower)}}
 thor_cmd_capitalize :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.transform_case(s, .Title)}}
+// Prompts for a character, then aligns the first occurrence of it on each
+// selected line into the same column (e.g. line up a block of `=` assignments).
+thor_cmd_align_at_char :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    widgets.command_palette_prompt(thor.command_palette, &thor.ui_context, "Align on character", thor_prompt_align_at_char, thor)
+}
+
+thor_prompt_align_at_char :: proc(data: rawptr, text: string) {
+    if text == "" {
+        return
+    }
+    target, _ := utf8.decode_rune_in_string(text)
+    if s := thor_edit_state(data); s != nil {
+        textedit.align_at_char(s, target)
+    }
+}
+
 thor_cmd_recenter :: proc(data: rawptr) {widgets.editor_recenter((cast(^Thor) data).editor)}
 thor_cmd_last_file :: proc(data: rawptr) {thor_flip_last_file(cast(^Thor) data)}
 

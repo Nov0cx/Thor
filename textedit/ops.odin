@@ -5,6 +5,7 @@ package textedit
 
 import "core:slice"
 import "core:strings"
+import "core:unicode/utf8"
 
 import "../piecetable"
 
@@ -723,6 +724,58 @@ toggle_comment :: proc(state: ^State, prefix: string) {
         } else if !strings.has_prefix(txt[i:end], prefix) {
             append(&edits, Line_Edit {pos = i, insert = marker})
         }
+    }
+    apply_line_edits(state, txt, edits[:])
+}
+
+// Aligns the lines covered by the selection so the first occurrence of `target`
+// on each line lands in the same column. The whitespace directly before the
+// target is normalized to exactly the padding needed to reach that column (at
+// least one space), so under- and over-spaced lines both snap into place.
+// Lines without the target, or where it is the first non-blank character (so
+// aligning would eat their indentation), are left untouched. Lands as one undo
+// entry.
+align_at_char :: proc(state: ^State, target: rune) {
+    txt := text(state)
+    starts := covered_line_starts(txt, state)
+
+    // First pass: locate the target on each line and the column just after the
+    // token preceding it; the alignment column is one past the widest of those.
+    Line_Target :: struct {
+        ws_start, char_pos, content_col: int,
+    }
+    targets := make([dynamic]Line_Target, context.temp_allocator)
+    align_col := 0
+    for start in starts {
+        end := line_end(txt, start)
+        char_pos := -1
+        for i := start; i < end; {
+            r, w := utf8.decode_rune_in_string(txt[i:])
+            if r == target {
+                char_pos = i
+                break
+            }
+            i += w
+        }
+        if char_pos < 0 {
+            continue
+        }
+        ws := char_pos
+        for ws > start && (txt[ws - 1] == ' ' || txt[ws - 1] == '\t') {
+            ws -= 1
+        }
+        if ws == start {
+            continue // target is the first non-blank; leave indentation alone
+        }
+        content_col := column(txt, ws)
+        append(&targets, Line_Target {ws_start = ws, char_pos = char_pos, content_col = content_col})
+        align_col = max(align_col, content_col + 1)
+    }
+
+    edits := make([dynamic]Line_Edit, context.temp_allocator)
+    for t in targets {
+        spaces := strings.repeat(" ", align_col - t.content_col, context.temp_allocator)
+        append(&edits, Line_Edit {pos = t.ws_start, remove = t.char_pos - t.ws_start, insert = spaces})
     }
     apply_line_edits(state, txt, edits[:])
 }
