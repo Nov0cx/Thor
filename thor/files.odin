@@ -8,6 +8,7 @@ import "core:sync"
 import win32 "core:sys/windows"
 import "core:thread"
 import "core:time"
+import rl "vendor:raylib"
 
 import "../setting"
 import "../textedit"
@@ -37,6 +38,11 @@ Open_File :: struct {
     highlights:         [dynamic]widgets.Highlight_Span,
     highlight_revision: u64,
     highlighted:        bool,
+    // Image files bypass the text pipeline: the pixels load into a GPU texture
+    // and show in the image view instead of the editor. `loaded` stays false.
+    is_image:           bool,
+    texture:            rl.Texture2D,
+    texture_loaded:     bool,
 }
 
 // Loaded via a memory mapping on a worker thread; the main thread copies the
@@ -273,16 +279,55 @@ thor_open_file :: proc(thor: ^Thor, path: string) {
     textedit.init(&file.state)
     append(&thor.open_files, file)
 
-    file.pending_jobs += 1
-    thor.inflight_jobs += 1
-    job := new(Load_Job)
-    job.owner = thor
-    job.file = file
-    job.path = file.path
-    job.worker = thread.create_and_start_with_poly_data(job, load_worker)
+    // Images load straight into a texture (GL context is on this thread) and
+    // skip the text loader; everything else goes through the async piece-table load.
+    if thor_is_image_path(file.name) {
+        file.is_image = true
+        thor_load_image(file)
+    } else {
+        file.pending_jobs += 1
+        thor.inflight_jobs += 1
+        job := new(Load_Job)
+        job.owner = thor
+        job.file = file
+        job.path = file.path
+        job.worker = thread.create_and_start_with_poly_data(job, load_worker)
+    }
 
     thor_update_tab_labels(thor)
     thor_set_active_file(thor, len(thor.open_files) - 1)
+}
+
+// Recognized raster image extensions, matched case-insensitively on the name.
+@(private = "file")
+thor_is_image_path :: proc(name: string) -> bool {
+    dot := strings.last_index_byte(name, '.')
+    if dot < 0 {
+        return false
+    }
+    ext := strings.to_lower(name[dot:], context.temp_allocator)
+    switch ext {
+    case ".png", ".jpg", ".jpeg", ".bmp", ".gif", ".tga", ".psd", ".hdr", ".qoi":
+        return true
+    }
+    return false
+}
+
+// Uploads an image file to a GPU texture on the main thread. On failure the tab
+// shows the load-failed placeholder, matching a rejected text file.
+@(private = "file")
+thor_load_image :: proc(file: ^Open_File) {
+    path := strings.clone_to_cstring(file.path, context.temp_allocator)
+    texture := rl.LoadTexture(path)
+    if texture.id == 0 {
+        file.load_failed = true
+        log.warnf("Failed to load image %q", file.path)
+        return
+    }
+    // Smooths downscaled images; large photos are almost always shown shrunk.
+    rl.SetTextureFilter(texture, .BILINEAR)
+    file.texture = texture
+    file.texture_loaded = true
 }
 
 thor_close_file :: proc(thor: ^Thor, index: int) {
@@ -350,6 +395,7 @@ thor_request_save :: proc(data: rawptr) {
 // kicks off autosaves for buffers that went quiet while dirty.
 thor_update_files :: proc(thor: ^Thor) {
     thor_process_io(thor)
+    thor_update_editor_view(thor)
 
     autosave_delay := time.Duration(setting.autosave_delay_ms(&thor.config)) * time.Millisecond
     for file in thor.open_files {
@@ -501,6 +547,9 @@ thor_process_io :: proc(thor: ^Thor) {
 }
 
 thor_free_open_file :: proc(file: ^Open_File) {
+    if file.texture_loaded {
+        rl.UnloadTexture(file.texture)
+    }
     textedit.destroy(&file.state)
     delete(file.highlights)
     delete(file.tab_label)

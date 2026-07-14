@@ -43,6 +43,9 @@ Thor :: struct {
     // Second editor pane, shown side-by-side with the first when the split is
     // on. Both view the active file's buffer (shared state, independent scroll).
     editor2:                  ^widgets.Editor,
+    // Overlays the editor panel when the active file is an image; the editor
+    // rows are hidden while it shows.
+    image_view:               ^widgets.Image_View,
     editor_split_row:         ^widgets.Stack,
     editor_split_splitter:    ^widgets.Splitter,
     console:                  ^widgets.Console,

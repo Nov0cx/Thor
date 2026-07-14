@@ -68,7 +68,11 @@ thor_bind_editor :: proc(thor: ^Thor, editor: ^widgets.Editor, file: ^Open_File)
     if file == nil || file.load_failed || !file.loaded {
         editor.placeholder = "No file open"
         if file != nil {
-            editor.placeholder = file.load_failed ? "Could not open file" : "Loading..."
+            switch {
+            case file.load_failed: editor.placeholder = "Could not open file"
+            case file.is_image:    editor.placeholder = "Image"
+            case:                  editor.placeholder = "Loading..."
+            }
         }
         widgets.editor_set_state(editor, nil)
         return
@@ -93,6 +97,23 @@ thor_apply_file_highlights :: proc(thor: ^Thor, file: ^Open_File) {
         if index >= 0 && index < len(thor.open_files) && thor.open_files[index] == file {
             widgets.editor_set_highlights(thor_pane_editor(thor, pane), file.highlights[:])
         }
+    }
+}
+
+// Swaps the editor panes out for the image view when the active file is an
+// image, and back again otherwise. Called every frame so it tracks tab switches,
+// splits and closes without each having to poke it.
+thor_update_editor_view :: proc(thor: ^Thor) {
+    file := thor_active_open_file(thor)
+    show_image := file != nil && file.is_image && file.texture_loaded
+
+    thor.image_view.visible = show_image
+    thor.editor_split_row.visible = !show_image
+
+    if show_image {
+        widgets.image_view_set_texture(thor.image_view, file.texture, file.name)
+    } else {
+        widgets.image_view_set_texture(thor.image_view, {}, "")
     }
 }
 

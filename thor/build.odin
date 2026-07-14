@@ -253,6 +253,17 @@ thor_build_content :: proc(thor: ^Thor) {
     widgets.splitter_set_colors(thor.editor_split_splitter, thor.theme.border, thor.theme.highlight, thor.theme.accent_color)
     thor.editor_split_splitter.visible = false
 
+    thor.image_view = widgets.image_view_create("image-view")
+    widgets.image_view_set_colors(
+        thor.image_view,
+        thor.theme.background,
+        thor.theme.second_background,
+        thor.theme.buttons,
+        thor.theme.white_black_color,
+    )
+    ui.widget_set_grow(&thor.image_view.widget, 1)
+    thor.image_view.visible = false
+
     console_title := widgets.label_create("console-title", "Console")
     widgets.label_set_text_color(console_title, thor.theme.white_black_color)
     ui.widget_set_grow(&console_title.widget, 1)
@@ -309,6 +320,8 @@ thor_build_content :: proc(thor: ^Thor) {
     widgets.append_child(&thor.editor_split_row.widget, &thor.editor.widget)
     widgets.append_child(&thor.editor_split_row.widget, &thor.editor_split_splitter.widget)
     widgets.append_child(&thor.editor_split_row.widget, &thor.editor2.widget)
+    // Added after the split row so it overlays the editor panes when shown.
+    widgets.append_child(&thor.editor_panel.widget, &thor.image_view.widget)
 
     widgets.append_child(&thor.console_stack.widget, &thor.console_header.widget)
     widgets.append_child(&thor.console_stack.widget, &thor.console.widget)
