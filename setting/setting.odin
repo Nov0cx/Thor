@@ -23,6 +23,11 @@ General :: struct {
     tab_width:         int,
     font_size:         int,
     autosave_delay_ms: int,
+    // Active color theme (a name under assets/themes/, no extension) and text
+    // font family (a name in fonts.json). Empty means "use the built-in
+    // default"; both are owned strings, freed in destroy.
+    theme:             string,
+    font:              string,
 }
 
 Settings :: struct {
@@ -69,6 +74,9 @@ destroy :: proc(s: ^Settings) {
         delete(key)
     }
     delete(s.keybinds)
+
+    delete(s.general.theme)
+    delete(s.general.font)
 }
 
 // Line-comment marker for a file, or "" when the language is unknown (which
@@ -96,6 +104,40 @@ font_size :: proc(s: ^Settings) -> int {
 
 autosave_delay_ms :: proc(s: ^Settings) -> int {
     return s.general.autosave_delay_ms
+}
+
+// Active theme name, or "" when unset (caller falls back to its built-in default).
+theme_name :: proc(s: ^Settings) -> string {
+    return s.general.theme
+}
+
+// Active font family name, or "" when unset (caller uses the manifest default).
+font_family :: proc(s: ^Settings) -> string {
+    return s.general.font
+}
+
+// Rewrites `path` (a settings JSON object) with key set to value, preserving
+// every other key. Used to persist a UI-chosen theme/font back into
+// settings.json. A missing/malformed file starts a fresh object. Returns ok.
+persist_string :: proc(path, key, value: string) -> bool {
+    root: json.Object
+    if existing, ok := parse_object(path); ok {
+        root = existing
+    } else {
+        root = make(json.Object, allocator = context.temp_allocator)
+    }
+    root[key] = json.String(value)
+
+    data, err := json.marshal(root, {pretty = true, use_spaces = true, spaces = 4}, context.temp_allocator)
+    if err != nil {
+        log.errorf("Cannot marshal settings %q: %v", path, err)
+        return false
+    }
+    if werr := os.write_entire_file(path, data); werr != nil {
+        log.errorf("Cannot write settings %q: %v", path, werr)
+        return false
+    }
+    return true
 }
 
 // True when an incoming key event exactly matches the chord (modifiers must
@@ -329,6 +371,18 @@ load_general :: proc(s: ^Settings, path: string) {
     read_int(root, "tab_width", &s.general.tab_width)
     read_int(root, "font_size", &s.general.font_size)
     read_int(root, "autosave_delay_ms", &s.general.autosave_delay_ms)
+    read_string(root, "theme", &s.general.theme)
+    read_string(root, "font", &s.general.font)
+}
+
+// Reads a string field into dst, replacing (and freeing) any prior value so an
+// overlay layer wins without leaking. Absent or non-string leaves dst untouched.
+@(private)
+read_string :: proc(obj: json.Object, key: string, dst: ^string) {
+    if value, ok := obj[key].(json.String); ok {
+        delete(dst^)
+        dst^ = strings.clone(string(value))
+    }
 }
 
 // Reads an integer field into dst, leaving the default in place if absent.

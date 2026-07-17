@@ -50,7 +50,7 @@ Theme :: struct {
 
 theme_material_deep_ocean :: proc() -> Theme {
     return Theme {
-        name = "Material Theme Deep ocean",
+        name = "Material Deep ocean",
         background = rl.Color {0x0F, 0x11, 0x1A, 0xFF},
         foreground = rl.Color {0x8F, 0x93, 0xA2, 0xFF},
         text = rl.Color {0x4B, 0x52, 0x6D, 0xFF},
@@ -91,11 +91,57 @@ theme_material_deep_ocean :: proc() -> Theme {
     }
 }
 
+// The built-in fallback theme: used as the base every loaded theme overlays, and
+// returned whole when a theme file is missing or malformed. Mirrors
+// assets/themes/mjolnir.json.
+theme_mjolnir :: proc() -> Theme {
+    return Theme {
+        name = "Mjolnir",
+        background = rl.Color {0x1A, 0x1C, 0x23, 0xFF},
+        foreground = rl.Color {0xD0, 0xD4, 0xE0, 0xFF},
+        text = rl.Color {0x8B, 0x92, 0xA8, 0xFF},
+        selection_background = rl.Color {0x3F, 0x51, 0xB5, 0x70},
+        selection_foreground = rl.Color {0xFF, 0xFF, 0xFF, 0xFF},
+        buttons = rl.Color {0x27, 0x2A, 0x33, 0xFF},
+        second_background = rl.Color {0x22, 0x25, 0x2C, 0xFF},
+        disabled = rl.Color {0x5C, 0x62, 0x70, 0xFF},
+        contrast = rl.Color {0x13, 0x15, 0x19, 0xFF},
+        active = rl.Color {0x2C, 0x30, 0x3A, 0xFF},
+        border = rl.Color {0x1C, 0x1F, 0x26, 0xFF},
+        highlight = rl.Color {0x33, 0x38, 0x46, 0xFF},
+        tree = rl.Color {0x3F, 0x4A, 0x5A, 0x50},
+        notifications = rl.Color {0x13, 0x15, 0x19, 0xFF},
+        accent_color = rl.Color {0x4F, 0xC3, 0xF7, 0xFF},
+        excluded_files_color = rl.Color {0x2E, 0x32, 0x3C, 0xFF},
+        green_color = rl.Color {0x69, 0xF0, 0xAE, 0xFF},
+        yellow_color = rl.Color {0xFF, 0xCA, 0x28, 0xFF},
+        blue_color = rl.Color {0x44, 0x8A, 0xFF, 0xFF},
+        red_color = rl.Color {0xFF, 0x52, 0x52, 0xFF},
+        purple_color = rl.Color {0xCE, 0x93, 0xD8, 0xFF},
+        orange_color = rl.Color {0xFF, 0x70, 0x43, 0xFF},
+        cyan_color = rl.Color {0x18, 0xFF, 0xFF, 0xFF},
+        gray_color = rl.Color {0x90, 0xA4, 0xAE, 0xFF},
+        white_black_color = rl.Color {0xEC, 0xEF, 0xF1, 0xFF},
+        error_color = rl.Color {0xFF, 0x52, 0x52, 0xFF},
+        comments_color = rl.Color {0x61, 0x6A, 0x7A, 0xFF},
+        variables_color = rl.Color {0xEC, 0xEF, 0xF1, 0xFF},
+        links_color = rl.Color {0x18, 0xFF, 0xFF, 0xFF},
+        functions_color = rl.Color {0x44, 0x8A, 0xFF, 0xFF},
+        keywords_color = rl.Color {0xFF, 0x52, 0x52, 0xFF},
+        tags_color = rl.Color {0xFF, 0x52, 0x52, 0xFF},
+        strings_color = rl.Color {0xFF, 0xCA, 0x28, 0xFF},
+        operators_color = rl.Color {0x18, 0xFF, 0xFF, 0xFF},
+        attributes_color = rl.Color {0xFF, 0xCA, 0x28, 0xFF},
+        numbers_color = rl.Color {0xFF, 0x70, 0x43, 0xFF},
+        parameters_color = rl.Color {0xFF, 0x70, 0x43, 0xFF},
+    }
+}
+
 // Loads a theme from a JSON file shaped `{ "name": string, "colors": { <key>: "#RRGGBB[AA]" } }`.
 // Keys are the display names accepted by theme_assign_color. Unspecified keys keep the
 // built-in default, so partial themes are valid. On any failure the default is returned.
 theme_load :: proc(path: string) -> (Theme, bool) {
-    theme := theme_material_deep_ocean()
+    theme := theme_mjolnir()
     // Own the name on every path so theme_destroy can always free it.
     theme.name = strings.clone(theme.name)
 

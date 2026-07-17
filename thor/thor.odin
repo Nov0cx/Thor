@@ -52,6 +52,8 @@ Thor :: struct {
     dialog:                   ^widgets.Dialog,
     dialog_stack:             ^widgets.Stack,
     command_palette:          ^widgets.Command_Palette,
+    // Modal picker for Preferences (theme/font), with live preview.
+    select_dialog:            ^widgets.Select_Dialog,
     find_replace:             ^widgets.Find_Replace,
     menu:                     ^widgets.Menu,
     command_palette_key:      setting.Keybind,
@@ -80,6 +82,13 @@ Thor :: struct {
     menu_edit_button:         ^widgets.Button,
     menu_view_button:         ^widgets.Button,
     menu_help_button:         ^widgets.Button,
+    // Titlebar/panel labels that carry a theme color, kept so a live theme
+    // change can recolor them (most labels are theme-neutral and not stored).
+    top_title_label:          ^widgets.Label,
+    explorer_title_label:     ^widgets.Label,
+    console_title_label:      ^widgets.Label,
+    dialog_text_label:        ^widgets.Label,
+    dialog_console_button:    ^widgets.Button,
     explorer_toggle_button:   ^widgets.Button,
     explorer_restore_button:  ^widgets.Button,
     console_toggle_button:    ^widgets.Button,
@@ -87,14 +96,14 @@ Thor :: struct {
     minimize_button:          ^widgets.Button,
     maximize_button:          ^widgets.Button,
     close_button:             ^widgets.Button,
+    // Top-bar buttons added by plugins via thor.button, and the widget a new one
+    // is linked in after (advances so buttons keep registration order).
+    plugin_buttons:           [dynamic]^Plugin_Top_Button,
+    top_bar_plugin_anchor:    ^ui.Widget,
     should_close:             bool,
-    // Tracked ourselves: IsWindowMaximized() is unreliable for an undecorated
-    // window, so the maximize button toggles against this flag instead.
     window_maximized:         bool,
     explorer_width:           f32,
     console_height:           f32,
-    // Editor split: whether the second pane is shown, and pane 1's share of the
-    // width (0..1); the splitter drag adjusts the ratio.
     split_visible:            bool,
     split_ratio:              f32,
     // Each pane's open-files index (-1 = none); the two panes can show different
@@ -185,7 +194,7 @@ init :: proc() -> ^Thor {
     plugin.manager_init(&thor.plugins)
     // Plugins are loaded later (after the console exists and the host services
     // are wired) so a plugin can print and read keybinds from its load body.
-    thor.theme, _ = ui.theme_load("assets/themes/material-deep-ocean.json")
+    thor_load_active_theme(thor)
     thor.active_file = ui.make_signal(-1)
     thor.explorer_visible = ui.make_signal(true)
     thor.console_visible = ui.make_signal(true)
@@ -207,6 +216,7 @@ init :: proc() -> ^Thor {
 
     thor_build_ui(thor)
     thor.command_palette.return_focus = &thor.editor.widget
+    thor.select_dialog.return_focus = &thor.editor.widget
     thor.find_replace.return_focus = &thor.editor.widget
     thor.menu.return_focus = &thor.editor.widget
     widgets.command_palette_set_navigation(
@@ -224,7 +234,17 @@ init :: proc() -> ^Thor {
 
     // Now that the console and keybinds exist, expose the host services and load
     // plugins (their load body may print or query keybinds, e.g. the tutorial).
-    plugin.manager_set_host(&thor.plugins, thor, thor_plugin_print, thor_plugin_keybind, thor_plugin_doc)
+    // Plugin top-bar buttons link in just after the Help button.
+    thor.top_bar_plugin_anchor = &thor.menu_help_button.widget
+    plugin.manager_set_host(
+        &thor.plugins,
+        thor,
+        thor_plugin_print,
+        thor_plugin_keybind,
+        thor_plugin_doc,
+        thor_plugin_exec,
+        thor_plugin_button,
+    )
     plugin.manager_load(&thor.plugins)
     thor_set_active_file(thor, -1)
     thor_restore_session(thor)
@@ -241,6 +261,13 @@ init :: proc() -> ^Thor {
     // Texture upload needs the GL context, so it happens here on the main
     // thread once the rasterizer threads are done.
     ui.text_finish_async_load()
+    // The font families are only registered once loading finishes, so apply the
+    // configured text font here rather than before the async load.
+    if fam := setting.font_family(&thor.config); fam != "" {
+        if !ui.text_set_default_family(fam) {
+            log.warnf("Configured font %q is not available; using the default", fam)
+        }
+    }
     lap(&phase, "text_finish_async_load")
 
     log.infof("Startup took %.1f ms", time.duration_milliseconds(time.tick_since(start)))
@@ -304,6 +331,12 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.pending_delete_path)
     delete(thor.delete_prompt)
     delete(thor.git_branch)
+    for pb in thor.plugin_buttons {
+        delete(pb.label)
+        delete(pb.command)
+        free(pb)
+    }
+    delete(thor.plugin_buttons)
     setting.destroy(&thor.config)
     plugin.manager_destroy(&thor.plugins)
 

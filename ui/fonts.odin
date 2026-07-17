@@ -273,6 +273,37 @@ icon_codepoint :: proc(name: string) -> (rune, bool) {
     return glyph.codepoint, ok
 }
 
+// Names of every registered text (non-icon) font family, sorted, so the UI can
+// offer them in a font picker. Allocated in `allocator`.
+text_family_names :: proc(allocator := context.temp_allocator) -> []string {
+    names := make([dynamic]string, allocator)
+    for name, family in families {
+        if !family.icon_font {
+            append(&names, name)
+        }
+    }
+    slice.sort(names[:])
+    return names[:]
+}
+
+// The current default text family (used wherever draw_text/measure_text get no
+// explicit family).
+text_default_family :: proc() -> string {
+    return default_family_name
+}
+
+// Switches the default text family to `name`. Fails (returns false, leaving the
+// default untouched) for an unknown or icon-only family. The default points at
+// the family's own owned name, so no allocation is made.
+text_set_default_family :: proc(name: string) -> bool {
+    family, found := families[name]
+    if !found || family.icon_font {
+        return false
+    }
+    default_family_name = family.name
+    return true
+}
+
 // Draws a single icon glyph; size is the pixel height of the icon font.
 draw_icon :: proc(name: string, x, y, size: i32, color: rl.Color) {
     glyph, ok := icon_map[name]

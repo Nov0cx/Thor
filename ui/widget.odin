@@ -89,6 +89,20 @@ widget_append_child :: proc(parent, child: ^Widget) {
     parent.last_child = child
 }
 
+// Links `child` in immediately after `anchor` among its parent's children.
+widget_insert_after :: proc(anchor, child: ^Widget) {
+    child.parent = anchor.parent
+    child.prev_sibling = anchor
+    child.next_sibling = anchor.next_sibling
+
+    if anchor.next_sibling != nil {
+        anchor.next_sibling.prev_sibling = child
+    } else if anchor.parent != nil {
+        anchor.parent.last_child = child
+    }
+    anchor.next_sibling = child
+}
+
 widget_contains_point :: proc(widget: ^Widget, point: rl.Vector2) -> bool {
     bounds := widget.bounds
     if widget.hit_expand != 0 {

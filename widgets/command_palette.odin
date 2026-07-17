@@ -25,6 +25,9 @@ Palette_Goto_Line_Proc :: #type proc(data: rawptr, line: int)
 Palette_Prompt_Proc :: #type proc(data: rawptr, text: string)
 // Yes/no confirmation (delete a file, etc.): fires on Enter, cancels on Escape.
 Palette_Confirm_Proc :: #type proc(data: rawptr)
+// Fuzzy pick from a caller-supplied list (theme, font, branch, ...): fires with
+// the chosen item on Enter/click.
+Palette_Pick_Proc :: #type proc(data: rawptr, choice: string)
 
 Palette_Mode :: enum {
     Commands,
@@ -32,6 +35,7 @@ Palette_Mode :: enum {
     Line,
     Prompt,
     Confirm,
+    Pick,
 }
 
 @(private = "file")
@@ -66,6 +70,10 @@ Command_Palette :: struct {
     // Confirm mode: the message shown and the callback fired on Enter.
     confirm_run:  Palette_Confirm_Proc,
     confirm_data: rawptr,
+    // Pick mode: the callback fired with the chosen item (the list lives in
+    // `files`, so it fuzzy-filters and scrolls like Files mode).
+    pick_run:     Palette_Pick_Proc,
+    pick_data:    rawptr,
     box:          rl.Rectangle,
     width:        f32,
     row_height:   f32,
@@ -221,6 +229,33 @@ command_palette_confirm :: proc(
     ui.widget_bring_to_front(&palette.widget)
 }
 
+// Opens the palette as a fuzzy picker over `items`. `label` is the placeholder
+// (borrowed); `run` fires with the chosen string on Enter/click. Items are
+// copied, so the caller keeps ownership of its slice.
+command_palette_pick :: proc(
+    palette: ^Command_Palette,
+    ctx: ^ui.Context,
+    label: string,
+    items: []string,
+    run: Palette_Pick_Proc,
+    data: rawptr,
+) {
+    for path in palette.files {
+        delete(path)
+    }
+    clear(&palette.files)
+    for item in items {
+        append(&palette.files, strings.clone(item))
+    }
+    palette.prompt_label = label
+    palette.pick_run = run
+    palette.pick_data = data
+    palette.visible = true
+    command_palette_reset(palette, .Pick)
+    ctx.focused = &palette.widget
+    ui.widget_bring_to_front(&palette.widget)
+}
+
 @(private = "file")
 command_palette_reset :: proc(palette: ^Command_Palette, mode: Palette_Mode) {
     palette.mode = mode
@@ -252,6 +287,8 @@ command_palette_display :: proc(palette: ^Command_Palette, index: int) -> string
         return palette.commands[index].title
     case .Files:
         return strings.trim_prefix(palette.files[index], palette.root_prefix)
+    case .Pick:
+        return palette.files[index]
     case .Line, .Prompt, .Confirm:
         return ""
     }
@@ -262,7 +299,7 @@ command_palette_display :: proc(palette: ^Command_Palette, index: int) -> string
 command_palette_source_count :: proc(palette: ^Command_Palette) -> int {
     switch palette.mode {
     case .Commands:               return len(palette.commands)
-    case .Files:                  return len(palette.files)
+    case .Files, .Pick:           return len(palette.files)
     case .Line, .Prompt, .Confirm: return 0
     }
     return 0
@@ -343,6 +380,19 @@ command_palette_activate :: proc(palette: ^Command_Palette, ctx: ^ui.Context) {
         command_palette_close(palette, ctx)
         if run != nil {
             run(data)
+        }
+    case .Pick:
+        if palette.selected < 0 || palette.selected >= len(palette.matches) {
+            return
+        }
+        choice := palette.files[palette.matches[palette.selected].index]
+        run := palette.pick_run
+        data := palette.pick_data
+        // Copy: closing the palette (or the callback) may free the list.
+        choice = strings.clone(choice, context.temp_allocator)
+        command_palette_close(palette, ctx)
+        if run != nil {
+            run(data, choice)
         }
     }
 }
@@ -528,6 +578,8 @@ command_palette_draw :: proc(widget: ^ui.Widget, _: ^ui.Context) {
         row_text_y := cast(i32) (row_y + (palette.row_height - 17) * 0.5)
         if palette.mode == .Files {
             command_palette_draw_file_row(palette, index, cast(i32) (palette.box.x + pad), row_text_y)
+        } else if palette.mode == .Pick {
+            ui.draw_text(palette.files[index], cast(i32) (palette.box.x + pad), row_text_y, 17, palette.text_color)
         } else {
             command := palette.commands[index]
             ui.draw_text(command.title, cast(i32) (palette.box.x + pad), row_text_y, 17, palette.text_color)
@@ -584,6 +636,7 @@ command_palette_placeholder :: proc(palette: ^Command_Palette) -> string {
     case .Line:     return "Go to line number..."
     case .Prompt:   return palette.prompt_label
     case .Confirm:  return palette.prompt_label
+    case .Pick:     return palette.prompt_label
     }
     return ""
 }

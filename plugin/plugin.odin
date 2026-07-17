@@ -39,6 +39,11 @@ Print_Proc :: #type proc(host: rawptr, text: string)
 Keybind_Proc :: #type proc(host: rawptr, action: string) -> (chord: string, ok: bool)
 // Renders `text` into a document tab at `path`; `focus` reveals and focuses it.
 Doc_Proc :: #type proc(host: rawptr, path: string, text: string, focus: bool)
+// Runs `command` in the workspace and returns its owned stdout+stderr; the host
+// owns the result and the caller frees it after copying into Lua.
+Exec_Proc :: #type proc(host: rawptr, command: string) -> string
+// Adds a top-bar button labelled `label` that runs the named command on click.
+Button_Proc :: #type proc(host: rawptr, label: string, command: string)
 
 // The single Lua state shared by all plugins. Not reentrant: one thread only.
 Manager :: struct {
@@ -54,6 +59,8 @@ Manager :: struct {
     print_proc:   Print_Proc,
     keybind_proc: Keybind_Proc,
     doc_proc:     Doc_Proc,
+    exec_proc:    Exec_Proc,
+    button_proc:  Button_Proc,
     // Named commands registered via thor.on_command -> Lua ref; keys are owned.
     command_refs: map[string]int,
 }
@@ -65,11 +72,15 @@ manager_set_host :: proc(
     print_proc: Print_Proc,
     keybind_proc: Keybind_Proc,
     doc_proc: Doc_Proc,
+    exec_proc: Exec_Proc,
+    button_proc: Button_Proc,
 ) {
     m.host = host
     m.print_proc = print_proc
     m.keybind_proc = keybind_proc
     m.doc_proc = doc_proc
+    m.exec_proc = exec_proc
+    m.button_proc = button_proc
 }
 
 // Initializes a manager in place. The caller must own it: install_api captures
@@ -180,6 +191,14 @@ install_api :: proc(m: ^Manager) {
     lua.pushcclosure(L, api_doc, 1)
     lua.setfield(L, -2, "doc")
 
+    lua.pushlightuserdata(L, rawptr(m))
+    lua.pushcclosure(L, api_exec, 1)
+    lua.setfield(L, -2, "exec")
+
+    lua.pushlightuserdata(L, rawptr(m))
+    lua.pushcclosure(L, api_button, 1)
+    lua.setfield(L, -2, "button")
+
     lua.setglobal(L, "thor")
 }
 
@@ -228,6 +247,37 @@ api_doc :: proc "c" (L: ^lua.State) -> c.int {
     context.allocator = m.allocator
     focus := bool(lua.toboolean(L, 3))
     m.doc_proc(m.host, string(lua.tostring(L, 1)), string(lua.tostring(L, 2)), focus)
+    return 0
+}
+
+// thor.exec(command): runs `command` in the workspace, returning its combined
+// stdout+stderr as a string (empty string without a sink). Blocks until it exits.
+@(private)
+api_exec :: proc "c" (L: ^lua.State) -> c.int {
+    context = runtime.default_context()
+    m := cast(^Manager) lua.touserdata(L, upvalueindex(1))
+    if m == nil || m.exec_proc == nil || lua.type(L, 1) != .STRING {
+        lua.pushstring(L, "")
+        return 1
+    }
+    context.allocator = m.allocator
+    out := m.exec_proc(m.host, string(lua.tostring(L, 1)))
+    lua.pushstring(L, strings.clone_to_cstring(out, context.temp_allocator))
+    delete(out) // host-owned result, freed after copying into Lua
+    return 1
+}
+
+// thor.button(label, command): adds a top-bar button that runs the named
+// command (registered via thor.on_command) when clicked.
+@(private)
+api_button :: proc "c" (L: ^lua.State) -> c.int {
+    context = runtime.default_context()
+    m := cast(^Manager) lua.touserdata(L, upvalueindex(1))
+    if m == nil || m.button_proc == nil || lua.type(L, 1) != .STRING || lua.type(L, 2) != .STRING {
+        return 0
+    }
+    context.allocator = m.allocator
+    m.button_proc(m.host, string(lua.tostring(L, 1)), string(lua.tostring(L, 2)))
     return 0
 }
 

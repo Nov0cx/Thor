@@ -83,8 +83,6 @@ thor_apply_settings :: proc(thor: ^Thor) {
     } else {
         thor.last_file_key = setting.Keybind {key = .E, ctrl = true}
     }
-    // Intentionally unbound by default: an empty chord (KEY_NULL) never matches,
-    // so the split only has a key once "toggle_split" is set in keybinds.json.
     if kb, ok := setting.keybind(&thor.config, "toggle_split"); ok {
         thor.split_key = kb
     } else {
@@ -273,6 +271,8 @@ thor_register_commands :: proc(thor: ^Thor) {
     thor_add_bindable_command(thor, "Settings: Reload", "reload_settings", thor_cmd_reload_settings, thor)
     thor_add_bindable_command(thor, "Workspace: Initialize", "init_workspace", thor_cmd_init_workspace, thor)
     thor_add_bindable_command(thor, "Preferences: New Theme", "new_theme", thor_cmd_new_theme, thor)
+    thor_add_bindable_command(thor, "Preferences: Change Theme", "change_theme", thor_cmd_change_theme, thor)
+    thor_add_bindable_command(thor, "Preferences: Change Font", "change_font", thor_cmd_change_font, thor)
 }
 
 thor_cmd_toggle_explorer :: proc(data: rawptr) {thor_toggle_explorer(data, nil, nil)}
@@ -414,13 +414,55 @@ thor_cmd_command_palette :: proc(data: rawptr) {
 
 thor_cmd_add_font :: proc(data: rawptr) {thor_open_file(cast(^Thor) data, "assets/fonts/fonts.json")}
 
-// Seeds a new theme file from the default palette (once) and opens it to edit.
+@(private = "file")
+EMPTY_THEME :: 
+`{
+    "name": "",
+    "colors": {
+        "Background": "",
+        "Foreground": "",
+        "Text": "",
+        "Selection Background": "",
+        "Selection Foreground": "",
+        "Buttons": "",
+        "Second Background": "",
+        "Disabled": "",
+        "Contrast": "",
+        "Active": "",
+        "Border": "",
+        "Highlight": "",
+        "Tree": "",
+        "Notifications": "",
+        "Accent Color": "",
+        "Excluded Files Color": "",
+        "Green Color": "",
+        "Yellow Color": "",
+        "Blue Color": "",
+        "Red Color": "",
+        "Purple Color": "",
+        "Orange Color": "",
+        "Cyan Color": "",
+        "Gray Color": "",
+        "White/Black Color": "",
+        "Error Color": "",
+        "Comments Color": "",
+        "Variables Color": "",
+        "Links Color": "",
+        "Functions Color": "",
+        "Keywords Color": "",
+        "Tags Color": "",
+        "Strings Color": "",
+        "Operators Color": "",
+        "Attributes Color": "",
+        "Numbers Color": "",
+        "Parameters Color": ""
+    }
+}`
+
 thor_cmd_new_theme :: proc(data: rawptr) {
     dst :: "assets/themes/custom.json"
     if !os.exists(dst) {
-        if src, rerr := os.read_entire_file_from_path("assets/themes/material-deep-ocean.json", context.temp_allocator); rerr == nil {
-            _ = os.write_entire_file(dst, src)
-        }
+        _ = os.write_entire_file(dst, EMPTY_THEME)
     }
     thor_open_file(cast(^Thor) data, dst)
 }

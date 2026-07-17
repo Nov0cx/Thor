@@ -2,12 +2,21 @@ package thor
 
 import "core:os"
 import "core:path/filepath"
+import "core:strings"
 
 import "../plugin"
 import "../setting"
 import "../textedit"
 import "../ui"
 import "../widgets"
+
+// A top-bar button a plugin added via thor.button; carries the command it runs.
+Plugin_Top_Button :: struct {
+    thor:    ^Thor,
+    label:   string, // owned; the button borrows it as its text
+    command: string, // owned
+    button:  ^widgets.Button, // the top-bar button, kept so a theme change recolors it
+}
 
 // Host services handed to the plugin manager (see plugin.manager_set_host),
 // so a Lua plugin can reach Thor without the plugin package depending on it.
@@ -72,6 +81,42 @@ thor_plugin_doc :: proc(host: rawptr, path: string, text: string, focus: bool) {
     }
 
     thor_open_file(thor, path)
+}
+
+// thor.exec(command): runs `command` in the workspace via cmd.exe and returns
+// its combined output. Synchronous, so plugins should keep commands quick.
+thor_plugin_exec :: proc(host: rawptr, command: string) -> string {
+    thor := cast(^Thor) host
+    return run_command(command, thor.workspace_dir)
+}
+
+// thor.button(label, command): adds a flat top-bar button, just after Help,
+// that runs the named plugin command when clicked.
+thor_plugin_button :: proc(host: rawptr, label: string, command: string) {
+    thor := cast(^Thor) host
+
+    pb := new(Plugin_Top_Button)
+    pb.thor = thor
+    pb.label = strings.clone(label)
+    pb.command = strings.clone(command)
+    append(&thor.plugin_buttons, pb)
+
+    button := thor_create_menu_button(thor, "plugin-button", pb.label)
+    pb.button = button
+    widgets.button_set_on_click(button, thor_plugin_button_click, pb)
+
+    if thor.top_bar_plugin_anchor != nil {
+        ui.widget_insert_after(thor.top_bar_plugin_anchor, &button.widget)
+    } else {
+        widgets.append_child(&thor.top_bar.widget, &button.widget)
+    }
+    thor.top_bar_plugin_anchor = &button.widget
+}
+
+// Click handler shared by every plugin top-bar button; runs its command.
+thor_plugin_button_click :: proc(data: rawptr, _: ^ui.Context, _: ^ui.Widget) {
+    pb := cast(^Plugin_Top_Button) data
+    plugin.manager_run_command(&pb.thor.plugins, pb.command)
 }
 
 // Help -> Tutorial: starts the interactive tutorial plugin

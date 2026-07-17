@@ -106,6 +106,19 @@ thor_build_ui :: proc(thor: ^Thor) {
     )
     thor.command_palette.visible = false
 
+    thor.select_dialog = widgets.select_dialog_create("select-dialog")
+    widgets.select_dialog_set_colors(
+        thor.select_dialog,
+        thor.theme.second_background,
+        thor.theme.accent_color,
+        thor.theme.highlight,
+        thor.theme.white_black_color,
+        thor.theme.gray_color,
+        rl.Color {thor.theme.accent_color.r, thor.theme.accent_color.g, thor.theme.accent_color.b, 40},
+        thor.theme.accent_color,
+    )
+    thor.select_dialog.visible = false
+
     thor.find_replace = widgets.find_replace_create("find-replace")
     widgets.find_replace_set_colors(
         thor.find_replace,
@@ -154,6 +167,7 @@ thor_build_content :: proc(thor: ^Thor) {
     top_title := widgets.label_create("top-title", "Thor")
     widgets.label_set_text_color(top_title, thor.theme.accent_color)
     top_title.min_size = rl.Vector2 {70, 28}
+    thor.top_title_label = top_title
 
     // Empty flexible spacer so the titlebar keeps a draggable area on the
     // right of the menu buttons.
@@ -165,6 +179,7 @@ thor_build_content :: proc(thor: ^Thor) {
     widgets.label_set_text_color(explorer_title, thor.theme.white_black_color)
     ui.widget_set_grow(&explorer_title.widget, 1)
     explorer_title.min_size = rl.Vector2 {0, 24}
+    thor.explorer_title_label = explorer_title
 
     thor.tree = widgets.tree_create("explorer-tree", thor.workspace_dir)
     widgets.tree_set_colors(
@@ -268,6 +283,7 @@ thor_build_content :: proc(thor: ^Thor) {
     widgets.label_set_text_color(console_title, thor.theme.white_black_color)
     ui.widget_set_grow(&console_title.widget, 1)
     console_title.min_size = rl.Vector2 {0, 24}
+    thor.console_title_label = console_title
 
     thor.console = widgets.console_create("console")
     widgets.console_set_colors(
@@ -295,11 +311,13 @@ thor_build_content :: proc(thor: ^Thor) {
     widgets.label_set_text_color(dialog_text, thor.theme.white_black_color)
     widgets.label_set_top_align(dialog_text, true)
     dialog_text.min_size = rl.Vector2 {0, 110}
+    thor.dialog_text_label = dialog_text
 
     dialog_console_button := widgets.button_create("dialog-console-button", "Toggle Console")
     widgets.button_set_colors(dialog_console_button, thor.theme.white_black_color, thor.theme.blue_color, thor.theme.cyan_color, thor.theme.active, thor.theme.border)
     widgets.button_set_on_click(dialog_console_button, thor_toggle_console, thor)
     dialog_console_button.min_size = rl.Vector2 {0, 36}
+    thor.dialog_console_button = dialog_console_button
 
     widgets.append_child(&thor.top_bar.widget, &top_title.widget)
     widgets.append_child(&thor.top_bar.widget, &thor.menu_file_button.widget)
@@ -340,6 +358,7 @@ thor_connect_tree :: proc(thor: ^Thor) {
     widgets.append_child(&thor.root_panel.widget, &thor.dialog.widget)
     // Added last so they overlay everything and are hit-tested first.
     widgets.append_child(&thor.root_panel.widget, &thor.command_palette.widget)
+    widgets.append_child(&thor.root_panel.widget, &thor.select_dialog.widget)
     widgets.append_child(&thor.root_panel.widget, &thor.find_replace.widget)
     // The menu is added after the palette so it sits above it (bring_to_front
     // on open keeps whichever overlay opened last on top anyway).
@@ -371,8 +390,7 @@ thor_connect_tree :: proc(thor: ^Thor) {
 
 thor_create_menu_button :: proc(thor: ^Thor, id, text: string) -> ^widgets.Button {
     button := widgets.button_create(id, text)
-    widgets.button_set_colors(button, thor.theme.foreground, thor.theme.buttons, thor.theme.highlight, thor.theme.active, thor.theme.buttons)
-    widgets.button_set_border_thickness(button, 0)
+    thor_theme_menu_button(thor, button)
     button.min_size = rl.Vector2 {70, 28}
     return button
 }
@@ -382,8 +400,7 @@ thor_create_menu_button :: proc(thor: ^Thor, id, text: string) -> ^widgets.Butto
 thor_create_window_button :: proc(thor: ^Thor, id, icon: string, on_click: widgets.Button_Click_Proc, hover: rl.Color) -> ^widgets.Button {
     button := widgets.button_create(id, "")
     widgets.button_set_icon(button, icon, 16)
-    widgets.button_set_colors(button, thor.theme.foreground, thor.theme.buttons, hover, thor.theme.active, thor.theme.buttons)
-    widgets.button_set_border_thickness(button, 0)
+    thor_theme_window_button(thor, button, hover)
     widgets.button_set_on_click(button, on_click, thor)
     button.min_size = rl.Vector2 {40, 28}
     return button
@@ -394,8 +411,7 @@ thor_create_window_button :: proc(thor: ^Thor, id, icon: string, on_click: widge
 thor_create_icon_button :: proc(thor: ^Thor, id, icon: string, on_click: widgets.Button_Click_Proc, background: rl.Color) -> ^widgets.Button {
     button := widgets.button_create(id, "")
     widgets.button_set_icon(button, icon, 18)
-    widgets.button_set_colors(button, thor.theme.foreground, background, thor.theme.active, thor.theme.border, background)
-    widgets.button_set_border_thickness(button, 0)
+    thor_theme_icon_button(thor, button, background)
     widgets.button_set_on_click(button, on_click, thor)
     button.min_size = rl.Vector2 {30, 26}
     return button
