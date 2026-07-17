@@ -3,3 +3,4 @@
 *.dll
 .claude
 sessions/
+.todo.txt

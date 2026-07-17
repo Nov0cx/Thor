@@ -40,8 +40,7 @@ See [vendor/README.md](vendor/README.md) for both recipes:
 - **tree-sitter** runtime and at least one grammar into
   `vendor/odin-tree-sitter/` via the bundled `odin run build` tool.
 
-Because these link native libraries, build Thor from a Visual Studio developer
-shell. Lua links against `lua54.dll`; `build.bat` copies it next to the
+Lua links against `lua54.dll`; `build.bat` copies it next to the
 executable from Odin's `vendor` directory the first time it is missing.
 
 ### Linux
