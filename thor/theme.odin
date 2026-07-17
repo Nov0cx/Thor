@@ -123,7 +123,7 @@ thor_apply_theme :: proc(thor: ^Thor) {
         thor.tree,
         t.foreground, t.white_black_color, t.blue_color, t.gray_color, t.tree, t.selection_background, t.second_background,
     )
-    widgets.tree_set_git_colors(thor.tree, t.yellow_color, t.green_color, t.red_color, t.orange_color)
+    widgets.tree_set_git_colors(thor.tree, t.yellow_color, t.green_color, t.red_color, t.orange_color, t.purple_color)
 
     widgets.tabbar_set_colors(
         thor.tabbar,

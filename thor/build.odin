@@ -199,6 +199,7 @@ thor_build_content :: proc(thor: ^Thor) {
         thor.theme.green_color,  // added / untracked
         thor.theme.red_color,    // deleted
         thor.theme.orange_color, // conflict
+        thor.theme.purple_color, // submodule
     )
     widgets.tree_set_git(thor.tree, thor_tree_git_status, thor)
     ui.widget_set_grow(&thor.tree.widget, 1)

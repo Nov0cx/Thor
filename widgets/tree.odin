@@ -22,6 +22,7 @@ Git_Status :: enum u8 {
     Deleted,
     Renamed,
     Conflict,
+    Submodule,
 }
 
 Tree_Status_Proc :: #type proc(data: rawptr, path: string, is_dir: bool) -> Git_Status
@@ -68,6 +69,7 @@ Tree :: struct {
     git_added_color:    rl.Color,
     git_deleted_color:  rl.Color,
     git_conflict_color: rl.Color,
+    git_submodule_color: rl.Color,
 }
 
 @(private = "file")
@@ -101,6 +103,7 @@ tree_create :: proc(id, root_path: string) -> ^Tree {
     tree.git_added_color = rl.Color {152, 195, 121, 255}    // green
     tree.git_deleted_color = rl.Color {224, 108, 117, 255}  // red
     tree.git_conflict_color = rl.Color {224, 108, 117, 255} // red
+    tree.git_submodule_color = rl.Color {199, 146, 234, 255} // purple
     tree.min_size = rl.Vector2 {0, 120}
 
     tree.root = new(Tree_Node)
@@ -146,11 +149,12 @@ tree_set_git :: proc(tree: ^Tree, status_proc: Tree_Status_Proc, data: rawptr) {
     tree.status_data = data
 }
 
-tree_set_git_colors :: proc(tree: ^Tree, modified, added, deleted, conflict: rl.Color) {
+tree_set_git_colors :: proc(tree: ^Tree, modified, added, deleted, conflict, submodule: rl.Color) {
     tree.git_modified_color = modified
     tree.git_added_color = added
     tree.git_deleted_color = deleted
     tree.git_conflict_color = conflict
+    tree.git_submodule_color = submodule
 }
 
 @(private = "file")
@@ -161,6 +165,7 @@ tree_status_color :: proc(tree: ^Tree, status: Git_Status) -> rl.Color {
     case .Added, .Untracked:   return tree.git_added_color
     case .Deleted:             return tree.git_deleted_color
     case .Conflict:            return tree.git_conflict_color
+    case .Submodule:           return tree.git_submodule_color
     }
     return tree.text_color
 }
@@ -176,6 +181,7 @@ tree_status_letter :: proc(status: Git_Status) -> string {
     case .Deleted:   return "D"
     case .Renamed:   return "R"
     case .Conflict:  return "!"
+    case .Submodule: return "S"
     }
     return ""
 }
@@ -554,7 +560,13 @@ tree_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
             ui.draw_icon(folder, cast(i32) x, icon_y, tree.icon_size, tree.icon_color)
         } else {
             x += cast(f32) tree.icon_size + 4
-            ui.draw_icon(tree_file_icon(node.name), cast(i32) x, icon_y, tree.icon_size, tree.chevron_color)
+            // Tint the file icon with its language's vendor colour; unknown types
+            // keep the neutral chevron colour.
+            icon_color := tree.chevron_color
+            if vendor, ok := tree_vendor_color(node.name); ok {
+                icon_color = vendor
+            }
+            ui.draw_icon(tree_file_icon(node.name), cast(i32) x, icon_y, tree.icon_size, icon_color)
         }
         x += cast(f32) tree.icon_size + 6
 
@@ -573,6 +585,72 @@ tree_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
             ui.draw_text(letter, cast(i32) badge_x, text_y, tree.font_size, color)
         }
     }
+}
+
+// Vendor (brand) colour for a file's language, GitHub-linguist style, used to
+// tint its tree icon. `ok` is false for names with no known language, so the
+// caller keeps its neutral fallback. Colours are lightened where the true brand
+// tone would be too dark to read on the dark tree background.
+@(private = "file")
+tree_vendor_color :: proc(name: string) -> (rl.Color, bool) {
+    switch name {
+    case "Dockerfile":     return rl.Color {58, 137, 227, 255}, true
+    case "CMakeLists.txt": return rl.Color {100, 130, 173, 255}, true
+    }
+
+    dot := strings.last_index_byte(name, '.')
+    if dot < 0 {
+        return {}, false
+    }
+
+    switch name[dot:] {
+    case ".c", ".h":                          return rl.Color {90, 150, 214, 255}, true
+    case ".cpp", ".hpp", ".cc", ".hh", ".cxx": return rl.Color {243, 75, 125, 255}, true
+    case ".rs":                               return rl.Color {222, 165, 132, 255}, true
+    case ".go":                               return rl.Color {0, 173, 216, 255}, true
+    case ".py", ".pyw":                       return rl.Color {255, 212, 59, 255}, true
+    case ".js", ".mjs", ".cjs":               return rl.Color {241, 224, 90, 255}, true
+    case ".ts":                               return rl.Color {73, 143, 217, 255}, true
+    case ".jsx", ".tsx":                      return rl.Color {97, 218, 251, 255}, true
+    case ".zig":                              return rl.Color {236, 145, 92, 255}, true
+    case ".glsl", ".vert", ".frag":           return rl.Color {90, 150, 214, 255}, true
+    case ".md":                               return rl.Color {117, 143, 255, 255}, true
+    case ".json":                             return rl.Color {203, 161, 53, 255}, true
+    case ".yml", ".yaml":                     return rl.Color {203, 75, 80, 255}, true
+    case ".xml":                              return rl.Color {150, 190, 90, 255}, true
+    case ".html", ".htm":                     return rl.Color {227, 100, 60, 255}, true
+    case ".css":                              return rl.Color {102, 129, 214, 255}, true
+    case ".scss", ".sass":                    return rl.Color {207, 100, 154, 255}, true
+    case ".lua":                              return rl.Color {80, 120, 255, 255}, true
+    case ".java":                             return rl.Color {214, 143, 61, 255}, true
+    case ".kt", ".kts":                       return rl.Color {169, 123, 255, 255}, true
+    case ".cs":                               return rl.Color {104, 33, 122, 255}, true
+    case ".fs":                               return rl.Color {55, 139, 186, 255}, true
+    case ".swift":                            return rl.Color {240, 81, 56, 255}, true
+    case ".rb":                               return rl.Color {204, 52, 45, 255}, true
+    case ".php":                              return rl.Color {119, 123, 180, 255}, true
+    case ".hs":                               return rl.Color {143, 78, 139, 255}, true
+    case ".ex", ".exs":                       return rl.Color {150, 120, 180, 255}, true
+    case ".jl":                               return rl.Color {150, 90, 165, 255}, true
+    case ".pl", ".pm":                        return rl.Color {90, 130, 190, 255}, true
+    case ".dart":                             return rl.Color {0, 180, 171, 255}, true
+    case ".scala":                            return rl.Color {194, 65, 84, 255}, true
+    case ".clj", ".cljs":                     return rl.Color {130, 190, 80, 255}, true
+    case ".erl":                              return rl.Color {184, 57, 152, 255}, true
+    case ".ml", ".mli":                       return rl.Color {232, 137, 62, 255}, true
+    case ".nim":                              return rl.Color {240, 200, 80, 255}, true
+    case ".sh", ".bash", ".zsh":              return rl.Color {137, 224, 81, 255}, true
+    case ".ps1", ".psm1":                     return rl.Color {90, 145, 216, 255}, true
+    case ".vim":                              return rl.Color {90, 175, 90, 255}, true
+    case ".tex", ".bib":                      return rl.Color {120, 160, 200, 255}, true
+    case ".cmake":                            return rl.Color {100, 130, 173, 255}, true
+    case ".vue":                              return rl.Color {65, 184, 131, 255}, true
+    case ".svelte":                           return rl.Color {255, 90, 45, 255}, true
+    case ".graphql", ".gql":                  return rl.Color {229, 53, 171, 255}, true
+    case ".gitignore", ".gitattributes", ".gitmodules": return rl.Color {240, 80, 50, 255}, true
+    case ".odin":                             return rl.Color {104, 172, 227, 255}, true
+    }
+    return {}, false
 }
 
 // Language files get their devicon glyph; everything else falls back to the

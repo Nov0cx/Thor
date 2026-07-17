@@ -1,6 +1,8 @@
 package thor
 
 import "base:runtime"
+import "core:os"
+import "core:path/filepath"
 import "core:strings"
 import "core:sync"
 import "core:thread"
@@ -60,6 +62,7 @@ thor_apply_git_status :: proc(thor: ^Thor, job: ^Git_Status_Job) {
 
     status := make(map[string]widgets.Git_Status)
     git_parse_status(thor, job.output, &status)
+    git_mark_submodules(thor, &status)
 
     thor_clear_git_status(thor)
     thor.git_status = status
@@ -119,6 +122,43 @@ git_parse_status :: proc(thor: ^Thor, output: string, out: ^map[string]widgets.G
         native, _ := strings.replace_all(rel, "/", "\\", context.temp_allocator)
         git_put(out, strings.concatenate({thor.workspace_prefix, native}), status)
         git_mark_ancestors(thor, native, status, out)
+    }
+}
+
+// Tints each submodule's directory with the Submodule status, reading the paths
+// from the workspace .gitmodules. Runs after status parsing so a submodule keeps
+// its own colour rather than the generic Modified tint a dirty submodule earns.
+@(private = "file")
+git_mark_submodules :: proc(thor: ^Thor, out: ^map[string]widgets.Git_Status) {
+    path, _ := filepath.join({thor.workspace_dir, ".gitmodules"}, context.temp_allocator)
+    data, read_err := os.read_entire_file(path, context.temp_allocator)
+    if read_err != nil {
+        return
+    }
+
+    it := string(data)
+    for line in strings.split_lines_iterator(&it) {
+        trimmed := strings.trim_space(line)
+        if !strings.has_prefix(trimmed, "path") {
+            continue
+        }
+        // Line is `path = <relative path>`; take everything past the '='.
+        eq := strings.index_byte(trimmed, '=')
+        if eq < 0 {
+            continue
+        }
+        rel := strings.trim_space(trimmed[eq + 1:])
+        if rel == "" {
+            continue
+        }
+        native, _ := strings.replace_all(rel, "/", "\\", context.temp_allocator)
+        abs := strings.concatenate({thor.workspace_prefix, native})
+        if _, exists := out[abs]; exists {
+            out[abs] = .Submodule
+            delete(abs)
+        } else {
+            out[abs] = .Submodule
+        }
     }
 }
 

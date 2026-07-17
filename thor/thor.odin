@@ -244,6 +244,15 @@ init :: proc() -> ^Thor {
         thor_plugin_doc,
         thor_plugin_exec,
         thor_plugin_button,
+        thor_plugin_workspace,
+        thor_plugin_active_path,
+        thor_plugin_read,
+        thor_plugin_write,
+        thor_plugin_refresh_git,
+        thor_plugin_menu,
+        thor_plugin_prompt,
+        thor_plugin_pick,
+        thor_plugin_confirm,
     )
     plugin.manager_load(&thor.plugins)
     thor_set_active_file(thor, -1)
@@ -332,6 +341,11 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.delete_prompt)
     delete(thor.git_branch)
     for pb in thor.plugin_buttons {
+        for entry in pb.entries {
+            delete(entry.label)
+            delete(entry.command)
+        }
+        delete(pb.entries)
         delete(pb.label)
         delete(pb.command)
         free(pb)
