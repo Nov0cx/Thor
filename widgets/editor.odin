@@ -1174,8 +1174,11 @@ editor_draw_line_selections :: proc(editor: ^Editor, text: string, line_start, l
             continue
         }
 
+        // Text is top-aligned, so size the highlight to the glyph height (like
+        // the caret) instead of the full line height; otherwise the extra line
+        // spacing hangs below the text and the selection reads as too tall.
         rl.DrawRectangleRec(
-            rl.Rectangle {x = text_x + x_start, y = line_y, width = width, height = line_height},
+            rl.Rectangle {x = text_x + x_start, y = line_y, width = width, height = cast(f32) editor.font_size},
             editor.selection_color,
         )
     }
