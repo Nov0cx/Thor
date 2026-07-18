@@ -72,12 +72,15 @@ thor_explorer_context_menu :: proc(data: rawptr, position: rl.Vector2) {
     }
     thor_set_menu_target(thor, target)
 
+    // A right-click selects the row first (see tree_handle_event), so Rename and
+    // the other selection actions read thor.tree.selected_path.
     has_selection := widgets.tree_path_at(thor.tree, position) != ""
 
     widgets.menu_clear(thor.menu)
     widgets.menu_add(thor.menu, "New File", thor_menu_new_file, thor)
     widgets.menu_add(thor.menu, "New Folder", thor_menu_new_folder, thor)
     widgets.menu_add_separator(thor.menu)
+    widgets.menu_add(thor.menu, "Rename", thor_menu_rename, thor, has_selection)
     widgets.menu_add(thor.menu, "Reveal in File Explorer", thor_menu_explorer_reveal, thor, has_selection)
     widgets.menu_add(thor.menu, "Copy Path", thor_menu_explorer_copy_path, thor, has_selection)
     widgets.menu_add_separator(thor.menu)
@@ -136,6 +139,12 @@ thor_menu_explorer_refresh :: proc(data: rawptr) {
     thor_refresh_git_status(thor)
 }
 
+// Explorer right-click Rename: the right-clicked row is the current selection.
+thor_menu_rename :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    thor_begin_rename(thor, thor.tree.selected_path)
+}
+
 thor_menu_explorer_reveal :: proc(data: rawptr) {
     thor := cast(^Thor) data
     thor_reveal_path(thor.tree.selected_path)
@@ -164,6 +173,19 @@ thor_cmd_new_folder :: proc(data: rawptr) {
     thor := cast(^Thor) data
     thor_set_menu_target(thor, thor.workspace_dir)
     thor_menu_new_folder(data)
+}
+
+// Top-bar File menu / command palette / F2: rename the explorer's selection when
+// the tree is focused, otherwise the active tab's file.
+thor_cmd_rename_file :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    if thor.ui_context.focused == &thor.tree.widget && thor.tree.selected_path != "" {
+        thor_begin_rename(thor, thor.tree.selected_path)
+        return
+    }
+    if file := thor_active_open_file(thor); file != nil {
+        thor_begin_rename(thor, file.path)
+    }
 }
 
 thor_prompt_new_file :: proc(data: rawptr, name: string) {
@@ -206,6 +228,7 @@ thor_open_file_menu :: proc(data: rawptr, ctx: ^ui.Context, widget: ^ui.Widget) 
     widgets.menu_add(thor.menu, "Save", thor_cmd_save, thor)
     widgets.menu_add(thor.menu, "Save All", thor_cmd_save_all, thor)
     widgets.menu_add_separator(thor.menu)
+    widgets.menu_add(thor.menu, "Rename File", thor_cmd_rename_file, thor, thor_active_open_file(thor) != nil)
     widgets.menu_add(thor.menu, "Close Tab", thor_cmd_close_tab, thor)
     widgets.menu_add(thor.menu, "Close All Tabs", thor_cmd_close_all, thor)
     thor_open_dropdown(thor, thor.menu_file_button)

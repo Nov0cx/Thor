@@ -236,6 +236,7 @@ thor_register_commands :: proc(thor: ^Thor) {
     thor_add_bindable_command(thor, "File: New Folder", "new_folder", thor_cmd_new_folder, thor)
     widgets.command_palette_add(p, "File: Save", thor_cmd_save, thor, sc(thor, "save"))
     thor_add_bindable_command(thor, "File: Save All", "save_all", thor_cmd_save_all, thor)
+    thor_add_bindable_command(thor, "File: Rename File", "rename_file", thor_cmd_rename_file, thor)
     widgets.command_palette_add(p, "File: Close Tab", thor_cmd_close_tab, thor, sc(thor, "close_tab"))
     thor_add_bindable_command(thor, "File: Close All Tabs", "close_all_tabs", thor_cmd_close_all, thor)
     widgets.command_palette_add(p, "File: Next Tab", thor_cmd_next_tab, thor, sc(thor, "next_tab"))

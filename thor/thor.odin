@@ -130,6 +130,9 @@ Thor :: struct {
     // Message shown in the delete confirmation dialog; borrowed by the palette
     // while it is open, so it must outlive the dialog. Owned clone.
     delete_prompt:            string,
+    // Path awaiting a rename (set when a rename is started in the explorer or
+    // the File menu, consumed when the name prompt is accepted). Owned clone.
+    pending_rename_path:      string,
     git_branch:               string,
     open_files:               [dynamic]^Open_File,
     zombie_files:             [dynamic]^Open_File,
@@ -357,6 +360,7 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.menu_target_dir)
     delete(thor.pending_delete_path)
     delete(thor.delete_prompt)
+    delete(thor.pending_rename_path)
     delete(thor.git_branch)
     lang.manager_destroy(&thor.lang_manager)
     delete(thor.pending_goto_path)

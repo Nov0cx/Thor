@@ -194,19 +194,25 @@ command_palette_is_open :: proc(palette: ^Command_Palette) -> bool {
 }
 
 // Opens the palette as a single-line text prompt. `label` is the placeholder
-// (borrowed); `run` fires with the typed text on Enter.
+// (borrowed); `run` fires with the typed text on Enter. `initial` prefills the
+// input (used by rename to seed the current name), with the caret at its end.
 command_palette_prompt :: proc(
     palette: ^Command_Palette,
     ctx: ^ui.Context,
     label: string,
     run: Palette_Prompt_Proc,
     data: rawptr,
+    initial := "",
 ) {
     palette.prompt_label = label
     palette.prompt_run = run
     palette.prompt_data = data
     palette.visible = true
     command_palette_reset(palette, .Prompt)
+    if len(initial) > 0 {
+        append(&palette.query, ..transmute([]u8) initial)
+        command_palette_refilter(palette)
+    }
     ctx.focused = &palette.widget
     ui.widget_bring_to_front(&palette.widget)
 }

@@ -650,3 +650,70 @@ thor_confirm_delete :: proc(data: rawptr) {
     widgets.tree_refresh(thor.tree)
     thor_refresh_git_status(thor)
 }
+
+// Tree callback / menu entry: begin renaming `path`. Opens the name prompt
+// seeded with the current base name; the rename runs in thor_prompt_rename.
+thor_begin_rename :: proc(thor: ^Thor, path: string) {
+    if path == "" {
+        return
+    }
+    delete(thor.pending_rename_path)
+    thor.pending_rename_path = strings.clone(path)
+
+    widgets.command_palette_prompt(
+        thor.command_palette,
+        &thor.ui_context,
+        "New name",
+        thor_prompt_rename,
+        thor,
+        file_base_name(path),
+    )
+}
+
+// Name prompt accepted: rename the file/folder on disk within its directory and
+// retarget any open tab that pointed at it.
+thor_prompt_rename :: proc(data: rawptr, name: string) {
+    thor := cast(^Thor) data
+    old_path := thor.pending_rename_path
+    defer {
+        delete(thor.pending_rename_path)
+        thor.pending_rename_path = ""
+    }
+
+    name := strings.trim_space(name)
+    if old_path == "" || name == "" {
+        return
+    }
+
+    new_path, _ := filepath.join({filepath.dir(old_path), name}, context.temp_allocator)
+    if thor_same_path(old_path, new_path) {
+        return
+    }
+    if os.exists(new_path) {
+        log.warnf("Cannot rename to %q: already exists", new_path)
+        return
+    }
+    if err := os.rename(old_path, new_path); err != nil {
+        log.warnf("Failed to rename %q to %q: %v", old_path, new_path, err)
+        return
+    }
+
+    // Retarget an open tab for the renamed file so it keeps its buffer and saves
+    // to the new location. Folders never match an open file.
+    canonical := new_path
+    if abs, err := filepath.abs(new_path, context.temp_allocator); err == nil {
+        canonical = abs
+    }
+    for file in thor.open_files {
+        if thor_same_path(file.path, old_path) {
+            delete(file.path)
+            file.path = strings.clone(canonical)
+            file.name = file_base_name(file.path)
+            break
+        }
+    }
+    thor_update_tab_labels(thor)
+
+    widgets.tree_refresh(thor.tree)
+    thor_refresh_git_status(thor)
+}

@@ -16,6 +16,7 @@
         "last_file":       "ctrl+e",
         "new_file":           "",
         "new_folder":         "",
+        "rename_file":        "f2",
         "save_all":           "",
         "close_all_tabs":     "",
         "copy_path":          "",
