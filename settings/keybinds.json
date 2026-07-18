@@ -12,6 +12,7 @@
         "focus_explorer":  "ctrl+shift+b",
         "focus_terminal":  "ctrl+shift+t",
         "goto_line":       "ctrl+g",
+        "goto_definition": "alt+enter",
         "last_file":       "ctrl+e",
         "new_file":           "",
         "new_folder":         "",

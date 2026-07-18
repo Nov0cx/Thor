@@ -395,6 +395,7 @@ thor_request_save :: proc(data: rawptr) {
 // kicks off autosaves for buffers that went quiet while dirty.
 thor_update_files :: proc(thor: ^Thor) {
     thor_process_io(thor)
+    thor_apply_pending_goto(thor)
     thor_update_editor_view(thor)
 
     autosave_delay := time.Duration(setting.autosave_delay_ms(&thor.config)) * time.Millisecond

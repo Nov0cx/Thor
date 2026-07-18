@@ -19,6 +19,7 @@ bindings are physical key positions, noted where they differ.
 | ctrl + tab | quick open (jump straight to file search) |
 | ctrl + e | flip to the previously active file (press again to flip back) |
 | ctrl + g | go to line (opens the palette in line-number mode) |
+| alt + enter (or ctrl + click) | go to definition of the symbol under the caret |
 | ctrl + f | find |
 | ctrl + r | find & replace |
 
@@ -132,9 +133,10 @@ previously active file in the new pane when there is one.
 ## Autocompletion
 
 Typing at least two word characters pops up a completion list of matching words
-found elsewhere in the buffer. Up / down move the selection, tab or enter accepts
-the highlighted word, escape (or typing a non-word character) dismisses it. There
-is no key to summon it — it appears automatically while typing.
+found elsewhere in the buffer. Up / down move the selection, tab or shift + enter
+accepts the highlighted word, escape (or typing a non-word character) dismisses
+it. A plain enter dismisses the popup and inserts a newline. There is no key to
+summon it — it appears automatically while typing.
 
 ## Command palette
 

@@ -8,6 +8,7 @@ import "core:sync"
 import "core:time"
 import rl "vendor:raylib"
 
+import "../lang"
 import "../plugin"
 import "../setting"
 import "../ui"
@@ -145,6 +146,16 @@ Thor :: struct {
     git_status:               map[string]widgets.Git_Status,
     git_status_inflight:      bool,
     git_status_dirty:         bool, // a refresh was requested while one was running
+    // Language intelligence: in-client analyzers (and, later, an LSP subprocess)
+    // behind one seam. Requests run on worker threads and are reaped each frame.
+    lang_manager:             lang.Manager,
+    odin_engine:              ^lang.Odin_Engine,
+    goto_def_key:             setting.Keybind,
+    // A go-to-definition whose target file is still loading; applied by
+    // thor_update_files once the buffer lands. Path is an owned clone.
+    pending_goto_active:      bool,
+    pending_goto_path:        string,
+    pending_goto_offset:      int,
 }
 
 init :: proc() -> ^Thor {
@@ -211,6 +222,12 @@ init :: proc() -> ^Thor {
     thor.finished_saves = make([dynamic]^Save_Job)
     thor.finished_console = make([dynamic]^Console_Job)
     thor.finished_git = make([dynamic]^Git_Status_Job)
+
+    // Language intelligence: register the in-client Odin engine first so it wins
+    // for .odin files; an optional LSP subprocess backend would register after it.
+    lang.manager_init(&thor.lang_manager)
+    thor.odin_engine = lang.odin_engine_create()
+    lang.manager_register(&thor.lang_manager, lang.odin_engine_backend(thor.odin_engine))
 
     log.infof("Loaded theme: %s", thor.theme.name)
 
@@ -307,6 +324,7 @@ thor_read_git_branch :: proc(workspace_dir: string) -> string {
 run :: proc(thor: ^Thor) {
     for !rl.WindowShouldClose() && !thor.should_close {
         thor_update_files(thor)
+        lang.manager_dispatch(&thor.lang_manager, thor, thor_on_lang_result)
         ui.context_update(&thor.ui_context)
         thor_sync_active_pane(thor)
 
@@ -340,6 +358,8 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.pending_delete_path)
     delete(thor.delete_prompt)
     delete(thor.git_branch)
+    lang.manager_destroy(&thor.lang_manager)
+    delete(thor.pending_goto_path)
     for pb in thor.plugin_buttons {
         for entry in pb.entries {
             delete(entry.label)

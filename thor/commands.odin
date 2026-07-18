@@ -78,6 +78,11 @@ thor_apply_settings :: proc(thor: ^Thor) {
     } else {
         thor.goto_line_key = setting.Keybind {key = .G, ctrl = true}
     }
+    if kb, ok := setting.keybind(&thor.config, "goto_definition"); ok {
+        thor.goto_def_key = kb
+    } else {
+        thor.goto_def_key = setting.Keybind {key = .ENTER, alt = true}
+    }
     if kb, ok := setting.keybind(&thor.config, "last_file"); ok {
         thor.last_file_key = kb
     } else {

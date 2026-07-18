@@ -11,6 +11,10 @@ import "../ui"
 
 Editor_Save_Proc :: #type proc(data: rawptr)
 
+// Ctrl+Click / go-to-definition request: carries the buffer the click landed in
+// and the byte offset under the cursor, so the owner can resolve the symbol.
+Goto_Definition_Proc :: #type proc(data: rawptr, state: ^textedit.State, offset: int)
+
 // One on-screen row. A wrapped logical line spans several; `first` carries the
 // line number. Rebuilt each layout.
 Visual_Row :: struct {
@@ -65,9 +69,15 @@ Editor :: struct {
     select_by_word:     bool,
     word_lo:            int,
     word_hi:            int,
+    // A Ctrl+Click (go-to-definition) is in progress; the drag that a physical
+    // click emits must not turn into a selection.
+    goto_click:         bool,
     // Right-click opens a context menu supplied by the owner.
     on_context_menu:    Context_Menu_Proc,
     context_menu_data:  rawptr,
+    // Ctrl+Click resolves the symbol under the cursor via the owner.
+    on_goto_definition:   Goto_Definition_Proc,
+    goto_definition_data: rawptr,
     // recenter (Ctrl+Shift+J): repeated presses cycle the caret line
     // center/top/bottom. Phase resets when the caret moves.
     recenter_phase:     int,
@@ -83,6 +93,11 @@ Editor :: struct {
 editor_set_on_context_menu :: proc(editor: ^Editor, on_context_menu: Context_Menu_Proc, data: rawptr) {
     editor.on_context_menu = on_context_menu
     editor.context_menu_data = data
+}
+
+editor_set_on_goto_definition :: proc(editor: ^Editor, on_goto_definition: Goto_Definition_Proc, data: rawptr) {
+    editor.on_goto_definition = on_goto_definition
+    editor.goto_definition_data = data
 }
 
 editor_vtable := ui.Widget_VTable {
@@ -313,6 +328,19 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
             return true
         }
         editor.select_by_word = false
+        editor.goto_click = false
+        // Ctrl-click resolves the symbol under the cursor (go to definition); the
+        // caret moves there first so the owner reads the right offset and a miss
+        // leaves the cursor placed. goto_click suppresses the drag a physical
+        // click emits, so it can't smear into a selection.
+        if event.ctrl && editor.on_goto_definition != nil {
+            if pos, ok := editor_pos_at(editor, event.mouse_position); ok {
+                editor_place_caret_at(editor, event.mouse_position)
+                editor.goto_click = true
+                editor.on_goto_definition(editor.goto_definition_data, editor.state, pos)
+                return true
+            }
+        }
         // Shift-click extends the selection; a plain click starts a new one.
         if event.shift {
             editor_select_to(editor, event.mouse_position)
@@ -321,7 +349,11 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
         }
         return true
     case .Mouse_Move:
-        // Only dispatched here while the button is held (drag), so extend.
+        // Only dispatched here while the button is held (drag), so extend. A
+        // Ctrl+Click goto is not a drag-select, so leave its caret alone.
+        if editor.goto_click {
+            return true
+        }
         if editor.select_by_word {
             editor_word_select_to(editor, event.mouse_position)
         } else {
@@ -399,9 +431,17 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
                 n := len(editor.completion_items)
                 editor.completion_selected = (editor.completion_selected + 1) % n
                 return true
-            case .TAB, .ENTER, .KP_ENTER:
+            case .TAB:
                 editor_accept_completion(editor)
                 return true
+            case .ENTER, .KP_ENTER:
+                // Shift+Enter accepts the suggestion; a plain Enter dismisses the
+                // popup and inserts a newline as usual (handled below).
+                if event.shift {
+                    editor_accept_completion(editor)
+                    return true
+                }
+                editor_dismiss_completion(editor)
             case .ESCAPE:
                 editor_dismiss_completion(editor)
                 return true

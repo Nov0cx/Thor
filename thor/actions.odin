@@ -73,6 +73,11 @@ thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
         widgets.command_palette_open_line(thor.command_palette, &thor.ui_context)
         return true
     }
+    // Go to definition (Alt+Enter) resolves the symbol under the caret.
+    if setting.keybind_matches(thor.goto_def_key, event.key, event.ctrl, event.shift, event.alt) {
+        thor_goto_definition(thor)
+        return true
+    }
     // Flip to the previously active file (ctrl+e), like vim's Ctrl-^.
     if setting.keybind_matches(thor.last_file_key, event.key, event.ctrl, event.shift, event.alt) {
         thor_flip_last_file(thor)
