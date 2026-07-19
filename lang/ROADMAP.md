@@ -25,18 +25,32 @@ lowest latency.
 - **Go to definition** (Odin): local variables, `:=` short declarations,
   parameters (with correct shadowing over file scope), and cross-file top-level
   symbols. Triggered by Alt+Enter or Ctrl+Click.
-- **Hover** resolution exists in the engine (returns a declaration's signature
-  line) but is **not surfaced in the UI yet** — no request is dispatched and no
-  popup is drawn.
+- **Package-qualified go-to-definition & hover** (`pkg.Symbol`): the operand is
+  matched against the file's imports and resolved in that package's directory.
+  Relative imports (`import "../lib"`, `import "sub"`) resolve fully in-workspace;
+  `core:`/`vendor:`/`base:` collections resolve against the standard library out
+  of the box (the compiler's baked-in `ODIN_ROOT`; the `ODIN_ROOT` env var
+  overrides it to point at another toolchain). So `fmt.println`, `strings.split`
+  and friends go-to-def and hover into the stdlib sources. The
+  caret on the package name itself jumps to the file named like the package
+  (`foo/foo.odin`), reporting "no definition found" when there is none. Alt+Enter
+  with the caret on an `import` line (its alias or the quoted path, e.g.
+  `import rl "vendor:raylib"`) opens that package the same way. Value member
+  access (`v.field`) still falls through (needs type inference).
+- **Hover popup:** a mouse dwell over a symbol (~0.45s) dispatches a Hover
+  request; the engine's signature line is drawn in a popup anchored to the
+  symbol. Fires once per dwell, dismissed on move or when the cursor leaves.
+- **"No definition found" feedback:** a failed go-to-definition flashes a
+  transient statusline notice (3s).
 
 ---
 
 ## Missing — UI surface
 
-- [ ] **Hover popup.** Engine returns `Hover_Info`; needs a request trigger
-      (mouse dwell and/or a keybind) and a popup widget to draw the signature.
-- [ ] **"No definition found" feedback.** A failed resolve is currently silent;
-      should flash a status-bar / statusline message.
+- [x] **Hover popup.** Mouse dwell (`Mouse_Hover` tick → `on_hover`) drives it;
+      `editor_show_hover` fills a popup drawn by `editor_draw_hover`.
+- [x] **"No definition found" feedback.** `thor_flash_status` posts a transient
+      `Status_Info.message`, shown accented in the statusbar.
 - [ ] **Multiple candidates.** Cross-file scan returns the *first* match; when a
       name is defined in several packages/files, offer a picker instead.
 - [ ] **Loading / busy indicator** while a request is in flight
@@ -58,8 +72,10 @@ lowest latency.
       procedure ranges, not true lexical order (a use before a `:=` in the same
       block can still resolve to it). Good enough for goto, imprecise for
       correctness-sensitive features.
-- [ ] **Standard library / vendor symbols.** Only the open workspace is scanned;
-      definitions in Odin's `core:`/`vendor:` collections aren't found.
+- [~] **Standard library / vendor symbols.** Package-qualified access
+      (`fmt.println`, `strings.split`) resolves into `core:`/`vendor:`/`base:`
+      via the baked-in `ODIN_ROOT`. Still missing: symbols brought in with
+      `using import`, and bare identifiers that live in the stdlib.
 - [ ] **Other LSP features not started:** references / find-usages, rename,
       document symbols / outline, workspace symbols, signature help, completion
       (semantic), diagnostics, formatting, code actions, folding, semantic

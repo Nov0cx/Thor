@@ -6,6 +6,7 @@
 package lang
 
 import "core:os"
+import "core:path/filepath"
 import "core:strings"
 
 import ts "../vendor/odin-tree-sitter"
@@ -94,6 +95,21 @@ odin_resolve :: proc(data: rawptr, req: ^Request, res: ^Result) {
     defer ts.tree_delete(tree)
     root := ts.tree_root_node(tree)
 
+    // Caret on an import declaration itself (its alias or its quoted path):
+    // resolve to the imported package. Handled before identifier_at because the
+    // path string is not an identifier, so a caret resting on it would otherwise
+    // fail outright.
+    if imp, in_import := enclosing_import(root, req.source, req.offset); in_import {
+        if raw, rok := import_string(imp, req.source); rok {
+            if dir, dok := package_dir(raw, req.path, req.workspace); dok {
+                anchor_start := int(ts.node_start_byte(imp))
+                anchor_end := int(ts.node_end_byte(imp))
+                open_package(dir, raw, req, res, anchor_start, anchor_end)
+            }
+        }
+        return
+    }
+
     ident, ok := identifier_at(root, req.source, req.offset)
     if !ok {
         return
@@ -101,6 +117,26 @@ odin_resolve :: proc(data: rawptr, req: ^Request, res: ^Result) {
     name := ts.node_text(ident, req.source)
     hover_start := int(ts.node_start_byte(ident))
     hover_end := int(ts.node_end_byte(ident))
+
+    // 0) Package-qualified selector: `pkg.Symbol`. When the operand names a
+    //    package imported by this file, the symbol lives in that package's
+    //    directory, so resolve there and never fall through to the flat scan
+    //    (which ignores package boundaries and could match a same-named symbol
+    //    in an unrelated package). Selectors on plain values (`v.field`) fall
+    //    through: type-aware member access is not implemented yet.
+    if pkg_ident, member_ident, is_sel := selector_parts(ident); is_sel && is_identifier(pkg_ident) {
+        pkg := ts.node_text(pkg_ident, req.source)
+        if raw, found := import_path(root, req.source, pkg); found {
+            if dir, dok := package_dir(raw, req.path, req.workspace); dok {
+                if same_node(ident, member_ident) {
+                    scan_package(e, parser, dir, req, name, hover_start, hover_end, res)
+                } else {
+                    open_package(dir, raw, req, res, hover_start, hover_end)
+                }
+            }
+            return
+        }
+    }
 
     // 1) Same file: lexical resolution via the LOCALS query.
     defs := collect_defs(e, root, req.source)
@@ -128,6 +164,21 @@ identifier_at :: proc(root: ts.Node, source: string, offset: int) -> (ts.Node, b
         if n := ts.node_named_descendant_for_byte_range(root, p, p); is_identifier(n) {
             return n, true
         }
+    }
+    return {}, false
+}
+
+// Nearest import_declaration enclosing `offset`, so a caret anywhere on an
+// import line (its alias identifier or its quoted path) resolves to the package.
+@(private = "file")
+enclosing_import :: proc(root: ts.Node, source: string, offset: int) -> (ts.Node, bool) {
+    off := u32(clamp(offset, 0, len(source)))
+    n := ts.node_named_descendant_for_byte_range(root, off, off)
+    for !ts.node_is_null(n) {
+        if string(ts.node_type(n)) == "import_declaration" {
+            return n, true
+        }
+        n = ts.node_parent(n)
     }
     return {}, false
 }
@@ -451,4 +502,249 @@ ancestor_suffix :: proc(node: ts.Node, suffix: string) -> (ts.Node, bool) {
         n = ts.node_parent(n)
     }
     return {}, false
+}
+
+// True when both nodes are non-null and cover the same byte range. tree-sitter
+// Nodes are values, not pointers, so identity is compared by span.
+@(private = "file")
+same_node :: proc(a, b: ts.Node) -> bool {
+    return !ts.node_is_null(a) && !ts.node_is_null(b) &&
+        ts.node_start_byte(a) == ts.node_start_byte(b) &&
+        ts.node_end_byte(a) == ts.node_end_byte(b)
+}
+
+// If `ident` is part of a `pkg.member` selector, returns the package operand
+// node and the member (symbol) node, whether the caret sits on either side.
+// Handles the three grammar shapes this produces:
+//   `pkg.Symbol`      -> member_expression (identifier . identifier)
+//   `pkg.fn(args)`    -> member_expression (identifier . call_expression)
+//   `pkg.Type` (type) -> field_type        (identifier . identifier)
+@(private = "file")
+selector_parts :: proc(ident: ts.Node) -> (pkg: ts.Node, member: ts.Node, ok: bool) {
+    p := ts.node_parent(ident)
+    if ts.node_is_null(p) {
+        return {}, {}, false
+    }
+    pt := string(ts.node_type(p))
+
+    if pt == "member_expression" || pt == "field_type" {
+        a := ts.node_named_child(p, 0)
+        b := ts.node_named_child(p, 1)
+        if ts.node_is_null(a) || ts.node_is_null(b) {
+            return {}, {}, false
+        }
+        // `pkg.fn(args)`: the member is the call's function identifier.
+        if string(ts.node_type(b)) == "call_expression" {
+            if fn := ts.node_child_by_field_name(b, "function"); !ts.node_is_null(fn) {
+                b = fn
+            }
+        }
+        return a, b, true
+    }
+
+    // Caret on `fn` in `pkg.fn(args)`: the identifier's parent is the call, whose
+    // parent is the member_expression carrying the package operand.
+    if pt == "call_expression" {
+        gp := ts.node_parent(p)
+        if !ts.node_is_null(gp) && string(ts.node_type(gp)) == "member_expression" {
+            a := ts.node_named_child(gp, 0)
+            if same_node(ts.node_named_child(gp, 1), p) {
+                return a, ident, true
+            }
+        }
+    }
+
+    return {}, {}, false
+}
+
+// Import path (the collection-qualified or relative string) declared in `root`
+// for the package named `pkg`, matching either an explicit alias or the name
+// derived from the path's last segment.
+@(private = "file")
+import_path :: proc(root: ts.Node, source: string, pkg: string) -> (string, bool) {
+    for i in 0 ..< ts.node_named_child_count(root) {
+        child := ts.node_named_child(root, i)
+        if string(ts.node_type(child)) != "import_declaration" {
+            continue
+        }
+        if name, raw, ok := import_name_and_path(child, source); ok && name == pkg {
+            return raw, true
+        }
+    }
+    return "", false
+}
+
+// Package name and path for one import_declaration. The name is the explicit
+// alias when present, otherwise the path's last segment.
+@(private = "file")
+import_name_and_path :: proc(imp: ts.Node, source: string) -> (name: string, raw: string, ok: bool) {
+    raw, ok = import_string(imp, source)
+    if !ok {
+        return "", "", false
+    }
+    if alias := ts.node_child_by_field_name(imp, "alias"); !ts.node_is_null(alias) && is_identifier(alias) {
+        return ts.node_text(alias, source), raw, true
+    }
+    return package_name_from_path(raw), raw, true
+}
+
+// The quoted path of an import_declaration, unquoted (via the string_content
+// child, falling back to trimming the quote bytes).
+@(private = "file")
+import_string :: proc(imp: ts.Node, source: string) -> (string, bool) {
+    for i in 0 ..< ts.node_named_child_count(imp) {
+        c := ts.node_named_child(imp, i)
+        if string(ts.node_type(c)) != "string" {
+            continue
+        }
+        for j in 0 ..< ts.node_named_child_count(c) {
+            sc := ts.node_named_child(c, j)
+            if string(ts.node_type(sc)) == "string_content" {
+                return ts.node_text(sc, source), true
+            }
+        }
+        t := ts.node_text(c, source)
+        t = strings.trim_prefix(t, "\"")
+        t = strings.trim_suffix(t, "\"")
+        return t, true
+    }
+    return "", false
+}
+
+// Last path segment of an import path, after any collection prefix and any
+// slash: "core:fmt" -> "fmt", "core:odin/parser" -> "parser", "../lang" -> "lang".
+@(private = "file")
+package_name_from_path :: proc(raw: string) -> string {
+    s := raw
+    if colon := strings.last_index_byte(s, ':'); colon >= 0 {
+        s = s[colon + 1:]
+    }
+    if slash := strings.last_index_byte(s, '/'); slash >= 0 {
+        s = s[slash + 1:]
+    }
+    if back := strings.last_index_byte(s, '\\'); back >= 0 {
+        s = s[back + 1:]
+    }
+    return s
+}
+
+// Directory an import path points at. Relative paths resolve against the
+// importing file's directory (fully in-workspace). `core:`/`vendor:`/`base:`
+// collections resolve against ODIN_ROOT when the environment exposes it;
+// unknown collections have no mapping. Returned dir is scratch-allocated.
+@(private = "file")
+package_dir :: proc(raw: string, req_path: string, workspace: string) -> (string, bool) {
+    if colon := strings.index_byte(raw, ':'); colon >= 0 {
+        coll := raw[:colon]
+        sub := raw[colon + 1:]
+        if coll == "core" || coll == "vendor" || coll == "base" {
+            root := odin_root()
+            if root == "" {
+                return "", false
+            }
+            joined, err := filepath.join({root, coll, sub}, context.temp_allocator)
+            return joined, err == nil
+        }
+        return "", false
+    }
+
+    base := filepath.dir(req_path)
+    joined, jerr := filepath.join({base, raw}, context.temp_allocator)
+    if jerr != nil {
+        return "", false
+    }
+    cleaned, cerr := filepath.clean(joined, context.temp_allocator)
+    if cerr != nil {
+        return joined, true
+    }
+    return cleaned, true
+}
+
+// Odin's install root, so `core:`/`vendor:`/`base:` imports can be located. The
+// ODIN_ROOT environment variable wins when set (lets a user point at a different
+// toolchain); otherwise fall back to the compiler's own root, baked in at build
+// time as the `ODIN_ROOT` constant — this is what makes the standard library
+// resolve out of the box, with no environment set up.
+@(private = "file")
+odin_root :: proc() -> string {
+    if v, found := os.lookup_env("ODIN_ROOT", context.temp_allocator); found && v != "" {
+        return v
+    }
+    return ODIN_ROOT
+}
+
+// Scans one package directory (all its .odin files, non-recursively — an Odin
+// package is a single flat directory) for a matching top-level declaration.
+@(private = "file")
+scan_package :: proc(
+    e: ^Odin_Engine,
+    parser: ts.Parser,
+    dir: string,
+    req: ^Request,
+    name: string,
+    hover_start, hover_end: int,
+    res: ^Result,
+) {
+    handle, open_err := os.open(dir)
+    if open_err != nil {
+        return
+    }
+    defer os.close(handle)
+
+    infos, read_err := os.read_dir(handle, -1, context.temp_allocator)
+    if read_err != nil {
+        return
+    }
+
+    for info in infos {
+        if res.ok {
+            return
+        }
+        if info.type == .Directory || !strings.has_suffix(info.name, ".odin") {
+            continue
+        }
+        scan_file(e, parser, info.fullpath, req, name, hover_start, hover_end, res)
+    }
+}
+
+// Caret on the package operand itself (`pkg` in `pkg.Symbol`): "go to package".
+// Definition jumps to the head of the file named like the package (the `foo.odin`
+// entry file in package `foo`, the usual convention); when no such file exists
+// the resolve fails, surfacing "No definition found" rather than guessing at an
+// arbitrary file. Hover shows the import path.
+@(private = "file")
+open_package :: proc(dir, raw: string, req: ^Request, res: ^Result, hover_start, hover_end: int) {
+    switch req.kind {
+    case .Definition:
+        handle, open_err := os.open(dir)
+        if open_err != nil {
+            return
+        }
+        defer os.close(handle)
+        infos, read_err := os.read_dir(handle, -1, context.temp_allocator)
+        if read_err != nil {
+            return
+        }
+        want := strings.concatenate({filepath.base(dir), ".odin"}, context.temp_allocator)
+        for info in infos {
+            if info.type == .Directory || info.name != want {
+                continue
+            }
+            res.location = Location {
+                path  = strings.clone(info.fullpath),
+                start = 0,
+                end   = 0,
+            }
+            res.ok = true
+            return
+        }
+    case .Hover:
+        text := strings.concatenate({"import \"", raw, "\""}, context.temp_allocator)
+        res.hover = Hover_Info {
+            text  = strings.clone(text),
+            start = hover_start,
+            end   = hover_end,
+        }
+        res.ok = true
+    }
 }

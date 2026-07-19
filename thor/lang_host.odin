@@ -2,10 +2,14 @@ package thor
 
 import "core:path/filepath"
 import "core:strings"
+import rl "vendor:raylib"
 
 import "../lang"
 import "../textedit"
 import "../widgets"
+
+// How long a transient statusline notice stays up.
+STATUS_MESSAGE_SECS :: 3.0
 
 // Go-to-definition and (later) hover wiring between the editor and the language
 // intelligence manager. Requests are dispatched from the caret (Alt+Enter) or a
@@ -57,17 +61,70 @@ thor_dispatch_goto :: proc(thor: ^Thor, file: ^Open_File, offset: int) {
     )
 }
 
-// Reaped on the main thread once per frame (see the run loop). Applies whatever
-// the backend resolved.
-thor_on_lang_result :: proc(user: rawptr, res: ^lang.Result) {
-    thor := cast(^Thor) user
-    if !res.ok {
+// Mouse dwell: the editor asks the owner to resolve a hover at `offset`. The
+// pane is remembered so the async result routes back to it. A snapshot of the
+// buffer goes with the request, so the worker never races later edits.
+thor_editor_hover :: proc(data: rawptr, editor: ^widgets.Editor, state: ^textedit.State, offset: int) {
+    thor := cast(^Thor) data
+    for file in thor.open_files {
+        if &file.state != state {
+            continue
+        }
+        if !file.loaded {
+            return
+        }
+        ext := thor_file_extension(file.name)
+        if !lang.manager_supports(&thor.lang_manager, ext) {
+            return
+        }
+        source := textedit.text(&file.state)
+        id := lang.manager_request(
+            &thor.lang_manager,
+            .Hover,
+            file.path,
+            ext,
+            source,
+            offset,
+            file.state.revision,
+            thor.workspace_dir,
+        )
+        thor.hover_editor = editor
+        thor.hover_request_id = id
         return
     }
+}
+
+// Reaped on the main thread once per frame (see the run loop). Applies whatever
+// the backend resolved; a failed go-to-definition flashes the statusline.
+thor_on_lang_result :: proc(user: rawptr, res: ^lang.Result) {
+    thor := cast(^Thor) user
     #partial switch res.kind {
     case .Definition:
-        thor_goto_location(thor, res.location.path, res.location.start)
+        if res.ok {
+            thor_goto_location(thor, res.location.path, res.location.start)
+        } else {
+            thor_flash_status(thor, "No definition found", is_error = true)
+        }
+    case .Hover:
+        // Drop superseded results; only the latest request's answer may show,
+        // and only while its buffer snapshot is still current.
+        if res.id != thor.hover_request_id || thor.hover_editor == nil {
+            return
+        }
+        editor := thor.hover_editor
+        if res.ok && editor.state != nil && editor.state.revision == res.revision {
+            widgets.editor_show_hover(editor, res.hover.text, res.hover.start, res.hover.end)
+        }
     }
+}
+
+// Posts a transient statusline notice, shown for STATUS_MESSAGE_SECS. Errors
+// (is_error) are drawn in the theme's error color, other notices accented.
+thor_flash_status :: proc(thor: ^Thor, message: string, is_error := false) {
+    delete(thor.status_message)
+    thor.status_message = strings.clone(message)
+    thor.status_message_time = rl.GetTime()
+    thor.status_message_error = is_error
 }
 
 // Jumps to `offset` in the file at `path`, opening it if needed. When the target

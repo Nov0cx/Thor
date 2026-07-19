@@ -159,6 +159,15 @@ Thor :: struct {
     pending_goto_active:      bool,
     pending_goto_path:        string,
     pending_goto_offset:      int,
+    // In-flight hover request: the editor pane that asked and the request id, so
+    // a result can be routed back to the right pane and stale ones dropped.
+    hover_editor:             ^widgets.Editor,
+    hover_request_id:         u64,
+    // Transient statusline notice (e.g. "No definition found") and the time it
+    // was posted; thor_status_info hides it once STATUS_MESSAGE_SECS elapse.
+    status_message:           string,
+    status_message_time:      f64,
+    status_message_error:     bool,
 }
 
 init :: proc() -> ^Thor {
@@ -364,6 +373,7 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.git_branch)
     lang.manager_destroy(&thor.lang_manager)
     delete(thor.pending_goto_path)
+    delete(thor.status_message)
     for pb in thor.plugin_buttons {
         for entry in pb.entries {
             delete(entry.label)

@@ -240,6 +240,7 @@ thor_build_content :: proc(thor: ^Thor) {
     )
     widgets.editor_set_on_save(thor.editor, thor_request_save, thor)
     widgets.editor_set_on_goto_definition(thor.editor, thor_editor_goto_definition, thor)
+    widgets.editor_set_on_hover(thor.editor, thor_editor_hover, thor)
     ui.widget_set_grow(&thor.editor.widget, 1)
 
     thor.editor2 = widgets.editor_create("editor2")
@@ -255,6 +256,7 @@ thor_build_content :: proc(thor: ^Thor) {
     )
     widgets.editor_set_on_save(thor.editor2, thor_request_save, thor)
     widgets.editor_set_on_goto_definition(thor.editor2, thor_editor_goto_definition, thor)
+    widgets.editor_set_on_hover(thor.editor2, thor_editor_hover, thor)
     ui.widget_set_grow(&thor.editor2.widget, 1)
     thor.editor2.visible = false
 
@@ -306,6 +308,7 @@ thor_build_content :: proc(thor: ^Thor) {
         thor.theme.gray_color,
         thor.theme.buttons,
         thor.theme.accent_color,
+        thor.theme.error_color,
     )
     widgets.statusbar_bind(thor.statusbar, thor_status_info, thor)
     thor.statusbar.min_size = rl.Vector2 {0, 28}

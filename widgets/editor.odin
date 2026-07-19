@@ -15,6 +15,12 @@ Editor_Save_Proc :: #type proc(data: rawptr)
 // and the byte offset under the cursor, so the owner can resolve the symbol.
 Goto_Definition_Proc :: #type proc(data: rawptr, state: ^textedit.State, offset: int)
 
+// Hover request, fired once the cursor has dwelt over a spot. Carries the editor
+// so an async result can be routed back to the pane it came from, plus the
+// buffer and the byte offset under the cursor. The owner resolves a signature
+// and calls editor_show_hover on the same editor.
+Hover_Proc :: #type proc(data: rawptr, editor: ^Editor, state: ^textedit.State, offset: int)
+
 // One on-screen row. A wrapped logical line spans several; `first` carries the
 // line number. Rebuilt each layout.
 Visual_Row :: struct {
@@ -78,6 +84,21 @@ Editor :: struct {
     // Ctrl+Click resolves the symbol under the cursor via the owner.
     on_goto_definition:   Goto_Definition_Proc,
     goto_definition_data: rawptr,
+    // Hover: a mouse-dwell request to the owner and the popup its result fills.
+    on_hover:            Hover_Proc,
+    hover_data:          rawptr,
+    // Dwell tracking: the spot the cursor settled on and when. hover_probe_offset
+    // is the byte offset a request was fired for (-1 = none), so a still cursor
+    // fires exactly once until it moves again.
+    hover_probe_pos:     rl.Vector2,
+    hover_probe_time:    f64,
+    hover_probe_offset:  int,
+    // Shown popup: text and the byte range it describes, set by editor_show_hover
+    // when a result lands. text is an owned clone.
+    hover_active:        bool,
+    hover_text:          string,
+    hover_start:         int,
+    hover_end:           int,
     // recenter (Ctrl+Shift+J): repeated presses cycle the caret line
     // center/top/bottom. Phase resets when the caret moves.
     recenter_phase:     int,
@@ -98,6 +119,35 @@ editor_set_on_context_menu :: proc(editor: ^Editor, on_context_menu: Context_Men
 editor_set_on_goto_definition :: proc(editor: ^Editor, on_goto_definition: Goto_Definition_Proc, data: rawptr) {
     editor.on_goto_definition = on_goto_definition
     editor.goto_definition_data = data
+}
+
+editor_set_on_hover :: proc(editor: ^Editor, on_hover: Hover_Proc, data: rawptr) {
+    editor.on_hover = on_hover
+    editor.hover_data = data
+}
+
+// Shows the hover popup with `text` describing bytes [start, end). Ignored when
+// the cursor has since moved (no request is pending), so a late result can't pop
+// up after the mouse left the symbol. Clones `text`.
+editor_show_hover :: proc(editor: ^Editor, text: string, start, end: int) {
+    if editor.hover_probe_offset < 0 || text == "" {
+        return
+    }
+    delete(editor.hover_text)
+    editor.hover_text = strings.clone(text)
+    editor.hover_start = start
+    editor.hover_end = end
+    editor.hover_active = true
+}
+
+// Hides the popup and frees its text.
+editor_clear_hover :: proc(editor: ^Editor) {
+    if !editor.hover_active && editor.hover_text == "" {
+        return
+    }
+    delete(editor.hover_text)
+    editor.hover_text = ""
+    editor.hover_active = false
 }
 
 editor_vtable := ui.Widget_VTable {
@@ -128,6 +178,7 @@ editor_create :: proc(id: string) -> ^Editor {
     editor.wrap = true
     editor.visual_rows = make([dynamic]Visual_Row)
     editor.recenter_caret = -1
+    editor.hover_probe_offset = -1
     editor.completion_items = make([dynamic]string)
     editor.min_size = rl.Vector2 {0, 280}
     return editor
@@ -164,6 +215,8 @@ editor_set_state :: proc(editor: ^Editor, state: ^textedit.State) {
     // buffers happen to share a revision number.
     clear(&editor.visual_rows)
     editor_dismiss_completion(editor)
+    editor_clear_hover(editor)
+    editor.hover_probe_offset = -1
     editor_clamp_scroll(editor)
 }
 
@@ -359,6 +412,9 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
         } else {
             editor_select_to(editor, event.mouse_position)
         }
+        return true
+    case .Mouse_Hover:
+        editor_handle_hover(editor, event.mouse_position)
         return true
     case .Scroll:
         // Scroll events carry no modifier state; poll ctrl for zooming.
@@ -1019,25 +1075,119 @@ editor_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
     if ctx.focused == widget {
         editor_draw_completion(editor)
     }
+
+    // Hover peeks without focusing, so it draws whenever the mouse is dwelling
+    // over this pane, regardless of which widget holds focus. The cursor leaving
+    // the pane stops the hover ticks, so dismiss a lingering popup here.
+    if ctx.hot != widget && editor.hover_active {
+        editor_clear_hover(editor)
+        editor.hover_probe_offset = -1
+    }
+    editor_draw_hover(editor)
+}
+
+// Seconds the cursor must rest before a hover request fires, and the pixel
+// drift that counts as "moved" and cancels the dwell.
+HOVER_DWELL_SECS :: 0.45
+HOVER_MOVE_TOL :: 3
+
+// Per-frame hover tick: tracks dwell and fires one request to the owner once the
+// cursor has been still long enough over the text. Movement resets the dwell and
+// hides any shown popup.
+@(private = "file")
+editor_handle_hover :: proc(editor: ^Editor, mouse: rl.Vector2) {
+    moved := abs(mouse.x - editor.hover_probe_pos.x) > HOVER_MOVE_TOL ||
+             abs(mouse.y - editor.hover_probe_pos.y) > HOVER_MOVE_TOL
+    if moved {
+        editor.hover_probe_pos = mouse
+        editor.hover_probe_time = rl.GetTime()
+        editor.hover_probe_offset = -1
+        editor_clear_hover(editor)
+        return
+    }
+    if editor.on_hover == nil || editor.completion_active {
+        return
+    }
+    // A shown popup or an in-flight request both wait: fire exactly once per
+    // dwell, until the cursor moves again.
+    if editor.hover_active || editor.hover_probe_offset >= 0 {
+        return
+    }
+    if rl.GetTime() - editor.hover_probe_time < HOVER_DWELL_SECS {
+        return
+    }
+    // Ignore the gutter and the scrollbar strip; only text hovers resolve.
+    if mouse.x < editor.bounds.x + editor.gutter_width {
+        return
+    }
+    if pos, ok := editor_pos_at(editor, mouse); ok {
+        editor.hover_probe_offset = pos
+        editor.on_hover(editor.hover_data, editor, editor.state, pos)
+    }
+}
+
+// Draws the hover popup anchored to the resolved symbol, above the line (flipping
+// below when there is no room) and nudged to stay inside the editor bounds.
+@(private = "file")
+editor_draw_hover :: proc(editor: ^Editor) {
+    if !editor.hover_active || editor.hover_text == "" {
+        return
+    }
+    x, y, lh, ok := editor_screen_at(editor, editor.hover_start)
+    if !ok {
+        return
+    }
+
+    pad: f32 = 8
+    width := cast(f32) ui.measure_text(editor.hover_text, editor.font_size) + pad * 2
+    height := lh + pad
+
+    box_x := x
+    box_y := y - height - 4
+    if box_y < editor.bounds.y {
+        box_y = y + lh + 4 // flip below the line
+    }
+    if box_x + width > editor.bounds.x + editor.bounds.width {
+        box_x = editor.bounds.x + editor.bounds.width - width - 4
+    }
+    if box_x < editor.bounds.x {
+        box_x = editor.bounds.x
+    }
+
+    box := rl.Rectangle {box_x, box_y, width, height}
+    rl.DrawRectangleRec(box, editor.gutter_color)
+    rl.DrawRectangleLinesEx(box, 1, editor.focus_border_color)
+    text_y := cast(i32) (box_y + (height - cast(f32) editor.font_size) * 0.5)
+    ui.draw_text(editor.hover_text, cast(i32) (box_x + pad), text_y, editor.font_size, editor.text_color)
+}
+
+// Screen x, top y, and line height of byte `offset` (clamped to its visual row).
+// ok=false when there is nothing to anchor to.
+@(private = "file")
+editor_screen_at :: proc(editor: ^Editor, offset: int) -> (x, y, line_height: f32, ok: bool) {
+    if editor.state == nil || len(editor.visual_rows) == 0 {
+        return 0, 0, 0, false
+    }
+    text := textedit.text(editor.state)
+    row_index := editor_visual_row_index(editor, offset)
+    row := editor.visual_rows[row_index]
+    lh := cast(f32) ui.text_line_height(editor.font_size)
+    inner_top := editor.bounds.y + editor.padding.top
+    text_x := editor.bounds.x + editor.gutter_width + editor.padding.left
+    yy := inner_top - editor.scroll_y + cast(f32) row_index * lh
+    col := clamp(offset, row.start, row.end)
+    xx := text_x + cast(f32) ui.measure_text(text[row.start:col], editor.font_size)
+    return xx, yy, lh, true
 }
 
 // Screen x, top y, and line height of the primary caret. ok=false when there
 // is nothing to anchor to.
 @(private = "file")
 editor_caret_screen :: proc(editor: ^Editor) -> (x, y, line_height: f32, ok: bool) {
-    if editor.state == nil || len(editor.visual_rows) == 0 {
+    if editor.state == nil {
         return 0, 0, 0, false
     }
-    text := textedit.text(editor.state)
-    caret := textedit.primary_cursor(editor.state).caret
-    row_index := editor_visual_row_index(editor, caret)
-    row := editor.visual_rows[row_index]
-    lh := cast(f32) ui.text_line_height(editor.font_size)
-    inner_top := editor.bounds.y + editor.padding.top
-    text_x := editor.bounds.x + editor.gutter_width + editor.padding.left
-    yy := inner_top - editor.scroll_y + cast(f32) row_index * lh
-    xx := text_x + cast(f32) ui.measure_text(text[row.start:caret], editor.font_size)
-    return xx, yy, lh, true
+    return editor_screen_at(editor, textedit.primary_cursor(editor.state).caret)
 }
 
 // Draws the completion popup under the caret, flipping above when there is no
@@ -1188,6 +1338,7 @@ editor_destroy :: proc(widget: ^ui.Widget) {
     // The textedit state is owned by whoever opened the file, not the widget.
     editor := cast(^Editor) widget
     delete(editor.visual_rows)
+    delete(editor.hover_text)
     for item in editor.completion_items {
         delete(item)
     }

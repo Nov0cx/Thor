@@ -2,6 +2,7 @@ package thor
 
 import "core:strings"
 import "core:unicode/utf8"
+import rl "vendor:raylib"
 
 import "../setting"
 import "../textedit"
@@ -141,6 +142,10 @@ thor_status_info :: proc(data: rawptr) -> widgets.Status_Info {
     info.branch = thor.git_branch
     info.line = 1
     info.column = 1
+    if thor.status_message != "" && rl.GetTime() - thor.status_message_time < STATUS_MESSAGE_SECS {
+        info.message = thor.status_message
+        info.is_error = thor.status_message_error
+    }
 
     file := thor_active_open_file(thor)
     if file == nil {

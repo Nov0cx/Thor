@@ -20,6 +20,11 @@ Status_Info :: struct {
     file_open:     bool,
     modified:      bool,
     saving:        bool,
+    // Transient notice (e.g. "No definition found"); empty hides it. Drawn in the
+    // error color when is_error is set, otherwise the accent color. The owner
+    // clears it after a timeout.
+    message:       string,
+    is_error:      bool,
 }
 
 Status_Proc :: #type proc(data: rawptr) -> Status_Info
@@ -36,6 +41,7 @@ Statusbar :: struct {
     dim_color:        rl.Color,
     background_color: rl.Color,
     accent_color:     rl.Color,
+    error_color:      rl.Color,
 }
 
 statusbar_vtable := ui.Widget_VTable {
@@ -54,6 +60,7 @@ statusbar_create :: proc(id: string) -> ^Statusbar {
     statusbar.dim_color = rl.Color {140, 148, 170, 255}
     statusbar.background_color = rl.Color {20, 22, 32, 255}
     statusbar.accent_color = rl.Color {132, 255, 255, 255}
+    statusbar.error_color = rl.Color {255, 83, 112, 255}
     statusbar.min_size = rl.Vector2 {0, 28}
     return statusbar
 }
@@ -64,11 +71,12 @@ statusbar_bind :: proc(statusbar: ^Statusbar, info_proc: Status_Proc, data: rawp
     return statusbar
 }
 
-statusbar_set_colors :: proc(statusbar: ^Statusbar, text, dim, background, accent: rl.Color) -> ^Statusbar {
+statusbar_set_colors :: proc(statusbar: ^Statusbar, text, dim, background, accent, error: rl.Color) -> ^Statusbar {
     statusbar.text_color = text
     statusbar.dim_color = dim
     statusbar.background_color = background
     statusbar.accent_color = accent
+    statusbar.error_color = error
     return statusbar
 }
 
@@ -129,6 +137,13 @@ statusbar_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
         } else {
             x = statusbar_draw_segment(statusbar, x, "circle-check", "Saved", statusbar.dim_color)
         }
+    }
+
+    // Transient notice; errors in red, everything else accented, so it stands
+    // out against the segments.
+    if info.message != "" {
+        color := info.is_error ? statusbar.error_color : statusbar.accent_color
+        x = statusbar_draw_segment(statusbar, x, "", info.message, color)
     }
 
     // Right side: cursor position, encoding, language.

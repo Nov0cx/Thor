@@ -5,6 +5,10 @@ import rl "vendor:raylib"
 Event_Type :: enum {
     None,
     Mouse_Move,
+    // Cursor resting over a widget with no button held. Synthesized each frame
+    // for the hovered widget so it can drive dwell-based UI (e.g. hover popups)
+    // without stealing the drag-only Mouse_Move path.
+    Mouse_Hover,
     Mouse_Down,
     Mouse_Up,
     Click,

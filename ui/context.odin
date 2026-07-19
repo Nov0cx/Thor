@@ -223,7 +223,18 @@ context_process_events :: proc(ctx: ^Context) {
             if ctx.active != nil {
                 event.target = ctx.active
                 widget_dispatch_event(ctx.active, ctx, event)
+            } else if ctx.hot != nil {
+                // No button held: give the hovered widget a hover tick. Kept
+                // separate from Mouse_Move so widgets that treat a move as a
+                // drag-select don't fire on a passive hover.
+                hover := event^
+                hover.kind = .Mouse_Hover
+                hover.target = ctx.hot
+                widget_dispatch_event(ctx.hot, ctx, &hover)
             }
+
+        case .Mouse_Hover:
+            // Synthesized above, never queued; nothing to do at the top level.
 
         case .Mouse_Down:
             event.target = widget_hit_test(ctx.root, event.mouse_position)

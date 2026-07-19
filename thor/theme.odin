@@ -139,7 +139,7 @@ thor_apply_theme :: proc(thor: ^Thor) {
 
     widgets.image_view_set_colors(thor.image_view, t.background, t.second_background, t.buttons, t.white_black_color)
     widgets.console_set_colors(thor.console, t.foreground, t.accent_color, t.second_background, t.accent_color)
-    widgets.statusbar_set_colors(thor.statusbar, t.foreground, t.gray_color, t.buttons, t.accent_color)
+    widgets.statusbar_set_colors(thor.statusbar, t.foreground, t.gray_color, t.buttons, t.accent_color, t.error_color)
 
     // Buttons. The Git top-bar button is a plugin button, recolored in the
     // plugin_buttons loop below, not here.
