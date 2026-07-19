@@ -1045,6 +1045,7 @@ editor_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
             ui.draw_text(line_number_text, number_x, cast(i32) row_y, editor.font_size, editor.line_number_color)
         }
         editor_draw_row_text(editor, text, row, hl, text_x, cast(i32) row_y)
+        editor_draw_row_swatches(editor, text, row, text_x, cast(i32) row_y)
     }
 
     if ctx.focused == widget {
@@ -1055,7 +1056,8 @@ editor_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
             if caret_y + line_height < inner_top || caret_y > inner_bottom {
                 continue
             }
-            caret_x := cast(f32) text_x + cast(f32) ui.measure_text(text[row.start:cursor.caret], editor.font_size)
+            caret_x := cast(f32) text_x + cast(f32) ui.measure_text(text[row.start:cursor.caret], editor.font_size) +
+                editor_swatch_offset(editor, text[row.start:row.end], cursor.caret - row.start)
             // Text is top-aligned: anchor the caret to the line top, sized to
             // the glyph height, not the full line height.
             rl.DrawRectangle(
@@ -1176,7 +1178,8 @@ editor_screen_at :: proc(editor: ^Editor, offset: int) -> (x, y, line_height: f3
     text_x := editor.bounds.x + editor.gutter_width + editor.padding.left
     yy := inner_top - editor.scroll_y + cast(f32) row_index * lh
     col := clamp(offset, row.start, row.end)
-    xx := text_x + cast(f32) ui.measure_text(text[row.start:col], editor.font_size)
+    xx := text_x + cast(f32) ui.measure_text(text[row.start:col], editor.font_size) +
+        editor_swatch_offset(editor, text[row.start:row.end], col - row.start)
     return xx, yy, lh, true
 }
 
@@ -1271,36 +1274,203 @@ editor_draw_scrollbar :: proc(editor: ^Editor, line_height: f32) {
 
 // Draws one visual row, coloring byte ranges from the highlight spans and the
 // default color for the gaps. `hl_start` is the first span that may touch it.
+// A reserved gap is opened just before each hex color literal so its swatch has
+// real space to sit in instead of overprinting the text.
 editor_draw_row_text :: proc(editor: ^Editor, text: string, row: Visual_Row, hl_start: int, text_x, row_y: i32) {
-    if len(editor.highlights) == 0 {
-        ui.draw_text(text[row.start:row.end], text_x, row_y, editor.font_size, editor.text_color)
-        return
-    }
+    swatches: [MAX_ROW_SWATCHES]Row_Swatch
+    sw_count := editor_scan_swatches(text[row.start:row.end], swatches[:])
+    span := editor_swatch_span(editor)
 
     pen := cast(f32) text_x
     pos := row.start
     j := hl_start
+    si := 0
     for pos < row.end {
+        rel := pos - row.start
+        // Opening the reserved gap when the pen arrives exactly at an anchor.
+        for si < sw_count && swatches[si].anchor < rel {
+            si += 1
+        }
+        if si < sw_count && swatches[si].anchor == rel {
+            pen += span
+            si += 1
+        }
+
+        // Current color and where its run ends.
         for j < len(editor.highlights) && editor.highlights[j].end <= pos {
             j += 1
         }
-        if j >= len(editor.highlights) || editor.highlights[j].start >= row.end {
-            ui.draw_text(text[pos:row.end], cast(i32) pen, row_y, editor.font_size, editor.text_color)
-            return
+        color := editor.text_color
+        run_end := row.end
+        if j < len(editor.highlights) {
+            hl := editor.highlights[j]
+            if hl.start <= pos {
+                color = hl.color
+                run_end = min(hl.end, row.end)
+            } else {
+                run_end = min(hl.start, row.end)
+            }
+        }
+        // Stop before the next anchor so its gap opens on the next pass.
+        if si < sw_count {
+            next := row.start + swatches[si].anchor
+            if next > pos && next < run_end {
+                run_end = next
+            }
         }
 
-        span := editor.highlights[j]
-        if span.start > pos {
-            gap := text[pos:span.start]
-            ui.draw_text(gap, cast(i32) pen, row_y, editor.font_size, editor.text_color)
-            pen += cast(f32) ui.measure_text(gap, editor.font_size)
-            pos = span.start
-        }
-        seg_end := min(span.end, row.end)
-        seg := text[pos:seg_end]
-        ui.draw_text(seg, cast(i32) pen, row_y, editor.font_size, span.color)
+        seg := text[pos:run_end]
+        ui.draw_text(seg, cast(i32) pen, row_y, editor.font_size, color)
         pen += cast(f32) ui.measure_text(seg, editor.font_size)
-        pos = seg_end
+        pos = run_end
+    }
+}
+
+@(private = "file")
+editor_hex_value :: proc(b: u8) -> (u8, bool) {
+    switch b {
+    case '0' ..= '9': return b - '0', true
+    case 'a' ..= 'f': return b - 'a' + 10, true
+    case 'A' ..= 'F': return b - 'A' + 10, true
+    }
+    return 0, false
+}
+
+@(private = "file")
+editor_is_hex_digit :: proc(b: u8) -> bool {
+    _, ok := editor_hex_value(b)
+    return ok
+}
+
+// Parses the hex digits of a color literal (no leading `#`). Accepts the CSS
+// lengths: 3 (RGB), 4 (RGBA), 6 (RRGGBB), 8 (RRGGBBAA); short forms expand each
+// nibble to a byte (f -> ff).
+@(private = "file")
+editor_parse_hex_color :: proc(digits: string) -> (rl.Color, bool) {
+    v: [8]u8
+    for i in 0 ..< len(digits) {
+        d, ok := editor_hex_value(digits[i])
+        if !ok {
+            return {}, false
+        }
+        v[i] = d
+    }
+    switch len(digits) {
+    case 3: return rl.Color {v[0] * 17, v[1] * 17, v[2] * 17, 255}, true
+    case 4: return rl.Color {v[0] * 17, v[1] * 17, v[2] * 17, v[3] * 17}, true
+    case 6: return rl.Color {v[0] * 16 + v[1], v[2] * 16 + v[3], v[4] * 16 + v[5], 255}, true
+    case 8: return rl.Color {v[0] * 16 + v[1], v[2] * 16 + v[3], v[4] * 16 + v[5], v[6] * 16 + v[7]}, true
+    }
+    return {}, false
+}
+
+// Padding kept on each side of a swatch inside its reserved gap.
+@(private = "file")
+SWATCH_PAD :: 3
+
+// Fraction of the character height a swatch fills; the rest is top/bottom
+// padding so the square sits centered with air around it, like VS Code.
+@(private = "file")
+SWATCH_SCALE :: 0.7
+
+// Upper bound on swatches tracked per visual row; extras beyond it are ignored.
+@(private = "file")
+MAX_ROW_SWATCHES :: 64
+
+// One hex color found in a row, in row-relative bytes. `anchor` is where the
+// reserved gap opens (before the literal and any opening quote).
+@(private = "file")
+Row_Swatch :: struct {
+    anchor: int,
+    color:  rl.Color,
+}
+
+// Width reserved for one swatch: the square plus padding on both sides.
+@(private = "file")
+editor_swatch_span :: proc(editor: ^Editor) -> f32 {
+    return cast(f32) editor.font_size * SWATCH_SCALE + 2 * SWATCH_PAD
+}
+
+// Finds every hex color literal in `s` (a row's text), recording its color and
+// the byte at which its reserved gap opens. Returns how many were written.
+@(private = "file")
+editor_scan_swatches :: proc(s: string, out: []Row_Swatch) -> int {
+    count := 0
+    i := 0
+    for i < len(s) && count < len(out) {
+        if s[i] != '#' {
+            i += 1
+            continue
+        }
+        j := i + 1
+        for j < len(s) && editor_is_hex_digit(s[j]) {
+            j += 1
+        }
+        n := j - i - 1
+        if n == 3 || n == 4 || n == 6 || n == 8 {
+            if color, ok := editor_parse_hex_color(s[i + 1:j]); ok {
+                anchor := i
+                if anchor > 0 && s[anchor - 1] == '"' {
+                    anchor -= 1
+                }
+                out[count] = Row_Swatch {anchor = anchor, color = color}
+                count += 1
+            }
+        }
+        i = max(j, i + 1)
+    }
+    return count
+}
+
+// Horizontal space reserved by swatches at or before row-relative byte `rel`,
+// so callers can shift text/caret/selection x-positions to match the gaps
+// opened by editor_draw_row_text.
+@(private = "file")
+editor_swatch_offset :: proc(editor: ^Editor, row_text: string, rel: int) -> f32 {
+    swatches: [MAX_ROW_SWATCHES]Row_Swatch
+    count := editor_scan_swatches(row_text, swatches[:])
+    span := editor_swatch_span(editor)
+    total: f32 = 0
+    for k in 0 ..< count {
+        if swatches[k].anchor <= rel {
+            total += span
+        }
+    }
+    return total
+}
+
+// Draws a filled square previewing each hex color literal in the row, seated in
+// the gap editor_draw_row_text reserved just before the literal, so it never
+// overprints the value or a trailing comma. Sized a little under the character
+// height and centered in the line for even padding on every side, like VS Code.
+// A translucent border keeps light swatches legible on the background.
+@(private = "file")
+editor_draw_row_swatches :: proc(editor: ^Editor, text: string, row: Visual_Row, text_x, row_y: i32) {
+    s := text[row.start:row.end]
+    swatches: [MAX_ROW_SWATCHES]Row_Swatch
+    count := editor_scan_swatches(s, swatches[:])
+    if count == 0 {
+        return
+    }
+    size := cast(f32) editor.font_size * SWATCH_SCALE
+    span := editor_swatch_span(editor)
+    // Text is top-aligned within the glyph box, so center on that (not the full
+    // line height) to sit level with the characters.
+    y := cast(f32) row_y + (cast(f32) editor.font_size - size) * 0.5
+    for k in 0 ..< count {
+        // The gap opens at the anchor's measured x, shifted by the gaps of any
+        // earlier swatches on this row.
+        gap_x := cast(f32) text_x +
+            cast(f32) ui.measure_text(s[:swatches[k].anchor], editor.font_size) +
+            cast(f32) k * span
+        rect := rl.Rectangle {
+            x      = gap_x + SWATCH_PAD,
+            y      = y,
+            width  = size,
+            height = size,
+        }
+        rl.DrawRectangleRec(rect, swatches[k].color)
+        rl.DrawRectangleLinesEx(rect, 1, rl.Color {0, 0, 0, 140})
     }
 }
 
@@ -1313,8 +1483,11 @@ editor_draw_line_selections :: proc(editor: ^Editor, text: string, line_start, l
 
         seg_lo := max(lo, line_start)
         seg_hi := min(hi, line_end)
-        x_start := cast(f32) ui.measure_text(text[line_start:seg_lo], editor.font_size)
-        x_end := cast(f32) ui.measure_text(text[line_start:seg_hi], editor.font_size)
+        row_text := text[line_start:line_end]
+        x_start := cast(f32) ui.measure_text(text[line_start:seg_lo], editor.font_size) +
+            editor_swatch_offset(editor, row_text, seg_lo - line_start)
+        x_end := cast(f32) ui.measure_text(text[line_start:seg_hi], editor.font_size) +
+            editor_swatch_offset(editor, row_text, seg_hi - line_start)
         width := x_end - x_start
         if hi > line_end {
             // Selection continues past the newline; show it.
@@ -1361,11 +1534,14 @@ editor_pos_at :: proc(editor: ^Editor, position: rl.Vector2) -> (int, bool) {
     row := editor.visual_rows[target]
     target_x := position.x - text_x
 
+    row_text := text[row.start:row.end]
     pos := row.start
     for pos < row.end {
         _, width := utf8.decode_rune_in_string(text[pos:])
-        width_before := cast(f32) ui.measure_text(text[row.start:pos], editor.font_size)
-        width_after := cast(f32) ui.measure_text(text[row.start:pos + width], editor.font_size)
+        width_before := cast(f32) ui.measure_text(text[row.start:pos], editor.font_size) +
+            editor_swatch_offset(editor, row_text, pos - row.start)
+        width_after := cast(f32) ui.measure_text(text[row.start:pos + width], editor.font_size) +
+            editor_swatch_offset(editor, row_text, pos + width - row.start)
         if target_x < (width_before + width_after) / 2 {
             break
         }
