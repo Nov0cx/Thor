@@ -38,6 +38,24 @@ Highlight_Span :: struct {
     color: rl.Color,
 }
 
+// Diagnostic severity, drives the squiggle and gutter-marker color.
+Diagnostic_Severity :: enum {
+    Error,
+    Warning,
+}
+
+// A compiler diagnostic mapped onto the buffer: the byte range to underline and
+// its severity. `line` (0-based) and `message` are carried for the owner's own
+// use (the status bar looks up the caret line's message); the editor draws only
+// start/end/severity. Owned by the file, borrowed by the editor.
+Diagnostic :: struct {
+    start:    int,
+    end:      int,
+    line:     int,
+    severity: Diagnostic_Severity,
+    message:  string,
+}
+
 Editor :: struct {
     using widget: ui.Widget,
     // Borrowed from the open file; nil when none open. Held outside the widget
@@ -70,6 +88,11 @@ Editor :: struct {
     rows_revision:      u64,
     // Syntax highlight spans for the current buffer; borrowed from the owner.
     highlights:         []Highlight_Span,
+    // Compiler diagnostics for the current buffer; borrowed from the owner. Each
+    // range gets a colored squiggle and its line a gutter marker.
+    diagnostics:            []Diagnostic,
+    diagnostic_error_color: rl.Color,
+    diagnostic_warn_color:  rl.Color,
     // Code folding. `foldable` maps a fold's start line (0-based) to its end line
     // (both from the owner's syntax analysis, refreshed each edit); `folded` is
     // the subset the user has collapsed. Folding a region hides start+1..end.
@@ -180,6 +203,8 @@ editor_create :: proc(id: string) -> ^Editor {
     editor.line_number_color = rl.Color {113, 124, 180, 255}
     editor.caret_color = rl.Color {132, 255, 255, 255}
     editor.selection_color = rl.Color {132, 255, 255, 50}
+    editor.diagnostic_error_color = rl.Color {255, 83, 112, 255}
+    editor.diagnostic_warn_color = rl.Color {230, 192, 92, 255}
     editor.wrap = true
     editor.visual_rows = make([dynamic]Visual_Row)
     editor.recenter_caret = -1
@@ -233,6 +258,18 @@ editor_set_state :: proc(editor: ^Editor, state: ^textedit.State) {
 
 editor_set_highlights :: proc(editor: ^Editor, highlights: []Highlight_Span) {
     editor.highlights = highlights
+}
+
+// Replaces the diagnostics drawn for the current buffer (borrowed, not copied).
+// The owner clears them by passing nil once the buffer is edited past the
+// revision they were computed from, so squiggles never linger at stale offsets.
+editor_set_diagnostics :: proc(editor: ^Editor, diagnostics: []Diagnostic) {
+    editor.diagnostics = diagnostics
+}
+
+editor_set_diagnostic_colors :: proc(editor: ^Editor, error_color, warn_color: rl.Color) {
+    editor.diagnostic_error_color = error_color
+    editor.diagnostic_warn_color = warn_color
 }
 
 // A foldable line range, in 0-based logical lines: `start_line` stays visible,
@@ -1253,9 +1290,19 @@ editor_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
                     editor_draw_fold_chevron(editor, fold_col_x, fold_col, row_y, line_height, is_folded)
                 }
             }
+
+            // Gutter dot for a diagnostic on this line: red for an error, amber
+            // for a warning (an error on the line wins).
+            if sev, has := editor_line_diagnostic(editor, row.line); has {
+                color := sev == .Error ? editor.diagnostic_error_color : editor.diagnostic_warn_color
+                cx := editor.bounds.x + GUTTER_PAD_RIGHT + 3
+                cy := row_y + line_height * 0.5
+                rl.DrawCircleV(rl.Vector2 {cx, cy}, 3, color)
+            }
         }
         editor_draw_row_text(editor, text, row, hl, text_x, cast(i32) row_y)
         editor_draw_row_swatches(editor, text, row, text_x, cast(i32) row_y)
+        editor_draw_row_diagnostics(editor, text, row, text_x, row_y)
 
         // Collapsed marker: on the last visual row of a folded start line, an
         // ellipsis pill after the text stands in for the hidden body.
@@ -1659,6 +1706,70 @@ editor_swatch_offset :: proc(editor: ^Editor, row_text: string, rel: int) -> f32
         }
     }
     return total
+}
+
+// Highest-severity diagnostic on logical line `line`, if any. Errors outrank
+// warnings so the gutter dot reflects the worst issue on the line.
+@(private = "file")
+editor_line_diagnostic :: proc(editor: ^Editor, line: int) -> (Diagnostic_Severity, bool) {
+    found := false
+    worst := Diagnostic_Severity.Warning
+    for d in editor.diagnostics {
+        if d.line != line {
+            continue
+        }
+        found = true
+        if d.severity == .Error {
+            return .Error, true
+        }
+    }
+    return worst, found
+}
+
+// Draws a colored squiggle under the part of each diagnostic range that falls on
+// this visual row. The x for a byte offset matches the caret math (measured text
+// plus any hex-swatch gaps before it), so the underline tracks the glyphs.
+@(private = "file")
+editor_draw_row_diagnostics :: proc(editor: ^Editor, text: string, row: Visual_Row, text_x: i32, row_y: f32) {
+    if len(editor.diagnostics) == 0 {
+        return
+    }
+    row_text := text[row.start:row.end]
+    base_x := cast(f32) text_x
+    // Seated just under the glyph box (text is top-aligned, height font_size).
+    y := row_y + cast(f32) editor.font_size - 1
+    for d in editor.diagnostics {
+        seg_start := max(d.start, row.start)
+        seg_end := min(d.end, row.end)
+        if seg_start >= seg_end {
+            continue
+        }
+        x0 := base_x + cast(f32) ui.measure_text(text[row.start:seg_start], editor.font_size) +
+            editor_swatch_offset(editor, row_text, seg_start - row.start)
+        x1 := base_x + cast(f32) ui.measure_text(text[row.start:seg_end], editor.font_size) +
+            editor_swatch_offset(editor, row_text, seg_end - row.start)
+        color := d.severity == .Error ? editor.diagnostic_error_color : editor.diagnostic_warn_color
+        editor_draw_squiggle(x0, x1, y, color)
+    }
+}
+
+// A small triangle wave from x0 to x1 along baseline y: the underline editors use
+// to flag diagnostics.
+@(private = "file")
+editor_draw_squiggle :: proc(x0, x1, y: f32, color: rl.Color) {
+    amp: f32 = 2
+    step: f32 = 2
+    prev := rl.Vector2 {x0, y}
+    x := x0
+    up := true
+    for x < x1 {
+        nx := min(x + step, x1)
+        ny := up ? y - amp : y
+        rl.DrawLineEx(prev, rl.Vector2 {nx, ny}, 1, color)
+        prev = rl.Vector2 {nx, ny}
+        x = nx
+        up = !up
+    }
 }
 
 // Draws a filled square previewing each hex color literal in the row, seated in

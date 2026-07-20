@@ -143,7 +143,14 @@ Thor :: struct {
     finished_saves:           [dynamic]^Save_Job,
     finished_console:         [dynamic]^Console_Job,
     finished_git:             [dynamic]^Git_Status_Job,
+    finished_diagnostics:     [dynamic]^Diagnostics_Job,
     inflight_jobs:            int,
+    // Compiler diagnostics (`odin check`) run one package at a time.
+    // diagnostics_inflight guards against overlap; a save while one runs sets
+    // diagnostics_dirty and records diagnostics_pending_dir for a single re-run.
+    diagnostics_inflight:     bool,
+    diagnostics_dirty:        bool,
+    diagnostics_pending_dir:  string, // owned
     // Working-tree status keyed by absolute path (matches tree node paths),
     // recomputed off-thread; git_status_inflight guards against overlapping runs.
     git_status:               map[string]widgets.Git_Status,
@@ -244,6 +251,7 @@ init :: proc() -> ^Thor {
     thor.finished_saves = make([dynamic]^Save_Job)
     thor.finished_console = make([dynamic]^Console_Job)
     thor.finished_git = make([dynamic]^Git_Status_Job)
+    thor.finished_diagnostics = make([dynamic]^Diagnostics_Job)
 
     // Language intelligence: register the in-client Odin engine first so it wins
     // for .odin files; an optional LSP subprocess backend would register after it.
@@ -372,6 +380,8 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.finished_saves)
     delete(thor.finished_console)
     delete(thor.finished_git)
+    delete(thor.finished_diagnostics)
+    delete(thor.diagnostics_pending_dir)
     delete(thor.app_binds)
     thor_clear_git_status(thor)
     delete(thor.workspace_dir)

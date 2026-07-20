@@ -238,6 +238,7 @@ thor_build_content :: proc(thor: ^Thor) {
         thor.theme.border,
         thor.theme.accent_color,
     )
+    widgets.editor_set_diagnostic_colors(thor.editor, thor.theme.error_color, thor.theme.yellow_color)
     widgets.editor_set_on_save(thor.editor, thor_request_save, thor)
     widgets.editor_set_on_goto_definition(thor.editor, thor_editor_goto_definition, thor)
     widgets.editor_set_on_hover(thor.editor, thor_editor_hover, thor)
@@ -254,6 +255,7 @@ thor_build_content :: proc(thor: ^Thor) {
         thor.theme.border,
         thor.theme.accent_color,
     )
+    widgets.editor_set_diagnostic_colors(thor.editor2, thor.theme.error_color, thor.theme.yellow_color)
     widgets.editor_set_on_save(thor.editor2, thor_request_save, thor)
     widgets.editor_set_on_goto_definition(thor.editor2, thor_editor_goto_definition, thor)
     widgets.editor_set_on_hover(thor.editor2, thor_editor_hover, thor)

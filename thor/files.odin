@@ -40,6 +40,11 @@ Open_File :: struct {
     highlighted:        bool,
     // Foldable line ranges, recomputed alongside the highlights.
     folds:              [dynamic]widgets.Fold_Range,
+    // Compiler diagnostics from the last `odin check` of this file's package,
+    // and the buffer revision they were computed against. Shown only while the
+    // buffer still matches that revision (an edit clears them until re-checked).
+    diagnostics:        [dynamic]widgets.Diagnostic,
+    diagnostics_revision: u64,
     // Image files bypass the text pipeline: the pixels load into a GPU texture
     // and show in the image view instead of the editor. `loaded` stays false.
     is_image:           bool,
@@ -423,6 +428,13 @@ thor_update_files :: proc(thor: ^Thor) {
     if thor.split_visible && thor.pane_file[1] != thor.pane_file[0] {
         thor_highlight_pane_file(thor, 1)
     }
+
+    // Push (or clear, when the buffer moved past the checked revision) each
+    // visible pane's diagnostics.
+    thor_sync_pane_diagnostics(thor, 0)
+    if thor.split_visible && thor.pane_file[1] != thor.pane_file[0] {
+        thor_sync_pane_diagnostics(thor, 1)
+    }
 }
 
 // Re-parses the file shown in `pane` if its highlights are missing or stale.
@@ -443,6 +455,7 @@ thor_process_io :: proc(thor: ^Thor) {
     saves := make([dynamic]^Save_Job, context.temp_allocator)
     console := make([dynamic]^Console_Job, context.temp_allocator)
     git := make([dynamic]^Git_Status_Job, context.temp_allocator)
+    diagnostics := make([dynamic]^Diagnostics_Job, context.temp_allocator)
 
     sync.lock(&thor.io_mutex)
     for job in thor.finished_loads {
@@ -457,10 +470,14 @@ thor_process_io :: proc(thor: ^Thor) {
     for job in thor.finished_git {
         append(&git, job)
     }
+    for job in thor.finished_diagnostics {
+        append(&diagnostics, job)
+    }
     clear(&thor.finished_loads)
     clear(&thor.finished_saves)
     clear(&thor.finished_console)
     clear(&thor.finished_git)
+    clear(&thor.finished_diagnostics)
     sync.unlock(&thor.io_mutex)
 
     for job in loads {
@@ -513,6 +530,10 @@ thor_process_io :: proc(thor: ^Thor) {
             if job.revision > file.saved_revision {
                 file.saved_revision = job.revision
             }
+            // A fresh save of an Odin file re-runs the compiler for its package.
+            if !file.closed && strings.has_suffix(file.name, ".odin") {
+                thor_run_diagnostics_for_file(thor, file.path)
+            }
         } else {
             log.warnf("Failed to save %q", job.path)
         }
@@ -542,6 +563,10 @@ thor_process_io :: proc(thor: ^Thor) {
         thor_apply_git_status(thor, job)
     }
 
+    for job in diagnostics {
+        thor_reap_diagnostics(thor, job)
+    }
+
     // A save or a console command may have changed the working tree; refresh
     // the status so the explorer highlighting stays current.
     if len(saves) > 0 || len(console) > 0 {
@@ -556,6 +581,8 @@ thor_free_open_file :: proc(file: ^Open_File) {
     textedit.destroy(&file.state)
     delete(file.highlights)
     delete(file.folds)
+    thor_clear_file_diagnostics(file)
+    delete(file.diagnostics)
     delete(file.tab_label)
     delete(file.path)
     free(file)

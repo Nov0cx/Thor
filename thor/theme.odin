@@ -135,6 +135,7 @@ thor_apply_theme :: proc(thor: ^Thor) {
             editor,
             t.white_black_color, t.gray_color, t.background, t.second_background, t.border, t.border, t.accent_color,
         )
+        widgets.editor_set_diagnostic_colors(editor, t.error_color, t.yellow_color)
     }
 
     widgets.image_view_set_colors(thor.image_view, t.background, t.second_background, t.buttons, t.white_black_color)

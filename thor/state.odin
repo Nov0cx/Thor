@@ -104,6 +104,23 @@ thor_apply_file_highlights :: proc(thor: ^Thor, file: ^Open_File) {
     }
 }
 
+// Pushes a pane's diagnostics to its editor, or clears them when the buffer has
+// moved past the revision they were checked at (so squiggles never sit at stale
+// offsets). Called every frame — pushing a borrowed slice is just a pointer set.
+thor_sync_pane_diagnostics :: proc(thor: ^Thor, pane: int) {
+    index := thor.pane_file[pane]
+    if index < 0 || index >= len(thor.open_files) {
+        return
+    }
+    file := thor.open_files[index]
+    editor := thor_pane_editor(thor, pane)
+    if file.loaded && file.diagnostics_revision == file.state.revision && len(file.diagnostics) > 0 {
+        widgets.editor_set_diagnostics(editor, file.diagnostics[:])
+    } else {
+        widgets.editor_set_diagnostics(editor, nil)
+    }
+}
+
 // Swaps the editor panes out for the image view when the active file is an
 // image, and back again otherwise. Called every frame so it tracks tab switches,
 // splits and closes without each having to poke it.
@@ -168,8 +185,27 @@ thor_status_info :: proc(data: rawptr) -> widgets.Status_Info {
         text := textedit.text(&file.state)
         caret := textedit.primary_cursor(&file.state).caret
         line_start := textedit.line_start(text, caret)
-        info.line = textedit.line_index(text, caret) + 1
+        caret_line := textedit.line_index(text, caret)
+        info.line = caret_line + 1
         info.column = utf8.rune_count_in_string(text[line_start:caret]) + 1
+
+        // With no transient notice up, show the diagnostic on the caret's line
+        // (an error outranks a warning) so its message is readable without a hover.
+        if info.message == "" && file.diagnostics_revision == file.state.revision {
+            best := -1
+            for d, i in file.diagnostics {
+                if d.line != caret_line || d.message == "" {
+                    continue
+                }
+                if best < 0 || (d.severity == .Error && file.diagnostics[best].severity != .Error) {
+                    best = i
+                }
+            }
+            if best >= 0 {
+                info.message = file.diagnostics[best].message
+                info.is_error = file.diagnostics[best].severity == .Error
+            }
+        }
     }
 
     return info
