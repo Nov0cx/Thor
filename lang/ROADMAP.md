@@ -33,15 +33,36 @@ lowest latency.
   overrides it to point at another toolchain). So `fmt.println`, `strings.split`
   and friends go-to-def and hover into the stdlib sources. The
   caret on the package name itself jumps to the file named like the package
-  (`foo/foo.odin`), reporting "no definition found" when there is none. Alt+Enter
+  (`foo/foo.odin`), falling back to the package's first `.odin` file when there is
+  no entry file, so navigation still lands inside the package. Alt+Enter
   with the caret on an `import` line (its alias or the quoted path, e.g.
   `import rl "vendor:raylib"`) opens that package the same way. Value member
   access (`v.field`) still falls through (needs type inference).
 - **Hover popup:** a mouse dwell over a symbol (~0.45s) dispatches a Hover
-  request; the engine's signature line is drawn in a popup anchored to the
-  symbol. Fires once per dwell, dismissed on move or when the cursor leaves.
+  request; the engine's declaration text is drawn in a popup anchored to the
+  symbol. Fires once per dwell, dismissed on move or when the cursor leaves. The
+  popup shows the *complete* declaration: a struct/enum/union/bit_field (or any
+  other multi-line decl) is shown across every line, a procedure keeps only its
+  signature (the body is dropped), and any leading `@(...)` attribute is kept.
+  The compact symbol-list rows stay a one-line `name :: type` with the attribute
+  stripped.
 - **"No definition found" feedback:** a failed go-to-definition flashes a
   transient statusline notice (3s).
+- **Document symbols (outline):** Ctrl+Shift+O lists the active file's top-level
+  declarations — procedures, types, enums, constants, package-level vars — in the
+  fuzzy command-palette picker (`Document_Symbols` request → `collect_document_symbols`,
+  which reuses the same `collect_defs` walk goto uses). Choosing a row jumps to
+  the declaration. Parameters, struct fields and the package/import namespace are
+  excluded; rows are sorted by position.
+- **Workspace symbols:** Ctrl+T lists *every* top-level declaration across the
+  whole workspace in the same picker (`Workspace_Symbols` request →
+  `collect_workspace_symbols`, an on-demand scan of every `.odin` file, the live
+  buffer's unsaved edits first). Rows are sorted by name; choosing one opens the
+  owning file and jumps there.
+- **Rich symbol picker:** both symbol lists render each row as the real Odin
+  declaration (`add :: proc(a, b: int) -> int`), the identifier tinted by kind
+  (proc/type/enum/const/var → theme syntax colors) and the rest dimmed, with a
+  `path:line` preview line under the selected row.
 
 ---
 
@@ -76,10 +97,15 @@ lowest latency.
       (`fmt.println`, `strings.split`) resolves into `core:`/`vendor:`/`base:`
       via the baked-in `ODIN_ROOT`. Still missing: symbols brought in with
       `using import`, and bare identifiers that live in the stdlib.
+- [x] **Document symbols / outline.** Ctrl+Shift+O; `Document_Symbols` request
+      served by `collect_document_symbols` (reuses `collect_defs`), shown in the
+      palette's fuzzy picker. Top-level only — no nested/`using` members yet.
+- [x] **Workspace symbols.** Ctrl+T; `Workspace_Symbols` request served by
+      `collect_workspace_symbols` (on-demand scan reusing `collect_defs`), shown in
+      the palette's rich fuzzy picker. Top-level only, re-scanned each open.
 - [ ] **Other LSP features not started:** references / find-usages, rename,
-      document symbols / outline, workspace symbols, signature help, completion
-      (semantic), diagnostics, formatting, code actions, folding, semantic
-      tokens.
+      signature help, completion (semantic), diagnostics, formatting, code
+      actions, folding, semantic tokens.
 
 ## Missing — scalability / performance
 

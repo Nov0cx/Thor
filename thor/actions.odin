@@ -78,6 +78,16 @@ thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
         thor_goto_definition(thor)
         return true
     }
+    // Go to symbol (Ctrl+Shift+O) lists the active file's top-level symbols.
+    if setting.keybind_matches(thor.goto_symbol_key, event.key, event.ctrl, event.shift, event.alt) {
+        thor_goto_symbol(thor)
+        return true
+    }
+    // Go to symbol in workspace (Ctrl+T) lists every top-level symbol in the tree.
+    if setting.keybind_matches(thor.goto_workspace_symbol_key, event.key, event.ctrl, event.shift, event.alt) {
+        thor_goto_workspace_symbol(thor)
+        return true
+    }
     // Flip to the previously active file (ctrl+e), like vim's Ctrl-^.
     if setting.keybind_matches(thor.last_file_key, event.key, event.ctrl, event.shift, event.alt) {
         thor_flip_last_file(thor)

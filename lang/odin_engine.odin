@@ -7,6 +7,7 @@ package lang
 
 import "core:os"
 import "core:path/filepath"
+import "core:slice"
 import "core:strings"
 
 import ts "../vendor/odin-tree-sitter"
@@ -94,6 +95,19 @@ odin_resolve :: proc(data: rawptr, req: ^Request, res: ^Result) {
     }
     defer ts.tree_delete(tree)
     root := ts.tree_root_node(tree)
+
+    // Document symbols need no caret: enumerate the whole file and return.
+    if req.kind == .Document_Symbols {
+        collect_document_symbols(e, root, req.source, req.path, res)
+        return
+    }
+
+    // Workspace symbols enumerate every top-level declaration across the tree,
+    // starting from the live buffer (unsaved edits) then every sibling file.
+    if req.kind == .Workspace_Symbols {
+        collect_workspace_symbols(e, parser, root, req, res)
+        return
+    }
 
     // Caret on an import declaration itself (its alias or its quoted path):
     // resolve to the imported package. Handled before identifier_at because the
@@ -437,12 +451,153 @@ scan_file :: proc(
     }
 }
 
+// Appends `source`'s top-level declarations (in `path`) to res.symbols. Reuses
+// collect_defs — the same walk go-to-definition uses — and keeps only the
+// file-scope symbols a symbol list should show (procedures, types, enums,
+// constants and package-level vars), dropping parameters, struct fields, labels
+// and the package/import namespace captures. Each field is cloned into
+// context.allocator (the Manager's), freed on the main thread after the editor
+// reads them; the signature is the real Odin declaration line.
+@(private = "file")
+collect_symbols_into :: proc(e: ^Odin_Engine, root: ts.Node, source, path: string, res: ^Result) {
+    defs := collect_defs(e, root, source)
+    for d in defs {
+        if !d.top_level || !symbol_kind_shown(d.kind) {
+            continue
+        }
+        ident_start := clamp(d.ident_start, 0, len(source))
+        append(&res.symbols, Symbol {
+            name      = strings.clone(d.name),
+            kind      = strings.clone(d.kind),
+            signature = signature_text(source, d),
+            path      = strings.clone(path),
+            line      = strings.count(source[:ident_start], "\n") + 1,
+            offset    = d.ident_start,
+        })
+    }
+}
+
+// Fills `res` with one file's top-level declarations for a document outline,
+// sorted by position for a stable outline.
+@(private = "file")
+collect_document_symbols :: proc(e: ^Odin_Engine, root: ts.Node, source, path: string, res: ^Result) {
+    collect_symbols_into(e, root, source, path, res)
+    slice.sort_by(res.symbols[:], proc(a, b: Symbol) -> bool {
+        return a.offset < b.offset
+    })
+    res.ok = true
+}
+
+// Fills `res` with every top-level declaration across the workspace: the live
+// buffer first (so unsaved edits win over its on-disk copy, which is skipped),
+// then every sibling .odin file. Bounded by the same file/depth guards as the
+// cross-file goto scan. Sorted by name (ties by path) for a stable, fuzzy-
+// searchable list — an on-demand scan, re-run each time the picker is opened.
+@(private = "file")
+collect_workspace_symbols :: proc(e: ^Odin_Engine, parser: ts.Parser, root: ts.Node, req: ^Request, res: ^Result) {
+    if req.path != "" {
+        collect_symbols_into(e, root, req.source, req.path, res)
+    }
+    if req.workspace != "" {
+        count := 0
+        collect_symbols_dir(e, parser, req.workspace, req, res, &count, 0)
+    }
+    slice.sort_by(res.symbols[:], proc(a, b: Symbol) -> bool {
+        if a.name != b.name {
+            return a.name < b.name
+        }
+        return a.path < b.path
+    })
+    res.ok = true
+}
+
+// Recurses the workspace, collecting every .odin file's top-level symbols.
+// Mirrors scan_dir's guards and skips list, but never stops early: it gathers
+// all files rather than resolving one name.
+@(private = "file")
+collect_symbols_dir :: proc(
+    e: ^Odin_Engine,
+    parser: ts.Parser,
+    dir: string,
+    req: ^Request,
+    res: ^Result,
+    count: ^int,
+    depth: int,
+) {
+    if count^ >= SCAN_FILE_LIMIT || depth > SCAN_DEPTH_LIMIT {
+        return
+    }
+
+    handle, open_err := os.open(dir)
+    if open_err != nil {
+        return
+    }
+    defer os.close(handle)
+
+    infos, read_err := os.read_dir(handle, -1, context.temp_allocator)
+    if read_err != nil {
+        return
+    }
+
+    for info in infos {
+        if count^ >= SCAN_FILE_LIMIT {
+            return
+        }
+        if info.type == .Directory {
+            if info.name == ".git" || strings.has_prefix(info.name, ".") {
+                continue
+            }
+            collect_symbols_dir(e, parser, info.fullpath, req, res, count, depth + 1)
+            continue
+        }
+        if !strings.has_suffix(info.name, ".odin") {
+            continue
+        }
+        // The live buffer was already collected, with unsaved edits; skip its
+        // on-disk copy so a symbol isn't listed twice.
+        if info.fullpath == req.path {
+            continue
+        }
+        count^ += 1
+        collect_symbols_file(e, parser, info.fullpath, res)
+    }
+}
+
+@(private = "file")
+collect_symbols_file :: proc(e: ^Odin_Engine, parser: ts.Parser, path: string, res: ^Result) {
+    data, rerr := os.read_entire_file(path, context.temp_allocator)
+    if rerr != nil {
+        return
+    }
+    source := string(data)
+
+    tree := ts.parser_parse_string(parser, source)
+    if tree == nil {
+        return
+    }
+    defer ts.tree_delete(tree)
+
+    collect_symbols_into(e, ts.tree_root_node(tree), source, path, res)
+}
+
+// LOCALS capture suffixes that belong in a document outline. Excludes
+// "parameter"/"field" (nested), "namespace" (package name and import aliases)
+// and "" (labels).
+@(private = "file")
+symbol_kind_shown :: proc(kind: string) -> bool {
+    switch kind {
+    case "function", "type", "enum", "constant", "var":
+        return true
+    }
+    return false
+}
+
 // Writes the resolved declaration into the result for the requested feature.
 // Owned strings use context.allocator, which the worker set to the Manager's
 // allocator, so they are freed on the main thread after the editor reads them.
 @(private = "file")
 fill_result :: proc(res: ^Result, req: ^Request, path, source: string, d: Def, hover_start, hover_end: int) {
-    switch req.kind {
+    #partial switch req.kind {
     case .Definition:
         res.location = Location {
             path  = strings.clone(path),
@@ -452,7 +607,7 @@ fill_result :: proc(res: ^Result, req: ^Request, path, source: string, d: Def, h
         res.ok = true
     case .Hover:
         res.hover = Hover_Info {
-            text  = signature_text(source, d),
+            text  = declaration_text(source, d),
             start = hover_start,
             end   = hover_end,
         }
@@ -460,12 +615,14 @@ fill_result :: proc(res: ^Result, req: ^Request, path, source: string, d: Def, h
     }
 }
 
-// The declaration's signature: its text up to the body brace or first newline,
-// trimmed. For `foo :: proc(x: int) -> int {` that yields `foo :: proc(x: int)
-// -> int`. Cloned into context.allocator.
+// One-line signature for a symbol-list row: `name :: type`, trimmed. Starts at
+// the declared identifier (so any leading `@(...)` attribute is skipped) and
+// stops at the body brace or first newline. `foo :: proc(x: int) -> int {` and
+// `Point :: struct {` yield `foo :: proc(x: int) -> int` and `Point :: struct`.
+// Cloned into context.allocator.
 @(private = "file")
 signature_text :: proc(source: string, d: Def) -> string {
-    start := clamp(d.decl_start, 0, len(source))
+    start := clamp(d.ident_start, 0, len(source))
     end := clamp(d.decl_end, start, len(source))
     text := source[start:end]
 
@@ -474,6 +631,29 @@ signature_text :: proc(source: string, d: Def) -> string {
     }
     if nl := strings.index_byte(text, '\n'); nl >= 0 {
         text = text[:nl]
+    }
+    return strings.clone(strings.trim_space(text))
+}
+
+// The full declaration text for a hover popup: the whole declaration node,
+// trimmed, including any leading `@(...)` attribute (the grammar nests it as the
+// declaration's first child, so decl_start already covers it). A procedure keeps
+// only its signature — the body brace onward is dropped — while a type
+// declaration (struct/enum/union/bit_field) or any other multi-line declaration
+// is shown complete, across every line. Cloned into context.allocator.
+@(private = "file")
+declaration_text :: proc(source: string, d: Def) -> string {
+    start := clamp(d.decl_start, 0, len(source))
+    end := clamp(d.decl_end, start, len(source))
+    text := source[start:end]
+
+    // Procedures: show the signature, not the body. The first `{` opens the body
+    // (attributes use `(...)`, the signature has no brace), so cutting there keeps
+    // any attribute line and the `name :: proc(...) -> ...` head.
+    if d.kind == "function" {
+        if brace := strings.index_byte(text, '{'); brace >= 0 {
+            text = text[:brace]
+        }
     }
     return strings.clone(strings.trim_space(text))
 }
@@ -709,12 +889,13 @@ scan_package :: proc(
 
 // Caret on the package operand itself (`pkg` in `pkg.Symbol`): "go to package".
 // Definition jumps to the head of the file named like the package (the `foo.odin`
-// entry file in package `foo`, the usual convention); when no such file exists
-// the resolve fails, surfacing "No definition found" rather than guessing at an
-// arbitrary file. Hover shows the import path.
+// entry file in package `foo`, the usual convention). When no such file exists it
+// falls back to the package's first .odin file (lexicographically), so the caret
+// still lands inside the package rather than reporting nothing. Hover shows the
+// import path.
 @(private = "file")
 open_package :: proc(dir, raw: string, req: ^Request, res: ^Result, hover_start, hover_end: int) {
-    switch req.kind {
+    #partial switch req.kind {
     case .Definition:
         handle, open_err := os.open(dir)
         if open_err != nil {
@@ -726,17 +907,26 @@ open_package :: proc(dir, raw: string, req: ^Request, res: ^Result, hover_start,
             return
         }
         want := strings.concatenate({filepath.base(dir), ".odin"}, context.temp_allocator)
+        first_name := "" // lexicographically first .odin file, the fallback target
+        first_path := ""
         for info in infos {
-            if info.type == .Directory || info.name != want {
+            if info.type == .Directory || !strings.has_suffix(info.name, ".odin") {
                 continue
             }
-            res.location = Location {
-                path  = strings.clone(info.fullpath),
-                start = 0,
-                end   = 0,
+            if info.name == want {
+                res.location = Location{path = strings.clone(info.fullpath), start = 0, end = 0}
+                res.ok = true
+                return
             }
+            if first_name == "" || info.name < first_name {
+                first_name = info.name
+                first_path = info.fullpath
+            }
+        }
+        // No `foo.odin`: land on the package's first file so navigation still works.
+        if first_path != "" {
+            res.location = Location{path = strings.clone(first_path), start = 0, end = 0}
             res.ok = true
-            return
         }
     case .Hover:
         text := strings.concatenate({"import \"", raw, "\""}, context.temp_allocator)

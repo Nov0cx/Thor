@@ -13,6 +13,8 @@
         "focus_terminal":  "ctrl+shift+t",
         "goto_line":       "ctrl+g",
         "goto_definition": "alt+enter",
+        "goto_symbol":     "ctrl+shift+o",
+        "goto_workspace_symbol": "ctrl+q",
         "last_file":       "ctrl+e",
         "new_file":           "",
         "new_folder":         "",

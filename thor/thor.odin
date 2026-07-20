@@ -154,6 +154,12 @@ Thor :: struct {
     lang_manager:             lang.Manager,
     odin_engine:              ^lang.Odin_Engine,
     goto_def_key:             setting.Keybind,
+    goto_symbol_key:          setting.Keybind,
+    goto_workspace_symbol_key: setting.Keybind,
+    // Go-to-symbol picker state: the jump targets (file + byte offset) for the
+    // rows currently shown, in picker order. Rebuilt each time the picker opens;
+    // the pick callback indexes into them on a later frame. Owned.
+    doc_symbols:              [dynamic]Doc_Symbol,
     // A go-to-definition whose target file is still loading; applied by
     // thor_update_files once the buffer lands. Path is an owned clone.
     pending_goto_active:      bool,
@@ -374,6 +380,8 @@ shutdown :: proc(thor: ^Thor) {
     lang.manager_destroy(&thor.lang_manager)
     delete(thor.pending_goto_path)
     delete(thor.status_message)
+    thor_clear_doc_symbols(thor)
+    delete(thor.doc_symbols)
     for pb in thor.plugin_buttons {
         for entry in pb.entries {
             delete(entry.label)

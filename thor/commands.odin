@@ -83,6 +83,16 @@ thor_apply_settings :: proc(thor: ^Thor) {
     } else {
         thor.goto_def_key = setting.Keybind {key = .ENTER, alt = true}
     }
+    if kb, ok := setting.keybind(&thor.config, "goto_symbol"); ok {
+        thor.goto_symbol_key = kb
+    } else {
+        thor.goto_symbol_key = setting.Keybind {key = .O, ctrl = true, shift = true}
+    }
+    if kb, ok := setting.keybind(&thor.config, "goto_workspace_symbol"); ok {
+        thor.goto_workspace_symbol_key = kb
+    } else {
+        thor.goto_workspace_symbol_key = setting.Keybind {key = .T, ctrl = true}
+    }
     if kb, ok := setting.keybind(&thor.config, "last_file"); ok {
         thor.last_file_key = kb
     } else {
@@ -268,6 +278,8 @@ thor_register_commands :: proc(thor: ^Thor) {
     widgets.command_palette_add(p, "Selection: Add Cursor Above", thor_cmd_add_cursor_above, thor, sc(thor, "add_cursor_above"))
     widgets.command_palette_add(p, "Selection: Add Cursor Below", thor_cmd_add_cursor_below, thor, sc(thor, "add_cursor_below"))
     widgets.command_palette_add(p, "Go to Matching Bracket", thor_cmd_matching_bracket, thor, sc(thor, "matching_bracket"))
+    widgets.command_palette_add(p, "Go to Symbol in File", thor_cmd_goto_symbol, thor, sc(thor, "goto_symbol"))
+    widgets.command_palette_add(p, "Go to Symbol in Workspace", thor_cmd_goto_workspace_symbol, thor, sc(thor, "goto_workspace_symbol"))
 
     thor_add_bindable_command(thor, "Help: Tutorial", "tutorial", thor_cmd_tutorial, thor)
     thor_add_bindable_command(thor, "Settings: Open Keybinds", "open_keybinds", thor_cmd_open_keybinds, thor)
@@ -356,6 +368,8 @@ thor_cmd_trim_whitespace :: proc(data: rawptr) {if s := thor_edit_state(data); s
 thor_cmd_add_cursor_above :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.add_cursor_vertical(s, -1)}}
 thor_cmd_add_cursor_below :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.add_cursor_vertical(s, 1)}}
 thor_cmd_matching_bracket :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.move_to_matching_bracket(s, false)}}
+thor_cmd_goto_symbol :: proc(data: rawptr) {thor_goto_symbol(cast(^Thor) data)}
+thor_cmd_goto_workspace_symbol :: proc(data: rawptr) {thor_goto_workspace_symbol(cast(^Thor) data)}
 thor_cmd_join_lines :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.join_lines(s)}}
 thor_cmd_uppercase :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.transform_case(s, .Upper)}}
 thor_cmd_lowercase :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.transform_case(s, .Lower)}}

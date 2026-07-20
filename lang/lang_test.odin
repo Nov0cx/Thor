@@ -111,6 +111,76 @@ main :: proc() {
 }
 
 @(test)
+test_hover_multiline_declaration :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    src := `package demo
+
+@(private)
+Point :: struct {
+	x: int,
+	y: int,
+}
+
+@(require_results)
+add :: proc(a: int, b: int) -> int {
+	return a + b
+}
+`
+    // Hover on the struct shows the complete multi-line declaration, keeping the
+    // leading @() attribute.
+    {
+        at := strings.index(src, "Point :: struct")
+        req := Request{kind = .Hover, path = "buffer.odin", ext = ".odin", source = src, offset = at}
+        res := Result{kind = .Hover}
+        odin_resolve(e, &req, &res)
+        defer delete(res.hover.text)
+        testing.expect(t, res.ok, "expected a hover result for the struct")
+        want := "@(private)\nPoint :: struct {\n\tx: int,\n\ty: int,\n}"
+        testing.expectf(t, res.hover.text == want, "struct hover: got %q", res.hover.text)
+    }
+
+    // Hover on the proc keeps the attribute but drops the body.
+    {
+        at := strings.index(src, "add :: proc")
+        req := Request{kind = .Hover, path = "buffer.odin", ext = ".odin", source = src, offset = at}
+        res := Result{kind = .Hover}
+        odin_resolve(e, &req, &res)
+        defer delete(res.hover.text)
+        testing.expect(t, res.ok, "expected a hover result for the proc")
+        want := "@(require_results)\nadd :: proc(a: int, b: int) -> int"
+        testing.expectf(t, res.hover.text == want, "proc hover: got %q", res.hover.text)
+    }
+}
+
+@(test)
+test_document_symbol_signature_skips_attribute :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // A symbol-list row is a compact `name :: type` line: the @() attribute is
+    // dropped there, unlike the hover popup which keeps it.
+    src := `package demo
+
+@(private)
+Widget :: struct {
+	id: int,
+}
+`
+    req := Request{kind = .Document_Symbols, path = "buffer.odin", ext = ".odin", source = src}
+    res := Result{kind = .Document_Symbols}
+    odin_resolve(e, &req, &res)
+    defer free_symbols(&res)
+
+    testing.expect(t, res.ok, "expected a document symbols result")
+    testing.expectf(t, len(res.symbols) == 1, "symbol count: got %d", len(res.symbols))
+    if len(res.symbols) == 1 {
+        testing.expectf(t, res.symbols[0].signature == "Widget :: struct", "signature: got %q", res.symbols[0].signature)
+    }
+}
+
+@(test)
 test_definition_cross_file :: proc(t: ^testing.T) {
     e := odin_engine_create()
     defer odin_destroy(e)
@@ -290,8 +360,8 @@ test_definition_package_no_entry_file :: proc(t: ^testing.T) {
     e := odin_engine_create()
     defer odin_destroy(e)
 
-    // A package with no file named like it: the package operand resolves to
-    // nothing (surfaced as "No definition found") rather than an arbitrary file.
+    // A package with no file named like it: the package operand falls back to the
+    // package's first .odin file, so navigation still lands inside the package.
     root := "thor_lang_pkg_noentry_ws"
     lib := strings.concatenate({root, "/lib"}, context.temp_allocator)
     _ = os.make_directory(root)
@@ -321,7 +391,10 @@ test_definition_package_no_entry_file :: proc(t: ^testing.T) {
     odin_resolve(e, &req, &res)
     defer delete(res.location.path)
 
-    testing.expect(t, !res.ok, "expected no definition for a package without an entry file")
+    testing.expect(t, res.ok, "expected a fallback definition for a package without an entry file")
+    if res.ok {
+        testing.expectf(t, strings.has_suffix(res.location.path, "parts.odin"), "fallback path: got %q", res.location.path)
+    }
 }
 
 @(test)
@@ -365,6 +438,150 @@ test_definition_on_import_line :: proc(t: ^testing.T) {
     if res.ok {
         testing.expectf(t, strings.has_suffix(res.location.path, "lib.odin"), "path: got %q", res.location.path)
     }
+}
+
+@(test)
+test_document_symbols :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // Top-level procs, a struct, an enum and a constant belong in the outline;
+    // parameters, struct fields and locals do not. The package name is excluded.
+    src := `package demo
+
+Color :: enum {
+	Red,
+	Green,
+}
+
+Point :: struct {
+	x: int,
+	y: int,
+}
+
+MAX :: 100
+
+add :: proc(a: int, b: int) -> int {
+	sum := a + b
+	return sum
+}
+`
+    req := Request{kind = .Document_Symbols, path = "buffer.odin", ext = ".odin", source = src}
+    res := Result{kind = .Document_Symbols}
+    odin_resolve(e, &req, &res)
+    defer free_symbols(&res)
+
+    testing.expect(t, res.ok, "expected a document symbols result")
+
+    // Exactly the four top-level declarations, in source order.
+    names := make([dynamic]string, context.temp_allocator)
+    for sym in res.symbols {
+        append(&names, sym.name)
+    }
+    want := []string{"Color", "Point", "MAX", "add"}
+    testing.expectf(t, len(names) == len(want), "symbol count: got %d %v, want %d", len(names), names[:], len(want))
+    if len(names) == len(want) {
+        for name, i in want {
+            testing.expectf(t, names[i] == name, "symbol %d: got %q, want %q", i, names[i], name)
+        }
+    }
+
+    // Each symbol's offset points at its declared identifier, and the signature
+    // is the real Odin declaration line (name :: type), carrying its file/line.
+    for sym in res.symbols {
+        testing.expectf(
+            t,
+            strings.has_prefix(src[sym.offset:], sym.name),
+            "symbol %q offset %d does not land on its name", sym.name, sym.offset,
+        )
+        testing.expectf(
+            t,
+            strings.has_prefix(sym.signature, sym.name),
+            "symbol %q signature %q should start with the name", sym.name, sym.signature,
+        )
+        testing.expectf(t, sym.path == "buffer.odin", "symbol %q path: got %q", sym.name, sym.path)
+        testing.expectf(t, sym.line > 0, "symbol %q line: got %d", sym.name, sym.line)
+    }
+
+    // The proc's signature is the real Odin type, not a "function" tag.
+    for sym in res.symbols {
+        if sym.name == "add" {
+            testing.expectf(t, sym.signature == "add :: proc(a: int, b: int) -> int", "add signature: got %q", sym.signature)
+        }
+    }
+}
+
+// Frees a symbol result's owned strings (the engine clones into context.allocator).
+@(private = "file")
+free_symbols :: proc(res: ^Result) {
+    for sym in res.symbols {
+        delete(sym.name)
+        delete(sym.kind)
+        delete(sym.signature)
+        delete(sym.path)
+    }
+    delete(res.symbols)
+}
+
+@(test)
+test_workspace_symbols :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // Two packages under a workspace, each with a top-level symbol on disk, plus
+    // the live buffer's own symbol. Workspace symbols must gather all three.
+    root := "thor_lang_ws_syms"
+    app := strings.concatenate({root, "/app"}, context.temp_allocator)
+    lib := strings.concatenate({root, "/lib"}, context.temp_allocator)
+    _ = os.make_directory(root)
+    _ = os.make_directory(app)
+    _ = os.make_directory(lib)
+
+    lib_path := strings.concatenate({lib, "/thing.odin"}, context.temp_allocator)
+    lib_src := "package lib\n\nthing :: proc() {}\n"
+    _ = os.write_entire_file(lib_path, transmute([]byte)lib_src)
+    other := strings.concatenate({app, "/util.odin"}, context.temp_allocator)
+    other_src := "package app\n\nUtil :: struct {}\n"
+    _ = os.write_entire_file(other, transmute([]byte)other_src)
+
+    // Declared dirs-first so LIFO removes the files before their directories.
+    defer os.remove(root)
+    defer os.remove(app)
+    defer os.remove(lib)
+    defer os.remove(lib_path)
+    defer os.remove(other)
+
+    // The live buffer (never written) contributes `live`; its path is skipped on disk.
+    main_path := strings.concatenate({app, "/main.odin"}, context.temp_allocator)
+    main_src := "package app\n\nlive :: proc() {}\n"
+
+    req := Request {
+        kind      = .Workspace_Symbols,
+        path      = main_path,
+        ext       = ".odin",
+        source    = main_src,
+        workspace = root,
+    }
+    res := Result{kind = .Workspace_Symbols}
+    odin_resolve(e, &req, &res)
+    defer free_symbols(&res)
+
+    testing.expect(t, res.ok, "expected a workspace symbols result")
+
+    has :: proc(res: ^Result, name: string) -> bool {
+        for sym in res.symbols {
+            if sym.name == name {
+                return true
+            }
+        }
+        return false
+    }
+    testing.expect(t, has(&res, "thing"), "workspace symbols missing on-disk lib.thing")
+    testing.expect(t, has(&res, "Util"), "workspace symbols missing on-disk app.Util")
+    testing.expect(t, has(&res, "live"), "workspace symbols missing the live buffer's symbol")
+
+    // Sorted by name: Util, live, thing (capitals sort before lowercase in ASCII).
+    testing.expectf(t, len(res.symbols) == 3, "symbol count: got %d", len(res.symbols))
 }
 
 @(test)

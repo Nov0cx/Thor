@@ -13,10 +13,13 @@ import "core:thread"
 import "core:time"
 
 // What the editor is asking for. Kept small on purpose; it grows as features
-// land (Hover and Definition today; References, Completion, Symbols next).
+// land (Definition, Hover, Document_Symbols and Workspace_Symbols today;
+// References, Completion next).
 Request_Kind :: enum {
     Definition,
     Hover,
+    Document_Symbols,
+    Workspace_Symbols,
 }
 
 // A byte range in a named file. Byte offsets, not line/column: the editor and
@@ -34,6 +37,20 @@ Hover_Info :: struct {
     text:  string, // owned; a signature / declaration line
     start: int,
     end:   int,
+}
+
+// One entry in a symbol list (a file outline, or the whole workspace): a
+// declaration's name, its kind (the LOCALS capture suffix: "function", "type",
+// "enum", "constant", "var" — drives the display color), the real Odin
+// declaration line ("add :: proc(a, b: int) -> int"), the file it lives in and
+// the 1-based line there, and the byte offset to jump to (the identifier start).
+Symbol :: struct {
+    name:      string, // owned
+    kind:      string, // owned
+    signature: string, // owned; the declaration line, e.g. "add :: proc(...) -> int"
+    path:      string, // owned; absolute file path the symbol is declared in
+    line:      int,    // 1-based line of the declaration in that file
+    offset:    int,    // byte offset of the identifier within that file
 }
 
 // An editor request. `source` is an owned snapshot taken when the request is
@@ -57,8 +74,9 @@ Result :: struct {
     kind:     Request_Kind,
     revision: u64,
     ok:       bool,
-    location: Location,   // Definition
-    hover:    Hover_Info, // Hover
+    location: Location,      // Definition
+    hover:    Hover_Info,    // Hover
+    symbols:  [dynamic]Symbol, // Document_Symbols / Workspace_Symbols; owned, freed in job_free
 }
 
 // A language backend. Both the in-client engine and a future subprocess LSP
@@ -212,6 +230,13 @@ job_free :: proc(m: ^Manager, job: ^Job) {
     delete(job.request.workspace)
     delete(job.result.location.path)
     delete(job.result.hover.text)
+    for sym in job.result.symbols {
+        delete(sym.name)
+        delete(sym.kind)
+        delete(sym.signature)
+        delete(sym.path)
+    }
+    delete(job.result.symbols)
     free(job)
 
     sync.lock(&m.mutex)

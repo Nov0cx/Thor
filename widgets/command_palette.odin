@@ -28,6 +28,20 @@ Palette_Confirm_Proc :: #type proc(data: rawptr)
 // Fuzzy pick from a caller-supplied list (theme, font, branch, ...): fires with
 // the chosen item on Enter/click.
 Palette_Pick_Proc :: #type proc(data: rawptr, choice: string)
+// Rich fuzzy pick (symbol lists): fires with the chosen item's index into the
+// caller's original slice, so the caller maps it back to its own data.
+Palette_Pick_Index_Proc :: #type proc(data: rawptr, index: int)
+
+// One row of a rich pick (a symbol). `text` is drawn and fuzzy-matched whole;
+// its leading `name_len` bytes are drawn in `color` (the identifier, tinted by
+// kind), the remainder dimmed. `detail` is a dim preview line shown beneath the
+// list for the selected row (e.g. "pkg/math.odin:42"); "" hides it.
+Pick_Item :: struct {
+    text:     string, // owned
+    name_len: int,
+    color:    rl.Color,
+    detail:   string, // owned
+}
 
 Palette_Mode :: enum {
     Commands,
@@ -74,6 +88,12 @@ Command_Palette :: struct {
     // `files`, so it fuzzy-filters and scrolls like Files mode).
     pick_run:     Palette_Pick_Proc,
     pick_data:    rawptr,
+    // Rich Pick mode: structured rows (colored name + dim signature + preview
+    // footer). When pick_rich is set, the list draws from pick_items and Enter
+    // fires pick_index_run with the source index instead of pick_run.
+    pick_items:      [dynamic]Pick_Item,
+    pick_rich:       bool,
+    pick_index_run:  Palette_Pick_Index_Proc,
     box:          rl.Rectangle,
     width:        f32,
     row_height:   f32,
@@ -105,6 +125,7 @@ command_palette_create :: proc(id: string) -> ^Command_Palette {
     palette.files = make([dynamic]string)
     palette.query = make([dynamic]u8)
     palette.matches = make([dynamic]Match)
+    palette.pick_items = make([dynamic]Pick_Item)
     palette.width = 720
     palette.row_height = 30
     palette.input_height = 44
@@ -256,10 +277,52 @@ command_palette_pick :: proc(
     palette.prompt_label = label
     palette.pick_run = run
     palette.pick_data = data
+    palette.pick_rich = false
     palette.visible = true
     command_palette_reset(palette, .Pick)
     ctx.focused = &palette.widget
     ui.widget_bring_to_front(&palette.widget)
+}
+
+// Opens the palette as a rich fuzzy picker over `items` (symbol rows). `label`
+// is the placeholder; `run` fires with the chosen item's index into `items` on
+// Enter/click. Items are deep-copied, so the caller keeps ownership of its slice.
+command_palette_pick_rich :: proc(
+    palette: ^Command_Palette,
+    ctx: ^ui.Context,
+    label: string,
+    items: []Pick_Item,
+    run: Palette_Pick_Index_Proc,
+    data: rawptr,
+) {
+    command_palette_clear_pick_items(palette)
+    for it in items {
+        append(&palette.pick_items, Pick_Item {
+            text     = strings.clone(it.text),
+            name_len = it.name_len,
+            color    = it.color,
+            detail   = it.detail == "" ? "" : strings.clone(it.detail),
+        })
+    }
+    palette.prompt_label = label
+    palette.pick_index_run = run
+    palette.pick_data = data
+    palette.pick_rich = true
+    palette.visible = true
+    command_palette_reset(palette, .Pick)
+    ctx.focused = &palette.widget
+    ui.widget_bring_to_front(&palette.widget)
+}
+
+@(private = "file")
+command_palette_clear_pick_items :: proc(palette: ^Command_Palette) {
+    for it in palette.pick_items {
+        delete(it.text)
+        if len(it.detail) > 0 {
+            delete(it.detail)
+        }
+    }
+    clear(&palette.pick_items)
 }
 
 @(private = "file")
@@ -294,7 +357,7 @@ command_palette_display :: proc(palette: ^Command_Palette, index: int) -> string
     case .Files:
         return strings.trim_prefix(palette.files[index], palette.root_prefix)
     case .Pick:
-        return palette.files[index]
+        return palette.pick_rich ? palette.pick_items[index].text : palette.files[index]
     case .Line, .Prompt, .Confirm:
         return ""
     }
@@ -305,7 +368,8 @@ command_palette_display :: proc(palette: ^Command_Palette, index: int) -> string
 command_palette_source_count :: proc(palette: ^Command_Palette) -> int {
     switch palette.mode {
     case .Commands:               return len(palette.commands)
-    case .Files, .Pick:           return len(palette.files)
+    case .Files:                  return len(palette.files)
+    case .Pick:                   return palette.pick_rich ? len(palette.pick_items) : len(palette.files)
     case .Line, .Prompt, .Confirm: return 0
     }
     return 0
@@ -391,7 +455,17 @@ command_palette_activate :: proc(palette: ^Command_Palette, ctx: ^ui.Context) {
         if palette.selected < 0 || palette.selected >= len(palette.matches) {
             return
         }
-        choice := palette.files[palette.matches[palette.selected].index]
+        index := palette.matches[palette.selected].index
+        if palette.pick_rich {
+            run := palette.pick_index_run
+            data := palette.pick_data
+            command_palette_close(palette, ctx)
+            if run != nil {
+                run(data, index)
+            }
+            return
+        }
+        choice := palette.files[index]
         run := palette.pick_run
         data := palette.pick_data
         // Copy: closing the palette (or the callback) may free the list.
@@ -421,8 +495,10 @@ command_palette_layout :: proc(widget: ^ui.Widget, bounds: rl.Rectangle) {
     if palette.mode == .Line || palette.mode == .Prompt || palette.mode == .Confirm {
         visible_rows = 0
     }
+    // Rich pick reserves one extra row beneath the list for the preview footer.
+    footer_rows := (palette.mode == .Pick && palette.pick_rich && visible_rows > 0) ? 1 : 0
     width := min(palette.width, bounds.width - 80)
-    height := palette.input_height + cast(f32) visible_rows * palette.row_height + 10
+    height := palette.input_height + cast(f32) (visible_rows + footer_rows) * palette.row_height + 10
 
     palette.box = rl.Rectangle {
         x = bounds.x + (bounds.width - width) * 0.5,
@@ -585,7 +661,11 @@ command_palette_draw :: proc(widget: ^ui.Widget, _: ^ui.Context) {
         if palette.mode == .Files {
             command_palette_draw_file_row(palette, index, cast(i32) (palette.box.x + pad), row_text_y)
         } else if palette.mode == .Pick {
-            ui.draw_text(palette.files[index], cast(i32) (palette.box.x + pad), row_text_y, 17, palette.text_color)
+            if palette.pick_rich {
+                command_palette_draw_symbol_row(palette, index, cast(i32) (palette.box.x + pad), row_text_y)
+            } else {
+                ui.draw_text(palette.files[index], cast(i32) (palette.box.x + pad), row_text_y, 17, palette.text_color)
+            }
         } else {
             command := palette.commands[index]
             ui.draw_text(command.title, cast(i32) (palette.box.x + pad), row_text_y, 17, palette.text_color)
@@ -597,7 +677,32 @@ command_palette_draw :: proc(widget: ^ui.Widget, _: ^ui.Context) {
         }
     }
 
+    // Rich pick: a dim preview line under the list for the selected symbol,
+    // showing where it lives (e.g. "pkg/math.odin:42").
+    if palette.mode == .Pick && palette.pick_rich && len(palette.matches) > 0 {
+        sel := palette.matches[palette.selected].index
+        detail := palette.pick_items[sel].detail
+        if len(detail) > 0 {
+            footer_y := cast(i32) (list_top + cast(f32) visible * palette.row_height + 7)
+            ui.draw_text(detail, cast(i32) (palette.box.x + pad), footer_y, 15, palette.muted_color)
+        }
+    }
+
     command_palette_draw_scrollbar(palette, list_top)
+}
+
+// Draws a rich pick row: the identifier in its kind color, then the rest of the
+// signature (":: proc(...)") dimmed.
+@(private = "file")
+command_palette_draw_symbol_row :: proc(palette: ^Command_Palette, index: int, x, y: i32) {
+    item := palette.pick_items[index]
+    name_len := clamp(item.name_len, 0, len(item.text))
+    name := item.text[:name_len]
+    ui.draw_text(name, x, y, 17, item.color)
+    rest := item.text[name_len:]
+    if len(rest) > 0 {
+        ui.draw_text(rest, x + ui.measure_text(name, 17), y, 17, palette.muted_color)
+    }
 }
 
 // Draws a scrollbar on the right of the list when the matches overflow the
@@ -653,6 +758,8 @@ command_palette_destroy :: proc(widget: ^ui.Widget) {
         delete(path)
     }
     delete(palette.files)
+    command_palette_clear_pick_items(palette)
+    delete(palette.pick_items)
     for command in palette.commands {
         if len(command.shortcut) > 0 {
             delete(command.shortcut)
