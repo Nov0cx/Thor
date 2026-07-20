@@ -38,6 +38,8 @@ Open_File :: struct {
     highlights:         [dynamic]widgets.Highlight_Span,
     highlight_revision: u64,
     highlighted:        bool,
+    // Foldable line ranges, recomputed alongside the highlights.
+    folds:              [dynamic]widgets.Fold_Range,
     // Image files bypass the text pipeline: the pixels load into a GPU texture
     // and show in the image view instead of the editor. `loaded` stays false.
     is_image:           bool,
@@ -553,6 +555,7 @@ thor_free_open_file :: proc(file: ^Open_File) {
     }
     textedit.destroy(&file.state)
     delete(file.highlights)
+    delete(file.folds)
     delete(file.tab_label)
     delete(file.path)
     free(file)

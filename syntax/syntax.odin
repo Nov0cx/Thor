@@ -124,6 +124,66 @@ highlight :: proc(h: ^Highlighter, source: string, lang_id: string, allocator :=
     return resolve_spans(caps[:], allocator)
 }
 
+// A foldable region, in 0-based logical line numbers. `start_line` stays visible
+// (it holds the opening token, e.g. `{`); folding hides start_line+1 .. end_line.
+Fold_Range :: struct {
+    start_line: int,
+    end_line:   int,
+}
+
+// Parses `source` and derives foldable line ranges from the syntax tree: any
+// node spanning more than one line is a candidate, keeping the widest region per
+// starting line (so `foo :: proc(...) {` and its `block` fold as one). Grammar-
+// agnostic — every compiled language folds with no per-language rules. The root
+// node is skipped so the whole file is never a single fold. Ascending by start
+// line, using `allocator`; empty when the grammar is unknown or parsing fails.
+fold_ranges :: proc(h: ^Highlighter, source: string, lang_id: string, allocator := context.allocator) -> []Fold_Range {
+    entry, ok := h.languages[lang_id]
+    if !ok {
+        return nil
+    }
+    if h.lang_id != lang_id {
+        ts.parser_set_language(h.parser, entry.lang)
+        h.lang_id = lang_id
+    }
+
+    tree := ts.parser_parse_string(h.parser, source)
+    if tree == nil {
+        return nil
+    }
+    defer ts.tree_delete(tree)
+    root := ts.tree_root_node(tree)
+
+    // start line -> widest end line seen for a node starting there.
+    ends := make(map[int]int, context.temp_allocator)
+    stack := make([dynamic]ts.Node, context.temp_allocator)
+    append(&stack, root)
+    for len(stack) > 0 {
+        node := pop(&stack)
+        if !ts.node_eq(node, root) {
+            sr := int(ts.node_start_point(node).row)
+            er := int(ts.node_end_point(node).row)
+            if er > sr {
+                if cur, has := ends[sr]; !has || er > cur {
+                    ends[sr] = er
+                }
+            }
+        }
+        for i in 0 ..< ts.node_child_count(node) {
+            append(&stack, ts.node_child(node, i))
+        }
+    }
+
+    out := make([dynamic]Fold_Range, 0, len(ends), allocator)
+    for sr, er in ends {
+        append(&out, Fold_Range{sr, er})
+    }
+    slice.sort_by(out[:], proc(a, b: Fold_Range) -> bool {
+        return a.start_line < b.start_line
+    })
+    return out[:]
+}
+
 @(private)
 Capture :: struct {
     start:   int,

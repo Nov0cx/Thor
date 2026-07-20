@@ -103,9 +103,16 @@ lowest latency.
 - [x] **Workspace symbols.** Ctrl+T; `Workspace_Symbols` request served by
       `collect_workspace_symbols` (on-demand scan reusing `collect_defs`), shown in
       the palette's rich fuzzy picker. Top-level only, re-scanned each open.
+- [x] **Code folding.** Grammar-agnostic, served outside this seam: `syntax.fold_ranges`
+      derives foldable line ranges from the tree-sitter tree (any multi-line node,
+      widest per start line, root excluded), so every compiled grammar folds — not
+      just Odin. Recomputed with the highlights (`thor_update_highlights`), stored on
+      the `Open_File`, consumed by the editor widget (fold-aware visual rows, gutter
+      chevrons, collapsed "…" marker, gutter-click + Fold: commands). Folds are keyed
+      by line, so edits above a fold can drop its collapsed state until re-folded.
 - [ ] **Other LSP features not started:** references / find-usages, rename,
       signature help, completion (semantic), diagnostics, formatting, code
-      actions, folding, semantic tokens.
+      actions, semantic tokens.
 
 ## Missing — scalability / performance
 

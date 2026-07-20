@@ -14,11 +14,15 @@ thor_update_highlights :: proc(thor: ^Thor, file: ^Open_File) {
     ext := thor_file_ext(file.name)
 
     clear(&file.highlights)
+    clear(&file.folds)
     if plugin.supports(&thor.plugins, ext) {
         source := textedit.text(&file.state)
         for span in plugin.highlight(&thor.plugins, source, ext, context.temp_allocator) {
             color := ui.theme_role_color(thor.theme, span.role)
             append(&file.highlights, widgets.Highlight_Span{span.start, span.end, color})
+        }
+        for r in plugin.fold_ranges(&thor.plugins, source, ext, context.temp_allocator) {
+            append(&file.folds, widgets.Fold_Range{r.start_line, r.end_line})
         }
     }
 

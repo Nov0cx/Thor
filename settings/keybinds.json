@@ -87,6 +87,11 @@
         "toggle_maximize":   "",
         "toggle_word_wrap":  ""
     },
+    "folding": {
+        "toggle_fold": "ctrl+shift+comma",
+        "fold_all":    "",
+        "unfold_all":  ""
+    },
     "search": {
         "find":    "ctrl+f",
         "replace": "ctrl+r"

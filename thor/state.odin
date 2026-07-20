@@ -81,6 +81,7 @@ thor_bind_editor :: proc(thor: ^Thor, editor: ^widgets.Editor, file: ^Open_File)
     widgets.editor_set_comment_prefix(editor, setting.comment_prefix(&thor.config, file.name))
     widgets.editor_set_state(editor, &file.state)
     widgets.editor_set_highlights(editor, file.highlights[:])
+    widgets.editor_set_folds(editor, file.folds[:])
 }
 
 // Re-binds any pane currently showing `file` (used after its load completes).
@@ -96,7 +97,9 @@ thor_rebind_file_panes :: proc(thor: ^Thor, file: ^Open_File) {
 thor_apply_file_highlights :: proc(thor: ^Thor, file: ^Open_File) {
     for index, pane in thor.pane_file {
         if index >= 0 && index < len(thor.open_files) && thor.open_files[index] == file {
-            widgets.editor_set_highlights(thor_pane_editor(thor, pane), file.highlights[:])
+            editor := thor_pane_editor(thor, pane)
+            widgets.editor_set_highlights(editor, file.highlights[:])
+            widgets.editor_set_folds(editor, file.folds[:])
         }
     }
 }

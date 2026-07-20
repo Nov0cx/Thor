@@ -281,6 +281,10 @@ thor_register_commands :: proc(thor: ^Thor) {
     widgets.command_palette_add(p, "Go to Symbol in File", thor_cmd_goto_symbol, thor, sc(thor, "goto_symbol"))
     widgets.command_palette_add(p, "Go to Symbol in Workspace", thor_cmd_goto_workspace_symbol, thor, sc(thor, "goto_workspace_symbol"))
 
+    thor_add_bindable_command(thor, "Fold: Toggle Fold", "toggle_fold", thor_cmd_toggle_fold, thor)
+    thor_add_bindable_command(thor, "Fold: Fold All", "fold_all", thor_cmd_fold_all, thor)
+    thor_add_bindable_command(thor, "Fold: Unfold All", "unfold_all", thor_cmd_unfold_all, thor)
+
     thor_add_bindable_command(thor, "Help: Tutorial", "tutorial", thor_cmd_tutorial, thor)
     thor_add_bindable_command(thor, "Settings: Open Keybinds", "open_keybinds", thor_cmd_open_keybinds, thor)
     thor_add_bindable_command(thor, "Settings: Open Comments", "open_comments", thor_cmd_open_comments, thor)
@@ -390,6 +394,17 @@ thor_prompt_align_at_char :: proc(data: rawptr, text: string) {
         textedit.align_at_char(s, target)
     }
 }
+
+// Folding acts on the focused pane's editor (the one whose fold state the user
+// sees), unlike zoom which drives both panes.
+@(private = "file")
+thor_focused_editor :: proc(thor: ^Thor) -> ^widgets.Editor {
+    return thor.active_pane == 0 ? thor.editor : thor.editor2
+}
+
+thor_cmd_toggle_fold :: proc(data: rawptr) {widgets.editor_toggle_fold(thor_focused_editor(cast(^Thor) data))}
+thor_cmd_fold_all :: proc(data: rawptr) {widgets.editor_fold_all(thor_focused_editor(cast(^Thor) data))}
+thor_cmd_unfold_all :: proc(data: rawptr) {widgets.editor_unfold_all(thor_focused_editor(cast(^Thor) data))}
 
 thor_cmd_recenter :: proc(data: rawptr) {widgets.editor_recenter((cast(^Thor) data).editor)}
 thor_cmd_last_file :: proc(data: rawptr) {thor_flip_last_file(cast(^Thor) data)}

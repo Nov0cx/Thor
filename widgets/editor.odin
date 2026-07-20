@@ -70,6 +70,11 @@ Editor :: struct {
     rows_revision:      u64,
     // Syntax highlight spans for the current buffer; borrowed from the owner.
     highlights:         []Highlight_Span,
+    // Code folding. `foldable` maps a fold's start line (0-based) to its end line
+    // (both from the owner's syntax analysis, refreshed each edit); `folded` is
+    // the subset the user has collapsed. Folding a region hides start+1..end.
+    foldable:           map[int]int,
+    folded:             map[int]bool,
     // Word-drag: after a double-click the selection extends by whole words;
     // word_lo/word_hi bound that word so drags in either direction keep it.
     select_by_word:     bool,
@@ -180,6 +185,8 @@ editor_create :: proc(id: string) -> ^Editor {
     editor.recenter_caret = -1
     editor.hover_probe_offset = -1
     editor.completion_items = make([dynamic]string)
+    editor.foldable = make(map[int]int)
+    editor.folded = make(map[int]bool)
     editor.min_size = rl.Vector2 {0, 280}
     return editor
 }
@@ -214,6 +221,10 @@ editor_set_state :: proc(editor: ^Editor, state: ^textedit.State) {
     // against the new one. A bare revision check can miss the swap when the two
     // buffers happen to share a revision number.
     clear(&editor.visual_rows)
+    // Fold regions belong to the previous buffer; drop them (the owner pushes the
+    // new file's regions via editor_set_folds right after) and its collapsed set.
+    clear(&editor.foldable)
+    clear(&editor.folded)
     editor_dismiss_completion(editor)
     editor_clear_hover(editor)
     editor.hover_probe_offset = -1
@@ -222,6 +233,159 @@ editor_set_state :: proc(editor: ^Editor, state: ^textedit.State) {
 
 editor_set_highlights :: proc(editor: ^Editor, highlights: []Highlight_Span) {
     editor.highlights = highlights
+}
+
+// A foldable line range, in 0-based logical lines: `start_line` stays visible,
+// start_line+1 .. end_line hide when collapsed. Matches plugin.Fold_Range so the
+// host can hand these over without the widget depending on the syntax layer.
+Fold_Range :: struct {
+    start_line: int,
+    end_line:   int,
+}
+
+// Replaces the set of regions that *can* be folded (recomputed by the owner on
+// every edit). The user's collapsed set survives: a still-present region keeps
+// its folded state, one that vanished simply stops folding until it returns.
+editor_set_folds :: proc(editor: ^Editor, folds: []Fold_Range) {
+    clear(&editor.foldable)
+    for f in folds {
+        if f.end_line <= f.start_line {
+            continue
+        }
+        // Nodes can share a start line (a decl and its block); keep the widest.
+        if end, has := editor.foldable[f.start_line]; !has || f.end_line > end {
+            editor.foldable[f.start_line] = f.end_line
+        }
+    }
+}
+
+// End line of the fold starting at `line` when it is currently collapsed, or -1.
+@(private = "file")
+editor_folded_end :: proc(editor: ^Editor, line: int) -> int {
+    if !editor.folded[line] {
+        return -1
+    }
+    if end, ok := editor.foldable[line]; ok {
+        return end
+    }
+    return -1
+}
+
+// True when `line` is inside a collapsed region (hidden). A line is hidden when
+// some collapsed fold covers it below its start; nesting needs no special case.
+@(private = "file")
+editor_line_hidden :: proc(editor: ^Editor, line: int) -> bool {
+    for start in editor.folded {
+        if end, ok := editor.foldable[start]; ok && line > start && line <= end {
+            return true
+        }
+    }
+    return false
+}
+
+// The visible line a caret on `line` should snap to: `line` itself when shown,
+// otherwise the start of the outermost collapsed region hiding it (that start is
+// always visible — a smaller-starting fold would cover it too and win here).
+@(private = "file")
+editor_visible_line :: proc(editor: ^Editor, line: int) -> int {
+    best := line
+    covered := false
+    for start in editor.folded {
+        if end, ok := editor.foldable[start]; ok && line > start && line <= end {
+            if !covered || start < best {
+                best = start
+                covered = true
+            }
+        }
+    }
+    return best
+}
+
+// Pulls every caret out of a line hidden by a collapse onto the fold's visible
+// start line, so a fold never strands the caret out of view.
+@(private = "file")
+editor_carets_out_of_folds :: proc(editor: ^Editor) {
+    text := textedit.text(editor.state)
+    moved := false
+    for &cursor in editor.state.cursors {
+        line := textedit.line_index(text, cursor.caret)
+        vis := editor_visible_line(editor, line)
+        if vis != line {
+            cursor.caret = textedit.line_start_of_index(text, vis)
+            cursor.anchor = cursor.caret
+            moved = true
+        }
+    }
+    if moved {
+        textedit.normalize(editor.state)
+    }
+}
+
+// Toggles the innermost foldable region containing the primary caret. On the
+// start line of a region this folds/unfolds it; inside one, folds the enclosing.
+editor_toggle_fold :: proc(editor: ^Editor) {
+    if editor.state == nil {
+        return
+    }
+    text := textedit.text(editor.state)
+    caret_line := textedit.line_index(text, textedit.primary_cursor(editor.state).caret)
+    best := -1
+    for start, end in editor.foldable {
+        if start <= caret_line && caret_line <= end && start > best {
+            best = start
+        }
+    }
+    if best < 0 {
+        return
+    }
+    if editor.folded[best] {
+        delete_key(&editor.folded, best)
+    } else {
+        editor.folded[best] = true
+        editor_carets_out_of_folds(editor)
+    }
+    editor_rebuild_visual_rows(editor)
+    editor_scroll_to_caret(editor)
+}
+
+// Collapses every foldable region.
+editor_fold_all :: proc(editor: ^Editor) {
+    if editor.state == nil {
+        return
+    }
+    for start in editor.foldable {
+        editor.folded[start] = true
+    }
+    editor_carets_out_of_folds(editor)
+    editor_rebuild_visual_rows(editor)
+    editor_scroll_to_caret(editor)
+}
+
+// Expands every collapsed region.
+editor_unfold_all :: proc(editor: ^Editor) {
+    if editor.state == nil || len(editor.folded) == 0 {
+        return
+    }
+    clear(&editor.folded)
+    editor_rebuild_visual_rows(editor)
+    editor_scroll_to_caret(editor)
+}
+
+// Toggles the fold whose start is the logical line at `line`, if any (a gutter
+// chevron click). Unlike editor_toggle_fold it acts only on that exact line.
+@(private = "file")
+editor_toggle_fold_line :: proc(editor: ^Editor, line: int) {
+    if _, ok := editor.foldable[line]; !ok {
+        return
+    }
+    if editor.folded[line] {
+        delete_key(&editor.folded, line)
+    } else {
+        editor.folded[line] = true
+        editor_carets_out_of_folds(editor)
+    }
+    editor_rebuild_visual_rows(editor)
+    editor_clamp_scroll(editor)
 }
 
 editor_layout :: proc(widget: ^ui.Widget, bounds: rl.Rectangle) {
@@ -237,7 +401,17 @@ editor_layout :: proc(widget: ^ui.Widget, bounds: rl.Rectangle) {
 GUTTER_PAD_LEFT :: 14
 GUTTER_PAD_RIGHT :: 12
 
-// Sizes the gutter to fit the widest line number.
+// Width of the fold-chevron column on the gutter's inner edge, reserved only
+// when the buffer has foldable regions (so plain text keeps a tight gutter).
+@(private = "file")
+editor_fold_col_width :: proc(editor: ^Editor) -> f32 {
+    if len(editor.foldable) == 0 {
+        return 0
+    }
+    return cast(f32) editor.font_size
+}
+
+// Sizes the gutter to fit the widest line number plus the fold column.
 @(private = "file")
 editor_update_gutter :: proc(editor: ^Editor) {
     if editor.state == nil {
@@ -249,7 +423,8 @@ editor_update_gutter :: proc(editor: ^Editor) {
         digits += 1
     }
     char_width := cast(f32) ui.measure_text("0", editor.font_size)
-    editor.gutter_width = GUTTER_PAD_LEFT + char_width * cast(f32) max(digits, 2) + GUTTER_PAD_RIGHT
+    editor.gutter_width = GUTTER_PAD_LEFT + char_width * cast(f32) max(digits, 2) + GUTTER_PAD_RIGHT +
+        editor_fold_col_width(editor)
 }
 
 // Width available for text (inside the gutter, padding and scrollbar).
@@ -278,9 +453,16 @@ editor_rebuild_visual_rows :: proc(editor: ^Editor) {
 
     line_start := 0
     line_index := 0
+    hidden_until := -1 // lines <= this are collapsed under a fold above; skip them
     for {
         line_end := textedit.line_end(text, line_start)
-        editor_wrap_line(editor, text, line_start, line_end, cols, line_index)
+        if line_index > hidden_until {
+            editor_wrap_line(editor, text, line_start, line_end, cols, line_index)
+            // A collapsed fold starting here hides everything down to its end.
+            if end := editor_folded_end(editor, line_index); end > hidden_until {
+                hidden_until = end
+            }
+        }
         line_index += 1
         if line_end >= len(text) {
             break
@@ -364,6 +546,16 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
         }
         if event.mouse_button != .LEFT {
             return false
+        }
+        // A click in the fold column toggles that line's fold instead of moving
+        // the caret.
+        if fold_col := editor_fold_col_width(editor); fold_col > 0 &&
+           event.mouse_position.x >= editor.bounds.x + editor.gutter_width - fold_col &&
+           event.mouse_position.x < editor.bounds.x + editor.gutter_width {
+            if pos, ok := editor_pos_at(editor, event.mouse_position); ok {
+                editor_toggle_fold_line(editor, textedit.line_index(textedit.text(editor.state), pos))
+            }
+            return true
         }
         // Double-click selects the word under the cursor and arms word-drag.
         if event.click_count == 2 {
@@ -1018,6 +1210,15 @@ editor_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
 
     caret_line := textedit.line_index(text, textedit.primary_cursor(editor.state).caret)
 
+    // Fold chevrons live in a column on the gutter's inner edge. Like VS Code,
+    // an expanded region's chevron only shows while the gutter is hovered; a
+    // collapsed region always shows one, so a fold is never invisible.
+    fold_col := editor_fold_col_width(editor)
+    fold_col_x := editor.bounds.x + editor.gutter_width - fold_col
+    gutter_hovered := ctx.hot == widget && fold_col > 0 &&
+        rl.GetMousePosition().x >= editor.bounds.x &&
+        rl.GetMousePosition().x < editor.bounds.x + editor.gutter_width
+
     // Monotonic cursor into the sorted highlight spans as rows advance.
     hl := 0
     for row, index in editor.visual_rows {
@@ -1038,14 +1239,35 @@ editor_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
         if row.first {
             displayed_number := row.line == caret_line ? row.line + 1 : abs(row.line - caret_line)
             line_number_text := fmt.tprintf("%d", displayed_number)
-            // Right-align the number within the gutter, leaving GUTTER_PAD_RIGHT
-            // before the text column so the digits clear both edges.
+            // Right-align the number within the gutter, before the fold column,
+            // leaving GUTTER_PAD_RIGHT so the digits clear both edges.
             number_width := ui.measure_text(line_number_text, editor.font_size)
-            number_x := cast(i32) (editor.bounds.x + editor.gutter_width - GUTTER_PAD_RIGHT) - number_width
+            number_x := cast(i32) (fold_col_x - GUTTER_PAD_RIGHT) - number_width
             ui.draw_text(line_number_text, number_x, cast(i32) row_y, editor.font_size, editor.line_number_color)
+
+            // Fold chevron for a foldable line: down when expanded, right when
+            // collapsed. Expanded ones appear only on gutter hover.
+            if _, ok := editor.foldable[row.line]; ok {
+                is_folded := editor.folded[row.line]
+                if is_folded || gutter_hovered {
+                    editor_draw_fold_chevron(editor, fold_col_x, fold_col, row_y, line_height, is_folded)
+                }
+            }
         }
         editor_draw_row_text(editor, text, row, hl, text_x, cast(i32) row_y)
         editor_draw_row_swatches(editor, text, row, text_x, cast(i32) row_y)
+
+        // Collapsed marker: on the last visual row of a folded start line, an
+        // ellipsis pill after the text stands in for the hidden body.
+        if editor.folded[row.line] {
+            if _, ok := editor.foldable[row.line]; ok {
+                last_row := index + 1 >= len(editor.visual_rows) ||
+                    editor.visual_rows[index + 1].line != row.line
+                if last_row {
+                    editor_draw_fold_marker(editor, text, row, text_x, row_y)
+                }
+            }
+        }
     }
 
     if ctx.focused == widget {
@@ -1474,6 +1696,57 @@ editor_draw_row_swatches :: proc(editor: ^Editor, text: string, row: Visual_Row,
     }
 }
 
+// Draws a fold chevron centered in the fold column at [col_x, col_x+col_w] on
+// the row starting at `row_y`: a right-pointing triangle when collapsed, a
+// down-pointing one when expanded.
+@(private = "file")
+editor_draw_fold_chevron :: proc(editor: ^Editor, col_x, col_w, row_y, line_height: f32, folded: bool) {
+    cx := col_x + col_w * 0.5
+    cy := row_y + cast(f32) editor.font_size * 0.5
+    s := cast(f32) editor.font_size * 0.3
+    color := editor.line_number_color
+    if folded {
+        // ▸ pointing right toward the hidden body.
+        rl.DrawTriangle(
+            rl.Vector2 {cx - s * 0.5, cy - s},
+            rl.Vector2 {cx - s * 0.5, cy + s},
+            rl.Vector2 {cx + s * 0.7, cy},
+            color,
+        )
+    } else {
+        // ▾ pointing down over the body it can hide.
+        rl.DrawTriangle(
+            rl.Vector2 {cx - s, cy - s * 0.5},
+            rl.Vector2 {cx, cy + s * 0.7},
+            rl.Vector2 {cx + s, cy - s * 0.5},
+            color,
+        )
+    }
+}
+
+// Draws the "…" pill that stands in for a collapsed region, just past the end of
+// the fold's start-line text.
+@(private = "file")
+editor_draw_fold_marker :: proc(editor: ^Editor, text: string, row: Visual_Row, text_x: i32, row_y: f32) {
+    row_text := text[row.start:row.end]
+    x_end := cast(f32) text_x + cast(f32) ui.measure_text(row_text, editor.font_size) +
+        editor_swatch_offset(editor, row_text, row.end - row.start)
+    r := max(cast(f32) editor.font_size * 0.09, 1.5)
+    gap := r * 3
+    box_x := x_end + 8
+    box := rl.Rectangle {
+        x      = box_x - 5,
+        y      = row_y + cast(f32) editor.font_size * 0.15,
+        width  = gap * 2 + 10,
+        height = cast(f32) editor.font_size * 0.7,
+    }
+    rl.DrawRectangleRounded(box, 0.5, 4, editor.selection_color)
+    cy := row_y + cast(f32) editor.font_size * 0.5
+    for i in 0 ..< 3 {
+        rl.DrawCircleV(rl.Vector2 {box_x + cast(f32) i * gap, cy}, r, editor.line_number_color)
+    }
+}
+
 editor_draw_line_selections :: proc(editor: ^Editor, text: string, line_start, line_end: int, text_x, line_y, line_height: f32) {
     for cursor in editor.state.cursors {
         lo, hi := textedit.selection_range(cursor)
@@ -1516,6 +1789,8 @@ editor_destroy :: proc(widget: ^ui.Widget) {
         delete(item)
     }
     delete(editor.completion_items)
+    delete(editor.foldable)
+    delete(editor.folded)
     free(editor)
 }
 

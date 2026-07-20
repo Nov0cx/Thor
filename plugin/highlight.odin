@@ -50,6 +50,34 @@ highlight :: proc(m: ^Manager, source: string, ext: string, allocator := context
     return nil
 }
 
+// A foldable line range for a buffer (0-based lines); folding hides
+// start_line+1 .. end_line. Mirrors syntax.Fold_Range so callers need not import
+// the syntax package.
+Fold_Range :: struct {
+    start_line: int,
+    end_line:   int,
+}
+
+// Foldable line ranges for `source` under the language bound to `ext`. Only
+// tree-sitter grammars fold (a pure-Lua lexer has no parse tree); empty when no
+// grammar-backed plugin claims the extension.
+fold_ranges :: proc(m: ^Manager, source: string, ext: string, allocator := context.allocator) -> []Fold_Range {
+    idx, ok := m.by_ext[ext]
+    if !ok {
+        return nil
+    }
+    lang := &m.languages[idx]
+    if lang.grammar == "" || !syntax.supports(&m.highlighter, lang.grammar) {
+        return nil
+    }
+    ranges := syntax.fold_ranges(&m.highlighter, source, lang.grammar, context.temp_allocator)
+    out := make([dynamic]Fold_Range, 0, len(ranges), allocator)
+    for r in ranges {
+        append(&out, Fold_Range{r.start_line, r.end_line})
+    }
+    return out[:]
+}
+
 // Resolves a tree-sitter capture to a color role: exact match first, then the
 // capture's head ("type.builtin" -> "type"), else "" for the default.
 @(private)

@@ -64,6 +64,68 @@ main :: proc() {
     testing.expect(t, len(none) == 0, "unsupported language should have no spans")
 }
 
+// True when some fold range starts on `start` and ends on `end`.
+@(private = "file")
+has_fold :: proc(folds: []Fold_Range, start, end: int) -> bool {
+    for f in folds {
+        if f.start_line == start && f.end_line == end {
+            return true
+        }
+    }
+    return false
+}
+
+@(test)
+test_fold_ranges_odin :: proc(t: ^testing.T) {
+    h := highlighter_create()
+    defer highlighter_destroy(&h)
+
+    // Lines (0-based):
+    // 0 package demo
+    // 1 (blank)
+    // 2 main :: proc() {
+    // 3     if true {
+    // 4         x := 1
+    // 5     }
+    // 6 }
+    src := "package demo\n\nmain :: proc() {\n\tif true {\n\t\tx := 1\n\t}\n}\n"
+    folds := fold_ranges(&h, src, "odin", context.allocator)
+    defer delete(folds)
+
+    testing.expect(t, has_fold(folds, 2, 6), "proc body should fold 2..6")
+    testing.expect(t, has_fold(folds, 3, 5), "nested if should fold 3..5")
+
+    // Ascending by start line, and no zero-height ranges.
+    prev := -1
+    for f in folds {
+        testing.expect(t, f.start_line >= prev, "folds not sorted by start line")
+        testing.expect(t, f.end_line > f.start_line, "fold hides no lines")
+        prev = f.start_line
+    }
+
+    // The whole file (line 0) is never a single fold.
+    testing.expect(t, !has_fold(folds, 0, 6), "root node must not be foldable")
+
+    // Unknown language yields nothing.
+    none := fold_ranges(&h, src, "cobol", context.allocator)
+    testing.expect(t, len(none) == 0, "unsupported language should not fold")
+}
+
+// Folding is grammar-agnostic: a brace language other than Odin folds too.
+@(test)
+test_fold_ranges_c :: proc(t: ^testing.T) {
+    h := highlighter_create()
+    defer highlighter_destroy(&h)
+
+    // 0 int main(void) {
+    // 1     return 0;
+    // 2 }
+    src := "int main(void) {\n    return 0;\n}\n"
+    folds := fold_ranges(&h, src, "c", context.allocator)
+    defer delete(folds)
+    testing.expect(t, has_fold(folds, 0, 2), "C function body should fold 0..2")
+}
+
 @(private = "file")
 expect_head :: proc(t: ^testing.T, spans: []Span, src, needle, want: string) {
     got, ok := head_at(spans, src, needle)
