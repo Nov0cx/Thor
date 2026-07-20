@@ -300,6 +300,8 @@ thor_build_content :: proc(thor: ^Thor) {
         thor.theme.second_background,
         thor.theme.accent_color,
     )
+    widgets.console_set_link_color(thor.console, thor.theme.blue_color)
+    widgets.console_set_on_link(thor.console, thor_console_link, thor_console_activate, thor)
     ui.widget_set_grow(&thor.console.widget, 1)
     thor.console.min_size = rl.Vector2 {0, 110}
 

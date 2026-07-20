@@ -10,6 +10,15 @@ import "../ui"
 // output arrives via console_append.
 Console_Run_Proc :: #type proc(data: rawptr, command: string)
 
+// Tests whether a scrollback line names a navigable source location. Returns the
+// byte span [start, end) of the clickable text within the line (for the hover
+// underline) and ok when the line is a link. The owner does the parsing so the
+// console stays agnostic about path/error formats.
+Console_Link_Proc :: #type proc(data: rawptr, line: string) -> (start: int, end: int, ok: bool)
+
+// Opens the source location named by a clicked scrollback line.
+Console_Activate_Proc :: #type proc(data: rawptr, line: string)
+
 // Scrollback pane plus a prompt line. Echoes input to on_run and displays
 // whatever text is fed back through console_append; it runs nothing itself.
 Console :: struct {
@@ -32,6 +41,18 @@ Console :: struct {
     // Right-click opens a context menu supplied by the owner.
     on_context_menu:   Context_Menu_Proc,
     context_menu_data: rawptr,
+    // Clickable error/location lines: on_link resolves a line to a navigable
+    // span (hover affordance + hit test), on_activate opens it on click.
+    on_link:           Console_Link_Proc,
+    on_activate:       Console_Activate_Proc,
+    link_data:         rawptr,
+    link_color:        rl.Color,
+}
+
+console_set_on_link :: proc(console: ^Console, on_link: Console_Link_Proc, on_activate: Console_Activate_Proc, data: rawptr) {
+    console.on_link = on_link
+    console.on_activate = on_activate
+    console.link_data = data
 }
 
 console_set_on_context_menu :: proc(console: ^Console, on_context_menu: Context_Menu_Proc, data: rawptr) {
@@ -84,6 +105,7 @@ console_create :: proc(id: string) -> ^Console {
     console.prompt_color = rl.Color {132, 255, 255, 255}
     console.background_color = rl.Color {18, 20, 30, 255}
     console.caret_color = rl.Color {132, 255, 255, 255}
+    console.link_color = rl.Color {120, 180, 255, 255}
     console.min_size = rl.Vector2 {0, 110}
     strings.write_string(&console.output, "Thor console — type a command and press Enter.\n")
     return console
@@ -100,6 +122,63 @@ console_set_colors :: proc(console: ^Console, text, prompt, background, caret: r
 console_set_on_run :: proc(console: ^Console, on_run: Console_Run_Proc, data: rawptr) {
     console.on_run = on_run
     console.run_data = data
+}
+
+console_set_link_color :: proc(console: ^Console, color: rl.Color) {
+    console.link_color = color
+}
+
+// Maps a point to a scrollback line index, or -1 when it falls outside the
+// output area (the prompt line, or off the widget). Mirrors console_draw's
+// geometry so hover and click hit-test exactly what is drawn.
+@(private = "file")
+console_line_index_at :: proc(console: ^Console, pos: rl.Vector2) -> int {
+    line_height := console_line_height(console)
+    pad: f32 = 8
+    input_height := line_height + 8
+    output_bottom := console.bounds.y + console.bounds.height - input_height
+    if pos.x < console.bounds.x || pos.x >= console.bounds.x + console.bounds.width {
+        return -1
+    }
+    if pos.y < console.bounds.y || pos.y >= output_bottom {
+        return -1
+    }
+    rel := pos.y - (console.bounds.y + pad) + console.scroll_y
+    if rel < 0 {
+        return -1
+    }
+    return cast(int) (rel / line_height)
+}
+
+// The scrollback line at `index` (borrowed, temp-allocated split), or ok=false
+// when the index is out of range.
+@(private = "file")
+console_line_at :: proc(console: ^Console, index: int) -> (string, bool) {
+    if index < 0 {
+        return "", false
+    }
+    lines := strings.split(strings.to_string(console.output), "\n", context.temp_allocator)
+    if index >= len(lines) {
+        return "", false
+    }
+    return lines[index], true
+}
+
+// Fires the owner's activate callback if the line under `pos` resolves to a link.
+@(private = "file")
+console_try_activate :: proc(console: ^Console, pos: rl.Vector2) -> bool {
+    if console.on_link == nil || console.on_activate == nil {
+        return false
+    }
+    line, ok := console_line_at(console, console_line_index_at(console, pos))
+    if !ok {
+        return false
+    }
+    if _, _, is_link := console.on_link(console.link_data, line); is_link {
+        console.on_activate(console.link_data, line)
+        return true
+    }
+    return false
 }
 
 // Appends text to the scrollback and re-pins the view to the bottom.
@@ -131,6 +210,11 @@ console_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Even
             return true
         }
         return true // take focus so typing goes here
+    case .Click:
+        if event.mouse_button == .LEFT {
+            console_try_activate(console, event.mouse_position)
+        }
+        return true
     case .Scroll:
         console.scroll_y -= event.wheel_delta * console_line_height(console) * 2
         console.autoscroll = false
@@ -206,13 +290,32 @@ console_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
         console.scroll_y = max(0, content_height - output_rect.height)
     }
 
+    // The scrollback line under the cursor, tested for a navigable link so it can
+    // be highlighted and underlined.
+    hover_index := -1
+    if console.on_link != nil && ctx.hot == widget {
+        hover_index = console_line_index_at(console, ctx.mouse_pos)
+    }
+
     ui.begin_clip(output_rect)
     for line, index in lines {
         y := output_rect.y + pad + cast(f32) index * line_height - console.scroll_y
         if y + line_height < output_rect.y || y > output_rect.y + output_rect.height {
             continue
         }
-        ui.draw_text(line, cast(i32) (console.bounds.x + pad), cast(i32) y, console.font_size, console.text_color)
+        color := console.text_color
+        if index == hover_index {
+            if s, e, ok := console.on_link(console.link_data, line); ok {
+                color = console.link_color
+                s = clamp(s, 0, len(line))
+                e = clamp(e, s, len(line))
+                prefix_w := ui.measure_text(line[:s], console.font_size)
+                span_w := ui.measure_text(line[s:e], console.font_size)
+                ux := cast(i32) (console.bounds.x + pad) + prefix_w
+                rl.DrawRectangle(ux, cast(i32) y + console.font_size, span_w, 1, console.link_color)
+            }
+        }
+        ui.draw_text(line, cast(i32) (console.bounds.x + pad), cast(i32) y, console.font_size, color)
     }
     ui.end_clip()
 

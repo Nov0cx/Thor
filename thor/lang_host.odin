@@ -343,6 +343,40 @@ thor_goto_location :: proc(thor: ^Thor, path: string, offset: int) {
     thor_open_file(thor, path)
 }
 
+// Jumps to LINE:COL (1-based) in the file at `path`, opening it if needed. Like
+// thor_goto_location but for callers that have a line/column (console error
+// output) rather than a byte offset; the offset is resolved against the buffer
+// once it has loaded.
+thor_goto_file_line_col :: proc(thor: ^Thor, path: string, line, col: int) {
+    canonical := path
+    if abs, err := filepath.abs(path, context.temp_allocator); err == nil {
+        canonical = abs
+    }
+
+    for file, index in thor.open_files {
+        if file.path == canonical {
+            thor_set_active_file(thor, index)
+            if file.loaded {
+                thor_place_caret(thor, file, offset_for_line_col(file, line, col))
+            } else {
+                thor_set_pending_goto_line_col(thor, canonical, line, col)
+            }
+            return
+        }
+    }
+
+    thor_set_pending_goto_line_col(thor, canonical, line, col)
+    thor_open_file(thor, path)
+}
+
+// Byte offset of the (1-based) line/column within a loaded file's buffer.
+@(private = "file")
+offset_for_line_col :: proc(file: ^Open_File, line, col: int) -> int {
+    text := textedit.text(&file.state)
+    start := textedit.line_start_of_index(text, max(line - 1, 0)) + max(col - 1, 0)
+    return clamp(start, 0, len(text))
+}
+
 // Applies a deferred jump once its file has loaded. Called each frame from
 // thor_update_files, after the I/O reap that may have completed the load.
 thor_apply_pending_goto :: proc(thor: ^Thor) {
@@ -360,7 +394,11 @@ thor_apply_pending_goto :: proc(thor: ^Thor) {
             return // still loading; retry next frame
         }
         thor_set_active_file(thor, index)
-        thor_place_caret(thor, file, thor.pending_goto_offset)
+        offset := thor.pending_goto_offset
+        if thor.pending_goto_line > 0 {
+            offset = offset_for_line_col(file, thor.pending_goto_line, thor.pending_goto_col)
+        }
+        thor_place_caret(thor, file, offset)
         break
     }
     thor_clear_pending_goto(thor)
@@ -378,6 +416,18 @@ thor_set_pending_goto :: proc(thor: ^Thor, path: string, offset: int) {
     delete(thor.pending_goto_path)
     thor.pending_goto_path = strings.clone(path)
     thor.pending_goto_offset = offset
+    thor.pending_goto_line = 0
+    thor.pending_goto_active = true
+}
+
+// Like thor_set_pending_goto but defers with a 1-based line/column, resolved to
+// an offset against the buffer once it loads.
+@(private = "file")
+thor_set_pending_goto_line_col :: proc(thor: ^Thor, path: string, line, col: int) {
+    delete(thor.pending_goto_path)
+    thor.pending_goto_path = strings.clone(path)
+    thor.pending_goto_line = line
+    thor.pending_goto_col = col
     thor.pending_goto_active = true
 }
 
@@ -386,6 +436,7 @@ thor_clear_pending_goto :: proc(thor: ^Thor) {
     delete(thor.pending_goto_path)
     thor.pending_goto_path = ""
     thor.pending_goto_active = false
+    thor.pending_goto_line = 0
 }
 
 // File extension including the dot (".odin"), or "" when the name has none.

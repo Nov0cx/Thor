@@ -172,6 +172,10 @@ Thor :: struct {
     pending_goto_active:      bool,
     pending_goto_path:        string,
     pending_goto_offset:      int,
+    // When >0 the deferred jump targets this 1-based line/column (console error
+    // output) and the offset is resolved once the buffer loads.
+    pending_goto_line:        int,
+    pending_goto_col:         int,
     // In-flight hover request: the editor pane that asked and the request id, so
     // a result can be routed back to the right pane and stale ones dropped.
     hover_editor:             ^widgets.Editor,
