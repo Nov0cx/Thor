@@ -93,6 +93,11 @@ thor_apply_settings :: proc(thor: ^Thor) {
     } else {
         thor.goto_workspace_symbol_key = setting.Keybind {key = .T, ctrl = true}
     }
+    if kb, ok := setting.keybind(&thor.config, "find_references"); ok {
+        thor.find_references_key = kb
+    } else {
+        thor.find_references_key = setting.Keybind {key = .F10}
+    }
     if kb, ok := setting.keybind(&thor.config, "last_file"); ok {
         thor.last_file_key = kb
     } else {
@@ -280,6 +285,7 @@ thor_register_commands :: proc(thor: ^Thor) {
     widgets.command_palette_add(p, "Go to Matching Bracket", thor_cmd_matching_bracket, thor, sc(thor, "matching_bracket"))
     widgets.command_palette_add(p, "Go to Symbol in File", thor_cmd_goto_symbol, thor, sc(thor, "goto_symbol"))
     widgets.command_palette_add(p, "Go to Symbol in Workspace", thor_cmd_goto_workspace_symbol, thor, sc(thor, "goto_workspace_symbol"))
+    widgets.command_palette_add(p, "Find All References", thor_cmd_find_references, thor, sc(thor, "find_references"))
 
     thor_add_bindable_command(thor, "Fold: Toggle Fold", "toggle_fold", thor_cmd_toggle_fold, thor)
     thor_add_bindable_command(thor, "Fold: Fold All", "fold_all", thor_cmd_fold_all, thor)
@@ -374,6 +380,7 @@ thor_cmd_add_cursor_below :: proc(data: rawptr) {if s := thor_edit_state(data); 
 thor_cmd_matching_bracket :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.move_to_matching_bracket(s, false)}}
 thor_cmd_goto_symbol :: proc(data: rawptr) {thor_goto_symbol(cast(^Thor) data)}
 thor_cmd_goto_workspace_symbol :: proc(data: rawptr) {thor_goto_workspace_symbol(cast(^Thor) data)}
+thor_cmd_find_references :: proc(data: rawptr) {thor_find_references(cast(^Thor) data)}
 thor_cmd_join_lines :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.join_lines(s)}}
 thor_cmd_uppercase :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.transform_case(s, .Upper)}}
 thor_cmd_lowercase :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.transform_case(s, .Lower)}}

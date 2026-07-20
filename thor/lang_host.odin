@@ -140,6 +140,44 @@ thor_goto_workspace_symbol :: proc(thor: ^Thor) {
     )
 }
 
+// F10: list every usage of the symbol under the caret in a fuzzy picker.
+// A local/parameter is confined to its scope; a top-level symbol is matched
+// across the whole workspace, so the scan re-parses workspace files off-thread —
+// the picker opens immediately in a loading state and thor_update_references
+// fills it when the result lands.
+thor_find_references :: proc(thor: ^Thor) {
+    file := thor_active_open_file(thor)
+    if file == nil || !file.loaded {
+        return
+    }
+    ext := thor_file_extension(file.name)
+    if !lang.manager_supports(&thor.lang_manager, ext) {
+        return
+    }
+    source := textedit.text(&file.state)
+    id := lang.manager_request(
+        &thor.lang_manager,
+        .References,
+        file.path,
+        ext,
+        source,
+        textedit.primary_cursor(&file.state).caret,
+        file.state.revision,
+        thor.workspace_dir,
+    )
+    if id == 0 {
+        return
+    }
+    thor.references_request_id = id
+    widgets.command_palette_pick_rich_loading(
+        thor.command_palette,
+        &thor.ui_context,
+        "References...",
+        thor_pick_symbol,
+        thor,
+    )
+}
+
 // Frees the jump targets kept from the last symbol picker.
 thor_clear_doc_symbols :: proc(thor: ^Thor) {
     for sym in thor.doc_symbols {
@@ -206,7 +244,51 @@ thor_on_lang_result :: proc(user: rawptr, res: ^lang.Result) {
         thor_show_symbols(thor, res, "No symbols in file")
     case .Workspace_Symbols:
         thor_update_workspace_symbols(thor, res)
+    case .References:
+        thor_update_references(thor, res)
     }
+}
+
+// Fills the already-open (loading) references picker once its scan lands. Drops
+// a superseded (or already-replaced/closed) result the same way workspace
+// symbols does, and closes the loading picker with a flash when nothing matched.
+@(private = "file")
+thor_update_references :: proc(thor: ^Thor, res: ^lang.Result) {
+    if res.id != thor.references_request_id {
+        return
+    }
+    thor.references_request_id = 0
+    if !widgets.command_palette_pick_loading(thor.command_palette) {
+        return // picker closed or replaced by another pick; drop the result
+    }
+    if !res.ok || len(res.symbols) == 0 {
+        widgets.command_palette_close(thor.command_palette, &thor.ui_context)
+        thor_flash_status(thor, "No references found")
+        return
+    }
+    items := thor_build_reference_items(thor, res)
+    widgets.command_palette_pick_rich_set(thor.command_palette, items)
+}
+
+// Builds the references picker rows from a references result: each row is the
+// source line the usage sits on (its code context, no name tint) with a
+// "path:line" preview under the selected row. Rebuilds the jump targets
+// (doc_symbols) in the same order, so the shared pick callback maps a chosen row
+// to its file and offset.
+@(private = "file")
+thor_build_reference_items :: proc(thor: ^Thor, res: ^lang.Result) -> []widgets.Pick_Item {
+    thor_clear_doc_symbols(thor)
+    items := make([dynamic]widgets.Pick_Item, context.temp_allocator)
+    for sym in res.symbols {
+        append(&thor.doc_symbols, Doc_Symbol {path = strings.clone(sym.path), offset = sym.offset})
+        append(&items, widgets.Pick_Item {
+            text     = sym.signature,
+            name_len = 0,
+            color    = thor.theme.white_black_color,
+            detail   = thor_symbol_detail(thor, sym),
+        })
+    }
+    return items[:]
 }
 
 // Fills the already-open (loading) workspace-symbol picker once its scan lands.

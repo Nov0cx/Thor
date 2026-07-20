@@ -88,6 +88,11 @@ thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
         thor_goto_workspace_symbol(thor)
         return true
     }
+    // Find references (F10) lists every usage of the symbol under the caret.
+    if setting.keybind_matches(thor.find_references_key, event.key, event.ctrl, event.shift, event.alt) {
+        thor_find_references(thor)
+        return true
+    }
     // Flip to the previously active file (ctrl+e), like vim's Ctrl-^.
     if setting.keybind_matches(thor.last_file_key, event.key, event.ctrl, event.shift, event.alt) {
         thor_flip_last_file(thor)

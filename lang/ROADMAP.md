@@ -63,6 +63,14 @@ lowest latency.
   declaration (`add :: proc(a, b: int) -> int`), the identifier tinted by kind
   (proc/type/enum/const/var → theme syntax colors) and the rest dimmed, with a
   `path:line` preview line under the selected row.
+- **Find references (find-usages):** F10 lists every usage of the symbol under
+  the caret in the fuzzy picker (`References` request → `collect_references`). A
+  name that binds to a local or parameter is confined to that declaration's
+  scope in the one file; anything top-level (or a name that doesn't resolve
+  locally) is matched across the whole workspace, mirroring the cross-file goto's
+  flat name match — so it is textual-but-AST-aware, not type-aware. Each row is
+  the source line the usage sits on (its code context) with a `path:line`
+  preview; choosing one opens the owning file and jumps there.
 
 ---
 
@@ -110,9 +118,15 @@ lowest latency.
       the `Open_File`, consumed by the editor widget (fold-aware visual rows, gutter
       chevrons, collapsed "…" marker, gutter-click + Fold: commands). Folds are keyed
       by line, so edits above a fold can drop its collapsed state until re-folded.
-- [ ] **Other LSP features not started:** references / find-usages, rename,
-      signature help, completion (semantic), diagnostics, formatting, code
-      actions, semantic tokens.
+- [x] **References / find-usages.** F10; `References` request served by
+      `collect_references` (locals confined to their scope in-file, top-level
+      names matched across the workspace via `ref_scan_dir`). Name-based, not
+      type-aware: a top-level scan can list an unrelated same-named symbol in
+      another package, and value member names (`v.field`) aren't distinguished.
+      Type-aware precision waits on the inference layer.
+- [ ] **Other LSP features not started:** rename, signature help, completion
+      (semantic), formatting, code actions, semantic tokens. (Diagnostics land
+      via `thor/diagnostics.odin`, outside this seam.)
 
 ## Missing — scalability / performance
 

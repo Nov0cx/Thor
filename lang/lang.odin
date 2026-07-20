@@ -13,13 +13,14 @@ import "core:thread"
 import "core:time"
 
 // What the editor is asking for. Kept small on purpose; it grows as features
-// land (Definition, Hover, Document_Symbols and Workspace_Symbols today;
-// References, Completion next).
+// land (Definition, Hover, Document_Symbols, Workspace_Symbols and References
+// today; Completion next).
 Request_Kind :: enum {
     Definition,
     Hover,
     Document_Symbols,
     Workspace_Symbols,
+    References,
 }
 
 // A byte range in a named file. Byte offsets, not line/column: the editor and
@@ -44,6 +45,8 @@ Hover_Info :: struct {
 // "enum", "constant", "var" — drives the display color), the real Odin
 // declaration line ("add :: proc(a, b: int) -> int"), the file it lives in and
 // the 1-based line there, and the byte offset to jump to (the identifier start).
+// References reuse this shape: kind is "reference" and signature is the source
+// line the usage sits on (its code context), with path/line/offset the jump.
 Symbol :: struct {
     name:      string, // owned
     kind:      string, // owned
@@ -76,7 +79,7 @@ Result :: struct {
     ok:       bool,
     location: Location,      // Definition
     hover:    Hover_Info,    // Hover
-    symbols:  [dynamic]Symbol, // Document_Symbols / Workspace_Symbols; owned, freed in job_free
+    symbols:  [dynamic]Symbol, // Document_Symbols / Workspace_Symbols / References; owned, freed in job_free
 }
 
 // A language backend. Both the in-client engine and a future subprocess LSP

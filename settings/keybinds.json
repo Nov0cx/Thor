@@ -15,6 +15,7 @@
         "goto_definition": "alt+enter",
         "goto_symbol":     "ctrl+shift+o",
         "goto_workspace_symbol": "ctrl+q",
+        "find_references": "f10",
         "last_file":       "ctrl+e",
         "new_file":           "",
         "new_folder":         "",

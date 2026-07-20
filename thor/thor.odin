@@ -163,6 +163,7 @@ Thor :: struct {
     goto_def_key:             setting.Keybind,
     goto_symbol_key:          setting.Keybind,
     goto_workspace_symbol_key: setting.Keybind,
+    find_references_key:      setting.Keybind,
     // Go-to-symbol picker state: the jump targets (file + byte offset) for the
     // rows currently shown, in picker order. Rebuilt each time the picker opens;
     // the pick callback indexes into them on a later frame. Owned.
@@ -184,6 +185,10 @@ Thor :: struct {
     // immediately in a loading state; the matching result fills it in, and a
     // superseded (or already-replaced) result is dropped.
     workspace_symbols_request_id: u64,
+    // In-flight find-references scan: its request id. Like the workspace-symbols
+    // picker, the results picker opens immediately (loading) and is filled when
+    // the matching scan lands; a superseded result is dropped.
+    references_request_id:    u64,
     // Transient statusline notice (e.g. "No definition found") and the time it
     // was posted; thor_status_info hides it once STATUS_MESSAGE_SECS elapse.
     status_message:           string,

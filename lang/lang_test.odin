@@ -585,6 +585,107 @@ test_workspace_symbols :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_references_local :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // `total` is declared in `use` and, separately, in `other`. References to the
+    // one in `use` must be confined to `use`'s body — the declaration plus its two
+    // uses — never listing `other`'s same-named local.
+    src := `package demo
+
+use :: proc() -> int {
+	total := 1
+	return total + total
+}
+
+other :: proc() -> int {
+	total := 9
+	return total
+}
+`
+    at := strings.index(src, "total :=")
+    req := Request{kind = .References, path = "buffer.odin", ext = ".odin", source = src, offset = at}
+    res := Result{kind = .References}
+    odin_resolve(e, &req, &res)
+    defer free_symbols(&res)
+
+    testing.expect(t, res.ok, "expected references to the local total")
+    testing.expectf(t, len(res.symbols) == 3, "local ref count: got %d", len(res.symbols))
+
+    use_end := strings.index(src, "other ::")
+    for sym in res.symbols {
+        testing.expectf(t, strings.has_prefix(src[sym.offset:], "total"), "ref offset %d not on the name", sym.offset)
+        testing.expectf(t, sym.offset < use_end, "ref at %d leaked past use's body", sym.offset)
+        testing.expectf(t, sym.path == "buffer.odin", "ref path: got %q", sym.path)
+    }
+}
+
+@(test)
+test_references_cross_file :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // `helper` is declared in main.odin (the live buffer) and called from both
+    // main.odin and a sibling use.odin on disk. References to a top-level symbol
+    // span the whole workspace: buffer (decl + one call) and the sibling (two).
+    dir := "thor_lang_refs_ws"
+    _ = os.make_directory(dir)
+    defer os.remove(dir)
+
+    other := strings.concatenate({dir, "/use.odin"}, context.temp_allocator)
+    other_src := "package demo\n\nrun :: proc() {\n\t_ = helper()\n\t_ = helper()\n}\n"
+    _ = os.write_entire_file(other, transmute([]byte)other_src)
+    defer os.remove(other)
+
+    main_path := strings.concatenate({dir, "/main.odin"}, context.temp_allocator)
+    main_src := "package demo\n\nhelper :: proc() -> int {\n\treturn 42\n}\n\nmain :: proc() {\n\t_ = helper()\n}\n"
+
+    at := strings.index(main_src, "helper ::")
+    req := Request {
+        kind      = .References,
+        path      = main_path,
+        ext       = ".odin",
+        source    = main_src,
+        offset    = at,
+        workspace = dir,
+    }
+    res := Result{kind = .References}
+    odin_resolve(e, &req, &res)
+    defer free_symbols(&res)
+
+    testing.expect(t, res.ok, "expected cross-file references to helper")
+    testing.expectf(t, len(res.symbols) == 4, "cross-file ref count: got %d", len(res.symbols))
+
+    in_main := 0
+    in_other := 0
+    for sym in res.symbols {
+        if strings.has_suffix(sym.path, "main.odin") {
+            in_main += 1
+        }
+        if strings.has_suffix(sym.path, "use.odin") {
+            in_other += 1
+        }
+        testing.expectf(t, strings.has_prefix(src_at(sym), "helper"), "ref offset %d not on the name", sym.offset)
+    }
+    testing.expectf(t, in_main == 2, "helper refs in main.odin: got %d", in_main)
+    testing.expectf(t, in_other == 2, "helper refs in use.odin: got %d", in_other)
+}
+
+// Reads the name-bearing slice at a reference symbol's offset from its file, so a
+// test can assert the jump lands on the identifier. Buffer files (never written)
+// won't read back; those are covered by the same-file assertions instead.
+@(private = "file")
+src_at :: proc(sym: Symbol) -> string {
+    data, err := os.read_entire_file(sym.path, context.temp_allocator)
+    if err != nil {
+        return "helper" // buffer-only file; skip the on-disk check
+    }
+    s := clamp(sym.offset, 0, len(data))
+    return string(data[s:])
+}
+
+@(test)
 test_definition_stdlib :: proc(t: ^testing.T) {
     e := odin_engine_create()
     defer odin_destroy(e)

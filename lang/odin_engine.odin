@@ -109,6 +109,13 @@ odin_resolve :: proc(data: rawptr, req: ^Request, res: ^Result) {
         return
     }
 
+    // References need the identifier under the caret, but not the import/selector
+    // resolution the goto flow runs — they gather every occurrence of the name.
+    if req.kind == .References {
+        collect_references(e, parser, root, req, res)
+        return
+    }
+
     // Caret on an import declaration itself (its alias or its quoted path):
     // resolve to the imported package. Handled before identifier_at because the
     // path string is not an identifier, so a caret resting on it would otherwise
@@ -578,6 +585,153 @@ collect_symbols_file :: proc(e: ^Odin_Engine, parser: ts.Parser, path: string, r
     defer ts.tree_delete(tree)
 
     collect_symbols_into(e, ts.tree_root_node(tree), source, path, res)
+}
+
+// Gathers every occurrence of the identifier under the caret ("find usages").
+// The kind of match is chosen by resolution: a name that binds to a local or a
+// parameter is confined to that declaration's scope in this one file (so an `x`
+// in one procedure never lists an unrelated `x` in another); anything else —
+// top-level, or a name that doesn't resolve locally — is matched by name across
+// the whole workspace, mirroring how cross-file goto flat-matches top-level
+// names (no package/type awareness yet, so this is textual-but-AST-aware). Each
+// occurrence becomes a Symbol carrying its file, line, offset and the source
+// line it sits on for a code-context preview.
+@(private = "file")
+collect_references :: proc(e: ^Odin_Engine, parser: ts.Parser, root: ts.Node, req: ^Request, res: ^Result) {
+    ident, ok := identifier_at(root, req.source, req.offset)
+    if !ok {
+        return
+    }
+    name := ts.node_text(ident, req.source)
+
+    defs := collect_defs(e, root, req.source)
+    if d, found := resolve_local(defs[:], name, req.offset); found && !d.top_level {
+        // Local / parameter: only its own scope in this file.
+        collect_ident_refs(root, req.source, name, req.path, d.scope_start, d.scope_end, res)
+    } else {
+        // Top-level or unresolved: this whole buffer, then every workspace file.
+        collect_ident_refs(root, req.source, name, req.path, 0, len(req.source), res)
+        if req.workspace != "" {
+            count := 0
+            ref_scan_dir(e, parser, req.workspace, req, name, res, &count, 0)
+        }
+    }
+
+    slice.sort_by(res.symbols[:], proc(a, b: Symbol) -> bool {
+        if a.path != b.path {
+            return a.path < b.path
+        }
+        return a.offset < b.offset
+    })
+    res.ok = len(res.symbols) > 0
+}
+
+// Appends every `identifier` node in `node`'s subtree whose text equals `name`
+// and whose span falls within [within_start, within_end) to res.symbols. Each is
+// a reference Symbol: the source line it sits on is the preview, path/line/offset
+// the jump target. Owned strings use context.allocator (the Manager's).
+@(private = "file")
+collect_ident_refs :: proc(node: ts.Node, source, name, path: string, within_start, within_end: int, res: ^Result) {
+    if is_identifier(node) {
+        s := int(ts.node_start_byte(node))
+        end := int(ts.node_end_byte(node))
+        if s >= within_start && end <= within_end && ts.node_text(node, source) == name {
+            append(&res.symbols, Symbol {
+                name      = strings.clone(name),
+                kind      = strings.clone("reference"),
+                signature = source_line(source, s),
+                path      = strings.clone(path),
+                line      = strings.count(source[:clamp(s, 0, len(source))], "\n") + 1,
+                offset    = s,
+            })
+        }
+    }
+    for i in 0 ..< ts.node_child_count(node) {
+        collect_ident_refs(ts.node_child(node, i), source, name, path, within_start, within_end, res)
+    }
+}
+
+// The whole source line `offset` falls on, trimmed — a reference row's code
+// preview. Cloned into context.allocator.
+@(private = "file")
+source_line :: proc(source: string, offset: int) -> string {
+    lo := clamp(offset, 0, len(source))
+    start := strings.last_index_byte(source[:lo], '\n') + 1 // -1 + 1 == 0 for the first line
+    end := len(source)
+    if nl := strings.index_byte(source[lo:], '\n'); nl >= 0 {
+        end = lo + nl
+    }
+    return strings.clone(strings.trim_space(source[start:end]))
+}
+
+// Recurses the workspace collecting every .odin file's occurrences of `name`.
+// Mirrors collect_symbols_dir's guards and skip-live-buffer rule, but gathers
+// name matches rather than declarations.
+@(private = "file")
+ref_scan_dir :: proc(
+    e: ^Odin_Engine,
+    parser: ts.Parser,
+    dir: string,
+    req: ^Request,
+    name: string,
+    res: ^Result,
+    count: ^int,
+    depth: int,
+) {
+    if count^ >= SCAN_FILE_LIMIT || depth > SCAN_DEPTH_LIMIT {
+        return
+    }
+
+    handle, open_err := os.open(dir)
+    if open_err != nil {
+        return
+    }
+    defer os.close(handle)
+
+    infos, read_err := os.read_dir(handle, -1, context.temp_allocator)
+    if read_err != nil {
+        return
+    }
+
+    for info in infos {
+        if count^ >= SCAN_FILE_LIMIT {
+            return
+        }
+        if info.type == .Directory {
+            if info.name == ".git" || strings.has_prefix(info.name, ".") {
+                continue
+            }
+            ref_scan_dir(e, parser, info.fullpath, req, name, res, count, depth + 1)
+            continue
+        }
+        if !strings.has_suffix(info.name, ".odin") {
+            continue
+        }
+        // The live buffer was already searched, with unsaved edits; skip its
+        // on-disk copy so an occurrence isn't listed twice (or from stale text).
+        if info.fullpath == req.path {
+            continue
+        }
+        count^ += 1
+        ref_scan_file(e, parser, info.fullpath, name, res)
+    }
+}
+
+@(private = "file")
+ref_scan_file :: proc(e: ^Odin_Engine, parser: ts.Parser, path, name: string, res: ^Result) {
+    data, rerr := os.read_entire_file(path, context.temp_allocator)
+    if rerr != nil {
+        return
+    }
+    source := string(data)
+
+    tree := ts.parser_parse_string(parser, source)
+    if tree == nil {
+        return
+    }
+    defer ts.tree_delete(tree)
+
+    collect_ident_refs(ts.tree_root_node(tree), source, name, path, 0, len(source), res)
 }
 
 // LOCALS capture suffixes that belong in a document outline. Excludes
