@@ -127,6 +127,12 @@ Editor :: struct {
     hover_text:          string,
     hover_start:         int,
     hover_end:           int,
+    // Signature-help popup: the enclosing call's signature, shown above the caret
+    // on explicit request (not a mouse dwell) and dismissed on Escape, a caret
+    // jump, or when focus leaves the pane. Owned text clone.
+    signature_active:    bool,
+    signature_text:      string,
+    signature_anchor:    int,
     // recenter (Ctrl+Shift+J): repeated presses cycle the caret line
     // center/top/bottom. Phase resets when the caret moves.
     recenter_phase:     int,
@@ -176,6 +182,29 @@ editor_clear_hover :: proc(editor: ^Editor) {
     delete(editor.hover_text)
     editor.hover_text = ""
     editor.hover_active = false
+}
+
+// Shows the signature-help popup with `text` anchored above byte `anchor` (the
+// caret). Unlike hover it is an explicit request, so no mouse-dwell gate applies.
+// Clones `text`.
+editor_show_signature :: proc(editor: ^Editor, text: string, anchor: int) {
+    if text == "" {
+        return
+    }
+    delete(editor.signature_text)
+    editor.signature_text = strings.clone(text)
+    editor.signature_anchor = anchor
+    editor.signature_active = true
+}
+
+// Hides the signature popup and frees its text.
+editor_clear_signature :: proc(editor: ^Editor) {
+    if !editor.signature_active && editor.signature_text == "" {
+        return
+    }
+    delete(editor.signature_text)
+    editor.signature_text = ""
+    editor.signature_active = false
 }
 
 editor_vtable := ui.Widget_VTable {
@@ -700,6 +729,15 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
     state := editor.state
     ctrl_only := event.ctrl && !event.alt
     alt_only := event.alt && !event.ctrl
+
+    // A caret jump or Escape dismisses the signature popup; typing arguments
+    // (Text_Input, not Key_Press) and Left/Right between them leave it up.
+    if editor.signature_active {
+        #partial switch event.key {
+        case .ESCAPE, .ENTER, .KP_ENTER, .UP, .DOWN, .PAGE_UP, .PAGE_DOWN:
+            editor_clear_signature(editor)
+        }
+    }
 
     // While the popup is up it owns the plain navigation and accept keys. A
     // modifier chord closes it and runs normally; Backspace/Delete refresh it.
@@ -1355,6 +1393,13 @@ editor_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
         editor.hover_probe_offset = -1
     }
     editor_draw_hover(editor)
+
+    // Signature help is an explicit request from the focused pane; dismiss it once
+    // focus leaves.
+    if ctx.focused != widget && editor.signature_active {
+        editor_clear_signature(editor)
+    }
+    editor_draw_signature(editor)
 }
 
 // Seconds the cursor must rest before a hover request fires, and the pixel
@@ -1430,6 +1475,42 @@ editor_draw_hover :: proc(editor: ^Editor) {
     rl.DrawRectangleLinesEx(box, 1, editor.focus_border_color)
     text_y := cast(i32) (box_y + (height - cast(f32) editor.font_size) * 0.5)
     ui.draw_text(editor.hover_text, cast(i32) (box_x + pad), text_y, editor.font_size, editor.text_color)
+}
+
+// Draws the signature-help popup anchored above the caret, flipping below when
+// there is no room and nudged to stay inside the editor bounds. Mirrors the hover
+// popup, but keyed to an explicit request rather than a mouse dwell.
+@(private = "file")
+editor_draw_signature :: proc(editor: ^Editor) {
+    if !editor.signature_active || editor.signature_text == "" {
+        return
+    }
+    x, y, lh, ok := editor_screen_at(editor, editor.signature_anchor)
+    if !ok {
+        return
+    }
+
+    pad: f32 = 8
+    width := cast(f32) ui.measure_text(editor.signature_text, editor.font_size) + pad * 2
+    height := lh + pad
+
+    box_x := x
+    box_y := y - height - 4
+    if box_y < editor.bounds.y {
+        box_y = y + lh + 4 // flip below the line
+    }
+    if box_x + width > editor.bounds.x + editor.bounds.width {
+        box_x = editor.bounds.x + editor.bounds.width - width - 4
+    }
+    if box_x < editor.bounds.x {
+        box_x = editor.bounds.x
+    }
+
+    box := rl.Rectangle {box_x, box_y, width, height}
+    rl.DrawRectangleRec(box, editor.gutter_color)
+    rl.DrawRectangleLinesEx(box, 1, editor.focus_border_color)
+    text_y := cast(i32) (box_y + (height - cast(f32) editor.font_size) * 0.5)
+    ui.draw_text(editor.signature_text, cast(i32) (box_x + pad), text_y, editor.font_size, editor.text_color)
 }
 
 // Screen x, top y, and line height of byte `offset` (clamped to its visual row).
@@ -1896,6 +1977,7 @@ editor_destroy :: proc(widget: ^ui.Widget) {
     editor := cast(^Editor) widget
     delete(editor.visual_rows)
     delete(editor.hover_text)
+    delete(editor.signature_text)
     for item in editor.completion_items {
         delete(item)
     }

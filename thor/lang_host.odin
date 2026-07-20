@@ -178,6 +178,35 @@ thor_find_references :: proc(thor: ^Thor) {
     )
 }
 
+// Ctrl+Shift+Space: resolve the call the caret is inside and flash its signature,
+// with the active argument bracketed, in the statusline. Async; the result is
+// shown by thor_show_signature.
+thor_signature_help :: proc(thor: ^Thor) {
+    file := thor_active_open_file(thor)
+    if file == nil || !file.loaded {
+        return
+    }
+    ext := thor_file_extension(file.name)
+    if !lang.manager_supports(&thor.lang_manager, ext) {
+        return
+    }
+    source := textedit.text(&file.state)
+    id := lang.manager_request(
+        &thor.lang_manager,
+        .Signature_Help,
+        file.path,
+        ext,
+        source,
+        textedit.primary_cursor(&file.state).caret,
+        file.state.revision,
+        thor.workspace_dir,
+    )
+    if id == 0 {
+        return
+    }
+    thor.signature_request_id = id
+}
+
 // Frees the jump targets kept from the last symbol picker.
 thor_clear_doc_symbols :: proc(thor: ^Thor) {
     for sym in thor.doc_symbols {
@@ -246,7 +275,36 @@ thor_on_lang_result :: proc(user: rawptr, res: ^lang.Result) {
         thor_update_workspace_symbols(thor, res)
     case .References:
         thor_update_references(thor, res)
+    case .Signature_Help:
+        thor_show_signature(thor, res)
     }
+}
+
+// Shows the resolved signature in a popup above the caret once its request lands.
+// Drops a superseded result (the caret has since moved to another call) by id, and
+// brackets the active argument so the caller can see which parameter it is on.
+@(private = "file")
+thor_show_signature :: proc(thor: ^Thor, res: ^lang.Result) {
+    if res.id != thor.signature_request_id {
+        return
+    }
+    thor.signature_request_id = 0
+    if !res.ok || res.signature.label == "" {
+        thor_flash_status(thor, "No signature found")
+        return
+    }
+    file := thor_active_open_file(thor)
+    if file == nil || !file.loaded {
+        return
+    }
+    sig := res.signature
+    label := sig.label
+    text := label
+    if sig.active_end > sig.active_start && sig.active_start >= 0 && sig.active_end <= len(label) {
+        text = fmt.tprintf("%s[%s]%s", label[:sig.active_start], label[sig.active_start:sig.active_end], label[sig.active_end:])
+    }
+    editor := thor.active_pane == 0 ? thor.editor : thor.editor2
+    widgets.editor_show_signature(editor, text, textedit.primary_cursor(&file.state).caret)
 }
 
 // Fills the already-open (loading) references picker once its scan lands. Drops

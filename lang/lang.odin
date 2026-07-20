@@ -13,14 +13,15 @@ import "core:thread"
 import "core:time"
 
 // What the editor is asking for. Kept small on purpose; it grows as features
-// land (Definition, Hover, Document_Symbols, Workspace_Symbols and References
-// today; Completion next).
+// land (Definition, Hover, Document_Symbols, Workspace_Symbols, References and
+// Signature_Help today; Completion next).
 Request_Kind :: enum {
     Definition,
     Hover,
     Document_Symbols,
     Workspace_Symbols,
     References,
+    Signature_Help,
 }
 
 // A byte range in a named file. Byte offsets, not line/column: the editor and
@@ -38,6 +39,15 @@ Hover_Info :: struct {
     text:  string, // owned; a signature / declaration line
     start: int,
     end:   int,
+}
+
+// Signature-help payload for the call the caret sits in: the resolved
+// procedure's signature line and the byte range within it of the parameter the
+// caret is currently on, so the editor can emphasize the active argument.
+Signature_Info :: struct {
+    label:        string, // owned; "add :: proc(a: int, b: int) -> int"
+    active_start: int,     // [active_start, active_end) within label; empty when unknown
+    active_end:   int,
 }
 
 // One entry in a symbol list (a file outline, or the whole workspace): a
@@ -76,10 +86,11 @@ Result :: struct {
     id:       u64,
     kind:     Request_Kind,
     revision: u64,
-    ok:       bool,
-    location: Location,      // Definition
-    hover:    Hover_Info,    // Hover
-    symbols:  [dynamic]Symbol, // Document_Symbols / Workspace_Symbols / References; owned, freed in job_free
+    ok:        bool,
+    location:  Location,        // Definition
+    hover:     Hover_Info,      // Hover
+    signature: Signature_Info,  // Signature_Help
+    symbols:   [dynamic]Symbol, // Document_Symbols / Workspace_Symbols / References; owned, freed in job_free
 }
 
 // A language backend. Both the in-client engine and a future subprocess LSP
@@ -233,6 +244,7 @@ job_free :: proc(m: ^Manager, job: ^Job) {
     delete(job.request.workspace)
     delete(job.result.location.path)
     delete(job.result.hover.text)
+    delete(job.result.signature.label)
     for sym in job.result.symbols {
         delete(sym.name)
         delete(sym.kind)

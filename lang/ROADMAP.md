@@ -33,8 +33,10 @@ lowest latency.
   overrides it to point at another toolchain). So `fmt.println`, `strings.split`
   and friends go-to-def and hover into the stdlib sources. The
   caret on the package name itself jumps to the file named like the package
-  (`foo/foo.odin`), falling back to the package's first `.odin` file when there is
-  no entry file, so navigation still lands inside the package. Alt+Enter
+  (`foo/foo.odin`), falling back to the `.odin` file whose name is fuzzily closest
+  to the package name when there is no entry file (a prefix match like
+  `foo_windows.odin` beats an unrelated `zebra.odin`), so navigation still lands on
+  the most package-like file. Alt+Enter
   with the caret on an `import` line (its alias or the quoted path, e.g.
   `import rl "vendor:raylib"`) opens that package the same way. Value member
   access (`v.field`) still falls through (needs type inference).
@@ -71,6 +73,15 @@ lowest latency.
   flat name match — so it is textual-but-AST-aware, not type-aware. Each row is
   the source line the usage sits on (its code context) with a `path:line`
   preview; choosing one opens the owning file and jumps there.
+- **Signature help:** Ctrl+Shift+Space resolves the call the caret is inside
+  (`Signature_Help` request → `signature_help`) and shows the callee's signature in
+  a popup above the caret, with the argument the caret is on bracketed. The callee
+  is resolved the same three ways goto is — same file, package-qualified
+  (`pkg.fn(...)`) and cross-file workspace scan — and the active parameter is the
+  count of top-level commas before the caret in the call's parentheses. Only
+  procedures answer; the popup dismisses on Escape, a caret jump, or when focus
+  leaves the pane. Not yet auto-triggered while typing, and the active-parameter
+  bracket does not live-update as arguments are typed.
 
 ---
 
@@ -124,9 +135,16 @@ lowest latency.
       type-aware: a top-level scan can list an unrelated same-named symbol in
       another package, and value member names (`v.field`) aren't distinguished.
       Type-aware precision waits on the inference layer.
-- [ ] **Other LSP features not started:** rename, signature help, completion
-      (semantic), formatting, code actions, semantic tokens. (Diagnostics land
-      via `thor/diagnostics.odin`, outside this seam.)
+- [x] **Signature help.** Ctrl+Shift+Space; `Signature_Help` request served by
+      `signature_help`, which resolves the enclosing call's procedure (same-file,
+      package-qualified and cross-file, reusing the goto resolution) and returns its
+      signature line plus the byte range of the active parameter. Shown in a popup
+      above the caret with the active argument bracketed. Missing: auto-trigger
+      while typing, live active-parameter updates, and overload sets (the first
+      matching procedure wins).
+- [ ] **Other LSP features not started:** rename, completion (semantic),
+      formatting, code actions, semantic tokens. (Diagnostics land via
+      `thor/diagnostics.odin`, outside this seam.)
 
 ## Missing — scalability / performance
 

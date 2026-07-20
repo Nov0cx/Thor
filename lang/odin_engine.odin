@@ -116,6 +116,14 @@ odin_resolve :: proc(data: rawptr, req: ^Request, res: ^Result) {
         return
     }
 
+    // Signature help works off the caret's position inside a call's argument
+    // list, not an identifier under it, so it resolves the call before the
+    // identifier/import goto logic below.
+    if req.kind == .Signature_Help {
+        signature_help(e, parser, root, req, res)
+        return
+    }
+
     // Caret on an import declaration itself (its alias or its quoted path):
     // resolve to the imported package. Handled before identifier_at because the
     // path string is not an identifier, so a caret resting on it would otherwise
@@ -734,6 +742,296 @@ ref_scan_file :: proc(e: ^Odin_Engine, parser: ts.Parser, path, name: string, re
     collect_ident_refs(ts.tree_root_node(tree), source, name, path, 0, len(source), res)
 }
 
+// Resolves the call the caret sits inside to its procedure declaration and fills
+// `res.signature` with that proc's signature line plus the byte range, within
+// the line, of the parameter the caret is currently on. The call's function is
+// resolved the same three ways goto is — same-file, package-qualified
+// (`pkg.fn(...)`) and cross-file workspace scan — so signature help follows the
+// same reach. Only procedures produce a result; a call of a non-proc is ignored.
+@(private = "file")
+signature_help :: proc(e: ^Odin_Engine, parser: ts.Parser, root: ts.Node, req: ^Request, res: ^Result) {
+    call, ok := enclosing_call(root, req.source, req.offset)
+    if !ok {
+        return
+    }
+    fn := ts.node_child_by_field_name(call, "function")
+    if ts.node_is_null(fn) {
+        return
+    }
+
+    src, d, found := resolve_call_target(e, parser, root, req, call, fn)
+    if !found || d.kind != "function" {
+        return
+    }
+
+    label := signature_text(src, d) // cloned into context.allocator (the Manager's)
+    active := call_active_param(call, req.offset)
+    astart, aend := active_param_span(label, active)
+    res.signature = Signature_Info {
+        label        = label,
+        active_start = astart,
+        active_end   = aend,
+    }
+    res.ok = true
+}
+
+// Nearest call_expression enclosing `offset`, so a caret anywhere inside a call's
+// argument list (including the whitespace between arguments) resolves to that
+// call. The innermost call wins, so `outer(inner(|))` picks `inner`.
+@(private = "file")
+enclosing_call :: proc(root: ts.Node, source: string, offset: int) -> (ts.Node, bool) {
+    off := u32(clamp(offset, 0, len(source)))
+    n := ts.node_named_descendant_for_byte_range(root, off, off)
+    for !ts.node_is_null(n) {
+        if string(ts.node_type(n)) == "call_expression" {
+            return n, true
+        }
+        n = ts.node_parent(n)
+    }
+    return {}, false
+}
+
+// Index of the argument the caret is on: the count of top-level commas in the
+// call's parentheses before `offset`. Commas are direct `,` children of the
+// call_expression, so a nested call's commas (buried in an argument subtree)
+// never leak in. A caret before the first `(` (e.g. on the function name) is 0.
+@(private = "file")
+call_active_param :: proc(call: ts.Node, offset: int) -> int {
+    active := 0
+    seen_open := false
+    for i in 0 ..< ts.node_child_count(call) {
+        c := ts.node_child(call, i)
+        switch string(ts.node_type(c)) {
+        case "(":
+            seen_open = true
+        case ")":
+            return active
+        case ",":
+            if seen_open && int(ts.node_start_byte(c)) < offset {
+                active += 1
+            } else if seen_open {
+                return active
+            }
+        }
+    }
+    return active
+}
+
+// Resolves a call's function operand to its procedure declaration, returning the
+// source it lives in and the Def within it. Handles `pkg.fn(...)` (the call node
+// nests under a member_expression carrying the package operand) by following the
+// import into that package's directory; otherwise the bare function name is
+// resolved same-file first, then across the workspace. The returned source is the
+// worker's temp-allocated file text (job-lifetime), so the Def's slices stay
+// valid after the parse tree is freed.
+@(private = "file")
+resolve_call_target :: proc(
+    e: ^Odin_Engine,
+    parser: ts.Parser,
+    root: ts.Node,
+    req: ^Request,
+    call, fn: ts.Node,
+) -> (string, Def, bool) {
+    // `pkg.fn(args)`: the call is the second child of a member_expression whose
+    // first child is the package operand. Resolve `fn` in that package's dir.
+    if parent := ts.node_parent(call); !ts.node_is_null(parent) &&
+        string(ts.node_type(parent)) == "member_expression" {
+        pkg_node := ts.node_named_child(parent, 0)
+        if same_node(ts.node_named_child(parent, 1), call) && is_identifier(pkg_node) && is_identifier(fn) {
+            pkg := ts.node_text(pkg_node, req.source)
+            name := ts.node_text(fn, req.source)
+            if raw, ok := import_path(root, req.source, pkg); ok {
+                if dir, dok := package_dir(raw, req.path, req.workspace); dok {
+                    return find_proc_in_dir(e, parser, dir, name, req.path)
+                }
+            }
+            return "", {}, false
+        }
+    }
+
+    if !is_identifier(fn) {
+        return "", {}, false
+    }
+    name := ts.node_text(fn, req.source)
+
+    // Same file: a top-level procedure of this name (locals of the same name are
+    // not callables we can sign, so require the "function" kind).
+    defs := collect_defs(e, root, req.source)
+    if d, ok := resolve_local(defs[:], name, int(ts.node_start_byte(fn))); ok && d.kind == "function" {
+        return req.source, d, true
+    }
+
+    // Workspace: scan sibling files for a matching top-level procedure.
+    if req.workspace != "" {
+        count := 0
+        return find_proc_dir(e, parser, req.workspace, req, name, &count, 0)
+    }
+    return "", {}, false
+}
+
+// First top-level procedure named `name` in `path`, with the file's source (so
+// the Def stays valid past the parse). Reused by the package and workspace scans.
+@(private = "file")
+first_proc_in_file :: proc(e: ^Odin_Engine, parser: ts.Parser, path, name: string) -> (string, Def, bool) {
+    data, rerr := os.read_entire_file(path, context.temp_allocator)
+    if rerr != nil {
+        return "", {}, false
+    }
+    source := string(data)
+
+    tree := ts.parser_parse_string(parser, source)
+    if tree == nil {
+        return "", {}, false
+    }
+    defer ts.tree_delete(tree)
+
+    defs := collect_defs(e, ts.tree_root_node(tree), source)
+    for d in defs {
+        if d.top_level && d.kind == "function" && d.name == name {
+            return source, d, true
+        }
+    }
+    return "", {}, false
+}
+
+// First top-level procedure named `name` in one package directory (all its .odin
+// files, non-recursively — an Odin package is a flat directory). `skip` is the
+// requesting file's path, left out so the live buffer's stale on-disk copy loses.
+@(private = "file")
+find_proc_in_dir :: proc(e: ^Odin_Engine, parser: ts.Parser, dir, name, skip: string) -> (string, Def, bool) {
+    handle, open_err := os.open(dir)
+    if open_err != nil {
+        return "", {}, false
+    }
+    defer os.close(handle)
+
+    infos, read_err := os.read_dir(handle, -1, context.temp_allocator)
+    if read_err != nil {
+        return "", {}, false
+    }
+
+    for info in infos {
+        if info.type == .Directory || !strings.has_suffix(info.name, ".odin") {
+            continue
+        }
+        if info.fullpath == skip {
+            continue
+        }
+        if src, d, ok := first_proc_in_file(e, parser, info.fullpath, name); ok {
+            return src, d, ok
+        }
+    }
+    return "", {}, false
+}
+
+// First top-level procedure named `name` anywhere in the workspace. Mirrors
+// scan_dir's guards and skip-live-buffer rule, returning the declaration rather
+// than filling a Definition result.
+@(private = "file")
+find_proc_dir :: proc(
+    e: ^Odin_Engine,
+    parser: ts.Parser,
+    dir: string,
+    req: ^Request,
+    name: string,
+    count: ^int,
+    depth: int,
+) -> (string, Def, bool) {
+    if count^ >= SCAN_FILE_LIMIT || depth > SCAN_DEPTH_LIMIT {
+        return "", {}, false
+    }
+
+    handle, open_err := os.open(dir)
+    if open_err != nil {
+        return "", {}, false
+    }
+    defer os.close(handle)
+
+    infos, read_err := os.read_dir(handle, -1, context.temp_allocator)
+    if read_err != nil {
+        return "", {}, false
+    }
+
+    for info in infos {
+        if count^ >= SCAN_FILE_LIMIT {
+            break
+        }
+        if info.type == .Directory {
+            if info.name == ".git" || strings.has_prefix(info.name, ".") {
+                continue
+            }
+            if src, d, ok := find_proc_dir(e, parser, info.fullpath, req, name, count, depth + 1); ok {
+                return src, d, ok
+            }
+            continue
+        }
+        if !strings.has_suffix(info.name, ".odin") {
+            continue
+        }
+        if info.fullpath == req.path {
+            continue
+        }
+        count^ += 1
+        if src, d, ok := first_proc_in_file(e, parser, info.fullpath, name); ok {
+            return src, d, ok
+        }
+    }
+    return "", {}, false
+}
+
+// Byte range, within a signature line, of the `active`-th parameter — used to
+// emphasize the argument the caret is on. Splits the first parenthesized group
+// (the parameter list; a `-> (a, b)` return tuple comes after and is never
+// reached) on top-level commas, tracking bracket depth so a comma inside a nested
+// type (`b: proc(x: int)`, `c: [dynamic]int`) doesn't split a parameter. Returns
+// an empty range when `active` is past the last parameter.
+@(private = "file")
+active_param_span :: proc(label: string, active: int) -> (int, int) {
+    open := strings.index_byte(label, '(')
+    if open < 0 {
+        return 0, 0
+    }
+    depth := 0
+    idx := 0
+    param_start := open + 1
+    for i := open; i < len(label); i += 1 {
+        switch label[i] {
+        case '(', '[', '{':
+            depth += 1
+        case ')', ']', '}':
+            depth -= 1
+            if depth == 0 {
+                if idx == active {
+                    return trim_span(label, param_start, i)
+                }
+                return 0, 0
+            }
+        case ',':
+            if depth == 1 {
+                if idx == active {
+                    return trim_span(label, param_start, i)
+                }
+                idx += 1
+                param_start = i + 1
+            }
+        }
+    }
+    return 0, 0
+}
+
+// Shrinks [start, end) past leading and trailing ASCII spaces/tabs.
+@(private = "file")
+trim_span :: proc(label: string, start, end: int) -> (int, int) {
+    s, e := start, end
+    for s < e && (label[s] == ' ' || label[s] == '\t') {
+        s += 1
+    }
+    for e > s && (label[e - 1] == ' ' || label[e - 1] == '\t') {
+        e -= 1
+    }
+    return s, e
+}
+
 // LOCALS capture suffixes that belong in a document outline. Excludes
 // "parameter"/"field" (nested), "namespace" (package name and import aliases)
 // and "" (labels).
@@ -1044,9 +1342,10 @@ scan_package :: proc(
 // Caret on the package operand itself (`pkg` in `pkg.Symbol`): "go to package".
 // Definition jumps to the head of the file named like the package (the `foo.odin`
 // entry file in package `foo`, the usual convention). When no such file exists it
-// falls back to the package's first .odin file (lexicographically), so the caret
-// still lands inside the package rather than reporting nothing. Hover shows the
-// import path.
+// falls back to the .odin file whose name is fuzzily closest to the package name
+// (a prefix like `foo_windows.odin` beats an unrelated `zebra.odin`), so the
+// caret still lands on the most package-like file rather than reporting nothing.
+// Hover shows the import path.
 @(private = "file")
 open_package :: proc(dir, raw: string, req: ^Request, res: ^Result, hover_start, hover_end: int) {
     #partial switch req.kind {
@@ -1060,9 +1359,11 @@ open_package :: proc(dir, raw: string, req: ^Request, res: ^Result, hover_start,
         if read_err != nil {
             return
         }
-        want := strings.concatenate({filepath.base(dir), ".odin"}, context.temp_allocator)
-        first_name := "" // lexicographically first .odin file, the fallback target
-        first_path := ""
+        pkg := filepath.base(dir)
+        want := strings.concatenate({pkg, ".odin"}, context.temp_allocator)
+        best_name := "" // the fuzzily-closest .odin file, the fallback target
+        best_path := ""
+        best_score := 0
         for info in infos {
             if info.type == .Directory || !strings.has_suffix(info.name, ".odin") {
                 continue
@@ -1072,14 +1373,17 @@ open_package :: proc(dir, raw: string, req: ^Request, res: ^Result, hover_start,
                 res.ok = true
                 return
             }
-            if first_name == "" || info.name < first_name {
-                first_name = info.name
-                first_path = info.fullpath
+            // Higher score is closer; ties break lexicographically for a stable pick.
+            s := pkg_file_score(strings.trim_suffix(info.name, ".odin"), pkg)
+            if best_name == "" || s > best_score || (s == best_score && info.name < best_name) {
+                best_name = info.name
+                best_path = info.fullpath
+                best_score = s
             }
         }
-        // No `foo.odin`: land on the package's first file so navigation still works.
-        if first_path != "" {
-            res.location = Location{path = strings.clone(first_path), start = 0, end = 0}
+        // No `foo.odin`: land on the closest file so navigation still works.
+        if best_path != "" {
+            res.location = Location{path = strings.clone(best_path), start = 0, end = 0}
             res.ok = true
         }
     case .Hover:
@@ -1091,4 +1395,48 @@ open_package :: proc(dir, raw: string, req: ^Request, res: ^Result, hover_start,
         }
         res.ok = true
     }
+}
+
+// Fuzzy closeness of a file stem to the package name, higher is closer. A shared
+// prefix and contiguous runs score highest, and a full subsequence match adds a
+// bonus; when the package name isn't even a subsequence the shared-prefix length
+// still orders the candidates, so the package-operand fallback always lands on
+// the most package-like file (`foo_windows` over `zebra` for package `foo`).
+@(private = "file")
+pkg_file_score :: proc(stem, pkg: string) -> int {
+    score := 0
+
+    n := min(len(stem), len(pkg))
+    prefix := 0
+    for prefix < n && ascii_lower(stem[prefix]) == ascii_lower(pkg[prefix]) {
+        prefix += 1
+    }
+    score += prefix * 8
+
+    // Subsequence of pkg within stem, rewarding contiguous runs.
+    qi := 0
+    streak := 0
+    for i in 0 ..< len(stem) {
+        if qi >= len(pkg) {
+            break
+        }
+        if ascii_lower(stem[i]) == ascii_lower(pkg[qi]) {
+            score += 2 + streak
+            streak += 1
+            qi += 1
+        } else {
+            streak = 0
+        }
+    }
+    if qi == len(pkg) {
+        score += 20 // the whole package name is present in order
+    }
+
+    score -= abs(len(stem) - len(pkg)) / 4 // prefer a similar length
+    return score
+}
+
+@(private = "file")
+ascii_lower :: proc(b: u8) -> u8 {
+    return b >= 'A' && b <= 'Z' ? b + 32 : b
 }

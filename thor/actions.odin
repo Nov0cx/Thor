@@ -93,6 +93,11 @@ thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
         thor_find_references(thor)
         return true
     }
+    // Signature help (Ctrl+Shift+Space) flashes the signature of the enclosing call.
+    if setting.keybind_matches(thor.signature_help_key, event.key, event.ctrl, event.shift, event.alt) {
+        thor_signature_help(thor)
+        return true
+    }
     // Flip to the previously active file (ctrl+e), like vim's Ctrl-^.
     if setting.keybind_matches(thor.last_file_key, event.key, event.ctrl, event.shift, event.alt) {
         thor_flip_last_file(thor)
