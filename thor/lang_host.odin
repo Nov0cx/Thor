@@ -114,7 +114,7 @@ thor_goto_workspace_symbol :: proc(thor: ^Thor) {
     if !lang.manager_supports(&thor.lang_manager, ext) {
         return
     }
-    lang.manager_request(
+    id := lang.manager_request(
         &thor.lang_manager,
         .Workspace_Symbols,
         path,
@@ -123,6 +123,20 @@ thor_goto_workspace_symbol :: proc(thor: ^Thor) {
         0,
         revision,
         thor.workspace_dir,
+    )
+    if id == 0 {
+        return
+    }
+    // The scan reads and parses every .odin file off-thread, which takes a beat
+    // on a big workspace. Open the picker now (empty, "Loading…") so the chord is
+    // instant; thor_update_workspace_symbols fills it when the result lands.
+    thor.workspace_symbols_request_id = id
+    widgets.command_palette_pick_rich_loading(
+        thor.command_palette,
+        &thor.ui_context,
+        "Go to symbol...",
+        thor_pick_symbol,
+        thor,
     )
 }
 
@@ -191,8 +205,30 @@ thor_on_lang_result :: proc(user: rawptr, res: ^lang.Result) {
     case .Document_Symbols:
         thor_show_symbols(thor, res, "No symbols in file")
     case .Workspace_Symbols:
-        thor_show_symbols(thor, res, "No symbols in workspace")
+        thor_update_workspace_symbols(thor, res)
     }
+}
+
+// Fills the already-open (loading) workspace-symbol picker once its scan lands.
+// Drops the result if it's superseded by a newer Ctrl+T or the picker has since
+// been closed or replaced (command_palette_pick_rich_set is a no-op then). An
+// empty scan closes the loading picker and flashes instead of leaving it hanging.
+@(private = "file")
+thor_update_workspace_symbols :: proc(thor: ^Thor, res: ^lang.Result) {
+    if res.id != thor.workspace_symbols_request_id {
+        return
+    }
+    thor.workspace_symbols_request_id = 0
+    if !widgets.command_palette_pick_loading(thor.command_palette) {
+        return // picker closed or replaced by another pick; drop the result
+    }
+    if !res.ok || len(res.symbols) == 0 {
+        widgets.command_palette_close(thor.command_palette, &thor.ui_context)
+        thor_flash_status(thor, "No symbols in workspace")
+        return
+    }
+    items := thor_build_symbol_items(thor, res)
+    widgets.command_palette_pick_rich_set(thor.command_palette, items)
 }
 
 // Builds the rich symbol picker from a symbol result and opens it. Each row is
@@ -207,6 +243,22 @@ thor_show_symbols :: proc(thor: ^Thor, res: ^lang.Result, empty_message: string)
         thor_flash_status(thor, empty_message)
         return
     }
+    items := thor_build_symbol_items(thor, res)
+    widgets.command_palette_pick_rich(
+        thor.command_palette,
+        &thor.ui_context,
+        "Go to symbol...",
+        items,
+        thor_pick_symbol,
+        thor,
+    )
+}
+
+// Rebuilds the picker's jump targets (doc_symbols) from a symbol result and
+// returns the matching rich rows in the same order, temp-allocated (the palette
+// deep-copies them). Shared by the document-symbol and workspace-symbol pickers.
+@(private = "file")
+thor_build_symbol_items :: proc(thor: ^Thor, res: ^lang.Result) -> []widgets.Pick_Item {
     thor_clear_doc_symbols(thor)
     items := make([dynamic]widgets.Pick_Item, context.temp_allocator)
     for sym in res.symbols {
@@ -218,14 +270,7 @@ thor_show_symbols :: proc(thor: ^Thor, res: ^lang.Result, empty_message: string)
             detail   = thor_symbol_detail(thor, sym),
         })
     }
-    widgets.command_palette_pick_rich(
-        thor.command_palette,
-        &thor.ui_context,
-        "Go to symbol...",
-        items[:],
-        thor_pick_symbol,
-        thor,
-    )
+    return items[:]
 }
 
 // Pick callback: jumps to the chosen row's file and offset. The index is into

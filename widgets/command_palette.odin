@@ -93,6 +93,10 @@ Command_Palette :: struct {
     // fires pick_index_run with the source index instead of pick_run.
     pick_items:      [dynamic]Pick_Item,
     pick_rich:       bool,
+    // True while a rich pick is open but its rows are still being computed off
+    // the main thread (a workspace-symbol scan). Draws a "Loading…" hint until
+    // command_palette_pick_rich_set lands the rows.
+    pick_loading:    bool,
     pick_index_run:  Palette_Pick_Index_Proc,
     box:          rl.Rectangle,
     width:        f32,
@@ -278,6 +282,7 @@ command_palette_pick :: proc(
     palette.pick_run = run
     palette.pick_data = data
     palette.pick_rich = false
+    palette.pick_loading = false
     palette.visible = true
     command_palette_reset(palette, .Pick)
     ctx.focused = &palette.widget
@@ -295,6 +300,64 @@ command_palette_pick_rich :: proc(
     run: Palette_Pick_Index_Proc,
     data: rawptr,
 ) {
+    command_palette_set_pick_items(palette, items)
+    palette.prompt_label = label
+    palette.pick_index_run = run
+    palette.pick_data = data
+    palette.pick_rich = true
+    palette.pick_loading = false
+    palette.visible = true
+    command_palette_reset(palette, .Pick)
+    ctx.focused = &palette.widget
+    ui.widget_bring_to_front(&palette.widget)
+}
+
+// Opens a rich pick whose rows are still being computed off-thread (a workspace
+// symbol scan). The picker appears immediately with a "Loading…" hint so the
+// chord stays responsive; call command_palette_pick_rich_set with the rows when
+// the scan lands. Enter on the empty list is a harmless no-op until then.
+command_palette_pick_rich_loading :: proc(
+    palette: ^Command_Palette,
+    ctx: ^ui.Context,
+    label: string,
+    run: Palette_Pick_Index_Proc,
+    data: rawptr,
+) {
+    command_palette_clear_pick_items(palette)
+    palette.prompt_label = label
+    palette.pick_index_run = run
+    palette.pick_data = data
+    palette.pick_rich = true
+    palette.pick_loading = true
+    palette.visible = true
+    command_palette_reset(palette, .Pick)
+    ctx.focused = &palette.widget
+    ui.widget_bring_to_front(&palette.widget)
+}
+
+// True while a rich pick is open and still waiting for its async rows. The owner
+// checks this before applying a landing result, so a scan that finishes after the
+// user closed the picker (or opened a different one) is dropped, not applied.
+command_palette_pick_loading :: proc(palette: ^Command_Palette) -> bool {
+    return palette.visible && palette.mode == .Pick && palette.pick_rich && palette.pick_loading
+}
+
+// Fills an open loading rich pick with its rows, preserving the query the user
+// has already typed and re-ranking against it. No-op unless a loading pick is
+// open (see command_palette_pick_loading), so a stale result can't clobber a
+// picker the user has moved on from.
+command_palette_pick_rich_set :: proc(palette: ^Command_Palette, items: []Pick_Item) {
+    if !command_palette_pick_loading(palette) {
+        return
+    }
+    command_palette_set_pick_items(palette, items)
+    palette.pick_loading = false
+    command_palette_refilter(palette)
+}
+
+// Deep-copies `items` into pick_items, replacing whatever was there.
+@(private = "file")
+command_palette_set_pick_items :: proc(palette: ^Command_Palette, items: []Pick_Item) {
     command_palette_clear_pick_items(palette)
     for it in items {
         append(&palette.pick_items, Pick_Item {
@@ -304,14 +367,6 @@ command_palette_pick_rich :: proc(
             detail   = it.detail == "" ? "" : strings.clone(it.detail),
         })
     }
-    palette.prompt_label = label
-    palette.pick_index_run = run
-    palette.pick_data = data
-    palette.pick_rich = true
-    palette.visible = true
-    command_palette_reset(palette, .Pick)
-    ctx.focused = &palette.widget
-    ui.widget_bring_to_front(&palette.widget)
 }
 
 @(private = "file")
@@ -497,8 +552,10 @@ command_palette_layout :: proc(widget: ^ui.Widget, bounds: rl.Rectangle) {
     }
     // Rich pick reserves one extra row beneath the list for the preview footer.
     footer_rows := (palette.mode == .Pick && palette.pick_rich && visible_rows > 0) ? 1 : 0
+    // A loading rich pick with no rows yet reserves one row for the "Loading…" hint.
+    loading_rows := (palette.mode == .Pick && palette.pick_rich && palette.pick_loading && visible_rows == 0) ? 1 : 0
     width := min(palette.width, bounds.width - 80)
-    height := palette.input_height + cast(f32) (visible_rows + footer_rows) * palette.row_height + 10
+    height := palette.input_height + cast(f32) (visible_rows + footer_rows + loading_rows) * palette.row_height + 10
 
     palette.box = rl.Rectangle {
         x = bounds.x + (bounds.width - width) * 0.5,
@@ -675,6 +732,12 @@ command_palette_draw :: proc(widget: ^ui.Widget, _: ^ui.Context) {
                 ui.draw_text(command.shortcut, shortcut_x, row_text_y, 15, palette.muted_color)
             }
         }
+    }
+
+    // Loading rich pick with no rows yet: a dim hint where the list will appear.
+    if palette.mode == .Pick && palette.pick_rich && palette.pick_loading && len(palette.matches) == 0 {
+        row_text_y := cast(i32) (list_top + (palette.row_height - 17) * 0.5)
+        ui.draw_text("Loading workspace symbols...", cast(i32) (palette.box.x + pad), row_text_y, 17, palette.muted_color)
     }
 
     // Rich pick: a dim preview line under the list for the selected symbol,

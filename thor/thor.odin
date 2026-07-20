@@ -169,6 +169,10 @@ Thor :: struct {
     // a result can be routed back to the right pane and stale ones dropped.
     hover_editor:             ^widgets.Editor,
     hover_request_id:         u64,
+    // In-flight workspace-symbols scan: its request id. The picker opens
+    // immediately in a loading state; the matching result fills it in, and a
+    // superseded (or already-replaced) result is dropped.
+    workspace_symbols_request_id: u64,
     // Transient statusline notice (e.g. "No definition found") and the time it
     // was posted; thor_status_info hides it once STATUS_MESSAGE_SECS elapse.
     status_message:           string,
