@@ -80,8 +80,12 @@ lowest latency.
   (`pkg.fn(...)`) and cross-file workspace scan — and the active parameter is the
   count of top-level commas before the caret in the call's parentheses. Only
   procedures answer; the popup dismisses on Escape, a caret jump, or when focus
-  leaves the pane. Not yet auto-triggered while typing, and the active-parameter
-  bracket does not live-update as arguments are typed.
+  leaves the pane. **Auto-triggered while typing:** opening `(` or a `,` pops the
+  signature up without the keybind, and once it is up every argument keystroke,
+  Backspace/Delete and Left/Right re-resolves it so the bracketed active parameter
+  tracks the caret; moving the caret out of the call (or closing it) dismisses the
+  popup silently. The auto path never flashes "No signature found" — only the
+  explicit keybind does.
 
 ---
 
@@ -139,9 +143,11 @@ lowest latency.
       `signature_help`, which resolves the enclosing call's procedure (same-file,
       package-qualified and cross-file, reusing the goto resolution) and returns its
       signature line plus the byte range of the active parameter. Shown in a popup
-      above the caret with the active argument bracketed. Missing: auto-trigger
-      while typing, live active-parameter updates, and overload sets (the first
-      matching procedure wins).
+      above the caret with the active argument bracketed. Auto-triggers on `(`/`,`
+      and live-updates the active parameter as arguments are typed/edited (editor
+      `on_signature` callback → `thor_editor_signature_help`, silent on miss).
+      Missing: overload sets (the first matching procedure wins). Each keystroke
+      spawns a fresh request — see request coalescing under scalability.
 - [ ] **Other LSP features not started:** rename, completion (semantic),
       formatting, code actions, semantic tokens. (Diagnostics land via
       `thor/diagnostics.odin`, outside this seam.)

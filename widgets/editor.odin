@@ -21,6 +21,12 @@ Goto_Definition_Proc :: #type proc(data: rawptr, state: ^textedit.State, offset:
 // and calls editor_show_hover on the same editor.
 Hover_Proc :: #type proc(data: rawptr, editor: ^Editor, state: ^textedit.State, offset: int)
 
+// Signature-help request, fired automatically as the caret moves inside a call
+// (typing `(`/`,`, editing arguments). Carries the buffer and the caret offset;
+// the owner resolves the enclosing call and calls editor_show_signature, or
+// editor_clear_signature when the caret is no longer in a call.
+Signature_Proc :: #type proc(data: rawptr, editor: ^Editor, state: ^textedit.State, offset: int)
+
 // One on-screen row. A wrapped logical line spans several; `first` carries the
 // line number. Rebuilt each layout.
 Visual_Row :: struct {
@@ -115,6 +121,10 @@ Editor :: struct {
     // Hover: a mouse-dwell request to the owner and the popup its result fills.
     on_hover:            Hover_Proc,
     hover_data:          rawptr,
+    // Signature help: an auto-trigger request to the owner as the caret moves in
+    // a call. The owner fills the popup below via editor_show_signature.
+    on_signature:        Signature_Proc,
+    signature_data:      rawptr,
     // Dwell tracking: the spot the cursor settled on and when. hover_probe_offset
     // is the byte offset a request was fired for (-1 = none), so a still cursor
     // fires exactly once until it moves again.
@@ -158,6 +168,23 @@ editor_set_on_goto_definition :: proc(editor: ^Editor, on_goto_definition: Goto_
 editor_set_on_hover :: proc(editor: ^Editor, on_hover: Hover_Proc, data: rawptr) {
     editor.on_hover = on_hover
     editor.hover_data = data
+}
+
+editor_set_on_signature :: proc(editor: ^Editor, on_signature: Signature_Proc, data: rawptr) {
+    editor.on_signature = on_signature
+    editor.signature_data = data
+}
+
+// Asks the owner to (re)resolve signature help at the caret. Fired on the
+// characters that open or advance a call and, once a popup is up, on every edit
+// or horizontal move so the active argument tracks the caret. A no-op without an
+// owner or buffer.
+editor_request_signature :: proc(editor: ^Editor) {
+    if editor.on_signature == nil || editor.state == nil {
+        return
+    }
+    off := textedit.primary_cursor(editor.state).caret
+    editor.on_signature(editor.signature_data, editor, editor.state, off)
 }
 
 // Shows the hover popup with `text` describing bytes [start, end). Ignored when
@@ -696,6 +723,11 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
             } else {
                 editor_dismiss_completion(editor)
             }
+            // Open signature help on `(`/`,`, or refresh the active argument of an
+            // already-shown popup as the argument text is typed.
+            if event.codepoint == '(' || event.codepoint == ',' || editor.signature_active {
+                editor_request_signature(editor)
+            }
             editor_scroll_to_caret(editor)
             return true
         }
@@ -804,6 +836,9 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
             textedit.delete_backward(state)
             editor_update_completion(editor)
         }
+        if editor.signature_active {
+            editor_request_signature(editor)
+        }
         editor_scroll_to_caret(editor)
         return true
     case .DELETE:
@@ -813,6 +848,9 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
             textedit.delete_forward(state)
         }
         editor_dismiss_completion(editor)
+        if editor.signature_active {
+            editor_request_signature(editor)
+        }
         editor_scroll_to_caret(editor)
         return true
     case .ENTER, .KP_ENTER:
@@ -848,6 +886,9 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
         } else {
             textedit.move_horizontal(state, -1, event.shift)
         }
+        if editor.signature_active {
+            editor_request_signature(editor)
+        }
         editor_scroll_to_caret(editor)
         return true
     case .RIGHT:
@@ -857,6 +898,9 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
             textedit.move_line_end(state, event.shift)
         } else {
             textedit.move_horizontal(state, 1, event.shift)
+        }
+        if editor.signature_active {
+            editor_request_signature(editor)
         }
         editor_scroll_to_caret(editor)
         return true

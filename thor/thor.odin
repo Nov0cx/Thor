@@ -193,6 +193,10 @@ Thor :: struct {
     // In-flight signature-help request: its request id, so a superseded result
     // (the caret moved on to another call) is dropped rather than flashed.
     signature_request_id:     u64,
+    // Whether the in-flight signature request was auto-triggered (typing in a
+    // call) rather than the explicit keybind. An auto request that resolves to no
+    // call silently dismisses the popup; the explicit one flashes "No signature".
+    signature_auto:           bool,
     // Transient statusline notice (e.g. "No definition found") and the time it
     // was posted; thor_status_info hides it once STATUS_MESSAGE_SECS elapse.
     status_message:           string,

@@ -178,10 +178,28 @@ thor_find_references :: proc(thor: ^Thor) {
     )
 }
 
-// Ctrl+Shift+Space: resolve the call the caret is inside and flash its signature,
-// with the active argument bracketed, in the statusline. Async; the result is
-// shown by thor_show_signature.
+// Ctrl+Shift+Space: resolve the call the caret is inside and show its signature,
+// with the active argument bracketed, in a popup above the caret. Async; the
+// result is shown by thor_show_signature. The explicit keybind flashes when the
+// caret is not in a call.
 thor_signature_help :: proc(thor: ^Thor) {
+    thor_request_signature(thor, auto = false)
+}
+
+// Editor auto-trigger: as the caret moves inside a call (typing `(`/`,`, editing
+// arguments), resolve the enclosing call silently — no flash when the caret is
+// not in one, and any live popup is dismissed instead.
+thor_editor_signature_help :: proc(data: rawptr, editor: ^widgets.Editor, state: ^textedit.State, offset: int) {
+    thor := cast(^Thor) data
+    thor_request_signature(thor, auto = true)
+}
+
+// Dispatches a Signature_Help request for the active file's caret. `auto`
+// distinguishes the typing-driven trigger (silent on miss) from the explicit
+// keybind (flashes on miss); it rides along to thor_show_signature via
+// signature_auto.
+@(private = "file")
+thor_request_signature :: proc(thor: ^Thor, auto: bool) {
     file := thor_active_open_file(thor)
     if file == nil || !file.loaded {
         return
@@ -205,6 +223,7 @@ thor_signature_help :: proc(thor: ^Thor) {
         return
     }
     thor.signature_request_id = id
+    thor.signature_auto = auto
 }
 
 // Frees the jump targets kept from the last symbol picker.
@@ -289,8 +308,16 @@ thor_show_signature :: proc(thor: ^Thor, res: ^lang.Result) {
         return
     }
     thor.signature_request_id = 0
+    auto := thor.signature_auto
+    editor := thor.active_pane == 0 ? thor.editor : thor.editor2
     if !res.ok || res.signature.label == "" {
-        thor_flash_status(thor, "No signature found")
+        // An auto request that finds no call just dismisses whatever popup was up
+        // (the caret has moved out of the call); only the explicit keybind flashes.
+        if auto {
+            widgets.editor_clear_signature(editor)
+        } else {
+            thor_flash_status(thor, "No signature found")
+        }
         return
     }
     file := thor_active_open_file(thor)
@@ -303,7 +330,6 @@ thor_show_signature :: proc(thor: ^Thor, res: ^lang.Result) {
     if sig.active_end > sig.active_start && sig.active_start >= 0 && sig.active_end <= len(label) {
         text = fmt.tprintf("%s[%s]%s", label[:sig.active_start], label[sig.active_start:sig.active_end], label[sig.active_end:])
     }
-    editor := thor.active_pane == 0 ? thor.editor : thor.editor2
     widgets.editor_show_signature(editor, text, textedit.primary_cursor(&file.state).caret)
 }
 
