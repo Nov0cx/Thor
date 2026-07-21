@@ -24,6 +24,20 @@ Thor depends on:
   for syntax highlighting.
 - Lua 5.4 (Odin's bundled `vendor:lua`) for the plugin system.
 
+### Syntax highlighting
+
+Each language is a plugin under `plugins/<id>/plugin.lua`. Two backends:
+
+- **tree-sitter grammars** for full languages — Odin, Lua, C, C++, Go, Jai,
+  JavaScript/JSX, TypeScript, TSX, Rust, Python, Ruby, Java, Kotlin, Zig, C#,
+  PHP, Haskell and OCaml. Their parsers are local build artifacts installed via
+  `odin run build -- install-parser` (see [vendor/README.md](vendor/README.md));
+  `syntax/syntax.odin` hard-imports each, so every grammar the source references
+  must be installed before the app builds (CI installs the full list).
+- **pure-Lua lexers** for config/markup formats where a grammar is overkill —
+  JSON, Markdown, shell, batch and similar. These need no native build; a plugin
+  just returns spans from a `highlight` function.
+
 Both submodules are needed, so clone with them:
 
 ```bash

@@ -18,6 +18,16 @@ import ts_lua "../vendor/odin-tree-sitter/parsers/lua"
 import ts_odin "../vendor/odin-tree-sitter/parsers/odin"
 import ts_ts "../vendor/odin-tree-sitter/parsers/typescript"
 import ts_tsx "../vendor/odin-tree-sitter/parsers/tsx"
+import ts_rust "../vendor/odin-tree-sitter/parsers/rust"
+import ts_python "../vendor/odin-tree-sitter/parsers/python"
+import ts_ruby "../vendor/odin-tree-sitter/parsers/ruby"
+import ts_java "../vendor/odin-tree-sitter/parsers/java"
+import ts_kotlin "../vendor/odin-tree-sitter/parsers/kotlin"
+import ts_zig "../vendor/odin-tree-sitter/parsers/zig"
+import ts_csharp "../vendor/odin-tree-sitter/parsers/c_sharp"
+import ts_php "../vendor/odin-tree-sitter/parsers/php"
+import ts_haskell "../vendor/odin-tree-sitter/parsers/haskell"
+import ts_ocaml "../vendor/odin-tree-sitter/parsers/ocaml"
 
 // A resolved highlight span. `capture` is the tree-sitter capture name that won
 // this byte range (e.g. "keyword.return", "type.builtin", "function.call").
@@ -59,6 +69,16 @@ highlighter_create :: proc() -> Highlighter {
     h.languages["javascript"] = Language_Entry{ts_js.tree_sitter_javascript(), ts_js.HIGHLIGHTS + "\n" + ts_js.HIGHLIGHTS_JSX}
     h.languages["typescript"] = Language_Entry{ts_ts.tree_sitter_typescript(), ts_js.HIGHLIGHTS + "\n" + ts_ts.HIGHLIGHTS}
     h.languages["tsx"] = Language_Entry{ts_tsx.tree_sitter_tsx(), ts_js.HIGHLIGHTS + "\n" + ts_js.HIGHLIGHTS_JSX + "\n" + ts_tsx.HIGHLIGHTS}
+    h.languages["rust"] = Language_Entry{ts_rust.tree_sitter_rust(), ts_rust.HIGHLIGHTS}
+    h.languages["python"] = Language_Entry{ts_python.tree_sitter_python(), ts_python.HIGHLIGHTS}
+    h.languages["ruby"] = Language_Entry{ts_ruby.tree_sitter_ruby(), ts_ruby.HIGHLIGHTS}
+    h.languages["java"] = Language_Entry{ts_java.tree_sitter_java(), ts_java.HIGHLIGHTS}
+    h.languages["kotlin"] = Language_Entry{ts_kotlin.tree_sitter_kotlin(), ts_kotlin.HIGHLIGHTS}
+    h.languages["zig"] = Language_Entry{ts_zig.tree_sitter_zig(), ts_zig.HIGHLIGHTS}
+    h.languages["c_sharp"] = Language_Entry{ts_csharp.tree_sitter_c_sharp(), ts_csharp.HIGHLIGHTS}
+    h.languages["php"] = Language_Entry{ts_php.tree_sitter_php(), ts_php.HIGHLIGHTS}
+    h.languages["haskell"] = Language_Entry{ts_haskell.tree_sitter_haskell(), ts_haskell.HIGHLIGHTS}
+    h.languages["ocaml"] = Language_Entry{ts_ocaml.tree_sitter_ocaml(), ts_ocaml.HIGHLIGHTS}
     return h
 }
 
@@ -116,7 +136,7 @@ highlight :: proc(h: ^Highlighter, source: string, lang_id: string, allocator :=
             name := ts.query_capture_name_for_id(query, c.index)
             start := int(ts.node_start_byte(c.node))
             end := int(ts.node_end_byte(c.node))
-            if end > start {
+            if end > start && !is_ignored_capture(name) {
                 append(&caps, Capture{start, end, name, int(match.pattern_index)})
             }
         }
@@ -190,6 +210,20 @@ Capture :: struct {
     end:     int,
     capture: string,
     pattern: int,
+}
+
+// Captures that must not colour text: @spell/@nospell/@conceal/@none drive other
+// editor features, and captures whose name starts with "_" are private helpers a
+// grammar's query uses only inside predicates. Skipping them keeps such a capture
+// from shadowing the real highlight on the same node (it would otherwise win on a
+// higher pattern index, e.g. tree-sitter-haskell's trailing `(comment) @spell`).
+@(private)
+is_ignored_capture :: proc(name: string) -> bool {
+    switch name {
+    case "spell", "nospell", "conceal", "none":
+        return true
+    }
+    return len(name) > 0 && name[0] == '_'
 }
 
 // Leading component of a capture name ("type.builtin" -> "type").

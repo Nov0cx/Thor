@@ -343,3 +343,143 @@ test_json_plugin_highlights :: proc(t: ^testing.T) {
         testing.expect(t, spans[i - 1].end <= spans[i].start, "spans overlap or unordered")
     }
 }
+
+// Loads each newly added tree-sitter grammar plugin and confirms its highlights
+// query compiles and resolves the common keyword/string/comment captures to the
+// mapped roles. Proves the parser lib links and the query loads for every one.
+@(test)
+test_added_grammar_plugins_highlight :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+    manager_load(&m)
+
+    expect :: proc(t: ^testing.T, spans: []Span, src, needle, want: string) {
+        got := role_covering(spans, src, needle)
+        testing.expectf(t, got == want, "%q: role %q, want %q", needle, got, want)
+    }
+
+    Case :: struct {
+        ext:     string,
+        src:     string,
+        keyword: string,
+        str:     string,
+        comment: string,
+    }
+    cases := []Case {
+        {".rs", "fn main() {\n    let s = \"hi\"; // note\n}\n", "fn", "\"hi\"", "// note"},
+        {".py", "def main():\n    s = \"hi\"  # note\n", "def", "\"hi\"", "# note"},
+        {".rb", "def main\n  s = \"hi\" # note\nend\n", "def", "\"hi\"", "# note"},
+        {".java", "class A {\n  String s = \"hi\"; // note\n}\n", "class", "\"hi\"", "// note"},
+        {".kt", "fun main() {\n  val s = \"hi\" // note\n}\n", "fun", "\"hi\"", "// note"},
+        {".zig", "pub fn main() void {\n    const s = \"hi\"; // note\n}\n", "fn", "\"hi\"", "// note"},
+        {".cs", "class A {\n  string s = \"hi\"; // note\n}\n", "class", "\"hi\"", "// note"},
+        {".php", "<?php\nfunction f() {\n  $s = \"hi\"; // note\n}\n", "function", "\"hi\"", "// note"},
+        {".hs", "main :: IO ()\nmain = putStrLn \"hi\" -- note\n", "", "\"hi\"", "-- note"},
+        {".ml", "let s = \"hi\" (* note *)\n", "let", "\"hi\"", "(* note *)"},
+    }
+
+    for c in cases {
+        testing.expectf(t, supports(&m, c.ext), "%s registered", c.ext)
+        spans := highlight(&m, c.src, c.ext, context.allocator)
+        defer delete(spans)
+        testing.expectf(t, len(spans) > 0, "%s spans produced", c.ext)
+        if c.keyword != "" {
+            expect(t, spans, c.src, c.keyword, "keywords")
+        }
+        expect(t, spans, c.src, c.str, "strings")
+        expect(t, spans, c.src, c.comment, "comments")
+
+        for i in 1 ..< len(spans) {
+            testing.expectf(t, spans[i - 1].end <= spans[i].start, "%s spans overlap or unordered", c.ext)
+        }
+    }
+}
+
+// Loads each newly added pure-Lua lexer plugin (markup/config/build formats with
+// no grammar) and confirms its spans resolve to the expected roles and stay
+// ordered. The Makefile/Dockerfile cases use their bare-filename keys, which the
+// host maps to via its basename fallback for extensionless files.
+@(test)
+test_added_lexer_plugins_highlight :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+    manager_load(&m)
+
+    Pair :: struct {
+        needle: string,
+        role:   string,
+    }
+    Case :: struct {
+        key:    string,
+        src:    string,
+        checks: []Pair,
+    }
+    cases := []Case {
+        {
+            ".xml",
+            "<root attr=\"v\">\n  <!-- c -->\n</root>\n",
+            {{"root", "tags"}, {"attr", "attributes"}, {"\"v\"", "strings"}, {"<!-- c -->", "comments"}},
+        },
+        {
+            ".html",
+            "<div class=\"a\">hi</div>\n",
+            {{"div", "tags"}, {"class", "attributes"}, {"\"a\"", "strings"}},
+        },
+        {
+            ".css",
+            "/* c */\n.foo { color: red; }\n",
+            {{"/* c */", "comments"}, {".foo", "tags"}, {"color", "attributes"}},
+        },
+        {
+            ".ini",
+            "[main]\nkey = \"v\"\n; c\n",
+            {{"[main]", "keywords"}, {"key", "attributes"}, {"\"v\"", "strings"}, {"; c", "comments"}},
+        },
+        {
+            ".toml",
+            "[tbl]\nname = \"x\"\nn = 5\n# c\n",
+            {{"[tbl]", "keywords"}, {"name", "attributes"}, {"\"x\"", "strings"}, {"5", "numbers"}, {"# c", "comments"}},
+        },
+        {
+            ".yaml",
+            "# c\nkey: val\nnum: 5\n",
+            {{"# c", "comments"}, {"key", "attributes"}, {"5", "numbers"}},
+        },
+        {
+            ".env",
+            "# c\nKEY=\"v\"\n",
+            {{"# c", "comments"}, {"KEY", "attributes"}, {"\"v\"", "strings"}},
+        },
+        {
+            "Makefile",
+            "# c\nall: build\n\tgcc\n",
+            {{"# c", "comments"}, {"all", "functions"}},
+        },
+        {
+            "Dockerfile",
+            "# c\nFROM alpine AS base\n",
+            {{"# c", "comments"}, {"FROM", "keywords"}, {"AS", "keywords"}},
+        },
+    }
+
+    for c in cases {
+        testing.expectf(t, supports(&m, c.key), "%s registered", c.key)
+        spans := highlight(&m, c.src, c.key, context.allocator)
+        defer {
+            for s in spans {
+                delete(s.role)
+            }
+            delete(spans)
+        }
+        testing.expectf(t, len(spans) > 0, "%s spans produced", c.key)
+        for chk in c.checks {
+            got := role_covering(spans, c.src, chk.needle)
+            testing.expectf(t, got == chk.role, "%s %q: role %q, want %q", c.key, chk.needle, got, chk.role)
+        }
+        for i in 1 ..< len(spans) {
+            testing.expectf(t, spans[i - 1].end <= spans[i].start, "%s spans overlap or unordered", c.key)
+        }
+    }
+}

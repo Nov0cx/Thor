@@ -54,6 +54,16 @@ odin run build -- install-parser https://github.com/tree-sitter/tree-sitter-java
 odin run build -- install-parser https://github.com/tree-sitter/tree-sitter-typescript "-path=typescript" "-name=typescript" -yes
 odin run build -- install-parser https://github.com/tree-sitter/tree-sitter-typescript "-path=tsx" "-name=tsx" -yes
 odin run build -- install-parser https://github.com/constantitus/tree-sitter-jai -yes
+odin run build -- install-parser https://github.com/tree-sitter/tree-sitter-rust -yes
+odin run build -- install-parser https://github.com/tree-sitter/tree-sitter-python -yes
+odin run build -- install-parser https://github.com/tree-sitter/tree-sitter-ruby -yes
+odin run build -- install-parser https://github.com/tree-sitter/tree-sitter-java -yes
+odin run build -- install-parser https://github.com/fwcd/tree-sitter-kotlin -yes
+odin run build -- install-parser https://github.com/tree-sitter-grammars/tree-sitter-zig -yes
+odin run build -- install-parser https://github.com/tree-sitter/tree-sitter-c-sharp "-name=c_sharp" -yes
+odin run build -- install-parser https://github.com/tree-sitter/tree-sitter-php "-path=php" "-name=php" -yes
+odin run build -- install-parser https://github.com/tree-sitter/tree-sitter-haskell -yes
+odin run build -- install-parser https://github.com/tree-sitter/tree-sitter-ocaml "-path=grammars/ocaml" "-name=ocaml" -yes
 ```
 
 `syntax/syntax.odin` hard-imports every parser above, so a fresh checkout must
@@ -66,3 +76,12 @@ add a `plugins/<id>/plugin.lua` that maps the file extensions to that grammar id
 and its capture heads to theme color roles. Grammars whose highlights query
 inherits another (typescript/tsx build on javascript) prepend the base query in
 `highlighter_create`.
+
+Some grammars keep their `grammar.js`/`src` in a subdirectory (php in `php/`,
+ocaml in `grammars/ocaml/`) or export a symbol name that is not a clean Odin
+identifier (`tree-sitter-c-sharp` -> `c_sharp`); pass `-path=<subdir>` and/or
+`-name=<id>` so the generated package, `tree_sitter_<id>` binding and parser
+directory all agree. Config/markup formats without a good grammar (JSON, XML,
+INI, Markdown, shell, ...) instead ship a pure-Lua lexer in
+`plugins/<id>/plugin.lua` with a `highlight` function and no `grammar` field, so
+they need no native build.

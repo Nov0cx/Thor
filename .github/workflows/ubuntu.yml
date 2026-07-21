@@ -21,6 +21,17 @@ env:
   # typescript and tsx are two grammars in one repo, selected by subdirectory.
   TS_TS: https://github.com/tree-sitter/tree-sitter-typescript
   TS_JAI: https://github.com/constantitus/tree-sitter-jai
+  TS_RUST: https://github.com/tree-sitter/tree-sitter-rust
+  TS_PYTHON: https://github.com/tree-sitter/tree-sitter-python
+  TS_RUBY: https://github.com/tree-sitter/tree-sitter-ruby
+  TS_JAVA: https://github.com/tree-sitter/tree-sitter-java
+  TS_KOTLIN: https://github.com/fwcd/tree-sitter-kotlin
+  TS_ZIG: https://github.com/tree-sitter-grammars/tree-sitter-zig
+  TS_CSHARP: https://github.com/tree-sitter/tree-sitter-c-sharp
+  # php and ocaml keep their grammar in a subdirectory, selected with -path.
+  TS_PHP: https://github.com/tree-sitter/tree-sitter-php
+  TS_HASKELL: https://github.com/tree-sitter/tree-sitter-haskell
+  TS_OCAML: https://github.com/tree-sitter/tree-sitter-ocaml
 
 jobs:
   ubuntu:
@@ -59,6 +70,16 @@ jobs:
           odin run build -- install-parser "$TS_TS" -path=typescript -name=typescript -yes
           odin run build -- install-parser "$TS_TS" -path=tsx -name=tsx -yes
           odin run build -- install-parser "$TS_JAI" -yes
+          odin run build -- install-parser "$TS_RUST" -yes
+          odin run build -- install-parser "$TS_PYTHON" -yes
+          odin run build -- install-parser "$TS_RUBY" -yes
+          odin run build -- install-parser "$TS_JAVA" -yes
+          odin run build -- install-parser "$TS_KOTLIN" -yes
+          odin run build -- install-parser "$TS_ZIG" -yes
+          odin run build -- install-parser "$TS_CSHARP" -name=c_sharp -yes
+          odin run build -- install-parser "$TS_PHP" -path=php -name=php -yes
+          odin run build -- install-parser "$TS_HASKELL" -yes
+          odin run build -- install-parser "$TS_OCAML" -path=grammars/ocaml -name=ocaml -yes
 
       - name: Build Thor
         run: odin build . -debug
