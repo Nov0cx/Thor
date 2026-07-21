@@ -273,10 +273,13 @@ thor_on_lang_result :: proc(user: rawptr, res: ^lang.Result) {
     thor := cast(^Thor) user
     #partial switch res.kind {
     case .Definition:
-        if res.ok {
-            thor_goto_location(thor, res.location.path, res.location.start)
-        } else {
+        if !res.ok {
             thor_flash_status(thor, "No definition found", is_error = true)
+        } else if len(res.symbols) > 1 {
+            // Several workspace files declare the name; let the user pick.
+            thor_show_definition_candidates(thor, res)
+        } else {
+            thor_goto_location(thor, res.location.path, res.location.start)
         }
     case .Hover:
         // Drop superseded results; only the latest request's answer may show,
@@ -414,6 +417,24 @@ thor_show_symbols :: proc(thor: ^Thor, res: ^lang.Result, empty_message: string)
         thor.command_palette,
         &thor.ui_context,
         "Go to symbol...",
+        items,
+        thor_pick_symbol,
+        thor,
+    )
+}
+
+// A go-to-definition that resolved to several workspace declarations (the flat
+// cross-file match ignores package boundaries, so the same name can live in more
+// than one package): list the candidates in the rich picker instead of silently
+// jumping to the first. Reuses the symbol picker's rows and jump targets, so
+// choosing one jumps there.
+@(private = "file")
+thor_show_definition_candidates :: proc(thor: ^Thor, res: ^lang.Result) {
+    items := thor_build_symbol_items(thor, res)
+    widgets.command_palette_pick_rich(
+        thor.command_palette,
+        &thor.ui_context,
+        "Multiple definitions...",
         items,
         thor_pick_symbol,
         thor,

@@ -175,8 +175,14 @@ odin_resolve :: proc(data: rawptr, req: ^Request, res: ^Result) {
     }
 
     // 2) Workspace: scan sibling files for a matching top-level declaration.
+    //    Hover wants the first hit; go-to-definition gathers every match so an
+    //    ambiguous name (declared in several packages) offers a picker.
     if req.workspace != "" {
-        scan_workspace(e, parser, req, name, hover_start, hover_end, res)
+        if req.kind == .Definition {
+            resolve_definition_workspace(e, parser, req, name, res)
+        } else {
+            scan_workspace(e, parser, req, name, hover_start, hover_end, res)
+        }
     }
 }
 
@@ -463,6 +469,128 @@ scan_file :: proc(
             fill_result(res, req, path, source, d, hover_start, hover_end)
             return
         }
+    }
+}
+
+// Go-to-definition's cross-file scan. Gathers every workspace file's top-level
+// declaration named `name` into res.symbols; unlike scan_workspace (first hit
+// wins, used by hover) it never stops early, because the flat cross-file match
+// ignores package boundaries — the same name can be declared in several
+// packages and the user should choose. A single hit collapses back to
+// res.location (the direct-jump path the caller already handles); two or more
+// stay as candidates for a picker.
+@(private = "file")
+resolve_definition_workspace :: proc(
+    e: ^Odin_Engine,
+    parser: ts.Parser,
+    req: ^Request,
+    name: string,
+    res: ^Result,
+) {
+    count := 0
+    def_scan_dir(e, parser, req.workspace, req, name, res, &count, 0)
+    switch len(res.symbols) {
+    case 0:
+        // Unresolved: res.ok stays false so the caller reports "no definition".
+    case 1:
+        // Single definition: collapse to the location a direct jump uses, moving
+        // the (Manager-owned) path into it and freeing the row's other strings.
+        sym := res.symbols[0]
+        res.location = Location{path = sym.path, start = sym.offset, end = sym.offset + len(sym.name)}
+        delete(sym.name)
+        delete(sym.kind)
+        delete(sym.signature)
+        delete(res.symbols)
+        res.symbols = nil
+        res.ok = true
+    case:
+        // Ambiguous: leave the candidates in res.symbols for the picker.
+        res.ok = true
+    }
+}
+
+@(private = "file")
+def_scan_dir :: proc(
+    e: ^Odin_Engine,
+    parser: ts.Parser,
+    dir: string,
+    req: ^Request,
+    name: string,
+    res: ^Result,
+    count: ^int,
+    depth: int,
+) {
+    if count^ >= SCAN_FILE_LIMIT || depth > SCAN_DEPTH_LIMIT {
+        return
+    }
+
+    handle, open_err := os.open(dir)
+    if open_err != nil {
+        return
+    }
+    defer os.close(handle)
+
+    infos, read_err := os.read_dir(handle, -1, context.temp_allocator)
+    if read_err != nil {
+        return
+    }
+
+    for info in infos {
+        if count^ >= SCAN_FILE_LIMIT {
+            return
+        }
+        if info.type == .Directory {
+            if info.name == ".git" || strings.has_prefix(info.name, ".") {
+                continue
+            }
+            def_scan_dir(e, parser, info.fullpath, req, name, res, count, depth + 1)
+            continue
+        }
+        if !strings.has_suffix(info.name, ".odin") {
+            continue
+        }
+        // The request buffer was already searched (with unsaved edits) by the
+        // same-file lexical pass; skip its on-disk copy.
+        if info.fullpath == req.path {
+            continue
+        }
+        count^ += 1
+        def_scan_file(e, parser, info.fullpath, name, res)
+    }
+}
+
+// Appends `path`'s top-level declaration named `name` (if any) to res.symbols as
+// a candidate row: the real Odin declaration line, its kind and the jump target.
+// Top-level names are unique within a file, so it stops at the first match.
+@(private = "file")
+def_scan_file :: proc(e: ^Odin_Engine, parser: ts.Parser, path, name: string, res: ^Result) {
+    data, rerr := os.read_entire_file(path, context.temp_allocator)
+    if rerr != nil {
+        return
+    }
+    source := string(data)
+
+    tree := ts.parser_parse_string(parser, source)
+    if tree == nil {
+        return
+    }
+    defer ts.tree_delete(tree)
+
+    defs := collect_defs(e, ts.tree_root_node(tree), source)
+    for d in defs {
+        if !d.top_level || d.name != name {
+            continue
+        }
+        ident_start := clamp(d.ident_start, 0, len(source))
+        append(&res.symbols, Symbol {
+            name      = strings.clone(d.name),
+            kind      = strings.clone(d.kind),
+            signature = signature_text(source, d),
+            path      = strings.clone(path),
+            line      = strings.count(source[:ident_start], "\n") + 1,
+            offset    = d.ident_start,
+        })
+        return
     }
 }
 

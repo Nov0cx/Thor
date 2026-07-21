@@ -24,7 +24,10 @@ lowest latency.
 
 - **Go to definition** (Odin): local variables, `:=` short declarations,
   parameters (with correct shadowing over file scope), and cross-file top-level
-  symbols. Triggered by Alt+Enter or Ctrl+Click.
+  symbols. Triggered by Alt+Enter or Ctrl+Click. When a name is declared at
+  top-level in several workspace files (the flat cross-file match ignores
+  package boundaries), the jump offers a picker of all candidates instead of
+  silently taking the first; a single match jumps straight there.
 - **Package-qualified go-to-definition & hover** (`pkg.Symbol`): the operand is
   matched against the file's imports and resolved in that package's directory.
   Relative imports (`import "../lib"`, `import "sub"`) resolve fully in-workspace;
@@ -95,8 +98,16 @@ lowest latency.
       `editor_show_hover` fills a popup drawn by `editor_draw_hover`.
 - [x] **"No definition found" feedback.** `thor_flash_status` posts a transient
       `Status_Info.message`, shown accented in the statusbar.
-- [ ] **Multiple candidates.** Cross-file scan returns the *first* match; when a
-      name is defined in several packages/files, offer a picker instead.
+- [x] **Multiple candidates.** The cross-file goto scan gathers *every*
+      workspace file's top-level declaration of the name (not just the first);
+      one hit jumps directly, two or more open the rich picker
+      ("Multiple definitions...") so the user chooses. Same-file lexical and
+      package-qualified resolutions are unambiguous and still jump straight.
+      Engine: `resolve_definition_workspace`/`def_scan_dir`/`def_scan_file`
+      collect into `res.symbols`, collapsing a lone hit back to `res.location`;
+      host: `thor_show_definition_candidates` reuses the symbol picker + jump
+      targets. Still flat/name-based — a picker can list an unrelated same-named
+      symbol in another package until the type layer lands.
 - [ ] **Loading / busy indicator** while a request is in flight
       (`manager_busy` is available).
 - [ ] **Go-back / jump list.** After jumping to a definition there is no way to

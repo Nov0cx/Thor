@@ -221,6 +221,72 @@ test_definition_cross_file :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_definition_multiple_candidates :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // Two packages in the workspace both declare a top-level `shared`. The flat
+    // cross-file scan ignores package boundaries, so it can't disambiguate them;
+    // both must come back as candidates rather than the first winning silently.
+    dir := "thor_lang_test_multi_ws"
+    _ = os.make_directory(dir)
+    defer os.remove(dir)
+
+    a_dir := strings.concatenate({dir, "/a"}, context.temp_allocator)
+    _ = os.make_directory(a_dir)
+    defer os.remove(a_dir)
+    b_dir := strings.concatenate({dir, "/b"}, context.temp_allocator)
+    _ = os.make_directory(b_dir)
+    defer os.remove(b_dir)
+
+    a_path := strings.concatenate({a_dir, "/a.odin"}, context.temp_allocator)
+    a_src := "package a\n\nshared :: proc() -> int {\n\treturn 1\n}\n"
+    _ = os.write_entire_file(a_path, transmute([]byte)a_src)
+    defer os.remove(a_path)
+    b_path := strings.concatenate({b_dir, "/b.odin"}, context.temp_allocator)
+    b_src := "package b\n\nshared :: proc() -> int {\n\treturn 2\n}\n"
+    _ = os.write_entire_file(b_path, transmute([]byte)b_src)
+    defer os.remove(b_path)
+
+    // The reference lives in a file that does NOT declare `shared`, so the
+    // same-file lexical pass misses and the workspace scan runs.
+    main_path := strings.concatenate({dir, "/main.odin"}, context.temp_allocator)
+    main_src := "package demo\n\nmain :: proc() {\n\t_ = shared()\n}\n"
+
+    at := strings.index(main_src, "shared()")
+    req := Request {
+        kind      = .Definition,
+        path      = main_path,
+        ext       = ".odin",
+        source    = main_src,
+        offset    = at,
+        workspace = dir,
+    }
+    res := Result{kind = .Definition}
+    odin_resolve(e, &req, &res)
+    defer {
+        for sym in res.symbols {
+            delete(sym.name)
+            delete(sym.kind)
+            delete(sym.signature)
+            delete(sym.path)
+        }
+        delete(res.symbols)
+        delete(res.location.path)
+    }
+
+    testing.expect(t, res.ok, "expected to resolve shared across files")
+    testing.expectf(t, len(res.symbols) == 2, "candidate count: got %d, want 2", len(res.symbols))
+    if len(res.symbols) == 2 {
+        got_a := strings.has_suffix(res.symbols[0].path, "a.odin") || strings.has_suffix(res.symbols[1].path, "a.odin")
+        got_b := strings.has_suffix(res.symbols[0].path, "b.odin") || strings.has_suffix(res.symbols[1].path, "b.odin")
+        testing.expect(t, got_a, "expected a candidate in a.odin")
+        testing.expect(t, got_b, "expected a candidate in b.odin")
+        testing.expectf(t, res.symbols[0].signature == "shared :: proc() -> int", "signature: got %q", res.symbols[0].signature)
+    }
+}
+
+@(test)
 test_definition_package_import :: proc(t: ^testing.T) {
     e := odin_engine_create()
     defer odin_destroy(e)
