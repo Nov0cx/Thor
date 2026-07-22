@@ -124,6 +124,13 @@ odin_resolve :: proc(data: rawptr, req: ^Request, res: ^Result) {
         return
     }
 
+    // Completion works off the partial word before the caret (which may not yet
+    // parse to an identifier), so it runs before the identifier/import goto logic.
+    if req.kind == .Completion {
+        complete(e, parser, root, req, res)
+        return
+    }
+
     // Caret on an import declaration itself (its alias or its quoted path):
     // resolve to the imported package. Handled before identifier_at because the
     // path string is not an identifier, so a caret resting on it would otherwise
@@ -1105,6 +1112,222 @@ find_proc_dir :: proc(
         }
     }
     return "", {}, false
+}
+
+// Odin keywords and builtin types offered as completion candidates alongside the
+// resolved identifiers.
+@(private = "file")
+ODIN_KEYWORDS :: [?]string {
+    "auto_cast", "bit_field", "bit_set", "break", "case", "cast", "context",
+    "continue", "defer", "distinct", "do", "dynamic", "else", "enum",
+    "fallthrough", "for", "foreign", "if", "import", "in", "map", "matrix",
+    "not_in", "or_else", "or_return", "package", "proc", "return", "struct",
+    "switch", "transmute", "typeid", "union", "using", "when", "where",
+    "bool", "b8", "b16", "b32", "b64",
+    "int", "i8", "i16", "i32", "i64", "i128",
+    "uint", "u8", "u16", "u32", "u64", "u128", "uintptr",
+    "f16", "f32", "f64",
+    "complex32", "complex64", "complex128",
+    "quaternion64", "quaternion128", "quaternion256",
+    "rune", "string", "cstring", "rawptr", "any", "byte",
+    "true", "false", "nil",
+}
+
+// Bytes that make up an Odin identifier, for finding the partial word the caret
+// is completing.
+@(private = "file")
+is_word_byte :: proc(b: u8) -> bool {
+    return b == '_' || (b >= '0' && b <= '9') || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || b >= 0x80
+}
+
+// Code completion for the partial identifier before the caret. Two contexts:
+// after `pkg.` (the operand names an imported package) it lists that package's
+// top-level declarations; otherwise it offers the identifiers in scope — locals
+// and parameters visible at the caret, this file's and this package's top-level
+// declarations, the imported package names, and the Odin keywords and builtin
+// types. All filtered by the typed prefix (case-sensitive) and de-duplicated by
+// name. Name-based, like the rest of the engine: with no type inference,
+// `value.field` member completion isn't offered.
+@(private = "file")
+complete :: proc(e: ^Odin_Engine, parser: ts.Parser, root: ts.Node, req: ^Request, res: ^Result) {
+    src := req.source
+    off := clamp(req.offset, 0, len(src))
+
+    // The partial word being completed: the run of identifier bytes before the caret.
+    start := off
+    for start > 0 && is_word_byte(src[start - 1]) {
+        start -= 1
+    }
+    prefix := src[start:off]
+
+    // `pkg.<prefix>`: the char before the word is a `.` preceded by an identifier
+    // that names an imported package. List that package's top-level symbols.
+    if start > 0 && src[start - 1] == '.' {
+        op_end := start - 1
+        op_start := op_end
+        for op_start > 0 && is_word_byte(src[op_start - 1]) {
+            op_start -= 1
+        }
+        if op_start < op_end {
+            pkg := src[op_start:op_end]
+            if raw, found := import_path(root, src, pkg); found {
+                if dir, dok := package_dir(raw, req.path, req.workspace); dok {
+                    seen := make(map[string]bool, 0, context.temp_allocator)
+                    complete_dir_toplevel(e, parser, dir, prefix, "", res, &seen)
+                }
+            }
+        }
+        // A selector on a value (`v.field`) needs type inference we don't have yet.
+        finish_completion(res)
+        return
+    }
+
+    seen := make(map[string]bool, 0, context.temp_allocator)
+
+    // In-scope locals and parameters, plus this file's top-level declarations
+    // (collect_defs yields both).
+    defs := collect_defs(e, root, src)
+    for d in defs {
+        if !completion_def_ok(d, off) || !completion_matches(d.name, prefix) {
+            continue
+        }
+        add_completion(res, src, d, &seen)
+    }
+
+    // This package's sibling files (an Odin package is one flat directory): their
+    // top-level declarations are visible here unqualified.
+    if req.path != "" {
+        complete_dir_toplevel(e, parser, filepath.dir(req.path), prefix, req.path, res, &seen)
+    }
+
+    // Imported package names are completable identifiers too (`widgets`, `fmt`) —
+    // the operand you then qualify with `.` — though they're not declarations
+    // collect_defs yields.
+    for i in 0 ..< ts.node_named_child_count(root) {
+        child := ts.node_named_child(root, i)
+        if string(ts.node_type(child)) != "import_declaration" {
+            continue
+        }
+        if name, _, iok := import_name_and_path(child, src); iok && completion_matches(name, prefix) && name not_in seen {
+            seen[name] = true
+            append(&res.symbols, Symbol {
+                name      = strings.clone(name),
+                kind      = strings.clone("namespace"),
+                signature = strings.clone(name),
+            })
+        }
+    }
+
+    // Keywords and builtin types.
+    for kw in ODIN_KEYWORDS {
+        if completion_matches(kw, prefix) && kw not_in seen {
+            seen[kw] = true
+            append(&res.symbols, Symbol {
+                name      = strings.clone(kw),
+                kind      = strings.clone("keyword"),
+                signature = strings.clone(kw),
+            })
+        }
+    }
+
+    finish_completion(res)
+}
+
+// Whether a declaration belongs in the general completion list: an in-scope
+// local or parameter (visible at the caret), or any file-scope declaration.
+// Struct fields, the package/import namespace and labels are excluded — a field
+// is only reachable through an instance, which needs type inference.
+@(private = "file")
+completion_def_ok :: proc(d: Def, off: int) -> bool {
+    switch d.kind {
+    case "field", "namespace", "label", "":
+        return false
+    }
+    if d.top_level {
+        return true
+    }
+    return off >= d.scope_start && off <= d.scope_end
+}
+
+// Case-sensitive prefix match; an empty prefix matches everything.
+@(private = "file")
+completion_matches :: proc(name, prefix: string) -> bool {
+    return strings.has_prefix(name, prefix)
+}
+
+// Appends a completion candidate for `d`, de-duplicated by name. The label is the
+// declaration line for a top-level symbol, or just the name for a local/param.
+// Owned strings clone into context.allocator (the Manager's).
+@(private = "file")
+add_completion :: proc(res: ^Result, source: string, d: Def, seen: ^map[string]bool) {
+    if d.name in seen^ {
+        return
+    }
+    seen^[d.name] = true
+    label := d.top_level ? signature_text(source, d) : strings.clone(d.name)
+    append(&res.symbols, Symbol {
+        name      = strings.clone(d.name),
+        kind      = strings.clone(d.kind),
+        signature = label,
+    })
+}
+
+// Appends one directory's top-level declarations (its .odin files, non-recursive
+// — an Odin package is a flat dir) whose names match `prefix`, skipping `skip`
+// (the requesting file, whose live buffer was scanned already).
+@(private = "file")
+complete_dir_toplevel :: proc(
+    e: ^Odin_Engine,
+    parser: ts.Parser,
+    dir, prefix, skip: string,
+    res: ^Result,
+    seen: ^map[string]bool,
+) {
+    handle, open_err := os.open(dir)
+    if open_err != nil {
+        return
+    }
+    defer os.close(handle)
+
+    infos, read_err := os.read_dir(handle, -1, context.temp_allocator)
+    if read_err != nil {
+        return
+    }
+
+    for info in infos {
+        if info.type == .Directory || !strings.has_suffix(info.name, ".odin") {
+            continue
+        }
+        if info.fullpath == skip {
+            continue
+        }
+        data, rerr := os.read_entire_file(info.fullpath, context.temp_allocator)
+        if rerr != nil {
+            continue
+        }
+        source := string(data)
+        tree := ts.parser_parse_string(parser, source)
+        if tree == nil {
+            continue
+        }
+        defs := collect_defs(e, ts.tree_root_node(tree), source)
+        for d in defs {
+            if d.top_level && symbol_kind_shown(d.kind) && completion_matches(d.name, prefix) {
+                add_completion(res, source, d, seen)
+            }
+        }
+        ts.tree_delete(tree)
+    }
+}
+
+// Sorts completion candidates by name for a stable list and flags the result ok
+// when any matched.
+@(private = "file")
+finish_completion :: proc(res: ^Result) {
+    slice.sort_by(res.symbols[:], proc(a, b: Symbol) -> bool {
+        return a.name < b.name
+    })
+    res.ok = len(res.symbols) > 0
 }
 
 // Byte range, within a signature line, of the `active`-th parameter — used to

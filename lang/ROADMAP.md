@@ -159,9 +159,19 @@ lowest latency.
       `on_signature` callback → `thor_editor_signature_help`, silent on miss).
       Missing: overload sets (the first matching procedure wins). Each keystroke
       spawns a fresh request — see request coalescing under scalability.
-- [ ] **Other LSP features not started:** rename, completion (semantic),
-      formatting, code actions, semantic tokens. (Diagnostics land via
-      `thor/diagnostics.odin`, outside this seam.)
+- [x] **Completion (semantic).** `Completion` request served by `complete`,
+      driven from the editor as a word is typed (`on_completion` callback →
+      `thor_editor_completion`, gated to Odin buffers by `completion_semantic`).
+      Offers the identifiers in scope — locals/params visible at the caret, this
+      file's and this package's top-level declarations — plus keywords and builtin
+      types, all prefix-filtered (case-sensitive) and de-duplicated; after `pkg.`
+      it lists the imported package's top-level symbols. Candidates fill the
+      editor's existing autocomplete popup, tinted by kind. Name-based, like the
+      rest of the engine: value member access (`v.field`) waits on type inference.
+      Each keystroke spawns a fresh request — see request coalescing under scalability.
+- [ ] **Other LSP features not started:** rename, formatting, code actions,
+      semantic tokens. (Diagnostics land via `thor/diagnostics.odin`, outside
+      this seam.)
 
 ## Missing — scalability / performance
 

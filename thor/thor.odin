@@ -197,6 +197,11 @@ Thor :: struct {
     // call) rather than the explicit keybind. An auto request that resolves to no
     // call silently dismisses the popup; the explicit one flashes "No signature".
     signature_auto:           bool,
+    // In-flight completion request: the pane it came from and its request id, so a
+    // superseded result (a later keystroke fired a newer request) is dropped and
+    // the candidates route back to the right editor.
+    completion_editor:        ^widgets.Editor,
+    completion_request_id:    u64,
     // Transient statusline notice (e.g. "No definition found") and the time it
     // was posted; thor_status_info hides it once STATUS_MESSAGE_SECS elapse.
     status_message:           string,
@@ -211,7 +216,7 @@ init :: proc() -> ^Thor {
         log.infof("[startup] %-24s %.1f ms", name, time.duration_milliseconds(time.tick_since(phase^)))
         phase^ = time.tick_now()
     }
-
+    
     // Resolve the workspace (owned, absolute) BEFORE moving the CWD: a path
     // argument wins, else the launch directory. Everything below loads relative
     // to the CWD, which we then repoint at the exe directory.

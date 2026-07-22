@@ -27,6 +27,19 @@ Hover_Proc :: #type proc(data: rawptr, editor: ^Editor, state: ^textedit.State, 
 // editor_clear_signature when the caret is no longer in a call.
 Signature_Proc :: #type proc(data: rawptr, editor: ^Editor, state: ^textedit.State, offset: int)
 
+// Code-completion request, fired as an identifier is typed in a buffer whose
+// language has a backend. Carries the caret offset; the owner resolves candidates
+// and fills the popup below via editor_set_completions (async). Returns true when
+// it took over completion, so the editor skips its buffer-word fallback.
+Completion_Proc :: #type proc(data: rawptr, editor: ^Editor, state: ^textedit.State, offset: int) -> bool
+
+// One completion candidate handed back by the owner: the identifier to insert and
+// the color to tint its row (by symbol kind).
+Completion_Item :: struct {
+    text:  string,
+    color: rl.Color,
+}
+
 // One on-screen row. A wrapped logical line spans several; `first` carries the
 // line number. Rebuilt each layout.
 Visual_Row :: struct {
@@ -125,6 +138,12 @@ Editor :: struct {
     // a call. The owner fills the popup below via editor_show_signature.
     on_signature:        Signature_Proc,
     signature_data:      rawptr,
+    // Semantic completion: an owner-served request as an identifier is typed.
+    // When set (the buffer's language has a backend) it replaces the buffer-word
+    // completion; results arrive async via editor_set_completions.
+    on_completion:       Completion_Proc,
+    completion_data:     rawptr,
+    completion_semantic: bool,
     // Dwell tracking: the spot the cursor settled on and when. hover_probe_offset
     // is the byte offset a request was fired for (-1 = none), so a still cursor
     // fires exactly once until it moves again.
@@ -147,10 +166,12 @@ Editor :: struct {
     // center/top/bottom. Phase resets when the caret moves.
     recenter_phase:     int,
     recenter_caret:     int,
-    // Buffer-word autocompletion popup, shown while typing a word with matches
-    // elsewhere. Items are owned clones.
+    // Autocompletion popup, shown while typing a word: buffer words (textual) or,
+    // for a backend-backed language, semantic candidates. Items are owned clones;
+    // colors run parallel (per-row tint, empty for the plain buffer-word list).
     completion_active:   bool,
     completion_items:    [dynamic]string,
+    completion_colors:   [dynamic]rl.Color,
     completion_selected: int,
     completion_prefix:   int, // byte length of the already-typed prefix
 }
@@ -175,6 +196,18 @@ editor_set_on_signature :: proc(editor: ^Editor, on_signature: Signature_Proc, d
     editor.signature_data = data
 }
 
+editor_set_on_completion :: proc(editor: ^Editor, on_completion: Completion_Proc, data: rawptr) {
+    editor.on_completion = on_completion
+    editor.completion_data = data
+}
+
+// Marks whether the active buffer's language has a completion backend. When true
+// the editor routes completion to the owner (semantic); when false it uses the
+// built-in buffer-word completion. Set per file when a pane is bound.
+editor_set_completion_semantic :: proc(editor: ^Editor, semantic: bool) {
+    editor.completion_semantic = semantic
+}
+
 // Asks the owner to (re)resolve signature help at the caret. Fired on the
 // characters that open or advance a call and, once a popup is up, on every edit
 // or horizontal move so the active argument tracks the caret. A no-op without an
@@ -185,6 +218,86 @@ editor_request_signature :: proc(editor: ^Editor) {
     }
     off := textedit.primary_cursor(editor.state).caret
     editor.on_signature(editor.signature_data, editor, editor.state, off)
+}
+
+// The identifier run ending at `caret` and whether it is a member access: the
+// word is preceded by a `.` that follows an identifier (`pkg.<word>`). Member
+// access completes with no minimum prefix, so typing the `.` immediately lists
+// the package's members; a plain word waits for COMPLETION_MIN_PREFIX bytes.
+@(private = "file")
+editor_completion_word :: proc(txt: string, caret: int) -> (start: int, member: bool) {
+    start = caret
+    for start > 0 && editor_is_word_byte(txt[start - 1]) {
+        start -= 1
+    }
+    member = start > 0 && txt[start - 1] == '.' && start - 1 > 0 && editor_is_word_byte(txt[start - 2])
+    return
+}
+
+// Requests semantic completion from the owner for the word being typed. Fired on
+// identifier input (and edits that shrink the word) in a backend-backed buffer,
+// and on `.` for member access; gated to a single collapsed caret at the end of a
+// word of at least the minimum prefix (zero for member access), dismissing the
+// popup otherwise. Returns true when the owner took over (or the request was
+// gated), so the caller skips the buffer-word fallback.
+editor_request_completion :: proc(editor: ^Editor) -> bool {
+    if editor.on_completion == nil || editor.state == nil {
+        return false
+    }
+    if len(editor.state.cursors) != 1 || textedit.has_any_selection(editor.state) {
+        editor_dismiss_completion(editor)
+        return true
+    }
+    txt := textedit.text(editor.state)
+    caret := textedit.primary_cursor(editor.state).caret
+    start, member := editor_completion_word(txt, caret)
+    min_prefix := member ? 0 : COMPLETION_MIN_PREFIX
+    // Only complete at the end of a word, once enough has been typed.
+    if caret - start < min_prefix || (caret < len(txt) && editor_is_word_byte(txt[caret])) {
+        editor_dismiss_completion(editor)
+        return true
+    }
+    editor.on_completion(editor.completion_data, editor, editor.state, caret)
+    return true
+}
+
+// Fills the completion popup with owner-supplied candidates (a semantic result).
+// Recomputes the current word prefix so a candidate that no longer matches an
+// edit made since the request is dropped, and inserts on accept exactly as the
+// buffer-word path does (the shared prefix is kept, the remainder typed).
+editor_set_completions :: proc(editor: ^Editor, items: []Completion_Item) {
+    editor_dismiss_completion(editor)
+    if editor.state == nil || len(items) == 0 {
+        return
+    }
+    if len(editor.state.cursors) != 1 || textedit.has_any_selection(editor.state) {
+        return
+    }
+    txt := textedit.text(editor.state)
+    caret := textedit.primary_cursor(editor.state).caret
+    start, member := editor_completion_word(txt, caret)
+    prefix := txt[start:caret]
+    min_prefix := member ? 0 : COMPLETION_MIN_PREFIX
+    if len(prefix) < min_prefix || (caret < len(txt) && editor_is_word_byte(txt[caret])) {
+        return
+    }
+
+    for it in items {
+        if len(it.text) <= len(prefix) || !strings.has_prefix(it.text, prefix) {
+            continue // fully-typed or no longer matching after a late edit
+        }
+        append(&editor.completion_items, strings.clone(it.text))
+        append(&editor.completion_colors, it.color)
+        if len(editor.completion_items) >= COMPLETION_MAX_ITEMS {
+            break
+        }
+    }
+    if len(editor.completion_items) == 0 {
+        return
+    }
+    editor.completion_active = true
+    editor.completion_prefix = len(prefix)
+    editor.completion_selected = 0
 }
 
 // Shows the hover popup with `text` describing bytes [start, end). Ignored when
@@ -266,6 +379,7 @@ editor_create :: proc(id: string) -> ^Editor {
     editor.recenter_caret = -1
     editor.hover_probe_offset = -1
     editor.completion_items = make([dynamic]string)
+    editor.completion_colors = make([dynamic]rl.Color)
     editor.foldable = make(map[int]int)
     editor.folded = make(map[int]bool)
     editor.min_size = rl.Vector2 {0, 280}
@@ -718,8 +832,14 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
         if event.codepoint >= 32 && event.codepoint != 127 {
             editor_type_rune(editor, event.codepoint)
             // Refresh the popup while typing a word; any other character dismisses it.
+            // Backend-backed buffers get semantic completion; the rest, buffer words.
             if editor_is_word_rune(event.codepoint) {
-                editor_update_completion(editor)
+                if !(editor.completion_semantic && editor_request_completion(editor)) {
+                    editor_update_completion(editor)
+                }
+            } else if editor.completion_semantic && event.codepoint == '.' {
+                // Member access: `pkg.` lists the package's symbols right away.
+                editor_request_completion(editor)
             } else {
                 editor_dismiss_completion(editor)
             }
@@ -834,7 +954,9 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
             editor_dismiss_completion(editor)
         } else {
             textedit.delete_backward(state)
-            editor_update_completion(editor)
+            if !(editor.completion_semantic && editor_request_completion(editor)) {
+                editor_update_completion(editor)
+            }
         }
         if editor.signature_active {
             editor_request_signature(editor)
@@ -1179,6 +1301,7 @@ editor_dismiss_completion :: proc(editor: ^Editor) {
         delete(item)
     }
     clear(&editor.completion_items)
+    clear(&editor.completion_colors)
     editor.completion_selected = 0
     editor.completion_prefix = 0
 }
@@ -1209,6 +1332,7 @@ editor_update_completion :: proc(editor: ^Editor) {
         delete(item)
     }
     clear(&editor.completion_items)
+    clear(&editor.completion_colors)
 
     i := 0
     for i < len(txt) {
@@ -1641,7 +1765,11 @@ editor_draw_completion :: proc(editor: ^Editor) {
             rl.DrawRectangleRec(rl.Rectangle {box_x, row_y, width, lh}, editor.selection_color)
         }
         text_y := cast(i32) (row_y + (lh - cast(f32) editor.font_size) * 0.5)
-        ui.draw_text(editor.completion_items[idx], cast(i32) (box_x + 8), text_y, editor.font_size, editor.text_color)
+        color := editor.text_color
+        if idx < len(editor.completion_colors) {
+            color = editor.completion_colors[idx]
+        }
+        ui.draw_text(editor.completion_items[idx], cast(i32) (box_x + 8), text_y, editor.font_size, color)
     }
 }
 
@@ -2026,6 +2154,7 @@ editor_destroy :: proc(widget: ^ui.Widget) {
         delete(item)
     }
     delete(editor.completion_items)
+    delete(editor.completion_colors)
     delete(editor.foldable)
     delete(editor.folded)
     free(editor)

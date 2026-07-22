@@ -243,6 +243,7 @@ thor_build_content :: proc(thor: ^Thor) {
     widgets.editor_set_on_goto_definition(thor.editor, thor_editor_goto_definition, thor)
     widgets.editor_set_on_hover(thor.editor, thor_editor_hover, thor)
     widgets.editor_set_on_signature(thor.editor, thor_editor_signature_help, thor)
+    widgets.editor_set_on_completion(thor.editor, thor_editor_completion, thor)
     ui.widget_set_grow(&thor.editor.widget, 1)
 
     thor.editor2 = widgets.editor_create("editor2")
@@ -261,6 +262,7 @@ thor_build_content :: proc(thor: ^Thor) {
     widgets.editor_set_on_goto_definition(thor.editor2, thor_editor_goto_definition, thor)
     widgets.editor_set_on_hover(thor.editor2, thor_editor_hover, thor)
     widgets.editor_set_on_signature(thor.editor2, thor_editor_signature_help, thor)
+    widgets.editor_set_on_completion(thor.editor2, thor_editor_completion, thor)
     ui.widget_set_grow(&thor.editor2.widget, 1)
     thor.editor2.visible = false
 

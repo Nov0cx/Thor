@@ -226,6 +226,68 @@ thor_request_signature :: proc(thor: ^Thor, auto: bool) {
     thor.signature_auto = auto
 }
 
+// Editor auto-trigger: as a word is typed the editor asks the owner to resolve
+// semantic completions at `offset`. Matches the buffer to its open file and
+// dispatches a Completion request; the pane is remembered so the async result
+// routes back to it. Returns true when a request was dispatched, so the editor
+// can hold off on its buffer-word fallback for this keystroke.
+thor_editor_completion :: proc(data: rawptr, editor: ^widgets.Editor, state: ^textedit.State, offset: int) -> bool {
+    thor := cast(^Thor) data
+    for file in thor.open_files {
+        if &file.state != state {
+            continue
+        }
+        if !file.loaded {
+            return false
+        }
+        ext := thor_file_extension(file.name)
+        if !lang.manager_supports(&thor.lang_manager, ext) {
+            return false
+        }
+        source := textedit.text(&file.state)
+        id := lang.manager_request(
+            &thor.lang_manager,
+            .Completion,
+            file.path,
+            ext,
+            source,
+            offset,
+            file.state.revision,
+            thor.workspace_dir,
+        )
+        if id == 0 {
+            return false
+        }
+        thor.completion_editor = editor
+        thor.completion_request_id = id
+        return true
+    }
+    return false
+}
+
+// Fills the completion popup once its request lands. Drops a superseded result
+// (a later keystroke fired a newer request) by id, and one whose buffer snapshot
+// is stale, then hands the candidates to the editor tinted by kind.
+@(private = "file")
+thor_update_completion :: proc(thor: ^Thor, res: ^lang.Result) {
+    if res.id != thor.completion_request_id || thor.completion_editor == nil {
+        return
+    }
+    thor.completion_request_id = 0
+    editor := thor.completion_editor
+    if !res.ok || len(res.symbols) == 0 || editor.state == nil || editor.state.revision != res.revision {
+        return
+    }
+    items := make([dynamic]widgets.Completion_Item, context.temp_allocator)
+    for sym in res.symbols {
+        append(&items, widgets.Completion_Item {
+            text  = sym.name,
+            color = thor_symbol_color(thor, sym.kind),
+        })
+    }
+    widgets.editor_set_completions(editor, items[:])
+}
+
 // Frees the jump targets kept from the last symbol picker.
 thor_clear_doc_symbols :: proc(thor: ^Thor) {
     for sym in thor.doc_symbols {
@@ -299,6 +361,8 @@ thor_on_lang_result :: proc(user: rawptr, res: ^lang.Result) {
         thor_update_references(thor, res)
     case .Signature_Help:
         thor_show_signature(thor, res)
+    case .Completion:
+        thor_update_completion(thor, res)
     }
 }
 
@@ -491,6 +555,8 @@ thor_symbol_color :: proc(thor: ^Thor, kind: string) -> rl.Color {
     case "enum":     return thor.theme.keywords_color
     case "constant": return thor.theme.numbers_color
     case "var":      return thor.theme.variables_color
+    case "keyword":  return thor.theme.keywords_color
+    case "namespace": return thor.theme.functions_color
     }
     return thor.theme.white_black_color
 }
@@ -627,7 +693,6 @@ thor_clear_pending_goto :: proc(thor: ^Thor) {
 }
 
 // File extension including the dot (".odin"), or "" when the name has none.
-@(private = "file")
 thor_file_extension :: proc(name: string) -> string {
     dot := strings.last_index_byte(name, '.')
     if dot < 0 {

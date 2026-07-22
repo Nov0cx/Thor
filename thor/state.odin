@@ -4,6 +4,7 @@ import "core:strings"
 import "core:unicode/utf8"
 import rl "vendor:raylib"
 
+import "../lang"
 import "../setting"
 import "../textedit"
 import "../ui"
@@ -79,6 +80,8 @@ thor_bind_editor :: proc(thor: ^Thor, editor: ^widgets.Editor, file: ^Open_File)
         return
     }
     widgets.editor_set_comment_prefix(editor, setting.comment_prefix(&thor.config, file.name))
+    ext := thor_file_extension(file.name)
+    widgets.editor_set_completion_semantic(editor, lang.manager_supports(&thor.lang_manager, ext))
     widgets.editor_set_state(editor, &file.state)
     widgets.editor_set_highlights(editor, file.highlights[:])
     widgets.editor_set_folds(editor, file.folds[:])

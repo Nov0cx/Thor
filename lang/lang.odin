@@ -13,8 +13,8 @@ import "core:thread"
 import "core:time"
 
 // What the editor is asking for. Kept small on purpose; it grows as features
-// land (Definition, Hover, Document_Symbols, Workspace_Symbols, References and
-// Signature_Help today; Completion next).
+// land (Definition, Hover, Document_Symbols, Workspace_Symbols, References,
+// Signature_Help and Completion today).
 Request_Kind :: enum {
     Definition,
     Hover,
@@ -22,6 +22,7 @@ Request_Kind :: enum {
     Workspace_Symbols,
     References,
     Signature_Help,
+    Completion,
 }
 
 // A byte range in a named file. Byte offsets, not line/column: the editor and
@@ -57,6 +58,9 @@ Signature_Info :: struct {
 // the 1-based line there, and the byte offset to jump to (the identifier start).
 // References reuse this shape: kind is "reference" and signature is the source
 // line the usage sits on (its code context), with path/line/offset the jump.
+// Completion candidates reuse it too: name is the identifier to insert, kind
+// drives the row color ("function"/"type"/... or "keyword"), signature is a
+// display label; path/line/offset go unused.
 Symbol :: struct {
     name:      string, // owned
     kind:      string, // owned
@@ -90,7 +94,7 @@ Result :: struct {
     location:  Location,        // Definition
     hover:     Hover_Info,      // Hover
     signature: Signature_Info,  // Signature_Help
-    symbols:   [dynamic]Symbol, // Document_Symbols / Workspace_Symbols / References; owned, freed in job_free
+    symbols:   [dynamic]Symbol, // Document_Symbols / Workspace_Symbols / References / Completion; owned, freed in job_free
 }
 
 // A language backend. Both the in-client engine and a future subprocess LSP

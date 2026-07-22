@@ -931,3 +931,146 @@ test_definition_stdlib :: proc(t: ^testing.T) {
         testing.expectf(t, strings.has_prefix(res.hover.text, "println ::"), "hover text: got %q", res.hover.text)
     }
 }
+
+// True when the completion result offers a candidate named `name`.
+@(private = "file")
+has_completion :: proc(res: ^Result, name: string) -> bool {
+    for sym in res.symbols {
+        if sym.name == name {
+            return true
+        }
+    }
+    return false
+}
+
+@(test)
+test_completion_same_file :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // A temp dir kept empty on disk (main.odin is never written), so the sibling
+    // scan finds nothing and candidates come only from the buffer and keywords.
+    dir := "thor_lang_complete_ws"
+    _ = os.make_directory(dir)
+    defer os.remove(dir)
+    main_path := strings.concatenate({dir, "/main.odin"}, context.temp_allocator)
+
+    src := `package demo
+
+counter :: 100
+
+count_items :: proc() -> int {
+	return 0
+}
+
+main :: proc() {
+	total := 0
+	_ = coun
+}
+`
+    at := strings.index(src, "coun\n") + len("coun")
+    req := Request{kind = .Completion, path = main_path, ext = ".odin", source = src, offset = at, workspace = dir}
+    res := Result{kind = .Completion}
+    odin_resolve(e, &req, &res)
+    defer free_symbols(&res)
+
+    testing.expect(t, res.ok, "expected completion candidates")
+    testing.expect(t, has_completion(&res, "counter"), "missing top-level counter")
+    testing.expect(t, has_completion(&res, "count_items"), "missing top-level count_items")
+    // Names that don't share the typed prefix are filtered out.
+    testing.expect(t, !has_completion(&res, "total"), "total does not share the prefix")
+    testing.expect(t, !has_completion(&res, "main"), "main does not share the prefix")
+
+    // A top-level candidate carries its declaration line and kind; the caret's own
+    // partial word is never offered back as a candidate.
+    for sym in res.symbols {
+        if sym.name == "count_items" {
+            testing.expectf(t, sym.signature == "count_items :: proc() -> int", "count_items label: got %q", sym.signature)
+            testing.expectf(t, sym.kind == "function", "count_items kind: got %q", sym.kind)
+        }
+    }
+    testing.expect(t, !has_completion(&res, "coun"), "the typed prefix is not a candidate")
+}
+
+@(test)
+test_completion_keyword :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // `str` matches no declaration but does prefix the builtin `string`, tagged
+    // "keyword" so the editor colors it like one.
+    src := "package demo\n\nmain :: proc() {\n\tx: str\n\t_ = x\n}\n"
+    at := strings.index(src, "str\n") + len("str")
+    req := Request{kind = .Completion, path = "buffer.odin", ext = ".odin", source = src, offset = at}
+    res := Result{kind = .Completion}
+    odin_resolve(e, &req, &res)
+    defer free_symbols(&res)
+
+    testing.expect(t, res.ok, "expected a keyword completion")
+    testing.expect(t, has_completion(&res, "string"), "missing builtin string")
+    for sym in res.symbols {
+        if sym.name == "string" {
+            testing.expectf(t, sym.kind == "keyword", "string kind: got %q", sym.kind)
+        }
+    }
+}
+
+@(test)
+test_completion_package_name :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // Typing the start of an imported package's name offers the package itself
+    // (the operand you then qualify with `.`), tagged "namespace".
+    src := "package app\n\nimport \"../widgets\"\nimport \"core:fmt\"\n\nmain :: proc() {\n\t_ = wi\n}\n"
+    at := strings.index(src, "wi\n") + len("wi")
+    req := Request{kind = .Completion, path = "buffer.odin", ext = ".odin", source = src, offset = at}
+    res := Result{kind = .Completion}
+    odin_resolve(e, &req, &res)
+    defer free_symbols(&res)
+
+    testing.expect(t, res.ok, "expected the imported package as a candidate")
+    testing.expect(t, has_completion(&res, "widgets"), "missing imported package widgets")
+    testing.expect(t, !has_completion(&res, "fmt"), "fmt does not share the prefix")
+    for sym in res.symbols {
+        if sym.name == "widgets" {
+            testing.expectf(t, sym.kind == "namespace", "widgets kind: got %q", sym.kind)
+        }
+    }
+}
+
+@(test)
+test_completion_package_member :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // `lib.sc<caret>`: completion follows the import into the package's dir and
+    // lists that package's top-level declarations matching the prefix.
+    root := "thor_lang_complete_pkg_ws"
+    lib := strings.concatenate({root, "/lib"}, context.temp_allocator)
+    _ = os.make_directory(root)
+    _ = os.make_directory(lib)
+
+    lib_path := strings.concatenate({lib, "/api.odin"}, context.temp_allocator)
+    lib_src := "package lib\n\nscale :: proc(v: int, by: int) -> int {\n\treturn v * by\n}\n\nshift :: 3\n\nother :: 9\n"
+    _ = os.write_entire_file(lib_path, transmute([]byte)lib_src)
+
+    defer os.remove(root)
+    defer os.remove(lib)
+    defer os.remove(lib_path)
+
+    main_path := strings.concatenate({root, "/main.odin"}, context.temp_allocator)
+    main_src := "package app\n\nimport \"lib\"\n\nmain :: proc() {\n\t_ = lib.sc\n}\n"
+
+    at := strings.index(main_src, "lib.sc") + len("lib.sc")
+    req := Request{kind = .Completion, path = main_path, ext = ".odin", source = main_src, offset = at, workspace = root}
+    res := Result{kind = .Completion}
+    odin_resolve(e, &req, &res)
+    defer free_symbols(&res)
+
+    testing.expect(t, res.ok, "expected package-member completions")
+    testing.expect(t, has_completion(&res, "scale"), "missing lib.scale")
+    // Only the `sc` prefix matches: shift and other are excluded.
+    testing.expect(t, !has_completion(&res, "shift"), "shift does not share the prefix")
+    testing.expect(t, !has_completion(&res, "other"), "other does not share the prefix")
+}
