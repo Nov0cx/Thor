@@ -12,6 +12,7 @@ import "../lang"
 import "../plugin"
 import "../setting"
 import "../ui"
+import "../watch"
 import "../widgets"
 
 Thor :: struct {
@@ -160,6 +161,13 @@ Thor :: struct {
     // behind one seam. Requests run on worker threads and are reaped each frame.
     lang_manager:             lang.Manager,
     odin_engine:              ^lang.Odin_Engine,
+    // Recursive async watch of the workspace tree. Its changes feed the explorer
+    // (tree + git refresh) and the open buffers (reload on external edits) via
+    // subscribers wired in thor_init_watcher. The two flags coalesce a burst of
+    // events into a single explorer refresh per poll.
+    watcher:                  watch.Watcher,
+    watch_tree_dirty:         bool,
+    watch_git_dirty:          bool,
     goto_def_key:             setting.Keybind,
     goto_symbol_key:          setting.Keybind,
     goto_workspace_symbol_key: setting.Keybind,
@@ -334,6 +342,7 @@ init :: proc() -> ^Thor {
     ui.context_set_root(&thor.ui_context, &thor.root_panel.widget)
     ui.context_set_global_key(&thor.ui_context, thor_global_key, thor)
     thor_refresh_git_status(thor)
+    thor_init_watcher(thor)
     lap(&phase, "build widget tree")
 
     // Texture upload needs the GL context, so it happens here on the main
@@ -375,6 +384,7 @@ thor_read_git_branch :: proc(workspace_dir: string) -> string {
 
 run :: proc(thor: ^Thor) {
     for !rl.WindowShouldClose() && !thor.should_close {
+        thor_poll_watcher(thor)
         thor_update_files(thor)
         lang.manager_dispatch(&thor.lang_manager, thor, thor_on_lang_result)
         ui.context_update(&thor.ui_context)
@@ -391,6 +401,8 @@ run :: proc(thor: ^Thor) {
 
 shutdown :: proc(thor: ^Thor) {
     thor_save_session(thor)
+    // Stop the watcher first so no new reload jobs are queued while we drain.
+    thor_shutdown_watcher(thor)
     thor_drain_io(thor)
 
     for file in thor.open_files {

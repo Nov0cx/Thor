@@ -27,6 +27,9 @@ Open_File :: struct {
     loaded:             bool,
     load_failed:        bool,
     saving:             bool,
+    // A disk-change reload is in flight for this file; guards against launching a
+    // second one while the first is still reading (the watcher can fire a burst).
+    reloading:          bool,
     // Tab was closed while a load/save thread still references this record;
     // it is freed on the main thread once pending_jobs drops to zero.
     closed:             bool,
@@ -59,6 +62,9 @@ Load_Job :: struct {
     file:    ^Open_File,
     path:    string, // borrowed from file; valid while pending_jobs > 0
     worker:  ^thread.Thread,
+    // Reload of an already-open buffer after an external disk change, rather than
+    // the initial open: the reap diffs the bytes and only replaces a clean buffer.
+    reload:  bool,
     ok:      bool,
     binary:  bool,
     data:    [^]u8,
@@ -305,6 +311,65 @@ thor_open_file :: proc(thor: ^Thor, path: string) {
     thor_set_active_file(thor, len(thor.open_files) - 1)
 }
 
+// Reloads an already-open file's buffer from disk after an external change (fed
+// by the file watcher). Skips a buffer with unsaved edits (the user's changes
+// win), one already being saved or reloaded, images, and files that never
+// finished their initial load. Goes through the same async mapping path as a
+// fresh load; the reap (thor_apply_reload) diffs the bytes and only replaces a
+// clean buffer, so our own saves echoing back through the watcher are no-ops.
+thor_reload_file :: proc(thor: ^Thor, file: ^Open_File) {
+    if file.closed || file.is_image || file.load_failed || file.saving || file.reloading {
+        return
+    }
+    if !file.loaded {
+        return // initial load still in flight; it will bring the current bytes
+    }
+    if file.state.revision != file.saved_revision {
+        return // unsaved edits; never clobber them
+    }
+
+    file.reloading = true
+    file.pending_jobs += 1
+    thor.inflight_jobs += 1
+    job := new(Load_Job)
+    job.owner = thor
+    job.file = file
+    job.path = file.path
+    job.reload = true
+    job.worker = thread.create_and_start_with_poly_data(job, load_worker)
+}
+
+// Applies a reload job's freshly mapped bytes to its open buffer, if they differ
+// from what's shown and the buffer is still unedited. Returns true when the
+// buffer was replaced, so the caller re-binds panes; a false leaves the buffer
+// untouched (unreadable file, a stale edit landed, or disk already matches).
+@(private = "file")
+thor_apply_reload :: proc(thor: ^Thor, job: ^Load_Job) -> bool {
+    file := job.file
+    if !job.ok {
+        return false // deleted / locked / now binary: keep the current buffer
+    }
+    // The user may have started editing while the reload was in flight.
+    if file.state.revision != file.saved_revision {
+        return false
+    }
+    content := job.size > 0 ? string(job.data[:job.size]) : ""
+    if content == textedit.text(&file.state) {
+        return false // disk already matches (e.g. our own save coming back around)
+    }
+
+    // Keep the caret roughly where it was rather than snapping to the top.
+    caret := textedit.primary_cursor(&file.state).caret
+    textedit.set_text(&file.state, content)
+    textedit.set_single_cursor(&file.state, min(caret, len(content)))
+    file.saved_revision = file.state.revision // set_text zeroed it; stay clean
+    file.last_seen_revision = file.state.revision
+    file.highlighted = false // re-highlighted by the per-frame pass
+    thor_clear_file_diagnostics(file)
+    file.diagnostics_revision = 0
+    return true
+}
+
 // Recognized raster image extensions, matched case-insensitively on the name.
 @(private = "file")
 thor_is_image_path :: proc(name: string) -> bool {
@@ -485,12 +550,17 @@ thor_process_io :: proc(thor: ^Thor) {
         thread.destroy(job.worker)
 
         file := job.file
-        if job.ok {
+        reload := job.reload
+        changed := false
+        if reload {
+            changed = thor_apply_reload(thor, job)
+        } else if job.ok {
             content := job.size > 0 ? string(job.data[:job.size]) : ""
             textedit.set_text(&file.state, content)
             file.loaded = true
             file.saved_revision = 0
             file.last_seen_revision = 0
+            changed = true
         } else {
             file.load_failed = true
             if job.binary {
@@ -513,8 +583,13 @@ thor_process_io :: proc(thor: ^Thor) {
 
         file.pending_jobs -= 1
         thor.inflight_jobs -= 1
+        if reload {
+            file.reloading = false
+        }
 
-        if !file.closed {
+        // A fresh load always re-binds (to show the buffer or the failure
+        // placeholder); a reload only when it actually replaced the buffer.
+        if !file.closed && (!reload || changed) {
             thor_rebind_file_panes(thor, file)
         }
         thor_reap_file(thor, file)
@@ -622,7 +697,6 @@ thor_tree_open :: proc(data: rawptr, path: string) {
 
 // True when two paths point at the same file, ignoring separator spelling and
 // (Windows) case differences.
-@(private = "file")
 thor_same_path :: proc(a, b: string) -> bool {
     aa, bb := a, b
     if abs, err := filepath.abs(a, context.temp_allocator); err == nil {
