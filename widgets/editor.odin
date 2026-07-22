@@ -865,6 +865,8 @@ editor_type_rune :: proc(editor: ^Editor, r: rune) {
     // `{` at the end of a line opens a three-line block; elsewhere a plain pair.
     if r == '{' && textedit.brace_block_applies(state) {
         textedit.insert_brace_block(state)
+    } else if r == '*' && textedit.block_comment_applies(state) {
+        textedit.insert_block_comment(state)
     } else if close, ok := textedit.auto_close_for(r); ok {
         textedit.insert_pair(state, r, close)
     } else if textedit.is_close_bracket(r) {

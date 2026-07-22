@@ -490,6 +490,35 @@ insert_quote :: proc(state: ^State, q: rune) {
     finish_edit(state, &entry)
 }
 
+// True when typing `*` should auto-close a block comment: a single collapsed
+// cursor with a `/` immediately before the caret, so the `/*` just formed gets
+// its matching `*/` like a bracket pair.
+block_comment_applies :: proc(state: ^State) -> bool {
+    if len(state.cursors) != 1 {
+        return false
+    }
+    cursor := state.cursors[0]
+    if has_selection(cursor) {
+        return false
+    }
+    txt := text(state)
+    return cursor.caret > 0 && txt[cursor.caret - 1] == '/'
+}
+
+// Types the `*` that completes a `/*` and inserts the matching `*/`, leaving the
+// caret between them (`/*|*/`). Assumes block_comment_applies(state) held (single
+// collapsed cursor with `/` before the caret).
+insert_block_comment :: proc(state: ^State) {
+    entry := Undo_Entry {cursors_before = clone_cursors(state)}
+    cursor := &state.cursors[0]
+    lo := cursor.caret
+    piecetable.piecetable_insert(&state.table, lo, "**/")
+    append(&entry.ops, Edit_Op {kind = .Insert, pos = lo, text = strings.clone("**/")})
+    cursor.caret = lo + 1
+    cursor.anchor = cursor.caret
+    finish_edit(state, &entry)
+}
+
 // True when open/close form an auto-inserted pair (used for pair-aware
 // backspace).
 @(private)

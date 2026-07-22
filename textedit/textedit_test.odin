@@ -161,6 +161,33 @@ test_auto_pairing :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_block_comment_pairing :: proc(t: ^testing.T) {
+    state: State
+    init(&state)
+    defer destroy(&state)
+
+    // Typing `*` right after a `/` closes the block comment: `/*|*/`.
+    insert_text(&state, "/")
+    testing.expect(t, block_comment_applies(&state), "should apply after a slash")
+    insert_block_comment(&state)
+    testing.expect_value(t, text(&state), "/**/")
+    testing.expect_value(t, primary_cursor(&state).caret, 2)
+
+    // Undo removes the whole inserted `**/` in one step.
+    undo(&state)
+    testing.expect_value(t, text(&state), "/")
+
+    // Not right after a slash: no auto-close.
+    set_single_cursor(&state, 0)
+    insert_text(&state, "x")
+    testing.expect(t, !block_comment_applies(&state), "should not apply after a non-slash")
+
+    // A selection suppresses it too.
+    select_range(&state, 0, 1)
+    testing.expect(t, !block_comment_applies(&state), "should not apply with a selection")
+}
+
+@(test)
 test_replace_all :: proc(t: ^testing.T) {
     state: State
     init(&state)
