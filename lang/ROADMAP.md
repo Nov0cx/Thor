@@ -175,9 +175,73 @@ lowest latency.
 
 ## Missing — scalability / performance
 
-- [ ] **Persistent symbol index.** Every cross-file goto re-walks and re-parses
-      the workspace. Replace with an index built once and updated incrementally
-      on file change (invalidate by path + revision).
+- [~] **Persistent symbol index.** Every cross-file request re-reads *and
+      re-parses* the whole workspace off-thread; the readdir is cheap, the
+      per-file tree-sitter parse is the cost. Keep parsed top-level declarations
+      resident on the `Odin_Engine`, re-parsing only files that changed. Touches
+      `odin_engine.odin` almost entirely; the seam and host wiring are unchanged.
+
+      **Data model** (engine-owned, self-owned strings cloned from source, freed
+      in `odin_destroy`/on reindex — index rows must *not* slice transient source
+      the way `Def` does):
+      - `Index_Symbol{name, kind, signature: string, line, offset: int}` — a
+        top-level decl.
+      - `File_Entry{path: string, modtime, size: i64, decls: [dynamic]Index_Symbol,
+        idents: map[string]bool}` — `idents` (Phase 2) is the unique identifier
+        names in the file, the reference-scan filter.
+      - `Symbol_Index{mutex: sync.Mutex, files: map[string]File_Entry, root: string,
+        built: bool, alloc: runtime.Allocator}`.
+
+      **Build & invalidation:**
+      - *Lazy build* on the first cross-file request (or when `root != req.workspace`):
+        reuse the bounded walk (`SCAN_FILE_LIMIT`/`SCAN_DEPTH_LIMIT`), parse each
+        `.odin` once, extract top-level `decls`.
+      - *Stat-based validation* per request: re-`read_dir` the tree (cheap) and
+        re-parse only files whose `modtime`/`size` differ, plus new files; drop
+        deleted files. Correct with zero host coupling — the win is skipping the
+        parse for unchanged files.
+      - *Reindex on save*: `odin_engine_notify_saved(e, path)` called from
+        `thor_save_file` (files.odin:372) marks one path stale — a fast path over
+        the stat-walk. No file watcher exists, so external edits rely on the
+        stat-walk.
+      - *Live-buffer overlay* (threaded through every consumer): query the index
+        but exclude `req.path`, extract decls from `req.source` separately (already
+        parsed for same-file resolution), merge — unsaved edits still win over
+        stale disk.
+
+      **Concurrency:** single `sync.Mutex` around index access, building under it
+      (requests are infrequent, and were scanning anyway); refine to `RWMutex`
+      later if contention shows.
+
+      **Consumers to rewire** (parse-scan → index query, each keeping its
+      live-file overlay and result-shaping). *Done* — the whole-workspace scanners
+      now query the index: `resolve_definition_workspace` (cross-file goto),
+      `scan_workspace` (hover — index locates the file, then one re-parse for the
+      full declaration text), `collect_workspace_symbols` (Ctrl+T), and
+      `resolve_call_target`'s workspace fallback (signature help). The dead walkers
+      (`def_scan_*`, `scan_dir`, `collect_symbols_dir/file`, `find_proc_dir`) were
+      removed. *Not yet* — `complete_dir_toplevel`: it is package-scoped (one flat
+      dir, not the whole tree) and runs per keystroke, so syncing the index on
+      every keystroke wants the debounce/coalescing work first; left on the disk
+      scan for now.
+
+      **Phasing:**
+      - Phase 1 — index + lazy build + stat validation + rewire the whole-workspace
+        declaration consumers (goto, hover, workspace symbols, signature help).
+        **Landed** (`odin_engine.odin`; `test_index_reflects_file_change` covers
+        stat invalidation). Follow-ups still open: completion (needs debounce
+        first) and `odin_engine_notify_saved` on `thor_save_file` (stat-walk
+        already catches saves via the mtime bump, so this is a robustness add for
+        coarse-mtime filesystems, not a correctness gap).
+      - Phase 2 — references acceleration: populate `File_Entry.idents`; `ref_scan_*`
+        reads+parses only files whose `idents` contains the name.
+      - Phase 3 (optional) — drop the per-request readdir once save-hook + a real
+        watcher cover all mutations; tie into incremental parsing.
+
+      **Risks:** path canonicalization — the index keys on absolute paths, and the
+      overlay's `exclude req.path` depends on those matching `os.read_dir` paths
+      (already a flagged limitation below); normalize keys on insert. Memory:
+      resident *decls* only (not trees), bounded and small.
 - [ ] **Incremental parsing.** Each request re-parses from scratch; keep a
       per-buffer tree and feed edits to tree-sitter (`ts_tree_edit`) for reuse.
 - [ ] **Request coalescing / cancellation.** Rapid triggers (e.g. hover on mouse

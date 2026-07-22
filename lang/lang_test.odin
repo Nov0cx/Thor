@@ -1074,3 +1074,62 @@ test_completion_package_member :: proc(t: ^testing.T) {
     testing.expect(t, !has_completion(&res, "shift"), "shift does not share the prefix")
     testing.expect(t, !has_completion(&res, "other"), "other does not share the prefix")
 }
+
+// Like resolve_def but with a caller-chosen file path, so a cross-file test can
+// place the live buffer somewhere the symbol index will (correctly) exclude.
+@(private = "file")
+resolve_in_ws :: proc(e: ^Odin_Engine, path, source, needle, workspace: string) -> (Location, bool) {
+    at := strings.index(source, needle)
+    if at < 0 {
+        return {}, false
+    }
+    req := Request{kind = .Definition, path = path, ext = ".odin", source = source, offset = at, workspace = workspace}
+    res := Result{kind = .Definition}
+    odin_resolve(e, &req, &res)
+    return res.location, res.ok
+}
+
+@(test)
+test_index_reflects_file_change :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // A workspace whose only on-disk file declares `helper`. The first cross-file
+    // goto builds the index; a later goto (same engine) must reflect an edit to
+    // that file rather than serving the decls it parsed the first time.
+    dir := "thor_lang_index_ws"
+    _ = os.make_directory(dir)
+    defer os.remove(dir)
+
+    helper := strings.concatenate({dir, "/helper.odin"}, context.temp_allocator)
+    v1_src := "package demo\n\nhelper :: proc() -> int {\n\treturn 1\n}\n"
+    _ = os.write_entire_file(helper, transmute([]byte)v1_src)
+    defer os.remove(helper)
+
+    main_path := strings.concatenate({dir, "/main.odin"}, context.temp_allocator)
+    main_src := "package demo\n\nmain :: proc() {\n\t_ = helper()\n}\n"
+
+    // First query: builds the index and resolves across files.
+    loc, ok := resolve_in_ws(e, main_path, main_src, "helper()", dir)
+    defer delete(loc.path)
+    testing.expect(t, ok, "expected to resolve helper on the first query")
+
+    // Rewrite the file so `helper` becomes `renamed`; the size changes, so the
+    // stat-based validation re-parses it on the next query.
+    v2_src := "package demo\n\nrenamed :: proc() -> int {\n\treturn 1\n}\n"
+    _ = os.write_entire_file(helper, transmute([]byte)v2_src)
+
+    // The old name is gone from the index...
+    stale_loc, still := resolve_in_ws(e, main_path, main_src, "helper()", dir)
+    defer delete(stale_loc.path)
+    testing.expect(t, !still, "helper should no longer resolve after the file changed")
+
+    // ...and the new name resolves into the same file, proving the re-parse.
+    new_src := "package demo\n\nmain :: proc() {\n\t_ = renamed()\n}\n"
+    loc2, ok2 := resolve_in_ws(e, main_path, new_src, "renamed()", dir)
+    defer delete(loc2.path)
+    testing.expect(t, ok2, "expected to resolve renamed after the file changed")
+    if ok2 {
+        testing.expect(t, strings.has_suffix(loc2.path, "helper.odin"), "renamed should resolve into helper.odin")
+    }
+}
