@@ -40,13 +40,16 @@ Index_Symbol :: struct {
     offset:    int,
 }
 
-// One indexed file: its top-level declarations and the stat used to notice it
-// changed, so an unchanged file is never re-parsed.
+// One indexed file: its top-level declarations, the set of every identifier name
+// it mentions (the reference-scan filter — a file whose `idents` lacks a name
+// can't contain a usage, so it is never re-parsed for that search), and the stat
+// used to notice it changed, so an unchanged file is never re-parsed at all.
 @(private = "file")
 File_Entry :: struct {
     modtime: i64,
     size:    i64,
     decls:   [dynamic]Index_Symbol,
+    idents:  map[string]bool, // unique identifier names, engine-owned keys
 }
 
 // A workspace-wide store of parsed top-level declarations, resident on the
@@ -209,12 +212,14 @@ index_reparse :: proc(e: ^Odin_Engine, parser: ts.Parser, key: string, modtime, 
     }
     defer ts.tree_delete(tree)
 
+    root := ts.tree_root_node(tree)
     entry := File_Entry {
         modtime = modtime,
         size    = size,
         decls   = make([dynamic]Index_Symbol),
+        idents  = make(map[string]bool),
     }
-    defs := collect_defs(e, ts.tree_root_node(tree), source)
+    defs := collect_defs(e, root, source)
     for d in defs {
         if !d.top_level {
             continue
@@ -228,6 +233,7 @@ index_reparse :: proc(e: ^Odin_Engine, parser: ts.Parser, key: string, modtime, 
             offset    = d.ident_start,
         })
     }
+    index_collect_idents(root, source, &entry.idents)
 
     // Existing key: free the old decls and update in place (the owned key stays).
     // New key: clone it into the engine allocator so it outlives the scratch info.
@@ -236,6 +242,23 @@ index_reparse :: proc(e: ^Odin_Engine, parser: ts.Parser, key: string, modtime, 
         idx.files[key] = entry
     } else {
         idx.files[strings.clone(key)] = entry
+    }
+}
+
+// Records every distinct `identifier` name in `node`'s subtree into `set`,
+// cloning each new name once into context.allocator (the engine allocator, set by
+// index_reparse). This is the reference-scan filter: a name absent from a file's
+// set can't be used there, so that file is skipped without a re-parse.
+@(private = "file")
+index_collect_idents :: proc(node: ts.Node, source: string, set: ^map[string]bool) {
+    if is_identifier(node) {
+        name := ts.node_text(node, source)
+        if name not_in set^ {
+            set^[strings.clone(name)] = true
+        }
+    }
+    for i in 0 ..< ts.node_child_count(node) {
+        index_collect_idents(ts.node_child(node, i), source, set)
     }
 }
 
@@ -307,6 +330,22 @@ index_first_path :: proc(e: ^Odin_Engine, name, skip, kind_filter: string) -> (s
     return best, found
 }
 
+// Appends the path of every indexed file that mentions `name` (excluding the
+// live file `skip`) to `out`, each cloned into `out`'s allocator so it survives
+// after the caller drops the mutex. Files whose `idents` lack the name — the
+// majority — are skipped, so the reference scan re-parses only real candidates.
+@(private = "file")
+index_ref_files :: proc(e: ^Odin_Engine, name, skip: string, out: ^[dynamic]string) {
+    for path, entry in e.index.files {
+        if path == skip {
+            continue
+        }
+        if name in entry.idents {
+            append(out, strings.clone(path, out.allocator))
+        }
+    }
+}
+
 // A Symbol result row copied out of the index, cloned into context.allocator.
 @(private = "file")
 index_symbol_row :: proc(sym: Index_Symbol, path: string) -> Symbol {
@@ -329,6 +368,10 @@ index_free_entry :: proc(idx: ^Symbol_Index, entry: File_Entry) {
         delete(sym.signature, idx.alloc)
     }
     delete(entry.decls)
+    for name in entry.idents {
+        delete(name, idx.alloc)
+    }
+    delete(entry.idents)
 }
 
 // Tears the whole index down (on destroy, or before a rebuild for a new
@@ -847,11 +890,18 @@ collect_references :: proc(e: ^Odin_Engine, parser: ts.Parser, root: ts.Node, re
         // Local / parameter: only its own scope in this file.
         collect_ident_refs(root, req.source, name, req.path, d.scope_start, d.scope_end, res)
     } else {
-        // Top-level or unresolved: this whole buffer, then every workspace file.
+        // Top-level or unresolved: this whole buffer, then every workspace file
+        // the index says mentions the name (the rest can't contain a usage).
         collect_ident_refs(root, req.source, name, req.path, 0, len(req.source), res)
         if req.workspace != "" {
-            count := 0
-            ref_scan_dir(e, parser, req.workspace, req, name, res, &count, 0)
+            paths := make([dynamic]string, context.temp_allocator)
+            sync.lock(&e.index.mutex)
+            index_sync(e, parser, req.workspace)
+            index_ref_files(e, name, req.path, &paths)
+            sync.unlock(&e.index.mutex)
+            for path in paths {
+                ref_scan_file(e, parser, path, name, res)
+            }
         }
     }
 
@@ -902,60 +952,8 @@ source_line :: proc(source: string, offset: int) -> string {
     return strings.clone(strings.trim_space(source[start:end]))
 }
 
-// Recurses the workspace collecting every .odin file's occurrences of `name`.
-// Uses the same file/depth guards and skip-live-buffer rule as the index walk,
-// but gathers name matches rather than declarations. (References are not indexed
-// yet — see the persistent-index Phase 2 notes in ROADMAP.md.)
-@(private = "file")
-ref_scan_dir :: proc(
-    e: ^Odin_Engine,
-    parser: ts.Parser,
-    dir: string,
-    req: ^Request,
-    name: string,
-    res: ^Result,
-    count: ^int,
-    depth: int,
-) {
-    if count^ >= SCAN_FILE_LIMIT || depth > SCAN_DEPTH_LIMIT {
-        return
-    }
-
-    handle, open_err := os.open(dir)
-    if open_err != nil {
-        return
-    }
-    defer os.close(handle)
-
-    infos, read_err := os.read_dir(handle, -1, context.temp_allocator)
-    if read_err != nil {
-        return
-    }
-
-    for info in infos {
-        if count^ >= SCAN_FILE_LIMIT {
-            return
-        }
-        if info.type == .Directory {
-            if info.name == ".git" || strings.has_prefix(info.name, ".") {
-                continue
-            }
-            ref_scan_dir(e, parser, info.fullpath, req, name, res, count, depth + 1)
-            continue
-        }
-        if !strings.has_suffix(info.name, ".odin") {
-            continue
-        }
-        // The live buffer was already searched, with unsaved edits; skip its
-        // on-disk copy so an occurrence isn't listed twice (or from stale text).
-        if info.fullpath == req.path {
-            continue
-        }
-        count^ += 1
-        ref_scan_file(e, parser, info.fullpath, name, res)
-    }
-}
-
+// Re-parses one workspace file and appends its occurrences of `name` to `res`.
+// Called only for files the index flagged as mentioning the name.
 @(private = "file")
 ref_scan_file :: proc(e: ^Odin_Engine, parser: ts.Parser, path, name: string, res: ^Result) {
     data, rerr := os.read_entire_file(path, context.temp_allocator)

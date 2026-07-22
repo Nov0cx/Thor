@@ -785,6 +785,69 @@ test_references_cross_file :: proc(t: ^testing.T) {
     testing.expectf(t, in_other == 2, "helper refs in use.odin: got %d", in_other)
 }
 
+@(test)
+test_references_index_incremental :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // Phase 2: the workspace reference scan is filtered by the index's per-file
+    // identifier sets. A decoy file that never mentions `helper` must contribute
+    // nothing, and a sibling created *after* the first request (so after the index
+    // was first built) must be picked up on the next request via the stat-walk +
+    // rebuilt identifier set — proving the filter is both correct and live.
+    dir := "thor_lang_refs_incr"
+    _ = os.make_directory(dir)
+    defer os.remove(dir)
+
+    decoy := strings.concatenate({dir, "/decoy.odin"}, context.temp_allocator)
+    decoy_src := "package demo\n\nunrelated :: proc() {\n\t_ = 1\n}\n"
+    _ = os.write_entire_file(decoy, transmute([]byte)decoy_src)
+    defer os.remove(decoy)
+
+    main_path := strings.concatenate({dir, "/main.odin"}, context.temp_allocator)
+    main_src := "package demo\n\nhelper :: proc() -> int {\n\treturn 42\n}\n\nmain :: proc() {\n\t_ = helper()\n}\n"
+
+    refs :: proc(e: ^Odin_Engine, path, src, dir: string) -> Result {
+        req := Request {
+            kind      = .References,
+            path      = path,
+            ext       = ".odin",
+            source    = src,
+            offset    = strings.index(src, "helper ::"),
+            workspace = dir,
+        }
+        res := Result{kind = .References}
+        odin_resolve(e, &req, &res)
+        return res
+    }
+
+    // First request: only the live buffer mentions helper; the decoy is filtered out.
+    res1 := refs(e, main_path, main_src, dir)
+    defer free_symbols(&res1)
+    testing.expectf(t, len(res1.symbols) == 2, "buffer-only ref count: got %d", len(res1.symbols))
+    for sym in res1.symbols {
+        testing.expectf(t, strings.has_suffix(sym.path, "main.odin"), "unexpected ref in %q", sym.path)
+    }
+
+    // Add a sibling that calls helper twice, then request again: the stat-walk sees
+    // the new file, indexes its identifiers, and the filter now admits it.
+    use := strings.concatenate({dir, "/use.odin"}, context.temp_allocator)
+    use_src := "package demo\n\nrun :: proc() {\n\t_ = helper()\n\t_ = helper()\n}\n"
+    _ = os.write_entire_file(use, transmute([]byte)use_src)
+    defer os.remove(use)
+
+    res2 := refs(e, main_path, main_src, dir)
+    defer free_symbols(&res2)
+    testing.expectf(t, len(res2.symbols) == 4, "ref count after sibling added: got %d", len(res2.symbols))
+    in_use := 0
+    for sym in res2.symbols {
+        if strings.has_suffix(sym.path, "use.odin") {
+            in_use += 1
+        }
+    }
+    testing.expectf(t, in_use == 2, "helper refs in the new use.odin: got %d", in_use)
+}
+
 // Reads the name-bearing slice at a reference symbol's offset from its file, so a
 // test can assert the jump lands on the identifier. Buffer files (never written)
 // won't read back; those are covered by the same-file assertions instead.

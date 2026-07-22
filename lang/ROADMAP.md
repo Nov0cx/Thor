@@ -146,7 +146,9 @@ lowest latency.
       by line, so edits above a fold can drop its collapsed state until re-folded.
 - [x] **References / find-usages.** F10; `References` request served by
       `collect_references` (locals confined to their scope in-file, top-level
-      names matched across the workspace via `ref_scan_dir`). Name-based, not
+      names matched across the workspace via the symbol index's per-file
+      identifier sets — only files that mention the name are re-parsed).
+      Name-based, not
       type-aware: a top-level scan can list an unrelated same-named symbol in
       another package, and value member names (`v.field`) aren't distinguished.
       Type-aware precision waits on the inference layer.
@@ -233,8 +235,17 @@ lowest latency.
         first) and `odin_engine_notify_saved` on `thor_save_file` (stat-walk
         already catches saves via the mtime bump, so this is a robustness add for
         coarse-mtime filesystems, not a correctness gap).
-      - Phase 2 — references acceleration: populate `File_Entry.idents`; `ref_scan_*`
-        reads+parses only files whose `idents` contains the name.
+      - Phase 2 — references acceleration. **Landed.** `index_reparse` now also
+        records `File_Entry.idents` (every distinct identifier name in the file,
+        engine-owned keys, gathered by `index_collect_idents`). The workspace
+        reference scan (`collect_references`) syncs the index under the mutex, asks
+        `index_ref_files` for just the files whose `idents` contains the name
+        (paths cloned into scratch so they outlive the lock), then re-parses only
+        those — the majority of files that never mention the name are skipped
+        without a parse. The recursive `ref_scan_dir` walker is gone; `ref_scan_file`
+        stays. Covered by `test_references_index_incremental` (decoy file excluded;
+        a sibling created after the first request is picked up on the next via the
+        stat-walk + rebuilt identifier set).
       - Phase 3 (optional) — drop the per-request readdir once save-hook + a real
         watcher cover all mutations; tie into incremental parsing.
 
