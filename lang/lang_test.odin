@@ -1196,3 +1196,358 @@ test_index_reflects_file_change :: proc(t: ^testing.T) {
         testing.expect(t, strings.has_suffix(loc2.path, "helper.odin"), "renamed should resolve into helper.odin")
     }
 }
+
+// Resolves the definition at an absolute byte offset (member-access tests need
+// the caret on the member of a `value.field`, not the first textual match).
+@(private = "file")
+resolve_offset :: proc(e: ^Odin_Engine, source: string, at: int, workspace := "", path := "buffer.odin") -> (Location, bool) {
+    req := Request{kind = .Definition, path = path, ext = ".odin", source = source, offset = at, workspace = workspace}
+    res := Result{kind = .Definition}
+    odin_resolve(e, &req, &res)
+    return res.location, res.ok
+}
+
+@(test)
+test_member_typed_local :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // `p: Point` then `p.x`: the member resolves to the struct field, inferring
+    // p's type from its declaration.
+    src := `package demo
+
+Point :: struct {
+	x: int,
+	y: int,
+}
+
+main :: proc() {
+	p: Point
+	_ = p.x
+}
+`
+    at := strings.index(src, "p.x") + 2 // caret on the member `x`
+    loc, ok := resolve_offset(e, src, at)
+    defer delete(loc.path)
+    testing.expect(t, ok, "expected p.x to resolve to the field")
+    if ok {
+        want := strings.index(src, "x: int")
+        testing.expectf(t, loc.start == want, "member start: got %d, want %d", loc.start, want)
+    }
+}
+
+@(test)
+test_member_composite_literal :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // `p := Point{}`: the type is inferred from the composite literal.
+    src := `package demo
+
+Point :: struct {
+	x: int,
+	y: int,
+}
+
+main :: proc() {
+	p := Point{}
+	_ = p.y
+}
+`
+    at := strings.index(src, "p.y") + 2
+    loc, ok := resolve_offset(e, src, at)
+    defer delete(loc.path)
+    testing.expect(t, ok, "expected p.y to resolve via the composite literal type")
+    if ok {
+        want := strings.index(src, "y: int")
+        testing.expectf(t, loc.start == want, "member start: got %d, want %d", loc.start, want)
+    }
+}
+
+@(test)
+test_member_parameter :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // A struct-typed parameter's field resolves.
+    src := `package demo
+
+Point :: struct {
+	x: int,
+	y: int,
+}
+
+use :: proc(p: Point) -> int {
+	return p.x
+}
+`
+    at := strings.index(src, "p.x") + 2
+    loc, ok := resolve_offset(e, src, at)
+    defer delete(loc.path)
+    testing.expect(t, ok, "expected the parameter's field to resolve")
+    if ok {
+        want := strings.index(src, "x: int")
+        testing.expectf(t, loc.start == want, "member start: got %d, want %d", loc.start, want)
+    }
+}
+
+@(test)
+test_member_pointer :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // Odin auto-derefs `.` on a pointer, so `^Point` still resolves fields.
+    src := `package demo
+
+Point :: struct {
+	x: int,
+}
+
+main :: proc() {
+	p: ^Point
+	_ = p.x
+}
+`
+    at := strings.index(src, "p.x") + 2
+    loc, ok := resolve_offset(e, src, at)
+    defer delete(loc.path)
+    testing.expect(t, ok, "expected a pointer's field to resolve")
+    if ok {
+        want := strings.index(src, "x: int")
+        testing.expectf(t, loc.start == want, "member start: got %d, want %d", loc.start, want)
+    }
+}
+
+@(test)
+test_member_chain :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // `l.a.x`: chained access recurses through the intermediate struct's field
+    // type (Line.a is a Point, whose field x is the target).
+    src := `package demo
+
+Point :: struct {
+	x: int,
+	y: int,
+}
+
+Line :: struct {
+	a: Point,
+	b: Point,
+}
+
+main :: proc() {
+	l: Line
+	_ = l.a.x
+}
+`
+    at := strings.index(src, "l.a.x") + 4 // caret on the final `x`
+    loc, ok := resolve_offset(e, src, at)
+    defer delete(loc.path)
+    testing.expect(t, ok, "expected the chained member to resolve")
+    if ok {
+        want := strings.index(src, "x: int")
+        testing.expectf(t, loc.start == want, "chained member start: got %d, want %d", loc.start, want)
+    }
+}
+
+@(test)
+test_member_hover :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    src := `package demo
+
+Point :: struct {
+	x: int,
+	y: int,
+}
+
+main :: proc() {
+	p: Point
+	_ = p.x
+}
+`
+    at := strings.index(src, "p.x") + 2
+    req := Request{kind = .Hover, path = "buffer.odin", ext = ".odin", source = src, offset = at}
+    res := Result{kind = .Hover}
+    odin_resolve(e, &req, &res)
+    defer delete(res.hover.text)
+
+    testing.expect(t, res.ok, "expected hover on the member")
+    testing.expectf(t, res.hover.text == "x: int", "member hover: got %q", res.hover.text)
+}
+
+@(test)
+test_member_cross_file :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // The struct is declared in a sibling file; member access follows the
+    // workspace index to it (the live buffer never declares Point).
+    dir := "thor_lang_member_ws"
+    _ = os.make_directory(dir)
+    defer os.remove(dir)
+
+    point := strings.concatenate({dir, "/point.odin"}, context.temp_allocator)
+    point_src := "package demo\n\nPoint :: struct {\n\tx: int,\n\ty: int,\n}\n"
+    _ = os.write_entire_file(point, transmute([]byte)point_src)
+    defer os.remove(point)
+
+    main_path := strings.concatenate({dir, "/main.odin"}, context.temp_allocator)
+    main_src := "package demo\n\nmain :: proc() {\n\tp: Point\n\t_ = p.x\n}\n"
+
+    at := strings.index(main_src, "p.x") + 2
+    loc, ok := resolve_offset(e, main_src, at, dir, main_path)
+    defer delete(loc.path)
+    testing.expect(t, ok, "expected the cross-file struct's field to resolve")
+    if ok {
+        testing.expectf(t, strings.has_suffix(loc.path, "point.odin"), "path: got %q", loc.path)
+        want := strings.index(point_src, "x: int")
+        testing.expectf(t, loc.start == want, "cross-file member start: got %d, want %d", loc.start, want)
+    }
+}
+
+@(test)
+test_member_completion :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // `p.` with p: Point offers the struct's fields.
+    src := `package demo
+
+Point :: struct {
+	x: int,
+	y: int,
+}
+
+main :: proc() {
+	p: Point
+	_ = p.
+}
+`
+    at := strings.index(src, "_ = p.") + len("_ = p.")
+    req := Request{kind = .Completion, path = "buffer.odin", ext = ".odin", source = src, offset = at}
+    res := Result{kind = .Completion}
+    odin_resolve(e, &req, &res)
+    defer free_symbols(&res)
+
+    testing.expect(t, res.ok, "expected member completions")
+    testing.expect(t, has_completion(&res, "x"), "missing field x")
+    testing.expect(t, has_completion(&res, "y"), "missing field y")
+    for sym in res.symbols {
+        if sym.name == "x" {
+            testing.expectf(t, sym.kind == "field", "x kind: got %q", sym.kind)
+            testing.expectf(t, sym.signature == "x: int", "x label: got %q", sym.signature)
+        }
+    }
+}
+
+@(test)
+test_enum_selector_completion :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // `a: Axis = .` offers the enum's members as implicit selectors (the `.` is
+    // already typed, so the candidates are the bare member names).
+    src := `package demo
+
+Axis :: enum {
+	Horizontal,
+	Vertical,
+}
+
+main :: proc() {
+	a: Axis = .
+	_ = a
+}
+`
+    at := strings.index(src, "= .") + len("= .")
+    req := Request{kind = .Completion, path = "buffer.odin", ext = ".odin", source = src, offset = at}
+    res := Result{kind = .Completion}
+    odin_resolve(e, &req, &res)
+    defer free_symbols(&res)
+
+    testing.expect(t, res.ok, "expected enum selector completions")
+    testing.expect(t, has_completion(&res, "Horizontal"), "missing member Horizontal")
+    testing.expect(t, has_completion(&res, "Vertical"), "missing member Vertical")
+    for sym in res.symbols {
+        if sym.name == "Horizontal" {
+            testing.expectf(t, sym.kind == "enum_member", "Horizontal kind: got %q", sym.kind)
+        }
+    }
+}
+
+@(test)
+test_enum_selector_assignment :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // `a = .Ho` (reassignment of a typed var, with a prefix) filters the enum's
+    // members: only Horizontal shares the `Ho` prefix.
+    src := `package demo
+
+Axis :: enum {
+	Horizontal,
+	Vertical,
+}
+
+main :: proc() {
+	a: Axis
+	a = .Ho
+	_ = a
+}
+`
+    at := strings.index(src, "= .Ho") + len("= .Ho")
+    req := Request{kind = .Completion, path = "buffer.odin", ext = ".odin", source = src, offset = at}
+    res := Result{kind = .Completion}
+    odin_resolve(e, &req, &res)
+    defer free_symbols(&res)
+
+    testing.expect(t, res.ok, "expected filtered enum selector completions")
+    testing.expect(t, has_completion(&res, "Horizontal"), "missing member Horizontal")
+    testing.expect(t, !has_completion(&res, "Vertical"), "Vertical does not share the Ho prefix")
+}
+
+@(test)
+test_collection_import :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // A user-defined collection in ols.json: `import "shared:foo"` resolves
+    // through the collection's path (relative to the workspace) into foo's dir.
+    root := "thor_lang_coll_ws"
+    libs := strings.concatenate({root, "/libs"}, context.temp_allocator)
+    foo := strings.concatenate({libs, "/foo"}, context.temp_allocator)
+    _ = os.make_directory(root)
+    _ = os.make_directory(libs)
+    _ = os.make_directory(foo)
+
+    foo_path := strings.concatenate({foo, "/foo.odin"}, context.temp_allocator)
+    foo_src := "package foo\n\nbar :: proc() -> int {\n\treturn 1\n}\n"
+    _ = os.write_entire_file(foo_path, transmute([]byte)foo_src)
+
+    cfg := strings.concatenate({root, "/ols.json"}, context.temp_allocator)
+    cfg_src := "{\n\t\"collections\": [\n\t\t{ \"name\": \"shared\", \"path\": \"libs\" }\n\t]\n}\n"
+    _ = os.write_entire_file(cfg, transmute([]byte)cfg_src)
+
+    defer os.remove(root)
+    defer os.remove(libs)
+    defer os.remove(foo)
+    defer os.remove(foo_path)
+    defer os.remove(cfg)
+
+    main_path := strings.concatenate({root, "/main.odin"}, context.temp_allocator)
+    main_src := "package app\n\nimport \"shared:foo\"\n\nmain :: proc() {\n\t_ = foo.bar()\n}\n"
+
+    at := strings.index(main_src, "bar()")
+    loc, ok := resolve_offset(e, main_src, at, root, main_path)
+    defer delete(loc.path)
+    testing.expect(t, ok, "expected the collection import to resolve foo.bar")
+    if ok {
+        testing.expectf(t, strings.has_suffix(loc.path, "foo.odin"), "path: got %q", loc.path)
+        want := strings.index(foo_src, "bar ::")
+        testing.expectf(t, loc.start == want, "collection member start: got %d, want %d", loc.start, want)
+    }
+}

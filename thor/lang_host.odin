@@ -557,6 +557,8 @@ thor_symbol_color :: proc(thor: ^Thor, kind: string) -> rl.Color {
     case "var":      return thor.theme.variables_color
     case "keyword":  return thor.theme.keywords_color
     case "namespace": return thor.theme.functions_color
+    case "field":    return thor.theme.variables_color
+    case "enum_member": return thor.theme.numbers_color
     }
     return thor.theme.white_black_color
 }

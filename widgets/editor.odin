@@ -220,17 +220,17 @@ editor_request_signature :: proc(editor: ^Editor) {
     editor.on_signature(editor.signature_data, editor, editor.state, off)
 }
 
-// The identifier run ending at `caret` and whether it is a member access: the
-// word is preceded by a `.` that follows an identifier (`pkg.<word>`). Member
-// access completes with no minimum prefix, so typing the `.` immediately lists
-// the package's members; a plain word waits for COMPLETION_MIN_PREFIX bytes.
+// The identifier run ending at `caret` and whether it is a selector: the word is
+// preceded by a `.` (`pkg.<word>`, `value.<word>`, or a leading `.<word>` implicit
+// enum selector). A selector completes with no minimum prefix, so typing the `.`
+// immediately lists candidates; a plain word waits for COMPLETION_MIN_PREFIX bytes.
 @(private = "file")
 editor_completion_word :: proc(txt: string, caret: int) -> (start: int, member: bool) {
     start = caret
     for start > 0 && editor_is_word_byte(txt[start - 1]) {
         start -= 1
     }
-    member = start > 0 && txt[start - 1] == '.' && start - 1 > 0 && editor_is_word_byte(txt[start - 2])
+    member = start > 0 && txt[start - 1] == '.'
     return
 }
 
@@ -1279,7 +1279,7 @@ editor_recenter :: proc(editor: ^Editor) {
     editor_clamp_scroll(editor)
 }
 
-COMPLETION_MIN_PREFIX :: 2
+COMPLETION_MIN_PREFIX :: 1
 COMPLETION_MAX_ITEMS :: 50
 COMPLETION_MAX_ROWS :: 8
 

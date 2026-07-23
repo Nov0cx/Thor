@@ -6,6 +6,7 @@
 package lang
 
 import "base:runtime"
+import "core:encoding/json"
 import "core:os"
 import "core:path/filepath"
 import "core:slice"
@@ -484,22 +485,31 @@ odin_resolve :: proc(data: rawptr, req: ^Request, res: ^Result) {
     hover_start := int(ts.node_start_byte(ident))
     hover_end := int(ts.node_end_byte(ident))
 
-    // 0) Package-qualified selector: `pkg.Symbol`. When the operand names a
-    //    package imported by this file, the symbol lives in that package's
-    //    directory, so resolve there and never fall through to the flat scan
-    //    (which ignores package boundaries and could match a same-named symbol
-    //    in an unrelated package). Selectors on plain values (`v.field`) fall
-    //    through: type-aware member access is not implemented yet.
-    if pkg_ident, member_ident, is_sel := selector_parts(ident); is_sel && is_identifier(pkg_ident) {
-        pkg := ts.node_text(pkg_ident, req.source)
-        if raw, found := import_path(root, req.source, pkg); found {
-            if dir, dok := package_dir(raw, req.path, req.workspace); dok {
-                if same_node(ident, member_ident) {
-                    scan_package(e, parser, dir, req, name, hover_start, hover_end, res)
-                } else {
-                    open_package(dir, raw, req, res, hover_start, hover_end)
+    // 0) Selector `operand.member`. Two resolutions, in order:
+    //    a) Package-qualified `pkg.Symbol`: when the operand names an imported
+    //       package, the symbol lives in that package's directory, so resolve
+    //       there and never fall through to the flat scan (which ignores package
+    //       boundaries and could match a same-named symbol elsewhere).
+    //    b) Value member `value.field`: infer the operand's static type and
+    //       resolve the field in that struct (see resolve_member).
+    if op_node, member_ident, is_sel := selector_parts(ident); is_sel {
+        caret_on_member := same_node(ident, member_ident)
+        if is_identifier(op_node) {
+            pkg := ts.node_text(op_node, req.source)
+            if raw, found := import_path(root, req.source, pkg); found {
+                if dir, dok := package_dir(raw, req.path, req.workspace); dok {
+                    if caret_on_member {
+                        scan_package(e, parser, dir, req, name, hover_start, hover_end, res)
+                    } else {
+                        open_package(dir, raw, req, res, hover_start, hover_end)
+                    }
                 }
+                return
             }
+        }
+        // Value member access, only with the caret on the member. Falls through
+        // to the flat scan when the type can't be inferred (no struct in reach).
+        if caret_on_member && resolve_member(e, parser, root, req, op_node, name, hover_start, hover_end, res) {
             return
         }
     }
@@ -1164,6 +1174,617 @@ find_proc_in_dir :: proc(e: ^Odin_Engine, parser: ts.Parser, dir, name, skip: st
 }
 
 
+// ---------------------------------------------------------------------------
+// Type-aware member access (`value.field`).
+//
+// The engine has no general type system, but the most common selector — a field
+// of a struct-typed value — is resolvable with a narrow, name-based inference:
+// find the operand's declaration, read its declared struct type, locate that
+// struct (same file, an imported package, or the workspace index) and match the
+// field. Chained access (`a.b.c`) recurses through each struct's field type, and
+// a pointer type is transparently dereferenced (Odin auto-derefs `.`). Anything
+// that isn't a struct (a proc result, a map, a builtin) simply doesn't resolve,
+// and the caller falls back to the flat name scan.
+// ---------------------------------------------------------------------------
+
+// A named type reference: the type name plus an optional package qualifier
+// (`pkg` in `p: pkg.Point`). Strings slice the source they were read from unless
+// explicitly cloned, so a Type_Ref that must outlive a parse is temp-cloned.
+@(private = "file")
+Type_Ref :: struct {
+    name: string,
+    pkg:  string,
+}
+
+// A value binding's declared type and the scope it is visible in, so the nearest
+// visible declaration of a name can be chosen (mirroring resolve_local).
+@(private = "file")
+Binding :: struct {
+    tr:          Type_Ref,
+    scope_start: int,
+    scope_end:   int,
+    top_level:   bool,
+    pos:         int,
+}
+
+// Resolves `value.field`: infers the operand's struct type, finds that struct and
+// its field, and fills the go-to-definition location or hover text. Returns
+// whether it resolved (false when the operand's type isn't an in-reach struct, so
+// the caller can fall through). `operand` is the expression left of the dot — a
+// bare identifier or a nested `a.b` member access.
+@(private = "file")
+resolve_member :: proc(
+    e: ^Odin_Engine,
+    parser: ts.Parser,
+    root: ts.Node,
+    req: ^Request,
+    operand: ts.Node,
+    field: string,
+    hover_start, hover_end: int,
+    res: ^Result,
+) -> bool {
+    tr, ok := infer_expr_type(e, parser, root, req, operand)
+    if !ok {
+        return false
+    }
+    ctx := Member_Ctx{field = field}
+    if !visit_type_decl(e, parser, root, req, tr, "struct_declaration", "type", member_visitor, &ctx) || !ctx.got {
+        return false
+    }
+    #partial switch req.kind {
+    case .Definition:
+        res.location = Location {
+            path  = strings.clone(ctx.path),
+            start = ctx.ident_start,
+            end   = ctx.ident_end,
+        }
+        res.ok = true
+    case .Hover:
+        res.hover = Hover_Info {
+            text  = declaration_text_range(ctx.src, ctx.decl_start, ctx.decl_end),
+            start = hover_start,
+            end   = hover_end,
+        }
+        res.ok = true
+    }
+    return res.ok
+}
+
+// Static type of an expression node, for member access. A bare identifier resolves
+// through its value binding; a nested `a.b` recurses (type of `a`, then the type
+// of its `b` field). Only these two shapes are inferred — enough for field chains.
+@(private = "file")
+infer_expr_type :: proc(
+    e: ^Odin_Engine,
+    parser: ts.Parser,
+    root: ts.Node,
+    req: ^Request,
+    node: ts.Node,
+) -> (Type_Ref, bool) {
+    if is_identifier(node) {
+        name := ts.node_text(node, req.source)
+        return binding_type_ref(root, req.source, name, int(ts.node_start_byte(node)))
+    }
+    if string(ts.node_type(node)) == "member_expression" {
+        op := ts.node_named_child(node, 0)
+        member := ts.node_named_child(node, 1)
+        if ts.node_is_null(op) || !is_identifier(member) {
+            return {}, false
+        }
+        inner, ok := infer_expr_type(e, parser, root, req, op)
+        if !ok {
+            return {}, false
+        }
+        ctx := Member_Ctx{field = ts.node_text(member, req.source)}
+        if !visit_type_decl(e, parser, root, req, inner, "struct_declaration", "type", member_visitor, &ctx) || !ctx.got {
+            return {}, false
+        }
+        return ctx.field_type, true
+    }
+    return {}, false
+}
+
+// Declared type of the value named `name` visible at `offset`: the nearest
+// enclosing binding (a parameter, a typed `var` declaration, or a `:=` composite
+// literal `name := Type{...}`). A local shadows a file-scope binding, an inner
+// scope shadows an outer, ties break by proximity — like resolve_local.
+@(private = "file")
+binding_type_ref :: proc(root: ts.Node, source, name: string, offset: int) -> (Type_Ref, bool) {
+    binds := make([dynamic]Binding, context.temp_allocator)
+    collect_bindings(root, source, name, &binds)
+
+    best: Binding
+    found := false
+    for b in binds {
+        if !b.top_level && (offset < b.scope_start || offset > b.scope_end) {
+            continue
+        }
+        if !found || binding_better(b, best, offset) {
+            best = b
+            found = true
+        }
+    }
+    if !found {
+        return {}, false
+    }
+    return best.tr, true
+}
+
+@(private = "file")
+binding_better :: proc(a, b: Binding, offset: int) -> bool {
+    if a.top_level != b.top_level {
+        return !a.top_level
+    }
+    if !a.top_level {
+        aw := a.scope_end - a.scope_start
+        bw := b.scope_end - b.scope_start
+        if aw != bw {
+            return aw < bw
+        }
+    }
+    return abs(a.pos - offset) < abs(b.pos - offset)
+}
+
+// Walks the tree gathering every typed binding of `name`: parameters and typed
+// `var` declarations (their `(type ...)` child) and `name := Type{...}` short
+// declarations (the composite literal's type). Each carries the scope it is
+// visible in — a parameter its procedure, a local its block, otherwise file-wide.
+@(private = "file")
+collect_bindings :: proc(node: ts.Node, source, name: string, out: ^[dynamic]Binding) {
+    switch string(ts.node_type(node)) {
+    case "parameter", "default_parameter":
+        if tr, ok := named_decl_type(node, source, name); ok {
+            b := Binding{tr = tr, pos = int(ts.node_start_byte(node))}
+            if pd, has := ancestor_type(node, "procedure_declaration"); has {
+                b.scope_start = int(ts.node_start_byte(pd))
+                b.scope_end = int(ts.node_end_byte(pd))
+            } else {
+                b.top_level = true
+            }
+            append(out, b)
+        }
+    case "var_declaration":
+        if tr, ok := named_decl_type(node, source, name); ok {
+            append(out, scoped_binding(node, tr))
+        }
+    case "assignment_statement":
+        if tr, ok := short_decl_composite_type(node, source, name); ok {
+            append(out, scoped_binding(node, tr))
+        }
+    }
+    for i in 0 ..< ts.node_child_count(node) {
+        collect_bindings(ts.node_child(node, i), source, name, out)
+    }
+}
+
+// A binding scoped to its enclosing block, or file-wide when there is none.
+@(private = "file")
+scoped_binding :: proc(node: ts.Node, tr: Type_Ref) -> Binding {
+    b := Binding{tr = tr, pos = int(ts.node_start_byte(node))}
+    if blk, has := ancestor_type(node, "block"); has {
+        b.scope_start = int(ts.node_start_byte(blk))
+        b.scope_end = int(ts.node_end_byte(blk))
+    } else {
+        b.top_level = true
+    }
+    return b
+}
+
+// Type of a `name`-declaring node whose shape is `ident... : type [= value]`
+// (a parameter or a `var` declaration). Names precede the `type` child; a
+// trailing initializer value is ignored (the walk stops at the type).
+@(private = "file")
+named_decl_type :: proc(node: ts.Node, source, name: string) -> (Type_Ref, bool) {
+    matched := false
+    for i in 0 ..< ts.node_named_child_count(node) {
+        c := ts.node_named_child(node, i)
+        switch string(ts.node_type(c)) {
+        case "identifier":
+            if ts.node_text(c, source) == name {
+                matched = true
+            }
+        case "type":
+            if !matched {
+                return {}, false
+            }
+            return type_ref_from_node(c, source)
+        }
+    }
+    return {}, false
+}
+
+// Type of `name := Type{...}`: a `:=` short declaration (not a reassignment)
+// whose right-hand side is a composite literal, which the grammar parses as a
+// `struct` node carrying the type identifier.
+@(private = "file")
+short_decl_composite_type :: proc(node: ts.Node, source, name: string) -> (Type_Ref, bool) {
+    is_decl := false
+    matched := false
+    for i in 0 ..< ts.node_child_count(node) {
+        c := ts.node_child(node, i)
+        switch string(ts.node_type(c)) {
+        case "identifier":
+            if ts.node_text(c, source) == name {
+                matched = true
+            }
+        case ":=":
+            is_decl = true
+        }
+    }
+    if !is_decl || !matched {
+        return {}, false
+    }
+    nc := ts.node_named_child_count(node)
+    if nc == 0 {
+        return {}, false
+    }
+    rhs := ts.node_named_child(node, nc - 1)
+    if string(ts.node_type(rhs)) == "struct" {
+        if id := ts.node_named_child(rhs, 0); is_identifier(id) {
+            return Type_Ref{name = ts.node_text(id, source)}, true
+        }
+    }
+    return {}, false
+}
+
+// Reads a `(type ...)` node (or a bare type construct) into a Type_Ref. Unwraps a
+// pointer type (`^T` — Odin auto-derefs on `.`) and reads a package-qualified
+// `pkg.T` (a `field_type`). Non-nominal types (arrays, maps, slices, procs)
+// return false — they have no struct to resolve a field in.
+@(private = "file")
+type_ref_from_node :: proc(node: ts.Node, source: string) -> (Type_Ref, bool) {
+    n := node
+    if string(ts.node_type(n)) == "type" {
+        n = ts.node_named_child(n, 0)
+    }
+    if ts.node_is_null(n) {
+        return {}, false
+    }
+    switch string(ts.node_type(n)) {
+    case "identifier":
+        return Type_Ref{name = ts.node_text(n, source)}, true
+    case "pointer_type":
+        return type_ref_from_node(ts.node_named_child(n, 0), source)
+    case "field_type":
+        a := ts.node_named_child(n, 0)
+        b := ts.node_named_child(n, 1)
+        if is_identifier(a) && is_identifier(b) {
+            return Type_Ref{pkg = ts.node_text(a, source), name = ts.node_text(b, source)}, true
+        }
+    }
+    return {}, false
+}
+
+// Called with a located type declaration node (a `struct_declaration` or
+// `enum_declaration`) and the source/path it lives in, to extract whatever a
+// member operation needs (a field, an enum member, or every one of them).
+@(private = "file")
+Decl_Visitor :: #type proc(decl: ts.Node, source, path: string, ctx: rawptr)
+
+// Locates the type declaration named `tr` (of node type `decl_type`, e.g.
+// "struct_declaration") and runs `visit` on it, returning whether one was found.
+// Resolution order mirrors goto: the request file first (a declaration in the same
+// package file wins), then — for a package-qualified type — the imported package's
+// directory, otherwise the workspace index (a file whose top-level decls of kind
+// `index_kind` declare the name). The first located declaration is terminal.
+@(private = "file")
+visit_type_decl :: proc(
+    e: ^Odin_Engine,
+    parser: ts.Parser,
+    root: ts.Node,
+    req: ^Request,
+    tr: Type_Ref,
+    decl_type, index_kind: string,
+    visit: Decl_Visitor,
+    ctx: rawptr,
+) -> bool {
+    if decl, ok := locate_decl(root, req.source, tr.name, decl_type); ok {
+        visit(decl, req.source, req.path, ctx)
+        return true
+    }
+    if tr.pkg != "" {
+        if raw, found := import_path(root, req.source, tr.pkg); found {
+            if dir, dok := package_dir(raw, req.path, req.workspace); dok {
+                return visit_decl_in_dir(e, parser, dir, tr.name, req.path, decl_type, visit, ctx)
+            }
+        }
+        return false
+    }
+    if req.workspace != "" {
+        path, ok := "", false
+        sync.lock(&e.index.mutex)
+        index_sync(e, parser, req.workspace)
+        if p, found := index_first_path(e, tr.name, req.path, index_kind); found {
+            path = strings.clone(p, context.temp_allocator)
+            ok = true
+        }
+        sync.unlock(&e.index.mutex)
+        if ok {
+            return visit_decl_in_file(e, parser, path, tr.name, decl_type, visit, ctx)
+        }
+    }
+    return false
+}
+
+// visit_type_decl over one package directory's files (non-recursive — a package is
+// a flat dir), skipping the requesting file whose live buffer was searched already.
+@(private = "file")
+visit_decl_in_dir :: proc(
+    e: ^Odin_Engine,
+    parser: ts.Parser,
+    dir, name, skip, decl_type: string,
+    visit: Decl_Visitor,
+    ctx: rawptr,
+) -> bool {
+    handle, open_err := os.open(dir)
+    if open_err != nil {
+        return false
+    }
+    defer os.close(handle)
+
+    infos, read_err := os.read_dir(handle, -1, context.temp_allocator)
+    if read_err != nil {
+        return false
+    }
+
+    for info in infos {
+        if info.type == .Directory || !strings.has_suffix(info.name, ".odin") {
+            continue
+        }
+        if info.fullpath == skip {
+            continue
+        }
+        if visit_decl_in_file(e, parser, info.fullpath, name, decl_type, visit, ctx) {
+            return true
+        }
+    }
+    return false
+}
+
+// visit_type_decl over one file: parse it (source is temp-allocated, job-lifetime,
+// so anything the visitor keeps must clone or copy out before the tree is deleted).
+@(private = "file")
+visit_decl_in_file :: proc(
+    e: ^Odin_Engine,
+    parser: ts.Parser,
+    path, name, decl_type: string,
+    visit: Decl_Visitor,
+    ctx: rawptr,
+) -> bool {
+    data, rerr := os.read_entire_file(path, context.temp_allocator)
+    if rerr != nil {
+        return false
+    }
+    source := string(data)
+
+    tree := ts.parser_parse_string(parser, source)
+    if tree == nil {
+        return false
+    }
+    defer ts.tree_delete(tree)
+
+    if decl, ok := locate_decl(ts.tree_root_node(tree), source, name, decl_type); ok {
+        visit(decl, source, path, ctx)
+        return true
+    }
+    return false
+}
+
+// The top-level declaration of node type `decl_type` named `name`, if any. A type
+// declaration's first named child is its identifier.
+@(private = "file")
+locate_decl :: proc(root: ts.Node, source, name, decl_type: string) -> (ts.Node, bool) {
+    for i in 0 ..< ts.node_named_child_count(root) {
+        c := ts.node_named_child(root, i)
+        if string(ts.node_type(c)) != decl_type {
+            continue
+        }
+        if id := ts.node_named_child(c, 0); is_identifier(id) && ts.node_text(id, source) == name {
+            return c, true
+        }
+    }
+    return {}, false
+}
+
+// Outputs of member_visitor: the located field's identifier and full-declaration
+// byte ranges (into `src`), the field's own type (temp-cloned, for chaining), and
+// whether the field was found. `src`/`path` are job-lifetime.
+@(private = "file")
+Member_Ctx :: struct {
+    field:       string,
+    got:         bool,
+    src:         string,
+    path:        string,
+    ident_start: int,
+    ident_end:   int,
+    decl_start:  int,
+    decl_end:    int,
+    field_type:  Type_Ref,
+}
+
+// Decl_Visitor that finds one named field. Records its identifier range (the
+// jump target), its whole-declaration range (`x: int`, for hover) and its type
+// (for a chained `a.b.c`). The type is cloned into scratch so it survives the
+// parse tree's deletion in the cross-file case.
+@(private = "file")
+member_visitor :: proc(sd: ts.Node, source, path: string, ctx_raw: rawptr) {
+    ctx := cast(^Member_Ctx) ctx_raw
+    id, tn, fd, ok := struct_field(sd, source, ctx.field)
+    if !ok {
+        return
+    }
+    ctx.got = true
+    ctx.src = source
+    ctx.path = path
+    ctx.ident_start = int(ts.node_start_byte(id))
+    ctx.ident_end = int(ts.node_end_byte(id))
+    ctx.decl_start = int(ts.node_start_byte(fd))
+    ctx.decl_end = int(ts.node_end_byte(fd))
+    if tr, tok := type_ref_from_node(tn, source); tok {
+        ctx.field_type = Type_Ref {
+            name = strings.clone(tr.name, context.temp_allocator),
+            pkg  = strings.clone(tr.pkg, context.temp_allocator),
+        }
+    }
+}
+
+// The `field`-named member of a struct: its identifier node, its `(type ...)`
+// node, and the whole `field` node. A single `field` can declare several names
+// (`x, y: int`), so every identifier before the trailing type is checked.
+@(private = "file")
+struct_field :: proc(sd: ts.Node, source, field: string) -> (ident, type_node, field_node: ts.Node, ok: bool) {
+    for i in 0 ..< ts.node_named_child_count(sd) {
+        c := ts.node_named_child(sd, i)
+        if string(ts.node_type(c)) != "field" {
+            continue
+        }
+        count := ts.node_named_child_count(c)
+        if count < 2 {
+            continue
+        }
+        tn := ts.node_named_child(c, count - 1)
+        if string(ts.node_type(tn)) != "type" {
+            continue
+        }
+        for j in 0 ..< count - 1 {
+            id := ts.node_named_child(c, j)
+            if is_identifier(id) && ts.node_text(id, source) == field {
+                return id, tn, c, true
+            }
+        }
+    }
+    return {}, {}, {}, false
+}
+
+// Outputs of fields_visitor: the completion Result to append to, the typed
+// prefix filter and the de-dup set.
+@(private = "file")
+Fields_Ctx :: struct {
+    prefix: string,
+    res:    ^Result,
+    seen:   ^map[string]bool,
+}
+
+// Decl_Visitor that offers every field matching the prefix as a completion
+// candidate (`name: type`, kind "field"). Owned strings clone into the Manager's
+// allocator (context.allocator here).
+@(private = "file")
+fields_visitor :: proc(sd: ts.Node, source, path: string, ctx_raw: rawptr) {
+    ctx := cast(^Fields_Ctx) ctx_raw
+    for i in 0 ..< ts.node_named_child_count(sd) {
+        c := ts.node_named_child(sd, i)
+        if string(ts.node_type(c)) != "field" {
+            continue
+        }
+        count := ts.node_named_child_count(c)
+        if count < 2 {
+            continue
+        }
+        for j in 0 ..< count - 1 {
+            id := ts.node_named_child(c, j)
+            if !is_identifier(id) {
+                continue
+            }
+            fname := ts.node_text(id, source)
+            if !completion_matches(fname, ctx.prefix) || fname in ctx.seen^ {
+                continue
+            }
+            ctx.seen^[fname] = true
+            append(&ctx.res.symbols, Symbol {
+                name      = strings.clone(fname),
+                kind      = strings.clone("field"),
+                signature = field_signature(source, c),
+            })
+        }
+    }
+}
+
+// One field's `name: type` line, trimmed — a member-completion row's label.
+// Cloned into context.allocator.
+@(private = "file")
+field_signature :: proc(source: string, field_node: ts.Node) -> string {
+    start := clamp(int(ts.node_start_byte(field_node)), 0, len(source))
+    end := clamp(int(ts.node_end_byte(field_node)), start, len(source))
+    text := source[start:end]
+    if nl := strings.index_byte(text, '\n'); nl >= 0 {
+        text = text[:nl]
+    }
+    return strings.clone(strings.trim_space(text))
+}
+
+// Outputs of enum_visitor: the completion Result, the typed prefix filter and the
+// de-dup set. Mirrors Fields_Ctx.
+@(private = "file")
+Enum_Ctx :: struct {
+    prefix: string,
+    res:    ^Result,
+    seen:   ^map[string]bool,
+}
+
+// Decl_Visitor that offers an enum's members as implicit-selector completions
+// (`a: Axis = .<here>`). The `.` is already typed, so the inserted text is the
+// bare member name; kind "enum_member" colors the row. An enum's members are its
+// identifier children after the first (the enum name).
+@(private = "file")
+enum_visitor :: proc(ed: ts.Node, source, path: string, ctx_raw: rawptr) {
+    ctx := cast(^Enum_Ctx) ctx_raw
+    for i in 1 ..< ts.node_named_child_count(ed) {
+        id := ts.node_named_child(ed, i)
+        if !is_identifier(id) {
+            continue
+        }
+        name := ts.node_text(id, source)
+        if !completion_matches(name, ctx.prefix) || name in ctx.seen^ {
+            continue
+        }
+        ctx.seen^[name] = true
+        append(&ctx.res.symbols, Symbol {
+            name      = strings.clone(name),
+            kind      = strings.clone("enum_member"),
+            signature = strings.clone(name),
+        })
+    }
+}
+
+// The type expected at `offset` for an implicit enum selector (`x: Type = .`).
+// Walks up from the caret to the enclosing declaration: a `var_declaration`'s
+// annotated type, or the type of an `assignment_statement`'s left-hand variable.
+// Returns false when no such context is found (so no enum members are offered).
+@(private = "file")
+expected_type_at :: proc(root: ts.Node, source: string, offset: int) -> (Type_Ref, bool) {
+    off := u32(clamp(offset, 0, len(source)))
+    n := ts.node_named_descendant_for_byte_range(root, off, off)
+    for !ts.node_is_null(n) {
+        switch string(ts.node_type(n)) {
+        case "var_declaration":
+            for i in 0 ..< ts.node_named_child_count(n) {
+                c := ts.node_named_child(n, i)
+                if string(ts.node_type(c)) == "type" {
+                    return type_ref_from_node(c, source)
+                }
+            }
+            return {}, false
+        case "assignment_statement":
+            lhs := ts.node_named_child(n, 0)
+            if is_identifier(lhs) {
+                return binding_type_ref(root, source, ts.node_text(lhs, source), int(ts.node_start_byte(lhs)))
+            }
+            return {}, false
+        }
+        n = ts.node_parent(n)
+    }
+    return {}, false
+}
+
+// Trimmed text of a byte range, cloned into context.allocator — a member hover's
+// field declaration (`x: int`).
+@(private = "file")
+declaration_text_range :: proc(source: string, start, end: int) -> string {
+    s := clamp(start, 0, len(source))
+    e := clamp(end, s, len(source))
+    return strings.clone(strings.trim_space(source[s:e]))
+}
+
 // Odin keywords and builtin types offered as completion candidates alongside the
 // resolved identifiers.
 @(private = "file")
@@ -1219,15 +1840,36 @@ complete :: proc(e: ^Odin_Engine, parser: ts.Parser, root: ts.Node, req: ^Reques
             op_start -= 1
         }
         if op_start < op_end {
-            pkg := src[op_start:op_end]
-            if raw, found := import_path(root, src, pkg); found {
+            operand := src[op_start:op_end]
+            if raw, found := import_path(root, src, operand); found {
+                // `pkg.<prefix>`: the imported package's top-level symbols.
                 if dir, dok := package_dir(raw, req.path, req.workspace); dok {
                     seen := make(map[string]bool, 0, context.temp_allocator)
                     complete_dir_toplevel(e, parser, dir, prefix, "", res, &seen)
                 }
+            } else if op_start == 0 || src[op_start - 1] != '.' {
+                // `value.<prefix>`: infer the operand's struct type and offer its
+                // fields. Only a bare operand — a chain (`a.b.`) isn't inferred here.
+                if tr, tok := binding_type_ref(root, src, operand, op_start); tok {
+                    seen := make(map[string]bool, 0, context.temp_allocator)
+                    ctx := Fields_Ctx{prefix = prefix, res = res, seen = &seen}
+                    visit_type_decl(e, parser, root, req, tr, "struct_declaration", "type", fields_visitor, &ctx)
+                }
+            }
+        } else {
+            // Leading `.<prefix>` with no operand: an implicit enum selector
+            // (`x: Axis = .`). Infer the expected type; if it's an enum, offer its
+            // members. (`)`/`]` before the dot is a member on an expression result,
+            // which has no inferable enum context here.)
+            before := op_end > 0 ? src[op_end - 1] : 0 // the char just before the dot
+            if before != ')' && before != ']' {
+                if tr, tok := expected_type_at(root, src, op_end); tok {
+                    seen := make(map[string]bool, 0, context.temp_allocator)
+                    ctx := Enum_Ctx{prefix = prefix, res = res, seen = &seen}
+                    visit_type_decl(e, parser, root, req, tr, "enum_declaration", "enum", enum_visitor, &ctx)
+                }
             }
         }
-        // A selector on a value (`v.field`) needs type inference we don't have yet.
         finish_completion(res)
         return
     }
@@ -1663,8 +2305,10 @@ package_name_from_path :: proc(raw: string) -> string {
 
 // Directory an import path points at. Relative paths resolve against the
 // importing file's directory (fully in-workspace). `core:`/`vendor:`/`base:`
-// collections resolve against ODIN_ROOT when the environment exposes it;
-// unknown collections have no mapping. Returned dir is scratch-allocated.
+// collections resolve against ODIN_ROOT when the environment exposes it; any
+// other collection is looked up in the workspace's `ols.json` (the same config
+// OLS reads), so a project's custom collections (`import "shared:foo"`) resolve.
+// An unknown collection has no mapping. Returned dir is scratch-allocated.
 @(private = "file")
 package_dir :: proc(raw: string, req_path: string, workspace: string) -> (string, bool) {
     if colon := strings.index_byte(raw, ':'); colon >= 0 {
@@ -1676,6 +2320,10 @@ package_dir :: proc(raw: string, req_path: string, workspace: string) -> (string
                 return "", false
             }
             joined, err := filepath.join({root, coll, sub}, context.temp_allocator)
+            return joined, err == nil
+        }
+        if croot, ok := collection_dir(coll, workspace); ok {
+            joined, err := filepath.join({croot, sub}, context.temp_allocator)
             return joined, err == nil
         }
         return "", false
@@ -1704,6 +2352,59 @@ odin_root :: proc() -> string {
         return v
     }
     return ODIN_ROOT
+}
+
+// Root directory of a user-defined import collection `coll`, read from the
+// workspace's `ols.json` — the standard OLS config, so a project set up for OLS
+// works here with no extra configuration. Its `collections` array maps a name to
+// a path; a relative path resolves against the workspace, an absolute one is used
+// as-is. Returns false when there is no ols.json, no such collection, or the file
+// doesn't parse. Read fresh per lookup (requests are infrequent); the returned
+// path is scratch-allocated.
+@(private = "file")
+collection_dir :: proc(coll, workspace: string) -> (string, bool) {
+    if workspace == "" || coll == "" {
+        return "", false
+    }
+    cfg, jerr := filepath.join({workspace, "ols.json"}, context.temp_allocator)
+    if jerr != nil {
+        return "", false
+    }
+    data, rerr := os.read_entire_file(cfg, context.temp_allocator)
+    if rerr != nil {
+        return "", false
+    }
+
+    value, perr := json.parse(data, allocator = context.temp_allocator)
+    if perr != .None {
+        return "", false
+    }
+    obj, ook := value.(json.Object)
+    if !ook {
+        return "", false
+    }
+    arr, aok := obj["collections"].(json.Array)
+    if !aok {
+        return "", false
+    }
+
+    for item in arr {
+        entry, eok := item.(json.Object)
+        if !eok {
+            continue
+        }
+        name, nok := entry["name"].(json.String)
+        path, pok := entry["path"].(json.String)
+        if !nok || !pok || name != coll {
+            continue
+        }
+        if filepath.is_abs(path) {
+            return strings.clone(path, context.temp_allocator), true
+        }
+        joined, jjerr := filepath.join({workspace, path}, context.temp_allocator)
+        return joined, jjerr == nil
+    }
+    return "", false
 }
 
 // Scans one package directory (all its .odin files, non-recursively — an Odin

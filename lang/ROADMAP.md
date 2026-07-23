@@ -41,8 +41,20 @@ lowest latency.
   `foo_windows.odin` beats an unrelated `zebra.odin`), so navigation still lands on
   the most package-like file. Alt+Enter
   with the caret on an `import` line (its alias or the quoted path, e.g.
-  `import rl "vendor:raylib"`) opens that package the same way. Value member
-  access (`v.field`) still falls through (needs type inference).
+  `import rl "vendor:raylib"`) opens that package the same way. Custom import
+  collections declared in the workspace's `ols.json` (`import "shared:foo"`)
+  resolve through the collection's path — the same config OLS reads.
+- **Type-aware member access** (`value.field`): a selector on a struct-typed value
+  resolves to the struct field — go-to-definition jumps to the field, hover shows
+  its declaration (`x: int`). The operand's type is inferred from its declaration
+  (a parameter, a typed `var`, or a `name := Type{...}` composite literal), a
+  pointer is auto-dereferenced (`^Point`), and chained access (`a.b.c`) recurses
+  through each field's struct type. The struct is found in the same file, an
+  imported package, or the workspace index. Completion after `value.` lists the
+  struct's fields, and an implicit enum selector (`a: Axis = .`) offers the
+  expected enum's members. Only struct/enum types are understood — a proc result,
+  map or slice member still falls through to the flat name scan (no general type
+  system).
 - **Hover popup:** a mouse dwell over a symbol (~0.45s) dispatches a Hover
   request; the engine's declaration text is drawn in a popup anchored to the
   symbol. Fires once per dwell, dismissed on move or when the cursor leaves. The
@@ -115,12 +127,21 @@ lowest latency.
 
 ## Missing — engine depth (Odin native analysis)
 
-- [ ] **Type-aware member access** (`foo.bar`, `pkg.Symbol`): resolving a
-      selector requires knowing the type of `foo`. Not implemented — only bare
-      identifiers resolve.
-- [ ] **Package / import resolution.** `import "core:fmt"` then `fmt.println`
-      isn't followed; cross-file scan is a flat name match within the workspace,
-      ignoring package boundaries and `using`.
+- [~] **Type-aware member access** (`foo.bar`): a struct-typed operand's field
+      resolves (goto + hover + `value.` field completion), inferring the operand's
+      type from its declaration — parameter, typed `var`, or `name := Type{...}`
+      composite literal — through a pointer and along a field chain (`a.b.c`).
+      Enum selectors are inferred too: `x: Axis = .` completes the enum's members.
+      Served by `resolve_member`/`infer_expr_type`/`binding_type_ref` + the
+      `visit_type_decl` struct/enum locator (same file → imported package →
+      workspace index). Still missing: types that aren't a struct or enum (proc
+      results, maps, slices, `using` fields), and inference of a `:=` RHS that
+      isn't a composite literal (a call result). Those fall through to the flat
+      name scan.
+- [~] **Package / import resolution.** `import "core:fmt"` then `fmt.println` is
+      followed (package-qualified goto/hover/completion resolve into the package
+      dir); custom collections resolve via `ols.json`. Still flat/name-based for
+      bare cross-file identifiers, and `using` isn't followed.
 - [ ] **Type inference.** No inference for `x := f()`; hover shows the
       declaration text, not a computed type.
 - [ ] **Shadowing precision.** Scope is approximated by enclosing block /
