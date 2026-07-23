@@ -255,6 +255,13 @@ init :: proc() -> ^Thor {
     rl.SetConfigFlags({.WINDOW_UNDECORATED, .WINDOW_RESIZABLE})
     rl.InitWindow(1280, 800, "Thor")
     lap(&phase, "InitWindow")
+
+    // Window/taskbar icon; freed once raylib has copied it.
+    icon := rl.LoadImage("assets/branding/thor.png")
+    if icon.data != nil {
+        rl.SetWindowIcon(icon)
+        rl.UnloadImage(icon)
+    }
     rl.SetTargetFPS(60)
     rl.SetExitKey(.KEY_NULL)
 
