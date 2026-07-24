@@ -164,10 +164,11 @@ thor_build_controls :: proc(thor: ^Thor) {
 }
 
 thor_build_content :: proc(thor: ^Thor) {
-    top_title := widgets.label_create("top-title", "Thor")
-    widgets.label_set_text_color(top_title, thor.theme.accent_color)
-    top_title.min_size = rl.Vector2 {70, 28}
-    thor.top_title_label = top_title
+    top_logo := widgets.logo_create("top-logo")
+    thor.top_logo_texture = rl.LoadTexture("assets/branding/hammer.png")
+    widgets.logo_set_texture(top_logo, thor.top_logo_texture)
+    top_logo.min_size = rl.Vector2 {40, 28}
+    thor.top_logo = top_logo
 
     // Empty flexible spacer so the titlebar keeps a draggable area on the
     // right of the menu buttons.
@@ -333,7 +334,7 @@ thor_build_content :: proc(thor: ^Thor) {
     dialog_console_button.min_size = rl.Vector2 {0, 36}
     thor.dialog_console_button = dialog_console_button
 
-    widgets.append_child(&thor.top_bar.widget, &top_title.widget)
+    widgets.append_child(&thor.top_bar.widget, &top_logo.widget)
     widgets.append_child(&thor.top_bar.widget, &thor.menu_file_button.widget)
     widgets.append_child(&thor.top_bar.widget, &thor.menu_edit_button.widget)
     widgets.append_child(&thor.top_bar.widget, &thor.menu_view_button.widget)

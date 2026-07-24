@@ -84,9 +84,11 @@ Thor :: struct {
     menu_edit_button:         ^widgets.Button,
     menu_view_button:         ^widgets.Button,
     menu_help_button:         ^widgets.Button,
+    // Titlebar hammer mark and its borrowed texture (unloaded at shutdown).
+    top_logo:                 ^widgets.Logo,
+    top_logo_texture:         rl.Texture2D,
     // Titlebar/panel labels that carry a theme color, kept so a live theme
     // change can recolor them (most labels are theme-neutral and not stored).
-    top_title_label:          ^widgets.Label,
     explorer_title_label:     ^widgets.Label,
     console_title_label:      ^widgets.Label,
     dialog_text_label:        ^widgets.Label,
@@ -173,6 +175,7 @@ Thor :: struct {
     goto_workspace_symbol_key: setting.Keybind,
     find_references_key:      setting.Keybind,
     signature_help_key:       setting.Keybind,
+    package_doc_key:          setting.Keybind,
     // Go-to-symbol picker state: the jump targets (file + byte offset) for the
     // rows currently shown, in picker order. Rebuilt each time the picker opens;
     // the pick callback indexes into them on a later frame. Owned.
@@ -210,6 +213,9 @@ Thor :: struct {
     // the candidates route back to the right editor.
     completion_editor:        ^widgets.Editor,
     completion_request_id:    u64,
+    // In-flight package-doc request: its request id, so a superseded result (a
+    // newer F3 for another package) is dropped instead of overwriting the newer one.
+    package_doc_request_id:   u64,
     // Transient statusline notice (e.g. "No definition found") and the time it
     // was posted; thor_status_info hides it once STATUS_MESSAGE_SECS elapse.
     status_message:           string,
@@ -454,6 +460,7 @@ shutdown :: proc(thor: ^Thor) {
     ui.theme_destroy(&thor.theme)
     ui.context_destroy(&thor.ui_context)
     ui.text_shutdown()
+    rl.UnloadTexture(thor.top_logo_texture)
     rl.CloseWindow()
     free(thor)
 }

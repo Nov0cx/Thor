@@ -17,6 +17,7 @@
         "goto_workspace_symbol": "ctrl+q",
         "find_references": "f10",
         "signature_help":  "ctrl+shift+space",
+        "package_doc":     "f3",
         "last_file":       "ctrl+e",
         "new_file":           "",
         "new_folder":         "",

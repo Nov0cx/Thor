@@ -164,7 +164,6 @@ thor_apply_theme :: proc(thor: ^Thor) {
     widgets.button_set_colors(thor.dialog_console_button, t.white_black_color, t.blue_color, t.cyan_color, t.active, t.border)
 
     // Theme-colored labels.
-    widgets.label_set_text_color(thor.top_title_label, t.accent_color)
     widgets.label_set_text_color(thor.explorer_title_label, t.white_black_color)
     widgets.label_set_text_color(thor.console_title_label, t.white_black_color)
     widgets.label_set_text_color(thor.dialog_text_label, t.white_black_color)

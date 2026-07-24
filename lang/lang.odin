@@ -23,6 +23,7 @@ Request_Kind :: enum {
     References,
     Signature_Help,
     Completion,
+    Package_Doc,
 }
 
 // A byte range in a named file. Byte offsets, not line/column: the editor and
@@ -40,6 +41,18 @@ Hover_Info :: struct {
     text:  string, // owned; a signature / declaration line
     start: int,
     end:   int,
+}
+
+// Package-documentation payload: a rendered documentation page for the package
+// the caret refers to (an import, a `pkg.Symbol` operand, or the file's own
+// package). `title` is a short heading ("package fmt"), `path` the package
+// directory it was rendered from, and `text` the full page — the package's
+// public top-level declarations, each with the doc comment above it. The editor
+// shows it in a side pane.
+Doc_Info :: struct {
+    title: string, // owned; "package fmt"
+    path:  string, // owned; the package directory the page was built from
+    text:  string, // owned; the rendered documentation page
 }
 
 // Signature-help payload for the call the caret sits in: the resolved
@@ -93,6 +106,7 @@ Result :: struct {
     ok:        bool,
     location:  Location,        // Definition
     hover:     Hover_Info,      // Hover
+    doc:       Doc_Info,        // Package_Doc
     signature: Signature_Info,  // Signature_Help
     symbols:   [dynamic]Symbol, // Document_Symbols / Workspace_Symbols / References / Completion; owned, freed in job_free
 }
@@ -248,6 +262,9 @@ job_free :: proc(m: ^Manager, job: ^Job) {
     delete(job.request.workspace)
     delete(job.result.location.path)
     delete(job.result.hover.text)
+    delete(job.result.doc.title)
+    delete(job.result.doc.path)
+    delete(job.result.doc.text)
     delete(job.result.signature.label)
     for sym in job.result.symbols {
         delete(sym.name)

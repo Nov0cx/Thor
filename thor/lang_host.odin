@@ -1,6 +1,7 @@
 package thor
 
 import "core:fmt"
+import "core:os"
 import "core:path/filepath"
 import "core:strings"
 import rl "vendor:raylib"
@@ -226,6 +227,147 @@ thor_request_signature :: proc(thor: ^Thor, auto: bool) {
     thor.signature_auto = auto
 }
 
+// F3: render the documentation for the package the caret refers to (an import,
+// a `pkg.Symbol` operand, or — failing that — the file's own package). Async;
+// thor_show_package_doc opens the rendered page in the other editor pane when it
+// lands. A superseded result (a newer F3) is dropped by id.
+thor_package_doc :: proc(thor: ^Thor) {
+    file := thor_active_open_file(thor)
+    if file == nil || !file.loaded {
+        return
+    }
+    ext := thor_file_extension(file.name)
+    if !lang.manager_supports(&thor.lang_manager, ext) {
+        return
+    }
+    source := textedit.text(&file.state)
+    id := lang.manager_request(
+        &thor.lang_manager,
+        .Package_Doc,
+        file.path,
+        ext,
+        source,
+        textedit.primary_cursor(&file.state).caret,
+        file.state.revision,
+        thor.workspace_dir,
+    )
+    if id == 0 {
+        return
+    }
+    thor.package_doc_request_id = id
+}
+
+// Shows a rendered package-doc page in the pane the user is not editing in (the
+// "other" window), opening the split if it was closed so their code stays
+// visible beside it. Drops a superseded result by id and flashes when nothing
+// resolved. The page is written to a per-package temp file (outside the
+// workspace, so the analyzer never indexes it) that gets Odin highlighting and
+// is reused on repeat presses.
+@(private = "file")
+thor_show_package_doc :: proc(thor: ^Thor, res: ^lang.Result) {
+    if res.id != thor.package_doc_request_id {
+        return
+    }
+    thor.package_doc_request_id = 0
+    if !res.ok || res.doc.text == "" {
+        thor_flash_status(thor, "No package documentation here", is_error = true)
+        return
+    }
+
+    dir := thor_docs_dir()
+    if dir == "" {
+        return
+    }
+    if !os.exists(dir) {
+        _ = os.make_directory(dir)
+    }
+    stem := thor_doc_file_stem(strings.trim_prefix(res.doc.title, "package "))
+    // A .md doc so it renders as Markdown documentation (OLS-style: fenced
+    // signatures + doc prose), not as an Odin source tab.
+    file_name := strings.concatenate({stem, ".md"}, context.temp_allocator)
+    path, _ := filepath.join({dir, file_name}, context.temp_allocator)
+
+    // The doc goes in the pane the user is not editing in.
+    thor_render_doc_in_pane(thor, path, res.doc.text, 1 - thor.active_pane)
+}
+
+// The per-session directory package-doc pages are written to: a `thor-docs`
+// folder under the OS temp dir, deliberately outside any workspace so the Odin
+// analyzer's workspace scan never picks the pages up as source. "" when no temp
+// dir is known (then the doc is silently skipped rather than written to the CWD).
+@(private = "file")
+thor_docs_dir :: proc() -> string {
+    base := os.get_env("TEMP", context.temp_allocator)
+    if base == "" {
+        base = os.get_env("TMP", context.temp_allocator)
+    }
+    if base == "" {
+        return ""
+    }
+    joined, _ := filepath.join({base, "thor-docs"}, context.temp_allocator)
+    return joined
+}
+
+// A filesystem-safe stem for a package's doc file: keeps identifier bytes,
+// replaces anything else with '_'. Temp-allocated.
+@(private = "file")
+thor_doc_file_stem :: proc(name: string) -> string {
+    if name == "" {
+        return "package"
+    }
+    b := strings.builder_make(context.temp_allocator)
+    for i in 0 ..< len(name) {
+        c := name[i]
+        if c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') {
+            strings.write_byte(&b, c)
+        } else {
+            strings.write_byte(&b, '_')
+        }
+    }
+    return strings.to_string(b)
+}
+
+// Writes `text` to `path` and shows it in editor pane `pane`, opening the split
+// when the target is the second pane. An already-open doc buffer is refreshed in
+// place (and kept clean so autosave never fires); a new one is opened into the
+// pane without moving keyboard focus off the user's code.
+@(private = "file")
+thor_render_doc_in_pane :: proc(thor: ^Thor, path, text: string, pane: int) {
+    if werr := os.write_entire_file(path, transmute([]byte) text); werr != nil {
+        return
+    }
+    canonical := path
+    if abs, err := filepath.abs(path, context.temp_allocator); err == nil {
+        canonical = abs
+    }
+
+    if pane == 1 && !thor.split_visible {
+        thor.split_visible = true
+        thor_apply_split(thor)
+    }
+
+    for file, index in thor.open_files {
+        if file.path == canonical {
+            if file.loaded {
+                textedit.set_text(&file.state, text)
+                file.saved_revision = file.state.revision
+            }
+            thor.pane_file[pane] = index
+            thor_bind_pane(thor, pane)
+            thor_sync_active_signal(thor)
+            return
+        }
+    }
+
+    // Not open yet: thor_open_file routes to the active pane, so borrow it
+    // briefly to land the doc in `pane`, then restore focus/active state.
+    prev := thor.active_pane
+    thor.active_pane = pane
+    thor_open_file(thor, canonical)
+    thor.active_pane = prev
+    thor_sync_active_signal(thor)
+}
+
 // Editor auto-trigger: as a word is typed the editor asks the owner to resolve
 // semantic completions at `offset`. Matches the buffer to its open file and
 // dispatches a Completion request; the pane is remembered so the async result
@@ -363,6 +505,8 @@ thor_on_lang_result :: proc(user: rawptr, res: ^lang.Result) {
         thor_show_signature(thor, res)
     case .Completion:
         thor_update_completion(thor, res)
+    case .Package_Doc:
+        thor_show_package_doc(thor, res)
     }
 }
 

@@ -98,6 +98,11 @@ thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
         thor_signature_help(thor)
         return true
     }
+    // Package documentation (F3) renders the package under the caret in the other pane.
+    if setting.keybind_matches(thor.package_doc_key, event.key, event.ctrl, event.shift, event.alt) {
+        thor_package_doc(thor)
+        return true
+    }
     // Flip to the previously active file (ctrl+e), like vim's Ctrl-^.
     if setting.keybind_matches(thor.last_file_key, event.key, event.ctrl, event.shift, event.alt) {
         thor_flip_last_file(thor)

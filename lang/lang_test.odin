@@ -1598,3 +1598,54 @@ test_config_feature_toggle :: proc(t: ^testing.T) {
         testing.expectf(t, res.hover.text == "scale :: proc(v: int) -> int", "hover text: got %q", res.hover.text)
     }
 }
+
+@(test)
+test_package_doc :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // A `docpkg` package with a documented public proc, a public type, and a
+    // @(private) proc. F3 on the `docpkg.pinged` operand renders the package: the
+    // page must carry the public symbols with their doc comments and omit the
+    // private one.
+    root := "thor_lang_doc_ws"
+    lib := strings.concatenate({root, "/docpkg"}, context.temp_allocator)
+    _ = os.make_directory(root)
+    _ = os.make_directory(lib)
+
+    lib_path := strings.concatenate({lib, "/docpkg.odin"}, context.temp_allocator)
+    lib_src := "package docpkg\n\n// Pings the server.\n// Returns the round-trip.\nping :: proc() -> int {\n\treturn 1\n}\n\n// A widget handle.\nWidget :: struct {\n\tid: int,\n}\n\n@(private)\nsecret :: proc() {\n}\n"
+    _ = os.write_entire_file(lib_path, transmute([]byte)lib_src)
+
+    defer os.remove(root)
+    defer os.remove(lib)
+    defer os.remove(lib_path)
+
+    main_path := strings.concatenate({root, "/main.odin"}, context.temp_allocator)
+    main_src := "package app\n\nimport \"docpkg\"\n\nmain :: proc() {\n\t_ = docpkg.ping()\n}\n"
+
+    at := strings.index(main_src, "docpkg.ping") // caret on the package operand
+    req := Request {
+        kind      = .Package_Doc,
+        path      = main_path,
+        ext       = ".odin",
+        source    = main_src,
+        offset    = at,
+        workspace = root,
+    }
+    res := Result{kind = .Package_Doc}
+    odin_resolve(e, &req, &res)
+    defer delete(res.doc.title)
+    defer delete(res.doc.path)
+    defer delete(res.doc.text)
+
+    testing.expect(t, res.ok, "expected the package to render docs")
+    testing.expectf(t, res.doc.title == "package docpkg", "title: got %q", res.doc.title)
+    // OLS-style Markdown: fenced Odin signatures + cleaned doc-comment prose.
+    testing.expect(t, strings.contains(res.doc.text, "```odin\nping :: proc() -> int\n```"), "missing fenced proc signature")
+    testing.expect(t, strings.contains(res.doc.text, "Pings the server.\nReturns the round-trip."), "doc comment should be `//`-stripped prose")
+    testing.expect(t, !strings.contains(res.doc.text, "// Pings"), "the `//` markers must be stripped from the prose")
+    testing.expect(t, strings.contains(res.doc.text, "Widget :: struct"), "missing public struct")
+    testing.expect(t, strings.contains(res.doc.text, "A widget handle."), "missing struct doc prose")
+    testing.expect(t, !strings.contains(res.doc.text, "secret"), "private proc must be omitted")
+}

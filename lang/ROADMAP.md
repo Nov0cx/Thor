@@ -42,7 +42,7 @@ lowest latency.
   the most package-like file. Alt+Enter
   with the caret on an `import` line (its alias or the quoted path, e.g.
   `import rl "vendor:raylib"`) opens that package the same way. Custom import
-  collections declared in the workspace's `odin-analyzer.json` (`import
+  collections declared in the workspace's `.thor/odin-analyzer.json` (`import
   "shared:foo"`) resolve through the collection's path (see **Workspace config**).
 - **Type-aware member access** (`value.field`): a selector on a struct-typed value
   resolves to the struct field — go-to-definition jumps to the field, hover shows
@@ -101,9 +101,10 @@ lowest latency.
   tracks the caret; moving the caret out of the call (or closing it) dismisses the
   popup silently. The auto path never flashes "No signature found" — only the
   explicit keybind does.
-- **Workspace config (`odin-analyzer.json`):** the engine reads a per-workspace
-  config file from the workspace root — Thor's own file (not `ols.json`), though
-  its shape is deliberately familiar. It carries **import collections** (a
+- **Workspace config (`.thor/odin-analyzer.json`):** the engine reads a
+  per-workspace config file from `<workspace>/.thor/` (the same folder Thor keeps
+  its `settings.json` in) — Thor's own file (not `ols.json`), though its shape is
+  deliberately familiar. It carries **import collections** (a
   `collections` array of `{name, path}`; a relative path resolves against the
   workspace, an absolute one is used as-is) so `import "shared:foo"` resolves, and
   **feature toggles** (`enable_hover`, `enable_document_symbols`,
@@ -115,6 +116,24 @@ lowest latency.
   parse. Unknown keys are ignored, so the file can hold settings the engine
   doesn't act on yet. Served by `config_ensure`/`config_collection_dir`/
   `config_allows` in `odin_engine.odin`.
+- **Package documentation (F3):** with the caret on a package reference — an
+  `import` line, a `pkg.Symbol` operand, or a bare package alias — F3 renders the
+  whole package as a documentation page (`Package_Doc` request → `package_doc` /
+  `render_package_doc`), the way OLS shows documentation: a Markdown page whose
+  every public top-level declaration (sorted by name, across the package's `.odin`
+  files) is a ```` ```odin ````-fenced signature followed by a `---` rule and the
+  declaration's doc-comment prose — the `//` markers stripped and the lines joined,
+  matching OLS's `get_comment`/`build_markup_content` (see
+  `ols/src/server/documentation.odin`). The package's own doc comment (above
+  `package X`) heads the page. `@(private)` declarations are omitted and
+  `_test.odin` files skipped. With no package under the caret it falls back to the
+  file's own package, so F3 always shows something. The page is written to a
+  per-package temp `.md` file (outside the workspace, so the analyzer never indexes
+  it) that renders as Markdown rather than an Odin source tab, and shown in the
+  *other* editor pane (the split opens if it was closed) so the source stays
+  visible beside it — repeat presses reuse the tab and refresh it in place. Host:
+  `thor_package_doc` / `thor_show_package_doc` / `thor_render_doc_in_pane` in
+  `lang_host.odin`.
 
 ---
 
@@ -154,7 +173,7 @@ lowest latency.
       name scan.
 - [~] **Package / import resolution.** `import "core:fmt"` then `fmt.println` is
       followed (package-qualified goto/hover/completion resolve into the package
-      dir); custom collections resolve via `odin-analyzer.json`. Still
+      dir); custom collections resolve via `.thor/odin-analyzer.json`. Still
       flat/name-based for bare cross-file identifiers, and `using` isn't followed.
 - [ ] **Type inference.** No inference for `x := f()`; hover shows the
       declaration text, not a computed type.
