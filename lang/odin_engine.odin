@@ -27,6 +27,7 @@ Odin_Engine :: struct {
     language: ts.Language,
     locals:   ts.Query, // compiled once, immutable, shared read-only across workers
     index:    Symbol_Index,
+    config:   Config_Cache,
 }
 
 // A resident top-level declaration: self-owned copies (the parse tree and its
@@ -76,6 +77,7 @@ odin_engine_create :: proc() -> ^Odin_Engine {
     }
     e.index.alloc = context.allocator
     e.index.files = make(map[string]File_Entry, 0, e.index.alloc)
+    e.config.alloc = context.allocator
     return e
 }
 
@@ -102,6 +104,7 @@ odin_destroy :: proc(data: rawptr) {
         ts.query_delete(e.locals)
     }
     index_clear(e)
+    config_clear(e)
     free(e)
 }
 
@@ -391,6 +394,234 @@ index_clear :: proc(e: ^Odin_Engine) {
     idx.built = false
 }
 
+// Per-workspace language-backend config, read from `<workspace>/.thor/` — the
+// same workspace config folder Thor keeps its `settings.json` in. Thor's own
+// file (not `ols.json`), though the shape — a `collections` array, `enable_*`
+// toggles — is deliberately familiar.
+@(private = "file")
+WORKSPACE_CONFIG_DIR :: ".thor"
+@(private = "file")
+ANALYZER_CONFIG :: "odin-analyzer.json"
+
+// Language-backend settings for one workspace, read from
+// `<workspace>/.thor/odin-analyzer.json`. Only the settings the in-client engine
+// can act on are kept: import collections (a name → its root directory, so `import
+// "shared:foo"` resolves) and the feature-enable toggles. Absent keys take the
+// defaults — no collections, every feature on.
+@(private = "file")
+Config :: struct {
+    collections:             map[string]string, // name → resolved absolute dir
+    enable_hover:            bool,
+    enable_document_symbols: bool,
+    enable_references:       bool,
+}
+
+// The engine's cached view of one workspace's config file, guarded by its own
+// mutex and stat-invalidated exactly like the symbol index: the file is re-read only
+// when the workspace changes or its modtime/size moves, so the common request
+// pays a single `stat`, not a parse. A missing or malformed file still caches
+// the defaults (so a miss isn't re-parsed every request). Owned strings use
+// `alloc` (the engine allocator), never the per-request Manager allocator.
+@(private = "file")
+Config_Cache :: struct {
+    mutex:     sync.Mutex,
+    alloc:     runtime.Allocator,
+    workspace: string, // engine-owned; the workspace this was loaded for
+    loaded:    bool,
+    modtime:   i64,
+    size:      i64,
+    cfg:       Config,
+}
+
+// Ensures the cache reflects `<workspace>/.thor/odin-analyzer.json` on disk. Rebuilds when the
+// workspace changed or the file's stat moved; otherwise leaves the parsed view
+// in place. All owned storage lands in the engine allocator (context set
+// locally, so callees inherit it). Caller holds cache.mutex.
+@(private = "file")
+config_ensure :: proc(cache: ^Config_Cache, workspace: string) {
+    if workspace == "" {
+        return
+    }
+    context.allocator = cache.alloc // every clone/make below is engine-owned
+
+    path, jerr := filepath.join({workspace, WORKSPACE_CONFIG_DIR, ANALYZER_CONFIG}, context.temp_allocator)
+    if jerr != nil {
+        return
+    }
+    present := false
+    mt, sz: i64
+    if info, err := os.stat(path, context.temp_allocator); err == nil {
+        present = true
+        mt = info.modification_time._nsec
+        sz = info.size
+    }
+
+    if cache.loaded && cache.workspace == workspace && cache.modtime == mt && cache.size == sz {
+        return // unchanged since last read — keep the parsed view
+    }
+
+    config_free(cache)
+    cache.cfg = config_defaults()
+    if cache.workspace != workspace {
+        delete(cache.workspace, cache.alloc)
+        cache.workspace = strings.clone(workspace)
+    }
+    cache.loaded = true
+    cache.modtime = mt
+    cache.size = sz
+
+    if present {
+        config_parse(cache, workspace, path)
+    }
+}
+
+// A fresh Config with the defaults: no collections, every feature on. Uses
+// context.allocator (the engine allocator, set by config_ensure).
+@(private = "file")
+config_defaults :: proc() -> Config {
+    return Config {
+        collections             = make(map[string]string),
+        enable_hover            = true,
+        enable_document_symbols = true,
+        enable_references       = true,
+    }
+}
+
+// Parses the config file into `cache.cfg`, layering onto the defaults already in
+// place: the recognized `enable_*` booleans and every `collections` entry (a
+// relative path resolves against the workspace, an absolute one is used as-is).
+// Unknown keys are ignored, so the file can carry settings this engine doesn't
+// act on. context.allocator is the engine allocator (set by config_ensure).
+@(private = "file")
+config_parse :: proc(cache: ^Config_Cache, workspace, path: string) {
+    data, rerr := os.read_entire_file(path, context.temp_allocator)
+    if rerr != nil {
+        return
+    }
+    value, perr := json.parse(data, allocator = context.temp_allocator)
+    if perr != .None {
+        return
+    }
+    obj, ook := value.(json.Object)
+    if !ook {
+        return
+    }
+
+    if b, ok := obj["enable_hover"].(json.Boolean); ok {
+        cache.cfg.enable_hover = bool(b)
+    }
+    if b, ok := obj["enable_document_symbols"].(json.Boolean); ok {
+        cache.cfg.enable_document_symbols = bool(b)
+    }
+    if b, ok := obj["enable_references"].(json.Boolean); ok {
+        cache.cfg.enable_references = bool(b)
+    }
+
+    arr, aok := obj["collections"].(json.Array)
+    if !aok {
+        return
+    }
+    for item in arr {
+        entry, eok := item.(json.Object)
+        if !eok {
+            continue
+        }
+        name, nok := entry["name"].(json.String)
+        p, pok := entry["path"].(json.String)
+        if !nok || !pok || name == "" || p == "" {
+            continue
+        }
+        dir: string
+        if filepath.is_abs(p) {
+            dir = strings.clone(p)
+        } else {
+            joined, jerr := filepath.join({workspace, p})
+            if jerr != nil {
+                continue
+            }
+            dir = joined
+        }
+        // Last entry for a name wins (mirrors a map assignment); free the prior.
+        if old, exists := cache.cfg.collections[name]; exists {
+            delete(old, cache.alloc)
+            cache.cfg.collections[name] = dir
+        } else {
+            cache.cfg.collections[strings.clone(name)] = dir
+        }
+    }
+}
+
+// Resolved root directory of the workspace-defined collection `coll`, or false
+// when the config declares no such collection. The path is cloned into scratch
+// so it outlives the lock.
+@(private = "file")
+config_collection_dir :: proc(e: ^Odin_Engine, coll, workspace: string) -> (string, bool) {
+    if workspace == "" || coll == "" {
+        return "", false
+    }
+    cache := &e.config
+    sync.lock(&cache.mutex)
+    defer sync.unlock(&cache.mutex)
+    config_ensure(cache, workspace)
+    if dir, ok := cache.cfg.collections[coll]; ok {
+        return strings.clone(dir, context.temp_allocator), true
+    }
+    return "", false
+}
+
+// True when the workspace config permits the feature the request `kind` serves.
+// Kinds with no toggle (definition, workspace symbols, signature help,
+// completion) are always on; the three gated ones — hover, document symbols,
+// references — honor the config, defaulting to on when unset.
+@(private = "file")
+config_allows :: proc(e: ^Odin_Engine, workspace: string, kind: Request_Kind) -> bool {
+    #partial switch kind {
+    case .Hover, .Document_Symbols, .References:
+    case:
+        return true
+    }
+    if workspace == "" {
+        return true // no workspace, no config to consult — defaults are all on
+    }
+    cache := &e.config
+    sync.lock(&cache.mutex)
+    defer sync.unlock(&cache.mutex)
+    config_ensure(cache, workspace)
+    #partial switch kind {
+    case .Hover:
+        return cache.cfg.enable_hover
+    case .Document_Symbols:
+        return cache.cfg.enable_document_symbols
+    case .References:
+        return cache.cfg.enable_references
+    }
+    return true
+}
+
+// Frees the cached config's owned collection strings and the map itself. Element
+// deletes name the engine allocator explicitly (the map may be torn down from a
+// context whose allocator differs, as in odin_destroy).
+@(private = "file")
+config_free :: proc(cache: ^Config_Cache) {
+    for name, dir in cache.cfg.collections {
+        delete(name, cache.alloc)
+        delete(dir, cache.alloc)
+    }
+    delete(cache.cfg.collections)
+    cache.cfg.collections = nil
+}
+
+// Tears the whole config cache down on destroy: its collections and the stored
+// workspace path.
+@(private = "file")
+config_clear :: proc(e: ^Odin_Engine) {
+    cache := &e.config
+    config_free(cache)
+    delete(cache.workspace, cache.alloc)
+    cache.workspace = ""
+    cache.loaded = false
+}
+
 // A declaration found in a parsed tree: the identifier being declared, the byte
 // range of the scope it is visible in, and the enclosing declaration node used
 // for hover text.
@@ -426,6 +657,13 @@ odin_resolve :: proc(data: rawptr, req: ^Request, res: ^Result) {
     }
     defer ts.tree_delete(tree)
     root := ts.tree_root_node(tree)
+
+    // Respect the workspace's ols.json feature toggles: a disabled feature
+    // answers nothing (hover / document symbols / references have OLS gates; the
+    // other kinds are always on).
+    if !config_allows(e, req.workspace, req.kind) {
+        return
+    }
 
     // Document symbols need no caret: enumerate the whole file and return.
     if req.kind == .Document_Symbols {
@@ -468,7 +706,7 @@ odin_resolve :: proc(data: rawptr, req: ^Request, res: ^Result) {
     // fail outright.
     if imp, in_import := enclosing_import(root, req.source, req.offset); in_import {
         if raw, rok := import_string(imp, req.source); rok {
-            if dir, dok := package_dir(raw, req.path, req.workspace); dok {
+            if dir, dok := package_dir(e, raw, req.path, req.workspace); dok {
                 anchor_start := int(ts.node_start_byte(imp))
                 anchor_end := int(ts.node_end_byte(imp))
                 open_package(dir, raw, req, res, anchor_start, anchor_end)
@@ -497,7 +735,7 @@ odin_resolve :: proc(data: rawptr, req: ^Request, res: ^Result) {
         if is_identifier(op_node) {
             pkg := ts.node_text(op_node, req.source)
             if raw, found := import_path(root, req.source, pkg); found {
-                if dir, dok := package_dir(raw, req.path, req.workspace); dok {
+                if dir, dok := package_dir(e, raw, req.path, req.workspace); dok {
                     if caret_on_member {
                         scan_package(e, parser, dir, req, name, hover_start, hover_end, res)
                     } else {
@@ -1080,7 +1318,7 @@ resolve_call_target :: proc(
             pkg := ts.node_text(pkg_node, req.source)
             name := ts.node_text(fn, req.source)
             if raw, ok := import_path(root, req.source, pkg); ok {
-                if dir, dok := package_dir(raw, req.path, req.workspace); dok {
+                if dir, dok := package_dir(e, raw, req.path, req.workspace); dok {
                     return find_proc_in_dir(e, parser, dir, name, req.path)
                 }
             }
@@ -1484,7 +1722,7 @@ visit_type_decl :: proc(
     }
     if tr.pkg != "" {
         if raw, found := import_path(root, req.source, tr.pkg); found {
-            if dir, dok := package_dir(raw, req.path, req.workspace); dok {
+            if dir, dok := package_dir(e, raw, req.path, req.workspace); dok {
                 return visit_decl_in_dir(e, parser, dir, tr.name, req.path, decl_type, visit, ctx)
             }
         }
@@ -1843,7 +2081,7 @@ complete :: proc(e: ^Odin_Engine, parser: ts.Parser, root: ts.Node, req: ^Reques
             operand := src[op_start:op_end]
             if raw, found := import_path(root, src, operand); found {
                 // `pkg.<prefix>`: the imported package's top-level symbols.
-                if dir, dok := package_dir(raw, req.path, req.workspace); dok {
+                if dir, dok := package_dir(e, raw, req.path, req.workspace); dok {
                     seen := make(map[string]bool, 0, context.temp_allocator)
                     complete_dir_toplevel(e, parser, dir, prefix, "", res, &seen)
                 }
@@ -2306,11 +2544,11 @@ package_name_from_path :: proc(raw: string) -> string {
 // Directory an import path points at. Relative paths resolve against the
 // importing file's directory (fully in-workspace). `core:`/`vendor:`/`base:`
 // collections resolve against ODIN_ROOT when the environment exposes it; any
-// other collection is looked up in the workspace's `ols.json` (the same config
-// OLS reads), so a project's custom collections (`import "shared:foo"`) resolve.
+// other collection is looked up in the workspace's `.thor/odin-analyzer.json`
+// config, so a project's custom collections (`import "shared:foo"`) resolve.
 // An unknown collection has no mapping. Returned dir is scratch-allocated.
 @(private = "file")
-package_dir :: proc(raw: string, req_path: string, workspace: string) -> (string, bool) {
+package_dir :: proc(e: ^Odin_Engine, raw: string, req_path: string, workspace: string) -> (string, bool) {
     if colon := strings.index_byte(raw, ':'); colon >= 0 {
         coll := raw[:colon]
         sub := raw[colon + 1:]
@@ -2322,7 +2560,7 @@ package_dir :: proc(raw: string, req_path: string, workspace: string) -> (string
             joined, err := filepath.join({root, coll, sub}, context.temp_allocator)
             return joined, err == nil
         }
-        if croot, ok := collection_dir(coll, workspace); ok {
+        if croot, ok := config_collection_dir(e, coll, workspace); ok {
             joined, err := filepath.join({croot, sub}, context.temp_allocator)
             return joined, err == nil
         }
@@ -2352,59 +2590,6 @@ odin_root :: proc() -> string {
         return v
     }
     return ODIN_ROOT
-}
-
-// Root directory of a user-defined import collection `coll`, read from the
-// workspace's `ols.json` — the standard OLS config, so a project set up for OLS
-// works here with no extra configuration. Its `collections` array maps a name to
-// a path; a relative path resolves against the workspace, an absolute one is used
-// as-is. Returns false when there is no ols.json, no such collection, or the file
-// doesn't parse. Read fresh per lookup (requests are infrequent); the returned
-// path is scratch-allocated.
-@(private = "file")
-collection_dir :: proc(coll, workspace: string) -> (string, bool) {
-    if workspace == "" || coll == "" {
-        return "", false
-    }
-    cfg, jerr := filepath.join({workspace, "ols.json"}, context.temp_allocator)
-    if jerr != nil {
-        return "", false
-    }
-    data, rerr := os.read_entire_file(cfg, context.temp_allocator)
-    if rerr != nil {
-        return "", false
-    }
-
-    value, perr := json.parse(data, allocator = context.temp_allocator)
-    if perr != .None {
-        return "", false
-    }
-    obj, ook := value.(json.Object)
-    if !ook {
-        return "", false
-    }
-    arr, aok := obj["collections"].(json.Array)
-    if !aok {
-        return "", false
-    }
-
-    for item in arr {
-        entry, eok := item.(json.Object)
-        if !eok {
-            continue
-        }
-        name, nok := entry["name"].(json.String)
-        path, pok := entry["path"].(json.String)
-        if !nok || !pok || name != coll {
-            continue
-        }
-        if filepath.is_abs(path) {
-            return strings.clone(path, context.temp_allocator), true
-        }
-        joined, jjerr := filepath.join({workspace, path}, context.temp_allocator)
-        return joined, jjerr == nil
-    }
-    return "", false
 }
 
 // Scans one package directory (all its .odin files, non-recursively — an Odin

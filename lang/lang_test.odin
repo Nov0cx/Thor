@@ -1515,8 +1515,8 @@ test_collection_import :: proc(t: ^testing.T) {
     e := odin_engine_create()
     defer odin_destroy(e)
 
-    // A user-defined collection in ols.json: `import "shared:foo"` resolves
-    // through the collection's path (relative to the workspace) into foo's dir.
+    // A user-defined collection in the analyzer config: `import "shared:foo"`
+    // resolves through the collection's path (relative to the workspace) into foo's dir.
     root := "thor_lang_coll_ws"
     libs := strings.concatenate({root, "/libs"}, context.temp_allocator)
     foo := strings.concatenate({libs, "/foo"}, context.temp_allocator)
@@ -1528,11 +1528,14 @@ test_collection_import :: proc(t: ^testing.T) {
     foo_src := "package foo\n\nbar :: proc() -> int {\n\treturn 1\n}\n"
     _ = os.write_entire_file(foo_path, transmute([]byte)foo_src)
 
-    cfg := strings.concatenate({root, "/ols.json"}, context.temp_allocator)
+    cfg_dir := strings.concatenate({root, "/.thor"}, context.temp_allocator)
+    _ = os.make_directory(cfg_dir)
+    cfg := strings.concatenate({cfg_dir, "/odin-analyzer.json"}, context.temp_allocator)
     cfg_src := "{\n\t\"collections\": [\n\t\t{ \"name\": \"shared\", \"path\": \"libs\" }\n\t]\n}\n"
     _ = os.write_entire_file(cfg, transmute([]byte)cfg_src)
 
     defer os.remove(root)
+    defer os.remove(cfg_dir)
     defer os.remove(libs)
     defer os.remove(foo)
     defer os.remove(foo_path)
@@ -1549,5 +1552,49 @@ test_collection_import :: proc(t: ^testing.T) {
         testing.expectf(t, strings.has_suffix(loc.path, "foo.odin"), "path: got %q", loc.path)
         want := strings.index(foo_src, "bar ::")
         testing.expectf(t, loc.start == want, "collection member start: got %d, want %d", loc.start, want)
+    }
+}
+
+@(test)
+test_config_feature_toggle :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // The analyzer config's feature toggles are honored: enable_hover:false
+    // suppresses hover, and a later edit re-enabling it is picked up (the config
+    // cache is stat-invalidated, like the symbol index).
+    root := "thor_lang_cfg_ws"
+    cfg_dir := strings.concatenate({root, "/.thor"}, context.temp_allocator)
+    _ = os.make_directory(root)
+    _ = os.make_directory(cfg_dir)
+    cfg := strings.concatenate({cfg_dir, "/odin-analyzer.json"}, context.temp_allocator)
+    defer os.remove(root)
+    defer os.remove(cfg_dir)
+    defer os.remove(cfg)
+
+    src := "package demo\n\nscale :: proc(v: int) -> int {\n\treturn v\n}\n\nmain :: proc() {\n\t_ = scale(2)\n}\n"
+    at := strings.index(src, "scale(2)")
+
+    // Disabled: hover answers nothing.
+    off_src := "{ \"enable_hover\": false }"
+    _ = os.write_entire_file(cfg, transmute([]byte)off_src)
+    {
+        req := Request{kind = .Hover, path = "buffer.odin", ext = ".odin", source = src, offset = at, workspace = root}
+        res := Result{kind = .Hover}
+        odin_resolve(e, &req, &res)
+        defer delete(res.hover.text)
+        testing.expect(t, !res.ok, "enable_hover:false should suppress hover")
+    }
+
+    // Re-enabled (distinct file size forces the cache to re-read): hover answers.
+    on_src := "{ \"enable_hover\": true, \"note\": \"on\" }"
+    _ = os.write_entire_file(cfg, transmute([]byte)on_src)
+    {
+        req := Request{kind = .Hover, path = "buffer.odin", ext = ".odin", source = src, offset = at, workspace = root}
+        res := Result{kind = .Hover}
+        odin_resolve(e, &req, &res)
+        defer delete(res.hover.text)
+        testing.expect(t, res.ok, "enable_hover:true should restore hover")
+        testing.expectf(t, res.hover.text == "scale :: proc(v: int) -> int", "hover text: got %q", res.hover.text)
     }
 }

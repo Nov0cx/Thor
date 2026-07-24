@@ -42,8 +42,8 @@ lowest latency.
   the most package-like file. Alt+Enter
   with the caret on an `import` line (its alias or the quoted path, e.g.
   `import rl "vendor:raylib"`) opens that package the same way. Custom import
-  collections declared in the workspace's `ols.json` (`import "shared:foo"`)
-  resolve through the collection's path — the same config OLS reads.
+  collections declared in the workspace's `odin-analyzer.json` (`import
+  "shared:foo"`) resolve through the collection's path (see **Workspace config**).
 - **Type-aware member access** (`value.field`): a selector on a struct-typed value
   resolves to the struct field — go-to-definition jumps to the field, hover shows
   its declaration (`x: int`). The operand's type is inferred from its declaration
@@ -101,6 +101,20 @@ lowest latency.
   tracks the caret; moving the caret out of the call (or closing it) dismisses the
   popup silently. The auto path never flashes "No signature found" — only the
   explicit keybind does.
+- **Workspace config (`odin-analyzer.json`):** the engine reads a per-workspace
+  config file from the workspace root — Thor's own file (not `ols.json`), though
+  its shape is deliberately familiar. It carries **import collections** (a
+  `collections` array of `{name, path}`; a relative path resolves against the
+  workspace, an absolute one is used as-is) so `import "shared:foo"` resolves, and
+  **feature toggles** (`enable_hover`, `enable_document_symbols`,
+  `enable_references`) that gate those request kinds — a disabled feature answers
+  nothing. Absent keys take the defaults (no collections, every feature on), so a
+  project with no config behaves exactly as before. The parsed view is cached on
+  the engine and stat-invalidated like the symbol index (re-read only when the
+  file's modtime/size moves), so the common request pays a single `stat`, not a
+  parse. Unknown keys are ignored, so the file can hold settings the engine
+  doesn't act on yet. Served by `config_ensure`/`config_collection_dir`/
+  `config_allows` in `odin_engine.odin`.
 
 ---
 
@@ -140,8 +154,8 @@ lowest latency.
       name scan.
 - [~] **Package / import resolution.** `import "core:fmt"` then `fmt.println` is
       followed (package-qualified goto/hover/completion resolve into the package
-      dir); custom collections resolve via `ols.json`. Still flat/name-based for
-      bare cross-file identifiers, and `using` isn't followed.
+      dir); custom collections resolve via `odin-analyzer.json`. Still
+      flat/name-based for bare cross-file identifiers, and `using` isn't followed.
 - [ ] **Type inference.** No inference for `x := f()`; hover shows the
       declaration text, not a computed type.
 - [ ] **Shadowing precision.** Scope is approximated by enclosing block /
@@ -292,8 +306,9 @@ The seam supports it, but no subprocess backend exists yet. To add one:
 - [ ] LSP handshake (`initialize`/`initialized`, capabilities) and document sync
       (`didOpen`/`didChange` incremental, keyed off the piece-table revision).
 - [ ] UTF-16 position ↔ byte offset conversion at the backend edge.
-- [ ] Server lifecycle: discovery/config (reuse `ols.json`), spawn on first
-      relevant file, restart on crash, shut down on exit.
+- [ ] Server lifecycle: discovery/config (a subprocess server reads its own
+      config — e.g. `ols.json` for OLS itself), spawn on first relevant file,
+      restart on crash, shut down on exit.
 - [ ] Register it *after* the Odin engine so in-client wins for `.odin` and the
       LSP covers everything else (clangd, rust-analyzer, gopls, …).
 
