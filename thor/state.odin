@@ -124,21 +124,43 @@ thor_sync_pane_diagnostics :: proc(thor: ^Thor, pane: int) {
     }
 }
 
-// Swaps the editor panes out for the image view when the active file is an
-// image, and back again otherwise. Called every frame so it tracks tab switches,
-// splits and closes without each having to poke it.
+// Swaps the editor panes out for the image view (for image files) or the
+// markdown preview (for markdown files while preview is on), and back again
+// otherwise. Called every frame so it tracks tab switches, splits, toggles and
+// closes without each having to poke it.
 thor_update_editor_view :: proc(thor: ^Thor) {
     file := thor_active_open_file(thor)
     show_image := file != nil && file.is_image && file.texture_loaded
+    show_md := !show_image && thor.markdown_preview &&
+        file != nil && file.loaded && thor_is_markdown(file.name)
 
     thor.image_view.visible = show_image
-    thor.editor_split_row.visible = !show_image
+    thor.markdown_view.visible = show_md
+    thor.editor_split_row.visible = !show_image && !show_md
 
     if show_image {
         widgets.image_view_set_texture(thor.image_view, file.texture, file.name)
     } else {
         widgets.image_view_set_texture(thor.image_view, {}, "")
     }
+
+    if show_md {
+        widgets.markdown_view_set_font_size(thor.markdown_view, thor.editor.font_size)
+        widgets.markdown_view_set_source(thor.markdown_view, textedit.text(&file.state), file.state.revision)
+    }
+}
+
+@(private = "file")
+thor_is_markdown :: proc(name: string) -> bool {
+    dot := strings.last_index_byte(name, '.')
+    if dot < 0 {
+        return false
+    }
+    switch strings.to_lower(name[dot:], context.temp_allocator) {
+    case ".md", ".markdown", ".mdown", ".mkd":
+        return true
+    }
+    return false
 }
 
 // Follows keyboard focus: whichever editor pane holds focus becomes the active

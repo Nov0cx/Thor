@@ -48,6 +48,10 @@ Thor :: struct {
     // Overlays the editor panel when the active file is an image; the editor
     // rows are hidden while it shows.
     image_view:               ^widgets.Image_View,
+    // Overlays the editor panel with a rendered markdown page while preview is on
+    // and the active file is markdown. Toggled by "View: Toggle Markdown Preview".
+    markdown_view:            ^widgets.Markdown_View,
+    markdown_preview:         bool,
     editor_split_row:         ^widgets.Stack,
     editor_split_splitter:    ^widgets.Splitter,
     console:                  ^widgets.Console,
@@ -56,6 +60,12 @@ Thor :: struct {
     command_palette:          ^widgets.Command_Palette,
     // Modal picker for Preferences (theme/font), with live preview.
     select_dialog:            ^widgets.Select_Dialog,
+    // Modal GUI editor for every setting (editor prefs, theme/font, keybinds).
+    settings_view:            ^widgets.Settings_View,
+    // Auto-reload of the config files: a signature of their modification times,
+    // refreshed after each load; the poll loop reloads when it changes on disk.
+    settings_sig:             i64,
+    settings_poll_time:       f64,
     find_replace:             ^widgets.Find_Replace,
     menu:                     ^widgets.Menu,
     command_palette_key:      setting.Keybind,
@@ -321,6 +331,7 @@ init :: proc() -> ^Thor {
     thor_wire_menus(thor)
     widgets.console_set_on_run(thor.console, thor_console_run, thor)
     thor_apply_settings(thor)
+    thor_settings_mark_clean(thor)
 
     // Now that the console and keybinds exist, expose the host services and load
     // plugins (their load body may print or query keybinds, e.g. the tutorial).
@@ -398,6 +409,7 @@ thor_read_git_branch :: proc(workspace_dir: string) -> string {
 run :: proc(thor: ^Thor) {
     for !rl.WindowShouldClose() && !thor.should_close {
         thor_poll_watcher(thor)
+        thor_poll_settings(thor)
         thor_update_files(thor)
         lang.manager_dispatch(&thor.lang_manager, thor, thor_on_lang_result)
         ui.context_update(&thor.ui_context)

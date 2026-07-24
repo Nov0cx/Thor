@@ -119,6 +119,26 @@ thor_build_ui :: proc(thor: ^Thor) {
     )
     thor.select_dialog.visible = false
 
+    thor.settings_view = widgets.settings_view_create("settings-view")
+    widgets.settings_view_set_colors(
+        thor.settings_view,
+        thor.theme.second_background,
+        thor.theme.accent_color,
+        thor.theme.highlight,
+        thor.theme.background,
+        thor.theme.white_black_color,
+        thor.theme.gray_color,
+        thor.theme.accent_color,
+    )
+    widgets.settings_view_set_callbacks(
+        thor.settings_view,
+        thor_on_setting_number,
+        thor_on_setting_choice,
+        thor_on_setting_keybind,
+        thor,
+    )
+    thor.settings_view.visible = false
+
     thor.find_replace = widgets.find_replace_create("find-replace")
     widgets.find_replace_set_colors(
         thor.find_replace,
@@ -291,6 +311,11 @@ thor_build_content :: proc(thor: ^Thor) {
     ui.widget_set_grow(&thor.image_view.widget, 1)
     thor.image_view.visible = false
 
+    thor.markdown_view = widgets.markdown_view_create("markdown-view")
+    widgets.markdown_view_set_colors(thor.markdown_view, thor.theme)
+    ui.widget_set_grow(&thor.markdown_view.widget, 1)
+    thor.markdown_view.visible = false
+
     console_title := widgets.label_create("console-title", "Console")
     widgets.label_set_text_color(console_title, thor.theme.white_black_color)
     ui.widget_set_grow(&console_title.widget, 1)
@@ -355,6 +380,7 @@ thor_build_content :: proc(thor: ^Thor) {
     widgets.append_child(&thor.editor_split_row.widget, &thor.editor2.widget)
     // Added after the split row so it overlays the editor panes when shown.
     widgets.append_child(&thor.editor_panel.widget, &thor.image_view.widget)
+    widgets.append_child(&thor.editor_panel.widget, &thor.markdown_view.widget)
 
     widgets.append_child(&thor.console_stack.widget, &thor.console_header.widget)
     widgets.append_child(&thor.console_stack.widget, &thor.console.widget)
@@ -374,6 +400,7 @@ thor_connect_tree :: proc(thor: ^Thor) {
     // Added last so they overlay everything and are hit-tested first.
     widgets.append_child(&thor.root_panel.widget, &thor.command_palette.widget)
     widgets.append_child(&thor.root_panel.widget, &thor.select_dialog.widget)
+    widgets.append_child(&thor.root_panel.widget, &thor.settings_view.widget)
     widgets.append_child(&thor.root_panel.widget, &thor.find_replace.widget)
     // The menu is added after the palette so it sits above it (bring_to_front
     // on open keeps whichever overlay opened last on top anyway).

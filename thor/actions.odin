@@ -37,6 +37,12 @@ thor_toggle_fullscreen :: proc(_: ^Thor) {
 thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
     thor := cast(^Thor) data
 
+    // While the Settings modal is open it owns the keyboard (Escape closes it,
+    // and a keybinding row may be capturing a chord), so no global shortcut fires.
+    if widgets.settings_view_is_open(thor.settings_view) {
+        return false
+    }
+
     // Let plugins observe every key press. The chord matches thor.keybind's
     // format; observing without consuming lets the real action below still run.
     if chord := setting.keybind_to_string(

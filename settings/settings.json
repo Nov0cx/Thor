@@ -1,5 +1,5 @@
 {
-    "autosave_delay_ms": 1500.0000000000000000,
-    "font_size": 18.0000000000000000,
-    "tab_width": 4.0000000000000000
+    "font_size": 18,
+    "tab_width": 4,
+    "autosave_delay_ms": 1500
 }

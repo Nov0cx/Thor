@@ -120,14 +120,61 @@ font_family :: proc(s: ^Settings) -> string {
 // every other key. Used to persist a UI-chosen theme/font back into
 // settings.json. A missing/malformed file starts a fresh object. Returns ok.
 persist_string :: proc(path, key, value: string) -> bool {
-    root: json.Object
-    if existing, ok := parse_object(path); ok {
-        root = existing
-    } else {
-        root = make(json.Object, allocator = context.temp_allocator)
-    }
+    root := load_root_object(path)
     root[key] = json.String(value)
+    return write_object(path, root)
+}
 
+// Like persist_string but for an integer field (tab_width, font_size, ...).
+persist_int :: proc(path, key: string, value: int) -> bool {
+    root := load_root_object(path)
+    root[key] = json.Integer(value)
+    return write_object(path, root)
+}
+
+// Rewrites keybinds.json with `action` bound to `spec`, updating it in whichever
+// group already holds it and preserving every other binding. An action not yet
+// present lands in a "custom" group. An empty spec persists as an explicit unbind.
+persist_keybind :: proc(path, action, spec: string) -> bool {
+    root := load_root_object(path)
+
+    updated := false
+    for _, group_value in root {
+        group, ok := group_value.(json.Object)
+        if !ok {
+            continue
+        }
+        if _, has := group[action]; has {
+            group[action] = json.String(spec)
+            updated = true
+            break
+        }
+    }
+    if !updated {
+        group: json.Object
+        if existing, ok := root["custom"].(json.Object); ok {
+            group = existing
+        } else {
+            group = make(json.Object, allocator = context.temp_allocator)
+        }
+        group[action] = json.String(spec)
+        root["custom"] = group
+    }
+    return write_object(path, root)
+}
+
+// Parses `path` as a JSON object, or a fresh temp-allocated one when it is
+// missing or malformed. The result is only valid until the temp allocator resets.
+@(private)
+load_root_object :: proc(path: string) -> json.Object {
+    if existing, ok := parse_object(path); ok {
+        return existing
+    }
+    return make(json.Object, allocator = context.temp_allocator)
+}
+
+@(private)
+write_object :: proc(path: string, root: json.Object) -> bool {
     data, err := json.marshal(root, {pretty = true, use_spaces = true, spaces = 4}, context.temp_allocator)
     if err != nil {
         log.errorf("Cannot marshal settings %q: %v", path, err)
@@ -164,6 +211,73 @@ keybind_to_string :: proc(kb: Keybind, allocator := context.temp_allocator) -> s
     }
     write_key_name(&b, kb.key)
     return strings.to_string(b)
+}
+
+// Serializes a chord to the canonical spec parse_keybind reads back, e.g.
+// {key = .PAGE_UP, ctrl} -> "ctrl+page_up". An unset key yields "" (an unbind).
+keybind_spec :: proc(kb: Keybind, allocator := context.temp_allocator) -> string {
+    if kb.key == .KEY_NULL {
+        return strings.clone("", allocator)
+    }
+    b := strings.builder_make(allocator)
+    if kb.ctrl {
+        strings.write_string(&b, "ctrl+")
+    }
+    if kb.shift {
+        strings.write_string(&b, "shift+")
+    }
+    if kb.alt {
+        strings.write_string(&b, "alt+")
+    }
+    write_key_token(&b, kb.key)
+    return strings.to_string(b)
+}
+
+// Canonical lowercase token for a key, matching key_from_name so the spec round-trips.
+@(private)
+write_key_token :: proc(b: ^strings.Builder, key: rl.KeyboardKey) {
+    #partial switch key {
+    case .PAGE_UP:      strings.write_string(b, "page_up");   return
+    case .PAGE_DOWN:    strings.write_string(b, "page_down"); return
+    case .UP:           strings.write_string(b, "up");        return
+    case .DOWN:         strings.write_string(b, "down");      return
+    case .LEFT:         strings.write_string(b, "left");      return
+    case .RIGHT:        strings.write_string(b, "right");     return
+    case .HOME:         strings.write_string(b, "home");      return
+    case .END:          strings.write_string(b, "end");       return
+    case .ENTER, .KP_ENTER: strings.write_string(b, "enter"); return
+    case .ESCAPE:       strings.write_string(b, "escape");    return
+    case .TAB:          strings.write_string(b, "tab");       return
+    case .SPACE:        strings.write_string(b, "space");     return
+    case .BACKSPACE:    strings.write_string(b, "backspace"); return
+    case .DELETE:       strings.write_string(b, "delete");    return
+    case .BACKSLASH:    strings.write_string(b, "backslash"); return
+    case .PERIOD:       strings.write_string(b, "period");    return
+    case .COMMA:        strings.write_string(b, "comma");     return
+    case .KP_ADD:       strings.write_string(b, "kp_add");      return
+    case .KP_SUBTRACT:  strings.write_string(b, "kp_subtract"); return
+    case .F1:  strings.write_string(b, "f1");  return
+    case .F2:  strings.write_string(b, "f2");  return
+    case .F3:  strings.write_string(b, "f3");  return
+    case .F4:  strings.write_string(b, "f4");  return
+    case .F5:  strings.write_string(b, "f5");  return
+    case .F6:  strings.write_string(b, "f6");  return
+    case .F7:  strings.write_string(b, "f7");  return
+    case .F8:  strings.write_string(b, "f8");  return
+    case .F9:  strings.write_string(b, "f9");  return
+    case .F10: strings.write_string(b, "f10"); return
+    case .F11: strings.write_string(b, "f11"); return
+    case .F12: strings.write_string(b, "f12"); return
+    }
+    ki := int(key)
+    if ki >= int(rl.KeyboardKey.A) && ki <= int(rl.KeyboardKey.Z) {
+        strings.write_byte(b, u8('a' + (ki - int(rl.KeyboardKey.A))))
+        return
+    }
+    if ki >= int(rl.KeyboardKey.ZERO) && ki <= int(rl.KeyboardKey.NINE) {
+        strings.write_byte(b, u8('0' + (ki - int(rl.KeyboardKey.ZERO))))
+        return
+    }
 }
 
 @(private)

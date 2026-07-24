@@ -110,6 +110,10 @@ thor_apply_theme :: proc(thor: ^Thor) {
         thor.select_dialog,
         t.second_background, t.accent_color, t.highlight, t.white_black_color, t.gray_color, selected, t.accent_color,
     )
+    widgets.settings_view_set_colors(
+        thor.settings_view,
+        t.second_background, t.accent_color, t.highlight, t.background, t.white_black_color, t.gray_color, t.accent_color,
+    )
     widgets.find_replace_set_colors(
         thor.find_replace,
         t.second_background, t.accent_color, t.background, t.white_black_color, t.gray_color, t.buttons, t.accent_color,
@@ -139,6 +143,7 @@ thor_apply_theme :: proc(thor: ^Thor) {
     }
 
     widgets.image_view_set_colors(thor.image_view, t.background, t.second_background, t.buttons, t.white_black_color)
+    widgets.markdown_view_set_colors(thor.markdown_view, t)
     widgets.console_set_colors(thor.console, t.foreground, t.accent_color, t.second_background, t.accent_color)
     widgets.statusbar_set_colors(thor.statusbar, t.foreground, t.gray_color, t.buttons, t.accent_color, t.error_color)
 
@@ -223,9 +228,13 @@ thor_theme_preview :: proc(data: rawptr, choice: string) {
 thor_theme_commit :: proc(data: rawptr, choice: string) {
     thor := cast(^Thor) data
     thor_theme_preview(thor, choice)
-    setting.persist_string("settings/settings.json", "theme", choice)
+    setting.persist_string(thor_active_settings_path(thor), "theme", choice)
     delete(thor.config.general.theme)
     thor.config.general.theme = strings.clone(choice)
+    thor_settings_mark_clean(thor)
+    if widgets.settings_view_is_open(thor.settings_view) {
+        thor_populate_settings_view(thor)
+    }
 }
 
 // Preferences: Change Font -> pick from the registered text families in a dialog
@@ -256,7 +265,11 @@ thor_font_commit :: proc(data: rawptr, choice: string) {
         thor_plugin_print(thor, strings.concatenate({"\nFont ", choice, " is not available.\n"}, context.temp_allocator))
         return
     }
-    setting.persist_string("settings/settings.json", "font", choice)
+    setting.persist_string(thor_active_settings_path(thor), "font", choice)
     delete(thor.config.general.font)
     thor.config.general.font = strings.clone(choice)
+    thor_settings_mark_clean(thor)
+    if widgets.settings_view_is_open(thor.settings_view) {
+        thor_populate_settings_view(thor)
+    }
 }

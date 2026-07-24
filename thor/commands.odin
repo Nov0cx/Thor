@@ -134,15 +134,54 @@ thor_apply_settings :: proc(thor: ^Thor) {
     textedit.set_tab_width(setting.tab_width(&thor.config))
 }
 
+// Reloads the config from disk and re-applies it live: keybinds, sizes, and —
+// when their setting changed — the active theme and text font. Also rebaselines
+// the auto-reload watcher and refreshes the Settings modal if it is open. Shared
+// by the reload command, the Settings modal, and the file-change poll loop.
 thor_reload_settings :: proc(thor: ^Thor) {
+    old_theme := strings.clone(thor.config.general.theme, context.temp_allocator)
+    old_font := strings.clone(thor.config.general.font, context.temp_allocator)
+
     setting.destroy(&thor.config)
     thor_load_config(thor, thor.workspace_dir)
+
+    if thor.config.general.theme != old_theme {
+        thor_load_active_theme(thor)
+        thor_apply_theme(thor)
+    }
+    if thor.config.general.font != old_font && thor.config.general.font != "" {
+        if !ui.text_set_default_family(thor.config.general.font) {
+            log.warnf("Configured font %q is not available; using the default", thor.config.general.font)
+        }
+    }
+
     thor_apply_settings(thor)
+    thor_settings_mark_clean(thor)
+    if widgets.settings_view_is_open(thor.settings_view) {
+        thor_populate_settings_view(thor)
+    }
 }
 
 // Directory holding a workspace's config, i.e. <workspace>/.thor.
 thor_workspace_config_dir :: proc(workspace_dir: string, allocator := context.temp_allocator) -> string {
     return strings.concatenate({workspace_dir, "/.thor"}, allocator)
+}
+
+// Path a GUI-driven change writes to: the workspace .thor/ overlay when the
+// workspace is initialized (it wins over the global config, so a write there is
+// what actually takes effect), otherwise the global settings/ file.
+thor_active_settings_path :: proc(thor: ^Thor) -> string {
+    if thor.workspace_initialized {
+        return strings.concatenate({thor_workspace_config_dir(thor.workspace_dir), "/settings.json"}, context.temp_allocator)
+    }
+    return "settings/settings.json"
+}
+
+thor_active_keybinds_path :: proc(thor: ^Thor) -> string {
+    if thor.workspace_initialized {
+        return strings.concatenate({thor_workspace_config_dir(thor.workspace_dir), "/keybinds.json"}, context.temp_allocator)
+    }
+    return "settings/keybinds.json"
 }
 
 // Loads the global settings/ config, then overlays the workspace's .thor/ config
@@ -255,6 +294,7 @@ thor_register_commands :: proc(thor: ^Thor) {
     widgets.command_palette_add(p, "View: Toggle Fullscreen", thor_cmd_toggle_fullscreen, thor, sc(thor, "toggle_fullscreen"))
     thor_add_bindable_command(thor, "View: Toggle Word Wrap", "toggle_word_wrap", thor_cmd_toggle_wrap, thor)
     widgets.command_palette_add(p, "View: Toggle Split Editor", thor_cmd_toggle_split, thor, sc(thor, "toggle_split"))
+    thor_add_bindable_command(thor, "View: Toggle Markdown Preview", "toggle_markdown_preview", thor_cmd_toggle_markdown_preview, thor)
     widgets.command_palette_add(p, "View: Recenter", thor_cmd_recenter, thor, sc(thor, "recenter"))
 
     thor_add_bindable_command(thor, "File: New File", "new_file", thor_cmd_new_file, thor)
@@ -304,6 +344,7 @@ thor_register_commands :: proc(thor: ^Thor) {
     thor_add_bindable_command(thor, "Fold: Unfold All", "unfold_all", thor_cmd_unfold_all, thor)
 
     thor_add_bindable_command(thor, "Help: Tutorial", "tutorial", thor_cmd_tutorial, thor)
+    thor_add_bindable_command(thor, "Settings: Open Settings GUI", "open_settings_gui", thor_cmd_open_settings_gui, thor)
     thor_add_bindable_command(thor, "Settings: Open Keybinds", "open_keybinds", thor_cmd_open_keybinds, thor)
     thor_add_bindable_command(thor, "Settings: Open Comments", "open_comments", thor_cmd_open_comments, thor)
     thor_add_bindable_command(thor, "Settings: Open General Settings", "open_settings", thor_cmd_open_settings, thor)
@@ -321,6 +362,14 @@ thor_cmd_toggle_maximize :: proc(data: rawptr) {thor_toggle_maximize(data, nil, 
 thor_cmd_toggle_fullscreen :: proc(data: rawptr) {thor_toggle_fullscreen(cast(^Thor) data)}
 thor_cmd_toggle_wrap :: proc(data: rawptr) {widgets.editor_toggle_wrap((cast(^Thor) data).editor)}
 thor_cmd_toggle_split :: proc(data: rawptr) {thor_toggle_split(cast(^Thor) data)}
+
+// Flips the rendered markdown preview. Only visibly does anything while a
+// markdown file is active (thor_update_editor_view gates the swap).
+thor_cmd_toggle_markdown_preview :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    thor.markdown_preview = !thor.markdown_preview
+    thor_update_editor_view(thor)
+}
 thor_cmd_find :: proc(data: rawptr) {thor_open_find(cast(^Thor) data, false)}
 thor_cmd_replace :: proc(data: rawptr) {thor_open_find(cast(^Thor) data, true)}
 thor_cmd_save :: proc(data: rawptr) {thor_request_save(data)}
