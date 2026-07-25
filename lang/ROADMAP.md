@@ -61,10 +61,30 @@ lowest latency.
   recurses through each field's struct type. The struct is found in the same file,
   an imported package, or the workspace index. Completion after `value.` lists the
   struct's fields, and an implicit enum selector (`a: Axis = .`) offers the
-  expected enum's members. Only struct/enum types are understood — a map, slice or
-  builtin member still falls through to the flat name scan (no general type
-  system), and inference recursion is depth-capped so a self-referential
-  declaration can't loop.
+  expected enum's members. Inference recursion is depth-capped so a
+  self-referential declaration can't loop.
+- **Embedded fields (`using`)**: a struct that embeds another (`using base: Base`)
+  answers for the embedded struct's fields as if they were its own — goto, hover
+  and `value.` completion all reach them, through several levels of embedding and
+  across files (the embedded type is resolved like any other type reference, and
+  the embedding file's imports qualify it). The outer struct's own field wins over
+  an embedded one of the same name, and a cycle between two structs embedding each
+  other is depth-capped. Statement-level `using` (`using foo` inside a procedure,
+  `using import`) is *not* followed.
+- **Containers** (`[]T`, `[N]T`, `[dynamic]T`, `map[K]V`): a container is tracked
+  as its element type plus the container holding it, so it is never mistaken *for*
+  that type — `xs.field` resolves nothing, while `xs[i].field`, `xs[1:3][i].field`
+  and `for p in xs { p.field }` all resolve to the element's field. A map indexes
+  and ranges to its **value** type (its key type isn't tracked, so the `k` in
+  `for k, v in m` doesn't resolve). Containers flow through the whole inference
+  layer: a declared type, a composite literal (`[]Point{...}`), a call's declared
+  result (`-> []Point`, read out of the signature text) and an element bound to a
+  `:=` local. Only one level is modelled — `[][]Point` is not inferred.
+- **Types qualified by another file's imports:** a type named in a file other than
+  the requesting one (a callee's `-> other.Point`, an embedded `using base:
+  other.Base`) carries the file it was written in, so its `pkg.` qualifier is
+  resolved against *that* file's imports when the requesting file doesn't import
+  the package, or imports it under a different alias.
 - **Hover popup:** a mouse dwell over a symbol (~0.45s) dispatches a Hover
   request; the engine's declaration text is drawn in a popup anchored to the
   symbol. Fires once per dwell, dismissed on move or when the cursor leaves. The
@@ -189,25 +209,39 @@ lowest latency.
       initializer (composite literal, aliased value, `new(T)`, or a call's
       declared result), through a pointer and along a field chain (`a.b.c`).
       Enum selectors are inferred too: `x: Axis = .` completes the enum's members.
+      Fields reached through `using` embedding answer as the outer struct's own
+      (`member_visitor`/`fields_visitor` → `visit_embedded`, depth-capped by
+      `EMBED_DEPTH_LIMIT`), and a container's element resolves once it is indexed,
+      sliced or ranged over.
       Served by `resolve_member`/`infer_expr_type`/`binding_type_ref` + the
       `visit_type_decl` struct/enum locator (same file → imported package →
-      workspace index). Still missing: types that aren't a struct or enum (maps,
-      slices, `using` fields), and a result type qualified by the *callee's*
-      imports (`-> other.Point` in a file the caller doesn't import the same way).
-      Those fall through to the flat name scan.
+      workspace index → the origin file's imports for a qualified name). Still
+      missing: types that are neither a struct, an enum nor a container of one
+      (unions, bit_sets, proc fields), a container's own builtin members, a map's
+      key type, nested containers (`[][]T`), and statement-level `using`. Those
+      fall through to the flat name scan. Member *completion* also needs a bare
+      word operand: `xs[0].` and `a.b.` offer nothing, though goto and hover
+      resolve them.
 - [~] **Package / import resolution.** `import "core:fmt"` then `fmt.println` is
       followed (package-qualified goto/hover/completion resolve into the package
-      dir); custom collections resolve via `.thor/odin-analyzer.json`. Still
-      flat/name-based for bare cross-file identifiers, and `using` isn't followed.
+      dir); custom collections resolve via `.thor/odin-analyzer.json`. A type
+      qualified in another file (`-> other.Point`) resolves against *that* file's
+      imports (`visit_qualified_in_origin`, one extra parse, paid only when the
+      requesting file's own imports come up empty). Still flat/name-based for bare
+      cross-file identifiers; `using` is followed for struct embedding only, not
+      for `using import` or a statement-level `using`.
 - [~] **Type inference.** `x := f()` infers the callee's declared result type
       (`call_result_type` → `resolve_call_target` + `proc_result_type`, which reads
       the type after `->` out of the signature text — the callee's tree is already
       freed by then, only its source survives), as do `x := new(T)`, `x := T{}` and
-      `x := y`. Multi-value returns bind per slot. It is *declared*-type inference
-      only: no expression typing (arithmetic, indexing, casts, `or_else`), no
-      generics (`$T`), and nothing structural — a `-> []T`/`-> map[K]V` result is
-      rejected rather than guessed. Hover still shows the declaration text, not a
-      computed type.
+      `x := y`. Multi-value returns bind per slot. Containers are modelled one
+      level deep (`Type_Ref.container`), so `-> []T` and `-> map[K]V` results are
+      no longer rejected: indexing, slicing or ranging over the value yields its
+      element (`range_var_type`, and the `index_expression`/`slice_expression`
+      cases of `infer_expr_result`). It is otherwise *declared*-type inference
+      only: no expression typing (arithmetic, casts, `or_else`), no generics
+      (`$T`), no map keys. Hover still shows the declaration text, not a computed
+      type.
 - [ ] **Shadowing precision.** Scope is approximated by enclosing block /
       procedure ranges, not true lexical order (a use before a `:=` in the same
       block can still resolve to it). Good enough for goto, imprecise for

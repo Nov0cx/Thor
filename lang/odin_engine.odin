@@ -1416,7 +1416,7 @@ signature_help :: proc(e: ^Odin_Engine, parser: ts.Parser, root: ts.Node, req: ^
         return
     }
 
-    src, d, found := resolve_call_target(e, parser, root, req, call, fn)
+    src, _, d, found := resolve_call_target(e, parser, root, req, call, fn)
     if !found || d.kind != "function" {
         return
     }
@@ -1488,7 +1488,7 @@ resolve_call_target :: proc(
     root: ts.Node,
     req: ^Request,
     call, fn: ts.Node,
-) -> (string, Def, bool) {
+) -> (source: string, path: string, d: Def, ok: bool) {
     // `pkg.fn(args)`: the call is the second child of a member_expression whose
     // first child is the package operand. Resolve `fn` in that package's dir.
     if parent := ts.node_parent(call); !ts.node_is_null(parent) &&
@@ -1502,12 +1502,12 @@ resolve_call_target :: proc(
                     return find_proc_in_dir(e, parser, dir, name, req.path)
                 }
             }
-            return "", {}, false
+            return "", "", {}, false
         }
     }
 
     if !is_identifier(fn) {
-        return "", {}, false
+        return "", "", {}, false
     }
     name := ts.node_text(fn, req.source)
 
@@ -1515,7 +1515,7 @@ resolve_call_target :: proc(
     // not callables we can sign, so require the "function" kind).
     defs := collect_defs(e, root, req.source)
     if d, ok := resolve_local(defs[:], name, int(ts.node_start_byte(fn))); ok && d.kind == "function" {
-        return req.source, d, true
+        return req.source, req.path, d, true
     }
 
     // Workspace: the index points at the file declaring the procedure; re-parse
@@ -1533,48 +1533,58 @@ resolve_call_target :: proc(
             return first_proc_in_file(e, parser, path, name)
         }
     }
-    return "", {}, false
+    return "", "", {}, false
 }
 
-// First top-level procedure named `name` in `path`, with the file's source (so
-// the Def stays valid past the parse). Reused by the package and workspace scans.
+// First top-level procedure named `name` in `path`, with the file's source and
+// path (so the Def stays valid past the parse, and a type its signature names
+// keeps a file whose imports qualify it). Reused by the package and workspace
+// scans.
 @(private = "file")
-first_proc_in_file :: proc(e: ^Odin_Engine, parser: ts.Parser, path, name: string) -> (string, Def, bool) {
+first_proc_in_file :: proc(
+    e: ^Odin_Engine,
+    parser: ts.Parser,
+    path, name: string,
+) -> (source: string, file: string, d: Def, ok: bool) {
     data, rerr := os.read_entire_file(path, context.temp_allocator)
     if rerr != nil {
-        return "", {}, false
+        return "", "", {}, false
     }
-    source := string(data)
+    src := string(data)
 
-    tree := ts.parser_parse_string(parser, source)
+    tree := ts.parser_parse_string(parser, src)
     if tree == nil {
-        return "", {}, false
+        return "", "", {}, false
     }
     defer ts.tree_delete(tree)
 
-    defs := collect_defs(e, ts.tree_root_node(tree), source)
-    for d in defs {
-        if d.top_level && d.kind == "function" && d.name == name {
-            return source, d, true
+    defs := collect_defs(e, ts.tree_root_node(tree), src)
+    for def in defs {
+        if def.top_level && def.kind == "function" && def.name == name {
+            return src, path, def, true
         }
     }
-    return "", {}, false
+    return "", "", {}, false
 }
 
 // First top-level procedure named `name` in one package directory (all its .odin
 // files, non-recursively — an Odin package is a flat directory). `skip` is the
 // requesting file's path, left out so the live buffer's stale on-disk copy loses.
 @(private = "file")
-find_proc_in_dir :: proc(e: ^Odin_Engine, parser: ts.Parser, dir, name, skip: string) -> (string, Def, bool) {
+find_proc_in_dir :: proc(
+    e: ^Odin_Engine,
+    parser: ts.Parser,
+    dir, name, skip: string,
+) -> (source: string, path: string, d: Def, ok: bool) {
     handle, open_err := os.open(dir)
     if open_err != nil {
-        return "", {}, false
+        return "", "", {}, false
     }
     defer os.close(handle)
 
     infos, read_err := os.read_dir(handle, -1, context.temp_allocator)
     if read_err != nil {
-        return "", {}, false
+        return "", "", {}, false
     }
 
     for info in infos {
@@ -1584,11 +1594,11 @@ find_proc_in_dir :: proc(e: ^Odin_Engine, parser: ts.Parser, dir, name, skip: st
         if info.fullpath == skip {
             continue
         }
-        if src, d, ok := first_proc_in_file(e, parser, info.fullpath, name); ok {
-            return src, d, ok
+        if src, file, def, found := first_proc_in_file(e, parser, info.fullpath, name); found {
+            return src, file, def, found
         }
     }
-    return "", {}, false
+    return "", "", {}, false
 }
 
 
@@ -1604,18 +1614,36 @@ find_proc_in_dir :: proc(e: ^Odin_Engine, parser: ts.Parser, dir, name, skip: st
 // the declared result type of the procedure it calls (`p := make_point()`, which
 // resolves the callee the same three ways signature help does). Chained access
 // (`a.b.c`) recurses through each struct's field type, and a pointer type is
-// transparently dereferenced (Odin auto-derefs `.`). Anything else (a map, a
-// slice, a builtin) doesn't resolve, and the caller falls back to the flat name
-// scan.
+// transparently dereferenced (Odin auto-derefs `.`). A struct embedded with
+// `using` answers for its fields as if they were the outer struct's own, and a
+// container (`[]T`, `[N]T`, `[dynamic]T`, `map[K]V`) resolves to its element once
+// it is indexed, sliced or ranged over — never before, since a container is not
+// the type it holds. Anything else (a union, a bit_set, a builtin) doesn't
+// resolve, and the caller falls back to the flat name scan.
 // ---------------------------------------------------------------------------
 
+// What a type holds when it is not the named type itself: `[]Point`, `[4]Point`
+// and `[dynamic]Point` are arrays of it, `map[string]Point` maps to it. Element
+// access (`xs[i]`) and a range loop (`for p in xs`) strip one level off.
+@(private = "file")
+Container :: enum {
+    None,
+    Array,
+    Map,
+}
+
 // A named type reference: the type name plus an optional package qualifier
-// (`pkg` in `p: pkg.Point`). Strings slice the source they were read from unless
-// explicitly cloned, so a Type_Ref that must outlive a parse is temp-cloned.
+// (`pkg` in `p: pkg.Point`), the container that holds it (the name is then the
+// *element* type — a map's value), and the file the reference was read from, so
+// a qualifier written in another file resolves against *that* file's imports.
+// Strings slice the source they were read from unless explicitly cloned, so a
+// Type_Ref that must outlive a parse is temp-cloned.
 @(private = "file")
 Type_Ref :: struct {
-    name: string,
-    pkg:  string,
+    name:      string,
+    pkg:       string,
+    container: Container,
+    origin:    string,
 }
 
 // A value binding's declared type and the scope it is visible in, so the nearest
@@ -1628,6 +1656,7 @@ Binding :: struct {
     tr:           Type_Ref,
     expr:         ts.Node, // valid when has_expr: the `:=` right-hand side
     has_expr:     bool,
+    is_range:     bool, // `expr` is a `for x in expr` operand: bind its element
     result_index: int,
     scope_start:  int,
     scope_end:    int,
@@ -1661,7 +1690,10 @@ resolve_member :: proc(
     if !ok {
         return false
     }
-    ctx := Member_Ctx{field = field}
+    ctx := Member_Ctx {
+        field = field,
+        env = Embed_Env{e = e, parser = parser, root = root, req = req},
+    }
     if !visit_type_decl(e, parser, root, req, tr, "struct_declaration", "type", member_visitor, &ctx) || !ctx.got {
         return false
     }
@@ -1738,18 +1770,54 @@ infer_expr_result :: proc(
         if !ok {
             return {}, false
         }
-        ctx := Member_Ctx{field = ts.node_text(member, req.source)}
+        ctx := Member_Ctx {
+            field = ts.node_text(member, req.source),
+            env = Embed_Env{e = e, parser = parser, root = root, req = req},
+        }
         if !visit_type_decl(e, parser, root, req, inner, "struct_declaration", "type", member_visitor, &ctx) || !ctx.got {
             return {}, false
         }
         return ctx.field_type, true
     case "struct":
-        // A composite literal (`Point{...}`) names the type it builds.
-        return expr_type_name(ts.node_named_child(node, 0), req.source)
+        // A composite literal (`Point{...}`, `[]Point{...}`) names the type it
+        // builds. The grammar drops a container literal's brackets from the named
+        // children, so the type is read off the text before the brace.
+        return composite_type_name(node, req.source)
     case "call_expression":
         return call_result_type(e, parser, root, req, node, index, depth + 1)
+    case "index_expression":
+        // `xs[i]` is one element of its container.
+        op, ok := infer_expr_result(e, parser, root, req, ts.node_named_child(node, 0), 0, depth + 1)
+        if !ok || op.container == .None {
+            return {}, false
+        }
+        op.container = .None
+        return op, true
+    case "slice_expression":
+        // `xs[1:3]` is another container of the same element type.
+        op, ok := infer_expr_result(e, parser, root, req, ts.node_named_child(node, 0), 0, depth + 1)
+        if !ok || op.container != .Array {
+            return {}, false
+        }
+        return op, true
+    case "unary_expression":
+        // `&xs[0]` — `.` dereferences, so the pointer is transparent.
+        return infer_expr_result(e, parser, root, req, ts.node_named_child(node, 0), index, depth + 1)
     }
     return {}, false
+}
+
+// The type a composite literal builds, read from its text up to the opening brace
+// (`Point`, `pkg.Point`, `[]Point`, `map[string]Point`) — the grammar keeps a
+// container literal's `[]` as anonymous tokens, so the named children alone can't
+// tell `[]Point{}` from `Point{}`.
+@(private = "file")
+composite_type_name :: proc(node: ts.Node, source: string) -> (Type_Ref, bool) {
+    text := ts.node_text(node, source)
+    if brace := strings.index_byte(text, '{'); brace >= 0 {
+        text = text[:brace]
+    }
+    return result_type_ref(strings.trim_space(text))
 }
 
 // Type of the value named `name` visible at `offset`: the nearest enclosing
@@ -1784,10 +1852,46 @@ binding_type_ref :: proc(
     if !found {
         return {}, false
     }
+    if best.is_range {
+        return range_var_type(e, parser, root, req, best.expr, best.result_index, depth + 1)
+    }
     if best.has_expr {
         return infer_expr_result(e, parser, root, req, best.expr, best.result_index, depth + 1)
     }
     return best.tr, true
+}
+
+// Type of the `index`-th variable of `for a, b in expr`: over an array the first
+// is the element and the second its integer index, over a map the first is the
+// key and the second the value. A map's key type isn't tracked (the container
+// carries only its element), so ranging over one binds the value alone.
+@(private = "file")
+range_var_type :: proc(
+    e: ^Odin_Engine,
+    parser: ts.Parser,
+    root: ts.Node,
+    req: ^Request,
+    expr: ts.Node,
+    index, depth: int,
+) -> (Type_Ref, bool) {
+    tr, ok := infer_expr_result(e, parser, root, req, expr, 0, depth)
+    if !ok {
+        return {}, false
+    }
+    switch tr.container {
+    case .Array:
+        if index != 0 {
+            return {}, false
+        }
+    case .Map:
+        if index != 1 {
+            return {}, false
+        }
+    case .None:
+        return {}, false
+    }
+    tr.container = .None
+    return tr, true
 }
 
 @(private = "file")
@@ -1830,6 +1934,10 @@ collect_bindings :: proc(node: ts.Node, source, name: string, out: ^[dynamic]Bin
     case "assignment_statement":
         if b, ok := short_decl_binding(node, source, name); ok {
             append(out, scoped_binding(node, b))
+        }
+    case "for_statement":
+        if b, ok := range_binding(node, source, name); ok {
+            append(out, b)
         }
     }
     for i in 0 ..< ts.node_child_count(node) {
@@ -1921,10 +2029,66 @@ short_decl_binding :: proc(node: ts.Node, source, name: string) -> (Binding, boo
     return {}, false
 }
 
+// The binding `name` gets from a range loop (`for value in expr`, `for k, v in
+// expr`). Only the range form declares variables — the three-clause form's
+// `i := 0` is an assignment_statement collect_bindings already handles — so the
+// `in` token is what identifies it. The variables are the identifier children
+// before `in`, the ranged expression the first named child after it; the element
+// type is inferred on demand. A loop variable is visible only inside its loop, so
+// the binding is scoped to the statement rather than the enclosing block.
+@(private = "file")
+range_binding :: proc(node: ts.Node, source, name: string) -> (Binding, bool) {
+    vars := 0
+    matched := -1
+    seen_in := false
+    expr: ts.Node
+
+    for i in 0 ..< ts.node_child_count(node) {
+        c := ts.node_child(node, i)
+        if string(ts.node_type(c)) == "in" {
+            seen_in = true
+            continue
+        }
+        if !ts.node_is_named(c) {
+            continue
+        }
+        if !seen_in {
+            // `for &p in xs` wraps the variable, and the three-clause form's
+            // first child is a statement — neither is a bare loop variable.
+            if is_identifier(c) {
+                if ts.node_text(c, source) == name {
+                    matched = vars
+                }
+            }
+            vars += 1
+            continue
+        }
+        expr = c
+        break
+    }
+    if !seen_in || matched < 0 || ts.node_is_null(expr) {
+        return {}, false
+    }
+    return Binding {
+            expr = expr,
+            has_expr = true,
+            is_range = true,
+            result_index = matched,
+            pos = int(ts.node_start_byte(node)),
+            scope_start = int(ts.node_start_byte(node)),
+            scope_end = int(ts.node_end_byte(node)),
+        },
+        true
+}
+
 // Reads a `(type ...)` node (or a bare type construct) into a Type_Ref. Unwraps a
-// pointer type (`^T` — Odin auto-derefs on `.`) and reads a package-qualified
-// `pkg.T` (a `field_type`). Non-nominal types (arrays, maps, slices, procs)
-// return false — they have no struct to resolve a field in.
+// pointer type (`^T` — Odin auto-derefs on `.`), reads a package-qualified `pkg.T`
+// (a `field_type`), and records a container around a named element type: the
+// grammar spells `[]T`, `[N]T` and `[dynamic]T` all as `array_type` (the element
+// is the last named child) and `map[K]V` as `map_type` (key then value). A
+// container's own members are nothing this engine models, so it must be indexed
+// or ranged over before its element's fields resolve. Anything else — a proc
+// type, a nested container, a bit_set — returns false.
 @(private = "file")
 type_ref_from_node :: proc(node: ts.Node, source: string) -> (Type_Ref, bool) {
     n := node
@@ -1945,8 +2109,32 @@ type_ref_from_node :: proc(node: ts.Node, source: string) -> (Type_Ref, bool) {
         if is_identifier(a) && is_identifier(b) {
             return Type_Ref{pkg = ts.node_text(a, source), name = ts.node_text(b, source)}, true
         }
+    case "array_type":
+        count := ts.node_named_child_count(n)
+        if count == 0 {
+            return {}, false
+        }
+        return contained_type(ts.node_named_child(n, count - 1), source, .Array)
+    case "map_type":
+        if ts.node_named_child_count(n) < 2 {
+            return {}, false
+        }
+        return contained_type(ts.node_named_child(n, 1), source, .Map)
     }
     return {}, false
+}
+
+// The element type of a container, tagged with the container that holds it. Only
+// one level is modelled: an element that is itself a container (`[][]Point`) has
+// no single type to name here.
+@(private = "file")
+contained_type :: proc(node: ts.Node, source: string, container: Container) -> (Type_Ref, bool) {
+    tr, ok := type_ref_from_node(node, source)
+    if !ok || tr.container != .None {
+        return {}, false
+    }
+    tr.container = container
+    return tr, true
 }
 
 // A type named in *expression* position (a composite literal's type, `new`'s
@@ -1969,6 +2157,9 @@ expr_type_name :: proc(node: ts.Node, source: string) -> (Type_Ref, bool) {
         }
     case "pointer_type", "unary_expression":
         return expr_type_name(ts.node_named_child(node, 0), source)
+    case "array_type", "map_type":
+        // A container literal (`[]Point{...}`) names a container type.
+        return type_ref_from_node(node, source)
     }
     return {}, false
 }
@@ -1980,8 +2171,8 @@ expr_type_name :: proc(node: ts.Node, source: string) -> (Type_Ref, bool) {
 // result is the allocated type (a pointer, which `.` auto-dereferences anyway).
 //
 // A package-qualified result (`-> pkg.Point`) is qualified by the *callee's*
-// imports, but resolved against the requesting file's; when the two disagree the
-// type simply isn't found (visit_type_decl never falls back for a qualified name).
+// imports, so the result carries the callee's path and visit_type_decl falls back
+// to resolving `pkg` there when the requesting file doesn't import it the same way.
 @(private = "file")
 call_result_type :: proc(
     e: ^Odin_Engine,
@@ -2006,11 +2197,18 @@ call_result_type :: proc(
         }
     }
 
-    src, d, found := resolve_call_target(e, parser, root, req, call, fn)
+    src, path, d, found := resolve_call_target(e, parser, root, req, call, fn)
     if !found || d.kind != "function" {
         return {}, false
     }
-    return proc_result_type(src, d, index)
+    tr, ok := proc_result_type(src, d, index)
+    if !ok {
+        return {}, false
+    }
+    // The result type is spelled in the callee's file, so that file's imports are
+    // what qualify it (`-> other.Point`).
+    tr.origin = path
+    return tr, true
 }
 
 // Result type of a procedure declaration, read out of its signature text: what
@@ -2121,10 +2319,12 @@ after_paren_group :: proc(text: string, want_inner := false) -> (string, bool) {
     return "", false
 }
 
-// One result's type text (`Point`, `p: ^Point`, `pkg.Point`) as a Type_Ref: a named
-// result drops its name, a pointer is dereferenced (Odin auto-dereferences `.`),
-// and anything that isn't a plain — optionally package-qualified — name is
-// rejected, matching type_ref_from_node's reach (no slices, maps or proc types).
+// One result's type text (`Point`, `p: ^Point`, `pkg.Point`, `[]Point`,
+// `map[string]Point`) as a Type_Ref: a named result drops its name, a pointer is
+// dereferenced (Odin auto-dereferences `.`), and a leading `[…]`/`map[…]` becomes
+// the container around the element type. Anything else — a proc type, a bit_set, a
+// generic `$T` — is rejected rather than guessed, matching type_ref_from_node's
+// reach. Text-based because a cross-file callee's tree is gone by now.
 @(private = "file")
 result_type_ref :: proc(text: string) -> (Type_Ref, bool) {
     s := strings.trim_space(text)
@@ -2138,6 +2338,61 @@ result_type_ref :: proc(text: string) -> (Type_Ref, bool) {
     if space := strings.index_proc(s, strings.is_space); space >= 0 {
         s = s[:space]
     }
+
+    container := Container.None
+    if strings.has_prefix(s, "map[") {
+        rest, ok := after_bracket_group(s[3:])
+        if !ok {
+            return {}, false
+        }
+        container = .Map
+        s = rest
+    } else if strings.has_prefix(s, "[") {
+        rest, ok := after_bracket_group(s)
+        if !ok {
+            return {}, false
+        }
+        container = .Array
+        s = rest
+    }
+    for strings.has_prefix(s, "^") {
+        s = s[1:]
+    }
+
+    tr, ok := plain_type_ref(s)
+    if !ok {
+        return {}, false
+    }
+    tr.container = container
+    return tr, true
+}
+
+// The text after a balanced `[...]` group at the head of `text` (a container's
+// key or length). Nested brackets are counted, so `map[[2]int]Point` still lands
+// on `Point`.
+@(private = "file")
+after_bracket_group :: proc(text: string) -> (string, bool) {
+    if !strings.has_prefix(text, "[") {
+        return "", false
+    }
+    depth := 0
+    for i in 0 ..< len(text) {
+        switch text[i] {
+        case '[':
+            depth += 1
+        case ']':
+            depth -= 1
+            if depth == 0 {
+                return text[i + 1:], true
+            }
+        }
+    }
+    return "", false
+}
+
+// A bare — optionally package-qualified — type name as a Type_Ref.
+@(private = "file")
+plain_type_ref :: proc(s: string) -> (Type_Ref, bool) {
     if dot := strings.index_byte(s, '.'); dot >= 0 {
         if is_plain_name(s[:dot]) && is_plain_name(s[dot + 1:]) {
             return Type_Ref{pkg = s[:dot], name = s[dot + 1:]}, true
@@ -2187,6 +2442,12 @@ visit_type_decl :: proc(
     visit: Decl_Visitor,
     ctx: rawptr,
 ) -> bool {
+    // A container is not the type it holds: `xs: []Point` must be indexed or
+    // ranged over before Point's fields are in reach, so every member operation
+    // (field goto, hover, field/enum completion) stops here.
+    if tr.container != .None {
+        return false
+    }
     if decl, ok := locate_decl(root, req.source, tr.name, decl_type); ok {
         visit(decl, req.source, req.path, ctx)
         return true
@@ -2194,8 +2455,17 @@ visit_type_decl :: proc(
     if tr.pkg != "" {
         if raw, found := import_path(root, req.source, tr.pkg); found {
             if dir, dok := package_dir(e, raw, req.path, req.workspace); dok {
-                return visit_decl_in_dir(e, parser, dir, tr.name, req.path, decl_type, visit, ctx)
+                if visit_decl_in_dir(e, parser, dir, tr.name, req.path, decl_type, visit, ctx) {
+                    return true
+                }
             }
+        }
+        // The qualifier belongs to the file the type was *written* in (a callee's
+        // `-> other.Point`, a cross-file struct's `using base: other.Base`), which
+        // the requesting file need not import — or need not import under the same
+        // alias. Resolve it against that file's own imports.
+        if tr.origin != "" && tr.origin != req.path {
+            return visit_qualified_in_origin(e, parser, req, tr, decl_type, visit, ctx)
         }
         return false
     }
@@ -2213,6 +2483,43 @@ visit_type_decl :: proc(
         }
     }
     return false
+}
+
+// visit_type_decl for a package-qualified type whose qualifier is spelled in
+// another file: re-parse that file, resolve `pkg` through *its* imports, and visit
+// the declaration in the package that names. One extra parse, paid only when the
+// requesting file's own imports came up empty.
+@(private = "file")
+visit_qualified_in_origin :: proc(
+    e: ^Odin_Engine,
+    parser: ts.Parser,
+    req: ^Request,
+    tr: Type_Ref,
+    decl_type: string,
+    visit: Decl_Visitor,
+    ctx: rawptr,
+) -> bool {
+    data, rerr := os.read_entire_file(tr.origin, context.temp_allocator)
+    if rerr != nil {
+        return false
+    }
+    source := string(data)
+
+    tree := ts.parser_parse_string(parser, source)
+    if tree == nil {
+        return false
+    }
+    defer ts.tree_delete(tree)
+
+    raw, found := import_path(ts.tree_root_node(tree), source, tr.pkg)
+    if !found {
+        return false
+    }
+    dir, dok := package_dir(e, raw, tr.origin, req.workspace)
+    if !dok {
+        return false
+    }
+    return visit_decl_in_dir(e, parser, dir, tr.name, req.path, decl_type, visit, ctx)
 }
 
 // visit_type_decl over one package directory's files (non-recursive — a package is
@@ -2295,12 +2602,29 @@ locate_decl :: proc(root: ts.Node, source, name, decl_type: string) -> (ts.Node,
     return {}, false
 }
 
+// What a Decl_Visitor needs to resolve a *further* type declaration from inside
+// the one it is visiting — an embedded `using` field's struct. `depth` caps the
+// recursion, since two structs can embed each other.
+@(private = "file")
+Embed_Env :: struct {
+    e:      ^Odin_Engine,
+    parser: ts.Parser,
+    root:   ts.Node,
+    req:    ^Request,
+    depth:  int,
+}
+
+// How deep `using` embedding is followed.
+@(private = "file")
+EMBED_DEPTH_LIMIT :: 4
+
 // Outputs of member_visitor: the located field's identifier and full-declaration
 // byte ranges (into `src`), the field's own type (temp-cloned, for chaining), and
 // whether the field was found. `src`/`path` are job-lifetime.
 @(private = "file")
 Member_Ctx :: struct {
     field:       string,
+    env:         Embed_Env,
     got:         bool,
     src:         string,
     path:        string,
@@ -2314,12 +2638,14 @@ Member_Ctx :: struct {
 // Decl_Visitor that finds one named field. Records its identifier range (the
 // jump target), its whole-declaration range (`x: int`, for hover) and its type
 // (for a chained `a.b.c`). The type is cloned into scratch so it survives the
-// parse tree's deletion in the cross-file case.
+// parse tree's deletion in the cross-file case. A field the struct does not
+// declare itself may still come from a struct it embeds with `using`.
 @(private = "file")
 member_visitor :: proc(sd: ts.Node, source, path: string, ctx_raw: rawptr) {
     ctx := cast(^Member_Ctx) ctx_raw
     id, tn, fd, ok := struct_field(sd, source, ctx.field)
     if !ok {
+        visit_embedded(sd, source, path, &ctx.env, member_visitor, ctx)
         return
     }
     ctx.got = true
@@ -2330,11 +2656,70 @@ member_visitor :: proc(sd: ts.Node, source, path: string, ctx_raw: rawptr) {
     ctx.decl_start = int(ts.node_start_byte(fd))
     ctx.decl_end = int(ts.node_end_byte(fd))
     if tr, tok := type_ref_from_node(tn, source); tok {
-        ctx.field_type = Type_Ref {
-            name = strings.clone(tr.name, context.temp_allocator),
-            pkg  = strings.clone(tr.pkg, context.temp_allocator),
+        ctx.field_type = clone_type_ref(tr, path)
+    }
+}
+
+// Runs `visit` on every struct this one embeds with `using`, so an embedded
+// struct's fields answer as if they were the outer struct's own. The embedded
+// type is resolved the usual way (same file → imported package → workspace
+// index), qualified against the file the embedding was written in.
+@(private = "file")
+visit_embedded :: proc(
+    sd: ts.Node,
+    source, path: string,
+    env: ^Embed_Env,
+    visit: Decl_Visitor,
+    ctx: rawptr,
+) {
+    if env.e == nil || env.depth >= EMBED_DEPTH_LIMIT {
+        return
+    }
+    for i in 0 ..< ts.node_named_child_count(sd) {
+        c := ts.node_named_child(sd, i)
+        if string(ts.node_type(c)) != "field" || !field_is_using(c) {
+            continue
+        }
+        count := ts.node_named_child_count(c)
+        if count == 0 {
+            continue
+        }
+        tn := ts.node_named_child(c, count - 1)
+        if string(ts.node_type(tn)) != "type" {
+            continue
+        }
+        tr, ok := type_ref_from_node(tn, source)
+        if !ok {
+            continue
+        }
+        tr = clone_type_ref(tr, path)
+        env.depth += 1
+        visit_type_decl(env.e, env.parser, env.root, env.req, tr, "struct_declaration", "type", visit, ctx)
+        env.depth -= 1
+    }
+}
+
+// Whether a struct field is embedded (`using base: Base`). The grammar keeps
+// `using` as an anonymous token on the field.
+@(private = "file")
+field_is_using :: proc(field: ts.Node) -> bool {
+    for i in 0 ..< ts.node_child_count(field) {
+        if string(ts.node_type(ts.node_child(field, i))) == "using" {
+            return true
         }
     }
+    return false
+}
+
+// A Type_Ref copied into scratch, tagged with the file it was read from, so it
+// outlives the parse tree it came from and keeps its qualifier resolvable.
+@(private = "file")
+clone_type_ref :: proc(tr: Type_Ref, path: string) -> Type_Ref {
+    out := tr
+    out.name = strings.clone(tr.name, context.temp_allocator)
+    out.pkg = strings.clone(tr.pkg, context.temp_allocator)
+    out.origin = strings.clone(path, context.temp_allocator)
+    return out
 }
 
 // The `field`-named member of a struct: its identifier node, its `(type ...)`
@@ -2370,16 +2755,19 @@ struct_field :: proc(sd: ts.Node, source, field: string) -> (ident, type_node, f
 @(private = "file")
 Fields_Ctx :: struct {
     prefix: string,
+    env:    Embed_Env,
     res:    ^Result,
     seen:   ^map[string]bool,
 }
 
 // Decl_Visitor that offers every field matching the prefix as a completion
-// candidate (`name: type`, kind "field"). Owned strings clone into the Manager's
-// allocator (context.allocator here).
+// candidate (`name: type`, kind "field"), including the fields of every struct
+// this one embeds with `using`. Owned strings clone into the Manager's allocator
+// (context.allocator here).
 @(private = "file")
 fields_visitor :: proc(sd: ts.Node, source, path: string, ctx_raw: rawptr) {
     ctx := cast(^Fields_Ctx) ctx_raw
+    defer visit_embedded(sd, source, path, &ctx.env, fields_visitor, ctx)
     for i in 0 ..< ts.node_named_child_count(sd) {
         c := ts.node_named_child(sd, i)
         if string(ts.node_type(c)) != "field" {
@@ -2568,7 +2956,12 @@ complete :: proc(e: ^Odin_Engine, parser: ts.Parser, root: ts.Node, req: ^Reques
                 // fields. Only a bare operand — a chain (`a.b.`) isn't inferred here.
                 if tr, tok := binding_type_ref(e, parser, root, req, operand, op_start); tok {
                     seen := make(map[string]bool, 0, context.temp_allocator)
-                    ctx := Fields_Ctx{prefix = prefix, res = res, seen = &seen}
+                    ctx := Fields_Ctx {
+                        prefix = prefix,
+                        env    = Embed_Env{e = e, parser = parser, root = root, req = req},
+                        res    = res,
+                        seen   = &seen,
+                    }
                     visit_type_decl(e, parser, root, req, tr, "struct_declaration", "type", fields_visitor, &ctx)
                 }
             }
