@@ -26,6 +26,9 @@ Session :: struct {
     split_visible:     bool,
     split_ratio:       f32,
     split_second_file: int,
+    // Name of the task the titlebar selector shows; the tasks themselves are
+    // committed with the workspace, which one you last picked is not.
+    active_task:       string,
 }
 
 // Session file for a workspace: sessions/<sanitized-abs-path>.json. The path is
@@ -102,6 +105,7 @@ thor_save_session :: proc(thor: ^Thor) {
         split_visible     = thor.split_visible,
         split_ratio       = thor.split_ratio,
         split_second_file = thor.pane_file[1],
+        active_task       = thor.active_task_name,
     }
 
     data, err := json.marshal(session, {pretty = true}, context.temp_allocator)
@@ -150,6 +154,8 @@ thor_restore_session :: proc(thor: ^Thor) {
         rl.MaximizeWindow()
         thor.window_maximized = true
     }
+    // Ignored when the task is gone from tasks.json; the selector falls back.
+    thor_select_task(thor, session.active_task)
 
     // Reopen in saved order; each open sets itself active, so the saved active
     // tab is applied last.

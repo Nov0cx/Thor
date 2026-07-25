@@ -107,6 +107,11 @@ Thor :: struct {
     explorer_restore_button:  ^widgets.Button,
     console_toggle_button:    ^widgets.Button,
     console_restore_button:   ^widgets.Button,
+    // Titlebar task controls, left of the window controls: add, the selector
+    // naming the active task (opens the dropdown), and run (see tasks.odin).
+    tasks_add_button:         ^widgets.Button,
+    tasks_select_button:      ^widgets.Button,
+    tasks_run_button:         ^widgets.Button,
     minimize_button:          ^widgets.Button,
     maximize_button:          ^widgets.Button,
     close_button:             ^widgets.Button,
@@ -147,6 +152,14 @@ Thor :: struct {
     // the File menu, consumed when the name prompt is accepted). Owned clone.
     pending_rename_path:      string,
     git_branch:               string,
+    // Named shell commands from <workspace>/.thor/tasks.json, reloaded on a
+    // workspace switch. active_task_name is what the selector shows and the run
+    // button runs, held by name so a reload can re-resolve it and the session
+    // can restore it; pending_task_name carries the name between the two prompts
+    // of Add Task. Both owned clones.
+    tasks:                    [dynamic]^Task,
+    active_task_name:         string,
+    pending_task_name:        string,
     open_files:               [dynamic]^Open_File,
     zombie_files:             [dynamic]^Open_File,
     // Worker threads append finished jobs here under io_mutex; drained on the
@@ -316,6 +329,7 @@ init :: proc() -> ^Thor {
     thor.workspace_dir = workspace_dir
     thor.workspace_prefix = strings.concatenate({workspace_dir, "\\"})
     thor.git_branch = thor_read_git_branch(workspace_dir)
+    thor_load_tasks(thor)
     thor.open_files = make([dynamic]^Open_File)
     thor.zombie_files = make([dynamic]^Open_File)
     thor.finished_loads = make([dynamic]^Load_Job)
@@ -473,6 +487,9 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.delete_prompt)
     delete(thor.pending_rename_path)
     delete(thor.git_branch)
+    thor_clear_tasks(thor)
+    delete(thor.active_task_name)
+    delete(thor.pending_task_name)
     lang.manager_destroy(&thor.lang_manager)
     delete(thor.pending_goto_path)
     delete(thor.status_message)

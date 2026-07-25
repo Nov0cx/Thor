@@ -37,7 +37,10 @@
                 "circle-check",
                 "pencil",
                 "device-floppy",
-                "loader-2"
+                "loader-2",
+                "plus",
+                "caret-down",
+                "player-play"
             ],
             "icons": {
                 "12-hours": "\ufc53",

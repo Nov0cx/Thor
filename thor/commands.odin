@@ -134,8 +134,9 @@ thor_apply_settings :: proc(thor: ^Thor) {
     textedit.set_tab_width(setting.tab_width(&thor.config))
 }
 
-// Reloads the config from disk and re-applies it live: keybinds, sizes, and —
-// when their setting changed — the active theme and text font. Also rebaselines
+// Reloads the config from disk and re-applies it live: keybinds, sizes, the
+// workspace tasks, and — when their setting changed — the active theme and text
+// font. Also rebaselines
 // the auto-reload watcher and refreshes the Settings modal if it is open. Shared
 // by the reload command, the Settings modal, and the file-change poll loop.
 thor_reload_settings :: proc(thor: ^Thor) {
@@ -156,6 +157,7 @@ thor_reload_settings :: proc(thor: ^Thor) {
     }
 
     thor_apply_settings(thor)
+    thor_load_tasks(thor)
     thor_settings_mark_clean(thor)
     if widgets.settings_view_is_open(thor.settings_view) {
         thor_populate_settings_view(thor)
@@ -344,6 +346,12 @@ thor_register_commands :: proc(thor: ^Thor) {
     thor_add_bindable_command(thor, "Fold: Toggle Fold", "toggle_fold", thor_cmd_toggle_fold, thor)
     thor_add_bindable_command(thor, "Fold: Fold All", "fold_all", thor_cmd_fold_all, thor)
     thor_add_bindable_command(thor, "Fold: Unfold All", "unfold_all", thor_cmd_unfold_all, thor)
+
+    thor_add_bindable_command(thor, "Tasks: Run Selected Task", "run_selected_task", thor_cmd_run_active_task, thor)
+    thor_add_bindable_command(thor, "Tasks: Run Task", "run_task", thor_cmd_run_task, thor)
+    thor_add_bindable_command(thor, "Tasks: Add Task", "add_task", thor_cmd_add_task, thor)
+    thor_add_bindable_command(thor, "Tasks: Remove Task", "remove_task", thor_cmd_remove_task, thor)
+    thor_add_bindable_command(thor, "Tasks: Edit Tasks (JSON)", "edit_tasks", thor_cmd_edit_tasks, thor)
 
     thor_add_bindable_command(thor, "Help: Tutorial", "tutorial", thor_cmd_tutorial, thor)
     thor_add_bindable_command(thor, "Settings: Open Settings GUI", "open_settings_gui", thor_cmd_open_settings_gui, thor)

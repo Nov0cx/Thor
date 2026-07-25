@@ -140,6 +140,36 @@ accepts the highlighted word, escape (or typing a non-word character) dismisses
 it. A plain enter dismisses the popup and inserts a newline. There is no key to
 summon it — it appears automatically while typing.
 
+## Tasks
+
+Left of the window controls sit three task buttons: **+** adds a task, the
+**selector** names the active one, and **▶** runs it. Tasks are named shell
+commands (build, test, run, ...) and run in the console panel, exactly like
+typing them at the prompt.
+
+| Control | Action |
+| --- | --- |
+| + | add a task: prompts for a name, then the command it runs |
+| selector | drop down the workspace's tasks; picking one selects it |
+| ▶ | run the selected task |
+
+The dropdown also carries "Run Task...", "Add Task...", "Remove Task..." and
+"Edit Tasks (JSON)", which opens the file the tasks live in,
+`<workspace>/.thor/tasks.json`. That file is committable and reloads as soon as
+it is saved. Which task is selected is personal, so it stays in the session
+rather than the file. The same actions are in the command palette under "Tasks:"
+and can be given chords in `settings/keybinds.json` — "Tasks: Run Selected Task"
+is the one worth binding.
+
+```json
+{
+    "tasks": [
+        { "name": "build", "command": "odin run build.odin -file" },
+        { "name": "test",  "command": "odin test thor" }
+    ]
+}
+```
+
 ## Command palette
 
 `ctrl + .` opens the command palette. Type to fuzzy-filter, arrows/enter to run,

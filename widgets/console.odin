@@ -187,6 +187,29 @@ console_append :: proc(console: ^Console, text: string) {
     console.autoscroll = true
 }
 
+// Echoes `command` on a prompt line and hands it to the owner's runner.
+@(private = "file")
+console_submit :: proc(console: ^Console, command: string) {
+    strings.write_string(&console.output, console.prompt)
+    strings.write_string(&console.output, command)
+    strings.write_byte(&console.output, '\n')
+    console.autoscroll = true
+    if command != "" && console.on_run != nil {
+        console.running = true
+        console.on_run(console.run_data, command)
+    }
+}
+
+// Runs `command` as if it had been typed at the prompt. False when a command is
+// already running or `command` is empty; the console runs one at a time.
+console_run_command :: proc(console: ^Console, command: string) -> bool {
+    if console.running || command == "" {
+        return false
+    }
+    console_submit(console, command)
+    return true
+}
+
 // Called by the owner when a command finishes so the prompt returns to normal.
 console_command_finished :: proc(console: ^Console) {
     console.running = false
@@ -237,15 +260,7 @@ console_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Even
             if console.running {
                 return true
             }
-            command := string(console.input[:])
-            strings.write_string(&console.output, console.prompt)
-            strings.write_string(&console.output, command)
-            strings.write_byte(&console.output, '\n')
-            console.autoscroll = true
-            if command != "" && console.on_run != nil {
-                console.running = true
-                console.on_run(console.run_data, command)
-            }
+            console_submit(console, string(console.input[:]))
             clear(&console.input)
             return true
         case .BACKSPACE:

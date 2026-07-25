@@ -26,6 +26,9 @@ thor_settings_files :: proc(thor: ^Thor, out: ^[dynamic]string) {
         append(out, strings.concatenate({dir, "/keybinds.json"}, context.temp_allocator))
         append(out, strings.concatenate({dir, "/comments.json"}, context.temp_allocator))
     }
+    // Unconditional: a tasks file written into a not-yet-initialized workspace
+    // still has to reload.
+    append(out, thor_tasks_file(thor.workspace_dir))
 }
 
 // A cheap signature of the config files' size and modification time. It changes

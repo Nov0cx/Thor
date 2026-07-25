@@ -88,6 +88,13 @@
         "open_keybinds": "",
         "reload_settings": ""
     },
+    "tasks": {
+        "run_selected_task": "",
+        "run_task": "",
+        "add_task": "",
+        "remove_task": "",
+        "edit_tasks": ""
+    },
     "search": {
         "find": "ctrl+f",
         "replace": "ctrl+r"

@@ -29,6 +29,12 @@ Inside the editor, `File > Open Folder...` switches the workspace and
 the window does the same. Each folder keeps its own session (open tabs, layout),
 restored when you come back to it.
 
+A workspace can also carry **tasks** — named shell commands run in the console.
+The titlebar carries a task selector next to the window controls: **+** to add
+one, the dropdown to pick which is active, **▶** to run it. They live in
+`<workspace>/.thor/tasks.json`, so they are committed with the project; see
+[keybinds.md](keybinds.md#tasks).
+
 ## Dependencies
 
 Thor depends on:

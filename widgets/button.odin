@@ -9,7 +9,8 @@ Button_Click_Proc :: #type proc(data: rawptr, ctx: ^ui.Context, widget: ^ui.Widg
 Button :: struct {
     using widget:      ui.Widget,
     text:              string,
-    // When set, an icon glyph is drawn centered instead of the text.
+    // When set, an icon glyph is drawn centered instead of the text; with both,
+    // the text is left-aligned and the icon sits at the trailing edge.
     icon:              string,
     icon_size:         i32,
     on_click:          Button_Click_Proc,
@@ -107,15 +108,23 @@ button_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
         rl.DrawRectangleLinesEx(button.bounds, button.border_thickness, button.border_color)
     }
 
+    icon_y := cast(i32) (button.bounds.y + (button.bounds.height - cast(f32) button.icon_size) * 0.5)
+    text_y := cast(i32) (button.bounds.y + (button.bounds.height - cast(f32) button.font_size) * 0.5)
+
     ui.begin_clip(button.bounds)
-    if button.icon != "" {
+    switch {
+    case button.icon != "" && button.text != "":
+        // Label first, icon pinned to the trailing edge; a label too long for the
+        // button is cut off by the clip rather than pushing the icon out.
+        ui.draw_text(button.text, cast(i32) (button.bounds.x + button.padding.left), text_y, button.font_size, button.text_color)
+        icon_x := button.bounds.x + button.bounds.width - button.padding.right - cast(f32) button.icon_size
+        ui.draw_icon(button.icon, cast(i32) icon_x, icon_y, button.icon_size, button.text_color)
+    case button.icon != "":
         icon_x := cast(i32) (button.bounds.x + (button.bounds.width - cast(f32) button.icon_size) * 0.5)
-        icon_y := cast(i32) (button.bounds.y + (button.bounds.height - cast(f32) button.icon_size) * 0.5)
         ui.draw_icon(button.icon, icon_x, icon_y, button.icon_size, button.text_color)
-    } else {
+    case:
         text_width := ui.measure_text(button.text, button.font_size)
         text_x := cast(i32) (button.bounds.x + (button.bounds.width - cast(f32) text_width) * 0.5)
-        text_y := cast(i32) (button.bounds.y + (button.bounds.height - cast(f32) button.font_size) * 0.5)
         ui.draw_text(button.text, text_x, text_y, button.font_size, button.text_color)
     }
     ui.end_clip()

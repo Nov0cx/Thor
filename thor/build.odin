@@ -178,9 +178,17 @@ thor_build_controls :: proc(thor: ^Thor) {
     thor.explorer_restore_button = thor_create_icon_button(thor, "explorer-restore", "layout-sidebar-left-expand", thor_toggle_explorer, thor.theme.buttons)
     thor.console_toggle_button = thor_create_icon_button(thor, "console-toggle", "layout-bottombar-collapse", thor_toggle_console, thor.theme.highlight)
     thor.console_restore_button = thor_create_icon_button(thor, "console-restore", "layout-bottombar-expand", thor_toggle_console, thor.theme.buttons)
+    thor.tasks_add_button = thor_create_window_button(thor, "tasks-add", "plus", thor_click_add_task, thor.theme.highlight)
+    thor.tasks_select_button = thor_create_task_selector(thor)
+    thor.tasks_run_button = thor_create_window_button(thor, "tasks-run", "player-play", thor_click_run_task, thor.theme.highlight)
+    thor.tasks_run_button.text_color = thor.theme.green_color
     thor.minimize_button = thor_create_window_button(thor, "window-minimize", "minus", thor_minimize_window, thor.theme.highlight)
     thor.maximize_button = thor_create_window_button(thor, "window-maximize", "square", thor_toggle_maximize, thor.theme.highlight)
     thor.close_button = thor_create_window_button(thor, "window-close", "x", thor_close_window, thor.theme.red_color)
+
+    // The workspace's tasks were loaded before the titlebar existed, so the
+    // selector picks up its label here.
+    thor_sync_task_selector(thor)
 }
 
 thor_build_content :: proc(thor: ^Thor) {
@@ -365,6 +373,9 @@ thor_build_content :: proc(thor: ^Thor) {
     widgets.append_child(&thor.top_bar.widget, &thor.menu_view_button.widget)
     widgets.append_child(&thor.top_bar.widget, &thor.menu_help_button.widget)
     widgets.append_child(&thor.top_bar.widget, &top_spacer.widget)
+    widgets.append_child(&thor.top_bar.widget, &thor.tasks_add_button.widget)
+    widgets.append_child(&thor.top_bar.widget, &thor.tasks_select_button.widget)
+    widgets.append_child(&thor.top_bar.widget, &thor.tasks_run_button.widget)
     widgets.append_child(&thor.top_bar.widget, &thor.minimize_button.widget)
     widgets.append_child(&thor.top_bar.widget, &thor.maximize_button.widget)
     widgets.append_child(&thor.top_bar.widget, &thor.close_button.widget)
@@ -445,6 +456,22 @@ thor_create_window_button :: proc(thor: ^Thor, id, icon: string, on_click: widge
     thor_theme_window_button(thor, button, hover)
     widgets.button_set_on_click(button, on_click, thor)
     button.min_size = rl.Vector2 {40, 28}
+    return button
+}
+
+// Titlebar task selector: the active task's name plus a dropdown chevron,
+// styled like the menu buttons. Its width follows the label, see
+// thor_sync_task_selector.
+thor_create_task_selector :: proc(thor: ^Thor) -> ^widgets.Button {
+    button := widgets.button_create("tasks-select", "No tasks")
+    // A solid caret, not the explorer's chevron: this drops a list down, it does
+    // not expand a node.
+    widgets.button_set_icon(button, "caret-down", TASK_SELECTOR_ICON_SIZE)
+    thor_theme_menu_button(thor, button)
+    widgets.button_set_on_click(button, thor_open_tasks_menu, thor)
+    button.font_size = 16
+    button.padding = ui.padding_xy(TASK_SELECTOR_PAD_X, 4)
+    button.min_size = rl.Vector2 {TASK_SELECTOR_MIN_WIDTH, 28}
     return button
 }
 

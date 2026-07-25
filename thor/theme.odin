@@ -154,6 +154,11 @@ thor_apply_theme :: proc(thor: ^Thor) {
     }) {
         thor_theme_menu_button(thor, b)
     }
+    thor_theme_window_button(thor, thor.tasks_add_button, t.highlight)
+    thor_theme_menu_button(thor, thor.tasks_select_button)
+    // The run arrow keeps a green tint of its own; its hover stays neutral.
+    thor_theme_window_button(thor, thor.tasks_run_button, t.highlight)
+    thor.tasks_run_button.text_color = t.green_color
     thor_theme_window_button(thor, thor.minimize_button, t.highlight)
     thor_theme_window_button(thor, thor.maximize_button, t.highlight)
     thor_theme_window_button(thor, thor.close_button, t.red_color)

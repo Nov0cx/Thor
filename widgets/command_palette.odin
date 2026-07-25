@@ -494,11 +494,15 @@ command_palette_activate :: proc(palette: ^Command_Palette, ctx: ^ui.Context) {
         }
         command_palette_close(palette, ctx)
     case .Prompt:
-        text := strings.trim_space(string(palette.query[:]))
-        if text != "" && palette.prompt_run != nil {
-            palette.prompt_run(palette.prompt_data, text)
-        }
+        // Copy and close first: the callback may open the next prompt, which
+        // resets the query the text points into.
+        text := strings.clone(strings.trim_space(string(palette.query[:])), context.temp_allocator)
+        run := palette.prompt_run
+        data := palette.prompt_data
         command_palette_close(palette, ctx)
+        if text != "" && run != nil {
+            run(data, text)
+        }
     case .Confirm:
         run := palette.confirm_run
         data := palette.confirm_data
