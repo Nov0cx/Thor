@@ -108,6 +108,12 @@ thor_apply_settings :: proc(thor: ^Thor) {
     } else {
         thor.package_doc_key = setting.Keybind {key = .F3}
     }
+    // Shift+F2, not the conventional F2: that one already renames the *file*.
+    if kb, ok := setting.keybind(&thor.config, "rename_symbol"); ok {
+        thor.rename_key = kb
+    } else {
+        thor.rename_key = setting.Keybind {key = .F2, shift = true}
+    }
     if kb, ok := setting.keybind(&thor.config, "last_file"); ok {
         thor.last_file_key = kb
     } else {
@@ -342,6 +348,7 @@ thor_register_commands :: proc(thor: ^Thor) {
     widgets.command_palette_add(p, "Find All References", thor_cmd_find_references, thor, sc(thor, "find_references"))
     widgets.command_palette_add(p, "Signature Help", thor_cmd_signature_help, thor, sc(thor, "signature_help"))
     widgets.command_palette_add(p, "Show Package Documentation", thor_cmd_package_doc, thor, sc(thor, "package_doc"))
+    widgets.command_palette_add(p, "Rename Symbol", thor_cmd_rename_symbol, thor, sc(thor, "rename_symbol"))
 
     thor_add_bindable_command(thor, "Fold: Toggle Fold", "toggle_fold", thor_cmd_toggle_fold, thor)
     thor_add_bindable_command(thor, "Fold: Fold All", "fold_all", thor_cmd_fold_all, thor)
@@ -454,6 +461,7 @@ thor_cmd_goto_workspace_symbol :: proc(data: rawptr) {thor_goto_workspace_symbol
 thor_cmd_find_references :: proc(data: rawptr) {thor_find_references(cast(^Thor) data)}
 thor_cmd_signature_help :: proc(data: rawptr) {thor_signature_help(cast(^Thor) data)}
 thor_cmd_package_doc :: proc(data: rawptr) {thor_package_doc(cast(^Thor) data)}
+thor_cmd_rename_symbol :: proc(data: rawptr) {thor_rename_symbol(cast(^Thor) data)}
 thor_cmd_join_lines :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.join_lines(s)}}
 thor_cmd_uppercase :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.transform_case(s, .Upper)}}
 thor_cmd_lowercase :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.transform_case(s, .Lower)}}

@@ -496,6 +496,7 @@ Config :: struct {
     enable_hover:            bool,
     enable_document_symbols: bool,
     enable_references:       bool,
+    enable_rename:           bool,
 }
 
 // The engine's cached view of one workspace's config file, guarded by its own
@@ -566,6 +567,7 @@ config_defaults :: proc() -> Config {
         enable_hover            = true,
         enable_document_symbols = true,
         enable_references       = true,
+        enable_rename           = true,
     }
 }
 
@@ -597,6 +599,9 @@ config_parse :: proc(cache: ^Config_Cache, workspace, path: string) {
     }
     if b, ok := obj["enable_references"].(json.Boolean); ok {
         cache.cfg.enable_references = bool(b)
+    }
+    if b, ok := obj["enable_rename"].(json.Boolean); ok {
+        cache.cfg.enable_rename = bool(b)
     }
 
     arr, aok := obj["collections"].(json.Array)
@@ -653,12 +658,12 @@ config_collection_dir :: proc(e: ^Odin_Engine, coll, workspace: string) -> (stri
 
 // True when the workspace config permits the feature the request `kind` serves.
 // Kinds with no toggle (definition, workspace symbols, signature help,
-// completion) are always on; the three gated ones — hover, document symbols,
-// references — honor the config, defaulting to on when unset.
+// completion) are always on; the four gated ones — hover, document symbols,
+// references, rename — honor the config, defaulting to on when unset.
 @(private = "file")
 config_allows :: proc(e: ^Odin_Engine, workspace: string, kind: Request_Kind) -> bool {
     #partial switch kind {
-    case .Hover, .Document_Symbols, .References:
+    case .Hover, .Document_Symbols, .References, .Rename:
     case:
         return true
     }
@@ -676,6 +681,8 @@ config_allows :: proc(e: ^Odin_Engine, workspace: string, kind: Request_Kind) ->
         return cache.cfg.enable_document_symbols
     case .References:
         return cache.cfg.enable_references
+    case .Rename:
+        return cache.cfg.enable_rename
     }
     return true
 }
@@ -769,6 +776,13 @@ odin_resolve :: proc(data: rawptr, req: ^Request, res: ^Result) {
     // resolution the goto flow runs — they gather every occurrence of the name.
     if req.kind == .References {
         collect_references(e, parser, root, req, res)
+        return
+    }
+
+    // Rename reuses that same occurrence scan and turns each hit into an edit,
+    // so it shares references' reach and its caret handling.
+    if req.kind == .Rename {
+        rename(e, parser, root, req, res)
         return
     }
 
@@ -1315,6 +1329,74 @@ ref_scan_file :: proc(e: ^Odin_Engine, parser: ts.Parser, path, name: string, re
     defer ts.tree_delete(tree)
 
     collect_ident_refs(ts.tree_root_node(tree), source, name, path, 0, len(source), res)
+}
+
+// Renames the symbol under the caret to `req.new_name`, returning the
+// replacements as `res.edits` rather than touching any file — the editor applies
+// them, so the change lands in an open buffer's undo history instead of behind
+// its back. Every occurrence find-references would list becomes one edit, so
+// rename inherits that reach *and* its imprecision: a local or parameter is
+// confined to its declaration's scope in this file, but a top-level name is
+// matched across the workspace, and until the type layer lands an unrelated
+// same-named symbol in another package is renamed with it. Answers nothing when
+// the caret is not on an identifier or the new name isn't a legal Odin one.
+@(private = "file")
+rename :: proc(e: ^Odin_Engine, parser: ts.Parser, root: ts.Node, req: ^Request, res: ^Result) {
+    if !valid_identifier(req.new_name) {
+        return
+    }
+    ident, ok := identifier_at(root, req.source, req.offset)
+    if !ok {
+        return
+    }
+    name := ts.node_text(ident, req.source)
+    if name == req.new_name {
+        return // renaming to itself: no edits, nothing to apply
+    }
+
+    collect_references(e, parser, root, req, res)
+    if !res.ok {
+        return
+    }
+
+    // The reference rows are consumed here: each one's span becomes an edit and
+    // its `path` moves into that edit, so a rename result carries edits alone
+    // and the display-only fields are freed rather than handed to the editor.
+    for sym in res.symbols {
+        append(&res.edits, Text_Edit {
+            path     = sym.path,
+            start    = sym.offset,
+            end      = sym.offset + len(name),
+            old_text = strings.clone(name),
+            new_text = strings.clone(req.new_name),
+        })
+        delete(sym.name)
+        delete(sym.kind)
+        delete(sym.signature)
+    }
+    delete(res.symbols)
+    res.symbols = nil // handed over to `edits`; job_free must not free it twice
+    res.ok = len(res.edits) > 0
+}
+
+// True when `s` can be written as an Odin identifier: a leading letter or `_`,
+// then letters, digits and `_`, and not a keyword or builtin type name.
+@(private = "file")
+valid_identifier :: proc(s: string) -> bool {
+    if s == "" || (s[0] >= '0' && s[0] <= '9') {
+        return false
+    }
+    for i in 0 ..< len(s) {
+        if !is_word_byte(s[i]) {
+            return false
+        }
+    }
+    for kw in ODIN_KEYWORDS {
+        if s == kw {
+            return false
+        }
+    }
+    return true
 }
 
 // Resolves the call the caret sits inside to its procedure declaration and fills

@@ -14,7 +14,7 @@ import "core:time"
 
 // What the editor is asking for. Kept small on purpose; it grows as features
 // land (Definition, Hover, Document_Symbols, Workspace_Symbols, References,
-// Signature_Help and Completion today).
+// Signature_Help, Completion, Package_Doc and Rename today).
 Request_Kind :: enum {
     Definition,
     Hover,
@@ -24,6 +24,7 @@ Request_Kind :: enum {
     Signature_Help,
     Completion,
     Package_Doc,
+    Rename,
 }
 
 // A byte range in a named file. Byte offsets, not line/column: the editor and
@@ -83,6 +84,18 @@ Symbol :: struct {
     offset:    int,    // byte offset of the identifier within that file
 }
 
+// One text replacement a backend wants applied: `[start, end)` in the file at
+// `path` becomes `new_text`. `old_text` is what the backend read there, so the
+// editor can verify the range before touching a file that may have moved on
+// since the scan. Rename's payload; the shape a code action would reuse.
+Text_Edit :: struct {
+    path:     string, // owned; absolute file path
+    start:    int,
+    end:      int,
+    old_text: string, // owned; the bytes the backend matched at [start, end)
+    new_text: string, // owned; what replaces them
+}
+
 // An editor request. `source` is an owned snapshot taken when the request is
 // made, so the worker never races the live buffer; `revision` lets the editor
 // drop a result a later edit has already invalidated.
@@ -95,6 +108,7 @@ Request :: struct {
     offset:    int,     // byte offset of the caret
     revision:  u64,
     workspace: string, // owned, absolute
+    new_name:  string, // owned; the request's argument — Rename's replacement identifier, "" otherwise
     cancel:    ^bool,  // Job-owned cancellation flag; read via request_cancelled, nil when hand-built
 }
 
@@ -123,6 +137,9 @@ Result :: struct {
     doc:       Doc_Info,        // Package_Doc
     signature: Signature_Info,  // Signature_Help
     symbols:   [dynamic]Symbol, // Document_Symbols / Workspace_Symbols / References / Completion; owned, freed in job_free
+    // Rename; owned, freed in job_free. Sorted ascending by (path, start), so an
+    // applier walks one file's edits back-to-front to keep the offsets valid.
+    edits:     [dynamic]Text_Edit,
 }
 
 // A language backend. Both the in-client engine and a future subprocess LSP
@@ -170,6 +187,7 @@ Pending :: struct {
     offset:    int,
     revision:  u64,
     workspace: string,
+    new_name:  string,
     due:       time.Time,
 }
 
@@ -223,7 +241,8 @@ manager_supports :: proc(m: ^Manager, ext: string) -> bool {
 // Dispatches a request on a worker thread. Snapshots the string inputs into the
 // Manager's allocator so the caller keeps ownership of its own buffers. Returns
 // the request id, or 0 when no backend handles the extension. The result
-// arrives via manager_dispatch on a later frame.
+// arrives via manager_dispatch on a later frame. `new_name` is the request's
+// argument, only Rename uses it.
 manager_request :: proc(
     m: ^Manager,
     kind: Request_Kind,
@@ -231,6 +250,7 @@ manager_request :: proc(
     offset: int,
     revision: u64,
     workspace: string,
+    new_name := "",
 ) -> u64 {
     if _, ok := backend_for(m, ext); !ok {
         return 0
@@ -248,6 +268,7 @@ manager_request :: proc(
         offset,
         revision,
         strings.clone(workspace),
+        strings.clone(new_name),
     )
 }
 
@@ -265,6 +286,7 @@ dispatch_owned :: proc(
     offset: int,
     revision: u64,
     workspace: string,
+    new_name: string,
 ) -> u64 {
     context.allocator = m.allocator
     backend, ok := backend_for(m, ext)
@@ -273,6 +295,7 @@ dispatch_owned :: proc(
         delete(ext)
         delete(source)
         delete(workspace)
+        delete(new_name)
         return 0
     }
 
@@ -288,6 +311,7 @@ dispatch_owned :: proc(
         offset    = offset,
         revision  = revision,
         workspace = workspace,
+        new_name  = new_name,
     }
     job.request.cancel = &job.cancelled // stable for the job's lifetime
     job.result.id = id
@@ -381,9 +405,10 @@ manager_request_latest :: proc(
     offset: int,
     revision: u64,
     workspace: string,
+    new_name := "",
 ) -> u64 {
     manager_cancel_kind(m, kind)
-    return manager_request(m, kind, path, ext, source, offset, revision, workspace)
+    return manager_request(m, kind, path, ext, source, offset, revision, workspace, new_name)
 }
 
 // Queues a request to be dispatched once `delay` has passed without another
@@ -408,6 +433,7 @@ manager_request_debounced :: proc(
     revision: u64,
     workspace: string,
     delay: time.Duration = DEBOUNCE_TYPING,
+    new_name := "",
 ) -> u64 {
     if _, ok := backend_for(m, ext); !ok {
         return 0
@@ -426,6 +452,7 @@ manager_request_debounced :: proc(
         offset    = offset,
         revision  = revision,
         workspace = strings.clone(workspace),
+        new_name  = strings.clone(new_name),
         due       = time.time_add(time.now(), delay),
     }
     return id
@@ -458,6 +485,7 @@ manager_flush_debounced :: proc(m: ^Manager, force := false) -> int {
             slot.offset,
             slot.revision,
             slot.workspace,
+            slot.new_name,
         )
         n += 1
     }
@@ -483,6 +511,7 @@ pending_clear :: proc(m: ^Manager, kind: Request_Kind) -> bool {
     delete(p.ext)
     delete(p.source)
     delete(p.workspace)
+    delete(p.new_name)
     p^ = {}
     return true
 }
@@ -538,6 +567,7 @@ job_free :: proc(m: ^Manager, job: ^Job) {
     delete(job.request.ext)
     delete(job.request.source)
     delete(job.request.workspace)
+    delete(job.request.new_name)
     delete(job.result.location.path)
     delete(job.result.hover.text)
     delete(job.result.doc.title)
@@ -551,6 +581,12 @@ job_free :: proc(m: ^Manager, job: ^Job) {
         delete(sym.path)
     }
     delete(job.result.symbols)
+    for edit in job.result.edits {
+        delete(edit.path)
+        delete(edit.old_text)
+        delete(edit.new_text)
+    }
+    delete(job.result.edits)
     id := job.request.id
     free(job)
 

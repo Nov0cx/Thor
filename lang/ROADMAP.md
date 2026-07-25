@@ -12,7 +12,8 @@ lowest latency.
   `Manager` routes a `Request` by file extension to a backend on a worker
   thread, reaps `Result`s on the main thread via `manager_dispatch` (same
   mutex-guarded queue pattern as the file loader). Byte offsets are the position
-  currency. In-flight requests are cancellable by id or by kind, and a superseded
+  currency, and a backend that wants the buffer *changed* answers with
+  `Text_Edit`s the editor applies rather than writing files itself. In-flight requests are cancellable by id or by kind, and a superseded
   one is dropped without reaching the editor; the triggers that fire while typing
   are debounced into a per-kind slot so a burst of keystrokes dispatches once
   (see **Request coalescing / cancellation**).
@@ -112,6 +113,17 @@ lowest latency.
   explicit keybind does. The auto path is also debounced (~50ms), so holding a
   key down resolves the call once instead of once per repeat; the keybind
   dispatches immediately.
+- **Rename (Shift+F2):** prompts for a new name in the palette (prefilled with
+  the symbol under the caret), then rewrites every usage find-references would
+  list (`Rename` request → `rename`). The backend returns *edits*
+  (`Result.edits: []Text_Edit`), never touching a file itself; the host
+  (`thor_apply_rename`) validates each edit's `old_text` against the current
+  content and applies the whole set or none — a rename that lands in some files
+  and not others breaks a build silently. Open buffers are edited through
+  `textedit.replace_ranges` (one undo entry per file, saved by the user); closed
+  files are rewritten in place. It refuses when another affected file has unsaved
+  changes (the engine measured its on-disk copy) or when the requesting buffer
+  has moved past the snapshotted revision.
 - **Workspace config (`.thor/odin-analyzer.json`):** the engine reads a
   per-workspace config file from `<workspace>/.thor/` (the same folder Thor keeps
   its `settings.json` in) — Thor's own file (not `ols.json`), though its shape is
@@ -119,7 +131,7 @@ lowest latency.
   `collections` array of `{name, path}`; a relative path resolves against the
   workspace, an absolute one is used as-is) so `import "shared:foo"` resolves, and
   **feature toggles** (`enable_hover`, `enable_document_symbols`,
-  `enable_references`) that gate those request kinds — a disabled feature answers
+  `enable_references`, `enable_rename`) that gate those request kinds — a disabled feature answers
   nothing. Absent keys take the defaults (no collections, every feature on), so a
   project with no config behaves exactly as before. The parsed view is cached on
   the engine and stat-invalidated like the symbol index (re-read only when the
@@ -248,7 +260,16 @@ lowest latency.
       instead of a thread and a buffer clone per key — see request coalescing
       under scalability — and the sibling-package candidates come from the resident
       symbol index rather than a re-read and re-parse of every file in the package.
-- [ ] **Other LSP features not started:** rename, formatting, code actions,
+- [x] **Rename.** Shift+F2 (F2 already renames the *file*); `Rename` request
+      served by `rename`, which runs the reference scan and turns each occurrence
+      into a `Text_Edit`. The engine writes nothing — it returns `res.edits` and
+      the host applies them, so an open buffer's change is one undo entry. Reach
+      and precision are exactly references': a local or parameter stays inside its
+      declaration's scope in one file, a top-level name is matched workspace-wide,
+      so an unrelated same-named symbol in another package is renamed with it
+      until the type layer lands. The new name must be a legal Odin identifier
+      and not a keyword/builtin (`valid_identifier`); gated by `enable_rename`.
+- [ ] **Other LSP features not started:** formatting, code actions,
       semantic tokens. (Diagnostics land via `thor/diagnostics.odin`, outside
       this seam.)
 

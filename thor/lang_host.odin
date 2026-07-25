@@ -188,6 +188,205 @@ thor_find_references :: proc(thor: ^Thor) {
     )
 }
 
+// F2: rename the symbol under the caret across the workspace. Prompts for the
+// new name (prefilled with the current one) in the palette; thor_prompt_rename
+// dispatches the request once it is confirmed.
+thor_rename_symbol :: proc(thor: ^Thor) {
+    file := thor_active_open_file(thor)
+    if file == nil || !file.loaded {
+        return
+    }
+    if !lang.manager_supports(&thor.lang_manager, thor_file_extension(file.name)) {
+        return
+    }
+    source := textedit.text(&file.state)
+    current := ""
+    if lo, hi, ok := textedit.word_range_at(source, textedit.primary_cursor(&file.state).caret); ok {
+        current = source[lo:hi]
+    }
+    widgets.command_palette_prompt(
+        thor.command_palette,
+        &thor.ui_context,
+        "Rename symbol",
+        thor_prompt_rename,
+        thor,
+        current,
+    )
+}
+
+// Dispatches the Rename request once the user confirms a new name. The caret is
+// re-read here (the prompt held focus, so the buffer has not moved) and the
+// buffer's path and revision are remembered, so thor_apply_rename can tell the
+// file the edits were computed against from the others they touch.
+@(private = "file")
+thor_prompt_rename :: proc(data: rawptr, input: string) {
+    thor := cast(^Thor) data
+    new_name := strings.trim_space(input)
+    if new_name == "" {
+        return
+    }
+    file := thor_active_open_file(thor)
+    if file == nil || !file.loaded {
+        return
+    }
+    ext := thor_file_extension(file.name)
+    if !lang.manager_supports(&thor.lang_manager, ext) {
+        return
+    }
+    source := textedit.text(&file.state)
+    id := lang.manager_request_latest(
+        &thor.lang_manager,
+        .Rename,
+        file.path,
+        ext,
+        source,
+        textedit.primary_cursor(&file.state).caret,
+        file.state.revision,
+        thor.workspace_dir,
+        new_name,
+    )
+    if id == 0 {
+        return
+    }
+    thor.rename_request_id = id
+    delete(thor.rename_path)
+    thor.rename_path = strings.clone(file.path)
+}
+
+// One file a rename touches, gathered while the edits are validated: the file's
+// current content (its buffer when open, its bytes on disk when not) and the
+// edits landing in it.
+@(private = "file")
+Rename_Target :: struct {
+    path:  string,     // canonical; temp-allocated
+    file:  ^Open_File, // nil when the file is not open in the editor
+    text:  string,     // current content, temp-allocated
+    edits: [dynamic]lang.Text_Edit, // temp-allocated; the edits borrow the Result's strings
+}
+
+// Applies a rename's edits once they land. Validates every edit against the
+// current content first and refuses the whole rename on any mismatch rather than
+// half-applying it: a rename that lands in some files and not others breaks a
+// build silently, and the engine read the other files from disk, so an open
+// buffer with unsaved changes is not what it measured. Open files are edited
+// through the buffer (one undo entry each, saved by the user); closed ones are
+// rewritten in place.
+@(private = "file")
+thor_apply_rename :: proc(thor: ^Thor, res: ^lang.Result) {
+    if res.id != thor.rename_request_id {
+        return
+    }
+    thor.rename_request_id = 0
+    if !res.ok || len(res.edits) == 0 {
+        thor_flash_status(thor, "Nothing to rename here", is_error = true)
+        return
+    }
+
+    targets := make([dynamic]Rename_Target, context.temp_allocator)
+    for edit in res.edits {
+        index, ok := thor_rename_target(thor, &targets, edit.path, res.revision)
+        if !ok {
+            thor_flash_status(thor, "Rename aborted: save the affected files first", is_error = true)
+            return
+        }
+        target := &targets[index]
+        if edit.start < 0 || edit.end > len(target.text) || target.text[edit.start:edit.end] != edit.old_text {
+            thor_flash_status(thor, "Rename aborted: the files changed under it", is_error = true)
+            return
+        }
+        append(&target.edits, edit)
+    }
+
+    occurrences := 0
+    for &target in targets {
+        if len(target.edits) == 0 {
+            continue
+        }
+        if target.file != nil {
+            ranges := make([dynamic]textedit.Replace, context.temp_allocator)
+            for edit in target.edits {
+                append(&ranges, textedit.Replace {start = edit.start, end = edit.end, text = edit.new_text})
+            }
+            occurrences += textedit.replace_ranges(&target.file.state, ranges[:])
+            continue
+        }
+        // Not open: splice the edits (ascending, non-overlapping) into the file's
+        // bytes and write it back. The watcher picks the change up from there.
+        b := strings.builder_make(context.temp_allocator)
+        last := 0
+        for edit in target.edits {
+            strings.write_string(&b, target.text[last:edit.start])
+            strings.write_string(&b, edit.new_text)
+            last = edit.end
+        }
+        strings.write_string(&b, target.text[last:])
+        if werr := os.write_entire_file(target.path, transmute([]byte) strings.to_string(b)); werr != nil {
+            thor_flash_status(thor, "Rename incomplete: a file could not be written", is_error = true)
+            return
+        }
+        occurrences += len(target.edits)
+    }
+    thor_flash_status(thor, fmt.tprintf("Renamed %d occurrences in %d files", occurrences, len(targets)))
+}
+
+// Finds (or creates) the target entry for `path`, reading the file's current
+// content once. False refuses the rename: the file is open with unsaved changes
+// the engine's on-disk scan never saw, the buffer the request was made against
+// has been edited since (`snapshot` is its revision), or the file can't be read.
+@(private = "file")
+thor_rename_target :: proc(
+    thor: ^Thor,
+    targets: ^[dynamic]Rename_Target,
+    path: string,
+    snapshot: u64,
+) -> (int, bool) {
+    canonical := path
+    if abs, err := filepath.abs(path, context.temp_allocator); err == nil {
+        canonical = abs
+    }
+    for target, index in targets^ {
+        if target.path == canonical {
+            return index, true
+        }
+    }
+
+    for file in thor.open_files {
+        if file.path != canonical {
+            continue
+        }
+        if !file.loaded {
+            return 0, false
+        }
+        if canonical == thor.rename_path {
+            // The buffer the edits were computed against: its offsets only hold
+            // while it is still at the revision that was snapshotted.
+            if file.state.revision != snapshot {
+                return 0, false
+            }
+        } else if file.state.revision != file.saved_revision {
+            return 0, false // unsaved changes; the engine measured the disk copy
+        }
+        append(targets, Rename_Target {
+            path  = canonical,
+            file  = file,
+            text  = textedit.text(&file.state),
+            edits = make([dynamic]lang.Text_Edit, context.temp_allocator),
+        })
+        return len(targets) - 1, true
+    }
+
+    data, rerr := os.read_entire_file(canonical, context.temp_allocator)
+    if rerr != nil {
+        return 0, false
+    }
+    append(targets, Rename_Target {
+        path  = canonical,
+        text  = string(data),
+        edits = make([dynamic]lang.Text_Edit, context.temp_allocator),
+    })
+    return len(targets) - 1, true
+}
+
 // Ctrl+Shift+Space: resolve the call the caret is inside and show its signature,
 // with the active argument bracketed, in a popup above the caret. Async; the
 // result is shown by thor_show_signature. The explicit keybind flashes when the
@@ -534,6 +733,8 @@ thor_on_lang_result :: proc(user: rawptr, res: ^lang.Result) {
         thor_update_completion(thor, res)
     case .Package_Doc:
         thor_show_package_doc(thor, res)
+    case .Rename:
+        thor_apply_rename(thor, res)
     }
 }
 

@@ -414,6 +414,42 @@ join_lines :: proc(state: ^State) {
     finish_edit(state, &entry)
 }
 
+// A byte range to be replaced by `text`, for replace_ranges.
+Replace :: struct {
+    start: int,
+    end:   int,
+    text:  string,
+}
+
+// Replaces a set of byte ranges as one undo entry, remapping cursors — the
+// vehicle for an external multi-site edit (a rename's occurrences in this
+// buffer), so a single undo takes the whole thing back. Ranges are sorted here
+// and an overlapping or out-of-bounds one is skipped, so callers need not order
+// them. Returns how many were applied.
+replace_ranges :: proc(state: ^State, ranges: []Replace) -> int {
+    if len(ranges) == 0 {
+        return 0
+    }
+    txt := text(state)
+
+    sorted := slice.clone_to_dynamic(ranges, context.temp_allocator)
+    slice.sort_by(sorted[:], proc(a, b: Replace) -> bool {
+        return a.start < b.start
+    })
+
+    edits := make([dynamic]Line_Edit, context.temp_allocator)
+    last := 0
+    for r in sorted {
+        if r.start < last || r.end < r.start || r.end > len(txt) {
+            continue
+        }
+        append(&edits, Line_Edit {pos = r.start, remove = r.end - r.start, insert = r.text})
+        last = r.end
+    }
+    apply_line_edits(state, txt, edits[:])
+    return len(edits)
+}
+
 @(private = "file")
 Line_Edit :: struct {
     pos:    int,    // position in the original text

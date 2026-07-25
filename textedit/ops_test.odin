@@ -198,3 +198,36 @@ test_delete_word_and_lines :: proc(t: ^testing.T) {
     testing.expect_value(t, text(&state), "aaa\nccc")
     testing.expect_value(t, primary_cursor(&state).caret, 4)
 }
+
+@(test)
+test_replace_ranges :: proc(t: ^testing.T) {
+    // A rename's occurrences: three spans of "foo" replaced in one undo entry,
+    // handed in unsorted so the ordering is the operation's job, not the caller's.
+    state := ops_state("foo bar foo baz foo", 4)
+    defer destroy(&state)
+
+    n := replace_ranges(&state, []Replace {
+        {start = 16, end = 19, text = "quux"},
+        {start = 0, end = 3, text = "quux"},
+        {start = 8, end = 11, text = "quux"},
+    })
+    testing.expect_value(t, n, 3)
+    testing.expect_value(t, text(&state), "quux bar quux baz quux")
+    // The caret sat after the first replacement, so it shifts by that one edit.
+    testing.expect_value(t, primary_cursor(&state).caret, 5)
+
+    // One undo entry for the whole set.
+    undo(&state)
+    testing.expect_value(t, text(&state), "foo bar foo baz foo")
+
+    // Overlapping and out-of-bounds ranges are skipped rather than corrupting.
+    set_text(&state, "abcdef")
+    set_single_cursor(&state, 0)
+    m := replace_ranges(&state, []Replace {
+        {start = 0, end = 3, text = "X"},
+        {start = 2, end = 4, text = "Y"},
+        {start = 5, end = 99, text = "Z"},
+    })
+    testing.expect_value(t, m, 1)
+    testing.expect_value(t, text(&state), "Xdef")
+}

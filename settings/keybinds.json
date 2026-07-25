@@ -67,6 +67,7 @@
         "copy_path": "",
         "next_tab": "ctrl+page_down",
         "rename_file": "f2",
+        "rename_symbol": "shift+f2",
         "close_tab": "ctrl+w",
         "find_references": "f10",
         "goto_definition": "alt+enter",
