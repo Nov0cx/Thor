@@ -1426,12 +1426,16 @@ find_proc_in_dir :: proc(e: ^Odin_Engine, parser: ts.Parser, dir, name, skip: st
 //
 // The engine has no general type system, but the most common selector — a field
 // of a struct-typed value — is resolvable with a narrow, name-based inference:
-// find the operand's declaration, read its declared struct type, locate that
-// struct (same file, an imported package, or the workspace index) and match the
-// field. Chained access (`a.b.c`) recurses through each struct's field type, and
-// a pointer type is transparently dereferenced (Odin auto-derefs `.`). Anything
-// that isn't a struct (a proc result, a map, a builtin) simply doesn't resolve,
-// and the caller falls back to the flat name scan.
+// find the operand's declaration, read its struct type, locate that struct (same
+// file, an imported package, or the workspace index) and match the field. The
+// type comes from a written-down declaration (`p: Point`, a parameter) or, for a
+// `:=` binding, from its initializer — a composite literal, an aliased value, or
+// the declared result type of the procedure it calls (`p := make_point()`, which
+// resolves the callee the same three ways signature help does). Chained access
+// (`a.b.c`) recurses through each struct's field type, and a pointer type is
+// transparently dereferenced (Odin auto-derefs `.`). Anything else (a map, a
+// slice, a builtin) doesn't resolve, and the caller falls back to the flat name
+// scan.
 // ---------------------------------------------------------------------------
 
 // A named type reference: the type name plus an optional package qualifier
@@ -1444,15 +1448,27 @@ Type_Ref :: struct {
 }
 
 // A value binding's declared type and the scope it is visible in, so the nearest
-// visible declaration of a name can be chosen (mirroring resolve_local).
+// visible declaration of a name can be chosen (mirroring resolve_local). A `:=`
+// binding writes no type down, so it carries its initializer expression instead
+// (`expr`) and the type is inferred on demand; `result_index` is the slot this
+// name takes in a multi-value call (`v, ok := f()`).
 @(private = "file")
 Binding :: struct {
-    tr:          Type_Ref,
-    scope_start: int,
-    scope_end:   int,
-    top_level:   bool,
-    pos:         int,
+    tr:           Type_Ref,
+    expr:         ts.Node, // valid when has_expr: the `:=` right-hand side
+    has_expr:     bool,
+    result_index: int,
+    scope_start:  int,
+    scope_end:    int,
+    top_level:    bool,
+    pos:          int,
 }
+
+// How far the inference recursion may go. Field chains, aliased bindings and call
+// results all recurse, and a self-referential declaration (`x := x`, or two
+// bindings naming each other) would otherwise never bottom out.
+@(private = "file")
+INFER_DEPTH_LIMIT :: 8
 
 // Resolves `value.field`: infers the operand's struct type, finds that struct and
 // its field, and fills the go-to-definition location or hover text. Returns
@@ -1498,8 +1514,9 @@ resolve_member :: proc(
 }
 
 // Static type of an expression node, for member access. A bare identifier resolves
-// through its value binding; a nested `a.b` recurses (type of `a`, then the type
-// of its `b` field). Only these two shapes are inferred — enough for field chains.
+// through its value binding, a nested `a.b` recurses (type of `a`, then the type of
+// its `b` field), a composite literal names its own type, and a call resolves to
+// its procedure's result type. Anything else is not inferred.
 @(private = "file")
 infer_expr_type :: proc(
     e: ^Odin_Engine,
@@ -1507,18 +1524,46 @@ infer_expr_type :: proc(
     root: ts.Node,
     req: ^Request,
     node: ts.Node,
+    depth := 0,
 ) -> (Type_Ref, bool) {
+    return infer_expr_result(e, parser, root, req, node, 0, depth)
+}
+
+// infer_expr_type with a result slot: `index` picks one type out of a call's
+// multi-value return (`v, ok := f()` binds `ok` to slot 1). Every other expression
+// shape has a single type, so the index is ignored there.
+@(private = "file")
+infer_expr_result :: proc(
+    e: ^Odin_Engine,
+    parser: ts.Parser,
+    root: ts.Node,
+    req: ^Request,
+    node: ts.Node,
+    index, depth: int,
+) -> (Type_Ref, bool) {
+    if depth > INFER_DEPTH_LIMIT || ts.node_is_null(node) {
+        return {}, false
+    }
     if is_identifier(node) {
         name := ts.node_text(node, req.source)
-        return binding_type_ref(root, req.source, name, int(ts.node_start_byte(node)))
+        return binding_type_ref(e, parser, root, req, name, int(ts.node_start_byte(node)), depth + 1)
     }
-    if string(ts.node_type(node)) == "member_expression" {
+    switch string(ts.node_type(node)) {
+    case "member_expression":
         op := ts.node_named_child(node, 0)
         member := ts.node_named_child(node, 1)
-        if ts.node_is_null(op) || !is_identifier(member) {
+        if ts.node_is_null(op) || ts.node_is_null(member) {
             return {}, false
         }
-        inner, ok := infer_expr_type(e, parser, root, req, op)
+        // `pkg.fn(...)`: the grammar nests the call under the member expression, so
+        // the call — which resolves the package itself — is what has the type.
+        if string(ts.node_type(member)) == "call_expression" {
+            return call_result_type(e, parser, root, req, member, index, depth + 1)
+        }
+        if !is_identifier(member) {
+            return {}, false
+        }
+        inner, ok := infer_expr_result(e, parser, root, req, op, 0, depth + 1)
         if !ok {
             return {}, false
         }
@@ -1527,18 +1572,32 @@ infer_expr_type :: proc(
             return {}, false
         }
         return ctx.field_type, true
+    case "struct":
+        // A composite literal (`Point{...}`) names the type it builds.
+        return expr_type_name(ts.node_named_child(node, 0), req.source)
+    case "call_expression":
+        return call_result_type(e, parser, root, req, node, index, depth + 1)
     }
     return {}, false
 }
 
-// Declared type of the value named `name` visible at `offset`: the nearest
-// enclosing binding (a parameter, a typed `var` declaration, or a `:=` composite
-// literal `name := Type{...}`). A local shadows a file-scope binding, an inner
+// Type of the value named `name` visible at `offset`: the nearest enclosing
+// binding — a parameter, a typed `var` declaration, or a `:=` short declaration
+// whose initializer's type is inferred (a composite literal, a call's result, or
+// another binding it aliases). A local shadows a file-scope binding, an inner
 // scope shadows an outer, ties break by proximity — like resolve_local.
 @(private = "file")
-binding_type_ref :: proc(root: ts.Node, source, name: string, offset: int) -> (Type_Ref, bool) {
+binding_type_ref :: proc(
+    e: ^Odin_Engine,
+    parser: ts.Parser,
+    root: ts.Node,
+    req: ^Request,
+    name: string,
+    offset: int,
+    depth := 0,
+) -> (Type_Ref, bool) {
     binds := make([dynamic]Binding, context.temp_allocator)
-    collect_bindings(root, source, name, &binds)
+    collect_bindings(root, req.source, name, &binds)
 
     best: Binding
     found := false
@@ -1553,6 +1612,9 @@ binding_type_ref :: proc(root: ts.Node, source, name: string, offset: int) -> (T
     }
     if !found {
         return {}, false
+    }
+    if best.has_expr {
+        return infer_expr_result(e, parser, root, req, best.expr, best.result_index, depth + 1)
     }
     return best.tr, true
 }
@@ -1572,9 +1634,9 @@ binding_better :: proc(a, b: Binding, offset: int) -> bool {
     return abs(a.pos - offset) < abs(b.pos - offset)
 }
 
-// Walks the tree gathering every typed binding of `name`: parameters and typed
-// `var` declarations (their `(type ...)` child) and `name := Type{...}` short
-// declarations (the composite literal's type). Each carries the scope it is
+// Walks the tree gathering every binding of `name`: parameters and typed `var`
+// declarations (their `(type ...)` child) and `name := value` short declarations
+// (the initializer, whose type is inferred later). Each carries the scope it is
 // visible in — a parameter its procedure, a local its block, otherwise file-wide.
 @(private = "file")
 collect_bindings :: proc(node: ts.Node, source, name: string, out: ^[dynamic]Binding) {
@@ -1592,11 +1654,11 @@ collect_bindings :: proc(node: ts.Node, source, name: string, out: ^[dynamic]Bin
         }
     case "var_declaration":
         if tr, ok := named_decl_type(node, source, name); ok {
-            append(out, scoped_binding(node, tr))
+            append(out, scoped_binding(node, Binding{tr = tr}))
         }
     case "assignment_statement":
-        if tr, ok := short_decl_composite_type(node, source, name); ok {
-            append(out, scoped_binding(node, tr))
+        if b, ok := short_decl_binding(node, source, name); ok {
+            append(out, scoped_binding(node, b))
         }
     }
     for i in 0 ..< ts.node_child_count(node) {
@@ -1604,17 +1666,18 @@ collect_bindings :: proc(node: ts.Node, source, name: string, out: ^[dynamic]Bin
     }
 }
 
-// A binding scoped to its enclosing block, or file-wide when there is none.
+// `b` scoped to its declaration's enclosing block, or file-wide when there is none.
 @(private = "file")
-scoped_binding :: proc(node: ts.Node, tr: Type_Ref) -> Binding {
-    b := Binding{tr = tr, pos = int(ts.node_start_byte(node))}
+scoped_binding :: proc(node: ts.Node, b: Binding) -> Binding {
+    out := b
+    out.pos = int(ts.node_start_byte(node))
     if blk, has := ancestor_type(node, "block"); has {
-        b.scope_start = int(ts.node_start_byte(blk))
-        b.scope_end = int(ts.node_end_byte(blk))
+        out.scope_start = int(ts.node_start_byte(blk))
+        out.scope_end = int(ts.node_end_byte(blk))
     } else {
-        b.top_level = true
+        out.top_level = true
     }
-    return b
+    return out
 }
 
 // Type of a `name`-declaring node whose shape is `ident... : type [= value]`
@@ -1640,36 +1703,49 @@ named_decl_type :: proc(node: ts.Node, source, name: string) -> (Type_Ref, bool)
     return {}, false
 }
 
-// Type of `name := Type{...}`: a `:=` short declaration (not a reassignment)
-// whose right-hand side is a composite literal, which the grammar parses as a
-// `struct` node carrying the type identifier.
+// The binding `name` gets from a `:=` short declaration (a `=` reassignment is not
+// a declaration and is ignored). The declared names are the identifier children
+// before the `:=` token, the initializers the expressions after it, so the
+// expression this name binds to is either its positional partner (`a, b := x, y`)
+// or — when one call feeds several names — the call plus the result slot to take
+// (`v, ok := f()`). The type of that expression is inferred on demand.
 @(private = "file")
-short_decl_composite_type :: proc(node: ts.Node, source, name: string) -> (Type_Ref, bool) {
+short_decl_binding :: proc(node: ts.Node, source, name: string) -> (Binding, bool) {
     is_decl := false
-    matched := false
+    names := 0
+    matched := -1
+    rhs := make([dynamic]ts.Node, context.temp_allocator)
+
     for i in 0 ..< ts.node_child_count(node) {
         c := ts.node_child(node, i)
-        switch string(ts.node_type(c)) {
-        case "identifier":
-            if ts.node_text(c, source) == name {
-                matched = true
-            }
-        case ":=":
+        if string(ts.node_type(c)) == ":=" {
             is_decl = true
+            continue
         }
+        if !ts.node_is_named(c) {
+            continue // the commas separating names and initializers
+        }
+        if !is_decl {
+            if is_identifier(c) {
+                if ts.node_text(c, source) == name {
+                    matched = names
+                }
+                names += 1
+            }
+            continue
+        }
+        append(&rhs, c)
     }
-    if !is_decl || !matched {
+    if !is_decl || matched < 0 || len(rhs) == 0 {
         return {}, false
     }
-    nc := ts.node_named_child_count(node)
-    if nc == 0 {
-        return {}, false
-    }
-    rhs := ts.node_named_child(node, nc - 1)
-    if string(ts.node_type(rhs)) == "struct" {
-        if id := ts.node_named_child(rhs, 0); is_identifier(id) {
-            return Type_Ref{name = ts.node_text(id, source)}, true
-        }
+
+    switch {
+    case len(rhs) == names:
+        return Binding{expr = rhs[matched], has_expr = true}, true
+    case len(rhs) == 1:
+        // One expression for several names: a multi-value call, one result each.
+        return Binding{expr = rhs[0], has_expr = true, result_index = matched}, true
     }
     return {}, false
 }
@@ -1700,6 +1776,221 @@ type_ref_from_node :: proc(node: ts.Node, source: string) -> (Type_Ref, bool) {
         }
     }
     return {}, false
+}
+
+// A type named in *expression* position (a composite literal's type, `new`'s
+// argument): `Point` or `pkg.Point`. Unlike type_ref_from_node the qualified form
+// arrives as a member expression here, since the grammar parses it as a value.
+@(private = "file")
+expr_type_name :: proc(node: ts.Node, source: string) -> (Type_Ref, bool) {
+    if ts.node_is_null(node) {
+        return {}, false
+    }
+    if is_identifier(node) {
+        return Type_Ref{name = ts.node_text(node, source)}, true
+    }
+    switch string(ts.node_type(node)) {
+    case "member_expression", "field_type":
+        a := ts.node_named_child(node, 0)
+        b := ts.node_named_child(node, 1)
+        if is_identifier(a) && is_identifier(b) {
+            return Type_Ref{pkg = ts.node_text(a, source), name = ts.node_text(b, source)}, true
+        }
+    case "pointer_type", "unary_expression":
+        return expr_type_name(ts.node_named_child(node, 0), source)
+    }
+    return {}, false
+}
+
+// Type a call evaluates to: resolve the callee the same three ways signature help
+// does (same file, `pkg.fn(...)`, workspace index) and read the result type out of
+// its signature. `index` picks a slot out of a multi-value return. `new`/`new_clone`
+// are answered directly — they are builtins with no declaration to find, and their
+// result is the allocated type (a pointer, which `.` auto-dereferences anyway).
+//
+// A package-qualified result (`-> pkg.Point`) is qualified by the *callee's*
+// imports, but resolved against the requesting file's; when the two disagree the
+// type simply isn't found (visit_type_decl never falls back for a qualified name).
+@(private = "file")
+call_result_type :: proc(
+    e: ^Odin_Engine,
+    parser: ts.Parser,
+    root: ts.Node,
+    req: ^Request,
+    call: ts.Node,
+    index, depth: int,
+) -> (Type_Ref, bool) {
+    fn := ts.node_child_by_field_name(call, "function")
+    if ts.node_is_null(fn) {
+        return {}, false
+    }
+    if is_identifier(fn) {
+        switch ts.node_text(fn, req.source) {
+        case "new", "new_clone":
+            arg := ts.node_child_by_field_name(call, "argument")
+            if string(ts.node_type(arg)) == "struct" {
+                arg = ts.node_named_child(arg, 0) // new_clone(Point{...})
+            }
+            return expr_type_name(arg, req.source)
+        }
+    }
+
+    src, d, found := resolve_call_target(e, parser, root, req, call, fn)
+    if !found || d.kind != "function" {
+        return {}, false
+    }
+    return proc_result_type(src, d, index)
+}
+
+// Result type of a procedure declaration, read out of its signature text: what
+// follows `->`, or the `index`-th entry of a parenthesized result list. Text-based
+// because a cross-file callee's parse tree is already gone by the time its Def
+// comes back — only the file's source outlives it. `source` is whatever buffer the
+// Def slices, so the Type_Ref lives exactly as long as its Def does.
+@(private = "file")
+proc_result_type :: proc(source: string, d: Def, index: int) -> (Type_Ref, bool) {
+    start := clamp(d.ident_start, 0, len(source))
+    sig := source[start:clamp(d.decl_end, start, len(source))]
+
+    // Skip the parameter list first, so neither a nested `proc() -> int` parameter
+    // nor a default composite value (`x: Point = Point{}`) is mistaken for this
+    // procedure's own result or body. What is left is `-> results` plus the body.
+    after, ok := after_paren_group(sig)
+    if !ok {
+        return {}, false
+    }
+    if brace := strings.index_byte(after, '{'); brace >= 0 {
+        after = after[:brace]
+    }
+    arrow := strings.index(after, "->")
+    if arrow < 0 {
+        return {}, false // no results at all
+    }
+    results := strings.trim_space(after[arrow + 2:])
+
+    if strings.has_prefix(results, "(") {
+        inner, iok := after_paren_group(results, want_inner = true)
+        if !iok {
+            return {}, false
+        }
+        parts := split_top_level(inner)
+        if index < 0 || index >= len(parts) {
+            return {}, false
+        }
+        return result_type_ref(parts[index])
+    }
+    if index != 0 {
+        return {}, false // a single result can only fill slot 0
+    }
+    return result_type_ref(results)
+}
+
+// Splits `text` on its top-level commas (ignoring those nested in brackets), for
+// a result list. Temp-allocated.
+@(private = "file")
+split_top_level :: proc(text: string) -> []string {
+    parts := make([dynamic]string, context.temp_allocator)
+    depth := 0
+    start := 0
+    for i in 0 ..< len(text) {
+        switch text[i] {
+        case '(', '[', '{':
+            depth += 1
+        case ')', ']', '}':
+            depth -= 1
+        case ',':
+            if depth == 0 {
+                append(&parts, text[start:i])
+                start = i + 1
+            }
+        }
+    }
+    append(&parts, text[start:])
+    return parts[:]
+}
+
+// Splits `text` at its first balanced bracket group: the text after the group's
+// closing bracket, or — with `want_inner` — the text between the brackets. Quoted
+// strings are skipped so a bracket inside a default value or a calling convention
+// can't unbalance the scan.
+@(private = "file")
+after_paren_group :: proc(text: string, want_inner := false) -> (string, bool) {
+    depth := 0
+    open := -1
+    quote: u8 = 0
+    for i := 0; i < len(text); i += 1 {
+        c := text[i]
+        if quote != 0 {
+            switch c {
+            case '\\':
+                i += 1
+            case quote:
+                quote = 0
+            }
+            continue
+        }
+        switch c {
+        case '"', '\'', '`':
+            quote = c
+        case '(':
+            depth += 1
+            if open < 0 {
+                open = i
+            }
+        case ')':
+            depth -= 1
+            if depth == 0 && open >= 0 {
+                return want_inner ? text[open + 1:i] : text[i + 1:], true
+            }
+            if depth < 0 {
+                return "", false
+            }
+        }
+    }
+    return "", false
+}
+
+// One result's type text (`Point`, `p: ^Point`, `pkg.Point`) as a Type_Ref: a named
+// result drops its name, a pointer is dereferenced (Odin auto-dereferences `.`),
+// and anything that isn't a plain — optionally package-qualified — name is
+// rejected, matching type_ref_from_node's reach (no slices, maps or proc types).
+@(private = "file")
+result_type_ref :: proc(text: string) -> (Type_Ref, bool) {
+    s := strings.trim_space(text)
+    if colon := strings.index_byte(s, ':'); colon >= 0 {
+        s = strings.trim_space(s[colon + 1:])
+    }
+    for strings.has_prefix(s, "^") {
+        s = strings.trim_space(s[1:])
+    }
+    // A trailing tail (`Point ---` on a foreign proc, a comment) is not part of it.
+    if space := strings.index_proc(s, strings.is_space); space >= 0 {
+        s = s[:space]
+    }
+    if dot := strings.index_byte(s, '.'); dot >= 0 {
+        if is_plain_name(s[:dot]) && is_plain_name(s[dot + 1:]) {
+            return Type_Ref{pkg = s[:dot], name = s[dot + 1:]}, true
+        }
+        return {}, false
+    }
+    if !is_plain_name(s) {
+        return {}, false
+    }
+    return Type_Ref{name = s}, true
+}
+
+// Whether `s` is a bare identifier — the only shape a nominal type name takes.
+@(private = "file")
+is_plain_name :: proc(s: string) -> bool {
+    if s == "" || (s[0] >= '0' && s[0] <= '9') {
+        return false
+    }
+    for i in 0 ..< len(s) {
+        if !is_ident_byte(s[i]) {
+            return false
+        }
+    }
+    return true
 }
 
 // Called with a located type declaration node (a `struct_declaration` or
@@ -1998,7 +2289,14 @@ enum_visitor :: proc(ed: ts.Node, source, path: string, ctx_raw: rawptr) {
 // annotated type, or the type of an `assignment_statement`'s left-hand variable.
 // Returns false when no such context is found (so no enum members are offered).
 @(private = "file")
-expected_type_at :: proc(root: ts.Node, source: string, offset: int) -> (Type_Ref, bool) {
+expected_type_at :: proc(
+    e: ^Odin_Engine,
+    parser: ts.Parser,
+    root: ts.Node,
+    req: ^Request,
+    offset: int,
+) -> (Type_Ref, bool) {
+    source := req.source
     off := u32(clamp(offset, 0, len(source)))
     n := ts.node_named_descendant_for_byte_range(root, off, off)
     for !ts.node_is_null(n) {
@@ -2014,7 +2312,7 @@ expected_type_at :: proc(root: ts.Node, source: string, offset: int) -> (Type_Re
         case "assignment_statement":
             lhs := ts.node_named_child(n, 0)
             if is_identifier(lhs) {
-                return binding_type_ref(root, source, ts.node_text(lhs, source), int(ts.node_start_byte(lhs)))
+                return binding_type_ref(e, parser, root, req, ts.node_text(lhs, source), int(ts.node_start_byte(lhs)))
             }
             return {}, false
         }
@@ -2064,8 +2362,8 @@ is_word_byte :: proc(b: u8) -> bool {
 // and parameters visible at the caret, this file's and this package's top-level
 // declarations, the imported package names, and the Odin keywords and builtin
 // types. All filtered by the typed prefix (case-sensitive) and de-duplicated by
-// name. Name-based, like the rest of the engine: with no type inference,
-// `value.field` member completion isn't offered.
+// name. After `value.` it offers the operand's struct fields, inferring its type
+// the same way member access does (so a `:=` call result works).
 @(private = "file")
 complete :: proc(e: ^Odin_Engine, parser: ts.Parser, root: ts.Node, req: ^Request, res: ^Result) {
     src := req.source
@@ -2097,7 +2395,7 @@ complete :: proc(e: ^Odin_Engine, parser: ts.Parser, root: ts.Node, req: ^Reques
             } else if op_start == 0 || src[op_start - 1] != '.' {
                 // `value.<prefix>`: infer the operand's struct type and offer its
                 // fields. Only a bare operand — a chain (`a.b.`) isn't inferred here.
-                if tr, tok := binding_type_ref(root, src, operand, op_start); tok {
+                if tr, tok := binding_type_ref(e, parser, root, req, operand, op_start); tok {
                     seen := make(map[string]bool, 0, context.temp_allocator)
                     ctx := Fields_Ctx{prefix = prefix, res = res, seen = &seen}
                     visit_type_decl(e, parser, root, req, tr, "struct_declaration", "type", fields_visitor, &ctx)
@@ -2110,7 +2408,7 @@ complete :: proc(e: ^Odin_Engine, parser: ts.Parser, root: ts.Node, req: ^Reques
             // which has no inferable enum context here.)
             before := op_end > 0 ? src[op_end - 1] : 0 // the char just before the dot
             if before != ')' && before != ']' {
-                if tr, tok := expected_type_at(root, src, op_end); tok {
+                if tr, tok := expected_type_at(e, parser, root, req, op_end); tok {
                     seen := make(map[string]bool, 0, context.temp_allocator)
                     ctx := Enum_Ctx{prefix = prefix, res = res, seen = &seen}
                     visit_type_decl(e, parser, root, req, tr, "enum_declaration", "enum", enum_visitor, &ctx)

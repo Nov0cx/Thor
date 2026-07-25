@@ -47,14 +47,20 @@ lowest latency.
 - **Type-aware member access** (`value.field`): a selector on a struct-typed value
   resolves to the struct field — go-to-definition jumps to the field, hover shows
   its declaration (`x: int`). The operand's type is inferred from its declaration
-  (a parameter, a typed `var`, or a `name := Type{...}` composite literal), a
-  pointer is auto-dereferenced (`^Point`), and chained access (`a.b.c`) recurses
-  through each field's struct type. The struct is found in the same file, an
-  imported package, or the workspace index. Completion after `value.` lists the
+  (a parameter or a typed `var`) or, for a `:=` binding, from its initializer: a
+  composite literal (`p := Point{}`), another value it aliases (`q := p`), a
+  `new(Point)`/`new_clone(...)` allocation, or **the declared result type of the
+  procedure it calls** (`p := make_point()`) — the callee resolved the same three
+  ways signature help resolves it (same file, `pkg.fn(...)`, workspace index), and
+  a multi-value return (`p, ok := find()`) taking the result slot the name binds
+  to. A pointer is auto-dereferenced (`^Point`), and chained access (`a.b.c`)
+  recurses through each field's struct type. The struct is found in the same file,
+  an imported package, or the workspace index. Completion after `value.` lists the
   struct's fields, and an implicit enum selector (`a: Axis = .`) offers the
-  expected enum's members. Only struct/enum types are understood — a proc result,
-  map or slice member still falls through to the flat name scan (no general type
-  system).
+  expected enum's members. Only struct/enum types are understood — a map, slice or
+  builtin member still falls through to the flat name scan (no general type
+  system), and inference recursion is depth-capped so a self-referential
+  declaration can't loop.
 - **Hover popup:** a mouse dwell over a symbol (~0.45s) dispatches a Hover
   request; the engine's declaration text is drawn in a popup anchored to the
   symbol. Fires once per dwell, dismissed on move or when the cursor leaves. The
@@ -162,21 +168,29 @@ lowest latency.
 
 - [~] **Type-aware member access** (`foo.bar`): a struct-typed operand's field
       resolves (goto + hover + `value.` field completion), inferring the operand's
-      type from its declaration — parameter, typed `var`, or `name := Type{...}`
-      composite literal — through a pointer and along a field chain (`a.b.c`).
+      type from its declaration — parameter or typed `var` — or from a `:=`
+      initializer (composite literal, aliased value, `new(T)`, or a call's
+      declared result), through a pointer and along a field chain (`a.b.c`).
       Enum selectors are inferred too: `x: Axis = .` completes the enum's members.
       Served by `resolve_member`/`infer_expr_type`/`binding_type_ref` + the
       `visit_type_decl` struct/enum locator (same file → imported package →
-      workspace index). Still missing: types that aren't a struct or enum (proc
-      results, maps, slices, `using` fields), and inference of a `:=` RHS that
-      isn't a composite literal (a call result). Those fall through to the flat
-      name scan.
+      workspace index). Still missing: types that aren't a struct or enum (maps,
+      slices, `using` fields), and a result type qualified by the *callee's*
+      imports (`-> other.Point` in a file the caller doesn't import the same way).
+      Those fall through to the flat name scan.
 - [~] **Package / import resolution.** `import "core:fmt"` then `fmt.println` is
       followed (package-qualified goto/hover/completion resolve into the package
       dir); custom collections resolve via `.thor/odin-analyzer.json`. Still
       flat/name-based for bare cross-file identifiers, and `using` isn't followed.
-- [ ] **Type inference.** No inference for `x := f()`; hover shows the
-      declaration text, not a computed type.
+- [~] **Type inference.** `x := f()` infers the callee's declared result type
+      (`call_result_type` → `resolve_call_target` + `proc_result_type`, which reads
+      the type after `->` out of the signature text — the callee's tree is already
+      freed by then, only its source survives), as do `x := new(T)`, `x := T{}` and
+      `x := y`. Multi-value returns bind per slot. It is *declared*-type inference
+      only: no expression typing (arithmetic, indexing, casts, `or_else`), no
+      generics (`$T`), and nothing structural — a `-> []T`/`-> map[K]V` result is
+      rejected rather than guessed. Hover still shows the declaration text, not a
+      computed type.
 - [ ] **Shadowing precision.** Scope is approximated by enclosing block /
       procedure ranges, not true lexical order (a use before a `:=` in the same
       block can still resolve to it). Good enough for goto, imprecise for

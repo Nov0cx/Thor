@@ -89,7 +89,7 @@
         "reload_settings": ""
     },
     "tasks": {
-        "run_selected_task": "",
+        "run_selected_task": "f9",
         "run_task": "",
         "add_task": "",
         "remove_task": "",

@@ -1649,3 +1649,233 @@ test_package_doc :: proc(t: ^testing.T) {
     testing.expect(t, strings.contains(res.doc.text, "A widget handle."), "missing struct doc prose")
     testing.expect(t, !strings.contains(res.doc.text, "secret"), "private proc must be omitted")
 }
+
+@(test)
+test_member_call_result :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // `p := make_point()`: the binding has no written type, so it comes from the
+    // callee's declared result. The nested `proc() -> int` parameter must not be
+    // mistaken for that result.
+    src := `package demo
+
+Point :: struct {
+	x: int,
+	y: int,
+}
+
+make_point :: proc(seed: proc() -> int) -> Point {
+	return Point{}
+}
+
+main :: proc() {
+	p := make_point(nil)
+	_ = p.y
+}
+`
+    at := strings.index(src, "p.y") + 2 // caret on the member `y`
+    loc, ok := resolve_offset(e, src, at)
+    defer delete(loc.path)
+    testing.expect(t, ok, "expected p.y to resolve through the call's result type")
+    if ok {
+        want := strings.index(src, "y: int")
+        testing.expectf(t, loc.start == want, "member start: got %d, want %d", loc.start, want)
+    }
+}
+
+@(test)
+test_member_call_result_pointer :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // A named, pointer result (`-> (out: ^Point)`) still yields Point — `.`
+    // auto-dereferences and the result's name is not part of its type.
+    src := `package demo
+
+Point :: struct {
+	x: int,
+}
+
+alloc_point :: proc() -> (out: ^Point) {
+	return nil
+}
+
+main :: proc() {
+	p := alloc_point()
+	_ = p.x
+}
+`
+    at := strings.index(src, "p.x") + 2
+    loc, ok := resolve_offset(e, src, at)
+    defer delete(loc.path)
+    testing.expect(t, ok, "expected a named pointer result to resolve")
+    if ok {
+        want := strings.index(src, "x: int")
+        testing.expectf(t, loc.start == want, "member start: got %d, want %d", loc.start, want)
+    }
+}
+
+@(test)
+test_member_call_result_multi_value :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // `p, ok := find()` with `-> (Point, bool)`: each name takes one result slot,
+    // so `p` is the Point and `ok` (slot 1, a bool) has no fields.
+    src := `package demo
+
+Point :: struct {
+	x: int,
+}
+
+find :: proc() -> (Point, bool) {
+	return Point{}, true
+}
+
+main :: proc() {
+	p, ok := find()
+	_ = p.x
+	_ = ok
+}
+`
+    at := strings.index(src, "p.x") + 2
+    loc, ok := resolve_offset(e, src, at)
+    defer delete(loc.path)
+    testing.expect(t, ok, "expected the first result slot to resolve to Point")
+    if ok {
+        want := strings.index(src, "x: int")
+        testing.expectf(t, loc.start == want, "member start: got %d, want %d", loc.start, want)
+    }
+}
+
+@(test)
+test_member_new_builtin :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // `new(Point)` is a builtin with no declaration to resolve: the allocated type
+    // is the result (a pointer, which `.` auto-dereferences).
+    src := `package demo
+
+Point :: struct {
+	x: int,
+}
+
+main :: proc() {
+	p := new(Point)
+	_ = p.x
+}
+`
+    at := strings.index(src, "p.x") + 2
+    loc, ok := resolve_offset(e, src, at)
+    defer delete(loc.path)
+    testing.expect(t, ok, "expected new(Point) to resolve to Point")
+    if ok {
+        want := strings.index(src, "x: int")
+        testing.expectf(t, loc.start == want, "member start: got %d, want %d", loc.start, want)
+    }
+}
+
+@(test)
+test_member_aliased_binding :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // `q := p` takes p's type; a self-referential binding (`z := z`) must bottom
+    // out at the depth limit rather than recursing forever — its members are
+    // simply unknown (goto would still fall through to the flat name scan, so the
+    // observable answer is that no fields are offered for it).
+    src := `package demo
+
+Point :: struct {
+	x: int,
+}
+
+main :: proc() {
+	p: Point
+	q := p
+	_ = q.x
+	z := z
+	_ = z.
+}
+`
+    at := strings.index(src, "q.x") + 2
+    loc, ok := resolve_offset(e, src, at)
+    defer delete(loc.path)
+    testing.expect(t, ok, "expected the aliased binding to resolve")
+    if ok {
+        want := strings.index(src, "x: int")
+        testing.expectf(t, loc.start == want, "member start: got %d, want %d", loc.start, want)
+    }
+
+    dot := strings.index(src, "_ = z.") + len("_ = z.")
+    req := Request{kind = .Completion, path = "buffer.odin", ext = ".odin", source = src, offset = dot}
+    res := Result{kind = .Completion}
+    odin_resolve(e, &req, &res)
+    defer free_symbols(&res)
+    testing.expect(t, !res.ok, "a self-referential binding must not infer a type")
+}
+
+@(test)
+test_member_call_result_cross_file :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // The procedure and the struct it returns both live in a sibling file: the
+    // callee is found through the workspace index, then its result type is.
+    dir := "thor_lang_result_ws"
+    _ = os.make_directory(dir)
+    defer os.remove(dir)
+
+    lib := strings.concatenate({dir, "/point.odin"}, context.temp_allocator)
+    lib_src := "package demo\n\nPoint :: struct {\n\tx: int,\n\ty: int,\n}\n\nmake_point :: proc() -> Point {\n\treturn Point{}\n}\n"
+    _ = os.write_entire_file(lib, transmute([]byte)lib_src)
+    defer os.remove(lib)
+
+    main_path := strings.concatenate({dir, "/main.odin"}, context.temp_allocator)
+    main_src := "package demo\n\nmain :: proc() {\n\tp := make_point()\n\t_ = p.y\n}\n"
+
+    at := strings.index(main_src, "p.y") + 2
+    loc, ok := resolve_offset(e, main_src, at, dir, main_path)
+    defer delete(loc.path)
+    testing.expect(t, ok, "expected a cross-file call result's field to resolve")
+    if ok {
+        testing.expectf(t, strings.has_suffix(loc.path, "point.odin"), "path: got %q", loc.path)
+        want := strings.index(lib_src, "y: int")
+        testing.expectf(t, loc.start == want, "member start: got %d, want %d", loc.start, want)
+    }
+}
+
+@(test)
+test_completion_call_result_member :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // `p.` on a call-result binding offers the result struct's fields.
+    src := `package demo
+
+Point :: struct {
+	x: int,
+	y: int,
+}
+
+make_point :: proc() -> Point {
+	return Point{}
+}
+
+main :: proc() {
+	p := make_point()
+	_ = p.
+}
+`
+    at := strings.index(src, "_ = p.") + len("_ = p.")
+    req := Request{kind = .Completion, path = "buffer.odin", ext = ".odin", source = src, offset = at}
+    res := Result{kind = .Completion}
+    odin_resolve(e, &req, &res)
+    defer free_symbols(&res)
+
+    testing.expect(t, res.ok, "expected member completions on a call result")
+    testing.expect(t, has_completion(&res, "x"), "missing field x")
+    testing.expect(t, has_completion(&res, "y"), "missing field y")
+}
