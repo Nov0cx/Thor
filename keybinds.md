@@ -120,6 +120,7 @@ quote wraps the selection.
 | ctrl + scroll wheel | zoom editor font |
 | ctrl + numpad + / numpad - | zoom editor font |
 | ctrl + shift + j | recenter the view on the caret (repeat cycles center / top / bottom) |
+| f4 | toggle the rendered markdown preview (markdown files only) |
 | f12 | toggle borderless fullscreen |
 | (unbound) | toggle the editor split — see below |
 

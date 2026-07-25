@@ -139,6 +139,7 @@ Add Shift to any movement to extend the selection.
 | `Ctrl+-` | Zoom the editor font out |
 | `Ctrl+Scroll` | Zoom the editor font with the scroll wheel |
 | `Ctrl+Shift+J` | Recenter the view on the caret (repeat cycles center / top / bottom) |
+| `F4` | Toggle the rendered Markdown preview (Markdown files only) |
 | `F12` | Toggle borderless fullscreen |
 
 ---

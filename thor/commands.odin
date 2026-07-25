@@ -264,7 +264,8 @@ App_Bind :: struct {
 }
 
 // Registers a palette command that can also be bound to a key. `action` is the
-// keybinds.json name (shipped empty, so unbound until the user sets a chord).
+// keybinds.json name; most ship empty, so they stay unbound until the user sets
+// a chord.
 @(private = "file")
 thor_add_bindable_command :: proc(thor: ^Thor, title, action: string, run: proc(data: rawptr), data: rawptr) {
     widgets.command_palette_add(thor.command_palette, title, run, data, thor_action_shortcut(thor, action))
