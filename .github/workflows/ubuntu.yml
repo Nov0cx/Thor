@@ -82,4 +82,4 @@ jobs:
           odin run build -- install-parser "$TS_OCAML" -path=grammars/ocaml -name=ocaml -yes
 
       - name: Build Thor
-        run: odin build . -debug
+        run: odin build main -debug

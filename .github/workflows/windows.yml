@@ -98,4 +98,4 @@ jobs:
 
       - name: Build Thor
         shell: pwsh
-        run: odin build . -debug
+        run: odin build main -debug

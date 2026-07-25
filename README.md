@@ -70,8 +70,10 @@ See [vendor/README.md](vendor/README.md) for both recipes:
 - **tree-sitter** runtime and at least one grammar into
   `vendor/odin-tree-sitter/` via the bundled `odin run build` tool.
 
-Lua links against `lua54.dll`; `build.bat` copies it next to the
-executable from Odin's `vendor` directory the first time it is missing.
+Lua links against `lua54.dll`; the build program copies it next to the
+executable from Odin's `vendor` directory the first time it is missing. Both
+native libraries can also be built by `deps` below, which locates the MSVC tools
+itself, so no developer shell is needed.
 
 ### Linux
 
@@ -80,22 +82,37 @@ The system HarfBuzz library is used; install it through your package manager
 through the bundled `odin run build` tool. Lua links statically from the vendor
 package, so no shared library needs copying.
 
-## Building Windows
+## Building
+
+`build.odin` drives everything; run it from the repository root. The editor lands
+in `bin/debug` (or `bin/release`), together with `lua54.dll` and a fresh copy of
+`assets/`, `plugins/` and `settings/` — Thor moves its working directory to the
+executable at startup, so it loads those from beside the binary. The folder it
+opens still comes from the directory it was started in.
+
 ```bash
-./build.bat
+odin run build.odin -file -- deps           # get and build HarfBuzz + tree-sitter, once
+odin run build.odin -file                   # build, debug
+odin run build.odin -file -- run            # build and start
+odin run build.odin -file -- run -release   # build and start an optimized one
+odin run build.odin -file -- check          # type-check, no binary
+odin run build.odin -file -- clean
+odin run build.odin -file -- -h             # list the flags
 ```
 
-## Building Unix
-```bash
-./build.sh
-```
+`run.bat` and `run.sh` are one-line wrappers for `-- run`.
 
 ## Testing
 ```bash
-# from the repository root
+odin run build.odin -file -- test  # every package below, into bin/test
+```
+```bash
+# or one at a time, from the repository root
 odin test ui       # font/icon atlas pipeline + ligature shaping + theme loading
 odin test thor     # async file load/save round-trip
 odin test syntax   # tree-sitter highlighting
-odin test plugins  # Lua plugin host
+odin test plugin   # Lua plugin host
 odin test textedit # buffer, cursors, undo/redo
+odin test lang     # Odin language intelligence
+odin test watch    # file-system watcher
 ```

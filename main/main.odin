@@ -3,7 +3,7 @@ package main
 import "core:log"
 import "core:mem"
 
-import "thor"
+import "../thor"
 
 main :: proc() {
     when ODIN_DEBUG {

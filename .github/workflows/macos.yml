@@ -84,4 +84,4 @@ jobs:
 
       # Point the linker at Homebrew's lib dir so -lharfbuzz resolves.
       - name: Build Thor
-        run: odin build . -debug -extra-linker-flags:"-L$(brew --prefix)/lib"
+        run: odin build main -debug -extra-linker-flags:"-L$(brew --prefix)/lib"
