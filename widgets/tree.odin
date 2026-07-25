@@ -776,7 +776,7 @@ tree_file_icon :: proc(name: string) -> string {
         return "devicon-git-plain"
     case ".odin":
         return "odin"
-    case ".asm", ".s", ".sql", ".bat":
+    case ".asm", ".s", ".sql", ".bat", ".slang", ".slangh":
         return "file-code"
     case ".txt", ".toml", ".ini", ".cfg", ".log":
         return "file-text"

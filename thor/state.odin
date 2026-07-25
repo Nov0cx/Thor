@@ -238,6 +238,11 @@ thor_status_info :: proc(data: rawptr) -> widgets.Status_Info {
 
 @(private = "file")
 thor_language_name :: proc(name: string) -> string {
+    // Named after the whole file, so the extension says nothing.
+    switch name {
+    case "CMakeLists.txt": return "CMake"
+    }
+
     dot := strings.last_index_byte(name, '.')
     if dot < 0 {
         return "Plain Text"
@@ -264,6 +269,8 @@ thor_language_name :: proc(name: string) -> string {
     case ".html": return "HTML"
     case ".css": return "CSS"
     case ".glsl", ".vert", ".frag": return "GLSL"
+    case ".slang", ".slangh": return "Slang"
+    case ".cmake": return "CMake"
     case ".bat", ".cmd": return "Batch"
     case ".sh", ".bash", ".zsh", ".ksh", ".bashrc", ".zshrc": return "Shell"
     case ".txt": return "Plain Text"

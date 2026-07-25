@@ -82,11 +82,19 @@ destroy :: proc(s: ^Settings) {
 // Line-comment marker for a file, or "" when the language is unknown (which
 // disables Ctrl+K commenting for that file).
 comment_prefix :: proc(s: ^Settings, filename: string) -> string {
-    dot := strings.last_index_byte(filename, '.')
+    slash := max(strings.last_index_byte(filename, '/'), strings.last_index_byte(filename, '\\'))
+    base := filename[slash + 1:]
+    // A whole-name entry ("CMakeLists.txt") wins over the extension it happens
+    // to carry, and is the only key for a name that has none ("Makefile").
+    if prefix, ok := s.comments[base]; ok {
+        return prefix
+    }
+
+    dot := strings.last_index_byte(base, '.')
     if dot < 0 {
         return ""
     }
-    return s.comments[filename[dot:]]
+    return s.comments[base[dot:]]
 }
 
 keybind :: proc(s: ^Settings, action: string) -> (Keybind, bool) {

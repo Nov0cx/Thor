@@ -462,6 +462,24 @@ test_added_lexer_plugins_highlight :: proc(t: ^testing.T) {
             "# c\nFROM alpine AS base\n",
             {{"# c", "comments"}, {"FROM", "keywords"}, {"AS", "keywords"}},
         },
+        {
+            ".slang",
+            "// c\n[shader(\"vertex\")]\nfloat4 vs_main(float3 p : POSITION) : SV_Position {\n    let s = 1.0f;\n    return float4(p * s, 1.0);\n}\n",
+            {
+                {"// c", "comments"}, {"shader", "attributes"}, {"\"vertex\"", "strings"},
+                {"float4", "yellow"}, {"vs_main", "functions"}, {"POSITION", "attributes"},
+                {"SV_Position", "attributes"}, {"let", "keywords"}, {"1.0f", "numbers"},
+            },
+        },
+        {
+            "CMakeLists.txt",
+            "# c\ncmake_minimum_required(VERSION 3.20)\nif(WIN32)\n  target_link_libraries(thor PUBLIC \"x\")\nendif()\n",
+            {
+                {"# c", "comments"}, {"cmake_minimum_required", "functions"},
+                {"VERSION", "attributes"}, {"3.20", "numbers"}, {"if", "keywords"},
+                {"PUBLIC", "attributes"}, {"\"x\"", "strings"}, {"endif", "keywords"},
+            },
+        },
     }
 
     for c in cases {
