@@ -137,6 +137,13 @@ Backend :: struct {
     destroy: proc(data: rawptr),
 }
 
+// How long a debounced request waits for the input to settle before it is
+// dispatched. The typing-driven kinds (completion, signature help) re-trigger on
+// every keystroke; hover is already dwell-gated, so its delay is only a floor
+// under a mouse sweeping across the buffer.
+DEBOUNCE_TYPING :: 50 * time.Millisecond
+DEBOUNCE_HOVER :: 150 * time.Millisecond
+
 @(private)
 Job :: struct {
     manager:   ^Manager,
@@ -145,6 +152,25 @@ Job :: struct {
     result:    Result,
     worker:    ^thread.Thread,
     cancelled: bool, // written by the main thread, read atomically by the worker
+}
+
+// A request waiting out its debounce delay. One slot per kind: a newer request
+// of the same kind overwrites the slot, so a burst of keystrokes costs a single
+// dispatch instead of one per key. The strings are owned by the Manager's
+// allocator and move into the Job when the slot is flushed. `id` is reserved
+// when the slot is filled, so the caller can key its result slot on it right
+// away even though no worker exists yet.
+@(private)
+Pending :: struct {
+    active:    bool,
+    id:        u64,
+    path:      string,
+    ext:       string,
+    source:    string,
+    offset:    int,
+    revision:  u64,
+    workspace: string,
+    due:       time.Time,
 }
 
 // Routes requests to backends and reaps their results. One per editor.
@@ -156,6 +182,10 @@ Manager :: struct {
     finished:  [dynamic]^Job,
     active:    map[u64]^Job, // every dispatched job not yet freed, so it can be cancelled by id
     inflight:  int,
+    // Debounce slots, one per kind. Main-thread only (filled by
+    // manager_request_debounced, emptied by manager_flush_debounced and the
+    // cancels), so unlike `active` they need no lock.
+    pending:   [Request_Kind]Pending,
 }
 
 manager_init :: proc(m: ^Manager, allocator := context.allocator) {
@@ -202,38 +232,75 @@ manager_request :: proc(
     revision: u64,
     workspace: string,
 ) -> u64 {
-    backend, ok := backend_for(m, ext)
-    if !ok {
+    if _, ok := backend_for(m, ext); !ok {
         return 0
     }
     context.allocator = m.allocator
+    id := m.next_id
+    m.next_id += 1
+    return dispatch_owned(
+        m,
+        id,
+        kind,
+        strings.clone(path),
+        strings.clone(ext),
+        strings.clone(source),
+        offset,
+        revision,
+        strings.clone(workspace),
+    )
+}
+
+// Starts the worker for a request whose strings are *already* owned by the
+// Manager's allocator: ownership moves into the Job, which frees them in
+// job_free. Lets a flushed debounce slot hand its snapshot over without cloning
+// the whole buffer a second time. Frees them and answers 0 when no backend
+// claims the extension.
+@(private)
+dispatch_owned :: proc(
+    m: ^Manager,
+    id: u64,
+    kind: Request_Kind,
+    path, ext, source: string,
+    offset: int,
+    revision: u64,
+    workspace: string,
+) -> u64 {
+    context.allocator = m.allocator
+    backend, ok := backend_for(m, ext)
+    if !ok {
+        delete(path)
+        delete(ext)
+        delete(source)
+        delete(workspace)
+        return 0
+    }
 
     job := new(Job)
     job.manager = m
     job.backend = backend
     job.request = Request {
-        id        = m.next_id,
+        id        = id,
         kind      = kind,
-        path      = strings.clone(path),
-        ext       = strings.clone(ext),
-        source    = strings.clone(source),
+        path      = path,
+        ext       = ext,
+        source    = source,
         offset    = offset,
         revision  = revision,
-        workspace = strings.clone(workspace),
+        workspace = workspace,
     }
     job.request.cancel = &job.cancelled // stable for the job's lifetime
-    job.result.id = m.next_id
+    job.result.id = id
     job.result.kind = kind
     job.result.revision = revision
-    m.next_id += 1
 
     sync.lock(&m.mutex)
     m.inflight += 1
-    m.active[job.request.id] = job
+    m.active[id] = job
     sync.unlock(&m.mutex)
 
     job.worker = thread.create_and_start_with_poly_data(job, job_worker)
-    return job.request.id
+    return id
 }
 
 // Abandons the request `id`: its backend stops at the next cancellation check
@@ -241,6 +308,15 @@ manager_request :: proc(
 // the id is unknown (already reaped, or never dispatched). Safe to call on a
 // job that has already finished — the flag is simply never read again.
 manager_cancel :: proc(m: ^Manager, id: u64) -> bool {
+    // A debounced request that hasn't been dispatched yet is cancelled by
+    // dropping its slot; its reserved id never reaches a worker.
+    for kind in Request_Kind {
+        if m.pending[kind].active && m.pending[kind].id == id {
+            pending_clear(m, kind)
+            return true
+        }
+    }
+
     sync.lock(&m.mutex)
     defer sync.unlock(&m.mutex)
     job, ok := m.active[id]
@@ -255,11 +331,16 @@ manager_cancel :: proc(m: ^Manager, id: u64) -> bool {
 // for the kinds the editor re-triggers as the user types (completion, signature
 // help, hover): cancel the previous ones, then dispatch. Cancelling by kind
 // rather than by a remembered id also catches requests the caller has lost track
-// of. Returns how many were cancelled.
+// of. A debounced request of `kind` still waiting out its delay is dropped too,
+// so an explicit trigger can't be overtaken by the typing-driven one it replaced.
+// Returns how many were cancelled.
 manager_cancel_kind :: proc(m: ^Manager, kind: Request_Kind) -> int {
+    n := 0
+    if pending_clear(m, kind) {
+        n += 1
+    }
     sync.lock(&m.mutex)
     defer sync.unlock(&m.mutex)
-    n := 0
     for _, job in m.active {
         if job.request.kind == kind && !job.cancelled {
             sync.atomic_store(&job.cancelled, true)
@@ -271,11 +352,17 @@ manager_cancel_kind :: proc(m: ^Manager, kind: Request_Kind) -> int {
 
 // Cancels every in-flight request, whatever its kind. Used at shutdown; also the
 // right call when the workspace changes under the editor and no answer computed
-// against the old tree is worth having. Returns how many were cancelled.
+// against the old tree is worth having. Debounced requests still waiting are
+// dropped as well. Returns how many were cancelled.
 manager_cancel_all :: proc(m: ^Manager) -> int {
+    n := 0
+    for kind in Request_Kind {
+        if pending_clear(m, kind) {
+            n += 1
+        }
+    }
     sync.lock(&m.mutex)
     defer sync.unlock(&m.mutex)
-    n := 0
     for _, job in m.active {
         if !job.cancelled {
             sync.atomic_store(&job.cancelled, true)
@@ -299,6 +386,107 @@ manager_request_latest :: proc(
     return manager_request(m, kind, path, ext, source, offset, revision, workspace)
 }
 
+// Queues a request to be dispatched once `delay` has passed without another
+// request of the same kind arriving. For the triggers that fire on every
+// keystroke (completion, signature help): cancellation already stops a
+// superseded request mid-work, but it still costs a thread and a full buffer
+// clone per key — the debounce collapses a burst into one dispatch. Any
+// in-flight or pending request of the same kind is cancelled first, so only the
+// last keystroke's answer is ever computed.
+//
+// The id is reserved now and belongs to the eventual request, so the caller can
+// store it in its result slot immediately. Returns 0 when no backend handles the
+// extension (nothing is queued). The delay is measured from this call, not from
+// the first keystroke of the burst, so continuous typing keeps deferring the
+// dispatch — flushed by manager_flush_debounced, which manager_dispatch calls
+// once per frame.
+manager_request_debounced :: proc(
+    m: ^Manager,
+    kind: Request_Kind,
+    path, ext, source: string,
+    offset: int,
+    revision: u64,
+    workspace: string,
+    delay: time.Duration = DEBOUNCE_TYPING,
+) -> u64 {
+    if _, ok := backend_for(m, ext); !ok {
+        return 0
+    }
+    manager_cancel_kind(m, kind) // also drops the slot this one is about to fill
+
+    context.allocator = m.allocator
+    id := m.next_id
+    m.next_id += 1
+    m.pending[kind] = Pending {
+        active    = true,
+        id        = id,
+        path      = strings.clone(path),
+        ext       = strings.clone(ext),
+        source    = strings.clone(source),
+        offset    = offset,
+        revision  = revision,
+        workspace = strings.clone(workspace),
+        due       = time.time_add(time.now(), delay),
+    }
+    return id
+}
+
+// Dispatches every debounced request whose delay has elapsed, moving the slot's
+// snapshot into the job (no second clone). Called at the head of
+// manager_dispatch, so a host that already reaps results once per frame gets
+// this for free. `force` ignores the timers — for tests, and for a caller that
+// wants the queue drained now. Returns how many were dispatched.
+manager_flush_debounced :: proc(m: ^Manager, force := false) -> int {
+    n := 0
+    for kind in Request_Kind {
+        p := &m.pending[kind]
+        if !p.active {
+            continue
+        }
+        if !force && time.since(p.due) < 0 {
+            continue
+        }
+        slot := p^
+        p.active = false // clear before dispatching: the strings are the job's now
+        dispatch_owned(
+            m,
+            slot.id,
+            kind,
+            slot.path,
+            slot.ext,
+            slot.source,
+            slot.offset,
+            slot.revision,
+            slot.workspace,
+        )
+        n += 1
+    }
+    return n
+}
+
+// True while a request of `kind` is queued but not yet dispatched, so a caller
+// can tell "no answer yet" from "answered nothing".
+manager_debounce_pending :: proc(m: ^Manager, kind: Request_Kind) -> bool {
+    return m.pending[kind].active
+}
+
+// Drops a queued debounced request, freeing its snapshot. False when the slot
+// was already empty.
+@(private)
+pending_clear :: proc(m: ^Manager, kind: Request_Kind) -> bool {
+    p := &m.pending[kind]
+    if !p.active {
+        return false
+    }
+    context.allocator = m.allocator
+    delete(p.path)
+    delete(p.ext)
+    delete(p.source)
+    delete(p.workspace)
+    p^ = {}
+    return true
+}
+
 @(private)
 job_worker :: proc(job: ^Job) {
     // Owned outputs live in the Manager's allocator (freed on the main thread);
@@ -320,8 +508,11 @@ job_worker :: proc(job: ^Job) {
 // `handler(user, ^Result)`, then frees the job and all its owned memory. The
 // handler must copy anything from the Result it wants to keep past the call.
 // A cancelled job is joined and freed but never handed to the handler: its
-// result was superseded, and it may be partial.
+// result was superseded, and it may be partial. Debounced requests whose delay
+// has run out are dispatched first, so this one per-frame call drives both ends.
 manager_dispatch :: proc(m: ^Manager, user: rawptr, handler: proc(user: rawptr, res: ^Result)) {
+    manager_flush_debounced(m)
+
     reaped := make([dynamic]^Job, context.temp_allocator)
     sync.lock(&m.mutex)
     for job in m.finished {
@@ -380,7 +571,8 @@ manager_busy :: proc(m: ^Manager) -> bool {
 // Drains in-flight workers (so none touches freed backend state), tears down
 // each backend, and frees the Manager's own storage. Every worker is cancelled
 // first so a workspace-wide scan started just before quit bails at its next
-// check instead of holding the shutdown open.
+// check instead of holding the shutdown open; that also empties the debounce
+// slots, so the drain loop's manager_dispatch can't keep dispatching new work.
 manager_destroy :: proc(m: ^Manager) {
     manager_cancel_all(m)
     for manager_busy(m) {

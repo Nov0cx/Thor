@@ -17,11 +17,14 @@ STATUS_MESSAGE_SECS :: 3.0
 // intelligence manager. Requests are dispatched from the caret (Alt+Enter) or a
 // Ctrl+Click; results arrive asynchronously and are applied in thor_on_lang_result.
 //
-// Every dispatch here goes through manager_request_latest: each kind has exactly
-// one consumer slot on Thor (a `*_request_id`), so an older request of the same
-// kind can never be wanted again. Cancelling it stops the backend mid-scan
-// instead of letting it finish work the id check would throw away — the
-// difference between a wasted workspace parse per keystroke and none.
+// Every dispatch here goes through manager_request_latest (or, for the triggers
+// that fire while typing, manager_request_debounced): each kind has exactly one
+// consumer slot on Thor (a `*_request_id`), so an older request of the same kind
+// can never be wanted again. Cancelling it stops the backend mid-scan instead of
+// letting it finish work the id check would throw away — the difference between
+// a wasted workspace parse per keystroke and none. Debouncing goes one further
+// for completion and auto signature help: a burst of keystrokes queues a single
+// request rather than one thread and buffer clone per key.
 
 // Alt+Enter: resolve the symbol under the caret in the active file.
 thor_goto_definition :: proc(thor: ^Thor) {
@@ -202,9 +205,10 @@ thor_editor_signature_help :: proc(data: rawptr, editor: ^widgets.Editor, state:
 }
 
 // Dispatches a Signature_Help request for the active file's caret. `auto`
-// distinguishes the typing-driven trigger (silent on miss) from the explicit
-// keybind (flashes on miss); it rides along to thor_show_signature via
-// signature_auto.
+// distinguishes the typing-driven trigger (silent on miss, and debounced so a
+// burst of argument keystrokes resolves the call once) from the explicit keybind
+// (flashes on miss, dispatched immediately — the user is waiting on it); it
+// rides along to thor_show_signature via signature_auto.
 @(private = "file")
 thor_request_signature :: proc(thor: ^Thor, auto: bool) {
     file := thor_active_open_file(thor)
@@ -216,16 +220,31 @@ thor_request_signature :: proc(thor: ^Thor, auto: bool) {
         return
     }
     source := textedit.text(&file.state)
-    id := lang.manager_request_latest(
-        &thor.lang_manager,
-        .Signature_Help,
-        file.path,
-        ext,
-        source,
-        textedit.primary_cursor(&file.state).caret,
-        file.state.revision,
-        thor.workspace_dir,
-    )
+    caret := textedit.primary_cursor(&file.state).caret
+    id: u64
+    if auto {
+        id = lang.manager_request_debounced(
+            &thor.lang_manager,
+            .Signature_Help,
+            file.path,
+            ext,
+            source,
+            caret,
+            file.state.revision,
+            thor.workspace_dir,
+        )
+    } else {
+        id = lang.manager_request_latest(
+            &thor.lang_manager,
+            .Signature_Help,
+            file.path,
+            ext,
+            source,
+            caret,
+            file.state.revision,
+            thor.workspace_dir,
+        )
+    }
     if id == 0 {
         return
     }
@@ -393,7 +412,9 @@ thor_editor_completion :: proc(data: rawptr, editor: ^widgets.Editor, state: ^te
             return false
         }
         source := textedit.text(&file.state)
-        id := lang.manager_request_latest(
+        // Debounced: a fast typist would otherwise spawn a worker and clone the
+        // whole buffer per keystroke, only for the next key to cancel it.
+        id := lang.manager_request_debounced(
             &thor.lang_manager,
             .Completion,
             file.path,

@@ -2022,6 +2022,113 @@ test_cancel_kind_leaves_others :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_debounce_collapses_burst :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+
+    p := Probe{}
+    manager_register(&m, probe_backend(&p))
+    sync.atomic_store(&p.release, true) // nothing to park for here
+
+    // A burst of keystrokes: each queues a request, none dispatches yet.
+    first := manager_request_debounced(&m, .Completion, "a.probe", ".probe", "", 0, 0, "")
+    last: u64
+    for _ in 0 ..< 4 {
+        last = manager_request_debounced(&m, .Completion, "a.probe", ".probe", "", 0, 0, "")
+    }
+    testing.expect(t, first != last, "each keystroke should reserve a fresh id")
+    testing.expect(t, manager_debounce_pending(&m, .Completion), "the last request should still be queued")
+    testing.expect(t, !manager_busy(&m), "a debounced request must not dispatch before its delay")
+    testing.expect(t, sync.atomic_load(&p.started) == 0, "no worker should have run during the burst")
+
+    testing.expectf(t, manager_flush_debounced(&m, force = true) == 1, "the burst should flush as one request")
+    testing.expect(t, !manager_debounce_pending(&m, .Completion), "the slot should be empty after a flush")
+
+    delivered := drain_manager(&m)
+    testing.expectf(t, sync.atomic_load(&p.started) == 1, "expected exactly one worker for the whole burst")
+    testing.expectf(t, delivered == 1, "expected one result from the burst (got %d)", delivered)
+}
+
+@(test)
+test_debounce_delay_elapses :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+
+    p := Probe{}
+    manager_register(&m, probe_backend(&p))
+    sync.atomic_store(&p.release, true)
+
+    manager_request_debounced(&m, .Signature_Help, "a.probe", ".probe", "", 0, 0, "", delay = time.Millisecond)
+    // Not yet due: the unforced flush leaves it queued.
+    testing.expectf(t, manager_flush_debounced(&m) == 0, "flushed before the delay elapsed")
+
+    for _ in 0 ..< 2000 {
+        if manager_flush_debounced(&m) == 1 {
+            break
+        }
+        time.sleep(time.Millisecond)
+    }
+    testing.expect(t, !manager_debounce_pending(&m, .Signature_Help), "the delay elapsed but nothing dispatched")
+
+    delivered := drain_manager(&m)
+    testing.expectf(t, delivered == 1, "expected the debounced request's result (got %d)", delivered)
+}
+
+@(test)
+test_debounce_cancelled_never_dispatches :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+
+    p := Probe{}
+    manager_register(&m, probe_backend(&p))
+    sync.atomic_store(&p.release, true)
+
+    // Cancelling by kind drops the queued request...
+    manager_request_debounced(&m, .Completion, "a.probe", ".probe", "", 0, 0, "")
+    testing.expectf(t, manager_cancel_kind(&m, .Completion) == 1, "expected the queued request to be cancelled")
+    testing.expectf(t, manager_flush_debounced(&m, force = true) == 0, "a cancelled request must not dispatch")
+
+    // ...as does cancelling it by its reserved id.
+    id := manager_request_debounced(&m, .Completion, "a.probe", ".probe", "", 0, 0, "")
+    testing.expect(t, manager_cancel(&m, id), "a queued request should be cancellable by id")
+    testing.expectf(t, manager_flush_debounced(&m, force = true) == 0, "a cancelled request must not dispatch")
+
+    // An explicit request supersedes a queued one of the same kind: only the
+    // explicit one runs, so the debounced answer can't land on top of it.
+    queued := manager_request_debounced(&m, .Completion, "a.probe", ".probe", "", 0, 0, "")
+    now := manager_request_latest(&m, .Completion, "a.probe", ".probe", "", 0, 0, "")
+    testing.expect(t, queued != now, "expected a fresh id for the explicit request")
+    testing.expectf(t, manager_flush_debounced(&m, force = true) == 0, "the queued request should have been dropped")
+
+    delivered := drain_manager(&m)
+    testing.expectf(t, sync.atomic_load(&p.started) == 1, "only the explicit request should have run")
+    testing.expectf(t, delivered == 1, "expected only the explicit request's result (got %d)", delivered)
+}
+
+@(test)
+test_debounce_slots_are_per_kind :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+
+    p := Probe{}
+    manager_register(&m, probe_backend(&p))
+    sync.atomic_store(&p.release, true)
+
+    manager_request_debounced(&m, .Completion, "a.probe", ".probe", "", 0, 0, "")
+    manager_request_debounced(&m, .Signature_Help, "a.probe", ".probe", "", 0, 0, "")
+    testing.expectf(t, manager_cancel_kind(&m, .Completion) == 1, "expected one queued Completion cancelled")
+    testing.expect(t, manager_debounce_pending(&m, .Signature_Help), "another kind's slot must be untouched")
+
+    testing.expectf(t, manager_flush_debounced(&m, force = true) == 1, "only Signature_Help should dispatch")
+    delivered := drain_manager(&m)
+    testing.expectf(t, delivered == 1, "expected only the Signature_Help result (got %d)", delivered)
+}
+
+@(test)
 test_cancelled_request_answers_nothing :: proc(t: ^testing.T) {
     e := odin_engine_create()
     defer odin_destroy(e)

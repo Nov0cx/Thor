@@ -13,8 +13,9 @@ lowest latency.
   thread, reaps `Result`s on the main thread via `manager_dispatch` (same
   mutex-guarded queue pattern as the file loader). Byte offsets are the position
   currency. In-flight requests are cancellable by id or by kind, and a superseded
-  one is dropped without reaching the editor (see **Request coalescing /
-  cancellation**).
+  one is dropped without reaching the editor; the triggers that fire while typing
+  are debounced into a per-kind slot so a burst of keystrokes dispatches once
+  (see **Request coalescing / cancellation**).
 - `odin_engine.odin` — first backend, in-client Odin analyzer. Parses with the
   vendored tree-sitter grammar; resolves identifiers via the LOCALS query +
   `:=` short-decl handling; cross-file via a workspace scan.
@@ -108,7 +109,9 @@ lowest latency.
   Backspace/Delete and Left/Right re-resolves it so the bracketed active parameter
   tracks the caret; moving the caret out of the call (or closing it) dismisses the
   popup silently. The auto path never flashes "No signature found" — only the
-  explicit keybind does.
+  explicit keybind does. The auto path is also debounced (~50ms), so holding a
+  key down resolves the call once instead of once per repeat; the keybind
+  dispatches immediately.
 - **Workspace config (`.thor/odin-analyzer.json`):** the engine reads a
   per-workspace config file from `<workspace>/.thor/` (the same folder Thor keeps
   its `settings.json` in) — Thor's own file (not `ols.json`), though its shape is
@@ -229,8 +232,9 @@ lowest latency.
       above the caret with the active argument bracketed. Auto-triggers on `(`/`,`
       and live-updates the active parameter as arguments are typed/edited (editor
       `on_signature` callback → `thor_editor_signature_help`, silent on miss).
-      Missing: overload sets (the first matching procedure wins). Each keystroke
-      spawns a fresh request — see request coalescing under scalability.
+      Missing: overload sets (the first matching procedure wins). The auto
+      trigger is debounced, so a burst of keystrokes dispatches once — see
+      request coalescing under scalability.
 - [x] **Completion (semantic).** `Completion` request served by `complete`,
       driven from the editor as a word is typed (`on_completion` callback →
       `thor_editor_completion`, gated to Odin buffers by `completion_semantic`).
@@ -240,7 +244,9 @@ lowest latency.
       it lists the imported package's top-level symbols. Candidates fill the
       editor's existing autocomplete popup, tinted by kind. Name-based, like the
       rest of the engine: value member access (`v.field`) waits on type inference.
-      Each keystroke spawns a fresh request — see request coalescing under scalability.
+      Requests are debounced (~50ms), so a burst of keystrokes queues one request
+      instead of a thread and a buffer clone per key — see request coalescing
+      under scalability.
 - [ ] **Other LSP features not started:** rename, formatting, code actions,
       semantic tokens. (Diagnostics land via `thor/diagnostics.odin`, outside
       this seam.)
@@ -294,8 +300,8 @@ lowest latency.
       (`def_scan_*`, `scan_dir`, `collect_symbols_dir/file`, `find_proc_dir`) were
       removed. *Not yet* — `complete_dir_toplevel`: it is package-scoped (one flat
       dir, not the whole tree) and runs per keystroke, so syncing the index on
-      every keystroke wants the debounce/coalescing work first; left on the disk
-      scan for now.
+      every keystroke wanted the debounce work first — that has landed, so this
+      is now unblocked; still on the disk scan for the moment.
 
       **Phasing:**
       - Phase 1 — index + lazy build + stat validation + rewire the whole-workspace
@@ -325,8 +331,7 @@ lowest latency.
       resident *decls* only (not trees), bounded and small.
 - [ ] **Incremental parsing.** Each request re-parses from scratch; keep a
       per-buffer tree and feed edits to tree-sitter (`ts_tree_edit`) for reuse.
-- [~] **Request coalescing / cancellation.** *Cancellation landed; debouncing
-      still open.* Each dispatched job carries a cancellation flag reachable from
+- [x] **Request coalescing / cancellation.** Each dispatched job carries a cancellation flag reachable from
       the `Request` (`cancel: ^bool`, polled through `request_cancelled`), and the
       Manager keeps an `active: map[u64]^Job` so a request can be abandoned by id
       (`manager_cancel`) or by kind (`manager_cancel_kind`).
@@ -354,13 +359,29 @@ lowest latency.
       `Probe` backend that parks inside `resolve` so a cancel is observed
       mid-flight) and `test_cancelled_request_answers_nothing`.
 
-      **Still open:** debouncing. Completion and signature help still dispatch on
-      *every* keystroke — now cheaply abandoned rather than run to completion, but
-      still a thread and a full-buffer clone each. A `manager_request_debounced`
-      holding one pending request per kind, flushed from the once-per-frame
-      `manager_dispatch` (~50ms for completion/signature, ~150ms for hover), is
-      the next step, and it is what `complete_dir_toplevel` needs before it can
-      move off its per-keystroke disk scan onto the symbol index.
+      **Debouncing** sits in front of that: `manager_request_debounced` queues a
+      request in a per-kind slot (`Manager.pending[Request_Kind]`, main-thread
+      only) instead of dispatching it, and `manager_flush_debounced` — called at
+      the head of the once-per-frame `manager_dispatch` — starts the ones whose
+      delay has run out. A newer request of the same kind overwrites the slot, so
+      a burst of keystrokes costs **one** thread and one buffer clone rather than
+      one per key (cancellation stops a superseded request's *work*, but the
+      thread and the clone are already spent by then). The id is reserved when
+      the slot is filled, so the host can key its `*_request_id` slot on it
+      immediately; the slot's snapshot *moves* into the job at flush time rather
+      than being cloned again. `manager_cancel`/`_kind`/`_all` drop a queued
+      request too, so an explicit trigger (the Ctrl+Shift+Space keybind, which
+      dispatches immediately — the user is waiting on it) can't be overtaken by
+      the auto request it replaced, and `manager_destroy`'s `cancel_all` empties
+      the slots so its drain loop can't dispatch fresh work. Delays:
+      `DEBOUNCE_TYPING` (50ms, completion + auto signature help) and
+      `DEBOUNCE_HOVER` (150ms, unused so far — hover is already dwell-gated).
+      Covered by `test_debounce_collapses_burst`, `_delay_elapses`,
+      `_cancelled_never_dispatches` and `_slots_are_per_kind`.
+
+      **Still open:** with the debounce in place, `complete_dir_toplevel` can now
+      move off its per-keystroke disk scan onto the symbol index (see the
+      persistent symbol index above) — that was the blocker.
 - [ ] **Bounded worker pool.** Each request spawns a thread; a persistent pool
       would cap concurrency and thread churn.
 
