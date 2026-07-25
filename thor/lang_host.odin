@@ -16,6 +16,12 @@ STATUS_MESSAGE_SECS :: 3.0
 // Go-to-definition and (later) hover wiring between the editor and the language
 // intelligence manager. Requests are dispatched from the caret (Alt+Enter) or a
 // Ctrl+Click; results arrive asynchronously and are applied in thor_on_lang_result.
+//
+// Every dispatch here goes through manager_request_latest: each kind has exactly
+// one consumer slot on Thor (a `*_request_id`), so an older request of the same
+// kind can never be wanted again. Cancelling it stops the backend mid-scan
+// instead of letting it finish work the id check would throw away — the
+// difference between a wasted workspace parse per keystroke and none.
 
 // Alt+Enter: resolve the symbol under the caret in the active file.
 thor_goto_definition :: proc(thor: ^Thor) {
@@ -51,7 +57,7 @@ thor_dispatch_goto :: proc(thor: ^Thor, file: ^Open_File, offset: int) {
         return
     }
     source := textedit.text(&file.state)
-    lang.manager_request(
+    lang.manager_request_latest(
         &thor.lang_manager,
         .Definition,
         file.path,
@@ -83,7 +89,7 @@ thor_goto_symbol :: proc(thor: ^Thor) {
         return
     }
     source := textedit.text(&file.state)
-    lang.manager_request(
+    lang.manager_request_latest(
         &thor.lang_manager,
         .Document_Symbols,
         file.path,
@@ -115,7 +121,7 @@ thor_goto_workspace_symbol :: proc(thor: ^Thor) {
     if !lang.manager_supports(&thor.lang_manager, ext) {
         return
     }
-    id := lang.manager_request(
+    id := lang.manager_request_latest(
         &thor.lang_manager,
         .Workspace_Symbols,
         path,
@@ -156,7 +162,7 @@ thor_find_references :: proc(thor: ^Thor) {
         return
     }
     source := textedit.text(&file.state)
-    id := lang.manager_request(
+    id := lang.manager_request_latest(
         &thor.lang_manager,
         .References,
         file.path,
@@ -210,7 +216,7 @@ thor_request_signature :: proc(thor: ^Thor, auto: bool) {
         return
     }
     source := textedit.text(&file.state)
-    id := lang.manager_request(
+    id := lang.manager_request_latest(
         &thor.lang_manager,
         .Signature_Help,
         file.path,
@@ -241,7 +247,7 @@ thor_package_doc :: proc(thor: ^Thor) {
         return
     }
     source := textedit.text(&file.state)
-    id := lang.manager_request(
+    id := lang.manager_request_latest(
         &thor.lang_manager,
         .Package_Doc,
         file.path,
@@ -387,7 +393,7 @@ thor_editor_completion :: proc(data: rawptr, editor: ^widgets.Editor, state: ^te
             return false
         }
         source := textedit.text(&file.state)
-        id := lang.manager_request(
+        id := lang.manager_request_latest(
             &thor.lang_manager,
             .Completion,
             file.path,
@@ -455,7 +461,7 @@ thor_editor_hover :: proc(data: rawptr, editor: ^widgets.Editor, state: ^textedi
             return
         }
         source := textedit.text(&file.state)
-        id := lang.manager_request(
+        id := lang.manager_request_latest(
             &thor.lang_manager,
             .Hover,
             file.path,

@@ -2,7 +2,9 @@ package lang
 
 import "core:os"
 import "core:strings"
+import "core:sync"
 import "core:testing"
+import "core:time"
 
 // Resolves the identifier at the first occurrence of `needle` in `source` and
 // returns the definition byte range the engine points at. Drives odin_resolve
@@ -1878,4 +1880,189 @@ main :: proc() {
     testing.expect(t, res.ok, "expected member completions on a call result")
     testing.expect(t, has_completion(&res, "x"), "missing field x")
     testing.expect(t, has_completion(&res, "y"), "missing field y")
+}
+
+// A Backend that parks inside `resolve` until the test releases it, so a cancel
+// can be observed landing mid-flight. Counters are touched from both the worker
+// and the test thread, hence the atomics.
+@(private = "file")
+Probe :: struct {
+    started:   int,
+    release:   bool,
+    cancelled: int, // resolve calls that saw the cancellation flag
+    resolved:  int, // resolve calls that ran to completion
+}
+
+@(private = "file")
+probe_handles :: proc(data: rawptr, ext: string) -> bool {
+    return ext == ".probe"
+}
+
+@(private = "file")
+probe_resolve :: proc(data: rawptr, req: ^Request, res: ^Result) {
+    p := cast(^Probe) data
+    sync.atomic_add(&p.started, 1)
+    for !sync.atomic_load(&p.release) {
+        time.sleep(time.Millisecond)
+    }
+    if request_cancelled(req) {
+        sync.atomic_add(&p.cancelled, 1)
+        return
+    }
+    sync.atomic_add(&p.resolved, 1)
+    res.ok = true
+}
+
+@(private = "file")
+probe_backend :: proc(p: ^Probe) -> Backend {
+    return Backend{data = p, name = "probe", handles = probe_handles, resolve = probe_resolve}
+}
+
+// Spins (bounded, so a wedged worker fails the test instead of hanging it) until
+// an atomic counter reaches `want`.
+@(private = "file")
+wait_for :: proc(counter: ^int, want: int) -> bool {
+    for _ in 0 ..< 2000 {
+        if sync.atomic_load(counter) >= want {
+            return true
+        }
+        time.sleep(time.Millisecond)
+    }
+    return false
+}
+
+@(private = "file")
+count_results :: proc(user: rawptr, res: ^Result) {
+    n := cast(^int) user
+    n^ += 1
+}
+
+// Drains every in-flight job, counting the results that reached the handler.
+@(private = "file")
+drain_manager :: proc(m: ^Manager) -> int {
+    delivered := 0
+    for manager_busy(m) {
+        manager_dispatch(m, &delivered, count_results)
+        time.sleep(time.Millisecond)
+    }
+    manager_dispatch(m, &delivered, count_results)
+    return delivered
+}
+
+@(test)
+test_cancel_drops_result :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+
+    p := Probe{}
+    manager_register(&m, probe_backend(&p))
+
+    id := manager_request(&m, .Hover, "a.probe", ".probe", "", 0, 0, "")
+    testing.expect(t, id != 0, "expected the probe backend to claim .probe")
+    testing.expect(t, wait_for(&p.started, 1), "worker never started")
+
+    // Cancel while the worker is parked, then let it run on to its check.
+    testing.expect(t, manager_cancel(&m, id), "expected the in-flight id to be cancellable")
+    sync.atomic_store(&p.release, true)
+
+    delivered := drain_manager(&m)
+    testing.expect(t, sync.atomic_load(&p.cancelled) == 1, "the backend did not observe the cancellation")
+    testing.expect(t, sync.atomic_load(&p.resolved) == 0, "a cancelled request should not produce a result")
+    testing.expectf(t, delivered == 0, "a cancelled result must not reach the handler (got %d)", delivered)
+
+    // The job is reaped, so its id is no longer cancellable.
+    testing.expect(t, !manager_cancel(&m, id), "a reaped id should not be cancellable")
+}
+
+@(test)
+test_request_latest_supersedes :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+
+    p := Probe{}
+    manager_register(&m, probe_backend(&p))
+
+    // The first request parks in the backend; the second supersedes it.
+    first := manager_request(&m, .Completion, "a.probe", ".probe", "", 0, 0, "")
+    testing.expect(t, wait_for(&p.started, 1), "first worker never started")
+    second := manager_request_latest(&m, .Completion, "a.probe", ".probe", "", 0, 0, "")
+    testing.expect(t, first != second, "expected a fresh id for the replacement")
+    sync.atomic_store(&p.release, true)
+
+    delivered := drain_manager(&m)
+    testing.expect(t, sync.atomic_load(&p.cancelled) == 1, "the superseded request should have been cancelled")
+    testing.expect(t, sync.atomic_load(&p.resolved) == 1, "the replacement request should have resolved")
+    testing.expectf(t, delivered == 1, "only the latest result should reach the handler (got %d)", delivered)
+}
+
+@(test)
+test_cancel_kind_leaves_others :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+
+    p := Probe{}
+    manager_register(&m, probe_backend(&p))
+
+    hover := manager_request(&m, .Hover, "a.probe", ".probe", "", 0, 0, "")
+    defn := manager_request(&m, .Definition, "a.probe", ".probe", "", 0, 0, "")
+    testing.expect(t, wait_for(&p.started, 2), "both workers never started")
+
+    // Cancelling by kind must not touch a request of a different kind.
+    testing.expectf(t, manager_cancel_kind(&m, .Hover) == 1, "expected exactly one Hover cancelled")
+    testing.expect(t, hover != defn, "expected distinct ids")
+    sync.atomic_store(&p.release, true)
+
+    delivered := drain_manager(&m)
+    testing.expect(t, sync.atomic_load(&p.cancelled) == 1, "only the Hover should have been cancelled")
+    testing.expect(t, sync.atomic_load(&p.resolved) == 1, "the Definition should have resolved")
+    testing.expectf(t, delivered == 1, "only the Definition result should be delivered (got %d)", delivered)
+}
+
+@(test)
+test_cancelled_request_answers_nothing :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // A workspace whose index a first, live request builds.
+    dir := "thor_lang_cancel_ws"
+    _ = os.make_directory(dir)
+    defer os.remove(dir)
+
+    helper := strings.concatenate({dir, "/helper.odin"}, context.temp_allocator)
+    helper_src := "package demo\n\nhelper :: proc() -> int {\n\treturn 1\n}\n"
+    _ = os.write_entire_file(helper, transmute([]byte)helper_src)
+    defer os.remove(helper)
+
+    main_path := strings.concatenate({dir, "/main.odin"}, context.temp_allocator)
+    main_src := "package demo\n\nmain :: proc() {\n\t_ = helper()\n}\n"
+
+    loc, ok := resolve_in_ws(e, main_path, main_src, "helper()", dir)
+    defer delete(loc.path)
+    testing.expect(t, ok, "expected to resolve helper before cancelling anything")
+
+    // The same request, already cancelled, answers nothing at all.
+    cancelled := true
+    req := Request {
+        kind      = .Definition,
+        path      = main_path,
+        ext       = ".odin",
+        source    = main_src,
+        offset    = strings.index(main_src, "helper()"),
+        workspace = dir,
+        cancel    = &cancelled,
+    }
+    res := Result{kind = .Definition}
+    odin_resolve(e, &req, &res)
+    testing.expect(t, !res.ok, "a cancelled request must not produce a location")
+    testing.expect(t, res.location.path == "", "a cancelled request must not allocate a result")
+
+    // ...and it left the engine's index usable: the next live request still
+    // resolves. (An abandoned index walk skips the prune for exactly this
+    // reason — pruning against a partial `seen` set would drop live files.)
+    loc2, ok2 := resolve_in_ws(e, main_path, main_src, "helper()", dir)
+    defer delete(loc2.path)
+    testing.expect(t, ok2, "a cancelled request must not damage the symbol index")
 }

@@ -95,15 +95,29 @@ Request :: struct {
     offset:    int,     // byte offset of the caret
     revision:  u64,
     workspace: string, // owned, absolute
+    cancel:    ^bool,  // Job-owned cancellation flag; read via request_cancelled, nil when hand-built
+}
+
+// True once the request has been abandoned (a newer one superseded it, or the
+// Manager is shutting down). Backends poll this at the head of every expensive
+// loop — a directory walk, a per-file re-parse — and return early; the work is
+// thrown away regardless, so finishing it only costs latency for the request
+// that replaced it. Cooperative: nothing interrupts a backend that never asks.
+request_cancelled :: proc(req: ^Request) -> bool {
+    return req.cancel != nil && sync.atomic_load(req.cancel)
 }
 
 // A completed request. Owned fields use the Manager's allocator and are freed
 // on the main thread after the editor consumes them (see manager_dispatch).
+// `cancelled` marks a result nobody is waiting for any more: manager_dispatch
+// frees it without calling the handler, so `ok == false` always means "the
+// backend found nothing", never "the work was abandoned half-done".
 Result :: struct {
-    id:       u64,
-    kind:     Request_Kind,
-    revision: u64,
+    id:        u64,
+    kind:      Request_Kind,
+    revision:  u64,
     ok:        bool,
+    cancelled: bool,
     location:  Location,        // Definition
     hover:     Hover_Info,      // Hover
     doc:       Doc_Info,        // Package_Doc
@@ -125,11 +139,12 @@ Backend :: struct {
 
 @(private)
 Job :: struct {
-    manager: ^Manager,
-    backend: Backend, // copied so a later append to `backends` can't dangle
-    request: Request,
-    result:  Result,
-    worker:  ^thread.Thread,
+    manager:   ^Manager,
+    backend:   Backend, // copied so a later append to `backends` can't dangle
+    request:   Request,
+    result:    Result,
+    worker:    ^thread.Thread,
+    cancelled: bool, // written by the main thread, read atomically by the worker
 }
 
 // Routes requests to backends and reaps their results. One per editor.
@@ -137,8 +152,9 @@ Manager :: struct {
     backends:  [dynamic]Backend,
     next_id:   u64,
     allocator: runtime.Allocator,
-    mutex:     sync.Mutex, // guards `finished` and `inflight`
+    mutex:     sync.Mutex, // guards `finished`, `active` and `inflight`
     finished:  [dynamic]^Job,
+    active:    map[u64]^Job, // every dispatched job not yet freed, so it can be cancelled by id
     inflight:  int,
 }
 
@@ -146,6 +162,7 @@ manager_init :: proc(m: ^Manager, allocator := context.allocator) {
     m.allocator = allocator
     m.backends = make([dynamic]Backend, allocator)
     m.finished = make([dynamic]^Job, allocator)
+    m.active = make(map[u64]^Job, 0, allocator)
     m.next_id = 1
 }
 
@@ -204,6 +221,7 @@ manager_request :: proc(
         revision  = revision,
         workspace = strings.clone(workspace),
     }
+    job.request.cancel = &job.cancelled // stable for the job's lifetime
     job.result.id = m.next_id
     job.result.kind = kind
     job.result.revision = revision
@@ -211,10 +229,74 @@ manager_request :: proc(
 
     sync.lock(&m.mutex)
     m.inflight += 1
+    m.active[job.request.id] = job
     sync.unlock(&m.mutex)
 
     job.worker = thread.create_and_start_with_poly_data(job, job_worker)
     return job.request.id
+}
+
+// Abandons the request `id`: its backend stops at the next cancellation check
+// and its result is dropped instead of handed to the editor. Returns false when
+// the id is unknown (already reaped, or never dispatched). Safe to call on a
+// job that has already finished — the flag is simply never read again.
+manager_cancel :: proc(m: ^Manager, id: u64) -> bool {
+    sync.lock(&m.mutex)
+    defer sync.unlock(&m.mutex)
+    job, ok := m.active[id]
+    if !ok {
+        return false
+    }
+    sync.atomic_store(&job.cancelled, true)
+    return true
+}
+
+// Cancels every in-flight request of `kind`. This is the "latest wins" primitive
+// for the kinds the editor re-triggers as the user types (completion, signature
+// help, hover): cancel the previous ones, then dispatch. Cancelling by kind
+// rather than by a remembered id also catches requests the caller has lost track
+// of. Returns how many were cancelled.
+manager_cancel_kind :: proc(m: ^Manager, kind: Request_Kind) -> int {
+    sync.lock(&m.mutex)
+    defer sync.unlock(&m.mutex)
+    n := 0
+    for _, job in m.active {
+        if job.request.kind == kind && !job.cancelled {
+            sync.atomic_store(&job.cancelled, true)
+            n += 1
+        }
+    }
+    return n
+}
+
+// Cancels every in-flight request, whatever its kind. Used at shutdown; also the
+// right call when the workspace changes under the editor and no answer computed
+// against the old tree is worth having. Returns how many were cancelled.
+manager_cancel_all :: proc(m: ^Manager) -> int {
+    sync.lock(&m.mutex)
+    defer sync.unlock(&m.mutex)
+    n := 0
+    for _, job in m.active {
+        if !job.cancelled {
+            sync.atomic_store(&job.cancelled, true)
+            n += 1
+        }
+    }
+    return n
+}
+
+// Cancels the in-flight requests of `kind` and dispatches a replacement. The
+// common path for a per-keystroke trigger, so a caller can't forget the cancel.
+manager_request_latest :: proc(
+    m: ^Manager,
+    kind: Request_Kind,
+    path, ext, source: string,
+    offset: int,
+    revision: u64,
+    workspace: string,
+) -> u64 {
+    manager_cancel_kind(m, kind)
+    return manager_request(m, kind, path, ext, source, offset, revision, workspace)
 }
 
 @(private)
@@ -225,6 +307,9 @@ job_worker :: proc(job: ^Job) {
     defer free_all(context.temp_allocator)
 
     job.backend.resolve(job.backend.data, &job.request, &job.result)
+    // Latch it here: a backend that bailed early may have left a partial result,
+    // and the main thread must not hand that to the editor.
+    job.result.cancelled = request_cancelled(&job.request)
 
     sync.lock(&job.manager.mutex)
     append(&job.manager.finished, job)
@@ -234,6 +319,8 @@ job_worker :: proc(job: ^Job) {
 // Drains finished jobs on the main thread. For each, joins its worker, invokes
 // `handler(user, ^Result)`, then frees the job and all its owned memory. The
 // handler must copy anything from the Result it wants to keep past the call.
+// A cancelled job is joined and freed but never handed to the handler: its
+// result was superseded, and it may be partial.
 manager_dispatch :: proc(m: ^Manager, user: rawptr, handler: proc(user: rawptr, res: ^Result)) {
     reaped := make([dynamic]^Job, context.temp_allocator)
     sync.lock(&m.mutex)
@@ -246,7 +333,7 @@ manager_dispatch :: proc(m: ^Manager, user: rawptr, handler: proc(user: rawptr, 
     for job in reaped {
         thread.join(job.worker)
         thread.destroy(job.worker)
-        if handler != nil {
+        if handler != nil && !job.result.cancelled {
             handler(user, &job.result)
         }
         job_free(m, job)
@@ -273,9 +360,11 @@ job_free :: proc(m: ^Manager, job: ^Job) {
         delete(sym.path)
     }
     delete(job.result.symbols)
+    id := job.request.id
     free(job)
 
     sync.lock(&m.mutex)
+    delete_key(&m.active, id) // no longer cancellable; the pointer is dead
     m.inflight -= 1
     sync.unlock(&m.mutex)
 }
@@ -289,8 +378,11 @@ manager_busy :: proc(m: ^Manager) -> bool {
 }
 
 // Drains in-flight workers (so none touches freed backend state), tears down
-// each backend, and frees the Manager's own storage.
+// each backend, and frees the Manager's own storage. Every worker is cancelled
+// first so a workspace-wide scan started just before quit bails at its next
+// check instead of holding the shutdown open.
 manager_destroy :: proc(m: ^Manager) {
+    manager_cancel_all(m)
     for manager_busy(m) {
         manager_dispatch(m, nil, nil)
         time.sleep(time.Millisecond)
@@ -305,4 +397,5 @@ manager_destroy :: proc(m: ^Manager) {
     }
     delete(m.backends)
     delete(m.finished)
+    delete(m.active)
 }

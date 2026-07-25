@@ -12,7 +12,9 @@ lowest latency.
   `Manager` routes a `Request` by file extension to a backend on a worker
   thread, reaps `Result`s on the main thread via `manager_dispatch` (same
   mutex-guarded queue pattern as the file loader). Byte offsets are the position
-  currency.
+  currency. In-flight requests are cancellable by id or by kind, and a superseded
+  one is dropped without reaching the editor (see **Request coalescing /
+  cancellation**).
 - `odin_engine.odin` — first backend, in-client Odin analyzer. Parses with the
   vendored tree-sitter grammar; resolves identifiers via the LOCALS query +
   `:=` short-decl handling; cross-file via a workspace scan.
@@ -323,9 +325,42 @@ lowest latency.
       resident *decls* only (not trees), bounded and small.
 - [ ] **Incremental parsing.** Each request re-parses from scratch; keep a
       per-buffer tree and feed edits to tree-sitter (`ts_tree_edit`) for reuse.
-- [ ] **Request coalescing / cancellation.** Rapid triggers (e.g. hover on mouse
-      move) should supersede in-flight requests; there is no `$/cancel`
-      equivalent yet. Debounce hover.
+- [~] **Request coalescing / cancellation.** *Cancellation landed; debouncing
+      still open.* Each dispatched job carries a cancellation flag reachable from
+      the `Request` (`cancel: ^bool`, polled through `request_cancelled`), and the
+      Manager keeps an `active: map[u64]^Job` so a request can be abandoned by id
+      (`manager_cancel`) or by kind (`manager_cancel_kind`).
+      `manager_request_latest` cancels the in-flight requests of a kind and
+      dispatches a replacement — every host dispatch in `thor/lang_host.odin` uses
+      it, since each kind has exactly one consumer slot on `Thor` and an older
+      request of the same kind can never be wanted again. `manager_cancel_all`
+      cancels regardless of kind; `manager_destroy` calls it before draining, so a
+      workspace scan started just before quit can't hold shutdown open.
+
+      Cancellation is *cooperative*: the backend polls at the head of every
+      expensive loop — `odin_resolve`'s entry (the common case, where the worker is
+      scheduled after the next keystroke has already superseded it), the recursive
+      index walk (`index_sync`/`index_sync_dir`), the reference scan's per-file
+      loop, `complete_dir_toplevel`'s per-file parse (the per-keystroke hot path)
+      and `render_package_doc`'s. An abandoned index walk leaves the index merely
+      *stale*, never wrong: the entries it refreshed are correct and the next sync
+      re-stats everything, but the prune is skipped because `seen` is incomplete
+      and pruning against it would drop live files.
+      `Result.cancelled` is latched after `resolve` returns, and
+      `manager_dispatch` frees such a result without calling the handler — so
+      `ok == false` always means "the backend found nothing", never "the work was
+      abandoned half-done". Covered by `test_cancel_drops_result`,
+      `test_request_latest_supersedes`, `test_cancel_kind_leaves_others` (a fake
+      `Probe` backend that parks inside `resolve` so a cancel is observed
+      mid-flight) and `test_cancelled_request_answers_nothing`.
+
+      **Still open:** debouncing. Completion and signature help still dispatch on
+      *every* keystroke — now cheaply abandoned rather than run to completion, but
+      still a thread and a full-buffer clone each. A `manager_request_debounced`
+      holding one pending request per kind, flushed from the once-per-frame
+      `manager_dispatch` (~50ms for completion/signature, ~150ms for hover), is
+      the next step, and it is what `complete_dir_toplevel` needs before it can
+      move off its per-keystroke disk scan onto the symbol index.
 - [ ] **Bounded worker pool.** Each request spawns a thread; a persistent pool
       would cap concurrency and thread churn.
 

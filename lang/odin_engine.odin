@@ -109,14 +109,20 @@ odin_destroy :: proc(data: rawptr) {
     free(e)
 }
 
-// Ensures the index reflects `workspace` on disk. Rebuilds from scratch when the
-// workspace changed; otherwise re-`read_dir`s the tree (cheap) and re-parses only
-// files whose stat differs, plus new files, and drops entries for files that
+// Ensures the index reflects `req.workspace` on disk. Rebuilds from scratch when
+// the workspace changed; otherwise re-`read_dir`s the tree (cheap) and re-parses
+// only files whose stat differs, plus new files, and drops entries for files that
 // vanished — so the expensive parse is skipped for the unchanged majority. All
 // index storage lands in the engine allocator (context set locally); the caller
 // holds e.index.mutex. Bounded by the same file/depth guards as the old scan.
+//
+// A cancelled request abandons the walk part-way, which leaves the index merely
+// stale, never wrong: the entries it did refresh are correct, and the next sync
+// re-stats everything anyway. The prune is skipped in that case — `seen` is
+// incomplete, so pruning against it would drop live files.
 @(private = "file")
-index_sync :: proc(e: ^Odin_Engine, parser: ts.Parser, workspace: string) {
+index_sync :: proc(e: ^Odin_Engine, parser: ts.Parser, req: ^Request) {
+    workspace := req.workspace
     if workspace == "" {
         return
     }
@@ -132,7 +138,10 @@ index_sync :: proc(e: ^Odin_Engine, parser: ts.Parser, workspace: string) {
 
     seen := make(map[string]bool, 0, context.temp_allocator)
     count := 0
-    index_sync_dir(e, parser, workspace, &seen, &count, 0)
+    index_sync_dir(e, parser, req, workspace, &seen, &count, 0)
+    if request_cancelled(req) {
+        return
+    }
 
     // Prune files that disappeared (collect first; can't delete while ranging).
     stale := make([dynamic]string, context.temp_allocator)
@@ -153,12 +162,13 @@ index_sync :: proc(e: ^Odin_Engine, parser: ts.Parser, workspace: string) {
 index_sync_dir :: proc(
     e: ^Odin_Engine,
     parser: ts.Parser,
+    req: ^Request,
     dir: string,
     seen: ^map[string]bool,
     count: ^int,
     depth: int,
 ) {
-    if count^ >= SCAN_FILE_LIMIT || depth > SCAN_DEPTH_LIMIT {
+    if count^ >= SCAN_FILE_LIMIT || depth > SCAN_DEPTH_LIMIT || request_cancelled(req) {
         return
     }
 
@@ -174,14 +184,14 @@ index_sync_dir :: proc(
     }
 
     for info in infos {
-        if count^ >= SCAN_FILE_LIMIT {
+        if count^ >= SCAN_FILE_LIMIT || request_cancelled(req) {
             return
         }
         if info.type == .Directory {
             if info.name == ".git" || strings.has_prefix(info.name, ".") {
                 continue
             }
-            index_sync_dir(e, parser, info.fullpath, seen, count, depth + 1)
+            index_sync_dir(e, parser, req, info.fullpath, seen, count, depth + 1)
             continue
         }
         if !strings.has_suffix(info.name, ".odin") {
@@ -645,6 +655,11 @@ odin_resolve :: proc(data: rawptr, req: ^Request, res: ^Result) {
     if e.locals == nil {
         return
     }
+    // Superseded before the worker even got scheduled — common for the
+    // per-keystroke kinds, where the thread often starts after the next edit.
+    if request_cancelled(req) {
+        return
+    }
 
     // One parser per call (parsers are not shareable across threads); reused for
     // the request buffer and every workspace file the cross-file scan visits.
@@ -982,7 +997,7 @@ scan_workspace :: proc(
 ) {
     path, ok := "", false
     sync.lock(&e.index.mutex)
-    index_sync(e, parser, req.workspace)
+    index_sync(e, parser, req)
     if p, found := index_first_path(e, name, req.path, ""); found {
         path = strings.clone(p, context.temp_allocator) // survives the unlock
         ok = true
@@ -1041,7 +1056,7 @@ resolve_definition_workspace :: proc(
     res: ^Result,
 ) {
     sync.lock(&e.index.mutex)
-    index_sync(e, parser, req.workspace)
+    index_sync(e, parser, req)
     index_find_defs(e, name, req.path, res)
     sync.unlock(&e.index.mutex)
     switch len(res.symbols) {
@@ -1112,7 +1127,7 @@ collect_workspace_symbols :: proc(e: ^Odin_Engine, parser: ts.Parser, root: ts.N
     }
     if req.workspace != "" {
         sync.lock(&e.index.mutex)
-        index_sync(e, parser, req.workspace)
+        index_sync(e, parser, req)
         index_all_symbols(e, req.path, res)
         sync.unlock(&e.index.mutex)
     }
@@ -1153,10 +1168,13 @@ collect_references :: proc(e: ^Odin_Engine, parser: ts.Parser, root: ts.Node, re
         if req.workspace != "" {
             paths := make([dynamic]string, context.temp_allocator)
             sync.lock(&e.index.mutex)
-            index_sync(e, parser, req.workspace)
+            index_sync(e, parser, req)
             index_ref_files(e, name, req.path, &paths)
             sync.unlock(&e.index.mutex)
             for path in paths {
+                if request_cancelled(req) {
+                    return
+                }
                 ref_scan_file(e, parser, path, name, res)
             }
         }
@@ -1352,7 +1370,7 @@ resolve_call_target :: proc(
     if req.workspace != "" {
         path, ok := "", false
         sync.lock(&e.index.mutex)
-        index_sync(e, parser, req.workspace)
+        index_sync(e, parser, req)
         if p, found := index_first_path(e, name, req.path, "function"); found {
             path = strings.clone(p, context.temp_allocator)
             ok = true
@@ -2031,7 +2049,7 @@ visit_type_decl :: proc(
     if req.workspace != "" {
         path, ok := "", false
         sync.lock(&e.index.mutex)
-        index_sync(e, parser, req.workspace)
+        index_sync(e, parser, req)
         if p, found := index_first_path(e, tr.name, req.path, index_kind); found {
             path = strings.clone(p, context.temp_allocator)
             ok = true
@@ -2390,7 +2408,7 @@ complete :: proc(e: ^Odin_Engine, parser: ts.Parser, root: ts.Node, req: ^Reques
                 // `pkg.<prefix>`: the imported package's top-level symbols.
                 if dir, dok := package_dir(e, raw, req.path, req.workspace); dok {
                     seen := make(map[string]bool, 0, context.temp_allocator)
-                    complete_dir_toplevel(e, parser, dir, prefix, "", res, &seen)
+                    complete_dir_toplevel(e, parser, req, dir, prefix, "", res, &seen)
                 }
             } else if op_start == 0 || src[op_start - 1] != '.' {
                 // `value.<prefix>`: infer the operand's struct type and offer its
@@ -2434,7 +2452,7 @@ complete :: proc(e: ^Odin_Engine, parser: ts.Parser, root: ts.Node, req: ^Reques
     // This package's sibling files (an Odin package is one flat directory): their
     // top-level declarations are visible here unqualified.
     if req.path != "" {
-        complete_dir_toplevel(e, parser, filepath.dir(req.path), prefix, req.path, res, &seen)
+        complete_dir_toplevel(e, parser, req, filepath.dir(req.path), prefix, req.path, res, &seen)
     }
 
     // Imported package names are completable identifiers too (`widgets`, `fmt`) —
@@ -2516,6 +2534,7 @@ add_completion :: proc(res: ^Result, source: string, d: Def, seen: ^map[string]b
 complete_dir_toplevel :: proc(
     e: ^Odin_Engine,
     parser: ts.Parser,
+    req: ^Request,
     dir, prefix, skip: string,
     res: ^Result,
     seen: ^map[string]bool,
@@ -2532,6 +2551,11 @@ complete_dir_toplevel :: proc(
     }
 
     for info in infos {
+        // The keystroke that asked for these candidates is already stale — the
+        // next one has its own request, and this parse would be thrown away.
+        if request_cancelled(req) {
+            return
+        }
         if info.type == .Directory || !strings.has_suffix(info.name, ".odin") {
             continue
         }
@@ -3010,7 +3034,7 @@ package_doc :: proc(e: ^Odin_Engine, parser: ts.Parser, root: ts.Node, req: ^Req
     defer if owned_dir != "" {
         delete(owned_dir)
     }
-    render_package_doc(e, parser, dir, res)
+    render_package_doc(e, parser, req, dir, res)
 }
 
 // Resolves the package directory the caret refers to, the same three ways the
@@ -3070,7 +3094,7 @@ DOC_SECTION_RULE :: "\n---\n\n"
 // ```odin-fenced signature followed by its cleaned doc-comment prose, sorted by
 // name. Fills res.doc; ok when the package had at least one public symbol.
 @(private = "file")
-render_package_doc :: proc(e: ^Odin_Engine, parser: ts.Parser, dir: string, res: ^Result) {
+render_package_doc :: proc(e: ^Odin_Engine, parser: ts.Parser, req: ^Request, dir: string, res: ^Result) {
     handle, open_err := os.open(dir)
     if open_err != nil {
         return
@@ -3085,6 +3109,9 @@ render_package_doc :: proc(e: ^Odin_Engine, parser: ts.Parser, dir: string, res:
     pkg_name := ""
     pkg_doc := ""
     for info in infos {
+        if request_cancelled(req) {
+            return // a half-rendered page is worse than none
+        }
         if info.type == .Directory || !strings.has_suffix(info.name, ".odin") {
             continue
         }
