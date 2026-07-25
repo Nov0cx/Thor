@@ -29,6 +29,11 @@ test_plugin_doc_opens_and_refreshes :: proc(t: ^testing.T) {
     thor.pane_file = {-1, -1}
     thor.editor = widgets.editor_create("test-editor")
     thor.editor2 = widgets.editor_create("test-editor2")
+    // thor_update_files runs the per-frame view swap, which sets these three
+    // every call, so a partial Thor still needs them.
+    thor.image_view = widgets.image_view_create("test-image-view")
+    thor.markdown_view = widgets.markdown_view_create("test-markdown-view")
+    thor.editor_split_row = widgets.stack_create("test-editor-split-row", .Horizontal)
     defer {
         for len(thor.open_files) > 0 {
             thor_close_file(thor, 0)
@@ -39,6 +44,9 @@ test_plugin_doc_opens_and_refreshes :: proc(t: ^testing.T) {
         delete(thor.finished_saves)
         widgets.editor_destroy(&thor.editor.widget)
         widgets.editor_destroy(&thor.editor2.widget)
+        widgets.image_view_destroy(&thor.image_view.widget)
+        widgets.markdown_view_destroy(&thor.markdown_view.widget)
+        widgets.stack_destroy(&thor.editor_split_row.widget)
     }
     defer os.remove(PATH)
 

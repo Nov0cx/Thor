@@ -8,7 +8,7 @@ test_theme_load :: proc(t: ^testing.T) {
     theme, ok := theme_load("assets/themes/material-deep-ocean.json")
     defer theme_destroy(&theme)
     testing.expect(t, ok, "theme should load")
-    testing.expect(t, theme.name == "Material Theme Deep Ocean", "name from file")
+    testing.expect(t, theme.name == "Material Deep Ocean", "name from file")
 
     // 6-digit color.
     testing.expect(t, theme.background == rl.Color{0x0F, 0x11, 0x1A, 0xFF}, "background")
@@ -23,5 +23,9 @@ test_theme_load_missing_falls_back :: proc(t: ^testing.T) {
     theme, ok := theme_load("assets/themes/does-not-exist.json")
     defer theme_destroy(&theme)
     testing.expect(t, !ok, "missing file reports failure")
-    testing.expect(t, theme.background == rl.Color{0x0F, 0x11, 0x1A, 0xFF}, "falls back to default")
+    // Compared against the built-in itself, so renaming or recoloring the
+    // fallback theme cannot break this test.
+    fallback := theme_mjolnir()
+    testing.expect(t, theme.name == fallback.name, "falls back to the built-in name")
+    testing.expect(t, theme.background == fallback.background, "falls back to the built-in colors")
 }
