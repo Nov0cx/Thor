@@ -32,6 +32,8 @@ from **Help -> Tutorial** to see the shortcuts update.
 | --- | --- |
 | `Ctrl+.` | Open the command palette to search and run any action |
 | `Ctrl+Tab` | Quick-open: jump straight to fuzzy file search |
+| `Ctrl+O` | Open a file from anywhere |
+| `Ctrl+Alt+O` | Open another folder as the workspace |
 | `Ctrl+S` | Save the current file (autosave also runs shortly after edits) |
 | `Ctrl+W` | Close the current tab |
 | `Ctrl+PgDn` | Switch to the next tab |

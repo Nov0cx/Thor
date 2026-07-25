@@ -116,6 +116,22 @@ tree_create :: proc(id, root_path: string) -> ^Tree {
     return tree
 }
 
+// Repoints the tree at another directory: the old nodes, selection and scroll
+// position go with the folder they belonged to.
+tree_set_root :: proc(tree: ^Tree, root_path: string) {
+    tree_node_destroy(tree.root)
+    tree.root = new(Tree_Node)
+    tree.root.name = strings.clone(root_path)
+    tree.root.path = strings.clone(root_path)
+    tree.root.is_dir = true
+    tree.root.expanded = true
+    tree_load_children(tree.root)
+
+    delete(tree.selected_path)
+    tree.selected_path = ""
+    tree.scroll_y = 0
+}
+
 tree_set_colors :: proc(tree: ^Tree, text, dir, icon, chevron, hover, selected, background: rl.Color) -> ^Tree {
     tree.text_color = text
     tree.dir_color = dir

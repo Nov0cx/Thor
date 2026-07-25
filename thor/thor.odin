@@ -241,23 +241,41 @@ init :: proc() -> ^Thor {
         phase^ = time.tick_now()
     }
     
-    // Resolve the workspace (owned, absolute) BEFORE moving the CWD: a path
-    // argument wins, else the launch directory. Everything below loads relative
-    // to the CWD, which we then repoint at the exe directory.
+    // Resolve the launch path (owned, absolute) BEFORE moving the CWD: a path
+    // argument wins — a folder becomes the workspace, a file opens in a tab with
+    // its folder as the workspace, "." is the directory Thor was called from.
+    // Everything below loads relative to the CWD, which we then repoint at the
+    // exe directory.
     workspace_dir: string
+    startup_file: string // owned; opened once the UI and the session are up
     if len(os.args) > 1 {
-        abs, abs_err := filepath.abs(os.args[1], context.allocator)
-        workspace_dir = abs_err == nil ? abs : strings.clone(os.args[1])
-    } else {
-        cwd, cwd_err := os.get_working_directory(context.allocator)
-        workspace_dir = cwd_err == nil ? cwd : strings.clone(".")
+        workspace_dir, startup_file = thor_startup_target(os.args[1])
     }
+    launch_dir: string
+    if cwd, cwd_err := os.get_working_directory(context.allocator); cwd_err == nil {
+        launch_dir = cwd
+    } else {
+        launch_dir = strings.clone(".")
+    }
+
     if exe_path, exe_err := os.get_executable_path(context.temp_allocator); exe_err == nil {
         if set_err := os.set_working_directory(os.dir(exe_path)); set_err != nil {
             log.warnf("Could not set working directory to exe dir: %v", set_err)
         }
     } else {
         log.warnf("Could not resolve executable path: %v", exe_err)
+    }
+
+    // No path argument: pick up the last session's workspace, falling back to
+    // the launch directory (first run, or that folder is gone). The record sits
+    // in the exe-relative sessions/ dir, so this runs after the CWD move.
+    if workspace_dir == "" {
+        workspace_dir = thor_last_workspace()
+    }
+    if workspace_dir == "" {
+        workspace_dir = launch_dir
+    } else {
+        delete(launch_dir)
     }
 
     // Rasterize fonts on worker threads while the main thread creates the
@@ -358,6 +376,11 @@ init :: proc() -> ^Thor {
     plugin.manager_load(&thor.plugins)
     thor_set_active_file(thor, -1)
     thor_restore_session(thor)
+    // A file passed on the command line opens last, so it is the active tab.
+    if startup_file != "" {
+        thor_open_file(thor, startup_file)
+        delete(startup_file)
+    }
     thor_apply_layout_state(thor)
     thor_apply_split(thor)
     if thor.split_visible {
@@ -386,7 +409,6 @@ init :: proc() -> ^Thor {
     return thor
 }
 
-@(private = "file")
 thor_read_git_branch :: proc(workspace_dir: string) -> string {
     head_path := strings.concatenate({workspace_dir, "/.git/HEAD"}, context.temp_allocator)
     data, read_err := os.read_entire_file(head_path, context.temp_allocator)
@@ -408,6 +430,7 @@ thor_read_git_branch :: proc(workspace_dir: string) -> string {
 
 run :: proc(thor: ^Thor) {
     for !rl.WindowShouldClose() && !thor.should_close {
+        thor_poll_dropped_files(thor)
         thor_poll_watcher(thor)
         thor_poll_settings(thor)
         thor_update_files(thor)

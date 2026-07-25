@@ -297,6 +297,8 @@ thor_register_commands :: proc(thor: ^Thor) {
     thor_add_bindable_command(thor, "View: Toggle Markdown Preview", "toggle_markdown_preview", thor_cmd_toggle_markdown_preview, thor)
     widgets.command_palette_add(p, "View: Recenter", thor_cmd_recenter, thor, sc(thor, "recenter"))
 
+    thor_add_bindable_command(thor, "File: Open File", "open_file", thor_cmd_open_file, thor)
+    thor_add_bindable_command(thor, "File: Open Folder", "open_folder", thor_cmd_open_folder, thor)
     thor_add_bindable_command(thor, "File: New File", "new_file", thor_cmd_new_file, thor)
     thor_add_bindable_command(thor, "File: New Folder", "new_folder", thor_cmd_new_folder, thor)
     widgets.command_palette_add(p, "File: Save", thor_cmd_save, thor, sc(thor, "save"))

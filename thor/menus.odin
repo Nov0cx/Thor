@@ -222,6 +222,9 @@ thor_open_dropdown :: proc(thor: ^Thor, button: ^widgets.Button) {
 thor_open_file_menu :: proc(data: rawptr, ctx: ^ui.Context, widget: ^ui.Widget) {
     thor := cast(^Thor) data
     widgets.menu_clear(thor.menu)
+    widgets.menu_add(thor.menu, "Open File...", thor_cmd_open_file, thor)
+    widgets.menu_add(thor.menu, "Open Folder...", thor_cmd_open_folder, thor)
+    widgets.menu_add_separator(thor.menu)
     widgets.menu_add(thor.menu, "New File", thor_cmd_new_file, thor)
     widgets.menu_add(thor.menu, "New Folder", thor_cmd_new_folder, thor)
     widgets.menu_add_separator(thor.menu)

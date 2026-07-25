@@ -15,6 +15,20 @@ This an editor written in [Odin](https://odin-lang.org/) with [raylib](https://p
 
 This repo is still in development, everything can break or change at any time.
 
+## Opening a project
+
+```bash
+thor            # reopen the last session's folder
+thor .          # open the folder Thor was called from
+thor src/       # open that folder
+thor main.odin  # open the file, with its folder as the workspace
+```
+
+Inside the editor, `File > Open Folder...` switches the workspace and
+`File > Open File...` opens a file from anywhere; dropping a folder or files on
+the window does the same. Each folder keeps its own session (open tabs, layout),
+restored when you come back to it.
+
 ## Dependencies
 
 Thor depends on:

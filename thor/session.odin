@@ -45,8 +45,38 @@ thor_session_file :: proc(workspace_dir: string, allocator := context.temp_alloc
     return strings.concatenate({"sessions/", strings.to_string(b), ".json"}, allocator)
 }
 
+// Records the workspace of the most recent session, so a launch with no path
+// argument reopens it. Lives next to the session files, i.e. relative to the
+// exe directory.
+@(private = "file")
+LAST_WORKSPACE_FILE :: "sessions/last.txt"
+
+// The workspace the last session ran in (owned), or "" when none is recorded or
+// the folder is gone. Read at startup, after the CWD moved to the exe directory.
+thor_last_workspace :: proc() -> string {
+    data, read_err := os.read_entire_file(LAST_WORKSPACE_FILE, context.temp_allocator)
+    if read_err != nil {
+        return ""
+    }
+    path := strings.trim_space(string(data))
+    if path == "" || !os.is_dir(path) {
+        return ""
+    }
+    return strings.clone(path)
+}
+
+// Points the last-workspace record at `workspace`, so a bare launch reopens it.
+// Written on every session save and right after a folder switch, so an unclean
+// exit still comes back to the folder that was open.
+thor_record_last_workspace :: proc(workspace: string) {
+    if err := os.write_entire_file(LAST_WORKSPACE_FILE, transmute([]u8) workspace); err != nil {
+        log.errorf("Could not write %q: %v", LAST_WORKSPACE_FILE, err)
+    }
+}
+
 // Writes the current open files and panel layout to this workspace's session
-// file. Called on shutdown, before any open-file state is torn down.
+// file, and points the last-workspace record at it. Called on shutdown, before
+// any open-file state is torn down.
 thor_save_session :: proc(thor: ^Thor) {
     if !os.is_dir("sessions") {
         if err := os.make_directory("sessions"); err != nil {
@@ -83,6 +113,7 @@ thor_save_session :: proc(thor: ^Thor) {
     if werr := os.write_entire_file(path, data); werr != nil {
         log.errorf("Could not write session %q: %v", path, werr)
     }
+    thor_record_last_workspace(thor.workspace_dir)
 }
 
 // Restores this workspace's session: panel layout, reopened files, and active
