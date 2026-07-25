@@ -361,6 +361,77 @@ index_ref_files :: proc(e: ^Odin_Engine, name, skip: string, out: ^[dynamic]stri
     }
 }
 
+// Completion: appends the indexed top-level declarations of the files sitting
+// directly in `dir` (a package is one flat directory), excluding the live file
+// `skip` and filtered by `prefix`. Reports whether the directory held any indexed
+// file at all — false means it lies outside the indexed workspace (a stdlib or
+// collection package), and the caller falls back to reading it off disk. Caller
+// holds the mutex; result strings clone into context.allocator (the Manager's),
+// and the dedup keys into scratch, so nothing borrows an index row past the
+// unlock — another worker may reparse this entry and free its strings.
+@(private = "file")
+index_dir_completions :: proc(
+    e: ^Odin_Engine,
+    dir, prefix, skip: string,
+    res: ^Result,
+    seen: ^map[string]bool,
+) -> bool {
+    indexed := false
+    for path, entry in e.index.files {
+        if !path_in_dir(path, dir) {
+            continue
+        }
+        indexed = true
+        if path == skip {
+            continue
+        }
+        for sym in entry.decls {
+            if !symbol_kind_shown(sym.kind) || !completion_matches(sym.name, prefix) {
+                continue
+            }
+            if sym.name in seen^ {
+                continue
+            }
+            seen^[strings.clone(sym.name, context.temp_allocator)] = true
+            append(&res.symbols, Symbol {
+                name      = strings.clone(sym.name),
+                kind      = strings.clone(sym.kind),
+                signature = strings.clone(sym.signature),
+            })
+        }
+    }
+    return indexed
+}
+
+// Whether `path` names a file directly inside `dir` — same prefix, one separator,
+// nothing further nested. `/` and `\` compare equal (the index keys the spellings
+// os.read_dir produced, the caller's come from filepath.dir), but the comparison
+// is otherwise literal, so the usual canonicalization assumption applies. A
+// spelling that doesn't line up just misses, and the caller's disk fallback still
+// answers correctly — this can only cost speed, never candidates.
+@(private = "file")
+path_in_dir :: proc(path, dir: string) -> bool {
+    if dir == "" || len(path) <= len(dir) + 1 {
+        return false
+    }
+    for i in 0 ..< len(dir) {
+        a, b := path[i], dir[i]
+        if a == b || (is_path_sep(a) && is_path_sep(b)) {
+            continue
+        }
+        return false
+    }
+    if !is_path_sep(path[len(dir)]) {
+        return false
+    }
+    return strings.index_any(path[len(dir) + 1:], "/\\") < 0
+}
+
+@(private = "file")
+is_path_sep :: proc(b: u8) -> bool {
+    return b == '/' || b == '\\'
+}
+
 // A Symbol result row copied out of the index, cloned into context.allocator.
 @(private = "file")
 index_symbol_row :: proc(sym: Index_Symbol, path: string) -> Symbol {
@@ -2530,8 +2601,42 @@ add_completion :: proc(res: ^Result, source: string, d: Def, seen: ^map[string]b
 // Appends one directory's top-level declarations (its .odin files, non-recursive
 // — an Odin package is a flat dir) whose names match `prefix`, skipping `skip`
 // (the requesting file, whose live buffer was scanned already).
+//
+// Served from the resident symbol index when the directory is inside the indexed
+// workspace, which is the per-keystroke case: completion fires while typing, and
+// re-reading and re-parsing every sibling file for each keystroke was the last
+// consumer still doing that. The index sync only re-parses files whose stat moved,
+// so a burst of keystrokes costs a readdir walk instead of a package of parses.
+// A directory outside the index — a `core:`/`vendor:` package, a collection —
+// still reads off disk.
 @(private = "file")
 complete_dir_toplevel :: proc(
+    e: ^Odin_Engine,
+    parser: ts.Parser,
+    req: ^Request,
+    dir, prefix, skip: string,
+    res: ^Result,
+    seen: ^map[string]bool,
+) {
+    if req.workspace != "" {
+        indexed := false
+        sync.lock(&e.index.mutex)
+        index_sync(e, parser, req)
+        if !request_cancelled(req) {
+            indexed = index_dir_completions(e, dir, prefix, skip, res, seen)
+        }
+        sync.unlock(&e.index.mutex)
+        if indexed || request_cancelled(req) {
+            return
+        }
+    }
+    complete_dir_scan(e, parser, req, dir, prefix, skip, res, seen)
+}
+
+// The off-disk half of complete_dir_toplevel: reads and parses each .odin file in
+// `dir`. Used for packages the index doesn't cover.
+@(private = "file")
+complete_dir_scan :: proc(
     e: ^Odin_Engine,
     parser: ts.Parser,
     req: ^Request,

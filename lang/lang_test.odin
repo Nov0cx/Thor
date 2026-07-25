@@ -1,6 +1,7 @@
 package lang
 
 import "core:os"
+import "core:path/filepath"
 import "core:strings"
 import "core:sync"
 import "core:testing"
@@ -1138,6 +1139,70 @@ test_completion_package_member :: proc(t: ^testing.T) {
     // Only the `sc` prefix matches: shift and other are excluded.
     testing.expect(t, !has_completion(&res, "shift"), "shift does not share the prefix")
     testing.expect(t, !has_completion(&res, "other"), "other does not share the prefix")
+}
+
+@(test)
+test_completion_siblings_from_index :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // Sibling-file completion is served from the symbol index, which holds the
+    // *whole* workspace while an Odin package is one flat directory — so the
+    // per-directory filter is what keeps another package's declarations out. The
+    // workspace is made absolute because the index keys the paths os.read_dir
+    // produced; a relative spelling would miss and quietly fall back to the disk
+    // scan, testing the old path instead of the new one.
+    rel := "thor_lang_complete_idx_ws"
+    _ = os.make_directory(rel)
+    root, abs_err := filepath.abs(rel, context.temp_allocator)
+    testing.expect(t, abs_err == nil, "could not absolutize the test workspace")
+
+    app := strings.concatenate({root, "/app"}, context.temp_allocator)
+    other := strings.concatenate({root, "/other"}, context.temp_allocator)
+    _ = os.make_directory(app)
+    _ = os.make_directory(other)
+
+    sibling := strings.concatenate({app, "/sibling.odin"}, context.temp_allocator)
+    sibling_src := "package app\n\nsib_value :: 7\n"
+    _ = os.write_entire_file(sibling, transmute([]byte)sibling_src)
+
+    // Same workspace, different package: indexed, but must never be offered here.
+    far := strings.concatenate({other, "/far.odin"}, context.temp_allocator)
+    far_src := "package other\n\nsib_far :: 1\n"
+    _ = os.write_entire_file(far, transmute([]byte)far_src)
+
+    defer os.remove(rel)
+    defer os.remove(app)
+    defer os.remove(other)
+    defer os.remove(sibling)
+    defer os.remove(far)
+
+    main_path := strings.concatenate({app, "/main.odin"}, context.temp_allocator)
+    main_src := "package app\n\nmain :: proc() {\n\t_ = sib\n}\n"
+    at := strings.index(main_src, "sib\n") + len("sib")
+
+    complete_sib :: proc(e: ^Odin_Engine, path, src, root: string, at: int) -> Result {
+        req := Request{kind = .Completion, path = path, ext = ".odin", source = src, offset = at, workspace = root}
+        res := Result{kind = .Completion}
+        odin_resolve(e, &req, &res)
+        return res
+    }
+
+    res1 := complete_sib(e, main_path, main_src, root, at)
+    defer free_symbols(&res1)
+    testing.expect(t, res1.ok, "expected sibling completions")
+    testing.expect(t, has_completion(&res1, "sib_value"), "missing the sibling package file's sib_value")
+    testing.expect(t, !has_completion(&res1, "sib_far"), "another package's sib_far must not be offered")
+
+    // The index is resident across requests, so an edited sibling must be
+    // re-parsed (its size moved) rather than answered from the first parse.
+    edited_src := "package app\n\nsib_value :: 7\n\nsib_extra :: 9\n"
+    _ = os.write_entire_file(sibling, transmute([]byte)edited_src)
+
+    res2 := complete_sib(e, main_path, main_src, root, at)
+    defer free_symbols(&res2)
+    testing.expect(t, has_completion(&res2, "sib_extra"), "an edited sibling's new decl should be offered")
+    testing.expect(t, has_completion(&res2, "sib_value"), "sib_value should survive the reindex")
 }
 
 // Like resolve_def but with a caller-chosen file path, so a cross-file test can

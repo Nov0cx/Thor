@@ -246,18 +246,21 @@ lowest latency.
       rest of the engine: value member access (`v.field`) waits on type inference.
       Requests are debounced (~50ms), so a burst of keystrokes queues one request
       instead of a thread and a buffer clone per key — see request coalescing
-      under scalability.
+      under scalability — and the sibling-package candidates come from the resident
+      symbol index rather than a re-read and re-parse of every file in the package.
 - [ ] **Other LSP features not started:** rename, formatting, code actions,
       semantic tokens. (Diagnostics land via `thor/diagnostics.odin`, outside
       this seam.)
 
 ## Missing — scalability / performance
 
-- [~] **Persistent symbol index.** Every cross-file request re-reads *and
-      re-parses* the whole workspace off-thread; the readdir is cheap, the
-      per-file tree-sitter parse is the cost. Keep parsed top-level declarations
-      resident on the `Odin_Engine`, re-parsing only files that changed. Touches
-      `odin_engine.odin` almost entirely; the seam and host wiring are unchanged.
+- [x] **Persistent symbol index.** Cross-file requests used to re-read *and
+      re-parse* the whole workspace off-thread; the readdir is cheap, the
+      per-file tree-sitter parse is the cost. Parsed top-level declarations are now
+      resident on the `Odin_Engine`, re-parsed only for files that changed, and
+      every cross-file consumer queries them. Touched `odin_engine.odin` almost
+      entirely; the seam and host wiring are unchanged. Phases 1 and 2 landed;
+      Phase 3 (dropping the per-request readdir) stays optional.
 
       **Data model** (engine-owned, self-owned strings cloned from source, freed
       in `odin_destroy`/on reindex — index rows must *not* slice transient source
@@ -298,19 +301,26 @@ lowest latency.
       full declaration text), `collect_workspace_symbols` (Ctrl+T), and
       `resolve_call_target`'s workspace fallback (signature help). The dead walkers
       (`def_scan_*`, `scan_dir`, `collect_symbols_dir/file`, `find_proc_dir`) were
-      removed. *Not yet* — `complete_dir_toplevel`: it is package-scoped (one flat
-      dir, not the whole tree) and runs per keystroke, so syncing the index on
-      every keystroke wanted the debounce work first — that has landed, so this
-      is now unblocked; still on the disk scan for the moment.
+      removed. `complete_dir_toplevel` (completion's sibling-package scan, the last
+      per-keystroke disk reader) now queries the index too — it is package-scoped,
+      so `index_dir_completions` filters the workspace-wide index down to the files
+      sitting *directly* in one directory (`path_in_dir`; a package is a flat dir,
+      so another package's declarations must not leak in). It keeps the disk scan
+      (`complete_dir_scan`) as a fallback for a directory the index doesn't
+      cover — a `core:`/`vendor:`/collection package outside the workspace, or a
+      path spelling that doesn't line up with the index keys — so a miss costs
+      speed, never candidates. Covered by `test_completion_siblings_from_index`
+      (absolute workspace, so the index really answers; asserts the other
+      package's decl is excluded and that an edited sibling is re-parsed).
 
       **Phasing:**
       - Phase 1 — index + lazy build + stat validation + rewire the whole-workspace
         declaration consumers (goto, hover, workspace symbols, signature help).
         **Landed** (`odin_engine.odin`; `test_index_reflects_file_change` covers
-        stat invalidation). Follow-ups still open: completion (needs debounce
-        first) and `odin_engine_notify_saved` on `thor_save_file` (stat-walk
-        already catches saves via the mtime bump, so this is a robustness add for
-        coarse-mtime filesystems, not a correctness gap).
+        stat invalidation). Completion followed once the debounce was in place.
+        Follow-up still open: `odin_engine_notify_saved` on `thor_save_file` (the
+        stat-walk already catches saves via the mtime bump, so this is a robustness
+        add for coarse-mtime filesystems, not a correctness gap).
       - Phase 2 — references acceleration. **Landed.** `index_reparse` now also
         records `File_Entry.idents` (every distinct identifier name in the file,
         engine-owned keys, gathered by `index_collect_idents`). The workspace
@@ -379,9 +389,8 @@ lowest latency.
       Covered by `test_debounce_collapses_burst`, `_delay_elapses`,
       `_cancelled_never_dispatches` and `_slots_are_per_kind`.
 
-      **Still open:** with the debounce in place, `complete_dir_toplevel` can now
-      move off its per-keystroke disk scan onto the symbol index (see the
-      persistent symbol index above) — that was the blocker.
+      That unblocked the last per-keystroke disk reader: `complete_dir_toplevel`
+      now queries the symbol index (see the persistent symbol index above).
 - [ ] **Bounded worker pool.** Each request spawns a thread; a persistent pool
       would cap concurrency and thread churn.
 
