@@ -2241,6 +2241,95 @@ test_member_alias_across_packages :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_member_through_conversion :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // A conversion names the type of the value it yields, so that value carries
+    // the named type's members however the conversion is spelled: `cast`,
+    // `transmute`, the call-shaped `T(x)`, or a `x.(T)` assertion.
+    src := `package demo
+
+Point :: struct {
+	x: int,
+	y: int,
+}
+
+Handle :: distinct Point
+
+Shape :: union {
+	Point,
+}
+
+main :: proc() {
+	raw: [2]int
+	h: Handle
+	s: Shape
+	c := cast(Point)h
+	tm := transmute(Point)raw
+	cv := Point(h)
+	as := s.(Point)
+	got, ok := s.(Point)
+	_ = c.x
+	_ = tm.y
+	_ = cv.x
+	_ = as.y
+	_ = got.x
+	_ = ok
+}
+`
+    probes := []struct {
+        needle, field: string,
+    }{{"c.x", "x: int"}, {"tm.y", "y: int"}, {"cv.x", "x: int"}, {"as.y", "y: int"}, {"got.x", "x: int"}}
+
+    for probe in probes {
+        at := strings.index(src, probe.needle) + strings.index(probe.needle, ".") + 1
+        loc, ok := resolve_offset(e, src, at)
+        defer delete(loc.path)
+        testing.expectf(t, ok, "expected %s to resolve through the conversion", probe.needle)
+        if ok {
+            want := strings.index(src, probe.field)
+            testing.expectf(t, loc.start == want, "%s: got %d, want %d", probe.needle, loc.start, want)
+        }
+    }
+}
+
+@(test)
+test_member_through_qualified_conversion :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // `lib.Point(h)` is a conversion, not a call: no procedure of that name exists
+    // in lib, and the qualifier sits on the member expression the call hangs under.
+    root := "thor_lang_conv_ws"
+    lib := strings.concatenate({root, "/lib"}, context.temp_allocator)
+    _ = os.make_directory(root)
+    _ = os.make_directory(lib)
+
+    lib_path := strings.concatenate({lib, "/api.odin"}, context.temp_allocator)
+    lib_src := "package lib\n\nPoint :: struct {\n\tx: int,\n}\n\nHandle :: distinct Point\n"
+    _ = os.write_entire_file(lib_path, transmute([]byte)lib_src)
+
+    defer os.remove(root)
+    defer os.remove(lib)
+    defer os.remove(lib_path)
+
+    main_path := strings.concatenate({root, "/main.odin"}, context.temp_allocator)
+    main_src := "package app\n\nimport \"lib\"\n\nmain :: proc() {\n\th: lib.Handle\n\tp := lib.Point(h)\n\t_ = p.x\n}\n"
+
+    at := strings.index(main_src, "p.x") + 2
+    loc, ok := resolve_offset(e, main_src, at, root, main_path)
+    defer delete(loc.path)
+
+    testing.expect(t, ok, "expected the converted value's field to resolve")
+    if ok {
+        testing.expectf(t, strings.has_suffix(loc.path, "api.odin"), "path: got %q", loc.path)
+        want := strings.index(lib_src, "x: int")
+        testing.expectf(t, loc.start == want, "member start: got %d, want %d", loc.start, want)
+    }
+}
+
+@(test)
 test_collection_import :: proc(t: ^testing.T) {
     e := odin_engine_create()
     defer odin_destroy(e)

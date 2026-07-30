@@ -2052,6 +2052,16 @@ infer_expr_result :: proc(
         if string(ts.node_type(member)) == "call_expression" {
             return call_result_type(e, parser, root, req, member, index, depth + 1)
         }
+        // `u.(Point)` is an assertion, not a field: the grammar spells the asserted
+        // type as a parenthesized expression where a member name would be. The
+        // value reads as that type — the second result of `v, ok := u.(Point)` is a
+        // bool, which has nothing to reach through.
+        if string(ts.node_type(member)) == "parenthesized_expression" {
+            if index != 0 {
+                return {}, false
+            }
+            return expr_type_name(ts.node_named_child(member, 0), req.source)
+        }
         if !is_identifier(member) {
             return {}, false
         }
@@ -2092,6 +2102,17 @@ infer_expr_result :: proc(
     case "unary_expression":
         // `&xs[0]` — `.` dereferences, so the pointer is transparent.
         return infer_expr_result(e, parser, root, req, ts.node_named_child(node, 0), index, depth + 1)
+    case "cast_expression":
+        // `cast(Point)v` and `transmute(Point)v` both take the type in the
+        // parens, which the grammar hangs off the expression as its own `type`
+        // node. `auto_cast v` is the same node without one, and what it converts
+        // to is decided by where it sits rather than by the expression, so it is
+        // not inferred.
+        target := ts.node_named_child(node, 0)
+        if string(ts.node_type(target)) != "type" {
+            return {}, false
+        }
+        return type_ref_from_node(target, req.source)
     }
     return {}, false
 }
@@ -2497,7 +2518,15 @@ call_result_type :: proc(
 
     src, path, d, found := resolve_call_target(e, parser, root, req, call, fn)
     if !found || d.kind != "function" {
-        return {}, false
+        // `Point(v)` — a conversion is spelled exactly like a call, and only the
+        // declaration behind the name separates the two. With no procedure of that
+        // name in reach the name is read as the type converted to; if it names
+        // nothing either, the lookup behind the Type_Ref comes up empty just the
+        // same. A conversion yields one value, so a later slot is not one.
+        if index != 0 {
+            return {}, false
+        }
+        return conversion_type_name(call, fn, req.source)
     }
     tr, ok := proc_result_type(src, d, index)
     if !ok {
@@ -2506,6 +2535,25 @@ call_result_type :: proc(
     // The result type is spelled in the callee's file, so that file's imports are
     // what qualify it (`-> other.Point`).
     tr.origin = path
+    return tr, true
+}
+
+// The type a call-shaped conversion names: `Point(v)`, or `pkg.Point(v)`, whose
+// qualifier sits on the member expression the call hangs under — the same place
+// resolve_call_target reads a package-qualified callee from.
+@(private = "file")
+conversion_type_name :: proc(call, fn: ts.Node, source: string) -> (Type_Ref, bool) {
+    tr, ok := expr_type_name(fn, source)
+    if !ok {
+        return {}, false
+    }
+    if parent := ts.node_parent(call); !ts.node_is_null(parent) &&
+        string(ts.node_type(parent)) == "member_expression" {
+        pkg := ts.node_named_child(parent, 0)
+        if same_node(ts.node_named_child(parent, 1), call) && is_identifier(pkg) {
+            tr.pkg = ts.node_text(pkg, source)
+        }
+    }
     return tr, true
 }
 
