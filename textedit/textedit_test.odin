@@ -1,6 +1,7 @@
 package textedit
 
 import "core:testing"
+import "core:unicode/utf8"
 
 @(test)
 test_insert_and_undo_redo :: proc(t: ^testing.T) {
@@ -406,4 +407,218 @@ test_relative_line_jump :: proc(t: ^testing.T) {
 
     move_vertical(&state, -2, false) // alt+shift+2
     testing.expect_value(t, line_index(text(&state), primary_cursor(&state).caret), 1)
+}
+
+// Types `s` one character at a time, the way the editor feeds keystrokes in.
+@(private = "file")
+type_runes :: proc(state: ^State, s: string) {
+    for r in s {
+        buffer, width := utf8.encode_rune(r)
+        insert_text(state, string(buffer[:width]))
+    }
+}
+
+@(test)
+test_typing_coalesces_into_one_entry :: proc(t: ^testing.T) {
+    state: State
+    init(&state)
+    defer destroy(&state)
+
+    type_runes(&state, "hello")
+    testing.expect_value(t, text(&state), "hello")
+    testing.expect_value(t, len(state.undo_stack), 1)
+
+    undo(&state)
+    testing.expect_value(t, text(&state), "")
+
+    redo(&state)
+    testing.expect_value(t, text(&state), "hello")
+    testing.expect_value(t, primary_cursor(&state).caret, 5)
+}
+
+// A run breaks where the character class changes, so a word, the space after
+// it and a following word each undo separately.
+@(test)
+test_typing_run_breaks_on_class_change :: proc(t: ^testing.T) {
+    state: State
+    init(&state)
+    defer destroy(&state)
+
+    type_runes(&state, "two words")
+    testing.expect_value(t, len(state.undo_stack), 3)
+
+    undo(&state)
+    testing.expect_value(t, text(&state), "two ")
+    undo(&state)
+    testing.expect_value(t, text(&state), "two")
+    undo(&state)
+    testing.expect_value(t, text(&state), "")
+}
+
+// A paste is one keystroke's worth of nothing: it must not join a typing run,
+// and typing after it must not fold into the paste.
+@(test)
+test_paste_is_its_own_entry :: proc(t: ^testing.T) {
+    state: State
+    init(&state)
+    defer destroy(&state)
+
+    type_runes(&state, "ab")
+    insert_text(&state, "cd")
+    type_runes(&state, "ef")
+    testing.expect_value(t, text(&state), "abcdef")
+    testing.expect_value(t, len(state.undo_stack), 3)
+
+    undo(&state)
+    testing.expect_value(t, text(&state), "abcd")
+    undo(&state)
+    testing.expect_value(t, text(&state), "ab")
+}
+
+// Replacing a selection is a step of its own, and the typing after it starts a
+// fresh run rather than extending the replacement.
+@(test)
+test_selection_replace_is_not_coalesced :: proc(t: ^testing.T) {
+    state: State
+    init(&state)
+    defer destroy(&state)
+
+    insert_text(&state, "keep drop")
+    select_range(&state, 5, 9)
+    type_runes(&state, "xy")
+
+    testing.expect_value(t, text(&state), "keep xy")
+    undo(&state)
+    testing.expect_value(t, text(&state), "keep x")
+    undo(&state)
+    testing.expect_value(t, text(&state), "keep drop")
+}
+
+@(test)
+test_backspace_run_coalesces :: proc(t: ^testing.T) {
+    state: State
+    init(&state)
+    defer destroy(&state)
+
+    insert_text(&state, "hello")
+    for i := 0; i < 5; i += 1 {
+        delete_backward(&state)
+    }
+    testing.expect_value(t, text(&state), "")
+
+    undo(&state)
+    testing.expect_value(t, text(&state), "hello")
+    testing.expect_value(t, primary_cursor(&state).caret, 5)
+
+    redo(&state)
+    testing.expect_value(t, text(&state), "")
+}
+
+@(test)
+test_delete_forward_run_coalesces :: proc(t: ^testing.T) {
+    state: State
+    init(&state)
+    defer destroy(&state)
+
+    insert_text(&state, "hello")
+    set_single_cursor(&state, 0)
+    for i := 0; i < 5; i += 1 {
+        delete_forward(&state)
+    }
+    testing.expect_value(t, text(&state), "")
+
+    undo(&state)
+    testing.expect_value(t, text(&state), "hello")
+
+    redo(&state)
+    testing.expect_value(t, text(&state), "")
+}
+
+// Typing after an undo must start a new entry rather than being absorbed by the
+// older one it happens to sit next to.
+@(test)
+test_typing_after_undo_starts_new_entry :: proc(t: ^testing.T) {
+    state: State
+    init(&state)
+    defer destroy(&state)
+
+    type_runes(&state, "ab")
+    insert_text(&state, "!") // breaks the run: punctuation
+    undo(&state)
+    testing.expect_value(t, text(&state), "ab")
+
+    type_runes(&state, "c")
+    testing.expect_value(t, text(&state), "abc")
+
+    undo(&state)
+    testing.expect_value(t, text(&state), "ab")
+    undo(&state)
+    testing.expect_value(t, text(&state), "")
+}
+
+@(test)
+test_multi_cursor_typing_coalesces :: proc(t: ^testing.T) {
+    state: State
+    init(&state)
+    defer destroy(&state)
+
+    insert_text(&state, "aa\nbb\ncc")
+    set_single_cursor(&state, 0)
+    add_cursor_vertical(&state, 1)
+    add_cursor_vertical(&state, 1)
+    testing.expect_value(t, len(state.cursors), 3)
+
+    type_runes(&state, "xy")
+    testing.expect_value(t, text(&state), "xyaa\nxybb\nxycc")
+
+    undo(&state)
+    testing.expect_value(t, text(&state), "aa\nbb\ncc")
+
+    redo(&state)
+    testing.expect_value(t, text(&state), "xyaa\nxybb\nxycc")
+}
+
+@(test)
+test_multi_cursor_backspace_coalesces :: proc(t: ^testing.T) {
+    state: State
+    init(&state)
+    defer destroy(&state)
+
+    insert_text(&state, "xyaa\nxybb")
+    set_single_cursor(&state, 2)
+    add_cursor_vertical(&state, 1)
+    testing.expect_value(t, len(state.cursors), 2)
+
+    delete_backward(&state)
+    delete_backward(&state)
+    testing.expect_value(t, text(&state), "aa\nbb")
+
+    undo(&state)
+    testing.expect_value(t, text(&state), "xyaa\nxybb")
+
+    redo(&state)
+    testing.expect_value(t, text(&state), "aa\nbb")
+}
+
+// The history is capped, so the oldest entries fall off instead of the stack
+// growing for the whole session.
+@(test)
+test_undo_history_is_capped :: proc(t: ^testing.T) {
+    state: State
+    init(&state)
+    defer destroy(&state)
+
+    // Two runes per insert, so none of these coalesce.
+    for i := 0; i < MAX_UNDO_ENTRIES + 50; i += 1 {
+        insert_text(&state, "ab")
+    }
+    testing.expect_value(t, len(state.undo_stack), MAX_UNDO_ENTRIES)
+
+    for i := 0; i < MAX_UNDO_ENTRIES + 50; i += 1 {
+        undo(&state)
+    }
+    testing.expect_value(t, len(state.undo_stack), 0)
+    testing.expect_value(t, state.undo_bytes, 0)
+    // The 50 dropped entries can no longer be undone.
+    testing.expect_value(t, length(&state), 100)
 }

@@ -71,17 +71,41 @@ piecetable_split_at :: proc(pt: ^Piece_Table, pos: int) -> int {
     return len(pt.pieces)
 }
 
+// Joins pieces[i - 1] and pieces[i] when they are neighbouring runs of the same
+// backing buffer. Without this the list grows by one entry per keystroke, and
+// every length query and materialization walks it.
+@(private)
+piecetable_merge_at :: proc(pt: ^Piece_Table, i: int) {
+    if i <= 0 || i >= len(pt.pieces) {
+        return
+    }
+    prev := pt.pieces[i - 1]
+    next := pt.pieces[i]
+    if prev.source != next.source || prev.start + prev.length != next.start {
+        return
+    }
+    pt.pieces[i - 1].length += next.length
+    ordered_remove(&pt.pieces, i)
+}
+
 piecetable_insert :: proc(pt: ^Piece_Table, pos: int, text: string) {
     if len(text) == 0 {
         return
     }
 
     add_start := len(pt.add)
-    for i := 0; i < len(text); i += 1 {
-        append(&pt.add, text[i])
-    }
+    append(&pt.add, text)
 
     index := piecetable_split_at(pt, pos)
+    // Sequential typing lands at the end of the piece written by the previous
+    // insert; extend it rather than adding another.
+    if index > 0 {
+        prev := &pt.pieces[index - 1]
+        if prev.source == .Add && prev.start + prev.length == add_start {
+            prev.length += len(text)
+            return
+        }
+    }
     inject_at(&pt.pieces, index, Piece {source = .Add, start = add_start, length = len(text)})
 }
 
@@ -93,6 +117,8 @@ piecetable_delete :: proc(pt: ^Piece_Table, pos: int, delete_length: int) {
     start_index := piecetable_split_at(pt, pos)
     end_index := piecetable_split_at(pt, pos + delete_length)
     remove_range(&pt.pieces, start_index, end_index)
+    // Removing the span can leave two runs of one buffer touching again.
+    piecetable_merge_at(pt, start_index)
 }
 
 @(private)

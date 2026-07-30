@@ -26,17 +26,37 @@ Edit_Op :: struct {
     text: string, // owned copy
 }
 
+// How an edit may fold into the entry below it on the undo stack, so a typed
+// word or a run of backspaces takes one step to undo instead of one per key.
+Coalesce :: enum {
+    None,
+    Typing,
+    Delete_Back,
+    Delete_Forward,
+}
+
 Undo_Entry :: struct {
     ops:            [dynamic]Edit_Op,
     cursors_before: [dynamic]Cursor,
     cursors_after:  [dynamic]Cursor,
+    coalesce:       Coalesce,
 }
+
+// Bounds on the undo history; the oldest entries are dropped once either is
+// exceeded, so a long session cannot grow memory without limit. The newest
+// entry is always kept, however large.
+MAX_UNDO_ENTRIES :: 1024
+MAX_UNDO_BYTES :: 16 * 1024 * 1024
 
 State :: struct {
     table:      piecetable.Piece_Table,
     cursors:    [dynamic]Cursor,
     undo_stack: [dynamic]Undo_Entry,
     redo_stack: [dynamic]Undo_Entry,
+    // Op text held by undo_stack, against MAX_UNDO_BYTES.
+    undo_bytes: int,
+    // True while the top undo entry can still absorb the next keystroke.
+    coalescing: bool,
     // Bumped on every content change (edits, undo, redo); reset by set_text.
     // Callers compare against a saved revision to detect unsaved changes.
     revision:   u64,
@@ -61,6 +81,8 @@ set_text :: proc(state: ^State, new_text: string) {
     clear_entries(&state.redo_stack)
     clear(&state.cursors)
     append(&state.cursors, Cursor {})
+    state.undo_bytes = 0
+    state.coalescing = false
     state.revision = 0
 }
 
@@ -352,6 +374,10 @@ insert_text :: proc(state: ^State, s: string) {
     txt := text(state)
     entry := Undo_Entry {cursors_before = clone_cursors(state)}
 
+    // Replacing a selection is its own undo step, and only a single typed
+    // character joins a typing run — never a paste or a completion insert.
+    coalesce := has_any_selection(state) || !is_single_rune(s) ? Coalesce.None : .Typing
+
     // Cursors are kept sorted; apply low to high, shifting later positions.
     offset := 0
     for &cursor in state.cursors {
@@ -367,7 +393,17 @@ insert_text :: proc(state: ^State, s: string) {
         offset += len(s) - (hi - lo)
     }
 
-    finish_edit(state, &entry)
+    finish_edit(state, &entry, coalesce)
+}
+
+// True when `s` holds exactly one rune, i.e. one keystroke's worth of text.
+@(private)
+is_single_rune :: proc(s: string) -> bool {
+    if len(s) == 0 {
+        return false
+    }
+    _, width := utf8.decode_rune_in_string(s)
+    return width == len(s)
 }
 
 // Matching close for an auto-paired opener; ok=false if r is not an opener.
@@ -594,6 +630,8 @@ replace_all :: proc(state: ^State, query, replacement: string, case_sensitive: b
 delete_backward :: proc(state: ^State) {
     txt := text(state)
     entry := Undo_Entry {cursors_before = clone_cursors(state)}
+    // Deleting a selection is its own undo step.
+    coalesce := has_any_selection(state) ? Coalesce.None : .Delete_Back
 
     offset := 0
     changed := false
@@ -620,7 +658,7 @@ delete_backward :: proc(state: ^State) {
     }
 
     if changed {
-        finish_edit(state, &entry)
+        finish_edit(state, &entry, coalesce)
     } else {
         entry_destroy(&entry)
     }
@@ -629,6 +667,8 @@ delete_backward :: proc(state: ^State) {
 delete_forward :: proc(state: ^State) {
     txt := text(state)
     entry := Undo_Entry {cursors_before = clone_cursors(state)}
+    // Deleting a selection is its own undo step.
+    coalesce := has_any_selection(state) ? Coalesce.None : .Delete_Forward
 
     offset := 0
     changed := false
@@ -649,7 +689,7 @@ delete_forward :: proc(state: ^State) {
     }
 
     if changed {
-        finish_edit(state, &entry)
+        finish_edit(state, &entry, coalesce)
     } else {
         entry_destroy(&entry)
     }
@@ -660,6 +700,8 @@ undo :: proc(state: ^State) {
         return
     }
     entry := pop(&state.undo_stack)
+    state.undo_bytes -= entry_bytes(&entry)
+    state.coalescing = false
 
     #reverse for op in entry.ops {
         switch op.kind {
@@ -683,6 +725,8 @@ redo :: proc(state: ^State) {
         return
     }
     entry := pop(&state.redo_stack)
+    state.undo_bytes += entry_bytes(&entry)
+    state.coalescing = false
 
     for op in entry.ops {
         switch op.kind {
@@ -702,16 +746,157 @@ redo :: proc(state: ^State) {
 }
 
 @(private)
-finish_edit :: proc(state: ^State, entry: ^Undo_Entry) {
+finish_edit :: proc(state: ^State, entry: ^Undo_Entry, coalesce := Coalesce.None) {
     txt := text(state)
     for &cursor in state.cursors {
         cursor.preferred_column = column(txt, cursor.caret)
     }
     normalize_cursors(state)
     entry.cursors_after = clone_cursors(state)
-    append(&state.undo_stack, entry^)
+    entry.coalesce = coalesce
+
     clear_entries(&state.redo_stack)
+    if !coalesce_into_previous(state, entry) {
+        state.undo_bytes += entry_bytes(entry)
+        append(&state.undo_stack, entry^)
+    }
+    trim_undo_history(state)
+    state.coalescing = coalesce != .None
     state.revision += 1
+}
+
+@(private)
+entry_bytes :: proc(entry: ^Undo_Entry) -> int {
+    total := 0
+    for op in entry.ops {
+        total += len(op.text)
+    }
+    return total
+}
+
+@(private)
+trim_undo_history :: proc(state: ^State) {
+    for len(state.undo_stack) > 1 &&
+        (len(state.undo_stack) > MAX_UNDO_ENTRIES || state.undo_bytes > MAX_UNDO_BYTES) {
+        state.undo_bytes -= entry_bytes(&state.undo_stack[0])
+        entry_destroy(&state.undo_stack[0])
+        ordered_remove(&state.undo_stack, 0)
+    }
+}
+
+// Character classes that keep a coalescing run going: a typed letter joins the
+// word so far and a space the run of spaces, while punctuation and newlines
+// always start a fresh undo step.
+@(private)
+Run_Class :: enum {
+    Word,
+    Space,
+    Other,
+}
+
+@(private)
+run_class :: proc(b: u8) -> Run_Class {
+    switch {
+    case is_word_byte(b):
+        return .Word
+    case b == ' ' || b == '\t':
+        return .Space
+    }
+    return .Other
+}
+
+// True when `next` continues the run `run` belongs to, the two being adjacent
+// in the buffer in that order.
+@(private)
+same_run :: proc(run, next: string) -> bool {
+    if len(run) == 0 || len(next) == 0 {
+        return false
+    }
+    class := run_class(run[len(run) - 1])
+    return class != .Other && class == run_class(next[0])
+}
+
+@(private)
+join_op_text :: proc(first, second: string) -> string {
+    joined := strings.concatenate({first, second})
+    delete(first)
+    delete(second)
+    return joined
+}
+
+// Folds `entry` into the entry on top of the undo stack when the two are
+// consecutive keystrokes of the same kind, consuming its ops and cursor
+// snapshots. Reports whether it merged.
+//
+// The two entries must line up op for op, each op continuing the run of the one
+// it merges with: for typing, immediately after it; for a backspace, immediately
+// before. `shift` carries the bytes the already-merged ops of `entry` add ahead
+// of the current one, since those move the positions recorded against the older
+// entry.
+@(private)
+coalesce_into_previous :: proc(state: ^State, entry: ^Undo_Entry) -> bool {
+    if !state.coalescing || entry.coalesce == .None || len(state.undo_stack) == 0 {
+        return false
+    }
+    prev := &state.undo_stack[len(state.undo_stack) - 1]
+    if prev.coalesce != entry.coalesce || len(prev.ops) != len(entry.ops) || len(entry.ops) == 0 {
+        return false
+    }
+
+    shift := 0
+    for op, i in entry.ops {
+        old := prev.ops[i]
+        if old.kind != op.kind {
+            return false
+        }
+        expected: int
+        continues: bool
+        switch entry.coalesce {
+        case .None:
+            return false
+        case .Typing:
+            expected = old.pos + len(old.text) + shift
+            continues = same_run(old.text, op.text)
+        case .Delete_Back:
+            expected = old.pos - len(op.text) - shift
+            continues = same_run(op.text, old.text)
+        case .Delete_Forward:
+            expected = old.pos - shift
+            continues = same_run(old.text, op.text)
+        }
+        if op.pos != expected || !continues {
+            return false
+        }
+        shift += len(op.text)
+    }
+
+    shift = 0
+    for op, i in entry.ops {
+        old := &prev.ops[i]
+        switch entry.coalesce {
+        case .None:
+        case .Typing:
+            old.pos += shift
+            old.text = join_op_text(old.text, op.text)
+        case .Delete_Back:
+            old.pos = op.pos
+            old.text = join_op_text(op.text, old.text)
+        case .Delete_Forward:
+            old.pos = op.pos
+            old.text = join_op_text(old.text, op.text)
+        }
+        shift += len(op.text)
+    }
+    state.undo_bytes += shift
+
+    delete(prev.cursors_after)
+    prev.cursors_after = entry.cursors_after
+    entry.cursors_after = nil
+    delete(entry.cursors_before)
+    entry.cursors_before = nil
+    delete(entry.ops) // the op texts were consumed by the merge above
+    entry.ops = nil
+    return true
 }
 
 @(private)

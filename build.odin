@@ -125,7 +125,7 @@ run_tests :: proc() -> bool {
         return false
     }
 
-    for pkg in ([]string{"lang", "plugin", "syntax", "textedit", "thor", "ui", "watch"}) {
+    for pkg in ([]string{"lang", "piecetable", "plugin", "syntax", "textedit", "thor", "ui", "watch"}) {
         args := make([dynamic]string, context.temp_allocator)
         append(&args, "odin", "test", pkg)
         append(&args, fmt.tprintf("-out:bin/test/%s%s", pkg, EXE_EXT))
