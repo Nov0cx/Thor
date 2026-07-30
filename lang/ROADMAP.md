@@ -19,8 +19,10 @@ lowest latency.
   are debounced into a per-kind slot so a burst of keystrokes dispatches once
   (see **Request coalescing / cancellation**).
 - `odin_engine.odin` — first backend, in-client Odin analyzer. Parses with the
-  vendored tree-sitter grammar; resolves identifiers via the LOCALS query +
-  `:=` short-decl handling; cross-file via a workspace scan.
+  vendored tree-sitter grammar (incrementally — a resident per-buffer tree is
+  re-parsed off a diff-recovered edit span, see **Incremental parsing**);
+  resolves identifiers via the LOCALS query + `:=` short-decl handling;
+  cross-file via a workspace scan.
 - Editor wiring — Alt+Enter (`goto_definition` keybind) and Ctrl+Click both
   dispatch go-to-definition; results jump the caret (opening the target file if
   needed, deferring the jump until it loads).
@@ -395,8 +397,48 @@ lowest latency.
       overlay's `exclude req.path` depends on those matching `os.read_dir` paths
       (already a flagged limitation below); normalize keys on insert. Memory:
       resident *decls* only (not trees), bounded and small.
-- [ ] **Incremental parsing.** Each request re-parses from scratch; keep a
-      per-buffer tree and feed edits to tree-sitter (`ts_tree_edit`) for reuse.
+- [x] **Incremental parsing.** The request buffer no longer re-parses from
+      scratch. `Odin_Engine.trees` (a `Tree_Cache`) keeps a resident tree per
+      buffer, and `tree_for_source` — the single parse path for `req.source` in
+      `odin_resolve` — reuses it: the cached source is diffed to one changed
+      span, `ts.tree_edit` applies it, and the old tree seeds
+      `parser_parse_string`, so tree-sitter rebuilds only the invalidated
+      subtrees. An identical source (a hover landing on the same keystroke as a
+      completion) skips the parse entirely.
+
+      **No host coupling.** The seam hands backends a full `source` snapshot,
+      never an edit delta, so the edit is *recovered* rather than reported:
+      `source_edit` trims the common prefix and suffix and calls everything
+      between them replaced. A keystroke is one contiguous run, so that is exact;
+      a wider change (multi-cursor, a file reload) collapses into a single
+      covering span, which is still a truthful description — tree-sitter reuses
+      whatever falls outside it. Both ends are pulled onto UTF-8 rune boundaries
+      so no span ever splits a rune. Points (`byte_point`) are computed for the
+      edit even though every resolution here works in raw byte offsets, because
+      tree-sitter stores them on the nodes it shifts. Being diff-based, it makes
+      no ordering assumption: requests that arrive out of revision order still
+      describe a correct old→new edit.
+
+      **Cache shape.** `TREE_CACHE_SLOTS` (8) entries, each a `{path, source,
+      tree, used}`, retired least-recently-used — enough that alternating between
+      open tabs doesn't thrash. Nothing invalidates explicitly: the diff absorbs
+      every content change, and a closed or renamed file simply ages out.
+      `tree_for_source` returns `ts.tree_copy` of the entry (cheap, and what
+      makes a tree safe to read on one worker while another re-parses the same
+      buffer); the mutex spans the parse, so concurrent requests on one buffer
+      serialize and the waiter gets the fresh tree.
+
+      **Scope:** the request buffer only. The workspace files the cross-file
+      scans visit (`index_reparse`, `ref_scan_file`, `scan_file`, …) are
+      stat-gated by the symbol index and still parse whole — caching them would
+      thrash the slots for no win.
+
+      Covered by `test_source_edit_spans` (insert/delete/replace/append/prepend/
+      whole-buffer/UTF-8 spans), `test_incremental_tree_matches_cold_parse` (nine
+      successive edits, each comparing the incremental tree's s-expression
+      against a cold parse of the same text), `test_incremental_reparse_tracks_edits`
+      (goto stays correct across a sequence of edits), `test_tree_cache_is_per_path`
+      and `test_tree_cache_evicts_and_reparses`.
 - [x] **Request coalescing / cancellation.** Each dispatched job carries a cancellation flag reachable from
       the `Request` (`cancel: ^bool`, polled through `request_cancelled`), and the
       Manager keeps an `active: map[u64]^Job` so a request can be abandoned by id

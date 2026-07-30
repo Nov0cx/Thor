@@ -29,6 +29,7 @@ Odin_Engine :: struct {
     locals:   ts.Query, // compiled once, immutable, shared read-only across workers
     index:    Symbol_Index,
     config:   Config_Cache,
+    trees:    Tree_Cache,
 }
 
 // A resident top-level declaration: self-owned copies (the parse tree and its
@@ -79,6 +80,8 @@ odin_engine_create :: proc() -> ^Odin_Engine {
     e.index.alloc = context.allocator
     e.index.files = make(map[string]File_Entry, 0, e.index.alloc)
     e.config.alloc = context.allocator
+    e.trees.alloc = context.allocator
+    e.trees.entries = make([dynamic]Tree_Entry, e.trees.alloc)
     return e
 }
 
@@ -106,6 +109,7 @@ odin_destroy :: proc(data: rawptr) {
     }
     index_clear(e)
     config_clear(e)
+    tree_cache_clear(e)
     free(e)
 }
 
@@ -711,6 +715,197 @@ config_clear :: proc(e: ^Odin_Engine) {
     cache.loaded = false
 }
 
+// How many buffers keep a resident parse tree. One tree plus one copy of its
+// source per slot; the working set is the open tabs.
+@(private)
+TREE_CACHE_SLOTS :: 8
+
+// One buffer's last parse: the tree, the source it came from (the diff base —
+// tree-sitter keeps no text of its own), and the LRU stamp.
+@(private = "file")
+Tree_Entry :: struct {
+    path:   string, // engine-owned
+    source: string, // engine-owned
+    tree:   ts.Tree,
+    used:   u64,
+}
+
+// Resident per-buffer trees, so a request re-parses only what the last edit
+// touched. Owned strings use `alloc` (the engine's), never the per-request
+// Manager allocator.
+@(private = "file")
+Tree_Cache :: struct {
+    mutex:   sync.Mutex,
+    entries: [dynamic]Tree_Entry,
+    clock:   u64,
+    alloc:   runtime.Allocator,
+}
+
+// The parse tree for `source`, reusing this path's resident tree: the cached
+// source is diffed down to one changed span, `ts.tree_edit` applies it, and the
+// old tree seeds the re-parse so tree-sitter rebuilds only the subtrees the edit
+// invalidated. A path with no resident tree is parsed whole.
+//
+// Returns a shallow copy the caller must `tree_delete` — the entry keeps the
+// original, and copies are what make a tree safe to read on this worker while
+// another request re-parses the same buffer. The lock spans the parse, so
+// concurrent requests on one buffer serialize; the waiter gets the fresh tree.
+@(private)
+tree_for_source :: proc(e: ^Odin_Engine, parser: ts.Parser, path, source: string) -> ts.Tree {
+    cache := &e.trees
+    sync.lock(&cache.mutex)
+    defer sync.unlock(&cache.mutex)
+
+    cache.clock += 1
+    if i := tree_slot(cache, path); i >= 0 {
+        entry := &cache.entries[i]
+        entry.used = cache.clock
+        if entry.source == source {
+            return ts.tree_copy(entry.tree)
+        }
+        edit := source_edit(entry.source, source)
+        ts.tree_edit(entry.tree, &edit)
+        fresh := ts.parser_parse_string(parser, source, entry.tree)
+        if fresh == nil {
+            tree_evict(cache, i) // the tree carries the edit but no text to match it
+            return nil
+        }
+        ts.tree_delete(entry.tree)
+        delete(entry.source, cache.alloc)
+        entry.tree = fresh
+        entry.source = strings.clone(source, cache.alloc)
+        return ts.tree_copy(fresh)
+    }
+
+    tree := ts.parser_parse_string(parser, source)
+    if tree == nil {
+        return nil
+    }
+    tree_store(cache, path, source, tree)
+    return ts.tree_copy(tree)
+}
+
+// Index of `path`'s slot, or -1.
+@(private = "file")
+tree_slot :: proc(cache: ^Tree_Cache, path: string) -> int {
+    for slot, i in cache.entries {
+        if slot.path == path {
+            return i
+        }
+    }
+    return -1
+}
+
+// Adds `path`'s tree to the cache, retiring the least recently used slot when
+// full. Takes ownership of `tree`.
+@(private = "file")
+tree_store :: proc(cache: ^Tree_Cache, path, source: string, tree: ts.Tree) {
+    entry := Tree_Entry {
+        path   = strings.clone(path, cache.alloc),
+        source = strings.clone(source, cache.alloc),
+        tree   = tree,
+        used   = cache.clock,
+    }
+    if len(cache.entries) < TREE_CACHE_SLOTS {
+        append(&cache.entries, entry)
+        return
+    }
+    lru := 0
+    for slot, i in cache.entries {
+        if slot.used < cache.entries[lru].used {
+            lru = i
+        }
+    }
+    tree_free_entry(cache, cache.entries[lru])
+    cache.entries[lru] = entry
+}
+
+@(private = "file")
+tree_free_entry :: proc(cache: ^Tree_Cache, entry: Tree_Entry) {
+    if entry.tree != nil {
+        ts.tree_delete(entry.tree)
+    }
+    delete(entry.path, cache.alloc)
+    delete(entry.source, cache.alloc)
+}
+
+@(private = "file")
+tree_evict :: proc(cache: ^Tree_Cache, i: int) {
+    tree_free_entry(cache, cache.entries[i])
+    unordered_remove(&cache.entries, i)
+}
+
+// Frees every resident tree.
+@(private = "file")
+tree_cache_clear :: proc(e: ^Odin_Engine) {
+    cache := &e.trees
+    for entry in cache.entries {
+        tree_free_entry(cache, entry)
+    }
+    delete(cache.entries)
+    cache.entries = nil
+}
+
+// The one byte span that turns `old` into `new`, found by trimming the common
+// prefix and suffix. A keystroke is a contiguous run, so this recovers it
+// exactly; a wider change (multi-cursor, a reload) collapses into one span
+// covering them all — still truthful, tree-sitter reuses whatever falls outside
+// it. Both ends are pulled onto UTF-8 rune boundaries.
+@(private)
+source_edit :: proc(old, new: string) -> ts.Input_Edit {
+    limit := min(len(old), len(new))
+
+    prefix := 0
+    for prefix < limit && old[prefix] == new[prefix] {
+        prefix += 1
+    }
+    for prefix > 0 && prefix < len(new) && is_utf8_tail(new[prefix]) {
+        prefix -= 1
+    }
+
+    // The suffix stops at the prefix in both strings, or the two would cross and
+    // describe a negative-length edit.
+    suffix := 0
+    for suffix < limit - prefix && old[len(old) - 1 - suffix] == new[len(new) - 1 - suffix] {
+        suffix += 1
+    }
+    old_end, new_end := len(old) - suffix, len(new) - suffix
+    for old_end < len(old) && is_utf8_tail(old[old_end]) {
+        old_end += 1
+        new_end += 1
+    }
+
+    return ts.Input_Edit {
+        start_byte    = u32(prefix),
+        old_end_byte  = u32(old_end),
+        new_end_byte  = u32(new_end),
+        start_point   = byte_point(new, prefix), // a common prefix: the same in both
+        old_end_point = byte_point(old, old_end),
+        new_end_point = byte_point(new, new_end),
+    }
+}
+
+// True for a UTF-8 continuation byte (10xxxxxx) — the middle of a rune.
+@(private = "file")
+is_utf8_tail :: proc(b: byte) -> bool {
+    return b & 0xC0 == 0x80
+}
+
+// The tree-sitter Point (0-based row, byte column) at `offset`. Only the edit
+// description needs these — resolution here is all raw byte offsets — but
+// tree-sitter stores them on the nodes it shifts, so they have to be right.
+@(private = "file")
+byte_point :: proc(s: string, offset: int) -> ts.Point {
+    row, line_start := 0, 0
+    for i in 0 ..< offset {
+        if s[i] == '\n' {
+            row += 1
+            line_start = i + 1
+        }
+    }
+    return ts.Point{row = u32(row), col = u32(offset - line_start)}
+}
+
 // A declaration found in a parsed tree: the identifier being declared, the byte
 // range of the scope it is visible in, and the enclosing declaration node used
 // for hover text.
@@ -745,7 +940,10 @@ odin_resolve :: proc(data: rawptr, req: ^Request, res: ^Result) {
     defer ts.parser_delete(parser)
     ts.parser_set_language(parser, e.language)
 
-    tree := ts.parser_parse_string(parser, req.source)
+    // The request buffer is parsed incrementally off the resident tree for this
+    // path (see tree_for_source); the workspace files the cross-file scans visit
+    // are stat-gated instead and parsed whole.
+    tree := tree_for_source(e, parser, req.path, req.source)
     if tree == nil {
         return
     }
