@@ -64,9 +64,9 @@ Diagnostic_Severity :: enum {
 }
 
 // A compiler diagnostic mapped onto the buffer: the byte range to underline and
-// its severity. `line` (0-based) and `message` are carried for the owner's own
-// use (the status bar looks up the caret line's message); the editor draws only
-// start/end/severity. Owned by the file, borrowed by the editor.
+// its severity. `line` (0-based) locates it for the whole-line lookups (the status
+// bar's caret message, the gutter marker); `message` is what a dwell over either
+// indicator pops up. Owned by the file, borrowed by the editor.
 Diagnostic :: struct {
     start:    int,
     end:      int,
@@ -147,17 +147,20 @@ Editor :: struct {
     // Dwell tracking: the spot the cursor settled on and when. hover_probe_offset
     // is the byte offset a request was fired for (-1 = none), so a still cursor
     // fires exactly once until it moves again. hover_mod_down is the previous
-    // frame's modifier state, so pressing it restarts the dwell.
+    // frame's modifier state, so toggling it restarts the dwell.
     hover_probe_pos:     rl.Vector2,
     hover_probe_time:    f64,
     hover_probe_offset:  int,
     hover_mod_down:      bool,
     // Shown popup: text and the byte range it describes, set by editor_show_hover
-    // when a result lands. text is an owned clone.
+    // when a result lands. text is an owned clone. hover_accent tints the border
+    // when the popup carries a diagnostic; a zero color leaves it the default.
     hover_active:        bool,
     hover_text:          string,
     hover_start:         int,
     hover_end:           int,
+    hover_accent:        rl.Color,
+    hover_revision:      u64,
     // Signature-help popup: the enclosing call's signature, shown above the caret
     // on explicit request (not a mouse dwell) and dismissed on Escape, a caret
     // jump, or when focus leaves the pane. Owned text clone.
@@ -304,8 +307,9 @@ editor_set_completions :: proc(editor: ^Editor, items: []Completion_Item) {
 
 // Shows the hover popup with `text` describing bytes [start, end). Ignored when
 // the cursor has since moved (no request is pending), so a late result can't pop
-// up after the mouse left the symbol. Clones `text`.
-editor_show_hover :: proc(editor: ^Editor, text: string, start, end: int) {
+// up after the mouse left the symbol. Clones `text`. `accent` tints the border,
+// zero leaving it the focus color.
+editor_show_hover :: proc(editor: ^Editor, text: string, start, end: int, accent := rl.Color{}) {
     if editor.hover_probe_offset < 0 || text == "" {
         return
     }
@@ -313,6 +317,8 @@ editor_show_hover :: proc(editor: ^Editor, text: string, start, end: int) {
     editor.hover_text = strings.clone(text)
     editor.hover_start = start
     editor.hover_end = end
+    editor.hover_accent = accent
+    editor.hover_revision = editor.state != nil ? editor.state.revision : 0
     editor.hover_active = true
 }
 
@@ -1584,34 +1590,31 @@ editor_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
 HOVER_DWELL_SECS :: 0.45
 HOVER_MOVE_TOL :: 3
 
-// Per-frame hover tick: tracks dwell and fires one request to the owner once the
-// cursor has been still long enough over the text with the modifier held.
-// Movement, or releasing the modifier, resets the dwell and hides any popup.
+// Per-frame hover tick: tracks dwell and resolves one hover once the cursor has
+// been still long enough. Movement, or toggling the modifier, resets the dwell
+// and hides any popup.
 @(private = "file")
 editor_handle_hover :: proc(editor: ^Editor, mouse: rl.Vector2) {
     // Hover events carry no modifier state; poll ctrl, the same key Ctrl+Click
-    // uses to inspect a symbol. Without it a passive mouse rest pops nothing up.
+    // uses to inspect a symbol. It picks which hover this dwell is: held, the
+    // owner resolves the symbol under the cursor; released, a diagnostic under it
+    // explains itself. A passive rest over unflagged code still pops nothing up.
     mod := rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL)
-    pressed := mod && !editor.hover_mod_down
+    toggled := mod != editor.hover_mod_down
     editor.hover_mod_down = mod
-    if !mod {
-        editor.hover_probe_pos = mouse
-        editor.hover_probe_offset = -1
-        editor_clear_hover(editor)
-        return
-    }
     moved := abs(mouse.x - editor.hover_probe_pos.x) > HOVER_MOVE_TOL ||
              abs(mouse.y - editor.hover_probe_pos.y) > HOVER_MOVE_TOL
-    // Pressing the modifier over an already-resting cursor starts a fresh dwell,
-    // so the popup never appears the instant the key goes down.
-    if moved || pressed {
+    // Moving the modifier over an already-resting cursor starts a fresh dwell, so
+    // neither popup appears the instant the key does, and the one already up goes
+    // away rather than standing for the wrong gesture.
+    if moved || toggled {
         editor.hover_probe_pos = mouse
         editor.hover_probe_time = rl.GetTime()
         editor.hover_probe_offset = -1
         editor_clear_hover(editor)
         return
     }
-    if editor.on_hover == nil || editor.completion_active {
+    if editor.completion_active || (mod && editor.on_hover == nil) {
         return
     }
     // A shown popup or an in-flight request both wait: fire exactly once per
@@ -1622,14 +1625,92 @@ editor_handle_hover :: proc(editor: ^Editor, mouse: rl.Vector2) {
     if rl.GetTime() - editor.hover_probe_time < HOVER_DWELL_SECS {
         return
     }
-    // Ignore the gutter and the scrollbar strip; only text hovers resolve.
-    if mouse.x < editor.bounds.x + editor.gutter_width {
+    // The gutter carries the diagnostic marker but no symbol, so a dwell there is
+    // a diagnostic hover or nothing. editor_pos_at clamps an x left of the text to
+    // the row's first byte, which is the line the marker stands for.
+    in_gutter := mouse.x < editor.bounds.x + editor.gutter_width
+    if in_gutter && mod {
         return
     }
-    if pos, ok := editor_pos_at(editor, mouse); ok {
-        editor.hover_probe_offset = pos
-        editor.on_hover(editor.hover_data, editor, editor.state, pos)
+    pos, ok := editor_pos_at(editor, mouse)
+    if !ok {
+        return
     }
+    editor.hover_probe_offset = pos
+    if mod {
+        editor.on_hover(editor.hover_data, editor, editor.state, pos)
+        return
+    }
+    if d, has := editor_hover_diagnostic(editor, pos, whole_line = in_gutter); has {
+        color := d.severity == .Error ? editor.diagnostic_error_color : editor.diagnostic_warn_color
+        editor_show_hover(editor, hover_wrapped(editor, d.message), d.start, d.end, color)
+    }
+}
+
+// The diagnostic a plain dwell explains: the one whose range covers `offset`, or,
+// for a dwell over the gutter marker — which stands for the whole line — the worst
+// one sharing its line. An error outranks a warning either way, as it does for the
+// marker's own color.
+@(private)
+editor_hover_diagnostic :: proc(editor: ^Editor, offset: int, whole_line: bool) -> (Diagnostic, bool) {
+    line := -1
+    if whole_line && editor.state != nil {
+        line = textedit.line_index(textedit.text(editor.state), offset)
+    }
+    best: Diagnostic
+    found := false
+    for d in editor.diagnostics {
+        if d.message == "" {
+            continue
+        }
+        hit := whole_line ? d.line == line : offset >= d.start && offset < d.end
+        if !hit {
+            continue
+        }
+        if !found || (d.severity == .Error && best.severity != .Error) {
+            best = d
+            found = true
+        }
+    }
+    return best, found
+}
+
+// Widest a hover popup may grow before its text wraps. The pane bounds the box;
+// the constant keeps a long message off a wide screen's full width, where a line
+// that far across is no longer readable.
+@(private = "file")
+HOVER_WRAP_MAX :: 640
+
+// `text` broken on spaces so no line outgrows the popup's width budget. Temporary
+// — editor_show_hover clones what it keeps. A compiler message is one long line as
+// it arrives, which a narrow pane would otherwise push off the edge.
+@(private = "file")
+hover_wrapped :: proc(editor: ^Editor, text: string) -> string {
+    budget := min(editor.bounds.width - 32, HOVER_WRAP_MAX)
+    if budget < 120 || cast(f32) ui.measure_text(text, editor.font_size) <= budget {
+        return text
+    }
+    b := strings.builder_make(context.temp_allocator)
+    line := "" // the current line, held back until the next word decides it is full
+    rest := text
+    for word in strings.split_iterator(&rest, " ") {
+        if line == "" {
+            line = word
+            continue
+        }
+        joined := fmt.tprintf("%s %s", line, word)
+        // A word wider than the budget on its own keeps its line rather than being
+        // split, so a long path or type name survives as one token.
+        if cast(f32) ui.measure_text(joined, editor.font_size) > budget {
+            strings.write_string(&b, line)
+            strings.write_byte(&b, '\n')
+            line = word
+            continue
+        }
+        line = joined
+    }
+    strings.write_string(&b, line)
+    return strings.to_string(b)
 }
 
 // Draws the hover popup anchored to the resolved symbol, above the line (flipping
@@ -1639,14 +1720,26 @@ editor_draw_hover :: proc(editor: ^Editor) {
     if !editor.hover_active || editor.hover_text == "" {
         return
     }
+    // An edit moves the bytes the popup was anchored to and, for a diagnostic,
+    // invalidates the message itself — the compiler measured the text before it.
+    // The mouse need not have moved, so the dwell gate would keep it up.
+    if editor.state != nil && editor.state.revision != editor.hover_revision {
+        editor_clear_hover(editor)
+        return
+    }
     x, y, lh, ok := editor_screen_at(editor, editor.hover_start)
     if !ok {
         return
     }
 
     pad: f32 = 8
+    // A declaration spans as many lines as it was written on and a wrapped
+    // diagnostic as many as it needed, so the box is sized by the line count
+    // draw_text will advance through, not by the one line the anchor sits on.
+    lines := cast(f32) (strings.count(editor.hover_text, "\n") + 1)
+    text_h := cast(f32) ui.text_line_height(editor.font_size) * lines
     width := cast(f32) ui.measure_text(editor.hover_text, editor.font_size) + pad * 2
-    height := lh + pad
+    height := text_h + pad
 
     box_x := x
     box_y := y - height - 4
@@ -1660,11 +1753,20 @@ editor_draw_hover :: proc(editor: ^Editor) {
         box_x = editor.bounds.x
     }
 
+    border := editor.hover_accent
+    if border.a == 0 {
+        border = editor.focus_border_color
+    }
     box := rl.Rectangle {box_x, box_y, width, height}
     rl.DrawRectangleRec(box, editor.gutter_color)
-    rl.DrawRectangleLinesEx(box, 1, editor.focus_border_color)
-    text_y := cast(i32) (box_y + (height - cast(f32) editor.font_size) * 0.5)
-    ui.draw_text(editor.hover_text, cast(i32) (box_x + pad), text_y, editor.font_size, editor.text_color)
+    rl.DrawRectangleLinesEx(box, 1, border)
+    ui.draw_text(
+        editor.hover_text,
+        cast(i32) (box_x + pad),
+        cast(i32) (box_y + pad * 0.5),
+        editor.font_size,
+        editor.text_color,
+    )
 }
 
 // Draws the signature-help popup anchored above the caret, flipping below when

@@ -151,6 +151,22 @@ lowest latency.
   stripped.
 - **"No definition found" feedback:** a failed go-to-definition flashes a
   transient statusline notice (3s).
+- **Explained diagnostics:** the compiler messages `odin check` produces
+  (`thor/diagnostics.odin`, outside this seam) are readable in place rather than
+  only implied by a squiggle. A mouse dwell over the squiggle — or over the gutter
+  marker, which stands for the whole line — pops the message up in the hover popup,
+  its border tinted by severity. That hover is *not* Ctrl-gated: the modifier picks
+  which of the two hovers a dwell is, held asking the engine about the symbol and
+  released letting a flagged span explain itself, so resting on unflagged code
+  still pops nothing up. Resolved from the editor's own borrowed `[]Diagnostic`,
+  so it costs no request and no thread. A long message wraps to a width budget
+  (`hover_wrapped`) instead of running off the pane, and the popup is now sized by
+  the line count it will draw — which also fixes a multi-line *declaration*
+  overflowing its one-line box. Any edit dismisses it: the compiler measured the
+  text before it, so both the message and the range it points at go stale
+  (`hover_revision`). Independently, the caret's line shows its message in the
+  statusbar whenever no transient notice is up (`thor_status_info`), so the same
+  text is reachable without the mouse.
 - **Document symbols (outline):** Ctrl+Shift+O lists the active file's top-level
   declarations — procedures, types, enums, constants, package-level vars — in the
   fuzzy command-palette picker (`Document_Symbols` request → `collect_document_symbols`,
@@ -268,7 +284,12 @@ lowest latency.
       expressions typed by their target (`cast(T)x`, `transmute(T)x`, and the
       call-shaped `T(x)` once no procedure answers to the name); and union variants
       narrowed by both the `x.(T)` assertion and each case of a `switch v in u`.
-- [ ] explain error indicator
+- [x] **explain error indicator.** Both indicators a diagnostic already had — the
+      squiggle and the gutter marker — now say what they mean on a plain mouse
+      dwell (`editor_handle_hover` → `editor_hover_diagnostic`, an error outranking
+      a warning on a shared line), and the caret's line shows its message in the
+      statusbar. Nothing new is analyzed: the engine never sees these requests, the
+      messages come from the `odin check` run the save kicked off.
 - [x] **dont show definiton when just hovering over a thing.** The hover popup is
       gated behind Ctrl (`editor_handle_hover` polls the key, as the Scroll case
       already did for zoom); a passive dwell resolves nothing.
