@@ -17,11 +17,13 @@ thor_update_highlights :: proc(thor: ^Thor, file: ^Open_File) {
     clear(&file.folds)
     if plugin.supports(&thor.plugins, key) {
         source := textedit.text(&file.state)
-        for span in plugin.highlight(&thor.plugins, source, key, context.temp_allocator) {
+        // The buffer's path lets a grammar-backed language re-parse only what
+        // this revision changed, off the tree it kept from the last one.
+        for span in plugin.highlight(&thor.plugins, file.path, source, key, context.temp_allocator) {
             color := ui.theme_role_color(thor.theme, span.role)
             append(&file.highlights, widgets.Highlight_Span{span.start, span.end, color})
         }
-        for r in plugin.fold_ranges(&thor.plugins, source, key, context.temp_allocator) {
+        for r in plugin.fold_ranges(&thor.plugins, file.path, source, key, context.temp_allocator) {
             append(&file.folds, widgets.Fold_Range{r.start_line, r.end_line})
         }
     }

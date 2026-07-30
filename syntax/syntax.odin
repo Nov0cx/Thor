@@ -8,6 +8,7 @@ import "base:runtime"
 import "core:slice"
 import "core:strings"
 
+import "../treecache"
 import ts "../vendor/odin-tree-sitter"
 import ts_c "../vendor/odin-tree-sitter/parsers/c"
 import ts_cpp "../vendor/odin-tree-sitter/parsers/cpp"
@@ -68,6 +69,11 @@ Highlighter :: struct {
     languages: map[string]Language_Entry,
     queries:   map[string]ts.Query,
     lang_id:   string, // language currently set on the parser
+    // Resident per-buffer trees, so a keystroke re-parses only the subtrees it
+    // invalidated rather than the whole file. Highlighting and folding ask for
+    // the same buffer back to back, and the second call re-parses nothing at
+    // all — the source is unchanged.
+    trees:     treecache.Cache,
 }
 
 highlighter_create :: proc() -> Highlighter {
@@ -75,6 +81,7 @@ highlighter_create :: proc() -> Highlighter {
     h.parser = ts.parser_new()
     h.languages = make(map[string]Language_Entry)
     h.queries = make(map[string]ts.Query)
+    treecache.init(&h.trees)
     h.languages["odin"] = Language_Entry{ts_odin.tree_sitter_odin(), ts_odin.HIGHLIGHTS + "\n" + ODIN_ALIASES}
     h.languages["lua"] = Language_Entry{ts_lua.tree_sitter_lua(), ts_lua.HIGHLIGHTS}
     h.languages["c"] = Language_Entry{ts_c.tree_sitter_c(), ts_c.HIGHLIGHTS}
@@ -108,6 +115,7 @@ highlighter_destroy :: proc(h: ^Highlighter) {
     }
     delete(h.queries)
     delete(h.languages)
+    treecache.destroy(&h.trees)
     ts.parser_delete(h.parser)
 }
 
@@ -118,15 +126,12 @@ supports :: proc(h: ^Highlighter, lang_id: string) -> bool {
 
 // Parses `source` with the named grammar and returns non-overlapping spans
 // (ascending, using `allocator`), each tagged with its winning capture name.
-// Empty when the grammar is unknown or parsing fails.
-highlight :: proc(h: ^Highlighter, source: string, lang_id: string, allocator := context.allocator) -> []Span {
+// `path` names the buffer so the parse can reuse its resident tree (see
+// parse_tree). Empty when the grammar is unknown or parsing fails.
+highlight :: proc(h: ^Highlighter, path, source, lang_id: string, allocator := context.allocator) -> []Span {
     entry, ok := h.languages[lang_id]
     if !ok {
         return nil
-    }
-    if h.lang_id != lang_id {
-        ts.parser_set_language(h.parser, entry.lang)
-        h.lang_id = lang_id
     }
 
     query := highlighter_query(h, lang_id, entry)
@@ -134,7 +139,7 @@ highlight :: proc(h: ^Highlighter, source: string, lang_id: string, allocator :=
         return nil
     }
 
-    tree := ts.parser_parse_string(h.parser, source)
+    tree := parse_tree(h, path, source, lang_id, entry)
     if tree == nil {
         return nil
     }
@@ -181,19 +186,17 @@ Fold_Range :: struct {
 // node spanning more than one line is a candidate, keeping the widest region per
 // starting line (so `foo :: proc(...) {` and its `block` fold as one). Grammar-
 // agnostic — every compiled language folds with no per-language rules. The root
-// node is skipped so the whole file is never a single fold. Ascending by start
-// line, using `allocator`; empty when the grammar is unknown or parsing fails.
-fold_ranges :: proc(h: ^Highlighter, source: string, lang_id: string, allocator := context.allocator) -> []Fold_Range {
+// node is skipped so the whole file is never a single fold. `path` names the
+// buffer, as for `highlight` — folding runs right after it on the same source,
+// so it reuses that very tree. Ascending by start line, using `allocator`; empty
+// when the grammar is unknown or parsing fails.
+fold_ranges :: proc(h: ^Highlighter, path, source, lang_id: string, allocator := context.allocator) -> []Fold_Range {
     entry, ok := h.languages[lang_id]
     if !ok {
         return nil
     }
-    if h.lang_id != lang_id {
-        ts.parser_set_language(h.parser, entry.lang)
-        h.lang_id = lang_id
-    }
 
-    tree := ts.parser_parse_string(h.parser, source)
+    tree := parse_tree(h, path, source, lang_id, entry)
     if tree == nil {
         return nil
     }
@@ -228,6 +231,25 @@ fold_ranges :: proc(h: ^Highlighter, source: string, lang_id: string, allocator 
         return a.start_line < b.start_line
     })
     return out[:]
+}
+
+// The parse tree for `source`, off `path`'s resident tree when there is one:
+// the cached source is diffed to one changed span and only the subtrees that
+// span invalidated are rebuilt, so a keystroke costs a fraction of a whole-file
+// parse and an unchanged source costs no parse at all. An empty `path` is a
+// buffer with no stable identity — it parses whole and caches nothing.
+//
+// The caller owns the returned tree and must `tree_delete` it.
+@(private)
+parse_tree :: proc(h: ^Highlighter, path, source, lang_id: string, entry: Language_Entry) -> ts.Tree {
+    if h.lang_id != lang_id {
+        ts.parser_set_language(h.parser, entry.lang)
+        h.lang_id = lang_id
+    }
+    if path == "" {
+        return ts.parser_parse_string(h.parser, source)
+    }
+    return treecache.for_source(&h.trees, h.parser, path, lang_id, source)
 }
 
 // Package names an Odin file's imports bind: the alias when given, else the

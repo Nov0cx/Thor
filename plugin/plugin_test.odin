@@ -55,7 +55,7 @@ test_register_and_run_lexer :: proc(t: ^testing.T) {
     testing.expect(t, ok, "plugin script runs")
     testing.expect(t, supports(&m, ".ini"), "extension registered")
 
-    spans := highlight(&m, "abc defgh", ".ini", context.allocator)
+    spans := highlight(&m, "", "abc defgh", ".ini", context.allocator)
     defer {
         for s in spans {
             delete(s.role)
@@ -103,7 +103,7 @@ main :: proc() {
 	context.allocator = mem.panic_allocator()
 }
 `
-    spans := highlight(&m, src, ".odin", context.allocator)
+    spans := highlight(&m, "", src, ".odin", context.allocator)
     defer delete(spans)
     testing.expect(t, len(spans) > 0, "odin spans produced")
 
@@ -130,7 +130,7 @@ test_lua_plugin_highlights :: proc(t: ^testing.T) {
     testing.expect(t, supports(&m, ".lua"), "lua language registered")
 
     src := "local function add(a, b)\n    return a + b  -- sum\nend\nprint(\"hi\")\n"
-    spans := highlight(&m, src, ".lua", context.allocator)
+    spans := highlight(&m, "", src, ".lua", context.allocator)
     defer delete(spans)
     testing.expect(t, len(spans) > 0, "lua spans produced")
 
@@ -157,7 +157,7 @@ test_go_plugin_highlights :: proc(t: ^testing.T) {
     testing.expect(t, supports(&m, ".go"), "go language registered")
 
     src := "package main\n\nfunc main() {\n\ts := \"hi\" // note\n}\n"
-    spans := highlight(&m, src, ".go", context.allocator)
+    spans := highlight(&m, "", src, ".go", context.allocator)
     defer delete(spans)
     testing.expect(t, len(spans) > 0, "go spans produced")
 
@@ -183,7 +183,7 @@ test_typescript_plugin_highlights :: proc(t: ^testing.T) {
     testing.expect(t, supports(&m, ".ts"), "typescript language registered")
 
     src := "const n: number = 1 // note\n"
-    spans := highlight(&m, src, ".ts", context.allocator)
+    spans := highlight(&m, "", src, ".ts", context.allocator)
     defer delete(spans)
     testing.expect(t, len(spans) > 0, "typescript spans produced")
 
@@ -209,7 +209,7 @@ test_markdown_plugin_highlights :: proc(t: ^testing.T) {
     testing.expect(t, supports(&m, ".md"), "markdown language registered")
 
     src := "# Title\n\nSome **bold** and *slant* and `code`.\n\n- item one\n> quote\n\n```\nfenced\n```\n"
-    spans := highlight(&m, src, ".md", context.allocator)
+    spans := highlight(&m, "", src, ".md", context.allocator)
     defer {
         for s in spans {
             delete(s.role)
@@ -249,7 +249,7 @@ test_batch_plugin_highlights :: proc(t: ^testing.T) {
     testing.expect(t, supports(&m, ".bat"), "batch language registered")
 
     src := "@echo off\nREM build script\nset NAME=thor\necho Building %NAME%\nif not exist bin goto :end\n:end\nexit /b 0\n"
-    spans := highlight(&m, src, ".bat", context.allocator)
+    spans := highlight(&m, "", src, ".bat", context.allocator)
     defer {
         for s in spans {
             delete(s.role)
@@ -288,7 +288,7 @@ test_shell_plugin_highlights :: proc(t: ^testing.T) {
     testing.expect(t, supports(&m, ".sh"), "shell language registered")
 
     src := "#!/bin/bash\n# build\nNAME=thor\ncd $NAME\ngreet() {\n    echo hello\n}\nif [ -f bin ]; then\n    greet\nfi\n"
-    spans := highlight(&m, src, ".sh", context.allocator)
+    spans := highlight(&m, "", src, ".sh", context.allocator)
     defer {
         for s in spans {
             delete(s.role)
@@ -325,7 +325,7 @@ test_json_plugin_highlights :: proc(t: ^testing.T) {
     testing.expect(t, supports(&m, ".json"), "json language registered")
 
     src := "{\n  \"name\": \"thor\",\n  \"version\": 2,\n  \"debug\": true,\n  \"nested\": null\n}\n"
-    spans := highlight(&m, src, ".json", context.allocator)
+    spans := highlight(&m, "", src, ".json", context.allocator)
     defer {
         for s in spans {
             delete(s.role)
@@ -386,7 +386,7 @@ test_added_grammar_plugins_highlight :: proc(t: ^testing.T) {
 
     for c in cases {
         testing.expectf(t, supports(&m, c.ext), "%s registered", c.ext)
-        spans := highlight(&m, c.src, c.ext, context.allocator)
+        spans := highlight(&m, "", c.src, c.ext, context.allocator)
         defer delete(spans)
         testing.expectf(t, len(spans) > 0, "%s spans produced", c.ext)
         if c.keyword != "" {
@@ -489,7 +489,7 @@ test_added_lexer_plugins_highlight :: proc(t: ^testing.T) {
 
     for c in cases {
         testing.expectf(t, supports(&m, c.key), "%s registered", c.key)
-        spans := highlight(&m, c.src, c.key, context.allocator)
+        spans := highlight(&m, "", c.src, c.key, context.allocator)
         defer {
             for s in spans {
                 delete(s.role)

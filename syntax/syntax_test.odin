@@ -1,7 +1,10 @@
 package syntax
 
+import "core:fmt"
 import "core:strings"
 import "core:testing"
+
+import "../treecache"
 
 // Leading component of the capture covering the first occurrence of `needle`.
 @(private = "file")
@@ -34,7 +37,7 @@ main :: proc() {
 	s := "hi" // note
 }
 `
-    spans := highlight(&h, src, "odin", context.allocator)
+    spans := highlight(&h, "", src, "odin", context.allocator)
     defer delete(spans)
     testing.expect(t, len(spans) > 0, "expected highlight spans")
 
@@ -60,7 +63,7 @@ main :: proc() {
     expect(t, spans, src, "data", "parameter")
 
     // Unknown language yields nothing.
-    none := highlight(&h, src, "cobol", context.allocator)
+    none := highlight(&h, "", src, "cobol", context.allocator)
     testing.expect(t, len(none) == 0, "unsupported language should have no spans")
 }
 
@@ -83,7 +86,7 @@ main :: proc() {
 	button.on_click(button)
 }
 `
-    spans := highlight(&h, src, "odin", context.temp_allocator)
+    spans := highlight(&h, "", src, "odin", context.temp_allocator)
     expect_head(t, spans, src, "mem.Tracking_Allocator", "namespace")
     expect_head(t, spans, src, "mem.tracking_allocator_init", "namespace")
     expect_head(t, spans, src, "vmem.Arena", "namespace") // aliased import
@@ -113,7 +116,7 @@ Click_Proc :: #type proc(data: rawptr)
 
 MAX :: 100
 `
-    spans := highlight(&h, src, "odin", context.temp_allocator)
+    spans := highlight(&h, "", src, "odin", context.temp_allocator)
     testing.expect(t, len(spans) > 0, "the appended alias patterns must still compile")
 
     for needle in ([]string{"Vec ::", "Raw ::", "Handle ::", "Table ::", "Grid ::", "Click_Proc ::"}) {
@@ -152,7 +155,7 @@ test_fold_ranges_odin :: proc(t: ^testing.T) {
     // 5     }
     // 6 }
     src := "package demo\n\nmain :: proc() {\n\tif true {\n\t\tx := 1\n\t}\n}\n"
-    folds := fold_ranges(&h, src, "odin", context.allocator)
+    folds := fold_ranges(&h, "", src, "odin", context.allocator)
     defer delete(folds)
 
     testing.expect(t, has_fold(folds, 2, 6), "proc body should fold 2..6")
@@ -170,7 +173,7 @@ test_fold_ranges_odin :: proc(t: ^testing.T) {
     testing.expect(t, !has_fold(folds, 0, 6), "root node must not be foldable")
 
     // Unknown language yields nothing.
-    none := fold_ranges(&h, src, "cobol", context.allocator)
+    none := fold_ranges(&h, "", src, "cobol", context.allocator)
     testing.expect(t, len(none) == 0, "unsupported language should not fold")
 }
 
@@ -184,9 +187,118 @@ test_fold_ranges_c :: proc(t: ^testing.T) {
     // 1     return 0;
     // 2 }
     src := "int main(void) {\n    return 0;\n}\n"
-    folds := fold_ranges(&h, src, "c", context.allocator)
+    folds := fold_ranges(&h, "", src, "c", context.allocator)
     defer delete(folds)
     testing.expect(t, has_fold(folds, 0, 2), "C function body should fold 0..2")
+}
+
+// Spans are equal when they cover the same bytes with the same capture.
+@(private = "file")
+same_spans :: proc(a, b: []Span) -> bool {
+    if len(a) != len(b) {
+        return false
+    }
+    for s, i in a {
+        if s != b[i] {
+            return false
+        }
+    }
+    return true
+}
+
+@(private = "file")
+same_folds :: proc(a, b: []Fold_Range) -> bool {
+    if len(a) != len(b) {
+        return false
+    }
+    for f, i in a {
+        if f != b[i] {
+            return false
+        }
+    }
+    return true
+}
+
+// A buffer walked through a series of edits must highlight and fold exactly as a
+// parse of the same text from scratch would. Every step after the first re-parses
+// off the resident tree, so a mis-described edit shows up here as drifted spans
+// even where the text happens to still look right.
+@(test)
+test_incremental_highlight_matches_cold_parse :: proc(t: ^testing.T) {
+    h := highlighter_create()
+    defer highlighter_destroy(&h)
+
+    steps := []string {
+        "package demo\n\nmain :: proc() {\n\tx := 1\n}\n",
+        "package demo\n\nmain :: proc() {\n\tx := 12\n}\n",
+        // A new declaration above the existing one shifts everything below it.
+        "package demo\n\nPoint :: struct {\n\tx: int,\n}\n\nmain :: proc() {\n\tx := 12\n}\n",
+        // A comment: the edit lands inside a leaf rather than between nodes.
+        "package demo\n\nPoint :: struct {\n\tx: int, // across\n}\n\nmain :: proc() {\n\tx := 12\n}\n",
+        // An unterminated string leaves the tree with an error node partway
+        // through, which the next step must recover from.
+        "package demo\n\nPoint :: struct {\n\tx: int, // across\n}\n\nmain :: proc() {\n\ts := \"\n}\n",
+        "package demo\n\nPoint :: struct {\n\tx: int, // across\n}\n\nmain :: proc() {\n\ts := \"hi\"\n}\n",
+        // A deletion, and a multi-byte rune edited one byte in.
+        "package demo\n\nmain :: proc() {\n\ts := \"naïve\"\n}\n",
+        "package demo\n\nmain :: proc() {\n\ts := \"naive\"\n}\n",
+    }
+
+    for src, i in steps {
+        warm := highlight(&h, "buffer.odin", src, "odin", context.temp_allocator)
+        cold := highlight(&h, "", src, "odin", context.temp_allocator)
+        testing.expectf(t, same_spans(warm, cold), "step %d: spans diverged\n got: %v\nwant: %v", i, warm, cold)
+
+        wf := fold_ranges(&h, "buffer.odin", src, "odin", context.temp_allocator)
+        cf := fold_ranges(&h, "", src, "odin", context.temp_allocator)
+        testing.expectf(t, same_folds(wf, cf), "step %d: folds diverged\n got: %v\nwant: %v", i, wf, cf)
+    }
+}
+
+// Two buffers resident at once: alternating between them must not diff one
+// against the other's source, and a resident tree must never seed a parse under
+// a different grammar.
+@(test)
+test_highlight_cache_is_per_path :: proc(t: ^testing.T) {
+    h := highlighter_create()
+    defer highlighter_destroy(&h)
+
+    odin := "package demo\n\nmain :: proc() {\n\tx := 1\n}\n"
+    c := "int main(void) {\n\treturn 0; // done\n}\n"
+
+    for round in 0 ..< 3 {
+        os := highlight(&h, "a.odin", odin, "odin", context.temp_allocator)
+        cs := highlight(&h, "b.c", c, "c", context.temp_allocator)
+        expect_head(t, os, odin, "main", "function")
+        expect_head(t, cs, c, "// done", "comment")
+        testing.expectf(t, len(os) > 0 && len(cs) > 0, "round %d: expected spans for both buffers", round)
+    }
+
+    // The same path re-typed as another language: the Odin tree is dropped
+    // rather than handed to the C parser.
+    reused := highlight(&h, "a.odin", c, "c", context.temp_allocator)
+    cold := highlight(&h, "", c, "c", context.temp_allocator)
+    testing.expect(t, same_spans(reused, cold), "a grammar change must re-parse from scratch")
+}
+
+// More buffers than slots: the least recently used is retired, and its next
+// parse is cold rather than off a freed tree.
+@(test)
+test_highlight_cache_evicts_and_reparses :: proc(t: ^testing.T) {
+    h := highlighter_create()
+    defer highlighter_destroy(&h)
+
+    src := "package demo\n\nmain :: proc() {\n\tx := 1\n}\n"
+    want := highlight(&h, "", src, "odin", context.temp_allocator)
+
+    for i in 0 ..< treecache.SLOTS + 2 {
+        path := fmt.tprintf("file%d.odin", i)
+        got := highlight(&h, path, src, "odin", context.temp_allocator)
+        testing.expectf(t, same_spans(got, want), "%s: spans diverged", path)
+    }
+
+    got := highlight(&h, "file0.odin", src, "odin", context.temp_allocator)
+    testing.expect(t, same_spans(got, want), "the evicted buffer must re-parse and highlight the same")
 }
 
 @(private = "file")
@@ -203,22 +315,22 @@ test_highlight_c_family :: proc(t: ^testing.T) {
     defer highlighter_destroy(&h)
 
     c := "int main(void) {\n\treturn 0; // done\n}\n"
-    cs := highlight(&h, c, "c", context.temp_allocator)
+    cs := highlight(&h, "", c, "c", context.temp_allocator)
     testing.expect(t, len(cs) > 0, "expected c spans")
     expect_head(t, cs, c, "// done", "comment")
 
     cpp := "#include <vector>\nnamespace app { int x = 1; }\n"
-    cps := highlight(&h, cpp, "cpp", context.temp_allocator)
+    cps := highlight(&h, "", cpp, "cpp", context.temp_allocator)
     testing.expect(t, len(cps) > 0, "expected cpp spans")
 
     go := "package main\nfunc main() {\n\ts := \"hi\" // note\n}\n"
-    gos := highlight(&h, go, "go", context.temp_allocator)
+    gos := highlight(&h, "", go, "go", context.temp_allocator)
     testing.expect(t, len(gos) > 0, "expected go spans")
     expect_head(t, gos, go, "\"hi\"", "string")
     expect_head(t, gos, go, "// note", "comment")
 
     jai := "main :: () {\n\ts := \"hi\"; // note\n}\n"
-    jas := highlight(&h, jai, "jai", context.temp_allocator)
+    jas := highlight(&h, "", jai, "jai", context.temp_allocator)
     testing.expect(t, len(jas) > 0, "expected jai spans")
 }
 
@@ -228,18 +340,18 @@ test_highlight_js_ts :: proc(t: ^testing.T) {
     defer highlighter_destroy(&h)
 
     js := "const x = 1 // note\nfunction f(a) { return \"hi\" }\n"
-    jss := highlight(&h, js, "javascript", context.temp_allocator)
+    jss := highlight(&h, "", js, "javascript", context.temp_allocator)
     testing.expect(t, len(jss) > 0, "expected javascript spans")
     expect_head(t, jss, js, "// note", "comment")
     expect_head(t, jss, js, "\"hi\"", "string")
 
     ts := "const n: number = 1\ntype Id = string // alias\n"
-    tss := highlight(&h, ts, "typescript", context.temp_allocator)
+    tss := highlight(&h, "", ts, "typescript", context.temp_allocator)
     testing.expect(t, len(tss) > 0, "expected typescript spans")
     expect_head(t, tss, ts, "// alias", "comment") // from the javascript base
     expect_head(t, tss, ts, "number", "type")      // from the typescript layer
 
     tsx := "const el = <div className=\"a\">{x}</div>\n"
-    tsxs := highlight(&h, tsx, "tsx", context.temp_allocator)
+    tsxs := highlight(&h, "", tsx, "tsx", context.temp_allocator)
     testing.expect(t, len(tsxs) > 0, "expected tsx spans")
 }

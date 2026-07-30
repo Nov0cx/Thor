@@ -515,13 +515,23 @@ lowest latency.
       (already a flagged limitation below); normalize keys on insert. Memory:
       resident *decls* only (not trees), bounded and small.
 - [x] **Incremental parsing.** The request buffer no longer re-parses from
-      scratch. `Odin_Engine.trees` (a `Tree_Cache`) keeps a resident tree per
-      buffer, and `tree_for_source` — the single parse path for `req.source` in
-      `odin_resolve` — reuses it: the cached source is diffed to one changed
-      span, `ts.tree_edit` applies it, and the old tree seeds
+      scratch. `Odin_Engine.trees` (a `treecache.Cache`) keeps a resident tree
+      per buffer, and `treecache.for_source` — the single parse path for
+      `req.source` in `odin_resolve` — reuses it: the cached source is diffed to
+      one changed span, `ts.tree_edit` applies it, and the old tree seeds
       `parser_parse_string`, so tree-sitter rebuilds only the invalidated
       subtrees. An identical source (a hover landing on the same keystroke as a
       completion) skips the parse entirely.
+
+      **Shared with the highlighter.** The cache lives in its own `treecache`
+      package rather than here, because `syntax` parses the very same buffers for
+      highlighting and folding and used to re-parse each of them whole on every
+      keystroke — two strategies against one set of trees. Both now go through
+      `treecache.for_source`; the entry records the grammar it was parsed under,
+      so a path re-typed as another language drops its tree instead of seeding a
+      parse the new grammar can't use. The package depends on the tree-sitter
+      binding alone and on no grammar, so linking it costs neither caller
+      anything it does not already link.
 
       **No host coupling.** The seam hands backends a full `source` snapshot,
       never an edit delta, so the edit is *recovered* rather than reported:
@@ -536,26 +546,30 @@ lowest latency.
       no ordering assumption: requests that arrive out of revision order still
       describe a correct old→new edit.
 
-      **Cache shape.** `TREE_CACHE_SLOTS` (8) entries, each a `{path, source,
-      tree, used}`, retired least-recently-used — enough that alternating between
-      open tabs doesn't thrash. Nothing invalidates explicitly: the diff absorbs
-      every content change, and a closed or renamed file simply ages out.
-      `tree_for_source` returns `ts.tree_copy` of the entry (cheap, and what
-      makes a tree safe to read on one worker while another re-parses the same
-      buffer); the mutex spans the parse, so concurrent requests on one buffer
-      serialize and the waiter gets the fresh tree.
+      **Cache shape.** `treecache.SLOTS` (8) entries, each a `{path, grammar,
+      source, tree, used}`, retired least-recently-used — enough that alternating
+      between open tabs doesn't thrash. Nothing invalidates explicitly: the diff
+      absorbs every content change, and a closed or renamed file simply ages out.
+      `for_source` returns `ts.tree_copy` of the entry (cheap, and what makes a
+      tree safe to read on one worker while another re-parses the same buffer);
+      the mutex spans the parse, so concurrent requests on one buffer serialize
+      and the waiter gets the fresh tree.
 
       **Scope:** the request buffer only. The workspace files the cross-file
       scans visit (`index_reparse`, `ref_scan_file`, `scan_file`, …) are
       stat-gated by the symbol index and still parse whole — caching them would
       thrash the slots for no win.
 
-      Covered by `test_source_edit_spans` (insert/delete/replace/append/prepend/
-      whole-buffer/UTF-8 spans), `test_incremental_tree_matches_cold_parse` (nine
-      successive edits, each comparing the incremental tree's s-expression
-      against a cold parse of the same text), `test_incremental_reparse_tracks_edits`
-      (goto stays correct across a sequence of edits), `test_tree_cache_is_per_path`
-      and `test_tree_cache_evicts_and_reparses`.
+      Covered here by `test_incremental_tree_matches_cold_parse` (nine successive
+      edits, each comparing the incremental tree's s-expression against a cold
+      parse of the same text), `test_incremental_reparse_tracks_edits` (goto stays
+      correct across a sequence of edits), `test_tree_cache_is_per_path` and
+      `test_tree_cache_evicts_and_reparses`; in `treecache` by
+      `test_source_edit_spans` (insert/delete/replace/append/prepend/whole-buffer/
+      UTF-8 spans) and `test_source_edit_points`; and in `syntax` by
+      `test_incremental_highlight_matches_cold_parse`,
+      `test_highlight_cache_is_per_path` (which also covers the grammar change)
+      and `test_highlight_cache_evicts_and_reparses`.
 - [x] **Request coalescing / cancellation.** Each dispatched job carries a cancellation flag reachable from
       the `Request` (`cancel: ^bool`, polled through `request_cancelled`), and the
       Manager keeps an `active: map[u64]^Job` so a request can be abandoned by id

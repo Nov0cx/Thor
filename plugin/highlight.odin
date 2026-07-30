@@ -23,9 +23,11 @@ supports :: proc(m: ^Manager, ext: string) -> bool {
 }
 
 // Highlights `source` for the language bound to `ext`, returning role-tagged
-// spans (ascending, using `allocator`). Empty when no plugin claims the
+// spans (ascending, using `allocator`). `path` identifies the buffer so a
+// grammar-backed language re-parses only what changed since its last call; ""
+// for a buffer with no stable identity. Empty when no plugin claims the
 // extension or highlighting fails.
-highlight :: proc(m: ^Manager, source: string, ext: string, allocator := context.allocator) -> []Span {
+highlight :: proc(m: ^Manager, path, source, ext: string, allocator := context.allocator) -> []Span {
     idx, ok := m.by_ext[ext]
     if !ok {
         return nil
@@ -36,7 +38,7 @@ highlight :: proc(m: ^Manager, source: string, ext: string, allocator := context
         if !syntax.supports(&m.highlighter, lang.grammar) {
             return nil
         }
-        caps := syntax.highlight(&m.highlighter, source, lang.grammar, context.temp_allocator)
+        caps := syntax.highlight(&m.highlighter, path, source, lang.grammar, context.temp_allocator)
         out := make([dynamic]Span, allocator)
         for cap in caps {
             append(&out, Span{cap.start, cap.end, role_for_capture(lang, cap.capture)})
@@ -58,10 +60,11 @@ Fold_Range :: struct {
     end_line:   int,
 }
 
-// Foldable line ranges for `source` under the language bound to `ext`. Only
-// tree-sitter grammars fold (a pure-Lua lexer has no parse tree); empty when no
-// grammar-backed plugin claims the extension.
-fold_ranges :: proc(m: ^Manager, source: string, ext: string, allocator := context.allocator) -> []Fold_Range {
+// Foldable line ranges for `source` under the language bound to `ext`, with
+// `path` identifying the buffer as for `highlight`. Only tree-sitter grammars
+// fold (a pure-Lua lexer has no parse tree); empty when no grammar-backed plugin
+// claims the extension.
+fold_ranges :: proc(m: ^Manager, path, source, ext: string, allocator := context.allocator) -> []Fold_Range {
     idx, ok := m.by_ext[ext]
     if !ok {
         return nil
@@ -70,7 +73,7 @@ fold_ranges :: proc(m: ^Manager, source: string, ext: string, allocator := conte
     if lang.grammar == "" || !syntax.supports(&m.highlighter, lang.grammar) {
         return nil
     }
-    ranges := syntax.fold_ranges(&m.highlighter, source, lang.grammar, context.temp_allocator)
+    ranges := syntax.fold_ranges(&m.highlighter, path, source, lang.grammar, context.temp_allocator)
     out := make([dynamic]Fold_Range, 0, len(ranges), allocator)
     for r in ranges {
         append(&out, Fold_Range{r.start_line, r.end_line})
