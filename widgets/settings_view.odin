@@ -40,6 +40,10 @@ Settings_View :: struct {
     // Row currently capturing a chord (-1 = none). While set, the host suppresses
     // its global shortcuts so the press reaches this widget.
     capturing:    int,
+    // Keyboard-highlighted row (-1 = none, e.g. no rows). Up/Down move it
+    // (skipping headers); Left/Right nudge a Number row; Enter/Space activates
+    // a Choice or Keybind row. Mouse clicks also move it, so the two stay in sync.
+    selected:     int,
     scroll:       f32,
     box:          rl.Rectangle,
     width:        f32,
@@ -58,6 +62,7 @@ Settings_View :: struct {
     text_color:       rl.Color,
     muted_color:      rl.Color,
     accent_color:     rl.Color,
+    selected_color:   rl.Color,
 }
 
 settings_view_vtable := ui.Widget_VTable {
@@ -73,6 +78,7 @@ settings_view_create :: proc(id: string) -> ^Settings_View {
     view.visible = false
     view.rows = make([dynamic]Settings_Row)
     view.capturing = -1
+    view.selected = -1
     view.width = 640
     view.row_height = 34
     view.header_height = 46
@@ -83,12 +89,13 @@ settings_view_create :: proc(id: string) -> ^Settings_View {
     view.text_color = rl.Color {238, 255, 255, 255}
     view.muted_color = rl.Color {120, 128, 160, 255}
     view.accent_color = rl.Color {132, 255, 255, 255}
+    view.selected_color = rl.Color {132, 255, 255, 40}
     return view
 }
 
 settings_view_set_colors :: proc(
     view: ^Settings_View,
-    background, border, header, field, text, muted, accent: rl.Color,
+    background, border, header, field, text, muted, accent, selected: rl.Color,
 ) -> ^Settings_View {
     view.background_color = background
     view.border_color = border
@@ -97,6 +104,7 @@ settings_view_set_colors :: proc(
     view.text_color = text
     view.muted_color = muted
     view.accent_color = accent
+    view.selected_color = selected
     return view
 }
 
@@ -164,10 +172,23 @@ settings_view_add_keybind :: proc(view: ^Settings_View, id, label, chord: string
 settings_view_open :: proc(view: ^Settings_View, ctx: ^ui.Context) {
     view.scroll = 0
     view.capturing = -1
+    view.selected = settings_view_first_selectable(view)
     view.visible = true
     view.return_focus = ctx.focused
     ctx.focused = &view.widget
     ui.widget_bring_to_front(&view.widget)
+}
+
+// Index of the first non-Header row, or -1 if the view has none (keyboard
+// selection never rests on a Header, which isn't interactive).
+@(private = "file")
+settings_view_first_selectable :: proc(view: ^Settings_View) -> int {
+    for row, i in view.rows {
+        if row.kind != .Header {
+            return i
+        }
+    }
+    return -1
 }
 
 settings_view_is_open :: proc(view: ^Settings_View) -> bool {
@@ -206,6 +227,14 @@ settings_view_layout :: proc(widget: ^ui.Widget, bounds: rl.Rectangle) {
         height = height,
     }
     settings_view_clamp_scroll(view)
+
+    // A live repopulate (settings_view_clear + re-adding rows) can shrink or
+    // reorder the list; keep the keyboard selection in bounds.
+    if len(view.rows) == 0 {
+        view.selected = -1
+    } else {
+        view.selected = clamp(view.selected, 0, len(view.rows) - 1)
+    }
 }
 
 // Height of the scrollable list area below the header.
@@ -279,8 +308,21 @@ settings_view_handle_event :: proc(widget: ^ui.Widget, ctx: ^ui.Context, event: 
     case .Key_Press:
         if view.capturing >= 0 {
             settings_view_capture_key(view, event)
-        } else if event.key == .ESCAPE {
-            settings_view_close(view, ctx)
+        } else {
+            #partial switch event.key {
+            case .ESCAPE:
+                settings_view_close(view, ctx)
+            case .UP:
+                settings_view_move_selection(view, -1)
+            case .DOWN:
+                settings_view_move_selection(view, 1)
+            case .LEFT:
+                settings_view_nudge_selected(view, -1)
+            case .RIGHT:
+                settings_view_nudge_selected(view, 1)
+            case .ENTER, .KP_ENTER, .SPACE:
+                settings_view_activate_selected(view)
+            }
         }
         return true
 
@@ -327,6 +369,86 @@ settings_view_capture_key :: proc(view: ^Settings_View, event: ^ui.Event) {
     }
 }
 
+// Moves keyboard selection one row in `dir`, skipping Header rows; stops
+// (no change) if there is no selectable row further in that direction.
+@(private = "file")
+settings_view_move_selection :: proc(view: ^Settings_View, dir: int) {
+    if len(view.rows) == 0 {
+        return
+    }
+    step := dir > 0 ? 1 : -1
+    candidate := view.selected
+    for {
+        candidate += step
+        if candidate < 0 || candidate >= len(view.rows) {
+            return
+        }
+        if view.rows[candidate].kind != .Header {
+            break
+        }
+    }
+    view.selected = candidate
+    settings_view_scroll_selected_into_view(view)
+}
+
+@(private = "file")
+settings_view_scroll_selected_into_view :: proc(view: ^Settings_View) {
+    if view.selected < 0 {
+        return
+    }
+    top := cast(f32) view.selected * view.row_height
+    bottom := top + view.row_height
+    list_height := settings_view_list_height(view)
+    if top < view.scroll {
+        view.scroll = top
+    } else if bottom > view.scroll + list_height {
+        view.scroll = bottom - list_height
+    }
+    settings_view_clamp_scroll(view)
+}
+
+// Applies a stepper delta to a Number row, clamped to its range; shared by the
+// mouse +/- buttons and the keyboard Left/Right nudge.
+@(private = "file")
+settings_view_apply_number_delta :: proc(view: ^Settings_View, item: ^Settings_Row, delta: int) {
+    next := clamp(item.number + delta, item.min, item.max)
+    if next != item.number && view.on_number != nil {
+        view.on_number(view.data, item.id, next)
+    }
+}
+
+// Left/Right on the selected row: nudges a Number row by one step; no-op for
+// any other kind.
+@(private = "file")
+settings_view_nudge_selected :: proc(view: ^Settings_View, dir: int) {
+    if view.selected < 0 || view.selected >= len(view.rows) {
+        return
+    }
+    item := &view.rows[view.selected]
+    if item.kind != .Number {
+        return
+    }
+    settings_view_apply_number_delta(view, item, dir * item.step)
+}
+
+// Enter/Space on the selected row: opens a Choice row's picker, or starts
+// capturing a Keybind row's next chord. No-op for Header/Number rows.
+@(private = "file")
+settings_view_activate_selected :: proc(view: ^Settings_View) {
+    if view.selected < 0 || view.selected >= len(view.rows) {
+        return
+    }
+    item := &view.rows[view.selected]
+    #partial switch item.kind {
+    case .Choice:
+        if view.on_choice != nil {
+            view.on_choice(view.data, item.id)
+        }
+    case .Keybind:
+        view.capturing = view.selected
+    }
+}
+
 // Routes a click inside the box to the row control under it. May trigger a
 // callback that repopulates the rows, so it reads nothing from the row afterward.
 @(private = "file")
@@ -335,6 +457,7 @@ settings_view_click :: proc(view: ^Settings_View, point: rl.Vector2) {
     if row < 0 {
         return
     }
+    view.selected = row
     rect := settings_view_row_rect(view, row)
     item := &view.rows[row]
 
@@ -350,10 +473,7 @@ settings_view_click :: proc(view: ^Settings_View, point: rl.Vector2) {
             delta = item.step
         }
         if delta != 0 {
-            next := clamp(item.number + delta, item.min, item.max)
-            if next != item.number && view.on_number != nil {
-                view.on_number(view.data, item.id, next)
-            }
+            settings_view_apply_number_delta(view, item, delta)
         }
     case .Choice:
         if view.on_choice != nil {
@@ -394,10 +514,13 @@ settings_view_draw :: proc(widget: ^ui.Widget, _: ^ui.Context) {
         view.box.x, view.box.y + view.header_height, view.box.width, settings_view_list_height(view),
     }
     ui.begin_clip(list)
-    for _, i in view.rows {
+    for row, i in view.rows {
         rect := settings_view_row_rect(view, i)
         if rect.y + rect.height < list.y || rect.y > list.y + list.height {
             continue // fully scrolled out
+        }
+        if i == view.selected && row.kind != .Header {
+            rl.DrawRectangleRec(rect, view.selected_color)
         }
         settings_view_draw_row(view, &view.rows[i], rect, i)
     }

@@ -129,6 +129,7 @@ thor_build_ui :: proc(thor: ^Thor) {
         thor.theme.white_black_color,
         thor.theme.gray_color,
         thor.theme.accent_color,
+        thor.theme.selection_background,
     )
     widgets.settings_view_set_callbacks(
         thor.settings_view,

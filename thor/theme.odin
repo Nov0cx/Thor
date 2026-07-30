@@ -113,6 +113,7 @@ thor_apply_theme :: proc(thor: ^Thor) {
     widgets.settings_view_set_colors(
         thor.settings_view,
         t.second_background, t.accent_color, t.highlight, t.background, t.white_black_color, t.gray_color, t.accent_color,
+        t.selection_background,
     )
     widgets.find_replace_set_colors(
         thor.find_replace,
