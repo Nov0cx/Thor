@@ -27,6 +27,14 @@ Font_Family :: struct {
     preload_sizes: []i32,
     // Icon fonts have no ligatures, so the shaping probes skip them.
     icon_font:     bool,
+    // Icon families only. Display name for pickers, and the group name
+    // ("primary") that makes this family an alternative to sibling families
+    // in the same group, swappable at runtime via icon_set_active_pack.
+    label:         string,
+    pack_group:    string,
+    // Icon families only: every name this family defines, independent of
+    // `preload` — the source icon_set_active_pack repoints icon_map from.
+    own_icons:     map[string]rune,
     cache:         map[i32]rl.Font,
     // Per preloaded size: glyph index -> atlas entry, for the HarfBuzz
     // shaped draw path (includes ligature glyphs, which have no codepoint).
@@ -58,6 +66,12 @@ icon_map: map[string]Icon_Glyph
 
 @(private = "file")
 icon_warned: map[string]bool
+
+// Pack group name -> the family name currently backing its shared icon names
+// (e.g. "primary" -> "icons" or "material"). Values point at Font_Family.name,
+// which is font-arena owned, so entries stay valid without cloning.
+@(private = "file")
+active_pack: map[string]string
 
 // Load ASCII, Latin-1 Supplement, and Latin Extended-A so characters
 // like äöüéè render instead of falling back to '?'.
@@ -215,6 +229,7 @@ text_load_icon_manifest :: proc(manifest_path: string) -> bool {
     sizes := manifest_sizes(root, "preload_sizes")
     icon_map = make(map[string]Icon_Glyph)
     icon_warned = make(map[string]bool)
+    active_pack = make(map[string]string)
 
     registered := 0
     for family_name, value in fonts {
@@ -235,6 +250,7 @@ text_load_icon_manifest :: proc(manifest_path: string) -> bool {
         }
 
         family_key := strings.clone(family_name)
+        own_icons := make(map[string]rune)
         for name, glyph_value in icons {
             glyph, glyph_ok := glyph_value.(json.String)
             if !glyph_ok || len(glyph) == 0 {
@@ -242,6 +258,7 @@ text_load_icon_manifest :: proc(manifest_path: string) -> bool {
             }
             codepoint, _ := utf8.decode_rune_in_string(string(glyph))
             icon_map[strings.clone(name)] = Icon_Glyph {family = family_key, codepoint = codepoint}
+            own_icons[strings.clone(name)] = codepoint
         }
 
         codepoints := make([dynamic]rune, context.temp_allocator)
@@ -262,6 +279,15 @@ text_load_icon_manifest :: proc(manifest_path: string) -> bool {
         full_path := strings.concatenate({dir, strings.trim_prefix(string(rel), "./")}, context.temp_allocator)
         if family := register_family(family_key, full_path, codepoints[:], sizes[:]); family != nil {
             family.icon_font = true
+            family.own_icons = own_icons
+            if label, ok := entry["label"].(json.String); ok {
+                family.label = strings.clone(string(label))
+            } else {
+                family.label = strings.clone(family_key)
+            }
+            if group, ok := entry["pack_group"].(json.String); ok {
+                family.pack_group = strings.clone(string(group))
+            }
             registered += 1
         }
     }
@@ -271,6 +297,47 @@ text_load_icon_manifest :: proc(manifest_path: string) -> bool {
 icon_codepoint :: proc(name: string) -> (rune, bool) {
     glyph, ok := icon_map[name]
     return glyph.codepoint, ok
+}
+
+// Icon families sharing `pack_group` (e.g. "primary"), as parallel (display
+// label, family name) slices sorted by family name. The family name is what
+// icon_set_active_pack expects; the label is what a picker should display.
+icon_pack_choices :: proc(pack_group: string, allocator := context.temp_allocator) -> (labels, names: []string) {
+    names_dyn := make([dynamic]string, allocator)
+    for name, family in families {
+        if family.pack_group == pack_group {
+            append(&names_dyn, name)
+        }
+    }
+    slice.sort(names_dyn[:])
+
+    labels_dyn := make([dynamic]string, allocator)
+    for name in names_dyn {
+        append(&labels_dyn, families[name].label)
+    }
+    return labels_dyn[:], names_dyn[:]
+}
+
+// The family currently backing `pack_group`'s shared icon names, or "" if
+// icon_set_active_pack was never called for that group.
+icon_active_pack :: proc(pack_group: string) -> string {
+    return active_pack[pack_group]
+}
+
+// Repoints every icon name `family_name` defines to that family, so widgets
+// drawing those (unprefixed) names switch glyphs immediately with no
+// re-rasterization — both families' atlases are already preloaded. Fails
+// (returns false) for an unknown family or one outside `pack_group`.
+icon_set_active_pack :: proc(pack_group, family_name: string) -> bool {
+    family, found := families[family_name]
+    if !found || family.pack_group != pack_group {
+        return false
+    }
+    for name, codepoint in family.own_icons {
+        icon_map[name] = Icon_Glyph {family = family.name, codepoint = codepoint}
+    }
+    active_pack[pack_group] = family.name
+    return true
 }
 
 // Names of every registered text (non-icon) font family, sorted, so the UI can
@@ -336,6 +403,7 @@ text_shutdown :: proc() {
     families = nil
     icon_map = nil
     icon_warned = nil
+    active_pack = nil
     default_family_name = ""
 
     virtual.arena_destroy(&font_arena)

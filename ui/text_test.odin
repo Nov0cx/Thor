@@ -89,6 +89,21 @@ test_async_font_load :: proc(t: ^testing.T) {
         }
     }
 
+    material, material_ok := families["material"]
+    testing.expect(t, material_ok, "material icon family missing")
+    if material_ok {
+        testing.expect_value(t, material.pack_group, "primary")
+        testing.expect_value(t, len(material.cache), 2)
+        for size in ([2]i32 {16, 18}) {
+            font, ok := material.cache[size]
+            testing.expect(t, ok, "material icon size missing from cache")
+            if !ok {
+                continue
+            }
+            testing.expect_value(t, font.glyphCount, cast(i32) len(material.codepoints))
+        }
+    }
+
     // Backticks (and other characters JetBrains Mono substitutes via calt)
     // must still render: the baked atlas has the backtick codepoint glyph, and
     // draw_line_shaped falls back to it when shaping yields an unbaked glyph id.
@@ -128,6 +143,26 @@ test_async_font_load :: proc(t: ^testing.T) {
     odin_codepoint, odin_found := icon_codepoint("odin")
     testing.expect(t, odin_found, "odin icon missing from icon map")
     testing.expect_value(t, odin_codepoint, rune(0xE900))
+
+    // Both "icons" (tabler) and "material" claim pack_group "primary", so
+    // exactly one must win as the default and be switchable at runtime.
+    labels, names := icon_pack_choices("primary")
+    testing.expect_value(t, len(names), 2)
+    testing.expect_value(t, len(labels), 2)
+
+    testing.expect(t, icon_set_active_pack("primary", "icons"), "tabler pack should be selectable")
+    tabler_folder, tabler_found := icon_codepoint("folder")
+    testing.expect(t, tabler_found, "folder missing while tabler pack active")
+    testing.expect_value(t, icon_active_pack("primary"), "icons")
+
+    testing.expect(t, icon_set_active_pack("primary", "material"), "material pack should be selectable")
+    material_folder, material_found := icon_codepoint("folder")
+    testing.expect(t, material_found, "folder missing while material pack active")
+    testing.expect_value(t, icon_active_pack("primary"), "material")
+    testing.expect(t, tabler_folder != material_folder, "expected different glyphs per pack")
+
+    testing.expect(t, !icon_set_active_pack("primary", "devicons"), "devicons is not a primary-group pack")
+    testing.expect(t, !icon_set_active_pack("primary", "no-such-pack"), "unknown pack should fail")
 
     // Shaping "->" must substitute the ligature glyphs, and every glyph the
     // shaper emits must be drawable from the baked atlas.

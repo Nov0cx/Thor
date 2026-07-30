@@ -40,6 +40,11 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
     }
     widgets.settings_view_add_choice(view, "theme", "Theme", theme)
     widgets.settings_view_add_choice(view, "font", "Font", ui.text_default_family())
+    icon_pack := setting.icon_pack_name(&thor.config)
+    if icon_pack == "" {
+        icon_pack = ui.icon_active_pack(PRIMARY_ICON_PACK_GROUP)
+    }
+    widgets.settings_view_add_choice(view, "icon_pack", "Icon Pack", icon_pack)
 
     widgets.settings_view_add_header(view, "KEYBINDINGS")
     actions := make([dynamic]string, context.temp_allocator)
@@ -71,6 +76,8 @@ thor_on_setting_choice :: proc(data: rawptr, id: string) {
         thor_cmd_change_theme(thor)
     case "font":
         thor_cmd_change_font(thor)
+    case "icon_pack":
+        thor_cmd_change_icon_pack(thor)
     }
 }
 

@@ -148,6 +148,7 @@ thor_apply_settings :: proc(thor: ^Thor) {
 thor_reload_settings :: proc(thor: ^Thor) {
     old_theme := strings.clone(thor.config.general.theme, context.temp_allocator)
     old_font := strings.clone(thor.config.general.font, context.temp_allocator)
+    old_icon_pack := strings.clone(thor.config.general.icon_pack, context.temp_allocator)
 
     setting.destroy(&thor.config)
     thor_load_config(thor, thor.workspace_dir)
@@ -159,6 +160,11 @@ thor_reload_settings :: proc(thor: ^Thor) {
     if thor.config.general.font != old_font && thor.config.general.font != "" {
         if !ui.text_set_default_family(thor.config.general.font) {
             log.warnf("Configured font %q is not available; using the default", thor.config.general.font)
+        }
+    }
+    if thor.config.general.icon_pack != old_icon_pack && thor.config.general.icon_pack != "" {
+        if !ui.icon_set_active_pack(PRIMARY_ICON_PACK_GROUP, thor.config.general.icon_pack) {
+            log.warnf("Configured icon pack %q is not available; using the default", thor.config.general.icon_pack)
         }
     }
 
@@ -372,6 +378,7 @@ thor_register_commands :: proc(thor: ^Thor) {
     thor_add_bindable_command(thor, "Preferences: New Theme", "new_theme", thor_cmd_new_theme, thor)
     thor_add_bindable_command(thor, "Preferences: Change Theme", "change_theme", thor_cmd_change_theme, thor)
     thor_add_bindable_command(thor, "Preferences: Change Font", "change_font", thor_cmd_change_font, thor)
+    thor_add_bindable_command(thor, "Preferences: Change Icon Pack", "change_icon_pack", thor_cmd_change_icon_pack, thor)
 }
 
 thor_cmd_toggle_explorer :: proc(data: rawptr) {thor_toggle_explorer(data, nil, nil)}

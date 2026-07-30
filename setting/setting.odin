@@ -23,11 +23,13 @@ General :: struct {
     tab_width:         int,
     font_size:         int,
     autosave_delay_ms: int,
-    // Active color theme (a name under assets/themes/, no extension) and text
-    // font family (a name in fonts.json). Empty means "use the built-in
-    // default"; both are owned strings, freed in destroy.
+    // Active color theme (a name under assets/themes/, no extension), text
+    // font family (a name in fonts.json), and primary icon pack (a family name
+    // in icons.json). Empty means "use the built-in default"; all are owned
+    // strings, freed in destroy.
     theme:             string,
     font:              string,
+    icon_pack:         string,
 }
 
 Settings :: struct {
@@ -77,6 +79,7 @@ destroy :: proc(s: ^Settings) {
 
     delete(s.general.theme)
     delete(s.general.font)
+    delete(s.general.icon_pack)
 }
 
 // Line-comment marker for a file, or "" when the language is unknown (which
@@ -122,6 +125,12 @@ theme_name :: proc(s: ^Settings) -> string {
 // Active font family name, or "" when unset (caller uses the manifest default).
 font_family :: proc(s: ^Settings) -> string {
     return s.general.font
+}
+
+// Active primary icon pack (a family name in icons.json), or "" when unset
+// (caller falls back to its built-in default).
+icon_pack_name :: proc(s: ^Settings) -> string {
+    return s.general.icon_pack
 }
 
 // Rewrites `path` (a settings JSON object) with key set to value, preserving
@@ -495,6 +504,7 @@ load_general :: proc(s: ^Settings, path: string) {
     read_int(root, "autosave_delay_ms", &s.general.autosave_delay_ms)
     read_string(root, "theme", &s.general.theme)
     read_string(root, "font", &s.general.font)
+    read_string(root, "icon_pack", &s.general.icon_pack)
 }
 
 // Reads a string field into dst, replacing (and freeing) any prior value so an

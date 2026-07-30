@@ -6,6 +6,8 @@
     "fonts": {
         "icons": {
             "font": "tabler/tabler-icons.ttf",
+            "label": "Tabler Icons",
+            "pack_group": "primary",
             "preload": [
                 "chevron-right",
                 "chevron-down",
@@ -4925,6 +4927,55 @@
                 "zoom-scan": "\ufcb0",
                 "zzz": "\uf228",
                 "zzz-off": "\uf440"
+            }
+        },
+        "material": {
+            "font": "material/MaterialIconsOutlined-Regular.otf",
+            "label": "Material Icons (Outlined)",
+            "pack_group": "primary",
+            "preload": [
+                "chevron-right",
+                "chevron-down",
+                "folder",
+                "folder-open",
+                "file",
+                "x",
+                "point",
+                "layout-sidebar-left-collapse",
+                "layout-sidebar-left-expand",
+                "layout-bottombar-collapse",
+                "layout-bottombar-expand",
+                "git-branch",
+                "minus",
+                "square",
+                "circle-check",
+                "device-floppy",
+                "loader-2",
+                "plus",
+                "caret-down",
+                "player-play"
+            ],
+            "icons": {
+                "chevron-right": "\ue5cc",
+                "chevron-down": "\ue5cf",
+                "folder": "\ue2c7",
+                "folder-open": "\ue2c8",
+                "file": "\ue24d",
+                "x": "\ue5cd",
+                "point": "\ue061",
+                "layout-sidebar-left-collapse": "\ue9bd",
+                "layout-sidebar-left-expand": "\uf114",
+                "layout-bottombar-collapse": "\ue5cf",
+                "layout-bottombar-expand": "\ue5ce",
+                "git-branch": "\ue0b6",
+                "minus": "\ue15b",
+                "square": "\ue3c6",
+                "circle-check": "\ue86c",
+                "device-floppy": "\ue161",
+                "loader-2": "\ue863",
+                "plus": "\ue145",
+                "caret-down": "\ue5c5",
+                "player-play": "\ue037"
             }
         },
         "devicons": {

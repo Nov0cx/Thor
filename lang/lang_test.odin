@@ -863,6 +863,38 @@ other :: proc() -> int {
 }
 
 @(test)
+test_references_skip_use_above_declaration :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // Three occurrences of `count` in the block, but the first one names the
+    // file-scope constant — the local does not exist yet there. Find-usages on
+    // the local lists only its declaration and the use below it, which is also
+    // what keeps rename from rewriting an unrelated name.
+    src := `package demo
+
+count :: 0
+
+use :: proc() -> int {
+	_ = count
+	count := 1
+	return count
+}
+`
+    at := strings.index(src, "count := 1")
+    req := Request{kind = .References, path = "buffer.odin", ext = ".odin", source = src, offset = at}
+    res := Result{kind = .References}
+    odin_resolve(e, &req, &res)
+    defer free_symbols(&res)
+
+    testing.expect(t, res.ok, "expected references to the local count")
+    testing.expectf(t, len(res.symbols) == 2, "local ref count: got %d, want 2", len(res.symbols))
+    for sym in res.symbols {
+        testing.expectf(t, sym.offset >= at, "ref at %d predates the declaration at %d", sym.offset, at)
+    }
+}
+
+@(test)
 test_references_cross_file :: proc(t: ^testing.T) {
     e := odin_engine_create()
     defer odin_destroy(e)

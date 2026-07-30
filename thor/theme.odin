@@ -278,3 +278,49 @@ thor_font_commit :: proc(data: rawptr, choice: string) {
         thor_populate_settings_view(thor)
     }
 }
+
+// Icon families sharing this group are alternatives for the same set of
+// unprefixed UI icon names (buttons, tabbar, statusbar, tree chevrons/folder);
+// file-tree per-language icons always come from the devicon family regardless.
+PRIMARY_ICON_PACK_GROUP :: "primary"
+
+// Preferences: Change Icon Pack -> pick from the installed primary icon packs
+// (e.g. Tabler Icons, Material Icons) in a dialog that previews each one live.
+thor_cmd_change_icon_pack :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    labels, names := ui.icon_pack_choices(PRIMARY_ICON_PACK_GROUP)
+    if len(names) == 0 {
+        thor_plugin_print(thor, "\nNo icon packs are installed.\n")
+        return
+    }
+    current := setting.icon_pack_name(&thor.config)
+    if current == "" {
+        current = ui.icon_active_pack(PRIMARY_ICON_PACK_GROUP)
+    }
+    widgets.select_dialog_open(
+        thor.select_dialog, &thor.ui_context, "Change Icon Pack", labels, current,
+        thor_icon_pack_preview, thor_icon_pack_commit, thor, names,
+    )
+}
+
+// Switches the active icon pack live (no persistence): the dialog's preview.
+// Icon names are resolved at draw time, so this shows next frame.
+thor_icon_pack_preview :: proc(_: rawptr, choice: string) {
+    ui.icon_set_active_pack(PRIMARY_ICON_PACK_GROUP, choice)
+}
+
+// Applies the chosen icon pack and persists it as the new default.
+thor_icon_pack_commit :: proc(data: rawptr, choice: string) {
+    thor := cast(^Thor) data
+    if !ui.icon_set_active_pack(PRIMARY_ICON_PACK_GROUP, choice) {
+        thor_plugin_print(thor, strings.concatenate({"\nIcon pack ", choice, " is not available.\n"}, context.temp_allocator))
+        return
+    }
+    setting.persist_string(thor_active_settings_path(thor), "icon_pack", choice)
+    delete(thor.config.general.icon_pack)
+    thor.config.general.icon_pack = strings.clone(choice)
+    thor_settings_mark_clean(thor)
+    if widgets.settings_view_is_open(thor.settings_view) {
+        thor_populate_settings_view(thor)
+    }
+}

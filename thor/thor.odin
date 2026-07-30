@@ -423,6 +423,17 @@ init :: proc() -> ^Thor {
             log.warnf("Configured font %q is not available; using the default", fam)
         }
     }
+    // Icon families are only registered once loading finishes, same as fonts
+    // above. Every primary-group family shares one flat set of icon names, so
+    // one of them must win explicitly rather than by map iteration order.
+    icon_pack := setting.icon_pack_name(&thor.config)
+    if icon_pack == "" {
+        icon_pack = ui.ICON_FAMILY
+    }
+    if !ui.icon_set_active_pack(PRIMARY_ICON_PACK_GROUP, icon_pack) {
+        log.warnf("Configured icon pack %q is not available; using the default", icon_pack)
+        ui.icon_set_active_pack(PRIMARY_ICON_PACK_GROUP, ui.ICON_FAMILY)
+    }
     lap(&phase, "text_finish_async_load")
 
     log.infof("Startup took %.1f ms", time.duration_milliseconds(time.tick_since(start)))
