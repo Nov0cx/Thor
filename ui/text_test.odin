@@ -46,6 +46,34 @@ test_async_font_load :: proc(t: ^testing.T) {
         }
     }
 
+    // Iosevka ships subset to the ranges build_codepoint_list asks for, so it
+    // must cover every one of them and still carry its calt ligatures.
+    iosevka, iosevka_ok := families["Iosevka"]
+    testing.expect(t, iosevka_ok, "Iosevka family missing")
+    if iosevka_ok {
+        testing.expect_value(t, len(iosevka.cache), 4)
+        for size in ([4]i32 {15, 17, 18, 20}) {
+            font, ok := iosevka.cache[size]
+            testing.expect(t, ok, "Iosevka size missing from cache")
+            if !ok {
+                continue
+            }
+            testing.expect(t, font.glyphCount >= cast(i32) len(iosevka.codepoints), "Iosevka is missing requested codepoints")
+        }
+        // shape_line hands back the shared buffer, so keep the glyph id before
+        // shaping again.
+        arrow, arrow_n := shape_line(iosevka, "->")
+        testing.expect_value(t, arrow_n, 2)
+        if arrow_n == 2 {
+            arrow_gid := arrow[0].codepoint
+            dash, dash_n := shape_line(iosevka, "-")
+            testing.expect_value(t, dash_n, 1)
+            if dash_n == 1 {
+                testing.expect(t, arrow_gid != dash[0].codepoint, "'->' did not trigger ligature substitution")
+            }
+        }
+    }
+
     icons, icons_ok := families[ICON_FAMILY]
     testing.expect(t, icons_ok, "icon family missing")
     if icons_ok {
@@ -72,6 +100,23 @@ test_async_font_load :: proc(t: ^testing.T) {
                 continue
             }
             testing.expect_value(t, font.glyphCount, cast(i32) len(devicons.codepoints))
+        }
+    }
+
+    mdi, mdi_ok := families["mdi"]
+    testing.expect(t, mdi_ok, "mdi icon family missing")
+    if mdi_ok {
+        testing.expect_value(t, mdi.pack_group, "files")
+        testing.expect_value(t, len(mdi.cache), 2)
+        for size in ([2]i32 {16, 18}) {
+            font, ok := mdi.cache[size]
+            testing.expect(t, ok, "mdi icon size missing from cache")
+            if !ok {
+                continue
+            }
+            // MDI lives in Plane 15, so this also covers astral codepoints
+            // surviving the manifest's surrogate pairs into the atlas.
+            testing.expect_value(t, font.glyphCount, cast(i32) len(mdi.codepoints))
         }
     }
 
@@ -163,6 +208,26 @@ test_async_font_load :: proc(t: ^testing.T) {
 
     testing.expect(t, !icon_set_active_pack("primary", "devicons"), "devicons is not a primary-group pack")
     testing.expect(t, !icon_set_active_pack("primary", "no-such-pack"), "unknown pack should fail")
+
+    // The "files" group backs the tree's filetype- names the same way.
+    file_labels, file_names := icon_pack_choices("files")
+    testing.expect_value(t, len(file_names), 2)
+    testing.expect_value(t, len(file_labels), 2)
+
+    testing.expect(t, icon_set_active_pack("files", "devicons"), "devicon file pack should be selectable")
+    devicon_rust, devicon_rust_found := icon_codepoint("filetype-rust")
+    testing.expect(t, devicon_rust_found, "filetype-rust missing while devicon pack active")
+    testing.expect_value(t, icon_active_pack("files"), "devicons")
+
+    testing.expect(t, icon_set_active_pack("files", "mdi"), "mdi file pack should be selectable")
+    mdi_rust, mdi_rust_found := icon_codepoint("filetype-rust")
+    testing.expect(t, mdi_rust_found, "filetype-rust missing while mdi pack active")
+    testing.expect_value(t, icon_active_pack("files"), "mdi")
+    testing.expect(t, devicon_rust != mdi_rust, "expected different glyphs per file pack")
+    testing.expect(t, mdi_rust > 0xFFFF, "mdi glyph should decode from a surrogate pair")
+
+    // Switching the file pack must not disturb the primary pack's names.
+    testing.expect_value(t, icon_active_pack("primary"), "material")
 
     // Shaping "->" must substitute the ligature glyphs, and every glyph the
     // shaper emits must be drawable from the baked atlas.

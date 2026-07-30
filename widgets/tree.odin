@@ -669,15 +669,16 @@ tree_vendor_color :: proc(name: string) -> (rl.Color, bool) {
     return {}, false
 }
 
-// Language files get their devicon glyph; everything else falls back to the
-// generic file icons.
+// Language files get a `filetype-` glyph from the active file icon pack; `.odin`
+// has no glyph in either pack, so it keeps its own family, and everything else
+// falls back to the generic file icons of the primary pack.
 @(private = "file")
 tree_file_icon :: proc(name: string) -> string {
     switch name {
     case "Dockerfile":
-        return "devicon-docker-plain"
+        return "filetype-docker"
     case "CMakeLists.txt":
-        return "devicon-cmake-plain"
+        return "filetype-cmake"
     }
 
     dot := strings.last_index_byte(name, '.')
@@ -687,93 +688,93 @@ tree_file_icon :: proc(name: string) -> string {
 
     switch name[dot:] {
     case ".c", ".h":
-        return "devicon-c-plain"
+        return "filetype-c"
     case ".cpp", ".hpp", ".cc", ".hh", ".cxx":
-        return "devicon-cplusplus-plain"
+        return "filetype-cpp"
     case ".rs":
-        return "devicon-rust-plain"
+        return "filetype-rust"
     case ".go":
-        return "devicon-go-plain"
+        return "filetype-go"
     case ".py", ".pyw":
-        return "devicon-python-plain"
+        return "filetype-python"
     case ".js", ".mjs", ".cjs":
-        return "devicon-javascript-plain"
+        return "filetype-javascript"
     case ".ts":
-        return "devicon-typescript-plain"
+        return "filetype-typescript"
     case ".jsx", ".tsx":
-        return "devicon-react-original"
+        return "filetype-react"
     case ".zig":
-        return "devicon-zig-plain"
+        return "filetype-zig"
     case ".glsl", ".vert", ".frag":
-        return "devicon-opengl-plain"
+        return "filetype-glsl"
     case ".md":
-        return "devicon-markdown-original"
+        return "filetype-markdown"
     case ".json":
-        return "devicon-json-plain"
+        return "filetype-json"
     case ".yml", ".yaml":
-        return "devicon-yaml-plain"
+        return "filetype-yaml"
     case ".xml":
-        return "devicon-xml-plain"
+        return "filetype-xml"
     case ".html", ".htm":
-        return "devicon-html5-plain"
+        return "filetype-html"
     case ".css":
-        return "devicon-css3-plain"
+        return "filetype-css"
     case ".scss", ".sass":
-        return "devicon-sass-original"
+        return "filetype-sass"
     case ".lua":
-        return "devicon-lua-plain"
+        return "filetype-lua"
     case ".java":
-        return "devicon-java-plain"
+        return "filetype-java"
     case ".kt", ".kts":
-        return "devicon-kotlin-plain"
+        return "filetype-kotlin"
     case ".cs":
-        return "devicon-csharp-plain"
+        return "filetype-csharp"
     case ".fs":
-        return "devicon-fsharp-plain"
+        return "filetype-fsharp"
     case ".swift":
-        return "devicon-swift-plain"
+        return "filetype-swift"
     case ".rb":
-        return "devicon-ruby-plain"
+        return "filetype-ruby"
     case ".php":
-        return "devicon-php-plain"
+        return "filetype-php"
     case ".hs":
-        return "devicon-haskell-plain"
+        return "filetype-haskell"
     case ".ex", ".exs":
-        return "devicon-elixir-plain"
+        return "filetype-elixir"
     case ".jl":
-        return "devicon-julia-plain"
+        return "filetype-julia"
     case ".pl", ".pm":
-        return "devicon-perl-plain"
+        return "filetype-perl"
     case ".dart":
-        return "devicon-dart-plain"
+        return "filetype-dart"
     case ".scala":
-        return "devicon-scala-plain"
+        return "filetype-scala"
     case ".clj", ".cljs":
-        return "devicon-clojure-plain"
+        return "filetype-clojure"
     case ".erl":
-        return "devicon-erlang-plain"
+        return "filetype-erlang"
     case ".ml", ".mli":
-        return "devicon-ocaml-plain"
+        return "filetype-ocaml"
     case ".nim":
-        return "devicon-nim-plain"
+        return "filetype-nim"
     case ".sh", ".bash", ".zsh":
-        return "devicon-bash-plain"
+        return "filetype-shell"
     case ".ps1", ".psm1":
-        return "devicon-powershell-plain"
+        return "filetype-powershell"
     case ".vim":
-        return "devicon-vim-plain"
+        return "filetype-vim"
     case ".tex", ".bib":
-        return "devicon-latex-plain"
+        return "filetype-latex"
     case ".cmake":
-        return "devicon-cmake-plain"
+        return "filetype-cmake"
     case ".vue":
-        return "devicon-vuejs-plain"
+        return "filetype-vue"
     case ".svelte":
-        return "devicon-svelte-plain"
+        return "filetype-svelte"
     case ".graphql", ".gql":
-        return "devicon-graphql-plain"
+        return "filetype-graphql"
     case ".gitignore", ".gitattributes", ".gitmodules":
-        return "devicon-git-plain"
+        return "filetype-git"
     case ".odin":
         return "odin"
     case ".asm", ".s", ".sql", ".bat", ".slang", ".slangh":

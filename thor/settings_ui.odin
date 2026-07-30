@@ -45,6 +45,11 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
         icon_pack = ui.icon_active_pack(PRIMARY_ICON_PACK_GROUP)
     }
     widgets.settings_view_add_choice(view, "icon_pack", "Icon Pack", icon_pack)
+    file_icon_pack := setting.file_icon_pack_name(&thor.config)
+    if file_icon_pack == "" {
+        file_icon_pack = ui.icon_active_pack(FILE_ICON_PACK_GROUP)
+    }
+    widgets.settings_view_add_choice(view, "file_icon_pack", "File Icon Pack", file_icon_pack)
 
     widgets.settings_view_add_header(view, "KEYBINDINGS")
     actions := make([dynamic]string, context.temp_allocator)
@@ -78,6 +83,8 @@ thor_on_setting_choice :: proc(data: rawptr, id: string) {
         thor_cmd_change_font(thor)
     case "icon_pack":
         thor_cmd_change_icon_pack(thor)
+    case "file_icon_pack":
+        thor_cmd_change_file_icon_pack(thor)
     }
 }
 

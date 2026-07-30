@@ -4,6 +4,14 @@
         "JetBrainsMono": {
             "path": "JetBrainsMono/JetBrainsMono-Regular.ttf",
             "preload_sizes": [15, 17, 18, 20]
+        },
+        "Iosevka": {
+            "path": "Iosevka/Iosevka-Regular.ttf",
+            "preload_sizes": [15, 17, 18, 20]
+        },
+        "IosevkaNarrow": {
+            "path": "IosevkaNarrow/Iosevka-Regular.ttf",
+            "preload_sizes": [15, 17, 18, 20]
         }
     }
 }

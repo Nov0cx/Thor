@@ -280,27 +280,78 @@ thor_font_commit :: proc(data: rawptr, choice: string) {
     }
 }
 
-// Icon families sharing this group are alternatives for the same set of
-// unprefixed UI icon names (buttons, tabbar, statusbar, tree chevrons/folder);
-// file-tree per-language icons always come from the devicon family regardless.
+// Icon families sharing a pack group are alternatives for the same set of icon
+// names. The primary group backs the unprefixed UI names (buttons, tabbar,
+// statusbar, tree chevrons/folder); the file group backs the tree's `filetype-`
+// names, one glyph per language.
 PRIMARY_ICON_PACK_GROUP :: "primary"
+FILE_ICON_PACK_GROUP :: "files"
+
+// Pack each group falls back to when settings.json names none.
+DEFAULT_ICON_PACK :: "material"
+DEFAULT_FILE_ICON_PACK :: "mdi"
+
+// Makes `configured` the active pack for `group`, falling back to `fallback`
+// when it is unset or names a pack that did not register.
+thor_activate_icon_pack :: proc(group, configured, fallback: string) {
+    if configured != "" && ui.icon_set_active_pack(group, configured) {
+        return
+    }
+    if configured != "" {
+        log.warnf("Configured icon pack %q is not available; using %q", configured, fallback)
+    }
+    if !ui.icon_set_active_pack(group, fallback) {
+        log.warnf("Default icon pack %q is not available for group %q", fallback, group)
+    }
+}
+
+// Opens a live-preview picker over the packs installed in `group`. `current` is
+// the configured pack, empty when unset — the active one is the default then.
+@(private = "file")
+thor_open_icon_pack_dialog :: proc(
+    thor: ^Thor,
+    group, title, current: string,
+    preview, commit: widgets.Select_Choice_Proc,
+) {
+    labels, names := ui.icon_pack_choices(group)
+    if len(names) == 0 {
+        thor_plugin_print(thor, "\nNo icon packs are installed.\n")
+        return
+    }
+    active := current
+    if active == "" {
+        active = ui.icon_active_pack(group)
+    }
+    widgets.select_dialog_open(
+        thor.select_dialog, &thor.ui_context, title, labels, active,
+        preview, commit, thor, names,
+    )
+}
+
+// Applies `choice` to `group`, persists it under `key`, and writes it back into
+// `stored` (the owned config field) so the settings view redraws with it.
+@(private = "file")
+thor_icon_pack_apply :: proc(thor: ^Thor, group, key, choice: string, stored: ^string) {
+    if !ui.icon_set_active_pack(group, choice) {
+        thor_plugin_print(thor, strings.concatenate({"\nIcon pack ", choice, " is not available.\n"}, context.temp_allocator))
+        return
+    }
+    setting.persist_string(thor_active_settings_path(thor), key, choice)
+    delete(stored^)
+    stored^ = strings.clone(choice)
+    thor_settings_mark_clean(thor)
+    if widgets.settings_view_is_open(thor.settings_view) {
+        thor_populate_settings_view(thor)
+    }
+}
 
 // Preferences: Change Icon Pack -> pick from the installed primary icon packs
 // (e.g. Tabler Icons, Material Icons) in a dialog that previews each one live.
 thor_cmd_change_icon_pack :: proc(data: rawptr) {
     thor := cast(^Thor) data
-    labels, names := ui.icon_pack_choices(PRIMARY_ICON_PACK_GROUP)
-    if len(names) == 0 {
-        thor_plugin_print(thor, "\nNo icon packs are installed.\n")
-        return
-    }
-    current := setting.icon_pack_name(&thor.config)
-    if current == "" {
-        current = ui.icon_active_pack(PRIMARY_ICON_PACK_GROUP)
-    }
-    widgets.select_dialog_open(
-        thor.select_dialog, &thor.ui_context, "Change Icon Pack", labels, current,
-        thor_icon_pack_preview, thor_icon_pack_commit, thor, names,
+    thor_open_icon_pack_dialog(
+        thor, PRIMARY_ICON_PACK_GROUP, "Change Icon Pack", setting.icon_pack_name(&thor.config),
+        thor_icon_pack_preview, thor_icon_pack_commit,
     )
 }
 
@@ -313,15 +364,24 @@ thor_icon_pack_preview :: proc(_: rawptr, choice: string) {
 // Applies the chosen icon pack and persists it as the new default.
 thor_icon_pack_commit :: proc(data: rawptr, choice: string) {
     thor := cast(^Thor) data
-    if !ui.icon_set_active_pack(PRIMARY_ICON_PACK_GROUP, choice) {
-        thor_plugin_print(thor, strings.concatenate({"\nIcon pack ", choice, " is not available.\n"}, context.temp_allocator))
-        return
-    }
-    setting.persist_string(thor_active_settings_path(thor), "icon_pack", choice)
-    delete(thor.config.general.icon_pack)
-    thor.config.general.icon_pack = strings.clone(choice)
-    thor_settings_mark_clean(thor)
-    if widgets.settings_view_is_open(thor.settings_view) {
-        thor_populate_settings_view(thor)
-    }
+    thor_icon_pack_apply(thor, PRIMARY_ICON_PACK_GROUP, "icon_pack", choice, &thor.config.general.icon_pack)
+}
+
+// Preferences: Change File Icon Pack -> pick which pack draws the file tree's
+// per-language icons (e.g. Devicon brand logos, Material Design Icons).
+thor_cmd_change_file_icon_pack :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    thor_open_icon_pack_dialog(
+        thor, FILE_ICON_PACK_GROUP, "Change File Icon Pack", setting.file_icon_pack_name(&thor.config),
+        thor_file_icon_pack_preview, thor_file_icon_pack_commit,
+    )
+}
+
+thor_file_icon_pack_preview :: proc(_: rawptr, choice: string) {
+    ui.icon_set_active_pack(FILE_ICON_PACK_GROUP, choice)
+}
+
+thor_file_icon_pack_commit :: proc(data: rawptr, choice: string) {
+    thor := cast(^Thor) data
+    thor_icon_pack_apply(thor, FILE_ICON_PACK_GROUP, "file_icon_pack", choice, &thor.config.general.file_icon_pack)
 }
