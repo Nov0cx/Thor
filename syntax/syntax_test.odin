@@ -64,6 +64,33 @@ main :: proc() {
     testing.expect(t, len(none) == 0, "unsupported language should have no spans")
 }
 
+// An imported package qualifies the same way in a type and in a call, so both
+// must read as a namespace — the query alone only tags the type position.
+@(test)
+test_highlight_odin_package_qualifier :: proc(t: ^testing.T) {
+    h := highlighter_create()
+    defer highlighter_destroy(&h)
+
+    src := `package demo
+
+import "core:mem"
+import vmem "core:mem/virtual"
+
+main :: proc() {
+	track: mem.Tracking_Allocator
+	mem.tracking_allocator_init(&track, context.allocator)
+	arena: vmem.Arena
+	button.on_click(button)
+}
+`
+    spans := highlight(&h, src, "odin", context.temp_allocator)
+    expect_head(t, spans, src, "mem.Tracking_Allocator", "namespace")
+    expect_head(t, spans, src, "mem.tracking_allocator_init", "namespace")
+    expect_head(t, spans, src, "vmem.Arena", "namespace") // aliased import
+    // A local that happens to hold a proc field is not a package.
+    expect_head(t, spans, src, "button.on_click", "variable")
+}
+
 // True when some fold range starts on `start` and ends on `end`.
 @(private = "file")
 has_fold :: proc(folds: []Fold_Range, start, end: int) -> bool {

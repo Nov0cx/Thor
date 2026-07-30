@@ -40,10 +40,11 @@ thor.register_language {
         namespace    = t.cyan,
         module       = t.cyan,
 
-        parameter    = t.variables,
-        variable     = t.variables,
-        field        = t.variables,
-        property     = t.variables,
+        parameter            = t.variables,
+        ["variable.builtin"] = t.orange, -- the implicit context, self
+        variable             = t.variables,
+        field                = t.variables,
+        property             = t.variables,
 
         attribute    = t.attributes,
     },

@@ -120,9 +120,12 @@ highlight :: proc(h: ^Highlighter, source: string, lang_id: string, allocator :=
     }
     defer ts.tree_delete(tree)
 
+    root := ts.tree_root_node(tree)
+    packages := package_names(root, source, lang_id)
+
     cursor := ts.query_cursor_new()
     defer ts.query_cursor_delete(cursor)
-    ts.query_cursor_exec(cursor, query, ts.tree_root_node(tree))
+    ts.query_cursor_exec(cursor, query, root)
 
     // Collect every satisfied capture; resolve_spans breaks overlaps by
     // precedence so specific captures override the broad @variable rule.
@@ -134,6 +137,9 @@ highlight :: proc(h: ^Highlighter, source: string, lang_id: string, allocator :=
         for i in 0 ..< int(match.capture_count) {
             c := match.captures[i]
             name := ts.query_capture_name_for_id(query, c.index)
+            if capture_head(name) == "variable" && is_qualifier(c.node) && ts.node_text(c.node, source) in packages {
+                name = "namespace"
+            }
             start := int(ts.node_start_byte(c.node))
             end := int(ts.node_end_byte(c.node))
             if end > start && !is_ignored_capture(name) {
@@ -202,6 +208,80 @@ fold_ranges :: proc(h: ^Highlighter, source: string, lang_id: string, allocator 
         return a.start_line < b.start_line
     })
     return out[:]
+}
+
+// Package names an Odin file's imports bind: the alias when given, else the
+// path's last segment (`import "core:mem"` -> "mem"). Odin's highlights query
+// only tags a qualifier inside a type (`mem.Tracking_Allocator`), so without
+// this the same package reads as a plain variable in `mem.foo(...)`. Empty for
+// every other grammar. Uses the temp allocator.
+@(private)
+package_names :: proc(root: ts.Node, source, lang_id: string) -> map[string]bool {
+    if lang_id != "odin" {
+        return nil
+    }
+    names := make(map[string]bool, context.temp_allocator)
+    for i in 0 ..< ts.node_named_child_count(root) {
+        imp := ts.node_named_child(root, i)
+        if string(ts.node_type(imp)) != "import_declaration" {
+            continue
+        }
+        if alias := ts.node_child_by_field_name(imp, "alias"); !ts.node_is_null(alias) {
+            names[ts.node_text(alias, source)] = true
+            continue
+        }
+        if path, ok := import_path(imp, source); ok {
+            names[path_tail(path)] = true
+        }
+    }
+    return names
+}
+
+// The unquoted path of an import_declaration, via its string_content child.
+@(private)
+import_path :: proc(imp: ts.Node, source: string) -> (string, bool) {
+    for i in 0 ..< ts.node_named_child_count(imp) {
+        str := ts.node_named_child(imp, i)
+        if string(ts.node_type(str)) != "string" {
+            continue
+        }
+        for j in 0 ..< ts.node_named_child_count(str) {
+            if content := ts.node_named_child(str, j); string(ts.node_type(content)) == "string_content" {
+                return ts.node_text(content, source), true
+            }
+        }
+    }
+    return "", false
+}
+
+// Last segment of an import path, after any collection prefix and any separator:
+// "core:mem" -> "mem", "core:odin/parser" -> "parser", "../lang" -> "lang".
+@(private)
+path_tail :: proc(path: string) -> string {
+    s := path
+    if colon := strings.last_index_byte(s, ':'); colon >= 0 {
+        s = s[colon + 1:]
+    }
+    if sep := max(strings.last_index_byte(s, '/'), strings.last_index_byte(s, '\\')); sep >= 0 {
+        s = s[sep + 1:]
+    }
+    return s
+}
+
+// True when `node` is the left-hand side of a qualified reference (the `mem` in
+// `mem.foo(...)` or `mem.Foo`).
+@(private)
+is_qualifier :: proc(node: ts.Node) -> bool {
+    parent := ts.node_parent(node)
+    if ts.node_is_null(parent) {
+        return false
+    }
+    switch string(ts.node_type(parent)) {
+    case "member_expression", "field_type":
+        first := ts.node_named_child(parent, 0)
+        return !ts.node_is_null(first) && ts.node_eq(first, node)
+    }
+    return false
 }
 
 @(private)

@@ -94,10 +94,13 @@ test_odin_plugin_highlights :: proc(t: ^testing.T) {
 
     src := `package p
 
+import "core:mem"
+
 Handler :: #type proc(data: rawptr)
 
 main :: proc() {
 	s := "hi" // note
+	context.allocator = mem.panic_allocator()
 }
 `
     spans := highlight(&m, src, ".odin", context.allocator)
@@ -112,6 +115,8 @@ main :: proc() {
     expect(t, spans, src, "\"hi\"", "strings")
     expect(t, spans, src, "// note", "comments")
     expect(t, spans, src, "data", "variables") // named param, not a type
+    expect(t, spans, src, "context", "orange") // reserved, not a plain variable
+    expect(t, spans, src, "mem.panic_allocator", "cyan") // package qualifier
 }
 
 // Loads the real plugins/lua/plugin.lua and highlights Lua through the
