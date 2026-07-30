@@ -33,6 +33,7 @@ test_plugin_doc_opens_and_refreshes :: proc(t: ^testing.T) {
     // every call, so a partial Thor still needs them.
     thor.image_view = widgets.image_view_create("test-image-view")
     thor.markdown_view = widgets.markdown_view_create("test-markdown-view")
+    thor.markdown_view2 = widgets.markdown_view_create("test-markdown-view2")
     thor.editor_split_row = widgets.stack_create("test-editor-split-row", .Horizontal)
     defer {
         for len(thor.open_files) > 0 {
@@ -46,6 +47,7 @@ test_plugin_doc_opens_and_refreshes :: proc(t: ^testing.T) {
         widgets.editor_destroy(&thor.editor2.widget)
         widgets.image_view_destroy(&thor.image_view.widget)
         widgets.markdown_view_destroy(&thor.markdown_view.widget)
+        widgets.markdown_view_destroy(&thor.markdown_view2.widget)
         widgets.stack_destroy(&thor.editor_split_row.widget)
     }
     defer os.remove(PATH)

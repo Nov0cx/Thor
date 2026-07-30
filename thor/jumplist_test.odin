@@ -24,6 +24,7 @@ make_test_thor :: proc() -> ^Thor {
     thor.editor_split_row = widgets.stack_create("test-editor-split-row", .Horizontal)
     thor.image_view = widgets.image_view_create("test-image-view")
     thor.markdown_view = widgets.markdown_view_create("test-markdown-view")
+    thor.markdown_view2 = widgets.markdown_view_create("test-markdown-view2")
     return thor
 }
 
@@ -45,6 +46,7 @@ destroy_test_thor :: proc(thor: ^Thor) {
     widgets.stack_destroy(&thor.editor_split_row.widget)
     widgets.image_view_destroy(&thor.image_view.widget)
     widgets.markdown_view_destroy(&thor.markdown_view.widget)
+    widgets.markdown_view_destroy(&thor.markdown_view2.widget)
     free(thor)
 }
 

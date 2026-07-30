@@ -49,9 +49,11 @@ Thor :: struct {
     // Overlays the editor panel when the active file is an image; the editor
     // rows are hidden while it shows.
     image_view:               ^widgets.Image_View,
-    // Overlays the editor panel with a rendered markdown page while preview is on
+    // Rendered markdown preview, shown in place of whichever pane is not
+    // focused (pane 0's slot / pane 1's slot respectively) while preview is on
     // and the active file is markdown. Toggled by "View: Toggle Markdown Preview".
     markdown_view:            ^widgets.Markdown_View,
+    markdown_view2:           ^widgets.Markdown_View,
     markdown_preview:         bool,
     editor_split_row:         ^widgets.Stack,
     editor_split_splitter:    ^widgets.Splitter,

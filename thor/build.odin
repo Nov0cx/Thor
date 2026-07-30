@@ -322,8 +322,12 @@ thor_build_content :: proc(thor: ^Thor) {
 
     thor.markdown_view = widgets.markdown_view_create("markdown-view")
     widgets.markdown_view_set_colors(thor.markdown_view, thor.theme)
-    ui.widget_set_grow(&thor.markdown_view.widget, 1)
     thor.markdown_view.visible = false
+
+    // Pane 1's counterpart, shown when the preview takes the second pane instead.
+    thor.markdown_view2 = widgets.markdown_view_create("markdown-view2")
+    widgets.markdown_view_set_colors(thor.markdown_view2, thor.theme)
+    thor.markdown_view2.visible = false
 
     console_title := widgets.label_create("console-title", "Console")
     widgets.label_set_text_color(console_title, thor.theme.white_black_color)
@@ -387,12 +391,16 @@ thor_build_content :: proc(thor: ^Thor) {
     widgets.append_child(&thor.explorer_header.widget, &thor.explorer_toggle_button.widget)
 
     widgets.append_child(&thor.editor_panel.widget, &thor.editor_split_row.widget)
+    // Each pane's editor sits beside its markdown-preview counterpart; only one
+    // of the pair is visible at a time (thor_update_editor_view), so whichever
+    // one is showing occupies that pane's slot in the row.
     widgets.append_child(&thor.editor_split_row.widget, &thor.editor.widget)
+    widgets.append_child(&thor.editor_split_row.widget, &thor.markdown_view.widget)
     widgets.append_child(&thor.editor_split_row.widget, &thor.editor_split_splitter.widget)
     widgets.append_child(&thor.editor_split_row.widget, &thor.editor2.widget)
-    // Added after the split row so it overlays the editor panes when shown.
+    widgets.append_child(&thor.editor_split_row.widget, &thor.markdown_view2.widget)
+    // Added after the split row so it overlays both panes when shown.
     widgets.append_child(&thor.editor_panel.widget, &thor.image_view.widget)
-    widgets.append_child(&thor.editor_panel.widget, &thor.markdown_view.widget)
 
     widgets.append_child(&thor.console_stack.widget, &thor.console_header.widget)
     widgets.append_child(&thor.console_stack.widget, &thor.console.widget)

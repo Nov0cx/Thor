@@ -140,10 +140,11 @@ thor_sync_pane_diff :: proc(thor: ^Thor, pane: int) {
     }
 }
 
-// Swaps the editor panes out for the image view (for image files) or the
-// markdown preview (for markdown files while preview is on), and back again
-// otherwise. Called every frame so it tracks tab switches, splits, toggles and
-// closes without each having to poke it.
+// Swaps the image view in for image files (a whole-panel overlay), and swaps
+// the markdown preview in for whichever pane is not currently focused when the
+// active file is markdown and preview is on -- the focused pane keeps showing
+// the source, like opening the preview "to the side". Called every frame so it
+// tracks tab switches, splits, toggles and closes without each having to poke it.
 thor_update_editor_view :: proc(thor: ^Thor) {
     file := thor_active_open_file(thor)
     show_image := file != nil && file.is_image && file.texture_loaded
@@ -151,8 +152,7 @@ thor_update_editor_view :: proc(thor: ^Thor) {
         file != nil && file.loaded && thor_is_markdown(file.name)
 
     thor.image_view.visible = show_image
-    thor.markdown_view.visible = show_md
-    thor.editor_split_row.visible = !show_image && !show_md
+    thor.editor_split_row.visible = !show_image
 
     if show_image {
         widgets.image_view_set_texture(thor.image_view, file.texture, file.name)
@@ -160,9 +160,29 @@ thor_update_editor_view :: proc(thor: ^Thor) {
         widgets.image_view_set_texture(thor.image_view, {}, "")
     }
 
-    if show_md {
-        widgets.markdown_view_set_font_size(thor.markdown_view, thor.editor.font_size)
+    // The preview needs a second pane to sit beside the source; open the split
+    // first if it is not already on, without moving focus off the source.
+    if show_md && !thor.split_visible {
+        thor.split_visible = true
+        thor_apply_split(thor)
+    }
+
+    preview_pane := show_md ? 1 - thor.active_pane : -1
+
+    thor.editor.visible = preview_pane != 0
+    thor.markdown_view.visible = preview_pane == 0
+    thor.editor2.visible = thor.split_visible && preview_pane != 1
+    thor.markdown_view2.visible = preview_pane == 1
+
+    if preview_pane == 0 {
+        thor.markdown_view.grow = thor.editor.grow
+        widgets.markdown_view_set_font_size(thor.markdown_view, thor.editor2.font_size)
         widgets.markdown_view_set_source(thor.markdown_view, textedit.text(&file.state), file.state.revision)
+    }
+    if preview_pane == 1 {
+        thor.markdown_view2.grow = thor.editor2.grow
+        widgets.markdown_view_set_font_size(thor.markdown_view2, thor.editor.font_size)
+        widgets.markdown_view_set_source(thor.markdown_view2, textedit.text(&file.state), file.state.revision)
     }
 }
 
