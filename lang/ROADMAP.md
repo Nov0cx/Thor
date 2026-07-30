@@ -206,7 +206,8 @@ lowest latency.
       pop back to the previous location.
 
 ## Missing — engine depth (Odin native analysis)
-
+- [ ] awarness of implicit casting
+- [ ] explain error indicator
 - [~] **Type-aware member access** (`foo.bar`): a struct-typed operand's field
       resolves (goto + hover + `value.` field completion), inferring the operand's
       type from its declaration — parameter or typed `var` — or from a `:=`
