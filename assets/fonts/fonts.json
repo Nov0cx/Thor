@@ -12,6 +12,34 @@
         "IosevkaNarrow": {
             "path": "IosevkaNarrow/Iosevka-Regular.ttf",
             "preload_sizes": [15, 17, 18, 20]
+        },
+        "FiraCode": {
+            "path": "FiraCode/FiraCode-Regular.ttf",
+            "preload_sizes": [15, 17, 18, 20]
+        },
+        "CascadiaCode": {
+            "path": "CascadiaCode/CascadiaCode-Regular.ttf",
+            "preload_sizes": [15, 17, 18, 20]
+        },
+        "IBMPlexMono": {
+            "path": "IBMPlexMono/IBMPlexMono-Regular.ttf",
+            "preload_sizes": [15, 17, 18, 20]
+        },
+        "Hack": {
+            "path": "Hack/Hack-Regular.ttf",
+            "preload_sizes": [15, 17, 18, 20]
+        },
+        "MonaspaceNeon": {
+            "path": "MonaspaceNeon/MonaspaceNeon-Regular.otf",
+            "preload_sizes": [15, 17, 18, 20]
+        },
+        "RecursiveMono": {
+            "path": "RecursiveMono/RecursiveMono-Regular.ttf",
+            "preload_sizes": [15, 17, 18, 20]
+        },
+        "DepartureMono": {
+            "path": "DepartureMono/DepartureMono-Regular.otf",
+            "preload_sizes": [15, 17, 18, 20]
         }
     }
 }
