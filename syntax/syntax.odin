@@ -43,6 +43,26 @@ Language_Entry :: struct {
     highlights: string,
 }
 
+// Odin type aliases, appended to the vendored highlights query (later patterns
+// win, as the js/ts composition above relies on). The vendored query only tags
+// the right-hand sides that are unmistakably types — `distinct`, an array, a
+// bit_set, a pointer — leaving `Vec :: Point`, `Vec :: other.Point`,
+// `M :: map[K]V`, `Mat :: matrix[N, M]T` and `C :: #type proc(...)` reading as
+// plain variables, though each declares a type just as `Point :: struct` does.
+// A bare name is ambiguous — a constant aliasing another constant has the same
+// shape, and nothing in the tree separates them — so the type reading wins,
+// being the one the rest of the editor already follows to the declaration behind
+// it. Kept here rather than in the vendored .scm so re-vendoring can't drop it.
+@(private)
+ODIN_ALIASES :: `
+(const_declaration (identifier) @type "::"
+  [(identifier) (member_expression) (map_type) (matrix_type) (type)])
+
+(const_declaration "::" (identifier) @type)
+
+(const_declaration "::" (member_expression (identifier) @namespace "." (identifier) @type))
+`
+
 Highlighter :: struct {
     parser:    ts.Parser,
     languages: map[string]Language_Entry,
@@ -55,7 +75,7 @@ highlighter_create :: proc() -> Highlighter {
     h.parser = ts.parser_new()
     h.languages = make(map[string]Language_Entry)
     h.queries = make(map[string]ts.Query)
-    h.languages["odin"] = Language_Entry{ts_odin.tree_sitter_odin(), ts_odin.HIGHLIGHTS}
+    h.languages["odin"] = Language_Entry{ts_odin.tree_sitter_odin(), ts_odin.HIGHLIGHTS + "\n" + ODIN_ALIASES}
     h.languages["lua"] = Language_Entry{ts_lua.tree_sitter_lua(), ts_lua.HIGHLIGHTS}
     h.languages["c"] = Language_Entry{ts_c.tree_sitter_c(), ts_c.HIGHLIGHTS}
     h.languages["cpp"] = Language_Entry{ts_cpp.tree_sitter_cpp(), ts_cpp.HIGHLIGHTS}

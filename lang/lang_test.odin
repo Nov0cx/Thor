@@ -2113,6 +2113,134 @@ main :: proc() {
 }
 
 @(test)
+test_member_type_alias :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // A name that only stands for a type still carries that type's members:
+    // a plain rename, a `distinct` type, and a second hop through another alias.
+    src := `package demo
+
+Point :: struct {
+	x: int,
+	y: int,
+}
+
+Vec :: Point
+Handle :: distinct Point
+Pair :: Vec
+
+main :: proc() {
+	v: Vec
+	h: Handle
+	p: Pair
+	_ = v.x
+	_ = h.y
+	_ = p.x
+}
+`
+    probes := []struct {
+        needle, field: string,
+    }{{"v.x", "x: int"}, {"h.y", "y: int"}, {"p.x", "x: int"}}
+
+    for probe in probes {
+        at := strings.index(src, probe.needle) + 2 // caret on the member
+        loc, ok := resolve_offset(e, src, at)
+        defer delete(loc.path)
+        testing.expectf(t, ok, "expected %s to resolve through the alias", probe.needle)
+        if ok {
+            want := strings.index(src, probe.field)
+            testing.expectf(t, loc.start == want, "%s: got %d, want %d", probe.needle, loc.start, want)
+        }
+    }
+}
+
+@(test)
+test_enum_selector_through_alias :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // The expected type is an alias, so the enum it selects from is one hop away.
+    src := `package demo
+
+Axis :: enum {
+	Horizontal,
+	Vertical,
+}
+
+Direction :: Axis
+
+main :: proc() {
+	d: Direction = .
+	_ = d
+}
+`
+    res: Result
+    selector_completions(e, src, "Direction = .", &res)
+    defer free_symbols(&res)
+
+    testing.expect(t, res.ok, "expected enum completions through the alias")
+    testing.expect(t, has_completion(&res, "Horizontal"), "missing member Horizontal")
+}
+
+@(test)
+test_alias_cycle_terminates :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // Two aliases naming each other resolve to nothing rather than looping.
+    src := `package demo
+
+A :: B
+B :: A
+
+main :: proc() {
+	a: A
+	_ = a.x
+}
+`
+    at := strings.index(src, "a.x") + 2
+    loc, ok := resolve_offset(e, src, at)
+    defer delete(loc.path)
+    testing.expect(t, !ok, "a cycle names no declaration")
+}
+
+@(test)
+test_member_alias_across_packages :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // `lib.Vec` is an alias written in lib, so the name it stands for is resolved
+    // from lib's side, not the importing file's.
+    root := "thor_lang_alias_ws"
+    lib := strings.concatenate({root, "/lib"}, context.temp_allocator)
+    _ = os.make_directory(root)
+    _ = os.make_directory(lib)
+
+    lib_path := strings.concatenate({lib, "/api.odin"}, context.temp_allocator)
+    lib_src := "package lib\n\nPoint :: struct {\n\tx: int,\n}\n\nVec :: Point\n"
+    _ = os.write_entire_file(lib_path, transmute([]byte)lib_src)
+
+    defer os.remove(root)
+    defer os.remove(lib)
+    defer os.remove(lib_path)
+
+    main_path := strings.concatenate({root, "/main.odin"}, context.temp_allocator)
+    main_src := "package app\n\nimport \"lib\"\n\nmain :: proc() {\n\tv: lib.Vec\n\t_ = v.x\n}\n"
+
+    at := strings.index(main_src, "v.x") + 2
+    loc, ok := resolve_offset(e, main_src, at, root, main_path)
+    defer delete(loc.path)
+
+    testing.expect(t, ok, "expected lib.Vec's field to resolve through the alias")
+    if ok {
+        testing.expectf(t, strings.has_suffix(loc.path, "api.odin"), "path: got %q", loc.path)
+        want := strings.index(lib_src, "x: int")
+        testing.expectf(t, loc.start == want, "member start: got %d, want %d", loc.start, want)
+    }
+}
+
+@(test)
 test_collection_import :: proc(t: ^testing.T) {
     e := odin_engine_create()
     defer odin_destroy(e)

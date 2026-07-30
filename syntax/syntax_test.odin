@@ -91,6 +91,42 @@ main :: proc() {
     expect_head(t, spans, src, "button.on_click", "variable")
 }
 
+// A name that only stands for a type is a definition, so it reads like the
+// `struct` declaration it aliases rather than like a variable.
+@(test)
+test_highlight_odin_type_alias :: proc(t: ^testing.T) {
+    h := highlighter_create()
+    defer highlighter_destroy(&h)
+
+    src := `package demo
+
+import "core:mem"
+
+Point :: struct { x: int }
+
+Vec :: Point
+Raw :: mem.Raw_Slice
+Handle :: distinct Point
+Table :: map[string]Point
+Grid :: matrix[2, 2]f32
+Click_Proc :: #type proc(data: rawptr)
+
+MAX :: 100
+`
+    spans := highlight(&h, src, "odin", context.temp_allocator)
+    testing.expect(t, len(spans) > 0, "the appended alias patterns must still compile")
+
+    for needle in ([]string{"Vec ::", "Raw ::", "Handle ::", "Table ::", "Grid ::", "Click_Proc ::"}) {
+        expect_head(t, spans, src, needle, "type")
+    }
+    // The type an alias names reads as a type too, on either side of a qualifier.
+    expect_head(t, spans, src, "Point\n", "type")
+    expect_head(t, spans, src, "mem.Raw_Slice", "namespace")
+    expect_head(t, spans, src, "Raw_Slice", "type")
+    // A constant with a literal value is not an alias.
+    expect_head(t, spans, src, "MAX", "variable")
+}
+
 // True when some fold range starts on `start` and ends on `end`.
 @(private = "file")
 has_fold :: proc(folds: []Fold_Range, start, end: int) -> bool {

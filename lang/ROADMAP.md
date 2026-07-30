@@ -79,6 +79,19 @@ lowest latency.
   which puts the selector back into a well-formed expression. The splice only
   adds bytes after the dot and every name the walk reads lies before it, so both
   parses agree where it counts.
+- **Type aliases (`Vec :: Point`)**: a name that only stands for a type carries
+  that type's members. The alias is followed to what it names and looked up again
+  from the top — the underlying declaration can live in another file or package
+  than the alias, and a qualifier written in the alias (`Vec :: other.Point`) is
+  resolved against *its* file's imports. `distinct` types come along, being a
+  separate type to the compiler but the same members here, as do chains of
+  aliases, capped by `ALIAS_DEPTH_LIMIT` so a cycle can't loop. An alias is a
+  constant rather than a type declaration, so the workspace index is asked for
+  both kinds. Everything downstream of the locator inherits this: goto, hover,
+  `value.` completion and implicit enum selectors all see through an alias. An
+  alias is also *coloured* as a definition — `syntax`'s `ODIN_ALIASES` patterns,
+  appended to the vendored highlights query, cover the right-hand sides it left
+  as plain variables (a bare or qualified name, `map`, `matrix`, `#type proc`).
 - **Embedded fields (`using`)**: a struct that embeds another (`using base: Base`)
   answers for the embedded struct's fields as if they were its own — goto, hover
   and `value.` completion all reach them, through several levels of embedding and
@@ -226,10 +239,11 @@ lowest latency.
       in every expected-type position (`expected_type_at` walks up to a literal
       field, call argument, comparison, `switch` case or result slot, re-parsing
       with a filler identifier when the bare `.` broke the tree; parameter types
-      read by `proc_param_type`). Still open: following `X :: Y` aliases and
-      `distinct` types to the underlying declaration, typing conversion
-      expressions (`cast(T)x`, `T(x)`, `transmute(T)x`, `x.(T)`), and union
-      variants (`switch v in u`).
+      read by `proc_param_type`), and `X :: Y` / `X :: distinct Y` aliases
+      followed to the declaration they stand for (`visit_type_decl` loops over
+      `find_type_decl`, re-resolving each hop from the top). Still open: typing
+      conversion expressions (`cast(T)x`, `T(x)`, `transmute(T)x`, `x.(T)`), and
+      union variants (`switch v in u`).
 - [ ] explain error indicator
 - [x] **dont show definiton when just hovering over a thing.** The hover popup is
       gated behind Ctrl (`editor_handle_hover` polls the key, as the Scroll case
@@ -246,7 +260,8 @@ lowest latency.
       sliced or ranged over.
       Served by `resolve_member`/`infer_expr_type`/`binding_type_ref` + the
       `visit_type_decl` struct/enum locator (same file → imported package →
-      workspace index → the origin file's imports for a qualified name). Still
+      workspace index → the origin file's imports for a qualified name), which
+      follows `X :: Y` and `X :: distinct Y` aliases to what they stand for. Still
       missing: types that are neither a struct, an enum nor a container of one
       (unions, bit_sets, proc fields), a container's own builtin members, a map's
       key type, nested containers (`[][]T`), and statement-level `using`. Those

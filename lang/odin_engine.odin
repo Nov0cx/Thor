@@ -2776,12 +2776,25 @@ is_plain_name :: proc(s: string) -> bool {
 @(private = "file")
 Decl_Visitor :: #type proc(decl: ts.Node, source, path: string, ctx: rawptr)
 
+// What one lookup turned up: nothing, the declaration itself (already visited), or
+// an `X :: Y` alias naming the type to look for instead.
+@(private = "file")
+Decl_Hit :: enum {
+    Missed,
+    Visited,
+    Alias,
+}
+
+// How many `X :: Y` hops are followed before giving up, so a cycle (`A :: B`,
+// `B :: A`) can't loop.
+@(private = "file")
+ALIAS_DEPTH_LIMIT :: 8
+
 // Locates the type declaration named `tr` (of node type `decl_type`, e.g.
 // "struct_declaration") and runs `visit` on it, returning whether one was found.
-// Resolution order mirrors goto: the request file first (a declaration in the same
-// package file wins), then — for a package-qualified type — the imported package's
-// directory, otherwise the workspace index (a file whose top-level decls of kind
-// `index_kind` declare the name). The first located declaration is terminal.
+// A name that resolves to an alias (`Vec :: Point`, `Handle :: distinct Point`)
+// is followed to what it stands for and looked up again from the top, since the
+// underlying declaration can live in another file or package than the alias.
 @(private = "file")
 visit_type_decl :: proc(
     e: ^Odin_Engine,
@@ -2793,21 +2806,49 @@ visit_type_decl :: proc(
     visit: Decl_Visitor,
     ctx: rawptr,
 ) -> bool {
+    tr := tr
+    for _ in 0 ..< ALIAS_DEPTH_LIMIT {
+        next, hit := find_type_decl(e, parser, root, req, tr, decl_type, index_kind, visit, ctx)
+        if hit != .Alias {
+            return hit == .Visited
+        }
+        tr = next
+    }
+    return false
+}
+
+// One pass of visit_type_decl's lookup. Resolution order mirrors goto: the request
+// file first (a declaration in the same package file wins), then — for a
+// package-qualified type — the imported package's directory, otherwise the
+// workspace index (a file whose top-level decls of kind `index_kind` declare the
+// name). The first file that declares the name is terminal, whether it declares
+// the type or an alias to it.
+@(private = "file")
+find_type_decl :: proc(
+    e: ^Odin_Engine,
+    parser: ts.Parser,
+    root: ts.Node,
+    req: ^Request,
+    tr: Type_Ref,
+    decl_type, index_kind: string,
+    visit: Decl_Visitor,
+    ctx: rawptr,
+) -> (Type_Ref, Decl_Hit) {
     // A container is not the type it holds: `xs: []Point` must be indexed or
     // ranged over before Point's fields are in reach, so every member operation
     // (field goto, hover, field/enum completion) stops here.
     if tr.container != .None {
-        return false
+        return {}, .Missed
     }
-    if decl, ok := locate_decl(root, req.source, tr.name, decl_type); ok {
-        visit(decl, req.source, req.path, ctx)
-        return true
+    if alias, hit := probe_decl(root, req.source, req.path, tr.name, decl_type, visit, ctx); hit != .Missed {
+        return alias, hit
     }
     if tr.pkg != "" {
         if raw, found := import_path(root, req.source, tr.pkg); found {
             if dir, dok := package_dir(e, raw, req.path, req.workspace); dok {
-                if visit_decl_in_dir(e, parser, dir, tr.name, req.path, decl_type, visit, ctx) {
-                    return true
+                if alias, hit := visit_decl_in_dir(e, parser, dir, tr.name, req.path, decl_type, visit, ctx);
+                   hit != .Missed {
+                    return alias, hit
                 }
             }
         }
@@ -2818,13 +2859,19 @@ visit_type_decl :: proc(
         if tr.origin != "" && tr.origin != req.path {
             return visit_qualified_in_origin(e, parser, req, tr, decl_type, visit, ctx)
         }
-        return false
+        return {}, .Missed
     }
     if req.workspace != "" {
         path, ok := "", false
         sync.lock(&e.index.mutex)
         index_sync(e, parser, req)
-        if p, found := index_first_path(e, tr.name, req.path, index_kind); found {
+        p, found := index_first_path(e, tr.name, req.path, index_kind)
+        if !found {
+            // An alias is a constant, not a type declaration, so a name that only
+            // stands for a type is indexed under "constant".
+            p, found = index_first_path(e, tr.name, req.path, "constant")
+        }
+        if found {
             path = strings.clone(p, context.temp_allocator)
             ok = true
         }
@@ -2833,7 +2880,62 @@ visit_type_decl :: proc(
             return visit_decl_in_file(e, parser, path, tr.name, decl_type, visit, ctx)
         }
     }
-    return false
+    return {}, .Missed
+}
+
+// One parsed file's answer for `name`: the declaration itself (visited here), the
+// type an alias stands for, or nothing.
+@(private = "file")
+probe_decl :: proc(
+    root: ts.Node,
+    source, path, name, decl_type: string,
+    visit: Decl_Visitor,
+    ctx: rawptr,
+) -> (Type_Ref, Decl_Hit) {
+    if decl, ok := locate_decl(root, source, name, decl_type); ok {
+        visit(decl, source, path, ctx)
+        return {}, .Visited
+    }
+    if alias, ok := locate_alias(root, source, name, path); ok {
+        return alias, .Alias
+    }
+    return {}, .Missed
+}
+
+// The type an `X :: Y` alias stands for: a plain rename (`Vec :: Point`), a
+// package-qualified one (`Vec :: other.Point`), or a `distinct` type, which is a
+// separate type to the compiler but carries the same members. The target is cloned
+// with `path` as its origin, so a qualifier written here resolves against this
+// file's imports rather than the requesting file's. A constant that is not a type
+// name (`MAX :: 100`) is not an alias, and neither is one of several names sharing
+// a declaration (`A, B :: 1, 2`).
+@(private = "file")
+locate_alias :: proc(root: ts.Node, source, name, path: string) -> (Type_Ref, bool) {
+    decl, ok := locate_decl(root, source, name, "const_declaration")
+    if !ok {
+        return {}, false
+    }
+    base := decl_body_start(decl)
+    if ts.node_named_child_count(decl) - base != 2 {
+        return {}, false
+    }
+    value := ts.node_named_child(decl, base + 1)
+    if string(ts.node_type(value)) == "distinct_type" {
+        value = ts.node_named_child(value, 0)
+    }
+    if ts.node_is_null(value) {
+        return {}, false
+    }
+    // A type name reads as a type after `distinct` and as an expression otherwise,
+    // and the grammar spells `other.P` differently in the two positions.
+    tr, tok := type_ref_from_node(value, source)
+    if !tok {
+        tr, tok = expr_type_name(value, source)
+    }
+    if !tok || (tr.name == name && tr.pkg == "") {
+        return {}, false
+    }
+    return clone_type_ref(tr, path), true
 }
 
 // visit_type_decl for a package-qualified type whose qualifier is spelled in
@@ -2849,26 +2951,26 @@ visit_qualified_in_origin :: proc(
     decl_type: string,
     visit: Decl_Visitor,
     ctx: rawptr,
-) -> bool {
+) -> (Type_Ref, Decl_Hit) {
     data, rerr := os.read_entire_file(tr.origin, context.temp_allocator)
     if rerr != nil {
-        return false
+        return {}, .Missed
     }
     source := string(data)
 
     tree := ts.parser_parse_string(parser, source)
     if tree == nil {
-        return false
+        return {}, .Missed
     }
     defer ts.tree_delete(tree)
 
     raw, found := import_path(ts.tree_root_node(tree), source, tr.pkg)
     if !found {
-        return false
+        return {}, .Missed
     }
     dir, dok := package_dir(e, raw, tr.origin, req.workspace)
     if !dok {
-        return false
+        return {}, .Missed
     }
     return visit_decl_in_dir(e, parser, dir, tr.name, req.path, decl_type, visit, ctx)
 }
@@ -2882,16 +2984,16 @@ visit_decl_in_dir :: proc(
     dir, name, skip, decl_type: string,
     visit: Decl_Visitor,
     ctx: rawptr,
-) -> bool {
+) -> (Type_Ref, Decl_Hit) {
     handle, open_err := os.open(dir)
     if open_err != nil {
-        return false
+        return {}, .Missed
     }
     defer os.close(handle)
 
     infos, read_err := os.read_dir(handle, -1, context.temp_allocator)
     if read_err != nil {
-        return false
+        return {}, .Missed
     }
 
     for info in infos {
@@ -2901,11 +3003,11 @@ visit_decl_in_dir :: proc(
         if info.fullpath == skip {
             continue
         }
-        if visit_decl_in_file(e, parser, info.fullpath, name, decl_type, visit, ctx) {
-            return true
+        if alias, hit := visit_decl_in_file(e, parser, info.fullpath, name, decl_type, visit, ctx); hit != .Missed {
+            return alias, hit
         }
     }
-    return false
+    return {}, .Missed
 }
 
 // visit_type_decl over one file: parse it (source is temp-allocated, job-lifetime,
@@ -2917,24 +3019,22 @@ visit_decl_in_file :: proc(
     path, name, decl_type: string,
     visit: Decl_Visitor,
     ctx: rawptr,
-) -> bool {
+) -> (Type_Ref, Decl_Hit) {
     data, rerr := os.read_entire_file(path, context.temp_allocator)
     if rerr != nil {
-        return false
+        return {}, .Missed
     }
     source := string(data)
 
     tree := ts.parser_parse_string(parser, source)
     if tree == nil {
-        return false
+        return {}, .Missed
     }
     defer ts.tree_delete(tree)
 
-    if decl, ok := locate_decl(ts.tree_root_node(tree), source, name, decl_type); ok {
-        visit(decl, source, path, ctx)
-        return true
-    }
-    return false
+    // Whatever probe_decl reports slices `source` or is cloned into the temp
+    // allocator, both of which outlive this tree.
+    return probe_decl(ts.tree_root_node(tree), source, path, name, decl_type, visit, ctx)
 }
 
 // The top-level declaration of node type `decl_type` named `name`, if any. A type
@@ -2946,11 +3046,22 @@ locate_decl :: proc(root: ts.Node, source, name, decl_type: string) -> (ts.Node,
         if string(ts.node_type(c)) != decl_type {
             continue
         }
-        if id := ts.node_named_child(c, 0); is_identifier(id) && ts.node_text(id, source) == name {
+        if id := ts.node_named_child(c, decl_body_start(c)); is_identifier(id) && ts.node_text(id, source) == name {
             return c, true
         }
     }
     return {}, false
+}
+
+// Index of a declaration's first named child past its attributes: `@(private)`
+// hangs an `attributes` node ahead of the name, shifting everything after it.
+@(private = "file")
+decl_body_start :: proc(decl: ts.Node) -> u32 {
+    first := ts.node_named_child(decl, 0)
+    if !ts.node_is_null(first) && string(ts.node_type(first)) == "attributes" {
+        return 1
+    }
+    return 0
 }
 
 // What a Decl_Visitor needs to resolve a *further* type declaration from inside
