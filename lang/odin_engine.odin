@@ -1267,6 +1267,12 @@ collect_value_decls :: proc(node: ts.Node, source: string, defs: ^[dynamic]Def) 
                 append_value_def(defs, c, node, source, ordered = false)
             }
         }
+    case "switch_statement":
+        // `switch v in u` declares `v`, which the LOCALS query captures nowhere.
+        // It is seen by the whole switch, like a loop variable.
+        if ident, _, ok := type_switch_parts(node); ok {
+            append_value_def(defs, ident, node, source, ordered = false)
+        }
     }
 
     for i in 0 ..< ts.node_child_count(node) {
@@ -2254,10 +2260,94 @@ collect_bindings :: proc(node: ts.Node, source, name: string, out: ^[dynamic]Bin
         if b, ok := range_binding(node, source, name); ok {
             append(out, b)
         }
+    case "switch_statement":
+        type_switch_bindings(node, source, name, out)
     }
     for i in 0 ..< ts.node_child_count(node) {
         collect_bindings(ts.node_child(node, i), source, name, out)
     }
+}
+
+// The variable a type switch binds and the value it switches over: `switch v in u`
+// spells both as an `in_expression` condition, the variable first. The three-clause
+// `switch x := e; x` has an assignment_statement there instead and declares nothing
+// of its own here — collect_value_decls and collect_bindings already read that
+// through their assignment_statement cases.
+@(private = "file")
+type_switch_parts :: proc(node: ts.Node) -> (ident, operand: ts.Node, ok: bool) {
+    for i in 0 ..< ts.node_named_child_count(node) {
+        c := ts.node_named_child(node, i)
+        if string(ts.node_type(c)) != "in_expression" {
+            continue
+        }
+        a := ts.node_named_child(c, 0)
+        b := ts.node_named_child(c, 1)
+        if is_identifier(a) && !ts.node_is_null(b) {
+            return a, b, true
+        }
+        break
+    }
+    return {}, {}, false
+}
+
+// The bindings a type switch gives its variable: `switch v in u { case Circle: }`
+// reads `v` as a Circle inside that case and as something else in the next, so
+// each case contributes its own binding scoped to itself. A case listing several
+// types (`case Circle, Square:`) leaves the variable as the union, and the default
+// case narrows nothing — neither names one type, so neither binds. The union
+// itself is never consulted: the case says what the value is there.
+@(private = "file")
+type_switch_bindings :: proc(node: ts.Node, source, name: string, out: ^[dynamic]Binding) {
+    ident, _, ok := type_switch_parts(node)
+    if !ok || ts.node_text(ident, source) != name {
+        return
+    }
+    for i in 0 ..< ts.node_named_child_count(node) {
+        c := ts.node_named_child(node, i)
+        if string(ts.node_type(c)) != "switch_case" {
+            continue
+        }
+        cond, single := lone_case_condition(c)
+        if !single {
+            continue
+        }
+        // A case names a type the way a declaration does (`^Circle`) or the way an
+        // expression does (`lib.Circle`) depending on the shape, and a value switch's
+        // `case 1:` is neither — which is how a case that narrows nothing is skipped.
+        tr, tok := type_ref_from_node(cond, source)
+        if !tok {
+            tr, tok = expr_type_name(cond, source)
+        }
+        if !tok {
+            continue
+        }
+        append(
+            out,
+            Binding {
+                tr = tr,
+                pos = int(ts.node_start_byte(c)),
+                scope_start = int(ts.node_start_byte(c)),
+                scope_end = int(ts.node_end_byte(c)),
+            },
+        )
+    }
+}
+
+// The single `condition:` child of a switch case, false when it has none (the
+// default `case:`) or more than one (`case A, B:`). The conditions lead the case;
+// the statements after them are its body.
+@(private = "file")
+lone_case_condition :: proc(node: ts.Node) -> (ts.Node, bool) {
+    cond: ts.Node
+    count := 0
+    for i in 0 ..< ts.node_named_child_count(node) {
+        if string(ts.node_field_name_for_named_child(node, u32(i))) != "condition" {
+            continue
+        }
+        cond = ts.node_named_child(node, i)
+        count += 1
+    }
+    return cond, count == 1
 }
 
 // `b` scoped to the block or control-flow statement enclosing its declaration,

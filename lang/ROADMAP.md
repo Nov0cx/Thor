@@ -92,17 +92,29 @@ lowest latency.
   alias is also *coloured* as a definition — `syntax`'s `ODIN_ALIASES` patterns,
   appended to the vendored highlights query, cover the right-hand sides it left
   as plain variables (a bare or qualified name, `map`, `matrix`, `#type proc`).
-- **Conversions (`cast(T)x`, `T(x)`, `x.(T)`)**: a converted value carries the
-  members of the type converted *to*, not of the operand. `cast(T)x` and
-  `transmute(T)x` name their target outright (the grammar spells both as one
-  `cast_expression` with a `type` child; `auto_cast x` has no such child and takes
-  its type from where it sits, so it is left alone). The call-shaped `T(x)` is
-  indistinguishable from a call by shape, so it is read as a conversion only once
-  no procedure of that name is found — a package qualifier (`lib.Point(h)`) sits
-  on the member expression the call hangs under, where `resolve_call_target` reads
-  it from too. A `x.(T)` assertion arrives as a member whose "name" is a
-  parenthesized expression; the `ok` of `v, ok := x.(T)` is a bool, so only the
-  first slot converts.
+- **Conversions and assertions (`cast(T)x`, `T(x)`, `x.(T)`)**: the value carries
+  the members of the type named on the left of the operand, not of the operand
+  itself. `cast(T)x` and `transmute(T)x` name their target outright (the grammar
+  spells both as one `cast_expression` with a `type` child; `auto_cast x` has no
+  such child and takes its type from where it sits, so it is left alone). The
+  call-shaped `T(x)` is indistinguishable from a call by shape, so it is read as a
+  conversion only once no procedure of that name is found — a package qualifier
+  (`lib.Point(h)`) sits on the member expression the call hangs under, where
+  `resolve_call_target` reads it from too. `x.(T)` is not a cast but a type
+  assertion — it narrows a union or an `any` to a variant it already holds — and it
+  arrives as a member expression whose "name" is a parenthesized type; the `ok` of
+  `v, ok := x.(T)` is a bool, so only the first slot narrows.
+- **Type switches (`switch v in u`)**: each case narrows the switch variable to the
+  type it names, so the same `v` carries different members from one case to the
+  next — `case Circle:` gives it Circle's, `case ^Square:` Square's (the pointer is
+  transparent), `case lib.Circle:` reaches across packages (a qualified case arrives
+  as a member expression, an unqualified or pointer one as a type). The union is
+  never consulted: the case says what the value is there. A case listing several
+  types leaves the variable as the union and the default case narrows nothing, so
+  neither binds — one condition is the requirement. The variable is also a
+  declaration in its own right, which the vendored LOCALS query captures nowhere, so
+  goto and find-usages on it are collected alongside the `:=` and loop-variable ones
+  and scoped to the switch.
 - **Embedded fields (`using`)**: a struct that embeds another (`using base: Base`)
   answers for the embedded struct's fields as if they were its own — goto, hover
   and `value.` completion all reach them, through several levels of embedding and
@@ -246,16 +258,16 @@ lowest latency.
       pop back to the previous location.
 
 ## Missing — engine depth (Odin native analysis)
-- [~] **awarness of implicit casting.** Split four ways. Done: implicit selectors
-      in every expected-type position (`expected_type_at` walks up to a literal
-      field, call argument, comparison, `switch` case or result slot, re-parsing
-      with a filler identifier when the bare `.` broke the tree; parameter types
-      read by `proc_param_type`), and `X :: Y` / `X :: distinct Y` aliases
-      followed to the declaration they stand for (`visit_type_decl` loops over
-      `find_type_decl`, re-resolving each hop from the top), and conversion
-      expressions typed by their target (`cast(T)x`, `transmute(T)x`, the
-      call-shaped `T(x)` once no procedure answers to the name, and the `x.(T)`
-      assertion). Still open: union variants (`switch v in u`).
+- [x] **awarness of implicit casting.** Split four ways, all landed: implicit
+      selectors in every expected-type position (`expected_type_at` walks up to a
+      literal field, call argument, comparison, `switch` case or result slot,
+      re-parsing with a filler identifier when the bare `.` broke the tree;
+      parameter types read by `proc_param_type`); `X :: Y` / `X :: distinct Y`
+      aliases followed to the declaration they stand for (`visit_type_decl` loops
+      over `find_type_decl`, re-resolving each hop from the top); conversion
+      expressions typed by their target (`cast(T)x`, `transmute(T)x`, and the
+      call-shaped `T(x)` once no procedure answers to the name); and union variants
+      narrowed by both the `x.(T)` assertion and each case of a `switch v in u`.
 - [ ] explain error indicator
 - [x] **dont show definiton when just hovering over a thing.** The hover popup is
       gated behind Ctrl (`editor_handle_hover` polls the key, as the Scroll case
@@ -274,10 +286,12 @@ lowest latency.
       `visit_type_decl` struct/enum locator (same file → imported package →
       workspace index → the origin file's imports for a qualified name), which
       follows `X :: Y` and `X :: distinct Y` aliases to what they stand for. A
-      conversion (`cast(T)x`, `transmute(T)x`, `T(x)`, `x.(T)`) types its value by
-      what it converts to. Still
+      conversion (`cast(T)x`, `transmute(T)x`, `T(x)`) types its value by what it
+      converts to, and a union narrows to a variant through `x.(T)` or a
+      `switch v in u` case. Still
       missing: types that are neither a struct, an enum nor a container of one
-      (unions, bit_sets, proc fields), a container's own builtin members, a map's
+      (an un-narrowed union, bit_sets, proc fields), a container's own builtin
+      members, a map's
       key type, nested containers (`[][]T`), and statement-level `using`. Those
       fall through to the flat name scan. Member *completion* also needs a bare
       word operand: `xs[0].` and `a.b.` offer nothing, though goto and hover

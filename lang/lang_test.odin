@@ -2330,6 +2330,127 @@ test_member_through_qualified_conversion :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_type_switch_variant :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // Each case of a type switch narrows the variable to the type it names, so the
+    // same `v` carries different members from one case to the next. A case naming
+    // several types, and the default case, narrow to nothing.
+    src := `package demo
+
+Circle :: struct {
+	radius: int,
+}
+
+Square :: struct {
+	side: int,
+}
+
+Shape :: union {
+	Circle,
+	Square,
+}
+
+main :: proc() {
+	s: Shape
+	switch v in s {
+	case Circle:
+		_ = v.radius
+	case ^Square:
+		_ = v.side
+	}
+}
+`
+    // The variable itself is a declaration, though the LOCALS query captures none.
+    decl := strings.index(src, "v in s")
+    loc, ok := resolve_offset(e, src, strings.index(src, "v.radius"))
+    defer delete(loc.path)
+    testing.expect(t, ok, "expected the switch variable to resolve to its declaration")
+    if ok {
+        testing.expectf(t, loc.start == decl, "v: got %d, want %d", loc.start, decl)
+    }
+
+    hits := []struct {
+        needle, field: string,
+    }{{"v.radius", "radius: int"}, {"v.side", "side: int"}}
+    for probe in hits {
+        at := strings.index(src, probe.needle) + 2
+        hit, hok := resolve_offset(e, src, at)
+        defer delete(hit.path)
+        testing.expectf(t, hok, "expected %s to resolve through the case type", probe.needle)
+        if hok {
+            want := strings.index(src, probe.field)
+            testing.expectf(t, hit.start == want, "%s: got %d, want %d", probe.needle, hit.start, want)
+        }
+    }
+
+    // What a case narrows to shows in the member candidates it offers, which a
+    // definition probe cannot tell apart: an unresolved `x.field` falls back to the
+    // identifier lookup and reaches the field declaration regardless.
+    heads := []struct {
+        label, body: string,
+    } {
+        {"a case naming one type", "\tcase Circle:\n\t\t_ = v.\n\t}\n}\n"},
+        {"a case naming several", "\tcase Circle, Square:\n\t\t_ = v.\n\t}\n}\n"},
+        {"the default case", "\tcase:\n\t\t_ = v.\n\t}\n}\n"},
+    }
+    head := src[:strings.index(src, "\tcase Circle:")]
+    for probe, i in heads {
+        text := strings.concatenate({head, probe.body}, context.temp_allocator)
+        at := strings.index(text, "v.\n") + len("v.")
+        req := Request{kind = .Completion, path = "buffer.odin", ext = ".odin", source = text, offset = at}
+        res := Result{kind = .Completion}
+        odin_resolve(e, &req, &res)
+        defer free_symbols(&res)
+
+        if i == 0 {
+            testing.expect(t, has_completion(&res, "radius"), "a narrowed value offers its own fields")
+            testing.expectf(t, len(res.symbols) == 1, "%s offers only that type: got %d", probe.label, len(res.symbols))
+            continue
+        }
+        // Several types leave the variable as the union, and the default case
+        // narrows nothing — neither names one type to reach members through.
+        testing.expectf(t, !res.ok, "%s narrows to no single type, got %d candidates", probe.label, len(res.symbols))
+    }
+}
+
+@(test)
+test_type_switch_qualified_variant :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // A case naming a type from another package arrives as a member expression
+    // rather than a qualified type, and still has to reach the right package.
+    root := "thor_lang_union_ws"
+    lib := strings.concatenate({root, "/lib"}, context.temp_allocator)
+    _ = os.make_directory(root)
+    _ = os.make_directory(lib)
+
+    lib_path := strings.concatenate({lib, "/api.odin"}, context.temp_allocator)
+    lib_src := "package lib\n\nCircle :: struct {\n\tradius: int,\n}\n\nShape :: union {\n\tCircle,\n}\n"
+    _ = os.write_entire_file(lib_path, transmute([]byte)lib_src)
+
+    defer os.remove(root)
+    defer os.remove(lib)
+    defer os.remove(lib_path)
+
+    main_path := strings.concatenate({root, "/main.odin"}, context.temp_allocator)
+    main_src := "package app\n\nimport \"lib\"\n\nmain :: proc() {\n\ts: lib.Shape\n\tswitch v in s {\n\tcase lib.Circle:\n\t\t_ = v.radius\n\t}\n}\n"
+
+    at := strings.index(main_src, "v.radius") + 2
+    loc, ok := resolve_offset(e, main_src, at, root, main_path)
+    defer delete(loc.path)
+
+    testing.expect(t, ok, "expected the narrowed value's field to resolve")
+    if ok {
+        testing.expectf(t, strings.has_suffix(loc.path, "api.odin"), "path: got %q", loc.path)
+        want := strings.index(lib_src, "radius: int")
+        testing.expectf(t, loc.start == want, "member start: got %d, want %d", loc.start, want)
+    }
+}
+
+@(test)
 test_collection_import :: proc(t: ^testing.T) {
     e := odin_engine_create()
     defer odin_destroy(e)
