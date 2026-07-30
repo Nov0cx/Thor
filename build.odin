@@ -125,10 +125,25 @@ run_tests :: proc() -> bool {
         return false
     }
 
-    for pkg in ([]string{"lang", "piecetable", "plugin", "syntax", "textedit", "thor", "treecache", "ui", "watch"}) {
+    packages := []string {
+        "lang",
+        "lang/odin",
+        "piecetable",
+        "plugin",
+        "syntax",
+        "textedit",
+        "thor",
+        "treecache",
+        "ui",
+        "watch",
+    }
+    for pkg in packages {
         args := make([dynamic]string, context.temp_allocator)
         append(&args, "odin", "test", pkg)
-        append(&args, fmt.tprintf("-out:bin/test/%s%s", pkg, EXE_EXT))
+        // A subpackage's path would name a bin/test subdirectory that does not
+        // exist, so the binary is named after the flattened path.
+        out, _ := strings.replace_all(pkg, "/", "_", context.temp_allocator)
+        append(&args, fmt.tprintf("-out:bin/test/%s%s", out, EXE_EXT))
         append_common_flags(&args)
         append_codegen_flags(&args)
         if !exec_msvc(args[:]) {

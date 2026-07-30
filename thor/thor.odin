@@ -9,6 +9,7 @@ import "core:time"
 import rl "vendor:raylib"
 
 import "../lang"
+import "../lang/odin"
 import "../plugin"
 import "../setting"
 import "../ui"
@@ -185,7 +186,7 @@ Thor :: struct {
     // Language intelligence: in-client analyzers (and, later, an LSP subprocess)
     // behind one seam. Requests run on worker threads and are reaped each frame.
     lang_manager:             lang.Manager,
-    odin_engine:              ^lang.Odin_Engine,
+    odin_engine:              ^odin.Engine,
     // Recursive async watch of the workspace tree. Its changes feed the explorer
     // (tree + git refresh) and the open buffers (reload on external edits) via
     // subscribers wired in thor_init_watcher. The two flags coalesce a burst of
@@ -356,8 +357,8 @@ init :: proc() -> ^Thor {
     // Language intelligence: register the in-client Odin engine first so it wins
     // for .odin files; an optional LSP subprocess backend would register after it.
     lang.manager_init(&thor.lang_manager)
-    thor.odin_engine = lang.odin_engine_create()
-    lang.manager_register(&thor.lang_manager, lang.odin_engine_backend(thor.odin_engine))
+    thor.odin_engine = odin.engine_create()
+    lang.manager_register(&thor.lang_manager, odin.engine_backend(thor.odin_engine))
 
     log.infof("Loaded theme: %s", thor.theme.name)
 

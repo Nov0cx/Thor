@@ -18,11 +18,19 @@ lowest latency.
   one is dropped without reaching the editor; the triggers that fire while typing
   are debounced into a per-kind slot so a burst of keystrokes dispatches once
   (see **Request coalescing / cancellation**).
-- `odin_engine.odin` — first backend, in-client Odin analyzer. Parses with the
-  vendored tree-sitter grammar (incrementally — a resident per-buffer tree is
-  re-parsed off a diff-recovered edit span, see **Incremental parsing**);
-  resolves identifiers via the LOCALS query + `:=` short-decl handling;
-  cross-file via a workspace scan.
+- `lang/odin` — first backend, in-client Odin analyzer, a subpackage of its own
+  so the analysis internals stay out of the seam's namespace (a subprocess LSP
+  client would sit beside it as `lang/lsp`). Parses with the vendored
+  tree-sitter grammar (incrementally — a resident per-buffer tree is re-parsed
+  off a diff-recovered edit span, see **Incremental parsing**); resolves
+  identifiers via the LOCALS query + `:=` short-decl handling; cross-file via a
+  workspace scan. Split by concern:
+  `engine.odin` (lifetime + the `lang.Backend` seam), `resolve.odin` (the
+  request entry point and lexical scope), `index.odin` (the resident symbol
+  index), `config.odin` (`.thor/odin-analyzer.json`), `symbols.odin` (outlines,
+  references, rename), `signature.odin`, `completion.odin`, `infer.odin` /
+  `typeref.odin` / `decl.odin` (member-access type inference),
+  `packagedoc.odin` and `ast.odin` (shared tree/text helpers).
 - Editor wiring — Alt+Enter (`goto_definition` keybind) and Ctrl+Click both
   dispatch go-to-definition; results jump the caret (opening the target file if
   needed, deferring the jump until it loads).
@@ -230,7 +238,7 @@ lowest latency.
   file's modtime/size moves), so the common request pays a single `stat`, not a
   parse. Unknown keys are ignored, so the file can hold settings the engine
   doesn't act on yet. Served by `config_ensure`/`config_collection_dir`/
-  `config_allows` in `odin_engine.odin`.
+  `config_allows` in `lang/odin/config.odin`.
 - **Go back / go forward (Ctrl+Alt+Left / Ctrl+Alt+Right):** every jump records
   where it left, so chasing a definition across files is reversible. Two trails
   in the host only (`thor/jumplist.odin`); the engine is not involved. The record
@@ -432,8 +440,8 @@ lowest latency.
 - [x] **Persistent symbol index.** Cross-file requests used to re-read *and
       re-parse* the whole workspace off-thread; the readdir is cheap, the
       per-file tree-sitter parse is the cost. Parsed top-level declarations are now
-      resident on the `Odin_Engine`, re-parsed only for files that changed, and
-      every cross-file consumer queries them. Touched `odin_engine.odin` almost
+      resident on the `odin.Engine`, re-parsed only for files that changed, and
+      every cross-file consumer queries them. Touched `lang/odin` almost
       entirely; the seam and host wiring are unchanged. Phases 1 and 2 landed;
       Phase 3 (dropping the per-request readdir) stays optional.
 
@@ -456,7 +464,7 @@ lowest latency.
         re-parse only files whose `modtime`/`size` differ, plus new files; drop
         deleted files. Correct with zero host coupling — the win is skipping the
         parse for unchanged files.
-      - *Reindex on save*: `odin_engine_notify_saved(e, path)` called from
+      - *Reindex on save*: `odin.engine_notify_saved(e, path)` called from
         `thor_save_file` (files.odin:372) marks one path stale — a fast path over
         the stat-walk. No file watcher exists, so external edits rely on the
         stat-walk.
@@ -491,9 +499,9 @@ lowest latency.
       **Phasing:**
       - Phase 1 — index + lazy build + stat validation + rewire the whole-workspace
         declaration consumers (goto, hover, workspace symbols, signature help).
-        **Landed** (`odin_engine.odin`; `test_index_reflects_file_change` covers
+        **Landed** (`lang/odin`; `test_index_reflects_file_change` covers
         stat invalidation). Completion followed once the debounce was in place.
-        Follow-up still open: `odin_engine_notify_saved` on `thor_save_file` (the
+        Follow-up still open: `odin.engine_notify_saved` on `thor_save_file` (the
         stat-walk already catches saves via the mtime bump, so this is a robustness
         add for coarse-mtime filesystems, not a correctness gap).
       - Phase 2 — references acceleration. **Landed.** `index_reparse` now also
@@ -515,9 +523,9 @@ lowest latency.
       (already a flagged limitation below); normalize keys on insert. Memory:
       resident *decls* only (not trees), bounded and small.
 - [x] **Incremental parsing.** The request buffer no longer re-parses from
-      scratch. `Odin_Engine.trees` (a `treecache.Cache`) keeps a resident tree
+      scratch. `odin.Engine.trees` (a `treecache.Cache`) keeps a resident tree
       per buffer, and `treecache.for_source` — the single parse path for
-      `req.source` in `odin_resolve` — reuses it: the cached source is diffed to
+      `req.source` in `odin.resolve` — reuses it: the cached source is diffed to
       one changed span, `ts.tree_edit` applies it, and the old tree seeds
       `parser_parse_string`, so tree-sitter rebuilds only the invalidated
       subtrees. An identical source (a hover landing on the same keystroke as a
@@ -582,7 +590,7 @@ lowest latency.
       workspace scan started just before quit can't hold shutdown open.
 
       Cancellation is *cooperative*: the backend polls at the head of every
-      expensive loop — `odin_resolve`'s entry (the common case, where the worker is
+      expensive loop — `odin.resolve`'s entry (the common case, where the worker is
       scheduled after the next keystroke has already superseded it), the recursive
       index walk (`index_sync`/`index_sync_dir`), the reference scan's per-file
       loop, `complete_dir_toplevel`'s per-file parse (the per-keystroke hot path)
