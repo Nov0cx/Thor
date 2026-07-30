@@ -3,21 +3,24 @@ package thor
 import "base:runtime"
 import "core:os"
 import "core:path/filepath"
+import "core:strconv"
 import "core:strings"
 import "core:sync"
 import "core:thread"
 
 import "../shell"
+import "../textedit"
 import "../widgets"
 
 // Async `git status --porcelain`: a worker captures the output, the main thread
 // parses it into an absolute-path -> status map. Every ancestor directory of a
 // change is marked too, so folders containing changes get tinted.
 Git_Status_Job :: struct {
-    owner:     ^Thor,
-    allocator: runtime.Allocator,
-    worker:    ^thread.Thread,
-    output:    string, // owned porcelain output, parsed and freed on the main thread
+    owner:       ^Thor,
+    allocator:   runtime.Allocator,
+    worker:      ^thread.Thread,
+    output:      string, // owned porcelain output, parsed and freed on the main thread
+    diff_output: string, // owned `git diff HEAD` output, parsed and freed on the main thread
 }
 
 // Spawns a status refresh unless one is already running or this is not a repo.
@@ -49,6 +52,9 @@ git_status_worker :: proc(job: ^Git_Status_Job) {
     // -z avoids path quoting but complicates rename parsing; the plain porcelain
     // format is enough for highlighting.
     job.output = shell.run("git status --porcelain", job.owner.workspace_dir)
+    // --unified=0 drops context lines, leaving just the changed ranges the
+    // gutter needs. Fails harmlessly (empty diff) on a repo with no commits yet.
+    job.diff_output = shell.run("git diff HEAD --unified=0 --no-color", job.owner.workspace_dir)
 
     sync.lock(&job.owner.io_mutex)
     append(&job.owner.finished_git, job)
@@ -68,7 +74,12 @@ thor_apply_git_status :: proc(thor: ^Thor, job: ^Git_Status_Job) {
     thor_clear_git_status(thor)
     thor.git_status = status
 
+    diff := make(map[string][dynamic]widgets.Diff_Line_Kind)
+    git_parse_diff(thor, job.diff_output, &diff)
+    git_apply_diff(thor, &status, &diff)
+
     delete(job.output)
+    delete(job.diff_output)
     free(job)
     thor.git_status_inflight = false
     thor.inflight_jobs -= 1
@@ -221,4 +232,126 @@ git_status_from_code :: proc(code: string) -> widgets.Git_Status {
     case x == 'A' || y == 'A': return .Added
     }
     return .Modified
+}
+
+// Parses `git diff HEAD --unified=0` into per-file line-kind arrays, keyed by
+// absolute path (owned, native separators) to match Open_File.path. A hunk's
+// new-side range marks Added (pure insertion) or Modified (replacement) lines;
+// a pure deletion has no line of its own in the new file, so it attaches to the
+// line right after the removal (or line 0 if the removal was at the top).
+@(private = "file")
+git_parse_diff :: proc(thor: ^Thor, output: string, out: ^map[string][dynamic]widgets.Diff_Line_Kind) {
+    it := output
+    current := "" // absolute path the following hunks belong to; empty = skip
+
+    for line in strings.split_lines_iterator(&it) {
+        if strings.has_prefix(line, "+++ ") {
+            rel := line[4:]
+            if strings.has_prefix(rel, "b/") {
+                native, _ := strings.replace_all(rel[2:], "/", "\\", context.temp_allocator)
+                current = strings.concatenate({thor.workspace_prefix, native})
+            } else {
+                current = "" // "+++ /dev/null": the file was deleted
+            }
+            continue
+        }
+        if current == "" || !strings.has_prefix(line, "@@ ") {
+            continue
+        }
+
+        old_count, new_start, new_count, ok := git_parse_hunk_header(line)
+        if !ok {
+            continue
+        }
+
+        arr, has := out[current]
+        if !has {
+            arr = make([dynamic]widgets.Diff_Line_Kind)
+        }
+        switch {
+        case new_count == 0:
+            idx := new_start > 0 ? new_start - 1 : 0
+            git_diff_ensure_len(&arr, idx + 1)
+            if arr[idx] == .None {
+                arr[idx] = .Deleted
+            }
+        case old_count == 0:
+            git_diff_ensure_len(&arr, new_start + new_count - 1)
+            for i in new_start ..= new_start + new_count - 1 {
+                arr[i - 1] = .Added
+            }
+        case:
+            git_diff_ensure_len(&arr, new_start + new_count - 1)
+            for i in new_start ..= new_start + new_count - 1 {
+                arr[i - 1] = .Modified
+            }
+        }
+        out[current] = arr
+    }
+}
+
+// Grows arr with .None entries until it covers index n-1.
+@(private = "file")
+git_diff_ensure_len :: proc(arr: ^[dynamic]widgets.Diff_Line_Kind, n: int) {
+    for len(arr^) < n {
+        append(arr, widgets.Diff_Line_Kind.None)
+    }
+}
+
+// Parses a "@@ -old_start[,old_count] +new_start[,new_count] @@ ..." header.
+@(private = "file")
+git_parse_hunk_header :: proc(line: string) -> (old_count, new_start, new_count: int, ok: bool) {
+    rest := line[3:] // strip leading "@@ "
+    close := strings.index(rest, " @@")
+    if close < 0 {
+        return
+    }
+    rest = rest[:close]
+    parts := strings.split(rest, " ", context.temp_allocator)
+    if len(parts) < 2 || len(parts[0]) < 1 || parts[0][0] != '-' || len(parts[1]) < 1 || parts[1][0] != '+' {
+        return
+    }
+    _, old_count = git_parse_range(parts[0][1:])
+    new_start, new_count = git_parse_range(parts[1][1:])
+    ok = true
+    return
+}
+
+// Parses "N" or "N,M" (a bare N means count 1, git's convention for a hunk
+// touching a single line).
+@(private = "file")
+git_parse_range :: proc(s: string) -> (start, count: int) {
+    if comma := strings.index_byte(s, ','); comma >= 0 {
+        start, _ = strconv.parse_int(s[:comma])
+        count, _ = strconv.parse_int(s[comma + 1:])
+    } else {
+        start, _ = strconv.parse_int(s)
+        count = 1
+    }
+    return
+}
+
+// Pushes freshly parsed hunks into every open file's diff_lines (copied, not
+// moved, so ownership of `diff`'s arrays stays here) and frees the scratch map.
+// A file with no HEAD to diff against (freshly created, still untracked or
+// newly staged) reads as fully Added instead.
+@(private = "file")
+git_apply_diff :: proc(thor: ^Thor, status: ^map[string]widgets.Git_Status, diff: ^map[string][dynamic]widgets.Diff_Line_Kind) {
+    for file in thor.open_files {
+        clear(&file.diff_lines)
+        if lines, ok := diff[file.path]; ok {
+            append(&file.diff_lines, ..lines[:])
+        } else if s, has := status[file.path]; has && (s == .Untracked || s == .Added) {
+            n := textedit.line_count(textedit.text(&file.state))
+            for _ in 0 ..< n {
+                append(&file.diff_lines, widgets.Diff_Line_Kind.Added)
+            }
+        }
+    }
+
+    for path, lines in diff {
+        delete(path)
+        delete(lines)
+    }
+    delete(diff^)
 }

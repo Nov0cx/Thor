@@ -48,6 +48,9 @@ Open_File :: struct {
     // buffer still matches that revision (an edit clears them until re-checked).
     diagnostics:        [dynamic]widgets.Diagnostic,
     diagnostics_revision: u64,
+    // Line-level git diff vs HEAD, refreshed alongside git status. Index i
+    // (0-based) holds line i's status; drives the editor's gutter diff bar.
+    diff_lines:         [dynamic]widgets.Diff_Line_Kind,
     // Image files bypass the text pipeline: the pixels load into a GPU texture
     // and show in the image view instead of the editor. `loaded` stays false.
     is_image:           bool,
@@ -500,6 +503,12 @@ thor_update_files :: proc(thor: ^Thor) {
     if thor.split_visible && thor.pane_file[1] != thor.pane_file[0] {
         thor_sync_pane_diagnostics(thor, 1)
     }
+
+    // Push each visible pane's git diff lines for the gutter bar.
+    thor_sync_pane_diff(thor, 0)
+    if thor.split_visible && thor.pane_file[1] != thor.pane_file[0] {
+        thor_sync_pane_diff(thor, 1)
+    }
 }
 
 // Re-parses the file shown in `pane` if its highlights are missing or stale.
@@ -650,6 +659,7 @@ thor_free_open_file :: proc(file: ^Open_File) {
     delete(file.folds)
     thor_clear_file_diagnostics(file)
     delete(file.diagnostics)
+    delete(file.diff_lines)
     delete(file.tab_label)
     delete(file.path)
     free(file)

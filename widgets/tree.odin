@@ -3,6 +3,7 @@ package widgets
 import "core:os"
 import "core:slice"
 import "core:strings"
+import "core:unicode/utf8"
 import rl "vendor:raylib"
 
 import "../ui"
@@ -230,6 +231,30 @@ tree_status_letter :: proc(status: Git_Status) -> string {
     case .Submodule: return "S"
     }
     return ""
+}
+
+// Ellipsis-truncates name to fit max_width, so a long file name is cut short
+// rather than drawn underneath the status badge that follows it.
+@(private = "file")
+tree_truncate_name :: proc(name: string, max_width: i32, font_size: i32) -> string {
+    if max_width <= 0 || ui.measure_text(name, font_size) <= max_width {
+        return name
+    }
+    runes := utf8.string_to_runes(name, context.temp_allocator)
+    lo, hi := 0, len(runes)
+    for lo < hi {
+        mid := (lo + hi + 1) / 2
+        candidate := strings.concatenate({string(utf8.runes_to_string(runes[:mid], context.temp_allocator)), "..."}, context.temp_allocator)
+        if ui.measure_text(candidate, font_size) <= max_width {
+            lo = mid
+        } else {
+            hi = mid - 1
+        }
+    }
+    if lo == 0 {
+        return "..."
+    }
+    return strings.concatenate({string(utf8.runes_to_string(runes[:lo], context.temp_allocator)), "..."}, context.temp_allocator)
 }
 
 // Full path of the node under `position`, or "" when the click is below the
@@ -740,11 +765,20 @@ tree_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
         if status != .None {
             color = tree_status_color(tree, status)
         }
-        ui.draw_text(node.name, cast(i32) x, text_y, tree.font_size, color)
+
+        // The name is truncated to leave room for the status badge, so a long
+        // file name never renders underneath it.
+        has_badge := status != .None && !node.is_dir
+        letter := has_badge ? tree_status_letter(status) : ""
+        right_edge := tree.bounds.x + tree.bounds.width - 10
+        if has_badge {
+            right_edge -= cast(f32) ui.measure_text(letter, tree.font_size) + 6
+        }
+        name := tree_truncate_name(node.name, cast(i32) (right_edge - x), tree.font_size)
+        ui.draw_text(name, cast(i32) x, text_y, tree.font_size, color)
 
         // Right-aligned status letter for files (folders only get the tint).
-        if status != .None && !node.is_dir {
-            letter := tree_status_letter(status)
+        if has_badge {
             badge_x := tree.bounds.x + tree.bounds.width - cast(f32) ui.measure_text(letter, tree.font_size) - 10
             ui.draw_text(letter, cast(i32) badge_x, text_y, tree.font_size, color)
         }

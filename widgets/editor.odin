@@ -63,6 +63,14 @@ Diagnostic_Severity :: enum {
     Warning,
 }
 
+// A line's status against git HEAD, drives the gutter diff bar's color.
+Diff_Line_Kind :: enum u8 {
+    None,
+    Added,
+    Modified,
+    Deleted,
+}
+
 // A compiler diagnostic mapped onto the buffer: the byte range to underline and
 // its severity. `line` (0-based) locates it for the whole-line lookups (the status
 // bar's caret message, the gutter marker); `message` is what a dwell over either
@@ -112,6 +120,14 @@ Editor :: struct {
     diagnostics:            []Diagnostic,
     diagnostic_error_color: rl.Color,
     diagnostic_warn_color:  rl.Color,
+    // Line-level git diff vs HEAD, borrowed from the open file; index i (0-based)
+    // holds that line's status and draws a colored bar at the gutter's outer edge.
+    // Deleted has no line of its own, so it attaches to the line right after the
+    // removal (or line 0 if the removal was at the top of the file).
+    diff_lines:          []Diff_Line_Kind,
+    diff_added_color:    rl.Color,
+    diff_modified_color: rl.Color,
+    diff_deleted_color:  rl.Color,
     // Code folding. `foldable` maps a fold's start line (0-based) to its end line
     // (both from the owner's syntax analysis, refreshed each edit); `folded` is
     // the subset the user has collapsed. Folding a region hides start+1..end.
@@ -382,6 +398,9 @@ editor_create :: proc(id: string) -> ^Editor {
     editor.selection_color = rl.Color {132, 255, 255, 50}
     editor.diagnostic_error_color = rl.Color {255, 83, 112, 255}
     editor.diagnostic_warn_color = rl.Color {230, 192, 92, 255}
+    editor.diff_added_color = rl.Color {108, 200, 128, 255}
+    editor.diff_modified_color = rl.Color {92, 156, 230, 255}
+    editor.diff_deleted_color = rl.Color {230, 100, 100, 255}
     editor.wrap = true
     editor.visual_rows = make([dynamic]Visual_Row)
     editor.recenter_caret = -1
@@ -448,6 +467,12 @@ editor_set_diagnostics :: proc(editor: ^Editor, diagnostics: []Diagnostic) {
 editor_set_diagnostic_colors :: proc(editor: ^Editor, error_color, warn_color: rl.Color) {
     editor.diagnostic_error_color = error_color
     editor.diagnostic_warn_color = warn_color
+}
+
+// Replaces the git diff lines drawn for the current buffer (borrowed, not
+// copied). Pass nil to clear (e.g. a clean file or none open).
+editor_set_diff_lines :: proc(editor: ^Editor, diff_lines: []Diff_Line_Kind) {
+    editor.diff_lines = diff_lines
 }
 
 // A foldable line range, in 0-based logical lines: `start_line` stays visible,
@@ -1492,6 +1517,21 @@ editor_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
         }
 
         editor_draw_line_selections(editor, text, row.start, row.end, cast(f32) text_x, row_y, line_height)
+
+        // Diff bar at the gutter's outer edge: a full-height bar for an added or
+        // modified line, a thin strip at the top edge for a deletion (which has
+        // no line of its own).
+        if row.line >= 0 && row.line < len(editor.diff_lines) {
+            switch editor.diff_lines[row.line] {
+            case .Added:
+                rl.DrawRectangleRec(rl.Rectangle {editor.bounds.x, row_y, 3, line_height}, editor.diff_added_color)
+            case .Modified:
+                rl.DrawRectangleRec(rl.Rectangle {editor.bounds.x, row_y, 3, line_height}, editor.diff_modified_color)
+            case .Deleted:
+                rl.DrawRectangleRec(rl.Rectangle {editor.bounds.x, row_y, 6, 4}, editor.diff_deleted_color)
+            case .None:
+            }
+        }
 
         // Line number is drawn once per logical line, on its first visual row.
         if row.first {

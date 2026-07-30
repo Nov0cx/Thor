@@ -124,6 +124,22 @@ thor_sync_pane_diagnostics :: proc(thor: ^Thor, pane: int) {
     }
 }
 
+// Pushes a pane's git diff lines to its editor. Called every frame alongside
+// thor_sync_pane_diagnostics — pushing a borrowed slice is just a pointer set.
+thor_sync_pane_diff :: proc(thor: ^Thor, pane: int) {
+    index := thor.pane_file[pane]
+    if index < 0 || index >= len(thor.open_files) {
+        return
+    }
+    file := thor.open_files[index]
+    editor := thor_pane_editor(thor, pane)
+    if file.loaded && len(file.diff_lines) > 0 {
+        widgets.editor_set_diff_lines(editor, file.diff_lines[:])
+    } else {
+        widgets.editor_set_diff_lines(editor, nil)
+    }
+}
+
 // Swaps the editor panes out for the image view (for image files) or the
 // markdown preview (for markdown files while preview is on), and back again
 // otherwise. Called every frame so it tracks tab switches, splits, toggles and
