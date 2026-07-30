@@ -1,8 +1,9 @@
 {
     "font_size": 18.0000000000000000,
-    "file_icon_pack": "mdi",
+    "tab_width": 4.0000000000000000,
     "autosave_delay_ms": 1500.0000000000000000,
-    "font": "JetBrainsMono",
+    "theme": "mjolnir",
+    "file_icon_pack": "mdi",
     "icon_pack": "material",
-    "tab_width": 4.0000000000000000
+    "font": "JetBrainsMono"
 }

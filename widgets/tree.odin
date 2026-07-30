@@ -11,6 +11,14 @@ Tree_Open_Proc :: #type proc(data: rawptr, path: string)
 // Fired when Delete is pressed on a selected file; the owner confirms and
 // performs the removal (see thor_tree_delete).
 Tree_Delete_Proc :: #type proc(data: rawptr, path: string)
+// Fired when a row is dropped onto a folder (or the workspace root); the
+// owner renames the file on disk into dst_dir (see thor_tree_move).
+Tree_Move_Proc :: #type proc(data: rawptr, src_path: string, dst_dir: string)
+
+// Pixel drift from the press position before a held row counts as a drag
+// rather than a click.
+@(private = "file")
+TREE_DRAG_THRESHOLD :: 4
 
 // Git working-tree status for a path, resolved by the owner. Directories report
 // an aggregate (Modified / Conflict) so the folder name can be tinted too.
@@ -55,6 +63,16 @@ Tree :: struct {
     // Right-click opens a context menu supplied by the owner.
     on_context_menu:  Context_Menu_Proc,
     context_menu_data: rawptr,
+    // Left-button drag-to-move state. drag_source_path is set on Mouse_Down and
+    // cleared on Mouse_Up; `dragging` only flips true once the press crosses
+    // TREE_DRAG_THRESHOLD, so an ordinary click still expands/opens the row.
+    drag_source_path: string, // owned; "" when no row is pressed
+    drag_press_pos:   rl.Vector2,
+    dragging:         bool,
+    drag_target_path: string, // owned; "" when the current hover isn't a valid drop
+    on_move:          Tree_Move_Proc,
+    move_data:        rawptr,
+    drop_target_color: rl.Color,
     // Owner hook mapping a path to its git status (nil = no git highlighting).
     status_proc:      Tree_Status_Proc,
     status_data:      rawptr,
@@ -104,6 +122,7 @@ tree_create :: proc(id, root_path: string) -> ^Tree {
     tree.git_deleted_color = rl.Color {224, 108, 117, 255}  // red
     tree.git_conflict_color = rl.Color {224, 108, 117, 255} // red
     tree.git_submodule_color = rl.Color {199, 146, 234, 255} // purple
+    tree.drop_target_color = rl.Color {130, 170, 255, 255}
     tree.min_size = rl.Vector2 {0, 120}
 
     tree.root = new(Tree_Node)
@@ -130,6 +149,12 @@ tree_set_root :: proc(tree: ^Tree, root_path: string) {
     delete(tree.selected_path)
     tree.selected_path = ""
     tree.scroll_y = 0
+
+    delete(tree.drag_source_path)
+    tree.drag_source_path = ""
+    delete(tree.drag_target_path)
+    tree.drag_target_path = ""
+    tree.dragging = false
 }
 
 tree_set_colors :: proc(tree: ^Tree, text, dir, icon, chevron, hover, selected, background: rl.Color) -> ^Tree {
@@ -157,6 +182,11 @@ tree_set_on_context_menu :: proc(tree: ^Tree, on_context_menu: Context_Menu_Proc
 tree_set_on_delete :: proc(tree: ^Tree, on_delete: Tree_Delete_Proc, data: rawptr) {
     tree.on_delete = on_delete
     tree.delete_data = data
+}
+
+tree_set_on_move :: proc(tree: ^Tree, on_move: Tree_Move_Proc, data: rawptr) {
+    tree.on_move = on_move
+    tree.move_data = data
 }
 
 // Enables git status highlighting: `status_proc` maps a path to its status.
@@ -211,6 +241,59 @@ tree_path_at :: proc(tree: ^Tree, position: rl.Vector2) -> string {
         return ""
     }
     return rows[index].node.path
+}
+
+// True when `path` is `ancestor` itself or lives somewhere inside it.
+// Case-insensitive and treats '/' and '\\' as equivalent since tree paths come
+// straight from os.read_dir's fullpath without being canonicalized.
+@(private = "file")
+tree_path_equal_or_within :: proc(path, ancestor: string) -> bool {
+    if len(path) < len(ancestor) {
+        return false
+    }
+    for i in 0 ..< len(ancestor) {
+        pb := path[i]
+        ab := ancestor[i]
+        if pb == '/' {
+            pb = '\\'
+        }
+        if ab == '/' {
+            ab = '\\'
+        }
+        if pb >= 'A' && pb <= 'Z' {
+            pb += 32
+        }
+        if ab >= 'A' && ab <= 'Z' {
+            ab += 32
+        }
+        if pb != ab {
+            return false
+        }
+    }
+    if len(path) == len(ancestor) {
+        return true
+    }
+    next := path[len(ancestor)]
+    return next == '/' || next == '\\'
+}
+
+// Folder a drop at `position` would land in: the hovered folder, the hovered
+// file's parent, or the workspace root when the cursor is over empty space.
+@(private = "file")
+tree_drop_target_at :: proc(tree: ^Tree, position: rl.Vector2) -> string {
+    index := cast(int) ((position.y - tree.bounds.y + tree.scroll_y) / tree.row_height)
+    rows := tree_visible_rows(tree)
+    if index < 0 || index >= len(rows) {
+        return tree.root.path
+    }
+    node := rows[index].node
+    if node.is_dir {
+        return node.path
+    }
+    if node.parent != nil {
+        return node.parent.path
+    }
+    return tree.root.path
 }
 
 @(private = "file")
@@ -384,15 +467,77 @@ tree_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event) 
             return true
         }
 
-        if node.is_dir {
-            node.expanded = !node.expanded
-            if node.expanded && !node.loaded {
-                tree_load_children(node)
-            }
-            tree_clamp_scroll(tree)
-        } else if tree.on_open != nil {
-            tree.on_open(tree.open_data, node.path)
+        // Left button: arm a potential drag on this row instead of acting
+        // immediately. Mouse_Up runs the expand/open/move behavior once it's
+        // clear whether the press turned into a drag.
+        delete(tree.drag_source_path)
+        tree.drag_source_path = strings.clone(node.path)
+        tree.drag_press_pos = event.mouse_position
+        tree.dragging = false
+        delete(tree.drag_target_path)
+        tree.drag_target_path = ""
+        return true
+
+    case .Mouse_Move:
+        if tree.drag_source_path == "" {
+            return false
         }
+
+        dx := event.mouse_position.x - tree.drag_press_pos.x
+        dy := event.mouse_position.y - tree.drag_press_pos.y
+        if !tree.dragging {
+            if dx * dx + dy * dy < TREE_DRAG_THRESHOLD * TREE_DRAG_THRESHOLD {
+                return true
+            }
+            tree.dragging = true
+        }
+
+        target := tree_drop_target_at(tree, event.mouse_position)
+        if tree_path_equal_or_within(target, tree.drag_source_path) {
+            target = ""
+        }
+        delete(tree.drag_target_path)
+        tree.drag_target_path = target == "" ? "" : strings.clone(target)
+        return true
+
+    case .Mouse_Up:
+        if event.mouse_button != .LEFT || tree.drag_source_path == "" {
+            return false
+        }
+
+        was_dragging := tree.dragging
+        source_path := tree.drag_source_path
+        target_path := tree.drag_target_path
+
+        if was_dragging {
+            if target_path != "" && tree.on_move != nil {
+                tree.on_move(tree.move_data, source_path, target_path)
+            }
+        } else {
+            // No drag occurred: treat as an ordinary click on the pressed row.
+            for row in tree_visible_rows(tree) {
+                if row.node.path != source_path {
+                    continue
+                }
+                node := row.node
+                if node.is_dir {
+                    node.expanded = !node.expanded
+                    if node.expanded && !node.loaded {
+                        tree_load_children(node)
+                    }
+                    tree_clamp_scroll(tree)
+                } else if tree.on_open != nil {
+                    tree.on_open(tree.open_data, node.path)
+                }
+                break
+            }
+        }
+
+        delete(tree.drag_source_path)
+        tree.drag_source_path = ""
+        delete(tree.drag_target_path)
+        tree.drag_target_path = ""
+        tree.dragging = false
         return true
     }
 
@@ -564,6 +709,9 @@ tree_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
         } else if mouse_inside && rl.CheckCollisionPointRec(ctx.mouse_pos, row_rect) {
             rl.DrawRectangleRec(row_rect, tree.hover_color)
         }
+        if tree.dragging && tree.drag_target_path != "" && node.path == tree.drag_target_path {
+            rl.DrawRectangleLinesEx(row_rect, 2, tree.drop_target_color)
+        }
 
         x := tree.bounds.x + 8 + cast(f32) row.depth * tree.indent
         icon_y := cast(i32) (row_y + (tree.row_height - cast(f32) tree.icon_size) * 0.5)
@@ -600,6 +748,12 @@ tree_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
             badge_x := tree.bounds.x + tree.bounds.width - cast(f32) ui.measure_text(letter, tree.font_size) - 10
             ui.draw_text(letter, cast(i32) badge_x, text_y, tree.font_size, color)
         }
+    }
+
+    // The workspace root has no row of its own; show the drop as a border
+    // around the whole tree instead of a row highlight.
+    if tree.dragging && tree.drag_target_path == tree.root.path {
+        rl.DrawRectangleLinesEx(tree.bounds, 2, tree.drop_target_color)
     }
 }
 
@@ -789,5 +943,7 @@ tree_destroy :: proc(widget: ^ui.Widget) {
     tree := cast(^Tree) widget
     tree_node_destroy(tree.root)
     delete(tree.selected_path)
+    delete(tree.drag_source_path)
+    delete(tree.drag_target_path)
     free(tree)
 }

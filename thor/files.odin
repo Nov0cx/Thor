@@ -736,8 +736,10 @@ thor_confirm_delete :: proc(data: rawptr) {
         }
     }
 
-    if err := os.remove(path); err != nil {
-        log.warnf("Failed to delete %q: %v", path, err)
+    remove_err := os.is_dir(path) ? os.remove_all(path) : os.remove(path)
+    if remove_err != nil {
+        log.warnf("Failed to delete %q: %v", path, remove_err)
+        thor_flash_status(thor, "Could not delete", is_error = true)
     }
 
     delete(thor.pending_delete_path)
@@ -802,6 +804,45 @@ thor_prompt_rename :: proc(data: rawptr, name: string) {
     }
     for file in thor.open_files {
         if thor_same_path(file.path, old_path) {
+            delete(file.path)
+            file.path = strings.clone(canonical)
+            file.name = file_base_name(file.path)
+            break
+        }
+    }
+    thor_update_tab_labels(thor)
+
+    widgets.tree_refresh(thor.tree)
+    thor_refresh_git_status(thor)
+}
+
+// Tree widget callback: a row was dropped onto dst_dir. Reparents the file or
+// folder on disk and retargets any open tab that pointed at it (folders never
+// match an open file, matching thor_prompt_rename's rename behavior).
+thor_tree_move :: proc(data: rawptr, src_path: string, dst_dir: string) {
+    thor := cast(^Thor) data
+
+    new_path, _ := filepath.join({dst_dir, file_base_name(src_path)}, context.temp_allocator)
+    if thor_same_path(src_path, new_path) {
+        return
+    }
+    if os.exists(new_path) {
+        log.warnf("Cannot move %q to %q: already exists", src_path, new_path)
+        thor_flash_status(thor, "Could not move: already exists", is_error = true)
+        return
+    }
+    if err := os.rename(src_path, new_path); err != nil {
+        log.warnf("Failed to move %q to %q: %v", src_path, new_path, err)
+        thor_flash_status(thor, "Could not move", is_error = true)
+        return
+    }
+
+    canonical := new_path
+    if abs, err := filepath.abs(new_path, context.temp_allocator); err == nil {
+        canonical = abs
+    }
+    for file in thor.open_files {
+        if thor_same_path(file.path, src_path) {
             delete(file.path)
             file.path = strings.clone(canonical)
             file.name = file_base_name(file.path)
