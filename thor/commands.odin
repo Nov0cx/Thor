@@ -114,6 +114,18 @@ thor_apply_settings :: proc(thor: ^Thor) {
     } else {
         thor.rename_key = setting.Keybind {key = .F2, shift = true}
     }
+    // Ctrl+Alt+Left/Right, not the browsers' plain Alt+Left/Right: those two are
+    // already line_start / line_end.
+    if kb, ok := setting.keybind(&thor.config, "jump_back"); ok {
+        thor.jump_back_key = kb
+    } else {
+        thor.jump_back_key = setting.Keybind {key = .LEFT, ctrl = true, alt = true}
+    }
+    if kb, ok := setting.keybind(&thor.config, "jump_forward"); ok {
+        thor.jump_forward_key = kb
+    } else {
+        thor.jump_forward_key = setting.Keybind {key = .RIGHT, ctrl = true, alt = true}
+    }
     if kb, ok := setting.keybind(&thor.config, "last_file"); ok {
         thor.last_file_key = kb
     } else {
@@ -358,6 +370,8 @@ thor_register_commands :: proc(thor: ^Thor) {
     widgets.command_palette_add(p, "Go to Matching Bracket", thor_cmd_matching_bracket, thor, sc(thor, "matching_bracket"))
     widgets.command_palette_add(p, "Go to Symbol in File", thor_cmd_goto_symbol, thor, sc(thor, "goto_symbol"))
     widgets.command_palette_add(p, "Go to Symbol in Workspace", thor_cmd_goto_workspace_symbol, thor, sc(thor, "goto_workspace_symbol"))
+    widgets.command_palette_add(p, "Go Back", thor_cmd_jump_back, thor, sc(thor, "jump_back"))
+    widgets.command_palette_add(p, "Go Forward", thor_cmd_jump_forward, thor, sc(thor, "jump_forward"))
     widgets.command_palette_add(p, "Find All References", thor_cmd_find_references, thor, sc(thor, "find_references"))
     widgets.command_palette_add(p, "Signature Help", thor_cmd_signature_help, thor, sc(thor, "signature_help"))
     widgets.command_palette_add(p, "Show Package Documentation", thor_cmd_package_doc, thor, sc(thor, "package_doc"))
@@ -473,6 +487,8 @@ thor_cmd_add_cursor_below :: proc(data: rawptr) {if s := thor_edit_state(data); 
 thor_cmd_matching_bracket :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.move_to_matching_bracket(s, false)}}
 thor_cmd_goto_symbol :: proc(data: rawptr) {thor_goto_symbol(cast(^Thor) data)}
 thor_cmd_goto_workspace_symbol :: proc(data: rawptr) {thor_goto_workspace_symbol(cast(^Thor) data)}
+thor_cmd_jump_back :: proc(data: rawptr) {thor_jump_back(cast(^Thor) data)}
+thor_cmd_jump_forward :: proc(data: rawptr) {thor_jump_forward(cast(^Thor) data)}
 thor_cmd_find_references :: proc(data: rawptr) {thor_find_references(cast(^Thor) data)}
 thor_cmd_signature_help :: proc(data: rawptr) {thor_signature_help(cast(^Thor) data)}
 thor_cmd_package_doc :: proc(data: rawptr) {thor_package_doc(cast(^Thor) data)}
@@ -658,6 +674,9 @@ thor_palette_goto_line :: proc(data: rawptr, line: int) {
     if file == nil || !file.loaded {
         return
     }
+    // Recorded like any other jump: this one stays inside the file, but a line
+    // typed into the palette is still a place the caret was pulled away from.
+    thor_jump_record(thor)
     txt := textedit.text(&file.state)
     pos := textedit.line_start_of_index(txt, line - 1)
     textedit.set_single_cursor(&file.state, pos)

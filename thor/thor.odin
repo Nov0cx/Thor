@@ -213,6 +213,14 @@ Thor :: struct {
     // output) and the offset is resolved once the buffer loads.
     pending_goto_line:        int,
     pending_goto_col:         int,
+    // Where jumps came from, and where Go Back walked out of. Both owned, both
+    // capped at JUMP_LIST_MAX; jump_navigating suppresses recording while those
+    // two commands are the ones moving the caret.
+    jump_back_key:            setting.Keybind,
+    jump_forward_key:         setting.Keybind,
+    jump_back:                [dynamic]Jump_Point,
+    jump_forward:             [dynamic]Jump_Point,
+    jump_navigating:          bool,
     // In-flight hover request: the editor pane that asked and the request id, so
     // a result can be routed back to the right pane and stale ones dropped.
     hover_editor:             ^widgets.Editor,
@@ -504,6 +512,9 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.pending_task_name)
     lang.manager_destroy(&thor.lang_manager)
     delete(thor.pending_goto_path)
+    thor_clear_jump_list(thor)
+    delete(thor.jump_back)
+    delete(thor.jump_forward)
     delete(thor.rename_path)
     delete(thor.status_message)
     thor_clear_doc_symbols(thor)

@@ -94,6 +94,15 @@ thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
         thor_goto_workspace_symbol(thor)
         return true
     }
+    // Go back / forward (Ctrl+Alt+Left / Ctrl+Alt+Right) walk the jump trail.
+    if setting.keybind_matches(thor.jump_back_key, event.key, event.ctrl, event.shift, event.alt) {
+        thor_jump_back(thor)
+        return true
+    }
+    if setting.keybind_matches(thor.jump_forward_key, event.key, event.ctrl, event.shift, event.alt) {
+        thor_jump_forward(thor)
+        return true
+    }
     // Find references (F10) lists every usage of the symbol under the caret.
     if setting.keybind_matches(thor.find_references_key, event.key, event.ctrl, event.shift, event.alt) {
         thor_find_references(thor)

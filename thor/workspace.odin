@@ -80,6 +80,7 @@ thor_open_folder :: proc(thor: ^Thor, dir: string) {
     thor.pending_goto_active = false
     delete(thor.pending_goto_path)
     thor.pending_goto_path = ""
+    thor_clear_jump_list(thor)
 
     delete(thor.workspace_dir)
     delete(thor.workspace_prefix)

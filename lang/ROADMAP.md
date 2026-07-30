@@ -231,6 +231,21 @@ lowest latency.
   parse. Unknown keys are ignored, so the file can hold settings the engine
   doesn't act on yet. Served by `config_ensure`/`config_collection_dir`/
   `config_allows` in `odin_engine.odin`.
+- **Go back / go forward (Ctrl+Alt+Left / Ctrl+Alt+Right):** every jump records
+  where it left, so chasing a definition across files is reversible. Two trails
+  in the host only (`thor/jumplist.odin`); the engine is not involved. The record
+  is taken inside `thor_goto_location` / `thor_goto_file_line_col` rather than by
+  their callers, so *every* way into a jump is covered without each remembering
+  to: go-to-definition (Alt+Enter and Ctrl+Click), the candidates picker, both
+  symbol pickers, find-references, a console error line, and Go to Line. Points
+  are `path` + 1-based line/column, not a byte offset — the buffer is edited
+  between leaving a spot and coming back to it, and typing above an offset slides
+  it by every character where a line only moves by the newlines. Going back and
+  forward routes through the same jump proc, so a target whose tab was closed
+  since is reopened and one still loading is deferred, exactly like any other
+  jump. Browser semantics: arriving somewhere new drops the forward trail, and
+  repeated jumps off one line collapse into a single entry. Each trail is capped
+  at 64 and cleared when the workspace is swapped (the paths name the old tree).
 - **Package documentation (F3):** with the caret on a package reference — an
   `import` line, a `pkg.Symbol` operand, or a bare package alias — F3 renders the
   whole package as a documentation page (`Package_Doc` request → `package_doc` /
@@ -270,8 +285,11 @@ lowest latency.
       symbol in another package until the type layer lands.
 - [ ] **Loading / busy indicator** while a request is in flight
       (`manager_busy` is available).
-- [ ] **Go-back / jump list.** After jumping to a definition there is no way to
-      pop back to the previous location.
+- [x] **Go-back / jump list.** Ctrl+Alt+Left returns to where a jump left,
+      Ctrl+Alt+Right replays it ("Go Back"/"Go Forward" in the palette, both
+      rebindable). Recorded inside the jump procs themselves, so every caller —
+      definition, either symbol picker, references, console errors, Go to Line —
+      is covered. See **Go back / go forward** above.
 
 ## Missing — engine depth (Odin native analysis)
 - [x] **awarness of implicit casting.** Split four ways, all landed: implicit

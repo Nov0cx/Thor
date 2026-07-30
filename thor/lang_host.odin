@@ -948,6 +948,7 @@ thor_flash_status :: proc(thor: ^Thor, message: string, is_error := false) {
 // is still loading, the jump is deferred to thor_apply_pending_goto.
 @(private = "file")
 thor_goto_location :: proc(thor: ^Thor, path: string, offset: int) {
+    thor_jump_record(thor)
     canonical := path
     if abs, err := filepath.abs(path, context.temp_allocator); err == nil {
         canonical = abs
@@ -975,6 +976,7 @@ thor_goto_location :: proc(thor: ^Thor, path: string, offset: int) {
 // output) rather than a byte offset; the offset is resolved against the buffer
 // once it has loaded.
 thor_goto_file_line_col :: proc(thor: ^Thor, path: string, line, col: int) {
+    thor_jump_record(thor)
     canonical := path
     if abs, err := filepath.abs(path, context.temp_allocator); err == nil {
         canonical = abs
