@@ -64,9 +64,21 @@ lowest latency.
   to. A pointer is auto-dereferenced (`^Point`), and chained access (`a.b.c`)
   recurses through each field's struct type. The struct is found in the same file,
   an imported package, or the workspace index. Completion after `value.` lists the
-  struct's fields, and an implicit enum selector (`a: Axis = .`) offers the
-  expected enum's members. Inference recursion is depth-capped so a
-  self-referential declaration can't loop.
+  struct's fields, and an implicit enum selector offers the expected enum's
+  members wherever the expected type is pinned down (see below). Inference
+  recursion is depth-capped so a self-referential declaration can't loop.
+- **Implicit selectors (`.Member`)**: the enum a bare `.` selects from is found
+  from whichever construct encloses it — a typed declaration (`a: Axis = .`) or
+  assignment, a composite literal's named field (`Config{axis = .}`), the
+  parameter a call argument fills (`f(1, .)`, counting commas, following grouped
+  and variadic parameters), the other side of a comparison (`a == .`), the value
+  a `switch` is over (`case .`), or the enclosing procedure's result slot
+  (`return 0, .`). A lone `.` is not an expression, so it derails the parse in
+  exactly the spot that matters; when the walk over the request's tree comes up
+  empty the file is re-parsed with a filler identifier spliced in after the dot,
+  which puts the selector back into a well-formed expression. The splice only
+  adds bytes after the dot and every name the walk reads lies before it, so both
+  parses agree where it counts.
 - **Embedded fields (`using`)**: a struct that embeds another (`using base: Base`)
   answers for the embedded struct's fields as if they were its own — goto, hover
   and `value.` completion all reach them, through several levels of embedding and
@@ -210,7 +222,14 @@ lowest latency.
       pop back to the previous location.
 
 ## Missing — engine depth (Odin native analysis)
-- [ ] awarness of implicit casting
+- [~] **awarness of implicit casting.** Split four ways. Done: implicit selectors
+      in every expected-type position (`expected_type_at` walks up to a literal
+      field, call argument, comparison, `switch` case or result slot, re-parsing
+      with a filler identifier when the bare `.` broke the tree; parameter types
+      read by `proc_param_type`). Still open: following `X :: Y` aliases and
+      `distinct` types to the underlying declaration, typing conversion
+      expressions (`cast(T)x`, `T(x)`, `transmute(T)x`, `x.(T)`), and union
+      variants (`switch v in u`).
 - [ ] explain error indicator
 - [x] **dont show definiton when just hovering over a thing.** The hover popup is
       gated behind Ctrl (`editor_handle_hover` polls the key, as the Scroll case

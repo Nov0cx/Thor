@@ -2552,6 +2552,59 @@ proc_result_type :: proc(source: string, d: Def, index: int) -> (Type_Ref, bool)
     return result_type_ref(results)
 }
 
+// Declared type of a procedure's `index`-th parameter, read out of its signature
+// text — the same route proc_result_type takes, for the same reason (a cross-file
+// callee's tree is gone by the time its Def comes back). Grouped parameters
+// (`a, b: Axis`) write the type once, on the last name of the group, so a slot
+// with no `:` of its own borrows the next slot that has one. A variadic tail
+// (`rest: ..int`) answers for every argument past the fixed parameters.
+@(private = "file")
+proc_param_type :: proc(source: string, d: Def, index: int) -> (Type_Ref, bool) {
+    start := clamp(d.ident_start, 0, len(source))
+    sig := source[start:clamp(d.decl_end, start, len(source))]
+
+    inner, ok := after_paren_group(sig, want_inner = true)
+    if !ok || index < 0 {
+        return {}, false
+    }
+    parts := split_top_level(inner)
+    if len(parts) == 0 {
+        return {}, false
+    }
+    i := index
+    if i >= len(parts) {
+        // Nothing but a variadic tail takes more arguments than it has parameters.
+        if !strings.contains(parts[len(parts) - 1], "..") {
+            return {}, false
+        }
+        i = len(parts) - 1
+    }
+    for i < len(parts) && !strings.contains(parts[i], ":") {
+        i += 1
+    }
+    if i >= len(parts) {
+        return {}, false
+    }
+    return param_type_ref(parts[i])
+}
+
+// One parameter's type text (`a: Axis`, `rest: ..int`, `c: int = 3`) as a
+// Type_Ref: the name, the variadic marker and any default value are stripped, and
+// what is left goes through result_type_ref — pointers, containers and package
+// qualifiers are spelled the same way in both positions.
+@(private = "file")
+param_type_ref :: proc(text: string) -> (Type_Ref, bool) {
+    s := strings.trim_space(text)
+    if colon := strings.index_byte(s, ':'); colon >= 0 {
+        s = strings.trim_space(s[colon + 1:])
+    }
+    s = strings.trim_space(strings.trim_prefix(s, ".."))
+    if eq := strings.index_byte(s, '='); eq >= 0 {
+        s = s[:eq]
+    }
+    return result_type_ref(s)
+}
+
 // Splits `text` on its top-level commas (ignoring those nested in brackets), for
 // a result list. Temp-allocated.
 @(private = "file")
@@ -3141,12 +3194,48 @@ enum_visitor :: proc(ed: ts.Node, source, path: string, ctx_raw: rawptr) {
     }
 }
 
-// The type expected at `offset` for an implicit enum selector (`x: Type = .`).
-// Walks up from the caret to the enclosing declaration: a `var_declaration`'s
-// annotated type, or the type of an `assignment_statement`'s left-hand variable.
-// Returns false when no such context is found (so no enum members are offered).
+// The type expected at `offset` — the `.` of an implicit selector — so the enum
+// it selects from can be found. A lone `.` is not an expression, so the tree the
+// request carries is derailed in exactly the spot that matters; when the walk
+// over it comes up empty the file is re-parsed with a filler identifier spliced
+// in after the dot, which puts the selector back into a well-formed expression.
+// The splice only adds bytes after the dot and every name the walk reads lies
+// before it, so both parses see the same text where it counts.
 @(private = "file")
 expected_type_at :: proc(
+    e: ^Odin_Engine,
+    parser: ts.Parser,
+    root: ts.Node,
+    req: ^Request,
+    offset: int,
+) -> (Type_Ref, bool) {
+    if tr, ok := expected_type_in_tree(e, parser, root, req, offset); ok {
+        return tr, true
+    }
+    src := req.source
+    at := clamp(offset + 1, 0, len(src))
+    repaired := strings.concatenate({src[:at], SELECTOR_FILLER, src[at:]}, context.temp_allocator)
+    tree := ts.parser_parse_string(parser, repaired)
+    defer ts.tree_delete(tree)
+    fixed := req^
+    fixed.source = repaired
+    // The Type_Ref slices `repaired`, which outlives the request; visit_type_decl
+    // matches it by name, so it never touches this tree again.
+    return expected_type_in_tree(e, parser, ts.tree_root_node(tree), &fixed, offset)
+}
+
+// Identifier spliced in after a bare `.` to make the surrounding expression parse.
+@(private = "file")
+SELECTOR_FILLER :: "_"
+
+// expected_type_at over one parse: walks up from the dot to the nearest construct
+// that pins the type down — a `var_declaration`'s annotated type, the left-hand
+// variable of an `assignment_statement`, the named field of a composite literal,
+// the parameter a call argument fills, the other side of a comparison, the value
+// a `switch` is over, or the enclosing procedure's result. The innermost one wins,
+// so `f(P{axis = .})` answers with the field's type, not the parameter's.
+@(private = "file")
+expected_type_in_tree :: proc(
     e: ^Odin_Engine,
     parser: ts.Parser,
     root: ts.Node,
@@ -3172,10 +3261,118 @@ expected_type_at :: proc(
                 return binding_type_ref(e, parser, root, req, ts.node_text(lhs, source), int(ts.node_start_byte(lhs)))
             }
             return {}, false
+        case "struct_field":
+            // `Point{axis = .}` — the literal names its struct, the struct names
+            // the field's type. A positional field carries no name to look up.
+            name := ts.node_named_child(n, 0)
+            lit := ts.node_parent(n)
+            if !is_identifier(name) || ts.node_is_null(lit) {
+                return {}, false
+            }
+            tr, ok := composite_type_name(lit, source)
+            if !ok {
+                return {}, false
+            }
+            ctx := Member_Ctx {
+                field = ts.node_text(name, source),
+                env = Embed_Env{e = e, parser = parser, root = root, req = req},
+            }
+            if !visit_type_decl(e, parser, root, req, tr, "struct_declaration", "type", member_visitor, &ctx) || !ctx.got {
+                return {}, false
+            }
+            return ctx.field_type, true
+        case "call_expression":
+            // `f(1, .)` — the parameter this argument fills, by position.
+            fn := ts.node_child_by_field_name(n, "function")
+            if ts.node_is_null(fn) {
+                return {}, false
+            }
+            src, path, d, found := resolve_call_target(e, parser, root, req, n, fn)
+            if !found || d.kind != "function" {
+                return {}, false
+            }
+            tr, ok := proc_param_type(src, d, call_active_param(n, offset))
+            if !ok {
+                return {}, false
+            }
+            // Spelled in the callee's file, so that file's imports qualify it.
+            tr.origin = path
+            return tr, true
+        case "binary_expression":
+            // `dir == .` — the other operand carries the type both sides share.
+            other := ts.node_child_by_field_name(n, "left")
+            if !ts.node_is_null(other) && int(ts.node_end_byte(other)) > offset {
+                other = ts.node_child_by_field_name(n, "right")
+            }
+            if ts.node_is_null(other) {
+                return {}, false
+            }
+            return infer_expr_type(e, parser, root, req, other)
+        case "switch_case":
+            // `case .:` — the value being switched over.
+            sw := ts.node_parent(n)
+            if ts.node_is_null(sw) {
+                return {}, false
+            }
+            cond := ts.node_child_by_field_name(sw, "condition")
+            if ts.node_is_null(cond) {
+                return {}, false
+            }
+            return infer_expr_type(e, parser, root, req, cond)
+        case "return_statement":
+            // `return .` — the enclosing procedure's result, in this slot.
+            return enclosing_result_type(n, source, offset)
         }
         n = ts.node_parent(n)
     }
     return {}, false
+}
+
+// Result type of the procedure a `return` sits in, picking the slot the returned
+// expression at `offset` occupies. A parenthesized result list is a `tuple_type`
+// whose entries may be named (`-> (a: Axis, ok: bool)`); a lone result is the
+// procedure's one `type` child.
+@(private = "file")
+enclosing_result_type :: proc(ret: ts.Node, source: string, offset: int) -> (Type_Ref, bool) {
+    slot := 0
+    for i in 0 ..< ts.node_named_child_count(ret) {
+        if int(ts.node_end_byte(ts.node_named_child(ret, i))) < offset {
+            slot += 1
+        }
+    }
+    proc_node := ts.node_parent(ret)
+    for !ts.node_is_null(proc_node) && string(ts.node_type(proc_node)) != "procedure" {
+        proc_node = ts.node_parent(proc_node)
+    }
+    if ts.node_is_null(proc_node) {
+        return {}, false
+    }
+    results: ts.Node
+    for i in 0 ..< ts.node_named_child_count(proc_node) {
+        c := ts.node_named_child(proc_node, i)
+        if string(ts.node_type(c)) == "type" {
+            results = c
+            break
+        }
+    }
+    if ts.node_is_null(results) {
+        return {}, false
+    }
+    inner := ts.node_named_child(results, 0)
+    if !ts.node_is_null(inner) && string(ts.node_type(inner)) == "tuple_type" {
+        entry := ts.node_named_child(inner, u32(slot))
+        if ts.node_is_null(entry) {
+            return {}, false
+        }
+        if string(ts.node_type(entry)) == "named_type" {
+            entry = ts.node_named_child(entry, ts.node_named_child_count(entry) - 1)
+        }
+        return type_ref_from_node(entry, source)
+    }
+    if slot != 0 {
+        return {}, false
+    }
+    return type_ref_from_node(results, source)
 }
 
 // Trimmed text of a byte range, cloned into context.allocator — a member hover's
