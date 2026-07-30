@@ -614,11 +614,16 @@ EMPTY_THEME ::
 }`
 
 thor_cmd_new_theme :: proc(data: rawptr) {
+    thor := cast(^Thor) data
     dst :: "assets/themes/custom.json"
     if !os.exists(dst) {
-        _ = os.write_entire_file(dst, EMPTY_THEME)
+        if err := os.write_entire_file(dst, EMPTY_THEME); err != nil {
+            log.errorf("Could not create %q: %v", dst, err)
+            thor_flash_status(thor, "Could not create theme file", is_error = true)
+            return
+        }
     }
-    thor_open_file(cast(^Thor) data, dst)
+    thor_open_file(thor, dst)
 }
 
 thor_cmd_open_keybinds :: proc(data: rawptr) {thor_open_file(cast(^Thor) data, "settings/keybinds.json")}
