@@ -9,8 +9,9 @@ lowest latency.
 ## Architecture (in place)
 
 - `lang.odin` — the seam. `Backend` vtable (`handles`/`resolve`/`destroy`),
-  `Manager` routes a `Request` by file extension to a backend on a worker
-  thread, reaps `Result`s on the main thread via `manager_dispatch` (same
+  `Manager` routes a `Request` by file extension to a backend on a bounded
+  pool of worker threads (see **Bounded worker pool**), reaps `Result`s on the
+  main thread via `manager_dispatch` (same
   mutex-guarded queue pattern as the file loader). Byte offsets are the position
   currency, and a backend that wants the buffer *changed* answers with
   `Text_Edit`s the editor applies rather than writing files itself. In-flight requests are cancellable by id or by kind, and a superseded
@@ -446,8 +447,38 @@ lowest latency.
 
       That unblocked the last per-keystroke disk reader: `complete_dir_toplevel`
       now queries the symbol index (see the persistent symbol index above).
-- [ ] **Bounded worker pool.** Each request spawns a thread; a persistent pool
-      would cap concurrency and thread churn.
+- [x] **Bounded worker pool.** Dispatch no longer spawns a thread per request.
+      `manager_init` starts a fixed pool (`pool_size` — half the machine's cores,
+      clamped to `[WORKERS_MIN, WORKERS_MAX]` = `[2, 4]`) and `dispatch_owned`
+      appends the job to `Manager.queue`, posting `Manager.work` once; a
+      `pool_worker` wakes, pops the head (FIFO) and runs it. `Job` no longer
+      carries a thread, so `manager_dispatch` reaps a result without a join —
+      the per-request thread create/join/destroy is gone from the hot path.
+
+      **Why the cap is small:** requests are latency-bound (a parse, a stat
+      walk), not throughput-bound, and cancellation already keeps at most one
+      live job per kind, so a handful of workers covers the useful concurrency.
+      The floor of 2 is load-bearing: with a single worker a workspace scan
+      would wedge a hover queued behind it.
+
+      **Queued jobs stay cancellable.** A job in the queue is already in
+      `active`, so `manager_cancel`/`_kind`/`_all` reach it; `job_run` checks the
+      flag *before* calling `resolve`, so a superseded request that never got a
+      worker costs nothing at all — the backend never sees it. That is strictly
+      cheaper than the old path, where the thread and the buffer clone were both
+      spent before the backend's entry poll could bail.
+
+      **Shutdown:** `pool_destroy` (called by `manager_destroy` after the drain,
+      before the backends are torn down, so no worker can touch freed backend
+      state) sets `shutdown` under the mutex and posts `work` once per worker.
+      The semaphore is counting and every enqueue posts exactly once, so a wake
+      that finds the queue empty can only be one of those posts — that is the
+      exit. Then each worker is joined and destroyed.
+
+      Covered by `test_pool_caps_concurrency` (n+3 parked requests; exactly `n`
+      run at once, all `n+3` deliver once released) and
+      `test_queued_job_cancelled_before_it_starts` (a job cancelled while queued
+      never reaches the backend). `manager_worker_count` exposes the pool size.
 
 ## Missing — the optional LSP backend
 

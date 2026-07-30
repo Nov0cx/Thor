@@ -2234,6 +2234,62 @@ test_cancel_kind_leaves_others :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_pool_caps_concurrency :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+
+    p := Probe{}
+    manager_register(&m, probe_backend(&p))
+
+    n := manager_worker_count(&m)
+    testing.expectf(t, n >= WORKERS_MIN && n <= WORKERS_MAX, "pool size %d out of bounds", n)
+
+    // More requests than there are workers: the surplus waits in the queue
+    // instead of spawning a thread each.
+    total := n + 3
+    for _ in 0 ..< total {
+        testing.expect(t, manager_request(&m, .Hover, "a.probe", ".probe", "", 0, 0, "") != 0, "dispatch failed")
+    }
+    testing.expect(t, wait_for(&p.started, n), "the pool never filled")
+    time.sleep(20 * time.Millisecond) // long enough for a stray worker to have started
+    testing.expectf(t, sync.atomic_load(&p.started) == n, "%d jobs ran at once, the pool caps at %d", sync.atomic_load(&p.started), n)
+
+    // Releasing the parked jobs frees the workers, which then drain the queue.
+    sync.atomic_store(&p.release, true)
+    delivered := drain_manager(&m)
+    testing.expectf(t, sync.atomic_load(&p.started) == total, "expected all %d jobs to run eventually", total)
+    testing.expectf(t, delivered == total, "expected %d results (got %d)", total, delivered)
+}
+
+@(test)
+test_queued_job_cancelled_before_it_starts :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+
+    p := Probe{}
+    manager_register(&m, probe_backend(&p))
+
+    n := manager_worker_count(&m)
+    for _ in 0 ..< n {
+        manager_request(&m, .Hover, "a.probe", ".probe", "", 0, 0, "")
+    }
+    testing.expect(t, wait_for(&p.started, n), "the pool never filled")
+
+    // This one has no worker yet, so cancelling it must keep it out of the
+    // backend entirely rather than have `resolve` poll and return.
+    queued := manager_request(&m, .Hover, "a.probe", ".probe", "", 0, 0, "")
+    testing.expect(t, manager_cancel(&m, queued), "a queued job should be cancellable")
+
+    sync.atomic_store(&p.release, true)
+    delivered := drain_manager(&m)
+    testing.expectf(t, sync.atomic_load(&p.started) == n, "the cancelled job should never have reached the backend")
+    testing.expectf(t, sync.atomic_load(&p.cancelled) == 0, "the backend should not have observed the cancellation itself")
+    testing.expectf(t, delivered == n, "expected %d results (got %d)", n, delivered)
+}
+
+@(test)
 test_debounce_collapses_burst :: proc(t: ^testing.T) {
     m: Manager
     manager_init(&m)

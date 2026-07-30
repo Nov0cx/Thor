@@ -1,12 +1,13 @@
 // Language intelligence seam: an editor-agnostic, LSP-shaped request/response
-// layer whose backends run either in-client (a native analyzer on a worker
-// thread) or, later, out-of-process (a subprocess LSP client). The editor only
-// ever talks to the Manager; every backend answers through the same async reap
-// the file loader uses (worker appends to a mutex-guarded queue, drained on the
-// main thread once per frame).
+// layer whose backends run either in-client (a native analyzer on a bounded
+// pool of worker threads) or, later, out-of-process (a subprocess LSP client).
+// The editor only ever talks to the Manager; every backend answers through the
+// same async reap the file loader uses (worker appends to a mutex-guarded
+// queue, drained on the main thread once per frame).
 package lang
 
 import "base:runtime"
+import "core:os"
 import "core:strings"
 import "core:sync"
 import "core:thread"
@@ -161,13 +162,21 @@ Backend :: struct {
 DEBOUNCE_TYPING :: 50 * time.Millisecond
 DEBOUNCE_HOVER :: 150 * time.Millisecond
 
+// How many jobs the worker pool runs at once. Requests are latency-bound (a
+// parse, a stat walk) rather than throughput-bound, and cancellation keeps at
+// most one live job per kind, so a handful of workers covers the useful
+// concurrency; the cap is what stops a workspace scan behind every keystroke
+// from spawning a thread each. The floor is 2 so a slow request (a workspace
+// scan) can never wedge the pool against a fast one (hover) queued behind it.
+WORKERS_MIN :: 2
+WORKERS_MAX :: 4
+
 @(private)
 Job :: struct {
     manager:   ^Manager,
     backend:   Backend, // copied so a later append to `backends` can't dangle
     request:   Request,
     result:    Result,
-    worker:    ^thread.Thread,
     cancelled: bool, // written by the main thread, read atomically by the worker
 }
 
@@ -196,10 +205,16 @@ Manager :: struct {
     backends:  [dynamic]Backend,
     next_id:   u64,
     allocator: runtime.Allocator,
-    mutex:     sync.Mutex, // guards `finished`, `active` and `inflight`
+    mutex:     sync.Mutex, // guards `finished`, `active`, `inflight`, `queue` and `shutdown`
     finished:  [dynamic]^Job,
     active:    map[u64]^Job, // every dispatched job not yet freed, so it can be cancelled by id
     inflight:  int,
+    // The worker pool: dispatched jobs wait in `queue` (FIFO) until one of the
+    // `workers` picks them up, woken by one `work` post per enqueued job.
+    queue:     [dynamic]^Job,
+    workers:   []^thread.Thread,
+    work:      sync.Sema,
+    shutdown:  bool, // set by pool_destroy; a worker that wakes to an empty queue then exits
     // Debounce slots, one per kind. Main-thread only (filled by
     // manager_request_debounced, emptied by manager_flush_debounced and the
     // cancels), so unlike `active` they need no lock.
@@ -211,7 +226,25 @@ manager_init :: proc(m: ^Manager, allocator := context.allocator) {
     m.backends = make([dynamic]Backend, allocator)
     m.finished = make([dynamic]^Job, allocator)
     m.active = make(map[u64]^Job, 0, allocator)
+    m.queue = make([dynamic]^Job, allocator)
     m.next_id = 1
+
+    m.workers = make([]^thread.Thread, pool_size(), allocator)
+    for i in 0 ..< len(m.workers) {
+        m.workers[i] = thread.create_and_start_with_poly_data(m, pool_worker)
+    }
+}
+
+// Half the machine's cores, clamped to [WORKERS_MIN, WORKERS_MAX]: the editor
+// needs the rest of them, and language work is only ever a slice of the frame.
+@(private)
+pool_size :: proc() -> int {
+    return clamp(os.get_processor_core_count() / 2, WORKERS_MIN, WORKERS_MAX)
+}
+
+// How many jobs the Manager can run at once — the pool's size.
+manager_worker_count :: proc(m: ^Manager) -> int {
+    return len(m.workers)
 }
 
 // Registers a backend. Registration order is priority: the first backend that
@@ -321,9 +354,10 @@ dispatch_owned :: proc(
     sync.lock(&m.mutex)
     m.inflight += 1
     m.active[id] = job
+    append(&m.queue, job)
     sync.unlock(&m.mutex)
 
-    job.worker = thread.create_and_start_with_poly_data(job, job_worker)
+    sync.sema_post(&m.work) // exactly one post per queued job; see pool_worker
     return id
 }
 
@@ -516,24 +550,57 @@ pending_clear :: proc(m: ^Manager, kind: Request_Kind) -> bool {
     return true
 }
 
+// One pool thread: takes jobs off the queue until the Manager shuts down. The
+// semaphore is counting, and every enqueue posts exactly once, so a wake with an
+// empty queue can only be one of pool_destroy's posts — that is the exit.
 @(private)
-job_worker :: proc(job: ^Job) {
+pool_worker :: proc(m: ^Manager) {
+    for {
+        sync.sema_wait(&m.work)
+
+        sync.lock(&m.mutex)
+        job: ^Job
+        if len(m.queue) > 0 {
+            job = m.queue[0]
+            ordered_remove(&m.queue, 0) // FIFO; the queue is a handful of entries
+        }
+        stop := m.shutdown
+        sync.unlock(&m.mutex)
+
+        if job == nil {
+            if stop {
+                return
+            }
+            continue
+        }
+        job_run(job)
+    }
+}
+
+@(private)
+job_run :: proc(job: ^Job) {
+    m := job.manager
     // Owned outputs live in the Manager's allocator (freed on the main thread);
-    // scratch stays on this worker's temp allocator.
-    context.allocator = job.manager.allocator
+    // scratch stays on this worker's temp allocator, reset after every job since
+    // the thread outlives them all.
+    context.allocator = m.allocator
     defer free_all(context.temp_allocator)
 
-    job.backend.resolve(job.backend.data, &job.request, &job.result)
+    // A job cancelled while it queued never reaches the backend: `resolve` would
+    // poll the same flag at its head and return having done nothing.
+    if !request_cancelled(&job.request) {
+        job.backend.resolve(job.backend.data, &job.request, &job.result)
+    }
     // Latch it here: a backend that bailed early may have left a partial result,
     // and the main thread must not hand that to the editor.
     job.result.cancelled = request_cancelled(&job.request)
 
-    sync.lock(&job.manager.mutex)
-    append(&job.manager.finished, job)
-    sync.unlock(&job.manager.mutex)
+    sync.lock(&m.mutex)
+    append(&m.finished, job)
+    sync.unlock(&m.mutex)
 }
 
-// Drains finished jobs on the main thread. For each, joins its worker, invokes
+// Drains finished jobs on the main thread. For each, invokes
 // `handler(user, ^Result)`, then frees the job and all its owned memory. The
 // handler must copy anything from the Result it wants to keep past the call.
 // A cancelled job is joined and freed but never handed to the handler: its
@@ -551,8 +618,6 @@ manager_dispatch :: proc(m: ^Manager, user: rawptr, handler: proc(user: rawptr, 
     sync.unlock(&m.mutex)
 
     for job in reaped {
-        thread.join(job.worker)
-        thread.destroy(job.worker)
         if handler != nil && !job.result.cancelled {
             handler(user, &job.result)
         }
@@ -604,11 +669,12 @@ manager_busy :: proc(m: ^Manager) -> bool {
     return m.inflight > 0
 }
 
-// Drains in-flight workers (so none touches freed backend state), tears down
-// each backend, and frees the Manager's own storage. Every worker is cancelled
-// first so a workspace-wide scan started just before quit bails at its next
-// check instead of holding the shutdown open; that also empties the debounce
-// slots, so the drain loop's manager_dispatch can't keep dispatching new work.
+// Drains in-flight jobs, stops the worker pool (so no thread touches freed
+// backend state), tears down each backend, and frees the Manager's own storage.
+// Every request is cancelled first so a workspace-wide scan started just before
+// quit bails at its next check instead of holding the shutdown open; that also
+// empties the debounce slots, so the drain loop's manager_dispatch can't keep
+// dispatching new work.
 manager_destroy :: proc(m: ^Manager) {
     manager_cancel_all(m)
     for manager_busy(m) {
@@ -617,6 +683,7 @@ manager_destroy :: proc(m: ^Manager) {
     }
     // Reap any results that landed between the last busy-check and now.
     manager_dispatch(m, nil, nil)
+    pool_destroy(m)
 
     for b in m.backends {
         if b.destroy != nil {
@@ -626,4 +693,25 @@ manager_destroy :: proc(m: ^Manager) {
     delete(m.backends)
     delete(m.finished)
     delete(m.active)
+    delete(m.queue)
+}
+
+// Retires the pool: one wake per worker so each sees `shutdown` and returns,
+// then joins them. Called after the drain, so the queue is empty — the extra
+// posts for whatever it still holds are belt-and-braces, keeping the "one wake
+// per worker" guarantee even if a job somehow outlived the drain.
+@(private)
+pool_destroy :: proc(m: ^Manager) {
+    sync.lock(&m.mutex)
+    m.shutdown = true
+    wakes := len(m.workers) + len(m.queue)
+    sync.unlock(&m.mutex)
+
+    sync.sema_post(&m.work, wakes)
+    for w in m.workers {
+        thread.join(w)
+        thread.destroy(w)
+    }
+    delete(m.workers, m.allocator)
+    m.workers = nil
 }
