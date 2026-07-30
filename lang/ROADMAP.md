@@ -30,8 +30,9 @@ lowest latency.
 ## What works today
 
 - **Go to definition** (Odin): local variables, `:=` short declarations,
-  parameters (with correct shadowing over file scope), and cross-file top-level
-  symbols. Triggered by Alt+Enter or Ctrl+Click. When a name is declared at
+  parameters, loop variables and cross-file top-level symbols, with lexical
+  shadowing over file scope (a use above a local names what the local shadows).
+  Triggered by Alt+Enter or Ctrl+Click. When a name is declared at
   top-level in several workspace files (the flat cross-file match ignores
   package boundaries), the jump offers a picker of all candidates instead of
   silently taking the first; a single match jumps straight there.
@@ -245,10 +246,17 @@ lowest latency.
       only: no expression typing (arithmetic, casts, `or_else`), no generics
       (`$T`), no map keys. Hover still shows the declaration text, not a computed
       type.
-- [ ] **Shadowing precision.** Scope is approximated by enclosing block /
-      procedure ranges, not true lexical order (a use before a `:=` in the same
-      block can still resolve to it). Good enough for goto, imprecise for
-      correctness-sensitive features.
+- [x] **Shadowing precision.** Resolution is lexical: a value declaration
+      (`x := v`, `x: T = v`) is visible only past the declaration it sits in
+      (`Def.visible_from` / `Binding.visible_from`), so a use above it names
+      whatever it shadows and `x := x` reads the outer `x`. `::` constants,
+      types and procedures stay order-independent inside their scope, as Odin
+      has them. A control-flow clause declares into its statement rather than
+      the block around it (`if v, ok := m[k]; ok`, `for i := 0; ...`), and typed
+      `var` locals and `for … in` loop variables — neither of which the vendored
+      LOCALS query captures — are collected so they shadow at all. Goto, hover,
+      completion, references and rename share the one visibility test
+      (`def_visible_at`).
 - [~] **Standard library / vendor symbols.** Package-qualified access
       (`fmt.println`, `strings.split`) resolves into `core:`/`vendor:`/`base:`
       via the baked-in `ODIN_ROOT`. Still missing: symbols brought in with

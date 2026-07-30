@@ -93,6 +93,127 @@ use :: proc(value: int) -> int {
 }
 
 @(test)
+test_use_before_short_declaration :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // A file-scope `limit` and a local `limit :=` in one block. A local exists
+    // only from its declaration on, so the use above it still names the
+    // file-scope constant and only the use below names the local.
+    src := `package demo
+
+limit :: 100
+
+main :: proc() {
+	_ = limit
+	limit := 5
+	_ = limit
+}
+`
+    top := strings.index(src, "limit :: 100")
+    decl := strings.index(src, "limit := 5")
+
+    before := strings.index(src, "_ = limit") + len("_ = ")
+    loc, ok := resolve_offset(e, src, before)
+    defer delete(loc.path)
+    testing.expect(t, ok, "expected the use above the declaration to resolve")
+    if ok {
+        testing.expectf(t, loc.start == top, "above: got %d, want the file-scope limit at %d", loc.start, top)
+    }
+
+    after := strings.last_index(src, "_ = limit") + len("_ = ")
+    loc2, ok2 := resolve_offset(e, src, after)
+    defer delete(loc2.path)
+    testing.expect(t, ok2, "expected the use below the declaration to resolve")
+    if ok2 {
+        testing.expectf(t, loc2.start == decl, "below: got %d, want the local at %d", loc2.start, decl)
+    }
+
+    // The caret on the declared name resolves to that declaration itself.
+    loc3, ok3 := resolve_offset(e, src, decl)
+    defer delete(loc3.path)
+    testing.expect(t, ok3, "expected the declaration itself to resolve")
+    if ok3 {
+        testing.expectf(t, loc3.start == decl, "declaration: got %d, want %d", loc3.start, decl)
+    }
+}
+
+@(test)
+test_typed_local_and_loop_variable_shadow :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // A typed `value: int` local and a `for item in list` loop variable: this
+    // grammar spells them as a var_declaration and as bare identifier children of
+    // the for statement, neither of which the LOCALS query captures, so both are
+    // collected directly — otherwise they would not shadow the file-scope names.
+    src := `package demo
+
+value :: 1
+item :: 2
+
+main :: proc(list: []int) {
+	value: int = 3
+	for item in list {
+		_ = item
+	}
+	_ = value
+}
+`
+    loc, ok := resolve_offset(e, src, strings.index(src, "_ = value") + len("_ = "))
+    defer delete(loc.path)
+    testing.expect(t, ok, "expected the typed local to resolve")
+    if ok {
+        want := strings.index(src, "value: int")
+        testing.expectf(t, loc.start == want, "value: got %d, want the local at %d", loc.start, want)
+    }
+
+    loc2, ok2 := resolve_offset(e, src, strings.index(src, "_ = item") + len("_ = "))
+    defer delete(loc2.path)
+    testing.expect(t, ok2, "expected the loop variable to resolve")
+    if ok2 {
+        want := strings.index(src, "item in list")
+        testing.expectf(t, loc2.start == want, "item: got %d, want the loop variable at %d", loc2.start, want)
+    }
+}
+
+@(test)
+test_initializer_clause_scope :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // An `if`'s initializer clause declares into the statement, not the block
+    // around it: `v` is visible in the consequence, and the `ok` below the
+    // statement is the file-scope one again.
+    src := `package demo
+
+ok :: true
+
+main :: proc() {
+	if v, ok := lookup(); ok {
+		_ = v
+	}
+	_ = ok
+}
+`
+    loc, ok := resolve_offset(e, src, strings.index(src, "_ = v\n") + len("_ = "))
+    defer delete(loc.path)
+    testing.expect(t, ok, "expected the clause binding to resolve inside the if")
+    if ok {
+        want := strings.index(src, "v, ok :=")
+        testing.expectf(t, loc.start == want, "v: got %d, want the clause binding at %d", loc.start, want)
+    }
+
+    loc2, ok2 := resolve_offset(e, src, strings.index(src, "_ = ok") + len("_ = "))
+    defer delete(loc2.path)
+    testing.expect(t, ok2, "expected the use below the if to resolve")
+    if ok2 {
+        want := strings.index(src, "ok :: true")
+        testing.expectf(t, loc2.start == want, "ok: got %d, want the file-scope ok at %d", loc2.start, want)
+    }
+}
+
+@(test)
 test_hover_signature :: proc(t: ^testing.T) {
     e := odin_engine_create()
     defer odin_destroy(e)
@@ -1233,6 +1354,43 @@ test_completion_keyword :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_completion_skips_later_local :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // At the caret only `count_all` is in reach: `counted` is declared below it
+    // (naming it there would not compile) and `counter` belongs to another
+    // procedure's block.
+    src := `package demo
+
+count_all :: proc() -> int {
+	return 0
+}
+
+other :: proc() {
+	counter := 1
+	_ = counter
+}
+
+main :: proc() {
+	_ = coun
+	counted := 2
+	_ = counted
+}
+`
+    at := strings.index(src, "coun\n") + len("coun")
+    req := Request{kind = .Completion, path = "buffer.odin", ext = ".odin", source = src, offset = at}
+    res := Result{kind = .Completion}
+    odin_resolve(e, &req, &res)
+    defer free_symbols(&res)
+
+    testing.expect(t, res.ok, "expected completion candidates")
+    testing.expect(t, has_completion(&res, "count_all"), "missing top-level count_all")
+    testing.expect(t, !has_completion(&res, "counted"), "counted is not declared yet at the caret")
+    testing.expect(t, !has_completion(&res, "counter"), "counter belongs to another block")
+}
+
+@(test)
 test_completion_package_name :: proc(t: ^testing.T) {
     e := odin_engine_create()
     defer odin_destroy(e)
@@ -2033,6 +2191,53 @@ main :: proc() {
     odin_resolve(e, &req, &res)
     defer free_symbols(&res)
     testing.expect(t, !res.ok, "a self-referential binding must not infer a type")
+}
+
+@(test)
+test_member_shadowed_binding :: proc(t: ^testing.T) {
+    e := odin_engine_create()
+    defer odin_destroy(e)
+
+    // A package variable `p: Point` shadowed further down by a local `p :=
+    // Label{}`. Type inference follows the same visibility rule as goto, so the
+    // member above the local is Point's and the one below is Label's. Both
+    // structs spell the field `tag`, so a member that resolves against the wrong
+    // binding lands on the wrong declaration instead of quietly falling through
+    // to the flat name scan.
+    src := `package demo
+
+Point :: struct {
+	tag: int,
+}
+
+Label :: struct {
+	tag: string,
+}
+
+p: Point
+
+main :: proc() {
+	_ = p.tag
+	p := Label{}
+	_ = p.tag
+}
+`
+    point_tag := strings.index(src, "tag: int")
+    label_tag := strings.index(src, "tag: string")
+
+    loc, ok := resolve_offset(e, src, strings.index(src, "p.tag") + 2)
+    defer delete(loc.path)
+    testing.expect(t, ok, "expected the package variable's member to resolve")
+    if ok {
+        testing.expectf(t, loc.start == point_tag, "above: got %d, want Point's tag at %d", loc.start, point_tag)
+    }
+
+    loc2, ok2 := resolve_offset(e, src, strings.last_index(src, "p.tag") + 2)
+    defer delete(loc2.path)
+    testing.expect(t, ok2, "expected the shadowing local's member to resolve")
+    if ok2 {
+        testing.expectf(t, loc2.start == label_tag, "below: got %d, want Label's tag at %d", loc2.start, label_tag)
+    }
 }
 
 @(test)

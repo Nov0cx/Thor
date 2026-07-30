@@ -911,15 +911,16 @@ byte_point :: proc(s: string, offset: int) -> ts.Point {
 // for hover text.
 @(private = "file")
 Def :: struct {
-    name:        string, // slice into the parsed source
-    ident_start: int,
-    ident_end:   int,
-    kind:        string, // LOCALS capture suffix: "function", "type", "var", ...
-    scope_start: int,
-    scope_end:   int,
-    top_level:   bool, // no enclosing block: visible across the whole file/package
-    decl_start:  int,
-    decl_end:    int,
+    name:         string, // slice into the parsed source
+    ident_start:  int,
+    ident_end:    int,
+    kind:         string, // LOCALS capture suffix: "function", "type", "var", ...
+    scope_start:  int,
+    scope_end:    int,
+    visible_from: int, // order-dependent local: first offset past its declaration
+    top_level:    bool, // no enclosing block: visible across the whole file/package
+    decl_start:   int,
+    decl_end:     int,
 }
 
 @(private)
@@ -1142,9 +1143,10 @@ collect_defs :: proc(e: ^Odin_Engine, root: ts.Node, source: string) -> [dynamic
             d.scope_start = 0
             d.scope_end = len(source)
 
-            // Scope: a parameter is visible in its procedure; a local is visible
-            // in its enclosing block; anything with neither is top-level and
-            // visible file-wide (procs, structs, enums, package-level consts).
+            // Scope: a parameter is visible in its whole procedure; anything
+            // else in its enclosing block or control-flow statement, and when it
+            // has neither it is top-level and visible file-wide (procs, structs,
+            // enums, package-level consts).
             if d.kind == "parameter" {
                 if pd, has := ancestor_type(ident, "procedure_declaration"); has {
                     d.scope_start = int(ts.node_start_byte(pd))
@@ -1152,11 +1154,8 @@ collect_defs :: proc(e: ^Odin_Engine, root: ts.Node, source: string) -> [dynamic
                 } else {
                     d.top_level = true
                 }
-            } else if blk, has := ancestor_type(ident, "block"); has {
-                d.scope_start = int(ts.node_start_byte(blk))
-                d.scope_end = int(ts.node_end_byte(blk))
             } else {
-                d.top_level = true
+                scope_def(&d, ident)
             }
 
             if decl, has := ancestor_suffix(ident, "_declaration"); has {
@@ -1167,28 +1166,66 @@ collect_defs :: proc(e: ^Odin_Engine, root: ts.Node, source: string) -> [dynamic
                 d.decl_end = d.ident_end
             }
 
+            // A local variable is the one order-dependent capture: `::` consts,
+            // types and procedures are visible throughout their scope, a `:=`
+            // only past its own declaration.
+            if d.kind == "var" && !d.top_level {
+                d.visible_from = d.decl_end
+            }
+
             append(&defs, d)
         }
     }
 
-    // The vendored LOCALS query models `:=` locals as `variable_declaration`,
-    // but this grammar parses `x := v` as an `assignment_statement` with a `:=`
-    // operator token, so the query misses them. Collect those directly.
-    collect_short_decls(root, source, &defs)
+    // The vendored LOCALS query captures none of the value declarations this
+    // grammar actually produces, so they are collected directly.
+    collect_value_decls(root, source, &defs)
     return defs
 }
 
-// Adds `name := value` short declarations as local definitions. Distinguished
-// from reassignment (`name = value`) by the operator token type: `:=` declares,
-// `=` does not. A block-local scope is used, matching a `:=`'s visibility.
+// The scope a declaration at `node` lives in: the nearest enclosing block, or
+// the control-flow statement itself when the declaration is one of its clauses
+// (`if v, ok := m[k]; ok`, `for i := 0; i < n; i += 1`) — those bindings die
+// with the statement instead of leaking into the surrounding block.
 @(private = "file")
-collect_short_decls :: proc(node: ts.Node, source: string, defs: ^[dynamic]Def) {
-    if string(ts.node_type(node)) == "assignment_statement" {
+enclosing_scope :: proc(node: ts.Node) -> (ts.Node, bool) {
+    n := ts.node_parent(node)
+    for !ts.node_is_null(n) {
+        switch string(ts.node_type(n)) {
+        case "block", "if_statement", "for_statement", "switch_statement", "when_statement":
+            return n, true
+        }
+        n = ts.node_parent(n)
+    }
+    return {}, false
+}
+
+// Fills `d`'s visible range from the scope enclosing `node`, marking it
+// top-level when there is none.
+@(private = "file")
+scope_def :: proc(d: ^Def, node: ts.Node) {
+    if scope, has := enclosing_scope(node); has {
+        d.scope_start = int(ts.node_start_byte(scope))
+        d.scope_end = int(ts.node_end_byte(scope))
+    } else {
+        d.top_level = true
+    }
+}
+
+// Adds the value declarations the LOCALS query misses: `name := value` short
+// declarations (this grammar parses them as an `assignment_statement`, not the
+// `variable_declaration` the query looks for), typed `name: T = value`
+// declarations, and `for name in expr` loop variables.
+@(private = "file")
+collect_value_decls :: proc(node: ts.Node, source: string, defs: ^[dynamic]Def) {
+    switch string(ts.node_type(node)) {
+    case "assignment_statement":
         // Walk the leading children: identifiers (and commas for `a, b := ...`)
-        // up to the operator. A `:=` there makes those identifiers definitions.
+        // up to the operator. A `:=` there makes those identifiers definitions;
+        // a plain `=` reassignment declares nothing.
         lead := make([dynamic]ts.Node, context.temp_allocator)
         is_decl := false
-        for i in 0 ..< ts.node_child_count(node) {
+        scan: for i in 0 ..< ts.node_child_count(node) {
             c := ts.node_child(node, i)
             switch string(ts.node_type(c)) {
             case "identifier":
@@ -1199,47 +1236,89 @@ collect_short_decls :: proc(node: ts.Node, source: string, defs: ^[dynamic]Def) 
             case ":=":
                 is_decl = true
             }
-            break
+            break scan
         }
-
         if is_decl {
             for ident in lead {
-                d: Def
-                d.name = ts.node_text(ident, source)
-                d.ident_start = int(ts.node_start_byte(ident))
-                d.ident_end = int(ts.node_end_byte(ident))
-                d.kind = "var"
-                d.scope_start = int(ts.node_start_byte(node))
-                d.scope_end = len(source)
-                if blk, has := ancestor_type(ident, "block"); has {
-                    d.scope_start = int(ts.node_start_byte(blk))
-                    d.scope_end = int(ts.node_end_byte(blk))
-                } else {
-                    d.top_level = true
-                }
-                d.decl_start = int(ts.node_start_byte(node))
-                d.decl_end = int(ts.node_end_byte(node))
-                append(defs, d)
+                append_value_def(defs, ident, node, source, ordered = true)
+            }
+        }
+    case "var_declaration":
+        // `a, b: T = x, y` — the names precede the `(type ...)` child, mirroring
+        // named_decl_type. A file-scope one is a package variable, which is
+        // order-independent and shows up in the symbol list.
+        for i in 0 ..< ts.node_named_child_count(node) {
+            c := ts.node_named_child(node, i)
+            if !is_identifier(c) {
+                break // the type: everything past it is the initializer
+            }
+            append_value_def(defs, c, node, source, ordered = true)
+        }
+    case "for_statement":
+        // A range loop's variables (`for k, v in m`) are bare identifier
+        // children before `in`; the three-clause form has an initializer
+        // statement there instead, which the assignment_statement case covers.
+        for i in 0 ..< ts.node_child_count(node) {
+            c := ts.node_child(node, i)
+            if string(ts.node_type(c)) == "in" {
+                break
+            }
+            if is_identifier(c) {
+                append_value_def(defs, c, node, source, ordered = false)
             }
         }
     }
 
     for i in 0 ..< ts.node_child_count(node) {
-        collect_short_decls(ts.node_child(node, i), source, defs)
+        collect_value_decls(ts.node_child(node, i), source, defs)
     }
 }
 
+// Records `ident` as a variable declared by `decl`. An `ordered` declaration is
+// order-dependent — visible only past the declaration it sits in, so a use
+// above it still binds whatever it shadows — while a loop variable is seen by
+// its whole loop.
+@(private = "file")
+append_value_def :: proc(defs: ^[dynamic]Def, ident, decl: ts.Node, source: string, ordered: bool) {
+    d := Def {
+        name        = ts.node_text(ident, source),
+        ident_start = int(ts.node_start_byte(ident)),
+        ident_end   = int(ts.node_end_byte(ident)),
+        kind        = "var",
+        decl_start  = int(ts.node_start_byte(decl)),
+        decl_end    = int(ts.node_end_byte(decl)),
+    }
+    scope_def(&d, ident)
+    if ordered && !d.top_level {
+        d.visible_from = d.decl_end
+    }
+    append(defs, d)
+}
+
+// Whether `d` can be named at `offset`: a file-scope declaration anywhere in the
+// file, a local only inside its scope and — when order-dependent — only past its
+// own declaration. Its declaring identifier always qualifies, so go-to-definition
+// and find-usages on the declaration itself still find it.
+@(private = "file")
+def_visible_at :: proc(d: Def, offset: int) -> bool {
+    if d.top_level {
+        return true
+    }
+    if offset < d.scope_start || offset > d.scope_end {
+        return false
+    }
+    return offset >= d.visible_from || (offset >= d.ident_start && offset <= d.ident_end)
+}
+
 // Picks the visible declaration of `name` nearest `offset`: a local shadows a
-// file-scope symbol, an inner block shadows an outer, ties break by proximity.
+// file-scope symbol, an inner block shadows an outer, and the last declaration
+// before the use shadows the ones above it.
 @(private = "file")
 resolve_local :: proc(defs: []Def, name: string, offset: int) -> (Def, bool) {
     best: Def
     found := false
     for d in defs {
-        if d.name != name {
-            continue
-        }
-        if !d.top_level && (offset < d.scope_start || offset > d.scope_end) {
+        if d.name != name || !def_visible_at(d, offset) {
             continue
         }
         if !found || def_better(d, best, offset) {
@@ -1252,6 +1331,11 @@ resolve_local :: proc(defs: []Def, name: string, offset: int) -> (Def, bool) {
 
 @(private = "file")
 def_better :: proc(a, b: Def, offset: int) -> bool {
+    // The caret on a declared name resolves to that very declaration.
+    a_self := offset >= a.ident_start && offset <= a.ident_end
+    if a_self != (offset >= b.ident_start && offset <= b.ident_end) {
+        return a_self
+    }
     if a.top_level != b.top_level {
         return !a.top_level // a local shadows a file-scope symbol
     }
@@ -1260,6 +1344,9 @@ def_better :: proc(a, b: Def, offset: int) -> bool {
         bw := b.scope_end - b.scope_start
         if aw != bw {
             return aw < bw // the tighter (inner) scope wins
+        }
+        if a.visible_from != b.visible_from {
+            return a.visible_from > b.visible_from // within a scope, the latest one
         }
     }
     return abs(a.ident_start - offset) < abs(b.ident_start - offset)
@@ -1442,8 +1529,11 @@ collect_references :: proc(e: ^Odin_Engine, parser: ts.Parser, root: ts.Node, re
 
     defs := collect_defs(e, root, req.source)
     if d, found := resolve_local(defs[:], name, req.offset); found && !d.top_level {
-        // Local / parameter: only its own scope in this file.
-        collect_ident_refs(root, req.source, name, req.path, d.scope_start, d.scope_end, res)
+        // Local / parameter: only its own scope in this file, and for an
+        // order-dependent local only from its declaration on — an earlier use in
+        // the same block names whatever this one shadows.
+        start := d.visible_from > 0 ? d.ident_start : d.scope_start
+        collect_ident_refs(root, req.source, name, req.path, start, d.scope_end, res)
     } else {
         // Top-level or unresolved: this whole buffer, then every workspace file
         // the index says mentions the name (the rest can't contain a usage).
@@ -1858,6 +1948,7 @@ Binding :: struct {
     result_index: int,
     scope_start:  int,
     scope_end:    int,
+    visible_from: int, // order-dependent binding: first offset past its declaration
     top_level:    bool,
     pos:          int,
 }
@@ -2022,7 +2113,8 @@ composite_type_name :: proc(node: ts.Node, source: string) -> (Type_Ref, bool) {
 // binding — a parameter, a typed `var` declaration, or a `:=` short declaration
 // whose initializer's type is inferred (a composite literal, a call's result, or
 // another binding it aliases). A local shadows a file-scope binding, an inner
-// scope shadows an outer, ties break by proximity — like resolve_local.
+// scope shadows an outer, a later declaration shadows an earlier — like
+// resolve_local.
 @(private = "file")
 binding_type_ref :: proc(
     e: ^Odin_Engine,
@@ -2039,7 +2131,7 @@ binding_type_ref :: proc(
     best: Binding
     found := false
     for b in binds {
-        if !b.top_level && (offset < b.scope_start || offset > b.scope_end) {
+        if !b.top_level && (offset < b.scope_start || offset > b.scope_end || offset < b.visible_from) {
             continue
         }
         if !found || binding_better(b, best, offset) {
@@ -2103,6 +2195,9 @@ binding_better :: proc(a, b: Binding, offset: int) -> bool {
         if aw != bw {
             return aw < bw
         }
+        if a.visible_from != b.visible_from {
+            return a.visible_from > b.visible_from
+        }
     }
     return abs(a.pos - offset) < abs(b.pos - offset)
 }
@@ -2110,7 +2205,8 @@ binding_better :: proc(a, b: Binding, offset: int) -> bool {
 // Walks the tree gathering every binding of `name`: parameters and typed `var`
 // declarations (their `(type ...)` child) and `name := value` short declarations
 // (the initializer, whose type is inferred later). Each carries the scope it is
-// visible in — a parameter its procedure, a local its block, otherwise file-wide.
+// visible in — a parameter its procedure, a local the part of its block that
+// follows the declaration, otherwise file-wide.
 @(private = "file")
 collect_bindings :: proc(node: ts.Node, source, name: string, out: ^[dynamic]Binding) {
     switch string(ts.node_type(node)) {
@@ -2143,14 +2239,18 @@ collect_bindings :: proc(node: ts.Node, source, name: string, out: ^[dynamic]Bin
     }
 }
 
-// `b` scoped to its declaration's enclosing block, or file-wide when there is none.
+// `b` scoped to the block or control-flow statement enclosing its declaration,
+// or file-wide when there is none. A `:=`/`var` binding is order-dependent, so
+// it only takes effect past its own declaration — which is what lets `x := x`
+// read the outer `x` rather than itself.
 @(private = "file")
 scoped_binding :: proc(node: ts.Node, b: Binding) -> Binding {
     out := b
     out.pos = int(ts.node_start_byte(node))
-    if blk, has := ancestor_type(node, "block"); has {
-        out.scope_start = int(ts.node_start_byte(blk))
-        out.scope_end = int(ts.node_end_byte(blk))
+    if scope, has := enclosing_scope(node); has {
+        out.scope_start = int(ts.node_start_byte(scope))
+        out.scope_end = int(ts.node_end_byte(scope))
+        out.visible_from = int(ts.node_end_byte(node))
     } else {
         out.top_level = true
     }
@@ -3242,10 +3342,7 @@ completion_def_ok :: proc(d: Def, off: int) -> bool {
     case "field", "namespace", "label", "":
         return false
     }
-    if d.top_level {
-        return true
-    }
-    return off >= d.scope_start && off <= d.scope_end
+    return def_visible_at(d, off)
 }
 
 // Case-sensitive prefix match; an empty prefix matches everything.
