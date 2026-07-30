@@ -520,7 +520,6 @@ thor_process_io :: proc(thor: ^Thor) {
     saves := make([dynamic]^Save_Job, context.temp_allocator)
     console := make([dynamic]^Console_Job, context.temp_allocator)
     git := make([dynamic]^Git_Status_Job, context.temp_allocator)
-    diagnostics := make([dynamic]^Diagnostics_Job, context.temp_allocator)
 
     sync.lock(&thor.io_mutex)
     for job in thor.finished_loads {
@@ -535,14 +534,10 @@ thor_process_io :: proc(thor: ^Thor) {
     for job in thor.finished_git {
         append(&git, job)
     }
-    for job in thor.finished_diagnostics {
-        append(&diagnostics, job)
-    }
     clear(&thor.finished_loads)
     clear(&thor.finished_saves)
     clear(&thor.finished_console)
     clear(&thor.finished_git)
-    clear(&thor.finished_diagnostics)
     sync.unlock(&thor.io_mutex)
 
     for job in loads {
@@ -605,9 +600,10 @@ thor_process_io :: proc(thor: ^Thor) {
             if job.revision > file.saved_revision {
                 file.saved_revision = job.revision
             }
-            // A fresh save of an Odin file re-runs the compiler for its package.
-            if !file.closed && strings.has_suffix(file.name, ".odin") {
-                thor_run_diagnostics_for_file(thor, file.path)
+            // A fresh save queues a re-check of the file's package; a language
+            // with no checking backend queues nothing.
+            if !file.closed {
+                thor_request_diagnostics(thor, file)
             }
         } else {
             log.warnf("Failed to save %q", job.path)
@@ -636,10 +632,6 @@ thor_process_io :: proc(thor: ^Thor) {
 
     for job in git {
         thor_apply_git_status(thor, job)
-    }
-
-    for job in diagnostics {
-        thor_reap_diagnostics(thor, job)
     }
 
     // A save or a console command may have changed the working tree; refresh

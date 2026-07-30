@@ -9,6 +9,8 @@
 // point every request funnels through).
 package odin
 
+import "core:sync"
+
 import lang ".."
 import "../../treecache"
 import ts "../../vendor/odin-tree-sitter"
@@ -32,6 +34,9 @@ Engine :: struct {
     // are stat-gated by the symbol index and still parse whole — caching them
     // would thrash the slots for no win.
     trees:    treecache.Cache,
+    // One compiler run at a time (see check_package): a second Diagnostics
+    // request waits here rather than starting a rival `odin check`.
+    check_mutex: sync.Mutex,
 }
 
 engine_create :: proc() -> ^Engine {

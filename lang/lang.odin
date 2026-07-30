@@ -15,7 +15,7 @@ import "core:time"
 
 // What the editor is asking for. Kept small on purpose; it grows as features
 // land (Definition, Hover, Document_Symbols, Workspace_Symbols, References,
-// Signature_Help, Completion, Package_Doc and Rename today).
+// Signature_Help, Completion, Package_Doc, Rename and Diagnostics today).
 Request_Kind :: enum {
     Definition,
     Hover,
@@ -26,6 +26,7 @@ Request_Kind :: enum {
     Completion,
     Package_Doc,
     Rename,
+    Diagnostics,
 }
 
 // A byte range in a named file. Byte offsets, not line/column: the editor and
@@ -97,6 +98,38 @@ Text_Edit :: struct {
     new_text: string, // owned; what replaces them
 }
 
+// Severity of a compiler diagnostic. Deliberately coarser than LSP's four
+// levels: everything a checker emits is either something that stops the build or
+// something that does not, and the editor colors exactly those two.
+Diagnostic_Severity :: enum {
+    Error,
+    Warning,
+}
+
+// One diagnostic, in the file it belongs to. Line and column rather than the
+// byte offsets the rest of the seam speaks: every producer (a compiler's stderr,
+// an LSP's publishDiagnostics) reports 1-based line:col, and only the editor —
+// which holds the live buffers — can map that onto a piece table. Converting
+// here would mean re-reading files the editor already has open.
+Diagnostic :: struct {
+    path:     string, // owned, absolute
+    line:     int,    // 1-based
+    col:      int,    // 1-based
+    severity: Diagnostic_Severity,
+    message:  string, // owned
+}
+
+// A check's full answer for one scope. `scope` is the directory (or single file)
+// the check covered, and `items` is exhaustive for it: a file that no longer has
+// errors simply stops appearing, so `scope` is the only thing that tells the
+// editor whose old squiggles to retire. An empty `items` with a scope set means
+// "that whole scope is clean", not "nothing was checked" — `ok` distinguishes
+// those.
+Diagnostic_Report :: struct {
+    scope: string, // owned, absolute directory or file path
+    items: [dynamic]Diagnostic,
+}
+
 // An editor request. `source` is an owned snapshot taken when the request is
 // made, so the worker never races the live buffer; `revision` lets the editor
 // drop a result a later edit has already invalidated.
@@ -141,6 +174,7 @@ Result :: struct {
     // Rename; owned, freed in job_free. Sorted ascending by (path, start), so an
     // applier walks one file's edits back-to-front to keep the offsets valid.
     edits:     [dynamic]Text_Edit,
+    report:    Diagnostic_Report, // Diagnostics; owned, freed in job_free
 }
 
 // A language backend. Both the in-client engine and a future subprocess LSP
@@ -161,6 +195,12 @@ Backend :: struct {
 // under a mouse sweeping across the buffer.
 DEBOUNCE_TYPING :: 50 * time.Millisecond
 DEBOUNCE_HOVER :: 150 * time.Millisecond
+
+// The delay for save-driven checks. Far longer than the typing delays because
+// the work behind it is far heavier — a whole compiler invocation over a package
+// — and because the trigger is coarser: a save-all, or an autosave landing
+// behind an explicit save, must cost one run and not one per file.
+DEBOUNCE_CHECK :: 400 * time.Millisecond
 
 // How many jobs the worker pool runs at once. Requests are latency-bound (a
 // parse, a stat walk) rather than throughput-bound, and cancellation keeps at
@@ -652,6 +692,12 @@ job_free :: proc(m: ^Manager, job: ^Job) {
         delete(edit.new_text)
     }
     delete(job.result.edits)
+    delete(job.result.report.scope)
+    for d in job.result.report.items {
+        delete(d.path)
+        delete(d.message)
+    }
+    delete(job.result.report.items)
     id := job.request.id
     free(job)
 

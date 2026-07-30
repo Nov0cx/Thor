@@ -735,6 +735,8 @@ thor_on_lang_result :: proc(user: rawptr, res: ^lang.Result) {
         thor_show_package_doc(thor, res)
     case .Rename:
         thor_apply_rename(thor, res)
+    case .Diagnostics:
+        thor_apply_diagnostics(thor, res)
     }
 }
 

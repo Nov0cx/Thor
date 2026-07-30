@@ -30,7 +30,8 @@ lowest latency.
   index), `config.odin` (`.thor/odin-analyzer.json`), `symbols.odin` (outlines,
   references, rename), `signature.odin`, `completion.odin`, `infer.odin` /
   `typeref.odin` / `decl.odin` (member-access type inference),
-  `packagedoc.odin` and `ast.odin` (shared tree/text helpers).
+  `packagedoc.odin`, `check.odin` (compiler diagnostics — the one request that
+  analyzes nothing itself) and `ast.odin` (shared tree/text helpers).
 - Editor wiring — Alt+Enter (`goto_definition` keybind) and Ctrl+Click both
   dispatch go-to-definition; results jump the caret (opening the target file if
   needed, deferring the jump until it loads).
@@ -159,9 +160,9 @@ lowest latency.
   stripped.
 - **"No definition found" feedback:** a failed go-to-definition flashes a
   transient statusline notice (3s).
-- **Explained diagnostics:** the compiler messages `odin check` produces
-  (`thor/diagnostics.odin`, outside this seam) are readable in place rather than
-  only implied by a squiggle. A mouse dwell over the squiggle — or over the gutter
+- **Explained diagnostics:** the compiler messages `odin check` produces (see
+  **Diagnostics** below) are readable in place rather than only implied by a
+  squiggle. A mouse dwell over the squiggle — or over the gutter
   marker, which stands for the whole line — pops the message up in the hover popup,
   its border tinted by severity. That hover is *not* Ctrl-gated: the modifier picks
   which of the two hovers a dwell is, held asking the engine about the symbol and
@@ -431,9 +432,23 @@ lowest latency.
       so an unrelated same-named symbol in another package is renamed with it
       until the type layer lands. The new name must be a legal Odin identifier
       and not a keyword/builtin (`valid_identifier`); gated by `enable_rename`.
+- [x] **Diagnostics.** A save queues a `Diagnostics` request for the saved file's
+      package; `check.odin` runs `odin check` on a pool worker and answers a
+      `Diagnostic_Report` — the checked `scope` plus every diagnostic in it, each
+      a path with a 1-based line:col and a severity. The compiler is the source of
+      truth, so the errors are exactly the build's, with no type checker to
+      reimplement. Positions stay line:col across the seam because only the editor
+      holds the buffers that map them onto byte offsets; `thor/diagnostics.odin`
+      does that and retires the squiggles of files the new report dropped (which is
+      what `scope` is for — a fixed file simply stops appearing). Debounced at
+      `DEBOUNCE_CHECK` (400ms) so a save-all costs one compiler run rather than one
+      per file, and serialized on the engine (`check_mutex`) so two checks never
+      contend; a superseded one is cancelled and never spawns a process.
+      Push-model diagnostics (an LSP server volunteering them between requests)
+      would need a notification channel on the seam — the pull shape here fits a
+      one-shot checker, not a live server.
 - [ ] **Other LSP features not started:** formatting, code actions,
-      semantic tokens. (Diagnostics land via `thor/diagnostics.odin`, outside
-      this seam.)
+      semantic tokens.
 
 ## Missing — scalability / performance
 
@@ -621,8 +636,10 @@ lowest latency.
       dispatches immediately — the user is waiting on it) can't be overtaken by
       the auto request it replaced, and `manager_destroy`'s `cancel_all` empties
       the slots so its drain loop can't dispatch fresh work. Delays:
-      `DEBOUNCE_TYPING` (50ms, completion + auto signature help) and
-      `DEBOUNCE_HOVER` (150ms, unused so far — hover is already dwell-gated).
+      `DEBOUNCE_TYPING` (50ms, completion + auto signature help),
+      `DEBOUNCE_HOVER` (150ms, unused so far — hover is already dwell-gated) and
+      `DEBOUNCE_CHECK` (400ms, save-driven diagnostics — far longer because the
+      work behind it is a whole compiler run).
       Covered by `test_debounce_collapses_burst`, `_delay_elapses`,
       `_cancelled_never_dispatches` and `_slots_are_per_kind`.
 
@@ -666,8 +683,9 @@ lowest latency.
 The seam supports it, but no subprocess backend exists yet. To add one:
 
 - [ ] Long-lived child process with async stdio (a reader thread), `Content-Length`
-      framing, JSON-RPC request/response id matching. (Note: `run_command` in
-      `console.odin` is one-shot/blocking — a different lifecycle is needed.)
+      framing, JSON-RPC request/response id matching. (Note: `shell.run` — what
+      `check.odin` drives the compiler with — is one-shot/blocking; a server needs
+      a different lifecycle.)
 - [ ] LSP handshake (`initialize`/`initialized`, capabilities) and document sync
       (`didOpen`/`didChange` incremental, keyed off the piece-table revision).
 - [ ] UTF-16 position ↔ byte offset conversion at the backend edge.

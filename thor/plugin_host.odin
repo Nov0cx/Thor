@@ -7,6 +7,7 @@ import rl "vendor:raylib"
 
 import "../plugin"
 import "../setting"
+import "../shell"
 import "../textedit"
 import "../ui"
 import "../widgets"
@@ -98,7 +99,7 @@ thor_plugin_doc :: proc(host: rawptr, path: string, text: string, focus: bool) {
 // its combined output. Synchronous, so plugins should keep commands quick.
 thor_plugin_exec :: proc(host: rawptr, command: string) -> string {
     thor := cast(^Thor) host
-    return run_command(command, thor.workspace_dir)
+    return shell.run(command, thor.workspace_dir)
 }
 
 // thor.workspace(): the absolute path of the open workspace directory.

@@ -31,12 +31,22 @@ Def :: struct {
 @(private)
 resolve :: proc(data: rawptr, req: ^lang.Request, res: ^lang.Result) {
     e := cast(^Engine) data
-    if e.locals == nil {
-        return
-    }
     // Superseded before the worker even got scheduled — common for the
     // per-keystroke kinds, where the thread often starts after the next edit.
     if lang.request_cancelled(req) {
+        return
+    }
+
+    // Diagnostics ask the compiler about the package on disk: no caret, no
+    // LOCALS query, and no buffer snapshot to key the tree cache on — it carries
+    // none, so parsing here would evict this path's resident tree for an empty
+    // one. It answers before any of the parse setup below.
+    if req.kind == .Diagnostics {
+        check_package(e, req, res)
+        return
+    }
+
+    if e.locals == nil {
         return
     }
 

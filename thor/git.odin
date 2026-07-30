@@ -7,6 +7,7 @@ import "core:strings"
 import "core:sync"
 import "core:thread"
 
+import "../shell"
 import "../widgets"
 
 // Async `git status --porcelain`: a worker captures the output, the main thread
@@ -47,7 +48,7 @@ git_status_worker :: proc(job: ^Git_Status_Job) {
 
     // -z avoids path quoting but complicates rename parsing; the plain porcelain
     // format is enough for highlighting.
-    job.output = run_command("git status --porcelain", job.owner.workspace_dir)
+    job.output = shell.run("git status --porcelain", job.owner.workspace_dir)
 
     sync.lock(&job.owner.io_mutex)
     append(&job.owner.finished_git, job)
