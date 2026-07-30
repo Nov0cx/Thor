@@ -89,9 +89,13 @@ lowest latency.
   other.Base`) carries the file it was written in, so its `pkg.` qualifier is
   resolved against *that* file's imports when the requesting file doesn't import
   the package, or imports it under a different alias.
-- **Hover popup:** a mouse dwell over a symbol (~0.45s) dispatches a Hover
-  request; the engine's declaration text is drawn in a popup anchored to the
-  symbol. Fires once per dwell, dismissed on move or when the cursor leaves. The
+- **Hover popup:** a mouse dwell over a symbol (~0.45s) **with Ctrl held**
+  dispatches a Hover request; the engine's declaration text is drawn in a popup
+  anchored to the symbol. Requiring the modifier — the same one Ctrl+Click uses to
+  jump to a symbol — means passively resting the mouse over code never pops a
+  declaration up. Pressing Ctrl over an already-still cursor restarts the dwell,
+  so the popup never appears the instant the key goes down. Fires once per dwell,
+  dismissed on move, on releasing Ctrl, on scroll, or when the cursor leaves. The
   popup shows the *complete* declaration: a struct/enum/union/bit_field (or any
   other multi-line decl) is shown across every line, a procedure keeps only its
   signature (the body is dropped), and any leading `@(...)` attribute is kept.
@@ -186,8 +190,8 @@ lowest latency.
 
 ## Missing — UI surface
 
-- [x] **Hover popup.** Mouse dwell (`Mouse_Hover` tick → `on_hover`) drives it;
-      `editor_show_hover` fills a popup drawn by `editor_draw_hover`.
+- [x] **Hover popup.** Ctrl + mouse dwell (`Mouse_Hover` tick → `on_hover`) drives
+      it; `editor_show_hover` fills a popup drawn by `editor_draw_hover`.
 - [x] **"No definition found" feedback.** `thor_flash_status` posts a transient
       `Status_Info.message`, shown accented in the statusbar.
 - [x] **Multiple candidates.** The cross-file goto scan gathers *every*
@@ -208,6 +212,9 @@ lowest latency.
 ## Missing — engine depth (Odin native analysis)
 - [ ] awarness of implicit casting
 - [ ] explain error indicator
+- [x] **dont show definiton when just hovering over a thing.** The hover popup is
+      gated behind Ctrl (`editor_handle_hover` polls the key, as the Scroll case
+      already did for zoom); a passive dwell resolves nothing.
 - [~] **Type-aware member access** (`foo.bar`): a struct-typed operand's field
       resolves (goto + hover + `value.` field completion), inferring the operand's
       type from its declaration — parameter or typed `var` — or from a `:=`

@@ -15,10 +15,10 @@ Editor_Save_Proc :: #type proc(data: rawptr)
 // and the byte offset under the cursor, so the owner can resolve the symbol.
 Goto_Definition_Proc :: #type proc(data: rawptr, state: ^textedit.State, offset: int)
 
-// Hover request, fired once the cursor has dwelt over a spot. Carries the editor
-// so an async result can be routed back to the pane it came from, plus the
-// buffer and the byte offset under the cursor. The owner resolves a signature
-// and calls editor_show_hover on the same editor.
+// Hover request, fired once the cursor has dwelt over a spot with Ctrl held.
+// Carries the editor so an async result can be routed back to the pane it came
+// from, plus the buffer and the byte offset under the cursor. The owner resolves
+// a signature and calls editor_show_hover on the same editor.
 Hover_Proc :: #type proc(data: rawptr, editor: ^Editor, state: ^textedit.State, offset: int)
 
 // Signature-help request, fired automatically as the caret moves inside a call
@@ -146,10 +146,12 @@ Editor :: struct {
     completion_semantic: bool,
     // Dwell tracking: the spot the cursor settled on and when. hover_probe_offset
     // is the byte offset a request was fired for (-1 = none), so a still cursor
-    // fires exactly once until it moves again.
+    // fires exactly once until it moves again. hover_mod_down is the previous
+    // frame's modifier state, so pressing it restarts the dwell.
     hover_probe_pos:     rl.Vector2,
     hover_probe_time:    f64,
     hover_probe_offset:  int,
+    hover_mod_down:      bool,
     // Shown popup: text and the byte range it describes, set by editor_show_hover
     // when a result lands. text is an owned clone.
     hover_active:        bool,
@@ -816,6 +818,11 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
         editor_handle_hover(editor, event.mouse_position)
         return true
     case .Scroll:
+        // The text moves under a still cursor, so a shown popup no longer
+        // describes what it points at and the dwell must start over.
+        editor_clear_hover(editor)
+        editor.hover_probe_offset = -1
+        editor.hover_probe_time = rl.GetTime()
         // Scroll events carry no modifier state; poll ctrl for zooming.
         if rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL) {
             editor_zoom(editor, event.wheel_delta > 0 ? 1 : -1)
@@ -1578,13 +1585,26 @@ HOVER_DWELL_SECS :: 0.45
 HOVER_MOVE_TOL :: 3
 
 // Per-frame hover tick: tracks dwell and fires one request to the owner once the
-// cursor has been still long enough over the text. Movement resets the dwell and
-// hides any shown popup.
+// cursor has been still long enough over the text with the modifier held.
+// Movement, or releasing the modifier, resets the dwell and hides any popup.
 @(private = "file")
 editor_handle_hover :: proc(editor: ^Editor, mouse: rl.Vector2) {
+    // Hover events carry no modifier state; poll ctrl, the same key Ctrl+Click
+    // uses to inspect a symbol. Without it a passive mouse rest pops nothing up.
+    mod := rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL)
+    pressed := mod && !editor.hover_mod_down
+    editor.hover_mod_down = mod
+    if !mod {
+        editor.hover_probe_pos = mouse
+        editor.hover_probe_offset = -1
+        editor_clear_hover(editor)
+        return
+    }
     moved := abs(mouse.x - editor.hover_probe_pos.x) > HOVER_MOVE_TOL ||
              abs(mouse.y - editor.hover_probe_pos.y) > HOVER_MOVE_TOL
-    if moved {
+    // Pressing the modifier over an already-resting cursor starts a fresh dwell,
+    // so the popup never appears the instant the key goes down.
+    if moved || pressed {
         editor.hover_probe_pos = mouse
         editor.hover_probe_time = rl.GetTime()
         editor.hover_probe_offset = -1

@@ -22,6 +22,7 @@ bindings are physical key positions, noted where they differ.
 | ctrl + e | flip to the previously active file (press again to flip back) |
 | ctrl + g | go to line (opens the palette in line-number mode) |
 | alt + enter (or ctrl + click) | go to definition of the symbol under the caret |
+| ctrl + hover | show the declaration of the symbol under the mouse |
 | ctrl + f | find |
 | ctrl + r | find & replace |
 
