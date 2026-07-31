@@ -145,9 +145,10 @@ Thor :: struct {
     // Directory a New File/Folder prompt creates into; set from the explorer
     // right-click target or the workspace root. Owned clone.
     menu_target_dir:          string,
-    // Path awaiting a delete confirmation (set when Delete is pressed in the
-    // explorer, consumed when the confirm dialog is accepted). Owned clone.
-    pending_delete_path:      string,
+    // Paths awaiting a delete confirmation (set when Delete is pressed in the
+    // explorer, consumed when the confirm dialog is accepted). Owned clones; more
+    // than one when the explorer selection spans several rows.
+    pending_delete_paths:     [dynamic]string,
     // Message shown in the delete confirmation dialog; borrowed by the palette
     // while it is open, so it must outlive the dialog. Owned clone.
     delete_prompt:            string,
@@ -496,7 +497,8 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.workspace_dir)
     delete(thor.workspace_prefix)
     delete(thor.menu_target_dir)
-    delete(thor.pending_delete_path)
+    thor_clear_pending_deletes(thor)
+    delete(thor.pending_delete_paths)
     delete(thor.delete_prompt)
     delete(thor.pending_rename_path)
     delete(thor.git_branch)

@@ -1,8 +1,10 @@
 package thor
 
+import "core:fmt"
 import "core:log"
 import "core:os"
 import "core:path/filepath"
+import "core:slice"
 import "core:strings"
 import "core:sync"
 import win32 "core:sys/windows"
@@ -710,16 +712,31 @@ thor_same_path :: proc(a, b: string) -> bool {
     return strings.equal_fold(aa, bb)
 }
 
-// Tree widget callback: Delete was pressed on a file. Opens a confirmation
-// dialog; the actual removal happens in thor_confirm_delete on acceptance.
+// Tree widget callback / menu entry: Delete was pressed on a row. Deletes the
+// whole explorer selection when the row belongs to it, so a multi-select acts as
+// one action. Opens a confirmation dialog; thor_confirm_delete does the removal.
 thor_tree_delete :: proc(data: rawptr, path: string) {
     thor := cast(^Thor) data
+    if path == "" {
+        return
+    }
 
-    delete(thor.pending_delete_path)
-    thor.pending_delete_path = strings.clone(path)
+    thor_clear_pending_deletes(thor)
+    selection := widgets.tree_selection(thor.tree)
+    if len(selection) > 1 && slice.contains(selection, path) {
+        for selected in selection {
+            append(&thor.pending_delete_paths, strings.clone(selected))
+        }
+    } else {
+        append(&thor.pending_delete_paths, strings.clone(path))
+    }
 
     delete(thor.delete_prompt)
-    thor.delete_prompt = strings.concatenate({"Delete \"", file_base_name(path), "\"?"})
+    if len(thor.pending_delete_paths) > 1 {
+        thor.delete_prompt = fmt.aprintf("Delete %d items?", len(thor.pending_delete_paths))
+    } else {
+        thor.delete_prompt = strings.concatenate({"Delete \"", file_base_name(path), "\"?"})
+    }
 
     widgets.command_palette_confirm(
         thor.command_palette,
@@ -730,30 +747,60 @@ thor_tree_delete :: proc(data: rawptr, path: string) {
     )
 }
 
-// Confirmation accepted: close any tab for the file, remove it from disk, and
-// refresh the explorer and git status.
+thor_clear_pending_deletes :: proc(thor: ^Thor) {
+    for path in thor.pending_delete_paths {
+        delete(path)
+    }
+    clear(&thor.pending_delete_paths)
+}
+
+// Confirmation accepted: close any tab for each path, remove it from disk, and
+// refresh the explorer and git status. Every outcome — including a removal that
+// reports success but leaves the path behind — reports itself in the status bar.
 thor_confirm_delete :: proc(data: rawptr) {
     thor := cast(^Thor) data
-    path := thor.pending_delete_path
-    if path == "" {
+    defer thor_clear_pending_deletes(thor)
+
+    if len(thor.pending_delete_paths) == 0 {
         return
     }
 
-    for file, index in thor.open_files {
-        if thor_same_path(file.path, path) {
-            thor_close_file(thor, index)
-            break
+    deleted := 0
+    failed := ""
+    for path in thor.pending_delete_paths {
+        for file, index in thor.open_files {
+            if thor_same_path(file.path, path) {
+                thor_close_file(thor, index)
+                break
+            }
+        }
+
+        name := file_base_name(path)
+        reason := ""
+        if err := os.is_dir(path) ? os.remove_all(path) : os.remove(path); err != nil {
+            log.warnf("Failed to delete %q: %v", path, err)
+            reason = fmt.tprintf("%v", err)
+        } else if os.exists(path) {
+            // remove_all walks the tree and can report success while leaving a
+            // locked entry behind, which would otherwise look like a no-op.
+            log.warnf("Delete of %q reported success but the path still exists", path)
+            reason = "still in use"
+        }
+        if reason == "" {
+            deleted += 1
+        } else if failed == "" {
+            failed = fmt.tprintf("Could not delete %s: %s", name, reason)
         }
     }
 
-    remove_err := os.is_dir(path) ? os.remove_all(path) : os.remove(path)
-    if remove_err != nil {
-        log.warnf("Failed to delete %q: %v", path, remove_err)
-        thor_flash_status(thor, "Could not delete", is_error = true)
+    switch {
+    case failed != "":
+        thor_flash_status(thor, failed, is_error = true)
+    case deleted == 1:
+        thor_flash_status(thor, fmt.tprintf("Deleted %s", file_base_name(thor.pending_delete_paths[0])))
+    case:
+        thor_flash_status(thor, fmt.tprintf("Deleted %d items", deleted))
     }
-
-    delete(thor.pending_delete_path)
-    thor.pending_delete_path = ""
 
     widgets.tree_refresh(thor.tree)
     thor_refresh_git_status(thor)
@@ -863,4 +910,113 @@ thor_tree_move :: proc(data: rawptr, src_path: string, dst_dir: string) {
 
     widgets.tree_refresh(thor.tree)
     thor_refresh_git_status(thor)
+}
+
+// Tree widget callback: rows were dragged out of the explorer and released at
+// `position`. Dropping on the editor column opens the files as tabs; anywhere
+// else (title bar, status bar, off-window) the drag is abandoned.
+thor_tree_drag_out :: proc(data: rawptr, paths: []string, position: rl.Vector2) {
+    thor := cast(^Thor) data
+    if thor.editor_column == nil || !rl.CheckCollisionPointRec(position, thor.editor_column.bounds) {
+        return
+    }
+    opened := 0
+    for path in paths {
+        if os.is_dir(path) {
+            continue
+        }
+        thor_open_file(thor, path)
+        opened += 1
+    }
+    if opened == 0 {
+        thor_flash_status(thor, "Only files can be opened in the editor", is_error = true)
+    }
+}
+
+// Copies a file or a whole directory tree to `dst`. Directories recurse; an
+// existing destination is left untouched and reported, so a copy can never
+// silently overwrite.
+thor_copy_tree :: proc(src, dst: string) -> os.Error {
+    if os.exists(dst) {
+        return os.General_Error.Exist
+    }
+    if !os.is_dir(src) {
+        contents, read_err := os.read_entire_file(src, context.temp_allocator)
+        if read_err != nil {
+            return read_err
+        }
+        return os.write_entire_file(dst, contents)
+    }
+
+    if err := os.make_directory(dst); err != nil {
+        return err
+    }
+
+    handle, open_err := os.open(src)
+    if open_err != nil {
+        return open_err
+    }
+    defer os.close(handle)
+
+    infos, dir_err := os.read_dir(handle, -1, context.temp_allocator)
+    if dir_err != nil {
+        return dir_err
+    }
+    for info in infos {
+        child_dst, _ := filepath.join({dst, info.name}, context.temp_allocator)
+        if err := thor_copy_tree(info.fullpath, child_dst); err != nil {
+            return err
+        }
+    }
+    return nil
+}
+
+// True when `path` is `ancestor` itself or sits somewhere beneath it.
+thor_path_within :: proc(path, ancestor: string) -> bool {
+    a, b := path, ancestor
+    if abs, err := filepath.abs(path, context.temp_allocator); err == nil {
+        a = abs
+    }
+    if abs, err := filepath.abs(ancestor, context.temp_allocator); err == nil {
+        b = abs
+    }
+    if len(a) < len(b) || !strings.equal_fold(a[:len(b)], b) {
+        return false
+    }
+    return len(a) == len(b) || a[len(b)] == '\\' || a[len(b)] == '/'
+}
+
+// Outcome of an import. Already_There is not a failure: the caller falls back to
+// opening the path, so a drop onto its own folder still does something.
+Import_Result :: enum {
+    Copied,
+    Already_There,
+    Failed,
+}
+
+// Copies a path dropped from outside the editor into `dst_dir`. A name collision
+// is reported rather than overwritten; every failure flashes its reason, so no
+// branch here can leave the drop looking ignored.
+thor_import_path :: proc(thor: ^Thor, src_path, dst_dir: string) -> Import_Result {
+    name := file_base_name(src_path)
+    new_path, _ := filepath.join({dst_dir, name}, context.temp_allocator)
+    if thor_same_path(src_path, new_path) {
+        return .Already_There
+    }
+    if os.exists(new_path) {
+        log.warnf("Cannot import %q into %q: already exists", src_path, dst_dir)
+        thor_flash_status(thor, fmt.tprintf("%s already exists here", name), is_error = true)
+        return .Failed
+    }
+    // Copying a folder into itself would recurse until the disk gave out.
+    if os.is_dir(src_path) && thor_path_within(new_path, src_path) {
+        thor_flash_status(thor, "Cannot copy a folder into itself", is_error = true)
+        return .Failed
+    }
+    if err := thor_copy_tree(src_path, new_path); err != nil {
+        log.warnf("Failed to import %q into %q: %v", src_path, dst_dir, err)
+        thor_flash_status(thor, fmt.tprintf("Could not copy %s: %v", name, err), is_error = true)
+        return .Failed
+    }
+    return .Copied
 }

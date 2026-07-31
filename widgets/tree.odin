@@ -15,6 +15,9 @@ Tree_Delete_Proc :: #type proc(data: rawptr, path: string)
 // Fired when a row is dropped onto a folder (or the workspace root); the
 // owner renames the file on disk into dst_dir (see thor_tree_move).
 Tree_Move_Proc :: #type proc(data: rawptr, src_path: string, dst_dir: string)
+// Fired when a drag started in the tree is released outside the panel; the
+// owner maps the release point to an action (see thor_tree_drag_out).
+Tree_Drag_Out_Proc :: #type proc(data: rawptr, paths: []string, position: rl.Vector2)
 
 // Pixel drift from the press position before a held row counts as a drag
 // rather than a click.
@@ -56,7 +59,11 @@ Tree :: struct {
     icon_size:        i32,
     row_height:       f32,
     indent:           f32,
-    selected_path:    string, // owned clone
+    selected_path:    string, // owned clone; the row the caret sits on
+    // Full selection, always containing selected_path. Ctrl-click toggles a row
+    // in or out, shift-click takes the range from select_anchor. Keys are owned.
+    multi_selected:   map[string]bool,
+    select_anchor:    string, // owned; row a shift-click ranges from
     on_open:          Tree_Open_Proc,
     open_data:        rawptr,
     on_delete:        Tree_Delete_Proc,
@@ -64,15 +71,24 @@ Tree :: struct {
     // Right-click opens a context menu supplied by the owner.
     on_context_menu:  Context_Menu_Proc,
     context_menu_data: rawptr,
-    // Left-button drag-to-move state. drag_source_path is set on Mouse_Down and
+    // Left-button drag-to-move state. drag_sources is filled on Mouse_Down and
     // cleared on Mouse_Up; `dragging` only flips true once the press crosses
     // TREE_DRAG_THRESHOLD, so an ordinary click still expands/opens the row.
-    drag_source_path: string, // owned; "" when no row is pressed
+    drag_source_path: string, // owned; the pressed row, "" when none
+    drag_sources:     [dynamic]string, // owned; the whole selection being dragged
     drag_press_pos:   rl.Vector2,
     dragging:         bool,
     drag_target_path: string, // owned; "" when the current hover isn't a valid drop
+    // Pressing inside a multi-selection keeps it whole so the group can be
+    // dragged; a release without a drag collapses it to the pressed row.
+    pending_collapse: bool,
+    // Ctrl/shift-click only adjusts the selection: the release must not expand
+    // the folder or open the file.
+    suppress_click_action: bool,
     on_move:          Tree_Move_Proc,
     move_data:        rawptr,
+    on_drag_out:      Tree_Drag_Out_Proc,
+    drag_out_data:    rawptr,
     drop_target_color: rl.Color,
     // Owner hook mapping a path to its git status (nil = no git highlighting).
     status_proc:      Tree_Status_Proc,
@@ -147,15 +163,21 @@ tree_set_root :: proc(tree: ^Tree, root_path: string) {
     tree.root.expanded = true
     tree_load_children(tree.root)
 
+    tree_clear_multi_select(tree)
     delete(tree.selected_path)
     tree.selected_path = ""
+    delete(tree.select_anchor)
+    tree.select_anchor = ""
     tree.scroll_y = 0
 
+    tree_clear_drag_sources(tree)
     delete(tree.drag_source_path)
     tree.drag_source_path = ""
     delete(tree.drag_target_path)
     tree.drag_target_path = ""
     tree.dragging = false
+    tree.pending_collapse = false
+    tree.suppress_click_action = false
 }
 
 tree_set_colors :: proc(tree: ^Tree, text, dir, icon, chevron, hover, selected, background: rl.Color) -> ^Tree {
@@ -188,6 +210,21 @@ tree_set_on_delete :: proc(tree: ^Tree, on_delete: Tree_Delete_Proc, data: rawpt
 tree_set_on_move :: proc(tree: ^Tree, on_move: Tree_Move_Proc, data: rawptr) {
     tree.on_move = on_move
     tree.move_data = data
+}
+
+tree_set_on_drag_out :: proc(tree: ^Tree, on_drag_out: Tree_Drag_Out_Proc, data: rawptr) {
+    tree.on_drag_out = on_drag_out
+    tree.drag_out_data = data
+}
+
+// The rows currently selected, borrowed from the tree and invalidated by the
+// next selection change or refresh.
+tree_selection :: proc(tree: ^Tree, allocator := context.temp_allocator) -> []string {
+    paths := make([dynamic]string, 0, len(tree.multi_selected), allocator)
+    for path in tree.multi_selected {
+        append(&paths, path)
+    }
+    return paths[:]
 }
 
 // Enables git status highlighting: `status_proc` maps a path to its status.
@@ -304,21 +341,132 @@ tree_path_equal_or_within :: proc(path, ancestor: string) -> bool {
 
 // Folder a drop at `position` would land in: the hovered folder, the hovered
 // file's parent, or the workspace root when the cursor is over empty space.
-@(private = "file")
-tree_drop_target_at :: proc(tree: ^Tree, position: rl.Vector2) -> string {
+// `in_tree` is false when the position is outside the panel, which makes the
+// drop somebody else's business.
+tree_drop_target_at :: proc(tree: ^Tree, position: rl.Vector2) -> (target: string, in_tree: bool) {
+    if !rl.CheckCollisionPointRec(position, tree.bounds) {
+        return "", false
+    }
     index := cast(int) ((position.y - tree.bounds.y + tree.scroll_y) / tree.row_height)
     rows := tree_visible_rows(tree)
     if index < 0 || index >= len(rows) {
-        return tree.root.path
+        return tree.root.path, true
     }
     node := rows[index].node
     if node.is_dir {
-        return node.path
+        return node.path, true
     }
     if node.parent != nil {
-        return node.parent.path
+        return node.parent.path, true
     }
-    return tree.root.path
+    return tree.root.path, true
+}
+
+@(private = "file")
+tree_clear_multi_select :: proc(tree: ^Tree) {
+    for path in tree.multi_selected {
+        delete(path)
+    }
+    clear(&tree.multi_selected)
+}
+
+@(private = "file")
+tree_add_selected :: proc(tree: ^Tree, path: string) {
+    if path in tree.multi_selected {
+        return
+    }
+    tree.multi_selected[strings.clone(path)] = true
+}
+
+@(private = "file")
+tree_remove_selected :: proc(tree: ^Tree, path: string) {
+    // delete_key drops the entry but hands back nothing, so the owned key has to
+    // be found by content before it can be freed.
+    for key in tree.multi_selected {
+        if key == path {
+            delete_key(&tree.multi_selected, key)
+            delete(key)
+            return
+        }
+    }
+}
+
+// Replaces the selection with a single row; plain clicks and keyboard
+// navigation both collapse the selection this way.
+@(private = "file")
+tree_set_single_select :: proc(tree: ^Tree, path: string) {
+    // Cloned up front: `path` may alias a string the clears below free.
+    kept := strings.clone(path, context.temp_allocator)
+    tree_clear_multi_select(tree)
+    delete(tree.selected_path)
+    tree.selected_path = strings.clone(kept)
+    delete(tree.select_anchor)
+    tree.select_anchor = strings.clone(kept)
+    tree.multi_selected[strings.clone(kept)] = true
+}
+
+// Ctrl-click: adds or removes one row, leaving the rest of the selection alone.
+@(private = "file")
+tree_toggle_select :: proc(tree: ^Tree, path: string) {
+    if path in tree.multi_selected {
+        tree_remove_selected(tree, path)
+        if tree.selected_path == path {
+            delete(tree.selected_path)
+            tree.selected_path = ""
+            for remaining in tree.multi_selected {
+                tree.selected_path = strings.clone(remaining)
+                break
+            }
+        }
+        return
+    }
+    tree_add_selected(tree, path)
+    delete(tree.selected_path)
+    tree.selected_path = strings.clone(path)
+    delete(tree.select_anchor)
+    tree.select_anchor = strings.clone(path)
+}
+
+// Shift-click: selects every visible row between the anchor and `path`, keeping
+// the anchor so a second shift-click re-ranges from the same starting row.
+@(private = "file")
+tree_select_range :: proc(tree: ^Tree, path: string) {
+    rows := tree_visible_rows(tree)
+    anchor_index, target_index := -1, -1
+    for row, index in rows {
+        if row.node.path == tree.select_anchor {
+            anchor_index = index
+        }
+        if row.node.path == path {
+            target_index = index
+        }
+    }
+    if target_index < 0 {
+        return
+    }
+    if anchor_index < 0 {
+        anchor_index = target_index
+    }
+    lo := min(anchor_index, target_index)
+    hi := max(anchor_index, target_index)
+
+    tree_clear_multi_select(tree)
+    for index in lo ..= hi {
+        tree_add_selected(tree, rows[index].node.path)
+    }
+    delete(tree.selected_path)
+    tree.selected_path = strings.clone(path)
+    if tree.select_anchor == "" {
+        tree.select_anchor = strings.clone(path)
+    }
+}
+
+@(private = "file")
+tree_clear_drag_sources :: proc(tree: ^Tree) {
+    for path in tree.drag_sources {
+        delete(path)
+    }
+    clear(&tree.drag_sources)
 }
 
 @(private = "file")
@@ -481,20 +629,51 @@ tree_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event) 
         }
 
         node := rows[index].node
-        delete(tree.selected_path)
-        tree.selected_path = strings.clone(node.path)
 
-        // Right-click selects the row but opens the menu instead of toggling.
+        // Right-click leaves an existing multi-selection alone so the menu can
+        // act on the whole group; otherwise it selects the row it landed on.
         if event.mouse_button == .RIGHT {
+            if node.path not_in tree.multi_selected {
+                tree_set_single_select(tree, node.path)
+            } else {
+                delete(tree.selected_path)
+                tree.selected_path = strings.clone(node.path)
+            }
             if tree.on_context_menu != nil {
                 tree.on_context_menu(tree.context_menu_data, event.mouse_position)
             }
             return true
         }
 
-        // Left button: arm a potential drag on this row instead of acting
-        // immediately. Mouse_Up runs the expand/open/move behavior once it's
-        // clear whether the press turned into a drag.
+        tree.pending_collapse = false
+        tree.suppress_click_action = false
+        switch {
+        case event.shift:
+            tree_select_range(tree, node.path)
+            tree.suppress_click_action = true
+        case event.ctrl:
+            tree_toggle_select(tree, node.path)
+            tree.suppress_click_action = true
+        case (node.path in tree.multi_selected) && len(tree.multi_selected) > 1:
+            delete(tree.selected_path)
+            tree.selected_path = strings.clone(node.path)
+            tree.pending_collapse = true
+        case:
+            tree_set_single_select(tree, node.path)
+        }
+
+        // Left button: arm a potential drag over the selection instead of
+        // acting immediately. Mouse_Up runs the expand/open/move behavior once
+        // it's clear whether the press turned into a drag.
+        tree_clear_drag_sources(tree)
+        if node.path in tree.multi_selected {
+            for path in tree.multi_selected {
+                append(&tree.drag_sources, strings.clone(path))
+            }
+        } else {
+            append(&tree.drag_sources, strings.clone(node.path))
+        }
+
         delete(tree.drag_source_path)
         tree.drag_source_path = strings.clone(node.path)
         tree.drag_press_pos = event.mouse_position
@@ -504,7 +683,7 @@ tree_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event) 
         return true
 
     case .Mouse_Move:
-        if tree.drag_source_path == "" {
+        if len(tree.drag_sources) == 0 {
             return false
         }
 
@@ -517,52 +696,81 @@ tree_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event) 
             tree.dragging = true
         }
 
-        target := tree_drop_target_at(tree, event.mouse_position)
-        if tree_path_equal_or_within(target, tree.drag_source_path) {
+        target, in_tree := tree_drop_target_at(tree, event.mouse_position)
+        if !in_tree {
             target = ""
+        }
+        // A folder can't be dropped into itself or into one of its own children.
+        for source in tree.drag_sources {
+            if target != "" && tree_path_equal_or_within(target, source) {
+                target = ""
+            }
         }
         delete(tree.drag_target_path)
         tree.drag_target_path = target == "" ? "" : strings.clone(target)
         return true
 
     case .Mouse_Up:
-        if event.mouse_button != .LEFT || tree.drag_source_path == "" {
+        if event.mouse_button != .LEFT || len(tree.drag_sources) == 0 {
             return false
         }
 
         was_dragging := tree.dragging
-        source_path := tree.drag_source_path
+        pressed_path := tree.drag_source_path
         target_path := tree.drag_target_path
 
         if was_dragging {
-            if target_path != "" && tree.on_move != nil {
-                tree.on_move(tree.move_data, source_path, target_path)
+            if rl.CheckCollisionPointRec(event.mouse_position, tree.bounds) {
+                if target_path != "" && tree.on_move != nil {
+                    for source in tree.drag_sources {
+                        tree.on_move(tree.move_data, source, target_path)
+                    }
+                    // The moved rows live under new paths now, so the old
+                    // selection no longer points at anything.
+                    tree_clear_multi_select(tree)
+                    delete(tree.selected_path)
+                    tree.selected_path = ""
+                    delete(tree.select_anchor)
+                    tree.select_anchor = ""
+                }
+            } else if tree.on_drag_out != nil {
+                // Released outside the panel: the owner decides what the drop
+                // point means (see thor_tree_drag_out).
+                tree.on_drag_out(tree.drag_out_data, tree.drag_sources[:], event.mouse_position)
             }
         } else {
             // No drag occurred: treat as an ordinary click on the pressed row.
-            for row in tree_visible_rows(tree) {
-                if row.node.path != source_path {
-                    continue
-                }
-                node := row.node
-                if node.is_dir {
-                    node.expanded = !node.expanded
-                    if node.expanded && !node.loaded {
-                        tree_load_children(node)
+            if tree.pending_collapse {
+                tree_set_single_select(tree, pressed_path)
+            }
+            if !tree.suppress_click_action {
+                for row in tree_visible_rows(tree) {
+                    if row.node.path != pressed_path {
+                        continue
                     }
-                    tree_clamp_scroll(tree)
-                } else if tree.on_open != nil {
-                    tree.on_open(tree.open_data, node.path)
+                    node := row.node
+                    if node.is_dir {
+                        node.expanded = !node.expanded
+                        if node.expanded && !node.loaded {
+                            tree_load_children(node)
+                        }
+                        tree_clamp_scroll(tree)
+                    } else if tree.on_open != nil {
+                        tree.on_open(tree.open_data, node.path)
+                    }
+                    break
                 }
-                break
             }
         }
 
+        tree_clear_drag_sources(tree)
         delete(tree.drag_source_path)
         tree.drag_source_path = ""
         delete(tree.drag_target_path)
         tree.drag_target_path = ""
         tree.dragging = false
+        tree.pending_collapse = false
+        tree.suppress_click_action = false
         return true
     }
 
@@ -583,8 +791,7 @@ tree_selected_index :: proc(tree: ^Tree, rows: []Tree_Row) -> int {
 
 @(private = "file")
 tree_select_node :: proc(tree: ^Tree, node: ^Tree_Node) {
-    delete(tree.selected_path)
-    tree.selected_path = strings.clone(node.path)
+    tree_set_single_select(tree, node.path)
 }
 
 // Scrolls so the selected row is fully inside the viewport.
@@ -691,9 +898,9 @@ tree_handle_key :: proc(tree: ^Tree, event: ^ui.Event) -> bool {
             return true
         }
         node := rows[index].node
-        // Only files are deletable via the keyboard (matches the requirement of
-        // "delete a file"); folders are left to the context menu.
-        if !node.is_dir && tree.on_delete != nil {
+        // Folders included: the owner puts a confirmation in front of it, and
+        // silently ignoring the key reads as a broken Delete.
+        if tree.on_delete != nil {
             tree.on_delete(tree.delete_data, node.path)
         }
         return true
@@ -729,7 +936,7 @@ tree_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
         }
 
         node := row.node
-        if node.path == tree.selected_path {
+        if node.path in tree.multi_selected {
             rl.DrawRectangleRec(row_rect, tree.selected_color)
         } else if mouse_inside && rl.CheckCollisionPointRec(ctx.mouse_pos, row_rect) {
             rl.DrawRectangleRec(row_rect, tree.hover_color)
@@ -976,7 +1183,12 @@ tree_file_icon :: proc(name: string) -> string {
 tree_destroy :: proc(widget: ^ui.Widget) {
     tree := cast(^Tree) widget
     tree_node_destroy(tree.root)
+    tree_clear_multi_select(tree)
+    delete(tree.multi_selected)
+    tree_clear_drag_sources(tree)
+    delete(tree.drag_sources)
     delete(tree.selected_path)
+    delete(tree.select_anchor)
     delete(tree.drag_source_path)
     delete(tree.drag_target_path)
     free(tree)

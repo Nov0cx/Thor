@@ -5,12 +5,14 @@ package thor
 // rebuilds everything that is workspace-scoped — the config overlay, the
 // explorer root, git status, the file watcher and the per-workspace session.
 
+import "core:fmt"
 import "core:log"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
 import rl "vendor:raylib"
 
+import "../ui"
 import "../widgets"
 
 // Splits a launch argument into the workspace folder (owned) and the file to
@@ -115,8 +117,11 @@ thor_open_folder :: proc(thor: ^Thor, dir: string) {
     log.infof("Opened workspace %s", thor.workspace_dir)
 }
 
-// Run-loop tick: files dropped on the window open as tabs, a dropped folder
-// becomes the workspace.
+// Run-loop tick: what a drop from Explorer means depends on where it landed.
+// Over the file tree it copies into the hovered folder; anywhere else a file
+// opens as a tab and a folder becomes the workspace. A path that already sits in
+// the hovered folder has nothing to copy and falls back to opening, so a drop
+// never comes up silently empty.
 thor_poll_dropped_files :: proc(thor: ^Thor) {
     if !rl.IsFileDropped() {
         return
@@ -124,13 +129,43 @@ thor_poll_dropped_files :: proc(thor: ^Thor) {
     dropped := rl.LoadDroppedFiles()
     defer rl.UnloadDroppedFiles(dropped)
 
+    // GLFW feeds the drop point through the cursor-position callback before it
+    // fires the drop itself, so raylib's cursor is the release point here even
+    // though the shell swallowed every mouse-move during the drag.
+    dst_dir: string
+    over_tree := false
+    if ui.signal_get(&thor.explorer_visible) {
+        dst_dir, over_tree = widgets.tree_drop_target_at(thor.tree, rl.GetMousePosition())
+    }
+
+    copied := 0
     for index in 0 ..< dropped.count {
         path := string(dropped.paths[index])
+
+        if over_tree {
+            switch thor_import_path(thor, path, dst_dir) {
+            case .Copied:
+                copied += 1
+                continue
+            case .Failed:
+                continue // thor_import_path already flashed the reason
+            case .Already_There:
+                // Fall through and open it instead.
+            }
+        }
+
         if os.is_dir(path) {
             thor_open_folder(thor, path) // replaces the workspace; the rest of the drop is moot
             return
         }
         thor_open_file(thor, path)
+    }
+
+    if copied > 0 {
+        widgets.tree_refresh(thor.tree)
+        thor_refresh_git_status(thor)
+        noun := copied == 1 ? "item" : "items"
+        thor_flash_status(thor, fmt.tprintf("Copied %d %s into %s", copied, noun, filepath.base(dst_dir)))
     }
 }
 

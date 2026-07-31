@@ -18,6 +18,7 @@ thor_wire_menus :: proc(thor: ^Thor) {
     widgets.tree_set_on_context_menu(thor.tree, thor_explorer_context_menu, thor)
     widgets.tree_set_on_delete(thor.tree, thor_tree_delete, thor)
     widgets.tree_set_on_move(thor.tree, thor_tree_move, thor)
+    widgets.tree_set_on_drag_out(thor.tree, thor_tree_drag_out, thor)
 
     widgets.button_set_on_click(thor.menu_file_button, thor_open_file_menu, thor)
     widgets.button_set_on_click(thor.menu_edit_button, thor_open_edit_menu, thor)
@@ -85,6 +86,7 @@ thor_explorer_context_menu :: proc(data: rawptr, position: rl.Vector2) {
     widgets.menu_add(thor.menu, "Rename", thor_menu_rename, thor, has_selection)
     widgets.menu_add(thor.menu, "Reveal in File Explorer", thor_menu_explorer_reveal, thor, has_selection)
     widgets.menu_add(thor.menu, "Copy Path", thor_menu_explorer_copy_path, thor, has_selection)
+    widgets.menu_add(thor.menu, "Delete", thor_menu_explorer_delete, thor, has_selection)
     widgets.menu_add_separator(thor.menu)
     widgets.menu_add(thor.menu, "Refresh", thor_menu_explorer_refresh, thor)
     widgets.menu_open(thor.menu, &thor.ui_context, position)
@@ -145,6 +147,13 @@ thor_menu_explorer_refresh :: proc(data: rawptr) {
 thor_menu_rename :: proc(data: rawptr) {
     thor := cast(^Thor) data
     thor_begin_rename(thor, thor.tree.selected_path)
+}
+
+// Explorer right-click Delete: acts on the right-clicked row, or on the whole
+// selection when that row is part of one.
+thor_menu_explorer_delete :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    thor_tree_delete(thor, thor.tree.selected_path)
 }
 
 thor_menu_explorer_reveal :: proc(data: rawptr) {
