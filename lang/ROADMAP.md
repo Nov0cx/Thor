@@ -476,7 +476,91 @@ lowest latency.
       compute one there is no correct text to insert, so only the `=` → `:=` shape
       is offered. Actions are also single-file and caret-driven; nothing is
       anchored on a diagnostic's range yet, and no producer spans files.
-- [ ] **Other LSP features not started:** formatting, semantic tokens.
+- [~] **Semantic highlighting (semantic tokens).** *Engine side written and
+      type-checking; nothing is wired to the editor yet, and no line of it has
+      ever run.* The point is the gap between what the grammar can prove and what
+      the engine already knows: the highlights query paints a *use* of a
+      parameter, a local, a package and an undeclared typo all `@variable`
+      (`highlights.scm:80`), because `@parameter` is only attached at the
+      declaration site (`:94`, `:96`). Resolution is the only thing that separates
+      them, and this engine resolves.
+
+      **Landed (unrun):**
+      - `lang/lang.odin` — `Request_Kind.Semantic_Tokens`, a `Token_Kind` enum
+        (`Parameter`/`Local`/`Field`/`Procedure`/`Type`/`Enum_Member`/`Package`/
+        `Unresolved`), `Semantic_Token{start, end, kind}`, `Result.tokens`, freed
+        in `job_free`. The token carries **no owned strings** — a file is
+        thousands of tokens and a `string` kind would make this the heaviest
+        allocator traffic in the seam by far, so the kind is an enum and the
+        editor maps it to a colour itself.
+      - `lang/odin/semantic.odin` (new) — `semantic_tokens` walks the cached tree
+        and classifies each identifier through `resolve_local`/`collect_defs`,
+        *the same resolution go-to-definition uses*, so a name's colour and the
+        declaration Alt+Enter jumps to can never disagree. Pre-order over ordered
+        children reaches identifiers in ascending byte order, which satisfies the
+        seam's ordering contract with no sort.
+      - `lang/odin/index.odin` — `index_declared_names` (every top-level name in
+        the workspace, cloned, asked **once per request** so the walk needs no
+        lock).
+      - `lang/odin/engine.odin` — `Builtin_Cache` + `builtin_mutex`; `resolve.odin`
+        routes the kind beside `Document_Symbols`.
+
+      **Deliberately sparse.** A token is emitted only where the analyzer knows
+      more than the grammar. The positions the grammar already decides — struct
+      fields, enum members, attributes, labels, the package clause, import
+      aliases, and the whole right-hand side of a selector — are skipped by
+      `semantic_skip` rather than re-derived, so a token can never overrule a
+      correct colour with a worse one. A `::` constant and a package-level `var`
+      are left alone for the same reason.
+
+      **The unresolved check fails open.** Dimming a name the compiler is happy
+      with reads as an error that does not exist, so `dimming_allowed` gives up
+      the right to dim the *whole file* on any doubt: no workspace, a `using`
+      statement anywhere (the one construct that injects names from a scope this
+      engine does not follow — struct embedding is a `field`, not a
+      `using_statement`, so it costs nothing), an import that `package_dir` cannot
+      locate, an unreadable toolchain, or an index holding no file at all.
+
+      **Builtins are read off the toolchain, not hardcoded.** The grammar has no
+      builtin list, so `len`, `make`, `append`, `panic` and friends are plain
+      `@variable` and would every one of them have dimmed. `build_builtin_cache`
+      takes the top-level declarations of `base:builtin` and `base:runtime` under
+      `ODIN_ROOT` (once per process — it is a property of the compiler, not the
+      workspace) and treats them all as in scope. Over-permissive on purpose: it
+      also allows `base:runtime` types a program must name explicitly, but
+      over-permitting costs a missed dim where under-permitting flags correct
+      code, and a list baked into this repo would rot the next time the language
+      gains a builtin.
+
+      **Still to do:**
+      - Host wiring, none of which exists: `Open_File.semantic` +
+        `semantic_revision` in `thor/state.odin`, a debounced dispatch and result
+        handler in `thor/lang_host.odin`, and the overlay merge in
+        `thor_update_highlights` (`thor/highlight.odin`) — semantic spans layered
+        on top of the tree-sitter ones, keeping the stale overlay until the next
+        result lands rather than clearing it, or the buffer flickers on every
+        keystroke. Whether a stale overlay should have its offsets shifted past
+        the edit (the `treecache.source_edit` diff already computes exactly that
+        span) is open; at a 50ms debounce it may not be worth it.
+      - A `plugin.role_for(m, ext, capture)` wrapper so the `Token_Kind` → colour
+        mapping stays tunable in `plugins/odin/plugin.lua` instead of being
+        compiled into the host. Then the roles themselves: `parameter` and `gray`
+        are declared in `plugin.ROLES` and unused by the Odin plugin today.
+      - **A one-line win available with no engine at all:** `plugin.lua` maps
+        `field`, `property`, `parameter` and `variable` *all* to `t.variables`, so
+        `p.x` and a bare local are the same colour even though the grammar
+        already tells them apart (`(member_expression "." (identifier) @field)`).
+        Pointing `field` at its own role is independent of everything above.
+      - Tests (`lang/odin/semantic_test.odin` does not exist yet): param-use vs
+        local-use, the skip positions, ascending order, and one per kill switch
+        asserting that dimming stops while classification continues.
+      - Unknowns worth checking first: whether the `Enum_Member` and `Field` kinds
+        should stay in the seam's vocabulary at all given the Odin backend does
+        not emit them (an LSP backend would), and whether classifying a whole file
+        per keystroke actually costs anything measurable — `resolve_local` is a
+        linear scan of `collect_defs` per identifier, so the walk is O(idents ×
+        defs) and has never been timed.
+- [ ] **Other LSP features not started:** formatting.
 
 ## Missing — scalability / performance
 

@@ -25,6 +25,7 @@ Request_Kind :: enum {
     Rename,
     Diagnostics,
     Code_Actions,
+    Semantic_Tokens,
 }
 
 // A byte range in a named file. Byte offsets, not line/column: the editor and
@@ -107,6 +108,38 @@ Code_Action :: struct {
     edits: [dynamic]Text_Edit,  // owned; same ordering contract as Result.edits
 }
 
+// What a classified identifier turned out to be. The grammar cannot tell most of
+// these apart — a parameter, a local, a field and a package all parse as a bare
+// `identifier`, which is why the highlighter paints them alike — so the kind is
+// what the analyzer proved about the name, not what the parse shape suggests.
+//
+// `Unresolved` is the one kind that is an *absence*: nothing in the file, its
+// imports or the workspace declares the name. It is only ever emitted when every
+// lookup completed and came up empty, so a backend that cannot see far enough to
+// be sure must leave the name unclassified rather than call it unresolved.
+Token_Kind :: enum {
+    Parameter,
+    Local,
+    Field,
+    Procedure,
+    Type,
+    Enum_Member,
+    Package,
+    Unresolved,
+}
+
+// One classified identifier: a byte range and what the analyzer proved it to be.
+// Unlike every other payload here this carries no owned strings — a file's worth
+// of tokens is thousands of rows, and a `string` kind would mean a clone and a
+// free per identifier per keystroke, which would make this the heaviest
+// allocator traffic in the seam by a wide margin. The enum costs nothing and the
+// editor maps it to a color itself.
+Semantic_Token :: struct {
+    start: int,
+    end:   int,
+    kind:  Token_Kind,
+}
+
 // Severity of a compiler diagnostic. Deliberately coarser than LSP's four
 // levels: everything a checker emits is either something that stops the build or
 // something that does not, and the editor colors exactly those two.
@@ -187,6 +220,11 @@ Result :: struct {
     // Code_Actions; owned, freed in job_free. Each carries its own edit set, so
     // the editor applies exactly the one the user picked.
     actions:   [dynamic]Code_Action,
+    // Semantic_Tokens; owned, freed in job_free. Ascending by `start` and
+    // non-overlapping, so the editor can merge them against its syntax spans in
+    // one pass. Sparse by design: an identifier the backend could not classify
+    // is simply absent, and keeps whatever color the grammar gave it.
+    tokens:    [dynamic]Semantic_Token,
 }
 
 // A language backend. Both the in-client engine and a future subprocess LSP
@@ -715,6 +753,7 @@ job_free :: proc(m: ^Manager, job: ^Job) {
         delete(action.edits)
     }
     delete(job.result.actions)
+    delete(job.result.tokens) // no owned strings on a token; the array is the whole allocation
     delete(job.result.report.scope)
     for d in job.result.report.items {
         delete(d.path)

@@ -37,6 +37,12 @@ Engine :: struct {
     // One compiler run at a time (see check_package): a second Diagnostics
     // request waits here rather than starting a rival `odin check`.
     check_mutex: sync.Mutex,
+    // The implicit scope — what `base:builtin` and `base:runtime` export — which
+    // the semantic classifier needs before it can call any name undeclared. Built
+    // once from the toolchain on disk and kept for the process: it is a property
+    // of the installed compiler, not of the workspace, so nothing invalidates it.
+    builtins:       Builtin_Cache,
+    builtin_mutex:  sync.Mutex,
 }
 
 engine_create :: proc() -> ^Engine {
@@ -49,6 +55,7 @@ engine_create :: proc() -> ^Engine {
     e.index.alloc = context.allocator
     e.index.files = make(map[string]File_Entry, 0, e.index.alloc)
     e.config.alloc = context.allocator
+    e.builtins.alloc = context.allocator
     treecache.init(&e.trees)
     return e
 }
@@ -77,6 +84,7 @@ engine_destroy :: proc(data: rawptr) {
     }
     index_clear(e)
     config_clear(e)
+    builtins_clear(e)
     treecache.destroy(&e.trees)
     free(e)
 }

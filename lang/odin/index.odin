@@ -262,6 +262,29 @@ index_all_symbols :: proc(e: ^Engine, skip: string, res: ^lang.Result) {
     }
 }
 
+// Adds every top-level declaration name in the workspace to `out`. The semantic
+// classifier's "is this name declared anywhere" test, asked once per request
+// rather than once per identifier so the walk that follows needs no lock.
+// Reports whether the index held any file at all — a false says the index is
+// empty, which must not be read as "nothing is declared".
+//
+// Keys clone into `alloc`: the index rows are engine-owned and another worker may
+// reparse this entry and free its strings the moment the mutex drops. Caller
+// holds the mutex.
+@(private)
+index_declared_names :: proc(e: ^Engine, out: ^map[string]bool, alloc: runtime.Allocator) -> bool {
+    any_file := false
+    for _, entry in e.index.files {
+        any_file = true
+        for sym in entry.decls {
+            if sym.name not_in out {
+                out[strings.clone(sym.name, alloc)] = true
+            }
+        }
+    }
+    return any_file
+}
+
 // Lexicographically-smallest indexed file declaring `name` (of `kind_filter`, or
 // any kind when it is ""), excluding `skip`. Deterministic first-hit for hover
 // and signature help, which then re-parse just that one file for full detail.

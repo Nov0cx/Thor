@@ -79,6 +79,13 @@ resolve :: proc(data: rawptr, req: ^lang.Request, res: ^lang.Result) {
         return
     }
 
+    // Semantic tokens classify the whole buffer rather than one caret position,
+    // so like document symbols they answer straight off the tree.
+    if req.kind == .Semantic_Tokens {
+        semantic_tokens(e, parser, root, req, res)
+        return
+    }
+
     // Workspace symbols enumerate every top-level declaration across the tree,
     // starting from the live buffer (unsaved edits) then every sibling file.
     if req.kind == .Workspace_Symbols {
