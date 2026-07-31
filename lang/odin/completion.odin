@@ -233,8 +233,9 @@ is_word_byte :: proc(b: u8) -> bool {
 // and parameters visible at the caret, this file's and this package's top-level
 // declarations, the imported package names, and the Odin keywords and builtin
 // types. All filtered by the typed prefix (case-sensitive) and de-duplicated by
-// name. After `value.` it offers the operand's struct fields, inferring its type
-// the same way member access does (so a `:=` call result works).
+// name. After a `.` it offers the operand's struct fields instead, inferring the
+// operand's type the same way member access does — the operand being whatever
+// expression ends at the dot, not just the word before it.
 @(private)
 complete :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, req: ^lang.Request, res: ^lang.Result) {
     src := req.source
@@ -247,49 +248,19 @@ complete :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, req: ^lang.Reques
     }
     prefix := src[start:off]
 
-    // `pkg.<prefix>`: the char before the word is a `.` preceded by an identifier
-    // that names an imported package. List that package's top-level symbols.
+    // A `.` before the typed word is a selector: either on an operand (a package
+    // or a value) or on nothing at all (an implicit enum selector).
     if start > 0 && src[start - 1] == '.' {
-        op_end := start - 1
-        op_start := op_end
-        for op_start > 0 && is_word_byte(src[op_start - 1]) {
-            op_start -= 1
-        }
-        if op_start < op_end {
-            operand := src[op_start:op_end]
-            if raw, found := import_path(root, src, operand); found {
-                // `pkg.<prefix>`: the imported package's top-level symbols.
-                if dir, dok := package_dir(e, raw, req.path, req.workspace); dok {
-                    seen := make(map[string]bool, 0, context.temp_allocator)
-                    complete_dir_toplevel(e, parser, req, dir, prefix, "", res, &seen)
-                }
-            } else if op_start == 0 || src[op_start - 1] != '.' {
-                // `value.<prefix>`: infer the operand's struct type and offer its
-                // fields. Only a bare operand — a chain (`a.b.`) isn't inferred here.
-                if tr, tok := binding_type_ref(e, parser, root, req, operand, op_start); tok {
-                    seen := make(map[string]bool, 0, context.temp_allocator)
-                    ctx := Fields_Ctx {
-                        prefix = prefix,
-                        env    = Embed_Env{e = e, parser = parser, root = root, req = req},
-                        res    = res,
-                        seen   = &seen,
-                    }
-                    visit_type_decl(e, parser, root, req, tr, "struct_declaration", "type", fields_visitor, &ctx)
-                }
-            }
-        } else {
+        dot := start - 1
+        before := dot > 0 ? src[dot - 1] : 0 // the char just before the dot
+        if is_word_byte(before) || before == ')' || before == ']' {
+            complete_selector(e, parser, root, req, dot, prefix, res)
+        } else if tr, tok := expected_type_at(e, parser, root, req, dot); tok {
             // Leading `.<prefix>` with no operand: an implicit enum selector
-            // (`x: Axis = .`). Infer the expected type; if it's an enum, offer its
-            // members. (`)`/`]` before the dot is a member on an expression result,
-            // which has no inferable enum context here.)
-            before := op_end > 0 ? src[op_end - 1] : 0 // the char just before the dot
-            if before != ')' && before != ']' {
-                if tr, tok := expected_type_at(e, parser, root, req, op_end); tok {
-                    seen := make(map[string]bool, 0, context.temp_allocator)
-                    ctx := Enum_Ctx{prefix = prefix, res = res, seen = &seen}
-                    visit_type_decl(e, parser, root, req, tr, "enum_declaration", "enum", enum_visitor, &ctx)
-                }
-            }
+            // (`x: Axis = .`). If the expected type is an enum, offer its members.
+            seen := make(map[string]bool, 0, context.temp_allocator)
+            ctx := Enum_Ctx{prefix = prefix, res = res, seen = &seen}
+            visit_type_decl(e, parser, root, req, tr, "enum_declaration", "enum", enum_visitor, &ctx)
         }
         finish_completion(res)
         return
@@ -344,6 +315,129 @@ complete :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, req: ^lang.Reques
     }
 
     finish_completion(res)
+}
+
+// Candidates for `operand.<prefix>`, where `dot` is the selector's `.`. A bare
+// operand naming an imported package lists that package's top-level symbols;
+// anything else is a value, and its struct fields are offered.
+@(private)
+complete_selector :: proc(
+    e: ^Engine,
+    parser: ts.Parser,
+    root: ts.Node,
+    req: ^lang.Request,
+    dot: int,
+    prefix: string,
+    res: ^lang.Result,
+) {
+    src := req.source
+    word := dot
+    for word > 0 && is_word_byte(src[word - 1]) {
+        word -= 1
+    }
+    // A word preceded by another `.` is a field, never a package name.
+    if word < dot && (word == 0 || src[word - 1] != '.') {
+        if raw, found := import_path(root, src, src[word:dot]); found {
+            if dir, dok := package_dir(e, raw, req.path, req.workspace); dok {
+                seen := make(map[string]bool, 0, context.temp_allocator)
+                complete_dir_toplevel(e, parser, req, dir, prefix, "", res, &seen)
+            }
+            return
+        }
+    }
+    tr, tok := operand_type_at(e, parser, root, req, dot)
+    if !tok {
+        return
+    }
+    seen := make(map[string]bool, 0, context.temp_allocator)
+    ctx := Fields_Ctx {
+        prefix = prefix,
+        env    = Embed_Env{e = e, parser = parser, root = root, req = req},
+        res    = res,
+        seen   = &seen,
+    }
+    visit_type_decl(e, parser, root, req, tr, "struct_declaration", "type", fields_visitor, &ctx)
+}
+
+// Type of the expression left of the `.` at `dot`. A dot with a name after it is
+// already a well-formed selector and is read off the tree the request carries. A
+// dangling one is not: the grammar reaches past the line end for the member it is
+// missing, which glues the next statement onto the selector and leaves no node
+// spelling the operand alone. That case is repaired first, with the same filler
+// identifier an implicit selector uses.
+@(private)
+operand_type_at :: proc(
+    e: ^Engine,
+    parser: ts.Parser,
+    root: ts.Node,
+    req: ^lang.Request,
+    dot: int,
+) -> (Type_Ref, bool) {
+    src := req.source
+    if dot + 1 < len(src) && is_word_byte(src[dot + 1]) {
+        if tr, ok := operand_type_in_tree(e, parser, root, req, dot); ok {
+            return tr, true
+        }
+    }
+    at := clamp(dot + 1, 0, len(src))
+    repaired := strings.concatenate({src[:at], SELECTOR_FILLER, src[at:]}, context.temp_allocator)
+    tree := ts.parser_parse_string(parser, repaired)
+    defer ts.tree_delete(tree)
+    fixed := req^
+    fixed.source = repaired
+    // The Type_Ref slices `repaired`, which outlives the request; visit_type_decl
+    // matches it by name, so it never touches this tree again.
+    return operand_type_in_tree(e, parser, ts.tree_root_node(tree), &fixed, dot)
+}
+
+// operand_type_at over one parse. The operand is the *largest* expression ending
+// at the dot — `a.b.` selects on the member expression `a.b`, not on `b` — so the
+// walk starts at the innermost node covering the byte before the dot and climbs.
+// The first climb reaches the dot: the innermost node there can end short of it
+// (`xs[0].` lands on the `0`, two levels under the index expression that ends at
+// the dot). From there it keeps climbing only while the parent is another
+// expression ending in the same place, so it never walks out into the statement.
+@(private)
+operand_type_in_tree :: proc(
+    e: ^Engine,
+    parser: ts.Parser,
+    root: ts.Node,
+    req: ^lang.Request,
+    dot: int,
+) -> (Type_Ref, bool) {
+    if dot <= 0 || dot > len(req.source) {
+        return {}, false
+    }
+    at := u32(dot - 1)
+    n := ts.node_named_descendant_for_byte_range(root, at, at)
+    for !ts.node_is_null(n) && ts.node_end_byte(n) < u32(dot) {
+        n = ts.node_parent(n)
+    }
+    if ts.node_is_null(n) || ts.node_end_byte(n) != u32(dot) {
+        return {}, false
+    }
+    for {
+        p := ts.node_parent(n)
+        if ts.node_is_null(p) || ts.node_end_byte(p) != u32(dot) || !is_operand_expr(p) {
+            break
+        }
+        n = p
+    }
+    return infer_expr_type(e, parser, root, req, n)
+}
+
+// Expression shapes infer_expr_type can type, and so the ones worth climbing to
+// when looking for a selector's operand. Everything else — a statement, a broken
+// parse's ERROR node — ends the climb, so the operand is never widened past the
+// expression it belongs to.
+@(private)
+is_operand_expr :: proc(n: ts.Node) -> bool {
+    switch string(ts.node_type(n)) {
+    case "member_expression", "index_expression", "slice_expression",
+         "call_expression", "unary_expression", "cast_expression", "struct":
+        return true
+    }
+    return false
 }
 
 // Whether a declaration belongs in the general completion list: an in-scope

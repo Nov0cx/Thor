@@ -859,3 +859,54 @@ main :: proc() {
     testing.expect(t, has_completion(&res, "x"), "missing field x")
     testing.expect(t, has_completion(&res, "y"), "missing field y")
 }
+
+@(test)
+test_completion_expression_member :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    // The operand of a `.` is whatever expression ends at it, not just the word
+    // before it: a field chain, an element and a call result all offer the struct
+    // they read as, while a re-slice stays a container and offers nothing. Each
+    // selector gets a buffer of its own, one dangling dot in it — the shape a live
+    // edit has, and the one the filler-identifier repair is written for.
+    head := `package demo
+
+Point :: struct {
+	x: int,
+	y: int,
+}
+
+Line :: struct {
+	from: Point,
+	to:   Point,
+}
+
+make_point :: proc() -> Point {
+	return Point{}
+}
+
+main :: proc() {
+	l: Line
+	pts: []Point
+	_ = `
+
+    typed :: proc(e: ^Engine, head, selector: string, res: ^lang.Result) {
+        src := strings.concatenate({head, selector, "\n}\n"}, context.temp_allocator)
+        selector_completions(e, src, selector, res)
+    }
+
+    for needle in ([]string{"l.from.", "pts[0].", "make_point()."}) {
+        res: lang.Result
+        typed(e, head, needle, &res)
+        defer free_symbols(&res)
+        testing.expectf(t, res.ok, "expected member completions on %q", needle)
+        testing.expectf(t, has_completion(&res, "x"), "%q: missing field x", needle)
+        testing.expectf(t, has_completion(&res, "y"), "%q: missing field y", needle)
+    }
+
+    sliced: lang.Result
+    typed(e, head, "pts[1:].", &sliced)
+    defer free_symbols(&sliced)
+    testing.expect(t, !has_completion(&sliced, "x"), "a slice is still a container, not a Point")
+}

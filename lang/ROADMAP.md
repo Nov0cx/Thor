@@ -343,9 +343,14 @@ lowest latency.
       (an un-narrowed union, bit_sets, proc fields), a container's own builtin
       members, a map's
       key type, nested containers (`[][]T`), and statement-level `using`. Those
-      fall through to the flat name scan. Member *completion* also needs a bare
-      word operand: `xs[0].` and `a.b.` offer nothing, though goto and hover
-      resolve them.
+      fall through to the flat name scan. Member *completion* takes the same
+      operands goto and hover do — `a.b.`, `xs[0].` and `f().` all offer the
+      struct they read as — by reading the operand off the tree
+      (`complete_selector` → `operand_type_at`, the largest expression ending at
+      the dot) instead of scanning back for a word. A dangling dot derails the
+      parse, so that case is answered off the same filler-identifier repair the
+      implicit selector uses; a *second* dangling dot earlier in the same block
+      still swallows the line under the caret, which a live edit doesn't produce.
 - [~] **Package / import resolution.** `import "core:fmt"` then `fmt.println` is
       followed (package-qualified goto/hover/completion resolve into the package
       dir); custom collections resolve via `.thor/odin-analyzer.json`. A type
