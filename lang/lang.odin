@@ -13,9 +13,6 @@ import "core:sync"
 import "core:thread"
 import "core:time"
 
-// What the editor is asking for. Kept small on purpose; it grows as features
-// land (Definition, Hover, Document_Symbols, Workspace_Symbols, References,
-// Signature_Help, Completion, Package_Doc, Rename and Diagnostics today).
 Request_Kind :: enum {
     Definition,
     Hover,
@@ -27,6 +24,7 @@ Request_Kind :: enum {
     Package_Doc,
     Rename,
     Diagnostics,
+    Code_Actions,
 }
 
 // A byte range in a named file. Byte offsets, not line/column: the editor and
@@ -96,6 +94,17 @@ Text_Edit :: struct {
     end:      int,
     old_text: string, // owned; the bytes the backend matched at [start, end)
     new_text: string, // owned; what replaces them
+}
+
+// One fix the backend is offering at the caret: a title to show the user and the
+// edits that apply it. Unlike LSP, the edits are computed up front rather than
+// resolved in a second round trip — that split exists to keep IPC off the offer
+// path, and an in-client backend has no IPC to keep off it. Computing both at
+// once also closes the window where the buffer moves between offer and apply.
+Code_Action :: struct {
+    title: string,              // owned; "Import core:fmt"
+    kind:  string,              // owned; "quickfix" / "refactor" — drives the row color
+    edits: [dynamic]Text_Edit,  // owned; same ordering contract as Result.edits
 }
 
 // Severity of a compiler diagnostic. Deliberately coarser than LSP's four
@@ -175,6 +184,9 @@ Result :: struct {
     // applier walks one file's edits back-to-front to keep the offsets valid.
     edits:     [dynamic]Text_Edit,
     report:    Diagnostic_Report, // Diagnostics; owned, freed in job_free
+    // Code_Actions; owned, freed in job_free. Each carries its own edit set, so
+    // the editor applies exactly the one the user picked.
+    actions:   [dynamic]Code_Action,
 }
 
 // A language backend. Both the in-client engine and a future subprocess LSP
@@ -692,6 +704,17 @@ job_free :: proc(m: ^Manager, job: ^Job) {
         delete(edit.new_text)
     }
     delete(job.result.edits)
+    for action in job.result.actions {
+        delete(action.title)
+        delete(action.kind)
+        for edit in action.edits {
+            delete(edit.path)
+            delete(edit.old_text)
+            delete(edit.new_text)
+        }
+        delete(action.edits)
+    }
+    delete(job.result.actions)
     delete(job.result.report.scope)
     for d in job.result.report.items {
         delete(d.path)

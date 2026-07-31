@@ -23,6 +23,7 @@ bindings are physical key positions, noted where they differ.
 | ctrl + g | go to line (opens the palette in line-number mode) |
 | alt + enter (or ctrl + click) | go to definition of the symbol under the caret |
 | ctrl + hover | show the declaration of the symbol under the mouse |
+| ctrl + shift + u | code actions: the fixes available at the caret, in a picker |
 | ctrl + f | find |
 | ctrl + r | find & replace |
 

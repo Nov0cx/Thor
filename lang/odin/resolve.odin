@@ -115,6 +115,13 @@ resolve :: proc(data: rawptr, req: ^lang.Request, res: ^lang.Result) {
         return
     }
 
+    // Code actions offer fixes at the caret rather than resolving what sits under
+    // it, so they run their own producers instead of the goto logic below.
+    if req.kind == .Code_Actions {
+        code_actions(e, parser, root, req, res)
+        return
+    }
+
     // Package docs render a whole package, resolved from the caret (an import,
     // a `pkg.lang.Symbol` operand, a bare package name) or, failing that, the file's
     // own package. Its own resolution, so it runs before the goto logic below.

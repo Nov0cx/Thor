@@ -191,6 +191,26 @@ config_collection_dir :: proc(e: ^Engine, coll, workspace: string) -> (string, b
     return "", false
 }
 
+// Names of every collection the workspace config declares, cloned into scratch
+// so they outlive the lock. Lets a caller that has no particular collection in
+// mind — searching them all for a package, as the add-import action does — reach
+// them without holding the config mutex while it walks the disk.
+@(private)
+config_collection_names :: proc(e: ^Engine, workspace: string) -> []string {
+    out := make([dynamic]string, context.temp_allocator)
+    if workspace == "" {
+        return out[:]
+    }
+    cache := &e.config
+    sync.lock(&cache.mutex)
+    defer sync.unlock(&cache.mutex)
+    config_ensure(cache, workspace)
+    for name in cache.cfg.collections {
+        append(&out, strings.clone(name, context.temp_allocator))
+    }
+    return out[:]
+}
+
 // True when the workspace config permits the feature the request `kind` serves.
 // Kinds with no toggle (definition, workspace symbols, signature help,
 // completion) are always on; the four gated ones — hover, document symbols,

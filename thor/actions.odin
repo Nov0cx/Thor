@@ -123,6 +123,11 @@ thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
         thor_rename_symbol(thor)
         return true
     }
+    // Code actions (Ctrl+.) offer the fixes available at the caret.
+    if setting.keybind_matches(thor.code_actions_key, event.key, event.ctrl, event.shift, event.alt) {
+        thor_code_actions(thor)
+        return true
+    }
     // Flip to the previously active file (ctrl+e), like vim's Ctrl-^.
     if setting.keybind_matches(thor.last_file_key, event.key, event.ctrl, event.shift, event.alt) {
         thor_flip_last_file(thor)

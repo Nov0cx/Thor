@@ -31,7 +31,9 @@ lowest latency.
   references, rename), `signature.odin`, `completion.odin`, `infer.odin` /
   `typeref.odin` / `decl.odin` (member-access type inference),
   `packagedoc.odin`, `check.odin` (compiler diagnostics — the one request that
-  analyzes nothing itself) and `ast.odin` (shared tree/text helpers).
+  analyzes nothing itself), `actions.odin` (code actions — the one request that
+  answers with fixes rather than with what the caret names) and `ast.odin`
+  (shared tree/text helpers).
 - Editor wiring — Alt+Enter (`goto_definition` keybind) and Ctrl+Click both
   dispatch go-to-definition; results jump the caret (opening the target file if
   needed, deferring the jump until it loads).
@@ -447,8 +449,34 @@ lowest latency.
       Push-model diagnostics (an LSP server volunteering them between requests)
       would need a notification channel on the seam — the pull shape here fits a
       one-shot checker, not a live server.
-- [ ] **Other LSP features not started:** formatting, code actions,
-      semantic tokens.
+- [~] **Code actions.** Ctrl+Shift+U (Ctrl+. is the command palette); a
+      `Code_Actions` request served by `actions.odin`, whose producers each append
+      a `lang.Code_Action` — a title, a kind, and the `Text_Edit`s that apply it.
+      Unlike LSP there is no offer-then-resolve round trip: that split exists to
+      keep IPC off the offer path, and an in-client backend has none, so computing
+      the edits up front is both cheaper and free of the window where the buffer
+      moves between offering a fix and applying it. Four producers, each reusing
+      machinery that already existed:
+      *add missing import* (an unresolved `pkg.member` — searches `core:`/`vendor:`/
+      `base:` under `ODIN_ROOT` two levels deep, the config's collections, then the
+      workspace for a relative import), *remove unused import* (the caret's, plus a
+      bulk action; a `_` alias is never reported), *fill switch cases* (an enum
+      switch missing arms, via the `visit_type_decl` enum locator behind implicit
+      selectors; covered cases are read as the text after the last `.`, so
+      `.Vertical` and `Axis.Vertical` both count), and *declare variable*
+      (`count = 1` with nothing declaring `count` becomes `:=`).
+      Host: `thor/codeactions.odin` clones the offers into Thor-owned storage (the
+      Result is freed before the pick lands, as with the symbol picker's jump
+      targets) and applies the chosen one through `thor_apply_edits` — the rename
+      applier, generalized: every edit is verified against the content it will land
+      in and the whole set is refused on any mismatch, so a fix never half-lands,
+      and an open buffer takes it as one undo entry.
+      Missing: the general "declare with an inferred type" form — inserting a
+      declaration would have to name a type, and until the inference layer can
+      compute one there is no correct text to insert, so only the `=` → `:=` shape
+      is offered. Actions are also single-file and caret-driven; nothing is
+      anchored on a diagnostic's range yet, and no producer spans files.
+- [ ] **Other LSP features not started:** formatting, semantic tokens.
 
 ## Missing — scalability / performance
 

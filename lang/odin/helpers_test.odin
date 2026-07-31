@@ -73,6 +73,61 @@ rename_at :: proc(
     return res
 }
 
+// Runs a Code_Actions request at the first occurrence of `needle` in `source`.
+@(private)
+actions_at :: proc(e: ^Engine, source, needle: string, workspace := "", path := "buffer.odin") -> lang.Result {
+    req := lang.Request {
+        kind      = .Code_Actions,
+        path      = path,
+        ext       = ".odin",
+        source    = source,
+        offset    = strings.index(source, needle),
+        workspace = workspace,
+    }
+    res := lang.Result{kind = .Code_Actions}
+    resolve(e, &req, &res)
+    return res
+}
+
+@(private)
+free_actions :: proc(res: ^lang.Result) {
+    for action in res.actions {
+        delete(action.title)
+        delete(action.kind)
+        for edit in action.edits {
+            delete(edit.path)
+            delete(edit.old_text)
+            delete(edit.new_text)
+        }
+        delete(action.edits)
+    }
+    delete(res.actions)
+}
+
+// The offered action titled `title`, so a test names the fix it means rather than
+// indexing into the offer order.
+@(private)
+find_action :: proc(res: ^lang.Result, title: string) -> (lang.Code_Action, bool) {
+    for action in res.actions {
+        if action.title == title {
+            return action, true
+        }
+    }
+    return {}, false
+}
+
+// `source` with an action's edits applied — back to front, so each edit's offsets
+// still describe the text when its turn comes. Lets a test assert on the code the
+// user would end up with instead of on raw ranges.
+@(private)
+apply_action :: proc(source: string, action: lang.Code_Action) -> string {
+    out := strings.clone(source, context.temp_allocator)
+    #reverse for edit in action.edits {
+        out = strings.concatenate({out[:edit.start], edit.new_text, out[edit.end:]}, context.temp_allocator)
+    }
+    return out
+}
+
 // Reads the name-bearing slice at a reference symbol's offset from its file, so a
 // test can assert the jump lands on the identifier. Buffer files (never written)
 // won't read back; those are covered by the same-file assertions instead.

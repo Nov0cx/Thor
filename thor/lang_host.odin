@@ -253,51 +253,50 @@ thor_prompt_rename :: proc(data: rawptr, input: string) {
     thor.rename_path = strings.clone(file.path)
 }
 
-// One file a rename touches, gathered while the edits are validated: the file's
+// One file a set of edits touches, gathered while they are validated: the file's
 // current content (its buffer when open, its bytes on disk when not) and the
 // edits landing in it.
-@(private = "file")
-Rename_Target :: struct {
+@(private)
+Edit_Target :: struct {
     path:  string,     // canonical; temp-allocated
     file:  ^Open_File, // nil when the file is not open in the editor
     text:  string,     // current content, temp-allocated
-    edits: [dynamic]lang.Text_Edit, // temp-allocated; the edits borrow the Result's strings
+    edits: [dynamic]lang.Text_Edit, // temp-allocated; the edits borrow the caller's strings
 }
 
-// Applies a rename's edits once they land. Validates every edit against the
-// current content first and refuses the whole rename on any mismatch rather than
-// half-applying it: a rename that lands in some files and not others breaks a
-// build silently, and the engine read the other files from disk, so an open
-// buffer with unsaved changes is not what it measured. Open files are edited
+// Applies a backend's edits — all of them, or none. Validates every edit against
+// the content it will land in first and refuses the whole set on any mismatch
+// rather than half-applying it: edits that land in some files and not others
+// break a build silently, and the engine read the unopened files from disk, so an
+// open buffer with unsaved changes is not what it measured. Open files are edited
 // through the buffer (one undo entry each, saved by the user); closed ones are
 // rewritten in place.
-@(private = "file")
-thor_apply_rename :: proc(thor: ^Thor, res: ^lang.Result) {
-    if res.id != thor.rename_request_id {
-        return
-    }
-    thor.rename_request_id = 0
-    if !res.ok || len(res.edits) == 0 {
-        thor_flash_status(thor, "Nothing to rename here", is_error = true)
-        return
-    }
-
-    targets := make([dynamic]Rename_Target, context.temp_allocator)
-    for edit in res.edits {
-        index, ok := thor_rename_target(thor, &targets, edit.path, res.revision)
-        if !ok {
-            thor_flash_status(thor, "Rename aborted: save the affected files first", is_error = true)
-            return
+//
+// `origin` is the buffer the edits were computed against — the one file allowed
+// to differ from its saved copy — and `snapshot` the revision it was at. Returns
+// how many edits landed, across how many files, and why none did. A false `ok`
+// with `applied > 0` is the one partial case: a file could not be written after
+// earlier ones already had.
+@(private)
+thor_apply_edits :: proc(
+    thor: ^Thor,
+    edits: []lang.Text_Edit,
+    origin: string,
+    snapshot: u64,
+) -> (applied: int, files: int, ok: bool, reason: string) {
+    targets := make([dynamic]Edit_Target, context.temp_allocator)
+    for edit in edits {
+        index, found := thor_edit_target(thor, &targets, edit.path, origin, snapshot)
+        if !found {
+            return 0, 0, false, "save the affected files first"
         }
         target := &targets[index]
         if edit.start < 0 || edit.end > len(target.text) || target.text[edit.start:edit.end] != edit.old_text {
-            thor_flash_status(thor, "Rename aborted: the files changed under it", is_error = true)
-            return
+            return 0, 0, false, "the files changed under it"
         }
         append(&target.edits, edit)
     }
 
-    occurrences := 0
     for &target in targets {
         if len(target.edits) == 0 {
             continue
@@ -307,7 +306,7 @@ thor_apply_rename :: proc(thor: ^Thor, res: ^lang.Result) {
             for edit in target.edits {
                 append(&ranges, textedit.Replace {start = edit.start, end = edit.end, text = edit.new_text})
             }
-            occurrences += textedit.replace_ranges(&target.file.state, ranges[:])
+            applied += textedit.replace_ranges(&target.file.state, ranges[:])
             continue
         }
         // Not open: splice the edits (ascending, non-overlapping) into the file's
@@ -321,23 +320,44 @@ thor_apply_rename :: proc(thor: ^Thor, res: ^lang.Result) {
         }
         strings.write_string(&b, target.text[last:])
         if werr := os.write_entire_file(target.path, transmute([]byte) strings.to_string(b)); werr != nil {
-            thor_flash_status(thor, "Rename incomplete: a file could not be written", is_error = true)
-            return
+            return applied, len(targets), false, "a file could not be written"
         }
-        occurrences += len(target.edits)
+        applied += len(target.edits)
     }
-    thor_flash_status(thor, fmt.tprintf("Renamed %d occurrences in %d files", occurrences, len(targets)))
+    return applied, len(targets), true, ""
+}
+
+// Applies a rename's edits once they land.
+@(private = "file")
+thor_apply_rename :: proc(thor: ^Thor, res: ^lang.Result) {
+    if res.id != thor.rename_request_id {
+        return
+    }
+    thor.rename_request_id = 0
+    if !res.ok || len(res.edits) == 0 {
+        thor_flash_status(thor, "Nothing to rename here", is_error = true)
+        return
+    }
+    applied, files, ok, reason := thor_apply_edits(thor, res.edits[:], thor.rename_path, res.revision)
+    if !ok {
+        verb := applied > 0 ? "incomplete" : "aborted"
+        thor_flash_status(thor, fmt.tprintf("Rename %s: %s", verb, reason), is_error = true)
+        return
+    }
+    thor_flash_status(thor, fmt.tprintf("Renamed %d occurrences in %d files", applied, files))
 }
 
 // Finds (or creates) the target entry for `path`, reading the file's current
-// content once. False refuses the rename: the file is open with unsaved changes
-// the engine's on-disk scan never saw, the buffer the request was made against
-// has been edited since (`snapshot` is its revision), or the file can't be read.
+// content once. False refuses the whole edit set: the file is open with unsaved
+// changes the engine's on-disk scan never saw, the `origin` buffer has been
+// edited since the request was made (`snapshot` is its revision), or the file
+// can't be read.
 @(private = "file")
-thor_rename_target :: proc(
+thor_edit_target :: proc(
     thor: ^Thor,
-    targets: ^[dynamic]Rename_Target,
+    targets: ^[dynamic]Edit_Target,
     path: string,
+    origin: string,
     snapshot: u64,
 ) -> (int, bool) {
     canonical := path
@@ -357,7 +377,7 @@ thor_rename_target :: proc(
         if !file.loaded {
             return 0, false
         }
-        if canonical == thor.rename_path {
+        if canonical == origin {
             // The buffer the edits were computed against: its offsets only hold
             // while it is still at the revision that was snapshotted.
             if file.state.revision != snapshot {
@@ -366,7 +386,7 @@ thor_rename_target :: proc(
         } else if file.state.revision != file.saved_revision {
             return 0, false // unsaved changes; the engine measured the disk copy
         }
-        append(targets, Rename_Target {
+        append(targets, Edit_Target {
             path  = canonical,
             file  = file,
             text  = textedit.text(&file.state),
@@ -379,7 +399,7 @@ thor_rename_target :: proc(
     if rerr != nil {
         return 0, false
     }
-    append(targets, Rename_Target {
+    append(targets, Edit_Target {
         path  = canonical,
         text  = string(data),
         edits = make([dynamic]lang.Text_Edit, context.temp_allocator),
@@ -737,6 +757,8 @@ thor_on_lang_result :: proc(user: rawptr, res: ^lang.Result) {
         thor_apply_rename(thor, res)
     case .Diagnostics:
         thor_apply_diagnostics(thor, res)
+    case .Code_Actions:
+        thor_show_code_actions(thor, res)
     }
 }
 
@@ -921,7 +943,7 @@ thor_symbol_detail :: proc(thor: ^Thor, sym: lang.Symbol) -> string {
 
 // Tints a symbol name by its kind, reusing the theme's syntax colors so the
 // picker reads like code.
-@(private = "file")
+@(private)
 thor_symbol_color :: proc(thor: ^Thor, kind: string) -> rl.Color {
     switch kind {
     case "function": return thor.theme.functions_color

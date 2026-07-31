@@ -197,6 +197,7 @@ Thor :: struct {
     signature_help_key:       setting.Keybind,
     package_doc_key:          setting.Keybind,
     rename_key:               setting.Keybind,
+    code_actions_key:         setting.Keybind,
     // Go-to-symbol picker state: the jump targets (file + byte offset) for the
     // rows currently shown, in picker order. Rebuilt each time the picker opens;
     // the pick callback indexes into them on a later frame. Owned.
@@ -251,6 +252,15 @@ Thor :: struct {
     // the others must be unmodified since the engine read them off disk.
     rename_request_id:        u64,
     rename_path:              string,
+    // In-flight code-action request, and the fixes the last one offered. The
+    // Result they came from is freed as soon as the handler returns, so the edits
+    // are cloned here for the pick callback to apply on a later frame; the path
+    // and revision are the buffer they were computed against, which the applier
+    // validates them against exactly as it does a rename's.
+    code_action_request_id:   u64,
+    code_action_path:         string,
+    code_action_revision:     u64,
+    code_actions:             [dynamic]Pending_Action,
     // Transient statusline notice (e.g. "No definition found") and the time it
     // was posted; thor_status_info hides it once STATUS_MESSAGE_SECS elapse.
     status_message:           string,
@@ -511,6 +521,9 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.jump_back)
     delete(thor.jump_forward)
     delete(thor.rename_path)
+    delete(thor.code_action_path)
+    thor_clear_code_actions(thor)
+    delete(thor.code_actions)
     delete(thor.status_message)
     thor_clear_doc_symbols(thor)
     delete(thor.doc_symbols)
