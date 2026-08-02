@@ -105,11 +105,12 @@ find_type_decl :: proc(
         path, ok := "", false
         sync.lock(&e.index.mutex)
         index_sync(e, parser, req)
-        p, found := index_first_path(e, tr.name, req.path, index_kind)
+        // The requesting file's own package first, the whole workspace only when
+        // it declares nothing of the name — an unqualified type names a type in
+        // this package, never one in another (see index_package_dir).
+        p, found := index_type_path(e, tr.name, req.path, index_kind, index_package_dir(e, req.path))
         if !found {
-            // An alias is a constant, not a type declaration, so a name that only
-            // stands for a type is indexed under "constant".
-            p, found = index_first_path(e, tr.name, req.path, "constant")
+            p, found = index_type_path(e, tr.name, req.path, index_kind, "")
         }
         if found {
             path = strings.clone(p, context.temp_allocator)
@@ -121,6 +122,18 @@ find_type_decl :: proc(
         }
     }
     return {}, .Missed
+}
+
+// The indexed file declaring `name` as a type of `index_kind`, or — since an
+// alias is a constant rather than a type declaration, so a name that only stands
+// for a type is indexed under "constant" — as one of those. Confined to `dir`
+// when one is given. Caller holds the mutex.
+@(private = "file")
+index_type_path :: proc(e: ^Engine, name, skip, index_kind, dir: string) -> (string, bool) {
+    if p, ok := index_first_path(e, name, skip, index_kind, dir); ok {
+        return p, true
+    }
+    return index_first_path(e, name, skip, "constant", dir)
 }
 
 // One parsed file's answer for `name`: the declaration itself (visited here), the

@@ -622,12 +622,15 @@ declared_in_package :: proc(e: ^Engine, parser: ts.Parser, req: ^lang.Request, n
     if req.workspace == "" {
         return false
     }
-    dir := filepath.dir(req.path)
     sync.lock(&e.index.mutex)
     defer sync.unlock(&e.index.mutex)
     index_sync(e, parser, req)
-    path, found := index_first_path(e, name, req.path, "")
-    return found && path_in_dir(path, dir)
+    // Scoped in the query rather than checked after it: the workspace-wide first
+    // hit is the lexicographically smallest path, so a name declared both here
+    // and in some earlier-sorting package used to read as "not in this package"
+    // and offer a declaration for an assignment that was already legal.
+    _, found := index_first_path(e, name, req.path, "", index_package_dir(e, req.path))
+    return found
 }
 
 // ---------------------------------------------------------------------------

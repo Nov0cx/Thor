@@ -256,13 +256,18 @@ resolve_call_target :: proc(
         return req.source, req.path, d, true
     }
 
-    // Workspace: the index points at the file declaring the procedure; re-parse
-    // just that one for its Def (the caller needs the live source and decl range).
+    // Package, then workspace (see index_package_dir): the index points at the
+    // file declaring the procedure; re-parse just that one for its Def (the
+    // caller needs the live source and decl range).
     if req.workspace != "" {
         path, ok := "", false
         sync.lock(&e.index.mutex)
         index_sync(e, parser, req)
-        if p, found := index_first_path(e, name, req.path, "function"); found {
+        p, found := index_first_path(e, name, req.path, "function", index_package_dir(e, req.path))
+        if !found {
+            p, found = index_first_path(e, name, req.path, "function", "")
+        }
+        if found {
             path = strings.clone(p, context.temp_allocator)
             ok = true
         }

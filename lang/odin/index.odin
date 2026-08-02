@@ -223,16 +223,18 @@ index_collect_idents :: proc(node: ts.Node, source: string, set: ^map[string]boo
 
 // Cross-file goto: appends every indexed top-level declaration named `name`
 // (excluding the live file `skip`, already searched lexically) to res.symbols as
-// picker candidates, sorted by path for a stable order. Owned strings clone into
-// context.allocator (the Manager's, as resolve left it). Caller holds the mutex.
+// picker candidates, sorted by path for a stable order. `dir` narrows the search
+// to one package (see index_scoped); "" searches the whole workspace. Owned
+// strings clone into context.allocator (the Manager's, as resolve left it).
+// Caller holds the mutex.
 //
 // Reports whether the *only* match is a procedure group, so the caller can reach
 // through to its members instead of landing on the list. Meaningless when several
 // files declare the name: that ambiguity goes to the picker as it is.
 @(private)
-index_find_defs :: proc(e: ^Engine, name, skip: string, res: ^lang.Result) -> (single_overload: bool) {
+index_find_defs :: proc(e: ^Engine, name, skip, dir: string, res: ^lang.Result) -> (single_overload: bool) {
     for path, entry in e.index.files {
-        if path == skip {
+        if path == skip || !index_scoped(path, dir) {
             continue
         }
         for sym in entry.decls {
@@ -294,14 +296,15 @@ index_declared_names :: proc(e: ^Engine, out: ^map[string]bool, alloc: runtime.A
 }
 
 // Lexicographically-smallest indexed file declaring `name` (of `kind_filter`, or
-// any kind when it is ""), excluding `skip`. Deterministic first-hit for hover
+// any kind when it is ""), excluding `skip` and confined to the package `dir`
+// when one is given (see index_scoped). Deterministic first-hit for hover
 // and signature help, which then re-parse just that one file for full detail.
 @(private)
-index_first_path :: proc(e: ^Engine, name, skip, kind_filter: string) -> (string, bool) {
+index_first_path :: proc(e: ^Engine, name, skip, kind_filter, dir: string) -> (string, bool) {
     best := ""
     found := false
     for path, entry in e.index.files {
-        if path == skip {
+        if path == skip || !index_scoped(path, dir) {
             continue
         }
         for sym in entry.decls {
@@ -376,23 +379,32 @@ index_dir_completions :: proc(
     return indexed
 }
 
+// Whether an index row at `path` is in scope for a query confined to the package
+// `dir`. An empty `dir` means the whole workspace, which is what every query that
+// is genuinely workspace-wide (Ctrl+T, the widened fallbacks) passes.
+@(private)
+index_scoped :: proc(path, dir: string) -> bool {
+    return dir == "" || path_in_dir(path, dir)
+}
+
 // Whether `path` names a file directly inside `dir` — same prefix, one separator,
-// nothing further nested. `/` and `\` compare equal (the index keys the spellings
-// os.read_dir produced, the caller's come from filepath.dir), but the comparison
-// is otherwise literal, so the usual canonicalization assumption applies. A
-// spelling that doesn't line up just misses, and the caller's disk fallback still
-// answers correctly — this can only cost speed, never candidates.
+// nothing further nested. `/` and `\` compare equal and, on Windows, so do the
+// two cases of a letter: the index keys the spellings os.read_dir produced and
+// the caller's come from filepath.dir, and neither the separator nor the case is
+// something the filesystem distinguishes. The comparison is otherwise literal, so
+// the usual canonicalization assumption applies. A spelling that doesn't line up
+// just misses, and every caller widens or falls back to disk when it does — this
+// can only cost speed, never candidates.
 @(private)
 path_in_dir :: proc(path, dir: string) -> bool {
     if dir == "" || len(path) <= len(dir) + 1 {
         return false
     }
     for i in 0 ..< len(dir) {
-        a, b := path[i], dir[i]
-        if a == b || (is_path_sep(a) && is_path_sep(b)) {
-            continue
+        a, b := path_byte(path[i]), path_byte(dir[i])
+        if a != b {
+            return false
         }
-        return false
     }
     if !is_path_sep(path[len(dir)]) {
         return false
@@ -400,9 +412,70 @@ path_in_dir :: proc(path, dir: string) -> bool {
     return strings.index_any(path[len(dir) + 1:], "/\\") < 0
 }
 
+// One path byte normalized for comparison: either separator reads as `/`, and on
+// Windows an upper-case letter reads as its lower-case.
+@(private)
+path_byte :: proc(b: u8) -> u8 {
+    if is_path_sep(b) {
+        return '/'
+    }
+    when ODIN_OS == .Windows {
+        if b >= 'A' && b <= 'Z' {
+            return b + 32
+        }
+    }
+    return b
+}
+
 @(private)
 is_path_sep :: proc(b: u8) -> bool {
     return b == '/' || b == '\\'
+}
+
+// The directory a package-scoped query should filter on for the file at `path`.
+//
+// **Why every bare-name lookup starts here.** A bare identifier in Odin names
+// something in its own scope, its own file, its own *package* or the builtin
+// set — never a declaration in another directory, which is reachable only
+// through an import and a qualifier. A flat workspace match therefore answers
+// with symbols the compiler would not even see: two packages each declaring
+// `init` turned every goto on one into a picker over both. So the cross-file
+// consumers (goto, hover, the type locator, signature help) query this directory
+// first and only widen to the whole workspace when the package declares nothing
+// of the name. Widening is a guess by then rather than a wrong answer — the
+// correct one does not exist — and it keeps the reach the engine had for the
+// cases it still cannot model, so a miss here costs precision, never candidates.
+//
+// The returned dir is the spelling the index actually keys that file's siblings
+// under, which is the part that takes care: the request carries the path its file
+// was opened with, the index the one os.read_dir produced. So the literal dir is
+// taken when the index holds a file in it, and the absolute form tried only when
+// it holds none — a package whose spelling doesn't line up would otherwise scope
+// every lookup to an empty set and widen straight back to the flat scan, which is
+// exactly the imprecision the scoping removes. Never fails: an unmatched path
+// keeps its own dir, which simply finds nothing. Caller holds the mutex.
+@(private)
+index_package_dir :: proc(e: ^Engine, path: string) -> string {
+    dir := filepath.dir(path) // a slice of `path`, no allocation
+    if index_dir_populated(e, dir) {
+        return dir
+    }
+    if abs, err := filepath.abs(dir, context.temp_allocator); err == nil && abs != dir {
+        if index_dir_populated(e, abs) {
+            return abs
+        }
+    }
+    return dir
+}
+
+@(private = "file")
+index_dir_populated :: proc(e: ^Engine, dir: string) -> bool {
+    for path in e.index.files {
+        if path_in_dir(path, dir) {
+            return true
+        }
+    }
+    return false
 }
 
 // A lang.Symbol result row copied out of the index, cloned into context.allocator.

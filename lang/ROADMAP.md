@@ -45,11 +45,39 @@ lowest latency.
   parameters, loop variables and cross-file top-level symbols, with lexical
   shadowing over file scope (a use above a local names what the local shadows).
   Triggered by Alt+Enter or Ctrl+Click. When a name is declared at
-  top-level in several workspace files (the flat cross-file match ignores
-  package boundaries), the jump offers a picker of all candidates instead of
-  silently taking the first; a single match jumps straight there. A **procedure
-  group** answers with its members rather than the list itself (see **Overload
-  sets** below).
+  top-level in several files of the package, the jump offers a picker of all
+  candidates instead of silently taking the first; a single match jumps straight
+  there. A **procedure group** answers with its members rather than the list
+  itself (see **Overload sets** below).
+- **Package-scoped bare names:** an unqualified identifier is looked up in the
+  file's own package before the workspace is consulted at all, which is what Odin
+  itself does — a bare name reaches its scope, its file, its package and the
+  builtins, and *nothing* in another directory, which is reachable only through
+  an import and a qualifier. The cross-file lookup used to be a flat match over
+  every indexed file, so two packages each declaring `init` turned every goto on
+  one into a picker over both, and hover, signature help and the type locator
+  (which all take the lexicographically first hit) answered from whichever
+  package sorted first. All four now filter the symbol index to the requesting
+  file's directory first (`index_package_dir` → `index_scoped`, threaded through
+  `index_find_defs`/`index_first_path`) and widen to the whole workspace only
+  when the package declares nothing of the name. Widening is a *guess* by then
+  rather than a wrong answer — no correct definition exists to be shadowed — and
+  it keeps the reach the engine has for what it cannot yet model, so the scoping
+  can cost precision but never candidates. `actions.odin`'s `declared_in_package`
+  gets the same treatment and a fix with it: it took the workspace-wide first hit
+  and *then* asked whether it sat in this directory, so a name declared both here
+  and in an earlier-sorting package read as undeclared and offered a `:=` for an
+  assignment that was already legal. Path spellings are the fiddly part — the
+  request carries the path its file was opened with, the index the one
+  `os.read_dir` produced — so `path_in_dir` now folds separators *and* (on
+  Windows) case, and `index_package_dir` retries the absolute form when the
+  literal directory holds no indexed file, since a package that fails to match
+  would silently widen straight back to the flat scan. Covered by
+  `lang/odin/package_test.odin`, whose decoy package deliberately sorts before
+  the requesting one so a passing test means the scoping ran (goto takes the
+  direct jump instead of a two-candidate picker; hover, signature help and the
+  member-access type locator each read the requesting package's declaration; and
+  one test pins the widening fallback).
 - **Package-qualified go-to-definition & hover** (`pkg.Symbol`): the operand is
   matched against the file's imports and resolved in that package's directory.
   Relative imports (`import "../lib"`, `import "sub"`) resolve fully in-workspace;
@@ -400,17 +428,19 @@ lowest latency.
 - [x] **"No definition found" feedback.** `thor_flash_status` posts a transient
       `Status_Info.message`, shown accented in the statusbar.
 - [x] **Multiple candidates.** The cross-file goto scan gathers *every*
-      workspace file's top-level declaration of the name (not just the first);
-      one hit jumps directly, two or more open the rich picker
+      top-level declaration of the name in scope (not just the first); one hit
+      jumps directly, two or more open the rich picker
       ("Multiple definitions...") so the user chooses. Same-file lexical and
       package-qualified resolutions are unambiguous and still jump straight —
       except on a procedure group, whose members are candidates on every path
       (see **Overload sets**).
-      Engine: `resolve_definition_workspace`/`def_scan_dir`/`def_scan_file`
-      collect into `res.symbols`, collapsing a lone hit back to `res.location`;
-      host: `thor_show_definition_candidates` reuses the symbol picker + jump
-      targets. Still flat/name-based — a picker can list an unrelated same-named
-      symbol in another package until the type layer lands.
+      Engine: `resolve_definition_workspace` collects into `res.symbols`,
+      collapsing a lone hit back to `res.location`; host:
+      `thor_show_definition_candidates` reuses the symbol picker + jump targets.
+      The scope is the requesting file's package (see **Package-scoped bare
+      names**), so a picker no longer lists a same-named symbol from an unrelated
+      package — only the widened fallback, reached when the package declares
+      nothing of the name, can still do that.
 - [ ] **Loading / busy indicator** while a request is in flight
       (`manager_busy` is available).
 - [x] **Go-back / jump list.** Ctrl+Alt+Left returns to where a jump left,
@@ -420,7 +450,6 @@ lowest latency.
       is covered. See **Go back / go forward** above.
 
 ## Missing — engine depth (Odin native analysis)
-- [ ] **goto usage**
 - [x] **awarness of implicit casting.** Split four ways, all landed: implicit
       selectors in every expected-type position (`expected_type_at` walks up to a
       literal field, call argument, comparison, `switch` case or result slot,
@@ -469,14 +498,37 @@ lowest latency.
       parse, so that case is answered off the same filler-identifier repair the
       implicit selector uses; a *second* dangling dot earlier in the same block
       still swallows the line under the caret, which a live edit doesn't produce.
-- [~] **Package / import resolution.** `import "core:fmt"` then `fmt.println` is
+- [x] **Package / import resolution.** `import "core:fmt"` then `fmt.println` is
       followed (package-qualified goto/hover/completion resolve into the package
       dir); custom collections resolve via `.thor/odin-analyzer.json`. A type
       qualified in another file (`-> other.Point`) resolves against *that* file's
       imports (`visit_qualified_in_origin`, one extra parse, paid only when the
-      requesting file's own imports come up empty). Still flat/name-based for bare
-      cross-file identifiers; `using` is followed for struct embedding only, not
-      for `using import` or a statement-level `using`.
+      requesting file's own imports come up empty). A **bare** name now resolves
+      package-scoped rather than workspace-flat — see **Package-scoped bare
+      names** above.
+
+      **`using` needs nothing.** The two forms this entry used to list as missing
+      are gone from the language, not from the engine — checked against the
+      compiler (dev-2026-07) rather than assumed:
+      `using import "core:fmt"` is *"Syntax Error: 'using import' is not allowed,
+      please use the import name explicitly"*, a file-scope `using fmt` is
+      *"Only declarations are allowed at file scope"*, and a statement-level
+      `using` (or a `using` parameter) is *"'using' has been disallowed as it is
+      considered bad practice ... it can be enabled on a per-file basis with
+      `#+feature using-stmt`"*. So the only `using` that injects names into
+      ordinary code is struct embedding, which the engine already follows
+      (**Embedded fields** above). `semantic.odin`'s `has_using` kill switch stays
+      as it is: a file that does opt in with `#+feature using-stmt` is still a
+      file this engine cannot see far enough into to dim names in.
+
+      **Still open:** visibility attributes are not modelled — `@(private)` hides
+      a declaration from other packages and `@(private="file")` from the rest of
+      its own, and neither the index nor `collect_defs` records them, so both are
+      offered as if public (package docs are the one consumer that filters
+      `@(private)`, textually). References and rename still match a top-level name
+      across the whole workspace rather than binding it to the package that
+      declares it; they share the reference scan, so scoping them is one change,
+      but it changes the *reach of an edit* and wants its own pass.
 - [~] **Type inference.** `x := f()` infers the callee's declared result type
       (`call_result_type` → `resolve_call_target` + `proc_result_type`, which reads
       the type after `->` out of the signature text — the callee's tree is already
@@ -517,12 +569,12 @@ lowest latency.
       the `Open_File`, consumed by the editor widget (fold-aware visual rows, gutter
       chevrons, collapsed "…" marker, gutter-click + Fold: commands). Folds are keyed
       by line, so edits above a fold can drop its collapsed state until re-folded.
-- [x] **References / find-usages.** F10; `References` request served by
+- [~] **References / find-usages.** F10; `References` request served by
       `collect_references` (locals confined to their scope in-file, top-level
       names matched across the workspace via the symbol index's per-file
       identifier sets — only files that mention the name are re-parsed).
       Name-based, not
-      type-aware: a top-level scan can list an unrelated same-named symbol in
+      important to fix: type-aware: a top-level scan can list an unrelated same-named symbol in
       another package, and value member names (`v.field`) aren't distinguished.
       Type-aware precision waits on the inference layer.
 - [x] **Signature help.** Ctrl+Shift+Space; `Signature_Help` request served by
@@ -1000,7 +1052,11 @@ The seam supports it, but no subprocess backend exists yet. To add one:
 ## Known limitations / cleanups
 
 - Cross-file path matching assumes the engine's `os.read_dir` paths canonicalize
-  the same way as `filepath.abs`; verify on odd path spellings.
+  the same way as `filepath.abs`; verify on odd path spellings. `path_in_dir`
+  folds separators and (on Windows) case, and `index_package_dir` retries a
+  package directory absolute when the literal spelling matches nothing indexed,
+  but neither resolves symlinks or 8.3 short names. A mismatch degrades to the
+  old workspace-flat reach rather than to no answer.
 - The vendored Odin `LOCALS` query models `:=` as `variable_declaration`, which
   this grammar does not produce — handled in `collect_short_decls`; revisit if
   the grammar is regenerated.

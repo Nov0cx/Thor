@@ -585,10 +585,12 @@ def_better :: proc(a, b: Def, offset: int) -> bool {
     return abs(a.ident_start - offset) < abs(b.ident_start - offset)
 }
 
-// Finds the workspace file declaring `name` via the symbol index, then re-parses
-// just that one file to fill `res` (hover wants the full declaration text, which
-// the index doesn't keep). The live buffer (req.path) was already searched with
-// its unsaved edits, so it is excluded. Syncs the index under its mutex first.
+// Finds the file declaring `name` via the symbol index, then re-parses just that
+// one file to fill `res` (hover wants the full declaration text, which the index
+// doesn't keep). The live buffer (req.path) was already searched with its unsaved
+// edits, so it is excluded. Package first, then the whole workspace — the same
+// two-phase reach go-to-definition uses, explained at index_package_dir. Syncs
+// the index under its mutex first.
 @(private)
 scan_workspace :: proc(
     e: ^Engine,
@@ -601,7 +603,11 @@ scan_workspace :: proc(
     path, ok := "", false
     sync.lock(&e.index.mutex)
     index_sync(e, parser, req)
-    if p, found := index_first_path(e, name, req.path, ""); found {
+    p, found := index_first_path(e, name, req.path, "", index_package_dir(e, req.path))
+    if !found {
+        p, found = index_first_path(e, name, req.path, "", "")
+    }
+    if found {
         path = strings.clone(p, context.temp_allocator) // survives the unlock
         ok = true
     }
@@ -651,13 +657,13 @@ scan_file :: proc(
     }
 }
 
-// Go-to-definition's cross-file scan. Gathers every workspace file's top-level
-// declaration named `name` into res.symbols; unlike scan_workspace (first hit
-// wins, used by hover) it never stops early, because the flat cross-file match
-// ignores package boundaries — the same name can be declared in several
-// packages and the user should choose. A single hit collapses back to
-// res.location (the direct-jump path the caller already handles); two or more
-// stay as candidates for a picker.
+// Go-to-definition's cross-file scan. Gathers the top-level declarations named
+// `name` into res.symbols; unlike scan_workspace (first hit wins, used by hover)
+// it never stops early within a scope, since a name can be declared more than
+// once and the user should choose. A single hit collapses back to res.location
+// (the direct-jump path the caller already handles); two or more stay as
+// candidates for a picker. The scope is the requesting file's own package first
+// and the whole workspace only after — see index_package_dir.
 @(private)
 resolve_definition_workspace :: proc(
     e: ^Engine,
@@ -669,7 +675,10 @@ resolve_definition_workspace :: proc(
 ) {
     sync.lock(&e.index.mutex)
     index_sync(e, parser, req)
-    group := index_find_defs(e, name, req.path, res)
+    group := index_find_defs(e, name, req.path, index_package_dir(e, req.path), res)
+    if len(res.symbols) == 0 {
+        group = index_find_defs(e, name, req.path, "", res)
+    }
     sync.unlock(&e.index.mutex)
     switch len(res.symbols) {
     case 0:
