@@ -109,8 +109,10 @@ open_package :: proc(dir, raw: string, req: ^lang.Request, res: ^lang.Result, ho
 // file's own package directory — so F3 anywhere in an Odin file shows something.
 @(private)
 package_doc :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, req: ^lang.Request, res: ^lang.Result) {
+    // Neither branch hands back an owned string: package_dir_under_caret is
+    // scratch-allocated and filepath.dir is a slice of req.path.
     dir, ok := package_dir_under_caret(e, root, req)
-    owned_dir := "" // the fallback dir is allocated on context.allocator; free it
+    owned_dir := ""
     if !ok {
         if req.path == "" {
             return

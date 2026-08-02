@@ -148,6 +148,47 @@ test_package_doc :: proc(t: ^testing.T) {
     testing.expect(t, !strings.contains(res.doc.text, "secret"), "private proc must be omitted")
 }
 
+// F3 with the caret on nothing package-like falls back to the file's own
+// package. The fallback dir is a slice of req.path, so freeing it would free the
+// caller's path buffer and leave every later owner of that block double-freed;
+// the heap-allocated path here makes the test runner's tracker report it.
+@(test)
+test_package_doc_falls_back_to_own_package :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    root := "thor_lang_doc_own_ws"
+    _ = os.make_directory(root)
+    defer os.remove(root)
+
+    main_path := strings.concatenate({root, "/main.odin"}, context.temp_allocator)
+    main_src := "package app\n\n// Adds the two.\nadd :: proc(a, b: int) -> int {\n\treturn a + b\n}\n"
+    _ = os.write_entire_file(main_path, transmute([]byte)main_src)
+    defer os.remove(main_path)
+
+    owned_path := strings.clone(main_path)
+    defer delete(owned_path)
+
+    req := lang.Request {
+        kind      = .Package_Doc,
+        path      = owned_path,
+        ext       = ".odin",
+        source    = main_src,
+        offset    = strings.index(main_src, "a + b"), // no package anywhere near the caret
+        workspace = root,
+    }
+    res := lang.Result{kind = .Package_Doc}
+    resolve(e, &req, &res)
+    defer delete(res.doc.title)
+    defer delete(res.doc.path)
+    defer delete(res.doc.text)
+
+    testing.expect(t, res.ok, "the file's own package should render docs")
+    testing.expectf(t, res.doc.title == "package app", "title: got %q", res.doc.title)
+    testing.expect(t, strings.contains(res.doc.text, "add :: proc(a, b: int) -> int"), "missing the package's own proc")
+    testing.expectf(t, req.path == main_path, "the request path must be untouched: got %q", req.path)
+}
+
 @(test)
 test_cancelled_request_answers_nothing :: proc(t: ^testing.T) {
     e := engine_create()
