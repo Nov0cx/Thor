@@ -276,6 +276,14 @@ resolve_call_target :: proc(
             return first_proc_in_file(e, parser, path, name)
         }
     }
+
+    // The implicit scope: `append(...)`, `make(...)`, `len(...)` are declared by
+    // the toolchain rather than by anything here, and the cache names the one
+    // file to read. Everything downstream then treats them as any other callee —
+    // a group signs its members, an argument's expected type reads its parameter.
+    if sym, bok := builtin_symbol(e, parser, name); bok {
+        return first_proc_in_file(e, parser, sym.path, name)
+    }
     return "", "", {}, false
 }
 

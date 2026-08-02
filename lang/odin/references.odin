@@ -232,9 +232,9 @@ ref_value_target :: proc(
     if found || declared {
         return Ref_Target{name = name, kind = .Package, dir = dir, own_pkg = true}
     }
-    // Neither this file nor its package declares it: a builtin, a stdlib name
-    // brought in by a `using`, or a typo. Nothing to bind to, so nothing is
-    // excluded either.
+    // Neither this file nor its package declares it: a name from the implicit
+    // scope, or a typo. Nothing to bind to, so nothing is excluded either — and a
+    // builtin is not renameable in any case, its declaration being the toolchain's.
     return Ref_Target{name = name, kind = .Any}
 }
 

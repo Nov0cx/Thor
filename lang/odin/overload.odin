@@ -66,7 +66,11 @@ overload_sites :: proc(
         defs := collect_defs(e, live_root, req.source)
         fill_member_sites(defs[:], req.source, req.path, sites)
     }
-    if sites_missing(sites) {
+    // A group the toolchain declares is answered from the resident builtin cache
+    // instead, which already holds its package: the directory here is
+    // `base:runtime`, and re-reading it per request is not what `append(` should
+    // cost while its arguments are typed.
+    if sites_missing(sites) && !builtin_member_sites(e, parser, group_path, sites) {
         scan_package_members(e, parser, req, dir, sites)
     }
     return sites

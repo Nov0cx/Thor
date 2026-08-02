@@ -216,6 +216,13 @@ resolve :: proc(data: rawptr, req: ^lang.Request, res: ^lang.Result) {
             scan_workspace(e, parser, req, name, hover_start, hover_end, res)
         }
     }
+
+    // 3) The implicit scope: `len`, `append`, `make` and the rest of what the
+    //    toolchain declares into every file with no import. Last, so a package
+    //    declaring a name of its own shadows the builtin, as the compiler has it.
+    if !res.ok {
+        resolve_builtin(e, parser, req, name, hover_start, hover_end, res)
+    }
 }
 
 // Smallest identifier node covering `offset`, also probing offset-1 so a caret

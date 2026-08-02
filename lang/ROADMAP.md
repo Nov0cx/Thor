@@ -30,7 +30,8 @@ lowest latency.
   index), `config.odin` (`.thor/odin-analyzer.json`), `symbols.odin` (outlines,
   references, rename), `signature.odin`, `completion.odin`, `infer.odin` /
   `typeref.odin` / `decl.odin` (member-access type inference),
-  `packagedoc.odin`, `check.odin` (compiler diagnostics — the one request that
+  `packagedoc.odin`, `builtins.odin` (the implicit scope, read off the toolchain),
+  `check.odin` (compiler diagnostics — the one request that
   analyzes nothing itself), `actions.odin` (code actions — the one request that
   answers with fixes rather than with what the caret names), `semantic.odin`
   (semantic tokens — the one request that answers about the whole buffer rather
@@ -94,6 +95,52 @@ lowest latency.
   `import rl "vendor:raylib"`) opens that package the same way. Custom import
   collections declared in the workspace's `.thor/odin-analyzer.json` (`import
   "shared:foo"`) resolve through the collection's path (see **Workspace config**).
+- **The implicit scope (`len`, `append`, `make`):** the names the compiler puts in
+  every file with no import at all. They are the *only* standard-library names a
+  bare identifier can reach — everything else needs an import and a qualifier — so
+  they close the bare-name path: go-to-definition jumps into the toolchain's own
+  sources, hover shows the declaration there, completion offers them, and a call
+  of one is signed, a group once per member (`append(` lists its eight). Resolved
+  last, after the file, the package and the workspace, so a program declaring a
+  `len` of its own shadows the builtin exactly as the compiler has it.
+
+  Read off the compiler on disk rather than hardcoded (`lang/odin/builtins.odin`):
+  the set moves with the toolchain, and a list baked into this repo would rot the
+  next time the language gains a builtin. One resident `Builtin_Cache` per process
+  — it is a property of the installed compiler, not of the workspace — built the
+  first time anything asks, holding for each name the file that declares it, its
+  kind, its one-line signature and where in the file it sits. That is what keeps
+  the cost off the request: completion answers from the cache alone, and
+  goto/hover/signature help each read the *one* file the cache names rather than
+  walking the standard library. The cache was already there for undeclared-name
+  dimming, which is where the parse of `base:builtin` + `base:runtime` was already
+  being paid.
+
+  A builtin **procedure group** takes its members from the cache too
+  (`builtin_member_sites`, tried by `overload_sites` before its directory scan),
+  which is what makes `append(` affordable: expanding it by re-reading
+  `base:runtime` cost ~70ms *per request* on the per-keystroke signature path, and
+  `append` is the most-typed group in the language. Gated on the group's file
+  being one the cache was built from, behind a cheap ODIN_ROOT prefix test — every
+  workspace group reaches that call, and none of them should build this cache to
+  learn they are not in it.
+
+  **Which names are actually in scope** is the one thing worth stating precisely:
+  all of `base:builtin` (which is documentation of the universal scope and nothing
+  else), plus the `base:runtime` declarations marked `@(builtin)` — the rest of
+  `base:runtime` is an ordinary package that must be imported, so `Allocator` and
+  `Raw_Dynamic_Array` are deliberately *not* offered bare. The marker is read off
+  the attribute text between a declaration's start and its name, which covers both
+  spellings (`@builtin` and `@(builtin, require_results)`) and a declaration
+  carrying several attribute lines. Dimming keeps the wider set it always had — a
+  name `base:runtime` exports without the marker still counts as declared there —
+  because over-permitting only costs a missed dim where under-permitting flags
+  correct code.
+
+  Covered by `lang/odin/builtin_test.odin`: goto into `base:builtin`, hover, a
+  group offering its members, a workspace `len` shadowing the builtin one,
+  signature help, completion, and one test each pinning that an unmarked
+  `base:runtime` export resolves and completes to nothing.
 - **Type-aware member access** (`value.field`): a selector on a struct-typed value
   resolves to the struct field — go-to-definition jumps to the field, hover shows
   its declaration (`x: int`). The operand's type is inferred from its declaration
@@ -249,8 +296,9 @@ lowest latency.
 - **Signature help:** Ctrl+Shift+Space resolves the call the caret is inside
   (`Signature_Help` request → `signature_help`) and shows the callee's signature in
   a popup above the caret, with the argument the caret is on bracketed. The callee
-  is resolved the same three ways goto is — same file, package-qualified
-  (`pkg.fn(...)`) and cross-file workspace scan — and the active parameter is the
+  is resolved the same four ways goto is — same file, package-qualified
+  (`pkg.fn(...)`), cross-file workspace scan and the implicit scope (`append(`,
+  `make(`) — and the active parameter is the
   count of top-level commas before the caret in the call's parentheses. Only
   procedures answer; the popup dismisses on Escape, a caret jump, or when focus
   leaves the pane. A call of a **procedure group** signs every member (see
@@ -556,10 +604,14 @@ lowest latency.
       LOCALS query captures — are collected so they shadow at all. Goto, hover,
       completion, references and rename share the one visibility test
       (`def_visible_at`).
-- [~] **Standard library / vendor symbols.** Package-qualified access
+- [x] **Standard library / vendor symbols.** Package-qualified access
       (`fmt.println`, `strings.split`) resolves into `core:`/`vendor:`/`base:`
-      via the baked-in `ODIN_ROOT`. Still missing: symbols brought in with
-      `using import`, and bare identifiers that live in the stdlib.
+      via the baked-in `ODIN_ROOT`. **Bare** stdlib names resolve too, which is
+      exactly the implicit scope: a bare identifier reaches its scope, its file,
+      its package and what the toolchain declares into every file, and nothing
+      else. See **The implicit scope** above. The other thing this entry used to
+      list as missing — `using import` — is not a language feature; see the
+      `using` note under **Package / import resolution**.
 - [x] **Document symbols / outline.** Ctrl+Shift+O; `Document_Symbols` request
       served by `collect_document_symbols` (reuses `collect_defs`), shown in the
       palette's fuzzy picker. Top-level only — no nested/`using` members yet.
@@ -615,8 +667,10 @@ lowest latency.
       driven from the editor as a word is typed (`on_completion` callback →
       `thor_editor_completion`, gated to Odin buffers by `completion_semantic`).
       Offers the identifiers in scope — locals/params visible at the caret, this
-      file's and this package's top-level declarations — plus keywords and builtin
-      types, all prefix-filtered (case-sensitive) and de-duplicated; after `pkg.`
+      file's and this package's top-level declarations — plus keywords, builtin
+      types and the implicit scope the toolchain declares (`len`, `append`,
+      served from the resident `Builtin_Cache`, so a keystroke costs no disk),
+      all prefix-filtered (case-sensitive) and de-duplicated; after `pkg.`
       it lists the imported package's top-level symbols. Candidates fill the
       editor's existing autocomplete popup, tinted by kind. Name-based, like the
       rest of the engine: value member access (`v.field`) waits on type inference.
@@ -702,8 +756,9 @@ lowest latency.
       - `lang/odin/index.odin` — `index_declared_names` (every top-level name in
         the workspace, cloned, asked **once per request** so the walk needs no
         lock).
-      - `lang/odin/engine.odin` — `Builtin_Cache` + `builtin_mutex`; `resolve.odin`
-        routes the kind beside `Document_Symbols`.
+      - `lang/odin/builtins.odin` — the implicit scope (`Builtin_Cache`, guarded
+        by `engine.odin`'s `builtin_mutex`); `resolve.odin` routes the kind
+        beside `Document_Symbols`.
 
       **Deliberately sparse.** A token is emitted only where the analyzer knows
       more than the grammar. The positions the grammar already decides — struct
@@ -726,14 +781,16 @@ lowest latency.
 
       **Builtins are read off the toolchain, not hardcoded.** The grammar has no
       builtin list, so `len`, `make`, `append`, `panic` and friends are plain
-      `@variable` and would every one of them have dimmed. `build_builtin_cache`
-      takes the top-level declarations of `base:builtin` and `base:runtime` under
-      `ODIN_ROOT` (once per process — it is a property of the compiler, not the
-      workspace) and treats them all as in scope. Over-permissive on purpose: it
-      also allows `base:runtime` types a program must name explicitly, but
-      over-permitting costs a missed dim where under-permitting flags correct
-      code, and a list baked into this repo would rot the next time the language
-      gains a builtin.
+      `@variable` and would every one of them have dimmed. `builtin_names`
+      (`lang/odin/builtins.odin`) takes the top-level declarations of
+      `base:builtin` and `base:runtime` under `ODIN_ROOT` (once per process — it
+      is a property of the compiler, not the workspace) and treats them all as in
+      scope. Over-permissive on purpose, and the one consumer that stays that way:
+      the cache marks which of those names a *bare* identifier actually reaches
+      (see **The implicit scope**) and resolution and completion respect the mark,
+      while dimming keeps the wider set. Over-permitting costs a missed dim where
+      under-permitting flags correct code, and a list baked into this repo would
+      rot the next time the language gains a builtin.
 
       **Host wiring — driven by the highlight pass, not by the caret.**
       `thor_update_highlights` (`thor/highlight.odin`) builds the grammar's

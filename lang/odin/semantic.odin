@@ -16,33 +16,10 @@
 // so a name's colour and the declaration Alt+Enter jumps to can never disagree.
 package odin
 
-import "base:runtime"
-import "core:os"
-import "core:strings"
 import "core:sync"
 
 import lang ".."
 import ts "../../vendor/odin-tree-sitter"
-
-// The implicit scope every Odin file compiles against, read off the toolchain
-// rather than hardcoded: the builtin set moves with the compiler, and a list
-// baked in here would silently rot into false "undeclared" reports the next time
-// the language gains a builtin. `ok` false means the toolchain could not be read
-// at all, which disables dimming rather than guessing.
-@(private)
-Builtin_Cache :: struct {
-    names: map[string]bool, // engine-owned keys, alive for the process
-    built: bool,
-    ok:    bool,
-    alloc: runtime.Allocator,
-}
-
-// The packages whose top-level declarations are in scope with no import. Every
-// name they export is allowed, which over-permits slightly — `base:runtime` also
-// exports types a program must name explicitly — but over-permitting only ever
-// costs a missed dim, where under-permitting flags correct code.
-@(private)
-BUILTIN_PACKAGES :: [?]string{"base:builtin", "base:runtime"}
 
 @(private)
 semantic_tokens :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, req: ^lang.Request, res: ^lang.Result) {
@@ -331,105 +308,4 @@ has_using :: proc(node: ts.Node) -> bool {
         }
     }
     return false
-}
-
-// Adds the implicit scope's names to `declared`, building the cache on first
-// call. False when the toolchain could not be read, which takes dimming with it.
-// Keys are inserted borrowed — they belong to the engine and outlive the map.
-@(private)
-builtin_names :: proc(e: ^Engine, parser: ts.Parser, declared: ^map[string]bool) -> bool {
-    sync.lock(&e.builtin_mutex)
-    defer sync.unlock(&e.builtin_mutex)
-
-    if !e.builtins.built {
-        build_builtin_cache(e, parser)
-        e.builtins.built = true
-    }
-    if !e.builtins.ok {
-        return false
-    }
-    for name in e.builtins.names {
-        declared[name] = true
-    }
-    return true
-}
-
-// Reads every top-level declaration out of the builtin packages under ODIN_ROOT.
-// Runs once per process, on whichever worker asks first; the caller holds
-// builtin_mutex. `ok` stays false unless a package was actually read, so a
-// missing or unreadable toolchain disables dimming instead of emptying the scope.
-@(private)
-build_builtin_cache :: proc(e: ^Engine, parser: ts.Parser) {
-    context.allocator = e.builtins.alloc
-    e.builtins.names = make(map[string]bool)
-
-    for pkg in BUILTIN_PACKAGES {
-        // No requesting file and no workspace: a `base:` path resolves off
-        // ODIN_ROOT alone, so neither is consulted.
-        dir, dok := package_dir(e, pkg, "", "")
-        if !dok {
-            continue
-        }
-        if collect_dir_decl_names(e, parser, dir, &e.builtins.names) {
-            e.builtins.ok = true
-        }
-    }
-}
-
-// Adds the top-level declaration names of every `.odin` file directly in `dir`
-// to `out`, cloning each into `out`'s owner. Reports whether a file was read.
-@(private)
-collect_dir_decl_names :: proc(e: ^Engine, parser: ts.Parser, dir: string, out: ^map[string]bool) -> bool {
-    handle, oerr := os.open(dir)
-    if oerr != nil {
-        return false
-    }
-    defer os.close(handle)
-
-    infos, rerr := os.read_dir(handle, -1, context.temp_allocator)
-    if rerr != nil {
-        return false
-    }
-
-    read_any := false
-    for info in infos {
-        if info.type == .Directory || !strings.has_suffix(info.name, ".odin") {
-            continue
-        }
-        if strings.has_suffix(info.name, "_test.odin") {
-            continue
-        }
-        data, derr := os.read_entire_file(info.fullpath, context.temp_allocator)
-        if derr != nil {
-            continue
-        }
-        source := string(data)
-        tree := ts.parser_parse_string(parser, source)
-        if tree == nil {
-            continue
-        }
-        defer ts.tree_delete(tree)
-        read_any = true
-
-        for d in collect_defs(e, ts.tree_root_node(tree), source) {
-            if !d.top_level || d.name == "" {
-                continue
-            }
-            if d.name not_in out {
-                out[strings.clone(d.name)] = true
-            }
-        }
-    }
-    return read_any
-}
-
-@(private)
-builtins_clear :: proc(e: ^Engine) {
-    for name in e.builtins.names {
-        delete(name, e.builtins.alloc)
-    }
-    delete(e.builtins.names)
-    e.builtins.names = {}
-    e.builtins.built = false
-    e.builtins.ok = false
 }

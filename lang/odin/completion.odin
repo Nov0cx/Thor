@@ -314,6 +314,11 @@ complete :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, req: ^lang.Reques
         }
     }
 
+    // The implicit scope — `len`, `append`, `make` — after the keywords, so a
+    // name spelled by both keeps the keyword's plain row rather than the
+    // documentation stub base:builtin gives it (`int :: int`).
+    builtin_completions(e, parser, prefix, res, &seen)
+
     finish_completion(res)
 }
 

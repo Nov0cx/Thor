@@ -98,7 +98,8 @@ subprocess LSP client left as an optional backend behind the same seam.
   `resolve.odin` (entry point every request funnels through, lexical scope), `index.odin` (resident
   stat-invalidated symbol index), `infer.odin`/`typeref.odin`/`decl.odin` (type inference),
   `completion.odin`, `signature.odin`, `symbols.odin` (outline/references/rename), `semantic.odin`,
-  `check.odin` (compiler diagnostics), `actions.odin`, `packagedoc.odin`, `config.odin`.
+  `check.odin` (compiler diagnostics), `actions.odin`, `packagedoc.odin`, `builtins.odin` (the
+  implicit scope, read off the toolchain), `config.odin`.
 - `thor/lang_host.odin` is the editor side: dispatches requests, routes results back to the pane that
   asked, drops superseded ones.
 - **`lang/ROADMAP.md` is the living source of truth** for what works and what is missing. Read it
