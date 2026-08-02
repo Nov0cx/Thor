@@ -23,6 +23,7 @@ Index_Symbol :: struct {
     signature: string,
     line:      int,
     offset:    int,
+    overload:  bool, // a procedure group, whose members go-to-definition reaches through to
 }
 
 // One indexed file: its top-level declarations, the set of every identifier name
@@ -188,6 +189,7 @@ index_reparse :: proc(e: ^Engine, parser: ts.Parser, key: string, modtime, size:
             signature = signature_text(source, d), // clones into context.allocator
             line      = strings.count(source[:ident_start], "\n") + 1,
             offset    = d.ident_start,
+            overload  = d.overload,
         })
     }
     index_collect_idents(root, source, &entry.idents)
@@ -223,8 +225,12 @@ index_collect_idents :: proc(node: ts.Node, source: string, set: ^map[string]boo
 // (excluding the live file `skip`, already searched lexically) to res.symbols as
 // picker candidates, sorted by path for a stable order. Owned strings clone into
 // context.allocator (the Manager's, as resolve left it). Caller holds the mutex.
+//
+// Reports whether the *only* match is a procedure group, so the caller can reach
+// through to its members instead of landing on the list. Meaningless when several
+// files declare the name: that ambiguity goes to the picker as it is.
 @(private)
-index_find_defs :: proc(e: ^Engine, name, skip: string, res: ^lang.Result) {
+index_find_defs :: proc(e: ^Engine, name, skip: string, res: ^lang.Result) -> (single_overload: bool) {
     for path, entry in e.index.files {
         if path == skip {
             continue
@@ -233,6 +239,7 @@ index_find_defs :: proc(e: ^Engine, name, skip: string, res: ^lang.Result) {
             if sym.name != name {
                 continue
             }
+            single_overload = sym.overload // only read when this is the one row
             append(&res.symbols, index_symbol_row(sym, path))
         }
     }
@@ -242,6 +249,7 @@ index_find_defs :: proc(e: ^Engine, name, skip: string, res: ^lang.Result) {
         }
         return a.offset < b.offset
     })
+    return single_overload && len(res.symbols) == 1
 }
 
 // Workspace symbols: appends every indexed declaration of a shown kind (proc,

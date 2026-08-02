@@ -29,6 +29,32 @@ resolve_def :: proc(e: ^Engine, source, needle: string, workspace := "") -> (lan
     return res.location, res.ok
 }
 
+// Runs a Definition request at the first occurrence of `needle` and returns the
+// whole result. Unlike resolve_def it keeps res.symbols, which is where a
+// procedure group's members come back.
+@(private)
+definition_at :: proc(e: ^Engine, source, needle: string, workspace := "", path := "buffer.odin") -> lang.Result {
+    req := lang.Request {
+        kind      = .Definition,
+        path      = path,
+        ext       = ".odin",
+        source    = source,
+        offset    = strings.index(source, needle),
+        workspace = workspace,
+    }
+    res := lang.Result{kind = .Definition}
+    resolve(e, &req, &res)
+    return res
+}
+
+// Frees a Definition result in either shape it comes back in: a lone jump target
+// owns its path, a candidate set owns its rows.
+@(private)
+free_definition :: proc(res: ^lang.Result) {
+    free_symbols(res)
+    delete(res.location.path)
+}
+
 // Frees a symbol result's owned strings (the engine clones into context.allocator).
 @(private)
 free_symbols :: proc(res: ^lang.Result) {

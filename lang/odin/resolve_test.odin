@@ -685,3 +685,176 @@ test_definition_stdlib :: proc(t: ^testing.T) {
         testing.expectf(t, strings.has_prefix(res.hover.text, "println ::"), "hover text: got %q", res.hover.text)
     }
 }
+
+// Go-to-definition on a call of a procedure group offers the members. The group
+// itself is a list of names, so landing on it is one hop short of the code.
+@(test)
+test_definition_overload_offers_members :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package demo
+
+sized_one :: proc(a: int) -> int {
+	return a
+}
+
+sized_two :: proc(a: int, b: int) -> int {
+	return a + b
+}
+
+sizes :: proc{sized_one, sized_two}
+
+main :: proc() {
+	_ = sizes(1, 2)
+}
+`
+    res := definition_at(e, src, "sizes(1, 2)")
+    defer free_definition(&res)
+
+    testing.expect(t, res.ok, "expected go-to-definition on a procedure group")
+    testing.expectf(t, len(res.symbols) == 2, "expected one candidate per member: got %d", len(res.symbols))
+    if len(res.symbols) == 2 {
+        testing.expectf(t, res.symbols[0].name == "sized_one", "first candidate: got %q", res.symbols[0].name)
+        want := strings.index(src, "sized_one ::")
+        testing.expectf(t, res.symbols[0].offset == want, "first jump target: got %d, want %d", res.symbols[0].offset, want)
+        testing.expectf(t, res.symbols[0].path == "buffer.odin", "candidate path: got %q", res.symbols[0].path)
+        testing.expectf(
+            t,
+            res.symbols[1].signature == "sized_two :: proc(a: int, b: int) -> int",
+            "second signature: got %q",
+            res.symbols[1].signature,
+        )
+        testing.expectf(t, res.symbols[1].line == 7, "second line: got %d, want 7", res.symbols[1].line)
+    }
+}
+
+// A group with a single reachable member has an unambiguous definition, so it
+// jumps there instead of asking — the same as a call of an ordinary procedure.
+@(test)
+test_definition_overload_single_member :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package demo
+
+sized_one :: proc(a: int) -> int {
+	return a
+}
+
+sizes :: proc{sized_one}
+
+main :: proc() {
+	_ = sizes(1)
+}
+`
+    res := definition_at(e, src, "sizes(1)")
+    defer free_definition(&res)
+
+    testing.expect(t, res.ok, "expected go-to-definition on a one-member group")
+    testing.expectf(t, len(res.symbols) == 0, "a lone member is a jump, not a picker: got %d", len(res.symbols))
+    want := strings.index(src, "sized_one ::")
+    testing.expectf(t, res.location.start == want, "jump target: got %d, want %d", res.location.start, want)
+}
+
+// A member the package-local lookup cannot reach (written qualified) leaves
+// nothing to expand to, and the group's own declaration answers — its member
+// list is still the closest thing to what was asked for.
+@(test)
+test_definition_overload_falls_back_to_group :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package demo
+
+import "lib"
+
+sizes :: proc{lib.sized_one, lib.sized_two}
+
+main :: proc() {
+	_ = sizes(1)
+}
+`
+    res := definition_at(e, src, "sizes(1)")
+    defer free_definition(&res)
+
+    testing.expect(t, res.ok, "expected the group declaration as a fallback")
+    testing.expectf(t, len(res.symbols) == 0, "no members resolved, so no picker: got %d", len(res.symbols))
+    want := strings.index(src, "sizes :: proc")
+    testing.expectf(t, res.location.start == want, "jump target: got %d, want %d", res.location.start, want)
+}
+
+// The group is reached through the symbol index, which records that a
+// declaration is a group but not what it gathers — so its file is re-parsed for
+// the member list. One member is on disk beside it, the other only in the
+// unsaved buffer; both are members all the same.
+@(test)
+test_definition_overload_cross_file :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    dir := "thor_lang_goto_overload_ws"
+    _ = os.make_directory(dir)
+    defer os.remove(dir)
+
+    api := strings.concatenate({dir, "/api.odin"}, context.temp_allocator)
+    api_src := "package demo\n\njoin_two :: proc(a: string, b: string) -> string {\n\treturn a\n}\n\njoin :: proc{join_one, join_two}\n"
+    _ = os.write_entire_file(api, transmute([]byte)api_src)
+    defer os.remove(api)
+
+    main_path := strings.concatenate({dir, "/main.odin"}, context.temp_allocator)
+    main_src := "package demo\n\njoin_one :: proc(a: string) -> string {\n\treturn a\n}\n\nmain :: proc() {\n\t_ = join(\"a\")\n}\n"
+
+    res := definition_at(e, main_src, "join(\"a\")", dir, main_path)
+    defer free_definition(&res)
+
+    testing.expect(t, res.ok, "expected go-to-definition on a cross-file procedure group")
+    testing.expectf(t, len(res.symbols) == 2, "expected both members: got %d", len(res.symbols))
+    if len(res.symbols) == 2 {
+        testing.expectf(t, res.symbols[0].name == "join_one", "first candidate: got %q", res.symbols[0].name)
+        testing.expectf(
+            t,
+            strings.has_suffix(res.symbols[0].path, "main.odin"),
+            "the buffer-only member keeps its own file: got %q",
+            res.symbols[0].path,
+        )
+        testing.expectf(t, res.symbols[1].name == "join_two", "second candidate: got %q", res.symbols[1].name)
+        testing.expectf(t, strings.has_suffix(res.symbols[1].path, "api.odin"), "second path: got %q", res.symbols[1].path)
+    }
+}
+
+// A group reached through its package (`lib.scale`) expands too: the members
+// live in that package, which is where the lookup already looks.
+@(test)
+test_definition_overload_package_qualified :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    root := "thor_lang_goto_overload_pkg_ws"
+    lib := strings.concatenate({root, "/lib"}, context.temp_allocator)
+    _ = os.make_directory(root)
+    _ = os.make_directory(lib)
+
+    lib_path := strings.concatenate({lib, "/api.odin"}, context.temp_allocator)
+    lib_src := "package lib\n\nscale_one :: proc(v: int) -> int {\n\treturn v\n}\n\nscale_two :: proc(v: int, by: int) -> int {\n\treturn v * by\n}\n\nscale :: proc{scale_one, scale_two}\n"
+    _ = os.write_entire_file(lib_path, transmute([]byte)lib_src)
+
+    defer os.remove(root)
+    defer os.remove(lib)
+    defer os.remove(lib_path)
+
+    main_path := strings.concatenate({root, "/main.odin"}, context.temp_allocator)
+    main_src := "package app\n\nimport \"lib\"\n\nmain :: proc() {\n\t_ = lib.scale(2)\n}\n"
+
+    res := definition_at(e, main_src, "scale(2)", root, main_path)
+    defer free_definition(&res)
+
+    testing.expect(t, res.ok, "expected go-to-definition on a package-qualified group")
+    testing.expectf(t, len(res.symbols) == 2, "expected both members: got %d", len(res.symbols))
+    if len(res.symbols) == 2 {
+        testing.expectf(t, res.symbols[0].name == "scale_one", "first candidate: got %q", res.symbols[0].name)
+        want := strings.index(lib_src, "scale_one ::")
+        testing.expectf(t, res.symbols[0].offset == want, "first jump target: got %d, want %d", res.symbols[0].offset, want)
+        testing.expectf(t, strings.has_suffix(res.symbols[0].path, "api.odin"), "path: got %q", res.symbols[0].path)
+    }
+}

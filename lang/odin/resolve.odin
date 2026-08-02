@@ -196,6 +196,12 @@ resolve :: proc(data: rawptr, req: ^lang.Request, res: ^lang.Result) {
     // 1) Same file: lexical resolution via the LOCALS query.
     defs := collect_defs(e, root, req.source)
     if d, found := resolve_local(defs[:], name, req.offset); found {
+        // A procedure group names other procedures instead of declaring a body,
+        // so a jump to it lands one hop short of the code that was asked for.
+        if req.kind == .Definition && d.overload &&
+           overload_definitions(e, parser, root, req, req.source, req.path, d, res) {
+            return
+        }
         fill_result(res, req, req.path, req.source, d, hover_start, hover_end)
         return
     }
@@ -205,7 +211,7 @@ resolve :: proc(data: rawptr, req: ^lang.Request, res: ^lang.Result) {
     //    ambiguous name (declared in several packages) offers a picker.
     if req.workspace != "" {
         if req.kind == .Definition {
-            resolve_definition_workspace(e, parser, req, name, res)
+            resolve_definition_workspace(e, parser, root, req, name, res)
         } else {
             scan_workspace(e, parser, req, name, hover_start, hover_end, res)
         }
@@ -631,6 +637,14 @@ scan_file :: proc(
     defs := collect_defs(e, ts.tree_root_node(tree), source)
     for d in defs {
         if d.top_level && d.name == name {
+            // A group reached through `pkg.sizes`: its members live in that same
+            // package, so the live buffer has nothing to add and no root is
+            // passed. Definition only — hover shows the group's member list, and
+            // that is already what it should say.
+            if req.kind == .Definition && d.overload &&
+               overload_definitions(e, parser, {}, req, source, path, d, res) {
+                return
+            }
             fill_result(res, req, path, source, d, hover_start, hover_end)
             return
         }
@@ -648,18 +662,24 @@ scan_file :: proc(
 resolve_definition_workspace :: proc(
     e: ^Engine,
     parser: ts.Parser,
+    root: ts.Node,
     req: ^lang.Request,
     name: string,
     res: ^lang.Result,
 ) {
     sync.lock(&e.index.mutex)
     index_sync(e, parser, req)
-    index_find_defs(e, name, req.path, res)
+    group := index_find_defs(e, name, req.path, res)
     sync.unlock(&e.index.mutex)
     switch len(res.symbols) {
     case 0:
         // Unresolved: res.ok stays false so the caller reports "no definition".
     case 1:
+        // The one match is a procedure group: reach through to its members, the
+        // same as the same-file path does.
+        if group && expand_index_group(e, parser, root, req, name, res) {
+            return
+        }
         // Single definition: collapse to the location a direct jump uses, moving
         // the (Manager-owned) path into it and freeing the row's other strings.
         sym := res.symbols[0]
@@ -674,4 +694,43 @@ resolve_definition_workspace :: proc(
         // Ambiguous: leave the candidates in res.symbols for the picker.
         res.ok = true
     }
+}
+
+// Replaces a lone indexed procedure-group match with its members. The index
+// records that a declaration is a group but not what it gathers — only its
+// signature line — so the file it points at is re-parsed for the group's Def and
+// the members are resolved from there. Reports false when that file no longer
+// declares the group (the index had gone stale) or no member resolves, leaving
+// the group itself to answer.
+@(private = "file")
+expand_index_group :: proc(
+    e: ^Engine,
+    parser: ts.Parser,
+    root: ts.Node,
+    req: ^lang.Request,
+    name: string,
+    res: ^lang.Result,
+) -> bool {
+    sym := res.symbols[0]
+    src, path, d, ok := first_proc_in_file(e, parser, sym.path, name)
+    if !ok || !d.overload {
+        return false
+    }
+
+    // Built aside so a group whose members all fail to resolve leaves res as it
+    // found it, with the group row still standing.
+    members := lang.Result{kind = .Definition}
+    if !overload_definitions(e, parser, root, req, src, path, d, &members) {
+        return false
+    }
+
+    delete(sym.name)
+    delete(sym.kind)
+    delete(sym.signature)
+    delete(sym.path)
+    delete(res.symbols)
+    res.symbols = members.symbols
+    res.location = members.location
+    res.ok = true
+    return true
 }

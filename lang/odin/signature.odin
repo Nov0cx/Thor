@@ -5,19 +5,11 @@
 package odin
 
 import "core:os"
-import "core:path/filepath"
 import "core:strings"
 import "core:sync"
 
 import lang ".."
 import ts "../../vendor/odin-tree-sitter"
-
-// How many members of a procedure group are expanded into signatures. A cap
-// rather than a limit anyone is expected to reach: the popup is drawn one line
-// per entry above the caret, so a pathological group would otherwise cover the
-// buffer it is meant to annotate.
-@(private)
-OVERLOAD_LIMIT :: 32
 
 // Resolves the call the caret sits inside to its procedure declaration and fills
 // `res.signature` with that proc's signature line plus the byte range, within
@@ -347,22 +339,10 @@ find_proc_in_dir :: proc(
     return "", "", {}, false
 }
 
-// ---------------------------------------------------------------------------
-// Procedure groups
-// ---------------------------------------------------------------------------
-
-// Expands a procedure group into one entry per member. A group's members are
-// ordinary procedures declared in the group's own package, so they are looked up
-// there: first in the live buffer when it belongs to that package (its on-disk
-// copy may be stale, and a member being edited must still answer), then across
-// the package directory. The directory pass matches *every* outstanding member
-// against each file it parses rather than restarting per member — a group of
-// five in a twenty-file package sits on the per-keystroke path, and one parse per
-// member per file would be twenty-five of them.
-//
-// A member that resolves to nothing is left out; a member written qualified
-// (`proc{foo, other.bar}`) is one of those, since the lookup here is
-// package-local.
+// Expands a procedure group into one entry per member. The members are located
+// package-locally (see overload_sites); one that resolves to nothing is left out,
+// so a group written entirely qualified produces no entries at all and the caller
+// falls back to the group's own declaration.
 @(private)
 overload_entries :: proc(
     e: ^Engine,
@@ -374,167 +354,9 @@ overload_entries :: proc(
     active: int,
     out: ^[dynamic]lang.Signature_Entry,
 ) {
-    members := overload_members(parser, group_src, d)
-    if len(members) == 0 {
-        return
-    }
-    labels := make([]string, len(members), context.temp_allocator)
-
-    dir := filepath.dir(group_path) // a slice of group_path, no allocation
-    if dir == filepath.dir(req.path) {
-        defs := collect_defs(e, root, req.source)
-        fill_member_labels(defs[:], req.source, members, labels)
-    }
-    if labels_missing(labels) {
-        scan_package_members(e, parser, req, dir, members, labels)
-    }
-
-    for label in labels {
-        if label != "" {
-            append(out, signature_entry(label, active))
+    for site in overload_sites(e, parser, root, req, group_src, group_path, d) {
+        if site.label != "" {
+            append(out, signature_entry(site.label, active))
         }
     }
-}
-
-// The member names of a procedure group, read off a re-parse of its declaration
-// text. A re-parse rather than a walk of the original tree because there may not
-// be one: a cross-file callee's tree is freed by first_proc_in_file before this
-// runs, and only its source survives. A textual split of the braces would have to
-// model comments and line breaks the member list is allowed to carry, which the
-// grammar already does. The snippet is prefixed with a package clause so it
-// parses as the file it came from; the names slice into that prefixed copy, which
-// lives on the worker's temp allocator for the rest of the job.
-@(private)
-overload_members :: proc(parser: ts.Parser, source: string, d: Def) -> []string {
-    start := clamp(d.decl_start, 0, len(source))
-    end := clamp(d.decl_end, start, len(source))
-    text := strings.concatenate({"package p\n", source[start:end]}, context.temp_allocator)
-
-    tree := ts.parser_parse_string(parser, text)
-    if tree == nil {
-        return nil
-    }
-    defer ts.tree_delete(tree)
-
-    group, found := find_node_type(ts.tree_root_node(tree), "overloaded_procedure_declaration")
-    if !found {
-        return nil
-    }
-
-    names := make([dynamic]string, context.temp_allocator)
-    named := false // the group's own name is the first identifier, past any @(...)
-    for i in 0 ..< ts.node_named_child_count(group) {
-        c := ts.node_named_child(group, i)
-        if !is_identifier(c) {
-            continue // an attributes node before the name, or a qualified member
-        }
-        if !named {
-            named = true
-            continue
-        }
-        append(&names, ts.node_text(c, text))
-        if len(names) >= OVERLOAD_LIMIT {
-            break
-        }
-    }
-    return names[:]
-}
-
-// First node of type `want` in a pre-order walk from `n`.
-@(private = "file")
-find_node_type :: proc(n: ts.Node, want: string) -> (ts.Node, bool) {
-    if ts.node_is_null(n) {
-        return {}, false
-    }
-    if string(ts.node_type(n)) == want {
-        return n, true
-    }
-    for i in 0 ..< ts.node_child_count(n) {
-        if found, ok := find_node_type(ts.node_child(n, i), want); ok {
-            return found, ok
-        }
-    }
-    return {}, false
-}
-
-// Fills the still-empty slots of `labels` from the top-level procedures of
-// `defs`, matched by name. A slot already filled is left alone, so the first
-// source consulted — the live buffer — wins over the stale copy on disk.
-@(private)
-fill_member_labels :: proc(defs: []Def, source: string, members: []string, labels: []string) {
-    for member, i in members {
-        if labels[i] != "" {
-            continue
-        }
-        for d in defs {
-            if d.top_level && d.kind == "function" && d.name == member {
-                labels[i] = signature_text(source, d) // cloned into the Manager's allocator
-                break
-            }
-        }
-    }
-}
-
-// Fills the remaining members from the package directory `dir`, parsing each
-// .odin file once and matching every outstanding member against it. The
-// requesting file is skipped — its live text has already answered — and the walk
-// stops as soon as nothing is outstanding. Cancellation is polled per file: this
-// runs on the typing-driven path, where the next keystroke supersedes it.
-@(private)
-scan_package_members :: proc(
-    e: ^Engine,
-    parser: ts.Parser,
-    req: ^lang.Request,
-    dir: string,
-    members: []string,
-    labels: []string,
-) {
-    handle, open_err := os.open(dir)
-    if open_err != nil {
-        return
-    }
-    defer os.close(handle)
-
-    infos, read_err := os.read_dir(handle, -1, context.temp_allocator)
-    if read_err != nil {
-        return
-    }
-
-    for info in infos {
-        if lang.request_cancelled(req) {
-            return
-        }
-        if info.type == .Directory || !strings.has_suffix(info.name, ".odin") {
-            continue
-        }
-        if info.fullpath == req.path {
-            continue
-        }
-        data, rerr := os.read_entire_file(info.fullpath, context.temp_allocator)
-        if rerr != nil {
-            continue
-        }
-        src := string(data)
-        tree := ts.parser_parse_string(parser, src)
-        if tree == nil {
-            continue
-        }
-        fill_member_labels(collect_defs(e, ts.tree_root_node(tree), src)[:], src, members, labels)
-        ts.tree_delete(tree)
-        if !labels_missing(labels) {
-            return
-        }
-    }
-}
-
-// Whether any member is still unresolved — so the package scan knows to run at
-// all, and when to stop.
-@(private)
-labels_missing :: proc(labels: []string) -> bool {
-    for label in labels {
-        if label == "" {
-            return true
-        }
-    }
-    return false
 }

@@ -47,7 +47,9 @@ lowest latency.
   Triggered by Alt+Enter or Ctrl+Click. When a name is declared at
   top-level in several workspace files (the flat cross-file match ignores
   package boundaries), the jump offers a picker of all candidates instead of
-  silently taking the first; a single match jumps straight there.
+  silently taking the first; a single match jumps straight there. A **procedure
+  group** answers with its members rather than the list itself (see **Overload
+  sets** below).
 - **Package-qualified go-to-definition & hover** (`pkg.Symbol`): the operand is
   matched against the file's imports and resolved in that package's directory.
   Relative imports (`import "../lib"`, `import "sub"`) resolve fully in-workspace;
@@ -229,9 +231,14 @@ lowest latency.
   explicit keybind does. The auto path is also debounced (~50ms), so holding a
   key down resolves the call once instead of once per repeat; the keybind
   dispatches immediately.
-- **Overload sets (`sizes :: proc{sized_one, sized_two}`):** a procedure group
-  declares no parameters of its own, so signing the group itself would show a
-  call's arguments against an empty list. A call of one is signed **once per
+- **Overload sets (`sizes :: proc{sized_one, sized_two}`):** Odin's one form of
+  overloading. A group declares no parameters and has no body — it names other
+  procedures — so a feature pointed at one has to reach through to the members;
+  signature help and go-to-definition both do, over the shared lookup in
+  `lang/odin/overload.odin`.
+
+  Signing the group itself would show a call's arguments against an empty list, so
+  a call of one is signed **once per
   member** instead, drawn one per line in the popup with the member the arguments
   match marked `>`; only that line brackets its active parameter, since the caret
   is in one argument slot and bracketing the same slot on a candidate that has no
@@ -252,13 +259,17 @@ lowest latency.
   in the caret's slot wins, and failing that the first entry: a call in progress
   must still show something.
 
-  **Members are resolved package-locally**, which is where a group's unqualified
-  members are declared: the live buffer first when it belongs to the group's
-  package (its on-disk copy may be stale, and a member being edited must still
-  answer), then the package directory. That directory pass matches *every*
-  outstanding member against each file it parses rather than restarting per
-  member — this is the per-keystroke path, and one parse per member per file
-  would be quadratic in a large package — and it polls cancellation per file. The
+  **Members are resolved package-locally** (`overload_sites` in
+  `lang/odin/overload.odin`, one lookup shared by signature help and goto —
+  each member comes back as a `Member_Site{name, label, path, line, offset}`,
+  the label for signing and the rest for jumping). Package-locally is where a
+  group's unqualified members are declared: the live buffer first when it belongs
+  to the group's package (its on-disk copy may be stale, and a member being edited
+  must still answer), then the package directory. That directory pass matches
+  *every* outstanding member against each file it parses rather than restarting
+  per member — signature help runs this per keystroke, and one parse per member
+  per file would be quadratic in a large package — and it polls cancellation per
+  file. The
   member names come from a re-parse of the group's declaration text
   (`overload_members`) rather than a textual split of the braces: the member list
   may carry comments and line breaks the grammar already models, and a cross-file
@@ -271,6 +282,27 @@ lowest latency.
   package-local lookup and is left out. A group *none* of whose members resolve
   falls back to signing the group declaration itself, which — see the fix below —
   now reads as its member list.
+
+  **Go-to-definition reaches through the group** the same way
+  (`overload_definitions`): the group's declaration is a list of names, so landing
+  on it leaves the caller one hop short of the code they asked for. A single
+  reachable member is an unambiguous definition and is jumped to directly; several
+  become picker candidates, because what would choose between them are a call's
+  arguments and goto has no call to read. This holds on all three paths goto
+  resolves by — same-file (`resolve`), package-qualified `pkg.sizes` (`scan_file`)
+  and the cross-file index (`expand_index_group`) — so the answer doesn't depend on
+  where the group happens to live. The index case needs `Index_Symbol.overload`:
+  the index records *that* a declaration is a group but not what it gathers, so
+  the file it points at is re-parsed for the member list. As with signature help,
+  a group with no reachable member leaves the group declaration itself as the
+  answer rather than reporting nothing.
+
+  The live buffer's package membership is decided by comparing directories
+  (`same_dir`), and the two spellings arrive from different places — the request
+  carries the path its file was opened with, a cross-file group the one the
+  workspace walk produced — so an unequal pair is retried absolute. A false
+  negative there costs only the unsaved edits in that one file, never a wrong
+  answer.
 
   **Fixed alongside:** `signature_text` and `declaration_text` both cut a
   procedure's text at the first `{` to keep its body out, and a group's brace
@@ -287,17 +319,18 @@ lowest latency.
   is typed), `_cross_file` (group and members reached through the package scan),
   `_falls_back_to_group` (every member qualified), `test_param_arity` (empty,
   nested-type commas, a result tuple, variadic) and
-  `test_hover_procedure_group_keeps_members`.
+  `test_hover_procedure_group_keeps_members`; goto by
+  `test_definition_overload_offers_members` (one candidate per member, with its
+  own jump target and line), `_single_member` (a jump, not a picker),
+  `_falls_back_to_group`, `_cross_file` (index-resolved group, one member on disk
+  beside it and one only in the unsaved buffer) and `_package_qualified`.
 
-  **Still open:** go-to-definition on a group still jumps to the group
-  declaration rather than offering its members, which is correct but one hop of
-  indirection — now that the declaration renders its member list, Alt+Enter from
-  there reaches the member. Jumping straight to the arity-matched member (and
-  offering the set when ambiguous) is the natural follow-up and is mostly built:
-  `overload_members` and `pick_overload` are the pieces, and what it needs is a
-  path for the *index*-resolved case, which answers from `Index_Symbol` and so
-  never sees `Def.overload`. Type-based overload selection is not attempted at
-  all — it waits on the inference layer, like the rest of the precision work.
+  **Still open:** which member a *goto* means is left to the user whenever there
+  is more than one, even though a call sits right there — `pick_overload` already
+  reads its arity, and feeding that through would turn the common two-member case
+  into a direct jump, with the picker kept for a genuine tie. Type-based overload
+  selection is not attempted at all — it waits on the inference layer, like the
+  rest of the precision work.
 - **Rename (Ctrl+R):** prompts for a new name in the palette (prefilled with
   the symbol under the caret), then rewrites every usage find-references would
   list (`Rename` request → `rename`). The backend returns *edits*
@@ -370,7 +403,9 @@ lowest latency.
       workspace file's top-level declaration of the name (not just the first);
       one hit jumps directly, two or more open the rich picker
       ("Multiple definitions...") so the user chooses. Same-file lexical and
-      package-qualified resolutions are unambiguous and still jump straight.
+      package-qualified resolutions are unambiguous and still jump straight —
+      except on a procedure group, whose members are candidates on every path
+      (see **Overload sets**).
       Engine: `resolve_definition_workspace`/`def_scan_dir`/`def_scan_file`
       collect into `res.symbols`, collapsing a lone hit back to `res.location`;
       host: `thor_show_definition_candidates` reuses the symbol picker + jump
@@ -385,6 +420,7 @@ lowest latency.
       is covered. See **Go back / go forward** above.
 
 ## Missing — engine depth (Odin native analysis)
+- [ ] **goto usage**
 - [x] **awarness of implicit casting.** Split four ways, all landed: implicit
       selectors in every expected-type position (`expected_type_at` walks up to a
       literal field, call argument, comparison, `switch` case or result slot,
@@ -497,9 +533,10 @@ lowest latency.
       and live-updates the active parameter as arguments are typed/edited (editor
       `on_signature` callback → `thor_editor_signature_help`, silent on miss).
       Overload sets landed: a call of a procedure group is signed once per
-      member, the member matching the written arity marked — see **Overload
-      sets** above, whose "still open" note covers go-to-definition and
-      type-based selection. The auto
+      member, the member matching the written arity marked, and go-to-definition
+      on one offers the members rather than the list — see **Overload sets**
+      above, whose "still open" note covers arity-picking a goto and type-based
+      selection. The auto
       trigger is debounced, so a burst of keystrokes dispatches once — see
       request coalescing under scalability.
 - [x] **Completion (semantic).** `Completion` request served by `complete`,
