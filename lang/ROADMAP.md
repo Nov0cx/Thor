@@ -236,13 +236,16 @@ lowest latency.
   (proc/type/enum/const/var → theme syntax colors) and the rest dimmed, with a
   `path:line` preview line under the selected row.
 - **Find references (find-usages):** F10 lists every usage of the symbol under
-  the caret in the fuzzy picker (`References` request → `collect_references`). A
-  name that binds to a local or parameter is confined to that declaration's
-  scope in the one file; anything top-level (or a name that doesn't resolve
-  locally) is matched across the whole workspace, mirroring the cross-file goto's
-  flat name match — so it is textual-but-AST-aware, not type-aware. Each row is
-  the source line the usage sits on (its code context) with a `path:line`
-  preview; choosing one opens the owning file and jumps there.
+  the caret in the fuzzy picker (`References` request → `collect_references`).
+  The name is resolved first and every occurrence is then bound-checked against
+  what it resolved to: a local or parameter to its own declaration (a shadowing
+  redeclaration is a different variable), a top-level symbol to the package
+  declaring it (bare inside that package, only behind a qualifier naming it
+  outside), a struct field to the struct declaring it (so `a.x` and `b.x` are
+  two different fields). The declaration itself is not listed — it is a use of
+  the symbol only to rename. Each row is the source line the usage sits on (its
+  code context) with a `path:line` preview; choosing one opens the owning file
+  and jumps there.
 - **Signature help:** Ctrl+Shift+Space resolves the call the caret is inside
   (`Signature_Help` request → `signature_help`) and shows the callee's signature in
   a popup above the caret, with the argument the caret is on bracketed. The callee
@@ -361,7 +364,8 @@ lowest latency.
   rest of the precision work.
 - **Rename (Ctrl+R):** prompts for a new name in the palette (prefilled with
   the symbol under the caret), then rewrites every usage find-references would
-  list (`Rename` request → `rename`). The backend returns *edits*
+  list, plus the declaration it leaves out (`Rename` request → `rename`, the same
+  scan with the declaration kept). The backend returns *edits*
   (`Result.edits: []Text_Edit`), never touching a file itself; the host
   (`thor_apply_rename`) validates each edit's `old_text` against the current
   content and applies the whole set or none — a rename that lands in some files
@@ -525,10 +529,10 @@ lowest latency.
       a declaration from other packages and `@(private="file")` from the rest of
       its own, and neither the index nor `collect_defs` records them, so both are
       offered as if public (package docs are the one consumer that filters
-      `@(private)`, textually). References and rename still match a top-level name
-      across the whole workspace rather than binding it to the package that
-      declares it; they share the reference scan, so scoping them is one change,
-      but it changes the *reach of an edit* and wants its own pass.
+      `@(private)`, textually). References and rename do bind a top-level name to
+      the package declaring it (see **References** below), which is the reach part
+      of the same question; what is still missing is the *visibility* part, where
+      an attribute narrows a declaration below its package.
 - [~] **Type inference.** `x := f()` infers the callee's declared result type
       (`call_result_type` → `resolve_call_target` + `proc_result_type`, which reads
       the type after `->` out of the signature text — the callee's tree is already
@@ -569,14 +573,30 @@ lowest latency.
       the `Open_File`, consumed by the editor widget (fold-aware visual rows, gutter
       chevrons, collapsed "…" marker, gutter-click + Fold: commands). Folds are keyed
       by line, so edits above a fold can drop its collapsed state until re-folded.
-- [~] **References / find-usages.** F10; `References` request served by
-      `collect_references` (locals confined to their scope in-file, top-level
-      names matched across the workspace via the symbol index's per-file
-      identifier sets — only files that mention the name are re-parsed).
-      Name-based, not
-      important to fix: type-aware: a top-level scan can list an unrelated same-named symbol in
-      another package, and value member names (`v.field`) aren't distinguished.
-      Type-aware precision waits on the inference layer.
+- [x] **References / find-usages.** F10; `References` request served by
+      `collect_references` (`references.odin`), which resolves the caret's name to
+      a `Ref_Target` and then bound-checks every occurrence against it rather than
+      matching the spelling:
+      - a **local or parameter** by re-running goto's own lexical resolution at
+        each occurrence, so a redeclaration in an inner block is a different
+        variable and a `v.total` field access is not the local `total`;
+      - a **top-level symbol** by the package that declares it — bare only inside
+        that package (and only where nothing nearer shadows it), elsewhere only
+        behind an import alias that resolves to that same directory, so the rival
+        `shared` of another package is no longer listed;
+      - a **struct field** by the site the field is declared at, reached by
+        inferring each operand's type (`infer_expr_type` → `member_visitor`,
+        through aliases and `using` embedding), so `p.x` and `r.x` separate, and
+        `T{x = 1}` counts as the field it names.
+      The declaration is deliberately not one of the results — rename asks for the
+      same scan with `req.kind == .Rename` and keeps it. Exclusion needs proof and
+      inclusion does not: a file with a `using` in reach, an operand whose type
+      does not infer, a name that resolves nowhere, or a scan past
+      `REF_INFER_LIMIT` all fall back to the flat name match, since a usage
+      dropped is a rename that leaves code broken. Still name-based where the type
+      layer cannot see: an interface-free `v.field` on an uninferable operand.
+      Workspace files come from the symbol index's per-file identifier sets — only
+      files that mention the name are re-parsed.
 - [x] **Signature help.** Ctrl+Shift+Space; `Signature_Help` request served by
       `signature_help`, which resolves the enclosing call's procedure (same-file,
       package-qualified and cross-file, reusing the goto resolution) and returns its
@@ -609,11 +629,13 @@ lowest latency.
       served by `rename`, which runs the reference scan and turns each occurrence
       into a `Text_Edit`. The engine writes nothing — it returns `res.edits` and
       the host applies them, so an open buffer's change is one undo entry. Reach
-      and precision are exactly references': a local or parameter stays inside its
-      declaration's scope in one file, a top-level name is matched workspace-wide,
-      so an unrelated same-named symbol in another package is renamed with it
-      until the type layer lands. The new name must be a legal Odin identifier
-      and not a keyword/builtin (`valid_identifier`); gated by `enable_rename`.
+      and precision are exactly references' — a local to its own scope, a
+      top-level name to its package (bare there, qualified elsewhere), a field to
+      the struct declaring it — plus the declaration, which find-usages leaves out
+      and a rename must obviously rewrite. Where the scan cannot prove a binding
+      it keeps the occurrence, so a rename is still wide before it is wrong. The
+      new name must be a legal Odin identifier and not a keyword/builtin
+      (`valid_identifier`); gated by `enable_rename`.
 - [x] **Diagnostics.** A save queues a `Diagnostics` request for the saved file's
       package; `check.odin` runs `odin check` on a pool worker and answers a
       `Diagnostic_Report` — the checked `scope` plus every diagnostic in it, each

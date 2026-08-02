@@ -150,11 +150,11 @@ thor_goto_workspace_symbol :: proc(thor: ^Thor) {
     )
 }
 
-// F10: list every usage of the symbol under the caret in a fuzzy picker.
-// A local/parameter is confined to its scope; a top-level symbol is matched
-// across the whole workspace, so the scan re-parses workspace files off-thread —
-// the picker opens immediately in a loading state and thor_update_references
-// fills it when the result lands.
+// F10: list every usage of the symbol under the caret in a fuzzy picker — its
+// uses, not its declaration. A local/parameter is confined to its scope; a
+// top-level symbol reaches its package and every file qualifying it, so the scan
+// re-parses workspace files off-thread — the picker opens immediately in a
+// loading state and thor_update_references fills it when the result lands.
 thor_find_references :: proc(thor: ^Thor) {
     file := thor_active_open_file(thor)
     if file == nil || !file.loaded {

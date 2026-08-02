@@ -1,0 +1,149 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+Thor is a code editor written in Odin on top of raylib. `README.md` covers user-facing usage and
+first-time setup; this file covers what is needed to change the code.
+
+## Commands
+
+`build.odin` is the build driver — run it from the repository root:
+
+```bash
+odin run build.odin -file -- deps          # fetch submodules, build HarfBuzz + tree-sitter (once per machine)
+odin run build.odin -file                  # build into bin/debug
+odin run build.odin -file -- run           # build and start
+odin run build.odin -file -- run -release  # optimized, into bin/release
+odin run build.odin -file -- check         # type-check only (main reaches every package)
+odin run build.odin -file -- test          # every package with tests, into bin/test
+odin run build.odin -file -- clean
+odin run build.odin -file -- -h -verbose   # flags; -verbose echoes each command
+```
+
+Per-package and single tests:
+
+```bash
+odin test lang/odin                                            # one package (package name is `odin`)
+odin test thor -define:ODIN_TEST_NAMES=thor.test_overlay_exact_and_adjacent # one test: <package>.<proc>
+odin check thor -no-entry-point                                # type-check one package, no linking
+```
+
+Tests run with the repository root as the working directory, so they find `assets/`, `plugins/` and
+`settings/`. When a package gets its first `_test.odin`, add it to the `packages` list in
+`run_tests` (`build.odin`) or CI-equivalent runs will skip it.
+
+Linking needs MSVC on PATH (Thor links `harfbuzz.lib` and `libtree-sitter.lib`). `build.odin` locates
+`VsDevCmd.bat` itself via `vswhere`, so a plain shell works for `odin run build.odin`; a bare
+`odin build main` / `odin test <pkg>` requires a developer shell. `odin check` needs neither.
+
+Launching the GUI from an agent-spawned process hangs in `rl.InitWindow` — verify changes with
+`odin check` / `odin build` / the test suites, not by running the app.
+
+## Layout and dependency direction
+
+Packages only ever depend downward in this list; keeping that direction is what lets the lower layers
+be tested headlessly.
+
+- `piecetable` — the buffer representation. Pure data structure.
+- `textedit` — UI-independent editing core: cursors, selection, movement, edits, undo/redo with
+  coalescing. Bumps `State.revision` on every content change; everything downstream compares against
+  a stored revision to decide what is stale.
+- `ui` — raylib layer: `Widget` tree (intrusive linked children + a vtable of
+  layout/handle_event/draw/destroy), `Context` (hit testing, focus, event queue, global key hook),
+  the font/icon atlas + HarfBuzz shaping (`text.odin`, `shape.odin`), theme loading.
+- `widgets` — concrete widgets built on `ui.Widget`. `editor.odin` is the big one: it *borrows* a
+  `textedit.State` and never owns document data. Widgets talk to the app through `#type proc`
+  callbacks (`Goto_Definition_Proc`, `Hover_Proc`, `Completion_Proc`, …), never by importing `thor`.
+- `syntax` / `treecache` — tree-sitter parsing and resident per-buffer trees (incremental re-parse).
+  `syntax` yields capture-name-tagged spans and knows nothing about themes or colors.
+- `plugin` — the Lua 5.4 VM, the language registry plugins fill at load, and the mapping from
+  tree-sitter captures to theme *roles*.
+- `lang` + `lang/odin` — language intelligence (see below).
+- `setting`, `watch`, `shell` — JSON settings/keybinds, the async recursive file-system watcher,
+  process execution.
+- `thor` — the application: owns `Thor` (all state), builds the widget tree (`build.odin`), and
+  hosts everything else. `main` only sets up the debug tracking allocator and calls
+  `thor.init/run/shutdown`.
+
+`Thor.run` is a plain per-frame loop: poll (dropped files, watcher, settings, IO) → reap async
+results → `ui.context_update` → draw → `free_all(context.temp_allocator)`. Anything allocated for one
+frame goes in the temp allocator.
+
+## Async work
+
+There is one pattern for all off-thread work and it is worth matching exactly: a worker thread does
+its job, then appends the job struct to a `[dynamic]^Job` on `Thor` under `io_mutex`; the main thread
+drains that queue once per frame and applies the result. File loads/saves (`thor/files.odin`),
+console commands, git status and the whole `lang` seam all use it. Workers never touch widgets and
+never allocate from the main allocator without care.
+
+Debug builds run under `mem.Tracking_Allocator`, so leaks and bad frees are reported at exit. Struct
+fields are commented `// owned` vs borrowed; respect that — `shutdown` frees exactly the owned ones.
+
+## Language intelligence (`lang`)
+
+Thor's LSP alternative: LSP-shaped features served **in-client** by native analyzers, with a
+subprocess LSP client left as an optional backend behind the same seam.
+
+- `lang/lang.odin` is the seam: a `Backend` vtable (`handles`/`resolve`/`destroy`), a `Manager` that
+  routes a `Request` by file extension onto a worker pool and reaps `Result`s on the main thread.
+  **Byte offsets are the position currency** everywhere (the piece table works in bytes); an LSP
+  backend would convert UTF-16 at its own edge. A backend that wants the buffer changed answers with
+  `Text_Edit`s — it never writes files itself.
+- Dispatch discipline: each request kind has exactly one consumer slot (`*_request_id`) on `Thor`, so
+  every dispatch goes through `manager_request_latest` (immediate, cancels the older same-kind
+  request) or `manager_request_debounced` (for triggers that fire while typing). A cancelled result
+  is freed without reaching the handler, so `ok == false` always means "found nothing".
+- `lang/odin` is the in-client Odin analyzer, split by concern: `engine.odin` (lifetime + seam),
+  `resolve.odin` (entry point every request funnels through, lexical scope), `index.odin` (resident
+  stat-invalidated symbol index), `infer.odin`/`typeref.odin`/`decl.odin` (type inference),
+  `completion.odin`, `signature.odin`, `symbols.odin` (outline/references/rename), `semantic.odin`,
+  `check.odin` (compiler diagnostics), `actions.odin`, `packagedoc.odin`, `config.odin`.
+- `thor/lang_host.odin` is the editor side: dispatches requests, routes results back to the pane that
+  asked, drops superseded ones.
+- **`lang/ROADMAP.md` is the living source of truth** for what works and what is missing. Read it
+  before adding a feature here, and update it after.
+
+Grammar shapes are the usual source of bugs — tree-sitter-odin's node names often do not match
+intuition (`x := v` is `assignment_statement`, `p: Point` is `var_declaration`, a container literal
+drops its `[]` from the named children). The repo's technique for settling such a question: drop a
+throwaway `z*_test.odin` that recursively prints `ts.node_type` / `node_is_named` / `node_text` for
+**all** children (not `ts.node_string`, which hides the anonymous tokens that matter), run it with
+`-define:ODIN_TEST_NAMES=`, then delete it.
+
+## Syntax highlighting and plugins
+
+Every language is a Lua plugin at `plugins/<id>/plugin.lua`, backed either by a tree-sitter grammar
+(`grammar = "<name>"`, capture names mapped to theme roles) or by a pure-Lua `highlight` function
+returning `{start, end, role}` spans for formats where a grammar is overkill. Extensionless names
+(`Makefile`, `Dockerfile`) work because `thor_highlight_key` falls back from extension to basename.
+
+Colors resolve grammar capture → theme role (plugin) → `rl.Color` (`ui.theme_role_color`); the
+analyzer's semantic tokens are layered over the grammar spans in `thor/highlight.odin`
+(`thor_merge_semantic` must emit ascending, non-overlapping spans — the editor walks them with one
+forward-only cursor).
+
+Adding a tree-sitter grammar means keeping **three lists in sync**, or the build breaks for everyone:
+the `GRAMMARS` table in `build.odin`, the hard imports + `h.languages[...]` registrations in
+`syntax/syntax.odin`, and the four `.github/workflows/*.yml`. Then add the `plugins/<id>/plugin.lua`.
+
+## Runtime resources and configuration
+
+Thor moves its working directory to the executable at startup, so `assets/`, `plugins/` and
+`settings/` are loaded *beside the binary*; the build stages fresh copies there on every build. The
+folder Thor opens still comes from the directory it was launched in.
+
+Configuration is layered: global `settings/*.json` (settings, keybinds, comment prefixes) overlaid by
+a workspace's `.thor/` directory. `.thor/` also holds `tasks.json` (named shell commands surfaced in
+the titlebar) and `odin-analyzer.json` (per-workspace analyzer collections and feature toggles —
+deliberately Thor's own file, not `ols.json`). This repo has its own `.thor/`, so those files serve
+as working examples.
+
+## Code style
+
+Comments are terse Odin-standard-library style: a short `//` line above the declaration stating
+*what* something is, not a paragraph justifying why. Keep it short. Keep genuinely load-bearing gotchas, compressed
+to one line. Field comments stay short (`// owned`, `// NOREF when unset`). Use ASD-STE100 Simplified Technical English (STE).
+
+Indentation is four spaces, not tabs — which is why `-strict-style` is deliberately absent from the
+build flags (`-vet` is available via `build.odin -- -vet`).

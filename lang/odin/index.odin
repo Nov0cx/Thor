@@ -234,7 +234,7 @@ index_collect_idents :: proc(node: ts.Node, source: string, set: ^map[string]boo
 @(private)
 index_find_defs :: proc(e: ^Engine, name, skip, dir: string, res: ^lang.Result) -> (single_overload: bool) {
     for path, entry in e.index.files {
-        if path == skip || !index_scoped(path, dir) {
+        if path_equal(path, skip) || !index_scoped(path, dir) {
             continue
         }
         for sym in entry.decls {
@@ -260,7 +260,7 @@ index_find_defs :: proc(e: ^Engine, name, skip, dir: string, res: ^lang.Result) 
 @(private)
 index_all_symbols :: proc(e: ^Engine, skip: string, res: ^lang.Result) {
     for path, entry in e.index.files {
-        if path == skip {
+        if path_equal(path, skip) {
             continue
         }
         for sym in entry.decls {
@@ -304,7 +304,7 @@ index_first_path :: proc(e: ^Engine, name, skip, kind_filter, dir: string) -> (s
     best := ""
     found := false
     for path, entry in e.index.files {
-        if path == skip || !index_scoped(path, dir) {
+        if path_equal(path, skip) || !index_scoped(path, dir) {
             continue
         }
         for sym in entry.decls {
@@ -325,10 +325,12 @@ index_first_path :: proc(e: ^Engine, name, skip, kind_filter, dir: string) -> (s
 // live file `skip`) to `out`, each cloned into `out`'s allocator so it survives
 // after the caller drops the mutex. Files whose `idents` lack the name — the
 // majority — are skipped, so the reference scan re-parses only real candidates.
+// `skip` matters more here than elsewhere: the buffer was scanned already, and a
+// spelling that failed to match it would list every one of its usages twice.
 @(private)
 index_ref_files :: proc(e: ^Engine, name, skip: string, out: ^[dynamic]string) {
     for path, entry in e.index.files {
-        if path == skip {
+        if path_equal(path, skip) {
             continue
         }
         if name in entry.idents {
@@ -358,7 +360,7 @@ index_dir_completions :: proc(
             continue
         }
         indexed = true
-        if path == skip {
+        if path_equal(path, skip) {
             continue
         }
         for sym in entry.decls {

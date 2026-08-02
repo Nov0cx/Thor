@@ -306,6 +306,17 @@ locate_decl :: proc(root: ts.Node, source, name, decl_type: string) -> (ts.Node,
     return {}, false
 }
 
+// The name a declaration declares — its identifier child, past any attributes.
+// Empty when the node does not lead with one. Slices `source`.
+@(private)
+decl_name :: proc(decl: ts.Node, source: string) -> string {
+    id := ts.node_named_child(decl, decl_body_start(decl))
+    if !is_identifier(id) {
+        return ""
+    }
+    return ts.node_text(id, source)
+}
+
 // Index of a declaration's first named child past its attributes: `@(private)`
 // hangs an `attributes` node ahead of the name, shifting everything after it.
 @(private)
@@ -343,6 +354,7 @@ Member_Ctx :: struct {
     got:         bool,
     src:         string,
     path:        string,
+    owner:       string, // the struct that declares the field — the one embedding lands on
     ident_start: int,
     ident_end:   int,
     decl_start:  int,
@@ -366,6 +378,7 @@ member_visitor :: proc(sd: ts.Node, source, path: string, ctx_raw: rawptr) {
     ctx.got = true
     ctx.src = source
     ctx.path = path
+    ctx.owner = decl_name(sd, source)
     ctx.ident_start = int(ts.node_start_byte(id))
     ctx.ident_end = int(ts.node_end_byte(id))
     ctx.decl_start = int(ts.node_start_byte(fd))
