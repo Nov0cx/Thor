@@ -44,6 +44,14 @@ signature_text :: proc(source: string, d: Def) -> string {
     end := clamp(d.decl_end, start, len(source))
     text := source[start:end]
 
+    // A procedure group's brace opens its member list, not a body, and the list
+    // is the only thing the row has to say — cutting at the brace would leave
+    // every group in the workspace showing the same `sizes :: proc`. It is kept
+    // whole and flattened onto the one line the row has room for.
+    if d.overload {
+        return flatten_lines(text)
+    }
+
     if brace := strings.index_byte(text, '{'); brace >= 0 {
         text = text[:brace]
     }
@@ -51,6 +59,28 @@ signature_text :: proc(source: string, d: Def) -> string {
         text = text[:nl]
     }
     return strings.clone(strings.trim_space(text))
+}
+
+// `text` with every run of whitespace collapsed to a single space, so a
+// declaration written across several lines still fits a one-line row. Allocated
+// in context.allocator, like the other text builders here.
+@(private)
+flatten_lines :: proc(text: string) -> string {
+    b := strings.builder_make(context.allocator)
+    space := false
+    for i in 0 ..< len(text) {
+        c := text[i]
+        if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
+            space = true
+            continue
+        }
+        if space && strings.builder_len(b) > 0 {
+            strings.write_byte(&b, ' ')
+        }
+        space = false
+        strings.write_byte(&b, c)
+    }
+    return strings.to_string(b)
 }
 
 // The full declaration text for a hover popup: the whole declaration node,
@@ -67,8 +97,10 @@ declaration_text :: proc(source: string, d: Def) -> string {
 
     // Procedures: show the signature, not the body. The first `{` opens the body
     // (attributes use `(...)`, the signature has no brace), so cutting there keeps
-    // any attribute line and the `name :: proc(...) -> ...` head.
-    if d.kind == "function" {
+    // any attribute line and the `name :: proc(...) -> ...` head. A procedure
+    // group is the exception — it has no body, and the brace it does have holds
+    // the members, which are the whole content of the declaration.
+    if d.kind == "function" && !d.overload {
         if brace := strings.index_byte(text, '{'); brace >= 0 {
             text = text[:brace]
         }

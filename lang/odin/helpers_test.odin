@@ -157,6 +157,42 @@ sig_help :: proc(e: ^Engine, source: string, at: int, workspace := "", path := "
     return res.signature, res.ok
 }
 
+// Frees a signature result. These tests build the Request by hand, so nothing
+// calls the Manager's job_free for them and the entries are theirs to release.
+@(private)
+sig_free :: proc(sig: lang.Signature_Info) {
+    for entry in sig.entries {
+        delete(entry.label)
+    }
+    delete(sig.entries)
+}
+
+// The label of the entry the backend marked active and the text of the active
+// parameter within it, so a test can assert both in one place. Empty strings when
+// there is no entry or the entry reported no parameter span.
+@(private)
+sig_active :: proc(sig: lang.Signature_Info) -> (label, param: string) {
+    if sig.active < 0 || sig.active >= len(sig.entries) {
+        return "", ""
+    }
+    entry := sig.entries[sig.active]
+    if entry.active_end <= entry.active_start || entry.active_end > len(entry.label) {
+        return entry.label, ""
+    }
+    return entry.label, entry.label[entry.active_start:entry.active_end]
+}
+
+// True when some entry of the signature result carries `label`.
+@(private)
+sig_has :: proc(sig: lang.Signature_Info, label: string) -> bool {
+    for entry in sig.entries {
+        if entry.label == label {
+            return true
+        }
+    }
+    return false
+}
+
 // True when the completion result offers a candidate named `name`.
 @(private)
 has_completion :: proc(res: ^lang.Result, name: string) -> bool {

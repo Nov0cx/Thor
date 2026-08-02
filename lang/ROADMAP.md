@@ -220,7 +220,8 @@ lowest latency.
   (`pkg.fn(...)`) and cross-file workspace scan — and the active parameter is the
   count of top-level commas before the caret in the call's parentheses. Only
   procedures answer; the popup dismisses on Escape, a caret jump, or when focus
-  leaves the pane. **Auto-triggered while typing:** opening `(` or a `,` pops the
+  leaves the pane. A call of a **procedure group** signs every member (see
+  **Overload sets** below). **Auto-triggered while typing:** opening `(` or a `,` pops the
   signature up without the keybind, and once it is up every argument keystroke,
   Backspace/Delete and Left/Right re-resolves it so the bracketed active parameter
   tracks the caret; moving the caret out of the call (or closing it) dismisses the
@@ -228,6 +229,75 @@ lowest latency.
   explicit keybind does. The auto path is also debounced (~50ms), so holding a
   key down resolves the call once instead of once per repeat; the keybind
   dispatches immediately.
+- **Overload sets (`sizes :: proc{sized_one, sized_two}`):** a procedure group
+  declares no parameters of its own, so signing the group itself would show a
+  call's arguments against an empty list. A call of one is signed **once per
+  member** instead, drawn one per line in the popup with the member the arguments
+  match marked `>`; only that line brackets its active parameter, since the caret
+  is in one argument slot and bracketing the same slot on a candidate that has no
+  such parameter would claim a match that was never made. The seam carries a list
+  for this: `Signature_Entry{label, active_start, active_end}` and
+  `Signature_Info{entries, active}`, an ordinary call answering with exactly one
+  entry and rendering exactly as it did before — the marker column appears only
+  when there is something to choose between.
+
+  **Which member is active** is decided by *arity*: the first entry whose
+  parameter count equals the number of arguments **written** (`param_arity` /
+  `call_arg_count`), a variadic tail absorbing any surplus. Counting what is
+  written rather than where the caret is means a trailing empty argument counts —
+  `sizes(1,|)` is two slots — so the highlighted member tracks the call as it is
+  typed rather than only once it is complete. When nothing matches exactly (a
+  call still in progress, or a group whose members differ by parameter *type*
+  rather than count, which this does not read) the first entry with a parameter
+  in the caret's slot wins, and failing that the first entry: a call in progress
+  must still show something.
+
+  **Members are resolved package-locally**, which is where a group's unqualified
+  members are declared: the live buffer first when it belongs to the group's
+  package (its on-disk copy may be stale, and a member being edited must still
+  answer), then the package directory. That directory pass matches *every*
+  outstanding member against each file it parses rather than restarting per
+  member — this is the per-keystroke path, and one parse per member per file
+  would be quadratic in a large package — and it polls cancellation per file. The
+  member names come from a re-parse of the group's declaration text
+  (`overload_members`) rather than a textual split of the braces: the member list
+  may carry comments and line breaks the grammar already models, and a cross-file
+  callee's own tree is freed by `first_proc_in_file` before this runs, so only its
+  source survives. Expansion is capped at `OVERLOAD_LIMIT` (32) — the popup is one
+  line per entry, so a pathological group would otherwise cover the buffer it
+  annotates.
+
+  **A member written qualified** (`proc{foo, other.bar}`) is outside the
+  package-local lookup and is left out. A group *none* of whose members resolve
+  falls back to signing the group declaration itself, which — see the fix below —
+  now reads as its member list.
+
+  **Fixed alongside:** `signature_text` and `declaration_text` both cut a
+  procedure's text at the first `{` to keep its body out, and a group's brace
+  opens its *member list*, not a body. Every procedure group in the workspace was
+  therefore rendering as a bare `sizes :: proc` — in the hover popup, the document
+  outline, workspace symbols and the symbol index alike. `Def.overload` (set by
+  `collect_defs`'s `overloaded_procedure_declaration` case) exempts them: hover
+  shows the group across every line it was written on, like any other multi-line
+  declaration, and the one-line symbol rows keep the list with its whitespace
+  flattened (`flatten_lines`).
+
+  Covered by `test_signature_help_overload_set` (one entry per member, arity
+  picking the active one), `_tracks_arity` (the active entry moving as the comma
+  is typed), `_cross_file` (group and members reached through the package scan),
+  `_falls_back_to_group` (every member qualified), `test_param_arity` (empty,
+  nested-type commas, a result tuple, variadic) and
+  `test_hover_procedure_group_keeps_members`.
+
+  **Still open:** go-to-definition on a group still jumps to the group
+  declaration rather than offering its members, which is correct but one hop of
+  indirection — now that the declaration renders its member list, Alt+Enter from
+  there reaches the member. Jumping straight to the arity-matched member (and
+  offering the set when ambiguous) is the natural follow-up and is mostly built:
+  `overload_members` and `pick_overload` are the pieces, and what it needs is a
+  path for the *index*-resolved case, which answers from `Index_Symbol` and so
+  never sees `Def.overload`. Type-based overload selection is not attempted at
+  all — it waits on the inference layer, like the rest of the precision work.
 - **Rename (Ctrl+R):** prompts for a new name in the palette (prefilled with
   the symbol under the caret), then rewrites every usage find-references would
   list (`Rename` request → `rename`). The backend returns *edits*
@@ -426,7 +496,10 @@ lowest latency.
       above the caret with the active argument bracketed. Auto-triggers on `(`/`,`
       and live-updates the active parameter as arguments are typed/edited (editor
       `on_signature` callback → `thor_editor_signature_help`, silent on miss).
-      Missing: overload sets (the first matching procedure wins). The auto
+      Overload sets landed: a call of a procedure group is signed once per
+      member, the member matching the written arity marked — see **Overload
+      sets** above, whose "still open" note covers go-to-definition and
+      type-based selection. The auto
       trigger is debounced, so a burst of keystrokes dispatches once — see
       request coalescing under scalability.
 - [x] **Completion (semantic).** `Completion` request served by `complete`,

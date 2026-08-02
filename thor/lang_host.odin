@@ -998,6 +998,9 @@ thor_on_lang_result :: proc(user: rawptr, res: ^lang.Result) {
 // Shows the resolved signature in a popup above the caret once its request lands.
 // Drops a superseded result (the caret has since moved to another call) by id, and
 // brackets the active argument so the caller can see which parameter it is on.
+// A procedure group answers with one entry per member: they are drawn one per
+// line with the one the arguments match marked, so the alternatives stay visible
+// while the call is being typed.
 @(private = "file")
 thor_show_signature :: proc(thor: ^Thor, res: ^lang.Result) {
     if res.id != thor.signature_request_id {
@@ -1006,7 +1009,7 @@ thor_show_signature :: proc(thor: ^Thor, res: ^lang.Result) {
     thor.signature_request_id = 0
     auto := thor.signature_auto
     editor := thor.active_pane == 0 ? thor.editor : thor.editor2
-    if !res.ok || res.signature.label == "" {
+    if !res.ok || len(res.signature.entries) == 0 {
         // An auto request that finds no call just dismisses whatever popup was up
         // (the caret has moved out of the call); only the explicit keybind flashes.
         if auto {
@@ -1020,13 +1023,54 @@ thor_show_signature :: proc(thor: ^Thor, res: ^lang.Result) {
     if file == nil || !file.loaded {
         return
     }
-    sig := res.signature
-    label := sig.label
-    text := label
-    if sig.active_end > sig.active_start && sig.active_start >= 0 && sig.active_end <= len(label) {
-        text = fmt.tprintf("%s[%s]%s", label[:sig.active_start], label[sig.active_start:sig.active_end], label[sig.active_end:])
+    widgets.editor_show_signature(
+        editor,
+        thor_signature_text(res.signature),
+        textedit.primary_cursor(&file.state).caret,
+    )
+}
+
+// Lays the signature entries out for the popup. A lone signature is drawn bare,
+// exactly as before — the overload machinery must not put a marker column in
+// front of every ordinary call. Two or more are one per line, the matched entry
+// marked with `>` so it reads as the one in effect, and only that entry brackets
+// its active parameter: the caret is in one argument slot, and bracketing the
+// same slot on candidates that do not have it would claim a match that was never
+// made. Returned in the temp allocator; editor_show_signature clones it.
+@(private = "file")
+thor_signature_text :: proc(sig: lang.Signature_Info) -> string {
+    if len(sig.entries) == 1 {
+        return thor_signature_line(sig.entries[0], active = true)
     }
-    widgets.editor_show_signature(editor, text, textedit.primary_cursor(&file.state).caret)
+    b := strings.builder_make(context.temp_allocator)
+    for entry, i in sig.entries {
+        if i > 0 {
+            strings.write_byte(&b, '\n')
+        }
+        active := i == sig.active
+        strings.write_string(&b, active ? "> " : "  ")
+        strings.write_string(&b, thor_signature_line(entry, active))
+    }
+    return strings.to_string(b)
+}
+
+// One entry's label, with its active parameter bracketed when the entry is the
+// matched one and the backend reported a span for it.
+@(private = "file")
+thor_signature_line :: proc(entry: lang.Signature_Entry, active: bool) -> string {
+    label := entry.label
+    if !active || entry.active_end <= entry.active_start {
+        return label
+    }
+    if entry.active_start < 0 || entry.active_end > len(label) {
+        return label
+    }
+    return fmt.tprintf(
+        "%s[%s]%s",
+        label[:entry.active_start],
+        label[entry.active_start:entry.active_end],
+        label[entry.active_end:],
+    )
 }
 
 // Fills the already-open (loading) references picker once its scan lands. Drops

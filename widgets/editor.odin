@@ -1846,8 +1846,12 @@ editor_draw_signature :: proc(editor: ^Editor) {
     }
 
     pad: f32 = 8
+    // A call of a procedure group is signed once per member, one per line, so the
+    // box is sized by the line count draw_text will advance through rather than
+    // by the single line the anchor sits on — the same reason the hover popup is.
+    lines := cast(f32) (strings.count(editor.signature_text, "\n") + 1)
     width := cast(f32) ui.measure_text(editor.signature_text, editor.font_size) + pad * 2
-    height := lh + pad
+    height := cast(f32) ui.text_line_height(editor.font_size) * lines + pad
 
     box_x := x
     box_y := y - height - 4
@@ -1864,8 +1868,13 @@ editor_draw_signature :: proc(editor: ^Editor) {
     box := rl.Rectangle {box_x, box_y, width, height}
     rl.DrawRectangleRec(box, editor.gutter_color)
     rl.DrawRectangleLinesEx(box, 1, editor.focus_border_color)
-    text_y := cast(i32) (box_y + (height - cast(f32) editor.font_size) * 0.5)
-    ui.draw_text(editor.signature_text, cast(i32) (box_x + pad), text_y, editor.font_size, editor.text_color)
+    ui.draw_text(
+        editor.signature_text,
+        cast(i32) (box_x + pad),
+        cast(i32) (box_y + pad * 0.5),
+        editor.font_size,
+        editor.text_color,
+    )
 }
 
 // Screen x, top y, and line height of byte `offset` (clamped to its visual row).

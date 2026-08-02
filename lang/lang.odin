@@ -57,13 +57,27 @@ Doc_Info :: struct {
     text:  string, // owned; the rendered documentation page
 }
 
-// Signature-help payload for the call the caret sits in: the resolved
-// procedure's signature line and the byte range within it of the parameter the
-// caret is currently on, so the editor can emphasize the active argument.
-Signature_Info :: struct {
+// One candidate signature for the call the caret sits in: a procedure's
+// signature line and the byte range within it of the parameter the caret is
+// currently on, so the editor can emphasize the active argument.
+Signature_Entry :: struct {
     label:        string, // owned; "add :: proc(a: int, b: int) -> int"
     active_start: int,     // [active_start, active_end) within label; empty when unknown
     active_end:   int,
+}
+
+// Signature-help payload for the call the caret sits in. A list rather than a
+// single signature because a call can name a procedure *group*
+// (`sizes :: proc{sized_a, sized_b}`), whose own declaration has no parameters
+// at all — the members are the only thing worth showing, and which of them the
+// call means is not decided until the arguments are written. An ordinary call
+// answers with exactly one entry.
+//
+// `active` indexes the entry the arguments written so far best match; the editor
+// emphasizes that one and shows the rest as the alternatives they are.
+Signature_Info :: struct {
+    entries: [dynamic]Signature_Entry, // owned, freed in job_free
+    active:  int,
 }
 
 // One entry in a symbol list (a file outline, or the whole workspace): a
@@ -728,7 +742,10 @@ job_free :: proc(m: ^Manager, job: ^Job) {
     delete(job.result.doc.title)
     delete(job.result.doc.path)
     delete(job.result.doc.text)
-    delete(job.result.signature.label)
+    for entry in job.result.signature.entries {
+        delete(entry.label)
+    }
+    delete(job.result.signature.entries)
     for sym in job.result.symbols {
         delete(sym.name)
         delete(sym.kind)

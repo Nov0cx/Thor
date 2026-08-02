@@ -26,6 +26,10 @@ Def :: struct {
     top_level:    bool, // no enclosing block: visible across the whole file/package
     decl_start:   int,
     decl_end:     int,
+    // `sizes :: proc{sized_a, sized_b}` — a procedure group, not a procedure. It
+    // declares no parameters of its own, so anything that shows a signature has
+    // to show the members instead; the brace opens that list rather than a body.
+    overload:     bool,
 }
 
 @(private)
@@ -448,6 +452,7 @@ collect_value_decls :: proc(node: ts.Node, source: string, defs: ^[dynamic]Def) 
                 kind        = "function",
                 decl_start  = int(ts.node_start_byte(node)),
                 decl_end    = int(ts.node_end_byte(node)),
+                overload    = true,
             }
             scope_def(&d, c)
             append(defs, d)
