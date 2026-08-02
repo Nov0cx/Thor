@@ -12,6 +12,7 @@ import "core:thread"
 import "core:time"
 import rl "vendor:raylib"
 
+import "../lang"
 import "../setting"
 import "../textedit"
 import "../ui"
@@ -45,6 +46,15 @@ Open_File :: struct {
     highlighted:        bool,
     // Foldable line ranges, recomputed alongside the highlights.
     folds:              [dynamic]widgets.Fold_Range,
+    // What the analyzer proved each identifier in the buffer to be, layered over
+    // the grammar's spans by thor_update_highlights. `semantic_ready` marks a
+    // result having landed at all (revision 0 is a real revision), and the
+    // overlay is kept across an edit at its now-slightly-stale offsets until the
+    // next one lands — dropping it would flash the file back to plain syntax
+    // colors on every keystroke.
+    semantic:           [dynamic]lang.Semantic_Token,
+    semantic_revision:  u64,
+    semantic_ready:     bool,
     // Compiler diagnostics from the last `odin check` of this file's package,
     // and the buffer revision they were computed against. Shown only while the
     // buffer still matches that revision (an edit clears them until re-checked).
@@ -659,6 +669,7 @@ thor_free_open_file :: proc(file: ^Open_File) {
     textedit.destroy(&file.state)
     delete(file.highlights)
     delete(file.folds)
+    delete(file.semantic)
     thor_clear_file_diagnostics(file)
     delete(file.diagnostics)
     delete(file.diff_lines)

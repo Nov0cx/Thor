@@ -114,7 +114,7 @@ main :: proc() {
     expect(t, spans, src, "main", "functions")
     expect(t, spans, src, "\"hi\"", "strings")
     expect(t, spans, src, "// note", "comments")
-    expect(t, spans, src, "data", "variables") // named param, not a type
+    expect(t, spans, src, "data", "parameters") // named param, not a type
     expect(t, spans, src, "context", "orange") // reserved, not a plain variable
     expect(t, spans, src, "mem.panic_allocator", "cyan") // package qualifier
 }

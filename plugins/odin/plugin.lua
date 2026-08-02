@@ -40,11 +40,17 @@ thor.register_language {
         namespace    = t.cyan,
         module       = t.cyan,
 
-        parameter            = t.variables,
+        parameter            = t.parameters,
         ["variable.builtin"] = t.orange, -- the implicit context, self
         variable             = t.variables,
         field                = t.variables,
         property             = t.variables,
+
+        -- Named by the analyzer's semantic tokens rather than by the highlights
+        -- query: nothing in the file, its imports or the workspace declares the
+        -- name. The grammar cannot tell a typo from a local, so this arrives
+        -- only once every lookup has completed and come up empty.
+        unresolved   = t.gray,
 
         attribute    = t.attributes,
     },

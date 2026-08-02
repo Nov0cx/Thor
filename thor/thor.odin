@@ -245,6 +245,14 @@ Thor :: struct {
     // In-flight package-doc request: its request id, so a superseded result (a
     // newer F3 for another package) is dropped instead of overwriting the newer one.
     package_doc_request_id:   u64,
+    // In-flight semantic-tokens request: its id and the path of the buffer being
+    // classified (owned — the file may be closed and freed before the result
+    // lands, so it is looked up again by path rather than held by pointer). One
+    // runs at a time: nothing is waiting on the colors, and holding the slot
+    // until the last result lands throttles a whole-file classification to its
+    // own round trip instead of firing one per keystroke.
+    semantic_request_id:      u64,
+    semantic_path:            string,
     // In-flight rename: its request id and the path of the buffer it was computed
     // against (owned), so its edits can be told apart from the ones landing in
     // other files — that buffer is validated against the snapshotted revision,
@@ -525,6 +533,7 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.jump_forward)
     delete(thor.rename_path)
     delete(thor.code_action_path)
+    delete(thor.semantic_path)
     thor_clear_edit_undo(thor)
     thor_clear_code_actions(thor)
     delete(thor.code_actions)

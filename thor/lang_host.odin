@@ -835,6 +835,78 @@ thor_update_completion :: proc(thor: ^Thor, res: ^lang.Result) {
     widgets.editor_set_completions(editor, items[:])
 }
 
+// Asks the analyzer what every identifier in `file` actually is, so the
+// highlighter can color the names the grammar cannot tell apart — a parameter, a
+// local, a package and an undeclared typo all parse as a bare identifier. Driven
+// by the highlight pass rather than by the caret: this classifies the whole
+// buffer and nothing is waiting on the answer.
+//
+// One request runs at a time. The classification is a full-file walk, and
+// holding the slot until the last one lands paces it to its own round trip
+// instead of firing one per keystroke; the highlight pass re-asks on the next
+// frame, so a file left behind by a burst of typing catches up on its own.
+thor_request_semantic :: proc(thor: ^Thor, file: ^Open_File) {
+    if thor.semantic_request_id != 0 || !file.loaded {
+        return
+    }
+    if file.semantic_ready && file.semantic_revision == file.state.revision {
+        return
+    }
+    ext := thor_file_extension(file.name)
+    if !lang.manager_supports(&thor.lang_manager, ext) {
+        return
+    }
+    source := textedit.text(&file.state)
+    // Debounced as well as serialized: a fast typist would otherwise have a
+    // classification in flight continuously, each one obsolete before it lands.
+    id := lang.manager_request_debounced(
+        &thor.lang_manager,
+        .Semantic_Tokens,
+        file.path,
+        ext,
+        source,
+        0, // whole-buffer request; there is no caret to answer about
+        file.state.revision,
+        thor.workspace_dir,
+    )
+    if id == 0 {
+        return
+    }
+    thor.semantic_request_id = id
+    delete(thor.semantic_path)
+    thor.semantic_path = strings.clone(file.path)
+}
+
+// Stores a classification once it lands and marks the file's highlights stale,
+// so the per-frame pass merges the overlay into them. The file is looked up by
+// path: its tab may have been closed (and the record freed) while the request
+// was in flight.
+//
+// Applied even when the buffer has moved past the revision it was computed at.
+// The offsets are then a keystroke or two behind, which is a far smaller lie
+// than dropping every analyzer color until the next result — that would flash
+// the file back to plain syntax colors on each keystroke. A result carrying
+// nothing still advances the revision, so a file the analyzer has nothing to say
+// about is not re-asked every frame.
+@(private = "file")
+thor_update_semantic :: proc(thor: ^Thor, res: ^lang.Result) {
+    if res.id != thor.semantic_request_id {
+        return
+    }
+    thor.semantic_request_id = 0
+    file := thor_open_file_at(thor, thor.semantic_path)
+    delete(thor.semantic_path)
+    thor.semantic_path = ""
+    if file == nil {
+        return
+    }
+    clear(&file.semantic)
+    append(&file.semantic, ..res.tokens[:])
+    file.semantic_revision = res.revision
+    file.semantic_ready = true
+    file.highlighted = false // re-merged by the per-frame highlight pass
+}
+
 // Frees the jump targets kept from the last symbol picker.
 thor_clear_doc_symbols :: proc(thor: ^Thor) {
     for sym in thor.doc_symbols {
@@ -918,6 +990,8 @@ thor_on_lang_result :: proc(user: rawptr, res: ^lang.Result) {
         thor_apply_diagnostics(thor, res)
     case .Code_Actions:
         thor_show_code_actions(thor, res)
+    case .Semantic_Tokens:
+        thor_update_semantic(thor, res)
     }
 }
 

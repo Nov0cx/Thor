@@ -156,9 +156,13 @@ semantic_skip :: proc(node: ts.Node) -> bool {
          "foreign_block",
          "field",
          "struct_field",
-         "enum_declaration",
          "polymorphic_parameters":
         return true
+    case "enum_declaration":
+        // The enum's own name reads like any other type declaration and stays
+        // ours; everything after it is a member, which the grammar names.
+        first := ts.node_named_child(parent, 0)
+        return ts.node_is_null(first) || !same_node(first, node)
     case "member_expression", "field_type":
         // Only the operand is ours; `a.b.c` nests left, so each inner operand is
         // still the first child of its own selector and stays classified.

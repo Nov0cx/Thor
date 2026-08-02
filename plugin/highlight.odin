@@ -81,6 +81,21 @@ fold_ranges :: proc(m: ^Manager, path, source, ext: string, allocator := context
     return out[:]
 }
 
+// The color role the language bound to `ext` gives `capture`. For a caller that
+// arrived at a classification some way other than running the highlights query —
+// the analyzer's semantic tokens name the capture they mean, so a semantically
+// classified identifier takes exactly the color the grammar would have given it
+// had the parse been able to prove the same thing, and the mapping stays in the
+// language's plugin instead of being compiled into the editor. "" when no plugin
+// claims the extension or the language leaves the capture unmapped.
+role_for :: proc(m: ^Manager, ext, capture: string) -> string {
+    idx, ok := m.by_ext[ext]
+    if !ok {
+        return ""
+    }
+    return role_for_capture(&m.languages[idx], capture)
+}
+
 // Resolves a tree-sitter capture to a color role: exact match first, then the
 // capture's head ("type.builtin" -> "type"), else "" for the default.
 @(private)

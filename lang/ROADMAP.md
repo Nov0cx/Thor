@@ -32,8 +32,9 @@ lowest latency.
   `typeref.odin` / `decl.odin` (member-access type inference),
   `packagedoc.odin`, `check.odin` (compiler diagnostics — the one request that
   analyzes nothing itself), `actions.odin` (code actions — the one request that
-  answers with fixes rather than with what the caret names) and `ast.odin`
-  (shared tree/text helpers).
+  answers with fixes rather than with what the caret names), `semantic.odin`
+  (semantic tokens — the one request that answers about the whole buffer rather
+  than about a caret) and `ast.odin` (shared tree/text helpers).
 - Editor wiring — Alt+Enter (`goto_definition` keybind) and Ctrl+Click both
   dispatch go-to-definition; results jump the caret (opening the target file if
   needed, deferring the jump until it loads).
@@ -160,6 +161,17 @@ lowest latency.
   signature (the body is dropped), and any leading `@(...)` attribute is kept.
   The compact symbol-list rows stay a one-line `name :: type` with the attribute
   stripped.
+- **Semantic highlighting:** identifiers are coloured by what the analyzer
+  resolved them to, not only by what the parse shape suggests — a parameter, a
+  local, a package operand, a procedure and a type each take their own colour
+  where the highlights query paints every *use* of them alike, and a name
+  nothing in the file, its imports or the workspace declares is dimmed. The
+  classification is layered over the grammar's spans by the highlight pass and
+  is deliberately sparse: wherever the analyzer knows no more than the grammar,
+  the grammar's colour stands. Undeclared-name dimming gives up on the whole
+  file at the first sign it cannot see far enough (see the semantic-tokens entry
+  below), because a name dimmed in error reads as a compiler error that does not
+  exist.
 - **"No definition found" feedback:** a failed go-to-definition flashes a
   transient statusline notice (3s).
 - **Explained diagnostics:** the compiler messages `odin check` produces (see
@@ -482,16 +494,14 @@ lowest latency.
       compute one there is no correct text to insert, so only the `=` → `:=` shape
       is offered. Actions are also single-file and caret-driven; nothing is
       anchored on a diagnostic's range yet, and no producer spans files.
-- [~] **Semantic highlighting (semantic tokens).** *Engine side written and
-      type-checking; nothing is wired to the editor yet, and no line of it has
-      ever run.* The point is the gap between what the grammar can prove and what
-      the engine already knows: the highlights query paints a *use* of a
-      parameter, a local, a package and an undeclared typo all `@variable`
-      (`highlights.scm:80`), because `@parameter` is only attached at the
-      declaration site (`:94`, `:96`). Resolution is the only thing that separates
-      them, and this engine resolves.
+- [x] **Semantic highlighting (semantic tokens).** The point is the gap between
+      what the grammar can prove and what the engine already knows: the
+      highlights query paints a *use* of a parameter, a local, a package and an
+      undeclared typo all `@variable` (`highlights.scm:80`), because
+      `@parameter` is only attached at the declaration site (`:94`, `:96`).
+      Resolution is the only thing that separates them, and this engine resolves.
 
-      **Landed (unrun):**
+      **The seam and the engine:**
       - `lang/lang.odin` — `Request_Kind.Semantic_Tokens`, a `Token_Kind` enum
         (`Parameter`/`Local`/`Field`/`Procedure`/`Type`/`Enum_Member`/`Package`/
         `Unresolved`), `Semantic_Token{start, end, kind}`, `Result.tokens`, freed
@@ -517,7 +527,10 @@ lowest latency.
       aliases, and the whole right-hand side of a selector — are skipped by
       `semantic_skip` rather than re-derived, so a token can never overrule a
       correct colour with a worse one. A `::` constant and a package-level `var`
-      are left alone for the same reason.
+      are left alone for the same reason. The `enum_declaration` skip is narrowed
+      to the members: the enum's *own* name reads like any other type
+      declaration, and skipping the whole node had it come out classified where
+      the sibling `struct_declaration`'s name did.
 
       **The unresolved check fails open.** Dimming a name the compiler is happy
       with reads as an error that does not exist, so `dimming_allowed` gives up
@@ -538,34 +551,66 @@ lowest latency.
       code, and a list baked into this repo would rot the next time the language
       gains a builtin.
 
-      **Still to do:**
-      - Host wiring, none of which exists: `Open_File.semantic` +
-        `semantic_revision` in `thor/state.odin`, a debounced dispatch and result
-        handler in `thor/lang_host.odin`, and the overlay merge in
-        `thor_update_highlights` (`thor/highlight.odin`) — semantic spans layered
-        on top of the tree-sitter ones, keeping the stale overlay until the next
-        result lands rather than clearing it, or the buffer flickers on every
-        keystroke. Whether a stale overlay should have its offsets shifted past
-        the edit (the `treecache.source_edit` diff already computes exactly that
-        span) is open; at a 50ms debounce it may not be worth it.
-      - A `plugin.role_for(m, ext, capture)` wrapper so the `Token_Kind` → colour
-        mapping stays tunable in `plugins/odin/plugin.lua` instead of being
-        compiled into the host. Then the roles themselves: `parameter` and `gray`
-        are declared in `plugin.ROLES` and unused by the Odin plugin today.
-      - **A one-line win available with no engine at all:** `plugin.lua` maps
-        `field`, `property`, `parameter` and `variable` *all* to `t.variables`, so
-        `p.x` and a bare local are the same colour even though the grammar
-        already tells them apart (`(member_expression "." (identifier) @field)`).
-        Pointing `field` at its own role is independent of everything above.
-      - Tests (`lang/odin/semantic_test.odin` does not exist yet): param-use vs
-        local-use, the skip positions, ascending order, and one per kill switch
-        asserting that dimming stops while classification continues.
-      - Unknowns worth checking first: whether the `Enum_Member` and `Field` kinds
-        should stay in the seam's vocabulary at all given the Odin backend does
-        not emit them (an LSP backend would), and whether classifying a whole file
-        per keystroke actually costs anything measurable — `resolve_local` is a
+      **Host wiring — driven by the highlight pass, not by the caret.**
+      `thor_update_highlights` (`thor/highlight.odin`) builds the grammar's
+      spans as before, merges the file's classification over them, and then asks
+      for the current revision's. The result handler
+      (`thor_update_semantic`, `thor/lang_host.odin`) stores the tokens on the
+      `Open_File` and marks the highlights stale, so the merge re-runs on the
+      next frame — no second path into the editor, and a file catches up on its
+      own after a burst of typing. `Open_File` carries `semantic` +
+      `semantic_revision` + `semantic_ready` (revision 0 is a real revision, so
+      "a result landed" needs its own flag); `Thor` carries
+      `semantic_request_id` + `semantic_path` (owned — the tab may be closed and
+      the record freed before the result lands, so the file is looked up by path
+      rather than held by pointer).
+
+      **One request at a time**, on top of the 50ms debounce. Nothing is waiting
+      on the colours, and holding the slot until the last result lands paces a
+      whole-file walk to its own round trip instead of firing one per keystroke.
+      With a split view the two panes take turns across frames.
+
+      **A stale overlay is applied, not dropped.** A result is merged even when
+      the buffer has moved past the revision it was computed at: the offsets are
+      then a keystroke or two behind, which is a far smaller lie than flashing
+      the file back to plain syntax colours on every keystroke. The merge clamps
+      them to the source and to the token before them, so a stale pair can never
+      come out overlapping. Shifting the overlay past the edit instead (the
+      `treecache.source_edit` diff already computes exactly that span) is still
+      open; at this cadence it has not looked worth it.
+
+      **The merge.** `thor_overlay_spans` interleaves two ascending,
+      non-overlapping lists into one with the overlay winning — it replaces the
+      colour across exactly its own range and the base spans around it are
+      emitted clipped to what it left. That the output stays ascending and
+      non-overlapping is load-bearing: the editor draws it with a single cursor
+      that only ever moves forward. Covered by `thor/highlight_test.odin`
+      (replace-and-clip, a token spanning several base spans, sparse-vs-sparse,
+      either side empty, exact and adjacent).
+
+      **Colours stay in the plugin.** `thor_token_capture` maps each `Token_Kind`
+      to the tree-sitter capture name it stands in for and `plugin.role_for`
+      resolves it through the language's own colour table, so a name the engine
+      proved is a parameter takes exactly the colour the grammar gives a
+      parameter it could prove itself. `Unresolved` is the one kind with no
+      grammar counterpart and names a capture of its own (`unresolved`, mapped to
+      `t.gray` by `plugins/odin/plugin.lua`); a language that leaves a capture
+      unmapped has that kind dropped rather than repainted, keeping the grammar's
+      answer. Fixed alongside: the Odin plugin mapped `parameter` to
+      `t.variables` where every other plugin in the tree maps it to
+      `t.parameters`.
+
+      **Still open:**
+      - The `Enum_Member` and `Field` kinds sit in the seam's vocabulary but the
+        Odin backend never emits them — both positions are grammar-decided and
+        skipped. They are kept for an LSP backend, which would.
+      - Classifying a whole file has never been timed: `resolve_local` is a
         linear scan of `collect_defs` per identifier, so the walk is O(idents ×
-        defs) and has never been timed.
+        defs). The one-in-flight rule bounds how often it runs, not what it costs.
+      - Tests are `lang/odin/semantic_test.odin` (param vs local vs package vs
+        procedure vs type, the skip positions, ascending order, dimming an
+        undeclared name, and one per kill switch asserting dimming stops while
+        classification continues) plus the host-side merge tests above.
 - [ ] **Other LSP features not started:** formatting.
 
 ## Missing — scalability / performance
