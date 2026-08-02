@@ -322,11 +322,33 @@ enclosing_scope :: proc(node: ts.Node) -> (ts.Node, bool) {
     for !ts.node_is_null(n) {
         switch string(ts.node_type(n)) {
         case "block", "if_statement", "for_statement", "switch_statement", "when_statement":
-            return n, true
+            if !file_scope_when(n) {
+                return n, true
+            }
         }
         n = ts.node_parent(n)
     }
     return {}, false
+}
+
+// Whether `n` is a scope node belonging to a `when` written at file scope. Such
+// a `when` declares into the package rather than into a scope of its own —
+// base:runtime wraps `delete_key` and the rest of the map builtins in
+// `when MAP_ENABLED`, and they are package-level all the same.
+@(private)
+file_scope_when :: proc(n: ts.Node) -> bool {
+    w := n
+    for !ts.node_is_null(w) {
+        switch string(ts.node_type(w)) {
+        case "block", "when_statement":
+            w = ts.node_parent(w)
+            continue
+        case "source_file":
+            return true
+        }
+        return false
+    }
+    return false
 }
 
 // Fills `d`'s visible range from the scope enclosing `node`, marking it
@@ -387,10 +409,15 @@ collect_value_decls :: proc(node: ts.Node, source: string, defs: ^[dynamic]Def) 
         // A range loop's variables (`for k, v in m`) are bare identifier
         // children before `in`; the three-clause form has an initializer
         // statement there instead, which the assignment_statement case covers.
+        // A by-reference variable (`for &cursor in cursors`) arrives wrapped in
+        // the `&`, and declares the name just the same.
         for i in 0 ..< ts.node_child_count(node) {
             c := ts.node_child(node, i)
             if string(ts.node_type(c)) == "in" {
                 break
+            }
+            if string(ts.node_type(c)) == "unary_expression" {
+                c = ts.node_named_child(c, 0)
             }
             if is_identifier(c) {
                 append_value_def(defs, c, node, source, ordered = false)
@@ -401,6 +428,43 @@ collect_value_decls :: proc(node: ts.Node, source: string, defs: ^[dynamic]Def) 
         // It is seen by the whole switch, like a loop variable.
         if ident, _, ok := type_switch_parts(node); ok {
             append_value_def(defs, ident, node, source, ordered = false)
+        }
+    case "overloaded_procedure_declaration":
+        // `make :: proc{make_slice, make_map}` — its own node type, which the
+        // LOCALS query has no rule for, so the group's name would go undeclared
+        // while the procedures it gathers are declared normally. The first
+        // identifier is the group; the rest are references to its members. An
+        // `@(builtin)` in front puts an `attributes` child before it, so the
+        // first *identifier* is the name rather than the first named child.
+        for i in 0 ..< ts.node_named_child_count(node) {
+            c := ts.node_named_child(node, i)
+            if !is_identifier(c) {
+                continue
+            }
+            d := Def {
+                name        = ts.node_text(c, source),
+                ident_start = int(ts.node_start_byte(c)),
+                ident_end   = int(ts.node_end_byte(c)),
+                kind        = "function",
+                decl_start  = int(ts.node_start_byte(node)),
+                decl_end    = int(ts.node_end_byte(node)),
+            }
+            scope_def(&d, c)
+            append(defs, d)
+            break
+        }
+    case "named_type":
+        // `-> (track, thumb: rl.Rectangle, ok: bool)` — a procedure's named
+        // results, which the LOCALS query has no rule for either. Like the
+        // parameters they sit beside, the names precede the `(type ...)` child
+        // and are visible throughout the procedure: assignable in its body and
+        // returnable bare.
+        for i in 0 ..< ts.node_named_child_count(node) {
+            c := ts.node_named_child(node, i)
+            if !is_identifier(c) {
+                break // the type: everything past it belongs to it
+            }
+            append_result_def(defs, c, node, source)
         }
     }
 
@@ -426,6 +490,29 @@ append_value_def :: proc(defs: ^[dynamic]Def, ident, decl: ts.Node, source: stri
     scope_def(&d, ident)
     if ordered && !d.top_level {
         d.visible_from = d.decl_end
+    }
+    append(defs, d)
+}
+
+// Records `ident` as one of `decl`'s named results, scoped the way collect_defs
+// scopes a parameter: over the whole procedure, since the body both assigns to
+// it and returns it.
+@(private)
+append_result_def :: proc(defs: ^[dynamic]Def, ident, decl: ts.Node, source: string) {
+    d := Def {
+        name        = ts.node_text(ident, source),
+        ident_start = int(ts.node_start_byte(ident)),
+        ident_end   = int(ts.node_end_byte(ident)),
+        kind        = "parameter",
+        decl_start  = int(ts.node_start_byte(decl)),
+        decl_end    = int(ts.node_end_byte(decl)),
+        scope_end   = len(source),
+    }
+    if pd, has := ancestor_type(ident, "procedure_declaration"); has {
+        d.scope_start = int(ts.node_start_byte(pd))
+        d.scope_end = int(ts.node_end_byte(pd))
+    } else {
+        d.top_level = true // a bare procedure type: nothing to scope it to
     }
     append(defs, d)
 }

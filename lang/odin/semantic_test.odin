@@ -206,6 +206,81 @@ run :: proc(value: int) -> int {
 }
 
 @(test)
+test_semantic_dims_nothing_reachable :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    // Everything here is declared somewhere the engine can reach: the builtin
+    // scope, an imported package, the file itself. Dimming any of it reads as an
+    // error the compiler never reported, which is the one thing this pass must
+    // never do.
+    root := "thor_lang_sem_reach_ws"
+    _ = os.make_directory(root)
+    helper := strings.concatenate({root, "/helper.odin"}, context.temp_allocator)
+    _ = os.write_entire_file(helper, transmute([]byte)string("package demo\n\nknown :: 1\n"))
+    defer os.remove(root)
+    defer os.remove(helper)
+
+    path := strings.concatenate({root, "/main.odin"}, context.temp_allocator)
+    src := `package demo
+
+import "core:fmt"
+import "core:os"
+
+Axis :: enum {
+	Vertical,
+}
+
+sized_a :: proc(a: int) -> int {return a}
+sized_b :: proc(a, b: int) -> int {return a + b}
+
+sizes :: proc{sized_a, sized_b}
+
+split :: proc(text: string) -> (head, tail: string, ok: bool) {
+	head = text
+	return head, tail, ok
+}
+
+run :: proc(loud: bool) -> int {
+	items := make([]int, 4)
+	defer delete(items)
+	append(&items, known)
+	for &item in items {
+		item += 1
+	}
+	fmt.println(os.args, len(items), Axis.Vertical, sizes)
+	total := split(fmt.tprintf("%v", loud))
+	handle, _ := os.open("x")
+	os.close(handle)
+	a: Axis = .Vertical
+	_ = a
+	_ = total
+	return run(loud = true)
+}
+`
+    res := semantic_at(e, src, root, path)
+    defer delete(res.tokens)
+
+    dimmed := make([dynamic]string, context.temp_allocator)
+    for tok in res.tokens {
+        if tok.kind == .Unresolved {
+            append(&dimmed, src[tok.start:tok.end])
+        }
+    }
+    testing.expectf(t, len(dimmed) == 0, "nothing here is undeclared, but %v was dimmed", dimmed[:])
+
+    // The guards did not simply give up: the file was judged, it just found
+    // nothing to flag.
+    testing.expect(t, len(res.tokens) > 0, "expected the file to classify something")
+
+    kind, ok := kind_at(&res, src, "head = text")
+    testing.expect(t, ok, "expected a token for a named result")
+    if ok {
+        testing.expectf(t, kind == .Parameter, "named result: got %v, want Parameter", kind)
+    }
+}
+
+@(test)
 test_semantic_dimming_needs_a_workspace :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)

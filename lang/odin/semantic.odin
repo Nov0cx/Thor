@@ -137,9 +137,9 @@ classify_identifier :: proc(ctx: ^Semantic_Ctx, node: ts.Node) {
 // there is nothing to add and a token here could only overrule a correct colour
 // with a worse one. Two groups: declarations whose own syntax names their kind
 // (a struct field, an enum member, an attribute, a label, the package clause, an
-// import alias), and the right-hand side of a selector, which names a field or a
-// package symbol and takes type inference to resolve — the highlights query
-// tags it `@field` already.
+// import alias), and the right-hand side of a selector — a field, a package
+// symbol or an implicit enum member — which takes type inference to resolve and
+// which the highlights query tags `@field` already.
 @(private)
 semantic_skip :: proc(node: ts.Node) -> bool {
     parent := ts.node_parent(node)
@@ -163,13 +163,71 @@ semantic_skip :: proc(node: ts.Node) -> bool {
         // ours; everything after it is a member, which the grammar names.
         first := ts.node_named_child(parent, 0)
         return ts.node_is_null(first) || !same_node(first, node)
+    }
+
+    // `run(whole_line = true)` — a named argument, which the grammar lays out
+    // flat inside the call: the name, an `=`, then the value. The name is the
+    // callee's parameter, not anything in scope here, and the highlights query
+    // tags it already. A positional argument has no `=` after it and stays ours.
+    if string(ts.node_type(parent)) == "call_expression" {
+        next := ts.node_next_sibling(node)
+        if !ts.node_is_null(next) && string(ts.node_type(next)) == "=" {
+            return true
+        }
+    }
+
+    // The selector rule, on the node standing in for this identifier rather than
+    // on the identifier itself: only a selector's operand is ours. `a.b.c` nests
+    // left, so each inner operand is still the first child of its own selector
+    // and stays classified.
+    subject := selector_subject(node)
+    holder := ts.node_parent(subject)
+    if ts.node_is_null(holder) {
+        return false
+    }
+    switch string(ts.node_type(holder)) {
     case "member_expression", "field_type":
-        // Only the operand is ours; `a.b.c` nests left, so each inner operand is
-        // still the first child of its own selector and stays classified.
-        first := ts.node_named_child(parent, 0)
-        return ts.node_is_null(first) || !same_node(first, node)
+        first := ts.node_named_child(holder, 0)
+        if ts.node_is_null(first) || !same_node(first, subject) {
+            return true
+        }
+        // An implicit enum selector (`.Vertical`) has no operand at all: its
+        // member is the first child but starts past the dot the selector starts
+        // at. The name lives in a type only inference finds, and the grammar
+        // already spells it as a member.
+        return ts.node_start_byte(subject) != ts.node_start_byte(holder)
     }
     return false
+}
+
+// The node the selector rule judges on `node`'s behalf. A called or indexed
+// member sits inside the wrapper rather than beside the operand — `pkg.run(x)`
+// parses as `(member_expression pkg (call_expression run …))` and `pkg.Rect{}`
+// as `(member_expression pkg (struct Rect …))` — so the wrapper is what the
+// selector holds, and asking about the bare identifier would find a parent that
+// is no selector at all.
+@(private)
+selector_subject :: proc(node: ts.Node) -> ts.Node {
+    n := node
+    for {
+        parent := ts.node_parent(n)
+        if ts.node_is_null(parent) {
+            return n
+        }
+        switch string(ts.node_type(parent)) {
+        case "call_expression", "index_expression", "struct":
+        case:
+            return n
+        }
+        // Only the thing being called, indexed or braced stands in for the
+        // wrapper; an argument, a subscript or a field value is an expression in
+        // its own right.
+        first := ts.node_named_child(parent, 0)
+        if ts.node_is_null(first) || !same_node(first, n) {
+            return n
+        }
+        n = parent
+    }
 }
 
 // The token kind a resolved declaration lends its uses, and whether it says

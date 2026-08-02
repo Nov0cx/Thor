@@ -609,8 +609,37 @@ lowest latency.
         defs). The one-in-flight rule bounds how often it runs, not what it costs.
       - Tests are `lang/odin/semantic_test.odin` (param vs local vs package vs
         procedure vs type, the skip positions, ascending order, dimming an
-        undeclared name, and one per kill switch asserting dimming stops while
-        classification continues) plus the host-side merge tests above.
+        undeclared name, nothing reachable being dimmed, and one per kill switch
+        asserting dimming stops while classification continues) plus the
+        host-side merge tests above.
+
+      **What the first real files broke.** Run over the repo itself, dimming lit
+      up 44 of 353 identifiers in `lang/odin/semantic.odin` alone — every one of
+      them reachable. None of it was a missing package: the causes were grammar
+      shapes and scope rules the engine had not met, found by dumping each dimmed
+      token's parent chain rather than by guessing.
+      - A called, indexed or braced selector member sits *inside* the wrapper,
+        not beside the operand: `pkg.run(x)` is
+        `(member_expression pkg (call_expression run …))`, `pkg.Rect{}` is
+        `(member_expression pkg (struct Rect …))`. A rule reading the
+        identifier's direct parent never sees the selector at all, so
+        `selector_subject` climbs out of those wrappers first.
+      - An implicit enum selector `.Vertical` is a `member_expression` whose
+        member *is* its first named child — the operand test claimed it. An
+        operand starts where the selector starts; a dotted member starts past the
+        dot, which separates them.
+      - A named argument `run(whole_line = true)` is laid out flat inside the
+        call: identifier, `=`, value.
+      - `make :: proc{…}` is an `overloaded_procedure_declaration`, which
+        `locals.scm` has no rule for, and `@(builtin)` puts an `attributes` node
+        in front of the name. Named results (`-> (head, tail: string, ok: bool)`)
+        are `named_type` nodes, uncaptured as well. `for &x in xs` wraps the loop
+        variable in the `&`. All three now come out of `collect_value_decls`, so
+        go-to-definition, completion and the symbol list gain them too.
+      - A file-scope `when` is not a scope. `base:runtime` keeps `delete_key`,
+        `make_map` and the rest of the map builtins inside `when MAP_ENABLED`,
+        and treating that block as a scope dropped them from both the builtin
+        cache and the workspace index.
 - [ ] **Other LSP features not started:** formatting.
 
 ## Missing — scalability / performance
