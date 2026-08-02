@@ -69,3 +69,34 @@ test_undo_edits_refuses_changed_file :: proc(t: ^testing.T) {
     after, _ := os.read_entire_file(PATH, context.temp_allocator)
     testing.expect_value(t, string(after), EDITED)
 }
+
+// The indicator waits out LANG_BUSY_DELAY_SECS of unbroken work: a request
+// answered in a few frames must never flash it, and a break resets the wait.
+@(test)
+test_lang_busy_needs_a_sustained_stretch :: proc(t: ^testing.T) {
+    thor := new(Thor)
+    defer free(thor)
+
+    thor_lang_busy_update(thor, {.Completion}, 1.0)
+    testing.expect(t, !thor.lang_busy_shown, "the indicator should not show the instant work starts")
+
+    thor_lang_busy_update(thor, {.Completion}, 1.0 + LANG_BUSY_DELAY_SECS)
+    testing.expect(t, thor.lang_busy_shown, "the indicator should show once the delay elapses")
+
+    // Idle clears it, and the next stretch is timed from its own start.
+    thor_lang_busy_update(thor, {}, 2.0)
+    testing.expect(t, !thor.lang_busy_shown, "an idle manager should clear the indicator")
+
+    thor_lang_busy_update(thor, {.Semantic_Tokens}, 3.0)
+    testing.expect(t, !thor.lang_busy_shown, "a fresh stretch should restart the delay")
+}
+
+// The label names the most user-visible kind in flight, not whatever the
+// passes that run while typing happen to be doing alongside it.
+@(test)
+test_lang_busy_label_prefers_the_visible_kind :: proc(t: ^testing.T) {
+    testing.expect_value(t, thor_lang_busy_label({.Semantic_Tokens}), "Analyzing...")
+    testing.expect_value(t, thor_lang_busy_label({.Semantic_Tokens, .Diagnostics}), "Checking...")
+    testing.expect_value(t, thor_lang_busy_label({.Semantic_Tokens, .References}), "Finding references...")
+    testing.expect_value(t, thor_lang_busy_label({.Completion, .Hover}), "Resolving...")
+}

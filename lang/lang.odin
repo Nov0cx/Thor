@@ -794,6 +794,22 @@ manager_busy :: proc(m: ^Manager) -> bool {
     return m.inflight > 0
 }
 
+// The kinds of the requests in flight (queued or being worked), so a busy
+// indicator can name the work. A cancelled request is left out: it is on its
+// way to being dropped, and nothing waits for it. Debounced requests are not
+// counted either — they have not been dispatched yet.
+manager_busy_kinds :: proc(m: ^Manager) -> (kinds: bit_set[Request_Kind]) {
+    sync.lock(&m.mutex)
+    defer sync.unlock(&m.mutex)
+    for _, job in m.active {
+        if request_cancelled(&job.request) {
+            continue
+        }
+        kinds += {job.request.kind}
+    }
+    return
+}
+
 // Drains in-flight jobs, stops the worker pool (so no thread touches freed
 // backend state), tears down each backend, and frees the Manager's own storage.
 // Every request is cancelled first so a workspace-wide scan started just before

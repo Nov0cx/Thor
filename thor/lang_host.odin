@@ -13,6 +13,54 @@ import "../widgets"
 // How long a transient statusline notice stays up.
 STATUS_MESSAGE_SECS :: 3.0
 
+// How long the analyzer must stay busy before the statusline says so.
+LANG_BUSY_DELAY_SECS :: 0.25
+
+// Reads the analyzer's in-flight work for the statusline indicator. Called once
+// per frame, after the results of the frame are reaped.
+thor_poll_lang_busy :: proc(thor: ^Thor) {
+    thor_lang_busy_update(thor, lang.manager_busy_kinds(&thor.lang_manager), rl.GetTime())
+}
+
+// Folds this frame's in-flight kinds into the indicator state. The flag only
+// goes up once the manager has been busy without a break for
+// LANG_BUSY_DELAY_SECS: the requests that fire while typing (completion,
+// semantic tokens) are answered in a few frames, and a spinner flashing on
+// every keystroke says nothing.
+thor_lang_busy_update :: proc(thor: ^Thor, kinds: bit_set[lang.Request_Kind], now: f64) {
+    if kinds == {} {
+        thor.lang_busy_kinds = {}
+        thor.lang_busy_shown = false
+        return
+    }
+    if thor.lang_busy_kinds == {} {
+        thor.lang_busy_since = now
+    }
+    thor.lang_busy_kinds = kinds
+    thor.lang_busy_shown = now - thor.lang_busy_since >= LANG_BUSY_DELAY_SECS
+}
+
+// Labels the indicator after the most user-visible kind in flight, so a
+// workspace scan reads as one even when the passes that run while typing are
+// alongside it.
+thor_lang_busy_label :: proc(kinds: bit_set[lang.Request_Kind]) -> string {
+    switch {
+    case .Rename in kinds:
+        return "Renaming..."
+    case .References in kinds:
+        return "Finding references..."
+    case .Workspace_Symbols in kinds:
+        return "Scanning workspace..."
+    case .Definition in kinds, .Document_Symbols in kinds, .Hover in kinds, .Package_Doc in kinds:
+        return "Resolving..."
+    case .Code_Actions in kinds:
+        return "Looking for fixes..."
+    case .Diagnostics in kinds:
+        return "Checking..."
+    }
+    return "Analyzing..."
+}
+
 // Go-to-definition and (later) hover wiring between the editor and the language
 // intelligence manager. Requests are dispatched from the caret (Alt+Enter) or a
 // Ctrl+Click; results arrive asynchronously and are applied in thor_on_lang_result.

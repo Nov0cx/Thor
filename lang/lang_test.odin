@@ -147,6 +147,31 @@ test_cancel_kind_leaves_others :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_busy_kinds_reports_in_flight :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+
+    p := Probe{}
+    manager_register(&m, probe_backend(&p))
+
+    testing.expect(t, manager_busy_kinds(&m) == {}, "an idle manager should report no work")
+
+    manager_request(&m, .Hover, "a.probe", ".probe", "", 0, 0, "")
+    references := manager_request(&m, .References, "a.probe", ".probe", "", 0, 0, "")
+    testing.expect(t, wait_for(&p.started, 2), "both workers never started")
+    testing.expect(t, manager_busy_kinds(&m) == {.Hover, .References}, "both kinds should be reported in flight")
+
+    // A cancelled request is on its way out; the indicator must not name it.
+    testing.expect(t, manager_cancel(&m, references), "expected the in-flight id to be cancellable")
+    testing.expect(t, manager_busy_kinds(&m) == {.Hover}, "a cancelled request should drop out of the busy set")
+
+    sync.atomic_store(&p.release, true)
+    drain_manager(&m)
+    testing.expect(t, manager_busy_kinds(&m) == {}, "a drained manager should report no work")
+}
+
+@(test)
 test_pool_caps_concurrency :: proc(t: ^testing.T) {
     m: Manager
     manager_init(&m)

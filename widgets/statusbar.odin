@@ -1,9 +1,13 @@
 package widgets
 
 import "core:fmt"
+import "core:math"
 import rl "vendor:raylib"
 
 import "../ui"
+
+// Radians per second of the busy segment's alpha pulse.
+BUSY_PULSE_RATE :: 4.0
 
 Status_Info :: struct {
     branch:        string,
@@ -20,6 +24,11 @@ Status_Info :: struct {
     file_open:     bool,
     modified:      bool,
     saving:        bool,
+    // Language-analyzer work in flight, and the label for it ("Analyzing...").
+    // The owner delays the flag, so a request that finishes within a few frames
+    // never flashes the segment.
+    busy:          bool,
+    busy_message:  string,
     // Transient notice (e.g. "No definition found"); empty hides it. Drawn in the
     // error color when is_error is set, otherwise the accent color. The owner
     // clears it after a timeout.
@@ -137,6 +146,15 @@ statusbar_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
         } else {
             x = statusbar_draw_segment(statusbar, x, "circle-check", "Saved", statusbar.dim_color)
         }
+    }
+
+    // Analyzer work in flight. The icon pulses, so it reads as ongoing without
+    // a rotating spinner.
+    if info.busy {
+        color := statusbar.dim_color
+        pulse := 0.5 + 0.5 * math.sin(rl.GetTime() * BUSY_PULSE_RATE)
+        color.a = cast(u8) (140 + 115 * pulse)
+        x = statusbar_draw_segment(statusbar, x, "loader-2", info.busy_message, color)
     }
 
     // Transient notice; errors in red, everything else accented, so it stands

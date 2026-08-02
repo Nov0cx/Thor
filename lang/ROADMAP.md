@@ -493,8 +493,15 @@ lowest latency.
       names**), so a picker no longer lists a same-named symbol from an unrelated
       package — only the widened fallback, reached when the package declares
       nothing of the name, can still do that.
-- [ ] **Loading / busy indicator** while a request is in flight
-      (`manager_busy` is available).
+- [x] **Loading / busy indicator** while a request is in flight. A pulsing
+      `loader-2` segment in the statusbar, labelled after the work
+      ("Scanning workspace...", "Checking...", "Analyzing..."). Engine:
+      `manager_busy_kinds` reports the kinds dispatched and not yet reaped,
+      leaving out the cancelled ones; host: `thor_poll_lang_busy` folds that into
+      `Thor.lang_busy_*` once a frame and `thor_lang_busy_label` names the most
+      user-visible kind. The flag only goes up after `LANG_BUSY_DELAY_SECS`
+      (0.25 s) of unbroken work, so the passes that fire while typing
+      (completion, semantic tokens) never flash a spinner.
 - [x] **Go-back / jump list.** Ctrl+Alt+Left returns to where a jump left,
       Ctrl+Alt+Right replays it ("Go Back"/"Go Forward" in the palette, both
       rebindable). Recorded inside the jump procs themselves, so every caller —

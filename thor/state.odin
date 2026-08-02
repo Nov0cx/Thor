@@ -223,6 +223,10 @@ thor_status_info :: proc(data: rawptr) -> widgets.Status_Info {
     info.branch = thor.git_branch
     info.line = 1
     info.column = 1
+    if thor.lang_busy_shown {
+        info.busy = true
+        info.busy_message = thor_lang_busy_label(thor.lang_busy_kinds)
+    }
     if thor.status_message != "" && rl.GetTime() - thor.status_message_time < STATUS_MESSAGE_SECS {
         info.message = thor.status_message
         info.is_error = thor.status_message_error

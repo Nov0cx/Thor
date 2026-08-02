@@ -272,6 +272,12 @@ Thor :: struct {
     // action), so ctrl+z takes all of it back — the files that were not open
     // were rewritten on disk and have no buffer undo history of their own.
     edit_undo:                [dynamic]Edit_Undo_File,
+    // Statusline analyzer indicator: the request kinds in flight, when the
+    // current busy stretch began, and whether it has lasted long enough to be
+    // worth showing (see thor_lang_busy_update).
+    lang_busy_kinds:          bit_set[lang.Request_Kind],
+    lang_busy_since:          f64,
+    lang_busy_shown:          bool,
     // Transient statusline notice (e.g. "No definition found") and the time it
     // was posted; thor_status_info hides it once STATUS_MESSAGE_SECS elapse.
     status_message:           string,
@@ -486,6 +492,7 @@ run :: proc(thor: ^Thor) {
         thor_poll_settings(thor)
         thor_update_files(thor)
         lang.manager_dispatch(&thor.lang_manager, thor, thor_on_lang_result)
+        thor_poll_lang_busy(thor)
         ui.context_update(&thor.ui_context)
         thor_sync_active_pane(thor)
 
