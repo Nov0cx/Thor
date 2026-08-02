@@ -141,6 +141,10 @@ Editor :: struct {
     // A Ctrl+Click (go-to-definition) is in progress; the drag that a physical
     // click emits must not turn into a selection.
     goto_click:         bool,
+    // Scrollbar drag: `scrollbar_grab` is where inside the thumb it was taken,
+    // so the thumb keeps its grip on the cursor instead of jumping.
+    scrollbar_dragging: bool,
+    scrollbar_grab:     f32,
     // Right-click opens a context menu supplied by the owner.
     on_context_menu:    Context_Menu_Proc,
     context_menu_data:  rawptr,
@@ -787,6 +791,20 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
         if event.mouse_button != .LEFT {
             return false
         }
+        // The scrollbar sits over the text, so it claims the press first: on the
+        // thumb it drags from where it was taken, elsewhere on the track it
+        // centers the thumb on the click and drags from there.
+        if track, thumb, ok := editor_scrollbar_rects(editor);
+           ok && rl.CheckCollisionPointRec(event.mouse_position, editor_scrollbar_grab_rect(track)) {
+            editor.scrollbar_dragging = true
+            if event.mouse_position.y >= thumb.y && event.mouse_position.y < thumb.y + thumb.height {
+                editor.scrollbar_grab = event.mouse_position.y - thumb.y
+            } else {
+                editor.scrollbar_grab = thumb.height * 0.5
+                editor_scrollbar_drag_to(editor, event.mouse_position.y)
+            }
+            return true
+        }
         // A click in the fold column toggles that line's fold instead of moving
         // the caret.
         if fold_col := editor_fold_col_width(editor); fold_col > 0 &&
@@ -836,6 +854,10 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
     case .Mouse_Move:
         // Only dispatched here while the button is held (drag), so extend. A
         // Ctrl+Click goto is not a drag-select, so leave its caret alone.
+        if editor.scrollbar_dragging {
+            editor_scrollbar_drag_to(editor, event.mouse_position.y)
+            return true
+        }
         if editor.goto_click {
             return true
         }
@@ -892,6 +914,7 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
     case .Key_Press:
         return editor_handle_key(editor, event)
     case .Mouse_Up, .Click, .None:
+        editor.scrollbar_dragging = false
     }
 
     return false
@@ -1602,7 +1625,7 @@ editor_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
 
     ui.end_clip()
 
-    editor_draw_scrollbar(editor, line_height)
+    editor_draw_scrollbar(editor)
 
     if ctx.focused == widget {
         editor_draw_completion(editor)
@@ -1937,25 +1960,71 @@ editor_draw_completion :: proc(editor: ^Editor) {
     }
 }
 
-// Vertical scrollbar on the right edge, shown only when the document overflows
-// the view. Thumb size and position track scroll_y.
-editor_draw_scrollbar :: proc(editor: ^Editor, line_height: f32) {
+// Visible width of the scrollbar, and the wider strip that still grabs it: a
+// 6px target is hard to hit with a mouse.
+SCROLLBAR_WIDTH :: 6
+SCROLLBAR_GRAB_WIDTH :: 14
+
+// Track and thumb of the vertical scrollbar, shared by the draw and the
+// hit-test so the two cannot drift. `ok` is false when the document fits the
+// view and no bar is shown.
+editor_scrollbar_rects :: proc(editor: ^Editor) -> (track, thumb: rl.Rectangle, ok: bool) {
+    line_height := cast(f32) ui.text_line_height(editor.font_size)
     view_height := editor.bounds.height - editor.padding.top - editor.padding.bottom
     content_height := cast(f32) len(editor.visual_rows) * line_height
-    if content_height <= view_height {
+    if view_height <= 0 || content_height <= view_height {
         return
     }
 
-    width: f32 = 6
-    track_x := editor.bounds.x + editor.bounds.width - width - 2
-    track_y := editor.bounds.y + editor.padding.top
-    rl.DrawRectangleRec(rl.Rectangle {track_x, track_y, width, view_height}, editor.gutter_color)
-
-    thumb_height := max(view_height * view_height / content_height, 28)
+    track = rl.Rectangle {
+        editor.bounds.x + editor.bounds.width - SCROLLBAR_WIDTH - 2,
+        editor.bounds.y + editor.padding.top,
+        SCROLLBAR_WIDTH,
+        view_height,
+    }
+    thumb_height := min(max(view_height * view_height / content_height, 28), view_height)
     max_scroll := content_height - view_height
-    t := max_scroll > 0 ? editor.scroll_y / max_scroll : 0
-    thumb_y := track_y + (view_height - thumb_height) * t
-    rl.DrawRectangleRec(rl.Rectangle {track_x, thumb_y, width, thumb_height}, editor.line_number_color)
+    t := max_scroll > 0 ? clamp(editor.scroll_y / max_scroll, 0, 1) : 0
+    thumb = rl.Rectangle {track.x, track.y + (track.height - thumb_height) * t, SCROLLBAR_WIDTH, thumb_height}
+    return track, thumb, true
+}
+
+// The strip a press has to land in to take hold of the scrollbar.
+@(private = "file")
+editor_scrollbar_grab_rect :: proc(track: rl.Rectangle) -> rl.Rectangle {
+    return rl.Rectangle {track.x + SCROLLBAR_WIDTH - SCROLLBAR_GRAB_WIDTH, track.y, SCROLLBAR_GRAB_WIDTH, track.height}
+}
+
+// Scrolls so the thumb's top sits `scrollbar_grab` above the cursor.
+@(private = "file")
+editor_scrollbar_drag_to :: proc(editor: ^Editor, mouse_y: f32) {
+    track, thumb, ok := editor_scrollbar_rects(editor)
+    if !ok {
+        return
+    }
+    span := track.height - thumb.height
+    if span <= 0 {
+        editor.scroll_y = 0
+        return
+    }
+    t := (mouse_y - editor.scrollbar_grab - track.y) / span
+    editor.scroll_y = clamp(t, 0, 1) * editor_max_scroll(editor)
+    editor_clamp_scroll(editor)
+}
+
+// Vertical scrollbar on the right edge, shown only when the document overflows
+// the view. Thumb size and position track scroll_y.
+editor_draw_scrollbar :: proc(editor: ^Editor) {
+    track, thumb, ok := editor_scrollbar_rects(editor)
+    if !ok {
+        return
+    }
+    rl.DrawRectangleRec(track, editor.gutter_color)
+
+    active :=
+        editor.scrollbar_dragging ||
+        rl.CheckCollisionPointRec(rl.GetMousePosition(), editor_scrollbar_grab_rect(track))
+    rl.DrawRectangleRec(thumb, active ? editor.text_color : editor.line_number_color)
 }
 
 // Draws one visual row, coloring byte ranges from the highlight spans and the
@@ -2432,17 +2501,19 @@ editor_move_visual :: proc(editor: ^Editor, delta: int, extend: bool) {
     textedit.normalize(editor.state)
 }
 
+// Largest scroll_y that still shows content; 0 when the document fits the view.
+editor_max_scroll :: proc(editor: ^Editor) -> f32 {
+    content_height := cast(f32) len(editor.visual_rows) * cast(f32) ui.text_line_height(editor.font_size)
+    view_height := editor.bounds.height - editor.padding.top - editor.padding.bottom
+    return max(content_height - view_height, 0)
+}
+
 editor_clamp_scroll :: proc(editor: ^Editor) {
     if editor.state == nil {
         editor.scroll_y = 0
         return
     }
-    content_height := cast(f32) len(editor.visual_rows) * cast(f32) ui.text_line_height(editor.font_size)
-    view_height := editor.bounds.height - editor.padding.top - editor.padding.bottom
-    max_scroll := content_height - view_height
-    if max_scroll < 0 {
-        max_scroll = 0
-    }
+    max_scroll := editor_max_scroll(editor)
 
     if editor.scroll_y < 0 {
         editor.scroll_y = 0

@@ -196,7 +196,6 @@ Thor :: struct {
     find_references_key:      setting.Keybind,
     signature_help_key:       setting.Keybind,
     package_doc_key:          setting.Keybind,
-    rename_key:               setting.Keybind,
     code_actions_key:         setting.Keybind,
     // Go-to-symbol picker state: the jump targets (file + byte offset) for the
     // rows currently shown, in picker order. Rebuilt each time the picker opens;
@@ -261,6 +260,10 @@ Thor :: struct {
     code_action_path:         string,
     code_action_revision:     u64,
     code_actions:             [dynamic]Pending_Action,
+    // How to reverse the last edit set applied across files (a rename, a code
+    // action), so ctrl+z takes all of it back — the files that were not open
+    // were rewritten on disk and have no buffer undo history of their own.
+    edit_undo:                [dynamic]Edit_Undo_File,
     // Transient statusline notice (e.g. "No definition found") and the time it
     // was posted; thor_status_info hides it once STATUS_MESSAGE_SECS elapse.
     status_message:           string,
@@ -522,6 +525,7 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.jump_forward)
     delete(thor.rename_path)
     delete(thor.code_action_path)
+    thor_clear_edit_undo(thor)
     thor_clear_code_actions(thor)
     delete(thor.code_actions)
     delete(thor.status_message)

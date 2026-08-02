@@ -65,13 +65,21 @@ thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
         thor_quick_open(thor)
         return true
     }
-    // Find / replace open on ctrl+f / ctrl+r (work regardless of focus).
+    // Find opens on ctrl+f (works regardless of focus).
     if setting.keybind_matches(thor.find_key, event.key, event.ctrl, event.shift, event.alt) {
         thor_open_find(thor, false)
         return true
     }
+    // Ctrl+R renames the symbol under the caret when the language backend can,
+    // and opens find/replace otherwise. With an overlay open it always means
+    // replace: ctrl+r in the find bar is how the replace field is revealed.
     if setting.keybind_matches(thor.replace_key, event.key, event.ctrl, event.shift, event.alt) {
-        thor_open_find(thor, true)
+        overlay :=
+            widgets.command_palette_is_open(thor.command_palette) ||
+            widgets.find_replace_is_open(thor.find_replace)
+        if overlay || !thor_rename_symbol(thor) {
+            thor_open_find(thor, true)
+        }
         return true
     }
     // Go to line opens the palette in line mode regardless of focus.
@@ -116,11 +124,6 @@ thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
     // Package documentation (F3) renders the package under the caret in the other pane.
     if setting.keybind_matches(thor.package_doc_key, event.key, event.ctrl, event.shift, event.alt) {
         thor_package_doc(thor)
-        return true
-    }
-    // Rename (F2) prompts for a new name and rewrites every usage of the symbol.
-    if setting.keybind_matches(thor.rename_key, event.key, event.ctrl, event.shift, event.alt) {
-        thor_rename_symbol(thor)
         return true
     }
     // Code actions (Ctrl+.) offer the fixes available at the caret.
@@ -191,6 +194,13 @@ thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
     }
 
     #partial switch event.key {
+    case .Z:
+        // A rename or code action that touched other files is taken back whole,
+        // ahead of the focused buffer's own undo. Once it no longer applies (the
+        // files moved on), this falls through to that buffer as usual.
+        if !event.shift && thor_undo_last_edits(thor) {
+            return true
+        }
     case .W:
         thor_close_file(thor, ui.signal_get(&thor.active_file))
         return true

@@ -216,7 +216,7 @@ lowest latency.
   explicit keybind does. The auto path is also debounced (~50ms), so holding a
   key down resolves the call once instead of once per repeat; the keybind
   dispatches immediately.
-- **Rename (Shift+F2):** prompts for a new name in the palette (prefilled with
+- **Rename (Ctrl+R):** prompts for a new name in the palette (prefilled with
   the symbol under the caret), then rewrites every usage find-references would
   list (`Rename` request → `rename`). The backend returns *edits*
   (`Result.edits: []Text_Edit`), never touching a file itself; the host
@@ -430,7 +430,8 @@ lowest latency.
       instead of a thread and a buffer clone per key — see request coalescing
       under scalability — and the sibling-package candidates come from the resident
       symbol index rather than a re-read and re-parse of every file in the package.
-- [x] **Rename.** Shift+F2 (F2 already renames the *file*); `Rename` request
+- [x] **Rename.** Ctrl+R, which falls back to find/replace when the caret is not
+      on a renameable symbol (F2 already renames the *file*); `Rename` request
       served by `rename`, which runs the reference scan and turns each occurrence
       into a `Text_Edit`. The engine writes nothing — it returns `res.edits` and
       the host applies them, so an open buffer's change is one undo entry. Reach

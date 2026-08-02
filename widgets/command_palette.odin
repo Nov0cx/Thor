@@ -52,6 +52,10 @@ Palette_Mode :: enum {
     Pick,
 }
 
+// Left padding of the input text and the list rows.
+@(private = "file")
+INPUT_PAD :: f32(12)
+
 @(private = "file")
 Match :: struct {
     index: int,
@@ -67,6 +71,7 @@ Command_Palette :: struct {
     // Prefix trimmed from file paths for display/matching (workspace root).
     root_prefix:  string,
     query:        [dynamic]u8,
+    caret:        int, // byte offset of the input caret into `query`
     matches:      [dynamic]Match,
     selected:     int,
     scroll:       int,
@@ -236,6 +241,7 @@ command_palette_prompt :: proc(
     command_palette_reset(palette, .Prompt)
     if len(initial) > 0 {
         append(&palette.query, ..transmute([]u8) initial)
+        palette.caret = len(palette.query)
         command_palette_refilter(palette)
     }
     ctx.focused = &palette.widget
@@ -384,6 +390,7 @@ command_palette_clear_pick_items :: proc(palette: ^Command_Palette) {
 command_palette_reset :: proc(palette: ^Command_Palette, mode: Palette_Mode) {
     palette.mode = mode
     clear(&palette.query)
+    palette.caret = 0
     palette.selected = 0
     palette.scroll = 0
     command_palette_refilter(palette)
@@ -589,20 +596,40 @@ command_palette_handle_event :: proc(widget: ^ui.Widget, ctx: ^ui.Context, event
                 return true
             }
             buffer, width := utf8.encode_rune(event.codepoint)
-            append(&palette.query, ..buffer[:width])
+            palette.caret = clamp(palette.caret, 0, len(palette.query))
+            inject_at(&palette.query, palette.caret, ..buffer[:width])
+            palette.caret += width
             command_palette_refilter(palette)
         }
         return true
 
     case .Key_Press:
+        palette.caret = clamp(palette.caret, 0, len(palette.query))
+        query := string(palette.query[:])
         #partial switch event.key {
         case .ESCAPE:
             command_palette_close(palette, ctx)
         case .ENTER, .KP_ENTER:
             command_palette_activate(palette, ctx)
+        case .LEFT:
+            palette.caret = input_prev_rune(query, palette.caret)
+        case .RIGHT:
+            palette.caret = input_next_rune(query, palette.caret)
+        case .HOME:
+            palette.caret = 0
+        case .END:
+            palette.caret = len(query)
         case .BACKSPACE:
-            command_palette_pop_rune(palette)
-            command_palette_refilter(palette)
+            if start := input_prev_rune(query, palette.caret); start < palette.caret {
+                remove_range(&palette.query, start, palette.caret)
+                palette.caret = start
+                command_palette_refilter(palette)
+            }
+        case .DELETE:
+            if end := input_next_rune(query, palette.caret); end > palette.caret {
+                remove_range(&palette.query, palette.caret, end)
+                command_palette_refilter(palette)
+            }
         case .UP:
             command_palette_move_selection(palette, -1)
         case .DOWN:
@@ -617,6 +644,11 @@ command_palette_handle_event :: proc(widget: ^ui.Widget, ctx: ^ui.Context, event
     case .Mouse_Down:
         if !rl.CheckCollisionPointRec(event.mouse_position, palette.box) {
             command_palette_close(palette, ctx)
+            return true
+        }
+        if palette.mode != .Confirm && rl.CheckCollisionPointRec(event.mouse_position, command_palette_input_rect(palette)) {
+            origin := command_palette_input_rect(palette).x + INPUT_PAD
+            palette.caret = input_caret_at_x(string(palette.query[:]), origin, event.mouse_position.x, 18)
             return true
         }
         row := command_palette_row_at(palette, event.mouse_position)
@@ -634,18 +666,10 @@ command_palette_handle_event :: proc(widget: ^ui.Widget, ctx: ^ui.Context, event
     return true // block everything else from reaching widgets underneath
 }
 
+// The input row's rectangle, shared by the draw and the caret hit-test.
 @(private = "file")
-command_palette_pop_rune :: proc(palette: ^Command_Palette) {
-    n := len(palette.query)
-    if n == 0 {
-        return
-    }
-    // Trim continuation bytes (0b10xxxxxx) then the lead byte.
-    i := n - 1
-    for i > 0 && (palette.query[i] & 0xC0) == 0x80 {
-        i -= 1
-    }
-    resize(&palette.query, i)
+command_palette_input_rect :: proc(palette: ^Command_Palette) -> rl.Rectangle {
+    return rl.Rectangle {palette.box.x + 6, palette.box.y + 6, palette.box.width - 12, palette.input_height - 12}
 }
 
 @(private = "file")
@@ -680,8 +704,8 @@ command_palette_draw :: proc(widget: ^ui.Widget, _: ^ui.Context) {
     }
 
     // Input row.
-    pad: f32 = 12
-    input_rect := rl.Rectangle {palette.box.x + 6, palette.box.y + 6, palette.box.width - 12, palette.input_height - 12}
+    pad := INPUT_PAD
+    input_rect := command_palette_input_rect(palette)
     rl.DrawRectangleRec(input_rect, palette.input_color)
 
     text_y := cast(i32) (input_rect.y + (input_rect.height - 18) * 0.5)
@@ -693,8 +717,8 @@ command_palette_draw :: proc(widget: ^ui.Widget, _: ^ui.Context) {
     } else {
         ui.draw_text(query, text_x, text_y, 18, palette.text_color)
     }
-    // Caret after the query text.
-    caret_x := text_x + ui.measure_text(query, 18) + 2
+    prefix := query[:clamp(palette.caret, 0, len(query))]
+    caret_x := text_x + (len(prefix) == 0 ? 0 : ui.measure_text(prefix, 18)) + 2
     rl.DrawRectangle(caret_x, text_y, 2, 18, palette.accent_color)
 
     if palette.mode == .Line || palette.mode == .Prompt {

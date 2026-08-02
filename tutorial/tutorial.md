@@ -51,7 +51,7 @@ from **Help -> Tutorial** to see the shortcuts update.
 | Shortcut | Action |
 | --- | --- |
 | `Ctrl+F` | Find text in the current file |
-| `Ctrl+R` | Find and replace text in the current file |
+| `Ctrl+R` | Rename the symbol under the caret, or find and replace when there is none |
 
 ### Explorer
 

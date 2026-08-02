@@ -188,21 +188,33 @@ thor_find_references :: proc(thor: ^Thor) {
     )
 }
 
-// F2: rename the symbol under the caret across the workspace. Prompts for the
+// Ctrl+R: rename the symbol under the caret across the workspace. Prompts for the
 // new name (prefilled with the current one) in the palette; thor_prompt_rename
-// dispatches the request once it is confirmed.
-thor_rename_symbol :: proc(thor: ^Thor) {
+// dispatches the request once it is confirmed. Reports whether the prompt opened,
+// so the chord can fall back to find/replace when there is no symbol to rename.
+thor_rename_symbol :: proc(thor: ^Thor) -> bool {
     file := thor_active_open_file(thor)
     if file == nil || !file.loaded {
-        return
+        return false
     }
     if !lang.manager_supports(&thor.lang_manager, thor_file_extension(file.name)) {
-        return
+        return false
     }
+    cursor := textedit.primary_cursor(&file.state)
     source := textedit.text(&file.state)
-    current := ""
-    if lo, hi, ok := textedit.word_range_at(source, textedit.primary_cursor(&file.state).caret); ok {
-        current = source[lo:hi]
+    lo, hi, ok := textedit.word_range_at(source, cursor.caret)
+    if !ok {
+        return false
+    }
+    // A selection that is not exactly this word — part of one, or a span across
+    // several — means a text replace is wanted, not a symbol rename. Selecting
+    // the word itself (a double-click) is how a symbol gets picked, so that one
+    // still renames.
+    if textedit.has_selection(cursor) {
+        sel_lo, sel_hi := textedit.selection_range(cursor)
+        if sel_lo != lo || sel_hi != hi {
+            return false
+        }
     }
     widgets.command_palette_prompt(
         thor.command_palette,
@@ -210,8 +222,9 @@ thor_rename_symbol :: proc(thor: ^Thor) {
         "Rename symbol",
         thor_prompt_rename,
         thor,
-        current,
+        source[lo:hi],
     )
+    return true
 }
 
 // Dispatches the Rename request once the user confirms a new name. The caret is
@@ -234,13 +247,20 @@ thor_prompt_rename :: proc(data: rawptr, input: string) {
         return
     }
     source := textedit.text(&file.state)
+    // Picking the symbol by double-clicking it leaves the caret on the word's
+    // trailing boundary, where the node the backend reads is whichever token the
+    // parse tree hands back; its start is unambiguously inside the identifier.
+    offset := textedit.primary_cursor(&file.state).caret
+    if lo, _, ok := textedit.word_range_at(source, offset); ok {
+        offset = lo
+    }
     id := lang.manager_request_latest(
         &thor.lang_manager,
         .Rename,
         file.path,
         ext,
         source,
-        textedit.primary_cursor(&file.state).caret,
+        offset,
         file.state.revision,
         thor.workspace_dir,
         new_name,
@@ -262,6 +282,32 @@ Edit_Target :: struct {
     file:  ^Open_File, // nil when the file is not open in the editor
     text:  string,     // current content, temp-allocated
     edits: [dynamic]lang.Text_Edit, // temp-allocated; the edits borrow the caller's strings
+}
+
+// One file the last applied edit set touched, and what it takes to reverse it.
+// An open file is reversed through the buffer's own undo entry: `revision` is
+// what the buffer read right after the edits landed, and matching it proves that
+// entry is still the top of its stack. A file that was not open was rewritten on
+// disk with no undo history of its own, so it carries the content it had before
+// and a hash of what was written — a copy that changed since is refused rather
+// than clobbered.
+@(private)
+Edit_Undo_File :: struct {
+    path:       string, // owned, canonical
+    open:       bool,
+    revision:   u64,    // open files: the buffer revision the edits left behind
+    before:     string, // owned; closed files: the content to put back
+    after_hash: u64,    // closed files: hash of the content that was written
+}
+
+// FNV-1a; identifies the exact bytes an edit set wrote to a file.
+@(private = "file")
+content_hash :: proc(data: string) -> u64 {
+    h: u64 = 0xcbf29ce484222325
+    for i in 0 ..< len(data) {
+        h = (h ~ cast(u64) data[i]) * 0x100000001b3
+    }
+    return h
 }
 
 // Applies a backend's edits — all of them, or none. Validates every edit against
@@ -297,6 +343,15 @@ thor_apply_edits :: proc(
         append(&target.edits, edit)
     }
 
+    // What it takes to reverse each file, gathered as it is written; handed to
+    // thor_set_edit_undo below so ctrl+z can take the whole set back.
+    record := make([dynamic]Edit_Undo_File)
+    committed := false
+    defer if !committed {
+        thor_free_edit_undo(record[:])
+        delete(record)
+    }
+
     for &target in targets {
         if len(target.edits) == 0 {
             continue
@@ -306,7 +361,15 @@ thor_apply_edits :: proc(
             for edit in target.edits {
                 append(&ranges, textedit.Replace {start = edit.start, end = edit.end, text = edit.new_text})
             }
-            applied += textedit.replace_ranges(&target.file.state, ranges[:])
+            // No undo entry is pushed when nothing lands, so nothing to reverse.
+            if n := textedit.replace_ranges(&target.file.state, ranges[:]); n > 0 {
+                applied += n
+                append(&record, Edit_Undo_File {
+                    path     = strings.clone(target.path),
+                    open     = true,
+                    revision = target.file.state.revision,
+                })
+            }
             continue
         }
         // Not open: splice the edits (ascending, non-overlapping) into the file's
@@ -319,12 +382,108 @@ thor_apply_edits :: proc(
             last = edit.end
         }
         strings.write_string(&b, target.text[last:])
-        if werr := os.write_entire_file(target.path, transmute([]byte) strings.to_string(b)); werr != nil {
+        written := strings.to_string(b)
+        if werr := os.write_entire_file(target.path, transmute([]byte) written); werr != nil {
+            // Whatever landed before this file stays undoable.
+            thor_set_edit_undo(thor, record)
+            committed = true
             return applied, len(targets), false, "a file could not be written"
         }
+        append(&record, Edit_Undo_File {
+            path       = strings.clone(target.path),
+            before     = strings.clone(target.text),
+            after_hash = content_hash(written),
+        })
         applied += len(target.edits)
     }
+    if len(record) > 0 {
+        thor_set_edit_undo(thor, record)
+        committed = true
+    }
     return applied, len(targets), true, ""
+}
+
+// Replaces the reversal record, freeing the one it supersedes: only the most
+// recent edit set is undoable this way.
+@(private = "file")
+thor_set_edit_undo :: proc(thor: ^Thor, record: [dynamic]Edit_Undo_File) {
+    thor_clear_edit_undo(thor)
+    thor.edit_undo = record
+}
+
+@(private)
+thor_clear_edit_undo :: proc(thor: ^Thor) {
+    thor_free_edit_undo(thor.edit_undo[:])
+    delete(thor.edit_undo)
+    thor.edit_undo = nil
+}
+
+@(private = "file")
+thor_free_edit_undo :: proc(entries: []Edit_Undo_File) {
+    for entry in entries {
+        delete(entry.path)
+        delete(entry.before)
+    }
+}
+
+// Reverses the last applied edit set (a rename's occurrences, a code action's
+// fix) across every file it touched, buffers and on-disk copies alike. Returns
+// false — touching nothing — when any of those files has moved on since: a
+// buffer that was edited (its undo entry is no longer on top), one that was
+// closed, or an on-disk copy that no longer holds what was written. Ctrl+Z falls
+// through to the focused buffer's own undo then.
+thor_undo_last_edits :: proc(thor: ^Thor) -> bool {
+    if len(thor.edit_undo) == 0 {
+        return false
+    }
+
+    // Validate every file before touching any: a half-reversed rename is worse
+    // than one that was left alone.
+    for entry in thor.edit_undo {
+        file := thor_open_file_at(thor, entry.path)
+        if entry.open {
+            if file == nil || file.state.revision != entry.revision {
+                return false
+            }
+            continue
+        }
+        data, err := os.read_entire_file(entry.path, context.temp_allocator)
+        if err != nil || content_hash(string(data)) != entry.after_hash {
+            return false
+        }
+        // Opened since it was rewritten: the reload that the write triggers must
+        // not be able to drop unsaved work.
+        if file != nil && (!file.loaded || file.state.revision != file.saved_revision) {
+            return false
+        }
+    }
+
+    for entry in thor.edit_undo {
+        if entry.open {
+            textedit.undo(&thor_open_file_at(thor, entry.path).state)
+            continue
+        }
+        if werr := os.write_entire_file(entry.path, transmute([]byte) entry.before); werr != nil {
+            thor_flash_status(thor, "Undo incomplete: a file could not be written", is_error = true)
+            break
+        }
+    }
+
+    files := len(thor.edit_undo)
+    thor_clear_edit_undo(thor)
+    thor_flash_status(thor, fmt.tprintf("Undid the edits in %d files", files))
+    return true
+}
+
+// The open buffer for `path`, or nil when the file is not open.
+@(private = "file")
+thor_open_file_at :: proc(thor: ^Thor, path: string) -> ^Open_File {
+    for file in thor.open_files {
+        if !file.closed && thor_same_path(file.path, path) {
+            return file
+        }
+    }
+    return nil
 }
 
 // Applies a rename's edits once they land.

@@ -28,7 +28,7 @@ local reference = {
         title = "Search",
         entries = {
             { action = "find", desc = "Find text in the current file" },
-            { action = "replace", desc = "Find and replace text in the current file" },
+            { action = "replace", desc = "Rename the symbol under the caret, or find and replace when there is none" },
         },
     },
     {

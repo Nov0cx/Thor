@@ -14,6 +14,9 @@ Find_Replace :: struct {
     editor:        ^Editor,
     find:          [dynamic]u8,
     replace:       [dynamic]u8,
+    // Byte offset of each field's own caret, kept while focus moves between them.
+    find_caret:    int,
+    replace_caret: int,
     replace_field: bool, // which input has focus: false = find, true = replace
     show_replace:  bool, // replace row + buttons visible
     matches:       [dynamic]int, // start byte offsets of the find query
@@ -101,6 +104,8 @@ find_replace_open :: proc(fr: ^Find_Replace, ctx: ^ui.Context, editor: ^Editor, 
             append(&fr.find, ..transmute([]u8) textedit.text(editor.state)[lo:hi])
         }
     }
+    fr.find_caret = len(fr.find)
+    fr.replace_caret = len(fr.replace)
 
     find_replace_recompute(fr)
     find_replace_select_current(fr)
@@ -136,7 +141,9 @@ fr_match_at :: proc(text: string, pos: int, query: string) -> bool {
     return true
 }
 
-// Recomputes match offsets; points `current` at the first match at/after the caret.
+// Recomputes match offsets; points `current` at the first match at/after the
+// selection's start, so opening on a selected word lands on that word instead
+// of skipping to the one after it.
 @(private = "file")
 find_replace_recompute :: proc(fr: ^Find_Replace) {
     clear(&fr.matches)
@@ -150,7 +157,7 @@ find_replace_recompute :: proc(fr: ^Find_Replace) {
     }
 
     text := textedit.text(fr.editor.state)
-    caret := textedit.primary_cursor(fr.editor.state).caret
+    from, _ := textedit.selection_range(textedit.primary_cursor(fr.editor.state))
     i := 0
     for i + len(query) <= len(text) {
         if fr_match_at(text, i, query) {
@@ -162,7 +169,7 @@ find_replace_recompute :: proc(fr: ^Find_Replace) {
     }
 
     for start, index in fr.matches {
-        if start >= caret {
+        if start >= from {
             fr.current = index
             break
         }
@@ -211,9 +218,23 @@ find_replace_do_replace_all :: proc(fr: ^Find_Replace) {
     editor_scroll_to_caret(fr.editor)
 }
 
+// The focused field's text and its caret.
 @(private = "file")
-find_replace_active :: proc(fr: ^Find_Replace) -> ^[dynamic]u8 {
-    return fr.replace_field && fr.show_replace ? &fr.replace : &fr.find
+find_replace_active :: proc(fr: ^Find_Replace) -> (buf: ^[dynamic]u8, caret: ^int) {
+    if fr.replace_field && fr.show_replace {
+        return &fr.replace, &fr.replace_caret
+    }
+    return &fr.find, &fr.find_caret
+}
+
+// Re-runs the search after the find text changed; a no-op for the replace field.
+@(private = "file")
+find_replace_requery :: proc(fr: ^Find_Replace) {
+    if fr.replace_field && fr.show_replace {
+        return
+    }
+    find_replace_recompute(fr)
+    find_replace_select_current(fr)
 }
 
 find_replace_layout :: proc(widget: ^ui.Widget, bounds: rl.Rectangle) {
@@ -268,15 +289,18 @@ find_replace_handle_event :: proc(widget: ^ui.Widget, ctx: ^ui.Context, event: ^
         }
         if event.codepoint >= 32 && event.codepoint != 127 {
             buffer, w := utf8.encode_rune(event.codepoint)
-            append(find_replace_active(fr), ..buffer[:w])
-            if !fr.replace_field {
-                find_replace_recompute(fr)
-                find_replace_select_current(fr)
-            }
+            buf, caret := find_replace_active(fr)
+            caret^ = clamp(caret^, 0, len(buf))
+            inject_at(buf, caret^, ..buffer[:w])
+            caret^ += w
+            find_replace_requery(fr)
         }
         return true
 
     case .Key_Press:
+        buf, caret := find_replace_active(fr)
+        caret^ = clamp(caret^, 0, len(buf))
+        text := string(buf[:])
         #partial switch event.key {
         case .ESCAPE:
             find_replace_close(fr, ctx)
@@ -286,11 +310,24 @@ find_replace_handle_event :: proc(widget: ^ui.Widget, ctx: ^ui.Context, event: ^
             if fr.show_replace {
                 fr.replace_field = !fr.replace_field
             }
+        case .LEFT:
+            caret^ = input_prev_rune(text, caret^)
+        case .RIGHT:
+            caret^ = input_next_rune(text, caret^)
+        case .HOME:
+            caret^ = 0
+        case .END:
+            caret^ = len(text)
         case .BACKSPACE:
-            find_replace_pop_rune(find_replace_active(fr))
-            if !fr.replace_field {
-                find_replace_recompute(fr)
-                find_replace_select_current(fr)
+            if start := input_prev_rune(text, caret^); start < caret^ {
+                remove_range(buf, start, caret^)
+                caret^ = start
+                find_replace_requery(fr)
+            }
+        case .DELETE:
+            if end := input_next_rune(text, caret^); end > caret^ {
+                remove_range(buf, caret^, end)
+                find_replace_requery(fr)
             }
         }
         return true
@@ -302,8 +339,10 @@ find_replace_handle_event :: proc(widget: ^ui.Widget, ctx: ^ui.Context, event: ^
         }
         if rl.CheckCollisionPointRec(event.mouse_position, fr.find_rect) {
             fr.replace_field = false
+            fr.find_caret = input_caret_at_x(string(fr.find[:]), fr.find_rect.x + 8, event.mouse_position.x, 15)
         } else if fr.show_replace && rl.CheckCollisionPointRec(event.mouse_position, fr.replace_rect) {
             fr.replace_field = true
+            fr.replace_caret = input_caret_at_x(string(fr.replace[:]), fr.replace_rect.x + 8, event.mouse_position.x, 15)
         } else if rl.CheckCollisionPointRec(event.mouse_position, fr.btn_next) {
             find_replace_step(fr, 1)
         } else if rl.CheckCollisionPointRec(event.mouse_position, fr.btn_prev) {
@@ -336,19 +375,6 @@ find_replace_handle_event :: proc(widget: ^ui.Widget, ctx: ^ui.Context, event: ^
     return true
 }
 
-@(private = "file")
-find_replace_pop_rune :: proc(buf: ^[dynamic]u8) {
-    n := len(buf)
-    if n == 0 {
-        return
-    }
-    i := n - 1
-    for i > 0 && (buf[i] & 0xC0) == 0x80 {
-        i -= 1
-    }
-    resize(buf, i)
-}
-
 find_replace_draw :: proc(widget: ^ui.Widget, _: ^ui.Context) {
     fr := cast(^Find_Replace) widget
     if !fr.visible {
@@ -359,7 +385,7 @@ find_replace_draw :: proc(widget: ^ui.Widget, _: ^ui.Context) {
     rl.DrawRectangleRec(fr.box, fr.background_color)
     rl.DrawRectangleLinesEx(fr.box, 1, fr.border_color)
 
-    find_replace_draw_input(fr, fr.find_rect, "Find", string(fr.find[:]), !fr.replace_field)
+    find_replace_draw_input(fr, fr.find_rect, "Find", string(fr.find[:]), !fr.replace_field, fr.find_caret)
 
     // Match count on the right of the find row.
     count_text := len(fr.find) == 0 ? "" : (len(fr.matches) == 0 ? "No results" : fmt.tprintf("%d / %d", fr.current + 1, len(fr.matches)))
@@ -369,7 +395,7 @@ find_replace_draw :: proc(widget: ^ui.Widget, _: ^ui.Context) {
     }
 
     if fr.show_replace {
-        find_replace_draw_input(fr, fr.replace_rect, "Replace", string(fr.replace[:]), fr.replace_field)
+        find_replace_draw_input(fr, fr.replace_rect, "Replace", string(fr.replace[:]), fr.replace_field, fr.replace_caret)
         find_replace_draw_button(fr, fr.btn_next, "Next")
         find_replace_draw_button(fr, fr.btn_prev, "Prev")
         find_replace_draw_button(fr, fr.btn_replace, "Replace")
@@ -381,7 +407,7 @@ find_replace_draw :: proc(widget: ^ui.Widget, _: ^ui.Context) {
 }
 
 @(private = "file")
-find_replace_draw_input :: proc(fr: ^Find_Replace, rect: rl.Rectangle, label, text: string, focused: bool) {
+find_replace_draw_input :: proc(fr: ^Find_Replace, rect: rl.Rectangle, label, text: string, focused: bool, caret: int) {
     rl.DrawRectangleRec(rect, fr.input_color)
     if focused {
         rl.DrawRectangleLinesEx(rect, 1, fr.accent_color)
@@ -394,7 +420,8 @@ find_replace_draw_input :: proc(fr: ^Find_Replace, rect: rl.Rectangle, label, te
         ui.draw_text(text, x, text_y, 15, fr.text_color)
     }
     if focused {
-        caret_x := x + (len(text) == 0 ? 0 : ui.measure_text(text, 15)) + 1
+        prefix := text[:clamp(caret, 0, len(text))]
+        caret_x := x + (len(prefix) == 0 ? 0 : ui.measure_text(prefix, 15)) + 1
         rl.DrawRectangle(caret_x, text_y, 2, 16, fr.accent_color)
     }
 }
