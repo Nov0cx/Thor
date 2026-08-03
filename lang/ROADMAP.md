@@ -453,7 +453,10 @@ lowest latency.
   the engine and stat-invalidated like the symbol index (re-read only when the
   file's modtime/size moves), so the common request pays a single `stat`, not a
   parse. Unknown keys are ignored, so the file can hold settings the engine
-  doesn't act on yet. Served by `config_ensure`/`config_collection_dir`/
+  doesn't act on yet. The collections also reach the compiler: a `Diagnostics`
+  run passes each as `-collection:<name>=<dir>`, since `odin check` reads no
+  config of Thor's and would otherwise reject the import as a syntax error.
+  Served by `config_ensure`/`config_collection_dir`/`config_collections`/
   `config_allows` in `lang/odin/config.odin`.
 - **Go back / go forward (Ctrl+Alt+Left / Ctrl+Alt+Right):** every jump records
   where it left, so chasing a definition across files is reversible. Two trails
@@ -753,7 +756,10 @@ lowest latency.
       what `scope` is for — a fixed file simply stops appearing). Debounced at
       `DEBOUNCE_CHECK` (400ms) so a save-all costs one compiler run rather than one
       per file, and serialized on the engine (`check_mutex`) so two checks never
-      contend; a superseded one is cancelled and never spawns a process.
+      contend; a superseded one is cancelled and never spawns a process. The run
+      carries the workspace config's collections as `-collection:` flags; an entry
+      the compiler would reject (a reserved name, a path that is not a directory)
+      is dropped, because such a flag aborts the run before it checks anything.
       Push-model diagnostics (an LSP server volunteering them between requests)
       would need a notification channel on the seam — the pull shape here fits a
       one-shot checker, not a live server.

@@ -140,6 +140,70 @@ test_check_reports_clean_package :: proc(t: ^testing.T) {
     testing.expectf(t, len(res.report.items) == 0, "a clean package reports nothing, got %d", len(res.report.items))
 }
 
+// A package that imports through a workspace-declared collection checks clean:
+// the config's collections reach the compiler as `-collection:` flags. Without
+// them `import "shared:foo"` is a syntax error, and that one line buries every
+// real diagnostic in the package.
+@(test)
+test_check_passes_config_collections :: proc(t: ^testing.T) {
+    root, ok := temp_package(t, "thor_lang_collcheck_ws")
+    if !ok {
+        return
+    }
+    libs, _ := filepath.join({root, "libs"}, context.temp_allocator)
+    foo, _ := filepath.join({libs, "foo"}, context.temp_allocator)
+    cfg_dir, _ := filepath.join({root, ".thor"}, context.temp_allocator)
+    app, _ := filepath.join({root, "app"}, context.temp_allocator)
+    _ = os.make_directory(libs)
+    _ = os.make_directory(foo)
+    _ = os.make_directory(cfg_dir)
+    _ = os.make_directory(app)
+    defer os.remove(root)
+    defer os.remove(libs)
+    defer os.remove(foo)
+    defer os.remove(cfg_dir)
+    defer os.remove(app)
+
+    foo_path, _ := filepath.join({foo, "foo.odin"}, context.temp_allocator)
+    cfg_path, _ := filepath.join({cfg_dir, "odin-analyzer.json"}, context.temp_allocator)
+    app_path, _ := filepath.join({app, "app.odin"}, context.temp_allocator)
+    defer os.remove(foo_path)
+    defer os.remove(cfg_path)
+    defer os.remove(app_path)
+
+    files := [?]struct {
+        path: string,
+        src:  string,
+    } {
+        {foo_path, "package foo\n\nbar :: proc() -> int {\n\treturn 1\n}\n"},
+        {cfg_path, "{ \"collections\": [ { \"name\": \"shared\", \"path\": \"libs\" } ] }\n"},
+        {app_path, "package app\n\nimport \"shared:foo\"\n\nuse :: proc() -> int {\n\treturn foo.bar()\n}\n"},
+    }
+    for f in files {
+        if err := os.write_entire_file(f.path, transmute([]byte)f.src); err != nil {
+            testing.fail_now(t, "could not write the test workspace")
+        }
+    }
+
+    if !odin_on_path(root) {
+        log.info("odin is not on PATH; skipping the compiler check test")
+        return
+    }
+
+    e := engine_create()
+    defer engine_destroy(e)
+
+    req := lang.Request{kind = .Diagnostics, path = app_path, ext = ".odin", workspace = root}
+    res := lang.Result{kind = .Diagnostics}
+    resolve(e, &req, &res)
+    defer free_report(&res)
+
+    testing.expect(t, res.ok, "the check should have run")
+    for d in res.report.items {
+        testing.expectf(t, false, "unexpected diagnostic: %s(%d:%d) %s", d.path, d.line, d.col, d.message)
+    }
+}
+
 // Creates an empty package directory under the working directory and returns its
 // absolute path.
 @(private = "file")

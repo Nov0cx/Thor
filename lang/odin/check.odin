@@ -5,6 +5,7 @@
 package odin
 
 import "core:fmt"
+import "core:os"
 import "core:path/filepath"
 import "core:strconv"
 import "core:strings"
@@ -56,7 +57,7 @@ check_package :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
     // git use, and what a relative path in the output would be relative to. With
     // no workspace open, the package's own directory serves.
     cwd := req.workspace != "" ? req.workspace : dir
-    command := fmt.tprintf("odin check \"%s\" -no-entry-point", dir)
+    command := fmt.tprintf("odin check \"%s\" -no-entry-point%s", dir, collection_flags(e, req.workspace))
     output := shell.run(command, cwd)
     defer delete(output)
 
@@ -82,6 +83,27 @@ check_package :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
     // The run completed, so `items` is the whole truth for `dir` — including the
     // empty case, which is how the editor learns a fixed file is clean again.
     res.ok = true
+}
+
+// `-collection:<name>=<dir>` for every collection the workspace config declares.
+// The compiler reads no `.thor/odin-analyzer.json`.
+// Each flag is quoted whole — a collection root can hold spaces. An entry the
+// compiler would reject (a reserved name, a path that is not a directory) aborts
+// the run before it checks anything, so such entries are dropped instead.
+// Scratch-allocated.
+@(private = "file")
+collection_flags :: proc(e: ^Engine, workspace: string) -> string {
+    b := strings.builder_make(context.temp_allocator)
+    for c in config_collections(e, workspace) {
+        if c.name == "core" || c.name == "vendor" || c.name == "base" {
+            continue
+        }
+        if !os.is_dir(c.dir) {
+            continue
+        }
+        fmt.sbprintf(&b, " \"-collection:%s=%s\"", c.name, c.dir)
+    }
+    return strings.to_string(b)
 }
 
 // A parsed diagnostic line: the decoded fields, with `path` and `message` still

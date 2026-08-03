@@ -191,13 +191,33 @@ config_collection_dir :: proc(e: ^Engine, coll, workspace: string) -> (string, b
     return "", false
 }
 
+// One workspace-declared collection: its name and its resolved root directory.
+@(private)
+Collection :: struct {
+    name: string,
+    dir:  string,
+}
+
 // Names of every collection the workspace config declares, cloned into scratch
 // so they outlive the lock. Lets a caller that has no particular collection in
 // mind — searching them all for a package, as the add-import action does — reach
 // them without holding the config mutex while it walks the disk.
 @(private)
 config_collection_names :: proc(e: ^Engine, workspace: string) -> []string {
-    out := make([dynamic]string, context.temp_allocator)
+    colls := config_collections(e, workspace)
+    out := make([dynamic]string, 0, len(colls), context.temp_allocator)
+    for c in colls {
+        append(&out, c.name)
+    }
+    return out[:]
+}
+
+// Every collection the workspace config declares, cloned into scratch so the
+// pairs outlive the lock. For a caller that needs both halves at once — the
+// `-collection:` flags an `odin check` run is given.
+@(private)
+config_collections :: proc(e: ^Engine, workspace: string) -> []Collection {
+    out := make([dynamic]Collection, context.temp_allocator)
     if workspace == "" {
         return out[:]
     }
@@ -205,8 +225,14 @@ config_collection_names :: proc(e: ^Engine, workspace: string) -> []string {
     sync.lock(&cache.mutex)
     defer sync.unlock(&cache.mutex)
     config_ensure(cache, workspace)
-    for name in cache.cfg.collections {
-        append(&out, strings.clone(name, context.temp_allocator))
+    for name, dir in cache.cfg.collections {
+        append(
+            &out,
+            Collection {
+                name = strings.clone(name, context.temp_allocator),
+                dir = strings.clone(dir, context.temp_allocator),
+            },
+        )
     }
     return out[:]
 }
