@@ -1,19 +1,25 @@
 // Plugin host: owns the Lua VM, the tree-sitter engine, and the language
 // registry plugins fill at load time. A language is backed by a tree-sitter
 // grammar or a pure-Lua lexer. Highlighting resolves to color roles.
+//
+// Each plugin runs sandboxed (see sandbox.odin): its own `_ENV`, a trimmed
+// standard library, and a `thor` table holding only what its plugin.json grants.
 package plugin
 
 import "base:runtime"
 import "core:c"
+import "core:fmt"
 import "core:log"
+import "core:os"
 import "core:path/filepath"
 import "core:strings"
 
 import lua "vendor:lua/5.4"
 
 import "../syntax"
+import ts "../vendor/odin-tree-sitter"
 
-// Lua's LUA_NOREF; marks a language with no Lua lexer.
+// Lua's LUA_NOREF; marks a callback slot with no Lua function.
 NOREF :: -2
 
 // Color roles exposed to plugins as `thor.theme.<role>`.
@@ -24,13 +30,13 @@ ROLES := []string {
     "yellow", "orange", "purple", "cyan", "blue", "red", "green", "gray", "accent", "error",
 }
 
-// A registered language; `grammar` is empty when `lexer_ref` names a Lua lexer.
+// A registered language; `grammar` is empty when `lexer` names a Lua lexer.
 Language :: struct {
     name:       string,
     extensions: [dynamic]string,
     grammar:    string,
     colors:     map[string]string, // capture name (or its head) -> color role
-    lexer_ref:  int,               // Lua registry ref, or NOREF
+    lexer:      Callback,          // pure-Lua lexer, or an unset ref
 }
 
 // Host services a plugin can call back into, as plain function pointers so the
@@ -77,6 +83,36 @@ Pick_Proc :: #type proc(host: rawptr, label: string, items: []string)
 // manager_dialog_confirm.
 Confirm_Proc :: #type proc(host: rawptr, message: string)
 
+// Everything the app hands the manager. Grouped so adding a service does not
+// re-shuffle a positional argument list.
+Host :: struct {
+    data:        rawptr,
+    print:       Print_Proc,
+    keybind:     Keybind_Proc,
+    doc:         Doc_Proc,
+    exec:        Exec_Proc,
+    button:      Button_Proc,
+    workspace:   Workspace_Proc,
+    active_path: Active_Path_Proc,
+    read:        Read_Proc,
+    write:       Write_Proc,
+    refresh_git: Refresh_Git_Proc,
+    menu:        Menu_Proc,
+    prompt:      Prompt_Proc,
+    pick:        Pick_Proc,
+    confirm:     Confirm_Proc,
+    // Dockable panels a plugin builds (see view.odin).
+    panel:        Panel_Proc,
+    panel_render: Panel_Render_Proc,
+    panel_show:   Panel_Show_Proc,
+    panel_close:  Panel_Close_Proc,
+    // Immediate-mode drawing inside a canvas node.
+    draw_rect:    Draw_Rect_Proc,
+    draw_text:    Draw_Text_Proc,
+    draw_line:    Draw_Line_Proc,
+    measure_text: Measure_Text_Proc,
+}
+
 // The single Lua state shared by all plugins. Not reentrant: one thread only.
 Manager :: struct {
     state:       ^lua.State,
@@ -85,14 +121,14 @@ Manager :: struct {
     by_ext:      map[string]int, // ".odin" -> index into languages
     // Used for every alloc and free, since Lua C callbacks run under a default context.
     allocator:   runtime.Allocator,
-    // on_key handler ref (NOREF when unset); host/print/keybind wired by the app.
-    key_ref:      int,
-    host:         rawptr,
-    print_proc:   Print_Proc,
-    keybind_proc: Keybind_Proc,
-    doc_proc:     Doc_Proc,
-    exec_proc:    Exec_Proc,
-    button_proc:  Button_Proc,
+    plugins:     [dynamic]Plugin,
+    // Host services; `host` is the app pointer every proc takes.
+    host:             rawptr,
+    print_proc:       Print_Proc,
+    keybind_proc:     Keybind_Proc,
+    doc_proc:         Doc_Proc,
+    exec_proc:        Exec_Proc,
+    button_proc:      Button_Proc,
     workspace_proc:   Workspace_Proc,
     active_path_proc: Active_Path_Proc,
     read_proc:        Read_Proc,
@@ -102,87 +138,106 @@ Manager :: struct {
     prompt_proc:      Prompt_Proc,
     pick_proc:        Pick_Proc,
     confirm_proc:     Confirm_Proc,
-    // The Lua callback awaiting a dialog result (prompt/pick/confirm), or NOREF.
-    // Only one dialog is open at a time, so a single slot suffices.
-    dialog_ref:   int,
-    // Named commands registered via thor.on_command -> Lua ref; keys are owned.
-    command_refs: map[string]int,
+    panel_proc:        Panel_Proc,
+    panel_render_proc: Panel_Render_Proc,
+    panel_show_proc:   Panel_Show_Proc,
+    panel_close_proc:  Panel_Close_Proc,
+    draw_rect_proc:    Draw_Rect_Proc,
+    draw_text_proc:    Draw_Text_Proc,
+    draw_line_proc:    Draw_Line_Proc,
+    measure_text_proc: Measure_Text_Proc,
+    // The on_key handler; only one plugin holds it, the last with `keys` to ask.
+    key:          Callback,
+    // The Lua callback awaiting a dialog result (prompt/pick/confirm). Only one
+    // dialog is open at a time, so a single slot suffices.
+    dialog:       Callback,
+    // Named commands registered via thor.on_command; keys are owned.
+    commands:     map[string]Callback,
+    // Callbacks a rendered panel holds, so a re-render releases the old ones.
+    panel_refs:   map[string][dynamic]Callback,
+    // Tree-sitter state backing thor.ts (see api_ts.odin).
+    ts_parser:    Ts_Parser_State,
 }
 
 // Wires the host services a plugin can call. Call once after manager_init.
-manager_set_host :: proc(
-    m: ^Manager,
-    host: rawptr,
-    print_proc: Print_Proc,
-    keybind_proc: Keybind_Proc,
-    doc_proc: Doc_Proc,
-    exec_proc: Exec_Proc,
-    button_proc: Button_Proc,
-    workspace_proc: Workspace_Proc,
-    active_path_proc: Active_Path_Proc,
-    read_proc: Read_Proc,
-    write_proc: Write_Proc,
-    refresh_git_proc: Refresh_Git_Proc,
-    menu_proc: Menu_Proc,
-    prompt_proc: Prompt_Proc,
-    pick_proc: Pick_Proc,
-    confirm_proc: Confirm_Proc,
-) {
-    m.host = host
-    m.print_proc = print_proc
-    m.keybind_proc = keybind_proc
-    m.doc_proc = doc_proc
-    m.exec_proc = exec_proc
-    m.button_proc = button_proc
-    m.workspace_proc = workspace_proc
-    m.active_path_proc = active_path_proc
-    m.read_proc = read_proc
-    m.write_proc = write_proc
-    m.refresh_git_proc = refresh_git_proc
-    m.menu_proc = menu_proc
-    m.prompt_proc = prompt_proc
-    m.pick_proc = pick_proc
-    m.confirm_proc = confirm_proc
+manager_set_host :: proc(m: ^Manager, host: Host) {
+    m.host = host.data
+    m.print_proc = host.print
+    m.keybind_proc = host.keybind
+    m.doc_proc = host.doc
+    m.exec_proc = host.exec
+    m.button_proc = host.button
+    m.workspace_proc = host.workspace
+    m.active_path_proc = host.active_path
+    m.read_proc = host.read
+    m.write_proc = host.write
+    m.refresh_git_proc = host.refresh_git
+    m.menu_proc = host.menu
+    m.prompt_proc = host.prompt
+    m.pick_proc = host.pick
+    m.confirm_proc = host.confirm
+    m.panel_proc = host.panel
+    m.panel_render_proc = host.panel_render
+    m.panel_show_proc = host.panel_show
+    m.panel_close_proc = host.panel_close
+    m.draw_rect_proc = host.draw_rect
+    m.draw_text_proc = host.draw_text
+    m.draw_line_proc = host.draw_line
+    m.measure_text_proc = host.measure_text
 }
 
-// Initializes a manager in place. The caller must own it: install_api captures
-// its address as a Lua upvalue.
+// Initializes a manager in place. The caller must own it: the API closures
+// capture its address as a Lua upvalue.
 manager_init :: proc(m: ^Manager) {
     m.allocator = context.allocator
     m.state = lua.L_newstate()
-    lua.L_openlibs(m.state)
+    open_safe_libs(m.state)
     m.highlighter = syntax.highlighter_create()
     m.languages = make([dynamic]Language)
     m.by_ext = make(map[string]int)
-    m.key_ref = NOREF
-    m.dialog_ref = NOREF
-    m.command_refs = make(map[string]int)
-    install_api(m)
+    m.plugins = make([dynamic]Plugin)
+    m.key = Callback {-1, NOREF}
+    m.dialog = Callback {-1, NOREF}
+    m.commands = make(map[string]Callback)
+    m.panel_refs = make(map[string][dynamic]Callback)
+    ts_init(m)
 }
 
 manager_destroy :: proc(m: ^Manager) {
     context.allocator = m.allocator
-    if m.key_ref != NOREF {
-        lua.L_unref(m.state, lua.REGISTRYINDEX, c.int(m.key_ref))
-        m.key_ref = NOREF
-    }
-    if m.dialog_ref != NOREF {
-        lua.L_unref(m.state, lua.REGISTRYINDEX, c.int(m.dialog_ref))
-        m.dialog_ref = NOREF
-    }
-    for name, ref in m.command_refs {
-        lua.L_unref(m.state, lua.REGISTRYINDEX, c.int(ref))
+    release(m, &m.key)
+    release(m, &m.dialog)
+    for name, cb in m.commands {
+        unref(m, cb.ref)
         delete(name)
     }
-    delete(m.command_refs)
-    for &lang in m.languages {
-        if lang.lexer_ref != NOREF {
-            lua.L_unref(m.state, lua.REGISTRYINDEX, c.int(lang.lexer_ref))
+    delete(m.commands)
+    for id, refs in m.panel_refs {
+        for cb in refs {
+            unref(m, cb.ref)
         }
+        delete(refs)
+        delete(id)
+    }
+    delete(m.panel_refs)
+    for &lang in m.languages {
+        release(m, &lang.lexer)
         free_language(&lang)
     }
     delete(m.languages)
     delete(m.by_ext)
+    for &p in m.plugins {
+        if p.env_ref != NOREF {
+            lua.L_unref(m.state, lua.REGISTRYINDEX, c.int(p.env_ref))
+        }
+        if p.module_ref != NOREF {
+            lua.L_unref(m.state, lua.REGISTRYINDEX, c.int(p.module_ref))
+        }
+        delete(p.id)
+        delete(p.dir)
+    }
+    delete(m.plugins)
+    ts_destroy(m)
     syntax.highlighter_destroy(&m.highlighter)
     if m.state != nil {
         lua.close(m.state)
@@ -190,18 +245,96 @@ manager_destroy :: proc(m: ^Manager) {
     }
 }
 
+// Releases a registry ref. NOREF is a no-op.
+@(private)
+unref :: proc(m: ^Manager, ref: int) {
+    if ref != NOREF {
+        lua.L_unref(m.state, lua.REGISTRYINDEX, c.int(ref))
+    }
+}
+
+// Releases a callback's registry ref and clears the slot.
+@(private)
+release :: proc(m: ^Manager, cb: ^Callback) {
+    unref(m, cb.ref)
+    cb.ref = NOREF
+}
+
 // Loads every plugin matching `pattern` (a folder per plugin, each a plugin.lua).
+// Each runs in its own sandbox with the permissions its plugin.json grants.
 manager_load :: proc(m: ^Manager, pattern := "plugins/*/plugin.lua") {
     matches, err := filepath.glob(pattern, context.temp_allocator)
     if err != nil {
         return
     }
     for path in matches {
-        if lua.L_dofile(m.state, strings.clone_to_cstring(path, context.temp_allocator)) != 0 {
-            log.warnf("plugin %q failed: %s", path, lua.tostring(m.state, -1))
-            lua.pop(m.state, 1)
+        dir := filepath.dir(path, context.temp_allocator)
+        index := new_plugin(m, filepath.base(dir), dir)
+        if !load_chunk(m, index, path, nil) {
+            continue
         }
     }
+}
+
+// Loads `source` as a plugin named `id` rooted at `dir`, granting `perms`
+// outright. For plugins that do not come from the plugins folder, and for tests.
+manager_load_source :: proc(m: ^Manager, id, dir, source: string, perms: Permissions) -> bool {
+    index := new_plugin(m, id, dir, perms)
+    return load_chunk(m, index, "", transmute([]byte) source)
+}
+
+// Registers a plugin record and builds its sandbox environment. `perms` defaults
+// to whatever plugin.json in `dir` grants.
+@(private)
+new_plugin :: proc(m: ^Manager, id, dir: string, perms: Permissions = {}) -> int {
+    granted := perms
+    if granted == {} {
+        granted = manifest_permissions(dir)
+    }
+
+    abs_dir := dir
+    if resolved, err := filepath.abs(dir, context.temp_allocator); err == nil {
+        abs_dir = resolved
+    }
+
+    index := len(m.plugins)
+    append(&m.plugins, Plugin {
+        id      = strings.clone(id),
+        dir     = strings.clone(abs_dir),
+        perms   = granted,
+        env_ref = NOREF,
+        module_ref = NOREF,
+    })
+
+    L := m.state
+    lua.createtable(L, 0, 4)
+    m.plugins[index].module_ref = int(lua.L_ref(L, lua.REGISTRYINDEX))
+    push_sandbox_env(m, index)
+    m.plugins[index].env_ref = int(lua.L_ref(L, lua.REGISTRYINDEX))
+    return index
+}
+
+// Loads a plugin chunk from `path` (or from `source` when given), points its
+// `_ENV` at the plugin's sandbox, and runs it under the time budget.
+@(private)
+load_chunk :: proc(m: ^Manager, index: int, path: string, source: []byte) -> bool {
+    L := m.state
+    status: lua.Status
+    if source != nil {
+        name := strings.concatenate({"@", m.plugins[index].id}, context.temp_allocator)
+        status = lua.L_loadbuffer(L, raw_data(source), len(source), strings.clone_to_cstring(name, context.temp_allocator))
+    } else {
+        status = lua.L_loadfile(L, strings.clone_to_cstring(path, context.temp_allocator))
+    }
+    if status != .OK {
+        log.warnf("plugin %s failed to load: %s", m.plugins[index].id, lua.tostring(L, -1))
+        lua.pop(L, 1)
+        return false
+    }
+
+    lua.rawgeti(L, lua.REGISTRYINDEX, lua.Integer(m.plugins[index].env_ref))
+    lua.setupvalue(L, -2, 1) // a main chunk's first upvalue is _ENV
+    return call_guarded(m, index, 0, 0, "load")
 }
 
 @(private)
@@ -219,11 +352,16 @@ free_language :: proc(lang: ^Language) {
     delete(lang.colors)
 }
 
-// Builds the `thor` global: a `theme` table of role handles plus the entry points.
+// Builds a plugin's `thor` table: the `theme` role handles, the always-granted
+// entry points, and one entry per permission it holds. A denied service is
+// simply absent, so calling it is a plain Lua "attempt to call a nil value"
+// naming the function the plugin was not given.
 @(private)
-install_api :: proc(m: ^Manager) {
+push_api_table :: proc(m: ^Manager, index: int) {
     L := m.state
-    lua.createtable(L, 0, 2)
+    perms := m.plugins[index].perms
+    lua.createtable(L, 0, 24)
+    api := lua.gettop(L)
 
     lua.createtable(L, 0, c.int(len(ROLES)))
     for role in ROLES {
@@ -231,108 +369,91 @@ install_api :: proc(m: ^Manager) {
         lua.pushstring(L, cs)
         lua.setfield(L, -2, cs)
     }
-    lua.setfield(L, -2, "theme")
+    lua.setfield(L, api, "theme")
 
-    // The manager travels as a lightuserdata upvalue so each routes calls to itself.
-    lua.pushlightuserdata(L, rawptr(m))
-    lua.pushcclosure(L, register_language, 1)
-    lua.setfield(L, -2, "register_language")
+    bind :: proc(L: ^lua.State, m: ^Manager, index: int, api: c.int, name: cstring, fn: lua.CFunction) {
+        push_closure(L, m, index, fn)
+        lua.setfield(L, api, name)
+    }
 
-    lua.pushlightuserdata(L, rawptr(m))
-    lua.pushcclosure(L, api_on_key, 1)
-    lua.setfield(L, -2, "on_key")
+    bind(L, m, index, api, "register_language", api_register_language)
+    bind(L, m, index, api, "print", api_print)
+    bind(L, m, index, api, "keybind", api_keybind)
+    bind(L, m, index, api, "on_command", api_on_command)
+    bind(L, m, index, api, "workspace", api_workspace)
+    bind(L, m, index, api, "active_path", api_active_path)
+    bind(L, m, index, api, "refresh_git", api_refresh_git)
+    bind(L, m, index, api, "permissions", api_permissions)
 
-    lua.pushlightuserdata(L, rawptr(m))
-    lua.pushcclosure(L, api_print, 1)
-    lua.setfield(L, -2, "print")
+    if .Exec in perms {
+        bind(L, m, index, api, "exec", api_exec)
+    }
+    if .Read in perms {
+        bind(L, m, index, api, "read", api_read)
+    }
+    if .Write in perms {
+        bind(L, m, index, api, "write", api_write)
+        bind(L, m, index, api, "doc", api_doc)
+    }
+    if .Keys in perms {
+        bind(L, m, index, api, "on_key", api_on_key)
+    }
+    if .Ui in perms {
+        bind(L, m, index, api, "button", api_button)
+        bind(L, m, index, api, "menu", api_menu)
+        bind(L, m, index, api, "prompt", api_prompt)
+        bind(L, m, index, api, "pick", api_pick)
+        bind(L, m, index, api, "confirm", api_confirm)
+        bind(L, m, index, api, "panel", api_panel)
+    }
 
-    lua.pushlightuserdata(L, rawptr(m))
-    lua.pushcclosure(L, api_keybind, 1)
-    lua.setfield(L, -2, "keybind")
+    push_ts_table(m, index)
+    lua.setfield(L, api, "ts")
+}
 
-    lua.pushlightuserdata(L, rawptr(m))
-    lua.pushcclosure(L, api_on_command, 1)
-    lua.setfield(L, -2, "on_command")
-
-    lua.pushlightuserdata(L, rawptr(m))
-    lua.pushcclosure(L, api_doc, 1)
-    lua.setfield(L, -2, "doc")
-
-    lua.pushlightuserdata(L, rawptr(m))
-    lua.pushcclosure(L, api_exec, 1)
-    lua.setfield(L, -2, "exec")
-
-    lua.pushlightuserdata(L, rawptr(m))
-    lua.pushcclosure(L, api_button, 1)
-    lua.setfield(L, -2, "button")
-
-    lua.pushlightuserdata(L, rawptr(m))
-    lua.pushcclosure(L, api_workspace, 1)
-    lua.setfield(L, -2, "workspace")
-
-    lua.pushlightuserdata(L, rawptr(m))
-    lua.pushcclosure(L, api_active_path, 1)
-    lua.setfield(L, -2, "active_path")
-
-    lua.pushlightuserdata(L, rawptr(m))
-    lua.pushcclosure(L, api_read, 1)
-    lua.setfield(L, -2, "read")
-
-    lua.pushlightuserdata(L, rawptr(m))
-    lua.pushcclosure(L, api_write, 1)
-    lua.setfield(L, -2, "write")
-
-    lua.pushlightuserdata(L, rawptr(m))
-    lua.pushcclosure(L, api_refresh_git, 1)
-    lua.setfield(L, -2, "refresh_git")
-
-    lua.pushlightuserdata(L, rawptr(m))
-    lua.pushcclosure(L, api_menu, 1)
-    lua.setfield(L, -2, "menu")
-
-    lua.pushlightuserdata(L, rawptr(m))
-    lua.pushcclosure(L, api_prompt, 1)
-    lua.setfield(L, -2, "prompt")
-
-    lua.pushlightuserdata(L, rawptr(m))
-    lua.pushcclosure(L, api_pick, 1)
-    lua.setfield(L, -2, "pick")
-
-    lua.pushlightuserdata(L, rawptr(m))
-    lua.pushcclosure(L, api_confirm, 1)
-    lua.setfield(L, -2, "confirm")
-
-    lua.setglobal(L, "thor")
+// thor.permissions(): the permission names this plugin was granted, so it can
+// degrade gracefully instead of erroring on a missing entry point.
+@(private)
+api_permissions :: proc "c" (L: ^lua.State) -> c.int {
+    context = runtime.default_context()
+    m, index := caller(L)
+    p := caller_plugin(m, index)
+    if p == nil {
+        lua.createtable(L, 0, 0)
+        return 1
+    }
+    lua.createtable(L, 0, 5)
+    for perm in Permission {
+        if perm not_in p.perms {
+            continue
+        }
+        name: cstring
+        switch perm {
+        case .Exec:  name = "exec"
+        case .Read:  name = "read"
+        case .Write: name = "write"
+        case .Ui:    name = "ui"
+        case .Keys:  name = "keys"
+        }
+        lua.pushboolean(L, true)
+        lua.setfield(L, -2, name)
+    }
+    return 1
 }
 
 // thor.on_key(fn): handler run for every key press, given {chord, ctrl, shift,
-// alt}; returning true consumes the key.
+// alt}; returning true consumes the key. Needs the `keys` permission.
 @(private)
 api_on_key :: proc "c" (L: ^lua.State) -> c.int {
     context = runtime.default_context()
-    m := cast(^Manager) lua.touserdata(L, upvalueindex(1))
+    m, index := caller(L)
     if m == nil || !lua.isfunction(L, 1) {
         return 0
     }
-    if m.key_ref != NOREF {
-        lua.L_unref(L, lua.REGISTRYINDEX, c.int(m.key_ref))
-    }
-    lua.pushvalue(L, 1) // ref pops the top, so copy the argument up
-    m.key_ref = int(lua.L_ref(L, lua.REGISTRYINDEX))
-    return 0
-}
-
-// thor.print(text): appends a line to the host's output. No-op without a sink.
-@(private)
-api_print :: proc "c" (L: ^lua.State) -> c.int {
-    context = runtime.default_context()
-    m := cast(^Manager) lua.touserdata(L, upvalueindex(1))
-    if m == nil || m.print_proc == nil || lua.type(L, 1) != .STRING {
-        return 0
-    }
-    // Host appends into app-owned state, so free under the app's allocator.
     context.allocator = m.allocator
-    m.print_proc(m.host, string(lua.tostring(L, 1)))
+    release(m, &m.key)
+    lua.pushvalue(L, 1) // ref pops the top, so copy the argument up
+    m.key = Callback {index, int(lua.L_ref(L, lua.REGISTRYINDEX))}
     return 0
 }
 
@@ -341,24 +462,27 @@ api_print :: proc "c" (L: ^lua.State) -> c.int {
 @(private)
 api_doc :: proc "c" (L: ^lua.State) -> c.int {
     context = runtime.default_context()
-    m := cast(^Manager) lua.touserdata(L, upvalueindex(1))
+    m, index := caller(L)
     if m == nil || m.doc_proc == nil || lua.type(L, 1) != .STRING || lua.type(L, 2) != .STRING {
         return 0
     }
     // Host edits app-owned buffers, so run under the app's allocator rather than
     // the C callback's default context, or the main loop later bad-frees them.
     context.allocator = m.allocator
-    focus := bool(lua.toboolean(L, 3))
-    m.doc_proc(m.host, string(lua.tostring(L, 1)), string(lua.tostring(L, 2)), focus)
+    path, ok := resolve_path(m, index, string(lua.tostring(L, 1)))
+    if !ok {
+        return 0
+    }
+    m.doc_proc(m.host, path, string(lua.tostring(L, 2)), bool(lua.toboolean(L, 3)))
     return 0
 }
 
 // thor.exec(command): runs `command` in the workspace, returning its combined
-// stdout+stderr as a string (empty string without a sink). Blocks until it exits.
+// stdout+stderr as a string. Blocks until it exits. Needs the `exec` permission.
 @(private)
 api_exec :: proc "c" (L: ^lua.State) -> c.int {
     context = runtime.default_context()
-    m := cast(^Manager) lua.touserdata(L, upvalueindex(1))
+    m, _ := caller(L)
     if m == nil || m.exec_proc == nil || lua.type(L, 1) != .STRING {
         lua.pushstring(L, "")
         return 1
@@ -375,7 +499,7 @@ api_exec :: proc "c" (L: ^lua.State) -> c.int {
 @(private)
 api_button :: proc "c" (L: ^lua.State) -> c.int {
     context = runtime.default_context()
-    m := cast(^Manager) lua.touserdata(L, upvalueindex(1))
+    m, _ := caller(L)
     if m == nil || m.button_proc == nil || lua.type(L, 1) != .STRING || lua.type(L, 2) != .STRING {
         return 0
     }
@@ -388,7 +512,7 @@ api_button :: proc "c" (L: ^lua.State) -> c.int {
 @(private)
 api_workspace :: proc "c" (L: ^lua.State) -> c.int {
     context = runtime.default_context()
-    m := cast(^Manager) lua.touserdata(L, upvalueindex(1))
+    m, _ := caller(L)
     if m == nil || m.workspace_proc == nil {
         lua.pushstring(L, "")
         return 1
@@ -404,7 +528,7 @@ api_workspace :: proc "c" (L: ^lua.State) -> c.int {
 @(private)
 api_active_path :: proc "c" (L: ^lua.State) -> c.int {
     context = runtime.default_context()
-    m := cast(^Manager) lua.touserdata(L, upvalueindex(1))
+    m, _ := caller(L)
     if m == nil || m.active_path_proc == nil {
         lua.pushnil(L)
         return 1
@@ -420,32 +544,43 @@ api_active_path :: proc "c" (L: ^lua.State) -> c.int {
 }
 
 // thor.read(path): the current text of the buffer at `path`, taking the open
-// buffer's contents when it is open and falling back to disk otherwise.
+// buffer's contents when it is open and falling back to disk. Confined to the
+// workspace and the plugin's own folder. Needs the `read` permission.
 @(private)
 api_read :: proc "c" (L: ^lua.State) -> c.int {
     context = runtime.default_context()
-    m := cast(^Manager) lua.touserdata(L, upvalueindex(1))
+    m, index := caller(L)
     if m == nil || m.read_proc == nil || lua.type(L, 1) != .STRING {
         lua.pushstring(L, "")
         return 1
     }
     context.allocator = m.allocator
-    out := m.read_proc(m.host, string(lua.tostring(L, 1)))
+    path, ok := resolve_path(m, index, string(lua.tostring(L, 1)))
+    if !ok {
+        lua.pushstring(L, "")
+        return 1
+    }
+    out := m.read_proc(m.host, path)
     lua.pushstring(L, strings.clone_to_cstring(out, context.temp_allocator))
     delete(out) // host-owned result, freed after copying into Lua
     return 1
 }
 
 // thor.write(path, text): writes `text` to `path` on disk without opening a tab.
+// Confined like thor.read. Needs the `write` permission.
 @(private)
 api_write :: proc "c" (L: ^lua.State) -> c.int {
     context = runtime.default_context()
-    m := cast(^Manager) lua.touserdata(L, upvalueindex(1))
+    m, index := caller(L)
     if m == nil || m.write_proc == nil || lua.type(L, 1) != .STRING || lua.type(L, 2) != .STRING {
         return 0
     }
     context.allocator = m.allocator
-    m.write_proc(m.host, string(lua.tostring(L, 1)), string(lua.tostring(L, 2)))
+    path, ok := resolve_path(m, index, string(lua.tostring(L, 1)))
+    if !ok {
+        return 0
+    }
+    m.write_proc(m.host, path, string(lua.tostring(L, 2)))
     return 0
 }
 
@@ -453,7 +588,7 @@ api_write :: proc "c" (L: ^lua.State) -> c.int {
 @(private)
 api_refresh_git :: proc "c" (L: ^lua.State) -> c.int {
     context = runtime.default_context()
-    m := cast(^Manager) lua.touserdata(L, upvalueindex(1))
+    m, _ := caller(L)
     if m == nil || m.refresh_git_proc == nil {
         return 0
     }
@@ -467,7 +602,7 @@ api_refresh_git :: proc "c" (L: ^lua.State) -> c.int {
 @(private)
 api_menu :: proc "c" (L: ^lua.State) -> c.int {
     context = runtime.default_context()
-    m := cast(^Manager) lua.touserdata(L, upvalueindex(1))
+    m, _ := caller(L)
     if m == nil || m.menu_proc == nil || lua.type(L, 1) != .STRING || !lua.istable(L, 2) {
         return 0
     }
@@ -504,24 +639,22 @@ api_menu :: proc "c" (L: ^lua.State) -> c.int {
 
 // Replaces any pending dialog callback with the function at stack index `idx`.
 @(private)
-set_dialog_ref :: proc "c" (m: ^Manager, L: ^lua.State, idx: c.int) {
-    if m.dialog_ref != NOREF {
-        lua.L_unref(L, lua.REGISTRYINDEX, c.int(m.dialog_ref))
-    }
+set_dialog :: proc(m: ^Manager, L: ^lua.State, index: int, idx: c.int) {
+    release(m, &m.dialog)
     lua.pushvalue(L, idx)
-    m.dialog_ref = int(lua.L_ref(L, lua.REGISTRYINDEX))
+    m.dialog = Callback {index, int(lua.L_ref(L, lua.REGISTRYINDEX))}
 }
 
 // thor.prompt(label, fn): opens a single-line prompt; fn(text) runs on submit.
 @(private)
 api_prompt :: proc "c" (L: ^lua.State) -> c.int {
     context = runtime.default_context()
-    m := cast(^Manager) lua.touserdata(L, upvalueindex(1))
+    m, index := caller(L)
     if m == nil || m.prompt_proc == nil || lua.type(L, 1) != .STRING || !lua.isfunction(L, 2) {
         return 0
     }
     context.allocator = m.allocator
-    set_dialog_ref(m, L, 2)
+    set_dialog(m, L, index, 2)
     m.prompt_proc(m.host, string(lua.tostring(L, 1)))
     return 0
 }
@@ -531,12 +664,12 @@ api_prompt :: proc "c" (L: ^lua.State) -> c.int {
 @(private)
 api_pick :: proc "c" (L: ^lua.State) -> c.int {
     context = runtime.default_context()
-    m := cast(^Manager) lua.touserdata(L, upvalueindex(1))
+    m, index := caller(L)
     if m == nil || m.pick_proc == nil || lua.type(L, 1) != .STRING || !lua.istable(L, 2) || !lua.isfunction(L, 3) {
         return 0
     }
     context.allocator = m.allocator
-    set_dialog_ref(m, L, 3)
+    set_dialog(m, L, index, 3)
 
     items := make([dynamic]string, context.temp_allocator)
     n := lua.L_len(L, 2)
@@ -556,12 +689,12 @@ api_pick :: proc "c" (L: ^lua.State) -> c.int {
 @(private)
 api_confirm :: proc "c" (L: ^lua.State) -> c.int {
     context = runtime.default_context()
-    m := cast(^Manager) lua.touserdata(L, upvalueindex(1))
+    m, index := caller(L)
     if m == nil || m.confirm_proc == nil || lua.type(L, 1) != .STRING || !lua.isfunction(L, 2) {
         return 0
     }
     context.allocator = m.allocator
-    set_dialog_ref(m, L, 2)
+    set_dialog(m, L, index, 2)
     m.confirm_proc(m.host, string(lua.tostring(L, 1)))
     return 0
 }
@@ -569,50 +702,44 @@ api_confirm :: proc "c" (L: ^lua.State) -> c.int {
 // Invokes the pending dialog callback with `text` (prompt/pick result), then
 // releases it. No-op when nothing is waiting.
 manager_dialog_text :: proc(m: ^Manager, text: string) {
-    if m.dialog_ref == NOREF {
+    cb := m.dialog
+    m.dialog = Callback {-1, NOREF}
+    if cb.ref == NOREF {
         return
     }
     L := m.state
-    ref := m.dialog_ref
-    m.dialog_ref = NOREF
-    lua.rawgeti(L, lua.REGISTRYINDEX, lua.Integer(ref))
+    lua.rawgeti(L, lua.REGISTRYINDEX, lua.Integer(cb.ref))
     if lua.isfunction(L, -1) {
         lua.pushstring(L, strings.clone_to_cstring(text, context.temp_allocator))
-        if lua.pcall(L, 1, 0, 0) != 0 {
-            log.warnf("plugin dialog callback failed: %s", lua.tostring(L, -1))
-            lua.pop(L, 1)
-        }
+        call_guarded(m, cb.owner, 1, 0, "dialog callback")
     } else {
         lua.pop(L, 1)
     }
-    lua.L_unref(L, lua.REGISTRYINDEX, c.int(ref))
+    lua.L_unref(L, lua.REGISTRYINDEX, c.int(cb.ref))
 }
 
 // Invokes the pending confirm callback (no argument), then releases it.
 manager_dialog_confirm :: proc(m: ^Manager) {
-    if m.dialog_ref == NOREF {
+    cb := m.dialog
+    m.dialog = Callback {-1, NOREF}
+    if cb.ref == NOREF {
         return
     }
     L := m.state
-    ref := m.dialog_ref
-    m.dialog_ref = NOREF
-    lua.rawgeti(L, lua.REGISTRYINDEX, lua.Integer(ref))
+    lua.rawgeti(L, lua.REGISTRYINDEX, lua.Integer(cb.ref))
     if lua.isfunction(L, -1) {
-        if lua.pcall(L, 0, 0, 0) != 0 {
-            log.warnf("plugin confirm callback failed: %s", lua.tostring(L, -1))
-            lua.pop(L, 1)
-        }
+        call_guarded(m, cb.owner, 0, 0, "confirm callback")
     } else {
         lua.pop(L, 1)
     }
-    lua.L_unref(L, lua.REGISTRYINDEX, c.int(ref))
+    lua.L_unref(L, lua.REGISTRYINDEX, c.int(cb.ref))
 }
 
 // thor.keybind(action): the chord bound to `action` (e.g. "Ctrl+S"), or nil.
 @(private)
 api_keybind :: proc "c" (L: ^lua.State) -> c.int {
     context = runtime.default_context()
-    m := cast(^Manager) lua.touserdata(L, upvalueindex(1))
+    m, _ := caller(L)
     if m == nil || m.keybind_proc == nil || lua.type(L, 1) != .STRING {
         lua.pushnil(L)
         return 1
@@ -632,55 +759,44 @@ api_keybind :: proc "c" (L: ^lua.State) -> c.int {
 @(private)
 api_on_command :: proc "c" (L: ^lua.State) -> c.int {
     context = runtime.default_context()
-    m := cast(^Manager) lua.touserdata(L, upvalueindex(1))
+    m, index := caller(L)
     if m == nil || lua.type(L, 1) != .STRING || !lua.isfunction(L, 2) {
         return 0
     }
     context.allocator = m.allocator
     name := string(lua.tostring(L, 1))
+    lua.pushvalue(L, 2)
+    cb := Callback {index, int(lua.L_ref(L, lua.REGISTRYINDEX))}
     // Reuse the existing owned key on replace; clone for a new one.
-    if existing, ok := m.command_refs[name]; ok {
-        lua.L_unref(L, lua.REGISTRYINDEX, c.int(existing))
-        lua.pushvalue(L, 2)
-        m.command_refs[name] = int(lua.L_ref(L, lua.REGISTRYINDEX))
+    if existing, ok := m.commands[name]; ok {
+        old := existing
+        release(m, &old)
+        m.commands[name] = cb
         return 0
     }
-    lua.pushvalue(L, 2)
-    m.command_refs[strings.clone(name)] = int(lua.L_ref(L, lua.REGISTRYINDEX))
+    m.commands[strings.clone(name)] = cb
     return 0
 }
 
 // Runs the plugin command registered under `name`. Returns whether it existed
 // and ran without error.
 manager_run_command :: proc(m: ^Manager, name: string) -> bool {
-    ref, ok := m.command_refs[name]
+    cb, ok := m.commands[name]
     if !ok {
         return false
     }
-    L := m.state
-
-    lua.rawgeti(L, lua.REGISTRYINDEX, lua.Integer(ref))
-    if !lua.isfunction(L, -1) {
-        lua.pop(L, 1)
-        return false
-    }
-    if lua.pcall(L, 0, 0, 0) != 0 {
-        log.warnf("plugin command %q failed: %s", name, lua.tostring(L, -1))
-        lua.pop(L, 1)
-        return false
-    }
-    return true
+    return call_callback(m, cb, 0, 0, "command")
 }
 
 // Dispatches a key press to the on_key handler. `chord` is the display string
 // (same format as thor.keybind). Returns whether the plugin consumed it.
 manager_dispatch_key :: proc(m: ^Manager, chord: string, ctrl, shift, alt: bool) -> (consumed: bool) {
-    if m.key_ref == NOREF {
+    if m.key.ref == NOREF {
         return false
     }
     L := m.state
 
-    lua.rawgeti(L, lua.REGISTRYINDEX, lua.Integer(m.key_ref))
+    lua.rawgeti(L, lua.REGISTRYINDEX, lua.Integer(m.key.ref))
     if !lua.isfunction(L, -1) {
         lua.pop(L, 1)
         return false
@@ -696,9 +812,7 @@ manager_dispatch_key :: proc(m: ^Manager, chord: string, ctrl, shift, alt: bool)
     lua.pushboolean(L, b32(alt))
     lua.setfield(L, -2, "alt")
 
-    if lua.pcall(L, 1, 1, 0) != 0 {
-        log.warnf("plugin on_key failed: %s", lua.tostring(L, -1))
-        lua.pop(L, 1)
+    if !call_guarded(m, m.key.owner, 1, 1, "on_key") {
         return false
     }
     consumed = bool(lua.toboolean(L, -1))
@@ -712,17 +826,20 @@ upvalueindex :: proc "c" (i: c.int) -> c.int {
     return lua.REGISTRYINDEX - i
 }
 
+// thor.register_language{...}: binds extensions to a grammar or a Lua lexer,
+// with a capture-name -> theme-role map. `highlights` names a .scm file in the
+// plugin folder that replaces the compiled-in highlights query for the grammar.
 @(private)
-register_language :: proc "c" (L: ^lua.State) -> c.int {
+api_register_language :: proc "c" (L: ^lua.State) -> c.int {
     context = runtime.default_context()
-    m := cast(^Manager) lua.touserdata(L, upvalueindex(1))
+    m, index := caller(L)
     if m == nil || !lua.istable(L, 1) {
         return 0
     }
     context.allocator = m.allocator
 
     lang: Language
-    lang.lexer_ref = NOREF
+    lang.lexer = Callback {index, NOREF}
     lang.colors = make(map[string]string)
     lang.extensions = make([dynamic]string)
 
@@ -762,14 +879,18 @@ register_language :: proc "c" (L: ^lua.State) -> c.int {
 
     lua.getfield(L, 1, "highlight")
     if lua.isfunction(L, -1) {
-        lang.lexer_ref = int(lua.L_ref(L, lua.REGISTRYINDEX)) // pops the function
+        lang.lexer.ref = int(lua.L_ref(L, lua.REGISTRYINDEX)) // pops the function
     } else {
         lua.pop(L, 1)
     }
 
-    if lang.grammar == "" && lang.lexer_ref == NOREF {
+    if lang.grammar == "" && lang.lexer.ref == NOREF {
         free_language(&lang)
         return 0
+    }
+
+    if source, ok := field_string(L, "highlights"); ok && lang.grammar != "" {
+        apply_highlights_override(m, index, lang.grammar, source)
     }
 
     idx := len(m.languages)
@@ -778,6 +899,70 @@ register_language :: proc "c" (L: ^lua.State) -> c.int {
         m.by_ext[ext] = idx
     }
     return 0
+}
+
+// Installs a plugin-supplied highlights query for `grammar`. `source` is either
+// a query, or the name of a .scm file in the plugin folder. A query that fails
+// to compile is reported with its offset and left unchanged, so an author sees
+// why the file lost its colors instead of guessing.
+@(private)
+apply_highlights_override :: proc(m: ^Manager, index: int, grammar, source: string) {
+    query, ok := query_source(m, index, source)
+    if !ok {
+        return
+    }
+    if offset, err := syntax.set_highlights(&m.highlighter, grammar, query); err != .None {
+        report_query_error(m, index, source, offset, err)
+    }
+}
+
+// Reports a failed query compile to the console and the log, naming the byte
+// offset the grammar choked on.
+@(private)
+report_query_error :: proc(m: ^Manager, index: int, source: string, offset: u32, err: ts.Query_Error) {
+    text := fmt.tprintf("\n[%s] query %s failed: %s at byte %d\n", plugin_id(m, index), source, query_error_text(err), offset)
+    log.warn(text)
+    if m.print_proc != nil {
+        m.print_proc(m.host, text)
+    }
+}
+
+@(private)
+query_error_text :: proc(err: ts.Query_Error) -> string {
+    switch err {
+    case .None:      return "ok"
+    case .Syntax:    return "syntax error"
+    case .Node_Type: return "unknown node type for this grammar"
+    case .Field:     return "unknown field name"
+    case .Capture:   return "unknown capture"
+    case .Structure: return "invalid pattern structure"
+    case .Language:  return "invalid grammar"
+    }
+    return "unknown error"
+}
+
+// Resolves a query argument: a `.scm` name loads from the plugin folder,
+// anything else is the query itself. The result uses the temp allocator.
+@(private)
+query_source :: proc(m: ^Manager, index: int, source: string) -> (string, bool) {
+    if !strings.has_suffix(source, ".scm") {
+        return source, true
+    }
+    p := caller_plugin(m, index)
+    if p == nil {
+        return "", false
+    }
+    path := filepath.join({p.dir, source}, context.temp_allocator)
+    if !is_within(path, p.dir) {
+        log.warnf("plugin %s: query %q is outside the plugin folder", p.id, source)
+        return "", false
+    }
+    data, ok := os.read_entire_file(path, context.temp_allocator)
+    if !ok {
+        log.warnf("plugin %s: cannot read query %q", p.id, source)
+        return "", false
+    }
+    return string(data), true
 }
 
 // Reads a string field from the argument table at stack index 1.

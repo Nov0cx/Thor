@@ -1,0 +1,430 @@
+// Per-plugin sandbox. Every plugin runs in its own `_ENV` table holding a
+// curated standard library and a `thor` API trimmed to the permissions its
+// plugin.json grants. The VM stays shared, so this contains buggy and rogue
+// plugins — it is not a boundary against native code.
+package plugin
+
+import "base:runtime"
+import "core:c"
+import "core:encoding/json"
+import "core:log"
+import "core:os"
+import "core:path/filepath"
+import "core:strings"
+import "core:time"
+
+import lua "vendor:lua/5.4"
+
+// A capability a plugin must list in plugin.json to reach the matching host
+// service. What is not listed here is always granted: register_language, print,
+// on_command, theme, workspace, active_path, keybind and the thor.ts bindings.
+Permission :: enum {
+    Exec,  // thor.exec
+    Read,  // thor.read
+    Write, // thor.write, thor.doc
+    Ui,    // thor.button, menu, panel, prompt, pick, confirm
+    Keys,  // thor.on_key
+}
+
+Permissions :: distinct bit_set[Permission]
+
+// Wall-clock time one call into a plugin may take. The editor draws on this
+// thread, so a runaway loop would otherwise freeze the window.
+CALL_BUDGET :: 2 * time.Second
+
+// Instructions between budget checks.
+@(private)
+HOOK_STEP :: 10_000
+
+// Start of the call running in the VM. The Lua hook takes no user data and the
+// VM is single-threaded, so one package-level slot serves every manager.
+@(private)
+active_start: time.Tick
+
+// Base library functions dropped from the shared globals: each one either runs
+// code the sandbox never saw (load/dofile/loadfile) or reaches the collector.
+@(private)
+UNSAFE_BASE := []cstring {"load", "loadstring", "dofile", "loadfile", "collectgarbage"}
+
+// The only `os` entries a plugin keeps. execute/remove/rename/exit/getenv and
+// tmpname all reach past the sandbox.
+@(private)
+OS_KEPT := []cstring {"clock", "date", "difftime", "time"}
+
+// A loaded plugin: the folder it came from, what it may do, and the environment
+// its chunk runs in.
+Plugin :: struct {
+    id:         string, // owned; the folder name
+    dir:        string, // owned; absolute plugin folder
+    perms:      Permissions,
+    env_ref:    int,    // registry ref of the _ENV table, or NOREF
+    module_ref: int,    // registry ref of the require() cache, or NOREF
+}
+
+// A Lua callback plus the plugin that registered it, so a failure is reported
+// against its author and runs under that plugin's budget.
+Callback :: struct {
+    owner: int, // index into Manager.plugins, or -1 for a hostless caller
+    ref:   int, // registry ref, or NOREF
+}
+
+// Opens only the standard libraries a plugin may use, then trims what is left.
+// io, package and debug are never loaded at all, so no path through the VM can
+// reach them.
+@(private)
+open_safe_libs :: proc(L: ^lua.State) {
+    lua.L_requiref(L, "_G", lua.open_base, 1)
+    lua.pop(L, 1)
+    lua.L_requiref(L, lua.TABLIBNAME, lua.open_table, 1)
+    lua.pop(L, 1)
+    lua.L_requiref(L, lua.STRLIBNAME, lua.open_string, 1)
+    lua.pop(L, 1)
+    lua.L_requiref(L, lua.MATHLIBNAME, lua.open_math, 1)
+    lua.pop(L, 1)
+    lua.L_requiref(L, lua.UTF8LIBNAME, lua.open_utf8, 1)
+    lua.pop(L, 1)
+    lua.L_requiref(L, lua.COLIBNAME, lua.open_coroutine, 1)
+    lua.pop(L, 1)
+    lua.L_requiref(L, lua.OSLIBNAME, lua.open_os, 1)
+    lua.pop(L, 1)
+
+    for name in UNSAFE_BASE {
+        lua.pushnil(L)
+        lua.setglobal(L, name)
+    }
+    trim_os(L)
+    lock_string_metatable(L)
+}
+
+// Replaces the global `os` table with one holding only the clock entries.
+@(private)
+trim_os :: proc(L: ^lua.State) {
+    lua.getglobal(L, "os")
+    if !lua.istable(L, -1) {
+        lua.pop(L, 1)
+        return
+    }
+    source := lua.gettop(L)
+    lua.createtable(L, 0, c.int(len(OS_KEPT)))
+    kept := lua.gettop(L)
+    for name in OS_KEPT {
+        lua.getfield(L, source, name)
+        lua.setfield(L, kept, name)
+    }
+    lua.setglobal(L, "os") // pops the trimmed table
+    lua.pop(L, 1)          // the original
+}
+
+// Locks the metatable every string shares, so one plugin cannot redefine
+// `("x"):gsub` under another plugin's feet.
+@(private)
+lock_string_metatable :: proc(L: ^lua.State) {
+    lua.pushstring(L, "")
+    if lua.getmetatable(L, -1) != 0 {
+        lua.pushstring(L, "locked")
+        lua.setfield(L, -2, "__metatable")
+        lua.pop(L, 1)
+    }
+    lua.pop(L, 1)
+}
+
+// Builds the plugin's `_ENV`: a copy of the trimmed globals, its own `thor`
+// table, `print` routed to the console, and a folder-local `require`. Leaves
+// the table on the stack.
+@(private)
+push_sandbox_env :: proc(m: ^Manager, index: int) {
+    L := m.state
+    lua.createtable(L, 0, 32)
+    env := lua.gettop(L)
+
+    // Copy the surviving globals by reference. Values are shared (tables like
+    // `string` are immutable in practice, and the string metatable is locked),
+    // but the bindings are per plugin, so assigning a global cannot leak.
+    lua.rawgeti(L, lua.REGISTRYINDEX, lua.RIDX_GLOBALS)
+    globals := lua.gettop(L)
+    lua.pushnil(L)
+    for lua.next(L, globals) != 0 {
+        lua.pushvalue(L, -2) // key
+        lua.pushvalue(L, -2) // value
+        lua.rawset(L, env)
+        lua.pop(L, 1)
+    }
+    lua.pop(L, 1)
+
+    // `_G` inside a plugin means its own environment, never the real globals.
+    lua.pushvalue(L, env)
+    lua.setfield(L, env, "_G")
+
+    push_closure(L, m, index, api_print)
+    lua.setfield(L, env, "print")
+    push_closure(L, m, index, api_require)
+    lua.setfield(L, env, "require")
+
+    push_api_table(m, index)
+    lua.setfield(L, env, "thor")
+}
+
+// Pushes a C closure carrying the manager and the calling plugin's index, the
+// two upvalues every API function reads.
+@(private)
+push_closure :: proc(L: ^lua.State, m: ^Manager, index: int, fn: lua.CFunction) {
+    lua.pushlightuserdata(L, rawptr(m))
+    lua.pushinteger(L, lua.Integer(index))
+    lua.pushcclosure(L, fn, 2)
+}
+
+// The manager and plugin index behind the running API call.
+@(private)
+caller :: proc "c" (L: ^lua.State) -> (m: ^Manager, index: int) {
+    m = cast(^Manager) lua.touserdata(L, upvalueindex(1))
+    index = int(lua.tointeger(L, upvalueindex(2)))
+    return
+}
+
+// The plugin behind the running API call, or nil when the index is out of range.
+@(private)
+caller_plugin :: proc(m: ^Manager, index: int) -> ^Plugin {
+    if m == nil || index < 0 || index >= len(m.plugins) {
+        return nil
+    }
+    return &m.plugins[index]
+}
+
+// Name used in log lines for the plugin at `index`.
+@(private)
+plugin_id :: proc(m: ^Manager, index: int) -> string {
+    if p := caller_plugin(m, index); p != nil {
+        return p.id
+    }
+    return "<host>"
+}
+
+// Cuts a call short once it has held the frame for CALL_BUDGET.
+@(private)
+budget_hook :: proc "c" (L: ^lua.State, _: ^lua.Debug) {
+    context = runtime.default_context()
+    if time.tick_since(active_start) < CALL_BUDGET {
+        return
+    }
+    lua.pushstring(L, "plugin exceeded its time budget")
+    lua.error(L)
+}
+
+// Calls the function sitting under `nargs` arguments on the stack, under the
+// time budget. Logs a failure against the owning plugin and returns whether the
+// call completed; on success `nres` results are left on the stack.
+@(private)
+call_guarded :: proc(m: ^Manager, owner: int, nargs, nres: c.int, what: string) -> bool {
+    active_start = time.tick_now()
+    lua.sethook(m.state, budget_hook, lua.MASKCOUNT, HOOK_STEP)
+    status := lua.pcall(m.state, nargs, nres, 0)
+    lua.sethook(m.state, nil, lua.HookMask {}, 0)
+    if status != .OK {
+        log.warnf("plugin %s: %s failed: %s", plugin_id(m, owner), what, lua.tostring(m.state, -1))
+        lua.pop(m.state, 1)
+        return false
+    }
+    return true
+}
+
+// Pushes the callback `cb` and calls it under its owner's budget. `push_args`
+// runs with the function already on the stack. False when the ref is unset or
+// the call failed.
+@(private)
+call_callback :: proc(m: ^Manager, cb: Callback, nargs, nres: c.int, what: string, push_args: proc(L: ^lua.State) = nil) -> bool {
+    if cb.ref == NOREF {
+        return false
+    }
+    L := m.state
+    lua.rawgeti(L, lua.REGISTRYINDEX, lua.Integer(cb.ref))
+    if !lua.isfunction(L, -1) {
+        lua.pop(L, 1)
+        return false
+    }
+    if push_args != nil {
+        push_args(L)
+    }
+    return call_guarded(m, cb.owner, nargs, nres, what)
+}
+
+// thor.print(text) and the sandbox's `print`: appends a line to the host's
+// output. Accepts any value, like Lua's own print.
+@(private)
+api_print :: proc "c" (L: ^lua.State) -> c.int {
+    context = runtime.default_context()
+    m, _ := caller(L)
+    if m == nil || m.print_proc == nil {
+        return 0
+    }
+    context.allocator = m.allocator
+    text := lua.tostring(L, 1)
+    if text == nil {
+        return 0
+    }
+    m.print_proc(m.host, string(text))
+    return 0
+}
+
+// require("name"): loads `<plugin dir>/name.lua` into the same sandbox and
+// caches its result, so a plugin can span several files. Only plain names
+// resolve — no separators, no `..`, nothing outside the plugin's own folder.
+@(private)
+api_require :: proc "c" (L: ^lua.State) -> c.int {
+    context = runtime.default_context()
+    m, index := caller(L)
+    p := caller_plugin(m, index)
+    if p == nil || lua.type(L, 1) != .STRING {
+        return 0
+    }
+    context.allocator = m.allocator
+
+    name := string(lua.tostring(L, 1))
+    if !is_module_name(name) {
+        lua.L_error(L, "require: %s is not a module of this plugin", lua.tostring(L, 1))
+        return 0
+    }
+
+    lua.rawgeti(L, lua.REGISTRYINDEX, lua.Integer(p.module_ref))
+    cache := lua.gettop(L)
+    lua.getfield(L, cache, strings.clone_to_cstring(name, context.temp_allocator))
+    if !lua.isnil(L, -1) {
+        return 1
+    }
+    lua.pop(L, 1)
+
+    path := filepath.join({p.dir, strings.concatenate({name, ".lua"}, context.temp_allocator)}, context.temp_allocator)
+    if lua.L_loadfile(L, strings.clone_to_cstring(path, context.temp_allocator)) != .OK {
+        lua.L_error(L, "require: %s", lua.tostring(L, -1))
+        return 0
+    }
+    // A main chunk's first upvalue is _ENV; point it at the plugin's sandbox so
+    // the module sees exactly what the plugin does.
+    lua.rawgeti(L, lua.REGISTRYINDEX, lua.Integer(p.env_ref))
+    lua.setupvalue(L, -2, 1)
+    if !call_guarded(m, index, 0, 1, "require") {
+        lua.pushnil(L)
+        return 1
+    }
+    if lua.isnil(L, -1) {
+        lua.pop(L, 1)
+        lua.pushboolean(L, true)
+    }
+    lua.pushvalue(L, -1)
+    lua.setfield(L, cache, strings.clone_to_cstring(name, context.temp_allocator))
+    return 1
+}
+
+// True for a bare module name: letters, digits, `_` and `-` only, so nothing
+// can climb out of the plugin folder.
+@(private)
+is_module_name :: proc(name: string) -> bool {
+    if name == "" {
+        return false
+    }
+    for ch in name {
+        switch ch {
+        case 'a' ..= 'z', 'A' ..= 'Z', '0' ..= '9', '_', '-':
+            continue
+        }
+        return false
+    }
+    return true
+}
+
+// Reads plugin.json beside plugin.lua. A missing or malformed file grants
+// nothing, which is all a syntax-only plugin needs.
+@(private)
+manifest_permissions :: proc(dir: string) -> Permissions {
+    path := filepath.join({dir, "plugin.json"}, context.temp_allocator)
+    data, ok := os.read_entire_file(path, context.temp_allocator)
+    if !ok {
+        return {}
+    }
+    parsed, err := json.parse(data, allocator = context.temp_allocator)
+    if err != nil {
+        log.warnf("plugin %q: plugin.json is malformed, granting no permissions", dir)
+        return {}
+    }
+    root, is_object := parsed.(json.Object)
+    if !is_object {
+        return {}
+    }
+    list, has_list := root["permissions"].(json.Array)
+    if !has_list {
+        return {}
+    }
+
+    perms: Permissions
+    for entry in list {
+        name, is_string := entry.(json.String)
+        if !is_string {
+            continue
+        }
+        switch name {
+        case "exec":  perms += {.Exec}
+        case "read":  perms += {.Read}
+        case "write": perms += {.Write}
+        case "ui":    perms += {.Ui}
+        case "keys":  perms += {.Keys}
+        case:
+            log.warnf("plugin %q: unknown permission %q", dir, name)
+        }
+    }
+    return perms
+}
+
+// Resolves `path` for a plugin and checks it stays inside a root the plugin may
+// touch: the open workspace or its own folder. A relative path is taken against
+// the workspace, so `thor.doc(".thor/git/status.md")` lands where the user
+// expects rather than beside the executable. The result uses the temp allocator.
+@(private)
+resolve_path :: proc(m: ^Manager, index: int, path: string) -> (resolved: string, ok: bool) {
+    p := caller_plugin(m, index)
+    if p == nil || path == "" {
+        return "", false
+    }
+
+    full := path
+    if !filepath.is_abs(path) {
+        root := m.workspace_proc != nil ? m.workspace_proc(m.host) : ""
+        if root == "" {
+            return "", false
+        }
+        full = filepath.join({root, path}, context.temp_allocator)
+    }
+    clean, cerr := filepath.abs(full, context.temp_allocator)
+    if cerr != nil {
+        clean = filepath.clean(full, context.temp_allocator)
+    }
+
+    if m.workspace_proc != nil {
+        if root := m.workspace_proc(m.host); root != "" && is_within(clean, root) {
+            return clean, true
+        }
+    }
+    if is_within(clean, p.dir) {
+        return clean, true
+    }
+    log.warnf("plugin %s: %q is outside the workspace and the plugin folder", p.id, path)
+    return "", false
+}
+
+// True when `path` is `root` or sits under it. Compares case-insensitively:
+// Windows paths differ only in case for the same file, and a case-sensitive
+// check would let `C:\Work` slip past a root recorded as `c:\work`.
+@(private)
+is_within :: proc(path, root: string) -> bool {
+    base, err := filepath.abs(root, context.temp_allocator)
+    if err != nil {
+        base = filepath.clean(root, context.temp_allocator)
+    }
+    lhs := strings.to_lower(filepath.clean(path, context.temp_allocator), context.temp_allocator)
+    rhs := strings.to_lower(base, context.temp_allocator)
+    lhs, _ = strings.replace_all(lhs, "\\", "/", context.temp_allocator)
+    rhs, _ = strings.replace_all(rhs, "\\", "/", context.temp_allocator)
+    rhs = strings.trim_suffix(rhs, "/")
+    if lhs == rhs {
+        return true
+    }
+    return strings.has_prefix(lhs, strings.concatenate({rhs, "/"}, context.temp_allocator))
+}

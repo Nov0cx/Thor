@@ -67,7 +67,13 @@ ODIN_ALIASES :: `
 Highlighter :: struct {
     parser:    ts.Parser,
     languages: map[string]Language_Entry,
+    // Compiled queries, keyed by "<lang_id>\n<query source>"; keys are owned.
+    // Keying on the source lets a plugin's own query live beside the built-in
+    // one for the same grammar.
     queries:   map[string]ts.Query,
+    // Highlights query a plugin supplied for a grammar, replacing the compiled-in
+    // one. Keys and values are owned.
+    overrides: map[string]string,
     lang_id:   string, // language currently set on the parser
     // Resident per-buffer trees, so a keystroke re-parses only the subtrees it
     // invalidated rather than the whole file. Highlighting and folding ask for
@@ -81,6 +87,7 @@ highlighter_create :: proc() -> Highlighter {
     h.parser = ts.parser_new()
     h.languages = make(map[string]Language_Entry)
     h.queries = make(map[string]ts.Query)
+    h.overrides = make(map[string]string)
     treecache.init(&h.trees)
     h.languages["odin"] = Language_Entry{ts_odin.tree_sitter_odin(), ts_odin.HIGHLIGHTS + "\n" + ODIN_ALIASES}
     h.languages["lua"] = Language_Entry{ts_lua.tree_sitter_lua(), ts_lua.HIGHLIGHTS}
@@ -110,10 +117,16 @@ highlighter_create :: proc() -> Highlighter {
 }
 
 highlighter_destroy :: proc(h: ^Highlighter) {
-    for _, query in h.queries {
+    for key, query in h.queries {
         ts.query_delete(query)
+        delete(key)
     }
     delete(h.queries)
+    for id, source in h.overrides {
+        delete(id)
+        delete(source)
+    }
+    delete(h.overrides)
     delete(h.languages)
     treecache.destroy(&h.trees)
     ts.parser_delete(h.parser)
@@ -499,15 +512,67 @@ capture_text :: proc(query: ts.Query, match: ts.Query_Match, capture_id: u32, so
     return ""
 }
 
+// The highlights query for a language: the source a plugin supplied when there
+// is one, else the query compiled in with the grammar.
 @(private)
 highlighter_query :: proc(h: ^Highlighter, lang_id: string, entry: Language_Entry) -> ts.Query {
-    if query, ok := h.queries[lang_id]; ok {
-        return query
+    source := entry.highlights
+    if override, ok := h.overrides[lang_id]; ok {
+        source = override
     }
-    query, _, err := ts.query_new(entry.lang, entry.highlights)
+    query, _, err := query_for(h, lang_id, source)
     if err != .None {
         return nil
     }
-    h.queries[lang_id] = query
     return query
+}
+
+// Compiles `source` against the grammar for `lang_id`, caching by both, so a
+// plugin running the same query every keystroke pays for it once. A failed
+// compile returns the byte offset the grammar rejected — the caller reports it;
+// nothing here writes to the console.
+query_for :: proc(h: ^Highlighter, lang_id, source: string) -> (query: ts.Query, offset: u32, err: ts.Query_Error) {
+    entry, known := h.languages[lang_id]
+    if !known {
+        return nil, 0, .Language
+    }
+
+    key := strings.concatenate({lang_id, "\n", source}, context.temp_allocator)
+    if cached, ok := h.queries[key]; ok {
+        return cached, 0, .None
+    }
+
+    query, offset, err = ts.query_new(entry.lang, source)
+    if err != .None {
+        return nil, offset, err
+    }
+    h.queries[strings.clone(key)] = query
+    return query, 0, .None
+}
+
+// Replaces the highlights query for `lang_id` with `source`. The query is
+// compiled at once so a broken one is reported where it was declared rather
+// than silently leaving a file uncolored; on failure nothing changes.
+set_highlights :: proc(h: ^Highlighter, lang_id, source: string) -> (offset: u32, err: ts.Query_Error) {
+    _, offset, err = query_for(h, lang_id, source)
+    if err != .None {
+        return offset, err
+    }
+    if existing, ok := h.overrides[lang_id]; ok {
+        delete(existing)
+        h.overrides[lang_id] = strings.clone(source)
+        return 0, .None
+    }
+    h.overrides[strings.clone(lang_id)] = strings.clone(source)
+    return 0, .None
+}
+
+// The compiled grammar for `lang_id`, for a caller that drives tree-sitter
+// itself (the plugin `thor.ts` bindings).
+language :: proc(h: ^Highlighter, lang_id: string) -> (ts.Language, bool) {
+    entry, ok := h.languages[lang_id]
+    if !ok {
+        return nil, false
+    }
+    return entry.lang, true
 }
