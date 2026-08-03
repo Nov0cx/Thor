@@ -63,6 +63,11 @@ jobs:
           mkdir -p /opt/odin && tar xzf odin.tar.gz -C /opt/odin
           echo "$(dirname "$(find /opt/odin -maxdepth 3 -type f -name odin | head -1)")" >> "$GITHUB_PATH"
 
+      # Odin ships prebuilt vendor:stb only for Windows and macOS; ui/text.odin
+      # imports stb/truetype, so Linux has to compile them first.
+      - name: Build vendor STB libraries
+        run: make -C "$(odin root)vendor/stb/src"
+
       - name: Build tree-sitter runtime + parsers
         working-directory: vendor/odin-tree-sitter
         run: |

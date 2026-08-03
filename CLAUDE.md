@@ -70,6 +70,23 @@ results → plugin ticks (`plugin.manager_dispatch_tick`, throttled to `TICK_INT
 `ui.context_update` → draw → `free_all(context.temp_allocator)`. Anything allocated for one
 frame goes in the temp allocator.
 
+## Platform split
+
+Windows, Linux and macOS all build (one workflow each). No shared file may import
+`core:sys/windows`: OS calls live in a `<name>_windows.odin` / `<name>_posix.odin` pair tagged
+`#+build windows` / `#+build !windows`, with the platform-free part in `<name>.odin`. Odin has no
+forward declarations, so the shared file states the contract — the types and procedures both
+platform files must supply — as a comment. The pairs are `shell/shell_*`, `watch/watch_*`,
+`thor/windows_*` (multi-window records), `thor/dialogs_*` (file pickers), `thor/filemap_*` (the
+load worker's read-only mapping) and `thor/reveal_*`. `watch/scan.odin` is deliberately
+platform-free so the POSIX watcher's diff is testable on Windows.
+
+Only Windows can be run here, so a POSIX change is verified by cross type-check:
+`odin check main -target:linux_amd64` and `-target:darwin_arm64`. Both need libraries the Windows
+Odin distribution does not ship — Linux misses `vendor/stb/lib/*.a` (the CI workflows build them),
+and macOS misses a Darwin branch in the vendored HarfBuzz binding (`macos.yml` injects one) — so
+the panics those two raise are expected noise; any other error is real.
+
 ## Multi-window
 
 raylib owns one window per process (the GL context, the input state and `ui`'s font atlas are all
@@ -80,7 +97,9 @@ argument — exactly what a shell launch passes. `thor/windows.odin` holds the w
 of opened twice — two processes on one folder would fight over its session file. A record is trusted
 only while `IsWindow` holds and the window still belongs to the recorded pid; a crashed window leaves
 a record the next reader prunes. user32 cannot be linked (its `CloseWindow`/`ShowCursor` collide with
-raylib's), so those calls are resolved from `user32.dll` at runtime.
+raylib's), so those calls are resolved from `user32.dll` at runtime. POSIX has no portable way to
+raise another process's window, so `windows_posix.odin` proves the pid with `kill(pid, 0)` and
+`thor_focus_window` does nothing: the folder still reads as taken, it is just not brought forward.
 
 Folder opens the user drives go through `thor_open_folder_request`, which settles the no-choice cases
 and then obeys the `open_folder_in` setting (`ask` / `same` / `new`). `thor_open_folder` itself still

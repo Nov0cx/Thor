@@ -57,6 +57,11 @@ jobs:
           release: latest
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      # Odin ships prebuilt vendor:stb only for Windows and macOS; ui/text.odin
+      # imports stb/truetype, so Linux has to compile them first.
+      - name: Build vendor STB libraries
+        run: make -C "$(odin root)vendor/stb/src"
+
       - name: Build tree-sitter runtime + parsers
         working-directory: vendor/odin-tree-sitter
         run: |
