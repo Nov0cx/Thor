@@ -61,8 +61,32 @@ takes effect on the next start, since a plugin cannot be taken back out of the
 running VM.
 
 Always available: `thor.register_language`, `thor.print`, `thor.keybind`,
-`thor.on_command`, `thor.workspace`, `thor.active_path`, `thor.refresh_git`,
-`thor.theme` and `thor.ts`.
+`thor.on_command`, `thor.on_tick`, `thor.workspace`, `thor.active_path`,
+`thor.refresh_git`, `thor.theme` and `thor.ts`.
+
+## Following the editor
+
+`thor.on_tick(fn)` runs `fn` from the frame loop, ten times a second — for a
+plugin that must notice what the user did rather than wait to be called. One
+handler per plugin, and it holds the frame while it runs, so keep it short and
+do nothing when nothing changed:
+
+```lua
+local last = nil
+
+thor.on_tick(function()
+    local src = thor.read "notes.md"
+    if src ~= last then
+        last = src
+        panel:render(outline_of(src))
+    end
+end)
+```
+
+`thor.on_key(fn)` (permission `keys`) sees every key press before the editor
+does, so the buffer it reads is the one from *before* that key. A plugin that
+watches what the user typed wants `on_tick`; one that watches which chord was
+pressed wants `on_key`.
 
 ## Languages
 

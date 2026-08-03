@@ -13,6 +13,7 @@ import "core:log"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
+import "core:time"
 
 import lua "vendor:lua/5.4"
 
@@ -148,6 +149,8 @@ Manager :: struct {
     measure_text_proc: Measure_Text_Proc,
     // The on_key handler; only one plugin holds it, the last with `keys` to ask.
     key:          Callback,
+    // When the on_tick handlers last ran (see manager_dispatch_tick).
+    tick_at:      time.Tick,
     // The Lua callback awaiting a dialog result (prompt/pick/confirm). Only one
     // dialog is open at a time, so a single slot suffices.
     dialog:       Callback,
@@ -200,6 +203,7 @@ manager_init :: proc(m: ^Manager) {
     m.plugins = make([dynamic]Plugin)
     m.key = Callback {-1, NOREF}
     m.dialog = Callback {-1, NOREF}
+    m.tick_at = time.tick_now()
     m.commands = make(map[string]Callback)
     m.panel_refs = make(map[string][dynamic]Callback)
     ts_init(m)
@@ -229,6 +233,7 @@ manager_destroy :: proc(m: ^Manager) {
     delete(m.languages)
     delete(m.by_ext)
     for &p in m.plugins {
+        unref(m, p.tick_ref)
         if p.env_ref != NOREF {
             lua.L_unref(m.state, lua.REGISTRYINDEX, c.int(p.env_ref))
         }
@@ -343,6 +348,7 @@ new_plugin :: proc(m: ^Manager, id, dir: string, perms: Permissions) -> int {
         perms   = granted,
         env_ref = NOREF,
         module_ref = NOREF,
+        tick_ref = NOREF,
     })
 
     L := m.state
@@ -423,6 +429,7 @@ push_api_table :: proc(m: ^Manager, index: int) {
     bind(L, m, index, api, "active_path", api_active_path)
     bind(L, m, index, api, "refresh_git", api_refresh_git)
     bind(L, m, index, api, "permissions", api_permissions)
+    bind(L, m, index, api, "on_tick", api_on_tick)
 
     if .Exec in perms {
         bind(L, m, index, api, "exec", api_exec)
@@ -470,6 +477,42 @@ api_permissions :: proc "c" (L: ^lua.State) -> c.int {
         lua.setfield(L, -2, strings.clone_to_cstring(permission_name(perm), context.temp_allocator))
     }
     return 1
+}
+
+// How often on_tick handlers run: often enough for a document that follows what
+// the user types, rarely enough that a slow plugin cannot cost the frame rate.
+TICK_INTERVAL :: 100 * time.Millisecond
+
+// thor.on_tick(fn): handler run every TICK_INTERVAL, for a plugin that must
+// follow what the editor is doing rather than wait to be called. One per plugin.
+@(private)
+api_on_tick :: proc "c" (L: ^lua.State) -> c.int {
+    context = runtime.default_context()
+    m, index := caller(L)
+    if m == nil || index < 0 || !lua.isfunction(L, 1) {
+        return 0
+    }
+    context.allocator = m.allocator
+    unref(m, m.plugins[index].tick_ref)
+    lua.pushvalue(L, 1) // ref pops the top, so copy the argument up
+    m.plugins[index].tick_ref = int(lua.L_ref(L, lua.REGISTRYINDEX))
+    return 0
+}
+
+// Runs every registered on_tick handler, at most once per TICK_INTERVAL. Called
+// from the app's frame loop.
+manager_dispatch_tick :: proc(m: ^Manager) {
+    now := time.tick_now()
+    if time.tick_diff(m.tick_at, now) < TICK_INTERVAL {
+        return
+    }
+    m.tick_at = now
+    for index in 0 ..< len(m.plugins) {
+        ref := m.plugins[index].tick_ref
+        if ref != NOREF {
+            call_callback(m, Callback {index, ref}, 0, 0, "on_tick")
+        }
+    }
 }
 
 // thor.on_key(fn): handler run for every key press, given {chord, ctrl, shift,

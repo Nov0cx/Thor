@@ -527,6 +527,7 @@ run :: proc(thor: ^Thor) {
         // Asked here, not during init: the prompt takes focus, and init still
         // opens files and restores the session after the plugins load.
         thor_prompt_plugin_permissions(thor)
+        plugin.manager_dispatch_tick(&thor.plugins)
         ui.context_update(&thor.ui_context)
         thor_sync_active_pane(thor)
 

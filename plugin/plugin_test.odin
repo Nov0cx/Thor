@@ -505,3 +505,34 @@ test_added_lexer_plugins_highlight :: proc(t: ^testing.T) {
         }
     }
 }
+
+// thor.on_tick runs a plugin from the frame loop, at most once per interval, and
+// each plugin holds its own handler.
+@(test)
+test_on_tick_runs_throttled_per_plugin :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+
+    script := `ticks = 0
+    thor.on_tick(function() ticks = ticks + 1 end)`
+    testing.expect(t, manager_load_source(&m, "ticker", "plugins/ticker", script, {}), "plugin script runs")
+
+    reads :: proc(m: ^Manager) -> lua.Integer {
+        lua.rawgeti(m.state, lua.REGISTRYINDEX, lua.Integer(m.plugins[0].env_ref))
+        lua.getfield(m.state, -1, "ticks")
+        n := lua.tointeger(m.state, -1)
+        lua.pop(m.state, 2)
+        return n
+    }
+
+    manager_dispatch_tick(&m)
+    testing.expect(t, reads(&m) == 0, "a tick inside the interval is skipped")
+
+    m.tick_at._nsec -= i64(TICK_INTERVAL)
+    manager_dispatch_tick(&m)
+    testing.expect(t, reads(&m) == 1, "the tick ran once the interval passed")
+
+    manager_dispatch_tick(&m)
+    testing.expect(t, reads(&m) == 1, "the interval starts again after a run")
+}

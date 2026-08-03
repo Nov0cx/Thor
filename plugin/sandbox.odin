@@ -59,6 +59,7 @@ Plugin :: struct {
     perms:      Permissions,
     env_ref:    int,    // registry ref of the _ENV table, or NOREF
     module_ref: int,    // registry ref of the require() cache, or NOREF
+    tick_ref:   int,    // registry ref of the thor.on_tick handler, or NOREF
 }
 
 // A Lua callback plus the plugin that registered it, so a failure is reported

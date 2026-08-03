@@ -66,7 +66,8 @@ be tested headlessly.
   `thor.init/run/shutdown`.
 
 `Thor.run` is a plain per-frame loop: poll (dropped files, watcher, settings, IO) → reap async
-results → `ui.context_update` → draw → `free_all(context.temp_allocator)`. Anything allocated for one
+results → plugin ticks (`plugin.manager_dispatch_tick`, throttled to `TICK_INTERVAL`) →
+`ui.context_update` → draw → `free_all(context.temp_allocator)`. Anything allocated for one
 frame goes in the temp allocator.
 
 ## Multi-window
