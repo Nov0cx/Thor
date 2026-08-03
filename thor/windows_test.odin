@@ -3,7 +3,6 @@ package thor
 import "core:fmt"
 import "core:os"
 import "core:strings"
-import win32 "core:sys/windows"
 import "core:testing"
 
 // Run from the repository root: odin test thor
@@ -55,8 +54,7 @@ test_stale_window_record_is_pruned :: proc(t: ^testing.T) {
 @(test)
 test_own_record_is_not_another_window :: proc(t: ^testing.T) {
     WORKSPACE :: "D:\\thor-window-test-self"
-    pid := cast(int) win32.GetCurrentProcessId()
-    path := write_test_record(t, WORKSPACE, pid, 0)
+    path := write_test_record(t, WORKSPACE, os.get_pid(), 0)
     defer delete(path)
     defer os.remove(path)
 
@@ -78,7 +76,7 @@ test_unregister_leaves_foreign_records :: proc(t: ^testing.T) {
     testing.expect(t, os.exists(foreign_path), "another window's record must be left alone")
 
     OWN :: "D:\\thor-window-test-own"
-    own_path := write_test_record(t, OWN, cast(int) win32.GetCurrentProcessId(), 0)
+    own_path := write_test_record(t, OWN, os.get_pid(), 0)
     defer delete(own_path)
     defer os.remove(own_path)
 

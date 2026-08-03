@@ -14,8 +14,6 @@ import "core:encoding/json"
 import "core:log"
 import "core:os"
 import "core:strings"
-import win32 "core:sys/windows"
-import rl "vendor:raylib"
 
 import "../shell"
 
@@ -33,67 +31,19 @@ Window_Record :: struct {
     hwnd:      i64,
 }
 
-// user32.lib cannot be linked (its CloseWindow/ShowCursor collide with
-// raylib's), so the handful of window calls used here are resolved at runtime —
-// the same trick as thor/dialogs.odin and ui/keymap_windows.odin.
-@(private = "file")
-Is_Window_Proc :: #type proc "system" (hwnd: win32.HWND) -> win32.BOOL
-@(private = "file")
-Is_Iconic_Proc :: #type proc "system" (hwnd: win32.HWND) -> win32.BOOL
-@(private = "file")
-Show_Window_Proc :: #type proc "system" (hwnd: win32.HWND, cmd: win32.c_int) -> win32.BOOL
-@(private = "file")
-Set_Foreground_Proc :: #type proc "system" (hwnd: win32.HWND) -> win32.BOOL
-@(private = "file")
-Window_Pid_Proc :: #type proc "system" (hwnd: win32.HWND, pid: ^win32.DWORD) -> win32.DWORD
-
-@(private = "file")
-User32 :: struct {
-    is_window:      Is_Window_Proc,
-    is_iconic:      Is_Iconic_Proc,
-    show_window:    Show_Window_Proc,
-    set_foreground: Set_Foreground_Proc,
-    window_pid:     Window_Pid_Proc,
+// What a record still describes. `Unknown` keeps the record and reads the
+// folder as free: opening a second window beats refusing to open one.
+Window_State :: enum u8 {
+    Gone,
+    Live,
+    Unknown,
 }
 
-@(private = "file")
-user32: User32
-
-@(private = "file")
-user32_resolved := false
-
-foreign import kernel32 "system:kernel32.lib"
-
-@(default_calling_convention = "system", private = "file")
-foreign kernel32 {
-    LoadLibraryA   :: proc(name: cstring) -> rawptr ---
-    GetProcAddress :: proc(module: rawptr, name: cstring) -> rawptr ---
-}
-
-// Resolves the user32 entry points once. Every caller must tolerate a nil proc:
-// without them a folder simply opens in a new window instead of raising the old.
-@(private = "file")
-thor_load_user32 :: proc() -> ^User32 {
-    if user32_resolved {
-        return &user32
-    }
-    user32_resolved = true
-
-    lib := LoadLibraryA("user32.dll")
-    if lib == nil {
-        log.warn("Could not load user32.dll; existing windows cannot be raised")
-        return &user32
-    }
-    user32.is_window = cast(Is_Window_Proc) GetProcAddress(lib, "IsWindow")
-    user32.is_iconic = cast(Is_Iconic_Proc) GetProcAddress(lib, "IsIconic")
-    user32.show_window = cast(Show_Window_Proc) GetProcAddress(lib, "ShowWindow")
-    user32.set_foreground = cast(Set_Foreground_Proc) GetProcAddress(lib, "SetForegroundWindow")
-    user32.window_pid = cast(Window_Pid_Proc) GetProcAddress(lib, "GetWindowThreadProcessId")
-    return &user32
-}
-
-@(private = "file")
-SW_RESTORE :: 9
+// Finding and raising a window is platform work: windows_windows.odin resolves
+// the user32 calls, windows_posix.odin only proves the process. Each platform
+// file supplies `Window_Handle` plus three procedures — `thor_native_window`
+// returns the handle this process records, `thor_window_live` reads a record's
+// state, and `thor_focus_window` brings that window to the front.
 
 // Record file for a workspace: sessions/windows/<path-key>.json, keyed exactly
 // like that workspace's session file.
@@ -123,8 +73,8 @@ thor_register_window :: proc(thor: ^Thor) {
 
     record := Window_Record {
         workspace = thor.workspace_dir,
-        pid       = cast(int) win32.GetCurrentProcessId(),
-        hwnd      = cast(i64) cast(uintptr) rl.GetWindowHandle(),
+        pid       = os.get_pid(),
+        hwnd      = thor_native_window(),
     }
     data, err := json.marshal(record, {pretty = true}, context.temp_allocator)
     if err != nil {
@@ -150,7 +100,7 @@ thor_unregister_window :: proc(workspace: string) {
     // Only drop the record if it is still ours: a window that took the folder
     // over after us owns the file now.
     if record, ok := thor_read_window_record(path); ok {
-        if record.pid != cast(int) win32.GetCurrentProcessId() {
+        if record.pid != os.get_pid() {
             return
         }
     }
@@ -177,30 +127,23 @@ thor_read_window_record :: proc(path: string) -> (Window_Record, bool) {
 // The live window owning `workspace`, or ok=false when the folder is free. A
 // record whose window is gone (or now belongs to another process, the handle
 // having been recycled) is stale and removed here, so the folder frees itself.
-thor_workspace_window :: proc(workspace: string) -> (win32.HWND, bool) {
+thor_workspace_window :: proc(workspace: string) -> (Window_Handle, bool) {
     path := thor_window_file(workspace)
     record, read_ok := thor_read_window_record(path)
     if !read_ok {
         return nil, false
     }
-    if record.pid == cast(int) win32.GetCurrentProcessId() {
+    if record.pid == os.get_pid() {
         return nil, false // our own claim is not another window
     }
 
-    u32 := thor_load_user32()
-    if u32.is_window == nil || u32.window_pid == nil {
-        // Cannot tell whether it is live, so leave the record alone and treat
-        // the folder as free: opening a second window beats refusing to open one.
+    handle, state := thor_window_live(record.hwnd, record.pid)
+    switch state {
+    case .Live:
+        return handle, true
+    case .Unknown:
         return nil, false
-    }
-
-    hwnd := cast(win32.HWND) cast(uintptr) cast(uint) record.hwnd
-    if record.hwnd != 0 && u32.is_window(hwnd) {
-        owner: win32.DWORD
-        u32.window_pid(hwnd, &owner)
-        if cast(int) owner == record.pid {
-            return hwnd, true
-        }
+    case .Gone:
     }
 
     log.debugf("Pruning stale window record %q", path)
@@ -208,19 +151,6 @@ thor_workspace_window :: proc(workspace: string) -> (win32.HWND, bool) {
         log.warnf("Could not remove stale window record %q: %v", path, err)
     }
     return nil, false
-}
-
-// Brings an existing window to the front. A minimized window is restored first —
-// an unconditional restore would un-maximize one that is merely behind. The
-// foreground handover is allowed because the calling window currently holds it.
-thor_focus_window :: proc(hwnd: win32.HWND) {
-    u32 := thor_load_user32()
-    if u32.is_iconic != nil && u32.show_window != nil && u32.is_iconic(hwnd) {
-        u32.show_window(hwnd, SW_RESTORE)
-    }
-    if u32.set_foreground != nil {
-        u32.set_foreground(hwnd)
-    }
 }
 
 // Launches a second Thor on `workspace`. The new process resolves the folder

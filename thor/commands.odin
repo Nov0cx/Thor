@@ -3,7 +3,6 @@ package thor
 import "core:log"
 import "core:os"
 import "core:strings"
-import win32 "core:sys/windows"
 import "core:unicode/utf8"
 import rl "vendor:raylib"
 
@@ -564,16 +563,6 @@ thor_cmd_reveal :: proc(data: rawptr) {
         return
     }
     thor_reveal_path(file.path)
-}
-
-// Opens the OS file explorer with `path` selected.
-thor_reveal_path :: proc(path: string) {
-    if path == "" {
-        return
-    }
-    native, _ := strings.replace_all(path, "/", "\\", context.temp_allocator)
-    param := strings.concatenate({"/select,", native}, context.temp_allocator)
-    win32.ShellExecuteW(nil, win32.utf8_to_wstring("open"), win32.utf8_to_wstring("explorer.exe"), win32.utf8_to_wstring(param), nil, win32.SW_SHOWNORMAL)
 }
 
 thor_cmd_command_palette :: proc(data: rawptr) {

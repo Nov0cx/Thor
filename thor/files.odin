@@ -7,7 +7,6 @@ import "core:path/filepath"
 import "core:slice"
 import "core:strings"
 import "core:sync"
-import win32 "core:sys/windows"
 import "core:thread"
 import "core:time"
 import rl "vendor:raylib"
@@ -101,9 +100,7 @@ Load_Job :: struct {
     binary:  bool,
     data:    [^]u8,
     size:    int,
-    view:    rawptr,
-    mapping: win32.HANDLE,
-    handle:  win32.HANDLE,
+    mapping: File_Map, // open until the main thread has copied the bytes out
 }
 
 Save_Job :: struct {
@@ -158,7 +155,6 @@ thor_to_disk_text :: proc(text: string, ending: Line_Ending, allocator := contex
 
 @(private = "file")
 load_worker :: proc(job: ^Load_Job) {
-    job.handle = win32.INVALID_HANDLE_VALUE
     defer {
         free_all(context.temp_allocator)
         sync.lock(&job.owner.io_mutex)
@@ -166,40 +162,12 @@ load_worker :: proc(job: ^Load_Job) {
         sync.unlock(&job.owner.io_mutex)
     }
 
-    wide_path := win32.utf8_to_wstring(job.path, context.temp_allocator)
-    job.handle = win32.CreateFileW(
-        wide_path,
-        win32.GENERIC_READ,
-        win32.FILE_SHARE_READ,
-        nil,
-        win32.OPEN_EXISTING,
-        win32.FILE_ATTRIBUTE_NORMAL,
-        nil,
-    )
-    if job.handle == win32.INVALID_HANDLE_VALUE {
+    bytes, ok := file_map_open(&job.mapping, job.path)
+    if !ok {
         return
     }
-
-    size: win32.LARGE_INTEGER
-    if !win32.GetFileSizeEx(job.handle, &size) {
-        return
-    }
-    if size == 0 {
-        job.ok = true
-        return
-    }
-
-    job.mapping = win32.CreateFileMappingW(job.handle, nil, win32.PAGE_READONLY, 0, 0, nil)
-    if job.mapping == nil {
-        return
-    }
-    job.view = win32.MapViewOfFile(job.mapping, win32.FILE_MAP_READ, 0, 0, 0)
-    if job.view == nil {
-        return
-    }
-
-    job.data = cast([^]u8) job.view
-    job.size = cast(int) size
+    job.data = raw_data(bytes)
+    job.size = len(bytes)
 
     // NUL bytes in the head of the file mean it is not text; refuse instead
     // of feeding garbage to the piece table.
@@ -714,15 +682,7 @@ thor_process_io :: proc(thor: ^Thor) {
             }
         }
 
-        if job.view != nil {
-            win32.UnmapViewOfFile(job.view)
-        }
-        if job.mapping != nil {
-            win32.CloseHandle(job.mapping)
-        }
-        if job.handle != win32.INVALID_HANDLE_VALUE {
-            win32.CloseHandle(job.handle)
-        }
+        file_map_close(&job.mapping)
         free(job)
 
         file.pending_jobs -= 1

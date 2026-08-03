@@ -1,7 +1,10 @@
+#+build windows
 package thor
 
-// Native shell pickers for Open File / Open Folder. Both are modal: the shell
-// runs its own message loop, so Thor's frame loop is paused while one is up.
+// Windows pickers for Open File / Open Folder, straight out of the shell. Both
+// are modal: the shell runs its own message loop, so Thor's frame loop is paused
+// while one is up. dialogs_posix.odin answers the same two calls with a helper
+// program.
 
 import "core:strings"
 import win32 "core:sys/windows"
