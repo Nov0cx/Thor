@@ -51,6 +51,9 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
     }
     widgets.settings_view_add_choice(view, "file_icon_pack", "File Icon Pack", file_icon_pack)
 
+    widgets.settings_view_add_header(view, "WINDOWS")
+    widgets.settings_view_add_choice(view, "open_folder_in", "Open Folder In", thor_open_folder_in_label(&thor.config))
+
     widgets.settings_view_add_header(view, "KEYBINDINGS")
     actions := make([dynamic]string, context.temp_allocator)
     for action in thor.config.keybinds {
@@ -85,6 +88,44 @@ thor_on_setting_choice :: proc(data: rawptr, id: string) {
         thor_cmd_change_icon_pack(thor)
     case "file_icon_pack":
         thor_cmd_change_file_icon_pack(thor)
+    case "open_folder_in":
+        thor_cmd_change_open_folder_in(thor)
+    }
+}
+
+// Picker rows for open_folder_in, in Open_Folder_In order.
+@(private = "file")
+OPEN_FOLDER_IN_LABELS := [?]string {"Ask", "This Window", "New Window"}
+
+// The current open_folder_in setting as its picker row.
+thor_open_folder_in_label :: proc(config: ^setting.Settings) -> string {
+    return OPEN_FOLDER_IN_LABELS[cast(int) setting.open_folder_in(config)]
+}
+
+// Settings row: choose where an opened folder goes. Nothing to preview — the
+// choice only takes effect the next time a folder is opened.
+thor_cmd_change_open_folder_in :: proc(thor: ^Thor) {
+    widgets.select_dialog_open(
+        thor.select_dialog, &thor.ui_context, "Open Folder In",
+        OPEN_FOLDER_IN_LABELS[:], thor_open_folder_in_label(&thor.config),
+        thor_open_folder_in_preview, thor_open_folder_in_commit, thor,
+    )
+}
+
+thor_open_folder_in_preview :: proc(_: rawptr, _: string) {}
+
+thor_open_folder_in_commit :: proc(data: rawptr, choice: string) {
+    thor := cast(^Thor) data
+    picked := setting.Open_Folder_In.Ask
+    for label, index in OPEN_FOLDER_IN_LABELS {
+        if label == choice {
+            picked = cast(setting.Open_Folder_In) index
+            break
+        }
+    }
+    thor_persist_open_folder_in(thor, picked)
+    if widgets.settings_view_is_open(thor.settings_view) {
+        thor_populate_settings_view(thor)
     }
 }
 

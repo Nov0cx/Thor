@@ -157,6 +157,11 @@ Thor :: struct {
     // Path awaiting a rename (set when a rename is started in the explorer or
     // the File menu, consumed when the name prompt is accepted). Owned clone.
     pending_rename_path:      string,
+    // Folder awaiting a this-window/new-window choice, and the prompt title the
+    // picker shows. The title is borrowed by the palette while it is open, so
+    // both must outlive the pick. Owned clones, cleared once the pick lands.
+    pending_open_folder:      string,
+    open_folder_prompt:       string,
     git_branch:               string,
     // Named shell commands from <workspace>/.thor/tasks.json, reloaded on a
     // workspace switch. active_task_name is what the selector shows and the run
@@ -444,6 +449,9 @@ init :: proc() -> ^Thor {
     ui.context_set_global_key(&thor.ui_context, thor_global_key, thor)
     thor_refresh_git_status(thor)
     thor_init_watcher(thor)
+    // Claim the workspace now that the window handle exists, so another window
+    // opening this folder raises us instead of starting a duplicate.
+    thor_register_window(thor)
     lap(&phase, "build widget tree")
 
     // Texture upload needs the GL context, so it happens here on the main
@@ -508,6 +516,7 @@ run :: proc(thor: ^Thor) {
 }
 
 shutdown :: proc(thor: ^Thor) {
+    thor_unregister_window(thor.workspace_dir)
     thor_save_session(thor)
     // Stop the watcher first so no new reload jobs are queued while we drain.
     thor_shutdown_watcher(thor)
@@ -531,6 +540,7 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.pending_delete_paths)
     delete(thor.delete_prompt)
     delete(thor.pending_rename_path)
+    thor_clear_pending_open_folder(thor)
     delete(thor.git_branch)
     thor_clear_tasks(thor)
     delete(thor.active_task_name)

@@ -1,5 +1,6 @@
 {
     "font_size": 18,
     "tab_width": 4,
-    "autosave_delay_ms": 1500
+    "autosave_delay_ms": 1500,
+    "open_folder_in": "ask"
 }

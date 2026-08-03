@@ -60,3 +60,30 @@ run :: proc(command: string, cwd: string) -> string {
     win32.WaitForSingleObject(pi.hProcess, win32.INFINITE)
     return strings.to_string(builder)
 }
+
+// Starts `exe` with one argument and leaves it running: no pipes, no wait, both
+// handles closed at once. The counterpart to `run` for a process that outlives
+// the call — a second editor window. Its own process group keeps a Ctrl+C in a
+// debug console from reaching it. Returns whether the process started.
+spawn :: proc(exe: string, arg: string, cwd: string) -> bool {
+    si := win32.STARTUPINFOW {
+        cb = size_of(win32.STARTUPINFOW),
+    }
+    pi: win32.PROCESS_INFORMATION
+
+    // Both are quoted: a path with spaces would otherwise split into arguments.
+    full := fmt.tprintf("\"%s\" \"%s\"", exe, arg)
+    // CreateProcessW writes into the command line buffer, so it must be writable.
+    cmdline := win32.utf8_to_wstring(full, context.temp_allocator)
+    wdir: win32.wstring
+    if cwd != "" {
+        wdir = win32.utf8_to_wstring(cwd, context.temp_allocator)
+    }
+
+    if !win32.CreateProcessW(nil, cmdline, nil, nil, false, win32.CREATE_NEW_PROCESS_GROUP, nil, wdir, &si, &pi) {
+        return false
+    }
+    win32.CloseHandle(pi.hProcess)
+    win32.CloseHandle(pi.hThread)
+    return true
+}

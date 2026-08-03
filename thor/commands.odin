@@ -333,6 +333,7 @@ thor_register_commands :: proc(thor: ^Thor) {
 
     thor_add_bindable_command(thor, "File: Open File", "open_file", thor_cmd_open_file, thor)
     thor_add_bindable_command(thor, "File: Open Folder", "open_folder", thor_cmd_open_folder, thor)
+    thor_add_bindable_command(thor, "File: Open Folder in New Window", "open_folder_new_window", thor_cmd_open_folder_new_window, thor)
     thor_add_bindable_command(thor, "File: New File", "new_file", thor_cmd_new_file, thor)
     thor_add_bindable_command(thor, "File: New Folder", "new_folder", thor_cmd_new_folder, thor)
     widgets.command_palette_add(p, "File: Save", thor_cmd_save, thor, sc(thor, "save"))

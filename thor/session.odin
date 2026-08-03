@@ -31,10 +31,10 @@ Session :: struct {
     active_task:       string,
 }
 
-// Session file for a workspace: sessions/<sanitized-abs-path>.json. The path is
-// lowercased (Windows is case-insensitive) with separators and colon mapped to '-'.
-@(private = "file")
-thor_session_file :: proc(workspace_dir: string, allocator := context.temp_allocator) -> string {
+// A workspace path as one filename-safe component: lowercased (Windows is
+// case-insensitive) with separators and the drive colon mapped to '-'. Keys both
+// the session files and the window records, so the two always agree on a folder.
+thor_path_key :: proc(workspace_dir: string, allocator := context.temp_allocator) -> string {
     lower := strings.to_lower(workspace_dir, context.temp_allocator)
     b := strings.builder_make(context.temp_allocator)
     for r in lower {
@@ -45,7 +45,13 @@ thor_session_file :: proc(workspace_dir: string, allocator := context.temp_alloc
             strings.write_rune(&b, r)
         }
     }
-    return strings.concatenate({"sessions/", strings.to_string(b), ".json"}, allocator)
+    return strings.clone(strings.to_string(b), allocator)
+}
+
+// Session file for a workspace: sessions/<path-key>.json.
+@(private = "file")
+thor_session_file :: proc(workspace_dir: string, allocator := context.temp_allocator) -> string {
+    return strings.concatenate({"sessions/", thor_path_key(workspace_dir), ".json"}, allocator)
 }
 
 // Records the workspace of the most recent session, so a launch with no path

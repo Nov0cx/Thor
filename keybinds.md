@@ -8,7 +8,8 @@ bindings are physical key positions, noted where they differ.
 | Binding | Action |
 | --- | --- |
 | ctrl + o | open a file from anywhere (shell picker) |
-| ctrl + alt + o | open a folder as the workspace (shell picker) |
+| ctrl + alt + o | open a folder as the workspace (asks: this window or a new one) |
+| ctrl + alt + shift + o | open a folder in a new window |
 | ctrl + s | save file (autosave also runs 1.5s after the last edit) |
 | ctrl + w | close tab |
 | ctrl + page down / page up | next / previous tab |

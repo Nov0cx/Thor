@@ -77,11 +77,17 @@ thor_explorer_context_menu :: proc(data: rawptr, position: rl.Vector2) {
 
     // A right-click selects the row first (see tree_handle_event), so Rename and
     // the other selection actions read thor.tree.selected_path.
-    has_selection := widgets.tree_path_at(thor.tree, position) != ""
+    clicked := widgets.tree_path_at(thor.tree, position)
+    has_selection := clicked != ""
+    on_folder := has_selection && os.is_dir(clicked)
 
     widgets.menu_clear(thor.menu)
     widgets.menu_add(thor.menu, "New File", thor_menu_new_file, thor)
     widgets.menu_add(thor.menu, "New Folder", thor_menu_new_folder, thor)
+    if on_folder {
+        widgets.menu_add_separator(thor.menu)
+        widgets.menu_add(thor.menu, "Open in New Window", thor_menu_open_new_window, thor)
+    }
     widgets.menu_add_separator(thor.menu)
     widgets.menu_add(thor.menu, "Rename", thor_menu_rename, thor, has_selection)
     widgets.menu_add(thor.menu, "Reveal in File Explorer", thor_menu_explorer_reveal, thor, has_selection)
@@ -154,6 +160,14 @@ thor_menu_rename :: proc(data: rawptr) {
 thor_menu_explorer_delete :: proc(data: rawptr) {
     thor := cast(^Thor) data
     thor_tree_delete(thor, thor.tree.selected_path)
+}
+
+// Explorer right-click on a folder: open it in its own window, leaving this one
+// on the current workspace. Skips the this-window/new-window prompt — the entry
+// already says which it is.
+thor_menu_open_new_window :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    thor_new_window_for(thor, thor.tree.selected_path)
 }
 
 thor_menu_explorer_reveal :: proc(data: rawptr) {
@@ -243,6 +257,7 @@ thor_open_file_menu :: proc(data: rawptr, ctx: ^ui.Context, widget: ^ui.Widget) 
     widgets.menu_clear(thor.menu)
     widgets.menu_add(thor.menu, "Open File...", thor_cmd_open_file, thor)
     widgets.menu_add(thor.menu, "Open Folder...", thor_cmd_open_folder, thor)
+    widgets.menu_add(thor.menu, "Open Folder in New Window...", thor_cmd_open_folder_new_window, thor)
     widgets.menu_add_separator(thor.menu)
     widgets.menu_add(thor.menu, "New File", thor_cmd_new_file, thor)
     widgets.menu_add(thor.menu, "New Folder", thor_cmd_new_folder, thor)

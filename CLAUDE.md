@@ -69,6 +69,22 @@ be tested headlessly.
 results → `ui.context_update` → draw → `free_all(context.temp_allocator)`. Anything allocated for one
 frame goes in the temp allocator.
 
+## Multi-window
+
+raylib owns one window per process (the GL context, the input state and `ui`'s font atlas are all
+process-global), so **a second window is a second process**, launched with the workspace as its path
+argument — exactly what a shell launch passes. `thor/windows.odin` holds the whole mechanism:
+`shell.spawn` starts the process, and each window records the folder it owns in
+`sessions/windows/<path-key>.json` (pid + HWND) so a folder already open somewhere is raised instead
+of opened twice — two processes on one folder would fight over its session file. A record is trusted
+only while `IsWindow` holds and the window still belongs to the recorded pid; a crashed window leaves
+a record the next reader prunes. user32 cannot be linked (its `CloseWindow`/`ShowCursor` collide with
+raylib's), so those calls are resolved from `user32.dll` at runtime.
+
+Folder opens the user drives go through `thor_open_folder_request`, which settles the no-choice cases
+and then obeys the `open_folder_in` setting (`ask` / `same` / `new`). `thor_open_folder` itself still
+replaces the workspace outright — call it only when the window is already decided.
+
 ## Async work
 
 There is one pattern for all off-thread work and it is worth matching exactly: a worker thread does

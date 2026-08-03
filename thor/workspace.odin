@@ -12,6 +12,7 @@ import "core:path/filepath"
 import "core:strings"
 import rl "vendor:raylib"
 
+import "../setting"
 import "../ui"
 import "../widgets"
 
@@ -36,14 +37,155 @@ thor_startup_target :: proc(arg: string) -> (workspace: string, file: string) {
     return cwd_err == nil ? cwd : strings.clone("."), ""
 }
 
-// Opens a path from outside the editor: a directory becomes the workspace, a
-// file opens as a tab.
+// Opens a path from outside the editor: a directory goes through the
+// this-window/new-window choice, a file opens as a tab.
 thor_open_path :: proc(thor: ^Thor, path: string) {
     if os.is_dir(path) {
-        thor_open_folder(thor, path)
+        thor_open_folder_request(thor, path)
     } else {
         thor_open_file(thor, path)
     }
+}
+
+// The picker rows, in order. Indices line up with Open_Folder_Choice.
+@(private = "file")
+OPEN_FOLDER_CHOICES := [?]string {
+    "This Window",
+    "New Window",
+    "Always This Window",
+    "Always New Window",
+}
+
+@(private = "file")
+Open_Folder_Choice :: enum {
+    This_Window,
+    New_Window,
+    Always_This_Window,
+    Always_New_Window,
+}
+
+// Entry point for every user-driven folder open — the File menu, the palette, a
+// dropped folder. Settles the cases that need no choice (the folder is already
+// showing here, or another window holds it) and otherwise obeys open_folder_in,
+// prompting when it says "ask". Direct calls to thor_open_folder skip all of
+// this and replace the workspace outright.
+thor_open_folder_request :: proc(thor: ^Thor, dir: string) {
+    resolved := dir
+    if abs, err := filepath.abs(dir, context.temp_allocator); err == nil {
+        resolved = abs
+    }
+    if !os.is_dir(resolved) {
+        thor_flash_status(thor, "Not a folder", true)
+        return
+    }
+    if strings.equal_fold(resolved, thor.workspace_dir) {
+        thor_flash_status(thor, "Already open in this window")
+        return
+    }
+    // A folder open in another window is raised rather than opened twice: two
+    // processes on one folder would fight over its session file.
+    if hwnd, taken := thor_workspace_window(resolved); taken {
+        thor_focus_window(hwnd)
+        thor_flash_status(thor, fmt.tprintf("%s is already open in another window", filepath.base(resolved)))
+        return
+    }
+
+    switch setting.open_folder_in(&thor.config) {
+    case .Same:
+        thor_open_folder(thor, resolved)
+    case .New:
+        thor_open_folder_in_new_window(thor, resolved)
+    case .Ask:
+        thor_prompt_open_folder(thor, resolved)
+    }
+}
+
+// Opens the four-row picker for a folder that is free to go either way. The
+// folder and the title are parked on Thor: the pick lands on a later frame.
+@(private = "file")
+thor_prompt_open_folder :: proc(thor: ^Thor, dir: string) {
+    thor_clear_pending_open_folder(thor)
+    thor.pending_open_folder = strings.clone(dir)
+    thor.open_folder_prompt = fmt.aprintf("Open %s in", filepath.base(dir))
+
+    widgets.command_palette_pick(
+        thor.command_palette,
+        &thor.ui_context,
+        thor.open_folder_prompt,
+        OPEN_FOLDER_CHOICES[:],
+        thor_pick_open_folder,
+        thor,
+    )
+}
+
+// A row was picked. The two "Always" rows persist the choice first, then do the
+// same thing their plain counterparts do.
+@(private = "file")
+thor_pick_open_folder :: proc(data: rawptr, choice: string) {
+    thor := cast(^Thor) data
+    defer thor_clear_pending_open_folder(thor)
+
+    if thor.pending_open_folder == "" {
+        return
+    }
+    // Resolve the row before acting: opening a folder drains I/O, which frees
+    // the temp allocator `choice` lives in.
+    picked: Open_Folder_Choice
+    found := false
+    for label, index in OPEN_FOLDER_CHOICES {
+        if label == choice {
+            picked = cast(Open_Folder_Choice) index
+            found = true
+            break
+        }
+    }
+    if !found {
+        return
+    }
+
+    switch picked {
+    case .Always_This_Window:
+        thor_persist_open_folder_in(thor, .Same)
+        fallthrough
+    case .This_Window:
+        thor_open_folder(thor, thor.pending_open_folder)
+    case .Always_New_Window:
+        thor_persist_open_folder_in(thor, .New)
+        fallthrough
+    case .New_Window:
+        thor_open_folder_in_new_window(thor, thor.pending_open_folder)
+    }
+}
+
+// Launches a second window on `dir`, reporting failure in the status bar rather
+// than leaving the pick looking like it did nothing.
+@(private = "file")
+thor_open_folder_in_new_window :: proc(thor: ^Thor, dir: string) {
+    if thor_spawn_window(dir) {
+        thor_flash_status(thor, fmt.tprintf("Opened %s in a new window", filepath.base(dir)))
+    } else {
+        thor_flash_status(thor, "Could not start a new window", true)
+    }
+}
+
+// Records a "don't ask again" choice. It goes to the global settings, never the
+// workspace .thor/ overlay: which window a folder opens in is a personal
+// preference, not something a checked-in workspace config imposes on everyone.
+// Updates the live config in place rather than reloading — the caller is about
+// to open a folder, which reloads anyway.
+thor_persist_open_folder_in :: proc(thor: ^Thor, choice: setting.Open_Folder_In) {
+    value := setting.open_folder_in_value(choice)
+    setting.persist_string("settings/settings.json", "open_folder_in", value)
+    delete(thor.config.general.open_folder_in)
+    thor.config.general.open_folder_in = strings.clone(value)
+    thor_settings_mark_clean(thor)
+}
+
+thor_clear_pending_open_folder :: proc(thor: ^Thor) {
+    delete(thor.pending_open_folder)
+    delete(thor.open_folder_prompt)
+    thor.pending_open_folder = ""
+    thor.open_folder_prompt = ""
 }
 
 // Makes `dir` the workspace. The outgoing folder's dirty buffers and session are
@@ -65,6 +207,10 @@ thor_open_folder :: proc(thor: ^Thor, dir: string) {
     // `resolved` may still live in.
     target := strings.clone(resolved)
     defer delete(target)
+
+    // Give up the outgoing folder's claim before taking the new one, so it is
+    // free for another window the moment we stop showing it.
+    thor_unregister_window(thor.workspace_dir)
 
     // Let the outgoing workspace go quiet before anything is swapped: a worker
     // thread must not outlive the state it points at.
@@ -113,6 +259,7 @@ thor_open_folder :: proc(thor: ^Thor, dir: string) {
     }
     thor_refresh_git_status(thor)
     thor_init_watcher(thor)
+    thor_register_window(thor)
     thor_record_last_workspace(thor.workspace_dir)
     log.infof("Opened workspace %s", thor.workspace_dir)
 }
@@ -169,7 +316,8 @@ thor_poll_dropped_files :: proc(thor: ^Thor) {
         }
 
         if os.is_dir(path) {
-            thor_open_folder(thor, path) // replaces the workspace; the rest of the drop is moot
+            // Asks which window it goes to; either way the rest of the drop is moot.
+            thor_open_folder_request(thor, path)
             return
         }
         thor_open_file(thor, path)
@@ -183,13 +331,46 @@ thor_poll_dropped_files :: proc(thor: ^Thor) {
     }
 }
 
-// File menu / palette: pick a folder to open as the workspace.
+// File menu / palette: pick a folder to open as the workspace, in this window or
+// a new one.
 thor_cmd_open_folder :: proc(data: rawptr) {
     thor := cast(^Thor) data
     if dir, ok := thor_pick_folder("Open Folder", thor.workspace_dir); ok {
         defer delete(dir)
-        thor_open_folder(thor, dir)
+        thor_open_folder_request(thor, dir)
     }
+}
+
+// File menu / palette: pick a folder and open it in a new window, no prompt.
+thor_cmd_open_folder_new_window :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    if dir, ok := thor_pick_folder("Open Folder in New Window", thor.workspace_dir); ok {
+        defer delete(dir)
+        thor_new_window_for(thor, dir)
+    }
+}
+
+// Opens `dir` in a new window, raising the window that already holds it instead
+// of starting a duplicate. Shared by the explorer entry and the File menu.
+thor_new_window_for :: proc(thor: ^Thor, dir: string) {
+    resolved := dir
+    if abs, err := filepath.abs(dir, context.temp_allocator); err == nil {
+        resolved = abs
+    }
+    if !os.is_dir(resolved) {
+        thor_flash_status(thor, "Not a folder", true)
+        return
+    }
+    if strings.equal_fold(resolved, thor.workspace_dir) {
+        thor_flash_status(thor, "Already open in this window")
+        return
+    }
+    if hwnd, taken := thor_workspace_window(resolved); taken {
+        thor_focus_window(hwnd)
+        thor_flash_status(thor, fmt.tprintf("%s is already open in another window", filepath.base(resolved)))
+        return
+    }
+    thor_open_folder_in_new_window(thor, resolved)
 }
 
 // File menu / palette: pick a file to open as a tab, from anywhere on disk.

@@ -31,6 +31,16 @@ General :: struct {
     font:              string,
     icon_pack:         string,
     file_icon_pack:    string,
+    // What opening a folder does: "ask" (default), "same" to replace the current
+    // window's workspace, "new" to launch another window. Owned, freed in destroy.
+    open_folder_in:    string,
+}
+
+// Where an opened folder goes. Parsed from the open_folder_in setting.
+Open_Folder_In :: enum {
+    Ask,
+    Same,
+    New,
 }
 
 Settings :: struct {
@@ -82,6 +92,7 @@ destroy :: proc(s: ^Settings) {
     delete(s.general.font)
     delete(s.general.icon_pack)
     delete(s.general.file_icon_pack)
+    delete(s.general.open_folder_in)
 }
 
 // Line-comment marker for a file, or "" when the language is unknown (which
@@ -139,6 +150,36 @@ icon_pack_name :: proc(s: ^Settings) -> string {
 // (caller falls back to its built-in default).
 file_icon_pack_name :: proc(s: ^Settings) -> string {
     return s.general.file_icon_pack
+}
+
+// Where an opened folder goes. Unset or unrecognized means Ask.
+open_folder_in :: proc(s: ^Settings) -> Open_Folder_In {
+    return parse_open_folder_in(s.general.open_folder_in)
+}
+
+// Maps the open_folder_in setting string onto the enum. Anything else is Ask, so
+// a typo prompts rather than silently picking a window.
+parse_open_folder_in :: proc(value: string) -> Open_Folder_In {
+    switch value {
+    case "same":
+        return .Same
+    case "new":
+        return .New
+    }
+    return .Ask
+}
+
+// The settings.json spelling of a choice, for persisting it back.
+open_folder_in_value :: proc(choice: Open_Folder_In) -> string {
+    switch choice {
+    case .Same:
+        return "same"
+    case .New:
+        return "new"
+    case .Ask:
+        return "ask"
+    }
+    return "ask"
 }
 
 // Rewrites `path` (a settings JSON object) with key set to value, preserving
@@ -514,6 +555,7 @@ load_general :: proc(s: ^Settings, path: string) {
     read_string(root, "font", &s.general.font)
     read_string(root, "icon_pack", &s.general.icon_pack)
     read_string(root, "file_icon_pack", &s.general.file_icon_pack)
+    read_string(root, "open_folder_in", &s.general.open_folder_in)
 }
 
 // Reads a string field into dst, replacing (and freeing) any prior value so an

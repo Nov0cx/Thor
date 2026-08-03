@@ -28,6 +28,18 @@ Inside the editor, `File > Open Folder...` switches the workspace and
 the window does the same. Each folder keeps its own session (open tabs, layout),
 restored when you come back to it.
 
+## Multiple windows
+
+Opening a folder asks whether it goes in this window or a new one; the picker's
+two `Always ...` rows answer for good, and Settings > Windows > Open Folder In
+changes the answer again. `File > Open Folder in New Window...`
+(`ctrl + alt + shift + o`) and `Open in New Window` on a folder in the explorer
+skip the question.
+
+Each window is its own process with its own session, so windows close
+independently. A folder that is already open somewhere is never opened twice —
+asking for it raises the window that has it.
+
 ## Dependencies
 
 Thor depends on:

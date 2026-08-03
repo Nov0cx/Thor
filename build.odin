@@ -130,6 +130,7 @@ run_tests :: proc() -> bool {
         "lang/odin",
         "piecetable",
         "plugin",
+        "setting",
         "syntax",
         "textedit",
         "thor",
