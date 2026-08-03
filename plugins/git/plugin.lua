@@ -4,7 +4,9 @@
 -- Nothing git-specific lives in the editor except the tree's status colouring,
 -- which the host owns.
 
-local STATUS_DOC = "git/status.md"
+-- Written inside the workspace: a plugin path is resolved against the open
+-- folder, and .thor/ is where per-workspace files belong.
+local STATUS_DOC = ".thor/git/status.md"
 
 -- Runs `git <args>` in the workspace and returns its output with trailing
 -- whitespace trimmed.

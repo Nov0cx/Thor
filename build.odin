@@ -124,6 +124,11 @@ run_tests :: proc() -> bool {
     if !mkdir("bin/test") {
         return false
     }
+    // The plugin tests start a Lua state, and Windows looks for lua54.dll beside
+    // the test binary, not the working directory.
+    if !copy_lua_dll("bin/test") {
+        return false
+    }
 
     packages := []string {
         "lang",
@@ -195,11 +200,12 @@ append_codegen_flags :: proc(args: ^[dynamic]string) {
 
 // vendor:lua links against lua54.dll on Windows, and the loader looks for it
 // beside the executable. On Linux that package links Lua statically.
-copy_lua_dll :: proc() -> bool {
+copy_lua_dll :: proc(dir := "") -> bool {
     when ODIN_OS != .Windows {
         return true
     } else {
-        dst := join(out_dir, "lua54.dll")
+        target := dir == "" ? out_dir : dir
+        dst := join(target, "lua54.dll")
         if os.exists(dst) {
             return true
         }

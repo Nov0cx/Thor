@@ -51,8 +51,7 @@ test_register_and_run_lexer :: proc(t: ^testing.T) {
             return { { 0, 3, thor.theme.keywords }, { 4, 7, thor.theme.strings } }
         end,
     }`
-    ok := lua.L_dostring(m.state, strings.clone_to_cstring(script, context.temp_allocator)) == 0
-    testing.expect(t, ok, "plugin script runs")
+    testing.expect(t, manager_load_source(&m, "ini", "plugins/ini", script, {}), "plugin script runs")
     testing.expect(t, supports(&m, ".ini"), "extension registered")
 
     spans := highlight(&m, "", "abc defgh", ".ini", context.allocator)

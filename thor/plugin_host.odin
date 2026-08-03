@@ -64,9 +64,10 @@ thor_plugin_keybind :: proc(host: rawptr, action: string) -> (string, bool) {
 thor_plugin_doc :: proc(host: rawptr, path: string, text: string, focus: bool) {
     thor := cast(^Thor) host
 
-    // write_entire_file does not create parent directories.
+    // write_entire_file does not create parent directories, and a plugin path
+    // like ".thor/git/status.md" nests more than one deep.
     if dir := filepath.dir(path); dir != "" && dir != "." && !os.exists(dir) {
-        os.make_directory(dir)
+        os.make_directory_all(dir)
     }
     if werr := os.write_entire_file(path, transmute([]byte) text); werr != nil {
         return
@@ -145,7 +146,7 @@ thor_plugin_read :: proc(host: rawptr, path: string) -> string {
 // `git commit -F`). Creates the parent directory like thor.doc does.
 thor_plugin_write :: proc(host: rawptr, path: string, text: string) {
     if dir := filepath.dir(path); dir != "" && dir != "." && !os.exists(dir) {
-        os.make_directory(dir)
+        os.make_directory_all(dir)
     }
     _ = os.write_entire_file(path, transmute([]byte) text)
 }

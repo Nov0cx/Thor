@@ -103,6 +103,42 @@ widget_insert_after :: proc(anchor, child: ^Widget) {
     anchor.next_sibling = child
 }
 
+// Unlinks `child` from its parent. The caller owns it after this, and destroys
+// it with widget_destroy_tree. Used where the tree changes at runtime, as when a
+// plugin re-renders a panel.
+widget_remove_child :: proc(child: ^Widget) {
+    parent := child.parent
+    if parent == nil {
+        return
+    }
+
+    if child.prev_sibling != nil {
+        child.prev_sibling.next_sibling = child.next_sibling
+    } else {
+        parent.first_child = child.next_sibling
+    }
+
+    if child.next_sibling != nil {
+        child.next_sibling.prev_sibling = child.prev_sibling
+    } else {
+        parent.last_child = child.prev_sibling
+    }
+
+    child.parent = nil
+    child.prev_sibling = nil
+    child.next_sibling = nil
+}
+
+// True when `widget` is `root` or one of its descendants.
+widget_contains :: proc(root, widget: ^Widget) -> bool {
+    for current := widget; current != nil; current = current.parent {
+        if current == root {
+            return true
+        }
+    }
+    return false
+}
+
 widget_contains_point :: proc(widget: ^Widget, point: rl.Vector2) -> bool {
     bounds := widget.bounds
     if widget.hit_expand != 0 {

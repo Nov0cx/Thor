@@ -46,7 +46,7 @@ highlight :: proc(m: ^Manager, path, source, ext: string, allocator := context.a
         return out[:]
     }
 
-    if lang.lexer_ref != NOREF {
+    if lang.lexer.ref != NOREF {
         return run_lexer(m, lang, source, allocator)
     }
     return nil
@@ -125,11 +125,16 @@ capture_head :: proc(name: string) -> string {
 @(private)
 run_lexer :: proc(m: ^Manager, lang: ^Language, source: string, allocator: runtime.Allocator) -> []Span {
     L := m.state
-    lua.rawgeti(L, lua.REGISTRYINDEX, lua.Integer(lang.lexer_ref))
-    lua.pushstring(L, strings.clone_to_cstring(source, context.temp_allocator))
-    if lua.pcall(L, 1, 1, 0) != 0 {
-        log.warnf("lexer %q failed: %s", lang.name, lua.tostring(L, -1))
+    if lang.lexer.ref == NOREF {
+        return nil
+    }
+    lua.rawgeti(L, lua.REGISTRYINDEX, lua.Integer(lang.lexer.ref))
+    if !lua.isfunction(L, -1) {
         lua.pop(L, 1)
+        return nil
+    }
+    lua.pushstring(L, strings.clone_to_cstring(source, context.temp_allocator))
+    if !call_guarded(m, lang.lexer.owner, 1, 1, "lexer") {
         return nil
     }
     if !lua.istable(L, -1) {

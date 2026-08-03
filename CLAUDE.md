@@ -145,6 +145,21 @@ forward-only cursor).
 Adding a tree-sitter grammar means keeping **three lists in sync**, or the build breaks for everyone:
 the `GRAMMARS` table in `build.odin`, the hard imports + `h.languages[...]` registrations in
 `syntax/syntax.odin`, and the four `.github/workflows/*.yml`. Then add the `plugins/<id>/plugin.lua`.
+Grammars are compiled in; *queries* are data — a plugin's `highlights = "highlights.scm"` (or an
+inline query) replaces the built-in one via `syntax.set_highlights`, and a query that fails to
+compile is reported with its offset instead of silently uncoloring the language.
+
+Each plugin runs sandboxed (`plugin/sandbox.odin`): its own `_ENV`, a trimmed standard library (no
+io/package/debug/`load`), path-confined file access, a two-second wall-clock budget per call, and a
+`thor` table holding only what `plugins/<id>/plugin.json` grants (`exec`/`read`/`write`/`ui`/`keys`).
+A plugin that wants a permission stays unloaded until the user allows it: `thor_load_plugins`
+(`thor/plugin_trust.odin`) scans first, runs the permission-free plugins at once, and holds the rest
+for one batched prompt whose answer lands in `sessions/plugin-grants.json`.
+Two rules keep the layering: a Lua C callback runs under `runtime.default_context()`, so anything
+allocating host-owned data must first set `context.allocator = m.allocator`; and the `plugin` package
+never touches UI — `thor.panel` describes widgets as `View_Node` data (`plugin/view.odin`) that
+`thor/plugin_panel.odin` turns into widgets, and `thor.ts` (`plugin/api_ts.odin`) hands out tree and
+node userdata over the same seam. `plugins/README.md` is the plugin-author-facing reference.
 
 ## Runtime resources and configuration
 
@@ -163,9 +178,14 @@ as working examples.
 Comments are terse Odin-standard-library style: a short `//` line above the declaration stating
 *what* something is, not a paragraph justifying why. Keep it short. Keep genuinely load-bearing gotchas, compressed
 to one line. Field comments stay short (`// owned`, `// NOREF when unset`). Use ASD-STE100 Simplified Technical English (STE).
+Dont do segment comments.
 
 Indentation is four spaces, not tabs — which is why `-strict-style` is deliberately absent from the
 build flags (`-vet` is available via `build.odin -- -vet`).
+
+Handle always errors.
+
+Do if (cheap && expensive) and if (likelytofail && unlikelytofail).
 
 ## Other missing features
 

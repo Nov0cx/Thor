@@ -155,8 +155,10 @@ Manager :: struct {
     commands:     map[string]Callback,
     // Callbacks a rendered panel holds, so a re-render releases the old ones.
     panel_refs:   map[string][dynamic]Callback,
+    // Bounds of the canvas being drawn, so a plugin draws in canvas coordinates.
+    canvas:       Canvas_Rect,
     // Tree-sitter state backing thor.ts (see api_ts.odin).
-    ts_parser:    Ts_Parser_State,
+    ts_state:     Ts_State,
 }
 
 // Wires the host services a plugin can call. Call once after manager_init.
@@ -260,19 +262,49 @@ release :: proc(m: ^Manager, cb: ^Callback) {
     cb.ref = NOREF
 }
 
-// Loads every plugin matching `pattern` (a folder per plugin, each a plugin.lua).
-// Each runs in its own sandbox with the permissions its plugin.json grants.
-manager_load :: proc(m: ^Manager, pattern := "plugins/*/plugin.lua") {
+// A plugin found on disk and not yet run, with what its manifest asks for. The
+// strings use the allocator manager_scan was given.
+Pending_Plugin :: struct {
+    id:    string,
+    dir:   string,
+    perms: Permissions,
+}
+
+// Finds the plugins matching `pattern` (a folder per plugin, each a plugin.lua)
+// without running any of them, so the host can settle their permissions first.
+manager_scan :: proc(m: ^Manager, pattern := "plugins/*/plugin.lua", allocator := context.temp_allocator) -> []Pending_Plugin {
     matches, err := filepath.glob(pattern, context.temp_allocator)
     if err != nil {
-        return
+        return nil
     }
+    out := make([dynamic]Pending_Plugin, 0, len(matches), allocator)
     for path in matches {
-        dir := filepath.dir(path, context.temp_allocator)
-        index := new_plugin(m, filepath.base(dir), dir)
-        if !load_chunk(m, index, path, nil) {
-            continue
-        }
+        dir := filepath.dir(path) // borrowed substring of path
+        append(&out, Pending_Plugin {
+            id    = strings.clone(filepath.base(dir), allocator),
+            dir   = strings.clone(dir, allocator),
+            perms = manifest_permissions(dir),
+        })
+    }
+    return out[:]
+}
+
+// Loads one scanned plugin with exactly the permissions the host granted, which
+// may be fewer than its manifest asked for.
+manager_load_plugin :: proc(m: ^Manager, id, dir: string, perms: Permissions) -> bool {
+    path, jerr := filepath.join({dir, "plugin.lua"}, context.temp_allocator)
+    if jerr != nil {
+        return false
+    }
+    index := new_plugin(m, id, dir, perms)
+    return load_chunk(m, index, path, nil)
+}
+
+// Loads every plugin matching `pattern` with the permissions its plugin.json
+// asks for. For a host that grants without asking, and for tests.
+manager_load :: proc(m: ^Manager, pattern := "plugins/*/plugin.lua") {
+    for p in manager_scan(m, pattern) {
+        manager_load_plugin(m, p.id, p.dir, p.perms)
     }
 }
 
@@ -283,14 +315,10 @@ manager_load_source :: proc(m: ^Manager, id, dir, source: string, perms: Permiss
     return load_chunk(m, index, "", transmute([]byte) source)
 }
 
-// Registers a plugin record and builds its sandbox environment. `perms` defaults
-// to whatever plugin.json in `dir` grants.
+// Registers a plugin record and builds its sandbox environment.
 @(private)
-new_plugin :: proc(m: ^Manager, id, dir: string, perms: Permissions = {}) -> int {
+new_plugin :: proc(m: ^Manager, id, dir: string, perms: Permissions) -> int {
     granted := perms
-    if granted == {} {
-        granted = manifest_permissions(dir)
-    }
 
     abs_dir := dir
     if resolved, err := filepath.abs(dir, context.temp_allocator); err == nil {
@@ -427,16 +455,8 @@ api_permissions :: proc "c" (L: ^lua.State) -> c.int {
         if perm not_in p.perms {
             continue
         }
-        name: cstring
-        switch perm {
-        case .Exec:  name = "exec"
-        case .Read:  name = "read"
-        case .Write: name = "write"
-        case .Ui:    name = "ui"
-        case .Keys:  name = "keys"
-        }
         lua.pushboolean(L, true)
-        lua.setfield(L, -2, name)
+        lua.setfield(L, -2, strings.clone_to_cstring(permission_name(perm), context.temp_allocator))
     }
     return 1
 }
@@ -952,13 +972,13 @@ query_source :: proc(m: ^Manager, index: int, source: string) -> (string, bool) 
     if p == nil {
         return "", false
     }
-    path := filepath.join({p.dir, source}, context.temp_allocator)
+    path, _ := filepath.join({p.dir, source}, context.temp_allocator)
     if !is_within(path, p.dir) {
         log.warnf("plugin %s: query %q is outside the plugin folder", p.id, source)
         return "", false
     }
-    data, ok := os.read_entire_file(path, context.temp_allocator)
-    if !ok {
+    data, read_err := os.read_entire_file(path, context.temp_allocator)
+    if read_err != nil {
         log.warnf("plugin %s: cannot read query %q", p.id, source)
         return "", false
     }

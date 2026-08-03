@@ -1,0 +1,5 @@
+{
+    "name": "Git",
+    "description": "Git commands in a top-bar dropdown, with a status document.",
+    "permissions": ["exec", "write", "ui"]
+}

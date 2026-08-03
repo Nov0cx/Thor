@@ -219,7 +219,7 @@ call_guarded :: proc(m: ^Manager, owner: int, nargs, nres: c.int, what: string) 
     lua.sethook(m.state, budget_hook, lua.MASKCOUNT, HOOK_STEP)
     status := lua.pcall(m.state, nargs, nres, 0)
     lua.sethook(m.state, nil, lua.HookMask {}, 0)
-    if status != .OK {
+    if status != 0 {
         log.warnf("plugin %s: %s failed: %s", plugin_id(m, owner), what, lua.tostring(m.state, -1))
         lua.pop(m.state, 1)
         return false
@@ -292,7 +292,7 @@ api_require :: proc "c" (L: ^lua.State) -> c.int {
     }
     lua.pop(L, 1)
 
-    path := filepath.join({p.dir, strings.concatenate({name, ".lua"}, context.temp_allocator)}, context.temp_allocator)
+    path, _ := filepath.join({p.dir, strings.concatenate({name, ".lua"}, context.temp_allocator)}, context.temp_allocator)
     if lua.L_loadfile(L, strings.clone_to_cstring(path, context.temp_allocator)) != .OK {
         lua.L_error(L, "require: %s", lua.tostring(L, -1))
         return 0
@@ -331,13 +331,56 @@ is_module_name :: proc(name: string) -> bool {
     return true
 }
 
+// The name a permission goes by in plugin.json and in the console.
+permission_name :: proc(perm: Permission) -> string {
+    switch perm {
+    case .Exec:  return "exec"
+    case .Read:  return "read"
+    case .Write: return "write"
+    case .Ui:    return "ui"
+    case .Keys:  return "keys"
+    }
+    return ""
+}
+
+// The permission a manifest name asks for.
+permission_from_name :: proc(name: string) -> (Permission, bool) {
+    for perm in Permission {
+        if permission_name(perm) == name {
+            return perm, true
+        }
+    }
+    return .Exec, false
+}
+
+// The names of every permission in `perms`, in declaration order.
+permission_names :: proc(perms: Permissions, allocator := context.allocator) -> []string {
+    out := make([dynamic]string, 0, len(Permission), allocator)
+    for perm in Permission {
+        if perm in perms {
+            append(&out, permission_name(perm))
+        }
+    }
+    return out[:]
+}
+
+// The permissions named by `names`; unknown names are skipped.
+permissions_from_names :: proc(names: []string) -> Permissions {
+    perms: Permissions
+    for name in names {
+        if perm, ok := permission_from_name(name); ok {
+            perms += {perm}
+        }
+    }
+    return perms
+}
+
 // Reads plugin.json beside plugin.lua. A missing or malformed file grants
 // nothing, which is all a syntax-only plugin needs.
-@(private)
 manifest_permissions :: proc(dir: string) -> Permissions {
-    path := filepath.join({dir, "plugin.json"}, context.temp_allocator)
-    data, ok := os.read_entire_file(path, context.temp_allocator)
-    if !ok {
+    path, _ := filepath.join({dir, "plugin.json"}, context.temp_allocator)
+    data, read_err := os.read_entire_file(path, context.temp_allocator)
+    if read_err != nil {
         return {}
     }
     parsed, err := json.parse(data, allocator = context.temp_allocator)
@@ -360,13 +403,9 @@ manifest_permissions :: proc(dir: string) -> Permissions {
         if !is_string {
             continue
         }
-        switch name {
-        case "exec":  perms += {.Exec}
-        case "read":  perms += {.Read}
-        case "write": perms += {.Write}
-        case "ui":    perms += {.Ui}
-        case "keys":  perms += {.Keys}
-        case:
+        if perm, known := permission_from_name(name); known {
+            perms += {perm}
+        } else {
             log.warnf("plugin %q: unknown permission %q", dir, name)
         }
     }
@@ -390,11 +429,11 @@ resolve_path :: proc(m: ^Manager, index: int, path: string) -> (resolved: string
         if root == "" {
             return "", false
         }
-        full = filepath.join({root, path}, context.temp_allocator)
+        full, _ = filepath.join({root, path}, context.temp_allocator)
     }
-    clean, cerr := filepath.abs(full, context.temp_allocator)
-    if cerr != nil {
-        clean = filepath.clean(full, context.temp_allocator)
+    clean, aerr := filepath.abs(full, context.temp_allocator)
+    if aerr != nil {
+        clean, _ = filepath.clean(full, context.temp_allocator)
     }
 
     if m.workspace_proc != nil {
@@ -416,9 +455,10 @@ resolve_path :: proc(m: ^Manager, index: int, path: string) -> (resolved: string
 is_within :: proc(path, root: string) -> bool {
     base, err := filepath.abs(root, context.temp_allocator)
     if err != nil {
-        base = filepath.clean(root, context.temp_allocator)
+        base, _ = filepath.clean(root, context.temp_allocator)
     }
-    lhs := strings.to_lower(filepath.clean(path, context.temp_allocator), context.temp_allocator)
+    cleaned, _ := filepath.clean(path, context.temp_allocator)
+    lhs := strings.to_lower(cleaned, context.temp_allocator)
     rhs := strings.to_lower(base, context.temp_allocator)
     lhs, _ = strings.replace_all(lhs, "\\", "/", context.temp_allocator)
     rhs, _ = strings.replace_all(rhs, "\\", "/", context.temp_allocator)

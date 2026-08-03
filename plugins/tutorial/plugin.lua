@@ -1,6 +1,7 @@
 -- Interactive, gamified tutorial rendered into an editor tab.
 
-local DOC_PATH = "tutorial/tutorial.md"
+-- Relative to the open folder, so the tutorial lands in the workspace's .thor/.
+local DOC_PATH = ".thor/tutorial/tutorial.md"
 
 -- The full action catalogue, grouped like settings/keybinds.json. `action` is
 -- looked up live so the shown chord matches whatever you have bound; `fallback`

@@ -39,6 +39,20 @@ context_destroy :: proc(ctx: ^Context) {
     event_queue_destroy(&ctx.events)
 }
 
+// Drops every reference into `subtree`. Call before destroying it, or the hot,
+// active and focused pointers outlive the widgets they name.
+context_forget :: proc(ctx: ^Context, subtree: ^Widget) {
+    if widget_contains(subtree, ctx.hot) {
+        ctx.hot = nil
+    }
+    if widget_contains(subtree, ctx.active) {
+        ctx.active = nil
+    }
+    if widget_contains(subtree, ctx.focused) {
+        ctx.focused = nil
+    }
+}
+
 context_set_root :: proc(ctx: ^Context, root: ^Widget) {
     ctx.root = root
 }

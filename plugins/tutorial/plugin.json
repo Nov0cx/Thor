@@ -1,0 +1,5 @@
+{
+    "name": "Tutorial",
+    "description": "Interactive tutorial rendered into an editor tab.",
+    "permissions": ["write", "ui", "keys"]
+}

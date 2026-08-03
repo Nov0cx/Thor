@@ -454,6 +454,13 @@ emit_span :: proc(spans: ^[dynamic]Span, start, end: int, capture: string) {
     append(spans, Span{start, end, capture})
 }
 
+// Evaluates a match's predicates, for a caller running its own query (see
+// plugin's thor.ts). Same rule as highlighting: a predicate we can't evaluate
+// fails.
+predicates_ok :: proc(query: ts.Query, match: ts.Query_Match, source: string) -> bool {
+    return predicates_satisfied(query, match, source)
+}
+
 // Evaluates a pattern's predicates. Handles the common filtering predicates
 // (#eq?/#any-of? and negations); #set! and other directives pass through. Any
 // predicate we can't evaluate fails conservatively so it can't mis-highlight.

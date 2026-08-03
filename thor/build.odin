@@ -84,6 +84,26 @@ thor_build_ui :: proc(thor: ^Thor) {
     widgets.stack_set_padding(thor.console_stub_stack, ui.padding_xy(10, 6))
     widgets.stack_set_background(thor.console_stub_stack, thor.theme.buttons)
 
+    // Docks for plugin panels: one column right of the editor, one row under it.
+    // Both stay hidden until a plugin shows a panel in them.
+    thor.plugin_dock_right = widgets.panel_create("plugin-dock-right", thor.theme.second_background)
+    thor.plugin_dock_right.min_size = rl.Vector2 {260, 0}
+    thor.plugin_dock_right.visible = false
+    thor.plugin_dock_right_stack = widgets.stack_create("plugin-dock-right-stack", .Vertical)
+    widgets.stack_set_gap(thor.plugin_dock_right_stack, 1)
+    widgets.stack_set_padding(thor.plugin_dock_right_stack, ui.padding(0))
+    widgets.stack_set_background(thor.plugin_dock_right_stack, thor.theme.border)
+    ui.widget_set_grow(&thor.plugin_dock_right_stack.widget, 1)
+
+    thor.plugin_dock_bottom = widgets.panel_create("plugin-dock-bottom", thor.theme.second_background)
+    thor.plugin_dock_bottom.min_size = rl.Vector2 {0, 180}
+    thor.plugin_dock_bottom.visible = false
+    thor.plugin_dock_bottom_stack = widgets.stack_create("plugin-dock-bottom-stack", .Horizontal)
+    widgets.stack_set_gap(thor.plugin_dock_bottom_stack, 1)
+    widgets.stack_set_padding(thor.plugin_dock_bottom_stack, ui.padding(0))
+    widgets.stack_set_background(thor.plugin_dock_bottom_stack, thor.theme.border)
+    ui.widget_set_grow(&thor.plugin_dock_bottom_stack.widget, 1)
+
     thor.dialog = widgets.dialog_create("floating-dialog", "Floating Dialog", rl.Vector2 {810, 120}, rl.Vector2 {320, 220})
     widgets.dialog_set_colors(thor.dialog, thor.theme.white_black_color, thor.theme.highlight, thor.theme.notifications, thor.theme.border)
     thor.dialog.visible = false
@@ -450,6 +470,8 @@ thor_connect_tree :: proc(thor: ^Thor) {
     widgets.append_child(&thor.workspace_row.widget, &thor.explorer_panel.widget)
     widgets.append_child(&thor.workspace_row.widget, &thor.explorer_splitter.widget)
     widgets.append_child(&thor.workspace_row.widget, &thor.editor_column.widget)
+    widgets.append_child(&thor.workspace_row.widget, &thor.plugin_dock_right.widget)
+    widgets.append_child(&thor.plugin_dock_right.widget, &thor.plugin_dock_right_stack.widget)
 
     widgets.append_child(&thor.explorer_stub_panel.widget, &thor.explorer_stub_stack.widget)
     widgets.append_child(&thor.explorer_panel.widget, &thor.explorer_stack.widget)
@@ -459,6 +481,8 @@ thor_connect_tree :: proc(thor: ^Thor) {
     widgets.append_child(&thor.editor_column.widget, &thor.console_splitter.widget)
     widgets.append_child(&thor.editor_column.widget, &thor.console_panel.widget)
     widgets.append_child(&thor.editor_column.widget, &thor.console_stub_panel.widget)
+    widgets.append_child(&thor.editor_column.widget, &thor.plugin_dock_bottom.widget)
+    widgets.append_child(&thor.plugin_dock_bottom.widget, &thor.plugin_dock_bottom_stack.widget)
 
     widgets.append_child(&thor.console_panel.widget, &thor.console_stack.widget)
     widgets.append_child(&thor.console_stub_panel.widget, &thor.console_stub_stack.widget)
