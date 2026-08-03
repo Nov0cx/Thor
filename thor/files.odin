@@ -634,7 +634,6 @@ thor_highlight_pane_file :: proc(thor: ^Thor, pane: int) {
 thor_process_io :: proc(thor: ^Thor) {
     loads := make([dynamic]^Load_Job, context.temp_allocator)
     saves := make([dynamic]^Save_Job, context.temp_allocator)
-    console := make([dynamic]^Console_Job, context.temp_allocator)
     git := make([dynamic]^Git_Status_Job, context.temp_allocator)
 
     sync.lock(&thor.io_mutex)
@@ -644,17 +643,15 @@ thor_process_io :: proc(thor: ^Thor) {
     for job in thor.finished_saves {
         append(&saves, job)
     }
-    for job in thor.finished_console {
-        append(&console, job)
-    }
     for job in thor.finished_git {
         append(&git, job)
     }
     clear(&thor.finished_loads)
     clear(&thor.finished_saves)
-    clear(&thor.finished_console)
     clear(&thor.finished_git)
     sync.unlock(&thor.io_mutex)
+
+    thor_process_terminals(thor)
 
     for job in loads {
         thread.join(job.worker)
@@ -726,26 +723,13 @@ thor_process_io :: proc(thor: ^Thor) {
         thor_reap_file(thor, file)
     }
 
-    for job in console {
-        thread.join(job.worker)
-        thread.destroy(job.worker)
-
-        widgets.console_append(thor.console, job.output)
-        widgets.console_command_finished(thor.console)
-
-        delete(job.output)
-        delete(job.command)
-        free(job)
-        thor.inflight_jobs -= 1
-    }
-
     for job in git {
         thor_apply_git_status(thor, job)
     }
 
-    // A save or a console command may have changed the working tree; refresh
-    // the status so the explorer highlighting stays current.
-    if len(saves) > 0 || len(console) > 0 {
+    // A save may have changed the working tree; refresh the status so the
+    // explorer highlighting stays current.
+    if len(saves) > 0 {
         thor_refresh_git_status(thor)
     }
 }

@@ -75,7 +75,7 @@ thor_build_ui :: proc(thor: ^Thor) {
     widgets.stack_set_gap(thor.console_header, 8)
     widgets.stack_set_padding(thor.console_header, ui.padding_xy(10, 8))
     widgets.stack_set_background(thor.console_header, thor.theme.highlight)
-    thor.console_header.min_size = rl.Vector2 {0, 40}
+    thor.console_header.min_size = rl.Vector2 {0, 42}
 
     thor.console_stub_panel = widgets.panel_create("console-stub-panel", thor.theme.buttons)
     thor.console_stub_panel.min_size = rl.Vector2 {0, 38}
@@ -197,6 +197,7 @@ thor_build_controls :: proc(thor: ^Thor) {
     thor.menu_help_button = thor_create_menu_button(thor, "menu-help", "Help")
     thor.explorer_toggle_button = thor_create_icon_button(thor, "explorer-toggle", "layout-sidebar-left-collapse", thor_toggle_explorer, thor.theme.highlight)
     thor.explorer_restore_button = thor_create_icon_button(thor, "explorer-restore", "layout-sidebar-left-expand", thor_toggle_explorer, thor.theme.buttons)
+    thor.terminal_add_button = thor_create_icon_button(thor, "terminal-add", "plus", thor_open_shell_menu, thor.theme.highlight)
     thor.console_toggle_button = thor_create_icon_button(thor, "console-toggle", "layout-bottombar-collapse", thor_toggle_console, thor.theme.highlight)
     thor.console_restore_button = thor_create_icon_button(thor, "console-restore", "layout-bottombar-expand", thor_toggle_console, thor.theme.buttons)
     thor.tasks_add_button = thor_create_window_button(thor, "tasks-add", "plus", thor_click_add_task, thor.theme.highlight)
@@ -363,24 +364,27 @@ thor_build_content :: proc(thor: ^Thor) {
     widgets.markdown_view_set_colors(thor.markdown_view2, thor.theme)
     thor.markdown_view2.visible = false
 
-    console_title := widgets.label_create("console-title", "Console")
+    console_title := widgets.label_create("console-title", "Terminal")
     widgets.label_set_text_color(console_title, thor.theme.white_black_color)
-    ui.widget_set_grow(&console_title.widget, 1)
-    console_title.min_size = rl.Vector2 {0, 24}
+    console_title.min_size = rl.Vector2 {90, 24}
     thor.console_title_label = console_title
 
-    thor.console = widgets.console_create("console")
-    widgets.console_set_colors(
-        thor.console,
-        thor.theme.foreground,
-        thor.theme.accent_color,
-        thor.theme.second_background,
-        thor.theme.accent_color,
+    // One tab per terminal; each terminal adds its own console widget to the
+    // console stack when it opens.
+    thor.terminal_tabs = widgets.tabbar_create("terminal-tabs")
+    widgets.tabbar_set_callbacks(
+        thor.terminal_tabs,
+        thor_terminal_tab_count,
+        thor_terminal_tab_info,
+        thor_terminal_tab_active,
+        thor_terminal_tab_select,
+        thor_terminal_tab_close,
+        thor,
     )
-    widgets.console_set_link_color(thor.console, thor.theme.blue_color)
-    widgets.console_set_on_link(thor.console, thor_console_link, thor_console_activate, thor)
-    ui.widget_set_grow(&thor.console.widget, 1)
-    thor.console.min_size = rl.Vector2 {0, 110}
+    thor_theme_terminal_tabs(thor)
+    thor.terminal_tabs.font_size = 15
+    thor.terminal_tabs.min_size = rl.Vector2 {0, 26}
+    ui.widget_set_grow(&thor.terminal_tabs.widget, 1)
 
     thor.statusbar = widgets.statusbar_create("statusbar")
     widgets.statusbar_set_colors(
@@ -439,8 +443,9 @@ thor_build_content :: proc(thor: ^Thor) {
     widgets.append_child(&thor.editor_panel.widget, &thor.model_view.widget)
 
     widgets.append_child(&thor.console_stack.widget, &thor.console_header.widget)
-    widgets.append_child(&thor.console_stack.widget, &thor.console.widget)
     widgets.append_child(&thor.console_header.widget, &console_title.widget)
+    widgets.append_child(&thor.console_header.widget, &thor.terminal_tabs.widget)
+    widgets.append_child(&thor.console_header.widget, &thor.terminal_add_button.widget)
     widgets.append_child(&thor.console_header.widget, &thor.console_toggle_button.widget)
 
     widgets.append_child(&thor.explorer_stub_stack.widget, &thor.explorer_restore_button.widget)

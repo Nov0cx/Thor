@@ -164,6 +164,10 @@ thor_run_task :: proc(thor: ^Thor, task: ^Task) {
         ui.signal_set(&thor.console_visible, true)
         thor_apply_layout_state(thor)
     }
+    if thor.console == nil {
+        thor_flash_status(thor, "No terminal is open", true)
+        return
+    }
     if !widgets.console_run_command(thor.console, task.command) {
         thor_flash_status(thor, "A command is already running", true)
     }

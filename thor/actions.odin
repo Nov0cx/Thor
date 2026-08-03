@@ -265,7 +265,9 @@ thor_focus_terminal :: proc(thor: ^Thor) {
         ui.signal_set(&thor.console_visible, true)
         thor_apply_layout_state(thor)
     }
-    thor.ui_context.focused = &thor.console.widget
+    if thor.console != nil {
+        thor.ui_context.focused = &thor.console.widget
+    }
 }
 
 thor_toggle_explorer :: proc(data: rawptr, _: ^ui.Context, _: ^ui.Widget) {

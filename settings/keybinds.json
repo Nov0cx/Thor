@@ -94,6 +94,13 @@
         "open_keybinds": "",
         "reload_settings": ""
     },
+    "terminal": {
+        "new_terminal": "",
+        "close_terminal": "",
+        "next_terminal": "",
+        "restart_shell": "",
+        "select_shell": ""
+    },
     "tasks": {
         "run_selected_task": "f9",
         "run_task": "",

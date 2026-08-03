@@ -19,6 +19,9 @@ Console_Link_Proc :: #type proc(data: rawptr, line: string) -> (start: int, end:
 // Opens the source location named by a clicked scrollback line.
 Console_Activate_Proc :: #type proc(data: rawptr, line: string)
 
+// Called on Ctrl+C while a command runs, to stop it.
+Console_Interrupt_Proc :: #type proc(data: rawptr)
+
 // Scrollback pane plus a prompt line. Echoes input to on_run and displays
 // whatever text is fed back through console_append; it runs nothing itself.
 Console :: struct {
@@ -28,12 +31,21 @@ Console :: struct {
     scroll_y:         f32,
     // Sticks the view to the bottom until the user scrolls up.
     autoscroll:       bool,
-    // A command is running; the prompt shows a busy hint and input is ignored.
+    // A command is running. Typing stays open, since a running command may read
+    // its own stdin; only the prompt is dimmed.
     running:          bool,
+    // A CR ended the last chunk; its newline may still be coming.
+    pending_cr:       bool,
+    // Submitted commands, oldest first, walked with the arrow keys. owned
+    history:          [dynamic]string,
+    // Position in history while walking; len(history) is the live input line.
+    history_index:    int,
     font_size:        i32,
     prompt:           string,
     on_run:           Console_Run_Proc,
     run_data:         rawptr,
+    on_interrupt:     Console_Interrupt_Proc,
+    interrupt_data:   rawptr,
     text_color:       rl.Color,
     prompt_color:     rl.Color,
     background_color: rl.Color,
@@ -55,6 +67,11 @@ console_set_on_link :: proc(console: ^Console, on_link: Console_Link_Proc, on_ac
     console.link_data = data
 }
 
+console_set_on_interrupt :: proc(console: ^Console, on_interrupt: Console_Interrupt_Proc, data: rawptr) {
+    console.on_interrupt = on_interrupt
+    console.interrupt_data = data
+}
+
 console_set_on_context_menu :: proc(console: ^Console, on_context_menu: Context_Menu_Proc, data: rawptr) {
     console.on_context_menu = on_context_menu
     console.context_menu_data = data
@@ -73,11 +90,8 @@ console_text :: proc(console: ^Console) -> string {
 }
 
 // Appends UTF-8 text to the input line (used by the paste action). Newlines
-// are dropped since the prompt is single-line; ignored while a command runs.
+// are dropped since the prompt is single-line.
 console_input_append :: proc(console: ^Console, text: string) {
-    if console.running {
-        return
-    }
     for b in transmute([]u8) text {
         if b == '\n' || b == '\r' {
             continue
@@ -98,6 +112,7 @@ console_create :: proc(id: string) -> ^Console {
     ui.widget_init(&console.widget, id, console_vtable)
     console.output = strings.builder_make()
     console.input = make([dynamic]u8)
+    console.history = make([dynamic]string)
     console.autoscroll = true
     console.font_size = 15
     console.prompt = "> "
@@ -181,27 +196,107 @@ console_try_activate :: proc(console: ^Console, pos: rl.Vector2) -> bool {
     return false
 }
 
-// Appends text to the scrollback and re-pins the view to the bottom.
+// Appends text to the scrollback and re-pins the view to the bottom. Control
+// bytes are resolved here, since output that comes straight off a shell carries
+// them: a CR before a newline is dropped, a bare CR rewinds to the start of the
+// line the way a progress bar expects, and an escape sequence is removed because
+// the console draws plain text.
 console_append :: proc(console: ^Console, text: string) {
-    strings.write_string(&console.output, text)
+    data := transmute([]u8) text
+    // A CRLF split across two chunks: the CR was held back last time.
+    if console.pending_cr && len(data) > 0 {
+        console.pending_cr = false
+        if data[0] == '\n' {
+            strings.write_byte(&console.output, '\n')
+            data = data[1:]
+        } else {
+            console_rewind_line(console)
+        }
+    }
+
+    for i := 0; i < len(data); {
+        b := data[i]
+        switch {
+        case b == '\r':
+            if i + 1 >= len(data) {
+                console.pending_cr = true
+            } else if data[i + 1] == '\n' {
+                strings.write_byte(&console.output, '\n')
+                i += 1
+            } else {
+                console_rewind_line(console)
+            }
+            i += 1
+        case b == 0x1b:
+            i += console_escape_length(data[i:])
+        case b < 32 && b != '\n' && b != '\t':
+            i += 1
+        case:
+            strings.write_byte(&console.output, b)
+            i += 1
+        }
+    }
     console.autoscroll = true
 }
 
-// Echoes `command` on a prompt line and hands it to the owner's runner.
+// Drops the last line back to its start, for a carriage return that rewrites it.
+@(private = "file")
+console_rewind_line :: proc(console: ^Console) {
+    buf := &console.output.buf
+    n := len(buf)
+    for n > 0 && buf[n - 1] != '\n' {
+        n -= 1
+    }
+    resize(buf, n)
+}
+
+// Length of the escape sequence at the front of `data`. A sequence cut off by
+// the end of the chunk takes the rest of it.
+@(private = "file")
+console_escape_length :: proc(data: []u8) -> int {
+    if len(data) < 2 {
+        return len(data)
+    }
+    switch data[1] {
+    case '[': // CSI: parameters, then a final byte in 0x40..0x7E
+        for i := 2; i < len(data); i += 1 {
+            if data[i] >= 0x40 && data[i] <= 0x7e {
+                return i + 1
+            }
+        }
+        return len(data)
+    case ']': // OSC: a string ended by BEL or ESC backslash
+        for i := 2; i < len(data); i += 1 {
+            if data[i] == 0x07 {
+                return i + 1
+            }
+            if data[i] == 0x1b && i + 1 < len(data) && data[i + 1] == '\\' {
+                return i + 2
+            }
+        }
+        return len(data)
+    }
+    return 2
+}
+
+// Echoes `command` on a prompt line and hands it to the owner's runner. An empty
+// line is echoed too: a running command may be waiting on one.
 @(private = "file")
 console_submit :: proc(console: ^Console, command: string) {
     strings.write_string(&console.output, console.prompt)
     strings.write_string(&console.output, command)
     strings.write_byte(&console.output, '\n')
     console.autoscroll = true
-    if command != "" && console.on_run != nil {
+    console_history_add(console, command)
+    if console.on_run != nil {
         console.running = true
         console.on_run(console.run_data, command)
     }
 }
 
 // Runs `command` as if it had been typed at the prompt. False when a command is
-// already running or `command` is empty; the console runs one at a time.
+// already running or `command` is empty, so a task cannot land in the middle of
+// another one's output.
 console_run_command :: proc(console: ^Console, command: string) -> bool {
     if console.running || command == "" {
         return false
@@ -214,6 +309,25 @@ console_run_command :: proc(console: ^Console, command: string) -> bool {
 console_command_finished :: proc(console: ^Console) {
     console.running = false
     console.autoscroll = true
+}
+
+// Records a command for the arrow keys, dropping an empty line and a repeat of
+// the newest entry.
+console_history_add :: proc(console: ^Console, command: string) {
+    if command != "" && (len(console.history) == 0 || console.history[len(console.history) - 1] != command) {
+        append(&console.history, strings.clone(command))
+    }
+    console.history_index = len(console.history)
+}
+
+// Replaces the input line with the history entry at `index`, where len(history)
+// means the empty live line.
+console_history_show :: proc(console: ^Console, index: int) {
+    console.history_index = clamp(index, 0, len(console.history))
+    clear(&console.input)
+    if console.history_index < len(console.history) {
+        append(&console.input, ..transmute([]u8) console.history[console.history_index])
+    }
 }
 
 @(private = "file")
@@ -246,7 +360,7 @@ console_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Even
         }
         return true
     case .Text_Input:
-        if console.running || (event.ctrl && !event.alt) {
+        if event.ctrl && !event.alt {
             return true
         }
         if event.codepoint >= 32 && event.codepoint != 127 {
@@ -255,16 +369,27 @@ console_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Even
         }
         return true
     case .Key_Press:
-        #partial switch event.key {
-        case .ENTER, .KP_ENTER:
-            if console.running {
+        // Ctrl+C stops the command instead of copying, the way a terminal does.
+        if event.ctrl && event.key == .C {
+            if console.running && console.on_interrupt != nil {
+                console.on_interrupt(console.interrupt_data)
                 return true
             }
+            return false
+        }
+        #partial switch event.key {
+        case .ENTER, .KP_ENTER:
             console_submit(console, string(console.input[:]))
             clear(&console.input)
             return true
         case .BACKSPACE:
             console_pop_rune(console)
+            return true
+        case .UP:
+            console_history_show(console, console.history_index - 1)
+            return true
+        case .DOWN:
+            console_history_show(console, console.history_index + 1)
             return true
         }
     }
@@ -334,21 +459,19 @@ console_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
     }
     ui.end_clip()
 
-    // Prompt line pinned to the bottom.
+    // Prompt line pinned to the bottom. It stays editable while a command runs,
+    // dimmed, since the command may be reading stdin.
     input_y := console.bounds.y + console.bounds.height - input_height + 4
-    prompt := console.running ? "... running" : console.prompt
     prompt_color := console.running ? console.text_color : console.prompt_color
-    ui.draw_text(prompt, cast(i32) (console.bounds.x + pad), cast(i32) input_y, console.font_size, prompt_color)
+    ui.draw_text(console.prompt, cast(i32) (console.bounds.x + pad), cast(i32) input_y, console.font_size, prompt_color)
 
-    if !console.running {
-        prompt_width := ui.measure_text(console.prompt, console.font_size)
-        input_x := cast(i32) (console.bounds.x + pad) + prompt_width
-        input := string(console.input[:])
-        ui.draw_text(input, input_x, cast(i32) input_y, console.font_size, console.text_color)
-        caret_x := input_x + ui.measure_text(input, console.font_size) + 1
-        if ctx.focused == widget {
-            rl.DrawRectangle(caret_x, cast(i32) input_y, 2, console.font_size, console.caret_color)
-        }
+    prompt_width := ui.measure_text(console.prompt, console.font_size)
+    input_x := cast(i32) (console.bounds.x + pad) + prompt_width
+    input := string(console.input[:])
+    ui.draw_text(input, input_x, cast(i32) input_y, console.font_size, console.text_color)
+    caret_x := input_x + ui.measure_text(input, console.font_size) + 1
+    if ctx.focused == widget {
+        rl.DrawRectangle(caret_x, cast(i32) input_y, 2, console.font_size, console.caret_color)
     }
 }
 
@@ -356,5 +479,9 @@ console_destroy :: proc(widget: ^ui.Widget) {
     console := cast(^Console) widget
     strings.builder_destroy(&console.output)
     delete(console.input)
+    for command in console.history {
+        delete(command)
+    }
+    delete(console.history)
     free(console)
 }

@@ -137,12 +137,14 @@ run_tests :: proc() -> bool {
         "piecetable",
         "plugin",
         "setting",
+        "shell",
         "syntax",
         "textedit",
         "thor",
         "treecache",
         "ui",
         "watch",
+        "widgets",
     }
     for pkg in packages {
         args := make([dynamic]string, context.temp_allocator)

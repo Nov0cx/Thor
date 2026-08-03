@@ -14,7 +14,6 @@ import "../widgets"
 thor_wire_menus :: proc(thor: ^Thor) {
     widgets.editor_set_on_context_menu(thor.editor, thor_editor_context_menu, thor)
     widgets.editor_set_on_context_menu(thor.editor2, thor_editor_context_menu, thor)
-    widgets.console_set_on_context_menu(thor.console, thor_console_context_menu, thor)
     widgets.tree_set_on_context_menu(thor.tree, thor_explorer_context_menu, thor)
     widgets.tree_set_on_delete(thor.tree, thor_tree_delete, thor)
     widgets.tree_set_on_move(thor.tree, thor_tree_move, thor)
@@ -52,12 +51,23 @@ thor_editor_context_menu :: proc(data: rawptr, position: rl.Vector2) {
 
 thor_console_context_menu :: proc(data: rawptr, position: rl.Vector2) {
     thor := cast(^Thor) data
+    term := thor_active_terminal(thor)
     widgets.menu_clear(thor.menu)
     widgets.menu_add(thor.menu, "Copy All", thor_menu_console_copy, thor)
     widgets.menu_add(thor.menu, "Paste", thor_menu_console_paste, thor)
     widgets.menu_add_separator(thor.menu)
     widgets.menu_add(thor.menu, "Clear", thor_menu_console_clear, thor)
+    widgets.menu_add(thor.menu, "Restart Shell", thor_menu_terminal_restart, thor, term != nil)
+    widgets.menu_add(thor.menu, "New Terminal", thor_cmd_new_terminal, thor)
+    widgets.menu_add(thor.menu, "Close Terminal", thor_cmd_close_terminal, thor, term != nil)
     widgets.menu_open(thor.menu, &thor.ui_context, position)
+}
+
+@(private = "file")
+thor_menu_terminal_restart :: proc(data: rawptr) {
+    if term := thor_active_terminal(cast(^Thor) data); term != nil {
+        thor_terminal_restart(term)
+    }
 }
 
 thor_explorer_context_menu :: proc(data: rawptr, position: rl.Vector2) {
@@ -110,10 +120,18 @@ thor_menu_paste :: proc(data: rawptr) {widgets.editor_paste((cast(^Thor) data).e
 // Console menu actions
 // ---------------------------------------------------------------------------
 
-thor_menu_console_clear :: proc(data: rawptr) {widgets.console_clear((cast(^Thor) data).console)}
+thor_menu_console_clear :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    if thor.console != nil {
+        widgets.console_clear(thor.console)
+    }
+}
 
 thor_menu_console_copy :: proc(data: rawptr) {
     thor := cast(^Thor) data
+    if thor.console == nil {
+        return
+    }
     text := widgets.console_text(thor.console)
     if text != "" {
         rl.SetClipboardText(strings.clone_to_cstring(text, context.temp_allocator))
@@ -122,6 +140,9 @@ thor_menu_console_copy :: proc(data: rawptr) {
 
 thor_menu_console_paste :: proc(data: rawptr) {
     thor := cast(^Thor) data
+    if thor.console == nil {
+        return
+    }
     if clip := rl.GetClipboardText(); clip != nil {
         widgets.console_input_append(thor.console, string(clip))
     }

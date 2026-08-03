@@ -1,54 +1,9 @@
 package thor
 
-import "base:runtime"
-import "core:fmt"
 import "core:os"
 import "core:path/filepath"
 import "core:strconv"
 import "core:strings"
-import "core:sync"
-import "core:thread"
-
-import "../shell"
-import "../widgets"
-
-// A shell command run on a worker thread; output is appended to the console on
-// the main thread. The output buffer uses the owner's (mutex-guarded) allocator
-// so the main thread can free it.
-Console_Job :: struct {
-    owner:     ^Thor,
-    command:   string, // owned
-    allocator: runtime.Allocator,
-    worker:    ^thread.Thread,
-    output:    string, // owned, freed on the main thread
-}
-
-// Console_Run_Proc: launches `command` under cmd.exe in the workspace directory.
-thor_console_run :: proc(data: rawptr, command: string) {
-    thor := cast(^Thor) data
-
-    job := new(Console_Job)
-    job.owner = thor
-    job.command = strings.clone(command)
-    job.allocator = context.allocator
-
-    thor.inflight_jobs += 1
-    job.worker = thread.create_and_start_with_poly_data(job, console_worker)
-}
-
-@(private = "file")
-console_worker :: proc(job: ^Console_Job) {
-    // Output uses the owner's allocator (freed on the main thread); scratch
-    // stays on the worker's temp.
-    context.allocator = job.allocator
-    defer free_all(context.temp_allocator)
-
-    job.output = shell.run(job.command, job.owner.workspace_dir)
-
-    sync.lock(&job.owner.io_mutex)
-    append(&job.owner.finished_console, job)
-    sync.unlock(&job.owner.io_mutex)
-}
 
 // A source location parsed from a console line: the path slice plus 1-based
 // line/col and the byte span of the clickable text within the line.

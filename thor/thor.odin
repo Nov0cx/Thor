@@ -12,6 +12,7 @@ import "../lang"
 import "../lang/odin"
 import "../plugin"
 import "../setting"
+import "../shell"
 import "../ui"
 import "../watch"
 import "../widgets"
@@ -59,7 +60,10 @@ Thor :: struct {
     markdown_preview:         bool,
     editor_split_row:         ^widgets.Stack,
     editor_split_splitter:    ^widgets.Splitter,
+    // The active terminal's console; nil when the last terminal is closed.
     console:                  ^widgets.Console,
+    terminal_tabs:            ^widgets.Tabbar,
+    terminal_add_button:      ^widgets.Button,
     dialog:                   ^widgets.Dialog,
     dialog_stack:             ^widgets.Stack,
     command_palette:          ^widgets.Command_Palette,
@@ -192,9 +196,14 @@ Thor :: struct {
     io_mutex:                 sync.Mutex,
     finished_loads:           [dynamic]^Load_Job,
     finished_saves:           [dynamic]^Save_Job,
-    finished_console:         [dynamic]^Console_Job,
     finished_git:             [dynamic]^Git_Status_Job,
     inflight_jobs:            int,
+    // One terminal per console tab, each on its own shell. owned
+    terminals:                [dynamic]^Terminal,
+    active_terminal:          int,
+    // The shells installed on this machine, best first. owned
+    shell_profiles:           []shell.Profile,
+    shell_choices:            []Shell_Choice, // owned, one per profile
     // Working-tree status keyed by absolute path (matches tree node paths),
     // recomputed off-thread; git_status_inflight guards against overlapping runs.
     git_status:               map[string]widgets.Git_Status,
@@ -394,7 +403,6 @@ init :: proc() -> ^Thor {
     thor.zombie_files = make([dynamic]^Open_File)
     thor.finished_loads = make([dynamic]^Load_Job)
     thor.finished_saves = make([dynamic]^Save_Job)
-    thor.finished_console = make([dynamic]^Console_Job)
     thor.finished_git = make([dynamic]^Git_Status_Job)
 
     // Language intelligence: register the in-client Odin engine first so it wins
@@ -420,7 +428,8 @@ init :: proc() -> ^Thor {
     )
     thor_register_commands(thor)
     thor_wire_menus(thor)
-    widgets.console_set_on_run(thor.console, thor_console_run, thor)
+    // After the tree is built: a terminal adds its console to the console stack.
+    thor_terminals_init(thor)
     thor_apply_settings(thor)
     thor_settings_mark_clean(thor)
 
@@ -545,6 +554,7 @@ shutdown :: proc(thor: ^Thor) {
     thor_save_session(thor)
     // Stop the watcher first so no new reload jobs are queued while we drain.
     thor_shutdown_watcher(thor)
+    thor_terminals_shutdown(thor)
     thor_drain_io(thor)
 
     for file in thor.open_files {
@@ -554,7 +564,6 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.zombie_files)
     delete(thor.finished_loads)
     delete(thor.finished_saves)
-    delete(thor.finished_console)
     delete(thor.finished_git)
     delete(thor.app_binds)
     thor_clear_git_status(thor)

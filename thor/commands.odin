@@ -330,6 +330,12 @@ thor_register_commands :: proc(thor: ^Thor) {
     thor_add_bindable_command(thor, "View: Toggle Markdown Preview", "toggle_markdown_preview", thor_cmd_toggle_markdown_preview, thor)
     widgets.command_palette_add(p, "View: Recenter", thor_cmd_recenter, thor, sc(thor, "recenter"))
 
+    thor_add_bindable_command(thor, "Terminal: New Terminal", "new_terminal", thor_cmd_new_terminal, thor)
+    thor_add_bindable_command(thor, "Terminal: Close Terminal", "close_terminal", thor_cmd_close_terminal, thor)
+    thor_add_bindable_command(thor, "Terminal: Next Terminal", "next_terminal", thor_cmd_next_terminal, thor)
+    thor_add_bindable_command(thor, "Terminal: Restart Shell", "restart_shell", thor_cmd_restart_shell, thor)
+    thor_add_bindable_command(thor, "Terminal: Select Shell", "select_shell", thor_cmd_select_shell, thor)
+
     thor_add_bindable_command(thor, "File: Open File", "open_file", thor_cmd_open_file, thor)
     thor_add_bindable_command(thor, "File: Open Folder", "open_folder", thor_cmd_open_folder, thor)
     thor_add_bindable_command(thor, "File: Open Folder in New Window", "open_folder_new_window", thor_cmd_open_folder_new_window, thor)

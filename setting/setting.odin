@@ -34,6 +34,9 @@ General :: struct {
     // What opening a folder does: "ask" (default), "same" to replace the current
     // window's workspace, "new" to launch another window. Owned, freed in destroy.
     open_folder_in:    string,
+    // The shell a new terminal starts, by profile id ("pwsh", "git-bash",
+    // "msvc", ...). Empty picks the best shell installed. Owned.
+    default_shell:     string,
 }
 
 // Where an opened folder goes. Parsed from the open_folder_in setting.
@@ -93,6 +96,7 @@ destroy :: proc(s: ^Settings) {
     delete(s.general.icon_pack)
     delete(s.general.file_icon_pack)
     delete(s.general.open_folder_in)
+    delete(s.general.default_shell)
 }
 
 // Line-comment marker for a file, or "" when the language is unknown (which
@@ -150,6 +154,12 @@ icon_pack_name :: proc(s: ^Settings) -> string {
 // (caller falls back to its built-in default).
 file_icon_pack_name :: proc(s: ^Settings) -> string {
     return s.general.file_icon_pack
+}
+
+// Profile id of the shell a new terminal starts, or "" to let the editor pick
+// the best one installed.
+default_shell :: proc(s: ^Settings) -> string {
+    return s.general.default_shell
 }
 
 // Where an opened folder goes. Unset or unrecognized means Ask.
@@ -556,6 +566,7 @@ load_general :: proc(s: ^Settings, path: string) {
     read_string(root, "icon_pack", &s.general.icon_pack)
     read_string(root, "file_icon_pack", &s.general.file_icon_pack)
     read_string(root, "open_folder_in", &s.general.open_folder_in)
+    read_string(root, "default_shell", &s.general.default_shell)
 }
 
 // Reads a string field into dst, replacing (and freeing) any prior value so an

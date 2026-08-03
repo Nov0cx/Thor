@@ -151,7 +151,10 @@ thor_apply_theme :: proc(thor: ^Thor) {
     )
     widgets.markdown_view_set_colors(thor.markdown_view, t)
     widgets.markdown_view_set_colors(thor.markdown_view2, t)
-    widgets.console_set_colors(thor.console, t.foreground, t.accent_color, t.second_background, t.accent_color)
+    for term in thor.terminals {
+        thor_terminal_apply_theme(thor, term)
+    }
+    thor_theme_terminal_tabs(thor)
     widgets.statusbar_set_colors(thor.statusbar, t.foreground, t.gray_color, t.buttons, t.accent_color, t.error_color)
 
     // Buttons. The Git top-bar button is a plugin button, recolored in the
@@ -171,6 +174,7 @@ thor_apply_theme :: proc(thor: ^Thor) {
     thor_theme_window_button(thor, thor.close_button, t.red_color)
     thor_theme_icon_button(thor, thor.explorer_toggle_button, t.highlight)
     thor_theme_icon_button(thor, thor.explorer_restore_button, t.buttons)
+    thor_theme_icon_button(thor, thor.terminal_add_button, t.highlight)
     thor_theme_icon_button(thor, thor.console_toggle_button, t.highlight)
     thor_theme_icon_button(thor, thor.console_restore_button, t.buttons)
     for pb in thor.plugin_buttons {
@@ -208,6 +212,16 @@ thor_theme_window_button :: proc(thor: ^Thor, button: ^widgets.Button, hover: rl
 thor_theme_icon_button :: proc(thor: ^Thor, button: ^widgets.Button, background: rl.Color) {
     widgets.button_set_colors(button, thor.theme.foreground, background, thor.theme.active, thor.theme.border, background)
     widgets.button_set_border_thickness(button, 0)
+}
+
+// Terminal tab strip coloring. It sits in the console header, so its background
+// matches the header instead of the editor tab strip's.
+thor_theme_terminal_tabs :: proc(thor: ^Thor) {
+    t := thor.theme
+    widgets.tabbar_set_colors(
+        thor.terminal_tabs,
+        t.foreground, t.white_black_color, t.highlight, t.highlight, t.second_background, t.tree, t.accent_color,
+    )
 }
 
 // Preferences: Change Theme -> pick from the installed themes in a dialog that

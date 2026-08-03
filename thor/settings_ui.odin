@@ -7,6 +7,7 @@ import rl "vendor:raylib"
 
 import "../plugin"
 import "../setting"
+import "../shell"
 import "../ui"
 import "../widgets"
 
@@ -56,6 +57,9 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
 
     widgets.settings_view_add_header(view, "WINDOWS")
     widgets.settings_view_add_choice(view, "open_folder_in", "Open Folder In", thor_open_folder_in_label(&thor.config))
+
+    widgets.settings_view_add_header(view, "TERMINAL")
+    widgets.settings_view_add_choice(view, "default_shell", "Default Shell", thor_default_shell_label(thor))
 
     // Only plugins that want a permission: the language plugins want none, and
     // listing three dozen "nothing to allow" rows would bury the ones that do.
@@ -109,7 +113,21 @@ thor_on_setting_choice :: proc(data: rawptr, id: string) {
         thor_cmd_change_file_icon_pack(thor)
     case "open_folder_in":
         thor_cmd_change_open_folder_in(thor)
+    case "default_shell":
+        thor_cmd_select_shell(thor)
     }
+}
+
+// The configured shell as its picker row, or the shell that stands in for it.
+@(private = "file")
+thor_default_shell_label :: proc(thor: ^Thor) -> string {
+    if len(thor.shell_profiles) == 0 {
+        return "None found"
+    }
+    if profile, ok := shell.profile_find(thor.shell_profiles, setting.default_shell(&thor.config)); ok {
+        return profile.name
+    }
+    return thor.shell_profiles[0].name
 }
 
 // Picker rows for open_folder_in, in Open_Folder_In order.
