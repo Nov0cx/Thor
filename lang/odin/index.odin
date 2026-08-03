@@ -158,11 +158,10 @@ index_sync_dir :: proc(
 index_reparse :: proc(e: ^Engine, parser: ts.Parser, key: string, modtime, size: i64) {
     idx := &e.index
 
-    data, rerr := os.read_entire_file(key, context.temp_allocator)
-    if rerr != nil {
+    source, sok := source_read(key)
+    if !sok {
         return
     }
-    source := string(data)
 
     tree := ts.parser_parse_string(parser, source)
     if tree == nil {

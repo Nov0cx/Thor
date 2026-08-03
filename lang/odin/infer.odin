@@ -11,10 +11,12 @@
 // (`a.b.c`) recurses through each struct's field type, and a pointer type is
 // transparently dereferenced (Odin auto-derefs `.`). A struct embedded with
 // `using` answers for its fields as if they were the outer struct's own, and a
-// container (`[]T`, `[N]T`, `[dynamic]T`, `map[K]V`) resolves to its element once
-// it is indexed, sliced or ranged over — never before, since a container is not
-// the type it holds. Anything else (a union, a bit_set, a builtin) doesn't
-// resolve, and the caller falls back to the flat name scan.
+// container (`[]T`, `[N]T`, `[dynamic]T`, `map[K]V`, `bit_set[T]`) resolves to
+// its element once it is indexed, sliced or ranged over — never before, since a
+// container is not the type it holds. Containers nest, so `map[string][]Point`
+// takes two of those steps. A proc-typed value carries its signature, so calling
+// it yields its declared result. Anything else (an un-narrowed union, a builtin)
+// doesn't resolve, and the caller falls back to the flat name scan.
 //
 // This file infers a type from an expression; typeref.odin reads one out of a
 // written-down type, and decl.odin locates the declaration it names.
@@ -26,27 +28,109 @@ import lang ".."
 import ts "../../vendor/odin-tree-sitter"
 
 // What a type holds when it is not the named type itself: `[]Point`, `[4]Point`
-// and `[dynamic]Point` are arrays of it, `map[string]Point` maps to it. Element
-// access (`xs[i]`) and a range loop (`for p in xs`) strip one level off.
+// and `[dynamic]Point` are arrays of it, `map[string]Point` maps to it, and
+// `bit_set[Axis]` is a set of it. Element access (`xs[i]`) and a range loop
+// (`for p in xs`) strip one level off.
 @(private)
 Container :: enum {
-    None,
     Array,
     Map,
+    Bit_Set,
 }
 
+// One level of container around an element type, plus — for a map — the type it
+// is keyed by, so `for k in m` and `m[.Member]` know what a key is. Only a plain
+// (optionally qualified) key name is tracked; `map[[2]int]V` records none.
+@(private)
+Container_Layer :: struct {
+    kind:    Container,
+    key:     string,
+    key_pkg: string,
+}
+
+// How many container levels are modelled: `map[string][]Point` is two, and
+// nesting deeper than this is not inferred rather than inferred wrongly.
+@(private)
+CONTAINER_DEPTH_LIMIT :: 4
+
 // A named type reference: the type name plus an optional package qualifier
-// (`pkg` in `p: pkg.Point`), the container that holds it (the name is then the
-// *element* type — a map's value), and the file the reference was read from, so
-// a qualifier written in another file resolves against *that* file's imports.
-// Strings slice the source they were read from unless explicitly cloned, so a
-// Type_Ref that must outlive a parse is temp-cloned.
+// (`pkg` in `p: pkg.Point`), the containers wrapped around it (innermost first —
+// the name is then the *element* type, a map's value), the signature of a
+// proc-typed value (whose `name` is empty, since a proc type names nothing), and
+// the file the reference was read from, so a qualifier written in another file
+// resolves against *that* file's imports. Strings slice the source they were read
+// from unless explicitly cloned, so a Type_Ref that must outlive a parse is
+// temp-cloned.
 @(private)
 Type_Ref :: struct {
-    name:      string,
-    pkg:       string,
-    container: Container,
-    origin:    string,
+    name:       string,
+    pkg:        string,
+    proc_sig:   string,
+    containers: [CONTAINER_DEPTH_LIMIT]Container_Layer,
+    depth:      int,
+    origin:     string,
+}
+
+// Whether the reference names a type outright, rather than a container of one.
+// Every member operation stops at a container: `xs: []Point` must be indexed or
+// ranged over before Point's fields are in reach.
+@(private)
+type_is_bare :: proc(tr: Type_Ref) -> bool {
+    return tr.depth == 0
+}
+
+// The outermost container around the element type — the one an index or a range
+// loop strips.
+@(private)
+outer_container :: proc(tr: Type_Ref) -> (Container_Layer, bool) {
+    if tr.depth == 0 {
+        return {}, false
+    }
+    return tr.containers[tr.depth - 1], true
+}
+
+// `tr` wrapped in one more container. Fails past CONTAINER_DEPTH_LIMIT.
+@(private)
+wrap_container :: proc(tr: Type_Ref, layer: Container_Layer) -> (Type_Ref, bool) {
+    if tr.depth >= CONTAINER_DEPTH_LIMIT {
+        return {}, false
+    }
+    out := tr
+    out.containers[out.depth] = layer
+    out.depth += 1
+    return out, true
+}
+
+// `tr` with its outermost container stripped: what indexing, slicing into, or
+// ranging over the value yields.
+@(private)
+unwrap_container :: proc(tr: Type_Ref) -> (Type_Ref, Container_Layer, bool) {
+    layer, ok := outer_container(tr)
+    if !ok {
+        return {}, {}, false
+    }
+    out := tr
+    out.depth -= 1
+    return out, layer, true
+}
+
+// The element every container level holds, whatever the nesting: what a literal
+// of `[]Axis` or `bit_set[Axis]` selects a member from.
+@(private)
+element_type :: proc(tr: Type_Ref) -> Type_Ref {
+    out := tr
+    out.depth = 0
+    return out
+}
+
+// The type a map is keyed by, as a reference of its own, qualified by the file
+// the map type was written in.
+@(private)
+map_key_type :: proc(tr: Type_Ref, layer: Container_Layer) -> (Type_Ref, bool) {
+    if layer.kind != .Map || layer.key == "" {
+        return {}, false
+    }
+    return Type_Ref{name = layer.key, pkg = layer.key_pkg, origin = tr.origin}, true
 }
 
 // A value binding's declared type and the scope it is visible in, so the nearest
@@ -163,8 +247,17 @@ infer_expr_result :: proc(
             return {}, false
         }
         // `pkg.fn(...)`: the grammar nests the call under the member expression, so
-        // the call — which resolves the package itself — is what has the type.
+        // the call — which resolves the package itself — is what has the type. A
+        // proc-typed *field* (`c.on(1)`) wears the same shape, and only the
+        // operand's type separates the two: a package operand types as nothing.
         if string(ts.node_type(member)) == "call_expression" {
+            fn := ts.node_child_by_field_name(member, "function")
+            if is_identifier(fn) && !operand_names_import(root, req.source, op) {
+                ftype, fok := member_field_type(e, parser, root, req, op, ts.node_text(fn, req.source), depth)
+                if fok && ftype.proc_sig != "" {
+                    return proc_value_result(ftype, index)
+                }
+            }
             return call_result_type(e, parser, root, req, member, index, depth + 1)
         }
         // `u.(Point)` is an assertion, not a field: the grammar spells the asserted
@@ -180,18 +273,7 @@ infer_expr_result :: proc(
         if !is_identifier(member) {
             return {}, false
         }
-        inner, ok := infer_expr_result(e, parser, root, req, op, 0, depth + 1)
-        if !ok {
-            return {}, false
-        }
-        ctx := Member_Ctx {
-            field = ts.node_text(member, req.source),
-            env = Embed_Env{e = e, parser = parser, root = root, req = req},
-        }
-        if !visit_type_decl(e, parser, root, req, inner, "struct_declaration", "type", member_visitor, &ctx) || !ctx.got {
-            return {}, false
-        }
-        return ctx.field_type, true
+        return member_field_type(e, parser, root, req, op, ts.node_text(member, req.source), depth)
     case "struct":
         // A composite literal (`Point{...}`, `[]Point{...}`) names the type it
         // builds. The grammar drops a container literal's brackets from the named
@@ -200,17 +282,24 @@ infer_expr_result :: proc(
     case "call_expression":
         return call_result_type(e, parser, root, req, node, index, depth + 1)
     case "index_expression":
-        // `xs[i]` is one element of its container.
+        // `xs[i]` is one element of its container — a map's value, one level off
+        // a nested container. A bit_set is not indexed, only tested with `in`.
         op, ok := infer_expr_result(e, parser, root, req, ts.node_named_child(node, 0), 0, depth + 1)
-        if !ok || op.container == .None {
+        if !ok {
             return {}, false
         }
-        op.container = .None
-        return op, true
+        elem, layer, uok := unwrap_container(op)
+        if !uok || layer.kind == .Bit_Set {
+            return {}, false
+        }
+        return elem, true
     case "slice_expression":
         // `xs[1:3]` is another container of the same element type.
         op, ok := infer_expr_result(e, parser, root, req, ts.node_named_child(node, 0), 0, depth + 1)
-        if !ok || op.container != .Array {
+        if !ok {
+            return {}, false
+        }
+        if layer, lok := outer_container(op); !lok || layer.kind != .Array {
             return {}, false
         }
         return op, true
@@ -230,6 +319,65 @@ infer_expr_result :: proc(
         return type_ref_from_node(target, req.source)
     }
     return {}, false
+}
+
+// Whether the operand of a selector is an imported package rather than a value —
+// the one thing that tells `pkg.fn(...)` from a call of a struct's proc field,
+// which the grammar spells identically. Answered before the field lookup, so the
+// common qualified call pays no inference for a struct it does not have.
+@(private)
+operand_names_import :: proc(root: ts.Node, source: string, operand: ts.Node) -> bool {
+    if !is_identifier(operand) {
+        return false
+    }
+    _, found := import_path(root, source, ts.node_text(operand, source))
+    return found
+}
+
+// Type of `operand.field`: the operand's type located, then its named field's.
+// The shared step behind a chained access (`a.b.c`) and a call of a proc-typed
+// field (`c.on(1)`).
+@(private)
+member_field_type :: proc(
+    e: ^Engine,
+    parser: ts.Parser,
+    root: ts.Node,
+    req: ^lang.Request,
+    operand: ts.Node,
+    field: string,
+    depth: int,
+) -> (Type_Ref, bool) {
+    inner, ok := infer_expr_result(e, parser, root, req, operand, 0, depth + 1)
+    if !ok {
+        return {}, false
+    }
+    ctx := Member_Ctx {
+        field = field,
+        env = Embed_Env{e = e, parser = parser, root = root, req = req},
+    }
+    if !visit_type_decl(e, parser, root, req, inner, "struct_declaration", "type", member_visitor, &ctx) || !ctx.got {
+        return {}, false
+    }
+    return ctx.field_type, true
+}
+
+// Type a call of a proc-typed *value* evaluates to: the `index`-th result read
+// out of the signature the value carries. A proc type declares no procedure to
+// look up, so the signature text is all there is — which is exactly what
+// proc_result_type reads a cross-file callee's result from.
+@(private)
+proc_value_result :: proc(tr: Type_Ref, index: int) -> (Type_Ref, bool) {
+    if tr.proc_sig == "" {
+        return {}, false
+    }
+    out, ok := signature_result_type(tr.proc_sig, index)
+    if !ok {
+        return {}, false
+    }
+    // Spelled in the file the proc type was written in, so that file's imports
+    // qualify it (`on: proc() -> other.Point`).
+    out.origin = tr.origin
+    return out, true
 }
 
 // The type a composite literal builds, read from its text up to the opening brace
@@ -289,8 +437,9 @@ binding_type_ref :: proc(
 
 // Type of the `index`-th variable of `for a, b in expr`: over an array the first
 // is the element and the second its integer index, over a map the first is the
-// key and the second the value. A map's key type isn't tracked (the container
-// carries only its element), so ranging over one binds the value alone.
+// key and the second the value, over a bit_set the first is the member and the
+// second nothing. An integer index is no type this engine models, so only the
+// slots that name one answer.
 @(private)
 range_var_type :: proc(
     e: ^Engine,
@@ -304,20 +453,24 @@ range_var_type :: proc(
     if !ok {
         return {}, false
     }
-    switch tr.container {
-    case .Array:
+    elem, layer, uok := unwrap_container(tr)
+    if !uok {
+        return {}, false
+    }
+    switch layer.kind {
+    case .Array, .Bit_Set:
         if index != 0 {
             return {}, false
         }
     case .Map:
+        if index == 0 {
+            return map_key_type(tr, layer)
+        }
         if index != 1 {
             return {}, false
         }
-    case .None:
-        return {}, false
     }
-    tr.container = .None
-    return tr, true
+    return elem, true
 }
 
 @(private)

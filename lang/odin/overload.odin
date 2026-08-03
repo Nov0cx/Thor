@@ -281,11 +281,10 @@ scan_package_members :: proc(
         if info.fullpath == req.path {
             continue
         }
-        data, rerr := os.read_entire_file(info.fullpath, context.temp_allocator)
-        if rerr != nil {
+        src, sok := source_read(info.fullpath)
+        if !sok {
             continue
         }
-        src := string(data)
         tree := ts.parser_parse_string(parser, src)
         if tree == nil {
             continue

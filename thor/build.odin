@@ -358,6 +358,7 @@ thor_build_content :: proc(thor: ^Thor) {
         thor.theme.error_color,
     )
     widgets.statusbar_bind(thor.statusbar, thor_status_info, thor)
+    widgets.statusbar_set_on_line_ending(thor.statusbar, thor_toggle_line_ending, thor)
     thor.statusbar.min_size = rl.Vector2 {0, 28}
 
     dialog_text := widgets.label_create("dialog-text", "Drag this dialog by its title bar.\n\nType into the editor, scroll it, and close this dialog with the x button.")

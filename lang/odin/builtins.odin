@@ -258,11 +258,10 @@ collect_dir_decls :: proc(e: ^Engine, parser: ts.Parser, dir: string, all: bool)
         if strings.has_suffix(info.name, "_test.odin") {
             continue
         }
-        data, derr := os.read_entire_file(info.fullpath, context.temp_allocator)
-        if derr != nil {
+        source, sok := source_read(info.fullpath)
+        if !sok {
             continue
         }
-        source := string(data)
         tree := ts.parser_parse_string(parser, source)
         if tree == nil {
             continue

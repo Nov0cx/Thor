@@ -159,12 +159,11 @@ apply_action :: proc(source: string, action: lang.Code_Action) -> string {
 // won't read back; those are covered by the same-file assertions instead.
 @(private)
 src_at :: proc(sym: lang.Symbol) -> string {
-    data, err := os.read_entire_file(sym.path, context.temp_allocator)
-    if err != nil {
+    source, ok := source_read(sym.path)
+    if !ok {
         return "helper" // buffer-only file; skip the on-disk check
     }
-    s := clamp(sym.offset, 0, len(data))
-    return string(data[s:])
+    return source[clamp(sym.offset, 0, len(source)):]
 }
 
 // Runs a Signature_Help request at `at` and returns the resolved signature.

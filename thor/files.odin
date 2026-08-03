@@ -18,6 +18,14 @@ import "../textedit"
 import "../ui"
 import "../widgets"
 
+// Line terminator a file uses on disk. The buffer always holds LF, so a CRLF
+// file is collapsed on load and expanded again on save; the editing core and
+// every byte offset downstream never see a CR.
+Line_Ending :: enum u8 {
+    LF,
+    CRLF,
+}
+
 // One open document. The textedit state lives here, not in the editor widget,
 // so undo history and cursors survive tab switches; the editor only borrows it.
 Open_File :: struct {
@@ -39,6 +47,9 @@ Open_File :: struct {
     pending_jobs:       int,
     saved_revision:     u64,
     last_seen_revision: u64,
+    // What the next save writes; detected on load. A file Thor creates gets the
+    // zero value, LF.
+    line_ending:        Line_Ending,
     last_edit:          time.Tick,
     // Syntax highlight spans and the buffer revision they were computed from.
     highlights:         [dynamic]widgets.Highlight_Span,
@@ -97,6 +108,46 @@ Save_Job :: struct {
     revision: u64,
     worker:   ^thread.Thread,
     ok:       bool,
+}
+
+// Status bar label for an ending.
+thor_line_ending_label :: proc(ending: Line_Ending) -> string {
+    return ending == .CRLF ? "CRLF" : "LF"
+}
+
+// The ending a file uses, taken from its first terminator: CRLF only when that
+// \n follows a \r. A file with no newline at all counts as LF.
+thor_detect_line_ending :: proc(content: string) -> Line_Ending {
+    for i in 0 ..< len(content) {
+        if content[i] == '\n' {
+            return i > 0 && content[i - 1] == '\r' ? .CRLF : .LF
+        }
+    }
+    return .LF
+}
+
+// Disk bytes as the buffer stores them: every CRLF collapsed to LF, whatever
+// the detected ending, so a mixed file leaves no stray CR in the text. Returns
+// `content` itself when there is nothing to collapse, so a plain LF file is not
+// copied.
+thor_to_buffer_text :: proc(content: string, allocator := context.temp_allocator) -> string {
+    if !strings.contains(content, "\r\n") {
+        return content
+    }
+    out, _ := strings.replace_all(content, "\r\n", "\n", allocator)
+    return out
+}
+
+// Buffer text as it goes to disk, expanded back to CRLF when that is the file's
+// ending. Always returns an owned string.
+thor_to_disk_text :: proc(text: string, ending: Line_Ending, allocator := context.allocator) -> string {
+    if ending == .LF {
+        return strings.clone(text, allocator)
+    }
+    // replace_all hands back the input unallocated when the file has no
+    // newline at all; that string is temp memory, so clone it instead.
+    out, allocated := strings.replace_all(text, "\n", "\r\n", allocator)
+    return allocated ? out : strings.clone(text, allocator)
 }
 
 @(private = "file")
@@ -369,14 +420,20 @@ thor_apply_reload :: proc(thor: ^Thor, job: ^Load_Job) -> bool {
         return false
     }
     content := job.size > 0 ? string(job.data[:job.size]) : ""
-    if content == textedit.text(&file.state) {
+    // Compare the normalized text, or a CRLF file would differ from its own
+    // buffer every time and reload on each watcher event.
+    ending := thor_detect_line_ending(content)
+    buffer_text := thor_to_buffer_text(content)
+    if buffer_text == textedit.text(&file.state) {
+        file.line_ending = ending // an external tool may have converted it
         return false // disk already matches (e.g. our own save coming back around)
     }
 
     // Keep the caret roughly where it was rather than snapping to the top.
     caret := textedit.primary_cursor(&file.state).caret
-    textedit.set_text(&file.state, content)
-    textedit.set_single_cursor(&file.state, min(caret, len(content)))
+    file.line_ending = ending
+    textedit.set_text(&file.state, buffer_text)
+    textedit.set_single_cursor(&file.state, min(caret, len(buffer_text)))
     file.saved_revision = file.state.revision // set_text zeroed it; stay clean
     file.last_seen_revision = file.state.revision
     file.highlighted = false // re-highlighted by the per-frame pass
@@ -449,11 +506,13 @@ thor_close_file :: proc(thor: ^Thor, index: int) {
     }
 }
 
-thor_save_file :: proc(thor: ^Thor, file: ^Open_File) {
+// `force` writes a buffer that matches its last save; used when the bytes change
+// without an edit, as a line-ending switch does.
+thor_save_file :: proc(thor: ^Thor, file: ^Open_File, force := false) {
     if !file.loaded || file.saving || file.closed {
         return
     }
-    if file.state.revision == file.saved_revision {
+    if !force && file.state.revision == file.saved_revision {
         return
     }
 
@@ -465,9 +524,31 @@ thor_save_file :: proc(thor: ^Thor, file: ^Open_File) {
     job.owner = thor
     job.file = file
     job.path = file.path
-    job.text = strings.clone(textedit.text(&file.state))
+    job.text = thor_to_disk_text(textedit.text(&file.state), file.line_ending)
     job.revision = file.state.revision
     job.worker = thread.create_and_start_with_poly_data(job, save_worker)
+}
+
+// Switches what the file writes on disk. A clean buffer is written out at once,
+// since converting the file is the whole point of the action; a dirty one keeps
+// its pending edits and converts with the next save.
+thor_set_line_ending :: proc(thor: ^Thor, file: ^Open_File, ending: Line_Ending) {
+    if file == nil || !file.loaded || file.line_ending == ending {
+        return
+    }
+    file.line_ending = ending
+    thor_flash_status(thor, fmt.tprintf("Line endings: %s", thor_line_ending_label(ending)))
+    if file.state.revision == file.saved_revision {
+        thor_save_file(thor, file, force = true)
+    }
+}
+
+// Status bar click and the palette toggle: flips the active file's ending.
+thor_toggle_line_ending :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    if file := thor_active_open_file(thor); file != nil {
+        thor_set_line_ending(thor, file, file.line_ending == .LF ? .CRLF : .LF)
+    }
 }
 
 // Ctrl+S from the editor widget: save the active file immediately.
@@ -572,7 +653,8 @@ thor_process_io :: proc(thor: ^Thor) {
             changed = thor_apply_reload(thor, job)
         } else if job.ok {
             content := job.size > 0 ? string(job.data[:job.size]) : ""
-            textedit.set_text(&file.state, content)
+            file.line_ending = thor_detect_line_ending(content)
+            textedit.set_text(&file.state, thor_to_buffer_text(content))
             file.loaded = true
             file.saved_revision = 0
             file.last_seen_revision = 0

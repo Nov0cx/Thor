@@ -245,8 +245,9 @@ thor_status_info :: proc(data: rawptr) -> widgets.Status_Info {
     info.zoom = int(thor.editor.font_size) * 100 / max(setting.font_size(&thor.config), 1)
     info.saving = file.saving
     info.modified = file.loaded && file.state.revision != file.saved_revision
-
     if file.loaded {
+        info.line_ending = thor_line_ending_label(file.line_ending)
+
         text := textedit.text(&file.state)
         caret := textedit.primary_cursor(&file.state).caret
         line_start := textedit.line_start(text, caret)

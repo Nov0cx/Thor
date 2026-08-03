@@ -209,11 +209,10 @@ render_package_doc :: proc(e: ^Engine, parser: ts.Parser, req: ^lang.Request, di
         if strings.has_suffix(info.name, "_test.odin") {
             continue
         }
-        data, rerr := os.read_entire_file(info.fullpath, context.temp_allocator)
-        if rerr != nil {
+        source, sok := source_read(info.fullpath)
+        if !sok {
             continue
         }
-        source := string(data)
         if pkg_name == "" {
             if n, off, nok := package_clause(source); nok {
                 pkg_name = n

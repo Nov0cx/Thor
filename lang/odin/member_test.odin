@@ -910,3 +910,113 @@ main :: proc() {
     defer free_symbols(&sliced)
     testing.expect(t, !has_completion(&sliced, "x"), "a slice is still a container, not a Point")
 }
+
+@(test)
+test_member_proc_value_result :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    // A proc-typed value names no declaration to look up, so its own signature is
+    // what the call's result is read from: a struct's callback field, that field
+    // bound to a local, and a plain proc-typed variable all resolve alike.
+    src := `package demo
+
+Point :: struct {
+	x: int,
+	y: int,
+}
+
+Decoy :: struct {
+	x: int,
+	y: int,
+}
+
+Handlers :: struct {
+	make_point: proc(a: int) -> Point,
+}
+
+global: proc() -> Point
+
+main :: proc() {
+	h: Handlers
+	_ = h.make_point(1).x
+	bound := h.make_point
+	_ = bound(2).y
+	_ = global().x
+	made := global()
+	_ = made.y
+}
+`
+    Probe :: struct {
+        needle: string,
+        field:  string,
+    }
+    probes := [?]Probe {
+        {"h.make_point(1).x", "x: int"},
+        {"bound(2).y", "y: int"},
+        {"global().x", "x: int"},
+        {"made.y", "y: int"},
+    }
+    for probe in probes {
+        at := strings.index(src, probe.needle) + len(probe.needle) - 1
+        loc, ok := resolve_offset(e, src, at)
+        defer delete(loc.path)
+        testing.expectf(t, ok, "expected %s to resolve through the proc type's result", probe.needle)
+        if ok {
+            want := strings.index(src, probe.field)
+            testing.expectf(t, loc.start == want, "%s: got %d, want %d", probe.needle, loc.start, want)
+        }
+    }
+}
+
+@(test)
+test_completion_proc_value_result :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    // The same operand answers member completion, while the uncalled proc value
+    // is not the type it returns.
+    src := `package demo
+
+Point :: struct {
+	x: int,
+	y: int,
+}
+
+Handlers :: struct {
+	make_point: proc(a: int) -> Point,
+}
+
+main :: proc() {
+	h: Handlers
+	_ = h.make_point(1).
+}
+`
+    res: lang.Result
+    selector_completions(e, src, "h.make_point(1).", &res)
+    defer free_symbols(&res)
+    testing.expect(t, has_completion(&res, "x"), "missing the result struct's field x")
+    testing.expect(t, has_completion(&res, "y"), "missing the result struct's field y")
+
+    uncalled := `package demo
+
+Point :: struct {
+	x: int,
+	y: int,
+}
+
+Handlers :: struct {
+	make_point: proc(a: int) -> Point,
+}
+
+main :: proc() {
+	h: Handlers
+	cb := h.make_point
+	_ = cb.
+}
+`
+    other: lang.Result
+    selector_completions(e, uncalled, "cb.", &other)
+    defer free_symbols(&other)
+    testing.expect(t, !has_completion(&other, "x"), "a proc value is not the struct it returns")
+}

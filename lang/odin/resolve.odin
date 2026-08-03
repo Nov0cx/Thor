@@ -635,11 +635,10 @@ scan_file :: proc(
     hover_start, hover_end: int,
     res: ^lang.Result,
 ) {
-    data, rerr := os.read_entire_file(path, context.temp_allocator)
-    if rerr != nil {
+    source, sok := source_read(path)
+    if !sok {
         return
     }
-    source := string(data)
 
     tree := ts.parser_parse_string(parser, source)
     if tree == nil {

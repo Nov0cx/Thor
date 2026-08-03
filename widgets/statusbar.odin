@@ -21,6 +21,8 @@ Status_Info :: struct {
     indent_spaces: bool,
     // Editor zoom as a percentage of the configured font size; 0 hides it.
     zoom:          int,
+    // On-disk line terminator, "LF" or "CRLF"; empty hides the segment.
+    line_ending:   string,
     file_open:     bool,
     modified:      bool,
     saving:        bool,
@@ -38,12 +40,20 @@ Status_Info :: struct {
 
 Status_Proc :: #type proc(data: rawptr) -> Status_Info
 
+Status_Click_Proc :: #type proc(data: rawptr)
+
 // Bottom status bar. Pulls its content from a callback every frame, so it
 // never holds stale state.
 Statusbar :: struct {
     using widget: ui.Widget,
     info_proc:        Status_Proc,
     data:             rawptr,
+    // Clicking the line-ending segment; nil leaves the segment inert.
+    on_line_ending:   Status_Click_Proc,
+    click_data:       rawptr,
+    // Screen rect of the line-ending segment from the last draw, for hit
+    // testing. Zeroed on any frame that does not draw it.
+    line_ending_bounds: rl.Rectangle,
     font_size:        i32,
     icon_size:        i32,
     text_color:       rl.Color,
@@ -55,7 +65,7 @@ Statusbar :: struct {
 
 statusbar_vtable := ui.Widget_VTable {
     layout = nil,
-    handle_event = nil,
+    handle_event = statusbar_handle_event,
     draw = statusbar_draw,
     destroy = statusbar_destroy,
 }
@@ -77,6 +87,12 @@ statusbar_create :: proc(id: string) -> ^Statusbar {
 statusbar_bind :: proc(statusbar: ^Statusbar, info_proc: Status_Proc, data: rawptr) -> ^Statusbar {
     statusbar.info_proc = info_proc
     statusbar.data = data
+    return statusbar
+}
+
+statusbar_set_on_line_ending :: proc(statusbar: ^Statusbar, on_click: Status_Click_Proc, data: rawptr) -> ^Statusbar {
+    statusbar.on_line_ending = on_click
+    statusbar.click_data = data
     return statusbar
 }
 
@@ -118,10 +134,23 @@ statusbar_segment_width :: proc(statusbar: ^Statusbar, icon: string, text: strin
     return width + 18
 }
 
+// Click on the line-ending segment: the only interactive part of the bar.
+statusbar_handle_event :: proc(widget: ^ui.Widget, ctx: ^ui.Context, event: ^ui.Event) -> bool {
+    statusbar := cast(^Statusbar) widget
+
+    if event.kind == .Click && statusbar.on_line_ending != nil &&
+       rl.CheckCollisionPointRec(event.mouse_position, statusbar.line_ending_bounds) {
+        statusbar.on_line_ending(statusbar.click_data)
+        return true
+    }
+    return false
+}
+
 statusbar_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
     statusbar := cast(^Statusbar) widget
 
     rl.DrawRectangleRec(statusbar.bounds, statusbar.background_color)
+    statusbar.line_ending_bounds = {}
 
     if statusbar.info_proc == nil {
         return
@@ -181,6 +210,20 @@ statusbar_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
         }
         right -= statusbar_segment_width(statusbar, "", "UTF-8")
         statusbar_draw_segment(statusbar, right, "", "UTF-8", statusbar.dim_color)
+        // Clickable, so it lights up under the cursor to say so.
+        if info.line_ending != "" {
+            width := statusbar_segment_width(statusbar, "", info.line_ending)
+            right -= width
+            statusbar.line_ending_bounds = rl.Rectangle {
+                right, statusbar.bounds.y, width, statusbar.bounds.height,
+            }
+            color := statusbar.dim_color
+            if statusbar.on_line_ending != nil &&
+               rl.CheckCollisionPointRec(ctx.mouse_pos, statusbar.line_ending_bounds) {
+                color = statusbar.accent_color
+            }
+            statusbar_draw_segment(statusbar, right, "", info.line_ending, color)
+        }
         if info.zoom > 0 {
             zoom := fmt.tprintf("%d%%", info.zoom)
             right -= statusbar_segment_width(statusbar, "", zoom)

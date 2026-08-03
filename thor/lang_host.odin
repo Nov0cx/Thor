@@ -326,10 +326,14 @@ thor_prompt_rename :: proc(data: rawptr, input: string) {
 // edits landing in it.
 @(private)
 Edit_Target :: struct {
-    path:  string,     // canonical; temp-allocated
-    file:  ^Open_File, // nil when the file is not open in the editor
-    text:  string,     // current content, temp-allocated
-    edits: [dynamic]lang.Text_Edit, // temp-allocated; the edits borrow the caller's strings
+    path:      string,     // canonical; temp-allocated
+    file:      ^Open_File, // nil when the file is not open in the editor
+    text:      string,     // current content with CRLF collapsed — the space engine offsets are in
+    // A file that is not open is rewritten on disk: `disk_text` is what it holds
+    // byte for byte (what an undo restores) and `ending` is what a rewrite emits.
+    disk_text: string,
+    ending:    Line_Ending,
+    edits:     [dynamic]lang.Text_Edit, // temp-allocated; the edits borrow the caller's strings
 }
 
 // One file the last applied edit set touched, and what it takes to reverse it.
@@ -430,7 +434,8 @@ thor_apply_edits :: proc(
             last = edit.end
         }
         strings.write_string(&b, target.text[last:])
-        written := strings.to_string(b)
+        // The splice works in LF; the file goes back with the endings it had.
+        written := thor_to_disk_text(strings.to_string(b), target.ending, context.temp_allocator)
         if werr := os.write_entire_file(target.path, transmute([]byte) written); werr != nil {
             // Whatever landed before this file stays undoable.
             thor_set_edit_undo(thor, record)
@@ -439,7 +444,7 @@ thor_apply_edits :: proc(
         }
         append(&record, Edit_Undo_File {
             path       = strings.clone(target.path),
-            before     = strings.clone(target.text),
+            before     = strings.clone(target.disk_text),
             after_hash = content_hash(written),
         })
         applied += len(target.edits)
@@ -606,10 +611,13 @@ thor_edit_target :: proc(
     if rerr != nil {
         return 0, false
     }
+    disk := string(data)
     append(targets, Edit_Target {
-        path  = canonical,
-        text  = string(data),
-        edits = make([dynamic]lang.Text_Edit, context.temp_allocator),
+        path      = canonical,
+        text      = thor_to_buffer_text(disk),
+        disk_text = disk,
+        ending    = thor_detect_line_ending(disk),
+        edits     = make([dynamic]lang.Text_Edit, context.temp_allocator),
     })
     return len(targets) - 1, true
 }

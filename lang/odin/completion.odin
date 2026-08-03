@@ -80,11 +80,13 @@ expected_type_in_tree :: proc(
             return {}, false
         case "struct_field":
             // `Point{axis = .}` — the literal names its struct, the struct names
-            // the field's type. A positional field carries no name to look up.
+            // the field's type. A positional field carries no name to look up, and
+            // is where a container literal's elements sit (`bit_set[Axis] = {.}`),
+            // so the walk climbs on to whatever pins the literal's own type down.
             name := ts.node_named_child(n, 0)
             lit := ts.node_parent(n)
             if !is_identifier(name) || ts.node_is_null(lit) {
-                return {}, false
+                break
             }
             tr, ok := composite_type_name(lit, source)
             if !ok {
@@ -115,6 +117,18 @@ expected_type_in_tree :: proc(
             // Spelled in the callee's file, so that file's imports qualify it.
             tr.origin = path
             return tr, true
+        case "index_expression":
+            // `m[.]` — a map is indexed by its key type. An array is indexed by an
+            // integer, which no enum selects.
+            op, ok := infer_expr_type(e, parser, root, req, ts.node_named_child(n, 0))
+            if !ok {
+                return {}, false
+            }
+            layer, lok := outer_container(op)
+            if !lok {
+                return {}, false
+            }
+            return map_key_type(op, layer)
         case "binary_expression":
             // `dir == .` — the other operand carries the type both sides share.
             other := ts.node_child_by_field_name(n, "left")
@@ -258,9 +272,12 @@ complete :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, req: ^lang.Reques
         } else if tr, tok := expected_type_at(e, parser, root, req, dot); tok {
             // Leading `.<prefix>` with no operand: an implicit enum selector
             // (`x: Axis = .`). If the expected type is an enum, offer its members.
+            // A container of one selects the same members from inside its literal
+            // (`bit_set[Axis] = {.}`, `[]Axis{.}`, `map[string]Axis{"a" = .}`), so
+            // the element is what the lookup asks for.
             seen := make(map[string]bool, 0, context.temp_allocator)
             ctx := Enum_Ctx{prefix = prefix, res = res, seen = &seen}
-            visit_type_decl(e, parser, root, req, tr, "enum_declaration", "enum", enum_visitor, &ctx)
+            visit_type_decl(e, parser, root, req, element_type(tr), "enum_declaration", "enum", enum_visitor, &ctx)
         }
         finish_completion(res)
         return
@@ -550,11 +567,10 @@ complete_dir_scan :: proc(
         if info.fullpath == skip {
             continue
         }
-        data, rerr := os.read_entire_file(info.fullpath, context.temp_allocator)
-        if rerr != nil {
+        source, sok := source_read(info.fullpath)
+        if !sok {
             continue
         }
-        source := string(data)
         tree := ts.parser_parse_string(parser, source)
         if tree == nil {
             continue

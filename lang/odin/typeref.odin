@@ -9,12 +9,14 @@ import ts "../../vendor/odin-tree-sitter"
 
 // Reads a `(type ...)` node (or a bare type construct) into a Type_Ref. Unwraps a
 // pointer type (`^T` — Odin auto-derefs on `.`), reads a package-qualified `pkg.T`
-// (a `field_type`), and records a container around a named element type: the
-// grammar spells `[]T`, `[N]T` and `[dynamic]T` all as `array_type` (the element
-// is the last named child) and `map[K]V` as `map_type` (key then value). A
-// container's own members are nothing this engine models, so it must be indexed
-// or ranged over before its element's fields resolve. Anything else — a proc
-// type, a nested container, a bit_set — returns false.
+// (a `field_type`), keeps a proc type's signature (a proc names no type, so only
+// calling it yields one), and records the containers around a named element type:
+// the grammar spells `[]T`, `[N]T` and `[dynamic]T` all as `array_type` (the
+// element is the last named child), `map[K]V` as `map_type` (key then value) and
+// `bit_set[E]` as `bit_set_type` (the element inside the brackets, before an
+// optional `; backing`). A container's own members are nothing this engine models,
+// so it must be indexed or ranged over before its element's fields resolve.
+// Containers nest up to CONTAINER_DEPTH_LIMIT; anything else returns false.
 @(private)
 type_ref_from_node :: proc(node: ts.Node, source: string) -> (Type_Ref, bool) {
     n := node
@@ -29,6 +31,8 @@ type_ref_from_node :: proc(node: ts.Node, source: string) -> (Type_Ref, bool) {
         return Type_Ref{name = ts.node_text(n, source)}, true
     case "pointer_type":
         return type_ref_from_node(ts.node_named_child(n, 0), source)
+    case "procedure_type":
+        return Type_Ref{proc_sig = ts.node_text(n, source)}, true
     case "field_type":
         a := ts.node_named_child(n, 0)
         b := ts.node_named_child(n, 1)
@@ -40,27 +44,33 @@ type_ref_from_node :: proc(node: ts.Node, source: string) -> (Type_Ref, bool) {
         if count == 0 {
             return {}, false
         }
-        return contained_type(ts.node_named_child(n, count - 1), source, .Array)
+        return contained_type(ts.node_named_child(n, count - 1), source, Container_Layer{kind = .Array})
     case "map_type":
         if ts.node_named_child_count(n) < 2 {
             return {}, false
         }
-        return contained_type(ts.node_named_child(n, 1), source, .Map)
+        layer := Container_Layer{kind = .Map}
+        if key, kok := type_ref_from_node(ts.node_named_child(n, 0), source); kok && type_is_bare(key) {
+            layer.key = key.name
+            layer.key_pkg = key.pkg
+        }
+        return contained_type(ts.node_named_child(n, 1), source, layer)
+    case "bit_set_type":
+        // The element leads the brackets; a `; u8` backing type follows it as a
+        // `type` child, which is not what the set holds.
+        return contained_type(ts.node_named_child(n, 0), source, Container_Layer{kind = .Bit_Set})
     }
     return {}, false
 }
 
-// The element type of a container, tagged with the container that holds it. Only
-// one level is modelled: an element that is itself a container (`[][]Point`) has
-// no single type to name here.
+// The element type of a container, tagged with the container that holds it.
 @(private)
-contained_type :: proc(node: ts.Node, source: string, container: Container) -> (Type_Ref, bool) {
+contained_type :: proc(node: ts.Node, source: string, layer: Container_Layer) -> (Type_Ref, bool) {
     tr, ok := type_ref_from_node(node, source)
-    if !ok || tr.container != .None {
+    if !ok {
         return {}, false
     }
-    tr.container = container
-    return tr, true
+    return wrap_container(tr, layer)
 }
 
 // A type named in *expression* position (a composite literal's type, `new`'s
@@ -125,6 +135,11 @@ call_result_type :: proc(
 
     src, path, d, found := resolve_call_target(e, parser, root, req, call, fn)
     if !found || d.kind != "function" {
+        // `cb(v)` — a call of a proc-typed *value*. No declaration names it, so
+        // the result is read out of the signature its own type carries.
+        if tr, ok := infer_expr_type(e, parser, root, req, fn, depth); ok && tr.proc_sig != "" {
+            return proc_value_result(tr, index)
+        }
         // `Point(v)` — a conversion is spelled exactly like a call, and only the
         // declaration behind the name separates the two. With no procedure of that
         // name in reach the name is read as the type converted to; if it names
@@ -172,8 +187,13 @@ conversion_type_name :: proc(call, fn: ts.Node, source: string) -> (Type_Ref, bo
 @(private)
 proc_result_type :: proc(source: string, d: Def, index: int) -> (Type_Ref, bool) {
     start := clamp(d.ident_start, 0, len(source))
-    sig := source[start:clamp(d.decl_end, start, len(source))]
+    return signature_result_type(source[start:clamp(d.decl_end, start, len(source))], index)
+}
 
+// proc_result_type over signature text alone — what a proc *type* carries, having
+// no declaration to slice out of a file.
+@(private)
+signature_result_type :: proc(sig: string, index: int) -> (Type_Ref, bool) {
     // Skip the parameter list first, so neither a nested `proc() -> int` parameter
     // nor a default composite value (`x: Point = Point{}`) is mistaken for this
     // procedure's own result or body. What is left is `-> results` plus the body.
@@ -243,16 +263,13 @@ proc_param_type :: proc(source: string, d: Def, index: int) -> (Type_Ref, bool) 
     return param_type_ref(parts[i])
 }
 
-// One parameter's type text (`a: Axis`, `rest: ..int`, `c: int = 3`) as a
-// Type_Ref: the name, the variadic marker and any default value are stripped, and
-// what is left goes through result_type_ref — pointers, containers and package
-// qualifiers are spelled the same way in both positions.
+// One parameter's type text (`a: Axis`, `rest: ..int`, `c: int = 3`, an unnamed
+// `proc(a: int)`) as a Type_Ref: the name, the variadic marker and any default
+// value are stripped, and what is left goes through result_type_ref — pointers,
+// containers and package qualifiers are spelled the same way in both positions.
 @(private)
 param_type_ref :: proc(text: string) -> (Type_Ref, bool) {
-    s := strings.trim_space(text)
-    if colon := strings.index_byte(s, ':'); colon >= 0 {
-        s = strings.trim_space(s[colon + 1:])
-    }
+    s := strip_result_name(strings.trim_space(text))
     s = strings.trim_space(strings.trim_prefix(s, ".."))
     if eq := strings.index_byte(s, '='); eq >= 0 {
         s = s[:eq]
@@ -326,60 +343,134 @@ after_paren_group :: proc(text: string, want_inner := false) -> (string, bool) {
 }
 
 // One result's type text (`Point`, `p: ^Point`, `pkg.Point`, `[]Point`,
-// `map[string]Point`) as a Type_Ref: a named result drops its name, a pointer is
-// dereferenced (Odin auto-dereferences `.`), and a leading `[…]`/`map[…]` becomes
-// the container around the element type. Anything else — a proc type, a bit_set, a
-// generic `$T` — is rejected rather than guessed, matching type_ref_from_node's
-// reach. Text-based because a cross-file callee's tree is gone by now.
+// `map[string][]Point`, `bit_set[Axis]`, `proc() -> Point`) as a Type_Ref: a named
+// result drops its name, a pointer is dereferenced (Odin auto-dereferences `.`), a
+// proc type keeps its signature, and each leading `[…]`/`map[…]`/`bit_set[…]`
+// becomes one container around the element type. Anything else — a generic `$T`,
+// a struct written out in place — is rejected rather than guessed, matching
+// type_ref_from_node's reach. Text-based because a cross-file callee's tree is
+// gone by now.
 @(private)
 result_type_ref :: proc(text: string) -> (Type_Ref, bool) {
-    s := strings.trim_space(text)
-    if colon := strings.index_byte(s, ':'); colon >= 0 {
-        s = strings.trim_space(s[colon + 1:])
-    }
-    for strings.has_prefix(s, "^") {
-        s = strings.trim_space(s[1:])
-    }
-    // A trailing tail (`Point ---` on a foreign proc, a comment) is not part of it.
-    if space := strings.index_proc(s, strings.is_space); space >= 0 {
-        s = s[:space]
-    }
+    s := strip_result_name(strings.trim_space(text))
 
-    container := Container.None
-    if strings.has_prefix(s, "map[") {
-        rest, ok := after_bracket_group(s[3:])
-        if !ok {
+    // Outermost first, since that is the order they are written in; the element
+    // is wrapped in the reverse order, innermost first.
+    layers: [CONTAINER_DEPTH_LIMIT]Container_Layer
+    count := 0
+    for {
+        for strings.has_prefix(s, "^") {
+            s = strings.trim_space(s[1:])
+        }
+        if is_proc_signature(s) {
+            return wrap_layers(Type_Ref{proc_sig = s}, layers[:count])
+        }
+        layer: Container_Layer
+        rest: string
+        switch {
+        case strings.has_prefix(s, "map["):
+            inner, after, ok := bracket_group(s[3:])
+            if !ok {
+                return {}, false
+            }
+            layer = Container_Layer{kind = .Map}
+            if key, kok := plain_type_ref(strings.trim_space(inner)); kok {
+                layer.key = key.name
+                layer.key_pkg = key.pkg
+            }
+            rest = after
+        case strings.has_prefix(s, "bit_set["):
+            // The set holds what is inside the brackets, and what follows them is
+            // nothing — so a bit_set ends the walk rather than continuing it.
+            inner, _, ok := bracket_group(s[7:])
+            if !ok {
+                return {}, false
+            }
+            if semi := strings.index_byte(inner, ';'); semi >= 0 {
+                inner = inner[:semi] // `bit_set[Axis; u8]` — a backing type, not the element
+            }
+            elem, eok := plain_type_ref(strings.trim_space(inner))
+            if !eok || count >= CONTAINER_DEPTH_LIMIT {
+                return {}, false
+            }
+            layers[count] = Container_Layer{kind = .Bit_Set}
+            count += 1
+            return wrap_layers(elem, layers[:count])
+        case strings.has_prefix(s, "["):
+            _, after, ok := bracket_group(s)
+            if !ok {
+                return {}, false
+            }
+            layer = Container_Layer{kind = .Array}
+            rest = after
+        case:
+            // A trailing tail (`Point ---` on a foreign proc, a comment) is not
+            // part of the type; a container's brackets never hold a bare space.
+            if space := strings.index_proc(s, strings.is_space); space >= 0 {
+                s = s[:space]
+            }
+            tr, ok := plain_type_ref(s)
+            if !ok {
+                return {}, false
+            }
+            return wrap_layers(tr, layers[:count])
+        }
+        if count >= CONTAINER_DEPTH_LIMIT {
             return {}, false
         }
-        container = .Map
-        s = rest
-    } else if strings.has_prefix(s, "[") {
-        rest, ok := after_bracket_group(s)
-        if !ok {
-            return {}, false
-        }
-        container = .Array
-        s = rest
+        layers[count] = layer
+        count += 1
+        s = strings.trim_space(rest)
     }
-    for strings.has_prefix(s, "^") {
-        s = s[1:]
-    }
-
-    tr, ok := plain_type_ref(s)
-    if !ok {
-        return {}, false
-    }
-    tr.container = container
-    return tr, true
 }
 
-// The text after a balanced `[...]` group at the head of `text` (a container's
-// key or length). Nested brackets are counted, so `map[[2]int]Point` still lands
-// on `Point`.
+// `tr` wrapped in `layers`, which are ordered outermost first.
+@(private = "file")
+wrap_layers :: proc(tr: Type_Ref, layers: []Container_Layer) -> (Type_Ref, bool) {
+    out := tr
+    #reverse for layer in layers {
+        ok: bool
+        if out, ok = wrap_container(out, layer); !ok {
+            return {}, false
+        }
+    }
+    return out, true
+}
+
+// A named result or parameter without its name (`p: ^Point` → `^Point`). Only a
+// colon ahead of every bracket separates a name — one inside `proc(a: int)`
+// belongs to that signature.
+@(private = "file")
+strip_result_name :: proc(s: string) -> string {
+    for i in 0 ..< len(s) {
+        switch s[i] {
+        case ':':
+            return strings.trim_space(s[i + 1:])
+        case '(', '[', '{':
+            return s
+        }
+    }
+    return s
+}
+
+// Whether the text spells a procedure type (`proc()`, `proc "c" (a: int)`) rather
+// than naming one — the one type whose members are reached by calling it.
+@(private = "file")
+is_proc_signature :: proc(s: string) -> bool {
+    if !strings.has_prefix(s, "proc") {
+        return false
+    }
+    rest := s[4:]
+    return rest == "" || rest[0] == '(' || rest[0] == ' ' || rest[0] == '"'
+}
+
+// A balanced `[...]` group at the head of `text` (a container's key, length or
+// element): what it holds and what follows it. Nested brackets are counted, so
+// `map[[2]int]Point` still lands on `Point`.
 @(private)
-after_bracket_group :: proc(text: string) -> (string, bool) {
+bracket_group :: proc(text: string) -> (inner, rest: string, ok: bool) {
     if !strings.has_prefix(text, "[") {
-        return "", false
+        return "", "", false
     }
     depth := 0
     for i in 0 ..< len(text) {
@@ -389,11 +480,11 @@ after_bracket_group :: proc(text: string) -> (string, bool) {
         case ']':
             depth -= 1
             if depth == 0 {
-                return text[i + 1:], true
+                return text[1:i], text[i + 1:], true
             }
         }
     }
-    return "", false
+    return "", "", false
 }
 
 // A bare — optionally package-qualified — type name as a Type_Ref.

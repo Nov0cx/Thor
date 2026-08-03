@@ -10,6 +10,23 @@ import "core:strings"
 import lang ".."
 import ts "../../vendor/odin-tree-sitter"
 
+// Reads a source file the way the editor holds it: CRLF collapsed to LF. Every
+// offset the engine reports is in that space, so it means the same thing on
+// disk and in an open buffer. Read source through this, never os.read_entire_file.
+@(private)
+source_read :: proc(path: string, allocator := context.temp_allocator) -> (string, bool) {
+    data, rerr := os.read_entire_file(path, allocator)
+    if rerr != nil {
+        return "", false
+    }
+    source := string(data)
+    if !strings.contains(source, "\r\n") {
+        return source, true
+    }
+    out, _ := strings.replace_all(source, "\r\n", "\n", allocator)
+    return out, true
+}
+
 // Writes the resolved declaration into the result for the requested feature.
 // Owned strings use context.allocator, which the worker set to the Manager's
 // allocator, so they are freed on the main thread after the editor reads them.

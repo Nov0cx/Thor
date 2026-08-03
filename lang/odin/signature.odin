@@ -297,11 +297,10 @@ first_proc_in_file :: proc(
     parser: ts.Parser,
     path, name: string,
 ) -> (source: string, file: string, d: Def, ok: bool) {
-    data, rerr := os.read_entire_file(path, context.temp_allocator)
-    if rerr != nil {
+    src, sok := source_read(path)
+    if !sok {
         return "", "", {}, false
     }
-    src := string(data)
 
     tree := ts.parser_parse_string(parser, src)
     if tree == nil {

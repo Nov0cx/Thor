@@ -444,3 +444,229 @@ test_member_result_qualified_by_callee :: proc(t: ^testing.T) {
         testing.expectf(t, loc.start == want, "qualified result member: got %d, want %d", loc.start, want)
     }
 }
+
+@(test)
+test_member_nested_container :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    // Containers nest: each index or range strips exactly one level, so the
+    // element is only in reach once every level is gone. A declared type, a
+    // container literal and a call's result all carry the whole nesting.
+    src := `package demo
+
+Point :: struct {
+	x: int,
+	y: int,
+}
+
+Decoy :: struct {
+	x: int,
+	y: int,
+}
+
+grids :: proc() -> [][]Point {
+	return nil
+}
+
+main :: proc() {
+	grid: [][]Point
+	table: map[string][]Point
+	lit := [][]Point{}
+	called := grids()
+	_ = grid[0][1].x
+	_ = table["row"][0].y
+	_ = lit[0][0].x
+	_ = called[0][0].y
+	for row in grid {
+		_ = row[0].x
+	}
+}
+`
+    Probe :: struct {
+        needle: string,
+        field:  string,
+    }
+    probes := [?]Probe {
+        {"grid[0][1].x", "x: int"},
+        {"table[\"row\"][0].y", "y: int"},
+        {"lit[0][0].x", "x: int"},
+        {"called[0][0].y", "y: int"},
+        {"row[0].x", "x: int"},
+    }
+    for probe in probes {
+        at := strings.index(src, probe.needle) + len(probe.needle) - 1
+        loc, ok := resolve_offset(e, src, at)
+        defer delete(loc.path)
+        testing.expectf(t, ok, "expected %s to resolve through both container levels", probe.needle)
+        if ok {
+            want := strings.index(src, probe.field)
+            testing.expectf(t, loc.start == want, "%s: got %d, want %d", probe.needle, loc.start, want)
+        }
+    }
+
+    // One index short of the element is still a container, and offers nothing.
+    partial := `package demo
+
+Point :: struct {
+	x: int,
+	y: int,
+}
+
+main :: proc() {
+	grid: [][]Point
+	_ = grid[0].
+}
+`
+    res: lang.Result
+    selector_completions(e, partial, "grid[0].", &res)
+    defer free_symbols(&res)
+    testing.expect(t, !has_completion(&res, "x"), "an inner container must not offer its element's fields")
+}
+
+@(test)
+test_member_map_key :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    // A map's *first* range variable is its key, whose own fields resolve. The
+    // value keeps taking the second slot.
+    src := `package demo
+
+Key :: struct {
+	id: int,
+}
+
+Point :: struct {
+	x: int,
+}
+
+Decoy :: struct {
+	id: int,
+	x:  int,
+}
+
+main :: proc() {
+	table: map[Key]Point
+	for k, v in table {
+		_ = k.id
+		_ = v.x
+	}
+}
+`
+    at := strings.index(src, "k.id") + 2
+    loc, ok := resolve_offset(e, src, at)
+    defer delete(loc.path)
+    testing.expect(t, ok, "expected the map range's first variable to take the key type")
+    if ok {
+        want := strings.index(src, "id: int")
+        testing.expectf(t, loc.start == want, "map key member: got %d, want %d", loc.start, want)
+    }
+
+    at2 := strings.index(src, "v.x") + 2
+    loc2, ok2 := resolve_offset(e, src, at2)
+    defer delete(loc2.path)
+    testing.expect(t, ok2, "expected the map range's second variable to stay the value type")
+    if ok2 {
+        want := strings.index(src, "x: int") // Point's; the decoy writes `x:  int`
+        testing.expectf(t, loc2.start == want, "map value member: got %d, want %d", loc2.start, want)
+    }
+}
+
+@(test)
+test_completion_map_key_selector :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    // `m[.]` selects from the map's key type — an enum key completes there, while
+    // an array's integer index has no members to offer.
+    src := `package demo
+
+Axis :: enum {
+	Horizontal,
+	Vertical,
+}
+
+main :: proc() {
+	table: map[Axis]int
+	_ = table[.
+}
+`
+    res: lang.Result
+    selector_completions(e, src, "table[.", &res)
+    defer free_symbols(&res)
+    testing.expect(t, has_completion(&res, "Vertical"), "missing the key enum's member")
+
+    array := `package demo
+
+Axis :: enum {
+	Horizontal,
+	Vertical,
+}
+
+main :: proc() {
+	xs: []int
+	_ = xs[.
+}
+`
+    other: lang.Result
+    selector_completions(e, array, "xs[.", &other)
+    defer free_symbols(&other)
+    testing.expect(t, !has_completion(&other, "Vertical"), "an array index is no enum")
+}
+
+@(test)
+test_completion_container_literal_selector :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    // Inside a container's literal the element is what a bare `.` selects from —
+    // a bit_set's, a slice's, and the same through an assignment's left side. Each
+    // gets a buffer of its own: one unclosed literal is the shape a live edit has,
+    // three of them in one procedure is not.
+    head := `package demo
+
+Axis :: enum {
+	Horizontal,
+	Vertical,
+}
+
+main :: proc() {
+	later: bit_set[Axis]
+	`
+    for line in ([]string{"flags: bit_set[Axis] = {.", "xs: []Axis = {.", "later = {."}) {
+        src := strings.concatenate({head, line, "\n}\n"}, context.temp_allocator)
+        res: lang.Result
+        selector_completions(e, src, line, &res)
+        defer free_symbols(&res)
+        testing.expectf(t, has_completion(&res, "Vertical"), "%q: missing the element enum's member", line)
+    }
+}
+
+@(test)
+test_member_bit_set_element :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    // Ranging over a bit_set binds its element type, which a comparison against a
+    // bare `.` then selects from.
+    src := `package demo
+
+Axis :: enum {
+	Horizontal,
+	Vertical,
+}
+
+main :: proc() {
+	flags: bit_set[Axis]
+	for axis in flags {
+		if axis == . {
+		}
+	}
+}
+`
+    res: lang.Result
+    selector_completions(e, src, "axis == .", &res)
+    defer free_symbols(&res)
+    testing.expect(t, has_completion(&res, "Horizontal"), "expected the bit_set's element enum members")
+}

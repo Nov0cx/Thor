@@ -14,11 +14,13 @@ import lang ".."
 // assert the jump landed on the declaring identifier.
 @(private = "file")
 text_at :: proc(loc: lang.Location) -> string {
-    data, err := os.read_entire_file(loc.path, context.temp_allocator)
-    if err != nil {
+    // Through source_read: offsets are in the collapsed-CRLF space, and the
+    // toolchain's own sources are CRLF in a Windows checkout.
+    source, ok := source_read(loc.path)
+    if !ok {
         return ""
     }
-    return string(data[clamp(loc.start, 0, len(data)):])
+    return source[clamp(loc.start, 0, len(source)):]
 }
 
 // Go-to-definition on a bare builtin jumps into base:builtin.

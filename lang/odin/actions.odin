@@ -389,7 +389,7 @@ action_fill_switch_cases :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, r
         return // `switch { case a > b: }` switches over no value
     }
     tr, tok := infer_expr_type(e, parser, root, req, cond)
-    if !tok || tr.container != .None {
+    if !tok || !type_is_bare(tr) {
         return
     }
 

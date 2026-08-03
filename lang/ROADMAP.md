@@ -13,7 +13,10 @@ lowest latency.
   pool of worker threads (see **Bounded worker pool**), reaps `Result`s on the
   main thread via `manager_dispatch` (same
   mutex-guarded queue pattern as the file loader). Byte offsets are the position
-  currency, and a backend that wants the buffer *changed* answers with
+  currency, counted over source with CRLF collapsed to LF — the form the editor
+  holds a buffer in, so one offset means the same thing in a buffer and on disk.
+  A backend reads files through `source_read`, never `os.read_entire_file`. A
+  backend that wants the buffer *changed* answers with
   `Text_Edit`s the editor applies rather than writing files itself. In-flight requests are cancellable by id or by kind, and a superseded
   one is dropped without reaching the editor; the triggers that fire while typing
   are debounced into a per-kind slot so a burst of keystrokes dispatches once
@@ -151,7 +154,14 @@ lowest latency.
   ways signature help resolves it (same file, `pkg.fn(...)`, workspace index), and
   a multi-value return (`p, ok := find()`) taking the result slot the name binds
   to. A pointer is auto-dereferenced (`^Point`), and chained access (`a.b.c`)
-  recurses through each field's struct type. The struct is found in the same file,
+  recurses through each field's struct type. A **proc-typed value** carries its
+  signature instead of a type name — a proc type declares nothing to look up — so
+  calling one yields its declared result: a struct's callback field (`h.on(1).x`),
+  that field bound to a local (`cb := h.on; cb(1).x`) and a proc-typed variable
+  (`global().x`) all resolve, while the uncalled value stays the proc it is. A call
+  under a selector is spelled exactly like `pkg.fn(...)`, so the operand decides
+  which it is: a name the file imports is the package, anything else is a value.
+  The struct is found in the same file,
   an imported package, or the workspace index. Completion after `value.` lists the
   struct's fields, and an implicit enum selector offers the expected enum's
   members wherever the expected type is pinned down (see below). Inference
@@ -212,15 +222,23 @@ lowest latency.
   an embedded one of the same name, and a cycle between two structs embedding each
   other is depth-capped. Statement-level `using` (`using foo` inside a procedure,
   `using import`) is *not* followed.
-- **Containers** (`[]T`, `[N]T`, `[dynamic]T`, `map[K]V`): a container is tracked
-  as its element type plus the container holding it, so it is never mistaken *for*
-  that type — `xs.field` resolves nothing, while `xs[i].field`, `xs[1:3][i].field`
-  and `for p in xs { p.field }` all resolve to the element's field. A map indexes
-  and ranges to its **value** type (its key type isn't tracked, so the `k` in
-  `for k, v in m` doesn't resolve). Containers flow through the whole inference
-  layer: a declared type, a composite literal (`[]Point{...}`), a call's declared
-  result (`-> []Point`, read out of the signature text) and an element bound to a
-  `:=` local. Only one level is modelled — `[][]Point` is not inferred.
+- **Containers** (`[]T`, `[N]T`, `[dynamic]T`, `map[K]V`, `bit_set[E]`): a container
+  is tracked as its element type plus the **stack** of containers holding it, so it
+  is never mistaken *for* that type — `xs.field` resolves nothing, while
+  `xs[i].field`, `xs[1:3][i].field` and `for p in xs { p.field }` all resolve to the
+  element's field. Each index, slice or range strips exactly one level, so nesting
+  works and stops where it should: `grid[0][1].field` resolves and `grid[0].field`
+  does not. `CONTAINER_DEPTH_LIMIT` (4) bounds the nesting that is modelled at all.
+  A map indexes and ranges to its **value** type and its `for k, v in m` key to the
+  **key** type (a plain, optionally qualified key name — `map[[2]int]V` records
+  none), which is also what `m[.Member]` selects from. A bit_set holds its element
+  the same way: ranging over one binds the enum, and a literal of any container
+  (`bit_set[Axis] = {.}`, `[]Axis{.}`) offers the *element's* members to a bare `.`,
+  since a positional literal entry carries no field name to look up and the walk
+  climbs on to what pins the literal's own type down. Containers flow through the
+  whole inference layer: a declared type, a composite literal (`[]Point{...}`), a
+  call's declared result (`-> map[string][]Point`, read out of the signature text)
+  and an element bound to a `:=` local.
 - **Types qualified by another file's imports:** a type named in a file other than
   the requesting one (a callee's `-> other.Point`, an embedded `using base:
   other.Base`) carries the file it was written in, so its `pkg.` qualifier is
@@ -528,7 +546,7 @@ lowest latency.
 - [x] **dont show definiton when just hovering over a thing.** The hover popup is
       gated behind Ctrl (`editor_handle_hover` polls the key, as the Scroll case
       already did for zoom); a passive dwell resolves nothing.
-- [~] **Type-aware member access** (`foo.bar`): a struct-typed operand's field
+- [x] **Type-aware member access** (`foo.bar`): a struct-typed operand's field
       resolves (goto + hover + `value.` field completion), inferring the operand's
       type from its declaration — parameter or typed `var` — or from a `:=`
       initializer (composite literal, aliased value, `new(T)`, or a call's
@@ -537,19 +555,33 @@ lowest latency.
       Fields reached through `using` embedding answer as the outer struct's own
       (`member_visitor`/`fields_visitor` → `visit_embedded`, depth-capped by
       `EMBED_DEPTH_LIMIT`), and a container's element resolves once it is indexed,
-      sliced or ranged over.
+      sliced or ranged over — one level per step, so nested containers resolve at
+      the depth they are written to (`Type_Ref.containers`, a stack of
+      `Container_Layer` bounded by `CONTAINER_DEPTH_LIMIT`). A map's key is tracked
+      beside its value, so `for k, v in m` binds both and `m[.]` selects from the
+      key; `bit_set[E]` is a container of its enum, and a literal of any container
+      offers the element's members to a bare `.`. A **proc type** names no
+      declaration, so it carries its signature text (`Type_Ref.proc_sig`) and a call
+      of such a value reads the result out of it (`signature_result_type`) — which
+      is what makes a struct's callback field (`h.on(1).x`) resolve.
       Served by `resolve_member`/`infer_expr_type`/`binding_type_ref` + the
       `visit_type_decl` struct/enum locator (same file → imported package →
       workspace index → the origin file's imports for a qualified name), which
       follows `X :: Y` and `X :: distinct Y` aliases to what they stand for. A
       conversion (`cast(T)x`, `transmute(T)x`, `T(x)`) types its value by what it
       converts to, and a union narrows to a variant through `x.(T)` or a
-      `switch v in u` case. Still
-      missing: types that are neither a struct, an enum nor a container of one
-      (an un-narrowed union, bit_sets, proc fields), a container's own builtin
-      members, a map's
-      key type, nested containers (`[][]T`), and statement-level `using`. Those
-      fall through to the flat name scan. Member *completion* takes the same
+      `switch v in u` case.
+
+      **Still open:** an un-narrowed union has no members to offer and is left
+      alone; a container's own builtin members (a fixed array's `v.x` swizzle, an
+      `#soa` array's per-field slice) are not modelled; nesting past
+      `CONTAINER_DEPTH_LIMIT` is not inferred; and statement-level `using` is not
+      followed — the compiler disallows it without `#+feature using-stmt`, so
+      struct embedding is the only `using` that reaches ordinary code (see the
+      `using` note under **Package / import resolution**). Those all fall through
+      to the flat name scan.
+
+      Member *completion* takes the same
       operands goto and hover do — `a.b.`, `xs[0].` and `f().` all offer the
       struct they read as — by reading the operand off the tree
       (`complete_selector` → `operand_type_at`, the largest expression ending at
@@ -557,6 +589,17 @@ lowest latency.
       parse, so that case is answered off the same filler-identifier repair the
       implicit selector uses; a *second* dangling dot earlier in the same block
       still swallows the line under the caret, which a live edit doesn't produce.
+
+      Covered by `lang/odin/member_test.odin` (declared types, aliases,
+      conversions, type switches, call results, and
+      `test_member_proc_value_result` / `test_completion_proc_value_result` for
+      proc-typed fields, locals and variables) and `lang/odin/embed_test.odin`
+      (`using` embedding and containers: `test_member_nested_container` — both
+      levels of `[][]T`, `map[string][]T` and a `-> [][]T` result, plus one index
+      short offering nothing — `test_member_map_key`,
+      `test_completion_map_key_selector`,
+      `test_completion_container_literal_selector` and
+      `test_member_bit_set_element`).
 - [x] **Package / import resolution.** `import "core:fmt"` then `fmt.println` is
       followed (package-qualified goto/hover/completion resolve into the package
       dir); custom collections resolve via `.thor/odin-analyzer.json`. A type
@@ -592,14 +635,16 @@ lowest latency.
       (`call_result_type` → `resolve_call_target` + `proc_result_type`, which reads
       the type after `->` out of the signature text — the callee's tree is already
       freed by then, only its source survives), as do `x := new(T)`, `x := T{}` and
-      `x := y`. Multi-value returns bind per slot. Containers are modelled one
-      level deep (`Type_Ref.container`), so `-> []T` and `-> map[K]V` results are
-      no longer rejected: indexing, slicing or ranging over the value yields its
-      element (`range_var_type`, and the `index_expression`/`slice_expression`
-      cases of `infer_expr_result`). It is otherwise *declared*-type inference
-      only: no expression typing (arithmetic, casts, `or_else`), no generics
-      (`$T`), no map keys. Hover still shows the declaration text, not a computed
-      type.
+      `x := y`. Multi-value returns bind per slot. Containers are modelled as a
+      stack (`Type_Ref.containers`), so `-> []T`, `-> map[K]V` and
+      `-> map[string][]T` results are no longer rejected: indexing, slicing or
+      ranging over the value strips one level and yields what is left
+      (`range_var_type`, and the `index_expression`/`slice_expression` cases of
+      `infer_expr_result`), and a map's key type is tracked beside its value. A
+      proc type carries its signature, so calling a proc-typed value yields its
+      declared result. It is otherwise *declared*-type inference only: no
+      expression typing (arithmetic, casts, `or_else`), no generics (`$T`). Hover
+      still shows the declaration text, not a computed type.
 - [x] **Shadowing precision.** Resolution is lexical: a value declaration
       (`x := v`, `x: T = v`) is visible only past the declaration it sits in
       (`Def.visible_from` / `Binding.visible_from`), so a use above it names

@@ -87,7 +87,9 @@ subprocess LSP client left as an optional backend behind the same seam.
 
 - `lang/lang.odin` is the seam: a `Backend` vtable (`handles`/`resolve`/`destroy`), a `Manager` that
   routes a `Request` by file extension onto a worker pool and reaps `Result`s on the main thread.
-  **Byte offsets are the position currency** everywhere (the piece table works in bytes); an LSP
+  **Byte offsets are the position currency** everywhere (the piece table works in bytes), counted
+  over source with CRLF collapsed to LF — read files with `source_read`, not `os.read_entire_file`,
+  or offsets into a CRLF file miss by one byte per line; an LSP
   backend would convert UTF-16 at its own edge. A backend that wants the buffer changed answers with
   `Text_Edit`s — it never writes files itself.
 - Dispatch discipline: each request kind has exactly one consumer slot (`*_request_id`) on `Thor`, so

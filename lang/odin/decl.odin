@@ -76,8 +76,9 @@ find_type_decl :: proc(
 ) -> (Type_Ref, Decl_Hit) {
     // A container is not the type it holds: `xs: []Point` must be indexed or
     // ranged over before Point's fields are in reach, so every member operation
-    // (field goto, hover, field/enum completion) stops here.
-    if tr.container != .None {
+    // (field goto, hover, field/enum completion) stops here. A proc type names no
+    // declaration at all — only calling it yields one.
+    if !type_is_bare(tr) || tr.name == "" {
         return {}, .Missed
     }
     if alias, hit := probe_decl(root, req.source, req.path, tr.name, decl_type, visit, ctx); hit != .Missed {
@@ -205,11 +206,10 @@ visit_qualified_in_origin :: proc(
     visit: Decl_Visitor,
     ctx: rawptr,
 ) -> (Type_Ref, Decl_Hit) {
-    data, rerr := os.read_entire_file(tr.origin, context.temp_allocator)
-    if rerr != nil {
+    source, sok := source_read(tr.origin)
+    if !sok {
         return {}, .Missed
     }
-    source := string(data)
 
     tree := ts.parser_parse_string(parser, source)
     if tree == nil {
@@ -273,11 +273,10 @@ visit_decl_in_file :: proc(
     visit: Decl_Visitor,
     ctx: rawptr,
 ) -> (Type_Ref, Decl_Hit) {
-    data, rerr := os.read_entire_file(path, context.temp_allocator)
-    if rerr != nil {
+    source, sok := source_read(path)
+    if !sok {
         return {}, .Missed
     }
-    source := string(data)
 
     tree := ts.parser_parse_string(parser, source)
     if tree == nil {
@@ -446,7 +445,12 @@ clone_type_ref :: proc(tr: Type_Ref, path: string) -> Type_Ref {
     out := tr
     out.name = strings.clone(tr.name, context.temp_allocator)
     out.pkg = strings.clone(tr.pkg, context.temp_allocator)
+    out.proc_sig = strings.clone(tr.proc_sig, context.temp_allocator)
     out.origin = strings.clone(path, context.temp_allocator)
+    for i in 0 ..< out.depth {
+        out.containers[i].key = strings.clone(tr.containers[i].key, context.temp_allocator)
+        out.containers[i].key_pkg = strings.clone(tr.containers[i].key_pkg, context.temp_allocator)
+    }
     return out
 }
 

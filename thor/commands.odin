@@ -343,6 +343,8 @@ thor_register_commands :: proc(thor: ^Thor) {
     widgets.command_palette_add(p, "File: Next Tab", thor_cmd_next_tab, thor, sc(thor, "next_tab"))
     widgets.command_palette_add(p, "File: Previous Tab", thor_cmd_prev_tab, thor, sc(thor, "previous_tab"))
     widgets.command_palette_add(p, "File: Switch to Last File", thor_cmd_last_file, thor, sc(thor, "last_file"))
+    thor_add_bindable_command(thor, "File: Use LF Line Endings", "line_endings_lf", thor_cmd_line_endings_lf, thor)
+    thor_add_bindable_command(thor, "File: Use CRLF Line Endings", "line_endings_crlf", thor_cmd_line_endings_crlf, thor)
     thor_add_bindable_command(thor, "File: Copy Path", "copy_path", thor_cmd_copy_path, thor)
     thor_add_bindable_command(thor, "File: Reveal in File Explorer", "reveal_in_explorer", thor_cmd_reveal, thor)
 
@@ -421,6 +423,15 @@ thor_cmd_toggle_markdown_preview :: proc(data: rawptr) {
 thor_cmd_find :: proc(data: rawptr) {thor_open_find(cast(^Thor) data, false)}
 thor_cmd_replace :: proc(data: rawptr) {thor_open_find(cast(^Thor) data, true)}
 thor_cmd_save :: proc(data: rawptr) {thor_request_save(data)}
+
+thor_cmd_line_endings_lf :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    thor_set_line_ending(thor, thor_active_open_file(thor), .LF)
+}
+thor_cmd_line_endings_crlf :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    thor_set_line_ending(thor, thor_active_open_file(thor), .CRLF)
+}
 
 // Zoom commands drive both panes so a command-triggered zoom keeps the split in
 // sync (ctrl+scroll still zooms only the hovered pane).
