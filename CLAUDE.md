@@ -32,6 +32,11 @@ Tests run with the repository root as the working directory, so they find `asset
 `settings/`. When a package gets its first `_test.odin`, add it to the `packages` list in
 `run_tests` (`build.odin`) or CI-equivalent runs will skip it.
 
+A push of a `v*` tag runs `.github/workflows/release.yml`: it builds `-release` on all four CI
+platforms, packs `bin/release` (binary + `assets/`, `plugins/`, `settings/`) into a zip or tarball,
+and publishes them. The publish job needs every build job, so one broken platform makes no release.
+A manual run builds the same archives and stops before the publish.
+
 Linking needs MSVC on PATH (Thor links `harfbuzz.lib` and `libtree-sitter.lib`). `build.odin` locates
 `VsDevCmd.bat` itself via `vswhere`, so a plain shell works for `odin run build.odin`; a bare
 `odin build main` / `odin test <pkg>` requires a developer shell. `odin check` needs neither.
@@ -164,7 +169,8 @@ forward-only cursor).
 
 Adding a tree-sitter grammar means keeping **three lists in sync**, or the build breaks for everyone:
 the `GRAMMARS` table in `build.odin`, the hard imports + `h.languages[...]` registrations in
-`syntax/syntax.odin`, and the four `.github/workflows/*.yml`. Then add the `plugins/<id>/plugin.lua`.
+`syntax/syntax.odin`, and the four per-platform `.github/workflows/*.yml` (`release.yml` needs no
+edit — it calls `build.odin -- deps`, which reads `GRAMMARS`). Then add the `plugins/<id>/plugin.lua`.
 Grammars are compiled in; *queries* are data — a plugin's `highlights = "highlights.scm"` (or an
 inline query) replaces the built-in one via `syntax.set_highlights`, and a query that fails to
 compile is reported with its offset instead of silently uncoloring the language.

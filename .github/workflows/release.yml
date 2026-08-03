@@ -1,0 +1,310 @@
+name: Release
+
+# Builds an optimized Thor on every platform that CI covers, packs each one with
+# the resources it loads beside the binary (assets, plugins, settings), and
+# publishes the archives. The publish job needs every build job, so a release is
+# only made when all of them pass.
+#
+# A push of a tag v<version> makes the release. A manual run builds and packs the
+# same archives and stops before the publish, which tests this file without a tag.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # One name for every archive of one run.
+  meta:
+    name: Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - id: version
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="$(printf %s "$GITHUB_REF_NAME" | tr -c 'A-Za-z0-9._-' '-')-${GITHUB_SHA::7}"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  windows:
+    name: Windows
+    needs: meta
+    runs-on: windows-latest
+    env:
+      NAME: thor-${{ needs.meta.outputs.version }}-windows-x86_64
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # Puts cl/lib/link on PATH; required to build HarfBuzz, the tree-sitter
+      # runtime/parsers, and to link Thor (vendor:harfbuzz + libtree-sitter).
+      - uses: ilammy/msvc-dev-cmd@v1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - uses: laytan/setup-odin@v2
+        with:
+          release: latest
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # meson and ninja build HarfBuzz, which is a local static library on
+      # Windows. build.odin drives both, and its GRAMMARS list names the
+      # tree-sitter parsers, so this workflow keeps no list of its own.
+      - name: Build the dependencies
+        run: |
+          python -m pip install --upgrade pip meson ninja
+          odin run build.odin -file -- deps -verbose
+
+      - name: Build Thor
+        run: odin run build.odin -file -- all -release -verbose
+
+      # build.odin stages assets/, plugins/, settings/ and lua54.dll beside the
+      # binary; the archive is that directory under one top-level folder.
+      - name: Pack
+        run: |
+          Copy-Item README.md, LICENSE, keybinds.md bin/release
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Move-Item bin/release "dist/$env:NAME"
+          Compress-Archive -Path "dist/$env:NAME" -DestinationPath "dist/$env:NAME.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.NAME }}
+          path: dist/${{ env.NAME }}.zip
+          if-no-files-found: error
+
+  ubuntu:
+    name: Ubuntu
+    needs: meta
+    runs-on: ubuntu-latest
+    env:
+      NAME: thor-${{ needs.meta.outputs.version }}-linux-x86_64
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # System HarfBuzz (foreign import is "system:harfbuzz" on Linux) plus the
+      # X11/Wayland/GL libraries raylib links against.
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libharfbuzz-dev \
+            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
+            libgl1-mesa-dev libwayland-dev libxkbcommon-dev
+
+      - uses: laytan/setup-odin@v2
+        with:
+          release: latest
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Odin ships prebuilt vendor:stb only for Windows and macOS; ui/text.odin
+      # imports stb/truetype, so Linux has to compile them first.
+      - name: Build vendor STB libraries
+        run: make -C "$(odin root)vendor/stb/src"
+
+      - name: Build the dependencies
+        run: odin run build.odin -file -- deps -verbose
+
+      - name: Build Thor
+        run: odin run build.odin -file -- all -release -verbose
+
+      - name: Pack
+        run: |
+          cp README.md LICENSE keybinds.md bin/release/
+          mkdir -p dist
+          mv bin/release "dist/$NAME"
+          tar -czf "dist/$NAME.tar.gz" -C dist "$NAME"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.NAME }}
+          path: dist/${{ env.NAME }}.tar.gz
+          if-no-files-found: error
+
+  arch:
+    name: Arch Linux
+    needs: meta
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    env:
+      NAME: thor-${{ needs.meta.outputs.version }}-arch-x86_64
+    steps:
+      # base image is bare: install the toolchain (Odin links via clang), the
+      # tools the actions need (git/nodejs), system HarfBuzz and raylib's deps.
+      - name: Install dependencies
+        run: |
+          pacman -Syu --noconfirm --needed \
+            base-devel git nodejs curl tar grep \
+            llvm clang \
+            harfbuzz \
+            libx11 libxrandr libxinerama libxcursor libxi mesa wayland libxkbcommon
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # No setup-odin here (it assumes an Ubuntu-style toolchain); grab the
+      # official prebuilt linux release instead — it runs fine on Arch's glibc.
+      - name: Install Odin
+        run: |
+          url=$(curl -sL https://api.github.com/repos/odin-lang/Odin/releases/latest \
+            | grep -oE 'https://[^"]*odin-linux-amd64[^"]*\.tar\.gz')
+          curl -L "$url" -o odin.tar.gz
+          mkdir -p /opt/odin && tar xzf odin.tar.gz -C /opt/odin
+          echo "$(dirname "$(find /opt/odin -maxdepth 3 -type f -name odin | head -1)")" >> "$GITHUB_PATH"
+
+      # Odin ships prebuilt vendor:stb only for Windows and macOS; ui/text.odin
+      # imports stb/truetype, so Linux has to compile them first.
+      - name: Build vendor STB libraries
+        run: make -C "$(odin root)vendor/stb/src"
+
+      - name: Build the dependencies
+        run: odin run build.odin -file -- deps -verbose
+
+      - name: Build Thor
+        run: odin run build.odin -file -- all -release -verbose
+
+      - name: Pack
+        run: |
+          cp README.md LICENSE keybinds.md bin/release/
+          mkdir -p dist
+          mv bin/release "dist/$NAME"
+          tar -czf "dist/$NAME.tar.gz" -C dist "$NAME"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.NAME }}
+          path: dist/${{ env.NAME }}.tar.gz
+          if-no-files-found: error
+
+  macos:
+    name: macOS
+    needs: meta
+    runs-on: macos-latest
+    env:
+      NAME: thor-${{ needs.meta.outputs.version }}-macos-arm64
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # vendor:lua links Lua statically on Linux and against lua54.dll on Windows,
+      # but on Darwin it is `system:lua5.4`, so Lua is a build dependency here.
+      - name: Install HarfBuzz and Lua
+        run: brew install harfbuzz lua
+
+      # Homebrew names the library liblua.5.4.dylib; the linker asks for -llua5.4.
+      - name: Name Lua the way the linker asks for it
+        run: |
+          lib="$(brew --prefix)/lib"
+          [ -e "$lib/liblua5.4.dylib" ] || ln -sf "$(ls "$lib"/liblua*.dylib | head -n1)" "$lib/liblua5.4.dylib"
+
+      # The odin-harfbuzz binding only wires up Windows and Linux; on Darwin no
+      # `foreign import` matches and the build fails to link. Inject a Darwin
+      # branch (Homebrew's libharfbuzz, same as Linux) into every binding file.
+      - name: Add Darwin branch to HarfBuzz binding
+        run: |
+          find vendor/odin-harfbuzz -name '*.odin' -print0 | xargs -0 perl -0pi -e \
+            's/(else when ODIN_OS == \.Linux\s*\{\s*foreign import (\w+) "system:harfbuzz"\s*\})/$1 else when ODIN_OS == .Darwin \{ foreign import $2 "system:harfbuzz" \}/g'
+
+      - uses: laytan/setup-odin@v2
+        with:
+          release: latest
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build the dependencies
+        run: odin run build.odin -file -- deps -verbose
+
+      # build.odin points the linker at $HOMEBREW_PREFIX/lib, which the runner sets.
+      - name: Build Thor
+        run: odin run build.odin -file -- all -release -verbose
+
+      # The binary links the Homebrew copies of HarfBuzz and Lua, which the
+      # machine that downloads the archive does not have. dylibbundler copies each
+      # one (and what it depends on) beside the binary and rewrites the paths.
+      # Rewriting invalidates the signature, so arm64 needs an ad-hoc one again.
+      - name: Bundle the Homebrew libraries
+        run: |
+          brew install dylibbundler
+          dylibbundler -b -cd -of -x bin/release/thor -d bin/release/libs -p @executable_path/libs
+          codesign --force --sign - bin/release/libs/*.dylib
+          codesign --force --sign - bin/release/thor
+
+      - name: Pack
+        run: |
+          cp README.md LICENSE keybinds.md bin/release/
+          mkdir -p dist
+          mv bin/release "dist/$NAME"
+          tar -czf "dist/$NAME.tar.gz" -C dist "$NAME"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.NAME }}
+          path: dist/${{ env.NAME }}.tar.gz
+          if-no-files-found: error
+
+  # Every build job is a dependency, so one failed platform stops the release.
+  release:
+    name: Publish
+    if: github.ref_type == 'tag'
+    needs: [meta, windows, ubuntu, arch, macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Write the checksums
+        working-directory: dist
+        run: sha256sum *.zip *.tar.gz > SHA256SUMS
+
+      - name: Write the notes
+        run: |
+          cat > notes.md <<'EOF'
+          Unpack the archive of your platform and start `thor`. The binary reads
+          `assets/`, `plugins/` and `settings/` beside itself, so keep the folder
+          together.
+
+          - Linux needs HarfBuzz and the X11/Wayland and OpenGL libraries of the
+            system (`libharfbuzz`, `libx11`, `libxrandr`, `libxinerama`,
+            `libxcursor`, `libxi`, `mesa`, `wayland`, `libxkbcommon`).
+          - macOS keeps its libraries in the archive, but the download is in
+            quarantine: `xattr -dr com.apple.quarantine thor-*-macos-arm64`.
+          - `SHA256SUMS` holds the checksum of each archive.
+          EOF
+
+      - name: Publish the release
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --title "Thor $VERSION" \
+              --notes-file notes.md \
+              --generate-notes \
+              dist/*
+          fi

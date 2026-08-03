@@ -83,6 +83,7 @@ build_thor :: proc() -> bool {
     append(&args, fmt.tprintf("-out:%s", join(out_dir, EXE)))
     append_common_flags(&args)
     append_codegen_flags(&args)
+    append_link_flags(&args)
     if !exec_msvc(args[:]) {
         return false
     }
@@ -152,6 +153,7 @@ run_tests :: proc() -> bool {
         append(&args, fmt.tprintf("-out:bin/test/%s%s", out, EXE_EXT))
         append_common_flags(&args)
         append_codegen_flags(&args)
+        append_link_flags(&args)
         if !exec_msvc(args[:]) {
             return false
         }
@@ -195,6 +197,18 @@ append_codegen_flags :: proc(args: ^[dynamic]string) {
         append(args, "-o:speed", "-no-bounds-check", "-disable-assert")
     } else {
         append(args, "-debug", "-o:none")
+    }
+}
+
+// Homebrew keeps libharfbuzz and liblua5.4 out of the default search path of the
+// linker. HOMEBREW_PREFIX is set by brew and by the macOS runners of CI.
+append_link_flags :: proc(args: ^[dynamic]string) {
+    when ODIN_OS == .Darwin {
+        prefix := os.get_env("HOMEBREW_PREFIX", context.temp_allocator)
+        if prefix == "" {
+            prefix = "/opt/homebrew"
+        }
+        append(args, fmt.tprintf("-extra-linker-flags:-L%s/lib", prefix))
     }
 }
 
