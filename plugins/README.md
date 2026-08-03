@@ -54,6 +54,12 @@ asks once, for every waiting plugin in one prompt, and remembers the answer in
 again. Plugins asking for nothing — every language plugin — load without a
 prompt. Dismissing the prompt leaves those plugins unloaded for the session.
 
+Settings has a **Plugin Permissions** section listing every installed plugin
+that wants something, with what it wants and whether it is Allowed or Blocked.
+Allowing one there runs it immediately; blocking one that is already running
+takes effect on the next start, since a plugin cannot be taken back out of the
+running VM.
+
 Always available: `thor.register_language`, `thor.print`, `thor.keybind`,
 `thor.on_command`, `thor.workspace`, `thor.active_path`, `thor.refresh_git`,
 `thor.theme` and `thor.ts`.

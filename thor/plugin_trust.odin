@@ -78,6 +78,7 @@ thor_prompt_plugin_permissions :: proc(thor: ^Thor) {
         names := plugin.permission_names(request.perms, context.temp_allocator)
         strings.write_string(&b, strings.join(names, ", ", context.temp_allocator))
     }
+    strings.write_string(&b, "  (change later in Settings)")
     thor.plugin_prompt_message = strings.to_string(b)
 
     widgets.command_palette_confirm(
@@ -113,6 +114,81 @@ thor_clear_plugin_requests :: proc(thor: ^Thor) {
     thor.plugin_prompt_message = ""
 }
 
+// One plugin as the Settings modal shows it: what it wants, whether it may have
+// it, and whether it is running in this session. Strings use `allocator`.
+Plugin_Permission_State :: struct {
+    id:      string,
+    dir:     string,
+    perms:   plugin.Permissions,
+    allowed: bool,
+    loaded:  bool,
+}
+
+// Every installed plugin that asks for a permission, in scan order. Re-reads
+// disk, so the Settings modal always shows the current state.
+thor_plugin_permission_states :: proc(thor: ^Thor, allocator := context.temp_allocator) -> []Plugin_Permission_State {
+    granted := thor_read_plugin_grants(context.temp_allocator)
+    out := make([dynamic]Plugin_Permission_State, allocator)
+    for p in plugin.manager_scan(&thor.plugins) {
+        if p.perms == {} {
+            continue
+        }
+        allowed, known := granted[p.id]
+        _, loaded := plugin.manager_permissions(&thor.plugins, p.id)
+        append(&out, Plugin_Permission_State {
+            id      = strings.clone(p.id, allocator),
+            dir     = strings.clone(p.dir, allocator),
+            perms   = p.perms,
+            allowed = known && p.perms - allowed == {},
+            loaded  = loaded,
+        })
+    }
+    return out[:]
+}
+
+// Allows or denies `id`, remembering the answer. Allowing runs the plugin at
+// once when it is not already running; denying only takes effect on restart,
+// since a loaded plugin cannot be taken back out of the VM.
+thor_set_plugin_allowed :: proc(thor: ^Thor, id: string, allow: bool) {
+    known := thor_read_plugin_grants(context.temp_allocator)
+    state: Plugin_Permission_State
+    found := false
+    for candidate in thor_plugin_permission_states(thor) {
+        if candidate.id == id {
+            state = candidate
+            found = true
+            break
+        }
+    }
+    if !found {
+        return
+    }
+
+    if allow {
+        known[id] = state.perms
+    } else if id in known {
+        delete_key(&known, id)
+    }
+    thor_save_plugin_grants(known)
+
+    if allow && !state.loaded {
+        if plugin.manager_load_plugin(&thor.plugins, state.id, state.dir, state.perms) {
+            thor_flash_status(thor, "Plugin loaded")
+        }
+        // The plugin is no longer waiting on the prompt.
+        for request, i in thor.plugin_requests {
+            if request.id == id {
+                delete(request.id)
+                delete(request.dir)
+                ordered_remove(&thor.plugin_requests, i)
+                break
+            }
+        }
+    } else if !allow && state.loaded {
+        thor_flash_status(thor, "Plugin stays active until Thor restarts")
+    }
+}
+
 // Reads the remembered answers as id -> permissions. Keys use `allocator`.
 @(private = "file")
 thor_read_plugin_grants :: proc(allocator := context.allocator) -> map[string]plugin.Permissions {
@@ -132,20 +208,25 @@ thor_read_plugin_grants :: proc(allocator := context.allocator) -> map[string]pl
     return out
 }
 
-// Records the answers, keeping the ones already on file for plugins that are not
-// installed right now.
+// Records the prompt's answers, keeping the ones already on file for plugins
+// that are not installed right now.
 @(private = "file")
 thor_write_plugin_grants :: proc(thor: ^Thor) {
+    known := thor_read_plugin_grants(context.temp_allocator)
+    for request in thor.plugin_requests {
+        known[request.id] = request.perms
+    }
+    thor_save_plugin_grants(known)
+}
+
+// Writes the grant file from `known`.
+@(private = "file")
+thor_save_plugin_grants :: proc(known: map[string]plugin.Permissions) {
     if !os.is_dir("sessions") {
         if err := os.make_directory("sessions"); err != nil {
             log.errorf("Could not create sessions dir: %v", err)
             return
         }
-    }
-
-    known := thor_read_plugin_grants(context.temp_allocator)
-    for request in thor.plugin_requests {
-        known[request.id] = request.perms
     }
 
     entries := make([dynamic]Plugin_Grant, 0, len(known), context.temp_allocator)

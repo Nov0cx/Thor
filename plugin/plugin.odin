@@ -308,6 +308,17 @@ manager_load :: proc(m: ^Manager, pattern := "plugins/*/plugin.lua") {
     }
 }
 
+// The permissions a loaded plugin runs with. `ok` is false when it never loaded,
+// which is how the host tells "denied" from "granted nothing".
+manager_permissions :: proc(m: ^Manager, id: string) -> (perms: Permissions, ok: bool) {
+    for p in m.plugins {
+        if p.id == id {
+            return p.perms, true
+        }
+    }
+    return {}, false
+}
+
 // Loads `source` as a plugin named `id` rooted at `dir`, granting `perms`
 // outright. For plugins that do not come from the plugins folder, and for tests.
 manager_load_source :: proc(m: ^Manager, id, dir, source: string, perms: Permissions) -> bool {

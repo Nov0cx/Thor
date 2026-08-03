@@ -1,8 +1,11 @@
 package thor
 
+import "core:fmt"
 import "core:slice"
+import "core:strings"
 import rl "vendor:raylib"
 
+import "../plugin"
 import "../setting"
 import "../ui"
 import "../widgets"
@@ -54,6 +57,18 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
     widgets.settings_view_add_header(view, "WINDOWS")
     widgets.settings_view_add_choice(view, "open_folder_in", "Open Folder In", thor_open_folder_in_label(&thor.config))
 
+    // Only plugins that want a permission: the language plugins want none, and
+    // listing three dozen "nothing to allow" rows would bury the ones that do.
+    states := thor_plugin_permission_states(thor)
+    if len(states) > 0 {
+        widgets.settings_view_add_header(view, "PLUGIN PERMISSIONS")
+        for state in states {
+            names := plugin.permission_names(state.perms, context.temp_allocator)
+            label := fmt.tprintf("%s (%s)", state.id, strings.join(names, ", ", context.temp_allocator))
+            widgets.settings_view_add_choice(view, thor_plugin_setting_id(state.id), label, state.allowed ? "Allowed" : "Blocked")
+        }
+    }
+
     widgets.settings_view_add_header(view, "KEYBINDINGS")
     actions := make([dynamic]string, context.temp_allocator)
     for action in thor.config.keybinds {
@@ -79,6 +94,10 @@ thor_on_setting_number :: proc(data: rawptr, id: string, value: int) {
 // persists and reloads on its own.
 thor_on_setting_choice :: proc(data: rawptr, id: string) {
     thor := cast(^Thor) data
+    if plugin_id, is_plugin := thor_plugin_setting_name(id); is_plugin {
+        thor_cmd_change_plugin_permission(thor, plugin_id)
+        return
+    }
     switch id {
     case "theme":
         thor_cmd_change_theme(thor)
@@ -124,6 +143,63 @@ thor_open_folder_in_commit :: proc(data: rawptr, choice: string) {
         }
     }
     thor_persist_open_folder_in(thor, picked)
+    if widgets.settings_view_is_open(thor.settings_view) {
+        thor_populate_settings_view(thor)
+    }
+}
+
+// Settings row ids for plugin permissions are prefixed, so one Choice handler
+// tells them from the fixed rows.
+@(private = "file")
+PLUGIN_SETTING_PREFIX :: "plugin:"
+
+@(private = "file")
+thor_plugin_setting_id :: proc(plugin_id: string) -> string {
+    return strings.concatenate({PLUGIN_SETTING_PREFIX, plugin_id}, context.temp_allocator)
+}
+
+// The plugin a settings row id names, if it names one.
+@(private = "file")
+thor_plugin_setting_name :: proc(id: string) -> (string, bool) {
+    if !strings.has_prefix(id, PLUGIN_SETTING_PREFIX) {
+        return "", false
+    }
+    return id[len(PLUGIN_SETTING_PREFIX):], true
+}
+
+@(private = "file")
+PLUGIN_PERMISSION_LABELS := [?]string {"Allowed", "Blocked"}
+
+// Settings row: allow or block one plugin's permissions. Allowing runs the
+// plugin at once; blocking a running one waits for a restart.
+@(private = "file")
+thor_cmd_change_plugin_permission :: proc(thor: ^Thor, plugin_id: string) {
+    current := "Blocked"
+    for state in thor_plugin_permission_states(thor) {
+        if state.id == plugin_id {
+            current = state.allowed ? "Allowed" : "Blocked"
+            break
+        }
+    }
+    delete(thor.plugin_setting_target)
+    thor.plugin_setting_target = strings.clone(plugin_id)
+    widgets.select_dialog_open(
+        thor.select_dialog, &thor.ui_context, "Plugin Permissions",
+        PLUGIN_PERMISSION_LABELS[:], current,
+        thor_plugin_permission_preview, thor_plugin_permission_commit, thor,
+    )
+}
+
+@(private = "file")
+thor_plugin_permission_preview :: proc(_: rawptr, _: string) {}
+
+@(private = "file")
+thor_plugin_permission_commit :: proc(data: rawptr, choice: string) {
+    thor := cast(^Thor) data
+    if thor.plugin_setting_target == "" {
+        return
+    }
+    thor_set_plugin_allowed(thor, thor.plugin_setting_target, choice == "Allowed")
     if widgets.settings_view_is_open(thor.settings_view) {
         thor_populate_settings_view(thor)
     }

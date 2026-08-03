@@ -131,6 +131,8 @@ Thor :: struct {
     plugin_requests:          [dynamic]Plugin_Request,
     plugin_prompt_message:    string, // owned; the palette borrows it
     plugin_prompt_shown:      bool,
+    // Plugin whose permission row opened the picker (see settings_ui.odin).
+    plugin_setting_target:    string, // owned
     plugin_dock_right:        ^widgets.Panel,
     plugin_dock_right_stack:  ^widgets.Stack,
     plugin_dock_bottom:       ^widgets.Panel,
@@ -598,6 +600,7 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.plugin_panels)
     thor_clear_plugin_requests(thor)
     delete(thor.plugin_requests)
+    delete(thor.plugin_setting_target)
     setting.destroy(&thor.config)
     plugin.manager_destroy(&thor.plugins)
 

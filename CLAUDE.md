@@ -154,7 +154,9 @@ io/package/debug/`load`), path-confined file access, a two-second wall-clock bud
 `thor` table holding only what `plugins/<id>/plugin.json` grants (`exec`/`read`/`write`/`ui`/`keys`).
 A plugin that wants a permission stays unloaded until the user allows it: `thor_load_plugins`
 (`thor/plugin_trust.odin`) scans first, runs the permission-free plugins at once, and holds the rest
-for one batched prompt whose answer lands in `sessions/plugin-grants.json`.
+for one batched prompt whose answer lands in `sessions/plugin-grants.json`. Settings shows the same
+state as a "PLUGIN PERMISSIONS" section (`thor/settings_ui.odin`): allowing there loads the plugin on
+the spot, blocking a running one waits for a restart.
 Two rules keep the layering: a Lua C callback runs under `runtime.default_context()`, so anything
 allocating host-owned data must first set `context.allocator = m.allocator`; and the `plugin` package
 never touches UI — `thor.panel` describes widgets as `View_Node` data (`plugin/view.odin`) that
