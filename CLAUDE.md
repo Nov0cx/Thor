@@ -150,3 +150,7 @@ to one line. Field comments stay short (`// owned`, `// NOREF when unset`). Use 
 
 Indentation is four spaces, not tabs — which is why `-strict-style` is deliberately absent from the
 build flags (`-vet` is available via `build.odin -- -vet`).
+
+## Other missing features
+
+look at .todo.txt

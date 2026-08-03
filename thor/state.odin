@@ -73,6 +73,7 @@ thor_bind_editor :: proc(thor: ^Thor, editor: ^widgets.Editor, file: ^Open_File)
             switch {
             case file.load_failed: editor.placeholder = "Could not open file"
             case file.is_image:    editor.placeholder = "Image"
+            case file.is_model:    editor.placeholder = "3D Model"
             case:                  editor.placeholder = "Loading..."
             }
         }
@@ -140,7 +141,8 @@ thor_sync_pane_diff :: proc(thor: ^Thor, pane: int) {
     }
 }
 
-// Swaps the image view in for image files (a whole-panel overlay), and swaps
+// Swaps the image view in for image files and the model view in for 3D models
+// (both whole-panel overlays), and swaps
 // the markdown preview in for whichever pane is not currently focused when the
 // active file is markdown and preview is on -- the focused pane keeps showing
 // the source, like opening the preview "to the side". Called every frame so it
@@ -148,16 +150,24 @@ thor_sync_pane_diff :: proc(thor: ^Thor, pane: int) {
 thor_update_editor_view :: proc(thor: ^Thor) {
     file := thor_active_open_file(thor)
     show_image := file != nil && file.is_image && file.texture_loaded
-    show_md := !show_image && thor.markdown_preview &&
+    show_model := file != nil && file.is_model && file.model_loaded
+    show_md := !show_image && !show_model && thor.markdown_preview &&
         file != nil && file.loaded && thor_is_markdown(file.name)
 
     thor.image_view.visible = show_image
-    thor.editor_split_row.visible = !show_image
+    thor.model_view.visible = show_model
+    thor.editor_split_row.visible = !show_image && !show_model
 
     if show_image {
         widgets.image_view_set_texture(thor.image_view, file.texture, file.name)
     } else {
         widgets.image_view_set_texture(thor.image_view, {}, "")
+    }
+
+    if show_model {
+        widgets.model_view_set_model(thor.model_view, file.model, file.model_bounds, file.name)
+    } else {
+        widgets.model_view_set_model(thor.model_view, {}, {}, "")
     }
 
     // The preview needs a second pane to sit beside the source; open the split

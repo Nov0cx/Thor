@@ -49,6 +49,8 @@ Thor :: struct {
     // Overlays the editor panel when the active file is an image; the editor
     // rows are hidden while it shows.
     image_view:               ^widgets.Image_View,
+    // The same overlay for 3D model files: an orbit camera over the loaded meshes.
+    model_view:               ^widgets.Model_View,
     // Rendered markdown preview, shown in place of whichever pane is not
     // focused (pane 0's slot / pane 1's slot respectively) while preview is on
     // and the active file is markdown. Toggled by "View: Toggle Markdown Preview".

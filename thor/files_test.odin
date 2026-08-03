@@ -30,10 +30,11 @@ test_async_file_roundtrip :: proc(t: ^testing.T) {
     thor.pane_file = {-1, -1}
     thor.editor = widgets.editor_create("test-editor")
     thor.editor2 = widgets.editor_create("test-editor2")
-    // thor_update_files picks the view for the active file, so the image and
-    // markdown views have to exist even though nothing draws them here.
+    // thor_update_files picks the view for the active file, so the image, model
+    // and markdown views have to exist even though nothing draws them here.
     thor.editor_split_row = widgets.stack_create("test-editor-split-row", .Horizontal)
     thor.image_view = widgets.image_view_create("test-image-view")
+    thor.model_view = widgets.model_view_create("test-model-view")
     thor.markdown_view = widgets.markdown_view_create("test-markdown-view")
     thor.markdown_view2 = widgets.markdown_view_create("test-markdown-view2")
     defer {
@@ -45,6 +46,7 @@ test_async_file_roundtrip :: proc(t: ^testing.T) {
         widgets.editor_destroy(&thor.editor2.widget)
         widgets.stack_destroy(&thor.editor_split_row.widget)
         widgets.image_view_destroy(&thor.image_view.widget)
+        widgets.model_view_destroy(&thor.model_view.widget)
         widgets.markdown_view_destroy(&thor.markdown_view.widget)
         widgets.markdown_view_destroy(&thor.markdown_view2.widget)
     }
@@ -193,6 +195,7 @@ test_make_thor :: proc() -> ^Thor {
     thor.editor2 = widgets.editor_create("test-editor2")
     thor.editor_split_row = widgets.stack_create("test-editor-split-row", .Horizontal)
     thor.image_view = widgets.image_view_create("test-image-view")
+    thor.model_view = widgets.model_view_create("test-model-view")
     thor.markdown_view = widgets.markdown_view_create("test-markdown-view")
     thor.markdown_view2 = widgets.markdown_view_create("test-markdown-view2")
     return thor
@@ -209,6 +212,7 @@ test_free_thor :: proc(thor: ^Thor) {
     widgets.editor_destroy(&thor.editor2.widget)
     widgets.stack_destroy(&thor.editor_split_row.widget)
     widgets.image_view_destroy(&thor.image_view.widget)
+    widgets.model_view_destroy(&thor.model_view.widget)
     widgets.markdown_view_destroy(&thor.markdown_view.widget)
     widgets.markdown_view_destroy(&thor.markdown_view2.widget)
     free(thor)

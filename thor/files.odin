@@ -79,6 +79,12 @@ Open_File :: struct {
     is_image:           bool,
     texture:            rl.Texture2D,
     texture_loaded:     bool,
+    // 3D model files take the same bypass as images: the meshes upload to the
+    // GPU and show in the model view instead of the editor. `loaded` stays false.
+    is_model:           bool,
+    model:              rl.Model,
+    model_bounds:       rl.BoundingBox,
+    model_loaded:       bool,
 }
 
 // Loaded via a memory mapping on a worker thread; the main thread copies the
@@ -358,11 +364,15 @@ thor_open_file :: proc(thor: ^Thor, path: string) {
     textedit.init(&file.state)
     append(&thor.open_files, file)
 
-    // Images load straight into a texture (GL context is on this thread) and
-    // skip the text loader; everything else goes through the async piece-table load.
+    // Images and models load straight onto the GPU (the GL context is on this
+    // thread) and skip the text loader; everything else goes through the async
+    // piece-table load.
     if thor_is_image_path(file.name) {
         file.is_image = true
         thor_load_image(file)
+    } else if thor_is_model_path(file.name) {
+        file.is_model = true
+        thor_load_model(file)
     } else {
         file.pending_jobs += 1
         thor.inflight_jobs += 1
@@ -379,12 +389,12 @@ thor_open_file :: proc(thor: ^Thor, path: string) {
 
 // Reloads an already-open file's buffer from disk after an external change (fed
 // by the file watcher). Skips a buffer with unsaved edits (the user's changes
-// win), one already being saved or reloaded, images, and files that never
+// win), one already being saved or reloaded, images, models, and files that never
 // finished their initial load. Goes through the same async mapping path as a
 // fresh load; the reap (thor_apply_reload) diffs the bytes and only replaces a
 // clean buffer, so our own saves echoing back through the watcher are no-ops.
 thor_reload_file :: proc(thor: ^Thor, file: ^Open_File) {
-    if file.closed || file.is_image || file.load_failed || file.saving || file.reloading {
+    if file.closed || file.is_image || file.is_model || file.load_failed || file.saving || file.reloading {
         return
     }
     if !file.loaded {
@@ -472,6 +482,42 @@ thor_load_image :: proc(file: ^Open_File) {
     rl.SetTextureFilter(texture, .BILINEAR)
     file.texture = texture
     file.texture_loaded = true
+}
+
+// Recognized 3D model extensions, matched case-insensitively on the name.
+// These are exactly what raylib's LoadModel reads; FBX has no Odin binding, so
+// it stays a binary file. A .mtl beside an .obj is still just text.
+@(private = "file")
+thor_is_model_path :: proc(name: string) -> bool {
+    dot := strings.last_index_byte(name, '.')
+    if dot < 0 {
+        return false
+    }
+    ext := strings.to_lower(name[dot:], context.temp_allocator)
+    switch ext {
+    case ".obj", ".gltf", ".glb", ".iqm", ".vox", ".m3d":
+        return true
+    }
+    return false
+}
+
+// Uploads a model file to GPU meshes on the main thread. raylib resolves the
+// materials and textures relative to the path it is given, so the absolute path
+// matters here (Thor's working directory is the executable, not the workspace).
+// On failure the tab shows the load-failed placeholder, matching a bad image.
+@(private = "file")
+thor_load_model :: proc(file: ^Open_File) {
+    path := strings.clone_to_cstring(file.path, context.temp_allocator)
+    model := rl.LoadModel(path)
+    if !rl.IsModelValid(model) {
+        rl.UnloadModel(model) // frees the default material LoadModel still made
+        file.load_failed = true
+        log.warnf("Failed to load model %q", file.path)
+        return
+    }
+    file.model = model
+    file.model_bounds = rl.GetModelBoundingBox(model)
+    file.model_loaded = true
 }
 
 thor_close_file :: proc(thor: ^Thor, index: int) {
@@ -747,6 +793,9 @@ thor_process_io :: proc(thor: ^Thor) {
 thor_free_open_file :: proc(file: ^Open_File) {
     if file.texture_loaded {
         rl.UnloadTexture(file.texture)
+    }
+    if file.model_loaded {
+        rl.UnloadModel(file.model)
     }
     textedit.destroy(&file.state)
     delete(file.highlights)

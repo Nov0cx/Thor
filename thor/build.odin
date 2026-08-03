@@ -320,6 +320,20 @@ thor_build_content :: proc(thor: ^Thor) {
     ui.widget_set_grow(&thor.image_view.widget, 1)
     thor.image_view.visible = false
 
+    thor.model_view = widgets.model_view_create("model-view")
+    widgets.model_view_set_colors(
+        thor.model_view,
+        thor.theme.background,
+        thor.theme.second_background,
+        thor.theme.buttons,
+        thor.theme.white_black_color,
+        thor.theme.second_background,
+        thor.theme.highlight,
+        thor.theme.accent_color,
+    )
+    ui.widget_set_grow(&thor.model_view.widget, 1)
+    thor.model_view.visible = false
+
     thor.markdown_view = widgets.markdown_view_create("markdown-view")
     widgets.markdown_view_set_colors(thor.markdown_view, thor.theme)
     thor.markdown_view.visible = false
@@ -400,8 +414,9 @@ thor_build_content :: proc(thor: ^Thor) {
     widgets.append_child(&thor.editor_split_row.widget, &thor.editor_split_splitter.widget)
     widgets.append_child(&thor.editor_split_row.widget, &thor.editor2.widget)
     widgets.append_child(&thor.editor_split_row.widget, &thor.markdown_view2.widget)
-    // Added after the split row so it overlays both panes when shown.
+    // Added after the split row so they overlay both panes when shown.
     widgets.append_child(&thor.editor_panel.widget, &thor.image_view.widget)
+    widgets.append_child(&thor.editor_panel.widget, &thor.model_view.widget)
 
     widgets.append_child(&thor.console_stack.widget, &thor.console_header.widget)
     widgets.append_child(&thor.console_stack.widget, &thor.console.widget)

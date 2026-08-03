@@ -42,7 +42,8 @@
                 "loader-2",
                 "plus",
                 "caret-down",
-                "player-play"
+                "player-play",
+                "3d-rotate"
             ],
             "icons": {
                 "12-hours": "\ufc53",
