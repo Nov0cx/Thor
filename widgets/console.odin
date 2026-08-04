@@ -149,9 +149,8 @@ console_set_link_color :: proc(console: ^Console, color: rl.Color) {
 @(private = "file")
 console_line_index_at :: proc(console: ^Console, pos: rl.Vector2) -> int {
     line_height := console_line_height(console)
-    pad: f32 = 8
-    input_height := line_height + 8
-    output_bottom := console.bounds.y + console.bounds.height - input_height
+    pad: f32 = CONSOLE_PAD_Y
+    output_bottom := console.bounds.y + console.bounds.height - console_input_height(console)
     if pos.x < console.bounds.x || pos.x >= console.bounds.x + console.bounds.width {
         return -1
     }
@@ -335,6 +334,26 @@ console_line_height :: proc(console: ^Console) -> f32 {
     return cast(f32) ui.text_line_height(console.font_size)
 }
 
+@(private = "file")
+CONSOLE_PAD_X :: 12
+@(private = "file")
+CONSOLE_PAD_Y :: 8
+
+// Height of the input row pinned to the bottom, separator included.
+@(private = "file")
+console_input_height :: proc(console: ^Console) -> f32 {
+    return console_line_height(console) + 14
+}
+
+// Scroll offset that puts the last line at the bottom of the output area. The
+// view stops there, so the scrollback never scrolls into blank space.
+@(private = "file")
+console_max_scroll :: proc(console: ^Console) -> f32 {
+    lines := strings.count(strings.to_string(console.output), "\n") + 1
+    content_height := cast(f32) lines * console_line_height(console)
+    return max(0, content_height - (console.bounds.height - console_input_height(console)))
+}
+
 console_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event) -> bool {
     console := cast(^Console) widget
 
@@ -353,11 +372,10 @@ console_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Even
         }
         return true
     case .Scroll:
-        console.scroll_y -= event.wheel_delta * console_line_height(console) * 2
-        console.autoscroll = false
-        if console.scroll_y < 0 {
-            console.scroll_y = 0
-        }
+        max_scroll := console_max_scroll(console)
+        console.scroll_y = clamp(console.scroll_y - event.wheel_delta * console_line_height(console) * 2, 0, max_scroll)
+        // Following new output resumes once the view is back at the last line.
+        console.autoscroll = console.scroll_y >= max_scroll
         return true
     case .Text_Input:
         if event.ctrl && !event.alt {
@@ -415,8 +433,8 @@ console_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
     rl.DrawRectangleRec(console.bounds, console.background_color)
 
     line_height := console_line_height(console)
-    pad: f32 = 8
-    input_height := line_height + 8
+    pad: f32 = CONSOLE_PAD_Y
+    input_height := console_input_height(console)
     output_rect := rl.Rectangle {
         x = console.bounds.x,
         y = console.bounds.y,
@@ -426,9 +444,10 @@ console_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
 
     lines := strings.split(strings.to_string(console.output), "\n", context.temp_allocator)
     content_height := cast(f32) len(lines) * line_height
-    if console.autoscroll {
-        console.scroll_y = max(0, content_height - output_rect.height)
-    }
+    // Output that shrinks (a rewound line, a clear) can leave a stale offset past
+    // the end, so the clamp runs whether or not the view is following.
+    max_scroll := max(0, content_height - output_rect.height)
+    console.scroll_y = console.autoscroll ? max_scroll : clamp(console.scroll_y, 0, max_scroll)
 
     // The scrollback line under the cursor, tested for a navigable link so it can
     // be highlighted and underlined.
@@ -451,22 +470,28 @@ console_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
                 e = clamp(e, s, len(line))
                 prefix_w := ui.measure_text(line[:s], console.font_size)
                 span_w := ui.measure_text(line[s:e], console.font_size)
-                ux := cast(i32) (console.bounds.x + pad) + prefix_w
+                ux := cast(i32) (console.bounds.x + CONSOLE_PAD_X) + prefix_w
                 rl.DrawRectangle(ux, cast(i32) y + console.font_size, span_w, 1, console.link_color)
             }
         }
-        ui.draw_text(line, cast(i32) (console.bounds.x + pad), cast(i32) y, console.font_size, color)
+        ui.draw_text(line, cast(i32) (console.bounds.x + CONSOLE_PAD_X), cast(i32) y, console.font_size, color)
     }
     ui.end_clip()
 
-    // Prompt line pinned to the bottom. It stays editable while a command runs,
-    // dimmed, since the command may be reading stdin.
-    input_y := console.bounds.y + console.bounds.height - input_height + 4
+    // Input row pinned to the bottom, marked off from the scrollback by a hairline.
+    // It stays editable while a command runs, with the prompt dimmed, since the
+    // command may be reading stdin.
+    input_top := console.bounds.y + console.bounds.height - input_height
+    rule := console.text_color
+    rule.a = 36
+    rl.DrawRectangle(cast(i32) console.bounds.x, cast(i32) input_top, cast(i32) console.bounds.width, 1, rule)
+
+    input_y := input_top + 7
     prompt_color := console.running ? console.text_color : console.prompt_color
-    ui.draw_text(console.prompt, cast(i32) (console.bounds.x + pad), cast(i32) input_y, console.font_size, prompt_color)
+    ui.draw_text(console.prompt, cast(i32) (console.bounds.x + CONSOLE_PAD_X), cast(i32) input_y, console.font_size, prompt_color)
 
     prompt_width := ui.measure_text(console.prompt, console.font_size)
-    input_x := cast(i32) (console.bounds.x + pad) + prompt_width
+    input_x := cast(i32) (console.bounds.x + CONSOLE_PAD_X) + prompt_width
     input := string(console.input[:])
     ui.draw_text(input, input_x, cast(i32) input_y, console.font_size, console.text_color)
     caret_x := input_x + ui.measure_text(input, console.font_size) + 1

@@ -402,8 +402,9 @@ thor_terminals_shutdown :: proc(thor: ^Thor) {
     thor.active_terminal = -1
 }
 
-// Opens the list of installed shells; picking one opens a terminal on it.
-thor_open_shell_menu :: proc(data: rawptr, _: ^ui.Context, _: ^ui.Widget) {
+// Tabstrip_Add_Proc: opens the list of installed shells under the add button;
+// picking one opens a terminal on it.
+thor_terminal_tab_add :: proc(data: rawptr) {
     thor := cast(^Thor) data
     if len(thor.shell_profiles) == 0 {
         return
@@ -412,8 +413,8 @@ thor_open_shell_menu :: proc(data: rawptr, _: ^ui.Context, _: ^ui.Widget) {
     for profile, i in thor.shell_profiles {
         widgets.menu_add(thor.menu, profile.name, thor_menu_open_shell, &thor.shell_choices[i])
     }
-    button := thor.terminal_add_button
-    widgets.menu_open(thor.menu, &thor.ui_context, {button.bounds.x, button.bounds.y + button.bounds.height})
+    anchor := widgets.tabstrip_add_bounds(thor.terminal_tabs)
+    widgets.menu_open(thor.menu, &thor.ui_context, {anchor.x, anchor.y + anchor.height})
 }
 
 @(private = "file")

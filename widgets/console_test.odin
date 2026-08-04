@@ -2,6 +2,10 @@ package widgets
 
 import "core:testing"
 
+import rl "vendor:raylib"
+
+import "../ui"
+
 // Run from the repository root: odin test widgets
 
 // Output from a real shell arrives with CRLF; the console keeps one newline per
@@ -60,6 +64,34 @@ test_console_append_keeps_tabs :: proc(t: ^testing.T) {
 
     console_append(console, "a\tb\n")
     testing.expect_value(t, console_text(console), "a\tb\n")
+}
+
+// The wheel stops at both ends of the scrollback, so the view never leaves the
+// output behind; reaching the last line makes it follow new output again.
+@(test)
+test_console_scroll_stops_at_the_ends :: proc(t: ^testing.T) {
+    console := console_create("test")
+    defer console_destroy(&console.widget)
+    console_clear(console)
+    console.bounds = rl.Rectangle {0, 0, 400, 200}
+
+    for _ in 0 ..< 100 {
+        console_append(console, "line\n")
+    }
+
+    line_height := cast(f32) ui.text_line_height(console.font_size)
+    // 100 newlines end 101 lines, the last of them empty.
+    end := 101 * line_height - (console.bounds.height - (line_height + 14))
+
+    event := ui.Event {kind = .Scroll, wheel_delta = -1000}
+    console_handle_event(&console.widget, nil, &event)
+    testing.expect_value(t, console.scroll_y, end)
+    testing.expect(t, console.autoscroll, "the view follows again at the last line")
+
+    event.wheel_delta = 1000
+    console_handle_event(&console.widget, nil, &event)
+    testing.expect_value(t, console.scroll_y, 0)
+    testing.expect(t, !console.autoscroll, "the view stays put above the last line")
 }
 
 // The arrow keys walk the submitted commands, and the line below the newest one

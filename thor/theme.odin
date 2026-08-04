@@ -174,7 +174,6 @@ thor_apply_theme :: proc(thor: ^Thor) {
     thor_theme_window_button(thor, thor.close_button, t.red_color)
     thor_theme_icon_button(thor, thor.explorer_toggle_button, t.highlight)
     thor_theme_icon_button(thor, thor.explorer_restore_button, t.buttons)
-    thor_theme_icon_button(thor, thor.terminal_add_button, t.highlight)
     thor_theme_icon_button(thor, thor.console_toggle_button, t.highlight)
     thor_theme_icon_button(thor, thor.console_restore_button, t.buttons)
     for pb in thor.plugin_buttons {
@@ -186,7 +185,6 @@ thor_apply_theme :: proc(thor: ^Thor) {
 
     // Theme-colored labels.
     widgets.label_set_text_color(thor.explorer_title_label, t.white_black_color)
-    widgets.label_set_text_color(thor.console_title_label, t.white_black_color)
     widgets.label_set_text_color(thor.dialog_text_label, t.white_black_color)
 
     // Syntax spans bake in theme colors, so recolor every open file.
@@ -214,13 +212,13 @@ thor_theme_icon_button :: proc(thor: ^Thor, button: ^widgets.Button, background:
     widgets.button_set_border_thickness(button, 0)
 }
 
-// Terminal tab strip coloring. It sits in the console header, so its background
-// matches the header instead of the editor tab strip's.
+// Terminal tab strip coloring. The strip blends into the console header and the
+// active tab takes the console body color, so the tab reads as the panel below it.
 thor_theme_terminal_tabs :: proc(thor: ^Thor) {
     t := thor.theme
-    widgets.tabbar_set_colors(
+    widgets.tabstrip_set_colors(
         thor.terminal_tabs,
-        t.foreground, t.white_black_color, t.highlight, t.highlight, t.second_background, t.tree, t.accent_color,
+        t.gray_color, t.white_black_color, t.highlight, t.second_background, t.tree, t.accent_color, t.error_color,
     )
 }
 

@@ -62,8 +62,7 @@ Thor :: struct {
     editor_split_splitter:    ^widgets.Splitter,
     // The active terminal's console; nil when the last terminal is closed.
     console:                  ^widgets.Console,
-    terminal_tabs:            ^widgets.Tabbar,
-    terminal_add_button:      ^widgets.Button,
+    terminal_tabs:            ^widgets.Tabstrip,
     dialog:                   ^widgets.Dialog,
     dialog_stack:             ^widgets.Stack,
     command_palette:          ^widgets.Command_Palette,
@@ -109,7 +108,6 @@ Thor :: struct {
     // Titlebar/panel labels that carry a theme color, kept so a live theme
     // change can recolor them (most labels are theme-neutral and not stored).
     explorer_title_label:     ^widgets.Label,
-    console_title_label:      ^widgets.Label,
     dialog_text_label:        ^widgets.Label,
     dialog_console_button:    ^widgets.Button,
     explorer_toggle_button:   ^widgets.Button,
