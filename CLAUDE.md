@@ -110,12 +110,43 @@ Folder opens the user drives go through `thor_open_folder_request`, which settle
 and then obeys the `open_folder_in` setting (`ask` / `same` / `new`). `thor_open_folder` itself still
 replaces the workspace outright — call it only when the window is already decided.
 
+## Terminals
+
+The console panel holds one terminal per tab, each on a live shell process. `shell/profile_*.odin`
+detects the shells installed on the machine (pwsh, Windows PowerShell, cmd, the MSVC developer
+prompt, Git Bash, MSYS2, Cygwin, WSL, nu — bash/zsh/fish and friends on POSIX) as `Profile` records:
+the executable, its arguments, quiet `init` commands and a `Profile_Kind` that picks the syntax of
+the end marker. `shell/session_*.odin` is the process pair: the shell starts **once** with piped
+stdin/stdout (stderr shares the stdout pipe, so output stays interleaved) and stays alive, which is
+what makes `cd`, environment variables and the loaded MSVC environment persist between commands.
+
+There is no PTY: full-screen TUI programs and ANSI colors are out of scope, and the console strips
+escape sequences instead of rendering them. Command completion is found with an **end marker** —
+after every submitted command the terminal writes a shell-specific `end_command` that prints
+`<token><exit-code>`; its arrival ends the command and carries the status. The reader thread hands
+raw bytes over `io_mutex` and `thor_terminal_consume` scans them, so the scan must survive a marker
+split across two reads: `carry` holds the tail, `partial_marker_len` releases only what cannot grow
+into the token, and a whole token without its newline is held back entirely.
+
+Killing a shell has to take its children with it: Windows puts the process in a Job Object with
+`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` (started suspended, assigned, then resumed), POSIX calls
+`setpgid(0, 0)` in the forked child so `killpg` reaches the whole group. That process group is also
+why `session_interrupt` (ctrl + c) works on POSIX and returns false on Windows, where the caller
+restarts the shell instead. Teardown is two-phase: `session_terminate` is safe to call while the
+reader blocks in `read`, then the thread is joined, then `session_destroy` frees.
+
+`thor/terminal.odin` is the editor side: a `Terminal` owns its `widgets.Console` (a child of the
+console stack, only the active one visible), its session and its reader thread, and `Thor.console`
+points at the active one — **it is nil when the last terminal is closed**, so every user of it needs
+a nil guard. `thor_terminals_shutdown` nils the lists it frees, since draining the I/O queue after it
+still pumps terminals.
+
 ## Async work
 
 There is one pattern for all off-thread work and it is worth matching exactly: a worker thread does
 its job, then appends the job struct to a `[dynamic]^Job` on `Thor` under `io_mutex`; the main thread
 drains that queue once per frame and applies the result. File loads/saves (`thor/files.odin`),
-console commands, git status and the whole `lang` seam all use it. Workers never touch widgets and
+terminal output, git status and the whole `lang` seam all use it. Workers never touch widgets and
 never allocate from the main allocator without care.
 
 Debug builds run under `mem.Tracking_Allocator`, so leaks and bad frees are reported at exit. Struct

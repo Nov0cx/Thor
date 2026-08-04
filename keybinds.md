@@ -14,7 +14,7 @@ bindings are physical key positions, noted where they differ.
 | ctrl + w | close tab |
 | ctrl + page down / page up | next / previous tab |
 | ctrl + b | toggle explorer panel |
-| ctrl + t | toggle console panel (type a command, enter runs it) |
+| ctrl + t | toggle the console panel (a real shell — see Terminal below) |
 | ctrl + shift + e | focus the editor |
 | ctrl + shift + b | focus the explorer (opens it if collapsed) |
 | ctrl + shift + t | focus the terminal / console (opens it if collapsed) |
@@ -135,6 +135,31 @@ pane and pick a tab or open a file to change what it shows; the tabbar and
 status bar follow whichever pane has focus. Drag the divider to resize, and each
 pane scrolls and zooms (ctrl + scroll) on its own. Opening the split puts the
 previously active file in the new pane when there is one.
+
+## Terminal
+
+The console panel is a live shell, one per tab. **+** on the tab strip lists the
+shells found on this machine and opens a terminal on the one you pick; the dot on
+a tab marks a running command, and turns red when the shell has ended.
+
+| Binding | Action |
+| --- | --- |
+| ctrl + t | toggle the console panel |
+| ctrl + shift + t | focus the terminal (opens the panel if collapsed) |
+| enter | run the typed line (goes to the running command's stdin while one runs) |
+| up / down | walk the commands run in this terminal |
+| ctrl + c | interrupt the running command |
+| ctrl + click | open the file a path in the output points at |
+
+`ctrl + c` sends an interrupt on Linux and macOS. Windows cannot signal a shell
+that reads from a pipe, so Thor restarts it instead — the scrollback is kept, but
+the shell's state (`cd`, environment) is not.
+
+The five "Terminal:" palette actions — New Terminal, Close Terminal, Next
+Terminal, Restart Shell, Select Default Shell — ship unbound; give them chords in
+the `terminal` group of `settings/keybinds.json`. Which shell new terminals open
+with is the `default_shell` setting (Settings > Terminal > Default Shell);
+empty means the best shell found on the machine.
 
 ## Autocompletion
 

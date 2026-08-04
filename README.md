@@ -40,6 +40,25 @@ Each window is its own process with its own session, so windows close
 independently. A folder that is already open somewhere is never opened twice —
 asking for it raises the window that has it.
 
+## Terminal
+
+`ctrl + t` opens the console panel at the bottom. It is a real shell, not a
+command runner: the shell starts once and stays alive, so `cd`, environment
+variables and a loaded MSVC environment carry from one command to the next.
+
+Thor detects the shells installed on the machine and lists them behind the **+**
+on the tab strip — PowerShell 7, Windows PowerShell, Command Prompt, the
+Developer Command Prompt, Git Bash, MSYS2, Cygwin, WSL and Nushell on Windows;
+your login shell, bash, zsh, fish and the rest on Linux and macOS. Every tab runs
+its own shell with its own scrollback, and Settings > Terminal > Default Shell
+picks the one new terminals open with.
+
+Up and down walk the command history, `ctrl + c` interrupts the running command
+(on Windows the shell is restarted instead, since a piped console cannot be
+signalled), and file paths in the output are clickable. Full-screen terminal
+programs (vim, htop) are not supported — output is plain text and color escapes
+are stripped.
+
 ## Dependencies
 
 Thor depends on:
@@ -126,4 +145,6 @@ odin test plugin   # Lua plugin host
 odin test textedit # buffer, cursors, undo/redo
 odin test lang     # Odin language intelligence
 odin test watch    # file-system watcher
+odin test shell    # shell sessions: end markers, prompt trimming
+odin test widgets  # console stream handling: control bytes, history, scrolling
 ```
