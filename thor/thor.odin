@@ -170,6 +170,11 @@ Thor :: struct {
     // Message shown in the delete confirmation dialog; borrowed by the palette
     // while it is open, so it must outlive the dialog. Owned clone.
     delete_prompt:            string,
+    // File the open conflict prompt asks about (borrowed, nil when none is open),
+    // and that prompt's message. The message is borrowed by the palette while the
+    // prompt is open, so it must outlive it. Owned clone.
+    conflict_file:            ^Open_File,
+    conflict_prompt:          string,
     // Path awaiting a rename (set when a rename is started in the explorer or
     // the File menu, consumed when the name prompt is accepted). Owned clone.
     pending_rename_path:      string,
@@ -571,6 +576,7 @@ shutdown :: proc(thor: ^Thor) {
     thor_clear_pending_deletes(thor)
     delete(thor.pending_delete_paths)
     delete(thor.delete_prompt)
+    delete(thor.conflict_prompt)
     delete(thor.pending_rename_path)
     thor_clear_pending_open_folder(thor)
     delete(thor.git_branch)

@@ -457,6 +457,34 @@ editor_set_state :: proc(editor: ^Editor, state: ^textedit.State) {
     editor_clamp_scroll(editor)
 }
 
+// Re-binds a buffer whose content was replaced under the editor (a reload from
+// disk), keeping the scroll offset so the view does not jump to the top. The
+// rows are gone, so the restored offset is clamped by the next rebuild.
+editor_reload_state :: proc(editor: ^Editor, state: ^textedit.State) {
+    scroll := editor.scroll_y
+    editor_set_state(editor, state)
+    editor.scroll_y = scroll
+}
+
+// Byte offset the topmost visible row starts at; 0 before any row is built.
+editor_top_offset :: proc(editor: ^Editor) -> int {
+    if len(editor.visual_rows) == 0 {
+        return 0
+    }
+    line_height := cast(f32) ui.text_line_height(editor.font_size)
+    index := clamp(cast(int) (editor.scroll_y / line_height), 0, len(editor.visual_rows) - 1)
+    return editor.visual_rows[index].start
+}
+
+// Scrolls by whole lines, for content that moved under the view (a reload from
+// disk). Clamped against the rows on the next rebuild, which may not exist yet.
+editor_scroll_lines :: proc(editor: ^Editor, lines: int) {
+    if lines == 0 {
+        return
+    }
+    editor.scroll_y = max(editor.scroll_y + cast(f32) lines * cast(f32) ui.text_line_height(editor.font_size), 0)
+}
+
 editor_set_highlights :: proc(editor: ^Editor, highlights: []Highlight_Span) {
     editor.highlights = highlights
 }

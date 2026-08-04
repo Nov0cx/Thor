@@ -117,6 +117,27 @@ set_single_cursor :: proc(state: ^State, pos: int) {
     append(&state.cursors, Cursor {caret = p, anchor = p, preferred_column = column(txt, p)})
 }
 
+// Replaces the whole cursor set, clamped to the buffer (used when the content is
+// replaced under the cursors, e.g. a reload from disk). An empty set leaves one
+// cursor at the start.
+set_cursors :: proc(state: ^State, cursors: []Cursor) {
+    txt := text(state)
+    clear(&state.cursors)
+    for cursor in cursors {
+        caret := clamp(cursor.caret, 0, len(txt))
+        anchor := clamp(cursor.anchor, 0, len(txt))
+        append(&state.cursors, Cursor {
+            caret = caret,
+            anchor = anchor,
+            preferred_column = column(txt, caret),
+        })
+    }
+    if len(state.cursors) == 0 {
+        append(&state.cursors, Cursor {})
+    }
+    normalize_cursors(state)
+}
+
 // Replaces the cursor set with a single selection anchored at lo, caret at hi
 // (used by find to highlight a match).
 select_range :: proc(state: ^State, lo, hi: int) {

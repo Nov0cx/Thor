@@ -1,11 +1,13 @@
 package thor
 
+import "core:fmt"
 import "core:os"
 import "core:testing"
 import "core:time"
 
 import "../textedit"
 import "../ui"
+import "../watch"
 import "../widgets"
 
 // Exercises the async load -> edit -> save -> close pipeline headlessly:
@@ -180,6 +182,274 @@ test_crlf_file_roundtrip :: proc(t: ^testing.T) {
     thor_close_file(thor, 0)
 }
 
+// A watcher reload keeps each cursor at its line and column, and the pane keeps
+// its scroll offset, so text added above the caret does not move the view.
+@(test)
+test_reload_keeps_cursor_and_view :: proc(t: ^testing.T) {
+    TEST_PATH :: "thor_reload.tmp"
+
+    write_err := os.write_entire_file(TEST_PATH, transmute([]u8) string("alpha\nbeta\ngamma\n"))
+    testing.expect(t, write_err == nil, "could not create test file")
+    defer os.remove(TEST_PATH)
+
+    thor := test_make_thor()
+    defer test_free_thor(thor)
+
+    thor_open_file(thor, TEST_PATH)
+    file := thor.open_files[0]
+    for _ in 0 ..< 500 {
+        thor_update_files(thor)
+        if file.loaded || file.load_failed {
+            break
+        }
+        time.sleep(2 * time.Millisecond)
+    }
+    testing.expect(t, file.loaded, "load did not complete")
+
+    // "beta" selected, from its line start to its line end.
+    textedit.select_range(&file.state, 6, 10)
+    thor.editor.scroll_y = 120
+
+    rewrite_err := os.write_entire_file(TEST_PATH, transmute([]u8) string("inserted\nalpha\nbeta\ngamma\n"))
+    testing.expect(t, rewrite_err == nil, "could not rewrite test file")
+
+    thor_reload_file(thor, file)
+    testing.expect(t, file.reloading, "reload did not start")
+    thor_drain_io(thor)
+    testing.expect(t, !file.reloading, "reload still marked in flight")
+    testing.expect_value(t, textedit.text(&file.state), "inserted\nalpha\nbeta\ngamma\n")
+
+    // The selection moved down with the line it holds, still "beta".
+    cursor := textedit.primary_cursor(&file.state)
+    testing.expect_value(t, cursor.anchor, 15)
+    testing.expect_value(t, cursor.caret, 19)
+    testing.expect_value(t, thor.editor.scroll_y, 120)
+    // A reload leaves the buffer clean.
+    testing.expect_value(t, file.saved_revision, file.state.revision)
+
+    // Truncated to a prefix of itself: a cursor inside the cut lands on its end.
+    truncate_err := os.write_entire_file(TEST_PATH, transmute([]u8) string("inserted\n"))
+    testing.expect(t, truncate_err == nil, "could not truncate test file")
+
+    thor_reload_file(thor, file)
+    thor_drain_io(thor)
+    testing.expect_value(t, textedit.text(&file.state), "inserted\n")
+    cursor = textedit.primary_cursor(&file.state)
+    testing.expect_value(t, cursor.caret, 9)
+    testing.expect_value(t, cursor.anchor, 9)
+
+    thor_close_file(thor, 0)
+}
+
+// A reload reads a file another program still holds open for writing — what an
+// external editor's save looks like from here.
+@(test)
+test_reload_reads_file_held_by_a_writer :: proc(t: ^testing.T) {
+    TEST_PATH :: "thor_held.tmp"
+
+    write_err := os.write_entire_file(TEST_PATH, transmute([]u8) string("one\ntwo\n"))
+    testing.expect(t, write_err == nil, "could not create test file")
+    defer os.remove(TEST_PATH)
+
+    thor := test_make_thor()
+    defer test_free_thor(thor)
+
+    thor_open_file(thor, TEST_PATH)
+    file := thor.open_files[0]
+    thor_drain_io(thor)
+    testing.expect(t, file.loaded, "load did not complete")
+
+    handle, open_err := os.open(TEST_PATH, os.O_WRONLY)
+    testing.expect(t, open_err == nil, "could not open the file as a second writer")
+    // Same length, so no truncation is needed to overwrite in place.
+    _, rewrite_err := os.write_at(handle, transmute([]u8) string("six\nten\n"), 0)
+    testing.expect(t, rewrite_err == nil, "could not rewrite through the second writer")
+
+    thor_reload_file(thor, file)
+    thor_drain_io(thor)
+    testing.expect_value(t, textedit.text(&file.state), "six\nten\n")
+
+    os.close(handle)
+    thor_close_file(thor, 0)
+}
+
+// A change arriving while a reload reads is not dropped: one save fires several
+// watcher events, and the first read can land before the last write.
+@(test)
+test_reload_during_read_is_retried :: proc(t: ^testing.T) {
+    TEST_PATH :: "thor_retry.tmp"
+
+    write_err := os.write_entire_file(TEST_PATH, transmute([]u8) string("first\n"))
+    testing.expect(t, write_err == nil, "could not create test file")
+    defer os.remove(TEST_PATH)
+
+    thor := test_make_thor()
+    defer test_free_thor(thor)
+
+    thor_open_file(thor, TEST_PATH)
+    file := thor.open_files[0]
+    thor_drain_io(thor)
+    testing.expect(t, file.loaded, "load did not complete")
+
+    thor_reload_file(thor, file)
+    testing.expect(t, file.reloading, "reload did not start")
+
+    final_err := os.write_entire_file(TEST_PATH, transmute([]u8) string("second\n"))
+    testing.expect(t, final_err == nil, "could not rewrite test file")
+    thor_reload_file(thor, file)
+    testing.expect(t, file.reload_pending, "the change during the read was dropped")
+
+    thor_drain_io(thor)
+    testing.expect(t, !file.reload_pending, "retry never ran")
+    testing.expect_value(t, textedit.text(&file.state), "second\n")
+
+    thor_close_file(thor, 0)
+}
+
+// A disk change under a buffer with unsaved edits keeps the edits and raises the
+// conflict prompt instead; the forced reload the prompt runs takes the disk bytes.
+@(test)
+test_reload_conflict_keeps_edits :: proc(t: ^testing.T) {
+    TEST_PATH :: "thor_conflict.tmp"
+
+    write_err := os.write_entire_file(TEST_PATH, transmute([]u8) string("disk one\n"))
+    testing.expect(t, write_err == nil, "could not create test file")
+    defer os.remove(TEST_PATH)
+
+    thor := test_make_thor()
+    defer test_free_thor(thor)
+
+    thor_open_file(thor, TEST_PATH)
+    file := thor.open_files[0]
+    for _ in 0 ..< 500 {
+        thor_update_files(thor)
+        if file.loaded || file.load_failed {
+            break
+        }
+        time.sleep(2 * time.Millisecond)
+    }
+    testing.expect(t, file.loaded, "load did not complete")
+
+    textedit.insert_text(&file.state, "mine ")
+    testing.expect(t, file.state.revision != file.saved_revision, "edit did not dirty the buffer")
+
+    rewrite_err := os.write_entire_file(TEST_PATH, transmute([]u8) string("disk two\n"))
+    testing.expect(t, rewrite_err == nil, "could not rewrite test file")
+
+    thor_reload_file(thor, file)
+    thor_drain_io(thor)
+    testing.expect_value(t, textedit.text(&file.state), "mine disk one\n")
+    testing.expect(t, file.disk_changed, "conflict was not raised")
+    testing.expect(t, thor.conflict_file == file, "prompt does not name the file")
+    // A second event while the prompt is open must not queue another job.
+    thor_reload_file(thor, file)
+    testing.expect(t, !file.reloading, "a second reload started while the prompt was open")
+
+    // What accepting the prompt does: the edits go, the disk bytes land.
+    file.disk_changed = false
+    thor.conflict_file = nil
+    thor_reload_file(thor, file, force = true)
+    thor_drain_io(thor)
+    testing.expect_value(t, textedit.text(&file.state), "disk two\n")
+    testing.expect_value(t, file.saved_revision, file.state.revision)
+
+    thor_close_file(thor, 0)
+}
+
+// An edit that ends at exactly what is on disk leaves a clean buffer, so the next
+// disk change reloads instead of conflicting.
+@(test)
+test_reload_edits_matching_disk_clean_buffer :: proc(t: ^testing.T) {
+    TEST_PATH :: "thor_match.tmp"
+
+    write_err := os.write_entire_file(TEST_PATH, transmute([]u8) string("same\n"))
+    testing.expect(t, write_err == nil, "could not create test file")
+    defer os.remove(TEST_PATH)
+
+    thor := test_make_thor()
+    defer test_free_thor(thor)
+
+    thor_open_file(thor, TEST_PATH)
+    file := thor.open_files[0]
+    for _ in 0 ..< 500 {
+        thor_update_files(thor)
+        if file.loaded || file.load_failed {
+            break
+        }
+        time.sleep(2 * time.Millisecond)
+    }
+    testing.expect(t, file.loaded, "load did not complete")
+
+    // Typed and undone: the revision moved on, the content did not.
+    textedit.insert_text(&file.state, "x")
+    textedit.undo(&file.state)
+    testing.expect_value(t, textedit.text(&file.state), "same\n")
+    testing.expect(t, file.state.revision != file.saved_revision, "undo did not leave a stale revision")
+
+    thor_reload_file(thor, file)
+    thor_drain_io(thor)
+    testing.expect(t, !file.disk_changed, "matching content must not conflict")
+    testing.expect_value(t, file.saved_revision, file.state.revision)
+
+    thor_close_file(thor, 0)
+}
+
+// The whole live-reload chain over a real directory: the watcher reports the
+// external write, the subscriber routes it to the open file, and the reap lands
+// the new bytes in the buffer.
+@(test)
+test_watcher_reloads_open_file :: proc(t: ^testing.T) {
+    root := fmt.tprintf("%s\\thor_reload_test_%d", os.get_env("TEMP", context.temp_allocator), time.now()._nsec)
+    if err := os.make_directory(root); err != nil {
+        testing.fail_now(t, fmt.tprintf("could not create temp dir %q: %v", root, err))
+    }
+    defer os.remove(root)
+
+    path := fmt.tprintf("%s\\watched.txt", root)
+    write_err := os.write_entire_file(path, transmute([]u8) string("one\n"))
+    testing.expect(t, write_err == nil, "could not create test file")
+    defer os.remove(path)
+
+    thor := test_make_thor()
+    defer test_free_thor(thor)
+    thor.workspace_dir = root
+
+    thor_open_file(thor, path)
+    file := thor.open_files[0]
+    for _ in 0 ..< 500 {
+        thor_update_files(thor)
+        if file.loaded || file.load_failed {
+            break
+        }
+        time.sleep(2 * time.Millisecond)
+    }
+    testing.expect(t, file.loaded, "load did not complete")
+
+    thor_init_watcher(thor)
+    defer thor_shutdown_watcher(thor)
+    testing.expect(t, thor.watcher.running, "watcher did not start")
+
+    // watcher_poll, not thor_poll_watcher: the explorer's tree refresh and the
+    // git status probe need widgets and a repository this test has neither of.
+    // The write is repeated because a change made before the watcher thread's
+    // first read call is not queued, and the thread starts asynchronously.
+    poll: for _ in 0 ..< 10 {
+        rewrite_err := os.write_entire_file(path, transmute([]u8) string("one\ntwo\n"))
+        testing.expect(t, rewrite_err == nil, "could not rewrite test file")
+        for _ in 0 ..< 30 {
+            watch.watcher_poll(&thor.watcher)
+            thor_update_files(thor)
+            if textedit.text(&file.state) == "one\ntwo\n" {
+                break poll
+            }
+            time.sleep(15 * time.Millisecond)
+        }
+    }
+    testing.expect_value(t, textedit.text(&file.state), "one\ntwo\n")
+
+    thor_close_file(thor, 0)
+}
+
 // Headless Thor with just enough wired up for the file pipeline: no window and
 // no GL, matching test_async_file_roundtrip's inline setup.
 @(private = "file")
@@ -198,12 +468,16 @@ test_make_thor :: proc() -> ^Thor {
     thor.model_view = widgets.model_view_create("test-model-view")
     thor.markdown_view = widgets.markdown_view_create("test-markdown-view")
     thor.markdown_view2 = widgets.markdown_view_create("test-markdown-view2")
+    // The disk-conflict prompt runs through the palette; creating it only allocates.
+    thor.command_palette = widgets.command_palette_create("test-palette")
     return thor
 }
 
 @(private = "file")
 test_free_thor :: proc(thor: ^Thor) {
     delete(thor.status_message)
+    delete(thor.conflict_prompt)
+    widgets.command_palette_destroy(&thor.command_palette.widget)
     delete(thor.open_files)
     delete(thor.zombie_files)
     delete(thor.finished_loads)

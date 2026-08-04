@@ -16,11 +16,14 @@ File_Map :: struct {
 file_map_open :: proc(m: ^File_Map, path: string) -> ([]u8, bool) {
     m.handle = win32.INVALID_HANDLE_VALUE
 
+    // Every share right, or the open fails with a sharing violation whenever
+    // another program holds the file: a reload runs while the editor that
+    // changed the file still has it open for writing.
     wide_path := win32.utf8_to_wstring(path, context.temp_allocator)
     m.handle = win32.CreateFileW(
         wide_path,
         win32.GENERIC_READ,
-        win32.FILE_SHARE_READ,
+        win32.FILE_SHARE_READ | win32.FILE_SHARE_WRITE | win32.FILE_SHARE_DELETE,
         nil,
         win32.OPEN_EXISTING,
         win32.FILE_ATTRIBUTE_NORMAL,

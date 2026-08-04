@@ -242,7 +242,7 @@ Dont do segment comments. Dont write comments like a story, only describe featur
 Indentation is four spaces, not tabs — which is why `-strict-style` is deliberately absent from the
 build flags (`-vet` is available via `build.odin -- -vet`).
 
-Handle always errors.
+Always handle errors.
 
 Do if (cheap && expensive) and if (likelytofail && unlikelytofail).
 

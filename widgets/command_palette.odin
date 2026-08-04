@@ -86,9 +86,11 @@ Command_Palette :: struct {
     prompt_label: string,
     prompt_run:   Palette_Prompt_Proc,
     prompt_data:  rawptr,
-    // Confirm mode: the message shown and the callback fired on Enter.
-    confirm_run:  Palette_Confirm_Proc,
-    confirm_data: rawptr,
+    // Confirm mode: the message shown and the callback fired on Enter, plus an
+    // optional one fired instead when the prompt is dismissed unanswered.
+    confirm_run:    Palette_Confirm_Proc,
+    confirm_cancel: Palette_Confirm_Proc,
+    confirm_data:   rawptr,
     // Pick mode: the callback fired with the chosen item (the list lives in
     // `files`, so it fuzzy-filters and scrolls like Files mode).
     pick_run:     Palette_Pick_Proc,
@@ -214,6 +216,13 @@ command_palette_open_line :: proc(palette: ^Command_Palette, ctx: ^ui.Context) {
 
 command_palette_close :: proc(palette: ^Command_Palette, ctx: ^ui.Context) {
     palette.visible = false
+    // A confirmation dismissed unanswered reports itself, so its caller can drop
+    // whatever it was asking about. Confirming clears the hook first.
+    if palette.mode == .Confirm && palette.confirm_cancel != nil {
+        cancel := palette.confirm_cancel
+        palette.confirm_cancel = nil
+        cancel(palette.confirm_data)
+    }
     if ctx.focused == &palette.widget {
         ctx.focused = palette.return_focus
     }
@@ -249,16 +258,19 @@ command_palette_prompt :: proc(
 }
 
 // Opens the palette as a yes/no confirmation. `message` is shown (borrowed);
-// `run` fires on Enter; Escape or an outside click dismisses.
+// `run` fires on Enter; Escape or an outside click dismisses, firing `on_cancel`
+// when one is given.
 command_palette_confirm :: proc(
     palette: ^Command_Palette,
     ctx: ^ui.Context,
     message: string,
     run: Palette_Confirm_Proc,
     data: rawptr,
+    on_cancel: Palette_Confirm_Proc = nil,
 ) {
     palette.prompt_label = message
     palette.confirm_run = run
+    palette.confirm_cancel = on_cancel
     palette.confirm_data = data
     palette.visible = true
     command_palette_reset(palette, .Confirm)
@@ -513,6 +525,7 @@ command_palette_activate :: proc(palette: ^Command_Palette, ctx: ^ui.Context) {
     case .Confirm:
         run := palette.confirm_run
         data := palette.confirm_data
+        palette.confirm_cancel = nil // answered: the dismissal hook must not fire
         command_palette_close(palette, ctx)
         if run != nil {
             run(data)

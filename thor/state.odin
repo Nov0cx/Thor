@@ -55,18 +55,19 @@ thor_set_active_file :: proc(thor: ^Thor, index: int) {
 }
 
 // Points one pane's editor at whatever file its index names (or empties it).
-thor_bind_pane :: proc(thor: ^Thor, pane: int) {
+// keep_view holds the scroll offset, for a re-bind of the buffer already shown.
+thor_bind_pane :: proc(thor: ^Thor, pane: int, keep_view := false) {
     index := thor.pane_file[pane]
     file: ^Open_File
     if index >= 0 && index < len(thor.open_files) {
         file = thor.open_files[index]
     }
-    thor_bind_editor(thor, thor_pane_editor(thor, pane), file)
+    thor_bind_editor(thor, thor_pane_editor(thor, pane), file, keep_view)
 }
 
 // Binds a single editor widget to a file's buffer, or shows a placeholder while
 // there is nothing loaded to draw.
-thor_bind_editor :: proc(thor: ^Thor, editor: ^widgets.Editor, file: ^Open_File) {
+thor_bind_editor :: proc(thor: ^Thor, editor: ^widgets.Editor, file: ^Open_File, keep_view := false) {
     if file == nil || file.load_failed || !file.loaded {
         editor.placeholder = "No file open"
         if file != nil {
@@ -83,16 +84,20 @@ thor_bind_editor :: proc(thor: ^Thor, editor: ^widgets.Editor, file: ^Open_File)
     widgets.editor_set_comment_prefix(editor, setting.comment_prefix(&thor.config, file.name))
     ext := thor_file_extension(file.name)
     widgets.editor_set_completion_semantic(editor, lang.manager_supports(&thor.lang_manager, ext))
-    widgets.editor_set_state(editor, &file.state)
+    if keep_view {
+        widgets.editor_reload_state(editor, &file.state)
+    } else {
+        widgets.editor_set_state(editor, &file.state)
+    }
     widgets.editor_set_highlights(editor, file.highlights[:])
     widgets.editor_set_folds(editor, file.folds[:])
 }
 
 // Re-binds any pane currently showing `file` (used after its load completes).
-thor_rebind_file_panes :: proc(thor: ^Thor, file: ^Open_File) {
+thor_rebind_file_panes :: proc(thor: ^Thor, file: ^Open_File, keep_view := false) {
     for index, pane in thor.pane_file {
         if index >= 0 && index < len(thor.open_files) && thor.open_files[index] == file {
-            thor_bind_pane(thor, pane)
+            thor_bind_pane(thor, pane, keep_view)
         }
     }
 }
