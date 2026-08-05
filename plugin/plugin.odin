@@ -294,6 +294,40 @@ manager_scan :: proc(m: ^Manager, pattern := "plugins/*/plugin.lua", allocator :
     return out[:]
 }
 
+// Finds the plugins directly under `root` (a folder per plugin, each holding a
+// plugin.lua), like manager_scan but without running any of them. Reads the
+// directory instead of globbing it: `root` may be a folder the user picked, and
+// a `*` or `[` in its name would read as pattern syntax.
+manager_scan_dir :: proc(m: ^Manager, root: string, allocator := context.temp_allocator) -> []Pending_Plugin {
+    handle, open_err := os.open(root)
+    if open_err != nil {
+        return nil
+    }
+    defer os.close(handle)
+
+    infos, read_err := os.read_dir(handle, -1, context.temp_allocator)
+    if read_err != nil {
+        return nil
+    }
+
+    out := make([dynamic]Pending_Plugin, 0, len(infos), allocator)
+    for info in infos {
+        if info.type != .Directory {
+            continue
+        }
+        script, jerr := filepath.join({info.fullpath, "plugin.lua"}, context.temp_allocator)
+        if jerr != nil || !os.is_file(script) {
+            continue
+        }
+        append(&out, Pending_Plugin {
+            id    = strings.clone(info.name, allocator),
+            dir   = strings.clone(info.fullpath, allocator),
+            perms = manifest_permissions(info.fullpath),
+        })
+    }
+    return out[:]
+}
+
 // Loads one scanned plugin with exactly the permissions the host granted, which
 // may be fewer than its manifest asked for.
 manager_load_plugin :: proc(m: ^Manager, id, dir: string, perms: Permissions) -> bool {

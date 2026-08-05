@@ -61,15 +61,21 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
     widgets.settings_view_add_header(view, "TERMINAL")
     widgets.settings_view_add_choice(view, "default_shell", "Default Shell", thor_default_shell_label(thor))
 
-    // Only plugins that want a permission: the language plugins want none, and
-    // listing three dozen "nothing to allow" rows would bury the ones that do.
+    // Bundled plugins only where they want a permission: the language plugins
+    // want none, and listing three dozen "nothing to allow" rows would bury the
+    // ones that do. A workspace plugin is always listed — it is code the opened
+    // folder carries, so it is answered for even when it asks for nothing.
     states := thor_plugin_permission_states(thor)
     if len(states) > 0 {
         widgets.settings_view_add_header(view, "PLUGIN PERMISSIONS")
         for state in states {
             names := plugin.permission_names(state.perms, context.temp_allocator)
-            label := fmt.tprintf("%s (%s)", state.id, strings.join(names, ", ", context.temp_allocator))
-            widgets.settings_view_add_choice(view, thor_plugin_setting_id(state.id), label, state.allowed ? "Allowed" : "Blocked")
+            wants := len(names) > 0 ? strings.join(names, ", ", context.temp_allocator) : "no permissions"
+            label := fmt.tprintf("%s (%s)", state.id, wants)
+            if state.source == .Workspace {
+                label = fmt.tprintf("%s — %s (%s)", state.id, WORKSPACE_PLUGIN_DIR, wants)
+            }
+            widgets.settings_view_add_choice(view, thor_plugin_setting_id(state.source, state.id), label, state.allowed ? "Allowed" : "Blocked")
         }
     }
 
@@ -98,8 +104,8 @@ thor_on_setting_number :: proc(data: rawptr, id: string, value: int) {
 // persists and reloads on its own.
 thor_on_setting_choice :: proc(data: rawptr, id: string) {
     thor := cast(^Thor) data
-    if plugin_id, is_plugin := thor_plugin_setting_name(id); is_plugin {
-        thor_cmd_change_plugin_permission(thor, plugin_id)
+    if plugin_id, source, is_plugin := thor_plugin_setting_name(id); is_plugin {
+        thor_cmd_change_plugin_permission(thor, source, plugin_id)
         return
     }
     switch id {
@@ -167,40 +173,51 @@ thor_open_folder_in_commit :: proc(data: rawptr, choice: string) {
 }
 
 // Settings row ids for plugin permissions are prefixed, so one Choice handler
-// tells them from the fixed rows.
+// tells them from the fixed rows. The source rides in the prefix: one id can
+// name a bundled plugin and a workspace plugin at the same time.
 @(private = "file")
 PLUGIN_SETTING_PREFIX :: "plugin:"
 
 @(private = "file")
-thor_plugin_setting_id :: proc(plugin_id: string) -> string {
-    return strings.concatenate({PLUGIN_SETTING_PREFIX, plugin_id}, context.temp_allocator)
+PLUGIN_WORKSPACE_PREFIX :: "plugin:workspace:"
+
+@(private = "file")
+thor_plugin_setting_id :: proc(source: Plugin_Source, plugin_id: string) -> string {
+    prefix := source == .Workspace ? PLUGIN_WORKSPACE_PREFIX : PLUGIN_SETTING_PREFIX
+    return strings.concatenate({prefix, plugin_id}, context.temp_allocator)
 }
 
-// The plugin a settings row id names, if it names one.
+// The plugin a settings row id names, if it names one. The workspace prefix is
+// tested first: it extends the bundled one, so the shorter test matches both.
 @(private = "file")
-thor_plugin_setting_name :: proc(id: string) -> (string, bool) {
-    if !strings.has_prefix(id, PLUGIN_SETTING_PREFIX) {
-        return "", false
+thor_plugin_setting_name :: proc(id: string) -> (name: string, source: Plugin_Source, ok: bool) {
+    if strings.has_prefix(id, PLUGIN_WORKSPACE_PREFIX) {
+        return id[len(PLUGIN_WORKSPACE_PREFIX):], .Workspace, true
     }
-    return id[len(PLUGIN_SETTING_PREFIX):], true
+    if strings.has_prefix(id, PLUGIN_SETTING_PREFIX) {
+        return id[len(PLUGIN_SETTING_PREFIX):], .Bundled, true
+    }
+    return "", .Bundled, false
 }
 
 @(private = "file")
 PLUGIN_PERMISSION_LABELS := [?]string {"Allowed", "Blocked"}
 
-// Settings row: allow or block one plugin's permissions. Allowing runs the
-// plugin at once; blocking a running one waits for a restart.
+// Settings row: allow or block one plugin's permissions. Allowing a bundled
+// plugin runs it at once and blocking a running one waits for a restart; either
+// answer on a workspace plugin takes effect on the next frame.
 @(private = "file")
-thor_cmd_change_plugin_permission :: proc(thor: ^Thor, plugin_id: string) {
+thor_cmd_change_plugin_permission :: proc(thor: ^Thor, source: Plugin_Source, plugin_id: string) {
     current := "Blocked"
     for state in thor_plugin_permission_states(thor) {
-        if state.id == plugin_id {
+        if state.source == source && state.id == plugin_id {
             current = state.allowed ? "Allowed" : "Blocked"
             break
         }
     }
     delete(thor.plugin_setting_target)
     thor.plugin_setting_target = strings.clone(plugin_id)
+    thor.plugin_setting_source = source
     widgets.select_dialog_open(
         thor.select_dialog, &thor.ui_context, "Plugin Permissions",
         PLUGIN_PERMISSION_LABELS[:], current,
@@ -217,7 +234,7 @@ thor_plugin_permission_commit :: proc(data: rawptr, choice: string) {
     if thor.plugin_setting_target == "" {
         return
     }
-    thor_set_plugin_allowed(thor, thor.plugin_setting_target, choice == "Allowed")
+    thor_set_plugin_allowed(thor, thor.plugin_setting_source, thor.plugin_setting_target, choice == "Allowed")
     if widgets.settings_view_is_open(thor.settings_view) {
         thor_populate_settings_view(thor)
     }

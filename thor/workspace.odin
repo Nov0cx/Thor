@@ -239,6 +239,11 @@ thor_open_folder :: proc(thor: ^Thor, dir: string) {
 
     // The new folder's .thor/ overlay can change theme, font and keybinds.
     thor_reload_settings(thor)
+    // ... and .thor/plugins/ carries plugins of its own. Reloaded before the
+    // session restores any file, since the languages a plugin registers decide
+    // how those files colour, and before the outgoing folder's plugins can see
+    // the new workspace through thor.workspace().
+    thor_reload_plugins(thor)
 
     widgets.tree_set_root(thor.tree, thor.workspace_dir)
     // The palette holds the prefix by reference and the old one was just freed.

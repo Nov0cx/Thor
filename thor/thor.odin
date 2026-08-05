@@ -129,12 +129,16 @@ Thor :: struct {
     // shows only while one of its panels does (see plugin_panel.odin).
     plugin_panels:            [dynamic]^Plugin_Panel,
     // Plugins held until the user allows the permissions they ask for, and the
-    // one prompt that asks for all of them (see plugin_trust.odin).
+    // prompt that asks for one source of them (see plugin_trust.odin).
     plugin_requests:          [dynamic]Plugin_Request,
     plugin_prompt_message:    string, // owned; the palette borrows it
     plugin_prompt_shown:      bool,
+    plugin_prompt_source:     Plugin_Source,
+    // An answer asked for the plugin VM to be rebuilt; done on the next frame.
+    plugin_reload_pending:    bool,
     // Plugin whose permission row opened the picker (see settings_ui.odin).
     plugin_setting_target:    string, // owned
+    plugin_setting_source:    Plugin_Source,
     plugin_dock_right:        ^widgets.Panel,
     plugin_dock_right_stack:  ^widgets.Stack,
     plugin_dock_bottom:       ^widgets.Panel,
@@ -440,31 +444,7 @@ init :: proc() -> ^Thor {
     // plugins (their load body may print or query keybinds, e.g. the tutorial).
     // Plugin top-bar buttons link in just after the Help button.
     thor.top_bar_plugin_anchor = &thor.menu_help_button.widget
-    plugin.manager_set_host(&thor.plugins, plugin.Host {
-        data         = thor,
-        print        = thor_plugin_print,
-        keybind      = thor_plugin_keybind,
-        doc          = thor_plugin_doc,
-        exec         = thor_plugin_exec,
-        button       = thor_plugin_button,
-        workspace    = thor_plugin_workspace,
-        active_path  = thor_plugin_active_path,
-        read         = thor_plugin_read,
-        write        = thor_plugin_write,
-        refresh_git  = thor_plugin_refresh_git,
-        menu         = thor_plugin_menu,
-        prompt       = thor_plugin_prompt,
-        pick         = thor_plugin_pick,
-        confirm      = thor_plugin_confirm,
-        panel        = thor_plugin_panel,
-        panel_render = thor_plugin_panel_render,
-        panel_show   = thor_plugin_panel_show,
-        panel_close  = thor_plugin_panel_close,
-        draw_rect    = thor_plugin_draw_rect,
-        draw_text    = thor_plugin_draw_text,
-        draw_line    = thor_plugin_draw_line,
-        measure_text = thor_plugin_measure_text,
-    })
+    thor_set_plugin_host(thor)
     thor_load_plugins(thor)
     thor_set_active_file(thor, -1)
     thor_restore_session(thor)
@@ -537,7 +517,10 @@ run :: proc(thor: ^Thor) {
         lang.manager_dispatch(&thor.lang_manager, thor, thor_on_lang_result)
         thor_poll_lang_busy(thor)
         // Asked here, not during init: the prompt takes focus, and init still
-        // opens files and restores the session after the plugins load.
+        // opens files and restores the session after the plugins load. The
+        // rebuild an answer asks for is done here too, not in the dialog
+        // callback, which dispatches from widgets the rebuild destroys.
+        thor_poll_plugin_reload(thor)
         thor_prompt_plugin_permissions(thor)
         plugin.manager_dispatch_tick(&thor.plugins)
         ui.context_update(&thor.ui_context)
@@ -597,20 +580,9 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.status_message)
     thor_clear_doc_symbols(thor)
     delete(thor.doc_symbols)
-    for pb in thor.plugin_buttons {
-        for entry in pb.entries {
-            delete(entry.label)
-            delete(entry.command)
-        }
-        delete(pb.entries)
-        delete(pb.label)
-        delete(pb.command)
-        free(pb)
-    }
+    thor_clear_plugin_buttons(thor, false)
     delete(thor.plugin_buttons)
-    for p in thor.plugin_panels {
-        thor_destroy_plugin_panel(p)
-    }
+    thor_clear_plugin_panels(thor, false)
     delete(thor.plugin_panels)
     thor_clear_plugin_requests(thor)
     delete(thor.plugin_requests)

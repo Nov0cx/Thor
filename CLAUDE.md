@@ -214,6 +214,25 @@ A plugin that wants a permission stays unloaded until the user allows it: `thor_
 for one batched prompt whose answer lands in `sessions/plugin-grants.json`. Settings shows the same
 state as a "PLUGIN PERMISSIONS" section (`thor/settings_ui.odin`): allowing there loads the plugin on
 the spot, blocking a running one waits for a restart.
+
+Plugins come from two places, a `Plugin_Source` apart: the bundled `plugins/` beside the binary, and
+`<workspace>/.thor/plugins`. A workspace plugin is repo-supplied code, so the permission-free fast
+path does **not** apply to it — it is prompted for even when it asks for nothing, in its own prompt
+after the bundled group. Its grant keys on (workspace path, id, permissions), in a second
+`workspaces` array of the same grant file, so one folder's answer never speaks for another; grants
+for folders that are not open are preserved on write. Content is deliberately not hashed — a
+re-prompt on every edit would train reflexive "allow" — so an allowed folder is a trusted folder.
+An allowed workspace plugin shadows a bundled one of the same id, and shadows it even if its Lua
+then errors, so an override never leaves two plugins under one id.
+
+The VM has no per-plugin unload (registrations spread over `m.languages`/`m.commands`/`m.key`/…, and
+`Callback.owner` indexes `m.plugins`), so any change to the set rebuilds it: `thor_reload_plugins`
+destroys the manager, re-inits, re-wires the host (`thor_set_plugin_host`) and rescans. It must never
+run inside an event callback — it destroys the widgets the dispatch stands on — so the settings and
+prompt paths set `thor.plugin_reload_pending` and `thor_poll_plugin_reload` acts on it at the head of
+the run loop. `thor_open_folder` calls it directly, before `thor_restore_session`, since the
+languages the new set registers decide how the restored files color.
+
 Two rules keep the layering: a Lua C callback runs under `runtime.default_context()`, so anything
 allocating host-owned data must first set `context.allocator = m.allocator`; and the `plugin` package
 never touches UI — `thor.panel` describes widgets as `View_Node` data (`plugin/view.odin`) that
@@ -228,9 +247,9 @@ folder Thor opens still comes from the directory it was launched in.
 
 Configuration is layered: global `settings/*.json` (settings, keybinds, comment prefixes) overlaid by
 a workspace's `.thor/` directory. `.thor/` also holds `tasks.json` (named shell commands surfaced in
-the titlebar) and `odin-analyzer.json` (per-workspace analyzer collections and feature toggles —
-deliberately Thor's own file, not `ols.json`). This repo has its own `.thor/`, so those files serve
-as working examples.
+the titlebar), `odin-analyzer.json` (per-workspace analyzer collections and feature toggles —
+deliberately Thor's own file, not `ols.json`) and `plugins/` (the workspace's own Lua plugins). This
+repo has its own `.thor/`, so those files serve as working examples.
 
 ## Code style
 

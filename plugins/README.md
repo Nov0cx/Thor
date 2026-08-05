@@ -4,6 +4,9 @@ Editor plugins written in Lua live here, one folder per plugin
 (`plugins/<name>/plugin.lua`). The host that loads and runs them is the Odin
 `plugin` package (`../plugin`).
 
+An opened folder can carry plugins of its own in `<workspace>/.thor/plugins/`,
+with the same layout. See [Workspace plugins](#workspace-plugins).
+
 ## The sandbox
 
 Every plugin runs in its own environment inside one shared Lua state:
@@ -59,6 +62,38 @@ that wants something, with what it wants and whether it is Allowed or Blocked.
 Allowing one there runs it immediately; blocking one that is already running
 takes effect on the next start, since a plugin cannot be taken back out of the
 running VM.
+
+## Workspace plugins
+
+A folder Thor opens can hold its own plugins in `<workspace>/.thor/plugins/`,
+one folder per plugin, exactly like this directory. They are for a plugin that
+belongs to one project: a lexer for a format the repo invents, a panel over its
+build output, a command that only makes sense there.
+
+They differ from the bundled ones in three ways:
+
+- **Consent is never skipped.** A bundled plugin that wants no permission loads
+  silently; a workspace plugin never does. It is code the opened folder carries,
+  so Thor asks before running it even when it asks for nothing. The two groups
+  are asked separately, bundled first.
+- **The answer is per folder.** A grant records the workspace path, the plugin
+  id and the permissions allowed, so allowing `build-panel` in one repository
+  says nothing about a plugin of that name in another. Grants live beside the
+  bundled ones in `<exe>/sessions/plugin-grants.json`.
+- **They override by id.** An allowed workspace plugin whose id matches a
+  bundled one replaces it — the bundled plugin is not loaded. The override holds
+  even if the workspace plugin then fails, so a broken override reports itself
+  instead of quietly falling back.
+
+Opening another folder reloads the whole plugin set: the outgoing workspace's
+plugins stop, the new one's are scanned and asked for. Settings lists every
+workspace plugin, marked `.thor/plugins`, whatever it asks for; changing an
+answer there reloads on the next frame.
+
+Grants key on the folder, the id and the permissions — not on the file
+contents. Editing an allowed plugin's Lua does not ask again, which is what
+makes a plugin editable in place, and what makes an allowed folder a folder you
+trust. Thor asks again when the plugin widens what it wants.
 
 Always available: `thor.register_language`, `thor.print`, `thor.keybind`,
 `thor.on_command`, `thor.on_tick`, `thor.workspace`, `thor.active_path`,

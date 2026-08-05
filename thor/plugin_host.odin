@@ -32,6 +32,58 @@ Plugin_Top_Button :: struct {
 
 // Host services handed to the plugin manager (see plugin.manager_set_host),
 // so a Lua plugin can reach Thor without the plugin package depending on it.
+// Called again after a reload, since a fresh VM knows nothing of the host.
+thor_set_plugin_host :: proc(thor: ^Thor) {
+    plugin.manager_set_host(&thor.plugins, plugin.Host {
+        data         = thor,
+        print        = thor_plugin_print,
+        keybind      = thor_plugin_keybind,
+        doc          = thor_plugin_doc,
+        exec         = thor_plugin_exec,
+        button       = thor_plugin_button,
+        workspace    = thor_plugin_workspace,
+        active_path  = thor_plugin_active_path,
+        read         = thor_plugin_read,
+        write        = thor_plugin_write,
+        refresh_git  = thor_plugin_refresh_git,
+        menu         = thor_plugin_menu,
+        prompt       = thor_plugin_prompt,
+        pick         = thor_plugin_pick,
+        confirm      = thor_plugin_confirm,
+        panel        = thor_plugin_panel,
+        panel_render = thor_plugin_panel_render,
+        panel_show   = thor_plugin_panel_show,
+        panel_close  = thor_plugin_panel_close,
+        draw_rect    = thor_plugin_draw_rect,
+        draw_text    = thor_plugin_draw_text,
+        draw_line    = thor_plugin_draw_line,
+        measure_text = thor_plugin_measure_text,
+    })
+}
+
+// Drops every top-bar button plugins added. `destroy_widgets` unlinks and
+// destroys them, which a reload must do and shutdown must not — the context
+// tears the whole widget tree down on its own.
+thor_clear_plugin_buttons :: proc(thor: ^Thor, destroy_widgets: bool) {
+    for pb in thor.plugin_buttons {
+        if destroy_widgets {
+            ui.context_forget(&thor.ui_context, &pb.button.widget)
+            ui.widget_remove_child(&pb.button.widget)
+            ui.widget_destroy_tree(&pb.button.widget)
+        }
+        for entry in pb.entries {
+            delete(entry.label)
+            delete(entry.command)
+        }
+        delete(pb.entries)
+        delete(pb.label)
+        delete(pb.command)
+        free(pb)
+    }
+    clear(&thor.plugin_buttons)
+    // The next button links in after Help again, as it did at startup.
+    thor.top_bar_plugin_anchor = &thor.menu_help_button.widget
+}
 
 // thor.print(text): append plugin output to the console, revealing it if hidden.
 thor_plugin_print :: proc(host: rawptr, text: string) {

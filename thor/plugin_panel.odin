@@ -226,10 +226,27 @@ thor_clear_plugin_panel :: proc(p: ^Plugin_Panel) {
     clear(&p.texts)
 }
 
-// Frees a panel outright, including its chrome. Only shutdown does this: a
-// closed panel keeps its widgets so :show() can bring it back.
-thor_destroy_plugin_panel :: proc(p: ^Plugin_Panel) {
+// Drops every panel plugins built. `destroy_widgets` unlinks and destroys their
+// chrome, which a reload must do and shutdown must not — the context tears the
+// whole widget tree down on its own.
+thor_clear_plugin_panels :: proc(thor: ^Thor, destroy_widgets: bool) {
+    for p in thor.plugin_panels {
+        thor_destroy_plugin_panel(p, destroy_widgets)
+    }
+    clear(&thor.plugin_panels)
+    thor_update_plugin_docks(thor)
+}
+
+// Frees a panel outright. Its rendered contents always go; `destroy_widgets`
+// takes the chrome with them. A merely closed panel keeps both, so :show() can
+// bring it back.
+thor_destroy_plugin_panel :: proc(p: ^Plugin_Panel, destroy_widgets := false) {
     thor_clear_plugin_panel(p)
+    if destroy_widgets {
+        ui.context_forget(&p.thor.ui_context, &p.panel.widget)
+        ui.widget_remove_child(&p.panel.widget)
+        ui.widget_destroy_tree(&p.panel.widget)
+    }
     delete(p.actions)
     delete(p.canvases)
     delete(p.texts)

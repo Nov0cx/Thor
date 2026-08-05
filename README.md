@@ -84,6 +84,10 @@ Each language is a plugin under `plugins/<id>/plugin.lua`. Two backends:
   JSON, Markdown, shell, batch and similar. These need no native build; a plugin
   just returns spans from a `highlight` function.
 
+A project can also carry plugins of its own in `<workspace>/.thor/plugins/`.
+Thor asks before it runs them, per folder, and asks even when they want no
+permission. See [plugins/README.md](plugins/README.md).
+
 Both submodules are needed, so clone with them:
 
 ```bash
