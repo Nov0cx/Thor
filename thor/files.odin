@@ -438,7 +438,9 @@ thor_apply_reload :: proc(thor: ^Thor, job: ^Load_Job) {
     // buffer every time and reload on each watcher event.
     ending := thor_detect_line_ending(content)
     buffer_text := thor_to_buffer_text(content)
-    old_text := textedit.text(&file.state)
+    // A copy: the cursor remap and the pane rebind below still read it after
+    // set_text has replaced the buffer it came from.
+    old_text := textedit.text_clone(&file.state, context.temp_allocator)
     if buffer_text == old_text {
         file.line_ending = ending // an external tool may have converted it
         // The edits (or an undo of them) end at exactly what is on disk, so the

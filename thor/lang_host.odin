@@ -601,7 +601,9 @@ thor_edit_target :: proc(
         append(targets, Edit_Target {
             path  = canonical,
             file  = file,
-            text  = textedit.text(&file.state),
+            // A copy: the targets are collected first and edited after, so this
+            // one outlives edits made to another buffer in the same set.
+            text  = textedit.text_clone(&file.state, context.temp_allocator),
             edits = make([dynamic]lang.Text_Edit, context.temp_allocator),
         })
         return len(targets) - 1, true

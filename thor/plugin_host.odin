@@ -184,7 +184,7 @@ thor_plugin_read :: proc(host: rawptr, path: string) -> string {
     }
     for file in thor.open_files {
         if file.path == canonical && file.loaded {
-            return textedit.text(&file.state, context.allocator)
+            return textedit.text_clone(&file.state, context.allocator)
         }
     }
     if data, err2 := os.read_entire_file(canonical, context.allocator); err2 == nil {

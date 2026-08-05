@@ -49,10 +49,13 @@ Launching the GUI from an agent-spawned process hangs in `rl.InitWindow` — ver
 Packages only ever depend downward in this list; keeping that direction is what lets the lower layers
 be tested headlessly.
 
-- `piecetable` — the buffer representation. Pure data structure.
+- `piecetable` — the buffer representation. Pure data structure. Keeps the contents materialized as
+  one snapshot, rebuilt by `piecetable_view` on the first read after an edit.
 - `textedit` — UI-independent editing core: cursors, selection, movement, edits, undo/redo with
   coalescing. Bumps `State.revision` on every content change; everything downstream compares against
-  a stored revision to decide what is stale.
+  a stored revision to decide what is stale. `textedit.text` **borrows** that snapshot — reading it
+  costs nothing between edits, but it dies at the first read after one, so a caller that keeps the
+  text across an edit (or hands it to a thread) needs `text_clone`.
 - `ui` — raylib layer: `Widget` tree (intrusive linked children + a vtable of
   layout/handle_event/draw/destroy), `Context` (hit testing, focus, event queue, global key hook),
   the font/icon atlas + HarfBuzz shaping (`text.odin`, `shape.odin`), theme loading.

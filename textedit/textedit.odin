@@ -86,8 +86,15 @@ set_text :: proc(state: ^State, new_text: string) {
     state.revision = 0
 }
 
-// Materializes the buffer; valid until the allocator is reset.
-text :: proc(state: ^State, allocator := context.temp_allocator) -> string {
+// The buffer's contents, borrowed from the piece table. Valid until the first
+// call that follows a content change: that call re-materializes the snapshot,
+// so a caller which keeps the text across an edit needs text_clone.
+text :: proc(state: ^State) -> string {
+    return piecetable.piecetable_view(&state.table)
+}
+
+// An owned copy of the buffer, for the callers that outlive the next edit.
+text_clone :: proc(state: ^State, allocator := context.allocator) -> string {
     return piecetable.piecetable_to_string(&state.table, allocator)
 }
 

@@ -17,11 +17,20 @@ Piece_Table :: struct {
     original: string,
     add:      [dynamic]u8,
     pieces:   [dynamic]Piece,
+    // Total bytes, maintained by the edits so a length query walks nothing.
+    length:   int,
+    // The contents as one buffer, rebuilt by piecetable_view on the first read
+    // after an edit. Readers want the whole text far more often than the table
+    // changes, so it is materialized once per edit instead of once per read.
+    snapshot: [dynamic]u8, // owned
+    stale:    bool,        // snapshot must be rebuilt before it is read
 }
 
 piecetable_create :: proc(initial_text: string = "") -> Piece_Table {
     pt := Piece_Table {
         original = strings.clone(initial_text),
+        length   = len(initial_text),
+        stale    = true,
     }
     if len(pt.original) > 0 {
         append(&pt.pieces, Piece {source = .Original, start = 0, length = len(pt.original)})
@@ -33,14 +42,11 @@ piecetable_destroy :: proc(pt: ^Piece_Table) {
     delete(pt.original)
     delete(pt.add)
     delete(pt.pieces)
+    delete(pt.snapshot)
 }
 
 piecetable_length :: proc(pt: ^Piece_Table) -> int {
-    total := 0
-    for piece in pt.pieces {
-        total += piece.length
-    }
-    return total
+    return pt.length
 }
 
 piecetable_set_text :: proc(pt: ^Piece_Table, text: string) {
@@ -95,6 +101,8 @@ piecetable_insert :: proc(pt: ^Piece_Table, pos: int, text: string) {
 
     add_start := len(pt.add)
     append(&pt.add, text)
+    pt.length += len(text)
+    pt.stale = true
 
     index := piecetable_split_at(pt, pos)
     // Sequential typing lands at the end of the piece written by the previous
@@ -116,6 +124,11 @@ piecetable_delete :: proc(pt: ^Piece_Table, pos: int, delete_length: int) {
 
     start_index := piecetable_split_at(pt, pos)
     end_index := piecetable_split_at(pt, pos + delete_length)
+    // A range past the end removes less than asked, so count what really goes.
+    for i in start_index ..< end_index {
+        pt.length -= pt.pieces[i].length
+    }
+    pt.stale = true
     remove_range(&pt.pieces, start_index, end_index)
     // Removing the span can leave two runs of one buffer touching again.
     piecetable_merge_at(pt, start_index)
@@ -132,12 +145,23 @@ piecetable_piece_bytes :: proc(pt: ^Piece_Table, piece: Piece) -> string {
     return ""
 }
 
+// The full contents as one string, borrowed from the table. Valid until the
+// first read that follows an edit — that read rebuilds the snapshot in place.
+// Callers that keep the text across an edit need piecetable_to_string.
+piecetable_view :: proc(pt: ^Piece_Table) -> string {
+    if pt.stale {
+        clear(&pt.snapshot)
+        reserve(&pt.snapshot, pt.length)
+        for piece in pt.pieces {
+            buffer := piecetable_piece_bytes(pt, piece)
+            append(&pt.snapshot, buffer[piece.start:piece.start + piece.length])
+        }
+        pt.stale = false
+    }
+    return string(pt.snapshot[:])
+}
+
 // Materializes the full contents as a single string using the given allocator.
 piecetable_to_string :: proc(pt: ^Piece_Table, allocator := context.allocator) -> string {
-    builder := strings.builder_make(allocator)
-    for piece in pt.pieces {
-        buffer := piecetable_piece_bytes(pt, piece)
-        strings.write_string(&builder, buffer[piece.start:piece.start + piece.length])
-    }
-    return strings.to_string(builder)
+    return strings.clone(piecetable_view(pt), allocator)
 }

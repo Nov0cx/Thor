@@ -622,3 +622,42 @@ test_undo_history_is_capped :: proc(t: ^testing.T) {
     // The 50 dropped entries can no longer be undone.
     testing.expect_value(t, length(&state), 100)
 }
+
+// text() is a borrow of the piece table's snapshot: every edit path must be
+// visible through it, and a multi-cursor edit must still read the pre-edit text
+// it takes its undo ops from.
+@(test)
+test_text_view_follows_edits :: proc(t: ^testing.T) {
+    state: State
+    init(&state)
+    defer destroy(&state)
+
+    set_text(&state, "one\ntwo\nthree")
+    testing.expect_value(t, text(&state), "one\ntwo\nthree")
+
+    set_single_cursor(&state, 3)
+    add_cursor_vertical(&state, 1)
+    insert_text(&state, "!")
+    testing.expect_value(t, text(&state), "one!\ntwo!\nthree")
+
+    delete_backward(&state)
+    testing.expect_value(t, text(&state), "one\ntwo\nthree")
+
+    undo(&state)
+    testing.expect_value(t, text(&state), "one!\ntwo!\nthree")
+}
+
+// A clone outlives the buffer it came from; the borrow does not.
+@(test)
+test_text_clone_survives_set_text :: proc(t: ^testing.T) {
+    state: State
+    init(&state)
+    defer destroy(&state)
+
+    set_text(&state, "before")
+    before := text_clone(&state, context.temp_allocator)
+    set_text(&state, "after")
+
+    testing.expect_value(t, before, "before")
+    testing.expect_value(t, text(&state), "after")
+}

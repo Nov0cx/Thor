@@ -105,6 +105,54 @@ test_type_then_backspace :: proc(t: ^testing.T) {
     testing.expect_value(t, len(pt.pieces), 1)
 }
 
+// The snapshot is rebuilt on the first read after each edit, and only then.
+@(test)
+test_view_tracks_edits :: proc(t: ^testing.T) {
+    pt := piecetable_create("hello world")
+    defer piecetable_destroy(&pt)
+
+    testing.expect_value(t, piecetable_view(&pt), "hello world")
+    testing.expect(t, !pt.stale, "a read must leave the snapshot fresh")
+
+    piecetable_insert(&pt, 5, ",")
+    testing.expect(t, pt.stale, "an insert must stale the snapshot")
+    testing.expect_value(t, piecetable_view(&pt), "hello, world")
+
+    piecetable_delete(&pt, 0, 7)
+    testing.expect(t, pt.stale, "a delete must stale the snapshot")
+    testing.expect_value(t, piecetable_view(&pt), "world")
+
+    piecetable_set_text(&pt, "replaced")
+    testing.expect_value(t, piecetable_view(&pt), "replaced")
+}
+
+// Repeated reads of an unchanged table hand back the same buffer, so navigating
+// a document costs no materialization at all.
+@(test)
+test_view_reuses_snapshot :: proc(t: ^testing.T) {
+    pt := piecetable_create("hello")
+    defer piecetable_destroy(&pt)
+
+    first := piecetable_view(&pt)
+    second := piecetable_view(&pt)
+    testing.expect(t, raw_data(first) == raw_data(second), "an unchanged table re-materialized")
+
+    piecetable_insert(&pt, 5, "!")
+    testing.expect_value(t, piecetable_view(&pt), "hello!")
+}
+
+// A delete running past the end removes what is there; the length must count
+// that, not what was asked for.
+@(test)
+test_length_after_overlong_delete :: proc(t: ^testing.T) {
+    pt := piecetable_create("abc")
+    defer piecetable_destroy(&pt)
+
+    piecetable_delete(&pt, 1, 99)
+    testing.expect_value(t, piecetable_length(&pt), 1)
+    testing.expect_value(t, piecetable_view(&pt), "a")
+}
+
 @(test)
 test_set_text_resets :: proc(t: ^testing.T) {
     pt := piecetable_create("first")
