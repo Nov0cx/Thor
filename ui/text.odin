@@ -82,6 +82,8 @@ font_load_worker :: proc(job: ^Font_Load_Job) {
 
     count := len(baked)
     glyphs := cast([^]rl.GlyphInfo) rl.MemAlloc(cast(c.uint) (count * size_of(rl.GlyphInfo)))
+    // A glyph without a bitmap keeps its zeroed image; the packer tests image.data.
+    mem.zero(glyphs, count * size_of(rl.GlyphInfo))
 
     for entry, k in baked {
         cp := entry.value
@@ -96,8 +98,10 @@ font_load_worker :: proc(job: ^Font_Load_Job) {
             // Space has no bitmap; give it a blank image so atlas packing
             // reserves its advance width, exactly like raylib does.
             if glyph.advanceX > 0 {
+                blank := rl.MemAlloc(cast(c.uint) (glyph.advanceX * job.size))
+                mem.zero(blank, cast(int) (glyph.advanceX * job.size))
                 glyph.image = rl.Image {
-                    data = rl.MemAlloc(cast(c.uint) (glyph.advanceX * job.size)),
+                    data = blank,
                     width = glyph.advanceX,
                     height = job.size,
                     mipmaps = 1,
@@ -146,7 +150,9 @@ font_load_worker :: proc(job: ^Font_Load_Job) {
         atlas_h = image_size / 2
     }
 
+    // Zeroed: the padding between packed glyphs stays fully transparent.
     atlas_data := cast([^]u8) rl.MemAlloc(cast(c.uint) (atlas_w * atlas_h))
+    mem.zero(atlas_data, cast(int) (atlas_w * atlas_h))
     recs := cast([^]rl.Rectangle) rl.MemAlloc(cast(c.uint) (count * size_of(rl.Rectangle)))
 
     offset_x: c.int = PADDING
@@ -162,6 +168,7 @@ font_load_worker :: proc(job: ^Font_Load_Job) {
                 new_h := atlas_h * 2
                 new_data := cast([^]u8) rl.MemAlloc(cast(c.uint) (atlas_w * new_h))
                 mem.copy(new_data, atlas_data, cast(int) (atlas_w * atlas_h))
+                mem.zero(&new_data[atlas_w * atlas_h], cast(int) (atlas_w * (new_h - atlas_h)))
                 rl.MemFree(atlas_data)
                 atlas_data = new_data
                 atlas_h = new_h
