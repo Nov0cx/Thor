@@ -70,6 +70,11 @@ jobs:
           python -m pip install --upgrade pip meson ninja
           odin run build.odin -file -- deps -verbose
 
+      # No archive is packed from code that fails its tests. The tests build
+      # debug binaries into bin/test, which the pack does not touch.
+      - name: Run the tests
+        run: odin run build.odin -file -- test -verbose
+
       - name: Build Thor
         run: odin run build.odin -file -- all -release -verbose
 
@@ -121,6 +126,11 @@ jobs:
 
       - name: Build the dependencies
         run: odin run build.odin -file -- deps -verbose
+
+      # No archive is packed from code that fails its tests. The tests build
+      # debug binaries into bin/test, which the pack does not touch.
+      - name: Run the tests
+        run: odin run build.odin -file -- test -verbose
 
       - name: Build Thor
         run: odin run build.odin -file -- all -release -verbose
@@ -178,6 +188,11 @@ jobs:
       - name: Build the dependencies
         run: odin run build.odin -file -- deps -verbose
 
+      # No archive is packed from code that fails its tests. The tests build
+      # debug binaries into bin/test, which the pack does not touch.
+      - name: Run the tests
+        run: odin run build.odin -file -- test -verbose
+
       - name: Build Thor
         run: odin run build.odin -file -- all -release -verbose
 
@@ -232,6 +247,11 @@ jobs:
       - name: Build the dependencies
         run: odin run build.odin -file -- deps -verbose
 
+      # No archive is packed from code that fails its tests. The tests build
+      # debug binaries into bin/test, which the pack does not touch.
+      - name: Run the tests
+        run: odin run build.odin -file -- test -verbose
+
       # build.odin points the linker at $HOMEBREW_PREFIX/lib, which the runner sets.
       - name: Build Thor
         run: odin run build.odin -file -- all -release -verbose
@@ -284,7 +304,7 @@ jobs:
 
       - name: Write the notes
         run: |
-          cat > notes.md <<'EOF'
+          cat > README.md <<'EOF'
           Unpack the archive of your platform and start `thor`. The binary reads
           `assets/`, `plugins/` and `settings/` beside itself, so keep the folder
           together.

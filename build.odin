@@ -146,6 +146,9 @@ run_tests :: proc() -> bool {
         "watch",
         "widgets",
     }
+    // Every package runs, so one report names each broken one; a stop at the
+    // first would hide the rest from a CI log.
+    failed := make([dynamic]string, context.temp_allocator)
     for pkg in packages {
         args := make([dynamic]string, context.temp_allocator)
         append(&args, "odin", "test", pkg)
@@ -157,8 +160,13 @@ run_tests :: proc() -> bool {
         append_codegen_flags(&args)
         append_link_flags(&args)
         if !exec_msvc(args[:]) {
-            return false
+            append(&failed, pkg)
         }
+    }
+    if len(failed) > 0 {
+        list := strings.join(failed[:], ", ", context.temp_allocator)
+        fmt.eprintfln("[build] these test packages failed: %s", list)
+        return false
     }
     return true
 }

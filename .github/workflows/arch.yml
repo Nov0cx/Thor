@@ -94,3 +94,9 @@ jobs:
 
       - name: Build Thor
         run: odin build main -debug
+
+      # Every package that has tests, from the root of the repository, so the
+      # tests find assets/, plugins/ and settings/. No test opens a window, so
+      # the runner needs no display.
+      - name: Run the tests
+        run: odin run build.odin -file -- test -verbose

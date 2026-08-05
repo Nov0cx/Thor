@@ -30,12 +30,17 @@ odin check thor -no-entry-point                                # type-check one 
 
 Tests run with the repository root as the working directory, so they find `assets/`, `plugins/` and
 `settings/`. When a package gets its first `_test.odin`, add it to the `packages` list in
-`run_tests` (`build.odin`) or CI-equivalent runs will skip it.
+`run_tests` (`build.odin`) or CI will skip it. `run_tests` runs every package even after one fails,
+then names the failed ones together.
 
-A push of a `v*` tag runs `.github/workflows/release.yml`: it builds `-release` on all four CI
-platforms, packs `bin/release` (binary + `assets/`, `plugins/`, `settings/`) into a zip or tarball,
-and publishes them. The publish job needs every build job, so one broken platform makes no release.
-A manual run builds the same archives and stops before the publish.
+Every push and pull request runs `.github/workflows/{windows,ubuntu,arch,macos}.yml`: each builds
+the editor and then runs `build.odin -- test`, so a merge is gated on the tests of all four
+platforms. No test opens a window, so the runners need no display.
+
+A push of a `v*` tag runs `.github/workflows/release.yml`: it runs the tests, builds `-release` on
+all four CI platforms, packs `bin/release` (binary + `assets/`, `plugins/`, `settings/`) into a zip
+or tarball, and publishes them. The publish job needs every build job, so one broken platform makes
+no release. A manual run builds the same archives and stops before the publish.
 
 Linking needs MSVC on PATH (Thor links `harfbuzz.lib` and `libtree-sitter.lib`). `build.odin` locates
 `VsDevCmd.bat` itself via `vswhere`, so a plain shell works for `odin run build.odin`; a bare

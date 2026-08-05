@@ -93,3 +93,10 @@ jobs:
       # Point the linker at Homebrew's lib dir so -lharfbuzz resolves.
       - name: Build Thor
         run: odin build main -debug -extra-linker-flags:"-L$(brew --prefix)/lib"
+
+      # Every package that has tests, from the root of the repository, so the
+      # tests find assets/, plugins/ and settings/. No test opens a window, so
+      # the runner needs no display. build.odin points the linker at
+      # $HOMEBREW_PREFIX/lib, which the runner sets.
+      - name: Run the tests
+        run: odin run build.odin -file -- test -verbose
