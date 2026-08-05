@@ -254,4 +254,20 @@ test_async_font_load :: proc(t: ^testing.T) {
             }
         }
     }
+
+    // measure_text must walk the same shaped placement draw_text draws, or a
+    // ligature (one glyph with its own advance) measures as the sum of the two
+    // codepoints it replaced. Both text families are monospace, so every line
+    // stays a whole number of cells wide, ligature or not. The samples are
+    // ASCII, so len() is the cell count.
+    for name in ([2]string {"JetBrainsMono", "Iosevka"}) {
+        cell := measure_text("0", 17, name)
+        testing.expect(t, cell > 0, "monospace cell width not measured")
+        // "```" is the unbaked-glyph fallback, which must advance one cell too.
+        for line in ([?]string {"->", "=>", "!=", "::", "...", "```", "a -> b", "<==>", "|||>"}) {
+            testing.expect_value(t, measure_text(line, 17, name), cell * cast(i32) len(line))
+        }
+        // Multiple lines measure as the widest line.
+        testing.expect_value(t, measure_text("ab\nabcd\na", 17, name), cell * 4)
+    }
 }

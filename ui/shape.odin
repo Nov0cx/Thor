@@ -48,6 +48,20 @@ LIGATURE_PROBES := [?]string {
 @(private = "file")
 shape_buffer: ^hb.buffer_t
 
+// One positioned glyph of a shaped line. Measuring and drawing walk the same
+// placement, so a measured width is the width that gets drawn.
+@(private = "file")
+Placed_Glyph :: struct {
+    rect:     rl.Rectangle,
+    offset_x: i32,
+    offset_y: i32,
+    advance:  i32,
+}
+
+// Placement scratch, reused per call; main thread only, freed in text_shutdown.
+@(private = "file")
+placed: [dynamic]Placed_Glyph
+
 // Shapes the probes with a worker-local HarfBuzz font; returns glyph ids not
 // already covered by the codepoint atlas. Runs on the rasterizer threads.
 shape_collect_ligature_glyphs :: proc(file_data: []u8, seen: ^map[u32]bool) -> [dynamic]u32 {
@@ -122,6 +136,8 @@ shape_shutdown :: proc() {
         hb.buffer_destroy(shape_buffer)
         shape_buffer = nil
     }
+    delete(placed)
+    placed = nil
 }
 
 // Shapes one line; the returned slice is valid until the next shape_line call.
@@ -133,55 +149,78 @@ shape_line :: proc(family: ^Font_Family, line: string) -> ([^]hb.glyph_info_t, i
     return infos, cast(int) glyph_count
 }
 
-// Draws one line via shaping; false when the family/size has no shaping data,
-// so the caller falls back to the codepoint path. Advances come from
-// Shaped_Glyph, not HarfBuzz, to stay aligned with measure_text.
-draw_line_shaped :: proc(family: ^Font_Family, font: rl.Font, size: i32, line: string, x, y: i32, color: rl.Color) -> bool {
+// Places one shaped line; false when the family/size has no shaping data, so
+// the caller falls back to the codepoint path. Advances come from
+// Shaped_Glyph, not HarfBuzz, to stay aligned with the atlas.
+// The result is valid until the next call.
+@(private = "file")
+shape_place_line :: proc(family: ^Font_Family, font: rl.Font, size: i32, line: string) -> ([]Placed_Glyph, bool) {
     if family == nil || family.hb_font == nil {
-        return false
+        return nil, false
     }
     shaped, has_size := family.shaped[size]
     if !has_size {
-        return false
+        return nil, false
     }
+    clear(&placed)
     if line == "" {
-        return true
+        return placed[:], true
     }
 
     infos, glyph_count := shape_line(family, line)
 
-    pen := cast(f32) x
     for i in 0 ..< glyph_count {
         gid := cast(u32) infos[i].codepoint
-        glyph, mapped := shaped[gid]
-        if !mapped {
-            // Glyph substituted outside the baked set (e.g. JetBrains Mono's
-            // contextual backtick): draw the source char's baked glyph instead.
-            cluster := cast(int) infos[i].cluster
-            r: rune = 0
-            if cluster >= 0 && cluster < len(line) {
-                r, _ = utf8.decode_rune_in_string(line[cluster:])
-            }
-            index := rl.GetGlyphIndex(font, r)
-            if r >= 32 && font.glyphs[index].value == r {
-                rec := font.recs[index]
-                info := font.glyphs[index]
-                if rec.width > 0 {
-                    rl.DrawTextureRec(
-                        font.texture,
-                        rec,
-                        rl.Vector2 {pen + cast(f32) info.offsetX, cast(f32) y + cast(f32) info.offsetY},
-                        color,
-                    )
-                }
-                pen += cast(f32) info.advanceX
-            } else {
-                space := rl.GetGlyphIndex(font, ' ')
-                pen += cast(f32) font.glyphs[space].advanceX
-            }
+        if glyph, mapped := shaped[gid]; mapped {
+            append(
+                &placed,
+                Placed_Glyph {
+                    rect = glyph.rect,
+                    offset_x = glyph.offset_x,
+                    offset_y = glyph.offset_y,
+                    advance = glyph.advance,
+                },
+            )
             continue
         }
 
+        // Glyph substituted outside the baked set (e.g. JetBrains Mono's
+        // contextual backtick): use the source char's baked glyph instead.
+        cluster := cast(int) infos[i].cluster
+        r: rune = 0
+        if cluster >= 0 && cluster < len(line) {
+            r, _ = utf8.decode_rune_in_string(line[cluster:])
+        }
+        index := rl.GetGlyphIndex(font, r)
+        if r >= 32 && font.glyphs[index].value == r {
+            info := font.glyphs[index]
+            append(
+                &placed,
+                Placed_Glyph {
+                    rect = font.recs[index],
+                    offset_x = cast(i32) info.offsetX,
+                    offset_y = cast(i32) info.offsetY,
+                    advance = cast(i32) info.advanceX,
+                },
+            )
+        } else {
+            space := rl.GetGlyphIndex(font, ' ')
+            append(&placed, Placed_Glyph {advance = cast(i32) font.glyphs[space].advanceX})
+        }
+    }
+    return placed[:], true
+}
+
+// Draws one line via shaping; false when the family/size has no shaping data,
+// so the caller falls back to the codepoint path.
+draw_line_shaped :: proc(family: ^Font_Family, font: rl.Font, size: i32, line: string, x, y: i32, color: rl.Color) -> bool {
+    glyphs, ok := shape_place_line(family, font, size, line)
+    if !ok {
+        return false
+    }
+
+    pen := cast(f32) x
+    for glyph in glyphs {
         if glyph.rect.width > 0 {
             rl.DrawTextureRec(
                 font.texture,
@@ -193,4 +232,20 @@ draw_line_shaped :: proc(family: ^Font_Family, font: rl.Font, size: i32, line: s
         pen += cast(f32) glyph.advance
     }
     return true
+}
+
+// Width of one line via shaping; false when the family/size has no shaping
+// data. A ligature has its own advance, so the shaped sum is the only width
+// that agrees with draw_line_shaped.
+measure_line_shaped :: proc(family: ^Font_Family, font: rl.Font, size: i32, line: string) -> (f32, bool) {
+    glyphs, ok := shape_place_line(family, font, size, line)
+    if !ok {
+        return 0, false
+    }
+
+    width: f32 = 0
+    for glyph in glyphs {
+        width += cast(f32) glyph.advance
+    }
+    return width, true
 }

@@ -364,15 +364,26 @@ text_line_height :: proc(font_size: i32) -> i32 {
 }
 
 measure_text :: proc(text: string, font_size: i32, family := "") -> i32 {
+    name := family
+    if name == "" {
+        name = default_family_name
+    }
+    fam := families[name]
+
     font := get_font(font_size, family)
     max_width: f32 = 0
     source := text
 
     for line in strings.split_lines_iterator(&source) {
-        line_c := strings.clone_to_cstring(line, context.temp_allocator)
-        size := rl.MeasureTextEx(font, line_c, cast(f32) font_size, 0)
-        if size.x > max_width {
-            max_width = size.x
+        // Shaped path first, exactly like draw_text: a ligature has one advance
+        // instead of the sum raylib measures per codepoint.
+        width, shaped := measure_line_shaped(fam, font, font_size, line)
+        if !shaped {
+            line_c := strings.clone_to_cstring(line, context.temp_allocator)
+            width = rl.MeasureTextEx(font, line_c, cast(f32) font_size, 0).x
+        }
+        if width > max_width {
+            max_width = width
         }
     }
 
