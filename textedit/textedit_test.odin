@@ -647,6 +647,85 @@ test_text_view_follows_edits :: proc(t: ^testing.T) {
     testing.expect_value(t, text(&state), "one!\ntwo!\nthree")
 }
 
+// Every multi-cursor edit walks the cursors low to high with one running
+// offset, so overlapping ranges must be gone before the edit starts.
+@(test)
+test_overlapping_selections_merge :: proc(t: ^testing.T) {
+    state: State
+    init(&state)
+    defer destroy(&state)
+
+    set_text(&state, "abcdefghij")
+    set_cursors(&state, []Cursor{{anchor = 0, caret = 6}, {anchor = 4, caret = 10}})
+
+    testing.expect_value(t, len(state.cursors), 1)
+    testing.expect_value(t, state.cursors[0].anchor, 0)
+    testing.expect_value(t, state.cursors[0].caret, 10)
+
+    insert_text(&state, "X")
+    testing.expect_value(t, text(&state), "X")
+}
+
+// The merged cursor faces the way the second one faced.
+@(test)
+test_overlapping_selections_keep_direction :: proc(t: ^testing.T) {
+    state: State
+    init(&state)
+    defer destroy(&state)
+
+    set_text(&state, "abcdefghij")
+    set_cursors(&state, []Cursor{{anchor = 6, caret = 0}, {anchor = 10, caret = 4}})
+
+    testing.expect_value(t, len(state.cursors), 1)
+    testing.expect_value(t, state.cursors[0].anchor, 10)
+    testing.expect_value(t, state.cursors[0].caret, 0)
+}
+
+// A bare caret on the edge of a selection is one position, so it merges; two
+// selections that only meet there are separate matches and stay apart.
+@(test)
+test_caret_merges_but_adjacent_selections_do_not :: proc(t: ^testing.T) {
+    state: State
+    init(&state)
+    defer destroy(&state)
+
+    set_text(&state, "abcd")
+    set_cursors(&state, []Cursor{{anchor = 0, caret = 2}, {anchor = 2, caret = 2}})
+    testing.expect_value(t, len(state.cursors), 1)
+    testing.expect_value(t, state.cursors[0].anchor, 0)
+    testing.expect_value(t, state.cursors[0].caret, 2)
+
+    set_text(&state, "abab")
+    set_cursors(&state, []Cursor{{anchor = 0, caret = 2}, {anchor = 2, caret = 4}})
+    testing.expect_value(t, len(state.cursors), 2)
+
+    insert_text(&state, "X")
+    testing.expect_value(t, text(&state), "XX")
+}
+
+// Selections that grow into each other (Shift+Down on stacked cursors) merge
+// instead of double-applying the offset math.
+@(test)
+test_extending_selections_merge :: proc(t: ^testing.T) {
+    state: State
+    init(&state)
+    defer destroy(&state)
+
+    set_text(&state, "aa\nbb\ncc\ndd")
+    set_single_cursor(&state, 0)
+    add_cursor_vertical(&state, 1)
+    testing.expect_value(t, len(state.cursors), 2)
+
+    move_vertical(&state, 1, true)
+    move_vertical(&state, 1, true)
+    testing.expect_value(t, len(state.cursors), 1)
+    testing.expect_value(t, state.cursors[0].anchor, 0)
+    testing.expect_value(t, state.cursors[0].caret, 9)
+
+    insert_text(&state, "X")
+    testing.expect_value(t, text(&state), "Xdd")
+}
+
 // A clone outlives the buffer it came from; the borrow does not.
 @(test)
 test_text_clone_survives_set_text :: proc(t: ^testing.T) {

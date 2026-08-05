@@ -177,24 +177,67 @@ normalize :: proc(state: ^State) {
     normalize_cursors(state)
 }
 
-// Keeps cursors sorted by caret and merges duplicates.
+// Keeps cursors sorted by selection start and merges the ones that overlap, so
+// every edit path gets disjoint ascending ranges. Ranges that only meet at one
+// point stay apart (adjacent Ctrl+D matches edit separately).
 @(private)
 normalize_cursors :: proc(state: ^State) {
+    if len(state.cursors) < 2 {
+        return
+    }
+
     for i in 1 ..< len(state.cursors) {
         j := i
-        for j > 0 && state.cursors[j - 1].caret > state.cursors[j].caret {
+        for j > 0 && cursor_before(state.cursors[j], state.cursors[j - 1]) {
             state.cursors[j - 1], state.cursors[j] = state.cursors[j], state.cursors[j - 1]
             j -= 1
         }
     }
 
-    i := len(state.cursors) - 1
-    for i > 0 {
-        if state.cursors[i].caret == state.cursors[i - 1].caret {
-            ordered_remove(&state.cursors, i - 1)
+    txt := text(state)
+    for i := len(state.cursors) - 1; i > 0; i -= 1 {
+        if !cursors_merge(state.cursors[i - 1], state.cursors[i]) {
+            continue
         }
-        i -= 1
+        state.cursors[i] = merged_cursor(state.cursors[i - 1], state.cursors[i], txt)
+        ordered_remove(&state.cursors, i - 1)
     }
+}
+
+// Orders cursors by selection start, then by selection end.
+@(private)
+cursor_before :: proc(a, b: Cursor) -> bool {
+    a_lo, a_hi := selection_range(a)
+    b_lo, b_hi := selection_range(b)
+    return a_lo < b_lo || (a_lo == b_lo && a_hi < b_hi)
+}
+
+// True when a and b (a first in sort order) must become one cursor: their
+// ranges overlap, or they meet at one point and one of them is a bare caret.
+@(private)
+cursors_merge :: proc(a, b: Cursor) -> bool {
+    _, a_hi := selection_range(a)
+    b_lo, _ := selection_range(b)
+    if a_hi > b_lo {
+        return true
+    }
+    return a_hi == b_lo && (!has_selection(a) || !has_selection(b))
+}
+
+// One cursor covering both ranges, facing the way b faces, or a's way when b is
+// a bare caret.
+@(private)
+merged_cursor :: proc(a, b: Cursor, txt: string) -> Cursor {
+    a_lo, a_hi := selection_range(a)
+    b_lo, b_hi := selection_range(b)
+    lo, hi := min(a_lo, b_lo), max(a_hi, b_hi)
+    reversed := has_selection(b) ? b.caret < b.anchor : a.caret < a.anchor
+    out := Cursor {caret = hi, anchor = lo}
+    if reversed {
+        out = Cursor {caret = lo, anchor = hi}
+    }
+    out.preferred_column = column(txt, out.caret)
+    return out
 }
 
 @(private)
