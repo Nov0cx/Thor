@@ -98,6 +98,15 @@ test_watch_create_modify_delete :: proc(t: ^testing.T) {
     }
     defer os.remove(root)
 
+    // The watcher reports the path the OS gives it, which is resolved: darwin
+    // reads an opened path back with F_GETPATH, and the temp directory sits
+    // behind a symbolic link there (/var -> /private/var). The paths to compare
+    // against must pass through the same resolution, which is what the editor
+    // does too (thor_same_path).
+    if resolved, err := filepath.abs(root, context.temp_allocator); err == nil {
+        root = resolved
+    }
+
     w: Watcher
     ok := watcher_init(&w, root)
     testing.expect(t, ok, "watcher_init should succeed on a real directory")
