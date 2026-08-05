@@ -172,6 +172,52 @@ test_insert_soft_tab :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_tab_width_is_per_state :: proc(t: ^testing.T) {
+    wide := ops_state("aaa", 0)
+    defer destroy(&wide)
+    narrow := ops_state("aaa", 0)
+    defer destroy(&narrow)
+
+    set_tab_width(&wide, 8)
+    testing.expect_value(t, tab_width(&wide), 8)
+    testing.expect_value(t, tab_width(&narrow), default_tab_width())
+
+    indent_lines(&wide)
+    indent_lines(&narrow)
+    testing.expect_value(t, text(&wide), "        aaa")
+    testing.expect_value(t, text(&narrow), "    aaa")
+
+    // Back to 0: the state follows the default again.
+    set_tab_width(&wide, 0)
+    testing.expect_value(t, tab_width(&wide), default_tab_width())
+}
+
+@(test)
+test_detect_indent :: proc(t: ^testing.T) {
+    spaces := ops_state("a\n  b\n    c\n\n  d", 0)
+    defer destroy(&spaces)
+    info := detect_indent(&spaces)
+    testing.expect_value(t, info.style, Indent_Style.Spaces)
+    testing.expect_value(t, info.width, 2)
+    testing.expect_value(t, info.space_lines, 3)
+    testing.expect_value(t, info.tab_lines, 0)
+
+    tabs := ops_state("a\n\tb\n\t\tc\n    d", 0)
+    defer destroy(&tabs)
+    info = detect_indent(&tabs)
+    testing.expect_value(t, info.style, Indent_Style.Tabs)
+    testing.expect_value(t, info.width, 0)
+    testing.expect_value(t, info.tab_lines, 2)
+    testing.expect_value(t, info.space_lines, 1)
+
+    flat := ops_state("a\nb\n", 0)
+    defer destroy(&flat)
+    info = detect_indent(&flat)
+    testing.expect_value(t, info.style, Indent_Style.Unknown)
+    testing.expect_value(t, info.width, 0)
+}
+
+@(test)
 test_toggle_comment :: proc(t: ^testing.T) {
     state := ops_state("aaa\n\n\tbbb", 0)
     defer destroy(&state)

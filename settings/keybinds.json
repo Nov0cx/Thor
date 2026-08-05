@@ -68,6 +68,7 @@
         "copy_path": "",
         "line_endings_lf": "",
         "line_endings_crlf": "",
+        "show_indentation": "",
         "next_tab": "ctrl+page_down",
         "rename_file": "f2",
         "code_actions": "ctrl+shift+u",

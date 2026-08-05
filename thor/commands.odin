@@ -1,5 +1,6 @@
 package thor
 
+import "core:fmt"
 import "core:log"
 import "core:os"
 import "core:strings"
@@ -149,7 +150,7 @@ thor_apply_settings :: proc(thor: ^Thor) {
 
     widgets.editor_set_font_size(thor.editor, cast(i32) setting.font_size(&thor.config))
     widgets.editor_set_font_size(thor.editor2, cast(i32) setting.font_size(&thor.config))
-    textedit.set_tab_width(setting.tab_width(&thor.config))
+    textedit.set_default_tab_width(setting.tab_width(&thor.config))
 }
 
 // Reloads the config from disk and re-applies it live: keybinds, sizes, the
@@ -352,6 +353,7 @@ thor_register_commands :: proc(thor: ^Thor) {
     widgets.command_palette_add(p, "File: Switch to Last File", thor_cmd_last_file, thor, sc(thor, "last_file"))
     thor_add_bindable_command(thor, "File: Use LF Line Endings", "line_endings_lf", thor_cmd_line_endings_lf, thor)
     thor_add_bindable_command(thor, "File: Use CRLF Line Endings", "line_endings_crlf", thor_cmd_line_endings_crlf, thor)
+    thor_add_bindable_command(thor, "File: Show Indentation", "show_indentation", thor_cmd_show_indentation, thor)
     thor_add_bindable_command(thor, "File: Copy Path", "copy_path", thor_cmd_copy_path, thor)
     thor_add_bindable_command(thor, "File: Reveal in File Explorer", "reveal_in_explorer", thor_cmd_reveal, thor)
 
@@ -438,6 +440,34 @@ thor_cmd_line_endings_lf :: proc(data: rawptr) {
 thor_cmd_line_endings_crlf :: proc(data: rawptr) {
     thor := cast(^Thor) data
     thor_set_line_ending(thor, thor_active_open_file(thor), .CRLF)
+}
+
+// Reports the indentation the active file uses, with the count of the lines that
+// disagree so a mixed file is visible.
+thor_cmd_show_indentation :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    file := thor_active_open_file(thor)
+    if file == nil || !file.loaded {
+        return
+    }
+
+    info := textedit.detect_indent(&file.state)
+    message: string
+    switch info.style {
+    case .Unknown:
+        message = "Indentation: no indented line"
+    case .Spaces:
+        message = fmt.tprintf("Indentation: spaces (width %d), %d lines", info.width, info.space_lines)
+        if info.tab_lines > 0 {
+            message = fmt.tprintf("%s, %d with tabs", message, info.tab_lines)
+        }
+    case .Tabs:
+        message = fmt.tprintf("Indentation: tabs, %d lines", info.tab_lines)
+        if info.space_lines > 0 {
+            message = fmt.tprintf("%s, %d with spaces", message, info.space_lines)
+        }
+    }
+    thor_flash_status(thor, message)
 }
 
 // Zoom commands drive both panes so a command-triggered zoom keeps the split in

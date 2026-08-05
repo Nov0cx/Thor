@@ -535,10 +535,10 @@ apply_line_edits :: proc(state: ^State, txt: string, edits: []Line_Edit) {
     finish_edit(state, &entry)
 }
 
-// Soft indentation: a level is g_tab_width spaces, never a literal tab.
-// Configurable at runtime, so a package variable rather than a constant.
+// Soft indentation: a level is tab_width spaces, never a literal tab.
+// The width a State with no own width uses.
 @(private)
-g_tab_width := 4
+g_default_tab_width := 4
 
 // Backing storage for indent_unit(); slicing gives 1..MAX_TAB_WIDTH spaces.
 @(private)
@@ -546,18 +546,103 @@ MAX_TAB_WIDTH :: 16
 @(private)
 INDENT_SPACES :: "                " // MAX_TAB_WIDTH spaces
 
-tab_width :: proc() -> int {
-    return g_tab_width
+default_tab_width :: proc() -> int {
+    return g_default_tab_width
 }
 
-set_tab_width :: proc(width: int) {
-    g_tab_width = clamp(width, 1, MAX_TAB_WIDTH)
+// Sets the width for every State that has no own width. States with one keep it.
+set_default_tab_width :: proc(width: int) {
+    g_default_tab_width = clamp(width, 1, MAX_TAB_WIDTH)
+}
+
+tab_width :: proc(state: ^State) -> int {
+    return state.tab_width if state.tab_width > 0 else g_default_tab_width
+}
+
+// Sets this document's width only. A width of 0 returns it to the default.
+set_tab_width :: proc(state: ^State, width: int) {
+    state.tab_width = width == 0 ? 0 : clamp(width, 1, MAX_TAB_WIDTH)
+}
+
+// What the leading whitespace of a document uses.
+Indent_Style :: enum {
+    Unknown,
+    Spaces,
+    Tabs,
+}
+
+Indent_Info :: struct {
+    style:       Indent_Style,
+    // Spaces per level, from the most common step between indented lines.
+    // 0 for Tabs and Unknown.
+    width:       int,
+    space_lines: int,
+    tab_lines:   int,
+}
+
+// Reads how the document indents: the style the most lines use, and for spaces
+// the step between levels. Blank lines and continuation alignment are ignored;
+// a line that starts with a tab counts as a tab line, whatever follows.
+detect_indent :: proc(state: ^State) -> Indent_Info {
+    txt := text(state)
+    info: Indent_Info
+    steps: [MAX_TAB_WIDTH + 1]int
+    smallest := 0
+    previous := 0
+
+    for pos := 0; pos < len(txt); pos = line_end(txt, pos) + 1 {
+        end := line_end(txt, pos)
+        i := pos
+        for i < end && txt[i] == ' ' {
+            i += 1
+        }
+        if i == end {
+            continue // blank line
+        }
+        if txt[i] == '\t' {
+            info.tab_lines += 1
+            continue
+        }
+        spaces := i - pos
+        if spaces == 0 {
+            previous = 0
+            continue
+        }
+
+        info.space_lines += 1
+        if smallest == 0 || spaces < smallest {
+            smallest = spaces
+        }
+        if step := spaces - previous; step > 0 && step <= MAX_TAB_WIDTH {
+            steps[step] += 1
+        }
+        previous = spaces
+    }
+
+    if info.space_lines == 0 && info.tab_lines == 0 {
+        return info
+    }
+    if info.tab_lines > info.space_lines {
+        info.style = .Tabs
+        return info
+    }
+
+    info.style = .Spaces
+    info.width = smallest
+    best := 0
+    for count, step in steps {
+        if count > best {
+            best = count
+            info.width = step
+        }
+    }
+    return info
 }
 
 @(private)
-indent_unit :: proc() -> string {
+indent_unit :: proc(state: ^State) -> string {
     spaces := INDENT_SPACES
-    return spaces[:g_tab_width]
+    return spaces[:tab_width(state)]
 }
 
 // Soft-tab insert at each caret: adds spaces up to the next TAB_WIDTH column so
@@ -574,7 +659,8 @@ insert_soft_tab :: proc(state: ^State) {
             append(&entry.ops, Edit_Op {kind = .Delete, pos = lo + offset, text = strings.clone(txt[lo:hi])})
             piecetable.piecetable_delete(&state.table, lo + offset, hi - lo)
         }
-        count := g_tab_width - (column(txt, lo) % g_tab_width)
+        width := tab_width(state)
+        count := width - (column(txt, lo) % width)
         all_spaces := INDENT_SPACES
         spaces := all_spaces[:count]
         append(&entry.ops, Edit_Op {kind = .Insert, pos = lo + offset, text = strings.clone(spaces)})
@@ -617,7 +703,7 @@ insert_newline :: proc(state: ^State) {
         }
         extra := ""
         if j >= ls && (txt[j] == '{' || txt[j] == '[' || txt[j] == '(') {
-            extra = indent_unit()
+            extra = indent_unit(state)
         }
 
         insert_str := strings.concatenate({"\n", indent, extra}, context.temp_allocator)
@@ -666,7 +752,7 @@ insert_brace_block :: proc(state: ^State) {
     }
     indent := txt[ls:min(ws_end, lo)]
 
-    head := strings.concatenate({"{\n", indent, indent_unit()}, context.temp_allocator)
+    head := strings.concatenate({"{\n", indent, indent_unit(state)}, context.temp_allocator)
     full := strings.concatenate({head, "\n", indent, "}"}, context.temp_allocator)
 
     piecetable.piecetable_insert(&state.table, lo, full)
@@ -682,7 +768,7 @@ indent_lines :: proc(state: ^State) {
     starts := covered_line_starts(txt, state)
     edits := make([dynamic]Line_Edit, context.temp_allocator)
     for start in starts {
-        append(&edits, Line_Edit {pos = start, insert = indent_unit()})
+        append(&edits, Line_Edit {pos = start, insert = indent_unit(state)})
     }
     apply_line_edits(state, txt, edits[:])
 }
@@ -691,13 +777,14 @@ outdent_lines :: proc(state: ^State) {
     txt := text(state)
     starts := covered_line_starts(txt, state)
     edits := make([dynamic]Line_Edit, context.temp_allocator)
+    width := tab_width(state)
     for start in starts {
         if start < len(txt) && txt[start] == '\t' {
             append(&edits, Line_Edit {pos = start, remove = 1})
             continue
         }
         spaces := 0
-        for start + spaces < len(txt) && spaces < g_tab_width && txt[start + spaces] == ' ' {
+        for start + spaces < len(txt) && spaces < width && txt[start + spaces] == ' ' {
             spaces += 1
         }
         if spaces > 0 {

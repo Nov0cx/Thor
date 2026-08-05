@@ -60,6 +60,8 @@ State :: struct {
     // Bumped on every content change (edits, undo, redo); reset by set_text.
     // Callers compare against a saved revision to detect unsaved changes.
     revision:   u64,
+    // This document's soft-tab width; 0 follows the package default.
+    tab_width:  int,
 }
 
 init :: proc(state: ^State) {

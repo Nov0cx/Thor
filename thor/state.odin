@@ -255,7 +255,7 @@ thor_status_info :: proc(data: rawptr) -> widgets.Status_Info {
     info.file_open = true
     info.file_name = file.name
     info.language = thor_language_name(file.name)
-    info.indent_width = textedit.tab_width()
+    info.indent_width = textedit.tab_width(&file.state)
     info.indent_spaces = true
     info.zoom = int(thor.editor.font_size) * 100 / max(setting.font_size(&thor.config), 1)
     info.saving = file.saving
