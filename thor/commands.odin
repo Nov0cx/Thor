@@ -151,6 +151,7 @@ thor_apply_settings :: proc(thor: ^Thor) {
     widgets.editor_set_font_size(thor.editor, cast(i32) setting.font_size(&thor.config))
     widgets.editor_set_font_size(thor.editor2, cast(i32) setting.font_size(&thor.config))
     textedit.set_default_tab_width(setting.tab_width(&thor.config))
+    ui.shape_set_ligatures(setting.ligatures(&thor.config))
 }
 
 // Reloads the config from disk and re-applies it live: keybinds, sizes, the
@@ -414,6 +415,7 @@ thor_register_commands :: proc(thor: ^Thor) {
     thor_add_bindable_command(thor, "Preferences: Change Font", "change_font", thor_cmd_change_font, thor)
     thor_add_bindable_command(thor, "Preferences: Change Icon Pack", "change_icon_pack", thor_cmd_change_icon_pack, thor)
     thor_add_bindable_command(thor, "Preferences: Change File Icon Pack", "change_file_icon_pack", thor_cmd_change_file_icon_pack, thor)
+    thor_add_bindable_command(thor, "Preferences: Ligatures", "change_ligatures", thor_cmd_change_ligatures, thor)
 }
 
 thor_cmd_toggle_explorer :: proc(data: rawptr) {thor_toggle_explorer(data, nil, nil)}

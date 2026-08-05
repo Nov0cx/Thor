@@ -48,6 +48,33 @@ LIGATURE_PROBES := [?]string {
 @(private = "file")
 shape_buffer: ^hb.buffer_t
 
+// Draw-time ligatures, off via the ligatures setting. Bake-time probing ignores
+// this, so the ligature glyphs stay in the atlas and the setting takes effect
+// without a rebake.
+@(private = "file")
+ligatures_enabled := true
+
+// OpenType feature tags as four-byte identifiers. Spelled out because hb.TAG
+// needs a context, which the global scope has none of.
+@(private = "file")
+TAG_LIGA: hb.tag_t : ('l' << 24) | ('i' << 16) | ('g' << 8) | 'a'
+@(private = "file")
+TAG_CLIG: hb.tag_t : ('c' << 24) | ('l' << 16) | ('i' << 8) | 'g'
+@(private = "file")
+TAG_DLIG: hb.tag_t : ('d' << 24) | ('l' << 16) | ('i' << 8) | 'g'
+@(private = "file")
+TAG_CALT: hb.tag_t : ('c' << 24) | ('a' << 16) | ('l' << 8) | 't'
+
+// The features that make a ligature, all forced off over the whole buffer.
+// HarfBuzz applies liga and calt by default, so only an explicit 0 stops them.
+@(private = "file")
+LIGATURES_OFF := [?]hb.feature_t {
+    {tag = TAG_LIGA, value = 0, start = 0, end = max(c.uint)},
+    {tag = TAG_CLIG, value = 0, start = 0, end = max(c.uint)},
+    {tag = TAG_DLIG, value = 0, start = 0, end = max(c.uint)},
+    {tag = TAG_CALT, value = 0, start = 0, end = max(c.uint)},
+}
+
 // One positioned glyph of a shaped line. Measuring and drawing walk the same
 // placement, so a measured width is the width that gets drawn.
 @(private = "file")
@@ -95,13 +122,18 @@ shape_collect_ligature_glyphs :: proc(file_data: []u8, seen: ^map[u32]bool) -> [
 }
 
 @(private = "file")
-shape_into :: proc(buffer: ^hb.buffer_t, font: ^hb.font_t, text: string) -> ([^]hb.glyph_info_t, c.uint) {
+shape_into :: proc(
+    buffer: ^hb.buffer_t,
+    font: ^hb.font_t,
+    text: string,
+    features: []hb.feature_t = nil,
+) -> ([^]hb.glyph_info_t, c.uint) {
     hb.buffer_reset(buffer)
     hb.buffer_add_utf8(buffer, raw_data(text), cast(c.int) len(text), 0, cast(c.int) len(text))
     hb.buffer_set_direction(buffer, .DIRECTION_LTR)
     hb.buffer_set_script(buffer, .SCRIPT_LATIN)
     hb.buffer_set_language(buffer, hb.language_from_string("en", -1))
-    hb.shape(font, buffer, nil, 0)
+    hb.shape(font, buffer, raw_data(features), cast(c.uint) len(features))
 
     glyph_count: c.uint
     infos := cast([^]hb.glyph_info_t) hb.buffer_get_glyph_infos(buffer, &glyph_count)
@@ -140,12 +172,22 @@ shape_shutdown :: proc() {
     placed = nil
 }
 
+// Draws the font's ligatures, or the plain glyphs. Main thread only.
+shape_set_ligatures :: proc(enabled: bool) {
+    ligatures_enabled = enabled
+}
+
+shape_ligatures_enabled :: proc() -> bool {
+    return ligatures_enabled
+}
+
 // Shapes one line; the returned slice is valid until the next shape_line call.
 shape_line :: proc(family: ^Font_Family, line: string) -> ([^]hb.glyph_info_t, int) {
     if shape_buffer == nil {
         shape_buffer = hb.buffer_create()
     }
-    infos, glyph_count := shape_into(shape_buffer, family.hb_font, line)
+    features := ligatures_enabled ? nil : LIGATURES_OFF[:]
+    infos, glyph_count := shape_into(shape_buffer, family.hb_font, line, features)
     return infos, cast(int) glyph_count
 }
 

@@ -270,4 +270,30 @@ test_async_font_load :: proc(t: ^testing.T) {
         // Multiple lines measure as the widest line.
         testing.expect_value(t, measure_text("ab\nabcd\na", 17, name), cell * 4)
     }
+
+    // The ligatures setting reaches shaping: with it off, "->" shapes to the
+    // plain glyphs the codepoints carry. Left back on for any later test.
+    if family, ok := families["JetBrainsMono"]; ok {
+        dash_infos, dash_n := shape_line(family, "-")
+        testing.expect_value(t, dash_n, 1)
+        dash_gid := cast(u32) dash_infos[0].codepoint
+
+        shape_set_ligatures(false)
+        testing.expect(t, !shape_ligatures_enabled(), "ligature toggle not recorded")
+        plain, plain_n := shape_line(family, "->")
+        testing.expect_value(t, plain_n, 2)
+        if plain_n == 2 {
+            testing.expect_value(t, cast(u32) plain[0].codepoint, dash_gid)
+        }
+        // A monospace family measures the same either way.
+        cell := measure_text("0", 17, "JetBrainsMono")
+        testing.expect_value(t, measure_text("->", 17, "JetBrainsMono"), cell * 2)
+
+        shape_set_ligatures(true)
+        back, back_n := shape_line(family, "->")
+        testing.expect_value(t, back_n, 2)
+        if back_n == 2 {
+            testing.expect(t, cast(u32) back[0].codepoint != dash_gid, "ligature not restored")
+        }
+    }
 }

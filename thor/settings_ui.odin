@@ -54,6 +54,7 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
         file_icon_pack = ui.icon_active_pack(FILE_ICON_PACK_GROUP)
     }
     widgets.settings_view_add_choice(view, "file_icon_pack", "File Icon Pack", file_icon_pack)
+    widgets.settings_view_add_choice(view, "ligatures", "Ligatures", thor_ligatures_label(&thor.config))
 
     widgets.settings_view_add_header(view, "WINDOWS")
     widgets.settings_view_add_choice(view, "open_folder_in", "Open Folder In", thor_open_folder_in_label(&thor.config))
@@ -117,6 +118,8 @@ thor_on_setting_choice :: proc(data: rawptr, id: string) {
         thor_cmd_change_icon_pack(thor)
     case "file_icon_pack":
         thor_cmd_change_file_icon_pack(thor)
+    case "ligatures":
+        thor_cmd_change_ligatures(thor)
     case "open_folder_in":
         thor_cmd_change_open_folder_in(thor)
     case "default_shell":

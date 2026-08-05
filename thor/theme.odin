@@ -298,6 +298,44 @@ thor_font_commit :: proc(data: rawptr, choice: string) {
     }
 }
 
+// Picker rows for the ligatures setting.
+@(private = "file")
+LIGATURE_LABELS := [?]string {"On", "Off"}
+
+// The ligatures setting as its picker row.
+thor_ligatures_label :: proc(config: ^setting.Settings) -> string {
+    return setting.ligatures(config) ? LIGATURE_LABELS[0] : LIGATURE_LABELS[1]
+}
+
+// Preferences: Ligatures -> draw the font's ligatures ("->" as one glyph), or
+// the plain glyphs. Shaping runs per frame, so the choice shows at once.
+thor_cmd_change_ligatures :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    widgets.select_dialog_open(
+        thor.select_dialog, &thor.ui_context, "Ligatures",
+        LIGATURE_LABELS[:], thor_ligatures_label(&thor.config),
+        thor_ligatures_preview, thor_ligatures_commit, thor,
+    )
+}
+
+// Switches ligatures live (no persistence): the dialog's preview.
+thor_ligatures_preview :: proc(_: rawptr, choice: string) {
+    ui.shape_set_ligatures(choice == LIGATURE_LABELS[0])
+}
+
+// Applies the choice and persists it.
+thor_ligatures_commit :: proc(data: rawptr, choice: string) {
+    thor := cast(^Thor) data
+    enabled := choice == LIGATURE_LABELS[0]
+    ui.shape_set_ligatures(enabled)
+    setting.persist_bool(thor_active_settings_path(thor), "ligatures", enabled)
+    thor.config.general.ligatures = enabled
+    thor_settings_mark_clean(thor)
+    if widgets.settings_view_is_open(thor.settings_view) {
+        thor_populate_settings_view(thor)
+    }
+}
+
 // Icon families sharing a pack group are alternatives for the same set of icon
 // names. The primary group backs the unprefixed UI names (buttons, tabbar,
 // statusbar, tree chevrons/folder); the file group backs the tree's `filetype-`

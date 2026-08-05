@@ -37,6 +37,8 @@ General :: struct {
     // The shell a new terminal starts, by profile id ("pwsh", "git-bash",
     // "msvc", ...). Empty picks the best shell installed. Owned.
     default_shell:     string,
+    // Draw the font's programming ligatures ("->" as one glyph). On by default.
+    ligatures:         bool,
 }
 
 // Where an opened folder goes. Parsed from the open_folder_in setting.
@@ -60,7 +62,7 @@ load :: proc(dir: string) -> Settings {
     s: Settings
     s.comments = make(map[string]string)
     s.keybinds = make(map[string]Keybind)
-    s.general = General {tab_width = 4, font_size = 18, autosave_delay_ms = 1500}
+    s.general = General {tab_width = 4, font_size = 18, autosave_delay_ms = 1500, ligatures = true}
 
     load_dir(&s, dir)
     return s
@@ -162,6 +164,11 @@ default_shell :: proc(s: ^Settings) -> string {
     return s.general.default_shell
 }
 
+// Whether text draws the font's ligatures.
+ligatures :: proc(s: ^Settings) -> bool {
+    return s.general.ligatures
+}
+
 // Where an opened folder goes. Unset or unrecognized means Ask.
 open_folder_in :: proc(s: ^Settings) -> Open_Folder_In {
     return parse_open_folder_in(s.general.open_folder_in)
@@ -205,6 +212,13 @@ persist_string :: proc(path, key, value: string) -> bool {
 persist_int :: proc(path, key: string, value: int) -> bool {
     root := load_root_object(path)
     root[key] = json.Integer(value)
+    return write_object(path, root)
+}
+
+// Like persist_string but for a boolean field (ligatures, ...).
+persist_bool :: proc(path, key: string, value: bool) -> bool {
+    root := load_root_object(path)
+    root[key] = json.Boolean(value)
     return write_object(path, root)
 }
 
@@ -565,6 +579,7 @@ load_general :: proc(s: ^Settings, path: string) {
     read_string(root, "font", &s.general.font)
     read_string(root, "icon_pack", &s.general.icon_pack)
     read_string(root, "file_icon_pack", &s.general.file_icon_pack)
+    read_bool(root, "ligatures", &s.general.ligatures)
     read_string(root, "open_folder_in", &s.general.open_folder_in)
     read_string(root, "default_shell", &s.general.default_shell)
 }
@@ -587,6 +602,14 @@ read_int :: proc(obj: json.Object, key: string, dst: ^int) {
         dst^ = cast(int) v
     case json.Float:
         dst^ = cast(int) v
+    }
+}
+
+// Reads a boolean field into dst, leaving the default in place if absent.
+@(private)
+read_bool :: proc(obj: json.Object, key: string, dst: ^bool) {
+    if value, ok := obj[key].(json.Boolean); ok {
+        dst^ = cast(bool) value
     }
 }
 
