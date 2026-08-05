@@ -122,9 +122,12 @@ session_start :: proc(profile: Profile, cwd: string) -> (^Session, bool) {
     session.thread = pi.hThread
     session.stdin_w = stdin_w
     session.stdout_r = stdout_r
+    // A parent job without JOB_OBJECT_LIMIT_BREAKAWAY_OK refuses the assignment;
+    // the job must go, or terminate hits an empty job and skips the fallback.
     session.job = create_kill_on_close_job()
-    if session.job != nil {
-        AssignProcessToJobObject(session.job, pi.hProcess)
+    if session.job != nil && !AssignProcessToJobObject(session.job, pi.hProcess) {
+        win32.CloseHandle(session.job)
+        session.job = nil
     }
     win32.ResumeThread(pi.hThread)
     return session, true
