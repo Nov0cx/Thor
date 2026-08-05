@@ -6,6 +6,7 @@ import "core:c/libc"
 import "core:fmt"
 import "core:strings"
 import "core:testing"
+import "core:thread"
 
 import "../../treecache"
 import ts "../../vendor/odin-tree-sitter"
@@ -208,5 +209,95 @@ Point :: struct {
             got,
             want,
         )
+    }
+}
+
+@(private = "file")
+CONCURRENT_ROUNDS :: 24
+
+@(private = "file")
+Worker :: struct {
+    engine: ^Engine,
+    path:   string,
+    steps:  []string,
+    failed: int, // first round whose tree diverged, -1 when every round matched
+}
+
+// One worker: its own parser, its own path, cycling through its steps. Compares
+// every tree the cache returns against a cold parse of the same text, which a
+// tree freed or re-parsed under it would fail.
+@(private = "file")
+parse_rounds :: proc(w: ^Worker) {
+    parser := ts.parser_new()
+    defer ts.parser_delete(parser)
+    ts.parser_set_language(parser, w.engine.language)
+
+    for round in 0 ..< CONCURRENT_ROUNDS {
+        src := w.steps[round % len(w.steps)]
+        incremental := treecache.for_source(&w.engine.trees, parser, w.path, "odin", src)
+        if incremental == nil {
+            w.failed = round
+            return
+        }
+        defer ts.tree_delete(incremental)
+        cold := ts.parser_parse_string(parser, src)
+        defer ts.tree_delete(cold)
+
+        got := ts.node_string(ts.tree_root_node(incremental))
+        defer libc.free(rawptr(got))
+        want := ts.node_string(ts.tree_root_node(cold))
+        defer libc.free(rawptr(want))
+
+        if string(got) != string(want) {
+            w.failed = round
+            return
+        }
+    }
+}
+
+// The cache locks one entry rather than the whole cache, so these workers
+// overlap. More paths than slots keeps entries retiring under load, and the two
+// workers sharing a path contend on one entry — neither may see another's tree.
+@(test)
+test_concurrent_parses_stay_consistent :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    paths := []string {
+        "conc0.odin",
+        "conc1.odin",
+        "conc2.odin",
+        "conc3.odin",
+        "conc4.odin",
+        "conc5.odin",
+        "conc6.odin",
+        "conc7.odin",
+        "conc8.odin",
+        "conc9.odin",
+        "conc0.odin",
+        "conc1.odin",
+    }
+
+    workers := make([]Worker, len(paths), context.temp_allocator)
+    threads := make([]^thread.Thread, len(paths), context.temp_allocator)
+    for path, i in paths {
+        name := fmt.tprintf("f%d", i)
+        // Steps that differ per worker, so a tree taken from the wrong entry
+        // reads as a divergence rather than a coincidental match.
+        steps := make([]string, 3, context.temp_allocator)
+        steps[0] = fmt.tprintf("package demo\n\n%s :: proc(x: int) -> int {{\n\treturn x\n}}\n", name)
+        steps[1] = fmt.tprintf("package demo\n\n%s :: proc(x: int) -> int {{\n\treturn x + 1\n}}\n", name)
+        steps[2] = fmt.tprintf("package demo\n\nMAX :: 64\n\n%s :: proc(x, y: int) -> int {{\n\treturn x + y\n}}\n", name)
+        workers[i] = Worker{engine = e, path = path, steps = steps, failed = -1}
+        threads[i] = thread.create_and_start_with_poly_data(&workers[i], parse_rounds)
+    }
+
+    for handle in threads {
+        thread.join(handle)
+        thread.destroy(handle)
+    }
+
+    for w, i in workers {
+        testing.expectf(t, w.failed < 0, "worker %d (%s): tree diverged at round %d", i, w.path, w.failed)
     }
 }

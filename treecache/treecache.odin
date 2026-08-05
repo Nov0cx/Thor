@@ -20,31 +20,36 @@ import ts "../vendor/odin-tree-sitter"
 SLOTS :: 8
 
 // One buffer's last parse: the tree, the grammar it was parsed with, the source
-// it came from (the diff base — tree-sitter keeps no text of its own), and the
-// LRU stamp.
+// it came from (the diff base — tree-sitter keeps no text of its own), the LRU
+// stamp and the count of parses holding the entry.
 @(private)
 Entry :: struct {
-    path:    string, // cache-owned
-    grammar: string, // cache-owned
-    source:  string, // cache-owned
+    mutex:   sync.Mutex, // guards grammar/source/tree; held over a whole parse
+    path:    string,     // cache-owned, fixed for the entry's life
+    grammar: string,     // cache-owned
+    source:  string,     // cache-owned
     tree:    ts.Tree,
-    used:    u64,
+    used:    u64, // guarded by Cache.mutex
+    refs:    int, // parses holding the entry; guarded by Cache.mutex
 }
 
-// Owned strings use `alloc`, never a caller's per-request allocator.
+// Entries are separate boxes, so the cache can add and retire others while a
+// parse holds one. `mutex` guards only the entry set, the clock and every
+// entry's `used`/`refs` — never a parse, which is why two buffers do not
+// serialize. Owned strings use `alloc`, never a caller's per-request allocator.
 Cache :: struct {
     mutex:   sync.Mutex,
-    entries: [dynamic]Entry,
+    entries: [dynamic]^Entry,
     clock:   u64,
     alloc:   runtime.Allocator,
 }
 
 init :: proc(c: ^Cache, allocator := context.allocator) {
     c.alloc = allocator
-    c.entries = make([dynamic]Entry, allocator)
+    c.entries = make([dynamic]^Entry, allocator)
 }
 
-// Frees every resident tree.
+// Frees every resident tree. No parse may be in flight.
 destroy :: proc(c: ^Cache) {
     for entry in c.entries {
         free_entry(c, entry)
@@ -64,95 +69,134 @@ destroy :: proc(c: ^Cache) {
 //
 // Returns a shallow copy the caller must `tree_delete` — the entry keeps the
 // original, and copies are what make a tree safe to read on one thread while
-// another re-parses the same buffer. The lock spans the parse, so concurrent
-// requests on one buffer serialize; the waiter gets the fresh tree.
+// another re-parses the same buffer. Only the buffer's own entry is locked over
+// the parse, so requests for two buffers run at once; concurrent requests on one
+// buffer still serialize, and the waiter gets the fresh tree.
 for_source :: proc(c: ^Cache, parser: ts.Parser, path, grammar, source: string) -> ts.Tree {
-    sync.lock(&c.mutex)
-    defer sync.unlock(&c.mutex)
+    entry := acquire(c, path)
+    if entry == nil {
+        return ts.parser_parse_string(parser, source) // no entry: parse whole, cache nothing
+    }
+    defer release(c, entry)
 
-    c.clock += 1
-    if i := slot(c, path); i >= 0 {
-        entry := &c.entries[i]
-        if entry.grammar != grammar {
-            evict(c, i) // a tree from another grammar can't seed this parse
-        } else {
-            entry.used = c.clock
-            if entry.source == source {
-                return ts.tree_copy(entry.tree)
-            }
-            edit := source_edit(entry.source, source)
-            ts.tree_edit(entry.tree, &edit)
-            fresh := ts.parser_parse_string(parser, source, entry.tree)
-            if fresh == nil {
-                evict(c, i) // the tree carries the edit but no text to match it
-                return nil
-            }
-            ts.tree_delete(entry.tree)
-            delete(entry.source, c.alloc)
-            entry.tree = fresh
-            entry.source = strings.clone(source, c.alloc)
-            return ts.tree_copy(fresh)
+    sync.lock(&entry.mutex)
+    defer sync.unlock(&entry.mutex)
+
+    if entry.tree != nil && entry.grammar == grammar {
+        if entry.source == source {
+            return ts.tree_copy(entry.tree)
         }
+        edit := source_edit(entry.source, source)
+        ts.tree_edit(entry.tree, &edit)
+        fresh := ts.parser_parse_string(parser, source, entry.tree)
+        if fresh == nil {
+            clear_parse(c, entry) // the tree carries the edit but no text to match it
+            return nil
+        }
+        ts.tree_delete(entry.tree)
+        delete(entry.source, c.alloc)
+        entry.tree = fresh
+        entry.source = strings.clone(source, c.alloc)
+        return ts.tree_copy(fresh)
     }
 
+    clear_parse(c, entry) // empty, or a tree from another grammar that can't seed this parse
     tree := ts.parser_parse_string(parser, source)
     if tree == nil {
         return nil
     }
-    store(c, path, grammar, source, tree)
+    entry.tree = tree
+    entry.grammar = strings.clone(grammar, c.alloc)
+    entry.source = strings.clone(source, c.alloc)
     return ts.tree_copy(tree)
 }
 
-// Index of `path`'s slot, or -1.
+// `path`'s entry, added empty when the path has none, with a reference that
+// keeps it resident until `release`. Nil when the entry cannot be allocated.
 @(private)
-slot :: proc(c: ^Cache, path: string) -> int {
-    for entry, i in c.entries {
+acquire :: proc(c: ^Cache, path: string) -> ^Entry {
+    sync.lock(&c.mutex)
+    defer sync.unlock(&c.mutex)
+
+    c.clock += 1
+    for entry in c.entries {
         if entry.path == path {
-            return i
+            entry.used = c.clock
+            entry.refs += 1
+            return entry
         }
     }
-    return -1
+
+    trim(c)
+    entry, err := new(Entry, c.alloc)
+    if err != nil {
+        return nil
+    }
+    entry.path = strings.clone(path, c.alloc)
+    entry.used = c.clock
+    entry.refs = 1
+    append(&c.entries, entry)
+    return entry
 }
 
-// Adds `path`'s tree to the cache, retiring the least recently used slot when
-// full. Takes ownership of `tree`.
+// Drops the reference `acquire` took. An entry left with no tree — a failed
+// parse — is retired here rather than kept as an empty slot.
 @(private)
-store :: proc(c: ^Cache, path, grammar, source: string, tree: ts.Tree) {
-    entry := Entry {
-        path    = strings.clone(path, c.alloc),
-        grammar = strings.clone(grammar, c.alloc),
-        source  = strings.clone(source, c.alloc),
-        tree    = tree,
-        used    = c.clock,
-    }
-    if len(c.entries) < SLOTS {
-        append(&c.entries, entry)
+release :: proc(c: ^Cache, entry: ^Entry) {
+    sync.lock(&c.mutex)
+    defer sync.unlock(&c.mutex)
+
+    entry.refs -= 1
+    if entry.refs > 0 || entry.tree != nil {
         return
     }
-    lru := 0
-    for slot, i in c.entries {
-        if slot.used < c.entries[lru].used {
-            lru = i
+    for other, i in c.entries {
+        if other == entry {
+            free_entry(c, entry)
+            unordered_remove(&c.entries, i)
+            return
         }
     }
-    free_entry(c, c.entries[lru])
-    c.entries[lru] = entry
 }
 
+// Retires least recently used entries until one slot is free. An entry a parse
+// holds is never retired, so a cache with every slot in flight grows past SLOTS
+// and the next `acquire` trims it back.
 @(private)
-free_entry :: proc(c: ^Cache, entry: Entry) {
+trim :: proc(c: ^Cache) {
+    for len(c.entries) >= SLOTS {
+        lru := -1
+        for entry, i in c.entries {
+            if entry.refs == 0 && (lru < 0 || entry.used < c.entries[lru].used) {
+                lru = i
+            }
+        }
+        if lru < 0 {
+            return
+        }
+        free_entry(c, c.entries[lru])
+        unordered_remove(&c.entries, lru)
+    }
+}
+
+// Frees the parse an entry holds, leaving it empty and ready for the next one.
+@(private)
+clear_parse :: proc(c: ^Cache, entry: ^Entry) {
     if entry.tree != nil {
         ts.tree_delete(entry.tree)
+        entry.tree = nil
     }
-    delete(entry.path, c.alloc)
     delete(entry.grammar, c.alloc)
     delete(entry.source, c.alloc)
+    entry.grammar = ""
+    entry.source = ""
 }
 
 @(private)
-evict :: proc(c: ^Cache, i: int) {
-    free_entry(c, c.entries[i])
-    unordered_remove(&c.entries, i)
+free_entry :: proc(c: ^Cache, entry: ^Entry) {
+    clear_parse(c, entry)
+    delete(entry.path, c.alloc)
+    free(entry, c.alloc)
 }
 
 // The one byte span that turns `old` into `new`, found by trimming the common
