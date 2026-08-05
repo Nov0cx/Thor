@@ -109,6 +109,9 @@ Editor :: struct {
     selection_color:    rl.Color,
     // Soft-wrap: overflowing lines continue on the next visual row.
     wrap:               bool,
+    // Marks the leading whitespace of each row: a dot per space, an arrow per
+    // tab. Off until the user asks for it.
+    show_whitespace:    bool,
     visual_rows:        [dynamic]Visual_Row,
     // Revision the rows were last built from; draw re-syncs against it after
     // out-of-band edits (palette, menus, global keybinds) made this frame.
@@ -1304,6 +1307,10 @@ editor_set_font_size :: proc(editor: ^Editor, size: i32) {
     editor_clamp_scroll(editor)
 }
 
+editor_toggle_whitespace :: proc(editor: ^Editor) {
+    editor.show_whitespace = !editor.show_whitespace
+}
+
 editor_toggle_wrap :: proc(editor: ^Editor) {
     editor.wrap = !editor.wrap
     editor_rebuild_visual_rows(editor)
@@ -1611,6 +1618,9 @@ editor_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
                 cy := row_y + line_height * 0.5
                 rl.DrawCircleV(rl.Vector2 {cx, cy}, 3, color)
             }
+        }
+        if editor.show_whitespace {
+            editor_draw_row_indent(editor, text, row, text_x, row_y)
         }
         editor_draw_row_text(editor, text, row, hl, text_x, cast(i32) row_y)
         editor_draw_row_swatches(editor, text, row, text_x, cast(i32) row_y)
@@ -2116,6 +2126,57 @@ editor_draw_row_text :: proc(editor: ^Editor, text: string, row: Visual_Row, hl_
         pen += cast(f32) ui.measure_text(seg, editor.font_size)
         pos = run_end
     }
+}
+
+// Dot size as a fraction of the character height, and the alpha the markers are
+// drawn at, so indentation reads as texture and not as text.
+@(private = "file")
+WHITESPACE_DOT_SCALE :: 0.14
+@(private = "file")
+WHITESPACE_ALPHA :: 130
+
+// Marks the row's leading whitespace: a centered dot per space, an arrow across
+// each tab. Positions come from prefix measurement, the same math the caret uses,
+// so a marker sits under the column it stands for. Indentation only — whitespace
+// between words stays unmarked.
+@(private = "file")
+editor_draw_row_indent :: proc(editor: ^Editor, text: string, row: Visual_Row, text_x: i32, row_y: f32) {
+    color := editor.line_number_color
+    color.a = WHITESPACE_ALPHA
+    mid_y := row_y + cast(f32) editor.font_size * 0.5
+    dot := max(1, cast(f32) editor.font_size * WHITESPACE_DOT_SCALE)
+
+    prev := cast(f32) text_x
+    for pos := row.start; pos < row.end; pos += 1 {
+        b := text[pos]
+        if b != ' ' && b != '\t' {
+            break
+        }
+        next := cast(f32) text_x + cast(f32) ui.measure_text(text[row.start:pos + 1], editor.font_size)
+        if b == ' ' {
+            rl.DrawRectangleRec(rl.Rectangle {prev + (next - prev - dot) * 0.5, mid_y - dot * 0.5, dot, dot}, color)
+        } else {
+            editor_draw_tab_arrow(prev, next, mid_y, dot, color)
+        }
+        prev = next
+    }
+}
+
+// An arrow from x0 to x1 standing for one tab. A tab too narrow for the head
+// (a font that gives it almost no advance) gets the shaft only.
+@(private = "file")
+editor_draw_tab_arrow :: proc(x0, x1, y, size: f32, color: rl.Color) {
+    left := x0 + size
+    right := x1 - size
+    if right <= left {
+        return
+    }
+    rl.DrawLineEx(rl.Vector2 {left, y}, rl.Vector2 {right, y}, 1, color)
+    if right - left < size * 2 {
+        return
+    }
+    rl.DrawLineEx(rl.Vector2 {right - size, y - size}, rl.Vector2 {right, y}, 1, color)
+    rl.DrawLineEx(rl.Vector2 {right - size, y + size}, rl.Vector2 {right, y}, 1, color)
 }
 
 @(private = "file")

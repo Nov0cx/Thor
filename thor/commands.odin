@@ -327,6 +327,7 @@ thor_register_commands :: proc(thor: ^Thor) {
     thor_add_bindable_command(thor, "View: Toggle Maximize", "toggle_maximize", thor_cmd_toggle_maximize, thor)
     widgets.command_palette_add(p, "View: Toggle Fullscreen", thor_cmd_toggle_fullscreen, thor, sc(thor, "toggle_fullscreen"))
     thor_add_bindable_command(thor, "View: Toggle Word Wrap", "toggle_word_wrap", thor_cmd_toggle_wrap, thor)
+    thor_add_bindable_command(thor, "View: Toggle Whitespace", "toggle_whitespace", thor_cmd_toggle_whitespace, thor)
     widgets.command_palette_add(p, "View: Toggle Split Editor", thor_cmd_toggle_split, thor, sc(thor, "toggle_split"))
     thor_add_bindable_command(thor, "View: Toggle Markdown Preview", "toggle_markdown_preview", thor_cmd_toggle_markdown_preview, thor)
     widgets.command_palette_add(p, "View: Recenter", thor_cmd_recenter, thor, sc(thor, "recenter"))
@@ -420,6 +421,14 @@ thor_cmd_toggle_console :: proc(data: rawptr) {thor_toggle_console(data, nil, ni
 thor_cmd_toggle_maximize :: proc(data: rawptr) {thor_toggle_maximize(data, nil, nil)}
 thor_cmd_toggle_fullscreen :: proc(data: rawptr) {thor_toggle_fullscreen(cast(^Thor) data)}
 thor_cmd_toggle_wrap :: proc(data: rawptr) {widgets.editor_toggle_wrap((cast(^Thor) data).editor)}
+
+// Both panes, so a split does not end up with one pane marking indentation and
+// the other not.
+thor_cmd_toggle_whitespace :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    widgets.editor_toggle_whitespace(thor.editor)
+    widgets.editor_toggle_whitespace(thor.editor2)
+}
 thor_cmd_toggle_split :: proc(data: rawptr) {thor_toggle_split(cast(^Thor) data)}
 
 // Flips the rendered markdown preview. Only visibly does anything while a

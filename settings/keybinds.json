@@ -119,6 +119,7 @@
         "reset_zoom": "",
         "toggle_maximize": "",
         "toggle_word_wrap": "",
+        "toggle_whitespace": "",
         "toggle_markdown_preview": "f4",
         "recenter": "ctrl+shift+j",
         "toggle_fullscreen": "f12",
