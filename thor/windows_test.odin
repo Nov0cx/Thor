@@ -19,6 +19,35 @@ test_window_file_keying :: proc(t: ^testing.T) {
     testing.expect(t, !strings.contains(thor_path_key("D:\\Thor"), "\\"), "a path key must hold no separators")
 }
 
+// A hyphen in a folder name must not read as a separator. Both spellings mapped
+// to one key before, so two unrelated folders shared a session file and one
+// "already open" window record.
+@(test)
+test_path_key_separates_hyphens_from_separators :: proc(t: ^testing.T) {
+    testing.expect(
+        t,
+        thor_path_key("C:\\foo-bar") != thor_path_key("C:\\foo\\bar"),
+        "a hyphenated folder must not key like a nested one",
+    )
+    testing.expect(
+        t,
+        thor_path_key("C:\\a\\b-c") != thor_path_key("C:\\a-b\\c"),
+        "moving the hyphen must change the key",
+    )
+    testing.expect_value(t, thor_path_key("C:\\foo-bar"), thor_path_key("c:/FOO-BAR/"))
+}
+
+// A key ends up in a filename, so it holds no separator, no drive colon and no
+// unbounded length whatever the path looks like.
+@(test)
+test_path_key_is_filename_safe :: proc(t: ^testing.T) {
+    LONG :: "C:\\a very long workspace path\\with spaces and \"quotes\"\\and/deep/nesting/that/keeps/going/on"
+    key := thor_path_key(LONG)
+    testing.expect(t, !strings.contains_any(key, "\\/:*?\"<>|"), "a key must hold no unsafe character")
+    testing.expect(t, len(key) <= 84, "a key must stay bounded") // 64 readable + a rune + '-' + 16 hex
+    testing.expect_value(t, len(thor_path_key("C:\\a")), len("c--a-") + 16)
+}
+
 // Writes a record file directly, standing in for another window's claim.
 @(private = "file")
 write_test_record :: proc(t: ^testing.T, workspace: string, pid: int, hwnd: i64) -> string {

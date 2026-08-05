@@ -5,6 +5,8 @@ package thor
 // ephemeral counterpart to the committable .thor/ config; no workspace init needed.
 
 import "core:encoding/json"
+import "core:fmt"
+import "core:hash"
 import "core:log"
 import "core:os"
 import "core:strings"
@@ -31,10 +33,62 @@ Session :: struct {
     active_task:       string,
 }
 
-// A workspace path as one filename-safe component: lowercased (Windows is
-// case-insensitive) with separators and the drive colon mapped to '-'. Keys both
-// the session files and the window records, so the two always agree on a folder.
+// Longest readable part a key keeps. The hash after it carries the identity, so
+// a cut here only makes a name less readable, never ambiguous.
+@(private = "file")
+KEY_STEM_MAX :: 64
+
+// A workspace path in its comparison form: lowercased (Windows is
+// case-insensitive), '/' separators, no trailing separator.
+@(private = "file")
+thor_normal_workspace :: proc(workspace_dir: string) -> string {
+    lower := strings.to_lower(workspace_dir, context.temp_allocator)
+    slashed, _ := strings.replace_all(lower, "\\", "/", context.temp_allocator)
+    trimmed := strings.trim_right(slashed, "/")
+    if trimmed == "" {
+        return slashed // a root path is separators only
+    }
+    return trimmed
+}
+
+// A workspace path as one filename-safe component: a readable part plus a hash
+// of the normalized path. The readable part alone cannot identify a folder —
+// every unsafe character becomes '-', so "C:\foo-bar" and "C:\foo\bar" share it
+// — thus the hash is what keeps two folders apart. Keys both the session files
+// and the window records, so the two always agree on a folder.
 thor_path_key :: proc(workspace_dir: string, allocator := context.temp_allocator) -> string {
+    normal := thor_normal_workspace(workspace_dir)
+    b := strings.builder_make(context.temp_allocator)
+    for r in normal {
+        if strings.builder_len(b) >= KEY_STEM_MAX {
+            break
+        }
+        switch r {
+        case 'a' ..= 'z', '0' ..= '9', '.', '_':
+            strings.write_rune(&b, r)
+        case:
+            // Non-ASCII is a valid filename character on every target platform.
+            strings.write_rune(&b, r >= 0x80 ? r : '-')
+        }
+    }
+    return fmt.aprintf(
+        "%s-%016x",
+        strings.to_string(b),
+        hash.fnv64a(transmute([]u8)normal),
+        allocator = allocator,
+    )
+}
+
+// Session file for a workspace: sessions/<path-key>.json.
+@(private = "file")
+thor_session_file :: proc(workspace_dir: string, allocator := context.temp_allocator) -> string {
+    return strings.concatenate({"sessions/", thor_path_key(workspace_dir), ".json"}, allocator)
+}
+
+// The session file of the key that came before the hash: separators and the
+// drive colon mapped to '-' and nothing else.
+@(private = "file")
+thor_legacy_session_file :: proc(workspace_dir: string, allocator := context.temp_allocator) -> string {
     lower := strings.to_lower(workspace_dir, context.temp_allocator)
     b := strings.builder_make(context.temp_allocator)
     for r in lower {
@@ -45,13 +99,33 @@ thor_path_key :: proc(workspace_dir: string, allocator := context.temp_allocator
             strings.write_rune(&b, r)
         }
     }
-    return strings.clone(strings.to_string(b), allocator)
+    return strings.concatenate({"sessions/", strings.to_string(b), ".json"}, allocator)
 }
 
-// Session file for a workspace: sessions/<path-key>.json.
+// Moves a session written under the old key onto the new name, so an upgrade
+// keeps a workspace's open files. That key was ambiguous, so the file can hold
+// another folder's session — the workspace it records settles it.
 @(private = "file")
-thor_session_file :: proc(workspace_dir: string, allocator := context.temp_allocator) -> string {
-    return strings.concatenate({"sessions/", thor_path_key(workspace_dir), ".json"}, allocator)
+thor_migrate_legacy_session :: proc(workspace_dir: string) {
+    path := thor_session_file(workspace_dir)
+    legacy := thor_legacy_session_file(workspace_dir)
+    if legacy == path || os.exists(path) || !os.exists(legacy) {
+        return
+    }
+    data, read_err := os.read_entire_file(legacy, context.temp_allocator)
+    if read_err != nil {
+        return
+    }
+    session: Session
+    if err := json.unmarshal(data, &session, allocator = context.temp_allocator); err != nil {
+        return
+    }
+    if thor_normal_workspace(session.workspace) != thor_normal_workspace(workspace_dir) {
+        return
+    }
+    if err := os.rename(legacy, path); err != nil {
+        log.warnf("Could not move session %q to %q: %v", legacy, path, err)
+    }
 }
 
 // Records the workspace of the most recent session, so a launch with no path
@@ -130,6 +204,7 @@ thor_save_session :: proc(thor: ^Thor) {
 // tab. Missing or malformed is a no-op. Must run after the UI is built and
 // before thor_apply_layout_state.
 thor_restore_session :: proc(thor: ^Thor) {
+    thor_migrate_legacy_session(thor.workspace_dir)
     path := thor_session_file(thor.workspace_dir)
     data, read_err := os.read_entire_file(path, context.temp_allocator)
     if read_err != nil {
