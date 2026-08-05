@@ -227,8 +227,11 @@ context_collect_input :: proc(ctx: ^Context) {
 }
 
 context_process_events :: proc(ctx: ^Context) {
-    for i in 0 ..< len(ctx.events.items) {
-        event := &ctx.events.items[i]
+    // Dispatched from a copy: a handler may push into the same queue, and the
+    // append can move `items`. The length is re-read so a pushed event still
+    // runs this frame instead of dying at the next clear.
+    for i := 0; i < len(ctx.events.items); i += 1 {
+        event := ctx.events.items[i]
 
         switch event.kind {
         case .Mouse_Move:
@@ -236,12 +239,12 @@ context_process_events :: proc(ctx: ^Context) {
 
             if ctx.active != nil {
                 event.target = ctx.active
-                widget_dispatch_event(ctx.active, ctx, event)
+                widget_dispatch_event(ctx.active, ctx, &event)
             } else if ctx.hot != nil {
                 // No button held: give the hovered widget a hover tick. Kept
                 // separate from Mouse_Move so widgets that treat a move as a
                 // drag-select don't fire on a passive hover.
-                hover := event^
+                hover := event
                 hover.kind = .Mouse_Hover
                 hover.target = ctx.hot
                 widget_dispatch_event(ctx.hot, ctx, &hover)
@@ -256,7 +259,7 @@ context_process_events :: proc(ctx: ^Context) {
             ctx.focused = event.target
 
             if event.target != nil {
-                widget_dispatch_event(event.target, ctx, event)
+                widget_dispatch_event(event.target, ctx, &event)
             }
 
         case .Mouse_Up:
@@ -265,7 +268,7 @@ context_process_events :: proc(ctx: ^Context) {
 
             if release_target != nil {
                 event.target = release_target
-                widget_dispatch_event(release_target, ctx, event)
+                widget_dispatch_event(release_target, ctx, &event)
 
                 if release_target == hit_target || widget_contains_point(release_target, event.mouse_position) {
                     click_event := Event {
@@ -285,16 +288,16 @@ context_process_events :: proc(ctx: ^Context) {
         case .Scroll:
             event.target = widget_hit_test(ctx.root, event.mouse_position)
             if event.target != nil {
-                widget_dispatch_event(event.target, ctx, event)
+                widget_dispatch_event(event.target, ctx, &event)
             }
 
         case .Key_Press, .Text_Input:
-            if event.kind == .Key_Press && ctx.global_key != nil && ctx.global_key(ctx.global_key_data, event) {
+            if event.kind == .Key_Press && ctx.global_key != nil && ctx.global_key(ctx.global_key_data, &event) {
                 break
             }
             if ctx.focused != nil {
                 event.target = ctx.focused
-                widget_dispatch_event(ctx.focused, ctx, event)
+                widget_dispatch_event(ctx.focused, ctx, &event)
             }
 
         case .None:
