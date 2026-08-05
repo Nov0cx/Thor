@@ -20,7 +20,9 @@ Every plugin runs in its own environment inside one shared Lua state:
 - `require "name"` loads `name.lua` from the plugin's own folder into the same
   environment. Plain names only — nothing outside the folder resolves.
 - One call into a plugin may hold the frame for two seconds. Past that the call
-  fails with `plugin exceeded its time budget` and the editor keeps running.
+  fails with `plugin exceeded its time budget` and the editor keeps running. The
+  budget covers a coroutine too, and it is the call's budget: time a coroutine
+  spends resumed counts against the call that resumed it.
 - File paths a plugin passes to `thor.read`, `thor.write` and `thor.doc` resolve
   against the open workspace and must stay inside it or inside the plugin's own
   folder.

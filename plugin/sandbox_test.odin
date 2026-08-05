@@ -190,6 +190,37 @@ test_sandbox_stops_runaway_plugin :: proc(t: ^testing.T) {
     testing.expectf(t, elapsed < 4 * CALL_BUDGET, "stopped too late: %v", elapsed)
 }
 
+// A Lua hook is per thread, so a coroutine gets its own; a runaway loop inside
+// one is cut off like any other, and the error reaches the plugin.
+@(test)
+test_sandbox_stops_runaway_coroutine :: proc(t: ^testing.T) {
+    r: Recorder
+    recorder_init(&r)
+    defer recorder_destroy(&r)
+    m: Manager
+    recording_manager(&m, &r)
+    defer manager_destroy(&m)
+
+    wrapped := `local spin = coroutine.wrap(function() while true do end end)
+local ok, err = pcall(spin)
+thor.print("wrap ok=" .. tostring(ok) .. " err=" .. tostring(err))`
+    start := time.tick_now()
+    testing.expect(t, manager_load_source(&m, "cowrap", "plugins/cowrap", wrapped, {}), "plugin runs")
+    elapsed := time.tick_since(start)
+    out := printed(&r)
+    testing.expectf(t, strings.contains(out, "wrap ok=false"), "wrapped coroutine never stopped: %q", out)
+    testing.expectf(t, strings.contains(out, "time budget"), "stopped for another reason: %q", out)
+    testing.expectf(t, elapsed >= CALL_BUDGET && elapsed < 4 * CALL_BUDGET, "stopped at %v", elapsed)
+
+    created := `local co = coroutine.create(function() while true do end end)
+local ok, err = coroutine.resume(co)
+thor.print("resume ok=" .. tostring(ok) .. " err=" .. tostring(err) .. " status=" .. coroutine.status(co))`
+    testing.expect(t, manager_load_source(&m, "cocreate", "plugins/cocreate", created, {}), "plugin runs")
+    out = printed(&r)
+    testing.expectf(t, strings.contains(out, "resume ok=false"), "created coroutine never stopped: %q", out)
+    testing.expectf(t, strings.contains(out, "status=dead"), "the coroutine survived its budget: %q", out)
+}
+
 // Paths resolve against the workspace, and a path climbing out of it never
 // reaches the host.
 @(test)

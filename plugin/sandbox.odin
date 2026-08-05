@@ -95,6 +95,7 @@ open_safe_libs :: proc(L: ^lua.State) {
     }
     trim_os(L)
     lock_string_metatable(L)
+    guard_coroutines(L)
 }
 
 // Replaces the global `os` table with one holding only the clock entries.
@@ -211,15 +212,86 @@ budget_hook :: proc "c" (L: ^lua.State, _: ^lua.Debug) {
     lua.error(L)
 }
 
+// Replaces coroutine.create and coroutine.wrap with versions that hook the
+// thread they make. A Lua hook is per thread, so a stock coroutine runs with no
+// budget and a loop inside it never ends.
+@(private)
+guard_coroutines :: proc(L: ^lua.State) {
+    lua.getglobal(L, "coroutine")
+    if !lua.istable(L, -1) {
+        lua.pop(L, 1)
+        return
+    }
+    lua.pushcfunction(L, co_create)
+    lua.setfield(L, -2, "create")
+    lua.pushcfunction(L, co_wrap)
+    lua.setfield(L, -2, "wrap")
+    lua.pop(L, 1)
+}
+
+// coroutine.create(f): the stock body, plus the budget hook on the new thread.
+@(private)
+co_create :: proc "c" (L: ^lua.State) -> c.int {
+    lua.L_checktype(L, 1, c.int(lua.TFUNCTION))
+    co := lua.newthread(L)
+    lua.sethook(co, budget_hook, lua.MASKCOUNT, HOOK_STEP)
+    lua.pushvalue(L, 1)
+    lua.xmove(L, co, 1)
+    return 1
+}
+
+// coroutine.wrap(f): a hooked thread behind a closure that resumes it.
+@(private)
+co_wrap :: proc "c" (L: ^lua.State) -> c.int {
+    co_create(L)
+    lua.pushcclosure(L, co_wrap_resume, 1)
+    return 1
+}
+
+// The function coroutine.wrap returns: resumes the thread it carries and raises
+// what the thread failed with, budget errors included.
+@(private)
+co_wrap_resume :: proc "c" (L: ^lua.State) -> c.int {
+    co := lua.tothread(L, upvalueindex(1))
+    if co == nil {
+        return c.int(lua.L_error(L, "cannot resume dead coroutine"))
+    }
+    nargs := lua.gettop(L)
+    if lua.checkstack(co, nargs) == 0 {
+        return c.int(lua.L_error(L, "too many arguments to resume"))
+    }
+    lua.xmove(L, co, nargs)
+
+    nres: c.int
+    status := lua.resume(co, L, nargs, &nres)
+    if status != .OK && status != .YIELD {
+        lua.xmove(co, L, 1)
+        return c.int(lua.error(L))
+    }
+    if lua.checkstack(L, nres + 1) == 0 {
+        lua.settop(co, -nres - 1)
+        return c.int(lua.L_error(L, "too many results to resume"))
+    }
+    lua.xmove(co, L, nres)
+    return nres
+}
+
 // Calls the function sitting under `nargs` arguments on the stack, under the
 // time budget. Logs a failure against the owning plugin and returns whether the
 // call completed; on success `nres` results are left on the stack.
+// A nested call keeps the outer call's start, so re-entry cannot extend the
+// budget or clear the hook the outer call still needs.
 @(private)
 call_guarded :: proc(m: ^Manager, owner: int, nargs, nres: c.int, what: string) -> bool {
-    active_start = time.tick_now()
-    lua.sethook(m.state, budget_hook, lua.MASKCOUNT, HOOK_STEP)
+    nested := lua.gethook(m.state) != nil
+    if !nested {
+        active_start = time.tick_now()
+        lua.sethook(m.state, budget_hook, lua.MASKCOUNT, HOOK_STEP)
+    }
     status := lua.pcall(m.state, nargs, nres, 0)
-    lua.sethook(m.state, nil, lua.HookMask {}, 0)
+    if !nested {
+        lua.sethook(m.state, nil, lua.HookMask {}, 0)
+    }
     if status != 0 {
         log.warnf("plugin %s: %s failed: %s", plugin_id(m, owner), what, lua.tostring(m.state, -1))
         lua.pop(m.state, 1)
