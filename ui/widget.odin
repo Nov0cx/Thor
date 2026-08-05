@@ -200,16 +200,21 @@ widget_layout_tree :: proc(widget: ^Widget, bounds: rl.Rectangle) {
     }
 }
 
+// Sends `event` to `start`, then up to each ancestor until one consumes it. The
+// parent is read before the handler runs, so a handler that unlinks or destroys
+// its own widget still bubbles along the chain it had at dispatch time.
 widget_dispatch_event :: proc(start: ^Widget, ctx: ^Context, event: ^Event) -> bool {
     current := start
     for current != nil {
+        parent := current.parent
+
         if current.visible && current.enabled && current.vtable.handle_event != nil {
             if current.vtable.handle_event(current, ctx, event) {
                 return true
             }
         }
 
-        current = current.parent
+        current = parent
     }
 
     return false
