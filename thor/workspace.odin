@@ -304,35 +304,34 @@ thor_poll_dropped_files :: proc(thor: ^Thor) {
     }
     log.debugf("Dropped %d path(s) at %v, folder %q", files.count, rl.GetMousePosition(), dst_dir)
 
-    copied := 0
+    imports: [dynamic]File_Op_Entry
+    folder := ""
     for index in 0 ..< files.count {
         path := string(files.paths[index])
 
         if over_tree {
-            switch thor_import_path(thor, path, dst_dir) {
-            case .Copied:
-                copied += 1
+            switch thor_queue_import(thor, &imports, path, dst_dir) {
+            case .Queued:
                 continue
             case .Failed:
-                continue // thor_import_path already flashed the reason
+                continue // thor_queue_import already flashed the reason
             case .Already_There:
                 // Fall through and open it instead.
             }
         }
 
         if os.is_dir(path) {
-            // Asks which window it goes to; either way the rest of the drop is moot.
-            thor_open_folder_request(thor, path)
-            return
+            folder = path
+            break
         }
         thor_open_file(thor, path)
     }
 
-    if copied > 0 {
-        widgets.tree_refresh(thor.tree)
-        thor_refresh_git_status(thor)
-        noun := copied == 1 ? "item" : "items"
-        thor_flash_status(thor, fmt.tprintf("Copied %d %s into %s", copied, noun, filepath.base(dst_dir)))
+    // The copies run whatever the folder prompt answers, so they start first.
+    thor_start_file_op(thor, .Copy, imports, dst_dir)
+    if folder != "" {
+        // Asks which window it goes to; either way the rest of the drop is moot.
+        thor_open_folder_request(thor, folder)
     }
 }
 

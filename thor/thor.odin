@@ -204,6 +204,7 @@ Thor :: struct {
     finished_loads:           [dynamic]^Load_Job,
     finished_saves:           [dynamic]^Save_Job,
     finished_git:             [dynamic]^Git_Status_Job,
+    finished_file_ops:        [dynamic]^File_Op_Job,
     inflight_jobs:            int,
     // One terminal per console tab, each on its own shell. owned
     terminals:                [dynamic]^Terminal,
@@ -411,6 +412,7 @@ init :: proc() -> ^Thor {
     thor.finished_loads = make([dynamic]^Load_Job)
     thor.finished_saves = make([dynamic]^Save_Job)
     thor.finished_git = make([dynamic]^Git_Status_Job)
+    thor.finished_file_ops = make([dynamic]^File_Op_Job)
 
     // Language intelligence: register the in-client Odin engine first so it wins
     // for .odin files; an optional LSP subprocess backend would register after it.
@@ -551,6 +553,7 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.finished_loads)
     delete(thor.finished_saves)
     delete(thor.finished_git)
+    delete(thor.finished_file_ops)
     delete(thor.app_binds)
     thor_clear_git_status(thor)
     delete(thor.workspace_dir)

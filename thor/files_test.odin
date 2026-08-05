@@ -2,6 +2,7 @@ package thor
 
 import "core:fmt"
 import "core:os"
+import "core:strings"
 import "core:testing"
 import "core:time"
 
@@ -450,6 +451,68 @@ test_watcher_reloads_open_file :: proc(t: ^testing.T) {
     thor_close_file(thor, 0)
 }
 
+// Explorer delete and drag-drop import both walk whole directory trees, so they
+// go to a worker instead of the frame loop. Covers the queue -> worker -> reap
+// path, the collision check against a copy queued in the same batch, and that
+// neither one finishes before the reap.
+@(test)
+test_async_file_ops :: proc(t: ^testing.T) {
+    // Constants, not temp strings: thor_drain_io frees the temp allocator.
+    ROOT :: "thor_fileops.tmp"
+    SRC :: ROOT + "/src"
+    NESTED :: SRC + "/nested"
+    DST :: ROOT + "/dst"
+    COPIED :: DST + "/src"
+
+    os.remove_all(ROOT) // a previous run that died mid-test
+    defer os.remove_all(ROOT)
+
+    testing.expect(t, os.make_directory(ROOT) == nil, "could not create test root")
+    testing.expect(t, os.make_directory(SRC) == nil, "could not create source dir")
+    testing.expect(t, os.make_directory(NESTED) == nil, "could not create nested dir")
+    testing.expect(t, os.make_directory(DST) == nil, "could not create destination dir")
+    testing.expect(t, os.write_entire_file(SRC + "/a.txt", "alpha") == nil, "could not write a.txt")
+    testing.expect(t, os.write_entire_file(NESTED + "/b.txt", "beta") == nil, "could not write b.txt")
+
+    thor := test_make_thor()
+    defer test_free_thor(thor)
+    thor.tree = widgets.tree_create("test-tree", ROOT)
+    defer widgets.tree_destroy(&thor.tree.widget)
+    defer delete(thor.pending_delete_paths)
+
+    // Import the folder, then the same folder again: the second collides with the
+    // copy already queued, which is not on disk yet.
+    imports: [dynamic]File_Op_Entry
+    testing.expect_value(t, thor_queue_import(thor, &imports, SRC, DST), Import_Result.Queued)
+    testing.expect_value(t, thor_queue_import(thor, &imports, SRC, DST), Import_Result.Failed)
+    testing.expect_value(t, len(imports), 1)
+
+    thor_start_file_op(thor, .Copy, imports, DST)
+    testing.expect_value(t, thor.inflight_jobs, 1) // the copy left the main thread
+    thor_drain_io(thor)
+    testing.expect_value(t, thor.inflight_jobs, 0)
+
+    top_data, top_err := os.read_entire_file(COPIED + "/a.txt", context.temp_allocator)
+    nested_data, nested_err := os.read_entire_file(COPIED + "/nested/b.txt", context.temp_allocator)
+    testing.expect(t, top_err == nil, "copied file missing")
+    testing.expect(t, nested_err == nil, "copied nested file missing")
+    testing.expect_value(t, string(top_data), "alpha")
+    testing.expect_value(t, string(nested_data), "beta")
+    testing.expect_value(t, thor.status_message, "Copied 1 item into dst")
+
+    // Delete the copy back off disk through the confirmation callback.
+    append(&thor.pending_delete_paths, strings.clone(COPIED))
+    thor_confirm_delete(thor)
+    testing.expect_value(t, thor.inflight_jobs, 1) // the delete left the main thread too
+    testing.expect_value(t, len(thor.pending_delete_paths), 0)
+    thor_drain_io(thor)
+    testing.expect_value(t, thor.inflight_jobs, 0)
+
+    testing.expect(t, !os.exists(COPIED), "deleted folder still on disk")
+    testing.expect(t, os.exists(SRC), "delete reached the source folder")
+    testing.expect_value(t, thor.status_message, "Deleted src")
+}
+
 // Headless Thor with just enough wired up for the file pipeline: no window and
 // no GL, matching test_async_file_roundtrip's inline setup.
 @(private = "file")
@@ -460,6 +523,7 @@ test_make_thor :: proc() -> ^Thor {
     thor.zombie_files = make([dynamic]^Open_File)
     thor.finished_loads = make([dynamic]^Load_Job)
     thor.finished_saves = make([dynamic]^Save_Job)
+    thor.finished_file_ops = make([dynamic]^File_Op_Job)
     thor.pane_file = {-1, -1}
     thor.editor = widgets.editor_create("test-editor")
     thor.editor2 = widgets.editor_create("test-editor2")
@@ -482,6 +546,7 @@ test_free_thor :: proc(thor: ^Thor) {
     delete(thor.zombie_files)
     delete(thor.finished_loads)
     delete(thor.finished_saves)
+    delete(thor.finished_file_ops)
     widgets.editor_destroy(&thor.editor.widget)
     widgets.editor_destroy(&thor.editor2.widget)
     widgets.stack_destroy(&thor.editor_split_row.widget)

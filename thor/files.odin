@@ -131,6 +131,35 @@ Save_Job :: struct {
     ok:       bool,
 }
 
+// What a File_Op_Job does with each of its entries.
+File_Op_Kind :: enum {
+    Delete,
+    Copy,
+}
+
+// One path a file operation works on, and what came of it.
+File_Op_Entry :: struct {
+    src:         string, // owned
+    dst:         string, // owned, empty for a delete
+    err:         os.Error,
+    // The delete reported success but the path is still there: Windows only
+    // marks a file that still has open handles for deletion.
+    left_behind: bool,
+}
+
+// Recursive delete and directory copy on a worker thread; both walk whole trees,
+// which is too slow for the frame loop. The main thread checks every entry and
+// closes the tabs of deleted files before the job starts, so the worker only
+// touches the disk.
+File_Op_Job :: struct {
+    owner:      ^Thor,
+    allocator:  mem.Allocator,
+    worker:     ^thread.Thread,
+    kind:       File_Op_Kind,
+    entries:    [dynamic]File_Op_Entry, // owned, with the strings in it
+    dest_label: string, // owned, the folder a copy lands in, for the status message
+}
+
 // Status bar label for an ending.
 thor_line_ending_label :: proc(ending: Line_Ending) -> string {
     return ending == .CRLF ? "CRLF" : "LF"
@@ -221,6 +250,104 @@ save_worker :: proc(job: ^Save_Job) {
     sync.lock(&job.owner.io_mutex)
     append(&job.owner.finished_saves, job)
     sync.unlock(&job.owner.io_mutex)
+}
+
+@(private = "file")
+file_op_worker :: proc(job: ^File_Op_Job) {
+    context.allocator = job.allocator
+    defer free_all(context.temp_allocator)
+
+    for &entry in job.entries {
+        switch job.kind {
+        case .Delete:
+            entry.err = thor_delete_tree(entry.src)
+            entry.left_behind = entry.err == nil && os.exists(entry.src)
+        case .Copy:
+            entry.err = thor_copy_tree(entry.src, entry.dst)
+        }
+    }
+
+    sync.lock(&job.owner.io_mutex)
+    append(&job.owner.finished_file_ops, job)
+    sync.unlock(&job.owner.io_mutex)
+}
+
+// Starts `entries` on a worker thread and takes ownership of them. `dest_label`
+// is the folder a copy lands in, named by the status message on reap.
+thor_start_file_op :: proc(thor: ^Thor, kind: File_Op_Kind, entries: [dynamic]File_Op_Entry, dest_label := "") {
+    if len(entries) == 0 {
+        delete(entries)
+        return
+    }
+
+    job := new(File_Op_Job)
+    job.owner = thor
+    job.allocator = context.allocator
+    job.kind = kind
+    job.entries = entries
+    job.dest_label = strings.clone(dest_label)
+
+    thor.inflight_jobs += 1
+    job.worker = thread.create_and_start_with_poly_data(job, file_op_worker)
+}
+
+// Drains a finished file operation (called from thor_process_io): reports the
+// outcome, then refreshes the explorer and git status. A failure outranks the
+// count, so a partly failed batch never reads as a clean success.
+@(private = "file")
+thor_apply_file_op :: proc(thor: ^Thor, job: ^File_Op_Job) {
+    thread.join(job.worker)
+    thread.destroy(job.worker)
+
+    verb := job.kind == .Delete ? "delete" : "copy"
+    done := 0
+    failed := ""
+    for entry in job.entries {
+        name := file_base_name(entry.src)
+        switch {
+        case entry.err != nil:
+            log.warnf("Failed to %s %q: %v", verb, entry.src, entry.err)
+            if failed == "" {
+                failed = fmt.tprintf("Could not %s %s: %v", verb, name, entry.err)
+            }
+        case entry.left_behind:
+            log.warnf("Delete of %q reported success but the path still exists", entry.src)
+            if failed == "" {
+                failed = fmt.tprintf("Could not delete %s: still in use", name)
+            }
+        case:
+            done += 1
+        }
+    }
+
+    switch {
+    case failed != "":
+        thor_flash_status(thor, failed, is_error = true)
+    case job.kind == .Copy:
+        noun := done == 1 ? "item" : "items"
+        thor_flash_status(
+            thor,
+            fmt.tprintf("Copied %d %s into %s", done, noun, filepath.base(job.dest_label)),
+        )
+    case done == 1:
+        thor_flash_status(thor, fmt.tprintf("Deleted %s", file_base_name(job.entries[0].src)))
+    case:
+        thor_flash_status(thor, fmt.tprintf("Deleted %d items", done))
+    }
+
+    for entry in job.entries {
+        delete(entry.src)
+        if entry.dst != "" {
+            delete(entry.dst)
+        }
+    }
+    delete(job.entries)
+    delete(job.dest_label)
+    free(job)
+    thor.inflight_jobs -= 1
+
+    widgets.tree_refresh(thor.tree)
+    thor_refresh_git_status(thor)
 }
 
 @(private = "file")
@@ -811,6 +938,7 @@ thor_process_io :: proc(thor: ^Thor) {
     loads := make([dynamic]^Load_Job, context.temp_allocator)
     saves := make([dynamic]^Save_Job, context.temp_allocator)
     git := make([dynamic]^Git_Status_Job, context.temp_allocator)
+    ops := make([dynamic]^File_Op_Job, context.temp_allocator)
 
     sync.lock(&thor.io_mutex)
     for job in thor.finished_loads {
@@ -822,9 +950,13 @@ thor_process_io :: proc(thor: ^Thor) {
     for job in thor.finished_git {
         append(&git, job)
     }
+    for job in thor.finished_file_ops {
+        append(&ops, job)
+    }
     clear(&thor.finished_loads)
     clear(&thor.finished_saves)
     clear(&thor.finished_git)
+    clear(&thor.finished_file_ops)
     sync.unlock(&thor.io_mutex)
 
     thor_process_terminals(thor)
@@ -908,6 +1040,10 @@ thor_process_io :: proc(thor: ^Thor) {
 
     for job in git {
         thor_apply_git_status(thor, job)
+    }
+
+    for job in ops {
+        thor_apply_file_op(thor, job)
     }
 
     // A save may have changed the working tree; refresh the status so the
@@ -1023,19 +1159,14 @@ thor_clear_pending_deletes :: proc(thor: ^Thor) {
     clear(&thor.pending_delete_paths)
 }
 
-// Confirmation accepted: close any tab for each path, remove it from disk, and
-// refresh the explorer and git status. Every outcome — including a removal that
-// reports success but leaves the path behind — reports itself in the status bar.
+// Confirmation accepted: close any tab for each path and hand the removals to a
+// worker. Deleting a folder walks its whole tree, so it never runs on the main
+// thread; thor_apply_file_op reports every outcome in the status bar.
 thor_confirm_delete :: proc(data: rawptr) {
     thor := cast(^Thor) data
     defer thor_clear_pending_deletes(thor)
 
-    if len(thor.pending_delete_paths) == 0 {
-        return
-    }
-
-    deleted := 0
-    failed := ""
+    entries: [dynamic]File_Op_Entry
     for path in thor.pending_delete_paths {
         for file, index in thor.open_files {
             if thor_same_path(file.path, path) {
@@ -1043,36 +1174,9 @@ thor_confirm_delete :: proc(data: rawptr) {
                 break
             }
         }
-
-        name := file_base_name(path)
-        reason := ""
-        if err := os.is_dir(path) ? os.remove_all(path) : os.remove(path); err != nil {
-            log.warnf("Failed to delete %q: %v", path, err)
-            reason = fmt.tprintf("%v", err)
-        } else if os.exists(path) {
-            // remove_all walks the tree and can report success while leaving a
-            // locked entry behind, which would otherwise look like a no-op.
-            log.warnf("Delete of %q reported success but the path still exists", path)
-            reason = "still in use"
-        }
-        if reason == "" {
-            deleted += 1
-        } else if failed == "" {
-            failed = fmt.tprintf("Could not delete %s: %s", name, reason)
-        }
+        append(&entries, File_Op_Entry{src = strings.clone(path)})
     }
-
-    switch {
-    case failed != "":
-        thor_flash_status(thor, failed, is_error = true)
-    case deleted == 1:
-        thor_flash_status(thor, fmt.tprintf("Deleted %s", file_base_name(thor.pending_delete_paths[0])))
-    case:
-        thor_flash_status(thor, fmt.tprintf("Deleted %d items", deleted))
-    }
-
-    widgets.tree_refresh(thor.tree)
-    thor_refresh_git_status(thor)
+    thor_start_file_op(thor, .Delete, entries)
 }
 
 // Tree callback / menu entry: begin renaming `path`. Opens the name prompt
@@ -1202,19 +1306,43 @@ thor_tree_drag_out :: proc(data: rawptr, paths: []string, position: rl.Vector2) 
     }
 }
 
+// Deletes a file, or a directory and everything below it. Written out instead
+// of left to os.remove_all because that is SHFileOperationW on Windows, a shell
+// call the file-op worker has no COM apartment for.
+thor_delete_tree :: proc(path: string) -> os.Error {
+    if !os.is_dir(path) {
+        return os.remove(path)
+    }
+
+    handle, open_err := os.open(path)
+    if open_err != nil {
+        return open_err
+    }
+    infos, dir_err := os.read_dir(handle, -1, context.allocator)
+    os.close(handle) // an open handle blocks the remove of the directory itself
+    if dir_err != nil {
+        return dir_err
+    }
+    defer os.file_info_slice_delete(infos, context.allocator)
+
+    for info in infos {
+        if err := thor_delete_tree(info.fullpath); err != nil {
+            return err
+        }
+    }
+    return os.remove(path)
+}
+
 // Copies a file or a whole directory tree to `dst`. Directories recurse; an
 // existing destination is left untouched and reported, so a copy can never
-// silently overwrite.
+// silently overwrite. Runs on the file-op worker, and frees each directory
+// listing on the way out, so peak memory follows the tree depth, not its size.
 thor_copy_tree :: proc(src, dst: string) -> os.Error {
     if os.exists(dst) {
         return os.General_Error.Exist
     }
     if !os.is_dir(src) {
-        contents, read_err := os.read_entire_file(src, context.temp_allocator)
-        if read_err != nil {
-            return read_err
-        }
-        return os.write_entire_file(dst, contents)
+        return os.copy_file(dst, src)
     }
 
     if err := os.make_directory(dst); err != nil {
@@ -1227,12 +1355,19 @@ thor_copy_tree :: proc(src, dst: string) -> os.Error {
     }
     defer os.close(handle)
 
-    infos, dir_err := os.read_dir(handle, -1, context.temp_allocator)
+    infos, dir_err := os.read_dir(handle, -1, context.allocator)
     if dir_err != nil {
         return dir_err
     }
+    defer os.file_info_slice_delete(infos, context.allocator)
+
     for info in infos {
-        child_dst, _ := filepath.join({dst, info.name}, context.temp_allocator)
+        child_dst, join_err := filepath.join({dst, info.name}, context.allocator)
+        if join_err != nil {
+            return join_err
+        }
+        defer delete(child_dst, context.allocator)
+
         if err := thor_copy_tree(info.fullpath, child_dst); err != nil {
             return err
         }
@@ -1255,24 +1390,46 @@ thor_path_within :: proc(path, ancestor: string) -> bool {
     return len(a) == len(b) || a[len(b)] == '\\' || a[len(b)] == '/'
 }
 
-// Outcome of an import. Already_There is not a failure: the caller falls back to
-// opening the path, so a drop onto its own folder still does something.
+// Outcome of queueing an import. Already_There is not a failure: the caller
+// falls back to opening the path, so a drop onto its own folder still does
+// something.
 Import_Result :: enum {
-    Copied,
+    Queued,
     Already_There,
     Failed,
 }
 
-// Copies a path dropped from outside the editor into `dst_dir`. A name collision
-// is reported rather than overwritten; every failure flashes its reason, so no
-// branch here can leave the drop looking ignored.
-thor_import_path :: proc(thor: ^Thor, src_path, dst_dir: string) -> Import_Result {
+// Checks a path dropped from outside the editor against `dst_dir` and queues the
+// copy in `entries`, which thor_start_file_op then runs. A name collision is
+// reported rather than overwritten — on disk, or against a copy queued earlier
+// in the same drop, which is not on disk yet. Every failure flashes its reason,
+// so no branch here can leave the drop looking ignored.
+thor_queue_import :: proc(
+    thor: ^Thor,
+    entries: ^[dynamic]File_Op_Entry,
+    src_path, dst_dir: string,
+) -> Import_Result {
     name := file_base_name(src_path)
-    new_path, _ := filepath.join({dst_dir, name}, context.temp_allocator)
+    new_path, join_err := filepath.join({dst_dir, name}, context.temp_allocator)
+    if join_err != nil {
+        log.warnf("Cannot import %q into %q: %v", src_path, dst_dir, join_err)
+        thor_flash_status(thor, fmt.tprintf("Could not copy %s: %v", name, join_err), is_error = true)
+        return .Failed
+    }
     if thor_same_path(src_path, new_path) {
         return .Already_There
     }
-    if os.exists(new_path) {
+
+    taken := os.exists(new_path)
+    if !taken {
+        for entry in entries^ {
+            if thor_same_path(entry.dst, new_path) {
+                taken = true
+                break
+            }
+        }
+    }
+    if taken {
         log.warnf("Cannot import %q into %q: already exists", src_path, dst_dir)
         thor_flash_status(thor, fmt.tprintf("%s already exists here", name), is_error = true)
         return .Failed
@@ -1282,10 +1439,7 @@ thor_import_path :: proc(thor: ^Thor, src_path, dst_dir: string) -> Import_Resul
         thor_flash_status(thor, "Cannot copy a folder into itself", is_error = true)
         return .Failed
     }
-    if err := thor_copy_tree(src_path, new_path); err != nil {
-        log.warnf("Failed to import %q into %q: %v", src_path, dst_dir, err)
-        thor_flash_status(thor, fmt.tprintf("Could not copy %s: %v", name, err), is_error = true)
-        return .Failed
-    }
-    return .Copied
+
+    append(entries, File_Op_Entry{src = strings.clone(src_path), dst = strings.clone(new_path)})
+    return .Queued
 }
