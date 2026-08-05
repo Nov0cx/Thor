@@ -521,9 +521,9 @@ resolve_path :: proc(m: ^Manager, index: int, path: string) -> (resolved: string
     return "", false
 }
 
-// True when `path` is `root` or sits under it. Compares case-insensitively:
-// Windows paths differ only in case for the same file, and a case-sensitive
-// check would let `C:\Work` slip past a root recorded as `c:\work`.
+// True when `path` is `root` or sits under it. Windows folds case and separators,
+// because `C:\Work` and `c:/work` are one folder there. POSIX compares exactly:
+// case and `\` are significant, so folding would make two different folders equal.
 @(private)
 is_within :: proc(path, root: string) -> bool {
     base, err := filepath.abs(root, context.temp_allocator)
@@ -531,10 +531,13 @@ is_within :: proc(path, root: string) -> bool {
         base, _ = filepath.clean(root, context.temp_allocator)
     }
     cleaned, _ := filepath.clean(path, context.temp_allocator)
-    lhs := strings.to_lower(cleaned, context.temp_allocator)
-    rhs := strings.to_lower(base, context.temp_allocator)
-    lhs, _ = strings.replace_all(lhs, "\\", "/", context.temp_allocator)
-    rhs, _ = strings.replace_all(rhs, "\\", "/", context.temp_allocator)
+    lhs, rhs := cleaned, base
+    when ODIN_OS == .Windows {
+        lhs = strings.to_lower(lhs, context.temp_allocator)
+        rhs = strings.to_lower(rhs, context.temp_allocator)
+        lhs, _ = strings.replace_all(lhs, "\\", "/", context.temp_allocator)
+        rhs, _ = strings.replace_all(rhs, "\\", "/", context.temp_allocator)
+    }
     rhs = strings.trim_suffix(rhs, "/")
     if lhs == rhs {
         return true
