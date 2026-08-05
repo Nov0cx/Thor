@@ -4,10 +4,17 @@ package shell
 import "core:fmt"
 import "core:strings"
 import win32 "core:sys/windows"
+import "core:time"
+
+// Milliseconds between two polls of a timed command's output pipe.
+@(private = "file")
+POLL_INTERVAL_MS :: 5
 
 // Runs `command` via cmd.exe in `cwd` with stdout+stderr piped; blocks until it
-// exits. The returned output is owned by context.allocator.
-run :: proc(command: string, cwd: string) -> string {
+// exits. A `timeout` above zero ends the command and everything it started when
+// that time passes, and marks the output. The returned output is owned by
+// context.allocator.
+run :: proc(command: string, cwd: string, timeout: time.Duration = 0) -> string {
     sa := win32.SECURITY_ATTRIBUTES {
         nLength        = size_of(win32.SECURITY_ATTRIBUTES),
         bInheritHandle = true,
@@ -33,28 +40,102 @@ run :: proc(command: string, cwd: string) -> string {
     cmdline := win32.utf8_to_wstring(full, context.temp_allocator)
     wdir := win32.utf8_to_wstring(cwd, context.temp_allocator)
 
-    ok := win32.CreateProcessW(nil, cmdline, nil, nil, true, win32.CREATE_NO_WINDOW, nil, wdir, &si, &pi)
+    // A timed command starts suspended, so the job holds it before it can start
+    // a child of its own that the kill would miss.
+    job: win32.HANDLE
+    flags := win32.DWORD(win32.CREATE_NO_WINDOW)
+    if timeout > 0 {
+        job = create_kill_on_close_job()
+        if job != nil {
+            flags |= win32.CREATE_SUSPENDED
+        }
+    }
+
+    ok := win32.CreateProcessW(nil, cmdline, nil, nil, true, flags, nil, wdir, &si, &pi)
     // Close the parent's copy of the write end so ReadFile sees EOF when the
     // child (the only remaining writer) exits.
     win32.CloseHandle(write_pipe)
     if !ok {
+        if job != nil {
+            win32.CloseHandle(job)
+        }
         return strings.clone("[shell] could not start command\n")
     }
     defer {
         win32.CloseHandle(pi.hProcess)
         win32.CloseHandle(pi.hThread)
+        // The job kills whatever is left in it as it closes, so no child of the
+        // command outlives the call.
+        if job != nil {
+            win32.CloseHandle(job)
+        }
+    }
+    if job != nil {
+        // A parent job without JOB_OBJECT_LIMIT_BREAKAWAY_OK refuses the
+        // assignment; the job must go, or the kill hits an empty job.
+        if !AssignProcessToJobObject(job, pi.hProcess) {
+            win32.CloseHandle(job)
+            job = nil
+        }
+        win32.ResumeThread(pi.hThread)
     }
 
+    start := time.tick_now()
+    timed_out := false
     builder := strings.builder_make()
     buf: [4096]u8
     for {
+        // ReadFile cannot be cut short, so a timed command reads only what the
+        // pipe already holds and sleeps between polls.
+        if timeout > 0 {
+            if time.tick_since(start) >= timeout {
+                timed_out = true
+                break
+            }
+            avail: u32
+            if !win32.PeekNamedPipe(read_pipe, nil, 0, nil, &avail, nil) {
+                break
+            }
+            if avail == 0 {
+                if win32.WaitForSingleObject(pi.hProcess, 0) != win32.WAIT_OBJECT_0 {
+                    win32.Sleep(POLL_INTERVAL_MS)
+                    continue
+                }
+                // The command can write and exit between the peek and the wait.
+                if !win32.PeekNamedPipe(read_pipe, nil, 0, nil, &avail, nil) || avail == 0 {
+                    break
+                }
+            }
+        }
         read: win32.DWORD
         if !win32.ReadFile(read_pipe, &buf[0], len(buf), &read, nil) || read == 0 {
             break
         }
         strings.write_bytes(&builder, buf[:read])
     }
-    win32.WaitForSingleObject(pi.hProcess, win32.INFINITE)
+
+    if timeout <= 0 {
+        win32.WaitForSingleObject(pi.hProcess, win32.INFINITE)
+        return strings.to_string(builder)
+    }
+    // The end of the stream does not prove the command exited: it can close its
+    // output and keep running. Give it only the time it has left.
+    if !timed_out {
+        left := timeout - time.tick_since(start)
+        wait_ms := win32.DWORD(0)
+        if left > 0 {
+            wait_ms = win32.DWORD(time.duration_milliseconds(left))
+        }
+        timed_out = win32.WaitForSingleObject(pi.hProcess, wait_ms) != win32.WAIT_OBJECT_0
+    }
+    if timed_out {
+        if job != nil {
+            TerminateJobObject(job, 1)
+        } else {
+            win32.TerminateProcess(pi.hProcess, 1)
+        }
+        fmt.sbprintf(&builder, "[shell] command stopped after %v\n", timeout)
+    }
     return strings.to_string(builder)
 }
 

@@ -36,6 +36,11 @@ CALL_BUDGET :: 2 * time.Second
 @(private)
 HOOK_STEP :: 10_000
 
+// Least time a blocking host call gets, so a command that answers at once still
+// can when the budget is already spent.
+@(private)
+MIN_NATIVE_BUDGET :: 100 * time.Millisecond
+
 // Start of the call running in the VM. The Lua hook takes no user data and the
 // VM is single-threaded, so one package-level slot serves every manager.
 @(private)
@@ -210,6 +215,14 @@ budget_hook :: proc "c" (L: ^lua.State, _: ^lua.Debug) {
     }
     lua.pushstring(L, "plugin exceeded its time budget")
     lua.error(L)
+}
+
+// What is left of the running call's budget. The hook counts instructions, so
+// it cannot cut short a host call that blocks — such a call bounds itself with
+// this instead.
+@(private)
+budget_left :: proc() -> time.Duration {
+    return max(CALL_BUDGET - time.tick_since(active_start), MIN_NATIVE_BUDGET)
 }
 
 // Replaces coroutine.create and coroutine.wrap with versions that hook the

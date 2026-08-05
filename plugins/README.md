@@ -23,6 +23,11 @@ Every plugin runs in its own environment inside one shared Lua state:
   fails with `plugin exceeded its time budget` and the editor keeps running. The
   budget covers a coroutine too, and it is the call's budget: time a coroutine
   spends resumed counts against the call that resumed it.
+- `thor.exec` blocks the frame while the command runs, and the budget above
+  cannot stop it — it counts Lua instructions, and there are none to count while
+  a command runs. So `thor.exec` stops the command itself once the call's budget
+  is spent, and appends `[shell] command stopped after ...` to what it returns.
+  A plugin that needs a long command must run it in pieces across `on_tick`.
 - File paths a plugin passes to `thor.read`, `thor.write` and `thor.doc` resolve
   against the open workspace and must stay inside it or inside the plugin's own
   folder.

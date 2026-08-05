@@ -2,13 +2,18 @@
 package shell
 
 import "core:c"
+import "core:fmt"
 import "core:os"
 import "core:strings"
 import "core:sys/posix"
+import "core:time"
 
 // Runs `command` under /bin/sh in `cwd` with stdout+stderr piped; blocks until it
-// exits. The returned output is owned by context.allocator.
-run :: proc(command: string, cwd: string) -> string {
+// exits. A `timeout` above zero kills the command when that time passes and
+// marks the output. The kill reaches the shell only, so a command that puts a
+// child in the background leaves it running. The returned output is owned by
+// context.allocator.
+run :: proc(command: string, cwd: string, timeout: time.Duration = 0) -> string {
     read_pipe, write_pipe, pipe_err := os.pipe()
     if pipe_err != nil {
         return strings.clone("[shell] could not create pipe\n")
@@ -27,19 +32,64 @@ run :: proc(command: string, cwd: string) -> string {
         return strings.clone("[shell] could not start command\n")
     }
 
+    start := time.tick_now()
+    timed_out := false
     builder := strings.builder_make()
     buf: [4096]u8
     for {
+        // A read cannot be cut short, so a timed command waits on the pipe with
+        // the time it has left instead.
+        if timeout > 0 {
+            left := timeout - time.tick_since(start)
+            if left <= 0 {
+                timed_out = true
+                break
+            }
+            fds := [1]posix.pollfd{{fd = posix.FD(os.fd(read_pipe)), events = {.IN}}}
+            ready := posix.poll(raw_data(fds[:]), 1, c.int(time.duration_milliseconds(left)))
+            if ready < 0 {
+                if posix.errno() == .EINTR {
+                    continue
+                }
+                break
+            }
+            if ready == 0 {
+                timed_out = true
+                break
+            }
+        }
         read, read_err := os.read(read_pipe, buf[:])
         if read_err != nil || read <= 0 {
             break
         }
         strings.write_bytes(&builder, buf[:read])
     }
-    // The wait also reaps the child; a failure leaves it to init.
+
+    if timeout <= 0 {
+        // The wait also reaps the child; a failure leaves it to init.
+        if _, wait_err := os.process_wait(process); wait_err != nil {
+            strings.write_string(&builder, "[shell] could not wait for the command\n")
+        }
+        return strings.to_string(builder)
+    }
+
+    // The end of the stream does not prove the command exited: it can close its
+    // output and keep running. Give it only the time it has left.
+    if !timed_out {
+        _, wait_err := os.process_wait(process, max(timeout - time.tick_since(start), time.Duration(1)))
+        timed_out = wait_err != nil
+    }
+    if !timed_out {
+        return strings.to_string(builder)
+    }
+    if kill_err := os.process_kill(process); kill_err != nil {
+        strings.write_string(&builder, "[shell] could not stop the command\n")
+    }
+    // A killed child is still unreaped, so this wait collects it.
     if _, wait_err := os.process_wait(process); wait_err != nil {
         strings.write_string(&builder, "[shell] could not wait for the command\n")
     }
+    fmt.sbprintf(&builder, "[shell] command stopped after %v\n", timeout)
     return strings.to_string(builder)
 }
 

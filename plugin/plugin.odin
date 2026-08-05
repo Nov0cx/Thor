@@ -47,8 +47,10 @@ Keybind_Proc :: #type proc(host: rawptr, action: string) -> (chord: string, ok: 
 // Renders `text` into a document tab at `path`; `focus` reveals and focuses it.
 Doc_Proc :: #type proc(host: rawptr, path: string, text: string, focus: bool)
 // Runs `command` in the workspace and returns its owned stdout+stderr; the host
-// owns the result and the caller frees it after copying into Lua.
-Exec_Proc :: #type proc(host: rawptr, command: string) -> string
+// owns the result and the caller frees it after copying into Lua. The host must
+// stop the command after `timeout`, which holds the frame no longer than the
+// budget hook would.
+Exec_Proc :: #type proc(host: rawptr, command: string, timeout: time.Duration) -> string
 // Adds a top-bar button labelled `label` that runs the named command on click.
 Button_Proc :: #type proc(host: rawptr, label: string, command: string)
 // Returns the workspace directory (absolute). The host owns the string.
@@ -586,7 +588,8 @@ api_doc :: proc "c" (L: ^lua.State) -> c.int {
 }
 
 // thor.exec(command): runs `command` in the workspace, returning its combined
-// stdout+stderr as a string. Blocks until it exits. Needs the `exec` permission.
+// stdout+stderr as a string. Blocks until it exits or the call budget runs out,
+// whichever comes first. Needs the `exec` permission.
 @(private)
 api_exec :: proc "c" (L: ^lua.State) -> c.int {
     context = runtime.default_context()
@@ -596,7 +599,7 @@ api_exec :: proc "c" (L: ^lua.State) -> c.int {
         return 1
     }
     context.allocator = m.allocator
-    out := m.exec_proc(m.host, string(lua.tostring(L, 1)))
+    out := m.exec_proc(m.host, string(lua.tostring(L, 1)), budget_left())
     lua.pushstring(L, strings.clone_to_cstring(out, context.temp_allocator))
     delete(out) // host-owned result, freed after copying into Lua
     return 1

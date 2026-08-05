@@ -3,6 +3,7 @@ package thor
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
+import "core:time"
 import rl "vendor:raylib"
 
 import "../plugin"
@@ -149,10 +150,11 @@ thor_plugin_doc :: proc(host: rawptr, path: string, text: string, focus: bool) {
 }
 
 // thor.exec(command): runs `command` in the workspace via cmd.exe and returns
-// its combined output. Synchronous, so plugins should keep commands quick.
-thor_plugin_exec :: proc(host: rawptr, command: string) -> string {
+// its combined output. Synchronous, so it holds the frame — `timeout` is what
+// the plugin has left of its call budget, and the command is killed at it.
+thor_plugin_exec :: proc(host: rawptr, command: string, timeout: time.Duration) -> string {
     thor := cast(^Thor) host
-    return shell.run(command, thor.workspace_dir)
+    return shell.run(command, thor.workspace_dir, timeout)
 }
 
 // thor.workspace(): the absolute path of the open workspace directory.
