@@ -762,6 +762,15 @@ thor_docs_dir :: proc() -> string {
     if base == "" {
         base = os.get_env("TMP", context.temp_allocator)
     }
+    when ODIN_OS != .Windows {
+        // TEMP and TMP are Windows names; POSIX uses TMPDIR and falls back to /tmp.
+        if base == "" {
+            base = os.get_env("TMPDIR", context.temp_allocator)
+        }
+        if base == "" {
+            base = "/tmp"
+        }
+    }
     if base == "" {
         return ""
     }

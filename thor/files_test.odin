@@ -2,6 +2,7 @@ package thor
 
 import "core:fmt"
 import "core:os"
+import "core:path/filepath"
 import "core:strings"
 import "core:testing"
 import "core:time"
@@ -395,18 +396,36 @@ test_reload_edits_matching_disk_clean_buffer :: proc(t: ^testing.T) {
     thor_close_file(thor, 0)
 }
 
+// A unique path under the OS temp directory, with native separators. TEMP is
+// Windows only; POSIX names it TMPDIR and leaves it unset on the CI runners.
+@(private = "file")
+files_test_temp_path :: proc(name: string) -> string {
+    base := os.get_env("TEMP", context.temp_allocator)
+    when ODIN_OS != .Windows {
+        if base == "" {
+            base = os.get_env("TMPDIR", context.temp_allocator)
+        }
+        if base == "" {
+            base = "/tmp"
+        }
+    }
+    base = strings.trim_right(base, "/\\")
+    joined, _ := filepath.join({base, fmt.tprintf("%s_%d", name, time.now()._nsec)}, context.temp_allocator)
+    return joined
+}
+
 // The whole live-reload chain over a real directory: the watcher reports the
 // external write, the subscriber routes it to the open file, and the reap lands
 // the new bytes in the buffer.
 @(test)
 test_watcher_reloads_open_file :: proc(t: ^testing.T) {
-    root := fmt.tprintf("%s\\thor_reload_test_%d", os.get_env("TEMP", context.temp_allocator), time.now()._nsec)
+    root := files_test_temp_path("thor_reload_test")
     if err := os.make_directory(root); err != nil {
         testing.fail_now(t, fmt.tprintf("could not create temp dir %q: %v", root, err))
     }
     defer os.remove(root)
 
-    path := fmt.tprintf("%s\\watched.txt", root)
+    path, _ := filepath.join({root, "watched.txt"}, context.temp_allocator)
     write_err := os.write_entire_file(path, transmute([]u8) string("one\n"))
     testing.expect(t, write_err == nil, "could not create test file")
     defer os.remove(path)
@@ -447,6 +466,17 @@ test_watcher_reloads_open_file :: proc(t: ^testing.T) {
         }
     }
     testing.expect_value(t, textedit.text(&file.state), "one\ntwo\n")
+
+    // One write can produce several watcher events, so a second reload may still
+    // be in flight. Its job owns a thread and a buffer, so it is reaped before
+    // the editor goes away.
+    for _ in 0 ..< 500 {
+        if !file.reloading && !file.reload_pending {
+            break
+        }
+        thor_update_files(thor)
+        time.sleep(2 * time.Millisecond)
+    }
 
     thor_close_file(thor, 0)
 }

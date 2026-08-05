@@ -2,6 +2,7 @@
 package watch
 
 import "base:intrinsics"
+import "core:os"
 import "core:time"
 
 // POSIX watcher: no portable event interface covers a whole tree, so the worker
@@ -22,6 +23,10 @@ SLEEP_SLICE :: 100 * time.Millisecond
 
 @(private)
 watch_start :: proc(w: ^Watcher) -> bool {
+    // The worker only scans, so nothing else would report an unwatchable root.
+    if !os.is_dir(w.root) {
+        return false
+    }
     w.platform.stopping = false
     return true
 }

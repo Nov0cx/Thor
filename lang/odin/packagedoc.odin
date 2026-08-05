@@ -112,17 +112,12 @@ package_doc :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, req: ^lang.Req
     // Neither branch hands back an owned string: package_dir_under_caret is
     // scratch-allocated and filepath.dir is a slice of req.path.
     dir, ok := package_dir_under_caret(e, root, req)
-    owned_dir := ""
     if !ok {
         if req.path == "" {
             return
         }
         // No package under the caret: document the file's own package.
-        owned_dir = filepath.dir(req.path)
-        dir = owned_dir
-    }
-    defer if owned_dir != "" {
-        delete(owned_dir)
+        dir = filepath.dir(req.path)
     }
     render_package_doc(e, parser, req, dir, res)
 }

@@ -2,23 +2,45 @@ package widgets
 
 import "core:fmt"
 import "core:os"
+import "core:path/filepath"
+import "core:strings"
 import "core:testing"
 import "core:time"
 import rl "vendor:raylib"
 
 import "../ui"
 
+// A unique path under the OS temp directory, with native separators. TEMP is
+// Windows only; POSIX names it TMPDIR and leaves it unset on the CI runners.
+@(private = "file")
+tree_test_temp_path :: proc(name: string) -> string {
+    base := os.get_env("TEMP", context.temp_allocator)
+    when ODIN_OS != .Windows {
+        if base == "" {
+            base = os.get_env("TMPDIR", context.temp_allocator)
+        }
+        if base == "" {
+            base = "/tmp"
+        }
+    }
+    base = strings.trim_right(base, "/\\")
+    joined, _ := filepath.join({base, fmt.tprintf("%s_%d", name, time.now()._nsec)}, context.temp_allocator)
+    return joined
+}
+
 // A tree over a throwaway directory holding a.txt, b.txt, c.txt and sub/, laid
 // out so row N sits at y = N * row_height. The caller destroys both.
 @(private = "file")
 tree_test_fixture :: proc(t: ^testing.T) -> (tree: ^Tree, root: string) {
-    root = fmt.tprintf("%s\\thor_tree_test_%d", os.get_env("TEMP", context.temp_allocator), time.now()._nsec)
+    root = tree_test_temp_path("thor_tree_test")
     if err := os.make_directory(root); err != nil {
         testing.fail_now(t, fmt.tprintf("could not create temp dir %q: %v", root, err))
     }
-    _ = os.make_directory(fmt.tprintf("%s\\sub", root))
+    sub, _ := filepath.join({root, "sub"}, context.temp_allocator)
+    _ = os.make_directory(sub)
     for name in ([]string {"a.txt", "b.txt", "c.txt"}) {
-        _ = os.write_entire_file(fmt.tprintf("%s\\%s", root, name), transmute([]byte) string("x"))
+        path, _ := filepath.join({root, name}, context.temp_allocator)
+        _ = os.write_entire_file(path, transmute([]byte) string("x"))
     }
 
     tree = tree_create("tree", root)

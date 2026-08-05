@@ -222,14 +222,21 @@ jobs:
 
       # vendor:lua links Lua statically on Linux and against lua54.dll on Windows,
       # but on Darwin it is `system:lua5.4`, so Lua is a build dependency here.
+      # The version matters: the unversioned `lua` formula is 5.5 now, and
+      # vendor:lua/5.4 does not match its ABI. Nothing fails at link time - the
+      # symbol names are the same - so the mismatch only shows as a crash once a
+      # plugin runs.
       - name: Install HarfBuzz and Lua
-        run: brew install harfbuzz lua
+        run: brew install harfbuzz lua@5.4
 
       # Homebrew names the library liblua.5.4.dylib; the linker asks for -llua5.4.
+      # lua@5.4 is keg-only, so the link also brings it into the prefix the build
+      # points the linker at.
       - name: Name Lua the way the linker asks for it
         run: |
-          lib="$(brew --prefix)/lib"
-          [ -e "$lib/liblua5.4.dylib" ] || ln -sf "$(ls "$lib"/liblua*.dylib | head -n1)" "$lib/liblua5.4.dylib"
+          keg="$(brew --prefix lua@5.4)/lib"
+          dylib="$(ls "$keg"/liblua*.dylib | head -n1)"
+          ln -sf "$dylib" "$(brew --prefix)/lib/liblua5.4.dylib"
 
       # The odin-harfbuzz binding only wires up Windows and Linux; on Darwin no
       # `foreign import` matches and the build fails to link. Inject a Darwin

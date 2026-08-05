@@ -2,9 +2,28 @@ package watch
 
 import "core:fmt"
 import "core:os"
+import "core:path/filepath"
 import "core:strings"
 import "core:testing"
 import "core:time"
+
+// A unique path under the OS temp directory, with native separators. TEMP is
+// Windows only; POSIX names it TMPDIR and leaves it unset on the CI runners.
+@(private = "file")
+temp_path :: proc(name: string) -> string {
+    base := os.get_env("TEMP", context.temp_allocator)
+    when ODIN_OS != .Windows {
+        if base == "" {
+            base = os.get_env("TMPDIR", context.temp_allocator)
+        }
+        if base == "" {
+            base = "/tmp"
+        }
+    }
+    base = strings.trim_right(base, "/\\")
+    joined, _ := filepath.join({base, fmt.tprintf("%s_%d", name, time.now()._nsec)}, context.temp_allocator)
+    return joined
+}
 
 // Collects the changes a watcher delivers, so a test can assert on them after
 // pumping the poll loop.
@@ -45,6 +64,16 @@ sink_has :: proc(sink: ^Sink, kind: Change_Kind, path: string) -> bool {
     return false
 }
 
+@(private = "file")
+sink_saw_content_change :: proc(sink: ^Sink) -> bool {
+    for c in sink.changes {
+        if c.kind == .Created || c.kind == .Modified {
+            return true
+        }
+    }
+    return false
+}
+
 // Pumps watcher_poll until `pred` holds or the deadline passes, so the test does
 // not depend on how quickly the OS delivers directory notifications.
 @(private = "file")
@@ -63,7 +92,7 @@ pump_until :: proc(w: ^Watcher, sink: ^Sink, pred: proc(^Sink) -> bool, timeout 
 @(test)
 test_watch_create_modify_delete :: proc(t: ^testing.T) {
     // A unique temp directory to watch.
-    root := fmt.tprintf("%s\\thor_watch_test_%d", os.get_env("TEMP", context.temp_allocator), time.now()._nsec)
+    root := temp_path("thor_watch_test")
     if err := os.make_directory(root); err != nil {
         testing.fail_now(t, fmt.tprintf("could not create temp dir %q: %v", root, err))
     }
@@ -78,18 +107,20 @@ test_watch_create_modify_delete :: proc(t: ^testing.T) {
     defer sink_destroy(&sink)
     watcher_subscribe(&w, sink_collect, &sink)
 
-    file := fmt.tprintf("%s\\hello.txt", root)
+    file, _ := filepath.join({root, "hello.txt"}, context.temp_allocator)
 
-    // Create.
-    _ = os.write_entire_file(file, transmute([]u8) string("hi"))
-    pump_until(&w, &sink, proc(s: ^Sink) -> bool {
-        for c in s.changes {
-            if c.kind == .Created || c.kind == .Modified {
-                return true
-            }
+    // Create. The worker starts asynchronously, so a write that lands before it
+    // is watching is never reported: the polling watcher already has the file in
+    // its first snapshot, and the Windows one has no read call posted yet. The
+    // write is repeated until a change arrives, which reports Modified once the
+    // file exists.
+    for _ in 0 ..< 5 {
+        _ = os.write_entire_file(file, transmute([]u8) string("hi"))
+        pump_until(&w, &sink, sink_saw_content_change, 1500 * time.Millisecond)
+        if sink_saw_content_change(&sink) {
+            break
         }
-        return false
-    })
+    }
     testing.expect(t, sink_has(&sink, .Created, file) || sink_has(&sink, .Modified, file),
         "expected a create/modify change for the new file")
 

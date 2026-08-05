@@ -682,7 +682,11 @@ test_definition_stdlib :: proc(t: ^testing.T) {
 
     testing.expect(t, res.ok, "expected fmt.println to resolve into the stdlib")
     if res.ok {
-        testing.expectf(t, strings.has_prefix(res.hover.text, "println ::"), "hover text: got %q", res.hover.text)
+        // The hover keeps the declaration as written, and core:fmt aligns the
+        // `::` of print/println/printfln, so the gap after the name varies.
+        head := strings.trim_space(res.hover.text)
+        matches := strings.has_prefix(head, "println") && strings.contains(head, ":: proc(")
+        testing.expectf(t, matches, "hover text: got %q", res.hover.text)
     }
 }
 
