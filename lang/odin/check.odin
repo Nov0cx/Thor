@@ -10,28 +10,21 @@ import "core:path/filepath"
 import "core:strconv"
 import "core:strings"
 import "core:sync"
-import "core:time"
 
 import lang ".."
 import "../../shell"
-
-// How often a queued check re-tests whether the running one has finished (or
-// whether it has itself been superseded). Invisible next to a compiler run, and
-// what keeps a waiting check from pinning a worker thread.
-@(private = "file")
-CHECK_POLL :: 50 * time.Millisecond
 
 // Checks the package directory holding `req.path` — one `odin check` run, whose
 // every diagnostic line lands in `res.report`. `-no-entry-point` lets a library
 // package (no `main`) check.
 //
 // Serialized on the engine: a check is a whole compiler invocation, so two at
-// once would only contend for the machine. The wait polls rather than blocking
-// outright — a compiler run cannot be interrupted, so a request superseded while
-// it queued would otherwise hold a pool worker for seconds, and enough rapid
-// saves would park every worker behind a run nobody wants any more. Polling lets
-// it give the worker back within a tick, and the winner re-tests cancellation
-// once it holds the lock, so a superseded check never spawns a process at all.
+// once would only contend for the machine. The lock is never waited on — a
+// compiler run cannot be interrupted, so waiting would hold a pool worker for
+// the run's whole duration. The editor cannot reach here twice anyway: the seam
+// holds a second Diagnostics request in its debounce slot (EXCLUSIVE_KINDS)
+// until this one is reaped, so this only backstops a hand-built request, which
+// answers `ok = false` and leaves the existing diagnostics standing.
 @(private)
 check_package :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
     if req.path == "" {
@@ -42,11 +35,8 @@ check_package :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
         return
     }
 
-    for !sync.mutex_try_lock(&e.check_mutex) {
-        if lang.request_cancelled(req) {
-            return
-        }
-        time.sleep(CHECK_POLL)
+    if !sync.mutex_try_lock(&e.check_mutex) {
+        return
     }
     defer sync.unlock(&e.check_mutex)
     if lang.request_cancelled(req) {

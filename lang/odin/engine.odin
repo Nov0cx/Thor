@@ -35,7 +35,7 @@ Engine :: struct {
     // would thrash the slots for no win.
     trees:    treecache.Cache,
     // One compiler run at a time (see check_package): a second Diagnostics
-    // request waits here rather than starting a rival `odin check`.
+    // request gives up here rather than starting a rival `odin check`.
     check_mutex: sync.Mutex,
     // The implicit scope — what `base:builtin` and `base:runtime` export — which
     // the semantic classifier needs before it can call any name undeclared. Built

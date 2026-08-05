@@ -275,6 +275,13 @@ DEBOUNCE_CHECK :: 400 * time.Millisecond
 WORKERS_MIN :: 2
 WORKERS_MAX :: 4
 
+// Kinds that must never have two jobs in flight at once, because the work is a
+// whole external process rather than a parse. A second one waits in its debounce
+// slot until the first is reaped (see manager_flush_debounced) — letting it wait
+// on a worker instead would pin that worker for the run's whole duration, which
+// with WORKERS_MIN workers is the starvation the floor exists to prevent.
+EXCLUSIVE_KINDS :: bit_set[Request_Kind]{.Diagnostics}
+
 @(private)
 Job :: struct {
     manager:   ^Manager,
@@ -601,6 +608,10 @@ manager_request_debounced :: proc(
 // manager_dispatch, so a host that already reaps results once per frame gets
 // this for free. `force` ignores the timers — for tests, and for a caller that
 // wants the queue drained now. Returns how many were dispatched.
+//
+// An EXCLUSIVE_KINDS slot is held back while a job of its kind is still in
+// flight, which `force` does not override: the slot is the waiting room for that
+// kind, so the wait costs no worker and the newest snapshot still wins.
 manager_flush_debounced :: proc(m: ^Manager, force := false) -> int {
     n := 0
     for kind in Request_Kind {
@@ -610,6 +621,9 @@ manager_flush_debounced :: proc(m: ^Manager, force := false) -> int {
         }
         if !force && time.since(p.due) < 0 {
             continue
+        }
+        if kind in EXCLUSIVE_KINDS && kind_inflight(m, kind) {
+            continue // re-tested next frame, when the running job may be reaped
         }
         slot := p^
         p.active = false // clear before dispatching: the strings are the job's now
@@ -628,6 +642,21 @@ manager_flush_debounced :: proc(m: ^Manager, force := false) -> int {
         n += 1
     }
     return n
+}
+
+// True while a job of `kind` is dispatched but not yet reaped. Counts cancelled
+// jobs too, unlike manager_busy_kinds: cancellation is cooperative, so a job
+// already inside an uninterruptible step holds its resources until it returns.
+@(private)
+kind_inflight :: proc(m: ^Manager, kind: Request_Kind) -> bool {
+    sync.lock(&m.mutex)
+    defer sync.unlock(&m.mutex)
+    for _, job in m.active {
+        if job.request.kind == kind {
+            return true
+        }
+    }
+    return false
 }
 
 // True while a request of `kind` is queued but not yet dispatched, so a caller

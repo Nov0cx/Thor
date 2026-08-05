@@ -755,8 +755,12 @@ lowest latency.
       does that and retires the squiggles of files the new report dropped (which is
       what `scope` is for — a fixed file simply stops appearing). Debounced at
       `DEBOUNCE_CHECK` (400ms) so a save-all costs one compiler run rather than one
-      per file, and serialized on the engine (`check_mutex`) so two checks never
-      contend; a superseded one is cancelled and never spawns a process. The run
+      per file, and one run at a time: `Diagnostics` is in `EXCLUSIVE_KINDS`, so a
+      request queued while a run is in flight waits in its debounce slot instead of
+      on a worker — a compiler run cannot be interrupted, and blocking on it would
+      pin the second of the pool's `WORKERS_MIN` threads for the run's whole
+      duration. `check_mutex` backstops that with a try-lock (never a wait), and a
+      superseded check is cancelled and never spawns a process. The run
       carries the workspace config's collections as `-collection:` flags; an entry
       the compiler would reject (a reserved name, a path that is not a directory)
       is dropped, because such a flag aborts the run before it checks anything.

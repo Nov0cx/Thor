@@ -314,6 +314,51 @@ test_debounce_cancelled_never_dispatches :: proc(t: ^testing.T) {
     testing.expectf(t, delivered == 1, "expected only the explicit request's result (got %d)", delivered)
 }
 
+// An EXCLUSIVE_KINDS request waits in its debounce slot while one of its kind is
+// in flight, rather than on a worker: a compiler run cannot be interrupted, so a
+// second one blocking on it would occupy the second of the pool's WORKERS_MIN
+// threads for the whole run.
+@(test)
+test_exclusive_kind_waits_in_its_slot :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+
+    p := Probe{}
+    manager_register(&m, probe_backend(&p))
+
+    // The first check parks in the backend, standing in for a compiler run.
+    manager_request(&m, .Diagnostics, "a.probe", ".probe", "", 0, 0, "")
+    testing.expect(t, wait_for(&p.started, 1), "the first check never started")
+
+    // The next save queues another. It supersedes the running check, which
+    // cannot be interrupted, so the slot holds it — a forced flush included.
+    manager_request_debounced(&m, .Diagnostics, "a.probe", ".probe", "", 0, 0, "")
+    testing.expectf(t, manager_flush_debounced(&m, force = true) == 0, "the queued check dispatched under a running one")
+    testing.expect(t, manager_debounce_pending(&m, .Diagnostics), "the queued check should still hold its slot")
+    testing.expectf(
+        t,
+        sync.atomic_load(&p.started) == 1,
+        "the queued check took a worker (%d started)",
+        sync.atomic_load(&p.started),
+    )
+
+    // Once the run is reaped the gate opens and the held slot dispatches.
+    sync.atomic_store(&p.release, true)
+    delivered := drain_manager(&m)
+    testing.expectf(t, manager_flush_debounced(&m, force = true) == 1, "the queued check never dispatched")
+    delivered += drain_manager(&m)
+
+    testing.expect(t, !manager_debounce_pending(&m, .Diagnostics), "the slot should empty once the run is reaped")
+    testing.expectf(
+        t,
+        sync.atomic_load(&p.started) == 2,
+        "the queued check should run after the first (%d started)",
+        sync.atomic_load(&p.started),
+    )
+    testing.expectf(t, delivered == 1, "expected only the queued check's result (got %d)", delivered)
+}
+
 @(test)
 test_debounce_slots_are_per_kind :: proc(t: ^testing.T) {
     m: Manager
