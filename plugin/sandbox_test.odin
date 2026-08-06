@@ -143,9 +143,9 @@ test_sandbox_hides_ungranted_api :: proc(t: ^testing.T) {
     recording_manager(&m, &r)
     defer manager_destroy(&m)
 
-    script := `thor.print(type(thor.exec) .. " " .. type(thor.on_key) .. " " .. type(thor.panel) .. " " .. type(thor.print))`
+    script := `thor.print(type(thor.exec) .. " " .. type(thor.on_key) .. " " .. type(thor.panel) .. " " .. type(thor.on_tick) .. " " .. type(thor.print))`
     testing.expect(t, manager_load_source(&m, "plain", "plugins/plain", script, {}), "plugin runs")
-    testing.expectf(t, strings.contains(printed(&r), "nil nil nil function"), "denied api present: %q", printed(&r))
+    testing.expectf(t, strings.contains(printed(&r), "nil nil nil nil function"), "denied api present: %q", printed(&r))
 
     granted := `thor.print(type(thor.exec) .. " " .. type(thor.panel))`
     testing.expect(t, manager_load_source(&m, "trusted", "plugins/trusted", granted, {.Exec, .Ui}), "plugin runs")

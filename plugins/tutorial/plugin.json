@@ -1,5 +1,5 @@
 {
     "name": "Tutorial",
     "description": "Interactive tutorial: a shortcut drill and a broken Odin file to repair.",
-    "permissions": ["read", "write", "ui", "keys"]
+    "permissions": ["read", "write", "ui", "keys", "tick"]
 }

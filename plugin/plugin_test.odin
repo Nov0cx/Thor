@@ -516,7 +516,7 @@ test_on_tick_runs_throttled_per_plugin :: proc(t: ^testing.T) {
 
     script := `ticks = 0
     thor.on_tick(function() ticks = ticks + 1 end)`
-    testing.expect(t, manager_load_source(&m, "ticker", "plugins/ticker", script, {}), "plugin script runs")
+    testing.expect(t, manager_load_source(&m, "ticker", "plugins/ticker", script, {.Tick}), "plugin script runs")
 
     reads :: proc(m: ^Manager) -> lua.Integer {
         lua.rawgeti(m.state, lua.REGISTRYINDEX, lua.Integer(m.plugins[0].env_ref))
@@ -535,4 +535,20 @@ test_on_tick_runs_throttled_per_plugin :: proc(t: ^testing.T) {
 
     manager_dispatch_tick(&m)
     testing.expect(t, reads(&m) == 1, "the interval starts again after a run")
+}
+
+// Without the `tick` permission a plugin has no handler to register, so nothing
+// it loaded runs again until the user calls it.
+@(test)
+test_on_tick_needs_permission :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+
+    script := `if thor.on_tick then thor.on_tick(function() end) end`
+    testing.expect(t, manager_load_source(&m, "quiet", "plugins/quiet", script, {}), "plugin script runs")
+    testing.expect(t, m.plugins[0].tick_ref == NOREF, "a permission-free plugin registered a tick handler")
+
+    m.tick_at._nsec -= i64(TICK_INTERVAL)
+    manager_dispatch_tick(&m)
 }

@@ -220,7 +220,8 @@ compile is reported with its offset instead of silently uncoloring the language.
 
 Each plugin runs sandboxed (`plugin/sandbox.odin`): its own `_ENV`, a trimmed standard library (no
 io/package/debug/`load`), path-confined file access, a two-second wall-clock budget per call, and a
-`thor` table holding only what `plugins/<id>/plugin.json` grants (`exec`/`read`/`write`/`ui`/`keys`).
+`thor` table holding only what `plugins/<id>/plugin.json` grants
+(`exec`/`read`/`write`/`ui`/`keys`/`tick`).
 A plugin that wants a permission stays unloaded until the user allows it: `thor_load_plugins`
 (`thor/plugin_trust.odin`) scans first, runs the permission-free plugins at once, and holds the rest
 for one batched prompt whose answer lands in `sessions/plugin-grants.json`. Settings shows the same

@@ -75,7 +75,7 @@ tutorial_manager :: proc(m: ^Manager, t: ^Tutor) -> bool {
         workspace = tut_workspace,
         confirm   = tut_confirm,
     })
-    return manager_load_plugin(m, "tutorial", "plugins/tutorial", {.Read, .Write, .Ui, .Keys})
+    return manager_load_plugin(m, "tutorial", "plugins/tutorial", {.Read, .Write, .Ui, .Keys, .Tick})
 }
 
 // Runs the on_tick handlers now, without waiting out the interval the frame loop

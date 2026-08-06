@@ -465,7 +465,6 @@ push_api_table :: proc(m: ^Manager, index: int) {
     bind(L, m, index, api, "active_path", api_active_path)
     bind(L, m, index, api, "refresh_git", api_refresh_git)
     bind(L, m, index, api, "permissions", api_permissions)
-    bind(L, m, index, api, "on_tick", api_on_tick)
 
     if .Exec in perms {
         bind(L, m, index, api, "exec", api_exec)
@@ -479,6 +478,9 @@ push_api_table :: proc(m: ^Manager, index: int) {
     }
     if .Keys in perms {
         bind(L, m, index, api, "on_key", api_on_key)
+    }
+    if .Tick in perms {
+        bind(L, m, index, api, "on_tick", api_on_tick)
     }
     if .Ui in perms {
         bind(L, m, index, api, "button", api_button)
@@ -521,6 +523,8 @@ TICK_INTERVAL :: 100 * time.Millisecond
 
 // thor.on_tick(fn): handler run every TICK_INTERVAL, for a plugin that must
 // follow what the editor is doing rather than wait to be called. One per plugin.
+// Needs the `tick` permission, so a plugin the user was never asked about only
+// runs when the user starts it.
 @(private)
 api_on_tick :: proc "c" (L: ^lua.State) -> c.int {
     context = runtime.default_context()

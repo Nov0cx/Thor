@@ -52,6 +52,7 @@ A plugin declares what it needs in `plugin.json` beside `plugin.lua`:
 | `write`    | `thor.write`, `thor.doc` |
 | `ui`       | `thor.button`, `thor.menu`, `thor.panel`, `thor.prompt`, `thor.pick`, `thor.confirm` |
 | `keys`     | `thor.on_key` |
+| `tick`     | `thor.on_tick` |
 
 No manifest grants nothing, which is all a syntax-only plugin needs. A denied
 entry point is absent rather than present-and-refusing, so calling it raises
@@ -103,15 +104,16 @@ makes a plugin editable in place, and what makes an allowed folder a folder you
 trust. Thor asks again when the plugin widens what it wants.
 
 Always available: `thor.register_language`, `thor.print`, `thor.keybind`,
-`thor.on_command`, `thor.on_tick`, `thor.workspace`, `thor.active_path`,
-`thor.refresh_git`, `thor.theme` and `thor.ts`.
+`thor.on_command`, `thor.workspace`, `thor.active_path`, `thor.refresh_git`,
+`thor.permissions`, `thor.theme` and `thor.ts`. Each one waits to be called, so a
+plugin that asks for no permission runs only when the user does something.
 
 ## Following the editor
 
-`thor.on_tick(fn)` runs `fn` from the frame loop, ten times a second — for a
-plugin that must notice what the user did rather than wait to be called. One
-handler per plugin, and it holds the frame while it runs, so keep it short and
-do nothing when nothing changed:
+`thor.on_tick(fn)` (permission `tick`) runs `fn` from the frame loop, ten times a
+second — for a plugin that must notice what the user did rather than wait to be
+called. One handler per plugin, and it holds the frame while it runs, so keep it
+short and do nothing when nothing changed:
 
 ```lua
 local last = nil

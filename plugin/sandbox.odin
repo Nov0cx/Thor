@@ -17,13 +17,15 @@ import lua "vendor:lua/5.4"
 
 // A capability a plugin must list in plugin.json to reach the matching host
 // service. What is not listed here is always granted: register_language, print,
-// on_command, theme, workspace, active_path, keybind and the thor.ts bindings.
+// on_command, theme, workspace, active_path, keybind, refresh_git, permissions
+// and the thor.ts bindings — every one of them waits to be called.
 Permission :: enum {
     Exec,  // thor.exec
     Read,  // thor.read
     Write, // thor.write, thor.doc
     Ui,    // thor.button, menu, panel, prompt, pick, confirm
     Keys,  // thor.on_key
+    Tick,  // thor.on_tick
 }
 
 Permissions :: distinct bit_set[Permission]
@@ -425,6 +427,7 @@ permission_name :: proc(perm: Permission) -> string {
     case .Write: return "write"
     case .Ui:    return "ui"
     case .Keys:  return "keys"
+    case .Tick:  return "tick"
     }
     return ""
 }
