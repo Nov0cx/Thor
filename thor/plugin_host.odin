@@ -1,5 +1,6 @@
 package thor
 
+import "core:log"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
@@ -120,9 +121,15 @@ thor_plugin_doc :: proc(host: rawptr, path: string, text: string, focus: bool) {
     // write_entire_file does not create parent directories, and a plugin path
     // like ".thor/git/status.md" nests more than one deep.
     if dir := filepath.dir(path); dir != "" && dir != "." && !os.exists(dir) {
-        os.make_directory_all(dir)
+        if err := os.make_directory_all(dir); err != nil {
+            log.errorf("thor.doc: could not create %q: %v", dir, err)
+            thor_flash_status(thor, "Plugin document folder could not be created", is_error = true)
+            return
+        }
     }
     if werr := os.write_entire_file(path, transmute([]byte) text); werr != nil {
+        log.errorf("thor.doc: could not write %q: %v", path, werr)
+        thor_flash_status(thor, "Plugin document could not be written", is_error = true)
         return
     }
 
@@ -199,10 +206,18 @@ thor_plugin_read :: proc(host: rawptr, path: string) -> string {
 // tab. Used by plugins for scratch files (e.g. a commit message passed to
 // `git commit -F`). Creates the parent directory like thor.doc does.
 thor_plugin_write :: proc(host: rawptr, path: string, text: string) {
+    thor := cast(^Thor) host
     if dir := filepath.dir(path); dir != "" && dir != "." && !os.exists(dir) {
-        os.make_directory_all(dir)
+        if err := os.make_directory_all(dir); err != nil {
+            log.errorf("thor.write: could not create %q: %v", dir, err)
+            thor_flash_status(thor, "Plugin file folder could not be created", is_error = true)
+            return
+        }
     }
-    _ = os.write_entire_file(path, transmute([]byte) text)
+    if err := os.write_entire_file(path, transmute([]byte) text); err != nil {
+        log.errorf("thor.write: could not write %q: %v", path, err)
+        thor_flash_status(thor, "Plugin file could not be written", is_error = true)
+    }
 }
 
 // thor.refresh_git(): recompute the tree's git-status colouring after a plugin

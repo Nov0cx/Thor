@@ -1,6 +1,7 @@
 package thor
 
 import "core:fmt"
+import "core:log"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
@@ -788,7 +789,11 @@ thor_show_package_doc :: proc(thor: ^Thor, res: ^lang.Result) {
         return
     }
     if !os.exists(dir) {
-        _ = os.make_directory(dir)
+        if err := os.make_directory(dir); err != nil {
+            log.errorf("Could not create doc directory %q: %v", dir, err)
+            thor_flash_status(thor, "Could not create the documentation folder", is_error = true)
+            return
+        }
     }
     stem := thor_doc_file_stem(strings.trim_prefix(res.doc.title, "package "))
     // A .md doc so it renders as Markdown documentation (OLS-style: fenced
