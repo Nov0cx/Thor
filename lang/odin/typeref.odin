@@ -7,6 +7,10 @@ import "core:strings"
 import lang ".."
 import ts "../../vendor/odin-tree-sitter"
 
+// How many pointers are unwrapped off a type (`^^T`) before giving up.
+@(private)
+POINTER_DEPTH_LIMIT :: 8
+
 // Reads a `(type ...)` node (or a bare type construct) into a Type_Ref. Unwraps a
 // pointer type (`^T` — Odin auto-derefs on `.`), reads a package-qualified `pkg.T`
 // (a `field_type`), keeps a proc type's signature (a proc names no type, so only
@@ -16,9 +20,10 @@ import ts "../../vendor/odin-tree-sitter"
 // `bit_set[E]` as `bit_set_type` (the element inside the brackets, before an
 // optional `; backing`). A container's own members are nothing this engine models,
 // so it must be indexed or ranged over before its element's fields resolve.
-// Containers nest up to CONTAINER_DEPTH_LIMIT; anything else returns false.
+// Containers nest up to CONTAINER_DEPTH_LIMIT and pointers up to
+// POINTER_DEPTH_LIMIT; anything else returns false.
 @(private)
-type_ref_from_node :: proc(node: ts.Node, source: string) -> (Type_Ref, bool) {
+type_ref_from_node :: proc(node: ts.Node, source: string, depth := 0) -> (Type_Ref, bool) {
     n := node
     if string(ts.node_type(n)) == "type" {
         n = ts.node_named_child(n, 0)
@@ -30,7 +35,10 @@ type_ref_from_node :: proc(node: ts.Node, source: string) -> (Type_Ref, bool) {
     case "identifier":
         return Type_Ref{name = ts.node_text(n, source)}, true
     case "pointer_type":
-        return type_ref_from_node(ts.node_named_child(n, 0), source)
+        if depth >= POINTER_DEPTH_LIMIT {
+            return {}, false
+        }
+        return type_ref_from_node(ts.node_named_child(n, 0), source, depth + 1)
     case "procedure_type":
         return Type_Ref{proc_sig = ts.node_text(n, source)}, true
     case "field_type":
@@ -77,7 +85,7 @@ contained_type :: proc(node: ts.Node, source: string, layer: Container_Layer) ->
 // argument): `Point` or `pkg.Point`. Unlike type_ref_from_node the qualified form
 // arrives as a member expression here, since the grammar parses it as a value.
 @(private)
-expr_type_name :: proc(node: ts.Node, source: string) -> (Type_Ref, bool) {
+expr_type_name :: proc(node: ts.Node, source: string, depth := 0) -> (Type_Ref, bool) {
     if ts.node_is_null(node) {
         return {}, false
     }
@@ -92,10 +100,13 @@ expr_type_name :: proc(node: ts.Node, source: string) -> (Type_Ref, bool) {
             return Type_Ref{pkg = ts.node_text(a, source), name = ts.node_text(b, source)}, true
         }
     case "pointer_type", "unary_expression":
-        return expr_type_name(ts.node_named_child(node, 0), source)
+        if depth >= POINTER_DEPTH_LIMIT {
+            return {}, false
+        }
+        return expr_type_name(ts.node_named_child(node, 0), source, depth + 1)
     case "array_type", "map_type":
         // A container literal (`[]Point{...}`) names a container type.
-        return type_ref_from_node(node, source)
+        return type_ref_from_node(node, source, depth)
     }
     return {}, false
 }
