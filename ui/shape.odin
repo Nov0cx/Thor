@@ -109,7 +109,7 @@ shape_collect_ligature_glyphs :: proc(file_data: []u8, seen: ^map[u32]bool) -> [
     }
 
     for probe in LIGATURE_PROBES {
-        infos, glyph_count := shape_into(buffer, font, probe)
+        infos, glyph_count := shape_into(buffer, font, probe, whole_run(probe))
         for i in 0 ..< glyph_count {
             gid := cast(u32) infos[i].codepoint
             if gid != 0 && !seen[gid] {
@@ -121,23 +121,50 @@ shape_collect_ligature_glyphs :: proc(file_data: []u8, seen: ^map[u32]bool) -> [
     return extra
 }
 
+// Shapes one run of a line. The whole line goes to HarfBuzz and the run selects
+// a part of it, so a run keeps the context of its neighbours (Arabic joining
+// forms need it) and the clusters stay byte offsets into the line.
+// The language stays "en": it selects only locl variants, and a code editor must
+// draw the same text on every machine.
 @(private = "file")
 shape_into :: proc(
     buffer: ^hb.buffer_t,
     font: ^hb.font_t,
     text: string,
+    run: Shape_Run,
     features: []hb.feature_t = nil,
 ) -> ([^]hb.glyph_info_t, c.uint) {
+    flags: c.uint = cast(c.uint) hb.buffer_flags_t.BUFFER_FLAG_DEFAULT
+    if run.start == 0 {
+        flags |= cast(c.uint) hb.buffer_flags_t.BUFFER_FLAG_BOT
+    }
+    if run.end == len(text) {
+        flags |= cast(c.uint) hb.buffer_flags_t.BUFFER_FLAG_EOT
+    }
+
     hb.buffer_reset(buffer)
-    hb.buffer_add_utf8(buffer, raw_data(text), cast(c.int) len(text), 0, cast(c.int) len(text))
-    hb.buffer_set_direction(buffer, .DIRECTION_LTR)
-    hb.buffer_set_script(buffer, .SCRIPT_LATIN)
+    hb.buffer_add_utf8(
+        buffer,
+        raw_data(text),
+        cast(c.int) len(text),
+        cast(c.uint) run.start,
+        cast(c.int) (run.end - run.start),
+    )
+    hb.buffer_set_direction(buffer, run.level % 2 == 1 ? .DIRECTION_RTL : .DIRECTION_LTR)
+    hb.buffer_set_script(buffer, run.script)
     hb.buffer_set_language(buffer, hb.language_from_string("en", -1))
+    hb.buffer_set_flags(buffer, cast(hb.buffer_flags_t) flags)
     hb.shape(font, buffer, raw_data(features), cast(c.uint) len(features))
 
     glyph_count: c.uint
     infos := cast([^]hb.glyph_info_t) hb.buffer_get_glyph_infos(buffer, &glyph_count)
     return infos, glyph_count
+}
+
+// The whole text as one left-to-right Latin run.
+@(private = "file")
+whole_run :: proc(text: string) -> Shape_Run {
+    return Shape_Run {start = 0, end = len(text), script = .SCRIPT_LATIN}
 }
 
 // Creates the persistent draw-time HarfBuzz font. Main thread only; the blob
@@ -181,14 +208,21 @@ shape_ligatures_enabled :: proc() -> bool {
     return ligatures_enabled
 }
 
-// Shapes one line; the returned slice is valid until the next shape_line call.
+// Shapes one line as a single left-to-right Latin run; the returned slice is
+// valid until the next shape_line call. The draw path uses shape_place_line,
+// which itemizes the line by script and direction first.
 shape_line :: proc(family: ^Font_Family, line: string) -> ([^]hb.glyph_info_t, int) {
+    infos, glyph_count := shape_line_run(family, line, whole_run(line))
+    return infos, cast(int) glyph_count
+}
+
+@(private = "file")
+shape_line_run :: proc(family: ^Font_Family, line: string, run: Shape_Run) -> ([^]hb.glyph_info_t, c.uint) {
     if shape_buffer == nil {
         shape_buffer = hb.buffer_create()
     }
     features := ligatures_enabled ? nil : LIGATURES_OFF[:]
-    infos, glyph_count := shape_into(shape_buffer, family.hb_font, line, features)
-    return infos, cast(int) glyph_count
+    return shape_into(shape_buffer, family.hb_font, line, run, features)
 }
 
 // Places one shaped line; false when the family/size has no shaping data, so
@@ -209,48 +243,56 @@ shape_place_line :: proc(family: ^Font_Family, font: rl.Font, size: i32, line: s
         return placed[:], true
     }
 
-    infos, glyph_count := shape_line(family, line)
-
-    for i in 0 ..< glyph_count {
-        gid := cast(u32) infos[i].codepoint
-        if glyph, mapped := shaped[gid]; mapped {
-            append(
-                &placed,
-                Placed_Glyph {
-                    rect = glyph.rect,
-                    offset_x = glyph.offset_x,
-                    offset_y = glyph.offset_y,
-                    advance = glyph.advance,
-                },
-            )
-            continue
-        }
-
-        // Glyph substituted outside the baked set (e.g. JetBrains Mono's
-        // contextual backtick): use the source char's baked glyph instead.
-        cluster := cast(int) infos[i].cluster
-        r: rune = 0
-        if cluster >= 0 && cluster < len(line) {
-            r, _ = utf8.decode_rune_in_string(line[cluster:])
-        }
-        index := rl.GetGlyphIndex(font, r)
-        if r >= 32 && font.glyphs[index].value == r {
-            info := font.glyphs[index]
-            append(
-                &placed,
-                Placed_Glyph {
-                    rect = font.recs[index],
-                    offset_x = cast(i32) info.offsetX,
-                    offset_y = cast(i32) info.offsetY,
-                    advance = cast(i32) info.advanceX,
-                },
-            )
-        } else {
-            space := rl.GetGlyphIndex(font, ' ')
-            append(&placed, Placed_Glyph {advance = cast(i32) font.glyphs[space].advanceX})
+    // The runs come in visual order and a right-to-left run is already in visual
+    // order inside itself, so appending them in order places the line correctly.
+    for run in shape_itemize(line) {
+        infos, glyph_count := shape_line_run(family, line, run)
+        for i in 0 ..< glyph_count {
+            place_glyph(shaped, font, line, infos[i])
         }
     }
     return placed[:], true
+}
+
+@(private = "file")
+place_glyph :: proc(shaped: map[u32]Shaped_Glyph, font: rl.Font, line: string, info: hb.glyph_info_t) {
+    gid := cast(u32) info.codepoint
+    if glyph, mapped := shaped[gid]; mapped {
+        append(
+            &placed,
+            Placed_Glyph {
+                rect = glyph.rect,
+                offset_x = glyph.offset_x,
+                offset_y = glyph.offset_y,
+                advance = glyph.advance,
+            },
+        )
+        return
+    }
+
+    // Glyph substituted outside the baked set (e.g. JetBrains Mono's
+    // contextual backtick): use the source char's baked glyph instead.
+    cluster := cast(int) info.cluster
+    r: rune = 0
+    if cluster >= 0 && cluster < len(line) {
+        r, _ = utf8.decode_rune_in_string(line[cluster:])
+    }
+    index := rl.GetGlyphIndex(font, r)
+    if r >= 32 && font.glyphs[index].value == r {
+        baked := font.glyphs[index]
+        append(
+            &placed,
+            Placed_Glyph {
+                rect = font.recs[index],
+                offset_x = cast(i32) baked.offsetX,
+                offset_y = cast(i32) baked.offsetY,
+                advance = cast(i32) baked.advanceX,
+            },
+        )
+        return
+    }
+    space := rl.GetGlyphIndex(font, ' ')
+    append(&placed, Placed_Glyph {advance = cast(i32) font.glyphs[space].advanceX})
 }
 
 // Draws one line via shaping; false when the family/size has no shaping data,
