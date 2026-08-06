@@ -330,10 +330,17 @@ Manager :: struct {
     // manager_request_debounced, emptied by manager_flush_debounced and the
     // cancels), so unlike `active` they need no lock.
     pending:   [Request_Kind]Pending,
+    // The feature gate the host's config sets: the master switch and the kinds
+    // that may still be dispatched. Main-thread only, read by every request
+    // entry point. manager_init turns everything on.
+    enabled:   bool,
+    features:  bit_set[Request_Kind],
 }
 
 manager_init :: proc(m: ^Manager, allocator := context.allocator) {
     m.allocator = allocator
+    m.enabled = true
+    m.features = FEATURES_ALL
     m.backends = make([dynamic]Backend, allocator)
     m.finished = make([dynamic]^Job, allocator)
     m.active = make(map[u64]^Job, 0, allocator)
@@ -375,18 +382,71 @@ backend_for :: proc(m: ^Manager, ext: string) -> (Backend, bool) {
     return {}, false
 }
 
-// True when some backend handles `ext`, so the editor can gate its UI (grey out
-// "Go to definition") without dispatching a request.
+// True when some backend handles `ext` and language intelligence is on, so the
+// editor can gate its UI (grey out "Go to definition") without dispatching a
+// request.
 manager_supports :: proc(m: ^Manager, ext: string) -> bool {
+    if !m.enabled {
+        return false
+    }
     _, ok := backend_for(m, ext)
     return ok
 }
 
+// Turns the whole seam off or on. Off refuses every request, whatever backend
+// claims the extension, and cancels the work already in flight — the switch a
+// user throws to make the editor a plain text editor again. On restores the
+// per-feature gate as it stands.
+manager_set_enabled :: proc(m: ^Manager, enabled: bool) {
+    if m.enabled == enabled {
+        return
+    }
+    m.enabled = enabled
+    if !enabled {
+        manager_cancel_all(m)
+    }
+}
+
+// True while language intelligence is on as a whole, whatever the per-feature
+// gate says.
+manager_enabled :: proc(m: ^Manager) -> bool {
+    return m.enabled
+}
+
+// Sets which kinds may be dispatched. A kind that goes off has its in-flight and
+// debounced work cancelled at once, so a feature turned off in the settings
+// stops answering on the same frame instead of after one more result.
+manager_set_features :: proc(m: ^Manager, features: bit_set[Request_Kind]) {
+    for kind in m.features - features {
+        manager_cancel_kind(m, kind)
+    }
+    m.features = features
+}
+
+// The kinds the per-feature gate lets through, whether or not the master switch
+// is on.
+manager_features :: proc(m: ^Manager) -> bit_set[Request_Kind] {
+    return m.features
+}
+
+// True when `kind` may be dispatched: the master switch is on and the gate
+// holds the kind.
+manager_feature_enabled :: proc(m: ^Manager, kind: Request_Kind) -> bool {
+    return m.enabled && kind in m.features
+}
+
+// True when `kind` may be dispatched for `ext` — the gate plus a backend that
+// claims the extension. The check a caller makes when a feature has a fallback
+// to run instead (rename falling back to find and replace).
+manager_allows :: proc(m: ^Manager, ext: string, kind: Request_Kind) -> bool {
+    return manager_feature_enabled(m, kind) && manager_supports(m, ext)
+}
+
 // Dispatches a request on a worker thread. Snapshots the string inputs into the
 // Manager's allocator so the caller keeps ownership of its own buffers. Returns
-// the request id, or 0 when no backend handles the extension. The result
-// arrives via manager_dispatch on a later frame. `new_name` is the request's
-// argument, only Rename uses it.
+// the request id, or 0 when the feature gate refuses the kind or no backend
+// handles the extension. The result arrives via manager_dispatch on a later
+// frame. `new_name` is the request's argument, only Rename uses it.
 manager_request :: proc(
     m: ^Manager,
     kind: Request_Kind,
@@ -396,6 +456,9 @@ manager_request :: proc(
     workspace: string,
     new_name := "",
 ) -> u64 {
+    if !manager_feature_enabled(m, kind) {
+        return 0
+    }
     if _, ok := backend_for(m, ext); !ok {
         return 0
     }
@@ -565,8 +628,9 @@ manager_request_latest :: proc(
 // last keystroke's answer is ever computed.
 //
 // The id is reserved now and belongs to the eventual request, so the caller can
-// store it in its result slot immediately. Returns 0 when no backend handles the
-// extension (nothing is queued). The delay is measured from this call, not from
+// store it in its result slot immediately. Returns 0 when the feature gate
+// refuses the kind or no backend handles the extension (nothing is queued, and
+// no slot is filled). The delay is measured from this call, not from
 // the first keystroke of the burst, so continuous typing keeps deferring the
 // dispatch — flushed by manager_flush_debounced, which manager_dispatch calls
 // once per frame.
@@ -580,6 +644,9 @@ manager_request_debounced :: proc(
     delay: time.Duration = DEBOUNCE_TYPING,
     new_name := "",
 ) -> u64 {
+    if !manager_feature_enabled(m, kind) {
+        return 0
+    }
     if _, ok := backend_for(m, ext); !ok {
         return 0
     }

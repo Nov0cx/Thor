@@ -139,6 +139,10 @@ Thor :: struct {
     // Plugin whose permission row opened the picker (see settings_ui.odin).
     plugin_setting_target:    string, // owned
     plugin_setting_source:    Plugin_Source,
+    // Language-intelligence row that opened the on/off picker: one feature, or
+    // the master switch when language_setting_master (kind is then unused).
+    language_setting_kind:    lang.Request_Kind,
+    language_setting_master:  bool,
     plugin_dock_right:        ^widgets.Panel,
     plugin_dock_right_stack:  ^widgets.Stack,
     plugin_dock_bottom:       ^widgets.Panel,

@@ -182,6 +182,10 @@ subprocess LSP client left as an optional backend behind the same seam.
   `completion.odin`, `signature.odin`, `symbols.odin` (outline/references/rename), `semantic.odin`,
   `check.odin` (compiler diagnostics), `actions.odin`, `packagedoc.odin`, `builtins.odin` (the
   implicit scope, read off the toolchain), `config.odin`.
+- The `language_intelligence` setting gates the whole seam: `manager_set_enabled` /
+  `manager_set_features` make `manager_request` refuse a kind (and cancel its in-flight work), so no
+  dispatch path can forget the check. `manager_allows(ext, kind)` is the per-kind question a caller
+  with a fallback asks; `thor_apply_language_settings` pushes the setting onto the manager.
 - `thor/lang_host.odin` is the editor side: dispatches requests, routes results back to the pane that
   asked, drops superseded ones.
 - **`lang/ROADMAP.md` is the living source of truth** for what works and what is missing. Read it

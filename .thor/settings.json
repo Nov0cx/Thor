@@ -1,10 +1,13 @@
 {
     "autosave_delay_ms": 1500.0000000000000000,
-    "font_size": 18.0000000000000000,
-    "icon_pack": "material",
-    "default_shell": "powershell",
-    "theme": "mjolnir",
+    "tab_width": 4.0000000000000000,
+    "language_intelligence": {
+        "enabled": true
+    },
     "font": "JetBrainsMono",
+    "theme": "mjolnir",
+    "font_size": 18.0000000000000000,
+    "default_shell": "powershell",
     "file_icon_pack": "mdi",
-    "tab_width": 4.0000000000000000
+    "icon_pack": "material"
 }

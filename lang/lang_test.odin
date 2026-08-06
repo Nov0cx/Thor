@@ -359,6 +359,94 @@ test_exclusive_kind_waits_in_its_slot :: proc(t: ^testing.T) {
     testing.expectf(t, delivered == 1, "expected only the queued check's result (got %d)", delivered)
 }
 
+// Language intelligence turned off refuses every dispatch, whatever backend
+// claims the extension, and turning it back on restores it.
+@(test)
+test_disabled_manager_refuses_requests :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+
+    p := Probe{}
+    manager_register(&m, probe_backend(&p))
+    sync.atomic_store(&p.release, true)
+
+    manager_set_enabled(&m, false)
+    testing.expect(t, !manager_supports(&m, ".probe"), "a disabled manager must claim no extension")
+    testing.expectf(t, manager_request(&m, .Hover, "a.probe", ".probe", "", 0, 0, "") == 0, "a disabled manager dispatched")
+    testing.expectf(
+        t,
+        manager_request_debounced(&m, .Completion, "a.probe", ".probe", "", 0, 0, "") == 0,
+        "a disabled manager queued a debounced request",
+    )
+    testing.expect(t, !manager_debounce_pending(&m, .Completion), "a refused request must fill no slot")
+
+    manager_set_enabled(&m, true)
+    testing.expect(t, manager_supports(&m, ".probe"), "the backend should be reachable again")
+    testing.expect(t, manager_request(&m, .Hover, "a.probe", ".probe", "", 0, 0, "") != 0, "dispatch failed after re-enabling")
+    testing.expectf(t, drain_manager(&m) == 1, "expected the re-enabled request's result")
+}
+
+// One feature off stops that kind alone: the extension is still handled and
+// every other kind still dispatches.
+@(test)
+test_feature_gate_is_per_kind :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+
+    p := Probe{}
+    manager_register(&m, probe_backend(&p))
+    sync.atomic_store(&p.release, true)
+
+    manager_set_features(&m, FEATURES_ALL - {.Hover})
+    testing.expect(t, manager_supports(&m, ".probe"), "one gated kind must not unclaim the extension")
+    testing.expect(t, !manager_allows(&m, ".probe", .Hover), "the gated kind should be refused")
+    testing.expect(t, manager_allows(&m, ".probe", .Definition), "an ungated kind should be allowed")
+    testing.expectf(t, manager_request(&m, .Hover, "a.probe", ".probe", "", 0, 0, "") == 0, "the gated kind dispatched")
+    testing.expect(t, manager_request(&m, .Definition, "a.probe", ".probe", "", 0, 0, "") != 0, "an ungated kind was refused")
+    testing.expectf(t, drain_manager(&m) == 1, "expected only the ungated kind's result")
+
+    // The master switch overrides the gate in the other direction.
+    manager_set_enabled(&m, false)
+    testing.expect(t, !manager_allows(&m, ".probe", .Definition), "the master switch must gate every kind")
+}
+
+// A feature turned off while it is working stops there: the result of the run it
+// had in flight never reaches the handler.
+@(test)
+test_disabling_feature_cancels_inflight :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+
+    p := Probe{}
+    manager_register(&m, probe_backend(&p))
+
+    testing.expect(t, manager_request(&m, .Hover, "a.probe", ".probe", "", 0, 0, "") != 0, "dispatch failed")
+    testing.expect(t, wait_for(&p.started, 1), "worker never started")
+
+    manager_set_features(&m, FEATURES_ALL - {.Hover})
+    sync.atomic_store(&p.release, true)
+
+    delivered := drain_manager(&m)
+    testing.expect(t, sync.atomic_load(&p.cancelled) == 1, "the backend did not observe the cancellation")
+    testing.expectf(t, delivered == 0, "a gated-off result must not reach the handler (got %d)", delivered)
+}
+
+// Every kind has its own config name, and each one reads back as that kind.
+@(test)
+test_feature_names_round_trip :: proc(t: ^testing.T) {
+    for kind in Request_Kind {
+        name := feature_name(kind)
+        testing.expectf(t, name != "", "%v has no config name", kind)
+        parsed, ok := feature_from_name(name)
+        testing.expectf(t, ok && parsed == kind, "%q read back as %v", name, parsed)
+    }
+    _, ok := feature_from_name("not_a_feature")
+    testing.expect(t, !ok, "an unknown name must not name a kind")
+}
+
 @(test)
 test_debounce_slots_are_per_kind :: proc(t: ^testing.T) {
     m: Manager

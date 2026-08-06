@@ -458,6 +458,27 @@ lowest latency.
   config of Thor's and would otherwise reject the import as a syntax error.
   Served by `config_ensure`/`config_collection_dir`/`config_collections`/
   `config_allows` in `lang/odin/config.odin`.
+- **Feature gate (`language_intelligence` in `settings.json`):** the editor-level
+  switch, one layer above the workspace analyzer file and independent of which
+  backend serves a language. `true`/`false` is the master switch on its own;
+  an object carries `"enabled"` plus one key per request kind
+  (`lang.feature_name`: `definition`, `hover`, `document_symbols`,
+  `workspace_symbols`, `references`, `signature_help`, `completion`,
+  `package_doc`, `rename`, `diagnostics`, `code_actions`, `semantic_tokens`), each
+  defaulting to on, so a file that never mentions the key runs everything. The
+  gate lives on the `Manager` (`manager_set_enabled`/`manager_set_features`) and
+  is enforced at the seam: a gated kind is refused by `manager_request` and
+  `manager_request_debounced`, and turning one off cancels what it already has in
+  flight, so no dispatch path can forget the check. `manager_supports` answers
+  false for everything while the master switch is off, and `manager_allows(ext,
+  kind)` is the per-kind question a caller with a fallback asks (rename falling
+  back to find and replace). `thor_apply_language_settings` pushes the settings
+  onto the manager on load and reload and retires what a disabled feature left on
+  screen (diagnostics, semantic colors); the Settings modal shows the switch and
+  the per-feature rows. It layers *with* the workspace analyzer file rather than
+  replacing it: a feature runs only if both allow it — and a workspace
+  `.thor/settings.json` can carry the same key, which is the per-folder way to
+  gate a kind the analyzer file has no toggle for.
 - **Go back / go forward (Ctrl+Alt+Left / Ctrl+Alt+Right):** every jump records
   where it left, so chasing a definition across files is reversible. Two trails
   in the host only (`thor/jumplist.odin`); the engine is not involved. The record

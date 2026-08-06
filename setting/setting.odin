@@ -9,6 +9,8 @@ import "core:os"
 import "core:strings"
 import rl "vendor:raylib"
 
+import "../lang"
+
 // A parsed key chord, e.g. "ctrl+shift+k" -> {key = .K, ctrl, shift}.
 Keybind :: struct {
     key:   rl.KeyboardKey,
@@ -39,7 +41,19 @@ General :: struct {
     default_shell:     string,
     // Draw the font's programming ligatures ("->" as one glyph). On by default.
     ligatures:         bool,
+    // Language intelligence: the master switch and the features still allowed
+    // under it, read from the "language_intelligence" entry. Both are on by
+    // default; the editor pushes them onto lang.Manager, which enforces them.
+    language_enabled:  bool,
+    language_features: bit_set[lang.Request_Kind],
 }
+
+// settings.json key holding the language-intelligence gate: either a boolean
+// (the master switch alone) or an object of "enabled" plus one key per feature.
+LANGUAGE_SETTING :: "language_intelligence"
+
+// The key of the master switch inside that object.
+LANGUAGE_ENABLED_KEY :: "enabled"
 
 // Where an opened folder goes. Parsed from the open_folder_in setting.
 Open_Folder_In :: enum {
@@ -62,7 +76,14 @@ load :: proc(dir: string) -> Settings {
     s: Settings
     s.comments = make(map[string]string)
     s.keybinds = make(map[string]Keybind)
-    s.general = General {tab_width = 4, font_size = 18, autosave_delay_ms = 1500, ligatures = true}
+    s.general = General {
+        tab_width         = 4,
+        font_size         = 18,
+        autosave_delay_ms = 1500,
+        ligatures         = true,
+        language_enabled  = true,
+        language_features = lang.FEATURES_ALL,
+    }
 
     load_dir(&s, dir)
     return s
@@ -169,6 +190,23 @@ ligatures :: proc(s: ^Settings) -> bool {
     return s.general.ligatures
 }
 
+// Whether language intelligence runs at all. Off makes every backend silent,
+// whatever the per-feature gate holds.
+language_enabled :: proc(s: ^Settings) -> bool {
+    return s.general.language_enabled
+}
+
+// The language features the config allows, ignoring the master switch — what a
+// settings UI shows as the per-feature rows.
+language_features :: proc(s: ^Settings) -> bit_set[lang.Request_Kind] {
+    return s.general.language_features
+}
+
+// Whether one language feature runs: the master switch and its own key.
+language_feature_enabled :: proc(s: ^Settings, kind: lang.Request_Kind) -> bool {
+    return s.general.language_enabled && kind in s.general.language_features
+}
+
 // Where an opened folder goes. Unset or unrecognized means Ask.
 open_folder_in :: proc(s: ^Settings) -> Open_Folder_In {
     return parse_open_folder_in(s.general.open_folder_in)
@@ -219,6 +257,21 @@ persist_int :: proc(path, key: string, value: int) -> bool {
 persist_bool :: proc(path, key: string, value: bool) -> bool {
     root := load_root_object(path)
     root[key] = json.Boolean(value)
+    return write_object(path, root)
+}
+
+// Like persist_bool but one level down, in the object under `group` — the
+// language-intelligence gate's shape. The rest of the group is preserved; a
+// group that is missing, or holds anything but an object (the boolean shorthand
+// of "language_intelligence"), is replaced by a fresh one.
+persist_nested_bool :: proc(path, group, key: string, value: bool) -> bool {
+    root := load_root_object(path)
+    obj, ok := root[group].(json.Object)
+    if !ok {
+        obj = make(json.Object, allocator = context.temp_allocator)
+    }
+    obj[key] = json.Boolean(value)
+    root[group] = obj
     return write_object(path, root)
 }
 
@@ -582,6 +635,31 @@ load_general :: proc(s: ^Settings, path: string) {
     read_bool(root, "ligatures", &s.general.ligatures)
     read_string(root, "open_folder_in", &s.general.open_folder_in)
     read_string(root, "default_shell", &s.general.default_shell)
+    read_language(s, root)
+}
+
+// Reads the language-intelligence gate. A boolean is the master switch on its
+// own ("language_intelligence": false turns everything off); an object carries
+// "enabled" plus one key per feature (lang.feature_name), each of which layers
+// onto what is already there — an unlisted feature keeps its state, so a
+// workspace file can turn one off without restating the rest.
+@(private)
+read_language :: proc(s: ^Settings, root: json.Object) {
+    #partial switch value in root[LANGUAGE_SETTING] {
+    case json.Boolean:
+        s.general.language_enabled = cast(bool) value
+    case json.Object:
+        read_bool(value, LANGUAGE_ENABLED_KEY, &s.general.language_enabled)
+        for kind in lang.Request_Kind {
+            on := kind in s.general.language_features
+            read_bool(value, lang.feature_name(kind), &on)
+            if on {
+                s.general.language_features += {kind}
+            } else {
+                s.general.language_features -= {kind}
+            }
+        }
+    }
 }
 
 // Reads a string field into dst, replacing (and freeing) any prior value so an

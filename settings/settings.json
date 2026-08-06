@@ -4,5 +4,6 @@
     "autosave_delay_ms": 1500,
     "ligatures": true,
     "open_folder_in": "ask",
-    "default_shell": ""
+    "default_shell": "",
+    "language_intelligence": true
 }

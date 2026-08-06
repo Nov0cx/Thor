@@ -5,6 +5,7 @@ import "core:slice"
 import "core:strings"
 import rl "vendor:raylib"
 
+import "../lang"
 import "../plugin"
 import "../setting"
 import "../shell"
@@ -62,6 +63,23 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
     widgets.settings_view_add_header(view, "TERMINAL")
     widgets.settings_view_add_choice(view, "default_shell", "Default Shell", thor_default_shell_label(thor))
 
+    // The per-feature rows only while the master switch is on: off, none of them
+    // does anything, and twelve dead rows read as twelve broken ones.
+    widgets.settings_view_add_header(view, "LANGUAGE INTELLIGENCE")
+    language_on := setting.language_enabled(&thor.config)
+    widgets.settings_view_add_choice(view, setting.LANGUAGE_SETTING, "Language Intelligence", thor_on_off_label(language_on))
+    if language_on {
+        features := setting.language_features(&thor.config)
+        for kind in lang.Request_Kind {
+            widgets.settings_view_add_choice(
+                view,
+                thor_language_setting_id(kind),
+                LANGUAGE_FEATURE_LABELS[kind],
+                thor_on_off_label(kind in features),
+            )
+        }
+    }
+
     // Bundled plugins only where they want a permission: the language plugins
     // want none, and listing three dozen "nothing to allow" rows would bury the
     // ones that do. A workspace plugin is always listed — it is code the opened
@@ -107,6 +125,14 @@ thor_on_setting_choice :: proc(data: rawptr, id: string) {
     thor := cast(^Thor) data
     if plugin_id, source, is_plugin := thor_plugin_setting_name(id); is_plugin {
         thor_cmd_change_plugin_permission(thor, source, plugin_id)
+        return
+    }
+    if kind, is_feature := thor_language_setting_kind(id); is_feature {
+        thor_cmd_change_language_feature(thor, kind, master = false)
+        return
+    }
+    if id == setting.LANGUAGE_SETTING {
+        thor_cmd_change_language_feature(thor, .Definition, master = true)
         return
     }
     switch id {
@@ -170,6 +196,91 @@ thor_open_folder_in_commit :: proc(data: rawptr, choice: string) {
         }
     }
     thor_persist_open_folder_in(thor, picked)
+    if widgets.settings_view_is_open(thor.settings_view) {
+        thor_populate_settings_view(thor)
+    }
+}
+
+// Picker rows for every on/off setting in the modal.
+@(private = "file")
+ON_OFF_LABELS := [?]string {"On", "Off"}
+
+@(private = "file")
+thor_on_off_label :: proc(on: bool) -> string {
+    return on ? ON_OFF_LABELS[0] : ON_OFF_LABELS[1]
+}
+
+// Row labels for the language features, in Request_Kind order. The user-facing
+// names of the commands each one serves, not the seam's kind names.
+@(private = "file")
+LANGUAGE_FEATURE_LABELS := [lang.Request_Kind]string {
+    .Definition        = "Go to Definition",
+    .Hover             = "Hover",
+    .Document_Symbols  = "Document Symbols",
+    .Workspace_Symbols = "Workspace Symbols",
+    .References        = "Find References",
+    .Signature_Help    = "Signature Help",
+    .Completion        = "Completion",
+    .Package_Doc       = "Package Documentation",
+    .Rename            = "Rename Symbol",
+    .Diagnostics       = "Diagnostics",
+    .Code_Actions      = "Code Actions",
+    .Semantic_Tokens   = "Semantic Highlighting",
+}
+
+// A language feature's row id: the settings key it persists to, under the
+// master switch's prefix so one Choice handler tells the rows apart.
+@(private = "file")
+thor_language_setting_id :: proc(kind: lang.Request_Kind) -> string {
+    return strings.concatenate({setting.LANGUAGE_SETTING, ".", lang.feature_name(kind)}, context.temp_allocator)
+}
+
+// The language feature a settings row id names, if it names one.
+@(private = "file")
+thor_language_setting_kind :: proc(id: string) -> (lang.Request_Kind, bool) {
+    prefix := setting.LANGUAGE_SETTING + "."
+    if !strings.has_prefix(id, prefix) {
+        return .Definition, false
+    }
+    return lang.feature_from_name(id[len(prefix):])
+}
+
+// Settings row: turn language intelligence, or one of its features, on or off.
+// `master` answers for the whole seam and `kind` is then unused. Nothing to
+// preview — the gate only shows in what the next request does.
+@(private = "file")
+thor_cmd_change_language_feature :: proc(thor: ^Thor, kind: lang.Request_Kind, master: bool) {
+    thor.language_setting_kind = kind
+    thor.language_setting_master = master
+    on := master ? setting.language_enabled(&thor.config) : kind in setting.language_features(&thor.config)
+    title := master ? "Language Intelligence" : LANGUAGE_FEATURE_LABELS[kind]
+    widgets.select_dialog_open(
+        thor.select_dialog, &thor.ui_context, title,
+        ON_OFF_LABELS[:], thor_on_off_label(on),
+        thor_language_feature_preview, thor_language_feature_commit, thor,
+    )
+}
+
+@(private = "file")
+thor_language_feature_preview :: proc(_: rawptr, _: string) {}
+
+// Persists the answer and applies it to the manager at once, so a feature turned
+// off stops answering without waiting for a reload.
+@(private = "file")
+thor_language_feature_commit :: proc(data: rawptr, choice: string) {
+    thor := cast(^Thor) data
+    on := choice == ON_OFF_LABELS[0]
+    key := thor.language_setting_master ? setting.LANGUAGE_ENABLED_KEY : lang.feature_name(thor.language_setting_kind)
+    setting.persist_nested_bool(thor_active_settings_path(thor), setting.LANGUAGE_SETTING, key, on)
+    if thor.language_setting_master {
+        thor.config.general.language_enabled = on
+    } else if on {
+        thor.config.general.language_features += {thor.language_setting_kind}
+    } else {
+        thor.config.general.language_features -= {thor.language_setting_kind}
+    }
+    thor_apply_language_settings(thor)
+    thor_settings_mark_clean(thor)
     if widgets.settings_view_is_open(thor.settings_view) {
         thor_populate_settings_view(thor)
     }

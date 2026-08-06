@@ -7,6 +7,7 @@ import "core:strings"
 import rl "vendor:raylib"
 
 import "../lang"
+import "../setting"
 import "../textedit"
 import "../widgets"
 
@@ -59,6 +60,51 @@ thor_lang_busy_label :: proc(kinds: bit_set[lang.Request_Kind]) -> string {
         return "Checking..."
     }
     return "Analyzing..."
+}
+
+// Pushes the language-intelligence settings onto the manager: the master switch
+// and the per-feature gate, which the seam then enforces on every dispatch.
+// Called from thor_apply_settings, so startup and every reload take the same
+// path. A feature that goes off has its in-flight work cancelled by the manager;
+// what it already put on screen is dropped here.
+thor_apply_language_settings :: proc(thor: ^Thor) {
+    enabled := setting.language_enabled(&thor.config)
+    features := setting.language_features(&thor.config)
+    before := thor_language_gate(thor)
+    lang.manager_set_enabled(&thor.lang_manager, enabled)
+    lang.manager_set_features(&thor.lang_manager, features)
+    after := thor_language_gate(thor)
+    if after == before {
+        return
+    }
+
+    if .Diagnostics not_in after {
+        for file in thor.open_files {
+            thor_clear_file_diagnostics(file)
+            file.diagnostics_revision = 0
+        }
+    }
+    if .Semantic_Tokens not_in after {
+        for file in thor.open_files {
+            clear(&file.semantic)
+            file.semantic_ready = false
+            file.highlighted = false // re-merged by the per-frame highlight pass, now without the overlay
+        }
+    }
+    // The editors are told once per bind whether semantic completion exists, so
+    // a change to that answer only reaches them through a re-bind.
+    for pane in 0 ..< len(thor.pane_file) {
+        thor_bind_pane(thor, pane, keep_view = true)
+    }
+}
+
+// The kinds the manager currently lets through, master switch included.
+@(private = "file")
+thor_language_gate :: proc(thor: ^Thor) -> bit_set[lang.Request_Kind] {
+    if !lang.manager_enabled(&thor.lang_manager) {
+        return {}
+    }
+    return lang.manager_features(&thor.lang_manager)
 }
 
 // Go-to-definition and (later) hover wiring between the editor and the language
@@ -245,7 +291,9 @@ thor_rename_symbol :: proc(thor: ^Thor) -> bool {
     if file == nil || !file.loaded {
         return false
     }
-    if !lang.manager_supports(&thor.lang_manager, thor_file_extension(file.name)) {
+    // manager_allows, not manager_supports: with rename gated off the chord must
+    // fall back to find and replace rather than answer nothing.
+    if !lang.manager_allows(&thor.lang_manager, thor_file_extension(file.name), .Rename) {
         return false
     }
     cursor := textedit.primary_cursor(&file.state)
