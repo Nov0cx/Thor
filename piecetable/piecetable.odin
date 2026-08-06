@@ -56,8 +56,17 @@ piecetable_set_text :: proc(pt: ^Piece_Table, text: string) {
 
 // Splits the piece containing `pos` (if `pos` doesn't already fall on a
 // boundary) and returns the index of the piece that starts at `pos`.
+// A `pos` out of range clamps to the first or the last index; a negative one
+// must not reach the split, which would write a piece of negative length.
 @(private)
 piecetable_split_at :: proc(pt: ^Piece_Table, pos: int) -> int {
+    if pos <= 0 {
+        return 0
+    }
+    if pos >= pt.length {
+        return len(pt.pieces)
+    }
+
     offset := 0
     for i := 0; i < len(pt.pieces); i += 1 {
         piece := pt.pieces[i]

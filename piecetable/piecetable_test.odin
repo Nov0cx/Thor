@@ -153,6 +153,36 @@ test_length_after_overlong_delete :: proc(t: ^testing.T) {
     testing.expect_value(t, piecetable_view(&pt), "a")
 }
 
+// An out-of-range position clamps to the ends instead of splitting a piece into
+// a negative length.
+@(test)
+test_out_of_range_positions :: proc(t: ^testing.T) {
+    pt := piecetable_create("abc")
+    defer piecetable_destroy(&pt)
+
+    piecetable_insert(&pt, -5, "X")
+    testing.expect_value(t, piecetable_view(&pt), "Xabc")
+    testing.expect_value(t, piecetable_length(&pt), 4)
+
+    piecetable_insert(&pt, 99, "Y")
+    testing.expect_value(t, piecetable_view(&pt), "XabcY")
+    testing.expect_value(t, piecetable_length(&pt), 5)
+
+    // The range is [pos, pos + length): only the part inside the text goes.
+    piecetable_delete(&pt, -3, 4)
+    testing.expect_value(t, piecetable_view(&pt), "abcY")
+    testing.expect_value(t, piecetable_length(&pt), 4)
+
+    piecetable_delete(&pt, 99, 4)
+    testing.expect_value(t, piecetable_view(&pt), "abcY")
+    testing.expect_value(t, piecetable_length(&pt), 4)
+
+    for piece in pt.pieces {
+        testing.expect(t, piece.length > 0, "a piece of non-positive length survived")
+        testing.expect(t, piece.start >= 0, "a piece starting before its buffer survived")
+    }
+}
+
 @(test)
 test_set_text_resets :: proc(t: ^testing.T) {
     pt := piecetable_create("first")
