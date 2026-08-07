@@ -36,9 +36,17 @@ session_start :: proc(profile: Profile, cwd: string) -> (^Session, bool) {
         win32.CloseHandle(stdout_w)
         return nil, false
     }
-    // The parent's ends stay with the parent; keep them out of the child.
-    win32.SetHandleInformation(stdout_r, win32.HANDLE_FLAG_INHERIT, 0)
-    win32.SetHandleInformation(stdin_w, win32.HANDLE_FLAG_INHERIT, 0)
+    // The parent's ends stay with the parent; keep them out of the child. An
+    // end that stays inheritable would reach a later child and hold the pipe
+    // open after the shell exits, so a failure here ends the start.
+    if !win32.SetHandleInformation(stdout_r, win32.HANDLE_FLAG_INHERIT, 0) ||
+       !win32.SetHandleInformation(stdin_w, win32.HANDLE_FLAG_INHERIT, 0) {
+        win32.CloseHandle(stdout_r)
+        win32.CloseHandle(stdout_w)
+        win32.CloseHandle(stdin_r)
+        win32.CloseHandle(stdin_w)
+        return nil, false
+    }
 
     si := win32.STARTUPINFOW {
         cb         = size_of(win32.STARTUPINFOW),
