@@ -163,6 +163,10 @@ resolve :: proc(data: rawptr, req: ^lang.Request, res: ^lang.Result) {
     name := ts.node_text(ident, req.source)
     hover_start := int(ts.node_start_byte(ident))
     hover_end := int(ts.node_end_byte(ident))
+    // The call the caret's name heads, if it heads one. Only a procedure group
+    // reads it: its members differ by what they take, so the arguments already
+    // written are what chooses between them.
+    call := caret_call_site(root, ident)
 
     // 0) Selector `operand.member`. Two resolutions, in order:
     //    a) Package-qualified `pkg.lang.Symbol`: when the operand names an imported
@@ -178,7 +182,7 @@ resolve :: proc(data: rawptr, req: ^lang.Request, res: ^lang.Result) {
             if raw, found := import_path(root, req.source, pkg); found {
                 if dir, dok := package_dir(e, raw, req.path, req.workspace); dok {
                     if caret_on_member {
-                        scan_package(e, parser, dir, req, name, hover_start, hover_end, res)
+                        scan_package(e, parser, dir, req, name, hover_start, hover_end, call, res)
                     } else {
                         open_package(dir, raw, req, res, hover_start, hover_end)
                     }
@@ -199,7 +203,7 @@ resolve :: proc(data: rawptr, req: ^lang.Request, res: ^lang.Result) {
         // A procedure group names other procedures instead of declaring a body,
         // so a jump to it lands one hop short of the code that was asked for.
         if req.kind == .Definition && d.overload &&
-           overload_definitions(e, parser, root, req, req.source, req.path, d, res) {
+           overload_definitions(e, parser, root, req, req.source, req.path, d, call, res) {
             return
         }
         fill_result(res, req, req.path, req.source, d, hover_start, hover_end)
@@ -211,9 +215,9 @@ resolve :: proc(data: rawptr, req: ^lang.Request, res: ^lang.Result) {
     //    ambiguous name (declared in several packages) offers a picker.
     if req.workspace != "" {
         if req.kind == .Definition {
-            resolve_definition_workspace(e, parser, root, req, name, res)
+            resolve_definition_workspace(e, parser, root, req, name, call, res)
         } else {
-            scan_workspace(e, parser, req, name, hover_start, hover_end, res)
+            scan_workspace(e, parser, req, name, hover_start, hover_end, call, res)
         }
     }
 
@@ -221,7 +225,7 @@ resolve :: proc(data: rawptr, req: ^lang.Request, res: ^lang.Result) {
     //    toolchain declares into every file with no import. Last, so a package
     //    declaring a name of its own shadows the builtin, as the compiler has it.
     if !res.ok {
-        resolve_builtin(e, parser, req, name, hover_start, hover_end, res)
+        resolve_builtin(e, parser, req, name, hover_start, hover_end, call, res)
     }
 }
 
@@ -605,6 +609,7 @@ scan_workspace :: proc(
     req: ^lang.Request,
     name: string,
     hover_start, hover_end: int,
+    call: Call_Site,
     res: ^lang.Result,
 ) {
     path, ok := "", false
@@ -621,7 +626,7 @@ scan_workspace :: proc(
     sync.unlock(&e.index.mutex)
 
     if ok {
-        scan_file(e, parser, path, req, name, hover_start, hover_end, res)
+        scan_file(e, parser, path, req, name, hover_start, hover_end, call, res)
     }
 }
 
@@ -633,6 +638,7 @@ scan_file :: proc(
     req: ^lang.Request,
     name: string,
     hover_start, hover_end: int,
+    call: Call_Site,
     res: ^lang.Result,
 ) {
     source, sok := source_read(path)
@@ -654,7 +660,7 @@ scan_file :: proc(
             // passed. Definition only — hover shows the group's member list, and
             // that is already what it should say.
             if req.kind == .Definition && d.overload &&
-               overload_definitions(e, parser, {}, req, source, path, d, res) {
+               overload_definitions(e, parser, {}, req, source, path, d, call, res) {
                 return
             }
             fill_result(res, req, path, source, d, hover_start, hover_end)
@@ -677,6 +683,7 @@ resolve_definition_workspace :: proc(
     root: ts.Node,
     req: ^lang.Request,
     name: string,
+    call: Call_Site,
     res: ^lang.Result,
 ) {
     sync.lock(&e.index.mutex)
@@ -692,7 +699,7 @@ resolve_definition_workspace :: proc(
     case 1:
         // The one match is a procedure group: reach through to its members, the
         // same as the same-file path does.
-        if group && expand_index_group(e, parser, root, req, name, res) {
+        if group && expand_index_group(e, parser, root, req, name, call, res) {
             return
         }
         // Single definition: collapse to the location a direct jump uses, moving
@@ -724,6 +731,7 @@ expand_index_group :: proc(
     root: ts.Node,
     req: ^lang.Request,
     name: string,
+    call: Call_Site,
     res: ^lang.Result,
 ) -> bool {
     sym := res.symbols[0]
@@ -735,7 +743,7 @@ expand_index_group :: proc(
     // Built aside so a group whose members all fail to resolve leaves res as it
     // found it, with the group row still standing.
     members := lang.Result{kind = .Definition}
-    if !overload_definitions(e, parser, root, req, src, path, d, &members) {
+    if !overload_definitions(e, parser, root, req, src, path, d, call, &members) {
         return false
     }
 

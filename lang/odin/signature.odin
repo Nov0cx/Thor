@@ -143,53 +143,45 @@ call_arg_count :: proc(call: ts.Node, source: string) -> int {
     return commas + 1
 }
 
-// The parameter count of a signature label, and whether its last parameter is
-// variadic (`args: ..int`) and so absorbs any number of arguments past the ones
-// before it. Reads the first parenthesized group — the parameter list; a
-// `-> (a, b)` result tuple comes after it and is never reached — tracking
-// bracket depth so a comma inside a nested type (`b: proc(x: int)`,
-// `c: [dynamic]int`) doesn't split a parameter, the same way active_param_span
-// does.
+// The parameters a signature label declares: how many there are, how many must
+// be written (a defaulted one may be left out), and whether the last is variadic
+// (`args: ..int`) and so absorbs any number of arguments past the ones before
+// it. Reads the first parenthesized group — the parameter list; a `-> (a, b)`
+// result tuple comes after it and is never reached — and splits it on its
+// top-level commas, so a comma inside a nested type (`b: proc(x: int)`,
+// `c: [dynamic]int`) doesn't split a parameter.
 @(private)
-param_arity :: proc(label: string) -> (count: int, variadic: bool) {
-    open := strings.index_byte(label, '(')
-    if open < 0 {
-        return 0, false
+param_arity :: proc(label: string) -> (count, required: int, variadic: bool) {
+    inner, ok := after_paren_group(label, want_inner = true)
+    if !ok || strings.trim_space(inner) == "" {
+        return 0, 0, false // an empty list is 0 parameters, not 1
     }
-    depth := 0
-    commas := 0
-    empty := true // an empty list is 0 parameters, not 1
-    for i := open; i < len(label); i += 1 {
-        switch label[i] {
-        case '(', '[', '{':
-            depth += 1
+    parts := split_top_level(inner)
+    count = len(parts)
+    variadic = strings.contains(parts[count - 1], "..")
+    for part, i in parts {
+        // A default (`loc := #caller_location`) and the variadic tail are both
+        // optional, so neither is an argument the call has to write.
+        if strings.contains(part, "=") || (variadic && i == count - 1) {
             continue
-        case ')', ']', '}':
-            depth -= 1
-            if depth == 0 {
-                return empty ? 0 : commas + 1, variadic
-            }
-            continue
-        case ' ', '\t':
-            continue
-        case ',':
-            if depth == 1 {
-                commas += 1
-            }
-        case '.':
-            if depth == 1 && i + 1 < len(label) && label[i + 1] == '.' {
-                variadic = true
-            }
         }
-        empty = false
+        required += 1
     }
-    return 0, false
+    return
 }
 
-// The entry a call best matches. An exact arity match is the strong signal, and
-// the one that actually separates a group's members (`proc(int)` from
-// `proc(int, int)`); a variadic tail absorbs any surplus. When nothing matches
-// exactly — a call still being typed, or a group whose members differ by
+// Whether a call of `argc` arguments fits a signature label's parameter list:
+// every required parameter written, and no more than the list takes unless its
+// tail is variadic.
+@(private)
+arity_takes :: proc(label: string, argc: int) -> bool {
+    count, required, variadic := param_arity(label)
+    return argc >= required && (variadic || argc <= count)
+}
+
+// The entry a call best matches. Arity is the strong signal, and the one that
+// actually separates a group's members (`proc(int)` from `proc(int, int)`). When
+// nothing fits — a call still being typed, or a group whose members differ by
 // parameter *type* rather than count, which this does not read — the first entry
 // with a parameter in the slot the caret sits on wins, and failing that the
 // first entry: a call in progress must still show something.
@@ -199,13 +191,12 @@ pick_overload :: proc(entries: []lang.Signature_Entry, argc, active: int) -> int
         return 0
     }
     for entry, i in entries {
-        count, variadic := param_arity(entry.label)
-        if count == argc || (variadic && argc >= count - 1) {
+        if arity_takes(entry.label, argc) {
             return i
         }
     }
     for entry, i in entries {
-        if count, variadic := param_arity(entry.label); variadic || active < count {
+        if count, _, variadic := param_arity(entry.label); variadic || active < count {
             return i
         }
     }

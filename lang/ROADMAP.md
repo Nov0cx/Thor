@@ -348,8 +348,10 @@ lowest latency.
   when there is something to choose between.
 
   **Which member is active** is decided by *arity*: the first entry whose
-  parameter count equals the number of arguments **written** (`param_arity` /
-  `call_arg_count`), a variadic tail absorbing any surplus. Counting what is
+  parameter list takes the number of arguments **written** (`arity_takes` over
+  `param_arity` / `call_arg_count`) — every required parameter present and no
+  more than the list holds, a variadic tail absorbing any surplus and a
+  defaulted parameter left out at will. Counting what is
   written rather than where the caret is means a trailing empty argument counts —
   `sizes(1,|)` is two slots — so the highlighted member tracks the call as it is
   typed rather than only once it is complete. When nothing matches exactly (a
@@ -385,9 +387,31 @@ lowest latency.
   **Go-to-definition reaches through the group** the same way
   (`overload_definitions`): the group's declaration is a list of names, so landing
   on it leaves the caller one hop short of the code they asked for. A single
-  reachable member is an unambiguous definition and is jumped to directly; several
-  become picker candidates, because what would choose between them are a call's
-  arguments and goto has no call to read. This holds on all three paths goto
+  reachable member is an unambiguous definition and is jumped to directly.
+
+  **Several members are narrowed by the call at the caret** (`caret_call_site`
+  reports the call the name heads, if it heads one — the caret on the group's own
+  declaration heads none, and every member then stands). Two passes run over the
+  resolved members, each only narrowing what the one before left:
+
+  1. **Arity**, the same signal signature help picks its active entry with
+     (`arity_takes`): every required parameter written and no more than the list
+     takes, a variadic tail absorbing any surplus and a defaulted parameter
+     (`loc := #caller_location`) counting as optional — without which
+     `append(xs, 1)` reaches none of `append`'s members.
+  2. **Argument types** (`types_fit`), each argument against the parameter in its
+     own slot. An untyped literal fits by *class* rather than by one name, since
+     it converts (`1` fits every numeric parameter, `"s"` every string one);
+     anything else is inferred by `infer_expr_type` and compared by name and
+     containers. Only a positive mismatch rejects: an argument that does not
+     infer, a parameter that is polymorphic (`$T`) or `any`, and a call written
+     with named arguments (`f(x = 1)`, whose slots are not the written order) all
+     say nothing about any member.
+
+  **A pass that leaves nothing standing is ignored** — a filter is evidence,
+  never the last word, so an argument the engine reads wrongly costs a picker
+  rather than the member the user asked for. One member left is the jump; the
+  rest go to the picker, listing what survived. This holds on all three paths goto
   resolves by — same-file (`resolve`), package-qualified `pkg.sizes` (`scan_file`)
   and the cross-file index (`expand_index_group`) — so the answer doesn't depend on
   where the group happens to live. The index case needs `Index_Symbol.overload`:
@@ -417,19 +441,23 @@ lowest latency.
   picking the active one), `_tracks_arity` (the active entry moving as the comma
   is typed), `_cross_file` (group and members reached through the package scan),
   `_falls_back_to_group` (every member qualified), `test_param_arity` (empty,
-  nested-type commas, a result tuple, variadic) and
+  nested-type commas, a result tuple, variadic, a defaulted tail) and
   `test_hover_procedure_group_keeps_members`; goto by
-  `test_definition_overload_offers_members` (one candidate per member, with its
-  own jump target and line), `_single_member` (a jump, not a picker),
-  `_falls_back_to_group`, `_cross_file` (index-resolved group, one member on disk
-  beside it and one only in the unsaved buffer) and `_package_qualified`.
+  `test_definition_overload_offers_members` (members a slice argument cannot tell
+  apart, one candidate each with its own jump target and line), `_picks_by_arity`
+  (the call reaching one member is a jump), `_picks_by_literal_type` and
+  `_picks_by_inferred_type` (members of one arity, separated by the argument),
+  `_without_call_offers_members` (the caret on the declaration, so every member),
+  `_single_member` (a jump, not a picker), `_falls_back_to_group`, `_cross_file`
+  (index-resolved group, one member on disk beside it and one only in the unsaved
+  buffer) and `_package_qualified` (narrowing through the package path).
+  `test_definition_builtin_group` pins the toolchain's own `append`.
 
-  **Still open:** which member a *goto* means is left to the user whenever there
-  is more than one, even though a call sits right there — `pick_overload` already
-  reads its arity, and feeding that through would turn the common two-member case
-  into a direct jump, with the picker kept for a genuine tie. Type-based overload
-  selection is not attempted at all — it waits on the inference layer, like the
-  rest of the precision work.
+  **Still open:** the type pass reads what `infer_expr_type` reads and no more —
+  a member taken by a distinct type, an alias, or a polymorphic parameter is
+  neither chosen nor rejected, and an argument the inference layer cannot type
+  leaves the picker. Widening that is the same precision work the rest of the
+  type layer waits on.
 - **Rename (Ctrl+R):** prompts for a new name in the palette (prefilled with
   the symbol under the caret), then rewrites every usage find-references would
   list, plus the declaration it leaves out (`Rename` request → `rename`, the same
@@ -529,7 +557,8 @@ lowest latency.
       ("Multiple definitions...") so the user chooses. Same-file lexical and
       package-qualified resolutions are unambiguous and still jump straight —
       except on a procedure group, whose members are candidates on every path
-      (see **Overload sets**).
+      unless the call at the caret reaches one of them by its arguments (see
+      **Overload sets**).
       Engine: `resolve_definition_workspace` collects into `res.symbols`,
       collapsing a lone hit back to `res.location`; host:
       `thor_show_definition_candidates` reuses the symbol picker + jump targets.
@@ -736,9 +765,9 @@ lowest latency.
       `on_signature` callback → `thor_editor_signature_help`, silent on miss).
       Overload sets landed: a call of a procedure group is signed once per
       member, the member matching the written arity marked, and go-to-definition
-      on one offers the members rather than the list — see **Overload sets**
-      above, whose "still open" note covers arity-picking a goto and type-based
-      selection. The auto
+      on one reaches the members rather than the list — the call's arity and its
+      argument types picking one of them when they can, see **Overload sets**
+      above, whose "still open" note covers what the type pass cannot read. The auto
       trigger is debounced, so a burst of keystrokes dispatches once — see
       request coalescing under scalability.
 - [x] **Completion (semantic).** `Completion` request served by `complete`,

@@ -99,11 +99,41 @@ same_dir :: proc(a, b: string) -> bool {
     }
 }
 
+// The call the caret's name heads, and the tree it is written in — what narrows
+// a procedure group to the one member the call reaches. `node` is null when the
+// name heads no call, which leaves every member standing.
+@(private)
+Call_Site :: struct {
+    node: ts.Node, // call_expression
+    root: ts.Node, // the request buffer, for inferring an argument's type
+}
+
+// The call `ident` heads, if it heads one. A qualified callee nests its call
+// under the member_expression (`lib.scale(2)` is
+// `member_expression(lib, call_expression(scale, 2))`), so the identifier is the
+// call's own function either way.
+@(private)
+caret_call_site :: proc(root, ident: ts.Node) -> Call_Site {
+    call := ts.node_parent(ident)
+    if ts.node_is_null(call) || string(ts.node_type(call)) != "call_expression" {
+        return {}
+    }
+    if !same_node(ts.node_child_by_field_name(call, "function"), ident) {
+        return {}
+    }
+    return Call_Site{node = call, root = root}
+}
+
 // Go-to-definition on a procedure group. The group names other procedures rather
 // than declaring a body, so landing on it leaves the caller one hop short of the
 // code they asked for: the members are resolved instead, and the only one becomes
-// the jump target while several become picker candidates — the arguments that
-// would choose between them belong to a call, and goto has no call to read.
+// the jump target while several become picker candidates.
+//
+// The call at the caret narrows those candidates — first by how many arguments
+// are written, then by what they are — so a group whose members differ answers
+// with the one member the call reaches. A pass that leaves nothing standing is
+// ignored: a filter is evidence, never the last word, and what stays ambiguous
+// is what the picker is for.
 //
 // Reports false when no member resolves, which leaves the caller's own answer —
 // the group declaration — to stand.
@@ -115,40 +145,45 @@ overload_definitions :: proc(
     req: ^lang.Request,
     group_src, group_path: string,
     d: Def,
+    call: Call_Site,
     res: ^lang.Result,
 ) -> bool {
     sites := overload_sites(e, parser, live_root, req, group_src, group_path, d)
-    found := 0
-    for site in sites {
-        if site.label != "" {
-            found += 1
-        }
+    keep := make([]bool, len(sites), context.temp_allocator)
+    kept := 0
+    for site, i in sites {
+        keep[i] = site.label != ""
+        kept += int(keep[i])
     }
-    if found == 0 {
+    if kept == 0 {
         return false
     }
 
-    // One member: it *is* the definition, so jump straight to it, exactly as a
-    // call of an ordinary procedure would. The location carries no signature, so
-    // the label the lookup built has no home and is released here.
-    if found == 1 {
-        for site in sites {
-            if site.label == "" {
-                continue
-            }
-            delete(site.label)
-            res.location = lang.Location {
-                path  = strings.clone(site.path),
-                start = site.offset,
-                end   = site.offset + len(site.name),
-            }
-            res.ok = true
-            return true
+    if kept > 1 && !ts.node_is_null(call.node) {
+        argc := call_arg_count(call.node, req.source)
+        kept = narrow(keep, arity_fits(sites, argc, keep))
+        if kept > 1 {
+            kept = narrow(keep, types_fit(e, parser, req, call, sites, argc, keep))
         }
     }
 
-    for site in sites {
+    // One member left: it *is* the definition, so jump straight to it, exactly
+    // as a call of an ordinary procedure would.
+    if kept == 1 {
+        for k, i in keep {
+            if k {
+                jump_to_member(sites, i, res)
+                return true
+            }
+        }
+    }
+
+    for site, i in sites {
         if site.label == "" {
+            continue
+        }
+        if !keep[i] {
+            delete(site.label) // narrowed out: its label has no row to move into
             continue
         }
         append(&res.symbols, lang.Symbol {
@@ -162,6 +197,230 @@ overload_definitions :: proc(
     }
     res.ok = true
     return true
+}
+
+// Drops from `keep` every member `fits` rejects, and reports how many are left.
+// A pass that would leave none is dropped instead: an argument the engine reads
+// wrongly must cost the user a picker, never the member they asked for.
+@(private = "file")
+narrow :: proc(keep, fits: []bool) -> (kept: int) {
+    for f, i in fits {
+        if keep[i] && f {
+            kept += 1
+        }
+    }
+    if kept == 0 {
+        for k in keep {
+            kept += int(k)
+        }
+        return
+    }
+    for f, i in fits {
+        keep[i] &= f
+    }
+    return
+}
+
+// Which members can take a call of `argc` arguments, by parameter count alone —
+// the strong signal, and the one that separates most groups (see arity_takes,
+// which signature help picks its active entry with). Members already dropped are
+// not read.
+@(private = "file")
+arity_fits :: proc(sites: []Member_Site, argc: int, keep: []bool) -> []bool {
+    fits := make([]bool, len(sites), context.temp_allocator)
+    for site, i in sites {
+        if keep[i] {
+            fits[i] = arity_takes(site.label, argc)
+        }
+    }
+    return fits
+}
+
+// Which members every written argument fits by type. Each argument is matched
+// against the parameter in its own slot, and only a positive mismatch rejects a
+// member — an argument whose type does not infer says nothing about any of them.
+// A call written with named arguments (`f(x = 1)`) is not read at all, since the
+// slots are then not the order they are written in.
+@(private = "file")
+types_fit :: proc(
+    e: ^Engine,
+    parser: ts.Parser,
+    req: ^lang.Request,
+    call: Call_Site,
+    sites: []Member_Site,
+    argc: int,
+    keep: []bool,
+) -> []bool {
+    fits := make([]bool, len(sites), context.temp_allocator)
+    if call_has_named_argument(call.node) {
+        return fits
+    }
+    for site, i in sites {
+        if !keep[i] {
+            continue
+        }
+        fits[i] = true
+        for slot in 0 ..< argc {
+            param, pok := signature_param_type(site.label, slot)
+            if !pok {
+                continue // a type the reader cannot spell out is no evidence
+            }
+            if !argument_fits(e, parser, req, call, slot, param) {
+                fits[i] = false
+                break
+            }
+        }
+    }
+    return fits
+}
+
+// Whether the argument in `slot` can be passed to a parameter of type `param`.
+// True unless something is known about both sides and they disagree: an untyped
+// literal is matched by the class of type it converts to, anything else by the
+// type it infers to, and neither an unreadable argument nor an unreadable
+// parameter rejects anything.
+@(private = "file")
+argument_fits :: proc(
+    e: ^Engine,
+    parser: ts.Parser,
+    req: ^lang.Request,
+    call: Call_Site,
+    slot: int,
+    param: Type_Ref,
+) -> bool {
+    arg := call_argument(call.node, slot)
+    if ts.node_is_null(arg) || param.name == "any" || param.proc_sig != "" {
+        return true
+    }
+    if class, is_literal := literal_class(arg); is_literal {
+        // A container's name is its element's (`[]int` reads as int), which says
+        // nothing about what a literal may be passed to, so it decides nothing.
+        accepts, known := builtin_accepts(param.name)
+        return !known || !type_is_bare(param) || class in accepts
+    }
+    inferred, iok := infer_expr_type(e, parser, call.root, req, arg)
+    if !iok {
+        return true
+    }
+    return type_refs_match(inferred, param)
+}
+
+// The `index`-th written argument of a call. The callee is the call's first
+// named child, so the arguments follow it; a slot left empty (`f(1,|)`) has no
+// node of its own.
+@(private = "file")
+call_argument :: proc(call: ts.Node, index: int) -> ts.Node {
+    i := u32(index) + 1
+    if i >= ts.node_named_child_count(call) {
+        return {}
+    }
+    return ts.node_named_child(call, i)
+}
+
+// Whether the call names any of its arguments (`f(x = 1)`), which puts them in
+// an order the parameter slots do not follow. The `=` is an anonymous child of
+// the call itself, so a default value inside a nested call is never read as one.
+@(private = "file")
+call_has_named_argument :: proc(call: ts.Node) -> bool {
+    for i in 0 ..< ts.node_child_count(call) {
+        if string(ts.node_type(ts.node_child(call, i))) == "=" {
+            return true
+        }
+    }
+    return false
+}
+
+// The class of value an untyped literal writes. Odin converts an untyped
+// constant to whatever type it is passed to, so a literal argument fits by class
+// rather than by one type name: `1` fits every numeric parameter.
+@(private = "file")
+Literal_Class :: enum {
+    Number,
+    Float,
+    Text,
+    Rune,
+    Bool,
+}
+
+@(private = "file")
+literal_class :: proc(arg: ts.Node) -> (Literal_Class, bool) {
+    switch string(ts.node_type(arg)) {
+    case "number":
+        return .Number, true
+    case "float":
+        return .Float, true
+    case "string":
+        return .Text, true
+    case "character":
+        return .Rune, true
+    case "boolean":
+        return .Bool, true
+    }
+    return {}, false // `nil` included: it converts to most of what a type can be
+}
+
+// The literal classes a builtin type takes. A name that is not a builtin answers
+// nothing and is taken as accepting everything, since a distinct type or an
+// alias converts from the same literals the type under it does.
+@(private = "file")
+builtin_accepts :: proc(name: string) -> (bit_set[Literal_Class], bool) {
+    switch name {
+    case "int", "uint", "uintptr", "byte", "rune",
+         "i8", "i16", "i32", "i64", "i128",
+         "u8", "u16", "u32", "u64", "u128":
+        return {.Number, .Rune}, true
+    case "f16", "f32", "f64", "complex32", "complex64", "complex128":
+        return {.Number, .Float}, true
+    case "string", "cstring":
+        return {.Text}, true
+    case "bool", "b8", "b16", "b32", "b64":
+        return {.Bool}, true
+    case "rawptr":
+        return {}, true
+    }
+    return {}, false
+}
+
+// Whether an argument of type `arg` fits a parameter of type `param`: the same
+// name under the same containers. A package qualifier is compared only when both
+// sides carry one — the same type is `Point` inside its package and `lib.Point`
+// outside it — and a proc-typed side is not compared at all.
+@(private = "file")
+type_refs_match :: proc(arg, param: Type_Ref) -> bool {
+    if arg.proc_sig != "" || param.proc_sig != "" {
+        return true
+    }
+    if arg.name != param.name || arg.depth != param.depth {
+        return false
+    }
+    if arg.pkg != "" && param.pkg != "" && arg.pkg != param.pkg {
+        return false
+    }
+    for i in 0 ..< arg.depth {
+        if arg.containers[i].kind != param.containers[i].kind {
+            return false
+        }
+    }
+    return true
+}
+
+// Answers with one member as the definition. A Location carries no signature, so
+// every label the lookup built — the chosen one included — has no home and is
+// released here.
+@(private = "file")
+jump_to_member :: proc(sites: []Member_Site, chosen: int, res: ^lang.Result) {
+    for site in sites {
+        if site.label != "" {
+            delete(site.label)
+        }
+    }
+    site := sites[chosen]
+    res.location = lang.Location {
+        path  = strings.clone(site.path),
+        start = site.offset,
+        end   = site.offset + len(site.name),
+    }
+    res.ok = true
 }
 
 // The member names of a procedure group, read off a re-parse of its declaration

@@ -247,8 +247,13 @@ signature_result_type :: proc(sig: string, index: int) -> (Type_Ref, bool) {
 @(private)
 proc_param_type :: proc(source: string, d: Def, index: int) -> (Type_Ref, bool) {
     start := clamp(d.ident_start, 0, len(source))
-    sig := source[start:clamp(d.decl_end, start, len(source))]
+    return signature_param_type(source[start:clamp(d.decl_end, start, len(source))], index)
+}
 
+// proc_param_type over signature text alone — what a procedure group's member
+// carries, the lookup keeping its signature line rather than a Def of its own.
+@(private)
+signature_param_type :: proc(sig: string, index: int) -> (Type_Ref, bool) {
     inner, ok := after_paren_group(sig, want_inner = true)
     if !ok || index < 0 {
         return {}, false

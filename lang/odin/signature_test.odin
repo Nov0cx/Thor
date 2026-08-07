@@ -238,27 +238,33 @@ main :: proc() {
     )
 }
 
-// The parameter count a signature label reports, which is what picks the overload.
+// The parameter counts a signature label reports, which are what picks the
+// overload: how many parameters there are, and how many the call has to write.
 @(test)
 test_param_arity :: proc(t: ^testing.T) {
     Case :: struct {
         label:    string,
         count:    int,
+        required: int,
         variadic: bool,
     }
     cases := []Case {
-        {"main :: proc()", 0, false},
-        {"add :: proc(a: int, b: int) -> int", 2, false},
+        {"main :: proc()", 0, 0, false},
+        {"add :: proc(a: int, b: int) -> int", 2, 2, false},
         // A comma inside a nested type does not split a parameter.
-        {"run :: proc(f: proc(x: int, y: int), c: [dynamic]int)", 2, false},
+        {"run :: proc(f: proc(x: int, y: int), c: [dynamic]int)", 2, 2, false},
         // A result tuple comes after the parameter list and is never reached.
-        {"split :: proc(s: string) -> (head: string, tail: string)", 1, false},
-        {"printf :: proc(fmt: string, args: ..any)", 2, true},
-        {"log :: proc(args: ..any)", 1, true},
+        {"split :: proc(s: string) -> (head: string, tail: string)", 1, 1, false},
+        {"printf :: proc(fmt: string, args: ..any)", 2, 1, true},
+        {"log :: proc(args: ..any)", 1, 0, true},
+        // A defaulted parameter may be left out — `append(xs, 1)` reaches
+        // append_elem, whose trailing `loc` the caller never writes.
+        {"append_elem :: proc(array: ^[dynamic]int, arg: int, loc := #caller_location) -> int", 3, 2, false},
     }
     for c in cases {
-        count, variadic := param_arity(c.label)
+        count, required, variadic := param_arity(c.label)
         testing.expectf(t, count == c.count, "%q: count %d, want %d", c.label, count, c.count)
+        testing.expectf(t, required == c.required, "%q: required %d, want %d", c.label, required, c.required)
         testing.expectf(t, variadic == c.variadic, "%q: variadic %v, want %v", c.label, variadic, c.variadic)
     }
 }

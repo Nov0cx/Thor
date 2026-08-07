@@ -107,13 +107,14 @@ resolve_builtin :: proc(
     req: ^lang.Request,
     name: string,
     hover_start, hover_end: int,
+    call: Call_Site,
     res: ^lang.Result,
 ) {
     sym, ok := builtin_symbol(e, parser, name)
     if !ok {
         return
     }
-    scan_file(e, parser, sym.path, req, name, hover_start, hover_end, res)
+    scan_file(e, parser, sym.path, req, name, hover_start, hover_end, call, res)
 }
 
 // Appends every implicit-scope name matching `prefix` as a completion candidate,

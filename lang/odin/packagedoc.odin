@@ -21,6 +21,7 @@ scan_package :: proc(
     req: ^lang.Request,
     name: string,
     hover_start, hover_end: int,
+    call: Call_Site,
     res: ^lang.Result,
 ) {
     handle, open_err := os.open(dir)
@@ -41,7 +42,7 @@ scan_package :: proc(
         if info.type == .Directory || !strings.has_suffix(info.name, ".odin") {
             continue
         }
-        scan_file(e, parser, info.fullpath, req, name, hover_start, hover_end, res)
+        scan_file(e, parser, info.fullpath, req, name, hover_start, hover_end, call, res)
     }
 }
 
