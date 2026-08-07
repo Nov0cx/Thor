@@ -399,7 +399,6 @@ text_shutdown :: proc() {
         shape_family_destroy(family)
     }
     shape_shutdown()
-    text_scratch_destroy()
 
     families = nil
     icon_map = nil

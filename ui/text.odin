@@ -363,26 +363,21 @@ text_line_height :: proc(font_size: i32) -> i32 {
     return font_size + 6
 }
 
-// NUL-terminated scratch for the raylib procs that take a cstring, reused per
-// call; main thread only, freed in text_shutdown.
+// How much of a line the caller's stack scratch holds, NUL included. A label is
+// far shorter; a longer one still draws, off the temp allocator.
 @(private = "file")
-line_scratch: [dynamic]u8
+LINE_SCRATCH :: 1024
 
-// The text as a cstring, in the scratch buffer. Valid until the next call, which
-// is enough for a raylib proc that only reads it.
+// The text as a cstring the raylib procs take, in the caller's buffer. Only a
+// line too long for it allocates.
 @(private = "file")
-scratch_cstring :: proc(text: string) -> cstring {
-    clear(&line_scratch)
-    append(&line_scratch, text)
-    append(&line_scratch, 0)
-    return cast(cstring) raw_data(line_scratch)
-}
-
-// Frees the scratch buffer; called from text_shutdown.
-@(private)
-text_scratch_destroy :: proc() {
-    delete(line_scratch)
-    line_scratch = nil
+line_cstring :: proc(text: string, buffer: []u8) -> cstring {
+    if len(text) + 1 > len(buffer) {
+        return strings.clone_to_cstring(text, context.temp_allocator)
+    }
+    copy(buffer, text)
+    buffer[len(text)] = 0
+    return cast(cstring) raw_data(buffer)
 }
 
 measure_text :: proc(text: string, font_size: i32, family := "") -> i32 {
@@ -395,13 +390,14 @@ measure_text :: proc(text: string, font_size: i32, family := "") -> i32 {
     font := get_font(font_size, family)
     max_width: f32 = 0
     source := text
+    scratch: [LINE_SCRATCH]u8
 
     for line in strings.split_lines_iterator(&source) {
         // Shaped path first, exactly like draw_text: a ligature has one advance
         // instead of the sum raylib measures per codepoint.
         width, shaped := measure_line_shaped(fam, font, font_size, line)
         if !shaped {
-            width = rl.MeasureTextEx(font, scratch_cstring(line), cast(f32) font_size, 0).x
+            width = rl.MeasureTextEx(font, line_cstring(line, scratch[:]), cast(f32) font_size, 0).x
         }
         if width > max_width {
             max_width = width
@@ -409,7 +405,7 @@ measure_text :: proc(text: string, font_size: i32, family := "") -> i32 {
     }
 
     if max_width == 0 && text != "" {
-        size := rl.MeasureTextEx(font, scratch_cstring(text), cast(f32) font_size, 0)
+        size := rl.MeasureTextEx(font, line_cstring(text, scratch[:]), cast(f32) font_size, 0)
         max_width = size.x
     }
 
@@ -430,6 +426,7 @@ draw_text :: proc(text: string, x, y, font_size: i32, color: rl.Color, family :=
     font := get_font(font_size, family)
     source := text
     line_y := cast(f32) y
+    scratch: [LINE_SCRATCH]u8
 
     for line in strings.split_lines_iterator(&source) {
         // Shaped path first (ligatures); falls back to raylib's codepoint path
@@ -437,7 +434,7 @@ draw_text :: proc(text: string, x, y, font_size: i32, color: rl.Color, family :=
         if !draw_line_shaped(fam, font, font_size, line, x, cast(i32) line_y, color) {
             rl.DrawTextEx(
                 font,
-                scratch_cstring(line),
+                line_cstring(line, scratch[:]),
                 rl.Vector2 {cast(f32) x, line_y},
                 cast(f32) font_size,
                 0,
