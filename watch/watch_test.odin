@@ -147,10 +147,15 @@ test_watch_create_modify_delete :: proc(t: ^testing.T) {
     testing.expect(t, sink_has(&sink, .Deleted, file), "expected a delete change for the removed file")
 }
 
+// An absolute path that cannot exist, in the syntax of the host: a Windows one
+// is not absolute on POSIX, which would resolve it against the working directory.
+@(private = "file")
+MISSING_DIR :: "Z:\\definitely\\not\\a\\real\\path\\thor" when ODIN_OS == .Windows else "/definitely/not/a/real/path/thor"
+
 @(test)
 test_watch_init_bad_dir :: proc(t: ^testing.T) {
     w: Watcher
-    ok := watcher_init(&w, "Z:\\definitely\\not\\a\\real\\path\\thor")
+    ok := watcher_init(&w, MISSING_DIR)
     testing.expect(t, !ok, "watcher_init should fail on a nonexistent directory")
     // Destroy must be safe on an inert watcher and must not leak.
     watcher_destroy(&w)
