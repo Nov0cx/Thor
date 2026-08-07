@@ -169,9 +169,13 @@ reader blocks in `read`, then the thread is joined, then `session_destroy` frees
 
 `thor/terminal.odin` is the editor side: a `Terminal` owns its `widgets.Console` (a child of the
 console stack, only the active one visible), its session and its reader thread, and `Thor.console`
-points at the active one — **it is nil when the last terminal is closed**, so every user of it needs
-a nil guard. `thor_terminals_shutdown` nils the lists it frees, since draining the I/O queue after it
-still pumps terminals.
+points at the active one — **it is nil until the first terminal opens and again when the last one is
+closed**, so every user of it needs a nil guard. Detection is a job like any other
+(`Shell_Detect_Job`): it runs vswhere and walks the registry, too slow for the first frame, so the
+console panel is empty for the first frames and plugin output printed before it lands is held in
+`Thor.console_backlog`. `thor_terminals_shutdown` nils the lists it frees, since draining the I/O
+queue after it still pumps terminals — a detection that lands then finds no terminal list and only
+frees its profiles.
 
 ## Async work
 
@@ -308,7 +312,4 @@ look at .todo.txt
 
 ## Full Analysis
 
-When running a full analysis of the repo follow these steps. Use parallel research agents, each given full read access and a
-targeted brief covering one or more packages, CLAUDE.md's architectural rules for that area, and the
-same four-category rubric (bugs / style / performance / missing features). Output the findings and the current state of the repo
-in a markdown file.
+the analysis skill

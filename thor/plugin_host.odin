@@ -90,7 +90,10 @@ thor_clear_plugin_buttons :: proc(thor: ^Thor, destroy_widgets: bool) {
 // thor.print(text): append plugin output to the console, revealing it if hidden.
 thor_plugin_print :: proc(host: rawptr, text: string) {
     thor := cast(^Thor) host
+    // No terminal yet (shell detection is still running): hold the text, the
+    // first terminal takes it.
     if thor.console == nil {
+        strings.write_string(&thor.console_backlog, text)
         return
     }
     widgets.console_append(thor.console, text)

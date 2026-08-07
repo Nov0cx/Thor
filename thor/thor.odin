@@ -209,7 +209,12 @@ Thor :: struct {
     finished_saves:           [dynamic]^Save_Job,
     finished_git:             [dynamic]^Git_Status_Job,
     finished_file_ops:        [dynamic]^File_Op_Job,
+    finished_shells:          [dynamic]^Shell_Detect_Job,
     inflight_jobs:            int,
+    // Plugin output printed while no terminal exists — shell detection is async,
+    // so a plugin load body prints before the first one opens. Flushed into that
+    // terminal when it opens. owned
+    console_backlog:          strings.Builder,
     // One terminal per console tab, each on its own shell. owned
     terminals:                [dynamic]^Terminal,
     active_terminal:          int,
@@ -417,6 +422,8 @@ init :: proc() -> ^Thor {
     thor.finished_saves = make([dynamic]^Save_Job)
     thor.finished_git = make([dynamic]^Git_Status_Job)
     thor.finished_file_ops = make([dynamic]^File_Op_Job)
+    thor.finished_shells = make([dynamic]^Shell_Detect_Job)
+    strings.builder_init(&thor.console_backlog)
 
     // Language intelligence: register the in-client Odin engine first so it wins
     // for .odin files; an optional LSP subprocess backend would register after it.
@@ -558,6 +565,8 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.finished_saves)
     delete(thor.finished_git)
     delete(thor.finished_file_ops)
+    delete(thor.finished_shells)
+    strings.builder_destroy(&thor.console_backlog)
     delete(thor.app_binds)
     thor_clear_git_status(thor)
     delete(thor.workspace_dir)

@@ -962,6 +962,7 @@ thor_process_io :: proc(thor: ^Thor) {
     saves := make([dynamic]^Save_Job, context.temp_allocator)
     git := make([dynamic]^Git_Status_Job, context.temp_allocator)
     ops := make([dynamic]^File_Op_Job, context.temp_allocator)
+    shells := make([dynamic]^Shell_Detect_Job, context.temp_allocator)
 
     sync.lock(&thor.io_mutex)
     for job in thor.finished_loads {
@@ -976,11 +977,19 @@ thor_process_io :: proc(thor: ^Thor) {
     for job in thor.finished_file_ops {
         append(&ops, job)
     }
+    for job in thor.finished_shells {
+        append(&shells, job)
+    }
     clear(&thor.finished_loads)
     clear(&thor.finished_saves)
     clear(&thor.finished_git)
     clear(&thor.finished_file_ops)
+    clear(&thor.finished_shells)
     sync.unlock(&thor.io_mutex)
+
+    for job in shells {
+        thor_apply_shell_profiles(thor, job)
+    }
 
     thor_process_terminals(thor)
 

@@ -296,23 +296,73 @@ Shell_Choice :: struct {
     index: int,
 }
 
-// Detects the installed shells and opens the first terminal. Called once the
-// widget tree exists, since a terminal is a child of the console stack.
+// Async shell detection: the scan runs vswhere, reads the registry and walks
+// PATH, which is too slow for the frame that starts the editor.
+Shell_Detect_Job :: struct {
+    owner:     ^Thor,
+    allocator: runtime.Allocator,
+    worker:    ^thread.Thread,
+    profiles:  []shell.Profile, // owned, taken over by the main thread
+}
+
+// Starts the shell detection. Called once the widget tree exists, since the
+// terminal it opens is a child of the console stack. The console panel stays
+// empty until the scan lands, so `thor.console` is nil for the first frames.
 thor_terminals_init :: proc(thor: ^Thor) {
     thor.terminals = make([dynamic]^Terminal)
-    thor.shell_profiles = shell.profiles_detect()
-    thor.shell_choices = make([]Shell_Choice, len(thor.shell_profiles))
+    thor.active_terminal = -1
+
+    job := new(Shell_Detect_Job)
+    job.owner = thor
+    job.allocator = context.allocator
+
+    thor.inflight_jobs += 1
+    job.worker = thread.create_and_start_with_poly_data(job, shell_detect_worker)
+}
+
+@(private = "file")
+shell_detect_worker :: proc(job: ^Shell_Detect_Job) {
+    context.allocator = job.allocator
+    defer free_all(context.temp_allocator)
+
+    job.profiles = shell.profiles_detect()
+
+    sync.lock(&job.owner.io_mutex)
+    append(&job.owner.finished_shells, job)
+    sync.unlock(&job.owner.io_mutex)
+}
+
+// Drains a finished detection (called from thor_process_io): takes over the
+// profiles and opens the first terminal.
+thor_apply_shell_profiles :: proc(thor: ^Thor, job: ^Shell_Detect_Job) {
+    thread.join(job.worker)
+    thread.destroy(job.worker)
+    profiles := job.profiles
+    free(job)
+    thor.inflight_jobs -= 1
+
+    // Shutdown drains what is still in flight, and nils the terminal list; there
+    // is no console left to fill.
+    if thor.terminals == nil {
+        shell.profiles_destroy(profiles)
+        return
+    }
+
+    thor.shell_profiles = profiles
+    thor.shell_choices = make([]Shell_Choice, len(profiles))
     for &choice, i in thor.shell_choices {
         choice = {thor, i}
     }
-    thor.active_terminal = -1
-
-    if len(thor.shell_profiles) == 0 {
+    if len(profiles) == 0 {
         log.warn("No shell found; the console has no terminal")
         return
     }
     // No focus: startup belongs to the editor.
     thor_terminal_open(thor, thor_terminal_default_profile(thor), focus = false)
+    if thor.console != nil && strings.builder_len(thor.console_backlog) > 0 {
+        widgets.console_append(thor.console, strings.to_string(thor.console_backlog))
+        strings.builder_reset(&thor.console_backlog)
+    }
 }
 
 // The configured shell, or the best one detected when it names a shell this
