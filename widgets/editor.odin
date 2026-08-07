@@ -113,9 +113,15 @@ Editor :: struct {
     // tab. Off until the user asks for it.
     show_whitespace:    bool,
     visual_rows:        [dynamic]Visual_Row,
-    // Revision the rows were last built from; draw re-syncs against it after
-    // out-of-band edits (palette, menus, global keybinds) made this frame.
+    // Buffer revision and wrap inputs the rows were last built from. A rebuild
+    // walks the whole buffer, so every reader goes through
+    // editor_ensure_visual_rows and it runs only when one of these moved.
     rows_revision:      u64,
+    rows_wrap:          bool,
+    rows_font_size:     i32,
+    rows_width:         f32,
+    // Set by a change the stamps above cannot see (the fold set).
+    rows_stale:         bool,
     // Syntax highlight spans for the current buffer; borrowed from the owner.
     highlights:         []Highlight_Span,
     // Compiler diagnostics for the current buffer; borrowed from the owner. Each
@@ -470,6 +476,8 @@ editor_reload_state :: proc(editor: ^Editor, state: ^textedit.State) {
 }
 
 // Byte offset the topmost visible row starts at; 0 before any row is built.
+// Reads the rows as they stand: a reload asks what the view showed over the text
+// it is replacing, so this must not rebuild them against the new one.
 editor_top_offset :: proc(editor: ^Editor) -> int {
     if len(editor.visual_rows) == 0 {
         return 0
@@ -563,6 +571,11 @@ Fold_Range :: struct {
 // every edit). The user's collapsed set survives: a still-present region keeps
 // its folded state, one that vanished simply stops folding until it returns.
 editor_set_folds :: proc(editor: ^Editor, folds: []Fold_Range) {
+    // A region only shapes the rows while it is collapsed, so with nothing
+    // collapsed new ranges cannot move a row and the rows stand.
+    if len(editor.folded) > 0 {
+        editor.rows_stale = true
+    }
     clear(&editor.foldable)
     for f in folds {
         if f.end_line <= f.start_line {
@@ -729,7 +742,7 @@ editor_layout :: proc(widget: ^ui.Widget, bounds: rl.Rectangle) {
     editor := cast(^Editor) widget
     editor.bounds = bounds
     editor_update_gutter(editor)
-    editor_rebuild_visual_rows(editor)
+    editor_ensure_visual_rows(editor)
     editor_clamp_scroll(editor)
 }
 
@@ -770,6 +783,50 @@ editor_text_width :: proc(editor: ^Editor) -> f32 {
     return editor.bounds.width - editor.gutter_width - editor.padding.left - editor.padding.right - 10
 }
 
+// Column the wrap breaks at, or max(int) with wrapping off.
+@(private = "file")
+editor_wrap_cols :: proc(editor: ^Editor) -> int {
+    if !editor.wrap {
+        return max(int)
+    }
+    char_width := ui.measure_text("0", editor.font_size)
+    if char_width <= 0 {
+        return max(int)
+    }
+    return max(1, cast(int) (editor_text_width(editor) / cast(f32) char_width))
+}
+
+// Rebuilds the rows only when the buffer, the wrap width or the fold set moved
+// since the last build, and reports whether it did. Layout, draw, scrolling and
+// vertical movement all reach the rows through this, so a still buffer costs one
+// comparison per call.
+editor_ensure_visual_rows :: proc(editor: ^Editor) -> bool {
+    if editor.state == nil {
+        return false
+    }
+    if editor_rows_fresh(editor) {
+        return false
+    }
+    editor_rebuild_visual_rows(editor)
+    return true
+}
+
+// Whether the built rows still describe the buffer. The wrap inputs only shape
+// the rows while wrapping is on, so a resize with it off keeps them.
+@(private = "file")
+editor_rows_fresh :: proc(editor: ^Editor) -> bool {
+    if editor.rows_stale || len(editor.visual_rows) == 0 {
+        return false
+    }
+    if editor.rows_revision != editor.state.revision || editor.rows_wrap != editor.wrap {
+        return false
+    }
+    if editor.wrap && (editor.rows_font_size != editor.font_size || editor.rows_width != editor_text_width(editor)) {
+        return false
+    }
+    return true
+}
+
 // Rebuilds the visual-row list from the buffer. Wrapping uses the monospace
 // advance, so this stays a cheap rune walk (no per-line shaping).
 editor_rebuild_visual_rows :: proc(editor: ^Editor) {
@@ -778,15 +835,13 @@ editor_rebuild_visual_rows :: proc(editor: ^Editor) {
         return
     }
     editor.rows_revision = editor.state.revision
+    editor.rows_wrap = editor.wrap
+    editor.rows_font_size = editor.font_size
+    editor.rows_width = editor_text_width(editor)
+    editor.rows_stale = false
 
     text := textedit.text(editor.state)
-    cols := max(int)
-    if editor.wrap {
-        char_width := ui.measure_text("0", editor.font_size)
-        if char_width > 0 {
-            cols = max(1, cast(int) (editor_text_width(editor) / cast(f32) char_width))
-        }
-    }
+    cols := editor_wrap_cols(editor)
 
     line_start := 0
     line_index := 0
@@ -845,15 +900,25 @@ editor_wrap_line :: proc(editor: ^Editor, text: string, line_start, line_end, co
     append(&editor.visual_rows, Visual_Row {seg_start, line_end, line_index, first})
 }
 
-// Index of the earliest visual row that owns byte offset `pos`; 0 when empty.
+// Index of the earliest visual row that owns byte offset `pos`; the last row
+// when no row owns it (a collapsed fold hides it) and 0 when empty. Row extents
+// ascend, so this is a binary search for the first row ending at or after `pos`.
 @(private = "file")
 editor_visual_row_index :: proc(editor: ^Editor, pos: int) -> int {
-    for row, index in editor.visual_rows {
-        if pos >= row.start && pos <= row.end {
-            return index
+    rows := editor.visual_rows[:]
+    low, high := 0, len(rows)
+    for low < high {
+        mid := low + (high - low) / 2
+        if rows[mid].end < pos {
+            low = mid + 1
+        } else {
+            high = mid
         }
     }
-    return max(0, len(editor.visual_rows) - 1)
+    if low < len(rows) && rows[low].start <= pos {
+        return low
+    }
+    return max(0, len(rows) - 1)
 }
 
 // Byte offset of the rune at column `col` within [start, end].
@@ -1380,7 +1445,7 @@ editor_toggle_whitespace :: proc(editor: ^Editor) {
 
 editor_toggle_wrap :: proc(editor: ^Editor) {
     editor.wrap = !editor.wrap
-    editor_rebuild_visual_rows(editor)
+    editor_ensure_visual_rows(editor)
     editor_clamp_scroll(editor)
 }
 
@@ -1422,7 +1487,7 @@ editor_recenter :: proc(editor: ^Editor) {
     if editor.state == nil {
         return
     }
-    editor_rebuild_visual_rows(editor)
+    editor_ensure_visual_rows(editor)
     caret := textedit.primary_cursor(editor.state).caret
     if caret != editor.recenter_caret {
         editor.recenter_phase = 0
@@ -1589,8 +1654,7 @@ editor_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
     // past a now-shorter buffer; re-sync before a row extent is used as an index.
     // Empty rows with a live state means the pane was shown after this frame's
     // layout (e.g. the split just toggled on), so build them before drawing.
-    if editor.state.revision != editor.rows_revision || len(editor.visual_rows) == 0 {
-        editor_rebuild_visual_rows(editor)
+    if editor_ensure_visual_rows(editor) {
         editor_clamp_scroll(editor)
     }
 
@@ -2573,6 +2637,7 @@ editor_destroy :: proc(widget: ^ui.Widget) {
 
 // Byte offset of the character nearest the given screen position.
 editor_pos_at :: proc(editor: ^Editor, position: rl.Vector2) -> (int, bool) {
+    editor_ensure_visual_rows(editor)
     if len(editor.visual_rows) == 0 {
         return 0, false
     }
@@ -2641,7 +2706,7 @@ editor_word_select_to :: proc(editor: ^Editor, position: rl.Vector2) {
 
 editor_scroll_to_caret :: proc(editor: ^Editor) {
     // The buffer may have changed since layout, so refresh the row map first.
-    editor_rebuild_visual_rows(editor)
+    editor_ensure_visual_rows(editor)
     row_index := editor_visual_row_index(editor, textedit.primary_cursor(editor.state).caret)
     line_height := cast(f32) ui.text_line_height(editor.font_size)
     view_height := editor.bounds.height - editor.padding.top - editor.padding.bottom
@@ -2659,7 +2724,7 @@ editor_scroll_to_caret :: proc(editor: ^Editor) {
 // Moves every cursor by `delta` visual rows, keeping its column, so vertical
 // motion follows wrapped rows (plain Up/Down and Page).
 editor_move_visual :: proc(editor: ^Editor, delta: int, extend: bool) {
-    editor_rebuild_visual_rows(editor)
+    editor_ensure_visual_rows(editor)
     if len(editor.visual_rows) == 0 {
         return
     }
