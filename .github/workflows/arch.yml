@@ -64,9 +64,16 @@ jobs:
           echo "$(dirname "$(find /opt/odin -maxdepth 3 -type f -name odin | head -1)")" >> "$GITHUB_PATH"
 
       # Odin ships prebuilt vendor:stb only for Windows and macOS; ui/text.odin
-      # imports stb/truetype, so Linux has to compile them first.
+      # imports stb/truetype, so Linux has to compile them first. Newer Odin
+      # replaced the Makefile with build_stb.sh; older releases still need make.
       - name: Build vendor STB libraries
-        run: make -C "$(odin root)vendor/stb/src"
+        run: |
+          src="$(odin root)vendor/stb/src"
+          if [ -f "$src/build_stb.sh" ]; then
+            sh "$src/build_stb.sh" unix
+          else
+            make -C "$src"
+          fi
 
       - name: Build tree-sitter runtime + parsers
         working-directory: vendor/odin-tree-sitter

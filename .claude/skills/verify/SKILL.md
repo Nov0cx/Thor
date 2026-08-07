@@ -43,7 +43,7 @@ The Windows Odin distribution misses libraries these targets need:
 - **linux_amd64** — `vendor/stb/lib/*.a` is absent, so `vendor:stb/truetype`
   and `vendor:stb/rect_pack` raise `Compile time panic: Could not find the
   compiled STB libraries`. The CI workflows build them with
-  `make -C "$(odin root)vendor/stb/src"`.
+  `sh "$(odin root)vendor/stb/src/build_stb.sh" unix`.
 - **darwin_arm64** — the vendored HarfBuzz binding has no Darwin branch, so
   `vendor/odin-harfbuzz/harfbuzz/*.odin` raises `Undeclared name: hb` at every
   `foreign hb` block. `macos.yml` injects that branch.
