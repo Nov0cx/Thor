@@ -576,6 +576,27 @@ editor_visible_line :: proc(editor: ^Editor, line: int) -> int {
     return best
 }
 
+// Logical line of a byte offset, from the built visual rows. Rows ascend by
+// start, so this binary searches instead of scanning the text from byte 0.
+// Requires visual_rows to be in step with the buffer.
+@(private = "file")
+editor_line_at_offset :: proc(editor: ^Editor, pos: int) -> int {
+    rows := editor.visual_rows[:]
+    if len(rows) == 0 {
+        return 0
+    }
+    lo, hi := 0, len(rows) - 1
+    for lo < hi {
+        mid := (lo + hi + 1) / 2
+        if rows[mid].start <= pos {
+            lo = mid
+        } else {
+            hi = mid - 1
+        }
+    }
+    return rows[lo].line
+}
+
 // Pulls every caret out of a line hidden by a collapse onto the fold's visible
 // start line, so a fold never strands the caret out of view.
 @(private = "file")
@@ -1552,7 +1573,7 @@ editor_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
 
     ui.begin_clip(editor.bounds)
 
-    caret_line := textedit.line_index(text, textedit.primary_cursor(editor.state).caret)
+    caret_line := editor_line_at_offset(editor, textedit.primary_cursor(editor.state).caret)
 
     // Fold chevrons live in a column on the gutter's inner edge. Like VS Code,
     // an expanded region's chevron only shows while the gutter is hovered; a

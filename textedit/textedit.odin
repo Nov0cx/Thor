@@ -289,11 +289,7 @@ move_word :: proc(state: ^State, direction: int, extend: bool) {
 move_vertical :: proc(state: ^State, delta: int, extend: bool) {
     txt := text(state)
     for &cursor in state.cursors {
-        target := line_index(txt, cursor.caret) + delta
-        if target < 0 {
-            target = 0
-        }
-        start := line_start_of_index(txt, target)
+        start, _ := line_start_relative(txt, cursor.caret, delta)
         cursor.caret = offset_for_column(txt, start, cursor.preferred_column)
         if !extend {
             cursor.anchor = cursor.caret
@@ -423,12 +419,8 @@ add_cursor_vertical :: proc(state: ^State, delta: int) {
     txt := text(state)
     spawned := make([dynamic]Cursor, context.temp_allocator)
     for cursor in state.cursors {
-        target := line_index(txt, cursor.caret) + delta
-        if target < 0 {
-            continue
-        }
-        start := line_start_of_index(txt, target)
-        if line_index(txt, start) != target {
+        start, full := line_start_relative(txt, cursor.caret, delta)
+        if !full {
             continue
         }
         pos := offset_for_column(txt, start, cursor.preferred_column)
@@ -1042,6 +1034,29 @@ line_start_of_index :: proc(txt: string, line: int) -> int {
         index += 1
     }
     return start
+}
+
+// Start byte of the line `delta` lines from the one holding `pos`, clamped to
+// the first and last line. `full` is false when the clamp stopped it short.
+// Walks only the lines it crosses, unlike line_index + line_start_of_index,
+// which both scan from byte 0.
+line_start_relative :: proc(txt: string, pos: int, delta: int) -> (start: int, full: bool) {
+    start = line_start(txt, pos)
+    for _ in 0 ..< abs(delta) {
+        if delta < 0 {
+            if start == 0 {
+                return start, false
+            }
+            start = line_start(txt, start - 1)
+            continue
+        }
+        end := line_end(txt, start)
+        if end >= len(txt) {
+            return start, false
+        }
+        start = end + 1
+    }
+    return start, true
 }
 
 // Rune column of `pos` within its line.
