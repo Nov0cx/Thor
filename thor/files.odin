@@ -409,21 +409,27 @@ dir_segment_count :: proc(dir: string) -> int {
     return count
 }
 
-// Shortest trailing directory that distinguishes `file` from other open files
-// sharing its base name. A slice into file.path; the caller copies and normalizes.
+// Shortest trailing directory that distinguishes `file` from `group`, the open
+// files that share its base name. A slice into file.path; the caller copies and
+// normalizes.
 @(private = "file")
-thor_disambiguating_dir :: proc(thor: ^Thor, file: ^Open_File) -> string {
+thor_disambiguating_dir :: proc(file: ^Open_File, group: []^Open_File) -> string {
     dir := file_dir(file.path)
     max_depth := max(dir_segment_count(dir), 1)
+
+    // The directories once, not once per depth.
+    others := make([dynamic]string, 0, len(group), context.temp_allocator)
+    for other in group {
+        if other != file {
+            append(&others, file_dir(other.path))
+        }
+    }
 
     for depth in 1 ..= max_depth {
         tail := dir_tail(dir, depth)
         unique := true
-        for other in thor.open_files {
-            if other == file || other.name != file.name {
-                continue
-            }
-            if dir_tail(file_dir(other.path), depth) == tail {
+        for other in others {
+            if dir_tail(other, depth) == tail {
                 unique = false
                 break
             }
@@ -438,20 +444,26 @@ thor_disambiguating_dir :: proc(thor: ^Thor, file: ^Open_File) -> string {
 // Recomputes every open file's tab_label. A unique base name shows alone;
 // colliding files get a trailing directory suffix (e.g. "state.odin — thor").
 thor_update_tab_labels :: proc(thor: ^Thor) {
+    // The files per base name, so a collision is a lookup and the suffix search
+    // only compares against the files that can collide.
+    groups := make(map[string][dynamic]^Open_File, context.temp_allocator)
     for file in thor.open_files {
-        collision := false
-        for other in thor.open_files {
-            if other != file && other.name == file.name {
-                collision = true
-                break
-            }
+        group, seen := groups[file.name]
+        if !seen {
+            group = make([dynamic]^Open_File, context.temp_allocator)
         }
+        append(&group, file)
+        groups[file.name] = group
+    }
+
+    for file in thor.open_files {
+        group := groups[file.name]
 
         old := file.tab_label
-        if !collision {
+        if len(group) == 1 {
             file.tab_label = strings.clone(file.name)
         } else {
-            suffix := thor_disambiguating_dir(thor, file)
+            suffix := thor_disambiguating_dir(file, group[:])
             b := strings.builder_make()
             strings.write_string(&b, file.name)
             if len(suffix) > 0 {

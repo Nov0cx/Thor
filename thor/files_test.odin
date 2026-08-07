@@ -543,6 +543,48 @@ test_async_file_ops :: proc(t: ^testing.T) {
     testing.expect_value(t, thor.status_message, "Deleted src")
 }
 
+// Tab labels are grouped by base name, so this covers the three cases the
+// grouping keeps apart: a name that stands alone, a collision one segment
+// settles, and one that needs a second segment.
+@(test)
+test_tab_labels_disambiguate :: proc(t: ^testing.T) {
+    thor := new(Thor)
+    defer free(thor)
+    thor.open_files = make([dynamic]^Open_File)
+    defer delete(thor.open_files)
+
+    cases := [?]struct {
+        path:  string,
+        name:  string,
+        label: string,
+    } {
+        {"D:/thor/thor/state.odin", "state.odin", "state.odin — thor/thor"},
+        {"D:/thor/ui/state.odin", "state.odin", "state.odin — ui"},
+        {"D:/thor/widgets/editor.odin", "editor.odin", "editor.odin"},
+        {"D:/other/thor/state.odin", "state.odin", "state.odin — other/thor"},
+    }
+    for entry in cases {
+        file := new(Open_File)
+        file.path = entry.path
+        file.name = entry.name
+        append(&thor.open_files, file)
+    }
+    defer for file in thor.open_files {
+        delete(file.tab_label)
+        free(file)
+    }
+
+    thor_update_tab_labels(thor)
+    for entry, i in cases {
+        testing.expect_value(t, thor.open_files[i].tab_label, entry.label)
+    }
+
+    // A backslash path reads the same: the suffix is normalized to '/'.
+    thor.open_files[0].path = "D:\\thor\\thor\\state.odin"
+    thor_update_tab_labels(thor)
+    testing.expect_value(t, thor.open_files[0].tab_label, "state.odin — thor/thor")
+}
+
 // Headless Thor with just enough wired up for the file pipeline: no window and
 // no GL, matching test_async_file_roundtrip's inline setup.
 @(private = "file")
