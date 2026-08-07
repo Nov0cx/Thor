@@ -1,0 +1,52 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(odin check *)",
+      "PowerShell(odin check *)",
+      "Bash(odin test *)",
+      "PowerShell(odin test *)",
+      "Bash(odin run build.odin -file -- test *)",
+      "PowerShell(odin run build.odin -file -- test *)",
+      "Bash(odin run build.odin -file -- check *)",
+      "PowerShell(odin run build.odin -file -- check *)",
+      "Bash(odin root *)",
+      "Bash(odin version *)",
+      "PowerShell(odin version *)",
+      "PowerShell(Select-String *)",
+      "PowerShell(Get-ChildItem *)",
+      "PowerShell(Get-Content *)",
+      "PowerShell(Get-Process *)",
+      "PowerShell(Test-Path *)",
+      "PowerShell(Get-Command *)",
+      "PowerShell(git status *)",
+      "PowerShell(git diff *)",
+      "PowerShell(git show *)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File \"$CLAUDE_PROJECT_DIR/.claude/hooks/check-platform-import.ps1\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File \"$CLAUDE_PROJECT_DIR/.claude/hooks/odin-check-package.ps1\"",
+            "timeout": 60
+          }
+        ]
+      }
+    ]
+  }
+}

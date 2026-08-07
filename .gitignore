@@ -1,7 +1,7 @@
 *.exe
 *.pdb
 *.dll
-.claude
+*.local*
 sessions/
 .todo.txt
 git/*
