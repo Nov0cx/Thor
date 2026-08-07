@@ -305,3 +305,10 @@ Do if (cheap && expensive) and if (likelytofail && unlikelytofail).
 ## Other missing features
 
 look at .todo.txt
+
+## Full Analysis
+
+When running a full analysis of the repo follow these steps. Use parallel research agents, each given full read access and a
+targeted brief covering one or more packages, CLAUDE.md's architectural rules for that area, and the
+same four-category rubric (bugs / style / performance / missing features). Output the findings and the current state of the repo
+in a markdown file.

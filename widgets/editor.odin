@@ -1060,10 +1060,13 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
     case .DELETE:
         if ctrl_only {
             textedit.delete_word_forward(state)
+            editor_dismiss_completion(editor)
         } else {
             textedit.delete_forward(state)
+            if !(editor.completion_semantic && editor_request_completion(editor)) {
+                editor_update_completion(editor)
+            }
         }
-        editor_dismiss_completion(editor)
         if editor.signature_active {
             editor_request_signature(editor)
         }
