@@ -28,6 +28,19 @@ supports :: proc(m: ^Manager, ext: string) -> bool {
 // for a buffer with no stable identity. Empty when no plugin claims the
 // extension or highlighting fails.
 highlight :: proc(m: ^Manager, path, source, ext: string, allocator := context.allocator) -> []Span {
+    return highlight_range(m, path, source, ext, 0, max(int), allocator)
+}
+
+// Highlights only the captures intersecting [range_start, range_end) for a
+// grammar-backed language, so a caller showing one screen of a large buffer pays
+// for that screen. A pure-Lua highlighter has no notion of a range and still
+// answers for the whole source; those languages are the small-file formats.
+highlight_range :: proc(
+    m: ^Manager,
+    path, source, ext: string,
+    range_start, range_end: int,
+    allocator := context.allocator,
+) -> []Span {
     idx, ok := m.by_ext[ext]
     if !ok {
         return nil
@@ -38,7 +51,15 @@ highlight :: proc(m: ^Manager, path, source, ext: string, allocator := context.a
         if !syntax.supports(&m.highlighter, lang.grammar) {
             return nil
         }
-        caps := syntax.highlight(&m.highlighter, path, source, lang.grammar, context.temp_allocator)
+        caps := syntax.highlight_range(
+            &m.highlighter,
+            path,
+            source,
+            lang.grammar,
+            range_start,
+            range_end,
+            context.temp_allocator,
+        )
         out := make([dynamic]Span, allocator)
         for cap in caps {
             append(&out, Span{cap.start, cap.end, role_for_capture(lang, cap.capture)})

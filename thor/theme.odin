@@ -187,9 +187,11 @@ thor_apply_theme :: proc(thor: ^Thor) {
     widgets.label_set_text_color(thor.explorer_title_label, t.white_black_color)
     widgets.label_set_text_color(thor.dialog_text_label, t.white_black_color)
 
-    // Syntax spans bake in theme colors, so recolor every open file.
+    // Syntax spans bake in theme colors, so every open file needs new ones. Only
+    // mark them stale: the per-frame pane pass recolors the files on screen with
+    // a window to scope to, and one off screen costs nothing until it is shown.
     for file in thor.open_files {
-        thor_update_highlights(thor, file)
+        file.highlighted = false
     }
 }
 

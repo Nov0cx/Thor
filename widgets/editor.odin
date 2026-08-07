@@ -488,6 +488,47 @@ editor_scroll_lines :: proc(editor: ^Editor, lines: int) {
     editor.scroll_y = max(editor.scroll_y + cast(f32) lines * cast(f32) ui.text_line_height(editor.font_size), 0)
 }
 
+// First and last visible row index, widened by `margin_rows` on each side and
+// clamped to the built rows. ok is false before any row exists.
+@(private = "file")
+editor_visible_rows :: proc(editor: ^Editor, margin_rows: int) -> (first, last: int, ok: bool) {
+    if len(editor.visual_rows) == 0 {
+        return 0, 0, false
+    }
+    line_height := cast(f32) ui.text_line_height(editor.font_size)
+    if line_height <= 0 {
+        return 0, 0, false
+    }
+    view_height := editor.bounds.height - editor.padding.top - editor.padding.bottom
+    top := cast(int) (editor.scroll_y / line_height) - margin_rows
+    bottom := cast(int) ((editor.scroll_y + max(view_height, 0)) / line_height) + margin_rows
+    high := len(editor.visual_rows) - 1
+    return clamp(top, 0, high), clamp(bottom, 0, high), true
+}
+
+// Byte range the pane shows, widened by `margin_rows` rows above and below. The
+// window a viewport-scoped highlight covers; ok is false before the rows exist,
+// where the caller has no view to scope to yet.
+editor_visible_byte_range :: proc(editor: ^Editor, margin_rows := 0) -> (start, end: int, ok: bool) {
+    first, last, found := editor_visible_rows(editor, margin_rows)
+    if !found {
+        return 0, 0, false
+    }
+    return editor.visual_rows[first].start, editor.visual_rows[last].end, true
+}
+
+// Rows on screen, for a caller sizing a margin against the view.
+editor_visible_row_count :: proc(editor: ^Editor) -> int {
+    first, last, ok := editor_visible_rows(editor, 0)
+    if !ok {
+        return 0
+    }
+    return last - first + 1
+}
+
+// Highlight spans for the current buffer (borrowed). They cover only the byte
+// window the owner highlighted, not the whole buffer; bytes outside it draw in
+// the plain text color.
 editor_set_highlights :: proc(editor: ^Editor, highlights: []Highlight_Span) {
     editor.highlights = highlights
 }
@@ -771,7 +812,9 @@ editor_rebuild_visual_rows :: proc(editor: ^Editor) {
 // space (falling back to a hard character break).
 @(private = "file")
 editor_wrap_line :: proc(editor: ^Editor, text: string, line_start, line_end, cols, line_index: int) {
-    if line_start == line_end {
+    // With wrapping off cols is max(int), so the walk below can never break the
+    // line — skip it rather than decoding every rune in the buffer per rebuild.
+    if line_start == line_end || cols == max(int) {
         append(&editor.visual_rows, Visual_Row {line_start, line_end, line_index, true})
         return
     }
@@ -1584,9 +1627,22 @@ editor_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
         rl.GetMousePosition().x >= editor.bounds.x &&
         rl.GetMousePosition().x < editor.bounds.x + editor.gutter_width
 
+    // Rows are uniform height, so the first visible one is a division away.
+    // Starting at row 0 would walk the whole document every frame.
+    first_row, _, have_rows := editor_visible_rows(editor, 0)
+    if !have_rows {
+        first_row = 0
+    }
+
     // Monotonic cursor into the sorted highlight spans as rows advance.
     hl := 0
-    for row, index in editor.visual_rows {
+    if first_row < len(editor.visual_rows) {
+        for hl < len(editor.highlights) && editor.highlights[hl].end <= editor.visual_rows[first_row].start {
+            hl += 1
+        }
+    }
+    for index in first_row ..< len(editor.visual_rows) {
+        row := editor.visual_rows[index]
         row_y := inner_top - editor.scroll_y + cast(f32) index * line_height
         for hl < len(editor.highlights) && editor.highlights[hl].end <= row.start {
             hl += 1

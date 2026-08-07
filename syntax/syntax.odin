@@ -142,6 +142,20 @@ supports :: proc(h: ^Highlighter, lang_id: string) -> bool {
 // `path` names the buffer so the parse can reuse its resident tree (see
 // parse_tree). Empty when the grammar is unknown or parsing fails.
 highlight :: proc(h: ^Highlighter, path, source, lang_id: string, allocator := context.allocator) -> []Span {
+    return highlight_range(h, path, source, lang_id, 0, max(int), allocator)
+}
+
+// Spans for the captures that intersect [range_start, range_end), the vehicle
+// for coloring only what a pane shows. The tree stays whole-file, so a node that
+// opens before the range — a block comment, a raw string — is still reported
+// with its real extent; only the query is windowed. Cost follows the range, not
+// the document, which is what keeps a large buffer's per-keystroke work bounded.
+highlight_range :: proc(
+    h: ^Highlighter,
+    path, source, lang_id: string,
+    range_start, range_end: int,
+    allocator := context.allocator,
+) -> []Span {
     entry, ok := h.languages[lang_id]
     if !ok {
         return nil
@@ -163,6 +177,11 @@ highlight :: proc(h: ^Highlighter, path, source, lang_id: string, allocator := c
 
     cursor := ts.query_cursor_new()
     defer ts.query_cursor_delete(cursor)
+    lo := clamp(range_start, 0, len(source))
+    hi := clamp(range_end, lo, len(source))
+    if lo > 0 || hi < len(source) {
+        ts.query_cursor_set_byte_range(cursor, u32(lo), u32(hi))
+    }
     ts.query_cursor_exec(cursor, query, root)
 
     // Collect every satisfied capture; resolve_spans breaks overlaps by
@@ -218,21 +237,40 @@ fold_ranges :: proc(h: ^Highlighter, path, source, lang_id: string, allocator :=
 
     // start line -> widest end line seen for a node starting there.
     ends := make(map[int]int, context.temp_allocator)
-    stack := make([dynamic]ts.Node, context.temp_allocator)
-    append(&stack, root)
-    for len(stack) > 0 {
-        node := pop(&stack)
-        if !ts.node_eq(node, root) {
+    // Cursor DFS over the root's descendants, pruned at every single-line node:
+    // a node's extent contains its children's, so nothing under a node that sits
+    // on one line can span two. That skips every token and leaf expression,
+    // which is nearly the whole tree. The root itself is not a fold.
+    cursor := ts.tree_cursor_new(root)
+    defer ts.tree_cursor_delete(&cursor)
+    depth := 0
+    if ts.tree_cursor_goto_first_child(&cursor) {
+        depth = 1
+        walk: for {
+            node := ts.tree_cursor_current_node(&cursor)
             sr := int(ts.node_start_point(node).row)
             er := int(ts.node_end_point(node).row)
             if er > sr {
                 if cur, has := ends[sr]; !has || er > cur {
                     ends[sr] = er
                 }
+                if ts.tree_cursor_goto_first_child(&cursor) {
+                    depth += 1
+                    continue walk
+                }
             }
-        }
-        for i in 0 ..< ts.node_child_count(node) {
-            append(&stack, ts.node_child(node, i))
+            for {
+                if ts.tree_cursor_goto_next_sibling(&cursor) {
+                    continue walk
+                }
+                if !ts.tree_cursor_goto_parent(&cursor) {
+                    break walk
+                }
+                depth -= 1
+                if depth == 0 {
+                    break walk
+                }
+            }
         }
     }
 
@@ -270,23 +308,43 @@ parse_tree :: proc(h: ^Highlighter, path, source, lang_id: string, entry: Langua
 // only tags a qualifier inside a type (`mem.Tracking_Allocator`), so without
 // this the same package reads as a plain variable in `mem.foo(...)`. Empty for
 // every other grammar. Uses the temp allocator.
+// How far into a file package_names looks for imports. Generous for any real
+// header, and what keeps the scan off the declaration count of a large buffer.
+@(private)
+IMPORT_SCAN_BYTES :: 64 * 1024
+
 @(private)
 package_names :: proc(root: ts.Node, source, lang_id: string) -> map[string]bool {
     if lang_id != "odin" {
         return nil
     }
     names := make(map[string]bool, context.temp_allocator)
-    for i in 0 ..< ts.node_named_child_count(root) {
-        imp := ts.node_named_child(root, i)
-        if string(ts.node_type(imp)) != "import_declaration" {
-            continue
+    // A cursor walk, not an indexed one: node_named_child restarts from the
+    // first child and node_next_named_sibling re-searches the parent, so both
+    // cost the document's declaration count per step. A cursor steps in O(1).
+    cursor := ts.tree_cursor_new(root)
+    defer ts.tree_cursor_delete(&cursor)
+    if !ts.tree_cursor_goto_first_child(&cursor) {
+        return names
+    }
+    for {
+        imp := ts.tree_cursor_current_node(&cursor)
+        // Imports sit in a file's header. Walking every top-level declaration of
+        // a multi-megabyte buffer to find them costs more than the highlight
+        // itself, so the search stops past a header-sized prefix; an import
+        // below that reads as a plain variable, which is only a color.
+        if int(ts.node_start_byte(imp)) >= IMPORT_SCAN_BYTES {
+            break
         }
-        if alias := ts.node_child_by_field_name(imp, "alias"); !ts.node_is_null(alias) {
-            names[ts.node_text(alias, source)] = true
-            continue
+        if ts.node_is_named(imp) && string(ts.node_type(imp)) == "import_declaration" {
+            if alias := ts.node_child_by_field_name(imp, "alias"); !ts.node_is_null(alias) {
+                names[ts.node_text(alias, source)] = true
+            } else if path, ok := import_path(imp, source); ok {
+                names[path_tail(path)] = true
+            }
         }
-        if path, ok := import_path(imp, source); ok {
-            names[path_tail(path)] = true
+        if !ts.tree_cursor_goto_next_sibling(&cursor) {
+            break
         }
     }
     return names

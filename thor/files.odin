@@ -60,11 +60,19 @@ Open_File :: struct {
     line_ending:        Line_Ending,
     last_edit:          time.Tick,
     // Syntax highlight spans and the buffer revision they were computed from.
+    // The spans cover `highlight_start ..< highlight_end` only — the pane's view
+    // plus a margin, not the whole buffer — so a pane that scrolls out of that
+    // window re-highlights. Highlighting a large file whole costs seconds.
     highlights:         [dynamic]widgets.Highlight_Span,
     highlight_revision: u64,
     highlighted:        bool,
-    // Foldable line ranges, recomputed alongside the highlights.
+    highlight_start:    int,
+    highlight_end:      int,
+    // Foldable line ranges. These follow the buffer, not the view, so they are
+    // recomputed on a revision change only — never on a scroll.
     folds:              [dynamic]widgets.Fold_Range,
+    folds_revision:     u64,
+    folds_ready:        bool,
     // What the analyzer proved each identifier in the buffer to be, layered over
     // the grammar's spans by thor_update_highlights. `semantic_ready` marks a
     // result having landed at all (revision 0 is a real revision), and the
@@ -600,6 +608,7 @@ thor_apply_reload :: proc(thor: ^Thor, job: ^Load_Job) {
     file.saved_revision = file.state.revision // set_text zeroed it; stay clean
     file.last_seen_revision = file.state.revision
     file.highlighted = false // re-highlighted by the per-frame pass
+    file.folds_ready = false // set_text zeroed the revision folds_revision holds
     thor_clear_file_diagnostics(file)
     file.diagnostics_revision = 0
     // Re-bind here, not in thor_process_io: only this frame still holds the old
@@ -921,7 +930,9 @@ thor_update_files :: proc(thor: ^Thor) {
     }
 }
 
-// Re-parses the file shown in `pane` if its highlights are missing or stale.
+// Re-parses the file shown in `pane` if its highlights are missing, stale, or no
+// longer cover what the pane displays — the spans span a window around the view,
+// so scrolling out of it needs a fresh one just as an edit does.
 @(private = "file")
 thor_highlight_pane_file :: proc(thor: ^Thor, pane: int) {
     index := thor.pane_file[pane]
@@ -929,7 +940,19 @@ thor_highlight_pane_file :: proc(thor: ^Thor, pane: int) {
         return
     }
     file := thor.open_files[index]
-    if file.loaded && (!file.highlighted || file.state.revision != file.highlight_revision) {
+    if !file.loaded {
+        return
+    }
+    // Folds run on their own cadence: they cover the whole buffer, so they wait
+    // for it to go quiet instead of following every keystroke or scroll.
+    thor_update_folds(thor, file)
+    if !file.highlighted || file.state.revision != file.highlight_revision {
+        thor_update_highlights(thor, file)
+        return
+    }
+    editor := thor_pane_editor(thor, pane)
+    visible_start, visible_end, ok := widgets.editor_visible_byte_range(editor)
+    if ok && (visible_start < file.highlight_start || visible_end > file.highlight_end) {
         thor_update_highlights(thor, file)
     }
 }

@@ -263,7 +263,9 @@ lowest latency.
   nothing in the file, its imports or the workspace declares is dimmed. The
   classification is layered over the grammar's spans by the highlight pass and
   is deliberately sparse: wherever the analyzer knows no more than the grammar,
-  the grammar's colour stands. Undeclared-name dimming gives up on the whole
+  the grammar's colour stands. The analyzer still answers for the whole buffer,
+  but that pass colours only the window a pane shows, so the overlay is clipped
+  to it and follows the view. Undeclared-name dimming gives up on the whole
   file at the first sign it cannot see far enough (see the semantic-tokens entry
   below), because a name dimmed in error reads as a compiler error that does not
   exist.

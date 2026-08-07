@@ -122,9 +122,11 @@ thor_reload_plugins :: proc(thor: ^Thor) {
     thor_set_plugin_host(thor)
     thor_load_plugins(thor)
 
-    // The languages the new set registers decide how every open buffer colours.
+    // The languages the new set registers decide how every open buffer colours,
+    // and which grammar — so the folds it derived no longer hold either.
     for file in thor.open_files {
         file.highlighted = false
+        file.folds_ready = false
     }
 }
 

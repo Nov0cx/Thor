@@ -1,6 +1,7 @@
 package thor
 
 import "core:strings"
+import "core:time"
 import rl "vendor:raylib"
 
 import "../lang"
@@ -9,35 +10,111 @@ import "../textedit"
 import "../ui"
 import "../widgets"
 
-// Reparses `file` and rebuilds its highlight spans (resolved to theme colors).
-// Only the files shown in a pane are highlighted, so this runs when their
-// buffers change.
+// Byte window to highlight `file` over: what the pane showing it displays, plus
+// a screen of margin on each side so a small scroll does not re-run the query.
+// ok is false when no pane shows the file, or its rows are not built yet.
+@(private = "file")
+thor_highlight_window :: proc(thor: ^Thor, file: ^Open_File) -> (start, end: int, ok: bool) {
+    for index, pane in thor.pane_file {
+        if index < 0 || index >= len(thor.open_files) || thor.open_files[index] != file {
+            continue
+        }
+        editor := thor_pane_editor(thor, pane)
+        margin := max(widgets.editor_visible_row_count(editor), 1)
+        return widgets.editor_visible_byte_range(editor, margin)
+    }
+    return 0, 0, false
+}
+
+// Rebuilds `file`'s highlight spans (resolved to theme colors) over the window
+// the pane showing it displays. Only files shown in a pane are highlighted, so
+// this runs when their buffers change or their view scrolls off the window.
 thor_update_highlights :: proc(thor: ^Thor, file: ^Open_File) {
     key := thor_highlight_key(&thor.plugins, file.name)
 
+    win_start, win_end, windowed := thor_highlight_window(thor, file)
+    if !windowed {
+        // No view to scope to. Leaving it stale costs nothing and the pane pass
+        // highlights it the moment it is shown; coloring it whole would not.
+        clear(&file.highlights)
+        file.highlighted = false
+        thor_apply_file_highlights(thor, file)
+        return
+    }
+
     clear(&file.highlights)
-    clear(&file.folds)
     if plugin.supports(&thor.plugins, key) {
         source := textedit.text(&file.state)
+        win_start = clamp(win_start, 0, len(source))
+        win_end = clamp(win_end, win_start, len(source))
         // The buffer's path lets a grammar-backed language re-parse only what
         // this revision changed, off the tree it kept from the last one.
         grammar := make([dynamic]widgets.Highlight_Span, context.temp_allocator)
-        for span in plugin.highlight(&thor.plugins, file.path, source, key, context.temp_allocator) {
+        for span in plugin.highlight_range(
+            &thor.plugins,
+            file.path,
+            source,
+            key,
+            win_start,
+            win_end,
+            context.temp_allocator,
+        ) {
             color := ui.theme_role_color(thor.theme, span.role)
             append(&grammar, widgets.Highlight_Span{span.start, span.end, color})
         }
-        thor_merge_semantic(thor, file, key, grammar[:], len(source))
-        for r in plugin.fold_ranges(&thor.plugins, file.path, source, key, context.temp_allocator) {
-            append(&file.folds, widgets.Fold_Range{r.start_line, r.end_line})
-        }
+        thor_merge_semantic(thor, file, key, grammar[:], win_start, win_end)
     }
 
     file.highlighted = true
     file.highlight_revision = file.state.revision
+    file.highlight_start = win_start
+    file.highlight_end = win_end
     thor_apply_file_highlights(thor, file)
     // Ask what this revision's identifiers are, now that the grammar's answer is
     // in. The result marks the highlights stale again and lands on the next pass.
     thor_request_semantic(thor, file)
+}
+
+// How long a buffer must sit unedited before its folds are derived again.
+FOLD_IDLE_DELAY :: 250 * time.Millisecond
+
+// Rebuilds `file.folds` once the buffer has been still for FOLD_IDLE_DELAY.
+//
+// Fold ranges cover whole lines across the whole buffer, so unlike the
+// highlights they cannot be scoped to a view — deriving them means walking the
+// tree, which is far too slow to do per keystroke on a large file. They are also
+// not needed promptly: between the edit and the rebuild the chevrons sit at the
+// line numbers they had, which only shows if the edit added or removed lines.
+@(private)
+thor_update_folds :: proc(thor: ^Thor, file: ^Open_File) {
+    if file.folds_ready && file.folds_revision == file.state.revision {
+        return
+    }
+    if time.tick_since(file.last_edit) < FOLD_IDLE_DELAY {
+        return
+    }
+    key := thor_highlight_key(&thor.plugins, file.name)
+    if !plugin.supports(&thor.plugins, key) {
+        // A plugin reload can leave folds behind that the new language did not
+        // derive, so drop them rather than keep another grammar's answer.
+        had := len(file.folds) > 0
+        clear(&file.folds)
+        file.folds_revision = file.state.revision
+        file.folds_ready = true
+        if had {
+            thor_apply_file_highlights(thor, file)
+        }
+        return
+    }
+
+    source := textedit.text(&file.state)
+    clear(&file.folds)
+    for r in plugin.fold_ranges(&thor.plugins, file.path, source, key, context.temp_allocator) {
+        append(&file.folds, widgets.Fold_Range{r.start_line, r.end_line})
+    }
+    file.folds_revision = file.state.revision
+    file.folds_ready = true
+    thor_apply_file_highlights(thor, file)
 }
 
 // Layers the analyzer's classification over the grammar's spans into
@@ -54,7 +131,7 @@ thor_merge_semantic :: proc(
     file: ^Open_File,
     key: string,
     grammar: []widgets.Highlight_Span,
-    length: int,
+    win_start, win_end: int,
 ) {
     if len(file.semantic) == 0 {
         append(&file.highlights, ..grammar)
@@ -69,13 +146,18 @@ thor_merge_semantic :: proc(
     }
 
     over := make([dynamic]widgets.Highlight_Span, 0, len(file.semantic), context.temp_allocator)
-    cut := 0
+    cut := win_start
     for token in file.semantic {
         if roles[token.kind] == "" {
             continue
         }
-        start := clamp(token.start, cut, length)
-        end := clamp(token.end, cut, length)
+        // Clipped to the highlighted window: the grammar spans cover only that,
+        // and an overlay reaching outside it would color bytes with no base.
+        if token.end <= win_start || token.start >= win_end {
+            continue
+        }
+        start := clamp(token.start, cut, win_end)
+        end := clamp(token.end, cut, win_end)
         if start >= end {
             continue
         }

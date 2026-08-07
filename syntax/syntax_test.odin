@@ -355,3 +355,83 @@ test_highlight_js_ts :: proc(t: ^testing.T) {
     tsxs := highlight(&h, "", tsx, "tsx", context.temp_allocator)
     testing.expect(t, len(tsxs) > 0, "expected tsx spans")
 }
+
+// A windowed highlight colors the window and nothing outside it, and agrees
+// with the whole-document answer wherever the two overlap.
+@(test)
+test_highlight_range_window :: proc(t: ^testing.T) {
+    h := highlighter_create()
+    defer highlighter_destroy(&h)
+
+    b := strings.builder_make(context.temp_allocator)
+    for i in 0 ..< 400 {
+        fmt.sbprintf(&b, "proc_%d :: proc() {{\n    x := %d\n}}\n", i, i)
+    }
+    src := strings.to_string(b)
+
+    marker := "proc_200 ::"
+    lo := strings.index(src, marker)
+    testing.expect(t, lo > 0, "marker not found")
+    hi := lo + 200
+
+    windowed := highlight_range(&h, "", src, "odin", lo, hi, context.temp_allocator)
+    testing.expect(t, len(windowed) > 0, "expected spans in the window")
+
+    // Nothing outside the window, and still ascending and non-overlapping.
+    prev := 0
+    for s in windowed {
+        testing.expectf(t, s.end > lo && s.start < hi, "span %d..%d escaped window %d..%d", s.start, s.end, lo, hi)
+        testing.expect(t, s.start >= prev, "windowed spans overlap or are unsorted")
+        prev = s.end
+    }
+
+    // Same classification as the whole-document run inside the window.
+    whole := highlight(&h, "", src, "odin", context.temp_allocator)
+    // Needles unique to the window: head_at finds a needle's first occurrence,
+    // and one that also appears earlier would look up a span outside it.
+    for needle in ([?]string{"proc_200", "x := 200"}) {
+        want, ok_whole := head_at(whole, src, needle)
+        got, ok_win := head_at(windowed, src, needle)
+        testing.expectf(t, ok_whole && ok_win && want == got,
+            "%q: windowed %q vs whole %q", needle, got, want)
+    }
+
+    // The full range is exactly the whole-document answer.
+    full := highlight_range(&h, "", src, "odin", 0, max(int), context.temp_allocator)
+    testing.expect_value(t, len(full), len(whole))
+}
+
+// The property the windowing rests on: a construct that opens before the window
+// and reaches into it is still reported, with its real extent. A block comment
+// is the case that would mis-color the whole rest of the file if it were missed.
+@(test)
+test_highlight_range_straddling_node :: proc(t: ^testing.T) {
+    h := highlighter_create()
+    defer highlighter_destroy(&h)
+
+    b := strings.builder_make(context.temp_allocator)
+    strings.write_string(&b, "package p\n\n/* opening comment\n")
+    for i in 0 ..< 200 {
+        fmt.sbprintf(&b, " still inside the comment, line %d\n", i)
+    }
+    strings.write_string(&b, "*/\nafter :: proc() {}\n")
+    src := strings.to_string(b)
+
+    // A window entirely inside the comment body, far from where it opened.
+    lo := strings.index(src, "line 150")
+    testing.expect(t, lo > 0, "marker not found")
+    spans := highlight_range(&h, "", src, "odin", lo, lo + 20, context.temp_allocator)
+
+    got, ok := head_at(spans, src, "line 150")
+    testing.expectf(t, ok && got == "comment",
+        "a block comment opening before the window must still color it: got %q (found=%v)", got, ok)
+
+    // And its extent is the real one, reaching back before the window.
+    covering := false
+    for s in spans {
+        if s.start < lo && s.end > lo {
+            covering = true
+        }
+    }
+    testing.expect(t, covering, "the straddling span was clipped to the window")
+}

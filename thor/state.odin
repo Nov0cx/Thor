@@ -27,7 +27,7 @@ thor_apply_layout_state :: proc(thor: ^Thor) {
 }
 
 // Widget for a pane index (0 = primary, 1 = split).
-@(private = "file")
+@(private)
 thor_pane_editor :: proc(thor: ^Thor, pane: int) -> ^widgets.Editor {
     return pane == 0 ? thor.editor : thor.editor2
 }
