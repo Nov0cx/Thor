@@ -62,6 +62,13 @@ State :: struct {
     revision:   u64,
     // This document's soft-tab width; 0 follows the package default.
     tab_width:  int,
+    // Byte offset of every line start, so a line query is a binary search and not
+    // a scan from byte 0. Rebuilt at the first query after a content change, like
+    // the text snapshot, so a caller that never asks never pays. Offsets, not
+    // slices, so an edit cannot leave it pointing into dead text. owned
+    lines:          [dynamic]int,
+    lines_revision: u64,
+    lines_valid:    bool,
 }
 
 init :: proc(state: ^State) {
@@ -75,6 +82,7 @@ destroy :: proc(state: ^State) {
     clear_entries(&state.redo_stack)
     delete(state.undo_stack)
     delete(state.redo_stack)
+    delete(state.lines)
 }
 
 set_text :: proc(state: ^State, new_text: string) {
@@ -86,6 +94,9 @@ set_text :: proc(state: ^State, new_text: string) {
     state.undo_bytes = 0
     state.coalescing = false
     state.revision = 0
+    // The revision goes back to 0 here, so the table cannot detect this change by
+    // the revision alone.
+    state.lines_valid = false
 }
 
 // The buffer's contents, borrowed from the piece table. Valid until the first
@@ -1034,6 +1045,54 @@ line_start_of_index :: proc(txt: string, line: int) -> int {
         index += 1
     }
     return start
+}
+
+// The line table, rebuilt when the content changed since the last query. Main
+// thread only: it writes to the state.
+@(private)
+line_table :: proc(state: ^State) -> []int {
+    if state.lines_valid && state.lines_revision == state.revision {
+        return state.lines[:]
+    }
+
+    txt := text(state)
+    clear(&state.lines)
+    append(&state.lines, 0)
+    for i in 0 ..< len(txt) {
+        if txt[i] == '\n' {
+            append(&state.lines, i + 1)
+        }
+    }
+    state.lines_revision = state.revision
+    state.lines_valid = true
+    return state.lines[:]
+}
+
+// Zero-based index of the line holding `pos`, over the line table. Same result as
+// line_index, without the scan.
+state_line_index :: proc(state: ^State, pos: int) -> int {
+    lines := line_table(state)
+    // The last line that starts at or before `pos`.
+    lo, hi := 0, len(lines) - 1
+    for lo < hi {
+        mid := (lo + hi + 1) / 2
+        if lines[mid] <= pos {
+            lo = mid
+        } else {
+            hi = mid - 1
+        }
+    }
+    return lo
+}
+
+// Start byte of the given line index, clamped to the last line.
+state_line_start :: proc(state: ^State, line: int) -> int {
+    lines := line_table(state)
+    return lines[clamp(line, 0, len(lines) - 1)]
+}
+
+state_line_count :: proc(state: ^State) -> int {
+    return len(line_table(state))
 }
 
 // Start byte of the line `delta` lines from the one holding `pos`, clamped to

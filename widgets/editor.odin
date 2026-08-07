@@ -655,13 +655,12 @@ editor_line_at_offset :: proc(editor: ^Editor, pos: int) -> int {
 // start line, so a fold never strands the caret out of view.
 @(private = "file")
 editor_carets_out_of_folds :: proc(editor: ^Editor) {
-    text := textedit.text(editor.state)
     moved := false
     for &cursor in editor.state.cursors {
-        line := textedit.line_index(text, cursor.caret)
+        line := textedit.state_line_index(editor.state, cursor.caret)
         vis := editor_visible_line(editor, line)
         if vis != line {
-            cursor.caret = textedit.line_start_of_index(text, vis)
+            cursor.caret = textedit.state_line_start(editor.state, vis)
             cursor.anchor = cursor.caret
             moved = true
         }
@@ -677,8 +676,7 @@ editor_toggle_fold :: proc(editor: ^Editor) {
     if editor.state == nil {
         return
     }
-    text := textedit.text(editor.state)
-    caret_line := textedit.line_index(text, textedit.primary_cursor(editor.state).caret)
+    caret_line := textedit.state_line_index(editor.state, textedit.primary_cursor(editor.state).caret)
     best := -1
     for start, end in editor.foldable {
         if start <= caret_line && caret_line <= end && start > best {
@@ -767,7 +765,7 @@ editor_update_gutter :: proc(editor: ^Editor) {
     if editor.state == nil {
         return
     }
-    line_count := textedit.line_count(textedit.text(editor.state))
+    line_count := textedit.state_line_count(editor.state)
     digits := 1
     for n := line_count; n >= 10; n /= 10 {
         digits += 1
@@ -971,7 +969,7 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
            event.mouse_position.x >= editor.bounds.x + editor.gutter_width - fold_col &&
            event.mouse_position.x < editor.bounds.x + editor.gutter_width {
             if pos, ok := editor_pos_at(editor, event.mouse_position); ok {
-                editor_toggle_fold_line(editor, textedit.line_index(textedit.text(editor.state), pos))
+                editor_toggle_fold_line(editor, textedit.state_line_index(editor.state, pos))
             }
             return true
         }
@@ -1900,7 +1898,7 @@ editor_handle_hover :: proc(editor: ^Editor, mouse: rl.Vector2) {
 editor_hover_diagnostic :: proc(editor: ^Editor, offset: int, whole_line: bool) -> (Diagnostic, bool) {
     line := -1
     if whole_line && editor.state != nil {
-        line = textedit.line_index(textedit.text(editor.state), offset)
+        line = textedit.state_line_index(editor.state, offset)
     }
     best: Diagnostic
     found := false

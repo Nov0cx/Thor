@@ -1423,7 +1423,7 @@ thor_goto_file_line_col :: proc(thor: ^Thor, path: string, line, col: int) {
 @(private = "file")
 offset_for_line_col :: proc(file: ^Open_File, line, col: int) -> int {
     text := textedit.text(&file.state)
-    start := textedit.line_start_of_index(text, max(line - 1, 0)) + max(col - 1, 0)
+    start := textedit.state_line_start(&file.state, max(line - 1, 0)) + max(col - 1, 0)
     return clamp(start, 0, len(text))
 }
 

@@ -78,7 +78,7 @@ thor_apply_diagnostic :: proc(thor: ^Thor, d: lang.Diagnostic) {
         }
         text := textedit.text(&file.state)
         line0 := d.line - 1
-        start := textedit.line_start_of_index(text, line0) + (d.col - 1)
+        start := textedit.state_line_start(&file.state, line0) + (d.col - 1)
         start = clamp(start, 0, len(text))
         end := diagnostic_token_end(text, start)
         append(&file.diagnostics, widgets.Diagnostic {

@@ -748,8 +748,7 @@ thor_palette_goto_line :: proc(data: rawptr, line: int) {
     // Recorded like any other jump: this one stays inside the file, but a line
     // typed into the palette is still a place the caret was pulled away from.
     thor_jump_record(thor)
-    txt := textedit.text(&file.state)
-    pos := textedit.line_start_of_index(txt, line - 1)
+    pos := textedit.state_line_start(&file.state, line - 1)
     textedit.set_single_cursor(&file.state, pos)
     widgets.editor_scroll_to_caret(thor.editor)
 }

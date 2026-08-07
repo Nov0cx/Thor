@@ -266,7 +266,7 @@ thor_status_info :: proc(data: rawptr) -> widgets.Status_Info {
         text := textedit.text(&file.state)
         caret := textedit.primary_cursor(&file.state).caret
         line_start := textedit.line_start(text, caret)
-        caret_line := textedit.line_index(text, caret)
+        caret_line := textedit.state_line_index(&file.state, caret)
         info.line = caret_line + 1
         info.column = utf8.rune_count_in_string(text[line_start:caret]) + 1
 

@@ -409,6 +409,38 @@ test_relative_line_jump :: proc(t: ^testing.T) {
     testing.expect_value(t, line_index(text(&state), primary_cursor(&state).caret), 1)
 }
 
+// The line table must answer exactly what the scanning procs answer, at every
+// offset, and must follow an edit and a set_text.
+@(test)
+test_line_table_matches_scan :: proc(t: ^testing.T) {
+    state: State
+    init(&state)
+    defer destroy(&state)
+
+    insert_text(&state, "l0\nl1\n\nl3\n")
+    txt := text(&state)
+    testing.expect_value(t, state_line_count(&state), line_count(txt))
+    for pos in 0 ..= len(txt) {
+        testing.expect_value(t, state_line_index(&state, pos), line_index(txt, pos))
+    }
+    for line in -1 ..= state_line_count(&state) + 1 {
+        testing.expect_value(t, state_line_start(&state, line), line_start_of_index(txt, line))
+    }
+
+    // An edit moves every following line start, so the table must be rebuilt.
+    set_single_cursor(&state, 0)
+    insert_text(&state, "x\n")
+    txt = text(&state)
+    testing.expect_value(t, state_line_count(&state), line_count(txt))
+    testing.expect_value(t, state_line_start(&state, 1), line_start_of_index(txt, 1))
+
+    // set_text puts the revision back to 0, which the table cannot detect on its
+    // own.
+    set_text(&state, "a\nb")
+    testing.expect_value(t, state_line_count(&state), 2)
+    testing.expect_value(t, state_line_start(&state, 1), 2)
+}
+
 // Types `s` one character at a time, the way the editor feeds keystrokes in.
 @(private = "file")
 type_runes :: proc(state: ^State, s: string) {

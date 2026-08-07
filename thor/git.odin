@@ -343,7 +343,7 @@ git_apply_diff :: proc(thor: ^Thor, status: ^map[string]widgets.Git_Status, diff
         if lines, ok := diff[file.path]; ok {
             append(&file.diff_lines, ..lines[:])
         } else if s, has := status[file.path]; has && (s == .Untracked || s == .Added) {
-            n := textedit.line_count(textedit.text(&file.state))
+            n := textedit.state_line_count(&file.state)
             for _ in 0 ..< n {
                 append(&file.diff_lines, widgets.Diff_Line_Kind.Added)
             }

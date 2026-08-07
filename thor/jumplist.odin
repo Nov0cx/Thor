@@ -28,9 +28,8 @@ thor_current_location :: proc(thor: ^Thor) -> (path: string, line, col: int, ok:
         return
     }
     caret := textedit.primary_cursor(&file.state).caret
-    txt := textedit.text(&file.state)
-    index := textedit.line_index(txt, caret)
-    return file.path, index + 1, caret - textedit.line_start_of_index(txt, index) + 1, true
+    index := textedit.state_line_index(&file.state, caret)
+    return file.path, index + 1, caret - textedit.state_line_start(&file.state, index) + 1, true
 }
 
 // Records where the caret is as the spot a jump is leaving, and drops the
