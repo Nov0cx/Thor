@@ -71,6 +71,11 @@ Highlighter :: struct {
     // Keying on the source lets a plugin's own query live beside the built-in
     // one for the same grammar.
     queries:   map[string]ts.Query,
+    // The highlights query in force per language, so the per-keystroke path
+    // never rebuilds a key out of the multi-kilobyte query source. Keys are
+    // owned, values borrowed from `queries`; an entry is dropped when an
+    // override replaces the query.
+    resolved:  map[string]ts.Query,
     // Highlights query a plugin supplied for a grammar, replacing the compiled-in
     // one. Keys and values are owned.
     overrides: map[string]string,
@@ -87,6 +92,7 @@ highlighter_create :: proc() -> Highlighter {
     h.parser = ts.parser_new()
     h.languages = make(map[string]Language_Entry)
     h.queries = make(map[string]ts.Query)
+    h.resolved = make(map[string]ts.Query)
     h.overrides = make(map[string]string)
     treecache.init(&h.trees)
     h.languages["odin"] = Language_Entry{ts_odin.tree_sitter_odin(), ts_odin.HIGHLIGHTS + "\n" + ODIN_ALIASES}
@@ -122,6 +128,10 @@ highlighter_destroy :: proc(h: ^Highlighter) {
         delete(key)
     }
     delete(h.queries)
+    for id in h.resolved {
+        delete(id)
+    }
+    delete(h.resolved)
     for id, source in h.overrides {
         delete(id)
         delete(source)
@@ -578,9 +588,13 @@ capture_text :: proc(query: ts.Query, match: ts.Query_Match, capture_id: u32, so
 }
 
 // The highlights query for a language: the source a plugin supplied when there
-// is one, else the query compiled in with the grammar.
+// is one, else the query compiled in with the grammar. Answered from `resolved`
+// after the first call, so the hot path costs one lookup on the language id.
 @(private)
 highlighter_query :: proc(h: ^Highlighter, lang_id: string, entry: Language_Entry) -> ts.Query {
+    if cached, ok := h.resolved[lang_id]; ok {
+        return cached
+    }
     source := entry.highlights
     if override, ok := h.overrides[lang_id]; ok {
         source = override
@@ -589,6 +603,7 @@ highlighter_query :: proc(h: ^Highlighter, lang_id: string, entry: Language_Entr
     if err != .None {
         return nil
     }
+    h.resolved[strings.clone(lang_id)] = query
     return query
 }
 
@@ -622,6 +637,9 @@ set_highlights :: proc(h: ^Highlighter, lang_id, source: string) -> (offset: u32
     _, offset, err = query_for(h, lang_id, source)
     if err != .None {
         return offset, err
+    }
+    if key, _ := delete_key(&h.resolved, lang_id); key != "" {
+        delete(key)
     }
     if existing, ok := h.overrides[lang_id]; ok {
         delete(existing)
