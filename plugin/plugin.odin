@@ -153,6 +153,9 @@ Manager :: struct {
     key:          Callback,
     // When the on_tick handlers last ran (see manager_dispatch_tick).
     tick_at:      time.Tick,
+    // Plugin the next tick pass starts at, so a pass cut short by TICK_BUDGET
+    // resumes where it stopped.
+    tick_next:    int,
     // The Lua callback awaiting a dialog result (prompt/pick/confirm). Only one
     // dialog is open at a time, so a single slot suffices.
     dialog:       Callback,
@@ -539,20 +542,33 @@ api_on_tick :: proc "c" (L: ^lua.State) -> c.int {
     return 0
 }
 
-// Runs every registered on_tick handler, at most once per TICK_INTERVAL. Called
-// from the app's frame loop.
+// Wall clock one tick pass may spend on all handlers together. The sandbox caps
+// a single call, but several slow plugins add up, so a pass that runs over stops
+// and the next one continues at the plugin it stopped on.
+TICK_BUDGET :: 8 * time.Millisecond
+
+// Runs every registered on_tick handler, at most once per TICK_INTERVAL and for
+// at most TICK_BUDGET. Called from the app's frame loop.
 manager_dispatch_tick :: proc(m: ^Manager) {
     now := time.tick_now()
-    if time.tick_diff(m.tick_at, now) < TICK_INTERVAL {
+    if len(m.plugins) == 0 || time.tick_diff(m.tick_at, now) < TICK_INTERVAL {
         return
     }
     m.tick_at = now
-    for index in 0 ..< len(m.plugins) {
+    start := m.tick_next % len(m.plugins)
+    for offset in 0 ..< len(m.plugins) {
+        index := (start + offset) % len(m.plugins)
         ref := m.plugins[index].tick_ref
-        if ref != NOREF {
-            call_callback(m, Callback {index, ref}, 0, 0, "on_tick")
+        if ref == NOREF {
+            continue
+        }
+        call_callback(m, Callback {index, ref}, 0, 0, "on_tick")
+        if time.tick_since(now) >= TICK_BUDGET {
+            m.tick_next = (index + 1) % len(m.plugins)
+            return
         }
     }
+    m.tick_next = start
 }
 
 // thor.on_key(fn): handler run for every key press, given {chord, ctrl, shift,
