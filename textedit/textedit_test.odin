@@ -458,7 +458,7 @@ test_typing_coalesces_into_one_entry :: proc(t: ^testing.T) {
 
     type_runes(&state, "hello")
     testing.expect_value(t, text(&state), "hello")
-    testing.expect_value(t, len(state.undo_stack), 1)
+    testing.expect_value(t, state.undo_stack.count, 1)
 
     undo(&state)
     testing.expect_value(t, text(&state), "")
@@ -477,7 +477,7 @@ test_typing_run_breaks_on_class_change :: proc(t: ^testing.T) {
     defer destroy(&state)
 
     type_runes(&state, "two words")
-    testing.expect_value(t, len(state.undo_stack), 3)
+    testing.expect_value(t, state.undo_stack.count, 3)
 
     undo(&state)
     testing.expect_value(t, text(&state), "two ")
@@ -499,7 +499,7 @@ test_paste_is_its_own_entry :: proc(t: ^testing.T) {
     insert_text(&state, "cd")
     type_runes(&state, "ef")
     testing.expect_value(t, text(&state), "abcdef")
-    testing.expect_value(t, len(state.undo_stack), 3)
+    testing.expect_value(t, state.undo_stack.count, 3)
 
     undo(&state)
     testing.expect_value(t, text(&state), "abcd")
@@ -644,12 +644,12 @@ test_undo_history_is_capped :: proc(t: ^testing.T) {
     for i := 0; i < MAX_UNDO_ENTRIES + 50; i += 1 {
         insert_text(&state, "ab")
     }
-    testing.expect_value(t, len(state.undo_stack), MAX_UNDO_ENTRIES)
+    testing.expect_value(t, state.undo_stack.count, MAX_UNDO_ENTRIES)
 
     for i := 0; i < MAX_UNDO_ENTRIES + 50; i += 1 {
         undo(&state)
     }
-    testing.expect_value(t, len(state.undo_stack), 0)
+    testing.expect_value(t, state.undo_stack.count, 0)
     testing.expect_value(t, state.undo_bytes, 0)
     // The 50 dropped entries can no longer be undone.
     testing.expect_value(t, length(&state), 100)

@@ -48,10 +48,20 @@ Undo_Entry :: struct {
 MAX_UNDO_ENTRIES :: 1024
 MAX_UNDO_BYTES :: 16 * 1024 * 1024
 
+// The undo history: a ring, because the cap is reached in a long session and
+// every edit after that drops the oldest entry. A ring moves `start`; a plain
+// array would shift the whole history on every keystroke. The backing doubles
+// and is straightened out then, so the entries stay in one block.
+Undo_Ring :: struct {
+    entries: [dynamic]Undo_Entry, // owned
+    start:   int, // slot of the oldest entry
+    count:   int,
+}
+
 State :: struct {
     table:      piecetable.Piece_Table,
     cursors:    [dynamic]Cursor,
-    undo_stack: [dynamic]Undo_Entry,
+    undo_stack: Undo_Ring,
     redo_stack: [dynamic]Undo_Entry,
     // Op text held by undo_stack, against MAX_UNDO_BYTES.
     undo_bytes: int,
@@ -78,16 +88,15 @@ init :: proc(state: ^State) {
 destroy :: proc(state: ^State) {
     piecetable.piecetable_destroy(&state.table)
     delete(state.cursors)
-    clear_entries(&state.undo_stack)
+    ring_destroy(&state.undo_stack)
     clear_entries(&state.redo_stack)
-    delete(state.undo_stack)
     delete(state.redo_stack)
     delete(state.lines)
 }
 
 set_text :: proc(state: ^State, new_text: string) {
     piecetable.piecetable_set_text(&state.table, new_text)
-    clear_entries(&state.undo_stack)
+    ring_clear(&state.undo_stack)
     clear_entries(&state.redo_stack)
     clear(&state.cursors)
     append(&state.cursors, Cursor {})
@@ -772,10 +781,10 @@ delete_forward :: proc(state: ^State) {
 }
 
 undo :: proc(state: ^State) {
-    if len(state.undo_stack) == 0 {
+    if state.undo_stack.count == 0 {
         return
     }
-    entry := pop(&state.undo_stack)
+    entry := ring_pop(&state.undo_stack)
     state.undo_bytes -= entry_bytes(&entry)
     state.coalescing = false
 
@@ -817,7 +826,7 @@ redo :: proc(state: ^State) {
     for cursor in entry.cursors_after {
         append(&state.cursors, cursor)
     }
-    append(&state.undo_stack, entry)
+    ring_push(&state.undo_stack, entry)
     state.revision += 1
 }
 
@@ -834,7 +843,7 @@ finish_edit :: proc(state: ^State, entry: ^Undo_Entry, coalesce := Coalesce.None
     clear_entries(&state.redo_stack)
     if !coalesce_into_previous(state, entry) {
         state.undo_bytes += entry_bytes(entry)
-        append(&state.undo_stack, entry^)
+        ring_push(&state.undo_stack, entry^)
     }
     trim_undo_history(state)
     state.coalescing = coalesce != .None
@@ -852,11 +861,12 @@ entry_bytes :: proc(entry: ^Undo_Entry) -> int {
 
 @(private)
 trim_undo_history :: proc(state: ^State) {
-    for len(state.undo_stack) > 1 &&
-        (len(state.undo_stack) > MAX_UNDO_ENTRIES || state.undo_bytes > MAX_UNDO_BYTES) {
-        state.undo_bytes -= entry_bytes(&state.undo_stack[0])
-        entry_destroy(&state.undo_stack[0])
-        ordered_remove(&state.undo_stack, 0)
+    for state.undo_stack.count > 1 &&
+        (state.undo_stack.count > MAX_UNDO_ENTRIES || state.undo_bytes > MAX_UNDO_BYTES) {
+        oldest := ring_at(&state.undo_stack, 0)
+        state.undo_bytes -= entry_bytes(oldest)
+        entry_destroy(oldest)
+        ring_drop_front(&state.undo_stack)
     }
 }
 
@@ -911,10 +921,10 @@ join_op_text :: proc(first, second: string) -> string {
 // entry.
 @(private)
 coalesce_into_previous :: proc(state: ^State, entry: ^Undo_Entry) -> bool {
-    if !state.coalescing || entry.coalesce == .None || len(state.undo_stack) == 0 {
+    if !state.coalescing || entry.coalesce == .None || state.undo_stack.count == 0 {
         return false
     }
-    prev := &state.undo_stack[len(state.undo_stack) - 1]
+    prev := ring_at(&state.undo_stack, state.undo_stack.count - 1)
     if prev.coalesce != entry.coalesce || len(prev.ops) != len(entry.ops) || len(entry.ops) == 0 {
         return false
     }
@@ -983,6 +993,64 @@ entry_destroy :: proc(entry: ^Undo_Entry) {
     delete(entry.ops)
     delete(entry.cursors_before)
     delete(entry.cursors_after)
+}
+
+// The entry `i` places after the oldest one.
+@(private)
+ring_at :: proc(ring: ^Undo_Ring, i: int) -> ^Undo_Entry {
+    return &ring.entries[(ring.start + i) % len(ring.entries)]
+}
+
+@(private)
+ring_push :: proc(ring: ^Undo_Ring, entry: Undo_Entry) {
+    if ring.count == len(ring.entries) {
+        ring_grow(ring)
+    }
+    ring.entries[(ring.start + ring.count) % len(ring.entries)] = entry
+    ring.count += 1
+}
+
+// Takes the newest entry, for undo.
+@(private)
+ring_pop :: proc(ring: ^Undo_Ring) -> Undo_Entry {
+    ring.count -= 1
+    return ring_at(ring, ring.count)^
+}
+
+// Drops the oldest entry. The caller destroys it first; only the bounds move.
+@(private)
+ring_drop_front :: proc(ring: ^Undo_Ring) {
+    ring.start = (ring.start + 1) % len(ring.entries)
+    ring.count -= 1
+}
+
+// Doubles the backing and puts the entries back in order from slot 0. The
+// entries are moved as values, so the op text stays where it is.
+@(private)
+ring_grow :: proc(ring: ^Undo_Ring) {
+    grown := make([dynamic]Undo_Entry, max(len(ring.entries) * 2, 16))
+    for i in 0 ..< ring.count {
+        grown[i] = ring_at(ring, i)^
+    }
+    delete(ring.entries)
+    ring.entries = grown
+    ring.start = 0
+}
+
+@(private)
+ring_clear :: proc(ring: ^Undo_Ring) {
+    for i in 0 ..< ring.count {
+        entry_destroy(ring_at(ring, i))
+    }
+    ring.start = 0
+    ring.count = 0
+}
+
+@(private)
+ring_destroy :: proc(ring: ^Undo_Ring) {
+    ring_clear(ring)
+    delete(ring.entries)
+    ring.entries = nil
 }
 
 @(private)
