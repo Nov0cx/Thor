@@ -16,6 +16,13 @@ Context :: struct {
     focused:   ^Widget,
     mouse_pos: rl.Vector2,
     prev_mouse_pos: rl.Vector2,
+    // The last hit test of the frame. Every mouse event of a frame carries the
+    // same position, so the tree is walked once instead of once per event.
+    // Dropped at the head of a frame, because layout runs before the events, and
+    // when a widget goes away.
+    hit_pos:    rl.Vector2,
+    hit_widget: ^Widget,
+    hit_valid:  bool,
     // Double-click tracking for the left button.
     last_click_time: f64,
     last_click_pos:  rl.Vector2,
@@ -36,6 +43,8 @@ context_destroy :: proc(ctx: ^Context) {
     ctx.hot = nil
     ctx.active = nil
     ctx.focused = nil
+    ctx.hit_widget = nil
+    ctx.hit_valid = false
     event_queue_destroy(&ctx.events)
 }
 
@@ -51,10 +60,26 @@ context_forget :: proc(ctx: ^Context, subtree: ^Widget) {
     if widget_contains(subtree, ctx.focused) {
         ctx.focused = nil
     }
+    ctx.hit_widget = nil
+    ctx.hit_valid = false
 }
 
 context_set_root :: proc(ctx: ^Context, root: ^Widget) {
     ctx.root = root
+    ctx.hit_widget = nil
+    ctx.hit_valid = false
+}
+
+// The widget under `position`, from the last hit test when it tested the same
+// position in this frame.
+context_hit_test :: proc(ctx: ^Context, position: rl.Vector2) -> ^Widget {
+    if ctx.hit_valid && ctx.hit_pos == position {
+        return ctx.hit_widget
+    }
+    ctx.hit_pos = position
+    ctx.hit_widget = widget_hit_test(ctx.root, position)
+    ctx.hit_valid = true
+    return ctx.hit_widget
 }
 
 context_set_global_key :: proc(ctx: ^Context, global_key: Global_Key_Proc, data: rawptr) {
@@ -89,6 +114,8 @@ context_draw :: proc(ctx: ^Context) {
 
 context_collect_input :: proc(ctx: ^Context) {
     event_queue_clear(&ctx.events)
+    // Layout ran, so the bounds the last test read are gone.
+    ctx.hit_valid = false
 
     ctx.prev_mouse_pos = ctx.mouse_pos
     ctx.mouse_pos = rl.GetMousePosition()
@@ -235,7 +262,7 @@ context_process_events :: proc(ctx: ^Context) {
 
         switch event.kind {
         case .Mouse_Move:
-            ctx.hot = widget_hit_test(ctx.root, event.mouse_position)
+            ctx.hot = context_hit_test(ctx, event.mouse_position)
 
             if ctx.active != nil {
                 event.target = ctx.active
@@ -254,7 +281,7 @@ context_process_events :: proc(ctx: ^Context) {
             // Synthesized above, never queued; nothing to do at the top level.
 
         case .Mouse_Down:
-            event.target = widget_hit_test(ctx.root, event.mouse_position)
+            event.target = context_hit_test(ctx, event.mouse_position)
             ctx.active = event.target
             ctx.focused = event.target
 
@@ -264,7 +291,7 @@ context_process_events :: proc(ctx: ^Context) {
 
         case .Mouse_Up:
             release_target := ctx.active
-            hit_target := widget_hit_test(ctx.root, event.mouse_position)
+            hit_target := context_hit_test(ctx, event.mouse_position)
 
             if release_target != nil {
                 event.target = release_target
@@ -286,7 +313,7 @@ context_process_events :: proc(ctx: ^Context) {
 
         case .Click:
         case .Scroll:
-            event.target = widget_hit_test(ctx.root, event.mouse_position)
+            event.target = context_hit_test(ctx, event.mouse_position)
             if event.target != nil {
                 widget_dispatch_event(event.target, ctx, &event)
             }
