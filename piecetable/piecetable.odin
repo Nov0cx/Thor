@@ -14,9 +14,9 @@ Piece :: struct {
 }
 
 Piece_Table :: struct {
-    original: string,
-    add:      [dynamic]u8,
-    pieces:   [dynamic]Piece,
+    original: string,         // owned
+    add:      [dynamic]u8,    // owned
+    pieces:   [dynamic]Piece, // owned
     // Total bytes, maintained by the edits so a length query walks nothing.
     length:   int,
     // The contents as one buffer, rebuilt by piecetable_view on the first read

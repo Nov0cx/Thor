@@ -9,11 +9,11 @@ import win32 "core:sys/windows"
 // terminating it also ends the grandchildren that keep the output pipe open —
 // without it a killed shell can leave a build running and the reader blocked.
 Session :: struct {
-    process:  win32.HANDLE,
-    thread:   win32.HANDLE,
-    job:      win32.HANDLE,
-    stdin_w:  win32.HANDLE,
-    stdout_r: win32.HANDLE,
+    process:  win32.HANDLE, // owned
+    thread:   win32.HANDLE, // owned
+    job:      win32.HANDLE, // owned, nil when the job could not be made or assigned
+    stdin_w:  win32.HANDLE, // owned, nil after session_terminate closes it
+    stdout_r: win32.HANDLE, // owned
 }
 
 // Starts `profile` in `cwd` with stdin, stdout and stderr piped. Both output

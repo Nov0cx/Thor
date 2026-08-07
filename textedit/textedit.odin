@@ -36,9 +36,9 @@ Coalesce :: enum {
 }
 
 Undo_Entry :: struct {
-    ops:            [dynamic]Edit_Op,
-    cursors_before: [dynamic]Cursor,
-    cursors_after:  [dynamic]Cursor,
+    ops:            [dynamic]Edit_Op, // owned, with the text of every op
+    cursors_before: [dynamic]Cursor,  // owned
+    cursors_after:  [dynamic]Cursor,  // owned
     coalesce:       Coalesce,
 }
 
@@ -59,10 +59,10 @@ Undo_Ring :: struct {
 }
 
 State :: struct {
-    table:      piecetable.Piece_Table,
-    cursors:    [dynamic]Cursor,
-    undo_stack: Undo_Ring,
-    redo_stack: [dynamic]Undo_Entry,
+    table:      piecetable.Piece_Table, // owned
+    cursors:    [dynamic]Cursor,        // owned
+    undo_stack: Undo_Ring,              // owned
+    redo_stack: [dynamic]Undo_Entry,    // owned
     // Op text held by undo_stack, against MAX_UNDO_BYTES.
     undo_bytes: int,
     // True while the top undo entry can still absorb the next keystroke.

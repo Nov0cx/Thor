@@ -8,10 +8,10 @@ import "core:sys/posix"
 // A live shell. The child leads its own process group, so an interrupt reaches
 // the command it runs without ending the shell itself.
 Session :: struct {
-    pid:      posix.pid_t,
+    pid:      posix.pid_t, // owned, reaped by session_destroy
     group:    posix.pid_t,
-    stdin_w:  posix.FD,
-    stdout_r: posix.FD,
+    stdin_w:  posix.FD, // owned, -1 after session_terminate closes it
+    stdout_r: posix.FD, // owned
 }
 
 // Starts `profile` in `cwd` with stdin, stdout and stderr piped. Both output

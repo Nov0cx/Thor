@@ -24,11 +24,13 @@ Widget :: struct {
     grow:         f32,
     visible:      bool,
     enabled:      bool,
-    parent:       ^Widget,
-    first_child:  ^Widget,
-    last_child:   ^Widget,
-    prev_sibling: ^Widget,
-    next_sibling: ^Widget,
+    parent:       ^Widget, // borrowed
+    // The child list. widget_destroy_tree walks first_child and next_sibling,
+    // so those two links own; last_child and prev_sibling only point back.
+    first_child:  ^Widget, // owned
+    last_child:   ^Widget, // borrowed
+    prev_sibling: ^Widget, // borrowed
+    next_sibling: ^Widget, // owned
     vtable:       Widget_VTable,
 }
 

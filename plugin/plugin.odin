@@ -118,15 +118,15 @@ Host :: struct {
 
 // The single Lua state shared by all plugins. Not reentrant: one thread only.
 Manager :: struct {
-    state:       ^lua.State,
-    highlighter: syntax.Highlighter,
-    languages:   [dynamic]Language,
-    by_ext:      map[string]int, // ".odin" -> index into languages
+    state:       ^lua.State, // owned
+    highlighter: syntax.Highlighter, // owned
+    languages:   [dynamic]Language, // owned
+    by_ext:      map[string]int, // ".odin" -> index into languages; keys borrowed from languages
     // Used for every alloc and free, since Lua C callbacks run under a default context.
     allocator:   runtime.Allocator,
-    plugins:     [dynamic]Plugin,
+    plugins:     [dynamic]Plugin, // owned
     // Host services; `host` is the app pointer every proc takes.
-    host:             rawptr,
+    host:             rawptr, // borrowed
     print_proc:       Print_Proc,
     keybind_proc:     Keybind_Proc,
     doc_proc:         Doc_Proc,
@@ -160,9 +160,9 @@ Manager :: struct {
     // dialog is open at a time, so a single slot suffices.
     dialog:       Callback,
     // Named commands registered via thor.on_command; keys are owned.
-    commands:     map[string]Callback,
+    commands:     map[string]Callback, // owned, with the registry ref of every callback
     // Callbacks a rendered panel holds, so a re-render releases the old ones.
-    panel_refs:   map[string][dynamic]Callback,
+    panel_refs:   map[string][dynamic]Callback, // owned, keys and refs both
     // Bounds of the canvas being drawn, so a plugin draws in canvas coordinates.
     canvas:       Canvas_Rect,
     // Tree-sitter state backing thor.ts (see api_ts.odin).

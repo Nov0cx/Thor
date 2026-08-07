@@ -9,8 +9,9 @@ DOUBLE_CLICK_SECS :: 0.4
 DOUBLE_CLICK_DIST :: 4
 
 Context :: struct {
-    root:      ^Widget,
+    root:      ^Widget, // owned, freed by context_destroy
     events:    Event_Queue,
+    // Borrowed; context_forget drops them before their widgets go away.
     hot:       ^Widget,
     active:    ^Widget,
     focused:   ^Widget,
@@ -21,7 +22,7 @@ Context :: struct {
     // Dropped at the head of a frame, because layout runs before the events, and
     // when a widget goes away.
     hit_pos:    rl.Vector2,
-    hit_widget: ^Widget,
+    hit_widget: ^Widget, // borrowed
     hit_valid:  bool,
     // Double-click tracking for the left button.
     last_click_time: f64,
