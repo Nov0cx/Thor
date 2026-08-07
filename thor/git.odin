@@ -311,23 +311,24 @@ git_parse_hunk_header :: proc(line: string) -> (old_count, new_start, new_count:
     if len(parts) < 2 || len(parts[0]) < 1 || parts[0][0] != '-' || len(parts[1]) < 1 || parts[1][0] != '+' {
         return
     }
-    _, old_count = git_parse_range(parts[0][1:])
-    new_start, new_count = git_parse_range(parts[1][1:])
+    _, old_count = git_parse_range(parts[0][1:]) or_return
+    new_start, new_count = git_parse_range(parts[1][1:]) or_return
     ok = true
     return
 }
 
 // Parses "N" or "N,M" (a bare N means count 1, git's convention for a hunk
-// touching a single line).
+// touching a single line). Rejects negative values, which the callers index with.
 @(private = "file")
-git_parse_range :: proc(s: string) -> (start, count: int) {
+git_parse_range :: proc(s: string) -> (start, count: int, ok: bool) {
     if comma := strings.index_byte(s, ','); comma >= 0 {
-        start, _ = strconv.parse_int(s[:comma])
-        count, _ = strconv.parse_int(s[comma + 1:])
+        start = strconv.parse_int(s[:comma]) or_return
+        count = strconv.parse_int(s[comma + 1:]) or_return
     } else {
-        start, _ = strconv.parse_int(s)
+        start = strconv.parse_int(s) or_return
         count = 1
     }
+    ok = start >= 0 && count >= 0
     return
 }
 

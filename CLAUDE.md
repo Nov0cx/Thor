@@ -49,6 +49,30 @@ Linking needs MSVC on PATH (Thor links `harfbuzz.lib` and `libtree-sitter.lib`).
 Launching the GUI from an agent-spawned process hangs in `rl.InitWindow` — verify changes with
 `odin check` / `odin build` / the test suites, not by running the app.
 
+## Hooks and skills
+
+`.claude/` holds the agent tooling. Two PowerShell hooks in `.claude/hooks/`, wired in
+`.claude/settings.json`, run on every `Edit` and `Write` of an `.odin` file:
+
+- `check-platform-import.ps1` (PreToolUse) — blocks an OS-specific import in a file that is not the
+  matching platform file. `core:sys/windows` needs a `_windows.odin` name, `core:sys/posix` a
+  `_posix.odin` one, `core:sys/linux` and `core:sys/darwin` either `_posix.odin` or their own suffix.
+  It reads the `Write` content and the `Edit` replacement text, and exits 2 with the split to make.
+- `odin-check-package.ps1` (PostToolUse) — type-checks the package of the edited file: `odin check
+  <dir> -no-entry-point`, `odin check main` for `main/`, `odin check <file> -file` for a root file
+  like `build.odin`. It skips `vendor/` and `bin/`, and skips `_test.odin` files because `odin check`
+  drops them. A failure exits 2 with the compiler output.
+
+Three skills in `.claude/skills/`:
+
+- `verify` — the verification sweep to run after an Odin change: per-package type-check, the Linux
+  and macOS cross-checks with their expected noise named, then `build.odin -- test`. It also covers
+  the two lists a change can silently miss: the `packages` list in `run_tests` and `lang/ROADMAP.md`.
+- `ts-probe` — the throwaway `zprobe_test.odin` that dumps a real parse tree. Use it before matching
+  a tree-sitter node type, field or child order.
+- `grammar-add` — adds a tree-sitter grammar, keeping `build.odin`, `syntax/syntax.odin` and the four
+  CI workflows in step, then writes the plugin.
+
 ## Layout and dependency direction
 
 Packages only ever depend downward in this list; keeping that direction is what lets the lower layers
@@ -196,7 +220,7 @@ intuition (`x := v` is `assignment_statement`, `p: Point` is `var_declaration`, 
 drops its `[]` from the named children). The repo's technique for settling such a question: drop a
 throwaway `z*_test.odin` that recursively prints `ts.node_type` / `node_is_named` / `node_text` for
 **all** children (not `ts.node_string`, which hides the anonymous tokens that matter), run it with
-`-define:ODIN_TEST_NAMES=`, then delete it.
+`-define:ODIN_TEST_NAMES=`, then delete it. The `ts-probe` skill carries that probe ready to run.
 
 ## Syntax highlighting and plugins
 
