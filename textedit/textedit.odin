@@ -124,6 +124,23 @@ length :: proc(state: ^State) -> int {
     return piecetable.piecetable_length(&state.table)
 }
 
+// Why a checked edit did nothing.
+Error :: enum {
+    None,
+    Out_Of_Range,
+}
+
+// True when `pos` can start an edit: 0 <= pos <= length. The end is included,
+// because an insert appends there.
+valid_offset :: proc(state: ^State, pos: int) -> bool {
+    return piecetable.piecetable_valid_offset(&state.table, pos)
+}
+
+// True when `count` bytes from `pos` stay inside the buffer.
+valid_range :: proc(state: ^State, pos, count: int) -> bool {
+    return piecetable.piecetable_valid_range(&state.table, pos, count)
+}
+
 has_selection :: proc(cursor: Cursor) -> bool {
     return cursor.anchor != cursor.caret
 }

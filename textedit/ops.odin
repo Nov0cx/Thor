@@ -450,6 +450,53 @@ replace_ranges :: proc(state: ^State, ranges: []Replace) -> int {
     return len(edits)
 }
 
+// Inserts `s` at byte offset `pos` as one undo entry, remapping cursors. The
+// checked counterpart of the cursor-driven inserts, for an offset that comes
+// from outside the buffer's own state (an analyzer edit, a plugin). An
+// out-of-range offset changes nothing.
+@(require_results)
+insert_at :: proc(state: ^State, pos: int, s: string) -> Error {
+    if !valid_offset(state, pos) {
+        return .Out_Of_Range
+    }
+    if len(s) == 0 {
+        return .None
+    }
+    edits := [1]Line_Edit {{pos = pos, insert = s}}
+    apply_line_edits(state, text(state), edits[:])
+    return .None
+}
+
+// Deletes `count` bytes at byte offset `pos` as one undo entry, remapping
+// cursors. A range that leaves the buffer, or a negative one, changes nothing.
+@(require_results)
+delete_range :: proc(state: ^State, pos, count: int) -> Error {
+    if !valid_range(state, pos, count) {
+        return .Out_Of_Range
+    }
+    if count == 0 {
+        return .None
+    }
+    edits := [1]Line_Edit {{pos = pos, remove = count}}
+    apply_line_edits(state, text(state), edits[:])
+    return .None
+}
+
+// Replaces `count` bytes at `pos` with `s` as one undo entry. Same checks as
+// delete_range; the single-range form of replace_ranges.
+@(require_results)
+replace_range :: proc(state: ^State, pos, count: int, s: string) -> Error {
+    if !valid_range(state, pos, count) {
+        return .Out_Of_Range
+    }
+    if count == 0 && len(s) == 0 {
+        return .None
+    }
+    edits := [1]Line_Edit {{pos = pos, remove = count, insert = s}}
+    apply_line_edits(state, text(state), edits[:])
+    return .None
+}
+
 @(private = "file")
 Line_Edit :: struct {
     pos:    int,    // position in the original text

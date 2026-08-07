@@ -194,3 +194,41 @@ test_set_text_resets :: proc(t: ^testing.T) {
     testing.expect_value(t, piecetable_length(&pt), 6)
     testing.expect_value(t, len(pt.add), 0)
 }
+
+// The checked edits reject an offset outside the buffer and leave it untouched.
+@(test)
+test_checked_edits_reject_out_of_range :: proc(t: ^testing.T) {
+    pt := piecetable_create("hello")
+    defer piecetable_destroy(&pt)
+
+    testing.expect_value(t, piecetable_insert_checked(&pt, -1, "x"), Error.Out_Of_Range)
+    testing.expect_value(t, piecetable_insert_checked(&pt, 6, "x"), Error.Out_Of_Range)
+    testing.expect_value(t, piecetable_delete_checked(&pt, 3, 5), Error.Out_Of_Range)
+    testing.expect_value(t, piecetable_delete_checked(&pt, -1, 2), Error.Out_Of_Range)
+    testing.expect_value(t, piecetable_delete_checked(&pt, 0, -1), Error.Out_Of_Range)
+    testing.expect_value(t, piecetable_to_string(&pt, context.temp_allocator), "hello")
+    testing.expect_value(t, piecetable_length(&pt), 5)
+
+    // The bounds themselves are valid: an insert at length appends, a delete of
+    // the last byte ends exactly at length.
+    testing.expect_value(t, piecetable_insert_checked(&pt, 5, "!"), Error.None)
+    testing.expect_value(t, piecetable_delete_checked(&pt, 5, 1), Error.None)
+    testing.expect_value(t, piecetable_to_string(&pt, context.temp_allocator), "hello")
+}
+
+// The unchecked edits clamp instead of failing, which is what the checked ones
+// exist to catch.
+@(test)
+test_unchecked_edits_clamp :: proc(t: ^testing.T) {
+    pt := piecetable_create("ab")
+    defer piecetable_destroy(&pt)
+
+    piecetable_insert(&pt, 99, "c")
+    testing.expect_value(t, piecetable_to_string(&pt, context.temp_allocator), "abc")
+    piecetable_insert(&pt, -4, "z")
+    testing.expect_value(t, piecetable_to_string(&pt, context.temp_allocator), "zabc")
+
+    piecetable_delete(&pt, 2, 99)
+    testing.expect_value(t, piecetable_to_string(&pt, context.temp_allocator), "za")
+    testing.expect_value(t, piecetable_length(&pt), 2)
+}

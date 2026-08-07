@@ -103,6 +103,28 @@ piecetable_merge_at :: proc(pt: ^Piece_Table, i: int) {
     ordered_remove(&pt.pieces, i)
 }
 
+// Why a checked edit did nothing.
+Error :: enum {
+    None,
+    Out_Of_Range,
+}
+
+// True when `pos` can start an edit: 0 <= pos <= length. The end is included,
+// because an insert appends there.
+piecetable_valid_offset :: proc(pt: ^Piece_Table, pos: int) -> bool {
+    return pos >= 0 && pos <= pt.length
+}
+
+// True when `count` bytes from `pos` stay inside the buffer. Subtracts instead
+// of adding, so a very large `count` cannot overflow the sum.
+piecetable_valid_range :: proc(pt: ^Piece_Table, pos, count: int) -> bool {
+    return pos >= 0 && count >= 0 && pos <= pt.length && count <= pt.length - pos
+}
+
+// Inserts `text` at `pos`. `pos` must satisfy piecetable_valid_offset; an
+// out-of-range one is clamped to the start or the end, which silently writes
+// the text somewhere else. Use piecetable_insert_checked for a caller-supplied
+// offset.
 piecetable_insert :: proc(pt: ^Piece_Table, pos: int, text: string) {
     if len(text) == 0 {
         return
@@ -126,6 +148,9 @@ piecetable_insert :: proc(pt: ^Piece_Table, pos: int, text: string) {
     inject_at(&pt.pieces, index, Piece {source = .Add, start = add_start, length = len(text)})
 }
 
+// Deletes `delete_length` bytes at `pos`. The range must satisfy
+// piecetable_valid_range; a range that leaves the buffer removes only the part
+// inside it. Use piecetable_delete_checked for a caller-supplied range.
 piecetable_delete :: proc(pt: ^Piece_Table, pos: int, delete_length: int) {
     if delete_length <= 0 {
         return
@@ -141,6 +166,28 @@ piecetable_delete :: proc(pt: ^Piece_Table, pos: int, delete_length: int) {
     remove_range(&pt.pieces, start_index, end_index)
     // Removing the span can leave two runs of one buffer touching again.
     piecetable_merge_at(pt, start_index)
+}
+
+// Bounds-checked piecetable_insert: an out-of-range `pos` changes nothing and
+// reports .Out_Of_Range.
+@(require_results)
+piecetable_insert_checked :: proc(pt: ^Piece_Table, pos: int, text: string) -> Error {
+    if !piecetable_valid_offset(pt, pos) {
+        return .Out_Of_Range
+    }
+    piecetable_insert(pt, pos, text)
+    return .None
+}
+
+// Bounds-checked piecetable_delete: a range that leaves the buffer, or a
+// negative one, changes nothing and reports .Out_Of_Range.
+@(require_results)
+piecetable_delete_checked :: proc(pt: ^Piece_Table, pos: int, delete_length: int) -> Error {
+    if !piecetable_valid_range(pt, pos, delete_length) {
+        return .Out_Of_Range
+    }
+    piecetable_delete(pt, pos, delete_length)
+    return .None
 }
 
 @(private)

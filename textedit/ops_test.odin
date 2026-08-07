@@ -277,3 +277,64 @@ test_replace_ranges :: proc(t: ^testing.T) {
     testing.expect_value(t, m, 1)
     testing.expect_value(t, text(&state), "Xdef")
 }
+
+@(test)
+test_insert_at_and_delete_range :: proc(t: ^testing.T) {
+    state := ops_state("hello world", 0)
+    defer destroy(&state)
+
+    testing.expect_value(t, insert_at(&state, 5, ","), Error.None)
+    testing.expect_value(t, text(&state), "hello, world")
+
+    testing.expect_value(t, delete_range(&state, 0, 7), Error.None)
+    testing.expect_value(t, text(&state), "world")
+
+    testing.expect_value(t, replace_range(&state, 0, 5, "earth"), Error.None)
+    testing.expect_value(t, text(&state), "earth")
+
+    // Each landed as its own undo entry.
+    undo(&state)
+    testing.expect_value(t, text(&state), "world")
+    undo(&state)
+    testing.expect_value(t, text(&state), "hello, world")
+    undo(&state)
+    testing.expect_value(t, text(&state), "hello world")
+}
+
+// An offset outside the buffer is refused, not clamped, and changes neither the
+// text nor the undo history.
+@(test)
+test_checked_edits_reject_out_of_range :: proc(t: ^testing.T) {
+    state := ops_state("abc", 0)
+    defer destroy(&state)
+    revision := state.revision
+
+    testing.expect_value(t, insert_at(&state, 4, "x"), Error.Out_Of_Range)
+    testing.expect_value(t, insert_at(&state, -1, "x"), Error.Out_Of_Range)
+    testing.expect_value(t, delete_range(&state, 2, 5), Error.Out_Of_Range)
+    testing.expect_value(t, delete_range(&state, 0, -1), Error.Out_Of_Range)
+    testing.expect_value(t, replace_range(&state, 3, 1, "x"), Error.Out_Of_Range)
+    testing.expect_value(t, text(&state), "abc")
+    testing.expect_value(t, state.revision, revision)
+    testing.expect_value(t, state.undo_stack.count, 0)
+
+    testing.expect(t, valid_offset(&state, 3), "the end is a valid insert offset")
+    testing.expect(t, !valid_offset(&state, 4), "past the end is not")
+    testing.expect(t, valid_range(&state, 3, 0), "an empty range at the end is valid")
+    testing.expect(t, !valid_range(&state, 3, 1), "a byte past the end is not")
+}
+
+// The cursors move with the edit, like every other one-undo-entry operation.
+@(test)
+test_insert_at_remaps_cursors :: proc(t: ^testing.T) {
+    state := ops_state("abcdef", 4)
+    defer destroy(&state)
+
+    testing.expect_value(t, insert_at(&state, 1, "XY"), Error.None)
+    testing.expect_value(t, text(&state), "aXYbcdef")
+    testing.expect_value(t, primary_cursor(&state).caret, 6)
+
+    testing.expect_value(t, delete_range(&state, 0, 3), Error.None)
+    testing.expect_value(t, text(&state), "bcdef")
+    testing.expect_value(t, primary_cursor(&state).caret, 3)
+}
