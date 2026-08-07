@@ -98,6 +98,8 @@ be tested headlessly.
 - `lang` + `lang/odin` — language intelligence (see below).
 - `setting`, `watch`, `shell` — JSON settings/keybinds, the async recursive file-system watcher,
   process execution.
+- `msvc` — where VsDevCmd.bat is, found with vswhere. A leaf both `shell` (the developer-prompt
+  profile) and `build.odin` import, so the lookup exists once.
 - `thor` — the application: owns `Thor` (all state), builds the widget tree (`build.odin`), and
   hosts everything else. `main` only sets up the debug tracking allocator and calls
   `thor.init/run/shutdown`.

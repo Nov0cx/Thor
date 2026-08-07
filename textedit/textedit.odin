@@ -910,15 +910,9 @@ join_op_text :: proc(first, second: string) -> string {
     return joined
 }
 
-// Folds `entry` into the entry on top of the undo stack when the two are
-// consecutive keystrokes of the same kind, consuming its ops and cursor
-// snapshots. Reports whether it merged.
-//
-// The two entries must line up op for op, each op continuing the run of the one
-// it merges with: for typing, immediately after it; for a backspace, immediately
-// before. `shift` carries the bytes the already-merged ops of `entry` add ahead
-// of the current one, since those move the positions recorded against the older
-// entry.
+// Folds `entry` into the top undo entry when both are consecutive keystrokes of
+// the same kind, and reports the merge. The ops must line up one for one, each
+// continuing the run of its partner: for typing, after it; for a delete, before.
 @(private)
 coalesce_into_previous :: proc(state: ^State, entry: ^Undo_Entry) -> bool {
     if !state.coalescing || entry.coalesce == .None || state.undo_stack.count == 0 {
@@ -929,6 +923,8 @@ coalesce_into_previous :: proc(state: ^State, entry: ^Undo_Entry) -> bool {
         return false
     }
 
+    // Bytes the already-merged ops add ahead of this one, which move the
+    // positions recorded against the older entry.
     shift := 0
     for op, i in entry.ops {
         old := prev.ops[i]

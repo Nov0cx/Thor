@@ -6,6 +6,7 @@ import "core:os"
 import "core:path/filepath"
 import "core:strings"
 import win32 "core:sys/windows"
+import "../msvc"
 
 // An empty prompt function: PowerShell writes the prompt to stdout before every
 // command it reads, and a terminal draws its own.
@@ -79,7 +80,7 @@ profiles_detect :: proc(allocator := context.allocator) -> []Profile {
 
     // The MSVC environment is loaded by the batch file the installer ships;
     // -startdir=none keeps it from moving out of the workspace directory.
-    if vsdevcmd, ok := find_vsdevcmd(); ok {
+    if vsdevcmd, ok := msvc.find_vsdevcmd(); ok {
         call := fmt.tprintf(`call "%s" -arch=amd64 -host_arch=amd64 -startdir=none`, vsdevcmd)
         add_profile(
             &list,
@@ -249,37 +250,6 @@ git_bash_beside_git :: proc() -> string {
     // filepath.dir slices the path it is given; neither result is allocated.
     root := filepath.dir(filepath.dir(git))
     return join_temp(root, "bin/bash.exe")
-}
-
-// Installation path of the newest Visual Studio with the C++ tools, as vswhere
-// reports it, plus the batch file that loads its environment.
-@(private = "file")
-find_vsdevcmd :: proc() -> (string, bool) {
-    vswhere := "C:/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
-    if !os.is_file(vswhere) {
-        return "", false
-    }
-
-    desc := os.Process_Desc {
-        command = {
-            vswhere,
-            "-latest",
-            "-products", "*",
-            "-requires", "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
-            "-property", "installationPath",
-        },
-    }
-    state, stdout, _, err := os.process_exec(desc, context.temp_allocator)
-    if err != nil || state.exit_code != 0 {
-        return "", false
-    }
-
-    install := strings.trim_space(string(stdout))
-    if install == "" {
-        return "", false
-    }
-    bat := join_temp(install, "Common7/Tools/VsDevCmd.bat")
-    return bat, os.is_file(bat)
 }
 
 // Joins onto a directory that may be unset, in which case the result is empty

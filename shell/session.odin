@@ -6,9 +6,8 @@ import "core:strings"
 import "core:time"
 
 // A shell process kept alive with its streams piped, so one terminal runs many
-// commands in one shell: a `cd` sticks and an environment loaded once stays
-// loaded. `run` is the one-shot counterpart, for a command whose output the
-// caller only wants at the end.
+// commands in one shell: a `cd` sticks and a loaded environment stays loaded.
+// `run` is the one-shot counterpart.
 //
 // Each platform file supplies:
 //
@@ -20,11 +19,10 @@ import "core:time"
 //     session_terminate :: proc(session: ^Session)
 //     session_destroy   :: proc(session: ^Session)
 //
-// session_read blocks until the shell writes, returning 0 at the end of the
-// stream, so it belongs on a reader thread. That is why shutdown takes two
-// steps: session_terminate kills the shell (which ends the blocked read) and is
-// safe to call while the reader runs, session_destroy releases the handles and
-// is only legal once the reader is joined.
+// session_read blocks until the shell writes and returns 0 at the end of the
+// stream, so it belongs on a reader thread. Shutdown is two steps:
+// session_terminate kills the shell and is safe to call while the reader blocks,
+// session_destroy releases the handles only after the reader is joined.
 //
 // session_interrupt reports false where the platform cannot signal a running
 // command without a pseudo-terminal; the caller then restarts the session.

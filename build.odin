@@ -18,6 +18,7 @@ import "core:fmt"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
+import "msvc"
 
 EXE_EXT :: ".exe" when ODIN_OS == .Windows else ""
 LIB_EXT :: ".lib" when ODIN_OS == .Windows else ".a"
@@ -402,7 +403,7 @@ exec_msvc :: proc(args: []string, working_dir := "") -> bool {
         if os.get_env("VSINSTALLDIR", context.temp_allocator) != "" {
             return exec(args, working_dir)
         }
-        vsdevcmd, found := find_vsdevcmd()
+        vsdevcmd, found := msvc.find_vsdevcmd()
         if !found {
             fmt.eprintln("[build] the MSVC tools are absent (install Visual Studio with the C++ workload)")
             return false
@@ -439,35 +440,6 @@ exec_msvc :: proc(args: []string, working_dir := "") -> bool {
         }
         return exec({"cmd", "/c", bat}, quiet = true)
     }
-}
-
-find_vsdevcmd :: proc() -> (path: string, ok: bool) {
-    vswhere := "C:/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
-    if !os.exists(vswhere) {
-        return "", false
-    }
-
-    desc := os.Process_Desc {
-        command = {
-            vswhere,
-            "-latest",
-            "-products", "*",
-            "-requires", "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
-            "-property", "installationPath",
-        },
-    }
-    state, stdout, _, err := os.process_exec(desc, context.temp_allocator)
-    if err != nil || state.exit_code != 0 {
-        return "", false
-    }
-
-    install := strings.trim_space(string(stdout))
-    if install == "" {
-        return "", false
-    }
-
-    bat := join(install, "Common7", "Tools", "VsDevCmd.bat")
-    return bat, os.exists(bat)
 }
 
 // Joins the arguments into one command line, quoting each one that has a space.

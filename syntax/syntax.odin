@@ -44,16 +44,11 @@ Language_Entry :: struct {
     highlights: string,
 }
 
-// Odin type aliases, appended to the vendored highlights query (later patterns
-// win, as the js/ts composition above relies on). The vendored query only tags
-// the right-hand sides that are unmistakably types — `distinct`, an array, a
-// bit_set, a pointer — leaving `Vec :: Point`, `Vec :: other.Point`,
-// `M :: map[K]V`, `Mat :: matrix[N, M]T` and `C :: #type proc(...)` reading as
-// plain variables, though each declares a type just as `Point :: struct` does.
-// A bare name is ambiguous — a constant aliasing another constant has the same
-// shape, and nothing in the tree separates them — so the type reading wins,
-// being the one the rest of the editor already follows to the declaration behind
-// it. Kept here rather than in the vendored .scm so re-vendoring can't drop it.
+// Odin type aliases, appended to the vendored highlights query, which tags only
+// the unmistakable right-hand sides and leaves `Vec :: Point`, `M :: map[K]V`
+// and `C :: #type proc(...)` as plain variables. Later patterns win. A bare name
+// is ambiguous with a constant alias, and the type reading wins. Kept here so
+// re-vendoring the .scm cannot drop it.
 @(private)
 ODIN_ALIASES :: `
 (const_declaration (identifier) @type "::"

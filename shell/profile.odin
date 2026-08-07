@@ -10,8 +10,8 @@ import "core:strings"
 //
 //     profiles_detect :: proc(allocator := context.allocator) -> []Profile
 //
-// It returns every shell installed on this machine, best first. Every string in
-// the result is owned; release the slice with profiles_destroy.
+// It returns every shell installed on this machine, best first. The result is
+// owned; release it with profiles_destroy.
 
 // How a shell spells the things the terminal has to say. One entry per syntax,
 // not per shell: bash, zsh, dash and git bash all share Posix.
