@@ -66,6 +66,42 @@ test_console_append_keeps_tabs :: proc(t: ^testing.T) {
     testing.expect_value(t, console_text(console), "a\tb\n")
 }
 
+// The line index grows with the output and follows it back down when a carriage
+// return rewinds the last line or a clear empties the scrollback.
+@(test)
+test_console_line_index_tracks_output :: proc(t: ^testing.T) {
+    console := console_create("test")
+    defer console_destroy(&console.widget)
+    console_clear(console)
+
+    console_append(console, "one\ntwo\n")
+    line, ok := console_line_at(console, 1)
+    testing.expect(t, ok, "the second line is indexed")
+    testing.expect_value(t, line, "two")
+    // A trailing newline ends an empty last line, and nothing follows it.
+    line, ok = console_line_at(console, 2)
+    testing.expect(t, ok, "the empty last line is indexed")
+    testing.expect_value(t, line, "")
+    _, ok = console_line_at(console, 3)
+    testing.expect(t, !ok, "past the last line reads nothing")
+    _, ok = console_line_at(console, -1)
+    testing.expect(t, !ok, "a negative index reads nothing")
+
+    console_append(console, "50%\r100%")
+    line, ok = console_line_at(console, 2)
+    testing.expect(t, ok, "the rewritten line is indexed")
+    testing.expect_value(t, line, "100%")
+    _, ok = console_line_at(console, 3)
+    testing.expect(t, !ok, "the rewind adds no line")
+
+    console_clear(console)
+    line, ok = console_line_at(console, 0)
+    testing.expect(t, ok, "a cleared console still has one empty line")
+    testing.expect_value(t, line, "")
+    _, ok = console_line_at(console, 1)
+    testing.expect(t, !ok, "a cleared console has nothing after it")
+}
+
 // The wheel stops at both ends of the scrollback, so the view never leaves the
 // output behind; reaching the last line makes it follow new output again.
 @(test)

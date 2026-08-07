@@ -36,6 +36,11 @@ Console :: struct {
     running:          bool,
     // A CR ended the last chunk; its newline may still be coming.
     pending_cr:       bool,
+    // Byte offset of every scrollback line, first entry 0. Grown incrementally
+    // from `indexed_len` so a long log is never rescanned whole. owned
+    line_starts:      [dynamic]int,
+    // Bytes of `output` the index covers.
+    indexed_len:      int,
     // Submitted commands, oldest first, walked with the arrow keys. owned
     history:          [dynamic]string,
     // Position in history while walking; len(history) is the live input line.
@@ -80,8 +85,44 @@ console_set_on_context_menu :: proc(console: ^Console, on_context_menu: Context_
 // Wipes the scrollback and re-pins the view to the bottom.
 console_clear :: proc(console: ^Console) {
     strings.builder_reset(&console.output)
+    clear(&console.line_starts)
+    append(&console.line_starts, 0)
+    console.indexed_len = 0
     console.scroll_y = 0
     console.autoscroll = true
+}
+
+// Indexes the bytes appended since the last call. Every reader of a line calls
+// it first; the writers only call it before they shorten the buffer, which is
+// the one case the incremental scan cannot see.
+@(private = "file")
+console_index_lines :: proc(console: ^Console) {
+    buf := console.output.buf[:]
+    for i := console.indexed_len; i < len(buf); i += 1 {
+        if buf[i] == '\n' {
+            append(&console.line_starts, i + 1)
+        }
+    }
+    console.indexed_len = len(buf)
+}
+
+// Number of scrollback lines; a trailing newline ends an empty last line.
+@(private = "file")
+console_line_count :: proc(console: ^Console) -> int {
+    console_index_lines(console)
+    return len(console.line_starts)
+}
+
+// Line `index` without its newline (borrowed; valid until the next
+// append/clear). The index must be in range and the line index current.
+@(private = "file")
+console_line_text :: proc(console: ^Console, index: int) -> string {
+    buf := console.output.buf[:]
+    end := len(buf)
+    if index + 1 < len(console.line_starts) {
+        end = console.line_starts[index + 1] - 1
+    }
+    return string(buf[console.line_starts[index]:end])
 }
 
 // The full scrollback text (borrowed; valid until the next append/clear).
@@ -111,6 +152,8 @@ console_create :: proc(id: string) -> ^Console {
     console := new(Console)
     ui.widget_init(&console.widget, id, console_vtable)
     console.output = strings.builder_make()
+    console.line_starts = make([dynamic]int)
+    append(&console.line_starts, 0)
     console.input = make([dynamic]u8)
     console.history = make([dynamic]string)
     console.autoscroll = true
@@ -164,18 +207,14 @@ console_line_index_at :: proc(console: ^Console, pos: rl.Vector2) -> int {
     return cast(int) (rel / line_height)
 }
 
-// The scrollback line at `index` (borrowed, temp-allocated split), or ok=false
-// when the index is out of range.
-@(private = "file")
+// The scrollback line at `index` (borrowed; valid until the next append/clear),
+// or ok=false when the index is out of range.
+@(private)
 console_line_at :: proc(console: ^Console, index: int) -> (string, bool) {
-    if index < 0 {
+    if index < 0 || index >= console_line_count(console) {
         return "", false
     }
-    lines := strings.split(strings.to_string(console.output), "\n", context.temp_allocator)
-    if index >= len(lines) {
-        return "", false
-    }
-    return lines[index], true
+    return console_line_text(console, index), true
 }
 
 // Fires the owner's activate callback if the line under `pos` resolves to a link.
@@ -241,12 +280,17 @@ console_append :: proc(console: ^Console, text: string) {
 // Drops the last line back to its start, for a carriage return that rewrites it.
 @(private = "file")
 console_rewind_line :: proc(console: ^Console) {
+    console_index_lines(console)
     buf := &console.output.buf
     n := len(buf)
     for n > 0 && buf[n - 1] != '\n' {
         n -= 1
     }
     resize(buf, n)
+    for len(console.line_starts) > 1 && console.line_starts[len(console.line_starts) - 1] > n {
+        pop(&console.line_starts)
+    }
+    console.indexed_len = n
 }
 
 // Length of the escape sequence at the front of `data`. A sequence cut off by
@@ -349,8 +393,7 @@ console_input_height :: proc(console: ^Console) -> f32 {
 // view stops there, so the scrollback never scrolls into blank space.
 @(private = "file")
 console_max_scroll :: proc(console: ^Console) -> f32 {
-    lines := strings.count(strings.to_string(console.output), "\n") + 1
-    content_height := cast(f32) lines * console_line_height(console)
+    content_height := cast(f32) console_line_count(console) * console_line_height(console)
     return max(0, content_height - (console.bounds.height - console_input_height(console)))
 }
 
@@ -442,8 +485,8 @@ console_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
         height = console.bounds.height - input_height,
     }
 
-    lines := strings.split(strings.to_string(console.output), "\n", context.temp_allocator)
-    content_height := cast(f32) len(lines) * line_height
+    line_count := console_line_count(console)
+    content_height := cast(f32) line_count * line_height
     // Output that shrinks (a rewound line, a clear) can leave a stale offset past
     // the end, so the clamp runs whether or not the view is following.
     max_scroll := max(0, content_height - output_rect.height)
@@ -456,12 +499,18 @@ console_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
         hover_index = console_line_index_at(console, ctx.mouse_pos)
     }
 
+    // Only the lines the output area shows are drawn, so scrollback length costs
+    // nothing per frame.
+    first := max(0, cast(int) (max(0, console.scroll_y - pad) / line_height) - 1)
+    last := min(line_count - 1, cast(int) ((console.scroll_y - pad + output_rect.height) / line_height) + 1)
+
     ui.begin_clip(output_rect)
-    for line, index in lines {
+    for index := first; index <= last; index += 1 {
         y := output_rect.y + pad + cast(f32) index * line_height - console.scroll_y
         if y + line_height < output_rect.y || y > output_rect.y + output_rect.height {
             continue
         }
+        line := console_line_text(console, index)
         color := console.text_color
         if index == hover_index {
             if s, e, ok := console.on_link(console.link_data, line); ok {
@@ -503,6 +552,7 @@ console_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
 console_destroy :: proc(widget: ^ui.Widget) {
     console := cast(^Console) widget
     strings.builder_destroy(&console.output)
+    delete(console.line_starts)
     delete(console.input)
     for command in console.history {
         delete(command)
