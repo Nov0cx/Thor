@@ -54,6 +54,10 @@ Tree_Node :: struct {
 Tree :: struct {
     using widget: ui.Widget,
     root:             ^Tree_Node,
+    // Visible rows in draw order, kept between frames. Every change to the node
+    // tree or its expanded set must set rows_dirty.
+    rows:             [dynamic]Tree_Row, // owned
+    rows_dirty:       bool,
     scroll_y:         f32,
     font_size:        i32,
     icon_size:        i32,
@@ -148,6 +152,7 @@ tree_create :: proc(id, root_path: string) -> ^Tree {
     tree.root.is_dir = true
     tree.root.expanded = true
     tree_load_children(tree.root)
+    tree.rows_dirty = true
 
     return tree
 }
@@ -162,6 +167,7 @@ tree_set_root :: proc(tree: ^Tree, root_path: string) {
     tree.root.is_dir = true
     tree.root.expanded = true
     tree_load_children(tree.root)
+    tree.rows_dirty = true
 
     tree_clear_multi_select(tree)
     delete(tree.selected_path)
@@ -548,6 +554,7 @@ tree_refresh :: proc(tree: ^Tree) {
     clear(&tree.root.children)
     tree_load_children(tree.root)
     tree_apply_expanded(tree.root, &expanded)
+    tree.rows_dirty = true
 }
 
 @(private = "file")
@@ -573,11 +580,31 @@ tree_apply_expanded :: proc(node: ^Tree_Node, expanded: ^map[string]bool) {
     }
 }
 
+// The rows in draw order, borrowed from the tree and invalidated by the next
+// expand, collapse or refresh. Rebuilds only when the row list is stale.
 @(private = "file")
-tree_visible_rows :: proc(tree: ^Tree, allocator := context.temp_allocator) -> [dynamic]Tree_Row {
-    rows := make([dynamic]Tree_Row, allocator)
-    tree_collect_rows(tree.root, 0, &rows)
-    return rows
+tree_visible_rows :: proc(tree: ^Tree) -> []Tree_Row {
+    if tree.rows_dirty {
+        clear(&tree.rows)
+        tree_collect_rows(tree.root, 0, &tree.rows)
+        tree.rows_dirty = false
+    }
+    return tree.rows[:]
+}
+
+// Opens or shuts a folder, reading it from disk on first open. The only way
+// expansion changes, so the row list cannot go stale unnoticed.
+@(private = "file")
+tree_set_expanded :: proc(tree: ^Tree, node: ^Tree_Node, expanded: bool) {
+    if node.expanded == expanded {
+        return
+    }
+    node.expanded = expanded
+    if expanded && !node.loaded {
+        tree_load_children(node)
+    }
+    tree.rows_dirty = true
+    tree_clamp_scroll(tree)
 }
 
 @(private = "file")
@@ -750,11 +777,7 @@ tree_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event) 
                     }
                     node := row.node
                     if node.is_dir {
-                        node.expanded = !node.expanded
-                        if node.expanded && !node.loaded {
-                            tree_load_children(node)
-                        }
-                        tree_clamp_scroll(tree)
+                        tree_set_expanded(tree, node, !node.expanded)
                     } else if tree.on_open != nil {
                         tree.on_open(tree.open_data, node.path)
                     }
@@ -798,7 +821,7 @@ tree_select_node :: proc(tree: ^Tree, node: ^Tree_Node) {
 @(private = "file")
 tree_scroll_to_selection :: proc(tree: ^Tree) {
     rows := tree_visible_rows(tree)
-    index := tree_selected_index(tree, rows[:])
+    index := tree_selected_index(tree, rows)
     if index < 0 {
         return
     }
@@ -819,7 +842,7 @@ tree_focus :: proc(tree: ^Tree) {
     if len(rows) == 0 {
         return
     }
-    if tree_selected_index(tree, rows[:]) < 0 {
+    if tree_selected_index(tree, rows) < 0 {
         tree_select_node(tree, rows[0].node)
     }
 }
@@ -833,7 +856,7 @@ tree_handle_key :: proc(tree: ^Tree, event: ^ui.Event) -> bool {
     if len(rows) == 0 {
         return false
     }
-    index := tree_selected_index(tree, rows[:])
+    index := tree_selected_index(tree, rows)
 
     #partial switch event.key {
     case .UP:
@@ -852,8 +875,7 @@ tree_handle_key :: proc(tree: ^Tree, event: ^ui.Event) -> bool {
         }
         node := rows[index].node
         if node.is_dir && node.expanded {
-            node.expanded = false
-            tree_clamp_scroll(tree)
+            tree_set_expanded(tree, node, false)
         } else if node.parent != nil && node.parent != tree.root {
             tree_select_node(tree, node.parent)
             tree_scroll_to_selection(tree)
@@ -868,11 +890,7 @@ tree_handle_key :: proc(tree: ^Tree, event: ^ui.Event) -> bool {
             return true
         }
         if !node.expanded {
-            node.expanded = true
-            if !node.loaded {
-                tree_load_children(node)
-            }
-            tree_clamp_scroll(tree)
+            tree_set_expanded(tree, node, true)
         } else if len(node.children) > 0 {
             tree_select_node(tree, node.children[0])
             tree_scroll_to_selection(tree)
@@ -884,11 +902,7 @@ tree_handle_key :: proc(tree: ^Tree, event: ^ui.Event) -> bool {
         }
         node := rows[index].node
         if node.is_dir {
-            node.expanded = !node.expanded
-            if node.expanded && !node.loaded {
-                tree_load_children(node)
-            }
-            tree_clamp_scroll(tree)
+            tree_set_expanded(tree, node, !node.expanded)
         } else if tree.on_open != nil {
             tree.on_open(tree.open_data, node.path)
         }
@@ -1183,6 +1197,7 @@ tree_file_icon :: proc(name: string) -> string {
 tree_destroy :: proc(widget: ^ui.Widget) {
     tree := cast(^Tree) widget
     tree_node_destroy(tree.root)
+    delete(tree.rows)
     tree_clear_multi_select(tree)
     delete(tree.multi_selected)
     tree_clear_drag_sources(tree)
