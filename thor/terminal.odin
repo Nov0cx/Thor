@@ -310,6 +310,7 @@ Shell_Detect_Job :: struct {
 // empty until the scan lands, so `thor.console` is nil for the first frames.
 thor_terminals_init :: proc(thor: ^Thor) {
     thor.terminals = make([dynamic]^Terminal)
+    thor.terminals_live = true
     thor.active_terminal = -1
 
     job := new(Shell_Detect_Job)
@@ -341,9 +342,8 @@ thor_apply_shell_profiles :: proc(thor: ^Thor, job: ^Shell_Detect_Job) {
     free(job)
     thor.inflight_jobs -= 1
 
-    // Shutdown drains what is still in flight, and nils the terminal list; there
-    // is no console left to fill.
-    if thor.terminals == nil {
+    // Shutdown drains what is still in flight; there is no console left to fill.
+    if !thor.terminals_live {
         shell.profiles_destroy(profiles)
         return
     }
@@ -446,6 +446,7 @@ thor_terminals_shutdown :: proc(thor: ^Thor) {
     shell.profiles_destroy(thor.shell_profiles)
     // Draining the I/O queue still pumps the terminals, so leave nothing to walk.
     thor.terminals = nil
+    thor.terminals_live = false
     thor.shell_choices = nil
     thor.shell_profiles = nil
     thor.console = nil

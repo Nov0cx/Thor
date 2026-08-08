@@ -217,6 +217,10 @@ Thor :: struct {
     console_backlog:          strings.Builder,
     // One terminal per console tab, each on its own shell. owned
     terminals:                [dynamic]^Terminal,
+    // True between thor_terminals_init and thor_terminals_shutdown. An empty
+    // terminal list and a shut-down one are the same value, so the state is
+    // held apart from it.
+    terminals_live:           bool,
     active_terminal:          int,
     // The shells installed on this machine, best first. owned
     shell_profiles:           []shell.Profile,
