@@ -100,53 +100,53 @@ thor_apply_theme :: proc(thor: ^Thor) {
     widgets.splitter_set_colors(thor.console_splitter, t.border, t.highlight, t.accent_color)
     widgets.splitter_set_colors(thor.editor_split_splitter, t.border, t.highlight, t.accent_color)
 
-    widgets.dialog_set_colors(thor.dialog, t.white_black_color, t.highlight, t.notifications, t.border)
+    widgets.dialog_set_colors(thor.dialog, t.primary_text_color, t.highlight, t.notifications, t.border)
 
     widgets.command_palette_set_colors(
         thor.command_palette,
-        t.second_background, t.accent_color, t.background, t.white_black_color, t.gray_color, selected, t.accent_color,
+        t.second_background, t.accent_color, t.background, t.primary_text_color, t.muted_color, selected, t.accent_color,
     )
     widgets.select_dialog_set_colors(
         thor.select_dialog,
-        t.second_background, t.accent_color, t.highlight, t.white_black_color, t.gray_color, selected, t.accent_color,
+        t.second_background, t.accent_color, t.highlight, t.primary_text_color, t.muted_color, selected, t.accent_color,
     )
     widgets.settings_view_set_colors(
         thor.settings_view,
-        t.second_background, t.accent_color, t.highlight, t.background, t.white_black_color, t.gray_color, t.accent_color,
+        t.second_background, t.accent_color, t.highlight, t.background, t.primary_text_color, t.muted_color, t.accent_color,
         t.selection_background,
     )
     widgets.find_replace_set_colors(
         thor.find_replace,
-        t.second_background, t.accent_color, t.background, t.white_black_color, t.gray_color, t.buttons, t.accent_color,
+        t.second_background, t.accent_color, t.background, t.primary_text_color, t.muted_color, t.buttons, t.accent_color,
     )
     widgets.menu_set_colors(
         thor.menu,
-        t.second_background, t.accent_color, t.white_black_color, t.gray_color, selected, t.border,
+        t.second_background, t.accent_color, t.primary_text_color, t.muted_color, selected, t.border,
     )
 
     widgets.tree_set_colors(
         thor.tree,
-        t.foreground, t.white_black_color, t.blue_color, t.gray_color, t.tree, t.selection_background, t.second_background,
+        t.foreground, t.primary_text_color, t.info_color, t.muted_color, t.tree, t.selection_background, t.second_background,
     )
-    widgets.tree_set_git_colors(thor.tree, t.yellow_color, t.green_color, t.red_color, t.orange_color, t.purple_color)
+    widgets.tree_set_git_colors(thor.tree, t.warning_color, t.success_color, t.danger_color, t.conflict_color, t.submodule_color)
 
     widgets.tabbar_set_colors(
         thor.tabbar,
-        t.foreground, t.white_black_color, t.active, t.buttons, t.background, t.tree, t.accent_color,
+        t.foreground, t.primary_text_color, t.active, t.buttons, t.background, t.tree, t.accent_color,
     )
 
     for editor in ([]^widgets.Editor {thor.editor, thor.editor2}) {
         widgets.editor_set_colors(
             editor,
-            t.white_black_color, t.gray_color, t.background, t.second_background, t.border, t.border, t.accent_color,
+            t.primary_text_color, t.muted_color, t.background, t.second_background, t.border, t.border, t.accent_color,
         )
-        widgets.editor_set_diagnostic_colors(editor, t.error_color, t.yellow_color)
+        widgets.editor_set_diagnostic_colors(editor, t.error_color, t.warning_color)
     }
 
-    widgets.image_view_set_colors(thor.image_view, t.background, t.second_background, t.buttons, t.white_black_color)
+    widgets.image_view_set_colors(thor.image_view, t.background, t.second_background, t.buttons, t.primary_text_color)
     widgets.model_view_set_colors(
         thor.model_view,
-        t.background, t.second_background, t.buttons, t.white_black_color,
+        t.background, t.second_background, t.buttons, t.primary_text_color,
         t.second_background, t.highlight, t.accent_color,
     )
     widgets.markdown_view_set_colors(thor.markdown_view, t)
@@ -155,7 +155,7 @@ thor_apply_theme :: proc(thor: ^Thor) {
         thor_terminal_apply_theme(thor, term)
     }
     thor_theme_terminal_tabs(thor)
-    widgets.statusbar_set_colors(thor.statusbar, t.foreground, t.gray_color, t.buttons, t.accent_color, t.error_color)
+    widgets.statusbar_set_colors(thor.statusbar, t.foreground, t.muted_color, t.buttons, t.accent_color, t.error_color)
 
     // Buttons. The Git top-bar button is a plugin button, recolored in the
     // plugin_buttons loop below, not here.
@@ -168,10 +168,10 @@ thor_apply_theme :: proc(thor: ^Thor) {
     thor_theme_menu_button(thor, thor.tasks_select_button)
     // The run arrow keeps a green tint of its own; its hover stays neutral.
     thor_theme_window_button(thor, thor.tasks_run_button, t.highlight)
-    thor.tasks_run_button.text_color = t.green_color
+    thor.tasks_run_button.text_color = t.success_color
     thor_theme_window_button(thor, thor.minimize_button, t.highlight)
     thor_theme_window_button(thor, thor.maximize_button, t.highlight)
-    thor_theme_window_button(thor, thor.close_button, t.red_color)
+    thor_theme_window_button(thor, thor.close_button, t.danger_color)
     thor_theme_icon_button(thor, thor.explorer_toggle_button, t.highlight)
     thor_theme_icon_button(thor, thor.explorer_restore_button, t.buttons)
     thor_theme_icon_button(thor, thor.console_toggle_button, t.highlight)
@@ -181,11 +181,11 @@ thor_apply_theme :: proc(thor: ^Thor) {
             thor_theme_menu_button(thor, pb.button)
         }
     }
-    widgets.button_set_colors(thor.dialog_console_button, t.white_black_color, t.blue_color, t.cyan_color, t.active, t.border)
+    widgets.button_set_colors(thor.dialog_console_button, t.primary_text_color, t.info_color, t.accent_secondary_color, t.active, t.border)
 
     // Theme-colored labels.
-    widgets.label_set_text_color(thor.explorer_title_label, t.white_black_color)
-    widgets.label_set_text_color(thor.dialog_text_label, t.white_black_color)
+    widgets.label_set_text_color(thor.explorer_title_label, t.primary_text_color)
+    widgets.label_set_text_color(thor.dialog_text_label, t.primary_text_color)
 
     // Syntax spans bake in theme colors, so every open file needs new ones. Only
     // mark them stale: the per-frame pane pass recolors the files on screen with
@@ -220,7 +220,7 @@ thor_theme_terminal_tabs :: proc(thor: ^Thor) {
     t := thor.theme
     widgets.tabstrip_set_colors(
         thor.terminal_tabs,
-        t.gray_color, t.white_black_color, t.highlight, t.second_background, t.tree, t.accent_color, t.error_color,
+        t.muted_color, t.primary_text_color, t.highlight, t.second_background, t.tree, t.accent_color, t.error_color,
     )
 }
 

@@ -95,7 +95,7 @@ thor_build_plugin_panel :: proc(thor: ^Thor, p: ^Plugin_Panel) {
     header.min_size = rl.Vector2 {0, 32}
 
     label := widgets.label_create("plugin-panel-title", p.title)
-    widgets.label_set_text_color(label, thor.theme.white_black_color)
+    widgets.label_set_text_color(label, thor.theme.primary_text_color)
     ui.widget_set_grow(&label.widget, 1)
     label.min_size = rl.Vector2 {0, 20}
 
@@ -280,7 +280,7 @@ thor_build_view_node :: proc(p: ^Plugin_Panel, node: plugin.View_Node) -> ^ui.Wi
         button := widgets.button_create("plugin-button", thor_panel_text(p, node.text))
         widgets.button_set_colors(
             button,
-            thor_plugin_role_color(thor, node.role, thor.theme.white_black_color),
+            thor_plugin_role_color(thor, node.role, thor.theme.primary_text_color),
             thor.theme.buttons,
             thor.theme.highlight,
             thor.theme.active,

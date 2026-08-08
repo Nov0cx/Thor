@@ -1228,7 +1228,7 @@ thor_build_reference_items :: proc(thor: ^Thor, res: ^lang.Result) -> []widgets.
         append(&items, widgets.Pick_Item {
             text     = sym.signature,
             name_len = 0,
-            color    = thor.theme.white_black_color,
+            color    = thor.theme.primary_text_color,
             detail   = thor_symbol_detail(thor, sym),
         })
     }
@@ -1353,7 +1353,7 @@ thor_symbol_color :: proc(thor: ^Thor, kind: string) -> rl.Color {
     case "field":    return thor.theme.variables_color
     case "enum_member": return thor.theme.numbers_color
     }
-    return thor.theme.white_black_color
+    return thor.theme.primary_text_color
 }
 
 // Posts a transient statusline notice, shown for STATUS_MESSAGE_SECS. Errors

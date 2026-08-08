@@ -105,7 +105,7 @@ thor_build_ui :: proc(thor: ^Thor) {
     ui.widget_set_grow(&thor.plugin_dock_bottom_stack.widget, 1)
 
     thor.dialog = widgets.dialog_create("floating-dialog", "Floating Dialog", rl.Vector2 {810, 120}, rl.Vector2 {320, 220})
-    widgets.dialog_set_colors(thor.dialog, thor.theme.white_black_color, thor.theme.highlight, thor.theme.notifications, thor.theme.border)
+    widgets.dialog_set_colors(thor.dialog, thor.theme.primary_text_color, thor.theme.highlight, thor.theme.notifications, thor.theme.border)
     thor.dialog.visible = false
     thor.dialog_stack = widgets.stack_create("dialog-stack", .Vertical)
     widgets.stack_set_gap(thor.dialog_stack, 10)
@@ -119,8 +119,8 @@ thor_build_ui :: proc(thor: ^Thor) {
         thor.theme.second_background,
         thor.theme.accent_color,
         thor.theme.background,
-        thor.theme.white_black_color,
-        thor.theme.gray_color,
+        thor.theme.primary_text_color,
+        thor.theme.muted_color,
         rl.Color {thor.theme.accent_color.r, thor.theme.accent_color.g, thor.theme.accent_color.b, 40},
         thor.theme.accent_color,
     )
@@ -132,8 +132,8 @@ thor_build_ui :: proc(thor: ^Thor) {
         thor.theme.second_background,
         thor.theme.accent_color,
         thor.theme.highlight,
-        thor.theme.white_black_color,
-        thor.theme.gray_color,
+        thor.theme.primary_text_color,
+        thor.theme.muted_color,
         rl.Color {thor.theme.accent_color.r, thor.theme.accent_color.g, thor.theme.accent_color.b, 40},
         thor.theme.accent_color,
     )
@@ -146,8 +146,8 @@ thor_build_ui :: proc(thor: ^Thor) {
         thor.theme.accent_color,
         thor.theme.highlight,
         thor.theme.background,
-        thor.theme.white_black_color,
-        thor.theme.gray_color,
+        thor.theme.primary_text_color,
+        thor.theme.muted_color,
         thor.theme.accent_color,
         thor.theme.selection_background,
     )
@@ -166,8 +166,8 @@ thor_build_ui :: proc(thor: ^Thor) {
         thor.theme.second_background,
         thor.theme.accent_color,
         thor.theme.background,
-        thor.theme.white_black_color,
-        thor.theme.gray_color,
+        thor.theme.primary_text_color,
+        thor.theme.muted_color,
         thor.theme.buttons,
         thor.theme.accent_color,
     )
@@ -178,8 +178,8 @@ thor_build_ui :: proc(thor: ^Thor) {
         thor.menu,
         thor.theme.second_background,
         thor.theme.accent_color,
-        thor.theme.white_black_color,
-        thor.theme.gray_color,
+        thor.theme.primary_text_color,
+        thor.theme.muted_color,
         rl.Color {thor.theme.accent_color.r, thor.theme.accent_color.g, thor.theme.accent_color.b, 40},
         thor.theme.border,
     )
@@ -202,10 +202,10 @@ thor_build_controls :: proc(thor: ^Thor) {
     thor.tasks_add_button = thor_create_window_button(thor, "tasks-add", "plus", thor_click_add_task, thor.theme.highlight)
     thor.tasks_select_button = thor_create_task_selector(thor)
     thor.tasks_run_button = thor_create_window_button(thor, "tasks-run", "player-play", thor_click_run_task, thor.theme.highlight)
-    thor.tasks_run_button.text_color = thor.theme.green_color
+    thor.tasks_run_button.text_color = thor.theme.success_color
     thor.minimize_button = thor_create_window_button(thor, "window-minimize", "minus", thor_minimize_window, thor.theme.highlight)
     thor.maximize_button = thor_create_window_button(thor, "window-maximize", "square", thor_toggle_maximize, thor.theme.highlight)
-    thor.close_button = thor_create_window_button(thor, "window-close", "x", thor_close_window, thor.theme.red_color)
+    thor.close_button = thor_create_window_button(thor, "window-close", "x", thor_close_window, thor.theme.danger_color)
 
     // The workspace's tasks were loaded before the titlebar existed, so the
     // selector picks up its label here.
@@ -226,7 +226,7 @@ thor_build_content :: proc(thor: ^Thor) {
     top_spacer.min_size = rl.Vector2 {0, 28}
 
     explorer_title := widgets.label_create("explorer-title", "Explorer")
-    widgets.label_set_text_color(explorer_title, thor.theme.white_black_color)
+    widgets.label_set_text_color(explorer_title, thor.theme.primary_text_color)
     ui.widget_set_grow(&explorer_title.widget, 1)
     explorer_title.min_size = rl.Vector2 {0, 24}
     thor.explorer_title_label = explorer_title
@@ -235,9 +235,9 @@ thor_build_content :: proc(thor: ^Thor) {
     widgets.tree_set_colors(
         thor.tree,
         thor.theme.foreground,
-        thor.theme.white_black_color,
-        thor.theme.blue_color,
-        thor.theme.gray_color,
+        thor.theme.primary_text_color,
+        thor.theme.info_color,
+        thor.theme.muted_color,
         thor.theme.tree,                  // hover: subtle row tint
         thor.theme.selection_background,  // selected: stronger overlay
         thor.theme.second_background,
@@ -245,11 +245,11 @@ thor_build_content :: proc(thor: ^Thor) {
     widgets.tree_set_on_open(thor.tree, thor_tree_open, thor)
     widgets.tree_set_git_colors(
         thor.tree,
-        thor.theme.yellow_color, // modified / renamed
-        thor.theme.green_color,  // added / untracked
-        thor.theme.red_color,    // deleted
-        thor.theme.orange_color, // conflict
-        thor.theme.purple_color, // submodule
+        thor.theme.warning_color, // modified / renamed
+        thor.theme.success_color,  // added / untracked
+        thor.theme.danger_color,    // deleted
+        thor.theme.conflict_color, // conflict
+        thor.theme.submodule_color, // submodule
     )
     widgets.tree_set_git(thor.tree, thor_tree_git_status, thor)
     ui.widget_set_grow(&thor.tree.widget, 1)
@@ -259,7 +259,7 @@ thor_build_content :: proc(thor: ^Thor) {
     widgets.tabbar_set_colors(
         thor.tabbar,
         thor.theme.foreground,
-        thor.theme.white_black_color,
+        thor.theme.primary_text_color,
         thor.theme.active,
         thor.theme.buttons,
         thor.theme.background,
@@ -280,15 +280,15 @@ thor_build_content :: proc(thor: ^Thor) {
     thor.editor = widgets.editor_create("editor")
     widgets.editor_set_colors(
         thor.editor,
-        thor.theme.white_black_color,
-        thor.theme.gray_color,
+        thor.theme.primary_text_color,
+        thor.theme.muted_color,
         thor.theme.background,
         thor.theme.second_background,
         thor.theme.border,
         thor.theme.border,
         thor.theme.accent_color,
     )
-    widgets.editor_set_diagnostic_colors(thor.editor, thor.theme.error_color, thor.theme.yellow_color)
+    widgets.editor_set_diagnostic_colors(thor.editor, thor.theme.error_color, thor.theme.warning_color)
     widgets.editor_set_on_save(thor.editor, thor_request_save, thor)
     widgets.editor_set_on_goto_definition(thor.editor, thor_editor_goto_definition, thor)
     widgets.editor_set_on_hover(thor.editor, thor_editor_hover, thor)
@@ -299,15 +299,15 @@ thor_build_content :: proc(thor: ^Thor) {
     thor.editor2 = widgets.editor_create("editor2")
     widgets.editor_set_colors(
         thor.editor2,
-        thor.theme.white_black_color,
-        thor.theme.gray_color,
+        thor.theme.primary_text_color,
+        thor.theme.muted_color,
         thor.theme.background,
         thor.theme.second_background,
         thor.theme.border,
         thor.theme.border,
         thor.theme.accent_color,
     )
-    widgets.editor_set_diagnostic_colors(thor.editor2, thor.theme.error_color, thor.theme.yellow_color)
+    widgets.editor_set_diagnostic_colors(thor.editor2, thor.theme.error_color, thor.theme.warning_color)
     widgets.editor_set_on_save(thor.editor2, thor_request_save, thor)
     widgets.editor_set_on_goto_definition(thor.editor2, thor_editor_goto_definition, thor)
     widgets.editor_set_on_hover(thor.editor2, thor_editor_hover, thor)
@@ -335,7 +335,7 @@ thor_build_content :: proc(thor: ^Thor) {
         thor.theme.background,
         thor.theme.second_background,
         thor.theme.buttons,
-        thor.theme.white_black_color,
+        thor.theme.primary_text_color,
     )
     ui.widget_set_grow(&thor.image_view.widget, 1)
     thor.image_view.visible = false
@@ -346,7 +346,7 @@ thor_build_content :: proc(thor: ^Thor) {
         thor.theme.background,
         thor.theme.second_background,
         thor.theme.buttons,
-        thor.theme.white_black_color,
+        thor.theme.primary_text_color,
         thor.theme.second_background,
         thor.theme.highlight,
         thor.theme.accent_color,
@@ -384,7 +384,7 @@ thor_build_content :: proc(thor: ^Thor) {
     widgets.statusbar_set_colors(
         thor.statusbar,
         thor.theme.foreground,
-        thor.theme.gray_color,
+        thor.theme.muted_color,
         thor.theme.buttons,
         thor.theme.accent_color,
         thor.theme.error_color,
@@ -394,13 +394,13 @@ thor_build_content :: proc(thor: ^Thor) {
     thor.statusbar.min_size = rl.Vector2 {0, 28}
 
     dialog_text := widgets.label_create("dialog-text", "Drag this dialog by its title bar.\n\nType into the editor, scroll it, and close this dialog with the x button.")
-    widgets.label_set_text_color(dialog_text, thor.theme.white_black_color)
+    widgets.label_set_text_color(dialog_text, thor.theme.primary_text_color)
     widgets.label_set_top_align(dialog_text, true)
     dialog_text.min_size = rl.Vector2 {0, 110}
     thor.dialog_text_label = dialog_text
 
     dialog_console_button := widgets.button_create("dialog-console-button", "Toggle Console")
-    widgets.button_set_colors(dialog_console_button, thor.theme.white_black_color, thor.theme.blue_color, thor.theme.cyan_color, thor.theme.active, thor.theme.border)
+    widgets.button_set_colors(dialog_console_button, thor.theme.primary_text_color, thor.theme.info_color, thor.theme.accent_secondary_color, thor.theme.active, thor.theme.border)
     widgets.button_set_on_click(dialog_console_button, thor_toggle_console, thor)
     dialog_console_button.min_size = rl.Vector2 {0, 36}
     thor.dialog_console_button = dialog_console_button

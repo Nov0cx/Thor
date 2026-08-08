@@ -105,12 +105,12 @@ markdown_view_create :: proc(id: string) -> ^Markdown_View {
 markdown_view_set_colors :: proc(view: ^Markdown_View, t: ui.Theme) {
     view.background = t.background
     view.text_color = t.foreground
-    view.strong_color = t.white_black_color
-    view.heading_color = t.white_black_color
+    view.strong_color = t.primary_text_color
+    view.heading_color = t.primary_text_color
     view.code_color = t.strings_color
     view.code_bg = t.contrast
     view.link_color = t.links_color
-    view.quote_color = t.gray_color
+    view.quote_color = t.muted_color
     view.rule_color = t.highlight
     view.accent_color = t.accent_color
     view.scrollbar = t.highlight

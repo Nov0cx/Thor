@@ -287,7 +287,7 @@ thor_terminal_release :: proc(term: ^Terminal) {
 thor_terminal_apply_theme :: proc(thor: ^Thor, term: ^Terminal) {
     t := thor.theme
     widgets.console_set_colors(term.console, t.foreground, t.accent_color, t.second_background, t.accent_color)
-    widgets.console_set_link_color(term.console, t.blue_color)
+    widgets.console_set_link_color(term.console, t.info_color)
 }
 
 // One entry of the shell menu, so a menu item knows which shell it names.

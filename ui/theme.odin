@@ -25,15 +25,15 @@ Theme :: struct {
     notifications:          rl.Color,
     accent_color:           rl.Color,
     excluded_files_color:   rl.Color,
-    green_color:            rl.Color,
-    yellow_color:           rl.Color,
-    blue_color:             rl.Color,
-    red_color:              rl.Color,
-    purple_color:           rl.Color,
-    orange_color:           rl.Color,
-    cyan_color:             rl.Color,
-    gray_color:             rl.Color,
-    white_black_color:      rl.Color,
+    success_color:          rl.Color,
+    warning_color:          rl.Color,
+    info_color:             rl.Color,
+    danger_color:           rl.Color,
+    submodule_color:        rl.Color,
+    conflict_color:         rl.Color,
+    accent_secondary_color: rl.Color,
+    muted_color:            rl.Color,
+    primary_text_color:     rl.Color,
     error_color:            rl.Color,
     comments_color:         rl.Color,
     variables_color:        rl.Color,
@@ -67,15 +67,15 @@ theme_material_deep_ocean :: proc() -> Theme {
         notifications = rl.Color {0x09, 0x0B, 0x10, 0xFF},
         accent_color = rl.Color {0x84, 0xFF, 0xFF, 0xFF},
         excluded_files_color = rl.Color {0x29, 0x2D, 0x3E, 0xFF},
-        green_color = rl.Color {0xC3, 0xE8, 0x8D, 0xFF},
-        yellow_color = rl.Color {0xFF, 0xCB, 0x6B, 0xFF},
-        blue_color = rl.Color {0x82, 0xAA, 0xFF, 0xFF},
-        red_color = rl.Color {0xF0, 0x71, 0x78, 0xFF},
-        purple_color = rl.Color {0xC7, 0x92, 0xEA, 0xFF},
-        orange_color = rl.Color {0xF7, 0x8C, 0x6C, 0xFF},
-        cyan_color = rl.Color {0x89, 0xDD, 0xFF, 0xFF},
-        gray_color = rl.Color {0x71, 0x7C, 0xB4, 0xFF},
-        white_black_color = rl.Color {0xEE, 0xFF, 0xFF, 0xFF},
+        success_color = rl.Color {0xC3, 0xE8, 0x8D, 0xFF},
+        warning_color = rl.Color {0xFF, 0xCB, 0x6B, 0xFF},
+        info_color = rl.Color {0x82, 0xAA, 0xFF, 0xFF},
+        danger_color = rl.Color {0xF0, 0x71, 0x78, 0xFF},
+        submodule_color = rl.Color {0xC7, 0x92, 0xEA, 0xFF},
+        conflict_color = rl.Color {0xF7, 0x8C, 0x6C, 0xFF},
+        accent_secondary_color = rl.Color {0x89, 0xDD, 0xFF, 0xFF},
+        muted_color = rl.Color {0x71, 0x7C, 0xB4, 0xFF},
+        primary_text_color = rl.Color {0xEE, 0xFF, 0xFF, 0xFF},
         error_color = rl.Color {0xFF, 0x53, 0x70, 0xFF},
         comments_color = rl.Color {0x71, 0x7C, 0xB4, 0xFF},
         variables_color = rl.Color {0xEE, 0xFF, 0xFF, 0xFF},
@@ -113,15 +113,15 @@ theme_mjolnir :: proc() -> Theme {
         notifications = rl.Color {0x13, 0x15, 0x19, 0xFF},
         accent_color = rl.Color {0x4F, 0xC3, 0xF7, 0xFF},
         excluded_files_color = rl.Color {0x2E, 0x32, 0x3C, 0xFF},
-        green_color = rl.Color {0x69, 0xF0, 0xAE, 0xFF},
-        yellow_color = rl.Color {0xFF, 0xCA, 0x28, 0xFF},
-        blue_color = rl.Color {0x44, 0x8A, 0xFF, 0xFF},
-        red_color = rl.Color {0xFF, 0x52, 0x52, 0xFF},
-        purple_color = rl.Color {0xCE, 0x93, 0xD8, 0xFF},
-        orange_color = rl.Color {0xFF, 0x70, 0x43, 0xFF},
-        cyan_color = rl.Color {0x18, 0xFF, 0xFF, 0xFF},
-        gray_color = rl.Color {0x90, 0xA4, 0xAE, 0xFF},
-        white_black_color = rl.Color {0xEC, 0xEF, 0xF1, 0xFF},
+        success_color = rl.Color {0x69, 0xF0, 0xAE, 0xFF},
+        warning_color = rl.Color {0xFF, 0xCA, 0x28, 0xFF},
+        info_color = rl.Color {0x44, 0x8A, 0xFF, 0xFF},
+        danger_color = rl.Color {0xFF, 0x52, 0x52, 0xFF},
+        submodule_color = rl.Color {0xCE, 0x93, 0xD8, 0xFF},
+        conflict_color = rl.Color {0xFF, 0x70, 0x43, 0xFF},
+        accent_secondary_color = rl.Color {0x18, 0xFF, 0xFF, 0xFF},
+        muted_color = rl.Color {0x90, 0xA4, 0xAE, 0xFF},
+        primary_text_color = rl.Color {0xEC, 0xEF, 0xF1, 0xFF},
         error_color = rl.Color {0xFF, 0x52, 0x52, 0xFF},
         comments_color = rl.Color {0x61, 0x6A, 0x7A, 0xFF},
         variables_color = rl.Color {0xEC, 0xEF, 0xF1, 0xFF},
@@ -210,14 +210,14 @@ theme_role_color :: proc(theme: Theme, role: string) -> rl.Color {
     case "variables":   return theme.variables_color
     case "tags":        return theme.tags_color
     case "links":       return theme.links_color
-    case "yellow":      return theme.yellow_color
-    case "orange":      return theme.orange_color
-    case "purple":      return theme.purple_color
-    case "cyan":        return theme.cyan_color
-    case "blue":        return theme.blue_color
-    case "red":         return theme.red_color
-    case "green":       return theme.green_color
-    case "gray":        return theme.gray_color
+    case "warning":          return theme.warning_color
+    case "conflict":         return theme.conflict_color
+    case "submodule":        return theme.submodule_color
+    case "accent_secondary": return theme.accent_secondary_color
+    case "info":             return theme.info_color
+    case "danger":           return theme.danger_color
+    case "success":          return theme.success_color
+    case "muted":            return theme.muted_color
     case "accent":      return theme.accent_color
     case "error":       return theme.error_color
     }
@@ -296,24 +296,24 @@ theme_assign_color :: proc(theme: ^Theme, key: string, color: rl.Color) -> bool 
         theme.accent_color = color
     case "Excluded Files Color":
         theme.excluded_files_color = color
-    case "Green Color":
-        theme.green_color = color
-    case "Yellow Color":
-        theme.yellow_color = color
-    case "Blue Color":
-        theme.blue_color = color
-    case "Red Color":
-        theme.red_color = color
-    case "Purple Color":
-        theme.purple_color = color
-    case "Orange Color":
-        theme.orange_color = color
-    case "Cyan Color":
-        theme.cyan_color = color
-    case "Gray Color":
-        theme.gray_color = color
-    case "White/Black Color":
-        theme.white_black_color = color
+    case "Success Color":
+        theme.success_color = color
+    case "Warning Color":
+        theme.warning_color = color
+    case "Info Color":
+        theme.info_color = color
+    case "Danger Color":
+        theme.danger_color = color
+    case "Submodule Color":
+        theme.submodule_color = color
+    case "Conflict Color":
+        theme.conflict_color = color
+    case "Accent Secondary Color":
+        theme.accent_secondary_color = color
+    case "Muted Color":
+        theme.muted_color = color
+    case "Primary Text Color":
+        theme.primary_text_color = color
     case "Error Color":
         theme.error_color = color
     case "Comments Color":

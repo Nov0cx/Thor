@@ -28,7 +28,8 @@ NOREF :: -2
 ROLES := []string {
     "background", "foreground", "keywords", "functions", "strings", "operators",
     "comments", "numbers", "parameters", "attributes", "variables", "tags", "links",
-    "yellow", "orange", "purple", "cyan", "blue", "red", "green", "gray", "accent", "error",
+    "warning", "conflict", "submodule", "accent_secondary", "info", "danger", "success",
+    "muted", "accent", "error",
 }
 
 // A registered language; `grammar` is empty when `lexer` names a Lua lexer.
