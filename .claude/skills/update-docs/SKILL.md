@@ -10,6 +10,9 @@ page per topic, `docs/generate_html.py` renders it to `docs/html/` (gitignored
 output, not committed). Nothing here documents internals — that is
 `CLAUDE.md`'s job.
 
+`CHANGELOG.md` is not this skill's file — the `changelog` skill owns it, and a
+user-visible change usually needs both.
+
 ## 1. Find what actually changed
 
 Compare each doc claim against its source of truth, not against what the doc

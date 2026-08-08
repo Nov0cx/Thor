@@ -63,7 +63,7 @@ Launching the GUI from an agent-spawned process hangs in `rl.InitWindow` — ver
   like `build.odin`. It skips `vendor/` and `bin/`, and skips `_test.odin` files because `odin check`
   drops them. A failure exits 2 with the compiler output.
 
-Four skills in `.claude/skills/`:
+Five skills in `.claude/skills/`:
 
 - `verify` — the verification sweep to run after an Odin change: per-package type-check, the Linux
   and macOS cross-checks with their expected noise named, then `build.odin -- test`. It also covers
@@ -74,6 +74,11 @@ Four skills in `.claude/skills/`:
   CI workflows in step, then writes the plugin.
 - `update-docs` — brings `README.md` and `docs/` back in step with the code (settings, keybinds,
   plugin permissions, build steps) after a user-facing change, and regenerates `docs/html/`.
+- `changelog` — records a user-visible change in `CHANGELOG.md` as short bullets under the right
+  `year.month.patch` heading. Owns that file alone, so it composes with `update-docs`.
+
+Three subagents in `.claude/agents/`: `layering-reviewer` and `ownership-reviewer` (read-only
+reviews of a diff) and `changelog-writer` (runs the `changelog` skill).
 
 ## Layout and dependency direction
 
@@ -330,3 +335,7 @@ look at .todo.txt
 ## Full Analysis
 
 the analysis skill
+
+## Changelog
+
+The changelog is in CHANGELOG.md. Version numbering is year.month.patch. Changelog should be written in short bulletpoints.
