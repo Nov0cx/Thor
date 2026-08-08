@@ -262,6 +262,15 @@ complete :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, req: ^lang.Reques
     }
     prefix := src[start:off]
 
+    // `v.(<prefix>` — a type assertion, the one place a union's variants are
+    // named. `.(` is the only Odin syntax with a dot right before a paren, so a
+    // call (`pkg.f(`) never reads as one.
+    if start >= 2 && src[start - 1] == '(' && src[start - 2] == '.' {
+        complete_variants(e, parser, root, req, start - 2, prefix, res)
+        finish_completion(res)
+        return
+    }
+
     // A `.` before the typed word is a selector: either on an operand (a package
     // or a value) or on nothing at all (an implicit enum selector).
     if start > 0 && src[start - 1] == '.' {
@@ -300,6 +309,9 @@ complete :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, req: ^lang.Reques
     if req.path != "" {
         complete_dir_toplevel(e, parser, req, filepath.dir(req.path), prefix, req.path, res, &seen)
     }
+
+    // Fields a `using` opened into this scope, which are named bare here.
+    complete_using_fields(e, parser, root, req, off, prefix, res, &seen)
 
     // Imported package names are completable identifiers too (`widgets`, `fmt`) —
     // the operand you then qualify with `.` — though they're not declarations
@@ -341,7 +353,8 @@ complete :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, req: ^lang.Reques
 
 // Candidates for `operand.<prefix>`, where `dot` is the selector's `.`. A bare
 // operand naming an imported package lists that package's top-level symbols;
-// anything else is a value, and its struct fields are offered.
+// anything else is a value, and its struct fields are offered — or, over a
+// container, the members the container itself has (container.odin).
 @(private)
 complete_selector :: proc(
     e: ^Engine,
@@ -372,6 +385,10 @@ complete_selector :: proc(
         return
     }
     seen := make(map[string]bool, 0, context.temp_allocator)
+    if !type_is_bare(tr) {
+        complete_container_members(e, parser, root, req, tr, prefix, res, &seen)
+        return
+    }
     ctx := Fields_Ctx {
         prefix = prefix,
         env    = Embed_Env{e = e, parser = parser, root = root, req = req},
@@ -379,6 +396,28 @@ complete_selector :: proc(
         seen   = &seen,
     }
     visit_type_decl(e, parser, root, req, tr, "struct_declaration", "type", fields_visitor, &ctx)
+}
+
+// Candidates for `operand.(<prefix>`: the variants of the union the operand is,
+// each written the way the union declares it. An operand that is not a union
+// offers nothing — no other type is asserted against.
+@(private)
+complete_variants :: proc(
+    e: ^Engine,
+    parser: ts.Parser,
+    root: ts.Node,
+    req: ^lang.Request,
+    dot: int,
+    prefix: string,
+    res: ^lang.Result,
+) {
+    tr, tok := operand_type_at(e, parser, root, req, dot)
+    if !tok || !type_is_bare(tr) {
+        return
+    }
+    seen := make(map[string]bool, 0, context.temp_allocator)
+    ctx := Variants_Ctx{prefix = prefix, res = res, seen = &seen}
+    visit_type_decl(e, parser, root, req, tr, "union_declaration", "type", variants_visitor, &ctx)
 }
 
 // Type of the expression left of the `.` at `dot`. A dot with a name after it is
@@ -396,7 +435,9 @@ operand_type_at :: proc(
     dot: int,
 ) -> (Type_Ref, bool) {
     src := req.source
-    if dot + 1 < len(src) && is_word_byte(src[dot + 1]) {
+    // A `(` after the dot opens a type assertion, which leaves the operand whole
+    // too — the break starts at the dot.
+    if dot + 1 < len(src) && (is_word_byte(src[dot + 1]) || src[dot + 1] == '(') {
         if tr, ok := operand_type_in_tree(e, parser, root, req, dot); ok {
             return tr, true
         }

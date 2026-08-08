@@ -214,7 +214,8 @@ subprocess LSP client left as an optional backend behind the same seam.
 - `lang/odin` is the in-client Odin analyzer, split by concern: `engine.odin` (lifetime + seam),
   `resolve.odin` (entry point every request funnels through, lexical scope), `index.odin` (resident
   stat-invalidated symbol index), `infer.odin`/`typeref.odin`/`decl.odin` (type inference),
-  `completion.odin`, `signature.odin`, `symbols.odin` (outline/references/rename), `semantic.odin`,
+  `container.odin` (array swizzles + `#soa` per-field arrays), `using.odin` (the `using` statement
+  and parameter), `completion.odin`, `signature.odin`, `symbols.odin` (outline/references/rename), `semantic.odin`,
   `check.odin` (compiler diagnostics), `actions.odin`, `packagedoc.odin`, `builtins.odin` (the
   implicit scope, read off the toolchain), `config.odin`.
 - The `language_intelligence` setting gates the whole seam: `manager_set_enabled` /

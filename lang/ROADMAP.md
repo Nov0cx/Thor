@@ -627,14 +627,32 @@ lowest latency.
       converts to, and a union narrows to a variant through `x.(T)` or a
       `switch v in u` case.
 
-      **Still open:** an un-narrowed union has no members to offer and is left
-      alone; a container's own builtin members (a fixed array's `v.x` swizzle, an
-      `#soa` array's per-field slice) are not modelled; nesting past
-      `CONTAINER_DEPTH_LIMIT` is not inferred; and statement-level `using` is not
-      followed — the compiler disallows it without `#+feature using-stmt`, so
-      struct embedding is the only `using` that reaches ordinary code (see the
-      `using` note under **Package / import resolution**). Those all fall through
-      to the flat name scan.
+      A container answers for the members it has itself before the struct lookup
+      runs (`lang/odin/container.odin`): a fixed array of up to four components
+      swizzles over the `xyzw` and `rgba` sets (`v: [4]f32` reads `v.x` as `f32`
+      and `v.xy` as `[2]f32`), and an `#soa` array holds one array per field of
+      its element, so `s: #soa[]Point` reads `s.x` as `[]f32` and jumps to
+      `Point`'s own `x`. A swizzle declares nothing, so it hovers but has no
+      definition to jump to. Both spellings of the tag are read — the grammar puts
+      `#soa` inside `array_type` for `#soa[]T` and beside the type node for
+      `#soa[4]T`.
+
+      `using` outside a struct is followed too (`lang/odin/using.odin`): the
+      statement (`using p`) in the scope it sits in, from where it is written, and
+      the parameter (`proc(using p: Point)`) over the whole procedure. The
+      compiler gates the statement behind `#+feature using-stmt`, but the grammar
+      parses it and code that enables it must still resolve. An ordinary binding
+      always wins over a `using` field; only a struct field matched on name alone
+      loses to one, since such a match names whichever struct happened to declare
+      it while the `using` names the one that is open here.
+
+      **Still open:** an un-narrowed union still has no members to offer — Odin
+      permits none — so only `v.(` answers there, completing the union's variants;
+      the members reached that way come from the narrowed variant. Nesting past
+      `CONTAINER_DEPTH_LIMIT` (eight levels) is not inferred, and a `#soa`
+      completion row labels the field with the element struct's own declaration
+      rather than the array it is held in. Those fall through to the flat name
+      scan.
 
       Member *completion* takes the same
       operands goto and hover do — `a.b.`, `xs[0].` and `f().` all offer the
@@ -654,7 +672,10 @@ lowest latency.
       short offering nothing — `test_member_map_key`,
       `test_completion_map_key_selector`,
       `test_completion_container_literal_selector` and
-      `test_member_bit_set_element`).
+      `test_member_bit_set_element`), `lang/odin/container_test.odin` (swizzles,
+      `#soa`, six nested containers and union-variant completion) and
+      `lang/odin/using_test.odin` (the `using` statement and parameter: goto,
+      hover, completion, scope and precedence).
 - [x] **Package / import resolution.** `import "core:fmt"` then `fmt.println` is
       followed (package-qualified goto/hover/completion resolve into the package
       dir); custom collections resolve via `.thor/odin-analyzer.json`. A type

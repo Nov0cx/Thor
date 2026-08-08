@@ -199,7 +199,19 @@ resolve :: proc(data: rawptr, req: ^lang.Request, res: ^lang.Result) {
 
     // 1) Same file: lexical resolution via the LOCALS query.
     defs := collect_defs(e, root, req.source)
-    if d, found := resolve_local(defs[:], name, req.offset); found {
+    d, found := resolve_local(defs[:], name, req.offset)
+
+    // 1b) A field a `using` opened into this scope, named bare. A binding keeps
+    //     its own declaration, but a field matched on name alone does not: it
+    //     belongs to whichever struct declared it, while the `using` names the
+    //     one that is open here.
+    if !found || d.kind == "field" {
+        if resolve_using_member(e, parser, root, req, name, hover_start, hover_end, res) {
+            return
+        }
+    }
+
+    if found {
         // A procedure group names other procedures instead of declaring a body,
         // so a jump to it lands one hop short of the code that was asked for.
         if req.kind == .Definition && d.overload &&

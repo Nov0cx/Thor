@@ -2,6 +2,7 @@
 // the text of a proc signature's parameter and result lists.
 package odin
 
+import "core:strconv"
 import "core:strings"
 
 import lang ".."
@@ -26,6 +27,10 @@ POINTER_DEPTH_LIMIT :: 8
 type_ref_from_node :: proc(node: ts.Node, source: string, depth := 0) -> (Type_Ref, bool) {
     n := node
     if string(ts.node_type(n)) == "type" {
+        // `s: #soa[]Point` hangs the tag beside the type, not inside the array.
+        if soa_tagged(n, source) {
+            return mark_soa(type_ref_from_node(ts.node_named_child(n, 0), source, depth))
+        }
         n = ts.node_named_child(n, 0)
     }
     if ts.node_is_null(n) {
@@ -52,7 +57,7 @@ type_ref_from_node :: proc(node: ts.Node, source: string, depth := 0) -> (Type_R
         if count == 0 {
             return {}, false
         }
-        return contained_type(ts.node_named_child(n, count - 1), source, Container_Layer{kind = .Array})
+        return contained_type(ts.node_named_child(n, count - 1), source, array_layer(n, source))
     case "map_type":
         if ts.node_named_child_count(n) < 2 {
             return {}, false
@@ -79,6 +84,49 @@ contained_type :: proc(node: ts.Node, source: string, layer: Container_Layer) ->
         return {}, false
     }
     return wrap_container(tr, layer)
+}
+
+// The array an `array_type` node spells: a written count (`[4]T` — a named one
+// like `[N]T` stays 0, since the name is not evaluated here), `[dynamic]T`, and a
+// `#soa` tag inside the brackets. Everything else is a slice.
+@(private = "file")
+array_layer :: proc(n: ts.Node, source: string) -> Container_Layer {
+    layer := Container_Layer{kind = .Array}
+    for i in 0 ..< ts.node_child_count(n) {
+        c := ts.node_child(n, i)
+        switch string(ts.node_type(c)) {
+        case "dynamic":
+            layer.dyn = true
+        case "tag":
+            layer.soa = ts.node_text(c, source) == "#soa"
+        case "number":
+            if v, ok := strconv.parse_int(ts.node_text(c, source)); ok {
+                layer.length = v
+            }
+        }
+    }
+    return layer
+}
+
+// Whether a `#soa` tag is written before the type node.
+@(private = "file")
+soa_tagged :: proc(n: ts.Node, source: string) -> bool {
+    prev := ts.node_prev_sibling(n)
+    if ts.node_is_null(prev) || string(ts.node_type(prev)) != "tag" {
+        return false
+    }
+    return ts.node_text(prev, source) == "#soa"
+}
+
+// `tr` with its outermost array marked `#soa`, passing the read through.
+@(private = "file")
+mark_soa :: proc(tr: Type_Ref, ok: bool) -> (Type_Ref, bool) {
+    if !ok || tr.depth == 0 || tr.containers[tr.depth - 1].kind != .Array {
+        return tr, ok
+    }
+    out := tr
+    out.containers[out.depth - 1].soa = true
+    return out, true
 }
 
 // A type named in *expression* position (a composite literal's type, `new`'s
@@ -362,7 +410,8 @@ after_paren_group :: proc(text: string, want_inner := false) -> (string, bool) {
 // `map[string][]Point`, `bit_set[Axis]`, `proc() -> Point`) as a Type_Ref: a named
 // result drops its name, a pointer is dereferenced (Odin auto-dereferences `.`), a
 // proc type keeps its signature, and each leading `[…]`/`map[…]`/`bit_set[…]`
-// becomes one container around the element type. Anything else — a generic `$T`,
+// becomes one container around the element type, an array keeping its written
+// count and a leading `#soa`. Anything else — a generic `$T`,
 // a struct written out in place — is rejected rather than guessed, matching
 // type_ref_from_node's reach. Text-based because a cross-file callee's tree is
 // gone by now.
@@ -374,9 +423,14 @@ result_type_ref :: proc(text: string) -> (Type_Ref, bool) {
     // is wrapped in the reverse order, innermost first.
     layers: [CONTAINER_DEPTH_LIMIT]Container_Layer
     count := 0
+    soa := false
     for {
         for strings.has_prefix(s, "^") {
             s = strings.trim_space(s[1:])
+        }
+        if strings.has_prefix(s, "#soa") {
+            soa = true
+            s = strings.trim_space(s[4:])
         }
         if is_proc_signature(s) {
             return wrap_layers(Type_Ref{proc_sig = s}, layers[:count])
@@ -413,11 +467,19 @@ result_type_ref :: proc(text: string) -> (Type_Ref, bool) {
             count += 1
             return wrap_layers(elem, layers[:count])
         case strings.has_prefix(s, "["):
-            _, after, ok := bracket_group(s)
+            inner, after, ok := bracket_group(s)
             if !ok {
                 return {}, false
             }
             layer = Container_Layer{kind = .Array}
+            inner = strings.trim_space(inner)
+            if inner == "dynamic" {
+                layer.dyn = true
+            } else if n, nok := strconv.parse_int(inner); nok {
+                layer.length = n
+            }
+            layer.soa = soa
+            soa = false
             rest = after
         case:
             // A trailing tail (`Point ---` on a foreign proc, a comment) is not
@@ -501,6 +563,66 @@ bracket_group :: proc(text: string) -> (inner, rest: string, ok: bool) {
         }
     }
     return "", "", false
+}
+
+// The reference written back as source (`[]Point`, `#soa[4]pkg.Point`,
+// `map[string]Point`, `bit_set[Axis]`), for a hover line about a member that
+// quotes no declaration of its own. Containers are written outermost first, which
+// is the reverse of the order they are stored in. Temp-allocated.
+@(private)
+type_ref_text :: proc(tr: Type_Ref) -> string {
+    if tr.depth == 0 && tr.proc_sig != "" {
+        return tr.proc_sig
+    }
+    b := strings.builder_make(context.temp_allocator)
+    closers := 0
+    for i := tr.depth - 1; i >= 0; i -= 1 {
+        layer := tr.containers[i]
+        switch layer.kind {
+        case .Array:
+            if layer.soa {
+                strings.write_string(&b, "#soa")
+            }
+            switch {
+            case layer.dyn:
+                strings.write_string(&b, "[dynamic]")
+            case layer.length > 0:
+                strings.write_byte(&b, '[')
+                strings.write_int(&b, layer.length)
+                strings.write_byte(&b, ']')
+            case:
+                strings.write_string(&b, "[]")
+            }
+        case .Map:
+            strings.write_string(&b, "map[")
+            write_qualified(&b, layer.key_pkg, layer.key)
+            strings.write_byte(&b, ']')
+        case .Bit_Set:
+            // The brackets of a bit_set close after the element, not before it.
+            strings.write_string(&b, "bit_set[")
+            closers += 1
+        }
+    }
+    if tr.proc_sig != "" {
+        strings.write_string(&b, tr.proc_sig)
+    } else {
+        write_qualified(&b, tr.pkg, tr.name)
+    }
+    for _ in 0 ..< closers {
+        strings.write_byte(&b, ']')
+    }
+    return strings.to_string(b)
+}
+
+// `pkg.name`, or the name alone when there is no qualifier. An unread name (a
+// map keyed by something this engine does not model) writes as `_`.
+@(private = "file")
+write_qualified :: proc(b: ^strings.Builder, pkg, name: string) {
+    if pkg != "" {
+        strings.write_string(b, pkg)
+        strings.write_byte(b, '.')
+    }
+    strings.write_string(b, name != "" ? name : "_")
 }
 
 // A bare — optionally package-qualified — type name as a Type_Ref.

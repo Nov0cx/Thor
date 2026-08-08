@@ -574,3 +574,36 @@ enum_visitor :: proc(ed: ts.Node, source, path: string, ctx_raw: rawptr) {
         })
     }
 }
+
+// Outputs of variants_visitor. Mirrors Enum_Ctx.
+@(private)
+Variants_Ctx :: struct {
+    prefix: string,
+    res:    ^lang.Result,
+    seen:   ^map[string]bool,
+}
+
+// Decl_Visitor that offers a union's variants as type-assertion completions
+// (`v.(<here>`). A variant is written out as a type, so the inserted text is its
+// whole source text (`pkg.Thing`, `[]u8`) and kind is "type". A union's variants
+// are its `type` children — the name identifier is not one.
+@(private)
+variants_visitor :: proc(ud: ts.Node, source, path: string, ctx_raw: rawptr) {
+    ctx := cast(^Variants_Ctx) ctx_raw
+    for i in 0 ..< ts.node_named_child_count(ud) {
+        c := ts.node_named_child(ud, i)
+        if string(ts.node_type(c)) != "type" {
+            continue
+        }
+        name := ts.node_text(c, source)
+        if !completion_matches(name, ctx.prefix) || name in ctx.seen^ {
+            continue
+        }
+        ctx.seen^[name] = true
+        append(&ctx.res.symbols, lang.Symbol {
+            name      = strings.clone(name),
+            kind      = strings.clone("type"),
+            signature = strings.clone(name),
+        })
+    }
+}

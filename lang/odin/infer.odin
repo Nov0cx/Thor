@@ -13,10 +13,11 @@
 // `using` answers for its fields as if they were the outer struct's own, and a
 // container (`[]T`, `[N]T`, `[dynamic]T`, `map[K]V`, `bit_set[T]`) resolves to
 // its element once it is indexed, sliced or ranged over — never before, since a
-// container is not the type it holds. Containers nest, so `map[string][]Point`
-// takes two of those steps. A proc-typed value carries its signature, so calling
-// it yields its declared result. Anything else (an un-narrowed union, a builtin)
-// doesn't resolve, and the caller falls back to the flat name scan.
+// container is not the type it holds, except for the two members an array offers
+// itself (container.odin). Containers nest, so `map[string][]Point` takes two of
+// those steps. A proc-typed value carries its signature, so calling it yields its
+// declared result. Anything else (an un-narrowed union, a builtin) doesn't
+// resolve, and the caller falls back to the flat name scan.
 //
 // This file infers a type from an expression; typeref.odin reads one out of a
 // written-down type, and decl.odin locates the declaration it names.
@@ -41,17 +42,25 @@ Container :: enum {
 // One level of container around an element type, plus — for a map — the type it
 // is keyed by, so `for k in m` and `m[.Member]` know what a key is. Only a plain
 // (optionally qualified) key name is tracked; `map[[2]int]V` records none.
+// `length`, `dyn` and `soa` describe an array: how a fixed one is written and
+// how many components it swizzles, and whether it holds one array per field of
+// its element (see container.odin).
 @(private)
 Container_Layer :: struct {
     kind:    Container,
     key:     string,
     key_pkg: string,
+    length:  int,  // `[4]T` — 0 for a slice, a dynamic array and a named count
+    dyn:     bool, // `[dynamic]T`
+    soa:     bool, // `#soa[]T`
 }
 
 // How many container levels are modelled: `map[string][]Point` is two, and
-// nesting deeper than this is not inferred rather than inferred wrongly.
+// nesting deeper than this is not inferred rather than inferred wrongly. The
+// levels are a fixed array on every Type_Ref, so this is a size as much as a
+// guard.
 @(private)
-CONTAINER_DEPTH_LIMIT :: 4
+CONTAINER_DEPTH_LIMIT :: 8
 
 // A named type reference: the type name plus an optional package qualifier
 // (`pkg` in `p: pkg.Point`), the containers wrapped around it (innermost first —
@@ -177,6 +186,12 @@ resolve_member :: proc(
     tr, ok := infer_expr_type(e, parser, root, req, operand)
     if !ok {
         return false
+    }
+    // A container answers for its own members first, since the struct lookup
+    // below stops at one: a fixed array swizzles, an `#soa` array holds one array
+    // per field of its element.
+    if !type_is_bare(tr) {
+        return resolve_container_member(e, parser, root, req, tr, field, hover_start, hover_end, res)
     }
     ctx := Member_Ctx {
         field = field,
@@ -334,7 +349,8 @@ operand_names_import :: proc(root: ts.Node, source: string, operand: ts.Node) ->
     return found
 }
 
-// Type of `operand.field`: the operand's type located, then its named field's.
+// Type of `operand.field`: the operand's type located, then its named field's —
+// or, over a container, the member the container itself offers (container.odin).
 // The shared step behind a chained access (`a.b.c`) and a call of a proc-typed
 // field (`c.on(1)`).
 @(private)
@@ -350,6 +366,9 @@ member_field_type :: proc(
     inner, ok := infer_expr_result(e, parser, root, req, operand, 0, depth + 1)
     if !ok {
         return {}, false
+    }
+    if !type_is_bare(inner) {
+        return container_member_type(e, parser, root, req, inner, field)
     }
     ctx := Member_Ctx {
         field = field,
@@ -424,7 +443,8 @@ binding_type_ref :: proc(
         }
     }
     if !found {
-        return {}, false
+        // A name no binding declares may still be a field a `using` opened here.
+        return using_member_type(e, parser, root, req, name, offset, depth)
     }
     if best.is_range {
         return range_var_type(e, parser, root, req, best.expr, best.result_index, depth + 1)
