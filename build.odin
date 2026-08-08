@@ -279,6 +279,12 @@ GRAMMARS := []Grammar {
     {"php",        "https://github.com/tree-sitter/tree-sitter-php",           "php"},
     {"haskell",    "https://github.com/tree-sitter/tree-sitter-haskell",       ""},
     {"ocaml",      "https://github.com/tree-sitter/tree-sitter-ocaml",         "grammars/ocaml"},
+    {"starlark",   "https://github.com/tree-sitter-grammars/tree-sitter-starlark",   ""},
+    {"hcl",        "https://github.com/tree-sitter-grammars/tree-sitter-hcl",        ""},
+    {"nix",        "https://github.com/nix-community/tree-sitter-nix",                ""},
+    {"pascal",     "https://github.com/Isopod/tree-sitter-pascal",                    ""},
+    {"nim",        "https://github.com/alaviss/tree-sitter-nim",                      ""},
+    {"commonlisp", "https://github.com/tree-sitter-grammars/tree-sitter-commonlisp",  ""},
 }
 
 // Gets the submodules and builds their native libraries. These are gitignored

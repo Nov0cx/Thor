@@ -29,6 +29,12 @@ import ts_csharp "../vendor/odin-tree-sitter/parsers/c_sharp"
 import ts_php "../vendor/odin-tree-sitter/parsers/php"
 import ts_haskell "../vendor/odin-tree-sitter/parsers/haskell"
 import ts_ocaml "../vendor/odin-tree-sitter/parsers/ocaml"
+import ts_starlark "../vendor/odin-tree-sitter/parsers/starlark"
+import ts_hcl "../vendor/odin-tree-sitter/parsers/hcl"
+import ts_nix "../vendor/odin-tree-sitter/parsers/nix"
+import ts_pascal "../vendor/odin-tree-sitter/parsers/pascal"
+import ts_nim "../vendor/odin-tree-sitter/parsers/nim"
+import ts_commonlisp "../vendor/odin-tree-sitter/parsers/commonlisp"
 
 // A resolved highlight span. `capture` is the tree-sitter capture name that won
 // this byte range (e.g. "keyword.return", "type.builtin", "function.call").
@@ -114,6 +120,14 @@ highlighter_create :: proc() -> Highlighter {
     h.languages["php"] = Language_Entry{ts_php.tree_sitter_php(), ts_php.HIGHLIGHTS}
     h.languages["haskell"] = Language_Entry{ts_haskell.tree_sitter_haskell(), ts_haskell.HIGHLIGHTS}
     h.languages["ocaml"] = Language_Entry{ts_ocaml.tree_sitter_ocaml(), ts_ocaml.HIGHLIGHTS}
+    h.languages["starlark"] = Language_Entry{ts_starlark.tree_sitter_starlark(), ts_starlark.HIGHLIGHTS}
+    // hcl and commonlisp ship no queries/highlights.scm upstream; their
+    // plugin.lua supplies the whole query via `highlights = "highlights.scm"`.
+    h.languages["hcl"] = Language_Entry{ts_hcl.tree_sitter_hcl(), ""}
+    h.languages["nix"] = Language_Entry{ts_nix.tree_sitter_nix(), ts_nix.HIGHLIGHTS}
+    h.languages["pascal"] = Language_Entry{ts_pascal.tree_sitter_pascal(), ts_pascal.HIGHLIGHTS}
+    h.languages["nim"] = Language_Entry{ts_nim.tree_sitter_nim(), ts_nim.HIGHLIGHTS}
+    h.languages["commonlisp"] = Language_Entry{ts_commonlisp.tree_sitter_commonlisp(), ""}
     return h
 }
 

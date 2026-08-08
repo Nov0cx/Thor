@@ -195,6 +195,74 @@ test_typescript_plugin_highlights :: proc(t: ^testing.T) {
     expect(t, spans, src, "// note", "comments") // from the javascript base
 }
 
+// Loads each newly added tree-sitter grammar plugin and confirms its query
+// compiles and resolves to the expected roles. hcl and commonlisp supply
+// their own highlights.scm (their upstream grammars ship none), so this also
+// catches a query that fails to compile against the real grammar.
+@(test)
+test_new_grammar_plugins_highlight :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+    manager_load(&m)
+
+    Pair :: struct {
+        needle: string,
+        role:   string,
+    }
+    Case :: struct {
+        key:    string,
+        src:    string,
+        checks: []Pair,
+    }
+    cases := []Case {
+        {
+            ".star",
+            "# c\ndef pick(a):\n    return a\nx = 1\n",
+            {{"# c", "comments"}, {"def", "keywords"}, {"return", "keywords"}, {"pick", "functions"}, {"1", "numbers"}},
+        },
+        {
+            ".tf",
+            "// c\nresource \"aws_instance\" \"web\" {\n  ami = \"abc\"\n  count = 1\n}\n",
+            {
+                {"// c", "comments"}, {"resource", "keywords"}, {"ami", "variables"},
+                {"\"abc\"", "strings"}, {"count", "variables"}, {"1", "numbers"},
+            },
+        },
+        {
+            ".nix",
+            "# c\nlet x = 1; in x + 1\n",
+            {{"# c", "comments"}, {"let", "keywords"}, {"in", "keywords"}},
+        },
+        {
+            ".pas",
+            "// c\nprogram Foo;\nbegin\n  writeln('hi');\nend.\n",
+            {{"// c", "comments"}, {"program", "keywords"}, {"begin", "keywords"}, {"'hi'", "strings"}},
+        },
+        {
+            ".nim",
+            "# c\nproc add(a, b: int): int =\n  return a + b\n",
+            {{"# c", "comments"}, {"proc", "keywords"}, {"return", "keywords"}, {"add", "functions"}},
+        },
+        {
+            ".lisp",
+            "; c\n(defun add (a b)\n  (+ a b))\n:key 42\n\"hi\"\n",
+            {{"; c", "comments"}, {"42", "numbers"}, {"\"hi\"", "strings"}, {":key", "orange"}},
+        },
+    }
+
+    for c in cases {
+        testing.expectf(t, supports(&m, c.key), "%s registered", c.key)
+        spans := highlight(&m, "", c.src, c.key, context.allocator)
+        defer delete(spans)
+        testing.expectf(t, len(spans) > 0, "%s spans produced", c.key)
+        for chk in c.checks {
+            got := role_covering(spans, c.src, chk.needle)
+            testing.expectf(t, got == chk.role, "%s %q: role %q, want %q", c.key, chk.needle, got, chk.role)
+        }
+    }
+}
+
 // Loads the real plugins/markdown/plugin.lua and highlights Markdown through
 // its pure-Lua line lexer, confirming block and inline constructs resolve to the
 // expected color roles and that the returned spans stay ascending and
@@ -482,6 +550,41 @@ test_added_lexer_plugins_highlight :: proc(t: ^testing.T) {
                 {"# c", "comments"}, {"cmake_minimum_required", "functions"},
                 {"VERSION", "attributes"}, {"3.20", "numbers"}, {"if", "keywords"},
                 {"PUBLIC", "attributes"}, {"\"x\"", "strings"}, {"endif", "keywords"},
+            },
+        },
+        {
+            ".gitignore",
+            "# c\n*.log\n!keep.log\n*.sh text eol=lf\n",
+            {
+                {"# c", "comments"}, {"keep.log", "strings"}, {"!", "operators"},
+                {".sh", "strings"}, {"text", "attributes"}, {"eol", "attributes"},
+                {"=", "operators"}, {"lf", "strings"},
+            },
+        },
+        {
+            ".ps1",
+            "<# c #>\n# c2\nfunction Get-Thing {\n    $x = \"v\"\n    if ($x -eq $true) { return }\n}\n",
+            {
+                {"<# c #>", "comments"}, {"# c2", "comments"}, {"function", "keywords"},
+                {"Get-Thing", "functions"}, {"$x", "variables"}, {"\"v\"", "strings"},
+                {"if", "keywords"}, {"-eq", "operators"}, {"$true", "orange"},
+            },
+        },
+        {
+            ".groovy",
+            "// c\n@Grab('x')\nclass Foo {\n    def bar() {\n        String s = \"v\"\n        return true\n    }\n}\n",
+            {
+                {"// c", "comments"}, {"@Grab", "attributes"}, {"class", "keywords"},
+                {"def", "keywords"}, {"bar", "functions"}, {"String", "yellow"},
+                {"\"v\"", "strings"}, {"return", "keywords"}, {"true", "orange"},
+            },
+        },
+        {
+            ".sml",
+            "(* c *)\nfun add (a, b) =\n  let val x = 1 in x + a + b end\n",
+            {
+                {"(* c *)", "comments"}, {"fun", "keywords"}, {"add", "functions"},
+                {"let", "keywords"}, {"val", "keywords"}, {"1", "numbers"}, {"in", "keywords"},
             },
         },
     }
