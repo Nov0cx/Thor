@@ -2,10 +2,17 @@ package main
 
 import "core:log"
 import "core:mem"
+import "core:os"
 
 import "../thor"
 
 main :: proc() {
+    // Answered before anything is allocated or the window is created, so a
+    // version query works with no display.
+    if thor.cli_handled(os.args) {
+        return
+    }
+
     when ODIN_DEBUG {
         context.logger = log.create_console_logger(opt = {.Level, .Terminal_Color})
         defer log.destroy_console_logger(context.logger)
