@@ -254,9 +254,11 @@ resolve_call_target :: proc(
         path, ok := "", false
         sync.lock(&e.index.mutex)
         index_sync(e, parser, req)
-        p, found := index_first_path(e, name, req.path, "function", index_package_dir(e, req.path))
+        same_package := true
+        p, found := index_first_path(e, name, req.path, "function", index_package_dir(e, req.path), true)
         if !found {
-            p, found = index_first_path(e, name, req.path, "function", "")
+            p, found = index_first_path(e, name, req.path, "function", "", false)
+            same_package = false
         }
         if found {
             path = strings.clone(p, context.temp_allocator)
@@ -264,7 +266,7 @@ resolve_call_target :: proc(
         }
         sync.unlock(&e.index.mutex)
         if ok {
-            return first_proc_in_file(e, parser, path, name)
+            return first_proc_in_file(e, parser, path, name, same_package)
         }
     }
 
@@ -273,7 +275,7 @@ resolve_call_target :: proc(
     // file to read. Everything downstream then treats them as any other callee —
     // a group signs its members, an argument's expected type reads its parameter.
     if sym, bok := builtin_symbol(e, parser, name); bok {
-        return first_proc_in_file(e, parser, sym.path, name)
+        return first_proc_in_file(e, parser, sym.path, name, false)
     }
     return "", "", {}, false
 }
@@ -287,6 +289,7 @@ first_proc_in_file :: proc(
     e: ^Engine,
     parser: ts.Parser,
     path, name: string,
+    same_package: bool,
 ) -> (source: string, file: string, d: Def, ok: bool) {
     src, sok := source_read(path)
     if !sok {
@@ -301,7 +304,8 @@ first_proc_in_file :: proc(
 
     defs := collect_defs(e, ts.tree_root_node(tree), src)
     for def in defs {
-        if def.top_level && def.kind == "function" && def.name == name {
+        if def.top_level && def.kind == "function" && def.name == name &&
+           def_reaches(def.visibility, same_package) {
             return src, path, def, true
         }
     }
@@ -311,6 +315,8 @@ first_proc_in_file :: proc(
 // First top-level procedure named `name` in one package directory (all its .odin
 // files, non-recursively — an Odin package is a flat directory). `skip` is the
 // requesting file's path, left out so the live buffer's stale on-disk copy loses.
+// Reached through a qualifier (`pkg.f(`), so `dir` is another package and only
+// its public procedures are in reach.
 @(private)
 find_proc_in_dir :: proc(
     e: ^Engine,
@@ -335,7 +341,7 @@ find_proc_in_dir :: proc(
         if info.fullpath == skip {
             continue
         }
-        if src, file, def, found := first_proc_in_file(e, parser, info.fullpath, name); found {
+        if src, file, def, found := first_proc_in_file(e, parser, info.fullpath, name, false); found {
             return src, file, def, found
         }
     }

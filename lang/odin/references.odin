@@ -42,6 +42,7 @@ Ref_Target :: struct {
     decl_start: int,       // Local: the declaring identifier, so a shadowing one is not it
     dir:        string,    // Package: the declaring package's directory, temp-owned
     own_pkg:    bool,      // Package: the request file is one of that package's own
+    one_file:   bool,      // Package: `@(private = "file")`, so its reach is the buffer alone
     owner:      Field_Site, // Field
 }
 
@@ -126,9 +127,12 @@ collect_references :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, req: ^l
 
     ref_scan_tree(e, parser, root, req, &target, true, &budget, res)
 
-    // A local lives and dies in one scope of one file; everything else can be
-    // named from another file in its package, or from any file importing it.
-    if target.kind != .Local && req.workspace != "" {
+    // A local lives and dies in one scope of one file, and so does a
+    // `@(private = "file")` declaration; everything else can be named from
+    // another file in its package, or from any file importing it. A name the
+    // other files cannot reach is a name they cannot use, so scanning them would
+    // only find unrelated declarations — and rename would break them.
+    if target.kind != .Local && !target.one_file && req.workspace != "" {
         paths := make([dynamic]string, context.temp_allocator)
         sync.lock(&e.index.mutex)
         index_sync(e, parser, req)
@@ -230,7 +234,13 @@ ref_value_target :: proc(
 
     dir, declared := ref_own_package(e, parser, req, name)
     if found || declared {
-        return Ref_Target{name = name, kind = .Package, dir = dir, own_pkg = true}
+        return Ref_Target {
+            name     = name,
+            kind     = .Package,
+            dir      = dir,
+            own_pkg  = true,
+            one_file = found && d.visibility == .File,
+        }
     }
     // Neither this file nor its package declares it: a name from the implicit
     // scope, or a typo. Nothing to bind to, so nothing is excluded either — and a
@@ -250,7 +260,7 @@ ref_own_package :: proc(e: ^Engine, parser: ts.Parser, req: ^lang.Request, name:
     sync.lock(&e.index.mutex)
     index_sync(e, parser, req)
     d := index_package_dir(e, req.path)
-    _, found := index_first_path(e, name, req.path, "", d)
+    _, found := index_first_path(e, name, req.path, "", d, true)
     dir = strings.clone(d, context.temp_allocator) // survives the unlock
     sync.unlock(&e.index.mutex)
     return dir, found

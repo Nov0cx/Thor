@@ -307,7 +307,7 @@ complete :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, req: ^lang.Reques
     // This package's sibling files (an Odin package is one flat directory): their
     // top-level declarations are visible here unqualified.
     if req.path != "" {
-        complete_dir_toplevel(e, parser, req, filepath.dir(req.path), prefix, req.path, res, &seen)
+        complete_dir_toplevel(e, parser, req, filepath.dir(req.path), prefix, req.path, true, res, &seen)
     }
 
     // Fields a `using` opened into this scope, which are named bare here.
@@ -375,7 +375,8 @@ complete_selector :: proc(
         if raw, found := import_path(root, src, src[word:dot]); found {
             if dir, dok := package_dir(e, raw, req.path, req.workspace); dok {
                 seen := make(map[string]bool, 0, context.temp_allocator)
-                complete_dir_toplevel(e, parser, req, dir, prefix, "", res, &seen)
+                // An imported package: only its public declarations are offered.
+                complete_dir_toplevel(e, parser, req, dir, prefix, "", false, res, &seen)
             }
             return
         }
@@ -550,12 +551,16 @@ add_completion :: proc(res: ^lang.Result, source: string, d: Def, seen: ^map[str
 // so a burst of keystrokes costs a readdir walk instead of a package of parses.
 // A directory outside the index — a `core:`/`vendor:` package, a collection —
 // still reads off disk.
+//
+// `same_package` says whether `dir` is the requesting file's own package, which
+// decides whether a `@(private)` declaration there is offered.
 @(private)
 complete_dir_toplevel :: proc(
     e: ^Engine,
     parser: ts.Parser,
     req: ^lang.Request,
     dir, prefix, skip: string,
+    same_package: bool,
     res: ^lang.Result,
     seen: ^map[string]bool,
 ) {
@@ -564,14 +569,14 @@ complete_dir_toplevel :: proc(
         sync.lock(&e.index.mutex)
         index_sync(e, parser, req)
         if !lang.request_cancelled(req) {
-            indexed = index_dir_completions(e, dir, prefix, skip, res, seen)
+            indexed = index_dir_completions(e, dir, prefix, skip, same_package, res, seen)
         }
         sync.unlock(&e.index.mutex)
         if indexed || lang.request_cancelled(req) {
             return
         }
     }
-    complete_dir_scan(e, parser, req, dir, prefix, skip, res, seen)
+    complete_dir_scan(e, parser, req, dir, prefix, skip, same_package, res, seen)
 }
 
 // The off-disk half of complete_dir_toplevel: reads and parses each .odin file in
@@ -582,6 +587,7 @@ complete_dir_scan :: proc(
     parser: ts.Parser,
     req: ^lang.Request,
     dir, prefix, skip: string,
+    same_package: bool,
     res: ^lang.Result,
     seen: ^map[string]bool,
 ) {
@@ -618,7 +624,8 @@ complete_dir_scan :: proc(
         }
         defs := collect_defs(e, ts.tree_root_node(tree), source)
         for d in defs {
-            if d.top_level && symbol_kind_shown(d.kind) && completion_matches(d.name, prefix) {
+            if d.top_level && symbol_kind_shown(d.kind) && completion_matches(d.name, prefix) &&
+               def_reaches(d.visibility, same_package) {
                 add_completion(res, source, d, seen)
             }
         }

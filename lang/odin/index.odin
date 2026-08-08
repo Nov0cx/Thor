@@ -18,12 +18,13 @@ import ts "../../vendor/odin-tree-sitter"
 // Mirrors the lang.Symbol row a query returns, minus the path (the File_Entry key).
 @(private)
 Index_Symbol :: struct {
-    name:      string,
-    kind:      string,
-    signature: string,
-    line:      int,
-    offset:    int,
-    overload:  bool, // a procedure group, whose members go-to-definition reaches through to
+    name:       string,
+    kind:       string,
+    signature:  string,
+    line:       int,
+    offset:     int,
+    visibility: Visibility, // how far outside its own file this row can be named
+    overload:   bool, // a procedure group, whose members go-to-definition reaches through to
 }
 
 // One indexed file: its top-level declarations, the set of every identifier name
@@ -183,12 +184,13 @@ index_reparse :: proc(e: ^Engine, parser: ts.Parser, key: string, modtime, size:
         }
         ident_start := clamp(d.ident_start, 0, len(source))
         append(&entry.decls, Index_Symbol {
-            name      = strings.clone(d.name),
-            kind      = strings.clone(d.kind),
-            signature = signature_text(source, d), // clones into context.allocator
-            line      = strings.count(source[:ident_start], "\n") + 1,
-            offset    = d.ident_start,
-            overload  = d.overload,
+            name       = strings.clone(d.name),
+            kind       = strings.clone(d.kind),
+            signature  = signature_text(source, d), // clones into context.allocator
+            line       = strings.count(source[:ident_start], "\n") + 1,
+            offset     = d.ident_start,
+            visibility = d.visibility,
+            overload   = d.overload,
         })
     }
     index_collect_idents(root, source, &entry.idents)
@@ -231,13 +233,18 @@ index_collect_idents :: proc(node: ts.Node, source: string, set: ^map[string]boo
 // through to its members instead of landing on the list. Meaningless when several
 // files declare the name: that ambiguity goes to the picker as it is.
 @(private)
-index_find_defs :: proc(e: ^Engine, name, skip, dir: string, res: ^lang.Result) -> (single_overload: bool) {
+index_find_defs :: proc(
+    e: ^Engine,
+    name, skip, dir: string,
+    same_package: bool,
+    res: ^lang.Result,
+) -> (single_overload: bool) {
     for path, entry in e.index.files {
         if path_equal(path, skip) || !index_scoped(path, dir) {
             continue
         }
         for sym in entry.decls {
-            if sym.name != name {
+            if sym.name != name || !def_reaches(sym.visibility, same_package) {
                 continue
             }
             single_overload = sym.overload // only read when this is the one row
@@ -256,6 +263,10 @@ index_find_defs :: proc(e: ^Engine, name, skip, dir: string, res: ^lang.Result) 
 // Workspace symbols: appends every indexed declaration of a shown kind (proc,
 // type, enum, constant, var — the outline set), excluding the live file `skip`
 // whose decls the caller already collected from the unsaved buffer.
+//
+// Visibility is deliberately not applied here. Ctrl+T is navigation, not name
+// resolution: a `@(private)` declaration is still a place in the workspace the
+// user wants to jump to, and dropping it would only make it unreachable.
 @(private)
 index_all_symbols :: proc(e: ^Engine, skip: string, res: ^lang.Result) {
     for path, entry in e.index.files {
@@ -299,7 +310,11 @@ index_declared_names :: proc(e: ^Engine, out: ^map[string]bool, alloc: runtime.A
 // when one is given (see index_scoped). Deterministic first-hit for hover
 // and signature help, which then re-parse just that one file for full detail.
 @(private)
-index_first_path :: proc(e: ^Engine, name, skip, kind_filter, dir: string) -> (string, bool) {
+index_first_path :: proc(
+    e: ^Engine,
+    name, skip, kind_filter, dir: string,
+    same_package: bool,
+) -> (string, bool) {
     best := ""
     found := false
     for path, entry in e.index.files {
@@ -308,6 +323,9 @@ index_first_path :: proc(e: ^Engine, name, skip, kind_filter, dir: string) -> (s
         }
         for sym in entry.decls {
             if sym.name != name || (kind_filter != "" && sym.kind != kind_filter) {
+                continue
+            }
+            if !def_reaches(sym.visibility, same_package) {
                 continue
             }
             if !found || path < best {
@@ -350,6 +368,7 @@ index_ref_files :: proc(e: ^Engine, name, skip: string, out: ^[dynamic]string) {
 index_dir_completions :: proc(
     e: ^Engine,
     dir, prefix, skip: string,
+    same_package: bool,
     res: ^lang.Result,
     seen: ^map[string]bool,
 ) -> bool {
@@ -364,6 +383,9 @@ index_dir_completions :: proc(
         }
         for sym in entry.decls {
             if !symbol_kind_shown(sym.kind) || !completion_matches(sym.name, prefix) {
+                continue
+            }
+            if !def_reaches(sym.visibility, same_package) {
                 continue
             }
             if sym.name in seen^ {

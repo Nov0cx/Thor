@@ -244,18 +244,26 @@ import_string :: proc(imp: ts.Node, source: string) -> (string, bool) {
         if string(ts.node_type(c)) != "string" {
             continue
         }
-        for j in 0 ..< ts.node_named_child_count(c) {
-            sc := ts.node_named_child(c, j)
-            if string(ts.node_type(sc)) == "string_content" {
-                return ts.node_text(sc, source), true
-            }
-        }
-        t := ts.node_text(c, source)
-        t = strings.trim_prefix(t, "\"")
-        t = strings.trim_suffix(t, "\"")
-        return t, true
+        return string_literal_text(c, source), true
     }
     return "", false
+}
+
+// The text inside a `string` node, without its quotes: the `string_content`
+// child, falling back to trimming the quote bytes when the literal is empty and
+// has none.
+@(private)
+string_literal_text :: proc(n: ts.Node, source: string) -> string {
+    for i in 0 ..< ts.node_named_child_count(n) {
+        sc := ts.node_named_child(n, i)
+        if string(ts.node_type(sc)) == "string_content" {
+            return ts.node_text(sc, source)
+        }
+    }
+    t := ts.node_text(n, source)
+    t = strings.trim_prefix(t, "\"")
+    t = strings.trim_suffix(t, "\"")
+    return t
 }
 
 // Last path segment of an import path, after any collection prefix and any

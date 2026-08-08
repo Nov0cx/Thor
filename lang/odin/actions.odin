@@ -629,7 +629,7 @@ declared_in_package :: proc(e: ^Engine, parser: ts.Parser, req: ^lang.Request, n
     // hit is the lexicographically smallest path, so a name declared both here
     // and in some earlier-sorting package used to read as "not in this package"
     // and offer a declaration for an assignment that was already legal.
-    _, found := index_first_path(e, name, req.path, "", index_package_dir(e, req.path))
+    _, found := index_first_path(e, name, req.path, "", index_package_dir(e, req.path), true)
     return found
 }
 

@@ -699,14 +699,28 @@ lowest latency.
       as it is: a file that does opt in with `#+feature using-stmt` is still a
       file this engine cannot see far enough into to dim names in.
 
-      **Still open:** visibility attributes are not modelled — `@(private)` hides
-      a declaration from other packages and `@(private="file")` from the rest of
-      its own, and neither the index nor `collect_defs` records them, so both are
-      offered as if public (package docs are the one consumer that filters
-      `@(private)`, textually). References and rename do bind a top-level name to
-      the package declaring it (see **References** below), which is the reach part
-      of the same question; what is still missing is the *visibility* part, where
-      an attribute narrows a declaration below its package.
+      **Visibility attributes** are modelled. `collect_defs` records a
+      `Def.visibility` for every top-level declaration, read off the `attributes`
+      node (`decl_visibility`) rather than the text before the name — so a
+      `private` inside an unrelated value (`@(link_name = "private_thing")`) is
+      not mistaken for one — and the index carries it per row. `def_reaches` is
+      the single predicate every cross-file consumer asks: `@(private)` (and its
+      `@(private = "package")` spelling) reaches only the declaring directory,
+      `@(private = "file")` no other file at all. Each caller says which side of
+      that line it stands on rather than comparing paths per candidate: the
+      package-scoped index pass is same-package by construction and the widened
+      one is not, and a scan reached through a qualifier (`pkg.Name`, `pkg.f(`,
+      `pkg.` completion, base:runtime) is always foreign. Goto, hover,
+      completion, signature help, the type locator and the package-doc page all
+      filter; the builtin cache drops base:runtime's private helpers.
+      **Ctrl+T does not**, deliberately — the workspace symbol picker is
+      navigation, not name resolution, and a private declaration is still a place
+      to jump to.
+
+      Rename gains a correctness fix from the same model: a `@(private = "file")`
+      declaration now narrows the scan to its own file (`Ref_Target.one_file`),
+      where before a sibling's identically-spelled file-private procedure was
+      renamed along with it.
 - [~] **Type inference.** `x := f()` infers the callee's declared result type
       (`call_result_type` → `resolve_call_target` + `proc_result_type`, which reads
       the type after `->` out of the signature text — the callee's tree is already
@@ -763,7 +777,11 @@ lowest latency.
       - a **top-level symbol** by the package that declares it — bare only inside
         that package (and only where nothing nearer shadows it), elsewhere only
         behind an import alias that resolves to that same directory, so the rival
-        `shared` of another package is no longer listed;
+        `shared` of another package is no longer listed. A
+        `@(private = "file")` one narrows further, to the declaring file alone
+        (`Ref_Target.one_file`): no other file can name it, so the sibling files
+        are not scanned and a same-spelled file-private declaration there is left
+        alone;
       - a **struct field** by the site the field is declared at, reached by
         inferring each operand's type (`infer_expr_type` → `member_visitor`,
         through aliases and `using` embedding), so `p.x` and `r.x` separate, and

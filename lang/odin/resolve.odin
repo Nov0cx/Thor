@@ -11,6 +11,16 @@ import lang ".."
 import "../../treecache"
 import ts "../../vendor/odin-tree-sitter"
 
+// How far a top-level declaration reaches, set by its visibility attribute. A
+// local carries `.Public`, which costs nothing: nothing outside its own scope
+// sees it in any case.
+@(private)
+Visibility :: enum u8 {
+    Public,  // no attribute: the whole workspace, through an import
+    Package, // `@(private)` / `@(private = "package")`: the declaring directory
+    File,    // `@(private = "file")`: the declaring file alone
+}
+
 // A declaration found in a parsed tree: the identifier being declared, the byte
 // range of the scope it is visible in, and the enclosing declaration node used
 // for hover text.
@@ -26,10 +36,30 @@ Def :: struct {
     top_level:    bool, // no enclosing block: visible across the whole file/package
     decl_start:   int,
     decl_end:     int,
+    visibility:   Visibility, // top-level only; a local is always .Public
     // `sizes :: proc{sized_a, sized_b}` — a procedure group, not a procedure. It
     // declares no parameters of its own, so anything that shows a signature has
     // to show the members instead; the brace opens that list rather than a body.
     overload:     bool,
+}
+
+// Whether a declaration of `vis` can be named from *another* file — one beside
+// it in its package when `same_package`, one in an importing package otherwise.
+// The question every cross-file scan asks, and the only place visibility is
+// interpreted: a file-private declaration reaches no other file at all, and a
+// package-private one only its own directory. A declaration's own file never
+// asks, since lexical resolution answers there first.
+@(private)
+def_reaches :: proc(vis: Visibility, same_package: bool) -> bool {
+    switch vis {
+    case .Public:
+        return true
+    case .Package:
+        return same_package
+    case .File:
+        return false
+    }
+    return true
 }
 
 @(private)
@@ -323,6 +353,9 @@ collect_defs :: proc(e: ^Engine, root: ts.Node, source: string) -> [dynamic]Def 
             if decl, has := ancestor_suffix(ident, "_declaration"); has {
                 d.decl_start = int(ts.node_start_byte(decl))
                 d.decl_end = int(ts.node_end_byte(decl))
+                if d.top_level {
+                    d.visibility = decl_visibility(decl, source)
+                }
             } else {
                 d.decl_start = d.ident_start
                 d.decl_end = d.ident_end
@@ -484,6 +517,9 @@ collect_value_decls :: proc(node: ts.Node, source: string, defs: ^[dynamic]Def) 
                 overload    = true,
             }
             scope_def(&d, c)
+            if d.top_level {
+                d.visibility = decl_visibility(node, source)
+            }
             append(defs, d)
             break
         }
@@ -524,6 +560,9 @@ append_value_def :: proc(defs: ^[dynamic]Def, ident, decl: ts.Node, source: stri
     scope_def(&d, ident)
     if ordered && !d.top_level {
         d.visible_from = d.decl_end
+    }
+    if d.top_level {
+        d.visibility = decl_visibility(decl, source)
     }
     append(defs, d)
 }
@@ -625,11 +664,13 @@ scan_workspace :: proc(
     res: ^lang.Result,
 ) {
     path, ok := "", false
+    same_package := true
     sync.lock(&e.index.mutex)
     index_sync(e, parser, req)
-    p, found := index_first_path(e, name, req.path, "", index_package_dir(e, req.path))
+    p, found := index_first_path(e, name, req.path, "", index_package_dir(e, req.path), true)
     if !found {
-        p, found = index_first_path(e, name, req.path, "", "")
+        p, found = index_first_path(e, name, req.path, "", "", false)
+        same_package = false
     }
     if found {
         path = strings.clone(p, context.temp_allocator) // survives the unlock
@@ -638,10 +679,12 @@ scan_workspace :: proc(
     sync.unlock(&e.index.mutex)
 
     if ok {
-        scan_file(e, parser, path, req, name, hover_start, hover_end, call, res)
+        scan_file(e, parser, path, req, name, hover_start, hover_end, call, same_package, res)
     }
 }
 
+// `same_package` says whether `path` sits beside the requesting file, which is
+// what decides if a `@(private)` declaration there is in reach.
 @(private)
 scan_file :: proc(
     e: ^Engine,
@@ -651,6 +694,7 @@ scan_file :: proc(
     name: string,
     hover_start, hover_end: int,
     call: Call_Site,
+    same_package: bool,
     res: ^lang.Result,
 ) {
     source, sok := source_read(path)
@@ -666,7 +710,7 @@ scan_file :: proc(
 
     defs := collect_defs(e, ts.tree_root_node(tree), source)
     for d in defs {
-        if d.top_level && d.name == name {
+        if d.top_level && d.name == name && def_reaches(d.visibility, same_package) {
             // A group reached through `pkg.sizes`: its members live in that same
             // package, so the live buffer has nothing to add and no root is
             // passed. Definition only — hover shows the group's member list, and
@@ -700,9 +744,9 @@ resolve_definition_workspace :: proc(
 ) {
     sync.lock(&e.index.mutex)
     index_sync(e, parser, req)
-    group := index_find_defs(e, name, req.path, index_package_dir(e, req.path), res)
+    group := index_find_defs(e, name, req.path, index_package_dir(e, req.path), true, res)
     if len(res.symbols) == 0 {
-        group = index_find_defs(e, name, req.path, "", res)
+        group = index_find_defs(e, name, req.path, "", false, res)
     }
     sync.unlock(&e.index.mutex)
     switch len(res.symbols) {
@@ -747,7 +791,9 @@ expand_index_group :: proc(
     res: ^lang.Result,
 ) -> bool {
     sym := res.symbols[0]
-    src, path, d, ok := first_proc_in_file(e, parser, sym.path, name)
+    // The row is one index_find_defs already judged in reach, so this re-parse
+    // only has to find it again.
+    src, path, d, ok := first_proc_in_file(e, parser, sym.path, name, true)
     if !ok || !d.overload {
         return false
     }

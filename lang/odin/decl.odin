@@ -109,9 +109,9 @@ find_type_decl :: proc(
         // The requesting file's own package first, the whole workspace only when
         // it declares nothing of the name — an unqualified type names a type in
         // this package, never one in another (see index_package_dir).
-        p, found := index_type_path(e, tr.name, req.path, index_kind, index_package_dir(e, req.path))
+        p, found := index_type_path(e, tr.name, req.path, index_kind, index_package_dir(e, req.path), true)
         if !found {
-            p, found = index_type_path(e, tr.name, req.path, index_kind, "")
+            p, found = index_type_path(e, tr.name, req.path, index_kind, "", false)
         }
         if found {
             path = strings.clone(p, context.temp_allocator)
@@ -130,11 +130,15 @@ find_type_decl :: proc(
 // for a type is indexed under "constant" — as one of those. Confined to `dir`
 // when one is given. Caller holds the mutex.
 @(private = "file")
-index_type_path :: proc(e: ^Engine, name, skip, index_kind, dir: string) -> (string, bool) {
-    if p, ok := index_first_path(e, name, skip, index_kind, dir); ok {
+index_type_path :: proc(
+    e: ^Engine,
+    name, skip, index_kind, dir: string,
+    same_package: bool,
+) -> (string, bool) {
+    if p, ok := index_first_path(e, name, skip, index_kind, dir, same_package); ok {
         return p, true
     }
-    return index_first_path(e, name, skip, "constant", dir)
+    return index_first_path(e, name, skip, "constant", dir, same_package)
 }
 
 // One parsed file's answer for `name`: the declaration itself (visited here), the
@@ -325,6 +329,40 @@ decl_body_start :: proc(decl: ts.Node) -> u32 {
         return 1
     }
     return 0
+}
+
+// The visibility a declaration's attributes give it. Read off the `attributes`
+// node rather than the text before the name, so a `private` written inside an
+// unrelated value — `@(link_name = "private_thing")` — is not one. Each
+// `attribute` child holds a flat run of `identifier` and `string` named children,
+// so the value of `private` is the child after it, and only when it is a string:
+// a bare `@(private)` and `@(private, require_results)` both mean the package.
+@(private)
+decl_visibility :: proc(decl: ts.Node, source: string) -> Visibility {
+    attrs := ts.node_named_child(decl, 0)
+    if ts.node_is_null(attrs) || string(ts.node_type(attrs)) != "attributes" {
+        return .Public
+    }
+    for i in 0 ..< ts.node_named_child_count(attrs) {
+        attr := ts.node_named_child(attrs, i)
+        if string(ts.node_type(attr)) != "attribute" {
+            continue
+        }
+        for j in 0 ..< ts.node_named_child_count(attr) {
+            c := ts.node_named_child(attr, j)
+            if !is_identifier(c) || ts.node_text(c, source) != "private" {
+                continue
+            }
+            value := ts.node_named_child(attr, j + 1)
+            if !ts.node_is_null(value) && string(ts.node_type(value)) == "string" {
+                if string_literal_text(value, source) == "file" {
+                    return .File
+                }
+            }
+            return .Package
+        }
+    }
+    return .Public
 }
 
 // What a Decl_Visitor needs to resolve a *further* type declaration from inside

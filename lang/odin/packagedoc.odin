@@ -13,6 +13,8 @@ import ts "../../vendor/odin-tree-sitter"
 
 // Scans one package directory (all its .odin files, non-recursively — an Odin
 // package is a single flat directory) for a matching top-level declaration.
+// Reached through a qualifier (`pkg.Name`), so `dir` is never the requesting
+// file's own package and only public declarations there are in reach.
 @(private)
 scan_package :: proc(
     e: ^Engine,
@@ -42,7 +44,7 @@ scan_package :: proc(
         if info.type == .Directory || !strings.has_suffix(info.name, ".odin") {
             continue
         }
-        scan_file(e, parser, info.fullpath, req, name, hover_start, hover_end, call, res)
+        scan_file(e, parser, info.fullpath, req, name, hover_start, hover_end, call, false, res)
     }
 }
 
@@ -221,7 +223,7 @@ render_package_doc :: proc(e: ^Engine, parser: ts.Parser, req: ^lang.Request, di
         }
         defs := collect_defs(e, ts.tree_root_node(tree), source)
         for d in defs {
-            if !d.top_level || !symbol_kind_shown(d.kind) || !decl_is_public(source, d) {
+            if !d.top_level || !symbol_kind_shown(d.kind) || d.visibility != .Public {
                 continue
             }
             append(&entries, Doc_Entry {
@@ -292,15 +294,6 @@ package_clause :: proc(source: string) -> (name: string, offset: int, ok: bool) 
         i = line_end + 1
     }
     return "", 0, false
-}
-
-// True when the declaration is package-public: no `@(private)` (in any form)
-// among the attributes the declaration carries before its identifier.
-@(private)
-decl_is_public :: proc(source: string, d: Def) -> bool {
-    start := clamp(d.decl_start, 0, len(source))
-    end := clamp(d.ident_start, start, len(source))
-    return !strings.contains(source[start:end], "private")
 }
 
 // The doc comment directly above the line at `offset`, cleaned into prose the way

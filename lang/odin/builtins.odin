@@ -114,7 +114,9 @@ resolve_builtin :: proc(
     if !ok {
         return
     }
-    scan_file(e, parser, sym.path, req, name, hover_start, hover_end, call, res)
+    // base:runtime is never the requesting file's own package, so only what it
+    // declares public is in reach.
+    scan_file(e, parser, sym.path, req, name, hover_start, hover_end, call, false, res)
 }
 
 // Appends every implicit-scope name matching `prefix` as a completion candidate,
@@ -273,6 +275,10 @@ collect_dir_decls :: proc(e: ^Engine, parser: ts.Parser, dir: string, all: bool)
         path := "" // cloned on the file's first symbol, shared by the rest
         for d in collect_defs(e, ts.tree_root_node(tree), source) {
             if !d.top_level || d.name == "" || d.name in e.builtins.names {
+                continue
+            }
+            // A private helper of base:runtime is not part of the implicit scope.
+            if d.visibility != .Public {
                 continue
             }
             if path == "" {
