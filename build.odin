@@ -95,7 +95,7 @@ build_thor :: proc() -> bool {
 // directory to the executable at startup (thor/thor.odin), so these paths are
 // exe-relative; a fresh copy each build carries over an edited plugin or theme.
 stage_resources :: proc() -> bool {
-    for dir in ([]string{"assets", "plugins", "settings"}) {
+    for dir in ([]string{"assets", "plugins", "settings", "docs"}) {
         dst := join(out_dir, dir)
         if err := os.remove_all(dst); err != nil {
             fmt.eprintfln("[build] a delete of %s failed: %v", dst, err)

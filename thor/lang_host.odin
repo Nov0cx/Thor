@@ -1454,11 +1454,13 @@ thor_apply_pending_goto :: proc(thor: ^Thor) {
     thor_clear_pending_goto(thor)
 }
 
+// Puts the caret at `offset` and centers the view on it; the one place every
+// jump lands.
 @(private = "file")
 thor_place_caret :: proc(thor: ^Thor, file: ^Open_File, offset: int) {
     textedit.set_single_cursor(&file.state, offset)
     editor := thor.active_pane == 0 ? thor.editor : thor.editor2
-    widgets.editor_scroll_to_caret(editor)
+    widgets.editor_center_on_caret(editor)
 }
 
 @(private = "file")

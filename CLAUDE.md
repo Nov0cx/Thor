@@ -38,7 +38,7 @@ the editor and then runs `build.odin -- test`, so a merge is gated on the tests 
 platforms. No test opens a window, so the runners need no display.
 
 A push of a `v*` tag runs `.github/workflows/release.yml`: it runs the tests, builds `-release` on
-all four CI platforms, packs `bin/release` (binary + `assets/`, `plugins/`, `settings/`) into a zip
+all four CI platforms, packs `bin/release` (binary + `assets/`, `plugins/`, `settings/`, `docs/`) into a zip
 or tarball, and publishes them. The publish job needs every build job, so one broken platform makes
 no release. A manual run builds the same archives and stops before the publish.
 
@@ -119,7 +119,8 @@ Windows, Linux and macOS all build (one workflow each). No shared file may impor
 forward declarations, so the shared file states the contract — the types and procedures both
 platform files must supply — as a comment. The pairs are `shell/shell_*`, `watch/watch_*`,
 `thor/windows_*` (multi-window records), `thor/dialogs_*` (file pickers), `thor/filemap_*` (the
-load worker's read-only mapping) and `thor/reveal_*`. `watch/` is the one three-way split —
+load worker's read-only mapping) and `thor/reveal_*` (file-manager reveal and the browser open
+behind Help > Documentation). `watch/` is the one three-way split —
 `watch_windows.odin` blocks on ReadDirectoryChangesW, `watch_linux.odin` on inotify, and
 `watch_posix.odin` (`#+build darwin, freebsd, openbsd, netbsd`) polls the tree. `watch/scan.odin`
 and `watch/poll.odin` are deliberately platform-free, so the polling watcher's diff is testable on
@@ -290,9 +291,9 @@ node userdata over the same seam. `plugins/README.md` is the plugin-author-facin
 
 ## Runtime resources and configuration
 
-Thor moves its working directory to the executable at startup, so `assets/`, `plugins/` and
-`settings/` are loaded *beside the binary*; the build stages fresh copies there on every build. The
-folder Thor opens still comes from the directory it was launched in.
+Thor moves its working directory to the executable at startup, so `assets/`, `plugins/`,
+`settings/` and `docs/` are loaded *beside the binary*; the build stages fresh copies there on every
+build. The folder Thor opens still comes from the directory it was launched in.
 
 Configuration is layered: global `settings/*.json` (settings, keybinds, comment prefixes) overlaid by
 a workspace's `.thor/` directory. `.thor/` also holds `tasks.json` (named shell commands surfaced in

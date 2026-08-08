@@ -1,7 +1,7 @@
 name: Release
 
 # Builds an optimized Thor on every platform that CI covers, packs each one with
-# the resources it loads beside the binary (assets, plugins, settings), and
+# the resources it loads beside the binary (assets, plugins, settings, docs), and
 # publishes the archives. The publish job needs every build job, so a release is
 # only made when all of them pass.
 #
@@ -78,12 +78,12 @@ jobs:
       - name: Build Thor
         run: odin run build.odin -file -- all -release -verbose
 
-      # build.odin stages assets/, plugins/, settings/ and lua54.dll beside the
-      # binary; the archive is that directory under one top-level folder.
+      # build.odin stages assets/, plugins/, settings/, docs/ and lua54.dll
+      # beside the binary; the archive is that directory under one top-level
+      # folder.
       - name: Pack
         run: |
           Copy-Item README.md, LICENSE bin/release
-          Copy-Item -Recurse docs bin/release/docs
           New-Item -ItemType Directory -Force dist | Out-Null
           Move-Item bin/release "dist/$env:NAME"
           Compress-Archive -Path "dist/$env:NAME" -DestinationPath "dist/$env:NAME.zip"
@@ -146,7 +146,6 @@ jobs:
       - name: Pack
         run: |
           cp README.md LICENSE bin/release/
-          cp -r docs bin/release/
           mkdir -p dist
           mv bin/release "dist/$NAME"
           tar -czf "dist/$NAME.tar.gz" -C dist "$NAME"
@@ -215,7 +214,6 @@ jobs:
       - name: Pack
         run: |
           cp README.md LICENSE bin/release/
-          cp -r docs bin/release/
           mkdir -p dist
           mv bin/release "dist/$NAME"
           tar -czf "dist/$NAME.tar.gz" -C dist "$NAME"
@@ -294,7 +292,6 @@ jobs:
       - name: Pack
         run: |
           cp README.md LICENSE bin/release/
-          cp -r docs bin/release/
           mkdir -p dist
           mv bin/release "dist/$NAME"
           tar -czf "dist/$NAME.tar.gz" -C dist "$NAME"
@@ -331,8 +328,8 @@ jobs:
         run: |
           cat > README.md <<'EOF'
           Unpack the archive of your platform and start `thor`. The binary reads
-          `assets/`, `plugins/` and `settings/` beside itself, so keep the folder
-          together.
+          `assets/`, `plugins/`, `settings/` and `docs/` beside itself, so keep
+          the folder together.
 
           - Linux needs HarfBuzz and the X11/Wayland and OpenGL libraries of the
             system (`libharfbuzz`, `libx11`, `libxrandr`, `libxinerama`,

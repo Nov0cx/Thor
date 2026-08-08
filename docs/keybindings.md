@@ -210,3 +210,17 @@ modes. All bindings above live in `settings/keybinds.json`; comment markers in
 
 `ctrl + alt + l` is intentionally left unbound — it is reserved for a future
 code formatter.
+
+## Help
+
+The **Help** menu opens this manual without leaving the editor:
+
+| entry | what it does |
+| --- | --- |
+| Documentation | opens `docs/index.md` in the rendered Markdown preview |
+| Documentation Page... | picks one page of the manual and opens it the same way |
+| Documentation in Browser | opens `docs/html/` in the system browser, or the pages on GitHub when that HTML has not been generated |
+
+The pages ship beside the binary, so they are readable offline. The same three
+actions are in the command palette under "Help:" and take chords in
+`settings/keybinds.json` as `docs`, `docs_page` and `docs_browser`.

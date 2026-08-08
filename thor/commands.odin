@@ -404,6 +404,9 @@ thor_register_commands :: proc(thor: ^Thor) {
     thor_add_bindable_command(thor, "Tasks: Edit Tasks (JSON)", "edit_tasks", thor_cmd_edit_tasks, thor)
 
     thor_add_bindable_command(thor, "Help: Tutorial", "tutorial", thor_cmd_tutorial, thor)
+    thor_add_bindable_command(thor, "Help: Documentation", "docs", thor_cmd_docs, thor)
+    thor_add_bindable_command(thor, "Help: Documentation Page", "docs_page", thor_cmd_docs_page, thor)
+    thor_add_bindable_command(thor, "Help: Documentation in Browser", "docs_browser", thor_cmd_docs_browser, thor)
     thor_add_bindable_command(thor, "Settings: Open Settings GUI", "open_settings_gui", thor_cmd_open_settings_gui, thor)
     thor_add_bindable_command(thor, "Settings: Open Keybinds", "open_keybinds", thor_cmd_open_keybinds, thor)
     thor_add_bindable_command(thor, "Settings: Open Comments", "open_comments", thor_cmd_open_comments, thor)
@@ -750,5 +753,5 @@ thor_palette_goto_line :: proc(data: rawptr, line: int) {
     thor_jump_record(thor)
     pos := textedit.state_line_start(&file.state, line - 1)
     textedit.set_single_cursor(&file.state, pos)
-    widgets.editor_scroll_to_caret(thor.editor)
+    widgets.editor_center_on_caret(thor.editor)
 }

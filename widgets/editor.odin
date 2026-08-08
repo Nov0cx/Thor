@@ -1479,6 +1479,16 @@ editor_paste :: proc(editor: ^Editor) {
     }
 }
 
+// Row height, view height and the top of the caret row in content space.
+// Needs the visual row map to be current.
+@(private = "file")
+editor_caret_metrics :: proc(editor: ^Editor, caret: int) -> (line_height, view_height, caret_top: f32) {
+    line_height = cast(f32) ui.text_line_height(editor.font_size)
+    view_height = editor.bounds.height - editor.padding.top - editor.padding.bottom
+    caret_top = cast(f32) editor_visual_row_index(editor, caret) * line_height
+    return
+}
+
 // Scrolls the caret line to center; repeated calls without the caret moving
 // cycle center -> top -> bottom.
 editor_recenter :: proc(editor: ^Editor) {
@@ -1494,14 +1504,27 @@ editor_recenter :: proc(editor: ^Editor) {
         editor.recenter_phase = (editor.recenter_phase + 1) % 3
     }
 
-    line_height := cast(f32) ui.text_line_height(editor.font_size)
-    view_height := editor.bounds.height - editor.padding.top - editor.padding.bottom
-    caret_top := cast(f32) editor_visual_row_index(editor, caret) * line_height
+    line_height, view_height, caret_top := editor_caret_metrics(editor, caret)
     switch editor.recenter_phase {
     case 0: editor.scroll_y = caret_top - (view_height - line_height) * 0.5
     case 1: editor.scroll_y = caret_top
     case 2: editor.scroll_y = caret_top - (view_height - line_height)
     }
+    editor_clamp_scroll(editor)
+}
+
+// Scrolls the caret line to the middle of the view, for a jump to a new place.
+// Sets the recenter cycle to its center phase.
+editor_center_on_caret :: proc(editor: ^Editor) {
+    if editor.state == nil {
+        return
+    }
+    editor_ensure_visual_rows(editor)
+    caret := textedit.primary_cursor(editor.state).caret
+    line_height, view_height, caret_top := editor_caret_metrics(editor, caret)
+    editor.scroll_y = caret_top - (view_height - line_height) * 0.5
+    editor.recenter_phase = 0
+    editor.recenter_caret = caret
     editor_clamp_scroll(editor)
 }
 

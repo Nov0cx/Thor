@@ -45,7 +45,9 @@ For Odin, hover a symbol with `ctrl` held to see its declaration, `alt + enter`
 code actions available at the caret.
 
 **Help > Tutorial** opens an interactive walkthrough of the shortcuts above,
-inside the editor itself.
+inside the editor itself. **Help > Documentation** opens this manual in Thor's
+Markdown preview, and **Help > Documentation in Browser** opens it outside the
+editor.
 
 ## Next steps
 
