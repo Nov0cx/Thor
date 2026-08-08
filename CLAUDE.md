@@ -63,7 +63,7 @@ Launching the GUI from an agent-spawned process hangs in `rl.InitWindow` — ver
   like `build.odin`. It skips `vendor/` and `bin/`, and skips `_test.odin` files because `odin check`
   drops them. A failure exits 2 with the compiler output.
 
-Three skills in `.claude/skills/`:
+Four skills in `.claude/skills/`:
 
 - `verify` — the verification sweep to run after an Odin change: per-package type-check, the Linux
   and macOS cross-checks with their expected noise named, then `build.odin -- test`. It also covers
@@ -72,6 +72,8 @@ Three skills in `.claude/skills/`:
   a tree-sitter node type, field or child order.
 - `grammar-add` — adds a tree-sitter grammar, keeping `build.odin`, `syntax/syntax.odin` and the four
   CI workflows in step, then writes the plugin.
+- `update-docs` — brings `README.md` and `docs/` back in step with the code (settings, keybinds,
+  plugin permissions, build steps) after a user-facing change, and regenerates `docs/html/`.
 
 ## Layout and dependency direction
 
@@ -296,6 +298,14 @@ a workspace's `.thor/` directory. `.thor/` also holds `tasks.json` (named shell 
 the titlebar), `odin-analyzer.json` (per-workspace analyzer collections and feature toggles —
 deliberately Thor's own file, not `ols.json`) and `plugins/` (the workspace's own Lua plugins). This
 repo has its own `.thor/`, so those files serve as working examples.
+
+## User documentation
+
+`README.md` is a short quick-start; the user manual is `docs/` (Markdown, one page per topic —
+getting started, building, configuration, keybindings, plugins). `docs/generate_html.py` renders it
+to static HTML in `docs/html/` (gitignored, not committed); `docs/requirements.txt` names the one
+dependency. Release archives ship the `docs/` Markdown sources alongside the binary (see
+`.github/workflows/release.yml`). The `update-docs` skill keeps both in step with the code.
 
 ## Code style
 

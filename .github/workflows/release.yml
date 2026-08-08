@@ -82,7 +82,8 @@ jobs:
       # binary; the archive is that directory under one top-level folder.
       - name: Pack
         run: |
-          Copy-Item README.md, LICENSE, keybinds.md bin/release
+          Copy-Item README.md, LICENSE bin/release
+          Copy-Item -Recurse docs bin/release/docs
           New-Item -ItemType Directory -Force dist | Out-Null
           Move-Item bin/release "dist/$env:NAME"
           Compress-Archive -Path "dist/$env:NAME" -DestinationPath "dist/$env:NAME.zip"
@@ -144,7 +145,8 @@ jobs:
 
       - name: Pack
         run: |
-          cp README.md LICENSE keybinds.md bin/release/
+          cp README.md LICENSE bin/release/
+          cp -r docs bin/release/
           mkdir -p dist
           mv bin/release "dist/$NAME"
           tar -czf "dist/$NAME.tar.gz" -C dist "$NAME"
@@ -212,7 +214,8 @@ jobs:
 
       - name: Pack
         run: |
-          cp README.md LICENSE keybinds.md bin/release/
+          cp README.md LICENSE bin/release/
+          cp -r docs bin/release/
           mkdir -p dist
           mv bin/release "dist/$NAME"
           tar -czf "dist/$NAME.tar.gz" -C dist "$NAME"
@@ -290,7 +293,8 @@ jobs:
 
       - name: Pack
         run: |
-          cp README.md LICENSE keybinds.md bin/release/
+          cp README.md LICENSE bin/release/
+          cp -r docs bin/release/
           mkdir -p dist
           mv bin/release "dist/$NAME"
           tar -czf "dist/$NAME.tar.gz" -C dist "$NAME"
