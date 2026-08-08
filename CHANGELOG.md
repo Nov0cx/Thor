@@ -1,1 +1,17 @@
 # 2026.08.0
+
+First release. Thor runs on Windows, Linux and macOS.
+
+- Editing: multiple cursors, editor split, find and replace, undo and redo, auto-indent, bracket and quote pairs, line comment toggle, autosave.
+- Tree-sitter syntax highlighting for 45 languages, each one a plugin.
+- Odin language intelligence, served in the editor with no language server: hover, go to definition, completion, signature help, code actions, find all references, rename symbol, document and workspace symbols, and compiler diagnostics. The `language_intelligence` setting turns it off per feature.
+- Console panel with one live shell per tab. The shell stays alive between commands, so `cd` and environment variables persist. `+` lists the shells found on the machine: pwsh, Windows PowerShell, cmd, the MSVC developer prompt, Git Bash, MSYS2, Cygwin, WSL, nu, and the POSIX shells.
+- Command palette (`ctrl + .`) runs every action, and quick open (`ctrl + tab`) finds a file by name.
+- Explorer panel with the file tree of the workspace, keyboard driven and watched for changes on disk.
+- Each folder keeps its own session: open tabs and layout come back with it. `open_folder_in` chooses whether a second folder replaces this window or opens a new one.
+- Lua plugins for languages, commands, panels and key bindings. Each plugin is sandboxed and asks for its permissions before it loads; a workspace can carry its own plugins in `.thor/plugins`.
+- Settings view for themes, fonts, icon packs and plugin permissions, over `settings/settings.json`, `settings/keybinds.json` and a workspace `.thor/`.
+- Named shell commands in `.thor/tasks.json`, started from the titlebar or the command palette.
+- Rendered Markdown preview (`f4`).
+- Help menu opens the manual in the editor or the browser, and an interactive tutorial.
+- `thor [path]` opens a folder or a file; `--version` and `--help` print and exit.
