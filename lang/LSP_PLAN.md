@@ -119,6 +119,7 @@ Elsewhere both would be duplicated.
 //     child_write     :: proc(c: ^Child, bytes: []u8) -> bool
 //     child_read_out  :: proc(c: ^Child, buf: []u8) -> int   // blocks; 0 at EOF
 //     child_read_err  :: proc(c: ^Child, buf: []u8) -> int   // blocks; 0 at EOF
+//     child_close_in  :: proc(c: ^Child)                     // ends input, not the process
 //     child_alive     :: proc(c: ^Child) -> bool
 //     child_terminate :: proc(c: ^Child)                     // safe while a reader blocks
 //     child_destroy   :: proc(c: ^Child)                     // only after both readers join
@@ -140,15 +141,19 @@ vtable:
 
 ```odin
 Transport :: struct {
-    data:     rawptr,
-    write:    proc(data: rawptr, bytes: []u8) -> bool,
-    read_out: proc(data: rawptr, buf: []u8) -> int, // blocks; 0 at EOF
-    read_err: proc(data: rawptr, buf: []u8) -> int,
-    close:    proc(data: rawptr),                   // safe while a reader blocks
-    destroy:  proc(data: rawptr),
+    data:      rawptr,
+    write:     proc(data: rawptr, bytes: []u8) -> bool,
+    read_out:  proc(data: rawptr, buf: []u8) -> int, // blocks; 0 at EOF
+    read_err:  proc(data: rawptr, buf: []u8) -> int,
+    close:     proc(data: rawptr),                   // ends input; safe while a reader blocks
+    terminate: proc(data: rawptr),                   // the kill, for a server that will not exit
+    destroy:   proc(data: rawptr),
 }
 transport_child :: proc(spec: shell.Child_Spec) -> (Transport, bool)
 ```
+
+`terminate` is what keeps `server_stop` step 6 inside the seam; without it the
+server code would have to reach past the transport to `shell.child_terminate`.
 
 This is the single most important testing decision. `mock_test.odin` supplies an
 in-process transport of two `[dynamic]u8` and a `sync.Sema`, so handshake,
@@ -164,12 +169,20 @@ display.
 // Appends "Content-Length: N\r\n\r\n" + body to `out`. N is the byte length.
 frame_write :: proc(out: ^[dynamic]u8, body: []u8)
 
-// Takes the first complete frame off the head of `buf`, removing it. ok=false
-// with err=.None means the frame has not arrived whole yet.
-frame_take :: proc(buf: ^[dynamic]u8) -> (body: []u8, err: Frame_Error, ok: bool)
+// Takes the first complete frame off the head of `buf`, copying its body into
+// `allocator` and removing the whole frame. ok=false with err=.None means the
+// frame has not arrived whole yet and `buf` is untouched.
+frame_take :: proc(buf: ^[dynamic]u8, allocator := context.allocator) -> (body: []u8, err: Frame_Error, ok: bool)
 
 Frame_Error :: enum { None, Bad_Header, Missing_Length, Length_Too_Large }
+
+MAX_HEADER :: 8 * 1024
 ```
+
+*As built* — the body is a copy, so it carries no lifetime rule; `MAX_HEADER`
+bounds an unterminated header block; a second `Content-Length` is `.Bad_Header`;
+and the length is read by a strict decimal scan, since `strconv.parse_int` would
+frame `12abc` as 12.
 
 Rules the implementation holds, each a test case:
 
@@ -913,11 +926,51 @@ its tests pass, and nothing regresses.
       on a hot path. The lock-free rule stands on thread safety, not frequency.
       **Q3:** `file_in_dir` had no second consumer, so the fix stayed inside
       `thor/diagnostics.odin`; it is now `scope_covers`.
-- [ ] **M1 — Process and transport, no LSP semantics.** `shell/child*.odin`;
+- [x] **M1 — Process and transport, no LSP semantics.** `shell/child*.odin`;
       `lang/lsp/transport.odin` and `framing.odin`; the package added to
       `run_tests`.
       *Checkpoint: `odin test lang/lsp` passes the framing tests and a mock echo
       round trip; both cross-checks clean.*
+
+      **As built, six points differ from the text above.** (a) `frame_take` takes
+      an allocator and returns a **copy** of the body. The designed signature
+      both returned a slice of `buf` and removed the frame from it, and the
+      removal memmoves over the bytes the slice points at; the copy costs one
+      memcpy of a body about to become a much larger JSON tree, on a reader
+      thread, and in exchange the body carries no lifetime rule. In M2 the
+      allocator is the per-message arena, so body and `json.Value` die together.
+      (b) `MAX_HEADER :: 8 * 1024` added — the design bounds the body but not the
+      header, so a server that never sends `\r\n\r\n` would grow the read buffer
+      without end. (c) `frame_take` refuses a **second** `Content-Length` as
+      `.Bad_Header`, and parses the value with its own strict decimal scan rather
+      than `strconv.parse_int`, which stops at the first non-digit and would
+      frame `12abc` as 12. On any error `buf` is left untouched and the stream
+      cannot resynchronise, so the caller kills the server. (d) `Transport` gained
+      `terminate` beside `close`: `close` ends the server's input, which is
+      `server_stop` step 5, and `terminate` is the kill in step 6 — the design
+      called `child_terminate` there directly, which would have broken its own
+      rule that `lang/lsp` never touches `shell.Child`. `child_close_in` is the
+      matching addition to the child contract. (e) `child_start` reports a program
+      that could not be started on **both** platforms. A fork cannot fail, so the
+      POSIX side carries the exec's errno back over a pipe of its own whose write
+      end is `FD_CLOEXEC`; a successful exec closes it and the parent's read ends
+      with nothing. Without it a missing server binary would read as a server that
+      started and died at once. (f) `child_alive` uses
+      `waitpid(pid, &status, {.NOHANG})` with a `reaped` latch on POSIX, not
+      `kill(pid, .NONE)`: the kill reaches a zombie too, so it would call an exited
+      server live. `thor/windows_posix.odin:25` can use `kill` because it probes a
+      foreign pid.
+
+      **Open question 2 is settled.** `json.marshal`'s strict-JSON escaping was
+      pinned by a round trip in `framing_test.odin` over control characters,
+      U+00A1..U+00FF, U+FFFD and astral characters: every one comes back
+      unchanged, so `jsonrpc.odin` may send buffer text as-is.
+
+      Because nothing imports `lang/lsp` yet, `odin check main -target:...` does
+      not reach it. `lang/lsp` and `shell` are cross-checked directly instead, and
+      neither pulls in `vendor/stb` or the HarfBuzz binding, so unlike the `main`
+      cross-checks both come back with **no output at all** — there is no expected
+      noise to filter here.
 - [ ] **M2 — JSON-RPC client core.** Reader thread, id correlation, `Pending` and
       deadlines, `$/cancelRequest`, the notification queue, the server→client
       request replies.
