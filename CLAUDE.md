@@ -339,3 +339,7 @@ the analysis skill
 ## Changelog
 
 The changelog is in CHANGELOG.md. Version numbering is year.month.patch. Changelog should be written in short bulletpoints.
+
+## Git
+
+NEVER add urself as a co author. You are just a tool.
