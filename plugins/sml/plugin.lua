@@ -87,7 +87,7 @@ local function lex(src)
             end
             -- character literal: #"c"
             s, e = line:find('^#"\\?."', p)
-            if s then push(base + s - 1, base + e, t.orange); p = e + 1; goto continue end
+            if s then push(base + s - 1, base + e, t.conflict); p = e + 1; goto continue end
             -- number: real (with exponent/fraction) or int, `~` is the unary minus
             s, e = line:find("^~?%d+%.%d+[eE]~?%d+", p)
             if not s then s, e = line:find("^~?%d+[eE]~?%d+", p) end
@@ -97,7 +97,7 @@ local function lex(src)
             if s then push(base + s - 1, base + e, t.numbers); p = e + 1; goto continue end
             -- type variable: 'a, ''a
             s, e = line:find("^''?[%a][%w_']*", p)
-            if s then push(base + s - 1, base + e, t.yellow); p = e + 1; goto continue end
+            if s then push(base + s - 1, base + e, t.warning); p = e + 1; goto continue end
             -- word: keyword, otherwise left uncoloured
             s, e = line:find("^[%a_][%w_']*", p)
             if s then

@@ -25,10 +25,10 @@ local function lex(src)
             -- bold: **text** or __text__
             s, e = line:find("^%*%*.-%*%*", p)
             if not s then s, e = line:find("^__.-__", p) end
-            if s then push(base + s - 1, base + e, t.orange); p = e + 1; goto continue end
+            if s then push(base + s - 1, base + e, t.conflict); p = e + 1; goto continue end
             -- strikethrough: ~~text~~
             s, e = line:find("^~~.-~~", p)
-            if s then push(base + s - 1, base + e, t.gray); p = e + 1; goto continue end
+            if s then push(base + s - 1, base + e, t.muted); p = e + 1; goto continue end
             -- italic: *text* or _text_
             s, e = line:find("^%*.-%*", p)
             if not s then s, e = line:find("^_.-_", p) end

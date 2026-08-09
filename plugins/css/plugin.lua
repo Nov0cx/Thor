@@ -59,7 +59,7 @@ local function lex(src)
             -- #hex color / #id selector
             s, e = line:find("^#[%x]+", p)
             if s and (e - s == 3 or e - s == 6 or e - s == 8) and depth > 0 then
-                push(base + s - 1, base + e, t.orange); p = e + 1; goto continue
+                push(base + s - 1, base + e, t.conflict); p = e + 1; goto continue
             end
             s, e = line:find("^#[%w_-]+", p)
             if s then push(base + s - 1, base + e, t.tags); p = e + 1; goto continue end

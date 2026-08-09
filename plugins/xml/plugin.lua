@@ -68,7 +68,7 @@ local function lex(src)
             i = scan_tag(i)
         elseif src:sub(i, i) == "&" then
             local s, e = src:find("^&[#%w]+;", i)
-            if s then emit(s, e, t.orange); i = e + 1 else i = i + 1 end
+            if s then emit(s, e, t.conflict); i = e + 1 else i = i + 1 end
         else
             i = i + 1
         end

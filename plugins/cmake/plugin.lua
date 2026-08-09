@@ -133,7 +133,7 @@ local function lex(src)
                 elseif line:sub(e + 1):match("^%s*%(") then
                     push(base + s - 1, base + e, t.functions)
                 elseif CONSTANTS[w] then
-                    push(base + s - 1, base + e, t.orange)
+                    push(base + s - 1, base + e, t.conflict)
                 elseif OPERATORS[w] then
                     push(base + s - 1, base + e, t.keywords)
                 elseif w:match("^%u[%u%d_]*$") then

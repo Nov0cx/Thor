@@ -124,9 +124,9 @@ local function lex(src)
                 if KEYWORDS[w] then
                     push(base + s - 1, base + e, t.keywords)
                 elseif CONSTANTS[w] then
-                    push(base + s - 1, base + e, t.orange)
+                    push(base + s - 1, base + e, t.conflict)
                 elseif TYPES[w] then
-                    push(base + s - 1, base + e, t.yellow)
+                    push(base + s - 1, base + e, t.warning)
                 elseif line:sub(e + 1):match("^%s*%(") then
                     push(base + s - 1, base + e, t.functions)
                 end

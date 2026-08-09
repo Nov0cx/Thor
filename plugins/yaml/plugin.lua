@@ -41,7 +41,7 @@ local function lex(src)
                 else
                     s, e = line:find("^[%a~][%w_]*", p)
                     if s then
-                        if BOOLEANS[line:sub(s, e):lower()] then push(base + s - 1, base + e, t.orange) end
+                        if BOOLEANS[line:sub(s, e):lower()] then push(base + s - 1, base + e, t.conflict) end
                         p = e + 1
                     else
                         p = p + 1

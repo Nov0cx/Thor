@@ -14,9 +14,9 @@ thor.register_language {
 
         ["function"] = t.functions,
 
-        type = t.yellow,
+        type = t.warning,
 
-        constant = t.orange,
+        constant = t.conflict,
 
         number = t.numbers,
         string  = t.strings,

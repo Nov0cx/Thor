@@ -16,7 +16,7 @@ thor.register_language {
         comment = t.comments,
         operator = t.operators,
 
-        constant  = t.orange,
-        namespace = t.cyan,
+        constant  = t.conflict,
+        namespace = t.accent_secondary,
     },
 }

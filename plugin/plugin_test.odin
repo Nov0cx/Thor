@@ -114,8 +114,8 @@ main :: proc() {
     expect(t, spans, src, "\"hi\"", "strings")
     expect(t, spans, src, "// note", "comments")
     expect(t, spans, src, "data", "parameters") // named param, not a type
-    expect(t, spans, src, "context", "orange") // reserved, not a plain variable
-    expect(t, spans, src, "mem.panic_allocator", "cyan") // package qualifier
+    expect(t, spans, src, "context", "conflict") // reserved, not a plain variable
+    expect(t, spans, src, "mem.panic_allocator", "accent_secondary") // package qualifier
 }
 
 // Loads the real plugins/lua/plugin.lua and highlights Lua through the
@@ -191,7 +191,7 @@ test_typescript_plugin_highlights :: proc(t: ^testing.T) {
         testing.expectf(t, got == want, "%q: role %q, want %q", needle, got, want)
     }
     expect(t, spans, src, "const", "keywords")
-    expect(t, spans, src, "number", "yellow") // type, from the typescript layer
+    expect(t, spans, src, "number", "warning") // type, from the typescript layer
     expect(t, spans, src, "// note", "comments") // from the javascript base
 }
 
@@ -247,7 +247,7 @@ test_new_grammar_plugins_highlight :: proc(t: ^testing.T) {
         {
             ".lisp",
             "; c\n(defun add (a b)\n  (+ a b))\n:key 42\n\"hi\"\n",
-            {{"; c", "comments"}, {"42", "numbers"}, {"\"hi\"", "strings"}, {":key", "orange"}},
+            {{"; c", "comments"}, {"42", "numbers"}, {"\"hi\"", "strings"}, {":key", "conflict"}},
         },
     }
 
@@ -290,7 +290,7 @@ test_markdown_plugin_highlights :: proc(t: ^testing.T) {
         testing.expectf(t, got == want, "%q: role %q, want %q", needle, got, want)
     }
     expect(t, spans, src, "# Title", "keywords")
-    expect(t, spans, src, "**bold**", "orange")
+    expect(t, spans, src, "**bold**", "conflict")
     expect(t, spans, src, "*slant*", "attributes")
     expect(t, spans, src, "`code`", "strings")
     expect(t, spans, src, "- ", "operators")
@@ -539,7 +539,7 @@ test_added_lexer_plugins_highlight :: proc(t: ^testing.T) {
             "// c\n[shader(\"vertex\")]\nfloat4 vs_main(float3 p : POSITION) : SV_Position {\n    let s = 1.0f;\n    return float4(p * s, 1.0);\n}\n",
             {
                 {"// c", "comments"}, {"shader", "attributes"}, {"\"vertex\"", "strings"},
-                {"float4", "yellow"}, {"vs_main", "functions"}, {"POSITION", "attributes"},
+                {"float4", "warning"}, {"vs_main", "functions"}, {"POSITION", "attributes"},
                 {"SV_Position", "attributes"}, {"let", "keywords"}, {"1.0f", "numbers"},
             },
         },
@@ -567,7 +567,7 @@ test_added_lexer_plugins_highlight :: proc(t: ^testing.T) {
             {
                 {"<# c #>", "comments"}, {"# c2", "comments"}, {"function", "keywords"},
                 {"Get-Thing", "functions"}, {"$x", "variables"}, {"\"v\"", "strings"},
-                {"if", "keywords"}, {"-eq", "operators"}, {"$true", "orange"},
+                {"if", "keywords"}, {"-eq", "operators"}, {"$true", "conflict"},
             },
         },
         {
@@ -575,8 +575,8 @@ test_added_lexer_plugins_highlight :: proc(t: ^testing.T) {
             "// c\n@Grab('x')\nclass Foo {\n    def bar() {\n        String s = \"v\"\n        return true\n    }\n}\n",
             {
                 {"// c", "comments"}, {"@Grab", "attributes"}, {"class", "keywords"},
-                {"def", "keywords"}, {"bar", "functions"}, {"String", "yellow"},
-                {"\"v\"", "strings"}, {"return", "keywords"}, {"true", "orange"},
+                {"def", "keywords"}, {"bar", "functions"}, {"String", "warning"},
+                {"\"v\"", "strings"}, {"return", "keywords"}, {"true", "conflict"},
             },
         },
         {

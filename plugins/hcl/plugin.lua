@@ -19,17 +19,17 @@ thor.register_language {
 
         ["function"] = t.functions,
 
-        type = t.yellow,
+        type = t.warning,
 
-        constant = t.orange,
-        boolean  = t.orange,
+        constant = t.conflict,
+        boolean  = t.conflict,
 
         number = t.numbers,
         string  = t.strings,
         comment = t.comments,
         operator = t.operators,
 
-        ["variable.builtin"] = t.orange,
+        ["variable.builtin"] = t.conflict,
         variable               = t.variables,
 
         punctuation = t.operators,

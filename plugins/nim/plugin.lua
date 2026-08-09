@@ -19,10 +19,10 @@ thor.register_language {
         ["function"] = t.functions,
         method       = t.functions,
 
-        type = t.yellow,
+        type = t.warning,
 
-        constant  = t.orange,
-        character = t.orange,
+        constant  = t.conflict,
+        character = t.conflict,
 
         number = t.numbers,
         float  = t.numbers,
@@ -33,7 +33,7 @@ thor.register_language {
 
         field                  = t.variables,
         parameter              = t.parameters,
-        ["variable.builtin"]   = t.orange,
+        ["variable.builtin"]   = t.conflict,
         variable                = t.variables,
 
         punctuation = t.operators,

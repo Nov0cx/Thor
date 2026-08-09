@@ -137,7 +137,7 @@ local function lex(src)
             -- preprocessor directive, only with nothing but space before it
             if c == "#" and line:sub(1, p - 1):match("^%s*$") then
                 s, e = line:find("^#%s*[%a_]+", p)
-                if s then push(base + s - 1, base + e, t.orange); p = e + 1; goto continue end
+                if s then push(base + s - 1, base + e, t.conflict); p = e + 1; goto continue end
             end
             -- <path> of an #include
             if include_line and c == "<" then
@@ -154,7 +154,7 @@ local function lex(src)
             end
             -- character literal
             s, e = line:find("^'\\?[^']'", p)
-            if s then push(base + s - 1, base + e, t.orange); p = e + 1; goto continue end
+            if s then push(base + s - 1, base + e, t.conflict); p = e + 1; goto continue end
             -- [shader("vertex")] / [[vk::binding(0)]]: the name only, so the
             -- arguments still lex. An attribute opens a line or follows another.
             if c == "[" then
@@ -196,9 +196,9 @@ local function lex(src)
                 if KEYWORDS[w] then
                     push(base + s - 1, base + e, t.keywords)
                 elseif CONSTANTS[w] then
-                    push(base + s - 1, base + e, t.orange)
+                    push(base + s - 1, base + e, t.conflict)
                 elseif is_type(w) or (prev ~= nil and DECLARES_TYPE[prev]) then
-                    push(base + s - 1, base + e, t.yellow)
+                    push(base + s - 1, base + e, t.warning)
                 elseif line:sub(e + 1):match("^%s*%(") then
                     push(base + s - 1, base + e, t.functions)
                 end

@@ -21,14 +21,14 @@ thor.register_language {
         method       = t.functions,
         constructor  = t.functions,
 
-        type         = t.yellow,
+        type         = t.warning,
 
-        constant     = t.orange,
-        boolean      = t.orange,
-        character    = t.orange,
-        preproc      = t.orange,
-        define       = t.orange,
-        macro        = t.orange,
+        constant     = t.conflict,
+        boolean      = t.conflict,
+        character    = t.conflict,
+        preproc      = t.conflict,
+        define       = t.conflict,
+        macro        = t.conflict,
 
         number       = t.numbers,
         float        = t.numbers,
@@ -37,11 +37,11 @@ thor.register_language {
         comment      = t.comments,
         operator     = t.operators,
 
-        namespace    = t.cyan,
-        module       = t.cyan,
+        namespace    = t.accent_secondary,
+        module       = t.accent_secondary,
 
         parameter            = t.parameters,
-        ["variable.builtin"] = t.orange, -- the implicit context, self
+        ["variable.builtin"] = t.conflict, -- the implicit context, self
         variable             = t.variables,
         field                = t.variables,
         property             = t.variables,
@@ -50,7 +50,7 @@ thor.register_language {
         -- query: nothing in the file, its imports or the workspace declares the
         -- name. The grammar cannot tell a typo from a local, so this arrives
         -- only once every lookup has completed and come up empty.
-        unresolved   = t.gray,
+        unresolved   = t.muted,
 
         attribute    = t.attributes,
     },

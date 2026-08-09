@@ -21,10 +21,10 @@ thor.register_language {
         method       = t.functions,
         constructor  = t.functions,
 
-        type = t.yellow,
+        type = t.warning,
 
-        constant = t.orange,
-        boolean  = t.orange,
+        constant = t.conflict,
+        boolean  = t.conflict,
 
         number = t.numbers,
         float  = t.numbers,
@@ -34,12 +34,12 @@ thor.register_language {
         operator = t.operators,
 
         parameter            = t.parameters,
-        ["variable.builtin"] = t.orange,
+        ["variable.builtin"] = t.conflict,
         variable              = t.variables,
         field                  = t.variables,
 
         attribute   = t.attributes,
         punctuation = t.operators,
-        error       = t.red,
+        error       = t.danger,
     },
 }

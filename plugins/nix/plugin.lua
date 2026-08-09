@@ -20,7 +20,7 @@ thor.register_language {
         comment = t.comments,
         operator = t.operators,
 
-        ["variable.builtin"]   = t.orange,
+        ["variable.builtin"]   = t.conflict,
         ["variable.parameter"] = t.parameters,
         variable                = t.variables,
         property                = t.variables,

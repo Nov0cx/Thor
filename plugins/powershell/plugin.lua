@@ -94,7 +94,7 @@ local function lex(src)
             -- $true / $false / $null, then ${name}, $scope:name, $name, $_
             s, e = line:find("^%$%a+", p)
             if s and LITERALS[line:sub(s, e):lower()] then
-                push(base + s - 1, base + e, t.orange); p = e + 1; goto continue
+                push(base + s - 1, base + e, t.conflict); p = e + 1; goto continue
             end
             s, e = line:find("^%${[^}]*}", p)
             if not s then s, e = line:find("^%$[%a_][%w_]*:[%a_][%w_]*", p) end

@@ -20,14 +20,14 @@ thor.register_language {
         method       = t.functions,
         constructor  = t.functions,
 
-        type         = t.yellow,
+        type         = t.warning,
 
-        constant     = t.orange,
-        boolean      = t.orange,
-        character    = t.orange,
-        preproc      = t.orange,
-        define       = t.orange,
-        macro        = t.orange,
+        constant     = t.conflict,
+        boolean      = t.conflict,
+        character    = t.conflict,
+        preproc      = t.conflict,
+        define       = t.conflict,
+        macro        = t.conflict,
 
         number       = t.numbers,
         float        = t.numbers,
@@ -37,8 +37,8 @@ thor.register_language {
         comment      = t.comments,
         operator     = t.operators,
 
-        namespace    = t.cyan,
-        module       = t.cyan,
+        namespace    = t.accent_secondary,
+        module       = t.accent_secondary,
 
         parameter    = t.parameters,
         variable     = t.variables,
