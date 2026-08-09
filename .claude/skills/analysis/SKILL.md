@@ -127,7 +127,8 @@ against the last run:
 ## 3. Potential bugs, ranked by severity   <- ### High / ### Medium / ### Low
 ## 4. Code style deviations from CLAUDE.md
 ## 5. Slow / inefficient code    <- lead with the one finding that compounds across layers
-## 6. Methodology     <- the partition, what was verified, and the commit the line numbers match
+## 6. List unnecessary or redundant tests
+## 7. Methodology     <- the partition, what was verified, and the commit the line numbers match
 ```
 
 Every finding carries its `file:line`. Close section 6 by naming the commit the line numbers were
