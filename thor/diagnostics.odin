@@ -152,9 +152,12 @@ same_path :: proc(a, b: string) -> bool {
 
 // `path` with its separators normalized and its `.`/`..` elements resolved, on
 // scratch. Falls back to the input if the allocation fails — a compare against
-// the raw spelling is still better than none.
+// the raw spelling is still better than none. `filepath.clean` only treats `\`
+// as a separator on Windows, but a compiler scope can carry Windows-style
+// paths on any host, so `\` is folded to `/` first.
 @(private = "file")
 cleaned :: proc(path: string) -> string {
-    c, err := filepath.clean(path, context.temp_allocator)
+    slashed, _ := strings.replace_all(path, "\\", "/", context.temp_allocator)
+    c, err := filepath.clean(slashed, context.temp_allocator)
     return err == nil ? c : path
 }
