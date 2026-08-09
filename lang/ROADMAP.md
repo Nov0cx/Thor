@@ -1070,10 +1070,9 @@ lowest latency.
         re-parse only files whose `modtime`/`size` differ, plus new files; drop
         deleted files. Correct with zero host coupling — the win is skipping the
         parse for unchanged files.
-      - *Reindex on save*: `odin.engine_notify_saved(e, path)` called from
-        `thor_save_file` (files.odin:372) marks one path stale — a fast path over
-        the stat-walk. No file watcher exists, so external edits rely on the
-        stat-walk.
+      - *Reindex on save*: the engine's `notify` slot marks one path stale
+        (`index_forget`) — a fast path over the stat-walk. No file watcher exists,
+        so external edits rely on the stat-walk.
       - *Live-buffer overlay* (threaded through every consumer): query the index
         but exclude `req.path`, extract decls from `req.source` separately (already
         parsed for same-file resolution), merge — unsaved edits still win over
@@ -1107,9 +1106,11 @@ lowest latency.
         declaration consumers (goto, hover, workspace symbols, signature help).
         **Landed** (`lang/odin`; `test_index_reflects_file_change` covers
         stat invalidation). Completion followed once the debounce was in place.
-        Follow-up still open: `odin.engine_notify_saved` on `thor_save_file` (the
-        stat-walk already catches saves via the mtime bump, so this is a robustness
-        add for coarse-mtime filesystems, not a correctness gap).
+        Follow-up landed: the engine now fills the seam's `notify` slot and drops
+        the saved file's index entry (`index_forget`), so the next sync re-parses
+        it whatever its stat says. The lock is a `try_lock` — this runs on the
+        main thread, and a dropped invalidation only costs the stat gate catching
+        the save instead.
       - Phase 2 — references acceleration. **Landed.** `index_reparse` now also
         records `File_Entry.idents` (every distinct identifier name in the file,
         engine-owned keys, gathered by `index_collect_idents`). The workspace
@@ -1295,20 +1296,34 @@ Prepared (`lang/lang.odin`, `thor/diagnostics.odin`):
 - [x] `lang.source_read` promoted out of `lang/odin`, so the CRLF-collapsed byte
       space every offset is counted in belongs to the seam.
 
+Landed since (`lang/lsp`, M1–M4):
+
+- [x] Long-lived child process with async stdio (a reader thread), `Content-Length`
+      framing, JSON-RPC request/response id matching. `shell/child_*.odin` is the
+      piped process pair; `transport.odin`, `framing.odin` and `jsonrpc.odin` are
+      the layers over it.
+- [x] LSP handshake (`initialize`/`initialized`, capabilities) and document sync.
+      Sync is **full text**, not incremental: `thor_sync_lang_documents` sends at
+      most one `didChange` per file per frame, keyed off `Open_File.lang_revision`.
+- [x] UTF-16 position ↔ byte offset conversion at the backend edge
+      (`position.odin`, both encodings, surrogate pairs, CRLF).
+- [x] Server lifecycle: the merged table in `settings/lsp.json` +
+      `<workspace>/.thor/lsp.json` (deliberately Thor's own file, not each
+      server's), spawn on the first document event for a claimed extension,
+      restart on crash with backoff, `shutdown`/`exit`/kill on exit.
+- [x] Registered *after* the Odin engine, so in-client wins for `.odin` and the
+      LSP covers everything else (clangd, rust-analyzer, gopls, …); an entry that
+      sets `"override": true` for `.odin` swaps the order.
+
 Still to add:
 
-- [ ] Long-lived child process with async stdio (a reader thread), `Content-Length`
-      framing, JSON-RPC request/response id matching. (Note: `shell.run` — what
-      `check.odin` drives the compiler with — is one-shot/blocking; a server needs
-      a different lifecycle.)
-- [ ] LSP handshake (`initialize`/`initialized`, capabilities) and document sync
-      (`didOpen`/`didChange` incremental, keyed off the piece-table revision).
-- [ ] UTF-16 position ↔ byte offset conversion at the backend edge.
-- [ ] Server lifecycle: discovery/config (a subprocess server reads its own
-      config — e.g. `ols.json` for OLS itself), spawn on first relevant file,
-      restart on crash, shut down on exit.
-- [ ] Register it *after* the Odin engine so in-client wins for `.odin` and the
-      LSP covers everything else (clangd, rust-analyzer, gopls, …).
+- [ ] Answer the request kinds: no `lang.Request_Kind` reaches a server yet, so a
+      started server is observable only in the log (M5 in `LSP_PLAN.md`).
+- [ ] `publishDiagnostics`: the pump drains what a server pushes and drops it. A
+      push becomes a `lang.Result` through `Backend.poll` in M6.
+- [ ] Re-read the table and restart the servers when the workspace changes: it is
+      read once, in `client_create`.
+- [ ] Incremental `didChange`.
 
 `LSP_PLAN.md` is the implementation plan for all of it: the `lang/lsp` package
 and what it may import, the child process and `Content-Length` transport, the
@@ -1328,5 +1343,6 @@ not a status, so this section stays the source of truth for what is built.
 - The vendored Odin `LOCALS` query models `:=` as `variable_declaration`, which
   this grammar does not produce — handled in `collect_short_decls`; revisit if
   the grammar is regenerated.
-- Only `.odin` is handled in-client; other languages have no backend at all
-  until the LSP client lands.
+- Only `.odin` is handled in-client. Another language now gets a server started
+  for it, but no request kind is routed there yet, so it still has no answers
+  until M5.

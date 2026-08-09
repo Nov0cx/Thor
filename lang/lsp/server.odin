@@ -61,11 +61,13 @@ Doc_Notice :: struct {
 Server :: struct {
     config:      ^Server_Config, // borrowed from the Client's Config
     workspace:   string,         // owned
-    root:        string,         // owned; chosen at the first start
+    trigger:     string,         // owned; the file that first needed the server
+    root:        string,         // owned; chosen by the pump at the first launch
     folders:     string,         // owned; the workspaceFolders array, as JSON text
     allocator:   runtime.Allocator,
     state:       Server_State, // atomic
     caps:        Capabilities, // written before state becomes .Ready, never after
+    caps_set:    bool,         // pump thread only
     // The pump, and the lock that makes two starters one.
     start_mutex: sync.Mutex,
     started:     bool,           // guarded by start_mutex
@@ -122,13 +124,13 @@ server_start :: proc(s: ^Server, path: string) -> bool {
     if s.started || sync.atomic_load(&s.state) != .Idle {
         return sync.atomic_load(&s.state) != .Failed
     }
-    s.root = server_root(s, path)
-    s.folders = folders_json(s.root, s.allocator)
+    // The root is found by the pump: it stats every marker up every ancestor
+    // directory, which the main thread must not wait for.
+    s.trigger = strings.clone(path, s.allocator)
     sync.atomic_store(&s.state, .Starting)
     s.started = true
 
-    // The pump inherits this context for its logger; it never uses the temp
-    // allocator, whose arena belongs to the thread that started it.
+    // The pump inherits this context for its logger and its allocator.
     pump_context := context
     pump_context.allocator = s.allocator
     s.pump = thread.create_and_start_with_poly_data(s, server_pump, pump_context)
@@ -136,13 +138,17 @@ server_start :: proc(s: ^Server, path: string) -> bool {
 }
 
 // Starts the server and waits for the handshake. Called on a worker thread, which
-// may block; false means it will not answer.
-server_ensure_started :: proc(s: ^Server, path: string) -> bool {
-    if !server_start(s, path) {
+// may block; false means it will not answer. A cancelled request gives up at
+// once, so a quit does not wait out the whole start deadline behind a worker.
+server_ensure_started :: proc(s: ^Server, req: ^lang.Request) -> bool {
+    if !server_start(s, req.path) {
         return false
     }
     start := time.tick_now()
     for time.tick_since(start) < DEADLINE_START {
+        if lang.request_cancelled(req) {
+            return false
+        }
         #partial switch server_state(s) {
         case .Ready:
             return true
@@ -195,17 +201,20 @@ server_notify :: proc(s: ^Server, event: lang.Doc_Event, path, ext, source: stri
     sync.lock(&s.out_mutex)
     // A change that has not been sent yet is replaced by the newer one: only the
     // last text is worth sending, and a stalled server must not grow the queue
-    // for every keystroke.
+    // for every keystroke. Only the file's last queued event may be folded into —
+    // folding past a close would send the new text before the file was closed.
     replaced := false
     if event == .Changed {
-        for &queued in s.outbox {
-            if queued.event != .Changed || !path_equal(queued.path, path) {
+        #reverse for &queued in s.outbox {
+            if !path_equal(queued.path, path) {
                 continue
             }
-            delete(queued.source, s.allocator)
-            queued.source = notice.source
-            queued.revision = notice.revision
-            replaced = true
+            if queued.event == .Changed {
+                delete(queued.source, s.allocator)
+                queued.source = notice.source
+                queued.revision = notice.revision
+                replaced = true
+            }
             break
         }
     }
@@ -255,6 +264,7 @@ server_destroy :: proc(s: ^Server) {
     server_drop_outbox(s)
     delete(s.outbox)
     delete(s.workspace, s.allocator)
+    delete(s.trigger, s.allocator)
     delete(s.root, s.allocator)
     delete(s.folders, s.allocator)
     free(s, s.allocator)
@@ -263,6 +273,13 @@ server_destroy :: proc(s: ^Server) {
 // The pump. It owns the connection and the documents for its whole life.
 @(private)
 server_pump :: proc(s: ^Server) {
+    // core:thread frees a thread's temp arena only for a thread it gave the
+    // default context to, and this one inherited its starter's. Logging and the
+    // process spawn both allocate from it, so the pump frees it itself.
+    defer if context.temp_allocator.procedure == runtime.default_temp_allocator_proc {
+        runtime.default_temp_allocator_destroy(auto_cast context.temp_allocator.data)
+    }
+
     for {
         if !server_launch(s) {
             sync.atomic_store(&s.state, .Failed)
@@ -299,6 +316,10 @@ server_pump :: proc(s: ^Server) {
 // are opened again, so a restart is invisible above this line.
 @(private)
 server_launch :: proc(s: ^Server) -> bool {
+    if s.root == "" {
+        s.root = server_root(s, s.trigger)
+        s.folders = folders_json(s.root, s.allocator)
+    }
     transport, opened := s.open(s)
     if !opened {
         log.debugf("lsp: %s did not start (%v)", s.config.id, s.config.command)
@@ -317,7 +338,13 @@ server_launch :: proc(s: ^Server) -> bool {
         server_teardown(s)
         return false
     }
-    s.caps = capabilities_decode(result)
+    // Decoded from the first handshake only. `supports` reads this with no lock,
+    // so a restart must not write it again: the same program advertises the same
+    // capabilities, and a re-decode would only make the read a race.
+    if !s.caps_set {
+        s.caps = capabilities_decode(result)
+        s.caps_set = true
+    }
     conn_free_value(s.conn, result)
 
     conn_notify(s.conn, "initialized", "{}")
@@ -341,6 +368,7 @@ server_serve :: proc(s: ^Server) {
         }
         server_flush(s)
         server_drain_pushes(s)
+        free_all(context.temp_allocator) // this thread's own arena; nothing here outlives a slice
         sync.sema_wait_with_timeout(&s.wake, POLL_SLICE)
     }
 }

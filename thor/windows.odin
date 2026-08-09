@@ -60,6 +60,9 @@ thor_window_file :: proc(workspace: string, allocator := context.temp_allocator)
 // argument names a folder that is already open — and there the first window
 // stays the one raised, rather than both claiming and both writing its session.
 thor_register_window :: proc(thor: ^Thor) {
+    if thor.workspace_dir == "" {
+        return
+    }
     if _, taken := thor_workspace_window(thor.workspace_dir); taken {
         log.infof("Workspace %s is already held by another window; not claiming it", thor.workspace_dir)
         return

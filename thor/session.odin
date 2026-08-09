@@ -157,6 +157,68 @@ thor_record_last_workspace :: proc(workspace: string) {
     }
 }
 
+// Recently opened workspaces, most recent first, for the welcome page's
+// picker. Lives next to the session files, i.e. relative to the exe directory.
+RECENT_WORKSPACES_FILE :: "sessions/recent.json"
+RECENT_WORKSPACES_MAX :: 10
+
+// The recorded recent workspaces (owned clones), pruned of folders that no
+// longer exist. Missing or malformed file is an empty list.
+thor_recent_workspaces :: proc(allocator := context.allocator) -> []string {
+    data, read_err := os.read_entire_file(RECENT_WORKSPACES_FILE, context.temp_allocator)
+    if read_err != nil {
+        return nil
+    }
+    paths: []string
+    if err := json.unmarshal(data, &paths, allocator = context.temp_allocator); err != nil {
+        log.warnf("Ignoring malformed %q: %v", RECENT_WORKSPACES_FILE, err)
+        return nil
+    }
+    kept := make([dynamic]string, 0, len(paths), allocator)
+    for p in paths {
+        if os.is_dir(p) {
+            append(&kept, strings.clone(p, allocator))
+        }
+    }
+    return kept[:]
+}
+
+// Moves `workspace` to the front of the recent list, dropping any existing
+// entry for the same folder and capping the list at RECENT_WORKSPACES_MAX.
+// Called whenever a workspace becomes active.
+thor_record_recent_workspace :: proc(workspace: string) {
+    if workspace == "" {
+        return
+    }
+    if !os.is_dir("sessions") {
+        if err := os.make_directory("sessions"); err != nil {
+            log.errorf("Could not create sessions dir: %v", err)
+            return
+        }
+    }
+    existing := thor_recent_workspaces(context.temp_allocator)
+    normal := thor_normal_workspace(workspace)
+    kept := make([dynamic]string, 0, len(existing) + 1, context.temp_allocator)
+    append(&kept, workspace)
+    for p in existing {
+        if thor_normal_workspace(p) == normal {
+            continue
+        }
+        if len(kept) >= RECENT_WORKSPACES_MAX {
+            continue
+        }
+        append(&kept, p)
+    }
+    data, err := json.marshal(kept[:], {pretty = true}, context.temp_allocator)
+    if err != nil {
+        log.errorf("Could not marshal recent workspaces: %v", err)
+        return
+    }
+    if werr := os.write_entire_file(RECENT_WORKSPACES_FILE, data); werr != nil {
+        log.errorf("Could not write %q: %v", RECENT_WORKSPACES_FILE, werr)
+    }
+}
+
 // Writes the current open files and panel layout to this workspace's session
 // file, and points the last-workspace record at it. Called on shutdown, before
 // any open-file state is torn down.
@@ -204,6 +266,9 @@ thor_save_session :: proc(thor: ^Thor) {
 // tab. Missing or malformed is a no-op. Must run after the UI is built and
 // before thor_apply_layout_state.
 thor_restore_session :: proc(thor: ^Thor) {
+    if thor.workspace_dir == "" {
+        return
+    }
     thor_migrate_legacy_session(thor.workspace_dir)
     path := thor_session_file(thor.workspace_dir)
     data, read_err := os.read_entire_file(path, context.temp_allocator)

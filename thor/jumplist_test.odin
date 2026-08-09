@@ -26,6 +26,9 @@ make_test_thor :: proc() -> ^Thor {
     thor.model_view = widgets.model_view_create("test-model-view")
     thor.markdown_view = widgets.markdown_view_create("test-markdown-view")
     thor.markdown_view2 = widgets.markdown_view_create("test-markdown-view2")
+    // thor_update_editor_view also swaps the welcome page in when there is no
+    // workspace, which this headless Thor never sets.
+    thor.welcome_panel = widgets.panel_create("test-welcome-panel", {})
     return thor
 }
 
@@ -49,6 +52,7 @@ destroy_test_thor :: proc(thor: ^Thor) {
     widgets.model_view_destroy(&thor.model_view.widget)
     widgets.markdown_view_destroy(&thor.markdown_view.widget)
     widgets.markdown_view_destroy(&thor.markdown_view2.widget)
+    widgets.panel_destroy(&thor.welcome_panel.widget)
     free(thor)
 }
 

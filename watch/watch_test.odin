@@ -160,3 +160,26 @@ test_watch_init_bad_dir :: proc(t: ^testing.T) {
     // Destroy must be safe on an inert watcher and must not leak.
     watcher_destroy(&w)
 }
+
+// Closing the workspace destroys the watcher and quitting destroys it again, so
+// the second destroy must free nothing twice.
+@(test)
+test_watch_destroy_twice :: proc(t: ^testing.T) {
+    root := temp_path("thor_watch_twice")
+    if err := os.make_directory(root); err != nil {
+        testing.fail_now(t, fmt.tprintf("could not create temp dir %q: %v", root, err))
+    }
+    defer os.remove(root)
+
+    w: Watcher
+    testing.expect(t, watcher_init(&w, root), "watcher_init should succeed on a real directory")
+    sink: Sink
+    defer sink_destroy(&sink)
+    watcher_subscribe(&w, sink_collect, &sink)
+
+    watcher_destroy(&w)
+    testing.expect(t, !w.running, "a destroyed watcher must read as inert")
+    watcher_destroy(&w)
+    // A poll after both must be a no-op rather than a read of freed memory.
+    watcher_poll(&w)
+}

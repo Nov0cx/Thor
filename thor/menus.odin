@@ -289,6 +289,8 @@ thor_open_file_menu :: proc(data: rawptr, ctx: ^ui.Context, widget: ^ui.Widget) 
     widgets.menu_add(thor.menu, "Rename File", thor_cmd_rename_file, thor, thor_active_open_file(thor) != nil)
     widgets.menu_add(thor.menu, "Close Tab", thor_cmd_close_tab, thor)
     widgets.menu_add(thor.menu, "Close All Tabs", thor_cmd_close_all, thor)
+    widgets.menu_add_separator(thor.menu)
+    widgets.menu_add(thor.menu, "Close Workspace", thor_cmd_close_workspace, thor, thor.workspace_dir != "")
     thor_open_dropdown(thor, thor.menu_file_button)
 }
 

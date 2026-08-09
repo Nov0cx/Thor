@@ -102,7 +102,8 @@ be tested headlessly.
   `syntax` yields capture-name-tagged spans and knows nothing about themes or colors.
 - `plugin` — the Lua 5.4 VM, the language registry plugins fill at load, and the mapping from
   tree-sitter captures to theme *roles*.
-- `lang` + `lang/odin` — language intelligence (see below).
+- `lang` + `lang/odin` + `lang/lsp` — language intelligence (see below). `lang/lsp` may import only
+  `core:*`, `base:runtime`, `lang` and `shell` — never `setting`, which imports `lang`.
 - `setting`, `watch`, `shell` — JSON settings/keybinds, the async recursive file-system watcher,
   process execution.
 - `msvc` — where VsDevCmd.bat is, found with vswhere. A leaf both `shell` (the developer-prompt
@@ -122,7 +123,8 @@ Windows, Linux and macOS all build (one workflow each). No shared file may impor
 `core:sys/windows`: OS calls live in a `<name>_windows.odin` / `<name>_posix.odin` pair tagged
 `#+build windows` / `#+build !windows`, with the platform-free part in `<name>.odin`. Odin has no
 forward declarations, so the shared file states the contract — the types and procedures both
-platform files must supply — as a comment. The pairs are `shell/shell_*`, `watch/watch_*`,
+platform files must supply — as a comment. The pairs are `shell/shell_*`, `shell/child_*` (the
+piped child process a language server runs in), `watch/watch_*`,
 `thor/windows_*` (multi-window records), `thor/dialogs_*` (file pickers), `thor/filemap_*` (the
 load worker's read-only mapping) and `thor/reveal_*` (file-manager reveal and the browser open
 behind Help > Documentation). `watch/` is the one three-way split —
@@ -204,7 +206,7 @@ fields are commented `// owned` vs borrowed; respect that — `shutdown` frees e
 ## Language intelligence (`lang`)
 
 Thor's LSP alternative: LSP-shaped features served **in-client** by native analyzers, with a
-subprocess LSP client left as an optional backend behind the same seam.
+subprocess LSP client as an optional second backend behind the same seam.
 
 - `lang/lang.odin` is the seam: a `Backend` vtable (`handles`/`resolve`/`destroy`), a `Manager` that
   routes a `Request` by file extension onto a worker pool and reaps `Result`s on the main thread.
@@ -228,8 +230,19 @@ subprocess LSP client left as an optional backend behind the same seam.
   `manager_set_features` make `manager_request` refuse a kind (and cancel its in-flight work), so no
   dispatch path can forget the check. `manager_allows(ext, kind)` is the per-kind question a caller
   with a fallback asks; `thor_apply_language_settings` pushes the setting onto the manager.
+- `lang/lsp` is the subprocess LSP backend, one `Server` per entry of the merged server table
+  (`settings/lsp.json` overlaid by `<workspace>/.thor/lsp.json`). `lang/LSP_PLAN.md` is its design.
+  A server is started by the first document event for an extension it claims, never at init. One
+  pump thread per server does everything that can block on a pipe — spawn, handshake, outbox drain,
+  restart — so `notify` on the main thread only queues. `state` is atomic and `caps` is written once
+  before the first `.Ready`, which is what lets `supports` read them with no lock. `position.odin`
+  converts between the seam's byte offsets and the protocol's UTF-16 `(line, character)`.
+  Registration order is the precedence: `thor.init` puts the Odin engine first unless an entry sets
+  `"override": true` for `.odin`.
 - `thor/lang_host.odin` is the editor side: dispatches requests, routes results back to the pane that
-  asked, drops superseded ones.
+  asked, drops superseded ones. `thor_lang_notify` / `thor_sync_lang_documents` mirror the open
+  buffers onto a backend that tracks documents — one `.Changed` per file per frame, driven by
+  `Open_File.lang_revision`.
 - **`lang/ROADMAP.md` is the living source of truth** for what works and what is missing. Read it
   before adding a feature here, and update it after.
 
@@ -300,11 +313,13 @@ Thor moves its working directory to the executable at startup, so `assets/`, `pl
 `settings/` and `docs/` are loaded *beside the binary*; the build stages fresh copies there on every
 build. The folder Thor opens still comes from the directory it was launched in.
 
-Configuration is layered: global `settings/*.json` (settings, keybinds, comment prefixes) overlaid by
-a workspace's `.thor/` directory. `.thor/` also holds `tasks.json` (named shell commands surfaced in
-the titlebar), `odin-analyzer.json` (per-workspace analyzer collections and feature toggles —
-deliberately Thor's own file, not `ols.json`) and `plugins/` (the workspace's own Lua plugins). This
-repo has its own `.thor/`, so those files serve as working examples.
+Configuration is layered: global `settings/*.json` (settings, keybinds, comment prefixes, and
+`lsp.json`, the language-server table) overlaid by a workspace's `.thor/` directory. `.thor/` also
+holds `tasks.json` (named shell commands surfaced in the titlebar), `odin-analyzer.json`
+(per-workspace analyzer collections and feature toggles — deliberately Thor's own file, not
+`ols.json`), `lsp.json` (server entries merged onto the shipped ones by `id`; `"enabled": false`
+removes one) and `plugins/` (the workspace's own Lua plugins). This repo has its own `.thor/`, so
+those files serve as working examples.
 
 ## User documentation
 
@@ -327,6 +342,8 @@ build flags (`-vet` is available via `build.odin -- -vet`).
 Always handle errors.
 
 Do if (cheap && expensive) and if (likelytofail && unlikelytofail).
+
+Always handle windows and posix paths.
 
 ## Other missing features
 

@@ -61,6 +61,17 @@ Thor :: struct {
     markdown_preview:         bool,
     editor_split_row:         ^widgets.Stack,
     editor_split_splitter:    ^widgets.Splitter,
+    // Shown in place of the editor while workspace_dir is "" (startup with no
+    // path/session, or after Close Workspace). welcome_recent_stack is rebuilt
+    // on every show; welcome_recent_entries are its buttons' owned click data.
+    welcome_panel:            ^widgets.Panel,
+    welcome_title_label:      ^widgets.Label,
+    welcome_subtitle_label:   ^widgets.Label,
+    welcome_recent_label:     ^widgets.Label,
+    welcome_recent_stack:     ^widgets.Stack,
+    welcome_recent_entries:   [dynamic]^Welcome_Recent_Entry,
+    welcome_open_folder_button: ^widgets.Button,
+    welcome_open_file_button:   ^widgets.Button,
     // The active terminal's console; nil when the last terminal is closed.
     console:                  ^widgets.Console,
     terminal_tabs:            ^widgets.Tabstrip,
@@ -358,12 +369,6 @@ init :: proc() -> ^Thor {
     if len(os.args) > 1 {
         workspace_dir, startup_file = thor_startup_target(os.args[1])
     }
-    launch_dir: string
-    if cwd, cwd_err := os.get_working_directory(context.allocator); cwd_err == nil {
-        launch_dir = cwd
-    } else {
-        launch_dir = strings.clone(".")
-    }
 
     if exe_path, exe_err := os.get_executable_path(context.temp_allocator); exe_err == nil {
         if set_err := os.set_working_directory(os.dir(exe_path)); set_err != nil {
@@ -373,16 +378,12 @@ init :: proc() -> ^Thor {
         log.warnf("Could not resolve executable path: %v", exe_err)
     }
 
-    // No path argument: pick up the last session's workspace, falling back to
-    // the launch directory (first run, or that folder is gone). The record sits
-    // in the exe-relative sessions/ dir, so this runs after the CWD move.
+    // No path argument: pick up the last session's workspace. If there is
+    // none (first run, or that folder is gone), workspace_dir stays empty
+    // and the welcome page opens instead of a folder. The record sits in
+    // the exe-relative sessions/ dir, so this runs after the CWD move.
     if workspace_dir == "" {
         workspace_dir = thor_last_workspace()
-    }
-    if workspace_dir == "" {
-        workspace_dir = launch_dir
-    } else {
-        delete(launch_dir)
     }
 
     // Rasterize fonts on worker threads while the main thread creates the
@@ -421,8 +422,11 @@ init :: proc() -> ^Thor {
     thor.split_ratio = 0.5
     thor.pane_file = {-1, -1}
     thor.workspace_dir = workspace_dir
-    thor.workspace_prefix = strings.concatenate({workspace_dir, "\\"})
-    thor.git_branch = thor_read_git_branch(workspace_dir)
+    if workspace_dir != "" {
+        thor.workspace_prefix = strings.concatenate({workspace_dir, filepath.SEPARATOR_STRING})
+        thor.git_branch = thor_read_git_branch(workspace_dir)
+        thor_record_recent_workspace(workspace_dir)
+    }
     thor_load_tasks(thor)
     thor.open_files = make([dynamic]^Open_File)
     thor.zombie_files = make([dynamic]^Open_File)
@@ -622,6 +626,8 @@ shutdown :: proc(thor: ^Thor) {
     thor_clear_plugin_requests(thor)
     delete(thor.plugin_requests)
     delete(thor.plugin_setting_target)
+    thor_welcome_clear_recent_entries(thor)
+    delete(thor.welcome_recent_entries)
     setting.destroy(&thor.config)
     plugin.manager_destroy(&thor.plugins)
 

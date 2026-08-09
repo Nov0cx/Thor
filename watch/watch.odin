@@ -108,7 +108,9 @@ watcher_poll :: proc(w: ^Watcher) {
     }
 }
 
-// Stops the worker and releases everything. Safe on an inert (failed-init) watcher.
+// Stops the worker and releases everything. Safe on an inert (failed-init)
+// watcher, and safe twice: closing the workspace destroys it and quitting
+// destroys it again.
 watcher_destroy :: proc(w: ^Watcher) {
     if w.running {
         watch_stop(w)
@@ -124,6 +126,7 @@ watcher_destroy :: proc(w: ^Watcher) {
     delete(w.pending)
     delete(w.subscribers)
     delete(w.root)
+    w^ = {} // inert again, so the next destroy frees nothing a second time
 }
 
 // Clones `path` into watcher-owned memory and queues the change for the main thread.

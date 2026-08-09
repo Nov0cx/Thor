@@ -15,11 +15,16 @@ Two ways to get Thor:
 ## Opening a project
 
 ```bash
-thor            # reopen the last session's folder
+thor            # reopen the last session's folder, or the welcome page if there is none
 thor .          # open the folder Thor was called from
 thor src/       # open that folder
 thor main.odin  # open the file, with its folder as the workspace
 ```
+
+A bare `thor` with no past session opens a welcome page instead: `Open
+Folder`, `Open File` and a list of recently opened workspaces. `File > Close
+Workspace` returns to it from an open workspace, and a later bare launch comes
+back to the welcome page too.
 
 Inside the editor, `File > Open Folder...` switches the workspace and
 `File > Open File...` opens a file from anywhere; dropping a folder or files on

@@ -11,16 +11,19 @@ import "../ui"
 import "../widgets"
 
 thor_apply_layout_state :: proc(thor: ^Thor) {
-    explorer_visible := ui.signal_get(&thor.explorer_visible)
-    console_visible := ui.signal_get(&thor.console_visible)
+    has_workspace := thor.workspace_dir != ""
+    explorer_visible := has_workspace && ui.signal_get(&thor.explorer_visible)
+    console_visible := has_workspace && ui.signal_get(&thor.console_visible)
 
     thor.explorer_panel.visible = explorer_visible
     thor.explorer_splitter.visible = explorer_visible
-    thor.explorer_stub_panel.visible = !explorer_visible
+    thor.explorer_stub_panel.visible = has_workspace && !explorer_visible
 
     thor.console_splitter.visible = console_visible
     thor.console_panel.visible = console_visible
-    thor.console_stub_panel.visible = !console_visible
+    thor.console_stub_panel.visible = has_workspace && !console_visible
+
+    thor.tabbar.visible = has_workspace
 
     thor.explorer_panel.min_size[0] = thor.explorer_width
     thor.console_panel.min_size[1] = thor.console_height
@@ -159,9 +162,11 @@ thor_update_editor_view :: proc(thor: ^Thor) {
     show_md := !show_image && !show_model && thor.markdown_preview &&
         file != nil && file.loaded && thor_is_markdown(file.name)
 
+    has_workspace := thor.workspace_dir != ""
     thor.image_view.visible = show_image
     thor.model_view.visible = show_model
-    thor.editor_split_row.visible = !show_image && !show_model
+    thor.editor_split_row.visible = has_workspace && !show_image && !show_model
+    thor.welcome_panel.visible = !has_workspace
 
     if show_image {
         widgets.image_view_set_texture(thor.image_view, file.texture, file.name)

@@ -20,3 +20,5 @@ First release. Thor runs on Windows, Linux and macOS.
 - The Settings window keeps one size, so a scope or category switch no longer resizes it under the cursor.
 - Settings rows light up under the cursor, number steppers are spaced apart, and a keybinding shows its chord as a key cap.
 - Clicking the Thor logo at the top left of the titlebar opens Settings.
+- A welcome page opens when no folder or file is given and no past session is found: `Open Folder`, `Open File` and a recent-workspaces list. The explorer, tab bar and console panel stay hidden until a workspace opens.
+- `File: Close Workspace` returns to the welcome page from an open workspace, from the File menu or the command palette.

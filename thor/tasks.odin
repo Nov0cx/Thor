@@ -97,6 +97,9 @@ thor_load_tasks :: proc(thor: ^Thor) {
     }
     thor_clear_tasks(thor)
     defer thor_sync_task_selector(thor)
+    if thor.workspace_dir == "" {
+        return
+    }
     data, err := os.read_entire_file(thor_tasks_file(thor.workspace_dir), context.temp_allocator)
     if err != nil {
         return

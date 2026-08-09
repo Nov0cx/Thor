@@ -357,6 +357,93 @@ thor_build_content :: proc(thor: ^Thor) {
     ui.widget_set_grow(&thor.model_view.widget, 1)
     thor.model_view.visible = false
 
+    // Overlays the editor panel while no workspace is open (thor_update_editor_view).
+    thor.welcome_panel = widgets.panel_create("welcome-panel", thor.theme.background)
+    thor.welcome_panel.visible = false
+
+    welcome_row := widgets.stack_create("welcome-row", .Horizontal)
+    widgets.stack_set_gap(welcome_row, 0)
+    widgets.stack_set_padding(welcome_row, ui.padding(0))
+    widgets.stack_set_background(welcome_row, rl.Color {0, 0, 0, 0})
+    ui.widget_set_grow(&welcome_row.widget, 1)
+
+    welcome_left_spacer := widgets.label_create("welcome-left-spacer", "")
+    ui.widget_set_grow(&welcome_left_spacer.widget, 1)
+    welcome_left_spacer.min_size = rl.Vector2 {0, 0}
+
+    welcome_right_spacer := widgets.label_create("welcome-right-spacer", "")
+    ui.widget_set_grow(&welcome_right_spacer.widget, 1)
+    welcome_right_spacer.min_size = rl.Vector2 {0, 0}
+
+    welcome_col := widgets.stack_create("welcome-col", .Vertical)
+    widgets.stack_set_gap(welcome_col, 12)
+    widgets.stack_set_padding(welcome_col, ui.padding(32))
+    widgets.stack_set_background(welcome_col, rl.Color {0, 0, 0, 0})
+    welcome_col.min_size = rl.Vector2 {440, 0}
+
+    welcome_top_spacer := widgets.label_create("welcome-top-spacer", "")
+    ui.widget_set_grow(&welcome_top_spacer.widget, 1)
+    welcome_top_spacer.min_size = rl.Vector2 {0, 0}
+
+    welcome_bottom_spacer := widgets.label_create("welcome-bottom-spacer", "")
+    ui.widget_set_grow(&welcome_bottom_spacer.widget, 1)
+    welcome_bottom_spacer.min_size = rl.Vector2 {0, 0}
+
+    welcome_logo := widgets.logo_create("welcome-logo")
+    widgets.logo_set_texture(welcome_logo, thor.top_logo_texture)
+    welcome_logo.min_size = rl.Vector2 {96, 96}
+    welcome_logo.padding = ui.padding(0)
+
+    welcome_title := widgets.label_create("welcome-title", "Thor")
+    widgets.label_set_text_color(welcome_title, thor.theme.primary_text_color)
+    welcome_title.font_size = 28
+    welcome_title.min_size = rl.Vector2 {0, 36}
+    thor.welcome_title_label = welcome_title
+
+    welcome_subtitle := widgets.label_create("welcome-subtitle", "No workspace open")
+    widgets.label_set_text_color(welcome_subtitle, thor.theme.muted_color)
+    welcome_subtitle.min_size = rl.Vector2 {0, 28}
+    thor.welcome_subtitle_label = welcome_subtitle
+
+    welcome_open_folder := widgets.button_create("welcome-open-folder", "Open Folder")
+    widgets.button_set_colors(welcome_open_folder, thor.theme.primary_text_color, thor.theme.accent_color, thor.theme.accent_secondary_color, thor.theme.active, thor.theme.border)
+    widgets.button_set_on_click(welcome_open_folder, thor_welcome_open_folder, thor)
+    welcome_open_folder.min_size = rl.Vector2 {0, 40}
+    thor.welcome_open_folder_button = welcome_open_folder
+
+    welcome_open_file := widgets.button_create("welcome-open-file", "Open File")
+    widgets.button_set_colors(welcome_open_file, thor.theme.primary_text_color, thor.theme.buttons, thor.theme.highlight, thor.theme.active, thor.theme.border)
+    widgets.button_set_on_click(welcome_open_file, thor_welcome_open_file, thor)
+    welcome_open_file.min_size = rl.Vector2 {0, 40}
+    thor.welcome_open_file_button = welcome_open_file
+
+    welcome_recent_label := widgets.label_create("welcome-recent-label", "Recent")
+    widgets.label_set_text_color(welcome_recent_label, thor.theme.muted_color)
+    welcome_recent_label.min_size = rl.Vector2 {0, 24}
+    thor.welcome_recent_label = welcome_recent_label
+
+    thor.welcome_recent_stack = widgets.stack_create("welcome-recent-stack", .Vertical)
+    widgets.stack_set_gap(thor.welcome_recent_stack, 6)
+    widgets.stack_set_padding(thor.welcome_recent_stack, ui.padding(0))
+    widgets.stack_set_background(thor.welcome_recent_stack, rl.Color {0, 0, 0, 0})
+
+    widgets.append_child(&welcome_col.widget, &welcome_top_spacer.widget)
+    widgets.append_child(&welcome_col.widget, &welcome_logo.widget)
+    widgets.append_child(&welcome_col.widget, &welcome_title.widget)
+    widgets.append_child(&welcome_col.widget, &welcome_subtitle.widget)
+    widgets.append_child(&welcome_col.widget, &welcome_open_folder.widget)
+    widgets.append_child(&welcome_col.widget, &welcome_open_file.widget)
+    widgets.append_child(&welcome_col.widget, &welcome_recent_label.widget)
+    widgets.append_child(&welcome_col.widget, &thor.welcome_recent_stack.widget)
+    widgets.append_child(&welcome_col.widget, &welcome_bottom_spacer.widget)
+
+    widgets.append_child(&welcome_row.widget, &welcome_left_spacer.widget)
+    widgets.append_child(&welcome_row.widget, &welcome_col.widget)
+    widgets.append_child(&welcome_row.widget, &welcome_right_spacer.widget)
+
+    widgets.append_child(&thor.welcome_panel.widget, &welcome_row.widget)
+    thor_welcome_refresh_recent(thor)
+
     thor.markdown_view = widgets.markdown_view_create("markdown-view")
     widgets.markdown_view_set_colors(thor.markdown_view, thor.theme)
     thor.markdown_view.visible = false
@@ -438,6 +525,7 @@ thor_build_content :: proc(thor: ^Thor) {
     // Added after the split row so they overlay both panes when shown.
     widgets.append_child(&thor.editor_panel.widget, &thor.image_view.widget)
     widgets.append_child(&thor.editor_panel.widget, &thor.model_view.widget)
+    widgets.append_child(&thor.editor_panel.widget, &thor.welcome_panel.widget)
 
     widgets.append_child(&thor.console_stack.widget, &thor.console_header.widget)
     widgets.append_child(&thor.console_header.widget, &thor.terminal_tabs.widget)

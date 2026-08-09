@@ -41,6 +41,9 @@ test_async_file_roundtrip :: proc(t: ^testing.T) {
     thor.model_view = widgets.model_view_create("test-model-view")
     thor.markdown_view = widgets.markdown_view_create("test-markdown-view")
     thor.markdown_view2 = widgets.markdown_view_create("test-markdown-view2")
+    // thor_update_editor_view also swaps the welcome page in when there is no
+    // workspace, which this headless Thor never sets.
+    thor.welcome_panel = widgets.panel_create("test-welcome-panel", {})
     defer {
         delete(thor.open_files)
         delete(thor.zombie_files)
@@ -53,6 +56,7 @@ test_async_file_roundtrip :: proc(t: ^testing.T) {
         widgets.model_view_destroy(&thor.model_view.widget)
         widgets.markdown_view_destroy(&thor.markdown_view.widget)
         widgets.markdown_view_destroy(&thor.markdown_view2.widget)
+        widgets.panel_destroy(&thor.welcome_panel.widget)
     }
 
     // Open: spawns the mmap loader thread and activates the tab.
@@ -604,6 +608,9 @@ test_make_thor :: proc() -> ^Thor {
     thor.model_view = widgets.model_view_create("test-model-view")
     thor.markdown_view = widgets.markdown_view_create("test-markdown-view")
     thor.markdown_view2 = widgets.markdown_view_create("test-markdown-view2")
+    // thor_update_editor_view also swaps the welcome page in when there is no
+    // workspace, which this headless Thor never sets.
+    thor.welcome_panel = widgets.panel_create("test-welcome-panel", {})
     // The disk-conflict prompt runs through the palette; creating it only allocates.
     thor.command_palette = widgets.command_palette_create("test-palette")
     return thor
@@ -626,5 +633,6 @@ test_free_thor :: proc(thor: ^Thor) {
     widgets.model_view_destroy(&thor.model_view.widget)
     widgets.markdown_view_destroy(&thor.markdown_view.widget)
     widgets.markdown_view_destroy(&thor.markdown_view2.widget)
+    widgets.panel_destroy(&thor.welcome_panel.widget)
     free(thor)
 }

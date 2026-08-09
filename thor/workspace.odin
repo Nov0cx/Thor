@@ -234,7 +234,7 @@ thor_open_folder :: proc(thor: ^Thor, dir: string) {
     delete(thor.workspace_prefix)
     delete(thor.git_branch)
     thor.workspace_dir = strings.clone(target)
-    thor.workspace_prefix = strings.concatenate({thor.workspace_dir, "\\"})
+    thor.workspace_prefix = strings.concatenate({thor.workspace_dir, filepath.SEPARATOR_STRING})
     thor.git_branch = thor_read_git_branch(thor.workspace_dir)
 
     // The new folder's .thor/ overlay can change theme, font and keybinds.
@@ -266,6 +266,7 @@ thor_open_folder :: proc(thor: ^Thor, dir: string) {
     thor_init_watcher(thor)
     thor_register_window(thor)
     thor_record_last_workspace(thor.workspace_dir)
+    thor_record_recent_workspace(thor.workspace_dir)
     log.infof("Opened workspace %s", thor.workspace_dir)
 }
 

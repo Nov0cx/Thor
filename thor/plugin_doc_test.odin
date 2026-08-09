@@ -36,6 +36,9 @@ test_plugin_doc_opens_and_refreshes :: proc(t: ^testing.T) {
     thor.markdown_view = widgets.markdown_view_create("test-markdown-view")
     thor.markdown_view2 = widgets.markdown_view_create("test-markdown-view2")
     thor.editor_split_row = widgets.stack_create("test-editor-split-row", .Horizontal)
+    // thor_update_editor_view also swaps the welcome page in when there is no
+    // workspace, which this headless Thor never sets.
+    thor.welcome_panel = widgets.panel_create("test-welcome-panel", {})
     defer {
         for len(thor.open_files) > 0 {
             thor_close_file(thor, 0)
@@ -51,6 +54,7 @@ test_plugin_doc_opens_and_refreshes :: proc(t: ^testing.T) {
         widgets.markdown_view_destroy(&thor.markdown_view.widget)
         widgets.markdown_view_destroy(&thor.markdown_view2.widget)
         widgets.stack_destroy(&thor.editor_split_row.widget)
+        widgets.panel_destroy(&thor.welcome_panel.widget)
     }
     defer os.remove(PATH)
 

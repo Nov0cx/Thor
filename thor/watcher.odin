@@ -13,6 +13,9 @@ import "../widgets"
 // that fails to start (e.g. the workspace is not a real directory) leaves the
 // editor fully functional, just without live disk updates.
 thor_init_watcher :: proc(thor: ^Thor) {
+    if thor.workspace_dir == "" {
+        return
+    }
     if !watch.watcher_init(&thor.watcher, thor.workspace_dir) {
         return
     }

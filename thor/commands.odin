@@ -365,6 +365,7 @@ thor_register_commands :: proc(thor: ^Thor) {
     thor_add_bindable_command(thor, "File: Reload from Disk", "reload_from_disk", thor_cmd_reload_from_disk, thor)
     widgets.command_palette_add(p, "File: Close Tab", thor_cmd_close_tab, thor, sc(thor, "close_tab"))
     thor_add_bindable_command(thor, "File: Close All Tabs", "close_all_tabs", thor_cmd_close_all, thor)
+    thor_add_bindable_command(thor, "File: Close Workspace", "close_workspace", thor_cmd_close_workspace, thor)
     widgets.command_palette_add(p, "File: Next Tab", thor_cmd_next_tab, thor, sc(thor, "next_tab"))
     widgets.command_palette_add(p, "File: Previous Tab", thor_cmd_prev_tab, thor, sc(thor, "previous_tab"))
     widgets.command_palette_add(p, "File: Switch to Last File", thor_cmd_last_file, thor, sc(thor, "last_file"))

@@ -247,6 +247,45 @@ test_server_document_sync :: proc(t: ^testing.T) {
     testing.expect(t, open_at < change_at && change_at < close_at, "the notifications arrived out of order")
 }
 
+// A change folds into the file's last queued change only. The server is never
+// started here, so the outbox keeps everything and can be read.
+@(test)
+test_server_change_coalescing :: proc(t: ^testing.T) {
+    extensions := [1]string{".fake"}
+    command := [1]string{"fake-language-server"}
+    config := Server_Config {
+        id         = "fake",
+        extensions = extensions[:],
+        command    = command[:],
+        features   = lang.FEATURES_ALL,
+        enabled    = true,
+    }
+    s := server_create(&config, WORKSPACE)
+    defer {
+        server_stop(s)
+        server_destroy(s)
+    }
+
+    server_notify(s, .Changed, SOURCE, ".fake", "one", 1)
+    server_notify(s, .Changed, SOURCE, ".fake", "two", 2)
+    testing.expect_value(t, len(s.outbox), 1)
+    testing.expect_value(t, s.outbox[0].source, "two")
+    testing.expect_value(t, s.outbox[0].revision, 2)
+
+    // A close between them ends the fold: the newer text belongs after the
+    // close, not before it.
+    server_notify(s, .Closed, SOURCE, ".fake", "", 2)
+    server_notify(s, .Changed, SOURCE, ".fake", "three", 3)
+    testing.expect_value(t, len(s.outbox), 3)
+    testing.expect_value(t, s.outbox[0].source, "two")
+    testing.expect_value(t, s.outbox[1].event, lang.Doc_Event.Closed)
+    testing.expect_value(t, s.outbox[2].source, "three")
+
+    // Another file never folds into this one's.
+    server_notify(s, .Changed, SOURCE + "x", ".fake", "other", 1)
+    testing.expect_value(t, len(s.outbox), 4)
+}
+
 // A server that asked for no synchronization is sent none.
 @(test)
 test_server_sync_declined :: proc(t: ^testing.T) {
@@ -292,7 +331,10 @@ test_server_no_program :: proc(t: ^testing.T) {
 
     testing.expect(t, server_start(s, SOURCE))
     testing.expect(t, wait_state(s, .Failed), "a server with no program stayed alive")
-    testing.expect(t, !server_ensure_started(s, SOURCE))
+    req := lang.Request {
+        path = SOURCE,
+    }
+    testing.expect(t, !server_ensure_started(s, &req))
 }
 
 // A server that dies after the handshake is restarted, and a stop during the

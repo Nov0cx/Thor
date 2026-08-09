@@ -535,7 +535,11 @@ index_free_entry :: proc(idx: ^Symbol_Index, entry: File_Entry) {
 // inside one tick read as no change. Main thread, under the index mutex.
 index_forget :: proc(e: ^Engine, path: string) {
     idx := &e.index
-    sync.lock(&idx.mutex)
+    // Main thread, which must not stall behind a worker's whole index build. A
+    // dropped invalidation costs nothing: the stat gate still catches the save.
+    if !sync.mutex_try_lock(&idx.mutex) {
+        return
+    }
     defer sync.unlock(&idx.mutex)
     // The key is spelled as os.read_dir gave it, which need not match the
     // editor's spelling of the same file.

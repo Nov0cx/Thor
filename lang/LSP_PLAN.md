@@ -467,12 +467,11 @@ through `backend_for` and does nothing while the gate is off.
 
 Host wiring, four call sites:
 
-- `thor_open_file` (`thor/files.odin:492`) and the load-completion path →
-  `.Opened`.
-- `thor_close_file` (`thor/files.odin:812`) → `.Closed`.
-- `thor_save_file` (`thor/files.odin:849`) → `.Saved` (`didSave`; also the
-  natural home for the `odin.engine_notify_saved` follow-up `ROADMAP.md:1105-1107`
-  still lists as open).
+- The load-completion path → `.Opened`. Not `thor_open_file`: before the read
+  lands there is no text to send.
+- `thor_close_file` → `.Closed`.
+- The save-completion path → `.Saved` (`didSave`, after the bytes are on disk;
+  also what the Odin engine reindexes the file on).
 - A new `thor_sync_lang_documents(thor)` in the run loop, beside
   `lang.manager_dispatch` (`thor/thor.odin:534`): one pass over `thor.open_files`
   comparing `file.state.revision` against a new `file.lang_revision`, emitting
@@ -1010,9 +1009,16 @@ its tests pass, and nothing regresses.
       once two reader threads wait on it: the thread that takes the post can be
       the one whose stream did not grow, and the other never wakes. It now has one
       semaphore per readable stream.
-- [ ] **M3 — Position conversion. THE RISKIEST MILESTONE.** `position.odin` and
+- [x] **M3 — Position conversion. THE RISKIEST MILESTONE.** `position.odin` and
       the full `position_test.odin` table.
       *Checkpoint: green on Windows, Ubuntu, Arch and macOS.*
+
+      **As built, one point differs.** `Line_Index` carries the allocator it was
+      built with, so `line_index_destroy` frees `starts` and `crlf` with the one
+      that made them; the fixed API above has no way to pass it back in. Every
+      other rule of the section holds, and the table is covered by 13 tests: the
+      CRLF rows compute their expectation with their own `strings.replace_all`,
+      so the test cannot inherit the implementation's bug.
 
       **Why it is the riskiest:** it is the only part where a bug is *silent and
       destructive*. A framing bug hangs, a capability bug disables a feature, a
@@ -1026,7 +1032,7 @@ its tests pass, and nothing regresses.
       `decode_test.odin`. Second-riskiest is M4's blocking `resolve` on a pool of
       2–4 workers; the deadline, the unhealthy latch and never claiming `.odin`
       are the three things that keep a bad server from taking the editor with it.
-- [ ] **M4 — Lifecycle and configuration.** `config.odin`; discovery with the
+- [x] **M4 — Lifecycle and configuration.** `config.odin`; discovery with the
       PATHEXT-aware lookup; spawn; `initialize` / `initialized`; `Capabilities` →
       `supports`; full-text document sync driven by `manager_notify` and
       `thor_sync_lang_documents`; `shutdown` / `exit` / kill; crash restart with
@@ -1035,6 +1041,35 @@ its tests pass, and nothing regresses.
       *Checkpoint: with clangd installed on the dev machine, opening a `.c` file
       completes the handshake and the log shows the capabilities. No feature is
       wired yet, and the editor behaves exactly as before for every other file.*
+
+      **As built, six points differ.** (a) There is **no `Config_Cache`**. The
+      stat-keyed cache the text asks for cannot be read from `handles`/`supports`,
+      which run on the main thread and must not lock, so the merged table is read
+      once in `client_create` and the servers are built from it there. The cost is
+      that a workspace change does not re-read `lsp.json` or restart a server;
+      M6's reload does that. (b) **One pump thread per server** does spawn,
+      handshake, outbox drain and restart. The plan left the owner of the outgoing
+      notifications unnamed, and this is the answer: `notify` on the main thread
+      only queues, worker `conn_call`s still write directly under
+      `Conn.write_mutex`. (c) **`poll` stays nil.** Nothing above consumes a push
+      until M6, but `Conn.notifications` still has to be emptied or a server that
+      publishes diagnostics on every keystroke grows it without bound — so the
+      pump drains and drops them. A main-thread drain would read `conn` while a
+      restart replaces it. (d) `conn_start` gained a `Conn_Answers` parameter, two
+      borrowed JSON texts the reader thread answers `workspace/configuration` and
+      `workspace/workspaceFolders` from. (e) `Server` carries an `open` procedure
+      and `open_data`, which a test replaces with a scripted in-process server —
+      that is what makes the whole lifetime testable with no language server
+      installed on any of the four runners. (f) The server's **root is found on
+      the pump**, not in `server_start`: it stats every configured marker up every
+      ancestor directory, which the main thread must not wait for.
+
+      Three faults the ownership review found were fixed here, not deferred: the
+      pump frees its own temp arena (`core:thread` frees one only for a thread it
+      gave the default context to); `caps` is decoded from the first handshake
+      only, so a restart cannot write what `supports` reads unlocked; and
+      `server_ensure_started` gives up on a cancelled request instead of holding
+      the pool open for the whole start deadline.
 - [ ] **M5 — Read-only features.** `Definition`, `Hover`, `Document_Symbols`,
       `References`, `Signature_Help`, `Completion`, `Semantic_Tokens`.
       *Checkpoint: Alt+Enter, Ctrl+hover, Ctrl+Shift+O, F10, Ctrl+Shift+Space,

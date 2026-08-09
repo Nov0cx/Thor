@@ -84,7 +84,7 @@ resolve :: proc(data: rawptr, req: ^lang.Request, res: ^lang.Result) {
     if !found {
         return
     }
-    server_ensure_started(s, req.path)
+    server_ensure_started(s, req)
     res.ok = false
 }
 

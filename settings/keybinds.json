@@ -63,6 +63,7 @@
         "focus_terminal": "ctrl+shift+t",
         "toggle_explorer": "ctrl+b",
         "close_all_tabs": "",
+        "close_workspace": "",
         "command_palette": "ctrl+.",
         "quick_open": "ctrl+tab",
         "copy_path": "",
