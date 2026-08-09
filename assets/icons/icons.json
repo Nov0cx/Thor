@@ -43,7 +43,13 @@
                 "plus",
                 "caret-down",
                 "player-play",
-                "3d-rotate"
+                "3d-rotate",
+                "adjustments",
+                "palette",
+                "window",
+                "brain",
+                "puzzle",
+                "keyboard"
             ],
             "icons": {
                 "12-hours": "\ufc53",

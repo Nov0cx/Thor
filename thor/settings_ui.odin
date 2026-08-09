@@ -27,49 +27,71 @@ thor_cmd_open_settings_gui :: proc(data: rawptr) {
     thor_open_settings_view(cast(^Thor) data)
 }
 
-// Rebuilds every row from the live config. Called on open and after any change
-// reloads, so the displayed values always match settings.json / keybinds.json.
+// Rebuilds every row from the config for the view's current scope. Called on
+// open, on a scope switch and after any change reloads, so the displayed
+// values always match what is actually on disk for that scope. General reads
+// a fresh, unmerged settings/ snapshot (thor.config already has the workspace
+// overlay folded in); Workspace reads the live merged thor.config.
 thor_populate_settings_view :: proc(thor: ^Thor) {
     view := thor.settings_view
     widgets.settings_view_clear(view)
+    widgets.settings_view_set_workspace_available(view, thor.workspace_initialized)
 
-    widgets.settings_view_add_header(view, "EDITOR")
-    widgets.settings_view_add_number(view, "tab_width", "Tab Width", setting.tab_width(&thor.config), 1, 16, 1)
-    widgets.settings_view_add_number(view, "font_size", "Font Size", setting.font_size(&thor.config), 8, 48, 1)
-    widgets.settings_view_add_number(view, "autosave_delay_ms", "Autosave Delay (ms)", setting.autosave_delay_ms(&thor.config), 0, 10000, 250)
+    scope := widgets.settings_view_scope(view)
+    if scope == .Workspace && !thor.workspace_initialized {
+        return
+    }
 
-    widgets.settings_view_add_header(view, "APPEARANCE")
-    theme := setting.theme_name(&thor.config)
+    owns_snapshot := scope == .General
+    general_snapshot: setting.Settings
+    config: ^setting.Settings
+    if owns_snapshot {
+        general_snapshot = setting.load("settings")
+        config = &general_snapshot
+    } else {
+        config = &thor.config
+    }
+    defer if owns_snapshot {
+        setting.destroy(&general_snapshot)
+    }
+
+    widgets.settings_view_begin_category(view, "editor", "Editor", "adjustments")
+    widgets.settings_view_add_number(view, "tab_width", "Tab Width", setting.tab_width(config), 1, 16, 1)
+    widgets.settings_view_add_number(view, "font_size", "Font Size", setting.font_size(config), 8, 48, 1)
+    widgets.settings_view_add_number(view, "autosave_delay_ms", "Autosave Delay (ms)", setting.autosave_delay_ms(config), 0, 10000, 250)
+
+    widgets.settings_view_begin_category(view, "appearance", "Appearance", "palette")
+    theme := setting.theme_name(config)
     if theme == "" {
         theme = DEFAULT_THEME
     }
     widgets.settings_view_add_choice(view, "theme", "Theme", theme)
     widgets.settings_view_add_choice(view, "font", "Font", ui.text_default_family())
-    icon_pack := setting.icon_pack_name(&thor.config)
+    icon_pack := setting.icon_pack_name(config)
     if icon_pack == "" {
         icon_pack = ui.icon_active_pack(PRIMARY_ICON_PACK_GROUP)
     }
     widgets.settings_view_add_choice(view, "icon_pack", "Icon Pack", icon_pack)
-    file_icon_pack := setting.file_icon_pack_name(&thor.config)
+    file_icon_pack := setting.file_icon_pack_name(config)
     if file_icon_pack == "" {
         file_icon_pack = ui.icon_active_pack(FILE_ICON_PACK_GROUP)
     }
     widgets.settings_view_add_choice(view, "file_icon_pack", "File Icon Pack", file_icon_pack)
-    widgets.settings_view_add_choice(view, "ligatures", "Ligatures", thor_ligatures_label(&thor.config))
+    widgets.settings_view_add_choice(view, "ligatures", "Ligatures", thor_ligatures_label(config))
 
-    widgets.settings_view_add_header(view, "WINDOWS")
-    widgets.settings_view_add_choice(view, "open_folder_in", "Open Folder In", thor_open_folder_in_label(&thor.config))
+    widgets.settings_view_begin_category(view, "windows", "Windows", "window")
+    widgets.settings_view_add_choice(view, "open_folder_in", "Open Folder In", thor_open_folder_in_label(config))
 
-    widgets.settings_view_add_header(view, "TERMINAL")
-    widgets.settings_view_add_choice(view, "default_shell", "Default Shell", thor_default_shell_label(thor))
+    widgets.settings_view_begin_category(view, "terminal", "Terminal", "terminal-2")
+    widgets.settings_view_add_choice(view, "default_shell", "Default Shell", thor_default_shell_label(thor, config))
 
     // The per-feature rows only while the master switch is on: off, none of them
     // does anything, and twelve dead rows read as twelve broken ones.
-    widgets.settings_view_add_header(view, "LANGUAGE INTELLIGENCE")
-    language_on := setting.language_enabled(&thor.config)
+    widgets.settings_view_begin_category(view, "language", "Language", "brain")
+    language_on := setting.language_enabled(config)
     widgets.settings_view_add_choice(view, setting.LANGUAGE_SETTING, "Language Intelligence", thor_on_off_label(language_on))
     if language_on {
-        features := setting.language_features(&thor.config)
+        features := setting.language_features(config)
         for kind in lang.Request_Kind {
             widgets.settings_view_add_choice(
                 view,
@@ -84,31 +106,42 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
     // want none, and listing three dozen "nothing to allow" rows would bury the
     // ones that do. A workspace plugin is always listed — it is code the opened
     // folder carries, so it is answered for even when it asks for nothing.
-    states := thor_plugin_permission_states(thor)
-    if len(states) > 0 {
-        widgets.settings_view_add_header(view, "PLUGIN PERMISSIONS")
-        for state in states {
-            names := plugin.permission_names(state.perms, context.temp_allocator)
-            wants := len(names) > 0 ? strings.join(names, ", ", context.temp_allocator) : "no permissions"
-            label := fmt.tprintf("%s (%s)", state.id, wants)
-            if state.source == .Workspace {
-                label = fmt.tprintf("%s — %s (%s)", state.id, WORKSPACE_PLUGIN_DIR, wants)
+    // General-only: plugin grants carry their own workspace-vs-bundled split
+    // (sessions/plugin-grants.json's workspaces array), unrelated to this
+    // settings-file overlay, so a Workspace tab copy would misrepresent it.
+    if scope == .General {
+        states := thor_plugin_permission_states(thor)
+        if len(states) > 0 {
+            widgets.settings_view_begin_category(view, "plugins", "Plugins", "puzzle")
+            for state in states {
+                names := plugin.permission_names(state.perms, context.temp_allocator)
+                wants := len(names) > 0 ? strings.join(names, ", ", context.temp_allocator) : "no permissions"
+                label := fmt.tprintf("%s (%s)", state.id, wants)
+                if state.source == .Workspace {
+                    label = fmt.tprintf("%s — %s (%s)", state.id, WORKSPACE_PLUGIN_DIR, wants)
+                }
+                widgets.settings_view_add_choice(view, thor_plugin_setting_id(state.source, state.id), label, state.allowed ? "Allowed" : "Blocked")
             }
-            widgets.settings_view_add_choice(view, thor_plugin_setting_id(state.source, state.id), label, state.allowed ? "Allowed" : "Blocked")
         }
     }
 
-    widgets.settings_view_add_header(view, "KEYBINDINGS")
+    widgets.settings_view_begin_category(view, "keybindings", "Keybindings", "keyboard")
     actions := make([dynamic]string, context.temp_allocator)
-    for action in thor.config.keybinds {
+    for action in config.keybinds {
         append(&actions, action)
     }
     slice.sort(actions[:])
     for action in actions {
-        kb := thor.config.keybinds[action]
+        kb := config.keybinds[action]
         chord := setting.keybind_to_string(kb, context.temp_allocator)
         widgets.settings_view_add_keybind(view, action, action, chord)
     }
+}
+
+// Fired when the header's General/Workspace tab is switched; the widget has
+// already updated view.scope, so a plain repopulate picks up the new source.
+thor_on_settings_scope_change :: proc(data: rawptr, scope: widgets.Settings_Scope) {
+    thor_populate_settings_view(cast(^Thor) data)
 }
 
 // Persists a nudged number to the active config layer, then reloads so it
@@ -155,11 +188,11 @@ thor_on_setting_choice :: proc(data: rawptr, id: string) {
 
 // The configured shell as its picker row, or the shell that stands in for it.
 @(private = "file")
-thor_default_shell_label :: proc(thor: ^Thor) -> string {
+thor_default_shell_label :: proc(thor: ^Thor, config: ^setting.Settings) -> string {
     if len(thor.shell_profiles) == 0 {
         return "None found"
     }
-    if profile, ok := shell.profile_find(thor.shell_profiles, setting.default_shell(&thor.config)); ok {
+    if profile, ok := shell.profile_find(thor.shell_profiles, setting.default_shell(config)); ok {
         return profile.name
     }
     return thor.shell_profiles[0].name

@@ -156,6 +156,8 @@ thor_build_ui :: proc(thor: ^Thor) {
         thor_on_setting_number,
         thor_on_setting_choice,
         thor_on_setting_keybind,
+        thor_on_settings_scope_change,
+        thor_cmd_init_workspace,
         thor,
     )
     thor.settings_view.visible = false
@@ -216,6 +218,7 @@ thor_build_content :: proc(thor: ^Thor) {
     top_logo := widgets.logo_create("top-logo")
     thor.top_logo_texture = rl.LoadTexture("assets/branding/hammer.png")
     widgets.logo_set_texture(top_logo, thor.top_logo_texture)
+    widgets.logo_set_on_click(top_logo, thor_cmd_open_settings_gui, thor)
     top_logo.min_size = rl.Vector2 {40, 28}
     thor.top_logo = top_logo
 
