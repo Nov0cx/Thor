@@ -202,10 +202,18 @@ thor_workspace_config_dir :: proc(workspace_dir: string, allocator := context.te
     return strings.concatenate({workspace_dir, "/.thor"}, allocator)
 }
 
-// Path a GUI-driven change writes to: the workspace .thor/ overlay when the
-// workspace is initialized (it wins over the global config, so a write there is
-// what actually takes effect), otherwise the global settings/ file.
+// Path a GUI-driven change writes to. While the Settings modal is open, its
+// General/Workspace tab picks the file explicitly; otherwise (a command bound
+// directly to a shortcut or the palette) the workspace .thor/ overlay wins
+// when initialized, since it is what actually takes effect, else the global
+// settings/ file.
 thor_active_settings_path :: proc(thor: ^Thor) -> string {
+    if widgets.settings_view_is_open(thor.settings_view) {
+        if widgets.settings_view_scope(thor.settings_view) == .Workspace {
+            return strings.concatenate({thor_workspace_config_dir(thor.workspace_dir), "/settings.json"}, context.temp_allocator)
+        }
+        return "settings/settings.json"
+    }
     if thor.workspace_initialized {
         return strings.concatenate({thor_workspace_config_dir(thor.workspace_dir), "/settings.json"}, context.temp_allocator)
     }
@@ -213,6 +221,12 @@ thor_active_settings_path :: proc(thor: ^Thor) -> string {
 }
 
 thor_active_keybinds_path :: proc(thor: ^Thor) -> string {
+    if widgets.settings_view_is_open(thor.settings_view) {
+        if widgets.settings_view_scope(thor.settings_view) == .Workspace {
+            return strings.concatenate({thor_workspace_config_dir(thor.workspace_dir), "/keybinds.json"}, context.temp_allocator)
+        }
+        return "settings/keybinds.json"
+    }
     if thor.workspace_initialized {
         return strings.concatenate({thor_workspace_config_dir(thor.workspace_dir), "/keybinds.json"}, context.temp_allocator)
     }

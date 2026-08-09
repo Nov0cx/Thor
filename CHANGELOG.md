@@ -15,3 +15,5 @@ First release. Thor runs on Windows, Linux and macOS.
 - Rendered Markdown preview (`f4`).
 - Help menu opens the manual in the editor or the browser, and an interactive tutorial.
 - `thor [path]` opens a folder or a file; `--version` and `--help` print and exit.
+- Settings view redesigned: a category sidebar replaces the single scrollable list, with a search box and a General/Workspace scope switch that writes to `settings/` or the workspace `.thor/` explicitly.
+- Clicking the Thor logo at the top left of the titlebar opens Settings.

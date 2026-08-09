@@ -6,15 +6,19 @@ import "../ui"
 
 // Draws a borrowed texture fit to the widget height, left-aligned. Used for the
 // titlebar mark. The texture is owned by the host (unloaded at shutdown), not
-// here, and no events are handled so the titlebar stays draggable over it.
+// here. An optional on_click fires the host's action (opening Settings); once
+// set, a press on the logo no longer bubbles to the titlebar as a window drag.
 Logo :: struct {
     using widget: ui.Widget,
     texture:      rl.Texture2D,
     padding:      ui.Padding,
+    on_click:     #type proc(data: rawptr),
+    click_data:   rawptr,
 }
 
 logo_vtable := ui.Widget_VTable {
     layout = logo_layout,
+    handle_event = logo_handle_event,
     draw = logo_draw,
     destroy = logo_destroy,
 }
@@ -30,6 +34,21 @@ logo_create :: proc(id: string) -> ^Logo {
 logo_set_texture :: proc(logo: ^Logo, texture: rl.Texture2D) -> ^Logo {
     logo.texture = texture
     return logo
+}
+
+logo_set_on_click :: proc(logo: ^Logo, on_click: #type proc(data: rawptr), data: rawptr) -> ^Logo {
+    logo.on_click = on_click
+    logo.click_data = data
+    return logo
+}
+
+logo_handle_event :: proc(widget: ^ui.Widget, ctx: ^ui.Context, event: ^ui.Event) -> bool {
+    logo := cast(^Logo) widget
+    if event.kind == .Click && logo.on_click != nil {
+        logo.on_click(logo.click_data)
+        return true
+    }
+    return false
 }
 
 logo_layout :: proc(widget: ^ui.Widget, bounds: rl.Rectangle) {
