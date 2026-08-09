@@ -971,11 +971,45 @@ its tests pass, and nothing regresses.
       neither pulls in `vendor/stb` or the HarfBuzz binding, so unlike the `main`
       cross-checks both come back with **no output at all** — there is no expected
       noise to filter here.
-- [ ] **M2 — JSON-RPC client core.** Reader thread, id correlation, `Pending` and
+- [x] **M2 — JSON-RPC client core.** Reader thread, id correlation, `Pending` and
       deadlines, `$/cancelRequest`, the notification queue, the server→client
       request replies.
       *Checkpoint: `mock_test.odin` covers handshake, request/response,
       notification, timeout, EOF and cancel, with no process.*
+
+      **As built, five points differ from the text above.** (a) The correlation
+      state lives on a new `Conn`, not on `Server`, because `server.odin` is M4's
+      file. A `Conn` is one JSON-RPC connection over a `Transport`: the two
+      threads, the pending map, the notification queue, the write mutex and the
+      state. M4's `Server` owns a `Conn` and adds the config, the capabilities and
+      the restart policy. (b) `Pending` has no arena. A `virtual.Arena` commits
+      1 MB per block and allocates outside the debug `mem.Tracking_Allocator`,
+      which is where this repo finds its leaks; one parse into `conn.allocator`
+      plus `json.destroy_value` costs the same one parse per message, stays inside
+      the tracking allocator, and gives replies and notifications one free path.
+      The `result` and the `params` are **detached** from the parsed tree — the
+      member is set to nil before the rest is freed — so the value handed over
+      needs no clone. (c) Envelopes are assembled from parts with `params` as JSON
+      **text**, not marshalled from a struct: `json.marshal` has no `json.Value`
+      case, so no envelope struct can carry an open `params`. Each caller
+      marshals its own typed params and hands over the text, which also passes
+      `initializationOptions` and `settings` through verbatim. (d) A `.Server_Error`
+      hands the server's **error object** back in place of the result, rather than
+      only its code, so the caller logs the message too. (e) `conn_call` takes the
+      `cancel: ^bool` directly, so `jsonrpc.odin` imports no `lang` and the whole
+      layer is protocol plus threads; M5's `resolve` re-attaches it to the seam.
+
+      `workspace/configuration` answers `null` per requested item and
+      `workspace/workspaceFolders` answers `null`: both need the server config M2
+      does not have, and M4 fills them in. The stderr drain keeps a bounded 8 KB
+      tail instead of logging per line — `lang/` logs nowhere today, and the
+      logger's thread safety is not this milestone's question; M4 reads the tail
+      when a handshake fails, which is when a server's log is wanted.
+
+      **M1's `Mock` needed one fix.** Its single `ready` semaphore loses a wakeup
+      once two reader threads wait on it: the thread that takes the post can be
+      the one whose stream did not grow, and the other never wakes. It now has one
+      semaphore per readable stream.
 - [ ] **M3 — Position conversion. THE RISKIEST MILESTONE.** `position.odin` and
       the full `position_test.odin` table.
       *Checkpoint: green on Windows, Ubuntu, Arch and macOS.*
