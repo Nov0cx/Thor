@@ -86,12 +86,15 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
     widgets.settings_view_add_choice(view, "default_shell", "Default Shell", thor_default_shell_label(thor, config))
 
     // The per-feature rows only while the master switch is on: off, none of them
-    // does anything, and twelve dead rows read as twelve broken ones.
+    // does anything, and twelve dead rows read as twelve broken ones. They fold
+    // under the analyzer that serves them — one group per analyzer, and Odin is
+    // the only one so far.
     widgets.settings_view_begin_category(view, "language", "Language", "brain")
     language_on := setting.language_enabled(config)
     widgets.settings_view_add_choice(view, setting.LANGUAGE_SETTING, "Language Intelligence", thor_on_off_label(language_on))
     if language_on {
         features := setting.language_features(config)
+        widgets.settings_view_begin_group(view, ODIN_ANALYZER_GROUP, "Odin Analyzer", collapsed = true)
         for kind in lang.Request_Kind {
             widgets.settings_view_add_choice(
                 view,
@@ -100,6 +103,7 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
                 thor_on_off_label(kind in features),
             )
         }
+        widgets.settings_view_end_group(view)
     }
 
     // Bundled plugins only where they want a permission: the language plugins
@@ -242,6 +246,11 @@ ON_OFF_LABELS := [?]string {"On", "Off"}
 thor_on_off_label :: proc(on: bool) -> string {
     return on ? ON_OFF_LABELS[0] : ON_OFF_LABELS[1]
 }
+
+// Fold group holding the Odin analyzer's feature rows. One group per analyzer;
+// the id only has to be stable, it is never persisted.
+@(private = "file")
+ODIN_ANALYZER_GROUP :: "language.odin"
 
 // Row labels for the language features, in Request_Kind order. The user-facing
 // names of the commands each one serves, not the seam's kind names.

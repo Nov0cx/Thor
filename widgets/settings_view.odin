@@ -47,11 +47,15 @@ SETTINGS_ITEM_INSET :: f32(8)
 // Space between a row's edge and its controls; keeps them clear of the scrollbar.
 @(private)
 SETTINGS_ROW_PAD :: f32(22)
+// Extra left offset of a row inside a foldable group.
+@(private)
+SETTINGS_GROUP_INDENT :: f32(20)
 
 Settings_Row_Kind :: enum {
     Number,  // label + [-] value [+] stepper
     Choice,  // label + value; clicking asks the host to open a picker
     Keybind, // label + chord; clicking captures a new chord, a clear box unbinds
+    Group,   // chevron + label; clicking folds or unfolds the rows under it
 }
 
 Settings_Row :: struct {
@@ -60,6 +64,7 @@ Settings_Row :: struct {
     label:    string, // owned
     value:    string, // owned; formatted display (number, choice, chord)
     category: string, // owned; id of the Settings_Category this row belongs to
+    group:    string, // owned; id of the Group row holding it, "" outside a group
     number:            int,
     min, max, step:    int,
 }
@@ -81,6 +86,10 @@ Settings_View :: struct {
     using widget: ui.Widget,
     categories:        [dynamic]Settings_Category,
     current_category:  string, // owned; cursor set by begin_category, stamped onto new rows
+    current_group:     string, // owned; cursor set by begin_group, "" outside one
+    // Fold state per group id (keys owned). It outlives settings_view_clear, so
+    // a repopulate after a change keeps the groups the user folded folded.
+    collapsed:         map[string]bool,
     selected_category: int,
     scope:             Settings_Scope,
     // False hides the row list and shows a "create workspace settings" prompt
@@ -146,6 +155,7 @@ settings_view_create :: proc(id: string) -> ^Settings_View {
     view.rows = make([dynamic]Settings_Row)
     view.visible_rows = make([dynamic]int)
     view.search = make([dynamic]u8)
+    view.collapsed = make(map[string]bool)
     view.capturing = -1
     view.selected = -1
     view.selected_category = 0
@@ -218,6 +228,7 @@ settings_view_clear :: proc(view: ^Settings_View) {
         delete(row.label)
         delete(row.value)
         delete(row.category)
+        delete(row.group)
     }
     clear(&view.rows)
     for cat in view.categories {
@@ -228,11 +239,14 @@ settings_view_clear :: proc(view: ^Settings_View) {
     clear(&view.categories)
     delete(view.current_category)
     view.current_category = ""
+    delete(view.current_group)
+    view.current_group = ""
     clear(&view.visible_rows)
 }
 
 // Registers a sidebar entry and points every row added after it at this
-// category, until the next settings_view_begin_category call.
+// category, until the next settings_view_begin_category call. It also ends an
+// open group: a group never spans two categories.
 settings_view_begin_category :: proc(view: ^Settings_View, id, label, icon: string) {
     append(&view.categories, Settings_Category {
         id = strings.clone(id),
@@ -241,6 +255,46 @@ settings_view_begin_category :: proc(view: ^Settings_View, id, label, icon: stri
     })
     delete(view.current_category)
     view.current_category = strings.clone(id)
+    settings_view_end_group(view)
+}
+
+// Adds a foldable header and puts every row added after it inside the group,
+// until settings_view_end_group. `collapsed` is the state the group starts in;
+// once the user folds it, that answer wins over the default.
+settings_view_begin_group :: proc(view: ^Settings_View, id, label: string, collapsed := false) {
+    if id not_in view.collapsed {
+        view.collapsed[strings.clone(id)] = collapsed
+    }
+    append(&view.rows, Settings_Row {
+        kind = .Group,
+        id = strings.clone(id),
+        label = strings.clone(label),
+        value = strings.clone(""),
+        category = strings.clone(view.current_category),
+        group = strings.clone(""),
+    })
+    delete(view.current_group)
+    view.current_group = strings.clone(id)
+}
+
+settings_view_end_group :: proc(view: ^Settings_View) {
+    delete(view.current_group)
+    view.current_group = ""
+}
+
+@(private = "file")
+settings_view_group_collapsed :: proc(view: ^Settings_View, id: string) -> bool {
+    return view.collapsed[id] or_else false
+}
+
+// Folds an unfolded group, and the reverse.
+@(private = "file")
+settings_view_toggle_group :: proc(view: ^Settings_View, id: string) {
+    if id not_in view.collapsed {
+        return
+    }
+    view.collapsed[id] = !view.collapsed[id]
+    view.scroll = 0
 }
 
 settings_view_add_number :: proc(view: ^Settings_View, id, label: string, value, min, max, step: int) {
@@ -251,6 +305,7 @@ settings_view_add_number :: proc(view: ^Settings_View, id, label: string, value,
         label = strings.clone(label),
         value = strings.clone(strconv.write_int(buf[:], cast(i64) value, 10)),
         category = strings.clone(view.current_category),
+        group = strings.clone(view.current_group),
         number = value,
         min = min,
         max = max,
@@ -265,6 +320,7 @@ settings_view_add_choice :: proc(view: ^Settings_View, id, label, value: string)
         label = strings.clone(label),
         value = strings.clone(value),
         category = strings.clone(view.current_category),
+        group = strings.clone(view.current_group),
     })
 }
 
@@ -276,6 +332,7 @@ settings_view_add_keybind :: proc(view: ^Settings_View, id, label, chord: string
         label = strings.clone(label),
         value = strings.clone(chord),
         category = strings.clone(view.current_category),
+        group = strings.clone(view.current_group),
     })
 }
 
@@ -363,8 +420,10 @@ settings_view_layout :: proc(widget: ^ui.Widget, bounds: rl.Rectangle) {
     }
 }
 
-// Rebuilds visible_rows from the selected category, or from every row whose
-// label matches `search` when it is non-empty.
+// Rebuilds visible_rows from the selected category, less the rows in a folded
+// group, or from every row whose label matches `search` when it is non-empty.
+// A search reaches into a folded group and drops the group headers: the query
+// answers what is shown, not the fold state.
 @(private = "file")
 settings_view_recompute_visible :: proc(view: ^Settings_View) {
     clear(&view.visible_rows)
@@ -374,14 +433,21 @@ settings_view_recompute_visible :: proc(view: ^Settings_View) {
         }
         cat_id := view.categories[view.selected_category].id
         for row, i in view.rows {
-            if row.category == cat_id {
-                append(&view.visible_rows, i)
+            if row.category != cat_id {
+                continue
             }
+            if row.group != "" && settings_view_group_collapsed(view, row.group) {
+                continue
+            }
+            append(&view.visible_rows, i)
         }
         return
     }
     query := strings.to_lower(string(view.search[:]), context.temp_allocator)
     for row, i in view.rows {
+        if row.kind == .Group {
+            continue
+        }
         label := strings.to_lower(row.label, context.temp_allocator)
         if strings.contains(label, query) {
             append(&view.visible_rows, i)
@@ -761,22 +827,29 @@ settings_view_apply_number_delta :: proc(view: ^Settings_View, item: ^Settings_R
     }
 }
 
-// Left/Right on the selected row: nudges a Number row by one step; no-op for
-// any other kind.
+// Left/Right on the selected row: nudges a Number row by one step, or folds
+// (Left) and unfolds (Right) a Group row. No-op for any other kind.
 @(private = "file")
 settings_view_nudge_selected :: proc(view: ^Settings_View, dir: int) {
     if view.selected < 0 || view.selected >= len(view.visible_rows) {
         return
     }
     item := &view.rows[view.visible_rows[view.selected]]
+    if item.kind == .Group {
+        if settings_view_group_collapsed(view, item.id) == (dir < 0) {
+            return
+        }
+        settings_view_toggle_group(view, item.id)
+        return
+    }
     if item.kind != .Number {
         return
     }
     settings_view_apply_number_delta(view, item, dir * item.step)
 }
 
-// Enter on the selected row: opens a Choice row's picker, or starts capturing
-// a Keybind row's next chord. No-op for a Number row.
+// Enter on the selected row: opens a Choice row's picker, starts capturing a
+// Keybind row's next chord, or folds a Group row. No-op for a Number row.
 @(private = "file")
 settings_view_activate_selected :: proc(view: ^Settings_View) {
     if view.selected < 0 || view.selected >= len(view.visible_rows) {
@@ -791,6 +864,8 @@ settings_view_activate_selected :: proc(view: ^Settings_View) {
         }
     case .Keybind:
         view.capturing = vi
+    case .Group:
+        settings_view_toggle_group(view, item.id)
     }
 }
 
@@ -808,6 +883,8 @@ settings_view_click :: proc(view: ^Settings_View, point: rl.Vector2) {
     item := &view.rows[vi]
 
     switch item.kind {
+    case .Group:
+        settings_view_toggle_group(view, item.id)
     case .Number:
         minus, _, plus := settings_view_number_rects(view, rect)
         delta := 0
@@ -1075,6 +1152,25 @@ settings_view_draw_row :: proc(
     label_y := cast(i32) (rect.y + (rect.height - 16) * 0.5)
     label_x := rect.x + SETTINGS_ITEM_INSET + 12
 
+    if item.kind == .Group {
+        collapsed := settings_view_group_collapsed(view, item.id)
+        ui.draw_icon(
+            collapsed ? "chevron-right" : "chevron-down",
+            cast(i32) label_x,
+            cast(i32) (rect.y + (rect.height - 16) * 0.5),
+            16,
+            view.accent_color,
+        )
+        ui.draw_text(item.label, cast(i32) (label_x + 22), label_y, 16, view.text_color)
+        return
+    }
+
+    // Grouped rows sit inset under their header, except under a search, which
+    // shows the flat list.
+    if item.group != "" && !show_category {
+        label_x += SETTINGS_GROUP_INDENT
+    }
+
     if show_category {
         cat_label := settings_view_category_label(view, item.category)
         if cat_label != "" {
@@ -1085,7 +1181,7 @@ settings_view_draw_row :: proc(
     }
     ui.draw_text(item.label, cast(i32) label_x, label_y, 16, view.text_color)
 
-    switch item.kind {
+    #partial switch item.kind {
     case .Number:
         minus, value, plus := settings_view_number_rects(view, rect)
         settings_view_draw_stepper_button(view, minus, "minus", mouse, item.number > item.min)
@@ -1221,5 +1317,9 @@ settings_view_destroy :: proc(widget: ^ui.Widget) {
     delete(view.categories)
     delete(view.visible_rows)
     delete(view.search)
+    for id in view.collapsed {
+        delete(id)
+    }
+    delete(view.collapsed)
     free(view)
 }

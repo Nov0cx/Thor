@@ -42,6 +42,17 @@ settings_populate :: proc(view: ^Settings_View, categories: int) {
     }
 }
 
+// One category holding a top-level row and a folded group of two rows.
+@(private = "file")
+settings_populate_group :: proc(view: ^Settings_View) {
+    settings_view_begin_category(view, "language", "Language", "brain")
+    settings_view_add_choice(view, "language", "Language Intelligence", "On")
+    settings_view_begin_group(view, "language.odin", "Odin Analyzer", collapsed = true)
+    settings_view_add_choice(view, "language.hover", "Hover", "On")
+    settings_view_add_choice(view, "language.rename", "Rename Symbol", "Off")
+    settings_view_end_group(view)
+}
+
 @(private = "file")
 SETTINGS_TEST_BOUNDS :: rl.Rectangle {0, 0, 1280, 800}
 
@@ -163,6 +174,55 @@ test_settings_fixed_height :: proc(t: ^testing.T) {
         large.box.height,
     )
     testing.expectf(t, small.box.height == small.height, "expected %v tall, got %v", small.height, small.box.height)
+}
+
+// A folded group hides its rows, the header unfolds them, and a repopulate
+// keeps the state the user set.
+@(test)
+test_settings_group_folds :: proc(t: ^testing.T) {
+    view := settings_view_create("settings")
+    defer settings_view_destroy(&view.widget)
+
+    ctx: ui.Context
+    settings_populate_group(view)
+    settings_view_open(view, &ctx)
+    settings_view_layout(&view.widget, SETTINGS_TEST_BOUNDS)
+    testing.expectf(t, len(view.visible_rows) == 2, "folded: expected 2 rows, got %d", len(view.visible_rows))
+
+    settings_click(view, &ctx, settings_center(settings_view_row_rect(view, 1)))
+    settings_view_layout(&view.widget, SETTINGS_TEST_BOUNDS)
+    testing.expectf(t, len(view.visible_rows) == 4, "unfolded: expected 4 rows, got %d", len(view.visible_rows))
+
+    settings_view_clear(view)
+    settings_populate_group(view)
+    settings_view_layout(&view.widget, SETTINGS_TEST_BOUNDS)
+    testing.expectf(t, len(view.visible_rows) == 4, "a repopulate refolded the group, %d rows", len(view.visible_rows))
+
+    settings_click(view, &ctx, settings_center(settings_view_row_rect(view, 1)))
+    settings_view_layout(&view.widget, SETTINGS_TEST_BOUNDS)
+    testing.expectf(t, len(view.visible_rows) == 2, "refolded: expected 2 rows, got %d", len(view.visible_rows))
+}
+
+// A search reaches into a folded group and lists no group headers.
+@(test)
+test_settings_group_search :: proc(t: ^testing.T) {
+    view := settings_view_create("settings")
+    defer settings_view_destroy(&view.widget)
+
+    ctx: ui.Context
+    settings_populate_group(view)
+    settings_view_open(view, &ctx)
+    settings_view_layout(&view.widget, SETTINGS_TEST_BOUNDS)
+
+    append(&view.search, ..transmute([]u8) string("hover"))
+    settings_view_layout(&view.widget, SETTINGS_TEST_BOUNDS)
+    testing.expectf(t, len(view.visible_rows) == 1, "expected one match, got %d", len(view.visible_rows))
+    testing.expect(t, view.rows[view.visible_rows[0]].id == "language.hover", "the folded row did not match")
+
+    clear(&view.search)
+    append(&view.search, ..transmute([]u8) string("analyzer"))
+    settings_view_layout(&view.widget, SETTINGS_TEST_BOUNDS)
+    testing.expectf(t, len(view.visible_rows) == 0, "a group header matched the search, %d rows", len(view.visible_rows))
 }
 
 // The close box closes the view, and so does a click outside the box.
