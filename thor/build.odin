@@ -143,13 +143,13 @@ thor_build_ui :: proc(thor: ^Thor) {
     widgets.settings_view_set_colors(
         thor.settings_view,
         thor.theme.second_background,
-        thor.theme.accent_color,
+        thor.theme.highlight,
         thor.theme.highlight,
         thor.theme.background,
         thor.theme.primary_text_color,
         thor.theme.muted_color,
         thor.theme.accent_color,
-        thor.theme.selection_background,
+        rl.Color {thor.theme.accent_color.r, thor.theme.accent_color.g, thor.theme.accent_color.b, 40},
     )
     widgets.settings_view_set_callbacks(
         thor.settings_view,

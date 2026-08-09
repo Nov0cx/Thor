@@ -28,6 +28,26 @@ Settings_Scope_Proc :: #type proc(data: rawptr, scope: Settings_Scope)
 // Workspace tab.
 Settings_Init_Workspace_Proc :: #type proc(data: rawptr)
 
+// Corner roundness of the box, as raylib's DrawRectangleRounded takes it.
+@(private)
+SETTINGS_ROUNDNESS :: f32(0.04)
+// Space over, and under, the search field.
+@(private)
+SETTINGS_SEARCH_PAD_TOP :: f32(16)
+@(private)
+SETTINGS_SEARCH_PAD_BOTTOM :: f32(14)
+@(private)
+SETTINGS_SEARCH_FIELD_HEIGHT :: f32(34)
+// Space over the first category entry.
+@(private)
+SETTINGS_SIDEBAR_PAD_TOP :: f32(10)
+// Side margin of a category entry and of a row band.
+@(private)
+SETTINGS_ITEM_INSET :: f32(8)
+// Space between a row's edge and its controls; keeps them clear of the scrollbar.
+@(private)
+SETTINGS_ROW_PAD :: f32(22)
+
 Settings_Row_Kind :: enum {
     Number,  // label + [-] value [+] stepper
     Choice,  // label + value; clicking asks the host to open a picker
@@ -83,11 +103,15 @@ Settings_View :: struct {
     box:          rl.Rectangle,
     sidebar:      rl.Rectangle,
     content:      rl.Rectangle,
+    // The box keeps this size whatever it holds, so a scope or category switch
+    // never resizes the modal under the cursor.
     width:        f32,
+    height:       f32,
     row_height:      f32,
     header_height:   f32,
     category_height: f32,
     search_height:   f32,
+    footer_height:   f32,
     sidebar_width:   f32,
     // Callbacks into the host.
     on_number:         Settings_Number_Proc,
@@ -126,16 +150,18 @@ settings_view_create :: proc(id: string) -> ^Settings_View {
     view.selected = -1
     view.selected_category = 0
     view.scope = .General
-    view.width = 860
-    view.row_height = 34
-    view.header_height = 46
-    view.category_height = 38
-    view.search_height = 48
-    view.sidebar_width = 190
+    view.width = 880
+    view.height = 560
+    view.row_height = 40
+    view.header_height = 56
+    view.category_height = 36
+    view.search_height = SETTINGS_SEARCH_PAD_TOP + SETTINGS_SEARCH_FIELD_HEIGHT + SETTINGS_SEARCH_PAD_BOTTOM
+    view.footer_height = 34
+    view.sidebar_width = 200
     view.background_color = rl.Color {24, 26, 31, 250}
     view.header_color = rl.Color {31, 34, 51, 255}
     view.field_color = rl.Color {18, 20, 24, 255}
-    view.border_color = rl.Color {132, 255, 255, 255}
+    view.border_color = rl.Color {51, 56, 70, 255}
     view.text_color = rl.Color {238, 255, 255, 255}
     view.muted_color = rl.Color {120, 128, 160, 255}
     view.accent_color = rl.Color {132, 255, 255, 255}
@@ -309,12 +335,7 @@ settings_view_layout :: proc(widget: ^ui.Widget, bounds: rl.Rectangle) {
     settings_view_recompute_visible(view)
 
     width := min(view.width, bounds.width - 80)
-    max_height := bounds.height * 0.82
-    content_rows_h := cast(f32) len(view.visible_rows) * view.row_height
-    sidebar_needed := cast(f32) len(view.categories) * view.category_height + 16
-    body := max(content_rows_h, sidebar_needed)
-    chrome := view.header_height + view.search_height
-    height := clamp(chrome + body + 16, chrome + 120, max_height)
+    height := min(view.height, max(bounds.height - 80, 240))
 
     view.box = rl.Rectangle {
         x = bounds.x + (bounds.width - width) * 0.5,
@@ -378,10 +399,24 @@ settings_view_category_label :: proc(view: ^Settings_View, id: string) -> string
     return ""
 }
 
-// Height of the scrollable list area below the search box.
+// Corner radius raylib gives the box for SETTINGS_ROUNDNESS. The sidebar fill
+// and the shadow follow it.
+@(private = "file")
+settings_view_corner_radius :: proc(view: ^Settings_View) -> f32 {
+    return SETTINGS_ROUNDNESS * min(view.box.width, view.box.height) * 0.5
+}
+
+// `base` at `alpha`: the hover and separator washes are derived from a theme
+// color, never from a fixed grey.
+@(private = "file")
+settings_view_tint :: proc(base: rl.Color, alpha: u8) -> rl.Color {
+    return rl.Color {base.r, base.g, base.b, alpha}
+}
+
+// Height of the scrollable list area, between the search box and the footer.
 @(private = "file")
 settings_view_list_height :: proc(view: ^Settings_View) -> f32 {
-    return view.content.height - view.search_height
+    return view.content.height - view.search_height - view.footer_height
 }
 
 @(private = "file")
@@ -397,7 +432,7 @@ settings_view_clamp_scroll :: proc(view: ^Settings_View) {
 
 // Screen rect of the row at position `pos` in visible_rows, accounting for
 // scroll; may fall outside the list area.
-@(private = "file")
+@(private)
 settings_view_row_rect :: proc(view: ^Settings_View, pos: int) -> rl.Rectangle {
     top := view.content.y + view.search_height + cast(f32) pos * view.row_height - view.scroll
     return rl.Rectangle {view.content.x, top, view.content.width, view.row_height}
@@ -418,39 +453,96 @@ settings_view_row_at :: proc(view: ^Settings_View, point: rl.Vector2) -> int {
     return pos
 }
 
+// Screen rect of the category entry at `index`, inset from the sidebar edges.
+@(private)
+settings_view_category_rect :: proc(view: ^Settings_View, index: int) -> rl.Rectangle {
+    return rl.Rectangle {
+        view.sidebar.x + SETTINGS_ITEM_INSET,
+        view.sidebar.y + SETTINGS_SIDEBAR_PAD_TOP + cast(f32) index * view.category_height,
+        view.sidebar.width - SETTINGS_ITEM_INSET * 2,
+        view.category_height,
+    }
+}
+
 // The three hit rects on a Number row: minus button, value box, plus button.
-@(private = "file")
+// They are spaced apart, so the stepper does not read as one box.
+@(private)
 settings_view_number_rects :: proc(view: ^Settings_View, row: rl.Rectangle) -> (minus, value, plus: rl.Rectangle) {
     btn: f32 = 28
-    val_w: f32 = 58
-    pad: f32 = 14
+    val_w: f32 = 56
+    gap: f32 = 6
     cy := row.y + (row.height - btn) * 0.5
-    plus = rl.Rectangle {row.x + row.width - pad - btn, cy, btn, btn}
-    value = rl.Rectangle {plus.x - val_w, cy, val_w, btn}
-    minus = rl.Rectangle {value.x - btn, cy, btn, btn}
+    plus = rl.Rectangle {row.x + row.width - SETTINGS_ROW_PAD - btn, cy, btn, btn}
+    value = rl.Rectangle {plus.x - gap - val_w, cy, val_w, btn}
+    minus = rl.Rectangle {value.x - gap - btn, cy, btn, btn}
     return
 }
 
 // The clear ("unbind") box on a Keybind row, at its right edge.
 @(private = "file")
 settings_view_clear_rect :: proc(view: ^Settings_View, row: rl.Rectangle) -> rl.Rectangle {
-    btn: f32 = 28
-    pad: f32 = 14
+    btn: f32 = 24
     cy := row.y + (row.height - btn) * 0.5
-    return rl.Rectangle {row.x + row.width - pad - btn, cy, btn, btn}
+    return rl.Rectangle {row.x + row.width - SETTINGS_ROW_PAD - btn, cy, btn, btn}
 }
 
-// The header's two scope-tab pills, right-aligned.
+// The close box at the right end of the header.
+@(private)
+settings_view_close_rect :: proc(view: ^Settings_View) -> rl.Rectangle {
+    size: f32 = 28
+    return rl.Rectangle {
+        view.box.x + view.box.width - 14 - size,
+        view.box.y + (view.header_height - size) * 0.5,
+        size, size,
+    }
+}
+
+// The two segments of the scope switch, left of the close box. Both are a fixed
+// width: the hit test must not depend on a measured label.
 @(private = "file")
 settings_view_scope_tab_rects :: proc(view: ^Settings_View) -> (general, workspace: rl.Rectangle) {
-    tab_h: f32 = 28
-    tab_w: f32 = 96
-    gap: f32 = 8
-    pad: f32 = 16
+    tab_h: f32 = 30
+    tab_w: f32 = 86
     y := view.box.y + (view.header_height - tab_h) * 0.5
-    workspace = rl.Rectangle {view.box.x + view.box.width - pad - tab_w, y, tab_w, tab_h}
-    general = rl.Rectangle {workspace.x - gap - tab_w, y, tab_w, tab_h}
+    right := settings_view_close_rect(view).x - 12
+    workspace = rl.Rectangle {right - tab_w, y, tab_w, tab_h}
+    general = rl.Rectangle {workspace.x - tab_w, y, tab_w, tab_h}
     return
+}
+
+@(private)
+settings_view_search_rect :: proc(view: ^Settings_View) -> rl.Rectangle {
+    pad: f32 = 16
+    return rl.Rectangle {
+        view.content.x + pad,
+        view.content.y + SETTINGS_SEARCH_PAD_TOP,
+        view.content.width - pad * 2,
+        SETTINGS_SEARCH_FIELD_HEIGHT,
+    }
+}
+
+// The box that empties the query, at the right edge of the search field.
+@(private = "file")
+settings_view_search_clear_rect :: proc(view: ^Settings_View) -> rl.Rectangle {
+    field := settings_view_search_rect(view)
+    size: f32 = 20
+    return rl.Rectangle {
+        field.x + field.width - 8 - size,
+        field.y + (field.height - size) * 0.5,
+        size, size,
+    }
+}
+
+// The hint bar under the list. It spans the content column only, so the sidebar
+// stays a full-height rail.
+@(private = "file")
+settings_view_footer_rect :: proc(view: ^Settings_View) -> rl.Rectangle {
+    return rl.Rectangle {
+        view.content.x,
+        view.content.y + view.content.height - view.footer_height,
+        view.content.width,
+        view.footer_height,
+    }
 }
 
 @(private = "file")
@@ -557,6 +649,10 @@ settings_view_mouse_down :: proc(view: ^Settings_View, ctx: ^ui.Context, point: 
         view.capturing = -1
         return
     }
+    if rl.CheckCollisionPointRec(point, settings_view_close_rect(view)) {
+        settings_view_close(view, ctx)
+        return
+    }
     if settings_view_click_scope_tabs(view, point) {
         return
     }
@@ -564,6 +660,12 @@ settings_view_mouse_down :: proc(view: ^Settings_View, ctx: ^ui.Context, point: 
         if rl.CheckCollisionPointRec(point, settings_view_workspace_cta_rect(view)) && view.on_init_workspace != nil {
             view.on_init_workspace(view.data)
         }
+        return
+    }
+    if len(view.search) > 0 && rl.CheckCollisionPointRec(point, settings_view_search_clear_rect(view)) {
+        clear(&view.search)
+        view.scroll = 0
+        view.selected = 0
         return
     }
     if settings_view_click_sidebar(view, point) {
@@ -591,7 +693,11 @@ settings_view_click_sidebar :: proc(view: ^Settings_View, point: rl.Vector2) -> 
     if !rl.CheckCollisionPointRec(point, view.sidebar) {
         return false
     }
-    i := cast(int) ((point.y - view.sidebar.y) / view.category_height)
+    top := view.sidebar.y + SETTINGS_SIDEBAR_PAD_TOP
+    if point.y < top {
+        return true // the pad over the first entry
+    }
+    i := cast(int) ((point.y - top) / view.category_height)
     if i >= 0 && i < len(view.categories) && i != view.selected_category {
         view.selected_category = i
         clear(&view.search)
@@ -718,7 +824,7 @@ settings_view_click :: proc(view: ^Settings_View, point: rl.Vector2) {
             view.on_choice(view.data, item.id)
         }
     case .Keybind:
-        if rl.CheckCollisionPointRec(point, settings_view_clear_rect(view, rect)) {
+        if item.value != "" && rl.CheckCollisionPointRec(point, settings_view_clear_rect(view, rect)) {
             if view.on_keybind != nil {
                 view.on_keybind(view.data, item.id, .KEY_NULL, false, false, false)
             }
@@ -733,36 +839,165 @@ settings_view_draw :: proc(widget: ^ui.Widget, _: ^ui.Context) {
     if !view.visible {
         return
     }
+    mouse := rl.GetMousePosition()
 
-    rl.DrawRectangleRec(view.bounds, rl.Color {0, 0, 0, 120})
-    rl.DrawRectangleRounded(view.box, 0.04, 8, view.background_color)
-    rl.DrawRectangleRoundedLinesEx(view.box, 0.04, 8, 1, view.border_color)
+    rl.DrawRectangleRec(view.bounds, rl.Color {0, 0, 0, 150})
+    settings_view_draw_shadow(view)
+    rl.DrawRectangleRounded(view.box, SETTINGS_ROUNDNESS, 8, view.background_color)
+    rl.DrawRectangleRoundedLinesEx(view.box, SETTINGS_ROUNDNESS, 8, 1, view.border_color)
 
-    ui.draw_text(
-        "Settings",
-        cast(i32) (view.box.x + 20),
-        cast(i32) (view.box.y + (view.header_height - 20) * 0.5),
-        20,
-        view.text_color,
-    )
-    settings_view_draw_scope_tabs(view)
-    rl.DrawRectangleRec(
-        rl.Rectangle {view.box.x + 12, view.box.y + view.header_height, view.box.width - 24, 1},
-        view.muted_color,
-    )
-
-    settings_view_draw_sidebar(view)
+    // The sidebar comes first: the header divider lies on its top edge.
+    settings_view_draw_sidebar(view, mouse)
+    settings_view_draw_header(view, mouse)
 
     if view.scope == .Workspace && !view.workspace_available {
-        settings_view_draw_workspace_empty_state(view)
+        settings_view_draw_workspace_empty_state(view, mouse)
         return
     }
 
-    settings_view_draw_search(view)
+    settings_view_draw_search(view, mouse)
+    settings_view_draw_rows(view, mouse)
+    settings_view_draw_footer(view)
+}
 
+// Three fading outlines under the box. There is no blur, so the steps stand in
+// for one.
+@(private = "file")
+settings_view_draw_shadow :: proc(view: ^Settings_View) {
+    for step := 3; step >= 1; step -= 1 {
+        grow := cast(f32) step * 3
+        rect := rl.Rectangle {
+            view.box.x - grow,
+            view.box.y - grow + 2,
+            view.box.width + grow * 2,
+            view.box.height + grow * 2,
+        }
+        rl.DrawRectangleRounded(rect, SETTINGS_ROUNDNESS, 8, rl.Color {0, 0, 0, 30})
+    }
+}
+
+@(private = "file")
+settings_view_draw_header :: proc(view: ^Settings_View, mouse: rl.Vector2) {
+    ui.draw_text(
+        "Settings",
+        cast(i32) (view.box.x + 20),
+        cast(i32) (view.box.y + (view.header_height - 18) * 0.5),
+        18,
+        view.text_color,
+    )
+    settings_view_draw_scope_tabs(view)
+    settings_view_draw_icon_button(view, settings_view_close_rect(view), "x", 16, mouse)
+    rl.DrawRectangleRec(
+        rl.Rectangle {view.box.x + 1, view.box.y + view.header_height, view.box.width - 2, 1},
+        settings_view_tint(view.muted_color, 45),
+    )
+}
+
+@(private = "file")
+settings_view_draw_sidebar :: proc(view: ^Settings_View, mouse: rl.Vector2) {
+    // An oversized rounded rect clipped to the sidebar: only the bottom-left
+    // corner keeps its rounding, so the fill follows the box's corner instead
+    // of poking out of it.
+    radius := settings_view_corner_radius(view)
+    fill := rl.Rectangle {
+        view.sidebar.x,
+        view.sidebar.y - radius,
+        view.sidebar.width + radius,
+        view.sidebar.height + radius,
+    }
+    ui.begin_clip(view.sidebar)
+    rl.DrawRectangleRounded(fill, 2 * radius / min(fill.width, fill.height), 8, view.header_color)
+    ui.end_clip()
+
+    for cat, i in view.categories {
+        rect := settings_view_category_rect(view, i)
+        selected := i == view.selected_category && len(view.search) == 0
+        if selected {
+            rl.DrawRectangleRounded(rect, 0.35, 6, settings_view_tint(view.accent_color, 32))
+        } else if rl.CheckCollisionPointRec(mouse, rect) {
+            rl.DrawRectangleRounded(rect, 0.35, 6, settings_view_tint(view.text_color, 12))
+        }
+        icon_color := selected ? view.accent_color : view.muted_color
+        text_color := selected ? view.text_color : view.muted_color
+        ui.draw_icon(cat.icon, cast(i32) (rect.x + 12), cast(i32) (rect.y + (rect.height - 16) * 0.5), 16, icon_color)
+        ui.draw_text(cat.label, cast(i32) (rect.x + 38), cast(i32) (rect.y + (rect.height - 15) * 0.5), 15, text_color)
+    }
+
+    rl.DrawRectangleRec(
+        rl.Rectangle {view.sidebar.x + view.sidebar.width - 1, view.sidebar.y, 1, view.sidebar.height},
+        settings_view_tint(view.muted_color, 45),
+    )
+}
+
+// One segmented control: a track holding the two scope segments.
+@(private = "file")
+settings_view_draw_scope_tabs :: proc(view: ^Settings_View) {
+    general, workspace := settings_view_scope_tab_rects(view)
+    track := rl.Rectangle {general.x, general.y, workspace.x + workspace.width - general.x, general.height}
+    rl.DrawRectangleRounded(track, 0.5, 8, view.field_color)
+    settings_view_draw_scope_tab(view, general, "General", view.scope == .General)
+    settings_view_draw_scope_tab(view, workspace, "Workspace", view.scope == .Workspace)
+}
+
+@(private = "file")
+settings_view_draw_scope_tab :: proc(view: ^Settings_View, rect: rl.Rectangle, label: string, active: bool) {
+    color := view.muted_color
+    if active {
+        pill := rl.Rectangle {rect.x + 3, rect.y + 3, rect.width - 6, rect.height - 6}
+        rl.DrawRectangleRounded(pill, 0.5, 8, settings_view_tint(view.accent_color, 40))
+        color = view.accent_color
+    }
+    tw := ui.measure_text(label, 14)
+    ui.draw_text(
+        label,
+        cast(i32) (rect.x + (rect.width - cast(f32) tw) * 0.5),
+        cast(i32) (rect.y + (rect.height - 14) * 0.5),
+        14,
+        color,
+    )
+}
+
+@(private = "file")
+settings_view_draw_search :: proc(view: ^Settings_View, mouse: rl.Vector2) {
+    rect := settings_view_search_rect(view)
+    typing := len(view.search) > 0
+    rl.DrawRectangleRounded(rect, 0.4, 8, view.field_color)
+    border := typing ? settings_view_tint(view.accent_color, 70) : settings_view_tint(view.muted_color, 45)
+    rl.DrawRectangleRoundedLinesEx(rect, 0.4, 8, 1, border)
+
+    ui.draw_icon("search", cast(i32) (rect.x + 10), cast(i32) (rect.y + (rect.height - 16) * 0.5), 16, view.muted_color)
+    text_x := cast(i32) (rect.x + 34)
+    text_y := cast(i32) (rect.y + (rect.height - 15) * 0.5)
+    if !typing {
+        ui.draw_text("Search settings...", text_x, text_y, 15, view.muted_color)
+        return
+    }
+    query := string(view.search[:])
+    ui.draw_text(query, text_x, text_y, 15, view.text_color)
+    caret_x := text_x + cast(i32) ui.measure_text(query, 15) + 2
+    rl.DrawRectangle(caret_x, text_y, 2, 15, view.accent_color)
+    settings_view_draw_icon_button(view, settings_view_search_clear_rect(view), "x", 14, mouse)
+}
+
+@(private = "file")
+settings_view_draw_rows :: proc(view: ^Settings_View, mouse: rl.Vector2) {
     list := rl.Rectangle {
         view.content.x, view.content.y + view.search_height, view.content.width, settings_view_list_height(view),
     }
+    if len(view.visible_rows) == 0 {
+        message := len(view.search) > 0 ? "No matching settings" : "Nothing to configure here"
+        tw := ui.measure_text(message, 15)
+        ui.draw_text(
+            message,
+            cast(i32) (list.x + (list.width - cast(f32) tw) * 0.5),
+            cast(i32) (list.y + list.height * 0.4),
+            15,
+            view.muted_color,
+        )
+        return
+    }
+
+    hovered := settings_view_row_at(view, mouse)
     ui.begin_clip(list)
     show_category := len(view.search) > 0
     for pos in 0 ..< len(view.visible_rows) {
@@ -771,10 +1006,15 @@ settings_view_draw :: proc(widget: ^ui.Widget, _: ^ui.Context) {
         if rect.y + rect.height < list.y || rect.y > list.y + list.height {
             continue // fully scrolled out
         }
-        if pos == view.selected {
-            rl.DrawRectangleRounded(rect, 0.2, 6, view.selected_color)
+        band := rl.Rectangle {
+            rect.x + SETTINGS_ITEM_INSET, rect.y + 2, rect.width - SETTINGS_ITEM_INSET * 2, rect.height - 4,
         }
-        settings_view_draw_row(view, &view.rows[vi], rect, vi, show_category)
+        if pos == view.selected {
+            rl.DrawRectangleRounded(band, 0.35, 6, view.selected_color)
+        } else if pos == hovered {
+            rl.DrawRectangleRounded(band, 0.35, 6, settings_view_tint(view.text_color, 10))
+        }
+        settings_view_draw_row(view, &view.rows[vi], rect, vi, show_category, mouse)
     }
     ui.end_clip()
 
@@ -782,88 +1022,36 @@ settings_view_draw :: proc(widget: ^ui.Widget, _: ^ui.Context) {
 }
 
 @(private = "file")
-settings_view_draw_sidebar :: proc(view: ^Settings_View) {
-    rl.DrawRectangleRec(view.sidebar, view.header_color)
-    mouse := rl.GetMousePosition()
-    for cat, i in view.categories {
-        rect := rl.Rectangle {
-            view.sidebar.x, view.sidebar.y + cast(f32) i * view.category_height, view.sidebar.width, view.category_height,
-        }
-        selected := i == view.selected_category && len(view.search) == 0
-        if selected {
-            rl.DrawRectangleRec(rect, rl.Color {255, 255, 255, 26})
-        } else if rl.CheckCollisionPointRec(mouse, rect) {
-            rl.DrawRectangleRec(rect, rl.Color {255, 255, 255, 14})
-        }
-        icon_color := selected ? view.accent_color : view.muted_color
-        text_color := selected ? view.text_color : view.muted_color
-        ui.draw_icon(cat.icon, cast(i32) (rect.x + 14), cast(i32) (rect.y + (rect.height - 16) * 0.5), 16, icon_color)
-        ui.draw_text(cat.label, cast(i32) (rect.x + 40), cast(i32) (rect.y + (rect.height - 15) * 0.5), 15, text_color)
-    }
+settings_view_draw_footer :: proc(view: ^Settings_View) {
+    rect := settings_view_footer_rect(view)
     rl.DrawRectangleRec(
-        rl.Rectangle {view.sidebar.x + view.sidebar.width - 1, view.sidebar.y, 1, view.sidebar.height},
-        view.muted_color,
+        rl.Rectangle {rect.x, rect.y, rect.width, 1}, settings_view_tint(view.muted_color, 45),
     )
-}
-
-@(private = "file")
-settings_view_draw_scope_tabs :: proc(view: ^Settings_View) {
-    general, workspace := settings_view_scope_tab_rects(view)
-    settings_view_draw_scope_tab(view, general, "General", view.scope == .General)
-    settings_view_draw_scope_tab(view, workspace, "Workspace", view.scope == .Workspace)
-}
-
-@(private = "file")
-settings_view_draw_scope_tab :: proc(view: ^Settings_View, rect: rl.Rectangle, label: string, active: bool) {
-    fill := active ? view.accent_color : view.field_color
-    text_color := active ? view.background_color : view.muted_color
-    rl.DrawRectangleRounded(rect, 0.5, 6, fill)
-    tw := ui.measure_text(label, 14)
+    // The UI font carries no arrow glyphs, so the hint names the keys.
+    hint := "Up/Down navigate  ·  Enter change  ·  Esc close"
+    tw := ui.measure_text(hint, 12)
     ui.draw_text(
-        label,
+        hint,
         cast(i32) (rect.x + (rect.width - cast(f32) tw) * 0.5),
-        cast(i32) (rect.y + (rect.height - 14) * 0.5),
-        14,
-        text_color,
+        cast(i32) (rect.y + (rect.height - 12) * 0.5),
+        12,
+        settings_view_tint(view.muted_color, 200),
     )
 }
 
 @(private = "file")
-settings_view_draw_search :: proc(view: ^Settings_View) {
-    pad: f32 = 12
-    rect := rl.Rectangle {view.content.x + pad, view.content.y + pad, view.content.width - pad * 2, view.search_height - pad}
-    rl.DrawRectangleRounded(rect, 0.3, 6, view.field_color)
-
-    icon_size: i32 = 16
-    ui.draw_icon(
-        "search",
-        cast(i32) (rect.x + 10),
-        cast(i32) (rect.y + (rect.height - cast(f32) icon_size) * 0.5),
-        icon_size,
-        view.muted_color,
-    )
-    text_x := cast(i32) (rect.x + 34)
-    text_y := cast(i32) (rect.y + (rect.height - 16) * 0.5)
-    if len(view.search) == 0 {
-        ui.draw_text("Search settings...", text_x, text_y, 16, view.muted_color)
-        return
-    }
-    query := string(view.search[:])
-    ui.draw_text(query, text_x, text_y, 16, view.text_color)
-    caret_x := text_x + cast(i32) ui.measure_text(query, 16) + 2
-    rl.DrawRectangle(caret_x, text_y, 2, 16, view.accent_color)
-}
-
-@(private = "file")
-settings_view_draw_workspace_empty_state :: proc(view: ^Settings_View) {
+settings_view_draw_workspace_empty_state :: proc(view: ^Settings_View, mouse: rl.Vector2) {
     msg := "This folder isn't a workspace yet."
     mw := ui.measure_text(msg, 16)
     my := view.content.y + view.content.height * 0.5 - 44
     ui.draw_text(msg, cast(i32) (view.content.x + (view.content.width - cast(f32) mw) * 0.5), cast(i32) my, 16, view.muted_color)
 
     rect := settings_view_workspace_cta_rect(view)
-    hover := rl.CheckCollisionPointRec(rl.GetMousePosition(), rect)
-    rl.DrawRectangleRounded(rect, 0.3, 6, hover ? view.accent_color : view.field_color)
+    hover := rl.CheckCollisionPointRec(mouse, rect)
+    rl.DrawRectangleRounded(rect, 0.35, 6, hover ? settings_view_tint(view.accent_color, 45) : view.field_color)
+    rl.DrawRectangleRoundedLinesEx(
+        rect, 0.35, 6, 1, hover ? view.accent_color : settings_view_tint(view.muted_color, 60),
+    )
     label := "Create Workspace Settings"
     lw := ui.measure_text(label, 15)
     ui.draw_text(
@@ -871,84 +1059,137 @@ settings_view_draw_workspace_empty_state :: proc(view: ^Settings_View) {
         cast(i32) (rect.x + (rect.width - cast(f32) lw) * 0.5),
         cast(i32) (rect.y + (rect.height - 15) * 0.5),
         15,
-        hover ? view.background_color : view.text_color,
+        hover ? view.accent_color : view.text_color,
     )
 }
 
 @(private = "file")
-settings_view_draw_row :: proc(view: ^Settings_View, item: ^Settings_Row, rect: rl.Rectangle, row_index: int, show_category: bool) {
-    pad: f32 = 16
-    label_y := cast(i32) (rect.y + (rect.height - 17) * 0.5)
-    label_x := rect.x + pad
+settings_view_draw_row :: proc(
+    view: ^Settings_View,
+    item: ^Settings_Row,
+    rect: rl.Rectangle,
+    row_index: int,
+    show_category: bool,
+    mouse: rl.Vector2,
+) {
+    label_y := cast(i32) (rect.y + (rect.height - 16) * 0.5)
+    label_x := rect.x + SETTINGS_ITEM_INSET + 12
 
     if show_category {
         cat_label := settings_view_category_label(view, item.category)
         if cat_label != "" {
             prefix := strings.concatenate({cat_label, " · "}, context.temp_allocator)
-            ui.draw_text(prefix, cast(i32) label_x, label_y, 17, view.muted_color)
-            label_x += cast(f32) ui.measure_text(prefix, 17)
+            ui.draw_text(prefix, cast(i32) label_x, label_y, 16, view.muted_color)
+            label_x += cast(f32) ui.measure_text(prefix, 16)
         }
     }
-    ui.draw_text(item.label, cast(i32) label_x, label_y, 17, view.text_color)
+    ui.draw_text(item.label, cast(i32) label_x, label_y, 16, view.text_color)
 
     switch item.kind {
     case .Number:
         minus, value, plus := settings_view_number_rects(view, rect)
-        settings_view_draw_button(view, minus, "-")
-        settings_view_draw_button(view, plus, "+")
-        rl.DrawRectangleRounded(value, 0.2, 6, view.field_color)
-        tw := ui.measure_text(item.value, 17)
+        settings_view_draw_stepper_button(view, minus, "minus", mouse, item.number > item.min)
+        settings_view_draw_stepper_button(view, plus, "plus", mouse, item.number < item.max)
+        rl.DrawRectangleRounded(value, 0.35, 6, view.field_color)
+        rl.DrawRectangleRoundedLinesEx(value, 0.35, 6, 1, settings_view_tint(view.muted_color, 60))
+        tw := ui.measure_text(item.value, 16)
         ui.draw_text(
             item.value,
             cast(i32) (value.x + (value.width - cast(f32) tw) * 0.5),
-            cast(i32) (value.y + (value.height - 17) * 0.5),
-            17,
+            cast(i32) (value.y + (value.height - 16) * 0.5),
+            16,
             view.text_color,
         )
     case .Choice:
-        tw := ui.measure_text(item.value, 17)
-        ui.draw_text(
-            item.value,
-            cast(i32) (rect.x + rect.width - pad - cast(f32) tw),
-            label_y,
-            17,
-            view.accent_color,
+        icon_size: f32 = 16
+        icon_x := rect.x + rect.width - SETTINGS_ROW_PAD - icon_size
+        ui.draw_icon(
+            "chevron-right",
+            cast(i32) icon_x,
+            cast(i32) (rect.y + (rect.height - icon_size) * 0.5),
+            cast(i32) icon_size,
+            view.muted_color,
         )
+        tw := ui.measure_text(item.value, 16)
+        ui.draw_text(item.value, cast(i32) (icon_x - 8 - cast(f32) tw), label_y, 16, view.accent_color)
     case .Keybind:
         clear_rect := settings_view_clear_rect(view, rect)
-        if item.value != "" {
-            settings_view_draw_button(view, clear_rect, "x")
+        capturing := view.capturing == row_index
+        bound := item.value != ""
+        if bound && !capturing {
+            settings_view_draw_icon_button(view, clear_rect, "x", 14, mouse)
         }
-        chord := item.value != "" ? item.value : "unbound"
-        color := item.value != "" ? view.text_color : view.muted_color
-        if view.capturing == row_index {
-            chord = "Press shortcut..."
-            color = view.accent_color
+        if !bound && !capturing {
+            tw := ui.measure_text("unbound", 14)
+            ui.draw_text(
+                "unbound",
+                cast(i32) (clear_rect.x - 8 - cast(f32) tw),
+                cast(i32) (rect.y + (rect.height - 14) * 0.5),
+                14,
+                view.muted_color,
+            )
+            return
         }
-        tw := ui.measure_text(chord, 16)
-        right := clear_rect.x - 10
+        // A keycap chip, so a chord reads as a key and not as a value.
+        chord := capturing ? "Press shortcut..." : item.value
+        tw := cast(f32) ui.measure_text(chord, 14)
+        chip := rl.Rectangle {clear_rect.x - 8 - tw - 16, rect.y + (rect.height - 24) * 0.5, tw + 16, 24}
+        fill := capturing ? settings_view_tint(view.accent_color, 25) : view.field_color
+        border := capturing ? view.accent_color : settings_view_tint(view.muted_color, 60)
+        rl.DrawRectangleRounded(chip, 0.35, 6, fill)
+        rl.DrawRectangleRoundedLinesEx(chip, 0.35, 6, 1, border)
         ui.draw_text(
             chord,
-            cast(i32) (right - cast(f32) tw),
-            cast(i32) (rect.y + (rect.height - 16) * 0.5),
-            16,
-            color,
+            cast(i32) (chip.x + 8),
+            cast(i32) (chip.y + (chip.height - 14) * 0.5),
+            14,
+            capturing ? view.accent_color : view.text_color,
         )
     }
 }
 
+// A borderless icon box for the chrome (close, clear).
 @(private = "file")
-settings_view_draw_button :: proc(view: ^Settings_View, rect: rl.Rectangle, glyph: string) {
-    hover := rl.CheckCollisionPointRec(rl.GetMousePosition(), rect)
-    rl.DrawRectangleRounded(rect, 0.3, 6, hover ? view.header_color : view.field_color)
-    rl.DrawRectangleRoundedLinesEx(rect, 0.3, 6, 1, view.muted_color)
-    tw := ui.measure_text(glyph, 18)
-    ui.draw_text(
-        glyph,
-        cast(i32) (rect.x + (rect.width - cast(f32) tw) * 0.5),
-        cast(i32) (rect.y + (rect.height - 18) * 0.5),
-        18,
-        hover ? view.accent_color : view.text_color,
+settings_view_draw_icon_button :: proc(
+    view: ^Settings_View, rect: rl.Rectangle, icon: string, size: i32, mouse: rl.Vector2,
+) {
+    hover := rl.CheckCollisionPointRec(mouse, rect)
+    if hover {
+        rl.DrawRectangleRounded(rect, 0.35, 6, settings_view_tint(view.accent_color, 25))
+    }
+    ui.draw_icon(
+        icon,
+        cast(i32) (rect.x + (rect.width - cast(f32) size) * 0.5),
+        cast(i32) (rect.y + (rect.height - cast(f32) size) * 0.5),
+        size,
+        hover ? view.accent_color : view.muted_color,
+    )
+}
+
+// A framed stepper button. `enabled` is false at the end of the row's range,
+// which dims the glyph.
+@(private = "file")
+settings_view_draw_stepper_button :: proc(
+    view: ^Settings_View, rect: rl.Rectangle, icon: string, mouse: rl.Vector2, enabled: bool,
+) {
+    hover := enabled && rl.CheckCollisionPointRec(mouse, rect)
+    rl.DrawRectangleRounded(rect, 0.35, 6, hover ? settings_view_tint(view.accent_color, 25) : view.field_color)
+    rl.DrawRectangleRoundedLinesEx(
+        rect, 0.35, 6, 1, hover ? view.accent_color : settings_view_tint(view.muted_color, 60),
+    )
+    color := view.text_color
+    if !enabled {
+        color = settings_view_tint(view.muted_color, 90)
+    } else if hover {
+        color = view.accent_color
+    }
+    size: f32 = 16
+    ui.draw_icon(
+        icon,
+        cast(i32) (rect.x + (rect.width - size) * 0.5),
+        cast(i32) (rect.y + (rect.height - size) * 0.5),
+        cast(i32) size,
+        color,
     )
 }
 
@@ -958,15 +1199,19 @@ settings_view_draw_scrollbar :: proc(view: ^Settings_View, list: rl.Rectangle) {
     if max_scroll <= 0 {
         return
     }
-    width: f32 = 5
-    x := list.x + list.width - width - 2
-    rl.DrawRectangleRec(rl.Rectangle {x, list.y, width, list.height}, view.header_color)
+    width: f32 = 6
+    x := list.x + list.width - width - 4
+    rl.DrawRectangleRounded(
+        rl.Rectangle {x, list.y, width, list.height}, 0.5, 4, settings_view_tint(view.muted_color, 15),
+    )
 
     content := cast(f32) len(view.visible_rows) * view.row_height
     thumb_h := max(list.height * list.height / content, 24)
     t := view.scroll / max_scroll
     thumb_y := list.y + (list.height - thumb_h) * t
-    rl.DrawRectangleRec(rl.Rectangle {x, thumb_y, width, thumb_h}, view.muted_color)
+    rl.DrawRectangleRounded(
+        rl.Rectangle {x, thumb_y, width, thumb_h}, 0.5, 4, settings_view_tint(view.muted_color, 120),
+    )
 }
 
 settings_view_destroy :: proc(widget: ^ui.Widget) {
