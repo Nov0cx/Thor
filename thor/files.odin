@@ -82,6 +82,11 @@ Open_File :: struct {
     semantic:           [dynamic]lang.Semantic_Token,
     semantic_revision:  u64,
     semantic_ready:     bool,
+    // Document sync for a backend that mirrors the editor's buffers.
+    // `lang_open` marks the mirror as started, `lang_revision` the buffer
+    // revision it last received. See thor_lang_notify.
+    lang_revision:      u64,
+    lang_open:          bool,
     // Compiler diagnostics from the last `odin check` of this file's package,
     // and the buffer revision they were computed against. Shown only while the
     // buffer still matches that revision (an edit clears them until re-checked).
@@ -820,6 +825,7 @@ thor_close_file :: proc(thor: ^Thor, index: int) {
     if thor.conflict_file == file {
         thor.conflict_file = nil // its prompt outlives the tab; answer nothing
     }
+    thor_lang_notify(thor, file, .Closed)
     ordered_remove(&thor.open_files, index)
     thor_update_tab_labels(thor)
 
@@ -1050,6 +1056,9 @@ thor_process_io :: proc(thor: ^Thor) {
         // A fresh load always re-binds (to show the buffer or the failure
         // placeholder); a reload that replaced the buffer re-bound itself.
         if !file.closed && !reload {
+            // The document mirror starts here, not in thor_open_file: before the
+            // read lands there is no text to send.
+            thor_lang_notify(thor, file, .Opened)
             thor_rebind_file_panes(thor, file)
         }
         thor_reap_file(thor, file)
@@ -1068,6 +1077,7 @@ thor_process_io :: proc(thor: ^Thor) {
             // A fresh save queues a re-check of the file's package; a language
             // with no checking backend queues nothing.
             if !file.closed {
+                thor_lang_notify(thor, file, .Saved)
                 thor_request_diagnostics(thor, file)
             }
         } else {

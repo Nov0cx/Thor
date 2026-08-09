@@ -68,12 +68,24 @@ engine_backend :: proc(e: ^Engine) -> lang.Backend {
         handles = handles,
         resolve = resolve,
         destroy = engine_destroy,
+        notify  = notify,
     }
 }
 
 @(private)
 handles :: proc(data: rawptr, ext: string) -> bool {
     return ext == ".odin"
+}
+
+// The engine keeps no document mirror — it reads the buffer out of each request
+// — so only a save is of interest: it drops the file's index entry, and the next
+// cross-file lookup re-parses it.
+@(private)
+notify :: proc(data: rawptr, event: lang.Doc_Event, path, ext, source: string, revision: u64) {
+    if event != .Saved {
+        return
+    }
+    index_forget(cast(^Engine)data, path)
 }
 
 @(private)

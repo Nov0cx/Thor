@@ -9,6 +9,7 @@ import "core:time"
 import rl "vendor:raylib"
 
 import "../lang"
+import "../lang/lsp"
 import "../lang/odin"
 import "../plugin"
 import "../setting"
@@ -234,6 +235,9 @@ Thor :: struct {
     // behind one seam. Requests run on worker threads and are reaped each frame.
     lang_manager:             lang.Manager,
     odin_engine:              ^odin.Engine,
+    // The optional subprocess LSP backend. Owned by the manager, which destroys
+    // every backend it holds, so shutdown frees nothing here.
+    lsp_client:               ^lsp.Client,
     // Recursive async watch of the workspace tree. Its changes feed the explorer
     // (tree + git refresh) and the open buffers (reload on external edits) via
     // subscribers wired in thor_init_watcher. The two flags coalesce a burst of
@@ -429,11 +433,21 @@ init :: proc() -> ^Thor {
     thor.finished_shells = make([dynamic]^Shell_Detect_Job)
     strings.builder_init(&thor.console_backlog)
 
-    // Language intelligence: register the in-client Odin engine first so it wins
-    // for .odin files; an optional LSP subprocess backend would register after it.
+    // Language intelligence: registration order is precedence. The in-client Odin
+    // engine goes first, so it wins for .odin files and the LSP backend serves
+    // the languages it configures; a server that sets "override" for .odin takes
+    // the front instead. The decision is made once, here, so no request path
+    // branches on it. No server process starts until a file it claims opens.
     lang.manager_init(&thor.lang_manager)
     thor.odin_engine = odin.engine_create()
-    lang.manager_register(&thor.lang_manager, odin.engine_backend(thor.odin_engine))
+    thor.lsp_client = lsp.client_create(thor.workspace_dir)
+    if lsp.client_overrides(thor.lsp_client, ".odin") {
+        lang.manager_register(&thor.lang_manager, lsp.client_backend(thor.lsp_client))
+        lang.manager_register(&thor.lang_manager, odin.engine_backend(thor.odin_engine))
+    } else {
+        lang.manager_register(&thor.lang_manager, odin.engine_backend(thor.odin_engine))
+        lang.manager_register(&thor.lang_manager, lsp.client_backend(thor.lsp_client))
+    }
 
     log.infof("Loaded theme: %s", thor.theme.name)
 
@@ -531,6 +545,7 @@ run :: proc(thor: ^Thor) {
         thor_poll_watcher(thor)
         thor_poll_settings(thor)
         thor_update_files(thor)
+        thor_sync_lang_documents(thor)
         lang.manager_dispatch(&thor.lang_manager, thor, thor_on_lang_result)
         thor_poll_lang_busy(thor)
         // Asked here, not during init: the prompt takes focus, and init still

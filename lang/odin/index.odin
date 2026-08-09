@@ -529,6 +529,27 @@ index_free_entry :: proc(idx: ^Symbol_Index, entry: File_Entry) {
     delete(entry.idents)
 }
 
+// Drops one file's entry so the next sync re-parses it, whatever its stat says.
+// A save bumps the modification time, so the stat gate catches it on its own on
+// a normal file system; this covers a coarse-timestamp one, where two saves
+// inside one tick read as no change. Main thread, under the index mutex.
+index_forget :: proc(e: ^Engine, path: string) {
+    idx := &e.index
+    sync.lock(&idx.mutex)
+    defer sync.unlock(&idx.mutex)
+    // The key is spelled as os.read_dir gave it, which need not match the
+    // editor's spelling of the same file.
+    for key, entry in idx.files {
+        if !path_equal(key, path) {
+            continue
+        }
+        index_free_entry(idx, entry)
+        delete_key(&idx.files, key)
+        delete(key, idx.alloc)
+        return
+    }
+}
+
 // Tears the whole index down (on destroy, or before a rebuild for a new
 // workspace): frees every entry, every owned key, the map, and the root string.
 @(private)

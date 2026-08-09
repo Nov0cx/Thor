@@ -1,0 +1,53 @@
+{
+    "servers": [
+        {
+            "id": "clangd",
+            "extensions": [".c", ".h", ".cpp", ".hpp", ".cc", ".hh", ".cxx", ".hxx"],
+            "command": ["clangd", "--background-index"],
+            "root_markers": ["compile_commands.json", ".clangd", ".git"],
+            "enabled": true
+        },
+        {
+            "id": "rust-analyzer",
+            "extensions": [".rs"],
+            "command": ["rust-analyzer"],
+            "root_markers": ["Cargo.toml", "rust-project.json", ".git"],
+            "enabled": true
+        },
+        {
+            "id": "gopls",
+            "extensions": [".go"],
+            "command": ["gopls"],
+            "root_markers": ["go.work", "go.mod", ".git"],
+            "enabled": true
+        },
+        {
+            "id": "pyright",
+            "extensions": [".py", ".pyi"],
+            "command": ["pyright-langserver", "--stdio"],
+            "root_markers": ["pyproject.toml", "setup.py", "setup.cfg", "requirements.txt", ".git"],
+            "enabled": true
+        },
+        {
+            "id": "typescript",
+            "extensions": [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"],
+            "command": ["typescript-language-server", "--stdio"],
+            "root_markers": ["tsconfig.json", "jsconfig.json", "package.json", ".git"],
+            "enabled": true
+        },
+        {
+            "id": "lua-language-server",
+            "extensions": [".lua"],
+            "command": ["lua-language-server"],
+            "root_markers": [".luarc.json", ".luarc.jsonc", ".git"],
+            "enabled": true
+        },
+        {
+            "id": "zls",
+            "extensions": [".zig", ".zon"],
+            "command": ["zls"],
+            "root_markers": ["build.zig", "build.zig.zon", ".git"],
+            "enabled": true
+        }
+    ]
+}

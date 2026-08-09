@@ -53,11 +53,21 @@ Notification :: struct {
     params: json.Value, // owned by conn.allocator; nil when the message had none
 }
 
+// What the reader thread answers the two requests a server makes of its client
+// with, as JSON text. Both are borrowed for the connection's whole life and read
+// with no lock, so the owner sets them before the connection starts and never
+// changes them.
+Conn_Answers :: struct {
+    settings: string, // the configured `settings` object; "" answers null
+    folders:  string, // the workspaceFolders array; "" answers null
+}
+
 // One JSON-RPC connection over a Transport, which it owns. A reader thread takes
 // the frames and a second thread drains the server's log.
 Conn :: struct {
     transport:     Transport,
     allocator:     runtime.Allocator,
+    answers:       Conn_Answers, // borrowed; immutable for the connection's life
     reader:        ^thread.Thread, // owned
     draining:      ^thread.Thread, // owned; stderr
     stopped:       bool,           // main thread only; conn_close has run
@@ -73,10 +83,11 @@ Conn :: struct {
 }
 
 // Takes ownership of `transport` and starts both threads.
-conn_start :: proc(transport: Transport, allocator := context.allocator) -> ^Conn {
+conn_start :: proc(transport: Transport, allocator := context.allocator, answers := Conn_Answers{}) -> ^Conn {
     c := new(Conn, allocator)
     c.transport = transport
     c.allocator = allocator
+    c.answers = answers
     c.pending = make(map[i64]^Pending, allocator = allocator)
     c.notifications = make([dynamic]Notification, allocator)
     c.stderr_tail = make([dynamic]u8, allocator)
@@ -531,7 +542,10 @@ conn_answer :: proc(c: ^Conn, method: string, id_value: json.Value, params: json
         // honest.
         envelope_response(&out, id, `{"applied":false}`)
     case "workspace/configuration":
-        // M4 answers each item from the server's configured settings.
+        // Every item gets the same answer: the server's configured settings.
+        // Which section an item asks for is not read, because the config carries
+        // one object per server and not one per section.
+        settings := c.answers.settings == "" ? "null" : c.answers.settings
         answer := make([dynamic]u8, c.allocator)
         defer delete(answer)
         append(&answer, "[")
@@ -539,13 +553,12 @@ conn_answer :: proc(c: ^Conn, method: string, id_value: json.Value, params: json
             if index > 0 {
                 append(&answer, ",")
             }
-            append(&answer, "null")
+            append(&answer, settings)
         }
         append(&answer, "]")
         envelope_response(&out, id, string(answer[:]))
     case "workspace/workspaceFolders":
-        // M4 answers the one workspace folder.
-        envelope_response(&out, id, "null")
+        envelope_response(&out, id, c.answers.folders == "" ? "null" : c.answers.folders)
     case:
         envelope_error(&out, id, -32601, "unhandled")
     }

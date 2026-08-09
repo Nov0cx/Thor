@@ -108,6 +108,68 @@ thor_language_gate :: proc(thor: ^Thor) -> bit_set[lang.Request_Kind] {
     return lang.manager_features(&thor.lang_manager)
 }
 
+// Document sync: what a backend that mirrors the editor's buffers (a subprocess
+// LSP client) needs to stay in step. The in-client engine defines `notify` only
+// for a save, and every other backend that defines nothing sees none of this.
+//
+// The mirror runs on `Open_File.lang_open`, which the host owns: `.Opened` needs
+// loaded text, `.Changed` and `.Saved` need a mirror already, `.Closed` ends it.
+// A save sends the pending text first, so the server saves what it last saw.
+thor_lang_notify :: proc(thor: ^Thor, file: ^Open_File, event: lang.Doc_Event) {
+    ext := thor_file_extension(file.name)
+    switch event {
+    case .Opened:
+        if file.lang_open || !file.loaded {
+            return
+        }
+        file.lang_open = true
+        file.lang_revision = file.state.revision
+        // textedit.text borrows the buffer snapshot; manager_notify copies what
+        // it keeps before returning, so the slice never outlives this call.
+        lang.manager_notify(
+            &thor.lang_manager,
+            .Opened,
+            file.path,
+            ext,
+            textedit.text(&file.state),
+            file.state.revision,
+        )
+    case .Changed:
+        if !file.lang_open || file.lang_revision == file.state.revision {
+            return
+        }
+        file.lang_revision = file.state.revision
+        lang.manager_notify(
+            &thor.lang_manager,
+            .Changed,
+            file.path,
+            ext,
+            textedit.text(&file.state),
+            file.state.revision,
+        )
+    case .Saved:
+        if !file.lang_open {
+            return
+        }
+        thor_lang_notify(thor, file, .Changed)
+        lang.manager_notify(&thor.lang_manager, .Saved, file.path, ext, "", file.state.revision)
+    case .Closed:
+        if !file.lang_open {
+            return
+        }
+        file.lang_open = false
+        lang.manager_notify(&thor.lang_manager, .Closed, file.path, ext, "", file.state.revision)
+    }
+}
+
+// One pass over the open buffers, once per frame: at most one change
+// notification per file, so a burst of keystrokes in one frame costs one.
+thor_sync_lang_documents :: proc(thor: ^Thor) {
+    for file in thor.open_files {
+        thor_lang_notify(thor, file, .Changed)
+    }
+}
+
 // Go-to-definition and (later) hover wiring between the editor and the language
 // intelligence manager. Requests are dispatched from the caret (Alt+Enter) or a
 // Ctrl+Click; results arrive asynchronously and are applied in thor_on_lang_result.
