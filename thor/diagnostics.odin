@@ -46,12 +46,12 @@ thor_apply_diagnostics :: proc(thor: ^Thor, res: ^lang.Result) {
     // dropped out of the report entirely — loses its squiggles. Files outside
     // the checked scope keep theirs.
     for file in thor.open_files {
-        if file.loaded && !file.closed && file_in_dir(file.path, res.report.scope) {
+        if file.loaded && !file.closed && scope_covers(file.path, res.report.scope) {
             thor_clear_file_diagnostics(file)
         }
     }
     for d in res.report.items {
-        thor_apply_diagnostic(thor, d)
+        thor_apply_diagnostic(thor, d, res.revision)
     }
 }
 
@@ -64,16 +64,21 @@ thor_clear_file_diagnostics :: proc(file: ^Open_File) {
 }
 
 // Adds one diagnostic to its matching open file, converting line:col to a byte
-// range against the live buffer. Skips a file that has been edited since it was
-// saved (revision moved), because the compiler's positions no longer line up — a
-// re-check follows that edit's next save.
+// range against the live buffer. `revision` is the report's, i.e. the buffer
+// state its producer measured.
 @(private = "file")
-thor_apply_diagnostic :: proc(thor: ^Thor, d: lang.Diagnostic) {
+thor_apply_diagnostic :: proc(thor: ^Thor, d: lang.Diagnostic, revision: u64) {
     for file in thor.open_files {
         if !file.loaded || file.closed || !same_path(file.path, d.path) {
             continue
         }
-        if file.state.revision != file.saved_revision {
+        // The positions describe the live buffer when the producer measured this
+        // exact revision (a server checking the text the editor sent it), or when
+        // the buffer still matches disk (a compiler checking the file). A package
+        // check reports many files under one revision, so the disk test is what
+        // keeps the files other than the saved one. Neither holds: an edit has
+        // moved the positions, and a re-check follows it.
+        if revision != file.state.revision && file.state.revision != file.saved_revision {
             return
         }
         text := textedit.text(&file.state)
@@ -123,16 +128,20 @@ diagnostic_token_end :: proc(text: string, start: int) -> int {
     return end
 }
 
-// True when `path` sits directly in `dir` (same package directory). Both are
-// absolute, but they reach here from different producers — an open file's own
-// path and a directory the compiler was pointed at — so each is cleaned before
-// the compare, which also tolerates a trailing separator on `dir`.
-@(private = "file")
-file_in_dir :: proc(path, dir: string) -> bool {
-    if dir == "" {
+// True when a report's `scope` covers `path`: the scope names that file, or the
+// directory it sits directly in. A compiler checks a package and answers a
+// directory; a language server checks one buffer and answers its path. Both are
+// absolute, but they reach here from different producers, so each is cleaned
+// before the compare, which also tolerates a trailing separator.
+@(private)
+scope_covers :: proc(path, scope: string) -> bool {
+    if scope == "" {
         return false
     }
-    return strings.equal_fold(cleaned(filepath.dir(path)), cleaned(strings.trim_right(dir, "/\\")))
+    if same_path(path, scope) {
+        return true
+    }
+    return strings.equal_fold(cleaned(filepath.dir(path)), cleaned(strings.trim_right(scope, "/\\")))
 }
 
 // True when two absolute paths name the same file, however each is spelled.

@@ -3,6 +3,8 @@
 // The in-client Odin backend has its own tests in lang/odin.
 package lang
 
+import "base:runtime"
+import "core:strings"
 import "core:sync"
 import "core:testing"
 import "core:time"
@@ -41,6 +43,79 @@ probe_resolve :: proc(data: rawptr, req: ^Request, res: ^Result) {
 @(private = "file")
 probe_backend :: proc(p: ^Probe) -> Backend {
     return Backend{data = p, name = "probe", handles = probe_handles, resolve = probe_resolve}
+}
+
+// A Backend that fills the three optional vtable entries a subprocess client
+// needs: per-kind support, unsolicited results, and document events. Kept apart
+// from Probe so the tests above keep the nil vtable an in-client engine leaves.
+// Main thread only, so no atomics.
+@(private = "file")
+Push_Probe :: struct {
+    unsupported: bit_set[Request_Kind], // `supports` answers false for these
+    queued:      [dynamic]Request_Kind, // one unsolicited result each, oldest first
+    events:      [dynamic]Doc_Event,
+    allocator:   runtime.Allocator, // the Manager's, as a real backend would hold
+}
+
+@(private = "file")
+push_handles :: proc(data: rawptr, ext: string) -> bool {
+    return ext == ".push"
+}
+
+@(private = "file")
+push_supports :: proc(data: rawptr, ext: string, kind: Request_Kind) -> bool {
+    p := cast(^Push_Probe) data
+    return kind not_in p.unsupported
+}
+
+@(private = "file")
+push_resolve :: proc(data: rawptr, req: ^Request, res: ^Result) {
+    res.ok = true
+}
+
+@(private = "file")
+push_poll :: proc(data: rawptr, res: ^Result) -> bool {
+    p := cast(^Push_Probe) data
+    if len(p.queued) == 0 {
+        return false
+    }
+    kind := p.queued[0]
+    ordered_remove(&p.queued, 0)
+    res.kind = kind
+    res.ok = true
+    // Owned output uses the Manager's allocator, so result_free reaches it.
+    res.report.scope = strings.clone("/w/a.push", p.allocator)
+    res.report.items = make([dynamic]Diagnostic, p.allocator)
+    append(
+        &res.report.items,
+        Diagnostic{
+            path = strings.clone("/w/a.push", p.allocator),
+            line = 1,
+            col = 1,
+            severity = .Error,
+            message = strings.clone("pushed", p.allocator),
+        },
+    )
+    return true
+}
+
+@(private = "file")
+push_notify :: proc(data: rawptr, event: Doc_Event, path, ext, source: string, revision: u64) {
+    p := cast(^Push_Probe) data
+    append(&p.events, event)
+}
+
+@(private = "file")
+push_backend :: proc(p: ^Push_Probe) -> Backend {
+    return Backend {
+        data = p,
+        name = "push",
+        handles = push_handles,
+        resolve = push_resolve,
+        supports = push_supports,
+        poll = push_poll,
+        notify = push_notify,
+    }
 }
 
 // Spins (bounded, so a wedged worker fails the test instead of hanging it) until
@@ -445,6 +520,119 @@ test_feature_names_round_trip :: proc(t: ^testing.T) {
     }
     _, ok := feature_from_name("not_a_feature")
     testing.expect(t, !ok, "an unknown name must not name a kind")
+}
+
+// A result no request asked for reaches the handler through the same per-frame
+// drain, and the queue empties: the channel a server pushing diagnostics uses.
+@(test)
+test_pushed_result_reaches_handler :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+
+    p := Push_Probe{allocator = m.allocator}
+    defer delete(p.queued)
+    defer delete(p.events)
+    manager_register(&m, push_backend(&p))
+
+    append(&p.queued, Request_Kind.Diagnostics)
+    append(&p.queued, Request_Kind.Diagnostics)
+
+    delivered := 0
+    manager_dispatch(&m, &delivered, count_results)
+    testing.expectf(t, delivered == 2, "expected both pushed results (got %d)", delivered)
+    testing.expect(t, len(p.queued) == 0, "the drain should have emptied the queue")
+
+    manager_dispatch(&m, &delivered, count_results)
+    testing.expectf(t, delivered == 2, "an empty poll must deliver nothing (got %d)", delivered)
+}
+
+// The feature gate covers the push channel too, so a kind the user turned off
+// cannot arrive through the back door.
+@(test)
+test_pushed_result_of_gated_kind_is_dropped :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+
+    p := Push_Probe{allocator = m.allocator}
+    defer delete(p.queued)
+    defer delete(p.events)
+    manager_register(&m, push_backend(&p))
+
+    manager_set_features(&m, FEATURES_ALL - {.Diagnostics})
+    append(&p.queued, Request_Kind.Diagnostics)
+
+    delivered := 0
+    manager_dispatch(&m, &delivered, count_results)
+    testing.expectf(t, delivered == 0, "a gated-off push must not reach the handler (got %d)", delivered)
+    testing.expect(t, len(p.queued) == 0, "the push should still have been taken and freed")
+
+    // The master switch gates it as well.
+    manager_set_features(&m, FEATURES_ALL)
+    manager_set_enabled(&m, false)
+    append(&p.queued, Request_Kind.Diagnostics)
+    manager_dispatch(&m, &delivered, count_results)
+    testing.expectf(t, delivered == 0, "a push must not outlive the master switch (got %d)", delivered)
+}
+
+// A backend that answers only some kinds refuses those it cannot, while still
+// claiming the extension: the difference manager_allows exists to report.
+@(test)
+test_supports_gates_kind_not_extension :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+
+    p := Push_Probe{allocator = m.allocator, unsupported = {.Rename}}
+    defer delete(p.queued)
+    defer delete(p.events)
+    manager_register(&m, push_backend(&p))
+
+    testing.expect(t, manager_supports(&m, ".push"), "one unsupported kind must not unclaim the extension")
+    testing.expect(t, !manager_allows(&m, ".push", .Rename), "the unsupported kind should be refused")
+    testing.expect(t, manager_allows(&m, ".push", .Definition), "a supported kind should be allowed")
+
+    testing.expectf(t, manager_request(&m, .Rename, "a.push", ".push", "", 0, 0, "", "x") == 0, "the unsupported kind dispatched")
+    testing.expectf(
+        t,
+        manager_request_debounced(&m, .Rename, "a.push", ".push", "", 0, 0, "") == 0,
+        "the unsupported kind filled a debounce slot",
+    )
+    testing.expect(t, !manager_debounce_pending(&m, .Rename), "a refused request must fill no slot")
+
+    testing.expect(t, manager_request(&m, .Definition, "a.push", ".push", "", 0, 0, "") != 0, "a supported kind was refused")
+    testing.expectf(t, drain_manager(&m) == 1, "expected the supported kind's result")
+}
+
+// Document events reach the backend that claims the extension, in order, and
+// only while the seam is on.
+@(test)
+test_notify_reaches_backend :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+
+    p := Push_Probe{allocator = m.allocator}
+    defer delete(p.queued)
+    defer delete(p.events)
+    manager_register(&m, push_backend(&p))
+
+    manager_notify(&m, .Opened, "a.push", ".push", "x", 1)
+    manager_notify(&m, .Changed, "a.push", ".push", "xy", 2)
+    manager_notify(&m, .Saved, "a.push", ".push", "xy", 2)
+    manager_notify(&m, .Closed, "a.push", ".push", "", 2)
+    testing.expectf(t, len(p.events) == 4, "expected four events (got %d)", len(p.events))
+    testing.expect(t, p.events[0] == .Opened && p.events[3] == .Closed, "events should arrive in order")
+
+    // An extension no backend claims, and a backend with no notify, are both
+    // silent rather than an error.
+    manager_notify(&m, .Opened, "a.other", ".other", "", 1)
+    testing.expectf(t, len(p.events) == 4, "an unclaimed extension must reach no backend (got %d)", len(p.events))
+
+    manager_set_enabled(&m, false)
+    manager_notify(&m, .Changed, "a.push", ".push", "z", 3)
+    testing.expectf(t, len(p.events) == 4, "the master switch must gate document events (got %d)", len(p.events))
 }
 
 @(test)

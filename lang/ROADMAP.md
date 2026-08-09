@@ -856,8 +856,13 @@ lowest latency.
       the compiler would reject (a reserved name, a path that is not a directory)
       is dropped, because such a flag aborts the run before it checks anything.
       Push-model diagnostics (an LSP server volunteering them between requests)
-      would need a notification channel on the seam — the pull shape here fits a
-      one-shot checker, not a live server.
+      have a channel on the seam since M0: `Backend.poll`, drained by
+      `manager_dispatch` once per frame under the same feature gate a dispatch
+      passes. Nothing produces them yet. The editor applies a report whose
+      `revision` matches the live buffer *or* whose file still matches disk, so a
+      server that checked the unsaved text and a compiler that checked the file
+      are both correct; `Diagnostic_Report.scope` may name one file as well as a
+      package directory.
 - [~] **Code actions.** Ctrl+Shift+U (Ctrl+. is the command palette); a
       `Code_Actions` request served by `actions.odin`, whose producers each append
       a `lang.Code_Action` — a title, a kind, and the `Text_Edit`s that apply it.
@@ -1266,7 +1271,31 @@ lowest latency.
 
 ## Missing — the optional LSP backend
 
-The seam supports it, but no subprocess backend exists yet. To add one:
+The seam is prepared for it (M0), but no subprocess backend exists yet.
+
+Prepared (`lang/lang.odin`, `thor/diagnostics.odin`):
+
+- [x] `Backend.supports(data, ext, kind)` — per-kind capability, so a server that
+      does definition but not rename says so. `nil` means every kind the backend
+      claims by extension. Read by `manager_allows`, `manager_request` and
+      `manager_request_debounced` through `backend_for_kind`; precedence stays
+      all-or-nothing per extension, so a declining backend does not fall through
+      to the next one. Main thread, and it must not lock: a worker may be inside
+      `resolve` at the same time.
+- [x] `Backend.poll(data, res)` — the notification channel, drained by
+      `manager_dispatch` after the finished jobs, feature-gated, capped at
+      `POLL_MAX_PER_FRAME` per backend. `Result.id` is 0 on a push.
+- [x] `Backend.notify(data, event, path, ext, source, revision)` and
+      `manager_notify` — `Doc_Event.{Opened, Changed, Saved, Closed}`, so document
+      sync follows the editor's file lifecycle rather than only requests. Main
+      thread, must not block. No host call site yet; the host wiring lands with
+      the backend that acts on it.
+- [x] `result_free` split out of `job_free`, so a pushed Result frees on the same
+      path a job's does.
+- [x] `lang.source_read` promoted out of `lang/odin`, so the CRLF-collapsed byte
+      space every offset is counted in belongs to the seam.
+
+Still to add:
 
 - [ ] Long-lived child process with async stdio (a reader thread), `Content-Length`
       framing, JSON-RPC request/response id matching. (Note: `shell.run` — what
@@ -1280,6 +1309,13 @@ The seam supports it, but no subprocess backend exists yet. To add one:
       restart on crash, shut down on exit.
 - [ ] Register it *after* the Odin engine so in-client wins for `.odin` and the
       LSP covers everything else (clangd, rust-analyzer, gopls, …).
+
+`LSP_PLAN.md` is the implementation plan for all of it: the `lang/lsp` package
+and what it may import, the child process and `Content-Length` transport, the
+notification channel a pushed `publishDiagnostics` needs, the per-kind method
+mapping, the position-encoding edge, `settings/lsp.json`, the headless test
+strategy, and the milestone order. Read it before starting here; it is a design,
+not a status, so this section stays the source of truth for what is built.
 
 ## Known limitations / cleanups
 

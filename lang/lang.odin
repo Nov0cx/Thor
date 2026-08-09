@@ -216,6 +216,8 @@ request_cancelled :: proc(req: ^Request) -> bool {
 // `cancelled` marks a result nobody is waiting for any more: manager_dispatch
 // frees it without calling the handler, so `ok == false` always means "the
 // backend found nothing", never "the work was abandoned half-done".
+// `id` is 0 on a result no request asked for (see Backend.poll), so a consumer
+// that matches a stored request id must tolerate it.
 Result :: struct {
     id:        u64,
     kind:      Request_Kind,
@@ -241,16 +243,42 @@ Result :: struct {
     tokens:    [dynamic]Semantic_Token,
 }
 
+// What a buffer did, for a backend that must track document state rather than
+// only answer requests (a subprocess LSP client's didOpen / didChange /
+// didSave / didClose).
+Doc_Event :: enum {
+    Opened,
+    Changed,
+    Saved,
+    Closed,
+}
+
 // A language backend. Both the in-client engine and a future subprocess LSP
 // client implement this. `resolve` runs on a worker thread and may block
 // (parse, disk scan, pipe read); it fills `res` using context.allocator for any
-// owned output. `handles` gates routing by file extension.
+// owned output. `handles` gates routing by file extension. The last three are
+// optional — nil is what an in-client engine leaves them.
 Backend :: struct {
     data:    rawptr,
     name:    string,
     handles: proc(data: rawptr, ext: string) -> bool,
     resolve: proc(data: rawptr, req: ^Request, res: ^Result),
     destroy: proc(data: rawptr),
+    // True when the backend can answer `kind` for `ext`. nil means every kind it
+    // claims by extension. An LSP backend answers from the server's advertised
+    // capabilities, so manager_allows can tell a caller with a fallback (rename
+    // -> find and replace) that the fallback is the one to run. Called on the
+    // main thread while a worker may be inside resolve, so it must read only
+    // atomically published data and must not lock.
+    supports: proc(data: rawptr, ext: string, kind: Request_Kind) -> bool,
+    // Takes the next result the backend produced without being asked (a server
+    // pushing diagnostics). Called on the main thread once per frame until it
+    // answers false. Owned strings use the Manager's allocator.
+    poll:     proc(data: rawptr, res: ^Result) -> bool,
+    // Tells the backend a buffer changed state. Main thread, must not block: a
+    // subprocess backend queues a notification and returns. `source` is
+    // borrowed for the call.
+    notify:   proc(data: rawptr, event: Doc_Event, path, ext, source: string, revision: u64),
 }
 
 // How long a debounced request waits for the input to settle before it is
@@ -281,6 +309,11 @@ WORKERS_MAX :: 4
 // on a worker instead would pin that worker for the run's whole duration, which
 // with WORKERS_MIN workers is the starvation the floor exists to prevent.
 EXCLUSIVE_KINDS :: bit_set[Request_Kind]{.Diagnostics}
+
+// How many unsolicited results one backend may hand over in a frame. A cap
+// rather than a full drain: a backend whose `poll` never runs dry would
+// otherwise hold the frame open, and the rest arrives on the next one anyway.
+POLL_MAX_PER_FRAME :: 64
 
 @(private)
 Job :: struct {
@@ -382,6 +415,22 @@ backend_for :: proc(m: ^Manager, ext: string) -> (Backend, bool) {
     return {}, false
 }
 
+// The backend that claims `ext`, and whether it answers `kind`. Precedence stays
+// all-or-nothing per extension: the first claimant is the answer even when it
+// declines the kind, so a request never falls through to a second backend that
+// would resolve it against a different language model.
+@(private)
+backend_for_kind :: proc(m: ^Manager, ext: string, kind: Request_Kind) -> (Backend, bool) {
+    b, ok := backend_for(m, ext)
+    if !ok {
+        return {}, false
+    }
+    if b.supports != nil && !b.supports(b.data, ext, kind) {
+        return {}, false
+    }
+    return b, true
+}
+
 // True when some backend handles `ext` and language intelligence is on, so the
 // editor can gate its UI (grey out "Go to definition") without dispatching a
 // request.
@@ -435,11 +484,16 @@ manager_feature_enabled :: proc(m: ^Manager, kind: Request_Kind) -> bool {
     return m.enabled && kind in m.features
 }
 
-// True when `kind` may be dispatched for `ext` — the gate plus a backend that
-// claims the extension. The check a caller makes when a feature has a fallback
-// to run instead (rename falling back to find and replace).
+// True when `kind` may be dispatched for `ext` — the gate, a backend that claims
+// the extension, and that backend answering the kind. The check a caller makes
+// when a feature has a fallback to run instead (rename falling back to find and
+// replace).
 manager_allows :: proc(m: ^Manager, ext: string, kind: Request_Kind) -> bool {
-    return manager_feature_enabled(m, kind) && manager_supports(m, ext)
+    if !manager_feature_enabled(m, kind) {
+        return false
+    }
+    _, ok := backend_for_kind(m, ext, kind)
+    return ok
 }
 
 // Dispatches a request on a worker thread. Snapshots the string inputs into the
@@ -459,7 +513,7 @@ manager_request :: proc(
     if !manager_feature_enabled(m, kind) {
         return 0
     }
-    if _, ok := backend_for(m, ext); !ok {
+    if _, ok := backend_for_kind(m, ext, kind); !ok {
         return 0
     }
     context.allocator = m.allocator
@@ -479,11 +533,27 @@ manager_request :: proc(
     )
 }
 
+// Tells the backend that claims `ext` a buffer changed state, so a backend that
+// mirrors the editor's documents (a subprocess LSP client) keeps them in step
+// without a request having to arrive first. Does nothing while the master switch
+// is off, when no backend claims the extension, or when that backend defines no
+// `notify`. Main thread; `source` is borrowed for the call only.
+manager_notify :: proc(m: ^Manager, event: Doc_Event, path, ext, source: string, revision: u64) {
+    if !m.enabled {
+        return
+    }
+    b, ok := backend_for(m, ext) // document sync is not a request kind
+    if !ok || b.notify == nil {
+        return
+    }
+    b.notify(b.data, event, path, ext, source, revision)
+}
+
 // Starts the worker for a request whose strings are *already* owned by the
 // Manager's allocator: ownership moves into the Job, which frees them in
 // job_free. Lets a flushed debounce slot hand its snapshot over without cloning
 // the whole buffer a second time. Frees them and answers 0 when no backend
-// claims the extension.
+// claims the extension or none answers the kind.
 @(private)
 dispatch_owned :: proc(
     m: ^Manager,
@@ -496,7 +566,7 @@ dispatch_owned :: proc(
     new_name: string,
 ) -> u64 {
     context.allocator = m.allocator
-    backend, ok := backend_for(m, ext)
+    backend, ok := backend_for_kind(m, ext, kind)
     if !ok {
         delete(path)
         delete(ext)
@@ -647,7 +717,7 @@ manager_request_debounced :: proc(
     if !manager_feature_enabled(m, kind) {
         return 0
     }
-    if _, ok := backend_for(m, ext); !ok {
+    if _, ok := backend_for_kind(m, ext, kind); !ok {
         return 0
     }
     manager_cancel_kind(m, kind) // also drops the slot this one is about to fill
@@ -823,6 +893,26 @@ manager_dispatch :: proc(m: ^Manager, user: rawptr, handler: proc(user: rawptr, 
         }
         job_free(m, job)
     }
+
+    // Results no request asked for. Gated like a dispatch, so a kind the user
+    // turned off cannot arrive through the back door. Bounded per backend, so a
+    // backend that always answers true costs one frame's latency and not the
+    // frame itself.
+    for b in m.backends {
+        if b.poll == nil {
+            continue
+        }
+        for _ in 0 ..< POLL_MAX_PER_FRAME {
+            res: Result
+            if !b.poll(b.data, &res) {
+                break
+            }
+            if handler != nil && manager_feature_enabled(m, res.kind) {
+                handler(user, &res)
+            }
+            result_free(m, &res)
+        }
+    }
 }
 
 @(private)
@@ -833,29 +923,44 @@ job_free :: proc(m: ^Manager, job: ^Job) {
     delete(job.request.source)
     delete(job.request.workspace)
     delete(job.request.new_name)
-    delete(job.result.location.path)
-    delete(job.result.hover.text)
-    delete(job.result.doc.title)
-    delete(job.result.doc.path)
-    delete(job.result.doc.text)
-    for entry in job.result.signature.entries {
+    result_free(m, &job.result)
+    id := job.request.id
+    free(job)
+
+    sync.lock(&m.mutex)
+    delete_key(&m.active, id) // no longer cancellable; the pointer is dead
+    m.inflight -= 1
+    sync.unlock(&m.mutex)
+}
+
+// Frees every owned field of a Result. The Manager's allocator owns them, so
+// this runs on the main thread once the editor has consumed the result.
+@(private)
+result_free :: proc(m: ^Manager, res: ^Result) {
+    context.allocator = m.allocator
+    delete(res.location.path)
+    delete(res.hover.text)
+    delete(res.doc.title)
+    delete(res.doc.path)
+    delete(res.doc.text)
+    for entry in res.signature.entries {
         delete(entry.label)
     }
-    delete(job.result.signature.entries)
-    for sym in job.result.symbols {
+    delete(res.signature.entries)
+    for sym in res.symbols {
         delete(sym.name)
         delete(sym.kind)
         delete(sym.signature)
         delete(sym.path)
     }
-    delete(job.result.symbols)
-    for edit in job.result.edits {
+    delete(res.symbols)
+    for edit in res.edits {
         delete(edit.path)
         delete(edit.old_text)
         delete(edit.new_text)
     }
-    delete(job.result.edits)
-    for action in job.result.actions {
+    delete(res.edits)
+    for action in res.actions {
         delete(action.title)
         delete(action.kind)
         for edit in action.edits {
@@ -865,21 +970,14 @@ job_free :: proc(m: ^Manager, job: ^Job) {
         }
         delete(action.edits)
     }
-    delete(job.result.actions)
-    delete(job.result.tokens) // no owned strings on a token; the array is the whole allocation
-    delete(job.result.report.scope)
-    for d in job.result.report.items {
+    delete(res.actions)
+    delete(res.tokens) // no owned strings on a token; the array is the whole allocation
+    delete(res.report.scope)
+    for d in res.report.items {
         delete(d.path)
         delete(d.message)
     }
-    delete(job.result.report.items)
-    id := job.request.id
-    free(job)
-
-    sync.lock(&m.mutex)
-    delete_key(&m.active, id) // no longer cancellable; the pointer is dead
-    m.inflight -= 1
-    sync.unlock(&m.mutex)
+    delete(res.report.items)
 }
 
 // True while any request is still being worked. Used by manager_destroy and
