@@ -18,6 +18,7 @@ piecetable  ->  textedit  ->  ui  ->  widgets
                 syntax / treecache
                 plugin
                 lang  ->  lang/odin
+                        ->  lang/lsp  ->  shell (incl. shell/child_*)
                 setting / watch / shell
                 thor      (the application, imports everything)
 ```
@@ -43,6 +44,9 @@ allow. The ones that matter most:
 - `syntax` importing theme or color code.
 - `lang` importing UI. A backend that wants the buffer changed answers with
   `Text_Edit`s and never writes files itself.
+- `lang/lsp` importing `setting` — `setting/setting.odin` already imports `lang`, so the reverse
+  would be a cycle. `lang/lsp` parses `settings/lsp.json` / `.thor/lsp.json` itself with
+  `core:encoding/json` instead of going through `setting`.
 
 **The plugin package never touches UI.** `thor.panel` describes widgets as
 `View_Node` data (`plugin/view.odin`) that `thor/plugin_panel.odin` turns into
@@ -53,8 +57,8 @@ the same seam. Flag any `plugin/` file reaching for `ui` or `widgets`.
 in a `<name>_windows.odin` / `<name>_posix.odin` pair tagged `#+build windows` /
 `#+build !windows`, with the platform-free part in `<name>.odin` stating the
 contract as a comment (Odin has no forward declarations). The pairs are
-`shell/shell_*`, `watch/watch_*`, `thor/windows_*`, `thor/dialogs_*`,
-`thor/filemap_*`, `thor/reveal_*`. `watch/scan.odin` is deliberately
+`shell/shell_*`, `shell/child_*` (the piped process an LSP server runs in), `watch/watch_*`,
+`thor/windows_*`, `thor/dialogs_*`, `thor/filemap_*`, `thor/reveal_*`. `watch/scan.odin` is deliberately
 platform-free so the POSIX watcher's diff stays testable on Windows — flag
 anything that would make it OS-specific.
 

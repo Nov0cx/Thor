@@ -1168,12 +1168,27 @@ its tests pass, and nothing regresses.
       **`isPreferred` ordering** builds two `context.temp_allocator` lists
       (preferred, rest) and appends them in order, exactly the alternative the
       plan named as equally acceptable to a shift-based `inject_at`.
-- [ ] **M8 — Documentation.** Everything above, plus the `update-docs` skill.
-- [ ] **M9 — Optional follow-ups, each independent.** Incremental `didChange`
-      through `treecache.source_edit`; `semanticTokens/full/delta`; `$/progress`
-      into the existing statusline busy indicator; `workspace/applyEdit` routed
-      through the push channel; a selection range on `Request`, unlocking
-      selection-scoped code actions.
+- [x] **M8 — Documentation.** `ROADMAP.md`'s optional-LSP-backend section
+      brought current with M7 (Rename/Code Actions moved out of "still
+      missing"); `CLAUDE.md` gained the `shell/child_*` rationale in
+      Terminals and the `Backend.poll` exception in Async work;
+      `.claude/agents/layering-reviewer.md` gained `lang/lsp` in the layering
+      diagram, the must-not-import-`setting` note and `shell/child_*` in the
+      platform pairs; `docs/getting-started.md` gained a paragraph on
+      installing a server; `docs/configuration.md` gained the cost of
+      `"override": true` for `.odin`; `CHANGELOG.md`'s LSP bullet gained
+      rename and code actions. `update-docs` regenerated `docs/html/`.
+- [ ] **M9 — Optional follow-ups, each independent.**
+      - [ ] Re-read `settings/lsp.json` + `.thor/lsp.json` and restart the
+            servers when the workspace changes — today read once, in
+            `client_create`.
+      - [ ] Incremental `didChange` through `treecache.source_edit`.
+      - [ ] A real `workspace/symbol` query, via a `query` field on `Request`.
+      - [ ] `semanticTokens/full/delta`.
+      - [ ] `$/progress` into the existing statusline busy indicator.
+      - [ ] `workspace/applyEdit` routed through the push channel.
+      - [ ] A selection range on `Request`, unlocking selection-scoped code
+            actions.
 
 ## Open questions
 

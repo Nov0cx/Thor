@@ -49,6 +49,13 @@ For Odin, hover a symbol with `ctrl` held to see its declaration, `alt + enter`
 (or `ctrl + click`) to jump to its definition, and `ctrl + shift + u` for the
 code actions available at the caret.
 
+Every other language gets the same features from a language server: install one
+(`clangd`, `rust-analyzer`, `gopls`, `pyright`, `typescript-language-server`,
+`lua-language-server` and `zls` are configured out of the box) and reopen the
+folder or open a file it claims — Thor starts the server the first time it is
+needed. See [Configuration](configuration.md) for the server table and how to
+add one of your own.
+
 **Help > Tutorial** opens an interactive walkthrough of the shortcuts above,
 inside the editor itself. **Help > Documentation** opens this manual in Thor's
 Markdown preview, and **Help > Documentation in Browser** opens it outside the

@@ -1272,8 +1272,9 @@ lowest latency.
 
 ## The optional LSP backend
 
-The seam was prepared for it in M0; `lang/lsp` is the backend, and it answers the
-read-only kinds and diagnostics. The editing kinds are still missing.
+The seam was prepared for it in M0; `lang/lsp` is the backend, and it now answers
+every request kind the seam defines, including the two editing kinds (Rename,
+Code Actions).
 
 Prepared (`lang/lang.odin`, `thor/diagnostics.odin`):
 
@@ -1297,7 +1298,7 @@ Prepared (`lang/lang.odin`, `thor/diagnostics.odin`):
 - [x] `lang.source_read` promoted out of `lang/odin`, so the CRLF-collapsed byte
       space every offset is counted in belongs to the seam.
 
-Landed since (`lang/lsp`, M1–M6):
+Landed since (`lang/lsp`, M1–M7):
 
 - [x] Long-lived child process with async stdio (a reader thread), `Content-Length`
       framing, JSON-RPC request/response id matching. `shell/child_*.odin` is the
@@ -1342,6 +1343,19 @@ Landed since (`lang/lsp`, M1–M6):
       seam's two: only `Error` stays an error, `Warning`/`Information`/`Hint` all
       read as a warning, and a diagnostic that named no severity is an error.
       An `unchanged` pull report answers nothing; `relatedDocuments` is dropped.
+- [x] Rename and Code Actions. `Rename` reconstructs `Text_Edit.old_text`
+      itself — the field has no LSP counterpart — by reading the current bytes
+      at each range from the request's own buffer, a server-held open document
+      (`ask_source`'s third source, needed so a second open file's `old_text`
+      verifies against its live text rather than a stale disk copy), or disk.
+      A `WorkspaceEdit` carrying any `CreateFile`/`RenameFile`/`DeleteFile`
+      refuses the whole rename — the seam cannot express a resource operation,
+      and we declare `resourceOperations: []` so a conforming server never
+      sends one. `Code_Actions` calls `codeAction/resolve` eagerly on the same
+      worker for any action returned with no `edit`, and drops a command-only
+      action outright, since Thor has no `workspace/executeCommand` path; the
+      caret carries no selection end, so a selection-scoped action ("extract
+      function") is unreachable.
 
 Still to add:
 
@@ -1372,4 +1386,5 @@ not a status, so this section stays the source of truth for what is built.
 - Only `.odin` is handled in-client. Another language is answered by a
   configured language server, which reaches only as far as that server does:
   `Package_Doc` has no LSP method at all, `Workspace_Symbols` is asked with an
-  empty query, and `Rename` and `Code_Actions` wait for M7.
+  empty query, `Rename` refuses a `WorkspaceEdit` carrying a resource
+  operation, and `Code_Actions` is caret-only (no selection-scoped fixes).

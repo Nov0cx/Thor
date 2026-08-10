@@ -192,6 +192,11 @@ console panel is empty for the first frames and plugin output printed before it 
 queue after it still pumps terminals — a detection that lands then finds no terminal list and only
 frees its profiles.
 
+A language server run from `lang/lsp` is a separate child abstraction (`shell/child_*.odin`), not a
+second `shell.Session`: `Session` merges stderr into stdout on purpose so a terminal shows both
+interleaved, and a server's stderr log lines landing inside the `Content-Length` frame stream would
+desynchronise the JSON-RPC parser permanently.
+
 ## Async work
 
 There is one pattern for all off-thread work and it is worth matching exactly: a worker thread does
@@ -199,6 +204,10 @@ its job, then appends the job struct to a `[dynamic]^Job` on `Thor` under `io_mu
 drains that queue once per frame and applies the result. File loads/saves (`thor/files.odin`),
 terminal output, git status and the whole `lang` seam all use it. Workers never touch widgets and
 never allocate from the main allocator without care.
+
+`Backend.poll` is the one exception: an LSP server can volunteer a result (pushed diagnostics)
+between requests, so a backend owns its own push queue and `manager_dispatch` pulls from it once a
+frame instead of the backend appending to a Thor-level queue directly.
 
 Debug builds run under `mem.Tracking_Allocator`, so leaks and bad frees are reported at exit. Struct
 fields are commented `// owned` vs borrowed; respect that — `shutdown` frees exactly the owned ones.

@@ -62,6 +62,10 @@ Entries shipped by default: `clangd`, `rust-analyzer`, `gopls`, `pyright`,
 | `features` | Which features to ask this server for, by the `language_intelligence` names |
 | `override` | `true` puts this server ahead of the built-in Odin support for `.odin` |
 
+A server claims an extension all-or-nothing, so overriding `.odin` also gives up
+what only the built-in support has: `Package_Doc` (`f3`) has no LSP equivalent,
+and the `.thor/odin-analyzer.json` collection mechanism goes with it.
+
 Known limitations: workspace symbols (`ctrl + t`) are sent with an empty
 query, so a server that only answers a non-empty one (clangd, gopls) lists
 nothing; document sync sends the whole file on every change, not an
