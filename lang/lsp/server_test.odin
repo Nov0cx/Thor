@@ -45,8 +45,10 @@ Fake :: struct {
     extensions: [1]string,
     command:    [1]string,
     caps:       string, // the initialize result it answers with
+    result:     string, // what it answers every other request with; "" answers null
     opens:      int,    // how many times a transport was asked for
     refuse:     bool,   // a second start finds no program
+    silent:     bool,   // it takes every request but the handshake and never answers
     ended:      bool,   // the scripted server has been stopped
 }
 
@@ -71,7 +73,10 @@ fake_answer :: proc(sv: ^Serve, id: i64, method: string) {
     case "initialize":
         mock_reply(sv.mock, id, f.caps)
     case:
-        mock_reply(sv.mock, id, "null")
+        if f.silent {
+            return
+        }
+        mock_reply(sv.mock, id, f.result == "" ? "null" : f.result)
     }
 }
 
@@ -379,4 +384,172 @@ test_server_answers_configuration :: proc(t: ^testing.T) {
 
     mock_frame(&f.mock, `{"jsonrpc":"2.0","id":901,"method":"workspace/workspaceFolders"}`)
     testing.expect(t, wait_sent(&f, `[{"uri":"` + WORKSPACE_URI + `","name":"ws"}]`), "workspaceFolders went unanswered")
+}
+
+@(private = "file")
+BUFFER :: "alpha beta\ngamma"
+
+// A whole request: the file is opened on the server, the position goes out in the
+// server's own coordinates, and the reply comes back as a byte offset.
+@(test)
+test_server_request_round_trip :: proc(t: ^testing.T) {
+    f: Fake
+    s := fake_server(&f, CAPS_ALL)
+    defer fake_end(&f, s)
+    defer free_all(context.temp_allocator)
+    f.result =
+        `{"uri":"` + SOURCE_URI + `","range":{"start":{"line":1,"character":0},"end":{"line":1,"character":5}}}`
+
+    req := lang.Request {
+        kind     = .Definition,
+        path     = SOURCE,
+        ext      = ".fake",
+        source   = BUFFER,
+        offset   = 6, // the "b" of "beta"
+        revision = 4,
+    }
+    res := lang.Result {
+        kind = .Definition,
+    }
+    testing.expect(t, server_ensure_started(s, &req), "the server did not start")
+    request_answer(s, &req, &res)
+    defer delete(res.location.path)
+
+    testing.expect(t, res.ok, "the reply did not reach the result")
+    testing.expect_value(t, res.location.path, SOURCE)
+    testing.expect_value(t, res.location.start, 11)
+    testing.expect_value(t, res.location.end, 16)
+
+    testing.expect(t, fake_sent(&f, `"method":"textDocument/definition"`), "the request was never sent")
+    testing.expect(t, fake_sent(&f, `"uri":"` + SOURCE_URI + `"`), "the request named no file")
+    testing.expect(t, fake_sent(&f, `"position":{"line":0,"character":6}`), "the caret was converted wrong")
+}
+
+// The server must hold the request's text before the request names a position in
+// it, and text it already has is not sent again.
+@(test)
+test_server_syncs_before_a_request :: proc(t: ^testing.T) {
+    f: Fake
+    s := fake_server(&f, CAPS_ALL)
+    defer fake_end(&f, s)
+    defer free_all(context.temp_allocator)
+
+    req := lang.Request {
+        kind     = .Hover,
+        path     = SOURCE,
+        ext      = ".fake",
+        source   = BUFFER,
+        offset   = 0,
+        revision = 4,
+    }
+    res := lang.Result {
+        kind = .Hover,
+    }
+    testing.expect(t, server_ensure_started(s, &req), "the server did not start")
+    request_answer(s, &req, &res)
+
+    open_at := fake_index(&f, `"method":"textDocument/didOpen"`)
+    hover_at := fake_index(&f, `"method":"textDocument/hover"`)
+    testing.expect(t, open_at >= 0, "the file was never opened on the server")
+    testing.expect(t, open_at < hover_at, "the position was sent before the text it counts over")
+    testing.expect(t, fake_sent(&f, `"text":"alpha beta\ngamma"`), "the buffer was not the text that was sent")
+
+    // A second request at the same revision has nothing to send.
+    request_answer(s, &req, &res)
+    testing.expect(t, !fake_sent(&f, `"method":"textDocument/didChange"`), "text the server already had was sent again")
+
+    // A newer revision is a change, and it goes out before the second request.
+    req.source = "alpha beta\ngamma delta"
+    req.revision = 5
+    request_answer(s, &req, &res)
+    change_at := fake_index(&f, `"method":"textDocument/didChange"`)
+    testing.expect(t, change_at > hover_at, "the newer text was never sent")
+    testing.expect(t, fake_sent(&f, `"text":"alpha beta\ngamma delta"`), "the newer text was not the text that was sent")
+}
+
+// A document event the pump flushes after a request already synced the same file
+// must not put the older text back. The revision is monotonic per file, so an
+// older one is a queued event the request overtook.
+@(test)
+test_server_publish_never_goes_backwards :: proc(t: ^testing.T) {
+    f: Fake
+    s := fake_server(&f, CAPS_ALL)
+    defer fake_end(&f, s)
+
+    testing.expect(t, server_start(s, SOURCE))
+    testing.expect(t, wait_state(s, .Ready), "the handshake did not finish")
+
+    sync.lock(&s.docs_mutex)
+    server_publish(s, SOURCE, ".fake", "three", 3)
+    server_publish(s, SOURCE, ".fake", "two", 2)
+    doc, found := server_find(s, SOURCE)
+    sync.unlock(&s.docs_mutex)
+
+    testing.expect(t, found, "the document was never created")
+    if !found {
+        return
+    }
+    testing.expect_value(t, doc.text, "three")
+    testing.expect_value(t, doc.revision, u64(3))
+    testing.expect(t, wait_sent(&f, `"text":"three"`), "the newer text was never sent")
+    testing.expect(t, !fake_sent(&f, `"text":"two"`), "the older text was sent after the newer one")
+}
+
+// A request the editor abandoned ends at once and tells the server to stop
+// working, instead of holding a worker until the deadline.
+@(test)
+test_server_request_cancels :: proc(t: ^testing.T) {
+    f: Fake
+    s := fake_server(&f, CAPS_ALL)
+    defer fake_end(&f, s)
+    defer free_all(context.temp_allocator)
+
+    f.silent = true
+    cancel := false
+    req := lang.Request {
+        kind     = .Completion,
+        path     = SOURCE,
+        ext      = ".fake",
+        source   = BUFFER,
+        revision = 1,
+        cancel   = &cancel,
+    }
+    res := lang.Result {
+        kind = .Completion,
+    }
+    testing.expect(t, server_ensure_started(s, &req), "the server did not start")
+
+    // The editor gives up while the request is in flight, which is what a newer
+    // keystroke does.
+    cancel = true
+    start := time.tick_now()
+    request_answer(s, &req, &res)
+    testing.expect(t, time.tick_since(start) < DEADLINE_INTERACTIVE, "the cancel did not end the wait")
+    testing.expect(t, !res.ok, "a cancelled request must find nothing")
+    testing.expect(t, wait_sent(&f, `"method":"$/cancelRequest"`), "the server was never told to stop")
+}
+
+// A kind that reaches this backend with no method behind it costs no round trip.
+@(test)
+test_server_request_without_a_method :: proc(t: ^testing.T) {
+    f: Fake
+    s := fake_server(&f, CAPS_ALL)
+    defer fake_end(&f, s)
+    defer free_all(context.temp_allocator)
+
+    req := lang.Request {
+        kind     = .Package_Doc,
+        path     = SOURCE,
+        ext      = ".fake",
+        source   = BUFFER,
+        revision = 1,
+    }
+    res := lang.Result {
+        kind = .Package_Doc,
+    }
+    testing.expect(t, server_ensure_started(s, &req), "the server did not start")
+    request_answer(s, &req, &res)
+
+    testing.expect(t, !res.ok)
+    testing.expect(t, !fake_sent(&f, `"method":"textDocument/didOpen"`), "a kind with no method still synced the file")
 }

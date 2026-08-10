@@ -1,0 +1,753 @@
+// Reading a server's reply into the seam's payloads, one decoder per request
+// kind. Every offset that leaves this file is a byte offset over LF-collapsed
+// source: a position in the request's own file converts against the text that was
+// sent, and a position in a file the editor never opened converts against the raw
+// bytes on disk and is then moved into LF space.
+//
+// A shape the decoder does not know leaves res.ok false. Owned strings use
+// context.allocator, which is the Manager's on a worker.
+package lsp
+
+import "core:encoding/json"
+import "core:os"
+import "core:path/filepath"
+import "core:slice"
+import "core:strings"
+
+import lang ".."
+
+@(private)
+request_decode :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
+    #partial switch ask.req.kind {
+    case .Definition:
+        decode_definition(ask, value, res)
+    case .Hover:
+        decode_hover(ask, value, res)
+    case .Document_Symbols:
+        decode_document_symbols(ask, value, res)
+    case .References:
+        decode_references(ask, value, res)
+    case .Signature_Help:
+        decode_signature_help(ask, value, res)
+    case .Completion:
+        decode_completion(ask, value, res)
+    case .Semantic_Tokens:
+        decode_semantic_tokens(ask, value, res)
+    }
+}
+
+// One place a definition reply named.
+@(private)
+Target :: struct {
+    uri:        string,
+    line:       int,
+    character:  int,
+    end_line:   int,
+    end_char:   int,
+}
+
+// `Location`, `LocationLink` and an array of either. One target is the jump; more
+// than one is the candidate picker, which reads the same rows find-usages does.
+@(private)
+decode_definition :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
+    targets := make([dynamic]Target, context.temp_allocator)
+    collect_targets(value, &targets)
+    if len(targets) == 0 {
+        return
+    }
+
+    if len(targets) == 1 {
+        path, start, end, ok := resolve_target(ask, targets[0])
+        if !ok {
+            return
+        }
+        res.location = lang.Location {
+            path  = strings.clone(path),
+            start = start,
+            end   = end,
+        }
+        res.ok = true
+        return
+    }
+
+    res.symbols = make([dynamic]lang.Symbol)
+    for target in targets {
+        path, start, _, ok := resolve_target(ask, target)
+        if !ok {
+            continue
+        }
+        text, read := ask_source(ask, path)
+        append(
+            &res.symbols,
+            lang.Symbol {
+                name = strings.clone(filepath.base(path)),
+                kind = strings.clone("reference"),
+                signature = read ? source_line_at(text, start) : strings.clone(""),
+                path = strings.clone(path),
+                line = read ? line_number_at(text, start) : target.line + 1,
+                offset = start,
+            },
+        )
+    }
+    res.ok = len(res.symbols) > 0
+}
+
+// `MarkupContent`, `MarkedString` and an array of either, drawn as plain text.
+// A server that named no range gets the identifier under the caret instead, so
+// the popup still underlines what it described.
+@(private)
+decode_hover :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
+    object, is_object := value.(json.Object)
+    if !is_object {
+        return
+    }
+    text := hover_text(object["contents"])
+    if text == "" {
+        return
+    }
+
+    start, end := identifier_span(ask.req.source, ask.req.offset)
+    if start_line, start_char, end_line, end_char, ok := range_of(object["range"]); ok {
+        start = offset_from_position(&ask.lines, start_line, start_char)
+        end = offset_from_position(&ask.lines, end_line, end_char)
+    }
+    res.hover = lang.Hover_Info {
+        text  = strings.clone(text),
+        start = start,
+        end   = end,
+    }
+    res.ok = true
+}
+
+// `DocumentSymbol[]` (a tree) or `SymbolInformation[]` (flat). Both, flattened
+// depth first so the outline keeps the file's reading order.
+@(private)
+decode_document_symbols :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
+    items, is_array := value.(json.Array)
+    if !is_array || len(items) == 0 {
+        return
+    }
+    res.symbols = make([dynamic]lang.Symbol)
+    for item in items {
+        append_symbol(ask, item, res)
+    }
+    res.ok = len(res.symbols) > 0
+}
+
+// `Location[]`, one row per usage with the source line it sits on as its preview.
+// Sorted by (path, offset), the order the picker walks.
+@(private)
+decode_references :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
+    items, is_array := value.(json.Array)
+    if !is_array || len(items) == 0 {
+        return
+    }
+    start, end := identifier_span(ask.req.source, ask.req.offset)
+    name := ask.req.source[start:end]
+
+    res.symbols = make([dynamic]lang.Symbol)
+    for item in items {
+        object, is_object := item.(json.Object)
+        if !is_object {
+            continue
+        }
+        uri, has_uri := object["uri"].(json.String)
+        start_line, start_char, end_line, end_char, has_range := range_of(object["range"])
+        if !has_uri || !has_range {
+            continue
+        }
+        path, at, _, ok := resolve_range(ask, string(uri), start_line, start_char, end_line, end_char)
+        if !ok {
+            continue
+        }
+        text, read := ask_source(ask, path)
+        append(
+            &res.symbols,
+            lang.Symbol {
+                name = strings.clone(name),
+                kind = strings.clone("reference"),
+                signature = read ? source_line_at(text, at) : strings.clone(""),
+                path = strings.clone(path),
+                line = read ? line_number_at(text, at) : start_line + 1,
+                offset = at,
+            },
+        )
+    }
+    slice.sort_by(res.symbols[:], proc(a, b: lang.Symbol) -> bool {
+        if a.path != b.path {
+            return a.path < b.path
+        }
+        return a.offset < b.offset
+    })
+    res.ok = len(res.symbols) > 0
+}
+
+// `SignatureInformation[]`. An overload set is several entries, which is the same
+// shape an Odin procedure group answers with.
+@(private)
+decode_signature_help :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
+    object, is_object := value.(json.Object)
+    if !is_object {
+        return
+    }
+    signatures, is_array := object["signatures"].(json.Array)
+    if !is_array || len(signatures) == 0 {
+        return
+    }
+    active_signature, _ := number(object["activeSignature"])
+    active_parameter, has_active := number(object["activeParameter"])
+
+    res.signature.entries = make([dynamic]lang.Signature_Entry)
+    for item in signatures {
+        entry, ok := signature_entry(item, has_active ? int(active_parameter) : -1)
+        if !ok {
+            continue
+        }
+        append(&res.signature.entries, entry)
+    }
+    if len(res.signature.entries) == 0 {
+        return
+    }
+    res.signature.active = clamp(int(active_signature), 0, len(res.signature.entries) - 1)
+    res.ok = true
+}
+
+// `CompletionList` or `CompletionItem[]`. `textEdit`, `additionalTextEdits`,
+// `command` and `isIncomplete` are dropped: the popup inserts one word at the
+// caret and filters the list itself.
+@(private)
+decode_completion :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
+    items, is_array := value.(json.Array)
+    if !is_array {
+        list, is_list := value.(json.Object)
+        if !is_list {
+            return
+        }
+        items, is_array = list["items"].(json.Array)
+        if !is_array {
+            return
+        }
+    }
+    if len(items) == 0 {
+        return
+    }
+
+    res.symbols = make([dynamic]lang.Symbol)
+    for item in items {
+        object, is_object := item.(json.Object)
+        if !is_object {
+            continue
+        }
+        label, has_label := object["label"].(json.String)
+        if !has_label {
+            continue
+        }
+        // Some servers pad a label to align the list; the inserted word must not
+        // carry that padding.
+        name := strings.trim_space(string(label))
+        // insertText is what the server means to be typed. A snippet is refused:
+        // snippetSupport is advertised false, so its placeholders would be typed
+        // out as they are.
+        format, has_format := number(object["insertTextFormat"])
+        if insert, has_insert := object["insertText"].(json.String); has_insert && (!has_format || format == 1) {
+            name = string(insert)
+        }
+        if name == "" {
+            continue
+        }
+        kind, _ := number(object["kind"])
+        detail, _ := object["detail"].(json.String)
+        append(
+            &res.symbols,
+            lang.Symbol {
+                name = strings.clone(name),
+                kind = strings.clone(completion_kind_name(int(kind))),
+                signature = strings.clone(detail == "" ? strings.trim_space(string(label)) : string(detail)),
+            },
+        )
+    }
+    res.ok = len(res.symbols) > 0
+}
+
+// The delta-encoded 5-tuples of `textDocument/semanticTokens/full`, read against
+// the legend the server advertised. Output is ascending and non-overlapping: the
+// editor merges it with the grammar's spans using one forward-only cursor.
+@(private)
+decode_semantic_tokens :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
+    object, is_object := value.(json.Object)
+    if !is_object {
+        return
+    }
+    data, is_array := object["data"].(json.Array)
+    legend := ask.server.caps.token_legend
+    if !is_array || len(data) < 5 || len(legend) == 0 {
+        return
+    }
+
+    res.tokens = make([dynamic]lang.Semantic_Token)
+    line, character := 0, 0
+    for index := 0; index + 4 < len(data); index += 5 {
+        delta_line, has_line := number(data[index])
+        delta_char, has_char := number(data[index + 1])
+        length, has_length := number(data[index + 2])
+        entry, has_entry := number(data[index + 3])
+        if !has_line || !has_char || !has_length || !has_entry {
+            break
+        }
+        if delta_line > 0 {
+            line += int(delta_line)
+            character = int(delta_char)
+        } else {
+            character += int(delta_char)
+        }
+        if entry < 0 || int(entry) >= len(legend) || !legend[entry].valid {
+            continue
+        }
+        start := offset_from_position(&ask.lines, line, character)
+        end := offset_from_position(&ask.lines, line, character + int(length))
+        if end <= start {
+            continue
+        }
+        if len(res.tokens) > 0 && start < res.tokens[len(res.tokens) - 1].end {
+            continue
+        }
+        append(&res.tokens, lang.Semantic_Token{start = start, end = end, kind = legend[entry].kind})
+    }
+    res.ok = len(res.tokens) > 0
+}
+
+// One DocumentSymbol or SymbolInformation, and then the children of the first.
+@(private)
+append_symbol :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
+    object, is_object := value.(json.Object)
+    if !is_object {
+        return
+    }
+    name, has_name := object["name"].(json.String)
+    if !has_name {
+        return
+    }
+    kind, _ := number(object["kind"])
+    detail, _ := object["detail"].(json.String)
+
+    path: string
+    offset, line: int
+    placed := false
+    if location, is_flat := object["location"].(json.Object); is_flat {
+        // SymbolInformation: one range for the whole declaration, in a file that
+        // need not be the one that was asked about.
+        uri, has_uri := location["uri"].(json.String)
+        start_line, start_char, end_line, end_char, has_range := range_of(location["range"])
+        if has_uri && has_range {
+            path, offset, _, placed = resolve_range(ask, string(uri), start_line, start_char, end_line, end_char)
+            line = start_line + 1
+        }
+    } else {
+        // DocumentSymbol: `range` covers the declaration and `selectionRange` the
+        // name inside it, which is where the jump lands.
+        span, has_span := object["selectionRange"]
+        if !has_span {
+            span = object["range"]
+        }
+        if start_line, start_char, _, _, has_range := range_of(span); has_range {
+            path = ask.req.path
+            offset = offset_from_position(&ask.lines, start_line, start_char)
+            line = start_line + 1
+            placed = true
+        }
+        if start_line, _, _, _, has_range := range_of(object["range"]); has_range {
+            line = start_line + 1
+        }
+    }
+
+    if placed {
+        append(
+            &res.symbols,
+            lang.Symbol {
+                name = strings.clone(string(name)),
+                kind = strings.clone(symbol_kind_name(int(kind))),
+                signature = symbol_signature(ask, string(detail), path, offset),
+                path = strings.clone(path),
+                line = line,
+                offset = offset,
+            },
+        )
+    }
+
+    children, has_children := object["children"].(json.Array)
+    if !has_children {
+        return
+    }
+    for child in children {
+        append_symbol(ask, child, res)
+    }
+}
+
+// The row's second line: what the server called the symbol, and the declaration
+// line itself when it called it nothing.
+@(private)
+symbol_signature :: proc(ask: ^Ask, detail, path: string, offset: int) -> string {
+    if detail != "" {
+        return strings.clone(detail)
+    }
+    text, read := ask_source(ask, path)
+    if !read {
+        return strings.clone("")
+    }
+    return source_line_at(text, offset)
+}
+
+// One SignatureInformation. `fallback_active` is the reply's own active parameter,
+// which a signature may override, and -1 when the reply named none.
+@(private)
+signature_entry :: proc(value: json.Value, fallback_active: int) -> (lang.Signature_Entry, bool) {
+    object, is_object := value.(json.Object)
+    if !is_object {
+        return {}, false
+    }
+    label, has_label := object["label"].(json.String)
+    if !has_label {
+        return {}, false
+    }
+    entry := lang.Signature_Entry {
+        label = strings.clone(string(label)),
+    }
+
+    active := fallback_active
+    if own, has_own := number(object["activeParameter"]); has_own {
+        active = int(own)
+    }
+    parameters, has_parameters := object["parameters"].(json.Array)
+    if !has_parameters || active < 0 || active >= len(parameters) {
+        return entry, true
+    }
+    entry.active_start, entry.active_end = parameter_span(string(label), parameters[active])
+    return entry, true
+}
+
+// The byte range of one parameter inside its signature label. The protocol spells
+// it either as a substring of the label or as a [start, end) pair counted in
+// UTF-16 units over the label — not over the document, so the document's index
+// cannot answer it.
+@(private)
+parameter_span :: proc(label: string, value: json.Value) -> (start, end: int) {
+    object, is_object := value.(json.Object)
+    if !is_object {
+        return 0, 0
+    }
+    marker, has_marker := object["label"]
+    if !has_marker {
+        return 0, 0
+    }
+    if text, is_text := marker.(json.String); is_text {
+        at := strings.index(label, string(text))
+        if at < 0 {
+            return 0, 0
+        }
+        return at, at + len(text)
+    }
+    pair, is_pair := marker.(json.Array)
+    if !is_pair || len(pair) != 2 {
+        return 0, 0
+    }
+    first, has_first := number(pair[0])
+    second, has_second := number(pair[1])
+    if !has_first || !has_second {
+        return 0, 0
+    }
+    return utf16_offset(label, int(first)), utf16_offset(label, int(second))
+}
+
+// Every target a definition reply named, in the order it named them.
+@(private)
+collect_targets :: proc(value: json.Value, out: ^[dynamic]Target) {
+    #partial switch item in value {
+    case json.Array:
+        for entry in item {
+            collect_targets(entry, out)
+        }
+    case json.Object:
+        if target, ok := target_of(item); ok {
+            append(out, target)
+        }
+    }
+}
+
+// A Location or a LocationLink. A link names the target file apart from the span
+// in the file the request came from, so its own keys are read first.
+@(private)
+target_of :: proc(object: json.Object) -> (Target, bool) {
+    span: json.Value
+    has_span: bool
+    uri, has_uri := object["targetUri"].(json.String)
+    if has_uri {
+        span, has_span = object["targetSelectionRange"]
+        if !has_span {
+            span, has_span = object["targetRange"]
+        }
+    } else {
+        uri, has_uri = object["uri"].(json.String)
+        span, has_span = object["range"]
+    }
+    if !has_uri || !has_span {
+        return {}, false
+    }
+    start_line, start_char, end_line, end_char, ok := range_of(span)
+    if !ok {
+        return {}, false
+    }
+    return Target {
+            uri = string(uri),
+            line = start_line,
+            character = start_char,
+            end_line = end_line,
+            end_char = end_char,
+        },
+        true
+}
+
+@(private)
+resolve_target :: proc(ask: ^Ask, target: Target) -> (string, int, int, bool) {
+    return resolve_range(ask, target.uri, target.line, target.character, target.end_line, target.end_char)
+}
+
+// The path and the LF-space byte range a server's URI and positions name. Three
+// sources, in the order they are exact: the request's own buffer, a document this
+// server already holds, and the file on disk. Only the last needs the CRLF step —
+// the server read those bytes itself, so its characters count over them.
+@(private)
+resolve_range :: proc(
+    ask: ^Ask,
+    uri: string,
+    start_line, start_char, end_line, end_char: int,
+) -> (
+    path: string,
+    start, end: int,
+    ok: bool,
+) {
+    named, is_file := uri_to_path(uri, context.temp_allocator)
+    if !is_file {
+        return "", 0, 0, false
+    }
+    if path_equal(named, ask.req.path) {
+        return named,
+            offset_from_position(&ask.lines, start_line, start_char),
+            offset_from_position(&ask.lines, end_line, end_char),
+            true
+    }
+    if open_start, open_end, held := server_range_in_open(ask.server, named, start_line, start_char, end_line, end_char);
+       held {
+        return named, open_start, open_end, true
+    }
+    index := ask_raw_index(ask, named)
+    if index == nil {
+        return "", 0, 0, false
+    }
+    return named,
+        lf_offset(index, offset_from_position(index, start_line, start_char)),
+        lf_offset(index, offset_from_position(index, end_line, end_char)),
+        true
+}
+
+// The (line, character) of a Position object.
+@(private)
+position_of :: proc(value: json.Value) -> (line, character: int, ok: bool) {
+    object, is_object := value.(json.Object)
+    if !is_object {
+        return 0, 0, false
+    }
+    at_line, has_line := number(object["line"])
+    at_char, has_char := number(object["character"])
+    if !has_line || !has_char {
+        return 0, 0, false
+    }
+    return int(at_line), int(at_char), true
+}
+
+// The two ends of a Range object.
+@(private)
+range_of :: proc(value: json.Value) -> (start_line, start_char, end_line, end_char: int, ok: bool) {
+    object, is_object := value.(json.Object)
+    if !is_object {
+        return 0, 0, 0, 0, false
+    }
+    from_line, from_char, has_start := position_of(object["start"])
+    to_line, to_char, has_end := position_of(object["end"])
+    if !has_start || !has_end {
+        return 0, 0, 0, 0, false
+    }
+    return from_line, from_char, to_line, to_char, true
+}
+
+// Every hover shape as one string. The parts are joined by a blank line, the way
+// a server that sent them as an array meant them to read.
+@(private)
+hover_text :: proc(value: json.Value) -> string {
+    out := make([dynamic]u8, context.temp_allocator)
+    hover_append(&out, value)
+    return plain_text(string(out[:]))
+}
+
+@(private)
+hover_append :: proc(out: ^[dynamic]u8, value: json.Value) {
+    #partial switch item in value {
+    case json.String:
+        hover_separate(out)
+        append(out, string(item))
+    case json.Array:
+        for entry in item {
+            hover_append(out, entry)
+        }
+    case json.Object:
+        // MarkupContent and the object form of MarkedString both carry "value".
+        text, has_text := item["value"].(json.String)
+        if !has_text {
+            return
+        }
+        hover_separate(out)
+        append(out, string(text))
+    }
+}
+
+@(private)
+hover_separate :: proc(out: ^[dynamic]u8) {
+    if len(out) > 0 {
+        append(out, "\n")
+    }
+}
+
+// Markdown as the popup draws it. The popup is a text box, so a fence line would
+// be drawn as three characters and a backtick as one.
+@(private)
+plain_text :: proc(text: string) -> string {
+    out := make([dynamic]u8, context.temp_allocator)
+    rest := text
+    for len(rest) > 0 {
+        line := rest
+        if at := strings.index_byte(rest, '\n'); at >= 0 {
+            line = rest[:at]
+            rest = rest[at + 1:]
+        } else {
+            rest = ""
+        }
+        if strings.has_prefix(strings.trim_space(line), "```") {
+            continue
+        }
+        if len(out) > 0 {
+            append(&out, "\n")
+        }
+        for index in 0 ..< len(line) {
+            if line[index] != '`' {
+                append(&out, line[index])
+            }
+        }
+    }
+    return strings.trim_space(string(out[:]))
+}
+
+// The identifier around `offset`, for a reply that named no range of its own.
+@(private)
+identifier_span :: proc(source: string, offset: int) -> (start, end: int) {
+    at := clamp(offset, 0, len(source))
+    start = at
+    for start > 0 && identifier_byte(source[start - 1]) {
+        start -= 1
+    }
+    end = at
+    for end < len(source) && identifier_byte(source[end]) {
+        end += 1
+    }
+    return start, end
+}
+
+// Every byte above ASCII counts: an identifier in a language Thor has no lexer
+// for may hold one, and a span that stopped there would split a rune.
+@(private)
+identifier_byte :: proc(char: u8) -> bool {
+    switch char {
+    case 'A' ..= 'Z', 'a' ..= 'z', '0' ..= '9', '_':
+        return true
+    }
+    return char >= 0x80
+}
+
+// The source line an offset falls on, trimmed — a picker row's code preview.
+@(private)
+source_line_at :: proc(text: string, offset: int) -> string {
+    at := clamp(offset, 0, len(text))
+    start := strings.last_index_byte(text[:at], '\n') + 1 // -1 + 1 == 0 for the first line
+    end := len(text)
+    if next := strings.index_byte(text[at:], '\n'); next >= 0 {
+        end = at + next
+    }
+    return strings.clone(strings.trim_space(text[start:end]))
+}
+
+// The 1-based line an offset falls on.
+@(private)
+line_number_at :: proc(text: string, offset: int) -> int {
+    return strings.count(text[:clamp(offset, 0, len(text))], "\n") + 1
+}
+
+// LSP SymbolKind -> the kind names the picker tints by.
+@(private)
+symbol_kind_name :: proc(kind: int) -> string {
+    switch kind {
+    case 6, 9, 12:
+        return "function" // Method, Constructor, Function
+    case 5, 11, 23, 26:
+        return "type" // Class, Interface, Struct, TypeParameter
+    case 10:
+        return "enum"
+    case 22:
+        return "enum_member"
+    case 14:
+        return "constant"
+    case 2, 3, 4:
+        return "namespace" // Module, Namespace, Package
+    case 7, 8:
+        return "field" // Property, Field
+    }
+    return "var"
+}
+
+// LSP CompletionItemKind -> the same names, which drive the row color.
+@(private)
+completion_kind_name :: proc(kind: int) -> string {
+    switch kind {
+    case 2, 3, 4:
+        return "function" // Method, Function, Constructor
+    case 7, 8, 22, 25:
+        return "type" // Class, Interface, Struct, TypeParameter
+    case 13:
+        return "enum"
+    case 20:
+        return "enum_member"
+    case 21:
+        return "constant"
+    case 14:
+        return "keyword"
+    case 9:
+        return "namespace" // Module
+    case 5, 10:
+        return "field" // Field, Property
+    }
+    return "var"
+}
+
+@(private)
+clone_temp :: proc(text: string) -> string {
+    return strings.clone(text, context.temp_allocator)
+}
+
+// The bytes of a file exactly as they are on disk, CRLF intact. Deliberately not
+// lang.source_read: a server that read this file counted its characters over
+// these bytes.
+@(private)
+read_raw :: proc(path: string) -> (string, bool) {
+    data, err := os.read_entire_file(path, context.temp_allocator)
+    if err != nil {
+        return "", false
+    }
+    return string(data), true
+}

@@ -13,7 +13,7 @@ decode :: proc(text: string) -> Capabilities {
     if err != .None {
         return {}
     }
-    return capabilities_decode(value)
+    return capabilities_decode(value, context.temp_allocator)
 }
 
 // A provider is `true` or an options object, and both mean the method exists.

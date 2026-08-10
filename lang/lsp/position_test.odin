@@ -250,3 +250,27 @@ test_position_signature_label_span :: proc(t: ^testing.T) {
     testing.expect_value(t, label[start:end], "😀")
     testing.expect_value(t, offset_from_position(&idx, 0, 15), len(label))
 }
+
+// The decoder converts a parameter label with no index at all, since the count
+// runs over the label rather than over a file. It must agree with the index, and
+// clamp the same way at both ends.
+@(test)
+test_position_utf16_offset :: proc(t: ^testing.T) {
+    label := "f(a: 😀) -> int"
+    idx := line_index_build(label, .Utf16)
+    defer line_index_destroy(&idx)
+
+    for units in 0 ..= 16 {
+        testing.expectf(
+            t,
+            utf16_offset(label, units) == offset_from_position(&idx, 0, units),
+            "%d units gave %d, the index gave %d",
+            units,
+            utf16_offset(label, units),
+            offset_from_position(&idx, 0, units),
+        )
+    }
+    testing.expect_value(t, utf16_offset(label, -1), 0)
+    // A count inside the surrogate pair snaps back to the rune start.
+    testing.expect_value(t, utf16_offset(label, 6), 5)
+}

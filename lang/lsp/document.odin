@@ -16,6 +16,9 @@ Document :: struct {
     text:      string,     // owned; LF-collapsed, exactly as sent
     lines:     Line_Index, // owned; indexes `text`
     version:   i64,
+    // The editor revision `text` came from. Monotonic per file, so a document
+    // event that carries an older one is already in the server's copy.
+    revision:  u64,
     open:      bool, // didOpen was sent and didClose was not
     allocator: runtime.Allocator,
 }

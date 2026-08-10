@@ -1,12 +1,18 @@
 // One language server: its process, its handshake, its documents and its death.
 //
 // Three threads meet here. The main thread queues document events and never
-// blocks on a server. A worker thread inside `resolve` waits for a start. And one
-// pump thread per server does everything that can block on a pipe — it spawns the
-// child, runs the handshake, drains the outbox and restarts a server that died.
-// State the other two read is published with `sync.atomic_store`: `state` while it
-// runs, and `caps`, which is written before `state` becomes .Ready and never
-// again, so `supports` reads it with no lock.
+// blocks on a server. A worker thread inside `resolve` waits for a start, then
+// sends its request. And one pump thread per server does everything that can
+// block on a pipe — it spawns the child, runs the handshake, drains the outbox
+// and restarts a server that died. State the other two read is published with
+// `sync.atomic_store`: `state` while it runs, and `caps`, which is written before
+// `state` becomes .Ready and never again, so `supports` reads it with no lock.
+//
+// Two locks let a worker share the connection with the pump. `conn_lock` is held
+// shared for a whole round trip and taken outright by the pump when it replaces a
+// dead connection, so `conn` cannot be freed under a request. `docs_mutex` guards
+// the document list both of them read. A worker takes `conn_lock` first and
+// `docs_mutex` second; nothing takes them the other way round.
 package lsp
 
 import "base:runtime"
@@ -73,16 +79,18 @@ Server :: struct {
     started:     bool,           // guarded by start_mutex
     pump:        ^thread.Thread, // owned; guarded by start_mutex
     stopping:    bool,           // atomic
-    conn:        ^Conn,          // owned; the pump's, and the main thread's after the join
+    conn:        ^Conn,          // owned; guarded by conn_lock
+    conn_lock:   sync.RW_Mutex,  // shared by a request in flight, taken by a swap
     // The outbox. `wake` is posted for every entry, so a pump waiting out its
     // slice leaves it at once.
     out_mutex:   sync.Mutex,
     outbox:      [dynamic]Doc_Notice, // owned
     wake:        sync.Sema,
-    // The documents the server knows about. The pump thread alone reads and
-    // writes them, and the main thread only after it has joined the pump; a
-    // request path that reads them (M5) needs a lock here.
-    docs:        [dynamic]^Document, // owned
+    // The documents the server knows about. The pump thread and a worker in
+    // `resolve` both reach them, so every read and write is under `docs_mutex`;
+    // the main thread needs it only before it has joined the pump.
+    docs_mutex:  sync.Mutex,
+    docs:        [dynamic]^Document, // owned; guarded by docs_mutex
     restarts:    int,                // pump thread only
     // How the process is opened, and what it is opened from. The default starts
     // the configured command; a test replaces it with a scripted server running
@@ -249,8 +257,11 @@ server_stop :: proc(s: ^Server) {
     // The pump is gone, so the connection and the documents are this thread's.
     if s.conn != nil {
         server_goodbye(s)
-        conn_destroy(s.conn)
+        sync.rw_mutex_lock(&s.conn_lock)
+        conn := s.conn
         s.conn = nil
+        conn_destroy(conn)
+        sync.rw_mutex_unlock(&s.conn_lock)
     }
 }
 
@@ -261,6 +272,7 @@ server_destroy :: proc(s: ^Server) {
         free(doc, s.allocator)
     }
     delete(s.docs)
+    capabilities_destroy(&s.caps)
     server_drop_outbox(s)
     delete(s.outbox)
     delete(s.workspace, s.allocator)
@@ -325,7 +337,10 @@ server_launch :: proc(s: ^Server) -> bool {
         log.debugf("lsp: %s did not start (%v)", s.config.id, s.config.command)
         return false
     }
-    s.conn = conn_start(transport, s.allocator, Conn_Answers{settings = s.config.settings, folders = s.folders})
+    conn := conn_start(transport, s.allocator, Conn_Answers{settings = s.config.settings, folders = s.folders})
+    sync.rw_mutex_lock(&s.conn_lock)
+    s.conn = conn
+    sync.rw_mutex_unlock(&s.conn_lock)
 
     params := initialize_params(s)
     result, err := conn_call(s.conn, "initialize", params, DEADLINE_START)
@@ -342,7 +357,7 @@ server_launch :: proc(s: ^Server) -> bool {
     // so a restart must not write it again: the same program advertises the same
     // capabilities, and a re-decode would only make the read a race.
     if !s.caps_set {
-        s.caps = capabilities_decode(result)
+        s.caps = capabilities_decode(result, s.allocator)
         s.caps_set = true
     }
     conn_free_value(s.conn, result)
@@ -353,9 +368,11 @@ server_launch :: proc(s: ^Server) -> bool {
         conn_notify(s.conn, "workspace/didChangeConfiguration", settings)
         delete(settings, s.allocator)
     }
+    sync.lock(&s.docs_mutex)
     for doc in s.docs {
         server_send_open(s, doc, language_id_for(filepath.ext(doc.path)))
     }
+    sync.unlock(&s.docs_mutex)
     return true
 }
 
@@ -411,18 +428,10 @@ server_flush :: proc(s: ^Server) {
 // sync.
 @(private)
 server_apply :: proc(s: ^Server, notice: Doc_Notice) {
+    sync.guard(&s.docs_mutex)
     switch notice.event {
     case .Opened, .Changed:
-        doc := server_document(s, notice.path, notice.source)
-        if !doc.open {
-            server_send_open(s, doc, language_id_for(notice.ext))
-            return
-        }
-        if s.caps.changes {
-            params := did_change_params(doc, s.allocator)
-            conn_notify(s.conn, "textDocument/didChange", params)
-            delete(params, s.allocator)
-        }
+        server_publish(s, notice.path, notice.ext, notice.source, notice.revision)
     case .Saved:
         doc, found := server_find(s, notice.path)
         if !found || !doc.open || !s.caps.saves {
@@ -445,6 +454,53 @@ server_apply :: proc(s: ^Server, notice: Doc_Notice) {
     }
 }
 
+// Moves the server's copy of one file to `source`, as a didOpen or a didChange.
+// Text the server already has is not sent again: the revision is monotonic per
+// file, so an older one is a queued event a request already overtook. The caller
+// holds docs_mutex.
+@(private)
+server_publish :: proc(s: ^Server, path, ext, source: string, revision: u64) {
+    doc, found := server_find(s, path)
+    if found && doc.open && revision <= doc.revision {
+        return
+    }
+    doc = server_document(s, path, source, revision)
+    if !doc.open {
+        server_send_open(s, doc, language_id_for(ext))
+        return
+    }
+    if s.caps.changes {
+        params := did_change_params(doc, s.allocator)
+        conn_notify(s.conn, "textDocument/didChange", params)
+        delete(params, s.allocator)
+    }
+}
+
+// Makes the server's copy of the request's file match `req.source` before a
+// position is sent against it. The pump drains the outbox on its own schedule, so
+// a request that trusted it could name a position in text the server does not
+// have. Worker thread, holding conn_lock shared.
+@(private)
+server_sync_document :: proc(s: ^Server, req: ^lang.Request) {
+    sync.guard(&s.docs_mutex)
+    server_publish(s, req.path, req.ext, req.source, req.revision)
+}
+
+// The byte range a server's two positions name in a document it already holds,
+// converted against that document's own text. False when it holds no such
+// document. Worker thread; nothing escapes the lock.
+@(private)
+server_range_in_open :: proc(s: ^Server, path: string, start_line, start_char, end_line, end_char: int) -> (int, int, bool) {
+    sync.guard(&s.docs_mutex)
+    doc, found := server_find(s, path)
+    if !found {
+        return 0, 0, false
+    }
+    return offset_from_position(&doc.lines, start_line, start_char),
+        offset_from_position(&doc.lines, end_line, end_char),
+        true
+}
+
 @(private)
 server_send_open :: proc(s: ^Server, doc: ^Document, language_id: string) {
     if s.caps.open_close {
@@ -455,19 +511,23 @@ server_send_open :: proc(s: ^Server, doc: ^Document, language_id: string) {
     doc.open = true
 }
 
-// The document for `path`, created at version 1 or moved to the new text.
+// The document for `path`, created at version 1 or moved to the new text. The
+// caller holds docs_mutex.
 @(private)
-server_document :: proc(s: ^Server, path, text: string) -> ^Document {
+server_document :: proc(s: ^Server, path, text: string, revision: u64) -> ^Document {
     if doc, found := server_find(s, path); found {
         document_set_text(doc, text)
+        doc.revision = revision
         return doc
     }
     doc := new(Document, s.allocator)
     document_init(doc, path, text, s.caps.encoding, s.allocator)
+    doc.revision = revision
     append(&s.docs, doc)
     return doc
 }
 
+// The caller holds docs_mutex.
 @(private)
 server_find :: proc(s: ^Server, path: string) -> (^Document, bool) {
     for doc in s.docs {
@@ -478,6 +538,7 @@ server_find :: proc(s: ^Server, path: string) -> (^Document, bool) {
     return nil, false
 }
 
+// The caller holds docs_mutex.
 @(private)
 server_forget :: proc(s: ^Server, doc: ^Document) {
     for other, index in s.docs {
@@ -504,17 +565,26 @@ server_goodbye :: proc(s: ^Server) {
 }
 
 // Ends a connection that will not be used again, leaving the documents in place
-// for the next start to open.
+// for the next start to open. The write lock is what makes the free safe: it is
+// taken only once every request in flight has left the connection.
 @(private)
 server_teardown :: proc(s: ^Server) {
-    if s.conn == nil {
+    sync.rw_mutex_lock(&s.conn_lock)
+    conn := s.conn
+    s.conn = nil
+    if conn != nil {
+        conn_destroy(conn)
+    }
+    sync.rw_mutex_unlock(&s.conn_lock)
+    if conn == nil {
         return
     }
-    conn_destroy(s.conn)
-    s.conn = nil
+
+    sync.lock(&s.docs_mutex)
     for doc in s.docs {
         doc.open = false
     }
+    sync.unlock(&s.docs_mutex)
 }
 
 // Waits out a restart delay, in slices, so a stop does not have to wait for it.

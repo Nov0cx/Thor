@@ -1002,7 +1002,7 @@ lowest latency.
       **Still open:**
       - The `Enum_Member` and `Field` kinds sit in the seam's vocabulary but the
         Odin backend never emits them — both positions are grammar-decided and
-        skipped. They are kept for an LSP backend, which would.
+        skipped. The LSP backend does emit them, from a server's own legend.
       - Classifying a whole file has never been timed: `resolve_local` is a
         linear scan of `collect_defs` per identifier, so the walk is O(idents ×
         defs). The one-in-flight rule bounds how often it runs, not what it costs.
@@ -1270,9 +1270,10 @@ lowest latency.
       `test_queued_job_cancelled_before_it_starts` (a job cancelled while queued
       never reaches the backend). `manager_worker_count` exposes the pool size.
 
-## Missing — the optional LSP backend
+## The optional LSP backend
 
-The seam is prepared for it (M0), but no subprocess backend exists yet.
+The seam was prepared for it in M0; `lang/lsp` is the backend, and it answers the
+read-only kinds. Diagnostics and the editing kinds are still missing.
 
 Prepared (`lang/lang.odin`, `thor/diagnostics.odin`):
 
@@ -1296,7 +1297,7 @@ Prepared (`lang/lang.odin`, `thor/diagnostics.odin`):
 - [x] `lang.source_read` promoted out of `lang/odin`, so the CRLF-collapsed byte
       space every offset is counted in belongs to the seam.
 
-Landed since (`lang/lsp`, M1–M4):
+Landed since (`lang/lsp`, M1–M5):
 
 - [x] Long-lived child process with async stdio (a reader thread), `Content-Length`
       framing, JSON-RPC request/response id matching. `shell/child_*.odin` is the
@@ -1314,11 +1315,21 @@ Landed since (`lang/lsp`, M1–M4):
 - [x] Registered *after* the Odin engine, so in-client wins for `.odin` and the
       LSP covers everything else (clangd, rust-analyzer, gopls, …); an entry that
       sets `"override": true` for `.odin` swaps the order.
+- [x] Seven request kinds answered: `Definition`, `Hover`, `Document_Symbols`,
+      `References`, `Signature_Help`, `Completion` and `Semantic_Tokens`
+      (`requests.odin` for the method and the params, `decode.odin` for the
+      reply). A request publishes its own buffer to the server before it names a
+      position in it, since the pump drains document events on its own schedule.
+      Semantic tokens are read against the legend the server advertised;
+      `keyword`, `string`, `comment`, `number` and `operator` are dropped, so a
+      server token never overrules a grammar color with a worse one, and
+      `Unresolved` is never emitted — an absent token is not proof of an
+      undeclared name. This is where `Field` and `Enum_Member` first become real.
+      Deliberate lossage: completion drops `textEdit`, `additionalTextEdits`,
+      `command` and snippets, and does not call `completionItem/resolve`.
 
 Still to add:
 
-- [ ] Answer the request kinds: no `lang.Request_Kind` reaches a server yet, so a
-      started server is observable only in the log (M5 in `LSP_PLAN.md`).
 - [ ] `publishDiagnostics`: the pump drains what a server pushes and drops it. A
       push becomes a `lang.Result` through `Backend.poll` in M6.
 - [ ] Re-read the table and restart the servers when the workspace changes: it is
@@ -1343,6 +1354,7 @@ not a status, so this section stays the source of truth for what is built.
 - The vendored Odin `LOCALS` query models `:=` as `variable_declaration`, which
   this grammar does not produce — handled in `collect_short_decls`; revisit if
   the grammar is regenerated.
-- Only `.odin` is handled in-client. Another language now gets a server started
-  for it, but no request kind is routed there yet, so it still has no answers
-  until M5.
+- Only `.odin` is handled in-client. Another language is answered by a
+  configured language server, which reaches only as far as that server does:
+  `Package_Doc` has no LSP method at all, and `Workspace_Symbols`, `Rename`,
+  `Diagnostics` and `Code_Actions` wait for M6 and M7.

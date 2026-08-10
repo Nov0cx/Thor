@@ -235,7 +235,11 @@ subprocess LSP client as an optional second backend behind the same seam.
   A server is started by the first document event for an extension it claims, never at init. One
   pump thread per server does everything that can block on a pipe — spawn, handshake, outbox drain,
   restart — so `notify` on the main thread only queues. `state` is atomic and `caps` is written once
-  before the first `.Ready`, which is what lets `supports` read them with no lock. `position.odin`
+  before the first `.Ready`, which is what lets `supports` read them with no lock. A worker in
+  `resolve` (`requests.odin` for the method and the params, `decode.odin` for the reply) shares the
+  connection with the pump under two locks — `conn_lock` held shared for a whole round trip, then
+  `docs_mutex`, always in that order — and publishes its own buffer to the server before it names a
+  position in it, since the pump drains document events on its own schedule. `position.odin`
   converts between the seam's byte offsets and the protocol's UTF-16 `(line, character)`.
   Registration order is the precedence: `thor.init` puts the Odin engine first unless an entry sets
   `"override": true` for `.odin`.

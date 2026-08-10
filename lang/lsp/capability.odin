@@ -3,6 +3,7 @@
 // lets `supports` read it on the main thread with no lock.
 package lsp
 
+import "base:runtime"
 import "core:encoding/json"
 import "core:strings"
 
@@ -27,21 +28,32 @@ PROVIDER_KEYS := [lang.Request_Kind]string {
     .Semantic_Tokens   = "semanticTokensProvider",
 }
 
+// What one entry of a server's semantic-token legend means to Thor. `valid` is
+// false for a token type that is dropped, so a server token can never overrule a
+// grammar color with a worse one.
+Token_Legend_Entry :: struct {
+    kind:  lang.Token_Kind,
+    valid: bool,
+}
+
 // One immutable answer per question the client asks of a server.
 Capabilities :: struct {
-    kinds:      bit_set[lang.Request_Kind],
-    encoding:   Encoding, // how the server counts characters
-    open_close: bool,     // it wants didOpen and didClose
-    changes:    bool,     // it wants didChange
-    saves:      bool,     // it wants didSave
+    kinds:        bit_set[lang.Request_Kind],
+    encoding:     Encoding, // how the server counts characters
+    open_close:   bool,     // it wants didOpen and didClose
+    changes:      bool,     // it wants didChange
+    saves:        bool,     // it wants didSave
+    token_legend: []Token_Legend_Entry, // owned; indexed by the server's tokenTypes
+    allocator:    runtime.Allocator,    // what built token_legend
 }
 
 // Reads the `initialize` result. A reply that is not an object leaves a server
 // that claims nothing, which is what stops a request reaching one that would
 // answer an error to every one of them.
-capabilities_decode :: proc(result: json.Value) -> Capabilities {
+capabilities_decode :: proc(result: json.Value, allocator := context.allocator) -> Capabilities {
     caps := Capabilities {
-        encoding = .Utf16,
+        encoding  = .Utf16,
+        allocator = allocator,
     }
     root, rok := result.(json.Object)
     if !rok {
@@ -59,7 +71,18 @@ capabilities_decode :: proc(result: json.Value) -> Capabilities {
     }
     caps.encoding = encoding_of(advertised)
     decode_sync(&caps, advertised["textDocumentSync"])
+    decode_legend(&caps, advertised["semanticTokensProvider"])
     return caps
+}
+
+// Frees the legend. Safe on a Capabilities no reply ever filled, which is what a
+// server that never started leaves behind.
+capabilities_destroy :: proc(caps: ^Capabilities) {
+    if caps.token_legend == nil {
+        return
+    }
+    delete(caps.token_legend, caps.allocator)
+    caps.token_legend = nil
 }
 
 // True when a provider key is advertised. A provider is `true` or an options
@@ -93,6 +116,59 @@ encoding_of :: proc(advertised: json.Object) -> Encoding {
         return .Utf8
     }
     return .Utf16
+}
+
+// The semantic-token legend: the server's own list of token type names, which is
+// what the indices of a token stream point into. A server that sends no legend
+// gets no tokens read, since an index into a missing list names nothing.
+@(private)
+decode_legend :: proc(caps: ^Capabilities, value: json.Value) {
+    options, ook := value.(json.Object)
+    if !ook {
+        return
+    }
+    legend, lok := options["legend"].(json.Object)
+    if !lok {
+        return
+    }
+    names, nok := legend["tokenTypes"].(json.Array)
+    if !nok || len(names) == 0 {
+        return
+    }
+    entries := make([]Token_Legend_Entry, len(names), caps.allocator)
+    for value, index in names {
+        name, is_name := value.(json.String)
+        if !is_name {
+            continue
+        }
+        entries[index].kind, entries[index].valid = token_kind_of(string(name))
+    }
+    caps.token_legend = entries
+}
+
+// The Token_Kind a legend name means. A name Thor has no kind for is dropped:
+// the seam is sparse by design, and `keyword`, `string`, `comment`, `number` and
+// `operator` are already colored by the grammar. `Unresolved` is never produced —
+// the absence of a token is not proof that a name is undeclared.
+@(private)
+token_kind_of :: proc(name: string) -> (lang.Token_Kind, bool) {
+    switch name {
+    case "parameter":
+        return .Parameter, true
+    case "variable":
+        return .Local, true
+    case "property", "member":
+        return .Field, true
+    case "function", "method":
+        return .Procedure, true
+    case "class", "struct", "interface", "enum", "type", "typeParameter", "typeAlias":
+        return .Type, true
+    case "enumMember":
+        return .Enum_Member, true
+    case "namespace", "module":
+        return .Package, true
+    }
+    return .Local, false
 }
 
 // `textDocumentSync` is a TextDocumentSyncKind number or an options object. The

@@ -140,6 +140,34 @@ position_from_offset :: proc(idx: ^Line_Index, offset: int) -> (line, character:
     return line, character
 }
 
+// UTF-16 unit count -> byte offset within one string. Signature help counts a
+// parameter's label over the signature label rather than over the document, so no
+// line index can answer it. A count that lands inside a surrogate pair snaps back
+// to the rune start, the same rule offset_from_position follows.
+utf16_offset :: proc(text: string, units: int) -> int {
+    if units <= 0 {
+        return 0
+    }
+    at := 0
+    counted := 0
+    for counted < units && at < len(text) {
+        r, size := utf8.decode_rune_in_string(text[at:])
+        if size == 0 {
+            break
+        }
+        cost := 1
+        if r >= 0x10000 {
+            cost = 2
+        }
+        if counted + cost > units {
+            break
+        }
+        counted += cost
+        at += size
+    }
+    return at
+}
+
 // Raw-space byte offset -> LF-space byte offset, for a file the server read from
 // disk with its CRLF intact. Exact because `lang.source_read` collapses only the
 // two-byte "\r\n": a lone '\r' survives it and is not counted here either.

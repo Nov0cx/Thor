@@ -1,9 +1,9 @@
 # External LSP backend — implementation plan
 
 The implementation plan for `lang/lsp`, the optional subprocess LSP client
-`ROADMAP.md` scopes under **Missing — the optional LSP backend** (`:1267-1282`).
-Nothing here is built yet. `ROADMAP.md` stays the status document; this file is
-the design, and it is superseded section by section as each milestone lands.
+`ROADMAP.md` scopes under **The optional LSP backend**. `ROADMAP.md` stays the
+status document; this file is the design, and it is superseded section by section
+as each milestone lands. M0 to M5 are built; M6 and M7 are not.
 
 Every file:line reference was checked against the tree at the time of writing.
 Where the code differs from an obvious assumption, the difference is stated
@@ -1070,11 +1070,43 @@ its tests pass, and nothing regresses.
       only, so a restart cannot write what `supports` reads unlocked; and
       `server_ensure_started` gives up on a cancelled request instead of holding
       the pool open for the whole start deadline.
-- [ ] **M5 — Read-only features.** `Definition`, `Hover`, `Document_Symbols`,
+- [x] **M5 — Read-only features.** `Definition`, `Hover`, `Document_Symbols`,
       `References`, `Signature_Help`, `Completion`, `Semantic_Tokens`.
       *Checkpoint: Alt+Enter, Ctrl+hover, Ctrl+Shift+O, F10, Ctrl+Shift+Space,
       typing-completion and semantic colours all work in a C or Rust file. This
       is the milestone where the goal is met.*
+
+      `lang/lsp/requests.odin` is the mapping and the round trip — `METHODS`,
+      the three param shapes, `DEADLINE_INTERACTIVE :: 3s` for the kinds drawn
+      while the user types and `DEADLINE_HEAVY :: 15s` for the whole-file ones.
+      `lang/lsp/decode.odin` is one decoder per kind, exactly as the table above
+      specifies. No change to `lang/lang.odin`: the seam already had everything.
+
+      **As built, four points differ from the text above.** (a) **A request syncs
+      its own document first.** Document sync is push-only and drained by the
+      pump on its own schedule, so a worker had no guarantee the server held
+      `req.source` — a position against the previous revision is silent
+      corruption of exactly the kind the position layer exists to prevent.
+      `server_sync_document` publishes the request's text on the worker thread
+      before any params are built. `Document` gained `revision`, the editor
+      revision its text came from; it is monotonic per file, so
+      `server_publish` drops an older event and the pump can never put stale
+      text back after a request overtook it. (b) **Two locks landed on
+      `Server`.** `docs_mutex` is the one the `docs` comment already anticipated.
+      `conn_lock`, an `RW_Mutex`, is new and load-bearing: before M5 no worker
+      touched `conn`, and a restart frees it, so a request now holds it shared
+      for the whole round trip and the pump takes it outright to swap. A worker
+      takes `conn_lock` first and `docs_mutex` second, and nothing takes them the
+      other way round. (c) **The semantic-token legend is decoded into
+      `Capabilities`** as `token_legend`, an owned array indexed by the server's
+      own `tokenTypes`, with `valid = false` for every name Thor drops.
+      `capabilities_decode` therefore takes an allocator and
+      `capabilities_destroy` frees it. (d) A position in a file the editor never
+      opened is resolved three ways in order of exactness — the request's own
+      buffer, a document this server already holds, then the raw disk bytes with
+      the CRLF step. The raw index and the LF-collapsed text of each file are
+      cached per request on `Ask`, so a hundred references in one file cost one
+      read of it.
 - [ ] **M6 — Diagnostics.** Push through `publishDiagnostics` over the M0
       channel; pull through `textDocument/diagnostic` where advertised. Plus
       `Workspace_Symbols` with its documented empty-query caveat.

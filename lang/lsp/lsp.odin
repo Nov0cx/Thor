@@ -75,17 +75,17 @@ supports :: proc(data: rawptr, ext: string, kind: lang.Request_Kind) -> bool {
     return found && server_supports(s, kind)
 }
 
-// M4 answers nothing: the request kinds are mapped in M5. Starting the server
-// here is what makes a request path need no host hook at all.
+// Answers one request, starting the server if this is the first file to need it.
+// Starting here is what makes a request path need no host hook at all. Runs on a
+// pool worker and blocks: a start and a round trip both wait on a pipe.
 @(private)
 resolve :: proc(data: rawptr, req: ^lang.Request, res: ^lang.Result) {
     c := cast(^Client)data
     s, found := client_server_for(c, req.ext)
-    if !found {
+    if !found || !server_ensure_started(s, req) {
         return
     }
-    server_ensure_started(s, req)
-    res.ok = false
+    request_answer(s, req, res)
 }
 
 // Main thread, must not block: the owning server queues the event and its pump
