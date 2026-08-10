@@ -17,6 +17,7 @@ Client :: struct {
     config:    Config,           // owned
     servers:   [dynamic]^Server, // owned; one per configured entry, built once
     workspace: string,           // owned
+    // Must be the Manager's allocator, which owns what a pushed result carries.
     allocator: runtime.Allocator,
 }
 
@@ -43,6 +44,7 @@ client_backend :: proc(c: ^Client) -> lang.Backend {
         resolve = resolve,
         destroy = client_destroy,
         supports = supports,
+        poll = poll,
         notify = notify,
     }
 }
@@ -86,6 +88,19 @@ resolve :: proc(data: rawptr, req: ^lang.Request, res: ^lang.Result) {
         return
     }
     request_answer(s, req, res)
+}
+
+// Takes the next result a server produced without being asked. Main thread,
+// called once per frame until it answers false.
+@(private)
+poll :: proc(data: rawptr, res: ^lang.Result) -> bool {
+    c := cast(^Client)data
+    for s in c.servers {
+        if server_poll(s, res) {
+            return true
+        }
+    }
+    return false
 }
 
 // Main thread, must not block: the owning server queues the event and its pump

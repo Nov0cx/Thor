@@ -28,7 +28,10 @@ thor_request_diagnostics :: proc(thor: ^Thor, file: ^Open_File) {
         .Diagnostics,
         file.path,
         ext,
-        "", // the compiler reads the package off disk, which the save just updated
+        // A compiler reads the package off disk, which the save just updated, but a
+        // server is told the buffer: it answers against the text the client gave it,
+        // and a request that carried none would name the empty file.
+        textedit.text(&file.state),
         0,
         file.state.revision,
         thor.workspace_dir,

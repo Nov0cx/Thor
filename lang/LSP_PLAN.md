@@ -72,8 +72,7 @@ lang/lsp/document.odin        per-document sync state (open, version, last text,
 lang/lsp/config.odin          settings/lsp.json + <workspace>/.thor/lsp.json
 lang/lsp/server.odin          one server: spawn, handshake, restart, shutdown
 lang/lsp/requests.odin        Request_Kind -> LSP method, params
-lang/lsp/decode.odin          LSP payload -> lang.Result
-lang/lsp/notify.odin          server-push -> the seam's notification queue
+lang/lsp/decode.odin          LSP payload -> lang.Result, including a server push
 
 lang/lsp/framing_test.odin
 lang/lsp/position_test.odin
@@ -1107,12 +1106,36 @@ its tests pass, and nothing regresses.
       the CRLF step. The raw index and the LF-collapsed text of each file are
       cached per request on `Ask`, so a hundred references in one file cost one
       read of it.
-- [ ] **M6 — Diagnostics.** Push through `publishDiagnostics` over the M0
+- [x] **M6 — Diagnostics.** Push through `publishDiagnostics` over the M0
       channel; pull through `textDocument/diagnostic` where advertised. Plus
       `Workspace_Symbols` with its documented empty-query caveat.
       *Checkpoint: squiggles and gutter markers appear in a non-Odin file as it is
       edited, and the existing explained-diagnostic hover (`ROADMAP.md:279-289`)
       works on them unchanged.*
+      **As built**, five deviations. (a) **No `notify.odin`.** Notification
+      handling stayed where M0 put it: `jsonrpc.odin` queues the raw
+      `Notification`, `server_drain_pushes` decodes it, `decode.odin` holds the
+      decoder. (b) **The push queue is per-`Server`, not per-`Client`.**
+      `push_mutex` + `pushes` sit beside `docs`, and `Client.poll` walks the
+      servers. `push_mutex` is independent of the other two locks and is never
+      held with either, so the M5 lock order is untouched. It also means
+      `server_destroy` frees the results nobody took, with the server's allocator
+      — which must be the Manager's, since `lang.result_free` frees the delivered
+      ones with that. (c) **`Workspace_Symbols` reuses
+      `decode_document_symbols` verbatim.** `workspace/symbol` answers the flat
+      `SymbolInformation[]` shape that decoder's flat branch already reads; a
+      range-less `WorkspaceSymbol` is dropped by the existing check, which is
+      right because Thor never declares `resolveSupport`. No `Request` field was
+      added for the query (open question 5). (d) **No host change for either
+      kind.** `thor_apply_diagnostics` already ignored `Result.id` and already
+      gated on the right disjunction, so getting `Result.revision` from
+      `Document.revision` was the whole of it (open question 4). (e) **One host
+      bug fixed.** `thor_request_diagnostics` sent an empty `source`, which was
+      right for a compiler reading the package off disk and wrong for a server:
+      `server_sync_document` would have published the empty buffer whenever the
+      request overtook the pump's queued `didChange`, and the pull decoder would
+      have counted every position over an empty line index. It now sends the
+      buffer, like every other kind.
 - [ ] **M7 — Mutating features.** `Rename` with `old_text` reconstruction and the
       resource-operation refusal; `Code_Actions` with eager `codeAction/resolve`
       and command-only items dropped.
@@ -1142,14 +1165,15 @@ its tests pass, and nothing regresses.
    `thor_apply_diagnostics`'s helper implements only the directory case. This
    looks like a real gap; M0 fixes it, and it is worth confirming there is no
    second consumer.
-4. **Whether pushed diagnostics should apply against an unsaved buffer.**
-   `thor_apply_diagnostic` refuses when `file.state.revision !=
-   file.saved_revision` — correct for `odin check`, which measured the file on
-   disk, and wrong for a server that checked the text we sent it. Keying on
-   `res.revision` instead changes behaviour for a code path the Odin engine also
-   uses, so it deserves a deliberate decision rather than a quiet edit.
-5. **Whether `workspace/symbol` is usable at all with an empty query.** Thor
-   fuzzy-filters client-side, so v1 sends `query: ""` and accepts whatever a
-   server returns. If the major servers return nothing, the feature is
-   effectively absent for LSP languages until `Request` carries a query, and the
-   ROADMAP must say so plainly rather than list it as working.
+4. ~~**Whether pushed diagnostics should apply against an unsaved buffer.**~~
+   Settled in M6: no change was needed. The gate is already the disjunction
+   `revision != file.state.revision && file.state.revision !=
+   file.saved_revision`, which passes when the report's revision matches the live
+   buffer (a server checking the text we sent) *or* when the buffer still matches
+   disk (a compiler checking the file). The backend only has to stamp
+   `Result.revision` from `Document.revision`.
+5. ~~**Whether `workspace/symbol` is usable at all with an empty query.**~~
+   Settled in M6 as planned: `query: ""` ships, and the ROADMAP names the
+   limitation rather than listing the feature as working. Still open in practice
+   — no measurement of what the major servers answer an empty query with. A real
+   query needs a prompt above the seam and a field on `Request`.

@@ -149,6 +149,18 @@ wait_sent :: proc(f: ^Fake, needle: string) -> bool {
     return true
 }
 
+@(private = "file")
+wait_push :: proc(s: ^Server, res: ^lang.Result) -> bool {
+    start := time.tick_now()
+    for !server_poll(s, res) {
+        if time.tick_since(start) >= LIMIT {
+            return false
+        }
+        time.sleep(time.Millisecond)
+    }
+    return true
+}
+
 // Whether the scripted server has taken a frame holding `needle`. The bodies it
 // took are the record: the mock's own buffer is drained by the serve thread.
 @(private = "file")
@@ -552,4 +564,161 @@ test_server_request_without_a_method :: proc(t: ^testing.T) {
 
     testing.expect(t, !res.ok)
     testing.expect(t, !fake_sent(&f, `"method":"textDocument/didOpen"`), "a kind with no method still synced the file")
+}
+
+// A push the pump decodes and the main thread takes. CAPS_ALL advertises no
+// diagnosticProvider: publishDiagnostics needs no capability of its own.
+@(test)
+test_server_publishes_diagnostics :: proc(t: ^testing.T) {
+    f: Fake
+    s := fake_server(&f, CAPS_ALL)
+    defer fake_end(&f, s)
+
+    server_notify(s, .Opened, SOURCE, ".fake", BUFFER, 9)
+    testing.expect(t, wait_sent(&f, `"method":"textDocument/didOpen"`), "didOpen never arrived")
+
+    // A file the editor never opened has no buffer to place a position in.
+    mock_frame(
+        &f.mock,
+        `{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"` +
+        SOURCE_URI +
+        `x","diagnostics":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},"message":"foreign"}]}}`,
+    )
+    mock_frame(
+        &f.mock,
+        `{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"` +
+        SOURCE_URI +
+        `","diagnostics":[{"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":5}},"severity":1,"message":"boom"}]}}`,
+    )
+
+    res: lang.Result
+    testing.expect(t, wait_push(s, &res), "the push never reached the queue")
+    defer server_drop_push(s, &res)
+
+    testing.expect(t, res.ok)
+    testing.expect_value(t, res.kind, lang.Request_Kind.Diagnostics)
+    testing.expect_value(t, res.id, u64(0)) // nothing asked for it
+    testing.expect_value(t, res.revision, u64(9))
+    testing.expect_value(t, res.report.scope, SOURCE)
+    testing.expect_value(t, len(res.report.items), 1)
+    if len(res.report.items) != 1 {
+        return
+    }
+    testing.expect_value(t, res.report.items[0].message, "boom")
+    testing.expect_value(t, res.report.items[0].line, 2)
+    testing.expect_value(t, res.report.items[0].col, 1)
+
+    // The foreign one was dropped, not queued behind it.
+    empty: lang.Result
+    testing.expect(t, !server_poll(s, &empty), "a push for a file the editor never opened was kept")
+}
+
+// A config that declines diagnostics for this server declines its pushes too: the
+// poll channel must not walk around the gate a request goes through.
+@(test)
+test_server_push_obeys_the_config :: proc(t: ^testing.T) {
+    f: Fake
+    s := fake_server(&f, CAPS_ALL)
+    defer fake_end(&f, s)
+    f.config.features -= {.Diagnostics}
+
+    server_notify(s, .Opened, SOURCE, ".fake", BUFFER, 1)
+    testing.expect(t, wait_sent(&f, `"method":"textDocument/didOpen"`), "didOpen never arrived")
+
+    mock_frame(
+        &f.mock,
+        `{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"` +
+        SOURCE_URI +
+        `","diagnostics":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},"message":"boom"}]}}`,
+    )
+    time.sleep(50 * time.Millisecond)
+
+    res: lang.Result
+    testing.expect(t, !server_poll(s, &res), "a declined kind arrived through the push channel")
+}
+
+// workspace/symbol carries no document and no position, only the query.
+@(test)
+test_server_workspace_symbols_round_trip :: proc(t: ^testing.T) {
+    f: Fake
+    s := fake_server(&f, CAPS_ALL)
+    defer fake_end(&f, s)
+    defer free_all(context.temp_allocator)
+    f.result =
+        `[{"name":"gamma","kind":12,"location":{"uri":"` +
+        SOURCE_URI +
+        `","range":{"start":{"line":1,"character":0},"end":{"line":1,"character":5}}}}]`
+
+    req := lang.Request {
+        kind     = .Workspace_Symbols,
+        path     = SOURCE,
+        ext      = ".fake",
+        source   = BUFFER,
+        revision = 1,
+    }
+    res := lang.Result {
+        kind = .Workspace_Symbols,
+    }
+    testing.expect(t, server_ensure_started(s, &req), "the server did not start")
+    request_answer(s, &req, &res)
+    defer {
+        for symbol in res.symbols {
+            delete(symbol.name)
+            delete(symbol.kind)
+            delete(symbol.signature)
+            delete(symbol.path)
+        }
+        delete(res.symbols)
+    }
+
+    testing.expect(t, res.ok, "the reply did not reach the result")
+    testing.expect_value(t, len(res.symbols), 1)
+    if len(res.symbols) != 1 {
+        return
+    }
+    testing.expect_value(t, res.symbols[0].name, "gamma")
+    testing.expect_value(t, res.symbols[0].path, SOURCE)
+    testing.expect_value(t, res.symbols[0].offset, 11)
+
+    testing.expect(t, fake_sent(&f, `"method":"workspace/symbol"`), "the request was never sent")
+    testing.expect(t, fake_sent(&f, `{"query":""}`), "the query was not the empty one")
+}
+
+// A pulled report names the file and no position in it.
+@(test)
+test_server_pull_diagnostics_round_trip :: proc(t: ^testing.T) {
+    f: Fake
+    s := fake_server(&f, CAPS_ALL)
+    defer fake_end(&f, s)
+    defer free_all(context.temp_allocator)
+    f.result =
+        `{"kind":"full","items":[` +
+        `{"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":5}},"severity":2,"message":"unused"}]}`
+
+    req := lang.Request {
+        kind     = .Diagnostics,
+        path     = SOURCE,
+        ext      = ".fake",
+        source   = BUFFER,
+        revision = 3,
+    }
+    res := lang.Result {
+        kind = .Diagnostics,
+    }
+    testing.expect(t, server_ensure_started(s, &req), "the server did not start")
+    request_answer(s, &req, &res)
+    defer server_drop_push(s, &res)
+
+    testing.expect(t, res.ok, "the reply did not reach the result")
+    testing.expect_value(t, res.report.scope, SOURCE)
+    testing.expect_value(t, len(res.report.items), 1)
+    if len(res.report.items) != 1 {
+        return
+    }
+    testing.expect_value(t, res.report.items[0].message, "unused")
+    testing.expect_value(t, res.report.items[0].line, 2)
+    testing.expect_value(t, res.report.items[0].severity, lang.Diagnostic_Severity.Warning)
+
+    testing.expect(t, fake_sent(&f, `"method":"textDocument/diagnostic"`), "the request was never sent")
+    testing.expect(t, !fake_sent(&f, `"position"`), "a whole-file request named a position")
 }

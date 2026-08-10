@@ -30,13 +30,13 @@ METHODS := [lang.Request_Kind]string {
     .Definition        = "textDocument/definition",
     .Hover             = "textDocument/hover",
     .Document_Symbols  = "textDocument/documentSymbol",
-    .Workspace_Symbols = "",
+    .Workspace_Symbols = "workspace/symbol",
     .References        = "textDocument/references",
     .Signature_Help    = "textDocument/signatureHelp",
     .Completion        = "textDocument/completion",
     .Package_Doc       = "",
     .Rename            = "",
-    .Diagnostics       = "",
+    .Diagnostics       = "textDocument/diagnostic",
     .Code_Actions      = "",
     .Semantic_Tokens   = "textDocument/semanticTokens/full",
 }
@@ -93,17 +93,23 @@ request_answer :: proc(s: ^Server, req: ^lang.Request, res: ^lang.Result) {
     request_decode(&ask, value, res)
 }
 
-// The params of one request. Every kind names the document; all but the
-// whole-file ones name a position in it as well.
+// The params of one request. Every kind but Workspace_Symbols names the document;
+// all but the whole-file ones name a position in it as well.
 @(private)
 request_params :: proc(ask: ^Ask) -> string {
+    // workspace/symbol names no document at all. The query is empty: nothing
+    // above the seam carries one, so the server answers with what it indexed.
+    if ask.req.kind == .Workspace_Symbols {
+        return `{"query":""}`
+    }
+
     out := make([dynamic]u8, context.temp_allocator)
     append(&out, `{"textDocument":{"uri":`)
     write_quoted(&out, ask.uri)
     append(&out, `}`)
 
     #partial switch ask.req.kind {
-    case .Document_Symbols, .Semantic_Tokens:
+    case .Document_Symbols, .Semantic_Tokens, .Diagnostics:
     case:
         line, character := position_from_offset(&ask.lines, ask.req.offset)
         append(&out, `,"position":{"line":`)
@@ -128,7 +134,7 @@ request_params :: proc(ask: ^Ask) -> string {
 @(private)
 request_deadline :: proc(kind: lang.Request_Kind) -> time.Duration {
     #partial switch kind {
-    case .Document_Symbols, .References, .Semantic_Tokens:
+    case .Document_Symbols, .Workspace_Symbols, .References, .Diagnostics, .Semantic_Tokens:
         return DEADLINE_HEAVY
     }
     return DEADLINE_INTERACTIVE

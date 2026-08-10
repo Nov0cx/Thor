@@ -12,7 +12,8 @@
 // shared for a whole round trip and taken outright by the pump when it replaces a
 // dead connection, so `conn` cannot be freed under a request. `docs_mutex` guards
 // the document list both of them read. A worker takes `conn_lock` first and
-// `docs_mutex` second; nothing takes them the other way round.
+// `docs_mutex` second; nothing takes them the other way round. `push_mutex` is
+// independent of both and is never held with either.
 package lsp
 
 import "base:runtime"
@@ -70,6 +71,8 @@ Server :: struct {
     trigger:     string,         // owned; the file that first needed the server
     root:        string,         // owned; chosen by the pump at the first launch
     folders:     string,         // owned; the workspaceFolders array, as JSON text
+    // Must be the Manager's allocator: a pushed result is built here and freed by
+    // lang.result_free, which uses the Manager's.
     allocator:   runtime.Allocator,
     state:       Server_State, // atomic
     caps:        Capabilities, // written before state becomes .Ready, never after
@@ -91,7 +94,11 @@ Server :: struct {
     // the main thread needs it only before it has joined the pump.
     docs_mutex:  sync.Mutex,
     docs:        [dynamic]^Document, // owned; guarded by docs_mutex
-    restarts:    int,                // pump thread only
+    // What the server published without being asked, decoded by the pump and
+    // taken by the main thread through the backend's poll.
+    push_mutex:  sync.Mutex,
+    pushes:      [dynamic]lang.Result, // owned; guarded by push_mutex
+    restarts:    int,                  // pump thread only
     // How the process is opened, and what it is opened from. The default starts
     // the configured command; a test replaces it with a scripted server running
     // in this process, which is what makes the lifetime testable with no server
@@ -109,6 +116,7 @@ server_create :: proc(config: ^Server_Config, workspace: string, allocator := co
     s.state = .Idle
     s.outbox = make([dynamic]Doc_Notice, allocator)
     s.docs = make([dynamic]^Document, allocator)
+    s.pushes = make([dynamic]lang.Result, allocator)
     s.open = server_open_child
     return s
 }
@@ -272,6 +280,10 @@ server_destroy :: proc(s: ^Server) {
         free(doc, s.allocator)
     }
     delete(s.docs)
+    for &res in s.pushes {
+        server_drop_push(s, &res)
+    }
+    delete(s.pushes)
     capabilities_destroy(&s.caps)
     server_drop_outbox(s)
     delete(s.outbox)
@@ -390,11 +402,11 @@ server_serve :: proc(s: ^Server) {
     }
 }
 
-// Takes what the server pushed and drops it. A push becomes a lang.Result in M6;
-// until then the queue must still be emptied, or a server that publishes
-// diagnostics on every keystroke grows it without bound. The pump drains it
-// because the pump owns the connection: a main-thread drain would read `conn`
-// while a restart replaces it.
+// Turns what the server pushed into results the main thread takes with
+// server_poll. A method nothing here reads is dropped, or a server that logs on
+// every keystroke grows the queue without bound. The pump drains it because the
+// pump owns the connection: a main-thread drain would read `conn` while a restart
+// replaces it.
 @(private)
 server_drain_pushes :: proc(s: ^Server) {
     for {
@@ -402,8 +414,40 @@ server_drain_pushes :: proc(s: ^Server) {
         if !ok {
             return
         }
+        // The config gate, which a push would otherwise walk around. The
+        // advertised capabilities are not asked: publishDiagnostics needs none.
+        if note.method == "textDocument/publishDiagnostics" && .Diagnostics in s.config.features {
+            if res, decoded := decode_publish_diagnostics(s, note.params); decoded {
+                sync.lock(&s.push_mutex)
+                append(&s.pushes, res)
+                sync.unlock(&s.push_mutex)
+            }
+        }
         conn_free_notification(s.conn, note)
     }
+}
+
+// Takes the oldest decoded push. Main thread, called until it answers false.
+@(private)
+server_poll :: proc(s: ^Server, res: ^lang.Result) -> bool {
+    sync.guard(&s.push_mutex)
+    if len(s.pushes) == 0 {
+        return false
+    }
+    res^ = s.pushes[0]
+    ordered_remove(&s.pushes, 0)
+    return true
+}
+
+// Frees a push nobody took. Only a Diagnostics payload is ever queued.
+@(private)
+server_drop_push :: proc(s: ^Server, res: ^lang.Result) {
+    delete(res.report.scope, s.allocator)
+    for item in res.report.items {
+        delete(item.path, s.allocator)
+        delete(item.message, s.allocator)
+    }
+    delete(res.report.items)
 }
 
 @(private)

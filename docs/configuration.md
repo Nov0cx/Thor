@@ -38,8 +38,8 @@ yet), or open it directly via the command palette or **Tasks** dropdown's
 
 The language servers Thor may start. Odin is served in the editor itself and
 needs no server; every other language gets its features — hover, go to
-definition, find references, document symbols, signature help, completion and
-semantic colors — from the server named here.
+definition, find references, document symbols, signature help, completion,
+diagnostics and semantic colors — from the server named here.
 
 A server is started the first time you open a file it claims, never before, and
 is stopped when Thor exits. A server that is not installed simply never starts

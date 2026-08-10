@@ -13,6 +13,7 @@ import "core:os"
 import "core:path/filepath"
 import "core:slice"
 import "core:strings"
+import "core:sync"
 
 import lang ".."
 
@@ -23,7 +24,7 @@ request_decode :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
         decode_definition(ask, value, res)
     case .Hover:
         decode_hover(ask, value, res)
-    case .Document_Symbols:
+    case .Document_Symbols, .Workspace_Symbols:
         decode_document_symbols(ask, value, res)
     case .References:
         decode_references(ask, value, res)
@@ -31,6 +32,8 @@ request_decode :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
         decode_signature_help(ask, value, res)
     case .Completion:
         decode_completion(ask, value, res)
+    case .Diagnostics:
+        decode_pull_diagnostics(ask, value, res)
     case .Semantic_Tokens:
         decode_semantic_tokens(ask, value, res)
     }
@@ -120,7 +123,8 @@ decode_hover :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
 }
 
 // `DocumentSymbol[]` (a tree) or `SymbolInformation[]` (flat). Both, flattened
-// depth first so the outline keeps the file's reading order.
+// depth first so the outline keeps the file's reading order. `workspace/symbol`
+// decodes here too: it answers the flat shape, in files this request never named.
 @(private)
 decode_document_symbols :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
     items, is_array := value.(json.Array)
@@ -267,6 +271,115 @@ decode_completion :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
         )
     }
     res.ok = len(res.symbols) > 0
+}
+
+// `RelatedFullDocumentDiagnosticReport`. An "unchanged" report is refused: no
+// `previousResultId` is ever sent, so a server has nothing to compare against and
+// the reply carries no items to read. `relatedDocuments` is dropped — the report
+// covers the file that was asked about.
+@(private)
+decode_pull_diagnostics :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
+    object, is_object := value.(json.Object)
+    if !is_object {
+        return
+    }
+    if kind, has_kind := object["kind"].(json.String); has_kind && kind != "full" {
+        return
+    }
+    items, is_array := object["items"].(json.Array)
+    if !is_array {
+        return
+    }
+    // An empty report means the file is clean, which the editor must be told to
+    // retire the squiggles it drew last time.
+    res.report.scope = strings.clone(ask.req.path)
+    res.report.items = make([dynamic]lang.Diagnostic)
+    for item in items {
+        diagnostic, decoded := decode_one_diagnostic(&ask.lines, ask.req.path, item)
+        if !decoded {
+            continue
+        }
+        append(&res.report.items, diagnostic)
+    }
+    res.ok = true
+}
+
+// `textDocument/publishDiagnostics`, the one result no request asked for. A file
+// the editor never opened and a publish for text the server has already been sent
+// past are both dropped. Pump thread; the caller must hold neither lock.
+@(private)
+decode_publish_diagnostics :: proc(s: ^Server, params: json.Value) -> (lang.Result, bool) {
+    object, is_object := params.(json.Object)
+    if !is_object {
+        return {}, false
+    }
+    uri, has_uri := object["uri"].(json.String)
+    items, is_array := object["diagnostics"].(json.Array)
+    if !has_uri || !is_array {
+        return {}, false
+    }
+    path, is_file := uri_to_path(string(uri), context.temp_allocator)
+    if !is_file {
+        return {}, false
+    }
+
+    sync.guard(&s.docs_mutex)
+    doc, held := server_find(s, path)
+    if !held {
+        return {}, false
+    }
+    // A newer didChange has its own publish coming, and its positions count over
+    // text this one never saw.
+    if version, has_version := number(object["version"]); has_version && version != doc.version {
+        return {}, false
+    }
+
+    res := lang.Result {
+        kind     = .Diagnostics,
+        ok       = true,
+        revision = doc.revision,
+    }
+    res.report.scope = strings.clone(doc.path)
+    res.report.items = make([dynamic]lang.Diagnostic)
+    for item in items {
+        diagnostic, decoded := decode_one_diagnostic(&doc.lines, doc.path, item)
+        if !decoded {
+            continue
+        }
+        append(&res.report.items, diagnostic)
+    }
+    return res, true
+}
+
+// One `Diagnostic`, as the 1-based line and byte column the seam reports. The
+// protocol's four severities coarsen to two: only Error stays one, and a
+// diagnostic that named no severity is read as an error.
+@(private)
+decode_one_diagnostic :: proc(lines: ^Line_Index, path: string, value: json.Value) -> (lang.Diagnostic, bool) {
+    object, is_object := value.(json.Object)
+    if !is_object {
+        return {}, false
+    }
+    message, has_message := object["message"].(json.String)
+    start_line, start_char, _, _, has_range := range_of(object["range"])
+    if !has_message || !has_range {
+        return {}, false
+    }
+    severity := lang.Diagnostic_Severity.Error
+    if level, has_level := number(object["severity"]); has_level && level != 1 {
+        severity = .Warning
+    }
+
+    offset := offset_from_position(lines, start_line, start_char)
+    line := clamp(start_line, 0, len(lines.starts) - 1)
+    return lang.Diagnostic {
+            path = strings.clone(path),
+            line = line + 1,
+            col = offset - lines.starts[line] + 1,
+            severity = severity,
+            message = strings.clone(string(message)),
+        },
+        true
 }
 
 // The delta-encoded 5-tuples of `textDocument/semanticTokens/full`, read against

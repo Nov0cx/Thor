@@ -111,6 +111,37 @@ result_release :: proc(res: ^lang.Result) {
     }
     delete(res.symbols)
     delete(res.tokens)
+    delete(res.report.scope)
+    for item in res.report.items {
+        delete(item.path)
+        delete(item.message)
+    }
+    delete(res.report.items)
+}
+
+// One document the server already holds, the way server_document builds it.
+@(private = "file")
+held_document :: proc(s: ^Server, path, text: string, revision: u64) -> ^Document {
+    doc := new(Document, s.allocator)
+    document_init(doc, path, text, s.caps.encoding, s.allocator)
+    doc.revision = revision
+    append(&s.docs, doc)
+    return doc
+}
+
+// Runs one pushed notification through the real decoder.
+@(private = "file")
+decode_push :: proc(s: ^Server, body: string) -> (lang.Result, bool) {
+    value, err := json.parse(
+        transmute([]u8)body,
+        spec = .JSON,
+        parse_integers = true,
+        allocator = context.temp_allocator,
+    )
+    if err != .None {
+        return {}, false
+    }
+    return decode_publish_diagnostics(s, value)
 }
 
 @(private = "file")
@@ -583,4 +614,240 @@ test_decode_refuses_a_bad_reply :: proc(t: ^testing.T) {
         result_release(&res)
         held_destroy(s)
     }
+}
+
+// A push against a document the server holds: 1-based line, 1-based byte column,
+// and the editor revision that text came from.
+@(test)
+test_decode_publish_diagnostics :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    held_document(s, FILE, SOURCE, 7)
+
+    res, decoded := decode_push(
+        s,
+        `{"uri":"` +
+        FILE_URI +
+        `","diagnostics":[` +
+        `{"range":{"start":{"line":0,"character":6},"end":{"line":0,"character":10}},"severity":1,"message":"undefined"},` +
+        `{"range":{"start":{"line":1,"character":6},"end":{"line":1,"character":11}},"severity":2,"message":"unused"}]}`,
+    )
+    defer result_release(&res)
+
+    testing.expect(t, decoded, "the push was dropped")
+    testing.expect(t, res.ok)
+    testing.expect_value(t, res.kind, lang.Request_Kind.Diagnostics)
+    testing.expect_value(t, res.revision, u64(7))
+    testing.expect_value(t, res.report.scope, FILE)
+    testing.expect_value(t, len(res.report.items), 2)
+    if len(res.report.items) != 2 {
+        return
+    }
+    testing.expect_value(t, res.report.items[0].path, FILE)
+    testing.expect_value(t, res.report.items[0].line, 1)
+    testing.expect_value(t, res.report.items[0].col, 7)
+    testing.expect_value(t, res.report.items[0].severity, lang.Diagnostic_Severity.Error)
+    testing.expect_value(t, res.report.items[0].message, "undefined")
+    testing.expect_value(t, res.report.items[1].line, 2)
+    testing.expect_value(t, res.report.items[1].col, 7)
+    testing.expect_value(t, res.report.items[1].severity, lang.Diagnostic_Severity.Warning)
+}
+
+// The protocol's four severities, as the two the editor draws. A diagnostic that
+// named none is an error.
+@(test)
+test_decode_diagnostic_severities :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    held_document(s, FILE, SOURCE, 1)
+
+    span :: `{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}}`
+    res, decoded := decode_push(
+        s,
+        `{"uri":"` +
+        FILE_URI +
+        `","diagnostics":[` +
+        span +
+        `,"severity":1,"message":"a"},` +
+        span +
+        `,"severity":2,"message":"b"},` +
+        span +
+        `,"severity":3,"message":"c"},` +
+        span +
+        `,"severity":4,"message":"d"},` +
+        span +
+        `,"message":"e"}]}`,
+    )
+    defer result_release(&res)
+
+    testing.expect(t, decoded)
+    want := [5]lang.Diagnostic_Severity{.Error, .Warning, .Warning, .Warning, .Error}
+    testing.expect_value(t, len(res.report.items), len(want))
+    if len(res.report.items) != len(want) {
+        return
+    }
+    for severity, index in want {
+        testing.expect_value(t, res.report.items[index].severity, severity)
+    }
+}
+
+// An item with no message and one with no range are left out; the rest of the
+// report still arrives.
+@(test)
+test_decode_diagnostic_drops_malformed_items :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    held_document(s, FILE, SOURCE, 1)
+
+    res, decoded := decode_push(
+        s,
+        `{"uri":"` +
+        FILE_URI +
+        `","diagnostics":[` +
+        `{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}}},` +
+        `{"message":"no range"},` +
+        `42,` +
+        `{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},"message":"kept"}]}`,
+    )
+    defer result_release(&res)
+
+    testing.expect(t, decoded)
+    testing.expect_value(t, len(res.report.items), 1)
+    if len(res.report.items) != 1 {
+        return
+    }
+    testing.expect_value(t, res.report.items[0].message, "kept")
+}
+
+// An empty array is the server saying the file is clean, which the editor needs to
+// retire the squiggles it drew last time.
+@(test)
+test_decode_publish_diagnostics_empty_is_clean :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    held_document(s, FILE, SOURCE, 3)
+
+    res, decoded := decode_push(s, `{"uri":"` + FILE_URI + `","diagnostics":[]}`)
+    defer result_release(&res)
+
+    testing.expect(t, decoded, "a clean file was dropped instead of reported")
+    testing.expect(t, res.ok)
+    testing.expect_value(t, res.report.scope, FILE)
+    testing.expect_value(t, len(res.report.items), 0)
+}
+
+// A push nothing can be applied to: a file the editor never opened, a URI that
+// names no file, and text the server has already been sent past.
+@(test)
+test_decode_publish_diagnostics_dropped :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    doc := held_document(s, FILE, SOURCE, 1)
+    doc.version = 4
+
+    item :: `,"diagnostics":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},"message":"x"}]}`
+    bodies := []string {
+        `{"uri":"` + OTHER_URI + `"` + item,
+        `{"uri":"http://example.com/main.fake"` + item,
+        `{"uri":"` + FILE_URI + `","version":3` + item,
+        `{"uri":"` + FILE_URI + `"}`,
+        `{"diagnostics":[]}`,
+    }
+    for body in bodies {
+        res, decoded := decode_push(s, body)
+        testing.expectf(t, !decoded, "%q was decoded", body)
+        result_release(&res)
+    }
+
+    // The version the server was last told about is the one that lands.
+    res, decoded := decode_push(s, `{"uri":"` + FILE_URI + `","version":4` + item)
+    defer result_release(&res)
+    testing.expect(t, decoded, "the current version was dropped")
+    testing.expect_value(t, len(res.report.items), 1)
+}
+
+// A pull report reads the same items, against the buffer the request carried.
+@(test)
+test_decode_pull_diagnostics :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Diagnostics, SOURCE, 0)
+
+    res := decode_reply(
+        s,
+        &req,
+        `{"kind":"full","items":[` +
+        `{"range":{"start":{"line":1,"character":6},"end":{"line":1,"character":11}},"severity":2,"message":"unused"}]}`,
+    )
+    defer result_release(&res)
+
+    testing.expect(t, res.ok)
+    testing.expect_value(t, res.report.scope, FILE)
+    testing.expect_value(t, len(res.report.items), 1)
+    if len(res.report.items) != 1 {
+        return
+    }
+    testing.expect_value(t, res.report.items[0].path, FILE)
+    testing.expect_value(t, res.report.items[0].line, 2)
+    testing.expect_value(t, res.report.items[0].col, 7)
+    testing.expect_value(t, res.report.items[0].severity, lang.Diagnostic_Severity.Warning)
+
+    // A full report with no items is the file being clean.
+    clean := decode_reply(s, &req, `{"kind":"full","items":[]}`)
+    defer result_release(&clean)
+    testing.expect(t, clean.ok)
+    testing.expect_value(t, len(clean.report.items), 0)
+}
+
+// An "unchanged" report carries no items, so it answers nothing rather than
+// retiring the diagnostics that are drawn.
+@(test)
+test_decode_pull_diagnostics_unchanged :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Diagnostics, SOURCE, 0)
+
+    res := decode_reply(s, &req, `{"kind":"unchanged","resultId":"7"}`)
+    defer result_release(&res)
+    testing.expect(t, !res.ok, "an unchanged report must find nothing")
+    testing.expect_value(t, len(res.report.items), 0)
+}
+
+// workspace/symbol answers the flat shape, in files the request never named.
+@(test)
+test_decode_workspace_symbols :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    held_document(s, OTHER, "one\ntwo\n", 1)
+    req := request_for(.Workspace_Symbols, SOURCE, 0)
+
+    res := decode_reply(
+        s,
+        &req,
+        `[{"name":"alpha","kind":12,"location":{"uri":"` +
+        FILE_URI +
+        `","range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}}}},` +
+        `{"name":"two","kind":10,"detail":"an enum","location":{"uri":"` +
+        OTHER_URI +
+        `","range":{"start":{"line":1,"character":0},"end":{"line":1,"character":3}}}},` +
+        `{"name":"lazy","kind":12}]`,
+    )
+    defer result_release(&res)
+
+    testing.expect(t, res.ok)
+    // The third named no range at all, the shape a server that resolves lazily
+    // sends; Thor never asked for that, so it is left out.
+    testing.expect_value(t, len(res.symbols), 2)
+    if len(res.symbols) != 2 {
+        return
+    }
+    testing.expect_value(t, res.symbols[0].name, "alpha")
+    testing.expect_value(t, res.symbols[0].kind, "function")
+    testing.expect_value(t, res.symbols[0].path, FILE)
+    testing.expect_value(t, res.symbols[0].offset, 0)
+    testing.expect_value(t, res.symbols[1].name, "two")
+    testing.expect_value(t, res.symbols[1].kind, "enum")
+    testing.expect_value(t, res.symbols[1].path, OTHER)
+    testing.expect_value(t, res.symbols[1].offset, 4)
+    testing.expect_value(t, res.symbols[1].signature, "an enum")
 }
