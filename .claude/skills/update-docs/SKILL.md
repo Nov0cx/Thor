@@ -21,7 +21,7 @@ already says:
 | Doc | Source of truth |
 | --- | --- |
 | `docs/keybindings.md` | `settings/keybinds.json` (default chords) and the command palette's action list |
-| `docs/configuration.md` | `setting/setting.odin`'s `General` struct (fields + comments), `settings/settings.json`, `.thor/tasks.json`, `.thor/odin-analyzer.json` |
+| `docs/configuration.md` | `setting/setting.odin`'s `General` struct (fields + comments), `settings/settings.json`, `settings/lsp.json`, `.thor/tasks.json`, `.thor/odin-analyzer.json`, `.thor/lsp.json` |
 | `docs/building.md` | `build.odin`'s flags (`-- run`, `-- deps`, `-- test`, `-- check`, `-- clean`, `-h`) and `vendor/README.md` |
 | `docs/plugins.md` | `plugins/README.md` (permission table, sandbox rules) |
 | `docs/getting-started.md` | first-run behavior: opening a project, `open_folder_in`, the tutorial |

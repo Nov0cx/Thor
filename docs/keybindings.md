@@ -26,7 +26,7 @@ bindings are physical key positions, noted where they differ.
 | ctrl + hover | show the declaration of the symbol under the mouse |
 | ctrl + shift + u | code actions: the fixes available at the caret, in a picker |
 | ctrl + f | find |
-| ctrl + r | find & replace |
+| ctrl + r | rename the symbol under the caret across every file that uses it; falls back to find & replace when the caret is not on a renameable symbol |
 
 ## Explorer
 

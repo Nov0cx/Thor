@@ -38,8 +38,9 @@ yet), or open it directly via the command palette or **Tasks** dropdown's
 
 The language servers Thor may start. Odin is served in the editor itself and
 needs no server; every other language gets its features — hover, go to
-definition, find references, document symbols, signature help, completion,
-diagnostics and semantic colors — from the server named here.
+definition, find references, document symbols, workspace symbols, signature
+help, completion, diagnostics, semantic colors, rename and code actions —
+from the server named here.
 
 A server is started the first time you open a file it claims, never before, and
 is stopped when Thor exits. A server that is not installed simply never starts
@@ -60,6 +61,13 @@ Entries shipped by default: `clangd`, `rust-analyzer`, `gopls`, `pyright`,
 | `init_options`, `settings` | JSON passed to the server as its initialization options and its configuration |
 | `features` | Which features to ask this server for, by the `language_intelligence` names |
 | `override` | `true` puts this server ahead of the built-in Odin support for `.odin` |
+
+Known limitations: workspace symbols (`ctrl + t`) are sent with an empty
+query, so a server that only answers a non-empty one (clangd, gopls) lists
+nothing; document sync sends the whole file on every change, not an
+incremental diff; there is no formatting support; and this table is read once
+when a workspace opens, so editing `settings/lsp.json` or `.thor/lsp.json`
+needs the workspace reopened to take effect.
 
 ## `settings/comments.json`
 
