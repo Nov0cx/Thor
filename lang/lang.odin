@@ -199,6 +199,7 @@ Request :: struct {
     revision:  u64,
     workspace: string, // owned, absolute
     new_name:  string, // owned; the request's argument — Rename's replacement identifier, "" otherwise
+    query:     string, // owned; Workspace_Symbols' filter text, "" otherwise (an unfiltered scan)
     cancel:    ^bool,  // Job-owned cancellation flag; read via request_cancelled, nil when hand-built
 }
 
@@ -341,6 +342,7 @@ Pending :: struct {
     revision:  u64,
     workspace: string,
     new_name:  string,
+    query:     string,
     due:       time.Time,
 }
 
@@ -527,7 +529,8 @@ manager_allows :: proc(m: ^Manager, ext: string, kind: Request_Kind) -> bool {
 // Manager's allocator so the caller keeps ownership of its own buffers. Returns
 // the request id, or 0 when the feature gate refuses the kind or no backend
 // handles the extension. The result arrives via manager_dispatch on a later
-// frame. `new_name` is the request's argument, only Rename uses it.
+// frame. `new_name` is Rename's argument, `query` is Workspace_Symbols'; every
+// other kind ignores both.
 manager_request :: proc(
     m: ^Manager,
     kind: Request_Kind,
@@ -536,6 +539,7 @@ manager_request :: proc(
     revision: u64,
     workspace: string,
     new_name := "",
+    query := "",
 ) -> u64 {
     if !manager_feature_enabled(m, kind) {
         return 0
@@ -557,6 +561,7 @@ manager_request :: proc(
         revision,
         strings.clone(workspace),
         strings.clone(new_name),
+        strings.clone(query),
     )
 }
 
@@ -591,6 +596,7 @@ dispatch_owned :: proc(
     revision: u64,
     workspace: string,
     new_name: string,
+    query: string,
 ) -> u64 {
     context.allocator = m.allocator
     backend, ok := backend_for_kind(m, ext, kind)
@@ -600,6 +606,7 @@ dispatch_owned :: proc(
         delete(source)
         delete(workspace)
         delete(new_name)
+        delete(query)
         return 0
     }
 
@@ -616,6 +623,7 @@ dispatch_owned :: proc(
         revision  = revision,
         workspace = workspace,
         new_name  = new_name,
+        query     = query,
     }
     job.request.cancel = &job.cancelled // stable for the job's lifetime
     job.result.id = id
@@ -711,9 +719,10 @@ manager_request_latest :: proc(
     revision: u64,
     workspace: string,
     new_name := "",
+    query := "",
 ) -> u64 {
     manager_cancel_kind(m, kind)
-    return manager_request(m, kind, path, ext, source, offset, revision, workspace, new_name)
+    return manager_request(m, kind, path, ext, source, offset, revision, workspace, new_name, query)
 }
 
 // Queues a request to be dispatched once `delay` has passed without another
@@ -740,6 +749,7 @@ manager_request_debounced :: proc(
     workspace: string,
     delay: time.Duration = DEBOUNCE_TYPING,
     new_name := "",
+    query := "",
 ) -> u64 {
     if !manager_feature_enabled(m, kind) {
         return 0
@@ -762,6 +772,7 @@ manager_request_debounced :: proc(
         revision  = revision,
         workspace = strings.clone(workspace),
         new_name  = strings.clone(new_name),
+        query     = strings.clone(query),
         due       = time.time_add(time.now(), delay),
     }
     return id
@@ -802,6 +813,7 @@ manager_flush_debounced :: proc(m: ^Manager, force := false) -> int {
             slot.revision,
             slot.workspace,
             slot.new_name,
+            slot.query,
         )
         n += 1
     }
@@ -843,6 +855,7 @@ pending_clear :: proc(m: ^Manager, kind: Request_Kind) -> bool {
     delete(p.source)
     delete(p.workspace)
     delete(p.new_name)
+    delete(p.query)
     p^ = {}
     return true
 }
@@ -950,6 +963,7 @@ job_free :: proc(m: ^Manager, job: ^Job) {
     delete(job.request.source)
     delete(job.request.workspace)
     delete(job.request.new_name)
+    delete(job.request.query)
     result_free(m, &job.result)
     id := job.request.id
     free(job)

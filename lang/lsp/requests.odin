@@ -105,10 +105,15 @@ request_answer :: proc(s: ^Server, req: ^lang.Request, res: ^lang.Result) {
 // all but the whole-file ones name a position in it as well.
 @(private)
 request_params :: proc(ask: ^Ask) -> string {
-    // workspace/symbol names no document at all. The query is empty: nothing
-    // above the seam carries one, so the server answers with what it indexed.
+    // workspace/symbol names no document at all. `req.query` is "" for an
+    // unfiltered scan (the picker's initial fetch); a server that only answers
+    // a non-empty query (clangd, gopls) lists nothing until one is typed.
     if ask.req.kind == .Workspace_Symbols {
-        return `{"query":""}`
+        out := make([dynamic]u8, context.temp_allocator)
+        append(&out, `{"query":`)
+        write_quoted(&out, ask.req.query)
+        append(&out, `}`)
+        return string(out[:])
     }
 
     out := make([dynamic]u8, context.temp_allocator)

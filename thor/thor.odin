@@ -292,6 +292,11 @@ Thor :: struct {
     // immediately in a loading state; the matching result fills it in, and a
     // superseded (or already-replaced) result is dropped.
     workspace_symbols_request_id: u64,
+    // True while that in-flight scan was re-dispatched by typing in the open
+    // picker rather than by opening it: an empty result then means "no
+    // matches for this text", not "nothing to show", so it must not close
+    // the picker the way the initial empty-workspace case does.
+    workspace_symbols_typing:     bool,
     // In-flight find-references scan: its request id. Like the workspace-symbols
     // picker, the results picker opens immediately (loading) and is filled when
     // the matching scan lands; a superseded result is dropped.

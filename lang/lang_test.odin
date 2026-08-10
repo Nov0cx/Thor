@@ -38,6 +38,9 @@ probe_resolve :: proc(data: rawptr, req: ^Request, res: ^Result) {
     }
     sync.atomic_add(&p.resolved, 1)
     res.ok = true
+    // Echoed back so a test can assert new_name/query survived the round trip
+    // through the seam's clone-on-dispatch, free-on-reap lifecycle.
+    res.hover.text = strings.clone(req.query)
 }
 
 @(private = "file")
@@ -195,6 +198,68 @@ test_request_latest_supersedes :: proc(t: ^testing.T) {
     testing.expect(t, sync.atomic_load(&p.cancelled) == 1, "the superseded request should have been cancelled")
     testing.expect(t, sync.atomic_load(&p.resolved) == 1, "the replacement request should have resolved")
     testing.expectf(t, delivered == 1, "only the latest result should reach the handler (got %d)", delivered)
+}
+
+@(private = "file")
+capture_hover_text :: proc(user: rawptr, res: ^Result) {
+    (cast(^string)user)^ = strings.clone(res.hover.text)
+}
+
+// Workspace_Symbols' `query` (like Rename's `new_name`) travels through the
+// clone-on-dispatch, free-on-reap lifecycle every owned Request string shares:
+// manager_request clones the caller's string, the backend reads it off
+// req.query, and job_free frees the Job's copy afterward — none of which is
+// specific to any one kind.
+@(test)
+test_query_reaches_backend :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+
+    p := Probe{}
+    manager_register(&m, probe_backend(&p))
+
+    id := manager_request(&m, .Workspace_Symbols, "a.probe", ".probe", "", 0, 0, "", "", "needle")
+    testing.expect(t, id != 0, "expected the probe backend to claim .probe")
+    testing.expect(t, wait_for(&p.started, 1), "worker never started")
+    sync.atomic_store(&p.release, true)
+
+    seen: string
+    defer delete(seen)
+    for manager_busy(&m) {
+        manager_dispatch(&m, &seen, capture_hover_text)
+        time.sleep(time.Millisecond)
+    }
+    manager_dispatch(&m, &seen, capture_hover_text)
+
+    testing.expect_value(t, seen, "needle")
+}
+
+// A query filling a debounce slot survives the same round trip: cloned into
+// the slot, moved into the job when the slot flushes, freed with the rest.
+@(test)
+test_query_survives_debounce :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+
+    p := Probe{}
+    manager_register(&m, probe_backend(&p))
+    sync.atomic_store(&p.release, true) // nothing to park for here
+
+    id := manager_request_debounced(&m, .Workspace_Symbols, "a.probe", ".probe", "", 0, 0, "", new_name = "", query = "needle")
+    testing.expect(t, id != 0, "expected the probe backend to claim .probe")
+    testing.expectf(t, manager_flush_debounced(&m, force = true) == 1, "the slot never flushed")
+
+    seen: string
+    defer delete(seen)
+    for manager_busy(&m) {
+        manager_dispatch(&m, &seen, capture_hover_text)
+        time.sleep(time.Millisecond)
+    }
+    manager_dispatch(&m, &seen, capture_hover_text)
+
+    testing.expect_value(t, seen, "needle")
 }
 
 @(test)

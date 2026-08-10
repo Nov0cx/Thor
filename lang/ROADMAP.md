@@ -1379,11 +1379,26 @@ Landed since (M9):
       advertises plain Full) still gets today's whole-buffer form; the first
       `didOpen` for a file is always full, since there is nothing yet to diff
       against.
+- [x] A real `workspace/symbol` query. `lang.Request`/`Pending` gained a
+      `query` field, cloned/freed the same four places `new_name` is
+      (`dispatch_owned`'s no-backend path, `job_free`, `pending_clear`, the
+      `Pending` copy); `manager_request`/`_latest`/`_debounced` all take it.
+      `lang/lsp/requests.odin` sends `req.query` instead of the hardcoded
+      `""`; the in-client Odin backend still ignores it and keeps its full
+      scan. Ctrl+T's opening fetch is unchanged (empty query, client-side
+      fuzzy filter); `widgets.Command_Palette` gained an `on_query_changed`
+      hook, fired on an actual keystroke and never on the reset a picker
+      opens with, that `thor_goto_workspace_symbol` wires to
+      `thor_workspace_symbol_query_changed` — a debounced re-dispatch
+      carrying the typed text, re-marking the picker loading
+      (`command_palette_set_loading`) without clearing its current rows. An
+      empty result from a *typing*-triggered re-dispatch
+      (`Thor.workspace_symbols_typing`) empties the list rather than closing
+      the picker the way an empty *initial* scan still does.
 
-Still to add:
-
-- [ ] A real `workspace/symbol` query, which needs a query prompt above the seam
-      and a field on `lang.Request` to carry it.
+Still to add: nothing from the M9 list above — see `LSP_PLAN.md`'s remaining
+follow-ups (`$/progress`, `workspace/applyEdit`, a selection range on
+`Request`).
 
 `LSP_PLAN.md` is the implementation plan for all of it: the `lang/lsp` package
 and what it may import, the child process and `Content-Length` transport, the

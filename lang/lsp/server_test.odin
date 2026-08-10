@@ -742,6 +742,32 @@ test_server_workspace_symbols_round_trip :: proc(t: ^testing.T) {
     testing.expect(t, fake_sent(&f, `{"query":""}`), "the query was not the empty one")
 }
 
+// A non-empty req.query — the picker's typed text — reaches the server
+// verbatim, not the hardcoded empty string.
+@(test)
+test_server_workspace_symbols_query :: proc(t: ^testing.T) {
+    f: Fake
+    s := fake_server(&f, CAPS_ALL)
+    defer fake_end(&f, s)
+    defer free_all(context.temp_allocator)
+    f.result = "[]"
+
+    req := lang.Request {
+        kind     = .Workspace_Symbols,
+        path     = SOURCE,
+        ext      = ".fake",
+        source   = BUFFER,
+        revision = 1,
+        query    = "gamma",
+    }
+    res: lang.Result
+    testing.expect(t, server_ensure_started(s, &req), "the server did not start")
+    request_answer(s, &req, &res)
+
+    testing.expect(t, fake_sent(&f, `"method":"workspace/symbol"`), "the request was never sent")
+    testing.expect(t, fake_sent(&f, `{"query":"gamma"}`), "the typed query was not sent verbatim")
+}
+
 // A pulled report names the file and no position in it.
 @(test)
 test_server_pull_diagnostics_round_trip :: proc(t: ^testing.T) {

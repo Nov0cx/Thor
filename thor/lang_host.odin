@@ -297,15 +297,13 @@ thor_goto_symbol :: proc(thor: ^Thor) {
     )
 }
 
-// Ctrl+T: list every top-level symbol across the workspace in a fuzzy picker.
-// The active buffer (if it's an Odin file) seeds the request with its unsaved
-// source and path; otherwise the scan runs over the workspace's .odin files with
-// a bare ".odin" extension so it works even with no Odin file focused.
-thor_goto_workspace_symbol :: proc(thor: ^Thor) {
-    ext := ".odin"
-    path := ""
-    source := ""
-    revision: u64 = 0
+// Shared by thor_goto_workspace_symbol and thor_workspace_symbol_query_changed:
+// the active buffer's ext/path/source/revision when it names a language Thor
+// covers, or a bare ".odin" scope with no active file so Ctrl+T still works.
+// `source` is a fresh textedit borrow each call, never held past it.
+@(private = "file")
+thor_workspace_symbol_scope :: proc(thor: ^Thor) -> (ext, path, source: string, revision: u64) {
+    ext = ".odin"
     if file := thor_active_open_file(thor); file != nil && file.loaded {
         if e := thor_file_extension(file.name); lang.manager_supports(&thor.lang_manager, e) {
             ext = e
@@ -314,6 +312,15 @@ thor_goto_workspace_symbol :: proc(thor: ^Thor) {
             revision = file.state.revision
         }
     }
+    return
+}
+
+// Ctrl+T: list every top-level symbol across the workspace in a fuzzy picker.
+// The active buffer (if it's an Odin file) seeds the request with its unsaved
+// source and path; otherwise the scan runs over the workspace's .odin files with
+// a bare ".odin" extension so it works even with no Odin file focused.
+thor_goto_workspace_symbol :: proc(thor: ^Thor) {
+    ext, path, source, revision := thor_workspace_symbol_scope(thor)
     if !lang.manager_supports(&thor.lang_manager, ext) {
         return
     }
@@ -334,13 +341,50 @@ thor_goto_workspace_symbol :: proc(thor: ^Thor) {
     // on a big workspace. Open the picker now (empty, "Loading…") so the chord is
     // instant; thor_update_workspace_symbols fills it when the result lands.
     thor.workspace_symbols_request_id = id
+    thor.workspace_symbols_typing = false
     widgets.command_palette_pick_rich_loading(
         thor.command_palette,
         &thor.ui_context,
         "Go to symbol...",
         thor_pick_symbol,
         thor,
+        thor_workspace_symbol_query_changed,
+        thor,
     )
+}
+
+// The palette's on_query_changed hook: re-dispatches Workspace_Symbols with
+// the typed text as `req.query`, which only a server-backed backend reads —
+// the in-client Odin engine ignores it and keeps its full scan, answered
+// client-side by the picker's own fuzzy filter as it always was. Debounced
+// like completion, so a burst of keystrokes costs one dispatch; the picker
+// keeps showing its current rows (re-marked loading) until the new ones land.
+@(private = "file")
+thor_workspace_symbol_query_changed :: proc(data: rawptr, query: string) {
+    thor := cast(^Thor)data
+    ext, path, source, revision := thor_workspace_symbol_scope(thor)
+    if !lang.manager_supports(&thor.lang_manager, ext) {
+        return
+    }
+    id := lang.manager_request_debounced(
+        &thor.lang_manager,
+        .Workspace_Symbols,
+        path,
+        ext,
+        source,
+        0,
+        revision,
+        thor.workspace_dir,
+        lang.DEBOUNCE_TYPING,
+        "",
+        query,
+    )
+    if id == 0 {
+        return
+    }
+    thor.workspace_symbols_request_id = id
+    thor.workspace_symbols_typing = true
+    widgets.command_palette_set_loading(thor.command_palette)
 }
 
 // F10: list every usage of the symbol under the caret in a fuzzy picker — its
@@ -1336,7 +1380,11 @@ thor_build_reference_items :: proc(thor: ^Thor, res: ^lang.Result) -> []widgets.
 // Fills the already-open (loading) workspace-symbol picker once its scan lands.
 // Drops the result if it's superseded by a newer Ctrl+T or the picker has since
 // been closed or replaced (command_palette_pick_rich_set is a no-op then). An
-// empty scan closes the loading picker and flashes instead of leaving it hanging.
+// empty *initial* scan closes the loading picker and flashes instead of leaving
+// it hanging; an empty result re-dispatched by typing just empties the list —
+// "no symbols match this text" is not "nothing to show", and closing the
+// picker out from under a keystroke would be far more surprising than a blank
+// list under the search box.
 @(private = "file")
 thor_update_workspace_symbols :: proc(thor: ^Thor, res: ^lang.Result) {
     if res.id != thor.workspace_symbols_request_id {
@@ -1347,6 +1395,10 @@ thor_update_workspace_symbols :: proc(thor: ^Thor, res: ^lang.Result) {
         return // picker closed or replaced by another pick; drop the result
     }
     if !res.ok || len(res.symbols) == 0 {
+        if thor.workspace_symbols_typing {
+            widgets.command_palette_pick_rich_set(thor.command_palette, {})
+            return
+        }
         widgets.command_palette_close(thor.command_palette, &thor.ui_context)
         thor_flash_status(thor, "No symbols in workspace")
         return

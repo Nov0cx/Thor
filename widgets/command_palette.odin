@@ -31,6 +31,11 @@ Palette_Pick_Proc :: #type proc(data: rawptr, choice: string)
 // Rich fuzzy pick (symbol lists): fires with the chosen item's index into the
 // caller's original slice, so the caller maps it back to its own data.
 Palette_Pick_Index_Proc :: #type proc(data: rawptr, index: int)
+// Rich Pick mode only: fires after the query text changes by user input
+// (typing, backspace, delete — never the reset a picker opens with), so a
+// picker whose rows come from a server (workspace symbols) can re-dispatch
+// with the new text instead of only re-filtering what it already has.
+Palette_Query_Changed_Proc :: #type proc(data: rawptr, query: string)
 
 // One row of a rich pick (a symbol). `text` is drawn and fuzzy-matched whole;
 // its leading `name_len` bytes are drawn in `color` (the identifier, tinted by
@@ -105,6 +110,10 @@ Command_Palette :: struct {
     // command_palette_pick_rich_set lands the rows.
     pick_loading:    bool,
     pick_index_run:  Palette_Pick_Index_Proc,
+    // nil for every picker but one whose rows a server computes (workspace
+    // symbols); see Palette_Query_Changed_Proc.
+    on_query_changed:      Palette_Query_Changed_Proc,
+    on_query_changed_data: rawptr,
     box:          rl.Rectangle,
     width:        f32,
     row_height:   f32,
@@ -340,6 +349,8 @@ command_palette_pick_rich_loading :: proc(
     label: string,
     run: Palette_Pick_Index_Proc,
     data: rawptr,
+    on_query_changed: Palette_Query_Changed_Proc = nil,
+    on_query_changed_data: rawptr = nil,
 ) {
     command_palette_clear_pick_items(palette)
     palette.prompt_label = label
@@ -347,6 +358,8 @@ command_palette_pick_rich_loading :: proc(
     palette.pick_data = data
     palette.pick_rich = true
     palette.pick_loading = true
+    palette.on_query_changed = on_query_changed
+    palette.on_query_changed_data = on_query_changed_data
     palette.visible = true
     command_palette_reset(palette, .Pick)
     ctx.focused = &palette.widget
@@ -358,6 +371,17 @@ command_palette_pick_rich_loading :: proc(
 // user closed the picker (or opened a different one) is dropped, not applied.
 command_palette_pick_loading :: proc(palette: ^Command_Palette) -> bool {
     return palette.visible && palette.mode == .Pick && palette.pick_rich && palette.pick_loading
+}
+
+// Marks an open rich pick as waiting for a fresh set of rows again, without
+// clearing the ones already showing — for an on_query_changed hook that
+// re-dispatches instead of only re-filtering (workspace symbols). A no-op
+// outside Rich Pick mode. command_palette_pick_rich_set applies the next
+// landing result and clears the flag, same as the initial load.
+command_palette_set_loading :: proc(palette: ^Command_Palette) {
+    if palette.mode == .Pick && palette.pick_rich {
+        palette.pick_loading = true
+    }
 }
 
 // Fills an open loading rich pick with its rows, preserving the query the user
@@ -466,6 +490,17 @@ command_palette_refilter :: proc(palette: ^Command_Palette) {
     }
     palette.selected = 0
     palette.scroll = 0
+}
+
+// Re-filters and, in Rich Pick mode with a hook installed, tells the owner the
+// query text changed by user input — never called from the reset a picker
+// opens with, only from an actual keystroke.
+@(private = "file")
+command_palette_query_changed :: proc(palette: ^Command_Palette) {
+    command_palette_refilter(palette)
+    if palette.mode == .Pick && palette.on_query_changed != nil {
+        palette.on_query_changed(palette.on_query_changed_data, string(palette.query[:]))
+    }
 }
 
 @(private = "file")
@@ -612,7 +647,7 @@ command_palette_handle_event :: proc(widget: ^ui.Widget, ctx: ^ui.Context, event
             palette.caret = clamp(palette.caret, 0, len(palette.query))
             inject_at(&palette.query, palette.caret, ..buffer[:width])
             palette.caret += width
-            command_palette_refilter(palette)
+            command_palette_query_changed(palette)
         }
         return true
 
@@ -636,12 +671,12 @@ command_palette_handle_event :: proc(widget: ^ui.Widget, ctx: ^ui.Context, event
             if start := input_prev_rune(query, palette.caret); start < palette.caret {
                 remove_range(&palette.query, start, palette.caret)
                 palette.caret = start
-                command_palette_refilter(palette)
+                command_palette_query_changed(palette)
             }
         case .DELETE:
             if end := input_next_rune(query, palette.caret); end > palette.caret {
                 remove_range(&palette.query, palette.caret, end)
-                command_palette_refilter(palette)
+                command_palette_query_changed(palette)
             }
         case .UP:
             command_palette_move_selection(palette, -1)
