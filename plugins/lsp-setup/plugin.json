@@ -1,0 +1,5 @@
+{
+    "name": "LSP Setup",
+    "description": "Checks which servers from settings/lsp.json are on PATH and turns a missing one into a workspace task, since installing one usually runs longer than a plugin call is allowed to block for.",
+    "permissions": ["exec", "read", "write", "ui"]
+}

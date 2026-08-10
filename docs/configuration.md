@@ -44,7 +44,10 @@ from the server named here.
 
 A server is started the first time you open a file it claims, never before, and
 is stopped when Thor exits. A server that is not installed simply never starts
-and the language stays a plain text file.
+and the language stays a plain text file. The bundled **LSP Setup** top-bar
+menu checks which of the servers below are on `PATH` and, for a missing one,
+adds a workspace task that installs it (see
+[`plugins/lsp-setup`](../plugins/lsp-setup/plugin.lua)).
 
 Entries shipped by default: `clangd`, `rust-analyzer`, `gopls`, `pyright`,
 `typescript`, `lua-language-server` and `zls`.

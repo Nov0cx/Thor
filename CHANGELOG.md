@@ -18,6 +18,7 @@ First release. Thor runs on Windows, Linux and macOS.
 - Settings view redesigned: a category sidebar replaces the single scrollable list, with a search box and a General/Workspace scope switch that writes to `settings/` or the workspace `.thor/` explicitly.
 - Settings has a close button, a keyboard-hint footer, and a button that empties the search box.
 - The Settings window keeps one size, so a scope or category switch no longer resizes it under the cursor.
+- "LSP Setup" top-bar menu: checks which servers from `settings/lsp.json` are on `PATH` and adds a workspace task that installs a missing one.
 - Settings rows light up under the cursor, number steppers are spaced apart, and a keybinding shows its chord as a key cap.
 - Clicking the Thor logo at the top left of the titlebar opens Settings.
 - A welcome page opens when no folder or file is given and no past session is found: `Open Folder`, `Open File` and a recent-workspaces list. The explorer, tab bar and console panel stay hidden until a workspace opens.
