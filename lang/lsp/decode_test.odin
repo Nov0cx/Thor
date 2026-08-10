@@ -1,6 +1,7 @@
 package lsp
 
 import "core:encoding/json"
+import "core:strings"
 import "core:testing"
 
 import lang ".."
@@ -741,6 +742,43 @@ test_decode_publish_diagnostics :: proc(t: ^testing.T) {
     testing.expect_value(t, res.report.items[1].severity, lang.Diagnostic_Severity.Warning)
 }
 
+// A publish also caches each diagnostic verbatim on the Document, `code`
+// included — the seam's own lang.Diagnostic drops it, but a codeAction request
+// needs it back to get a server like pyright to offer a fix that depends on it.
+@(test)
+test_decode_publish_diagnostics_caches_verbatim :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    doc := held_document(s, FILE, SOURCE, 7)
+
+    res, decoded := decode_push(
+        s,
+        `{"uri":"` +
+        FILE_URI +
+        `","diagnostics":[` +
+        `{"range":{"start":{"line":0,"character":6},"end":{"line":0,"character":10}},"severity":1,"code":"reportMissingImports","message":"undefined"}]}`,
+    )
+    defer result_release(&res)
+
+    testing.expect(t, decoded, "the push was dropped")
+    testing.expect_value(t, len(doc.diagnostics), 1)
+    if len(doc.diagnostics) != 1 {
+        return
+    }
+    cached := doc.diagnostics[0]
+    testing.expect_value(t, cached.start_line, 0)
+    testing.expect_value(t, cached.start_char, 6)
+    testing.expect_value(t, cached.end_line, 0)
+    testing.expect_value(t, cached.end_char, 10)
+    testing.expect(t, strings.contains(cached.json, `"code":"reportMissingImports"`), "the code field was dropped from the cache")
+
+    // A second publish replaces the cache instead of appending to it.
+    res2, decoded2 := decode_push(s, `{"uri":"` + FILE_URI + `","diagnostics":[]}`)
+    defer result_release(&res2)
+    testing.expect(t, decoded2)
+    testing.expect_value(t, len(doc.diagnostics), 0)
+}
+
 // The protocol's four severities, as the two the editor draws. A diagnostic that
 // named none is an error.
 @(test)
@@ -885,6 +923,30 @@ test_decode_pull_diagnostics :: proc(t: ^testing.T) {
     defer result_release(&clean)
     testing.expect(t, clean.ok)
     testing.expect_value(t, len(clean.report.items), 0)
+}
+
+// A pull report also caches its items verbatim on the Document, the same as a
+// push does, so either diagnostics source can feed a later codeAction request.
+@(test)
+test_decode_pull_diagnostics_caches_verbatim :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    doc := held_document(s, FILE, SOURCE, 1)
+    req := request_for(.Diagnostics, SOURCE, 0)
+
+    res := decode_reply(
+        s,
+        &req,
+        `{"kind":"full","items":[` +
+        `{"range":{"start":{"line":1,"character":6},"end":{"line":1,"character":11}},"severity":2,"code":"unused-import","message":"unused"}]}`,
+    )
+    defer result_release(&res)
+
+    testing.expect_value(t, len(doc.diagnostics), 1)
+    if len(doc.diagnostics) != 1 {
+        return
+    }
+    testing.expect(t, strings.contains(doc.diagnostics[0].json, `"code":"unused-import"`), "the code field was dropped from the cache")
 }
 
 // An "unchanged" report carries no items, so it answers nothing rather than

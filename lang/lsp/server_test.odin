@@ -1070,6 +1070,58 @@ test_server_code_actions_resolve_round_trip :: proc(t: ^testing.T) {
     testing.expect(t, fake_sent(&f, `"data":{"id":7}`), "the resolve params did not echo the action back")
 }
 
+// A pushed diagnostic is threaded into the next codeAction request's context —
+// what lets a server (pyright, notably) offer a fix that depends on seeing its
+// own diagnostic there, "add missing import" chief among them. One outside the
+// requested range is left out.
+@(test)
+test_server_code_actions_diagnostics_context :: proc(t: ^testing.T) {
+    f: Fake
+    s := fake_server(&f, CAPS_ALL)
+    defer fake_end(&f, s)
+    defer free_all(context.temp_allocator)
+    f.by_method["textDocument/codeAction"] = `[]`
+
+    server_notify(s, .Opened, SOURCE, ".fake", BUFFER, 1)
+    testing.expect(t, wait_sent(&f, `"method":"textDocument/didOpen"`), "didOpen never arrived")
+
+    mock_frame(
+        &f.mock,
+        `{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"` +
+        SOURCE_URI +
+        `","diagnostics":[` +
+        `{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"severity":1,"code":"reportMissingImports","message":"in range"},` +
+        `{"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":5}},"severity":1,"code":"unrelated","message":"out of range"}` +
+        `]}}`,
+    )
+    diag: lang.Result
+    testing.expect(t, wait_push(s, &diag), "the diagnostics push never reached the queue")
+    server_drop_push(s, &diag)
+
+    req := lang.Request {
+        kind     = .Code_Actions,
+        path     = SOURCE,
+        ext      = ".fake",
+        source   = BUFFER, // "alpha beta\ngamma"
+        offset   = 0,
+        end      = 5, // "alpha" selected, overlapping only the first diagnostic
+        revision = 1,
+    }
+    res := lang.Result{kind = .Code_Actions}
+    request_answer(s, &req, &res)
+
+    testing.expect(
+        t,
+        fake_sent(&f, `"code":"reportMissingImports"`),
+        "the overlapping diagnostic never reached the codeAction request",
+    )
+    testing.expect(
+        t,
+        !fake_sent(&f, `"code":"unrelated"`),
+        "a diagnostic outside the requested range leaked into the codeAction request",
+    )
+}
+
 // req.end == req.offset (the zero value outside a selection) sends the same
 // zero-width range as before; a real selection sends its actual span.
 @(test)

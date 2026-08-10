@@ -1450,6 +1450,20 @@ Landed since (M9):
       `thor_update_workspace_symbols` passes it only for the needs-query,
       not-yet-typed case; a genuinely empty result after typing still reads
       as "no matches", same as every other fuzzy search.
+- [x] `codeAction` requests carry live diagnostics instead of a hardcoded
+      `context.diagnostics: []` — a server that only offers a fix when it sees
+      its own diagnostic in the request (pyright's "add missing import") never
+      offered it otherwise, so `codeAction/resolve` never had anything to
+      resolve. Each `Document` caches its last publish/pull diagnostics
+      verbatim (`Cached_Diagnostic`, `lang/lsp/document.odin`); the pull and
+      push decoders (`decode_pull_diagnostics`, `decode_publish_diagnostics`)
+      replace the cache under `docs_mutex`. `server_code_action_diagnostics`
+      (`server.odin`) filters it to the diagnostics overlapping the request's
+      range (inclusive at the edges, so a zero-width caret still matches a
+      diagnostic that starts or ends exactly there) and joins their JSON
+      verbatim into the outgoing request — deliberately not through the
+      seam's own `lang.Diagnostic`, which coarsens severity and drops `code`,
+      the field a server like pyright keys its fixes on.
 
 Still to add: nothing from the M9 list — it is complete.
 

@@ -28,7 +28,19 @@ Document :: struct {
     // a delta the cache disagreed with (see server_clear_semantic).
     semantic_data:      []i64, // owned; the flat, delta-encoded token array
     semantic_result_id: string, // owned
+    // The last publish/pull diagnostics for this document, kept verbatim so a
+    // codeAction request can replay the ones overlapping its range back to the
+    // server — a server (pyright, notably) that gates a fix like "add missing
+    // import" on seeing its own diagnostic in the request otherwise never
+    // offers it.
+    diagnostics: [dynamic]Cached_Diagnostic, // owned
     allocator: runtime.Allocator,
+}
+
+// One diagnostic as last reported for this document.
+Cached_Diagnostic :: struct {
+    start_line, start_char, end_line, end_char: int,
+    json: string, // owned; the diagnostic object exactly as the server sent it
 }
 
 // A document at version 1, not yet sent.
@@ -59,6 +71,10 @@ document_destroy :: proc(doc: ^Document) {
     delete(doc.text, doc.allocator)
     delete(doc.semantic_data, doc.allocator)
     delete(doc.semantic_result_id, doc.allocator)
+    for d in doc.diagnostics {
+        delete(d.json, doc.allocator)
+    }
+    delete(doc.diagnostics)
     doc^ = {}
 }
 

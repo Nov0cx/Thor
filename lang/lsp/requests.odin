@@ -178,9 +178,23 @@ request_params :: proc(ask: ^Ask) -> string {
         append(&out, `,"newName":`)
         write_quoted(&out, ask.req.new_name)
     case .Code_Actions:
-        // No live diagnostics are threaded into Ask; a server that needs one to
-        // offer a fix (e.g. "add missing import") sees none. Documented v1 gap.
-        append(&out, `,"context":{"diagnostics":[]}`)
+        // A server that gates a fix on seeing its own diagnostic (pyright's
+        // "add missing import") needs it echoed back here; the cache is kept
+        // per-document by document_replace_diagnostics.
+        start_line, start_character := position_from_offset(&ask.lines, ask.req.offset)
+        end_line, end_character := position_from_offset(&ask.lines, ask.req.end)
+        diagnostics := server_code_action_diagnostics(
+            ask.server,
+            ask.req.path,
+            start_line,
+            start_character,
+            end_line,
+            end_character,
+            context.temp_allocator,
+        )
+        append(&out, `,"context":{"diagnostics":[`)
+        append(&out, diagnostics)
+        append(&out, `]}`)
     }
     append(&out, `}`)
     return string(out[:])

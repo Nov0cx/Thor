@@ -307,6 +307,11 @@ decode_pull_diagnostics :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result)
         append(&res.report.items, diagnostic)
     }
     res.ok = true
+
+    sync.guard(&ask.server.docs_mutex)
+    if doc, held := server_find(ask.server, ask.req.path); held {
+        document_replace_diagnostics(doc, items)
+    }
 }
 
 // `textDocument/publishDiagnostics`, the one result no request asked for. A file
@@ -353,6 +358,7 @@ decode_publish_diagnostics :: proc(s: ^Server, params: json.Value) -> (lang.Resu
         }
         append(&res.report.items, diagnostic)
     }
+    document_replace_diagnostics(doc, items)
     return res, true
 }
 
@@ -428,6 +434,38 @@ decode_one_diagnostic :: proc(lines: ^Line_Index, path: string, value: json.Valu
             message = strings.clone(string(message)),
         },
         true
+}
+
+// Replaces `doc`'s cached diagnostics with `items`, verbatim, for a later
+// codeAction request to replay. An item with no valid range is dropped: it
+// could never overlap a request range anyway.
+@(private)
+document_replace_diagnostics :: proc(doc: ^Document, items: json.Array) {
+    for old in doc.diagnostics {
+        delete(old.json, doc.allocator)
+    }
+    clear(&doc.diagnostics)
+    for item in items {
+        object, is_object := item.(json.Object)
+        if !is_object {
+            continue
+        }
+        start_line, start_char, end_line, end_char, has_range := range_of(object["range"])
+        if !has_range {
+            continue
+        }
+        text := json_text(item, doc.allocator)
+        if text == "" {
+            continue
+        }
+        append(&doc.diagnostics, Cached_Diagnostic {
+            start_line  = start_line,
+            start_char  = start_char,
+            end_line    = end_line,
+            end_char    = end_char,
+            json        = text,
+        })
+    }
 }
 
 // The delta-encoded 5-tuples of `textDocument/semanticTokens/full`, or a

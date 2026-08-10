@@ -778,6 +778,43 @@ server_clear_semantic :: proc(s: ^Server, path: string) {
     doc.semantic_result_id = ""
 }
 
+// The cached diagnostics for `path` that overlap `[start,end)`, joined as the
+// inner text of a JSON array (e.g. `{"...":...},{"...":...}`), or "" when the
+// document is unknown or nothing overlaps. Overlap is inclusive at the edges,
+// so a zero-width caret range still matches a diagnostic that starts or ends
+// exactly there. Cloned out under docs_mutex like every other accessor here.
+@(private)
+server_code_action_diagnostics :: proc(s: ^Server, path: string, start_line, start_char, end_line, end_char: int, allocator := context.allocator) -> string {
+    sync.guard(&s.docs_mutex)
+    doc, found := server_find(s, path)
+    if !found {
+        return ""
+    }
+    parts := make([dynamic]string, context.temp_allocator)
+    for d in doc.diagnostics {
+        if position_after(d.start_line, d.start_char, end_line, end_char) {
+            continue
+        }
+        if position_after(start_line, start_char, d.end_line, d.end_char) {
+            continue
+        }
+        append(&parts, d.json)
+    }
+    if len(parts) == 0 {
+        return ""
+    }
+    return strings.clone(strings.join(parts[:], ",", context.temp_allocator), allocator)
+}
+
+// True when (a_line, a_char) is strictly after (b_line, b_char).
+@(private)
+position_after :: proc(a_line, a_char, b_line, b_char: int) -> bool {
+    if a_line != b_line {
+        return a_line > b_line
+    }
+    return a_char > b_char
+}
+
 @(private)
 server_send_open :: proc(s: ^Server, doc: ^Document, language_id: string) {
     if s.caps.open_close {
