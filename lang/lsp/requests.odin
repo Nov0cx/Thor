@@ -53,6 +53,10 @@ Ask :: struct {
     lines:  Line_Index, // over req.source, in the encoding the server counts in
     texts:  map[string]string,      // path -> LF-collapsed source; one read per file
     raws:   map[string]^Line_Index, // path -> index over the raw disk bytes; nil marks an unreadable file
+    // Semantic_Tokens only: set when the server supports delta and this file
+    // has a cached resultId, which is what turns the request into
+    // .../full/delta instead of .../full.
+    semantic_previous_result_id: string,
 }
 
 // Sends one request and fills `res` from the reply. A kind with no method, a
@@ -79,6 +83,15 @@ request_answer :: proc(s: ^Server, req: ^lang.Request, res: ^lang.Result) {
         lines  = line_index_build(req.source, s.caps.encoding, context.temp_allocator),
         texts  = make(map[string]string, allocator = context.temp_allocator),
         raws   = make(map[string]^Line_Index, allocator = context.temp_allocator),
+    }
+
+    // A cached resultId turns this into a delta request — cheaper for the
+    // server to answer and for us to decode, on every keystroke's re-fetch.
+    if req.kind == .Semantic_Tokens && s.caps.token_delta {
+        if id := server_semantic_result_id(s, req.path, context.temp_allocator); id != "" {
+            ask.semantic_previous_result_id = id
+            method = "textDocument/semanticTokens/full/delta"
+        }
     }
 
     // A server that advertises prepareProvider gets one veto before the rename
@@ -122,7 +135,12 @@ request_params :: proc(ask: ^Ask) -> string {
     append(&out, `}`)
 
     #partial switch ask.req.kind {
-    case .Document_Symbols, .Semantic_Tokens, .Diagnostics:
+    case .Document_Symbols, .Diagnostics:
+    case .Semantic_Tokens:
+        if ask.semantic_previous_result_id != "" {
+            append(&out, `,"previousResultId":`)
+            write_quoted(&out, ask.semantic_previous_result_id)
+        }
     case .Code_Actions:
         // Request carries only a caret offset, no selection end (lang.odin), so
         // a zero-width range at the caret goes out; a selection-scoped action

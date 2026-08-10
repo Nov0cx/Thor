@@ -23,6 +23,11 @@ Document :: struct {
     // event that carries an older one is already in the server's copy.
     revision:  u64,
     open:      bool, // didOpen was sent and didClose was not
+    // The last full semanticTokens reply, kept so the next request can ask for
+    // a delta instead of the whole list; nil/"" until the first fetch, or after
+    // a delta the cache disagreed with (see server_clear_semantic).
+    semantic_data:      []i64, // owned; the flat, delta-encoded token array
+    semantic_result_id: string, // owned
     allocator: runtime.Allocator,
 }
 
@@ -52,6 +57,8 @@ document_destroy :: proc(doc: ^Document) {
     delete(doc.uri, doc.allocator)
     delete(doc.path, doc.allocator)
     delete(doc.text, doc.allocator)
+    delete(doc.semantic_data, doc.allocator)
+    delete(doc.semantic_result_id, doc.allocator)
     doc^ = {}
 }
 

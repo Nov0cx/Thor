@@ -20,6 +20,7 @@ import "base:runtime"
 import "core:log"
 import "core:os"
 import "core:path/filepath"
+import "core:slice"
 import "core:strings"
 import "core:sync"
 import "core:thread"
@@ -580,6 +581,64 @@ server_document_text :: proc(s: ^Server, path: string, allocator := context.allo
         return "", false
     }
     return strings.clone(doc.text, allocator), true
+}
+
+// The document's cached resultId from its last full or delta semanticTokens
+// reply, cloned under docs_mutex — "" when there is none yet (never fetched,
+// or dropped by server_clear_semantic). Empty when the document isn't open.
+@(private)
+server_semantic_result_id :: proc(s: ^Server, path: string, allocator := context.allocator) -> string {
+    sync.guard(&s.docs_mutex)
+    doc, found := server_find(s, path)
+    if !found || doc.semantic_result_id == "" {
+        return ""
+    }
+    return strings.clone(doc.semantic_result_id, allocator)
+}
+
+// The document's cached flat token array, cloned under docs_mutex — what a
+// delta reply's edits are applied against.
+@(private)
+server_semantic_data :: proc(s: ^Server, path: string, allocator := context.allocator) -> []i64 {
+    sync.guard(&s.docs_mutex)
+    doc, found := server_find(s, path)
+    if !found {
+        return nil
+    }
+    return slice.clone(doc.semantic_data, allocator)
+}
+
+// Replaces the document's cached semanticTokens state after a full or delta
+// reply decodes cleanly, so the *next* request for this file can ask for a
+// delta. No-op when the document has since closed.
+@(private)
+server_store_semantic :: proc(s: ^Server, path: string, data: []i64, result_id: string) {
+    sync.guard(&s.docs_mutex)
+    doc, found := server_find(s, path)
+    if !found {
+        return
+    }
+    delete(doc.semantic_data, doc.allocator)
+    doc.semantic_data = slice.clone(data, doc.allocator)
+    delete(doc.semantic_result_id, doc.allocator)
+    doc.semantic_result_id = strings.clone(result_id, doc.allocator)
+}
+
+// Drops the document's cached semanticTokens state — the server's delta
+// disagreed with what we cached (a restart, most likely), so the next request
+// asks for `full` again instead of feeding a bad array back into another
+// delta. No-op when the document has since closed.
+@(private)
+server_clear_semantic :: proc(s: ^Server, path: string) {
+    sync.guard(&s.docs_mutex)
+    doc, found := server_find(s, path)
+    if !found {
+        return
+    }
+    delete(doc.semantic_data, doc.allocator)
+    doc.semantic_data = nil
+    delete(doc.semantic_result_id, doc.allocator)
+    doc.semantic_result_id = ""
 }
 
 @(private)

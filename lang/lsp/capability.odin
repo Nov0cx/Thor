@@ -47,6 +47,7 @@ Capabilities :: struct {
     prepare_rename:   bool,     // renameProvider.prepareProvider
     resolve_actions:  bool,     // codeActionProvider.resolveProvider
     token_legend:     []Token_Legend_Entry, // owned; indexed by the server's tokenTypes
+    token_delta:      bool,     // semanticTokensProvider.full.delta: the /full/delta method may be asked for
     allocator:        runtime.Allocator,    // what built token_legend
 }
 
@@ -134,11 +135,17 @@ encoding_of :: proc(advertised: json.Object) -> Encoding {
 // The semantic-token legend: the server's own list of token type names, which is
 // what the indices of a token stream point into. A server that sends no legend
 // gets no tokens read, since an index into a missing list names nothing.
+// `full` is a bare `true` (full only) or `{"delta": true}` (full and delta).
 @(private)
 decode_legend :: proc(caps: ^Capabilities, value: json.Value) {
     options, ook := value.(json.Object)
     if !ook {
         return
+    }
+    if full, fok := options["full"].(json.Object); fok {
+        if flag, dok := full["delta"].(json.Boolean); dok {
+            caps.token_delta = bool(flag)
+        }
     }
     legend, lok := options["legend"].(json.Object)
     if !lok {

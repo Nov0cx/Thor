@@ -24,5 +24,7 @@ First release. Thor runs on Windows, Linux and macOS.
 - `File: Close Workspace` returns to the welcome page from an open workspace, from the File menu or the command palette.
 - Console panel: click and drag to select scrollback text. `ctrl + shift + c` copies the selection, or the whole scrollback with nothing selected; `ctrl + v` pastes into the input line. The right-click menu gained "Copy" next to "Copy All".
 - Language servers answer for every language other than Odin: hover, go to definition, find all references, document symbols, workspace symbols, signature help, completion, diagnostics, semantic colors, rename and code actions. `settings/lsp.json` names the servers, and a workspace `.thor/lsp.json` overlays it by server `id`.
-- A language server's errors and warnings are drawn in the editor as the Odin compiler's are, against the unsaved buffer. Workspace symbols are asked for with an empty query, so a server that answers one with nothing lists nothing.
+- A language server's errors and warnings are drawn in the editor as the Odin compiler's are, against the unsaved buffer.
 - `clangd`, `rust-analyzer`, `gopls`, `pyright`, `typescript-language-server`, `lua-language-server` and `zls` are configured out of the box. A server starts the first time a file it claims is opened, and a server that is not installed is skipped.
+- Workspace symbols (`ctrl + q`) send the typed text to the language server as you type, instead of only filtering a fixed list.
+- Opening a different folder restarts its language servers against the new `settings/lsp.json` / `.thor/lsp.json`, instead of leaving the previous folder's servers running.

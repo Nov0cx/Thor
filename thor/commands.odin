@@ -91,7 +91,7 @@ thor_apply_settings :: proc(thor: ^Thor) {
     if kb, ok := setting.keybind(&thor.config, "goto_workspace_symbol"); ok {
         thor.goto_workspace_symbol_key = kb
     } else {
-        thor.goto_workspace_symbol_key = setting.Keybind {key = .T, ctrl = true}
+        thor.goto_workspace_symbol_key = setting.Keybind {key = .Q, ctrl = true}
     }
     if kb, ok := setting.keybind(&thor.config, "find_references"); ok {
         thor.find_references_key = kb
@@ -108,12 +108,10 @@ thor_apply_settings :: proc(thor: ^Thor) {
     } else {
         thor.package_doc_key = setting.Keybind {key = .F3}
     }
-    // Ctrl+Shift+., not the conventional Ctrl+.: that one already opens the
-    // command palette.
     if kb, ok := setting.keybind(&thor.config, "code_actions"); ok {
         thor.code_actions_key = kb
     } else {
-        thor.code_actions_key = setting.Keybind {key = .PERIOD, ctrl = true, shift = true}
+        thor.code_actions_key = setting.Keybind {key = .U, ctrl = true, shift = true}
     }
     // Ctrl+Alt+Left/Right, not the browsers' plain Alt+Left/Right: those two are
     // already line_start / line_end.

@@ -1190,7 +1190,8 @@ its tests pass, and nothing regresses.
       - [x] A real `workspace/symbol` query, via a `query` field on
             `Request`/`Pending` and a `Command_Palette.on_query_changed`
             hook — see `ROADMAP.md`'s "Landed since (M9)" note.
-      - [ ] `semanticTokens/full/delta`.
+      - [x] `semanticTokens/full/delta`, resolved entirely inside `lang/lsp`
+            — see `ROADMAP.md`'s "Landed since (M9)" note.
       - [ ] `$/progress` into the existing statusline busy indicator.
       - [ ] `workspace/applyEdit` routed through the push channel.
       - [ ] A selection range on `Request`, unlocking selection-scoped code

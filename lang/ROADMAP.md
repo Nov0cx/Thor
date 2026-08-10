@@ -293,7 +293,7 @@ lowest latency.
   which reuses the same `collect_defs` walk goto uses). Choosing a row jumps to
   the declaration. Parameters, struct fields and the package/import namespace are
   excluded; rows are sorted by position.
-- **Workspace symbols:** Ctrl+T lists *every* top-level declaration across the
+- **Workspace symbols:** Ctrl+Q lists *every* top-level declaration across the
   whole workspace in the same picker (`Workspace_Symbols` request →
   `collect_workspace_symbols`, an on-demand scan of every `.odin` file, the live
   buffer's unsaved edits first). Rows are sorted by name; choosing one opens the
@@ -713,7 +713,7 @@ lowest latency.
       `pkg.` completion, base:runtime) is always foreign. Goto, hover,
       completion, signature help, the type locator and the package-doc page all
       filter; the builtin cache drops base:runtime's private helpers.
-      **Ctrl+T does not**, deliberately — the workspace symbol picker is
+      **Ctrl+Q does not**, deliberately — the workspace symbol picker is
       navigation, not name resolution, and a private declaration is still a place
       to jump to.
 
@@ -757,7 +757,7 @@ lowest latency.
 - [x] **Document symbols / outline.** Ctrl+Shift+O; `Document_Symbols` request
       served by `collect_document_symbols` (reuses `collect_defs`), shown in the
       palette's fuzzy picker. Top-level only — no nested/`using` members yet.
-- [x] **Workspace symbols.** Ctrl+T; `Workspace_Symbols` request served by
+- [x] **Workspace symbols.** Ctrl+Q; `Workspace_Symbols` request served by
       `collect_workspace_symbols` (on-demand scan reusing `collect_defs`), shown in
       the palette's rich fuzzy picker. Top-level only, re-scanned each open.
 - [x] **Code folding.** Grammar-agnostic, served outside this seam: `syntax.fold_ranges`
@@ -1086,7 +1086,7 @@ lowest latency.
       live-file overlay and result-shaping). *Done* — the whole-workspace scanners
       now query the index: `resolve_definition_workspace` (cross-file goto),
       `scan_workspace` (hover — index locates the file, then one re-parse for the
-      full declaration text), `collect_workspace_symbols` (Ctrl+T), and
+      full declaration text), `collect_workspace_symbols` (Ctrl+Q), and
       `resolve_call_target`'s workspace fallback (signature help). The dead walkers
       (`def_scan_*`, `scan_dir`, `collect_symbols_dir/file`, `find_proc_dir`) were
       removed. `complete_dir_toplevel` (completion's sibling-package scan, the last
@@ -1385,7 +1385,7 @@ Landed since (M9):
       `Pending` copy); `manager_request`/`_latest`/`_debounced` all take it.
       `lang/lsp/requests.odin` sends `req.query` instead of the hardcoded
       `""`; the in-client Odin backend still ignores it and keeps its full
-      scan. Ctrl+T's opening fetch is unchanged (empty query, client-side
+      scan. Ctrl+Q's opening fetch is unchanged (empty query, client-side
       fuzzy filter); `widgets.Command_Palette` gained an `on_query_changed`
       hook, fired on an actual keystroke and never on the reset a picker
       opens with, that `thor_goto_workspace_symbol` wires to
@@ -1395,6 +1395,21 @@ Landed since (M9):
       empty result from a *typing*-triggered re-dispatch
       (`Thor.workspace_symbols_typing`) empties the list rather than closing
       the picker the way an empty *initial* scan still does.
+- [x] `semanticTokens/full/delta`. `Capabilities.token_delta` decodes
+      `semanticTokensProvider.full.delta`; each `Document` caches the flat
+      delta-encoded array and `resultId` from its last reply
+      (`server_store_semantic`/`server_semantic_data`/
+      `server_semantic_result_id`, all under `docs_mutex`). A request for a
+      file with a cached id asks `.../full/delta` with `previousResultId`
+      instead of `.../full`; `decode.odin`'s `apply_semantic_edits` splices
+      each edit against the array the edit before it left, in the order the
+      protocol defines. Resolved entirely inside `lang/lsp` — `res.tokens`
+      leaving the package is always the same full, absolute list a `full`
+      reply decodes to, delta or not, so neither the seam nor
+      `thor_update_semantic` changed. An edit whose range falls outside the
+      cached array (a restart) answers nothing and drops the cache
+      (`server_clear_semantic`), so the next request asks for `full` again
+      instead of feeding a bad array into another delta.
 
 Still to add: nothing from the M9 list above — see `LSP_PLAN.md`'s remaining
 follow-ups (`$/progress`, `workspace/applyEdit`, a selection range on

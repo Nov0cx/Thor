@@ -386,31 +386,57 @@ decode_one_diagnostic :: proc(lines: ^Line_Index, path: string, value: json.Valu
         true
 }
 
-// The delta-encoded 5-tuples of `textDocument/semanticTokens/full`, read against
-// the legend the server advertised. Output is ascending and non-overlapping: the
-// editor merges it with the grammar's spans using one forward-only cursor.
+// The delta-encoded 5-tuples of `textDocument/semanticTokens/full`, or a
+// `.../full/delta` reply's edits applied against the cached array from the
+// previous fetch, read against the legend the server advertised. Output is
+// ascending and non-overlapping: the editor merges it with the grammar's
+// spans using one forward-only cursor.
+//
+// The reply's own resultId and flat integer array are cached on the Document
+// (server_store_semantic) so the *next* request for this file can ask for a
+// delta instead of the whole list — resolved entirely inside this package:
+// what leaves it (`res.tokens`) is always the same full, absolute list it
+// always was, delta or not.
 @(private)
 decode_semantic_tokens :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
     object, is_object := value.(json.Object)
     if !is_object {
         return
     }
-    data, is_array := object["data"].(json.Array)
     legend := ask.server.caps.token_legend
-    if !is_array || len(data) < 5 || len(legend) == 0 {
+    if len(legend) == 0 {
         return
+    }
+
+    result_id := ""
+    if id, iok := object["resultId"].(json.String); iok {
+        result_id = string(id)
+    }
+
+    data: []i64
+    if edits, eok := object["edits"].(json.Array); eok {
+        prev := server_semantic_data(ask.server, ask.req.path, context.temp_allocator)
+        merged, ok := apply_semantic_edits(prev, edits, context.temp_allocator)
+        if !ok {
+            server_clear_semantic(ask.server, ask.req.path)
+            return
+        }
+        data = merged
+    } else if raw, dok := object["data"].(json.Array); dok {
+        data = decode_int_array(raw, context.temp_allocator)
+    } else {
+        return
+    }
+
+    if result_id != "" {
+        server_store_semantic(ask.server, ask.req.path, data, result_id)
     }
 
     res.tokens = make([dynamic]lang.Semantic_Token)
     line, character := 0, 0
     for index := 0; index + 4 < len(data); index += 5 {
-        delta_line, has_line := number(data[index])
-        delta_char, has_char := number(data[index + 1])
-        length, has_length := number(data[index + 2])
-        entry, has_entry := number(data[index + 3])
-        if !has_line || !has_char || !has_length || !has_entry {
-            break
-        }
+        delta_line, delta_char := data[index], data[index + 1]
+        length, entry := data[index + 2], data[index + 3]
         if delta_line > 0 {
             line += int(delta_line)
             character = int(delta_char)
@@ -431,6 +457,58 @@ decode_semantic_tokens :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) 
         append(&res.tokens, lang.Semantic_Token{start = start, end = end, kind = legend[entry].kind})
     }
     res.ok = len(res.tokens) > 0
+}
+
+// Reads a JSON array of whole numbers into an int64 slice; a non-number entry
+// truncates the read there rather than mixing a short array with garbage.
+@(private)
+decode_int_array :: proc(arr: json.Array, allocator := context.allocator) -> []i64 {
+    out := make([dynamic]i64, 0, len(arr), allocator)
+    for v in arr {
+        n, ok := number(v)
+        if !ok {
+            break
+        }
+        append(&out, n)
+    }
+    return out[:]
+}
+
+// Applies a SemanticTokensDelta's edits to the previous flat token array, each
+// edit's start/deleteCount read against the array as the edit *before* it left
+// it — the sequence the protocol defines, so out-of-order or overlapping
+// interpretations never arise. False on any edit whose range falls outside the
+// array at that point, which means the cached array and the server's edits
+// have desynchronised and neither can be trusted further.
+@(private)
+apply_semantic_edits :: proc(prev: []i64, edits: json.Array, allocator := context.allocator) -> ([]i64, bool) {
+    result := make([dynamic]i64, len(prev), allocator)
+    copy(result[:], prev)
+    for e in edits {
+        obj, ook := e.(json.Object)
+        if !ook {
+            delete(result)
+            return nil, false
+        }
+        start, sok := number(obj["start"])
+        count, cok := number(obj["deleteCount"])
+        if !sok || !cok || start < 0 || count < 0 {
+            delete(result)
+            return nil, false
+        }
+        at, dc := int(start), int(count)
+        if at > len(result) || at + dc > len(result) {
+            delete(result)
+            return nil, false
+        }
+        insert: []i64
+        if raw, dok := obj["data"].(json.Array); dok {
+            insert = decode_int_array(raw, context.temp_allocator)
+        }
+        remove_range(&result, at, at + dc)
+        inject_at(&result, at, ..insert)
+    }
+    return result[:], true
 }
 
 // `WorkspaceEdit` from textDocument/rename. Sorted ascending by (path, start),

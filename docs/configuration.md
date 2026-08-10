@@ -66,12 +66,11 @@ A server claims an extension all-or-nothing, so overriding `.odin` also gives up
 what only the built-in support has: `Package_Doc` (`f3`) has no LSP equivalent,
 and the `.thor/odin-analyzer.json` collection mechanism goes with it.
 
-Known limitations: workspace symbols (`ctrl + t`) are sent with an empty
-query, so a server that only answers a non-empty one (clangd, gopls) lists
-nothing; document sync sends the whole file on every change, not an
-incremental diff; there is no formatting support; and this table is read once
-when a workspace opens, so editing `settings/lsp.json` or `.thor/lsp.json`
-needs the workspace reopened to take effect.
+Known limitations: there is no formatting support, and this table is read
+when a workspace opens — including switching to a different folder, which
+restarts the servers for the new root — so editing `settings/lsp.json` or
+`.thor/lsp.json` for the workspace you already have open still needs it
+reopened to take effect.
 
 ## `settings/comments.json`
 

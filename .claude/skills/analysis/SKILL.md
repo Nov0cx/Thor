@@ -128,7 +128,8 @@ against the last run:
 ## 4. Code style deviations from CLAUDE.md
 ## 5. Slow / inefficient code    <- lead with the one finding that compounds across layers
 ## 6. List unnecessary or redundant tests
-## 7. Methodology     <- the partition, what was verified, and the commit the line numbers match
+## 7. Keybinds not matching default and default in code
+## 8. Methodology     <- the partition, what was verified, and the commit the line numbers match
 ```
 
 Every finding carries its `file:line`. Close section 6 by naming the commit the line numbers were

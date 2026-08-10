@@ -97,7 +97,7 @@ thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
         thor_goto_symbol(thor)
         return true
     }
-    // Go to symbol in workspace (Ctrl+T) lists every top-level symbol in the tree.
+    // Go to symbol in workspace (Ctrl+Q) lists every top-level symbol in the tree.
     if setting.keybind_matches(thor.goto_workspace_symbol_key, event.key, event.ctrl, event.shift, event.alt) {
         thor_goto_workspace_symbol(thor)
         return true

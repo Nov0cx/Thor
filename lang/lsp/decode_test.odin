@@ -589,6 +589,77 @@ test_decode_semantic_tokens_without_a_legend :: proc(t: ^testing.T) {
     testing.expect(t, !res.ok, "no legend means no tokens")
 }
 
+// A full reply carrying a resultId caches it, and the flat array it decoded,
+// on the document — what turns the *next* request into a delta one.
+@(test)
+test_decode_semantic_tokens_caches_result_id :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    held_legend(s, {"variable", "function"})
+    held_document(s, FILE, "", 0)
+    req := request_for(.Semantic_Tokens, SOURCE)
+
+    res := decode_reply(s, &req, `{"resultId":"r1","data":[0,0,5,0,0, 0,6,4,1,0]}`)
+    defer result_release(&res)
+
+    testing.expect(t, res.ok)
+    id := server_semantic_result_id(s, FILE, context.temp_allocator)
+    testing.expect_value(t, id, "r1")
+    data := server_semantic_data(s, FILE, context.temp_allocator)
+    testing.expect_value(t, len(data), 10)
+}
+
+// A delta reply's edits apply against the cached array from the previous
+// fetch, and the merged, decoded result is the same shape a `full` reply of
+// the same content would give.
+@(test)
+test_decode_semantic_tokens_delta :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    held_legend(s, {"variable", "function"})
+    held_document(s, FILE, "", 0)
+    req := request_for(.Semantic_Tokens, SOURCE)
+
+    full := decode_reply(s, &req, `{"resultId":"r1","data":[0,0,5,0,0, 0,6,4,1,0]}`)
+    result_release(&full)
+
+    // Appends a third token — line 1, "gamma" — without touching the first two.
+    delta := decode_reply(s, &req, `{"resultId":"r2","edits":[{"start":10,"deleteCount":0,"data":[1,0,5,0,0]}]}`)
+    defer result_release(&delta)
+
+    testing.expect(t, delta.ok)
+    testing.expect_value(t, len(delta.tokens), 3)
+    if len(delta.tokens) != 3 {
+        return
+    }
+    testing.expect_value(t, delta.tokens[0], lang.Semantic_Token{start = 0, end = 5, kind = .Local})
+    testing.expect_value(t, delta.tokens[1], lang.Semantic_Token{start = 6, end = 10, kind = .Procedure})
+    testing.expect_value(t, delta.tokens[2], lang.Semantic_Token{start = 11, end = 16, kind = .Local})
+    testing.expect_value(t, server_semantic_result_id(s, FILE, context.temp_allocator), "r2")
+}
+
+// A delta whose edit range falls outside the cached array (a restart changed
+// what the server thinks it sent) answers nothing and drops the cache, so the
+// next request asks for `full` again instead of feeding a bad array back into
+// another delta.
+@(test)
+test_decode_semantic_tokens_delta_mismatch_clears_cache :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    held_legend(s, {"variable", "function"})
+    held_document(s, FILE, "", 0)
+    req := request_for(.Semantic_Tokens, SOURCE)
+
+    full := decode_reply(s, &req, `{"resultId":"r1","data":[0,0,5,0,0, 0,6,4,1,0]}`)
+    result_release(&full)
+
+    bad := decode_reply(s, &req, `{"resultId":"r2","edits":[{"start":999,"deleteCount":0,"data":[]}]}`)
+    defer result_release(&bad)
+
+    testing.expect(t, !bad.ok, "an out-of-range edit must not produce tokens")
+    testing.expect_value(t, server_semantic_result_id(s, FILE, context.temp_allocator), "")
+}
+
 // Every kind, given a reply of the wrong shape, finds nothing and leaks nothing.
 @(test)
 test_decode_refuses_a_bad_reply :: proc(t: ^testing.T) {

@@ -264,7 +264,7 @@ index_find_defs :: proc(
 // type, enum, constant, var — the outline set), excluding the live file `skip`
 // whose decls the caller already collected from the unsaved buffer.
 //
-// Visibility is deliberately not applied here. Ctrl+T is navigation, not name
+// Visibility is deliberately not applied here. Ctrl+Q is navigation, not name
 // resolution: a `@(private)` declaration is still a place in the workspace the
 // user wants to jump to, and dropping it would only make it unreachable.
 @(private)
@@ -404,7 +404,7 @@ index_dir_completions :: proc(
 
 // Whether an index row at `path` is in scope for a query confined to the package
 // `dir`. An empty `dir` means the whole workspace, which is what every query that
-// is genuinely workspace-wide (Ctrl+T, the widened fallbacks) passes.
+// is genuinely workspace-wide (Ctrl+Q, the widened fallbacks) passes.
 @(private)
 index_scoped :: proc(path, dir: string) -> bool {
     return dir == "" || path_in_dir(path, dir)

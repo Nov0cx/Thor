@@ -299,7 +299,7 @@ thor_goto_symbol :: proc(thor: ^Thor) {
 
 // Shared by thor_goto_workspace_symbol and thor_workspace_symbol_query_changed:
 // the active buffer's ext/path/source/revision when it names a language Thor
-// covers, or a bare ".odin" scope with no active file so Ctrl+T still works.
+// covers, or a bare ".odin" scope with no active file so Ctrl+Q still works.
 // `source` is a fresh textedit borrow each call, never held past it.
 @(private = "file")
 thor_workspace_symbol_scope :: proc(thor: ^Thor) -> (ext, path, source: string, revision: u64) {
@@ -315,7 +315,7 @@ thor_workspace_symbol_scope :: proc(thor: ^Thor) -> (ext, path, source: string, 
     return
 }
 
-// Ctrl+T: list every top-level symbol across the workspace in a fuzzy picker.
+// Ctrl+Q: list every top-level symbol across the workspace in a fuzzy picker.
 // The active buffer (if it's an Odin file) seeds the request with its unsaved
 // source and path; otherwise the scan runs over the workspace's .odin files with
 // a bare ".odin" extension so it works even with no Odin file focused.
@@ -1378,7 +1378,7 @@ thor_build_reference_items :: proc(thor: ^Thor, res: ^lang.Result) -> []widgets.
 }
 
 // Fills the already-open (loading) workspace-symbol picker once its scan lands.
-// Drops the result if it's superseded by a newer Ctrl+T or the picker has since
+// Drops the result if it's superseded by a newer Ctrl+Q or the picker has since
 // been closed or replaced (command_palette_pick_rich_set is a no-op then). An
 // empty *initial* scan closes the loading picker and flashes instead of leaving
 // it hanging; an empty result re-dispatched by typing just empties the list —
