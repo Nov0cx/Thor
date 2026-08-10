@@ -1020,3 +1020,113 @@ main :: proc() {
     defer free_symbols(&other)
     testing.expect(t, !has_completion(&other, "x"), "a proc value is not the struct it returns")
 }
+
+@(test)
+test_member_or_else :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    // `p := m[k] or_else Point{}` then `p.x`: or_else is type-transparent, so
+    // the member resolves through the left operand's type (the map's element).
+    src := `package demo
+
+Point :: struct {
+	x: int,
+	y: int,
+}
+
+main :: proc() {
+	m: map[string]Point
+	k := "a"
+	p := m[k] or_else Point{}
+	_ = p.x
+}
+`
+    at := strings.index(src, "p.x") + 2
+    loc, ok := resolve_offset(e, src, at)
+    defer delete(loc.path)
+    testing.expect(t, ok, "expected p.x to resolve through the or_else's left operand")
+    if ok {
+        want := strings.index(src, "x: int")
+        testing.expectf(t, loc.start == want, "member start: got %d, want %d", loc.start, want)
+    }
+}
+
+@(test)
+test_member_polymorphic_result :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    // `identity :: proc(v: $T) -> T`: the bare-$T shorthand. At the call site
+    // the result is simply whatever the bound argument itself infers to, so
+    // `identity(p).x` reaches Point's own field.
+    src := `package demo
+
+Point :: struct {
+	x: int,
+	y: int,
+}
+
+identity :: proc(v: $T) -> T {
+	return v
+}
+
+main :: proc() {
+	p := Point{}
+	_ = identity(p).x
+}
+`
+    at := strings.index(src, "identity(p).x") + len("identity(p).")
+    loc, ok := resolve_offset(e, src, at)
+    defer delete(loc.path)
+    testing.expect(t, ok, "expected identity(p).x to resolve through the bound $T")
+    if ok {
+        want := strings.index(src, "x: int")
+        testing.expectf(t, loc.start == want, "member start: got %d, want %d", loc.start, want)
+    }
+}
+
+@(test)
+test_polymorphic_param_bare_shorthand :: proc(t: ^testing.T) {
+    // `proc(v: $T) -> T`: the shorthand this substitution reads.
+    name, index, ok := polymorphic_param("proc(v: $T) -> T")
+    testing.expect(t, ok, "expected the bare $T shorthand to be found")
+    if ok {
+        testing.expectf(t, name == "T", "name: got %q, want T", name)
+        testing.expectf(t, index == 0, "index: got %d, want 0", index)
+    }
+}
+
+@(test)
+test_polymorphic_param_container_not_matched :: proc(t: ^testing.T) {
+    // `proc(xs: []$T) -> T`: $T sits inside a container — left unhandled
+    // rather than guessed, so this must not be read as a bare parameter.
+    _, _, ok := polymorphic_param("proc(xs: []$T) -> T")
+    testing.expect(t, !ok, "a $T inside a container must not match the bare shorthand")
+}
+
+@(test)
+test_polymorphic_param_explicit_form_not_matched :: proc(t: ^testing.T) {
+    // `proc($T: typeid, v: T) -> T`: the leading parameter's type is `typeid`,
+    // not `$T` — a materially different shape this substitution does not read.
+    _, _, ok := polymorphic_param("proc($T: typeid, v: T) -> T")
+    testing.expect(t, !ok, "the explicit $T: typeid form must not match the bare shorthand")
+}
+
+@(test)
+test_bare_result_name_rejects_compound_results :: proc(t: ^testing.T) {
+    // Only a lone identifier result counts: a tuple, a container, a pointer and
+    // a package-qualified name must all be rejected rather than guessed at.
+    _, tok := bare_result_name("proc() -> (a, b: int)")
+    testing.expect(t, !tok, "a tuple result must not be read as a bare name")
+    _, cok := bare_result_name("proc() -> []T")
+    testing.expect(t, !cok, "a container result must not be read as a bare name")
+    _, qok := bare_result_name("proc() -> pkg.T")
+    testing.expect(t, !qok, "a qualified result must not be read as a bare name")
+
+    name, ok := bare_result_name("proc() -> T")
+    testing.expect(t, ok, "expected a lone identifier result to be read")
+    if ok {
+        testing.expectf(t, name == "T", "got %q, want T", name)
+    }
+}

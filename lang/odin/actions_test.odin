@@ -3,8 +3,12 @@
 // matters is the code the user ends up with.
 package odin
 
+import "core:os"
+import "core:path/filepath"
 import "core:strings"
 import "core:testing"
+
+import lang ".."
 
 @(test)
 test_remove_unused_import :: proc(t: ^testing.T) {
@@ -127,6 +131,106 @@ main :: proc() {
         strings.index(out, "import") < strings.index(out, "main ::"),
         "the import was inserted below the code",
     )
+}
+
+@(test)
+test_fix_diagnostic_widens_add_import :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package demo
+
+main :: proc() {
+	fmt.println("hi")
+}
+`
+    call := `fmt.println("hi")`
+    call_start := strings.index(src, call)
+    // A diagnostic can span more than the bare identifier (the whole call, as
+    // a checker might report it) while still starting exactly on `fmt` — the
+    // caret sits inside the string argument, nowhere identifier_at alone would
+    // resolve, so only the diagnostic's own range can reach the fix.
+    diagnostics := []lang.Diagnostic_Ref {
+        {start = call_start, end = call_start + len(call), message = "'fmt' undeclared"},
+    }
+    res := actions_at(e, src, `"hi"`, diagnostics = diagnostics)
+    defer free_actions(&res)
+
+    action, found := find_action(&res, `Import "core:fmt"`)
+    testing.expect(t, found, "the diagnostic-anchored fix did not widen past the caret's own token")
+
+    out := apply_action(src, action)
+    testing.expect(t, strings.contains(out, `import "core:fmt"`), "the import was not inserted")
+}
+
+@(test)
+test_fix_diagnostic_ignores_unrelated_message :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package demo
+
+main :: proc() {
+	fmt.println("hi")
+}
+`
+    call := `fmt.println("hi")`
+    call_start := strings.index(src, call)
+    diagnostics := []lang.Diagnostic_Ref {
+        {start = call_start, end = call_start + len(call), message = "expected ';'"},
+    }
+    res := actions_at(e, src, `"hi"`, diagnostics = diagnostics)
+    defer free_actions(&res)
+
+    _, found := find_action(&res, `Import "core:fmt"`)
+    testing.expect(t, !found, "offered an import fix for a diagnostic that never named an undeclared identifier")
+}
+
+@(test)
+test_add_import_spans_sibling_files :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    // `helper.odin` sits beside the requesting file, on disk, using `fmt`
+    // without importing it too; the fix must widen to cover it. The requesting
+    // file itself is never written — the index only ever sees its sibling.
+    rel := "thor_lang_multi_import_ws"
+    _ = os.make_directory(rel)
+    abs, abs_err := filepath.abs(rel, context.temp_allocator)
+    testing.expect(t, abs_err == nil, "could not absolutize the test workspace")
+    defer os.remove(abs)
+
+    helper_path := strings.concatenate({abs, "/helper.odin"}, context.temp_allocator)
+    helper_src := "package demo\n\nhelper :: proc() {\n\tfmt.println(\"y\")\n}\n"
+    _ = os.write_entire_file(helper_path, transmute([]byte) helper_src)
+    defer os.remove(helper_path)
+
+    main_path := strings.concatenate({abs, "/main.odin"}, context.temp_allocator)
+    src := `package demo
+
+main :: proc() {
+	fmt.println("hi")
+}
+`
+    res := actions_at(e, src, "fmt.println", workspace = abs, path = main_path)
+    defer free_actions(&res)
+
+    action, found := find_action(&res, `Import "core:fmt" in 2 files`)
+    testing.expect(t, found, "missing the multi-file add-import action")
+    testing.expectf(t, len(action.edits) == 2, "expected one edit per file, got %d", len(action.edits))
+
+    saw_main, saw_helper := false, false
+    for edit in action.edits {
+        if path_equal(edit.path, main_path) {
+            saw_main = true
+        }
+        if path_equal(edit.path, helper_path) {
+            saw_helper = true
+            testing.expect(t, strings.contains(edit.new_text, `import "core:fmt"`), "sibling edit did not add the import")
+        }
+    }
+    testing.expect(t, saw_main, "missing the edit for the requesting file")
+    testing.expect(t, saw_helper, "missing the edit for the sibling file")
 }
 
 @(test)
@@ -329,6 +433,30 @@ main :: proc() {
 
     out := apply_action(src, action)
     testing.expect(t, strings.contains(out, "count := 1"), "the assignment was not turned into a declaration")
+}
+
+@(test)
+test_declare_variable_with_inferred_type :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    // `a + b` types as `int`, so the fix should name it instead of a bare `:=`.
+    src := `package demo
+
+main :: proc(a: int, b: int) {
+	count = a + b
+	_ = count
+}
+`
+    res := actions_at(e, src, "count = a + b")
+    defer free_actions(&res)
+
+    testing.expect(t, res.ok, "expected an action on an undeclared assignment")
+    action, found := find_action(&res, `Declare "count" as int`)
+    testing.expect(t, found, "missing the typed declare-variable action")
+
+    out := apply_action(src, action)
+    testing.expect(t, strings.contains(out, "count: int := a + b"), "the assignment was not turned into a typed declaration")
 }
 
 @(test)

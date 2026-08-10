@@ -307,8 +307,9 @@ argument_fits :: proc(
 
 // The `index`-th written argument of a call. The callee is the call's first
 // named child, so the arguments follow it; a slot left empty (`f(1,|)`) has no
-// node of its own.
-@(private = "file")
+// node of its own. Package-visible: typeref.odin's polymorphic call-result
+// substitution reaches the same argument by parameter slot.
+@(private)
 call_argument :: proc(call: ts.Node, index: int) -> ts.Node {
     i := u32(index) + 1
     if i >= ts.node_named_child_count(call) {

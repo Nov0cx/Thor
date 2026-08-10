@@ -201,6 +201,38 @@ Diagnostic_Report :: struct {
     items: [dynamic]Diagnostic,
 }
 
+// A diagnostic already in byte-offset form, handed to a Code_Actions request by
+// the host, which holds the live buffer and has already done the line:col to
+// offset conversion `Diagnostic` itself defers.
+Diagnostic_Ref :: struct {
+    start:    int,
+    end:      int,
+    severity: Diagnostic_Severity,
+    message:  string, // owned
+}
+
+// `diags` with every message cloned onto `allocator`, so a request snapshot
+// outlives the host's own diagnostic list.
+clone_diagnostic_refs :: proc(diags: []Diagnostic_Ref, allocator: runtime.Allocator) -> []Diagnostic_Ref {
+    if len(diags) == 0 {
+        return nil
+    }
+    out := make([]Diagnostic_Ref, len(diags), allocator)
+    for d, i in diags {
+        out[i] = d
+        out[i].message = strings.clone(d.message, allocator)
+    }
+    return out
+}
+
+@(private)
+free_diagnostic_refs :: proc(diags: []Diagnostic_Ref) {
+    for d in diags {
+        delete(d.message)
+    }
+    delete(diags)
+}
+
 // An editor request. `source` is an owned snapshot taken when the request is
 // made, so the worker never races the live buffer; `revision` lets the editor
 // drop a result a later edit has already invalidated.
@@ -216,6 +248,9 @@ Request :: struct {
     workspace: string, // owned, absolute
     new_name:  string, // owned; the request's argument — Rename's replacement identifier, "" otherwise
     query:     string, // owned; Workspace_Symbols' filter text, "" otherwise (an unfiltered scan)
+    // owned (each message cloned); Code_Actions' diagnostics overlapping the
+    // caret/selection, empty otherwise and for every other kind.
+    diagnostics: []Diagnostic_Ref,
     cancel:    ^bool,  // Job-owned cancellation flag; read via request_cancelled, nil when hand-built
 }
 
@@ -361,13 +396,14 @@ Pending :: struct {
     path:      string,
     ext:       string,
     source:    string,
-    offset:    int,
-    end:       int,
-    revision:  u64,
-    workspace: string,
-    new_name:  string,
-    query:     string,
-    due:       time.Time,
+    offset:      int,
+    end:         int,
+    revision:    u64,
+    workspace:   string,
+    new_name:    string,
+    query:       string,
+    diagnostics: []Diagnostic_Ref,
+    due:         time.Time,
 }
 
 // Routes requests to backends and reaps their results. One per editor.
@@ -555,7 +591,8 @@ manager_allows :: proc(m: ^Manager, ext: string, kind: Request_Kind) -> bool {
 // handles the extension. The result arrives via manager_dispatch on a later
 // frame. `new_name` is Rename's argument, `query` is Workspace_Symbols';
 // `end` is Code_Actions' selection high end (negative, its default, means "no
-// selection" and collapses to `offset`); every other kind ignores all three.
+// selection" and collapses to `offset`); `diagnostics` is Code_Actions' own
+// overlapping diagnostics. Every other kind ignores all four.
 manager_request :: proc(
     m: ^Manager,
     kind: Request_Kind,
@@ -566,6 +603,7 @@ manager_request :: proc(
     new_name := "",
     query := "",
     end := -1,
+    diagnostics: []Diagnostic_Ref = nil,
 ) -> u64 {
     if !manager_feature_enabled(m, kind) {
         return 0
@@ -589,6 +627,7 @@ manager_request :: proc(
         strings.clone(workspace),
         strings.clone(new_name),
         strings.clone(query),
+        clone_diagnostic_refs(diagnostics, m.allocator),
     )
 }
 
@@ -625,6 +664,7 @@ dispatch_owned :: proc(
     workspace: string,
     new_name: string,
     query: string,
+    diagnostics: []Diagnostic_Ref = nil,
 ) -> u64 {
     context.allocator = m.allocator
     backend, ok := backend_for_kind(m, ext, kind)
@@ -635,6 +675,7 @@ dispatch_owned :: proc(
         delete(workspace)
         delete(new_name)
         delete(query)
+        free_diagnostic_refs(diagnostics)
         return 0
     }
 
@@ -642,17 +683,18 @@ dispatch_owned :: proc(
     job.manager = m
     job.backend = backend
     job.request = Request {
-        id        = id,
-        kind      = kind,
-        path      = path,
-        ext       = ext,
-        source    = source,
-        offset    = offset,
-        end       = end,
-        revision  = revision,
-        workspace = workspace,
-        new_name  = new_name,
-        query     = query,
+        id          = id,
+        kind        = kind,
+        path        = path,
+        ext         = ext,
+        source      = source,
+        offset      = offset,
+        end         = end,
+        revision    = revision,
+        workspace   = workspace,
+        new_name    = new_name,
+        query       = query,
+        diagnostics = diagnostics,
     }
     job.request.cancel = &job.cancelled // stable for the job's lifetime
     job.result.id = id
@@ -750,9 +792,10 @@ manager_request_latest :: proc(
     new_name := "",
     query := "",
     end := -1,
+    diagnostics: []Diagnostic_Ref = nil,
 ) -> u64 {
     manager_cancel_kind(m, kind)
-    return manager_request(m, kind, path, ext, source, offset, revision, workspace, new_name, query, end)
+    return manager_request(m, kind, path, ext, source, offset, revision, workspace, new_name, query, end, diagnostics)
 }
 
 // Queues a request to be dispatched once `delay` has passed without another
@@ -781,6 +824,7 @@ manager_request_debounced :: proc(
     new_name := "",
     query := "",
     end := -1,
+    diagnostics: []Diagnostic_Ref = nil,
 ) -> u64 {
     if !manager_feature_enabled(m, kind) {
         return 0
@@ -794,18 +838,19 @@ manager_request_debounced :: proc(
     id := m.next_id
     m.next_id += 1
     m.pending[kind] = Pending {
-        active    = true,
-        id        = id,
-        path      = strings.clone(path),
-        ext       = strings.clone(ext),
-        source    = strings.clone(source),
-        offset    = offset,
-        end       = end < 0 ? offset : end,
-        revision  = revision,
-        workspace = strings.clone(workspace),
-        new_name  = strings.clone(new_name),
-        query     = strings.clone(query),
-        due       = time.time_add(time.now(), delay),
+        active      = true,
+        id          = id,
+        path        = strings.clone(path),
+        ext         = strings.clone(ext),
+        source      = strings.clone(source),
+        offset      = offset,
+        end         = end < 0 ? offset : end,
+        revision    = revision,
+        workspace   = strings.clone(workspace),
+        new_name    = strings.clone(new_name),
+        query       = strings.clone(query),
+        diagnostics = clone_diagnostic_refs(diagnostics, m.allocator),
+        due         = time.time_add(time.now(), delay),
     }
     return id
 }
@@ -847,6 +892,7 @@ manager_flush_debounced :: proc(m: ^Manager, force := false) -> int {
             slot.workspace,
             slot.new_name,
             slot.query,
+            slot.diagnostics,
         )
         n += 1
     }
@@ -889,6 +935,7 @@ pending_clear :: proc(m: ^Manager, kind: Request_Kind) -> bool {
     delete(p.workspace)
     delete(p.new_name)
     delete(p.query)
+    free_diagnostic_refs(p.diagnostics)
     p^ = {}
     return true
 }
@@ -997,6 +1044,7 @@ job_free :: proc(m: ^Manager, job: ^Job) {
     delete(job.request.workspace)
     delete(job.request.new_name)
     delete(job.request.query)
+    free_diagnostic_refs(job.request.diagnostics)
     result_free(m, &job.result)
     id := job.request.id
     free(job)

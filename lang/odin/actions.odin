@@ -33,6 +33,7 @@ IMPORT_CANDIDATE_LIMIT :: 8
 @(private)
 code_actions :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, req: ^lang.Request, res: ^lang.Result) {
     action_add_import(e, parser, root, req, res)
+    action_fix_diagnostic(e, parser, root, req, res)
     action_fill_switch_cases(e, parser, root, req, res)
     action_declare_variable(e, parser, root, req, res)
     action_remove_unused_imports(root, req, res)
@@ -41,17 +42,21 @@ code_actions :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, req: ^lang.Re
 
 // One replacement a producer wants, before it becomes a Text_Edit: `old_text` is
 // not carried because it is always the source under the range, which push_action
-// slices for itself.
+// slices for itself. `path`/`source` default to the request file — set both
+// together to aim an edit at a sibling file instead (add-missing-import's
+// multi-file sweep is the one producer that does).
 @(private = "file")
 Edit_Spec :: struct {
+    path:       string, // "" means req.path
+    source:     string, // ignored when path == ""
     start, end: int,
     new_text:   string,
 }
 
-// Appends an action whose edits all land in the request file — every producer
-// here is single-file. Owned strings clone into context.allocator (the
-// Manager's), and each edit records the bytes it matched so the host can verify
-// the range before touching a buffer that has moved on.
+// Appends an action whose edits may span several files (a spec with `path` set
+// aims at that file instead of the request's). Owned strings clone into
+// context.allocator (the Manager's), and each edit records the bytes it matched
+// so the host can verify the range before touching a buffer that has moved on.
 @(private = "file")
 push_action :: proc(res: ^lang.Result, req: ^lang.Request, title, kind: string, specs: ..Edit_Spec) {
     if len(specs) == 0 {
@@ -62,13 +67,15 @@ push_action :: proc(res: ^lang.Result, req: ^lang.Request, title, kind: string, 
         kind  = strings.clone(kind),
     }
     for spec in specs {
-        start := clamp(spec.start, 0, len(req.source))
-        end := clamp(spec.end, start, len(req.source))
+        path := spec.path != "" ? spec.path : req.path
+        src := spec.path != "" ? spec.source : req.source
+        start := clamp(spec.start, 0, len(src))
+        end := clamp(spec.end, start, len(src))
         append(&action.edits, lang.Text_Edit {
-            path     = strings.clone(req.path),
+            path     = strings.clone(path),
             start    = start,
             end      = end,
-            old_text = strings.clone(req.source[start:end]),
+            old_text = strings.clone(src[start:end]),
             new_text = strings.clone(spec.new_text),
         })
     }
@@ -86,7 +93,15 @@ push_action :: proc(res: ^lang.Result, req: ^lang.Request, title, kind: string, 
 // value's `v.field`) is left alone.
 @(private = "file")
 action_add_import :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, req: ^lang.Request, res: ^lang.Result) {
-    ident, ok := identifier_at(root, req.source, req.offset)
+    add_import_at(e, parser, root, req, res, req.offset)
+}
+
+// The shared body of action_add_import, taking the position to look for an
+// unresolved package qualifier at instead of always reading req.offset — lets
+// action_fix_diagnostic delegate here with a diagnostic's own position.
+@(private = "file")
+add_import_at :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, req: ^lang.Request, res: ^lang.Result, at: int) {
+    ident, ok := identifier_at(root, req.source, at)
     if !ok {
         return
     }
@@ -111,9 +126,100 @@ action_add_import :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, req: ^la
     }
     for path in import_candidates(e, parser, req, pkg) {
         line := fmt.tprintf("%simport \"%s\"\n", prefix, path)
-        title := fmt.tprintf("Import \"%s\"", path)
-        push_action(res, req, title, "quickfix", Edit_Spec{start = anchor, end = anchor, new_text = line})
+        specs := make([dynamic]Edit_Spec, context.temp_allocator)
+        append(&specs, Edit_Spec{start = anchor, end = anchor, new_text = line})
+        siblings := sibling_import_edits(e, parser, req, pkg, path)
+        append(&specs, ..siblings)
+
+        title := len(siblings) == 0 \
+            ? fmt.tprintf("Import \"%s\"", path) \
+            : fmt.tprintf("Import \"%s\" in %d files", path, len(siblings) + 1)
+        push_action(res, req, title, "quickfix", ..specs[:])
     }
+}
+
+// The same missing import as above, one Edit_Spec per sibling file the
+// workspace index shows also using `pkg` as a bare identifier without
+// importing it — a false positive there (the name meant something else) only
+// costs an unresolvable candidate, since import_path/import_anchor below still
+// reject or skip it correctly; a false negative only costs precision, not
+// correctness. Returns nil outside a known workspace, since index_ref_files has
+// nothing to search.
+@(private = "file")
+sibling_import_edits :: proc(e: ^Engine, parser: ts.Parser, req: ^lang.Request, pkg, import_path_text: string) -> []Edit_Spec {
+    if req.workspace == "" {
+        return nil
+    }
+    candidates := make([dynamic]string, context.temp_allocator)
+    sync.lock(&e.index.mutex)
+    index_sync(e, parser, req)
+    index_ref_files(e, pkg, req.path, &candidates)
+    sync.unlock(&e.index.mutex)
+
+    specs := make([dynamic]Edit_Spec, context.temp_allocator)
+    for path in candidates {
+        source, sok := source_read(path)
+        if !sok {
+            continue
+        }
+        tree := ts.parser_parse_string(parser, source)
+        if tree == nil {
+            continue
+        }
+        sib_root := ts.tree_root_node(tree)
+        _, already_imported := import_path(sib_root, source, pkg)
+        anchor, prefix, aok := import_anchor(sib_root, source)
+        ts.tree_delete(tree)
+        if already_imported || !aok {
+            continue
+        }
+        line := fmt.tprintf("%simport \"%s\"\n", prefix, import_path_text)
+        append(&specs, Edit_Spec{path = path, source = source, start = anchor, end = anchor, new_text = line})
+    }
+    return specs[:]
+}
+
+// `'fmt' undeclared` from `odin check`, overlapping the caret: the same missing
+// import as action_add_import, offered from anywhere in the diagnostic's
+// squiggle rather than only when the caret sits exactly on the qualifier.
+// action_add_import already covers that narrower case, so this only widens it —
+// skip when the caret's own identifier is already a package-qualifier selector,
+// which is what that check would already have offered.
+@(private = "file")
+action_fix_diagnostic :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, req: ^lang.Request, res: ^lang.Result) {
+    if len(req.diagnostics) == 0 {
+        return
+    }
+    if ident, ok := identifier_at(root, req.source, req.offset); ok {
+        if op, _, is_sel := selector_parts(ident); is_sel && is_identifier(op) {
+            return
+        }
+    }
+    for d in req.diagnostics {
+        if req.offset < d.start || req.offset > d.end {
+            continue
+        }
+        name, nok := undeclared_name(d.message)
+        if !nok {
+            continue
+        }
+        ident, iok := identifier_at(root, req.source, d.start)
+        if !iok || ts.node_text(ident, req.source) != name {
+            continue
+        }
+        add_import_at(e, parser, root, req, res, d.start)
+    }
+}
+
+// The unresolved name out of an `odin check` "'name' undeclared" message,
+// false for any other diagnostic (a syntax error, an unrelated check).
+@(private = "file")
+undeclared_name :: proc(message: string) -> (string, bool) {
+    suffix := "' undeclared"
+    if !strings.has_prefix(message, "'") || !strings.has_suffix(message, suffix) {
+        return "", false
+    }
+    return message[1:len(message) - len(suffix)], true
 }
 
 // Import paths that would make `pkg` resolve: the three built-in collections
@@ -539,7 +645,7 @@ action_declare_variable :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, re
     if !has {
         return
     }
-    targets, op, aok := plain_assignment_parts(assign, req.source)
+    targets, op, values, aok := plain_assignment_parts(assign, req.source)
     if !aok {
         return
     }
@@ -575,6 +681,25 @@ action_declare_variable :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, re
         return
     }
 
+    // Single target, single value: try to name the type instead of a bare `:=`.
+    if len(undeclared) == 1 && len(targets) == 1 && len(values) == 1 {
+        if tr, tok := infer_expr_type(e, parser, root, req, values[0]); tok {
+            type_text := type_ref_text(tr)
+            push_action(
+                res,
+                req,
+                fmt.tprintf("Declare %q as %s", undeclared[0], type_text),
+                "quickfix",
+                Edit_Spec{
+                    start = int(ts.node_end_byte(targets[0])),
+                    end = int(ts.node_end_byte(op)),
+                    new_text = fmt.tprintf(": %s :=", type_text),
+                },
+            )
+            return
+        }
+    }
+
     title := len(undeclared) == 1 \
         ? fmt.tprintf("Declare %q with :=", undeclared[0]) \
         : fmt.tprintf("Declare %d names with :=", len(undeclared))
@@ -587,30 +712,47 @@ action_declare_variable :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, re
     )
 }
 
-// The assigned names and the `=` token of a plain assignment, false for anything
-// `:=` cannot replace: an existing short declaration, a compound assignment
-// (`x += 1`), or a target that is not a bare name (`m[k] = v`, `p.x = 1`) — Odin
-// declares names, not places.
+// The assigned names, the `=` token and the RHS value(s) of a plain assignment,
+// false for anything `:=` cannot replace: an existing short declaration, a
+// compound assignment (`x += 1`), or a target that is not a bare name
+// (`m[k] = v`, `p.x = 1`) — Odin declares names, not places.
 @(private = "file")
-plain_assignment_parts :: proc(assign: ts.Node, source: string) -> (targets: []ts.Node, op: ts.Node, ok: bool) {
+plain_assignment_parts :: proc(
+    assign: ts.Node, source: string,
+) -> (targets: []ts.Node, op: ts.Node, values: []ts.Node, ok: bool) {
     names := make([dynamic]ts.Node, context.temp_allocator)
+    vals := make([dynamic]ts.Node, context.temp_allocator)
+    seen_op := false
     for i in 0 ..< ts.node_child_count(assign) {
         c := ts.node_child(assign, i)
-        switch string(ts.node_type(c)) {
-        case "identifier":
-            append(&names, c)
-            continue
-        case ",":
-            continue
-        case "=":
-            if len(names) == 0 {
-                return nil, {}, false
+        if !seen_op {
+            switch string(ts.node_type(c)) {
+            case "identifier":
+                append(&names, c)
+                continue
+            case ",":
+                continue
+            case "=":
+                if len(names) == 0 {
+                    return nil, {}, nil, false
+                }
+                op = c
+                seen_op = true
+                continue
             }
-            return names[:], c, true
+            return nil, {}, nil, false // `:=`, `+=`, or a target that is not a bare name
         }
-        return nil, {}, false // `:=`, `+=`, or a target that is not a bare name
+        if string(ts.node_type(c)) == "," {
+            continue
+        }
+        if ts.node_is_named(c) {
+            append(&vals, c)
+        }
     }
-    return nil, {}, false
+    if !seen_op {
+        return nil, {}, nil, false
+    }
+    return names[:], op, vals[:], true
 }
 
 // True when `name` is declared at package scope in a sibling file. The caret's

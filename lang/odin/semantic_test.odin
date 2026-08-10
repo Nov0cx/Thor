@@ -3,11 +3,13 @@
 // give up the right to dim an undeclared name.
 package odin
 
+import "core:fmt"
 import "core:os"
 import "core:strings"
 import "core:testing"
 
 import lang ".."
+import ts "../../vendor/odin-tree-sitter"
 
 // Classifies `source` whole. Callers own res.tokens.
 @(private)
@@ -127,9 +129,8 @@ read :: proc(p: Point) -> int {
     skipped := [][2]string {
         {"demo", "the package clause"},
         {"rl \"core:fmt\"", "an import alias"},
-        {"Vertical", "an enum member"},
-        {"x: int", "a struct field"},
-        {"x\n}", "a selector's right-hand side"},
+        {"Vertical", "an enum member declaration"},
+        {"x: int", "a struct field declaration"},
     }
     for s in skipped {
         testing.expectf(t, !classified(&res, src, s[0]), "expected no token for %s", s[1])
@@ -143,6 +144,117 @@ read :: proc(p: Point) -> int {
             testing.expectf(t, kind == .Type, "%q: got %v, want Type", needle, kind)
         }
     }
+
+    // `p.x` is a qualified selector's member with a resolvable struct operand,
+    // so unlike the declaration sites above it now carries its own token.
+    kind, ok := kind_at(&res, src, "x\n}")
+    testing.expectf(t, ok, "expected a token for the selector's field use")
+    if ok {
+        testing.expectf(t, kind == .Field, "selector field use: got %v, want Field", kind)
+    }
+}
+
+@(test)
+test_semantic_qualified_enum_member :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package demo
+
+Axis :: enum {
+	Vertical,
+	Horizontal,
+}
+
+pick :: proc() -> Axis {
+	return Axis.Vertical
+}
+`
+    res := semantic_at(e, src)
+    defer delete(res.tokens)
+
+    kind, ok := kind_at(&res, src, "Vertical\n}")
+    testing.expectf(t, ok, "expected a token for the qualified enum member")
+    if ok {
+        testing.expectf(t, kind == .Enum_Member, "Axis.Vertical: got %v, want Enum_Member", kind)
+    }
+}
+
+@(test)
+test_semantic_implicit_enum_selector_stays_unclassified :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    // An implicit selector (no operand at all) needs the expected-type walk
+    // completion uses — out of scope for the whole-file semantic pass, so it
+    // stays exactly as before: unclassified, left to the highlighter.
+    src := `package demo
+
+Axis :: enum {
+	Vertical,
+}
+
+pick :: proc() -> Axis {
+	return .Vertical
+}
+`
+    res := semantic_at(e, src)
+    defer delete(res.tokens)
+
+    testing.expect(t, !classified(&res, src, "Vertical\n}"), "expected the implicit selector to stay unclassified")
+}
+
+@(test)
+test_semantic_package_selector_stays_unclassified :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    // A package qualifier is not a field or enum member — must not be swept up
+    // by the new member resolution just because it sits in the same grammar
+    // position.
+    src := `package demo
+
+import "core:fmt"
+
+run :: proc() {
+	fmt.println("hi")
+}
+`
+    res := semantic_at(e, src)
+    defer delete(res.tokens)
+
+    testing.expect(t, !classified(&res, src, `println("hi")`), "a package member must stay unclassified by the new field/enum resolution")
+}
+
+@(test)
+test_semantic_member_resolution_is_capped :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    // Every one of these resolves cleanly on its own — the cap is what stops
+    // the pass past SEMANTIC_MEMBER_LIMIT, not a resolution failure.
+    total := SEMANTIC_MEMBER_LIMIT + 50
+    b := strings.builder_make(context.temp_allocator)
+    strings.write_string(&b, "package demo\n\nPoint :: struct {\n\tx: int,\n}\n\nrun :: proc(p: Point) {\n")
+    for i in 0 ..< total {
+        strings.write_string(&b, "\t_ = p.x\n")
+    }
+    strings.write_string(&b, "}\n")
+    src := strings.to_string(b)
+
+    res := semantic_at(e, src)
+    defer delete(res.tokens)
+
+    fields := 0
+    for tok in res.tokens {
+        if tok.kind == .Field {
+            fields += 1
+        }
+    }
+    testing.expectf(
+        t, fields == SEMANTIC_MEMBER_LIMIT,
+        "expected exactly %d field tokens once the budget is spent, got %d", SEMANTIC_MEMBER_LIMIT, fields,
+    )
 }
 
 @(test)
@@ -339,4 +451,47 @@ run :: proc(p: Point) -> int {
     if ok {
         testing.expectf(t, kind == .Parameter, "p: got %v, want Parameter", kind)
     }
+}
+
+// A source of `n` procedures, each declaring its own uniquely named local —
+// grows len(defs) without growing how many declarations share any one name.
+@(private)
+synth_defs_source :: proc(n: int) -> string {
+    b := strings.builder_make(context.temp_allocator)
+    strings.write_string(&b, "package demo\n\n")
+    for i in 0 ..< n {
+        fmt.sbprintf(&b, "proc_%d :: proc() {{\n\tlocal_%d := %d\n\t_ = local_%d\n}}\n\n", i, i, i, i)
+    }
+    return strings.to_string(b)
+}
+
+// defs, and the size of `name`'s bucket in group_defs_by_name, for `source`.
+@(private)
+defs_and_bucket :: proc(e: ^Engine, source, name: string) -> (defs_count, bucket_count: int) {
+    parser := ts.parser_new()
+    defer ts.parser_delete(parser)
+    ts.parser_set_language(parser, e.language)
+    tree := ts.parser_parse_string(parser, source)
+    defer ts.tree_delete(tree)
+    defs := collect_defs(e, ts.tree_root_node(tree), source)
+    by_name := group_defs_by_name(defs[:])
+    return len(defs), len(by_name[name])
+}
+
+@(test)
+test_semantic_grouped_resolution_bucket_stays_bounded :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    // The whole point of group_defs_by_name: classify_identifier's per-name
+    // lookup should cost the shadowing depth at that one name, not the size of
+    // the file. A uniquely named local's bucket must stay at 1 whether the file
+    // holds 20 procedures or 200 — an asymptotic-shape assertion rather than a
+    // wall-clock one, since the four CI platforms cannot compare fairly on time.
+    small_defs, small_bucket := defs_and_bucket(e, synth_defs_source(20), "local_0")
+    big_defs, big_bucket := defs_and_bucket(e, synth_defs_source(200), "local_0")
+
+    testing.expectf(t, big_defs > small_defs, "expected the bigger source to declare more defs: %d vs %d", big_defs, small_defs)
+    testing.expectf(t, small_bucket == 1, "a uniquely named local's bucket should hold exactly its one declaration, got %d", small_bucket)
+    testing.expectf(t, big_bucket == 1, "growing the file tenfold must not grow a uniquely named local's bucket: got %d", big_bucket)
 }

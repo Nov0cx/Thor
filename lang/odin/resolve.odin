@@ -188,6 +188,14 @@ resolve :: proc(data: rawptr, req: ^lang.Request, res: ^lang.Result) {
 
     ident, ok := identifier_at(root, req.source, req.offset)
     if !ok {
+        // Hover only: the caret sits on an operator, a cast's parens or
+        // `or_else`'s keyword — nothing identifier_at reaches. Falls back to a
+        // computed-type hover for the smallest enclosing expression
+        // infer_expr_result can type; a bare identifier always resolves above
+        // instead, since identifier_at succeeding is what skips this entirely.
+        if req.kind == .Hover {
+            hover_expr(e, parser, root, req, res)
+        }
         return
     }
     name := ts.node_text(ident, req.source)
@@ -284,6 +292,55 @@ identifier_at :: proc(root: ts.Node, source: string, offset: int) -> (ts.Node, b
         if n := ts.node_named_descendant_for_byte_range(root, p, p); is_identifier(n) {
             return n, true
         }
+    }
+    return {}, false
+}
+
+// A computed-type hover for the smallest expression around `req.offset` that
+// infer_expr_result can type, once identifier_at has already failed — so this
+// only ever fires on an operator, a cast's parens or `or_else`'s keyword, never
+// on a bare identifier (which resolves through the declaration-text path
+// above instead). Renders with type_ref_text rather than a declaration slice,
+// since there is no single declaration an expression like `a + b` stands for.
+@(private)
+hover_expr :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, req: ^lang.Request, res: ^lang.Result) {
+    expr, eok := hoverable_expr_at(root, req.source, req.offset)
+    if !eok {
+        return
+    }
+    tr, tok := infer_expr_result(e, parser, root, req, expr, 0, 0)
+    if !tok {
+        return
+    }
+    res.hover = lang.Hover_Info {
+        text  = strings.clone(type_ref_text(tr)),
+        start = int(ts.node_start_byte(expr)),
+        end   = int(ts.node_end_byte(expr)),
+    }
+    res.ok = true
+}
+
+// Smallest node covering `offset` (also probing offset-1, matching
+// identifier_at) whose type is one infer_expr_result has a case for, climbing
+// out of narrower wrappers the same way selector_subject does for a different
+// consumer. `or_else` needs no case of its own here — ts-probe confirmed it
+// parses as a binary_expression, with `or_else` as the operator token.
+@(private)
+hoverable_expr_at :: proc(root: ts.Node, source: string, offset: int) -> (ts.Node, bool) {
+    off := u32(clamp(offset, 0, len(source)))
+    n := ts.node_named_descendant_for_byte_range(root, off, off)
+    if ts.node_is_null(n) && offset > 0 {
+        p := off - 1
+        n = ts.node_named_descendant_for_byte_range(root, p, p)
+    }
+    for !ts.node_is_null(n) {
+        switch string(ts.node_type(n)) {
+        case "binary_expression", "in_expression", "cast_expression",
+             "call_expression", "member_expression", "index_expression",
+             "slice_expression", "unary_expression":
+            return n, true
+        }
+        n = ts.node_parent(n)
     }
     return {}, false
 }

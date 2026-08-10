@@ -993,3 +993,104 @@ test_definition_overload_package_qualified :: proc(t: ^testing.T) {
     testing.expectf(t, res.location.start == want, "jump target: got %d, want %d", res.location.start, want)
     testing.expectf(t, strings.has_suffix(res.location.path, "api.odin"), "path: got %q", res.location.path)
 }
+
+// hover_at runs a Hover request at `at` and returns the result. Callers own
+// res.hover.text.
+@(private)
+hover_at :: proc(e: ^Engine, source: string, at: int) -> lang.Result {
+    req := lang.Request{kind = .Hover, path = "buffer.odin", ext = ".odin", source = source, offset = at}
+    res := lang.Result{kind = .Hover}
+    resolve(e, &req, &res)
+    return res
+}
+
+@(test)
+test_hover_binary_expression_arithmetic :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    // identifier_at fails on the operator itself, so this reaches the new
+    // computed-type fallback: neither `a` nor `b` alone is under the caret.
+    src := `package demo
+
+calc :: proc(a: int, b: int) {
+	c := a + b
+}
+`
+    at := strings.index(src, "a + b") + 2 // the '+'
+    res := hover_at(e, src, at)
+    defer delete(res.hover.text)
+
+    testing.expect(t, res.ok, "expected a computed-type hover on the operator")
+    testing.expectf(t, res.hover.text == "int", "hover text: got %q, want int", res.hover.text)
+}
+
+@(test)
+test_hover_binary_expression_comparison :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package demo
+
+calc :: proc(a: int, b: int) {
+	d := a == b
+}
+`
+    at := strings.index(src, "a == b") + 2 // the '=='
+    res := hover_at(e, src, at)
+    defer delete(res.hover.text)
+
+    testing.expect(t, res.ok, "expected a computed-type hover on the operator")
+    testing.expectf(t, res.hover.text == "bool", "hover text: got %q, want bool", res.hover.text)
+}
+
+@(test)
+test_hover_cast_expression_outside_operand :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    // The caret on the `cast` keyword itself, not on `b` — identifier_at fails
+    // there too, so this is also the new fallback, not the pre-existing
+    // cast_expression case (which only ever ran from a caret on the operand).
+    src := `package demo
+
+calc :: proc(b: int) {
+	c := cast(int)b
+}
+`
+    at := strings.index(src, "cast(int)b")
+    res := hover_at(e, src, at)
+    defer delete(res.hover.text)
+
+    testing.expect(t, res.ok, "expected a computed-type hover on the cast keyword")
+    testing.expectf(t, res.hover.text == "int", "hover text: got %q, want int", res.hover.text)
+}
+
+@(test)
+test_hover_bare_identifier_inside_binary_expression_keeps_declaration :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    // The explicit regression guard: the caret on `a` itself, inside `a + b`,
+    // must still resolve through identifier_at — the new fallback is only ever
+    // reached when identifier_at fails outright, and identifier_at succeeding
+    // is what routes to fill_result/declaration_text instead. Checked by
+    // range rather than by text: declaration_text renders a's own multi-line
+    // declaration (whatever that is), where the new fallback would instead
+    // span the whole binary_expression "a + b" and show its computed type.
+    src := `package demo
+
+calc :: proc(a: int, b: int) {
+	c := a + b
+}
+`
+    at := strings.index(src, "a + b") // the 'a'
+    res := hover_at(e, src, at)
+    defer delete(res.hover.text)
+
+    testing.expect(t, res.ok, "expected a hover result on the bare identifier")
+    testing.expectf(t, res.hover.start == at && res.hover.end == at + 1,
+        "hover range: got [%d, %d), want the identifier's own [%d, %d) — not the wider binary_expression",
+        res.hover.start, res.hover.end, at, at + 1)
+    testing.expectf(t, res.hover.text != "int", "hover text must not be the computed sum type: got %q", res.hover.text)
+}

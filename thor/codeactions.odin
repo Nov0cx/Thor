@@ -47,6 +47,7 @@ thor_code_actions :: proc(thor: ^Thor) {
         file.state.revision,
         thor.workspace_dir,
         end = hi,
+        diagnostics = overlapping_diagnostics(file, lo, hi),
     )
     if id == 0 {
         return
@@ -55,6 +56,37 @@ thor_code_actions :: proc(thor: ^Thor) {
     thor.code_action_revision = file.state.revision
     delete(thor.code_action_path)
     thor.code_action_path = strings.clone(file.path)
+}
+
+// The file's diagnostics overlapping [lo, hi], in the seam's byte-offset form.
+// Empty when the diagnostics on the file predate its current revision — a
+// stale squiggle position is worse than none, matching the same staleness
+// check the gutter itself makes.
+@(private = "file")
+overlapping_diagnostics :: proc(file: ^Open_File, lo, hi: int) -> []lang.Diagnostic_Ref {
+    if file.diagnostics_revision != file.state.revision {
+        return nil
+    }
+    out := make([dynamic]lang.Diagnostic_Ref, context.temp_allocator)
+    for d in file.diagnostics {
+        if d.start > hi || d.end < lo {
+            continue
+        }
+        append(&out, lang.Diagnostic_Ref{
+            start    = d.start,
+            end      = d.end,
+            severity = lang_severity(d.severity),
+            message  = d.message,
+        })
+    }
+    return out[:]
+}
+
+// The editor's severity as the seam's. Both carry the same two levels; the
+// split is what keeps widgets free of the language layer's types.
+@(private = "file")
+lang_severity :: proc(severity: widgets.Diagnostic_Severity) -> lang.Diagnostic_Severity {
+    return severity == .Warning ? .Warning : .Error
 }
 
 // Opens the picker once the offers land. A superseded request (the caret moved

@@ -101,14 +101,17 @@ rename_at :: proc(
 
 // Runs a Code_Actions request at the first occurrence of `needle` in `source`.
 @(private)
-actions_at :: proc(e: ^Engine, source, needle: string, workspace := "", path := "buffer.odin") -> lang.Result {
+actions_at :: proc(
+    e: ^Engine, source, needle: string, workspace := "", path := "buffer.odin", diagnostics: []lang.Diagnostic_Ref = nil,
+) -> lang.Result {
     req := lang.Request {
-        kind      = .Code_Actions,
-        path      = path,
-        ext       = ".odin",
-        source    = source,
-        offset    = strings.index(source, needle),
-        workspace = workspace,
+        kind        = .Code_Actions,
+        path        = path,
+        ext         = ".odin",
+        source      = source,
+        offset      = strings.index(source, needle),
+        workspace   = workspace,
+        diagnostics = diagnostics,
     }
     res := lang.Result{kind = .Code_Actions}
     resolve(e, &req, &res)

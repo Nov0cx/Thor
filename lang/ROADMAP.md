@@ -732,9 +732,38 @@ lowest latency.
       (`range_var_type`, and the `index_expression`/`slice_expression` cases of
       `infer_expr_result`), and a map's key type is tracked beside its value. A
       proc type carries its signature, so calling a proc-typed value yields its
-      declared result. It is otherwise *declared*-type inference only: no
-      expression typing (arithmetic, casts, `or_else`), no generics (`$T`). Hover
-      still shows the declaration text, not a computed type.
+      declared result.
+
+      **Expression typing.** `binary_expr_type` (`infer.odin`) covers
+      arithmetic and bitwise operators (`+ - * / % %% & | ~ << >> &~`, typed as
+      whichever operand resolves — an untyped literal on the other side never
+      does, so `x + 1` naturally takes `x`'s type with no separate
+      untyped-constant representation), comparison and logical operators
+      (`== != < <= > >= && ||`, always `bool`), `in`/`not_in`
+      (`in_expression`, always `bool`), and `or_else` — confirmed by
+      `ts-probe` to parse as a `binary_expression` with `or_else` as the
+      operator token, not a distinct node type — which types as its left
+      operand. `cast(T)v`/`transmute(T)v` were already covered.
+
+      **Generics — a first pass, deliberately narrow.**
+      `polymorphic_call_result` (`typeref.odin`) covers only a bare
+      polymorphic parameter (`identity :: proc(v: $T) -> T`, confirmed by
+      `ts-probe` to differ in shape from the explicit `proc($T: typeid, v: T)
+      -> T` form) whose result is the same bare name: at a call site the
+      result is simply the bound argument's own inferred type, no text
+      substitution needed. Still open: `$T` inside a container or pointer
+      (`v: []$T`, `l: ^List($T)`), multiple polymorphic names composed into
+      one result, and constraint checking (`$T: typeid/Some_Interface`) — a
+      partial version that silently mishandled those shapes would be worse
+      than the honest rejection they get today.
+
+      **Hover shows a computed type for a non-identifier expression.**
+      `hover_expr` (`resolve.odin`) is a `Hover`-only fallback that runs after
+      `identifier_at` fails on the caret — an operator, a cast's parens,
+      `or_else`'s keyword — and climbs to the smallest enclosing expression
+      `infer_expr_result` can type, rendering it with `type_ref_text`. A bare
+      identifier always resolves through the ordinary declaration-text path
+      first, since that only reaches this fallback by failing.
 - [x] **Shadowing precision.** Resolution is lexical: a value declaration
       (`x := v`, `x: T = v`) is visible only past the declaration it sits in
       (`Def.visible_from` / `Binding.visible_from`), so a use above it names
@@ -863,33 +892,58 @@ lowest latency.
       server that checked the unsaved text and a compiler that checked the file
       are both correct; `Diagnostic_Report.scope` may name one file as well as a
       package directory.
-- [~] **Code actions.** Ctrl+Shift+U (Ctrl+. is the command palette); a
+- [x] **Code actions.** Ctrl+Shift+U (Ctrl+. is the command palette); a
       `Code_Actions` request served by `actions.odin`, whose producers each append
       a `lang.Code_Action` — a title, a kind, and the `Text_Edit`s that apply it.
       Unlike LSP there is no offer-then-resolve round trip: that split exists to
       keep IPC off the offer path, and an in-client backend has none, so computing
       the edits up front is both cheaper and free of the window where the buffer
-      moves between offering a fix and applying it. Four producers, each reusing
+      moves between offering a fix and applying it. Six producers, each reusing
       machinery that already existed:
       *add missing import* (an unresolved `pkg.member` — searches `core:`/`vendor:`/
       `base:` under `ODIN_ROOT` two levels deep, the config's collections, then the
-      workspace for a relative import), *remove unused import* (the caret's, plus a
-      bulk action; a `_` alias is never reported), *fill switch cases* (an enum
-      switch missing arms, via the `visit_type_decl` enum locator behind implicit
-      selectors; covered cases are read as the text after the last `.`, so
-      `.Vertical` and `Axis.Vertical` both count), and *declare variable*
-      (`count = 1` with nothing declaring `count` becomes `:=`).
+      workspace for a relative import; also sweeps every sibling file the
+      workspace index shows using the same unqualified package name, so one
+      fix can add the import everywhere it is missing — see *multi-file edits*
+      below), *fix diagnostic* (an `odin check` `'name' undeclared` diagnostic
+      overlapping the caret delegates to add-missing-import from the
+      diagnostic's own position, widening the trigger beyond the caret sitting
+      exactly on the identifier; the LSP backend builds its own diagnostic
+      context from its server cache and never reads this), *remove unused
+      import* (the caret's, plus a bulk action; a `_` alias is never
+      reported), *fill switch cases* (an enum switch missing arms, via the
+      `visit_type_decl` enum locator behind implicit selectors; covered cases
+      are read as the text after the last `.`, so `.Vertical` and
+      `Axis.Vertical` both count), and *declare variable* (`count = 1` with
+      nothing declaring `count` becomes `:=` — or, when the single RHS value
+      types (§ Type inference above), `count: int := a + b` instead, falling
+      back to the bare `:=` for anything inference can't type).
       Host: `thor/codeactions.odin` clones the offers into Thor-owned storage (the
       Result is freed before the pick lands, as with the symbol picker's jump
       targets) and applies the chosen one through `thor_apply_edits` — the rename
       applier, generalized: every edit is verified against the content it will land
       in and the whole set is refused on any mismatch, so a fix never half-lands,
       and an open buffer takes it as one undo entry.
-      Missing: the general "declare with an inferred type" form — inserting a
-      declaration would have to name a type, and until the inference layer can
-      compute one there is no correct text to insert, so only the `=` → `:=` shape
-      is offered. Actions are also single-file and caret-driven; nothing is
-      anchored on a diagnostic's range yet, and no producer spans files.
+
+      **Multi-file edits.** `Edit_Spec` (`actions.odin`) carries an optional
+      `path`/`source` pair, defaulting to the request file; `push_action`
+      clamps and slices old-text against whichever file a spec names, so one
+      `Code_Action` can span several files' edits — proven today by
+      add-missing-import, which finds sibling files through
+      `index_ref_files` and re-parses each to place its own import line (or
+      skip it, already imported). `thor_apply_edits` needed no change: it
+      already groups edits by path and applies the set atomically, as rename's
+      multi-file edits already exercised.
+
+      **Diagnostic-anchored actions.** `Request.diagnostics` (`lang.odin`) is
+      a new, optional `[]Diagnostic_Ref` (byte offsets already — the host
+      converts line:col once, when it reads `Open_File.diagnostics`) threaded
+      through `manager_request`/`manager_request_latest`/
+      `manager_request_debounced`/`Pending`/`dispatch_owned` the same way the
+      M9 selection-range `end` field was; `thor_code_actions` gathers the
+      caret/selection's overlapping diagnostics before dispatching. Empty for
+      every other request kind, and the LSP backend ignores it, keeping its
+      own server-side diagnostic cache.
 - [x] **Semantic highlighting (semantic tokens).** The point is the gap between
       what the grammar can prove and what the engine already knows: the
       highlights query paints a *use* of a parameter, a local, a package and an
@@ -999,18 +1053,43 @@ lowest latency.
       `t.variables` where every other plugin in the tree maps it to
       `t.parameters`.
 
-      **Still open:**
-      - The `Enum_Member` and `Field` kinds sit in the seam's vocabulary but the
-        Odin backend never emits them — both positions are grammar-decided and
-        skipped. The LSP backend does emit them, from a server's own legend.
-      - Classifying a whole file has never been timed: `resolve_local` is a
-        linear scan of `collect_defs` per identifier, so the walk is O(idents ×
-        defs). The one-in-flight rule bounds how often it runs, not what it costs.
-      - Tests are `lang/odin/semantic_test.odin` (param vs local vs package vs
-        procedure vs type, the skip positions, ascending order, dimming an
-        undeclared name, nothing reachable being dimmed, and one per kill switch
-        asserting dimming stops while classification continues) plus the
-        host-side merge tests above.
+      **`Enum_Member` and `Field` are emitted for the qualified selector
+      shapes.** `member_token_kind` (`semantic.odin`) runs before the grammar
+      skip, on the *member* side of a qualified selector — `Axis.Vertical`,
+      `p.x` — once the operand is a real identifier: it resolves the operand
+      through the same bucketed lookup below, and if the operand names a
+      type/enum it checks the identifier against the enum's members
+      (`visit_type_decl(..., "enum_declaration", ...)`, the same locator
+      `action_fill_switch_cases` uses); otherwise it tries `member_field_type`,
+      the struct-field resolver goto/hover already share. A miss falls through
+      to the ordinary skip — unclassified, never misread as unresolved.
+      Bounded by `SEMANTIC_MEMBER_LIMIT` (512): past that many qualified
+      selectors in one file, the rest are left unclassified rather than paying
+      an unbounded per-selector resolution cost. **Still open:** an *implicit*
+      selector (`.Vertical`, no operand at all) needs the far more expensive
+      expected-type walk (`expected_type_at`) completion already pays for at
+      the caret — deliberately out of scope for a whole-file pass, so it
+      stays unclassified.
+
+      **Classifying a whole file's shadowing resolution is bounded.**
+      `semantic_tokens` groups `collect_defs`'s output by name once
+      (`group_defs_by_name`) and `resolve_local_grouped` scans only the
+      matching bucket per identifier, so the walk is no longer O(idents ×
+      defs) — the per-identifier cost is now the shadowing depth at that name,
+      not the file's total declaration count (`semantic_test.odin`'s
+      `test_semantic_grouped_resolution_bucket_stays_bounded` asserts the
+      bucket a synthetic file's tenfold growth leaves behind stays at 1). The
+      member/enum resolution above is a separate, real per-selector cost this
+      grouping does not touch, which is what `SEMANTIC_MEMBER_LIMIT` bounds
+      instead.
+
+      Tests are `lang/odin/semantic_test.odin` (param vs local vs package vs
+      procedure vs type, the skip positions, the qualified enum-member/field
+      shapes, an implicit selector and a package selector staying
+      unclassified, the member-resolution cap, ascending order, dimming an
+      undeclared name, nothing reachable being dimmed, and one per kill switch
+      asserting dimming stops while classification continues) plus the
+      host-side merge tests above.
 
       **What the first real files broke.** Run over the repo itself, dimming lit
       up 44 of 353 identifiers in `lang/odin/semantic.odin` alone — every one of

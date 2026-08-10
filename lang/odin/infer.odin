@@ -332,8 +332,66 @@ infer_expr_result :: proc(
             return {}, false
         }
         return type_ref_from_node(target, req.source)
+    case "binary_expression":
+        return binary_expr_type(e, parser, root, req, node, depth)
+    case "in_expression":
+        // `x in bs`, `x not_in bs` — a membership test, always a bool.
+        return Type_Ref{name = "bool"}, true
     }
     return {}, false
+}
+
+// A `binary_expression`'s result: comparison, logical and `or_else` all read
+// off the operator alone, arithmetic and bitwise take whichever operand names
+// a type. `m[k] or_else 0` is a binary_expression too — `or_else` is its
+// operator, not a node of its own (confirmed with ts-probe) — and it is
+// type-transparent: the fallback must already unify with the left operand's
+// type, so the result is simply that operand's.
+@(private)
+binary_expr_type :: proc(
+    e: ^Engine,
+    parser: ts.Parser,
+    root: ts.Node,
+    req: ^lang.Request,
+    node: ts.Node,
+    depth: int,
+) -> (Type_Ref, bool) {
+    left := ts.node_child_by_field_name(node, "left")
+    right := ts.node_child_by_field_name(node, "right")
+    if ts.node_is_null(left) || ts.node_is_null(right) {
+        return {}, false
+    }
+    switch binary_operator_text(node, left, right) {
+    case "==", "!=", "<", "<=", ">", ">=", "&&", "||":
+        return Type_Ref{name = "bool"}, true
+    case "or_else":
+        return infer_expr_result(e, parser, root, req, left, 0, depth + 1)
+    case "+", "-", "*", "/", "%", "%%", "&", "|", "~", "<<", ">>", "&~":
+        // An untyped constant infers nothing here (no case matches a bare
+        // literal node), so this naturally falls through to the other side —
+        // Odin requires both sides to already agree once both are typed, so
+        // preferring the left when both resolve costs nothing.
+        if lt, lok := infer_expr_result(e, parser, root, req, left, 0, depth + 1); lok {
+            return lt, true
+        }
+        return infer_expr_result(e, parser, root, req, right, 0, depth + 1)
+    }
+    return {}, false
+}
+
+// The operator token of a binary_expression: the one child that is neither
+// `left` nor `right`. An anonymous node's own type is its literal text
+// ("+", "or_else", "&~"), so no separate text slice is needed.
+@(private)
+binary_operator_text :: proc(node, left, right: ts.Node) -> string {
+    for i in 0 ..< ts.node_child_count(node) {
+        c := ts.node_child(node, i)
+        if same_node(c, left) || same_node(c, right) {
+            continue
+        }
+        return string(ts.node_type(c))
+    }
+    return ""
 }
 
 // Whether the operand of a selector is an imported package rather than a value —
