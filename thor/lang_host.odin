@@ -342,6 +342,7 @@ thor_goto_workspace_symbol :: proc(thor: ^Thor) {
     // instant; thor_update_workspace_symbols fills it when the result lands.
     thor.workspace_symbols_request_id = id
     thor.workspace_symbols_typing = false
+    thor.workspace_symbols_needs_query = ext != ".odin"
     widgets.command_palette_pick_rich_loading(
         thor.command_palette,
         &thor.ui_context,
@@ -1380,11 +1381,14 @@ thor_build_reference_items :: proc(thor: ^Thor, res: ^lang.Result) -> []widgets.
 // Fills the already-open (loading) workspace-symbol picker once its scan lands.
 // Drops the result if it's superseded by a newer Ctrl+Q or the picker has since
 // been closed or replaced (command_palette_pick_rich_set is a no-op then). An
-// empty *initial* scan closes the loading picker and flashes instead of leaving
-// it hanging; an empty result re-dispatched by typing just empties the list —
-// "no symbols match this text" is not "nothing to show", and closing the
-// picker out from under a keystroke would be far more surprising than a blank
-// list under the search box.
+// empty *initial* scan against the native Odin engine closes the loading picker
+// and flashes instead of leaving it hanging — that engine always does a full
+// scan, so empty means the workspace really has none. An empty initial scan
+// against a server-backed extension (workspace_symbols_needs_query) or one
+// re-dispatched by typing just empties the list instead: a query-gated server
+// answers nothing until typed, and "no symbols match this text" is not
+// "nothing to show" either way — closing the picker out from under the user
+// would be far more surprising than a blank list under the search box.
 @(private = "file")
 thor_update_workspace_symbols :: proc(thor: ^Thor, res: ^lang.Result) {
     if res.id != thor.workspace_symbols_request_id {
@@ -1395,7 +1399,7 @@ thor_update_workspace_symbols :: proc(thor: ^Thor, res: ^lang.Result) {
         return // picker closed or replaced by another pick; drop the result
     }
     if !res.ok || len(res.symbols) == 0 {
-        if thor.workspace_symbols_typing {
+        if thor.workspace_symbols_typing || thor.workspace_symbols_needs_query {
             widgets.command_palette_pick_rich_set(thor.command_palette, {})
             return
         }
@@ -1457,9 +1461,14 @@ thor_build_symbol_items :: proc(thor: ^Thor, res: ^lang.Result) -> []widgets.Pic
     items := make([dynamic]widgets.Pick_Item, context.temp_allocator)
     for sym in res.symbols {
         append(&thor.doc_symbols, Doc_Symbol {path = strings.clone(sym.path), offset = sym.offset})
+        // A server-backed symbol carries no signature when it could not read the
+        // declaring line (SymbolInformation has no `detail` field at all, and a
+        // cross-file workspace scan needs a disk read the native engine never
+        // does): fall back to the bare name rather than a row with no text.
+        text := sym.signature != "" ? sym.signature : sym.name
         append(&items, widgets.Pick_Item {
-            text     = sym.signature,
-            name_len = min(len(sym.name), len(sym.signature)),
+            text     = text,
+            name_len = min(len(sym.name), len(text)),
             color    = thor_symbol_color(thor, sym.kind),
             detail   = thor_symbol_detail(thor, sym),
         })

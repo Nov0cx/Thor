@@ -297,6 +297,12 @@ Thor :: struct {
     // matches for this text", not "nothing to show", so it must not close
     // the picker the way the initial empty-workspace case does.
     workspace_symbols_typing:     bool,
+    // True when the dispatched scan targets a server-backed extension rather
+    // than the native Odin engine: a server may answer an unfiltered (empty
+    // query) scan with nothing until the user types (workspace/symbol on
+    // clangd, gopls, ...), so an empty *initial* result there means "type to
+    // search", not "no symbols in workspace" — it must not close the picker.
+    workspace_symbols_needs_query: bool,
     // In-flight find-references scan: its request id. Like the workspace-symbols
     // picker, the results picker opens immediately (loading) and is filled when
     // the matching scan lands; a superseded result is dropped.
