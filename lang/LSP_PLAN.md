@@ -3,7 +3,7 @@
 The implementation plan for `lang/lsp`, the optional subprocess LSP client
 `ROADMAP.md` scopes under **The optional LSP backend**. `ROADMAP.md` stays the
 status document; this file is the design, and it is superseded section by section
-as each milestone lands. M0 to M5 are built; M6 and M7 are not.
+as each milestone lands. M0 to M7 are built; M8 and M9 are not.
 
 Every file:line reference was checked against the tree at the time of writing.
 Where the code differs from an obvious assumption, the difference is stated
@@ -1136,11 +1136,38 @@ its tests pass, and nothing regresses.
       request overtook the pump's queued `didChange`, and the pull decoder would
       have counted every position over an empty line index. It now sends the
       buffer, like every other kind.
-- [ ] **M7 — Mutating features.** `Rename` with `old_text` reconstruction and the
+- [x] **M7 — Mutating features.** `Rename` with `old_text` reconstruction and the
       resource-operation refusal; `Code_Actions` with eager `codeAction/resolve`
       and command-only items dropped.
       *Checkpoint: Ctrl+R renames across files in a Rust workspace as one undo
       entry per open buffer, and refuses cleanly when anything does not verify.*
+
+      **As built, four points differ from the text above.** (a) **No
+      `json.marshal` round trip.** The spec needs a `CodeAction` echoed back
+      verbatim to `codeAction/resolve`, and `core:encoding/json`'s `marshal` has
+      no `json.Value` case (`jsonrpc_test.odin:9`), so the already-existing
+      `json_text` helper (`config.odin`, built for `initializationOptions`) does
+      the re-serialization instead — it wraps `json.unparse`, which does accept a
+      `json.Value`. (b) **`ask_source` gained a third source.** It answered only
+      the request's own buffer or disk, while `resolve_range` already checked a
+      server-held open document first. A rename or code action touching a second
+      open file failed `old_text` verification against a stale (or, in a test, a
+      nonexistent) copy on disk; `server_document_text` (`server.odin`) clones a
+      held document's text under `docs_mutex`, and `ask_source` now tries it
+      before falling back to disk. This is a correctness fix the milestone's own
+      checkpoint requires — "one undo entry per open buffer" only holds if the
+      buffer's real text is what gets verified. (c) **Two host bugs fixed
+      alongside, not deferred.** `thor_code_actions` (`thor/codeactions.odin`)
+      gated Ctrl+. on `manager_supports` instead of `manager_allows(ext,
+      .Code_Actions)`, unlike `thor_rename_symbol`'s existing gate — a backend
+      that declined code actions specifically went silently unnoticed instead of
+      doing nothing. `thor_edit_target` (`thor/lang_host.odin`) matched an open
+      buffer with an exact string compare instead of `thor_same_path`, so a
+      case- or separator-different path from a server's URI missed the open tab
+      and fell through to a disk overwrite of possibly-unsaved content. (d)
+      **`isPreferred` ordering** builds two `context.temp_allocator` lists
+      (preferred, rest) and appends them in order, exactly the alternative the
+      plan named as equally acceptable to a shift-based `inject_at`.
 - [ ] **M8 — Documentation.** Everything above, plus the `update-docs` skill.
 - [ ] **M9 — Optional follow-ups, each independent.** Incremental `didChange`
       through `treecache.source_edit`; `semanticTokens/full/delta`; `$/progress`

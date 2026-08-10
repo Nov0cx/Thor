@@ -8,6 +8,7 @@
 // have is silently the wrong position.
 package lsp
 
+import "core:encoding/json"
 import "core:log"
 import "core:sync"
 import "core:time"
@@ -23,8 +24,7 @@ DEADLINE_INTERACTIVE :: 3 * time.Second
 DEADLINE_HEAVY :: 15 * time.Second
 
 // The method each kind is sent as. An empty entry is a kind no server answers
-// here: Package_Doc has no LSP method at all, and the rest belong to later
-// milestones.
+// here: Package_Doc has no LSP method at all.
 @(private)
 METHODS := [lang.Request_Kind]string {
     .Definition        = "textDocument/definition",
@@ -35,9 +35,9 @@ METHODS := [lang.Request_Kind]string {
     .Signature_Help    = "textDocument/signatureHelp",
     .Completion        = "textDocument/completion",
     .Package_Doc       = "",
-    .Rename            = "",
+    .Rename            = "textDocument/rename",
     .Diagnostics       = "textDocument/diagnostic",
-    .Code_Actions      = "",
+    .Code_Actions      = "textDocument/codeAction",
     .Semantic_Tokens   = "textDocument/semanticTokens/full",
 }
 
@@ -81,6 +81,14 @@ request_answer :: proc(s: ^Server, req: ^lang.Request, res: ^lang.Result) {
         raws   = make(map[string]^Line_Index, allocator = context.temp_allocator),
     }
 
+    // A server that advertises prepareProvider gets one veto before the rename
+    // itself: a null (or defaultBehavior:false) reply means "not renameable
+    // here", and sending textDocument/rename anyway would ask a question the
+    // server already answered.
+    if req.kind == .Rename && s.caps.prepare_rename && !prepare_rename_ok(&ask) {
+        return
+    }
+
     params := request_params(&ask)
     value, err := conn_call(ask.conn, method, params, request_deadline(req.kind), req.cancel)
     defer conn_free_value(ask.conn, value)
@@ -110,6 +118,20 @@ request_params :: proc(ask: ^Ask) -> string {
 
     #partial switch ask.req.kind {
     case .Document_Symbols, .Semantic_Tokens, .Diagnostics:
+    case .Code_Actions:
+        // Request carries only a caret offset, no selection end (lang.odin), so
+        // a zero-width range at the caret goes out; a selection-scoped action
+        // stays unreachable until Request grows a selection end.
+        line, character := position_from_offset(&ask.lines, ask.req.offset)
+        append(&out, `,"range":{"start":{"line":`)
+        write_number(&out, i64(line))
+        append(&out, `,"character":`)
+        write_number(&out, i64(character))
+        append(&out, `},"end":{"line":`)
+        write_number(&out, i64(line))
+        append(&out, `,"character":`)
+        write_number(&out, i64(character))
+        append(&out, `}}`)
     case:
         line, character := position_from_offset(&ask.lines, ask.req.offset)
         append(&out, `,"position":{"line":`)
@@ -126,9 +148,48 @@ request_params :: proc(ask: ^Ask) -> string {
     case .Completion:
         // Invoked: the editor opens the popup, never a trigger character.
         append(&out, `,"context":{"triggerKind":1}`)
+    case .Rename:
+        append(&out, `,"newName":`)
+        write_quoted(&out, ask.req.new_name)
+    case .Code_Actions:
+        // No live diagnostics are threaded into Ask; a server that needs one to
+        // offer a fix (e.g. "add missing import") sees none. Documented v1 gap.
+        append(&out, `,"context":{"diagnostics":[]}`)
     }
     append(&out, `}`)
     return string(out[:])
+}
+
+// Sends textDocument/prepareRename at the caret. False means "not renameable
+// here": an RPC error, a null reply, or an explicit defaultBehavior:false. A
+// Range, a {range,placeholder} object or defaultBehavior:true all mean go
+// ahead — textDocument/rename itself still verifies the identifier.
+@(private)
+prepare_rename_ok :: proc(ask: ^Ask) -> bool {
+    out := make([dynamic]u8, context.temp_allocator)
+    append(&out, `{"textDocument":{"uri":`)
+    write_quoted(&out, ask.uri)
+    append(&out, `},"position":{"line":`)
+    line, character := position_from_offset(&ask.lines, ask.req.offset)
+    write_number(&out, i64(line))
+    append(&out, `,"character":`)
+    write_number(&out, i64(character))
+    append(&out, `}}`)
+
+    value, err := conn_call(ask.conn, "textDocument/prepareRename", string(out[:]), DEADLINE_INTERACTIVE, ask.req.cancel)
+    defer conn_free_value(ask.conn, value)
+    if err != .None {
+        return false
+    }
+    if _, is_null := value.(json.Null); is_null {
+        return false
+    }
+    if object, ok := value.(json.Object); ok {
+        if flag, fok := object["defaultBehavior"].(json.Boolean); fok {
+            return bool(flag)
+        }
+    }
+    return true
 }
 
 @(private)
@@ -141,7 +202,10 @@ request_deadline :: proc(kind: lang.Request_Kind) -> time.Duration {
 }
 
 // The LF-collapsed text of a file, read once per request. The request's own file
-// needs no read: its buffer came with it.
+// needs no read: its buffer came with it. A file the server already holds open
+// answers from that buffer, not disk — the server's positions were computed
+// against it, and disk can be stale or (as in a workspace-wide rename touching
+// an unsaved tab) simply wrong.
 @(private)
 ask_source :: proc(ask: ^Ask, path: string) -> (string, bool) {
     if path_equal(path, ask.req.path) {
@@ -149,6 +213,10 @@ ask_source :: proc(ask: ^Ask, path: string) -> (string, bool) {
     }
     if text, found := ask.texts[path]; found {
         return text, text != ""
+    }
+    if text, held := server_document_text(ask.server, path, context.temp_allocator); held {
+        ask.texts[clone_temp(path)] = text
+        return text, true
     }
     text, read := lang.source_read(path, context.temp_allocator)
     ask.texts[clone_temp(path)] = read ? text : ""

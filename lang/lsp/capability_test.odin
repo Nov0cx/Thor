@@ -144,3 +144,26 @@ test_capabilities_real_reply :: proc(t: ^testing.T) {
         lang.FEATURES_ALL - {.Package_Doc, .Diagnostics},
     )
 }
+
+// renameProvider.prepareProvider and codeActionProvider.resolveProvider are
+// each one flag inside an options object — a bare `true` claims the method but
+// not the sub-option, and PROVIDER_KEYS alone cannot see that far.
+@(test)
+test_capabilities_prepare_and_resolve_options :: proc(t: ^testing.T) {
+    both := decode(
+        `{"capabilities": {
+            "renameProvider": {"prepareProvider": true},
+            "codeActionProvider": {"resolveProvider": true}
+        }}`,
+    )
+    testing.expect(t, both.prepare_rename)
+    testing.expect(t, both.resolve_actions)
+
+    bare := decode(`{"capabilities": {"renameProvider": true, "codeActionProvider": true}}`)
+    testing.expect(t, !bare.prepare_rename)
+    testing.expect(t, !bare.resolve_actions)
+
+    absent := decode(`{"capabilities": {}}`)
+    testing.expect(t, !absent.prepare_rename)
+    testing.expect(t, !absent.resolve_actions)
+}

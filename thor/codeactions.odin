@@ -30,7 +30,9 @@ thor_code_actions :: proc(thor: ^Thor) {
         return
     }
     ext := thor_file_extension(file.name)
-    if !lang.manager_supports(&thor.lang_manager, ext) {
+    // manager_allows, not manager_supports: a backend that gates code actions
+    // off must leave Ctrl+. doing nothing, not answering an error.
+    if !lang.manager_allows(&thor.lang_manager, ext, .Code_Actions) {
         return
     }
     source := textedit.text(&file.state)

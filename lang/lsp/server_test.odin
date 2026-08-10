@@ -24,6 +24,10 @@ when ODIN_OS == .Windows {
     WORKSPACE_URI :: "file:///C:/ws"
     @(private = "file")
     SOURCE_URI :: "file:///C:/ws/src/main.fake"
+    @(private = "file")
+    OTHER :: "C:/ws/src/other.fake"
+    @(private = "file")
+    OTHER_URI :: "file:///C:/ws/src/other.fake"
 } else {
     @(private = "file")
     WORKSPACE :: "/ws"
@@ -33,6 +37,10 @@ when ODIN_OS == .Windows {
     WORKSPACE_URI :: "file:///ws"
     @(private = "file")
     SOURCE_URI :: "file:///ws/src/main.fake"
+    @(private = "file")
+    OTHER :: "/ws/src/other.fake"
+    @(private = "file")
+    OTHER_URI :: "file:///ws/src/other.fake"
 }
 
 // A scripted server behind a Server: the transport is the in-process Mock, so a
@@ -46,6 +54,7 @@ Fake :: struct {
     command:    [1]string,
     caps:       string, // the initialize result it answers with
     result:     string, // what it answers every other request with; "" answers null
+    by_method:  map[string]string, // method -> reply body; overrides result for that method
     opens:      int,    // how many times a transport was asked for
     refuse:     bool,   // a second start finds no program
     silent:     bool,   // it takes every request but the handshake and never answers
@@ -74,6 +83,10 @@ fake_answer :: proc(sv: ^Serve, id: i64, method: string) {
         mock_reply(sv.mock, id, f.caps)
     case:
         if f.silent {
+            return
+        }
+        if body, scripted := f.by_method[method]; scripted {
+            mock_reply(sv.mock, id, body)
             return
         }
         mock_reply(sv.mock, id, f.result == "" ? "null" : f.result)
@@ -123,6 +136,7 @@ fake_end :: proc(f: ^Fake, s: ^Server) {
     server_stop(s)
     server_destroy(s)
     mock_serve_destroy(&f.serve)
+    delete(f.by_method)
 }
 
 @(private = "file")
@@ -721,4 +735,155 @@ test_server_pull_diagnostics_round_trip :: proc(t: ^testing.T) {
 
     testing.expect(t, fake_sent(&f, `"method":"textDocument/diagnostic"`), "the request was never sent")
     testing.expect(t, !fake_sent(&f, `"position"`), "a whole-file request named a position")
+}
+
+// A server that advertises prepareProvider is asked first, and a WorkspaceEdit
+// spanning two files — the request's own and one already held open — comes back
+// sorted as one edit per file.
+@(test)
+test_server_rename_round_trip :: proc(t: ^testing.T) {
+    f: Fake
+    s := fake_server(&f, `{"capabilities":{"renameProvider":{"prepareProvider":true}}}`)
+    defer fake_end(&f, s)
+    defer free_all(context.temp_allocator)
+
+    testing.expect(t, server_start(s, SOURCE))
+    testing.expect(t, wait_state(s, .Ready), "the handshake did not finish")
+
+    sync.lock(&s.docs_mutex)
+    server_document(s, OTHER, "one\nalpha two\n", 1)
+    sync.unlock(&s.docs_mutex)
+
+    f.by_method["textDocument/prepareRename"] =
+        `{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}}}`
+    f.by_method["textDocument/rename"] =
+        `{"changes":{"` +
+        SOURCE_URI +
+        `":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"newText":"renamed"}],"` +
+        OTHER_URI +
+        `":[{"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":5}},"newText":"renamed"}]}}`
+
+    req := lang.Request {
+        kind     = .Rename,
+        path     = SOURCE,
+        ext      = ".fake",
+        source   = BUFFER, // caret on "alpha"
+        offset   = 0,
+        revision = 1,
+        new_name = "renamed",
+    }
+    res := lang.Result {
+        kind = .Rename,
+    }
+    testing.expect(t, server_ensure_started(s, &req), "the server did not start")
+    request_answer(s, &req, &res)
+    defer {
+        for edit in res.edits {
+            delete(edit.path)
+            delete(edit.old_text)
+            delete(edit.new_text)
+        }
+        delete(res.edits)
+    }
+
+    testing.expect(t, res.ok, "the reply did not reach the result")
+    testing.expect_value(t, len(res.edits), 2)
+    if len(res.edits) == 2 {
+        testing.expect_value(t, res.edits[0].path, SOURCE)
+        testing.expect_value(t, res.edits[1].path, OTHER)
+    }
+
+    testing.expect(t, fake_sent(&f, `"method":"textDocument/prepareRename"`), "prepareRename was never sent")
+    testing.expect(t, fake_sent(&f, `"method":"textDocument/rename"`), "rename was never sent")
+    testing.expect(
+        t,
+        fake_index(&f, `"method":"textDocument/prepareRename"`) < fake_index(&f, `"method":"textDocument/rename"`),
+        "rename was sent before prepareRename answered",
+    )
+}
+
+// A null prepareRename reply refuses the rename before it is ever asked.
+@(test)
+test_server_rename_prepare_refusal :: proc(t: ^testing.T) {
+    f: Fake
+    s := fake_server(&f, `{"capabilities":{"renameProvider":{"prepareProvider":true}}}`)
+    defer fake_end(&f, s)
+    defer free_all(context.temp_allocator)
+    f.by_method["textDocument/prepareRename"] = "null"
+
+    req := lang.Request {
+        kind     = .Rename,
+        path     = SOURCE,
+        ext      = ".fake",
+        source   = BUFFER,
+        offset   = 0,
+        revision = 1,
+        new_name = "renamed",
+    }
+    res := lang.Result {
+        kind = .Rename,
+    }
+    testing.expect(t, server_ensure_started(s, &req), "the server did not start")
+    request_answer(s, &req, &res)
+
+    testing.expect(t, !res.ok, "a refused prepareRename must find nothing")
+    testing.expect(t, wait_sent(&f, `"method":"textDocument/prepareRename"`), "prepareRename was never sent")
+    testing.expect(t, !fake_sent(&f, `"method":"textDocument/rename"`), "rename was sent after prepareRename refused")
+}
+
+// An action with no inline edit is resolved eagerly, on the same worker, before
+// the offer reaches the result.
+@(test)
+test_server_code_actions_resolve_round_trip :: proc(t: ^testing.T) {
+    f: Fake
+    s := fake_server(&f, `{"capabilities":{"codeActionProvider":{"resolveProvider":true}}}`)
+    defer fake_end(&f, s)
+    defer free_all(context.temp_allocator)
+    f.by_method["textDocument/codeAction"] = `[{"title":"Add import","kind":"quickfix","data":{"id":7}}]`
+    f.by_method["codeAction/resolve"] =
+        `{"title":"Add import","kind":"quickfix","edit":{"changes":{"` +
+        SOURCE_URI +
+        `":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"newText":"// x\n"}]}}}`
+
+    req := lang.Request {
+        kind     = .Code_Actions,
+        path     = SOURCE,
+        ext      = ".fake",
+        source   = BUFFER,
+        offset   = 0,
+        revision = 1,
+    }
+    res := lang.Result {
+        kind = .Code_Actions,
+    }
+    testing.expect(t, server_ensure_started(s, &req), "the server did not start")
+    request_answer(s, &req, &res)
+    defer {
+        for action in res.actions {
+            delete(action.title)
+            delete(action.kind)
+            for edit in action.edits {
+                delete(edit.path)
+                delete(edit.old_text)
+                delete(edit.new_text)
+            }
+            delete(action.edits)
+        }
+        delete(res.actions)
+    }
+
+    testing.expect(t, res.ok, "the reply did not reach the result")
+    testing.expect_value(t, len(res.actions), 1)
+    if len(res.actions) != 1 {
+        return
+    }
+    testing.expect_value(t, res.actions[0].title, "Add import")
+    testing.expect_value(t, len(res.actions[0].edits), 1)
+    if len(res.actions[0].edits) == 1 {
+        testing.expect_value(t, res.actions[0].edits[0].new_text, "// x\n")
+    }
+
+    testing.expect(t, fake_sent(&f, `"method":"textDocument/codeAction"`), "codeAction was never sent")
+    testing.expect(t, fake_sent(&f, `"method":"codeAction/resolve"`), "codeAction/resolve was never sent")
+    testing.expect(t, fake_sent(&f, `"data":{"id":7}`), "the resolve params did not echo the action back")
 }

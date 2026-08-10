@@ -694,7 +694,7 @@ thor_edit_target :: proc(
     }
 
     for file in thor.open_files {
-        if file.path != canonical {
+        if !thor_same_path(file.path, canonical) {
             continue
         }
         if !file.loaded {

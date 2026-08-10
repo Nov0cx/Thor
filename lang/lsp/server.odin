@@ -545,6 +545,20 @@ server_range_in_open :: proc(s: ^Server, path: string, start_line, start_char, e
         true
 }
 
+// The text of a document this server already holds, cloned under docs_mutex so
+// a concurrent didChange cannot free it out from under the caller. This is what
+// makes old_text verification see an open buffer's real contents instead of a
+// stale copy on disk.
+@(private)
+server_document_text :: proc(s: ^Server, path: string, allocator := context.allocator) -> (string, bool) {
+    sync.guard(&s.docs_mutex)
+    doc, found := server_find(s, path)
+    if !found {
+        return "", false
+    }
+    return strings.clone(doc.text, allocator), true
+}
+
 @(private)
 server_send_open :: proc(s: ^Server, doc: ^Document, language_id: string) {
     if s.caps.open_close {

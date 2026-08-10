@@ -36,6 +36,10 @@ request_decode :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
         decode_pull_diagnostics(ask, value, res)
     case .Semantic_Tokens:
         decode_semantic_tokens(ask, value, res)
+    case .Rename:
+        decode_rename(ask, value, res)
+    case .Code_Actions:
+        decode_code_actions(ask, value, res)
     }
 }
 
@@ -427,6 +431,256 @@ decode_semantic_tokens :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) 
         append(&res.tokens, lang.Semantic_Token{start = start, end = end, kind = legend[entry].kind})
     }
     res.ok = len(res.tokens) > 0
+}
+
+// `WorkspaceEdit` from textDocument/rename. Sorted ascending by (path, start),
+// the order thor_apply_edits walks each file back-to-front by.
+@(private)
+decode_rename :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
+    res.edits = make([dynamic]lang.Text_Edit)
+    if !decode_workspace_edit(ask, value, &res.edits) {
+        delete(res.edits)
+        res.edits = nil
+        return
+    }
+    slice.sort_by(res.edits[:], proc(a, b: lang.Text_Edit) -> bool {
+        if a.path != b.path {
+            return a.path < b.path
+        }
+        return a.start < b.start
+    })
+    res.ok = len(res.edits) > 0
+}
+
+// `(Command | CodeAction)[]`. An item with no `edit` gets codeAction/resolve
+// called eagerly, on this same worker; one that still has none afterward — a
+// bare Command, or a CodeAction a server declined to resolve — is dropped,
+// since Thor has no workspace/executeCommand path. isPreferred actions sort
+// first; server order is kept otherwise.
+@(private)
+decode_code_actions :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
+    items, is_array := value.(json.Array)
+    if !is_array || len(items) == 0 {
+        return
+    }
+
+    preferred := make([dynamic]lang.Code_Action, context.temp_allocator)
+    rest := make([dynamic]lang.Code_Action, context.temp_allocator)
+    for item in items {
+        object, is_object := item.(json.Object)
+        title, has_title := object["title"].(json.String)
+        if !is_object || !has_title {
+            continue
+        }
+        if _, disabled := object["disabled"]; disabled {
+            continue
+        }
+        action := lang.Code_Action {
+            title = strings.clone(string(title)),
+            kind  = strings.clone(action_kind_of(object["kind"])),
+            edits = make([dynamic]lang.Text_Edit),
+        }
+        if !decode_action_edit(ask, object, &action.edits) || len(action.edits) == 0 {
+            delete(action.title)
+            delete(action.kind)
+            delete(action.edits)
+            continue
+        }
+        slice.sort_by(action.edits[:], proc(a, b: lang.Text_Edit) -> bool {
+            if a.path != b.path {
+                return a.path < b.path
+            }
+            return a.start < b.start
+        })
+        if flag, fok := object["isPreferred"].(json.Boolean); fok && bool(flag) {
+            append(&preferred, action)
+        } else {
+            append(&rest, action)
+        }
+    }
+
+    if len(preferred) == 0 && len(rest) == 0 {
+        return
+    }
+    res.actions = make([dynamic]lang.Code_Action, 0, len(preferred) + len(rest))
+    append(&res.actions, ..preferred[:])
+    append(&res.actions, ..rest[:])
+    res.ok = len(res.actions) > 0
+}
+
+// The edit for one code action: inline if present, otherwise fetched with
+// codeAction/resolve on this worker's own connection — the shared conn_lock
+// covers the whole request, so a second call here is safe.
+@(private)
+decode_action_edit :: proc(ask: ^Ask, object: json.Object, out: ^[dynamic]lang.Text_Edit) -> bool {
+    if edit, has_edit := object["edit"]; has_edit {
+        if _, is_null := edit.(json.Null); !is_null {
+            return decode_workspace_edit(ask, edit, out)
+        }
+    }
+    if !ask.server.caps.resolve_actions {
+        return false
+    }
+    params := json_text(object, context.temp_allocator)
+    if params == "" {
+        return false
+    }
+    value, err := conn_call(ask.conn, "codeAction/resolve", params, DEADLINE_INTERACTIVE, ask.req.cancel)
+    defer conn_free_value(ask.conn, value)
+    if err != .None {
+        return false
+    }
+    resolved, is_object := value.(json.Object)
+    if !is_object {
+        return false
+    }
+    edit, has_edit := resolved["edit"]
+    if !has_edit {
+        return false
+    }
+    return decode_workspace_edit(ask, edit, out)
+}
+
+// The LSP CodeActionKind ("quickfix", "refactor.extract", "source.fixAll") onto
+// the two colors thor_action_color recognizes. Anything else, including a
+// missing kind, falls back to its neutral default.
+@(private)
+action_kind_of :: proc(value: json.Value) -> string {
+    kind, is_string := value.(json.String)
+    if !is_string {
+        return ""
+    }
+    text := string(kind)
+    if strings.has_prefix(text, "quickfix") {
+        return "quickfix"
+    }
+    if strings.has_prefix(text, "refactor") {
+        return "refactor"
+    }
+    return ""
+}
+
+// Decodes a WorkspaceEdit into `out`, one lang.Text_Edit per range, old_text
+// read from the current file contents through resolve_range + ask_source.
+// False refuses the whole edit: a resource operation (CreateFile / RenameFile /
+// DeleteFile) was present, or a range, path or file could not be verified.
+// Edits already appended are freed before returning false, so a caller never
+// has to track how far decoding got.
+@(private)
+decode_workspace_edit :: proc(ask: ^Ask, value: json.Value, out: ^[dynamic]lang.Text_Edit) -> bool {
+    object, is_object := value.(json.Object)
+    if !is_object {
+        return false
+    }
+    start := len(out^)
+    ok := true
+    if changes, has := object["documentChanges"].(json.Array); has {
+        ok = decode_document_changes(ask, changes, out)
+    } else if changes, has := object["changes"].(json.Object); has {
+        ok = decode_changes_map(ask, changes, out)
+    }
+    if !ok {
+        for edit in out[start:] {
+            delete(edit.path)
+            delete(edit.old_text)
+            delete(edit.new_text)
+        }
+        resize(out, start)
+        return false
+    }
+    return true
+}
+
+// `documentChanges`: TextDocumentEdit items, or a resource operation that
+// refuses the whole set — the seam cannot express creating, renaming or
+// deleting a file, and a half-applied rename breaks a build silently.
+@(private)
+decode_document_changes :: proc(ask: ^Ask, items: json.Array, out: ^[dynamic]lang.Text_Edit) -> bool {
+    for item in items {
+        object, is_object := item.(json.Object)
+        if !is_object {
+            return false
+        }
+        if _, is_resource_op := object["kind"]; is_resource_op {
+            return false
+        }
+        doc, has_doc := object["textDocument"].(json.Object)
+        uri, has_uri := doc["uri"].(json.String)
+        edits, has_edits := object["edits"].(json.Array)
+        if !has_doc || !has_uri || !has_edits {
+            return false
+        }
+        if !decode_text_edits(ask, string(uri), edits, out) {
+            return false
+        }
+    }
+    return true
+}
+
+// `changes`: a plain uri -> TextEdit[] map, the shape a server without
+// documentChanges support answers with.
+@(private)
+decode_changes_map :: proc(ask: ^Ask, changes: json.Object, out: ^[dynamic]lang.Text_Edit) -> bool {
+    for uri, value in changes {
+        edits, has_edits := value.(json.Array)
+        if !has_edits {
+            return false
+        }
+        if !decode_text_edits(ask, uri, edits, out) {
+            return false
+        }
+    }
+    return true
+}
+
+// One file's TextEdit / AnnotatedTextEdit array. annotationId is read by
+// nothing and ignored — it names a change-annotation label Thor has no UI for.
+@(private)
+decode_text_edits :: proc(ask: ^Ask, uri: string, items: json.Array, out: ^[dynamic]lang.Text_Edit) -> bool {
+    for item in items {
+        object, is_object := item.(json.Object)
+        if !is_object {
+            return false
+        }
+        new_text, has_text := object["newText"].(json.String)
+        start_line, start_char, end_line, end_char, has_range := range_of(object["range"])
+        if !has_text || !has_range {
+            return false
+        }
+        if !append_text_edit(ask, uri, start_line, start_char, end_line, end_char, string(new_text), out) {
+            return false
+        }
+    }
+    return true
+}
+
+// One Text_Edit: the range resolved to a path and byte offsets, old_text read
+// from the file's current contents so thor_apply_edits can verify it. False on
+// an inverted range, an unresolved path, or a file that could not be read.
+@(private)
+append_text_edit :: proc(
+    ask: ^Ask,
+    uri: string,
+    start_line, start_char, end_line, end_char: int,
+    new_text: string,
+    out: ^[dynamic]lang.Text_Edit,
+) -> bool {
+    path, start, end, ok := resolve_range(ask, uri, start_line, start_char, end_line, end_char)
+    if !ok || start > end {
+        return false
+    }
+    text, read := ask_source(ask, path)
+    if !read || start < 0 || end > len(text) {
+        return false
+    }
+    append(out, lang.Text_Edit {
+        path     = strings.clone(path),
+        start    = start,
+        end      = end,
+        old_text = strings.clone(text[start:end]),
+        new_text = strings.clone(new_text),
+    })
+    return true
 }
 
 // One DocumentSymbol or SymbolInformation, and then the children of the first.

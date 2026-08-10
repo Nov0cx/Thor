@@ -38,13 +38,15 @@ Token_Legend_Entry :: struct {
 
 // One immutable answer per question the client asks of a server.
 Capabilities :: struct {
-    kinds:        bit_set[lang.Request_Kind],
-    encoding:     Encoding, // how the server counts characters
-    open_close:   bool,     // it wants didOpen and didClose
-    changes:      bool,     // it wants didChange
-    saves:        bool,     // it wants didSave
-    token_legend: []Token_Legend_Entry, // owned; indexed by the server's tokenTypes
-    allocator:    runtime.Allocator,    // what built token_legend
+    kinds:           bit_set[lang.Request_Kind],
+    encoding:        Encoding, // how the server counts characters
+    open_close:      bool,     // it wants didOpen and didClose
+    changes:         bool,     // it wants didChange
+    saves:           bool,     // it wants didSave
+    prepare_rename:  bool,     // renameProvider.prepareProvider
+    resolve_actions: bool,     // codeActionProvider.resolveProvider
+    token_legend:    []Token_Legend_Entry, // owned; indexed by the server's tokenTypes
+    allocator:       runtime.Allocator,    // what built token_legend
 }
 
 // Reads the `initialize` result. A reply that is not an object leaves a server
@@ -72,6 +74,16 @@ capabilities_decode :: proc(result: json.Value, allocator := context.allocator) 
     caps.encoding = encoding_of(advertised)
     decode_sync(&caps, advertised["textDocumentSync"])
     decode_legend(&caps, advertised["semanticTokensProvider"])
+    if options, ok := advertised["renameProvider"].(json.Object); ok {
+        if flag, fok := options["prepareProvider"].(json.Boolean); fok {
+            caps.prepare_rename = bool(flag)
+        }
+    }
+    if options, ok := advertised["codeActionProvider"].(json.Object); ok {
+        if flag, fok := options["resolveProvider"].(json.Boolean); fok {
+            caps.resolve_actions = bool(flag)
+        }
+    }
     return caps
 }
 

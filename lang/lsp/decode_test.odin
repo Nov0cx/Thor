@@ -110,6 +110,23 @@ result_release :: proc(res: ^lang.Result) {
         delete(symbol.path)
     }
     delete(res.symbols)
+    for edit in res.edits {
+        delete(edit.path)
+        delete(edit.old_text)
+        delete(edit.new_text)
+    }
+    delete(res.edits)
+    for action in res.actions {
+        delete(action.title)
+        delete(action.kind)
+        for edit in action.edits {
+            delete(edit.path)
+            delete(edit.old_text)
+            delete(edit.new_text)
+        }
+        delete(action.edits)
+    }
+    delete(res.actions)
     delete(res.tokens)
     delete(res.report.scope)
     for item in res.report.items {
@@ -850,4 +867,198 @@ test_decode_workspace_symbols :: proc(t: ^testing.T) {
     testing.expect_value(t, res.symbols[1].path, OTHER)
     testing.expect_value(t, res.symbols[1].offset, 4)
     testing.expect_value(t, res.symbols[1].signature, "an enum")
+}
+
+// The `changes` map form, spanning the request's own file and one already open.
+@(test)
+test_decode_rename_changes_map :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    held_document(s, OTHER, "one\nalpha two\n", 1)
+    req := request_for(.Rename, SOURCE, 0) // caret on "alpha"
+
+    res := decode_reply(
+        s,
+        &req,
+        `{"changes":{"` +
+        FILE_URI +
+        `":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"newText":"renamed"}],"` +
+        OTHER_URI +
+        `":[{"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":5}},"newText":"renamed"}]}}`,
+    )
+    defer result_release(&res)
+
+    testing.expect(t, res.ok)
+    testing.expect_value(t, len(res.edits), 2)
+    if len(res.edits) != 2 {
+        return
+    }
+    // Sorted ascending by (path, start); "main" sorts before "other" on both
+    // platform spellings.
+    testing.expect_value(t, res.edits[0].path, FILE)
+    testing.expect_value(t, res.edits[1].path, OTHER)
+    for edit in res.edits {
+        testing.expect_value(t, edit.old_text, "alpha")
+        testing.expect_value(t, edit.new_text, "renamed")
+    }
+}
+
+// The `documentChanges` / TextDocumentEdit form.
+@(test)
+test_decode_rename_document_changes :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Rename, SOURCE, 0)
+
+    res := decode_reply(
+        s,
+        &req,
+        `{"documentChanges":[{"textDocument":{"uri":"` +
+        FILE_URI +
+        `","version":1},"edits":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"newText":"renamed"}]}]}`,
+    )
+    defer result_release(&res)
+
+    testing.expect(t, res.ok)
+    testing.expect_value(t, len(res.edits), 1)
+    if len(res.edits) != 1 {
+        return
+    }
+    testing.expect_value(t, res.edits[0].path, FILE)
+    testing.expect_value(t, res.edits[0].old_text, "alpha")
+    testing.expect_value(t, res.edits[0].new_text, "renamed")
+}
+
+// A CreateFile entry anywhere in documentChanges refuses the whole rename: the
+// seam cannot express a resource operation.
+@(test)
+test_decode_rename_refuses_resource_operation :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Rename, SOURCE, 0)
+
+    res := decode_reply(s, &req, `{"documentChanges":[{"kind":"create","uri":"` + OTHER_URI + `"}]}`)
+    defer result_release(&res)
+
+    testing.expect(t, !res.ok, "a resource operation must refuse the whole rename")
+    testing.expect(t, res.edits == nil)
+}
+
+// A range in a file that is neither open nor readable on disk cannot have its
+// old_text reconstructed, which refuses the whole rename rather than dropping
+// just that one edit.
+@(test)
+test_decode_rename_refuses_unreadable_file :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Rename, SOURCE, 0)
+
+    res := decode_reply(
+        s,
+        &req,
+        `{"changes":{"` +
+        OTHER_URI +
+        `":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":3}},"newText":"x"}]}}`,
+    )
+    defer result_release(&res)
+
+    testing.expect(t, !res.ok, "an unreadable file must refuse the whole rename")
+    testing.expect(t, res.edits == nil)
+}
+
+// A CodeAction with an inline `edit` is kept as-is, no resolve call needed.
+@(test)
+test_decode_code_actions_inline_edit_kept :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Code_Actions, SOURCE, 0)
+
+    res := decode_reply(
+        s,
+        &req,
+        `[{"title":"Add import","kind":"quickfix","edit":{"changes":{"` +
+        FILE_URI +
+        `":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"newText":"// x\n"}]}}}]`,
+    )
+    defer result_release(&res)
+
+    testing.expect(t, res.ok)
+    testing.expect_value(t, len(res.actions), 1)
+    if len(res.actions) != 1 {
+        return
+    }
+    testing.expect_value(t, res.actions[0].title, "Add import")
+    testing.expect_value(t, res.actions[0].kind, "quickfix")
+    testing.expect_value(t, len(res.actions[0].edits), 1)
+    if len(res.actions[0].edits) != 1 {
+        return
+    }
+    testing.expect_value(t, res.actions[0].edits[0].old_text, "")
+    testing.expect_value(t, res.actions[0].edits[0].new_text, "// x\n")
+}
+
+// A bare Command and a `disabled` CodeAction both drop: Thor has no
+// workspace/executeCommand path, and no UI for a disabled reason.
+@(test)
+test_decode_code_actions_drops_command_and_disabled :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Code_Actions, SOURCE, 0)
+
+    res := decode_reply(
+        s,
+        &req,
+        `[{"title":"Do thing","command":{"command":"foo","title":"Do thing"}},` +
+        `{"title":"Disabled fix","disabled":{"reason":"nope"},"edit":{"changes":{"` +
+        FILE_URI +
+        `":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"newText":"x"}]}}}]`,
+    )
+    defer result_release(&res)
+
+    testing.expect(t, !res.ok)
+    testing.expect(t, res.actions == nil)
+}
+
+// An action with no inline `edit` and a server that never advertised
+// codeActionProvider.resolveProvider is dropped without attempting a resolve
+// call — caps.resolve_actions stays false on a fresh held_server.
+@(test)
+test_decode_code_actions_drops_unresolvable :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Code_Actions, SOURCE, 0)
+
+    res := decode_reply(s, &req, `[{"title":"Extract","kind":"refactor.extract"}]`)
+    defer result_release(&res)
+
+    testing.expect(t, !res.ok)
+    testing.expect(t, res.actions == nil)
+}
+
+// isPreferred actions sort first; server order is kept otherwise.
+@(test)
+test_decode_code_actions_preferred_first :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Code_Actions, SOURCE, 0)
+
+    res := decode_reply(
+        s,
+        &req,
+        `[{"title":"B","kind":"quickfix","edit":{"changes":{"` +
+        FILE_URI +
+        `":[{"range":{"start":{"line":0,"character":6},"end":{"line":0,"character":10}},"newText":"x"}]}}},` +
+        `{"title":"A","kind":"quickfix","isPreferred":true,"edit":{"changes":{"` +
+        FILE_URI +
+        `":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"newText":"y"}]}}}]`,
+    )
+    defer result_release(&res)
+
+    testing.expect(t, res.ok)
+    testing.expect_value(t, len(res.actions), 2)
+    if len(res.actions) != 2 {
+        return
+    }
+    testing.expect_value(t, res.actions[0].title, "A")
+    testing.expect_value(t, res.actions[1].title, "B")
 }
