@@ -52,7 +52,9 @@ thor_editor_context_menu :: proc(data: rawptr, position: rl.Vector2) {
 thor_console_context_menu :: proc(data: rawptr, position: rl.Vector2) {
     thor := cast(^Thor) data
     term := thor_active_terminal(thor)
+    has_selection := term != nil && widgets.console_has_selection(term.console)
     widgets.menu_clear(thor.menu)
+    widgets.menu_add(thor.menu, "Copy", thor_menu_console_copy_selection, thor, has_selection)
     widgets.menu_add(thor.menu, "Copy All", thor_menu_console_copy, thor)
     widgets.menu_add(thor.menu, "Paste", thor_menu_console_paste, thor)
     widgets.menu_add_separator(thor.menu)
@@ -129,22 +131,22 @@ thor_menu_console_clear :: proc(data: rawptr) {
 
 thor_menu_console_copy :: proc(data: rawptr) {
     thor := cast(^Thor) data
-    if thor.console == nil {
-        return
+    if thor.console != nil {
+        widgets.console_copy_all(thor.console)
     }
-    text := widgets.console_text(thor.console)
-    if text != "" {
-        rl.SetClipboardText(strings.clone_to_cstring(text, context.temp_allocator))
+}
+
+thor_menu_console_copy_selection :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    if thor.console != nil {
+        widgets.console_copy(thor.console)
     }
 }
 
 thor_menu_console_paste :: proc(data: rawptr) {
     thor := cast(^Thor) data
-    if thor.console == nil {
-        return
-    }
-    if clip := rl.GetClipboardText(); clip != nil {
-        widgets.console_input_append(thor.console, string(clip))
+    if thor.console != nil {
+        widgets.console_paste(thor.console)
     }
 }
 

@@ -149,7 +149,14 @@ a tab marks a running command, and turns red when the shell has ended.
 | enter | run the typed line (goes to the running command's stdin while one runs) |
 | up / down | walk the commands run in this terminal |
 | ctrl + c | interrupt the running command |
+| ctrl + shift + c | copy the selected scrollback text, or all of it with nothing selected (works whether or not a command is running) |
+| ctrl + v | paste into the input line |
+| click + drag | select scrollback text |
 | ctrl + click | open the file a path in the output points at |
+
+Right-click the console for the same actions as a menu: "Copy" (the
+selection, when there is one), "Copy All", "Paste", plus Clear and the
+terminal-tab actions.
 
 `ctrl + c` sends an interrupt on Linux and macOS. Windows cannot signal a shell
 that reads from a pipe, so Thor restarts it instead — the scrollback is kept, but

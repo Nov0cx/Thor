@@ -64,6 +64,13 @@ Console :: struct {
     on_activate:       Console_Activate_Proc,
     link_data:         rawptr,
     link_color:        rl.Color,
+    // Mouse text selection over the scrollback, as absolute byte offsets into
+    // `output`. selecting is true only while a drag that started in the output
+    // area (not the input row) is held.
+    sel_anchor:    int,
+    sel_cursor:    int,
+    has_selection: bool,
+    selecting:     bool,
 }
 
 console_set_on_link :: proc(console: ^Console, on_link: Console_Link_Proc, on_activate: Console_Activate_Proc, data: rawptr) {
@@ -90,6 +97,7 @@ console_clear :: proc(console: ^Console) {
     console.indexed_len = 0
     console.scroll_y = 0
     console.autoscroll = true
+    console.has_selection = false
 }
 
 // Indexes the bytes appended since the last call. Every reader of a line calls
@@ -138,6 +146,38 @@ console_input_append :: proc(console: ^Console, text: string) {
             continue
         }
         append(&console.input, b)
+    }
+}
+
+// Copies the whole scrollback to the system clipboard, selection or not.
+console_copy_all :: proc(console: ^Console) {
+    text := console_text(console)
+    if text != "" {
+        rl.SetClipboardText(strings.clone_to_cstring(text, context.temp_allocator))
+    }
+}
+
+// Copies the selected text, or the whole scrollback when nothing is selected.
+console_copy :: proc(console: ^Console) {
+    if console.has_selection {
+        lo := clamp(min(console.sel_anchor, console.sel_cursor), 0, len(console.output.buf))
+        hi := clamp(max(console.sel_anchor, console.sel_cursor), 0, len(console.output.buf))
+        if hi > lo {
+            rl.SetClipboardText(strings.clone_to_cstring(string(console.output.buf[lo:hi]), context.temp_allocator))
+            return
+        }
+    }
+    console_copy_all(console)
+}
+
+console_has_selection :: proc(console: ^Console) -> bool {
+    return console.has_selection
+}
+
+// Pastes the system clipboard into the input line.
+console_paste :: proc(console: ^Console) {
+    if clip := rl.GetClipboardText(); clip != nil {
+        console_input_append(console, string(clip))
     }
 }
 
@@ -205,6 +245,33 @@ console_line_index_at :: proc(console: ^Console, pos: rl.Vector2) -> int {
         return -1
     }
     return cast(int) (rel / line_height)
+}
+
+// Byte offset in `output` nearest a screen position, for text selection. The
+// line index is clamped to the scrollback range so a drag that leaves the
+// output area (above the first line, or past the last) still extends sensibly.
+@(private = "file")
+console_pos_at :: proc(console: ^Console, position: rl.Vector2) -> int {
+    line_count := console_line_count(console)
+    if line_count == 0 {
+        return 0
+    }
+    line_height := console_line_height(console)
+    rel := position.y - (console.bounds.y + CONSOLE_PAD_Y) + console.scroll_y
+    index := clamp(cast(int) (rel / line_height), 0, line_count - 1)
+    line := console_line_text(console, index)
+    target_x := position.x - (console.bounds.x + CONSOLE_PAD_X)
+    pos := 0
+    for pos < len(line) {
+        _, width := utf8.decode_rune_in_string(line[pos:])
+        before := cast(f32) ui.measure_text(line[:pos], console.font_size)
+        after := cast(f32) ui.measure_text(line[:pos + width], console.font_size)
+        if target_x < (before + after) / 2 {
+            break
+        }
+        pos += width
+    }
+    return console.line_starts[index] + pos
 }
 
 // The scrollback line at `index` (borrowed; valid until the next append/clear),
@@ -408,9 +475,26 @@ console_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Even
             }
             return true
         }
+        // A drag that starts in the scrollback selects text; the input row
+        // ignores it, so clicking there just moves focus and clears any selection.
+        output_bottom := console.bounds.y + console.bounds.height - console_input_height(console)
+        console.selecting = event.mouse_position.y < output_bottom
+        console.has_selection = false
+        if console.selecting {
+            console.sel_anchor = console_pos_at(console, event.mouse_position)
+            console.sel_cursor = console.sel_anchor
+        }
         return true // take focus so typing goes here
+    case .Mouse_Move:
+        // Only dispatched here while the button is held (drag), so extend.
+        if console.selecting {
+            console.sel_cursor = console_pos_at(console, event.mouse_position)
+            console.has_selection = console.sel_cursor != console.sel_anchor
+            return true
+        }
     case .Click:
-        if event.mouse_button == .LEFT {
+        // A drag that produced a selection is not a link click.
+        if event.mouse_button == .LEFT && !console.has_selection {
             console_try_activate(console, event.mouse_position)
         }
         return true
@@ -431,12 +515,21 @@ console_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Even
         return true
     case .Key_Press:
         // Ctrl+C stops the command instead of copying, the way a terminal does.
+        // Copy is Ctrl+Shift+C instead, so it works whether or not one is running.
         if event.ctrl && event.key == .C {
+            if event.shift {
+                console_copy(console)
+                return true
+            }
             if console.running && console.on_interrupt != nil {
                 console.on_interrupt(console.interrupt_data)
                 return true
             }
             return false
+        }
+        if event.ctrl && event.key == .V {
+            console_paste(console)
+            return true
         }
         #partial switch event.key {
         case .ENTER, .KP_ENTER:
@@ -504,6 +597,13 @@ console_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
     first := max(0, cast(int) (max(0, console.scroll_y - pad) / line_height) - 1)
     last := min(line_count - 1, cast(int) ((console.scroll_y - pad + output_rect.height) / line_height) + 1)
 
+    sel_lo, sel_hi := 0, 0
+    if console.has_selection {
+        sel_lo = min(console.sel_anchor, console.sel_cursor)
+        sel_hi = max(console.sel_anchor, console.sel_cursor)
+    }
+    selection_color := rl.Color {console.caret_color.r, console.caret_color.g, console.caret_color.b, 60}
+
     ui.begin_clip(output_rect)
     for index := first; index <= last; index += 1 {
         y := output_rect.y + pad + cast(f32) index * line_height - console.scroll_y
@@ -511,6 +611,17 @@ console_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
             continue
         }
         line := console_line_text(console, index)
+        if console.has_selection {
+            line_start := console.line_starts[index]
+            lo := clamp(sel_lo - line_start, 0, len(line))
+            hi := clamp(sel_hi - line_start, 0, len(line))
+            if lo < hi {
+                prefix_w := ui.measure_text(line[:lo], console.font_size)
+                span_w := ui.measure_text(line[lo:hi], console.font_size)
+                sx := cast(i32) (console.bounds.x + CONSOLE_PAD_X) + prefix_w
+                rl.DrawRectangle(sx, cast(i32) y, span_w, cast(i32) line_height, selection_color)
+            }
+        }
         color := console.text_color
         if index == hover_index {
             if s, e, ok := console.on_link(console.link_data, line); ok {

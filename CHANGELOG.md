@@ -22,3 +22,4 @@ First release. Thor runs on Windows, Linux and macOS.
 - Clicking the Thor logo at the top left of the titlebar opens Settings.
 - A welcome page opens when no folder or file is given and no past session is found: `Open Folder`, `Open File` and a recent-workspaces list. The explorer, tab bar and console panel stay hidden until a workspace opens.
 - `File: Close Workspace` returns to the welcome page from an open workspace, from the File menu or the command palette.
+- Console panel: click and drag to select scrollback text. `ctrl + shift + c` copies the selection, or the whole scrollback with nothing selected; `ctrl + v` pastes into the input line. The right-click menu gained "Copy" next to "Copy All".
