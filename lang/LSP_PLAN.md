@@ -1184,7 +1184,9 @@ its tests pass, and nothing regresses.
             (`thor/lang_host.odin`) plus two new `lang.odin` primitives
             (`manager_backend_named`, `manager_set_backends`) — see
             `ROADMAP.md`'s "Landed since (M9)" note.
-      - [ ] Incremental `didChange` through `treecache.source_edit`.
+      - [x] Incremental `didChange` through `treecache.source_edit`, per
+            server (`Capabilities.sync_incremental`) — see `ROADMAP.md`'s
+            "Landed since (M9)" note.
       - [ ] A real `workspace/symbol` query, via a `query` field on `Request`.
       - [ ] `semanticTokens/full/delta`.
       - [ ] `$/progress` into the existing statusline busy indicator.

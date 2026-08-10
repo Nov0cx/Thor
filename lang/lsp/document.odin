@@ -1,6 +1,9 @@
 // The documents a server knows about, and the `file:` URI it names them by.
-// Sync is TextDocumentSyncKind.Full: every change carries the whole buffer, which
-// is always correct and keeps the LF-collapsed text the position layer indexes.
+// Sync defaults to TextDocumentSyncKind.Full: every change carries the whole
+// buffer, which is always correct and keeps the LF-collapsed text the position
+// layer indexes. A server that advertises Incremental gets a ranged change
+// instead (`did_change_incremental_params`, built in `server.odin` from a
+// `treecache.source_edit` against the document's previous text).
 package lsp
 
 import "base:runtime"
@@ -77,6 +80,35 @@ did_change_params :: proc(doc: ^Document, allocator := context.allocator) -> str
     write_number(&out, doc.version)
     append(&out, `},"contentChanges":[{"text":`)
     write_quoted(&out, doc.text)
+    append(&out, `}]}`)
+    return string(out[:])
+}
+
+// One content change over a byte range, converted to an LSP `Range` by the
+// caller against the document's *previous* Line_Index (server_publish's, since
+// document_set_text has not run yet when the range is computed). `text` is the
+// replacement for that range alone, not the whole buffer.
+did_change_incremental_params :: proc(
+    doc: ^Document,
+    start_line, start_char, end_line, end_char: int,
+    text: string,
+    allocator := context.allocator,
+) -> string {
+    out := make([dynamic]u8, allocator)
+    append(&out, `{"textDocument":{"uri":`)
+    write_quoted(&out, doc.uri)
+    append(&out, `,"version":`)
+    write_number(&out, doc.version)
+    append(&out, `},"contentChanges":[{"range":{"start":{"line":`)
+    write_number(&out, i64(start_line))
+    append(&out, `,"character":`)
+    write_number(&out, i64(start_char))
+    append(&out, `},"end":{"line":`)
+    write_number(&out, i64(end_line))
+    append(&out, `,"character":`)
+    write_number(&out, i64(end_char))
+    append(&out, `}},"text":`)
+    write_quoted(&out, text)
     append(&out, `}]}`)
     return string(out[:])
 }

@@ -27,6 +27,7 @@ import "core:time"
 
 import lang ".."
 import "../../shell"
+import "../../treecache"
 
 // How long a start may take before the server is given up on. A cold clangd
 // indexing a large project answers `initialize` well inside it.
@@ -508,16 +509,38 @@ server_publish :: proc(s: ^Server, path, ext, source: string, revision: u64) {
     if found && doc.open && revision <= doc.revision {
         return
     }
+
+    // The incremental range is computed against the document's text and
+    // Line_Index as they stand *before* the update — server_document below
+    // overwrites both — so this has to run first. Only the resulting ints and
+    // the replacement substring (borrowed from `source`, which outlives this
+    // call) survive past it.
+    incremental := found && doc.open && s.caps.sync_incremental
+    start_line, start_char, end_line, end_char := 0, 0, 0, 0
+    replacement := ""
+    if incremental {
+        edit := treecache.source_edit(doc.text, source)
+        start_line, start_char = position_from_offset(&doc.lines, int(edit.start_byte))
+        end_line, end_char = position_from_offset(&doc.lines, int(edit.old_end_byte))
+        replacement = source[edit.start_byte:edit.new_end_byte]
+    }
+
     doc = server_document(s, path, source, revision)
     if !doc.open {
         server_send_open(s, doc, language_id_for(ext))
         return
     }
-    if s.caps.changes {
-        params := did_change_params(doc, s.allocator)
-        conn_notify(s.conn, "textDocument/didChange", params)
-        delete(params, s.allocator)
+    if !s.caps.changes {
+        return
     }
+    params: string
+    if incremental {
+        params = did_change_incremental_params(doc, start_line, start_char, end_line, end_char, replacement, s.allocator)
+    } else {
+        params = did_change_params(doc, s.allocator)
+    }
+    conn_notify(s.conn, "textDocument/didChange", params)
+    delete(params, s.allocator)
 }
 
 // Makes the server's copy of the request's file match `req.source` before a

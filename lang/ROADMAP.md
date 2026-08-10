@@ -1369,10 +1369,19 @@ Landed since (M9):
       patch, since a workspace's `"override"` for `.odin` can flip relative to
       the last one). The in-client Odin engine is left running: it
       re-validates its own config file per request already.
+- [x] Incremental `didChange`, per server. `Capabilities.sync_incremental`
+      decodes `textDocumentSync.change == 2`; `server_publish` computes
+      `treecache.source_edit(doc.text, source)` against the document's
+      **previous** text and `Line_Index` (both about to be overwritten by
+      `server_document`), converts the byte span with `position_from_offset`,
+      and sends `did_change_incremental_params` — a ranged change carrying
+      only the replaced substring. A server that doesn't advertise it (or
+      advertises plain Full) still gets today's whole-buffer form; the first
+      `didOpen` for a file is always full, since there is nothing yet to diff
+      against.
 
 Still to add:
 
-- [ ] Incremental `didChange`.
 - [ ] A real `workspace/symbol` query, which needs a query prompt above the seam
       and a field on `lang.Request` to carry it.
 

@@ -38,15 +38,16 @@ Token_Legend_Entry :: struct {
 
 // One immutable answer per question the client asks of a server.
 Capabilities :: struct {
-    kinds:           bit_set[lang.Request_Kind],
-    encoding:        Encoding, // how the server counts characters
-    open_close:      bool,     // it wants didOpen and didClose
-    changes:         bool,     // it wants didChange
-    saves:           bool,     // it wants didSave
-    prepare_rename:  bool,     // renameProvider.prepareProvider
-    resolve_actions: bool,     // codeActionProvider.resolveProvider
-    token_legend:    []Token_Legend_Entry, // owned; indexed by the server's tokenTypes
-    allocator:       runtime.Allocator,    // what built token_legend
+    kinds:            bit_set[lang.Request_Kind],
+    encoding:         Encoding, // how the server counts characters
+    open_close:       bool,     // it wants didOpen and didClose
+    changes:          bool,     // it wants didChange
+    sync_incremental: bool,     // didChange may send a range instead of the whole buffer
+    saves:            bool,     // it wants didSave
+    prepare_rename:   bool,     // renameProvider.prepareProvider
+    resolve_actions:  bool,     // codeActionProvider.resolveProvider
+    token_legend:     []Token_Legend_Entry, // owned; indexed by the server's tokenTypes
+    allocator:        runtime.Allocator,    // what built token_legend
 }
 
 // Reads the `initialize` result. A reply that is not an object leaves a server
@@ -185,14 +186,16 @@ token_kind_of :: proc(name: string) -> (lang.Token_Kind, bool) {
 
 // `textDocumentSync` is a TextDocumentSyncKind number or an options object. The
 // number names the change kind alone, so open and close go with any kind but
-// None. Thor sends the whole buffer even where Incremental is asked for: a
-// content change with no range is the protocol's whole-document form and stays
-// valid.
+// None. Kind 2 is Incremental; Thor sends a ranged didChange only when this is
+// set, and falls back to the whole-buffer form otherwise — a content change
+// with no range is the protocol's whole-document form and stays valid for any
+// server, so the fallback is never wrong, only less efficient.
 @(private)
 decode_sync :: proc(caps: ^Capabilities, value: json.Value) {
     if kind, ok := number(value); ok {
         caps.open_close = kind != 0
         caps.changes = kind != 0
+        caps.sync_incremental = kind == 2
         return
     }
     options, ook := value.(json.Object)
@@ -204,6 +207,7 @@ decode_sync :: proc(caps: ^Capabilities, value: json.Value) {
     }
     if kind, kok := number(options["change"]); kok {
         caps.changes = kind != 0
+        caps.sync_incremental = kind == 2
     }
     // `save` is a boolean or a SaveOptions object; either way its presence is the
     // answer, since Thor sends no text with didSave.

@@ -335,6 +335,50 @@ test_server_sync_declined :: proc(t: ^testing.T) {
     testing.expect(t, !fake_sent(&f, "textDocument/didChange"), "didChange was sent to a server that declined it")
 }
 
+@(private = "file")
+CAPS_INCREMENTAL :: `{"capabilities":{"textDocumentSync":{"openClose":true,"change":2,"save":true},` +
+`"definitionProvider":true}}`
+
+// A server that advertises Incremental sync gets a ranged didChange carrying
+// only the replaced substring; the first didOpen still carries the whole
+// text, since there is nothing yet on the server to diff against.
+@(test)
+test_server_incremental_sync :: proc(t: ^testing.T) {
+    f: Fake
+    s := fake_server(&f, CAPS_INCREMENTAL)
+    defer fake_end(&f, s)
+
+    server_notify(s, .Opened, SOURCE, ".fake", "hello world", 1)
+    testing.expect(t, wait_state(s, .Ready), "the open did not start the server")
+    testing.expect(t, wait_sent(&f, `"method":"textDocument/didOpen"`), "didOpen never arrived")
+    testing.expect(t, fake_sent(&f, `"text":"hello world"`), "didOpen must still carry the whole buffer")
+
+    server_notify(s, .Changed, SOURCE, ".fake", "hello brave world", 2)
+    testing.expect(t, wait_sent(&f, `"method":"textDocument/didChange"`), "didChange never arrived")
+    testing.expect(t, fake_sent(&f, `"range"`), "an Incremental server must get a ranged change")
+    testing.expect(t, fake_sent(&f, `"text":"brave "`), "the change must carry only the replaced substring")
+    testing.expect(t, !fake_sent(&f, `"text":"hello brave world"`), "the whole buffer must not be resent")
+}
+
+// A server that advertises Full (or a bare TextDocumentSyncKind of 1) still
+// gets the whole-buffer form — incremental sync is a per-server opt-in, never
+// assumed.
+@(test)
+test_server_full_sync_fallback :: proc(t: ^testing.T) {
+    f: Fake
+    s := fake_server(&f, CAPS_ALL) // "change":1
+    defer fake_end(&f, s)
+
+    server_notify(s, .Opened, SOURCE, ".fake", "hello world", 1)
+    testing.expect(t, wait_state(s, .Ready), "the open did not start the server")
+    testing.expect(t, wait_sent(&f, `"method":"textDocument/didOpen"`), "didOpen never arrived")
+
+    server_notify(s, .Changed, SOURCE, ".fake", "hello brave world", 2)
+    testing.expect(t, wait_sent(&f, `"method":"textDocument/didChange"`), "didChange never arrived")
+    testing.expect(t, fake_sent(&f, `"text":"hello brave world"`), "a Full server must still get the whole buffer")
+    testing.expect(t, !fake_sent(&f, `"range"`), "a Full server must not get a ranged change")
+}
+
 // A server that dies during its handshake is failed for the session, and a failed
 // server claims nothing.
 @(test)

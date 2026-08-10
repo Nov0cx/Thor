@@ -85,14 +85,17 @@ test_capabilities_sync_number :: proc(t: ^testing.T) {
     none := decode(`{"capabilities": {"textDocumentSync": 0}}`)
     testing.expect(t, !none.open_close)
     testing.expect(t, !none.changes)
+    testing.expect(t, !none.sync_incremental)
 
     full := decode(`{"capabilities": {"textDocumentSync": 1}}`)
     testing.expect(t, full.open_close)
     testing.expect(t, full.changes)
+    testing.expect(t, !full.sync_incremental)
 
     incremental := decode(`{"capabilities": {"textDocumentSync": 2}}`)
     testing.expect(t, incremental.open_close)
     testing.expect(t, incremental.changes)
+    testing.expect(t, incremental.sync_incremental)
 }
 
 // The options form states each half on its own, and `save` counts as wanted
@@ -103,6 +106,10 @@ test_capabilities_sync_options :: proc(t: ^testing.T) {
     testing.expect(t, both.open_close)
     testing.expect(t, both.changes)
     testing.expect(t, both.saves)
+    testing.expect(t, !both.sync_incremental)
+
+    incremental := decode(`{"capabilities": {"textDocumentSync": {"openClose": true, "change": 2, "save": true}}}`)
+    testing.expect(t, incremental.sync_incremental)
 
     save_options := decode(`{"capabilities": {"textDocumentSync": {"openClose": true, "save": {"includeText": true}}}}`)
     testing.expect(t, save_options.open_close)

@@ -215,6 +215,65 @@ test_did_change_params :: proc(t: ^testing.T) {
     testing.expect(t, !has_range)
 }
 
+// The incremental form carries a range and only the replaced substring, not
+// the whole buffer — the shape server_publish sends when the server's
+// capabilities advertise Incremental sync.
+@(test)
+test_did_change_incremental_params :: proc(t: ^testing.T) {
+    doc: Document
+    document_init(&doc, "/src/main.c", "hello world", .Utf16)
+    defer document_destroy(&doc)
+    document_set_text(&doc, "hello brave world")
+
+    params := did_change_incremental_params(&doc, 0, 6, 0, 6, "brave ")
+    defer delete(params)
+
+    value, err := json.parse(transmute([]u8)params, allocator = context.temp_allocator)
+    testing.expect_value(t, err, json.Error.None)
+    root, rok := value.(json.Object)
+    testing.expect(t, rok)
+    if !rok {
+        return
+    }
+    version, vok := number(root["textDocument"].(json.Object)["version"])
+    testing.expect(t, vok)
+    testing.expect_value(t, version, 2)
+
+    changes, cok := root["contentChanges"].(json.Array)
+    testing.expect(t, cok)
+    if !cok || len(changes) != 1 {
+        return
+    }
+    change, chok := changes[0].(json.Object)
+    testing.expect(t, chok)
+    if !chok {
+        return
+    }
+    testing.expect_value(t, string(change["text"].(json.String)), "brave ")
+
+    rng, rngok := change["range"].(json.Object)
+    testing.expect(t, rngok)
+    if !rngok {
+        return
+    }
+    start, sok := rng["start"].(json.Object)
+    testing.expect(t, sok)
+    end, eok := rng["end"].(json.Object)
+    testing.expect(t, eok)
+    if !sok || !eok {
+        return
+    }
+    start_line, slok := number(start["line"])
+    start_char, scok := number(start["character"])
+    end_line, elok := number(end["line"])
+    end_char, ecok := number(end["character"])
+    testing.expect(t, slok && scok && elok && ecok)
+    testing.expect_value(t, start_line, 0)
+    testing.expect_value(t, start_char, 6)
+    testing.expect_value(t, end_line, 0)
+    testing.expect_value(t, end_char, 6)
+}
+
 // didSave and didClose name the document and send nothing else.
 @(test)
 test_did_identify_params :: proc(t: ^testing.T) {
