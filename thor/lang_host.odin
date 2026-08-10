@@ -305,7 +305,7 @@ thor_goto_symbol :: proc(thor: ^Thor) {
 thor_workspace_symbol_scope :: proc(thor: ^Thor) -> (ext, path, source: string, revision: u64) {
     ext = ".odin"
     if file := thor_active_open_file(thor); file != nil && file.loaded {
-        if e := thor_file_extension(file.name); lang.manager_supports(&thor.lang_manager, e) {
+        if e := thor_file_extension(file.name); lang.manager_allows(&thor.lang_manager, e, .Workspace_Symbols) {
             ext = e
             path = file.path
             source = textedit.text(&file.state)
@@ -321,7 +321,7 @@ thor_workspace_symbol_scope :: proc(thor: ^Thor) -> (ext, path, source: string, 
 // a bare ".odin" extension so it works even with no Odin file focused.
 thor_goto_workspace_symbol :: proc(thor: ^Thor) {
     ext, path, source, revision := thor_workspace_symbol_scope(thor)
-    if !lang.manager_supports(&thor.lang_manager, ext) {
+    if !lang.manager_allows(&thor.lang_manager, ext, .Workspace_Symbols) {
         return
     }
     id := lang.manager_request_latest(
@@ -363,7 +363,7 @@ thor_goto_workspace_symbol :: proc(thor: ^Thor) {
 thor_workspace_symbol_query_changed :: proc(data: rawptr, query: string) {
     thor := cast(^Thor)data
     ext, path, source, revision := thor_workspace_symbol_scope(thor)
-    if !lang.manager_supports(&thor.lang_manager, ext) {
+    if !lang.manager_allows(&thor.lang_manager, ext, .Workspace_Symbols) {
         return
     }
     id := lang.manager_request_debounced(
@@ -1526,7 +1526,7 @@ thor_goto_location :: proc(thor: ^Thor, path: string, offset: int) {
     }
 
     for file, index in thor.open_files {
-        if file.path == canonical {
+        if thor_same_path(file.path, canonical) {
             thor_set_active_file(thor, index)
             if file.loaded {
                 thor_place_caret(thor, file, offset)
@@ -1554,7 +1554,7 @@ thor_goto_file_line_col :: proc(thor: ^Thor, path: string, line, col: int) {
     }
 
     for file, index in thor.open_files {
-        if file.path == canonical {
+        if thor_same_path(file.path, canonical) {
             thor_set_active_file(thor, index)
             if file.loaded {
                 thor_place_caret(thor, file, offset_for_line_col(file, line, col))

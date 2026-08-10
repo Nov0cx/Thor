@@ -503,7 +503,7 @@ thor_open_file :: proc(thor: ^Thor, path: string) {
     }
 
     for file, index in thor.open_files {
-        if file.path == canonical {
+        if thor_same_path(file.path, canonical) {
             thor_set_active_file(thor, index)
             return
         }
