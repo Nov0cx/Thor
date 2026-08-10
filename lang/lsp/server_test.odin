@@ -695,6 +695,118 @@ test_server_push_obeys_the_config :: proc(t: ^testing.T) {
     testing.expect(t, !server_poll(s, &res), "a declined kind arrived through the push channel")
 }
 
+// $/progress needs no capability of its own, like publishDiagnostics: "begin"
+// decodes a message (title, with the percentage appended), "end" clears it.
+@(test)
+test_server_progress_push :: proc(t: ^testing.T) {
+    f: Fake
+    s := fake_server(&f, CAPS_ALL)
+    defer fake_end(&f, s)
+
+    server_notify(s, .Opened, SOURCE, ".fake", BUFFER, 1)
+    testing.expect(t, wait_sent(&f, `"method":"textDocument/didOpen"`), "didOpen never arrived")
+
+    mock_frame(
+        &f.mock,
+        `{"jsonrpc":"2.0","method":"$/progress","params":{"token":"1","value":{"kind":"begin","title":"Indexing","percentage":0}}}`,
+    )
+    begin: lang.Result
+    testing.expect(t, wait_push(s, &begin), "the begin push never reached the queue")
+    testing.expect_value(t, begin.kind, lang.Request_Kind.Progress)
+    testing.expect(t, begin.ok)
+    testing.expect(t, !begin.progress.done)
+    testing.expect_value(t, begin.progress.message, "Indexing (0%)")
+    server_drop_push(s, &begin)
+
+    mock_frame(&f.mock, `{"jsonrpc":"2.0","method":"$/progress","params":{"token":"1","value":{"kind":"end"}}}`)
+    end: lang.Result
+    testing.expect(t, wait_push(s, &end), "the end push never reached the queue")
+    testing.expect_value(t, end.kind, lang.Request_Kind.Progress)
+    testing.expect(t, end.progress.done)
+    testing.expect_value(t, end.progress.message, "")
+    server_drop_push(s, &end)
+}
+
+// A server-initiated workspace/applyEdit: decoded into the push queue, and
+// once the "main thread" (here, the test) calls the completion the server
+// gets back the reply it was blocked on.
+@(test)
+test_apply_edit_round_trip :: proc(t: ^testing.T) {
+    f: Fake
+    s := fake_server(&f, CAPS_ALL)
+    defer fake_end(&f, s)
+
+    server_notify(s, .Opened, SOURCE, ".fake", BUFFER, 1)
+    testing.expect(t, wait_sent(&f, `"method":"textDocument/didOpen"`), "didOpen never arrived")
+
+    mock_frame(
+        &f.mock,
+        `{"jsonrpc":"2.0","id":9,"method":"workspace/applyEdit","params":{"edit":{"changes":{"` +
+        SOURCE_URI +
+        `":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"newText":"ALPHA"}]}}}}`,
+    )
+
+    res: lang.Result
+    testing.expect(t, wait_push(s, &res), "the applyEdit push never reached the queue")
+    testing.expect_value(t, res.kind, lang.Request_Kind.Apply_Edit)
+    testing.expect(t, res.ok)
+    testing.expect_value(t, len(res.edits), 1)
+    if len(res.edits) == 1 {
+        testing.expect_value(t, res.edits[0].path, SOURCE)
+        testing.expect_value(t, res.edits[0].old_text, "alpha")
+        testing.expect_value(t, res.edits[0].new_text, "ALPHA")
+    }
+    testing.expect(t, res.on_applied != nil, "the reply the server is blocked on must be answerable")
+
+    // The editor applied it; this is thor_apply_pushed_edit's half of the deal.
+    res.on_applied(res.token, true)
+    testing.expect(t, wait_sent(&f, `"id":9,"result":{"applied":true}`), "the server never saw its edit applied")
+
+    for edit in res.edits {
+        delete(edit.path)
+        delete(edit.old_text)
+        delete(edit.new_text)
+    }
+    delete(res.edits)
+}
+
+// A pushed applyEdit nobody answers (language intelligence gated off mid-flight,
+// or the editor is simply too busy) must not hang the server past
+// APPLY_EDIT_TIMEOUT — the pump's own bounded wait answers "applied":false.
+@(test)
+test_apply_edit_times_out_when_never_applied :: proc(t: ^testing.T) {
+    f: Fake
+    s := fake_server(&f, CAPS_ALL)
+    defer fake_end(&f, s)
+
+    server_notify(s, .Opened, SOURCE, ".fake", BUFFER, 1)
+    testing.expect(t, wait_sent(&f, `"method":"textDocument/didOpen"`), "didOpen never arrived")
+
+    mock_frame(
+        &f.mock,
+        `{"jsonrpc":"2.0","id":10,"method":"workspace/applyEdit","params":{"edit":{"changes":{"` +
+        SOURCE_URI +
+        `":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"newText":"ALPHA"}]}}}}`,
+    )
+
+    res: lang.Result
+    testing.expect(t, wait_push(s, &res), "the applyEdit push never reached the queue")
+    testing.expect(t, wait_sent(&f, `"id":10,"result":{"applied":false}`), "a starved apply must still answer, not hang the server")
+
+    for edit in res.edits {
+        delete(edit.path)
+        delete(edit.old_text)
+        delete(edit.new_text)
+    }
+    delete(res.edits)
+    if res.on_applied != nil {
+        // Releases our half of the Apply_Wait refcount; the pump released its
+        // own when its wait timed out. A real host would never reach this
+        // late, but the struct still must not leak when it does.
+        res.on_applied(res.token, false)
+    }
+}
+
 // workspace/symbol carries no document and no position, only the query.
 @(test)
 test_server_workspace_symbols_round_trip :: proc(t: ^testing.T) {
@@ -956,4 +1068,33 @@ test_server_code_actions_resolve_round_trip :: proc(t: ^testing.T) {
     testing.expect(t, fake_sent(&f, `"method":"textDocument/codeAction"`), "codeAction was never sent")
     testing.expect(t, fake_sent(&f, `"method":"codeAction/resolve"`), "codeAction/resolve was never sent")
     testing.expect(t, fake_sent(&f, `"data":{"id":7}`), "the resolve params did not echo the action back")
+}
+
+// req.end == req.offset (the zero value outside a selection) sends the same
+// zero-width range as before; a real selection sends its actual span.
+@(test)
+test_server_code_actions_selection_range :: proc(t: ^testing.T) {
+    f: Fake
+    s := fake_server(&f, CAPS_ALL)
+    defer fake_end(&f, s)
+    defer free_all(context.temp_allocator)
+
+    req := lang.Request {
+        kind     = .Code_Actions,
+        path     = SOURCE,
+        ext      = ".fake",
+        source   = BUFFER, // "alpha beta\ngamma"
+        offset   = 0,
+        end      = 5, // "alpha" selected
+        revision = 1,
+    }
+    res := lang.Result{kind = .Code_Actions}
+    testing.expect(t, server_ensure_started(s, &req), "the server did not start")
+    request_answer(s, &req, &res)
+
+    testing.expect(
+        t,
+        fake_sent(&f, `"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}}`),
+        "the selection's end never reached the request",
+    )
 }

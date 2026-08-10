@@ -26,6 +26,8 @@ PROVIDER_KEYS := [lang.Request_Kind]string {
     .Diagnostics       = "diagnosticProvider",
     .Code_Actions      = "codeActionProvider",
     .Semantic_Tokens   = "semanticTokensProvider",
+    .Progress          = "", // unsolicited push; no capability gate, same as Package_Doc
+    .Apply_Edit        = "", // unsolicited push; no capability gate, same as Package_Doc
 }
 
 // What one entry of a server's semantic-token legend means to Thor. `valid` is

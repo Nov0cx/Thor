@@ -17,6 +17,7 @@
 package lsp
 
 import "base:runtime"
+import "core:encoding/json"
 import "core:log"
 import "core:os"
 import "core:path/filepath"
@@ -36,6 +37,12 @@ DEADLINE_START :: 10 * time.Second
 
 // How long `shutdown` may take before the process is killed instead.
 DEADLINE_EXIT :: 2 * time.Second
+
+// How long a workspace/applyEdit waits for the main thread to apply it before
+// answering "applied":false on its own. Bounded so a server that sends one
+// while the editor is busy (or language intelligence is off, so nothing ever
+// drains the push) is not left hanging past a normal interactive deadline.
+APPLY_EDIT_TIMEOUT :: 3 * time.Second
 
 // How many times a server that died on its own is started again, and the wait
 // before each. A server that crashes on the file the user is editing would
@@ -351,7 +358,12 @@ server_launch :: proc(s: ^Server) -> bool {
         log.debugf("lsp: %s did not start (%v)", s.config.id, s.config.command)
         return false
     }
-    conn := conn_start(transport, s.allocator, Conn_Answers{settings = s.config.settings, folders = s.folders})
+    conn := conn_start(transport, s.allocator, Conn_Answers {
+        settings        = s.config.settings,
+        folders         = s.folders,
+        apply_edit      = server_apply_edit,
+        apply_edit_data = s,
+    })
     sync.rw_mutex_lock(&s.conn_lock)
     s.conn = conn
     sync.rw_mutex_unlock(&s.conn_lock)
@@ -404,6 +416,108 @@ server_serve :: proc(s: ^Server) {
     }
 }
 
+// The reply a server sending workspace/applyEdit is blocked on, shared between
+// the pump thread (which answers it, one way or another, within
+// APPLY_EDIT_TIMEOUT) and the main thread (which may apply it and call back
+// through lang.Result.on_applied). Two owners, so it outlives whichever side
+// finishes first: `refs` starts at 2, and whichever release brings it to 0
+// frees it.
+@(private)
+Apply_Wait :: struct {
+    done:      sync.Sema,
+    applied:   bool,
+    allocator: runtime.Allocator,
+    mutex:     sync.Mutex, // guards `refs`
+    refs:      int,
+}
+
+@(private)
+apply_wait_release :: proc(wait: ^Apply_Wait) {
+    sync.lock(&wait.mutex)
+    wait.refs -= 1
+    last := wait.refs == 0
+    sync.unlock(&wait.mutex)
+    if last {
+        free(wait, wait.allocator)
+    }
+}
+
+// lang.Result.on_applied for a pushed Apply_Edit: wakes the pump thread
+// waiting in server_apply_edit with the main thread's answer. May run after
+// that wait has already timed out (a slow frame, or the feature gated off
+// mid-flight) — harmless, the post just lands on a semaphore nobody takes
+// again, and apply_wait_release still frees the struct once both sides are
+// through with it.
+@(private)
+lsp_apply_done :: proc(token: rawptr, applied: bool) {
+    wait := cast(^Apply_Wait) token
+    wait.applied = applied
+    sync.sema_post(&wait.done)
+    apply_wait_release(wait)
+}
+
+// Conn_Answers.apply_edit: decodes a server's workspace/applyEdit and routes
+// it through the push channel for a main-thread apply, same all-or-nothing
+// applier Rename and Code Actions already go through. Reader thread; blocks
+// up to APPLY_EDIT_TIMEOUT. `data` is the owning Server.
+@(private)
+server_apply_edit :: proc(data: rawptr, params: json.Value) -> bool {
+    s := cast(^Server) data
+    if .Apply_Edit not_in s.config.features {
+        return false
+    }
+    object, is_object := params.(json.Object)
+    if !is_object {
+        return false
+    }
+    edit_value, has_edit := object["edit"]
+    if !has_edit {
+        return false
+    }
+
+    // No live request: a workspace/applyEdit is server-initiated, not the
+    // answer to anything Thor asked. An empty path never matches a real file
+    // in resolve_range/ask_source, so every edit resolves through the
+    // server's held documents or disk, same as a file the request did not
+    // itself name.
+    req := lang.Request{}
+    ask := Ask {
+        server = s,
+        req    = &req,
+        texts  = make(map[string]string, allocator = context.temp_allocator),
+        raws   = make(map[string]^Line_Index, allocator = context.temp_allocator),
+    }
+
+    edits := make([dynamic]lang.Text_Edit, s.allocator)
+    if !decode_workspace_edit(&ask, edit_value, &edits) {
+        delete(edits)
+        return false
+    }
+    if len(edits) == 0 {
+        delete(edits)
+        return true // an edit that touches nothing is trivially applied
+    }
+
+    wait := new(Apply_Wait, s.allocator)
+    wait.allocator = s.allocator
+    wait.refs = 2
+
+    sync.lock(&s.push_mutex)
+    append(&s.pushes, lang.Result {
+        kind       = .Apply_Edit,
+        ok         = true,
+        edits      = edits,
+        token      = wait,
+        on_applied = lsp_apply_done,
+    })
+    sync.unlock(&s.push_mutex)
+
+    got := sync.sema_wait_with_timeout(&wait.done, APPLY_EDIT_TIMEOUT)
+    applied := got && wait.applied
+    apply_wait_release(wait)
+    return applied
+}
+
 // Turns what the server pushed into results the main thread takes with
 // server_poll. A method nothing here reads is dropped, or a server that logs on
 // every keystroke grows the queue without bound. The pump drains it because the
@@ -425,6 +539,13 @@ server_drain_pushes :: proc(s: ^Server) {
                 sync.unlock(&s.push_mutex)
             }
         }
+        if note.method == "$/progress" && .Progress in s.config.features {
+            if res, decoded := decode_progress(note.params); decoded {
+                sync.lock(&s.push_mutex)
+                append(&s.pushes, res)
+                sync.unlock(&s.push_mutex)
+            }
+        }
         conn_free_notification(s.conn, note)
     }
 }
@@ -441,7 +562,11 @@ server_poll :: proc(s: ^Server, res: ^lang.Result) -> bool {
     return true
 }
 
-// Frees a push nobody took. Only a Diagnostics payload is ever queued.
+// Frees a push nobody took: Diagnostics, Progress and Apply_Edit are the only
+// kinds ever queued. An undrained Apply_Edit still has a reader thread
+// waiting on its reply (server_apply_edit) — answering it "not applied"
+// through the same on_applied path a real apply would use is what lets that
+// wait's refcount reach 0 and free the Apply_Wait, instead of leaking it.
 @(private)
 server_drop_push :: proc(s: ^Server, res: ^lang.Result) {
     delete(res.report.scope, s.allocator)
@@ -450,6 +575,18 @@ server_drop_push :: proc(s: ^Server, res: ^lang.Result) {
         delete(item.message, s.allocator)
     }
     delete(res.report.items)
+    delete(res.progress.message, s.allocator)
+    if res.kind == .Apply_Edit {
+        for edit in res.edits {
+            delete(edit.path, s.allocator)
+            delete(edit.old_text, s.allocator)
+            delete(edit.new_text, s.allocator)
+        }
+        delete(res.edits)
+        if res.on_applied != nil {
+            res.on_applied(res.token, false)
+        }
+    }
 }
 
 @(private)

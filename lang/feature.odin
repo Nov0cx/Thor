@@ -22,6 +22,8 @@ FEATURE_NAMES := [Request_Kind]string {
     .Diagnostics       = "diagnostics",
     .Code_Actions      = "code_actions",
     .Semantic_Tokens   = "semantic_tokens",
+    .Progress          = "progress",
+    .Apply_Edit        = "apply_edit",
 }
 
 // The config-facing name of a request kind, e.g. "signature_help".

@@ -9,6 +9,7 @@
 package lsp
 
 import "core:encoding/json"
+import "core:fmt"
 import "core:os"
 import "core:path/filepath"
 import "core:slice"
@@ -353,6 +354,49 @@ decode_publish_diagnostics :: proc(s: ^Server, params: json.Value) -> (lang.Resu
         append(&res.report.items, diagnostic)
     }
     return res, true
+}
+
+// `$/progress`, a `WorkDoneProgress` value: `{token, value: {kind, title?,
+// message?, percentage?}}`. "begin" and "report" produce a message ("message",
+// falling back to "title", with "(N%)" appended when given); "end" produces
+// `done = true` with an empty message, so the editor clears its indicator
+// instead of showing a blank one. Pump thread, no lock held.
+@(private)
+decode_progress :: proc(params: json.Value) -> (lang.Result, bool) {
+    object, is_object := params.(json.Object)
+    if !is_object {
+        return {}, false
+    }
+    value, has_value := object["value"].(json.Object)
+    if !has_value {
+        return {}, false
+    }
+    kind, has_kind := value["kind"].(json.String)
+    if !has_kind {
+        return {}, false
+    }
+    res := lang.Result {
+        kind = .Progress,
+        ok   = true,
+    }
+    switch string(kind) {
+    case "end":
+        res.progress.done = true
+        return res, true
+    case "begin", "report":
+        message := ""
+        if m, has_m := value["message"].(json.String); has_m {
+            message = string(m)
+        } else if t, has_t := value["title"].(json.String); has_t {
+            message = string(t)
+        }
+        if pct, has_pct := number(value["percentage"]); has_pct {
+            message = message == "" ? fmt.tprintf("%d%%", pct) : fmt.tprintf("%s (%d%%)", message, pct)
+        }
+        res.progress.message = strings.clone(message)
+        return res, true
+    }
+    return {}, false
 }
 
 // One `Diagnostic`, as the 1-based line and byte column the seam reports. The

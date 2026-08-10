@@ -54,7 +54,9 @@ Every other language gets the same features from a language server: install one
 `lua-language-server` and `zls` are configured out of the box) and reopen the
 folder or open a file it claims — Thor starts the server the first time it is
 needed. See [Configuration](configuration.md) for the server table and how to
-add one of your own.
+add one of your own. A language server also scopes `ctrl + shift + u` to the
+current selection instead of only the caret, and can apply its own edits
+directly in the editor.
 
 **Help > Tutorial** opens an interactive walkthrough of the shortcuts above,
 inside the editor itself. **Help > Documentation** opens this manual in Thor's

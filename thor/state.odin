@@ -243,7 +243,10 @@ thor_status_info :: proc(data: rawptr) -> widgets.Status_Info {
     info.branch = thor.git_branch
     info.line = 1
     info.column = 1
-    if thor.lang_busy_shown {
+    if thor.lsp_progress_message != "" {
+        info.busy = true
+        info.busy_message = thor.lsp_progress_message
+    } else if thor.lang_busy_shown {
         info.busy = true
         info.busy_message = thor_lang_busy_label(thor.lang_busy_kinds)
     }

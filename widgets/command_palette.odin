@@ -109,6 +109,10 @@ Command_Palette :: struct {
     // the main thread (a workspace-symbol scan). Draws a "Loading…" hint until
     // command_palette_pick_rich_set lands the rows.
     pick_loading:    bool,
+    // Dim placeholder shown instead of the empty list once loading finishes
+    // with zero rows (e.g. an LSP workspace/symbol server that needs a typed
+    // query). Owned; cleared once real rows land.
+    pick_hint:       string,
     pick_index_run:  Palette_Pick_Index_Proc,
     // nil for every picker but one whose rows a server computes (workspace
     // symbols); see Palette_Query_Changed_Proc.
@@ -387,13 +391,17 @@ command_palette_set_loading :: proc(palette: ^Command_Palette) {
 // Fills an open loading rich pick with its rows, preserving the query the user
 // has already typed and re-ranking against it. No-op unless a loading pick is
 // open (see command_palette_pick_loading), so a stale result can't clobber a
-// picker the user has moved on from.
-command_palette_pick_rich_set :: proc(palette: ^Command_Palette, items: []Pick_Item) {
+// picker the user has moved on from. `hint` is shown instead of a bare blank
+// list when `items` comes back empty (e.g. a server that needs a typed query).
+command_palette_pick_rich_set :: proc(palette: ^Command_Palette, items: []Pick_Item, hint: string = "") {
     if !command_palette_pick_loading(palette) {
         return
     }
     command_palette_set_pick_items(palette, items)
     palette.pick_loading = false
+    if len(items) == 0 && hint != "" {
+        palette.pick_hint = strings.clone(hint)
+    }
     command_palette_refilter(palette)
 }
 
@@ -420,6 +428,10 @@ command_palette_clear_pick_items :: proc(palette: ^Command_Palette) {
         }
     }
     clear(&palette.pick_items)
+    if palette.pick_hint != "" {
+        delete(palette.pick_hint)
+        palette.pick_hint = ""
+    }
 }
 
 @(private = "file")
@@ -611,8 +623,9 @@ command_palette_layout :: proc(widget: ^ui.Widget, bounds: rl.Rectangle) {
     }
     // Rich pick reserves one extra row beneath the list for the preview footer.
     footer_rows := (palette.mode == .Pick && palette.pick_rich && visible_rows > 0) ? 1 : 0
-    // A loading rich pick with no rows yet reserves one row for the "Loading…" hint.
-    loading_rows := (palette.mode == .Pick && palette.pick_rich && palette.pick_loading && visible_rows == 0) ? 1 : 0
+    // A loading rich pick, or one that landed with no rows and a hint to show
+    // instead, reserves one row for that dim placeholder line.
+    loading_rows := (palette.mode == .Pick && palette.pick_rich && visible_rows == 0 && (palette.pick_loading || palette.pick_hint != "")) ? 1 : 0
     width := min(palette.width, bounds.width - 80)
     height := palette.input_height + cast(f32) (visible_rows + footer_rows + loading_rows) * palette.row_height + 10
 
@@ -814,6 +827,13 @@ command_palette_draw :: proc(widget: ^ui.Widget, _: ^ui.Context) {
     if palette.mode == .Pick && palette.pick_rich && palette.pick_loading && len(palette.matches) == 0 {
         row_text_y := cast(i32) (list_top + (palette.row_height - 17) * 0.5)
         ui.draw_text("Loading workspace symbols...", cast(i32) (palette.box.x + pad), row_text_y, 17, palette.muted_color)
+    }
+
+    // Landed with no rows but a hint set (e.g. a server needs a typed query):
+    // same dim placeholder line instead of a bare blank list.
+    if palette.mode == .Pick && palette.pick_rich && !palette.pick_loading && len(palette.matches) == 0 && palette.pick_hint != "" {
+        row_text_y := cast(i32) (list_top + (palette.row_height - 17) * 0.5)
+        ui.draw_text(palette.pick_hint, cast(i32) (palette.box.x + pad), row_text_y, 17, palette.muted_color)
     }
 
     // Rich pick: a dim preview line under the list for the selected symbol,

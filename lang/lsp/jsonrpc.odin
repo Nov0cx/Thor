@@ -60,6 +60,12 @@ Notification :: struct {
 Conn_Answers :: struct {
     settings: string, // the configured `settings` object; "" answers null
     folders:  string, // the workspaceFolders array; "" answers null
+    // workspace/applyEdit: decodes params["edit"] and routes it through the
+    // Manager's push channel for a main-thread apply. Runs on the reader
+    // thread and may block for a bounded wait; nil answers every edit refused
+    // (this package's test doubles, which have no Server behind them).
+    apply_edit:      proc(data: rawptr, params: json.Value) -> bool,
+    apply_edit_data: rawptr, // borrowed; passed to apply_edit as `data`
 }
 
 // One JSON-RPC connection over a Transport, which it owns. A reader thread takes
@@ -538,9 +544,11 @@ conn_answer :: proc(c: ^Conn, method: string, id_value: json.Value, params: json
         // ignored.
         envelope_response(&out, id, "null")
     case "workspace/applyEdit":
-        // Applying needs a main-thread hop and buffer verification. Refusing is
-        // honest.
-        envelope_response(&out, id, `{"applied":false}`)
+        // Applying needs a main-thread hop and buffer verification, done by
+        // whoever set apply_edit (the owning Server); refusing with no
+        // handler wired is still honest.
+        applied := c.answers.apply_edit != nil && c.answers.apply_edit(c.answers.apply_edit_data, params)
+        envelope_response(&out, id, applied ? `{"applied":true}` : `{"applied":false}`)
     case "workspace/configuration":
         // Every item gets the same answer: the server's configured settings.
         // Which section an item asks for is not read, because the config carries

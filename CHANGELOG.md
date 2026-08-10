@@ -29,3 +29,7 @@ First release. Thor runs on Windows, Linux and macOS.
 - `clangd`, `rust-analyzer`, `gopls`, `pyright`, `typescript-language-server`, `lua-language-server` and `zls` are configured out of the box. A server starts the first time a file it claims is opened, and a server that is not installed is skipped.
 - Workspace symbols (`ctrl + q`) send the typed text to the language server as you type, instead of only filtering a fixed list.
 - Opening a different folder restarts its language servers against the new `settings/lsp.json` / `.thor/lsp.json`, instead of leaving the previous folder's servers running.
+- Workspace symbols (`ctrl + q`) on a language-server-backed file shows "Type to search workspace symbols…" instead of a blank list until you type, for servers that only answer a typed query.
+- A language server's progress messages ("Indexing…", with a percentage when the server reports one) show in the statusline.
+- A language server can apply its own edits (`workspace/applyEdit`) directly in the editor, as one undoable change.
+- Code actions (`ctrl + shift + u`) on a language-server-backed file are scoped to the current selection, not only the caret.

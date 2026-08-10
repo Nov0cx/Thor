@@ -355,6 +355,10 @@ Thor :: struct {
     lang_busy_kinds:          bit_set[lang.Request_Kind],
     lang_busy_since:          f64,
     lang_busy_shown:          bool,
+    // The current $/progress message an LSP server is reporting (e.g.
+    // "Indexing... (40%)"), owned and cloned; "" when nothing is in progress.
+    // Shown in place of lang_busy_kinds' generic label when set.
+    lsp_progress_message:     string,
     // Transient statusline notice (e.g. "No definition found") and the time it
     // was posted; thor_status_info hides it once STATUS_MESSAGE_SECS elapse.
     status_message:           string,
@@ -628,6 +632,7 @@ shutdown :: proc(thor: ^Thor) {
     thor_clear_code_actions(thor)
     delete(thor.code_actions)
     delete(thor.status_message)
+    delete(thor.lsp_progress_message)
     thor_clear_doc_symbols(thor)
     delete(thor.doc_symbols)
     thor_clear_plugin_buttons(thor, false)

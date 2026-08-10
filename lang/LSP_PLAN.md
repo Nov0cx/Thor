@@ -3,7 +3,7 @@
 The implementation plan for `lang/lsp`, the optional subprocess LSP client
 `ROADMAP.md` scopes under **The optional LSP backend**. `ROADMAP.md` stays the
 status document; this file is the design, and it is superseded section by section
-as each milestone lands. M0 to M7 are built; M8 and M9 are not.
+as each milestone lands. M0 to M9 are all built.
 
 Every file:line reference was checked against the tree at the time of writing.
 Where the code differs from an obvious assumption, the difference is stated
@@ -273,7 +273,7 @@ Per frame taken:
    | `window/workDoneProgress/create` | `result: null` |
    | `workspace/configuration` | one entry per requested item from the server's configured `settings`, `null` when unknown |
    | `workspace/workspaceFolders` | the one workspace folder, or `null` |
-   | `workspace/applyEdit` | `result: {"applied": false}` — applying needs a main-thread hop and buffer verification; refusing is honest, and M9 can route it through the push channel |
+   | `workspace/applyEdit` | v1: always `{"applied": false}` — applying needs a main-thread hop and buffer verification, and refusing was honest. M9 gave it that hop: `Conn_Answers.apply_edit` (wired to `server_apply_edit`) decodes the edit and routes it through the push channel, falling back to `{"applied": false}` only past `APPLY_EDIT_TIMEOUT` — see `ROADMAP.md`'s "Landed since (M9)" note. |
    | anything else | `error: {code: -32601, message: "unhandled"}` |
 
 4. **Notification** (`method`, no `id`):
@@ -284,8 +284,8 @@ Per frame taken:
      Manager allocator, which the client stores at construction.
    - `window/logMessage`, `window/showMessage`, `$/logTrace` reach `core:log`
      only.
-   - `$/progress` is dropped in v1. M9 can drive the statusline busy indicator
-     with it.
+   - `$/progress` was dropped in v1. M9 drives the statusline busy indicator
+     with it — see `ROADMAP.md`'s "Landed since (M9)" note.
    - Unknown is logged and dropped.
 5. A read returning 0 is EOF, which is the server's death. Fail **every** pending
    with `.Transport_Closed`, post each `done`, set `state = .Crashed`. Without
@@ -1178,7 +1178,7 @@ its tests pass, and nothing regresses.
       installing a server; `docs/configuration.md` gained the cost of
       `"override": true` for `.odin`; `CHANGELOG.md`'s LSP bullet gained
       rename and code actions. `update-docs` regenerated `docs/html/`.
-- [ ] **M9 — Optional follow-ups, each independent.**
+- [x] **M9 — Optional follow-ups, each independent.**
       - [x] Re-read `settings/lsp.json` + `.thor/lsp.json` and restart the
             servers when the workspace changes. `thor_reload_lang`
             (`thor/lang_host.odin`) plus two new `lang.odin` primitives
@@ -1192,10 +1192,12 @@ its tests pass, and nothing regresses.
             hook — see `ROADMAP.md`'s "Landed since (M9)" note.
       - [x] `semanticTokens/full/delta`, resolved entirely inside `lang/lsp`
             — see `ROADMAP.md`'s "Landed since (M9)" note.
-      - [ ] `$/progress` into the existing statusline busy indicator.
-      - [ ] `workspace/applyEdit` routed through the push channel.
-      - [ ] A selection range on `Request`, unlocking selection-scoped code
-            actions.
+      - [x] `$/progress` into the existing statusline busy indicator — see
+            `ROADMAP.md`'s "Landed since (M9)" note.
+      - [x] `workspace/applyEdit` routed through the push channel — see
+            `ROADMAP.md`'s "Landed since (M9)" note.
+      - [x] A selection range on `Request`, unlocking selection-scoped code
+            actions — see `ROADMAP.md`'s "Landed since (M9)" note.
 
 ## Open questions
 
@@ -1223,6 +1225,8 @@ its tests pass, and nothing regresses.
    `Result.revision` from `Document.revision`.
 5. ~~**Whether `workspace/symbol` is usable at all with an empty query.**~~
    Settled in M6 as planned: `query: ""` ships, and the ROADMAP names the
-   limitation rather than listing the feature as working. Still open in practice
-   — no measurement of what the major servers answer an empty query with. A real
-   query needs a prompt above the seam and a field on `Request`.
+   limitation rather than listing the feature as working. A real query landed
+   in M9 (`Command_Palette.on_query_changed`); confirmed live against pyright,
+   which answers nothing to the initial empty scan — M9 also gave the picker a
+   "type to search" hint for that case rather than trying to force server
+   behavior the protocol does not require.

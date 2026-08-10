@@ -39,6 +39,8 @@ METHODS := [lang.Request_Kind]string {
     .Diagnostics       = "textDocument/diagnostic",
     .Code_Actions      = "textDocument/codeAction",
     .Semantic_Tokens   = "textDocument/semanticTokens/full",
+    .Progress          = "", // unsolicited push, never sent as an outgoing request
+    .Apply_Edit        = "", // unsolicited push, never sent as an outgoing request
 }
 
 // One request in flight, and what it needs to turn positions into byte offsets.
@@ -142,18 +144,19 @@ request_params :: proc(ask: ^Ask) -> string {
             write_quoted(&out, ask.semantic_previous_result_id)
         }
     case .Code_Actions:
-        // Request carries only a caret offset, no selection end (lang.odin), so
-        // a zero-width range at the caret goes out; a selection-scoped action
-        // stays unreachable until Request grows a selection end.
-        line, character := position_from_offset(&ask.lines, ask.req.offset)
+        // req.end == req.offset outside a selection, so this is a zero-width
+        // range at the caret exactly as before; a real selection sends its
+        // actual span, unlocking selection-scoped actions.
+        start_line, start_character := position_from_offset(&ask.lines, ask.req.offset)
+        end_line, end_character := position_from_offset(&ask.lines, ask.req.end)
         append(&out, `,"range":{"start":{"line":`)
-        write_number(&out, i64(line))
+        write_number(&out, i64(start_line))
         append(&out, `,"character":`)
-        write_number(&out, i64(character))
+        write_number(&out, i64(start_character))
         append(&out, `},"end":{"line":`)
-        write_number(&out, i64(line))
+        write_number(&out, i64(end_line))
         append(&out, `,"character":`)
-        write_number(&out, i64(character))
+        write_number(&out, i64(end_character))
         append(&out, `}}`)
     case:
         line, character := position_from_offset(&ask.lines, ask.req.offset)

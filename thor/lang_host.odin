@@ -1255,7 +1255,34 @@ thor_on_lang_result :: proc(user: rawptr, res: ^lang.Result) {
         thor_show_code_actions(thor, res)
     case .Semantic_Tokens:
         thor_update_semantic(thor, res)
+    case .Progress:
+        thor_apply_progress(thor, res)
+    case .Apply_Edit:
+        thor_apply_pushed_edit(thor, res)
     }
+}
+
+// Applies a server-initiated workspace/applyEdit, then answers the reply the
+// server is blocked on. Unlike Rename there is no one buffer the edit was
+// computed against — the server may push this unprompted — so this reuses
+// thor_apply_edits' generic per-file snapshot check (thor_edit_target) rather
+// than a single-file revision check: an empty `origin` never matches a real
+// path, so every file is validated against its own current content.
+@(private = "file")
+thor_apply_pushed_edit :: proc(thor: ^Thor, res: ^lang.Result) {
+    _, _, ok, _ := thor_apply_edits(thor, res.edits[:], "", 0)
+    if res.on_applied != nil {
+        res.on_applied(res.token, ok)
+    }
+}
+
+// Applies a server's $/progress push to the statusline. A "begin"/"report"
+// step replaces the shown message; "end" clears it, so the indicator goes
+// away with the work instead of freezing on its last message.
+@(private = "file")
+thor_apply_progress :: proc(thor: ^Thor, res: ^lang.Result) {
+    delete(thor.lsp_progress_message)
+    thor.lsp_progress_message = res.progress.done ? "" : strings.clone(res.progress.message)
 }
 
 // Shows the resolved signature in a popup above the caret once its request lands.
@@ -1400,7 +1427,11 @@ thor_update_workspace_symbols :: proc(thor: ^Thor, res: ^lang.Result) {
     }
     if !res.ok || len(res.symbols) == 0 {
         if thor.workspace_symbols_typing || thor.workspace_symbols_needs_query {
-            widgets.command_palette_pick_rich_set(thor.command_palette, {})
+            hint := ""
+            if thor.workspace_symbols_needs_query && !thor.workspace_symbols_typing {
+                hint = "Type to search workspace symbols…"
+            }
+            widgets.command_palette_pick_rich_set(thor.command_palette, {}, hint)
             return
         }
         widgets.command_palette_close(thor.command_palette, &thor.ui_context)

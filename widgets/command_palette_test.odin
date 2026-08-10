@@ -42,6 +42,29 @@ test_prompt_caret :: proc(t: ^testing.T) {
     testing.expectf(t, palette.caret == 3, "expected the caret at the end, got %d", palette.caret)
 }
 
+// An empty rich pick that landed under a hint (a server that needs a typed
+// query) shows it instead of a bare blank list, and a later set of real rows
+// clears it so it never lingers over them.
+@(test)
+test_pick_rich_hint :: proc(t: ^testing.T) {
+    palette := command_palette_create("palette")
+    defer command_palette_destroy(&palette.widget)
+
+    ctx: ui.Context
+    command_palette_pick_rich_loading(palette, &ctx, "Workspace symbols", nil, nil)
+    testing.expect(t, command_palette_pick_loading(palette))
+
+    command_palette_pick_rich_set(palette, {}, "Type to search workspace symbols…")
+    testing.expect(t, !command_palette_pick_loading(palette))
+    testing.expectf(t, palette.pick_hint != "", "expected a hint, got none")
+    testing.expect(t, len(palette.pick_items) == 0)
+
+    command_palette_set_loading(palette)
+    command_palette_pick_rich_set(palette, {{text = "add", name_len = 3}})
+    testing.expectf(t, palette.pick_hint == "", "expected the hint cleared once real rows landed, got %q", palette.pick_hint)
+    testing.expect(t, len(palette.pick_items) == 1)
+}
+
 // Backspace at the start of the input is a no-op, not a wrap to the end.
 @(test)
 test_prompt_backspace_at_start :: proc(t: ^testing.T) {

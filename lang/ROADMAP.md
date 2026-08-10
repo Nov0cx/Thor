@@ -1410,10 +1410,48 @@ Landed since (M9):
       cached array (a restart) answers nothing and drops the cache
       (`server_clear_semantic`), so the next request asks for `full` again
       instead of feeding a bad array into another delta.
+- [x] `$/progress` into the statusline. `lang.Request_Kind` gained a push-only
+      `Progress` kind and `Result` a `Progress_Info` (`message`, `done`);
+      `server_drain_pushes` decodes a `$/progress` notification's `begin`/
+      `report` into a message (`message`, falling back to `title`, with
+      `"(N%)"` appended when `percentage` is present) and `end` into
+      `done = true` with an empty one. `thor_apply_progress`
+      (`thor/lang_host.odin`) stores it on `Thor.lsp_progress_message`, which
+      `thor_status_info` shows in place of the generic `thor_lang_busy_label`
+      text whenever it is set.
+- [x] `workspace/applyEdit` routed through the push channel. `Conn_Answers`
+      gained an `apply_edit` callback the owning `Server` wires
+      (`server_apply_edit`); it decodes `params["edit"]` with the same
+      `decode_workspace_edit` `Rename` uses (against a synthetic `Request`
+      whose empty `path` never shortcuts `resolve_range`/`ask_source`, so
+      every file resolves through the server's open documents or disk), pushes
+      a push-only `Apply_Edit` result carrying the edits plus a `token`/
+      `on_applied` reply pair, and blocks up to `APPLY_EDIT_TIMEOUT` for the
+      main thread to answer. `thor_apply_pushed_edit` (`thor/lang_host.odin`)
+      applies it through `thor_apply_edits` — the same all-or-nothing applier
+      Rename and Code Actions use — then calls `on_applied` with the result.
+      An `Apply_Wait`'s two-sided refcount (the pump's bounded wait and the
+      main thread's callback) means whichever side finishes second frees it,
+      so a starved push (feature gated off, or dropped at shutdown) still
+      answers the server honestly instead of hanging it.
+- [x] A selection range on `Request`, unlocking selection-scoped code actions.
+      `Request` gained an `end` field (defaulting to `offset`, so every
+      existing call site is unaffected); `thor_code_actions`
+      (`thor/codeactions.odin`) reads `textedit.selection_range` instead of
+      only the caret, and `lang/lsp/requests.odin`'s `Code_Actions` params
+      builder sends `[offset, end)` instead of a hardcoded zero-width range.
+      The in-client Odin engine's code-actions path stays caret-only by
+      design and simply ignores `end`.
+- [x] Ctrl+Q's picker shows an explicit "type to search" hint instead of a
+      bare blank list when a server-backed workspace scan lands empty because
+      it needs a typed query (pyright, gopls, clangd) — `Command_Palette`
+      gained a `pick_hint` field, shown with the same reserved-row mechanism
+      as the "Loading…" state and cleared the moment real rows land.
+      `thor_update_workspace_symbols` passes it only for the needs-query,
+      not-yet-typed case; a genuinely empty result after typing still reads
+      as "no matches", same as every other fuzzy search.
 
-Still to add: nothing from the M9 list above — see `LSP_PLAN.md`'s remaining
-follow-ups (`$/progress`, `workspace/applyEdit`, a selection range on
-`Request`).
+Still to add: nothing from the M9 list — it is complete.
 
 `LSP_PLAN.md` is the implementation plan for all of it: the `lang/lsp` package
 and what it may import, the child process and `Content-Length` transport, the
@@ -1435,6 +1473,7 @@ not a status, so this section stays the source of truth for what is built.
   the grammar is regenerated.
 - Only `.odin` is handled in-client. Another language is answered by a
   configured language server, which reaches only as far as that server does:
-  `Package_Doc` has no LSP method at all, `Workspace_Symbols` is asked with an
-  empty query, `Rename` refuses a `WorkspaceEdit` carrying a resource
-  operation, and `Code_Actions` is caret-only (no selection-scoped fixes).
+  `Package_Doc` has no LSP method at all, `Workspace_Symbols`' initial scan is
+  still asked with an empty query (a protocol limitation, not a dispatch bug —
+  the picker now shows a "type to search" hint instead of looking broken), and
+  `Rename` refuses a `WorkspaceEdit` carrying a resource operation.

@@ -612,6 +612,26 @@ test_pushed_result_reaches_handler :: proc(t: ^testing.T) {
     testing.expectf(t, delivered == 2, "an empty poll must deliver nothing (got %d)", delivered)
 }
 
+// Progress is push-only, never dispatched, but flows through manager_dispatch
+// the same way a pushed Diagnostics result does.
+@(test)
+test_pushed_progress_reaches_handler :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+
+    p := Push_Probe{allocator = m.allocator}
+    defer delete(p.queued)
+    defer delete(p.events)
+    manager_register(&m, push_backend(&p))
+
+    append(&p.queued, Request_Kind.Progress)
+
+    delivered := 0
+    manager_dispatch(&m, &delivered, count_results)
+    testing.expectf(t, delivered == 1, "expected the pushed Progress result (got %d)", delivered)
+}
+
 // The feature gate covers the push channel too, so a kind the user turned off
 // cannot arrive through the back door.
 @(test)

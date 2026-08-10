@@ -36,15 +36,17 @@ thor_code_actions :: proc(thor: ^Thor) {
         return
     }
     source := textedit.text(&file.state)
+    lo, hi := textedit.selection_range(textedit.primary_cursor(&file.state))
     id := lang.manager_request_latest(
         &thor.lang_manager,
         .Code_Actions,
         file.path,
         ext,
         source,
-        textedit.primary_cursor(&file.state).caret,
+        lo,
         file.state.revision,
         thor.workspace_dir,
+        end = hi,
     )
     if id == 0 {
         return

@@ -347,7 +347,7 @@ dependency. Release archives ship the `docs/` Markdown sources alongside the bin
 Comments are terse Odin-standard-library style: a short `//` line above the declaration stating
 *what* something is, not a paragraph justifying why. Keep it short. Keep genuinely load-bearing gotchas, compressed
 to one line. Field comments stay short (`// owned`, `// NOREF when unset`). Use ASD-STE100 Simplified Technical English (STE).
-Dont do segment comments. Dont write comments like a story, only describe feature.
+Dont do segment comments. Dont write comments like a story, only describe feature. Dont write comments for trivial procs.
 
 Indentation is four spaces, not tabs — which is why `-strict-style` is deliberately absent from the
 build flags (`-vet` is available via `build.odin -- -vet`).

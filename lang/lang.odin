@@ -26,6 +26,13 @@ Request_Kind :: enum {
     Diagnostics,
     Code_Actions,
     Semantic_Tokens,
+    // Push-only: never dispatched through manager_request*, only produced by
+    // Backend.poll (a server's unsolicited $/progress notification).
+    Progress,
+    // Push-only, like Progress: a server-initiated workspace/applyEdit. `edits`
+    // carries the decoded WorkspaceEdit; `token`/`on_applied` on Result carry
+    // the reply the server is waiting on back to the backend.
+    Apply_Edit,
 }
 
 // A byte range in a named file. Byte offsets, not line/column: the editor and
@@ -154,6 +161,14 @@ Semantic_Token :: struct {
     kind:  Token_Kind,
 }
 
+// One step of a server's unsolicited work-progress report ($/progress). `done`
+// marks the "end" phase, which carries no message — the editor clears its
+// indicator on it rather than showing a blank one.
+Progress_Info :: struct {
+    message: string, // owned; "" once done
+    done:    bool,
+}
+
 // Severity of a compiler diagnostic. Deliberately coarser than LSP's four
 // levels: everything a checker emits is either something that stops the build or
 // something that does not, and the editor colors exactly those two.
@@ -195,7 +210,8 @@ Request :: struct {
     path:      string, // owned, absolute
     ext:       string, // owned, e.g. ".odin"
     source:    string, // owned snapshot of the buffer
-    offset:    int,     // byte offset of the caret
+    offset:    int,     // byte offset of the caret, or a selection's low end
+    end:       int,     // byte offset of a selection's high end; == offset outside a selection
     revision:  u64,
     workspace: string, // owned, absolute
     new_name:  string, // owned; the request's argument — Rename's replacement identifier, "" otherwise
@@ -242,6 +258,13 @@ Result :: struct {
     // one pass. Sparse by design: an identifier the backend could not classify
     // is simply absent, and keeps whatever color the grammar gave it.
     tokens:    [dynamic]Semantic_Token,
+    progress:  Progress_Info, // Progress; owned message, freed in result_free
+    // Apply_Edit only. `edits` (above) carries the decoded WorkspaceEdit. Not
+    // owned strings — job_free/result_free must not touch them — but the
+    // handler must call `on_applied(token, ok)` exactly once, since it is the
+    // reply a server is blocked waiting on.
+    token:      rawptr,
+    on_applied: proc(token: rawptr, applied: bool),
 }
 
 // What a buffer did, for a backend that must track document state rather than
@@ -339,6 +362,7 @@ Pending :: struct {
     ext:       string,
     source:    string,
     offset:    int,
+    end:       int,
     revision:  u64,
     workspace: string,
     new_name:  string,
@@ -529,8 +553,9 @@ manager_allows :: proc(m: ^Manager, ext: string, kind: Request_Kind) -> bool {
 // Manager's allocator so the caller keeps ownership of its own buffers. Returns
 // the request id, or 0 when the feature gate refuses the kind or no backend
 // handles the extension. The result arrives via manager_dispatch on a later
-// frame. `new_name` is Rename's argument, `query` is Workspace_Symbols'; every
-// other kind ignores both.
+// frame. `new_name` is Rename's argument, `query` is Workspace_Symbols';
+// `end` is Code_Actions' selection high end (negative, its default, means "no
+// selection" and collapses to `offset`); every other kind ignores all three.
 manager_request :: proc(
     m: ^Manager,
     kind: Request_Kind,
@@ -540,6 +565,7 @@ manager_request :: proc(
     workspace: string,
     new_name := "",
     query := "",
+    end := -1,
 ) -> u64 {
     if !manager_feature_enabled(m, kind) {
         return 0
@@ -558,6 +584,7 @@ manager_request :: proc(
         strings.clone(ext),
         strings.clone(source),
         offset,
+        end < 0 ? offset : end,
         revision,
         strings.clone(workspace),
         strings.clone(new_name),
@@ -593,6 +620,7 @@ dispatch_owned :: proc(
     kind: Request_Kind,
     path, ext, source: string,
     offset: int,
+    end: int,
     revision: u64,
     workspace: string,
     new_name: string,
@@ -620,6 +648,7 @@ dispatch_owned :: proc(
         ext       = ext,
         source    = source,
         offset    = offset,
+        end       = end,
         revision  = revision,
         workspace = workspace,
         new_name  = new_name,
@@ -720,9 +749,10 @@ manager_request_latest :: proc(
     workspace: string,
     new_name := "",
     query := "",
+    end := -1,
 ) -> u64 {
     manager_cancel_kind(m, kind)
-    return manager_request(m, kind, path, ext, source, offset, revision, workspace, new_name, query)
+    return manager_request(m, kind, path, ext, source, offset, revision, workspace, new_name, query, end)
 }
 
 // Queues a request to be dispatched once `delay` has passed without another
@@ -750,6 +780,7 @@ manager_request_debounced :: proc(
     delay: time.Duration = DEBOUNCE_TYPING,
     new_name := "",
     query := "",
+    end := -1,
 ) -> u64 {
     if !manager_feature_enabled(m, kind) {
         return 0
@@ -769,6 +800,7 @@ manager_request_debounced :: proc(
         ext       = strings.clone(ext),
         source    = strings.clone(source),
         offset    = offset,
+        end       = end < 0 ? offset : end,
         revision  = revision,
         workspace = strings.clone(workspace),
         new_name  = strings.clone(new_name),
@@ -810,6 +842,7 @@ manager_flush_debounced :: proc(m: ^Manager, force := false) -> int {
             slot.ext,
             slot.source,
             slot.offset,
+            slot.end,
             slot.revision,
             slot.workspace,
             slot.new_name,
@@ -1019,6 +1052,7 @@ result_free :: proc(m: ^Manager, res: ^Result) {
         delete(d.message)
     }
     delete(res.report.items)
+    delete(res.progress.message)
 }
 
 // True while any request is still being worked. Used by manager_destroy and

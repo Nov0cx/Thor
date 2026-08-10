@@ -268,6 +268,8 @@ LANGUAGE_FEATURE_LABELS := [lang.Request_Kind]string {
     .Diagnostics       = "Diagnostics",
     .Code_Actions      = "Code Actions",
     .Semantic_Tokens   = "Semantic Highlighting",
+    .Progress          = "Progress Notifications",
+    .Apply_Edit        = "Server-Applied Edits",
 }
 
 // A language feature's row id: the settings key it persists to, under the
