@@ -5,9 +5,12 @@ import "core:log"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
+import "core:time"
 import rl "vendor:raylib"
 
 import "../lang"
+import "../lang/lsp"
+import "../lang/odin"
 import "../setting"
 import "../textedit"
 import "../widgets"
@@ -106,6 +109,39 @@ thor_language_gate :: proc(thor: ^Thor) -> bit_set[lang.Request_Kind] {
         return {}
     }
     return lang.manager_features(&thor.lang_manager)
+}
+
+// Rebuilds the LSP client against the new workspace root on a folder switch.
+// settings/lsp.json + .thor/lsp.json are read once, in lsp.client_create, so
+// a stale Client would keep talking to the old root's servers (and the old
+// .thor/lsp.json overlay) otherwise. The in-client Odin engine needs no
+// rebuild — it re-validates its own config file per request through
+// config_ensure's workspace/stat check — so only the LSP side is torn down.
+thor_reload_lang :: proc(thor: ^Thor) {
+    // No worker may be inside resolve on the old Client when it is destroyed
+    // — the same guarantee manager_destroy gives every backend at shutdown.
+    lang.manager_cancel_all(&thor.lang_manager)
+    for lang.manager_busy(&thor.lang_manager) {
+        lang.manager_dispatch(&thor.lang_manager, nil, nil)
+        time.sleep(time.Millisecond)
+    }
+    lang.manager_dispatch(&thor.lang_manager, nil, nil)
+
+    if old, found := lang.manager_backend_named(&thor.lang_manager, "lsp"); found && old.destroy != nil {
+        old.destroy(old.data)
+    }
+
+    thor.lsp_client = lsp.client_create(thor.workspace_dir)
+    lsp_backend := lsp.client_backend(thor.lsp_client)
+    odin_backend := odin.engine_backend(thor.odin_engine)
+    // Registration order is precedence (lang.manager_register's contract) —
+    // re-decided here exactly as thor_init decides it the first time, since
+    // the new workspace's .thor/lsp.json can flip "override" for .odin.
+    if lsp.client_overrides(thor.lsp_client, ".odin") {
+        lang.manager_set_backends(&thor.lang_manager, lsp_backend, odin_backend)
+    } else {
+        lang.manager_set_backends(&thor.lang_manager, odin_backend, lsp_backend)
+    }
 }
 
 // Document sync: what a backend that mirrors the editor's buffers (a subprocess

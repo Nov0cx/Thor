@@ -405,6 +405,33 @@ manager_register :: proc(m: ^Manager, backend: Backend) {
     append(&m.backends, backend)
 }
 
+// The registered backend named `name`, if any. Read-only lookup for a caller
+// that needs to reach one directly — a workspace change destroying just the
+// LSP backend without disturbing another that needs no rebuild.
+manager_backend_named :: proc(m: ^Manager, name: string) -> (Backend, bool) {
+    for b in m.backends {
+        if b.name == name {
+            return b, true
+        }
+    }
+    return {}, false
+}
+
+// Replaces the whole registered set in one call, in the order given. For a
+// workspace change, where precedence between backends (an LSP client's
+// "override" flag) can flip per workspace and must be re-decided in order,
+// not patched at a fixed index — manager_register only appends, so changing
+// order needs the set rebuilt. The caller must already have drained the
+// manager (manager_cancel_all + a manager_busy loop) so no worker is inside
+// a backend's resolve, and must destroy any outgoing backend itself first: a
+// backend left out of `backends` is simply dropped, never destroyed here.
+manager_set_backends :: proc(m: ^Manager, backends: ..Backend) {
+    clear(&m.backends)
+    for b in backends {
+        append(&m.backends, b)
+    }
+}
+
 @(private)
 backend_for :: proc(m: ^Manager, ext: string) -> (Backend, bool) {
     for b in m.backends {

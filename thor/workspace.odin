@@ -244,6 +244,10 @@ thor_open_folder :: proc(thor: ^Thor, dir: string) {
     // how those files colour, and before the outgoing folder's plugins can see
     // the new workspace through thor.workspace().
     thor_reload_plugins(thor)
+    // The new folder's settings/lsp.json + .thor/lsp.json overlay can name a
+    // different server table or root markers; rebuild before the session
+    // reopens any file so the first .Opened notify reaches a live server.
+    thor_reload_lang(thor)
 
     widgets.tree_set_root(thor.tree, thor.workspace_dir)
     // The palette holds the prefix by reference and the old one was just freed.

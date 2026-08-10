@@ -1357,10 +1357,21 @@ Landed since (`lang/lsp`, M1–M7):
       caret carries no selection end, so a selection-scoped action ("extract
       function") is unreachable.
 
+Landed since (M9):
+
+- [x] Re-reads the table and restarts the servers when the workspace changes.
+      `thor_reload_lang` (`thor/lang_host.odin`) drains the Manager
+      (`manager_cancel_all` + a `manager_busy` loop, the same guarantee
+      `manager_destroy` gives every backend at shutdown), destroys the old
+      `lsp` backend by name (`manager_backend_named`), builds a fresh `Client`
+      against the new workspace root, and re-registers both backends in the
+      override-decided order (`manager_set_backends` — a rebuild rather than a
+      patch, since a workspace's `"override"` for `.odin` can flip relative to
+      the last one). The in-client Odin engine is left running: it
+      re-validates its own config file per request already.
+
 Still to add:
 
-- [ ] Re-read the table and restart the servers when the workspace changes: it is
-      read once, in `client_create`.
 - [ ] Incremental `didChange`.
 - [ ] A real `workspace/symbol` query, which needs a query prompt above the seam
       and a field on `lang.Request` to carry it.

@@ -1179,9 +1179,11 @@ its tests pass, and nothing regresses.
       `"override": true` for `.odin`; `CHANGELOG.md`'s LSP bullet gained
       rename and code actions. `update-docs` regenerated `docs/html/`.
 - [ ] **M9 — Optional follow-ups, each independent.**
-      - [ ] Re-read `settings/lsp.json` + `.thor/lsp.json` and restart the
-            servers when the workspace changes — today read once, in
-            `client_create`.
+      - [x] Re-read `settings/lsp.json` + `.thor/lsp.json` and restart the
+            servers when the workspace changes. `thor_reload_lang`
+            (`thor/lang_host.odin`) plus two new `lang.odin` primitives
+            (`manager_backend_named`, `manager_set_backends`) — see
+            `ROADMAP.md`'s "Landed since (M9)" note.
       - [ ] Incremental `didChange` through `treecache.source_edit`.
       - [ ] A real `workspace/symbol` query, via a `query` field on `Request`.
       - [ ] `semanticTokens/full/delta`.
