@@ -235,7 +235,7 @@ prepare_rename_ok :: proc(ask: ^Ask) -> bool {
 @(private)
 request_deadline :: proc(kind: lang.Request_Kind) -> time.Duration {
     #partial switch kind {
-    case .Document_Symbols, .Workspace_Symbols, .References, .Diagnostics, .Semantic_Tokens:
+    case .Document_Symbols, .Workspace_Symbols, .References, .Diagnostics, .Semantic_Tokens, .Rename:
         return DEADLINE_HEAVY
     }
     return DEADLINE_INTERACTIVE
