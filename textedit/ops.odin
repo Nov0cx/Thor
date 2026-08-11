@@ -366,6 +366,9 @@ join_lines :: proc(state: ^State) {
     txt := text(state)
     cursor := state.cursors[0]
     lo, hi := selection_range(cursor)
+    if hi > lo && txt[hi - 1] == '\n' {
+        hi -= 1
+    }
 
     first := line_start(txt, lo)
     last_ls := line_start(txt, hi)
