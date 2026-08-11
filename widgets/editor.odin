@@ -2550,7 +2550,7 @@ editor_draw_row_hover_underline :: proc(
     x1 := base_x + cast(f32) ui.measure_text(text[row.start:seg_end], editor.font_size) +
         editor_swatch_offset(editor, row_text, seg_end - row.start)
     y := row_y + cast(f32) editor.font_size - 1
-    rl.DrawRectangle(cast(i32) x0, cast(i32) y, cast(i32) (x1 - x0), 1, editor.focus_border_color)
+    rl.DrawRectangle(cast(i32) x0, cast(i32) y, cast(i32) (x1 - x0), 1, editor.text_color)
 }
 
 // A small triangle wave from x0 to x1 along baseline y: the underline editors use
