@@ -42,9 +42,9 @@ across runs — it is what makes two analyses comparable.
 2. `ui`
 3. `widgets`
 4. `plugin` + `syntax` + `treecache`
-5. `lang` + `lang/odin`
+5. `lang` + `lang/odin` + `lang/lsp`
 6. `thor`
-7. `setting` + `watch` + `shell` + `build.odin` + `.github/workflows/`
+7. `setting` + `watch` + `shell` + `build.odin` + `.github/workflows/` + `main`
 
 Out of scope: `vendor/`, `bin/`, `assets/`. Lua under `plugins/` counts only for agent 4.
 
