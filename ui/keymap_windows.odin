@@ -1,3 +1,4 @@
+#+build windows
 package ui
 
 import rl "vendor:raylib"
