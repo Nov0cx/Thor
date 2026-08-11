@@ -208,6 +208,7 @@ thor_prompt_plugin_permissions :: proc(thor: ^Thor) {
         thor.plugin_prompt_message,
         thor_grant_plugin_permissions,
         thor,
+        thor_cancel_plugin_permissions,
     )
 }
 
@@ -262,6 +263,19 @@ thor_grant_plugin_permissions :: proc(data: rawptr) {
         // which only a rebuild settles.
         thor.plugin_reload_pending = true
     }
+}
+
+// Dismissing the prompt leaves every plugin of the source unloaded and
+// unrecorded, so the question returns on the next launch. The source's
+// requests still have to go, or the next frame reopens the same prompt
+// instead of moving on to the other source.
+@(private = "file")
+thor_cancel_plugin_permissions :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    thor_drop_plugin_requests(thor, thor.plugin_prompt_source)
+    thor.plugin_prompt_shown = false
+    delete(thor.plugin_prompt_message)
+    thor.plugin_prompt_message = ""
 }
 
 // Whether any plugin of `source` is still waiting.
