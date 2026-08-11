@@ -35,3 +35,5 @@ First release. Thor runs on Windows, Linux and macOS.
 - Code actions (`ctrl + shift + u`) on a language-server-backed file are scoped to the current selection, not only the caret.
 - Python's default language server is `basedpyright`, not `pyright` — plain pyright never offered an "add missing import" code action.
 - Fixed a language server's code actions silently failing to apply to an unsaved buffer when the server spelled the file's drive letter in a different case than Thor opened it under.
+- The "LSP Setup" top-bar menu is now one menu per server — "clangd Setup", "rust-analyzer Setup", "gopls Setup", "basedpyright Setup", "typescript-language-server Setup", "lua-language-server Setup" and "zls Setup" — each still checking its own server against `PATH` and adding a workspace task when it is missing.
+- "clangd Setup" gained "Configure compile_commands.json…": detects CMake, Bazel (bzlmod) or Make and adds a workspace task to generate the compilation database clangd needs, writing a `.clangd` file for a CMake project so clangd finds its build directory.

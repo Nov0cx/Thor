@@ -44,10 +44,28 @@ from the server named here.
 
 A server is started the first time you open a file it claims, never before, and
 is stopped when Thor exits. A server that is not installed simply never starts
-and the language stays a plain text file. The bundled **LSP Setup** top-bar
-menu checks which of the servers below are on `PATH` and, for a missing one,
-adds a workspace task that installs it (see
-[`plugins/lsp-setup`](../plugins/lsp-setup/plugin.lua)).
+and the language stays a plain text file. Each server below has its own
+bundled **`<name>` Setup** top-bar menu that checks whether it is on `PATH`
+and, if not, adds a workspace task that installs it — see
+[`plugins/clangd-setup`](../plugins/clangd-setup/plugin.lua),
+[`plugins/rust-analyzer-setup`](../plugins/rust-analyzer-setup/plugin.lua),
+[`plugins/gopls-setup`](../plugins/gopls-setup/plugin.lua),
+[`plugins/basedpyright-setup`](../plugins/basedpyright-setup/plugin.lua),
+[`plugins/typescript-setup`](../plugins/typescript-setup/plugin.lua),
+[`plugins/lua-language-server-setup`](../plugins/lua-language-server-setup/plugin.lua) and
+[`plugins/zls-setup`](../plugins/zls-setup/plugin.lua).
+
+`clangd-setup` additionally has a **Configure compile_commands.json…** command
+that detects the project's build system and helps produce the compilation
+database clangd needs: it adds a workspace task for CMake
+(`-DCMAKE_EXPORT_COMPILE_COMMANDS=ON`) or Make (`bear` on Linux/macOS,
+`compiledb` on Windows), and for Bazel it can wire up [hedron's
+bazel-compile-commands-extractor](https://github.com/hedronvision/bazel-compile-commands-extractor)
+into `MODULE.bazel` (bzlmod only) before adding the task that runs it. A bare
+build script with no recognized build system only gets a hint, since running
+an arbitrary script is not something this plugin does on its own. See
+[`plugins/clangd-setup/buildsystem.lua`](../plugins/clangd-setup/buildsystem.lua)
+for the exact detection order.
 
 Entries shipped by default: `clangd`, `rust-analyzer`, `gopls`, `basedpyright`,
 `typescript`, `lua-language-server` and `zls`.

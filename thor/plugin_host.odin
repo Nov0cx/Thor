@@ -259,12 +259,36 @@ thor_plugin_button :: proc(host: rawptr, label: string, command: string) {
     widgets.button_set_on_click(pb.button, thor_plugin_button_click, pb)
 }
 
+// A dropdown button already registered under `label`, or nil. Only matches a
+// thor.menu button (empty command), never a flat thor.button of the same
+// text, so the two never merge into one.
+@(private = "file")
+thor_plugin_find_menu_button :: proc(thor: ^Thor, label: string) -> ^Plugin_Top_Button {
+    for pb in thor.plugin_buttons {
+        if pb.label == label && pb.command == "" {
+            return pb
+        }
+    }
+    return nil
+}
+
 // thor.menu(label, entries): adds a top-bar dropdown button that opens a menu of
 // the given rows (each running its command) when clicked, like File/Edit/Help.
+// A second call with a label already in use appends its rows to that button,
+// behind a separator, instead of adding a duplicate button — how several
+// per-language setup plugins share one "LSP Setup" dropdown.
 thor_plugin_menu :: proc(host: rawptr, label: string, entries: []plugin.Menu_Entry) {
     thor := cast(^Thor) host
-    pb := thor_plugin_add_button(thor, label)
-    pb.entries = make([dynamic]Plugin_Menu_Item, 0, len(entries))
+
+    pb := thor_plugin_find_menu_button(thor, label)
+    if pb == nil {
+        pb = thor_plugin_add_button(thor, label)
+        pb.entries = make([dynamic]Plugin_Menu_Item, 0, len(entries))
+        widgets.button_set_on_click(pb.button, thor_plugin_menu_open, pb)
+    } else if len(pb.entries) > 0 {
+        append(&pb.entries, Plugin_Menu_Item{separator = true})
+    }
+
     for e in entries {
         append(&pb.entries, Plugin_Menu_Item {
             thor      = thor,
@@ -273,7 +297,6 @@ thor_plugin_menu :: proc(host: rawptr, label: string, entries: []plugin.Menu_Ent
             separator = e.separator,
         })
     }
-    widgets.button_set_on_click(pb.button, thor_plugin_menu_open, pb)
 }
 
 // Click handler for a flat plugin button; runs its command.
