@@ -25,8 +25,13 @@ run :: proc(command: string, cwd: string, timeout: time.Duration = 0) -> string 
         return strings.clone("[shell] could not create pipe\n")
     }
     defer win32.CloseHandle(read_pipe)
-    // The read end stays with the parent; keep it out of the child.
-    win32.SetHandleInformation(read_pipe, win32.HANDLE_FLAG_INHERIT, 0)
+    // The read end stays with the parent; keep it out of the child. An end
+    // that stays inheritable would reach the child and hold the pipe open
+    // after it exits, so a failure here ends the start.
+    if !win32.SetHandleInformation(read_pipe, win32.HANDLE_FLAG_INHERIT, 0) {
+        win32.CloseHandle(write_pipe)
+        return strings.clone("[shell] could not create pipe\n")
+    }
 
     si := win32.STARTUPINFOW {
         cb         = size_of(win32.STARTUPINFOW),
