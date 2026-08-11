@@ -228,7 +228,8 @@ lowest latency.
   `xs[i].field`, `xs[1:3][i].field` and `for p in xs { p.field }` all resolve to the
   element's field. Each index, slice or range strips exactly one level, so nesting
   works and stops where it should: `grid[0][1].field` resolves and `grid[0].field`
-  does not. `CONTAINER_DEPTH_LIMIT` (4) bounds the nesting that is modelled at all.
+  does not. `CONTAINER_DEPTH_LIMIT` (24) bounds the nesting that is modelled at
+  all; hitting it is logged (`log.debugf`) rather than silent.
   A map indexes and ranges to its **value** type and its `for k, v in m` key to the
   **key** type (a plain, optionally qualified key name — `map[[2]int]V` records
   none), which is also what `m[.Member]` selects from. A bit_set holds its element
@@ -625,7 +626,9 @@ lowest latency.
       follows `X :: Y` and `X :: distinct Y` aliases to what they stand for. A
       conversion (`cast(T)x`, `transmute(T)x`, `T(x)`) types its value by what it
       converts to, and a union narrows to a variant through `x.(T)` or a
-      `switch v in u` case.
+      `switch v in u` case. An un-narrowed union offers no members at all,
+      matching Odin's own rule — only `v.(` reaches it, completing the union's
+      variants; the members reached that way come from the narrowed variant.
 
       A container answers for the members it has itself before the struct lookup
       runs (`lang/odin/container.odin`): a fixed array of up to four components
@@ -646,13 +649,9 @@ lowest latency.
       loses to one, since such a match names whichever struct happened to declare
       it while the `using` names the one that is open here.
 
-      **Still open:** an un-narrowed union still has no members to offer — Odin
-      permits none — so only `v.(` answers there, completing the union's variants;
-      the members reached that way come from the narrowed variant. Nesting past
-      `CONTAINER_DEPTH_LIMIT` (eight levels) is not inferred, and a `#soa`
-      completion row labels the field with the element struct's own declaration
-      rather than the array it is held in. Those fall through to the flat name
-      scan.
+      **Still open:** a `#soa` completion row labels the field with the element
+      struct's own declaration rather than the array it is held in. That falls
+      through to the flat name scan.
 
       Member *completion* takes the same
       operands goto and hover do — `a.b.`, `xs[0].` and `f().` all offer the
@@ -673,7 +672,8 @@ lowest latency.
       `test_completion_map_key_selector`,
       `test_completion_container_literal_selector` and
       `test_member_bit_set_element`), `lang/odin/container_test.odin` (swizzles,
-      `#soa`, six nested containers and union-variant completion) and
+      `#soa`, nested containers past the old eight-level cap and union-variant
+      completion) and
       `lang/odin/using_test.odin` (the `using` statement and parameter: goto,
       hover, completion, scope and precedence).
 - [x] **Package / import resolution.** `import "core:fmt"` then `fmt.println` is

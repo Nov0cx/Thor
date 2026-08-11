@@ -23,6 +23,7 @@
 // written-down type, and decl.odin locates the declaration it names.
 package odin
 
+import "core:log"
 import "core:strings"
 
 import lang ".."
@@ -60,7 +61,14 @@ Container_Layer :: struct {
 // levels are a fixed array on every Type_Ref, so this is a size as much as a
 // guard.
 @(private)
-CONTAINER_DEPTH_LIMIT :: 8
+CONTAINER_DEPTH_LIMIT :: 24
+
+// Hitting CONTAINER_DEPTH_LIMIT is logged rather than left indistinguishable
+// from any other "can't resolve this" case.
+@(private)
+log_container_depth_exceeded :: proc() {
+    log.debugf("odin: container nesting past %d levels is not inferred", CONTAINER_DEPTH_LIMIT)
+}
 
 // A named type reference: the type name plus an optional package qualifier
 // (`pkg` in `p: pkg.Point`), the containers wrapped around it (innermost first —
@@ -102,6 +110,7 @@ outer_container :: proc(tr: Type_Ref) -> (Container_Layer, bool) {
 @(private)
 wrap_container :: proc(tr: Type_Ref, layer: Container_Layer) -> (Type_Ref, bool) {
     if tr.depth >= CONTAINER_DEPTH_LIMIT {
+        log_container_depth_exceeded()
         return {}, false
     }
     out := tr

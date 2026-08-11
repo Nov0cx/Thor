@@ -465,7 +465,11 @@ result_type_ref :: proc(text: string) -> (Type_Ref, bool) {
                 inner = inner[:semi] // `bit_set[Axis; u8]` — a backing type, not the element
             }
             elem, eok := plain_type_ref(strings.trim_space(inner))
-            if !eok || count >= CONTAINER_DEPTH_LIMIT {
+            if !eok {
+                return {}, false
+            }
+            if count >= CONTAINER_DEPTH_LIMIT {
+                log_container_depth_exceeded()
                 return {}, false
             }
             layers[count] = Container_Layer{kind = .Bit_Set}
@@ -499,6 +503,7 @@ result_type_ref :: proc(text: string) -> (Type_Ref, bool) {
             return wrap_layers(tr, layers[:count])
         }
         if count >= CONTAINER_DEPTH_LIMIT {
+            log_container_depth_exceeded()
             return {}, false
         }
         layers[count] = layer

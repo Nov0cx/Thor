@@ -71,6 +71,7 @@ peel_poly_shape :: proc(text: string) -> (shape: Poly_Shape, leaf: string, ok: b
                 inner = inner[:semi] // `bit_set[Axis; u8]` — a backing type
             }
             if shape.depth >= CONTAINER_DEPTH_LIMIT {
+                log_container_depth_exceeded()
                 return {}, "", false
             }
             shape.containers[shape.depth] = Container_Layer{kind = .Bit_Set}
@@ -98,6 +99,7 @@ peel_poly_shape :: proc(text: string) -> (shape: Poly_Shape, leaf: string, ok: b
             return shape, s, true
         }
         if shape.depth >= CONTAINER_DEPTH_LIMIT {
+            log_container_depth_exceeded()
             return {}, "", false
         }
         shape.containers[shape.depth] = layer

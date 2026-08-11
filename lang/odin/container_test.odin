@@ -273,6 +273,45 @@ main :: proc() {
 }
 
 @(test)
+test_container_nesting_past_eight :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    // Ten container levels — more than the eight this engine used to model.
+    src := `package demo
+
+Point :: struct {
+	x: int,
+}
+
+main :: proc() {
+	xs: [][][][][][][][][][]Point
+	_ = xs[0][0][0][0][0][0][0][0][0][0].x
+}
+`
+    at := strings.index(src, "].x") + 2
+    loc, ok := resolve_offset(e, src, at)
+    defer delete(loc.path)
+
+    testing.expect(t, ok, "expected ten nested containers to unwrap")
+    testing.expect(t, loc.start == strings.index(src, "x: int"), "expected Point's x")
+}
+
+@(test)
+test_wrap_container_depth_limit :: proc(t: ^testing.T) {
+    tr := Type_Ref{name = "Point"}
+    for i in 0 ..< CONTAINER_DEPTH_LIMIT {
+        wrapped, ok := wrap_container(tr, Container_Layer{kind = .Array})
+        testing.expectf(t, ok, "expected layer %d to wrap", i)
+        tr = wrapped
+    }
+    testing.expectf(t, tr.depth == CONTAINER_DEPTH_LIMIT, "depth: got %d, want %d", tr.depth, CONTAINER_DEPTH_LIMIT)
+
+    _, ok := wrap_container(tr, Container_Layer{kind = .Array})
+    testing.expect(t, !ok, "expected the layer past the limit to fail")
+}
+
+@(test)
 test_union_variant_completion :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
