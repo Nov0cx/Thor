@@ -1531,7 +1531,7 @@ Landed since (M9):
       as "no matches", same as every other fuzzy search.
 - [x] `codeAction` requests carry live diagnostics instead of a hardcoded
       `context.diagnostics: []` — a server that only offers a fix when it sees
-      its own diagnostic in the request (pyright's "add missing import") never
+      its own diagnostic in the request (basedpyright's "add missing import") never
       offered it otherwise, so `codeAction/resolve` never had anything to
       resolve. Each `Document` caches its last publish/pull diagnostics
       verbatim (`Cached_Diagnostic`, `lang/lsp/document.odin`); the pull and
@@ -1542,7 +1542,17 @@ Landed since (M9):
       diagnostic that starts or ends exactly there) and joins their JSON
       verbatim into the outgoing request — deliberately not through the
       seam's own `lang.Diagnostic`, which coarsens severity and drops `code`,
-      the field a server like pyright keys its fixes on.
+      the field a server like basedpyright keys its fixes on.
+- [x] `thor_edit_target` (`thor/lang_host.odin`) recognized the origin buffer
+      with `canonical == origin`, a plain string compare. A server's edit
+      names its file by the drive letter it spelled the URI with — basedpyright
+      lowercases it — which need not match the case Thor opened the file
+      under, so the compare missed even though `thor_same_path` (used one line
+      above, for the same file) would have matched. A missed match fell
+      through to the "already saved" branch, which an unsaved buffer always
+      fails: exactly the state a quick fix is applied from, so "add missing
+      import" landed the edit from the server but silently never applied it.
+      Fixed by comparing with `thor_same_path` there too.
 
 Still to add: nothing from the M9 list — it is complete.
 

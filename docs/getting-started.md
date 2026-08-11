@@ -50,7 +50,7 @@ For Odin, hover a symbol with `ctrl` held to see its declaration, `alt + enter`
 code actions available at the caret.
 
 Every other language gets the same features from a language server: install one
-(`clangd`, `rust-analyzer`, `gopls`, `pyright`, `typescript-language-server`,
+(`clangd`, `rust-analyzer`, `gopls`, `basedpyright`, `typescript-language-server`,
 `lua-language-server` and `zls` are configured out of the box) and reopen the
 folder or open a file it claims — Thor starts the server the first time it is
 needed. See [Configuration](configuration.md) for the server table and how to

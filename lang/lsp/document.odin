@@ -30,7 +30,7 @@ Document :: struct {
     semantic_result_id: string, // owned
     // The last publish/pull diagnostics for this document, kept verbatim so a
     // codeAction request can replay the ones overlapping its range back to the
-    // server — a server (pyright, notably) that gates a fix like "add missing
+    // server — a server (basedpyright, notably) that gates a fix like "add missing
     // import" on seeing its own diagnostic in the request otherwise never
     // offers it.
     diagnostics: [dynamic]Cached_Diagnostic, // owned

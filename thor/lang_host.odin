@@ -781,7 +781,7 @@ thor_edit_target :: proc(
         if !file.loaded {
             return 0, false
         }
-        if canonical == origin {
+        if thor_same_path(canonical, origin) {
             // The buffer the edits were computed against: its offsets only hold
             // while it is still at the revision that was snapshotted.
             if file.state.revision != snapshot {

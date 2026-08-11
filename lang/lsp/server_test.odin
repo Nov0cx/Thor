@@ -1071,7 +1071,7 @@ test_server_code_actions_resolve_round_trip :: proc(t: ^testing.T) {
 }
 
 // A pushed diagnostic is threaded into the next codeAction request's context —
-// what lets a server (pyright, notably) offer a fix that depends on seeing its
+// what lets a server (basedpyright, notably) offer a fix that depends on seeing its
 // own diagnostic there, "add missing import" chief among them. One outside the
 // requested range is left out.
 @(test)

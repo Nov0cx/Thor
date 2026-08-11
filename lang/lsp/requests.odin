@@ -178,7 +178,7 @@ request_params :: proc(ask: ^Ask) -> string {
         append(&out, `,"newName":`)
         write_quoted(&out, ask.req.new_name)
     case .Code_Actions:
-        // A server that gates a fix on seeing its own diagnostic (pyright's
+        // A server that gates a fix on seeing its own diagnostic (basedpyright's
         // "add missing import") needs it echoed back here; the cache is kept
         // per-document by document_replace_diagnostics.
         start_line, start_character := position_from_offset(&ask.lines, ask.req.offset)

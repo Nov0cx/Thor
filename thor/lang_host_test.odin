@@ -4,6 +4,7 @@ import "core:os"
 import "core:testing"
 
 import "../lang"
+import "../textedit"
 
 // A rename touching a file that is not open is written straight to disk, so the
 // buffer undo stack knows nothing about it. Ctrl+Z has to take those files back
@@ -68,6 +69,46 @@ test_undo_edits_refuses_changed_file :: proc(t: ^testing.T) {
 
     after, _ := os.read_entire_file(PATH, context.temp_allocator)
     testing.expect_value(t, string(after), EDITED)
+}
+
+// An LSP code action's edit names its file with the drive letter the server
+// spelled it with (basedpyright, notably, lowercases it), which need not match
+// the case the file was opened under. The origin buffer must still be
+// recognized as itself — a case-only difference used to fall through to the
+// "already saved" branch and refuse the edit on an unsaved buffer, exactly the
+// state a quick fix is applied from.
+@(test)
+test_apply_edits_matches_origin_regardless_of_drive_letter_case :: proc(t: ^testing.T) {
+    thor := new(Thor)
+    defer free(thor)
+    defer thor_clear_edit_undo(thor)
+    thor.open_files = make([dynamic]^Open_File)
+    defer delete(thor.open_files)
+    defer delete(thor.status_message)
+
+    file := new(Open_File)
+    file.path = "D:/w/pkg/a.odin"
+    file.loaded = true
+    textedit.init(&file.state)
+    textedit.set_text(&file.state, "foo := bar\n")
+    file.saved_revision = file.state.revision
+    // An unsaved keystroke past what "foo" needs, so the buffer is dirty —
+    // the state a quick fix is normally applied from.
+    textedit.replace_ranges(&file.state, []textedit.Replace{{start = 11, end = 11, text = "x"}})
+    defer {
+        textedit.destroy(&file.state)
+        free(file)
+    }
+    append(&thor.open_files, file)
+
+    edits := []lang.Text_Edit {
+        {path = "d:/w/pkg/a.odin", start = 0, end = 3, old_text = "foo", new_text = "baz"},
+    }
+    applied, files, ok, reason := thor_apply_edits(thor, edits, file.path, file.state.revision)
+    testing.expectf(t, ok, "apply refused an edit against its own origin buffer: %s", reason)
+    testing.expect_value(t, applied, 1)
+    testing.expect_value(t, files, 1)
+    testing.expect_value(t, textedit.text(&file.state), "baz := bar\nx")
 }
 
 // The indicator waits out LANG_BUSY_DELAY_SECS of unbroken work: a request

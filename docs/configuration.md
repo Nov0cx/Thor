@@ -49,7 +49,7 @@ menu checks which of the servers below are on `PATH` and, for a missing one,
 adds a workspace task that installs it (see
 [`plugins/lsp-setup`](../plugins/lsp-setup/plugin.lua)).
 
-Entries shipped by default: `clangd`, `rust-analyzer`, `gopls`, `pyright`,
+Entries shipped by default: `clangd`, `rust-analyzer`, `gopls`, `basedpyright`,
 `typescript`, `lua-language-server` and `zls`.
 
 | Key | Meaning |

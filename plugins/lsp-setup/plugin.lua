@@ -29,12 +29,12 @@ local SERVERS = {
         hint = "Installs to $(go env GOPATH)/bin — make sure that directory is on PATH.",
     },
     {
-        id = "pyright", label = "pyright (Python)", bin = "pyright-langserver",
+        id = "basedpyright", label = "basedpyright (Python)", bin = "basedpyright-langserver",
         install = {
-            windows = "python -m pip install -U pyright",
-            any     = "python3 -m pip install -U pyright",
+            windows = "python -m pip install -U basedpyright",
+            any     = "python3 -m pip install -U basedpyright",
         },
-        hint = "Installs pyright-langserver beside your other Python scripts — make sure that folder is on PATH.",
+        hint = "Installs basedpyright-langserver beside your other Python scripts — make sure that folder is on PATH.",
     },
     {
         id = "typescript", label = "typescript-language-server (TS / JS)", bin = "typescript-language-server",

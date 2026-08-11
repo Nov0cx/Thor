@@ -744,7 +744,7 @@ test_decode_publish_diagnostics :: proc(t: ^testing.T) {
 
 // A publish also caches each diagnostic verbatim on the Document, `code`
 // included — the seam's own lang.Diagnostic drops it, but a codeAction request
-// needs it back to get a server like pyright to offer a fix that depends on it.
+// needs it back to get a server like basedpyright to offer a fix that depends on it.
 @(test)
 test_decode_publish_diagnostics_caches_verbatim :: proc(t: ^testing.T) {
     s := held_server()
