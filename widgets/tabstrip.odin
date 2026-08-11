@@ -19,6 +19,8 @@ Tabstrip :: struct {
     on_select:         Tabbar_Action_Proc,
     on_close:          Tabbar_Action_Proc,
     on_add:            Tabstrip_Add_Proc,
+    on_context_menu:   Context_Menu_Proc,
+    context_menu_data: rawptr,
     data:              rawptr,
     text_color:        rl.Color,
     active_text_color: rl.Color,
@@ -88,6 +90,11 @@ tabstrip_set_callbacks :: proc(
     strip.on_add = on_add
     strip.data = data
     return strip
+}
+
+tabstrip_set_on_context_menu :: proc(strip: ^Tabstrip, on_context_menu: Context_Menu_Proc, data: rawptr) {
+    strip.on_context_menu = on_context_menu
+    strip.context_menu_data = data
 }
 
 tabstrip_set_colors :: proc(strip: ^Tabstrip, text, active_text, background, active_tab, hover, busy, dead: rl.Color) -> ^Tabstrip {
@@ -196,6 +203,20 @@ Tabstrip_Hit :: struct {
     close:    bool,
 }
 
+// The tab at `position`, or -1 when it hits no tab.
+tabstrip_tab_at :: proc(strip: ^Tabstrip, position: rl.Vector2) -> int {
+    hit := Tabstrip_Hit {position = position, index = -1}
+    tabstrip_each_tab(strip, proc(strip: ^Tabstrip, index: int, rect: rl.Rectangle, user: rawptr) -> bool {
+        hit := cast(^Tabstrip_Hit) user
+        if !rl.CheckCollisionPointRec(hit.position, rect) {
+            return true
+        }
+        hit.index = index
+        return false
+    }, &hit)
+    return hit.index
+}
+
 tabstrip_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event) -> bool {
     strip := cast(^Tabstrip) widget
 
@@ -205,6 +226,16 @@ tabstrip_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Eve
         tabstrip_clamp_scroll(strip)
         return true
     case .Mouse_Down:
+        if event.mouse_button == .RIGHT {
+            if strip.on_context_menu != nil {
+                strip.on_context_menu(strip.context_menu_data, event.mouse_position)
+            }
+            return true
+        }
+        if event.mouse_button != .LEFT {
+            return false
+        }
+
         if rl.CheckCollisionPointRec(event.mouse_position, tabstrip_add_bounds(strip)) {
             if strip.on_add != nil {
                 strip.on_add(strip.data)

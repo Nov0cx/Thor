@@ -99,7 +99,6 @@ thor_plugin_print :: proc(host: rawptr, text: string) {
     widgets.console_append(thor.console, text)
     if !ui.signal_get(&thor.console_visible) {
         ui.signal_set(&thor.console_visible, true)
-        thor_apply_layout_state(thor)
     }
 }
 

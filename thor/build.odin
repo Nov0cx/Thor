@@ -104,15 +104,6 @@ thor_build_ui :: proc(thor: ^Thor) {
     widgets.stack_set_background(thor.plugin_dock_bottom_stack, thor.theme.border)
     ui.widget_set_grow(&thor.plugin_dock_bottom_stack.widget, 1)
 
-    thor.dialog = widgets.dialog_create("floating-dialog", "Floating Dialog", rl.Vector2 {810, 120}, rl.Vector2 {320, 220})
-    widgets.dialog_set_colors(thor.dialog, thor.theme.primary_text_color, thor.theme.highlight, thor.theme.notifications, thor.theme.border)
-    thor.dialog.visible = false
-    thor.dialog_stack = widgets.stack_create("dialog-stack", .Vertical)
-    widgets.stack_set_gap(thor.dialog_stack, 10)
-    widgets.stack_set_padding(thor.dialog_stack, ui.padding(0))
-    widgets.stack_set_background(thor.dialog_stack, rl.Color {0, 0, 0, 0})
-    ui.widget_set_grow(&thor.dialog_stack.widget, 1)
-
     thor.command_palette = widgets.command_palette_create("command-palette")
     widgets.command_palette_set_colors(
         thor.command_palette,
@@ -483,18 +474,6 @@ thor_build_content :: proc(thor: ^Thor) {
     widgets.statusbar_set_on_line_ending(thor.statusbar, thor_toggle_line_ending, thor)
     thor.statusbar.min_size = rl.Vector2 {0, 28}
 
-    dialog_text := widgets.label_create("dialog-text", "Drag this dialog by its title bar.\n\nType into the editor, scroll it, and close this dialog with the x button.")
-    widgets.label_set_text_color(dialog_text, thor.theme.primary_text_color)
-    widgets.label_set_top_align(dialog_text, true)
-    dialog_text.min_size = rl.Vector2 {0, 110}
-    thor.dialog_text_label = dialog_text
-
-    dialog_console_button := widgets.button_create("dialog-console-button", "Toggle Console")
-    widgets.button_set_colors(dialog_console_button, thor.theme.primary_text_color, thor.theme.info_color, thor.theme.accent_secondary_color, thor.theme.active, thor.theme.border)
-    widgets.button_set_on_click(dialog_console_button, thor_toggle_console, thor)
-    dialog_console_button.min_size = rl.Vector2 {0, 36}
-    thor.dialog_console_button = dialog_console_button
-
     widgets.append_child(&thor.top_bar.widget, &top_logo.widget)
     widgets.append_child(&thor.top_bar.widget, &thor.menu_file_button.widget)
     widgets.append_child(&thor.top_bar.widget, &thor.menu_edit_button.widget)
@@ -533,14 +512,10 @@ thor_build_content :: proc(thor: ^Thor) {
 
     widgets.append_child(&thor.explorer_stub_stack.widget, &thor.explorer_restore_button.widget)
     widgets.append_child(&thor.console_stub_stack.widget, &thor.console_restore_button.widget)
-
-    widgets.append_child(&thor.dialog_stack.widget, &dialog_text.widget)
-    widgets.append_child(&thor.dialog_stack.widget, &dialog_console_button.widget)
 }
 
 thor_connect_tree :: proc(thor: ^Thor) {
     widgets.append_child(&thor.root_panel.widget, &thor.root_stack.widget)
-    widgets.append_child(&thor.root_panel.widget, &thor.dialog.widget)
     // Added last so they overlay everything and are hit-tested first.
     widgets.append_child(&thor.root_panel.widget, &thor.command_palette.widget)
     widgets.append_child(&thor.root_panel.widget, &thor.select_dialog.widget)
@@ -574,8 +549,6 @@ thor_connect_tree :: proc(thor: ^Thor) {
 
     widgets.append_child(&thor.console_panel.widget, &thor.console_stack.widget)
     widgets.append_child(&thor.console_stub_panel.widget, &thor.console_stub_stack.widget)
-
-    widgets.append_child(&thor.dialog.widget, &thor.dialog_stack.widget)
 }
 
 thor_create_menu_button :: proc(thor: ^Thor, id, text: string) -> ^widgets.Button {

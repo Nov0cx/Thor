@@ -495,7 +495,7 @@ push_api_table :: proc(m: ^Manager, index: int) {
         bind(L, m, index, api, "panel", api_panel)
     }
 
-    push_ts_table(m, index)
+    push_ts_table(m, index, perms)
     lua.setfield(L, api, "ts")
 }
 

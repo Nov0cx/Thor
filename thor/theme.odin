@@ -100,8 +100,6 @@ thor_apply_theme :: proc(thor: ^Thor) {
     widgets.splitter_set_colors(thor.console_splitter, t.border, t.highlight, t.accent_color)
     widgets.splitter_set_colors(thor.editor_split_splitter, t.border, t.highlight, t.accent_color)
 
-    widgets.dialog_set_colors(thor.dialog, t.primary_text_color, t.highlight, t.notifications, t.border)
-
     widgets.command_palette_set_colors(
         thor.command_palette,
         t.second_background, t.accent_color, t.background, t.primary_text_color, t.muted_color, selected, t.accent_color,
@@ -181,11 +179,8 @@ thor_apply_theme :: proc(thor: ^Thor) {
             thor_theme_menu_button(thor, pb.button)
         }
     }
-    widgets.button_set_colors(thor.dialog_console_button, t.primary_text_color, t.info_color, t.accent_secondary_color, t.active, t.border)
-
     // Theme-colored labels.
     widgets.label_set_text_color(thor.explorer_title_label, t.primary_text_color)
-    widgets.label_set_text_color(thor.dialog_text_label, t.primary_text_color)
 
     // Syntax spans bake in theme colors, so every open file needs new ones. Only
     // mark them stale: the per-frame pane pass recolors the files on screen with

@@ -18,6 +18,8 @@ thor_wire_menus :: proc(thor: ^Thor) {
     widgets.tree_set_on_delete(thor.tree, thor_tree_delete, thor)
     widgets.tree_set_on_move(thor.tree, thor_tree_move, thor)
     widgets.tree_set_on_drag_out(thor.tree, thor_tree_drag_out, thor)
+    widgets.tabbar_set_on_context_menu(thor.tabbar, thor_tab_context_menu, thor)
+    widgets.tabstrip_set_on_context_menu(thor.terminal_tabs, thor_terminal_tab_context_menu, thor)
 
     widgets.button_set_on_click(thor.menu_file_button, thor_open_file_menu, thor)
     widgets.button_set_on_click(thor.menu_edit_button, thor_open_edit_menu, thor)
@@ -108,6 +110,65 @@ thor_explorer_context_menu :: proc(data: rawptr, position: rl.Vector2) {
     widgets.menu_add_separator(thor.menu)
     widgets.menu_add(thor.menu, "Refresh", thor_menu_explorer_refresh, thor)
     widgets.menu_open(thor.menu, &thor.ui_context, position)
+}
+
+thor_tab_context_menu :: proc(data: rawptr, position: rl.Vector2) {
+    thor := cast(^Thor) data
+    index := widgets.tabbar_tab_at(thor.tabbar, position)
+    if index < 0 {
+        return
+    }
+    thor.menu_target_tab = index
+
+    widgets.menu_clear(thor.menu)
+    widgets.menu_add(thor.menu, "Close", thor_menu_close_tab, thor)
+    widgets.menu_add(thor.menu, "Close Others", thor_menu_close_other_tabs, thor, len(thor.open_files) > 1)
+    widgets.menu_add(thor.menu, "Close All", thor_cmd_close_all, thor)
+    widgets.menu_open(thor.menu, &thor.ui_context, position)
+}
+
+thor_terminal_tab_context_menu :: proc(data: rawptr, position: rl.Vector2) {
+    thor := cast(^Thor) data
+    index := widgets.tabstrip_tab_at(thor.terminal_tabs, position)
+    if index < 0 {
+        return
+    }
+    thor.menu_target_terminal = index
+
+    widgets.menu_clear(thor.menu)
+    widgets.menu_add(thor.menu, "Close", thor_menu_close_terminal, thor)
+    widgets.menu_add(thor.menu, "Close All", thor_cmd_close_all_terminals, thor)
+    widgets.menu_open(thor.menu, &thor.ui_context, position)
+}
+
+@(private = "file")
+thor_menu_close_tab :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    thor_close_file(thor, thor.menu_target_tab)
+}
+
+// Closes every tab except the one the context menu targeted. Closes from the
+// tail first so the target's own index never shifts under it.
+@(private = "file")
+thor_menu_close_other_tabs :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    keep := thor.menu_target_tab
+    if keep < 0 || keep >= len(thor.open_files) {
+        return
+    }
+    for len(thor.open_files) > keep + 1 {
+        thor_close_file(thor, len(thor.open_files) - 1)
+    }
+    for keep > 0 {
+        thor_close_file(thor, 0)
+        keep -= 1
+    }
+}
+
+@(private = "file")
+thor_menu_close_terminal :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    thor_terminal_close(thor, thor.menu_target_terminal)
 }
 
 // ---------------------------------------------------------------------------

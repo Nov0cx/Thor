@@ -35,7 +35,11 @@ KNOWN := []Known {
 // The directories a shell lands in outside PATH, so a shell that the editor's
 // own environment cannot see is still offered.
 @(private = "file")
-PREFIXES := []string {"/bin", "/usr/bin", "/usr/local/bin", "/opt/homebrew/bin"}
+PREFIXES := []string {
+    "/bin", "/usr/bin", "/usr/local/bin", "/opt/homebrew/bin",
+    "/opt/local/bin",                 // MacPorts
+    "/home/linuxbrew/.linuxbrew/bin", // Linuxbrew
+}
 
 // Every shell installed on this machine, best first.
 profiles_detect :: proc(allocator := context.allocator) -> []Profile {

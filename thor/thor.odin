@@ -75,8 +75,6 @@ Thor :: struct {
     // The active terminal's console; nil when the last terminal is closed.
     console:                  ^widgets.Console,
     terminal_tabs:            ^widgets.Tabstrip,
-    dialog:                   ^widgets.Dialog,
-    dialog_stack:             ^widgets.Stack,
     command_palette:          ^widgets.Command_Palette,
     // Modal picker for Preferences (theme/font), with live preview.
     select_dialog:            ^widgets.Select_Dialog,
@@ -120,8 +118,6 @@ Thor :: struct {
     // Titlebar/panel labels that carry a theme color, kept so a live theme
     // change can recolor them (most labels are theme-neutral and not stored).
     explorer_title_label:     ^widgets.Label,
-    dialog_text_label:        ^widgets.Label,
-    dialog_console_button:    ^widgets.Button,
     explorer_toggle_button:   ^widgets.Button,
     explorer_restore_button:  ^widgets.Button,
     console_toggle_button:    ^widgets.Button,
@@ -183,6 +179,10 @@ Thor :: struct {
     // Directory a New File/Folder prompt creates into; set from the explorer
     // right-click target or the workspace root. Owned clone.
     menu_target_dir:          string,
+    // Tab index a right-click context menu was opened on (editor tabs, terminal
+    // tabs), consumed by the menu's own row callbacks.
+    menu_target_tab:          int,
+    menu_target_terminal:     int,
     // Paths awaiting a delete confirmation (set when Delete is pressed in the
     // explorer, consumed when the confirm dialog is accepted). Owned clones; more
     // than one when the explorer selection spans several rows.
@@ -432,6 +432,8 @@ init :: proc() -> ^Thor {
     thor.active_file = ui.make_signal(-1)
     thor.explorer_visible = ui.make_signal(true)
     thor.console_visible = ui.make_signal(true)
+    ui.signal_set_listener(&thor.explorer_visible, thor_on_visibility_changed, thor)
+    ui.signal_set_listener(&thor.console_visible, thor_on_visibility_changed, thor)
     thor.explorer_width = 250
     thor.console_height = 190
     thor.split_ratio = 0.5

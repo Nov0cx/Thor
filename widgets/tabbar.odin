@@ -27,6 +27,8 @@ Tabbar :: struct {
     active_proc:       Tabbar_Active_Proc,
     on_select:         Tabbar_Action_Proc,
     on_close:          Tabbar_Action_Proc,
+    on_context_menu:   Context_Menu_Proc,
+    context_menu_data: rawptr,
     data:              rawptr,
     text_color:        rl.Color,
     active_text_color: rl.Color,
@@ -91,6 +93,11 @@ tabbar_set_callbacks :: proc(
     tabbar.on_close = on_close
     tabbar.data = data
     return tabbar
+}
+
+tabbar_set_on_context_menu :: proc(tabbar: ^Tabbar, on_context_menu: Context_Menu_Proc, data: rawptr) {
+    tabbar.on_context_menu = on_context_menu
+    tabbar.context_menu_data = data
 }
 
 tabbar_set_colors :: proc(tabbar: ^Tabbar, text, active_text, background, tab, active_tab, hover, accent: rl.Color) -> ^Tabbar {
@@ -177,6 +184,20 @@ Tabbar_Hit :: struct {
     close:    bool,
 }
 
+// The tab at `position`, or -1 when it hits no tab.
+tabbar_tab_at :: proc(tabbar: ^Tabbar, position: rl.Vector2) -> int {
+    hit := Tabbar_Hit {position = position, index = -1}
+    tabbar_each_tab(tabbar, proc(tabbar: ^Tabbar, index: int, rect: rl.Rectangle, user: rawptr) -> bool {
+        hit := cast(^Tabbar_Hit) user
+        if !rl.CheckCollisionPointRec(hit.position, rect) {
+            return true
+        }
+        hit.index = index
+        return false
+    }, &hit)
+    return hit.index
+}
+
 tabbar_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event) -> bool {
     tabbar := cast(^Tabbar) widget
 
@@ -186,6 +207,16 @@ tabbar_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
         tabbar_clamp_scroll(tabbar)
         return true
     case .Mouse_Down:
+        if event.mouse_button == .RIGHT {
+            if tabbar.on_context_menu != nil {
+                tabbar.on_context_menu(tabbar.context_menu_data, event.mouse_position)
+            }
+            return true
+        }
+        if event.mouse_button != .LEFT {
+            return false
+        }
+
         hit := Tabbar_Hit {position = event.mouse_position, index = -1}
         tabbar_each_tab(tabbar, proc(tabbar: ^Tabbar, index: int, rect: rl.Rectangle, user: rawptr) -> bool {
             hit := cast(^Tabbar_Hit) user

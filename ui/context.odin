@@ -181,6 +181,9 @@ context_collect_input :: proc(ctx: ^Context) {
             mouse_position = ctx.mouse_pos,
             mouse_delta = mouse_delta,
             mouse_button = .RIGHT,
+            ctrl = ctrl_down,
+            shift = shift_down,
+            alt = alt_down,
         })
     }
 
@@ -190,16 +193,44 @@ context_collect_input :: proc(ctx: ^Context) {
             mouse_position = ctx.mouse_pos,
             mouse_delta = mouse_delta,
             mouse_button = .RIGHT,
+            ctrl = ctrl_down,
+            shift = shift_down,
+            alt = alt_down,
         })
     }
 
-    wheel_delta := rl.GetMouseWheelMove()
-    if wheel_delta != 0 {
+    if rl.IsMouseButtonPressed(.MIDDLE) {
+        event_queue_push(&ctx.events, Event {
+            kind = .Mouse_Down,
+            mouse_position = ctx.mouse_pos,
+            mouse_delta = mouse_delta,
+            mouse_button = .MIDDLE,
+            ctrl = ctrl_down,
+            shift = shift_down,
+            alt = alt_down,
+        })
+    }
+
+    if rl.IsMouseButtonReleased(.MIDDLE) {
+        event_queue_push(&ctx.events, Event {
+            kind = .Mouse_Up,
+            mouse_position = ctx.mouse_pos,
+            mouse_delta = mouse_delta,
+            mouse_button = .MIDDLE,
+            ctrl = ctrl_down,
+            shift = shift_down,
+            alt = alt_down,
+        })
+    }
+
+    wheel := rl.GetMouseWheelMoveV()
+    if wheel.x != 0 || wheel.y != 0 {
         event_queue_push(&ctx.events, Event {
             kind = .Scroll,
             mouse_position = ctx.mouse_pos,
             mouse_delta = mouse_delta,
-            wheel_delta = wheel_delta,
+            wheel_delta = wheel.y,
+            wheel_delta_x = wheel.x,
         })
     }
 

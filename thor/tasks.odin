@@ -165,7 +165,6 @@ thor_find_task :: proc(thor: ^Thor, name: string) -> ^Task {
 thor_run_task :: proc(thor: ^Thor, task: ^Task) {
     if !ui.signal_get(&thor.console_visible) {
         ui.signal_set(&thor.console_visible, true)
-        thor_apply_layout_state(thor)
     }
     if thor.console == nil {
         thor_flash_status(thor, "No terminal is open", true)

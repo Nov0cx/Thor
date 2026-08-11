@@ -148,6 +148,9 @@ Save_Job :: struct {
 File_Op_Kind :: enum {
     Delete,
     Copy,
+    // Copy first; delete the source only if the copy fully succeeded. Used for
+    // a cross-device rename/move, where os.rename cannot do it in one step.
+    Move,
 }
 
 // One path a file operation works on, and what came of it.
@@ -158,6 +161,9 @@ File_Op_Entry :: struct {
     // The delete reported success but the path is still there: Windows only
     // marks a file that still has open handles for deletion.
     left_behind: bool,
+    // Move only: the copy step landed, so a non-nil err is a failed cleanup of
+    // the source, not a failed move (the data is safe at dst either way).
+    moved:       bool,
 }
 
 // Recursive delete and directory copy on a worker thread; both walk whole trees,
@@ -277,6 +283,15 @@ file_op_worker :: proc(job: ^File_Op_Job) {
             entry.left_behind = entry.err == nil && os.exists(entry.src)
         case .Copy:
             entry.err = thor_copy_tree(entry.src, entry.dst)
+        case .Move:
+            entry.err = thor_copy_tree(entry.src, entry.dst)
+            if entry.err == nil {
+                entry.moved = true
+                // Failure here means "moved, cleanup of the source failed" — not
+                // data loss; thor_apply_file_op reports it distinctly.
+                entry.err = thor_delete_tree(entry.src)
+                entry.left_behind = entry.err == nil && os.exists(entry.src)
+            }
         }
     }
 
@@ -312,12 +327,17 @@ thor_apply_file_op :: proc(thor: ^Thor, job: ^File_Op_Job) {
     thread.join(job.worker)
     thread.destroy(job.worker)
 
-    verb := job.kind == .Delete ? "delete" : "copy"
+    verb := job.kind == .Delete ? "delete" : job.kind == .Copy ? "copy" : "move"
     done := 0
+    moved_but_left := 0
     failed := ""
     for entry in job.entries {
         name := file_base_name(entry.src)
         switch {
+        case entry.err != nil && job.kind == .Move && entry.moved:
+            // The copy landed at dst; only cleanup of src failed. Not data loss.
+            log.warnf("Moved %q to %q but could not remove the original: %v", entry.src, entry.dst, entry.err)
+            moved_but_left += 1
         case entry.err != nil:
             log.warnf("Failed to %s %q: %v", verb, entry.src, entry.err)
             if failed == "" {
@@ -336,12 +356,22 @@ thor_apply_file_op :: proc(thor: ^Thor, job: ^File_Op_Job) {
     switch {
     case failed != "":
         thor_flash_status(thor, failed, is_error = true)
+    case moved_but_left > 0:
+        noun := moved_but_left == 1 ? "original" : "originals"
+        thor_flash_status(
+            thor,
+            fmt.tprintf("Moved, but couldn't remove %d %s", moved_but_left, noun),
+            is_error = true,
+        )
     case job.kind == .Copy:
         noun := done == 1 ? "item" : "items"
         thor_flash_status(
             thor,
             fmt.tprintf("Copied %d %s into %s", done, noun, filepath.base(job.dest_label)),
         )
+    case job.kind == .Move:
+        noun := done == 1 ? "item" : "items"
+        thor_flash_status(thor, fmt.tprintf("Moved %d %s", done, noun))
     case done == 1:
         thor_flash_status(thor, fmt.tprintf("Deleted %s", file_base_name(job.entries[0].src)))
     case:
@@ -539,15 +569,23 @@ thor_open_file :: proc(thor: ^Thor, path: string) {
 }
 
 // Reloads an already-open file's buffer from disk after an external change (fed
-// by the file watcher). Skips one already being saved or reloaded, one still
-// waiting on a conflict answer, images, models, and files that never finished
-// their initial load. Goes through the same async mapping path as a fresh load;
-// the reap (thor_apply_reload) diffs the bytes against the buffer, so our own
-// saves echoing back through the watcher are no-ops. A buffer with unsaved edits
-// is never replaced behind the user's back: the reap asks first, unless `force`
-// says the user already answered.
+// by the file watcher). An image or model reuploads straight to the GPU on the
+// main thread, same as its initial load. A text file skips one already being
+// saved or reloaded, one still waiting on a conflict answer, and one that never
+// finished its initial load; it goes through the same async mapping path as a
+// fresh load, and the reap (thor_apply_reload) diffs the bytes against the
+// buffer, so our own saves echoing back through the watcher are no-ops. A
+// buffer with unsaved edits is never replaced behind the user's back: the reap
+// asks first, unless `force` says the user already answered.
 thor_reload_file :: proc(thor: ^Thor, file: ^Open_File, force := false) {
-    if file.closed || file.is_image || file.is_model || file.load_failed || file.saving {
+    if file.closed || file.saving {
+        return
+    }
+    if file.is_image || file.is_model {
+        thor_reload_gpu_asset(thor, file)
+        return
+    }
+    if file.load_failed {
         return
     }
     if !file.loaded {
@@ -812,6 +850,28 @@ thor_load_model :: proc(file: ^Open_File) {
     file.model = model
     file.model_bounds = rl.GetModelBoundingBox(model)
     file.model_loaded = true
+}
+
+// Reuploads an image or model after an external change, on the main thread like
+// the initial load (the GL context lives here). Unloads the old GPU handle and
+// clears its loaded flag before reloading, so a failure mid-reload never leaves
+// a freed or stale handle marked live.
+@(private = "file")
+thor_reload_gpu_asset :: proc(thor: ^Thor, file: ^Open_File) {
+    if file.texture_loaded {
+        rl.UnloadTexture(file.texture)
+        file.texture_loaded = false
+    }
+    if file.model_loaded {
+        rl.UnloadModel(file.model)
+        file.model_loaded = false
+    }
+    file.load_failed = false
+    if file.is_image {
+        thor_load_image(file)
+    } else {
+        thor_load_model(file)
+    }
 }
 
 thor_close_file :: proc(thor: ^Thor, index: int) {
@@ -1273,11 +1333,35 @@ thor_prompt_rename :: proc(data: rawptr, name: string) {
     }
     if os.exists(new_path) {
         log.warnf("Cannot rename to %q: already exists", new_path)
+        thor_flash_status(thor, "Could not rename: already exists", is_error = true)
         return
     }
     if err := os.rename(old_path, new_path); err != nil {
-        log.warnf("Failed to rename %q to %q: %v", old_path, new_path, err)
-        return
+        if !thor_is_cross_device_error(err) {
+            log.warnf("Failed to rename %q to %q: %v", old_path, new_path, err)
+            thor_flash_status(thor, "Could not rename", is_error = true)
+            return
+        }
+        // os.rename cannot cross volumes; fall back to copy+delete. A directory
+        // goes through the async File_Op_Job machinery (files.odin's own comment
+        // on File_Op_Job: a whole-tree walk is too slow for the frame loop) — a
+        // single file is cheap enough to do here, in place.
+        if os.is_dir(old_path) {
+            entries: [dynamic]File_Op_Entry
+            append(&entries, File_Op_Entry{src = strings.clone(old_path), dst = strings.clone(new_path)})
+            thor_start_file_op(thor, .Move, entries, dest_label = filepath.dir(new_path))
+            return
+        }
+        if cerr := thor_copy_tree(old_path, new_path); cerr != nil {
+            log.warnf("Failed to copy %q to %q across devices: %v", old_path, new_path, cerr)
+            thor_flash_status(thor, "Could not rename", is_error = true)
+            return
+        }
+        if derr := thor_delete_tree(old_path); derr != nil {
+            log.warnf("Renamed %q to %q but could not remove the original: %v", old_path, new_path, derr)
+            thor_flash_status(thor, "Renamed, but couldn't remove the original", is_error = true)
+            // fall through: the copy landed, so the tab still retargets below.
+        }
     }
 
     // Retarget an open tab for the renamed file so it keeps its buffer and saves
@@ -1316,9 +1400,27 @@ thor_tree_move :: proc(data: rawptr, src_path: string, dst_dir: string) {
         return
     }
     if err := os.rename(src_path, new_path); err != nil {
-        log.warnf("Failed to move %q to %q: %v", src_path, new_path, err)
-        thor_flash_status(thor, "Could not move", is_error = true)
-        return
+        if !thor_is_cross_device_error(err) {
+            log.warnf("Failed to move %q to %q: %v", src_path, new_path, err)
+            thor_flash_status(thor, "Could not move", is_error = true)
+            return
+        }
+        if os.is_dir(src_path) {
+            entries: [dynamic]File_Op_Entry
+            append(&entries, File_Op_Entry{src = strings.clone(src_path), dst = strings.clone(new_path)})
+            thor_start_file_op(thor, .Move, entries, dest_label = dst_dir)
+            return
+        }
+        if cerr := thor_copy_tree(src_path, new_path); cerr != nil {
+            log.warnf("Failed to copy %q to %q across devices: %v", src_path, new_path, cerr)
+            thor_flash_status(thor, "Could not move", is_error = true)
+            return
+        }
+        if derr := thor_delete_tree(src_path); derr != nil {
+            log.warnf("Moved %q to %q but could not remove the original: %v", src_path, new_path, derr)
+            thor_flash_status(thor, "Moved, but couldn't remove the original", is_error = true)
+            // fall through: the copy landed, so the tab still retargets below.
+        }
     }
 
     canonical := new_path

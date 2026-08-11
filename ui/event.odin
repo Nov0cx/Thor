@@ -22,6 +22,7 @@ Event :: struct {
     mouse_position: rl.Vector2,
     mouse_delta:    rl.Vector2,
     wheel_delta:    f32,
+    wheel_delta_x:  f32, // horizontal axis; 0 unless a widget opts in
     mouse_button:   rl.MouseButton,
     key:            rl.KeyboardKey,
     codepoint:      rune,

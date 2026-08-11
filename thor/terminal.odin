@@ -526,7 +526,6 @@ thor_terminal_tab_close :: proc(data: rawptr, index: int) {
 thor_show_console :: proc(thor: ^Thor) {
     if !ui.signal_get(&thor.console_visible) {
         ui.signal_set(&thor.console_visible, true)
-        thor_apply_layout_state(thor)
     }
 }
 
@@ -543,6 +542,13 @@ thor_cmd_new_terminal :: proc(data: rawptr) {
 thor_cmd_close_terminal :: proc(data: rawptr) {
     thor := cast(^Thor) data
     thor_terminal_close(thor, thor.active_terminal)
+}
+
+thor_cmd_close_all_terminals :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    for len(thor.terminals) > 0 {
+        thor_terminal_close(thor, 0)
+    }
 }
 
 thor_cmd_next_terminal :: proc(data: rawptr) {

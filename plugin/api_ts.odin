@@ -11,6 +11,7 @@ import "core:strings"
 import lua "vendor:lua/5.4"
 
 import "../syntax"
+import "../treecache"
 import ts "../vendor/odin-tree-sitter"
 
 // Metatable names for the two userdata types the API hands out.
@@ -58,15 +59,20 @@ ts_destroy :: proc(m: ^Manager) {
     }
 }
 
-// Builds the `thor.ts` table for one plugin.
+// Builds the `thor.ts` table for one plugin. `parse_active` is only bound with
+// the read permission — it reads the active buffer's content like thor.read.
 @(private)
-push_ts_table :: proc(m: ^Manager, index: int) {
+push_ts_table :: proc(m: ^Manager, index: int, perms: Permissions) {
     L := m.state
-    lua.createtable(L, 0, 2)
+    lua.createtable(L, 0, .Read in perms ? 3 : 2)
     push_closure(L, m, index, api_ts_parse)
     lua.setfield(L, -2, "parse")
     push_closure(L, m, index, api_ts_supports)
     lua.setfield(L, -2, "supports")
+    if .Read in perms {
+        push_closure(L, m, index, api_ts_parse_active)
+        lua.setfield(L, -2, "parse_active")
+    }
 }
 
 // thor.ts.supports(grammar): whether the grammar is compiled into this build.
@@ -123,6 +129,70 @@ api_ts_parse :: proc "c" (L: ^lua.State) -> c.int {
     ud^ = Ts_Tree {
         tree    = tree,
         source  = strings.clone(source),
+        lang_id = strings.clone(lang_id),
+        owner   = index,
+        m       = m,
+    }
+    lua.L_setmetatable(L, TREE_MT)
+    return 1
+}
+
+// thor.ts.parse_active(grammar): parses the active buffer, reusing the host's
+// resident tree for that path when the language matches (treecache.for_source) —
+// the source comes from the host, never a caller-supplied string, so unlike
+// thor.ts.parse this cannot poison the host's own highlighting cache. Needs the
+// read permission, since it reads buffer content like thor.read does.
+@(private)
+api_ts_parse_active :: proc "c" (L: ^lua.State) -> c.int {
+    context = runtime.default_context()
+    m, index := caller(L)
+    if m == nil || lua.type(L, 1) != .STRING {
+        lua.pushnil(L)
+        lua.pushstring(L, "ts.parse_active expects (grammar)")
+        return 2
+    }
+    context.allocator = m.allocator
+
+    lang_id := string(lua.tostring(L, 1))
+    if m.active_path_proc == nil || m.read_proc == nil {
+        lua.pushnil(L)
+        lua.pushstring(L, "no active buffer")
+        return 2
+    }
+    path := m.active_path_proc(m.host)
+    if path == "" {
+        lua.pushnil(L)
+        lua.pushstring(L, "no active buffer")
+        return 2
+    }
+
+    lang, known := syntax.language(&m.highlighter, lang_id)
+    if !known {
+        lua.pushnil(L)
+        lua.pushstring(L, strings.clone_to_cstring(
+            strings.concatenate({"unknown grammar: ", lang_id}, context.temp_allocator),
+            context.temp_allocator,
+        ))
+        return 2
+    }
+    if m.ts_state.lang_id != lang_id {
+        ts.parser_set_language(m.ts_state.parser, lang)
+        m.ts_state.lang_id = lang_id
+    }
+
+    source := m.read_proc(m.host, path) // host-owned; taken over by Ts_Tree below, or freed on failure
+    tree := treecache.for_source(&m.highlighter.trees, m.ts_state.parser, path, lang_id, source)
+    if tree == nil {
+        delete(source)
+        lua.pushnil(L)
+        lua.pushstring(L, "parse failed")
+        return 2
+    }
+
+    ud := cast(^Ts_Tree) lua.newuserdatauv(L, size_of(Ts_Tree), 0)
+    ud^ = Ts_Tree {
+        tree    = tree,
+        source  = source,
         lang_id = strings.clone(lang_id),
         owner   = index,
         m       = m,

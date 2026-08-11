@@ -253,7 +253,6 @@ thor_focus_editor :: proc(thor: ^Thor) {
 thor_focus_explorer :: proc(thor: ^Thor) {
     if !ui.signal_get(&thor.explorer_visible) {
         ui.signal_set(&thor.explorer_visible, true)
-        thor_apply_layout_state(thor)
     }
     widgets.tree_focus(thor.tree)
     thor.ui_context.focused = &thor.tree.widget
@@ -263,7 +262,6 @@ thor_focus_explorer :: proc(thor: ^Thor) {
 thor_focus_terminal :: proc(thor: ^Thor) {
     if !ui.signal_get(&thor.console_visible) {
         ui.signal_set(&thor.console_visible, true)
-        thor_apply_layout_state(thor)
     }
     if thor.console != nil {
         thor.ui_context.focused = &thor.console.widget
@@ -273,13 +271,11 @@ thor_focus_terminal :: proc(thor: ^Thor) {
 thor_toggle_explorer :: proc(data: rawptr, _: ^ui.Context, _: ^ui.Widget) {
     thor := cast(^Thor) data
     ui.signal_set(&thor.explorer_visible, !ui.signal_get(&thor.explorer_visible))
-    thor_apply_layout_state(thor)
 }
 
 thor_toggle_console :: proc(data: rawptr, _: ^ui.Context, _: ^ui.Widget) {
     thor := cast(^Thor) data
     ui.signal_set(&thor.console_visible, !ui.signal_get(&thor.console_visible))
-    thor_apply_layout_state(thor)
 }
 
 // Shows/hides the second editor pane and sizes both from split_ratio. The

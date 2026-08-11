@@ -29,6 +29,10 @@ thor_apply_layout_state :: proc(thor: ^Thor) {
     thor.console_panel.min_size[1] = thor.console_height
 }
 
+thor_on_visibility_changed :: proc(data: rawptr, value: bool) {
+    thor_apply_layout_state(cast(^Thor) data)
+}
+
 // Widget for a pane index (0 = primary, 1 = split).
 @(private)
 thor_pane_editor :: proc(thor: ^Thor, pane: int) -> ^widgets.Editor {
