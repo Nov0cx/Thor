@@ -585,13 +585,20 @@ collect_value_decls :: proc(node: ts.Node, source: string, defs: ^[dynamic]Def) 
         // results, which the LOCALS query has no rule for either. Like the
         // parameters they sit beside, the names precede the `(type ...)` child
         // and are visible throughout the procedure: assignable in its body and
-        // returnable bare.
-        for i in 0 ..< ts.node_named_child_count(node) {
-            c := ts.node_named_child(node, i)
-            if !is_identifier(c) {
-                break // the type: everything past it belongs to it
+        // returnable bare. A real one always sits inside the parens of a
+        // `tuple_type` — a bare, unparenthesized `-> T,` immediately followed by
+        // more `name: type` fields parses as this same node with no parens
+        // around it, a grammar ambiguity that would otherwise leak the next
+        // struct field's name (and its own return type) as fake top-level
+        // definitions.
+        if pt := ts.node_parent(node); !ts.node_is_null(pt) && string(ts.node_type(pt)) == "tuple_type" {
+            for i in 0 ..< ts.node_named_child_count(node) {
+                c := ts.node_named_child(node, i)
+                if !is_identifier(c) {
+                    break // the type: everything past it belongs to it
+                }
+                append_result_def(defs, c, node, source)
             }
-            append_result_def(defs, c, node, source)
         }
     }
 

@@ -131,6 +131,53 @@ use :: proc(xs: []int) -> int {
     }
 }
 
+// A struct field typed `proc(...) -> T,` with no parens around `T` parses the
+// same as a procedure's named multiple results (`-> (a, b: T)`) with the
+// parens missing, so the grammar folds the next field's name and type into
+// that same node — leaking both as fake file-wide definitions. Go-to-definition
+// on a same-named builtin elsewhere in the workspace must not pick those up.
+@(test)
+test_definition_builtin_not_shadowed_by_bare_result_leak :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    root := "thor_lang_builtin_leak_ws"
+    vt := strings.concatenate({root, "/vt"}, context.temp_allocator)
+    app := strings.concatenate({root, "/app"}, context.temp_allocator)
+    _ = os.make_directory(root)
+    _ = os.make_directory(vt)
+    _ = os.make_directory(app)
+
+    vt_path := strings.concatenate({vt, "/vtable.odin"}, context.temp_allocator)
+    vt_src := `package vt
+
+Transport :: struct {
+	write:     proc(data: rawptr, bytes: []u8) -> bool,
+	read_out:  proc(data: rawptr, buf: []u8) -> int,
+	read_err:  proc(data: rawptr, buf: []u8) -> int,
+	close:     proc(data: rawptr),
+}
+`
+    _ = os.write_entire_file(vt_path, transmute([]byte)vt_src)
+
+    defer os.remove(root)
+    defer os.remove(vt)
+    defer os.remove(app)
+    defer os.remove(vt_path)
+
+    app_path := strings.concatenate({app, "/main.odin"}, context.temp_allocator)
+    app_src := "package app\n\nmain :: proc() {\n\tx: int\n\t_ = x\n}\n"
+
+    res := definition_at(e, app_src, "int", root, app_path)
+    defer free_definition(&res)
+
+    testing.expect(t, res.ok, "expected the builtin int to resolve")
+    testing.expectf(t, len(res.symbols) == 0, "expected a single jump, got %d candidates", len(res.symbols))
+    if res.ok && len(res.symbols) == 0 {
+        testing.expectf(t, strings.has_suffix(res.location.path, "builtin.odin"), "path: got %q", res.location.path)
+    }
+}
+
 // base:runtime is an ordinary package apart from what it marks `@(builtin)`: a
 // name it exports without the marker needs an import and is not reachable bare.
 @(test)
