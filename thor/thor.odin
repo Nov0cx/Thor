@@ -151,10 +151,12 @@ Thor :: struct {
     // Plugin whose permission row opened the picker (see settings_ui.odin).
     plugin_setting_target:    string, // owned
     plugin_setting_source:    Plugin_Source,
-    // Language-intelligence row that opened the on/off picker: one feature, or
-    // the master switch when language_setting_master (kind is then unused).
-    language_setting_kind:    lang.Request_Kind,
-    language_setting_master:  bool,
+    // Backend id ("odin", or an lsp.json server id) whose on/off picker is open;
+    // see thor_cmd_change_language_backend. Shared with
+    // thor_cmd_change_language_backend_feature, which additionally sets
+    // language_backend_feature_kind — the two never have a picker open at once.
+    language_backend_target:  string, // owned
+    language_backend_feature_kind: lang.Request_Kind,
     plugin_dock_right:        ^widgets.Panel,
     plugin_dock_right_stack:  ^widgets.Stack,
     plugin_dock_bottom:       ^widgets.Panel,
@@ -647,6 +649,7 @@ shutdown :: proc(thor: ^Thor) {
     thor_clear_plugin_requests(thor)
     delete(thor.plugin_requests)
     delete(thor.plugin_setting_target)
+    delete(thor.language_backend_target)
     thor_welcome_clear_recent_entries(thor)
     delete(thor.welcome_recent_entries)
     setting.destroy(&thor.config)

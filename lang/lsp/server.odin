@@ -84,6 +84,15 @@ Server :: struct {
     // lang.result_free, which uses the Manager's.
     allocator:   runtime.Allocator,
     state:       Server_State, // atomic
+    // Settings-driven admin gate, independent of config.enabled (which only
+    // decides whether the server exists in the merged table at all). Atomic:
+    // resolve (worker thread) reaches it through client_server_for.
+    admin_enabled: bool, // atomic
+    // Settings-driven per-kind gate, independent of config.features (the
+    // lsp.json-file gate). ANDed with it in server_supports: a kind declined by
+    // either layer is declined. Atomic: server_supports runs main-thread only,
+    // but this is set from the same settings path as admin_enabled.
+    admin_features: bit_set[lang.Request_Kind], // atomic
     caps:        Capabilities, // written before state becomes .Ready, never after
     caps_set:    bool,         // pump thread only
     // The pump, and the lock that makes two starters one.
@@ -123,6 +132,8 @@ server_create :: proc(config: ^Server_Config, workspace: string, allocator := co
     s.workspace = strings.clone(workspace, allocator)
     s.allocator = allocator
     s.state = .Idle
+    s.admin_enabled = true
+    s.admin_features = lang.FEATURES_ALL
     s.outbox = make([dynamic]Doc_Notice, allocator)
     s.docs = make([dynamic]^Document, allocator)
     s.pushes = make([dynamic]lang.Result, allocator)
@@ -132,6 +143,22 @@ server_create :: proc(config: ^Server_Config, workspace: string, allocator := co
 
 server_state :: proc(s: ^Server) -> Server_State {
     return sync.atomic_load(&s.state)
+}
+
+server_admin_enabled :: proc(s: ^Server) -> bool {
+    return sync.atomic_load(&s.admin_enabled)
+}
+
+server_set_admin_enabled :: proc(s: ^Server, enabled: bool) {
+    sync.atomic_store(&s.admin_enabled, enabled)
+}
+
+server_admin_features :: proc(s: ^Server) -> bit_set[lang.Request_Kind] {
+    return sync.atomic_load(&s.admin_features)
+}
+
+server_set_admin_features :: proc(s: ^Server, features: bit_set[lang.Request_Kind]) {
+    sync.atomic_store(&s.admin_features, features)
 }
 
 // Makes sure a pump exists, without waiting for it. `path` is the file that
@@ -191,6 +218,9 @@ server_ensure_started :: proc(s: ^Server, req: ^lang.Request) -> bool {
 // that a feature works only on the second try. Main thread, no lock.
 server_supports :: proc(s: ^Server, kind: lang.Request_Kind) -> bool {
     if kind not_in s.config.features {
+        return false
+    }
+    if kind not_in server_admin_features(s) {
         return false
     }
     #partial switch server_state(s) {

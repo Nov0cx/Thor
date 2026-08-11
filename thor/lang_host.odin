@@ -77,6 +77,12 @@ thor_apply_language_settings :: proc(thor: ^Thor) {
     before := thor_language_gate(thor)
     lang.manager_set_enabled(&thor.lang_manager, enabled)
     lang.manager_set_features(&thor.lang_manager, features)
+    odin.engine_set_enabled(thor.odin_engine, setting.backend_enabled(&thor.config, ODIN_BACKEND_ID))
+    odin.engine_set_features(thor.odin_engine, setting.backend_features(&thor.config, ODIN_BACKEND_ID))
+    for id in lsp.client_server_ids(thor.lsp_client) {
+        lsp.client_set_server_enabled(thor.lsp_client, id, setting.backend_enabled(&thor.config, id))
+        lsp.client_set_server_features(thor.lsp_client, id, setting.backend_features(&thor.config, id))
+    }
     after := thor_language_gate(thor)
     if after == before {
         return
@@ -142,6 +148,12 @@ thor_reload_lang :: proc(thor: ^Thor) {
     } else {
         lang.manager_set_backends(&thor.lang_manager, odin_backend, lsp_backend)
     }
+    // The freshly built Client's servers all start admin_enabled == true
+    // (server_create's default), so the settings-driven per-backend toggle has
+    // to be re-pushed now; thor_reload_settings already pushed it once earlier
+    // in the same workspace-switch sequence, but against the Client this just
+    // replaced.
+    thor_apply_language_settings(thor)
 }
 
 // Document sync: what a backend that mirrors the editor's buffers (a subprocess

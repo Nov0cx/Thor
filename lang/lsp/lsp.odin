@@ -96,6 +96,9 @@ resolve :: proc(data: rawptr, req: ^lang.Request, res: ^lang.Result) {
 poll :: proc(data: rawptr, res: ^lang.Result) -> bool {
     c := cast(^Client)data
     for s in c.servers {
+        if !server_admin_enabled(s) {
+            continue
+        }
         if server_poll(s, res) {
             return true
         }
@@ -147,8 +150,51 @@ client_server_for :: proc(c: ^Client, ext: string) -> (^Server, bool) {
             if strings.equal_fold(ext, ".odin") && !s.config.override {
                 return nil, false
             }
+            if !server_admin_enabled(s) {
+                return nil, false
+            }
             return s, true
         }
     }
     return nil, false
+}
+
+// The configured id of every server in the table, for a caller (the settings UI,
+// thor_apply_language_settings) that needs to enumerate them without reaching
+// into Client.config.servers directly.
+client_server_ids :: proc(c: ^Client, allocator := context.temp_allocator) -> []string {
+    if len(c.servers) == 0 {
+        return nil
+    }
+    out := make([]string, len(c.servers), allocator)
+    for s, i in c.servers {
+        out[i] = s.config.id
+    }
+    return out
+}
+
+// Settings-driven on/off for one configured server, by id. False when no server
+// has that id. A disabled server answers nothing (client_server_for) and its
+// pushes are skipped (poll) — the process itself is left running idle until the
+// workspace reloads or the app exits.
+client_set_server_enabled :: proc(c: ^Client, id: string, enabled: bool) -> bool {
+    for s in c.servers {
+        if s.config.id == id {
+            server_set_admin_enabled(s, enabled)
+            return true
+        }
+    }
+    return false
+}
+
+// Settings-driven per-kind gate for one configured server, by id. False when
+// no server has that id. ANDed with the server's own lsp.json features.
+client_set_server_features :: proc(c: ^Client, id: string, features: bit_set[lang.Request_Kind]) -> bool {
+    for s in c.servers {
+        if s.config.id == id {
+            server_set_admin_features(s, features)
+            return true
+        }
+    }
+    return false
 }

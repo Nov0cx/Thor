@@ -43,10 +43,16 @@ Engine :: struct {
     // of the installed compiler, not of the workspace, so nothing invalidates it.
     builtins:       Builtin_Cache,
     builtin_mutex:  sync.Mutex,
+    // Settings-driven admin gate; main-thread only, like the Manager's own
+    // enabled/features (handles/supports are never called off the main thread).
+    admin_enabled:  bool,
+    admin_features: bit_set[lang.Request_Kind],
 }
 
 engine_create :: proc() -> ^Engine {
     e := new(Engine)
+    e.admin_enabled = true
+    e.admin_features = lang.FEATURES_ALL
     e.language = ts_odin.tree_sitter_odin()
     query, _, err := ts.query_new(e.language, ts_odin.LOCALS)
     if err == .None {
@@ -63,18 +69,35 @@ engine_create :: proc() -> ^Engine {
 // Wraps the engine as a lang.Backend for lang.manager_register.
 engine_backend :: proc(e: ^Engine) -> lang.Backend {
     return lang.Backend {
-        data    = e,
-        name    = "odin (in-client)",
-        handles = handles,
-        resolve = resolve,
-        destroy = engine_destroy,
-        notify  = notify,
+        data     = e,
+        name     = "odin (in-client)",
+        handles  = handles,
+        resolve  = resolve,
+        destroy  = engine_destroy,
+        supports = supports,
+        notify   = notify,
     }
 }
 
 @(private)
 handles :: proc(data: rawptr, ext: string) -> bool {
-    return ext == ".odin"
+    return ext == ".odin" && (cast(^Engine)data).admin_enabled
+}
+
+// The settings-driven per-kind gate: every other capability (definition, goto,
+// completion, …) is unconditional, so only a kind the config turned off for
+// this engine specifically ever answers false here.
+@(private)
+supports :: proc(data: rawptr, ext: string, kind: lang.Request_Kind) -> bool {
+    return kind in (cast(^Engine)data).admin_features
+}
+
+engine_set_enabled :: proc(e: ^Engine, enabled: bool) {
+    e.admin_enabled = enabled
+}
+
+engine_set_features :: proc(e: ^Engine, features: bit_set[lang.Request_Kind]) {
+    e.admin_features = features
 }
 
 // The engine keeps no document mirror — it reads the buffer out of each request

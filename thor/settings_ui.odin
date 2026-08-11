@@ -6,6 +6,7 @@ import "core:strings"
 import rl "vendor:raylib"
 
 import "../lang"
+import "../lang/lsp"
 import "../plugin"
 import "../setting"
 import "../shell"
@@ -85,25 +86,45 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
     widgets.settings_view_begin_category(view, "terminal", "Terminal", "terminal-2")
     widgets.settings_view_add_choice(view, "default_shell", "Default Shell", thor_default_shell_label(thor, config))
 
-    // The per-feature rows only while the master switch is on: off, none of them
-    // does anything, and twelve dead rows read as twelve broken ones. They fold
-    // under the analyzer that serves them — one group per analyzer, and Odin is
-    // the only one so far.
+    // The backend rows, and each backend's own feature rows, only while the
+    // master switch is on: off, none of them does anything, and a screenful of
+    // dead rows reads as a screenful of broken ones.
     widgets.settings_view_begin_category(view, "language", "Language", "brain")
     language_on := setting.language_enabled(config)
     widgets.settings_view_add_choice(view, setting.LANGUAGE_SETTING, "Language Intelligence", thor_on_off_label(language_on))
     if language_on {
-        features := setting.language_features(config)
-        widgets.settings_view_begin_group(view, ODIN_ANALYZER_GROUP, "Odin Analyzer", collapsed = true)
-        for kind in lang.Request_Kind {
-            widgets.settings_view_add_choice(
-                view,
-                thor_language_setting_id(kind),
-                LANGUAGE_FEATURE_LABELS[kind],
-                thor_on_off_label(kind in features),
-            )
+        backend_ids := make([dynamic]string, context.temp_allocator)
+        append(&backend_ids, ODIN_BACKEND_ID)
+        for id in lsp.client_server_ids(thor.lsp_client, context.temp_allocator) {
+            append(&backend_ids, id)
+        }
+
+        widgets.settings_view_begin_group(view, LANGUAGE_BACKENDS_GROUP, "Language Servers", collapsed = true)
+        for id in backend_ids {
+            label := id == ODIN_BACKEND_ID ? "Odin Analyzer" : id
+            widgets.settings_view_add_choice(view, thor_language_backend_id(id), label, thor_on_off_label(setting.backend_enabled(config, id)))
         }
         widgets.settings_view_end_group(view)
+
+        // Each backend's own feature rows, folded under a group per backend —
+        // shown only for a backend that is itself still on.
+        for id in backend_ids {
+            if !setting.backend_enabled(config, id) {
+                continue
+            }
+            features := setting.backend_features(config, id)
+            group_label := id == ODIN_BACKEND_ID ? "Odin Analyzer Features" : fmt.tprintf("%s Features", id)
+            widgets.settings_view_begin_group(view, thor_language_backend_feature_group(id), group_label, collapsed = true)
+            for kind in lang.Request_Kind {
+                widgets.settings_view_add_choice(
+                    view,
+                    thor_language_backend_feature_id(id, kind),
+                    LANGUAGE_FEATURE_LABELS[kind],
+                    thor_on_off_label(kind in features),
+                )
+            }
+            widgets.settings_view_end_group(view)
+        }
     }
 
     // Bundled plugins only where they want a permission: the language plugins
@@ -164,12 +185,16 @@ thor_on_setting_choice :: proc(data: rawptr, id: string) {
         thor_cmd_change_plugin_permission(thor, source, plugin_id)
         return
     }
-    if kind, is_feature := thor_language_setting_kind(id); is_feature {
-        thor_cmd_change_language_feature(thor, kind, master = false)
+    if backend_id, kind, is_backend_feature := thor_language_backend_feature_name(id); is_backend_feature {
+        thor_cmd_change_language_backend_feature(thor, backend_id, kind)
+        return
+    }
+    if backend_id, is_backend := thor_language_backend_name(id); is_backend {
+        thor_cmd_change_language_backend(thor, backend_id)
         return
     }
     if id == setting.LANGUAGE_SETTING {
-        thor_cmd_change_language_feature(thor, .Definition, master = true)
+        thor_cmd_change_language_master(thor)
         return
     }
     switch id {
@@ -252,6 +277,76 @@ thor_on_off_label :: proc(on: bool) -> string {
 @(private = "file")
 ODIN_ANALYZER_GROUP :: "language.odin"
 
+// The in-client Odin analyzer's id in the per-backend admin gate
+// (setting.LANGUAGE_BACKENDS_SETTING) — no lsp.json server is expected to use
+// this id, so it can't collide with a configured server's own id.
+ODIN_BACKEND_ID :: "odin"
+
+// Fold group holding one on/off row per backend — the Odin analyzer plus every
+// configured LSP server.
+@(private = "file")
+LANGUAGE_BACKENDS_GROUP :: "language.backends"
+
+// A backend's row id, prefixed like the plugin and feature rows so one Choice
+// handler tells them apart.
+@(private = "file")
+LANGUAGE_BACKEND_PREFIX :: "language_backend:"
+
+@(private = "file")
+thor_language_backend_id :: proc(id: string) -> string {
+    return strings.concatenate({LANGUAGE_BACKEND_PREFIX, id}, context.temp_allocator)
+}
+
+// The backend id a settings row id names, if it names one.
+@(private = "file")
+thor_language_backend_name :: proc(id: string) -> (string, bool) {
+    if !strings.has_prefix(id, LANGUAGE_BACKEND_PREFIX) {
+        return "", false
+    }
+    return id[len(LANGUAGE_BACKEND_PREFIX):], true
+}
+
+// The fold group holding one backend's own per-feature rows. Every configured
+// backend gets one — a generalization of ODIN_ANALYZER_GROUP, which stays as
+// the Odin analyzer's own group id so its persisted collapsed/expanded state
+// survives this change.
+@(private = "file")
+thor_language_backend_feature_group :: proc(id: string) -> string {
+    if id == ODIN_BACKEND_ID {
+        return ODIN_ANALYZER_GROUP
+    }
+    return strings.concatenate({"language.backend.", id}, context.temp_allocator)
+}
+
+// A backend-feature row id, prefixed distinctly from a plain backend row so one
+// Choice handler tells them apart — LANGUAGE_BACKEND_PREFIX is not a prefix of
+// this one (an "_" follows "backend", not this string's terminating ":").
+@(private = "file")
+LANGUAGE_BACKEND_FEATURE_PREFIX :: "language_backend_feature:"
+
+@(private = "file")
+thor_language_backend_feature_id :: proc(backend_id: string, kind: lang.Request_Kind) -> string {
+    return strings.concatenate({LANGUAGE_BACKEND_FEATURE_PREFIX, backend_id, ":", lang.feature_name(kind)}, context.temp_allocator)
+}
+
+// The backend id and feature kind a settings row id names, if it names one.
+@(private = "file")
+thor_language_backend_feature_name :: proc(id: string) -> (backend_id: string, kind: lang.Request_Kind, ok: bool) {
+    if !strings.has_prefix(id, LANGUAGE_BACKEND_FEATURE_PREFIX) {
+        return "", .Definition, false
+    }
+    rest := id[len(LANGUAGE_BACKEND_FEATURE_PREFIX):]
+    colon := strings.index_byte(rest, ':')
+    if colon < 0 {
+        return "", .Definition, false
+    }
+    found_kind, kok := lang.feature_from_name(rest[colon + 1:])
+    if !kok {
+        return "", .Definition, false
+    }
+    return rest[:colon], found_kind, true
+}
+
 // Row labels for the language features, in Request_Kind order. The user-facing
 // names of the commands each one serves, not the seam's kind names.
 @(private = "file")
@@ -272,56 +367,126 @@ LANGUAGE_FEATURE_LABELS := [lang.Request_Kind]string {
     .Apply_Edit        = "Server-Applied Edits",
 }
 
-// A language feature's row id: the settings key it persists to, under the
-// master switch's prefix so one Choice handler tells the rows apart.
+// Settings row: turn language intelligence on or off, whole-seam. Nothing to
+// preview — the gate only shows in what the next request does. The per-kind
+// gate underneath it (setting.language_features) has no UI of its own any
+// more: a backend's own feature group (thor_cmd_change_language_backend_feature)
+// is the precise version of the same idea, scoped to one backend instead of
+// cutting across all of them at once.
 @(private = "file")
-thor_language_setting_id :: proc(kind: lang.Request_Kind) -> string {
-    return strings.concatenate({setting.LANGUAGE_SETTING, ".", lang.feature_name(kind)}, context.temp_allocator)
-}
-
-// The language feature a settings row id names, if it names one.
-@(private = "file")
-thor_language_setting_kind :: proc(id: string) -> (lang.Request_Kind, bool) {
-    prefix := setting.LANGUAGE_SETTING + "."
-    if !strings.has_prefix(id, prefix) {
-        return .Definition, false
-    }
-    return lang.feature_from_name(id[len(prefix):])
-}
-
-// Settings row: turn language intelligence, or one of its features, on or off.
-// `master` answers for the whole seam and `kind` is then unused. Nothing to
-// preview — the gate only shows in what the next request does.
-@(private = "file")
-thor_cmd_change_language_feature :: proc(thor: ^Thor, kind: lang.Request_Kind, master: bool) {
-    thor.language_setting_kind = kind
-    thor.language_setting_master = master
-    on := master ? setting.language_enabled(&thor.config) : kind in setting.language_features(&thor.config)
-    title := master ? "Language Intelligence" : LANGUAGE_FEATURE_LABELS[kind]
+thor_cmd_change_language_master :: proc(thor: ^Thor) {
+    on := setting.language_enabled(&thor.config)
     widgets.select_dialog_open(
-        thor.select_dialog, &thor.ui_context, title,
+        thor.select_dialog, &thor.ui_context, "Language Intelligence",
         ON_OFF_LABELS[:], thor_on_off_label(on),
-        thor_language_feature_preview, thor_language_feature_commit, thor,
+        thor_language_master_preview, thor_language_master_commit, thor,
     )
 }
 
 @(private = "file")
-thor_language_feature_preview :: proc(_: rawptr, _: string) {}
+thor_language_master_preview :: proc(_: rawptr, _: string) {}
 
-// Persists the answer and applies it to the manager at once, so a feature turned
-// off stops answering without waiting for a reload.
 @(private = "file")
-thor_language_feature_commit :: proc(data: rawptr, choice: string) {
+thor_language_master_commit :: proc(data: rawptr, choice: string) {
     thor := cast(^Thor) data
     on := choice == ON_OFF_LABELS[0]
-    key := thor.language_setting_master ? setting.LANGUAGE_ENABLED_KEY : lang.feature_name(thor.language_setting_kind)
-    setting.persist_nested_bool(thor_active_settings_path(thor), setting.LANGUAGE_SETTING, key, on)
-    if thor.language_setting_master {
-        thor.config.general.language_enabled = on
-    } else if on {
-        thor.config.general.language_features += {thor.language_setting_kind}
+    setting.persist_nested_bool(thor_active_settings_path(thor), setting.LANGUAGE_SETTING, setting.LANGUAGE_ENABLED_KEY, on)
+    thor.config.general.language_enabled = on
+    thor_apply_language_settings(thor)
+    thor_settings_mark_clean(thor)
+    if widgets.settings_view_is_open(thor.settings_view) {
+        thor_populate_settings_view(thor)
+    }
+}
+
+// Settings row: turn one backend (the Odin analyzer, or an lsp.json server) on
+// or off. Nothing to preview — the gate only shows in what the next request
+// does; an already-running LSP server process is left running idle rather than
+// stopped, same as blocking a running plugin waits for a restart.
+@(private = "file")
+thor_cmd_change_language_backend :: proc(thor: ^Thor, backend_id: string) {
+    delete(thor.language_backend_target)
+    thor.language_backend_target = strings.clone(backend_id)
+    on := setting.backend_enabled(&thor.config, backend_id)
+    widgets.select_dialog_open(
+        thor.select_dialog, &thor.ui_context, backend_id,
+        ON_OFF_LABELS[:], thor_on_off_label(on),
+        thor_language_backend_preview, thor_language_backend_commit, thor,
+    )
+}
+
+@(private = "file")
+thor_language_backend_preview :: proc(_: rawptr, _: string) {}
+
+@(private = "file")
+thor_language_backend_commit :: proc(data: rawptr, choice: string) {
+    thor := cast(^Thor) data
+    if thor.language_backend_target == "" {
+        return
+    }
+    on := choice == ON_OFF_LABELS[0]
+    setting.persist_double_nested_bool(thor_active_settings_path(thor), setting.LANGUAGE_BACKENDS_SETTING, thor.language_backend_target, setting.LANGUAGE_ENABLED_KEY, on)
+    cfg, existed := thor.config.general.language_backends[thor.language_backend_target]
+    if !existed {
+        cfg = setting.Backend_Setting{enabled = true, features = lang.FEATURES_ALL}
+    }
+    cfg.enabled = on
+    if existed {
+        thor.config.general.language_backends[thor.language_backend_target] = cfg
     } else {
-        thor.config.general.language_features -= {thor.language_setting_kind}
+        thor.config.general.language_backends[strings.clone(thor.language_backend_target)] = cfg
+    }
+    thor_apply_language_settings(thor)
+    thor_settings_mark_clean(thor)
+    if widgets.settings_view_is_open(thor.settings_view) {
+        thor_populate_settings_view(thor)
+    }
+}
+
+// Settings row: turn one feature on or off for one backend specifically (as
+// opposed to the top-level Language Intelligence group, which gates that
+// feature for every backend at once). Nothing to preview, same as every other
+// on/off row here.
+@(private = "file")
+thor_cmd_change_language_backend_feature :: proc(thor: ^Thor, backend_id: string, kind: lang.Request_Kind) {
+    delete(thor.language_backend_target)
+    thor.language_backend_target = strings.clone(backend_id)
+    thor.language_backend_feature_kind = kind
+    on := setting.backend_feature_enabled(&thor.config, backend_id, kind)
+    title := fmt.tprintf("%s — %s", backend_id, LANGUAGE_FEATURE_LABELS[kind])
+    widgets.select_dialog_open(
+        thor.select_dialog, &thor.ui_context, title,
+        ON_OFF_LABELS[:], thor_on_off_label(on),
+        thor_language_backend_feature_preview, thor_language_backend_feature_commit, thor,
+    )
+}
+
+@(private = "file")
+thor_language_backend_feature_preview :: proc(_: rawptr, _: string) {}
+
+@(private = "file")
+thor_language_backend_feature_commit :: proc(data: rawptr, choice: string) {
+    thor := cast(^Thor) data
+    if thor.language_backend_target == "" {
+        return
+    }
+    on := choice == ON_OFF_LABELS[0]
+    kind := thor.language_backend_feature_kind
+    setting.persist_double_nested_bool(thor_active_settings_path(thor), setting.LANGUAGE_BACKENDS_SETTING, thor.language_backend_target, lang.feature_name(kind), on)
+
+    cfg, existed := thor.config.general.language_backends[thor.language_backend_target]
+    if !existed {
+        cfg = setting.Backend_Setting{enabled = true, features = lang.FEATURES_ALL}
+    }
+    if on {
+        cfg.features += {kind}
+    } else {
+        cfg.features -= {kind}
+    }
+    if existed {
+        thor.config.general.language_backends[thor.language_backend_target] = cfg
+    } else {
+        thor.config.general.language_backends[strings.clone(thor.language_backend_target)] = cfg
     }
     thor_apply_language_settings(thor)
     thor_settings_mark_clean(thor)

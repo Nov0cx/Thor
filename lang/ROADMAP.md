@@ -505,11 +505,32 @@ lowest latency.
   kind)` is the per-kind question a caller with a fallback asks (rename falling
   back to find and replace). `thor_apply_language_settings` pushes the settings
   onto the manager on load and reload and retires what a disabled feature left on
-  screen (diagnostics, semantic colors); the Settings modal shows the switch and
-  the per-feature rows. It layers *with* the workspace analyzer file rather than
-  replacing it: a feature runs only if both allow it — and a workspace
-  `.thor/settings.json` can carry the same key, which is the per-folder way to
-  gate a kind the analyzer file has no toggle for.
+  screen (diagnostics, semantic colors); the Settings modal shows the switch. It
+  layers *with* the workspace analyzer file rather than replacing it: a feature
+  runs only if both allow it — and a workspace `.thor/settings.json` can carry
+  the same key, which is the per-folder way to gate a kind the analyzer file has
+  no toggle for.
+- **Per-backend gate (`language_backends` in `settings.json`):** the same
+  enabled/per-kind shape as `language_intelligence`, one level down — an object
+  keyed by backend id (`"odin"` for the in-client engine, an `lsp.json` server's
+  own `id` otherwise) whose value is either a bare bool (that backend's master
+  switch alone) or an object of `"enabled"` plus one key per request kind,
+  layered the same way (only the keys a file names overlay what's already
+  there). Read by `setting.backend_enabled`/`backend_features`, backed by
+  `General.language_backends: map[string]Backend_Setting`.
+  `thor_apply_language_settings` pushes it onto both backends: `lsp.Server`
+  gets `admin_enabled`/`admin_features` (atomic — `resolve` reads them off a
+  worker thread through `client_server_for`), ANDed with that server's own
+  `lsp.json`-file `enabled`/`features` rather than replacing them, so either
+  layer declining a kind is enough; `odin.Engine` gets the same pair, read from
+  its `handles`/`supports`. A disabled server is left running idle rather than
+  stopped — the same "administratively blocked, not torn down" precedent the
+  plugin-permission gate already sets — until the workspace reloads or the app
+  exits. The Settings modal's "Language Servers" group lists every configured
+  id (`lsp.client_server_ids` plus the fixed `"odin"`) as its own on/off row,
+  and each enabled backend gets its own foldable "*id* Features" group of
+  per-kind rows below it — the precise, per-backend version of the coarse
+  `language_intelligence` gate above.
 - **Go back / go forward (Ctrl+Alt+Left / Ctrl+Alt+Right):** every jump records
   where it left, so chasing a definition across files is reversible. Two trails
   in the host only (`thor/jumplist.odin`); the engine is not involved. The record

@@ -22,10 +22,13 @@ General editor preferences.
 | `open_folder_in` | What opening a folder does: `"ask"`, `"same"` (replace this window's workspace), or `"new"` (open a window) | `"ask"` |
 | `default_shell` | Shell new terminals start with, by profile id (`"pwsh"`, `"git-bash"`, `"msvc"`, ...); empty picks the best one installed | `""` |
 | `language_intelligence` | Master switch for language features (hover, goto, completion, ...), both the built-in Odin support and any configured language server; either a plain boolean or an object with an `"enabled"` key plus per-feature toggles | `true` |
+| `language_backends` | Per-backend switch, one level more precise than `language_intelligence`: an object keyed by backend id (`"odin"` for the built-in support, or an `lsp.json` server's own `id`) whose value is the same shape as `language_intelligence` itself — a plain boolean, or an object with `"enabled"` plus per-feature toggles — scoped to that one backend | `{}` (every backend fully enabled) |
 
 An unset key falls back to its default, so a `settings.json` only needs the
 keys you want to change. Changing `theme`, `font` or an icon pack from
 Settings applies immediately; hand-editing the file needs a restart.
+`language_intelligence` and `language_backends` both apply immediately too,
+whether changed from the Settings view's **Language** category or by hand.
 
 ## `settings/keybinds.json`
 
@@ -91,7 +94,15 @@ Known limitations: there is no formatting support, and this table is read
 when a workspace opens — including switching to a different folder, which
 restarts the servers for the new root — so editing `settings/lsp.json` or
 `.thor/lsp.json` for the workspace you already have open still needs it
-reopened to take effect.
+reopened to take effect. Turning a server (or the built-in Odin support) on or
+off, or gating one of its features, does not have that limitation: the
+Settings view's **Language** category lists every configured server (plus
+Odin) under **Language Servers**, each with its own on/off switch and, once
+enabled, a foldable **Features** group of per-kind toggles — both take effect
+on the next request, the same as `language_intelligence` itself, via the
+`language_backends` key above. Turning a server off there leaves an
+already-running process idle rather than stopping it outright; it only stops
+when the workspace reopens or Thor exits.
 
 ## `settings/comments.json`
 

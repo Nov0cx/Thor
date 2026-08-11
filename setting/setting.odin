@@ -46,6 +46,21 @@ General :: struct {
     // default; the editor pushes them onto lang.Manager, which enforces them.
     language_enabled:  bool,
     language_features: bit_set[lang.Request_Kind],
+    // Per-backend admin gate: a server id ("clangd") or the Odin analyzer
+    // ("odin") mapped to its own enabled switch and feature bit_set, read from
+    // "language_backends"'s per-id entry the same way the top-level
+    // language_intelligence entry is read. An id absent from the map is fully
+    // enabled — this only ever holds ids a user has touched. ANDs with the
+    // top-level language_features gate rather than replacing it: a kind either
+    // one declines stays declined. Owned keys.
+    language_backends: map[string]Backend_Setting,
+}
+
+// One backend's admin gate: mirrors General's own language_enabled/
+// language_features pair, scoped to a single backend id.
+Backend_Setting :: struct {
+    enabled:  bool,
+    features: bit_set[lang.Request_Kind],
 }
 
 // settings.json key holding the language-intelligence gate: either a boolean
@@ -54,6 +69,13 @@ LANGUAGE_SETTING :: "language_intelligence"
 
 // The key of the master switch inside that object.
 LANGUAGE_ENABLED_KEY :: "enabled"
+
+// settings.json key holding the per-backend admin gate: an object of backend
+// id -> either a bare bool (that backend's master switch alone) or an object
+// shaped exactly like language_intelligence's own ("enabled" plus one key per
+// feature). Layered the same way: only the ids, and within an id only the
+// keys, present in a given file overlay what's already there.
+LANGUAGE_BACKENDS_SETTING :: "language_backends"
 
 // Where an opened folder goes. Parsed from the open_folder_in setting.
 Open_Folder_In :: enum {
@@ -83,6 +105,7 @@ load :: proc(dir: string) -> Settings {
         ligatures         = true,
         language_enabled  = true,
         language_features = lang.FEATURES_ALL,
+        language_backends = make(map[string]Backend_Setting),
     }
 
     load_dir(&s, dir)
@@ -120,6 +143,11 @@ destroy :: proc(s: ^Settings) {
     delete(s.general.file_icon_pack)
     delete(s.general.open_folder_in)
     delete(s.general.default_shell)
+
+    for key in s.general.language_backends {
+        delete(key)
+    }
+    delete(s.general.language_backends)
 }
 
 // Line-comment marker for a file, or "" when the language is unknown (which
@@ -207,6 +235,31 @@ language_feature_enabled :: proc(s: ^Settings, kind: lang.Request_Kind) -> bool 
     return s.general.language_enabled && kind in s.general.language_features
 }
 
+// Whether one backend (an LSP server id, or "odin" for the in-client analyzer)
+// is admin-enabled. An id the config never mentions is enabled by default.
+backend_enabled :: proc(s: ^Settings, id: string) -> bool {
+    cfg, ok := s.general.language_backends[id]
+    return !ok || cfg.enabled
+}
+
+// The features one backend allows, ignoring its own enabled switch — what a
+// settings UI shows as that backend's per-feature rows. An id the config never
+// mentions allows everything.
+backend_features :: proc(s: ^Settings, id: string) -> bit_set[lang.Request_Kind] {
+    cfg, ok := s.general.language_backends[id]
+    if !ok {
+        return lang.FEATURES_ALL
+    }
+    return cfg.features
+}
+
+// Whether one backend answers one kind: its own enabled switch and its own
+// feature key. Does not fold in the top-level language_intelligence gate — the
+// Manager already ANDs that in separately.
+backend_feature_enabled :: proc(s: ^Settings, id: string, kind: lang.Request_Kind) -> bool {
+    return backend_enabled(s, id) && kind in backend_features(s, id)
+}
+
 // Where an opened folder goes. Unset or unrecognized means Ask.
 open_folder_in :: proc(s: ^Settings) -> Open_Folder_In {
     return parse_open_folder_in(s.general.open_folder_in)
@@ -272,6 +325,27 @@ persist_nested_bool :: proc(path, group, key: string, value: bool) -> bool {
     }
     obj[key] = json.Boolean(value)
     root[group] = obj
+    return write_object(path, root)
+}
+
+// Like persist_nested_bool but two levels down: `root[group][subgroup][key] =
+// value`. The per-backend admin gate's shape — subgroup is a backend id, key is
+// either LANGUAGE_ENABLED_KEY or a feature name. Every other id and key is
+// preserved; a level that is missing, or holds anything but an object (a bare
+// bool at that level), is replaced by a fresh one.
+persist_double_nested_bool :: proc(path, group, subgroup, key: string, value: bool) -> bool {
+    root := load_root_object(path)
+    outer, outer_ok := root[group].(json.Object)
+    if !outer_ok {
+        outer = make(json.Object, allocator = context.temp_allocator)
+    }
+    inner, inner_ok := outer[subgroup].(json.Object)
+    if !inner_ok {
+        inner = make(json.Object, allocator = context.temp_allocator)
+    }
+    inner[key] = json.Boolean(value)
+    outer[subgroup] = inner
+    root[group] = outer
     return write_object(path, root)
 }
 
@@ -636,6 +710,7 @@ load_general :: proc(s: ^Settings, path: string) {
     read_string(root, "open_folder_in", &s.general.open_folder_in)
     read_string(root, "default_shell", &s.general.default_shell)
     read_language(s, root)
+    read_backend_toggles(s, root)
 }
 
 // Reads the language-intelligence gate. A boolean is the master switch on its
@@ -658,6 +733,50 @@ read_language :: proc(s: ^Settings, root: json.Object) {
             } else {
                 s.general.language_features -= {kind}
             }
+        }
+    }
+}
+
+// Reads the per-backend admin gate: an object of id -> either a bare bool (that
+// backend's master switch alone) or an object shaped like language_intelligence
+// itself ("enabled" plus one key per feature). Only the ids present overlay the
+// map, and within an id only the keys present overlay its Backend_Setting — the
+// same two-level layering read_language gives the top-level entry.
+@(private)
+read_backend_toggles :: proc(s: ^Settings, root: json.Object) {
+    obj, ok := root[LANGUAGE_BACKENDS_SETTING].(json.Object)
+    if !ok {
+        return
+    }
+    for id, value in obj {
+        cfg, existed := s.general.language_backends[id]
+        if !existed {
+            cfg = Backend_Setting {
+                enabled  = true,
+                features = lang.FEATURES_ALL,
+            }
+        }
+        #partial switch v in value {
+        case json.Boolean:
+            cfg.enabled = bool(v)
+        case json.Object:
+            read_bool(v, LANGUAGE_ENABLED_KEY, &cfg.enabled)
+            for kind in lang.Request_Kind {
+                on := kind in cfg.features
+                read_bool(v, lang.feature_name(kind), &on)
+                if on {
+                    cfg.features += {kind}
+                } else {
+                    cfg.features -= {kind}
+                }
+            }
+        case:
+            continue
+        }
+        if existed {
+            s.general.language_backends[id] = cfg
+        } else {
+            s.general.language_backends[strings.clone(id)] = cfg
         }
     }
 }
