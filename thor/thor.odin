@@ -307,8 +307,10 @@ Thor :: struct {
     // picker, the results picker opens immediately (loading) and is filled when
     // the matching scan lands; a superseded result is dropped.
     references_request_id:    u64,
-    // In-flight signature-help request: its request id, so a superseded result
-    // (the caret moved on to another call) is dropped rather than flashed.
+    // In-flight signature-help request: the pane it came from and its request id,
+    // so a superseded result (the caret moved on to another call, or a plain tab
+    // switch with no new request) is dropped rather than routed to a stale pane.
+    signature_editor:         ^widgets.Editor,
     signature_request_id:     u64,
     // Whether the in-flight signature request was auto-triggered (typing in a
     // call) rather than the explicit keybind. An auto request that resolves to no

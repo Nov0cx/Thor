@@ -821,7 +821,9 @@ thor_edit_target :: proc(
 // result is shown by thor_show_signature. The explicit keybind flashes when the
 // caret is not in a call.
 thor_signature_help :: proc(thor: ^Thor) {
-    thor_request_signature(thor, auto = false)
+    editor := thor.active_pane == 0 ? thor.editor : thor.editor2
+    file := thor_active_open_file(thor)
+    thor_request_signature(thor, editor, file, auto = false)
 }
 
 // Editor auto-trigger: as the caret moves inside a call (typing `(`/`,`, editing
@@ -829,18 +831,26 @@ thor_signature_help :: proc(thor: ^Thor) {
 // not in one, and any live popup is dismissed instead.
 thor_editor_signature_help :: proc(data: rawptr, editor: ^widgets.Editor, state: ^textedit.State, offset: int) {
     thor := cast(^Thor) data
-    thor_request_signature(thor, auto = true)
+    for file in thor.open_files {
+        if &file.state != state {
+            continue
+        }
+        thor_request_signature(thor, editor, file, auto = true)
+        return
+    }
 }
 
-// Dispatches a Signature_Help request for the active file's caret. `auto`
+// Dispatches a Signature_Help request for `file`'s caret and binds the result to
+// `editor` at dispatch time — a plain tab/pane switch before the result lands
+// dispatches no new request, so the pane must be fixed now rather than
+// re-derived from whatever is active when thor_show_signature runs. `auto`
 // distinguishes the typing-driven trigger (silent on miss, and debounced so a
 // burst of argument keystrokes resolves the call once) from the explicit keybind
 // (flashes on miss, dispatched immediately — the user is waiting on it); it
 // rides along to thor_show_signature via signature_auto.
 @(private = "file")
-thor_request_signature :: proc(thor: ^Thor, auto: bool) {
-    file := thor_active_open_file(thor)
-    if file == nil || !file.loaded {
+thor_request_signature :: proc(thor: ^Thor, editor: ^widgets.Editor, file: ^Open_File, auto: bool) {
+    if editor == nil || file == nil || !file.loaded {
         return
     }
     ext := thor_file_extension(file.name)
@@ -876,6 +886,7 @@ thor_request_signature :: proc(thor: ^Thor, auto: bool) {
     if id == 0 {
         return
     }
+    thor.signature_editor = editor
     thor.signature_request_id = id
     thor.signature_auto = auto
 }
@@ -1293,12 +1304,12 @@ thor_apply_progress :: proc(thor: ^Thor, res: ^lang.Result) {
 // while the call is being typed.
 @(private = "file")
 thor_show_signature :: proc(thor: ^Thor, res: ^lang.Result) {
-    if res.id != thor.signature_request_id {
+    if res.id != thor.signature_request_id || thor.signature_editor == nil {
         return
     }
     thor.signature_request_id = 0
     auto := thor.signature_auto
-    editor := thor.active_pane == 0 ? thor.editor : thor.editor2
+    editor := thor.signature_editor
     if !res.ok || len(res.signature.entries) == 0 {
         // An auto request that finds no call just dismisses whatever popup was up
         // (the caret has moved out of the call); only the explicit keybind flashes.
@@ -1309,14 +1320,13 @@ thor_show_signature :: proc(thor: ^Thor, res: ^lang.Result) {
         }
         return
     }
-    file := thor_active_open_file(thor)
-    if file == nil || !file.loaded {
+    if editor.state == nil || editor.state.revision != res.revision {
         return
     }
     widgets.editor_show_signature(
         editor,
         thor_signature_text(res.signature),
-        textedit.primary_cursor(&file.state).caret,
+        textedit.primary_cursor(editor.state).caret,
     )
 }
 
