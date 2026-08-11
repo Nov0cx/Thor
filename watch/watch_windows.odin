@@ -103,8 +103,12 @@ watch_worker :: proc(w: ^Watcher) {
         handles := [2]win32.HANDLE {overlapped.hEvent, w.platform.stop_event}
         signalled := win32.WaitForMultipleObjects(2, &handles[0], false, win32.INFINITE)
         if signalled != win32.WAIT_OBJECT_0 {
-            // stop_event (index 1) or a wait failure: cancel the pending read and exit.
+            // stop_event (index 1) or a wait failure: cancel the pending read, then
+            // block for its completion so the kernel is done writing into `buffer`
+            // and `overlapped` before this frame frees them.
             win32.CancelIo(w.platform.dir_handle)
+            transferred: win32.DWORD
+            win32.GetOverlappedResult(w.platform.dir_handle, &overlapped, &transferred, true)
             break
         }
 
