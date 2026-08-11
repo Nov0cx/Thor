@@ -161,8 +161,10 @@ thor.on_command("git-commit", in_repo("commit", function()
             return
         end
         -- Write the message to a scratch file so multi-word / punctuation-heavy
-        -- messages need no shell escaping, then commit from it.
-        local scratch = thor.workspace() .. "\\.git\\THOR_COMMITMSG"
+        -- messages need no shell escaping, then commit from it. Relative to the
+        -- workspace: thor.write resolves it there, and git runs with the
+        -- workspace as its cwd, so it works unchanged on Windows and POSIX.
+        local scratch = ".git/THOR_COMMITMSG"
         thor.write(scratch, message .. "\n")
         report("commit", git('commit -F "' .. scratch .. '"'))
         thor.refresh_git()
