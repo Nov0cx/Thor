@@ -47,15 +47,29 @@ thor_apply_diagnostics :: proc(thor: ^Thor, res: ^lang.Result) {
     }
     // Clear first, so a file whose errors were fixed — and which therefore
     // dropped out of the report entirely — loses its squiggles. Files outside
-    // the checked scope keep theirs.
+    // the checked scope keep theirs, and so does one the report has already
+    // fallen behind: a save-then-keep-typing can land this report after a
+    // newer edit, and clearing it would show a false all-clear until the
+    // already-queued next check catches up.
     for file in thor.open_files {
-        if file.loaded && !file.closed && scope_covers(file.path, res.report.scope) {
+        if file.loaded && !file.closed && scope_covers(file.path, res.report.scope) &&
+           report_matches_file(file, res.revision) {
             thor_clear_file_diagnostics(file)
         }
     }
     for d in res.report.items {
         thor_apply_diagnostic(thor, d, res.revision)
     }
+}
+
+// True when `revision` (the report's) still describes `file`'s buffer: either it
+// is the exact revision the producer measured (a server checking the text the
+// editor sent it), or the buffer still matches disk (a compiler checking the
+// file). Neither holding means an edit has moved on since, and a re-check
+// follows it.
+@(private = "file")
+report_matches_file :: proc(file: ^Open_File, revision: u64) -> bool {
+    return revision == file.state.revision || file.state.revision == file.saved_revision
 }
 
 // Frees a file's diagnostics (and their owned messages) and empties the list.
@@ -75,13 +89,9 @@ thor_apply_diagnostic :: proc(thor: ^Thor, d: lang.Diagnostic, revision: u64) {
         if !file.loaded || file.closed || !same_path(file.path, d.path) {
             continue
         }
-        // The positions describe the live buffer when the producer measured this
-        // exact revision (a server checking the text the editor sent it), or when
-        // the buffer still matches disk (a compiler checking the file). A package
-        // check reports many files under one revision, so the disk test is what
-        // keeps the files other than the saved one. Neither holds: an edit has
-        // moved the positions, and a re-check follows it.
-        if revision != file.state.revision && file.state.revision != file.saved_revision {
+        // A package check reports many files under one revision, so the disk test
+        // in report_matches_file is what keeps the files other than the saved one.
+        if !report_matches_file(file, revision) {
             return
         }
         text := textedit.text(&file.state)
