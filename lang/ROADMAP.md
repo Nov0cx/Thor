@@ -745,17 +745,37 @@ lowest latency.
       operator token, not a distinct node type — which types as its left
       operand. `cast(T)v`/`transmute(T)v` were already covered.
 
-      **Generics — a first pass, deliberately narrow.**
-      `polymorphic_call_result` (`typeref.odin`) covers only a bare
-      polymorphic parameter (`identity :: proc(v: $T) -> T`, confirmed by
-      `ts-probe` to differ in shape from the explicit `proc($T: typeid, v: T)
-      -> T` form) whose result is the same bare name: at a call site the
-      result is simply the bound argument's own inferred type, no text
-      substitution needed. Still open: `$T` inside a container or pointer
-      (`v: []$T`, `l: ^List($T)`), multiple polymorphic names composed into
-      one result, and constraint checking (`$T: typeid/Some_Interface`) — a
-      partial version that silently mishandled those shapes would be worse
-      than the honest rejection they get today.
+      **Generics.** `polymorphic_call_result` (`generics.odin`) resolves a
+      call's result when it reuses one of the callee's own polymorphic
+      parameters: `identity :: proc(v: $T) -> T` (the bare shorthand),
+      `first :: proc(xs: []$T) -> T` and `singleton :: proc(v: $T) -> []T`
+      ($T wrapped in a container on either side — `map[K]`, `bit_set[E]`,
+      `[]`/`[N]`/`[dynamic]`, composed with pointers), `deref :: proc(l: ^$T)
+      -> T` (a pointer wrapping $T on the parameter side — transparent, like
+      everywhere else a pointer appears in this engine), `pair :: proc(a: $T,
+      b: $U) -> (T, U)` (several `$`-declared names composed into a tuple
+      result, each slot resolved independently), and the explicit
+      `identity2 :: proc($T: typeid, v: T) -> T` / `$T: typeid/Constraint`
+      binding form (`ts-probe`-confirmed real Odin syntax — "specialization" —
+      not shorthand). `peel_poly_shape` walks a parameter's or a result's
+      pointer/container prefixes (the same grammar `result_type_ref` walks)
+      down to a leaf that may be `$Name` or a plain `Name`; `polymorphic_params`
+      collects every name a signature declares, and `result_poly_use` answers
+      which one a given result slot reuses and what wraps it there. The
+      substitution unwraps the parameter's container layers off the bound
+      argument's own inferred type, then wraps the result's back on — the
+      bare case is the zero-layers instance of this rule, not a separate path.
+
+      Still open, deliberately: a named generic type's own type argument
+      (`^List($T)`) — no `Type_Ref` anywhere carries one, since a plain `l:
+      List(int)` doesn't retain its `int` argument either, so there is no data
+      to read "the T of a `List(T)`-typed argument" from; and constraint
+      *validation* (rejecting an argument that doesn't satisfy `$T:
+      typeid/Ordered`) — only the binding site is recognized, never checked,
+      since Thor's diagnostics already come from a real `odin check` run
+      (`check.odin`) that validates this authoritatively, and duplicating a
+      slice of the Odin type checker here would be redundant, much larger
+      work for no benefit over what the compiler already reports.
 
       **Hover shows a computed type for a non-identifier expression.**
       `hover_expr` (`resolve.odin`) is a `Hover`-only fallback that runs after

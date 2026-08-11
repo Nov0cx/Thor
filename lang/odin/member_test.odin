@@ -1087,46 +1087,379 @@ main :: proc() {
 }
 
 @(test)
-test_polymorphic_param_bare_shorthand :: proc(t: ^testing.T) {
-    // `proc(v: $T) -> T`: the shorthand this substitution reads.
-    name, index, ok := polymorphic_param("proc(v: $T) -> T")
+test_poly_param_shape_bare_shorthand :: proc(t: ^testing.T) {
+    // `v: $T`: the shorthand, wrapped in nothing.
+    name, shape, ok := poly_param_shape("v: $T")
     testing.expect(t, ok, "expected the bare $T shorthand to be found")
     if ok {
         testing.expectf(t, name == "T", "name: got %q, want T", name)
-        testing.expectf(t, index == 0, "index: got %d, want 0", index)
+        testing.expectf(t, shape.depth == 0, "depth: got %d, want 0", shape.depth)
+        testing.expectf(t, shape.pointers == 0, "pointers: got %d, want 0", shape.pointers)
     }
 }
 
 @(test)
-test_polymorphic_param_container_not_matched :: proc(t: ^testing.T) {
-    // `proc(xs: []$T) -> T`: $T sits inside a container — left unhandled
-    // rather than guessed, so this must not be read as a bare parameter.
-    _, _, ok := polymorphic_param("proc(xs: []$T) -> T")
-    testing.expect(t, !ok, "a $T inside a container must not match the bare shorthand")
+test_poly_param_shape_container :: proc(t: ^testing.T) {
+    // `xs: []$T`: $T sits inside a container — now read, not rejected.
+    name, shape, ok := poly_param_shape("xs: []$T")
+    testing.expect(t, ok, "expected $T inside a container to be found")
+    if ok {
+        testing.expectf(t, name == "T", "name: got %q, want T", name)
+        testing.expectf(t, shape.depth == 1, "depth: got %d, want 1", shape.depth)
+        if shape.depth == 1 {
+            testing.expectf(
+                t,
+                shape.containers[0].kind == .Array,
+                "kind: got %v, want Array",
+                shape.containers[0].kind,
+            )
+        }
+    }
 }
 
 @(test)
-test_polymorphic_param_explicit_form_not_matched :: proc(t: ^testing.T) {
-    // `proc($T: typeid, v: T) -> T`: the leading parameter's type is `typeid`,
-    // not `$T` — a materially different shape this substitution does not read.
-    _, _, ok := polymorphic_param("proc($T: typeid, v: T) -> T")
-    testing.expect(t, !ok, "the explicit $T: typeid form must not match the bare shorthand")
+test_poly_param_shape_pointer :: proc(t: ^testing.T) {
+    // `l: ^$T`: a pointer wraps $T — counted, not rejected.
+    name, shape, ok := poly_param_shape("l: ^$T")
+    testing.expect(t, ok, "expected $T behind a pointer to be found")
+    if ok {
+        testing.expectf(t, name == "T", "name: got %q, want T", name)
+        testing.expectf(t, shape.pointers == 1, "pointers: got %d, want 1", shape.pointers)
+        testing.expectf(t, shape.depth == 0, "depth: got %d, want 0", shape.depth)
+    }
 }
 
 @(test)
-test_bare_result_name_rejects_compound_results :: proc(t: ^testing.T) {
-    // Only a lone identifier result counts: a tuple, a container, a pointer and
-    // a package-qualified name must all be rejected rather than guessed at.
-    _, tok := bare_result_name("proc() -> (a, b: int)")
-    testing.expect(t, !tok, "a tuple result must not be read as a bare name")
-    _, cok := bare_result_name("proc() -> []T")
-    testing.expect(t, !cok, "a container result must not be read as a bare name")
-    _, qok := bare_result_name("proc() -> pkg.T")
-    testing.expect(t, !qok, "a qualified result must not be read as a bare name")
+test_peel_poly_shape_composed_pointer_and_container :: proc(t: ^testing.T) {
+    // `^[]$T`: a pointer wraps a container, which wraps $T.
+    shape, leaf, ok := peel_poly_shape("^[]$T")
+    testing.expect(t, ok, "expected ^[]$T to peel cleanly")
+    if ok {
+        testing.expectf(t, shape.pointers == 1, "pointers: got %d, want 1", shape.pointers)
+        testing.expectf(t, shape.depth == 1, "depth: got %d, want 1", shape.depth)
+        testing.expectf(t, leaf == "$T", "leaf: got %q, want $T", leaf)
+    }
+}
 
-    name, ok := bare_result_name("proc() -> T")
-    testing.expect(t, ok, "expected a lone identifier result to be read")
+@(test)
+test_peel_poly_shape_map :: proc(t: ^testing.T) {
+    shape, leaf, ok := peel_poly_shape("map[string]$T")
+    testing.expect(t, ok, "expected map[string]$T to peel cleanly")
+    if ok {
+        testing.expectf(t, shape.depth == 1, "depth: got %d, want 1", shape.depth)
+        if shape.depth == 1 {
+            testing.expectf(t, shape.containers[0].kind == .Map, "kind: got %v, want Map", shape.containers[0].kind)
+            testing.expectf(t, shape.containers[0].key == "string", "key: got %q, want string", shape.containers[0].key)
+        }
+        testing.expectf(t, leaf == "$T", "leaf: got %q, want $T", leaf)
+    }
+}
+
+@(test)
+test_peel_poly_shape_bit_set :: proc(t: ^testing.T) {
+    shape, leaf, ok := peel_poly_shape("bit_set[$T]")
+    testing.expect(t, ok, "expected bit_set[$T] to peel cleanly")
+    if ok {
+        testing.expectf(t, shape.depth == 1, "depth: got %d, want 1", shape.depth)
+        if shape.depth == 1 {
+            testing.expectf(
+                t,
+                shape.containers[0].kind == .Bit_Set,
+                "kind: got %v, want Bit_Set",
+                shape.containers[0].kind,
+            )
+        }
+        testing.expectf(t, leaf == "$T", "leaf: got %q, want $T", leaf)
+    }
+}
+
+@(test)
+test_peel_poly_shape_where_clause_tail_dropped :: proc(t: ^testing.T) {
+    // A trailing `where` clause is not part of the type — the same tail
+    // result_type_ref's own default case already drops for the general path.
+    shape, leaf, ok := peel_poly_shape("T where T == int")
+    testing.expect(t, ok, "expected the where clause tail to be dropped")
+    if ok {
+        testing.expectf(t, leaf == "T", "leaf: got %q, want T", leaf)
+        testing.expectf(t, shape.depth == 0, "depth: got %d, want 0", shape.depth)
+    }
+}
+
+@(test)
+test_explicit_poly_name_typeid_form :: proc(t: ^testing.T) {
+    // `$T: typeid`: the explicit binding form.
+    name, ok := explicit_poly_name("$T: typeid")
+    testing.expect(t, ok, "expected the explicit typeid form to be found")
     if ok {
         testing.expectf(t, name == "T", "got %q, want T", name)
+    }
+}
+
+@(test)
+test_explicit_poly_name_specialization_form :: proc(t: ^testing.T) {
+    // `$T: typeid/int`: typeid with a specialization — the constraint text
+    // past the slash is tolerated, not parsed further.
+    name, ok := explicit_poly_name("$T: typeid/int")
+    testing.expect(t, ok, "expected the typeid/Constraint form to be found")
+    if ok {
+        testing.expectf(t, name == "T", "got %q, want T", name)
+    }
+}
+
+@(test)
+test_explicit_poly_name_rejects_value_parameter :: proc(t: ^testing.T) {
+    // `$N: int` is a compile-time *value* parameter (array-size shorthand),
+    // not a type parameter — must not be read as one just because its name
+    // starts with `$`.
+    _, ok := explicit_poly_name("$N: int")
+    testing.expect(t, !ok, "a $Name: int value parameter must not match")
+}
+
+@(test)
+test_polymorphic_params_explicit_form_bound_by_later_usage :: proc(t: ^testing.T) {
+    // `proc($T: typeid, v: T) -> T`: T supplies no shape at its own
+    // parameter — it is bound by the later `v: T` parameter instead, the same
+    // way Odin itself infers `$T: typeid` when a caller passes no type
+    // argument explicitly.
+    bindings := polymorphic_params("proc($T: typeid, v: T) -> T")
+    testing.expectf(t, len(bindings) == 1, "expected one binding, got %d", len(bindings))
+    if len(bindings) == 1 {
+        testing.expectf(t, bindings[0].name == "T", "name: got %q, want T", bindings[0].name)
+        testing.expectf(t, bindings[0].index == 1, "index: got %d, want 1", bindings[0].index)
+    }
+}
+
+@(test)
+test_polymorphic_params_multiple_names :: proc(t: ^testing.T) {
+    // `proc(a: $T, b: $U) -> (T, U)`: two independently bound names.
+    bindings := polymorphic_params("proc(a: $T, b: $U) -> (T, U)")
+    testing.expectf(t, len(bindings) == 2, "expected two bindings, got %d", len(bindings))
+    if len(bindings) == 2 {
+        testing.expectf(t, bindings[0].name == "T", "binding 0 name: got %q, want T", bindings[0].name)
+        testing.expectf(t, bindings[0].index == 0, "binding 0 index: got %d, want 0", bindings[0].index)
+        testing.expectf(t, bindings[1].name == "U", "binding 1 name: got %q, want U", bindings[1].name)
+        testing.expectf(t, bindings[1].index == 1, "binding 1 index: got %d, want 1", bindings[1].index)
+    }
+}
+
+@(test)
+test_result_poly_use_unwraps_container_parameter :: proc(t: ^testing.T) {
+    // `proc(xs: []$T) -> T`: the result is bare, the parameter is not — no
+    // container is left to wrap back onto the result.
+    sig := "proc(xs: []$T) -> T"
+    bindings := polymorphic_params(sig)
+    shape, binding, ok := result_poly_use(sig, bindings, 0)
+    testing.expect(t, ok, "expected the result to resolve to T's binding")
+    if ok {
+        testing.expectf(t, binding.name == "T", "name: got %q, want T", binding.name)
+        testing.expectf(t, shape.depth == 0, "result shape depth: got %d, want 0", shape.depth)
+    }
+}
+
+@(test)
+test_result_poly_use_wraps_container_result :: proc(t: ^testing.T) {
+    // `proc(v: $T) -> []T`: the parameter is bare, the result wraps it in a
+    // container the parameter didn't have.
+    sig := "proc(v: $T) -> []T"
+    bindings := polymorphic_params(sig)
+    shape, binding, ok := result_poly_use(sig, bindings, 0)
+    testing.expect(t, ok, "expected the result to resolve to T's binding")
+    if ok {
+        testing.expectf(t, binding.name == "T", "name: got %q, want T", binding.name)
+        testing.expectf(t, shape.depth == 1, "result shape depth: got %d, want 1", shape.depth)
+        if shape.depth == 1 {
+            testing.expectf(t, shape.containers[0].kind == .Array, "kind: got %v, want Array", shape.containers[0].kind)
+        }
+    }
+}
+
+@(test)
+test_result_poly_use_rejects_unrelated_tuple :: proc(t: ^testing.T) {
+    // A genuinely non-polymorphic result must still be rejected —
+    // result_poly_use only ever matches a known binding's name, and there are
+    // none here.
+    _, _, ok := result_poly_use("proc() -> (a, b: int)", nil, 0)
+    testing.expect(t, !ok, "an unrelated tuple result must not match with no bindings")
+}
+
+@(test)
+test_member_polymorphic_result_through_container :: proc(t: ^testing.T) {
+    // `first :: proc(xs: []$T) -> T`: $T sits inside the parameter's
+    // container — the result is the argument's element type.
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package demo
+
+Point :: struct {
+	x: int,
+	y: int,
+}
+
+first :: proc(xs: []$T) -> T {
+	return xs[0]
+}
+
+main :: proc() {
+	pts: []Point
+	_ = first(pts).x
+}
+`
+    at := strings.index(src, "first(pts).x") + len("first(pts).")
+    loc, ok := resolve_offset(e, src, at)
+    defer delete(loc.path)
+    testing.expect(t, ok, "expected first(pts).x to resolve through []$T")
+    if ok {
+        want := strings.index(src, "x: int")
+        testing.expectf(t, loc.start == want, "member start: got %d, want %d", loc.start, want)
+    }
+}
+
+@(test)
+test_member_polymorphic_result_wraps_container :: proc(t: ^testing.T) {
+    // `singleton :: proc(v: $T) -> []T`: the result wraps the argument's own
+    // type in a container the parameter didn't have.
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package demo
+
+Point :: struct {
+	x: int,
+	y: int,
+}
+
+singleton :: proc(v: $T) -> []T {
+	return []T{v}
+}
+
+main :: proc() {
+	p := Point{}
+	xs := singleton(p)
+	_ = xs[0].x
+}
+`
+    at := strings.index(src, "xs[0].x") + len("xs[0].")
+    loc, ok := resolve_offset(e, src, at)
+    defer delete(loc.path)
+    testing.expect(t, ok, "expected xs[0].x to resolve through singleton's []T result")
+    if ok {
+        want := strings.index(src, "x: int")
+        testing.expectf(t, loc.start == want, "member start: got %d, want %d", loc.start, want)
+    }
+}
+
+@(test)
+test_member_polymorphic_result_through_pointer :: proc(t: ^testing.T) {
+    // `deref :: proc(l: ^$T) -> T`: a pointer wraps $T on the parameter side —
+    // transparent, same as everywhere else a pointer appears in this engine.
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package demo
+
+Point :: struct {
+	x: int,
+	y: int,
+}
+
+deref :: proc(l: ^$T) -> T {
+	return l^
+}
+
+main :: proc() {
+	p := Point{}
+	_ = deref(&p).x
+}
+`
+    at := strings.index(src, "deref(&p).x") + len("deref(&p).")
+    loc, ok := resolve_offset(e, src, at)
+    defer delete(loc.path)
+    testing.expect(t, ok, "expected deref(&p).x to resolve through ^$T")
+    if ok {
+        want := strings.index(src, "x: int")
+        testing.expectf(t, loc.start == want, "member start: got %d, want %d", loc.start, want)
+    }
+}
+
+@(test)
+test_member_polymorphic_result_multiple_names :: proc(t: ^testing.T) {
+    // `pair :: proc(a: $T, b: $U) -> (T, U)`: two names composed into a tuple
+    // result, each slot resolving through its own argument.
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package demo
+
+Point :: struct {
+	x: int,
+	y: int,
+}
+
+Vec :: struct {
+	dx: int,
+	dy: int,
+}
+
+pair :: proc(a: $T, b: $U) -> (T, U) {
+	return a, b
+}
+
+main :: proc() {
+	p := Point{}
+	v := Vec{}
+	first, second := pair(p, v)
+	_ = first.x
+	_ = second.dx
+}
+`
+    at1 := strings.index(src, "first.x") + len("first.")
+    loc1, ok1 := resolve_offset(e, src, at1)
+    defer delete(loc1.path)
+    testing.expect(t, ok1, "expected first.x to resolve through slot 0's T")
+    if ok1 {
+        want := strings.index(src, "x: int")
+        testing.expectf(t, loc1.start == want, "slot 0 member start: got %d, want %d", loc1.start, want)
+    }
+
+    at2 := strings.index(src, "second.dx") + len("second.")
+    loc2, ok2 := resolve_offset(e, src, at2)
+    defer delete(loc2.path)
+    testing.expect(t, ok2, "expected second.dx to resolve through slot 1's U")
+    if ok2 {
+        want := strings.index(src, "dx: int")
+        testing.expectf(t, loc2.start == want, "slot 1 member start: got %d, want %d", loc2.start, want)
+    }
+}
+
+@(test)
+test_member_polymorphic_result_explicit_form :: proc(t: ^testing.T) {
+    // `identity2 :: proc($T: typeid, v: T) -> T`: the explicit binding form.
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package demo
+
+Point :: struct {
+	x: int,
+	y: int,
+}
+
+identity2 :: proc($T: typeid, v: T) -> T {
+	return v
+}
+
+main :: proc() {
+	p := Point{}
+	_ = identity2(p).x
+}
+`
+    at := strings.index(src, "identity2(p).x") + len("identity2(p).")
+    loc, ok := resolve_offset(e, src, at)
+    defer delete(loc.path)
+    testing.expect(t, ok, "expected identity2(p).x to resolve through the explicit $T: typeid form")
+    if ok {
+        want := strings.index(src, "x: int")
+        testing.expectf(t, loc.start == want, "member start: got %d, want %d", loc.start, want)
     }
 }

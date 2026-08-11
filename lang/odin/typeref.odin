@@ -224,113 +224,6 @@ call_result_type :: proc(
     return tr, true
 }
 
-// A call's result when the callee's declared result is the bare name of one of
-// its own polymorphic parameters (`identity :: proc(v: $T) -> T`): the
-// concrete type is simply whatever the bound argument itself infers to — Odin
-// requires the call site to have already resolved `$T` to something concrete,
-// so no text substitution is needed. Only the direct, uncontained shape is
-// read: `$T` as a whole parameter type and `T` as the whole result type. `$T`
-// inside a container or pointer (`[]$T`, `^List($T)`), several polymorphic
-// names composed into one result, and constraint checking are all left
-// unhandled rather than guessed — `polymorphic_param`/`bare_result_name` both
-// answer false rather than approximate.
-@(private)
-polymorphic_call_result :: proc(
-    e: ^Engine,
-    parser: ts.Parser,
-    root: ts.Node,
-    req: ^lang.Request,
-    call: ts.Node,
-    source: string,
-    d: Def,
-    index, depth: int,
-) -> (Type_Ref, bool) {
-    if index != 0 {
-        return {}, false // the substitution answers a single-value result only
-    }
-    start := clamp(d.ident_start, 0, len(source))
-    sig := source[start:clamp(d.decl_end, start, len(source))]
-    if !strings.contains(sig, "$") {
-        return {}, false
-    }
-    param_name, param_index, pok := polymorphic_param(sig)
-    if !pok {
-        return {}, false
-    }
-    result_name, rok := bare_result_name(sig)
-    if !rok || result_name != param_name {
-        return {}, false
-    }
-    arg := call_argument(call, param_index)
-    if ts.node_is_null(arg) {
-        return {}, false
-    }
-    return infer_expr_result(e, parser, root, req, arg, 0, depth + 1)
-}
-
-// The first parameter, if any, whose type is written as a bare `$Name` — the
-// inline generic shorthand (`proc(v: $T)`), as against the explicit
-// `proc($T: typeid, v: T)` form, whose leading parameter's type is `typeid`,
-// not `$T`, and so does not match here.
-@(private)
-polymorphic_param :: proc(sig: string) -> (name: string, index: int, ok: bool) {
-    inner, iok := after_paren_group(sig, want_inner = true)
-    if !iok {
-        return "", 0, false
-    }
-    parts := split_top_level(inner)
-    for part, i in parts {
-        if n, nok := bare_polymorphic_name(part); nok {
-            return n, i, true
-        }
-    }
-    return "", 0, false
-}
-
-// Whether one parameter's text (`v: $T`) is written as a bare `$Name`, with
-// nothing else — no container, no pointer, no default value past it.
-@(private)
-bare_polymorphic_name :: proc(text: string) -> (string, bool) {
-    s := strip_result_name(strings.trim_space(text))
-    s = strings.trim_space(strings.trim_prefix(s, ".."))
-    if eq := strings.index_byte(s, '='); eq >= 0 {
-        s = strings.trim_space(s[:eq])
-    }
-    if !strings.has_prefix(s, "$") {
-        return "", false
-    }
-    name := s[1:]
-    if !valid_identifier(name) {
-        return "", false
-    }
-    return name, true
-}
-
-// A signature's result text (after `->`), only when it is a single bare name
-// with nothing else — no tuple, no container, no pointer, no package
-// qualifier. Those all fail valid_identifier, which is exactly the point:
-// this is read *before* result_type_ref, which would reject a `$T`-derived
-// name outright rather than answer it.
-@(private)
-bare_result_name :: proc(sig: string) -> (string, bool) {
-    after, ok := after_paren_group(sig)
-    if !ok {
-        return "", false
-    }
-    if brace := strings.index_byte(after, '{'); brace >= 0 {
-        after = after[:brace]
-    }
-    arrow := strings.index(after, "->")
-    if arrow < 0 {
-        return "", false
-    }
-    results := strings.trim_space(after[arrow + 2:])
-    if !valid_identifier(results) {
-        return "", false
-    }
-    return results, true
-}
-
 // The type a call-shaped conversion names: `Point(v)`, or `pkg.Point(v)`, whose
 // qualifier sits on the member expression the call hangs under — the same place
 // resolve_call_target reads a package-qualified callee from.
@@ -615,7 +508,7 @@ result_type_ref :: proc(text: string) -> (Type_Ref, bool) {
 }
 
 // `tr` wrapped in `layers`, which are ordered outermost first.
-@(private = "file")
+@(private)
 wrap_layers :: proc(tr: Type_Ref, layers: []Container_Layer) -> (Type_Ref, bool) {
     out := tr
     #reverse for layer in layers {
@@ -630,7 +523,7 @@ wrap_layers :: proc(tr: Type_Ref, layers: []Container_Layer) -> (Type_Ref, bool)
 // A named result or parameter without its name (`p: ^Point` → `^Point`). Only a
 // colon ahead of every bracket separates a name — one inside `proc(a: int)`
 // belongs to that signature.
-@(private = "file")
+@(private)
 strip_result_name :: proc(s: string) -> string {
     for i in 0 ..< len(s) {
         switch s[i] {
