@@ -1602,12 +1602,19 @@ not a status, so this section stays the source of truth for what is built.
 
 ## Known limitations / cleanups
 
-- Cross-file path matching assumes the engine's `os.read_dir` paths canonicalize
-  the same way as `filepath.abs`; verify on odd path spellings. `path_in_dir`
-  folds separators and (on Windows) case, and `index_package_dir` retries a
-  package directory absolute when the literal spelling matches nothing indexed,
-  but neither resolves symlinks or 8.3 short names. A mismatch degrades to the
-  old workspace-flat reach rather than to no answer.
+- `index_package_dir` now resolves a symlink or (on Windows) an 8.3 short name
+  that makes a package directory's spelling disagree with the index: past the
+  literal and `filepath.abs` tiers, a third tier asks the OS for each side's
+  canonical spelling (`path_real`, `lang/odin/path_windows.odin` /
+  `path_posix.odin` — `GetFinalPathNameByHandleW` on Windows, already-realpath
+  `filepath.abs` on POSIX) and compares those. Only runs once the cheap tiers
+  miss, so a workspace with matching spellings pays nothing extra. `path_equal`
+  and `path_in_dir` themselves stay a literal, separator/case-folded compare —
+  they run inside per-file loops over the whole index, where a `path_real` call
+  per file would reintroduce the cost tier 3 exists to avoid. Their remaining
+  imprecision (the `skip` exclusion missing a live buffer's own stale index
+  entry under a mismatched spelling) is a duplicate-or-briefly-stale candidate,
+  self-healing on the next stat-walk, not a wrong answer.
 - The vendored Odin `LOCALS` query models `:=` as `variable_declaration`, which
   this grammar does not produce — handled in `collect_short_decls`; revisit if
   the grammar is regenerated.

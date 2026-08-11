@@ -16,7 +16,8 @@ import lang ".."
 // has nothing of, for the widening case. Returns the workspace root and the live
 // buffer's path; the buffer itself is never written, so the index sees only the
 // sibling.
-@(private = "file")
+// Shared with path_test.odin's spelling-mismatch regression test.
+@(private)
 package_ws :: proc(t: ^testing.T, rel: string) -> (root, main_path: string) {
     _ = os.make_directory(rel)
     // Absolute, for the reason test_completion_siblings_from_index gives: the
@@ -52,7 +53,7 @@ package_ws :: proc(t: ^testing.T, rel: string) -> (root, main_path: string) {
 }
 
 // Removes the fixture. Deepest first: the directories only go once they are empty.
-@(private = "file")
+@(private)
 package_ws_clean :: proc(rel, root: string) {
     app := strings.concatenate({root, "/zapp"}, context.temp_allocator)
     lib := strings.concatenate({root, "/alib"}, context.temp_allocator)

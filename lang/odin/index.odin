@@ -488,6 +488,15 @@ index_package_dir :: proc(e: ^Engine, path: string) -> string {
             return abs
         }
     }
+    // Neither the literal nor the absolute spelling line up — a symlink, a
+    // junction, or (on Windows) an 8.3 short name in `dir`. Resolve `dir` to
+    // what the OS considers the same file as every index entry, and see if any
+    // of them resolve the same way.
+    if real, ok := path_real(dir, context.temp_allocator); ok {
+        if found_dir, found := index_dir_real_match(e, real); found {
+            return found_dir
+        }
+    }
     return dir
 }
 
@@ -499,6 +508,29 @@ index_dir_populated :: proc(e: ^Engine, dir: string) -> bool {
         }
     }
     return false
+}
+
+// Tier 3 of index_package_dir: resolves each distinct index directory (deduped
+// — a package holds several files) with path_real and compares against `real`,
+// already resolved by the caller. Only reached once the cheap literal and
+// filepath.abs tiers have both missed, so the extra open-and-query calls are
+// paid on a genuine spelling mismatch, never on the common case. Returns the
+// index's own spelling of the matching directory — path_in_dir and its callers
+// key off that spelling, not the OS-canonical one.
+@(private = "file")
+index_dir_real_match :: proc(e: ^Engine, real: string) -> (dir: string, found: bool) {
+    seen := make(map[string]bool, 0, context.temp_allocator)
+    for path in e.index.files {
+        candidate := filepath.dir(path) // a slice of `path`, no allocation
+        if candidate in seen {
+            continue
+        }
+        seen[candidate] = true
+        if candidate_real, ok := path_real(candidate, context.temp_allocator); ok && path_equal(candidate_real, real) {
+            return candidate, true
+        }
+    }
+    return "", false
 }
 
 // A lang.Symbol result row copied out of the index, cloned into context.allocator.
