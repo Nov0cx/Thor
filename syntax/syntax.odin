@@ -643,6 +643,8 @@ query_for :: proc(h: ^Highlighter, lang_id, source: string) -> (query: ts.Query,
 // compiled at once so a broken one is reported where it was declared rather
 // than silently leaving a file uncolored; on failure nothing changes.
 set_highlights :: proc(h: ^Highlighter, lang_id, source: string) -> (offset: u32, err: ts.Query_Error) {
+    entry, known := h.languages[lang_id]
+
     _, offset, err = query_for(h, lang_id, source)
     if err != .None {
         return offset, err
@@ -650,6 +652,23 @@ set_highlights :: proc(h: ^Highlighter, lang_id, source: string) -> (offset: u32
     if key, _ := delete_key(&h.resolved, lang_id); key != "" {
         delete(key)
     }
+
+    // The query this override replaces (a previous override, else the
+    // compiled-in default) may sit compiled in h.queries under its own key;
+    // drop it there too, or every override of the same lang_id leaks one
+    // compiled ts.Query.
+    old_source := entry.highlights
+    if existing, ok := h.overrides[lang_id]; ok {
+        old_source = existing
+    }
+    if known && old_source != source {
+        old_key := strings.concatenate({lang_id, "\n", old_source}, context.temp_allocator)
+        if stored_key, stored_query := delete_key(&h.queries, old_key); stored_key != "" {
+            ts.query_delete(stored_query)
+            delete(stored_key)
+        }
+    }
+
     if existing, ok := h.overrides[lang_id]; ok {
         delete(existing)
         h.overrides[lang_id] = strings.clone(source)
