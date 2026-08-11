@@ -320,7 +320,7 @@ thor_build_view_node :: proc(p: ^Plugin_Panel, node: plugin.View_Node) -> ^ui.Wi
                 thor.theme.second_background,
             )
             entry.min_size = rl.Vector2 {0, 22}
-            widgets.button_set_on_click(entry, thor_plugin_panel_action_click, thor_panel_action(p, node.action, row, item))
+            widgets.button_set_on_click(entry, thor_plugin_panel_action_click, thor_panel_action(p, node.action, row, thor_panel_text(p, item)))
             widgets.append_child(&stack.widget, &entry.widget)
         }
         return &stack.widget
