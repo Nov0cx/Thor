@@ -646,7 +646,7 @@ console_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
     rule.a = 36
     rl.DrawRectangle(cast(i32) console.bounds.x, cast(i32) input_top, cast(i32) console.bounds.width, 1, rule)
 
-    input_y := input_top + 7
+    input_y := input_top + (input_height - cast(f32) console.font_size) * 0.5
     prompt_color := console.running ? console.text_color : console.prompt_color
     ui.draw_text(console.prompt, cast(i32) (console.bounds.x + CONSOLE_PAD_X), cast(i32) input_y, console.font_size, prompt_color)
 

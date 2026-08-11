@@ -777,10 +777,10 @@ command_palette_draw :: proc(widget: ^ui.Widget, _: ^ui.Context) {
         ui.draw_text(command_palette_placeholder(palette), text_x, text_y, 18, palette.muted_color)
     } else {
         ui.draw_text(query, text_x, text_y, 18, palette.text_color)
+        prefix := query[:clamp(palette.caret, 0, len(query))]
+        caret_x := text_x + (len(prefix) == 0 ? 0 : ui.measure_text(prefix, 18)) + 2
+        rl.DrawRectangle(caret_x, text_y, 2, 18, palette.accent_color)
     }
-    prefix := query[:clamp(palette.caret, 0, len(query))]
-    caret_x := text_x + (len(prefix) == 0 ? 0 : ui.measure_text(prefix, 18)) + 2
-    rl.DrawRectangle(caret_x, text_y, 2, 18, palette.accent_color)
 
     if palette.mode == .Line || palette.mode == .Prompt {
         return

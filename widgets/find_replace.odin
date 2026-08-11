@@ -418,11 +418,11 @@ find_replace_draw_input :: proc(fr: ^Find_Replace, rect: rl.Rectangle, label, te
         ui.draw_text(label, x, text_y, 15, fr.muted_color)
     } else {
         ui.draw_text(text, x, text_y, 15, fr.text_color)
-    }
-    if focused {
-        prefix := text[:clamp(caret, 0, len(text))]
-        caret_x := x + (len(prefix) == 0 ? 0 : ui.measure_text(prefix, 15)) + 1
-        rl.DrawRectangle(caret_x, text_y, 2, 16, fr.accent_color)
+        if focused {
+            prefix := text[:clamp(caret, 0, len(text))]
+            caret_x := x + (len(prefix) == 0 ? 0 : ui.measure_text(prefix, 15)) + 1
+            rl.DrawRectangle(caret_x, text_y, 2, 16, fr.accent_color)
+        }
     }
 }
 

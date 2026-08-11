@@ -31,6 +31,7 @@ Menu :: struct {
     sep_height:   f32,
     font_size:    i32,
     pad_x:        f32,
+    pad_y:        f32,
     // Focus handed back here when the menu closes.
     return_focus: ^ui.Widget,
     background_color: rl.Color,
@@ -59,6 +60,7 @@ menu_create :: proc(id: string) -> ^Menu {
     menu.sep_height = 9
     menu.font_size = 16
     menu.pad_x = 12
+    menu.pad_y = 10
     menu.background_color = rl.Color {24, 26, 31, 250}
     menu.border_color = rl.Color {132, 255, 255, 255}
     menu.text_color = rl.Color {238, 255, 255, 255}
@@ -120,7 +122,7 @@ menu_layout :: proc(widget: ^ui.Widget, bounds: rl.Rectangle) {
     menu.bounds = bounds
 
     width := menu.min_width
-    height: f32 = 6
+    height := menu.pad_y
     for item in menu.items {
         if item.separator {
             height += menu.sep_height
@@ -132,7 +134,7 @@ menu_layout :: proc(widget: ^ui.Widget, bounds: rl.Rectangle) {
         }
         height += menu.row_height
     }
-    height += 6
+    height += menu.pad_y
 
     x := menu.anchor.x
     y := menu.anchor.y
@@ -187,7 +189,7 @@ menu_row_at :: proc(menu: ^Menu, point: rl.Vector2) -> int {
     if !rl.CheckCollisionPointRec(point, menu.box) {
         return -1
     }
-    y := menu.box.y + 6
+    y := menu.box.y + menu.pad_y
     for item, i in menu.items {
         h := item.separator ? menu.sep_height : menu.row_height
         if point.y >= y && point.y < y + h {
@@ -211,7 +213,7 @@ menu_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
     rl.DrawRectangleRec(menu.box, menu.background_color)
     rl.DrawRectangleLinesEx(menu.box, 1, menu.border_color)
 
-    y := menu.box.y + 6
+    y := menu.box.y + menu.pad_y
     for item, i in menu.items {
         if item.separator {
             line_y := y + menu.sep_height * 0.5
