@@ -656,11 +656,14 @@ thor_cmd_copy_path :: proc(data: rawptr) {
 }
 
 thor_cmd_reveal :: proc(data: rawptr) {
-    file := thor_active_open_file(cast(^Thor) data)
+    thor := cast(^Thor) data
+    file := thor_active_open_file(thor)
     if file == nil {
         return
     }
-    thor_reveal_path(file.path)
+    if !thor_reveal_path(file.path) {
+        thor_flash_status(thor, "Could not open the file explorer", true)
+    }
 }
 
 thor_cmd_command_palette :: proc(data: rawptr) {

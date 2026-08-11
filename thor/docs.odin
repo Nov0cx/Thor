@@ -108,11 +108,17 @@ thor_cmd_docs_browser :: proc(data: rawptr) {
     local := thor_docs_path(DOCS_HTML_INDEX)
     if os.exists(local) {
         if abs, err := filepath.abs(local, context.temp_allocator); err == nil {
-            thor_open_in_browser(abs)
-            thor_flash_status(thor, "Documentation opened in the browser")
+            if thor_open_in_browser(abs) {
+                thor_flash_status(thor, "Documentation opened in the browser")
+            } else {
+                thor_flash_status(thor, "Could not open the browser", true)
+            }
             return
         }
     }
-    thor_open_in_browser(DOCS_URL)
-    thor_flash_status(thor, "Documentation opened on the project page")
+    if thor_open_in_browser(DOCS_URL) {
+        thor_flash_status(thor, "Documentation opened on the project page")
+    } else {
+        thor_flash_status(thor, "Could not open the browser", true)
+    }
 }

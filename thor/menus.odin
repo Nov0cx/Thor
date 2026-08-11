@@ -256,7 +256,9 @@ thor_menu_open_new_window :: proc(data: rawptr) {
 
 thor_menu_explorer_reveal :: proc(data: rawptr) {
     thor := cast(^Thor) data
-    thor_reveal_path(thor.tree.selected_path)
+    if !thor_reveal_path(thor.tree.selected_path) {
+        thor_flash_status(thor, "Could not open the file explorer", true)
+    }
 }
 
 thor_menu_explorer_copy_path :: proc(data: rawptr) {

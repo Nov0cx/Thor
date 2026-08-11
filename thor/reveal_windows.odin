@@ -1,33 +1,58 @@
 #+build windows
 package thor
 
+import "core:log"
 import "core:strings"
 import win32 "core:sys/windows"
 
-// Opens the OS file explorer with `path` selected.
-thor_reveal_path :: proc(path: string) {
+// ShellExecuteW returns its HINSTANCE as an error code when the call failed
+// (a value <= 32); anything above is a real instance handle.
+@(private = "file")
+shell_execute_ok :: proc(result: win32.HINSTANCE) -> bool {
+    return uintptr(result) > 32
+}
+
+// Opens the OS file explorer with `path` selected. False on failure (the path
+// is gone, or Explorer could not be launched), logged since there is no
+// Windows error string cheaply available from a HINSTANCE code alone.
+thor_reveal_path :: proc(path: string) -> bool {
     if path == "" {
-        return
+        return false
     }
     native, _ := strings.replace_all(path, "/", "\\", context.temp_allocator)
     param := strings.concatenate({"/select,", native}, context.temp_allocator)
-    win32.ShellExecuteW(nil, win32.utf8_to_wstring("open"), win32.utf8_to_wstring("explorer.exe"), win32.utf8_to_wstring(param), nil, win32.SW_SHOWNORMAL)
+    result := win32.ShellExecuteW(nil, win32.utf8_to_wstring("open"), win32.utf8_to_wstring("explorer.exe"), win32.utf8_to_wstring(param), nil, win32.SW_SHOWNORMAL)
+    ok := shell_execute_ok(result)
+    if !ok {
+        log.warnf("reveal in explorer failed for %q: ShellExecuteW returned %d", path, uintptr(result))
+    }
+    return ok
 }
 
 // Opens `target` -- a URL or a file path -- in the default browser. The browser
 // comes from the https protocol association, not from the file association: a
 // local .html is often registered to an editor, and the shell would open that
 // instead. Falls back to the association when the lookup finds no browser.
-thor_open_in_browser :: proc(target: string) {
+// False on failure (a broken association, or the browser could not launch).
+thor_open_in_browser :: proc(target: string) -> bool {
     if target == "" {
-        return
+        return false
     }
     if browser := default_browser_exe(); browser != "" {
         args := strings.concatenate({`"`, target, `"`}, context.temp_allocator)
-        win32.ShellExecuteW(nil, win32.utf8_to_wstring("open"), win32.utf8_to_wstring(browser), win32.utf8_to_wstring(args), nil, win32.SW_SHOWNORMAL)
-        return
+        result := win32.ShellExecuteW(nil, win32.utf8_to_wstring("open"), win32.utf8_to_wstring(browser), win32.utf8_to_wstring(args), nil, win32.SW_SHOWNORMAL)
+        ok := shell_execute_ok(result)
+        if !ok {
+            log.warnf("open in browser failed for %q via %q: ShellExecuteW returned %d", target, browser, uintptr(result))
+        }
+        return ok
     }
-    win32.ShellExecuteW(nil, win32.utf8_to_wstring("open"), win32.utf8_to_wstring(target), nil, nil, win32.SW_SHOWNORMAL)
+    result := win32.ShellExecuteW(nil, win32.utf8_to_wstring("open"), win32.utf8_to_wstring(target), nil, nil, win32.SW_SHOWNORMAL)
+    ok := shell_execute_ok(result)
+    if !ok {
+        log.warnf("open in browser failed for %q: ShellExecuteW returned %d", target, uintptr(result))
+    }
+    return ok
 }
 
 // Executable of the default browser, "" when it cannot be resolved. Only the
