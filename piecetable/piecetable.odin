@@ -24,6 +24,11 @@ Piece_Table :: struct {
     // changes, so it is materialized once per edit instead of once per read.
     snapshot: [dynamic]u8, // owned
     stale:    bool,        // snapshot must be rebuilt before it is read
+    // Piece index and its start offset, left by the last split. Edits at
+    // ascending positions (typing, Replace All) resume scanning from here
+    // instead of the top of pieces; -1 means no usable hint.
+    hint_index:  int,
+    hint_offset: int,
 }
 
 piecetable_create :: proc(initial_text: string = "") -> Piece_Table {
@@ -58,19 +63,31 @@ piecetable_set_text :: proc(pt: ^Piece_Table, text: string) {
 // boundary) and returns the index of the piece that starts at `pos`.
 // A `pos` out of range clamps to the first or the last index; a negative one
 // must not reach the split, which would write a piece of negative length.
+// Resumes from the last split's hint when it starts at or before `pos`, so a
+// pass of ascending-position edits (Replace All) scans each piece once
+// overall instead of rescanning the whole list per edit.
 @(private)
 piecetable_split_at :: proc(pt: ^Piece_Table, pos: int) -> int {
     if pos <= 0 {
+        piecetable_set_hint(pt, 0, 0)
         return 0
     }
     if pos >= pt.length {
+        // pos may be a caller's out-of-range value rather than the true end,
+        // so the resulting index has no offset worth resuming from.
+        piecetable_set_hint(pt, -1, 0)
         return len(pt.pieces)
     }
 
-    offset := 0
-    for i := 0; i < len(pt.pieces); i += 1 {
+    i, offset := 0, 0
+    if pt.hint_index >= 0 && pt.hint_index <= len(pt.pieces) && pt.hint_offset <= pos {
+        i, offset = pt.hint_index, pt.hint_offset
+    }
+
+    for ; i < len(pt.pieces); i += 1 {
         piece := pt.pieces[i]
         if pos == offset {
+            piecetable_set_hint(pt, i, offset)
             return i
         }
         if pos < offset + piece.length {
@@ -79,11 +96,20 @@ piecetable_split_at :: proc(pt: ^Piece_Table, pos: int) -> int {
             right := Piece {source = piece.source, start = piece.start + local, length = piece.length - local}
             pt.pieces[i] = left
             inject_at(&pt.pieces, i + 1, right)
+            piecetable_set_hint(pt, i + 1, pos)
             return i + 1
         }
         offset += piece.length
     }
+    piecetable_set_hint(pt, -1, 0)
     return len(pt.pieces)
+}
+
+// Records where the next split_at may resume scanning from.
+@(private)
+piecetable_set_hint :: proc(pt: ^Piece_Table, index, offset: int) {
+    pt.hint_index = index
+    pt.hint_offset = offset
 }
 
 // Joins pieces[i - 1] and pieces[i] when they are neighbouring runs of the same
@@ -136,16 +162,25 @@ piecetable_insert :: proc(pt: ^Piece_Table, pos: int, text: string) {
     pt.stale = true
 
     index := piecetable_split_at(pt, pos)
+    // The split's own hint is the true offset it landed on (pos itself may be
+    // an out-of-range value split_at only clamped), so extend from that.
+    at_split := pt.hint_index == index
     // Sequential typing lands at the end of the piece written by the previous
     // insert; extend it rather than adding another.
     if index > 0 {
         prev := &pt.pieces[index - 1]
         if prev.source == .Add && prev.start + prev.length == add_start {
             prev.length += len(text)
+            if at_split {
+                pt.hint_offset += len(text)
+            }
             return
         }
     }
     inject_at(&pt.pieces, index, Piece {source = .Add, start = add_start, length = len(text)})
+    if at_split {
+        piecetable_set_hint(pt, index + 1, pt.hint_offset + len(text))
+    }
 }
 
 // Deletes `delete_length` bytes at `pos`. The range must satisfy
@@ -157,6 +192,11 @@ piecetable_delete :: proc(pt: ^Piece_Table, pos: int, delete_length: int) {
     }
 
     start_index := piecetable_split_at(pt, pos)
+    // The split's own hint is the true offset it landed on (pos itself may be
+    // an out-of-range value split_at only clamped); the second split below
+    // overwrites the hint, so capture it now.
+    start_at_split := pt.hint_index == start_index
+    start_offset := pt.hint_offset
     end_index := piecetable_split_at(pt, pos + delete_length)
     // A range past the end removes less than asked, so count what really goes.
     for i in start_index ..< end_index {
@@ -164,8 +204,17 @@ piecetable_delete :: proc(pt: ^Piece_Table, pos: int, delete_length: int) {
     }
     pt.stale = true
     remove_range(&pt.pieces, start_index, end_index)
+    before := len(pt.pieces)
     // Removing the span can leave two runs of one buffer touching again.
     piecetable_merge_at(pt, start_index)
+    if start_at_split && len(pt.pieces) == before {
+        // No merge: pieces[start_index] still starts exactly at start_offset.
+        piecetable_set_hint(pt, start_index, start_offset)
+    } else {
+        // The merge folded the boundary into one piece, or the start itself
+        // was clamped; the next split must rescan from the top.
+        piecetable_set_hint(pt, -1, 0)
+    }
 }
 
 // Bounds-checked piecetable_insert: an out-of-range `pos` changes nothing and

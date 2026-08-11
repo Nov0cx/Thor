@@ -373,6 +373,27 @@ test_join_lines :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_join_lines_selection_ends_at_line_start :: proc(t: ^testing.T) {
+    state: State
+    init(&state)
+    defer destroy(&state)
+
+    // Selection ends exactly on a line-start boundary (two full lines picked
+    // with select_line): only those two lines join, not the one after.
+    insert_text(&state, "aaa\nbbb\nccc\nddd")
+    set_single_cursor(&state, 5) // on "bbb"
+    select_line(&state)
+    select_line(&state)
+    cursor := primary_cursor(&state)
+    lo, hi := selection_range(cursor)
+    testing.expect_value(t, lo, 4)
+    testing.expect_value(t, hi, 12)
+
+    join_lines(&state)
+    testing.expect_value(t, text(&state), "aaa\nbbb ccc\nddd")
+}
+
+@(test)
 test_quote_delimiters :: proc(t: ^testing.T) {
     state: State
     init(&state)

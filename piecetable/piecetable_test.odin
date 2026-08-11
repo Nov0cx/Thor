@@ -183,6 +183,27 @@ test_out_of_range_positions :: proc(t: ^testing.T) {
     }
 }
 
+// Replace All's core pattern: many delete+insert pairs at strictly ascending
+// positions over one Original piece. Each pair must resolve through the
+// resumed scan hint rather than a full rescan, or the piece list this
+// produces (one non-mergeable split per match) turns the pass quadratic.
+@(test)
+test_ascending_edits_resume_from_hint :: proc(t: ^testing.T) {
+    pt := piecetable_create("aXaXaXaXaXa")
+    defer piecetable_destroy(&pt)
+
+    for pos := 0; pos < piecetable_length(&pt); pos += 1 {
+        if piecetable_view(&pt)[pos] != 'X' {
+            continue
+        }
+        piecetable_delete(&pt, pos, 1)
+        piecetable_insert(&pt, pos, "Y")
+        testing.expect(t, pt.hint_index >= 0, "an ascending edit must leave a usable hint")
+    }
+
+    testing.expect_value(t, piecetable_to_string(&pt, context.temp_allocator), "aYaYaYaYaYa")
+}
+
 @(test)
 test_set_text_resets :: proc(t: ^testing.T) {
     pt := piecetable_create("first")
