@@ -143,6 +143,7 @@ Save_Job :: struct {
     revision: u64,
     worker:   ^thread.Thread,
     ok:       bool,
+    err:      os.Error,
 }
 
 // What a File_Op_Job does with each of its entries.
@@ -264,7 +265,8 @@ load_worker :: proc(job: ^Load_Job) {
 
 @(private = "file")
 save_worker :: proc(job: ^Save_Job) {
-    job.ok = os.write_entire_file(job.path, job.text) == nil
+    job.err = os.write_entire_file(job.path, job.text)
+    job.ok = job.err == nil
     free_all(context.temp_allocator)
 
     sync.lock(&job.owner.io_mutex)
@@ -1145,7 +1147,8 @@ thor_process_io :: proc(thor: ^Thor) {
                 thor_request_diagnostics(thor, file)
             }
         } else {
-            log.warnf("Failed to save %q", job.path)
+            log.warnf("Failed to save %q: %v", job.path, job.err)
+            thor_flash_status(thor, fmt.tprintf("Could not save %s: %v", filepath.base(job.path), job.err), is_error = true)
         }
 
         delete(job.text)
