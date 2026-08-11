@@ -78,6 +78,9 @@ child_start :: proc(spec: Child_Spec) -> (^Child, bool) {
         posix.close(status_fds[0])
         // Closed by a successful exec, which is how the parent reads success.
         posix.fcntl(status_fds[1], .SETFD, posix.FD_CLOEXEC)
+        // The parent ignores it so a write after the child exits fails cleanly;
+        // an exec preserves that disposition, so the child itself must not inherit it.
+        posix.signal(.SIGPIPE, auto_cast posix.SIG_DFL)
         if cwd_c != nil && posix.chdir(cwd_c) != .OK {
             report_start_failure(status_fds[1])
         }

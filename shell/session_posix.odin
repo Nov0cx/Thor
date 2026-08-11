@@ -64,6 +64,9 @@ session_start :: proc(profile: Profile, cwd: string) -> (^Session, bool) {
         posix.close(in_fds[1])
         posix.close(out_fds[0])
         posix.close(out_fds[1])
+        // The parent ignores it so a write after the shell exits fails cleanly;
+        // an exec preserves that disposition, so the shell itself must not inherit it.
+        posix.signal(.SIGPIPE, auto_cast posix.SIG_DFL)
         if cwd_c != nil && posix.chdir(cwd_c) != .OK {
             posix._exit(1)
         }
