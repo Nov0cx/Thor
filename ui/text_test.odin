@@ -3,6 +3,47 @@ package ui
 import "core:testing"
 import rl "vendor:raylib"
 
+// A glyph wider than any atlas this input packs into must not be packed:
+// doing so would overrun into the next row or past the buffer entirely.
+// Not reachable with a shipped font manifest (every family preloads dozens
+// of glyphs, so the sqrt-derived atlas dwarfs any single glyph), but the
+// packer must not corrupt memory if that ever stopped being true.
+@(test)
+test_pack_glyph_atlas_rejects_oversized_glyph :: proc(t: ^testing.T) {
+    glyphs := make([]rl.GlyphInfo, 3, context.temp_allocator)
+    glyphs[0].image = {width = 10, height = 10}
+    glyphs[1].image = {width = 100_000, height = 10} // wider than any atlas this produces
+    glyphs[2].image = {width = 10, height = 10}
+
+    atlas_data, atlas_w, atlas_h, recs := pack_glyph_atlas(raw_data(glyphs), len(glyphs), 16, "test")
+    defer rl.MemFree(atlas_data)
+    defer rl.MemFree(recs)
+
+    testing.expect_value(t, recs[1], rl.Rectangle{})
+    for i in ([2]int {0, 2}) {
+        rec := recs[i]
+        testing.expect(t, rec.x >= 0 && rec.y >= 0, "negative rec origin")
+        testing.expect(t, rec.x + rec.width <= cast(f32) atlas_w, "rec overruns atlas width")
+        testing.expect(t, rec.y + rec.height <= cast(f32) atlas_h, "rec overruns atlas height")
+    }
+}
+
+// A glyph taller than the nominal font size must grow the atlas to fit its
+// own bitmap, not just the usual size-based row height.
+@(test)
+test_pack_glyph_atlas_grows_for_tall_glyph :: proc(t: ^testing.T) {
+    glyphs := make([]rl.GlyphInfo, 2, context.temp_allocator)
+    glyphs[0].image = {width = 10, height = 10}
+    glyphs[1].image = {width = 10, height = 500} // far taller than the requested size
+
+    atlas_data, _, atlas_h, recs := pack_glyph_atlas(raw_data(glyphs), len(glyphs), 16, "test")
+    defer rl.MemFree(atlas_data)
+    defer rl.MemFree(recs)
+
+    rec := recs[1]
+    testing.expect(t, rec.y + rec.height <= cast(f32) atlas_h, "tall glyph overruns atlas height")
+}
+
 // Runs manifest loading plus the full async CPU rasterization pipeline
 // headlessly (the texture upload is skipped by raylib when no GPU is ready).
 // Guards against the raylib 6.0 LoadFontData binding regression that

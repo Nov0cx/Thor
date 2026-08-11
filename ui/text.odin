@@ -39,6 +39,94 @@ Bake_Entry :: struct {
 @(private = "file")
 async_jobs: [dynamic]^Font_Load_Job
 
+// Row-packs `count` rasterized glyphs into a freshly allocated grayscale
+// atlas (raylib packMethod 0), sized from their total area and grown taller
+// on a row wrap that runs out of room. A glyph taller than the nominal row
+// height grows the atlas further still; one wider than the atlas itself is
+// skipped with a zero rect rather than packed, which would overrun into the
+// next row or past the buffer entirely. Caller frees atlas_data and recs
+// with rl.MemFree.
+@(private)
+pack_glyph_atlas :: proc(glyphs: [^]rl.GlyphInfo, count: int, size: i32, family_name: string) -> (atlas_data: [^]u8, atlas_w, atlas_h: c.int, recs: [^]rl.Rectangle) {
+    PADDING :: 4
+
+    total_width: c.int = 0
+    for k in 0 ..< count {
+        total_width += glyphs[k].image.width + 2 * PADDING
+    }
+    padded_font_size := size + 2 * PADDING
+    total_area := cast(f32) total_width * cast(f32) padded_font_size * 1.2
+    image_min_size := math.sqrt(total_area)
+    image_size := cast(c.int) math.pow(2, math.ceil(math.ln(image_min_size) / math.ln(cast(f32) 2)))
+
+    atlas_w = image_size
+    atlas_h = image_size
+    if total_area < cast(f32) ((image_size * image_size) / 2) {
+        atlas_h = image_size / 2
+    }
+
+    // Zeroed: the padding between packed glyphs stays fully transparent.
+    atlas_data = cast([^]u8) rl.MemAlloc(cast(c.uint) (atlas_w * atlas_h))
+    mem.zero(atlas_data, cast(int) (atlas_w * atlas_h))
+    recs = cast([^]rl.Rectangle) rl.MemAlloc(cast(c.uint) (count * size_of(rl.Rectangle)))
+
+    offset_x: c.int = PADDING
+    offset_y: c.int = PADDING
+    for k in 0 ..< count {
+        glyph := glyphs[k]
+        gw, gh := glyph.image.width, glyph.image.height
+
+        // Wider than a whole row: no wrap ever fits it, and packing it anyway
+        // would overrun into the next row or past the buffer. Leaves a zero
+        // rect, so this glyph draws nothing instead of corrupting the atlas.
+        if gw + 2 * PADDING > atlas_w {
+            log.warnf("font %s: glyph %d is %dpx wide, wider than the %dpx atlas; skipped", family_name, glyph.value, gw, atlas_w)
+            recs[k] = rl.Rectangle{}
+            continue
+        }
+
+        if offset_x >= atlas_w - gw - 2 * PADDING {
+            offset_x = PADDING
+            offset_y += size + 2 * PADDING
+        }
+
+        // Grow past whichever is taller: the nominal row height or this
+        // glyph's own bitmap (an accent or icon glyph can exceed size).
+        // Loops since one doubling may still be short for a very tall glyph;
+        // checked every row, not only a wrap, so a tall first glyph is covered.
+        for offset_y + max(size, gh) + PADDING > atlas_h {
+            new_h := atlas_h * 2
+            new_data := cast([^]u8) rl.MemAlloc(cast(c.uint) (atlas_w * new_h))
+            mem.copy(new_data, atlas_data, cast(int) (atlas_w * atlas_h))
+            mem.zero(&new_data[atlas_w * atlas_h], cast(int) (atlas_w * (new_h - atlas_h)))
+            rl.MemFree(atlas_data)
+            atlas_data = new_data
+            atlas_h = new_h
+        }
+
+        if glyph.image.data != nil {
+            src := cast([^]u8) glyph.image.data
+            for row in 0 ..< gh {
+                mem.copy(
+                    &atlas_data[(offset_y + row) * atlas_w + offset_x],
+                    &src[row * gw],
+                    cast(int) gw,
+                )
+            }
+        }
+
+        recs[k] = rl.Rectangle {
+            x = cast(f32) offset_x,
+            y = cast(f32) offset_y,
+            width = cast(f32) gw,
+            height = cast(f32) gh,
+        }
+        offset_x += gw + 2 * PADDING
+    }
+
+    return
+}
+
 // Rasterizes and packs the atlas with stb_truetype directly: raylib's font
 // procs aren't thread-safe, and its LoadFontData binding corrupts memory.
 // Buffers handed to raylib are libc-allocated so UnloadFont/UnloadImage free them.
@@ -46,8 +134,6 @@ async_jobs: [dynamic]^Font_Load_Job
 font_load_worker :: proc(job: ^Font_Load_Job) {
     // Scratch goes into the font arena; its allocator is mutex-guarded, shareable.
     context.allocator = font_allocator
-
-    PADDING :: 4
 
     file_data := job.family.file_data
     info: stbtt.fontinfo
@@ -134,66 +220,7 @@ font_load_worker :: proc(job: ^Font_Load_Job) {
         }
     }
 
-    // Row-pack the glyphs into a grayscale atlas (raylib packMethod 0).
-    total_width: c.int = 0
-    for k in 0 ..< count {
-        total_width += glyphs[k].image.width + 2 * PADDING
-    }
-    padded_font_size := job.size + 2 * PADDING
-    total_area := cast(f32) total_width * cast(f32) padded_font_size * 1.2
-    image_min_size := math.sqrt(total_area)
-    image_size := cast(c.int) math.pow(2, math.ceil(math.ln(image_min_size) / math.ln(cast(f32) 2)))
-
-    atlas_w := image_size
-    atlas_h := image_size
-    if total_area < cast(f32) ((image_size * image_size) / 2) {
-        atlas_h = image_size / 2
-    }
-
-    // Zeroed: the padding between packed glyphs stays fully transparent.
-    atlas_data := cast([^]u8) rl.MemAlloc(cast(c.uint) (atlas_w * atlas_h))
-    mem.zero(atlas_data, cast(int) (atlas_w * atlas_h))
-    recs := cast([^]rl.Rectangle) rl.MemAlloc(cast(c.uint) (count * size_of(rl.Rectangle)))
-
-    offset_x: c.int = PADDING
-    offset_y: c.int = PADDING
-    for k in 0 ..< count {
-        glyph := glyphs[k]
-
-        if offset_x >= atlas_w - glyph.image.width - 2 * PADDING {
-            offset_x = PADDING
-            offset_y += job.size + 2 * PADDING
-
-            if offset_y > atlas_h - job.size - PADDING {
-                new_h := atlas_h * 2
-                new_data := cast([^]u8) rl.MemAlloc(cast(c.uint) (atlas_w * new_h))
-                mem.copy(new_data, atlas_data, cast(int) (atlas_w * atlas_h))
-                mem.zero(&new_data[atlas_w * atlas_h], cast(int) (atlas_w * (new_h - atlas_h)))
-                rl.MemFree(atlas_data)
-                atlas_data = new_data
-                atlas_h = new_h
-            }
-        }
-
-        if glyph.image.data != nil {
-            src := cast([^]u8) glyph.image.data
-            for row in 0 ..< glyph.image.height {
-                mem.copy(
-                    &atlas_data[(offset_y + row) * atlas_w + offset_x],
-                    &src[row * glyph.image.width],
-                    cast(int) glyph.image.width,
-                )
-            }
-        }
-
-        recs[k] = rl.Rectangle {
-            x = cast(f32) offset_x,
-            y = cast(f32) offset_y,
-            width = cast(f32) glyph.image.width,
-            height = cast(f32) glyph.image.height,
-        }
-        offset_x += glyph.image.width + 2 * PADDING
-    }
+    atlas_data, atlas_w, atlas_h, recs := pack_glyph_atlas(glyphs, count, job.size, job.family.name)
 
     // Convert GRAYSCALE to GRAY_ALPHA (gray=255, alpha=coverage).
     pixel_count := cast(int) (atlas_w * atlas_h)
