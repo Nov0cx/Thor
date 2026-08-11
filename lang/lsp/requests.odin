@@ -24,7 +24,8 @@ DEADLINE_INTERACTIVE :: 3 * time.Second
 DEADLINE_HEAVY :: 15 * time.Second
 
 // The method each kind is sent as. An empty entry is a kind no server answers
-// here: Package_Doc has no LSP method at all.
+// here. Package_Doc has no LSP method of its own; it rides textDocument/hover
+// (decode_package_doc reads the same reply differently than decode_hover does).
 @(private)
 METHODS := [lang.Request_Kind]string {
     .Definition        = "textDocument/definition",
@@ -34,7 +35,7 @@ METHODS := [lang.Request_Kind]string {
     .References        = "textDocument/references",
     .Signature_Help    = "textDocument/signatureHelp",
     .Completion        = "textDocument/completion",
-    .Package_Doc       = "",
+    .Package_Doc       = "textDocument/hover",
     .Rename            = "textDocument/rename",
     .Diagnostics       = "textDocument/diagnostic",
     .Code_Actions      = "textDocument/codeAction",
@@ -235,7 +236,7 @@ prepare_rename_ok :: proc(ask: ^Ask) -> bool {
 @(private)
 request_deadline :: proc(kind: lang.Request_Kind) -> time.Duration {
     #partial switch kind {
-    case .Document_Symbols, .Workspace_Symbols, .References, .Diagnostics, .Semantic_Tokens, .Rename:
+    case .Document_Symbols, .Workspace_Symbols, .References, .Diagnostics, .Semantic_Tokens, .Rename, .Package_Doc:
         return DEADLINE_HEAVY
     }
     return DEADLINE_INTERACTIVE

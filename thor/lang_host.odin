@@ -324,25 +324,29 @@ thor_goto_workspace_symbol :: proc(thor: ^Thor) {
     if !lang.manager_allows(&thor.lang_manager, ext, .Workspace_Symbols) {
         return
     }
-    id := lang.manager_request_latest(
-        &thor.lang_manager,
-        .Workspace_Symbols,
-        path,
-        ext,
-        source,
-        0,
-        revision,
-        thor.workspace_dir,
-    )
-    if id == 0 {
-        return
-    }
-    // The scan reads and parses every .odin file off-thread, which takes a beat
-    // on a big workspace. Open the picker now (empty, "Loading…") so the chord is
-    // instant; thor_update_workspace_symbols fills it when the result lands.
-    thor.workspace_symbols_request_id = id
     thor.workspace_symbols_typing = false
     thor.workspace_symbols_needs_query = ext != ".odin"
+
+    id: u64
+    if !thor.workspace_symbols_needs_query {
+        // The scan reads and parses every .odin file off-thread, which takes a
+        // beat on a big workspace; the loading picker below keeps the chord
+        // instant regardless.
+        id = lang.manager_request_latest(
+            &thor.lang_manager,
+            .Workspace_Symbols,
+            path,
+            ext,
+            source,
+            0,
+            revision,
+            thor.workspace_dir,
+        )
+        if id == 0 {
+            return
+        }
+    }
+    thor.workspace_symbols_request_id = id
     widgets.command_palette_pick_rich_loading(
         thor.command_palette,
         &thor.ui_context,
@@ -352,6 +356,13 @@ thor_goto_workspace_symbol :: proc(thor: ^Thor) {
         thor_workspace_symbol_query_changed,
         thor,
     )
+    if thor.workspace_symbols_needs_query {
+        // A server-backed workspace/symbol answers an empty query with nothing
+        // (pyright, gopls, clangd): skip that round trip entirely and land the
+        // picker straight in its "type to search" state; on_query_changed
+        // dispatches the first real request once the user types.
+        widgets.command_palette_pick_rich_set(thor.command_palette, {}, "Type to search workspace symbols…")
+    }
 }
 
 // The palette's on_query_changed hook: re-dispatches Workspace_Symbols with
@@ -567,13 +578,30 @@ content_hash :: proc(data: string) -> u64 {
 // how many edits landed, across how many files, and why none did. A false `ok`
 // with `applied > 0` is the one partial case: a file could not be written after
 // earlier ones already had.
+//
+// `resource_ops` runs in a fixed phase order around the text edits — Create,
+// then the edits above, then Rename, then Delete — rather than replaying its
+// own array position; see lang.Resource_Op for why. Create runs first because
+// an edit in the same set may target a file it just made; Rename and Delete run
+// last, and only once the edits committed. Neither joins the edits' Ctrl+Z
+// record — same as the explorer's own rename/delete, which have no undo either.
 @(private)
 thor_apply_edits :: proc(
     thor: ^Thor,
     edits: []lang.Text_Edit,
     origin: string,
     snapshot: u64,
+    resource_ops: []lang.Resource_Op = nil,
 ) -> (applied: int, files: int, ok: bool, reason: string) {
+    for op in resource_ops {
+        if op.kind != .Create {
+            continue
+        }
+        if cok, creason := thor_create_resource(op.path, op.overwrite, op.ignore_if_exists); !cok {
+            return 0, 0, false, creason
+        }
+    }
+
     targets := make([dynamic]Edit_Target, context.temp_allocator)
     for edit in edits {
         index, found := thor_edit_target(thor, &targets, edit.path, origin, snapshot)
@@ -644,6 +672,27 @@ thor_apply_edits :: proc(
     if len(record) > 0 {
         thor_set_edit_undo(thor, record)
         committed = true
+    }
+
+    for op in resource_ops {
+        if op.kind != .Rename {
+            continue
+        }
+        if rok, rreason := thor_rename_resource(thor, op.path, op.new_path, op.overwrite); !rok {
+            return applied, len(targets), false, rreason
+        }
+    }
+    for op in resource_ops {
+        if op.kind != .Delete {
+            continue
+        }
+        if dok, dreason := thor_delete_resource(thor, op.path); !dok {
+            return applied, len(targets), false, dreason
+        }
+    }
+    if len(resource_ops) > 0 {
+        widgets.tree_refresh(thor.tree)
+        thor_refresh_git_status(thor)
     }
     return applied, len(targets), true, ""
 }
@@ -738,11 +787,11 @@ thor_apply_rename :: proc(thor: ^Thor, res: ^lang.Result) {
         return
     }
     thor.rename_request_id = 0
-    if !res.ok || len(res.edits) == 0 {
+    if !res.ok || (len(res.edits) == 0 && len(res.resource_ops) == 0) {
         thor_flash_status(thor, "Nothing to rename here", is_error = true)
         return
     }
-    applied, files, ok, reason := thor_apply_edits(thor, res.edits[:], thor.rename_path, res.revision)
+    applied, files, ok, reason := thor_apply_edits(thor, res.edits[:], thor.rename_path, res.revision, res.resource_ops[:])
     if !ok {
         verb := applied > 0 ? "incomplete" : "aborted"
         thor_flash_status(thor, fmt.tprintf("Rename %s: %s", verb, reason), is_error = true)
@@ -1281,7 +1330,7 @@ thor_on_lang_result :: proc(user: rawptr, res: ^lang.Result) {
 // path, so every file is validated against its own current content.
 @(private = "file")
 thor_apply_pushed_edit :: proc(thor: ^Thor, res: ^lang.Result) {
-    _, _, ok, _ := thor_apply_edits(thor, res.edits[:], "", 0)
+    _, _, ok, _ := thor_apply_edits(thor, res.edits[:], "", 0, res.resource_ops[:])
     if res.on_applied != nil {
         res.on_applied(res.token, ok)
     }
@@ -1417,15 +1466,13 @@ thor_build_reference_items :: proc(thor: ^Thor, res: ^lang.Result) -> []widgets.
 
 // Fills the already-open (loading) workspace-symbol picker once its scan lands.
 // Drops the result if it's superseded by a newer Ctrl+Q or the picker has since
-// been closed or replaced (command_palette_pick_rich_set is a no-op then). An
-// empty *initial* scan against the native Odin engine closes the loading picker
-// and flashes instead of leaving it hanging — that engine always does a full
-// scan, so empty means the workspace really has none. An empty initial scan
-// against a server-backed extension (workspace_symbols_needs_query) or one
-// re-dispatched by typing just empties the list instead: a query-gated server
-// answers nothing until typed, and "no symbols match this text" is not
-// "nothing to show" either way — closing the picker out from under the user
-// would be far more surprising than a blank list under the search box.
+// been closed or replaced (command_palette_pick_rich_set is a no-op then). A
+// server-backed extension never dispatches its initial empty-query scan
+// (thor_goto_workspace_symbol skips it and shows the hint directly), so any
+// result landing here is either the native Odin engine's always-full scan or a
+// re-dispatch from typing — an empty native scan means the workspace really has
+// none and closes the picker with a flash; an empty typed result just empties
+// the list, since "no symbols match this text" is not "nothing to show".
 @(private = "file")
 thor_update_workspace_symbols :: proc(thor: ^Thor, res: ^lang.Result) {
     if res.id != thor.workspace_symbols_request_id {
@@ -1436,12 +1483,8 @@ thor_update_workspace_symbols :: proc(thor: ^Thor, res: ^lang.Result) {
         return // picker closed or replaced by another pick; drop the result
     }
     if !res.ok || len(res.symbols) == 0 {
-        if thor.workspace_symbols_typing || thor.workspace_symbols_needs_query {
-            hint := ""
-            if thor.workspace_symbols_needs_query && !thor.workspace_symbols_typing {
-                hint = "Type to search workspace symbols…"
-            }
-            widgets.command_palette_pick_rich_set(thor.command_palette, {}, hint)
+        if thor.workspace_symbols_typing {
+            widgets.command_palette_pick_rich_set(thor.command_palette, {})
             return
         }
         widgets.command_palette_close(thor.command_palette, &thor.ui_context)

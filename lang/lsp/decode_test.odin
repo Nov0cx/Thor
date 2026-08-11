@@ -1,6 +1,7 @@
 package lsp
 
 import "core:encoding/json"
+import "core:path/filepath"
 import "core:strings"
 import "core:testing"
 
@@ -100,6 +101,9 @@ decode_reply :: proc(s: ^Server, req: ^lang.Request, body: string) -> lang.Resul
 result_release :: proc(res: ^lang.Result) {
     delete(res.location.path)
     delete(res.hover.text)
+    delete(res.doc.title)
+    delete(res.doc.path)
+    delete(res.doc.text)
     for entry in res.signature.entries {
         delete(entry.label)
     }
@@ -117,6 +121,11 @@ result_release :: proc(res: ^lang.Result) {
         delete(edit.new_text)
     }
     delete(res.edits)
+    for op in res.resource_ops {
+        delete(op.path)
+        delete(op.new_path)
+    }
+    delete(res.resource_ops)
     for action in res.actions {
         delete(action.title)
         delete(action.kind)
@@ -126,6 +135,11 @@ result_release :: proc(res: ^lang.Result) {
             delete(edit.new_text)
         }
         delete(action.edits)
+        for op in action.resource_ops {
+            delete(op.path)
+            delete(op.new_path)
+        }
+        delete(action.resource_ops)
     }
     delete(res.actions)
     delete(res.tokens)
@@ -309,6 +323,58 @@ test_decode_hover_empty :: proc(t: ^testing.T) {
         testing.expectf(t, !res.ok, "%q should hover nothing", body)
         result_release(&res)
     }
+}
+
+// Package_Doc reads the same reply shapes as hover, but keeps the Markdown
+// intact rather than flattening it — the opposite of test_decode_hover_markup.
+@(test)
+test_decode_package_doc_keeps_markdown :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Package_Doc, SOURCE, 0) // caret on "alpha"
+
+    res := decode_reply(
+        s,
+        &req,
+        `{"contents":{"kind":"markdown","value":"` +
+        "# package fmt\\n\\n```odin\\nprintln :: proc(args: ..any)\\n```" +
+        `"}}`,
+    )
+    defer result_release(&res)
+
+    testing.expect(t, res.ok)
+    testing.expect(t, strings.contains(res.doc.text, "```"), "markdown fencing must survive")
+    testing.expect(t, strings.contains(res.doc.text, "# package fmt"))
+    testing.expect_value(t, res.doc.title, "package alpha")
+}
+
+// A reply with nothing to show is not a package doc, same as hover.
+@(test)
+test_decode_package_doc_empty :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Package_Doc, SOURCE, 0)
+
+    for body in ([]string{"null", "{}", `{"contents":""}`, `{"contents":[]}`}) {
+        res := decode_reply(s, &req, body)
+        testing.expectf(t, !res.ok, "%q should doc nothing", body)
+        result_release(&res)
+    }
+}
+
+// A hover reply names no directory of its own; the request's own file stands
+// in for "the package directory the page was built from".
+@(test)
+test_decode_package_doc_path_is_request_dir :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Package_Doc, SOURCE, 0)
+
+    res := decode_reply(s, &req, `{"contents":"some text"}`)
+    defer result_release(&res)
+
+    testing.expect(t, res.ok)
+    testing.expect_value(t, res.doc.path, filepath.dir(FILE))
 }
 
 // The DocumentSymbol tree flattens depth first, and selectionRange is the jump
@@ -1062,19 +1128,87 @@ test_decode_rename_document_changes :: proc(t: ^testing.T) {
     testing.expect_value(t, res.edits[0].new_text, "renamed")
 }
 
-// A CreateFile entry anywhere in documentChanges refuses the whole rename: the
-// seam cannot express a resource operation.
+// A RenameFile entry is decoded into resource_ops; on its own (no content
+// edits) it is still a valid, non-empty rename result.
 @(test)
-test_decode_rename_refuses_resource_operation :: proc(t: ^testing.T) {
+test_decode_rename_keeps_resource_operation :: proc(t: ^testing.T) {
     s := held_server()
     defer held_destroy(s)
     req := request_for(.Rename, SOURCE, 0)
 
-    res := decode_reply(s, &req, `{"documentChanges":[{"kind":"create","uri":"` + OTHER_URI + `"}]}`)
+    res := decode_reply(
+        s, &req,
+        `{"documentChanges":[{"kind":"rename","oldUri":"` + FILE_URI + `","newUri":"` + OTHER_URI + `"}]}`,
+    )
     defer result_release(&res)
 
-    testing.expect(t, !res.ok, "a resource operation must refuse the whole rename")
+    testing.expect(t, res.ok, "a resource operation alone must be a valid rename")
+    testing.expect_value(t, len(res.resource_ops), 1)
+    if len(res.resource_ops) != 1 {
+        return
+    }
+    testing.expect_value(t, res.resource_ops[0].kind, lang.Resource_Op_Kind.Rename)
+    testing.expect_value(t, res.resource_ops[0].path, FILE)
+    testing.expect_value(t, res.resource_ops[0].new_path, OTHER)
+}
+
+// A CreateFile for a new file followed by a TextDocumentEdit that populates
+// it: both the resource op and the text edit survive in the same result.
+@(test)
+test_decode_rename_mixed_create_and_edit :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    held_document(s, OTHER, "", 1) // the file the create op is about to make
+    req := request_for(.Rename, SOURCE, 0)
+
+    res := decode_reply(
+        s, &req,
+        `{"documentChanges":[` +
+        `{"kind":"create","uri":"` + OTHER_URI + `"},` +
+        `{"textDocument":{"uri":"` + OTHER_URI + `","version":null},` +
+        `"edits":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"newText":"x"}]}]}`,
+    )
+    defer result_release(&res)
+
+    testing.expect(t, res.ok)
+    testing.expect_value(t, len(res.resource_ops), 1)
+    testing.expect_value(t, len(res.edits), 1)
+    if len(res.resource_ops) != 1 || len(res.edits) != 1 {
+        return
+    }
+    testing.expect_value(t, res.resource_ops[0].kind, lang.Resource_Op_Kind.Create)
+    testing.expect_value(t, res.resource_ops[0].path, OTHER)
+    testing.expect_value(t, res.edits[0].path, OTHER)
+}
+
+// A `kind` this package cannot model (not create/rename/delete) still refuses
+// the whole set, the same as any other malformed entry.
+@(test)
+test_decode_resource_op_unknown_kind_refuses :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Rename, SOURCE, 0)
+
+    res := decode_reply(s, &req, `{"documentChanges":[{"kind":"unknown","uri":"` + OTHER_URI + `"}]}`)
+    defer result_release(&res)
+
+    testing.expect(t, !res.ok, "an unmodeled resource-op kind must refuse the whole rename")
     testing.expect(t, res.edits == nil)
+    testing.expect(t, res.resource_ops == nil)
+}
+
+// A rename entry missing newUri cannot be applied and refuses the whole set.
+@(test)
+test_decode_resource_op_malformed_rename_refuses :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Rename, SOURCE, 0)
+
+    res := decode_reply(s, &req, `{"documentChanges":[{"kind":"rename","oldUri":"` + FILE_URI + `"}]}`)
+    defer result_release(&res)
+
+    testing.expect(t, !res.ok, "a rename with no newUri must refuse the whole set")
+    testing.expect(t, res.resource_ops == nil)
 }
 
 // A range in a file that is neither open nor readable on disk cannot have its
@@ -1150,6 +1284,36 @@ test_decode_code_actions_drops_command_and_disabled :: proc(t: ^testing.T) {
 
     testing.expect(t, !res.ok)
     testing.expect(t, res.actions == nil)
+}
+
+// A code action whose only payload is a CreateFile resource op (no text
+// edits) still survives the zero-edits drop check.
+@(test)
+test_decode_code_actions_keeps_create :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Code_Actions, SOURCE, 0)
+
+    res := decode_reply(
+        s,
+        &req,
+        `[{"title":"New file","kind":"refactor","edit":{"documentChanges":[` +
+        `{"kind":"create","uri":"` + OTHER_URI + `"}]}}]`,
+    )
+    defer result_release(&res)
+
+    testing.expect(t, res.ok)
+    testing.expect_value(t, len(res.actions), 1)
+    if len(res.actions) != 1 {
+        return
+    }
+    testing.expect_value(t, len(res.actions[0].edits), 0)
+    testing.expect_value(t, len(res.actions[0].resource_ops), 1)
+    if len(res.actions[0].resource_ops) != 1 {
+        return
+    }
+    testing.expect_value(t, res.actions[0].resource_ops[0].kind, lang.Resource_Op_Kind.Create)
+    testing.expect_value(t, res.actions[0].resource_ops[0].path, OTHER)
 }
 
 // An action with no inline `edit` and a server that never advertised

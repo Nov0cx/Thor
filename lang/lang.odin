@@ -118,15 +118,41 @@ Text_Edit :: struct {
     new_text: string, // owned; what replaces them
 }
 
+// What a resource operation does to a file, outside the text-edit path.
+Resource_Op_Kind :: enum {
+    Create,
+    Rename,
+    Delete,
+}
+
+// A file-level change a WorkspaceEdit named alongside its text edits: LSP's
+// CreateFile / RenameFile / DeleteFile. `path` is the file created or deleted,
+// or a rename's source; `new_path` is set for Rename only.
+//
+// An applier runs every result's resource ops in a fixed phase order — Create,
+// then its text edits, then Rename, then Delete — rather than replaying
+// documentChanges' own array position. The one interleaving that matters in
+// practice (create a file, then populate it) is exactly what the fixed order
+// gets right; same-file interleaving with a rename or delete is not a pattern
+// real emitters use, so the array position beyond that is not preserved.
+Resource_Op :: struct {
+    kind:             Resource_Op_Kind,
+    path:             string, // owned; absolute
+    new_path:         string, // owned; absolute, Rename only, "" otherwise
+    overwrite:        bool,
+    ignore_if_exists: bool,
+}
+
 // One fix the backend is offering at the caret: a title to show the user and the
 // edits that apply it. Unlike LSP, the edits are computed up front rather than
 // resolved in a second round trip — that split exists to keep IPC off the offer
 // path, and an in-client backend has no IPC to keep off it. Computing both at
 // once also closes the window where the buffer moves between offer and apply.
 Code_Action :: struct {
-    title: string,              // owned; "Import core:fmt"
-    kind:  string,              // owned; "quickfix" / "refactor" — drives the row color
-    edits: [dynamic]Text_Edit,  // owned; same ordering contract as Result.edits
+    title:         string,              // owned; "Import core:fmt"
+    kind:          string,              // owned; "quickfix" / "refactor" — drives the row color
+    edits:         [dynamic]Text_Edit,  // owned; same ordering contract as Result.edits
+    resource_ops:  [dynamic]Resource_Op, // owned; same fixed-phase-order contract as Result.resource_ops
 }
 
 // What a classified identifier turned out to be. The grammar cannot tell most of
@@ -284,6 +310,8 @@ Result :: struct {
     // Rename; owned, freed in job_free. Sorted ascending by (path, start), so an
     // applier walks one file's edits back-to-front to keep the offsets valid.
     edits:     [dynamic]Text_Edit,
+    // Rename; owned, freed in job_free. See Resource_Op for the apply order.
+    resource_ops: [dynamic]Resource_Op,
     report:    Diagnostic_Report, // Diagnostics; owned, freed in job_free
     // Code_Actions; owned, freed in job_free. Each carries its own edit set, so
     // the editor applies exactly the one the user picked.
@@ -1089,6 +1117,11 @@ result_free :: proc(m: ^Manager, res: ^Result) {
         delete(edit.new_text)
     }
     delete(res.edits)
+    for op in res.resource_ops {
+        delete(op.path)
+        delete(op.new_path)
+    }
+    delete(res.resource_ops)
     for action in res.actions {
         delete(action.title)
         delete(action.kind)
@@ -1098,6 +1131,11 @@ result_free :: proc(m: ^Manager, res: ^Result) {
             delete(edit.new_text)
         }
         delete(action.edits)
+        for op in action.resource_ops {
+            delete(op.path)
+            delete(op.new_path)
+        }
+        delete(action.resource_ops)
     }
     delete(res.actions)
     delete(res.tokens) // no owned strings on a token; the array is the whole allocation

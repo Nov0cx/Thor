@@ -1538,6 +1538,84 @@ thor_copy_tree :: proc(src, dst: string) -> os.Error {
     return nil
 }
 
+// Resource_Op.Create's non-interactive counterpart to thor_prompt_new_file: no
+// tab is opened and no confirmation dialog runs — invoking Rename, a Code
+// Action or a pushed edit already implied the user's intent.
+@(private)
+thor_create_resource :: proc(path: string, overwrite, ignore_if_exists: bool) -> (ok: bool, reason: string) {
+    if os.exists(path) {
+        if ignore_if_exists && !overwrite {
+            return true, "" // CreateFileOptions: a no-op, not an error
+        }
+        if !overwrite {
+            return false, "the target already exists"
+        }
+    }
+    if err := os.write_entire_file(path, []byte{}); err != nil {
+        return false, "could not create the file"
+    }
+    return true, ""
+}
+
+// Resource_Op.Rename's non-interactive counterpart to thor_prompt_rename:
+// same cross-device fallback and open-tab retarget, minus the confirmation
+// prompt and the "already exists" refusal when the server asked to overwrite.
+@(private)
+thor_rename_resource :: proc(thor: ^Thor, old_path, new_path: string, overwrite: bool) -> (ok: bool, reason: string) {
+    if thor_same_path(old_path, new_path) {
+        return true, ""
+    }
+    if !overwrite && os.exists(new_path) {
+        return false, "the target already exists"
+    }
+    if err := os.rename(old_path, new_path); err != nil {
+        if !thor_is_cross_device_error(err) {
+            return false, "could not rename the file"
+        }
+        if cerr := thor_copy_tree(old_path, new_path); cerr != nil {
+            return false, "could not rename the file"
+        }
+        if derr := thor_delete_tree(old_path); derr != nil {
+            return false, "renamed, but couldn't remove the original"
+        }
+    }
+
+    canonical := new_path
+    if abs, err := filepath.abs(new_path, context.temp_allocator); err == nil {
+        canonical = abs
+    }
+    for file in thor.open_files {
+        if thor_same_path(file.path, old_path) {
+            delete(file.path)
+            file.path = strings.clone(canonical)
+            file.name = file_base_name(file.path)
+            break
+        }
+    }
+    thor_update_tab_labels(thor)
+    return true, ""
+}
+
+// Resource_Op.Delete's non-interactive counterpart to thor_confirm_delete:
+// synchronous (thor_delete_tree directly), not the async File_Op_Job path —
+// a resource op is a handful of small files, not a whole-tree explorer delete.
+@(private)
+thor_delete_resource :: proc(thor: ^Thor, path: string) -> (ok: bool, reason: string) {
+    if !os.exists(path) {
+        return false, "the file no longer exists"
+    }
+    for file, index in thor.open_files {
+        if thor_same_path(file.path, path) {
+            thor_close_file(thor, index)
+            break
+        }
+    }
+    if err := thor_delete_tree(path); err != nil {
+        return false, "could not delete the file"
+    }
+    return true, ""
+}
+
 // True when `path` is `ancestor` itself or sits somewhere beneath it.
 thor_path_within :: proc(path, ancestor: string) -> bool {
     a, b := path, ancestor

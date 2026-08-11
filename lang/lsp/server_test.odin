@@ -215,7 +215,7 @@ test_server_handshake :: proc(t: ^testing.T) {
     testing.expect(t, fake_sent(&f, `"method":"initialize"`))
     testing.expect(t, fake_sent(&f, `"positionEncodings":["utf-8","utf-16"]`))
     testing.expect(t, fake_sent(&f, `"snippetSupport":false`))
-    testing.expect(t, fake_sent(&f, `"resourceOperations":[]`))
+    testing.expect(t, fake_sent(&f, `"resourceOperations":["create","rename","delete"]`))
     testing.expect(t, fake_sent(&f, `"rootUri":"` + WORKSPACE_URI + `"`))
     testing.expect(t, fake_index(&f, `"method":"initialize"`) < fake_index(&f, `"method":"initialized"`))
 }
@@ -243,8 +243,8 @@ test_server_supports :: proc(t: ^testing.T) {
     testing.expect(t, !server_supports(s, .Hover))
     // Never advertised.
     testing.expect(t, !server_supports(s, .Semantic_Tokens))
-    // No LSP method exists for it at all.
-    testing.expect(t, !server_supports(s, .Package_Doc))
+    // Rides hoverProvider, gated by its own feature flag rather than Hover's.
+    testing.expect(t, server_supports(s, .Package_Doc))
 }
 
 // The document lifetime, in order and with monotonic versions.
@@ -537,6 +537,41 @@ test_server_syncs_before_a_request :: proc(t: ^testing.T) {
     testing.expect(t, fake_sent(&f, `"text":"alpha beta\ngamma delta"`), "the newer text was not the text that was sent")
 }
 
+// Package_Doc reuses hover's wire method, but decode_package_doc keeps the
+// reply as Markdown rather than flattening it the way decode_hover does.
+@(test)
+test_server_package_doc_uses_hover_and_keeps_markdown :: proc(t: ^testing.T) {
+    f: Fake
+    s := fake_server(&f, CAPS_ALL)
+    defer fake_end(&f, s)
+    defer free_all(context.temp_allocator)
+
+    f.result =
+        `{"contents":{"kind":"markdown","value":"# package fmt\n\n` +
+        "```" + `odin\nprintln :: proc(args: ..any)\n` + "```" + `"}}`
+
+    req := lang.Request {
+        kind     = .Package_Doc,
+        path     = SOURCE,
+        ext      = ".fake",
+        source   = BUFFER,
+        offset   = 0,
+        revision = 1,
+    }
+    res := lang.Result {
+        kind = .Package_Doc,
+    }
+    testing.expect(t, server_ensure_started(s, &req), "the server did not start")
+    request_answer(s, &req, &res)
+    defer delete(res.doc.title)
+    defer delete(res.doc.path)
+    defer delete(res.doc.text)
+
+    testing.expect(t, fake_sent(&f, `"method":"textDocument/hover"`), "Package_Doc was not sent as hover")
+    testing.expect(t, res.ok)
+    testing.expect(t, strings.contains(res.doc.text, "```"), "markdown fencing was stripped")
+}
+
 // A document event the pump flushes after a request already synced the same file
 // must not put the older text back. The revision is monotonic per file, so an
 // older one is a queued event the request overtook.
@@ -608,14 +643,14 @@ test_server_request_without_a_method :: proc(t: ^testing.T) {
     defer free_all(context.temp_allocator)
 
     req := lang.Request {
-        kind     = .Package_Doc,
+        kind     = .Progress,
         path     = SOURCE,
         ext      = ".fake",
         source   = BUFFER,
         revision = 1,
     }
     res := lang.Result {
-        kind = .Package_Doc,
+        kind = .Progress,
     }
     testing.expect(t, server_ensure_started(s, &req), "the server did not start")
     request_answer(s, &req, &res)
@@ -768,6 +803,71 @@ test_apply_edit_round_trip :: proc(t: ^testing.T) {
         delete(edit.new_text)
     }
     delete(res.edits)
+}
+
+// A resource operation (delete) inside a pushed applyEdit decodes into
+// resource_ops the same way Rename's decode_workspace_edit does.
+@(test)
+test_apply_edit_push_carries_resource_ops :: proc(t: ^testing.T) {
+    f: Fake
+    s := fake_server(&f, CAPS_ALL)
+    defer fake_end(&f, s)
+
+    server_notify(s, .Opened, SOURCE, ".fake", BUFFER, 1)
+    testing.expect(t, wait_sent(&f, `"method":"textDocument/didOpen"`), "didOpen never arrived")
+
+    mock_frame(
+        &f.mock,
+        `{"jsonrpc":"2.0","id":9,"method":"workspace/applyEdit","params":{"edit":{"documentChanges":[` +
+        `{"kind":"delete","uri":"` + OTHER_URI + `"}]}}}`,
+    )
+
+    res: lang.Result
+    testing.expect(t, wait_push(s, &res), "the applyEdit push never reached the queue")
+    testing.expect(t, res.ok)
+    testing.expect_value(t, len(res.resource_ops), 1)
+    if len(res.resource_ops) == 1 {
+        testing.expect_value(t, res.resource_ops[0].kind, lang.Resource_Op_Kind.Delete)
+        testing.expect_value(t, res.resource_ops[0].path, OTHER)
+    }
+    testing.expect(t, res.on_applied != nil, "the reply the server is blocked on must be answerable")
+
+    res.on_applied(res.token, true)
+    testing.expect(t, wait_sent(&f, `"id":9,"result":{"applied":true}`), "the server never saw its edit applied")
+
+    for op in res.resource_ops {
+        delete(op.path)
+        delete(op.new_path)
+    }
+    delete(res.resource_ops)
+}
+
+// An applyEdit push carrying resource ops that nobody drains (a server torn
+// down mid-flight) must have its resource_ops freed by server_drop_push, the
+// same as its edits — this only shows up as a leak under the tracking
+// allocator, so it needs its own coverage rather than relying on the round
+// trip test above (which always drains its own push).
+@(test)
+test_server_drop_push_frees_resource_ops :: proc(t: ^testing.T) {
+    f: Fake
+    s := fake_server(&f, CAPS_ALL)
+    defer fake_end(&f, s)
+
+    server_notify(s, .Opened, SOURCE, ".fake", BUFFER, 1)
+    testing.expect(t, wait_sent(&f, `"method":"textDocument/didOpen"`), "didOpen never arrived")
+
+    mock_frame(
+        &f.mock,
+        `{"jsonrpc":"2.0","id":9,"method":"workspace/applyEdit","params":{"edit":{"documentChanges":[` +
+        `{"kind":"delete","uri":"` + OTHER_URI + `"}]}}}`,
+    )
+
+    res: lang.Result
+    testing.expect(t, wait_push(s, &res), "the applyEdit push never reached the queue")
+    testing.expect_value(t, len(res.resource_ops), 1)
+
+    server_drop_push(s, &res)
+    testing.expect(t, wait_sent(&f, `"id":9,"result":{"applied":false}`), "an undrained apply must still answer the server")
 }
 
 // A pushed applyEdit nobody answers (language intelligence gated off mid-flight,

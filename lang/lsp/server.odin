@@ -489,12 +489,15 @@ server_apply_edit :: proc(data: rawptr, params: json.Value) -> bool {
     }
 
     edits := make([dynamic]lang.Text_Edit, s.allocator)
-    if !decode_workspace_edit(&ask, edit_value, &edits) {
+    resource_ops := make([dynamic]lang.Resource_Op, s.allocator)
+    if !decode_workspace_edit(&ask, edit_value, &edits, &resource_ops) {
         delete(edits)
+        delete(resource_ops)
         return false
     }
-    if len(edits) == 0 {
+    if len(edits) == 0 && len(resource_ops) == 0 {
         delete(edits)
+        delete(resource_ops)
         return true // an edit that touches nothing is trivially applied
     }
 
@@ -504,11 +507,12 @@ server_apply_edit :: proc(data: rawptr, params: json.Value) -> bool {
 
     sync.lock(&s.push_mutex)
     append(&s.pushes, lang.Result {
-        kind       = .Apply_Edit,
-        ok         = true,
-        edits      = edits,
-        token      = wait,
-        on_applied = lsp_apply_done,
+        kind         = .Apply_Edit,
+        ok           = true,
+        edits        = edits,
+        resource_ops = resource_ops,
+        token        = wait,
+        on_applied   = lsp_apply_done,
     })
     sync.unlock(&s.push_mutex)
 
@@ -583,6 +587,11 @@ server_drop_push :: proc(s: ^Server, res: ^lang.Result) {
             delete(edit.new_text, s.allocator)
         }
         delete(res.edits)
+        for op in res.resource_ops {
+            delete(op.path, s.allocator)
+            delete(op.new_path, s.allocator)
+        }
+        delete(res.resource_ops)
         if res.on_applied != nil {
             res.on_applied(res.token, false)
         }
@@ -1040,8 +1049,9 @@ initialize_params :: proc(s: ^Server) -> string {
 // What Thor can consume, and nothing else: a server that is told the truth here
 // does not send shapes that would be dropped. utf-8 is offered first, since a
 // server that counts in bytes removes the whole position conversion.
-// `resourceOperations: []` is what stops a rename answering with file creations
-// and deletions the seam cannot express.
+// `resourceOperations` names the three thor_apply_edits now applies —
+// create/rename/delete — so a rename that also moves a file is no longer
+// refused outright.
 @(private)
 CLIENT_CAPABILITIES :: `{` +
 `"general":{"positionEncodings":["utf-8","utf-16"]},` +
@@ -1049,7 +1059,7 @@ CLIENT_CAPABILITIES :: `{` +
 `"workspace":{"configuration":true,"workspaceFolders":true,` +
 `"didChangeConfiguration":{"dynamicRegistration":false},` +
 `"symbol":{"dynamicRegistration":false},` +
-`"workspaceEdit":{"documentChanges":true,"resourceOperations":[]}},` +
+`"workspaceEdit":{"documentChanges":true,"resourceOperations":["create","rename","delete"]}},` +
 `"textDocument":{` +
 `"synchronization":{"dynamicRegistration":false,"didSave":true,"willSave":false,"willSaveWaitUntil":false},` +
 `"completion":{"dynamicRegistration":false,"contextSupport":true,` +

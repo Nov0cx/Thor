@@ -1,6 +1,7 @@
 package thor
 
 import "core:os"
+import "core:strings"
 import "core:testing"
 
 import "../lang"
@@ -109,6 +110,120 @@ test_apply_edits_matches_origin_regardless_of_drive_letter_case :: proc(t: ^test
     testing.expect_value(t, applied, 1)
     testing.expect_value(t, files, 1)
     testing.expect_value(t, textedit.text(&file.state), "baz := bar\nx")
+}
+
+// Resource_Op.Create writes an empty file when nothing is there yet.
+@(test)
+test_create_resource_writes_empty_file :: proc(t: ^testing.T) {
+    PATH :: "thor_create_resource.tmp"
+    defer os.remove(PATH)
+
+    ok, reason := thor_create_resource(PATH, false, false)
+    testing.expectf(t, ok, "create refused an empty target: %s", reason)
+    data, err := os.read_entire_file(PATH, context.temp_allocator)
+    testing.expect(t, err == nil, "the file was never written")
+    testing.expect_value(t, string(data), "")
+}
+
+// CreateFileOptions.ignoreIfExists: an existing target is left untouched, not
+// truncated, and the op still reports success.
+@(test)
+test_create_resource_ignore_if_exists_leaves_content :: proc(t: ^testing.T) {
+    PATH :: "thor_create_resource_ignore.tmp"
+    testing.expect(t, os.write_entire_file(PATH, "kept") == nil, "could not create test file")
+    defer os.remove(PATH)
+
+    ok, _ := thor_create_resource(PATH, false, true)
+    testing.expect(t, ok, "ignore_if_exists must not refuse an existing target")
+    data, _ := os.read_entire_file(PATH, context.temp_allocator)
+    testing.expect_value(t, string(data), "kept")
+}
+
+// Neither overwrite nor ignoreIfExists set: an existing target refuses the op.
+@(test)
+test_create_resource_refuses_existing_target :: proc(t: ^testing.T) {
+    PATH :: "thor_create_resource_refuse.tmp"
+    testing.expect(t, os.write_entire_file(PATH, "kept") == nil, "could not create test file")
+    defer os.remove(PATH)
+
+    ok, _ := thor_create_resource(PATH, false, false)
+    testing.expect(t, !ok, "create must refuse an existing target with no option set")
+    data, _ := os.read_entire_file(PATH, context.temp_allocator)
+    testing.expect_value(t, string(data), "kept")
+}
+
+// Resource_Op.Delete removes the file; a target that no longer exists refuses
+// rather than silently succeeding.
+@(test)
+test_delete_resource :: proc(t: ^testing.T) {
+    PATH :: "thor_delete_resource.tmp"
+    testing.expect(t, os.write_entire_file(PATH, "x") == nil, "could not create test file")
+
+    thor := new(Thor)
+    defer free(thor)
+    thor.open_files = make([dynamic]^Open_File)
+    defer delete(thor.open_files)
+
+    ok, reason := thor_delete_resource(thor, PATH)
+    testing.expectf(t, ok, "delete refused an existing file: %s", reason)
+    testing.expect(t, !os.exists(PATH), "the file was not removed")
+
+    ok2, _ := thor_delete_resource(thor, PATH)
+    testing.expect(t, !ok2, "delete must refuse a target that no longer exists")
+}
+
+// Resource_Op.Rename moves the file on disk and retargets any open tab that
+// pointed at the old path, the same way thor_prompt_rename does.
+@(test)
+test_rename_resource_moves_file_and_retargets_tab :: proc(t: ^testing.T) {
+    OLD :: "thor_rename_resource_old.tmp"
+    NEW :: "thor_rename_resource_new.tmp"
+    testing.expect(t, os.write_entire_file(OLD, "x") == nil, "could not create test file")
+    defer os.remove(OLD)
+    defer os.remove(NEW)
+
+    thor := new(Thor)
+    defer free(thor)
+    thor.open_files = make([dynamic]^Open_File)
+    defer delete(thor.open_files)
+
+    file := new(Open_File)
+    file.path = strings.clone(OLD) // owned, matching a real Open_File's contract
+    file.name = OLD
+    file.loaded = true
+    defer {
+        delete(file.path)
+        delete(file.tab_label)
+        free(file)
+    }
+    append(&thor.open_files, file)
+
+    ok, reason := thor_rename_resource(thor, OLD, NEW, false)
+    testing.expectf(t, ok, "rename refused: %s", reason)
+    testing.expect(t, !os.exists(OLD), "the old path still exists")
+    testing.expect(t, os.exists(NEW), "the new path was never written")
+    testing.expect(t, thor_same_path(file.path, NEW), "the open tab was not retargeted")
+}
+
+// A rename target that already exists refuses the op unless the server asked
+// to overwrite it.
+@(test)
+test_rename_resource_refuses_existing_target :: proc(t: ^testing.T) {
+    OLD :: "thor_rename_resource_refuse_old.tmp"
+    NEW :: "thor_rename_resource_refuse_new.tmp"
+    testing.expect(t, os.write_entire_file(OLD, "x") == nil, "could not create test file")
+    testing.expect(t, os.write_entire_file(NEW, "y") == nil, "could not create test file")
+    defer os.remove(OLD)
+    defer os.remove(NEW)
+
+    thor := new(Thor)
+    defer free(thor)
+    thor.open_files = make([dynamic]^Open_File)
+    defer delete(thor.open_files)
+
+    ok, _ := thor_rename_resource(thor, OLD, NEW, false)
+    testing.expect(t, !ok, "rename must refuse an existing target with no overwrite")
+    testing.expect(t, os.exists(OLD), "the old file must be left alone on refusal")
 }
 
 // The indicator waits out LANG_BUSY_DELAY_SECS of unbroken work: a request

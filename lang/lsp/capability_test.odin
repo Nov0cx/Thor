@@ -31,7 +31,10 @@ test_capabilities_providers :: proc(t: ^testing.T) {
         }}`,
     )
 
-    testing.expect_value(t, caps.kinds, bit_set[lang.Request_Kind]{.Definition, .Hover, .Completion, .Semantic_Tokens})
+    testing.expect_value(
+        t, caps.kinds,
+        bit_set[lang.Request_Kind]{.Definition, .Hover, .Package_Doc, .Completion, .Semantic_Tokens},
+    )
 }
 
 // A reply that is not a capabilities object leaves a server that claims nothing,
@@ -47,13 +50,19 @@ test_capabilities_empty :: proc(t: ^testing.T) {
     }
 }
 
-// Package_Doc is Thor's own idea with no LSP method behind it, so no reply can
-// make a server claim it.
+// Package_Doc is Thor's own idea with no LSP method of its own; it rides
+// hoverProvider, the request it is actually sent as, so the two kinds are
+// claimed together and a `packageDocProvider` key (which does not exist in the
+// protocol) claims neither.
 @(test)
-test_capabilities_never_claims_package_doc :: proc(t: ^testing.T) {
-    caps := decode(`{"capabilities": {"packageDocProvider": true, "": true, "definitionProvider": true}}`)
-    testing.expect(t, .Package_Doc not_in caps.kinds)
-    testing.expect(t, .Definition in caps.kinds)
+test_capabilities_package_doc_follows_hover :: proc(t: ^testing.T) {
+    with_hover := decode(`{"capabilities": {"hoverProvider": true}}`)
+    testing.expect(t, .Hover in with_hover.kinds)
+    testing.expect(t, .Package_Doc in with_hover.kinds)
+
+    without_hover := decode(`{"capabilities": {"packageDocProvider": true, "definitionProvider": true}}`)
+    testing.expect(t, .Package_Doc not_in without_hover.kinds)
+    testing.expect(t, .Definition in without_hover.kinds)
 }
 
 // utf-16 is the protocol default and the fallback for anything Thor cannot
@@ -148,7 +157,7 @@ test_capabilities_real_reply :: proc(t: ^testing.T) {
     testing.expect_value(
         t,
         caps.kinds,
-        lang.FEATURES_ALL - {.Package_Doc, .Diagnostics, .Progress, .Apply_Edit},
+        lang.FEATURES_ALL - {.Diagnostics, .Progress, .Apply_Edit},
     )
 }
 

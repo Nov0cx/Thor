@@ -11,7 +11,8 @@ import lang ".."
 
 // The `initialize` result key that advertises each request kind. Indexed by
 // Request_Kind, so a new kind must name its key here as well. Package_Doc has no
-// LSP equivalent and keeps an empty key: a server never claims it.
+// LSP equivalent of its own; it rides hoverProvider, the request it is actually
+// sent as, so the two kinds are claimed together.
 @(private)
 PROVIDER_KEYS := [lang.Request_Kind]string {
     .Definition        = "definitionProvider",
@@ -21,7 +22,7 @@ PROVIDER_KEYS := [lang.Request_Kind]string {
     .References        = "referencesProvider",
     .Signature_Help    = "signatureHelpProvider",
     .Completion        = "completionProvider",
-    .Package_Doc       = "",
+    .Package_Doc       = "hoverProvider",
     .Rename            = "renameProvider",
     .Diagnostics       = "diagnosticProvider",
     .Code_Actions      = "codeActionProvider",

@@ -17,8 +17,9 @@ import "../widgets"
 // and the edits are cloned into Thor-owned storage the pick callback reads on a
 // later frame — the same reason the symbol picker clones its jump targets.
 Pending_Action :: struct {
-    title: string, // owned
-    edits: [dynamic]lang.Text_Edit, // owned
+    title:        string, // owned
+    edits:        [dynamic]lang.Text_Edit, // owned
+    resource_ops: [dynamic]lang.Resource_Op, // owned
 }
 
 // Ctrl+.: ask the engine what it can fix at the caret. Async; thor_show_code_actions
@@ -115,6 +116,15 @@ thor_show_code_actions :: proc(thor: ^Thor, res: ^lang.Result) {
                 new_text = strings.clone(edit.new_text),
             })
         }
+        for op in action.resource_ops {
+            append(&pending.resource_ops, lang.Resource_Op {
+                kind             = op.kind,
+                path             = strings.clone(op.path),
+                new_path         = strings.clone(op.new_path),
+                overwrite        = op.overwrite,
+                ignore_if_exists = op.ignore_if_exists,
+            })
+        }
         append(&thor.code_actions, pending)
         append(&items, widgets.Pick_Item {
             text     = action.title,
@@ -149,6 +159,7 @@ thor_pick_code_action :: proc(data: rawptr, index: int) {
         action.edits[:],
         thor.code_action_path,
         thor.code_action_revision,
+        action.resource_ops[:],
     )
     if !ok {
         verb := applied > 0 ? "incomplete" : "aborted"
@@ -159,9 +170,17 @@ thor_pick_code_action :: proc(data: rawptr, index: int) {
 }
 
 // The preview line under the selected row: how much the fix changes, so a
-// one-line insert reads differently from a three-file sweep before it is applied.
+// one-line insert reads differently from a three-file sweep before it is
+// applied. A resource-op-only fix (no text edits at all) is described by its
+// file operations instead.
 @(private = "file")
 thor_action_detail :: proc(action: lang.Code_Action) -> string {
+    if len(action.edits) == 0 && len(action.resource_ops) > 0 {
+        if len(action.resource_ops) == 1 {
+            return "1 file operation"
+        }
+        return fmt.tprintf("%d file operations", len(action.resource_ops))
+    }
     if len(action.edits) == 1 {
         return "1 edit"
     }
@@ -191,6 +210,11 @@ thor_clear_code_actions :: proc(thor: ^Thor) {
             delete(edit.new_text)
         }
         delete(action.edits)
+        for op in action.resource_ops {
+            delete(op.path)
+            delete(op.new_path)
+        }
+        delete(action.resource_ops)
     }
     clear(&thor.code_actions)
 }

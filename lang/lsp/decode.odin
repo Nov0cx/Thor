@@ -41,6 +41,8 @@ request_decode :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
         decode_rename(ask, value, res)
     case .Code_Actions:
         decode_code_actions(ask, value, res)
+    case .Package_Doc:
+        decode_package_doc(ask, value, res)
     }
 }
 
@@ -123,6 +125,34 @@ decode_hover :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
         text  = strings.clone(text),
         start = start,
         end   = end,
+    }
+    res.ok = true
+}
+
+// The same reply shapes as hover, kept as Markdown rather than flattened: the
+// page goes to a pane that renders it, not a text-only popup. `title` and
+// `path` have no reply field to read: title is synthesized as "package NAME"
+// from the identifier under the caret, matching the in-client engine's
+// convention; path falls back to the requesting file's own directory, since
+// LSP has no "package directory" concept to read one from.
+@(private)
+decode_package_doc :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
+    object, is_object := value.(json.Object)
+    if !is_object {
+        return
+    }
+    out := make([dynamic]u8, context.temp_allocator)
+    hover_append(&out, object["contents"])
+    text := strings.trim_space(string(out[:]))
+    if text == "" {
+        return
+    }
+    start, end := identifier_span(ask.req.source, ask.req.offset)
+    name := ask.req.source[start:end]
+    res.doc = lang.Doc_Info {
+        title = name == "" ? strings.clone("package") : strings.concatenate({"package ", name}),
+        path  = strings.clone(filepath.dir(ask.req.path)),
+        text  = strings.clone(text),
     }
     res.ok = true
 }
@@ -594,13 +624,17 @@ apply_semantic_edits :: proc(prev: []i64, edits: json.Array, allocator := contex
 }
 
 // `WorkspaceEdit` from textDocument/rename. Sorted ascending by (path, start),
-// the order thor_apply_edits walks each file back-to-front by.
+// the order thor_apply_edits walks each file back-to-front by. A pure file
+// rename with no content edits is a valid, non-empty result on its own.
 @(private)
 decode_rename :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
     res.edits = make([dynamic]lang.Text_Edit)
-    if !decode_workspace_edit(ask, value, &res.edits) {
+    res.resource_ops = make([dynamic]lang.Resource_Op)
+    if !decode_workspace_edit(ask, value, &res.edits, &res.resource_ops) {
         delete(res.edits)
         res.edits = nil
+        delete(res.resource_ops)
+        res.resource_ops = nil
         return
     }
     slice.sort_by(res.edits[:], proc(a, b: lang.Text_Edit) -> bool {
@@ -609,7 +643,7 @@ decode_rename :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
         }
         return a.start < b.start
     })
-    res.ok = len(res.edits) > 0
+    res.ok = len(res.edits) > 0 || len(res.resource_ops) > 0
 }
 
 // `(Command | CodeAction)[]`. An item with no `edit` gets codeAction/resolve
@@ -636,14 +670,17 @@ decode_code_actions :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
             continue
         }
         action := lang.Code_Action {
-            title = strings.clone(string(title)),
-            kind  = strings.clone(action_kind_of(object["kind"])),
-            edits = make([dynamic]lang.Text_Edit),
+            title        = strings.clone(string(title)),
+            kind         = strings.clone(action_kind_of(object["kind"])),
+            edits        = make([dynamic]lang.Text_Edit),
+            resource_ops = make([dynamic]lang.Resource_Op),
         }
-        if !decode_action_edit(ask, object, &action.edits) || len(action.edits) == 0 {
+        if !decode_action_edit(ask, object, &action.edits, &action.resource_ops) ||
+           (len(action.edits) == 0 && len(action.resource_ops) == 0) {
             delete(action.title)
             delete(action.kind)
             delete(action.edits)
+            delete(action.resource_ops)
             continue
         }
         slice.sort_by(action.edits[:], proc(a, b: lang.Text_Edit) -> bool {
@@ -672,10 +709,15 @@ decode_code_actions :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
 // codeAction/resolve on this worker's own connection — the shared conn_lock
 // covers the whole request, so a second call here is safe.
 @(private)
-decode_action_edit :: proc(ask: ^Ask, object: json.Object, out: ^[dynamic]lang.Text_Edit) -> bool {
+decode_action_edit :: proc(
+    ask: ^Ask,
+    object: json.Object,
+    out: ^[dynamic]lang.Text_Edit,
+    ops: ^[dynamic]lang.Resource_Op,
+) -> bool {
     if edit, has_edit := object["edit"]; has_edit {
         if _, is_null := edit.(json.Null); !is_null {
-            return decode_workspace_edit(ask, edit, out)
+            return decode_workspace_edit(ask, edit, out, ops)
         }
     }
     if !ask.server.caps.resolve_actions {
@@ -698,7 +740,7 @@ decode_action_edit :: proc(ask: ^Ask, object: json.Object, out: ^[dynamic]lang.T
     if !has_edit {
         return false
     }
-    return decode_workspace_edit(ask, edit, out)
+    return decode_workspace_edit(ask, edit, out, ops)
 }
 
 // The LSP CodeActionKind ("quickfix", "refactor.extract", "source.fixAll") onto
@@ -720,49 +762,71 @@ action_kind_of :: proc(value: json.Value) -> string {
     return ""
 }
 
-// Decodes a WorkspaceEdit into `out`, one lang.Text_Edit per range, old_text
-// read from the current file contents through resolve_range + ask_source.
-// False refuses the whole edit: a resource operation (CreateFile / RenameFile /
-// DeleteFile) was present, or a range, path or file could not be verified.
-// Edits already appended are freed before returning false, so a caller never
-// has to track how far decoding got.
+// Decodes a WorkspaceEdit into `out` (one lang.Text_Edit per range, old_text
+// read from the current file contents through resolve_range + ask_source) and
+// `ops` (one lang.Resource_Op per CreateFile/RenameFile/DeleteFile entry).
+// False refuses the whole edit: an unrecognized resource-op kind, or a range,
+// URI or file that could not be verified — the seam cannot express what was
+// asked, and a half-applied rename breaks a build silently. Edits and ops
+// already appended are freed before returning false, so a caller never has to
+// track how far decoding got.
 @(private)
-decode_workspace_edit :: proc(ask: ^Ask, value: json.Value, out: ^[dynamic]lang.Text_Edit) -> bool {
+decode_workspace_edit :: proc(
+    ask: ^Ask,
+    value: json.Value,
+    out: ^[dynamic]lang.Text_Edit,
+    ops: ^[dynamic]lang.Resource_Op,
+) -> bool {
     object, is_object := value.(json.Object)
     if !is_object {
         return false
     }
-    start := len(out^)
+    edit_start := len(out^)
+    op_start := len(ops^)
     ok := true
     if changes, has := object["documentChanges"].(json.Array); has {
-        ok = decode_document_changes(ask, changes, out)
+        ok = decode_document_changes(ask, changes, out, ops)
     } else if changes, has := object["changes"].(json.Object); has {
         ok = decode_changes_map(ask, changes, out)
     }
     if !ok {
-        for edit in out[start:] {
+        for edit in out[edit_start:] {
             delete(edit.path)
             delete(edit.old_text)
             delete(edit.new_text)
         }
-        resize(out, start)
+        resize(out, edit_start)
+        for op in ops[op_start:] {
+            delete(op.path)
+            delete(op.new_path)
+        }
+        resize(ops, op_start)
         return false
     }
     return true
 }
 
-// `documentChanges`: TextDocumentEdit items, or a resource operation that
-// refuses the whole set — the seam cannot express creating, renaming or
-// deleting a file, and a half-applied rename breaks a build silently.
+// `documentChanges`: TextDocumentEdit items and CreateFile/RenameFile/
+// DeleteFile resource operations, interleaved in whatever order the server
+// sent them — see Resource_Op for why that order is not itself preserved. A
+// `kind` this package cannot model at all still refuses the whole set.
 @(private)
-decode_document_changes :: proc(ask: ^Ask, items: json.Array, out: ^[dynamic]lang.Text_Edit) -> bool {
+decode_document_changes :: proc(
+    ask: ^Ask,
+    items: json.Array,
+    out: ^[dynamic]lang.Text_Edit,
+    ops: ^[dynamic]lang.Resource_Op,
+) -> bool {
     for item in items {
         object, is_object := item.(json.Object)
         if !is_object {
             return false
         }
         if _, is_resource_op := object["kind"]; is_resource_op {
-            return false
+            if !decode_resource_op(object, ops) {
+                return false
+            }
+            continue
         }
         doc, has_doc := object["textDocument"].(json.Object)
         uri, has_uri := doc["uri"].(json.String)
@@ -777,8 +841,78 @@ decode_document_changes :: proc(ask: ^Ask, items: json.Array, out: ^[dynamic]lan
     return true
 }
 
+// One CreateFile / RenameFile / DeleteFile entry. False on a `kind` this
+// package does not model, or a URI that names something other than a local
+// file.
+@(private)
+decode_resource_op :: proc(object: json.Object, ops: ^[dynamic]lang.Resource_Op) -> bool {
+    kind, has_kind := object["kind"].(json.String)
+    if !has_kind {
+        return false
+    }
+    overwrite, ignore_if_exists := resource_op_options(object["options"])
+    switch string(kind) {
+    case "create":
+        uri, has_uri := object["uri"].(json.String)
+        if !has_uri {
+            return false
+        }
+        path, is_file := uri_to_path(string(uri))
+        if !is_file {
+            return false
+        }
+        append(ops, lang.Resource_Op{kind = .Create, path = path, overwrite = overwrite, ignore_if_exists = ignore_if_exists})
+    case "delete":
+        uri, has_uri := object["uri"].(json.String)
+        if !has_uri {
+            return false
+        }
+        path, is_file := uri_to_path(string(uri))
+        if !is_file {
+            return false
+        }
+        append(ops, lang.Resource_Op{kind = .Delete, path = path})
+    case "rename":
+        old_uri, has_old := object["oldUri"].(json.String)
+        new_uri, has_new := object["newUri"].(json.String)
+        if !has_old || !has_new {
+            return false
+        }
+        old_path, old_ok := uri_to_path(string(old_uri))
+        new_path, new_ok := uri_to_path(string(new_uri))
+        if !old_ok || !new_ok {
+            delete(old_path)
+            delete(new_path)
+            return false
+        }
+        append(ops, lang.Resource_Op{kind = .Rename, path = old_path, new_path = new_path, overwrite = overwrite, ignore_if_exists = ignore_if_exists})
+    case:
+        return false
+    }
+    return true
+}
+
+// CreateFileOptions / RenameFileOptions / DeleteFileOptions' two shared flags.
+// DeleteFileOptions.recursive is not read — a delete always recurses, which is
+// what a server asking to remove a directory needs regardless of the flag.
+@(private)
+resource_op_options :: proc(value: json.Value) -> (overwrite, ignore_if_exists: bool) {
+    object, is_object := value.(json.Object)
+    if !is_object {
+        return
+    }
+    if flag, fok := object["overwrite"].(json.Boolean); fok {
+        overwrite = bool(flag)
+    }
+    if flag, fok := object["ignoreIfExists"].(json.Boolean); fok {
+        ignore_if_exists = bool(flag)
+    }
+    return
+}
+
 // `changes`: a plain uri -> TextEdit[] map, the shape a server without
-// documentChanges support answers with.
+// documentChanges support answers with. This shape has no resource-op
+// equivalent in the protocol.
 @(private)
 decode_changes_map :: proc(ask: ^Ask, changes: json.Object, out: ^[dynamic]lang.Text_Edit) -> bool {
     for uri, value in changes {

@@ -1415,9 +1415,9 @@ Landed since (`lang/lsp`, M1–M7):
 - [x] Registered *after* the Odin engine, so in-client wins for `.odin` and the
       LSP covers everything else (clangd, rust-analyzer, gopls, …); an entry that
       sets `"override": true` for `.odin` swaps the order.
-- [x] Nine request kinds answered: `Definition`, `Hover`, `Document_Symbols`,
+- [x] Ten request kinds answered: `Definition`, `Hover`, `Document_Symbols`,
       `Workspace_Symbols`, `References`, `Signature_Help`, `Completion`,
-      `Diagnostics` and `Semantic_Tokens`
+      `Diagnostics`, `Semantic_Tokens` and `Package_Doc`
       (`requests.odin` for the method and the params, `decode.odin` for the
       reply). A request publishes its own buffer to the server before it names a
       position in it, since the pump drains document events on its own schedule.
@@ -1428,9 +1428,17 @@ Landed since (`lang/lsp`, M1–M7):
       undeclared name. This is where `Field` and `Enum_Member` first become real.
       Deliberate lossage: completion drops `textEdit`, `additionalTextEdits`,
       `command` and snippets, and does not call `completionItem/resolve`.
-      `workspace/symbol` is sent with an **empty query**: nothing above the seam
-      carries one, so a server that answers an empty query with nothing (clangd,
-      gopls) lists nothing.
+      `workspace/symbol` is still sent with an **empty query** on the wire when
+      one goes out at all — nothing above the seam carries one — but
+      `thor_goto_workspace_symbol` (`thor/lang_host.odin`) no longer sends that
+      initial round trip for a server-backed extension: a server that answers an
+      empty query with nothing (clangd, gopls, pyright) would just come back
+      empty anyway, so the picker opens straight into its "type to search" hint
+      and the first real request is the one the user's typing dispatches.
+      `Package_Doc` has no LSP method of its own; it rides `textDocument/hover`
+      (`decode_package_doc`, unlike `decode_hover`, keeps the reply as Markdown
+      rather than flattening it, and synthesizes the `title`/`path` a hover
+      reply has no fields for).
 - [x] Diagnostics both ways. `textDocument/publishDiagnostics` is decoded by the
       pump into the per-server push queue and taken by `manager_dispatch` through
       `Backend.poll`; `textDocument/diagnostic` is the pull, answered where the
@@ -1447,10 +1455,19 @@ Landed since (`lang/lsp`, M1–M7):
       at each range from the request's own buffer, a server-held open document
       (`ask_source`'s third source, needed so a second open file's `old_text`
       verifies against its live text rather than a stale disk copy), or disk.
-      A `WorkspaceEdit` carrying any `CreateFile`/`RenameFile`/`DeleteFile`
-      refuses the whole rename — the seam cannot express a resource operation,
-      and we declare `resourceOperations: []` so a conforming server never
-      sends one. `Code_Actions` calls `codeAction/resolve` eagerly on the same
+      A `WorkspaceEdit`'s `CreateFile`/`RenameFile`/`DeleteFile` entries decode
+      into `lang.Resource_Op` (`Result.resource_ops`, `Code_Action.resource_ops`)
+      alongside the text edits; we declare `resourceOperations:
+      ["create","rename","delete"]` so a server is told it can send one.
+      `thor_apply_edits` runs them in a fixed phase order — Create, then the
+      text edits, then Rename, then Delete — rather than replaying
+      `documentChanges`' own array position (see `lang.Resource_Op`'s doc
+      comment for why that is enough in practice). Only an unrecognized `kind`
+      still refuses the whole set. Neither a resource op nor the file it
+      touches joins the edits' combined Ctrl+Z record — same as the explorer's
+      own rename/delete, which have no undo of their own either; a follow-up
+      would need new `Edit_Undo_File` variants for a reversible rename/delete.
+      `Code_Actions` calls `codeAction/resolve` eagerly on the same
       worker for any action returned with no `edit`, and drops a command-only
       action outright, since Thor has no `workspace/executeCommand` path; the
       caret carries no selection end, so a selection-scoped action ("extract
@@ -1595,8 +1612,15 @@ not a status, so this section stays the source of truth for what is built.
   this grammar does not produce — handled in `collect_short_decls`; revisit if
   the grammar is regenerated.
 - Only `.odin` is handled in-client. Another language is answered by a
-  configured language server, which reaches only as far as that server does:
-  `Package_Doc` has no LSP method at all, `Workspace_Symbols`' initial scan is
-  still asked with an empty query (a protocol limitation, not a dispatch bug —
-  the picker now shows a "type to search" hint instead of looking broken), and
-  `Rename` refuses a `WorkspaceEdit` carrying a resource operation.
+  configured language server, which reaches only as far as that server does.
+  `Package_Doc` rides `textDocument/hover`, `Workspace_Symbols`' initial empty
+  query is no longer sent at all for a server-backed extension (the picker
+  opens straight into its "type to search" hint; a query-gated server
+  answering nothing until typed is still a protocol characteristic, not a
+  dispatch bug), and `Rename`/`Code_Actions`/a pushed `applyEdit` now apply a
+  `WorkspaceEdit`'s `CreateFile`/`RenameFile`/`DeleteFile` operations
+  (`lang.Resource_Op`) — in a fixed phase order rather than
+  `documentChanges`' own array position, and with no Ctrl+Z of their own (see
+  `lang.Resource_Op`'s doc comment and the M9 Rename/Code Actions entry
+  above). A follow-up: reversible resource ops would need new
+  `Edit_Undo_File` variants.
