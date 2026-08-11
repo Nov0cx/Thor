@@ -136,9 +136,10 @@ session_terminate :: proc(session: ^Session) {
         win32.CloseHandle(session.stdin_w)
         session.stdin_w = nil
     }
-    if session.job != nil {
-        TerminateJobObject(session.job, 0)
-    } else {
+    // The job kill also reaches the grandchildren it holds; a process kill
+    // alone does not, but it is the best that is left when the job itself
+    // refuses to die.
+    if session.job == nil || !TerminateJobObject(session.job, 0) {
         win32.TerminateProcess(session.process, 0)
     }
 }

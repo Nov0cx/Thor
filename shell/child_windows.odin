@@ -153,9 +153,10 @@ child_terminate :: proc(child: ^Child) {
         return
     }
     child_close_in(child)
-    if child.job != nil {
-        TerminateJobObject(child.job, 0)
-    } else {
+    // The job kill also reaches the grandchildren it holds; a process kill
+    // alone does not, but it is the best that is left when the job itself
+    // refuses to die.
+    if child.job == nil || !TerminateJobObject(child.job, 0) {
         win32.TerminateProcess(child.process, 0)
     }
 }

@@ -134,9 +134,10 @@ run :: proc(command: string, cwd: string, timeout: time.Duration = 0) -> string 
         timed_out = win32.WaitForSingleObject(pi.hProcess, wait_ms) != win32.WAIT_OBJECT_0
     }
     if timed_out {
-        if job != nil {
-            TerminateJobObject(job, 1)
-        } else {
+        // The job kill also reaches the grandchildren it holds; a process
+        // kill alone does not, but it is the best that is left when the job
+        // itself refuses to die.
+        if job == nil || !TerminateJobObject(job, 1) {
             win32.TerminateProcess(pi.hProcess, 1)
         }
         fmt.sbprintf(&builder, "[shell] command stopped after %v\n", timeout)
