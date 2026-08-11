@@ -137,6 +137,24 @@ lock_string_metatable :: proc(L: ^lua.State) {
     lua.pop(L, 1)
 }
 
+// Shallow-clones the table at the top of the stack, replacing it there. Used
+// so a plugin's copy of a stdlib table (`string`, `table`, `math`, …) is its
+// own object — mutating it cannot reach another plugin or the host.
+@(private)
+clone_table_shallow :: proc(L: ^lua.State) {
+    src := lua.gettop(L)
+    lua.createtable(L, 0, 0)
+    dst := lua.gettop(L)
+    lua.pushnil(L)
+    for lua.next(L, src) != 0 {
+        lua.pushvalue(L, -2) // key
+        lua.pushvalue(L, -2) // value
+        lua.rawset(L, dst)
+        lua.pop(L, 1)
+    }
+    lua.remove(L, src)
+}
+
 // Builds the plugin's `_ENV`: a copy of the trimmed globals, its own `thor`
 // table, `print` routed to the console, and a folder-local `require`. Leaves
 // the table on the stack.
@@ -146,15 +164,21 @@ push_sandbox_env :: proc(m: ^Manager, index: int) {
     lua.createtable(L, 0, 32)
     env := lua.gettop(L)
 
-    // Copy the surviving globals by reference. Values are shared (tables like
-    // `string` are immutable in practice, and the string metatable is locked),
-    // but the bindings are per plugin, so assigning a global cannot leak.
+    // Copy the surviving globals. A table (`string`, `table`, `math`, `os`,
+    // `coroutine`, `utf8`) is cloned one level deep, so a plugin mutating its own
+    // copy — `string.format = ...` — cannot reach any other plugin or the host,
+    // which would otherwise share that exact table object. Non-table values
+    // (functions, numbers) stay shared: a function value cannot be mutated in
+    // place, and each plugin already has its own binding for the name.
     lua.rawgeti(L, lua.REGISTRYINDEX, lua.RIDX_GLOBALS)
     globals := lua.gettop(L)
     lua.pushnil(L)
     for lua.next(L, globals) != 0 {
         lua.pushvalue(L, -2) // key
         lua.pushvalue(L, -2) // value
+        if lua.istable(L, -1) {
+            clone_table_shallow(L)
+        }
         lua.rawset(L, env)
         lua.pop(L, 1)
     }

@@ -172,6 +172,31 @@ test_sandbox_isolates_globals :: proc(t: ^testing.T) {
     testing.expectf(t, strings.contains(printed(&r), "libs=nilnilnilnilnil"), "unsafe library reachable: %q", printed(&r))
 }
 
+// Standard-library tables are cloned per plugin, so one plugin monkey-patching
+// a stdlib function cannot corrupt it for another.
+@(test)
+test_sandbox_isolates_stdlib_tables :: proc(t: ^testing.T) {
+    r: Recorder
+    recorder_init(&r)
+    defer recorder_destroy(&r)
+    m: Manager
+    recording_manager(&m, &r)
+    defer manager_destroy(&m)
+
+    tamper := `string.format = function(...) return "pwned" end
+table.insert = function(...) end`
+    testing.expect(t, manager_load_source(&m, "tamper", "plugins/tamper", tamper, {}), "plugin runs")
+
+    probe := `local list = {}
+table.insert(list, "x")
+thor.print("format=" .. string.format("%d", 7) .. " inserted=" .. tostring(#list))`
+    testing.expect(t, manager_load_source(&m, "probe", "plugins/probe", probe, {}), "plugin runs")
+
+    out := printed(&r)
+    testing.expectf(t, strings.contains(out, "format=7"), "string.format leaked across plugins: %q", out)
+    testing.expectf(t, strings.contains(out, "inserted=1"), "table.insert leaked across plugins: %q", out)
+}
+
 // A plugin that never returns is cut off instead of freezing the editor.
 @(test)
 test_sandbox_stops_runaway_plugin :: proc(t: ^testing.T) {
