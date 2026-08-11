@@ -13,10 +13,16 @@ import "core:testing"
 @(test)
 test_window_file_keying :: proc(t: ^testing.T) {
     a := thor_window_file("D:\\Thor\\Sub")
-    b := thor_window_file("d:/thor/sub")
+    b := thor_window_file("D:/Thor/Sub")
     testing.expect_value(t, a, b)
     testing.expect(t, strings.has_suffix(a, ".json"), "a record file must be JSON")
     testing.expect(t, !strings.contains(thor_path_key("D:\\Thor"), "\\"), "a path key must hold no separators")
+
+    // Case-insensitive keying only holds where the host filesystem is: Windows.
+    when ODIN_OS == .Windows {
+        c := thor_window_file("d:/thor/sub")
+        testing.expect_value(t, a, c)
+    }
 }
 
 // A hyphen in a folder name must not read as a separator. Both spellings mapped
@@ -34,7 +40,11 @@ test_path_key_separates_hyphens_from_separators :: proc(t: ^testing.T) {
         thor_path_key("C:\\a\\b-c") != thor_path_key("C:\\a-b\\c"),
         "moving the hyphen must change the key",
     )
-    testing.expect_value(t, thor_path_key("C:\\foo-bar"), thor_path_key("c:/FOO-BAR/"))
+
+    // Case-insensitive keying only holds where the host filesystem is: Windows.
+    when ODIN_OS == .Windows {
+        testing.expect_value(t, thor_path_key("C:\\foo-bar"), thor_path_key("c:/FOO-BAR/"))
+    }
 }
 
 // A key ends up in a filename, so it holds no separator, no drive colon and no
