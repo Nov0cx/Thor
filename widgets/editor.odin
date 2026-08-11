@@ -975,8 +975,12 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
             }
             return true
         }
-        // Double-click selects the word under the cursor and arms word-drag.
+        // Double-click selects the word under the cursor and arms word-drag. A
+        // preceding Ctrl+Click at the same spot can still count toward this click
+        // (ui.Context tracks position/time, not modifiers), so goto_click must
+        // clear here too or the following drag stays suppressed.
         if event.click_count == 2 {
+            editor.goto_click = false
             if pos, ok := editor_pos_at(editor, event.mouse_position); ok {
                 lo, hi, found := textedit.word_range_at(textedit.text(editor.state), pos)
                 if found {
@@ -987,6 +991,10 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
                     return true
                 }
             }
+            // No word under the click (whitespace/punctuation): fall through to a
+            // plain caret placement, and drop any word-drag armed by an earlier
+            // successful double-click so the drag doesn't reuse its stale bounds.
+            editor.select_by_word = false
             editor_place_caret_at(editor, event.mouse_position)
             return true
         }
