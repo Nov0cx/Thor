@@ -38,12 +38,15 @@ Session :: struct {
 @(private = "file")
 KEY_STEM_MAX :: 64
 
-// A workspace path in its comparison form: lowercased (Windows is
-// case-insensitive), '/' separators, no trailing separator.
+// A workspace path in its comparison form: lowercased on Windows (the only
+// platform guaranteed case-insensitive), '/' separators, no trailing separator.
 @(private = "file")
 thor_normal_workspace :: proc(workspace_dir: string) -> string {
-    lower := strings.to_lower(workspace_dir, context.temp_allocator)
-    slashed, _ := strings.replace_all(lower, "\\", "/", context.temp_allocator)
+    cased := workspace_dir
+    when ODIN_OS == .Windows {
+        cased = strings.to_lower(workspace_dir, context.temp_allocator)
+    }
+    slashed, _ := strings.replace_all(cased, "\\", "/", context.temp_allocator)
     trimmed := strings.trim_right(slashed, "/")
     if trimmed == "" {
         return slashed // a root path is separators only
