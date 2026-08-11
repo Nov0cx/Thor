@@ -101,6 +101,9 @@ menu_open :: proc(menu: ^Menu, ctx: ^ui.Context, anchor: rl.Vector2) {
     menu.anchor = anchor
     menu.hovered = -1
     menu.visible = true
+    if ctx.focused != &menu.widget {
+        menu.return_focus = ctx.focused
+    }
     ctx.focused = &menu.widget
     ui.widget_bring_to_front(&menu.widget)
 }

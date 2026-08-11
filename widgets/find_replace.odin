@@ -109,6 +109,11 @@ find_replace_open :: proc(fr: ^Find_Replace, ctx: ^ui.Context, editor: ^Editor, 
 
     find_replace_recompute(fr)
     find_replace_select_current(fr)
+    // A repeat chord while already open must not clobber the real target
+    // with the box's own widget.
+    if ctx.focused != &fr.widget {
+        fr.return_focus = ctx.focused
+    }
     ctx.focused = &fr.widget
     ui.widget_bring_to_front(&fr.widget)
 }

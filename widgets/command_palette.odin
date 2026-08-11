@@ -205,6 +205,7 @@ command_palette_add :: proc(palette: ^Command_Palette, title: string, run: proc(
 command_palette_open :: proc(palette: ^Command_Palette, ctx: ^ui.Context) {
     palette.visible = true
     command_palette_reset(palette, .Commands)
+    command_palette_capture_return_focus(palette, ctx)
     ctx.focused = &palette.widget
     ui.widget_bring_to_front(&palette.widget)
 }
@@ -214,6 +215,7 @@ command_palette_open :: proc(palette: ^Command_Palette, ctx: ^ui.Context) {
 command_palette_open_files :: proc(palette: ^Command_Palette, ctx: ^ui.Context) {
     palette.visible = true
     command_palette_enter_files(palette)
+    command_palette_capture_return_focus(palette, ctx)
     ctx.focused = &palette.widget
     ui.widget_bring_to_front(&palette.widget)
 }
@@ -223,8 +225,20 @@ command_palette_open_files :: proc(palette: ^Command_Palette, ctx: ^ui.Context) 
 command_palette_open_line :: proc(palette: ^Command_Palette, ctx: ^ui.Context) {
     palette.visible = true
     command_palette_reset(palette, .Line)
+    command_palette_capture_return_focus(palette, ctx)
     ctx.focused = &palette.widget
     ui.widget_bring_to_front(&palette.widget)
+}
+
+// Remembers where focus was before the palette took it, so closing restores
+// it there. A command that opens a nested mode (New file name, Go to File)
+// runs while the palette is still focused from the outer open — skip the
+// capture then, or return_focus would end up pointing at the palette itself.
+@(private = "file")
+command_palette_capture_return_focus :: proc(palette: ^Command_Palette, ctx: ^ui.Context) {
+    if ctx.focused != &palette.widget {
+        palette.return_focus = ctx.focused
+    }
 }
 
 command_palette_close :: proc(palette: ^Command_Palette, ctx: ^ui.Context) {
@@ -266,6 +280,7 @@ command_palette_prompt :: proc(
         palette.caret = len(palette.query)
         command_palette_refilter(palette)
     }
+    command_palette_capture_return_focus(palette, ctx)
     ctx.focused = &palette.widget
     ui.widget_bring_to_front(&palette.widget)
 }
@@ -287,6 +302,7 @@ command_palette_confirm :: proc(
     palette.confirm_data = data
     palette.visible = true
     command_palette_reset(palette, .Confirm)
+    command_palette_capture_return_focus(palette, ctx)
     ctx.focused = &palette.widget
     ui.widget_bring_to_front(&palette.widget)
 }
@@ -316,6 +332,7 @@ command_palette_pick :: proc(
     palette.pick_loading = false
     palette.visible = true
     command_palette_reset(palette, .Pick)
+    command_palette_capture_return_focus(palette, ctx)
     ctx.focused = &palette.widget
     ui.widget_bring_to_front(&palette.widget)
 }
@@ -339,6 +356,7 @@ command_palette_pick_rich :: proc(
     palette.pick_loading = false
     palette.visible = true
     command_palette_reset(palette, .Pick)
+    command_palette_capture_return_focus(palette, ctx)
     ctx.focused = &palette.widget
     ui.widget_bring_to_front(&palette.widget)
 }
@@ -366,6 +384,7 @@ command_palette_pick_rich_loading :: proc(
     palette.on_query_changed_data = on_query_changed_data
     palette.visible = true
     command_palette_reset(palette, .Pick)
+    command_palette_capture_return_focus(palette, ctx)
     ctx.focused = &palette.widget
     ui.widget_bring_to_front(&palette.widget)
 }

@@ -479,10 +479,7 @@ init :: proc() -> ^Thor {
     log.infof("Loaded theme: %s", thor.theme.name)
 
     thor_build_ui(thor)
-    thor.command_palette.return_focus = &thor.editor.widget
     thor.select_dialog.return_focus = &thor.editor.widget
-    thor.find_replace.return_focus = &thor.editor.widget
-    thor.menu.return_focus = &thor.editor.widget
     widgets.command_palette_set_navigation(
         thor.command_palette,
         thor_palette_list_files,
