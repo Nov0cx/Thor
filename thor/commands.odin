@@ -135,6 +135,26 @@ thor_apply_settings :: proc(thor: ^Thor) {
     } else {
         thor.split_key = setting.Keybind {}
     }
+    if kb, ok := setting.keybind(&thor.config, "close_tab"); ok {
+        thor.close_tab_key = kb
+    } else {
+        thor.close_tab_key = setting.Keybind {key = .W, ctrl = true}
+    }
+    if kb, ok := setting.keybind(&thor.config, "next_tab"); ok {
+        thor.next_tab_key = kb
+    } else {
+        thor.next_tab_key = setting.Keybind {key = .PAGE_DOWN, ctrl = true}
+    }
+    if kb, ok := setting.keybind(&thor.config, "previous_tab"); ok {
+        thor.previous_tab_key = kb
+    } else {
+        thor.previous_tab_key = setting.Keybind {key = .PAGE_UP, ctrl = true}
+    }
+    if kb, ok := setting.keybind(&thor.config, "toggle_explorer"); ok {
+        thor.toggle_explorer_key = kb
+    } else {
+        thor.toggle_explorer_key = setting.Keybind {key = .B, ctrl = true}
+    }
 
     // Resolve each bindable app command's chord from config; an absent or empty
     // entry leaves it unbound (KEY_NULL), so it stays key-less until the user sets one.

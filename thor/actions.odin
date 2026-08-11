@@ -188,6 +188,22 @@ thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
         thor_cmd_align_at_char(thor)
         return true
     }
+    if setting.keybind_matches(thor.close_tab_key, event.key, event.ctrl, event.shift, event.alt) {
+        thor_close_file(thor, ui.signal_get(&thor.active_file))
+        return true
+    }
+    if setting.keybind_matches(thor.next_tab_key, event.key, event.ctrl, event.shift, event.alt) {
+        thor_cycle_tab(thor, 1)
+        return true
+    }
+    if setting.keybind_matches(thor.previous_tab_key, event.key, event.ctrl, event.shift, event.alt) {
+        thor_cycle_tab(thor, -1)
+        return true
+    }
+    if setting.keybind_matches(thor.toggle_explorer_key, event.key, event.ctrl, event.shift, event.alt) {
+        thor_toggle_explorer(thor, nil, nil)
+        return true
+    }
 
     if !event.ctrl || event.alt {
         return false
@@ -201,18 +217,6 @@ thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
         if !event.shift && thor_undo_last_edits(thor) {
             return true
         }
-    case .W:
-        thor_close_file(thor, ui.signal_get(&thor.active_file))
-        return true
-    case .PAGE_DOWN:
-        thor_cycle_tab(thor, 1)
-        return true
-    case .PAGE_UP:
-        thor_cycle_tab(thor, -1)
-        return true
-    case .B:
-        thor_toggle_explorer(thor, nil, nil)
-        return true
     }
     return false
 }

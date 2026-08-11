@@ -99,6 +99,10 @@ Thor :: struct {
     align_char_key:           setting.Keybind,
     goto_line_key:            setting.Keybind,
     last_file_key:            setting.Keybind,
+    close_tab_key:            setting.Keybind,
+    next_tab_key:             setting.Keybind,
+    previous_tab_key:         setting.Keybind,
+    toggle_explorer_key:      setting.Keybind,
     // Toggles the editor split. Unbound by default (KEY_NULL), so it only fires
     // once the user sets a "toggle_split" chord in keybinds.json.
     split_key:                setting.Keybind,
