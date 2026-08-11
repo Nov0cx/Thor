@@ -769,7 +769,7 @@ thor_edit_target :: proc(
         canonical = abs
     }
     for target, index in targets^ {
-        if target.path == canonical {
+        if thor_same_path(target.path, canonical) {
             return index, true
         }
     }
