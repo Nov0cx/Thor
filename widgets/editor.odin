@@ -196,6 +196,7 @@ Editor :: struct {
     signature_active:    bool,
     signature_text:      string,
     signature_anchor:    int,
+    signature_revision:  u64,
     // recenter (Ctrl+Shift+J): repeated presses cycle the caret line
     // center/top/bottom. Phase resets when the caret moves.
     recenter_phase:     int,
@@ -371,6 +372,7 @@ editor_show_signature :: proc(editor: ^Editor, text: string, anchor: int) {
     delete(editor.signature_text)
     editor.signature_text = strings.clone(text)
     editor.signature_anchor = anchor
+    editor.signature_revision = editor.state != nil ? editor.state.revision : 0
     editor.signature_active = true
 }
 
@@ -2041,6 +2043,13 @@ editor_draw_hover :: proc(editor: ^Editor) {
 @(private = "file")
 editor_draw_signature :: proc(editor: ^Editor) {
     if !editor.signature_active || editor.signature_text == "" {
+        return
+    }
+    // An edit not wired to editor_request_signature (undo/redo, paste/cut, line
+    // join/delete, move/duplicate line) leaves the popup anchored to a byte offset
+    // the edit may have invalidated.
+    if editor.state != nil && editor.state.revision != editor.signature_revision {
+        editor_clear_signature(editor)
         return
     }
     x, y, lh, ok := editor_screen_at(editor, editor.signature_anchor)
