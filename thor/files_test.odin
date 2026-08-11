@@ -362,6 +362,61 @@ test_reload_conflict_keeps_edits :: proc(t: ^testing.T) {
     thor_close_file(thor, 0)
 }
 
+// A save must not start while a reload is reading: the reload's read is
+// unsynchronized against a concurrent write, so racing them could let a torn
+// read land in the buffer once both jobs reap.
+@(test)
+test_save_skipped_during_reload :: proc(t: ^testing.T) {
+    TEST_PATH :: "thor_save_race.tmp"
+
+    write_err := os.write_entire_file(TEST_PATH, transmute([]u8) string("disk one\n"))
+    testing.expect(t, write_err == nil, "could not create test file")
+    defer os.remove(TEST_PATH)
+
+    thor := test_make_thor()
+    defer test_free_thor(thor)
+
+    thor_open_file(thor, TEST_PATH)
+    file := thor.open_files[0]
+    for _ in 0 ..< 500 {
+        thor_update_files(thor)
+        if file.loaded || file.load_failed {
+            break
+        }
+        time.sleep(2 * time.Millisecond)
+    }
+    testing.expect(t, file.loaded, "load did not complete")
+
+    textedit.insert_text(&file.state, "mine ")
+    testing.expect(t, file.state.revision != file.saved_revision, "edit did not dirty the buffer")
+
+    rewrite_err := os.write_entire_file(TEST_PATH, transmute([]u8) string("disk two\n"))
+    testing.expect(t, rewrite_err == nil, "could not rewrite test file")
+
+    thor_reload_file(thor, file)
+    testing.expect(t, file.reloading, "reload did not start")
+    inflight := thor.inflight_jobs
+
+    thor_save_file(thor, file)
+    testing.expect(t, !file.saving, "save started while a reload was in flight")
+    testing.expect_value(t, thor.inflight_jobs, inflight)
+
+    thor_drain_io(thor)
+    testing.expect(t, !file.reloading, "reload never finished")
+    testing.expect(t, file.disk_changed, "conflicting reload did not raise the prompt")
+
+    thor_save_file(thor, file)
+    testing.expect(t, file.saving, "save did not start once the reload cleared")
+    thor_drain_io(thor)
+    testing.expect_value(t, file.saved_revision, file.state.revision)
+
+    saved, read_err := os.read_entire_file(TEST_PATH, context.temp_allocator)
+    testing.expect(t, read_err == nil, "could not read back saved file")
+    testing.expect_value(t, string(saved), "mine disk one\n")
+
+    thor_close_file(thor, 0)
+}
+
 // An edit that ends at exactly what is on disk leaves a clean buffer, so the next
 // disk change reloads instead of conflicting.
 @(test)

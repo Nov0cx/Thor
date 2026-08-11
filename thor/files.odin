@@ -39,7 +39,8 @@ Open_File :: struct {
     load_failed:        bool,
     saving:             bool,
     // A disk-change reload is in flight for this file; guards against launching a
-    // second one while the first is still reading (the watcher can fire a burst).
+    // second one while the first is still reading (the watcher can fire a burst),
+    // and against a concurrent save (see thor_save_file).
     reloading:          bool,
     // The file changed again while that read was in flight. One save fires several
     // watcher events and the first read can land mid-write, so the last event must
@@ -911,9 +912,12 @@ thor_close_file :: proc(thor: ^Thor, index: int) {
 }
 
 // `force` writes a buffer that matches its last save; used when the bytes change
-// without an edit, as a line-ending switch does.
+// without an edit, as a line-ending switch does. Skips a file with a reload in
+// flight: that read is unsynchronized against a concurrent write, so racing it
+// with a save here could let a torn read land in the buffer once both reap (see
+// thor_apply_reload). The buffer stays dirty, so the next autosave pass retries.
 thor_save_file :: proc(thor: ^Thor, file: ^Open_File, force := false) {
-    if !file.loaded || file.saving || file.closed {
+    if !file.loaded || file.saving || file.closed || file.reloading {
         return
     }
     if !force && file.state.revision == file.saved_revision {
