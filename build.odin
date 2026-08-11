@@ -2,13 +2,13 @@
 //
 // Run it from the root of the repository:
 //
-//	odin run build.odin -file                   # build the editor, debug
-//	odin run build.odin -file -- run            # build and start it
-//	odin run build.odin -file -- run -release   # build and start an optimized one
-//	odin run build.odin -file -- check          # type-check, no binary
-//	odin run build.odin -file -- test           # run the package tests
-//	odin run build.odin -file -- deps           # get and build HarfBuzz and tree-sitter
-//	odin run build.odin -file -- -h             # list the flags
+//    odin run build.odin -file                   # build the editor, debug
+//    odin run build.odin -file -- run            # build and start it
+//    odin run build.odin -file -- run -release   # build and start an optimized one
+//    odin run build.odin -file -- check          # type-check, no binary
+//    odin run build.odin -file -- test           # run the package tests
+//    odin run build.odin -file -- deps           # get and build HarfBuzz and tree-sitter
+//    odin run build.odin -file -- -h             # list the flags
 //
 // The Odin compiler reads the arguments before `--`, this program the rest.
 package build
@@ -68,10 +68,6 @@ main :: proc() {
     }
     fmt.printfln("[build] the command %v is complete", opt.command)
 }
-
-// --------------------------------------------------------------------------
-// Targets
-// --------------------------------------------------------------------------
 
 // Builds the editor into out_dir. The main package reaches every other one.
 build_thor :: proc() -> bool {
@@ -190,10 +186,6 @@ clean :: proc() -> bool {
     return true
 }
 
-// --------------------------------------------------------------------------
-// The Odin compiler
-// --------------------------------------------------------------------------
-
 // @Note: -strict-style wants tabs. This repository indents with spaces, so the
 // vet flag stays alone.
 append_common_flags :: proc(args: ^[dynamic]string) {
@@ -243,10 +235,6 @@ copy_lua_dll :: proc(dir := "") -> bool {
         return true
     }
 }
-
-// --------------------------------------------------------------------------
-// The native dependencies
-// --------------------------------------------------------------------------
 
 // A tree-sitter grammar that syntax/syntax.odin imports.
 Grammar :: struct {
@@ -392,10 +380,6 @@ build_tree_sitter :: proc() -> bool {
     return true
 }
 
-// --------------------------------------------------------------------------
-// The MSVC tools
-// --------------------------------------------------------------------------
-
 // Does a command with cl, link and the MSVC environment on PATH. Thor links
 // harfbuzz.lib and libtree-sitter.lib, so its build needs them too. A shell that
 // is already a developer shell has VSINSTALLDIR set and needs no wrapper.
@@ -461,10 +445,6 @@ command_line :: proc(args: []string) -> string {
     }
     return strings.join(parts[:], " ", context.temp_allocator)
 }
-
-// --------------------------------------------------------------------------
-// Utilities
-// --------------------------------------------------------------------------
 
 // filepath.join also returns an allocator error. The temporary allocator makes
 // that error very unusual, so this hides it.

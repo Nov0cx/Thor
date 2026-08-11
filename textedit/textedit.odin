@@ -75,8 +75,8 @@ State :: struct {
     // Byte offset of every line start, so a line query is a binary search and not
     // a scan from byte 0. Rebuilt at the first query after a content change, like
     // the text snapshot, so a caller that never asks never pays. Offsets, not
-    // slices, so an edit cannot leave it pointing into dead text. owned
-    lines:          [dynamic]int,
+    // slices, so an edit cannot leave it pointing into dead text.
+    lines:          [dynamic]int, // owned
     lines_revision: u64,
     lines_valid:    bool,
 }

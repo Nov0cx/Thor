@@ -34,10 +34,6 @@ thor_set_menu_target :: proc(thor: ^Thor, dir: string) {
     thor.menu_target_dir = strings.clone(dir)
 }
 
-// ---------------------------------------------------------------------------
-// Context menus
-// ---------------------------------------------------------------------------
-
 thor_editor_context_menu :: proc(data: rawptr, position: rl.Vector2) {
     thor := cast(^Thor) data
     has_file := thor_active_open_file(thor) != nil
@@ -171,17 +167,9 @@ thor_menu_close_terminal :: proc(data: rawptr) {
     thor_terminal_close(thor, thor.menu_target_terminal)
 }
 
-// ---------------------------------------------------------------------------
-// Editor menu actions
-// ---------------------------------------------------------------------------
-
 thor_menu_cut :: proc(data: rawptr) {widgets.editor_cut((cast(^Thor) data).editor)}
 thor_menu_copy :: proc(data: rawptr) {widgets.editor_copy((cast(^Thor) data).editor)}
 thor_menu_paste :: proc(data: rawptr) {widgets.editor_paste((cast(^Thor) data).editor)}
-
-// ---------------------------------------------------------------------------
-// Console menu actions
-// ---------------------------------------------------------------------------
 
 thor_menu_console_clear :: proc(data: rawptr) {
     thor := cast(^Thor) data
@@ -210,10 +198,6 @@ thor_menu_console_paste :: proc(data: rawptr) {
         widgets.console_paste(thor.console)
     }
 }
-
-// ---------------------------------------------------------------------------
-// Explorer menu actions
-// ---------------------------------------------------------------------------
 
 // Open the shared name prompt into menu_target (the right-clicked directory).
 // Command-palette entries reset the target to the workspace root first.
@@ -268,9 +252,6 @@ thor_menu_explorer_copy_path :: proc(data: rawptr) {
     }
 }
 
-// ---------------------------------------------------------------------------
-// New File / New Folder prompt handlers
-// ---------------------------------------------------------------------------
 
 // Command-palette / top-bar entry points: create relative to the workspace
 // root (the explorer right-click sets a more specific target itself).
@@ -326,10 +307,6 @@ thor_prompt_new_folder :: proc(data: rawptr, name: string) {
         widgets.tree_refresh(thor.tree)
     }
 }
-
-// ---------------------------------------------------------------------------
-// Top-bar dropdown menus
-// ---------------------------------------------------------------------------
 
 // Opens `menu` just below `button` (a top-bar menu button).
 @(private = "file")

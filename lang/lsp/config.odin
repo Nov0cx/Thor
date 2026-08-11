@@ -100,7 +100,7 @@ config_merge_file :: proc(cfg: ^Config, path: string) {
 // keys are ignored, so the file can carry settings a later version acts on.
 @(private)
 config_merge_text :: proc(cfg: ^Config, text: string) {
-    value, perr := json.parse(transmute([]u8)text, allocator = context.temp_allocator)
+    value, perr := json.parse(transmute([]u8)text, spec = .JSON, parse_integers = true, allocator = context.temp_allocator)
     if perr != .None {
         return
     }

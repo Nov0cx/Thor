@@ -22,9 +22,9 @@ font_allocator: runtime.Allocator
 Font_Family :: struct {
     name:          string,
     path:          string,
-    file_data:     []u8,
-    codepoints:    []rune,
-    preload_sizes: []i32,
+    file_data:     []u8, // owned
+    codepoints:    []rune, // owned
+    preload_sizes: []i32, // owned
     // Icon fonts have no ligatures, so the shaping probes skip them.
     icon_font:     bool,
     // Icon families only. Display name for pickers, and the group name
@@ -34,16 +34,16 @@ Font_Family :: struct {
     pack_group:    string,
     // Icon families only: every name this family defines, independent of
     // `preload` — the source icon_set_active_pack repoints icon_map from.
-    own_icons:     map[string]rune,
-    cache:         map[i32]rl.Font,
+    own_icons:     map[string]rune, // owned
+    cache:         map[i32]rl.Font, // owned
     // Per preloaded size: glyph index -> atlas entry, for the HarfBuzz
     // shaped draw path (includes ligature glyphs, which have no codepoint).
-    shaped:        map[i32]map[u32]Shaped_Glyph,
+    shaped:        map[i32]map[u32]Shaped_Glyph, // owned
     // Persistent HarfBuzz objects for main-thread shaping at draw time;
     // created in text_finish_async_load, destroyed in text_shutdown.
-    hb_blob:       ^hb.blob_t,
-    hb_face:       ^hb.face_t,
-    hb_font:       ^hb.font_t,
+    hb_blob:       ^hb.blob_t, // owned
+    hb_face:       ^hb.face_t, // owned
+    hb_font:       ^hb.font_t, // owned
 }
 
 // Family name of the manifest's primary (UI) icon set. Widgets address
