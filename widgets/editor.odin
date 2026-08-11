@@ -1709,6 +1709,17 @@ editor_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
     inner_bottom := editor.bounds.y + editor.bounds.height - editor.padding.bottom
     text_x := cast(i32) (editor.bounds.x + editor.gutter_width + editor.padding.left)
 
+    // Ctrl+hover affordance for go-to-definition: the word under the cursor,
+    // recomputed every frame, not gated on the hover dwell timer or an async result.
+    underline_start, underline_end := -1, -1
+    if ctx.hot == widget && (rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL)) {
+        if pos, ok := editor_pos_at(editor, ctx.mouse_pos); ok {
+            if s, e, found := textedit.word_range_at(text, pos); found {
+                underline_start, underline_end = s, e
+            }
+        }
+    }
+
     ui.begin_clip(editor.bounds)
 
     caret_line := editor_line_at_offset(editor, textedit.primary_cursor(editor.state).caret)
@@ -1800,6 +1811,7 @@ editor_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
         editor_draw_row_text(editor, text, row, hl, text_x, cast(i32) row_y)
         editor_draw_row_swatches(editor, text, row, text_x, cast(i32) row_y)
         editor_draw_row_diagnostics(editor, text, row, text_x, row_y)
+        editor_draw_row_hover_underline(editor, text, row, text_x, row_y, underline_start, underline_end)
 
         // Collapsed marker: on the last visual row of a folded start line, an
         // ellipsis pill after the text stands in for the hidden body.
@@ -2517,6 +2529,28 @@ editor_draw_row_diagnostics :: proc(editor: ^Editor, text: string, row: Visual_R
         color := d.severity == .Error ? editor.diagnostic_error_color : editor.diagnostic_warn_color
         editor_draw_squiggle(x0, x1, y, color)
     }
+}
+
+// Draws a straight 1px underline under the given byte range where it falls on
+// this visual row: the Ctrl+hover affordance for go-to-definition. start < 0
+// means no word is being hovered.
+@(private = "file")
+editor_draw_row_hover_underline :: proc(
+    editor: ^Editor, text: string, row: Visual_Row, text_x: i32, row_y: f32, start, end: int,
+) {
+    if start < 0 || end <= row.start || start >= row.end {
+        return
+    }
+    seg_start := max(start, row.start)
+    seg_end := min(end, row.end)
+    row_text := text[row.start:row.end]
+    base_x := cast(f32) text_x
+    x0 := base_x + cast(f32) ui.measure_text(text[row.start:seg_start], editor.font_size) +
+        editor_swatch_offset(editor, row_text, seg_start - row.start)
+    x1 := base_x + cast(f32) ui.measure_text(text[row.start:seg_end], editor.font_size) +
+        editor_swatch_offset(editor, row_text, seg_end - row.start)
+    y := row_y + cast(f32) editor.font_size - 1
+    rl.DrawRectangle(cast(i32) x0, cast(i32) y, cast(i32) (x1 - x0), 1, editor.focus_border_color)
 }
 
 // A small triangle wave from x0 to x1 along baseline y: the underline editors use
