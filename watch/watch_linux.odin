@@ -138,6 +138,13 @@ watch_consume :: proc(w: ^Watcher, buffer: []u8) {
 // Reports one event, and follows a new directory so its own changes are watched.
 @(private = "file")
 watch_event :: proc(w: ^Watcher, wd: linux.Wd, mask: linux.Inotify_Event_Mask, name: string) {
+    // The kernel dropped events once the queue filled; wd is -1, so it can't be
+    // resolved to a directory. Emit one change on the root so subscribers do a
+    // full rescan instead of silently missing whatever was lost.
+    if .Q_OVERFLOW in mask {
+        watch_emit(w, .Modified, w.root)
+        return
+    }
     // The watch is gone with its directory. The parent reported the directory
     // itself, so this only releases what it held.
     if .IGNORED in mask {
