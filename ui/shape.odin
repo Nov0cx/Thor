@@ -77,7 +77,7 @@ LIGATURES_OFF := [?]hb.feature_t {
 
 // One positioned glyph of a shaped line. Measuring and drawing walk the same
 // placement, so a measured width is the width that gets drawn.
-@(private = "file")
+@(private)
 Placed_Glyph :: struct {
     rect:     rl.Rectangle,
     offset_x: i32,
@@ -85,7 +85,8 @@ Placed_Glyph :: struct {
     advance:  i32,
 }
 
-// Placement scratch, reused per call; main thread only, freed in text_shutdown.
+// Placement scratch for a cache miss; cloned into shape_cache on success and
+// cleared again before the next miss. Main thread only, freed in text_shutdown.
 @(private = "file")
 placed: [dynamic]Placed_Glyph
 
@@ -197,6 +198,7 @@ shape_shutdown :: proc() {
     }
     delete(placed)
     placed = nil
+    shape_cache_shutdown()
 }
 
 // Draws the font's ligatures, or the plain glyphs. Main thread only.
@@ -228,7 +230,17 @@ shape_line_run :: proc(family: ^Font_Family, line: string, run: Shape_Run) -> ([
 // Places one shaped line; false when the family/size has no shaping data, so
 // the caller falls back to the codepoint path. Advances come from
 // Shaped_Glyph, not HarfBuzz, to stay aligned with the atlas.
-// The result is valid until the next call.
+//
+// Results are cached in shape_cache.odin, keyed by (family, size, ligatures,
+// line content): a hit returns the cache-owned slice with no itemizing or
+// HarfBuzz call at all. The cache assumes family.shaped/hb_font never change
+// after startup (true today); a future feature that rebakes an atlas or
+// reassigns hb_font at runtime must call shape_cache_clear() after doing so,
+// or this cache will keep serving stale glyph rects.
+//
+// The returned slice is cache-owned: valid until its entry is evicted or
+// shape_cache_clear runs, not just "until the next call" — the caller must
+// not mutate or free it.
 @(private = "file")
 shape_place_line :: proc(family: ^Font_Family, font: rl.Font, size: i32, line: string) -> ([]Placed_Glyph, bool) {
     if family == nil || family.hb_font == nil {
@@ -238,11 +250,16 @@ shape_place_line :: proc(family: ^Font_Family, font: rl.Font, size: i32, line: s
     if !has_size {
         return nil, false
     }
-    clear(&placed)
     if line == "" {
-        return placed[:], true
+        return nil, true
     }
 
+    key := Shape_Cache_Key{family = family, size = size, ligatures = ligatures_enabled, line = line}
+    if glyphs, hit := shape_cache_get(&shape_cache, key); hit {
+        return glyphs, true
+    }
+
+    clear(&placed)
     // The runs come in visual order and a right-to-left run is already in visual
     // order inside itself, so appending them in order places the line correctly.
     for run in shape_itemize(line) {
@@ -251,7 +268,7 @@ shape_place_line :: proc(family: ^Font_Family, font: rl.Font, size: i32, line: s
             place_glyph(shaped, font, line, infos[i])
         }
     }
-    return placed[:], true
+    return shape_cache_put(&shape_cache, key, placed[:]), true
 }
 
 @(private = "file")

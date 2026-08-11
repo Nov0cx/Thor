@@ -314,6 +314,9 @@ test_async_font_load :: proc(t: ^testing.T) {
 
     // The ligatures setting reaches shaping: with it off, "->" shapes to the
     // plain glyphs the codepoints carry. Left back on for any later test.
+    // This also doubles as the shape cache's key regression test: a cache
+    // that forgot the ligatures flag in its key would return the pre-toggle
+    // glyphs and fail the width assertion below.
     if family, ok := families["JetBrainsMono"]; ok {
         dash_infos, dash_n := shape_line(family, "-")
         testing.expect_value(t, dash_n, 1)
@@ -337,4 +340,22 @@ test_async_font_load :: proc(t: ^testing.T) {
             testing.expect(t, cast(u32) back[0].codepoint != dash_gid, "ligature not restored")
         }
     }
+
+    // A line measured twice must agree whether the second call hits the
+    // cache or not, and the cache's resident count must grow only on a true
+    // miss (new content), not on a repeat of content already shaped.
+    defer shape_cache_clear(&shape_cache)
+    line := "if x == 1 { return true }"
+    w1 := measure_text(line, 17, "JetBrainsMono")
+    w2 := measure_text(line, 17, "JetBrainsMono")
+    testing.expect_value(t, w1, w2)
+
+    before := shape_cache_len(&shape_cache)
+    _ = measure_text("first unique line", 17, "JetBrainsMono")
+    after_first := shape_cache_len(&shape_cache)
+    testing.expect_value(t, after_first, before + 1)
+    _ = measure_text("first unique line", 17, "JetBrainsMono")
+    testing.expect_value(t, shape_cache_len(&shape_cache), after_first)
+    _ = measure_text("second unique line", 17, "JetBrainsMono")
+    testing.expect_value(t, shape_cache_len(&shape_cache), after_first + 1)
 }
