@@ -401,7 +401,7 @@ editor_create :: proc(id: string) -> ^Editor {
     editor.comment_prefix = "//"
     editor.comment_keybind = setting.Keybind {key = .K, ctrl = true}
     editor.font_size = 18
-    editor.padding = ui.padding_xy(14, 12)
+    editor.padding = ui.Padding {left = 6, top = 12, right = 14, bottom = 12}
     editor.gutter_width = 58
     editor.background_color = rl.Color {15, 17, 26, 255}
     editor.gutter_color = rl.Color {24, 26, 31, 255}
