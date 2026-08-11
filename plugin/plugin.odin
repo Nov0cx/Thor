@@ -154,6 +154,9 @@ Manager :: struct {
     key:          Callback,
     // When the on_tick handlers last ran (see manager_dispatch_tick).
     tick_at:      time.Tick,
+    // Start of the call running in this state (see call_guarded); one manager,
+    // one Lua state, so this lives on the manager rather than as a package global.
+    active_start: time.Tick,
     // Plugin the next tick pass starts at, so a pass cut short by TICK_BUDGET
     // resumes where it stopped.
     tick_next:    int,
@@ -202,6 +205,7 @@ manager_set_host :: proc(m: ^Manager, host: Host) {
 manager_init :: proc(m: ^Manager) {
     m.allocator = context.allocator
     m.state = lua.L_newstate()
+    (^rawptr)(lua.getextraspace(m.state))^ = m
     open_safe_libs(m.state)
     m.highlighter = syntax.highlighter_create()
     m.languages = make([dynamic]Language)
@@ -620,7 +624,7 @@ api_exec :: proc "c" (L: ^lua.State) -> c.int {
         return 1
     }
     context.allocator = m.allocator
-    out := m.exec_proc(m.host, string(lua.tostring(L, 1)), budget_left())
+    out := m.exec_proc(m.host, string(lua.tostring(L, 1)), budget_left(m))
     lua.pushstring(L, strings.clone_to_cstring(out, context.temp_allocator))
     delete(out) // host-owned result, freed after copying into Lua
     return 1

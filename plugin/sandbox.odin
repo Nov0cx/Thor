@@ -43,11 +43,6 @@ HOOK_STEP :: 10_000
 @(private)
 MIN_NATIVE_BUDGET :: 100 * time.Millisecond
 
-// Start of the call running in the VM. The Lua hook takes no user data and the
-// VM is single-threaded, so one package-level slot serves every manager.
-@(private)
-active_start: time.Tick
-
 // Base library functions dropped from the shared globals: each one either runs
 // code the sandbox never saw (load/dofile/loadfile) or reaches the collector.
 @(private)
@@ -232,11 +227,14 @@ plugin_id :: proc(m: ^Manager, index: int) -> string {
     return "<host>"
 }
 
-// Cuts a call short once it has held the frame for CALL_BUDGET.
+// Cuts a call short once it has held the frame for CALL_BUDGET. Only `L` comes
+// through the Lua hook signature, so the manager is read back from the state's
+// extraspace (set once in manager_init; a coroutine's state inherits it).
 @(private)
 budget_hook :: proc "c" (L: ^lua.State, _: ^lua.Debug) {
     context = runtime.default_context()
-    if time.tick_since(active_start) < CALL_BUDGET {
+    m := (^Manager)((^rawptr)(lua.getextraspace(L))^)
+    if time.tick_since(m.active_start) < CALL_BUDGET {
         return
     }
     lua.pushstring(L, "plugin exceeded its time budget")
@@ -247,8 +245,8 @@ budget_hook :: proc "c" (L: ^lua.State, _: ^lua.Debug) {
 // it cannot cut short a host call that blocks — such a call bounds itself with
 // this instead.
 @(private)
-budget_left :: proc() -> time.Duration {
-    return max(CALL_BUDGET - time.tick_since(active_start), MIN_NATIVE_BUDGET)
+budget_left :: proc(m: ^Manager) -> time.Duration {
+    return max(CALL_BUDGET - time.tick_since(m.active_start), MIN_NATIVE_BUDGET)
 }
 
 // Replaces coroutine.create and coroutine.wrap with versions that hook the
@@ -324,7 +322,7 @@ co_wrap_resume :: proc "c" (L: ^lua.State) -> c.int {
 call_guarded :: proc(m: ^Manager, owner: int, nargs, nres: c.int, what: string) -> bool {
     nested := lua.gethook(m.state) != nil
     if !nested {
-        active_start = time.tick_now()
+        m.active_start = time.tick_now()
         lua.sethook(m.state, budget_hook, lua.MASKCOUNT, HOOK_STEP)
     }
     status := lua.pcall(m.state, nargs, nres, 0)
