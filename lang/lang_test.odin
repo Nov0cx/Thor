@@ -54,10 +54,12 @@ probe_backend :: proc(p: ^Probe) -> Backend {
 // Main thread only, so no atomics.
 @(private = "file")
 Push_Probe :: struct {
-    unsupported: bit_set[Request_Kind], // `supports` answers false for these
-    queued:      [dynamic]Request_Kind, // one unsolicited result each, oldest first
-    events:      [dynamic]Doc_Event,
-    allocator:   runtime.Allocator, // the Manager's, as a real backend would hold
+    unsupported:      bit_set[Request_Kind], // `supports` answers false for these
+    queued:           [dynamic]Request_Kind, // one unsolicited result each, oldest first
+    events:           [dynamic]Doc_Event,
+    allocator:        runtime.Allocator, // the Manager's, as a real backend would hold
+    apply_token:      rawptr,            // wired onto the next queued Apply_Edit's Result
+    apply_on_applied: proc(token: rawptr, applied: bool),
 }
 
 @(private = "file")
@@ -86,6 +88,10 @@ push_poll :: proc(data: rawptr, res: ^Result) -> bool {
     ordered_remove(&p.queued, 0)
     res.kind = kind
     res.ok = true
+    if kind == .Apply_Edit {
+        res.token = p.apply_token
+        res.on_applied = p.apply_on_applied
+    }
     // Owned output uses the Manager's allocator, so result_free reaches it.
     res.report.scope = strings.clone("/w/a.push", p.allocator)
     res.report.items = make([dynamic]Diagnostic, p.allocator)
@@ -659,6 +665,54 @@ test_pushed_result_of_gated_kind_is_dropped :: proc(t: ^testing.T) {
     append(&p.queued, Request_Kind.Diagnostics)
     manager_dispatch(&m, &delivered, count_results)
     testing.expectf(t, delivered == 0, "a push must not outlive the master switch (got %d)", delivered)
+}
+
+@(private = "file")
+Apply_Answer :: struct {
+    calls: int, // on_applied invocations seen
+    last:  bool, // its most recent `applied` argument
+}
+
+@(private = "file")
+record_apply_answer :: proc(token: rawptr, applied: bool) {
+    a := cast(^Apply_Answer) token
+    a.calls += 1
+    a.last = applied
+}
+
+// An Apply_Edit push carries the reply an LSP reader thread is blocked on
+// (lang.Result.on_applied). Dropping it without answering — a drain with no
+// handler (manager_destroy, thor_reload_lang) or the kind gated off
+// mid-flight — must still call on_applied(token, false), or that thread's
+// Apply_Wait leaks.
+@(test)
+test_pushed_apply_edit_is_answered_when_dropped :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+
+    p := Push_Probe{allocator = m.allocator}
+    defer delete(p.queued)
+    defer delete(p.events)
+    manager_register(&m, push_backend(&p))
+
+    answer := Apply_Answer{}
+    p.apply_token = &answer
+    p.apply_on_applied = record_apply_answer
+
+    // The manager_destroy / thor_reload_lang shape: no handler at all.
+    append(&p.queued, Request_Kind.Apply_Edit)
+    manager_dispatch(&m, nil, nil)
+    testing.expectf(t, answer.calls == 1, "expected on_applied once for a nil-handler drain (got %d)", answer.calls)
+    testing.expect(t, !answer.last, "a dropped push must answer \"not applied\"")
+
+    // Gated off mid-flight: a handler exists but this kind is refused.
+    manager_set_features(&m, FEATURES_ALL - {.Apply_Edit})
+    append(&p.queued, Request_Kind.Apply_Edit)
+    delivered := 0
+    manager_dispatch(&m, &delivered, count_results)
+    testing.expectf(t, answer.calls == 2, "expected on_applied again for the gated push (got %d)", answer.calls)
+    testing.expectf(t, delivered == 0, "a gated Apply_Edit must not reach the handler (got %d)", delivered)
 }
 
 // A backend that answers only some kinds refuses those it cannot, while still

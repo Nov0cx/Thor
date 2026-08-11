@@ -1029,6 +1029,13 @@ manager_dispatch :: proc(m: ^Manager, user: rawptr, handler: proc(user: rawptr, 
             }
             if handler != nil && manager_feature_enabled(m, res.kind) {
                 handler(user, &res)
+            } else if res.on_applied != nil {
+                // Apply_Edit only: a drain with no handler, or the kind gated
+                // off mid-flight. Answer "not applied" ourselves, same as
+                // server_drop_push does for a push nobody took off its own
+                // queue, so the reader thread blocked on it is never left
+                // waiting.
+                res.on_applied(res.token, false)
             }
             result_free(m, &res)
         }
