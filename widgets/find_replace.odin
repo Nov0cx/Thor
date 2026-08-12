@@ -7,6 +7,14 @@ import rl "vendor:raylib"
 import "../textedit"
 import "../ui"
 
+// One match as a byte range. The length is not len(fr.find): a regular
+// expression matches spans of its own size.
+@(private = "file")
+Fr_Match :: struct {
+    start: int,
+    end:   int,
+}
+
 // Centered find/replace overlay. Shows the current match as a selection and
 // edits through the editor's textedit state, so undo works normally.
 Find_Replace :: struct {
@@ -19,8 +27,12 @@ Find_Replace :: struct {
     replace_caret: int,
     replace_field: bool, // which input has focus: false = find, true = replace
     show_replace:  bool, // replace row + buttons visible
-    matches:       [dynamic]int, // start byte offsets of the find query
+    matches:       [dynamic]Fr_Match,
     current:       int,
+    // Search modifiers. They survive a close, so the next open keeps them, and
+    // reset when Thor restarts.
+    case_sensitive: bool,
+    whole_word:     bool,
     return_focus:  ^ui.Widget,
     // Drag state: once moved, the box keeps `position` instead of recentering.
     positioned:    bool,
@@ -35,6 +47,8 @@ Find_Replace :: struct {
     btn_prev:      rl.Rectangle,
     btn_replace:   rl.Rectangle,
     btn_all:       rl.Rectangle,
+    btn_case:      rl.Rectangle,
+    btn_word:      rl.Rectangle,
     width:         f32,
     row_height:    f32,
     top_offset:    f32,
@@ -61,7 +75,7 @@ find_replace_create :: proc(id: string) -> ^Find_Replace {
     fr.visible = false
     fr.find = make([dynamic]u8)
     fr.replace = make([dynamic]u8)
-    fr.matches = make([dynamic]int)
+    fr.matches = make([dynamic]Fr_Match)
     fr.width = 460
     fr.row_height = 34
     fr.top_offset = 90
@@ -130,35 +144,52 @@ find_replace_is_open :: proc(fr: ^Find_Replace) -> bool {
 }
 
 @(private = "file")
-fr_fold :: #force_inline proc(c: u8) -> u8 {
-    return c >= 'A' && c <= 'Z' ? c + 32 : c
+fr_fold :: #force_inline proc(c: u8, sensitive: bool) -> u8 {
+    return !sensitive && c >= 'A' && c <= 'Z' ? c + 32 : c
 }
 
 @(private = "file")
-fr_match_at :: proc(text: string, pos: int, query: string) -> bool {
+fr_is_word_byte :: proc(b: u8) -> bool {
+    return b == '_' || (b >= '0' && b <= '9') || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || b >= 0x80
+}
+
+// True when [start, end) is not glued to an identifier character on either side.
+@(private = "file")
+fr_word_bounded :: proc(text: string, start, end: int) -> bool {
+    if start > 0 && fr_is_word_byte(text[start - 1]) {
+        return false
+    }
+    if end < len(text) && fr_is_word_byte(text[end]) {
+        return false
+    }
+    return true
+}
+
+@(private = "file")
+fr_match_at :: proc(text: string, pos: int, query: string, sensitive: bool) -> bool {
     if pos + len(query) > len(text) {
         return false
     }
     for i in 0 ..< len(query) {
-        if fr_fold(text[pos + i]) != fr_fold(query[i]) {
+        if fr_fold(text[pos + i], sensitive) != fr_fold(query[i], sensitive) {
             return false
         }
     }
     return true
 }
 
-// Boyer-Moore-Horspool bad-character table, case-folded: how far a mismatch at
-// the window's last byte lets the search jump ahead, instead of retrying every
-// intervening start byte. Absent from the query, a byte carries the full jump
-// of len(query).
+// Boyer-Moore-Horspool bad-character table: how far a mismatch at the window's
+// last byte lets the search jump ahead, instead of retrying every intervening
+// start byte. Absent from the query, a byte carries the full jump of len(query).
+// Built over the same folding the compare uses, or the jump could skip a match.
 @(private = "file")
-fr_skip_table :: proc(query: string) -> (table: [256]int) {
+fr_skip_table :: proc(query: string, sensitive: bool) -> (table: [256]int) {
     n := len(query)
     for i in 0 ..< 256 {
         table[i] = n
     }
     for i in 0 ..< n - 1 {
-        table[fr_fold(query[i])] = n - 1 - i
+        table[fr_fold(query[i], sensitive)] = n - 1 - i
     }
     return table
 }
@@ -182,26 +213,34 @@ find_replace_recompute :: proc(fr: ^Find_Replace) {
     text := textedit.text(fr.editor.state)
     from, _ := textedit.selection_range(textedit.primary_cursor(fr.editor.state))
 
-    // Full document, but re-run once per query change rather than per byte: the
-    // skip table lets a mismatch jump the window ahead instead of retrying
-    // every start byte, so a keystroke's rescan stays close to O(document
-    // length) instead of O(document length x query length).
-    skip := fr_skip_table(query)
-    i := 0
-    for i + n <= len(text) {
-        if fr_match_at(text, i, query) {
-            append(&fr.matches, i)
-            i += n
-            continue
-        }
-        i += skip[fr_fold(text[i + n - 1])]
-    }
+    find_replace_scan_literal(fr, text, query)
 
-    for start, index in fr.matches {
-        if start >= from {
+    for match, index in fr.matches {
+        if match.start >= from {
             fr.current = index
             break
         }
+    }
+}
+
+// Collects literal matches over the whole document. Re-run once per query change
+// rather than per byte: the skip table lets a mismatch jump the window ahead
+// instead of retrying every start byte, so a keystroke's rescan stays close to
+// O(document length) instead of O(document length x query length).
+@(private = "file")
+find_replace_scan_literal :: proc(fr: ^Find_Replace, text, query: string) {
+    n := len(query)
+    skip := fr_skip_table(query, fr.case_sensitive)
+    i := 0
+    for i + n <= len(text) {
+        if fr_match_at(text, i, query, fr.case_sensitive) {
+            if !fr.whole_word || fr_word_bounded(text, i, i + n) {
+                append(&fr.matches, Fr_Match {i, i + n})
+                i += n
+                continue
+            }
+        }
+        i += skip[fr_fold(text[i + n - 1], fr.case_sensitive)]
     }
 }
 
@@ -210,8 +249,8 @@ find_replace_select_current :: proc(fr: ^Find_Replace) {
     if fr.editor == nil || fr.editor.state == nil || len(fr.matches) == 0 {
         return
     }
-    start := fr.matches[fr.current]
-    textedit.select_range(fr.editor.state, start, start + len(fr.find))
+    match := fr.matches[fr.current]
+    textedit.select_range(fr.editor.state, match.start, match.end)
     editor_scroll_to_caret(fr.editor)
 }
 
@@ -230,19 +269,27 @@ find_replace_do_replace :: proc(fr: ^Find_Replace) {
     if fr.editor == nil || fr.editor.state == nil || len(fr.matches) == 0 {
         return
     }
-    start := fr.matches[fr.current]
-    textedit.select_range(fr.editor.state, start, start + len(fr.find))
+    match := fr.matches[fr.current]
+    textedit.select_range(fr.editor.state, match.start, match.end)
     textedit.insert_text(fr.editor.state, string(fr.replace[:]))
     find_replace_recompute(fr)
     find_replace_select_current(fr)
 }
 
+// Replaces every match at once. The ranges are already in hand, so this goes
+// through replace_ranges rather than searching a second time: it lands as one
+// undo entry, remaps the cursors, and carries a match length of its own -- which
+// a literal replace_all cannot do.
 @(private = "file")
 find_replace_do_replace_all :: proc(fr: ^Find_Replace) {
-    if fr.editor == nil || fr.editor.state == nil {
+    if fr.editor == nil || fr.editor.state == nil || len(fr.matches) == 0 {
         return
     }
-    textedit.replace_all(fr.editor.state, string(fr.find[:]), string(fr.replace[:]), false)
+    ranges := make([dynamic]textedit.Replace, 0, len(fr.matches), context.temp_allocator)
+    for match in fr.matches {
+        append(&ranges, textedit.Replace {start = match.start, end = match.end, text = string(fr.replace[:])})
+    }
+    textedit.replace_ranges(fr.editor.state, ranges[:])
     find_replace_recompute(fr)
     editor_scroll_to_caret(fr.editor)
 }
@@ -262,6 +309,13 @@ find_replace_requery :: proc(fr: ^Find_Replace) {
     if fr.replace_field && fr.show_replace {
         return
     }
+    find_replace_requery_now(fr)
+}
+
+// Re-runs the search whichever field has focus, for a change to how the query is
+// matched rather than to the query itself.
+@(private = "file")
+find_replace_requery_now :: proc(fr: ^Find_Replace) {
     find_replace_recompute(fr)
     find_replace_select_current(fr)
 }
@@ -303,6 +357,14 @@ find_replace_layout :: proc(widget: ^ui.Widget, bounds: rl.Rectangle) {
         bx += bw + 6
         fr.btn_all = rl.Rectangle {bx, y, bw, bh}
     }
+
+    // Toggles right-aligned on the same row. They cannot go on the find row: the
+    // match counter owns its right end.
+    tw: f32 = 34
+    tx := inner_x + inner_w - tw
+    fr.btn_word = rl.Rectangle {tx, y, tw, bh}
+    tx -= tw + 6
+    fr.btn_case = rl.Rectangle {tx, y, tw, bh}
 }
 
 find_replace_handle_event :: proc(widget: ^ui.Widget, ctx: ^ui.Context, event: ^ui.Event) -> bool {
@@ -313,7 +375,9 @@ find_replace_handle_event :: proc(widget: ^ui.Widget, ctx: ^ui.Context, event: ^
 
     #partial switch event.kind {
     case .Text_Input:
-        if event.ctrl && !event.alt {
+        // Any modifier chord is a command here, never text: the box has no AltGr
+        // path of its own, and Alt+C would otherwise toggle and type a `c`.
+        if event.ctrl || event.alt {
             return true
         }
         if event.codepoint >= 32 && event.codepoint != 127 {
@@ -327,6 +391,19 @@ find_replace_handle_event :: proc(widget: ^ui.Widget, ctx: ^ui.Context, event: ^
         return true
 
     case .Key_Press:
+        // Alt chords toggle how the query matches, whichever field has focus.
+        if event.alt && !event.ctrl {
+            #partial switch event.key {
+            case .C:
+                fr.case_sensitive = !fr.case_sensitive
+            case .W:
+                fr.whole_word = !fr.whole_word
+            case:
+                return true
+            }
+            find_replace_requery_now(fr)
+            return true
+        }
         buf, caret := find_replace_active(fr)
         caret^ = clamp(caret^, 0, len(buf))
         text := string(buf[:])
@@ -380,6 +457,12 @@ find_replace_handle_event :: proc(widget: ^ui.Widget, ctx: ^ui.Context, event: ^
             find_replace_do_replace(fr)
         } else if fr.show_replace && rl.CheckCollisionPointRec(event.mouse_position, fr.btn_all) {
             find_replace_do_replace_all(fr)
+        } else if rl.CheckCollisionPointRec(event.mouse_position, fr.btn_case) {
+            fr.case_sensitive = !fr.case_sensitive
+            find_replace_requery_now(fr)
+        } else if rl.CheckCollisionPointRec(event.mouse_position, fr.btn_word) {
+            fr.whole_word = !fr.whole_word
+            find_replace_requery_now(fr)
         } else {
             // Empty area of the box: start dragging.
             fr.dragging = true
@@ -423,16 +506,17 @@ find_replace_draw :: proc(widget: ^ui.Widget, _: ^ui.Context) {
         ui.draw_text(count_text, cast(i32) (fr.find_rect.x + fr.find_rect.width) - cw - 8, cast(i32) (fr.find_rect.y + 4), 15, fr.muted_color)
     }
 
+    find_replace_draw_button(fr, fr.btn_next, "Next")
+    find_replace_draw_button(fr, fr.btn_prev, "Prev")
     if fr.show_replace {
         find_replace_draw_input(fr, fr.replace_rect, "Replace", string(fr.replace[:]), fr.replace_field, fr.replace_caret)
-        find_replace_draw_button(fr, fr.btn_next, "Next")
-        find_replace_draw_button(fr, fr.btn_prev, "Prev")
         find_replace_draw_button(fr, fr.btn_replace, "Replace")
         find_replace_draw_button(fr, fr.btn_all, "All")
-    } else {
-        find_replace_draw_button(fr, fr.btn_next, "Next")
-        find_replace_draw_button(fr, fr.btn_prev, "Prev")
     }
+
+    // Aa = match case (alt + c), W = whole word (alt + w).
+    find_replace_draw_button(fr, fr.btn_case, "Aa", fr.case_sensitive)
+    find_replace_draw_button(fr, fr.btn_word, "W", fr.whole_word)
 }
 
 @(private = "file")
@@ -455,11 +539,13 @@ find_replace_draw_input :: proc(fr: ^Find_Replace, rect: rl.Rectangle, label, te
     }
 }
 
+// `active` lights a toggle the way a hover does, so an enabled one reads as
+// pressed.
 @(private = "file")
-find_replace_draw_button :: proc(fr: ^Find_Replace, rect: rl.Rectangle, label: string) {
-    hovered := rl.CheckCollisionPointRec(rl.GetMousePosition(), rect)
-    rl.DrawRectangleRec(rect, hovered ? fr.accent_color : fr.button_color)
-    color := hovered ? fr.input_color : fr.text_color
+find_replace_draw_button :: proc(fr: ^Find_Replace, rect: rl.Rectangle, label: string, active := false) {
+    lit := active || rl.CheckCollisionPointRec(rl.GetMousePosition(), rect)
+    rl.DrawRectangleRec(rect, lit ? fr.accent_color : fr.button_color)
+    color := lit ? fr.input_color : fr.text_color
     lw := ui.measure_text(label, 15)
     ui.draw_text(label, cast(i32) (rect.x + (rect.width - cast(f32) lw) * 0.5), cast(i32) (rect.y + 4), 15, color)
 }

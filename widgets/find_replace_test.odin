@@ -25,6 +25,21 @@ fixture_destroy :: proc(state: ^textedit.State, editor: ^Editor, fr: ^Find_Repla
     find_replace_destroy(&fr.widget)
 }
 
+// Types a query into the find field one rune at a time.
+@(private = "file")
+fr_test_type :: proc(fr: ^Find_Replace, ctx: ^ui.Context, text: string) {
+    for r in text {
+        event := ui.Event {kind = .Text_Input, codepoint = r}
+        find_replace_handle_event(&fr.widget, ctx, &event)
+    }
+}
+
+@(private = "file")
+fr_test_chord :: proc(fr: ^Find_Replace, ctx: ^ui.Context, key: rl.KeyboardKey) {
+    event := ui.Event {kind = .Key_Press, key = key, alt = true}
+    find_replace_handle_event(&fr.widget, ctx, &event)
+}
+
 // Opening find on a selected word starts on that occurrence. Anchoring on the
 // caret instead skipped to the next one, because a selection leaves the caret
 // at its end.
@@ -79,4 +94,98 @@ test_find_field_caret :: proc(t: ^testing.T) {
     press(fr, &ctx, .BACKSPACE)
     testing.expectf(t, string(fr.find[:]) == "b", "expected \"b\", got %q", string(fr.find[:]))
     testing.expectf(t, fr.find_caret == 1, "expected the caret at the end, got %d", fr.find_caret)
+}
+
+// Alt+C narrows the search to the query's own casing.
+@(test)
+test_find_case_sensitive_toggle :: proc(t: ^testing.T) {
+    state: textedit.State
+    editor: Editor
+    fr := fixture(&state, &editor, "Alpha alpha\n")
+    defer fixture_destroy(&state, &editor, fr)
+
+    ctx: ui.Context
+    find_replace_open(fr, &ctx, &editor, false)
+    fr_test_type(fr, &ctx, "alpha")
+    testing.expect_value(t, len(fr.matches), 2)
+
+    fr_test_chord(fr, &ctx, .C)
+    testing.expect(t, fr.case_sensitive, "alt + c turns matching case-sensitive")
+    testing.expect_value(t, len(fr.matches), 1)
+    testing.expect_value(t, fr.matches[0].start, 6)
+    testing.expect_value(t, fr.matches[0].end, 11)
+
+    // And back: the toggle is not one-way.
+    fr_test_chord(fr, &ctx, .C)
+    testing.expect_value(t, len(fr.matches), 2)
+}
+
+// Alt+W drops the occurrences glued to a longer identifier.
+@(test)
+test_find_whole_word_toggle :: proc(t: ^testing.T) {
+    state: textedit.State
+    editor: Editor
+    fr := fixture(&state, &editor, "alpha alphabet _alpha\n")
+    defer fixture_destroy(&state, &editor, fr)
+
+    ctx: ui.Context
+    find_replace_open(fr, &ctx, &editor, false)
+    fr_test_type(fr, &ctx, "alpha")
+    testing.expect_value(t, len(fr.matches), 3)
+
+    fr_test_chord(fr, &ctx, .W)
+    testing.expect(t, fr.whole_word, "alt + w turns on whole-word matching")
+    testing.expect_value(t, len(fr.matches), 1)
+    testing.expect_value(t, fr.matches[0].start, 0)
+}
+
+// A match that whole-word rejects must not hide the one right after it: the
+// skip table advances from the window, so a rejected match still has to step on.
+@(test)
+test_find_whole_word_keeps_scanning :: proc(t: ^testing.T) {
+    state: textedit.State
+    editor: Editor
+    fr := fixture(&state, &editor, "alphabet alpha\n")
+    defer fixture_destroy(&state, &editor, fr)
+
+    ctx: ui.Context
+    find_replace_open(fr, &ctx, &editor, false)
+    fr_test_type(fr, &ctx, "alpha")
+    fr_test_chord(fr, &ctx, .W)
+
+    testing.expect_value(t, len(fr.matches), 1)
+    testing.expect_value(t, fr.matches[0].start, 9)
+}
+
+// Replace All goes through replace_ranges, so the whole sweep is one undo entry.
+@(test)
+test_find_replace_all_is_one_undo :: proc(t: ^testing.T) {
+    state: textedit.State
+    editor: Editor
+    fr := fixture(&state, &editor, "alpha beta alpha\n")
+    defer fixture_destroy(&state, &editor, fr)
+
+    ctx: ui.Context
+    find_replace_open(fr, &ctx, &editor, true)
+    fr_test_type(fr, &ctx, "alpha")
+
+    tab := ui.Event {kind = .Key_Press, key = .TAB}
+    find_replace_handle_event(&fr.widget, &ctx, &tab)
+    fr_test_type(fr, &ctx, "x")
+
+    // Through the button, so the layout rect is exercised with it.
+    find_replace_layout(&fr.widget, rl.Rectangle {0, 0, 1200, 800})
+    click := ui.Event {
+        kind = .Mouse_Down,
+        mouse_button = .LEFT,
+        mouse_position = rl.Vector2 {
+            fr.btn_all.x + fr.btn_all.width * 0.5,
+            fr.btn_all.y + fr.btn_all.height * 0.5,
+        },
+    }
+    find_replace_handle_event(&fr.widget, &ctx, &click)
+    testing.expect_value(t, textedit.text(&state), "x beta x\n")
+
+    textedit.undo(&state)
+    testing.expect_value(t, textedit.text(&state), "alpha beta alpha\n")
 }
