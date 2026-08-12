@@ -204,6 +204,36 @@ test_tree_drag_moves_whole_selection :: proc(t: ^testing.T) {
 }
 
 @(private = "file")
+tree_test_on_delete :: proc(data: rawptr, path: string) {
+    record := cast(^string) data
+    record^ = path
+}
+
+// Delete reports the caret row, and the caret row is always part of the
+// selection: that invariant is what lets the owner widen it to the whole group
+// (see thor_tree_delete).
+@(test)
+test_tree_delete_reports_a_selected_row :: proc(t: ^testing.T) {
+    tree, root := tree_test_fixture(t)
+    defer tree_test_cleanup(tree, root)
+
+    deleted: string
+    tree_set_on_delete(tree, tree_test_on_delete, &deleted)
+
+    rows := tree_test_visible(tree)
+    tree_test_click(tree, 1, ctrl = false, shift = false)
+    tree_test_click(tree, 2, ctrl = true, shift = false)
+    testing.expect_value(t, len(tree.multi_selected), 2)
+
+    key := ui.Event {kind = .Key_Press, key = .DELETE}
+    tree_handle_event(&tree.widget, nil, &key)
+
+    testing.expect_value(t, deleted, rows[2].path)
+    testing.expect(t, deleted in tree.multi_selected, "the reported row is part of the selection")
+    testing.expect_value(t, len(tree_selection(tree)), 2)
+}
+
+@(private = "file")
 Tree_Test_Drag_Out :: struct {
     count:    int,
     position: rl.Vector2,

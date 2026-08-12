@@ -10,7 +10,9 @@ import "../ui"
 
 Tree_Open_Proc :: #type proc(data: rawptr, path: string)
 // Fired when Delete is pressed on a selected file; the owner confirms and
-// performs the removal (see thor_tree_delete).
+// performs the removal (see thor_tree_delete). `path` is the caret row, which is
+// always part of tree_selection, so the owner can widen it to the whole
+// selection.
 Tree_Delete_Proc :: #type proc(data: rawptr, path: string)
 // Fired when a row is dropped onto a folder (or the workspace root); the
 // owner renames the file on disk into dst_dir (see thor_tree_move).
