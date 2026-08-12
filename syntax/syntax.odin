@@ -65,13 +65,21 @@ ODIN_ALIASES :: `
 (const_declaration "::" (member_expression (identifier) @namespace "." (identifier) @type))
 `
 
+// Compiled-query cache key. `lang_id` and `source` are the caller's borrowed
+// strings for a lookup; on insert both are cloned into cache-owned storage.
+// Keying on the source (not just lang_id) lets a plugin's own query live
+// beside the built-in one for the same grammar.
+@(private)
+Query_Key :: struct {
+    lang_id: string,
+    source:  string,
+}
+
 Highlighter :: struct {
     parser:    ts.Parser,
     languages: map[string]Language_Entry,
-    // Compiled queries, keyed by "<lang_id>\n<query source>"; keys are owned.
-    // Keying on the source lets a plugin's own query live beside the built-in
-    // one for the same grammar.
-    queries:   map[string]ts.Query,
+    // Compiled queries, keyed by (lang_id, source); keys are owned.
+    queries:   map[Query_Key]ts.Query,
     // The highlights query in force per language, so the per-keystroke path
     // never rebuilds a key out of the multi-kilobyte query source. Keys are
     // owned, values borrowed from `queries`; an entry is dropped when an
@@ -92,7 +100,7 @@ highlighter_create :: proc() -> Highlighter {
     h: Highlighter
     h.parser = ts.parser_new()
     h.languages = make(map[string]Language_Entry)
-    h.queries = make(map[string]ts.Query)
+    h.queries = make(map[Query_Key]ts.Query)
     h.resolved = make(map[string]ts.Query)
     h.overrides = make(map[string]string)
     treecache.init(&h.trees)
@@ -134,7 +142,8 @@ highlighter_create :: proc() -> Highlighter {
 highlighter_destroy :: proc(h: ^Highlighter) {
     for key, query in h.queries {
         ts.query_delete(query)
-        delete(key)
+        delete(key.lang_id)
+        delete(key.source)
     }
     delete(h.queries)
     for id in h.resolved {
@@ -626,7 +635,7 @@ query_for :: proc(h: ^Highlighter, lang_id, source: string) -> (query: ts.Query,
         return nil, 0, .Language
     }
 
-    key := strings.concatenate({lang_id, "\n", source}, context.temp_allocator)
+    key := Query_Key{lang_id = lang_id, source = source}
     if cached, ok := h.queries[key]; ok {
         return cached, 0, .None
     }
@@ -635,7 +644,7 @@ query_for :: proc(h: ^Highlighter, lang_id, source: string) -> (query: ts.Query,
     if err != .None {
         return nil, offset, err
     }
-    h.queries[strings.clone(key)] = query
+    h.queries[Query_Key{lang_id = strings.clone(lang_id), source = strings.clone(source)}] = query
     return query, 0, .None
 }
 
@@ -662,10 +671,15 @@ set_highlights :: proc(h: ^Highlighter, lang_id, source: string) -> (offset: u32
         old_source = existing
     }
     if known && old_source != source {
-        old_key := strings.concatenate({lang_id, "\n", old_source}, context.temp_allocator)
-        if stored_key, stored_query := delete_key(&h.queries, old_key); stored_key != "" {
+        old_key := Query_Key{lang_id = lang_id, source = old_source}
+        // An explicit presence check, not a `stored_key != ""`: an empty
+        // source is a legitimate key (hcl and commonlisp register with one),
+        // and treating it as "absent" would leak a compiled ts.Query.
+        if _, present := h.queries[old_key]; present {
+            stored_key, stored_query := delete_key(&h.queries, old_key)
             ts.query_delete(stored_query)
-            delete(stored_key)
+            delete(stored_key.lang_id)
+            delete(stored_key.source)
         }
     }
 

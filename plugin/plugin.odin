@@ -171,6 +171,19 @@ Manager :: struct {
     canvas:       Canvas_Rect,
     // Tree-sitter state backing thor.ts (see api_ts.odin).
     ts_state:     Ts_State,
+    // `.scm` files read on behalf of a plugin query, keyed by resolved path so
+    // a `tree:query()` from a draw callback re-reads the file at most once
+    // per manager lifetime rather than every visible frame. The failure case
+    // is cached too (found = false), so a bad name is neither re-read nor
+    // re-logged. Keys and sources owned; dies with the manager, so editing a
+    // plugin's .scm while Thor runs takes effect on the next reload.
+    query_files:  map[string]Query_File,
+}
+
+@(private)
+Query_File :: struct {
+    source: string, // owned; empty when found == false
+    found:  bool,
 }
 
 // Wires the host services a plugin can call. Call once after manager_init.
@@ -216,6 +229,7 @@ manager_init :: proc(m: ^Manager) {
     m.tick_at = time.tick_now()
     m.commands = make(map[string]Callback)
     m.panel_refs = make(map[string][dynamic]Callback)
+    m.query_files = make(map[string]Query_File)
     ts_init(m)
 }
 
@@ -254,6 +268,11 @@ manager_destroy :: proc(m: ^Manager) {
         delete(p.dir)
     }
     delete(m.plugins)
+    for path, qf in m.query_files {
+        delete(path)
+        delete(qf.source)
+    }
+    delete(m.query_files)
     ts_destroy(m)
     syntax.highlighter_destroy(&m.highlighter)
     if m.state != nil {
@@ -1078,7 +1097,12 @@ query_error_text :: proc(err: ts.Query_Error) -> string {
 }
 
 // Resolves a query argument: a `.scm` name loads from the plugin folder,
-// anything else is the query itself. The result uses the temp allocator.
+// anything else is the query itself. A `.scm` file is read at most once per
+// manager lifetime, through query_files (the failure case cached too), so a
+// plugin querying from a canvas draw callback does not re-read its file every
+// visible frame. Allocates explicitly with m.allocator rather than through
+// context, since the load-time caller (apply_highlights_override) does not
+// set context.allocator to it.
 @(private)
 query_source :: proc(m: ^Manager, index: int, source: string) -> (string, bool) {
     if !strings.has_suffix(source, ".scm") {
@@ -1093,12 +1117,21 @@ query_source :: proc(m: ^Manager, index: int, source: string) -> (string, bool) 
         log.warnf("plugin %s: query %q is outside the plugin folder", p.id, source)
         return "", false
     }
-    data, read_err := os.read_entire_file(path, context.temp_allocator)
+
+    if qf, cached := m.query_files[path]; cached {
+        return qf.source, qf.found
+    }
+
+    key := strings.clone(path, m.allocator)
+    data, read_err := os.read_entire_file(path, m.allocator)
     if read_err != nil {
         log.warnf("plugin %s: cannot read query %q", p.id, source)
+        m.query_files[key] = Query_File{found = false}
         return "", false
     }
-    return string(data), true
+    qf := Query_File{source = string(data), found = true}
+    m.query_files[key] = qf
+    return qf.source, true
 }
 
 // Reads a string field from the argument table at stack index 1.

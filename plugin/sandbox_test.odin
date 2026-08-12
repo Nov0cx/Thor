@@ -318,6 +318,32 @@ thor.print("result=" .. tostring(matches) .. " err=" .. tostring(err))`
     testing.expectf(t, strings.contains(out, "[bad] query"), "the console was not told: %q", out)
 }
 
+// A plugin calling tree:query on the same .scm name twice must read the file
+// from disk only once: query_source caches by resolved path, so a query run
+// from a canvas draw callback does not re-read its file every visible frame.
+@(test)
+test_tree_query_reads_scm_file_once :: proc(t: ^testing.T) {
+    r: Recorder
+    recorder_init(&r)
+    defer recorder_destroy(&r)
+    m: Manager
+    recording_manager(&m, &r)
+    defer manager_destroy(&m)
+
+    dir := "bin/test/query-cache-plugin"
+    os.make_directory(dir)
+    path, _ := filepath.join({dir, "highlights.scm"}, context.temp_allocator)
+    testing.expect(t, os.write_entire_file(path, transmute([]byte) string("(comment) @c")) == nil, "query file written")
+    defer os.remove(path)
+
+    script := `local tree = thor.ts.parse("package p\n\n// note\n", "odin")
+tree:query("highlights.scm")
+tree:query("highlights.scm")`
+    testing.expect(t, manager_load_source(&m, "cacher", dir, script, {}), "plugin runs")
+
+    testing.expect_value(t, len(m.query_files), 1)
+}
+
 // A plugin replaces the compiled-in highlights query with its own, given inline
 // or as a .scm file beside plugin.lua. Both paths end at the same query.
 @(test)

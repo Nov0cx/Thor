@@ -307,6 +307,48 @@ expect_head :: proc(t: ^testing.T, spans: []Span, src, needle, want: string) {
     testing.expectf(t, ok && got == want, "%q: got %q (found=%v), want %q", needle, got, ok, want)
 }
 
+// The query cache is keyed on (lang_id, source): the same pair hits, a
+// different source compiles and caches a second entry.
+@(test)
+test_query_for_keys_on_lang_and_source :: proc(t: ^testing.T) {
+    h := highlighter_create()
+    defer highlighter_destroy(&h)
+
+    src := "(comment) @comment"
+    q1, _, err1 := query_for(&h, "odin", src)
+    testing.expect(t, err1 == .None)
+    q2, _, err2 := query_for(&h, "odin", src)
+    testing.expect(t, err2 == .None)
+    testing.expect(t, q1 == q2, "the same (lang, source) must hit the cache")
+
+    other := "(identifier) @variable"
+    q3, _, err3 := query_for(&h, "odin", other)
+    testing.expect(t, err3 == .None)
+    testing.expect(t, q1 != q3, "a different source must compile a different query")
+
+    testing.expect_value(t, len(h.queries), 2)
+}
+
+// Replacing a plugin's override must evict the compiled query it replaces
+// from h.queries, not just from resolved, or every override of the same
+// lang_id leaks one compiled ts.Query. The tracking allocator (run via
+// build.odin -- test) is the leak assertion; this checks the count directly.
+@(test)
+test_set_highlights_evicts_the_replaced_query :: proc(t: ^testing.T) {
+    h := highlighter_create()
+    defer highlighter_destroy(&h)
+
+    before := len(h.queries)
+    _, err := set_highlights(&h, "odin", "(comment) @comment")
+    testing.expect(t, err == .None)
+    after_first := len(h.queries)
+    testing.expect_value(t, after_first, before + 1)
+
+    _, err2 := set_highlights(&h, "odin", "(identifier) @variable")
+    testing.expect(t, err2 == .None)
+    testing.expect_value(t, len(h.queries), after_first)
+}
+
 // Each newly added grammar must build its highlights query (the combined
 // javascript/typescript queries especially) and tag a few obvious tokens.
 @(test)
