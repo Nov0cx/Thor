@@ -41,6 +41,9 @@ General :: struct {
     default_shell:     string,
     // Draw the font's programming ligatures ("->" as one glyph). On by default.
     ligatures:         bool,
+    // Format the active buffer before an explicit save (Ctrl+S, Save All, the
+    // palette) — never before an autosave. Off by default.
+    format_on_save:    bool,
     // Language intelligence: the master switch and the features still allowed
     // under it, read from the "language_intelligence" entry. Both are on by
     // default; the editor pushes them onto lang.Manager, which enforces them.
@@ -103,6 +106,7 @@ load :: proc(dir: string) -> Settings {
         font_size         = 18,
         autosave_delay_ms = 1500,
         ligatures         = true,
+        format_on_save    = false,
         language_enabled  = true,
         language_features = lang.FEATURES_ALL,
         language_backends = make(map[string]Backend_Setting),
@@ -216,6 +220,11 @@ default_shell :: proc(s: ^Settings) -> string {
 // Whether text draws the font's ligatures.
 ligatures :: proc(s: ^Settings) -> bool {
     return s.general.ligatures
+}
+
+// Whether an explicit save formats the buffer first.
+format_on_save :: proc(s: ^Settings) -> bool {
+    return s.general.format_on_save
 }
 
 // Whether language intelligence runs at all. Off makes every backend silent,
@@ -707,6 +716,7 @@ load_general :: proc(s: ^Settings, path: string) {
     read_string(root, "icon_pack", &s.general.icon_pack)
     read_string(root, "file_icon_pack", &s.general.file_icon_pack)
     read_bool(root, "ligatures", &s.general.ligatures)
+    read_bool(root, "format_on_save", &s.general.format_on_save)
     read_string(root, "open_folder_in", &s.general.open_folder_in)
     read_string(root, "default_shell", &s.general.default_shell)
     read_language(s, root)

@@ -99,6 +99,7 @@ Add `shift` to any movement to extend the selection.
 | ctrl + k | toggle line comment (per-language marker) |
 | alt + u / l / c | uppercase / lowercase / capitalize the selection (or the word under the caret) |
 | ctrl + shift + w | trim trailing whitespace |
+| ctrl + alt + l | format document (Odin; needs language intelligence) |
 | ctrl + shift + a | align selected lines on a character (prompts for the char, e.g. `=`) |
 | enter | new line, keeping indent (extra level after an opening bracket) |
 
@@ -214,9 +215,6 @@ in the list. "Go to File" and "Go to Line" switch it into file / line input
 modes. All bindings above live in `settings/keybinds.json`; comment markers in
 `settings/comments.json`; tab width, font size and autosave delay in
 `settings/settings.json`.
-
-`ctrl + alt + l` is intentionally left unbound — it is reserved for a future
-code formatter.
 
 ## Help
 

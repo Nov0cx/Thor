@@ -72,6 +72,11 @@ thor_apply_settings :: proc(thor: ^Thor) {
     } else {
         thor.trim_whitespace_key = setting.Keybind {key = .W, ctrl = true, shift = true}
     }
+    if kb, ok := setting.keybind(&thor.config, "format_document"); ok {
+        thor.format_key = kb
+    } else {
+        thor.format_key = setting.Keybind {key = .L, ctrl = true, alt = true}
+    }
     if kb, ok := setting.keybind(&thor.config, "align_at_char"); ok {
         thor.align_char_key = kb
     } else {
@@ -415,6 +420,7 @@ thor_register_commands :: proc(thor: ^Thor) {
     widgets.command_palette_add(p, "Edit: Lowercase", thor_cmd_lowercase, thor, sc(thor, "lowercase"))
     widgets.command_palette_add(p, "Edit: Capitalize", thor_cmd_capitalize, thor, sc(thor, "capitalize"))
     widgets.command_palette_add(p, "Edit: Trim Trailing Whitespace", thor_cmd_trim_whitespace, thor, sc(thor, "trim_trailing_whitespace"))
+    widgets.command_palette_add(p, "Edit: Format Document", thor_cmd_format_document, thor, sc(thor, "format_document"))
     widgets.command_palette_add(p, "Edit: Align at Character", thor_cmd_align_at_char, thor, sc(thor, "align_at_char"))
 
     widgets.command_palette_add(p, "Selection: Add Cursor Above", thor_cmd_add_cursor_above, thor, sc(thor, "add_cursor_above"))
@@ -631,10 +637,23 @@ thor_cmd_unfold_all :: proc(data: rawptr) {widgets.editor_unfold_all(thor_focuse
 thor_cmd_recenter :: proc(data: rawptr) {widgets.editor_recenter((cast(^Thor) data).editor)}
 thor_cmd_last_file :: proc(data: rawptr) {thor_flip_last_file(cast(^Thor) data)}
 
+// Save All: files that don't need formatting save immediately; among files
+// that do, only the first dispatches right away — .Format has one consumer
+// slot like every other kind, so the rest wait in format_save_queue and are
+// formatted and saved one at a time as thor_finish_pending_format_save pops it.
 thor_cmd_save_all :: proc(data: rawptr) {
     thor := cast(^Thor) data
+    formatting_started := thor.format_request_id != 0 || thor.format_save_pending
     for file in thor.open_files {
-        thor_save_file(thor, file)
+        if !file.loaded || file.closed || file.state.revision == file.saved_revision {
+            continue
+        }
+        if formatting_started {
+            append(&thor.format_save_queue, strings.clone(file.path))
+            continue
+        }
+        thor_save_explicit(thor, file)
+        formatting_started = thor.format_request_id != 0 || thor.format_save_pending
     }
 }
 

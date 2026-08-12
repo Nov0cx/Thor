@@ -157,7 +157,7 @@ test_capabilities_real_reply :: proc(t: ^testing.T) {
     testing.expect_value(
         t,
         caps.kinds,
-        lang.FEATURES_ALL - {.Diagnostics, .Progress, .Apply_Edit},
+        lang.FEATURES_ALL - {.Diagnostics, .Progress, .Apply_Edit, .Format},
     )
 }
 

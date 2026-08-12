@@ -60,6 +60,8 @@ thor_lang_busy_label :: proc(kinds: bit_set[lang.Request_Kind]) -> string {
         return "Resolving..."
     case .Code_Actions in kinds:
         return "Looking for fixes..."
+    case .Format in kinds:
+        return "Formatting..."
     case .Diagnostics in kinds:
         return "Checking..."
     }
@@ -1328,6 +1330,8 @@ thor_on_lang_result :: proc(user: rawptr, res: ^lang.Result) {
         thor_show_code_actions(thor, res)
     case .Semantic_Tokens:
         thor_update_semantic(thor, res)
+    case .Format:
+        thor_apply_format(thor, res)
     case .Progress:
         thor_apply_progress(thor, res)
     case .Apply_Edit:

@@ -1016,7 +1016,7 @@ thor_toggle_line_ending :: proc(data: rawptr) {
 thor_request_save :: proc(data: rawptr) {
     thor := cast(^Thor) data
     if file := thor_active_open_file(thor); file != nil {
-        thor_save_file(thor, file)
+        thor_save_explicit(thor, file)
     }
 }
 
@@ -1026,6 +1026,18 @@ thor_update_files :: proc(thor: ^Thor) {
     thor_process_io(thor)
     thor_apply_pending_goto(thor)
     thor_update_editor_view(thor)
+
+    // Orphan-save insurance: a .Format result that never reaches
+    // thor_apply_format (cancelled by a feature toggle, a workspace switch,
+    // shutdown) would otherwise strand format_save_pending forever. Once no
+    // format is left in flight, flush it unformatted rather than wait — the
+    // autosave sweep below is a second backstop behind this one.
+    if thor.format_save_pending && thor.format_request_id == 0 {
+        thor.format_save_pending = false
+        if file := thor_format_open_file_at(thor, thor.format_path); file != nil {
+            thor_save_file(thor, file)
+        }
+    }
 
     autosave_delay := time.Duration(setting.autosave_delay_ms(&thor.config)) * time.Millisecond
     for file in thor.open_files {

@@ -132,6 +132,7 @@ run_tests :: proc() -> bool {
         "lang",
         "lang/lsp",
         "lang/odin",
+        "lang/odin/format",
         "piecetable",
         "plugin",
         "setting",

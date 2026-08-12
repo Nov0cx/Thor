@@ -3,6 +3,7 @@
     "tab_width": 4,
     "autosave_delay_ms": 1500,
     "ligatures": true,
+    "format_on_save": false,
     "open_folder_in": "ask",
     "default_shell": "",
     "language_intelligence": true

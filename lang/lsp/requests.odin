@@ -40,6 +40,7 @@ METHODS := [lang.Request_Kind]string {
     .Diagnostics       = "textDocument/diagnostic",
     .Code_Actions      = "textDocument/codeAction",
     .Semantic_Tokens   = "textDocument/semanticTokens/full",
+    .Format            = "", // served in-client only; no server is asked
     .Progress          = "", // unsolicited push, never sent as an outgoing request
     .Apply_Edit        = "", // unsolicited push, never sent as an outgoing request
 }

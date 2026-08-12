@@ -2,6 +2,9 @@
 
 First release. Thor runs on Windows, Linux and macOS.
 
+- `ctrl + alt + l` / "Edit: Format Document" formats the active Odin file with a native in-editor formatter — no external tool required.
+- `format_on_save` setting formats an Odin file before an explicit save (off by default; never runs on autosave).
+- `.thor/odin-formatter.json` sets per-workspace formatter options: brace style, tabs vs. spaces, alignment, import sorting, and more.
 - Editing: multiple cursors, editor split, find and replace, undo and redo, auto-indent, bracket and quote pairs, line comment toggle, autosave.
 - Tree-sitter syntax highlighting for 45 languages, each one a plugin.
 - Odin language intelligence, served in the editor with no language server: hover, go to definition, completion, signature help, code actions, find all references, rename symbol, document and workspace symbols, and compiler diagnostics. The `language_intelligence` setting turns it off per feature.

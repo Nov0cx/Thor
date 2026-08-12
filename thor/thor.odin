@@ -19,291 +19,292 @@ import "../watch"
 import "../widgets"
 
 Thor :: struct {
-    ui_context:               ui.Context,
-    config:                   setting.Settings,
-    plugins:                  plugin.Manager,
-    theme:                    ui.Theme,
-    root_panel:               ^widgets.Panel,
-    root_stack:               ^widgets.Stack,
-    top_bar:                  ^widgets.Titlebar,
-    workspace_row:            ^widgets.Stack,
-    explorer_stub_panel:      ^widgets.Panel,
-    explorer_stub_stack:      ^widgets.Stack,
-    explorer_panel:           ^widgets.Panel,
-    explorer_stack:           ^widgets.Stack,
-    explorer_header:          ^widgets.Stack,
-    explorer_splitter:        ^widgets.Splitter,
-    editor_column:            ^widgets.Stack,
-    editor_panel:             ^widgets.Panel,
-    console_splitter:         ^widgets.Splitter,
-    console_panel:            ^widgets.Panel,
-    console_stack:            ^widgets.Stack,
-    console_header:           ^widgets.Stack,
-    console_stub_panel:       ^widgets.Panel,
-    console_stub_stack:       ^widgets.Stack,
-    tree:                     ^widgets.Tree,
-    tabbar:                   ^widgets.Tabbar,
-    statusbar:                ^widgets.Statusbar,
-    editor:                   ^widgets.Editor,
+    ui_context: ui.Context,
+    config: setting.Settings,
+    plugins: plugin.Manager,
+    theme: ui.Theme,
+    root_panel: ^widgets.Panel,
+    root_stack: ^widgets.Stack,
+    top_bar: ^widgets.Titlebar,
+    workspace_row: ^widgets.Stack,
+    explorer_stub_panel: ^widgets.Panel,
+    explorer_stub_stack: ^widgets.Stack,
+    explorer_panel: ^widgets.Panel,
+    explorer_stack: ^widgets.Stack,
+    explorer_header: ^widgets.Stack,
+    explorer_splitter: ^widgets.Splitter,
+    editor_column: ^widgets.Stack,
+    editor_panel: ^widgets.Panel,
+    console_splitter: ^widgets.Splitter,
+    console_panel: ^widgets.Panel,
+    console_stack: ^widgets.Stack,
+    console_header: ^widgets.Stack,
+    console_stub_panel: ^widgets.Panel,
+    console_stub_stack: ^widgets.Stack,
+    tree: ^widgets.Tree,
+    tabbar: ^widgets.Tabbar,
+    statusbar: ^widgets.Statusbar,
+    editor: ^widgets.Editor,
     // Second editor pane, shown side-by-side with the first when the split is
     // on. Both view the active file's buffer (shared state, independent scroll).
-    editor2:                  ^widgets.Editor,
+    editor2: ^widgets.Editor,
     // Overlays the editor panel when the active file is an image; the editor
     // rows are hidden while it shows.
-    image_view:               ^widgets.Image_View,
+    image_view: ^widgets.Image_View,
     // The same overlay for 3D model files: an orbit camera over the loaded meshes.
-    model_view:               ^widgets.Model_View,
+    model_view: ^widgets.Model_View,
     // Rendered markdown preview, shown in place of whichever pane is not
     // focused (pane 0's slot / pane 1's slot respectively) while preview is on
     // and the active file is markdown. Toggled by "View: Toggle Markdown Preview".
-    markdown_view:            ^widgets.Markdown_View,
-    markdown_view2:           ^widgets.Markdown_View,
-    markdown_preview:         bool,
-    editor_split_row:         ^widgets.Stack,
-    editor_split_splitter:    ^widgets.Splitter,
+    markdown_view: ^widgets.Markdown_View,
+    markdown_view2: ^widgets.Markdown_View,
+    markdown_preview: bool,
+    editor_split_row: ^widgets.Stack,
+    editor_split_splitter: ^widgets.Splitter,
     // Shown in place of the editor while workspace_dir is "" (startup with no
     // path/session, or after Close Workspace). welcome_recent_stack is rebuilt
     // on every show; welcome_recent_entries are its buttons' owned click data.
-    welcome_panel:            ^widgets.Panel,
-    welcome_title_label:      ^widgets.Label,
-    welcome_subtitle_label:   ^widgets.Label,
-    welcome_recent_label:     ^widgets.Label,
-    welcome_recent_stack:     ^widgets.Stack,
-    welcome_recent_entries:   [dynamic]^Welcome_Recent_Entry,
+    welcome_panel: ^widgets.Panel,
+    welcome_title_label: ^widgets.Label,
+    welcome_subtitle_label: ^widgets.Label,
+    welcome_recent_label: ^widgets.Label,
+    welcome_recent_stack: ^widgets.Stack,
+    welcome_recent_entries: [dynamic]^Welcome_Recent_Entry,
     welcome_open_folder_button: ^widgets.Button,
-    welcome_open_file_button:   ^widgets.Button,
+    welcome_open_file_button: ^widgets.Button,
     // The active terminal's console; nil when the last terminal is closed.
-    console:                  ^widgets.Console,
-    terminal_tabs:            ^widgets.Tabstrip,
-    command_palette:          ^widgets.Command_Palette,
+    console: ^widgets.Console,
+    terminal_tabs: ^widgets.Tabstrip,
+    command_palette: ^widgets.Command_Palette,
     // Modal picker for Preferences (theme/font), with live preview.
-    select_dialog:            ^widgets.Select_Dialog,
+    select_dialog: ^widgets.Select_Dialog,
     // Modal GUI editor for every setting (editor prefs, theme/font, keybinds).
-    settings_view:            ^widgets.Settings_View,
+    settings_view: ^widgets.Settings_View,
     // Auto-reload of the config files: a signature of their modification times,
     // refreshed after each load; the poll loop reloads when it changes on disk.
-    settings_sig:             i64,
-    settings_poll_time:       f64,
-    find_replace:             ^widgets.Find_Replace,
-    menu:                     ^widgets.Menu,
-    command_palette_key:      setting.Keybind,
-    quick_open_key:           setting.Keybind,
-    fullscreen_key:           setting.Keybind,
-    console_toggle_key:       setting.Keybind,
-    find_key:                 setting.Keybind,
-    replace_key:              setting.Keybind,
-    focus_editor_key:         setting.Keybind,
-    focus_explorer_key:       setting.Keybind,
-    focus_terminal_key:       setting.Keybind,
-    trim_whitespace_key:      setting.Keybind,
-    align_char_key:           setting.Keybind,
-    goto_line_key:            setting.Keybind,
-    last_file_key:            setting.Keybind,
-    close_tab_key:            setting.Keybind,
-    next_tab_key:             setting.Keybind,
-    previous_tab_key:         setting.Keybind,
-    toggle_explorer_key:      setting.Keybind,
+    settings_sig: i64,
+    settings_poll_time: f64,
+    find_replace: ^widgets.Find_Replace,
+    menu: ^widgets.Menu,
+    command_palette_key: setting.Keybind,
+    quick_open_key: setting.Keybind,
+    fullscreen_key: setting.Keybind,
+    console_toggle_key: setting.Keybind,
+    find_key: setting.Keybind,
+    replace_key: setting.Keybind,
+    focus_editor_key: setting.Keybind,
+    focus_explorer_key: setting.Keybind,
+    focus_terminal_key: setting.Keybind,
+    trim_whitespace_key: setting.Keybind,
+    format_key: setting.Keybind,
+    align_char_key: setting.Keybind,
+    goto_line_key: setting.Keybind,
+    last_file_key: setting.Keybind,
+    close_tab_key: setting.Keybind,
+    next_tab_key: setting.Keybind,
+    previous_tab_key: setting.Keybind,
+    toggle_explorer_key: setting.Keybind,
     // Toggles the editor split. Unbound by default (KEY_NULL), so it only fires
     // once the user sets a "toggle_split" chord in keybinds.json.
-    split_key:                setting.Keybind,
-    active_file:              ui.Signal(int),
+    split_key: setting.Keybind,
+    active_file: ui.Signal(int),
     // Most-recently-active file before the current one, for the ctrl+e flip.
     // Cleared when that file is closed so the pointer never dangles.
-    last_active_file:         ^Open_File,
-    explorer_visible:         ui.Signal(bool),
-    console_visible:          ui.Signal(bool),
-    menu_file_button:         ^widgets.Button,
-    menu_edit_button:         ^widgets.Button,
-    menu_view_button:         ^widgets.Button,
-    menu_help_button:         ^widgets.Button,
+    last_active_file: ^Open_File,
+    explorer_visible: ui.Signal(bool),
+    console_visible: ui.Signal(bool),
+    menu_file_button: ^widgets.Button,
+    menu_edit_button: ^widgets.Button,
+    menu_view_button: ^widgets.Button,
+    menu_help_button: ^widgets.Button,
     // Titlebar hammer mark and its borrowed texture (unloaded at shutdown).
-    top_logo:                 ^widgets.Logo,
-    top_logo_texture:         rl.Texture2D,
+    top_logo: ^widgets.Logo,
+    top_logo_texture: rl.Texture2D,
     // Titlebar/panel labels that carry a theme color, kept so a live theme
     // change can recolor them (most labels are theme-neutral and not stored).
-    explorer_title_label:     ^widgets.Label,
-    explorer_toggle_button:   ^widgets.Button,
-    explorer_restore_button:  ^widgets.Button,
-    console_toggle_button:    ^widgets.Button,
-    console_restore_button:   ^widgets.Button,
+    explorer_title_label: ^widgets.Label,
+    explorer_toggle_button: ^widgets.Button,
+    explorer_restore_button: ^widgets.Button,
+    console_toggle_button: ^widgets.Button,
+    console_restore_button: ^widgets.Button,
     // Titlebar task controls, left of the window controls: add, the selector
     // naming the active task (opens the dropdown), and run (see tasks.odin).
-    tasks_add_button:         ^widgets.Button,
-    tasks_select_button:      ^widgets.Button,
-    tasks_run_button:         ^widgets.Button,
-    minimize_button:          ^widgets.Button,
-    maximize_button:          ^widgets.Button,
-    close_button:             ^widgets.Button,
+    tasks_add_button: ^widgets.Button,
+    tasks_select_button: ^widgets.Button,
+    tasks_run_button: ^widgets.Button,
+    minimize_button: ^widgets.Button,
+    maximize_button: ^widgets.Button,
+    close_button: ^widgets.Button,
     // Top-bar buttons added by plugins via thor.button, and the widget a new one
     // is linked in after (advances so buttons keep registration order).
-    plugin_buttons:           [dynamic]^Plugin_Top_Button,
+    plugin_buttons: [dynamic]^Plugin_Top_Button,
     // Panels plugins built (thor.panel) and the two docks holding them. A dock
     // shows only while one of its panels does (see plugin_panel.odin).
-    plugin_panels:            [dynamic]^Plugin_Panel,
+    plugin_panels: [dynamic]^Plugin_Panel,
     // Plugins held until the user allows the permissions they ask for, and the
     // prompt that asks for one source of them (see plugin_trust.odin).
-    plugin_requests:          [dynamic]Plugin_Request,
-    plugin_prompt_message:    string, // owned; the palette borrows it
-    plugin_prompt_shown:      bool,
-    plugin_prompt_source:     Plugin_Source,
+    plugin_requests: [dynamic]Plugin_Request,
+    plugin_prompt_message: string,  // owned; the palette borrows it
+    plugin_prompt_shown: bool,
+    plugin_prompt_source: Plugin_Source,
     // An answer asked for the plugin VM to be rebuilt; done on the next frame.
-    plugin_reload_pending:    bool,
+    plugin_reload_pending: bool,
     // Plugin whose permission row opened the picker (see settings_ui.odin).
-    plugin_setting_target:    string, // owned
-    plugin_setting_source:    Plugin_Source,
+    plugin_setting_target: string,  // owned
+    plugin_setting_source: Plugin_Source,
     // Backend id ("odin", or an lsp.json server id) whose on/off picker is open;
     // see thor_cmd_change_language_backend. Shared with
     // thor_cmd_change_language_backend_feature, which additionally sets
     // language_backend_feature_kind — the two never have a picker open at once.
-    language_backend_target:  string, // owned
+    language_backend_target: string,  // owned
     language_backend_feature_kind: lang.Request_Kind,
-    plugin_dock_right:        ^widgets.Panel,
-    plugin_dock_right_stack:  ^widgets.Stack,
-    plugin_dock_bottom:       ^widgets.Panel,
+    plugin_dock_right: ^widgets.Panel,
+    plugin_dock_right_stack: ^widgets.Stack,
+    plugin_dock_bottom: ^widgets.Panel,
     plugin_dock_bottom_stack: ^widgets.Stack,
-    top_bar_plugin_anchor:    ^ui.Widget,
-    should_close:             bool,
-    window_maximized:         bool,
-    explorer_width:           f32,
-    console_height:           f32,
-    split_visible:            bool,
-    split_ratio:              f32,
+    top_bar_plugin_anchor: ^ui.Widget,
+    should_close: bool,
+    window_maximized: bool,
+    explorer_width: f32,
+    console_height: f32,
+    split_visible: bool,
+    split_ratio: f32,
     // Each pane's open-files index (-1 = none); the two panes can show different
     // files. active_pane is the focused one, whose file the tabbar, status bar
     // and file commands act on (mirrored into the active_file signal).
-    pane_file:                [2]int,
-    active_pane:              int,
+    pane_file: [2]int,
+    active_pane: int,
     // App/file/view commands that ship without a keybinding. Each carries its
     // config action name and resolved chord; unbound ones (KEY_NULL) never fire.
     // Dispatched globally, so only commands with no editor-local key belong here.
-    app_binds:                [dynamic]App_Bind,
-    workspace_dir:            string,
-    workspace_prefix:         string, // workspace_dir + separator, for palette display
+    app_binds: [dynamic]App_Bind,
+    workspace_dir: string,
+    workspace_prefix: string,  // workspace_dir + separator, for palette display
     // True when workspace_dir has a .thor/ directory: its config overlays the
     // global settings, and it is treated as an initialized workspace.
-    workspace_initialized:    bool,
+    workspace_initialized: bool,
     // Directory a New File/Folder prompt creates into; set from the explorer
     // right-click target or the workspace root. Owned clone.
-    menu_target_dir:          string,
+    menu_target_dir: string,
     // Tab index a right-click context menu was opened on (editor tabs, terminal
     // tabs), consumed by the menu's own row callbacks.
-    menu_target_tab:          int,
-    menu_target_terminal:     int,
+    menu_target_tab: int,
+    menu_target_terminal: int,
     // Paths awaiting a delete confirmation (set when Delete is pressed in the
     // explorer, consumed when the confirm dialog is accepted). Owned clones; more
     // than one when the explorer selection spans several rows.
-    pending_delete_paths:     [dynamic]string,
+    pending_delete_paths: [dynamic]string,
     // Message shown in the delete confirmation dialog; borrowed by the palette
     // while it is open, so it must outlive the dialog. Owned clone.
-    delete_prompt:            string,
+    delete_prompt: string,
     // File the open conflict prompt asks about (borrowed, nil when none is open),
     // and that prompt's message. The message is borrowed by the palette while the
     // prompt is open, so it must outlive it. Owned clone.
-    conflict_file:            ^Open_File,
-    conflict_prompt:          string,
+    conflict_file: ^Open_File,
+    conflict_prompt: string,
     // Path awaiting a rename (set when a rename is started in the explorer or
     // the File menu, consumed when the name prompt is accepted). Owned clone.
-    pending_rename_path:      string,
+    pending_rename_path: string,
     // Folder awaiting a this-window/new-window choice, and the prompt title the
     // picker shows. The title is borrowed by the palette while it is open, so
     // both must outlive the pick. Owned clones, cleared once the pick lands.
-    pending_open_folder:      string,
-    open_folder_prompt:       string,
-    git_branch:               string,
+    pending_open_folder: string,
+    open_folder_prompt: string,
+    git_branch: string,
     // Named shell commands from <workspace>/.thor/tasks.json, reloaded on a
     // workspace switch. active_task_name is what the selector shows and the run
     // button runs, held by name so a reload can re-resolve it and the session
     // can restore it; pending_task_name carries the name between the two prompts
     // of Add Task. Both owned clones.
-    tasks:                    [dynamic]^Task,
-    active_task_name:         string,
-    pending_task_name:        string,
-    open_files:               [dynamic]^Open_File,
-    zombie_files:             [dynamic]^Open_File,
+    tasks: [dynamic]^Task,
+    active_task_name: string,
+    pending_task_name: string,
+    open_files: [dynamic]^Open_File,
+    zombie_files: [dynamic]^Open_File,
     // Worker threads append finished jobs here under io_mutex; drained on the
     // main thread every frame.
-    io_mutex:                 sync.Mutex,
-    finished_loads:           [dynamic]^Load_Job,
-    finished_saves:           [dynamic]^Save_Job,
-    finished_git:             [dynamic]^Git_Status_Job,
-    finished_file_ops:        [dynamic]^File_Op_Job,
-    finished_shells:          [dynamic]^Shell_Detect_Job,
-    finished_file_index:      [dynamic]^File_Index_Job,
-    inflight_jobs:            int,
+    io_mutex: sync.Mutex,
+    finished_loads: [dynamic]^Load_Job,
+    finished_saves: [dynamic]^Save_Job,
+    finished_git: [dynamic]^Git_Status_Job,
+    finished_file_ops: [dynamic]^File_Op_Job,
+    finished_shells: [dynamic]^Shell_Detect_Job,
+    finished_file_index: [dynamic]^File_Index_Job,
+    inflight_jobs: int,
     // Quick-open's cached file list, warmed off-thread at workspace open and
     // refreshed on watcher activity; thor_palette_list_files falls back to a
     // synchronous walk while !file_index_ready. Owned, with the strings in it.
     // file_index_inflight/dirty coalesce a burst the same way git status does.
-    file_index:               [dynamic]string,
-    file_index_ready:         bool,
-    file_index_inflight:      bool,
-    file_index_dirty:         bool,
-    file_index_at:            time.Tick,
+    file_index: [dynamic]string,
+    file_index_ready: bool,
+    file_index_inflight: bool,
+    file_index_dirty: bool,
+    file_index_at: time.Tick,
     // Plugin output printed while no terminal exists — shell detection is async,
     // so a plugin load body prints before the first one opens. Flushed into that
     // terminal when it opens. owned
-    console_backlog:          strings.Builder,
+    console_backlog: strings.Builder,
     // One terminal per console tab, each on its own shell. owned
-    terminals:                [dynamic]^Terminal,
+    terminals: [dynamic]^Terminal,
     // True between thor_terminals_init and thor_terminals_shutdown. An empty
     // terminal list and a shut-down one are the same value, so the state is
     // held apart from it.
-    terminals_live:           bool,
-    active_terminal:          int,
+    terminals_live: bool,
+    active_terminal: int,
     // The shells installed on this machine, best first. owned
-    shell_profiles:           []shell.Profile,
-    shell_choices:            []Shell_Choice, // owned, one per profile
+    shell_profiles: []shell.Profile,
+    shell_choices: []Shell_Choice,  // owned, one per profile
     // Working-tree status keyed by absolute path (matches tree node paths),
     // recomputed off-thread; git_status_inflight guards against overlapping runs.
-    git_status:               map[string]widgets.Git_Status,
-    git_status_inflight:      bool,
-    git_status_dirty:         bool, // a refresh was requested while one was running
+    git_status: map[string]widgets.Git_Status,
+    git_status_inflight: bool,
+    git_status_dirty: bool,  // a refresh was requested while one was running
     // Language intelligence: in-client analyzers (and, later, an LSP subprocess)
     // behind one seam. Requests run on worker threads and are reaped each frame.
-    lang_manager:             lang.Manager,
-    odin_engine:              ^odin.Engine,
+    lang_manager: lang.Manager,
+    odin_engine: ^odin.Engine,
     // The optional subprocess LSP backend. Owned by the manager, which destroys
     // every backend it holds, so shutdown frees nothing here.
-    lsp_client:               ^lsp.Client,
+    lsp_client: ^lsp.Client,
     // Recursive async watch of the workspace tree. Its changes feed the explorer
     // (tree + git refresh) and the open buffers (reload on external edits) via
     // subscribers wired in thor_init_watcher. The two flags coalesce a burst of
     // events into a single explorer refresh per poll.
-    watcher:                  watch.Watcher,
-    watch_tree_dirty:         bool,
-    watch_git_dirty:          bool,
-    goto_def_key:             setting.Keybind,
-    goto_symbol_key:          setting.Keybind,
+    watcher: watch.Watcher,
+    watch_tree_dirty: bool,
+    watch_git_dirty: bool,
+    goto_def_key: setting.Keybind,
+    goto_symbol_key: setting.Keybind,
     goto_workspace_symbol_key: setting.Keybind,
-    find_references_key:      setting.Keybind,
-    signature_help_key:       setting.Keybind,
-    package_doc_key:          setting.Keybind,
-    code_actions_key:         setting.Keybind,
+    find_references_key: setting.Keybind,
+    signature_help_key: setting.Keybind,
+    package_doc_key: setting.Keybind,
+    code_actions_key: setting.Keybind,
     // Go-to-symbol picker state: the jump targets (file + byte offset) for the
     // rows currently shown, in picker order. Rebuilt each time the picker opens;
     // the pick callback indexes into them on a later frame. Owned.
-    doc_symbols:              [dynamic]Doc_Symbol,
+    doc_symbols: [dynamic]Doc_Symbol,
     // A go-to-definition whose target file is still loading; applied by
     // thor_update_files once the buffer lands. Path is an owned clone.
-    pending_goto_active:      bool,
-    pending_goto_path:        string,
-    pending_goto_offset:      int,
+    pending_goto_active: bool,
+    pending_goto_path: string,
+    pending_goto_offset: int,
     // When >0 the deferred jump targets this 1-based line/column (console error
     // output) and the offset is resolved once the buffer loads.
-    pending_goto_line:        int,
-    pending_goto_col:         int,
+    pending_goto_line: int,
+    pending_goto_col: int,
     // Where jumps came from, and where Go Back walked out of. Both owned, both
     // capped at JUMP_LIST_MAX; jump_navigating suppresses recording while those
     // two commands are the ones moving the caret.
-    jump_back_key:            setting.Keybind,
-    jump_forward_key:         setting.Keybind,
-    jump_back:                [dynamic]Jump_Point,
-    jump_forward:             [dynamic]Jump_Point,
-    jump_navigating:          bool,
+    jump_back_key: setting.Keybind,
+    jump_forward_key: setting.Keybind,
+    jump_back: [dynamic]Jump_Point,
+    jump_forward: [dynamic]Jump_Point,
+    jump_navigating: bool,
     // In-flight hover request: the editor pane that asked and the request id, so
     // a result can be routed back to the right pane and stale ones dropped.
-    hover_editor:             ^widgets.Editor,
-    hover_request_id:         u64,
+    hover_editor: ^widgets.Editor,
+    hover_request_id: u64,
     // In-flight workspace-symbols scan: its request id. The picker opens
     // immediately in a loading state; the matching result fills it in, and a
     // superseded (or already-replaced) result is dropped.
@@ -312,7 +313,7 @@ Thor :: struct {
     // picker rather than by opening it: an empty result then means "no
     // matches for this text", not "nothing to show", so it must not close
     // the picker the way the initial empty-workspace case does.
-    workspace_symbols_typing:     bool,
+    workspace_symbols_typing: bool,
     // True when the dispatched scan targets a server-backed extension rather
     // than the native Odin engine: a server may answer an unfiltered (empty
     // query) scan with nothing until the user types (workspace/symbol on
@@ -322,66 +323,77 @@ Thor :: struct {
     // In-flight find-references scan: its request id. Like the workspace-symbols
     // picker, the results picker opens immediately (loading) and is filled when
     // the matching scan lands; a superseded result is dropped.
-    references_request_id:    u64,
+    references_request_id: u64,
     // In-flight signature-help request: the pane it came from and its request id,
     // so a superseded result (the caret moved on to another call, or a plain tab
     // switch with no new request) is dropped rather than routed to a stale pane.
-    signature_editor:         ^widgets.Editor,
-    signature_request_id:     u64,
+    signature_editor: ^widgets.Editor,
+    signature_request_id: u64,
     // Whether the in-flight signature request was auto-triggered (typing in a
     // call) rather than the explicit keybind. An auto request that resolves to no
     // call silently dismisses the popup; the explicit one flashes "No signature".
-    signature_auto:           bool,
+    signature_auto: bool,
     // In-flight completion request: the pane it came from and its request id, so a
     // superseded result (a later keystroke fired a newer request) is dropped and
     // the candidates route back to the right editor.
-    completion_editor:        ^widgets.Editor,
-    completion_request_id:    u64,
+    completion_editor: ^widgets.Editor,
+    completion_request_id: u64,
     // In-flight package-doc request: its request id, so a superseded result (a
     // newer F3 for another package) is dropped instead of overwriting the newer one.
-    package_doc_request_id:   u64,
+    package_doc_request_id: u64,
     // In-flight semantic-tokens request: its id and the path of the buffer being
     // classified (owned — the file may be closed and freed before the result
     // lands, so it is looked up again by path rather than held by pointer). One
     // runs at a time: nothing is waiting on the colors, and holding the slot
     // until the last result lands throttles a whole-file classification to its
     // own round trip instead of firing one per keystroke.
-    semantic_request_id:      u64,
-    semantic_path:            string,
+    semantic_request_id: u64,
+    semantic_path: string,
     // In-flight rename: its request id and the path of the buffer it was computed
     // against (owned), so its edits can be told apart from the ones landing in
     // other files — that buffer is validated against the snapshotted revision,
     // the others must be unmodified since the engine read them off disk.
-    rename_request_id:        u64,
-    rename_path:              string,
+    rename_request_id: u64,
+    rename_path: string,
     // In-flight code-action request, and the fixes the last one offered. The
     // Result they came from is freed as soon as the handler returns, so the edits
     // are cloned here for the pick callback to apply on a later frame; the path
     // and revision are the buffer they were computed against, which the applier
     // validates them against exactly as it does a rename's.
-    code_action_request_id:   u64,
-    code_action_path:         string,
-    code_action_revision:     u64,
-    code_actions:             [dynamic]Pending_Action,
+    code_action_request_id: u64,
+    code_action_path: string,
+    code_action_revision: u64,
+    code_actions: [dynamic]Pending_Action,
+    // In-flight format request: its id and the path of the buffer it was
+    // computed against (owned). format_save_pending marks a save waiting on
+    // this request's result — thor_apply_format runs it on every terminal
+    // outcome (applied, refused, already-formatted, syntax error), so a save
+    // is never held hostage by formatting. format_save_queue is Save All's
+    // remaining files (owned paths), formatted and saved one at a time since
+    // .Format has one consumer slot like every other kind.
+    format_request_id: u64,
+    format_path: string,
+    format_save_pending: bool,
+    format_save_queue: [dynamic]string,
     // How to reverse the last edit set applied across files (a rename, a code
     // action), so ctrl+z takes all of it back — the files that were not open
     // were rewritten on disk and have no buffer undo history of their own.
-    edit_undo:                [dynamic]Edit_Undo_File,
+    edit_undo: [dynamic]Edit_Undo_File,
     // Statusline analyzer indicator: the request kinds in flight, when the
     // current busy stretch began, and whether it has lasted long enough to be
     // worth showing (see thor_lang_busy_update).
-    lang_busy_kinds:          bit_set[lang.Request_Kind],
-    lang_busy_since:          f64,
-    lang_busy_shown:          bool,
+    lang_busy_kinds: bit_set[lang.Request_Kind],
+    lang_busy_since: f64,
+    lang_busy_shown: bool,
     // The current $/progress message an LSP server is reporting (e.g.
     // "Indexing... (40%)"), owned and cloned; "" when nothing is in progress.
     // Shown in place of lang_busy_kinds' generic label when set.
-    lsp_progress_message:     string,
+    lsp_progress_message: string,
     // Transient statusline notice (e.g. "No definition found") and the time it
     // was posted; thor_status_info hides it once STATUS_MESSAGE_SECS elapse.
-    status_message:           string,
-    status_message_time:      f64,
-    status_message_error:     bool,
+    status_message: string,
+    status_message_time: f64,
+    status_message_error: bool,
 }
 
 init :: proc() -> ^Thor {
@@ -391,14 +403,14 @@ init :: proc() -> ^Thor {
         log.infof("[startup] %-24s %.1f ms", name, time.duration_milliseconds(time.tick_since(phase^)))
         phase^ = time.tick_now()
     }
-    
+
     // Resolve the launch path (owned, absolute) BEFORE moving the CWD: a path
     // argument wins — a folder becomes the workspace, a file opens in a tab with
     // its folder as the workspace, "." is the directory Thor was called from.
     // Everything below loads relative to the CWD, which we then repoint at the
     // exe directory.
     workspace_dir: string
-    startup_file: string // owned; opened once the UI and the session are up
+    startup_file: string  // owned; opened once the UI and the session are up
     if len(os.args) > 1 {
         workspace_dir, startup_file = thor_startup_target(os.args[1])
     }
@@ -494,14 +506,7 @@ init :: proc() -> ^Thor {
 
     thor_build_ui(thor)
     thor.select_dialog.return_focus = &thor.editor.widget
-    widgets.command_palette_set_navigation(
-        thor.command_palette,
-        thor_palette_list_files,
-        thor_palette_open_file,
-        thor_palette_goto_line,
-        thor.workspace_prefix,
-        thor,
-    )
+    widgets.command_palette_set_navigation(thor.command_palette, thor_palette_list_files, thor_palette_open_file, thor_palette_goto_line, thor.workspace_prefix, thor)
     thor_register_commands(thor)
     thor_wire_menus(thor)
     // After the tree is built: a terminal adds its console to the console stack.
@@ -650,6 +655,11 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.rename_path)
     delete(thor.code_action_path)
     delete(thor.semantic_path)
+    delete(thor.format_path)
+    for p in thor.format_save_queue {
+        delete(p)
+    }
+    delete(thor.format_save_queue)
     thor_clear_edit_undo(thor)
     thor_clear_code_actions(thor)
     delete(thor.code_actions)

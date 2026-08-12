@@ -184,6 +184,10 @@ thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
         thor_cmd_trim_whitespace(thor)
         return true
     }
+    if setting.keybind_matches(thor.format_key, event.key, event.ctrl, event.shift, event.alt) {
+        thor_format_document(thor)
+        return true
+    }
     if setting.keybind_matches(thor.align_char_key, event.key, event.ctrl, event.shift, event.alt) {
         thor_cmd_align_at_char(thor)
         return true

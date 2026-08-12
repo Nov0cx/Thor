@@ -80,6 +80,15 @@ resolve :: proc(data: rawptr, req: ^lang.Request, res: ^lang.Result) {
         return
     }
 
+    // Formatting parses with core:odin/parser, not the tree-sitter grammar:
+    // no caret, no LOCALS query, and no resident tree to key off — like
+    // Diagnostics, it answers before any of the tree-sitter setup below, so
+    // it never evicts this path's cached tree for a parse it doesn't need.
+    if req.kind == .Format {
+        format_document(e, req, res)
+        return
+    }
+
     if e.locals == nil {
         return
     }

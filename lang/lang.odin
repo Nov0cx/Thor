@@ -26,6 +26,7 @@ Request_Kind :: enum {
     Diagnostics,
     Code_Actions,
     Semantic_Tokens,
+    Format,
     // Push-only: never dispatched through manager_request*, only produced by
     // Backend.poll (a server's unsolicited $/progress notification).
     Progress,
@@ -116,6 +117,16 @@ Text_Edit :: struct {
     end:      int,
     old_text: string, // owned; the bytes the backend matched at [start, end)
     new_text: string, // owned; what replaces them
+}
+
+// A formatter's opinion on a file's line ending, read from its own config
+// (odinfmt's newline_style). Unspecified when the config never named one —
+// the seam and every buffer are LF internally regardless (see source_read),
+// so this only ever governs Thor's own line_ending bookkeeping on save.
+Newline_Preference :: enum {
+    Unspecified,
+    LF,
+    CRLF,
 }
 
 // What a resource operation does to a file, outside the text-edit path.
@@ -321,6 +332,11 @@ Result :: struct {
     // one pass. Sparse by design: an identifier the backend could not classify
     // is simply absent, and keeps whatever color the grammar gave it.
     tokens:    [dynamic]Semantic_Token,
+    // Format only. Set from the workspace's odin-formatter.json newline_style
+    // key, and only when that key is actually present — an absent key must
+    // never flip a repo's line endings on the first format. Unspecified means
+    // the applier leaves the file's line ending untouched.
+    newline:   Newline_Preference,
     progress:  Progress_Info, // Progress; owned message, freed in result_free
     // Apply_Edit only. `edits` (above) carries the decoded WorkspaceEdit. Not
     // owned strings — job_free/result_free must not touch them — but the

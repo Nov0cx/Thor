@@ -1,0 +1,19 @@
+{
+    "character_width": 100,
+    "spaces": 4,
+    "newline_limit": 2,
+    "tabs": false,
+    "tabs_width": 4,
+    "convert_do": false,
+    "exp_multiline_composite_literals": false,
+    "brace_style": "_1TBS",
+    "indent_cases": false,
+    "inline_single_stmt_case": false,
+    "spaces_around_colons": false,
+    "sort_imports": true,
+    "space_single_line_blocks": false,
+    "align_struct_fields": true,
+    "align_struct_values": true,
+    "align_struct_declarations": false,
+    "align_constant_definitions": false
+}

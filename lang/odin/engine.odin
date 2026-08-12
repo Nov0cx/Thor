@@ -28,6 +28,7 @@ Engine :: struct {
     locals:   ts.Query, // compiled once, immutable, shared read-only across workers
     index:    Symbol_Index,
     config:   Config_Cache,
+    format_config: Format_Config_Cache,
     // Resident per-buffer trees, so a request re-parses only what the last edit
     // touched. Scope: the request buffer only. The workspace files the
     // cross-file scans visit (`index_reparse`, `ref_scan_file`, `scan_file`, …)
@@ -61,6 +62,7 @@ engine_create :: proc() -> ^Engine {
     e.index.alloc = context.allocator
     e.index.files = make(map[string]File_Entry, 0, e.index.alloc)
     e.config.alloc = context.allocator
+    e.format_config.alloc = context.allocator
     e.builtins.alloc = context.allocator
     treecache.init(&e.trees)
     return e
@@ -119,6 +121,7 @@ engine_destroy :: proc(data: rawptr) {
     }
     index_clear(e)
     config_clear(e)
+    format_config_clear(e)
     builtins_clear(e)
     treecache.destroy(&e.trees)
     free(e)

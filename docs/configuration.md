@@ -15,6 +15,7 @@ General editor preferences.
 | `tab_width` | Spaces per indent level | `4` |
 | `autosave_delay_ms` | Delay after the last edit before autosave | `1500` |
 | `ligatures` | Draw programming ligatures (`->` as one glyph) | `true` |
+| `format_on_save` | Format the active buffer before an explicit save (`ctrl + s`, Save All, the palette) — never before an autosave | `false` |
 | `theme` | Active color theme, a name under `assets/themes/` with no extension (e.g. `"mjolnir"`) | built-in default |
 | `font` | Text font family, a name in `assets/fonts/fonts.json` | built-in default |
 | `icon_pack` | Primary icon pack, a family in `assets/icons/icons.json` | built-in default |
@@ -90,8 +91,9 @@ A server claims an extension all-or-nothing, so overriding `.odin` also gives up
 what only the built-in support has: `Package_Doc` (`f3`) has no LSP equivalent,
 and the `.thor/odin-analyzer.json` collection mechanism goes with it.
 
-Known limitations: there is no formatting support, and this table is read
-when a workspace opens — including switching to a different folder, which
+Known limitations: no configured server is asked to format a document — Odin
+formatting is served in-client (see `odin-formatter.json` below) and no other
+language has a formatter yet. This table is also read when a workspace opens — including switching to a different folder, which
 restarts the servers for the new root — so editing `settings/lsp.json` or
 `.thor/lsp.json` for the workspace you already have open still needs it
 reopened to take effect. Turning a server (or the built-in Odin support) on or
@@ -136,6 +138,39 @@ its root, layered on top of the global settings above. This repository's own
   intelligence: which analyzer collections to load and which features
   (`enable_hover`, `enable_document_symbols`, `enable_references`, ...) are on
   for this workspace. This is Thor's own file, not `ols.json`.
+
+- **`odin-formatter.json`** — per-workspace options for `ctrl + alt + l` /
+  "Edit: Format Document" on `.odin` files, mirroring the odinfmt (OLS) schema.
+  An absent file, or an absent key, uses the default shown:
+
+  | Key | Meaning | Default |
+  | --- | --- | --- |
+  | `character_width` | Column before a line breaks | `100` |
+  | `spaces` | Spaces per indent level (when `tabs` is `false`) | `4` |
+  | `newline_limit` | Most blank lines kept between statements/declarations | `2` |
+  | `tabs` | Indent with tabs instead of spaces | `true` |
+  | `tabs_width` | Columns one tab counts as, for `character_width` | `4` |
+  | `convert_do` | Rewrite `if x do y()` to a braced block | `false` |
+  | `exp_multiline_composite_literals` | Keep a composite literal that already spanned multiple lines from being collapsed onto one | `false` |
+  | `brace_style` | `"_1TBS"`, `"Allman"`, `"Stroustrup"`, or `"K_And_R"` | `"_1TBS"` |
+  | `indent_cases` | Indent a `switch`'s `case` bodies one level deeper than the label | `false` |
+  | `newline_style` | `"LF"` or `"CRLF"` | unset (the file's own line ending is left alone) |
+  | `inline_single_stmt_case` | Put a `case`'s body on the same line when it is one statement | `false` |
+  | `spaces_around_colons` | `x : int` instead of `x: int` | `false` |
+  | `sort_imports` | Sort each contiguous run of `import` declarations by path | `true` |
+  | `space_single_line_blocks` | `{ stmt }` instead of `{stmt}` for a block that renders on one line | `false` |
+  | `align_struct_fields` | Align a struct's field types into one column | `true` |
+  | `align_struct_values` | Align a composite literal's `=` into one column | `true` |
+  | `align_struct_declarations` | Align consecutive `Name :: struct` declarations' `::` | `false` |
+  | `align_constant_definitions` | Align consecutive `NAME :: value` declarations' `::` | `false` |
+
+  The formatter never guesses at broken code — a file with a syntax error is
+  left untouched. `newline_style` only takes effect when the key is present:
+  an absent key never flips a file's line ending, since the odinfmt schema's
+  own default (`CRLF`) would otherwise silently rewrite every LF file's
+  endings on its first format. Setting it applies once a format actually
+  changes the buffer, by marking the file's line ending the same way the
+  status-bar toggle does — the next save re-expands accordingly.
 
 - **`lsp.json`** — language servers for this project, in the shape described
   above. An entry is merged onto the shipped one with the same `id`, so a

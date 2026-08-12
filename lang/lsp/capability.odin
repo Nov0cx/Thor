@@ -27,6 +27,7 @@ PROVIDER_KEYS := [lang.Request_Kind]string {
     .Diagnostics       = "diagnosticProvider",
     .Code_Actions      = "codeActionProvider",
     .Semantic_Tokens   = "semanticTokensProvider",
+    .Format            = "", // no server ever claims it — formatting is served in-client only, for now
     .Progress          = "", // unsolicited push; no capability gate, same as Package_Doc
     .Apply_Edit        = "", // unsolicited push; no capability gate, same as Package_Doc
 }

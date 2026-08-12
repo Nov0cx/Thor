@@ -1,0 +1,318 @@
+// A Wadler-style pretty-printing document: build once from the AST, then
+// render with a width-aware fits check. A Group renders flat (spaces, no
+// newlines) when it fits the remaining width, else broken (its Lines become
+// newlines); nested groups measure and decide independently, so a call that
+// fits still hugs one line inside an outer struct literal that had to break.
+package odinfmt
+
+import "core:strings"
+import "core:unicode/utf8"
+
+Doc :: ^Doc_Node
+
+Doc_Node :: struct {
+	variant: Doc_Variant,
+}
+
+Doc_Variant :: union {
+	Doc_Text,
+	Doc_Line,
+	Doc_Hard_Line,
+	Doc_Group,
+	Doc_Indent,
+	Doc_Align,
+	Doc_Concat,
+}
+
+// Verbatim text with no embedded newline.
+Doc_Text :: struct {
+	text: string,
+}
+
+Line_Kind :: enum {
+	Space, // flat: " "     broken: newline + indent
+	Soft,  // flat: ""      broken: newline + indent
+}
+
+Doc_Line :: struct {
+	kind: Line_Kind,
+}
+
+// Always a newline, in flat mode too — used for statement/decl separators,
+// where "flat" never applies. blanks is how many *extra* blank lines precede
+// it (already clamped to newline_limit by the caller).
+Doc_Hard_Line :: struct {
+	blanks: int,
+}
+
+// Rendered flat when its flat width fits in the remaining line, else broken.
+// Any Hard_Line reachable without crossing a nested Group forces it broken.
+Doc_Group :: struct {
+	children: []Doc,
+}
+
+Doc_Indent :: struct {
+	children: []Doc,
+}
+
+// One cell of an alignment run: all Doc_Align nodes sharing `id` are padded
+// (in a pre-render measurement pass) to the widest cell's flat width.
+Doc_Align :: struct {
+	id:       int,
+	children: []Doc,
+}
+
+Doc_Concat :: struct {
+	children: []Doc,
+}
+
+@(private)
+doc_alloc :: proc(v: Doc_Variant, allocator := context.allocator) -> Doc {
+	d := new(Doc_Node, allocator)
+	d.variant = v
+	return d
+}
+
+text :: proc(s: string, allocator := context.allocator) -> Doc {
+	return doc_alloc(Doc_Text{text = s}, allocator)
+}
+
+line :: proc(allocator := context.allocator) -> Doc {
+	return doc_alloc(Doc_Line{kind = .Space}, allocator)
+}
+
+soft_line :: proc(allocator := context.allocator) -> Doc {
+	return doc_alloc(Doc_Line{kind = .Soft}, allocator)
+}
+
+hard_line :: proc(blanks := 0, allocator := context.allocator) -> Doc {
+	return doc_alloc(Doc_Hard_Line{blanks = blanks}, allocator)
+}
+
+group :: proc(children: []Doc, allocator := context.allocator) -> Doc {
+	return doc_alloc(Doc_Group{children = children}, allocator)
+}
+
+indent :: proc(children: []Doc, allocator := context.allocator) -> Doc {
+	return doc_alloc(Doc_Indent{children = children}, allocator)
+}
+
+align :: proc(id: int, children: []Doc, allocator := context.allocator) -> Doc {
+	return doc_alloc(Doc_Align{id = id, children = children}, allocator)
+}
+
+concat :: proc(children: []Doc, allocator := context.allocator) -> Doc {
+	return doc_alloc(Doc_Concat{children = children}, allocator)
+}
+
+// concat of everything currently in `parts`, so callers can build with a
+// [dynamic]Doc and hand it off in one call.
+concat_dynamic :: proc(parts: [dynamic]Doc, allocator := context.allocator) -> Doc {
+	return doc_alloc(Doc_Concat{children = parts[:]}, allocator)
+}
+
+@(private)
+rune_width :: proc(s: string) -> int {
+	return utf8.rune_count_in_string(s)
+}
+
+// Flat width of `d` in columns, or ok=false when `d` contains a Hard_Line
+// (and so can never render on one line). Nested groups are measured as if
+// flat — the same simplification the renderer relies on: a group's own fits
+// check happens when the renderer actually reaches it.
+@(private)
+measure_flat :: proc(d: Doc, opts: ^Options) -> (width: int, ok: bool) {
+	if d == nil {
+		return 0, true
+	}
+	switch v in d.variant {
+	case Doc_Text:
+		return rune_width(v.text), true
+	case Doc_Line:
+		return (1 if v.kind == .Space else 0), true
+	case Doc_Hard_Line:
+		return 0, false
+	case Doc_Group:
+		return measure_flat_children(v.children, opts)
+	case Doc_Indent:
+		return measure_flat_children(v.children, opts)
+	case Doc_Align:
+		return measure_flat_children(v.children, opts)
+	case Doc_Concat:
+		return measure_flat_children(v.children, opts)
+	}
+	return 0, true
+}
+
+@(private)
+measure_flat_children :: proc(children: []Doc, opts: ^Options) -> (width: int, ok: bool) {
+	ok = true
+	for c in children {
+		w, cok := measure_flat(c, opts)
+		if !cok {
+			return 0, false
+		}
+		width += w
+	}
+	return
+}
+
+@(private)
+Render_Mode :: enum {
+	Flat,
+	Break,
+}
+
+@(private)
+Render_State :: struct {
+	sb:           strings.Builder,
+	opts:         ^Options,
+	column:       int,
+	level:        int, // indent level, in "tabs" (or opts.spaces-wide steps)
+	align_widths: map[int]int,
+}
+
+@(private)
+indent_width :: proc(rs: ^Render_State) -> int {
+	if rs.opts.tabs {
+		return rs.level * rs.opts.tabs_width
+	}
+	return rs.level * rs.opts.spaces
+}
+
+@(private)
+write_indent :: proc(rs: ^Render_State) {
+	if rs.opts.tabs {
+		for _ in 0 ..< rs.level {
+			strings.write_byte(&rs.sb, '\t')
+		}
+	} else {
+		for _ in 0 ..< rs.level * rs.opts.spaces {
+			strings.write_byte(&rs.sb, ' ')
+		}
+	}
+	rs.column = indent_width(rs)
+}
+
+@(private)
+render_newlines :: proc(rs: ^Render_State, blanks: int) {
+	limit := rs.opts.newline_limit
+	if limit < 0 {
+		limit = 0
+	}
+	n := blanks
+	if n > limit {
+		n = limit
+	}
+	for _ in 0 ..= n {
+		strings.write_byte(&rs.sb, '\n')
+	}
+	write_indent(rs)
+}
+
+@(private)
+render_doc :: proc(rs: ^Render_State, d: Doc, mode: Render_Mode) {
+	if d == nil {
+		return
+	}
+	switch v in d.variant {
+	case Doc_Text:
+		strings.write_string(&rs.sb, v.text)
+		rs.column += rune_width(v.text)
+
+	case Doc_Line:
+		if mode == .Flat {
+			if v.kind == .Space {
+				strings.write_byte(&rs.sb, ' ')
+				rs.column += 1
+			}
+		} else {
+			render_newlines(rs, 0)
+		}
+
+	case Doc_Hard_Line:
+		render_newlines(rs, v.blanks)
+
+	case Doc_Group:
+		child_mode := mode
+		if mode == .Break {
+			w, fits := measure_flat_children(v.children, rs.opts)
+			if fits && rs.column + w <= rs.opts.character_width {
+				child_mode = .Flat
+			} else {
+				child_mode = .Break
+			}
+		}
+		for c in v.children {
+			render_doc(rs, c, child_mode)
+		}
+
+	case Doc_Indent:
+		rs.level += 1
+		for c in v.children {
+			render_doc(rs, c, mode)
+		}
+		rs.level -= 1
+
+	case Doc_Align:
+		start := rs.column
+		for c in v.children {
+			render_doc(rs, c, mode)
+		}
+		width := rs.align_widths[v.id]
+		for rs.column < start + width {
+			strings.write_byte(&rs.sb, ' ')
+			rs.column += 1
+		}
+
+	case Doc_Concat:
+		for c in v.children {
+			render_doc(rs, c, mode)
+		}
+	}
+}
+
+// Widest flat width seen for each align id, over the whole document — the
+// pre-render measurement pass the renderer's Doc_Align padding relies on.
+@(private)
+compute_align_widths :: proc(d: Doc, opts: ^Options, widths: ^map[int]int) {
+	if d == nil {
+		return
+	}
+	switch v in d.variant {
+	case Doc_Text, Doc_Line, Doc_Hard_Line:
+	case Doc_Group:
+		for c in v.children {
+			compute_align_widths(c, opts, widths)
+		}
+	case Doc_Indent:
+		for c in v.children {
+			compute_align_widths(c, opts, widths)
+		}
+	case Doc_Align:
+		w, _ := measure_flat_children(v.children, opts)
+		if cur, ok := widths[v.id]; !ok || w > cur {
+			widths[v.id] = w
+		}
+		for c in v.children {
+			compute_align_widths(c, opts, widths)
+		}
+	case Doc_Concat:
+		for c in v.children {
+			compute_align_widths(c, opts, widths)
+		}
+	}
+}
+
+// Renders `d` to a string using `opts`, starting broken at the top level (a
+// document's top-level declarations always sit one per line; only inner
+// groups make a flat/broken choice).
+render :: proc(d: Doc, opts: ^Options, allocator := context.allocator) -> string {
+	rs: Render_State
+	rs.sb = strings.builder_make(allocator)
+	rs.opts = opts
+	rs.align_widths = make(map[int]int, context.temp_allocator)
+	compute_align_widths(d, opts, &rs.align_widths)
+	render_doc(&rs, d, .Break)
+	return strings.to_string(rs.sb)
+}

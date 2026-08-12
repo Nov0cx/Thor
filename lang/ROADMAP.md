@@ -1159,7 +1159,21 @@ lowest latency.
         `make_map` and the rest of the map builtins inside `when MAP_ENABLED`,
         and treating that block as a scope dropped them from both the builtin
         cache and the workspace index.
-- [ ] **Other LSP features not started:** formatting.
+- [x] **Formatting.** Served in-client, not by any LSP server: a native
+      printer (`lang/odin/format`, package `odinfmt`) built on
+      `core:odin/parser` — `core:odin/format`/`printer` are deprecated
+      `#panic` stubs in the toolchain, so the printer is hand-written, not
+      inherited. `lang.Request_Kind.Format` is the seam entry; the LSP
+      backend declines it (`lang/lsp/requests.odin`'s `METHODS` and
+      `lang/lsp/capability.odin`'s `PROVIDER_KEYS` both leave it empty), so
+      only the Odin engine ever answers. Per-workspace options live in
+      `.thor/odin-formatter.json` (odinfmt/OLS's schema; see
+      `docs/configuration.md`), read by a stat-invalidated cache mirroring
+      `odin-analyzer.json`'s. Triggered by `ctrl + alt + l`, "Edit: Format
+      Document", or `format_on_save` (off by default) on an explicit save.
+      Refuses on any syntax error rather than guess. Missing: range/on-type
+      formatting, line-width-aware wrapping of long call/literal argument
+      lists, and alignment across a run split by a comment.
 
 ## Missing — scalability / performance
 
