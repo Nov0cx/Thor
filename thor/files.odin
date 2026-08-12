@@ -1558,11 +1558,32 @@ thor_tree_drag_out :: proc(data: rawptr, paths: []string, position: rl.Vector2) 
     }
 }
 
+// Whether `path` is a symbolic link or a Windows junction. os.lstat cannot tell
+// on Windows — its file info carries a zero reparse tag — but os.read_link reads
+// the reparse point and fails on a path that is not one.
+@(private = "file")
+thor_is_link :: proc(path: string) -> bool {
+    link, err := os.read_link(path, context.allocator)
+    if err != nil {
+        return false
+    }
+    if link == "" { // a reparse point of some other kind, and no allocation
+        return false
+    }
+    delete(link, context.allocator)
+    return true
+}
+
 // Deletes a file, or a directory and everything below it. Written out instead
 // of left to os.remove_all because that is SHFileOperationW on Windows, a shell
 // call the file-op worker has no COM apartment for.
 thor_delete_tree :: proc(path: string) -> os.Error {
     if !os.is_dir(path) {
+        return os.remove(path)
+    }
+    // os.is_dir follows links, so a junction reads as a directory here. Remove
+    // the link alone — a recursion through it deletes the contents of the target.
+    if thor_is_link(path) {
         return os.remove(path)
     }
 
@@ -1595,6 +1616,11 @@ thor_copy_tree :: proc(src, dst: string) -> os.Error {
     }
     if !os.is_dir(src) {
         return os.copy_file(dst, src)
+    }
+    // A directory link is skipped, not followed: a copy through it duplicates the
+    // tree of the target, and does not stop when the target holds the link.
+    if thor_is_link(src) {
+        return nil
     }
 
     if err := os.make_directory(dst); err != nil {
