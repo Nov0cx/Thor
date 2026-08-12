@@ -80,6 +80,21 @@ role_covering :: proc(spans: []Span, source, needle: string) -> string {
     return ""
 }
 
+// Every registered language answers with its own display name, which is what
+// lets the status bar name a language no hardcoded table knows. An extensionless
+// name resolves the same way, since a plugin registers it as an "extension".
+@(test)
+test_language_name_reads_the_registry :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+    manager_load(&m)
+
+    testing.expect_value(t, language_name(&m, ".odin"), "Odin")
+    testing.expect_value(t, language_name(&m, "Dockerfile"), "Dockerfile")
+    testing.expect_value(t, language_name(&m, ".nothing-claims-this"), "")
+}
+
 // Loads the real plugins/odin/plugin.lua and highlights Odin through the
 // tree-sitter grammar, confirming captures resolve to the mapped color roles
 // (including the named-parameter-in-#type-proc case).

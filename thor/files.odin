@@ -75,6 +75,14 @@ Open_File :: struct {
     folds:              [dynamic]widgets.Fold_Range,
     folds_revision:     u64,
     folds_ready:        bool,
+    // Indentation read off the buffer for the status bar. detect_indent walks the
+    // whole file and the status bar asks every frame, so the result is cached
+    // against the revision it was read from and refreshed no faster than
+    // INDENT_SCAN_INTERVAL.
+    indent:             textedit.Indent_Info,
+    indent_revision:    u64,
+    indent_ready:       bool,
+    indent_time:        f64,
     // What the analyzer proved each identifier in the buffer to be, layered over
     // the grammar's spans by thor_update_highlights. `semantic_ready` marks a
     // result having landed at all (revision 0 is a real revision), and the

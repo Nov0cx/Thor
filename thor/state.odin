@@ -5,6 +5,7 @@ import "core:unicode/utf8"
 import rl "vendor:raylib"
 
 import "../lang"
+import "../plugin"
 import "../setting"
 import "../textedit"
 import "../ui"
@@ -270,9 +271,15 @@ thor_status_info :: proc(data: rawptr) -> widgets.Status_Info {
 
     info.file_open = true
     info.file_name = file.name
-    info.language = thor_language_name(file.name)
+    info.language = thor_language_name(thor, file.name)
+    thor_refresh_indent(file)
+    // detect_indent reports no width for tabs, and a width of 0 hides the
+    // segment, so a tab-indented file shows the column width one renders as.
+    info.indent_spaces = file.indent.style != .Tabs
     info.indent_width = textedit.tab_width(&file.state)
-    info.indent_spaces = true
+    if file.indent.style == .Spaces && file.indent.width > 0 {
+        info.indent_width = file.indent.width
+    }
     info.zoom = int(thor.editor.font_size) * 100 / max(setting.font_size(&thor.config), 1)
     info.saving = file.saving
     info.modified = file.loaded && file.state.revision != file.saved_revision
@@ -308,46 +315,90 @@ thor_status_info :: proc(data: rawptr) -> widgets.Status_Info {
     return info
 }
 
+// Seconds between whole-buffer indent scans. The style does not change between
+// keystrokes, and a scan per keystroke is a scan per character typed.
 @(private = "file")
-thor_language_name :: proc(name: string) -> string {
+INDENT_SCAN_INTERVAL :: 1.0
+
+// Re-reads the buffer's indentation when it has moved on and the last scan is
+// old enough. detect_indent walks the whole file, and the status bar asks every
+// frame.
+@(private)
+thor_refresh_indent :: proc(file: ^Open_File) {
+    if !file.loaded {
+        return
+    }
+    now := rl.GetTime()
+    if file.indent_ready &&
+       (file.indent_revision == file.state.revision || now - file.indent_time < INDENT_SCAN_INTERVAL) {
+        return
+    }
+    file.indent = textedit.detect_indent(&file.state)
+    file.indent_revision = file.state.revision
+    file.indent_time = now
+    file.indent_ready = true
+}
+
+// Language label for the status bar: the registered plugin's own name first, so
+// every bundled and workspace language answers for itself and an extensionless
+// name (Dockerfile, Makefile) resolves too; then the built-in table for formats
+// no plugin claims; then the bare extension.
+@(private = "file")
+thor_language_name :: proc(thor: ^Thor, name: string) -> string {
+    if id := plugin.language_name(&thor.plugins, thor_highlight_key(&thor.plugins, name)); id != "" {
+        return id
+    }
+    if label, ok := thor_builtin_language_name(name); ok {
+        return label
+    }
+    if ext := thor_file_ext(name); len(ext) > 1 {
+        return strings.to_upper(ext[1:], context.temp_allocator)
+    }
+    return "Plain Text"
+}
+
+// Names for formats with no language plugin. `ok` is false for a name this does
+// not know, which is what separates a miss from a real "Plain Text".
+@(private = "file")
+thor_builtin_language_name :: proc(name: string) -> (string, bool) {
     // Named after the whole file, so the extension says nothing.
     switch name {
-    case "CMakeLists.txt": return "CMake"
+    case "CMakeLists.txt": return "CMake", true
     }
 
     dot := strings.last_index_byte(name, '.')
     if dot < 0 {
-        return "Plain Text"
+        return "", false
     }
 
     switch name[dot:] {
-    case ".odin": return "Odin"
-    case ".c", ".h": return "C"
-    case ".cpp", ".cc", ".cxx", ".c++", ".hpp", ".hh", ".hxx", ".h++", ".ipp": return "C++"
-    case ".rs": return "Rust"
-    case ".go": return "Go"
-    case ".jai": return "Jai"
-    case ".py": return "Python"
-    case ".js", ".jsx", ".mjs", ".cjs": return "JavaScript"
-    case ".lua": return "Lua"
-    case ".ts", ".mts", ".cts": return "TypeScript"
-    case ".tsx": return "TSX"
-    case ".zig": return "Zig"
-    case ".md": return "Markdown"
-    case ".json": return "JSON"
-    case ".toml": return "TOML"
-    case ".yml", ".yaml": return "YAML"
-    case ".xml": return "XML"
-    case ".html": return "HTML"
-    case ".css": return "CSS"
-    case ".glsl", ".vert", ".frag": return "GLSL"
-    case ".slang", ".slangh": return "Slang"
-    case ".cmake": return "CMake"
-    case ".bat", ".cmd": return "Batch"
-    case ".sh", ".bash", ".zsh", ".ksh", ".bashrc", ".zshrc": return "Shell"
-    case ".txt": return "Plain Text"
+    case ".odin": return "Odin", true
+    case ".c", ".h": return "C", true
+    case ".cpp", ".cc", ".cxx", ".c++", ".hpp", ".hh", ".hxx", ".h++", ".ipp": return "C++", true
+    case ".rs": return "Rust", true
+    case ".go": return "Go", true
+    case ".jai": return "Jai", true
+    case ".py": return "Python", true
+    case ".js", ".jsx", ".mjs", ".cjs": return "JavaScript", true
+    case ".lua": return "Lua", true
+    case ".ts", ".mts", ".cts": return "TypeScript", true
+    case ".tsx": return "TSX", true
+    case ".zig": return "Zig", true
+    case ".md": return "Markdown", true
+    case ".json": return "JSON", true
+    case ".toml": return "TOML", true
+    case ".yml", ".yaml": return "YAML", true
+    case ".xml": return "XML", true
+    case ".html": return "HTML", true
+    case ".css": return "CSS", true
+    case ".glsl", ".vert", ".frag": return "GLSL", true
+    case ".slang", ".slangh": return "Slang", true
+    case ".cmake": return "CMake", true
+    case ".bat", ".cmd": return "Batch", true
+    case ".sh", ".bash", ".zsh", ".ksh", ".bashrc", ".zshrc": return "Shell", true
+    case ".txt": return "Plain Text", true
     }
-    return "Plain Text"
+    return "", false
 }
 
 thor_tab_count :: proc(data: rawptr) -> int {

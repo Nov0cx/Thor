@@ -22,6 +22,16 @@ supports :: proc(m: ^Manager, ext: string) -> bool {
     return ext in m.by_ext
 }
 
+// Display name of the language registered for `ext` ("Odin", "Dockerfile"), ""
+// when no plugin claims it. Borrowed from the plugin's own registration.
+language_name :: proc(m: ^Manager, ext: string) -> string {
+    index, ok := m.by_ext[ext]
+    if !ok {
+        return ""
+    }
+    return m.languages[index].name
+}
+
 // Highlights `source` for the language bound to `ext`, returning role-tagged
 // spans (ascending, using `allocator`). `path` identifies the buffer so a
 // grammar-backed language re-parses only what changed since its last call; ""
