@@ -609,6 +609,9 @@ thor_cmd_undo :: proc(data: rawptr) {
 
 thor_cmd_redo :: proc(data: rawptr) {
     thor := cast(^Thor) data
+    if thor_redo_last_edits(thor) {
+        return
+    }
     if s := thor_edit_state(data); s != nil {
         textedit.redo(s)
         widgets.editor_scroll_to_caret(thor_pane_editor(thor, thor.active_pane))
@@ -626,6 +629,9 @@ thor_can_undo :: proc(thor: ^Thor) -> bool {
 }
 
 thor_can_redo :: proc(thor: ^Thor) -> bool {
+    if len(thor.edit_redo) > 0 {
+        return true
+    }
     file := thor_active_open_file(thor)
     return file != nil && file.loaded && len(file.state.redo_stack) > 0
 }

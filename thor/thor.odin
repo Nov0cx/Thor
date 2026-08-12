@@ -386,10 +386,14 @@ Thor :: struct {
     // save-pending bookkeeping — on-type formatting never blocks a save.
     on_type_request_id: u64,
     on_type_path: string,
-    // How to reverse the last edit set applied across files (a rename, a code
-    // action), so ctrl+z takes all of it back — the files that were not open
-    // were rewritten on disk and have no buffer undo history of their own.
+    // How to move the last edit set applied across files (a rename, a code
+    // action), so ctrl+z takes all of it back and ctrl+shift+z puts it back —
+    // the files that were not open were rewritten on disk and have no buffer
+    // history of their own. Exactly one set is live in each direction: undo
+    // hands its record to edit_redo and redo hands it back, so every string is
+    // allocated once and freed once. owned
     edit_undo: [dynamic]Edit_Undo_File,
+    edit_redo: [dynamic]Edit_Undo_File,
     // Statusline analyzer indicator: the request kinds in flight, when the
     // current busy stretch began, and whether it has lasted long enough to be
     // worth showing (see thor_lang_busy_update).
@@ -677,6 +681,7 @@ shutdown :: proc(thor: ^Thor) {
     }
     delete(thor.format_save_queue)
     thor_clear_edit_undo(thor)
+    thor_clear_edit_redo(thor)
     thor_clear_code_actions(thor)
     delete(thor.code_actions)
     delete(thor.status_message)

@@ -21,6 +21,9 @@ test_undo_edits_in_closed_files :: proc(t: ^testing.T) {
     thor := new(Thor)
     defer free(thor)
     defer thor_clear_edit_undo(thor)
+    // An undone set moves to the redo slot rather than being dropped, so that
+    // side owns the record afterwards.
+    defer thor_clear_edit_redo(thor)
     defer delete(thor.status_message)
 
     edits := []lang.Text_Edit {
@@ -43,6 +46,155 @@ test_undo_edits_in_closed_files :: proc(t: ^testing.T) {
     testing.expect(t, !thor_undo_last_edits(thor), "the edit set undid twice")
 }
 
+// Undo hands the set to the redo slot, so ctrl+shift+z puts a whole rename back
+// across the files it touched — including those that were never open.
+@(test)
+test_redo_edits_in_closed_files :: proc(t: ^testing.T) {
+    PATH :: "thor_edit_redo.tmp"
+    ORIGINAL :: "alpha :: 1\nbeta :: alpha\n"
+    RENAMED :: "gamma :: 1\nbeta :: gamma\n"
+
+    testing.expect(t, os.write_entire_file(PATH, ORIGINAL) == nil, "could not create test file")
+    defer os.remove(PATH)
+
+    thor := new(Thor)
+    defer free(thor)
+    defer thor_clear_edit_undo(thor)
+    defer thor_clear_edit_redo(thor)
+    defer delete(thor.status_message)
+
+    edits := []lang.Text_Edit {
+        {path = PATH, start = 0, end = 5, old_text = "alpha", new_text = "gamma"},
+        {path = PATH, start = 19, end = 24, old_text = "alpha", new_text = "gamma"},
+    }
+    _, _, ok, reason := thor_apply_edits(thor, edits, "", 0)
+    testing.expectf(t, ok, "apply refused the edits: %s", reason)
+
+    testing.expect(t, thor_undo_last_edits(thor), "undo refused a file it had just written")
+    undone, _ := os.read_entire_file(PATH, context.temp_allocator)
+    testing.expect_value(t, string(undone), ORIGINAL)
+
+    testing.expect(t, thor_redo_last_edits(thor), "redo refused a file it had just restored")
+    redone, _ := os.read_entire_file(PATH, context.temp_allocator)
+    testing.expect_value(t, string(redone), RENAMED)
+
+    // Redo is spent, and the set is undoable again: the two sides hand the one
+    // record back and forth.
+    testing.expect(t, !thor_redo_last_edits(thor), "the edit set redid twice")
+    testing.expect(t, thor_undo_last_edits(thor), "the set is undoable again after a redo")
+    again, _ := os.read_entire_file(PATH, context.temp_allocator)
+    testing.expect_value(t, string(again), ORIGINAL)
+}
+
+// A file that changed after the undo is left alone: what redo would write over
+// is no longer what the undo put there.
+@(test)
+test_redo_edits_refuses_changed_file :: proc(t: ^testing.T) {
+    PATH :: "thor_edit_redo_changed.tmp"
+    ORIGINAL :: "alpha :: 1\n"
+    TOUCHED :: "something else entirely\n"
+
+    testing.expect(t, os.write_entire_file(PATH, ORIGINAL) == nil, "could not create test file")
+    defer os.remove(PATH)
+
+    thor := new(Thor)
+    defer free(thor)
+    defer thor_clear_edit_undo(thor)
+    defer thor_clear_edit_redo(thor)
+    defer delete(thor.status_message)
+
+    edits := []lang.Text_Edit {
+        {path = PATH, start = 0, end = 5, old_text = "alpha", new_text = "gamma"},
+    }
+    _, _, ok, _ := thor_apply_edits(thor, edits, "", 0)
+    testing.expect(t, ok, "apply refused the edit")
+    testing.expect(t, thor_undo_last_edits(thor), "undo refused the file")
+
+    testing.expect(t, os.write_entire_file(PATH, TOUCHED) == nil, "could not touch the test file")
+    testing.expect(t, !thor_redo_last_edits(thor), "redo clobbered a file that changed since")
+
+    after, _ := os.read_entire_file(PATH, context.temp_allocator)
+    testing.expect_value(t, string(after), TOUCHED)
+}
+
+// A fresh edit set makes the redo chain moot, the way a buffer edit clears its
+// own redo stack.
+@(test)
+test_new_edit_set_clears_redo :: proc(t: ^testing.T) {
+    PATH :: "thor_edit_redo_cleared.tmp"
+    ORIGINAL :: "alpha :: 1\n"
+
+    testing.expect(t, os.write_entire_file(PATH, ORIGINAL) == nil, "could not create test file")
+    defer os.remove(PATH)
+
+    thor := new(Thor)
+    defer free(thor)
+    defer thor_clear_edit_undo(thor)
+    defer thor_clear_edit_redo(thor)
+    defer delete(thor.status_message)
+
+    first := []lang.Text_Edit {
+        {path = PATH, start = 0, end = 5, old_text = "alpha", new_text = "gamma"},
+    }
+    _, _, ok, _ := thor_apply_edits(thor, first, "", 0)
+    testing.expect(t, ok, "apply refused the first edit")
+    testing.expect(t, thor_undo_last_edits(thor), "undo refused the file")
+    testing.expect_value(t, len(thor.edit_redo), 1)
+
+    second := []lang.Text_Edit {
+        {path = PATH, start = 0, end = 5, old_text = "alpha", new_text = "delta"},
+    }
+    _, _, second_ok, _ := thor_apply_edits(thor, second, "", 0)
+    testing.expect(t, second_ok, "apply refused the second edit")
+    testing.expect_value(t, len(thor.edit_redo), 0)
+    testing.expect(t, !thor_redo_last_edits(thor), "a new edit set left a stale redo behind")
+}
+
+// An open buffer rides its own undo entry in both directions, and the recorded
+// revision has to follow each move or the next one refuses the set.
+@(test)
+test_redo_edits_in_an_open_buffer :: proc(t: ^testing.T) {
+    thor := new(Thor)
+    defer free(thor)
+    defer thor_clear_edit_undo(thor)
+    defer thor_clear_edit_redo(thor)
+    thor.open_files = make([dynamic]^Open_File)
+    defer delete(thor.open_files)
+    defer delete(thor.status_message)
+
+    file := new(Open_File)
+    file.path = "D:/w/pkg/a.odin"
+    file.loaded = true
+    textedit.init(&file.state)
+    textedit.set_text(&file.state, "alpha :: 1\n")
+    file.saved_revision = file.state.revision
+    defer {
+        textedit.destroy(&file.state)
+        free(file)
+    }
+    append(&thor.open_files, file)
+
+    edits := []lang.Text_Edit {
+        {path = "D:/w/pkg/a.odin", start = 0, end = 5, old_text = "alpha", new_text = "gamma"},
+    }
+    _, _, ok, reason := thor_apply_edits(thor, edits, "", 0)
+    testing.expectf(t, ok, "apply refused the edits: %s", reason)
+    testing.expect_value(t, textedit.text(&file.state), "gamma :: 1\n")
+
+    testing.expect(t, thor_undo_last_edits(thor), "undo refused the buffer")
+    testing.expect_value(t, textedit.text(&file.state), "alpha :: 1\n")
+    testing.expect_value(t, thor.edit_redo[0].revision, file.state.revision)
+
+    testing.expect(t, thor_redo_last_edits(thor), "redo refused the buffer")
+    testing.expect_value(t, textedit.text(&file.state), "gamma :: 1\n")
+    testing.expect_value(t, thor.edit_undo[0].revision, file.state.revision)
+
+    // A keystroke of its own moves the buffer past the recorded entry, so the
+    // set no longer applies and ctrl+z belongs to the buffer alone.
+    textedit.replace_ranges(&file.state, []textedit.Replace{{start = 10, end = 10, text = "x"}})
+    testing.expect(t, !thor_undo_last_edits(thor), "the set undid over a buffer that moved on")
+}
+
 // A file that changed after the edits landed is left alone: the content that
 // would be written back is no longer what the edits were computed against.
 @(test)
@@ -57,6 +209,7 @@ test_undo_edits_refuses_changed_file :: proc(t: ^testing.T) {
     thor := new(Thor)
     defer free(thor)
     defer thor_clear_edit_undo(thor)
+    defer thor_clear_edit_redo(thor)
     defer delete(thor.status_message)
 
     edits := []lang.Text_Edit {

@@ -217,12 +217,22 @@ thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
         return false
     }
 
+    // A rename or code action that touched other files moves whole, ahead of the
+    // focused buffer's own history. Once the set no longer applies (the files
+    // moved on), these fall through to that buffer as usual — a true return
+    // here breaks the dispatch, so the editor never sees a claimed key and
+    // cannot move the same buffer twice.
     #partial switch event.key {
     case .Z:
-        // A rename or code action that touched other files is taken back whole,
-        // ahead of the focused buffer's own undo. Once it no longer applies (the
-        // files moved on), this falls through to that buffer as usual.
-        if !event.shift && thor_undo_last_edits(thor) {
+        if event.shift {
+            if thor_redo_last_edits(thor) {
+                return true
+            }
+        } else if thor_undo_last_edits(thor) {
+            return true
+        }
+    case .Y:
+        if thor_redo_last_edits(thor) {
             return true
         }
     }

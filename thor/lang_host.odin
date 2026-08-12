@@ -553,30 +553,20 @@ Edit_Target :: struct {
     edits:     [dynamic]lang.Text_Edit, // temp-allocated; the edits borrow the caller's strings
 }
 
-// One file the last applied edit set touched, and what it takes to reverse it.
-// An open file is reversed through the buffer's own undo entry: `revision` is
-// what the buffer read right after the edits landed, and matching it proves that
-// entry is still the top of its stack. A file that was not open was rewritten on
-// disk with no undo history of its own, so it carries the content it had before
-// and a hash of what was written — a copy that changed since is refused rather
-// than clobbered.
+// One file the last applied edit set touched, and what it takes to move it in
+// either direction. An open file rides its own buffer entry: `revision` is what
+// the buffer read after the last move, and matching it proves that entry is
+// still the top of its stack. A file that was not open was rewritten on disk
+// with no history of its own, so it carries both sides — `before` to undo to and
+// `after` to redo to. A copy that changed since matches neither and is refused
+// rather than clobbered.
 @(private)
 Edit_Undo_File :: struct {
-    path:       string, // owned, canonical
-    open:       bool,
-    revision:   u64,    // open files: the buffer revision the edits left behind
-    before:     string, // owned; closed files: the content to put back
-    after_hash: u64,    // closed files: hash of the content that was written
-}
-
-// FNV-1a; identifies the exact bytes an edit set wrote to a file.
-@(private = "file")
-content_hash :: proc(data: string) -> u64 {
-    h: u64 = 0xcbf29ce484222325
-    for i in 0 ..< len(data) {
-        h = (h ~ cast(u64) data[i]) * 0x100000001b3
-    }
-    return h
+    path:     string, // owned, canonical
+    open:     bool,
+    revision: u64,    // open files: the buffer revision the last move left behind
+    before:   string, // owned; closed files: the content from before the edits
+    after:    string, // owned; closed files: the content the edits wrote
 }
 
 // Applies a backend's edits — all of them, or none. Validates every edit against
@@ -677,9 +667,9 @@ thor_apply_edits :: proc(
             return applied, len(targets), false, "a file could not be written"
         }
         append(&record, Edit_Undo_File {
-            path       = strings.clone(target.path),
-            before     = strings.clone(target.disk_text),
-            after_hash = content_hash(written),
+            path   = strings.clone(target.path),
+            before = strings.clone(target.disk_text),
+            after  = strings.clone(written),
         })
         applied += len(target.edits)
     }
@@ -712,10 +702,12 @@ thor_apply_edits :: proc(
 }
 
 // Replaces the reversal record, freeing the one it supersedes: only the most
-// recent edit set is undoable this way.
+// recent edit set is undoable this way. A fresh edit set also makes the redo
+// chain moot, the way a buffer edit clears its own redo stack.
 @(private = "file")
 thor_set_edit_undo :: proc(thor: ^Thor, record: [dynamic]Edit_Undo_File) {
     thor_clear_edit_undo(thor)
+    thor_clear_edit_redo(thor)
     thor.edit_undo = record
 }
 
@@ -726,11 +718,19 @@ thor_clear_edit_undo :: proc(thor: ^Thor) {
     thor.edit_undo = nil
 }
 
+@(private)
+thor_clear_edit_redo :: proc(thor: ^Thor) {
+    thor_free_edit_undo(thor.edit_redo[:])
+    delete(thor.edit_redo)
+    thor.edit_redo = nil
+}
+
 @(private = "file")
 thor_free_edit_undo :: proc(entries: []Edit_Undo_File) {
     for entry in entries {
         delete(entry.path)
         delete(entry.before)
+        delete(entry.after)
     }
 }
 
@@ -741,22 +741,99 @@ thor_free_edit_undo :: proc(entries: []Edit_Undo_File) {
 // closed, or an on-disk copy that no longer holds what was written. Ctrl+Z falls
 // through to the focused buffer's own undo then.
 thor_undo_last_edits :: proc(thor: ^Thor) -> bool {
-    if len(thor.edit_undo) == 0 {
+    if !thor_edits_still_apply(thor, thor.edit_undo[:], forward = true) {
         return false
     }
 
-    // Validate every file before touching any: a half-reversed rename is worse
-    // than one that was left alone.
-    for entry in thor.edit_undo {
+    failed := false
+    for &entry in thor.edit_undo {
+        if entry.open {
+            file := thor_open_file_at(thor, entry.path)
+            textedit.undo(&file.state)
+            entry.revision = file.state.revision // what a redo has to still find
+            continue
+        }
+        if werr := os.write_entire_file(entry.path, transmute([]byte) entry.before); werr != nil {
+            thor_flash_status(thor, "Undo incomplete: a file could not be written", is_error = true)
+            failed = true
+            break
+        }
+    }
+
+    files := len(thor.edit_undo)
+    record := thor.edit_undo
+    thor.edit_undo = nil
+    if failed {
+        // Half reversed: there is no consistent state left to redo back to.
+        thor_free_edit_undo(record[:])
+        delete(record)
+    } else {
+        thor_clear_edit_redo(thor)
+        thor.edit_redo = record
+    }
+    thor_flash_status(thor, fmt.tprintf("Undid the edits in %d files", files))
+    return true
+}
+
+// Re-applies the edit set the last cross-file undo took back, across every file
+// it touched. Refuses the whole thing on the same terms thor_undo_last_edits
+// does, so ctrl+shift+z falls through to the focused buffer when the set no
+// longer fits.
+thor_redo_last_edits :: proc(thor: ^Thor) -> bool {
+    if !thor_edits_still_apply(thor, thor.edit_redo[:], forward = false) {
+        return false
+    }
+
+    failed := false
+    for &entry in thor.edit_redo {
+        if entry.open {
+            file := thor_open_file_at(thor, entry.path)
+            textedit.redo(&file.state)
+            entry.revision = file.state.revision // what a later undo has to find
+            continue
+        }
+        if werr := os.write_entire_file(entry.path, transmute([]byte) entry.after); werr != nil {
+            thor_flash_status(thor, "Redo incomplete: a file could not be written", is_error = true)
+            failed = true
+            break
+        }
+    }
+
+    files := len(thor.edit_redo)
+    record := thor.edit_redo
+    thor.edit_redo = nil
+    if failed {
+        thor_free_edit_undo(record[:])
+        delete(record)
+    } else {
+        thor_clear_edit_undo(thor)
+        thor.edit_undo = record
+    }
+    thor_flash_status(thor, fmt.tprintf("Redid the edits in %d files", files))
+    return true
+}
+
+// True when every file in `record` still holds what the move expects, so the
+// whole set can be applied. Checked before any of it is touched: a half-reversed
+// rename is worse than one that was left alone. `forward` picks the side each
+// closed file must currently hold — `after` to undo from, `before` to redo from.
+@(private = "file")
+thor_edits_still_apply :: proc(thor: ^Thor, record: []Edit_Undo_File, forward: bool) -> bool {
+    if len(record) == 0 {
+        return false
+    }
+    for entry in record {
         file := thor_open_file_at(thor, entry.path)
         if entry.open {
+            // The revision proves the buffer entry is still on top: textedit
+            // bumps it on every edit, undo and redo alike.
             if file == nil || file.state.revision != entry.revision {
                 return false
             }
             continue
         }
         data, err := os.read_entire_file(entry.path, context.temp_allocator)
-        if err != nil || content_hash(string(data)) != entry.after_hash {
+        if err != nil || string(data) != (forward ? entry.after : entry.before) {
             return false
         }
         // Opened since it was rewritten: the reload that the write triggers must
@@ -765,21 +842,6 @@ thor_undo_last_edits :: proc(thor: ^Thor) -> bool {
             return false
         }
     }
-
-    for entry in thor.edit_undo {
-        if entry.open {
-            textedit.undo(&thor_open_file_at(thor, entry.path).state)
-            continue
-        }
-        if werr := os.write_entire_file(entry.path, transmute([]byte) entry.before); werr != nil {
-            thor_flash_status(thor, "Undo incomplete: a file could not be written", is_error = true)
-            break
-        }
-    }
-
-    files := len(thor.edit_undo)
-    thor_clear_edit_undo(thor)
-    thor_flash_status(thor, fmt.tprintf("Undid the edits in %d files", files))
     return true
 }
 
