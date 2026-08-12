@@ -833,6 +833,12 @@ editor_ensure_visual_rows :: proc(editor: ^Editor) -> bool {
     if editor_rows_fresh(editor) {
         return false
     }
+    // A hidden line owns no row, so a caret left on one has no row to draw or
+    // move by. Every mover other than the fold procs (a jump, undo, an edit that
+    // shifts lines) reaches the rows through here, so the fixup belongs here too.
+    if len(editor.folded) > 0 {
+        editor_carets_out_of_folds(editor)
+    }
     editor_rebuild_visual_rows(editor)
     return true
 }
@@ -1882,8 +1888,9 @@ editor_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
             if caret_y + line_height < inner_top || caret_y > inner_bottom {
                 continue
             }
-            caret_x := cast(f32) text_x + cast(f32) ui.measure_text(text[row.start:cursor.caret], editor.font_size) +
-                editor_swatch_offset(editor, text[row.start:row.end], cursor.caret - row.start)
+            caret := clamp(cursor.caret, row.start, row.end)
+            caret_x := cast(f32) text_x + cast(f32) ui.measure_text(text[row.start:caret], editor.font_size) +
+                editor_swatch_offset(editor, text[row.start:row.end], caret - row.start)
             // Text is top-aligned: anchor the caret to the line top, sized to
             // the glyph height, not the full line height.
             rl.DrawRectangle(
@@ -2884,7 +2891,7 @@ editor_move_visual :: proc(editor: ^Editor, delta: int, extend: bool) {
     for &cursor in editor.state.cursors {
         row_index := editor_visual_row_index(editor, cursor.caret)
         row := editor.visual_rows[row_index]
-        col := utf8.rune_count_in_string(text[row.start:cursor.caret])
+        col := utf8.rune_count_in_string(text[row.start:clamp(cursor.caret, row.start, row.end)])
 
         target := clamp(row_index + delta, 0, len(editor.visual_rows) - 1)
         trow := editor.visual_rows[target]

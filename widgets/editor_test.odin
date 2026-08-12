@@ -50,6 +50,47 @@ test_hover_diagnostic_lookup :: proc(t: ^testing.T) {
     testing.expect(t, !ok, "an empty message is not a popup")
 }
 
+// A collapsed fold builds no row for the lines it hides, so a caret left on one
+// has no row that contains it. Rebuilding the rows pulls the caret onto the
+// fold's visible start line, and a lookup that still misses clamps into its row
+// instead of slicing backwards.
+@(test)
+test_caret_inside_collapsed_fold :: proc(t: ^testing.T) {
+    // Lines start at 0, 6, 11, 17, 23.
+    state: textedit.State
+    textedit.init(&state)
+    defer textedit.destroy(&state)
+    textedit.set_text(&state, "alpha\nbeta\ngamma\ndelta\nepsilon\n")
+
+    editor: Editor
+    editor.state = &state
+    editor.font_size = 16
+    editor.foldable = make(map[int]int)
+    editor.folded = make(map[int]bool)
+    defer delete(editor.foldable)
+    defer delete(editor.folded)
+    defer delete(editor.visual_rows)
+
+    // "beta" stays visible; "gamma" and "delta" hide under it.
+    editor_set_folds(&editor, []Fold_Range{{start_line = 1, end_line = 3}})
+    editor.folded[1] = true
+
+    textedit.select_range(&state, 13, 13) // column 2 of the hidden "gamma"
+    editor.rows_stale = true
+    editor_ensure_visual_rows(&editor)
+    testing.expect_value(t, textedit.primary_cursor(&state).caret, 6) // start of "beta"
+    // alpha, beta, epsilon and the empty line after the trailing newline.
+    testing.expect_value(t, len(editor.visual_rows), 4)
+
+    // Rows already fresh: the caret goes back onto a hidden line with no rebuild
+    // to catch it, which is what the clamp in the row lookup's callers is for.
+    editor_rebuild_visual_rows(&editor)
+    textedit.select_range(&state, 13, 13)
+    editor_move_visual(&editor, -1, false)
+    caret := textedit.primary_cursor(&state).caret
+    testing.expect(t, caret >= 0 && caret <= len(textedit.text(&state)), "the caret stays in the buffer")
+}
+
 // Vertical movement finds the caret's row by binary search over the row extents,
 // and the rows it searches are rebuilt on demand — an edit between two moves must
 // be visible to the second one.
