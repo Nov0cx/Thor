@@ -1589,10 +1589,12 @@ Landed since (M9):
       (`server_apply_edit`); it decodes `params["edit"]` with the same
       `decode_workspace_edit` `Rename` uses (against a synthetic `Request`
       whose empty `path` never shortcuts `resolve_range`/`ask_source`, so
-      every file resolves through the server's open documents or disk), pushes
-      a push-only `Apply_Edit` result carrying the edits plus a `token`/
-      `on_applied` reply pair, and blocks up to `APPLY_EDIT_TIMEOUT` for the
-      main thread to answer. `thor_apply_pushed_edit` (`thor/lang_host.odin`)
+      every file resolves through the server's open documents or disk), sorts
+      them ascending by (path, start) as `Rename` does — a server lists one
+      file's edits in any order, and the applier splices a closed file straight
+      by that order — pushes a push-only `Apply_Edit` result carrying the edits
+      plus a `token`/`on_applied` reply pair, and blocks up to
+      `APPLY_EDIT_TIMEOUT` for the main thread to answer. `thor_apply_pushed_edit` (`thor/lang_host.odin`)
       applies it through `thor_apply_edits` — the same all-or-nothing applier
       Rename and Code Actions use — then calls `on_applied` with the result.
       An `Apply_Wait`'s two-sided refcount (the pump's bounded wait and the
