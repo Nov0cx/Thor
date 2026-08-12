@@ -41,8 +41,22 @@ the keyboard:
 | enter | open the selected file / toggle the selected folder |
 | delete | delete the selected file (after a confirmation dialog) |
 
-In find/replace: enter / shift+enter jump to next / previous match, tab
-switches between the find and replace fields, escape closes.
+## Find and replace
+
+| Binding | Action |
+| --- | --- |
+| enter / shift + enter | next / previous match |
+| tab | switch between the find and replace fields |
+| alt + c | match case (the `Aa` button) |
+| alt + w | whole word only (the `W` button) |
+| alt + r | read the query as a regular expression (the `.*` button) |
+| escape | close |
+
+The three toggles also work as buttons on the bottom row of the box, and each
+lights up while it is on. They stay set until Thor restarts. With `.*` on, a
+pattern that does not compile reads "Invalid pattern" where the match count
+sits; the replacement stays literal in every mode, so `$1` is not a capture
+reference.
 
 ## Clipboard
 
@@ -118,6 +132,12 @@ cursor between them; typing over the closing character steps past it, and
 backspace on an empty pair deletes both. Selecting text and typing a bracket or
 quote wraps the selection.
 
+Undo and Redo also sit at the top of the **Edit** menu and the editor's
+right-click menu, greyed out when there is nothing to move. A rename or code
+action that changed several files moves as one step, files that were never open
+included; once any of them has moved on, undo and redo fall back to the focused
+buffer alone.
+
 ## View
 
 | Binding | Action |
@@ -125,7 +145,7 @@ quote wraps the selection.
 | ctrl + scroll wheel | zoom editor font |
 | ctrl + numpad + / numpad - | zoom editor font |
 | ctrl + shift + j | recenter the view on the caret (repeat cycles center / top / bottom) |
-| f4 | toggle the rendered markdown preview (markdown files only) |
+| f4 | toggle the rendered markdown preview (markdown files only); links in it are clickable — a URL opens in the browser, a relative path opens as a tab |
 | f12 | toggle borderless fullscreen |
 | (unbound) | toggle the editor split — see below |
 
@@ -152,7 +172,11 @@ a tab marks a running command, and turns red when the shell has ended.
 | up / down | walk the commands run in this terminal |
 | ctrl + c | interrupt the running command |
 | ctrl + shift + c | copy the selected scrollback text, or all of it with nothing selected (works whether or not a command is running) |
-| ctrl + v | paste into the input line |
+| ctrl + v | paste into the input line, at the caret |
+| left / right | move the caret in the input line |
+| home / end | jump to the start / end of the input line |
+| delete | delete the character after the caret |
+| click on the input line | place the caret there |
 | click + drag | select scrollback text |
 | ctrl + click | open the file a path in the output points at |
 
@@ -177,6 +201,10 @@ found elsewhere in the buffer. Up / down move the selection, tab or shift + ente
 accepts the highlighted word, escape (or typing a non-word character) dismisses
 it. A plain enter dismisses the popup and inserts a newline. There is no key to
 summon it — it appears automatically while typing.
+
+The popup also takes the mouse: hovering a candidate highlights it, clicking one
+accepts it, and the wheel over the popup walks the list instead of scrolling the
+text.
 
 ## Tasks
 

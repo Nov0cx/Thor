@@ -51,3 +51,14 @@ First release. Thor runs on Windows, Linux and macOS.
 - New `format_on_type` setting reformats a line as you type a trigger character the language server asks for, such as `}` or a newline. Off by default, next to the existing `format_on_save`.
 - `format_on_save` now also formats non-Odin files served by a formatting-capable language server, not only Odin.
 - Settings > Language > a server's Features group gained "Format Selection" and "Format On Type" toggles next to "Format Document".
+- The completion popup takes the mouse: a click accepts a candidate, hovering one highlights it, and the wheel over the popup walks the list instead of scrolling the text.
+- The console prompt is a full input line: `left`/`right`/`home`/`end`/`delete` move and edit the caret, a click places it, and `ctrl + v` pastes at the caret.
+- Links in the Markdown preview are clickable. A URL opens in the browser; a path relative to the document opens as a tab, so the manual's own pages link to each other.
+- Find and replace gained three toggles: `Aa` / `alt + c` matches case, `W` / `alt + w` matches whole words, and `.*` / `alt + r` reads the query as a regular expression. Each stays set until Thor restarts.
+- Replace All is one undo step, and with `.*` on it rewrites matches of different lengths in one sweep. A pattern that does not compile reads "Invalid pattern" where the match count sits.
+- The explorer has a scrollbar; drag the thumb to move through a long file tree.
+- The status bar reports the indentation the file actually uses, tabs included, instead of always claiming spaces.
+- The status bar names any language a plugin registers, including extensionless ones such as `Dockerfile` and `Makefile`, instead of falling back to "Plain Text".
+- Undo and Redo sit at the top of the Edit menu and the editor's right-click menu, greyed out when there is nothing to move, and answer to "Edit: Undo" / "Edit: Redo" in the command palette.
+- `ctrl + shift + z` and `ctrl + y` put back a rename or code action that changed several files, across all of them, matching the undo that already took the whole set back.
+- `thor a.odin b.odin` opens every path given, in order, with the last one active. The first folder becomes the workspace and a later one is ignored. A `--help` or `--version` flag now wins wherever it stands.
