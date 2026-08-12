@@ -47,6 +47,7 @@ client_backend :: proc(c: ^Client) -> lang.Backend {
         supports = supports,
         poll = poll,
         notify = notify,
+        on_type_trigger = on_type_trigger,
     }
 }
 
@@ -110,6 +111,25 @@ poll :: proc(data: rawptr, res: ^lang.Result) -> bool {
         }
         if server_poll(s, res) {
             c.poll_next = index + 1
+            return true
+        }
+    }
+    return false
+}
+
+// True when typing `char` in a file of `ext` should trigger on-type
+// formatting. The server must be .Ready — caps.on_type_triggers is only
+// decoded once the handshake lands — and answer Format_On_Type; `char` must be
+// one of its advertised trigger characters.
+@(private)
+on_type_trigger :: proc(data: rawptr, ext: string, char: string) -> bool {
+    c := cast(^Client)data
+    s, found := client_server_for(c, ext)
+    if !found || server_state(s) != .Ready || !server_supports(s, .Format_On_Type) {
+        return false
+    }
+    for trigger in s.caps.on_type_triggers {
+        if trigger == char {
             return true
         }
     }

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Render docs/*.md to static HTML under docs/html/.
 
-    pip install -r docs/requirements.txt
-    python docs/generate_html.py
+pip install -r docs/requirements.txt
+python docs/generate_html.py
 """
 
 import pathlib
@@ -93,9 +93,7 @@ def main() -> None:
         title = dict(pages)[stem]
         body = markdown.markdown(text, extensions=MD_EXTENSIONS)
         body = md_links_to_html(body)
-        html = PAGE_TEMPLATE.format(
-            title=title, css=CSS, nav=build_nav(pages, stem), body=body
-        )
+        html = PAGE_TEMPLATE.format(title=title, css=CSS, nav=build_nav(pages, stem), body=body)
         out_path = OUT_DIR / f"{stem}.html"
         out_path.write_text(html, encoding="utf-8")
         print(f"wrote {out_path.relative_to(DOCS_DIR.parent)}")

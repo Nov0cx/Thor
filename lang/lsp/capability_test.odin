@@ -157,8 +157,51 @@ test_capabilities_real_reply :: proc(t: ^testing.T) {
     testing.expect_value(
         t,
         caps.kinds,
-        lang.FEATURES_ALL - {.Diagnostics, .Progress, .Apply_Edit, .Format},
+        lang.FEATURES_ALL - {.Diagnostics, .Progress, .Apply_Edit, .Format, .Format_Range, .Format_On_Type},
     )
+}
+
+// documentFormattingProvider / documentRangeFormattingProvider both follow the
+// same bool-or-options rule as every other provider key.
+@(test)
+test_capabilities_formatting_providers :: proc(t: ^testing.T) {
+    caps := decode(
+        `{"capabilities": {
+            "documentFormattingProvider": true,
+            "documentRangeFormattingProvider": {"workDoneProgress": true}
+        }}`,
+    )
+    testing.expect(t, .Format in caps.kinds)
+    testing.expect(t, .Format_Range in caps.kinds)
+    testing.expect(t, .Format_On_Type not_in caps.kinds)
+}
+
+// documentOnTypeFormattingProvider's firstTriggerCharacter is required and
+// moreTriggerCharacter optional; both land in on_type_triggers, in order.
+@(test)
+test_capabilities_on_type_triggers :: proc(t: ^testing.T) {
+    with_more := decode(
+        `{"capabilities": {
+            "documentOnTypeFormattingProvider": {
+                "firstTriggerCharacter": "}",
+                "moreTriggerCharacter": [";", "\n"]
+            }
+        }}`,
+    )
+    testing.expect(t, .Format_On_Type in with_more.kinds)
+    testing.expect_value(t, len(with_more.on_type_triggers), 3)
+    testing.expect_value(t, with_more.on_type_triggers[0], "}")
+    testing.expect_value(t, with_more.on_type_triggers[1], ";")
+    testing.expect_value(t, with_more.on_type_triggers[2], "\n")
+
+    first_only := decode(
+        `{"capabilities": {"documentOnTypeFormattingProvider": {"firstTriggerCharacter": ":"}}}`,
+    )
+    testing.expect_value(t, len(first_only.on_type_triggers), 1)
+    testing.expect_value(t, first_only.on_type_triggers[0], ":")
+
+    absent := decode(`{"capabilities": {}}`)
+    testing.expect(t, absent.on_type_triggers == nil)
 }
 
 // renameProvider.prepareProvider and codeActionProvider.resolveProvider are

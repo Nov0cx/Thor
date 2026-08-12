@@ -43,6 +43,8 @@ request_decode :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
         decode_code_actions(ask, value, res)
     case .Package_Doc:
         decode_package_doc(ask, value, res)
+    case .Format, .Format_Range, .Format_On_Type:
+        decode_format(ask, value, res)
     }
 }
 
@@ -644,6 +646,97 @@ decode_rename :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
         return a.start < b.start
     })
     res.ok = len(res.edits) > 0 || len(res.resource_ops) > 0
+}
+
+// `TextEdit[] | null`. formatting / rangeFormatting / onTypeFormatting all
+// answer this same shape. A null or empty reply is "nothing to change" — res.ok
+// must still be true: thor_apply_format reads `!ok` as "fix syntax errors
+// first" and `ok` with zero edits as "already formatted", and a server has no
+// other way to say the latter.
+//
+// The reply's edits are spliced into a copy of the request's own source and
+// the result re-diffed (lang.diff_spans) rather than handed to the editor
+// verbatim: most servers answer with one edit replacing the whole file
+// (gopls, rust-analyzer), and applying that as one Text_Edit would drag every
+// cursor in the buffer to wherever the edit ends.
+@(private)
+decode_format :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
+    if _, is_null := value.(json.Null); is_null {
+        res.ok = true
+        return
+    }
+    items, is_array := value.(json.Array)
+    if !is_array {
+        return
+    }
+    if len(items) == 0 {
+        res.ok = true
+        return
+    }
+
+    Raw_Edit :: struct {
+        start, end: int,
+        text:       string,
+    }
+    raw := make([dynamic]Raw_Edit, context.temp_allocator)
+    for item in items {
+        object, is_object := item.(json.Object)
+        if !is_object {
+            return
+        }
+        new_text, has_text := object["newText"].(json.String)
+        start_line, start_char, end_line, end_char, has_range := range_of(object["range"])
+        if !has_text || !has_range {
+            return
+        }
+        // A formatting reply may only touch the file it formatted.
+        path, start, end, ok := resolve_range(ask, ask.uri, start_line, start_char, end_line, end_char)
+        if !ok || !path_equal(path, ask.req.path) || start > end {
+            return
+        }
+        append(&raw, Raw_Edit{start, end, string(new_text)})
+    }
+
+    slice.sort_by(raw[:], proc(a, b: Raw_Edit) -> bool {
+        return a.start < b.start
+    })
+    for i in 1 ..< len(raw) {
+        if raw[i].start < raw[i - 1].end {
+            return // overlapping edits — LSP forbids them; refuse rather than guess
+        }
+    }
+
+    source := ask.req.source
+    out := make([dynamic]u8, context.temp_allocator)
+    pos := 0
+    for edit in raw {
+        if edit.start < pos || edit.end > len(source) {
+            return
+        }
+        append(&out, source[pos:edit.start])
+        append(&out, edit.text)
+        pos = edit.end
+    }
+    append(&out, source[pos:])
+    formatted := string(out[:])
+
+    if formatted == source {
+        res.ok = true
+        return
+    }
+
+    spans := lang.diff_spans(source, formatted, context.temp_allocator)
+    res.edits = make([dynamic]lang.Text_Edit)
+    for span in spans {
+        append(&res.edits, lang.Text_Edit {
+            path     = strings.clone(ask.req.path),
+            start    = span.start,
+            end      = span.end,
+            old_text = strings.clone(source[span.start:span.end]),
+            new_text = strings.clone(span.text),
+        })
+    }
+    res.ok = true
 }
 
 // `(Command | CodeAction)[]`. An item with no `edit` gets codeAction/resolve

@@ -97,6 +97,7 @@ Thor :: struct {
     focus_terminal_key: setting.Keybind,
     trim_whitespace_key: setting.Keybind,
     format_key: setting.Keybind,
+    format_selection_key: setting.Keybind,
     align_char_key: setting.Keybind,
     goto_line_key: setting.Keybind,
     last_file_key: setting.Keybind,
@@ -375,6 +376,16 @@ Thor :: struct {
     format_path: string,
     format_save_pending: bool,
     format_save_queue: [dynamic]string,
+    // In-flight Format_Range request (Format Selection): its id and the path of
+    // the buffer it was computed against (owned). Its own slot rather than
+    // sharing format_path — a document format and a selection format can be
+    // dispatched moments apart and must not clobber each other's routing.
+    format_range_request_id: u64,
+    format_range_path: string,
+    // In-flight Format_On_Type request: its id and the buffer path (owned). No
+    // save-pending bookkeeping — on-type formatting never blocks a save.
+    on_type_request_id: u64,
+    on_type_path: string,
     // How to reverse the last edit set applied across files (a rename, a code
     // action), so ctrl+z takes all of it back — the files that were not open
     // were rewritten on disk and have no buffer undo history of their own.
@@ -656,6 +667,8 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.code_action_path)
     delete(thor.semantic_path)
     delete(thor.format_path)
+    delete(thor.format_range_path)
+    delete(thor.on_type_path)
     for p in thor.format_save_queue {
         delete(p)
     }

@@ -27,6 +27,12 @@ Request_Kind :: enum {
     Code_Actions,
     Semantic_Tokens,
     Format,
+    // Whole-line range formatting over [offset, end) — a selection, aligned to
+    // whole lines by the host before dispatch.
+    Format_Range,
+    // Fired after one typed character (Request.trigger), debounced like
+    // completion. Answers the same Result.edits shape as Format.
+    Format_On_Type,
     // Push-only: never dispatched through manager_request*, only produced by
     // Backend.poll (a server's unsolicited $/progress notification).
     Progress,
@@ -288,6 +294,12 @@ Request :: struct {
     // owned (each message cloned); Code_Actions' diagnostics overlapping the
     // caret/selection, empty otherwise and for every other kind.
     diagnostics: []Diagnostic_Ref,
+    // Format / Format_Range / Format_On_Type: spaces per indent level of the
+    // request's buffer. 0 means unset — a backend falls back to its own default.
+    tab_size: int,
+    // Format_On_Type only; owned. The character just typed, as UTF-8. "" for
+    // every other kind.
+    trigger:  string,
     cancel:    ^bool,  // Job-owned cancellation flag; read via request_cancelled, nil when hand-built
 }
 
@@ -382,6 +394,12 @@ Backend :: struct {
     // subprocess backend queues a notification and returns. `source` is
     // borrowed for the call.
     notify:   proc(data: rawptr, event: Doc_Event, path, ext, source: string, revision: u64),
+    // True when typing `char` in a file of `ext` should trigger on-type
+    // formatting — an LSP backend answers from the server's advertised trigger
+    // characters. nil (the in-client engine's default) means never; a caller
+    // must not dispatch Format_On_Type without asking first, unlike the other
+    // kinds where an unwanted dispatch just answers ok=false.
+    on_type_trigger: proc(data: rawptr, ext: string, char: string) -> bool,
 }
 
 // How long a debounced request waits for the input to settle before it is
@@ -447,6 +465,8 @@ Pending :: struct {
     new_name:    string,
     query:       string,
     diagnostics: []Diagnostic_Ref,
+    tab_size:    int,
+    trigger:     string,
     due:         time.Time,
 }
 
@@ -629,6 +649,22 @@ manager_allows :: proc(m: ^Manager, ext: string, kind: Request_Kind) -> bool {
     return ok
 }
 
+// True when typing `char` in a file of `ext` should trigger Format_On_Type: the
+// feature gate, a backend that claims the extension and answers the kind, and
+// that backend's own on_type_trigger (nil means never). This is the check a
+// caller makes before every keystroke, so a request is never dispatched on a
+// character no server asked for.
+manager_on_type_trigger :: proc(m: ^Manager, ext, char: string) -> bool {
+    if !manager_feature_enabled(m, .Format_On_Type) {
+        return false
+    }
+    b, ok := backend_for_kind(m, ext, .Format_On_Type)
+    if !ok || b.on_type_trigger == nil {
+        return false
+    }
+    return b.on_type_trigger(b.data, ext, char)
+}
+
 // Dispatches a request on a worker thread. Snapshots the string inputs into the
 // Manager's allocator so the caller keeps ownership of its own buffers. Returns
 // the request id, or 0 when the feature gate refuses the kind or no backend
@@ -648,6 +684,8 @@ manager_request :: proc(
     query := "",
     end := -1,
     diagnostics: []Diagnostic_Ref = nil,
+    tab_size := 0,
+    trigger := "",
 ) -> u64 {
     if !manager_feature_enabled(m, kind) {
         return 0
@@ -672,6 +710,8 @@ manager_request :: proc(
         strings.clone(new_name),
         strings.clone(query),
         clone_diagnostic_refs(diagnostics, m.allocator),
+        tab_size,
+        strings.clone(trigger),
     )
 }
 
@@ -709,6 +749,8 @@ dispatch_owned :: proc(
     new_name: string,
     query: string,
     diagnostics: []Diagnostic_Ref = nil,
+    tab_size: int = 0,
+    trigger: string = "",
 ) -> u64 {
     context.allocator = m.allocator
     backend, ok := backend_for_kind(m, ext, kind)
@@ -720,6 +762,7 @@ dispatch_owned :: proc(
         delete(new_name)
         delete(query)
         free_diagnostic_refs(diagnostics)
+        delete(trigger)
         return 0
     }
 
@@ -739,6 +782,8 @@ dispatch_owned :: proc(
         new_name    = new_name,
         query       = query,
         diagnostics = diagnostics,
+        tab_size    = tab_size,
+        trigger     = trigger,
     }
     job.request.cancel = &job.cancelled // stable for the job's lifetime
     job.result.id = id
@@ -837,9 +882,13 @@ manager_request_latest :: proc(
     query := "",
     end := -1,
     diagnostics: []Diagnostic_Ref = nil,
+    tab_size := 0,
+    trigger := "",
 ) -> u64 {
     manager_cancel_kind(m, kind)
-    return manager_request(m, kind, path, ext, source, offset, revision, workspace, new_name, query, end, diagnostics)
+    return manager_request(
+        m, kind, path, ext, source, offset, revision, workspace, new_name, query, end, diagnostics, tab_size, trigger,
+    )
 }
 
 // Queues a request to be dispatched once `delay` has passed without another
@@ -869,6 +918,8 @@ manager_request_debounced :: proc(
     query := "",
     end := -1,
     diagnostics: []Diagnostic_Ref = nil,
+    tab_size := 0,
+    trigger := "",
 ) -> u64 {
     if !manager_feature_enabled(m, kind) {
         return 0
@@ -894,6 +945,8 @@ manager_request_debounced :: proc(
         new_name    = strings.clone(new_name),
         query       = strings.clone(query),
         diagnostics = clone_diagnostic_refs(diagnostics, m.allocator),
+        tab_size    = tab_size,
+        trigger     = strings.clone(trigger),
         due         = time.time_add(time.now(), delay),
     }
     return id
@@ -937,6 +990,8 @@ manager_flush_debounced :: proc(m: ^Manager, force := false) -> int {
             slot.new_name,
             slot.query,
             slot.diagnostics,
+            slot.tab_size,
+            slot.trigger,
         )
         n += 1
     }
@@ -980,6 +1035,7 @@ pending_clear :: proc(m: ^Manager, kind: Request_Kind) -> bool {
     delete(p.new_name)
     delete(p.query)
     free_diagnostic_refs(p.diagnostics)
+    delete(p.trigger)
     p^ = {}
     return true
 }
@@ -1096,6 +1152,7 @@ job_free :: proc(m: ^Manager, job: ^Job) {
     delete(job.request.new_name)
     delete(job.request.query)
     free_diagnostic_refs(job.request.diagnostics)
+    delete(job.request.trigger)
     result_free(m, &job.result)
     id := job.request.id
     free(job)

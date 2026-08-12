@@ -80,6 +80,7 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
     widgets.settings_view_add_choice(view, "file_icon_pack", "File Icon Pack", file_icon_pack)
     widgets.settings_view_add_choice(view, "ligatures", "Ligatures", thor_ligatures_label(config))
     widgets.settings_view_add_choice(view, "format_on_save", "Format on Save", thor_on_off_label(setting.format_on_save(config)))
+    widgets.settings_view_add_choice(view, "format_on_type", "Format on Type", thor_on_off_label(setting.format_on_type(config)))
 
     widgets.settings_view_begin_category(view, "windows", "Windows", "window")
     widgets.settings_view_add_choice(view, "open_folder_in", "Open Folder In", thor_open_folder_in_label(config))
@@ -211,6 +212,8 @@ thor_on_setting_choice :: proc(data: rawptr, id: string) {
         thor_cmd_change_ligatures(thor)
     case "format_on_save":
         thor_cmd_change_format_on_save(thor)
+    case "format_on_type":
+        thor_cmd_change_format_on_type(thor)
     case "open_folder_in":
         thor_cmd_change_open_folder_in(thor)
     case "default_shell":
@@ -367,6 +370,8 @@ LANGUAGE_FEATURE_LABELS := [lang.Request_Kind]string {
     .Code_Actions      = "Code Actions",
     .Semantic_Tokens   = "Semantic Highlighting",
     .Format            = "Format Document",
+    .Format_Range      = "Format Selection",
+    .Format_On_Type    = "Format On Type",
     .Progress          = "Progress Notifications",
     .Apply_Edit        = "Server-Applied Edits",
 }
@@ -424,6 +429,33 @@ thor_format_on_save_commit :: proc(data: rawptr, choice: string) {
     on := choice == ON_OFF_LABELS[0]
     setting.persist_bool(thor_active_settings_path(thor), "format_on_save", on)
     thor.config.general.format_on_save = on
+    thor_settings_mark_clean(thor)
+    if widgets.settings_view_is_open(thor.settings_view) {
+        thor_populate_settings_view(thor)
+    }
+}
+
+// Settings row: dispatch Format_On_Type as a trigger character is typed.
+// Nothing to preview — the effect only shows on the next keystroke.
+@(private = "file")
+thor_cmd_change_format_on_type :: proc(thor: ^Thor) {
+    on := setting.format_on_type(&thor.config)
+    widgets.select_dialog_open(
+        thor.select_dialog, &thor.ui_context, "Format on Type",
+        ON_OFF_LABELS[:], thor_on_off_label(on),
+        thor_format_on_type_preview, thor_format_on_type_commit, thor,
+    )
+}
+
+@(private = "file")
+thor_format_on_type_preview :: proc(_: rawptr, _: string) {}
+
+@(private = "file")
+thor_format_on_type_commit :: proc(data: rawptr, choice: string) {
+    thor := cast(^Thor) data
+    on := choice == ON_OFF_LABELS[0]
+    setting.persist_bool(thor_active_settings_path(thor), "format_on_type", on)
+    thor.config.general.format_on_type = on
     thor_settings_mark_clean(thor)
     if widgets.settings_view_is_open(thor.settings_view) {
         thor_populate_settings_view(thor)

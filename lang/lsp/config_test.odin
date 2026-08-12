@@ -169,6 +169,19 @@ test_config_features :: proc(t: ^testing.T) {
     testing.expect_value(t, cfg.servers[0].features, lang.FEATURES_ALL - {.Rename, .Completion})
 }
 
+// The three formatting kinds' feature names, same as any other kind.
+@(test)
+test_config_features_formatting :: proc(t: ^testing.T) {
+    cfg := merge(
+        `{"servers": [{"id": "s", "extensions": [".s"], "command": ["s"],
+            "features": {"formatting": false, "range_formatting": false, "on_type_formatting": false}}]}`,
+    )
+    defer config_destroy(&cfg)
+
+    testing.expect_value(t, len(cfg.servers), 1)
+    testing.expect_value(t, cfg.servers[0].features, lang.FEATURES_ALL - {.Format, .Format_Range, .Format_On_Type})
+}
+
 // The leading '.' a config may omit is put back, because a path's extension
 // always carries one.
 @(test)

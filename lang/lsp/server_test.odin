@@ -1117,6 +1117,86 @@ test_server_rename_round_trip :: proc(t: ^testing.T) {
     )
 }
 
+// A formatting reply — a single whole-file TextEdit, the shape most real
+// formatters answer with — comes back re-diffed into the minimal edit the one
+// changed line needs, and the request's tab_size rides along as tabSize.
+@(test)
+test_server_format_round_trip :: proc(t: ^testing.T) {
+    f: Fake
+    s := fake_server(&f, `{"capabilities":{"documentFormattingProvider":true}}`)
+    defer fake_end(&f, s)
+    defer free_all(context.temp_allocator)
+
+    f.result =
+        `[{"range":{"start":{"line":0,"character":0},"end":{"line":2,"character":0}},` +
+        `"newText":"alpha beta\nGAMMA\n"}]`
+
+    req := lang.Request {
+        kind     = .Format,
+        path     = SOURCE,
+        ext      = ".fake",
+        source   = "alpha beta\ngamma\n",
+        revision = 1,
+        tab_size = 2,
+    }
+    res := lang.Result {
+        kind = .Format,
+    }
+    testing.expect(t, server_ensure_started(s, &req), "the server did not start")
+    request_answer(s, &req, &res)
+    defer {
+        for edit in res.edits {
+            delete(edit.path)
+            delete(edit.old_text)
+            delete(edit.new_text)
+        }
+        delete(res.edits)
+    }
+
+    testing.expect(t, res.ok, "the reply did not reach the result")
+    testing.expect_value(t, len(res.edits), 1)
+    if len(res.edits) == 1 {
+        testing.expect_value(t, res.edits[0].old_text, "gamma\n")
+        testing.expect_value(t, res.edits[0].new_text, "GAMMA\n")
+    }
+
+    testing.expect(t, fake_sent(&f, `"method":"textDocument/formatting"`), "the request was never sent")
+    testing.expect(t, fake_sent(&f, `"options":{"tabSize":2,"insertSpaces":true}`), "tabSize was not sent")
+}
+
+// on_type_trigger answers only from the advertised trigger set, and only once
+// the server is Ready — before that the trigger list has not been decoded.
+@(test)
+test_server_on_type_trigger :: proc(t: ^testing.T) {
+    f: Fake
+    s := fake_server(
+        &f,
+        `{"capabilities":{"documentOnTypeFormattingProvider":` +
+        `{"firstTriggerCharacter":"}","moreTriggerCharacter":[";"]}}}`,
+    )
+    defer fake_end(&f, s)
+
+    c := new(Client, context.allocator)
+    c.allocator = context.allocator
+    c.workspace = strings.clone(WORKSPACE)
+    c.servers = make([dynamic]^Server, context.allocator)
+    append(&c.servers, s)
+    defer {
+        delete(c.servers)
+        delete(c.workspace)
+        free(c)
+    }
+
+    testing.expect(t, !on_type_trigger(c, ".fake", "}"), "triggered before the server was ready")
+
+    testing.expect(t, server_start(s, SOURCE))
+    testing.expect(t, wait_state(s, .Ready), "the handshake did not finish")
+
+    testing.expect(t, on_type_trigger(c, ".fake", "}"))
+    testing.expect(t, on_type_trigger(c, ".fake", ";"))
+    testing.expect(t, !on_type_trigger(c, ".fake", "\n"))
+}
+
 // A null prepareRename reply refuses the rename before it is ever asked.
 @(test)
 test_server_rename_prepare_refusal :: proc(t: ^testing.T) {

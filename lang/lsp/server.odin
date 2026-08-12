@@ -1124,6 +1124,9 @@ CLIENT_CAPABILITIES :: `{` +
 `"codeActionLiteralSupport":{"codeActionKind":{"valueSet":["quickfix","refactor","source"]}},` +
 `"resolveSupport":{"properties":["edit"]}},` +
 `"rename":{"dynamicRegistration":false,"prepareSupport":true},` +
+`"formatting":{"dynamicRegistration":false},` +
+`"rangeFormatting":{"dynamicRegistration":false},` +
+`"onTypeFormatting":{"dynamicRegistration":false},` +
 `"publishDiagnostics":{"relatedInformation":false,"versionSupport":true},` +
 `"semanticTokens":{"dynamicRegistration":false,"requests":{"full":true},"formats":["relative"],` +
 `"tokenModifiers":[],` +

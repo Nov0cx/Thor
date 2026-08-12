@@ -46,3 +46,8 @@ First release. Thor runs on Windows, Linux and macOS.
 - Fixed an image or 3D model tab's loading spinner spinning forever instead of clearing once it finished loading.
 - The editor placeholder under a loading image tab now reads "Loading image..." instead of jumping straight to "Image".
 - Quick open (`ctrl + tab`) and the command palette's file list are now instant on a large workspace, warmed in the background instead of walked on every open.
+- `ctrl + alt + l` / "Edit: Format Document" now formats any file whose configured language server advertises formatting support (clangd, gopls, rust-analyzer, basedpyright, etc.), not only `.odin` files.
+- New `ctrl + alt + shift + l` / "Edit: Format Selection" formats the selected lines through the language server; with nothing selected it formats the whole document.
+- New `format_on_type` setting reformats a line as you type a trigger character the language server asks for, such as `}` or a newline. Off by default, next to the existing `format_on_save`.
+- `format_on_save` now also formats non-Odin files served by a formatting-capable language server, not only Odin.
+- Settings > Language > a server's Features group gained "Format Selection" and "Format On Type" toggles next to "Format Document".

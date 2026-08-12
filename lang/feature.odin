@@ -23,6 +23,8 @@ FEATURE_NAMES := [Request_Kind]string {
     .Code_Actions      = "code_actions",
     .Semantic_Tokens   = "semantic_tokens",
     .Format            = "formatting",
+    .Format_Range      = "range_formatting",
+    .Format_On_Type    = "on_type_formatting",
     .Progress          = "progress",
     .Apply_Edit        = "apply_edit",
 }

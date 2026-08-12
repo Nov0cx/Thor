@@ -94,6 +94,7 @@ thor_bind_editor :: proc(thor: ^Thor, editor: ^widgets.Editor, file: ^Open_File,
     widgets.editor_set_comment_prefix(editor, setting.comment_prefix(&thor.config, file.name))
     ext := thor_file_extension(file.name)
     widgets.editor_set_completion_semantic(editor, lang.manager_allows(&thor.lang_manager, ext, .Completion))
+    widgets.editor_set_on_type_enabled(editor, lang.manager_allows(&thor.lang_manager, ext, .Format_On_Type))
     if keep_view {
         widgets.editor_reload_state(editor, &file.state)
     } else {

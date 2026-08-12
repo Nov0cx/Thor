@@ -33,6 +33,12 @@ Signature_Proc :: #type proc(data: rawptr, editor: ^Editor, state: ^textedit.Sta
 // it took over completion, so the editor skips its buffer-word fallback.
 Completion_Proc :: #type proc(data: rawptr, editor: ^Editor, state: ^textedit.State, offset: int) -> bool
 
+// On-type formatting request, fired after a character lands in a buffer whose
+// language has a backend that asked for it (see editor_set_on_type_enabled).
+// `char` is the character just inserted, as UTF-8; the owner asks the seam
+// whether it is a trigger before dispatching anything.
+On_Type_Proc :: #type proc(data: rawptr, editor: ^Editor, state: ^textedit.State, offset: int, char: string)
+
 // One completion candidate handed back by the owner: the identifier to insert and
 // the color to tint its row (by symbol kind).
 Completion_Item :: struct {
@@ -173,6 +179,13 @@ Editor :: struct {
     on_completion:       Completion_Proc,
     completion_data:     rawptr,
     completion_semantic: bool,
+    // On-type formatting: fired after a character is typed, when the language's
+    // backend asked for that character as a trigger. The widget carries no
+    // trigger set of its own — it calls back on every character and the owner
+    // asks the seam.
+    on_type:             On_Type_Proc,
+    on_type_data:        rawptr,
+    on_type_enabled:     bool,
     // Dwell tracking: the spot the cursor settled on and when. hover_probe_offset
     // is the byte offset a request was fired for (-1 = none), so a still cursor
     // fires exactly once until it moves again. hover_mod_down is the previous
@@ -241,6 +254,19 @@ editor_set_on_completion :: proc(editor: ^Editor, on_completion: Completion_Proc
 // built-in buffer-word completion. Set per file when a pane is bound.
 editor_set_completion_semantic :: proc(editor: ^Editor, semantic: bool) {
     editor.completion_semantic = semantic
+}
+
+editor_set_on_type :: proc(editor: ^Editor, on_type: On_Type_Proc, data: rawptr) {
+    editor.on_type = on_type
+    editor.on_type_data = data
+}
+
+// Marks whether the active buffer's language backend answers on-type
+// formatting at all. Set per file when a pane is bound, mirroring
+// editor_set_completion_semantic — checked before every keystroke's callback
+// so a language with no such backend costs nothing per character.
+editor_set_on_type_enabled :: proc(editor: ^Editor, enabled: bool) {
+    editor.on_type_enabled = enabled
 }
 
 // Asks the owner to (re)resolve signature help at the caret. Fired on the
@@ -1076,6 +1102,8 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
             if event.codepoint == '(' || event.codepoint == ',' || editor.signature_active {
                 editor_request_signature(editor)
             }
+            buffer, width := utf8.encode_rune(event.codepoint)
+            editor_request_on_type(editor, string(buffer[:width]))
             editor_scroll_to_caret(editor)
             return true
         }
@@ -1086,6 +1114,25 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
     }
 
     return false
+}
+
+// Asks the owner whether `char` (the character just inserted) should trigger
+// on-type formatting. Only for a single collapsed cursor — an edit landing
+// under an open selection or a second cursor would be ambiguous about which
+// caret it followed — and only while no completion popup is up, since a
+// formatting edit would move the prefix out from under it.
+editor_request_on_type :: proc(editor: ^Editor, char: string) {
+    if !editor.on_type_enabled || editor.on_type == nil || editor.completion_active || editor.state == nil {
+        return
+    }
+    if len(editor.state.cursors) != 1 {
+        return
+    }
+    cursor := textedit.primary_cursor(editor.state)
+    if cursor.caret != cursor.anchor {
+        return
+    }
+    editor.on_type(editor.on_type_data, editor, editor.state, cursor.caret, char)
 }
 
 // Inserts a typed character, auto-pairing brackets and quotes.
@@ -1218,6 +1265,7 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
             }
         } else {
             textedit.insert_newline(state)
+            editor_request_on_type(editor, "\n")
         }
         editor_scroll_to_caret(editor)
         return true

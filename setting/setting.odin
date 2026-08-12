@@ -44,6 +44,10 @@ General :: struct {
     // Format the active buffer before an explicit save (Ctrl+S, Save All, the
     // palette) — never before an autosave. Off by default.
     format_on_save:    bool,
+    // Format-on-type: dispatch Format_On_Type as the user types a trigger
+    // character the backend asked for. Off by default — an edit landing while
+    // the user is still typing is intrusive, unlike a save-triggered format.
+    format_on_type:    bool,
     // Language intelligence: the master switch and the features still allowed
     // under it, read from the "language_intelligence" entry. Both are on by
     // default; the editor pushes them onto lang.Manager, which enforces them.
@@ -107,6 +111,7 @@ load :: proc(dir: string) -> Settings {
         autosave_delay_ms = 1500,
         ligatures         = true,
         format_on_save    = false,
+        format_on_type    = false,
         language_enabled  = true,
         language_features = lang.FEATURES_ALL,
         language_backends = make(map[string]Backend_Setting),
@@ -225,6 +230,11 @@ ligatures :: proc(s: ^Settings) -> bool {
 // Whether an explicit save formats the buffer first.
 format_on_save :: proc(s: ^Settings) -> bool {
     return s.general.format_on_save
+}
+
+// Whether typing a trigger character dispatches on-type formatting.
+format_on_type :: proc(s: ^Settings) -> bool {
+    return s.general.format_on_type
 }
 
 // Whether language intelligence runs at all. Off makes every backend silent,
@@ -717,6 +727,7 @@ load_general :: proc(s: ^Settings, path: string) {
     read_string(root, "file_icon_pack", &s.general.file_icon_pack)
     read_bool(root, "ligatures", &s.general.ligatures)
     read_bool(root, "format_on_save", &s.general.format_on_save)
+    read_bool(root, "format_on_type", &s.general.format_on_type)
     read_string(root, "open_folder_in", &s.general.open_folder_in)
     read_string(root, "default_shell", &s.general.default_shell)
     read_language(s, root)

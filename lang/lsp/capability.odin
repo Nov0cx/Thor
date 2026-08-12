@@ -27,7 +27,9 @@ PROVIDER_KEYS := [lang.Request_Kind]string {
     .Diagnostics       = "diagnosticProvider",
     .Code_Actions      = "codeActionProvider",
     .Semantic_Tokens   = "semanticTokensProvider",
-    .Format            = "", // no server ever claims it — formatting is served in-client only, for now
+    .Format            = "documentFormattingProvider",
+    .Format_Range      = "documentRangeFormattingProvider",
+    .Format_On_Type    = "documentOnTypeFormattingProvider",
     .Progress          = "", // unsolicited push; no capability gate, same as Package_Doc
     .Apply_Edit        = "", // unsolicited push; no capability gate, same as Package_Doc
 }
@@ -52,6 +54,7 @@ Capabilities :: struct {
     resolve_actions:  bool,     // codeActionProvider.resolveProvider
     token_legend:     []Token_Legend_Entry, // owned; indexed by the server's tokenTypes
     token_delta:      bool,     // semanticTokensProvider.full.delta: the /full/delta method may be asked for
+    on_type_triggers: []string, // owned; documentOnTypeFormattingProvider's trigger characters
     allocator:        runtime.Allocator,    // what built token_legend
 }
 
@@ -80,6 +83,7 @@ capabilities_decode :: proc(result: json.Value, allocator := context.allocator) 
     caps.encoding = encoding_of(advertised)
     decode_sync(&caps, advertised["textDocumentSync"])
     decode_legend(&caps, advertised["semanticTokensProvider"])
+    decode_on_type_triggers(&caps, advertised["documentOnTypeFormattingProvider"])
     if options, ok := advertised["renameProvider"].(json.Object); ok {
         if flag, fok := options["prepareProvider"].(json.Boolean); fok {
             caps.prepare_rename = bool(flag)
@@ -96,11 +100,17 @@ capabilities_decode :: proc(result: json.Value, allocator := context.allocator) 
 // Frees the legend. Safe on a Capabilities no reply ever filled, which is what a
 // server that never started leaves behind.
 capabilities_destroy :: proc(caps: ^Capabilities) {
-    if caps.token_legend == nil {
-        return
+    if caps.token_legend != nil {
+        delete(caps.token_legend, caps.allocator)
+        caps.token_legend = nil
     }
-    delete(caps.token_legend, caps.allocator)
-    caps.token_legend = nil
+    if caps.on_type_triggers != nil {
+        for s in caps.on_type_triggers {
+            delete(s, caps.allocator)
+        }
+        delete(caps.on_type_triggers, caps.allocator)
+        caps.on_type_triggers = nil
+    }
 }
 
 // True when a provider key is advertised. A provider is `true` or an options
@@ -168,6 +178,33 @@ decode_legend :: proc(caps: ^Capabilities, value: json.Value) {
         entries[index].kind, entries[index].valid = token_kind_of(string(name))
     }
     caps.token_legend = entries
+}
+
+// documentOnTypeFormattingProvider's trigger characters: a required
+// `firstTriggerCharacter` plus an optional `moreTriggerCharacter` array. Not an
+// object (the provider key is absent, or a server that only claims formatting/
+// rangeFormatting) leaves the list empty, which manager_on_type_trigger reads
+// as "never".
+@(private)
+decode_on_type_triggers :: proc(caps: ^Capabilities, value: json.Value) {
+    options, ook := value.(json.Object)
+    if !ook {
+        return
+    }
+    first, fok := options["firstTriggerCharacter"].(json.String)
+    if !fok || first == "" {
+        return
+    }
+    triggers := make([dynamic]string, caps.allocator)
+    append(&triggers, strings.clone(string(first), caps.allocator))
+    if more, mok := options["moreTriggerCharacter"].(json.Array); mok {
+        for value in more {
+            if s, sok := value.(json.String); sok && s != "" {
+                append(&triggers, strings.clone(string(s), caps.allocator))
+            }
+        }
+    }
+    caps.on_type_triggers = triggers[:]
 }
 
 // The Token_Kind a legend name means. A name Thor has no kind for is dropped:

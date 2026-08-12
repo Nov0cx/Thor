@@ -40,7 +40,9 @@ METHODS := [lang.Request_Kind]string {
     .Diagnostics       = "textDocument/diagnostic",
     .Code_Actions      = "textDocument/codeAction",
     .Semantic_Tokens   = "textDocument/semanticTokens/full",
-    .Format            = "", // served in-client only; no server is asked
+    .Format            = "textDocument/formatting",
+    .Format_Range      = "textDocument/rangeFormatting",
+    .Format_On_Type    = "textDocument/onTypeFormatting",
     .Progress          = "", // unsolicited push, never sent as an outgoing request
     .Apply_Edit        = "", // unsolicited push, never sent as an outgoing request
 }
@@ -139,12 +141,25 @@ request_params :: proc(ask: ^Ask) -> string {
     append(&out, `}`)
 
     #partial switch ask.req.kind {
-    case .Document_Symbols, .Diagnostics:
+    case .Document_Symbols, .Diagnostics, .Format:
     case .Semantic_Tokens:
         if ask.semantic_previous_result_id != "" {
             append(&out, `,"previousResultId":`)
             write_quoted(&out, ask.semantic_previous_result_id)
         }
+    case .Format_Range:
+        // A selection, aligned to whole lines by the host before dispatch.
+        start_line, start_character := position_from_offset(&ask.lines, ask.req.offset)
+        end_line, end_character := position_from_offset(&ask.lines, ask.req.end)
+        append(&out, `,"range":{"start":{"line":`)
+        write_number(&out, i64(start_line))
+        append(&out, `,"character":`)
+        write_number(&out, i64(start_character))
+        append(&out, `},"end":{"line":`)
+        write_number(&out, i64(end_line))
+        append(&out, `,"character":`)
+        write_number(&out, i64(end_character))
+        append(&out, `}}`)
     case .Code_Actions:
         // req.end == req.offset outside a selection, so this is a zero-width
         // range at the caret exactly as before; a real selection sends its
@@ -197,9 +212,29 @@ request_params :: proc(ask: ^Ask) -> string {
         append(&out, `,"context":{"diagnostics":[`)
         append(&out, diagnostics)
         append(&out, `]}`)
+    case .Format_On_Type:
+        append(&out, `,"ch":`)
+        write_quoted(&out, ask.req.trigger)
+        append_formatting_options(&out, ask)
+    case .Format, .Format_Range:
+        append_formatting_options(&out, ask)
     }
     append(&out, `}`)
     return string(out[:])
+}
+
+// FormattingOptions.tabSize/insertSpaces. `insertSpaces` is always true: Thor's
+// editor is soft-tabs only, so there is no "use real tabs" mode to advertise.
+// tabSize falls back to 4 when the request carries no buffer tab width.
+@(private)
+append_formatting_options :: proc(out: ^[dynamic]u8, ask: ^Ask) {
+    tab_size := ask.req.tab_size
+    if tab_size <= 0 {
+        tab_size = 4
+    }
+    append(out, `,"options":{"tabSize":`)
+    write_number(out, i64(tab_size))
+    append(out, `,"insertSpaces":true}`)
 }
 
 // Sends textDocument/prepareRename at the caret. False means "not renameable
@@ -237,7 +272,8 @@ prepare_rename_ok :: proc(ask: ^Ask) -> bool {
 @(private)
 request_deadline :: proc(kind: lang.Request_Kind) -> time.Duration {
     #partial switch kind {
-    case .Document_Symbols, .Workspace_Symbols, .References, .Diagnostics, .Semantic_Tokens, .Rename, .Package_Doc:
+    case .Document_Symbols, .Workspace_Symbols, .References, .Diagnostics, .Semantic_Tokens, .Rename, .Package_Doc,
+         .Format, .Format_Range:
         return DEADLINE_HEAVY
     }
     return DEADLINE_INTERACTIVE

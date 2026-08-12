@@ -495,7 +495,8 @@ lowest latency.
   an object carries `"enabled"` plus one key per request kind
   (`lang.feature_name`: `definition`, `hover`, `document_symbols`,
   `workspace_symbols`, `references`, `signature_help`, `completion`,
-  `package_doc`, `rename`, `diagnostics`, `code_actions`, `semantic_tokens`), each
+  `package_doc`, `rename`, `diagnostics`, `code_actions`, `semantic_tokens`,
+  `formatting`, `range_formatting`, `on_type_formatting`), each
   defaulting to on, so a file that never mentions the key runs everything. The
   gate lives on the `Manager` (`manager_set_enabled`/`manager_set_features`) and
   is enforced at the seam: a gated kind is refused by `manager_request` and
@@ -1159,21 +1160,34 @@ lowest latency.
         `make_map` and the rest of the map builtins inside `when MAP_ENABLED`,
         and treating that block as a scope dropped them from both the builtin
         cache and the workspace index.
-- [x] **Formatting.** Served in-client, not by any LSP server: a native
-      printer (`lang/odin/format`, package `odinfmt`) built on
-      `core:odin/parser` — `core:odin/format`/`printer` are deprecated
-      `#panic` stubs in the toolchain, so the printer is hand-written, not
-      inherited. `lang.Request_Kind.Format` is the seam entry; the LSP
-      backend declines it (`lang/lsp/requests.odin`'s `METHODS` and
-      `lang/lsp/capability.odin`'s `PROVIDER_KEYS` both leave it empty), so
-      only the Odin engine ever answers. Per-workspace options live in
+- [x] **Formatting.** Three seam entries — `lang.Request_Kind.Format`,
+      `.Format_Range` (a whole-line-aligned selection) and `.Format_On_Type`
+      (fired after a trigger character, debounced like completion) — served
+      differently per backend. Odin: a native printer (`lang/odin/format`,
+      package `odinfmt`) built on `core:odin/parser` — `core:odin/format`/
+      `printer` are deprecated `#panic` stubs in the toolchain, so the printer
+      is hand-written, not inherited — answers `.Format` alone;
+      `lang/odin/engine.odin`'s `UNSUPPORTED` bit_set declines the other two
+      outright rather than answering `ok=false`. Every other language: the LSP
+      backend (`lang/lsp/requests.odin`'s `METHODS`,
+      `lang/lsp/capability.odin`'s `PROVIDER_KEYS`) sends all three as
+      `textDocument/formatting` / `rangeFormatting` / `onTypeFormatting`, with
+      `tabSize` from the buffer's `tab_width` and `insertSpaces` always true —
+      Thor's editor is soft-tabs only. A reply is reconstructed against the
+      request's own source and re-diffed (`lang.diff_spans`, shared with the
+      Odin printer) into minimal edits, since most servers answer one TextEdit
+      replacing the whole file. Odin's per-workspace options live in
       `.thor/odin-formatter.json` (odinfmt/OLS's schema; see
       `docs/configuration.md`), read by a stat-invalidated cache mirroring
-      `odin-analyzer.json`'s. Triggered by `ctrl + alt + l`, "Edit: Format
-      Document", or `format_on_save` (off by default) on an explicit save.
-      Refuses on any syntax error rather than guess. Missing: range/on-type
-      formatting, line-width-aware wrapping of long call/literal argument
-      lists, and alignment across a run split by a comment.
+      `odin-analyzer.json`'s; every other language's formatting follows the
+      server's own config file. Triggered by `ctrl + alt + l` / "Edit: Format
+      Document", `ctrl + alt + shift + l` / "Edit: Format Selection" (falls
+      back to the whole document with no selection), `format_on_save` and
+      `format_on_type` (both off by default). Odin refuses on any syntax error
+      rather than guess; on-type formatting is silent on every outcome,
+      including a stale result the buffer has since moved past. Missing:
+      line-width-aware wrapping of long call/literal argument lists and
+      alignment across a run split by a comment, both Odin-printer-only.
 
 ## Missing — scalability / performance
 

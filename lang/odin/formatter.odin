@@ -179,7 +179,7 @@ format_document :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
         return
     }
 
-    spans := format.diff_spans(req.source, formatted)
+    spans := lang.diff_spans(req.source, formatted)
     context.allocator = out_alloc // res.edits must live in the Manager allocator result_free frees it with
     for span in spans {
         append(&res.edits, lang.Text_Edit{

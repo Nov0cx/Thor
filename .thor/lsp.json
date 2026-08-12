@@ -1,0 +1,11 @@
+{
+    "servers": [
+        { "id": "basedpyright", "enabled": false },
+        {
+            "id": "ruff",
+            "extensions": [".py", ".pyi"],
+            "command": ["ruff", "server"],
+            "root_markers": ["pyproject.toml", "ruff.toml", ".ruff.toml", ".git"]
+        }
+    ]
+}

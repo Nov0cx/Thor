@@ -77,6 +77,11 @@ thor_apply_settings :: proc(thor: ^Thor) {
     } else {
         thor.format_key = setting.Keybind {key = .L, ctrl = true, alt = true}
     }
+    if kb, ok := setting.keybind(&thor.config, "format_selection"); ok {
+        thor.format_selection_key = kb
+    } else {
+        thor.format_selection_key = setting.Keybind {key = .L, ctrl = true, alt = true, shift = true}
+    }
     if kb, ok := setting.keybind(&thor.config, "align_at_char"); ok {
         thor.align_char_key = kb
     } else {
@@ -421,6 +426,7 @@ thor_register_commands :: proc(thor: ^Thor) {
     widgets.command_palette_add(p, "Edit: Capitalize", thor_cmd_capitalize, thor, sc(thor, "capitalize"))
     widgets.command_palette_add(p, "Edit: Trim Trailing Whitespace", thor_cmd_trim_whitespace, thor, sc(thor, "trim_trailing_whitespace"))
     widgets.command_palette_add(p, "Edit: Format Document", thor_cmd_format_document, thor, sc(thor, "format_document"))
+    widgets.command_palette_add(p, "Edit: Format Selection", thor_cmd_format_selection, thor, sc(thor, "format_selection"))
     widgets.command_palette_add(p, "Edit: Align at Character", thor_cmd_align_at_char, thor, sc(thor, "align_at_char"))
 
     widgets.command_palette_add(p, "Selection: Add Cursor Above", thor_cmd_add_cursor_above, thor, sc(thor, "add_cursor_above"))

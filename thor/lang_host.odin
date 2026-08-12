@@ -60,7 +60,7 @@ thor_lang_busy_label :: proc(kinds: bit_set[lang.Request_Kind]) -> string {
         return "Resolving..."
     case .Code_Actions in kinds:
         return "Looking for fixes..."
-    case .Format in kinds:
+    case .Format in kinds, .Format_Range in kinds:
         return "Formatting..."
     case .Diagnostics in kinds:
         return "Checking..."
@@ -904,6 +904,20 @@ thor_editor_signature_help :: proc(data: rawptr, editor: ^widgets.Editor, state:
     }
 }
 
+// Editor auto-trigger: fired by the widget after a character is typed. Finds
+// the file bound to `state`, exactly like thor_editor_signature_help, and asks
+// thor_format_on_type whether it applies.
+thor_editor_on_type :: proc(data: rawptr, editor: ^widgets.Editor, state: ^textedit.State, offset: int, char: string) {
+    thor := cast(^Thor) data
+    for file in thor.open_files {
+        if &file.state != state {
+            continue
+        }
+        thor_format_on_type(thor, file, offset, char)
+        return
+    }
+}
+
 // Dispatches a Signature_Help request for `file`'s caret and binds the result to
 // `editor` at dispatch time — a plain tab/pane switch before the result lands
 // dispatches no new request, so the pane must be fixed now rather than
@@ -1332,6 +1346,10 @@ thor_on_lang_result :: proc(user: rawptr, res: ^lang.Result) {
         thor_update_semantic(thor, res)
     case .Format:
         thor_apply_format(thor, res)
+    case .Format_Range:
+        thor_apply_format_range(thor, res)
+    case .Format_On_Type:
+        thor_apply_on_type_format(thor, res)
     case .Progress:
         thor_apply_progress(thor, res)
     case .Apply_Edit:

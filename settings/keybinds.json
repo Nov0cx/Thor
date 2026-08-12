@@ -13,6 +13,7 @@
         "delete_word_right": "ctrl+delete",
         "trim_trailing_whitespace": "ctrl+shift+w",
         "format_document": "ctrl+alt+l",
+        "format_selection": "ctrl+alt+shift+l",
         "move_line_up": "alt+up",
         "delete_line": "ctrl+shift+k",
         "undo": "ctrl+z",

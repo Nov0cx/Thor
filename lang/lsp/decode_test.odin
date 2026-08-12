@@ -1359,3 +1359,134 @@ test_decode_code_actions_preferred_first :: proc(t: ^testing.T) {
     testing.expect_value(t, res.actions[0].title, "A")
     testing.expect_value(t, res.actions[1].title, "B")
 }
+
+// Format / Format_Range / Format_On_Type share decode_format. A single
+// TextEdit spanning the whole file (the common shape: gofmt, rustfmt) is
+// re-diffed against the request's own source into the minimal span the one
+// changed line actually needs, not applied verbatim.
+@(test)
+test_decode_format_whole_file_edit_reduced_to_minimal_span :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Format, SOURCE, 0)
+
+    res := decode_reply(
+        s,
+        &req,
+        `[{"range":{"start":{"line":0,"character":0},"end":{"line":2,"character":0}},` +
+        `"newText":"alpha beta\nGAMMA delta\n"}]`,
+    )
+    defer result_release(&res)
+
+    testing.expect(t, res.ok)
+    testing.expect_value(t, len(res.edits), 1)
+    if len(res.edits) != 1 {
+        return
+    }
+    testing.expect_value(t, res.edits[0].start, 11)
+    testing.expect_value(t, res.edits[0].end, len(SOURCE))
+    testing.expect_value(t, res.edits[0].old_text, "gamma delta\n")
+    testing.expect_value(t, res.edits[0].new_text, "GAMMA delta\n")
+}
+
+// Several independent TextEdits (rangeFormatting's more common shape) survive
+// as separate edits when an unchanged line separates them — the diff has
+// common ground to split the hunks on. Two changed lines with nothing
+// unchanged between them collapse into one span instead (diff_spans' own
+// minimality contract, exercised in lang/diff_test.odin).
+@(test)
+test_decode_format_multiple_edits :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    source := "one\ntwo\nthree\nfour\nfive\n"
+    req := request_for(.Format_Range, source, 0)
+
+    res := decode_reply(
+        s,
+        &req,
+        `[{"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":3}},"newText":"TWO"},` +
+        `{"range":{"start":{"line":3,"character":0},"end":{"line":3,"character":4}},"newText":"FOUR"}]`,
+    )
+    defer result_release(&res)
+
+    testing.expect(t, res.ok)
+    testing.expect_value(t, len(res.edits), 2)
+    if len(res.edits) != 2 {
+        return
+    }
+    testing.expect_value(t, res.edits[0].old_text, "two\n")
+    testing.expect_value(t, res.edits[0].new_text, "TWO\n")
+    testing.expect_value(t, res.edits[1].old_text, "four\n")
+    testing.expect_value(t, res.edits[1].new_text, "FOUR\n")
+}
+
+// An empty array and a null reply both mean "nothing to change" — ok must
+// stay true, since thor_apply_format reads !ok as "fix syntax errors first".
+@(test)
+test_decode_format_empty_and_null_are_ok :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+
+    empty_req := request_for(.Format, SOURCE, 0)
+    empty := decode_reply(s, &empty_req, `[]`)
+    defer result_release(&empty)
+    testing.expect(t, empty.ok)
+    testing.expect_value(t, len(empty.edits), 0)
+
+    null_req := request_for(.Format_On_Type, SOURCE, 0)
+    null_res := decode_reply(s, &null_req, `null`)
+    defer result_release(&null_res)
+    testing.expect(t, null_res.ok)
+    testing.expect_value(t, len(null_res.edits), 0)
+}
+
+// A reply that answers neither an array nor null leaves ok false rather than
+// guessing.
+@(test)
+test_decode_format_non_array_refused :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Format, SOURCE, 0)
+
+    res := decode_reply(s, &req, `{"unexpected":true}`)
+    defer result_release(&res)
+
+    testing.expect(t, !res.ok)
+    testing.expect_value(t, len(res.edits), 0)
+}
+
+// An edit with no "range" or no "newText" refuses the whole reply rather than
+// applying the rest and silently dropping the malformed one.
+@(test)
+test_decode_format_malformed_edit_refused :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Format, SOURCE, 0)
+
+    res := decode_reply(s, &req, `[{"newText":"x"}]`)
+    defer result_release(&res)
+
+    testing.expect(t, !res.ok)
+    testing.expect_value(t, len(res.edits), 0)
+}
+
+// LSP forbids overlapping edits in one reply; decode_format refuses the whole
+// batch rather than guessing an application order.
+@(test)
+test_decode_format_overlapping_edits_refused :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    source := "one\ntwo\nthree\n"
+    req := request_for(.Format, source, 0)
+
+    res := decode_reply(
+        s,
+        &req,
+        `[{"range":{"start":{"line":0,"character":0},"end":{"line":1,"character":3}},"newText":"X"},` +
+        `{"range":{"start":{"line":0,"character":2},"end":{"line":2,"character":0}},"newText":"Y"}]`,
+    )
+    defer result_release(&res)
+
+    testing.expect(t, !res.ok)
+    testing.expect_value(t, len(res.edits), 0)
+}

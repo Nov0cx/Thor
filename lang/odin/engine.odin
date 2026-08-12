@@ -86,11 +86,22 @@ handles :: proc(data: rawptr, ext: string) -> bool {
     return ext == ".odin" && (cast(^Engine)data).admin_enabled
 }
 
+// Range and on-type formatting have no native printer behind them — only
+// whole-document Format does (format_document, formatter.odin). Declined
+// outright rather than left to answer ok=false, so Format Selection on a
+// .odin file reads as "not available" instead of "cannot format".
+@(private)
+UNSUPPORTED :: bit_set[lang.Request_Kind]{.Format_Range, .Format_On_Type}
+
 // The settings-driven per-kind gate: every other capability (definition, goto,
 // completion, …) is unconditional, so only a kind the config turned off for
-// this engine specifically ever answers false here.
+// this engine specifically, or a kind the engine never implements, answers
+// false here.
 @(private)
 supports :: proc(data: rawptr, ext: string, kind: lang.Request_Kind) -> bool {
+    if kind in UNSUPPORTED {
+        return false
+    }
     return kind in (cast(^Engine)data).admin_features
 }
 

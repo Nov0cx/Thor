@@ -16,6 +16,7 @@ General editor preferences.
 | `autosave_delay_ms` | Delay after the last edit before autosave | `1500` |
 | `ligatures` | Draw programming ligatures (`->` as one glyph) | `true` |
 | `format_on_save` | Format the active buffer before an explicit save (`ctrl + s`, Save All, the palette) — never before an autosave | `false` |
+| `format_on_type` | Dispatch on-type formatting as a trigger character (a language server's own choice, e.g. `}` or `\n`) is typed | `false` |
 | `theme` | Active color theme, a name under `assets/themes/` with no extension (e.g. `"mjolnir"`) | built-in default |
 | `font` | Text font family, a name in `assets/fonts/fonts.json` | built-in default |
 | `icon_pack` | Primary icon pack, a family in `assets/icons/icons.json` | built-in default |
@@ -43,8 +44,8 @@ yet), or open it directly via the command palette or **Tasks** dropdown's
 The language servers Thor may start. Odin is served in the editor itself and
 needs no server; every other language gets its features — hover, go to
 definition, find references, document symbols, workspace symbols, signature
-help, completion, diagnostics, semantic colors, rename and code actions —
-from the server named here.
+help, completion, diagnostics, semantic colors, rename, code actions, and
+document/selection/on-type formatting — from the server named here.
 
 A server is started the first time you open a file it claims, never before, and
 is stopped when Thor exits. A server that is not installed simply never starts
@@ -91,9 +92,12 @@ A server claims an extension all-or-nothing, so overriding `.odin` also gives up
 what only the built-in support has: `Package_Doc` (`f3`) has no LSP equivalent,
 and the `.thor/odin-analyzer.json` collection mechanism goes with it.
 
-Known limitations: no configured server is asked to format a document — Odin
-formatting is served in-client (see `odin-formatter.json` below) and no other
-language has a formatter yet. This table is also read when a workspace opens — including switching to a different folder, which
+Known limitations: formatting follows the same `override` precedence as every
+other feature — a server given `.odin` outright formats it too, in place of
+the native printer below. Selection and on-type formatting are LSP-only; the
+native Odin printer answers whole-document formatting alone. A server's own
+config file (`.clang-format`, `rustfmt.toml`, ...) governs how it formats,
+same as it would from any other editor. This table is also read when a workspace opens — including switching to a different folder, which
 restarts the servers for the new root — so editing `settings/lsp.json` or
 `.thor/lsp.json` for the workspace you already have open still needs it
 reopened to take effect. Turning a server (or the built-in Odin support) on or
