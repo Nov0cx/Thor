@@ -196,20 +196,15 @@ markdown_view_draw :: proc(widget: ^ui.Widget, _: ^ui.Context) {
 }
 
 @(private = "file")
+MARKDOWN_SCROLLBAR_STYLE :: ui.Scrollbar_Style {width = 4, min_thumb = 32, inset = 4}
+
+@(private = "file")
 markdown_draw_scrollbar :: proc(view: ^Markdown_View) {
-    if view.content_height <= view.bounds.height {
+    _, thumb, ok := ui.scrollbar_rects(view.bounds, view.content_height, view.scroll, MARKDOWN_SCROLLBAR_STYLE)
+    if !ok {
         return
     }
-    track_h := view.bounds.height
-    frac := view.bounds.height / view.content_height
-    thumb_h := max(32, track_h * frac)
-    max_scroll := view.content_height - view.bounds.height
-    t := max_scroll > 0 ? view.scroll / max_scroll : 0
-    thumb_y := view.bounds.y + t * (track_h - thumb_h)
-    rl.DrawRectangleRec(
-        rl.Rectangle {view.bounds.x + view.bounds.width - 8, thumb_y, 4, thumb_h},
-        view.scrollbar,
-    )
+    rl.DrawRectangleRec(thumb, view.scrollbar)
 }
 
 markdown_view_destroy :: proc(widget: ^ui.Widget) {

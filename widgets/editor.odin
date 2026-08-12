@@ -996,7 +996,7 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
         // thumb it drags from where it was taken, elsewhere on the track it
         // centers the thumb on the click and drags from there.
         if track, thumb, ok := editor_scrollbar_rects(editor);
-           ok && rl.CheckCollisionPointRec(event.mouse_position, editor_scrollbar_grab_rect(track)) {
+           ok && rl.CheckCollisionPointRec(event.mouse_position, ui.scrollbar_grab_rect(track, SCROLLBAR_GRAB_WIDTH)) {
             editor.scrollbar_dragging = true
             if event.mouse_position.y >= thumb.y && event.mouse_position.y < thumb.y + thumb.height {
                 editor.scrollbar_grab = event.mouse_position.y - thumb.y
@@ -2308,35 +2308,21 @@ editor_draw_completion :: proc(editor: ^Editor) {
 // 6px target is hard to hit with a mouse.
 SCROLLBAR_WIDTH :: 6
 SCROLLBAR_GRAB_WIDTH :: 14
+SCROLLBAR_STYLE :: ui.Scrollbar_Style {width = SCROLLBAR_WIDTH, min_thumb = 28, inset = 2}
 
 // Track and thumb of the vertical scrollbar, shared by the draw and the
 // hit-test so the two cannot drift. `ok` is false when the document fits the
 // view and no bar is shown.
 editor_scrollbar_rects :: proc(editor: ^Editor) -> (track, thumb: rl.Rectangle, ok: bool) {
     line_height := cast(f32) ui.text_line_height(editor.font_size)
-    view_height := editor.bounds.height - editor.padding.top - editor.padding.bottom
-    content_height := cast(f32) len(editor.visual_rows) * line_height
-    if view_height <= 0 || content_height <= view_height {
-        return
-    }
-
-    track = rl.Rectangle {
-        editor.bounds.x + editor.bounds.width - SCROLLBAR_WIDTH - 2,
+    area := rl.Rectangle {
+        editor.bounds.x,
         editor.bounds.y + editor.padding.top,
-        SCROLLBAR_WIDTH,
-        view_height,
+        editor.bounds.width,
+        editor.bounds.height - editor.padding.top - editor.padding.bottom,
     }
-    thumb_height := min(max(view_height * view_height / content_height, 28), view_height)
-    max_scroll := content_height - view_height
-    t := max_scroll > 0 ? clamp(editor.scroll_y / max_scroll, 0, 1) : 0
-    thumb = rl.Rectangle {track.x, track.y + (track.height - thumb_height) * t, SCROLLBAR_WIDTH, thumb_height}
-    return track, thumb, true
-}
-
-// The strip a press has to land in to take hold of the scrollbar.
-@(private = "file")
-editor_scrollbar_grab_rect :: proc(track: rl.Rectangle) -> rl.Rectangle {
-    return rl.Rectangle {track.x + SCROLLBAR_WIDTH - SCROLLBAR_GRAB_WIDTH, track.y, SCROLLBAR_GRAB_WIDTH, track.height}
+    content := cast(f32) len(editor.visual_rows) * line_height
+    return ui.scrollbar_rects(area, content, editor.scroll_y, SCROLLBAR_STYLE)
 }
 
 // Scrolls so the thumb's top sits `scrollbar_grab` above the cursor.
@@ -2346,13 +2332,9 @@ editor_scrollbar_drag_to :: proc(editor: ^Editor, mouse_y: f32) {
     if !ok {
         return
     }
-    span := track.height - thumb.height
-    if span <= 0 {
-        editor.scroll_y = 0
-        return
-    }
-    t := (mouse_y - editor.scrollbar_grab - track.y) / span
-    editor.scroll_y = clamp(t, 0, 1) * editor_max_scroll(editor)
+    editor.scroll_y = ui.scrollbar_scroll_at(
+        track, thumb, mouse_y, editor.scrollbar_grab, editor_max_scroll(editor),
+    )
     editor_clamp_scroll(editor)
 }
 
@@ -2367,7 +2349,7 @@ editor_draw_scrollbar :: proc(editor: ^Editor) {
 
     active :=
         editor.scrollbar_dragging ||
-        rl.CheckCollisionPointRec(rl.GetMousePosition(), editor_scrollbar_grab_rect(track))
+        rl.CheckCollisionPointRec(rl.GetMousePosition(), ui.scrollbar_grab_rect(track, SCROLLBAR_GRAB_WIDTH))
     rl.DrawRectangleRec(thumb, active ? editor.text_color : editor.line_number_color)
 }
 

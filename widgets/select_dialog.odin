@@ -341,22 +341,27 @@ select_dialog_draw :: proc(widget: ^ui.Widget, _: ^ui.Context) {
 }
 
 @(private = "file")
+SELECT_SCROLLBAR_STYLE :: ui.Scrollbar_Style {width = 5, min_thumb = 24, inset = 2}
+
+// The list scrolls by whole rows, so the row counts convert to pixels for the
+// shared geometry.
+@(private = "file")
 select_dialog_draw_scrollbar :: proc(dialog: ^Select_Dialog, list_top: f32) {
-    total := len(dialog.options)
-    if total <= dialog.max_rows {
+    area := rl.Rectangle {
+        dialog.box.x,
+        list_top,
+        dialog.box.width,
+        cast(f32) dialog.max_rows * dialog.row_height,
+    }
+    content := cast(f32) len(dialog.options) * dialog.row_height
+    track, thumb, ok := ui.scrollbar_rects(
+        area, content, cast(f32) dialog.scroll * dialog.row_height, SELECT_SCROLLBAR_STYLE,
+    )
+    if !ok {
         return
     }
-
-    track_height := cast(f32) dialog.max_rows * dialog.row_height
-    width: f32 = 5
-    x := dialog.box.x + dialog.box.width - width - 2
-    rl.DrawRectangleRec(rl.Rectangle {x, list_top, width, track_height}, dialog.header_color)
-
-    thumb_height := max(track_height * cast(f32) dialog.max_rows / cast(f32) total, 24)
-    max_scroll := total - dialog.max_rows
-    t := max_scroll > 0 ? cast(f32) dialog.scroll / cast(f32) max_scroll : 0
-    thumb_y := list_top + (track_height - thumb_height) * t
-    rl.DrawRectangleRec(rl.Rectangle {x, thumb_y, width, thumb_height}, dialog.muted_color)
+    rl.DrawRectangleRec(track, dialog.header_color)
+    rl.DrawRectangleRec(thumb, dialog.muted_color)
 }
 
 select_dialog_destroy :: proc(widget: ^ui.Widget) {

@@ -883,25 +883,29 @@ command_palette_draw_symbol_row :: proc(palette: ^Command_Palette, index: int, x
     }
 }
 
+@(private = "file")
+PALETTE_SCROLLBAR_STYLE :: ui.Scrollbar_Style {width = 5, min_thumb = 24, inset = 2}
+
 // Draws a scrollbar on the right of the list when the matches overflow the
-// visible rows; the thumb tracks palette.scroll.
+// visible rows; the thumb tracks palette.scroll. The list scrolls by whole rows,
+// so the row counts convert to pixels for the shared geometry.
 @(private = "file")
 command_palette_draw_scrollbar :: proc(palette: ^Command_Palette, list_top: f32) {
-    total := len(palette.matches)
-    if total <= palette.max_rows {
+    area := rl.Rectangle {
+        palette.box.x,
+        list_top,
+        palette.box.width,
+        cast(f32) palette.max_rows * palette.row_height,
+    }
+    content := cast(f32) len(palette.matches) * palette.row_height
+    track, thumb, ok := ui.scrollbar_rects(
+        area, content, cast(f32) palette.scroll * palette.row_height, PALETTE_SCROLLBAR_STYLE,
+    )
+    if !ok {
         return
     }
-
-    track_height := cast(f32) palette.max_rows * palette.row_height
-    width: f32 = 5
-    x := palette.box.x + palette.box.width - width - 2
-    rl.DrawRectangleRec(rl.Rectangle {x, list_top, width, track_height}, palette.input_color)
-
-    thumb_height := max(track_height * cast(f32) palette.max_rows / cast(f32) total, 24)
-    max_scroll := total - palette.max_rows
-    t := max_scroll > 0 ? cast(f32) palette.scroll / cast(f32) max_scroll : 0
-    thumb_y := list_top + (track_height - thumb_height) * t
-    rl.DrawRectangleRec(rl.Rectangle {x, thumb_y, width, thumb_height}, palette.muted_color)
+    rl.DrawRectangleRec(track, palette.input_color)
+    rl.DrawRectangleRec(thumb, palette.muted_color)
 }
 
 // Draws a file row as "name  dir/" with the directory dimmed.

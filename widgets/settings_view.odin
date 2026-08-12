@@ -1290,24 +1290,17 @@ settings_view_draw_stepper_button :: proc(
 }
 
 @(private = "file")
+SETTINGS_SCROLLBAR_STYLE :: ui.Scrollbar_Style {width = 6, min_thumb = 24, inset = 4}
+
+@(private = "file")
 settings_view_draw_scrollbar :: proc(view: ^Settings_View, list: rl.Rectangle) {
-    max_scroll := settings_view_max_scroll(view)
-    if max_scroll <= 0 {
+    content := cast(f32) len(view.visible_rows) * view.row_height
+    track, thumb, ok := ui.scrollbar_rects(list, content, view.scroll, SETTINGS_SCROLLBAR_STYLE)
+    if !ok {
         return
     }
-    width: f32 = 6
-    x := list.x + list.width - width - 4
-    rl.DrawRectangleRounded(
-        rl.Rectangle {x, list.y, width, list.height}, 0.5, 4, settings_view_tint(view.muted_color, 15),
-    )
-
-    content := cast(f32) len(view.visible_rows) * view.row_height
-    thumb_h := max(list.height * list.height / content, 24)
-    t := view.scroll / max_scroll
-    thumb_y := list.y + (list.height - thumb_h) * t
-    rl.DrawRectangleRounded(
-        rl.Rectangle {x, thumb_y, width, thumb_h}, 0.5, 4, settings_view_tint(view.muted_color, 120),
-    )
+    rl.DrawRectangleRounded(track, 0.5, 4, settings_view_tint(view.muted_color, 15))
+    rl.DrawRectangleRounded(thumb, 0.5, 4, settings_view_tint(view.muted_color, 120))
 }
 
 settings_view_destroy :: proc(widget: ^ui.Widget) {
