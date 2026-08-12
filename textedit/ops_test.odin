@@ -245,6 +245,31 @@ test_delete_word_and_lines :: proc(t: ^testing.T) {
     testing.expect_value(t, primary_cursor(&state).caret, 4)
 }
 
+// Two carets in one word grow onto the same boundary. Before they were merged,
+// the second range started behind the first delete and the running offset made a
+// negative edit position: wrong bytes removed, a corrupt undo entry, then a panic.
+@(test)
+test_delete_word_merges_carets_in_one_word :: proc(t: ^testing.T) {
+    state := ops_state("hello world", 3)
+    defer destroy(&state)
+
+    set_cursors(&state, []Cursor {{caret = 3, anchor = 3}, {caret = 5, anchor = 5}})
+    testing.expect_value(t, len(state.cursors), 2)
+
+    delete_word_backward(&state)
+    testing.expect_value(t, text(&state), " world")
+    testing.expect_value(t, len(state.cursors), 1)
+    testing.expect_value(t, primary_cursor(&state).caret, 0)
+
+    undo(&state)
+    testing.expect_value(t, text(&state), "hello world")
+
+    set_cursors(&state, []Cursor {{caret = 6, anchor = 6}, {caret = 8, anchor = 8}})
+    delete_word_forward(&state)
+    testing.expect_value(t, text(&state), "hello ")
+    testing.expect_value(t, len(state.cursors), 1)
+}
+
 @(test)
 test_replace_ranges :: proc(t: ^testing.T) {
     // A rename's occurrences: three spans of "foo" replaced in one undo entry,

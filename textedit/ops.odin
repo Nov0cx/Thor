@@ -146,6 +146,9 @@ delete_word_backward :: proc(state: ^State) {
             cursor.anchor = word_boundary_left(txt, cursor.caret)
         }
     }
+    // Two carets in one word grow onto the same boundary, and delete_backward
+    // shifts by a running offset that holds only for disjoint ascending ranges.
+    normalize_cursors(state)
     delete_backward(state)
 }
 
@@ -156,6 +159,7 @@ delete_word_forward :: proc(state: ^State) {
             cursor.anchor = word_boundary_right(txt, cursor.caret)
         }
     }
+    normalize_cursors(state)
     delete_forward(state)
 }
 
