@@ -15,11 +15,18 @@ Two ways to get Thor:
 ## Opening a project
 
 ```bash
-thor            # reopen the last session's folder, or the welcome page if there is none
-thor .          # open the folder Thor was called from
-thor src/       # open that folder
-thor main.odin  # open the file, with its folder as the workspace
+thor                    # reopen the last session's folder, or the welcome page if there is none
+thor .                  # open the folder Thor was called from
+thor src/               # open that folder
+thor main.odin          # open the file, with its folder as the workspace
+thor a.odin b.odin      # open both as tabs, with b.odin active
+thor src/ main.odin     # open the folder as the workspace and the file as a tab
 ```
+
+Several files open as several tabs, in the order given, and the last one is
+active. The first folder becomes the workspace; a second folder argument is
+ignored, because one window holds one workspace. Use `File > Open Folder...`
+with `open_folder_in` set to `new` to get a second folder in its own window.
 
 A bare `thor` with no past session opens a welcome page instead: `Open
 Folder`, `Open File` and a list of recently opened workspaces. `File > Close

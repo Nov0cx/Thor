@@ -1,8 +1,8 @@
 package thor
 
-// The program arguments. Thor takes one path — the folder or file to open — so
-// the only other arguments are the version and help flags, both answered before
-// the window opens.
+// The program arguments. Thor takes any number of paths — the folder to open as
+// the workspace and the files to open in tabs — plus the version and help flags,
+// both answered before the window opens.
 
 import "core:fmt"
 
@@ -11,37 +11,60 @@ import "core:fmt"
 VERSION :: "2026.08.0"
 
 USAGE ::
-`Usage: thor [path]
+`Usage: thor [path...]
        thor [option]
 
   path             Folder to open as the workspace, or file to open in a tab.
-                   Without one Thor opens the last workspace, then the directory
-                   it was started in.
+                   Several files open as several tabs, the last one active. The
+                   first folder given becomes the workspace and any later one is
+                   ignored, since a window holds one workspace. Without a path
+                   Thor opens the last workspace, then the directory it was
+                   started in.
 
 Options:
   --version, -v    Print the version and exit.
   --help, -h       Print this text and exit.`
 
-// What the arguments ask for. Only the first argument is read, and anything
-// that is not a known flag is a path.
+// What the arguments ask for. Anything that is not a known flag is a path.
 Cli_Action :: enum {
     Open,
     Version,
     Help,
 }
 
-// Classifies the program arguments (os.args, the executable path included).
+// Classifies the program arguments (os.args, the executable path included). A
+// flag wins wherever it stands, so `thor a.txt --help` prints the help instead
+// of opening a tab nobody would see.
 thor_cli_action :: proc(args: []string) -> Cli_Action {
     if len(args) < 2 {
         return .Open
     }
-    switch args[1] {
-    case "--version", "-version", "-v":
-        return .Version
-    case "--help", "-help", "-h", "-?":
-        return .Help
+    for arg in args[1:] {
+        switch arg {
+        case "--version", "-version", "-v":
+            return .Version
+        case "--help", "-help", "-h", "-?":
+            return .Help
+        }
     }
     return .Open
+}
+
+// The path arguments in the order given, with the flags dropped. The results
+// are slices of `args`, so they live as long as it does.
+thor_cli_paths :: proc(args: []string, allocator := context.temp_allocator) -> []string {
+    paths := make([dynamic]string, 0, len(args), allocator)
+    if len(args) < 2 {
+        return paths[:]
+    }
+    for arg in args[1:] {
+        switch arg {
+        case "--version", "-version", "-v", "--help", "-help", "-h", "-?":
+            continue
+        }
+        append(&paths, arg)
+    }
+    return paths[:]
 }
 
 // Answers a version or help flag on stdout. Returns true when the caller must

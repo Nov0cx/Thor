@@ -41,10 +41,11 @@ Full dependency and per-platform setup: [`docs/building.md`](docs/building.md).
 ## Opening a project
 
 ```bash
-thor            # reopen the last session's folder
-thor .          # open the folder Thor was called from
-thor src/       # open that folder
-thor main.odin  # open the file, with its folder as the workspace
+thor                # reopen the last session's folder
+thor .              # open the folder Thor was called from
+thor src/           # open that folder
+thor main.odin      # open the file, with its folder as the workspace
+thor a.odin b.odin  # open both as tabs, with b.odin active
 ```
 
 `File > Open Folder...` / `File > Open File...` do the same from inside the

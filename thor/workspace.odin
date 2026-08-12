@@ -37,6 +37,44 @@ thor_startup_target :: proc(arg: string) -> (workspace: string, file: string) {
     return cwd_err == nil ? cwd : strings.clone("."), ""
 }
 
+// Splits the launch path arguments into the workspace folder and the files to
+// open, all owned. The first argument decides the workspace through
+// thor_startup_target; every later file is added as a tab and every later folder
+// is refused, since one window holds one workspace (see thor/windows.odin).
+//
+// Only classified here, never opened: thor_open_path would consult
+// open_folder_in and could raise the picker or spawn a window during init.
+thor_startup_targets :: proc(paths: []string) -> (workspace: string, files: [dynamic]string) {
+    files = make([dynamic]string)
+    if len(paths) == 0 {
+        return "", files
+    }
+
+    first: string
+    workspace, first = thor_startup_target(paths[0])
+    if first != "" {
+        append(&files, first)
+    }
+
+    for arg in paths[1:] {
+        target := arg
+        if abs, err := filepath.abs(arg, context.temp_allocator); err == nil {
+            target = abs
+        }
+        switch {
+        case os.is_file(target):
+            append(&files, strings.clone(target))
+        case os.is_dir(target):
+            log.warnf("Only the first folder opens as the workspace; ignoring %q", arg)
+        case:
+            // No fallback to the launch directory here: an extra path that does
+            // not exist must not retarget the workspace the first one chose.
+            log.warnf("Path %q does not exist; ignoring it", arg)
+        }
+    }
+    return workspace, files
+}
+
 // Opens a path from outside the editor: a directory goes through the
 // this-window/new-window choice, a file opens as a tab.
 thor_open_path :: proc(thor: ^Thor, path: string) {

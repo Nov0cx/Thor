@@ -421,10 +421,11 @@ init :: proc() -> ^Thor {
     // Everything below loads relative to the CWD, which we then repoint at the
     // exe directory.
     workspace_dir: string
-    startup_file: string  // owned; opened once the UI and the session are up
+    startup_files: [dynamic]string  // owned; opened once the UI and the session are up
     if len(os.args) > 1 {
-        workspace_dir, startup_file = thor_startup_target(os.args[1])
+        workspace_dir, startup_files = thor_startup_targets(thor_cli_paths(os.args, context.temp_allocator))
     }
+    defer delete(startup_files)
 
     if exe_path, exe_err := os.get_executable_path(context.temp_allocator); exe_err == nil {
         if set_err := os.set_working_directory(os.dir(exe_path)); set_err != nil {
@@ -533,10 +534,12 @@ init :: proc() -> ^Thor {
     thor_load_plugins(thor)
     thor_set_active_file(thor, -1)
     thor_restore_session(thor)
-    // A file passed on the command line opens last, so it is the active tab.
-    if startup_file != "" {
-        thor_open_file(thor, startup_file)
-        delete(startup_file)
+    // Files passed on the command line open last and in order, so the final one
+    // is the active tab. thor_open_file de-dupes, so a path the session already
+    // restored is activated rather than opened twice.
+    for path in startup_files {
+        thor_open_file(thor, path)
+        delete(path)
     }
     thor_apply_layout_state(thor)
     thor_apply_split(thor)
