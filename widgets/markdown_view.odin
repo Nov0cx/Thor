@@ -39,7 +39,14 @@ Markdown_View :: struct {
     rule_color:     rl.Color,
     accent_color:   rl.Color,
     scrollbar:      rl.Color,
+    on_link:        Markdown_Link_Proc,
+    link_data:      rawptr,
 }
+
+// Opens a link clicked in the rendered page. `url` is the target as the document
+// wrote it -- a URL, or a path relative to the document -- so the owner decides
+// what it means.
+Markdown_Link_Proc :: #type proc(data: rawptr, url: string)
 
 @(private)
 Md_Item_Kind :: enum {
@@ -57,6 +64,7 @@ Md_Item :: struct {
     text:  string,
     size:  i32,
     color: rl.Color,
+    url:   string, // link target, borrowed from `source`; "" when not a link
 }
 
 // A wrap unit produced by inline parsing. `code` tokens keep their spaces and
@@ -67,6 +75,7 @@ Md_Token :: struct {
     color: rl.Color,
     code:  bool,
     link:  bool,
+    url:   string, // link target, borrowed from `source`; "" when not a link
 }
 
 PAD_X :: f32(28)
@@ -135,6 +144,11 @@ markdown_view_set_source :: proc(view: ^Markdown_View, text: string, revision: u
     }
 }
 
+markdown_view_set_on_link :: proc(view: ^Markdown_View, on_link: Markdown_Link_Proc, data: rawptr) {
+    view.on_link = on_link
+    view.link_data = data
+}
+
 markdown_view_layout :: proc(widget: ^ui.Widget, bounds: rl.Rectangle) {
     view := cast(^Markdown_View) widget
     view.bounds = bounds
@@ -147,6 +161,30 @@ markdown_content_width :: proc(view: ^Markdown_View) -> f32 {
     return min(view.bounds.width - 2 * PAD_X, MAX_WIDTH)
 }
 
+// Index of the link item under `point` (screen space), or -1. Inverts the draw's
+// margin and scroll transform, so it must stay in step with markdown_view_draw.
+@(private)
+markdown_link_index_at :: proc(view: ^Markdown_View, point: rl.Vector2) -> int {
+    if !rl.CheckCollisionPointRec(point, view.bounds) {
+        return -1
+    }
+    markdown_ensure_layout(view)
+    markdown_clamp_scroll(view)
+
+    avail := markdown_content_width(view)
+    left := view.bounds.x + max(PAD_X, (view.bounds.width - avail) * 0.5)
+    top := view.bounds.y + PAD_TOP - view.scroll
+    for item, index in view.items {
+        if item.url == "" {
+            continue
+        }
+        if rl.CheckCollisionPointRec(point, rl.Rectangle {left + item.x, top + item.y, item.w, item.h}) {
+            return index
+        }
+    }
+    return -1
+}
+
 markdown_view_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event) -> bool {
     view := cast(^Markdown_View) widget
     #partial switch event.kind {
@@ -154,6 +192,14 @@ markdown_view_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^u
         view.scroll -= event.wheel_delta * MD_SCROLL_STEP
         markdown_clamp_scroll(view)
         return true
+    case .Click:
+        // Click, not Mouse_Down: a drag that scrolled the page is not a link.
+        if event.mouse_button == .LEFT && view.on_link != nil {
+            if index := markdown_link_index_at(view, event.mouse_position); index >= 0 {
+                view.on_link(view.link_data, view.items[index].url)
+                return true
+            }
+        }
     case:
     }
     return false
@@ -176,18 +222,27 @@ markdown_view_draw :: proc(widget: ^ui.Widget, _: ^ui.Context) {
     left := view.bounds.x + max(PAD_X, (view.bounds.width - avail) * 0.5)
     top := view.bounds.y + PAD_TOP - view.scroll
 
+    // A hovered link lights up instead of changing the cursor: `ui` owns no
+    // cursor state, so a widget setting it would leave the hand shape behind.
+    // markdown_wrap appends a link's underline right after its text, so the two
+    // are hovered together.
+    hovered := markdown_link_index_at(view, rl.GetMousePosition())
+
     ui.begin_clip(view.bounds)
-    for item in view.items {
+    for item, index in view.items {
         ay := top + item.y
         if ay + item.h < view.bounds.y || ay > view.bounds.y + view.bounds.height {
             continue
         }
         ax := left + item.x
+        lit := hovered >= 0 && (index == hovered || index == hovered + 1)
+        color := lit ? view.accent_color : item.color
         switch item.kind {
         case .Rect:
-            rl.DrawRectangleRec(rl.Rectangle {ax, ay, item.w, item.h}, item.color)
+            height := lit && item.h == 1 ? f32(2) : item.h // thicken the underline
+            rl.DrawRectangleRec(rl.Rectangle {ax, ay, item.w, height}, color)
         case .Text:
-            ui.draw_text(item.text, cast(i32) ax, cast(i32) ay, item.size, item.color)
+            ui.draw_text(item.text, cast(i32) ax, cast(i32) ay, item.size, color)
         }
     }
     ui.end_clip()

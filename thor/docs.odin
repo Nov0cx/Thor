@@ -99,6 +99,51 @@ thor_pick_docs_page :: proc(data: rawptr, name: string) {
     thor_open_docs_page(cast(^Thor) data, name)
 }
 
+// URL schemes a Markdown link may carry that the system browser handles.
+@(private = "file")
+LINK_SCHEMES :: []string {"http://", "https://", "mailto:", "ftp://"}
+
+// A link clicked in the Markdown preview. A URL goes to the browser; anything
+// else is a path relative to the document and opens as a tab, which is how the
+// manual links its own pages -- a browser would show their source or nothing.
+// An in-page anchor names no target to open.
+thor_markdown_open_link :: proc(data: rawptr, url: string) {
+    thor := cast(^Thor) data
+    if url == "" || url[0] == '#' {
+        return
+    }
+
+    for scheme in LINK_SCHEMES {
+        if strings.has_prefix(url, scheme) {
+            if !thor_open_in_browser(url) {
+                thor_flash_status(thor, "Could not open the browser", true)
+            }
+            return
+        }
+    }
+
+    file := thor_active_open_file(thor)
+    if file == nil {
+        return
+    }
+    // A fragment on a page link is not part of the path.
+    rel := url
+    if hash := strings.index_byte(rel, '#'); hash >= 0 {
+        rel = rel[:hash]
+    }
+    if rel == "" {
+        return
+    }
+    target, join_err := filepath.join(
+        {filepath.dir(file.path), rel}, context.temp_allocator,
+    )
+    if join_err != nil || !os.exists(target) {
+        thor_flash_status(thor, "Link target not found", true)
+        return
+    }
+    thor_open_file(thor, target)
+}
+
 // Opens the documentation in the system browser: the generated HTML when
 // docs/generate_html.py has been run, the project page otherwise. The local
 // path is made absolute because the browser does not inherit our working

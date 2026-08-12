@@ -265,7 +265,12 @@ markdown_wrap :: proc(view: ^Markdown_View, tokens: []Md_Token, indent, max_w: f
         if tok.code {
             append(&view.items, Md_Item {kind = .Rect, x = x - 2, y = y^, w = tw + 4, h = line_h, color = view.code_bg})
         }
-        append(&view.items, Md_Item {kind = .Text, x = x, y = y^, text = tok.text, size = size, color = tok.color})
+        // A text item carries its whole box: the draw culls with it, and a link
+        // is hit-tested against it.
+        append(&view.items, Md_Item {
+            kind = .Text, x = x, y = y^, w = tw, h = line_h,
+            text = tok.text, size = size, color = tok.color, url = tok.url,
+        })
         if tok.link {
             append(&view.items, Md_Item {kind = .Rect, x = x, y = y^ + line_h - 3, w = tw, h = 1, color = tok.color})
         }
@@ -302,11 +307,11 @@ markdown_inline :: proc(view: ^Markdown_View, s: string, base_color: rl.Color, s
             }
         }
 
-        // Link [text](url) -- the url is parsed to bound the span but not shown.
+        // Link [text](url). The text draws, the url rides along for the click.
         if c == '[' {
-            if close, url_end, ok := markdown_scan_link(s, i); ok {
+            if close, url, url_end, ok := markdown_scan_link(s, i); ok {
                 markdown_push_words(&tokens, s[run_start:i], base_color)
-                append(&tokens, Md_Token {text = s[i + 1:close], color = view.link_color, link = true})
+                append(&tokens, Md_Token {text = s[i + 1:close], color = view.link_color, link = true, url = url})
                 i = url_end
                 run_start = i
                 continue
@@ -348,20 +353,20 @@ markdown_push_words :: proc(tokens: ^[dynamic]Md_Token, text: string, color: rl.
 }
 
 // From a '[' at `open`, finds the matching `](url)` and returns the text-close
-// index and the position just past the closing paren.
+// index, the url (a slice of `s`) and the position just past the closing paren.
 @(private = "file")
-markdown_scan_link :: proc(s: string, open: int) -> (text_close: int, past: int, ok: bool) {
+markdown_scan_link :: proc(s: string, open: int) -> (text_close: int, url: string, past: int, ok: bool) {
     close := strings.index(s[open:], "]")
     if close < 0 {
-        return 0, 0, false
+        return 0, "", 0, false
     }
     close += open
     if close + 1 >= len(s) || s[close + 1] != '(' {
-        return 0, 0, false
+        return 0, "", 0, false
     }
     paren := strings.index(s[close + 2:], ")")
     if paren < 0 {
-        return 0, 0, false
+        return 0, "", 0, false
     }
-    return close, close + 2 + paren + 1, true
+    return close, s[close + 2:close + 2 + paren], close + 2 + paren + 1, true
 }

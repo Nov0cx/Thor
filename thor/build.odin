@@ -440,11 +440,13 @@ thor_build_content :: proc(thor: ^Thor) {
 
     thor.markdown_view = widgets.markdown_view_create("markdown-view")
     widgets.markdown_view_set_colors(thor.markdown_view, thor.theme)
+    widgets.markdown_view_set_on_link(thor.markdown_view, thor_markdown_open_link, thor)
     thor.markdown_view.visible = false
 
     // Pane 1's counterpart, shown when the preview takes the second pane instead.
     thor.markdown_view2 = widgets.markdown_view_create("markdown-view2")
     widgets.markdown_view_set_colors(thor.markdown_view2, thor.theme)
+    widgets.markdown_view_set_on_link(thor.markdown_view2, thor_markdown_open_link, thor)
     thor.markdown_view2.visible = false
 
     // One tab per terminal; each terminal adds its own console widget to the
