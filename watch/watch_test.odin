@@ -161,6 +161,36 @@ test_watch_init_bad_dir :: proc(t: ^testing.T) {
     watcher_destroy(&w)
 }
 
+// A burst larger than WATCH_DRAIN_MAX is spread over more than one poll: one
+// call dispatches only the cap and leaves the rest queued, and a destroy with
+// a queued tail must still free it. Changes are queued directly with
+// watch_emit rather than by touching files, so the count is exact regardless
+// of what the OS reports for an idle directory.
+@(test)
+test_watcher_poll_caps_one_drain :: proc(t: ^testing.T) {
+    root := temp_path("thor_watch_drain_cap")
+    if err := os.make_directory(root); err != nil {
+        testing.fail_now(t, fmt.tprintf("could not create temp dir %q: %v", root, err))
+    }
+    defer os.remove(root)
+
+    w: Watcher
+    testing.expect(t, watcher_init(&w, root), "watcher_init should succeed on a real directory")
+    defer watcher_destroy(&w)
+
+    sink: Sink
+    defer sink_destroy(&sink)
+    watcher_subscribe(&w, sink_collect, &sink)
+
+    for i in 0 ..< WATCH_DRAIN_MAX + 50 {
+        watch_emit(&w, .Modified, fmt.tprintf("file_%d.tmp", i))
+    }
+
+    watcher_poll(&w)
+    testing.expect_value(t, len(sink.changes), WATCH_DRAIN_MAX)
+    testing.expect_value(t, len(w.pending), 50)
+}
+
 // Closing the workspace destroys the watcher and quitting destroys it again, so
 // the second destroy must free nothing twice.
 @(test)

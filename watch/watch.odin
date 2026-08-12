@@ -84,9 +84,15 @@ watcher_subscribe :: proc(w: ^Watcher, callback: Callback, data: rawptr) {
     append(&w.subscribers, Subscriber {callback = callback, data = data})
 }
 
-// Drains the changes gathered since the last call and delivers each to every
-// subscriber. Call once per frame on the main thread. Change paths are freed
-// after dispatch, so a subscriber must copy anything it keeps.
+// Cap on how many changes one watcher_poll dispatches. A burst larger than
+// this (a build writing thousands of files) is spread over several frames
+// instead of stalling one; the rest stays in `pending` for the next poll.
+WATCH_DRAIN_MAX :: 256
+
+// Drains up to WATCH_DRAIN_MAX changes gathered since the last call and
+// delivers each to every subscriber. Call once per frame on the main thread.
+// Change paths are freed after dispatch, so a subscriber must copy anything
+// it keeps.
 watcher_poll :: proc(w: ^Watcher) {
     if !w.running {
         return
@@ -94,10 +100,9 @@ watcher_poll :: proc(w: ^Watcher) {
 
     changes := make([dynamic]Change, context.temp_allocator)
     sync.lock(&w.mutex)
-    for change in w.pending {
-        append(&changes, change)
-    }
-    clear(&w.pending)
+    count := min(len(w.pending), WATCH_DRAIN_MAX)
+    append(&changes, ..w.pending[:count])
+    remove_range(&w.pending, 0, count)
     sync.unlock(&w.mutex)
 
     for change in changes {
