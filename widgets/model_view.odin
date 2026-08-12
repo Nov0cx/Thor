@@ -32,8 +32,14 @@ Model_View :: struct {
     // the user's own orbit is not fought.
     spinning:         bool,
     // Off-screen target the 3D pass renders into, so the scene keeps the pane's
-    // aspect ratio and never leaks past its bounds. Owned, sized to the view.
+    // aspect ratio and never leaks past its bounds. Owned, grown with slack
+    // (see model_view_ensure_target) so it does not need reallocating on
+    // every pixel of a splitter drag; draw crops it to what the pane needs.
     target:           rl.RenderTexture2D,
+    // rl.GetTime() when the target first read as bigger than the pane needs,
+    // or 0 while it fits. Debounces a shrink so a drag that overshoots and
+    // comes back does not pay for two reallocations.
+    shrink_since:     f64,
     // Headlight shader, loaded on the first draw (it needs the GL context).
     // Without it an untextured mesh draws as a flat silhouette. Owned.
     shader:           rl.Shader,
@@ -75,6 +81,11 @@ MODEL_BUTTON_ICON :: i32(18)
 // down, which is the cheapest antialiasing available without an MSAA target.
 MODEL_SUPERSAMPLE :: 2
 MODEL_TARGET_MAX :: 4096
+// Slack granularity for the render target: an allocation rounds up to a whole
+// step, so small pane growth reuses it instead of reallocating every frame.
+MODEL_TARGET_STEP :: 128
+// How long an oversized target is kept before it is shrunk back down.
+MODEL_TARGET_DWELL :: 0.5
 
 model_view_vtable := ui.Widget_VTable {
     layout = model_view_layout,
@@ -134,6 +145,7 @@ model_view_set_model :: proc(view: ^Model_View, model: rl.Model, bounds: rl.Boun
             rl.UnloadRenderTexture(view.target)
             view.target = {}
         }
+        view.shrink_since = 0
         model_view_reset_camera(view)
         return
     }
@@ -253,14 +265,28 @@ model_view_basis :: proc(view: ^Model_View) -> (forward, right, up: rl.Vector3) 
     return
 }
 
+// The vertical FOV that keeps a need_h-tall centred crop of a target_h-tall
+// render spanning exactly MODEL_FOV: unchanged when the target matches what
+// is needed this frame, widened by the size ratio otherwise, so an oversized
+// target (kept while shrink_since dwells) frames the model identically to an
+// exactly-sized one instead of visibly popping wider every slack step.
+@(private)
+model_view_fovy :: proc(target_h, need_h: i32) -> f32 {
+    if target_h == need_h {
+        return MODEL_FOV
+    }
+    ratio := f32(target_h) / f32(need_h)
+    return 2 * math.to_degrees(math.atan(math.tan(math.to_radians(MODEL_FOV) * 0.5) * ratio))
+}
+
 @(private = "file")
-model_view_camera :: proc(view: ^Model_View) -> rl.Camera3D {
+model_view_camera :: proc(view: ^Model_View, target_h, need_h: i32) -> rl.Camera3D {
     target := view.pivot + view.pan
     return rl.Camera3D {
         position = target + model_view_offset(view) * view.distance,
         target = target,
         up = {0, 1, 0},
-        fovy = MODEL_FOV,
+        fovy = model_view_fovy(target_h, need_h),
         projection = .PERSPECTIVE,
     }
 }
@@ -269,7 +295,11 @@ model_view_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
     view := cast(^Model_View) widget
     rl.DrawRectangleRec(view.bounds, view.background_color)
 
-    if !view.has_model || !model_view_ensure_target(view) {
+    if !view.has_model {
+        return
+    }
+    need_w, need_h, ok := model_view_ensure_target(view)
+    if !ok {
         return
     }
     model_view_load_shader(view)
@@ -280,7 +310,9 @@ model_view_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
         view.yaw = math.mod(view.yaw - rl.GetFrameTime() * MODEL_SPIN_SPEED, math.TAU)
     }
 
-    camera := model_view_camera(view)
+    tex_w := view.target.texture.width
+    tex_h := view.target.texture.height
+    camera := model_view_camera(view, tex_h, need_h)
     rl.BeginTextureMode(view.target)
     rl.ClearBackground(view.background_color)
     rl.BeginMode3D(camera)
@@ -289,11 +321,14 @@ model_view_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
     rl.EndMode3D()
     rl.EndTextureMode()
 
-    // A render target is stored bottom-up; the negative source height flips it.
+    // A render target is stored bottom-up, and may be larger than the pane
+    // needs (see model_view_ensure_target): the source is a centred crop of
+    // exactly need_w x need_h, flipped by the negative height.
     source := rl.Rectangle {
-        0, 0,
-        cast(f32) view.target.texture.width,
-        -cast(f32) view.target.texture.height,
+        cast(f32) (tex_w - need_w) * 0.5,
+        cast(f32) (tex_h - need_h) * 0.5,
+        cast(f32) need_w,
+        -cast(f32) need_h,
     }
     ui.begin_clip(view.bounds)
     rl.DrawTexturePro(view.target.texture, source, view.bounds, rl.Vector2 {0, 0}, 0, rl.WHITE)
@@ -339,37 +374,72 @@ model_view_draw_spin_button :: proc(view: ^Model_View, ctx: ^ui.Context) {
     ui.draw_icon("3d-rotate", icon_x, icon_y, MODEL_BUTTON_ICON, view.text_color)
 }
 
-// Keeps the render target matching the pane, at the supersampled resolution.
-// Reallocated on every size change, so a splitter drag rebuilds it per frame.
+// Rounds need up to a whole MODEL_TARGET_STEP, clamped to MODEL_TARGET_MAX, so
+// a target allocated with slack absorbs small further growth without another
+// reallocation. Below one step, need passes through unchanged - the arm that
+// keeps the result under 2x need in every case, which is what bounds how far
+// model_view_fovy ever has to widen the camera to compensate.
+@(private)
+model_view_target_size :: proc(need: i32) -> i32 {
+    if need <= MODEL_TARGET_STEP {
+        return need
+    }
+    steps := (need + MODEL_TARGET_STEP - 1) / MODEL_TARGET_STEP
+    return min(steps * MODEL_TARGET_STEP, i32(MODEL_TARGET_MAX))
+}
+
+// Keeps the render target at least as big as the pane needs, at the
+// supersampled resolution, growing with slack (model_view_target_size) so a
+// splitter drag or window resize does not reallocate the GPU texture every
+// frame. Grows immediately when the target reads too small on either axis
+// (never upscales past what the current size calls for); once it reads
+// bigger than that, the old allocation is kept for MODEL_TARGET_DWELL before
+// shrinking. Returns the exact size the pane needs this frame - draw crops
+// the (possibly larger) target to that, and model_view_camera's fovy
+// compensates so the crop still spans MODEL_FOV.
 @(private = "file")
-model_view_ensure_target :: proc(view: ^Model_View) -> bool {
+model_view_ensure_target :: proc(view: ^Model_View) -> (need_w, need_h: i32, ok: bool) {
     if view.bounds.width < 1 || view.bounds.height < 1 {
-        return false
+        return 0, 0, false
     }
     // Both axes take the same scale, or the target's aspect ratio stops matching
     // the pane's and the projection stretches the model.
     scale := f32(MODEL_SUPERSAMPLE)
     scale = min(scale, MODEL_TARGET_MAX / view.bounds.width)
     scale = min(scale, MODEL_TARGET_MAX / view.bounds.height)
-    width := max(cast(i32) (view.bounds.width * scale), 1)
-    height := max(cast(i32) (view.bounds.height * scale), 1)
-    if view.target.id != 0 &&
-       view.target.texture.width == width &&
-       view.target.texture.height == height {
-        return true
+    need_w = max(cast(i32) (view.bounds.width * scale), 1)
+    need_h = max(cast(i32) (view.bounds.height * scale), 1)
+    want_w := model_view_target_size(need_w)
+    want_h := model_view_target_size(need_h)
+
+    fits := view.target.id != 0 && view.target.texture.width >= need_w && view.target.texture.height >= need_h
+    oversized := fits && (view.target.texture.width > want_w || view.target.texture.height > want_h)
+
+    if fits && !oversized {
+        view.shrink_since = 0
+        return need_w, need_h, true
+    }
+    if oversized {
+        if view.shrink_since == 0 {
+            view.shrink_since = rl.GetTime()
+        }
+        if rl.GetTime() - view.shrink_since < MODEL_TARGET_DWELL {
+            return need_w, need_h, true
+        }
     }
 
     if view.target.id != 0 {
         rl.UnloadRenderTexture(view.target)
         view.target = {}
     }
-    target := rl.LoadRenderTexture(width, height)
+    target := rl.LoadRenderTexture(want_w, want_h)
+    view.shrink_since = 0
     if !rl.IsRenderTextureValid(target) {
-        return false
+        return 0, 0, false
     }
     rl.SetTextureFilter(target.texture, .BILINEAR)
     view.target = target
-    return true
+    return need_w, need_h, true
 }
 
 // Ground grid at the model's lowest point, centered under it. The step is a
