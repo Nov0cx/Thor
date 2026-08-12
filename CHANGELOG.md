@@ -38,3 +38,8 @@ First release. Thor runs on Windows, Linux and macOS.
 - The "LSP Setup" top-bar menu is now one menu per server — "clangd Setup", "rust-analyzer Setup", "gopls Setup", "basedpyright Setup", "typescript-language-server Setup", "lua-language-server Setup" and "zls Setup" — each still checking its own server against `PATH` and adding a workspace task when it is missing.
 - "clangd Setup" gained "Configure compile_commands.json…": detects CMake, Bazel (bzlmod) or Make and adds a workspace task to generate the compilation database clangd needs, writing a `.clangd` file for a CMake project so clangd finds its build directory.
 - Settings' Language category gained a "Language Servers" group: every configured server, plus the built-in Odin support, gets its own on/off switch, and each enabled one gets a foldable "Features" group of per-kind toggles. Backed by the new `language_backends` setting, and takes effect immediately, unlike editing `lsp.json`.
+- Dragging a splitter next to an open 3D model view no longer stutters.
+- Opening a large image, or reloading an open image tab after an external edit, no longer freezes the editor while it decodes.
+- Fixed an image or 3D model tab's loading spinner spinning forever instead of clearing once it finished loading.
+- The editor placeholder under a loading image tab now reads "Loading image..." instead of jumping straight to "Image".
+- Quick open (`ctrl + tab`) and the command palette's file list are now instant on a large workspace, warmed in the background instead of walked on every open.
