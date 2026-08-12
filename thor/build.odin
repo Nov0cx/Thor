@@ -235,6 +235,7 @@ thor_build_content :: proc(thor: ^Thor) {
         thor.theme.tree,                  // hover: subtle row tint
         thor.theme.selection_background,  // selected: stronger overlay
         thor.theme.second_background,
+        thor.theme.highlight,
     )
     widgets.tree_set_on_open(thor.tree, thor_tree_open, thor)
     widgets.tree_set_git_colors(

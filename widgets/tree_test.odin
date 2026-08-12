@@ -4,11 +4,17 @@ import "core:fmt"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
+import "core:sync"
 import "core:testing"
 import "core:time"
 import rl "vendor:raylib"
 
 import "../ui"
+
+// Tests run in parallel and the clock is too coarse to separate two that start
+// together, so the name carries a counter as well.
+@(private = "file")
+tree_test_counter: int
 
 // A unique path under the OS temp directory, with native separators. TEMP is
 // Windows only; POSIX names it TMPDIR and leaves it unset on the CI runners.
@@ -24,7 +30,10 @@ tree_test_temp_path :: proc(name: string) -> string {
         }
     }
     base = strings.trim_right(base, "/\\")
-    joined, _ := filepath.join({base, fmt.tprintf("%s_%d", name, time.now()._nsec)}, context.temp_allocator)
+    serial := sync.atomic_add(&tree_test_counter, 1)
+    joined, _ := filepath.join(
+        {base, fmt.tprintf("%s_%d_%d", name, time.now()._nsec, serial)}, context.temp_allocator,
+    )
     return joined
 }
 
@@ -201,6 +210,50 @@ test_tree_drag_moves_whole_selection :: proc(t: ^testing.T) {
     testing.expect_value(t, len(record.sources), 2)
     testing.expect_value(t, record.target, folder.path)
     testing.expect(t, !folder.expanded, "a drop is not a click, so the folder stays shut")
+}
+
+// A tree taller than its panel gets a draggable scrollbar; dragging the thumb to
+// the bottom of the track scrolls to the last row.
+@(test)
+test_tree_scrollbar_drag :: proc(t: ^testing.T) {
+    tree, root := tree_test_fixture(t)
+    defer tree_test_cleanup(tree, root)
+
+    // Two rows of the four fit, so the bar shows.
+    tree_layout(&tree.widget, rl.Rectangle {x = 0, y = 0, width = 200, height = 2 * tree.row_height})
+
+    grab_x := tree.bounds.x + tree.bounds.width - 3
+    down := ui.Event {
+        kind = .Mouse_Down,
+        mouse_position = rl.Vector2 {grab_x, tree.bounds.y},
+        mouse_button = .LEFT,
+    }
+    testing.expect(t, tree_handle_event(&tree.widget, nil, &down), "the press lands on the scrollbar")
+    testing.expect(t, tree.scrollbar_dragging, "the press takes hold of the thumb")
+    testing.expect_value(t, len(tree.drag_sources), 0)
+
+    move := ui.Event {kind = .Mouse_Move, mouse_position = rl.Vector2 {grab_x, tree.bounds.y + tree.bounds.height}}
+    tree_handle_event(&tree.widget, nil, &move)
+    testing.expect_value(t, tree.scroll_y, 2 * tree.row_height)
+
+    up := ui.Event {kind = .Mouse_Up, mouse_position = move.mouse_position, mouse_button = .LEFT}
+    tree_handle_event(&tree.widget, nil, &up)
+    testing.expect(t, !tree.scrollbar_dragging, "the release lets go")
+}
+
+// The grab strip must not swallow the rows next to it: a press left of the bar
+// still selects.
+@(test)
+test_tree_scrollbar_leaves_rows_clickable :: proc(t: ^testing.T) {
+    tree, root := tree_test_fixture(t)
+    defer tree_test_cleanup(tree, root)
+
+    tree_layout(&tree.widget, rl.Rectangle {x = 0, y = 0, width = 200, height = 2 * tree.row_height})
+    rows := tree_test_visible(tree)
+
+    tree_test_click(tree, 1, ctrl = false, shift = false)
+    testing.expect(t, !tree.scrollbar_dragging, "a press over a row is not a scrollbar grab")
+    testing.expect_value(t, tree.selected_path, rows[1].path)
 }
 
 @(private = "file")

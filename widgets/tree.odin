@@ -91,6 +91,10 @@ Tree :: struct {
     // Ctrl/shift-click only adjusts the selection: the release must not expand
     // the folder or open the file.
     suppress_click_action: bool,
+    // Scrollbar drag: `scrollbar_grab` is where inside the thumb it was taken,
+    // so the thumb keeps its grip on the cursor instead of jumping.
+    scrollbar_dragging: bool,
+    scrollbar_grab:   f32,
     on_move:          Tree_Move_Proc,
     move_data:        rawptr,
     on_drag_out:      Tree_Drag_Out_Proc,
@@ -111,6 +115,7 @@ Tree :: struct {
     git_deleted_color:  rl.Color,
     git_conflict_color: rl.Color,
     git_submodule_color: rl.Color,
+    scrollbar_color:  rl.Color,
 }
 
 @(private = "file")
@@ -188,7 +193,7 @@ tree_set_root :: proc(tree: ^Tree, root_path: string) {
     tree.suppress_click_action = false
 }
 
-tree_set_colors :: proc(tree: ^Tree, text, dir, icon, chevron, hover, selected, background: rl.Color) -> ^Tree {
+tree_set_colors :: proc(tree: ^Tree, text, dir, icon, chevron, hover, selected, background, scrollbar: rl.Color) -> ^Tree {
     tree.text_color = text
     tree.dir_color = dir
     tree.icon_color = icon
@@ -196,6 +201,7 @@ tree_set_colors :: proc(tree: ^Tree, text, dir, icon, chevron, hover, selected, 
     tree.hover_color = hover
     tree.selected_color = selected
     tree.background_color = background
+    tree.scrollbar_color = scrollbar
     return tree
 }
 
@@ -626,14 +632,69 @@ tree_layout :: proc(widget: ^ui.Widget, bounds: rl.Rectangle) {
 }
 
 @(private = "file")
+tree_max_scroll :: proc(tree: ^Tree) -> f32 {
+    content_height := cast(f32) len(tree_visible_rows(tree)) * tree.row_height
+    return max(content_height - tree.bounds.height, 0)
+}
+
+@(private = "file")
 tree_clamp_scroll :: proc(tree: ^Tree) {
-    rows := tree_visible_rows(tree)
-    content_height := cast(f32) len(rows) * tree.row_height
-    max_scroll := content_height - tree.bounds.height
-    if max_scroll < 0 {
-        max_scroll = 0
+    tree.scroll_y = clamp(tree.scroll_y, 0, tree_max_scroll(tree))
+}
+
+// Track and thumb of the vertical scrollbar, shared by the draw and the
+// hit-test so the two cannot drift. `ok` is false when every row fits.
+@(private = "file")
+tree_scrollbar_rects :: proc(tree: ^Tree) -> (track, thumb: rl.Rectangle, ok: bool) {
+    content := cast(f32) len(tree_visible_rows(tree)) * tree.row_height
+    return ui.scrollbar_rects(tree.bounds, content, tree.scroll_y, SCROLLBAR_STYLE)
+}
+
+// Scrolls so the thumb's top sits `scrollbar_grab` above the cursor.
+@(private = "file")
+tree_scrollbar_drag_to :: proc(tree: ^Tree, mouse_y: f32) {
+    track, thumb, ok := tree_scrollbar_rects(tree)
+    if !ok {
+        return
     }
-    tree.scroll_y = clamp(tree.scroll_y, 0, max_scroll)
+    tree.scroll_y = ui.scrollbar_scroll_at(track, thumb, mouse_y, tree.scrollbar_grab, tree_max_scroll(tree))
+    tree_clamp_scroll(tree)
+}
+
+// Takes hold of the scrollbar when the press lands in its grab strip: on the
+// thumb it drags from where it was taken, elsewhere on the track it centers the
+// thumb on the click and drags from there.
+@(private = "file")
+tree_scrollbar_press :: proc(tree: ^Tree, event: ^ui.Event) -> bool {
+    if event.mouse_button != .LEFT {
+        return false
+    }
+    track, thumb, ok := tree_scrollbar_rects(tree)
+    if !ok || !rl.CheckCollisionPointRec(event.mouse_position, ui.scrollbar_grab_rect(track, SCROLLBAR_GRAB_WIDTH)) {
+        return false
+    }
+    tree.scrollbar_dragging = true
+    if event.mouse_position.y >= thumb.y && event.mouse_position.y < thumb.y + thumb.height {
+        tree.scrollbar_grab = event.mouse_position.y - thumb.y
+    } else {
+        tree.scrollbar_grab = thumb.height * 0.5
+        tree_scrollbar_drag_to(tree, event.mouse_position.y)
+    }
+    return true
+}
+
+// Vertical scrollbar on the right edge, shown only when the rows overflow the
+// panel. No track fill, so a tree that fits costs nothing.
+@(private = "file")
+tree_draw_scrollbar :: proc(tree: ^Tree) {
+    track, thumb, ok := tree_scrollbar_rects(tree)
+    if !ok {
+        return
+    }
+    active :=
+        tree.scrollbar_dragging ||
+        rl.CheckCollisionPointRec(rl.GetMousePosition(), ui.scrollbar_grab_rect(track, SCROLLBAR_GRAB_WIDTH))
+    rl.DrawRectangleRec(thumb, active ? tree.text_color : tree.scrollbar_color)
 }
 
 tree_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event) -> bool {
@@ -647,6 +708,11 @@ tree_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event) 
         tree_clamp_scroll(tree)
         return true
     case .Mouse_Down:
+        // The scrollbar sits over the rows, so it claims the press first, or a
+        // press behind the thumb selects the row underneath it.
+        if tree_scrollbar_press(tree, event) {
+            return true
+        }
         index := cast(int) ((event.mouse_position.y - tree.bounds.y + tree.scroll_y) / tree.row_height)
         rows := tree_visible_rows(tree)
         if index < 0 || index >= len(rows) {
@@ -712,6 +778,11 @@ tree_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event) 
         return true
 
     case .Mouse_Move:
+        // A thumb press sets no drag sources, so this comes before their guard.
+        if tree.scrollbar_dragging {
+            tree_scrollbar_drag_to(tree, event.mouse_position.y)
+            return true
+        }
         if len(tree.drag_sources) == 0 {
             return false
         }
@@ -740,6 +811,10 @@ tree_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event) 
         return true
 
     case .Mouse_Up:
+        if tree.scrollbar_dragging {
+            tree.scrollbar_dragging = false
+            return true
+        }
         if event.mouse_button != .LEFT || len(tree.drag_sources) == 0 {
             return false
         }
@@ -1012,6 +1087,8 @@ tree_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
     if tree.dragging && tree.drag_target_path == tree.root.path {
         rl.DrawRectangleLinesEx(tree.bounds, 2, tree.drop_target_color)
     }
+
+    tree_draw_scrollbar(tree)
 }
 
 // Vendor (brand) colour for a file's language, GitHub-linguist style, used to
