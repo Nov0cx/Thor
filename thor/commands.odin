@@ -1,5 +1,6 @@
 package thor
 
+import "base:runtime"
 import "core:fmt"
 import "core:log"
 import "core:os"
@@ -738,40 +739,67 @@ thor_cmd_reload_settings :: proc(data: rawptr) {thor_reload_settings(cast(^Thor)
 
 thor_palette_list_files :: proc(data: rawptr) -> []string {
     thor := cast(^Thor) data
-    files := make([dynamic]string, context.temp_allocator)
-    thor_collect_files(thor.workspace_dir, &files, 0)
+    files := thor_walk_workspace_files(thor.workspace_dir, context.temp_allocator)
     return files[:]
 }
 
-// Recursively gathers file paths under dir (skipping .git), capped so a huge
-// tree can't stall the palette.
+@(private)
+COLLECT_FILE_MAX :: 4000
+@(private)
+COLLECT_DEPTH_MAX :: 12
+
+// Gathers file paths under root (skipping .git), capped so a huge tree can't
+// stall the palette. Paths are cloned into allocator, so the result outlives
+// the temp arena a worker thread would otherwise be bound by.
+@(private)
+thor_walk_workspace_files :: proc(
+    root: string,
+    allocator: runtime.Allocator,
+    limit := COLLECT_FILE_MAX,
+    max_depth := COLLECT_DEPTH_MAX,
+) -> [dynamic]string {
+    files := make([dynamic]string, allocator)
+    thor_collect_files(root, &files, 0, limit, max_depth)
+    return files
+}
+
+// Recursively appends file paths under dir into files. Returns false once the
+// walk should stop entirely (the cap was hit); true means only this branch is
+// done.
 @(private = "file")
-thor_collect_files :: proc(dir: string, files: ^[dynamic]string, depth: int) {
-    if len(files) >= 4000 || depth > 12 {
-        return
+thor_collect_files :: proc(dir: string, files: ^[dynamic]string, depth: int, limit: int, max_depth: int) -> bool {
+    if depth > max_depth {
+        return true
     }
 
     handle, open_err := os.open(dir)
     if open_err != nil {
-        return
+        return true
     }
     defer os.close(handle)
 
-    infos, read_err := os.read_dir(handle, -1, context.temp_allocator)
+    infos, read_err := os.read_dir(handle, -1, context.allocator)
     if read_err != nil {
-        return
+        return true
     }
+    defer os.file_info_slice_delete(infos, context.allocator)
 
     for info in infos {
         if info.name == ".git" {
             continue
         }
         if info.type == .Directory {
-            thor_collect_files(info.fullpath, files, depth + 1)
+            if !thor_collect_files(info.fullpath, files, depth + 1, limit, max_depth) {
+                return false
+            }
         } else {
-            append(files, info.fullpath)
+            append(files, strings.clone(info.fullpath, files.allocator))
+            if len(files) >= limit {
+                return false
+            }
         }
     }
+    return true
 }
 
 thor_palette_open_file :: proc(data: rawptr, path: string) {
