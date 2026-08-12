@@ -157,6 +157,136 @@ test_find_whole_word_keeps_scanning :: proc(t: ^testing.T) {
     testing.expect_value(t, fr.matches[0].start, 9)
 }
 
+// A regex match spans what the pattern matched, which is the length the old
+// start-offsets-only model could not carry.
+@(test)
+test_find_regex_matches_carry_their_length :: proc(t: ^testing.T) {
+    state: textedit.State
+    editor: Editor
+    fr := fixture(&state, &editor, "a1 b22 c333\n")
+    defer fixture_destroy(&state, &editor, fr)
+
+    ctx: ui.Context
+    find_replace_open(fr, &ctx, &editor, false)
+    fr_test_type(fr, &ctx, "[0-9]+")
+    // Until regex is on, the pattern is a literal and matches nothing.
+    testing.expect_value(t, len(fr.matches), 0)
+
+    fr_test_chord(fr, &ctx, .R)
+    testing.expect(t, fr.use_regex, "alt + r turns on regular expressions")
+    testing.expect_value(t, len(fr.matches), 3)
+    testing.expect_value(t, fr.matches[0].end - fr.matches[0].start, 1)
+    testing.expect_value(t, fr.matches[1].end - fr.matches[1].start, 2)
+    testing.expect_value(t, fr.matches[2].end - fr.matches[2].start, 3)
+
+    // The selection covers the whole match, not len(query) bytes of it.
+    lo, hi := textedit.selection_range(textedit.primary_cursor(&state))
+    testing.expect_value(t, lo, fr.matches[fr.current].start)
+    testing.expect_value(t, hi, fr.matches[fr.current].end)
+}
+
+// The case toggle drives the regex flags too, so "match case" means one thing.
+@(test)
+test_find_regex_honors_case_and_word :: proc(t: ^testing.T) {
+    state: textedit.State
+    editor: Editor
+    fr := fixture(&state, &editor, "Alpha alpha alphabet\n")
+    defer fixture_destroy(&state, &editor, fr)
+
+    ctx: ui.Context
+    find_replace_open(fr, &ctx, &editor, false)
+    fr_test_type(fr, &ctx, "alpha")
+    fr_test_chord(fr, &ctx, .R)
+    testing.expect_value(t, len(fr.matches), 3)
+
+    fr_test_chord(fr, &ctx, .C)
+    testing.expect_value(t, len(fr.matches), 2)
+
+    fr_test_chord(fr, &ctx, .W)
+    testing.expect_value(t, len(fr.matches), 1)
+    testing.expect_value(t, fr.matches[0].start, 6)
+}
+
+// A pattern that does not compile says so and finds nothing, rather than
+// throwing away the keystroke that will finish it.
+@(test)
+test_find_regex_invalid_pattern :: proc(t: ^testing.T) {
+    state: textedit.State
+    editor: Editor
+    fr := fixture(&state, &editor, "alpha\n")
+    defer fixture_destroy(&state, &editor, fr)
+
+    ctx: ui.Context
+    find_replace_open(fr, &ctx, &editor, false)
+    fr_test_chord(fr, &ctx, .R)
+    fr_test_type(fr, &ctx, "a(")
+
+    testing.expect(t, fr.regex_bad, "an unclosed group does not compile")
+    testing.expect_value(t, len(fr.matches), 0)
+
+    // Stepping over no matches must not fault.
+    enter := ui.Event {kind = .Key_Press, key = .ENTER}
+    find_replace_handle_event(&fr.widget, &ctx, &enter)
+
+    // Finishing the group makes it valid again.
+    fr_test_type(fr, &ctx, "l)")
+    testing.expect_value(t, string(fr.find[:]), "a(l)")
+    testing.expect(t, !fr.regex_bad, "a complete pattern compiles")
+    testing.expect_value(t, len(fr.matches), 1)
+    testing.expect_value(t, fr.matches[0].end - fr.matches[0].start, 2)
+}
+
+// A zero-width pattern is dropped: it selects nothing, and replacing over one
+// would splice forever.
+@(test)
+test_find_regex_skips_zero_width :: proc(t: ^testing.T) {
+    state: textedit.State
+    editor: Editor
+    fr := fixture(&state, &editor, "aaa\n")
+    defer fixture_destroy(&state, &editor, fr)
+
+    ctx: ui.Context
+    find_replace_open(fr, &ctx, &editor, false)
+    fr_test_chord(fr, &ctx, .R)
+    fr_test_type(fr, &ctx, "b*")
+
+    testing.expect(t, !fr.regex_bad, "the pattern is valid")
+    testing.expect_value(t, len(fr.matches), 0)
+}
+
+// Replace All over a regex rewrites spans of different lengths in one sweep.
+@(test)
+test_find_regex_replace_all :: proc(t: ^testing.T) {
+    state: textedit.State
+    editor: Editor
+    fr := fixture(&state, &editor, "a1 b22 c333\n")
+    defer fixture_destroy(&state, &editor, fr)
+
+    ctx: ui.Context
+    find_replace_open(fr, &ctx, &editor, true)
+    fr_test_chord(fr, &ctx, .R)
+    fr_test_type(fr, &ctx, "[0-9]+")
+
+    tab := ui.Event {kind = .Key_Press, key = .TAB}
+    find_replace_handle_event(&fr.widget, &ctx, &tab)
+    fr_test_type(fr, &ctx, "#")
+
+    find_replace_layout(&fr.widget, rl.Rectangle {0, 0, 1200, 800})
+    click := ui.Event {
+        kind = .Mouse_Down,
+        mouse_button = .LEFT,
+        mouse_position = rl.Vector2 {
+            fr.btn_all.x + fr.btn_all.width * 0.5,
+            fr.btn_all.y + fr.btn_all.height * 0.5,
+        },
+    }
+    find_replace_handle_event(&fr.widget, &ctx, &click)
+    testing.expect_value(t, textedit.text(&state), "a# b# c#\n")
+
+    textedit.undo(&state)
+    testing.expect_value(t, textedit.text(&state), "a1 b22 c333\n")
+}
+
 // Replace All goes through replace_ranges, so the whole sweep is one undo entry.
 @(test)
 test_find_replace_all_is_one_undo :: proc(t: ^testing.T) {

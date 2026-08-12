@@ -1,6 +1,7 @@
 package widgets
 
 import "core:fmt"
+import "core:text/regex"
 import "core:unicode/utf8"
 import rl "vendor:raylib"
 
@@ -33,6 +34,9 @@ Find_Replace :: struct {
     // reset when Thor restarts.
     case_sensitive: bool,
     whole_word:     bool,
+    use_regex:      bool,
+    // The pattern does not compile. Reported in place of the match count.
+    regex_bad:      bool,
     return_focus:  ^ui.Widget,
     // Drag state: once moved, the box keeps `position` instead of recentering.
     positioned:    bool,
@@ -49,6 +53,7 @@ Find_Replace :: struct {
     btn_all:       rl.Rectangle,
     btn_case:      rl.Rectangle,
     btn_word:      rl.Rectangle,
+    btn_regex:     rl.Rectangle,
     width:         f32,
     row_height:    f32,
     top_offset:    f32,
@@ -201,6 +206,7 @@ fr_skip_table :: proc(query: string, sensitive: bool) -> (table: [256]int) {
 find_replace_recompute :: proc(fr: ^Find_Replace) {
     clear(&fr.matches)
     fr.current = 0
+    fr.regex_bad = false
     if fr.editor == nil || fr.editor.state == nil {
         return
     }
@@ -213,13 +219,52 @@ find_replace_recompute :: proc(fr: ^Find_Replace) {
     text := textedit.text(fr.editor.state)
     from, _ := textedit.selection_range(textedit.primary_cursor(fr.editor.state))
 
-    find_replace_scan_literal(fr, text, query)
+    if fr.use_regex {
+        find_replace_scan_regex(fr, text, query)
+    } else {
+        find_replace_scan_literal(fr, text, query)
+    }
 
     for match, index in fr.matches {
         if match.start >= from {
             fr.current = index
             break
         }
+    }
+}
+
+// Collects regular-expression matches over the whole document. A zero-width
+// match is dropped: it selects nothing, and replacing over one would splice
+// forever. The replacement stays literal in this mode -- no capture references.
+@(private = "file")
+find_replace_scan_regex :: proc(fr: ^Find_Replace, text, pattern: string) {
+    flags: regex.Flags = {.Unicode}
+    if !fr.case_sensitive {
+        flags += {.Case_Insensitive}
+    }
+    it, err := regex.create_iterator(text, pattern, flags)
+    if err != nil {
+        fr.regex_bad = true
+        return
+    }
+    defer regex.destroy(it)
+
+    for {
+        capture, _, ok := regex.match_iterator(&it)
+        if !ok {
+            break
+        }
+        if len(capture.pos) == 0 {
+            break
+        }
+        start, end := capture.pos[0][0], capture.pos[0][1]
+        if end <= start {
+            continue
+        }
+        if fr.whole_word && !fr_word_bounded(text, start, end) {
+            continue
+        }
+        append(&fr.matches, Fr_Match {start, end})
     }
 }
 
@@ -362,6 +407,8 @@ find_replace_layout :: proc(widget: ^ui.Widget, bounds: rl.Rectangle) {
     // match counter owns its right end.
     tw: f32 = 34
     tx := inner_x + inner_w - tw
+    fr.btn_regex = rl.Rectangle {tx, y, tw, bh}
+    tx -= tw + 6
     fr.btn_word = rl.Rectangle {tx, y, tw, bh}
     tx -= tw + 6
     fr.btn_case = rl.Rectangle {tx, y, tw, bh}
@@ -398,6 +445,8 @@ find_replace_handle_event :: proc(widget: ^ui.Widget, ctx: ^ui.Context, event: ^
                 fr.case_sensitive = !fr.case_sensitive
             case .W:
                 fr.whole_word = !fr.whole_word
+            case .R:
+                fr.use_regex = !fr.use_regex
             case:
                 return true
             }
@@ -463,6 +512,9 @@ find_replace_handle_event :: proc(widget: ^ui.Widget, ctx: ^ui.Context, event: ^
         } else if rl.CheckCollisionPointRec(event.mouse_position, fr.btn_word) {
             fr.whole_word = !fr.whole_word
             find_replace_requery_now(fr)
+        } else if rl.CheckCollisionPointRec(event.mouse_position, fr.btn_regex) {
+            fr.use_regex = !fr.use_regex
+            find_replace_requery_now(fr)
         } else {
             // Empty area of the box: start dragging.
             fr.dragging = true
@@ -499,8 +551,18 @@ find_replace_draw :: proc(widget: ^ui.Widget, _: ^ui.Context) {
 
     find_replace_draw_input(fr, fr.find_rect, "Find", string(fr.find[:]), !fr.replace_field, fr.find_caret)
 
-    // Match count on the right of the find row.
-    count_text := len(fr.find) == 0 ? "" : (len(fr.matches) == 0 ? "No results" : fmt.tprintf("%d / %d", fr.current + 1, len(fr.matches)))
+    // Match count on the right of the find row, which is also where a pattern
+    // that does not compile reports itself.
+    count_text := ""
+    switch {
+    case fr.regex_bad:
+        count_text = "Invalid pattern"
+    case len(fr.find) == 0:
+    case len(fr.matches) == 0:
+        count_text = "No results"
+    case:
+        count_text = fmt.tprintf("%d / %d", fr.current + 1, len(fr.matches))
+    }
     if count_text != "" {
         cw := ui.measure_text(count_text, 15)
         ui.draw_text(count_text, cast(i32) (fr.find_rect.x + fr.find_rect.width) - cw - 8, cast(i32) (fr.find_rect.y + 4), 15, fr.muted_color)
@@ -514,9 +576,11 @@ find_replace_draw :: proc(widget: ^ui.Widget, _: ^ui.Context) {
         find_replace_draw_button(fr, fr.btn_all, "All")
     }
 
-    // Aa = match case (alt + c), W = whole word (alt + w).
+    // Aa = match case (alt + c), W = whole word (alt + w), .* = regular
+    // expression (alt + r).
     find_replace_draw_button(fr, fr.btn_case, "Aa", fr.case_sensitive)
     find_replace_draw_button(fr, fr.btn_word, "W", fr.whole_word)
+    find_replace_draw_button(fr, fr.btn_regex, ".*", fr.use_regex)
 }
 
 @(private = "file")
