@@ -133,6 +133,14 @@ Load_Job :: struct {
     // the worker runs under the default context, not the main thread's.
     buffer:  []u8,
     buffer_allocator: mem.Allocator,
+    // Line-ending prep, done on the worker so the reap does not re-scan the
+    // whole file. `text` points *into* `buffer` when text_allocated is false
+    // (nothing needed collapsing) — every read of `text` must happen before
+    // `buffer` is freed.
+    ending:           Line_Ending,
+    text:             string,
+    text_allocated:   bool,
+    text_allocator:   mem.Allocator,
 }
 
 Save_Job :: struct {
@@ -198,15 +206,16 @@ thor_detect_line_ending :: proc(content: string) -> Line_Ending {
 }
 
 // Disk bytes as the buffer stores them: every CRLF collapsed to LF, whatever
-// the detected ending, so a mixed file leaves no stray CR in the text. Returns
-// `content` itself when there is nothing to collapse, so a plain LF file is not
-// copied.
-thor_to_buffer_text :: proc(content: string, allocator := context.temp_allocator) -> string {
+// the detected ending, so a mixed file leaves no stray CR in the text. Hands
+// back `content` itself (allocated = false) when there is nothing to collapse,
+// so a plain LF file is not copied; a caller that frees the result must check
+// `allocated` first, or it frees bytes it does not own.
+thor_to_buffer_text :: proc(content: string, allocator := context.temp_allocator) -> (text: string, allocated: bool) {
     if !strings.contains(content, "\r\n") {
-        return content
+        return content, false
     }
     out, _ := strings.replace_all(content, "\r\n", "\n", allocator)
-    return out
+    return out, true
 }
 
 // Buffer text as it goes to disk, expanded back to CRLF when that is the file's
@@ -260,6 +269,10 @@ load_worker :: proc(job: ^Load_Job) {
         }
     }
 
+    content := job.size > 0 ? string(job.data[:job.size]) : ""
+    job.ending = thor_detect_line_ending(content)
+    job.text_allocator = context.allocator
+    job.text, job.text_allocated = thor_to_buffer_text(content, job.text_allocator)
     job.ok = true
 }
 
@@ -626,11 +639,11 @@ thor_apply_reload :: proc(thor: ^Thor, job: ^Load_Job) {
         log.warnf("Reload of %q read nothing; keeping the buffer", job.path)
         return
     }
-    content := job.size > 0 ? string(job.data[:job.size]) : ""
     // Compare the normalized text, or a CRLF file would differ from its own
-    // buffer every time and reload on each watcher event.
-    ending := thor_detect_line_ending(content)
-    buffer_text := thor_to_buffer_text(content)
+    // buffer every time and reload on each watcher event. Both already
+    // computed by the worker.
+    ending := job.ending
+    buffer_text := job.text
     // A copy: the cursor remap and the pane rebind below still read it after
     // set_text has replaced the buffer it came from.
     old_text := textedit.text_clone(&file.state, context.temp_allocator)
@@ -1086,9 +1099,8 @@ thor_process_io :: proc(thor: ^Thor) {
         if reload {
             thor_apply_reload(thor, job)
         } else if job.ok {
-            content := job.size > 0 ? string(job.data[:job.size]) : ""
-            file.line_ending = thor_detect_line_ending(content)
-            textedit.set_text(&file.state, thor_to_buffer_text(content))
+            file.line_ending = job.ending
+            textedit.set_text(&file.state, job.text)
             file.loaded = true
             file.saved_revision = 0
             file.last_seen_revision = 0
@@ -1102,6 +1114,11 @@ thor_process_io :: proc(thor: ^Thor) {
         }
 
         file_map_close(&job.mapping)
+        // job.text may alias job.buffer (nothing needed collapsing), so every
+        // read of it above must happen before buffer is freed here.
+        if job.text_allocated {
+            delete(job.text, job.text_allocator)
+        }
         if job.buffer != nil {
             delete(job.buffer, job.buffer_allocator)
         }

@@ -867,9 +867,10 @@ thor_edit_target :: proc(
         return 0, false
     }
     disk := string(data)
+    text, _ := thor_to_buffer_text(disk)
     append(targets, Edit_Target {
         path      = canonical,
-        text      = thor_to_buffer_text(disk),
+        text      = text,
         disk_text = disk,
         ending    = thor_detect_line_ending(disk),
         edits     = make([dynamic]lang.Text_Edit, context.temp_allocator),

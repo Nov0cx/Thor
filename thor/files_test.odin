@@ -104,6 +104,67 @@ test_async_file_roundtrip :: proc(t: ^testing.T) {
     testing.expect_value(t, ui.signal_get(&thor.active_file), -1)
 }
 
+// Line-ending detection and CRLF collapsing now run on the load worker
+// (load_worker), not the reap on the main thread; this exercises that path
+// through the same async open/pump cycle as test_async_file_roundtrip,
+// rather than calling thor_detect_line_ending/thor_to_buffer_text directly.
+@(test)
+test_async_load_prepares_crlf_text :: proc(t: ^testing.T) {
+    TEST_PATH :: "thor_crlf_roundtrip.tmp"
+    ORIGINAL :: "hello\r\nworld\r\n"
+
+    write_err := os.write_entire_file(TEST_PATH, ORIGINAL)
+    testing.expect(t, write_err == nil, "could not create test file")
+    defer os.remove(TEST_PATH)
+
+    thor := new(Thor)
+    defer free(thor)
+    thor.active_file = ui.make_signal(-1)
+    thor.open_files = make([dynamic]^Open_File)
+    thor.zombie_files = make([dynamic]^Open_File)
+    thor.finished_loads = make([dynamic]^Load_Job)
+    thor.finished_saves = make([dynamic]^Save_Job)
+    thor.pane_file = {-1, -1}
+    thor.editor = widgets.editor_create("test-editor")
+    thor.editor2 = widgets.editor_create("test-editor2")
+    thor.editor_split_row = widgets.stack_create("test-editor-split-row", .Horizontal)
+    thor.image_view = widgets.image_view_create("test-image-view")
+    thor.model_view = widgets.model_view_create("test-model-view")
+    thor.markdown_view = widgets.markdown_view_create("test-markdown-view")
+    thor.markdown_view2 = widgets.markdown_view_create("test-markdown-view2")
+    thor.welcome_panel = widgets.panel_create("test-welcome-panel", {})
+    defer {
+        delete(thor.open_files)
+        delete(thor.zombie_files)
+        delete(thor.finished_loads)
+        delete(thor.finished_saves)
+        widgets.editor_destroy(&thor.editor.widget)
+        widgets.editor_destroy(&thor.editor2.widget)
+        widgets.stack_destroy(&thor.editor_split_row.widget)
+        widgets.image_view_destroy(&thor.image_view.widget)
+        widgets.model_view_destroy(&thor.model_view.widget)
+        widgets.markdown_view_destroy(&thor.markdown_view.widget)
+        widgets.markdown_view_destroy(&thor.markdown_view2.widget)
+        widgets.panel_destroy(&thor.welcome_panel.widget)
+    }
+
+    thor_open_file(thor, TEST_PATH)
+    file := thor.open_files[0]
+
+    for _ in 0 ..< 500 {
+        thor_update_files(thor)
+        if file.loaded || file.load_failed {
+            break
+        }
+        time.sleep(2 * time.Millisecond)
+    }
+    testing.expect(t, file.loaded, "load did not complete")
+    testing.expect_value(t, file.line_ending, Line_Ending.CRLF)
+    testing.expect_value(t, textedit.text(&file.state), "hello\nworld\n")
+
+    thor_close_file(thor, 0)
+}
+
 @(test)
 test_line_ending_detect :: proc(t: ^testing.T) {
     testing.expect_value(t, thor_detect_line_ending("a\nb\n"), Line_Ending.LF)
@@ -121,10 +182,18 @@ test_line_ending_detect :: proc(t: ^testing.T) {
 test_line_ending_conversion :: proc(t: ^testing.T) {
     // Into the buffer: every CRLF collapses, whatever the file's ending, so no
     // stray CR survives in a mixed file.
-    testing.expect_value(t, thor_to_buffer_text("a\r\nb\r\n"), "a\nb\n")
-    testing.expect_value(t, thor_to_buffer_text("a\nb\r\nc\n"), "a\nb\nc\n")
-    testing.expect_value(t, thor_to_buffer_text("a\nb\n"), "a\nb\n")
-    testing.expect_value(t, thor_to_buffer_text(""), "")
+    crlf_pair, crlf_pair_allocated := thor_to_buffer_text("a\r\nb\r\n")
+    testing.expect_value(t, crlf_pair, "a\nb\n")
+    testing.expect(t, crlf_pair_allocated, "collapsing a CRLF must report allocated = true")
+    mixed, mixed_allocated := thor_to_buffer_text("a\nb\r\nc\n")
+    testing.expect_value(t, mixed, "a\nb\nc\n")
+    testing.expect(t, mixed_allocated)
+    plain, plain_allocated := thor_to_buffer_text("a\nb\n")
+    testing.expect_value(t, plain, "a\nb\n")
+    testing.expect(t, !plain_allocated, "a plain LF file needs no collapsing, so it must not be copied")
+    empty, empty_allocated := thor_to_buffer_text("")
+    testing.expect_value(t, empty, "")
+    testing.expect(t, !empty_allocated)
 
     // Back out to disk.
     lf := thor_to_disk_text("a\nb\n", .LF, context.temp_allocator)
@@ -136,7 +205,8 @@ test_line_ending_conversion :: proc(t: ^testing.T) {
     testing.expect_value(t, bare, "solo")
 
     // A CRLF file survives a load/save round trip byte for byte.
-    round := thor_to_disk_text(thor_to_buffer_text("a\r\nb\r\n"), .CRLF, context.temp_allocator)
+    buffer_text, _ := thor_to_buffer_text("a\r\nb\r\n")
+    round := thor_to_disk_text(buffer_text, .CRLF, context.temp_allocator)
     testing.expect_value(t, round, "a\r\nb\r\n")
 }
 
