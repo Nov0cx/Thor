@@ -3,6 +3,7 @@ package thor
 import "core:testing"
 
 import "../textedit"
+import "../ui"
 
 // An Open_File over `src`, loaded and saved. The caller destroys it.
 @(private = "file")
@@ -74,6 +75,36 @@ test_status_indent_caches_on_the_revision :: proc(t: ^testing.T) {
     thor_refresh_indent(file)
     testing.expect(t, file.indent_revision != first, "an edited buffer is rescanned")
     testing.expect_value(t, file.indent.width, 4)
+}
+
+// The Undo and Redo menu rows grey out from these, so they have to answer for
+// the focused buffer's own history as well as a cross-file edit set.
+@(test)
+test_can_undo_and_redo_follow_the_buffer :: proc(t: ^testing.T) {
+    thor := new(Thor)
+    defer free(thor)
+    thor.open_files = make([dynamic]^Open_File)
+    defer delete(thor.open_files)
+
+    // No file open at all: both rows stay dead.
+    ui.signal_set(&thor.active_file, -1)
+    testing.expect(t, !thor_can_undo(thor), "nothing is open, so there is nothing to undo")
+    testing.expect(t, !thor_can_redo(thor), "nothing is open, so there is nothing to redo")
+
+    file := indent_test_file("alpha\n")
+    defer indent_test_destroy(file)
+    append(&thor.open_files, file)
+    ui.signal_set(&thor.active_file, 0)
+
+    // set_text clears the history, so an untouched buffer has nothing either.
+    testing.expect(t, !thor_can_undo(thor), "an untouched buffer has no history")
+
+    textedit.replace_ranges(&file.state, []textedit.Replace{{start = 0, end = 5, text = "beta"}})
+    testing.expect(t, thor_can_undo(thor), "an edit is undoable")
+    testing.expect(t, !thor_can_redo(thor), "nothing has been undone yet")
+
+    textedit.undo(&file.state)
+    testing.expect(t, thor_can_redo(thor), "an undone edit is redoable")
 }
 
 // A buffer still loading has nothing to read, so the scan must not run on it.

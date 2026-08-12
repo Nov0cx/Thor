@@ -414,6 +414,10 @@ thor_register_commands :: proc(thor: ^Thor) {
     widgets.command_palette_add(p, "Find", thor_cmd_find, thor, sc(thor, "find"))
     widgets.command_palette_add(p, "Replace", thor_cmd_replace, thor, sc(thor, "replace"))
 
+    // Undo/redo have editor-local keys, so plain palette entries rather than
+    // thor_add_bindable_command.
+    widgets.command_palette_add(p, "Edit: Undo", thor_cmd_undo, thor, sc(thor, "undo"))
+    widgets.command_palette_add(p, "Edit: Redo", thor_cmd_redo, thor, sc(thor, "redo"))
     widgets.command_palette_add(p, "Edit: Toggle Line Comment", thor_cmd_toggle_comment, thor, sc(thor, "toggle_line_comment"))
     widgets.command_palette_add(p, "Edit: Select All", thor_cmd_select_all, thor, sc(thor, "select_all"))
     widgets.command_palette_add(p, "Edit: Duplicate Line", thor_cmd_duplicate_line, thor, sc(thor, "duplicate_line_down"))
@@ -588,6 +592,42 @@ thor_edit_state :: proc(data: rawptr) -> ^textedit.State {
         return nil
     }
     return &file.state
+}
+
+// Undo takes back a cross-file edit set first, the way ctrl + z does (see
+// thor_global_key), then falls back to the focused buffer's own history.
+thor_cmd_undo :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    if thor_undo_last_edits(thor) {
+        return
+    }
+    if s := thor_edit_state(data); s != nil {
+        textedit.undo(s)
+        widgets.editor_scroll_to_caret(thor_pane_editor(thor, thor.active_pane))
+    }
+}
+
+thor_cmd_redo :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    if s := thor_edit_state(data); s != nil {
+        textedit.redo(s)
+        widgets.editor_scroll_to_caret(thor_pane_editor(thor, thor.active_pane))
+    }
+}
+
+// True when there is something to take back: a cross-file edit set, or the
+// focused buffer's own history.
+thor_can_undo :: proc(thor: ^Thor) -> bool {
+    if len(thor.edit_undo) > 0 {
+        return true
+    }
+    file := thor_active_open_file(thor)
+    return file != nil && file.loaded && file.state.undo_stack.count > 0
+}
+
+thor_can_redo :: proc(thor: ^Thor) -> bool {
+    file := thor_active_open_file(thor)
+    return file != nil && file.loaded && len(file.state.redo_stack) > 0
 }
 
 thor_cmd_select_all :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.select_all(s)}}

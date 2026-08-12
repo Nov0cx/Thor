@@ -34,11 +34,23 @@ thor_set_menu_target :: proc(thor: ^Thor, dir: string) {
     thor.menu_target_dir = strings.clone(dir)
 }
 
+// Accelerators for the undo/redo rows. Literals, not thor_action_shortcut: that
+// answers from the temp allocator and a menu holds its items across frames. The
+// editor hardcodes these keys (widgets/editor.odin), so they are also the truth
+// whatever settings/keybinds.json says.
+@(private = "file")
+UNDO_SHORTCUT :: "Ctrl+Z"
+@(private = "file")
+REDO_SHORTCUT :: "Ctrl+Y"
+
 thor_editor_context_menu :: proc(data: rawptr, position: rl.Vector2) {
     thor := cast(^Thor) data
     has_file := thor_active_open_file(thor) != nil
 
     widgets.menu_clear(thor.menu)
+    widgets.menu_add(thor.menu, "Undo", thor_cmd_undo, thor, thor_can_undo(thor), UNDO_SHORTCUT)
+    widgets.menu_add(thor.menu, "Redo", thor_cmd_redo, thor, thor_can_redo(thor), REDO_SHORTCUT)
+    widgets.menu_add_separator(thor.menu)
     widgets.menu_add(thor.menu, "Cut", thor_menu_cut, thor, has_file)
     widgets.menu_add(thor.menu, "Copy", thor_menu_copy, thor, has_file)
     widgets.menu_add(thor.menu, "Paste", thor_menu_paste, thor, has_file)
@@ -339,6 +351,9 @@ thor_open_file_menu :: proc(data: rawptr, ctx: ^ui.Context, widget: ^ui.Widget) 
 thor_open_edit_menu :: proc(data: rawptr, ctx: ^ui.Context, widget: ^ui.Widget) {
     thor := cast(^Thor) data
     widgets.menu_clear(thor.menu)
+    widgets.menu_add(thor.menu, "Undo", thor_cmd_undo, thor, thor_can_undo(thor), UNDO_SHORTCUT)
+    widgets.menu_add(thor.menu, "Redo", thor_cmd_redo, thor, thor_can_redo(thor), REDO_SHORTCUT)
+    widgets.menu_add_separator(thor.menu)
     widgets.menu_add(thor.menu, "Select All", thor_cmd_select_all, thor)
     widgets.menu_add(thor.menu, "Toggle Line Comment", thor_cmd_toggle_comment, thor)
     widgets.menu_add_separator(thor.menu)

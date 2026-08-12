@@ -13,11 +13,19 @@ Context_Menu_Proc :: #type proc(data: rawptr, position: rl.Vector2)
 // click dismisses it.
 Menu_Item :: struct {
     label:     string, // borrowed; caller owns (string literals are fine)
+    // Accelerator drawn right-aligned on the row; "" for none. Borrowed under
+    // the same rule as `label`, and a menu holds its items across frames -- so
+    // never a temp-allocated string.
+    shortcut:  string,
     run:       proc(data: rawptr),
     data:      rawptr,
     separator: bool, // a divider row, not selectable
     enabled:   bool,
 }
+
+// Gap between a row's label and its accelerator, so the two never run together.
+@(private = "file")
+MENU_SHORTCUT_GAP :: f32(24)
 
 Menu :: struct {
     using widget: ui.Widget,
@@ -87,9 +95,19 @@ menu_clear :: proc(menu: ^Menu) {
     clear(&menu.items)
 }
 
-// Appends a clickable row. `label` must outlive the menu (literals do).
-menu_add :: proc(menu: ^Menu, label: string, run: proc(data: rawptr), data: rawptr, enabled := true) {
-    append(&menu.items, Menu_Item {label = label, run = run, data = data, enabled = enabled})
+// Appends a clickable row. `label` and `shortcut` must outlive the menu
+// (literals do).
+menu_add :: proc(
+    menu: ^Menu,
+    label: string,
+    run: proc(data: rawptr),
+    data: rawptr,
+    enabled := true,
+    shortcut := "",
+) {
+    append(&menu.items, Menu_Item {
+        label = label, shortcut = shortcut, run = run, data = data, enabled = enabled,
+    })
 }
 
 menu_add_separator :: proc(menu: ^Menu) {
@@ -132,6 +150,9 @@ menu_layout :: proc(widget: ^ui.Widget, bounds: rl.Rectangle) {
             continue
         }
         w := cast(f32) ui.measure_text(item.label, menu.font_size) + menu.pad_x * 2
+        if item.shortcut != "" {
+            w += cast(f32) ui.measure_text(item.shortcut, menu.font_size) + MENU_SHORTCUT_GAP
+        }
         if w > width {
             width = w
         }
@@ -237,6 +258,16 @@ menu_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
         color := item.enabled ? menu.text_color : menu.muted_color
         text_y := cast(i32) (y + (menu.row_height - cast(f32) menu.font_size) * 0.5)
         ui.draw_text(item.label, cast(i32) (menu.box.x + menu.pad_x), text_y, menu.font_size, color)
+        if item.shortcut != "" {
+            sw := ui.measure_text(item.shortcut, menu.font_size)
+            ui.draw_text(
+                item.shortcut,
+                cast(i32) (menu.box.x + menu.box.width - menu.pad_x) - sw,
+                text_y,
+                menu.font_size,
+                menu.muted_color,
+            )
+        }
         y += menu.row_height
     }
 }
