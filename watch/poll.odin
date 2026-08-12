@@ -18,27 +18,32 @@ SLEEP_SLICE :: 100 * time.Millisecond
 
 // Snapshots the tree until `stopping` is set, emitting what moved between two
 // snapshots. The caller supplies the flag its own watch_stop writes.
+//
+// Two owned snapshots are ping-ponged by swapping which pointer is `previous`
+// and which is `current`, instead of destroying and remaking one every
+// interval: each is a separate allocation, so resetting one for the next
+// walk never invalidates the entry paths scan_diff is about to read from the
+// other, and steady state allocates nothing.
 @(private)
 poll_worker :: proc(w: ^Watcher, stopping: ^bool) {
-    previous: Scan
-    scan_tree(&previous, w.root, w.allocator)
-    defer scan_destroy(&previous)
+    a, b: Scan
+    scan_tree(&a, w.root, w.allocator)
+    defer scan_destroy(&a)
+    defer scan_destroy(&b)
 
+    previous := &a
+    current := &b
     for !intrinsics.atomic_load(stopping) {
         poll_sleep(stopping)
         if intrinsics.atomic_load(stopping) {
             break
         }
 
-        current: Scan
-        scan_tree(&current, w.root, w.allocator)
-        for change in scan_diff(previous, current) {
+        scan_tree(current, w.root, w.allocator)
+        for change in scan_diff(previous^, current^) {
             watch_emit(w, change.kind, change.path)
         }
-        // The changes borrow both snapshots, so the old one goes only after the
-        // last one is queued.
-        scan_destroy(&previous)
-        previous = current
+        previous, current = current, previous
         free_all(context.temp_allocator)
     }
 }

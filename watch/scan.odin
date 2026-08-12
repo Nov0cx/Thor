@@ -2,6 +2,7 @@ package watch
 
 import "base:runtime"
 import "core:os"
+import "core:path/filepath"
 import "core:slice"
 import "core:strings"
 
@@ -37,10 +38,24 @@ Scan :: struct {
 // write time and the size a later scan compares against.
 @(private)
 scan_tree :: proc(s: ^Scan, root: string, allocator: runtime.Allocator) {
-    s.paths = strings.builder_make(allocator)
-    s.entries = make([dynamic]Scan_Entry, allocator)
+    scan_reset(s, allocator)
     scan_directory(s, root, 0, allocator)
     scan_finish(s)
+}
+
+// Prepares `s` for a fresh walk: fresh buffers the first time (a zero Scan),
+// else the existing ones are cleared and reused. The poll worker ping-pongs
+// two Scans across passes instead of destroying and remaking one every
+// interval, so steady state allocates nothing.
+@(private)
+scan_reset :: proc(s: ^Scan, allocator: runtime.Allocator) {
+    if s.entries == nil {
+        s.paths = strings.builder_make(allocator)
+        s.entries = make([dynamic]Scan_Entry, allocator)
+        return
+    }
+    strings.builder_reset(&s.paths)
+    clear(&s.entries)
 }
 
 @(private)
@@ -48,6 +63,21 @@ scan_destroy :: proc(s: ^Scan) {
     strings.builder_destroy(&s.paths)
     delete(s.entries)
     s^ = {}
+}
+
+// True for a directory whose contents are noise no consumer needs watched:
+// a package manager's dependency tree, or git's own object store. The
+// directory itself is still recorded as an entry (its own create/delete still
+// reports), only what is inside it goes unwalked.
+@(private)
+scan_skip_dir :: proc(parent, name: string) -> bool {
+    if name == "node_modules" {
+        return true
+    }
+    if (name == "objects" || name == "lfs") && filepath.base(parent) == ".git" {
+        return true
+    }
+    return false
 }
 
 // Reads one directory and recurses into its subdirectories. A directory that
@@ -69,7 +99,7 @@ scan_directory :: proc(s: ^Scan, dir: string, depth: int, allocator: runtime.All
     for info in infos {
         is_dir := info.type == .Directory
         scan_add(s, info.fullpath, info.modification_time._nsec, info.size, is_dir)
-        if is_dir {
+        if is_dir && !scan_skip_dir(dir, info.name) {
             scan_directory(s, info.fullpath, depth + 1, allocator)
         }
     }

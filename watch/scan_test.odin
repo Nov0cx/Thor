@@ -1,5 +1,7 @@
 package watch
 
+import "core:os"
+import "core:path/filepath"
 import "core:strings"
 import "core:testing"
 
@@ -111,4 +113,69 @@ test_scan_tree_walks_a_real_directory :: proc(t: ^testing.T) {
         }
     }
     testing.expect(t, found, "the walk must find watch/scan.odin")
+}
+
+// node_modules and .git/objects (and .git/lfs) are noise a poll never needs
+// to walk into. The directories themselves still show up as entries; only
+// their contents are skipped.
+@(test)
+test_scan_tree_skips_git_objects :: proc(t: ^testing.T) {
+    root :: "bin/test/scan_skip_test"
+    os.remove_all(root)
+    defer os.remove_all(root)
+
+    testing.expect(t, os.make_directory_all(root) == nil)
+    objects, _ := filepath.join({root, ".git", "objects", "ab"}, context.temp_allocator)
+    testing.expect(t, os.make_directory_all(objects) == nil)
+    modules, _ := filepath.join({root, "node_modules", "pkg"}, context.temp_allocator)
+    testing.expect(t, os.make_directory_all(modules) == nil)
+
+    hidden, _ := filepath.join({objects, "deadbeef"}, context.temp_allocator)
+    testing.expect(t, os.write_entire_file(hidden, "") == nil)
+    module_file, _ := filepath.join({modules, "index.js"}, context.temp_allocator)
+    testing.expect(t, os.write_entire_file(module_file, "") == nil)
+    visible, _ := filepath.join({root, "main.odin"}, context.temp_allocator)
+    testing.expect(t, os.write_entire_file(visible, "") == nil)
+
+    s: Scan
+    scan_tree(&s, root, context.allocator)
+    defer scan_destroy(&s)
+
+    has_suffix :: proc(s: Scan, suffix: string) -> bool {
+        for entry in s.entries {
+            if strings.has_suffix(entry.path, suffix) {
+                return true
+            }
+        }
+        return false
+    }
+
+    git_objects, _ := filepath.join({".git", "objects"}, context.temp_allocator)
+    testing.expect(t, has_suffix(s, "main.odin"), "an ordinary file must still be walked")
+    testing.expect(t, has_suffix(s, git_objects), "the skipped directory itself must still be recorded")
+    testing.expect(t, has_suffix(s, "node_modules"), "the skipped directory itself must still be recorded")
+    testing.expect(t, !has_suffix(s, "deadbeef"), "the contents of .git/objects must not be walked")
+    testing.expect(t, !has_suffix(s, "index.js"), "the contents of node_modules must not be walked")
+}
+
+// scan_reset must reuse s.entries/s.paths across two walks, not leave stale
+// data or dangling path slices behind: two walks of the same tree agree and
+// diff to nothing. `before` is built with scan_of, an independent buffer, so
+// resetting `s` for the second walk cannot invalidate what it holds.
+@(test)
+test_scan_tree_reuses_its_buffers :: proc(t: ^testing.T) {
+    s: Scan
+    scan_tree(&s, "watch", context.allocator)
+    defer scan_destroy(&s)
+    first_count := len(s.entries)
+
+    before := scan_of(s.entries[:])
+    defer scan_destroy(&before)
+
+    scan_tree(&s, "watch", context.allocator)
+    testing.expect_value(t, len(s.entries), first_count)
+
+    changes := scan_diff(before, s, context.allocator)
+    defer delete(changes)
+    testing.expect_value(t, len(changes), 0)
 }
