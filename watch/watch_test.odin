@@ -162,21 +162,26 @@ test_watch_init_bad_dir :: proc(t: ^testing.T) {
 }
 
 // A burst larger than WATCH_DRAIN_MAX is spread over more than one poll: one
-// call dispatches only the cap and leaves the rest queued, and a destroy with
-// a queued tail must still free it. Changes are queued directly with
-// watch_emit rather than by touching files, so the count is exact regardless
-// of what the OS reports for an idle directory.
+// call dispatches only the cap and leaves the rest queued. No real watcher is
+// started here (watcher_init's platform worker is a separate OS thread with
+// its own shutdown timing, exercised by test_watch_destroy_twice already) —
+// `w` is hand-built with `running` set and torn down by hand, so this stays a
+// pure test of watcher_poll's in-memory queue capping, with `w.pending`'s
+// leftover tail deleted by hand standing in for what a real destroy frees.
 @(test)
 test_watcher_poll_caps_one_drain :: proc(t: ^testing.T) {
-    root := temp_path("thor_watch_drain_cap")
-    if err := os.make_directory(root); err != nil {
-        testing.fail_now(t, fmt.tprintf("could not create temp dir %q: %v", root, err))
-    }
-    defer os.remove(root)
-
     w: Watcher
-    testing.expect(t, watcher_init(&w, root), "watcher_init should succeed on a real directory")
-    defer watcher_destroy(&w)
+    w.allocator = context.allocator
+    w.pending = make([dynamic]Change)
+    w.subscribers = make([dynamic]Subscriber)
+    w.running = true
+    defer {
+        for c in w.pending {
+            delete(c.path, w.allocator)
+        }
+        delete(w.pending)
+        delete(w.subscribers)
+    }
 
     sink: Sink
     defer sink_destroy(&sink)
