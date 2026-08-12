@@ -153,9 +153,10 @@ Editor :: struct {
     select_by_word:     bool,
     word_lo:            int,
     word_hi:            int,
-    // A Ctrl+Click (go-to-definition) is in progress; the drag that a physical
-    // click emits must not turn into a selection.
-    goto_click:         bool,
+    // The press was consumed by something that is not a caret placement (a
+    // Ctrl+Click go-to-definition, a completion accepted with the mouse); the
+    // drag that a physical click emits must not turn into a selection.
+    suppress_drag:      bool,
     // Scrollbar drag: `scrollbar_grab` is where inside the thumb it was taken,
     // so the thumb keeps its grip on the cursor instead of jumping.
     scrollbar_dragging: bool,
@@ -983,6 +984,14 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
         if event.mouse_button != .LEFT {
             return false
         }
+        // The completion popup draws over everything else in the pane, so it
+        // claims the press before them: a click on a row accepts that candidate.
+        if row := editor_completion_row_at(editor, event.mouse_position); row >= 0 {
+            editor.completion_selected = row
+            editor_accept_completion(editor)
+            editor.suppress_drag = true
+            return true
+        }
         // The scrollbar sits over the text, so it claims the press first: on the
         // thumb it drags from where it was taken, elsewhere on the track it
         // centers the thumb on the click and drags from there.
@@ -1009,10 +1018,10 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
         }
         // Double-click selects the word under the cursor and arms word-drag. A
         // preceding Ctrl+Click at the same spot can still count toward this click
-        // (ui.Context tracks position/time, not modifiers), so goto_click must
+        // (ui.Context tracks position/time, not modifiers), so suppress_drag must
         // clear here too or the following drag stays suppressed.
         if event.click_count == 2 {
-            editor.goto_click = false
+            editor.suppress_drag = false
             if pos, ok := editor_pos_at(editor, event.mouse_position); ok {
                 lo, hi, found := textedit.word_range_at(textedit.text(editor.state), pos)
                 if found {
@@ -1031,15 +1040,15 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
             return true
         }
         editor.select_by_word = false
-        editor.goto_click = false
+        editor.suppress_drag = false
         // Ctrl-click resolves the symbol under the cursor (go to definition); the
         // caret moves there first so the owner reads the right offset and a miss
-        // leaves the cursor placed. goto_click suppresses the drag a physical
+        // leaves the cursor placed. suppress_drag stops the drag a physical
         // click emits, so it can't smear into a selection.
         if event.ctrl && editor.on_goto_definition != nil {
             if pos, ok := editor_pos_at(editor, event.mouse_position); ok {
                 editor_place_caret_at(editor, event.mouse_position)
-                editor.goto_click = true
+                editor.suppress_drag = true
                 editor.on_goto_definition(editor.goto_definition_data, editor.state, pos)
                 return true
             }
@@ -1058,7 +1067,7 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
             editor_scrollbar_drag_to(editor, event.mouse_position.y)
             return true
         }
-        if editor.goto_click {
+        if editor.suppress_drag {
             return true
         }
         if editor.select_by_word {
@@ -1071,6 +1080,15 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
         editor_handle_hover(editor, event.mouse_position)
         return true
     case .Scroll:
+        // Over the completion popup the wheel walks the candidates; the text
+        // must stay put under it, or the popup moves away from the caret.
+        if box, _, _, ok := editor_completion_rects(editor);
+           ok && rl.CheckCollisionPointRec(event.mouse_position, box) {
+            count := len(editor.completion_items)
+            step := event.wheel_delta > 0 ? -1 : 1
+            editor.completion_selected = (editor.completion_selected + step + count) % count
+            return true
+        }
         // The text moves under a still cursor, so a shown popup no longer
         // describes what it points at and the dwell must start over.
         editor_clear_hover(editor)
@@ -1907,9 +1925,12 @@ editor_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
 
     editor_draw_scrollbar(editor)
 
-    if ctx.focused == widget {
-        editor_draw_completion(editor)
+    // A pane that lost focus drops the popup rather than hiding it: the rects are
+    // the hit test, so an invisible popup would eat the click that refocuses.
+    if ctx.focused != widget && editor.completion_active {
+        editor_dismiss_completion(editor)
     }
+    editor_draw_completion(editor)
 
     // Hover peeks without focusing, so it draws whenever the mouse is dwelling
     // over this pane, regardless of which widget holds focus. The cursor leaving
@@ -1942,6 +1963,13 @@ editor_handle_hover :: proc(editor: ^Editor, mouse: rl.Vector2) {
     // uses to inspect a symbol. It picks which hover this dwell is: held, the
     // owner resolves the symbol under the cursor; released, a diagnostic under it
     // explains itself. A passive rest over unflagged code still pops nothing up.
+    // A row under the cursor preselects, so a click accepts what the highlight
+    // shows. This precedes the dwell bookkeeping: over the popup there is no
+    // text to describe, and moving inside it must not restart the dwell.
+    if row := editor_completion_row_at(editor, mouse); row >= 0 {
+        editor.completion_selected = row
+        return
+    }
     mod := rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL)
     toggled := mod != editor.hover_mod_down
     editor.hover_mod_down = mod
@@ -2194,15 +2222,17 @@ editor_caret_screen :: proc(editor: ^Editor) -> (x, y, line_height: f32, ok: boo
     return editor_screen_at(editor, textedit.primary_cursor(editor.state).caret)
 }
 
-// Draws the completion popup under the caret, flipping above when there is no
-// room below and nudging left to stay inside the editor bounds.
-@(private = "file")
-editor_draw_completion :: proc(editor: ^Editor) {
+// Box of the completion popup, its row height, and the index of the first drawn
+// row. The popup sits under the caret, flips above when there is no room below
+// and is nudged left to stay inside the editor bounds. Shared by the draw and
+// the hit-test so the two cannot drift. `ok` is false when no popup is up.
+@(private)
+editor_completion_rects :: proc(editor: ^Editor) -> (box: rl.Rectangle, row_height: f32, top: int, ok: bool) {
     if !editor.completion_active || len(editor.completion_items) == 0 {
         return
     }
-    caret_x, caret_y, lh, ok := editor_caret_screen(editor)
-    if !ok {
+    caret_x, caret_y, lh, caret_ok := editor_caret_screen(editor)
+    if !caret_ok {
         return
     }
 
@@ -2229,30 +2259,48 @@ editor_draw_completion :: proc(editor: ^Editor) {
         box_y = caret_y - box_h - 2 // flip above the caret
     }
 
-    box := rl.Rectangle {box_x, box_y, width, box_h}
+    // Keep the selected item in view when the list is longer than the popup.
+    top = max(editor.completion_selected - visible + 1, 0)
+    return rl.Rectangle {box_x, box_y, width, box_h}, lh, top, true
+}
+
+// Index of the candidate under `point`, or -1 when the point is off the rows.
+@(private)
+editor_completion_row_at :: proc(editor: ^Editor, point: rl.Vector2) -> int {
+    box, lh, top, ok := editor_completion_rects(editor)
+    if !ok || lh <= 0 || !rl.CheckCollisionPointRec(point, box) {
+        return -1
+    }
+    row := top + cast(int) ((point.y - (box.y + 2)) / lh)
+    if row < top || row >= top + COMPLETION_MAX_ROWS || row >= len(editor.completion_items) {
+        return -1
+    }
+    return row
+}
+
+// Draws the completion popup.
+@(private = "file")
+editor_draw_completion :: proc(editor: ^Editor) {
+    box, lh, top, ok := editor_completion_rects(editor)
+    if !ok {
+        return
+    }
     rl.DrawRectangleRec(box, editor.gutter_color)
     rl.DrawRectangleLinesEx(box, 1, editor.border_color)
 
-    // Keep the selected item in view when the list is longer than the popup.
-    top := 0
-    if editor.completion_selected >= visible {
-        top = editor.completion_selected - visible + 1
-    }
+    visible := min(len(editor.completion_items) - top, COMPLETION_MAX_ROWS)
     for i in 0 ..< visible {
         idx := top + i
-        if idx >= len(editor.completion_items) {
-            break
-        }
-        row_y := box_y + 2 + cast(f32) i * lh
+        row_y := box.y + 2 + cast(f32) i * lh
         if idx == editor.completion_selected {
-            rl.DrawRectangleRec(rl.Rectangle {box_x, row_y, width, lh}, editor.selection_color)
+            rl.DrawRectangleRec(rl.Rectangle {box.x, row_y, box.width, lh}, editor.selection_color)
         }
         text_y := cast(i32) (row_y + (lh - cast(f32) editor.font_size) * 0.5)
         color := editor.text_color
         if idx < len(editor.completion_colors) {
             color = editor.completion_colors[idx]
         }
-        ui.draw_text(editor.completion_items[idx], cast(i32) (box_x + 8), text_y, editor.font_size, color)
+        ui.draw_text(editor.completion_items[idx], cast(i32) (box.x + 8), text_y, editor.font_size, color)
     }
 }
 

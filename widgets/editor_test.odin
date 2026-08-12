@@ -2,7 +2,127 @@ package widgets
 
 import "core:testing"
 
+import rl "vendor:raylib"
+
 import "../textedit"
+
+import "../ui"
+
+// The candidate strings are clones; editor_dismiss_completion is file-private to
+// editor.odin, so a stack editor frees them here.
+@(private = "file")
+editor_test_free_completions :: proc(editor: ^Editor) {
+    for item in editor.completion_items {
+        delete(item)
+    }
+    clear(&editor.completion_items)
+}
+
+// A stack editor with one caret at the end of `text`, laid out large enough for
+// the completion popup to fit under the caret. The caller frees visual_rows.
+@(private = "file")
+editor_test_completion_setup :: proc(editor: ^Editor, state: ^textedit.State, text: string) {
+    textedit.set_text(state, text)
+    editor.state = state
+    editor.font_size = 16
+    editor.bounds = rl.Rectangle {0, 0, 600, 600}
+    textedit.select_range(state, len(text) - 1, len(text) - 1)
+    editor.rows_stale = true
+    editor_ensure_visual_rows(editor)
+}
+
+// Clicking a candidate accepts it. The click point comes from the shared rects,
+// never from a fixed pixel: ui.measure_text reports 0 with no font atlas, so the
+// box collapses to its minimum width in a headless run.
+@(test)
+test_completion_click_accepts :: proc(t: ^testing.T) {
+    state: textedit.State
+    textedit.init(&state)
+    defer textedit.destroy(&state)
+
+    editor: Editor
+    defer delete(editor.visual_rows)
+    defer delete(editor.completion_items)
+    defer delete(editor.completion_colors)
+    defer editor_test_free_completions(&editor)
+
+    editor_test_completion_setup(&editor, &state, "al\n")
+    editor_set_completions(&editor, []Completion_Item{{text = "alpha"}, {text = "alphabet"}})
+    testing.expect_value(t, len(editor.completion_items), 2)
+
+    box, lh, top, ok := editor_completion_rects(&editor)
+    testing.expect(t, ok, "an active popup has a box")
+    testing.expect_value(t, top, 0)
+
+    // Row 1 is "alphabet"; row 0 stays selected until the click moves it.
+    point := rl.Vector2 {box.x + 4, box.y + 2 + lh * 1.5}
+    testing.expect_value(t, editor_completion_row_at(&editor, point), 1)
+    testing.expect_value(t, editor.completion_selected, 0)
+
+    down := ui.Event {kind = .Mouse_Down, mouse_button = .LEFT, mouse_position = point}
+    editor_handle_event(&editor.widget, nil, &down)
+
+    testing.expect_value(t, textedit.text(&state), "alphabet\n")
+    testing.expect(t, !editor.completion_active, "accepting closes the popup")
+    testing.expect(t, editor.suppress_drag, "the accept must not smear into a selection")
+}
+
+// A point outside the rows is not a candidate, so the press falls through to the
+// text underneath instead of accepting whatever was selected.
+@(test)
+test_completion_click_outside_rows :: proc(t: ^testing.T) {
+    state: textedit.State
+    textedit.init(&state)
+    defer textedit.destroy(&state)
+
+    editor: Editor
+    defer delete(editor.visual_rows)
+    defer delete(editor.completion_items)
+    defer delete(editor.completion_colors)
+    defer editor_test_free_completions(&editor)
+
+    editor_test_completion_setup(&editor, &state, "al\n")
+    editor_set_completions(&editor, []Completion_Item{{text = "alpha"}, {text = "alphabet"}})
+
+    box, lh, _, _ := editor_completion_rects(&editor)
+    below := rl.Vector2 {box.x + 4, box.y + 2 + lh * cast(f32) len(editor.completion_items) + 1}
+    testing.expect_value(t, editor_completion_row_at(&editor, below), -1)
+
+    left := rl.Vector2 {box.x - 4, box.y + 2}
+    testing.expect_value(t, editor_completion_row_at(&editor, left), -1)
+}
+
+// The wheel over the popup walks the candidates and leaves the text where it is,
+// or the popup drifts away from the caret it belongs to.
+@(test)
+test_completion_scroll_walks_candidates :: proc(t: ^testing.T) {
+    state: textedit.State
+    textedit.init(&state)
+    defer textedit.destroy(&state)
+
+    editor: Editor
+    defer delete(editor.visual_rows)
+    defer delete(editor.completion_items)
+    defer delete(editor.completion_colors)
+    defer editor_test_free_completions(&editor)
+
+    editor_test_completion_setup(&editor, &state, "al\n")
+    editor_set_completions(&editor, []Completion_Item{{text = "alpha"}, {text = "alphabet"}})
+
+    box, _, _, _ := editor_completion_rects(&editor)
+    scroll := ui.Event {
+        kind = .Scroll,
+        mouse_position = rl.Vector2 {box.x + 4, box.y + 4},
+        wheel_delta = -1,
+    }
+    editor_handle_event(&editor.widget, nil, &scroll)
+    testing.expect_value(t, editor.completion_selected, 1)
+    testing.expect_value(t, editor.scroll_y, 0)
+
+    // Past the last candidate it wraps back to the first.
+    editor_handle_event(&editor.widget, nil, &scroll)
+    testing.expect_value(t, editor.completion_selected, 0)
+}
 
 // A plain dwell over a squiggle explains the diagnostic under it, and one over
 // the gutter marker — which stands for a whole line — explains the worst on that
