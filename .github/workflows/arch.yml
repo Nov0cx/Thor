@@ -63,9 +63,15 @@ jobs:
       # official prebuilt linux release instead — it runs fine on Arch's glibc.
       - name: Install Odin
         run: |
-          url=$(curl -sL https://api.github.com/repos/odin-lang/Odin/releases/latest \
-            | grep -oE 'https://[^"]*odin-linux-amd64[^"]*\.tar\.gz')
-          curl -L "$url" -o odin.tar.gz
+          # --fail and a retry: a bad response otherwise lands in odin.tar.gz and
+          # is only reported by tar, as "not in gzip format".
+          url=$(curl -fsSL --retry 3 --retry-all-errors https://api.github.com/repos/odin-lang/Odin/releases/latest \
+            | grep -oE 'https://[^"]*odin-linux-amd64[^"]*\.tar\.gz' | head -1)
+          if [ -z "$url" ]; then
+            echo "no odin-linux-amd64 asset in the latest release" >&2
+            exit 1
+          fi
+          curl -fL --retry 3 --retry-all-errors "$url" -o odin.tar.gz
           mkdir -p /opt/odin && tar xzf odin.tar.gz -C /opt/odin
           echo "$(dirname "$(find /opt/odin -maxdepth 3 -type f -name odin | head -1)")" >> "$GITHUB_PATH"
 

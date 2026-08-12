@@ -21,8 +21,10 @@ test_refuses_syntax_error :: proc(t: ^testing.T) {
 test_idempotent_default :: proc(t: ^testing.T) {
 	src := "package p\nFoo::struct{x:int,y:int}\n"
 	out, ok := format(src, default_options())
+	defer delete(out)
 	testing.expect(t, ok)
 	out2, ok2 := format(out, default_options())
+	defer delete(out2)
 	testing.expect(t, ok2)
 	testing.expect_value(t, out2, out)
 }
@@ -33,6 +35,7 @@ test_brace_style_allman :: proc(t: ^testing.T) {
 	opts.brace_style = .Allman
 	src := "package p\nf :: proc() {\n\treturn\n}\n"
 	out, ok := format(src, opts)
+	defer delete(out)
 	testing.expect(t, ok)
 	testing.expect(t, strings.contains(out, "proc()\n{"), out)
 }
@@ -44,6 +47,7 @@ test_tabs_false_uses_spaces :: proc(t: ^testing.T) {
 	opts.spaces = 2
 	src := "package p\nFoo :: struct {\n\tx: int,\n}\n"
 	out, ok := format(src, opts)
+	defer delete(out)
 	testing.expect(t, ok)
 	testing.expect(t, strings.contains(out, "\n  x: int,"), out)
 }
@@ -54,12 +58,13 @@ test_spaces_around_colons :: proc(t: ^testing.T) {
 	opts.spaces_around_colons = true
 	src := "package p\nx: int = 1\n"
 	out, ok := format(src, opts)
+	defer delete(out)
 	testing.expect(t, ok)
 	testing.expect(t, strings.contains(out, "x : int = 1"), out)
 }
 
 @(private)
-token_stream :: proc(src: string) -> []tokenizer.Token {
+token_stream :: proc(src: string) -> [dynamic]tokenizer.Token {
 	t: tokenizer.Tokenizer
 	tokenizer.init(&t, src, "<probe>")
 	t.flags += {.Insert_Semicolon}
@@ -79,7 +84,7 @@ token_stream :: proc(src: string) -> []tokenizer.Token {
 			break
 		}
 	}
-	return out[:]
+	return out
 }
 
 @(private)
@@ -89,8 +94,10 @@ assert_round_trip :: proc(t: ^testing.T, path: string) {
 		fmt.println("skip (unreadable):", path)
 		return
 	}
+	defer delete(src)
 	source := string(src)
 	out, fok := format(source, default_options())
+	defer delete(out)
 	_ = os.write_entire_file("bin/test/last_out.odin.txt", transmute([]u8)out)
 	if !fok {
 		fmt.println("FORMAT FAILED (syntax error):", path)
@@ -99,7 +106,9 @@ assert_round_trip :: proc(t: ^testing.T, path: string) {
 	}
 
 	before := token_stream(source)
+	defer delete(before)
 	after := token_stream(out)
+	defer delete(after)
 	if len(before) != len(after) {
 		fmt.println("TOKEN COUNT MISMATCH:", path, "before:", len(before), "after:", len(after))
 		n := min(len(before), len(after))
@@ -140,6 +149,7 @@ assert_round_trip :: proc(t: ^testing.T, path: string) {
 	}
 
 	out2, fok2 := format(out, default_options())
+	defer delete(out2)
 	if !fok2 {
 		fmt.println("NOT IDEMPOTENT (second format failed):", path)
 		testing.fail(t)

@@ -132,7 +132,7 @@ against the last run:
 ## 8. Methodology     <- the partition, what was verified, and the commit the line numbers match
 ```
 
-Every finding carries its `file:line`. Close section 6 by naming the commit the line numbers were
+Every finding carries its `file:line`. Close section 1 by naming the commit the line numbers were
 read at. Do not generate a PDF unless asked.
 
 ## Reporting back
