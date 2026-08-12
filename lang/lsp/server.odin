@@ -38,6 +38,12 @@ DEADLINE_START :: 10 * time.Second
 // How long `shutdown` may take before the process is killed instead.
 DEADLINE_EXIT :: 2 * time.Second
 
+// pushes is compacted (its drained prefix dropped) once push_head crosses this,
+// instead of on every server_poll, so a chatty server pays one memmove per
+// batch of takes rather than one per take.
+@(private)
+PUSH_COMPACT :: 64
+
 // How long a workspace/applyEdit waits for the main thread to apply it before
 // answering "applied":false on its own. Bounded so a server that sends one
 // while the editor is busy (or language intelligence is off, so nothing ever
@@ -116,6 +122,7 @@ Server :: struct {
     // taken by the main thread through the backend's poll.
     push_mutex:  sync.Mutex,
     pushes:      [dynamic]lang.Result, // owned; guarded by push_mutex
+    push_head:   int,                  // read cursor into pushes; guarded by push_mutex
     restarts:    int,                  // pump thread only
     // How the process is opened, and what it is opened from. The default starts
     // the configured command; a test replaces it with a scripted server running
@@ -319,7 +326,7 @@ server_destroy :: proc(s: ^Server) {
         free(doc, s.allocator)
     }
     delete(s.docs)
-    for &res in s.pushes {
+    for &res in s.pushes[s.push_head:] {
         server_drop_push(s, &res)
     }
     delete(s.pushes)
@@ -585,14 +592,27 @@ server_drain_pushes :: proc(s: ^Server) {
 }
 
 // Takes the oldest decoded push. Main thread, called until it answers false.
+// Advances a read cursor instead of shifting the array on every take — an
+// ordered_remove(0) per call is an O(n) memmove, O(n²) per frame for a server
+// that pushes fast. The drained prefix is dropped in one copy once push_head
+// crosses PUSH_COMPACT, or at once when the cursor catches up to the end.
 @(private)
 server_poll :: proc(s: ^Server, res: ^lang.Result) -> bool {
     sync.guard(&s.push_mutex)
-    if len(s.pushes) == 0 {
+    if s.push_head >= len(s.pushes) {
         return false
     }
-    res^ = s.pushes[0]
-    ordered_remove(&s.pushes, 0)
+    res^ = s.pushes[s.push_head]
+    s.push_head += 1
+    if s.push_head >= len(s.pushes) {
+        clear(&s.pushes)
+        s.push_head = 0
+    } else if s.push_head >= PUSH_COMPACT {
+        remaining := len(s.pushes) - s.push_head
+        copy(s.pushes[:remaining], s.pushes[s.push_head:])
+        resize(&s.pushes, remaining)
+        s.push_head = 0
+    }
     return true
 }
 

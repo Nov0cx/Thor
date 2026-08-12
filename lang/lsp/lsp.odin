@@ -17,6 +17,7 @@ Client :: struct {
     config:    Config,           // owned
     servers:   [dynamic]^Server, // owned; one per configured entry, built once
     workspace: string,           // owned
+    poll_next: int,              // round-robin cursor into servers; main thread only
     // Must be the Manager's allocator, which owns what a pushed result carries.
     allocator: runtime.Allocator,
 }
@@ -91,15 +92,24 @@ resolve :: proc(data: rawptr, req: ^lang.Request, res: ^lang.Result) {
 }
 
 // Takes the next result a server produced without being asked. Main thread,
-// called once per frame until it answers false.
+// called once per frame until it answers false. Starts from poll_next rather
+// than always from servers[0], so a chatty server cannot starve the others of
+// the Manager's per-backend poll budget.
 @(private)
 poll :: proc(data: rawptr, res: ^lang.Result) -> bool {
     c := cast(^Client)data
-    for s in c.servers {
+    if len(c.servers) == 0 {
+        return false
+    }
+    start := c.poll_next % len(c.servers)
+    for offset in 0 ..< len(c.servers) {
+        index := (start + offset) % len(c.servers)
+        s := c.servers[index]
         if !server_admin_enabled(s) {
             continue
         }
         if server_poll(s, res) {
+            c.poll_next = index + 1
             return true
         }
     }

@@ -762,6 +762,39 @@ test_server_progress_push :: proc(t: ^testing.T) {
     server_drop_push(s, &end)
 }
 
+// server_poll advances a read cursor instead of shifting the array on every
+// take, compacting the drained prefix away once it crosses PUSH_COMPACT. From
+// the caller's side that must still behave like a plain FIFO, including
+// across the compaction boundary, and server_destroy must still free a
+// partial drain left in the queue.
+@(test)
+test_server_poll_is_fifo_and_resets :: proc(t: ^testing.T) {
+    extensions := [1]string{".fake"}
+    command := [1]string{"x"}
+    config := Server_Config{id = "fake", extensions = extensions[:], command = command[:], features = lang.FEATURES_ALL, enabled = true}
+    s := server_create(&config, "")
+    defer {
+        server_stop(s)
+        server_destroy(s)
+    }
+
+    total :: PUSH_COMPACT + 10
+    for i in 0 ..< total {
+        append(&s.pushes, lang.Result{id = u64(i)})
+    }
+
+    res: lang.Result
+    for i in 0 ..< total - 5 {
+        testing.expect(t, server_poll(s, &res))
+        testing.expect_value(t, res.id, u64(i))
+    }
+    testing.expect(t, len(s.pushes) <= 10, "the drained prefix must have been compacted away")
+
+    // A partial drain (5 pushes left) is what server_destroy must still free.
+    testing.expect(t, server_poll(s, &res))
+    testing.expect_value(t, res.id, u64(total - 5))
+}
+
 // A server-initiated workspace/applyEdit: decoded into the push queue, and
 // once the "main thread" (here, the test) calls the completion the server
 // gets back the reply it was blocked on.
