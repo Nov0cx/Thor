@@ -153,4 +153,84 @@ test_console_history_walks :: proc(t: ^testing.T) {
 
     console_history_show(console, len(console.history))
     testing.expect_value(t, string(console.input[:]), "")
+
+    // A recalled command is edited from its end.
+    console_history_show(console, 0)
+    testing.expect_value(t, console.input_caret, len("first"))
+}
+
+@(private = "file")
+console_test_type :: proc(console: ^Console, text: string) {
+    for r in text {
+        event := ui.Event {kind = .Text_Input, codepoint = r}
+        console_handle_event(&console.widget, nil, &event)
+    }
+}
+
+@(private = "file")
+console_test_press :: proc(console: ^Console, key: rl.KeyboardKey) {
+    event := ui.Event {kind = .Key_Press, key = key}
+    console_handle_event(&console.widget, nil, &event)
+}
+
+// The prompt is a real single-line field: the caret moves and text goes in
+// where it points, not only at the end.
+@(test)
+test_console_input_caret_edits :: proc(t: ^testing.T) {
+    console := console_create("test")
+    defer console_destroy(&console.widget)
+
+    console_test_type(console, "ac")
+    console_test_press(console, .LEFT)
+    console_test_type(console, "b")
+    testing.expect_value(t, string(console.input[:]), "abc")
+    testing.expect_value(t, console.input_caret, 2)
+
+    // Delete takes the rune after the caret, Backspace the one before it.
+    console_test_press(console, .HOME)
+    console_test_press(console, .DELETE)
+    testing.expect_value(t, string(console.input[:]), "bc")
+    console_test_press(console, .END)
+    console_test_press(console, .BACKSPACE)
+    testing.expect_value(t, string(console.input[:]), "b")
+    testing.expect_value(t, console.input_caret, 1)
+}
+
+// A multi-byte rune moves the caret by its whole width, never into its middle.
+@(test)
+test_console_input_caret_walks_runes :: proc(t: ^testing.T) {
+    console := console_create("test")
+    defer console_destroy(&console.widget)
+
+    console_test_type(console, "aä")
+    testing.expect_value(t, console.input_caret, 3)
+    console_test_press(console, .LEFT)
+    testing.expect_value(t, console.input_caret, 1)
+    console_test_press(console, .DELETE)
+    testing.expect_value(t, string(console.input[:]), "a")
+}
+
+// Submitting clears the line, so the caret has to return to the start with it.
+@(test)
+test_console_submit_resets_caret :: proc(t: ^testing.T) {
+    console := console_create("test")
+    defer console_destroy(&console.widget)
+
+    console_test_type(console, "echo")
+    console_test_press(console, .ENTER)
+    testing.expect_value(t, len(console.input), 0)
+    testing.expect_value(t, console.input_caret, 0)
+}
+
+// A paste lands at the caret, and its newlines are still dropped.
+@(test)
+test_console_paste_inserts_at_caret :: proc(t: ^testing.T) {
+    console := console_create("test")
+    defer console_destroy(&console.widget)
+
+    console_test_type(console, "ad")
+    console_test_press(console, .LEFT)
+    console_input_append(console, "b\nc")
+    testing.expect_value(t, string(console.input[:]), "abcd")
+    testing.expect_value(t, console.input_caret, 3)
 }

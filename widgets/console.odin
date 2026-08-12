@@ -28,6 +28,8 @@ Console :: struct {
     using widget: ui.Widget,
     output:           strings.Builder,
     input:            [dynamic]u8,
+    // Byte offset into `input`, always on a rune boundary.
+    input_caret:      int,
     scroll_y:         f32,
     // Sticks the view to the bottom until the user scrolls up.
     autoscroll:       bool,
@@ -138,15 +140,22 @@ console_text :: proc(console: ^Console) -> string {
     return strings.to_string(console.output)
 }
 
-// Appends UTF-8 text to the input line (used by the paste action). Newlines
-// are dropped since the prompt is single-line.
+// Inserts UTF-8 text at the caret (used by the paste action). Newlines are
+// dropped since the prompt is single-line.
 console_input_append :: proc(console: ^Console, text: string) {
+    filtered := make([dynamic]u8, 0, len(text), context.temp_allocator)
     for b in transmute([]u8) text {
         if b == '\n' || b == '\r' {
             continue
         }
-        append(&console.input, b)
+        append(&filtered, b)
     }
+    if len(filtered) == 0 {
+        return
+    }
+    console.input_caret = clamp(console.input_caret, 0, len(console.input))
+    inject_at(&console.input, console.input_caret, ..filtered[:])
+    console.input_caret += len(filtered)
 }
 
 // Copies the whole scrollback to the system clipboard, selection or not.
@@ -452,6 +461,7 @@ console_history_show :: proc(console: ^Console, index: int) {
     if console.history_index < len(console.history) {
         append(&console.input, ..transmute([]u8) console.history[console.history_index])
     }
+    console.input_caret = len(console.input)
 }
 
 @(private = "file")
@@ -468,6 +478,13 @@ CONSOLE_PAD_Y :: 8
 @(private = "file")
 console_input_height :: proc(console: ^Console) -> f32 {
     return console_line_height(console) + 14
+}
+
+// Left edge of the input text, past the prompt. Shared by the draw and the
+// click hit test so the two cannot drift.
+@(private = "file")
+console_input_origin :: proc(console: ^Console) -> f32 {
+    return console.bounds.x + CONSOLE_PAD_X + cast(f32) ui.measure_text(console.prompt, console.font_size)
 }
 
 // Scroll offset that puts the last line at the bottom of the output area. The
@@ -497,6 +514,13 @@ console_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Even
         if console.selecting {
             console.sel_anchor = console_pos_at(console, event.mouse_position)
             console.sel_cursor = console.sel_anchor
+        } else {
+            console.input_caret = input_caret_at_x(
+                string(console.input[:]),
+                console_input_origin(console),
+                event.mouse_position.x,
+                console.font_size,
+            )
         }
         return true // take focus so typing goes here
     case .Mouse_Move:
@@ -524,7 +548,9 @@ console_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Even
         }
         if event.codepoint >= 32 && event.codepoint != 127 {
             buffer, width := utf8.encode_rune(event.codepoint)
-            append(&console.input, ..buffer[:width])
+            console.input_caret = clamp(console.input_caret, 0, len(console.input))
+            inject_at(&console.input, console.input_caret, ..buffer[:width])
+            console.input_caret += width
         }
         return true
     case .Key_Press:
@@ -545,13 +571,33 @@ console_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Even
             console_paste(console)
             return true
         }
+        console.input_caret = clamp(console.input_caret, 0, len(console.input))
+        input := string(console.input[:])
         #partial switch event.key {
         case .ENTER, .KP_ENTER:
-            console_submit(console, string(console.input[:]))
+            console_submit(console, input)
             clear(&console.input)
+            console.input_caret = 0
             return true
         case .BACKSPACE:
             console_pop_rune(console)
+            return true
+        case .DELETE:
+            if end := input_next_rune(input, console.input_caret); end > console.input_caret {
+                remove_range(&console.input, console.input_caret, end)
+            }
+            return true
+        case .LEFT:
+            console.input_caret = input_prev_rune(input, console.input_caret)
+            return true
+        case .RIGHT:
+            console.input_caret = input_next_rune(input, console.input_caret)
+            return true
+        case .HOME:
+            console.input_caret = 0
+            return true
+        case .END:
+            console.input_caret = len(console.input)
             return true
         case .UP:
             console_history_show(console, console.history_index - 1)
@@ -564,17 +610,14 @@ console_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Even
     return false
 }
 
+// Backspace: removes the rune before the caret.
 @(private = "file")
 console_pop_rune :: proc(console: ^Console) {
-    n := len(console.input)
-    if n == 0 {
-        return
+    input := string(console.input[:])
+    if start := input_prev_rune(input, console.input_caret); start < console.input_caret {
+        remove_range(&console.input, start, console.input_caret)
+        console.input_caret = start
     }
-    i := n - 1
-    for i > 0 && (console.input[i] & 0xC0) == 0x80 {
-        i -= 1
-    }
-    resize(&console.input, i)
 }
 
 console_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
@@ -664,11 +707,11 @@ console_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
     prompt_color := console.running ? console.text_color : console.prompt_color
     ui.draw_text(console.prompt, cast(i32) (console.bounds.x + CONSOLE_PAD_X), cast(i32) input_y, console.font_size, prompt_color)
 
-    prompt_width := ui.measure_text(console.prompt, console.font_size)
-    input_x := cast(i32) (console.bounds.x + CONSOLE_PAD_X) + prompt_width
+    input_x := cast(i32) console_input_origin(console)
     input := string(console.input[:])
     ui.draw_text(input, input_x, cast(i32) input_y, console.font_size, console.text_color)
-    caret_x := input_x + ui.measure_text(input, console.font_size) + 1
+    caret := clamp(console.input_caret, 0, len(input))
+    caret_x := input_x + ui.measure_text(input[:caret], console.font_size) + 1
     if ctx.focused == widget {
         rl.DrawRectangle(caret_x, cast(i32) input_y, 2, console.font_size, console.caret_color)
     }
