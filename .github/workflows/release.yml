@@ -326,7 +326,7 @@ jobs:
 
       - name: Write the notes
         run: |
-          cat > README.md <<'EOF'
+          cat > notes.md <<'EOF'
           Unpack the archive of your platform and start `thor`. The binary reads
           `assets/`, `plugins/`, `settings/` and `docs/` beside itself, so keep
           the folder together.
