@@ -6,10 +6,6 @@ import "core:strings"
 import win32 "core:sys/windows"
 import "core:time"
 
-// Milliseconds between two polls of a timed command's output pipe.
-@(private = "file")
-POLL_INTERVAL_MS :: 5
-
 // Runs `command` via cmd.exe in `cwd` with stdout+stderr piped; blocks until it
 // exits. A `timeout` above zero ends the command and everything it started when
 // that time passes, and marks the output. The returned output is owned by
@@ -102,11 +98,16 @@ run :: proc(command: string, cwd: string, timeout: time.Duration = 0) -> string 
                 break
             }
             if avail == 0 {
-                if win32.WaitForSingleObject(pi.hProcess, 0) != win32.WAIT_OBJECT_0 {
-                    win32.Sleep(POLL_INTERVAL_MS)
+                // The pipe is empty, so the child cannot be blocked writing to a
+                // full one: the wait itself doubles as the sleep between polls,
+                // woken early the moment the process exits instead of noticing
+                // up to one slice late.
+                remaining := time.duration_milliseconds(timeout - time.tick_since(start))
+                wait_ms := win32.DWORD(min(remaining, 50))
+                if win32.WaitForSingleObject(pi.hProcess, wait_ms) != win32.WAIT_OBJECT_0 {
                     continue
                 }
-                // The command can write and exit between the peek and the wait.
+                // The command can write and exit between the wait and the peek.
                 if !win32.PeekNamedPipe(read_pipe, nil, 0, nil, &avail, nil) || avail == 0 {
                     break
                 }
