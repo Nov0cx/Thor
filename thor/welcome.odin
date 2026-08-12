@@ -36,6 +36,7 @@ thor_close_workspace :: proc(thor: ^Thor) {
     thor_drain_io(thor)
     thor_set_active_file(thor, -1)
     thor_clear_git_status(thor)
+    thor_clear_file_index(thor)
     thor.pending_goto_active = false
     delete(thor.pending_goto_path)
     thor.pending_goto_path = ""
@@ -49,6 +50,8 @@ thor_close_workspace :: proc(thor: ^Thor) {
     thor.workspace_dir = ""
     thor.workspace_prefix = ""
     thor.git_branch = ""
+    // thor_refresh_file_index no-ops on the empty workspace, which is right
+    // for the welcome page — there is nothing to index.
 
     // The workspace's .thor/ overlay and plugins no longer apply.
     thor_reload_settings(thor)

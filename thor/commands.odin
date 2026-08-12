@@ -5,6 +5,9 @@ import "core:fmt"
 import "core:log"
 import "core:os"
 import "core:strings"
+import "core:sync"
+import "core:thread"
+import "core:time"
 import "core:unicode/utf8"
 import rl "vendor:raylib"
 
@@ -737,8 +740,15 @@ thor_cmd_open_comments :: proc(data: rawptr) {thor_open_file(cast(^Thor) data, "
 thor_cmd_open_settings :: proc(data: rawptr) {thor_open_file(cast(^Thor) data, "settings/settings.json")}
 thor_cmd_reload_settings :: proc(data: rawptr) {thor_reload_settings(cast(^Thor) data)}
 
+// The cached index once it has been warmed (thor_refresh_file_index); a
+// synchronous walk before then, so the palette is never empty just because
+// the async warm has not landed yet — the handful of frames after a folder
+// opens, or the same window right after startup.
 thor_palette_list_files :: proc(data: rawptr) -> []string {
     thor := cast(^Thor) data
+    if thor.file_index_ready {
+        return thor.file_index[:]
+    }
     files := thor_walk_workspace_files(thor.workspace_dir, context.temp_allocator)
     return files[:]
 }
@@ -800,6 +810,96 @@ thor_collect_files :: proc(dir: string, files: ^[dynamic]string, depth: int, lim
         }
     }
     return true
+}
+
+// Async quick-open file list: a worker walks the workspace tree once and
+// hands the result back; the main thread swaps it in for the old one, the
+// same shape as Git_Status_Job. file_index_inflight/dirty coalesce a burst of
+// watcher activity into one more walk instead of one per event.
+File_Index_Job :: struct {
+    owner:     ^Thor,
+    allocator: runtime.Allocator,
+    worker:    ^thread.Thread,
+    root:      string,          // owned snapshot of workspace_dir at launch
+    files:     [dynamic]string, // owned, with the strings in it; moved onto Thor on reap
+}
+
+// How long a watcher-driven refresh must wait since the last one, so a build
+// writing into the tree cannot keep a walk permanently running.
+@(private)
+FILE_INDEX_INTERVAL :: 5 * time.Second
+
+// Spawns a walk unless one is already running (coalesced into a re-run once
+// it lands) or the workspace is empty.
+thor_refresh_file_index :: proc(thor: ^Thor) {
+    if thor.workspace_dir == "" {
+        return
+    }
+    if thor.file_index_inflight {
+        thor.file_index_dirty = true
+        return
+    }
+    thor.file_index_inflight = true
+    thor.file_index_at = time.tick_now()
+
+    job := new(File_Index_Job)
+    job.owner = thor
+    job.allocator = context.allocator
+    job.root = strings.clone(thor.workspace_dir, context.allocator)
+
+    thor.inflight_jobs += 1
+    job.worker = thread.create_and_start_with_poly_data(job, file_index_worker)
+}
+
+@(private = "file")
+file_index_worker :: proc(job: ^File_Index_Job) {
+    context.allocator = job.allocator
+    defer free_all(context.temp_allocator)
+
+    job.files = thor_walk_workspace_files(job.root, job.allocator)
+
+    sync.lock(&job.owner.io_mutex)
+    append(&job.owner.finished_file_index, job)
+    sync.unlock(&job.owner.io_mutex)
+}
+
+// Drains a finished walk (called from thor_process_io). A workspace switch
+// while it ran makes it the wrong folder's list, so it is thrown away rather
+// than applied.
+thor_apply_file_index :: proc(thor: ^Thor, job: ^File_Index_Job) {
+    thread.join(job.worker)
+    thread.destroy(job.worker)
+
+    if job.root != thor.workspace_dir {
+        for f in job.files {
+            delete(f, job.allocator)
+        }
+        delete(job.files)
+    } else {
+        thor_clear_file_index(thor)
+        thor.file_index = job.files
+        thor.file_index_ready = true
+    }
+
+    delete(job.root, job.allocator)
+    free(job)
+    thor.file_index_inflight = false
+    thor.inflight_jobs -= 1
+
+    // A refresh landed while this one was running: run once more.
+    if thor.file_index_dirty {
+        thor.file_index_dirty = false
+        thor_refresh_file_index(thor)
+    }
+}
+
+thor_clear_file_index :: proc(thor: ^Thor) {
+    for f in thor.file_index {
+        delete(f)
+    }
+    delete(thor.file_index)
+    thor.file_index = nil
+    thor.file_index_ready = false
 }
 
 thor_palette_open_file :: proc(data: rawptr, path: string) {

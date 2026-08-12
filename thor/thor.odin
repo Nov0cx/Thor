@@ -228,7 +228,17 @@ Thor :: struct {
     finished_git:             [dynamic]^Git_Status_Job,
     finished_file_ops:        [dynamic]^File_Op_Job,
     finished_shells:          [dynamic]^Shell_Detect_Job,
+    finished_file_index:      [dynamic]^File_Index_Job,
     inflight_jobs:            int,
+    // Quick-open's cached file list, warmed off-thread at workspace open and
+    // refreshed on watcher activity; thor_palette_list_files falls back to a
+    // synchronous walk while !file_index_ready. Owned, with the strings in it.
+    // file_index_inflight/dirty coalesce a burst the same way git status does.
+    file_index:               [dynamic]string,
+    file_index_ready:         bool,
+    file_index_inflight:      bool,
+    file_index_dirty:         bool,
+    file_index_at:            time.Tick,
     // Plugin output printed while no terminal exists — shell detection is async,
     // so a plugin load body prints before the first one opens. Flushed into that
     // terminal when it opens. owned
@@ -460,6 +470,8 @@ init :: proc() -> ^Thor {
     thor.finished_git = make([dynamic]^Git_Status_Job)
     thor.finished_file_ops = make([dynamic]^File_Op_Job)
     thor.finished_shells = make([dynamic]^Shell_Detect_Job)
+    thor.finished_file_index = make([dynamic]^File_Index_Job)
+    thor.file_index = make([dynamic]string)
     strings.builder_init(&thor.console_backlog)
 
     // Language intelligence: registration order is precedence. The in-client Odin
@@ -518,6 +530,7 @@ init :: proc() -> ^Thor {
     ui.context_set_root(&thor.ui_context, &thor.root_panel.widget)
     ui.context_set_global_key(&thor.ui_context, thor_global_key, thor)
     thor_refresh_git_status(thor)
+    thor_refresh_file_index(thor)
     thor_init_watcher(thor)
     // Claim the workspace now that the window handle exists, so another window
     // opening this folder raises us instead of starting a duplicate.
@@ -611,6 +624,8 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.finished_git)
     delete(thor.finished_file_ops)
     delete(thor.finished_shells)
+    delete(thor.finished_file_index)
+    thor_clear_file_index(thor)
     strings.builder_destroy(&thor.console_backlog)
     delete(thor.app_binds)
     thor_clear_git_status(thor)

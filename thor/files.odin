@@ -1098,6 +1098,7 @@ thor_process_io :: proc(thor: ^Thor) {
     git := make([dynamic]^Git_Status_Job, context.temp_allocator)
     ops := make([dynamic]^File_Op_Job, context.temp_allocator)
     shells := make([dynamic]^Shell_Detect_Job, context.temp_allocator)
+    file_index := make([dynamic]^File_Index_Job, context.temp_allocator)
 
     sync.lock(&thor.io_mutex)
     for job in thor.finished_loads {
@@ -1115,11 +1116,15 @@ thor_process_io :: proc(thor: ^Thor) {
     for job in thor.finished_shells {
         append(&shells, job)
     }
+    for job in thor.finished_file_index {
+        append(&file_index, job)
+    }
     clear(&thor.finished_loads)
     clear(&thor.finished_saves)
     clear(&thor.finished_git)
     clear(&thor.finished_file_ops)
     clear(&thor.finished_shells)
+    clear(&thor.finished_file_index)
     sync.unlock(&thor.io_mutex)
 
     for job in shells {
@@ -1233,6 +1238,10 @@ thor_process_io :: proc(thor: ^Thor) {
 
     for job in ops {
         thor_apply_file_op(thor, job)
+    }
+
+    for job in file_index {
+        thor_apply_file_index(thor, job)
     }
 
     // A save may have changed the working tree; refresh the status so the

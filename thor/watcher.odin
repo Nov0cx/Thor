@@ -2,6 +2,7 @@ package thor
 
 import "core:path/filepath"
 import "core:strings"
+import "core:time"
 
 import "../watch"
 import "../widgets"
@@ -28,17 +29,25 @@ thor_init_watcher :: proc(thor: ^Thor) {
 
 // Run-loop tick: dispatch the buffered changes to the subscribers (which set the
 // coalescing flags and kick reloads), then apply the batched explorer refresh at
-// most once — a save or a `git` command can fire a burst of events.
+// most once — a save or a `git` command can fire a burst of events. The
+// quick-open index follows the same tree-shape signal, but on its own
+// FILE_INDEX_INTERVAL throttle so a build writing into the tree cannot keep a
+// walk permanently running.
 thor_poll_watcher :: proc(thor: ^Thor) {
     watch.watcher_poll(&thor.watcher)
 
     if thor.watch_tree_dirty {
         thor.watch_tree_dirty = false
         widgets.tree_refresh(thor.tree)
+        thor.file_index_dirty = true
     }
     if thor.watch_git_dirty {
         thor.watch_git_dirty = false
         thor_refresh_git_status(thor)
+    }
+    if thor.file_index_dirty && time.tick_since(thor.file_index_at) >= FILE_INDEX_INTERVAL {
+        thor.file_index_dirty = false
+        thor_refresh_file_index(thor)
     }
 }
 
