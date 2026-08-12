@@ -537,6 +537,15 @@ server_apply_edit :: proc(data: rawptr, params: json.Value) -> bool {
         delete(resource_ops)
         return true // an edit that touches nothing is trivially applied
     }
+    // Result.edits promises ascending (path, start); the server sends what it
+    // likes. The applier splices a closed file by that order, as decode_rename
+    // also sorts for.
+    slice.sort_by(edits[:], proc(a, b: lang.Text_Edit) -> bool {
+        if a.path != b.path {
+            return a.path < b.path
+        }
+        return a.start < b.start
+    })
 
     wait := new(Apply_Wait, s.allocator)
     wait.allocator = s.allocator

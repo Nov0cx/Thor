@@ -838,6 +838,51 @@ test_apply_edit_round_trip :: proc(t: ^testing.T) {
     delete(res.edits)
 }
 
+// A server may list one file's edits in any order. Result.edits promises
+// ascending (path, start), and the applier splices a closed file straight by
+// that order, so the push has to sort what the server sent.
+@(test)
+test_apply_edit_push_sorts_edits :: proc(t: ^testing.T) {
+    f: Fake
+    s := fake_server(&f, CAPS_ALL)
+    defer fake_end(&f, s)
+
+    server_notify(s, .Opened, SOURCE, ".fake", BUFFER, 1)
+    testing.expect(t, wait_sent(&f, `"method":"textDocument/didOpen"`), "didOpen never arrived")
+
+    // "gamma" (line 1, byte 11) before "alpha" (line 0, byte 0).
+    mock_frame(
+        &f.mock,
+        `{"jsonrpc":"2.0","id":9,"method":"workspace/applyEdit","params":{"edit":{"changes":{"` +
+        SOURCE_URI +
+        `":[{"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":5}},"newText":"GAMMA"},` +
+        `{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"newText":"ALPHA"}]}}}}`,
+    )
+
+    res: lang.Result
+    testing.expect(t, wait_push(s, &res), "the applyEdit push never reached the queue")
+    testing.expect_value(t, len(res.edits), 2)
+    if len(res.edits) == 2 {
+        testing.expect_value(t, res.edits[0].start, 0)
+        testing.expect_value(t, res.edits[0].new_text, "ALPHA")
+        testing.expect_value(t, res.edits[1].start, 11)
+        testing.expect_value(t, res.edits[1].new_text, "GAMMA")
+    }
+
+    testing.expect(t, res.on_applied != nil, "the reply the server is blocked on must be answerable")
+    if res.on_applied != nil {
+        res.on_applied(res.token, true)
+        testing.expect(t, wait_sent(&f, `"id":9,"result":{"applied":true}`), "the server never saw its edit applied")
+    }
+
+    for edit in res.edits {
+        delete(edit.path)
+        delete(edit.old_text)
+        delete(edit.new_text)
+    }
+    delete(res.edits)
+}
+
 // A resource operation (delete) inside a pushed applyEdit decodes into
 // resource_ops the same way Rename's decode_workspace_edit does.
 @(test)
