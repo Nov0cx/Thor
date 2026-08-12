@@ -2476,10 +2476,17 @@ editor_scan_swatches :: proc(s: string, out: []Row_Swatch) -> int {
 editor_swatch_offset :: proc(editor: ^Editor, row_text: string, rel: int) -> f32 {
     swatches: [MAX_ROW_SWATCHES]Row_Swatch
     count := editor_scan_swatches(row_text, swatches[:])
-    span := editor_swatch_span(editor)
+    return editor_swatch_offset_scanned(swatches[:count], editor_swatch_span(editor), rel)
+}
+
+// Same as editor_swatch_offset, against a swatch list the caller already
+// scanned — for a caller querying many offsets on one row, so the row is not
+// re-scanned per query.
+@(private = "file")
+editor_swatch_offset_scanned :: proc(swatches: []Row_Swatch, span: f32, rel: int) -> f32 {
     total: f32 = 0
-    for k in 0 ..< count {
-        if swatches[k].anchor <= rel {
+    for swatch in swatches {
+        if swatch.anchor <= rel {
             total += span
         }
     }
@@ -2708,6 +2715,15 @@ editor_destroy :: proc(widget: ^ui.Widget) {
 }
 
 // Byte offset of the character nearest the given screen position.
+// Visual x-position of row-relative rune boundary `pos` (a byte offset into
+// `text`, at or past row.start): measured text width plus any swatch gaps
+// opened before it.
+@(private = "file")
+editor_row_width_at :: proc(editor: ^Editor, text: string, row: Visual_Row, swatches: []Row_Swatch, span: f32, pos: int) -> f32 {
+    return cast(f32) ui.measure_text(text[row.start:pos], editor.font_size) +
+        editor_swatch_offset_scanned(swatches, span, pos - row.start)
+}
+
 editor_pos_at :: proc(editor: ^Editor, position: rl.Vector2) -> (int, bool) {
     editor_ensure_visual_rows(editor)
     if len(editor.visual_rows) == 0 {
@@ -2724,19 +2740,35 @@ editor_pos_at :: proc(editor: ^Editor, position: rl.Vector2) -> (int, bool) {
     target_x := position.x - text_x
 
     row_text := text[row.start:row.end]
-    pos := row.start
-    for pos < row.end {
-        _, width := utf8.decode_rune_in_string(text[pos:])
-        width_before := cast(f32) ui.measure_text(text[row.start:pos], editor.font_size) +
-            editor_swatch_offset(editor, row_text, pos - row.start)
-        width_after := cast(f32) ui.measure_text(text[row.start:pos + width], editor.font_size) +
-            editor_swatch_offset(editor, row_text, pos + width - row.start)
-        if target_x < (width_before + width_after) / 2 {
-            break
-        }
-        pos += width
+    swatches: [MAX_ROW_SWATCHES]Row_Swatch
+    swatch_count := editor_scan_swatches(row_text, swatches[:])
+    span := editor_swatch_span(editor)
+
+    // Rune-boundary byte offsets in the row, so the hit test below can binary
+    // search instead of re-measuring the growing prefix at every byte —
+    // O(row length * log row length) instead of O(row length squared).
+    rune_count := utf8.rune_count_in_string(row_text)
+    boundaries := make([]int, rune_count + 1, context.temp_allocator)
+    boundaries[0] = row.start
+    p := row.start
+    for i := 1; i <= rune_count; i += 1 {
+        _, width := utf8.decode_rune_in_string(text[p:])
+        p += width
+        boundaries[i] = p
     }
-    return pos, true
+
+    lo, hi := 0, rune_count
+    for lo < hi {
+        mid := (lo + hi) / 2
+        width_before := editor_row_width_at(editor, text, row, swatches[:swatch_count], span, boundaries[mid])
+        width_after := editor_row_width_at(editor, text, row, swatches[:swatch_count], span, boundaries[mid + 1])
+        if target_x < (width_before + width_after) / 2 {
+            hi = mid
+        } else {
+            lo = mid + 1
+        }
+    }
+    return boundaries[lo], true
 }
 
 // Click: places a single caret at the position.

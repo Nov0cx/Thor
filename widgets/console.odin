@@ -261,17 +261,31 @@ console_pos_at :: proc(console: ^Console, position: rl.Vector2) -> int {
     index := clamp(cast(int) (rel / line_height), 0, line_count - 1)
     line := console_line_text(console, index)
     target_x := position.x - (console.bounds.x + CONSOLE_PAD_X)
-    pos := 0
-    for pos < len(line) {
-        _, width := utf8.decode_rune_in_string(line[pos:])
-        before := cast(f32) ui.measure_text(line[:pos], console.font_size)
-        after := cast(f32) ui.measure_text(line[:pos + width], console.font_size)
-        if target_x < (before + after) / 2 {
-            break
-        }
-        pos += width
+
+    // Rune-boundary byte offsets in the line, so the hit test below can binary
+    // search instead of re-measuring the growing prefix at every byte — this
+    // was O(line length squared) with a long unwrapped line.
+    rune_count := utf8.rune_count_in_string(line)
+    boundaries := make([]int, rune_count + 1, context.temp_allocator)
+    p := 0
+    for i := 1; i <= rune_count; i += 1 {
+        _, width := utf8.decode_rune_in_string(line[p:])
+        p += width
+        boundaries[i] = p
     }
-    return console.line_starts[index] + pos
+
+    lo, hi := 0, rune_count
+    for lo < hi {
+        mid := (lo + hi) / 2
+        before := cast(f32) ui.measure_text(line[:boundaries[mid]], console.font_size)
+        after := cast(f32) ui.measure_text(line[:boundaries[mid + 1]], console.font_size)
+        if target_x < (before + after) / 2 {
+            hi = mid
+        } else {
+            lo = mid + 1
+        }
+    }
+    return console.line_starts[index] + boundaries[lo]
 }
 
 // The scrollback line at `index` (borrowed; valid until the next append/clear),
