@@ -165,6 +165,36 @@ test_async_load_prepares_crlf_text :: proc(t: ^testing.T) {
     thor_close_file(thor, 0)
 }
 
+// `loaded` never becomes true for an image or a model (both bypass the text
+// pipeline), so a tab-info computation that reads `loading` off `!loaded`
+// alone would spin forever on either. thor_tab_info must go through
+// thor_file_ready instead, which also counts texture_loaded/model_loaded.
+@(test)
+test_image_tab_is_not_stuck_loading :: proc(t: ^testing.T) {
+    thor := new(Thor)
+    defer free(thor)
+    thor.open_files = make([dynamic]^Open_File)
+    defer delete(thor.open_files)
+
+    file := new(Open_File)
+    defer free(file)
+    file.name = "photo.png"
+    file.is_image = true
+    append(&thor.open_files, file)
+
+    info := thor_tab_info(thor, 0)
+    testing.expect(t, info.loading, "an image whose texture has not landed yet must read as loading")
+
+    file.texture_loaded = true
+    info = thor_tab_info(thor, 0)
+    testing.expect(t, !info.loading, "an image tab with a loaded texture must not read as loading")
+
+    file.texture_loaded = false
+    file.load_failed = true
+    info = thor_tab_info(thor, 0)
+    testing.expect(t, !info.loading, "a failed load must not read as loading")
+}
+
 @(test)
 test_line_ending_detect :: proc(t: ^testing.T) {
     testing.expect_value(t, thor_detect_line_ending("a\nb\n"), Line_Ending.LF)

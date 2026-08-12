@@ -80,7 +80,10 @@ thor_bind_editor :: proc(thor: ^Thor, editor: ^widgets.Editor, file: ^Open_File,
         if file != nil {
             switch {
             case file.load_failed: editor.placeholder = "Could not open file"
-            case file.is_image:    editor.placeholder = "Image"
+            // A model loads synchronously (thor_load_model), so this text is
+            // never actually seen mid-load; an image loads on the async
+            // worker now (thor_apply_image), so it can be.
+            case file.is_image:    editor.placeholder = file.texture_loaded ? "Image" : "Loading image..."
             case file.is_model:    editor.placeholder = "3D Model"
             case:                  editor.placeholder = "Loading..."
             }
@@ -351,13 +354,21 @@ thor_tab_count :: proc(data: rawptr) -> int {
     return len(thor.open_files)
 }
 
+// Whether a file has something to show: a loaded text buffer, an uploaded
+// image texture, or an uploaded model. `loaded` alone is never true for an
+// image or a model — they bypass the text pipeline entirely — so a caller
+// asking "is there anything to draw yet" must check all three, not `loaded`.
+thor_file_ready :: proc(file: ^Open_File) -> bool {
+    return file.loaded || file.texture_loaded || file.model_loaded
+}
+
 thor_tab_info :: proc(data: rawptr, index: int) -> widgets.Tab_Info {
     thor := cast(^Thor) data
     file := thor.open_files[index]
     return widgets.Tab_Info {
         name = len(file.tab_label) > 0 ? file.tab_label : file.name,
         modified = file.loaded && file.state.revision != file.saved_revision,
-        loading = !file.loaded && !file.load_failed,
+        loading = !thor_file_ready(file) && !file.load_failed,
     }
 }
 

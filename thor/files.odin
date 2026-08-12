@@ -1,5 +1,6 @@
 package thor
 
+import "core:c"
 import "core:fmt"
 import "core:log"
 import "core:mem"
@@ -126,6 +127,13 @@ Load_Job :: struct {
     force:   bool,
     ok:      bool,
     binary:  bool,
+    // This job decodes an image rather than parsing text; skips the NUL probe
+    // (an image is binary by definition) and the line-ending prep.
+    image:   bool,
+    // raylib-owned pixels. Freed by the worker itself on a failed decode
+    // (UnloadImage is plain CPU memory, safe off the main thread); on success
+    // the reap uploads it to GL and frees it after.
+    decoded: rl.Image,
     data:    [^]u8,
     size:    int,
     mapping: File_Map, // closed by the worker; closed again on reap is a no-op
@@ -258,6 +266,17 @@ load_worker :: proc(job: ^Load_Job) {
     file_map_close(&job.mapping)
     job.data = raw_data(job.buffer)
     job.size = len(job.buffer)
+
+    if job.image {
+        ext := strings.clone_to_cstring(filepath.ext(job.path), context.temp_allocator)
+        job.decoded = rl.LoadImageFromMemory(ext, job.data, cast(c.int) job.size)
+        job.ok = rl.IsImageValid(job.decoded)
+        if !job.ok {
+            rl.UnloadImage(job.decoded)
+            job.decoded = {}
+        }
+        return
+    }
 
     // NUL bytes in the head of the file mean it is not text; refuse instead
     // of feeding garbage to the piece table.
@@ -561,50 +580,66 @@ thor_open_file :: proc(thor: ^Thor, path: string) {
     textedit.init(&file.state)
     append(&thor.open_files, file)
 
-    // Images and models load straight onto the GPU (the GL context is on this
-    // thread) and skip the text loader; everything else goes through the async
-    // piece-table load.
+    // A model uploads straight to the GPU on the main thread (raylib exports
+    // no file->CPU-mesh loader, so it cannot be split like an image); an image
+    // and everything else go through the async load worker.
     if thor_is_image_path(file.name) {
         file.is_image = true
-        thor_load_image(file)
+        thor_start_load(thor, file, image = true, reload = false, force = false)
     } else if thor_is_model_path(file.name) {
         file.is_model = true
         thor_load_model(file)
     } else {
-        file.pending_jobs += 1
-        thor.inflight_jobs += 1
-        job := new(Load_Job)
-        job.owner = thor
-        job.file = file
-        job.path = file.path
-        job.worker = thread.create_and_start_with_poly_data(job, load_worker)
+        thor_start_load(thor, file, image = false, reload = false, force = false)
     }
 
     thor_update_tab_labels(thor)
     thor_set_active_file(thor, len(thor.open_files) - 1)
 }
 
+// Bookkeeping and dispatch shared by every load worker launch: marks the file
+// (and Thor) as having an I/O job in flight, then starts the thread.
+@(private = "file")
+thor_start_load :: proc(thor: ^Thor, file: ^Open_File, image, reload, force: bool) -> ^Load_Job {
+    file.pending_jobs += 1
+    thor.inflight_jobs += 1
+    job := new(Load_Job)
+    job.owner = thor
+    job.file = file
+    job.path = file.path
+    job.image = image
+    job.reload = reload
+    job.force = force
+    job.worker = thread.create_and_start_with_poly_data(job, load_worker)
+    return job
+}
+
 // Reloads an already-open file's buffer from disk after an external change (fed
-// by the file watcher). An image or model reuploads straight to the GPU on the
-// main thread, same as its initial load. A text file skips one already being
-// saved or reloaded, one still waiting on a conflict answer, and one that never
-// finished its initial load; it goes through the same async mapping path as a
-// fresh load, and the reap (thor_apply_reload) diffs the bytes against the
-// buffer, so our own saves echoing back through the watcher are no-ops. A
-// buffer with unsaved edits is never replaced behind the user's back: the reap
-// asks first, unless `force` says the user already answered.
+// by the file watcher). A model reuploads straight to the GPU on the main
+// thread, same as its initial load. An image or text file skips one already
+// being saved or reloaded, one still waiting on a conflict answer, and one
+// whose initial load has not landed yet; it goes through the same async load
+// path as a fresh open, and the reap (thor_apply_reload for text,
+// thor_apply_image for an image) diffs or replaces accordingly, so our own
+// saves echoing back through the watcher are no-ops. A text buffer with
+// unsaved edits is never replaced behind the user's back: the reap asks
+// first, unless `force` says the user already answered.
 thor_reload_file :: proc(thor: ^Thor, file: ^Open_File, force := false) {
     if file.closed || file.saving {
         return
     }
-    if file.is_image || file.is_model {
+    if file.is_model {
         thor_reload_gpu_asset(thor, file)
         return
     }
     if file.load_failed {
         return
     }
-    if !file.loaded {
+    if file.is_image {
+        if !file.texture_loaded {
+            return // initial async load still in flight; it will bring the current bytes
+        }
+    } else if !file.loaded {
         return // initial load still in flight; it will bring the current bytes
     }
     if file.disk_changed && !force {
@@ -616,15 +651,7 @@ thor_reload_file :: proc(thor: ^Thor, file: ^Open_File, force := false) {
     }
 
     file.reloading = true
-    file.pending_jobs += 1
-    thor.inflight_jobs += 1
-    job := new(Load_Job)
-    job.owner = thor
-    job.file = file
-    job.path = file.path
-    job.reload = true
-    job.force = force
-    job.worker = thread.create_and_start_with_poly_data(job, load_worker)
+    thor_start_load(thor, file, image = file.is_image, reload = true, force = force)
 }
 
 // Applies a reload job's freshly mapped bytes to its open buffer, if they differ
@@ -815,23 +842,6 @@ thor_is_image_path :: proc(name: string) -> bool {
     return false
 }
 
-// Uploads an image file to a GPU texture on the main thread. On failure the tab
-// shows the load-failed placeholder, matching a rejected text file.
-@(private = "file")
-thor_load_image :: proc(file: ^Open_File) {
-    path := strings.clone_to_cstring(file.path, context.temp_allocator)
-    texture := rl.LoadTexture(path)
-    if texture.id == 0 {
-        file.load_failed = true
-        log.warnf("Failed to load image %q", file.path)
-        return
-    }
-    // Smooths downscaled images; large photos are almost always shown shrunk.
-    rl.SetTextureFilter(texture, .BILINEAR)
-    file.texture = texture
-    file.texture_loaded = true
-}
-
 // Recognized 3D model extensions, matched case-insensitively on the name.
 // These are exactly what raylib's LoadModel reads; FBX has no Odin binding, so
 // it stays a binary file. A .mtl beside an .obj is still just text.
@@ -868,25 +878,53 @@ thor_load_model :: proc(file: ^Open_File) {
     file.model_loaded = true
 }
 
-// Reuploads an image or model after an external change, on the main thread like
-// the initial load (the GL context lives here). Unloads the old GPU handle and
-// clears its loaded flag before reloading, so a failure mid-reload never leaves
-// a freed or stale handle marked live.
+// Reuploads a model after an external change, on the main thread (the GL
+// context lives here) — raylib exports no file->CPU-mesh loader, so a model
+// cannot be decoded off-thread the way an image now is (thor_apply_image).
+// Unloads the old GPU handle and clears its loaded flag before reloading, so
+// a failure mid-reload never leaves a freed or stale handle marked live.
 @(private = "file")
 thor_reload_gpu_asset :: proc(thor: ^Thor, file: ^Open_File) {
-    if file.texture_loaded {
-        rl.UnloadTexture(file.texture)
-        file.texture_loaded = false
-    }
     if file.model_loaded {
         rl.UnloadModel(file.model)
         file.model_loaded = false
     }
     file.load_failed = false
-    if file.is_image {
-        thor_load_image(file)
-    } else {
-        thor_load_model(file)
+    thor_load_model(file)
+}
+
+// Applies a decoded image job: uploads to a fresh texture and only then frees
+// the old one, so a reload never blanks the tab between frames. Bails on a
+// closed file, dropping the decoded pixels unuploaded — thor_apply_reload and
+// the fresh-open branch below it are the text-file equivalents.
+@(private = "file")
+thor_apply_image :: proc(thor: ^Thor, job: ^Load_Job) {
+    file := job.file
+    if file.closed {
+        return
+    }
+    if !job.ok {
+        if !job.reload {
+            file.load_failed = true
+        }
+        log.warnf("Failed to load image %q", job.path)
+        return
+    }
+    texture := rl.LoadTextureFromImage(job.decoded)
+    if texture.id == 0 {
+        if !job.reload {
+            file.load_failed = true
+        }
+        log.warnf("Failed to upload image %q", job.path)
+        return
+    }
+    // Smooths downscaled images; large photos are almost always shown shrunk.
+    rl.SetTextureFilter(texture, .BILINEAR)
+    old, old_loaded := file.texture, file.texture_loaded
+    file.texture = texture
+    file.texture_loaded = true
+    if old_loaded {
+        rl.UnloadTexture(old)
     }
 }
 
@@ -1096,7 +1134,9 @@ thor_process_io :: proc(thor: ^Thor) {
 
         file := job.file
         reload := job.reload
-        if reload {
+        if job.image {
+            thor_apply_image(thor, job)
+        } else if reload {
             thor_apply_reload(thor, job)
         } else if job.ok {
             file.line_ending = job.ending
@@ -1122,6 +1162,9 @@ thor_process_io :: proc(thor: ^Thor) {
         if job.buffer != nil {
             delete(job.buffer, job.buffer_allocator)
         }
+        if job.decoded.data != nil {
+            rl.UnloadImage(job.decoded)
+        }
         free(job)
 
         file.pending_jobs -= 1
@@ -1136,11 +1179,19 @@ thor_process_io :: proc(thor: ^Thor) {
             }
         }
 
-        // A fresh load always re-binds (to show the buffer or the failure
-        // placeholder); a reload that replaced the buffer re-bound itself.
-        if !file.closed && !reload {
-            // The document mirror starts here, not in thor_open_file: before the
-            // read lands there is no text to send.
+        if job.image {
+            // thor_update_editor_view already swaps the image view in per
+            // frame from texture_loaded; binding here is what settles the
+            // editor's placeholder text underneath it, on both an open and a
+            // reload (a reload does not fall into the branch below).
+            if !file.closed {
+                thor_rebind_file_panes(thor, file)
+            }
+        } else if !file.closed && !reload {
+            // A fresh load always re-binds (to show the buffer or the failure
+            // placeholder); a reload that replaced the buffer re-bound itself.
+            // The document mirror starts here, not in thor_open_file: before
+            // the read lands there is no text to send.
             thor_lang_notify(thor, file, .Opened)
             thor_rebind_file_panes(thor, file)
         }
