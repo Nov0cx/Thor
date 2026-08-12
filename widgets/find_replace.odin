@@ -130,20 +130,37 @@ find_replace_is_open :: proc(fr: ^Find_Replace) -> bool {
 }
 
 @(private = "file")
+fr_fold :: #force_inline proc(c: u8) -> u8 {
+    return c >= 'A' && c <= 'Z' ? c + 32 : c
+}
+
+@(private = "file")
 fr_match_at :: proc(text: string, pos: int, query: string) -> bool {
     if pos + len(query) > len(text) {
         return false
     }
     for i in 0 ..< len(query) {
-        a := text[pos + i]
-        b := query[i]
-        if a >= 'A' && a <= 'Z' {a += 32}
-        if b >= 'A' && b <= 'Z' {b += 32}
-        if a != b {
+        if fr_fold(text[pos + i]) != fr_fold(query[i]) {
             return false
         }
     }
     return true
+}
+
+// Boyer-Moore-Horspool bad-character table, case-folded: how far a mismatch at
+// the window's last byte lets the search jump ahead, instead of retrying every
+// intervening start byte. Absent from the query, a byte carries the full jump
+// of len(query).
+@(private = "file")
+fr_skip_table :: proc(query: string) -> (table: [256]int) {
+    n := len(query)
+    for i in 0 ..< 256 {
+        table[i] = n
+    }
+    for i in 0 ..< n - 1 {
+        table[fr_fold(query[i])] = n - 1 - i
+    }
+    return table
 }
 
 // Recomputes match offsets; points `current` at the first match at/after the
@@ -157,20 +174,27 @@ find_replace_recompute :: proc(fr: ^Find_Replace) {
         return
     }
     query := string(fr.find[:])
-    if len(query) == 0 {
+    n := len(query)
+    if n == 0 {
         return
     }
 
     text := textedit.text(fr.editor.state)
     from, _ := textedit.selection_range(textedit.primary_cursor(fr.editor.state))
+
+    // Full document, but re-run once per query change rather than per byte: the
+    // skip table lets a mismatch jump the window ahead instead of retrying
+    // every start byte, so a keystroke's rescan stays close to O(document
+    // length) instead of O(document length x query length).
+    skip := fr_skip_table(query)
     i := 0
-    for i + len(query) <= len(text) {
+    for i + n <= len(text) {
         if fr_match_at(text, i, query) {
             append(&fr.matches, i)
-            i += len(query)
-        } else {
-            i += 1
+            i += n
+            continue
         }
+        i += skip[fr_fold(text[i + n - 1])]
     }
 
     for start, index in fr.matches {
