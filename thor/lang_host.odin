@@ -27,11 +27,9 @@ thor_poll_lang_busy :: proc(thor: ^Thor) {
     thor_lang_busy_update(thor, lang.manager_busy_kinds(&thor.lang_manager), rl.GetTime())
 }
 
-// Folds this frame's in-flight kinds into the indicator state. The flag only
-// goes up once the manager has been busy without a break for
-// LANG_BUSY_DELAY_SECS: the requests that fire while typing (completion,
-// semantic tokens) are answered in a few frames, and a spinner flashing on
-// every keystroke says nothing.
+// Folds this frame's in-flight kinds into the indicator state. The flag waits
+// for LANG_BUSY_DELAY_SECS of unbroken work, so the kinds that fire while typing
+// do not flash a spinner on every keystroke.
 thor_lang_busy_update :: proc(thor: ^Thor, kinds: bit_set[lang.Request_Kind], now: f64) {
     if kinds == {} {
         thor.lang_busy_kinds = {}
@@ -68,11 +66,9 @@ thor_lang_busy_label :: proc(kinds: bit_set[lang.Request_Kind]) -> string {
     return "Analyzing..."
 }
 
-// Pushes the language-intelligence settings onto the manager: the master switch
-// and the per-feature gate, which the seam then enforces on every dispatch.
-// Called from thor_apply_settings, so startup and every reload take the same
-// path. A feature that goes off has its in-flight work cancelled by the manager;
-// what it already put on screen is dropped here.
+// Pushes the master switch and the per-feature gate onto the manager, which
+// enforces them on every dispatch. A feature that goes off has its in-flight
+// work cancelled by the manager; what it already put on screen is dropped here.
 thor_apply_language_settings :: proc(thor: ^Thor) {
     enabled := setting.language_enabled(&thor.config)
     features := setting.language_features(&thor.config)
@@ -120,11 +116,9 @@ thor_language_gate :: proc(thor: ^Thor) -> bit_set[lang.Request_Kind] {
 }
 
 // Rebuilds the LSP client against the new workspace root on a folder switch.
-// settings/lsp.json + .thor/lsp.json are read once, in lsp.client_create, so
-// a stale Client would keep talking to the old root's servers (and the old
-// .thor/lsp.json overlay) otherwise. The in-client Odin engine needs no
-// rebuild — it re-validates its own config file per request through
-// config_ensure's workspace/stat check — so only the LSP side is torn down.
+// Only the LSP side: lsp.client_create reads the server tables once, so a stale
+// Client would keep talking to the old root, while the Odin engine re-validates
+// its own config per request.
 thor_reload_lang :: proc(thor: ^Thor) {
     // No worker may be inside resolve on the old Client when it is destroyed
     // — the same guarantee manager_destroy gives every backend at shutdown.
@@ -150,21 +144,17 @@ thor_reload_lang :: proc(thor: ^Thor) {
     } else {
         lang.manager_set_backends(&thor.lang_manager, odin_backend, lsp_backend)
     }
-    // The freshly built Client's servers all start admin_enabled == true
-    // (server_create's default), so the settings-driven per-backend toggle has
-    // to be re-pushed now; thor_reload_settings already pushed it once earlier
-    // in the same workspace-switch sequence, but against the Client this just
-    // replaced.
+    // A freshly built Client's servers all start admin_enabled == true, so the
+    // per-backend toggle is re-pushed here: the earlier push in this same
+    // workspace switch went to the Client that was just replaced.
     thor_apply_language_settings(thor)
 }
 
-// Document sync: what a backend that mirrors the editor's buffers (a subprocess
-// LSP client) needs to stay in step. The in-client engine defines `notify` only
-// for a save, and every other backend that defines nothing sees none of this.
-//
-// The mirror runs on `Open_File.lang_open`, which the host owns: `.Opened` needs
-// loaded text, `.Changed` and `.Saved` need a mirror already, `.Closed` ends it.
-// A save sends the pending text first, so the server saves what it last saw.
+// Mirrors one buffer event onto a backend that tracks documents; a backend that
+// defines no `notify` sees none of this. The mirror runs on
+// `Open_File.lang_open`: `.Opened` needs loaded text, `.Changed` and `.Saved`
+// need a mirror already, `.Closed` ends it. A save sends the pending text first,
+// so the server saves what it last saw.
 thor_lang_notify :: proc(thor: ^Thor, file: ^Open_File, event: lang.Doc_Event) {
     ext := thor_file_extension(file.name)
     switch event {
@@ -219,19 +209,6 @@ thor_sync_lang_documents :: proc(thor: ^Thor) {
         thor_lang_notify(thor, file, .Changed)
     }
 }
-
-// Go-to-definition and (later) hover wiring between the editor and the language
-// intelligence manager. Requests are dispatched from the caret (Alt+Enter) or a
-// Ctrl+Click; results arrive asynchronously and are applied in thor_on_lang_result.
-//
-// Every dispatch here goes through manager_request_latest (or, for the triggers
-// that fire while typing, manager_request_debounced): each kind has exactly one
-// consumer slot on Thor (a `*_request_id`), so an older request of the same kind
-// can never be wanted again. Cancelling it stops the backend mid-scan instead of
-// letting it finish work the id check would throw away — the difference between
-// a wasted workspace parse per keystroke and none. Debouncing goes one further
-// for completion and auto signature help: a burst of keystrokes queues a single
-// request rather than one thread and buffer clone per key.
 
 // Alt+Enter: resolve the symbol under the caret in the active file.
 thor_goto_definition :: proc(thor: ^Thor) {
@@ -380,13 +357,9 @@ thor_goto_workspace_symbol :: proc(thor: ^Thor) {
 }
 
 // The palette's on_query_changed hook: re-dispatches Workspace_Symbols with the
-// typed text as `req.query`. Both backends filter on it, so a keystroke on a
-// large workspace carries back the matches instead of every symbol; the picker
-// still ranks and re-filters what it gets. The first, pre-typing dispatch sends
-// no query and gets the whole list, which is what makes the chord instant.
-// Debounced like completion, so a burst of keystrokes costs one dispatch; the
-// picker keeps showing its current rows (re-marked loading) until the new ones
-// land.
+// typed text as `req.query`, so a large workspace carries back the matches
+// rather than every symbol. Debounced like completion; the picker keeps its
+// current rows (re-marked loading) until the new ones land.
 @(private = "file")
 thor_workspace_symbol_query_changed :: proc(data: rawptr, query: string) {
     thor := cast(^Thor)data
@@ -416,10 +389,8 @@ thor_workspace_symbol_query_changed :: proc(data: rawptr, query: string) {
 }
 
 // F10: list every usage of the symbol under the caret in a fuzzy picker — its
-// uses, not its declaration. A local/parameter is confined to its scope; a
-// top-level symbol reaches its package and every file qualifying it, so the scan
-// re-parses workspace files off-thread — the picker opens immediately in a
-// loading state and thor_update_references fills it when the result lands.
+// uses, not its declaration. The scan re-parses workspace files off-thread, so
+// the picker opens in a loading state and thor_update_references fills it.
 thor_find_references :: proc(thor: ^Thor) {
     file := thor_active_open_file(thor)
     if file == nil || !file.loaded {
@@ -557,12 +528,10 @@ Edit_Target :: struct {
 }
 
 // One file the last applied edit set touched, and what it takes to move it in
-// either direction. An open file rides its own buffer entry: `revision` is what
-// the buffer read after the last move, and matching it proves that entry is
-// still the top of its stack. A file that was not open was rewritten on disk
-// with no history of its own, so it carries both sides — `before` to undo to and
-// `after` to redo to. A copy that changed since matches neither and is refused
-// rather than clobbered.
+// either direction. An open file rides its own buffer entry, `revision` proving
+// that entry is still on top of its stack; a file that was not open carries both
+// `before` and `after`, since a disk copy has no history. A copy that changed
+// since matches neither and is refused rather than clobbered.
 @(private)
 Edit_Undo_File :: struct {
     path:     string, // owned, canonical
@@ -572,26 +541,21 @@ Edit_Undo_File :: struct {
     after:    string, // owned; closed files: the content the edits wrote
 }
 
-// Applies a backend's edits — all of them, or none. Validates every edit against
-// the content it will land in first and refuses the whole set on any mismatch
-// rather than half-applying it: edits that land in some files and not others
-// break a build silently, and the engine read the unopened files from disk, so an
-// open buffer with unsaved changes is not what it measured. Open files are edited
-// through the buffer (one undo entry each, saved by the user); closed ones are
-// rewritten in place.
+// Applies a backend's edits — all of them, or none. Every edit is validated
+// against the content it will land in before any is written, since a set that
+// lands in some files and not others breaks a build silently. Open files are
+// edited through the buffer (one undo entry each); closed ones are rewritten in
+// place.
 //
 // `origin` is the buffer the edits were computed against — the one file allowed
-// to differ from its saved copy — and `snapshot` the revision it was at. Returns
-// how many edits landed, across how many files, and why none did. A false `ok`
-// with `applied > 0` is the one partial case: a file could not be written after
-// earlier ones already had.
+// to differ from its saved copy — and `snapshot` the revision it was at. A false
+// `ok` with `applied > 0` is the one partial case: a file could not be written
+// after earlier ones already had.
 //
 // `resource_ops` runs in a fixed phase order around the text edits — Create,
-// then the edits above, then Rename, then Delete — rather than replaying its
-// own array position; see lang.Resource_Op for why. Create runs first because
-// an edit in the same set may target a file it just made; Rename and Delete run
-// last, and only once the edits committed. Neither joins the edits' Ctrl+Z
-// record — same as the explorer's own rename/delete, which have no undo either.
+// then the edits, then Rename, then Delete (see lang.Resource_Op). Create is
+// first because an edit may target a file it just made. Neither joins the edits'
+// Ctrl+Z record, same as the explorer's own rename and delete.
 @(private)
 thor_apply_edits :: proc(
     thor: ^Thor,
@@ -737,12 +701,9 @@ thor_free_edit_undo :: proc(entries: []Edit_Undo_File) {
     }
 }
 
-// Reverses the last applied edit set (a rename's occurrences, a code action's
-// fix) across every file it touched, buffers and on-disk copies alike. Returns
-// false — touching nothing — when any of those files has moved on since: a
-// buffer that was edited (its undo entry is no longer on top), one that was
-// closed, or an on-disk copy that no longer holds what was written. Ctrl+Z falls
-// through to the focused buffer's own undo then.
+// Reverses the last applied edit set across every file it touched, buffers and
+// on-disk copies alike. Returns false — touching nothing — when any of them has
+// moved on since; Ctrl+Z falls through to the focused buffer's own undo then.
 thor_undo_last_edits :: proc(thor: ^Thor) -> bool {
     if !thor_edits_still_apply(thor, thor.edit_undo[:], forward = true) {
         return false
@@ -869,10 +830,9 @@ thor_apply_rename :: proc(thor: ^Thor, res: ^lang.Result) {
 }
 
 // Finds (or creates) the target entry for `path`, reading the file's current
-// content once. False refuses the whole edit set: the file is open with unsaved
-// changes the engine's on-disk scan never saw, the `origin` buffer has been
-// edited since the request was made (`snapshot` is its revision), or the file
-// can't be read.
+// content once. False refuses the whole edit set: unsaved changes the engine's
+// on-disk scan never saw, an `origin` buffer edited since the request was made,
+// or an unreadable file.
 @(private = "file")
 thor_edit_target :: proc(
     thor: ^Thor,
@@ -972,14 +932,10 @@ thor_editor_on_type :: proc(data: rawptr, editor: ^widgets.Editor, state: ^texte
     }
 }
 
-// Dispatches a Signature_Help request for `file`'s caret and binds the result to
-// `editor` at dispatch time — a plain tab/pane switch before the result lands
-// dispatches no new request, so the pane must be fixed now rather than
-// re-derived from whatever is active when thor_show_signature runs. `auto`
-// distinguishes the typing-driven trigger (silent on miss, and debounced so a
-// burst of argument keystrokes resolves the call once) from the explicit keybind
-// (flashes on miss, dispatched immediately — the user is waiting on it); it
-// rides along to thor_show_signature via signature_auto.
+// Dispatches a Signature_Help request for `file`'s caret, binding the result to
+// `editor` now rather than to whatever is active when it lands — a pane switch
+// dispatches no new request. `auto` marks the typing-driven trigger (silent on
+// miss, debounced) apart from the keybind (flashes on miss, immediate).
 @(private = "file")
 thor_request_signature :: proc(thor: ^Thor, editor: ^widgets.Editor, file: ^Open_File, auto: bool) {
     if editor == nil || file == nil || !file.loaded {
@@ -1053,12 +1009,10 @@ thor_package_doc :: proc(thor: ^Thor) {
     thor.package_doc_request_id = id
 }
 
-// Shows a rendered package-doc page in the pane the user is not editing in (the
-// "other" window), opening the split if it was closed so their code stays
-// visible beside it. Drops a superseded result by id and flashes when nothing
-// resolved. The page is written to a per-package temp file (outside the
-// workspace, so the analyzer never indexes it) that gets Odin highlighting and
-// is reused on repeat presses.
+// Shows a rendered package-doc page in the pane the user is not editing in,
+// opening the split if it was closed. Drops a superseded result by id. The page
+// is a per-package temp file, outside the workspace so the analyzer never
+// indexes it, reused on repeat presses.
 @(private = "file")
 thor_show_package_doc :: proc(thor: ^Thor, res: ^lang.Result) {
     if res.id != thor.package_doc_request_id {
@@ -1182,11 +1136,9 @@ thor_render_doc_in_pane :: proc(thor: ^Thor, path, text: string, pane: int) {
     thor_sync_active_signal(thor)
 }
 
-// Editor auto-trigger: as a word is typed the editor asks the owner to resolve
-// semantic completions at `offset`. Matches the buffer to its open file and
-// dispatches a Completion request; the pane is remembered so the async result
-// routes back to it. Returns true when a request was dispatched, so the editor
-// can hold off on its buffer-word fallback for this keystroke.
+// Editor auto-trigger: dispatches a Completion request at `offset`, remembering
+// the pane so the async result routes back to it. Returns true when one was
+// dispatched, so the editor holds off on its buffer-word fallback.
 thor_editor_completion :: proc(data: rawptr, editor: ^widgets.Editor, state: ^textedit.State, offset: int) -> bool {
     thor := cast(^Thor) data
     for file in thor.open_files {
@@ -1246,16 +1198,12 @@ thor_update_completion :: proc(thor: ^Thor, res: ^lang.Result) {
     widgets.editor_set_completions(editor, items[:])
 }
 
-// Asks the analyzer what every identifier in `file` actually is, so the
-// highlighter can color the names the grammar cannot tell apart — a parameter, a
-// local, a package and an undeclared typo all parse as a bare identifier. Driven
-// by the highlight pass rather than by the caret: this classifies the whole
-// buffer and nothing is waiting on the answer.
-//
-// One request runs at a time. The classification is a full-file walk, and
-// holding the slot until the last one lands paces it to its own round trip
-// instead of firing one per keystroke; the highlight pass re-asks on the next
-// frame, so a file left behind by a burst of typing catches up on its own.
+// Asks the analyzer what every identifier in `file` is, so the highlighter can
+// color the names the grammar cannot tell apart — a parameter, a local, a
+// package and an undeclared typo all parse as a bare identifier. Driven by the
+// highlight pass, not the caret. One request at a time: holding the slot paces
+// this full-file walk to its own round trip, and the highlight pass re-asks on
+// the next frame, so a file left behind by fast typing catches up on its own.
 thor_request_semantic :: proc(thor: ^Thor, file: ^Open_File) {
     if thor.semantic_request_id != 0 || !file.loaded {
         return
@@ -1288,17 +1236,12 @@ thor_request_semantic :: proc(thor: ^Thor, file: ^Open_File) {
     thor.semantic_path = strings.clone(file.path)
 }
 
-// Stores a classification once it lands and marks the file's highlights stale,
-// so the per-frame pass merges the overlay into them. The file is looked up by
-// path: its tab may have been closed (and the record freed) while the request
-// was in flight.
-//
-// Applied even when the buffer has moved past the revision it was computed at.
-// The offsets are then a keystroke or two behind, which is a far smaller lie
-// than dropping every analyzer color until the next result — that would flash
-// the file back to plain syntax colors on each keystroke. A result carrying
-// nothing still advances the revision, so a file the analyzer has nothing to say
-// about is not re-asked every frame.
+// Stores a classification once it lands and marks the file's highlights stale.
+// Looked up by path, since the tab may have closed while the request was in
+// flight. Applied even when the buffer has moved past the revision it was
+// computed at: offsets a keystroke behind beat flashing back to plain syntax
+// colors. An empty result still advances the revision, so a file the analyzer
+// has nothing to say about is not re-asked every frame.
 @(private = "file")
 thor_update_semantic :: proc(thor: ^Thor, res: ^lang.Result) {
     if res.id != thor.semantic_request_id {
@@ -1419,11 +1362,9 @@ thor_on_lang_result :: proc(user: rawptr, res: ^lang.Result) {
 }
 
 // Applies a server-initiated workspace/applyEdit, then answers the reply the
-// server is blocked on. Unlike Rename there is no one buffer the edit was
-// computed against — the server may push this unprompted — so this reuses
-// thor_apply_edits' generic per-file snapshot check (thor_edit_target) rather
-// than a single-file revision check: an empty `origin` never matches a real
-// path, so every file is validated against its own current content.
+// server is blocked on. The server may push this unprompted, so there is no
+// origin buffer: an empty `origin` never matches a real path, which validates
+// every file against its own current content.
 @(private = "file")
 thor_apply_pushed_edit :: proc(thor: ^Thor, res: ^lang.Result) {
     _, _, ok, _ := thor_apply_edits(thor, res.edits[:], "", 0, res.resource_ops[:])
@@ -1441,12 +1382,9 @@ thor_apply_progress :: proc(thor: ^Thor, res: ^lang.Result) {
     thor.lsp_progress_message = res.progress.done ? "" : strings.clone(res.progress.message)
 }
 
-// Shows the resolved signature in a popup above the caret once its request lands.
-// Drops a superseded result (the caret has since moved to another call) by id, and
-// brackets the active argument so the caller can see which parameter it is on.
-// A procedure group answers with one entry per member: they are drawn one per
-// line with the one the arguments match marked, so the alternatives stay visible
-// while the call is being typed.
+// Shows the resolved signature in a popup above the caret, bracketing the active
+// argument. Drops a superseded result by id. A procedure group answers with one
+// entry per member, drawn one per line with the matched one marked.
 @(private = "file")
 thor_show_signature :: proc(thor: ^Thor, res: ^lang.Result) {
     if res.id != thor.signature_request_id || thor.signature_editor == nil {
@@ -1476,12 +1414,10 @@ thor_show_signature :: proc(thor: ^Thor, res: ^lang.Result) {
 }
 
 // Lays the signature entries out for the popup. A lone signature is drawn bare,
-// exactly as before — the overload machinery must not put a marker column in
-// front of every ordinary call. Two or more are one per line, the matched entry
-// marked with `>` so it reads as the one in effect, and only that entry brackets
-// its active parameter: the caret is in one argument slot, and bracketing the
-// same slot on candidates that do not have it would claim a match that was never
-// made. Returned in the temp allocator; editor_show_signature clones it.
+// so an ordinary call gets no marker column. Two or more are one per line with
+// the matched entry marked `>`, and only that entry brackets its active
+// parameter — the caret is in one argument slot. Temp-allocated;
+// editor_show_signature clones it.
 @(private = "file")
 thor_signature_text :: proc(sig: lang.Signature_Info) -> string {
     if len(sig.entries) == 1 {
@@ -1539,11 +1475,9 @@ thor_update_references :: proc(thor: ^Thor, res: ^lang.Result) {
     widgets.command_palette_pick_rich_set(thor.command_palette, items)
 }
 
-// Builds the references picker rows from a references result: each row is the
-// source line the usage sits on (its code context, no name tint) with a
-// "path:line" preview under the selected row. Rebuilds the jump targets
-// (doc_symbols) in the same order, so the shared pick callback maps a chosen row
-// to its file and offset.
+// Builds the references picker rows: each is the source line the usage sits on,
+// with a "path:line" preview under the selected row. Rebuilds the jump targets
+// in the same order, so the shared pick callback maps a row to file and offset.
 @(private = "file")
 thor_build_reference_items :: proc(thor: ^Thor, res: ^lang.Result) -> []widgets.Pick_Item {
     thor_clear_doc_symbols(thor)
@@ -1560,15 +1494,11 @@ thor_build_reference_items :: proc(thor: ^Thor, res: ^lang.Result) -> []widgets.
     return items[:]
 }
 
-// Fills the already-open (loading) workspace-symbol picker once its scan lands.
-// Drops the result if it's superseded by a newer Ctrl+Q or the picker has since
-// been closed or replaced (command_palette_pick_rich_set is a no-op then). A
-// server-backed extension never dispatches its initial empty-query scan
-// (thor_goto_workspace_symbol skips it and shows the hint directly), so any
-// result landing here is either the native Odin engine's always-full scan or a
-// re-dispatch from typing — an empty native scan means the workspace really has
-// none and closes the picker with a flash; an empty typed result just empties
-// the list, since "no symbols match this text" is not "nothing to show".
+// Fills the already-open (loading) workspace-symbol picker once its scan lands,
+// dropping a superseded or closed-picker result. An empty result from the
+// native engine's always-full scan closes the picker with a flash; an empty
+// typed one just empties the list, since "nothing matches this text" is not
+// "nothing to show".
 @(private = "file")
 thor_update_workspace_symbols :: proc(thor: ^Thor, res: ^lang.Result) {
     if res.id != thor.workspace_symbols_request_id {
@@ -1591,12 +1521,10 @@ thor_update_workspace_symbols :: proc(thor: ^Thor, res: ^lang.Result) {
     widgets.command_palette_pick_rich_set(thor.command_palette, items)
 }
 
-// Builds the rich symbol picker from a symbol result and opens it. Each row is
-// the real Odin declaration ("add :: proc(...) -> int"), its name tinted by kind
-// and a "path:line" preview under the selected row. The result's memory is freed
-// right after this returns (see manager_dispatch), so each row's jump target is
-// cloned into Thor-owned storage the pick callback reads on a later frame; the
-// palette deep-copies the display strings itself.
+// Builds the rich symbol picker and opens it. Each row is the real Odin
+// declaration, its name tinted by kind. The result is freed right after this
+// returns, so each jump target is cloned into Thor-owned storage the pick
+// callback reads on a later frame; the palette copies the display strings.
 @(private = "file")
 thor_show_symbols :: proc(thor: ^Thor, res: ^lang.Result, empty_message: string) {
     if !res.ok || len(res.symbols) == 0 {
@@ -1614,11 +1542,8 @@ thor_show_symbols :: proc(thor: ^Thor, res: ^lang.Result, empty_message: string)
     )
 }
 
-// A go-to-definition that resolved to several workspace declarations (the flat
-// cross-file match ignores package boundaries, so the same name can live in more
-// than one package): list the candidates in the rich picker instead of silently
-// jumping to the first. Reuses the symbol picker's rows and jump targets, so
-// choosing one jumps there.
+// A go-to-definition that resolved to several workspace declarations: lists the
+// candidates in the rich picker instead of silently jumping to the first.
 @(private = "file")
 thor_show_definition_candidates :: proc(thor: ^Thor, res: ^lang.Result) {
     items := thor_build_symbol_items(thor, res)
