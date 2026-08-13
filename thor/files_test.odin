@@ -744,6 +744,57 @@ test_tab_labels_disambiguate :: proc(t: ^testing.T) {
     testing.expect_value(t, thor.open_files[0].tab_label, "state.odin — thor/thor")
 }
 
+// A confirmed delete must not be undone by a save already writing the same file:
+// the two run on separate workers, so the delete waits the save out first. The
+// tab is closed for a folder delete too, or autosave would write the file back.
+@(test)
+test_delete_settles_an_inflight_save :: proc(t: ^testing.T) {
+    ROOT :: "thor_delete_save.tmp"
+    NESTED :: ROOT + "/nested"
+    TEST_PATH :: NESTED + "/doomed.txt"
+
+    os.remove_all(ROOT) // a previous run that died mid-test
+    defer os.remove_all(ROOT)
+    testing.expect(t, os.make_directory(ROOT) == nil, "could not create test root")
+    testing.expect(t, os.make_directory(NESTED) == nil, "could not create nested dir")
+    testing.expect(t, os.write_entire_file(TEST_PATH, transmute([]u8) string("disk\n")) == nil, "could not create test file")
+
+    thor := test_make_thor()
+    defer test_free_thor(thor)
+    thor.tree = widgets.tree_create("test-tree", ROOT)
+    defer widgets.tree_destroy(&thor.tree.widget)
+    defer delete(thor.pending_delete_paths)
+
+    thor_open_file(thor, TEST_PATH)
+    file := thor.open_files[0]
+    for _ in 0 ..< 500 {
+        thor_update_files(thor)
+        if file.loaded || file.load_failed {
+            break
+        }
+        time.sleep(2 * time.Millisecond)
+    }
+    testing.expect(t, file.loaded, "load did not complete")
+
+    textedit.insert_text(&file.state, "unsaved ")
+    thor_save_file(thor, file)
+    testing.expect(t, file.saving, "save did not start")
+
+    // The folder, not the file: the tab still has to close, and the save under
+    // it still has to settle.
+    append(&thor.pending_delete_paths, strings.clone(NESTED))
+    thor_confirm_delete(thor)
+    testing.expect_value(t, len(thor.open_files), 0)
+    // Only the delete is left in flight; the save was settled before it started.
+    testing.expect_value(t, thor.inflight_jobs, 1)
+
+    thor_drain_io(thor)
+    testing.expect_value(t, thor.inflight_jobs, 0)
+    testing.expect_value(t, len(thor.zombie_files), 0)
+    testing.expect(t, !os.exists(TEST_PATH), "the save put the deleted file back")
+    testing.expect(t, !os.exists(NESTED), "deleted folder still on disk")
+}
+
 // Headless Thor with just enough wired up for the file pipeline: no window and
 // no GL, matching test_async_file_roundtrip's inline setup.
 @(private = "file")

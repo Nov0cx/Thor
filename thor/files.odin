@@ -54,6 +54,10 @@ Open_File :: struct {
     // Tab was closed while a load/save thread still references this record;
     // it is freed on the main thread once pending_jobs drops to zero.
     closed:             bool,
+    // Tells the save worker to write nothing: the file is about to be deleted,
+    // and a write that lands after the removal would put it back. Written by the
+    // main thread, read atomically by save_worker.
+    save_cancel:        bool,
     pending_jobs:       int,
     saved_revision:     u64,
     last_seen_revision: u64,
@@ -159,14 +163,17 @@ Load_Job :: struct {
 }
 
 Save_Job :: struct {
-    owner:    ^Thor,
-    file:     ^Open_File,
-    path:     string, // borrowed from file; valid while pending_jobs > 0
-    text:     string, // owned snapshot, freed on the main thread
-    revision: u64,
-    worker:   ^thread.Thread,
-    ok:       bool,
-    err:      os.Error,
+    owner:     ^Thor,
+    file:      ^Open_File,
+    path:      string, // borrowed from file; valid while pending_jobs > 0
+    text:      string, // owned snapshot, freed on the main thread
+    revision:  u64,
+    worker:    ^thread.Thread,
+    ok:        bool,
+    // The write was dropped for a pending delete, so this is no failure to
+    // report and the buffer keeps its unsaved state.
+    cancelled: bool,
+    err:       os.Error,
 }
 
 // What a File_Op_Job does with each of its entries.
@@ -303,8 +310,14 @@ load_worker :: proc(job: ^Load_Job) {
 
 @(private = "file")
 save_worker :: proc(job: ^Save_Job) {
-    job.err = os.write_entire_file(job.path, job.text)
-    job.ok = job.err == nil
+    // The write is one call with no cancel point inside it, so this is the last
+    // moment a pending delete can stop the file from coming back.
+    if sync.atomic_load(&job.file.save_cancel) {
+        job.cancelled = true
+    } else {
+        job.err = os.write_entire_file(job.path, job.text)
+        job.ok = job.err == nil
+    }
     free_all(context.temp_allocator)
 
     sync.lock(&job.owner.io_mutex)
@@ -1001,6 +1014,7 @@ thor_save_file :: proc(thor: ^Thor, file: ^Open_File, force := false) {
     }
 
     file.saving = true
+    file.save_cancel = false
     file.pending_jobs += 1
     thor.inflight_jobs += 1
 
@@ -1252,7 +1266,7 @@ thor_process_io :: proc(thor: ^Thor) {
                 thor_lang_notify(thor, file, .Saved)
                 thor_request_diagnostics(thor, file)
             }
-        } else {
+        } else if !job.cancelled {
             log.warnf("Failed to save %q: %v", job.path, job.err)
             thor_flash_status(thor, fmt.tprintf("Could not save %s: %v", filepath.base(job.path), job.err), is_error = true)
         }
@@ -1329,6 +1343,51 @@ thor_drain_io :: proc(thor: ^Thor) {
     }
 }
 
+// Stops a save that is writing under `path` and waits for it to reap. The delete
+// runs on its own worker, so without this the two race and a write landing after
+// the removal puts the file back. Zombie files count: a tab closed earlier can
+// still be saving. Blocks the frame, which a save already in flight is short
+// enough for.
+@(private = "file")
+thor_settle_saves_under :: proc(thor: ^Thor, path: string) {
+    for {
+        pending := thor_cancel_saves_under(thor.open_files, path)
+        pending |= thor_cancel_saves_under(thor.zombie_files, path)
+        if !pending {
+            return
+        }
+        thor_process_io(thor)
+        time.sleep(time.Millisecond)
+        free_all(context.temp_allocator)
+    }
+}
+
+// Marks every save under `path` as cancelled, answering whether one is still
+// writing. Re-run each round: thor_process_io frees the records that reap.
+@(private = "file")
+thor_cancel_saves_under :: proc(files: [dynamic]^Open_File, path: string) -> (pending: bool) {
+    for file in files {
+        if !file.saving || !thor_path_within(file.path, path) {
+            continue
+        }
+        sync.atomic_store(&file.save_cancel, true)
+        pending = true
+    }
+    return
+}
+
+// Closes every tab at or under `path`. A deleted folder takes its open files
+// with it: left open, autosave would write one straight back to disk.
+@(private = "file")
+thor_close_files_under :: proc(thor: ^Thor, path: string) {
+    // Backwards, so closing one never shifts an index still to be visited.
+    for index := len(thor.open_files) - 1; index >= 0; index -= 1 {
+        if thor_path_within(thor.open_files[index].path, path) {
+            thor_close_file(thor, index)
+        }
+    }
+}
+
 // Tree widget callback: a file row was clicked in the explorer.
 thor_tree_open :: proc(data: rawptr, path: string) {
     thor := cast(^Thor) data
@@ -1386,9 +1445,8 @@ thor_confirm_delete :: proc(data: rawptr) {
 
     entries: [dynamic]File_Op_Entry
     for path in thor.pending_delete_paths {
-        if _, index := thor_find_open_file(thor, path); index >= 0 {
-            thor_close_file(thor, index)
-        }
+        thor_settle_saves_under(thor, path)
+        thor_close_files_under(thor, path)
         append(&entries, File_Op_Entry{src = strings.clone(path)})
     }
     thor_start_file_op(thor, .Delete, entries)
