@@ -132,7 +132,7 @@ index_sync_dir :: proc(
             return
         }
         if info.type == .Directory {
-            if info.name == ".git" || strings.has_prefix(info.name, ".") {
+            if strings.has_prefix(info.name, ".") {
                 continue
             }
             index_sync_dir(e, parser, req, info.fullpath, seen, count, depth + 1)
