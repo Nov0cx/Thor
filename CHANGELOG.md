@@ -77,3 +77,7 @@ First release. Thor runs on Windows, Linux and macOS.
 - Hover and completion work on a by-reference loop variable: `p.` inside `for &p in points` offers the element's fields.
 - The workspace symbol picker (`ctrl + q`) filters as you type in the analyzer instead of sending every symbol in the workspace on each keystroke.
 - A code action a language server runs itself, rather than answering with edits, is offered and runs. Its row reads "runs on the server", and the server's changes arrive as it applies them.
+- Fixed a crash when a plugin calls `tree:language()` or `tree:source()` on a tree that was already collected.
+- On Linux and macOS, two paths that differ only in case are no longer taken for the same file.
+- A first run no longer warns about the settings files it has not created yet.
+- Typing an opening bracket or quote no longer rebuilds the whole document, so auto-pairs stay fast in a large file.
