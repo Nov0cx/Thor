@@ -47,6 +47,9 @@ General :: struct {
     // character the backend asked for. Off by default — an edit landing while
     // the user is still typing is intrusive, unlike a save-triggered format.
     format_on_type:    bool,
+    // Ask GitHub for a newer release shortly after start, at most once a day.
+    // On by default; Help > Check for Updates asks whatever this holds.
+    check_for_updates: bool,
     // Language intelligence: the master switch and the features still allowed
     // under it, read from the "language_intelligence" entry. Both are on by
     // default; the editor pushes them onto lang.Manager, which enforces them.
@@ -111,6 +114,7 @@ load :: proc(dir: string) -> Settings {
         ligatures         = true,
         format_on_save    = false,
         format_on_type    = false,
+        check_for_updates = true,
         language_enabled  = true,
         language_features = lang.FEATURES_ALL,
         language_backends = make(map[string]Backend_Setting),
@@ -234,6 +238,11 @@ format_on_save :: proc(s: ^Settings) -> bool {
 // Whether typing a trigger character dispatches on-type formatting.
 format_on_type :: proc(s: ^Settings) -> bool {
     return s.general.format_on_type
+}
+
+// Whether Thor asks GitHub for a newer release in the background.
+check_for_updates :: proc(s: ^Settings) -> bool {
+    return s.general.check_for_updates
 }
 
 // Whether language intelligence runs at all. Off makes every backend silent,
@@ -713,6 +722,7 @@ load_general :: proc(s: ^Settings, path: string) {
     read_bool(root, "ligatures", &s.general.ligatures)
     read_bool(root, "format_on_save", &s.general.format_on_save)
     read_bool(root, "format_on_type", &s.general.format_on_type)
+    read_bool(root, "check_for_updates", &s.general.check_for_updates)
     read_string(root, "open_folder_in", &s.general.open_folder_in)
     read_string(root, "default_shell", &s.general.default_shell)
     read_language(s, root)

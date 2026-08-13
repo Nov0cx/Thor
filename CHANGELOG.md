@@ -17,6 +17,10 @@ First release. Thor runs on Windows, Linux and macOS.
 - Named shell commands in `.thor/tasks.json`, started from the titlebar or the command palette.
 - Rendered Markdown preview (`f4`).
 - Help menu opens the manual in the editor or the browser, and an interactive tutorial.
+- Thor asks GitHub for a newer release shortly after start, at most once a day. `check_for_updates` turns the background check off, and **Help > Check for Updates** asks at any time.
+- An update installs itself: the archive for the platform is checked against the release `SHA256SUMS`, the files beside the binary are replaced, and Thor restarts into the same folder. `settings/` files that were edited and `sessions/` are kept as they are.
+- Dismissing an update is remembered for that version. The title bar keeps a button with the new version that brings the offer back.
+- A build from source, or one in a directory Thor cannot write, reports the new version and opens the Releases page instead of installing.
 - `thor [path]` opens a folder or a file; `--version` and `--help` print and exit.
 - Settings view redesigned: a category sidebar replaces the single scrollable list, with a search box and a General/Workspace scope switch that writes to `settings/` or the workspace `.thor/` explicitly.
 - Settings has a close button, a keyboard-hint footer, and a button that empties the search box.

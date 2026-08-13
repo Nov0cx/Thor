@@ -89,6 +89,9 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
     widgets.settings_view_begin_category(view, "terminal", "Terminal", "terminal-2")
     widgets.settings_view_add_choice(view, "default_shell", "Default Shell", thor_default_shell_label(thor, config))
 
+    widgets.settings_view_begin_category(view, "updates", "Updates", "download")
+    widgets.settings_view_add_choice(view, "check_for_updates", "Check for Updates", thor_on_off_label(setting.check_for_updates(config)))
+
     // The backend rows, and each backend's own feature rows, only while the
     // master switch is on: off, none of them does anything, and a screenful of
     // dead rows reads as a screenful of broken ones.
@@ -219,6 +222,8 @@ thor_on_setting_choice :: proc(data: rawptr, id: string) {
         thor_cmd_change_open_folder_in(thor)
     case "default_shell":
         thor_cmd_select_shell(thor)
+    case "check_for_updates":
+        thor_cmd_change_check_for_updates(thor)
     }
 }
 
@@ -431,6 +436,33 @@ thor_format_on_save_commit :: proc(data: rawptr, choice: string) {
     on := choice == ON_OFF_LABELS[0]
     setting.persist_bool(thor_active_settings_path(thor), "format_on_save", on)
     thor.config.general.format_on_save = on
+    thor_settings_mark_clean(thor)
+    if widgets.settings_view_is_open(thor.settings_view) {
+        thor_populate_settings_view(thor)
+    }
+}
+
+// Settings row: the background update check. Off leaves Help > Check for
+// Updates working, which asks whatever this holds.
+@(private = "file")
+thor_cmd_change_check_for_updates :: proc(thor: ^Thor) {
+    on := setting.check_for_updates(&thor.config)
+    widgets.select_dialog_open(
+        thor.select_dialog, &thor.ui_context, "Check for Updates",
+        ON_OFF_LABELS[:], thor_on_off_label(on),
+        thor_check_for_updates_preview, thor_check_for_updates_commit, thor,
+    )
+}
+
+@(private = "file")
+thor_check_for_updates_preview :: proc(_: rawptr, _: string) {}
+
+@(private = "file")
+thor_check_for_updates_commit :: proc(data: rawptr, choice: string) {
+    thor := cast(^Thor) data
+    on := choice == ON_OFF_LABELS[0]
+    setting.persist_bool(thor_active_settings_path(thor), "check_for_updates", on)
+    thor.config.general.check_for_updates = on
     thor_settings_mark_clean(thor)
     if widgets.settings_view_is_open(thor.settings_view) {
         thor_populate_settings_view(thor)

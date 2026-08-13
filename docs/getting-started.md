@@ -12,6 +12,36 @@ Two ways to get Thor:
 - **Build from source** — see [Building from Source](building.md). Needed if
   no release matches your platform, or you want a development build.
 
+## Updating
+
+Thor asks GitHub for a newer release shortly after it starts, at most once a
+day. When it finds one it offers to install it; **Help > Check for Updates**
+asks at any time and ignores the daily limit.
+
+Answering **no** is remembered: that version is never offered again. The update
+does not go away, though — a button appears in the title bar showing the new
+version, and clicking it brings the offer back whenever you want it. Turn the
+background check off entirely with `check_for_updates` in
+[Configuration](configuration.md), or from **Settings > Updates**.
+
+Installing downloads the archive for your platform, checks it against the
+`SHA256SUMS` the release publishes, replaces the files beside the binary and
+restarts into the same folder. Two things are left alone: any file in
+`settings/` you have edited (only files you do not have are added), and
+`sessions/`, which holds your open tabs and layout.
+
+Thor updates itself only when it is a release build unpacked from an archive.
+A build from source, or one in a directory it cannot write (`/opt`,
+`C:\Program Files`), reports the new version and opens the
+[Releases](https://github.com/Nov0cx/Thor/releases) page instead. It also needs
+`curl` and `tar`, which Windows 10 1803 and later, macOS and most Linux
+distributions already ship.
+
+If an update is interrupted part-way, the next start puts the old files back —
+they are kept beside the new ones with an `.old` suffix until then. In the one
+case it cannot repair, the binary itself is missing and `thor.exe.old` (or
+`thor.old`) is beside it: rename it back.
+
 ## Opening a project
 
 ```bash

@@ -15,6 +15,7 @@ import "../plugin"
 import "../setting"
 import "../shell"
 import "../ui"
+import "../update"
 import "../watch"
 import "../widgets"
 
@@ -150,6 +151,29 @@ Thor :: struct {
     plugin_prompt_source: Plugin_Source,
     // An answer asked for the plugin VM to be rebuilt; done on the next frame.
     plugin_reload_pending: bool,
+    // The release a check found (see update.odin). The titlebar button borrows
+    // update_version as its label and the palette borrows update_prompt, so both
+    // outlive the widgets. All owned; empty until a check finds something.
+    update_version: string,
+    update_notes: string,
+    update_url: string,
+    update_sums_url: string,
+    update_asset: string,
+    update_prompt: string,
+    update_size: i64,
+    update_state: Update_State,
+    update_button: ^widgets.Button,
+    update_installable: bool,
+    // The prompt is asked once per found version: a dismissal is remembered in
+    // sessions/update.json and the button becomes the only way back to it.
+    update_prompt_shown: bool,
+    update_started: bool,
+    update_inflight: bool,
+    // The running install job, borrowed, so a quit can ask it to stop.
+    update_job: ^Update_Job,
+    // A staged update waiting to be swapped in. Owned; the swap runs from
+    // thor_poll_update and never from the io drain, which shutdown also calls.
+    update_swap_root: string,
     // Plugin whose permission row opened the picker (see settings_ui.odin).
     plugin_setting_target: string,  // owned
     plugin_setting_source: Plugin_Source,
@@ -235,6 +259,7 @@ Thor :: struct {
     finished_file_ops: [dynamic]^File_Op_Job,
     finished_shells: [dynamic]^Shell_Detect_Job,
     finished_file_index: [dynamic]^File_Index_Job,
+    finished_updates: [dynamic]^Update_Job,
     inflight_jobs: int,
     // Quick-open's cached file list, warmed off-thread at workspace open and
     // refreshed on watcher activity; thor_palette_list_files falls back to a
@@ -451,6 +476,11 @@ init :: proc() -> ^Thor {
         workspace_dir = thor_last_workspace()
     }
 
+    // Settle an interrupted update before anything reads assets/ or plugins/:
+    // a swap that died leaves the old copy under its .old name, and this is
+    // what puts it back.
+    update.install_cleanup_leftovers()
+
     // Rasterize fonts on worker threads while the main thread creates the
     // window and builds the widget tree.
     ui.text_begin_async_load("assets/fonts/fonts.json", "assets/icons/icons.json")
@@ -503,6 +533,7 @@ init :: proc() -> ^Thor {
     thor.finished_file_ops = make([dynamic]^File_Op_Job)
     thor.finished_shells = make([dynamic]^Shell_Detect_Job)
     thor.finished_file_index = make([dynamic]^File_Index_Job)
+    thor.finished_updates = make([dynamic]^Update_Job)
     thor.file_index = make([dynamic]string)
     strings.builder_init(&thor.console_backlog)
 
@@ -689,6 +720,9 @@ run :: proc(thor: ^Thor) {
         // callback, which dispatches from widgets the rebuild destroys.
         thor_poll_plugin_reload(thor)
         thor_prompt_plugin_permissions(thor)
+        // Here for the same reason: the update prompt takes focus, and the swap
+        // it can start replaces the files the frame below would draw from.
+        thor_poll_update(thor)
         plugin.manager_dispatch_tick(&thor.plugins)
         ui.context_update(&thor.ui_context)
         thor_sync_active_pane(thor)
@@ -708,6 +742,9 @@ shutdown :: proc(thor: ^Thor) {
     // Stop the watcher first so no new reload jobs are queued while we drain.
     thor_shutdown_watcher(thor)
     thor_terminals_shutdown(thor)
+    // A download in flight would otherwise hold the drain for the rest of the
+    // archive; asked to stop, it gives up after the current slice.
+    thor_cancel_update(thor)
     thor_drain_io(thor)
 
     for file in thor.open_files {
@@ -721,6 +758,8 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.finished_file_ops)
     delete(thor.finished_shells)
     delete(thor.finished_file_index)
+    delete(thor.finished_updates)
+    thor_clear_update(thor)
     thor_clear_file_index(thor)
     strings.builder_destroy(&thor.console_backlog)
     delete(thor.app_binds)

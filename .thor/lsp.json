@@ -1,6 +1,6 @@
 {
     "servers": [
-        { "id": "basedpyright", "enabled": false },
+        { "id": "basedpyright", "enabled": true },
         {
             "id": "ruff",
             "extensions": [".py", ".pyi"],

@@ -168,6 +168,11 @@ thor_apply_theme :: proc(thor: ^Thor) {
     }
     thor_theme_window_button(thor, thor.tasks_add_button, t.highlight)
     thor_theme_menu_button(thor, thor.tasks_select_button)
+    // Built with the titlebar, so it is nil while the first theme loads.
+    if thor.update_button != nil {
+        thor_theme_menu_button(thor, thor.update_button)
+        thor.update_button.text_color = t.success_color
+    }
     // The run arrow keeps a green tint of its own; its hover stays neutral.
     thor_theme_window_button(thor, thor.tasks_run_button, t.highlight)
     thor.tasks_run_button.text_color = t.success_color

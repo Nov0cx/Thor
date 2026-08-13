@@ -29,6 +29,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
+      - uses: actions/checkout@v4
       - id: version
         run: |
           if [ "$GITHUB_REF_TYPE" = tag ]; then
@@ -37,6 +38,18 @@ jobs:
             version="$(printf %s "$GITHUB_REF_NAME" | tr -c 'A-Za-z0-9._-' '-')-${GITHUB_SHA::7}"
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+      # The updater compares the running VERSION against the newest tag, so a
+      # tag that does not match the constant would make every install of it
+      # offer itself again forever.
+      - name: VERSION matches the tag
+        if: github.ref_type == 'tag'
+        run: |
+          constant="$(sed -n 's/^VERSION :: "\(.*\)"$/\1/p' thor/cli.odin)"
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$constant" != "$tag" ]; then
+            echo "thor/cli.odin says VERSION is $constant, the tag says $tag" >&2
+            exit 1
+          fi
 
   windows:
     name: Windows

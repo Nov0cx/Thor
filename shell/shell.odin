@@ -13,7 +13,9 @@
 //
 // where a `timeout` above zero kills the command and everything it started once
 // it passes, and appends a note to the output — for the one caller that cannot
-// leave the frame, a plugin calling thor.exec.
+// leave the frame, a plugin calling thor.exec. `spawn` passes `arg` as the one
+// argument, or none at all when it is empty: an empty argument is not the same
+// as no argument to a program that reads a path from it.
 package shell
 
 import "core:time"

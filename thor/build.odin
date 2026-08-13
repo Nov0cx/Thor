@@ -192,6 +192,7 @@ thor_build_controls :: proc(thor: ^Thor) {
     thor.explorer_restore_button = thor_create_icon_button(thor, "explorer-restore", "layout-sidebar-left-expand", thor_toggle_explorer, thor.theme.buttons)
     thor.console_toggle_button = thor_create_icon_button(thor, "console-toggle", "layout-bottombar-collapse", thor_toggle_console, thor.theme.highlight)
     thor.console_restore_button = thor_create_icon_button(thor, "console-restore", "layout-bottombar-expand", thor_toggle_console, thor.theme.buttons)
+    thor.update_button = thor_create_update_button(thor)
     thor.tasks_add_button = thor_create_window_button(thor, "tasks-add", "plus", thor_click_add_task, thor.theme.highlight)
     thor.tasks_select_button = thor_create_task_selector(thor)
     thor.tasks_run_button = thor_create_window_button(thor, "tasks-run", "player-play", thor_click_run_task, thor.theme.highlight)
@@ -486,6 +487,7 @@ thor_build_content :: proc(thor: ^Thor) {
     widgets.append_child(&thor.top_bar.widget, &thor.menu_view_button.widget)
     widgets.append_child(&thor.top_bar.widget, &thor.menu_help_button.widget)
     widgets.append_child(&thor.top_bar.widget, &top_spacer.widget)
+    widgets.append_child(&thor.top_bar.widget, &thor.update_button.widget)
     widgets.append_child(&thor.top_bar.widget, &thor.tasks_add_button.widget)
     widgets.append_child(&thor.top_bar.widget, &thor.tasks_select_button.widget)
     widgets.append_child(&thor.top_bar.widget, &thor.tasks_run_button.widget)
@@ -588,6 +590,22 @@ thor_create_task_selector :: proc(thor: ^Thor) -> ^widgets.Button {
     button.font_size = 16
     button.padding = ui.padding_xy(TASK_SELECTOR_PAD_X, 4)
     button.min_size = rl.Vector2 {TASK_SELECTOR_MIN_WIDTH, 28}
+    return button
+}
+
+// Titlebar update button: the version a check found, behind a download icon.
+// Hidden until there is one, and the only way back to a release the user
+// dismissed. Its width follows the label, see thor_sync_update_button.
+thor_create_update_button :: proc(thor: ^Thor) -> ^widgets.Button {
+    button := widgets.button_create("update-available", "")
+    widgets.button_set_icon(button, "download", 16)
+    thor_theme_menu_button(thor, button)
+    widgets.button_set_on_click(button, thor_click_update, thor)
+    button.text_color = thor.theme.success_color
+    button.font_size = 16
+    button.padding = ui.padding_xy(10, 4)
+    button.min_size = rl.Vector2 {40, 28}
+    button.visible = false
     return button
 }
 

@@ -9,3 +9,5 @@ bin
 docs/html/
 lsp-status.md
 ANALYSIS.md
+.update/
+.update-probe

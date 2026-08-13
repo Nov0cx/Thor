@@ -144,6 +144,7 @@ run_tests :: proc() -> bool {
         "thor",
         "treecache",
         "ui",
+        "update",
         "watch",
         "widgets",
     }

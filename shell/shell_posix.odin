@@ -202,19 +202,23 @@ exit_status :: proc(status: c.int) -> int {
 
 // Starts `exe` with one argument and leaves it running: no pipes, no wait. The
 // counterpart to `run` for a process that outlives the call — a second editor
-// window. The child forks a second time so init adopts the window, which keeps
-// the editor from having to reap a process it no longer tracks. Returns whether
-// the process started.
+// window. An empty `arg` is no argument at all, not an empty one, which a
+// program that reads a path from it would take for the working directory. The
+// child forks a second time so init adopts the window, which keeps the editor
+// from having to reap a process it no longer tracks. Returns whether the
+// process started.
 spawn :: proc(exe: string, arg: string, cwd: string) -> bool {
     // Everything the child reads must exist before the fork: only
     // async-signal-safe calls are legal between fork and exec.
     exe_c := strings.clone_to_cstring(exe, context.temp_allocator)
-    arg_c := strings.clone_to_cstring(arg, context.temp_allocator)
     cwd_c: cstring
     if cwd != "" {
         cwd_c = strings.clone_to_cstring(cwd, context.temp_allocator)
     }
-    argv := [?]cstring {exe_c, arg_c, nil}
+    argv := [3]cstring{exe_c, nil, nil}
+    if arg != "" {
+        argv[1] = strings.clone_to_cstring(arg, context.temp_allocator)
+    }
 
     pid := posix.fork()
     if pid < 0 {

@@ -40,7 +40,12 @@ run_status :: proc(command: string, cwd: string, timeout: time.Duration = 0) -> 
 
     full := fmt.tprintf("cmd.exe /d /c %s", command)
     cmdline := win32.utf8_to_wstring(full, context.temp_allocator)
-    wdir := win32.utf8_to_wstring(cwd, context.temp_allocator)
+    // An empty directory is inherited, not passed: CreateProcessW refuses a
+    // current directory that is the empty string and the start fails outright.
+    wdir: win32.wstring
+    if cwd != "" {
+        wdir = win32.utf8_to_wstring(cwd, context.temp_allocator)
+    }
 
     // A timed command starts suspended, so the job holds it before it can start
     // a child of its own that the kill would miss.
@@ -167,8 +172,10 @@ exit_code :: proc(process: win32.HANDLE) -> (int, bool) {
 
 // Starts `exe` with one argument and leaves it running: no pipes, no wait, both
 // handles closed at once. The counterpart to `run` for a process that outlives
-// the call — a second editor window. Its own process group keeps a Ctrl+C in a
-// debug console from reaching it. Returns whether the process started.
+// the call — a second editor window. An empty `arg` is no argument at all, not
+// an empty one, which a program that reads a path from it would take for the
+// working directory. Its own process group keeps a Ctrl+C in a debug console
+// from reaching it. Returns whether the process started.
 spawn :: proc(exe: string, arg: string, cwd: string) -> bool {
     si := win32.STARTUPINFOW {
         cb = size_of(win32.STARTUPINFOW),
@@ -176,7 +183,7 @@ spawn :: proc(exe: string, arg: string, cwd: string) -> bool {
     pi: win32.PROCESS_INFORMATION
 
     // Both are quoted: a path with spaces would otherwise split into arguments.
-    full := fmt.tprintf("\"%s\" \"%s\"", exe, arg)
+    full := arg != "" ? fmt.tprintf("\"%s\" \"%s\"", exe, arg) : fmt.tprintf("\"%s\"", exe)
     // CreateProcessW writes into the command line buffer, so it must be writable.
     cmdline := win32.utf8_to_wstring(full, context.temp_allocator)
     wdir: win32.wstring
