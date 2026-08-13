@@ -9,6 +9,7 @@ import "core:testing"
 import "core:time"
 import rl "vendor:raylib"
 
+import "../input"
 import "../ui"
 
 // Tests run in parallel and the clock is too coarse to separate two that start
@@ -91,20 +92,25 @@ tree_test_row_pos :: proc(tree: ^Tree, index: int) -> rl.Vector2 {
 @(private = "file")
 tree_test_click :: proc(tree: ^Tree, index: int, ctrl, shift: bool) {
     position := tree_test_row_pos(tree, index)
+    mods: input.Modifiers
+    if ctrl {
+        mods += {.Ctrl}
+    }
+    if shift {
+        mods += {.Shift}
+    }
     down := ui.Event {
         kind = .Mouse_Down,
         mouse_position = position,
         mouse_button = .LEFT,
-        ctrl = ctrl,
-        shift = shift,
+        mods = mods,
     }
     tree_handle_event(&tree.widget, nil, &down)
     up := ui.Event {
         kind = .Mouse_Up,
         mouse_position = position,
         mouse_button = .LEFT,
-        ctrl = ctrl,
-        shift = shift,
+        mods = mods,
     }
     tree_handle_event(&tree.widget, nil, &up)
 }

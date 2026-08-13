@@ -5,6 +5,7 @@ import "core:slice"
 import "core:strings"
 import rl "vendor:raylib"
 
+import "../input"
 import "../lang"
 import "../lang/lsp"
 import "../plugin"
@@ -629,9 +630,9 @@ thor_plugin_permission_commit :: proc(data: rawptr, choice: string) {
 
 // Persists a captured (or cleared) chord to keybinds.json, then reloads so the
 // binding takes effect immediately.
-thor_on_setting_keybind :: proc(data: rawptr, id: string, key: rl.KeyboardKey, ctrl, shift, alt: bool) {
+thor_on_setting_keybind :: proc(data: rawptr, id: string, key: rl.KeyboardKey, mods: input.Modifiers) {
     thor := cast(^Thor) data
-    kb := setting.Keybind {key = key, ctrl = ctrl, shift = shift, alt = alt}
+    kb := setting.Keybind {key = key, mods = mods}
     spec := setting.keybind_spec(kb, context.temp_allocator)
     setting.persist_keybind(thor_active_keybinds_path(thor), id, spec)
     thor_reload_settings(thor)

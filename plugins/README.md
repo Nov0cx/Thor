@@ -130,7 +130,10 @@ end)
 `thor.on_key(fn)` (permission `keys`) sees every key press before the editor
 does, so the buffer it reads is the one from *before* that key. A plugin that
 watches what the user typed wants `on_tick`; one that watches which chord was
-pressed wants `on_key`.
+pressed wants `on_key`. `fn` gets one table: `chord` in the display form
+`thor.keybind` returns, and the booleans `ctrl`, `shift`, `alt` and `cmd` — `cmd`
+is the Command key on macOS and the Windows key elsewhere. Return `true` to
+consume the press.
 
 ## Languages
 

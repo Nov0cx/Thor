@@ -3,6 +3,10 @@
 Letter keys follow the active keyboard layout (QWERTZ etc.); punctuation
 bindings are physical key positions, noted where they differ.
 
+Every binding below is a default and can be changed in `settings/keybinds.json`
+— see [Configuration](configuration.md) for the chord format, including the
+`cmd` token that reaches the Command key on macOS.
+
 ## Files & app
 
 | Binding | Action |

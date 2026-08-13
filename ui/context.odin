@@ -2,6 +2,8 @@ package ui
 
 import rl "vendor:raylib"
 
+import "../input"
+
 Global_Key_Proc :: #type proc(data: rawptr, event: ^Event) -> bool
 
 // Max seconds and pixel drift between presses to count as a multi-click.
@@ -129,9 +131,20 @@ context_collect_input :: proc(ctx: ^Context) {
     // shortcut modifier; Windows also reports it as left Ctrl, so suppress Ctrl
     // while it is held. Computed before mouse events so clicks carry modifiers.
     alt_gr := rl.IsKeyDown(.RIGHT_ALT)
-    ctrl_down := (rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL)) && !alt_gr
-    shift_down := rl.IsKeyDown(.LEFT_SHIFT) || rl.IsKeyDown(.RIGHT_SHIFT)
-    alt_down := rl.IsKeyDown(.LEFT_ALT)
+    mods: input.Modifiers
+    if (rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL)) && !alt_gr {
+        mods += {.Ctrl}
+    }
+    if rl.IsKeyDown(.LEFT_SHIFT) || rl.IsKeyDown(.RIGHT_SHIFT) {
+        mods += {.Shift}
+    }
+    if rl.IsKeyDown(.LEFT_ALT) {
+        mods += {.Alt}
+    }
+    // Command on macOS, the Windows/Super key elsewhere.
+    if rl.IsKeyDown(.LEFT_SUPER) || rl.IsKeyDown(.RIGHT_SUPER) {
+        mods += {.Cmd}
+    }
 
     event_queue_push(&ctx.events, Event {
         kind = .Mouse_Move,
@@ -156,9 +169,7 @@ context_collect_input :: proc(ctx: ^Context) {
             mouse_position = ctx.mouse_pos,
             mouse_delta = mouse_delta,
             mouse_button = .LEFT,
-            ctrl = ctrl_down,
-            shift = shift_down,
-            alt = alt_down,
+            mods = mods,
             click_count = ctx.click_count,
         })
     }
@@ -169,9 +180,7 @@ context_collect_input :: proc(ctx: ^Context) {
             mouse_position = ctx.mouse_pos,
             mouse_delta = mouse_delta,
             mouse_button = .LEFT,
-            ctrl = ctrl_down,
-            shift = shift_down,
-            alt = alt_down,
+            mods = mods,
         })
     }
 
@@ -181,9 +190,7 @@ context_collect_input :: proc(ctx: ^Context) {
             mouse_position = ctx.mouse_pos,
             mouse_delta = mouse_delta,
             mouse_button = .RIGHT,
-            ctrl = ctrl_down,
-            shift = shift_down,
-            alt = alt_down,
+            mods = mods,
         })
     }
 
@@ -193,9 +200,7 @@ context_collect_input :: proc(ctx: ^Context) {
             mouse_position = ctx.mouse_pos,
             mouse_delta = mouse_delta,
             mouse_button = .RIGHT,
-            ctrl = ctrl_down,
-            shift = shift_down,
-            alt = alt_down,
+            mods = mods,
         })
     }
 
@@ -205,9 +210,7 @@ context_collect_input :: proc(ctx: ^Context) {
             mouse_position = ctx.mouse_pos,
             mouse_delta = mouse_delta,
             mouse_button = .MIDDLE,
-            ctrl = ctrl_down,
-            shift = shift_down,
-            alt = alt_down,
+            mods = mods,
         })
     }
 
@@ -217,9 +220,7 @@ context_collect_input :: proc(ctx: ^Context) {
             mouse_position = ctx.mouse_pos,
             mouse_delta = mouse_delta,
             mouse_button = .MIDDLE,
-            ctrl = ctrl_down,
-            shift = shift_down,
-            alt = alt_down,
+            mods = mods,
         })
     }
 
@@ -243,9 +244,7 @@ context_collect_input :: proc(ctx: ^Context) {
         event_queue_push(&ctx.events, Event {
             kind = .Key_Press,
             key = remap_key_to_layout(key),
-            ctrl = ctrl_down,
-            shift = shift_down,
-            alt = alt_down,
+            mods = mods,
         })
     }
 
@@ -262,9 +261,7 @@ context_collect_input :: proc(ctx: ^Context) {
             event_queue_push(&ctx.events, Event {
                 kind = .Key_Press,
                 key = remap_key_to_layout(key),
-                ctrl = ctrl_down,
-                shift = shift_down,
-                alt = alt_down,
+                mods = mods,
             })
         }
     }
@@ -278,9 +275,7 @@ context_collect_input :: proc(ctx: ^Context) {
         event_queue_push(&ctx.events, Event {
             kind = .Text_Input,
             codepoint = codepoint,
-            ctrl = ctrl_down,
-            shift = shift_down,
-            alt = alt_down,
+            mods = mods,
         })
     }
 }

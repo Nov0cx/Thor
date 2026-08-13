@@ -2,6 +2,8 @@ package ui
 
 import rl "vendor:raylib"
 
+import "../input"
+
 Event_Type :: enum {
     None,
     Mouse_Move,
@@ -26,9 +28,7 @@ Event :: struct {
     mouse_button:   rl.MouseButton,
     key:            rl.KeyboardKey,
     codepoint:      rune,
-    ctrl:           bool,
-    shift:          bool,
-    alt:            bool,
+    mods:           input.Modifiers,
     // Consecutive clicks at the same spot: 1 = single, 2 = double, ...
     click_count:    int,
     target:         ^Widget,

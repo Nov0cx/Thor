@@ -25,12 +25,12 @@ thor_apply_settings :: proc(thor: ^Thor) {
     if kb, ok := setting.keybind(&thor.config, "command_palette"); ok {
         thor.command_palette_key = kb
     } else {
-        thor.command_palette_key = setting.Keybind {key = .PERIOD, ctrl = true}
+        thor.command_palette_key = setting.Keybind {key = .PERIOD, mods = {.Ctrl}}
     }
     if kb, ok := setting.keybind(&thor.config, "quick_open"); ok {
         thor.quick_open_key = kb
     } else {
-        thor.quick_open_key = setting.Keybind {key = .TAB, ctrl = true}
+        thor.quick_open_key = setting.Keybind {key = .TAB, mods = {.Ctrl}}
     }
     if kb, ok := setting.keybind(&thor.config, "toggle_fullscreen"); ok {
         thor.fullscreen_key = kb
@@ -40,72 +40,72 @@ thor_apply_settings :: proc(thor: ^Thor) {
     if kb, ok := setting.keybind(&thor.config, "toggle_console"); ok {
         thor.console_toggle_key = kb
     } else {
-        thor.console_toggle_key = setting.Keybind {key = .T, ctrl = true}
+        thor.console_toggle_key = setting.Keybind {key = .T, mods = {.Ctrl}}
     }
     if kb, ok := setting.keybind(&thor.config, "find"); ok {
         thor.find_key = kb
     } else {
-        thor.find_key = setting.Keybind {key = .F, ctrl = true}
+        thor.find_key = setting.Keybind {key = .F, mods = {.Ctrl}}
     }
     if kb, ok := setting.keybind(&thor.config, "replace"); ok {
         thor.replace_key = kb
     } else {
-        thor.replace_key = setting.Keybind {key = .R, ctrl = true}
+        thor.replace_key = setting.Keybind {key = .R, mods = {.Ctrl}}
     }
     if kb, ok := setting.keybind(&thor.config, "focus_editor"); ok {
         thor.focus_editor_key = kb
     } else {
-        thor.focus_editor_key = setting.Keybind {key = .E, ctrl = true, shift = true}
+        thor.focus_editor_key = setting.Keybind {key = .E, mods = {.Ctrl, .Shift}}
     }
     if kb, ok := setting.keybind(&thor.config, "focus_explorer"); ok {
         thor.focus_explorer_key = kb
     } else {
-        thor.focus_explorer_key = setting.Keybind {key = .B, ctrl = true, shift = true}
+        thor.focus_explorer_key = setting.Keybind {key = .B, mods = {.Ctrl, .Shift}}
     }
     if kb, ok := setting.keybind(&thor.config, "focus_terminal"); ok {
         thor.focus_terminal_key = kb
     } else {
-        thor.focus_terminal_key = setting.Keybind {key = .T, ctrl = true, shift = true}
+        thor.focus_terminal_key = setting.Keybind {key = .T, mods = {.Ctrl, .Shift}}
     }
     if kb, ok := setting.keybind(&thor.config, "trim_trailing_whitespace"); ok {
         thor.trim_whitespace_key = kb
     } else {
-        thor.trim_whitespace_key = setting.Keybind {key = .W, ctrl = true, shift = true}
+        thor.trim_whitespace_key = setting.Keybind {key = .W, mods = {.Ctrl, .Shift}}
     }
     if kb, ok := setting.keybind(&thor.config, "format_document"); ok {
         thor.format_key = kb
     } else {
-        thor.format_key = setting.Keybind {key = .L, ctrl = true, alt = true}
+        thor.format_key = setting.Keybind {key = .L, mods = {.Ctrl, .Alt}}
     }
     if kb, ok := setting.keybind(&thor.config, "format_selection"); ok {
         thor.format_selection_key = kb
     } else {
-        thor.format_selection_key = setting.Keybind {key = .L, ctrl = true, alt = true, shift = true}
+        thor.format_selection_key = setting.Keybind {key = .L, mods = {.Ctrl, .Alt, .Shift}}
     }
     if kb, ok := setting.keybind(&thor.config, "align_at_char"); ok {
         thor.align_char_key = kb
     } else {
-        thor.align_char_key = setting.Keybind {key = .A, ctrl = true, shift = true}
+        thor.align_char_key = setting.Keybind {key = .A, mods = {.Ctrl, .Shift}}
     }
     if kb, ok := setting.keybind(&thor.config, "goto_line"); ok {
         thor.goto_line_key = kb
     } else {
-        thor.goto_line_key = setting.Keybind {key = .G, ctrl = true}
+        thor.goto_line_key = setting.Keybind {key = .G, mods = {.Ctrl}}
     }
     if kb, ok := setting.keybind(&thor.config, "goto_definition"); ok {
         thor.goto_def_key = kb
     } else {
-        thor.goto_def_key = setting.Keybind {key = .ENTER, alt = true}
+        thor.goto_def_key = setting.Keybind {key = .ENTER, mods = {.Alt}}
     }
     if kb, ok := setting.keybind(&thor.config, "goto_symbol"); ok {
         thor.goto_symbol_key = kb
     } else {
-        thor.goto_symbol_key = setting.Keybind {key = .O, ctrl = true, shift = true}
+        thor.goto_symbol_key = setting.Keybind {key = .O, mods = {.Ctrl, .Shift}}
     }
     if kb, ok := setting.keybind(&thor.config, "goto_workspace_symbol"); ok {
         thor.goto_workspace_symbol_key = kb
     } else {
-        thor.goto_workspace_symbol_key = setting.Keybind {key = .Q, ctrl = true}
+        thor.goto_workspace_symbol_key = setting.Keybind {key = .Q, mods = {.Ctrl}}
     }
     if kb, ok := setting.keybind(&thor.config, "find_references"); ok {
         thor.find_references_key = kb
@@ -115,7 +115,7 @@ thor_apply_settings :: proc(thor: ^Thor) {
     if kb, ok := setting.keybind(&thor.config, "signature_help"); ok {
         thor.signature_help_key = kb
     } else {
-        thor.signature_help_key = setting.Keybind {key = .SPACE, ctrl = true, shift = true}
+        thor.signature_help_key = setting.Keybind {key = .SPACE, mods = {.Ctrl, .Shift}}
     }
     if kb, ok := setting.keybind(&thor.config, "package_doc"); ok {
         thor.package_doc_key = kb
@@ -125,24 +125,24 @@ thor_apply_settings :: proc(thor: ^Thor) {
     if kb, ok := setting.keybind(&thor.config, "code_actions"); ok {
         thor.code_actions_key = kb
     } else {
-        thor.code_actions_key = setting.Keybind {key = .U, ctrl = true, shift = true}
+        thor.code_actions_key = setting.Keybind {key = .U, mods = {.Ctrl, .Shift}}
     }
     // Ctrl+Alt+Left/Right, not the browsers' plain Alt+Left/Right: those two are
     // already line_start / line_end.
     if kb, ok := setting.keybind(&thor.config, "jump_back"); ok {
         thor.jump_back_key = kb
     } else {
-        thor.jump_back_key = setting.Keybind {key = .LEFT, ctrl = true, alt = true}
+        thor.jump_back_key = setting.Keybind {key = .LEFT, mods = {.Ctrl, .Alt}}
     }
     if kb, ok := setting.keybind(&thor.config, "jump_forward"); ok {
         thor.jump_forward_key = kb
     } else {
-        thor.jump_forward_key = setting.Keybind {key = .RIGHT, ctrl = true, alt = true}
+        thor.jump_forward_key = setting.Keybind {key = .RIGHT, mods = {.Ctrl, .Alt}}
     }
     if kb, ok := setting.keybind(&thor.config, "last_file"); ok {
         thor.last_file_key = kb
     } else {
-        thor.last_file_key = setting.Keybind {key = .E, ctrl = true}
+        thor.last_file_key = setting.Keybind {key = .E, mods = {.Ctrl}}
     }
     if kb, ok := setting.keybind(&thor.config, "toggle_split"); ok {
         thor.split_key = kb
@@ -152,22 +152,22 @@ thor_apply_settings :: proc(thor: ^Thor) {
     if kb, ok := setting.keybind(&thor.config, "close_tab"); ok {
         thor.close_tab_key = kb
     } else {
-        thor.close_tab_key = setting.Keybind {key = .W, ctrl = true}
+        thor.close_tab_key = setting.Keybind {key = .W, mods = {.Ctrl}}
     }
     if kb, ok := setting.keybind(&thor.config, "next_tab"); ok {
         thor.next_tab_key = kb
     } else {
-        thor.next_tab_key = setting.Keybind {key = .PAGE_DOWN, ctrl = true}
+        thor.next_tab_key = setting.Keybind {key = .PAGE_DOWN, mods = {.Ctrl}}
     }
     if kb, ok := setting.keybind(&thor.config, "previous_tab"); ok {
         thor.previous_tab_key = kb
     } else {
-        thor.previous_tab_key = setting.Keybind {key = .PAGE_UP, ctrl = true}
+        thor.previous_tab_key = setting.Keybind {key = .PAGE_UP, mods = {.Ctrl}}
     }
     if kb, ok := setting.keybind(&thor.config, "toggle_explorer"); ok {
         thor.toggle_explorer_key = kb
     } else {
-        thor.toggle_explorer_key = setting.Keybind {key = .B, ctrl = true}
+        thor.toggle_explorer_key = setting.Keybind {key = .B, mods = {.Ctrl}}
     }
 
     // Resolve each bindable app command's chord from config; an absent or empty
@@ -352,7 +352,7 @@ thor_add_bindable_command :: proc(thor: ^Thor, title, action: string, run: proc(
 thor_dispatch_app_bind :: proc(thor: ^Thor, event: ^ui.Event) -> bool {
     for bind in thor.app_binds {
         if bind.key.key != .KEY_NULL &&
-           setting.keybind_matches(bind.key, event.key, event.ctrl, event.shift, event.alt) {
+           setting.keybind_matches(bind.key, event.key, event.mods) {
             if bind.run != nil {
                 bind.run(bind.data)
             }

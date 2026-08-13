@@ -17,6 +17,7 @@ import "core:time"
 
 import lua "vendor:lua/5.4"
 
+import "../input"
 import "../syntax"
 import ts "../vendor/odin-tree-sitter"
 
@@ -949,7 +950,7 @@ manager_run_command :: proc(m: ^Manager, name: string) -> bool {
 
 // Dispatches a key press to the on_key handler. `chord` is the display string
 // (same format as thor.keybind). Returns whether the plugin consumed it.
-manager_dispatch_key :: proc(m: ^Manager, chord: string, ctrl, shift, alt: bool) -> (consumed: bool) {
+manager_dispatch_key :: proc(m: ^Manager, chord: string, mods: input.Modifiers) -> (consumed: bool) {
     if m.key.ref == NOREF {
         return false
     }
@@ -961,15 +962,17 @@ manager_dispatch_key :: proc(m: ^Manager, chord: string, ctrl, shift, alt: bool)
         return false
     }
 
-    lua.createtable(L, 0, 4)
+    lua.createtable(L, 0, 5)
     lua.pushstring(L, strings.clone_to_cstring(chord, context.temp_allocator))
     lua.setfield(L, -2, "chord")
-    lua.pushboolean(L, b32(ctrl))
+    lua.pushboolean(L, b32(.Ctrl in mods))
     lua.setfield(L, -2, "ctrl")
-    lua.pushboolean(L, b32(shift))
+    lua.pushboolean(L, b32(.Shift in mods))
     lua.setfield(L, -2, "shift")
-    lua.pushboolean(L, b32(alt))
+    lua.pushboolean(L, b32(.Alt in mods))
     lua.setfield(L, -2, "alt")
+    lua.pushboolean(L, b32(.Cmd in mods))
+    lua.setfield(L, -2, "cmd")
 
     if !call_guarded(m, m.key.owner, 1, 1, "on_key") {
         return false

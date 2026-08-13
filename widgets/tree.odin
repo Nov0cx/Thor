@@ -743,10 +743,10 @@ tree_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event) 
         tree.pending_collapse = false
         tree.suppress_click_action = false
         switch {
-        case event.shift:
+        case (.Shift in event.mods):
             tree_select_range(tree, node.path)
             tree.suppress_click_action = true
-        case event.ctrl:
+        case (.Ctrl in event.mods):
             tree_toggle_select(tree, node.path)
             tree.suppress_click_action = true
         case (node.path in tree.multi_selected) && len(tree.multi_selected) > 1:

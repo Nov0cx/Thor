@@ -201,7 +201,7 @@ model_view_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.E
         // Left orbits, right (or shift+left) pans. Move events carry no
         // modifiers, so the mode is fixed when the button goes down.
         #partial switch event.mouse_button {
-        case .LEFT:  view.drag = event.shift ? .Pan : .Orbit
+        case .LEFT:  view.drag = (.Shift in event.mods) ? .Pan : .Orbit
         case .RIGHT: view.drag = .Pan
         case:        return false
         }
@@ -223,7 +223,7 @@ model_view_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.E
     case .Mouse_Up:
         view.drag = .None
     case .Key_Press:
-        if event.key == .R && !event.ctrl && !event.alt {
+        if event.key == .R && !(.Ctrl in event.mods) && !(.Alt in event.mods) {
             model_view_reset_camera(view)
             return true
         }

@@ -208,7 +208,7 @@ test_tutorial_challenges_and_reset_prompt :: proc(t: ^testing.T) {
 
     // The first challenge is the command palette; its chord clears it, and the
     // handler never consumes the key, so the real action still runs.
-    consumed := manager_dispatch_key(&m, "Key<command_palette>", true, false, false)
+    consumed := manager_dispatch_key(&m, "Key<command_palette>", {.Ctrl})
     testing.expect(t, !consumed, "the tutorial observes keys without eating them")
     testing.expect(t, strings.contains(tutor.doc, "1/10"), "the pressed chord cleared its challenge")
 

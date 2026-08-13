@@ -9,14 +9,13 @@ import "core:os"
 import "core:strings"
 import rl "vendor:raylib"
 
+import "../input"
 import "../lang"
 
-// A parsed key chord, e.g. "ctrl+shift+k" -> {key = .K, ctrl, shift}.
+// A parsed key chord, e.g. "ctrl+shift+k" -> {key = .K, mods = {.Ctrl, .Shift}}.
 Keybind :: struct {
-    key:   rl.KeyboardKey,
-    ctrl:  bool,
-    shift: bool,
-    alt:   bool,
+    key:  rl.KeyboardKey,
+    mods: input.Modifiers,
 }
 
 // General editor preferences with sensible defaults, overridable via
@@ -425,46 +424,32 @@ write_object :: proc(path: string, root: json.Object) -> bool {
 
 // True when an incoming key event exactly matches the chord (modifiers must
 // match precisely so ctrl+k and ctrl+shift+k stay distinct).
-keybind_matches :: proc(kb: Keybind, key: rl.KeyboardKey, ctrl, shift, alt: bool) -> bool {
-    return kb.key == key && kb.ctrl == ctrl && kb.shift == shift && kb.alt == alt
+keybind_matches :: proc(kb: Keybind, key: rl.KeyboardKey, mods: input.Modifiers) -> bool {
+    return kb.key == key && kb.mods == mods
 }
 
-// Formats a chord for display, e.g. {key = .K, ctrl, shift} -> "Ctrl+Shift+K".
-// Returns "" for an unset key so callers can treat it as "no binding".
+// Formats a chord for display, e.g. {key = .K, mods = {.Ctrl, .Shift}} ->
+// "Ctrl+Shift+K". Returns "" for an unset key so callers can treat it as "no
+// binding".
 keybind_to_string :: proc(kb: Keybind, allocator := context.temp_allocator) -> string {
     if kb.key == .KEY_NULL {
         return ""
     }
     b := strings.builder_make(allocator)
-    if kb.ctrl {
-        strings.write_string(&b, "Ctrl+")
-    }
-    if kb.shift {
-        strings.write_string(&b, "Shift+")
-    }
-    if kb.alt {
-        strings.write_string(&b, "Alt+")
-    }
+    input.write_names(&b, kb.mods)
     write_key_name(&b, kb.key)
     return strings.to_string(b)
 }
 
 // Serializes a chord to the canonical spec parse_keybind reads back, e.g.
-// {key = .PAGE_UP, ctrl} -> "ctrl+page_up". An unset key yields "" (an unbind).
+// {key = .PAGE_UP, mods = {.Ctrl}} -> "ctrl+page_up". An unset key yields "" (an
+// unbind).
 keybind_spec :: proc(kb: Keybind, allocator := context.temp_allocator) -> string {
     if kb.key == .KEY_NULL {
         return strings.clone("", allocator)
     }
     b := strings.builder_make(allocator)
-    if kb.ctrl {
-        strings.write_string(&b, "ctrl+")
-    }
-    if kb.shift {
-        strings.write_string(&b, "shift+")
-    }
-    if kb.alt {
-        strings.write_string(&b, "alt+")
-    }
+    input.write_tokens(&b, kb.mods)
     write_key_token(&b, kb.key)
     return strings.to_string(b)
 }
@@ -577,21 +562,16 @@ parse_keybind :: proc(spec: string) -> (Keybind, bool) {
     parts := strings.split(spec, "+", context.temp_allocator)
     for part in parts {
         token := strings.to_lower(strings.trim_space(part), context.temp_allocator)
-        switch token {
-        case "ctrl", "control":
-            kb.ctrl = true
-        case "shift":
-            kb.shift = true
-        case "alt":
-            kb.alt = true
-        case:
-            key, ok := key_from_name(token)
-            if !ok {
-                return kb, false
-            }
-            kb.key = key
-            key_set = true
+        if mod, is_mod := input.modifier_from_token(token); is_mod {
+            kb.mods += {mod}
+            continue
         }
+        key, ok := key_from_name(token)
+        if !ok {
+            return kb, false
+        }
+        kb.key = key
+        key_set = true
     }
     return kb, key_set
 }

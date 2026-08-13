@@ -542,7 +542,7 @@ console_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Even
         console.autoscroll = console.scroll_y >= max_scroll
         return true
     case .Text_Input:
-        if event.ctrl && !event.alt {
+        if (.Ctrl in event.mods) && !(.Alt in event.mods) {
             return true
         }
         if event.codepoint >= 32 && event.codepoint != 127 {
@@ -555,8 +555,8 @@ console_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Even
     case .Key_Press:
         // Ctrl+C stops the command instead of copying, the way a terminal does.
         // Copy is Ctrl+Shift+C instead, so it works whether or not one is running.
-        if event.ctrl && event.key == .C {
-            if event.shift {
+        if (.Ctrl in event.mods) && event.key == .C {
+            if (.Shift in event.mods) {
                 console_copy(console)
                 return true
             }
@@ -566,7 +566,7 @@ console_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Even
             }
             return false
         }
-        if event.ctrl && event.key == .V {
+        if (.Ctrl in event.mods) && event.key == .V {
             console_paste(console)
             return true
         }

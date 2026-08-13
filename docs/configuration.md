@@ -39,6 +39,19 @@ shipped bindings; rebind by editing this file (Settings has no key-remap UI
 yet), or open it directly via the command palette or **Tasks** dropdown's
 "Edit Tasks (JSON)"-style actions.
 
+A chord is modifiers and one key, joined with `+`, in any order — for example
+`ctrl+shift+k` or `alt+page_up`. The modifier tokens are:
+
+| Token | Key |
+| --- | --- |
+| `ctrl`, `control` | Control |
+| `shift` | Shift |
+| `alt`, `option` | Alt / Option |
+| `cmd`, `command`, `super`, `meta`, `win` | Command on macOS, the Windows key elsewhere |
+
+The shipped bindings all use `ctrl`; bind `cmd` here to reach the Command key on
+macOS. An empty string unbinds an action.
+
 ## `settings/lsp.json`
 
 The language servers Thor may start. Odin is served in the editor itself and

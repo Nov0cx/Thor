@@ -120,7 +120,7 @@ image_view_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.E
     case .Mouse_Up:
         view.dragging = false
     case .Key_Press:
-        if event.key == .R && !event.ctrl && !event.alt {
+        if event.key == .R && !(.Ctrl in event.mods) && !(.Alt in event.mods) {
             view.zoom = 1
             view.offset = {0, 0}
             return true

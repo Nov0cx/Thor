@@ -425,7 +425,7 @@ editor_create :: proc(id: string) -> ^Editor {
     editor.state = nil
     editor.placeholder = "No file open"
     editor.comment_prefix = "//"
-    editor.comment_keybind = setting.Keybind {key = .K, ctrl = true}
+    editor.comment_keybind = setting.Keybind {key = .K, mods = {.Ctrl}}
     editor.font_size = 18
     editor.padding = ui.Padding {left = 6, top = 12, right = 14, bottom = 12}
     editor.gutter_width = 58
@@ -1042,7 +1042,7 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
         // Ctrl+click goes to the definition. The caret moves first, so the owner
         // reads the right offset and a miss still leaves the cursor placed;
         // suppress_drag keeps the physical click from smearing into a selection.
-        if event.ctrl && editor.on_goto_definition != nil {
+        if (.Ctrl in event.mods) && editor.on_goto_definition != nil {
             if pos, ok := editor_pos_at(editor, event.mouse_position); ok {
                 editor_place_caret_at(editor, event.mouse_position)
                 editor.suppress_drag = true
@@ -1051,7 +1051,7 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
             }
         }
         // Shift-click extends the selection; a plain click starts a new one.
-        if event.shift {
+        if (.Shift in event.mods) {
             editor_select_to(editor, event.mouse_position)
         } else {
             editor_place_caret_at(editor, event.mouse_position)
@@ -1101,7 +1101,7 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
         return true
     case .Text_Input:
         // Skip Ctrl chords (AltGr is normalized to no modifiers upstream).
-        if event.ctrl && !event.alt {
+        if (.Ctrl in event.mods) && !(.Alt in event.mods) {
             return false
         }
         if event.codepoint >= 32 && event.codepoint != 127 {
@@ -1176,8 +1176,8 @@ editor_type_rune :: proc(editor: ^Editor, r: rune) {
 
 editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
     state := editor.state
-    ctrl_only := event.ctrl && !event.alt
-    alt_only := event.alt && !event.ctrl
+    ctrl_only := (.Ctrl in event.mods) && !(.Alt in event.mods)
+    alt_only := (.Alt in event.mods) && !(.Ctrl in event.mods)
 
     // A caret jump or Escape dismisses the signature popup; typing arguments
     // (Text_Input, not Key_Press) and Left/Right between them leave it up.
@@ -1191,7 +1191,7 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
     // While the popup is up it owns the plain navigation and accept keys. A
     // modifier chord closes it and runs normally; Backspace/Delete refresh it.
     if editor.completion_active {
-        if event.ctrl || event.alt {
+        if (.Ctrl in event.mods) || (.Alt in event.mods) {
             editor_dismiss_completion(editor)
         } else {
             #partial switch event.key {
@@ -1209,7 +1209,7 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
             case .ENTER, .KP_ENTER:
                 // Shift+Enter accepts the suggestion; a plain Enter dismisses the
                 // popup and inserts a newline as usual (handled below).
-                if event.shift {
+                if (.Shift in event.mods) {
                     editor_accept_completion(editor)
                     return true
                 }
@@ -1229,7 +1229,7 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
     // alt+number: relative line down, alt+shift+number: relative line up.
     if alt_only {
         if digit, is_digit := editor_key_digit(event.key); is_digit {
-            textedit.move_vertical(state, event.shift ? -digit : digit, false)
+            textedit.move_vertical(state, (.Shift in event.mods) ? -digit : digit, false)
             editor_scroll_to_caret(editor)
             return true
         }
@@ -1238,7 +1238,7 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
     // The comment-toggle chord is configurable, so match it here rather than
     // as a fixed case in the switch below.
     if editor.comment_prefix != "" &&
-       setting.keybind_matches(editor.comment_keybind, event.key, event.ctrl, event.shift, event.alt) {
+       setting.keybind_matches(editor.comment_keybind, event.key, event.mods) {
         textedit.toggle_comment(state, editor.comment_prefix)
         editor_scroll_to_caret(editor)
         return true
@@ -1277,7 +1277,7 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
         return true
     case .ENTER, .KP_ENTER:
         if ctrl_only {
-            if event.shift {
+            if (.Shift in event.mods) {
                 textedit.insert_line_above(state)
             } else {
                 textedit.insert_line_below(state)
@@ -1289,7 +1289,7 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
         editor_scroll_to_caret(editor)
         return true
     case .TAB:
-        if event.shift {
+        if (.Shift in event.mods) {
             textedit.outdent_lines(state)
         } else if textedit.has_any_selection(state) {
             textedit.indent_lines(state)
@@ -1303,11 +1303,11 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
         return true
     case .LEFT:
         if ctrl_only {
-            textedit.move_word(state, -1, event.shift)
+            textedit.move_word(state, -1, (.Shift in event.mods))
         } else if alt_only {
-            textedit.move_line_start(state, event.shift)
+            textedit.move_line_start(state, (.Shift in event.mods))
         } else {
-            textedit.move_horizontal(state, -1, event.shift)
+            textedit.move_horizontal(state, -1, (.Shift in event.mods))
         }
         if editor.signature_active {
             editor_request_signature(editor)
@@ -1316,11 +1316,11 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
         return true
     case .RIGHT:
         if ctrl_only {
-            textedit.move_word(state, 1, event.shift)
+            textedit.move_word(state, 1, (.Shift in event.mods))
         } else if alt_only {
-            textedit.move_line_end(state, event.shift)
+            textedit.move_line_end(state, (.Shift in event.mods))
         } else {
-            textedit.move_horizontal(state, 1, event.shift)
+            textedit.move_horizontal(state, 1, (.Shift in event.mods))
         }
         if editor.signature_active {
             editor_request_signature(editor)
@@ -1328,58 +1328,58 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
         editor_scroll_to_caret(editor)
         return true
     case .UP:
-        if event.ctrl && event.alt {
+        if (.Ctrl in event.mods) && (.Alt in event.mods) {
             textedit.add_cursor_vertical(state, -1)
         } else if ctrl_only {
-            textedit.move_document_start(state, event.shift)
+            textedit.move_document_start(state, (.Shift in event.mods))
         } else if alt_only {
-            if event.shift {
+            if (.Shift in event.mods) {
                 textedit.duplicate_lines(state, -1)
             } else {
                 textedit.move_lines(state, -1)
             }
         } else {
-            editor_move_visual(editor, -1, event.shift)
+            editor_move_visual(editor, -1, (.Shift in event.mods))
         }
         editor_scroll_to_caret(editor)
         return true
     case .DOWN:
-        if event.ctrl && event.alt {
+        if (.Ctrl in event.mods) && (.Alt in event.mods) {
             textedit.add_cursor_vertical(state, 1)
         } else if ctrl_only {
-            textedit.move_document_end(state, event.shift)
+            textedit.move_document_end(state, (.Shift in event.mods))
         } else if alt_only {
-            if event.shift {
+            if (.Shift in event.mods) {
                 textedit.duplicate_lines(state, 1)
             } else {
                 textedit.move_lines(state, 1)
             }
         } else {
-            editor_move_visual(editor, 1, event.shift)
+            editor_move_visual(editor, 1, (.Shift in event.mods))
         }
         editor_scroll_to_caret(editor)
         return true
     case .PAGE_UP:
-        editor_move_visual(editor, -8, event.shift)
+        editor_move_visual(editor, -8, (.Shift in event.mods))
         editor_scroll_to_caret(editor)
         return true
     case .PAGE_DOWN:
-        editor_move_visual(editor, 8, event.shift)
+        editor_move_visual(editor, 8, (.Shift in event.mods))
         editor_scroll_to_caret(editor)
         return true
     case .HOME:
         if ctrl_only {
-            textedit.move_document_start(state, event.shift)
+            textedit.move_document_start(state, (.Shift in event.mods))
         } else {
-            textedit.move_line_start(state, event.shift)
+            textedit.move_line_start(state, (.Shift in event.mods))
         }
         editor_scroll_to_caret(editor)
         return true
     case .END:
         if ctrl_only {
-            textedit.move_document_end(state, event.shift)
+            textedit.move_document_end(state, (.Shift in event.mods))
         } else {
-            textedit.move_line_end(state, event.shift)
+            textedit.move_line_end(state, (.Shift in event.mods))
         }
         editor_scroll_to_caret(editor)
         return true
@@ -1390,7 +1390,7 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
         }
     case .Z:
         if ctrl_only {
-            if event.shift {
+            if (.Shift in event.mods) {
                 textedit.redo(state)
             } else {
                 textedit.undo(state)
@@ -1438,7 +1438,7 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
         }
     case .D:
         // Before the ctrl_only branch: ctrl_only does not exclude shift.
-        if ctrl_only && event.shift {
+        if ctrl_only && (.Shift in event.mods) {
             textedit.select_word_or_next(state, false)
             editor_scroll_to_caret(editor)
             return true
@@ -1461,7 +1461,7 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
     case .J:
         // ctrl+j joins the line below; ctrl+shift+j recenters the view.
         if ctrl_only {
-            if event.shift {
+            if (.Shift in event.mods) {
                 editor_recenter(editor)
             } else {
                 textedit.join_lines(state)
@@ -1471,7 +1471,7 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
         }
     case .K:
         // ctrl+shift+k deletes the line; ctrl+k is the comment toggle above.
-        if ctrl_only && event.shift {
+        if ctrl_only && (.Shift in event.mods) {
             textedit.delete_lines(state)
             editor_scroll_to_caret(editor)
             return true
@@ -1480,7 +1480,7 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
         // ctrl+p jumps to the matching/enclosing bracket; ctrl+shift+p selects
         // between them, excluding the brackets.
         if ctrl_only {
-            if event.shift {
+            if (.Shift in event.mods) {
                 textedit.select_between_brackets(state)
             } else {
                 textedit.move_to_matching_bracket(state, false)
@@ -1490,7 +1490,7 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
         }
     case .BACKSLASH:
         // Physical key right of the home row: \ on US layouts, # on QWERTZ.
-        if ctrl_only && event.shift {
+        if ctrl_only && (.Shift in event.mods) {
             textedit.move_to_matching_bracket(state, true)
             editor_scroll_to_caret(editor)
             return true

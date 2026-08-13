@@ -129,6 +129,7 @@ run_tests :: proc() -> bool {
     }
 
     packages := []string {
+        "input",
         "lang",
         "lang/lsp",
         "lang/odin",

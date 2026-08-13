@@ -5,6 +5,7 @@ import "core:strings"
 import "core:unicode/utf8"
 import rl "vendor:raylib"
 
+import "../input"
 import "../ui"
 
 // A centered modal that edits every setting in one place: a left sidebar of
@@ -20,7 +21,7 @@ Settings_Number_Proc :: #type proc(data: rawptr, id: string, value: int)
 // Fired when a choice row is clicked; the host opens its own picker for `id`.
 Settings_Choice_Proc :: #type proc(data: rawptr, id: string)
 // Fired when a keybinding is captured or cleared; key = .KEY_NULL means unbind.
-Settings_Keybind_Proc :: #type proc(data: rawptr, id: string, key: rl.KeyboardKey, ctrl, shift, alt: bool)
+Settings_Keybind_Proc :: #type proc(data: rawptr, id: string, key: rl.KeyboardKey, mods: input.Modifiers)
 // Fired when the General/Workspace tab is switched; the host repopulates rows
 // for the new scope (view.scope already reflects it).
 Settings_Scope_Proc :: #type proc(data: rawptr, scope: Settings_Scope)
@@ -680,7 +681,7 @@ settings_view_search_input :: proc(view: ^Settings_View, event: ^ui.Event) {
     if view.capturing >= 0 {
         return
     }
-    if event.ctrl && !event.alt {
+    if (.Ctrl in event.mods) && !(.Alt in event.mods) {
         return
     }
     if event.codepoint < 32 || event.codepoint == 127 {
@@ -778,7 +779,8 @@ settings_view_click_sidebar :: proc(view: ^Settings_View, point: rl.Vector2) -> 
 @(private = "file")
 settings_view_capture_key :: proc(view: ^Settings_View, event: ^ui.Event) {
     #partial switch event.key {
-    case .LEFT_CONTROL, .RIGHT_CONTROL, .LEFT_SHIFT, .RIGHT_SHIFT, .LEFT_ALT, .RIGHT_ALT:
+    case .LEFT_CONTROL, .RIGHT_CONTROL, .LEFT_SHIFT, .RIGHT_SHIFT, .LEFT_ALT, .RIGHT_ALT,
+         .LEFT_SUPER, .RIGHT_SUPER:
         return
     case .ESCAPE:
         view.capturing = -1
@@ -787,7 +789,7 @@ settings_view_capture_key :: proc(view: ^Settings_View, event: ^ui.Event) {
     row := view.capturing
     view.capturing = -1
     if row >= 0 && row < len(view.rows) && view.on_keybind != nil {
-        view.on_keybind(view.data, view.rows[row].id, event.key, event.ctrl, event.shift, event.alt)
+        view.on_keybind(view.data, view.rows[row].id, event.key, event.mods)
     }
 }
 
@@ -903,7 +905,7 @@ settings_view_click :: proc(view: ^Settings_View, point: rl.Vector2) {
     case .Keybind:
         if item.value != "" && rl.CheckCollisionPointRec(point, settings_view_clear_rect(view, rect)) {
             if view.on_keybind != nil {
-                view.on_keybind(view.data, item.id, .KEY_NULL, false, false, false)
+                view.on_keybind(view.data, item.id, .KEY_NULL, {})
             }
         } else {
             view.capturing = vi

@@ -473,7 +473,7 @@ find_replace_handle_event :: proc(widget: ^ui.Widget, ctx: ^ui.Context, event: ^
     case .Text_Input:
         // Any modifier chord is a command here, never text: the box has no AltGr
         // path of its own, and Alt+C would otherwise toggle and type a `c`.
-        if event.ctrl || event.alt {
+        if (.Ctrl in event.mods) || (.Alt in event.mods) {
             return true
         }
         if event.codepoint >= 32 && event.codepoint != 127 {
@@ -488,7 +488,7 @@ find_replace_handle_event :: proc(widget: ^ui.Widget, ctx: ^ui.Context, event: ^
 
     case .Key_Press:
         // Alt chords toggle how the query matches, whichever field has focus.
-        if event.alt && !event.ctrl {
+        if (.Alt in event.mods) && !(.Ctrl in event.mods) {
             #partial switch event.key {
             case .C:
                 fr.case_sensitive = !fr.case_sensitive
@@ -509,7 +509,7 @@ find_replace_handle_event :: proc(widget: ^ui.Widget, ctx: ^ui.Context, event: ^
         case .ESCAPE:
             find_replace_close(fr, ctx)
         case .ENTER, .KP_ENTER:
-            find_replace_step(fr, event.shift ? -1 : 1)
+            find_replace_step(fr, (.Shift in event.mods) ? -1 : 1)
         case .TAB:
             if fr.show_replace {
                 fr.replace_field = !fr.replace_field

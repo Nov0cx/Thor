@@ -46,34 +46,34 @@ thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
     // Let plugins observe every key press. The chord matches thor.keybind's
     // format; observing without consuming lets the real action below still run.
     if chord := setting.keybind_to_string(
-        setting.Keybind{key = event.key, ctrl = event.ctrl, shift = event.shift, alt = event.alt},
+        setting.Keybind{key = event.key, mods = event.mods},
         context.temp_allocator,
     ); chord != "" {
-        if plugin.manager_dispatch_key(&thor.plugins, chord, event.ctrl, event.shift, event.alt) {
+        if plugin.manager_dispatch_key(&thor.plugins, chord, event.mods) {
             return true
         }
     }
 
     // The command palette toggle works no matter what is focused.
-    if setting.keybind_matches(thor.command_palette_key, event.key, event.ctrl, event.shift, event.alt) {
+    if setting.keybind_matches(thor.command_palette_key, event.key, event.mods) {
         thor_toggle_command_palette(thor)
         return true
     }
     // Quick-open (file search) works no matter what is focused, and re-triggers
     // into file mode even if the palette is already open on the command list.
-    if setting.keybind_matches(thor.quick_open_key, event.key, event.ctrl, event.shift, event.alt) {
+    if setting.keybind_matches(thor.quick_open_key, event.key, event.mods) {
         thor_quick_open(thor)
         return true
     }
     // Find opens on ctrl+f (works regardless of focus).
-    if setting.keybind_matches(thor.find_key, event.key, event.ctrl, event.shift, event.alt) {
+    if setting.keybind_matches(thor.find_key, event.key, event.mods) {
         thor_open_find(thor, false)
         return true
     }
     // Ctrl+R renames the symbol under the caret when the language backend can,
     // and opens find/replace otherwise. With an overlay open it always means
     // replace: ctrl+r in the find bar is how the replace field is revealed.
-    if setting.keybind_matches(thor.replace_key, event.key, event.ctrl, event.shift, event.alt) {
+    if setting.keybind_matches(thor.replace_key, event.key, event.mods) {
         overlay :=
             widgets.command_palette_is_open(thor.command_palette) ||
             widgets.find_replace_is_open(thor.find_replace)
@@ -83,62 +83,62 @@ thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
         return true
     }
     // Go to line opens the palette in line mode regardless of focus.
-    if setting.keybind_matches(thor.goto_line_key, event.key, event.ctrl, event.shift, event.alt) {
+    if setting.keybind_matches(thor.goto_line_key, event.key, event.mods) {
         widgets.command_palette_open_line(thor.command_palette, &thor.ui_context)
         return true
     }
     // Go to definition (Alt+Enter) resolves the symbol under the caret.
-    if setting.keybind_matches(thor.goto_def_key, event.key, event.ctrl, event.shift, event.alt) {
+    if setting.keybind_matches(thor.goto_def_key, event.key, event.mods) {
         thor_goto_definition(thor)
         return true
     }
     // Go to symbol (Ctrl+Shift+O) lists the active file's top-level symbols.
-    if setting.keybind_matches(thor.goto_symbol_key, event.key, event.ctrl, event.shift, event.alt) {
+    if setting.keybind_matches(thor.goto_symbol_key, event.key, event.mods) {
         thor_goto_symbol(thor)
         return true
     }
     // Go to symbol in workspace (Ctrl+Q) lists every top-level symbol in the tree.
-    if setting.keybind_matches(thor.goto_workspace_symbol_key, event.key, event.ctrl, event.shift, event.alt) {
+    if setting.keybind_matches(thor.goto_workspace_symbol_key, event.key, event.mods) {
         thor_goto_workspace_symbol(thor)
         return true
     }
     // Go back / forward (Ctrl+Alt+Left / Ctrl+Alt+Right) walk the jump trail.
-    if setting.keybind_matches(thor.jump_back_key, event.key, event.ctrl, event.shift, event.alt) {
+    if setting.keybind_matches(thor.jump_back_key, event.key, event.mods) {
         thor_jump_back(thor)
         return true
     }
-    if setting.keybind_matches(thor.jump_forward_key, event.key, event.ctrl, event.shift, event.alt) {
+    if setting.keybind_matches(thor.jump_forward_key, event.key, event.mods) {
         thor_jump_forward(thor)
         return true
     }
     // Find references (F10) lists every usage of the symbol under the caret.
-    if setting.keybind_matches(thor.find_references_key, event.key, event.ctrl, event.shift, event.alt) {
+    if setting.keybind_matches(thor.find_references_key, event.key, event.mods) {
         thor_find_references(thor)
         return true
     }
     // Signature help (Ctrl+Shift+Space) flashes the signature of the enclosing call.
-    if setting.keybind_matches(thor.signature_help_key, event.key, event.ctrl, event.shift, event.alt) {
+    if setting.keybind_matches(thor.signature_help_key, event.key, event.mods) {
         thor_signature_help(thor)
         return true
     }
     // Package documentation (F3) renders the package under the caret in the other pane.
-    if setting.keybind_matches(thor.package_doc_key, event.key, event.ctrl, event.shift, event.alt) {
+    if setting.keybind_matches(thor.package_doc_key, event.key, event.mods) {
         thor_package_doc(thor)
         return true
     }
     // Code actions (Ctrl+.) offer the fixes available at the caret.
-    if setting.keybind_matches(thor.code_actions_key, event.key, event.ctrl, event.shift, event.alt) {
+    if setting.keybind_matches(thor.code_actions_key, event.key, event.mods) {
         thor_code_actions(thor)
         return true
     }
     // Flip to the previously active file (ctrl+e), like vim's Ctrl-^.
-    if setting.keybind_matches(thor.last_file_key, event.key, event.ctrl, event.shift, event.alt) {
+    if setting.keybind_matches(thor.last_file_key, event.key, event.mods) {
         thor_flip_last_file(thor)
         return true
     }
     // Toggle the editor split. split_key is KEY_NULL unless the user bound it,
     // so this never matches a real press until "toggle_split" is set.
-    if setting.keybind_matches(thor.split_key, event.key, event.ctrl, event.shift, event.alt) {
+    if setting.keybind_matches(thor.split_key, event.key, event.mods) {
         thor_toggle_split(thor)
         return true
     }
@@ -157,63 +157,63 @@ thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
 
     // Fullscreen toggle is a bare key (no ctrl), so it is matched before the
     // ctrl-only guard below.
-    if setting.keybind_matches(thor.fullscreen_key, event.key, event.ctrl, event.shift, event.alt) {
+    if setting.keybind_matches(thor.fullscreen_key, event.key, event.mods) {
         thor_toggle_fullscreen(thor)
         return true
     }
-    if setting.keybind_matches(thor.console_toggle_key, event.key, event.ctrl, event.shift, event.alt) {
+    if setting.keybind_matches(thor.console_toggle_key, event.key, event.mods) {
         thor_toggle_console(thor, nil, nil)
         return true
     }
 
     // Focus shortcuts: open the target panel if it is collapsed, then move
     // keyboard focus to it.
-    if setting.keybind_matches(thor.focus_editor_key, event.key, event.ctrl, event.shift, event.alt) {
+    if setting.keybind_matches(thor.focus_editor_key, event.key, event.mods) {
         thor_focus_editor(thor)
         return true
     }
-    if setting.keybind_matches(thor.focus_explorer_key, event.key, event.ctrl, event.shift, event.alt) {
+    if setting.keybind_matches(thor.focus_explorer_key, event.key, event.mods) {
         thor_focus_explorer(thor)
         return true
     }
-    if setting.keybind_matches(thor.focus_terminal_key, event.key, event.ctrl, event.shift, event.alt) {
+    if setting.keybind_matches(thor.focus_terminal_key, event.key, event.mods) {
         thor_focus_terminal(thor)
         return true
     }
-    if setting.keybind_matches(thor.trim_whitespace_key, event.key, event.ctrl, event.shift, event.alt) {
+    if setting.keybind_matches(thor.trim_whitespace_key, event.key, event.mods) {
         thor_cmd_trim_whitespace(thor)
         return true
     }
-    if setting.keybind_matches(thor.format_key, event.key, event.ctrl, event.shift, event.alt) {
+    if setting.keybind_matches(thor.format_key, event.key, event.mods) {
         thor_format_document(thor)
         return true
     }
-    if setting.keybind_matches(thor.format_selection_key, event.key, event.ctrl, event.shift, event.alt) {
+    if setting.keybind_matches(thor.format_selection_key, event.key, event.mods) {
         thor_format_selection_command(thor)
         return true
     }
-    if setting.keybind_matches(thor.align_char_key, event.key, event.ctrl, event.shift, event.alt) {
+    if setting.keybind_matches(thor.align_char_key, event.key, event.mods) {
         thor_cmd_align_at_char(thor)
         return true
     }
-    if setting.keybind_matches(thor.close_tab_key, event.key, event.ctrl, event.shift, event.alt) {
+    if setting.keybind_matches(thor.close_tab_key, event.key, event.mods) {
         thor_close_file(thor, ui.signal_get(&thor.active_file))
         return true
     }
-    if setting.keybind_matches(thor.next_tab_key, event.key, event.ctrl, event.shift, event.alt) {
+    if setting.keybind_matches(thor.next_tab_key, event.key, event.mods) {
         thor_cycle_tab(thor, 1)
         return true
     }
-    if setting.keybind_matches(thor.previous_tab_key, event.key, event.ctrl, event.shift, event.alt) {
+    if setting.keybind_matches(thor.previous_tab_key, event.key, event.mods) {
         thor_cycle_tab(thor, -1)
         return true
     }
-    if setting.keybind_matches(thor.toggle_explorer_key, event.key, event.ctrl, event.shift, event.alt) {
+    if setting.keybind_matches(thor.toggle_explorer_key, event.key, event.mods) {
         thor_toggle_explorer(thor, nil, nil)
         return true
     }
 
-    if !event.ctrl || event.alt {
+    if !(.Ctrl in event.mods) || (.Alt in event.mods) {
         return false
     }
 
@@ -224,7 +224,7 @@ thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
     // cannot move the same buffer twice.
     #partial switch event.key {
     case .Z:
-        if event.shift {
+        if (.Shift in event.mods) {
             if thor_redo_last_edits(thor) {
                 return true
             }

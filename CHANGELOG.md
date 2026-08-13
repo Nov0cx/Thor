@@ -96,3 +96,5 @@ First release. Thor runs on Windows, Linux and macOS.
 - On Linux and macOS, a command run by a plugin or the Git menu ends at a closed pipe again once a terminal or a language server has started.
 - On Linux, a workspace larger than the system watch limit is rescanned on an interval instead of losing changes in the part of the tree that was left unwatched.
 - On Linux, `node_modules` and git's object store are no longer watched, matching macOS. Changes inside them are not reported; the directories themselves still are.
+- A key chord can name the Command key: `cmd` (also `command`, `super`, `meta` or `win`) in `settings/keybinds.json`, so macOS bindings such as `cmd+s` are possible. `option` is accepted as a second spelling of `alt`.
+- Plugin API: the table `thor.on_key` receives carries a `cmd` field next to `ctrl`, `shift` and `alt`.

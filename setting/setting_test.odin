@@ -256,3 +256,53 @@ test_backend_feature_persist_round_trip :: proc(t: ^testing.T) {
     testing.expect(t, backend_feature_enabled(&s, "clangd", .Completion), "an untouched feature must still default to on")
     testing.expect(t, backend_feature_enabled(&s, "rust-analyzer", .Hover), "another backend must be untouched")
 }
+
+// A chord round-trips through the canonical spec: the tokens the parser reads
+// are the tokens keybind_spec writes, so a binding captured in Settings and
+// written back reads the same the next time.
+@(test)
+test_keybind_spec_round_trips :: proc(t: ^testing.T) {
+    for spec in ([?]string {"ctrl+s", "ctrl+shift+alt+cmd+k", "shift+cmd+p", "alt+page_up", "f5"}) {
+        kb, ok := parse_keybind(spec)
+        testing.expectf(t, ok, "%q did not parse", spec)
+        testing.expect_value(t, keybind_spec(kb, context.temp_allocator), spec)
+    }
+}
+
+// Modifiers are order-insensitive and the Command key answers to every spelling
+// a user may reach for.
+@(test)
+test_parse_keybind_reads_cmd :: proc(t: ^testing.T) {
+    want := Keybind {key = .P, mods = {.Cmd, .Shift}}
+    for spec in ([?]string {"cmd+shift+p", "shift+cmd+p", "super+shift+p", "meta+shift+p", "win+shift+p"}) {
+        kb, ok := parse_keybind(spec)
+        testing.expectf(t, ok, "%q did not parse", spec)
+        testing.expectf(t, kb == want, "%q parsed as %v", spec, kb)
+    }
+}
+
+// The modifiers must match exactly, or a Cmd chord on macOS would also fire the
+// Ctrl binding it shares a key with.
+@(test)
+test_keybind_matches_separates_cmd_from_ctrl :: proc(t: ^testing.T) {
+    ctrl_k, _ := parse_keybind("ctrl+k")
+    cmd_k, _ := parse_keybind("cmd+k")
+
+    testing.expect(t, keybind_matches(ctrl_k, .K, {.Ctrl}))
+    testing.expect(t, !keybind_matches(ctrl_k, .K, {.Cmd}))
+    testing.expect(t, !keybind_matches(ctrl_k, .K, {.Ctrl, .Cmd}))
+    testing.expect(t, keybind_matches(cmd_k, .K, {.Cmd}))
+    testing.expect(t, !keybind_matches(cmd_k, .K, {.Ctrl}))
+}
+
+// A token that names neither a modifier nor a key is a broken binding, not a
+// chord with a missing key.
+@(test)
+test_parse_keybind_refuses_an_unknown_token :: proc(t: ^testing.T) {
+    _, ok := parse_keybind("hyper+k")
+    testing.expect(t, !ok, "an unknown modifier must not parse")
+
+    unbind, cleared := parse_keybind("   ")
+    testing.expect(t, cleared, "an empty spec is an explicit unbind")
+    testing.expect(t, unbind.key == .KEY_NULL, "an unbind must leave the key unset")
+}

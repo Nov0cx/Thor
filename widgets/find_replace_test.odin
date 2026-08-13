@@ -36,7 +36,7 @@ fr_test_type :: proc(fr: ^Find_Replace, ctx: ^ui.Context, text: string) {
 
 @(private = "file")
 fr_test_chord :: proc(fr: ^Find_Replace, ctx: ^ui.Context, key: rl.KeyboardKey) {
-    event := ui.Event {kind = .Key_Press, key = key, alt = true}
+    event := ui.Event {kind = .Key_Press, key = key, mods = {.Alt}}
     find_replace_handle_event(&fr.widget, ctx, &event)
 }
 

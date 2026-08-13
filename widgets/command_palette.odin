@@ -667,7 +667,7 @@ command_palette_handle_event :: proc(widget: ^ui.Widget, ctx: ^ui.Context, event
         if palette.mode == .Confirm {
             return true // confirmation takes no text, only Enter/Escape
         }
-        if event.ctrl && !event.alt {
+        if (.Ctrl in event.mods) && !(.Alt in event.mods) {
             return true // swallow control chords, don't type them
         }
         if event.codepoint >= 32 && event.codepoint != 127 {
