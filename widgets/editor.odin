@@ -1074,7 +1074,13 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
         }
         return true
     case .Mouse_Hover:
-        editor_handle_hover(editor, event.mouse_position)
+        editor_handle_hover(editor, event.mouse_position, .Ctrl in event.mods)
+        return true
+    case .Mouse_Leave:
+        // The cursor is over another widget, so a popup here points at text it
+        // is no longer near.
+        editor_clear_hover(editor)
+        editor.hover_probe_offset = -1
         return true
     case .Scroll:
         // Over the completion popup the wheel walks the candidates; the text
@@ -1091,8 +1097,7 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
         editor_clear_hover(editor)
         editor.hover_probe_offset = -1
         editor.hover_probe_time = rl.GetTime()
-        // Scroll events carry no modifier state; poll ctrl for zooming.
-        if rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL) {
+        if .Ctrl in event.mods {
             editor_zoom(editor, event.wheel_delta > 0 ? 1 : -1)
             return true
         }
@@ -1784,7 +1789,7 @@ editor_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
     // Ctrl+hover affordance for go-to-definition: the word under the cursor,
     // recomputed every frame, not gated on the hover dwell timer or an async result.
     underline_start, underline_end := -1, -1
-    if ctx.hot == widget && (rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL)) {
+    if ctx.hot == widget && (.Ctrl in ctx.mods) {
         if pos, ok := editor_pos_at(editor, ctx.mouse_pos); ok {
             if s, e, found := textedit.word_range_at(text, pos); found {
                 underline_start, underline_end = s, e
@@ -1957,16 +1962,15 @@ HOVER_MOVE_TOL :: 3
 // been still long enough. Movement, or toggling the modifier, resets the dwell
 // and hides any popup.
 @(private = "file")
-editor_handle_hover :: proc(editor: ^Editor, mouse: rl.Vector2) {
-    // Hover events carry no modifier state, so ctrl is polled: held, the owner
-    // resolves the symbol under the cursor; released, a diagnostic under it
-    // explains itself. Runs before the dwell bookkeeping — over the popup there
-    // is no text to describe, and moving inside it must not restart the dwell.
+// `mod` is ctrl: held, the owner resolves the symbol under the cursor;
+// released, a diagnostic under it explains itself.
+editor_handle_hover :: proc(editor: ^Editor, mouse: rl.Vector2, mod: bool) {
+    // Runs before the dwell bookkeeping — over the popup there is no text to
+    // describe, and moving inside it must not restart the dwell.
     if row := editor_completion_row_at(editor, mouse); row >= 0 {
         editor.completion_selected = row
         return
     }
-    mod := rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL)
     toggled := mod != editor.hover_mod_down
     editor.hover_mod_down = mod
     moved := abs(mouse.x - editor.hover_probe_pos.x) > HOVER_MOVE_TOL ||
