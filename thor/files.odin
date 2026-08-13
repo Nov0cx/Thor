@@ -470,22 +470,6 @@ thor_retarget_open_file :: proc(thor: ^Thor, old_path, new_path: string) {
     thor_update_tab_labels(thor)
 }
 
-// File extension including the dot (".odin"), or "" when the name has none.
-thor_file_extension :: proc(name: string) -> string {
-    dot := strings.last_index_byte(name, '.')
-    if dot < 0 {
-        return ""
-    }
-    return name[dot:]
-}
-
-// The final path component ("Dockerfile" from "app/Dockerfile"), handling both
-// path separators.
-thor_file_base :: proc(path: string) -> string {
-    slash := max(strings.last_index_byte(path, '/'), strings.last_index_byte(path, '\\'))
-    return path[slash + 1:]
-}
-
 // Directory portion of path, without the base name or a trailing separator.
 @(private = "file")
 file_dir :: proc(path: string) -> string {
@@ -1360,19 +1344,6 @@ thor_tree_open :: proc(data: rawptr, path: string) {
     thor_open_file(thor, path)
 }
 
-// True when two paths point at the same file, ignoring separator spelling and
-// (Windows) case differences.
-thor_same_path :: proc(a, b: string) -> bool {
-    aa, bb := a, b
-    if abs, err := filepath.abs(a, context.temp_allocator); err == nil {
-        aa = abs
-    }
-    if abs, err := filepath.abs(b, context.temp_allocator); err == nil {
-        bb = abs
-    }
-    return strings.equal_fold(aa, bb)
-}
-
 // Tree widget callback / menu entry: Delete was pressed on a row. Deletes the
 // whole explorer selection when the row belongs to it, so a multi-select acts as
 // one action. Opens a confirmation dialog; thor_confirm_delete does the removal.
@@ -1733,20 +1704,6 @@ thor_delete_resource :: proc(thor: ^Thor, path: string) -> (ok: bool, reason: st
     return true, ""
 }
 
-// True when `path` is `ancestor` itself or sits somewhere beneath it.
-thor_path_within :: proc(path, ancestor: string) -> bool {
-    a, b := path, ancestor
-    if abs, err := filepath.abs(path, context.temp_allocator); err == nil {
-        a = abs
-    }
-    if abs, err := filepath.abs(ancestor, context.temp_allocator); err == nil {
-        b = abs
-    }
-    if len(a) < len(b) || !strings.equal_fold(a[:len(b)], b) {
-        return false
-    }
-    return len(a) == len(b) || a[len(b)] == '\\' || a[len(b)] == '/'
-}
 
 // Outcome of queueing an import. Already_There is not a failure: the caller
 // falls back to opening the path, so a drop onto its own folder still does

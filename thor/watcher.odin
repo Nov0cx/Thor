@@ -1,7 +1,5 @@
 package thor
 
-import "core:path/filepath"
-import "core:strings"
 import "core:time"
 
 import "../watch"
@@ -70,25 +68,13 @@ thor_watch_explorer :: proc(data: rawptr, change: watch.Change) {
 // Open-buffer subscriber: when a file open in a tab changes on disk, reload it.
 // thor_reload_file guards the cases that must not reload (unsaved edits, our own
 // save landing, an in-flight reload), so this just routes the path to its file.
-//
-// Open_File.path is already canonical (thor_open_file) and the watcher already
-// reports an absolute path, so this resolves change.path to an absolute form
-// exactly once and compares directly, instead of thor_same_path's two
-// filepath.abs calls (a GetFullPathNameW syscall on Windows) per open file.
 @(private = "file")
 thor_watch_content :: proc(data: rawptr, change: watch.Change) {
     thor := cast(^Thor) data
     if change.kind == .Deleted {
         return // a vanished file keeps its buffer so unsaved work can be re-saved
     }
-    resolved := change.path
-    if abs, err := filepath.abs(change.path, context.temp_allocator); err == nil {
-        resolved = abs
-    }
-    for file in thor.open_files {
-        if strings.equal_fold(file.path, resolved) {
-            thor_reload_file(thor, file)
-            return
-        }
+    if file, _ := thor_find_open_file(thor, change.path); file != nil {
+        thor_reload_file(thor, file)
     }
 }

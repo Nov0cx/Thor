@@ -85,30 +85,28 @@ thor_clear_file_diagnostics :: proc(file: ^Open_File) {
 // state its producer measured.
 @(private = "file")
 thor_apply_diagnostic :: proc(thor: ^Thor, d: lang.Diagnostic, revision: u64) {
-    for file in thor.open_files {
-        if !file.loaded || file.closed || !same_path(file.path, d.path) {
-            continue
-        }
-        // A package check reports many files under one revision, so the disk test
-        // in report_matches_file is what keeps the files other than the saved one.
-        if !report_matches_file(file, revision) {
-            return
-        }
-        text := textedit.text(&file.state)
-        line0 := d.line - 1
-        start := textedit.state_line_start(&file.state, line0) + (d.col - 1)
-        start = clamp(start, 0, len(text))
-        end := diagnostic_token_end(text, start)
-        append(&file.diagnostics, widgets.Diagnostic {
-            start    = start,
-            end      = end,
-            line     = line0,
-            severity = editor_severity(d.severity),
-            message  = strings.clone(d.message),
-        })
-        file.diagnostics_revision = file.state.revision
+    file, _ := thor_find_open_file(thor, d.path)
+    if file == nil || !file.loaded {
         return
     }
+    // A package check reports many files under one revision, so the disk test
+    // in report_matches_file is what keeps the files other than the saved one.
+    if !report_matches_file(file, revision) {
+        return
+    }
+    text := textedit.text(&file.state)
+    line0 := d.line - 1
+    start := textedit.state_line_start(&file.state, line0) + (d.col - 1)
+    start = clamp(start, 0, len(text))
+    end := diagnostic_token_end(text, start)
+    append(&file.diagnostics, widgets.Diagnostic {
+        start    = start,
+        end      = end,
+        line     = line0,
+        severity = editor_severity(d.severity),
+        message  = strings.clone(d.message),
+    })
+    file.diagnostics_revision = file.state.revision
 }
 
 // The seam's severity as the editor's. Both carry the same two levels; the split
@@ -151,26 +149,8 @@ scope_covers :: proc(path, scope: string) -> bool {
     if scope == "" {
         return false
     }
-    if same_path(path, scope) {
+    if thor_same_path(path, scope) {
         return true
     }
-    return strings.equal_fold(cleaned(filepath.dir(path)), cleaned(strings.trim_right(scope, "/\\")))
-}
-
-// True when two absolute paths name the same file, however each is spelled.
-@(private = "file")
-same_path :: proc(a, b: string) -> bool {
-    return strings.equal_fold(a, b) || strings.equal_fold(cleaned(a), cleaned(b))
-}
-
-// `path` with its separators normalized and its `.`/`..` elements resolved, on
-// scratch. Falls back to the input if the allocation fails — a compare against
-// the raw spelling is still better than none. `filepath.clean` only treats `\`
-// as a separator on Windows, but a compiler scope can carry Windows-style
-// paths on any host, so `\` is folded to `/` first.
-@(private = "file")
-cleaned :: proc(path: string) -> string {
-    slashed, _ := strings.replace_all(path, "\\", "/", context.temp_allocator)
-    c, err := filepath.clean(slashed, context.temp_allocator)
-    return err == nil ? c : path
+    return thor_same_path(filepath.dir(path), strings.trim_right(scope, "/\\"))
 }
