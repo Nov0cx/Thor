@@ -262,10 +262,9 @@ editor_set_on_type :: proc(editor: ^Editor, on_type: On_Type_Proc, data: rawptr)
     editor.on_type_data = data
 }
 
-// Marks whether the active buffer's language backend answers on-type
-// formatting at all. Set per file when a pane is bound, mirroring
-// editor_set_completion_semantic — checked before every keystroke's callback
-// so a language with no such backend costs nothing per character.
+// Marks whether the active buffer's backend answers on-type formatting at all.
+// Set per file when a pane is bound and checked before every keystroke's
+// callback, so a language without one costs nothing per character.
 editor_set_on_type_enabled :: proc(editor: ^Editor, enabled: bool) {
     editor.on_type_enabled = enabled
 }
@@ -296,12 +295,11 @@ editor_completion_word :: proc(txt: string, caret: int) -> (start: int, member: 
     return
 }
 
-// Requests semantic completion from the owner for the word being typed. Fired on
-// identifier input (and edits that shrink the word) in a backend-backed buffer,
-// and on `.` for member access; gated to a single collapsed caret at the end of a
-// word of at least the minimum prefix (zero for member access), dismissing the
-// popup otherwise. Returns true when the owner took over (or the request was
-// gated), so the caller skips the buffer-word fallback.
+// Requests semantic completion for the word being typed, gated to a single
+// collapsed caret at the end of a word of at least the minimum prefix (zero for
+// a `.` member access) and dismissing the popup otherwise. Returns true when the
+// owner took over or the request was gated, so the caller skips the
+// buffer-word fallback.
 editor_request_completion :: proc(editor: ^Editor) -> bool {
     if editor.on_completion == nil || editor.state == nil {
         return false
@@ -1016,10 +1014,9 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
             }
             return true
         }
-        // Double-click selects the word under the cursor and arms word-drag. A
-        // preceding Ctrl+Click at the same spot can still count toward this click
-        // (ui.Context tracks position/time, not modifiers), so suppress_drag must
-        // clear here too or the following drag stays suppressed.
+        // Double-click selects the word and arms word-drag. ui.Context counts a
+        // preceding Ctrl+Click at the same spot toward it (it tracks position and
+        // time, not modifiers), so suppress_drag must clear here as well.
         if event.click_count == 2 {
             editor.suppress_drag = false
             if pos, ok := editor_pos_at(editor, event.mouse_position); ok {
@@ -1041,10 +1038,9 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
         }
         editor.select_by_word = false
         editor.suppress_drag = false
-        // Ctrl-click resolves the symbol under the cursor (go to definition); the
-        // caret moves there first so the owner reads the right offset and a miss
-        // leaves the cursor placed. suppress_drag stops the drag a physical
-        // click emits, so it can't smear into a selection.
+        // Ctrl+click goes to the definition. The caret moves first, so the owner
+        // reads the right offset and a miss still leaves the cursor placed;
+        // suppress_drag keeps the physical click from smearing into a selection.
         if event.ctrl && editor.on_goto_definition != nil {
             if pos, ok := editor_pos_at(editor, event.mouse_position); ok {
                 editor_place_caret_at(editor, event.mouse_position)
@@ -1140,11 +1136,9 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
     return false
 }
 
-// Asks the owner whether `char` (the character just inserted) should trigger
-// on-type formatting. Only for a single collapsed cursor — an edit landing
-// under an open selection or a second cursor would be ambiguous about which
-// caret it followed — and only while no completion popup is up, since a
-// formatting edit would move the prefix out from under it.
+// Asks the owner whether the character just inserted should trigger on-type
+// formatting. Only for a single collapsed cursor, and only while no completion
+// popup is up, since a formatting edit would move the prefix out from under it.
 editor_request_on_type :: proc(editor: ^Editor, char: string) {
     if !editor.on_type_enabled || editor.on_type == nil || editor.completion_active || editor.state == nil {
         return
@@ -1753,10 +1747,9 @@ editor_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
         return
     }
 
-    // An out-of-band edit this frame can leave the layout-time rows pointing
-    // past a now-shorter buffer; re-sync before a row extent is used as an index.
-    // Empty rows with a live state means the pane was shown after this frame's
-    // layout (e.g. the split just toggled on), so build them before drawing.
+    // An out-of-band edit this frame can leave the layout-time rows pointing past
+    // a now-shorter buffer, so re-sync before a row extent indexes it. Empty rows
+    // with a live state mean the pane was shown after this frame's layout.
     if editor_ensure_visual_rows(editor) {
         editor_clamp_scroll(editor)
     }
@@ -1925,16 +1918,15 @@ editor_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
 
     editor_draw_scrollbar(editor)
 
-    // A pane that lost focus drops the popup rather than hiding it: the rects are
-    // the hit test, so an invisible popup would eat the click that refocuses.
+    // Dropped, not hidden: the rects are the hit test, so an invisible popup
+    // would eat the click that refocuses the pane.
     if ctx.focused != widget && editor.completion_active {
         editor_dismiss_completion(editor)
     }
     editor_draw_completion(editor)
 
-    // Hover peeks without focusing, so it draws whenever the mouse is dwelling
-    // over this pane, regardless of which widget holds focus. The cursor leaving
-    // the pane stops the hover ticks, so dismiss a lingering popup here.
+    // Hover peeks without focusing, so the cursor leaving the pane stops its
+    // ticks and a lingering popup is dismissed here.
     if ctx.hot != widget && editor.hover_active {
         editor_clear_hover(editor)
         editor.hover_probe_offset = -1
@@ -1959,13 +1951,10 @@ HOVER_MOVE_TOL :: 3
 // and hides any popup.
 @(private = "file")
 editor_handle_hover :: proc(editor: ^Editor, mouse: rl.Vector2) {
-    // Hover events carry no modifier state; poll ctrl, the same key Ctrl+Click
-    // uses to inspect a symbol. It picks which hover this dwell is: held, the
-    // owner resolves the symbol under the cursor; released, a diagnostic under it
-    // explains itself. A passive rest over unflagged code still pops nothing up.
-    // A row under the cursor preselects, so a click accepts what the highlight
-    // shows. This precedes the dwell bookkeeping: over the popup there is no
-    // text to describe, and moving inside it must not restart the dwell.
+    // Hover events carry no modifier state, so ctrl is polled: held, the owner
+    // resolves the symbol under the cursor; released, a diagnostic under it
+    // explains itself. Runs before the dwell bookkeeping — over the popup there
+    // is no text to describe, and moving inside it must not restart the dwell.
     if row := editor_completion_row_at(editor, mouse); row >= 0 {
         editor.completion_selected = row
         return
@@ -2018,10 +2007,9 @@ editor_handle_hover :: proc(editor: ^Editor, mouse: rl.Vector2) {
     }
 }
 
-// The diagnostic a plain dwell explains: the one whose range covers `offset`, or,
-// for a dwell over the gutter marker — which stands for the whole line — the worst
-// one sharing its line. An error outranks a warning either way, as it does for the
-// marker's own color.
+// The diagnostic a plain dwell explains: the one covering `offset`, or, over the
+// gutter marker (which stands for the whole line), the worst one on that line.
+// An error outranks a warning either way.
 @(private)
 editor_hover_diagnostic :: proc(editor: ^Editor, offset: int, whole_line: bool) -> (Diagnostic, bool) {
     line := -1
@@ -2665,10 +2653,8 @@ editor_draw_squiggle :: proc(x0, x1, y: f32, color: rl.Color) {
 }
 
 // Draws a filled square previewing each hex color literal in the row, seated in
-// the gap editor_draw_row_text reserved just before the literal, so it never
-// overprints the value or a trailing comma. Sized a little under the character
-// height and centered in the line for even padding on every side, like VS Code.
-// A translucent border keeps light swatches legible on the background.
+// the gap editor_draw_row_text reserved before it so it never overprints the
+// value. A translucent border keeps light swatches legible on the background.
 @(private = "file")
 editor_draw_row_swatches :: proc(editor: ^Editor, text: string, row: Visual_Row, text_x, row_y: i32) {
     s := text[row.start:row.end]
@@ -2799,10 +2785,8 @@ editor_destroy :: proc(widget: ^ui.Widget) {
     free(editor)
 }
 
-// Byte offset of the character nearest the given screen position.
-// Visual x-position of row-relative rune boundary `pos` (a byte offset into
-// `text`, at or past row.start): measured text width plus any swatch gaps
-// opened before it.
+// Visual x-position of rune boundary `pos` (a byte offset at or past row.start):
+// measured text width plus any swatch gaps opened before it.
 @(private = "file")
 editor_row_width_at :: proc(editor: ^Editor, text: string, row: Visual_Row, swatches: []Row_Swatch, span: f32, pos: int) -> f32 {
     return cast(f32) ui.measure_text(text[row.start:pos], editor.font_size) +
