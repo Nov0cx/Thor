@@ -8,9 +8,10 @@ import "core:time"
 
 // Runs `command` via cmd.exe in `cwd` with stdout+stderr piped; blocks until it
 // exits. A `timeout` above zero ends the command and everything it started when
-// that time passes, and marks the output. The returned output is owned by
-// context.allocator.
-run :: proc(command: string, cwd: string, timeout: time.Duration = 0) -> string {
+// that time passes, and marks the output. `ok` is false when the command never
+// ran to completion — a pipe or start failure, or a timeout — and only then is
+// `code` meaningless. The returned output is owned by context.allocator.
+run_status :: proc(command: string, cwd: string, timeout: time.Duration = 0) -> (output: string, code: int, ok: bool) {
     sa := win32.SECURITY_ATTRIBUTES {
         nLength        = size_of(win32.SECURITY_ATTRIBUTES),
         bInheritHandle = true,
@@ -18,7 +19,7 @@ run :: proc(command: string, cwd: string, timeout: time.Duration = 0) -> string 
 
     read_pipe, write_pipe: win32.HANDLE
     if !win32.CreatePipe(&read_pipe, &write_pipe, &sa, 0) {
-        return strings.clone("[shell] could not create pipe\n")
+        return strings.clone("[shell] could not create pipe\n"), -1, false
     }
     defer win32.CloseHandle(read_pipe)
     // The read end stays with the parent; keep it out of the child. An end
@@ -26,7 +27,7 @@ run :: proc(command: string, cwd: string, timeout: time.Duration = 0) -> string 
     // after it exits, so a failure here ends the start.
     if !win32.SetHandleInformation(read_pipe, win32.HANDLE_FLAG_INHERIT, 0) {
         win32.CloseHandle(write_pipe)
-        return strings.clone("[shell] could not create pipe\n")
+        return strings.clone("[shell] could not create pipe\n"), -1, false
     }
 
     si := win32.STARTUPINFOW {
@@ -52,15 +53,15 @@ run :: proc(command: string, cwd: string, timeout: time.Duration = 0) -> string 
         }
     }
 
-    ok := win32.CreateProcessW(nil, cmdline, nil, nil, true, flags, nil, wdir, &si, &pi)
+    started := win32.CreateProcessW(nil, cmdline, nil, nil, true, flags, nil, wdir, &si, &pi)
     // Close the parent's copy of the write end so ReadFile sees EOF when the
     // child (the only remaining writer) exits.
     win32.CloseHandle(write_pipe)
-    if !ok {
+    if !started {
         if job != nil {
             win32.CloseHandle(job)
         }
-        return strings.clone("[shell] could not start command\n")
+        return strings.clone("[shell] could not start command\n"), -1, false
     }
     defer {
         win32.CloseHandle(pi.hProcess)
@@ -122,7 +123,8 @@ run :: proc(command: string, cwd: string, timeout: time.Duration = 0) -> string 
 
     if timeout <= 0 {
         win32.WaitForSingleObject(pi.hProcess, win32.INFINITE)
-        return strings.to_string(builder)
+        status, got := exit_code(pi.hProcess)
+        return strings.to_string(builder), status, got
     }
     // The end of the stream does not prove the command exited: it can close its
     // output and keep running. Give it only the time it has left.
@@ -142,8 +144,25 @@ run :: proc(command: string, cwd: string, timeout: time.Duration = 0) -> string 
             win32.TerminateProcess(pi.hProcess, 1)
         }
         fmt.sbprintf(&builder, "[shell] command stopped after %v\n", timeout)
+        return strings.to_string(builder), -1, false
     }
-    return strings.to_string(builder)
+    status, got := exit_code(pi.hProcess)
+    return strings.to_string(builder), status, got
+}
+
+// STILL_ACTIVE, which core:sys/windows does not declare. A process that reports
+// it has not exited, so it has no status yet.
+@(private = "file")
+STILL_ACTIVE :: win32.DWORD(259)
+
+// Exit status of an exited process.
+@(private = "file")
+exit_code :: proc(process: win32.HANDLE) -> (int, bool) {
+    status: win32.DWORD
+    if !win32.GetExitCodeProcess(process, &status) || status == STILL_ACTIVE {
+        return -1, false
+    }
+    return int(status), true
 }
 
 // Starts `exe` with one argument and leaves it running: no pipes, no wait, both

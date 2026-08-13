@@ -16,7 +16,8 @@ import "../../shell"
 
 // Checks the package directory holding `req.path` — one `odin check` run, whose
 // every diagnostic line lands in `res.report`. `-no-entry-point` lets a library
-// package (no `main`) check.
+// package (no `main`) check. A run that never reached the compiler answers
+// `ok = false`, which leaves the existing diagnostics standing.
 //
 // Serialized on the engine: a check is a whole compiler invocation, so two at
 // once would only contend for the machine. The lock is never waited on — a
@@ -48,8 +49,11 @@ check_package :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
     // no workspace open, the package's own directory serves.
     cwd := req.workspace != "" ? req.workspace : dir
     command := fmt.tprintf("odin check \"%s\" -no-entry-point%s", dir, collection_flags(e, req.workspace))
-    output := shell.run(command, cwd)
+    output, code, ran := shell.run_status(command, cwd)
     defer delete(output)
+    if !ran {
+        return
+    }
 
     res.report.scope = strings.clone(dir)
     res.report.items = make([dynamic]lang.Diagnostic)
@@ -70,7 +74,17 @@ check_package :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
             },
         )
     }
-    // The run completed, so `items` is the whole truth for `dir` — including the
+    // A failed exit with nothing parsed means the compiler never ran: it is
+    // absent from PATH, or it rejected a flag. An empty report would read as
+    // "clean" and retire every squiggle in the package, so drop it. result_free
+    // frees whatever the report still owns, hence the reset.
+    if code != 0 && len(res.report.items) == 0 {
+        delete(res.report.scope)
+        delete(res.report.items)
+        res.report = {}
+        return
+    }
+    // The compiler ran, so `items` is the whole truth for `dir` — including the
     // empty case, which is how the editor learns a fixed file is clean again.
     res.ok = true
 }

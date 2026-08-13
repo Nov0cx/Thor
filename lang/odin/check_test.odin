@@ -204,6 +204,38 @@ test_check_passes_config_collections :: proc(t: ^testing.T) {
     }
 }
 
+// A run that fails without printing one parseable diagnostic answers ok=false,
+// so the editor keeps the squiggles it has. An empty directory stands in for the
+// real case, a compiler that is not on PATH: the compiler refuses both the same
+// way, with a message that is no diagnostic.
+@(test)
+test_check_failed_run_reports_not_ok :: proc(t: ^testing.T) {
+    root, ok := temp_package(t, "thor_lang_norun_ws")
+    if !ok {
+        return
+    }
+    defer os.remove(root)
+
+    if !odin_on_path(root) {
+        log.info("odin is not on PATH; skipping the compiler check test")
+        return
+    }
+
+    e := engine_create()
+    defer engine_destroy(e)
+
+    // The file does not exist, and its directory holds no .odin file at all.
+    path, _ := filepath.join({root, "ghost.odin"}, context.temp_allocator)
+    req := lang.Request{kind = .Diagnostics, path = path, ext = ".odin", workspace = root}
+    res := lang.Result{kind = .Diagnostics}
+    resolve(e, &req, &res)
+    defer free_report(&res)
+
+    testing.expect(t, !res.ok, "a run that reached no compiler must not report a clean package")
+    testing.expect_value(t, res.report.scope, "")
+    testing.expect_value(t, len(res.report.items), 0)
+}
+
 // Creates an empty package directory under the working directory and returns its
 // absolute path.
 @(private = "file")
@@ -220,13 +252,13 @@ temp_package :: proc(t: ^testing.T, name: string) -> (string, bool) {
     return root, true
 }
 
-// True when `odin` runs from `cwd`. A missing compiler makes cmd print its own
-// "not recognized" line, which does not start with the version banner.
+// True when `odin` runs from `cwd`. A missing compiler leaves the shell to
+// report it, which is a failed exit rather than a failed run.
 @(private = "file")
 odin_on_path :: proc(cwd: string) -> bool {
-    out := shell.run("odin version", cwd)
+    out, code, ran := shell.run_status("odin version", cwd)
     defer delete(out)
-    return strings.has_prefix(strings.trim_space(out), "odin version")
+    return ran && code == 0
 }
 
 // Frees a diagnostics result's owned strings (the checker clones into

@@ -11,12 +11,14 @@ import "core:time"
 // Runs `command` under /bin/sh in `cwd` with stdout+stderr piped; blocks until it
 // exits. A `timeout` above zero kills the command when that time passes and
 // marks the output. The kill reaches the shell only, so a command that puts a
-// child in the background leaves it running. The returned output is owned by
+// child in the background leaves it running. `ok` is false when the command
+// never ran to completion — a pipe or start failure, a failed wait, or a
+// timeout — and only then is `code` meaningless. The returned output is owned by
 // context.allocator.
-run :: proc(command: string, cwd: string, timeout: time.Duration = 0) -> string {
+run_status :: proc(command: string, cwd: string, timeout: time.Duration = 0) -> (output: string, code: int, ok: bool) {
     read_pipe, write_pipe, pipe_err := os.pipe()
     if pipe_err != nil {
-        return strings.clone("[shell] could not create pipe\n")
+        return strings.clone("[shell] could not create pipe\n"), -1, false
     }
     defer os.close(read_pipe)
 
@@ -29,7 +31,7 @@ run :: proc(command: string, cwd: string, timeout: time.Duration = 0) -> string 
     // child (the only remaining writer) exits.
     os.close(write_pipe)
     if start_err != nil {
-        return strings.clone("[shell] could not start command\n")
+        return strings.clone("[shell] could not start command\n"), -1, false
     }
 
     start := time.tick_now()
@@ -67,20 +69,22 @@ run :: proc(command: string, cwd: string, timeout: time.Duration = 0) -> string 
 
     if timeout <= 0 {
         // The wait also reaps the child; a failure leaves it to init.
-        if _, wait_err := os.process_wait(process); wait_err != nil {
+        state, wait_err := os.process_wait(process)
+        if wait_err != nil {
             strings.write_string(&builder, "[shell] could not wait for the command\n")
+            return strings.to_string(builder), -1, false
         }
-        return strings.to_string(builder)
+        return strings.to_string(builder), state.exit_code, true
     }
 
     // The end of the stream does not prove the command exited: it can close its
     // output and keep running. Give it only the time it has left.
     if !timed_out {
-        _, wait_err := os.process_wait(process, max(timeout - time.tick_since(start), time.Duration(1)))
-        timed_out = wait_err != nil
-    }
-    if !timed_out {
-        return strings.to_string(builder)
+        state, wait_err := os.process_wait(process, max(timeout - time.tick_since(start), time.Duration(1)))
+        if wait_err == nil {
+            return strings.to_string(builder), state.exit_code, true
+        }
+        timed_out = true
     }
     if kill_err := os.process_kill(process); kill_err != nil {
         strings.write_string(&builder, "[shell] could not stop the command\n")
@@ -90,7 +94,7 @@ run :: proc(command: string, cwd: string, timeout: time.Duration = 0) -> string 
         strings.write_string(&builder, "[shell] could not wait for the command\n")
     }
     fmt.sbprintf(&builder, "[shell] command stopped after %v\n", timeout)
-    return strings.to_string(builder)
+    return strings.to_string(builder), -1, false
 }
 
 // Starts `exe` with one argument and leaves it running: no pipes, no wait. The

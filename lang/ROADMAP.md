@@ -926,6 +926,10 @@ lowest latency.
       carries the workspace config's collections as `-collection:` flags; an entry
       the compiler would reject (a reserved name, a path that is not a directory)
       is dropped, because such a flag aborts the run before it checks anything.
+      A run that never reached the compiler — `odin` absent from PATH, a flag it
+      refused — fails with no parseable diagnostic, which is why `shell.run_status`
+      reports the exit code: an empty report would read as "clean" and retire the
+      whole package's squiggles, so it answers `ok = false` and they stand.
       Push-model diagnostics (an LSP server volunteering them between requests)
       have a channel on the seam since M0: `Backend.poll`, drained by
       `manager_dispatch` once per frame under the same feature gate a dispatch
