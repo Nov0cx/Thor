@@ -25,6 +25,7 @@ FEATURE_NAMES := [Request_Kind]string {
     .Format            = "formatting",
     .Format_Range      = "range_formatting",
     .Format_On_Type    = "on_type_formatting",
+    .Execute_Command   = "execute_command",
     .Progress          = "progress",
     .Apply_Edit        = "apply_edit",
 }

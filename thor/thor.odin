@@ -365,6 +365,11 @@ Thor :: struct {
     code_action_path: string,
     code_action_revision: u64,
     code_actions: [dynamic]Pending_Action,
+    // In-flight Execute_Command, and the title to report when it answers: a
+    // command-only fix runs on the server, so the pick only reports whether it
+    // was accepted — the changes arrive later as a pushed Apply_Edit.
+    execute_command_request_id: u64,
+    execute_command_title: string, // owned
     // In-flight format request: its id and the path of the buffer it was
     // computed against (owned). format_save_pending marks a save waiting on
     // this request's result — thor_apply_format runs it on every terminal
@@ -672,6 +677,7 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.jump_forward)
     delete(thor.rename_path)
     delete(thor.code_action_path)
+    delete(thor.execute_command_title)
     delete(thor.semantic_path)
     delete(thor.format_path)
     delete(thor.format_range_path)

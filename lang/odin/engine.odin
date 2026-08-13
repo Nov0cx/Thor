@@ -98,11 +98,21 @@ on_type_trigger :: proc(data: rawptr, ext, char: string) -> bool {
     return ext == ".odin" && char == ON_TYPE_TRIGGERS
 }
 
+// Execute_Command is a server-side seam: an in-client analyzer answers with
+// edits computed up front, so it has no command to run. Declined outright rather
+// than left to answer ok=false.
+@(private)
+UNSUPPORTED :: bit_set[lang.Request_Kind]{.Execute_Command}
+
 // The settings-driven per-kind gate: every capability the engine has
 // (definition, goto, completion, formatting, …) is unconditional, so only a
-// kind the config turned off for this engine specifically answers false here.
+// kind the config turned off for this engine specifically, or one the engine
+// never implements, answers false here.
 @(private)
 supports :: proc(data: rawptr, ext: string, kind: lang.Request_Kind) -> bool {
+    if kind in UNSUPPORTED {
+        return false
+    }
     return kind in (cast(^Engine)data).admin_features
 }
 

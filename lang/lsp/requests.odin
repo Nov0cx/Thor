@@ -43,6 +43,7 @@ METHODS := [lang.Request_Kind]string {
     .Format            = "textDocument/formatting",
     .Format_Range      = "textDocument/rangeFormatting",
     .Format_On_Type    = "textDocument/onTypeFormatting",
+    .Execute_Command   = "workspace/executeCommand",
     .Progress          = "", // unsolicited push, never sent as an outgoing request
     .Apply_Edit        = "", // unsolicited push, never sent as an outgoing request
 }
@@ -131,6 +132,21 @@ request_params :: proc(ask: ^Ask) -> string {
         out := make([dynamic]u8, context.temp_allocator)
         append(&out, `{"query":`)
         write_quoted(&out, ask.req.query)
+        append(&out, `}`)
+        return string(out[:])
+    }
+
+    // workspace/executeCommand names no document either. The arguments ride
+    // through as the raw JSON array the offer carried, so a server sees back
+    // exactly the shape it sent.
+    if ask.req.kind == .Execute_Command {
+        out := make([dynamic]u8, context.temp_allocator)
+        append(&out, `{"command":`)
+        write_quoted(&out, ask.req.command)
+        if ask.req.command_args != "" {
+            append(&out, `,"arguments":`)
+            append(&out, ask.req.command_args)
+        }
         append(&out, `}`)
         return string(out[:])
     }

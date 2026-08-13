@@ -1414,6 +1414,8 @@ thor_on_lang_result :: proc(user: rawptr, res: ^lang.Result) {
         thor_apply_format_range(thor, res)
     case .Format_On_Type:
         thor_apply_on_type_format(thor, res)
+    case .Execute_Command:
+        thor_apply_execute_command(thor, res)
     case .Progress:
         thor_apply_progress(thor, res)
     case .Apply_Edit:

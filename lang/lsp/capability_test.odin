@@ -148,7 +148,8 @@ test_capabilities_real_reply :: proc(t: ^testing.T) {
             "completionProvider": {"resolveProvider": false},
             "renameProvider": {"prepareProvider": true},
             "codeActionProvider": {"codeActionKinds": ["quickfix"]},
-            "semanticTokensProvider": {"full": true}
+            "semanticTokensProvider": {"full": true},
+            "executeCommandProvider": {"commands": ["clangd.applyFix"]}
         }, "serverInfo": {"name": "clangd", "version": "18"}}`,
     )
 

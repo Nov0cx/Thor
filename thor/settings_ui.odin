@@ -372,6 +372,7 @@ LANGUAGE_FEATURE_LABELS := [lang.Request_Kind]string {
     .Format            = "Format Document",
     .Format_Range      = "Format Selection",
     .Format_On_Type    = "Format On Type",
+    .Execute_Command   = "Server Commands",
     .Progress          = "Progress Notifications",
     .Apply_Edit        = "Server-Applied Edits",
 }

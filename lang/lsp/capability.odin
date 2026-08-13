@@ -30,6 +30,7 @@ PROVIDER_KEYS := [lang.Request_Kind]string {
     .Format            = "documentFormattingProvider",
     .Format_Range      = "documentRangeFormattingProvider",
     .Format_On_Type    = "documentOnTypeFormattingProvider",
+    .Execute_Command   = "executeCommandProvider",
     .Progress          = "", // unsolicited push; no capability gate, same as Package_Doc
     .Apply_Edit        = "", // unsolicited push; no capability gate, same as Package_Doc
 }

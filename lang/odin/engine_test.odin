@@ -41,3 +41,15 @@ test_engine_feature_gate :: proc(t: ^testing.T) {
     engine_set_features(e, lang.FEATURES_ALL)
     testing.expect(t, supports(e, ".odin", .Hover), "restoring the gate must let the kind through again")
 }
+
+// Formatting is served natively now; running a server command never is.
+@(test)
+test_engine_declines_execute_command :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    testing.expect(t, supports(e, ".odin", .Format))
+    testing.expect(t, supports(e, ".odin", .Format_Range))
+    testing.expect(t, supports(e, ".odin", .Format_On_Type))
+    testing.expect(t, !supports(e, ".odin", .Execute_Command), "no in-client backend runs a server command")
+}

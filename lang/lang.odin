@@ -33,6 +33,11 @@ Request_Kind :: enum {
     // Fired after one typed character (Request.trigger), debounced like
     // completion. Answers the same Result.edits shape as Format.
     Format_On_Type,
+    // Runs a Code_Action that carries a command instead of edits
+    // (Request.command / command_args). The server does the work and sends its
+    // changes back as a pushed Apply_Edit, so the result carries no edits of its
+    // own — only whether the command ran.
+    Execute_Command,
     // Push-only: never dispatched through manager_request*, only produced by
     // Backend.poll (a server's unsolicited $/progress notification).
     Progress,
@@ -170,6 +175,13 @@ Code_Action :: struct {
     kind:          string,              // owned; "quickfix" / "refactor" — drives the row color
     edits:         [dynamic]Text_Edit,  // owned; same ordering contract as Result.edits
     resource_ops:  [dynamic]Resource_Op, // owned; same fixed-phase-order contract as Result.resource_ops
+    // The one exception to "computed up front": an LSP server may offer a fix as
+    // a command it runs itself. Picking it dispatches Execute_Command, and the
+    // changes arrive later as a pushed Apply_Edit. Both empty for an in-client
+    // backend, and an action may carry edits *and* a command — LSP applies the
+    // edits first, then runs it.
+    command:       string, // owned; "" when the action carries its own edits
+    arguments:     string, // owned; the command's arguments as raw JSON array text
 }
 
 // What a classified identifier turned out to be. The grammar cannot tell most of
@@ -300,6 +312,12 @@ Request :: struct {
     // Format_On_Type only; owned. The character just typed, as UTF-8. "" for
     // every other kind.
     trigger:  string,
+    // Execute_Command only; owned. The command identifier, and its arguments as
+    // the raw JSON array text the offer carried — kept verbatim rather than
+    // decoded, since the seam never reads them and the server round-trips its
+    // own shapes.
+    command:      string,
+    command_args: string,
     cancel:    ^bool,  // Job-owned cancellation flag; read via request_cancelled, nil when hand-built
 }
 
@@ -672,7 +690,8 @@ manager_on_type_trigger :: proc(m: ^Manager, ext, char: string) -> bool {
 // frame. `new_name` is Rename's argument, `query` is Workspace_Symbols';
 // `end` is Code_Actions' selection high end (negative, its default, means "no
 // selection" and collapses to `offset`); `diagnostics` is Code_Actions' own
-// overlapping diagnostics. Every other kind ignores all four.
+// overlapping diagnostics; `command`/`command_args` are Execute_Command's.
+// Every other kind ignores them all.
 manager_request :: proc(
     m: ^Manager,
     kind: Request_Kind,
@@ -686,6 +705,8 @@ manager_request :: proc(
     diagnostics: []Diagnostic_Ref = nil,
     tab_size := 0,
     trigger := "",
+    command := "",
+    command_args := "",
 ) -> u64 {
     if !manager_feature_enabled(m, kind) {
         return 0
@@ -712,6 +733,8 @@ manager_request :: proc(
         clone_diagnostic_refs(diagnostics, m.allocator),
         tab_size,
         strings.clone(trigger),
+        strings.clone(command),
+        strings.clone(command_args),
     )
 }
 
@@ -751,6 +774,8 @@ dispatch_owned :: proc(
     diagnostics: []Diagnostic_Ref = nil,
     tab_size: int = 0,
     trigger: string = "",
+    command: string = "",
+    command_args: string = "",
 ) -> u64 {
     context.allocator = m.allocator
     backend, ok := backend_for_kind(m, ext, kind)
@@ -763,6 +788,8 @@ dispatch_owned :: proc(
         delete(query)
         free_diagnostic_refs(diagnostics)
         delete(trigger)
+        delete(command)
+        delete(command_args)
         return 0
     }
 
@@ -784,6 +811,8 @@ dispatch_owned :: proc(
         diagnostics = diagnostics,
         tab_size    = tab_size,
         trigger     = trigger,
+        command      = command,
+        command_args = command_args,
     }
     job.request.cancel = &job.cancelled // stable for the job's lifetime
     job.result.id = id
@@ -884,10 +913,27 @@ manager_request_latest :: proc(
     diagnostics: []Diagnostic_Ref = nil,
     tab_size := 0,
     trigger := "",
+    command := "",
+    command_args := "",
 ) -> u64 {
     manager_cancel_kind(m, kind)
     return manager_request(
-        m, kind, path, ext, source, offset, revision, workspace, new_name, query, end, diagnostics, tab_size, trigger,
+        m,
+        kind,
+        path,
+        ext,
+        source,
+        offset,
+        revision,
+        workspace,
+        new_name,
+        query,
+        end,
+        diagnostics,
+        tab_size,
+        trigger,
+        command,
+        command_args,
     )
 }
 
@@ -1149,6 +1195,8 @@ job_free :: proc(m: ^Manager, job: ^Job) {
     delete(job.request.ext)
     delete(job.request.source)
     delete(job.request.workspace)
+    delete(job.request.command)
+    delete(job.request.command_args)
     delete(job.request.new_name)
     delete(job.request.query)
     free_diagnostic_refs(job.request.diagnostics)
@@ -1198,6 +1246,8 @@ result_free :: proc(m: ^Manager, res: ^Result) {
     for action in res.actions {
         delete(action.title)
         delete(action.kind)
+        delete(action.command)
+        delete(action.arguments)
         for edit in action.edits {
             delete(edit.path)
             delete(edit.old_text)

@@ -45,6 +45,12 @@ request_decode :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
         decode_package_doc(ask, value, res)
     case .Format, .Format_Range, .Format_On_Type:
         decode_format(ask, value, res)
+    case .Execute_Command:
+        // The reply is usually null and carries nothing worth reading: reaching
+        // here at all means the server accepted the command (an error would have
+        // returned before the decode). Whatever it changes arrives separately as
+        // a pushed workspace/applyEdit.
+        res.ok = true
     }
 }
 
@@ -740,9 +746,11 @@ decode_format :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
 }
 
 // `(Command | CodeAction)[]`. An item with no `edit` gets codeAction/resolve
-// called eagerly, on this same worker; one that still has none afterward — a
-// bare Command, or a CodeAction a server declined to resolve — is dropped,
-// since Thor has no workspace/executeCommand path. isPreferred actions sort
+// called eagerly, on this same worker. One that still has none afterward is kept
+// only if it names a `command` — picking it dispatches Execute_Command and the
+// server sends its changes back as a pushed applyEdit; an item with neither
+// edits nor a command can do nothing and is dropped. An item may carry both, and
+// LSP applies the edits before running the command. isPreferred actions sort
 // first; server order is kept otherwise.
 @(private)
 decode_code_actions :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
@@ -762,18 +770,23 @@ decode_code_actions :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
         if _, disabled := object["disabled"]; disabled {
             continue
         }
+        command, arguments := decode_action_command(object)
         action := lang.Code_Action {
             title        = strings.clone(string(title)),
             kind         = strings.clone(action_kind_of(object["kind"])),
             edits        = make([dynamic]lang.Text_Edit),
             resource_ops = make([dynamic]lang.Resource_Op),
+            command      = strings.clone(command),
+            arguments    = strings.clone(arguments),
         }
-        if !decode_action_edit(ask, object, &action.edits, &action.resource_ops) ||
-           (len(action.edits) == 0 && len(action.resource_ops) == 0) {
+        decode_action_edit(ask, object, &action.edits, &action.resource_ops)
+        if len(action.edits) == 0 && len(action.resource_ops) == 0 && action.command == "" {
             delete(action.title)
             delete(action.kind)
             delete(action.edits)
             delete(action.resource_ops)
+            delete(action.command)
+            delete(action.arguments)
             continue
         }
         slice.sort_by(action.edits[:], proc(a, b: lang.Text_Edit) -> bool {
@@ -796,6 +809,26 @@ decode_code_actions :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
     append(&res.actions, ..preferred[:])
     append(&res.actions, ..rest[:])
     res.ok = len(res.actions) > 0
+}
+
+// The command one code action names, if any, with its arguments as the raw JSON
+// array text — kept verbatim so the server sees back exactly the shape it sent.
+// Both forms are accepted: a bare `Command` is the object itself, a `CodeAction`
+// nests one under "command". Borrowed from `object`; the caller clones.
+@(private)
+decode_action_command :: proc(object: json.Object) -> (command, arguments: string) {
+    holder := object
+    if nested, ok := object["command"].(json.Object); ok {
+        holder = nested
+    }
+    name, nok := holder["command"].(json.String)
+    if !nok || name == "" {
+        return "", ""
+    }
+    if args, aok := holder["arguments"].(json.Array); aok && len(args) > 0 {
+        arguments = json_text(holder["arguments"], context.temp_allocator)
+    }
+    return string(name), arguments
 }
 
 // The edit for one code action: inline if present, otherwise fetched with

@@ -68,6 +68,19 @@ request_for :: proc(kind: lang.Request_Kind, source: string, offset := 0) -> lan
     return lang.Request{kind = kind, path = FILE, ext = ".fake", source = source, offset = offset}
 }
 
+// The Ask a worker builds for `req`, for the paths that read it directly.
+@(private = "file")
+ask_for :: proc(s: ^Server, req: ^lang.Request) -> Ask {
+    return Ask {
+        server = s,
+        req    = req,
+        uri    = uri_from_path(req.path, context.temp_allocator),
+        lines  = line_index_build(req.source, s.caps.encoding, context.temp_allocator),
+        texts  = make(map[string]string, allocator = context.temp_allocator),
+        raws   = make(map[string]^Line_Index, allocator = context.temp_allocator),
+    }
+}
+
 // Runs one reply through the real decoder, on the real Ask a worker builds.
 @(private = "file")
 decode_reply :: proc(s: ^Server, req: ^lang.Request, body: string) -> lang.Result {
@@ -1264,10 +1277,11 @@ test_decode_code_actions_inline_edit_kept :: proc(t: ^testing.T) {
     testing.expect_value(t, res.actions[0].edits[0].new_text, "// x\n")
 }
 
-// A bare Command and a `disabled` CodeAction both drop: Thor has no
-// workspace/executeCommand path, and no UI for a disabled reason.
+// A bare Command is kept, with its arguments verbatim: picking it dispatches
+// Execute_Command. A `disabled` CodeAction still drops — there is no UI for a
+// disabled reason.
 @(test)
-test_decode_code_actions_drops_command_and_disabled :: proc(t: ^testing.T) {
+test_decode_code_actions_keeps_command_drops_disabled :: proc(t: ^testing.T) {
     s := held_server()
     defer held_destroy(s)
     req := request_for(.Code_Actions, SOURCE, 0)
@@ -1275,15 +1289,50 @@ test_decode_code_actions_drops_command_and_disabled :: proc(t: ^testing.T) {
     res := decode_reply(
         s,
         &req,
-        `[{"title":"Do thing","command":{"command":"foo","title":"Do thing"}},` +
+        `[{"title":"Do thing","command":{"command":"foo","title":"Do thing","arguments":[1,"two"]}},` +
         `{"title":"Disabled fix","disabled":{"reason":"nope"},"edit":{"changes":{"` +
         FILE_URI +
         `":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"newText":"x"}]}}}]`,
     )
     defer result_release(&res)
 
-    testing.expect(t, !res.ok)
-    testing.expect(t, res.actions == nil)
+    testing.expect(t, res.ok)
+    testing.expect_value(t, len(res.actions), 1)
+    if len(res.actions) != 1 {
+        return
+    }
+    testing.expect_value(t, res.actions[0].title, "Do thing")
+    testing.expect_value(t, res.actions[0].command, "foo")
+    testing.expect_value(t, res.actions[0].arguments, `[1,"two"]`)
+    testing.expect_value(t, len(res.actions[0].edits), 0)
+}
+
+// workspace/executeCommand names no document: the command and its arguments,
+// passed through as the raw JSON the offer carried.
+@(test)
+test_execute_command_params :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Execute_Command, SOURCE, 0)
+    req.command = "foo"
+    req.command_args = `[1,"two"]`
+
+    ask := ask_for(s, &req)
+    params := request_params(&ask)
+    testing.expect_value(t, params, `{"command":"foo","arguments":[1,"two"]}`)
+}
+
+// A command with no arguments sends none, rather than an empty array.
+@(test)
+test_execute_command_params_without_arguments :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Execute_Command, SOURCE, 0)
+    req.command = "foo"
+
+    ask := ask_for(s, &req)
+    params := request_params(&ask)
+    testing.expect_value(t, params, `{"command":"foo"}`)
 }
 
 // A code action whose only payload is a CreateFile resource op (no text
@@ -1318,7 +1367,8 @@ test_decode_code_actions_keeps_create :: proc(t: ^testing.T) {
 
 // An action with no inline `edit` and a server that never advertised
 // codeActionProvider.resolveProvider is dropped without attempting a resolve
-// call — caps.resolve_actions stays false on a fresh held_server.
+// call — caps.resolve_actions stays false on a fresh held_server. It names no
+// command either, so there is nothing left it could do.
 @(test)
 test_decode_code_actions_drops_unresolvable :: proc(t: ^testing.T) {
     s := held_server()

@@ -20,6 +20,8 @@ Pending_Action :: struct {
     title:        string, // owned
     edits:        [dynamic]lang.Text_Edit, // owned
     resource_ops: [dynamic]lang.Resource_Op, // owned
+    command:      string, // owned; "" unless the server runs this fix itself
+    arguments:    string, // owned; the command's arguments as raw JSON array text
 }
 
 // Ctrl+.: ask the engine what it can fix at the caret. Async; thor_show_code_actions
@@ -106,7 +108,11 @@ thor_show_code_actions :: proc(thor: ^Thor, res: ^lang.Result) {
     thor_clear_code_actions(thor)
     items := make([dynamic]widgets.Pick_Item, context.temp_allocator)
     for action in res.actions {
-        pending := Pending_Action{title = strings.clone(action.title)}
+        pending := Pending_Action {
+            title     = strings.clone(action.title),
+            command   = strings.clone(action.command),
+            arguments = strings.clone(action.arguments),
+        }
         for edit in action.edits {
             append(&pending.edits, lang.Text_Edit {
                 path     = strings.clone(edit.path),
@@ -147,6 +153,10 @@ thor_show_code_actions :: proc(thor: ^Thor, res: ^lang.Result) {
 // typed while the picker was open — and the applier catches that by validating
 // every edit against the revision the request was made at, so a stale pick is
 // refused rather than splicing text at offsets that no longer mean anything.
+//
+// An action that also names a command runs it after its own edits land, the
+// order LSP defines; a command-only one has nothing to apply and goes straight
+// there.
 @(private = "file")
 thor_pick_code_action :: proc(data: rawptr, index: int) {
     thor := cast(^Thor) data
@@ -154,19 +164,79 @@ thor_pick_code_action :: proc(data: rawptr, index: int) {
         return
     }
     action := thor.code_actions[index]
-    applied, _, ok, reason := thor_apply_edits(
-        thor,
-        action.edits[:],
-        thor.code_action_path,
-        thor.code_action_revision,
-        action.resource_ops[:],
-    )
-    if !ok {
-        verb := applied > 0 ? "incomplete" : "aborted"
-        thor_flash_status(thor, fmt.tprintf("%s %s: %s", action.title, verb, reason), is_error = true)
+    if len(action.edits) > 0 || len(action.resource_ops) > 0 {
+        applied, _, ok, reason := thor_apply_edits(
+            thor,
+            action.edits[:],
+            thor.code_action_path,
+            thor.code_action_revision,
+            action.resource_ops[:],
+        )
+        if !ok {
+            verb := applied > 0 ? "incomplete" : "aborted"
+            thor_flash_status(thor, fmt.tprintf("%s %s: %s", action.title, verb, reason), is_error = true)
+            return
+        }
+    }
+    if action.command != "" && thor_run_action_command(thor, action) {
         return
     }
     thor_flash_status(thor, action.title)
+}
+
+// Dispatches a code action's command. Returns whether it went out — false means
+// the backend declined it, and the caller reports the action as done, since any
+// edits it carried have already landed. The server's own changes come back
+// through the pushed Apply_Edit path, not this request's result.
+@(private = "file")
+thor_run_action_command :: proc(thor: ^Thor, action: Pending_Action) -> bool {
+    file := thor_active_open_file(thor)
+    if file == nil || !file.loaded {
+        return false
+    }
+    ext := thor_file_extension(file.name)
+    if !lang.manager_allows(&thor.lang_manager, ext, .Execute_Command) {
+        return false
+    }
+    id := lang.manager_request_latest(
+        &thor.lang_manager,
+        .Execute_Command,
+        file.path,
+        ext,
+        textedit.text(&file.state),
+        0,
+        file.state.revision,
+        thor.workspace_dir,
+        command = action.command,
+        command_args = action.arguments,
+    )
+    if id == 0 {
+        return false
+    }
+    thor.execute_command_request_id = id
+    delete(thor.execute_command_title)
+    thor.execute_command_title = strings.clone(action.title)
+    thor_flash_status(thor, fmt.tprintf("Running %s...", action.title))
+    return true
+}
+
+// Reports an Execute_Command result. Nothing is applied here — a command's
+// changes arrive as a server-initiated applyEdit, on its own schedule — so this
+// only tells the user whether the server took the command.
+thor_apply_execute_command :: proc(thor: ^Thor, res: ^lang.Result) {
+    if res.id != thor.execute_command_request_id {
+        return
+    }
+    thor.execute_command_request_id = 0
+    title := thor.execute_command_title
+    if title == "" {
+        title = "Command"
+    }
+    if !res.ok {
+        thor_flash_status(thor, fmt.tprintf("%s failed", title), is_error = true)
+        return
+    }
+    thor_flash_status(thor, title)
 }
 
 // The preview line under the selected row: how much the fix changes, so a
@@ -175,6 +245,9 @@ thor_pick_code_action :: proc(data: rawptr, index: int) {
 // file operations instead.
 @(private = "file")
 thor_action_detail :: proc(action: lang.Code_Action) -> string {
+    if len(action.edits) == 0 && len(action.resource_ops) == 0 && action.command != "" {
+        return "runs on the server"
+    }
     if len(action.edits) == 0 && len(action.resource_ops) > 0 {
         if len(action.resource_ops) == 1 {
             return "1 file operation"
@@ -204,6 +277,8 @@ thor_action_color :: proc(thor: ^Thor, kind: string) -> rl.Color {
 thor_clear_code_actions :: proc(thor: ^Thor) {
     for action in thor.code_actions {
         delete(action.title)
+        delete(action.command)
+        delete(action.arguments)
         for edit in action.edits {
             delete(edit.path)
             delete(edit.old_text)
