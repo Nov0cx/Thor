@@ -841,10 +841,7 @@ thor_edit_target :: proc(
     origin: string,
     snapshot: u64,
 ) -> (int, bool) {
-    canonical := path
-    if abs, err := filepath.abs(path, context.temp_allocator); err == nil {
-        canonical = abs
-    }
+    canonical := thor_abs_path(path)
     for target, index in targets^ {
         if thor_same_path(target.path, canonical) {
             return index, true
@@ -1104,10 +1101,7 @@ thor_render_doc_in_pane :: proc(thor: ^Thor, path, text: string, pane: int) {
     if werr := os.write_entire_file(path, transmute([]byte) text); werr != nil {
         return
     }
-    canonical := path
-    if abs, err := filepath.abs(path, context.temp_allocator); err == nil {
-        canonical = abs
-    }
+    canonical := thor_abs_path(path)
 
     if pane == 1 && !thor.split_visible {
         thor.split_visible = true
@@ -1634,10 +1628,7 @@ thor_flash_status :: proc(thor: ^Thor, message: string, is_error := false) {
 @(private = "file")
 thor_goto_location :: proc(thor: ^Thor, path: string, offset: int) {
     thor_jump_record(thor)
-    canonical := path
-    if abs, err := filepath.abs(path, context.temp_allocator); err == nil {
-        canonical = abs
-    }
+    canonical := thor_abs_path(path)
 
     if file, index := thor_find_open_file(thor, canonical); file != nil {
         thor_set_active_file(thor, index)
@@ -1660,10 +1651,7 @@ thor_goto_location :: proc(thor: ^Thor, path: string, offset: int) {
 // once it has loaded.
 thor_goto_file_line_col :: proc(thor: ^Thor, path: string, line, col: int) {
     thor_jump_record(thor)
-    canonical := path
-    if abs, err := filepath.abs(path, context.temp_allocator); err == nil {
-        canonical = abs
-    }
+    canonical := thor_abs_path(path)
 
     if file, index := thor_find_open_file(thor, canonical); file != nil {
         thor_set_active_file(thor, index)

@@ -225,14 +225,16 @@ test_undo_edits_refuses_changed_file :: proc(t: ^testing.T) {
     testing.expect_value(t, string(after), EDITED)
 }
 
-// An LSP code action's edit names its file with the drive letter the server
-// spelled it with (basedpyright, notably, lowercases it), which need not match
-// the case the file was opened under. The origin buffer must still be
-// recognized as itself — a case-only difference used to fall through to the
-// "already saved" branch and refuse the edit on an unsaved buffer, exactly the
-// state a quick fix is applied from.
+// An LSP code action's edit names its file the way the server spells it, which
+// need not match the spelling it was opened under. The origin buffer must still
+// be recognized as itself — a spelling-only difference used to fall through to
+// the "already saved" branch and refuse the edit on an unsaved buffer, exactly
+// the state a quick fix is applied from.
 @(test)
-test_apply_edits_matches_origin_regardless_of_drive_letter_case :: proc(t: ^testing.T) {
+test_apply_edits_matches_origin_regardless_of_path_spelling :: proc(t: ^testing.T) {
+    OPEN_PATH :: "w/pkg/a.odin"
+    EDIT_PATH :: "w/./pkg/a.odin"
+
     thor := new(Thor)
     defer free(thor)
     defer thor_clear_edit_undo(thor)
@@ -241,7 +243,7 @@ test_apply_edits_matches_origin_regardless_of_drive_letter_case :: proc(t: ^test
     defer delete(thor.status_message)
 
     file := new(Open_File)
-    file.path = "D:/w/pkg/a.odin"
+    file.path = OPEN_PATH
     file.loaded = true
     textedit.init(&file.state)
     textedit.set_text(&file.state, "foo := bar\n")
@@ -256,7 +258,7 @@ test_apply_edits_matches_origin_regardless_of_drive_letter_case :: proc(t: ^test
     append(&thor.open_files, file)
 
     edits := []lang.Text_Edit {
-        {path = "d:/w/pkg/a.odin", start = 0, end = 3, old_text = "foo", new_text = "baz"},
+        {path = EDIT_PATH, start = 0, end = 3, old_text = "foo", new_text = "baz"},
     }
     applied, files, ok, reason := thor_apply_edits(thor, edits, file.path, file.state.revision)
     testing.expectf(t, ok, "apply refused an edit against its own origin buffer: %s", reason)

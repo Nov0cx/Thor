@@ -3,18 +3,27 @@
 // work, so it is testable without a window.
 package thor
 
+import "core:os"
 import "core:path/filepath"
 import "core:strings"
 
-// `path` made absolute, on scratch. filepath.abs runs only for a relative path:
-// on POSIX it opens the file, so it fails for one not created yet. The input is
-// returned when it cannot be resolved.
+// `path` made absolute, on scratch. filepath.abs opens the file on POSIX, so it
+// fails for one not created yet; a lexical join with the working directory then
+// answers for a file the editor has not written. The input is returned when
+// neither resolves.
 thor_abs_path :: proc(path: string) -> string {
     if path == "" || filepath.is_abs(path) {
         return path
     }
-    abs, err := filepath.abs(path, context.temp_allocator)
-    return err == nil ? abs : path
+    if abs, err := filepath.abs(path, context.temp_allocator); err == nil {
+        return abs
+    }
+    wd, wd_err := os.get_working_directory(context.temp_allocator)
+    if wd_err != nil {
+        return path
+    }
+    joined, join_err := filepath.join({wd, path}, context.temp_allocator)
+    return join_err == nil ? joined : path
 }
 
 // A comparison key for `path`: absolute, `\` folded to `/`, `.`/`..` resolved.
