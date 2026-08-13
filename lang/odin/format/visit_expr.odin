@@ -332,17 +332,32 @@ print_expr :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: ^ast.Expr) {
 
 @(private)
 print_comp_lit_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: ^ast.Comp_Lit) {
-	append(out, text("{"))
 	if len(e.elems) == 0 {
-		append(out, text("}"))
+		append(out, text("{}"))
 		return
 	}
 	multiline := pr.opts.exp_multiline_composite_literals && e.open.line != e.close.line
 	if !multiline {
-		print_expr_list(pr, out, e.elems)
-		append(out, text("}"))
+		// The group is off when exp_multiline_composite_literals is on: it
+		// would break a literal the source wrote on one line, and the second
+		// format would then read `open.line != close.line` and take the other
+		// branch instead — the same input rendering two ways.
+		if pr.opts.exp_multiline_composite_literals {
+			append(out, text("{"))
+			print_expr_list(pr, out, e.elems)
+			append(out, text("}"))
+			return
+		}
+		items := make([dynamic]Doc, 0, len(e.elems))
+		for el in e.elems {
+			elem: [dynamic]Doc
+			print_expr(pr, &elem, el)
+			append(&items, concat(elem[:]))
+		}
+		append_list_group(pr, out, "{", "}", items[:])
 		return
 	}
+	append(out, text("{"))
 	assign_field_value_align_ids(pr, e.elems)
 	body: [dynamic]Doc
 	prev_line := e.open.line

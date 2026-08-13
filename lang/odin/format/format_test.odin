@@ -394,6 +394,34 @@ test_character_width_wraps_proc_params :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_character_width_wraps_comp_lit :: proc(t: ^testing.T) {
+	opts := default_options()
+	opts.character_width = 20
+	src := "package p\nv := Foo{alpha, beta, gamma}\n"
+	out, ok := format(src, opts)
+	defer delete(out)
+	testing.expect(t, ok)
+	testing.expect(t, strings.contains(out, "Foo{\n"), out)
+	testing.expect(t, strings.contains(out, "gamma,\n"), out)
+}
+
+@(test)
+test_comp_lit_group_off_under_exp_multiline :: proc(t: ^testing.T) {
+	opts := default_options()
+	opts.character_width = 20
+	opts.exp_multiline_composite_literals = true
+	src := "package p\nv := Foo{alpha, beta, gamma}\n"
+	out, ok := format(src, opts)
+	defer delete(out)
+	testing.expect(t, ok)
+	testing.expect(t, strings.contains(out, "Foo{alpha, beta, gamma}"), out)
+	out2, ok2 := format(out, opts)
+	defer delete(out2)
+	testing.expect(t, ok2)
+	testing.expect_value(t, out2, out)
+}
+
+@(test)
 test_character_width_zero :: proc(t: ^testing.T) {
 	opts := default_options()
 	opts.character_width = 0
