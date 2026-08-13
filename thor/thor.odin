@@ -342,12 +342,10 @@ Thor :: struct {
     // In-flight package-doc request: its request id, so a superseded result (a
     // newer F3 for another package) is dropped instead of overwriting the newer one.
     package_doc_request_id: u64,
-    // In-flight semantic-tokens request: its id and the path of the buffer being
-    // classified (owned — the file may be closed and freed before the result
-    // lands, so it is looked up again by path rather than held by pointer). One
-    // runs at a time: nothing is waiting on the colors, and holding the slot
-    // until the last result lands throttles a whole-file classification to its
-    // own round trip instead of firing one per keystroke.
+    // In-flight semantic-tokens request: its id and the classified buffer's path
+    // (owned — the file may be closed and freed before the result lands, so it is
+    // looked up by path, not held by pointer). One at a time, which throttles a
+    // whole-file classification to its own round trip.
     semantic_request_id: u64,
     semantic_path: string,
     // In-flight rename: its request id and the path of the buffer it was computed
@@ -370,13 +368,11 @@ Thor :: struct {
     // was accepted — the changes arrive later as a pushed Apply_Edit.
     execute_command_request_id: u64,
     execute_command_title: string, // owned
-    // In-flight format request: its id and the path of the buffer it was
-    // computed against (owned). format_save_pending marks a save waiting on
-    // this request's result — thor_apply_format runs it on every terminal
-    // outcome (applied, refused, already-formatted, syntax error), so a save
-    // is never held hostage by formatting. format_save_queue is Save All's
-    // remaining files (owned paths), formatted and saved one at a time since
-    // .Format has one consumer slot like every other kind.
+    // In-flight format request: its id and the path of the buffer it was computed
+    // against (owned). format_save_pending marks a save waiting on the result,
+    // which thor_apply_format runs on every terminal outcome so a save is never
+    // held hostage by formatting. format_save_queue is Save All's remaining files
+    // (owned paths), taken one at a time since .Format has one consumer slot.
     format_request_id: u64,
     format_path: string,
     format_save_pending: bool,
@@ -391,12 +387,11 @@ Thor :: struct {
     // save-pending bookkeeping — on-type formatting never blocks a save.
     on_type_request_id: u64,
     on_type_path: string,
-    // How to move the last edit set applied across files (a rename, a code
-    // action), so ctrl+z takes all of it back and ctrl+shift+z puts it back —
-    // the files that were not open were rewritten on disk and have no buffer
-    // history of their own. Exactly one set is live in each direction: undo
-    // hands its record to edit_redo and redo hands it back, so every string is
-    // allocated once and freed once. owned
+    // How to move the last cross-file edit set (a rename, a code action), so
+    // ctrl+z takes all of it back — files that were not open were rewritten on
+    // disk and have no buffer history. Exactly one set is live in each direction:
+    // undo hands its record to edit_redo and redo hands it back, so every string
+    // is allocated once and freed once. owned
     edit_undo: [dynamic]Edit_Undo_File,
     edit_redo: [dynamic]Edit_Undo_File,
     // Statusline analyzer indicator: the request kinds in flight, when the
