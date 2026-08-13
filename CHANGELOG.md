@@ -66,3 +66,14 @@ First release. Thor runs on Windows, Linux and macOS.
 - JSON, YAML, INI, Makefile, Dockerfile, batch, `.env` and `.gitignore` files highlight only the lines the pane shows, so a large one keeps up with typing.
 - A file colored by a pure-Lua lexer is no longer re-read whole every time the view scrolls.
 - Plugin API: `line_based = true` in `thor.register_language` marks a lexer that reads each line on its own, and `thor.ts.parse` reuses the tree the plugin parsed last, so re-parsing an edited buffer costs the edit.
+- The Odin formatter wraps a call, a procedure parameter list or a composite literal that crosses `character_width`, one item per line with a trailing comma. A list holding an argument that spans lines, such as a procedure literal, still hugs its call.
+- `sort_imports` sorts each run of `import` declarations, `base:`, `core:` and `vendor:` paths first. A run with a comment in it keeps the order it was written.
+- `align_struct_fields` lines up a struct's field types, and `align_struct_values` the `=` of enum members and multi-line composite literals and a bit field's `|`. Both are on by default. A blank line or an own-line comment starts a new column.
+- `align_constant_definitions` and `align_struct_declarations` line up the `::` of consecutive declarations. Both off by default.
+- `space_single_line_blocks` keeps a one-statement block the source wrote on one line as `{ stmt }`.
+- `ctrl + alt + shift + l` / "Edit: Format Selection" works on Odin files instead of reporting that formatting is unavailable. It reformats only the lines selected.
+- `format_on_type` reindents the current line of an Odin file when `}` is typed.
+- Formatting an Odin file with no folder open uses the shipped defaults instead of no indent at all.
+- Hover and completion work on a by-reference loop variable: `p.` inside `for &p in points` offers the element's fields.
+- The workspace symbol picker (`ctrl + q`) filters as you type in the analyzer instead of sending every symbol in the workspace on each keystroke.
+- A code action a language server runs itself, rather than answering with edits, is offered and runs. Its row reads "runs on the server", and the server's changes arrive as it applies them.

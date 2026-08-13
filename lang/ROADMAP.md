@@ -1154,8 +1154,10 @@ lowest latency.
         `locals.scm` has no rule for, and `@(builtin)` puts an `attributes` node
         in front of the name. Named results (`-> (head, tail: string, ok: bool)`)
         are `named_type` nodes, uncaptured as well. `for &x in xs` wraps the loop
-        variable in the `&`. All three now come out of `collect_value_decls`, so
-        go-to-definition, completion and the symbol list gain them too.
+        variable in a `unary_expression`. All three now come out of
+        `collect_value_decls`, so go-to-definition, completion and the symbol
+        list gain them too — and `range_binding` (`infer.odin`) unwraps the same
+        shape, so a by-reference loop variable infers its element type as well.
       - A file-scope `when` is not a scope. `base:runtime` keeps `delete_key`,
         `make_map` and the rest of the map builtins inside `when MAP_ENABLED`,
         and treating that block as a scope dropped them from both the builtin
@@ -1166,9 +1168,13 @@ lowest latency.
       differently per backend. Odin: a native printer (`lang/odin/format`,
       package `odinfmt`) built on `core:odin/parser` — `core:odin/format`/
       `printer` are deprecated `#panic` stubs in the toolchain, so the printer
-      is hand-written, not inherited — answers `.Format` alone;
-      `lang/odin/engine.odin`'s `UNSUPPORTED` bit_set declines the other two
-      outright rather than answering `ok=false`. Every other language: the LSP
+      is hand-written, not inherited — answers all three. The printer is
+      whole-file only (`core:odin/parser` has no partial-parse entry point), so
+      `.Format_Range` and `.Format_On_Type` format everything and keep only the
+      diff spans inside their window: the selection for a range, the trigger's
+      own line for on-type. A span that straddles the edge is dropped whole
+      rather than half-applied, and only `.Format` may change the file's line
+      endings. `}` is the engine's one on-type trigger. Every other language: the LSP
       backend (`lang/lsp/requests.odin`'s `METHODS`,
       `lang/lsp/capability.odin`'s `PROVIDER_KEYS`) sends all three as
       `textDocument/formatting` / `rangeFormatting` / `onTypeFormatting`, with
@@ -1185,9 +1191,17 @@ lowest latency.
       back to the whole document with no selection), `format_on_save` and
       `format_on_type` (both off by default). Odin refuses on any syntax error
       rather than guess; on-type formatting is silent on every outcome,
-      including a stale result the buffer has since moved past. Missing:
-      line-width-aware wrapping of long call/literal argument lists and
-      alignment across a run split by a comment, both Odin-printer-only.
+      including a stale result the buffer has since moved past. The printer's
+      `character_width` wraps call argument lists, procedure parameter lists and
+      composite literals, one item per line with a trailing comma, and hugs any
+      list holding an argument that forces a line break (a proc literal) as
+      before. `sort_imports` reorders a comment-free import run,
+      collection-qualified paths first. `align_struct_fields` lines up struct
+      field types, `align_struct_values` the `=` of enum members and multi-line
+      composite literals and the `|` of a bit field, `align_constant_definitions`
+      and `align_struct_declarations` the `::` of consecutive declarations.
+      Missing, Odin-printer-only: wrapping of long binary-expression chains and
+      procedure *result* lists, and alignment across a run split by a comment.
 
 ## Missing — scalability / performance
 
@@ -1477,9 +1491,9 @@ Landed since (`lang/lsp`, M1–M7):
       undeclared name. This is where `Field` and `Enum_Member` first become real.
       Deliberate lossage: completion drops `textEdit`, `additionalTextEdits`,
       `command` and snippets, and does not call `completionItem/resolve`.
-      `workspace/symbol` is still sent with an **empty query** on the wire when
-      one goes out at all — nothing above the seam carries one — but
-      `thor_goto_workspace_symbol` (`thor/lang_host.odin`) no longer sends that
+      `workspace/symbol` carries the picker's typed text (see the
+      `workspace/symbol` query entry below), and
+      `thor_goto_workspace_symbol` (`thor/lang_host.odin`) does not send that
       initial round trip for a server-backed extension: a server that answers an
       empty query with nothing (clangd, gopls, pyright) would just come back
       empty anyway, so the picker opens straight into its "type to search" hint
@@ -1517,10 +1531,14 @@ Landed since (`lang/lsp`, M1–M7):
       own rename/delete, which have no undo of their own either; a follow-up
       would need new `Edit_Undo_File` variants for a reversible rename/delete.
       `Code_Actions` calls `codeAction/resolve` eagerly on the same
-      worker for any action returned with no `edit`, and drops a command-only
-      action outright, since Thor has no `workspace/executeCommand` path; the
-      caret carries no selection end, so a selection-scoped action ("extract
-      function") is unreachable.
+      worker for any action returned with no `edit`. An action that still has
+      none is kept when it names a `command`: `Code_Action` carries the command
+      and its arguments as raw JSON, and picking it dispatches
+      `lang.Request_Kind.Execute_Command` (`workspace/executeCommand`, gated on
+      `executeCommandProvider`) — the server's own changes come back through the
+      pushed `workspace/applyEdit` path, so nothing waits on the reply. An action
+      carrying both applies its edits first, the order LSP defines; one with
+      neither is dropped. The in-client Odin engine declines the kind outright.
 
 Landed since (M9):
 
@@ -1549,9 +1567,14 @@ Landed since (M9):
       (`dispatch_owned`'s no-backend path, `job_free`, `pending_clear`, the
       `Pending` copy); `manager_request`/`_latest`/`_debounced` all take it.
       `lang/lsp/requests.odin` sends `req.query` instead of the hardcoded
-      `""`; the in-client Odin backend still ignores it and keeps its full
-      scan. Ctrl+Q's opening fetch is unchanged (empty query, client-side
-      fuzzy filter); `widgets.Command_Palette` gained an `on_query_changed`
+      `""`. The in-client Odin backend reads it too: `lang.symbol_matches`
+      (`lang/match.odin`, a case-insensitive subsequence — ranking stays with
+      the picker) filters both the live buffer's decls and `index_all_symbols`,
+      so a keystroke on a large workspace carries back the matches instead of
+      every symbol. Document outlines share `collect_symbols_into` and pass no
+      query, so they stay unfiltered. Ctrl+Q's opening fetch is unchanged (empty
+      query, whole list, client-side fuzzy filter);
+      `widgets.Command_Palette` gained an `on_query_changed`
       hook, fired on an actual keystroke and never on the reset a picker
       opens with, that `thor_goto_workspace_symbol` wires to
       `thor_workspace_symbol_query_changed` — a debounced re-dispatch

@@ -16,7 +16,7 @@ General editor preferences.
 | `autosave_delay_ms` | Delay after the last edit before autosave | `1500` |
 | `ligatures` | Draw programming ligatures (`->` as one glyph) | `true` |
 | `format_on_save` | Format the active buffer before an explicit save (`ctrl + s`, Save All, the palette) — never before an autosave | `false` |
-| `format_on_type` | Dispatch on-type formatting as a trigger character (a language server's own choice, e.g. `}` or `\n`) is typed | `false` |
+| `format_on_type` | Dispatch on-type formatting as a trigger character is typed — `}` for Odin, a language server's own choice otherwise | `false` |
 | `theme` | Active color theme, a name under `assets/themes/` with no extension (e.g. `"mjolnir"`) | built-in default |
 | `font` | Text font family, a name in `assets/fonts/fonts.json` | built-in default |
 | `icon_pack` | Primary icon pack, a family in `assets/icons/icons.json` | built-in default |
@@ -143,13 +143,14 @@ its root, layered on top of the global settings above. This repository's own
   (`enable_hover`, `enable_document_symbols`, `enable_references`, ...) are on
   for this workspace. This is Thor's own file, not `ols.json`.
 
-- **`odin-formatter.json`** — per-workspace options for `ctrl + alt + l` /
-  "Edit: Format Document" on `.odin` files, mirroring the odinfmt (OLS) schema.
-  An absent file, or an absent key, uses the default shown:
+- **`odin-formatter.json`** — per-workspace options for formatting `.odin`
+  files — "Edit: Format Document", "Edit: Format Selection", `format_on_save`
+  and `format_on_type` all read it — mirroring the odinfmt (OLS) schema. An
+  absent file, or an absent key, uses the default shown:
 
   | Key | Meaning | Default |
   | --- | --- | --- |
-  | `character_width` | Column before a line breaks | `100` |
+  | `character_width` | Column a call, parameter list or composite literal wraps at | `100` |
   | `spaces` | Spaces per indent level (when `tabs` is `false`) | `4` |
   | `newline_limit` | Most blank lines kept between statements/declarations | `2` |
   | `tabs` | Indent with tabs instead of spaces | `true` |
@@ -161,15 +162,19 @@ its root, layered on top of the global settings above. This repository's own
   | `newline_style` | `"LF"` or `"CRLF"` | unset (the file's own line ending is left alone) |
   | `inline_single_stmt_case` | Put a `case`'s body on the same line when it is one statement | `false` |
   | `spaces_around_colons` | `x : int` instead of `x: int` | `false` |
-  | `sort_imports` | Sort each contiguous run of `import` declarations by path | `true` |
-  | `space_single_line_blocks` | `{ stmt }` instead of `{stmt}` for a block that renders on one line | `false` |
+  | `sort_imports` | Sort each contiguous run of `import` declarations, `base:`/`core:`/`vendor:` paths first | `true` |
+  | `space_single_line_blocks` | `{ stmt }` for a one-statement block the source already wrote on one line | `false` |
   | `align_struct_fields` | Align a struct's field types into one column | `true` |
-  | `align_struct_values` | Align a composite literal's `=` into one column | `true` |
-  | `align_struct_declarations` | Align consecutive `Name :: struct` declarations' `::` | `false` |
+  | `align_struct_values` | Align the `=` of enum members and multi-line composite literals, and a bit field's `\|` | `true` |
+  | `align_struct_declarations` | Align consecutive `Name :: struct` / `union` / `enum` / `bit_field` declarations' `::` | `false` |
   | `align_constant_definitions` | Align consecutive `NAME :: value` declarations' `::` | `false` |
 
   The formatter never guesses at broken code — a file with a syntax error is
-  left untouched. `newline_style` only takes effect when the key is present:
+  left untouched. An import run with a comment in it is left in the order it
+  was written, since moving an import would re-attach the comment beside it to
+  a different one. Format Selection and format-on-type reformat only inside the
+  lines they were given: a change that reaches past them is dropped rather than
+  half-applied. `newline_style` only takes effect when the key is present:
   an absent key never flips a file's line ending, since the odinfmt schema's
   own default (`CRLF`) would otherwise silently rewrite every LF file's
   endings on its first format. Setting it applies once a format actually
