@@ -150,6 +150,7 @@ parse_diagnostic_line :: proc(raw: string) -> (Parsed_Diagnostic, bool) {
     if !strings.has_suffix(p.path, ".odin") {
         return {}, false
     }
+    // A failed parse yields 0, which the guard below rejects with the rest.
     p.line, _ = strconv.parse_int(line[open + 1:colon])
     p.col, _ = strconv.parse_int(line[colon + 1:close])
     if p.line <= 0 || p.col <= 0 {

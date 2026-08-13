@@ -943,7 +943,7 @@ server_goodbye :: proc(s: ^Server) {
     }
     result, _ := conn_call(s.conn, "shutdown", "", DEADLINE_EXIT)
     conn_free_value(s.conn, result)
-    conn_notify(s.conn, "exit", "")
+    _ = conn_notify(s.conn, "exit", "")
 }
 
 // Ends a connection that will not be used again, leaving the documents in place

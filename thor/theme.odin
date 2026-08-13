@@ -31,6 +31,8 @@ thor_load_theme_by_name :: proc(thor: ^Thor, name: string) {
         log.warnf("Theme %q failed to load; using %q", name, DEFAULT_THEME)
         ui.theme_destroy(&theme)
         default_path := strings.concatenate({"assets/themes/", DEFAULT_THEME, ".json"}, context.temp_allocator)
+        // theme_load returns the built-in theme and logs on failure, so the
+        // fallback always lands on a complete palette.
         theme, _ = ui.theme_load(default_path)
     }
 

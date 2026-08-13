@@ -241,6 +241,7 @@ decode_signature_help :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
     if !is_array || len(signatures) == 0 {
         return
     }
+    // An absent activeSignature reads as 0, the protocol's own default.
     active_signature, _ := number(object["activeSignature"])
     active_parameter, has_active := number(object["activeParameter"])
 
@@ -302,6 +303,7 @@ decode_completion :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
         if name == "" {
             continue
         }
+        // An absent kind or detail reads as 0 / "", their protocol defaults.
         kind, _ := number(object["kind"])
         detail, _ := object["detail"].(json.String)
         append(
@@ -1114,6 +1116,7 @@ append_symbol :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
     if !has_name {
         return
     }
+    // An absent kind or detail reads as 0 / "", their protocol defaults.
     kind, _ := number(object["kind"])
     detail, _ := object["detail"].(json.String)
 

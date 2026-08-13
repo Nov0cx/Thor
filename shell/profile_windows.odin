@@ -264,6 +264,7 @@ join_temp :: proc(dir, rest: string) -> string {
 
 @(private = "file")
 which_temp :: proc(name: string) -> string {
+    // Not on PATH: "" makes the caller skip the candidate, same as join_temp.
     path, _ := which(name, context.temp_allocator)
     return path
 }

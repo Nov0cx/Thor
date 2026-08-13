@@ -50,6 +50,7 @@ scan_end_marker :: proc(text: string, token: string) -> (before: string, code: i
         return "", 0, text, false
     }
 
+    // The marker is written by this process; a tail without digits reads as 0.
     code, _ = strconv.parse_int(strings.trim_space(tail[:newline]))
     return trim_prompt_tail(text[:at]), code, tail[newline + 1:], true
 }
