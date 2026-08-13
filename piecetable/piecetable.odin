@@ -59,13 +59,11 @@ piecetable_set_text :: proc(pt: ^Piece_Table, text: string) {
     pt^ = piecetable_create(text)
 }
 
-// Splits the piece containing `pos` (if `pos` doesn't already fall on a
-// boundary) and returns the index of the piece that starts at `pos`.
-// A `pos` out of range clamps to the first or the last index; a negative one
-// must not reach the split, which would write a piece of negative length.
-// Resumes from the last split's hint when it starts at or before `pos`, so a
-// pass of ascending-position edits (Replace All) scans each piece once
-// overall instead of rescanning the whole list per edit.
+// Splits the piece containing `pos` unless it already falls on a boundary, and
+// returns the index of the piece starting there. An out-of-range `pos` clamps;
+// a negative one must not reach the split, which would write a piece of negative
+// length. Resumes from the last split's hint when it starts at or before `pos`,
+// so a pass of ascending edits scans each piece once instead of rescanning.
 @(private)
 piecetable_split_at :: proc(pt: ^Piece_Table, pos: int) -> int {
     if pos <= 0 {
