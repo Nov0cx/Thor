@@ -1117,8 +1117,8 @@ query_source :: proc(m: ^Manager, index: int, source: string) -> (string, bool) 
     if p == nil {
         return "", false
     }
-    path, _ := filepath.join({p.dir, source}, context.temp_allocator)
-    if !is_within(path, p.dir) {
+    path, jerr := filepath.join({p.dir, source}, context.temp_allocator)
+    if jerr != nil || !is_within(path, p.dir) {
         log.warnf("plugin %s: query %q is outside the plugin folder", p.id, source)
         return "", false
     }

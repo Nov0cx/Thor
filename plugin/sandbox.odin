@@ -402,7 +402,11 @@ api_require :: proc "c" (L: ^lua.State) -> c.int {
     }
     lua.pop(L, 1)
 
-    path, _ := filepath.join({p.dir, strings.concatenate({name, ".lua"}, context.temp_allocator)}, context.temp_allocator)
+    path, jerr := filepath.join({p.dir, strings.concatenate({name, ".lua"}, context.temp_allocator)}, context.temp_allocator)
+    if jerr != nil {
+        lua.L_error(L, "require: could not resolve %s", strings.clone_to_cstring(name, context.temp_allocator))
+        return 0
+    }
     if lua.L_loadfile(L, strings.clone_to_cstring(path, context.temp_allocator)) != .OK {
         lua.L_error(L, "require: %s", lua.tostring(L, -1))
         return 0
@@ -489,7 +493,10 @@ permissions_from_names :: proc(names: []string) -> Permissions {
 // Reads plugin.json beside plugin.lua. A missing or malformed file grants
 // nothing, which is all a syntax-only plugin needs.
 manifest_permissions :: proc(dir: string) -> Permissions {
-    path, _ := filepath.join({dir, "plugin.json"}, context.temp_allocator)
+    path, jerr := filepath.join({dir, "plugin.json"}, context.temp_allocator)
+    if jerr != nil {
+        return {}
+    }
     data, read_err := os.read_entire_file(path, context.temp_allocator)
     if read_err != nil {
         return {}
@@ -540,11 +547,19 @@ resolve_path :: proc(m: ^Manager, index: int, path: string) -> (resolved: string
         if root == "" {
             return "", false
         }
-        full, _ = filepath.join({root, path}, context.temp_allocator)
+        jerr: runtime.Allocator_Error
+        full, jerr = filepath.join({root, path}, context.temp_allocator)
+        if jerr != nil {
+            return "", false // an empty path would resolve to the process directory
+        }
     }
     clean, aerr := filepath.abs(full, context.temp_allocator)
     if aerr != nil {
-        clean, _ = filepath.clean(full, context.temp_allocator)
+        cleaned, cerr := filepath.clean(full, context.temp_allocator)
+        if cerr != nil {
+            return "", false
+        }
+        clean = cleaned
     }
 
     if m.workspace_proc != nil {
@@ -566,9 +581,16 @@ resolve_path :: proc(m: ^Manager, index: int, path: string) -> (resolved: string
 is_within :: proc(path, root: string) -> bool {
     base, err := filepath.abs(root, context.temp_allocator)
     if err != nil {
-        base, _ = filepath.clean(root, context.temp_allocator)
+        cleaned_root, cerr := filepath.clean(root, context.temp_allocator)
+        if cerr != nil {
+            return false
+        }
+        base = cleaned_root
     }
-    cleaned, _ := filepath.clean(path, context.temp_allocator)
+    cleaned, cerr := filepath.clean(path, context.temp_allocator)
+    if cerr != nil {
+        return false
+    }
     lhs, rhs := cleaned, base
     when ODIN_OS == .Windows {
         lhs = strings.to_lower(lhs, context.temp_allocator)
