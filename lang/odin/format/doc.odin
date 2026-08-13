@@ -161,7 +161,7 @@ measure_flat :: proc(d: Doc, opts: ^Options) -> (width: int, ok: bool) {
     case Doc_Text:
         return rune_width(v.text), true
     case Doc_Line:
-        return (1 if v.kind == .Space else 0), true
+        return v.kind == .Space ? 1 : 0, true
     case Doc_Hard_Line:
         return 0, false
     case Doc_Group:

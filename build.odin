@@ -50,7 +50,7 @@ out_dir: string
 main :: proc() {
     flags.parse_or_exit(&opt, os.args, .Odin)
 
-    out_dir = "bin/release" if opt.release else "bin/debug"
+    out_dir = opt.release ? "bin/release" : "bin/debug"
 
     ok: bool
     switch opt.command {

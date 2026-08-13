@@ -388,19 +388,14 @@ move_document_end :: proc(state: ^State, extend: bool) {
 move_to_matching_bracket :: proc(state: ^State, extend: bool) {
     txt := text(state)
     for &cursor in state.cursors {
-        // Adjacent bracket.
         if bracket_pos, match_pos, forward, found := find_matching_bracket(txt, cursor.caret); found {
             apply_delimiter_jump(&cursor, txt, bracket_pos, match_pos, forward, extend)
             continue
         }
-        // Adjacent quote.
         if quote_pos, match_pos, forward, found := find_matching_quote(txt, cursor.caret); found {
             apply_delimiter_jump(&cursor, txt, quote_pos, match_pos, forward, extend)
             continue
         }
-
-        // Not adjacent to a delimiter: fall back to the enclosing pair (bracket
-        // or quote), jumping to its opener (extend selects the whole pair).
         if open_pos, close_pos, found := enclosing_pair(txt, cursor.caret); found {
             if extend {
                 cursor.anchor = open_pos
@@ -534,7 +529,6 @@ is_word_byte_ascii :: proc(b: u8) -> bool {
 // Types an opener: wraps a selection in open..close, or inserts the pair with
 // the caret left between them when there is no selection.
 insert_pair :: proc(state: ^State, open, close: rune) {
-    txt := text(state)
     entry := Undo_Entry {cursors_before = clone_cursors(state)}
     ob, ow := utf8.encode_rune(open)
     cbuf, cw := utf8.encode_rune(close)
@@ -1456,6 +1450,7 @@ find_enclosing_quote :: proc(txt: string, pos: int) -> (open_pos, close_pos: int
 
 // Innermost bracket pair enclosing pos: scans left for the nearest unmatched
 // opener, then forward for its partner. Fallback when not next to a bracket.
+@(private)
 find_enclosing_bracket :: proc(txt: string, pos: int) -> (open_pos, close_pos: int, found: bool) {
     // Closers seen per type while scanning left; an opener with no outstanding
     // closer of its type is the one we enclose.

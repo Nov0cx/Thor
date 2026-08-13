@@ -610,7 +610,7 @@ set_default_tab_width :: proc(width: int) {
 }
 
 tab_width :: proc(state: ^State) -> int {
-    return state.tab_width if state.tab_width > 0 else g_default_tab_width
+    return state.tab_width > 0 ? state.tab_width : g_default_tab_width
 }
 
 // Sets this document's width only. A width of 0 returns it to the default.
