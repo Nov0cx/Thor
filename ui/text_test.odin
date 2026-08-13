@@ -59,8 +59,8 @@ test_async_font_load :: proc(t: ^testing.T) {
     family, family_ok := families["JetBrainsMono"]
     testing.expect(t, family_ok, "JetBrainsMono family missing")
     if family_ok {
-        testing.expect_value(t, len(family.cache), 4)
-        for size in ([4]i32 {15, 17, 18, 20}) {
+        testing.expect_value(t, len(family.cache), 6)
+        for size in ([6]i32 {14, 15, 16, 17, 18, 20}) {
             font, ok := family.cache[size]
             testing.expect(t, ok, "font size missing from cache")
             if !ok {
@@ -118,8 +118,8 @@ test_async_font_load :: proc(t: ^testing.T) {
     icons, icons_ok := families[ICON_FAMILY]
     testing.expect(t, icons_ok, "icon family missing")
     if icons_ok {
-        testing.expect_value(t, len(icons.cache), 2)
-        for size in ([2]i32 {16, 18}) {
+        testing.expect_value(t, len(icons.cache), 3)
+        for size in ([3]i32 {14, 16, 18}) {
             font, ok := icons.cache[size]
             testing.expect(t, ok, "icon size missing from cache")
             if !ok {
@@ -133,8 +133,8 @@ test_async_font_load :: proc(t: ^testing.T) {
     devicons, devicons_ok := families["devicons"]
     testing.expect(t, devicons_ok, "devicons family missing")
     if devicons_ok {
-        testing.expect_value(t, len(devicons.cache), 2)
-        for size in ([2]i32 {16, 18}) {
+        testing.expect_value(t, len(devicons.cache), 3)
+        for size in ([3]i32 {14, 16, 18}) {
             font, ok := devicons.cache[size]
             testing.expect(t, ok, "devicon size missing from cache")
             if !ok {
@@ -148,8 +148,8 @@ test_async_font_load :: proc(t: ^testing.T) {
     testing.expect(t, mdi_ok, "mdi icon family missing")
     if mdi_ok {
         testing.expect_value(t, mdi.pack_group, "files")
-        testing.expect_value(t, len(mdi.cache), 2)
-        for size in ([2]i32 {16, 18}) {
+        testing.expect_value(t, len(mdi.cache), 3)
+        for size in ([3]i32 {14, 16, 18}) {
             font, ok := mdi.cache[size]
             testing.expect(t, ok, "mdi icon size missing from cache")
             if !ok {
@@ -164,8 +164,8 @@ test_async_font_load :: proc(t: ^testing.T) {
     odin_icons, odin_ok := families["odin"]
     testing.expect(t, odin_ok, "odin icon family missing")
     if odin_ok {
-        testing.expect_value(t, len(odin_icons.cache), 2)
-        for size in ([2]i32 {16, 18}) {
+        testing.expect_value(t, len(odin_icons.cache), 3)
+        for size in ([3]i32 {14, 16, 18}) {
             font, ok := odin_icons.cache[size]
             testing.expect(t, ok, "odin icon size missing from cache")
             if !ok {
@@ -179,8 +179,8 @@ test_async_font_load :: proc(t: ^testing.T) {
     testing.expect(t, material_ok, "material icon family missing")
     if material_ok {
         testing.expect_value(t, material.pack_group, "primary")
-        testing.expect_value(t, len(material.cache), 2)
-        for size in ([2]i32 {16, 18}) {
+        testing.expect_value(t, len(material.cache), 3)
+        for size in ([3]i32 {14, 16, 18}) {
             font, ok := material.cache[size]
             testing.expect(t, ok, "material icon size missing from cache")
             if !ok {
@@ -216,6 +216,23 @@ test_async_font_load :: proc(t: ^testing.T) {
         // JetBrains Mono substitutes every backtick with a contextual-alternate
         // glyph that isn't in the atlas, so the fallback path must be exercised.
         testing.expect(t, unmapped > 0, "expected backtick to hit the codepoint fallback")
+    }
+
+    // A size the manifest never named must bake the same way a preloaded one
+    // does: without a shaped map, shape_place_line drops the line to the
+    // codepoint fallback and the size silently loses ligatures and bidi.
+    if family, ok := families["JetBrainsMono"]; ok {
+        LAZY_SIZE :: 23
+
+        _, preloaded := family.shaped[LAZY_SIZE]
+        testing.expect(t, !preloaded, "test size is preloaded, so it proves nothing")
+
+        font := get_font(LAZY_SIZE, "JetBrainsMono")
+        testing.expect_value(t, font.baseSize, i32(LAZY_SIZE))
+
+        shaped, shaped_ok := family.shaped[LAZY_SIZE]
+        testing.expect(t, shaped_ok, "lazily baked size has no shaped map")
+        testing.expect(t, len(shaped) > 325, "lazily baked size is missing its ligature glyphs")
     }
 
     codepoint, found := icon_codepoint("folder")

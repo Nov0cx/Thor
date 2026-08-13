@@ -655,6 +655,53 @@ test_on_tick_runs_throttled_per_plugin :: proc(t: ^testing.T) {
     testing.expect(t, reads(&m) == 1, "the interval starts again after a run")
 }
 
+// thor.on_key_up is registered apart from thor.on_key, so a release never
+// reaches a handler that asked for presses.
+@(test)
+test_on_key_up_is_separate_from_on_key :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+
+    script := `downs = 0
+    ups = 0
+    thor.on_key(function(ev) downs = downs + 1 end)
+    thor.on_key_up(function(ev)
+        ups = ups + 1
+        return ev.chord == "ctrl+z" and ev.ctrl
+    end)`
+    testing.expect(t, manager_load_source(&m, "keys", "plugins/keys", script, {.Keys}), "plugin script runs")
+
+    reads :: proc(m: ^Manager, name: cstring) -> lua.Integer {
+        lua.rawgeti(m.state, lua.REGISTRYINDEX, lua.Integer(m.plugins[0].env_ref))
+        lua.getfield(m.state, -1, name)
+        n := lua.tointeger(m.state, -1)
+        lua.pop(m.state, 2)
+        return n
+    }
+
+    testing.expect(t, !manager_dispatch_key(&m, "ctrl+z", {.Ctrl}), "the press handler consumed the key")
+    testing.expect(t, reads(&m, "downs") == 1, "the press never reached on_key")
+    testing.expect(t, reads(&m, "ups") == 0, "a press reached on_key_up")
+
+    testing.expect(t, manager_dispatch_key_up(&m, "ctrl+z", {.Ctrl}), "on_key_up could not consume the release")
+    testing.expect(t, reads(&m, "ups") == 1, "the release never reached on_key_up")
+    testing.expect(t, reads(&m, "downs") == 1, "a release reached on_key")
+}
+
+// Without the `keys` permission neither handler exists to register.
+@(test)
+test_on_key_up_needs_permission :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+
+    script := `if thor.on_key_up then thor.on_key_up(function() end) end`
+    testing.expect(t, manager_load_source(&m, "quiet", "plugins/quiet", script, {}), "plugin script runs")
+    testing.expect(t, m.key_up.ref == NOREF, "a permission-free plugin registered a release handler")
+    testing.expect(t, !manager_dispatch_key_up(&m, "ctrl+z", {.Ctrl}), "a release was consumed with no handler")
+}
+
 // Without the `tick` permission a plugin has no handler to register, so nothing
 // it loaded runs again until the user calls it.
 @(test)
