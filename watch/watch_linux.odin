@@ -11,14 +11,15 @@ import "core:sys/linux"
 // tree on an interval. inotify watches one directory at a time, so a watch is
 // added for every directory of the tree at startup and for every directory made
 // later. A machine caps the watches per user
-// (/proc/sys/fs/inotify/max_user_watches), and a tree over that cap is watched
-// only in part — the polling worker (poll.odin) takes over only when inotify is
-// unavailable altogether.
+// (/proc/sys/fs/inotify/max_user_watches); a tree over that cap would be watched
+// only in part, so the polling worker (poll.odin) takes the whole tree instead —
+// as it does when inotify does not start at all.
 Platform :: struct {
     fd:       linux.Fd,
     watches:  map[linux.Wd]string, // watch descriptor -> directory; paths are owned
     stopping: bool,
-    polling:  bool, // inotify did not start, so the poller runs instead
+    polling:  bool, // atomic: inotify is gone, so the poller runs instead
+    open:     bool, // `fd` is a live descriptor; a zeroed Platform owns nothing
 }
 
 // The events worth a report. CLOSE_WRITE rather than MODIFY: a writer that
@@ -47,6 +48,7 @@ watch_start :: proc(w: ^Watcher) -> bool {
         return false
     }
     w.platform.stopping = false
+    w.platform.polling = false
 
     fd, err := linux.inotify_init1({.NONBLOCK, .CLOEXEC})
     if err != .NONE {
@@ -54,16 +56,22 @@ watch_start :: proc(w: ^Watcher) -> bool {
         return true
     }
     w.platform.fd = fd
+    w.platform.open = true
     w.platform.watches = make(map[linux.Wd]string, w.allocator)
 
     // Not even the root: the process is out of watches, so poll the tree rather
     // than watch nothing.
     if !watch_add(w, w.root) {
-        watch_release(w)
         w.platform.polling = true
+        inotify_close(w)
         return true
     }
     watch_add_children(w, w.root, 0)
+    // The walk ran out of watches: a tree watched only in part loses changes
+    // without a sign, so the poller takes all of it.
+    if w.platform.polling {
+        inotify_close(w)
+    }
     return true
 }
 
@@ -74,21 +82,29 @@ watch_stop :: proc(w: ^Watcher) {
 
 @(private)
 watch_release :: proc(w: ^Watcher) {
-    if w.platform.polling {
-        return
-    }
+    inotify_close(w)
+}
+
+// Frees the watches and closes the descriptor. Safe twice and on a watcher that
+// never opened one: the worker calls it when it degrades, watch_release again at
+// shutdown.
+@(private = "file")
+inotify_close :: proc(w: ^Watcher) {
     for _, path in w.platform.watches {
         delete(path, w.allocator)
     }
     delete(w.platform.watches)
     w.platform.watches = nil
-    linux.close(w.platform.fd)
+    if w.platform.open {
+        linux.close(w.platform.fd)
+        w.platform.open = false
+    }
 }
 
 @(private)
 watch_worker :: proc(w: ^Watcher) {
     context.allocator = w.allocator
-    if w.platform.polling {
+    if intrinsics.atomic_load(&w.platform.polling) {
         poll_worker(w, &w.platform.stopping)
         return
     }
@@ -99,6 +115,11 @@ watch_worker :: proc(w: ^Watcher) {
     buffer := slice.to_bytes(words[:])
 
     for !intrinsics.atomic_load(&w.platform.stopping) {
+        // A watch that could not be added left the tree watched only in part.
+        if intrinsics.atomic_load(&w.platform.polling) {
+            watch_degrade(w)
+            return
+        }
         fds := []linux.Poll_Fd {{fd = w.platform.fd, events = {.IN}}}
         // A wait that ends in a signal or an error reads `stopping` and waits
         // again; nothing is lost, the events stay queued.
@@ -112,6 +133,18 @@ watch_worker :: proc(w: ^Watcher) {
         watch_consume(w, buffer[:n])
         free_all(context.temp_allocator)
     }
+}
+
+// Drops inotify and finishes the session on the poller. The root change is the
+// usual "events were lost" hint: it covers what changed before the first snapshot.
+@(private = "file")
+watch_degrade :: proc(w: ^Watcher) {
+    inotify_close(w)
+    if intrinsics.atomic_load(&w.platform.stopping) {
+        return
+    }
+    watch_emit(w, .Modified, w.root)
+    poll_worker(w, &w.platform.stopping)
 }
 
 // Splits a read into its events. Each is a header, then a name padded with NULs
@@ -162,8 +195,9 @@ watch_event :: proc(w: ^Watcher, wd: linux.Wd, mask: linux.Inotify_Event_Mask, n
     case .CREATE in mask, .MOVED_TO in mask:
         watch_emit(w, .Created, path)
         // A directory moved in arrives with its contents; the explorer refresh
-        // reads them off disk, so only the watches have to catch up.
-        if .ISDIR in mask && watch_add(w, path) {
+        // reads them off disk, so only the watches have to catch up. A dependency
+        // tree made here is skipped, or an install would consume the cap at once.
+        if .ISDIR in mask && !scan_skip_dir(dir, name) && watch_add(w, path) {
             watch_add_children(w, path, 0)
         }
     case .DELETE in mask, .MOVED_FROM in mask:
@@ -173,8 +207,17 @@ watch_event :: proc(w: ^Watcher, wd: linux.Wd, mask: linux.Inotify_Event_Mask, n
     }
 }
 
-// Watches one directory. A failure is the watch limit or a directory that went
-// away between the walk and the call; the tree is then watched only in part.
+// Whether the error is the cap on watches rather than a directory that went away
+// or one that is not ours to read. ENOSPC is max_user_watches, EMFILE the
+// instance limit newer kernels report there, ENOMEM the kernel's own.
+@(private)
+watch_exhausted :: proc(err: linux.Errno) -> bool {
+    return err == .ENOSPC || err == .EMFILE || err == .ENOMEM
+}
+
+// Watches one directory. False when the directory went away between the walk and
+// the call, and when the process is out of watches — that one also sets
+// `polling`, which hands the whole tree to the poller.
 @(private = "file")
 watch_add :: proc(w: ^Watcher, dir: string) -> bool {
     path := strings.clone_to_cstring(dir, w.allocator)
@@ -182,6 +225,9 @@ watch_add :: proc(w: ^Watcher, dir: string) -> bool {
 
     wd, err := linux.inotify_add_watch(w.platform.fd, path, EVENTS)
     if err != .NONE {
+        if watch_exhausted(err) {
+            intrinsics.atomic_store(&w.platform.polling, true)
+        }
         return false
     }
     // A directory watched twice answers with the descriptor it already has. The
@@ -203,7 +249,7 @@ watch_add :: proc(w: ^Watcher, dir: string) -> bool {
 // link that points back at an ancestor from looping forever, as in scan.odin.
 @(private = "file")
 watch_add_children :: proc(w: ^Watcher, dir: string, depth: int) {
-    if depth >= MAX_DEPTH {
+    if depth >= MAX_DEPTH || intrinsics.atomic_load(&w.platform.polling) {
         return
     }
     infos, err := os.read_all_directory_by_path(dir, w.allocator)
@@ -215,11 +261,15 @@ watch_add_children :: proc(w: ^Watcher, dir: string, depth: int) {
     defer os.file_info_slice_delete(infos, w.allocator)
 
     for info in infos {
-        if info.type != .Directory {
+        // A dependency tree or git's object store is noise no consumer needs, and
+        // watching it is what exhausts the cap. The poller skips them as well.
+        if info.type != .Directory || scan_skip_dir(dir, info.name) {
             continue
         }
         if watch_add(w, info.fullpath) {
             watch_add_children(w, info.fullpath, depth + 1)
+        } else if intrinsics.atomic_load(&w.platform.polling) {
+            return
         }
     }
 }

@@ -131,7 +131,8 @@ behind Help > Documentation). `watch/` is the one three-way split —
 `watch_windows.odin` blocks on ReadDirectoryChangesW, `watch_linux.odin` on inotify, and
 `watch_posix.odin` (`#+build darwin, freebsd, openbsd, netbsd`) polls the tree. `watch/scan.odin`
 and `watch/poll.odin` are deliberately platform-free, so the polling watcher's diff is testable on
-Windows and Linux can fall back to it when inotify does not start.
+Windows and Linux can fall back to it when inotify does not start or runs out of watches — the
+latter mid-session, since the cap is only met part-way through the tree.
 
 Only Windows can be run here, so a POSIX change is verified by cross type-check:
 `odin check main -target:linux_amd64` and `-target:darwin_arm64`. Both need libraries the Windows

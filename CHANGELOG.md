@@ -94,3 +94,5 @@ First release. Thor runs on Windows, Linux and macOS.
 - On Linux, changes under a folder renamed inside the workspace are reported at its new path.
 - On Linux and macOS, a plugin command that passes its time budget is stopped whole: a child it left in the background no longer keeps running after it.
 - On Linux and macOS, a command run by a plugin or the Git menu ends at a closed pipe again once a terminal or a language server has started.
+- On Linux, a workspace larger than the system watch limit is rescanned on an interval instead of losing changes in the part of the tree that was left unwatched.
+- On Linux, `node_modules` and git's object store are no longer watched, matching macOS. Changes inside them are not reported; the directories themselves still are.
