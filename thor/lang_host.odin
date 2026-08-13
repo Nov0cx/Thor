@@ -847,17 +847,6 @@ thor_edits_still_apply :: proc(thor: ^Thor, record: []Edit_Undo_File, forward: b
     return true
 }
 
-// The open buffer for `path`, or nil when the file is not open.
-@(private = "file")
-thor_open_file_at :: proc(thor: ^Thor, path: string) -> ^Open_File {
-    for file in thor.open_files {
-        if !file.closed && thor_same_path(file.path, path) {
-            return file
-        }
-    }
-    return nil
-}
-
 // Applies a rename's edits once they land.
 @(private = "file")
 thor_apply_rename :: proc(thor: ^Thor, res: ^lang.Result) {
@@ -1719,16 +1708,14 @@ thor_goto_location :: proc(thor: ^Thor, path: string, offset: int) {
         canonical = abs
     }
 
-    for file, index in thor.open_files {
-        if thor_same_path(file.path, canonical) {
-            thor_set_active_file(thor, index)
-            if file.loaded {
-                thor_place_caret(thor, file, offset)
-            } else {
-                thor_set_pending_goto(thor, canonical, offset)
-            }
-            return
+    if file, index := thor_find_open_file(thor, canonical); file != nil {
+        thor_set_active_file(thor, index)
+        if file.loaded {
+            thor_place_caret(thor, file, offset)
+        } else {
+            thor_set_pending_goto(thor, canonical, offset)
         }
+        return
     }
 
     // Not open: open it, then finish the jump once its buffer lands.
@@ -1747,16 +1734,14 @@ thor_goto_file_line_col :: proc(thor: ^Thor, path: string, line, col: int) {
         canonical = abs
     }
 
-    for file, index in thor.open_files {
-        if thor_same_path(file.path, canonical) {
-            thor_set_active_file(thor, index)
-            if file.loaded {
-                thor_place_caret(thor, file, offset_for_line_col(file, line, col))
-            } else {
-                thor_set_pending_goto_line_col(thor, canonical, line, col)
-            }
-            return
+    if file, index := thor_find_open_file(thor, canonical); file != nil {
+        thor_set_active_file(thor, index)
+        if file.loaded {
+            thor_place_caret(thor, file, offset_for_line_col(file, line, col))
+        } else {
+            thor_set_pending_goto_line_col(thor, canonical, line, col)
         }
+        return
     }
 
     thor_set_pending_goto_line_col(thor, canonical, line, col)
@@ -1777,23 +1762,18 @@ thor_apply_pending_goto :: proc(thor: ^Thor) {
     if !thor.pending_goto_active {
         return
     }
-    for file, index in thor.open_files {
-        if file.path != thor.pending_goto_path {
-            continue
-        }
-        if file.load_failed {
-            break // give up on this jump
-        }
-        if !file.loaded {
+    if file, index := thor_find_open_file(thor, thor.pending_goto_path); file != nil {
+        if !file.loaded && !file.load_failed {
             return // still loading; retry next frame
         }
-        thor_set_active_file(thor, index)
-        offset := thor.pending_goto_offset
-        if thor.pending_goto_line > 0 {
-            offset = offset_for_line_col(file, thor.pending_goto_line, thor.pending_goto_col)
+        if !file.load_failed {
+            thor_set_active_file(thor, index)
+            offset := thor.pending_goto_offset
+            if thor.pending_goto_line > 0 {
+                offset = offset_for_line_col(file, thor.pending_goto_line, thor.pending_goto_col)
+            }
+            thor_place_caret(thor, file, offset)
         }
-        thor_place_caret(thor, file, offset)
-        break
     }
     thor_clear_pending_goto(thor)
 }

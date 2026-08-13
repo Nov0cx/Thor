@@ -12,19 +12,6 @@ import "../lang"
 import "../setting"
 import "../textedit"
 
-// The open buffer for `path`, or nil when the file is not open — a private
-// duplicate of lang_host.odin's own (file-scoped there, so unreachable here).
-// Package-private (not file-scoped): files.odin's orphan-save flush needs it too.
-@(private)
-thor_format_open_file_at :: proc(thor: ^Thor, path: string) -> ^Open_File {
-    for file in thor.open_files {
-        if !file.closed && thor_same_path(file.path, path) {
-            return file
-        }
-    }
-    return nil
-}
-
 // Runs whatever save format_on_save left pending for the just-finished
 // format (files.odin sets format_save_pending before dispatching), then, for
 // a Save All in progress, pops and dispatches the next queued file — one at
@@ -33,14 +20,14 @@ thor_format_open_file_at :: proc(thor: ^Thor, path: string) -> ^Open_File {
 thor_finish_pending_format_save :: proc(thor: ^Thor) {
     if thor.format_save_pending {
         thor.format_save_pending = false
-        if file := thor_format_open_file_at(thor, thor.format_path); file != nil {
+        if file := thor_open_file_at(thor, thor.format_path); file != nil {
             thor_save_file(thor, file)
         }
     }
     for len(thor.format_save_queue) > 0 {
         path := thor.format_save_queue[0]
         ordered_remove(&thor.format_save_queue, 0)
-        file := thor_format_open_file_at(thor, path)
+        file := thor_open_file_at(thor, path)
         delete(path)
         if file == nil {
             continue
@@ -229,7 +216,7 @@ thor_format_apply_message :: proc(thor: ^Thor, res: ^lang.Result, path: string) 
         return fmt.tprintf("Cannot format: %s", reason), true
     }
 
-    if file := thor_format_open_file_at(thor, path); file != nil {
+    if file := thor_open_file_at(thor, path); file != nil {
         switch res.newline {
         case .LF:
             thor_set_line_ending(thor, file, .LF)

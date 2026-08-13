@@ -436,6 +436,23 @@ thor_apply_file_op :: proc(thor: ^Thor, job: ^File_Op_Job) {
     thor_refresh_git_status(thor)
 }
 
+// The open buffer for `path` and its index in thor.open_files, or (nil, -1)
+// when the file is not open.
+thor_find_open_file :: proc(thor: ^Thor, path: string) -> (^Open_File, int) {
+    for file, index in thor.open_files {
+        if !file.closed && thor_same_path(file.path, path) {
+            return file, index
+        }
+    }
+    return nil, -1
+}
+
+// The open buffer for `path`, or nil when the file is not open.
+thor_open_file_at :: proc(thor: ^Thor, path: string) -> ^Open_File {
+    file, _ := thor_find_open_file(thor, path)
+    return file
+}
+
 // File extension including the dot (".odin"), or "" when the name has none.
 thor_file_extension :: proc(name: string) -> string {
     dot := strings.last_index_byte(name, '.')
@@ -581,11 +598,9 @@ thor_open_file :: proc(thor: ^Thor, path: string) {
         canonical = abs
     }
 
-    for file, index in thor.open_files {
-        if thor_same_path(file.path, canonical) {
-            thor_set_active_file(thor, index)
-            return
-        }
+    if _, index := thor_find_open_file(thor, canonical); index >= 0 {
+        thor_set_active_file(thor, index)
+        return
     }
 
     file := new(Open_File)
@@ -1048,7 +1063,7 @@ thor_update_files :: proc(thor: ^Thor) {
     // autosave sweep below is a second backstop behind this one.
     if thor.format_save_pending && thor.format_request_id == 0 {
         thor.format_save_pending = false
-        if file := thor_format_open_file_at(thor, thor.format_path); file != nil {
+        if file := thor_open_file_at(thor, thor.format_path); file != nil {
             thor_save_file(thor, file)
         }
     }
@@ -1392,11 +1407,8 @@ thor_confirm_delete :: proc(data: rawptr) {
 
     entries: [dynamic]File_Op_Entry
     for path in thor.pending_delete_paths {
-        for file, index in thor.open_files {
-            if thor_same_path(file.path, path) {
-                thor_close_file(thor, index)
-                break
-            }
+        if _, index := thor_find_open_file(thor, path); index >= 0 {
+            thor_close_file(thor, index)
         }
         append(&entries, File_Op_Entry{src = strings.clone(path)})
     }
@@ -1733,11 +1745,8 @@ thor_delete_resource :: proc(thor: ^Thor, path: string) -> (ok: bool, reason: st
     if !os.exists(path) {
         return false, "the file no longer exists"
     }
-    for file, index in thor.open_files {
-        if thor_same_path(file.path, path) {
-            thor_close_file(thor, index)
-            break
-        }
+    if _, index := thor_find_open_file(thor, path); index >= 0 {
+        thor_close_file(thor, index)
     }
     if err := thor_delete_tree(path); err != nil {
         return false, "could not delete the file"
