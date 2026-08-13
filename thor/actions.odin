@@ -43,12 +43,28 @@ thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
         return false
     }
 
-    // Let plugins observe every key press. The chord matches thor.keybind's
-    // format; observing without consuming lets the real action below still run.
-    if chord := setting.keybind_to_string(
+    chord := setting.keybind_to_string(
         setting.Keybind{key = event.key, mods = event.mods},
         context.temp_allocator,
-    ); chord != "" {
+    )
+
+    // A release only reaches the plugins: every shortcut here acts on the press.
+    if event.kind == .Key_Release {
+        if chord == "" {
+            return false
+        }
+        return plugin.manager_dispatch_key_up(&thor.plugins, chord, event.mods)
+    }
+
+    // A held key only continues the undo/redo trail; every other shortcut here
+    // is a one-shot that must not fire once per repeat tick.
+    if event.repeat {
+        return thor_global_undo_redo(thor, event)
+    }
+
+    // Let plugins observe every key press. The chord matches thor.keybind's
+    // format; observing without consuming lets the real action below still run.
+    if chord != "" {
         if plugin.manager_dispatch_key(&thor.plugins, chord, event.mods) {
             return true
         }
@@ -213,15 +229,20 @@ thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
         return true
     }
 
+    return thor_global_undo_redo(thor, event)
+}
+
+// A rename or code action that touched other files moves whole, ahead of the
+// focused buffer's own history. Once the set no longer applies (the files moved
+// on), these fall through to that buffer as usual — a true return here breaks
+// the dispatch, so the editor never sees a claimed key and cannot move the same
+// buffer twice.
+@(private = "file")
+thor_global_undo_redo :: proc(thor: ^Thor, event: ^ui.Event) -> bool {
     if !(.Ctrl in event.mods) || (.Alt in event.mods) {
         return false
     }
 
-    // A rename or code action that touched other files moves whole, ahead of the
-    // focused buffer's own history. Once the set no longer applies (the files
-    // moved on), these fall through to that buffer as usual — a true return
-    // here breaks the dispatch, so the editor never sees a claimed key and
-    // cannot move the same buffer twice.
     #partial switch event.key {
     case .Z:
         if (.Shift in event.mods) {
