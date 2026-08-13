@@ -453,12 +453,10 @@ server_serve :: proc(s: ^Server) {
     }
 }
 
-// The reply a server sending workspace/applyEdit is blocked on, shared between
-// the pump thread (which answers it, one way or another, within
-// APPLY_EDIT_TIMEOUT) and the main thread (which may apply it and call back
-// through lang.Result.on_applied). Two owners, so it outlives whichever side
-// finishes first: `refs` starts at 2, and whichever release brings it to 0
-// frees it.
+// The reply a server sending workspace/applyEdit is blocked on, shared by the
+// pump thread (which answers within APPLY_EDIT_TIMEOUT) and the main thread
+// (which may apply it and call back through lang.Result.on_applied). `refs`
+// starts at 2, so it outlives whichever side finishes first.
 @(private)
 Apply_Wait :: struct {
     done:      sync.Sema,
@@ -479,12 +477,10 @@ apply_wait_release :: proc(wait: ^Apply_Wait) {
     }
 }
 
-// lang.Result.on_applied for a pushed Apply_Edit: wakes the pump thread
-// waiting in server_apply_edit with the main thread's answer. May run after
-// that wait has already timed out (a slow frame, or the feature gated off
-// mid-flight) — harmless, the post just lands on a semaphore nobody takes
-// again, and apply_wait_release still frees the struct once both sides are
-// through with it.
+// lang.Result.on_applied for a pushed Apply_Edit: wakes the pump thread waiting
+// in server_apply_edit. May run after that wait timed out, which is harmless —
+// the post lands on a semaphore nobody takes again, and apply_wait_release still
+// frees the struct once both sides are through.
 @(private)
 lsp_apply_done :: proc(token: rawptr, applied: bool) {
     wait := cast(^Apply_Wait) token
@@ -1105,12 +1101,10 @@ initialize_params :: proc(s: ^Server) -> string {
     return string(out[:])
 }
 
-// What Thor can consume, and nothing else: a server that is told the truth here
-// does not send shapes that would be dropped. utf-8 is offered first, since a
-// server that counts in bytes removes the whole position conversion.
-// `resourceOperations` names the three thor_apply_edits now applies —
-// create/rename/delete — so a rename that also moves a file is no longer
-// refused outright.
+// What Thor can consume and nothing else, so a server never sends a shape that
+// would be dropped. utf-8 is offered first, since a server that counts in bytes
+// removes the position conversion entirely. `resourceOperations` names the three
+// thor_apply_edits applies, so a rename that moves a file is not refused.
 @(private)
 CLIENT_CAPABILITIES :: `{` +
 `"general":{"positionEncodings":["utf-8","utf-16"]},` +

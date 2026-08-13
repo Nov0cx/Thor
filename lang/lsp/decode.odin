@@ -137,12 +137,10 @@ decode_hover :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
     res.ok = true
 }
 
-// The same reply shapes as hover, kept as Markdown rather than flattened: the
-// page goes to a pane that renders it, not a text-only popup. `title` and
-// `path` have no reply field to read: title is synthesized as "package NAME"
-// from the identifier under the caret, matching the in-client engine's
-// convention; path falls back to the requesting file's own directory, since
-// LSP has no "package directory" concept to read one from.
+// The same reply shapes as hover, kept as Markdown rather than flattened, since
+// the page goes to a pane that renders it. LSP has no field for `title` or
+// `path`: the title is synthesized as "package NAME" from the identifier under
+// the caret, and the path falls back to the requesting file's own directory.
 @(private)
 decode_package_doc :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
     object, is_object := value.(json.Object)
@@ -509,16 +507,11 @@ document_replace_diagnostics :: proc(doc: ^Document, items: json.Array) {
 }
 
 // The delta-encoded 5-tuples of `textDocument/semanticTokens/full`, or a
-// `.../full/delta` reply's edits applied against the cached array from the
-// previous fetch, read against the legend the server advertised. Output is
-// ascending and non-overlapping: the editor merges it with the grammar's
-// spans using one forward-only cursor.
-//
-// The reply's own resultId and flat integer array are cached on the Document
-// (server_store_semantic) so the *next* request for this file can ask for a
-// delta instead of the whole list — resolved entirely inside this package:
-// what leaves it (`res.tokens`) is always the same full, absolute list it
-// always was, delta or not.
+// `.../full/delta` reply's edits applied against the previous fetch's cached
+// array, read against the legend the server advertised. Output is ascending and
+// non-overlapping, which the editor's forward-only merge cursor needs. The
+// resultId and flat array are cached on the Document so the next request can ask
+// for a delta; `res.tokens` is always the full absolute list either way.
 @(private)
 decode_semantic_tokens :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
     object, is_object := value.(json.Object)
@@ -597,11 +590,9 @@ decode_int_array :: proc(arr: json.Array, allocator := context.allocator) -> []i
 }
 
 // Applies a SemanticTokensDelta's edits to the previous flat token array, each
-// edit's start/deleteCount read against the array as the edit *before* it left
-// it — the sequence the protocol defines, so out-of-order or overlapping
-// interpretations never arise. False on any edit whose range falls outside the
-// array at that point, which means the cached array and the server's edits
-// have desynchronised and neither can be trusted further.
+// edit read against the array as the one before it left it, which is the sequence
+// the protocol defines. False on an edit whose range falls outside the array at
+// that point: the cache and the server's edits have desynchronised.
 @(private)
 apply_semantic_edits :: proc(prev: []i64, edits: json.Array, allocator := context.allocator) -> ([]i64, bool) {
     result := make([dynamic]i64, len(prev), allocator)
@@ -656,17 +647,13 @@ decode_rename :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
     res.ok = len(res.edits) > 0 || len(res.resource_ops) > 0
 }
 
-// `TextEdit[] | null`. formatting / rangeFormatting / onTypeFormatting all
-// answer this same shape. A null or empty reply is "nothing to change" — res.ok
-// must still be true: thor_apply_format reads `!ok` as "fix syntax errors
-// first" and `ok` with zero edits as "already formatted", and a server has no
-// other way to say the latter.
-//
-// The reply's edits are spliced into a copy of the request's own source and
-// the result re-diffed (lang.diff_spans) rather than handed to the editor
-// verbatim: most servers answer with one edit replacing the whole file
-// (gopls, rust-analyzer), and applying that as one Text_Edit would drag every
-// cursor in the buffer to wherever the edit ends.
+// `TextEdit[] | null`, the shape formatting, rangeFormatting and onTypeFormatting
+// all answer. A null or empty reply means "nothing to change" and must still set
+// res.ok, since thor_apply_format reads `!ok` as "fix syntax errors first" and
+// `ok` with zero edits as "already formatted". The edits are spliced into a copy
+// of the request's source and re-diffed rather than passed on verbatim: most
+// servers replace the whole file in one edit, which would drag every cursor in
+// the buffer to wherever it ends.
 @(private)
 decode_format :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
     if _, is_null := value.(json.Null); is_null {
@@ -748,12 +735,10 @@ decode_format :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
 }
 
 // `(Command | CodeAction)[]`. An item with no `edit` gets codeAction/resolve
-// called eagerly, on this same worker. One that still has none afterward is kept
-// only if it names a `command` — picking it dispatches Execute_Command and the
-// server sends its changes back as a pushed applyEdit; an item with neither
-// edits nor a command can do nothing and is dropped. An item may carry both, and
-// LSP applies the edits before running the command. isPreferred actions sort
-// first; server order is kept otherwise.
+// called eagerly on this worker; one that still has none is kept only if it
+// names a `command`, whose changes come back later as a pushed applyEdit. An item
+// with neither is dropped. An item may carry both, and LSP applies the edits
+// before the command. isPreferred sorts first, server order otherwise.
 @(private)
 decode_code_actions :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
     items, is_array := value.(json.Array)
@@ -890,14 +875,11 @@ action_kind_of :: proc(value: json.Value) -> string {
     return ""
 }
 
-// Decodes a WorkspaceEdit into `out` (one lang.Text_Edit per range, old_text
-// read from the current file contents through resolve_range + ask_source) and
-// `ops` (one lang.Resource_Op per CreateFile/RenameFile/DeleteFile entry).
-// False refuses the whole edit: an unrecognized resource-op kind, or a range,
-// URI or file that could not be verified — the seam cannot express what was
-// asked, and a half-applied rename breaks a build silently. Edits and ops
-// already appended are freed before returning false, so a caller never has to
-// track how far decoding got.
+// Decodes a WorkspaceEdit into `out` (one lang.Text_Edit per range) and `ops`
+// (one lang.Resource_Op per CreateFile/RenameFile/DeleteFile). False refuses the
+// whole edit — an unrecognized op kind, or a range, URI or file that could not be
+// verified — since a half-applied rename breaks a build silently. Whatever was
+// already appended is freed first, so a caller never tracks how far it got.
 @(private)
 decode_workspace_edit :: proc(
     ask: ^Ask,
