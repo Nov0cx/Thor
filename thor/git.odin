@@ -102,7 +102,7 @@ thor_clear_git_status :: proc(thor: ^Thor) {
 // Tree_Status_Proc: look up a path's status for highlighting.
 thor_tree_git_status :: proc(data: rawptr, path: string, _: bool) -> widgets.Git_Status {
     thor := cast(^Thor) data
-    if status, ok := thor.git_status[path]; ok {
+    if status, ok := thor.git_status[git_map_key(path)]; ok {
         return status
     }
     return .None
@@ -116,10 +116,22 @@ git_path :: proc(thor: ^Thor, rel: string) -> string {
     return strings.concatenate({thor.git_prefix, native}, context.temp_allocator)
 }
 
-// Owned key for a repo-relative path git printed.
+// Map key for an absolute path. Windows names one file in more than one case —
+// git keeps the spelling its index recorded, the filesystem answers its own — so
+// the key folds case there. POSIX keeps the path: case is identity. On scratch.
+@(private)
+git_map_key :: proc(path: string) -> string {
+    when ODIN_OS == .Windows {
+        return strings.to_lower(path, context.temp_allocator)
+    } else {
+        return path
+    }
+}
+
+// Owned map key for a repo-relative path git printed.
 @(private)
 git_key :: proc(thor: ^Thor, rel: string) -> string {
-    return strings.clone(git_path(thor, rel))
+    return strings.clone(git_map_key(git_path(thor, rel)))
 }
 
 // Parses porcelain lines into absolute-path -> status entries, marking every
@@ -363,9 +375,10 @@ git_parse_range :: proc(s: string) -> (start, count: int, ok: bool) {
 git_apply_diff :: proc(thor: ^Thor, status: ^map[string]widgets.Git_Status, diff: ^map[string][dynamic]widgets.Diff_Line_Kind) {
     for file in thor.open_files {
         clear(&file.diff_lines)
-        if lines, ok := diff[file.path]; ok {
+        key := git_map_key(file.path)
+        if lines, ok := diff[key]; ok {
             append(&file.diff_lines, ..lines[:])
-        } else if s, has := status[file.path]; has && (s == .Untracked || s == .Added) {
+        } else if s, has := status[key]; has && (s == .Untracked || s == .Added) {
             n := textedit.state_line_count(&file.state)
             for _ in 0 ..< n {
                 append(&file.diff_lines, widgets.Diff_Line_Kind.Added)

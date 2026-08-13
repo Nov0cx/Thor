@@ -55,6 +55,32 @@ test_git_status_conflict_wins_on_ancestors :: proc(t: ^testing.T) {
     expect_git_status(t, status, native("repo", "src"), .Conflict)
 }
 
+// Git answers with the spelling its index recorded, which on Windows is not
+// always the one the filesystem gives the tree. The key folds case there, so the
+// row still colors; on POSIX the two spellings are two files.
+@(test)
+test_git_status_lookup_folds_case_on_windows :: proc(t: ^testing.T) {
+    thor := new(Thor)
+    defer free(thor)
+    thor.git_prefix = strings.concatenate({"repo", filepath.SEPARATOR_STRING}, context.temp_allocator)
+
+    status := make(map[string]widgets.Git_Status)
+    defer {
+        for path in status {
+            delete(path)
+        }
+        delete(status)
+    }
+    git_parse_status(thor, " M Src/README.MD\n", &status)
+
+    // What the explorer hands the lookup: the filesystem's own spelling.
+    tree_path := native("repo", "Src", "README.MD")
+    when ODIN_OS == .Windows {
+        tree_path = native("repo", "src", "readme.md")
+    }
+    expect_git_status(t, status, tree_path, .Modified)
+}
+
 // The gutter reads the diff map with Open_File.path, so its keys need the same
 // native spelling the status keys do.
 @(test)
@@ -74,7 +100,7 @@ test_git_diff_keys_use_the_native_separator :: proc(t: ^testing.T) {
     git_parse_diff(thor, "+++ b/src/main.odin\n@@ -1,0 +2,2 @@\n", &diff)
 
     key := native("repo", "src", "main.odin")
-    lines, ok := diff[key]
+    lines, ok := diff[git_map_key(key)]
     testing.expectf(t, ok, "no diff for %q", key)
     if !ok {
         return
@@ -144,20 +170,6 @@ test_git_repo_discovery :: proc(t: ^testing.T) {
     expect_git_repo(t, ROOT, root_abs, "9f1c2b3a")
 }
 
-@(private = "file")
-expect_git_repo :: proc(t: ^testing.T, dir, want_root, want_branch: string, loc := #caller_location) {
-    root, git_dir, ok := thor_find_git_repo(dir)
-    testing.expectf(t, ok, "no repo found for %q", dir, loc = loc)
-    if !ok {
-        return
-    }
-    testing.expect_value(t, root, want_root, loc = loc)
-
-    branch := thor_read_git_branch(git_dir)
-    defer delete(branch)
-    testing.expect_value(t, branch, want_branch, loc = loc)
-}
-
 // The path the tree and the open files would carry, built independently of the
 // spelling git.odin makes.
 @(private = "file")
@@ -174,9 +186,25 @@ expect_git_status :: proc(
     want: widgets.Git_Status,
     loc := #caller_location,
 ) {
-    got, ok := status[key]
+    // `key` is the path the tree carries; the lookup folds it exactly as
+    // thor_tree_git_status does.
+    got, ok := status[git_map_key(key)]
     testing.expectf(t, ok, "no status for %q", key, loc = loc)
     if ok {
         testing.expect_value(t, got, want, loc = loc)
     }
+}
+
+@(private = "file")
+expect_git_repo :: proc(t: ^testing.T, dir, want_root, want_branch: string, loc := #caller_location) {
+    root, git_dir, ok := thor_find_git_repo(dir)
+    testing.expectf(t, ok, "no repo found for %q", dir, loc = loc)
+    if !ok {
+        return
+    }
+    testing.expect_value(t, root, want_root, loc = loc)
+
+    branch := thor_read_git_branch(git_dir)
+    defer delete(branch)
+    testing.expect_value(t, branch, want_branch, loc = loc)
 }
