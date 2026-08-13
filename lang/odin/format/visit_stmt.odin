@@ -4,6 +4,8 @@
 package odinfmt
 
 import "core:odin/ast"
+import "core:slice"
+import "core:strings"
 
 @(private)
 Item_Printer :: #type proc(pr: ^Printer, out: ^[dynamic]Doc, item: ^ast.Stmt)
@@ -115,6 +117,85 @@ print_else :: proc(pr: ^Printer, out: ^[dynamic]Doc, else_stmt: ^ast.Stmt) {
 	print_body(pr, out, else_stmt, false)
 }
 
+// The end of the maximal run of import declarations starting at `i` that is
+// safe to reorder: consecutive plain ^ast.Import_Decls, one per line with no
+// blank line between them, and no comment on any line the run covers. A comment
+// inside pins every member — flush_trailing attaches a trailing comment by
+// line, so moving the import it belongs to would re-attach it to a different
+// one. Returns `i` when nothing at `i` is sortable.
+//
+// That restriction is also what keeps the comment cursor happy: every separator
+// inside such a run is exactly hard_line(0), so the run prints its own newlines
+// and never advances pr.comment_idx out of source order.
+@(private)
+import_run_end :: proc(pr: ^Printer, stmts: []^ast.Stmt, i: int) -> int {
+	end := i
+	for end < len(stmts) {
+		if stmts[end] == nil || !plain_import(stmts[end]) {
+			break
+		}
+		if end > i && !same_align_run(pr, stmts[end - 1].end.line, stmts[end].pos.line) {
+			break
+		}
+		end += 1
+	}
+	if end - i < 2 {
+		return i
+	}
+	// A trailing comment sits on the run's own last line, which same_align_run
+	// deliberately allows — here it must not, so check the whole span.
+	for cg in pr.comments[pr.comment_idx:] {
+		if cg.pos.line < stmts[i].pos.line {
+			continue
+		}
+		if cg.pos.line > stmts[end - 1].end.line {
+			break
+		}
+		return i
+	}
+	return end
+}
+
+@(private)
+plain_import :: proc(stmt: ^ast.Stmt) -> bool {
+	d, ok := stmt.derived_stmt.(^ast.Import_Decl)
+	return ok && !d.is_using && len(d.attributes) == 0
+}
+
+// The relpath token text without its quotes.
+@(private)
+import_path :: proc(d: ^ast.Import_Decl) -> string {
+	return strings.trim(d.relpath.text, `"`)
+}
+
+// Collection-qualified paths (base:, core:, vendor:) sort before local ones, so
+// the conventional block shape survives a sort of a run that mixes them — a
+// plain lexical sort would pull "../x" to the front.
+@(private)
+import_rank :: proc(path: string) -> int {
+	if strings.contains(path, ":") {
+		return 0
+	}
+	return 1
+}
+
+@(private)
+import_less :: proc(a, b: ^ast.Stmt) -> bool {
+	da, aok := a.derived_stmt.(^ast.Import_Decl)
+	db, bok := b.derived_stmt.(^ast.Import_Decl)
+	if !aok || !bok {
+		return false
+	}
+	pa, pb := import_path(da), import_path(db)
+	if ra, rb := import_rank(pa), import_rank(pb); ra != rb {
+		return ra < rb
+	}
+	if pa != pb {
+		return pa < pb
+	}
+	return da.name.text < db.name.text
+}
+
 // Prints every element of `stmts` in source order, as top-level-flat siblings
 // (each preceded by the comment/blank-line separator, no braces of its own —
 // the caller supplies those). Returns the line/has-prev state to continue
@@ -133,14 +214,37 @@ print_stmt_list :: proc(
 	assign_decl_align_ids(pr, stmts)
 	last_line = prev_line
 	had_prev = has_prev
-	for stmt in stmts {
+	for i := 0; i < len(stmts); {
+		stmt := stmts[i]
 		if stmt == nil {
+			i += 1
 			continue
+		}
+		if pr.opts.sort_imports {
+			if end := import_run_end(pr, stmts, i); end > i {
+				run := slice.clone(stmts[i:end])
+				slice.sort_by(run, import_less)
+				separator(pr, out, last_line, had_prev, stmt.pos.line, true)
+				for member, n in run {
+					if n > 0 {
+						append(out, hard_line(0))
+					}
+					print_stmt(pr, out, member)
+				}
+				// The run's last *source* line, not the last printed one, so
+				// the next declaration's blank-line gap measures exactly as it
+				// would have unsorted.
+				last_line = stmts[end - 1].end.line
+				had_prev = true
+				i = end
+				continue
+			}
 		}
 		separator(pr, out, last_line, had_prev, stmt_start_line(stmt), true)
 		print_stmt(pr, out, stmt)
 		last_line = stmt.end.line
 		had_prev = true
+		i += 1
 	}
 	return
 }

@@ -8,6 +8,7 @@ package odinfmt
 import "core:fmt"
 import "core:odin/tokenizer"
 import "core:os"
+import "core:slice"
 import "core:strings"
 import "core:testing"
 
@@ -245,6 +246,63 @@ test_align_decl_runs_do_not_mix_kinds :: proc(t: ^testing.T) {
 	testing.expect(t, strings.contains(out, "Foo :: struct {}"), out)
 }
 
+@(test)
+test_sort_imports :: proc(t: ^testing.T) {
+	src := "package p\n\nimport \"core:strings\"\nimport \"core:fmt\"\n"
+	out, ok := format(src, default_options())
+	defer delete(out)
+	testing.expect(t, ok)
+	testing.expect(t, strings.contains(out, "import \"core:fmt\"\nimport \"core:strings\""), out)
+}
+
+@(test)
+test_sort_imports_off :: proc(t: ^testing.T) {
+	opts := default_options()
+	opts.sort_imports = false
+	src := "package p\n\nimport \"core:strings\"\nimport \"core:fmt\"\n"
+	out, ok := format(src, opts)
+	defer delete(out)
+	testing.expect(t, ok)
+	testing.expect(t, strings.contains(out, "import \"core:strings\"\nimport \"core:fmt\""), out)
+}
+
+@(test)
+test_sort_imports_ranks_collections_first :: proc(t: ^testing.T) {
+	src := "package p\n\nimport \"core:fmt\"\nimport \"../msvc\"\n"
+	out, ok := format(src, default_options())
+	defer delete(out)
+	testing.expect(t, ok)
+	testing.expect(t, strings.contains(out, "import \"core:fmt\"\nimport \"../msvc\""), out)
+}
+
+@(test)
+test_sort_imports_comment_pins_run :: proc(t: ^testing.T) {
+	src := "package p\n\nimport \"core:strings\"\n// keep\nimport \"core:fmt\"\n"
+	out, ok := format(src, default_options())
+	defer delete(out)
+	testing.expect(t, ok)
+	testing.expect(t, strings.contains(out, "import \"core:strings\"\n// keep\nimport \"core:fmt\""), out)
+}
+
+@(test)
+test_sort_imports_blank_line_splits_runs :: proc(t: ^testing.T) {
+	src := "package p\n\nimport \"core:strings\"\nimport \"core:fmt\"\n\nimport \"core:os\"\nimport \"core:mem\"\n"
+	out, ok := format(src, default_options())
+	defer delete(out)
+	testing.expect(t, ok)
+	testing.expect(t, strings.contains(out, "import \"core:fmt\"\nimport \"core:strings\""), out)
+	testing.expect(t, strings.contains(out, "import \"core:mem\"\nimport \"core:os\""), out)
+}
+
+@(test)
+test_sort_imports_keeps_binding_name :: proc(t: ^testing.T) {
+	src := "package p\n\nimport \"core:strings\"\nimport rl \"vendor:raylib\"\n"
+	out, ok := format(src, default_options())
+	defer delete(out)
+	testing.expect(t, ok)
+	testing.expect(t, strings.contains(out, "import \"core:strings\"\nimport rl \"vendor:raylib\""), out)
+}
+
 @(private)
 token_stream :: proc(src: string) -> [dynamic]tokenizer.Token {
 	t: tokenizer.Tokenizer
@@ -307,7 +365,12 @@ assert_round_trip :: proc(t: ^testing.T, path: string) {
 	}
 	defer delete(src)
 	source := string(src)
-	out, fok := format(source, default_options())
+	// The token-stream comparison is order-sensitive and sort_imports is
+	// exactly a reordering, so meaning is checked with sorting off; the
+	// defaults then get the two checks that survive a reorder (below).
+	unsorted := default_options()
+	unsorted.sort_imports = false
+	out, fok := format(source, unsorted)
 	defer delete(out)
 	_ = os.write_entire_file("bin/test/last_out.odin.txt", transmute([]u8)out)
 	if !fok {
@@ -362,7 +425,7 @@ assert_round_trip :: proc(t: ^testing.T, path: string) {
 		}
 	}
 
-	out2, fok2 := format(out, default_options())
+	out2, fok2 := format(out, unsorted)
 	defer delete(out2)
 	if !fok2 {
 		fmt.println("NOT IDEMPOTENT (second format failed):", path)
@@ -377,7 +440,65 @@ assert_round_trip :: proc(t: ^testing.T, path: string) {
 		return
 	}
 
+	if !assert_sorted_round_trip(t, path, source) {
+		return
+	}
 	fmt.println("OK", path, len(before), "tokens")
+}
+
+// The default options, sorting included: still parses, still converges, and no
+// token was dropped or duplicated. A multiset compare is the strongest check
+// that survives a reorder, and reordering is the only thing sort_imports does.
+@(private)
+assert_sorted_round_trip :: proc(t: ^testing.T, path, source: string) -> bool {
+	sorted, ok := format(source, default_options())
+	defer delete(sorted)
+	if !ok {
+		fmt.println("FORMAT FAILED (sorted):", path)
+		testing.fail(t)
+		return false
+	}
+	if !assert_no_trailing_whitespace(t, path, sorted) {
+		return false
+	}
+
+	again, ok2 := format(sorted, default_options())
+	defer delete(again)
+	if !ok2 || again != sorted {
+		fmt.println("NOT IDEMPOTENT (sorted):", path)
+		_ = os.write_entire_file("bin/test/idem_1.odin.txt", transmute([]u8)sorted)
+		_ = os.write_entire_file("bin/test/idem_2.odin.txt", transmute([]u8)again)
+		testing.fail(t)
+		return false
+	}
+
+	before := token_stream(source)
+	defer delete(before)
+	after := token_stream(sorted)
+	defer delete(after)
+	if len(before) != len(after) {
+		fmt.println("TOKEN COUNT MISMATCH (sorted):", path, len(before), "vs", len(after))
+		testing.fail(t)
+		return false
+	}
+	slice.sort_by(before[:], token_less)
+	slice.sort_by(after[:], token_less)
+	for i in 0 ..< len(before) {
+		if before[i].kind != after[i].kind || before[i].text != after[i].text {
+			fmt.println("TOKEN MULTISET MISMATCH (sorted):", path, "at", i, before[i], after[i])
+			testing.fail(t)
+			return false
+		}
+	}
+	return true
+}
+
+@(private)
+token_less :: proc(a, b: tokenizer.Token) -> bool {
+	if a.kind != b.kind {
+		return a.kind < b.kind
+	}
+	return a.text < b.text
 }
 
 @(test)
