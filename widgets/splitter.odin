@@ -90,7 +90,7 @@ splitter_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
     splitter := cast(^Splitter) widget
     color := splitter.background_color
 
-    if splitter.dragging || ctx.active == widget {
+    if splitter.dragging || ui.context_active(ctx) == widget {
         color = splitter.active_color
     } else if ctx.hot == widget {
         color = splitter.hover_color

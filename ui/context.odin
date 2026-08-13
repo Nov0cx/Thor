@@ -23,7 +23,10 @@ Context :: struct {
     events:    Event_Queue,
     // Borrowed; context_forget drops them before their widgets go away.
     hot:       ^Widget,
-    active:    ^Widget,
+    // The press target of each button, so a second button pressed during a drag
+    // cannot take the first one's release. Only LEFT, RIGHT and MIDDLE are ever
+    // filled; context_collect_input queues no other button.
+    active:    [rl.MouseButton]^Widget,
     focused:   ^Widget,
     mouse_pos: rl.Vector2,
     prev_mouse_pos: rl.Vector2,
@@ -59,7 +62,7 @@ context_destroy :: proc(ctx: ^Context) {
     widget_destroy_tree(ctx.root)
     ctx.root = nil
     ctx.hot = nil
-    ctx.active = nil
+    ctx.active = {}
     ctx.focused = nil
     ctx.hit_widget = nil
     ctx.hit_valid = false
@@ -74,14 +77,27 @@ context_forget :: proc(ctx: ^Context, subtree: ^Widget) {
     if widget_contains(subtree, ctx.hot) {
         ctx.hot = nil
     }
-    if widget_contains(subtree, ctx.active) {
-        ctx.active = nil
+    for button in rl.MouseButton {
+        if widget_contains(subtree, ctx.active[button]) {
+            ctx.active[button] = nil
+        }
     }
     if widget_contains(subtree, ctx.focused) {
         ctx.focused = nil
     }
     ctx.hit_widget = nil
     ctx.hit_valid = false
+}
+
+// The widget a drag belongs to: the press target of the first held button in
+// button order, so the left button keeps the moves while another button is down.
+context_active :: proc(ctx: ^Context) -> ^Widget {
+    for widget in ctx.active {
+        if widget != nil {
+            return widget
+        }
+    }
+    return nil
 }
 
 context_set_root :: proc(ctx: ^Context, root: ^Widget) {
@@ -351,9 +367,9 @@ context_process_events :: proc(ctx: ^Context) {
             }
             ctx.hot = hot
 
-            if ctx.active != nil {
-                event.target = ctx.active
-                widget_dispatch_event(ctx.active, ctx, &event)
+            if dragged := context_active(ctx); dragged != nil {
+                event.target = dragged
+                widget_dispatch_event(dragged, ctx, &event)
             } else if ctx.hot != nil {
                 // No button held: give the hovered widget a hover tick. Kept
                 // separate from Mouse_Move so widgets that treat a move as a
@@ -369,7 +385,7 @@ context_process_events :: proc(ctx: ^Context) {
 
         case .Mouse_Down:
             event.target = context_hit_test(ctx, event.mouse_position)
-            ctx.active = event.target
+            ctx.active[event.mouse_button] = event.target
             ctx.focused = event.target
 
             if event.target != nil {
@@ -377,7 +393,7 @@ context_process_events :: proc(ctx: ^Context) {
             }
 
         case .Mouse_Up:
-            release_target := ctx.active
+            release_target := ctx.active[event.mouse_button]
             hit_target := context_hit_test(ctx, event.mouse_position)
 
             if release_target != nil {
@@ -397,7 +413,7 @@ context_process_events :: proc(ctx: ^Context) {
                 }
             }
 
-            ctx.active = nil
+            ctx.active[event.mouse_button] = nil
 
         case .Click:
         case .Scroll:

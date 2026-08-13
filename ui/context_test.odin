@@ -15,6 +15,8 @@ Probe :: struct {
     hovered:      int,
     scrolled:     int,
     released:     int,
+    ups:          int,
+    clicks:       int,
     mods:         input.Modifiers,
 }
 
@@ -31,6 +33,10 @@ leaf_handler :: proc(widget: ^Widget, ctx: ^Context, event: ^Event) -> bool {
         probe.mods = event.mods
     case .Key_Release:
         probe.released += 1
+    case .Mouse_Up:
+        probe.ups += 1
+    case .Click:
+        probe.clicks += 1
     }
     return true
 }
@@ -72,6 +78,14 @@ move_to :: proc(ctx: ^Context, x, y: f32) {
     event_queue_clear(&ctx.events)
     ctx.hit_valid = false
     event_queue_push(&ctx.events, Event{kind = .Mouse_Move, mouse_position = {x, y}})
+    context_process_events(ctx)
+}
+
+@(private = "file")
+button_event :: proc(ctx: ^Context, kind: Event_Type, button: rl.MouseButton, x, y: f32) {
+    event_queue_clear(&ctx.events)
+    ctx.hit_valid = false
+    event_queue_push(&ctx.events, Event{kind = kind, mouse_button = button, mouse_position = {x, y}})
     context_process_events(ctx)
 }
 
@@ -123,6 +137,25 @@ test_scroll_carries_modifiers :: proc(t: ^testing.T) {
 
     testing.expect_value(t, left.scrolled, 1)
     testing.expect(t, .Ctrl in left.mods, "scroll reached the widget without its modifiers")
+}
+
+@(test)
+test_drag_keeps_its_target_when_a_second_button_goes_down :: proc(t: ^testing.T) {
+    ctx: Context
+    root, left, right: Probe
+    build_probe_tree(&ctx, &root, &left, &right)
+    defer drop_probe_tree(&ctx)
+
+    button_event(&ctx, .Mouse_Down, .LEFT, 5, 5)
+    button_event(&ctx, .Mouse_Down, .RIGHT, 15, 5)
+    button_event(&ctx, .Mouse_Up, .RIGHT, 15, 5)
+
+    testing.expect(t, context_active(&ctx) == &left.widget, "the right button took the left drag")
+
+    button_event(&ctx, .Mouse_Up, .LEFT, 5, 5)
+    testing.expect_value(t, left.ups, 1)
+    testing.expect_value(t, left.clicks, 1)
+    testing.expect(t, context_active(&ctx) == nil, "a button stayed active after its release")
 }
 
 @(private = "file")

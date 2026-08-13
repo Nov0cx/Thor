@@ -97,7 +97,7 @@ button_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
     button := cast(^Button) widget
     fill := button.background_color
 
-    if ctx.active == widget {
+    if ui.context_active(ctx) == widget {
         fill = button.pressed_color
     } else if ctx.hot == widget {
         fill = button.hover_color
