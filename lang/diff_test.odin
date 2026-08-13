@@ -78,3 +78,41 @@ test_diff_whole_file_rewrite :: proc(t: ^testing.T) {
     new := "totally\nnew\ncontent\n"
     diff_assert_reassembles(t, old, new)
 }
+
+// A line owns its terminator, so a source that gains or loses its final newline
+// differs in its last line rather than in a zero-width phantom one.
+@(test)
+test_diff_adds_trailing_newline :: proc(t: ^testing.T) {
+    diff_assert_reassembles(t, "a", "a\n")
+    diff_assert_reassembles(t, "x\ny", "x\ny\n")
+}
+
+@(test)
+test_diff_removes_trailing_newline :: proc(t: ^testing.T) {
+    diff_assert_reassembles(t, "a\n", "a")
+    diff_assert_reassembles(t, "x\ny\n", "x\ny")
+}
+
+// Lines appended to a source whose last line has no newline: the new text must
+// keep the separator instead of gluing onto that line.
+@(test)
+test_diff_appends_to_unterminated_last_line :: proc(t: ^testing.T) {
+    diff_assert_reassembles(t, "a", "a\nb\n")
+    diff_assert_reassembles(t, "a", "a\nb")
+}
+
+// An insertion at the tail of the trimmed middle anchors on the first surviving
+// suffix line, not on end-of-source.
+@(test)
+test_diff_insertion_before_trimmed_suffix :: proc(t: ^testing.T) {
+    old := "p\nq\nr\n"
+    new := "P\nq\nZ\nr\n"
+    diff_assert_reassembles(t, old, new)
+}
+
+@(test)
+test_diff_empty_source :: proc(t: ^testing.T) {
+    diff_assert_reassembles(t, "", "x\n")
+    diff_assert_reassembles(t, "x\n", "")
+    diff_assert_reassembles(t, "", "x")
+}

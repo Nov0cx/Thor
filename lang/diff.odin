@@ -25,9 +25,12 @@ Diff_Span :: struct {
 @(private)
 Diff_Line :: struct {
     start: int, // byte offset of the line's first byte
-    end:   int, // byte offset one past its last content byte (before '\n')
+    end:   int, // byte offset one past its '\n' — the next line's start, or len(s)
 }
 
+// Splits on '\n', with each line owning its terminator. Two sources that differ
+// only in a trailing newline therefore differ in their last line, which is what
+// lets the trims and the LCS see that change at all.
 @(private)
 diff_split_lines :: proc(s: string, allocator := context.allocator) -> []Diff_Line {
     lines: [dynamic]Diff_Line
@@ -35,7 +38,7 @@ diff_split_lines :: proc(s: string, allocator := context.allocator) -> []Diff_Li
     start := 0
     for i := 0; i < len(s); i += 1 {
         if s[i] == '\n' {
-            append(&lines, Diff_Line{start, i})
+            append(&lines, Diff_Line{start, i + 1})
             start = i + 1
         }
     }
@@ -48,27 +51,27 @@ diff_line_text :: proc(s: string, l: Diff_Line) -> string {
     return s[l.start:l.end]
 }
 
-// Byte range in `old` spanning every line in `a` (inclusive of the newline
-// that follows each line but the source's very last), and the matching
-// replacement text spanning every line in `b`. Either may be empty — a pure
-// insertion (empty a) anchors a zero-width old range at the position the new
-// lines belong (the next surviving old line, or end-of-source when they were
-// appended at the tail); a pure deletion (empty b) anchors an empty
-// replacement over exactly the deleted lines and their trailing newline.
+// Byte range in `old` covering a[ai:aj], and the replacement covering b[bi:bj].
+// Either run may be empty: an empty old run is a zero-width range where the new
+// lines belong — the start of a[ai], or one past a's last line when the run sits
+// at the tail — and an empty new run is an empty replacement. `at_end` anchors
+// the one case the runs cannot answer, an entirely empty `a`.
 @(private)
-diff_run_span :: proc(old, new: string, a, b: []Diff_Line, insertion_at: int) -> Diff_Span {
-    if len(a) == 0 {
-        return Diff_Span{start = insertion_at, end = insertion_at, text = diff_insert_text(new, b, 0, len(b))}
+diff_run_span :: proc(new: string, a, b: []Diff_Line, ai, aj, bi, bj, at_end: int) -> Diff_Span {
+    start, end := at_end, at_end
+    switch {
+    case aj > ai:
+        start, end = a[ai].start, a[aj - 1].end
+    case ai < len(a):
+        start, end = a[ai].start, a[ai].start
+    case len(a) > 0:
+        start, end = a[len(a) - 1].end, a[len(a) - 1].end
     }
-    start := a[0].start
-    end := a[len(a) - 1].end
-    if end < len(old) && old[end] == '\n' {
-        end += 1
+    text := ""
+    if bj > bi {
+        text = new[b[bi].start:b[bj - 1].end]
     }
-    if len(b) == 0 {
-        return Diff_Span{start = start, end = end, text = ""}
-    }
-    return Diff_Span{start = start, end = end, text = diff_insert_text(new, b, 0, len(b))}
+    return Diff_Span{start = start, end = end, text = text}
 }
 
 // diff_spans returns the minimal set of replace spans that turn `old` into
@@ -107,7 +110,7 @@ diff_spans :: proc(old, new: string, allocator := context.allocator) -> []Diff_S
         if hi_old < len(old_lines) {
             insertion_at = old_lines[hi_old].start
         }
-        append(&spans, diff_run_span(old, new, a, b, insertion_at))
+        append(&spans, diff_run_span(new, a, b, 0, len(a), 0, len(b), insertion_at))
         return spans[:]
     }
 
@@ -159,44 +162,14 @@ diff_lcs :: proc(old, new: string, a, b: []Diff_Line, spans: ^[dynamic]Diff_Span
     // Walk the gaps between consecutive matches (and before the first / after
     // the last): each non-empty gap on either side is one replace span.
     pa, pb := 0, 0
-    flush_gap :: proc(old, new: string, a, b: []Diff_Line, pa, pb, ia, ib: int, spans: ^[dynamic]Diff_Span) {
+    flush_gap :: proc(new: string, a, b: []Diff_Line, pa, pb, ia, ib: int, spans: ^[dynamic]Diff_Span) {
         if ia > pa || ib > pb {
-            if ia > pa && ib > pb {
-                append(spans, diff_run_span(old, new, a[pa:ia], b[pb:ib], 0)) // insertion_at unused: a is non-empty here
-            } else if ia > pa {
-                // pure deletion: replace the old run with nothing, anchored
-                // on the byte range those lines (and their newlines) cover
-                start := a[pa].start
-                end := a[ia - 1].end
-                if end < len(old) && old[end] == '\n' {
-                    end += 1
-                }
-                append(spans, Diff_Span{start = start, end = end, text = ""})
-            } else {
-                // pure insertion: zero-width old range, right where the new
-                // lines belong — the start of the next surviving old line,
-                // or end-of-source when they were appended at the tail.
-                at := len(old)
-                if ia < len(a) {
-                    at = a[ia].start
-                }
-                append(spans, Diff_Span{start = at, end = at, text = diff_insert_text(new, b, pb, ib)})
-            }
+            append(spans, diff_run_span(new, a, b, pa, ia, pb, ib, 0)) // at_end unused: a is non-empty here
         }
     }
     for m in matches {
-        flush_gap(old, new, a, b, pa, pb, m[0], m[1], spans)
+        flush_gap(new, a, b, pa, pb, m[0], m[1], spans)
         pa, pb = m[0] + 1, m[1] + 1
     }
-    flush_gap(old, new, a, b, pa, pb, na, nb, spans)
-}
-
-@(private)
-diff_insert_text :: proc(new: string, b: []Diff_Line, pb, ib: int) -> string {
-    start := b[pb].start
-    end := b[ib - 1].end
-    if end < len(new) && new[end] == '\n' {
-        end += 1
-    }
-    return new[start:end]
+    flush_gap(new, a, b, pa, pb, na, nb, spans)
 }
