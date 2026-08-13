@@ -71,13 +71,14 @@ engine_create :: proc() -> ^Engine {
 // Wraps the engine as a lang.Backend for lang.manager_register.
 engine_backend :: proc(e: ^Engine) -> lang.Backend {
     return lang.Backend {
-        data     = e,
-        name     = "odin (in-client)",
-        handles  = handles,
-        resolve  = resolve,
-        destroy  = engine_destroy,
-        supports = supports,
-        notify   = notify,
+        data            = e,
+        name            = "odin (in-client)",
+        handles         = handles,
+        resolve         = resolve,
+        destroy         = engine_destroy,
+        supports        = supports,
+        notify          = notify,
+        on_type_trigger = on_type_trigger,
     }
 }
 
@@ -86,22 +87,22 @@ handles :: proc(data: rawptr, ext: string) -> bool {
     return ext == ".odin" && (cast(^Engine)data).admin_enabled
 }
 
-// Range and on-type formatting have no native printer behind them — only
-// whole-document Format does (format_document, formatter.odin). Declined
-// outright rather than left to answer ok=false, so Format Selection on a
-// .odin file reads as "not available" instead of "cannot format".
+// The characters that fire format-on-type. Only `}`: it closes a block, which
+// is the one keystroke whose reindent the typist expects, and mid-line typing
+// leaves the buffer unparseable, which the printer refuses anyway.
 @(private)
-UNSUPPORTED :: bit_set[lang.Request_Kind]{.Format_Range, .Format_On_Type}
+ON_TYPE_TRIGGERS :: "}"
 
-// The settings-driven per-kind gate: every other capability (definition, goto,
-// completion, …) is unconditional, so only a kind the config turned off for
-// this engine specifically, or a kind the engine never implements, answers
-// false here.
+@(private)
+on_type_trigger :: proc(data: rawptr, ext, char: string) -> bool {
+    return ext == ".odin" && char == ON_TYPE_TRIGGERS
+}
+
+// The settings-driven per-kind gate: every capability the engine has
+// (definition, goto, completion, formatting, …) is unconditional, so only a
+// kind the config turned off for this engine specifically answers false here.
 @(private)
 supports :: proc(data: rawptr, ext: string, kind: lang.Request_Kind) -> bool {
-    if kind in UNSUPPORTED {
-        return false
-    }
     return kind in (cast(^Engine)data).admin_features
 }
 

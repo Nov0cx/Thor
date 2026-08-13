@@ -37,7 +37,12 @@ Format_Config_Cache :: struct {
 
 @(private)
 format_config_ensure :: proc(cache: ^Format_Config_Cache, workspace: string) {
+    // No workspace means no .thor/odin-formatter.json to read, so the shipped
+    // defaults apply — not the cache's zero value, which is a zero-column width
+    // and no indent at all.
     if workspace == "" {
+        cache.opts = format.default_options()
+        cache.newline_present = false
         return
     }
     context.allocator = cache.alloc
@@ -149,13 +154,30 @@ format_config_clear :: proc(e: ^Engine) {
     cache.loaded = false
 }
 
-// The .Format request handler: parses req.source with the format package
+// The bounds of the line `offset` falls on, as [line start, line end).
+@(private)
+line_bounds :: proc(source: string, offset: int) -> (lo, hi: int) {
+    at := clamp(offset, 0, len(source))
+    lo = strings.last_index_byte(source[:at], '\n') + 1
+    hi = strings.index_byte(source[at:], '\n')
+    if hi < 0 {
+        return lo, len(source)
+    }
+    return lo, at + hi
+}
+
+// The formatting request handler: parses req.source with the format package
 // (core:odin/parser under it, not the tree-sitter grammar this engine uses
 // everywhere else), diffs against the original, and answers with the
 // minimal Text_Edit set — never a whole-buffer replace, which would drag
 // every cursor in the file to wherever the edit ends.
+//
+// The printer is whole-file only, so Format_Range and Format_On_Type format
+// everything and keep only the changes inside [lo, hi): a span that straddles
+// the edge is dropped, since the host aligns a selection to whole lines and a
+// half-applied reflow is worse than none.
 @(private)
-format_document :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
+format_document :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result, lo, hi: int) {
     if lang.request_cancelled(req) {
         return
     }
@@ -179,9 +201,20 @@ format_document :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
         return
     }
 
+    // A diff span covers a whole line *including* its trailing newline, while a
+    // line-aligned window ends at that newline — without this byte the last
+    // line of a selection could never be reformatted.
+    window_end := clamp(hi, 0, len(req.source))
+    if window_end < len(req.source) && req.source[window_end] == '\n' {
+        window_end += 1
+    }
+
     spans := lang.diff_spans(req.source, formatted)
     context.allocator = out_alloc // res.edits must live in the Manager allocator result_free frees it with
     for span in spans {
+        if span.start < lo || span.end > window_end {
+            continue
+        }
         append(&res.edits, lang.Text_Edit{
             path     = strings.clone(req.path, out_alloc),
             start    = span.start,
@@ -191,7 +224,9 @@ format_document :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
         })
     }
 
-    if newline_present {
+    // Only a whole-document format may change the file's line endings: a
+    // selection format must never rewrite the lines it was not given.
+    if newline_present && req.kind == .Format {
         switch opts.newline_style {
         case .LF:          res.newline = .LF
         case .CRLF:         res.newline = .CRLF

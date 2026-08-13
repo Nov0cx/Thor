@@ -84,8 +84,16 @@ resolve :: proc(data: rawptr, req: ^lang.Request, res: ^lang.Result) {
     // no caret, no LOCALS query, and no resident tree to key off — like
     // Diagnostics, it answers before any of the tree-sitter setup below, so
     // it never evicts this path's cached tree for a parse it doesn't need.
-    if req.kind == .Format {
-        format_document(e, req, res)
+    #partial switch req.kind {
+    case .Format:
+        format_document(e, req, res, 0, len(req.source))
+        return
+    case .Format_Range:
+        format_document(e, req, res, req.offset, req.end)
+        return
+    case .Format_On_Type:
+        lo, hi := line_bounds(req.source, req.offset)
+        format_document(e, req, res, lo, hi)
         return
     }
 
