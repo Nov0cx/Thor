@@ -88,3 +88,7 @@ First release. Thor runs on Windows, Linux and macOS.
 - `ctrl + d` matches whole words, so `foo` no longer selects the `foo` inside `food`. `ctrl + shift + d` keeps the old substring behavior.
 - Repeated `ctrl + d` reaches every occurrence in the file. It used to stop once it wrapped to the first one.
 - Copy with several carets and nothing selected copies every caret's line, matching what cut already deleted.
+- On Linux and macOS, the Git menu no longer writes a stray `nul` file into the workspace.
+- On Windows, the explorer keeps up with the disk after a watch failure: the workspace is rescanned on an interval instead of updates stopping until restart.
+- The file tree, not only the git status, is refreshed when the watcher reports that it lost events.
+- On Linux, changes under a folder renamed inside the workspace are reported at its new path.
