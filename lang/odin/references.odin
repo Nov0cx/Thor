@@ -633,7 +633,7 @@ ref_site_equal :: proc(a, b: Field_Site) -> bool {
 // different producers — an index key, a request path, an import joined onto one
 // — and a mismatch here fails *closed*, dropping a usage, so it is worth a
 // second try.
-@(private = "file")
+@(private)
 same_dir :: proc(a, b: string) -> bool {
     if path_equal(a, b) {
         return true

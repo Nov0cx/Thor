@@ -76,28 +76,6 @@ overload_sites :: proc(
     return sites
 }
 
-// Whether two paths name the same directory. The spellings reach here from
-// different places — the request carries the path its file was opened with, a
-// cross-file group the one the workspace walk produced — so an equal pair is
-// taken at its word and anything else is compared absolute. Only the live
-// buffer's package membership rides on this: a false negative costs the unsaved
-// edits in that one file, never a wrong answer.
-@(private = "file")
-same_dir :: proc(a, b: string) -> bool {
-    if a == b {
-        return true
-    }
-    aa, aerr := filepath.abs(a, context.temp_allocator)
-    bb, berr := filepath.abs(b, context.temp_allocator)
-    if aerr != nil || berr != nil {
-        return false
-    }
-    when ODIN_OS == .Windows {
-        return strings.equal_fold(aa, bb) // the filesystem doesn't care about case
-    } else {
-        return aa == bb
-    }
-}
 
 // The call the caret's name heads, and the tree it is written in — what narrows
 // a procedure group to the one member the call reaches. `node` is null when the
