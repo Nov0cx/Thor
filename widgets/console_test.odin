@@ -151,6 +151,10 @@ test_console_output_does_not_pull_the_view_down :: proc(t: ^testing.T) {
     console_append(console, "more output\n")
     testing.expect_value(t, console.scroll_y, 0)
     testing.expect(t, !console.autoscroll, "new output re-pinned the view to the bottom")
+
+    console_command_finished(console)
+    testing.expect_value(t, console.scroll_y, 0)
+    testing.expect(t, !console.autoscroll, "the end of the command re-pinned the view to the bottom")
 }
 
 // The arrow keys walk the submitted commands, and the line below the newest one

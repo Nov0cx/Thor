@@ -438,9 +438,10 @@ console_run_command :: proc(console: ^Console, command: string) -> bool {
 }
 
 // Called by the owner when a command finishes so the prompt returns to normal.
+// The view is left where it is: the user may be reading the output the command
+// wrote, and the end of it is not a reason to move.
 console_command_finished :: proc(console: ^Console) {
     console.running = false
-    console.autoscroll = true
 }
 
 // Records a command for the arrow keys, dropping an empty line and a repeat of
