@@ -795,22 +795,27 @@ highlighter_query :: proc(h: ^Highlighter, lang_id: string, entry: Language_Entr
     return query
 }
 
+// Compiles `source` against the grammar for `lang_id` without caching it. The
+// caller owns the query and must delete it.
+query_compile :: proc(h: ^Highlighter, lang_id, source: string) -> (query: ts.Query, offset: u32, err: ts.Query_Error) {
+    entry, known := h.languages[lang_id]
+    if !known {
+        return nil, 0, .Language
+    }
+    return ts.query_new(entry.lang, source)
+}
+
 // Compiles `source` against the grammar for `lang_id`, caching by both, so a
 // plugin running the same query every keystroke pays for it once. A failed
 // compile returns the byte offset the grammar rejected — the caller reports it;
 // nothing here writes to the console.
 query_for :: proc(h: ^Highlighter, lang_id, source: string) -> (query: ts.Query, offset: u32, err: ts.Query_Error) {
-    entry, known := h.languages[lang_id]
-    if !known {
-        return nil, 0, .Language
-    }
-
     key := Query_Key{lang_id = lang_id, source = source}
     if cached, ok := h.queries[key]; ok {
         return cached, 0, .None
     }
 
-    query, offset, err = ts.query_new(entry.lang, source)
+    query, offset, err = query_compile(h, lang_id, source)
     if err != .None {
         return nil, offset, err
     }

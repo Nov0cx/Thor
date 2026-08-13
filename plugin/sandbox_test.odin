@@ -382,6 +382,36 @@ tree:query("highlights.scm")`
     testing.expect_value(t, len(m.query_files), 1)
 }
 
+// A plugin that builds its query text misses the cache every time, so the cache
+// must stay bounded rather than hold one compiled query per string until the
+// next plugin reload.
+@(test)
+test_tree_query_cache_is_bounded :: proc(t: ^testing.T) {
+    r: Recorder
+    recorder_init(&r)
+    defer recorder_destroy(&r)
+    m: Manager
+    recording_manager(&m, &r)
+    defer manager_destroy(&m)
+
+    script := `local tree = thor.ts.parse("package p\n\nvalue := 1\n", "odin")
+local last
+for i = 1, 100 do
+    last = tree:query("(identifier) @a" .. i)
+end
+thor.print("matches=" .. tostring(#last))`
+    testing.expect(t, manager_load_source(&m, "querier", "plugins/querier", script, {}), "plugin runs")
+
+    testing.expectf(
+        t,
+        len(m.ts_state.queries) <= TS_QUERY_MAX,
+        "the query cache grew to %d entries",
+        len(m.ts_state.queries),
+    )
+    out := printed(&r)
+    testing.expectf(t, strings.contains(out, "matches=2"), "a query after the cache was dropped: %q", out)
+}
+
 // A line_based lexer is handed only the lines the window covers and its spans
 // land at their absolute offsets. One without the flag reads the whole buffer
 // and reports that, so a caller caching the spans never re-lexes on a scroll.

@@ -31,7 +31,25 @@ Ts_State :: struct {
     // highlighter's cache, which holds only eight buffers — a plugin must not be
     // able to evict the ones the editor is coloring.
     trees:   treecache.Cache,
+    // Queries tree:query compiled, keyed by (grammar, source); keys are owned.
+    // Apart from the highlighter's cache so a plugin can neither grow it without
+    // bound nor share a query set_highlights may delete.
+    queries: map[Ts_Query_Key]ts.Query,
 }
+
+// Cache key for a plugin query. Both strings are the caller's for a lookup and
+// cache-owned on insert, like syntax's own key.
+@(private)
+Ts_Query_Key :: struct {
+    lang_id: string,
+    source:  string,
+}
+
+// How many compiled plugin queries to hold. A plugin that builds its query text
+// misses every time, so the cache is dropped whole once it is full rather than
+// growing until the next plugin reload.
+@(private)
+TS_QUERY_MAX :: 32
 
 // A parsed tree handed to Lua. Owns its source, since node:text() slices it
 // long after the Lua string that produced it may have been collected.
@@ -55,16 +73,55 @@ Ts_Node :: struct {
 ts_init :: proc(m: ^Manager) {
     m.ts_state.parser = ts.parser_new()
     treecache.init(&m.ts_state.trees, m.allocator)
+    m.ts_state.queries = make(map[Ts_Query_Key]ts.Query, m.allocator)
     install_tree_metatable(m.state)
     install_node_metatable(m.state)
 }
 
 ts_destroy :: proc(m: ^Manager) {
+    ts_queries_clear(m)
+    delete(m.ts_state.queries)
+    m.ts_state.queries = nil
     treecache.destroy(&m.ts_state.trees)
     if m.ts_state.parser != nil {
         ts.parser_delete(m.ts_state.parser)
         m.ts_state.parser = nil
     }
+}
+
+// Compiles `source` for `lang_id`, holding at most TS_QUERY_MAX of them. Safe to
+// drop the cache here: a query lives no longer than the tree:query call that
+// asked for it.
+@(private)
+ts_query_for :: proc(m: ^Manager, lang_id, source: string) -> (query: ts.Query, offset: u32, err: ts.Query_Error) {
+    if cached, ok := m.ts_state.queries[Ts_Query_Key{lang_id = lang_id, source = source}]; ok {
+        return cached, 0, .None
+    }
+
+    query, offset, err = syntax.query_compile(&m.highlighter, lang_id, source)
+    if err != .None {
+        return nil, offset, err
+    }
+    if len(m.ts_state.queries) >= TS_QUERY_MAX {
+        ts_queries_clear(m)
+    }
+    key := Ts_Query_Key {
+        lang_id = strings.clone(lang_id, m.allocator),
+        source  = strings.clone(source, m.allocator),
+    }
+    m.ts_state.queries[key] = query
+    return query, 0, .None
+}
+
+// Deletes every compiled query and its key, leaving the map empty.
+@(private)
+ts_queries_clear :: proc(m: ^Manager) {
+    for key, query in m.ts_state.queries {
+        ts.query_delete(query)
+        delete(key.lang_id, m.allocator)
+        delete(key.source, m.allocator)
+    }
+    clear(&m.ts_state.queries)
 }
 
 // Builds the `thor.ts` table for one plugin. `parse_active` is only bound with
@@ -358,7 +415,7 @@ tree_query :: proc "c" (L: ^lua.State) -> c.int {
         return 2
     }
 
-    query, offset, err := syntax.query_for(&m.highlighter, ud.lang_id, source)
+    query, offset, err := ts_query_for(m, ud.lang_id, source)
     if err != .None {
         report_query_error(m, ud.owner, arg, offset, err)
         lua.pushnil(L)

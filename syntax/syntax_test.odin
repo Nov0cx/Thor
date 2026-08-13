@@ -5,6 +5,7 @@ import "core:strings"
 import "core:testing"
 
 import "../treecache"
+import ts "../vendor/odin-tree-sitter"
 
 // Leading component of the capture covering the first occurrence of `needle`.
 @(private = "file")
@@ -328,6 +329,27 @@ test_query_for_keys_on_lang_and_source :: proc(t: ^testing.T) {
     testing.expect(t, q1 != q3, "a different source must compile a different query")
 
     testing.expect_value(t, len(h.queries), 2)
+}
+
+// query_compile hands the query to the caller and caches nothing, so a caller
+// with its own cache (thor.ts) cannot grow this one.
+@(test)
+test_query_compile_does_not_cache :: proc(t: ^testing.T) {
+    h := highlighter_create()
+    defer highlighter_destroy(&h)
+
+    q1, _, err1 := query_compile(&h, "odin", "(comment) @comment")
+    testing.expect(t, err1 == .None)
+    defer ts.query_delete(q1)
+    q2, _, err2 := query_compile(&h, "odin", "(comment) @comment")
+    testing.expect(t, err2 == .None)
+    defer ts.query_delete(q2)
+
+    testing.expect(t, q1 != q2, "each call must compile its own query")
+    testing.expect_value(t, len(h.queries), 0)
+
+    _, _, err3 := query_compile(&h, "no_such_language", "(comment) @comment")
+    testing.expect(t, err3 == .Language)
 }
 
 // Replacing a plugin's override must evict the compiled query it replaces
