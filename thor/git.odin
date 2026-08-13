@@ -26,7 +26,7 @@ Git_Status_Job :: struct {
 // Spawns a status refresh unless one is already running or this is not a repo.
 // Cheap to call from anything that might change the working tree.
 thor_refresh_git_status :: proc(thor: ^Thor) {
-    if thor.git_branch == "" {
+    if thor.git_prefix == "" {
         return
     }
     // Coalesce: if one is already running, remember to run again once it lands.
@@ -108,12 +108,18 @@ thor_tree_git_status :: proc(data: rawptr, path: string, _: bool) -> widgets.Git
     return .None
 }
 
-// Absolute key for a repo-relative path git printed. Git always prints forward
-// slashes; the tree and the open files key on native separators. Owned.
+// Absolute path for a repo-relative path git printed. Git always prints forward
+// slashes; the tree and the open files carry native separators. On scratch.
+@(private)
+git_path :: proc(thor: ^Thor, rel: string) -> string {
+    native, _ := strings.replace_all(rel, "/", filepath.SEPARATOR_STRING, context.temp_allocator)
+    return strings.concatenate({thor.git_prefix, native}, context.temp_allocator)
+}
+
+// Owned key for a repo-relative path git printed.
 @(private)
 git_key :: proc(thor: ^Thor, rel: string) -> string {
-    native, _ := strings.replace_all(rel, "/", filepath.SEPARATOR_STRING, context.temp_allocator)
-    return strings.concatenate({thor.workspace_prefix, native})
+    return strings.clone(git_path(thor, rel))
 }
 
 // Parses porcelain lines into absolute-path -> status entries, marking every
@@ -148,11 +154,7 @@ git_parse_status :: proc(thor: ^Thor, output: string, out: ^map[string]widgets.G
 // its own colour rather than the generic Modified tint a dirty submodule earns.
 @(private = "file")
 git_mark_submodules :: proc(thor: ^Thor, out: ^map[string]widgets.Git_Status) {
-    path, join_err := filepath.join({thor.workspace_dir, ".gitmodules"}, context.temp_allocator)
-    if join_err != nil {
-        return
-    }
-    data, read_err := os.read_entire_file(path, context.temp_allocator)
+    data, read_err := os.read_entire_file(git_path(thor, ".gitmodules"), context.temp_allocator)
     if read_err != nil {
         return
     }

@@ -47,9 +47,11 @@ thor_close_workspace :: proc(thor: ^Thor) {
     delete(thor.workspace_dir)
     delete(thor.workspace_prefix)
     delete(thor.git_branch)
+    delete(thor.git_prefix)
     thor.workspace_dir = ""
     thor.workspace_prefix = ""
     thor.git_branch = ""
+    thor.git_prefix = ""
     // thor_refresh_file_index no-ops on the empty workspace, which is right
     // for the welcome page — there is nothing to index.
 

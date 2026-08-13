@@ -271,9 +271,12 @@ thor_open_folder :: proc(thor: ^Thor, dir: string) {
     delete(thor.workspace_dir)
     delete(thor.workspace_prefix)
     delete(thor.git_branch)
+    delete(thor.git_prefix)
+    thor.git_branch = ""
+    thor.git_prefix = ""
     thor.workspace_dir = strings.clone(target)
     thor.workspace_prefix = strings.concatenate({thor.workspace_dir, filepath.SEPARATOR_STRING})
-    thor.git_branch = thor_read_git_branch(thor.workspace_dir)
+    thor_apply_git_repo(thor, thor.workspace_dir)
 
     // The new folder's .thor/ overlay can change theme, font and keybinds.
     thor_reload_settings(thor)

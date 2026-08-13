@@ -1,5 +1,6 @@
 package thor
 
+import "core:os"
 import "core:path/filepath"
 import "core:strings"
 import "core:testing"
@@ -13,7 +14,7 @@ import "../widgets"
 test_git_status_keys_use_the_native_separator :: proc(t: ^testing.T) {
     thor := new(Thor)
     defer free(thor)
-    thor.workspace_prefix = strings.concatenate({"repo", filepath.SEPARATOR_STRING}, context.temp_allocator)
+    thor.git_prefix = strings.concatenate({"repo", filepath.SEPARATOR_STRING}, context.temp_allocator)
 
     status := make(map[string]widgets.Git_Status)
     defer {
@@ -39,7 +40,7 @@ test_git_status_keys_use_the_native_separator :: proc(t: ^testing.T) {
 test_git_status_conflict_wins_on_ancestors :: proc(t: ^testing.T) {
     thor := new(Thor)
     defer free(thor)
-    thor.workspace_prefix = strings.concatenate({"repo", filepath.SEPARATOR_STRING}, context.temp_allocator)
+    thor.git_prefix = strings.concatenate({"repo", filepath.SEPARATOR_STRING}, context.temp_allocator)
 
     status := make(map[string]widgets.Git_Status)
     defer {
@@ -60,7 +61,7 @@ test_git_status_conflict_wins_on_ancestors :: proc(t: ^testing.T) {
 test_git_diff_keys_use_the_native_separator :: proc(t: ^testing.T) {
     thor := new(Thor)
     defer free(thor)
-    thor.workspace_prefix = strings.concatenate({"repo", filepath.SEPARATOR_STRING}, context.temp_allocator)
+    thor.git_prefix = strings.concatenate({"repo", filepath.SEPARATOR_STRING}, context.temp_allocator)
 
     diff := make(map[string][dynamic]widgets.Diff_Line_Kind)
     defer {
@@ -90,7 +91,7 @@ test_git_diff_keys_use_the_native_separator :: proc(t: ^testing.T) {
 test_git_diff_drops_a_key_with_no_hunk :: proc(t: ^testing.T) {
     thor := new(Thor)
     defer free(thor)
-    thor.workspace_prefix = strings.concatenate({"repo", filepath.SEPARATOR_STRING}, context.temp_allocator)
+    thor.git_prefix = strings.concatenate({"repo", filepath.SEPARATOR_STRING}, context.temp_allocator)
 
     diff := make(map[string][dynamic]widgets.Diff_Line_Kind)
     defer {
@@ -102,6 +103,59 @@ test_git_diff_drops_a_key_with_no_hunk :: proc(t: ^testing.T) {
     }
     git_parse_diff(thor, "+++ b/mode-only.txt\n+++ b/tail.txt\n", &diff)
     testing.expect_value(t, len(diff), 0)
+}
+
+// `.git` is a directory in a normal checkout, and a file naming a `gitdir:` in a
+// worktree or a submodule. The walk up also answers for a subdirectory opened as
+// the workspace, whose git output is still relative to the repo root.
+@(test)
+test_git_repo_discovery :: proc(t: ^testing.T) {
+    ROOT :: "thor_gitrepo.tmp"
+    GIT :: ROOT + "/.git"
+    DEEP :: ROOT + "/src/deep"
+    LINKED :: ROOT + "/linked"
+    ABSOLUTE :: ROOT + "/absolute"
+    LINKED_GIT :: GIT + "/worktrees/linked"
+
+    os.remove_all(ROOT) // a previous run that died mid-test
+    defer os.remove_all(ROOT)
+
+    for dir in ([]string{ROOT, GIT, ROOT + "/src", DEEP, LINKED, ABSOLUTE, GIT + "/worktrees", LINKED_GIT}) {
+        testing.expectf(t, os.make_directory(dir) == nil, "could not create %s", dir)
+    }
+    testing.expect(t, os.write_entire_file(GIT + "/HEAD", transmute([]u8) string("ref: refs/heads/main\n")) == nil, "could not write HEAD")
+    testing.expect(t, os.write_entire_file(LINKED_GIT + "/HEAD", transmute([]u8) string("ref: refs/heads/feature\n")) == nil, "could not write worktree HEAD")
+    testing.expect(t, os.write_entire_file(LINKED + "/.git", transmute([]u8) string("gitdir: ../.git/worktrees/linked\n")) == nil, "could not write the gitdir pointer")
+
+    absolute_pointer := strings.concatenate({"gitdir: ", thor_abs_path(LINKED_GIT), "\n"}, context.temp_allocator)
+    testing.expect(t, os.write_entire_file(ABSOLUTE + "/.git", transmute([]u8) absolute_pointer) == nil, "could not write the absolute gitdir pointer")
+
+    root_abs := strings.clone(thor_abs_path(ROOT), context.temp_allocator)
+
+    // A plain checkout, and the same repo found from a subdirectory of it.
+    expect_git_repo(t, ROOT, root_abs, "main")
+    expect_git_repo(t, DEEP, root_abs, "main")
+    // A worktree: `.git` is a file, and HEAD lives at the path it names.
+    expect_git_repo(t, LINKED, strings.clone(thor_abs_path(LINKED), context.temp_allocator), "feature")
+    expect_git_repo(t, ABSOLUTE, strings.clone(thor_abs_path(ABSOLUTE), context.temp_allocator), "feature")
+
+    // A detached head shows the short commit hash instead of a branch name.
+    testing.expect(t, os.write_entire_file(GIT + "/HEAD", transmute([]u8) string("9f1c2b3a4d5e6f708192a3b4c5d6e7f809a1b2c3\n")) == nil, "could not detach HEAD")
+    expect_git_repo(t, ROOT, root_abs, "9f1c2b3a")
+}
+
+@(private = "file")
+expect_git_repo :: proc(t: ^testing.T, dir, want_root, want_branch: string, loc := #caller_location) {
+    root, git_dir, ok := thor_find_git_repo(dir)
+    testing.expectf(t, ok, "no repo found for %q", dir, loc = loc)
+    if !ok {
+        return
+    }
+    testing.expect_value(t, root, want_root, loc = loc)
+
+    branch := thor_read_git_branch(git_dir)
+    defer delete(branch)
+    testing.expect_value(t, branch, want_branch, loc = loc)
 }
 
 // The path the tree and the open files would carry, built independently of the

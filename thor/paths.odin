@@ -66,6 +66,24 @@ thor_path_within :: proc(path, ancestor: string) -> bool {
     return len(a) == len(b) || a[len(b)] == '/' || a[len(b)] == '\\'
 }
 
+// The parent of an absolute path, as a slice of it. A path already at its root
+// answers itself, which is what stops a walk up the tree. Handles both
+// separators and keeps the root's own one ("C:\" and "/", never "C:" or "").
+thor_parent_dir :: proc(path: string) -> string {
+    slash := max(strings.last_index_byte(path, '/'), strings.last_index_byte(path, '\\'))
+    if slash < 0 {
+        return path
+    }
+    if slash == 0 {
+        return path[:1]
+    }
+    parent := path[:slash]
+    if len(parent) == 2 && parent[1] == ':' {
+        return path[:slash + 1]
+    }
+    return parent
+}
+
 // File extension including the dot (".odin"), or "" when the name has none.
 thor_file_extension :: proc(name: string) -> string {
     dot := strings.last_index_byte(name, '.')

@@ -212,6 +212,10 @@ Thor :: struct {
     pending_open_folder: string,
     open_folder_prompt: string,
     git_branch: string,
+    // Repo root + separator, the prefix every git status/diff key is built from.
+    // Git prints paths relative to the repo root, which is not the workspace when
+    // a subdirectory is opened. Owned; "" when the workspace is not in a repo.
+    git_prefix: string,
     // Named shell commands from <workspace>/.thor/tasks.json, reloaded on a
     // workspace switch. active_task_name is what the selector shows and the run
     // button runs, held by name so a reload can re-resolve it and the session
@@ -487,7 +491,7 @@ init :: proc() -> ^Thor {
     thor.workspace_dir = workspace_dir
     if workspace_dir != "" {
         thor.workspace_prefix = strings.concatenate({workspace_dir, filepath.SEPARATOR_STRING})
-        thor.git_branch = thor_read_git_branch(workspace_dir)
+        thor_apply_git_repo(thor, workspace_dir)
         thor_record_recent_workspace(workspace_dir)
     }
     thor_load_tasks(thor)
@@ -582,8 +586,77 @@ init :: proc() -> ^Thor {
     return thor
 }
 
-thor_read_git_branch :: proc(workspace_dir: string) -> string {
-    head_path := strings.concatenate({workspace_dir, "/.git/HEAD"}, context.temp_allocator)
+// Records the repo `workspace_dir` sits in: the key prefix git output is joined
+// onto, and the branch name for the status bar. Both stay "" outside a repo.
+thor_apply_git_repo :: proc(thor: ^Thor, workspace_dir: string) {
+    root, git_dir, ok := thor_find_git_repo(workspace_dir)
+    if !ok {
+        return
+    }
+    thor.git_prefix = strings.concatenate({root, filepath.SEPARATOR_STRING})
+    thor.git_branch = thor_read_git_branch(git_dir)
+}
+
+// The repo root at or above `dir`, and the directory that holds HEAD. `.git` is a
+// directory in a normal checkout and a file naming a `gitdir:` in a worktree or a
+// submodule, where HEAD lives at that target instead. Both results are scratch.
+thor_find_git_repo :: proc(dir: string) -> (root, git_dir: string, ok: bool) {
+    if dir == "" {
+        return
+    }
+    current := thor_abs_path(dir)
+    for {
+        dot_git, join_err := filepath.join({current, ".git"}, context.temp_allocator)
+        if join_err != nil {
+            return
+        }
+        if os.is_dir(dot_git) {
+            return current, dot_git, true
+        }
+        if target, has := thor_read_gitdir_pointer(current, dot_git); has {
+            return current, target, true
+        }
+        parent := thor_parent_dir(current)
+        if parent == current {
+            return
+        }
+        current = parent
+    }
+}
+
+// The `gitdir: <path>` a `.git` file names, made absolute against the directory
+// holding it. A worktree writes an absolute path, a submodule a relative one.
+@(private = "file")
+thor_read_gitdir_pointer :: proc(dir, pointer_path: string) -> (git_dir: string, ok: bool) {
+    data, read_err := os.read_entire_file(pointer_path, context.temp_allocator)
+    if read_err != nil {
+        return
+    }
+    PREFIX :: "gitdir:"
+    text := strings.trim_space(string(data))
+    if !strings.has_prefix(text, PREFIX) {
+        return
+    }
+    target := strings.trim_space(text[len(PREFIX):])
+    if target == "" {
+        return
+    }
+    if filepath.is_abs(target) {
+        return target, true
+    }
+    joined, join_err := filepath.join({dir, target}, context.temp_allocator)
+    if join_err != nil {
+        return
+    }
+    return joined, true
+}
+
+// Branch name out of `<git_dir>/HEAD`, or the short commit hash when detached.
+thor_read_git_branch :: proc(git_dir: string) -> string {
+    head_path, join_err := filepath.join({git_dir, "HEAD"}, context.temp_allocator)
+    if join_err != nil {
+        return ""
+    }
     data, read_err := os.read_entire_file(head_path, context.temp_allocator)
     if read_err != nil {
         return ""
@@ -662,6 +735,7 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.pending_rename_path)
     thor_clear_pending_open_folder(thor)
     delete(thor.git_branch)
+    delete(thor.git_prefix)
     thor_clear_tasks(thor)
     delete(thor.active_task_name)
     delete(thor.pending_task_name)
