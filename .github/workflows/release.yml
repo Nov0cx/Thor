@@ -191,6 +191,13 @@ jobs:
         with:
           submodules: recursive
 
+      # The checkout marks the workspace safe only for its own step, and the
+      # container runs as root over runner-owned files, so the submodule update
+      # of the deps command otherwise stops on "dubious ownership". The wildcard
+      # covers the submodule work trees too, and the container is thrown away.
+      - name: Trust the checked out repository
+        run: git config --global --add safe.directory '*'
+
       # No setup-odin here (it assumes an Ubuntu-style toolchain); grab the
       # official prebuilt linux release instead — it runs fine on Arch's glibc.
       - name: Install Odin

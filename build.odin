@@ -93,7 +93,9 @@ build_thor :: proc() -> bool {
 stage_resources :: proc() -> bool {
     for dir in ([]string{"assets", "plugins", "settings", "docs"}) {
         dst := join(out_dir, dir)
-        if err := os.remove_all(dst); err != nil {
+        // A first build has nothing to delete; POSIX reports that as Not_Exist,
+        // Windows as no error.
+        if err := os.remove_all(dst); err != nil && err != .Not_Exist {
             fmt.eprintfln("[build] a delete of %s failed: %v", dst, err)
             return false
         }
