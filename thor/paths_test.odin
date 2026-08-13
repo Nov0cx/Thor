@@ -30,6 +30,16 @@ test_path_within_boundary :: proc(t: ^testing.T) {
     testing.expect(t, !thor_path_within("/a", "/a/b"))
 }
 
+// Case matters everywhere but Windows, where the filesystem itself folds it.
+@(test)
+test_same_path_case_sensitivity :: proc(t: ^testing.T) {
+    when ODIN_OS == .Windows {
+        testing.expect(t, thor_same_path("/src/Main.odin", "/src/main.odin"))
+    } else {
+        testing.expect(t, !thor_same_path("/src/Main.odin", "/src/main.odin"))
+    }
+}
+
 @(test)
 test_file_extension_and_base :: proc(t: ^testing.T) {
     testing.expect_value(t, thor_file_extension("main.odin"), ".odin")

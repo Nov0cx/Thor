@@ -29,10 +29,16 @@ thor_canon_path :: proc(path: string) -> string {
     return err == nil ? cleaned : path
 }
 
-// Equality for two path spellings that are already canonical.
+// Equality for two path spellings that are already canonical. Windows folds
+// case, POSIX does not: there `/src/Main.odin` and `/src/main.odin` are two
+// files. Matches plugin.is_within and lang/lsp's path_equal.
 @(private)
 thor_path_equal :: proc(a, b: string) -> bool {
-    return strings.equal_fold(a, b)
+    when ODIN_OS == .Windows {
+        return strings.equal_fold(a, b)
+    } else {
+        return a == b
+    }
 }
 
 // True when two paths name the same file, however each is spelled. The exact
