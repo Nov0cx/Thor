@@ -649,6 +649,11 @@ key_from_name :: proc(name: string) -> (rl.KeyboardKey, bool) {
 
 @(private)
 parse_object :: proc(path: string) -> (json.Object, bool) {
+    // An absent file is a supported state (a first run has none), so only a
+    // real read failure is worth a warning.
+    if !os.exists(path) {
+        return nil, false
+    }
     data, read_err := os.read_entire_file_from_path(path, context.temp_allocator)
     if read_err != nil {
         log.warnf("Cannot read settings %q: %v", path, read_err)
