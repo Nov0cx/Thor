@@ -4,6 +4,38 @@ import "core:testing"
 
 import "../textedit"
 import "../ui"
+import "../widgets"
+
+// A right-click into the split pane focuses it, but the menu takes the focus
+// straight after, so the frame's own sync would read the menu instead. The
+// context menu calls this itself; it has to answer for a pane that only just
+// took focus, and to ignore a second pane that is not on screen.
+@(test)
+test_active_pane_follows_focus :: proc(t: ^testing.T) {
+    thor := new(Thor)
+    defer free(thor)
+    thor.active_file = ui.make_signal(-1)
+    thor.pane_file = {-1, -1}
+    thor.editor = widgets.editor_create("test-editor")
+    defer widgets.editor_destroy(&thor.editor.widget)
+    thor.editor2 = widgets.editor_create("test-editor2")
+    defer widgets.editor_destroy(&thor.editor2.widget)
+
+    thor.ui_context.focused = &thor.editor2.widget
+    thor_sync_active_pane(thor)
+    testing.expect_value(t, thor.active_pane, 0)
+    testing.expect_value(t, thor_active_editor(thor), thor.editor)
+
+    thor.split_visible = true
+    thor_sync_active_pane(thor)
+    testing.expect_value(t, thor.active_pane, 1)
+    testing.expect_value(t, thor_active_editor(thor), thor.editor2)
+
+    thor.ui_context.focused = &thor.editor.widget
+    thor_sync_active_pane(thor)
+    testing.expect_value(t, thor.active_pane, 0)
+    testing.expect_value(t, thor_active_editor(thor), thor.editor)
+}
 
 // An Open_File over `src`, loaded and saved. The caller destroys it.
 @(private = "file")

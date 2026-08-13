@@ -896,7 +896,7 @@ thor_edit_target :: proc(
 // result is shown by thor_show_signature. The explicit keybind flashes when the
 // caret is not in a call.
 thor_signature_help :: proc(thor: ^Thor) {
-    editor := thor.active_pane == 0 ? thor.editor : thor.editor2
+    editor := thor_active_editor(thor)
     file := thor_active_open_file(thor)
     thor_request_signature(thor, editor, file, auto = false)
 }
@@ -1702,7 +1702,7 @@ thor_apply_pending_goto :: proc(thor: ^Thor) {
 @(private = "file")
 thor_place_caret :: proc(thor: ^Thor, file: ^Open_File, offset: int) {
     textedit.set_single_cursor(&file.state, offset)
-    editor := thor.active_pane == 0 ? thor.editor : thor.editor2
+    editor := thor_active_editor(thor)
     widgets.editor_center_on_caret(editor)
 }
 

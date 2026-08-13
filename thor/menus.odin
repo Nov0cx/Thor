@@ -45,6 +45,9 @@ REDO_SHORTCUT :: "Ctrl+Y"
 
 thor_editor_context_menu :: proc(data: rawptr, position: rl.Vector2) {
     thor := cast(^Thor) data
+    // The right-click focused its pane before this callback, but menu_open takes
+    // focus next, so the frame's own thor_sync_active_pane would never see it.
+    thor_sync_active_pane(thor)
     has_file := thor_active_open_file(thor) != nil
 
     widgets.menu_clear(thor.menu)
@@ -179,9 +182,9 @@ thor_menu_close_terminal :: proc(data: rawptr) {
     thor_terminal_close(thor, thor.menu_target_terminal)
 }
 
-thor_menu_cut :: proc(data: rawptr) {widgets.editor_cut((cast(^Thor) data).editor)}
-thor_menu_copy :: proc(data: rawptr) {widgets.editor_copy((cast(^Thor) data).editor)}
-thor_menu_paste :: proc(data: rawptr) {widgets.editor_paste((cast(^Thor) data).editor)}
+thor_menu_cut :: proc(data: rawptr) {widgets.editor_cut(thor_active_editor(cast(^Thor) data))}
+thor_menu_copy :: proc(data: rawptr) {widgets.editor_copy(thor_active_editor(cast(^Thor) data))}
+thor_menu_paste :: proc(data: rawptr) {widgets.editor_paste(thor_active_editor(cast(^Thor) data))}
 
 thor_menu_console_clear :: proc(data: rawptr) {
     thor := cast(^Thor) data

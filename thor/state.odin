@@ -40,6 +40,13 @@ thor_pane_editor :: proc(thor: ^Thor, pane: int) -> ^widgets.Editor {
     return pane == 0 ? thor.editor : thor.editor2
 }
 
+// Widget of the pane the user is in, the target of every command that acts on
+// one pane only.
+@(private)
+thor_active_editor :: proc(thor: ^Thor) -> ^widgets.Editor {
+    return thor_pane_editor(thor, thor.active_pane)
+}
+
 // Mirrors the focused pane's file into the active_file signal, the value the
 // tabbar, status bar and file commands read.
 thor_sync_active_signal :: proc(thor: ^Thor) {

@@ -303,7 +303,7 @@ thor_cmd_init_workspace :: proc(data: rawptr) {
 }
 
 thor_open_find :: proc(thor: ^Thor, show_replace: bool) {
-    widgets.find_replace_open(thor.find_replace, &thor.ui_context, thor.editor, show_replace)
+    widgets.find_replace_open(thor.find_replace, &thor.ui_context, thor_active_editor(thor), show_replace)
 }
 
 thor_toggle_command_palette :: proc(thor: ^Thor) {
@@ -678,16 +678,11 @@ thor_prompt_align_at_char :: proc(data: rawptr, text: string) {
 
 // Folding acts on the focused pane's editor (the one whose fold state the user
 // sees), unlike zoom which drives both panes.
-@(private = "file")
-thor_focused_editor :: proc(thor: ^Thor) -> ^widgets.Editor {
-    return thor.active_pane == 0 ? thor.editor : thor.editor2
-}
+thor_cmd_toggle_fold :: proc(data: rawptr) {widgets.editor_toggle_fold(thor_active_editor(cast(^Thor) data))}
+thor_cmd_fold_all :: proc(data: rawptr) {widgets.editor_fold_all(thor_active_editor(cast(^Thor) data))}
+thor_cmd_unfold_all :: proc(data: rawptr) {widgets.editor_unfold_all(thor_active_editor(cast(^Thor) data))}
 
-thor_cmd_toggle_fold :: proc(data: rawptr) {widgets.editor_toggle_fold(thor_focused_editor(cast(^Thor) data))}
-thor_cmd_fold_all :: proc(data: rawptr) {widgets.editor_fold_all(thor_focused_editor(cast(^Thor) data))}
-thor_cmd_unfold_all :: proc(data: rawptr) {widgets.editor_unfold_all(thor_focused_editor(cast(^Thor) data))}
-
-thor_cmd_recenter :: proc(data: rawptr) {widgets.editor_recenter((cast(^Thor) data).editor)}
+thor_cmd_recenter :: proc(data: rawptr) {widgets.editor_recenter(thor_active_editor(cast(^Thor) data))}
 thor_cmd_last_file :: proc(data: rawptr) {thor_flip_last_file(cast(^Thor) data)}
 
 // Save All: files that don't need formatting save immediately; among files
@@ -989,5 +984,5 @@ thor_palette_goto_line :: proc(data: rawptr, line: int) {
     thor_jump_record(thor)
     pos := textedit.state_line_start(&file.state, line - 1)
     textedit.set_single_cursor(&file.state, pos)
-    widgets.editor_center_on_caret(thor.editor)
+    widgets.editor_center_on_caret(thor_active_editor(thor))
 }
