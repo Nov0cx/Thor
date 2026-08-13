@@ -124,6 +124,7 @@ watch_worker :: proc(w: ^Watcher) {
         }
 
         watch_parse(w, buffer[:transferred])
+        free_all(context.temp_allocator)
     }
 }
 
