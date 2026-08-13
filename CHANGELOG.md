@@ -100,3 +100,4 @@ First release. Thor runs on Windows, Linux and macOS.
 - Plugin API: the table `thor.on_key` receives carries a `cmd` field next to `ctrl`, `shift` and `alt`.
 - On Windows on ARM, the "Developer Command Prompt" shell and the dependency build load the ARM64 MSVC tools instead of the x64 ones, and an installation carrying only the ARM64 toolset is found.
 - On Linux and macOS, opening a folder that is already open brings that window to the front, through `xdotool`, `wmctrl` or `osascript`. When none of them can, the status bar says the window could not be raised instead of only naming it.
+- On Linux and the BSDs, "File: Reveal in File Explorer" selects the file in the file manager instead of only opening its folder, as it already did on Windows and macOS. Nautilus, Dolphin, Nemo, Thunar, PCManFM-Qt and Caja answer; a file manager that does not still gets the folder opened.
