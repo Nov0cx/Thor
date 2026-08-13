@@ -50,7 +50,7 @@ thor_update_highlights :: proc(thor: ^Thor, file: ^Open_File) {
         // The buffer's path lets a grammar-backed language re-parse only what
         // this revision changed, off the tree it kept from the last one.
         grammar := make([dynamic]widgets.Highlight_Span, context.temp_allocator)
-        for span in plugin.highlight_range(
+        spans, covered_start, covered_end := plugin.highlight_range(
             &thor.plugins,
             file.path,
             source,
@@ -58,7 +58,12 @@ thor_update_highlights :: proc(thor: ^Thor, file: ^Open_File) {
             win_start,
             win_end,
             context.temp_allocator,
-        ) {
+        )
+        // What the language answered for, which is wider than the window asked
+        // for when a pure-Lua lexer reads the whole buffer. Recording the window
+        // instead would re-highlight a buffer already covered on every scroll.
+        win_start, win_end = covered_start, covered_end
+        for span in spans {
             color := ui.theme_role_color(thor.theme, span.role)
             append(&grammar, widgets.Highlight_Span{span.start, span.end, color})
         }

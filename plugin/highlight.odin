@@ -38,28 +38,39 @@ language_name :: proc(m: ^Manager, ext: string) -> string {
 // for a buffer with no stable identity. Empty when no plugin claims the
 // extension or highlighting fails.
 highlight :: proc(m: ^Manager, path, source, ext: string, allocator := context.allocator) -> []Span {
-    return highlight_range(m, path, source, ext, 0, max(int), allocator)
+    spans, _, _ := highlight_range(m, path, source, ext, 0, max(int), allocator)
+    return spans
 }
 
-// Highlights only the captures intersecting [range_start, range_end) for a
-// grammar-backed language, so a caller showing one screen of a large buffer pays
-// for that screen. A pure-Lua highlighter has no notion of a range and still
-// answers for the whole source; those languages are the small-file formats.
+// Highlights only the captures intersecting [range_start, range_end), so a
+// caller showing one screen of a large buffer pays for that screen.
+//
+// `covered_start`/`covered_end` are the byte range the spans actually describe,
+// which is not always the range asked for: a pure-Lua lexer that does not
+// declare `line_based` answers for the whole source. A caller that caches the
+// spans must record the covered range, or it re-highlights a buffer it already
+// holds in full every time the view moves.
 highlight_range :: proc(
     m: ^Manager,
     path, source, ext: string,
     range_start, range_end: int,
     allocator := context.allocator,
-) -> []Span {
+) -> (
+    spans: []Span,
+    covered_start: int,
+    covered_end: int,
+) {
     idx, ok := m.by_ext[ext]
     if !ok {
-        return nil
+        return nil, 0, 0
     }
     lang := &m.languages[idx]
+    lo := clamp(range_start, 0, len(source))
+    hi := clamp(range_end, lo, len(source))
 
     if lang.grammar != "" {
         if !syntax.supports(&m.highlighter, lang.grammar) {
-            return nil
+            return nil, 0, 0
         }
         caps := syntax.highlight_range(
             &m.highlighter,
@@ -74,13 +85,39 @@ highlight_range :: proc(
         for cap in caps {
             append(&out, Span{cap.start, cap.end, role_for_capture(lang, cap.capture)})
         }
-        return out[:]
+        return out[:], lo, hi
     }
 
     if lang.lexer.ref != NOREF {
-        return run_lexer(m, lang, source, allocator)
+        // A line_based lexer reads each line on its own, so it can be given the
+        // window alone. It must start at a line start, or the first line arrives
+        // truncated and colors as something else.
+        if lang.line_based {
+            lo, hi = line_window(source, lo, hi)
+            return run_lexer(m, lang, source[lo:hi], lo, allocator), lo, hi
+        }
+        return run_lexer(m, lang, source, 0, allocator), 0, len(source)
     }
-    return nil
+    return nil, 0, 0
+}
+
+// Widens [start, end) to whole lines. The caller's range comes from visual rows,
+// which under soft wrap begin mid-line.
+@(private)
+line_window :: proc(source: string, start, end: int) -> (lo, hi: int) {
+    lo = start
+    if nl := strings.last_index_byte(source[:lo], '\n'); nl >= 0 {
+        lo = nl + 1
+    } else {
+        lo = 0
+    }
+    hi = end
+    if nl := strings.index_byte(source[hi:], '\n'); nl >= 0 {
+        hi += nl + 1
+    } else {
+        hi = len(source)
+    }
+    return
 }
 
 // A foldable line range for a buffer (0-based lines); folding hides
@@ -151,10 +188,22 @@ capture_head :: proc(name: string) -> string {
 }
 
 // Calls a language's Lua lexer with the source and collects the returned list
-// of { start, end, role } triples (byte offsets, half-open). Roles are cloned
-// into `allocator` since the Lua strings are freed when the stack unwinds.
+// of { start, end, role } triples (byte offsets, half-open). `offset` is added
+// to each one, for a lexer given a slice of the buffer rather than all of it.
+// Roles are cloned into `allocator` since the Lua strings are freed when the
+// stack unwinds.
+//
+// The spans a plugin returns are unproven, so each is clipped to the source and
+// to the end of the one before it: the editor draws them with a single
+// forward-only cursor, which needs them ascending and non-overlapping.
 @(private)
-run_lexer :: proc(m: ^Manager, lang: ^Language, source: string, allocator: runtime.Allocator) -> []Span {
+run_lexer :: proc(
+    m: ^Manager,
+    lang: ^Language,
+    source: string,
+    offset: int,
+    allocator: runtime.Allocator,
+) -> []Span {
     L := m.state
     if lang.lexer.ref == NOREF {
         return nil
@@ -164,7 +213,9 @@ run_lexer :: proc(m: ^Manager, lang: ^Language, source: string, allocator: runti
         lua.pop(L, 1)
         return nil
     }
-    lua.pushstring(L, strings.clone_to_cstring(source, context.temp_allocator))
+    // pushlstring, not a cstring: it copies the source once instead of twice and
+    // keeps a buffer holding a NUL byte whole.
+    lua.pushlstring(L, cstring(raw_data(source)), c.size_t(len(source)))
     if !call_guarded(m, lang.lexer.owner, 1, 1, "lexer") {
         return nil
     }
@@ -176,15 +227,17 @@ run_lexer :: proc(m: ^Manager, lang: ^Language, source: string, allocator: runti
     tbl := lua.gettop(L)
     n := lua.L_len(L, tbl)
     out := make([dynamic]Span, allocator)
+    cut := 0
     for i in 1 ..= n {
         lua.rawgeti(L, tbl, i)
         if lua.istable(L, -1) {
             elem := lua.gettop(L)
-            s := elem_int(L, elem, 1)
-            e := elem_int(L, elem, 2)
+            s := clamp(elem_int(L, elem, 1), cut, len(source))
+            e := clamp(elem_int(L, elem, 2), s, len(source))
             role := elem_string(L, elem, 3)
             if e > s {
-                append(&out, Span{s, e, strings.clone(role, allocator)})
+                append(&out, Span{s + offset, e + offset, strings.clone(role, allocator)})
+                cut = e
             }
         }
         lua.pop(L, 1)

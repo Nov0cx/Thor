@@ -105,4 +105,5 @@ thor.register_language {
         ".eslintignore", ".prettierignore",
     },
     highlight  = lex,
+    line_based = true,
 }

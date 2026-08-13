@@ -93,4 +93,5 @@ thor.register_language {
     name       = "INI",
     extensions = { ".ini", ".cfg", ".conf", ".editorconfig", ".gitconfig", ".properties" },
     highlight  = lex,
+    line_based = true,
 }

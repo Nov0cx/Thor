@@ -62,3 +62,7 @@ First release. Thor runs on Windows, Linux and macOS.
 - Undo and Redo sit at the top of the Edit menu and the editor's right-click menu, greyed out when there is nothing to move, and answer to "Edit: Undo" / "Edit: Redo" in the command palette.
 - `ctrl + shift + z` and `ctrl + y` put back a rename or code action that changed several files, across all of them, matching the undo that already took the whole set back.
 - `thor a.odin b.odin` opens every path given, in order, with the last one active. The first folder becomes the workspace and a later one is ignored. A `--help` or `--version` flag now wins wherever it stands.
+- Tree-sitter highlight rules guarded by `#match?`, `#lua-match?` or `#has-parent?` apply instead of being dropped: Odin constants, macros and type names, C constants, and the same rules across the other grammars that ship them.
+- JSON, YAML, INI, Makefile, Dockerfile, batch, `.env` and `.gitignore` files highlight only the lines the pane shows, so a large one keeps up with typing.
+- A file colored by a pure-Lua lexer is no longer re-read whole every time the view scrolls.
+- Plugin API: `line_based = true` in `thor.register_language` marks a lexer that reads each line on its own, and `thor.ts.parse` reuses the tree the plugin parsed last, so re-parsing an edited buffer costs the edit.

@@ -5,8 +5,11 @@
 package syntax
 
 import "base:runtime"
+import "core:log"
 import "core:slice"
 import "core:strings"
+import text_match "core:text/match"
+import "core:text/regex"
 
 import "../treecache"
 import ts "../vendor/odin-tree-sitter"
@@ -89,11 +92,27 @@ Highlighter :: struct {
     // one. Keys and values are owned.
     overrides: map[string]string,
     lang_id:   string, // language currently set on the parser
+    // Compiled #match? patterns, keyed by the pattern source; keys are owned.
+    // Compiling one per match is far too slow for the per-keystroke path.
+    regexes:   map[string]Compiled_Regex,
+    // Scratch capture for #match?, allocated once so a test allocates nothing.
+    captures:  regex.Capture,
+    // Predicate operators already reported as unhandled; keys are owned. Keeps
+    // one report per operator instead of one per match.
+    reported:  map[string]bool,
     // Resident per-buffer trees, so a keystroke re-parses only the subtrees it
     // invalidated rather than the whole file. Highlighting and folding ask for
     // the same buffer back to back, and the second call re-parses nothing at
     // all — the source is unchanged.
     trees:     treecache.Cache,
+}
+
+// A compiled #match? pattern. `ok` is false for a pattern that does not compile,
+// so a bad pattern is reported once and then fails without a retry.
+@(private)
+Compiled_Regex :: struct {
+    expr: regex.Regular_Expression,
+    ok:   bool,
 }
 
 highlighter_create :: proc() -> Highlighter {
@@ -103,6 +122,9 @@ highlighter_create :: proc() -> Highlighter {
     h.queries = make(map[Query_Key]ts.Query)
     h.resolved = make(map[string]ts.Query)
     h.overrides = make(map[string]string)
+    h.regexes = make(map[string]Compiled_Regex)
+    h.captures = regex.preallocate_capture()
+    h.reported = make(map[string]bool)
     treecache.init(&h.trees)
     h.languages["odin"] = Language_Entry{ts_odin.tree_sitter_odin(), ts_odin.HIGHLIGHTS + "\n" + ODIN_ALIASES}
     h.languages["lua"] = Language_Entry{ts_lua.tree_sitter_lua(), ts_lua.HIGHLIGHTS}
@@ -155,6 +177,18 @@ highlighter_destroy :: proc(h: ^Highlighter) {
         delete(source)
     }
     delete(h.overrides)
+    for pattern, compiled in h.regexes {
+        if compiled.ok {
+            regex.destroy_regex(compiled.expr)
+        }
+        delete(pattern)
+    }
+    delete(h.regexes)
+    regex.destroy_capture(h.captures)
+    for op in h.reported {
+        delete(op)
+    }
+    delete(h.reported)
     delete(h.languages)
     treecache.destroy(&h.trees)
     ts.parser_delete(h.parser)
@@ -216,7 +250,7 @@ highlight_range :: proc(
     // precedence so specific captures override the broad @variable rule.
     caps := make([dynamic]Capture, context.temp_allocator)
     for match in ts.query_cursor_next_match(cursor) {
-        if !predicates_satisfied(query, match, source) {
+        if !predicates_satisfied(h, query, match, source) {
             continue
         }
         for i in 0 ..< int(match.capture_count) {
@@ -543,27 +577,34 @@ emit_span :: proc(spans: ^[dynamic]Span, start, end: int, capture: string) {
 // Evaluates a match's predicates, for a caller running its own query (see
 // plugin's thor.ts). Same rule as highlighting: a predicate we can't evaluate
 // fails.
-predicates_ok :: proc(query: ts.Query, match: ts.Query_Match, source: string) -> bool {
-    return predicates_satisfied(query, match, source)
+predicates_ok :: proc(h: ^Highlighter, query: ts.Query, match: ts.Query_Match, source: string) -> bool {
+    return predicates_satisfied(h, query, match, source)
 }
 
-// Evaluates a pattern's predicates. Handles the common filtering predicates
-// (#eq?/#any-of? and negations); #set! and other directives pass through. Any
-// predicate we can't evaluate fails conservatively so it can't mis-highlight.
+// Evaluates a pattern's predicates. Handles the filtering predicates the shipped
+// queries use (#eq?/#any-of?/#match?/#lua-match? and negations); #set! and other
+// directives pass through. Any predicate we can't evaluate fails conservatively
+// so it can't mis-highlight.
+//
+// A predicate belongs to the pattern, so one that always fails silently retires
+// the whole highlight rule — which is why an unhandled operator is reported.
 @(private)
-predicates_satisfied :: proc(query: ts.Query, match: ts.Query_Match, source: string) -> bool {
+predicates_satisfied :: proc(h: ^Highlighter, query: ts.Query, match: ts.Query_Match, source: string) -> bool {
     steps := ts.query_predicates_for_pattern(query, u32(match.pattern_index))
+    args := make([dynamic]Predicate_Arg, context.temp_allocator)
     i := 0
     for i < len(steps) {
         op := ts.query_string_value_for_id(query, steps[i].value_id)
-        args := make([dynamic]string, context.temp_allocator)
+        clear(&args)
         j := i + 1
         for j < len(steps) && steps[j].type != .Done {
             step := steps[j]
             if step.type == .Capture {
-                append(&args, capture_text(query, match, step.value_id, source))
+                node, found := capture_node(match, step.value_id)
+                text := found ? ts.node_text(node, source) : ""
+                append(&args, Predicate_Arg{text, node, true})
             } else {
-                append(&args, ts.query_string_value_for_id(query, step.value_id))
+                append(&args, Predicate_Arg{text = ts.query_string_value_for_id(query, step.value_id)})
             }
             j += 1
         }
@@ -572,37 +613,166 @@ predicates_satisfied :: proc(query: ts.Query, match: ts.Query_Match, source: str
         if strings.has_suffix(op, "!") {
             continue // directive (#set!, #make-range! ...), not a filter
         }
-        if !eval_predicate(op, args[:]) {
+        if !eval_predicate(h, op, args[:]) {
             return false
         }
     }
     return true
 }
 
+// One operand of a predicate: a capture, carrying the node it matched, or a
+// literal from the query. `node` is null for a literal and for a capture that
+// this match did not bind (a quantified capture that matched nothing).
 @(private)
-eval_predicate :: proc(op: string, args: []string) -> bool {
+Predicate_Arg :: struct {
+    text:    string,
+    node:    ts.Node,
+    capture: bool,
+}
+
+// True when the filter holds. `args[0]` is the capture under test and the rest
+// are the predicate's operands. #match? takes a regular expression, #lua-match?
+// a Lua pattern — two different languages, so they never share an
+// implementation.
+@(private)
+eval_predicate :: proc(h: ^Highlighter, op: string, args: []Predicate_Arg) -> bool {
+    if len(args) < 2 {
+        return false
+    }
+    subject := args[0]
+    rest := args[1:]
     switch op {
     case "eq?":
-        return len(args) >= 2 && args[0] == args[1]
+        return subject.text == rest[0].text
     case "not-eq?":
-        return len(args) >= 2 && args[0] != args[1]
+        return subject.text != rest[0].text
     case "any-of?":
-        return len(args) >= 1 && slice.contains(args[1:], args[0])
+        return contains_text(rest, subject.text)
     case "not-any-of?":
-        return len(args) >= 1 && !slice.contains(args[1:], args[0])
+        return !contains_text(rest, subject.text)
+    case "match?", "vim-match?":
+        return regex_matches(h, subject.text, rest[0].text)
+    case "not-match?", "not-vim-match?":
+        return !regex_matches(h, subject.text, rest[0].text)
+    case "lua-match?":
+        return lua_pattern_matches(subject.text, rest[0].text)
+    case "not-lua-match?":
+        return !lua_pattern_matches(subject.text, rest[0].text)
+    case "has-parent?":
+        return has_parent(subject, rest)
+    case "not-has-parent?":
+        return !has_parent(subject, rest)
     }
-    return false // unhandled filter (#match?/#lua-match?/#has-parent? ...)
+    report_unhandled(h, op)
+    return false // unhandled filter (#is-not? local, #has-ancestor? ...)
 }
 
 @(private)
-capture_text :: proc(query: ts.Query, match: ts.Query_Match, capture_id: u32, source: string) -> string {
+contains_text :: proc(args: []Predicate_Arg, text: string) -> bool {
+    for arg in args {
+        if arg.text == text {
+            return true
+        }
+    }
+    return false
+}
+
+// True when the captured node's direct parent has one of the named node types.
+// An unbound capture has no parent, so the predicate does not hold — which makes
+// its #not- form lenient, the safe direction for a capture that did not bind.
+@(private)
+has_parent :: proc(subject: Predicate_Arg, types: []Predicate_Arg) -> bool {
+    if !subject.capture || ts.node_is_null(subject.node) {
+        return false
+    }
+    parent := ts.node_parent(subject.node)
+    if ts.node_is_null(parent) {
+        return false
+    }
+    return contains_text(types, string(ts.node_type(parent)))
+}
+
+// True when `pattern` is found anywhere in `text`. Tree-sitter's #match? is a
+// search, not a full match; the shipped queries anchor with ^ and $ themselves.
+@(private)
+regex_matches :: proc(h: ^Highlighter, text, pattern: string) -> bool {
+    expr := match_regex(h, pattern) or_return
+    _, matched := regex.match_with_preallocated_capture(expr, text, &h.captures)
+    return matched
+}
+
+// The compiled form of a #match? pattern, compiled on first use. One that does
+// not compile is cached as a failure, so a bad pattern costs one report.
+@(private)
+match_regex :: proc(h: ^Highlighter, pattern: string) -> (regex.Regular_Expression, bool) {
+    if compiled, ok := h.regexes[pattern]; ok {
+        return compiled.expr, compiled.ok
+    }
+    expr, err := regex.create(escape_hashes(pattern, context.temp_allocator), {.Unicode})
+    if err != nil {
+        log.warnf("syntax: #match? pattern %q does not compile: %v", pattern, err)
+        h.regexes[strings.clone(pattern)] = Compiled_Regex{}
+        return {}, false
+    }
+    h.regexes[strings.clone(pattern)] = Compiled_Regex{expr, true}
+    return expr, true
+}
+
+// Escapes every unescaped '#'. core:text/regex reads '#' as the start of a
+// comment that runs to the end of the pattern, and does so whether or not
+// .Ignore_Whitespace is set — so "^#!/" would compile to a bare "^" and match
+// every string. A tree-sitter #match? pattern always means the character.
+@(private)
+escape_hashes :: proc(pattern: string, allocator: runtime.Allocator) -> string {
+    if strings.index_byte(pattern, '#') < 0 {
+        return pattern
+    }
+    out := strings.builder_make(0, len(pattern) + 4, allocator)
+    for i := 0; i < len(pattern); i += 1 {
+        switch pattern[i] {
+        case '\\':
+            strings.write_byte(&out, pattern[i])
+            if i + 1 < len(pattern) {
+                i += 1
+                strings.write_byte(&out, pattern[i])
+            }
+        case '#':
+            strings.write_string(&out, "\\#")
+        case:
+            strings.write_byte(&out, pattern[i])
+        }
+    }
+    return strings.to_string(out)
+}
+
+// True when the Lua pattern is found anywhere in `text`.
+@(private)
+lua_pattern_matches :: proc(text, pattern: string) -> bool {
+    matcher := text_match.matcher_init(text, pattern)
+    _, _, ok := text_match.matcher_find(&matcher)
+    return ok
+}
+
+@(private)
+report_unhandled :: proc(h: ^Highlighter, op: string) {
+    if op in h.reported {
+        return
+    }
+    h.reported[strings.clone(op)] = true
+    log.warnf("syntax: predicate #%s is not evaluated; its pattern never matches", op)
+}
+
+// The node a match bound to `capture_id`. Not every capture of a pattern is
+// bound by every match — a quantified or optional one may match nothing.
+@(private)
+capture_node :: proc(match: ts.Query_Match, capture_id: u32) -> (ts.Node, bool) {
     for i in 0 ..< int(match.capture_count) {
         c := match.captures[i]
         if c.index == capture_id {
-            return ts.node_text(c.node, source)
+            return c.node, true
         }
     }
-    return ""
+    return {}, false
 }
 
 // The highlights query for a language: the source a plugin supplied when there

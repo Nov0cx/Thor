@@ -126,8 +126,9 @@ MAX :: 100
     expect_head(t, spans, src, "Point\n", "type")
     expect_head(t, spans, src, "mem.Raw_Slice", "namespace")
     expect_head(t, spans, src, "Raw_Slice", "type")
-    // A constant with a literal value is not an alias.
-    expect_head(t, spans, src, "MAX", "variable")
+    // A constant with a literal value is not an alias: it reads as a constant
+    // (the grammar's #lua-match? rule), never as a type.
+    expect_head(t, spans, src, "MAX", "constant")
 }
 
 // True when some fold range starts on `start` and ends on `end`.
@@ -347,6 +348,86 @@ test_set_highlights_evicts_the_replaced_query :: proc(t: ^testing.T) {
     _, err2 := set_highlights(&h, "odin", "(identifier) @variable")
     testing.expect(t, err2 == .None)
     testing.expect_value(t, len(h.queries), after_first)
+}
+
+// Predicates the shipped queries lean on. Each one filters a whole pattern, so
+// a predicate that never holds silently retires its highlight rule.
+@(test)
+test_highlight_predicates :: proc(t: ^testing.T) {
+    h := highlighter_create()
+    defer highlighter_destroy(&h)
+
+    // #match?: C reads an all-caps name as a constant and leaves the rest alone.
+    c := "int main(void) { return MAX_SIZE + count; }\n"
+    cs := highlight(&h, "", c, "c", context.temp_allocator)
+    expect_head(t, cs, c, "MAX_SIZE", "constant")
+    expect_head(t, cs, c, "count", "variable")
+
+    // #lua-match? guarded by #not-has-parent?: Odin's constants and types.
+    odin := "package demo\n\nmain :: proc() {\n\tn := MAX_THINGS\n\tm := lower_case\n\tp: Point\n}\n"
+    odins := highlight(&h, "", odin, "odin", context.temp_allocator)
+    expect_head(t, odins, odin, "MAX_THINGS", "constant")
+    expect_head(t, odins, odin, "lower_case", "variable")
+    expect_head(t, odins, odin, "Point", "type")
+}
+
+// Every filtering operator, on the operands alone. An operator with too few
+// operands never holds, and an unknown one fails so it cannot mis-highlight.
+@(test)
+test_eval_predicate :: proc(t: ^testing.T) {
+    h := highlighter_create()
+    defer highlighter_destroy(&h)
+
+    lit :: proc(text: string) -> Predicate_Arg {
+        return Predicate_Arg{text = text}
+    }
+    check :: proc(t: ^testing.T, h: ^Highlighter, op: string, want: bool, args: ..Predicate_Arg) {
+        got := eval_predicate(h, op, args)
+        testing.expectf(t, got == want, "#%s: got %v, want %v", op, got, want)
+    }
+
+    check(t, &h, "eq?", true, lit("a"), lit("a"))
+    check(t, &h, "not-eq?", true, lit("a"), lit("b"))
+    check(t, &h, "any-of?", true, lit("b"), lit("a"), lit("b"))
+    check(t, &h, "not-any-of?", true, lit("c"), lit("a"), lit("b"))
+    check(t, &h, "match?", true, lit("MAX_N"), lit("^[A-Z][A-Z0-9_]*$"))
+    check(t, &h, "match?", false, lit("maxN"), lit("^[A-Z][A-Z0-9_]*$"))
+    check(t, &h, "not-match?", true, lit("maxN"), lit("^[A-Z][A-Z0-9_]*$"))
+    check(t, &h, "lua-match?", true, lit("MAX_N"), lit("^_*[A-Z][A-Z0-9_]*$"))
+    check(t, &h, "lua-match?", false, lit("Max_N"), lit("^_*[A-Z][A-Z0-9_]*$"))
+    check(t, &h, "not-lua-match?", true, lit("Max_N"), lit("^_*[A-Z][A-Z0-9_]*$"))
+
+    // A Lua pattern is not a regular expression: %d is a digit class to one and
+    // a literal 'd' to the other.
+    check(t, &h, "lua-match?", true, lit("x1"), lit("^x%d$"))
+    check(t, &h, "match?", false, lit("x1"), lit("^x%d$"))
+
+    // '#' is a character, not the start of a comment: starlark's shebang rule
+    // would otherwise compile to a bare "^" and claim every comment in the file.
+    check(t, &h, "match?", true, lit("#!/bin/sh"), lit("^#!/"))
+    check(t, &h, "match?", false, lit("# a comment"), lit("^#!/"))
+    check(t, &h, "match?", true, lit("a#b"), lit("^a#b$"))
+
+    // Too few operands, and an operator no one evaluates.
+    check(t, &h, "eq?", false, lit("a"))
+    check(t, &h, "has-ancestor?", false, lit("a"), lit("block"))
+    testing.expect(t, "has-ancestor?" in h.reported, "an unhandled operator must be reported")
+}
+
+// A #match? pattern that does not compile retires its pattern and is cached as a
+// failure, so a bad pattern costs one compile attempt rather than one per match.
+@(test)
+test_match_predicate_bad_pattern :: proc(t: ^testing.T) {
+    h := highlighter_create()
+    defer highlighter_destroy(&h)
+
+    _, ok := match_regex(&h, "([A-Z")
+    testing.expect(t, !ok, "an invalid pattern must not compile")
+    testing.expect_value(t, len(h.regexes), 1)
+
+    _, again := match_regex(&h, "([A-Z")
+    testing.expect(t, !again, "the failure must be cached, not recompiled")
+    testing.expect_value(t, len(h.regexes), 1)
 }
 
 // Each newly added grammar must build its highlights query (the combined

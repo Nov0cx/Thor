@@ -6,6 +6,7 @@ package plugin
 
 import "base:runtime"
 import "core:c"
+import "core:fmt"
 import "core:strings"
 
 import lua "vendor:lua/5.4"
@@ -25,6 +26,11 @@ NODE_MT :: "thor.ts.node"
 Ts_State :: struct {
     parser:  ts.Parser,
     lang_id: string, // grammar currently set on the parser; borrowed
+    // Resident trees for the plugin parses, so a plugin re-parsing a buffer it
+    // is watching pays for the edit and not the file. Apart from the
+    // highlighter's cache, which holds only eight buffers — a plugin must not be
+    // able to evict the ones the editor is coloring.
+    trees:   treecache.Cache,
 }
 
 // A parsed tree handed to Lua. Owns its source, since node:text() slices it
@@ -48,11 +54,13 @@ Ts_Node :: struct {
 
 ts_init :: proc(m: ^Manager) {
     m.ts_state.parser = ts.parser_new()
+    treecache.init(&m.ts_state.trees, m.allocator)
     install_tree_metatable(m.state)
     install_node_metatable(m.state)
 }
 
 ts_destroy :: proc(m: ^Manager) {
+    treecache.destroy(&m.ts_state.trees)
     if m.ts_state.parser != nil {
         ts.parser_delete(m.ts_state.parser)
         m.ts_state.parser = nil
@@ -88,8 +96,34 @@ api_ts_supports :: proc "c" (L: ^lua.State) -> c.int {
     return 1
 }
 
-// thor.ts.parse(source, grammar): parses `source`, returning a tree. Returns
-// nil plus a message when the grammar is unknown or the parse fails.
+// The grammar the editor colors `path` with: the language claiming its
+// extension, or its bare name when nothing claims the extension (Dockerfile,
+// Makefile). "" when no plugin claims the file or the language has no grammar.
+@(private)
+buffer_grammar :: proc(m: ^Manager, path: string) -> string {
+    dot := strings.last_index_byte(path, '.')
+    idx, ok := m.by_ext[dot < 0 ? "" : path[dot:]]
+    if !ok {
+        slash := max(strings.last_index_byte(path, '/'), strings.last_index_byte(path, '\\'))
+        idx, ok = m.by_ext[path[slash + 1:]]
+    }
+    if !ok {
+        return ""
+    }
+    return m.languages[idx].grammar
+}
+
+// Cache key for a plugin's own parses. Keyed on the plugin as well as the
+// grammar, so one plugin's parses never displace another's resident tree.
+@(private)
+plugin_tree_key :: proc(index: int, lang_id: string) -> string {
+    return fmt.tprintf("ts.parse:%d:%s", index, lang_id)
+}
+
+// thor.ts.parse(source, grammar): parses `source`, returning a tree. A plugin
+// that parses the same buffer as it is edited pays for the edit, not the file:
+// the last tree it parsed under this grammar seeds the next parse. Returns nil
+// plus a message when the grammar is unknown or the parse fails.
 @(private)
 api_ts_parse :: proc "c" (L: ^lua.State) -> c.int {
     context = runtime.default_context()
@@ -118,7 +152,13 @@ api_ts_parse :: proc "c" (L: ^lua.State) -> c.int {
         ts.parser_set_language(m.ts_state.parser, lang)
         m.ts_state.lang_id = lang_id
     }
-    tree := ts.parser_parse_string(m.ts_state.parser, source)
+    tree := treecache.for_source(
+        &m.ts_state.trees,
+        m.ts_state.parser,
+        plugin_tree_key(index, lang_id),
+        lang_id,
+        source,
+    )
     if tree == nil {
         lua.pushnil(L)
         lua.pushstring(L, "parse failed")
@@ -137,11 +177,11 @@ api_ts_parse :: proc "c" (L: ^lua.State) -> c.int {
     return 1
 }
 
-// thor.ts.parse_active(grammar): parses the active buffer, reusing the host's
-// resident tree for that path when the language matches (treecache.for_source) —
-// the source comes from the host, never a caller-supplied string, so unlike
-// thor.ts.parse this cannot poison the host's own highlighting cache. Needs the
-// read permission, since it reads buffer content like thor.read does.
+// thor.ts.parse_active(grammar): parses the active buffer, sharing the resident
+// tree the editor colors that buffer with when the grammar is the buffer's own —
+// the source comes from the host, never a caller-supplied string, so it cannot
+// poison that cache. Needs the read permission, since it reads buffer content
+// like thor.read does.
 @(private)
 api_ts_parse_active :: proc "c" (L: ^lua.State) -> c.int {
     context = runtime.default_context()
@@ -181,7 +221,15 @@ api_ts_parse_active :: proc "c" (L: ^lua.State) -> c.int {
     }
 
     source := m.read_proc(m.host, path) // host-owned; taken over by Ts_Tree below, or freed on failure
-    tree := treecache.for_source(&m.highlighter.trees, m.ts_state.parser, path, lang_id, source)
+    // The highlighter's entry for this path holds a tree of the buffer's own
+    // grammar. Asking it for another grammar makes the two re-parse the file
+    // whole in turn, every keystroke, so a mismatch goes to the plugin cache.
+    cache := &m.ts_state.trees
+    key := plugin_tree_key(index, lang_id)
+    if buffer_grammar(m, path) == lang_id {
+        cache, key = &m.highlighter.trees, path
+    }
+    tree := treecache.for_source(cache, m.ts_state.parser, key, lang_id, source)
     if tree == nil {
         delete(source)
         lua.pushnil(L)
@@ -326,7 +374,7 @@ tree_query :: proc "c" (L: ^lua.State) -> c.int {
     results := lua.gettop(L)
     count: lua.Integer = 0
     for match in ts.query_cursor_next_match(cursor) {
-        if !syntax.predicates_ok(query, match, ud.source) {
+        if !syntax.predicates_ok(&m.highlighter, query, match, ud.source) {
             continue
         }
         lua.createtable(L, 0, c.int(match.capture_count) + 1)

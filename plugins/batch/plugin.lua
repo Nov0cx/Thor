@@ -99,4 +99,5 @@ thor.register_language {
     name       = "Batch",
     extensions = { ".bat", ".cmd" },
     highlight  = lex,
+    line_based = true,
 }

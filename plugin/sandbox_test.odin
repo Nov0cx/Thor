@@ -296,6 +296,44 @@ thor.print("bytes=" .. tostring(matches[1].c.start_byte) .. ".." .. tostring(mat
     testing.expectf(t, strings.contains(out, "bytes=11..18"), "capture offsets wrong: %q", out)
 }
 
+// A plugin that parses the same buffer again gets a tree seeded off the last
+// one, so the answer must not depend on what it parsed before: an edited source,
+// an unrelated one and a second grammar all read exactly as a cold parse would.
+@(test)
+test_ts_parse_reuses_its_tree :: proc(t: ^testing.T) {
+    r: Recorder
+    recorder_init(&r)
+    defer recorder_destroy(&r)
+    m: Manager
+    recording_manager(&m, &r)
+    defer manager_destroy(&m)
+
+    script := `local function comments(src, grammar)
+    local tree = thor.ts.parse(src, grammar)
+    if not tree then return "no tree" end
+    local out = {}
+    for _, match in ipairs(tree:query("(comment) @c")) do out[#out + 1] = match.c:text() end
+    return table.concat(out, "|")
+end
+thor.print("first=" .. comments("package p\n// one\n", "odin"))
+thor.print("edited=" .. comments("package p\n// one\n// two\n", "odin"))
+thor.print("shrunk=" .. comments("package p\n// two\n", "odin"))
+thor.print("other=" .. comments("-- lua\nlocal x = 1\n", "lua"))
+thor.print("back=" .. comments("package p\n// one\n", "odin"))`
+    testing.expect(t, manager_load_source(&m, "reparse", "plugins/reparse", script, {}), "plugin runs")
+
+    out := printed(&r)
+    for want in ([]string {
+        "first=// one",
+        "edited=// one|// two",
+        "shrunk=// two",
+        "other=-- lua",
+        "back=// one",
+    }) {
+        testing.expectf(t, strings.contains(out, want), "missing %q in %q", want, out)
+    }
+}
+
 // A query naming a node the grammar does not have fails loudly: the plugin gets
 // an error back, and the console says which query broke and where.
 @(test)
@@ -342,6 +380,62 @@ tree:query("highlights.scm")`
     testing.expect(t, manager_load_source(&m, "cacher", dir, script, {}), "plugin runs")
 
     testing.expect_value(t, len(m.query_files), 1)
+}
+
+// A line_based lexer is handed only the lines the window covers and its spans
+// land at their absolute offsets. One without the flag reads the whole buffer
+// and reports that, so a caller caching the spans never re-lexes on a scroll.
+@(test)
+test_line_based_lexer_is_windowed :: proc(t: ^testing.T) {
+    r: Recorder
+    recorder_init(&r)
+    defer recorder_destroy(&r)
+    m: Manager
+    recording_manager(&m, &r)
+    defer manager_destroy(&m)
+
+    // Tags every line it is given, so the spans show exactly what it saw.
+    script := `
+local function lex(src)
+    local spans = {}
+    local i = 1
+    while i <= #src do
+        local nl = src:find("\n", i, true)
+        local stop = nl and (nl - 1) or #src
+        if stop >= i then spans[#spans + 1] = { i - 1, stop, thor.theme.keywords } end
+        i = (nl or #src) + 1
+    end
+    return spans
+end
+thor.register_language { name = "Windowed", extensions = { ".lb" }, highlight = lex, line_based = true }
+thor.register_language { name = "Whole", extensions = { ".whole" }, highlight = lex }
+`
+    testing.expect(t, manager_load_source(&m, "lb", "plugins/lb", script, {}), "plugin runs")
+
+    src := "aaa\nbbb\nccc\nddd\n" // lines start at 0, 4, 8, 12
+
+    // A window opening mid-line widens to that line's start, so the first line
+    // reaches the lexer whole.
+    spans, lo, hi := highlight_range(&m, "", src, ".lb", 5, 7, context.temp_allocator)
+    testing.expect_value(t, lo, 4)
+    testing.expect_value(t, hi, 8)
+    testing.expectf(t, len(spans) == 1, "expected one line of spans, got %d", len(spans))
+    if len(spans) == 1 {
+        testing.expect_value(t, spans[0].start, 4)
+        testing.expect_value(t, spans[0].end, 7)
+    }
+
+    // The same language over the whole buffer colors every line.
+    all, all_lo, all_hi := highlight_range(&m, "", src, ".lb", 0, max(int), context.temp_allocator)
+    testing.expect_value(t, all_lo, 0)
+    testing.expect_value(t, all_hi, len(src))
+    testing.expect_value(t, len(all), 4)
+
+    // Without the flag the window is ignored, and the reported coverage says so.
+    whole, whole_lo, whole_hi := highlight_range(&m, "", src, ".whole", 5, 7, context.temp_allocator)
+    testing.expect_value(t, whole_lo, 0)
+    testing.expect_value(t, whole_hi, len(src))
+    testing.expect_value(t, len(whole), 4)
 }
 
 // A plugin replaces the compiled-in highlights query with its own, given inline

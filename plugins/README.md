@@ -148,10 +148,32 @@ thor.register_language {
 back to `type`) to theme roles. Without `grammar`, supply a `highlight` function
 returning `{ start, end, role }` byte spans instead.
 
+A `highlight` function is given the whole buffer. Add `line_based = true` when it
+reads each line on its own, and it is given only the lines the pane shows, which
+is what keeps a large file responsive:
+
+```lua
+thor.register_language {
+    name       = "INI",
+    extensions = { ".ini" },
+    highlight  = lex,
+    line_based = true,   -- no state carried from one line to the next
+}
+```
+
+The spans are then relative to the lines passed in, so a lexer must not assume
+it starts at byte 0 of the file. Leave the flag off for a lexer that carries
+state across lines — a block comment, a fenced block, a multi-line string.
+
 `highlights` replaces the grammar's compiled-in highlights query. A name ending
 in `.scm` is read from the plugin's folder; anything else is the query itself. A
 query that does not compile is reported on the console with its byte offset and
 reason, and the language keeps the built-in query.
+
+A query may filter a pattern with `#eq?`, `#any-of?`, `#match?` (a regular
+expression), `#lua-match?` (a Lua pattern), `#has-parent?` and the `#not-` form
+of each. Directives (`#set!` and friends) are ignored. A predicate Thor does not
+evaluate never holds, which retires its whole pattern; the console names it once.
 
 Grammars stay compiled into the editor. Adding one is a source change (see
 `CLAUDE.md`); queries over an existing grammar are data.
@@ -168,7 +190,11 @@ end
 ```
 
 - `thor.ts.supports(grammar)` — whether the grammar is in this build.
-- `thor.ts.parse(source, grammar)` — a tree, or `nil, message`.
+- `thor.ts.parse(source, grammar)` — a tree, or `nil, message`. Parsing the same
+  buffer again as it is edited costs the edit, not the file: the last tree the
+  plugin parsed under that grammar seeds the next parse.
+- `thor.ts.parse_active(grammar)` (permission `read`) — the same, for the buffer
+  in the focused pane, sharing the tree the editor already colors it with.
 - `tree:root()`, `tree:language()`, `tree:source()`.
 - `tree:query(source)` — the query inline or as a `.scm` file in the plugin's
   folder. Returns an array of matches, each `{ pattern = n, [capture] = node }`,

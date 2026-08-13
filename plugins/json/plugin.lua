@@ -95,4 +95,5 @@ thor.register_language {
     name       = "JSON",
     extensions = { ".json", ".jsonc" },
     highlight  = lex,
+    line_based = true,
 }

@@ -89,4 +89,5 @@ thor.register_language {
     name       = "dotenv",
     extensions = { ".env" },
     highlight  = lex,
+    line_based = true,
 }

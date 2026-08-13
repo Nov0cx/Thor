@@ -98,4 +98,5 @@ thor.register_language {
     name       = "Makefile",
     extensions = { ".mk", ".mak", ".make", "Makefile", "makefile", "GNUmakefile" },
     highlight  = lex,
+    line_based = true,
 }

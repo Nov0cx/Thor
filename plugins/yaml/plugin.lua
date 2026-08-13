@@ -105,4 +105,5 @@ thor.register_language {
     name       = "YAML",
     extensions = { ".yaml", ".yml" },
     highlight  = lex,
+    line_based = true,
 }

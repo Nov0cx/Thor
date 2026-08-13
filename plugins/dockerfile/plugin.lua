@@ -87,4 +87,5 @@ thor.register_language {
     name       = "Dockerfile",
     extensions = { ".dockerfile", "Dockerfile", "dockerfile", "Containerfile" },
     highlight  = lex,
+    line_based = true,
 }

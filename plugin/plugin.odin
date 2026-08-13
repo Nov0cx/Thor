@@ -39,6 +39,10 @@ Language :: struct {
     grammar:    string,
     colors:     map[string]string, // capture name (or its head) -> color role
     lexer:      Callback,          // pure-Lua lexer, or an unset ref
+    // The lexer reads each line on its own, so it can be given the visible lines
+    // instead of the whole buffer. False for one that carries state across a
+    // line — a block comment, a fence, a multi-line string.
+    line_based: bool,
 }
 
 // Host services a plugin can call back into, as plain function pointers so the
@@ -1043,6 +1047,7 @@ api_register_language :: proc "c" (L: ^lua.State) -> c.int {
         free_language(&lang)
         return 0
     }
+    lang.line_based = field_bool(L, "line_based")
 
     if source, ok := field_string(L, "highlights"); ok && lang.grammar != "" {
         apply_highlights_override(m, index, lang.grammar, source)
@@ -1132,6 +1137,15 @@ query_source :: proc(m: ^Manager, index: int, source: string) -> (string, bool) 
     qf := Query_File{source = string(data), found = true}
     m.query_files[key] = qf
     return qf.source, true
+}
+
+// Reads a boolean field from the argument table at stack index 1. A missing
+// field reads as false.
+@(private)
+field_bool :: proc "c" (L: ^lua.State, key: cstring) -> bool {
+    lua.getfield(L, 1, key)
+    defer lua.pop(L, 1)
+    return bool(lua.toboolean(L, -1))
 }
 
 // Reads a string field from the argument table at stack index 1.
