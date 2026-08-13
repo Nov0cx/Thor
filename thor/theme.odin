@@ -129,6 +129,7 @@ thor_apply_theme :: proc(thor: ^Thor) {
         t.foreground, t.primary_text_color, t.info_color, t.muted_color, t.tree, t.selection_background,
         t.second_background, t.highlight,
     )
+    widgets.tree_set_error_color(thor.tree, t.error_color)
     widgets.tree_set_git_colors(thor.tree, t.warning_color, t.success_color, t.danger_color, t.conflict_color, t.submodule_color)
 
     widgets.tabbar_set_colors(

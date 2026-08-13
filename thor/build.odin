@@ -237,6 +237,7 @@ thor_build_content :: proc(thor: ^Thor) {
         thor.theme.second_background,
         thor.theme.highlight,
     )
+    widgets.tree_set_error_color(thor.tree, thor.theme.error_color)
     widgets.tree_set_on_open(thor.tree, thor_tree_open, thor)
     widgets.tree_set_git_colors(
         thor.tree,

@@ -47,6 +47,7 @@ Tree_Node :: struct {
     is_dir:   bool,
     expanded: bool,
     loaded:   bool, // directory contents read from disk
+    load_failed: bool, // the last read of this directory failed
     parent:   ^Tree_Node, // nil for the root; used for keyboard navigation
     children: [dynamic]^Tree_Node,
 }
@@ -115,6 +116,8 @@ Tree :: struct {
     git_deleted_color:  rl.Color,
     git_conflict_color: rl.Color,
     git_submodule_color: rl.Color,
+    // Names a directory whose read failed.
+    error_color:      rl.Color,
     scrollbar_color:  rl.Color,
 }
 
@@ -202,6 +205,11 @@ tree_set_colors :: proc(tree: ^Tree, text, dir, icon, chevron, hover, selected, 
     tree.selected_color = selected
     tree.background_color = background
     tree.scrollbar_color = scrollbar
+    return tree
+}
+
+tree_set_error_color :: proc(tree: ^Tree, error: rl.Color) -> ^Tree {
+    tree.error_color = error
     return tree
 }
 
@@ -512,15 +520,18 @@ tree_node_less :: proc(a, b: ^Tree_Node) -> bool {
 @(private = "file")
 tree_load_children :: proc(node: ^Tree_Node) {
     node.loaded = true
+    node.load_failed = false
 
     handle, open_err := os.open(node.path)
     if open_err != nil {
+        node.load_failed = true
         return
     }
     defer os.close(handle)
 
     infos, read_err := os.read_dir(handle, -1, context.temp_allocator)
     if read_err != nil {
+        node.load_failed = true
         return
     }
 
@@ -608,7 +619,9 @@ tree_set_expanded :: proc(tree: ^Tree, node: ^Tree_Node, expanded: bool) {
         return
     }
     node.expanded = expanded
-    if expanded && !node.loaded {
+    // A read that failed is retried on the next open: the folder may have been
+    // locked, or gone, only for the moment.
+    if expanded && (!node.loaded || node.load_failed) {
         tree_load_children(node)
     }
     tree.rows_dirty = true
@@ -1062,6 +1075,11 @@ tree_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
         color := node.is_dir ? tree.dir_color : tree.text_color
         if status != .None {
             color = tree_status_color(tree, status)
+        }
+        // A folder that would not read is named in the error colour, so it does
+        // not pass for an empty one.
+        if node.load_failed {
+            color = tree.error_color
         }
 
         // The name is truncated to leave room for the status badge, so a long

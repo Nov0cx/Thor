@@ -115,6 +115,35 @@ tree_test_click :: proc(tree: ^Tree, index: int, ctrl, shift: bool) {
     tree_handle_event(&tree.widget, nil, &up)
 }
 
+// A directory that will not read is marked instead of reading as empty, and the
+// next open retries it rather than trusting the failed read forever.
+@(test)
+test_tree_marks_and_retries_a_directory_that_fails_to_read :: proc(t: ^testing.T) {
+    tree, root := tree_test_fixture(t)
+    defer tree_test_cleanup(tree, root)
+
+    sub, _ := filepath.join({root, "sub"}, context.temp_allocator)
+    _ = os.remove_all(sub)
+
+    // Row 0 is sub/, the only folder.
+    tree_test_click(tree, 0, false, false)
+    folder := tree_test_visible(tree)[0]
+    testing.expect(t, folder.expanded, "the click did not open the folder")
+    testing.expect(t, folder.load_failed, "a directory that would not read passed for an empty one")
+    testing.expect_value(t, len(folder.children), 0)
+
+    if err := os.make_directory(sub); err != nil {
+        testing.fail_now(t, fmt.tprintf("could not re-create %q: %v", sub, err))
+    }
+    inner, _ := filepath.join({sub, "d.txt"}, context.temp_allocator)
+    _ = os.write_entire_file(inner, transmute([]byte) string("x"))
+
+    tree_test_click(tree, 0, false, false)
+    tree_test_click(tree, 0, false, false)
+    testing.expect(t, !folder.load_failed, "re-opening the folder did not retry the read")
+    testing.expect_value(t, len(folder.children), 1)
+}
+
 // Rows sort folders first, so the visible order is sub/, a.txt, b.txt, c.txt.
 @(test)
 test_tree_multi_select :: proc(t: ^testing.T) {
