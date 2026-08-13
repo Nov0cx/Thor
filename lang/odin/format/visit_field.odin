@@ -87,6 +87,24 @@ print_field :: proc(pr: ^Printer, out: ^[dynamic]Doc, f: ^ast.Field) {
 	}
 }
 
+// print_field_list as a wrappable group — the parameter-list shape, where a
+// signature too long for character_width takes one parameter per line.
+@(private)
+append_field_list_group :: proc(pr: ^Printer, out: ^[dynamic]Doc, open, close: string, fl: ^ast.Field_List) {
+	if fl == nil {
+		append(out, text(open))
+		append(out, text(close))
+		return
+	}
+	items := make([dynamic]Doc, 0, len(fl.list))
+	for f in fl.list {
+		field: [dynamic]Doc
+		print_field(pr, &field, f)
+		append(&items, concat(field[:]))
+	}
+	append_list_group(pr, out, open, close, items[:])
+}
+
 @(private)
 print_field_list :: proc(pr: ^Printer, out: ^[dynamic]Doc, fl: ^ast.Field_List) {
 	if fl == nil {

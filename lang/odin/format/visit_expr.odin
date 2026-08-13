@@ -465,9 +465,7 @@ print_proc_type_head :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: ^ast.Proc_Type
 		append(out, text(" "))
 		append(out, text(cc))
 	}
-	append(out, text("("))
-	print_field_list(pr, out, e.params)
-	append(out, text(")"))
+	append_field_list_group(pr, out, "(", ")", e.params)
 	if e.diverging {
 		append(out, text(" -> !"))
 		return

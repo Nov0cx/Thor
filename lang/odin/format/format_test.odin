@@ -382,6 +382,18 @@ test_character_width_proc_lit_arg_hugs :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_character_width_wraps_proc_params :: proc(t: ^testing.T) {
+	opts := default_options()
+	opts.character_width = 24
+	src := "package p\nf :: proc(alpha: int, beta: string, gamma: bool) {\n\treturn\n}\n"
+	out, ok := format(src, opts)
+	defer delete(out)
+	testing.expect(t, ok)
+	testing.expect(t, strings.contains(out, "proc(\n"), out)
+	testing.expect(t, strings.contains(out, "\tgamma: bool,\n"), out)
+}
+
+@(test)
 test_character_width_zero :: proc(t: ^testing.T) {
 	opts := default_options()
 	opts.character_width = 0
