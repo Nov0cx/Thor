@@ -127,11 +127,37 @@ pack_glyph_atlas :: proc(glyphs: [^]rl.GlyphInfo, count: int, size: i32, family_
     return
 }
 
+@(private = "file")
+font_load_worker :: proc(job: ^Font_Load_Job) {
+    font_bake_job(job)
+}
+
+// Uploads a baked atlas and records the size. Main thread only: the upload
+// needs GL. Writes the shaping map with the font, so a size in `cache` is
+// always in `shaped` too — the drawing path skips shaping without it.
+@(private = "file")
+font_job_publish :: proc(job: ^Font_Load_Job) -> rl.Font {
+    font := rl.Font {
+        baseSize = job.size,
+        glyphCount = job.glyph_count,
+        glyphPadding = 4,
+        glyphs = job.glyphs,
+        recs = job.recs,
+        texture = rl.LoadTextureFromImage(job.atlas),
+    }
+    rl.UnloadImage(job.atlas)
+    job.family.cache[job.size] = font
+    job.family.shaped[job.size] = job.shaped
+    return font
+}
+
 // Rasterizes and packs the atlas with stb_truetype directly: raylib's font
 // procs aren't thread-safe, and its LoadFontData binding corrupts memory.
 // Buffers handed to raylib are libc-allocated so UnloadFont/UnloadImage free them.
+// Touches no GL, so it runs on a worker thread at startup and inline on the
+// main thread for a size the manifest never named.
 @(private = "file")
-font_load_worker :: proc(job: ^Font_Load_Job) {
+font_bake_job :: proc(job: ^Font_Load_Job) {
     // Scratch goes into the font arena; its allocator is mutex-guarded, shareable.
     context.allocator = font_allocator
 
@@ -326,17 +352,7 @@ text_finish_async_load :: proc() {
         thread.destroy(job.worker)
 
         if job.ok {
-            font := rl.Font {
-                baseSize = job.size,
-                glyphCount = job.glyph_count,
-                glyphPadding = 4,
-                glyphs = job.glyphs,
-                recs = job.recs,
-                texture = rl.LoadTextureFromImage(job.atlas),
-            }
-            rl.UnloadImage(job.atlas)
-            job.family.cache[job.size] = font
-            job.family.shaped[job.size] = job.shaped
+            font_job_publish(job)
         } else {
             log.warnf("Failed to rasterize font %q at size %d", job.family.path, job.size)
         }
@@ -353,8 +369,10 @@ text_finish_async_load :: proc() {
     }
 }
 
-// Sizes not preloaded at startup are rasterized on first use from the
-// resident file data. Runs on the main thread (texture upload needs GL).
+// Sizes not preloaded at startup are baked on first use from the resident file
+// data, the same way as a preloaded one: `preload_sizes` only decides what is
+// ready before the first frame, never what shapes. Runs on the main thread
+// (texture upload needs GL).
 get_font :: proc(font_size: i32, family_name := "") -> rl.Font {
     name := family_name
     if name == "" {
@@ -370,20 +388,16 @@ get_font :: proc(font_size: i32, family_name := "") -> rl.Font {
         return font
     }
 
-    font := rl.LoadFontFromMemory(
-        ".ttf",
-        raw_data(family.file_data),
-        cast(i32) len(family.file_data),
-        font_size,
-        raw_data(family.codepoints),
-        cast(i32) len(family.codepoints),
-    )
-    if !rl.IsFontReady(font) {
-        return rl.GetFontDefault()
+    job := Font_Load_Job{family = family, size = font_size}
+    font_bake_job(&job)
+    if !job.ok {
+        log.warnf("Failed to rasterize font %q at size %d", family.path, font_size)
+        // Recorded so a size that cannot bake is tried once, not every frame.
+        fallback := rl.GetFontDefault()
+        family.cache[font_size] = fallback
+        return fallback
     }
-
-    family.cache[font_size] = font
-    return font
+    return font_job_publish(&job)
 }
 
 text_line_height :: proc(font_size: i32) -> i32 {

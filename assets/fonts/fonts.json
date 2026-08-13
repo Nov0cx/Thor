@@ -3,7 +3,7 @@
     "fonts": {
         "JetBrainsMono": {
             "path": "JetBrainsMono/JetBrainsMono-Regular.ttf",
-            "preload_sizes": [15, 17, 18, 20]
+            "preload_sizes": [14, 15, 16, 17, 18, 20]
         },
         "Iosevka": {
             "path": "Iosevka/Iosevka-Regular.ttf",
