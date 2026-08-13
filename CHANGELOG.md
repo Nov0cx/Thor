@@ -108,3 +108,7 @@ First release. Thor runs on Windows, Linux and macOS.
 - The hover popup closes when the pointer leaves the editor, instead of staying up over the text it no longer points at.
 - Plugin API: `thor.on_key_up(fn)` (permission `keys`) reports key releases, with the table `thor.on_key` receives.
 - A relative line jump takes a count of more than one digit: the digits typed while `alt` is held make one number, so a gutter distance of 10 or more is reachable. The jump runs when `alt` is released, and the status bar shows the count while it is typed.
+- A drag holds its target when a second mouse button is pressed during it: a splitter, scrollbar, tab or file being dragged no longer sticks to the cursor after the right button is clicked mid-drag.
+- The console keeps its scroll position while a command writes output, so scrollback stays where it is put instead of jumping to the last line on every chunk.
+- A picker opened after workspace symbols (`ctrl + q`) keeps its own rows: code actions and "Go to symbol" are no longer replaced by symbol results as you type.
+- A folder the explorer cannot read is named in the error color instead of reading as empty, and the next open reads it again.
