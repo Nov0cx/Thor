@@ -811,12 +811,16 @@ range_binding :: proc(node: ts.Node, source, name: string) -> (Binding, bool) {
             continue
         }
         if !seen_in {
-            // `for &p in xs` wraps the variable, and the three-clause form's
-            // first child is a statement — neither is a bare loop variable.
-            if is_identifier(c) {
-                if ts.node_text(c, source) == name {
-                    matched = vars
-                }
+            // `for &p in xs` wraps the variable in a unary_expression, the
+            // same shape collect_value_decls unwraps for go-to-definition. The
+            // three-clause form's first child is a statement, which is neither
+            // and simply never matches.
+            v := c
+            if string(ts.node_type(v)) == "unary_expression" {
+                v = ts.node_named_child(v, 0)
+            }
+            if !ts.node_is_null(v) && is_identifier(v) && ts.node_text(v, source) == name {
+                matched = vars
             }
             vars += 1
             continue
