@@ -447,10 +447,14 @@ command_line :: proc(args: []string) -> string {
     return strings.join(parts[:], " ", context.temp_allocator)
 }
 
-// filepath.join also returns an allocator error. The temporary allocator makes
-// that error very unusual, so this hides it.
+// Joins onto the temp allocator. Only an exhausted allocator can fail here, and
+// no part of a build can continue past one.
 join :: proc(parts: ..string) -> string {
-    joined, _ := filepath.join(parts, context.temp_allocator)
+    joined, err := filepath.join(parts, context.temp_allocator)
+    if err != nil {
+        fmt.eprintfln("[build] a path join of %v failed: %v", parts, err)
+        os.exit(1)
+    }
     return joined
 }
 
