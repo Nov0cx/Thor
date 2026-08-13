@@ -108,9 +108,17 @@ thor_tree_git_status :: proc(data: rawptr, path: string, _: bool) -> widgets.Git
     return .None
 }
 
+// Absolute key for a repo-relative path git printed. Git always prints forward
+// slashes; the tree and the open files key on native separators. Owned.
+@(private)
+git_key :: proc(thor: ^Thor, rel: string) -> string {
+    native, _ := strings.replace_all(rel, "/", filepath.SEPARATOR_STRING, context.temp_allocator)
+    return strings.concatenate({thor.workspace_prefix, native})
+}
+
 // Parses porcelain lines into absolute-path -> status entries, marking every
 // ancestor directory so folders containing changes are tinted.
-@(private = "file")
+@(private)
 git_parse_status :: proc(thor: ^Thor, output: string, out: ^map[string]widgets.Git_Status) {
     it := output
     for line in strings.split_lines_iterator(&it) {
@@ -130,15 +138,13 @@ git_parse_status :: proc(thor: ^Thor, output: string, out: ^map[string]widgets.G
         }
 
         status := git_status_from_code(line[:2])
-        // Git prints forward slashes; the tree keys on native (backslash) paths.
-        native, _ := strings.replace_all(rel, "/", "\\", context.temp_allocator)
-        git_put(out, strings.concatenate({thor.workspace_prefix, native}), status)
-        git_mark_ancestors(thor, native, status, out)
+        git_put(out, git_key(thor, rel), status)
+        git_mark_ancestors(thor, rel, status, out)
     }
 }
 
 // Tints each submodule's directory with the Submodule status, reading the paths
-// from the workspace .gitmodules. Runs after status parsing so a submodule keeps
+// from the repo's .gitmodules. Runs after status parsing so a submodule keeps
 // its own colour rather than the generic Modified tint a dirty submodule earns.
 @(private = "file")
 git_mark_submodules :: proc(thor: ^Thor, out: ^map[string]widgets.Git_Status) {
@@ -166,8 +172,7 @@ git_mark_submodules :: proc(thor: ^Thor, out: ^map[string]widgets.Git_Status) {
         if rel == "" {
             continue
         }
-        native, _ := strings.replace_all(rel, "/", "\\", context.temp_allocator)
-        abs := strings.concatenate({thor.workspace_prefix, native})
+        abs := git_key(thor, rel)
         if _, exists := out[abs]; exists {
             out[abs] = .Submodule
             delete(abs)
@@ -177,19 +182,19 @@ git_mark_submodules :: proc(thor: ^Thor, out: ^map[string]widgets.Git_Status) {
     }
 }
 
-// Marks each ancestor directory of native_rel (a\b\c -> a\b, a) as containing
-// changes. Conflict wins over the generic Modified marker.
-@(private = "file")
-git_mark_ancestors :: proc(thor: ^Thor, native_rel: string, status: widgets.Git_Status, out: ^map[string]widgets.Git_Status) {
+// Marks each ancestor directory of a repo-relative path (a/b/c -> a/b, a) as
+// containing changes. Conflict wins over the generic Modified marker.
+@(private)
+git_mark_ancestors :: proc(thor: ^Thor, repo_rel: string, status: widgets.Git_Status, out: ^map[string]widgets.Git_Status) {
     agg := status == .Conflict ? widgets.Git_Status.Conflict : widgets.Git_Status.Modified
-    rel := native_rel
+    rel := repo_rel
     for {
-        slash := strings.last_index_byte(rel, '\\')
+        slash := strings.last_index_byte(rel, '/')
         if slash <= 0 {
             break
         }
         rel = rel[:slash]
-        git_put(out, strings.concatenate({thor.workspace_prefix, rel}), agg)
+        git_put(out, git_key(thor, rel), agg)
     }
 }
 
@@ -242,17 +247,17 @@ git_status_from_code :: proc(code: string) -> widgets.Git_Status {
 // new-side range marks Added (pure insertion) or Modified (replacement) lines;
 // a pure deletion has no line of its own in the new file, so it attaches to the
 // line right after the removal (or line 0 if the removal was at the top).
-@(private = "file")
+@(private)
 git_parse_diff :: proc(thor: ^Thor, output: string, out: ^map[string][dynamic]widgets.Diff_Line_Kind) {
     it := output
     current := "" // absolute path the following hunks belong to; empty = skip
 
     for line in strings.split_lines_iterator(&it) {
         if strings.has_prefix(line, "+++ ") {
+            git_drop_unused_key(out, current)
             rel := line[4:]
             if strings.has_prefix(rel, "b/") {
-                native, _ := strings.replace_all(rel[2:], "/", "\\", context.temp_allocator)
-                current = strings.concatenate({thor.workspace_prefix, native})
+                current = git_key(thor, rel[2:])
             } else {
                 current = "" // "+++ /dev/null": the file was deleted
             }
@@ -290,6 +295,19 @@ git_parse_diff :: proc(thor: ^Thor, output: string, out: ^map[string][dynamic]wi
             }
         }
         out[current] = arr
+    }
+    git_drop_unused_key(out, current)
+}
+
+// Frees a key the map never took: a file with no hunk at all (a mode-only or a
+// binary change) leaves one behind, and only the map's own keys are freed later.
+@(private = "file")
+git_drop_unused_key :: proc(out: ^map[string][dynamic]widgets.Diff_Line_Kind, key: string) {
+    if key == "" {
+        return
+    }
+    if _, has := out[key]; !has {
+        delete(key)
     }
 }
 
