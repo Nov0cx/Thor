@@ -104,7 +104,11 @@ inotify_close :: proc(w: ^Watcher) {
 @(private)
 watch_worker :: proc(w: ^Watcher) {
     context.allocator = w.allocator
-    if intrinsics.atomic_load(&w.platform.polling) {
+    // inotify never started, so the poller runs the whole session and its first
+    // snapshot is the baseline. `open` rather than `polling`: a degrade set from
+    // the main thread between watch_start and the first loop pass belongs to
+    // watch_degrade, which owes the resync hint.
+    if !w.platform.open {
         poll_worker(w, &w.platform.stopping)
         return
     }
