@@ -112,3 +112,8 @@ First release. Thor runs on Windows, Linux and macOS.
 - The console keeps its scroll position while a command writes output and when it ends, so scrollback stays where it is put instead of jumping to the last line. Submitting a command returns to the bottom.
 - A picker opened after workspace symbols (`ctrl + q`) keeps its own rows: code actions and "Go to symbol" are no longer replaced by symbol results as you type.
 - A folder the explorer cannot read is named in the error color instead of reading as empty, and the next open reads it again.
+- On Linux and macOS, the explorer git colors and the gutter diff bar appear, as they already did on Windows.
+- On Windows, a file git spells in a different case than the filesystem does still gets its explorer color and gutter diff.
+- A `git worktree` checkout, a submodule and a subfolder of a repository opened as the workspace are read as git repositories: the branch name, the explorer colors and the gutter diff work in all three instead of reading as no repository.
+- The editor's right-click menu acts on the pane that was clicked, not always the first one. Find and replace (`ctrl + f`) and Go to Line search and scroll the focused pane too.
+- Deleting a file no longer races an autosave of it: the save is stopped first, so the file cannot come back after the delete. Deleting a folder closes the tabs of the files inside it.
