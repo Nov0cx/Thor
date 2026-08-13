@@ -214,8 +214,9 @@ child_destroy :: proc(child: ^Child) {
 }
 
 // Tells the parent the exec never happened and ends the forked child. Only
-// async-signal-safe calls, since this runs between fork and exec.
-@(private = "file")
+// async-signal-safe calls, since this runs between fork and exec. Shared with
+// shell_posix.odin, which forks the same way.
+@(private)
 report_start_failure :: proc(status_w: posix.FD) -> ! {
     code := u8(posix.errno())
     posix.write(status_w, &code, 1)
@@ -224,7 +225,8 @@ report_start_failure :: proc(status_w: posix.FD) -> ! {
 
 // Whether the exec went through: a successful one closes the write end, so the
 // read ends at once with nothing. A byte is the errno the child could not use.
-@(private = "file")
+// Shared with shell_posix.odin.
+@(private)
 start_succeeded :: proc(status_r: posix.FD) -> bool {
     code: u8
     for {
@@ -236,7 +238,7 @@ start_succeeded :: proc(status_r: posix.FD) -> bool {
     }
 }
 
-@(private = "file")
+@(private)
 read_fd :: proc(fd: posix.FD, buf: []u8) -> int {
     if len(buf) == 0 {
         return 0
@@ -253,7 +255,7 @@ read_fd :: proc(fd: posix.FD, buf: []u8) -> int {
     }
 }
 
-@(private = "file")
+@(private)
 close_fds :: proc(fds: ..posix.FD) {
     for fd in fds {
         if fd >= 0 {

@@ -39,6 +39,17 @@ test_run_timeout_keeps_a_fast_command :: proc(t: ^testing.T) {
     testing.expect(t, !strings.contains(output, "[shell] command stopped"), "the command was stopped")
 }
 
+// The status a command exits with reaches the caller: the compiler check reads it
+// to tell "no diagnostics" from "the compiler never ran".
+@(test)
+test_run_status_reports_the_exit_code :: proc(t: ^testing.T) {
+    output, code, ran := run_status("exit 3", ".")
+    defer delete(output)
+
+    testing.expect(t, ran, "the command did not run to completion")
+    testing.expect_value(t, code, 3)
+}
+
 // Zero means no timeout, which every caller on a worker thread relies on.
 @(test)
 test_run_without_timeout_reads_to_the_end :: proc(t: ^testing.T) {

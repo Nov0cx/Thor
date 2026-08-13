@@ -92,3 +92,5 @@ First release. Thor runs on Windows, Linux and macOS.
 - On Windows, the explorer keeps up with the disk after a watch failure: the workspace is rescanned on an interval instead of updates stopping until restart.
 - The file tree, not only the git status, is refreshed when the watcher reports that it lost events.
 - On Linux, changes under a folder renamed inside the workspace are reported at its new path.
+- On Linux and macOS, a plugin command that passes its time budget is stopped whole: a child it left in the background no longer keeps running after it.
+- On Linux and macOS, a command run by a plugin or the Git menu ends at a closed pipe again once a terminal or a language server has started.

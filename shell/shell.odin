@@ -11,9 +11,9 @@
 //     run_status :: proc(command: string, cwd: string, timeout: time.Duration = 0) -> (output: string, code: int, ok: bool)
 //     spawn :: proc(exe: string, arg: string, cwd: string) -> bool
 //
-// where a `timeout` above zero kills the command once it passes and appends a
-// note to the output — for the one caller that cannot leave the frame, a plugin
-// calling thor.exec.
+// where a `timeout` above zero kills the command and everything it started once
+// it passes, and appends a note to the output — for the one caller that cannot
+// leave the frame, a plugin calling thor.exec.
 package shell
 
 import "core:time"
