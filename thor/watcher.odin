@@ -55,11 +55,12 @@ thor_shutdown_watcher :: proc(thor: ^Thor) {
 
 // Explorer subscriber: a created/deleted path changes the tree shape; any change
 // (content included) can change git status. Both are coalesced to one refresh per
-// poll via the dirty flags.
+// poll via the dirty flags. A change reported on the root itself is the watcher's
+// "events were lost" hint, so it refreshes the tree too.
 @(private = "file")
 thor_watch_explorer :: proc(data: rawptr, change: watch.Change) {
     thor := cast(^Thor) data
-    if change.kind != .Modified {
+    if change.kind != .Modified || thor_same_path(change.path, thor.workspace_dir) {
         thor.watch_tree_dirty = true
     }
     thor.watch_git_dirty = true

@@ -1,6 +1,7 @@
 #+build windows
 package watch
 
+import "base:intrinsics"
 import "core:strings"
 import win32 "core:sys/windows"
 
@@ -9,6 +10,7 @@ import win32 "core:sys/windows"
 Platform :: struct {
     dir_handle: win32.HANDLE,
     stop_event: win32.HANDLE, // signalled to break the worker's wait on shutdown
+    stopping:   bool,         // the same signal for the polling fallback, which has no handle to wait on
 }
 
 // Change buffer handed to ReadDirectoryChangesW. 64 KiB holds a large burst of
@@ -26,6 +28,7 @@ NOTIFY_FILTER :: win32.FILE_NOTIFY_CHANGE_FILE_NAME |
 
 @(private)
 watch_start :: proc(w: ^Watcher) -> bool {
+    w.platform.stopping = false
     wide := win32.utf8_to_wstring(w.root, context.temp_allocator)
     w.platform.dir_handle = win32.CreateFileW(
         wide,
@@ -53,6 +56,7 @@ watch_start :: proc(w: ^Watcher) -> bool {
 
 @(private)
 watch_stop :: proc(w: ^Watcher) {
+    intrinsics.atomic_store(&w.platform.stopping, true)
     win32.SetEvent(w.platform.stop_event)
 }
 
@@ -96,7 +100,8 @@ watch_worker :: proc(w: ^Watcher) {
             nil,
         )
         if !ok {
-            break
+            watch_fallback(w)
+            return
         }
 
         // Block until either the read completes or shutdown signals stop_event.
@@ -114,7 +119,8 @@ watch_worker :: proc(w: ^Watcher) {
 
         transferred: win32.DWORD
         if !win32.GetOverlappedResult(w.platform.dir_handle, &overlapped, &transferred, false) {
-            break
+            watch_fallback(w)
+            return
         }
         if transferred == 0 {
             // Too many changes to report individually; the entries were dropped.
@@ -126,6 +132,20 @@ watch_worker :: proc(w: ^Watcher) {
         watch_parse(w, buffer[:transferred])
         free_all(context.temp_allocator)
     }
+}
+
+// Takes over when the directory can no longer be read — the root went away, the
+// volume dropped, the handle was invalidated. The tree is snapshotted on an
+// interval instead, so the editor keeps its live updates for the rest of the
+// session. The root change is the usual "events were lost" hint: it covers what
+// changed between the failure and the first snapshot.
+@(private = "file")
+watch_fallback :: proc(w: ^Watcher) {
+    if intrinsics.atomic_load(&w.platform.stopping) {
+        return
+    }
+    watch_emit(w, .Modified, w.root)
+    poll_worker(w, &w.platform.stopping)
 }
 
 // Walks the FILE_NOTIFY_INFORMATION chain, turning each entry into a Change with
