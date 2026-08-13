@@ -356,6 +356,9 @@ jobs:
             `libxcursor`, `libxi`, `mesa`, `wayland`, `libxkbcommon`).
           - macOS keeps its libraries in the archive, but the download is in
             quarantine: `xattr -dr com.apple.quarantine thor-*-macos-arm64`.
+          - Windows builds are not signed, so SmartScreen stops the first start
+            with "Windows protected your PC": choose **More info**, then **Run
+            anyway**. Compare the download against `SHA256SUMS` first.
           - `SHA256SUMS` holds the checksum of each archive.
           EOF
 

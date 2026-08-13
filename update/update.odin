@@ -52,6 +52,7 @@ API_TIMEOUT :: 20 * time.Second
 SLICE_TIMEOUT :: 120 * time.Second
 EXTRACT_TIMEOUT :: 300 * time.Second
 XATTR_TIMEOUT :: 30 * time.Second
+UNBLOCK_TIMEOUT :: 60 * time.Second
 
 // Why a check or an install stopped. Ok is the only success; Up_To_Date is the
 // ordinary outcome of a check.

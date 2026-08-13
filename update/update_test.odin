@@ -282,6 +282,21 @@ test_commands :: proc(t: ^testing.T) {
     testing.expect_value(t, archive_extractors(.Tar_Gz)[0], Extractor.Tar)
 }
 
+// The mark of the web comes off the whole staged tree, not only its top level:
+// the binary that the swap relaunches sits one directory down.
+@(test)
+test_unblock_command :: proc(t: ^testing.T) {
+    command := unblock_command(".update/x/thor-2026.08.2-windows-x86_64", context.temp_allocator)
+    testing.expect(t, strings.contains(command, "Unblock-File"), "the mark comes off")
+    testing.expect(
+        t,
+        strings.contains(command, "'.update/x/thor-2026.08.2-windows-x86_64'"),
+        "the staged root is quoted",
+    )
+    testing.expect(t, strings.contains(command, "-Recurse"), "every file below it is reached")
+    testing.expect(t, strings.contains(command, "-NoProfile"), "no user profile runs")
+}
+
 // The status code is the last field of the output, whatever the tool printed
 // before it.
 @(test)

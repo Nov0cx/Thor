@@ -186,6 +186,14 @@ install_apply :: proc(plan: Install_Plan, agent: string, cancel: ^bool, allocato
         output, _, _ := shell.run_status(command, "", XATTR_TIMEOUT)
         delete(output)
     }
+    when ODIN_OS == .Windows {
+        // curl marks nothing, but the PowerShell transport can, and the mark
+        // would stop the binary this update relaunches. A failure here costs
+        // only the warning, so it is not one the install reports.
+        command := unblock_command(root, context.temp_allocator)
+        output, _, _ := shell.run_status(command, "", UNBLOCK_TIMEOUT)
+        delete(output)
+    }
     when ODIN_OS != .Windows {
         exe, join_err := filepath.join({root, target_exe_name(plan.target)}, context.temp_allocator)
         if join_err != nil {

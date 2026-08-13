@@ -41,6 +41,16 @@ see [`vendor/README.md`](../vendor/README.md).
 Lua links against `lua54.dll`; the build program copies it next to the
 executable from Odin's `vendor` directory the first time it is missing.
 
+The executable carries an icon and a version block. The build program writes
+`bin/thor.rc` from `assets/branding/thor.ico` and the `VERSION` constant of
+`thor/cli.odin`, and the compiler builds it with `rc.exe` from the Windows SDK,
+which the MSVC tools already put on PATH. A checkout without the icon file
+builds too, and gets the default icon of the linker.
+
+Builds are unsigned. Setting `THOR_SIGN_PFX` (and `THOR_SIGN_PASS` for a
+protected key) makes the build sign the executable with `signtool` after it
+links; with the variable unset nothing runs.
+
 ### Linux
 
 The system HarfBuzz library is used; install it through your package manager

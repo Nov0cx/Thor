@@ -169,6 +169,19 @@ extract_command :: proc(
     return ""
 }
 
+// The command that takes the mark of the web off everything under `dir`. The
+// mark is what makes SmartScreen stop a downloaded executable, and a staged tree
+// carries it when the archive did: Expand-Archive copies the mark of an archive
+// onto every file it unpacks. Windows only; the string stays assertable
+// elsewhere, as the rest of this file does.
+unblock_command :: proc(dir: string, allocator := context.allocator) -> string {
+    return fmt.aprintf(
+        `powershell -NoProfile -Command "Get-ChildItem -LiteralPath '%s' -Recurse -File | Unblock-File"`,
+        dir,
+        allocator = allocator,
+    )
+}
+
 // The extractors that can read a container, best first.
 archive_extractors :: proc(archive: Archive) -> []Extractor {
     @(static) zip := [?]Extractor{.Tar, .Expand_Archive}

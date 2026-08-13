@@ -17,6 +17,7 @@ import "core:flags"
 import "core:fmt"
 import "core:os"
 import "core:path/filepath"
+import "core:strconv"
 import "core:strings"
 import "msvc"
 
@@ -25,6 +26,12 @@ LIB_EXT :: ".lib" when ODIN_OS == .Windows else ".a"
 EXE :: "thor" + EXE_EXT
 
 HARFBUZZ_VERSION :: "12.1.0"
+
+ICON_FILE :: "assets/branding/thor.ico"
+VERSION_FILE :: "thor/cli.odin"
+PUBLISHER :: "Niklas Leygraf"
+
+TIMESTAMP_URL :: "http://timestamp.digicert.com"
 
 // Lowercase: core:flags matches an argument against the member name, so these
 // are the names the user types.
@@ -81,10 +88,11 @@ build_thor :: proc() -> bool {
     append_common_flags(&args)
     append_codegen_flags(&args)
     append_link_flags(&args)
+    append_resource_flags(&args)
     if !exec_msvc(args[:]) {
         return false
     }
-    return copy_lua_dll() && stage_resources()
+    return copy_lua_dll() && stage_resources() && sign_binary()
 }
 
 // Copies the runtime resources beside the binary. Thor moves its working
@@ -219,6 +227,167 @@ append_link_flags :: proc(args: ^[dynamic]string) {
             prefix = "/opt/homebrew"
         }
         append(args, fmt.tprintf("-extra-linker-flags:-L%s/lib", prefix))
+    }
+}
+
+// The icon and the file properties the executable carries. Windows only: the
+// flag -resource is a Windows flag, and only a command that makes a binary takes
+// it — a check of a POSIX target refuses it. A build without the icon file still
+// works, it only gets the default icon of the linker.
+append_resource_flags :: proc(args: ^[dynamic]string) {
+    when ODIN_OS == .Windows {
+        if path, ok := write_resource_script(); ok {
+            append(args, fmt.tprintf("-resource:%s", path))
+        }
+    }
+}
+
+// Writes the resource script the executable is built with: the Explorer icon and
+// the VERSIONINFO block that names the publisher and the version in the file
+// properties, in the SmartScreen dialog and in the task manager. It is generated
+// because thor/cli.odin holds the one version, and a committed copy of it would
+// drift. The bin directory is not under version control, so nothing generated is
+// committed; rc.exe puts its compiled .res beside the script.
+write_resource_script :: proc() -> (path: string, ok: bool) {
+    if !os.exists(ICON_FILE) {
+        fmt.eprintfln("[build] %s is absent; the executable gets no icon", ICON_FILE)
+        return "", false
+    }
+    version := read_version() or_return
+    fields := version_fields(version) or_return
+
+    icon, abs_err := os.get_absolute_path(ICON_FILE, context.temp_allocator)
+    if abs_err != nil {
+        fmt.eprintfln("[build] the path %s is not resolvable: %v", ICON_FILE, abs_err)
+        return "", false
+    }
+    // A backslash escapes the character after it inside a resource string, and
+    // rc.exe reads a forward slash as a path separator.
+    icon, _ = strings.replace_all(icon, "\\", "/", context.temp_allocator)
+
+    script := strings.builder_make(context.temp_allocator)
+    // Explorer draws the icon with the lowest ordinal, so this one is 1.
+    fmt.sbprintfln(&script, `1 ICON "%s"`, icon)
+    fmt.sbprintf(
+        &script,
+        `
+1 VERSIONINFO
+FILEVERSION %s
+PRODUCTVERSION %s
+FILEFLAGSMASK 0x3fL
+FILEFLAGS 0x0L
+FILEOS 0x40004L
+FILETYPE 0x1L
+FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName", "%s"
+            VALUE "FileDescription", "Thor code editor"
+            VALUE "FileVersion", "%s"
+            VALUE "InternalName", "thor"
+            VALUE "LegalCopyright", "%s, GPL-3.0"
+            VALUE "OriginalFilename", "%s"
+            VALUE "ProductName", "Thor"
+            VALUE "ProductVersion", "%s"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END
+`,
+        fields,
+        fields,
+        PUBLISHER,
+        version,
+        PUBLISHER,
+        EXE,
+        version,
+    )
+
+    if !mkdir("bin") {
+        return "", false
+    }
+    path = join("bin", "thor.rc")
+    if err := os.write_entire_file(path, strings.to_string(script)); err != nil {
+        fmt.eprintfln("[build] a write of %s failed: %v", path, err)
+        return "", false
+    }
+    return path, true
+}
+
+// Reads VERSION out of thor/cli.odin. The release workflow reads the same
+// constant to gate the tag it is built from, so the resource cannot name a
+// version that the editor and the release disagree with.
+read_version :: proc() -> (version: string, ok: bool) {
+    MARKER :: `VERSION :: "`
+
+    data, err := os.read_entire_file(VERSION_FILE, context.temp_allocator)
+    if err != nil {
+        fmt.eprintfln("[build] a read of %s failed: %v", VERSION_FILE, err)
+        return "", false
+    }
+    text := string(data)
+    start := strings.index(text, MARKER)
+    if start < 0 {
+        fmt.eprintfln("[build] %s names no VERSION", VERSION_FILE)
+        return "", false
+    }
+    rest := text[start + len(MARKER):]
+    end := strings.index(rest, `"`)
+    if end < 0 {
+        fmt.eprintfln("[build] the VERSION of %s is not terminated", VERSION_FILE)
+        return "", false
+    }
+    return rest[:end], true
+}
+
+// The four comma-separated numbers a VERSIONINFO block wants: 2026.08.2 becomes
+// 2026,8,2,0. Base ten is explicit because a leading zero is octal to the parser
+// and the month field carries one.
+version_fields :: proc(version: string) -> (fields: string, ok: bool) {
+    numbers: [4]int
+    for part, i in strings.split(version, ".", context.temp_allocator) {
+        if i >= len(numbers) {
+            break
+        }
+        value, parsed := strconv.parse_int(part, 10)
+        if !parsed {
+            fmt.eprintfln("[build] the version %q is not a number series", version)
+            return "", false
+        }
+        numbers[i] = value
+    }
+    return fmt.tprintf("%d,%d,%d,%d", numbers[0], numbers[1], numbers[2], numbers[3]), true
+}
+
+// Signs the executable when a certificate is named in the environment, and does
+// nothing when none is. Thor ships unsigned, so this stays dormant; it makes a
+// signed release a matter of the two variables, not of a change here. signtool
+// is on the path of a developer shell, which exec_msvc makes.
+sign_binary :: proc() -> bool {
+    when ODIN_OS != .Windows {
+        return true
+    } else {
+        certificate := os.get_env("THOR_SIGN_PFX", context.temp_allocator)
+        if certificate == "" {
+            return true
+        }
+        args := make([dynamic]string, context.temp_allocator)
+        append(&args, "signtool", "sign", "/fd", "SHA256")
+        // A timestamp keeps the signature valid past the expiry of the
+        // certificate.
+        append(&args, "/tr", TIMESTAMP_URL, "/td", "SHA256")
+        append(&args, "/f", certificate)
+        if password := os.get_env("THOR_SIGN_PASS", context.temp_allocator); password != "" {
+            append(&args, "/p", password)
+        }
+        append(&args, join(out_dir, EXE))
+        return exec_msvc(args[:])
     }
 }
 

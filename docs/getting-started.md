@@ -13,6 +13,19 @@ Two ways to get Thor:
 - **Build from source** — see [Building from Source](building.md). Needed if
   no release matches your platform, or you want a development build.
 
+### First start
+
+A release is not code-signed, so both desktops stop it once:
+
+- **Windows** — SmartScreen says "Windows protected your PC". Choose **More
+  info**, then **Run anyway**. It asks only for the file you downloaded.
+- **macOS** — the download is in quarantine:
+  `xattr -dr com.apple.quarantine thor-*-macos-arm64`.
+
+Compare the archive against the `SHA256SUMS` the release publishes if you want
+to know it arrived whole. An update Thor installs itself is checked against that
+file already, and starts with no warning.
+
 ## Updating
 
 Thor asks GitHub for a newer release shortly after it starts, at most once a

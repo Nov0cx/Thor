@@ -6,6 +6,8 @@
 - A language server turned off no longer holds on to its file types, so another entry for the same language starts instead.
 - A settings change that cannot be written reports "Could not save settings" instead of showing a value that is not stored.
 - "Open Settings (JSON)", "Open Keybinds (JSON)" and "Open Comments (JSON)" open the file a change from the editor writes to, and create it when it is absent.
+- `thor.exe` carries the Thor icon, and names its publisher, description and version in the file properties.
+- An update installed on Windows starts with no SmartScreen warning. The mark of the web comes off the files it unpacks.
 
 # 2026.08.1
 
