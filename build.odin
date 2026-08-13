@@ -387,7 +387,18 @@ sign_binary :: proc() -> bool {
             append(&args, "/p", password)
         }
         append(&args, join(out_dir, EXE))
-        return exec_msvc(args[:])
+        signed := exec_msvc(args[:])
+        // exec_msvc runs the command from a generated batch file and leaves it
+        // on disk, so the password would stay there in plain text. Overwrite it
+        // whatever the signing did.
+        bat := join("bin", "msvc.bat")
+        if os.exists(bat) {
+            if err := os.write_entire_file(bat, "@echo off\r\n"); err != nil {
+                fmt.eprintfln("[build] a scrub of %s failed: %v", bat, err)
+                return false
+            }
+        }
+        return signed
     }
 }
 
