@@ -61,7 +61,13 @@ print_value_decl :: proc(pr: ^Printer, out: ^[dynamic]Doc, d: ^ast.Value_Decl) {
 	if d.is_using {
 		append(out, text("using "))
 	}
-	print_expr_list(pr, out, d.names)
+	if cell := align_cell(pr, rawptr(d)); cell.head != 0 {
+		names: [dynamic]Doc
+		print_expr_list(pr, &names, d.names)
+		append(out, align(cell.head, names[:]))
+	} else {
+		print_expr_list(pr, out, d.names)
+	}
 	has_type := d.type != nil
 	if has_type {
 		append(out, text(colon_sep(pr)))

@@ -20,6 +20,7 @@ print_brace_body :: proc(
 	printer: Item_Printer,
 	extra_indent: bool,
 ) {
+	assign_decl_align_ids(pr, stmts)
 	append(out, text("{"))
 	body: [dynamic]Doc
 	prev_line := open.pos.line
@@ -129,6 +130,7 @@ print_stmt_list :: proc(
 	last_line: int,
 	had_prev: bool,
 ) {
+	assign_decl_align_ids(pr, stmts)
 	last_line = prev_line
 	had_prev = has_prev
 	for stmt in stmts {
@@ -141,6 +143,71 @@ print_stmt_list :: proc(
 		had_prev = true
 	}
 	return
+}
+
+// Which alignment run a `Name :: value` declaration may join. A type
+// declaration and a plain constant are different shapes and never share one, so
+// `Foo :: struct {` next to `MAX :: 64` aligns neither against the other.
+@(private)
+Const_Run_Kind :: enum {
+	None,
+	Type_Decl, // align_struct_declarations
+	Constant,  // align_constant_definitions
+}
+
+// An attributed or `using` declaration is left out: it emits its attributes and
+// a hard line before the name, so its cell would not start at the run's column.
+@(private)
+const_run_kind :: proc(stmt: ^ast.Stmt) -> Const_Run_Kind {
+	d, ok := stmt.derived_stmt.(^ast.Value_Decl)
+	if !ok || d.is_mutable || d.is_using || d.type != nil {
+		return .None
+	}
+	if len(d.values) != 1 || len(d.attributes) > 0 || len(d.names) == 0 {
+		return .None
+	}
+	#partial switch _ in d.values[0].derived_expr {
+	case ^ast.Struct_Type, ^ast.Union_Type, ^ast.Enum_Type, ^ast.Bit_Field_Type:
+		return .Type_Decl
+	}
+	return .Constant
+}
+
+// One head id per maximal run of two or more same-kind declarations on adjacent
+// lines, so their `::` line up. Called by both sibling walkers, so a run inside
+// a block aligns exactly like one at file scope.
+@(private)
+assign_decl_align_ids :: proc(pr: ^Printer, stmts: []^ast.Stmt) {
+	if !pr.opts.align_constant_definitions && !pr.opts.align_struct_declarations {
+		return
+	}
+	for i := 0; i < len(stmts); {
+		if stmts[i] == nil {
+			i += 1
+			continue
+		}
+		kind := const_run_kind(stmts[i])
+		wanted := kind == .Type_Decl ? pr.opts.align_struct_declarations : pr.opts.align_constant_definitions
+		if kind == .None || !wanted {
+			i += 1
+			continue
+		}
+		end := i + 1
+		for end < len(stmts) &&
+		    stmts[end] != nil &&
+		    const_run_kind(stmts[end]) == kind &&
+		    same_align_run(pr, stmts[end - 1].end.line, stmt_start_line(stmts[end])) {
+			end += 1
+		}
+		if end - i >= 2 {
+			id := next_align(pr)
+			for stmt in stmts[i:end] {
+				d := stmt.derived_stmt.(^ast.Value_Decl)
+				pr.align_ids[rawptr(d)] = Align_Cell{head = id}
+			}
+		}
+		i = end
+	}
 }
 
 // A declaration's own .pos starts at its name, not its attributes — the

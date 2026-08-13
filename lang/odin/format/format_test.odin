@@ -199,6 +199,52 @@ test_align_bit_field :: proc(t: ^testing.T) {
 	testing.expect(t, strings.contains(out, "\tlonger: uint | 4,"), out)
 }
 
+@(test)
+test_align_constant_definitions :: proc(t: ^testing.T) {
+	opts := default_options()
+	opts.align_constant_definitions = true
+	src := "package p\nA :: 1\nLONGER :: 2\n"
+	out, ok := format(src, opts)
+	defer delete(out)
+	testing.expect(t, ok)
+	testing.expect(t, strings.contains(out, "A      :: 1"), out)
+	testing.expect(t, strings.contains(out, "LONGER :: 2"), out)
+}
+
+@(test)
+test_align_constant_definitions_off :: proc(t: ^testing.T) {
+	src := "package p\nA :: 1\nLONGER :: 2\n"
+	out, ok := format(src, default_options())
+	defer delete(out)
+	testing.expect(t, ok)
+	testing.expect(t, strings.contains(out, "A :: 1"), out)
+}
+
+@(test)
+test_align_struct_declarations :: proc(t: ^testing.T) {
+	opts := default_options()
+	opts.align_struct_declarations = true
+	src := "package p\nA :: struct {}\nLonger :: enum {}\n"
+	out, ok := format(src, opts)
+	defer delete(out)
+	testing.expect(t, ok)
+	testing.expect(t, strings.contains(out, "A      :: struct {}"), out)
+	testing.expect(t, strings.contains(out, "Longer :: enum {}"), out)
+}
+
+@(test)
+test_align_decl_runs_do_not_mix_kinds :: proc(t: ^testing.T) {
+	opts := default_options()
+	opts.align_constant_definitions = true
+	opts.align_struct_declarations = true
+	src := "package p\nMAX :: 64\nFoo :: struct {}\n"
+	out, ok := format(src, opts)
+	defer delete(out)
+	testing.expect(t, ok)
+	testing.expect(t, strings.contains(out, "MAX :: 64"), out)
+	testing.expect(t, strings.contains(out, "Foo :: struct {}"), out)
+}
+
 @(private)
 token_stream :: proc(src: string) -> [dynamic]tokenizer.Token {
 	t: tokenizer.Tokenizer
