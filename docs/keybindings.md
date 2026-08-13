@@ -1,7 +1,12 @@
 # Keybindings
 
-Letter keys follow the active keyboard layout (QWERTZ etc.); punctuation
-bindings are physical key positions, noted where they differ.
+Bindings follow the active keyboard layout (QWERTZ, AZERTY etc.) on every
+platform: a chord sits on the key that prints its character, not on the US
+position. A key a layout prints something Thor has no name for keeps its
+physical position.
+
+A held key repeats, except for the shortcuts that open or toggle something —
+those act once per press.
 
 Every binding below is a default and can be changed in `settings/keybinds.json`
 — see [Configuration](configuration.md) for the chord format, including the
