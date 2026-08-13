@@ -377,7 +377,6 @@ print_call_expr :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: ^ast.Call_Expr) {
 		append(out, text("#must_tail "))
 	}
 	print_expr(pr, out, e.expr)
-	append(out, text("("))
 	has_ellipsis := e.ellipsis.pos.line != 0
 	ellipsis_arg := -1
 	if has_ellipsis {
@@ -392,16 +391,16 @@ print_call_expr :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: ^ast.Call_Expr) {
 			}
 		}
 	}
+	items := make([dynamic]Doc, 0, len(e.args))
 	for a, i in e.args {
-		if i > 0 {
-			append(out, text(", "))
-		}
+		arg: [dynamic]Doc
 		if i == ellipsis_arg {
-			append(out, text(".."))
+			append(&arg, text(".."))
 		}
-		print_expr(pr, out, a)
+		print_expr(pr, &arg, a)
+		append(&items, concat(arg[:]))
 	}
-	append(out, text(")"))
+	append_list_group(pr, out, "(", ")", items[:])
 }
 
 @(private)

@@ -349,6 +349,49 @@ test_space_single_line_blocks_comment_untouched :: proc(t: ^testing.T) {
 	testing.expect(t, !strings.contains(out, "{ return"), out)
 }
 
+@(test)
+test_character_width_wraps_call :: proc(t: ^testing.T) {
+	opts := default_options()
+	opts.character_width = 20
+	src := "package p\nf :: proc() {\n\tlongish_call(alpha, beta, gamma)\n}\n"
+	out, ok := format(src, opts)
+	defer delete(out)
+	testing.expect(t, ok)
+	testing.expect(t, strings.contains(out, "longish_call(\n"), out)
+	testing.expect(t, strings.contains(out, "gamma,\n"), out) // trailing comma when broken
+}
+
+@(test)
+test_character_width_hugs_when_it_fits :: proc(t: ^testing.T) {
+	src := "package p\nf :: proc() {\n\tg(a, b)\n}\n"
+	out, ok := format(src, default_options())
+	defer delete(out)
+	testing.expect(t, ok)
+	testing.expect(t, strings.contains(out, "g(a, b)"), out)
+}
+
+@(test)
+test_character_width_proc_lit_arg_hugs :: proc(t: ^testing.T) {
+	opts := default_options()
+	opts.character_width = 20
+	src := "package p\nf :: proc() {\n\tg(a, proc() {\n\t\treturn\n\t})\n}\n"
+	out, ok := format(src, opts)
+	defer delete(out)
+	testing.expect(t, ok)
+	testing.expect(t, strings.contains(out, "g(a, proc() {"), out)
+}
+
+@(test)
+test_character_width_zero :: proc(t: ^testing.T) {
+	opts := default_options()
+	opts.character_width = 0
+	src := "package p\nf :: proc() {\n\tg(a, b)\n}\n"
+	out, ok := format(src, opts)
+	defer delete(out)
+	testing.expect(t, ok)
+	testing.expect(t, strings.contains(out, "g(a, b)"), out)
+}
+
 @(private)
 token_stream :: proc(src: string) -> [dynamic]tokenizer.Token {
 	t: tokenizer.Tokenizer

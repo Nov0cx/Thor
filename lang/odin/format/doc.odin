@@ -27,6 +27,8 @@ Doc_Variant :: union {
 	Doc_Indent,
 	Doc_Align,
 	Doc_Concat,
+	Doc_If_Break,
+	Doc_Break_Parent,
 }
 
 // Verbatim text with no embedded newline.
@@ -77,6 +79,17 @@ Doc_Concat :: struct {
 	children: []Doc,
 }
 
+// `flat` inside a flat group, `broken` inside a broken one — the trailing comma
+// Odin's convention wants on a wrapped list and must not have on a hugged one.
+Doc_If_Break :: struct {
+	flat:   []Doc,
+	broken: []Doc,
+}
+
+// No output, but every enclosing group breaks. Emitted next to a `//` comment,
+// whose flat rendering would swallow the rest of the line.
+Doc_Break_Parent :: struct {}
+
 @(private)
 doc_alloc :: proc(v: Doc_Variant, allocator := context.allocator) -> Doc {
 	d := new(Doc_Node, allocator)
@@ -116,6 +129,14 @@ concat :: proc(children: []Doc, allocator := context.allocator) -> Doc {
 	return doc_alloc(Doc_Concat{children = children}, allocator)
 }
 
+if_break :: proc(flat, broken: []Doc, allocator := context.allocator) -> Doc {
+	return doc_alloc(Doc_If_Break{flat = flat, broken = broken}, allocator)
+}
+
+break_parent :: proc(allocator := context.allocator) -> Doc {
+	return doc_alloc(Doc_Break_Parent{}, allocator)
+}
+
 // concat of everything currently in `parts`, so callers can build with a
 // [dynamic]Doc and hand it off in one call.
 concat_dynamic :: proc(parts: [dynamic]Doc, allocator := context.allocator) -> Doc {
@@ -151,6 +172,10 @@ measure_flat :: proc(d: Doc, opts: ^Options) -> (width: int, ok: bool) {
 		return measure_flat_children(v.children, opts)
 	case Doc_Concat:
 		return measure_flat_children(v.children, opts)
+	case Doc_If_Break:
+		return measure_flat_children(v.flat, opts)
+	case Doc_Break_Parent:
+		return 0, false
 	}
 	return 0, true
 }
@@ -291,6 +316,14 @@ render_doc :: proc(rs: ^Render_State, d: Doc, mode: Render_Mode) {
 		for c in v.children {
 			render_doc(rs, c, mode)
 		}
+
+	case Doc_If_Break:
+		for c in (mode == .Flat ? v.flat : v.broken) {
+			render_doc(rs, c, mode)
+		}
+
+	case Doc_Break_Parent:
+	// Nothing to write: it only ever changes a group's fits check.
 	}
 }
 
@@ -302,7 +335,14 @@ compute_align_widths :: proc(d: Doc, opts: ^Options, widths: ^map[int]int) {
 		return
 	}
 	switch v in d.variant {
-	case Doc_Text, Doc_Line, Doc_Hard_Line:
+	case Doc_Text, Doc_Line, Doc_Hard_Line, Doc_Break_Parent:
+	case Doc_If_Break:
+		for c in v.flat {
+			compute_align_widths(c, opts, widths)
+		}
+		for c in v.broken {
+			compute_align_widths(c, opts, widths)
+		}
 	case Doc_Group:
 		for c in v.children {
 			compute_align_widths(c, opts, widths)

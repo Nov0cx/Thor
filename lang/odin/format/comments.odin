@@ -85,7 +85,13 @@ comment_group_text :: proc(pr: ^Printer, cg: ^ast.Comment_Group, out: ^[dynamic]
 			blanks := blanks_between(cg.list[i - 1].pos.line, tok.pos.line)
 			append(out, hard_line(blanks))
 		}
-		append(out, text(strings.trim_right_space(tok.text)))
+		trimmed := strings.trim_right_space(tok.text)
+		append(out, text(trimmed))
+		if strings.has_prefix(trimmed, "//") {
+			// A line comment rendered flat would swallow whatever follows it
+			// on that line, so every enclosing group has to break.
+			append(out, break_parent())
+		}
 	}
 }
 
