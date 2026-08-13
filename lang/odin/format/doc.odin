@@ -3,6 +3,11 @@
 // newlines) when it fits the remaining width, else broken (its Lines become
 // newlines); nested groups measure and decide independently, so a call that
 // fits still hugs one line inside an outer struct literal that had to break.
+//
+// A group's fits check measures the group alone, never the text that follows
+// it on the same line, so `foo(a, b) or_return` keeps the call flat even when
+// the tail crosses character_width. A full check needs a rest-of-document work
+// list; this one only ever under-breaks, and never emits wrong code.
 package odinfmt
 
 import "core:strings"
@@ -46,7 +51,8 @@ Doc_Hard_Line :: struct {
 }
 
 // Rendered flat when its flat width fits in the remaining line, else broken.
-// Any Hard_Line reachable without crossing a nested Group forces it broken.
+// Any Hard_Line below it forces it broken, nested groups included — measure_flat
+// recurses into a child group, so a forced break propagates to every ancestor.
 Doc_Group :: struct {
 	children: []Doc,
 }
@@ -57,6 +63,11 @@ Doc_Indent :: struct {
 
 // One cell of an alignment run: all Doc_Align nodes sharing `id` are padded
 // (in a pre-render measurement pass) to the widest cell's flat width.
+//
+// Two rules the emitter must keep. Every cell sharing an id must start at the
+// same column, since the pad is relative to where the cell started. And a cell
+// must never sit in a group that can render flat: measure_flat reports a cell's
+// unpadded width, so such a group under-measures itself.
 Doc_Align :: struct {
 	id:       int,
 	children: []Doc,
@@ -169,6 +180,7 @@ Render_State :: struct {
 	opts:         ^Options,
 	column:       int,
 	level:        int, // indent level, in "tabs" (or opts.spaces-wide steps)
+	lines:        int, // newlines written; an align cell that crossed one is never padded
 	align_widths: map[int]int,
 }
 
@@ -206,6 +218,7 @@ render_newlines :: proc(rs: ^Render_State, blanks: int) {
 	}
 	for _ in 0 ..= n {
 		strings.write_byte(&rs.sb, '\n')
+		rs.lines += 1
 	}
 	write_indent(rs)
 }
@@ -234,10 +247,12 @@ render_doc :: proc(rs: ^Render_State, d: Doc, mode: Render_Mode) {
 		render_newlines(rs, v.blanks)
 
 	case Doc_Group:
+		// A group inside a flat group inherits flat: the parent already
+		// committed to one line, so no descendant may break it.
 		child_mode := mode
 		if mode == .Break {
 			w, fits := measure_flat_children(v.children, rs.opts)
-			if fits && rs.column + w <= rs.opts.character_width {
+			if fits && (rs.opts.character_width <= 0 || rs.column + w <= rs.opts.character_width) {
 				child_mode = .Flat
 			} else {
 				child_mode = .Break
@@ -255,9 +270,16 @@ render_doc :: proc(rs: ^Render_State, d: Doc, mode: Render_Mode) {
 		rs.level -= 1
 
 	case Doc_Align:
+		// A cell that wrote a newline is left unpadded: rs.column then belongs
+		// to the continuation line, and padding it to a width measured from the
+		// previous line's start is only trailing whitespace.
 		start := rs.column
+		at := rs.lines
 		for c in v.children {
 			render_doc(rs, c, mode)
+		}
+		if rs.lines != at {
+			break
 		}
 		width := rs.align_widths[v.id]
 		for rs.column < start + width {
@@ -290,9 +312,12 @@ compute_align_widths :: proc(d: Doc, opts: ^Options, widths: ^map[int]int) {
 			compute_align_widths(c, opts, widths)
 		}
 	case Doc_Align:
-		w, _ := measure_flat_children(v.children, opts)
-		if cur, ok := widths[v.id]; !ok || w > cur {
-			widths[v.id] = w
+		// A cell with a hard line in it is never padded, so it must not widen
+		// the run either.
+		if w, measured := measure_flat_children(v.children, opts); measured {
+			if cur, ok := widths[v.id]; !ok || w > cur {
+				widths[v.id] = w
+			}
 		}
 		for c in v.children {
 			compute_align_widths(c, opts, widths)

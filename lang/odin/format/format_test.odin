@@ -87,6 +87,35 @@ token_stream :: proc(src: string) -> [dynamic]tokenizer.Token {
 	return out
 }
 
+// Alignment is whitespace, so the token stream cannot see it at all: a cell
+// padded on the wrong line, or a run that pads a member with nothing after it,
+// is token-identical and visibly broken. Nothing this printer emits ever
+// legitimately ends a line with a space or a tab.
+@(private)
+assert_no_trailing_whitespace :: proc(t: ^testing.T, path, out: string) -> bool {
+	rest := out
+	for line_no := 1; ; line_no += 1 {
+		line := rest
+		if cut := strings.index_byte(rest, '\n'); cut >= 0 {
+			line = rest[:cut]
+			rest = rest[cut + 1:]
+		} else {
+			rest = ""
+		}
+		if len(line) > 0 {
+			if last := line[len(line) - 1]; last == ' ' || last == '\t' {
+				fmt.println("TRAILING WHITESPACE:", path, "line", line_no, ":", line)
+				testing.fail(t)
+				return false
+			}
+		}
+		if len(rest) == 0 {
+			break
+		}
+	}
+	return true
+}
+
 @(private)
 assert_round_trip :: proc(t: ^testing.T, path: string) {
 	src, err := os.read_entire_file_from_path(path, context.allocator)
@@ -102,6 +131,9 @@ assert_round_trip :: proc(t: ^testing.T, path: string) {
 	if !fok {
 		fmt.println("FORMAT FAILED (syntax error):", path)
 		testing.fail(t)
+		return
+	}
+	if !assert_no_trailing_whitespace(t, path, out) {
 		return
 	}
 
