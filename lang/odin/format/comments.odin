@@ -9,18 +9,61 @@ import "core:odin/ast"
 import "core:odin/tokenizer"
 import "core:strings"
 
+// The alignment ids one node was given, filled by a per-body pre-pass and read
+// by whichever visitor prints that node. The run decision needs the whole run;
+// the emission happens several visitors deeper. A side table keyed on the node
+// keeps the two apart without threading an id through print_field, print_expr
+// and print_value_decl. Id 0 is "no cell".
+Align_Cell :: struct {
+	head:  int, // the name..':' cell
+	value: int, // the type cell, so what follows it lines up
+}
+
 Printer :: struct {
-	opts:         Options,
-	src:          string,
-	comments:     []^ast.Comment_Group,
-	comment_idx:  int,
+	opts:          Options,
+	src:           string,
+	comments:      []^ast.Comment_Group,
+	comment_idx:   int,
 	next_align_id: int,
+	align_ids:     map[rawptr]Align_Cell,
 }
 
 @(private)
 next_align :: proc(pr: ^Printer) -> int {
 	pr.next_align_id += 1
 	return pr.next_align_id
+}
+
+// The cell ids for `node`, or the zero value when it is in no run.
+@(private)
+align_cell :: proc(pr: ^Printer, node: rawptr) -> Align_Cell {
+	return pr.align_ids[node]
+}
+
+// Whether two consecutive body items may share one alignment run: directly
+// adjacent lines, and no comment on a line strictly between them. A trailing
+// comment on prev's own last line does not break a run — flush_trailing prints
+// it after the cell, where it cannot move it.
+//
+// The scan may start at the cursor: every pre-pass runs before its body's emit
+// loop, so a comment inside that body is always at an index the cursor has not
+// reached, and a comment before it fails the first test anyway.
+@(private)
+same_align_run :: proc(pr: ^Printer, prev_end_line, next_start_line: int) -> bool {
+	if next_start_line > prev_end_line + 1 {
+		return false
+	}
+	for i := pr.comment_idx; i < len(pr.comments); i += 1 {
+		cg := pr.comments[i]
+		if cg.pos.line <= prev_end_line {
+			continue
+		}
+		if cg.pos.line >= next_start_line {
+			break
+		}
+		return false
+	}
+	return true
 }
 
 // blanks between two lines that are `gap` apart (gap = next.line - prev.line),

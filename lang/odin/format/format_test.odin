@@ -63,6 +63,88 @@ test_spaces_around_colons :: proc(t: ^testing.T) {
 	testing.expect(t, strings.contains(out, "x : int = 1"), out)
 }
 
+@(test)
+test_align_struct_fields :: proc(t: ^testing.T) {
+	src := "package p\nFoo :: struct {\n\tx: int,\n\tlonger: string,\n}\n"
+	out, ok := format(src, default_options())
+	defer delete(out)
+	testing.expect(t, ok)
+	testing.expect(t, strings.contains(out, "\tx:      int,"), out)
+	testing.expect(t, strings.contains(out, "\tlonger: string,"), out)
+}
+
+@(test)
+test_align_struct_fields_off :: proc(t: ^testing.T) {
+	opts := default_options()
+	opts.align_struct_fields = false
+	src := "package p\nFoo :: struct {\n\tx: int,\n\tlonger: string,\n}\n"
+	out, ok := format(src, opts)
+	defer delete(out)
+	testing.expect(t, ok)
+	testing.expect(t, strings.contains(out, "\tx: int,"), out)
+}
+
+@(test)
+test_align_run_breaks_on_blank_line :: proc(t: ^testing.T) {
+	src := "package p\nFoo :: struct {\n\tx: int,\n\tlonger: string,\n\n\ta: int,\n\tbb: string,\n}\n"
+	out, ok := format(src, default_options())
+	defer delete(out)
+	testing.expect(t, ok)
+	testing.expect(t, strings.contains(out, "\tx:      int,"), out)
+	testing.expect(t, strings.contains(out, "\ta:  int,"), out)
+}
+
+@(test)
+test_align_run_breaks_on_own_line_comment :: proc(t: ^testing.T) {
+	src := "package p\nFoo :: struct {\n\tx: int,\n\tlonger: string,\n\t// note\n\ta: int,\n\tbb: string,\n}\n"
+	out, ok := format(src, default_options())
+	defer delete(out)
+	testing.expect(t, ok)
+	testing.expect(t, strings.contains(out, "\tx:      int,"), out)
+	testing.expect(t, strings.contains(out, "\ta:  int,"), out)
+}
+
+@(test)
+test_align_run_keeps_trailing_comment :: proc(t: ^testing.T) {
+	src := "package p\nFoo :: struct {\n\tx: int, // why\n\tlonger: string,\n}\n"
+	out, ok := format(src, default_options())
+	defer delete(out)
+	testing.expect(t, ok)
+	testing.expect(t, strings.contains(out, "\tx:      int,  // why"), out)
+	testing.expect(t, strings.contains(out, "\tlonger: string,"), out)
+}
+
+@(test)
+test_align_fields_spaces_around_colons :: proc(t: ^testing.T) {
+	opts := default_options()
+	opts.spaces_around_colons = true
+	src := "package p\nFoo :: struct {\n\tx: int,\n\tlonger: string,\n}\n"
+	out, ok := format(src, opts)
+	defer delete(out)
+	testing.expect(t, ok)
+	testing.expect(t, strings.contains(out, "\tx      : int,"), out)
+	testing.expect(t, strings.contains(out, "\tlonger : string,"), out)
+}
+
+@(test)
+test_align_fields_using_prefix_in_cell :: proc(t: ^testing.T) {
+	src := "package p\nFoo :: struct {\n\tusing base: Bar,\n\tx: int,\n}\n"
+	out, ok := format(src, default_options())
+	defer delete(out)
+	testing.expect(t, ok)
+	testing.expect(t, strings.contains(out, "\tusing base: Bar,"), out)
+	testing.expect(t, strings.contains(out, "\tx:          int,"), out)
+}
+
+@(test)
+test_align_fields_multiline_type_not_padded :: proc(t: ^testing.T) {
+	src := "package p\nFoo :: struct {\n\tx: int,\n\tinner: struct {\n\t\ta: int,\n\t\tbb: int,\n\t},\n}\n"
+	out, ok := format(src, default_options())
+	defer delete(out)
+	testing.expect(t, ok)
+	testing.expect(t, assert_no_trailing_whitespace(t, "<inline>", out), out)
+}
+
 @(private)
 token_stream :: proc(src: string) -> [dynamic]tokenizer.Token {
 	t: tokenizer.Tokenizer

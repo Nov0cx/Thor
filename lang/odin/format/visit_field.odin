@@ -29,27 +29,70 @@ field_name_is_synthetic :: proc(f: ^ast.Field) -> bool {
 	return f.names[0].pos == f.type.pos
 }
 
+// A field, in one of four shapes depending on which alignment cells the
+// pre-pass gave it: no cell (the plain form), a head cell so the colons line
+// up, a value cell so the defaults do, or both. With a value cell alone the
+// head and the type share one wide cell — an align cell inside another would
+// have to know the inner cell's *padded* width, which measure_flat cannot
+// report.
+//
+// The `using` and `#no_alias` prefixes belong inside the head cell: a cell that
+// starts past the indent column is padded relative to the wrong place.
 @(private)
 print_field :: proc(pr: ^Printer, out: ^[dynamic]Doc, f: ^ast.Field) {
+	cell := align_cell(pr, rawptr(f))
+
+	head: [dynamic]Doc
 	if .Using in f.flags {
-		append(out, text("using "))
+		append(&head, text("using "))
 	}
 	for flag in FIELD_DIRECTIVE_FLAGS {
 		if flag in f.flags {
-			append(out, text(ast.field_flag_strings[flag]))
-			append(out, text(" "))
+			append(&head, text(ast.field_flag_strings[flag]))
+			append(&head, text(" "))
 		}
 	}
 	has_names := len(f.names) > 0 && !field_name_is_synthetic(f)
 	if has_names {
-		print_expr_list(pr, out, f.names)
+		print_expr_list(pr, &head, f.names)
 	}
+
+	in_cell, after_cell := colon_split(pr)
+	has_colon := has_names && f.type != nil
+	if has_colon {
+		append(&head, text(in_cell))
+	}
+
+	type_doc: [dynamic]Doc
 	if f.type != nil {
-		if has_names {
-			append(out, text(colon_sep(pr)))
-		}
-		print_expr(pr, out, f.type)
+		print_expr(pr, &type_doc, f.type)
 	}
+
+	switch {
+	case cell.head != 0:
+		append(out, align(cell.head, head[:]))
+		if has_colon {
+			append(out, text(after_cell))
+		}
+		if cell.value != 0 {
+			append(out, align(cell.value, type_doc[:]))
+		} else {
+			append(out, ..type_doc[:])
+		}
+	case cell.value != 0:
+		if has_colon {
+			append(&head, text(after_cell))
+		}
+		append(&head, ..type_doc[:])
+		append(out, align(cell.value, head[:]))
+	case:
+		append(out, ..head[:])
+		if has_colon {
+			append(out, text(after_cell))
+		}
+		append(out, ..type_doc[:])
+	}
+
 	if f.default_value != nil {
 		if f.type != nil {
 			append(out, text(" = "))
@@ -81,8 +124,49 @@ print_field_list :: proc(pr: ^Printer, out: ^[dynamic]Doc, fl: ^ast.Field_List) 
 // body shape. `close_line` is the enclosing type node's own end line (never
 // the Field_List's — the parser leaves Field_List.open/close at their zero
 // value, so relying on those miscomputes every blank-line gap in the body).
+// Whether a field has the `name: type` shape a head cell needs. A bare embedded
+// type (`using Foo`), a synthetic `_` name and a missing type all have no colon
+// to align to.
+@(private)
+field_alignable :: proc(f: ^ast.Field) -> bool {
+	return f.type != nil && len(f.names) > 0 && !field_name_is_synthetic(f)
+}
+
+// One head id per maximal run of two or more alignable fields on adjacent
+// lines. Runs are decided here, before a single field is emitted, so a
+// separator that later appends a comment cannot change one mid-flight; a lone
+// field gets no id, since padding a cell to its own width does nothing.
+@(private)
+assign_field_align_ids :: proc(pr: ^Printer, fields: []^ast.Field) {
+	if !pr.opts.align_struct_fields {
+		return
+	}
+	for i := 0; i < len(fields); {
+		if !field_alignable(fields[i]) {
+			i += 1
+			continue
+		}
+		end := i + 1
+		for end < len(fields) &&
+		    field_alignable(fields[end]) &&
+		    same_align_run(pr, fields[end - 1].end.line, fields[end].pos.line) {
+			end += 1
+		}
+		if end - i >= 2 {
+			id := next_align(pr)
+			for f in fields[i:end] {
+				cell := pr.align_ids[rawptr(f)]
+				cell.head = id
+				pr.align_ids[rawptr(f)] = cell
+			}
+		}
+		i = end
+	}
+}
+
 @(private)
 print_field_brace_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, close_line: int, fields: []^ast.Field) {
+	assign_field_align_ids(pr, fields)
 	append(out, text("{"))
 	if len(fields) == 0 {
 		body: [dynamic]Doc

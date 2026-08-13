@@ -64,3 +64,16 @@ colon_sep :: proc(pr: ^Printer) -> string {
 	}
 	return ": "
 }
+
+// colon_sep, split into the part that belongs inside an alignment cell and the
+// part that follows the pad; in_cell + after_cell is colon_sep(pr) always. With
+// spaces_around_colons the pad sits before the " : ", so colons and types both
+// line up; without it the pad sits after the ":", since a space before a colon
+// is what that option is off to avoid.
+@(private)
+colon_split :: proc(pr: ^Printer) -> (in_cell, after_cell: string) {
+	if pr.opts.spaces_around_colons {
+		return "", " : "
+	}
+	return ":", " "
+}

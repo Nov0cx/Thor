@@ -53,6 +53,7 @@ format :: proc(source: string, opts: Options, allocator := context.allocator) ->
 	pr.opts = opts
 	pr.src = source
 	pr.comments = file.comments[:]
+	pr.align_ids = make(map[rawptr]Align_Cell) // arena-backed, dropped with the AST
 
 	doc := print_file(&pr, &file)
 	rendered := render(doc, &pr.opts, allocator)
