@@ -81,3 +81,10 @@ First release. Thor runs on Windows, Linux and macOS.
 - On Linux and macOS, two paths that differ only in case are no longer taken for the same file.
 - A first run no longer warns about the settings files it has not created yet.
 - Typing an opening bracket or quote no longer rebuilds the whole document, so auto-pairs stay fast in a large file.
+- A tab is drawn at a real tab stop, `tab_width` columns wide, instead of one space. The caret column, soft tabs, "Edit: Align at Character", soft wrap and the status bar all count it the same way.
+- Upper/lower/capitalize (`alt + u`, `alt + l`, `alt + c`) work in every script, not only ASCII: `straße` uppercases to `STRAẞE`, and Greek, Cyrillic and accented Latin change case.
+- Case-insensitive find matches across case mappings that change a word's length, so `straße` finds `STRAẞE`.
+- The caret, backspace and delete move by one character as it is displayed: an emoji, a flag, a Hangul syllable or a letter with a combining accent is no longer split in half. This covers the editor, the console and the find and command-palette input lines.
+- `ctrl + d` matches whole words, so `foo` no longer selects the `foo` inside `food`. `ctrl + shift + d` keeps the old substring behavior.
+- Repeated `ctrl + d` reaches every occurrence in the file. It used to stop once it wrapped to the first one.
+- Copy with several carets and nothing selected copies every caret's line, matching what cut already deleted.

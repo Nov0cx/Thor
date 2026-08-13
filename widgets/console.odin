@@ -4,6 +4,7 @@ import "core:strings"
 import "core:unicode/utf8"
 import rl "vendor:raylib"
 
+import "../textedit"
 import "../ui"
 
 // Called on Enter with a non-empty command; the command runs elsewhere and
@@ -271,19 +272,17 @@ console_pos_at :: proc(console: ^Console, position: rl.Vector2) -> int {
     line := console_line_text(console, index)
     target_x := position.x - (console.bounds.x + CONSOLE_PAD_X)
 
-    // Rune-boundary byte offsets in the line, so the hit test below can binary
+    // Grapheme-cluster byte offsets in the line, so the hit test below can binary
     // search instead of re-measuring the growing prefix at every byte — this
     // was O(line length squared) with a long unwrapped line.
-    rune_count := utf8.rune_count_in_string(line)
-    boundaries := make([]int, rune_count + 1, context.temp_allocator)
-    p := 0
-    for i := 1; i <= rune_count; i += 1 {
-        _, width := utf8.decode_rune_in_string(line[p:])
-        p += width
-        boundaries[i] = p
+    boundaries := make([dynamic]int, 1, len(line) + 1, context.temp_allocator)
+    for p := 0; p < len(line); {
+        p = textedit.grapheme_next(line, p)
+        append(&boundaries, p)
     }
+    cluster_count := len(boundaries) - 1
 
-    lo, hi := 0, rune_count
+    lo, hi := 0, cluster_count
     for lo < hi {
         mid := (lo + hi) / 2
         before := cast(f32) ui.measure_text(line[:boundaries[mid]], console.font_size)
@@ -674,7 +673,7 @@ console_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
             hi := clamp(sel_hi - line_start, 0, len(line))
             if lo < hi {
                 prefix_w := ui.measure_text(line[:lo], console.font_size)
-                span_w := ui.measure_text(line[lo:hi], console.font_size)
+                span_w := ui.measure_text(line[:hi], console.font_size) - prefix_w
                 sx := cast(i32) (console.bounds.x + CONSOLE_PAD_X) + prefix_w
                 rl.DrawRectangle(sx, cast(i32) y, span_w, cast(i32) line_height, selection_color)
             }
@@ -686,7 +685,7 @@ console_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
                 s = clamp(s, 0, len(line))
                 e = clamp(e, s, len(line))
                 prefix_w := ui.measure_text(line[:s], console.font_size)
-                span_w := ui.measure_text(line[s:e], console.font_size)
+                span_w := ui.measure_text(line[:e], console.font_size) - prefix_w
                 ux := cast(i32) (console.bounds.x + CONSOLE_PAD_X) + prefix_w
                 rl.DrawRectangle(ux, cast(i32) y + console.font_size, span_w, 1, console.link_color)
             }

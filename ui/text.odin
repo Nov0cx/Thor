@@ -407,7 +407,61 @@ line_cstring :: proc(text: string, buffer: []u8) -> cstring {
     return cast(cstring) raw_data(buffer)
 }
 
-measure_text :: proc(text: string, font_size: i32, family := "") -> i32 {
+// Codepoint-path walk of one line, for a family/size with no shaping data.
+// raylib has no tab handling and 0x09 is never baked, so a tab would draw '?';
+// split at the tabs and snap the pen to the next stop between the pieces.
+// Measuring and drawing share this, so the two cannot drift. Returns the width.
+@(private = "file")
+fallback_line :: proc(
+    font: rl.Font,
+    line: string,
+    x, y: f32,
+    origin: f32,
+    font_size: i32,
+    color: rl.Color,
+    draw: bool,
+) -> f32 {
+    scratch: [LINE_SCRATCH]u8
+    // No atlas (a headless run): every width is 0, and a 0 cell makes tab_stop
+    // a no-op rather than a null dereference.
+    cell: f32 = 0
+    if font.glyphs != nil && font.glyphCount > 0 {
+        cell = cast(f32) font.glyphs[rl.GetGlyphIndex(font, ' ')].advanceX
+    }
+    pen := origin
+    rest := line
+    for {
+        piece := rest
+        tab := strings.index_byte(rest, '\t')
+        if tab >= 0 {
+            piece = rest[:tab]
+        }
+        if piece != "" {
+            if draw {
+                rl.DrawTextEx(
+                    font,
+                    line_cstring(piece, scratch[:]),
+                    rl.Vector2 {x - origin + pen, y},
+                    cast(f32) font_size,
+                    0,
+                    color,
+                )
+            }
+            pen += rl.MeasureTextEx(font, line_cstring(piece, scratch[:]), cast(f32) font_size, 0).x
+        }
+        if tab < 0 {
+            break
+        }
+        pen = tab_stop(pen, cell)
+        rest = rest[tab + 1:]
+    }
+    return pen - origin
+}
+
+// `tab_origin` is the pixel distance from the line origin to the start of
+// `text`, for a caller measuring one line in pieces. It applies to the first
+// line only, so pass single-line text with a non-zero origin.
+measure_text :: proc(text: string, font_size: i32, family := "", tab_origin: i32 = 0) -> i32 {
     name := family
     if name == "" {
         name = default_family_name
@@ -416,22 +470,24 @@ measure_text :: proc(text: string, font_size: i32, family := "") -> i32 {
 
     font := get_font(font_size, family)
     max_width: f32 = 0
+    origin := cast(f32) tab_origin
     source := text
-    scratch: [LINE_SCRATCH]u8
 
     for line in strings.split_lines_iterator(&source) {
         // Shaped path first, exactly like draw_text: a ligature has one advance
         // instead of the sum raylib measures per codepoint.
-        width, shaped := measure_line_shaped(fam, font, font_size, line)
+        width, shaped := measure_line_shaped(fam, font, font_size, line, origin)
         if !shaped {
-            width = rl.MeasureTextEx(font, line_cstring(line, scratch[:]), cast(f32) font_size, 0).x
+            width = fallback_line(font, line, 0, 0, origin, font_size, rl.BLANK, false)
         }
         if width > max_width {
             max_width = width
         }
+        origin = 0 // only the first line starts mid-line
     }
 
     if max_width == 0 && text != "" {
+        scratch: [LINE_SCRATCH]u8
         size := rl.MeasureTextEx(font, line_cstring(text, scratch[:]), cast(f32) font_size, 0)
         max_width = size.x
     }
@@ -439,7 +495,8 @@ measure_text :: proc(text: string, font_size: i32, family := "") -> i32 {
     return cast(i32) max_width
 }
 
-draw_text :: proc(text: string, x, y, font_size: i32, color: rl.Color, family := "") {
+// See measure_text for `tab_origin`.
+draw_text :: proc(text: string, x, y, font_size: i32, color: rl.Color, family := "", tab_origin: i32 = 0) {
     if text == "" {
         return
     }
@@ -453,21 +510,15 @@ draw_text :: proc(text: string, x, y, font_size: i32, color: rl.Color, family :=
     font := get_font(font_size, family)
     source := text
     line_y := cast(f32) y
-    scratch: [LINE_SCRATCH]u8
+    origin := cast(f32) tab_origin
 
     for line in strings.split_lines_iterator(&source) {
         // Shaped path first (ligatures); falls back to raylib's codepoint path
         // for sizes without shaping data.
-        if !draw_line_shaped(fam, font, font_size, line, x, cast(i32) line_y, color) {
-            rl.DrawTextEx(
-                font,
-                line_cstring(line, scratch[:]),
-                rl.Vector2 {cast(f32) x, line_y},
-                cast(f32) font_size,
-                0,
-                color,
-            )
+        if !draw_line_shaped(fam, font, font_size, line, x, cast(i32) line_y, color, origin) {
+            fallback_line(font, line, cast(f32) x, line_y, origin, font_size, color, true)
         }
         line_y += cast(f32) text_line_height(font_size)
+        origin = 0
     }
 }

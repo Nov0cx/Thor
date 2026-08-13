@@ -92,7 +92,8 @@ Add `shift` to any movement to extend the selection.
 | Binding | Action |
 | --- | --- |
 | ctrl + a | select all |
-| ctrl + d | select word; press again: add cursor at next occurrence |
+| ctrl + d | select word; press again: add cursor at next whole-word occurrence |
+| ctrl + shift + d | same, matching substrings instead of whole words |
 | ctrl + l | select line; press again: extend one line |
 | ctrl + alt + up / down | add cursor above / below |
 | escape | collapse to one cursor, clear selection |

@@ -126,6 +126,7 @@ Editor :: struct {
     rows_wrap:          bool,
     rows_font_size:     i32,
     rows_width:         f32,
+    rows_tab_width:     int,
     // Set by a change the stamps above cannot see (the fold set).
     rows_stale:         bool,
     // Syntax highlight spans for the current buffer; borrowed from the owner.
@@ -852,7 +853,10 @@ editor_rows_fresh :: proc(editor: ^Editor) -> bool {
     if editor.rows_revision != editor.state.revision || editor.rows_wrap != editor.wrap {
         return false
     }
-    if editor.wrap && (editor.rows_font_size != editor.font_size || editor.rows_width != editor_text_width(editor)) {
+    if editor.wrap &&
+       (editor.rows_font_size != editor.font_size ||
+               editor.rows_width != editor_text_width(editor) ||
+               editor.rows_tab_width != textedit.tab_width(editor.state)) {
         return false
     }
     return true
@@ -869,10 +873,12 @@ editor_rebuild_visual_rows :: proc(editor: ^Editor) {
     editor.rows_wrap = editor.wrap
     editor.rows_font_size = editor.font_size
     editor.rows_width = editor_text_width(editor)
+    editor.rows_tab_width = textedit.tab_width(editor.state)
     editor.rows_stale = false
 
     text := textedit.text(editor.state)
     cols := editor_wrap_cols(editor)
+    tab_width := editor.rows_tab_width
 
     line_start := 0
     line_index := 0
@@ -880,7 +886,7 @@ editor_rebuild_visual_rows :: proc(editor: ^Editor) {
     for {
         line_end := textedit.line_end(text, line_start)
         if line_index > hidden_until {
-            editor_wrap_line(editor, text, line_start, line_end, cols, line_index)
+            editor_wrap_line(editor, text, line_start, line_end, cols, line_index, tab_width)
             // A collapsed fold starting here hides everything down to its end.
             if end := editor_folded_end(editor, line_index); end > hidden_until {
                 hidden_until = end
@@ -897,7 +903,7 @@ editor_rebuild_visual_rows :: proc(editor: ^Editor) {
 // Appends the visual rows for one logical line, breaking at the last fitting
 // space (falling back to a hard character break).
 @(private = "file")
-editor_wrap_line :: proc(editor: ^Editor, text: string, line_start, line_end, cols, line_index: int) {
+editor_wrap_line :: proc(editor: ^Editor, text: string, line_start, line_end, cols, line_index, tab_width: int) {
     // With wrapping off cols is max(int), so the walk below can never break the
     // line — skip it rather than decoding every rune in the buffer per rebuild.
     if line_start == line_end || cols == max(int) {
@@ -922,7 +928,7 @@ editor_wrap_line :: proc(editor: ^Editor, text: string, line_start, line_end, co
             i = brk
             continue
         }
-        col += 1
+        col += r == '	' ? tab_width - (col % tab_width) : 1
         i += w
         if r == ' ' {
             last_break = i
@@ -952,17 +958,12 @@ editor_visual_row_index :: proc(editor: ^Editor, pos: int) -> int {
     return max(0, len(rows) - 1)
 }
 
-// Byte offset of the rune at column `col` within [start, end].
+// Byte offset at display column `col` within [start, end]. Columns are counted
+// from the row start, so a wrapped continuation row restarts its tab stops —
+// which is what the renderer draws, since the row begins at x 0 of the text area.
 @(private = "file")
-editor_byte_at_col :: proc(text: string, start, end, col: int) -> int {
-    pos := start
-    n := 0
-    for pos < end && n < col {
-        _, w := utf8.decode_rune_in_string(text[pos:])
-        pos += w
-        n += 1
-    }
-    return pos
+editor_byte_at_col :: proc(text: string, start, end, col, tab_width: int) -> int {
+    return start + textedit.display_offset(text[start:end], col, tab_width)
 }
 
 editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event) -> bool {
@@ -1436,8 +1437,14 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
             return true
         }
     case .D:
+        // Before the ctrl_only branch: ctrl_only does not exclude shift.
+        if ctrl_only && event.shift {
+            textedit.select_word_or_next(state, false)
+            editor_scroll_to_caret(editor)
+            return true
+        }
         if ctrl_only {
-            textedit.select_word_or_next(state)
+            textedit.select_word_or_next(state, true)
             editor_scroll_to_caret(editor)
             return true
         }
@@ -2351,6 +2358,10 @@ editor_draw_row_text :: proc(editor: ^Editor, text: string, row: Visual_Row, hl_
     span := editor_swatch_span(editor)
 
     pen := cast(f32) text_x
+    // Tab stops sit on a grid of measured text alone; a swatch gap shifts the
+    // rest of the row afterwards and must stay out of the origin, or the caret
+    // (which never sees a gap) would disagree with the pixels after a tab.
+    text_pen: f32 = 0
     pos := row.start
     j := hl_start
     si := 0
@@ -2389,8 +2400,10 @@ editor_draw_row_text :: proc(editor: ^Editor, text: string, row: Visual_Row, hl_
         }
 
         seg := text[pos:run_end]
-        ui.draw_text(seg, cast(i32) pen, row_y, editor.font_size, color)
-        pen += cast(f32) ui.measure_text(seg, editor.font_size)
+        ui.draw_text(seg, cast(i32) pen, row_y, editor.font_size, color, "", cast(i32) text_pen)
+        seg_width := cast(f32) ui.measure_text(seg, editor.font_size, "", cast(i32) text_pen)
+        pen += seg_width
+        text_pen += seg_width
         pos = run_end
     }
 }
@@ -2813,20 +2826,19 @@ editor_pos_at :: proc(editor: ^Editor, position: rl.Vector2) -> (int, bool) {
     swatch_count := editor_scan_swatches(row_text, swatches[:])
     span := editor_swatch_span(editor)
 
-    // Rune-boundary byte offsets in the row, so the hit test below can binary
+    // Grapheme-cluster byte offsets in the row, so the hit test below can binary
     // search instead of re-measuring the growing prefix at every byte —
-    // O(row length * log row length) instead of O(row length squared).
-    rune_count := utf8.rune_count_in_string(row_text)
-    boundaries := make([]int, rune_count + 1, context.temp_allocator)
-    boundaries[0] = row.start
-    p := row.start
-    for i := 1; i <= rune_count; i += 1 {
-        _, width := utf8.decode_rune_in_string(text[p:])
-        p += width
-        boundaries[i] = p
+    // O(row length * log row length) instead of O(row length squared). Clusters,
+    // not runes, so a click never lands inside one.
+    boundaries := make([dynamic]int, 0, len(row_text) + 1, context.temp_allocator)
+    append(&boundaries, row.start)
+    for p := row.start; p < row.end; {
+        p = min(textedit.grapheme_next(text, p), row.end)
+        append(&boundaries, p)
     }
+    cluster_count := len(boundaries) - 1
 
-    lo, hi := 0, rune_count
+    lo, hi := 0, cluster_count
     for lo < hi {
         mid := (lo + hi) / 2
         width_before := editor_row_width_at(editor, text, row, swatches[:swatch_count], span, boundaries[mid])
@@ -2902,14 +2914,15 @@ editor_move_visual :: proc(editor: ^Editor, delta: int, extend: bool) {
         return
     }
     text := textedit.text(editor.state)
+    tab_width := textedit.tab_width(editor.state)
     for &cursor in editor.state.cursors {
         row_index := editor_visual_row_index(editor, cursor.caret)
         row := editor.visual_rows[row_index]
-        col := utf8.rune_count_in_string(text[row.start:clamp(cursor.caret, row.start, row.end)])
+        col := textedit.display_width(text[row.start:clamp(cursor.caret, row.start, row.end)], tab_width)
 
         target := clamp(row_index + delta, 0, len(editor.visual_rows) - 1)
         trow := editor.visual_rows[target]
-        cursor.caret = editor_byte_at_col(text, trow.start, trow.end, col)
+        cursor.caret = editor_byte_at_col(text, trow.start, trow.end, col, tab_width)
         if !extend {
             cursor.anchor = cursor.caret
         }

@@ -122,7 +122,7 @@ local reference = {
         title = "Selection & multi-cursor",
         entries = {
             { action = "select_all", fallback = "Ctrl+A", desc = "Select the whole file" },
-            { action = "select_word", fallback = "Ctrl+D", desc = "Select the word; press again to add a cursor at the next occurrence" },
+            { action = "select_word", fallback = "Ctrl+D", desc = "Select the word; press again to add a cursor at the next whole-word occurrence (Ctrl+Shift+D matches substrings)" },
             { action = "select_line", fallback = "Ctrl+L", desc = "Select the line; press again to extend by a line" },
             { action = "add_cursor_above", desc = "Add a cursor on the line above" },
             { action = "add_cursor_below", desc = "Add a cursor on the line below" },

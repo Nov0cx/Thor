@@ -5,6 +5,7 @@ package textedit
 
 import "core:slice"
 import "core:strings"
+import "core:unicode"
 import "core:unicode/utf8"
 
 import "../piecetable"
@@ -25,9 +26,11 @@ clear_selections :: proc(state: ^State) {
     cursor.anchor = cursor.caret
 }
 
-// Text for the clipboard: all selections joined with newlines, or the
-// primary cursor's whole line (including its newline) when nothing is
-// selected. The bool reports whether a selection was used.
+// Text for the clipboard: all selections joined with newlines, or every
+// cursor's whole line (including its newline) when nothing is selected. Two
+// carets on one line yield it once. The bool reports whether a selection was
+// used; the no-selection payload covers the same lines cut deletes, since
+// select_line also runs over every cursor.
 copy_payload :: proc(state: ^State, allocator := context.temp_allocator) -> (string, bool) {
     txt := text(state)
 
@@ -48,13 +51,21 @@ copy_payload :: proc(state: ^State, allocator := context.temp_allocator) -> (str
         return strings.to_string(builder), true
     }
 
-    cursor := primary_cursor(state)
-    start := line_start(txt, cursor.caret)
-    end := line_end(txt, cursor.caret)
-    if end < len(txt) {
-        end += 1 // include the newline so pasting reproduces the line
+    builder := strings.builder_make(allocator)
+    last_start := -1
+    for cursor in state.cursors {
+        start := line_start(txt, cursor.caret)
+        if start == last_start {
+            continue
+        }
+        last_start = start
+        end := line_end(txt, cursor.caret)
+        if end < len(txt) {
+            end += 1 // include the newline so pasting reproduces the line
+        }
+        strings.write_string(&builder, txt[start:end])
     }
-    return strings.clone(txt[start:end], allocator), false
+    return strings.to_string(builder), false
 }
 
 // Expands every selection to whole lines including the trailing newline;
@@ -70,7 +81,7 @@ select_line :: proc(state: ^State) {
         }
         cursor.anchor = start
         cursor.caret = end
-        cursor.preferred_column = column(txt, end)
+        cursor.preferred_column = cursor_column(state, txt, end)
     }
     normalize_cursors(state)
 }
@@ -89,9 +100,22 @@ word_range_at :: proc(txt: string, pos: int) -> (int, int, bool) {
     return start, end, end > start
 }
 
+// True when a cursor already holds exactly [start, start + width).
+@(private = "file")
+occurrence_selected :: proc(state: ^State, start, width: int) -> bool {
+    for cursor in state.cursors {
+        clo, chi := selection_range(cursor)
+        if clo == start && chi == start + width {
+            return true
+        }
+    }
+    return false
+}
+
 // Ctrl+D: without a selection, selects the word under each cursor; with a
-// primary selection, adds a cursor at its next occurrence (wrapping).
-select_word_or_next :: proc(state: ^State) {
+// primary selection, adds a cursor at its next free occurrence, wrapping past
+// the end. `whole_word` skips an occurrence glued to a word character.
+select_word_or_next :: proc(state: ^State, whole_word: bool) {
     txt := text(state)
     primary := primary_cursor(state)
 
@@ -104,7 +128,7 @@ select_word_or_next :: proc(state: ^State) {
             if found {
                 cursor.anchor = start
                 cursor.caret = end
-                cursor.preferred_column = column(txt, end)
+                cursor.preferred_column = cursor_column(state, txt, end)
             }
         }
         normalize_cursors(state)
@@ -114,27 +138,42 @@ select_word_or_next :: proc(state: ^State) {
     lo, hi := selection_range(primary)
     needle := txt[lo:hi]
 
+    // Every occurrence from the primary's end, wrapping once: taking only the
+    // document-first one on wrap strands the occurrences before the primary.
     next := -1
-    if idx := strings.index(txt[hi:], needle); idx >= 0 {
-        next = hi + idx
-    } else if idx := strings.index(txt, needle); idx >= 0 && idx < lo {
-        next = idx
+    scan := hi
+    wrapped := false
+    for {
+        idx := scan + len(needle) <= len(txt) ? strings.index(txt[scan:], needle) : -1
+        if idx < 0 {
+            if wrapped {
+                break
+            }
+            wrapped, scan = true, 0
+            continue
+        }
+        at := scan + idx
+        if wrapped && at >= hi {
+            break
+        }
+        scan = at + 1
+        if whole_word && !word_bounded(txt, at, at + len(needle)) {
+            continue
+        }
+        if occurrence_selected(state, at, len(needle)) {
+            continue
+        }
+        next = at
+        break
     }
     if next < 0 {
         return
     }
 
-    for cursor in state.cursors {
-        clo, chi := selection_range(cursor)
-        if clo == next && chi == next + len(needle) {
-            return // already selected
-        }
-    }
-
     append(&state.cursors, Cursor {
         anchor = next,
         caret = next + len(needle),
-        preferred_column = column(txt, next + len(needle)),
+        preferred_column = cursor_column(state, txt, next + len(needle)),
     })
     normalize_cursors(state)
 }
@@ -282,16 +321,19 @@ Case_Transform :: enum {
 }
 
 // Upper/lower/title-cases each selection, or the word under the caret when it
-// has none. ASCII-only, so byte lengths are preserved and cursors stay valid;
-// other bytes pass through. One undo entry.
+// has none. Unicode-aware, so a transform can change the byte length (ß becomes
+// ẞ) and every later cursor is shifted by the running offset. One undo entry.
 transform_case :: proc(state: ^State, mode: Case_Transform) {
     txt := text(state)
     entry := Undo_Entry {cursors_before = clone_cursors(state)}
     changed := false
 
+    // Cursors are in ascending order, so one running offset remaps them all.
+    offset := 0
     for &cursor in state.cursors {
         lo, hi := selection_range(cursor)
         had_selection := hi > lo
+        caret := cursor.caret
         if !had_selection {
             start, end, found := word_range_at(txt, cursor.caret)
             if !found {
@@ -301,21 +343,30 @@ transform_case :: proc(state: ^State, mode: Case_Transform) {
         }
 
         original := txt[lo:hi]
-        transformed := transform_case_bytes(original, mode)
+        transformed := transform_case_string(original, mode)
         if transformed == original {
             continue
         }
 
-        append(&entry.ops, Edit_Op {kind = .Delete, pos = lo, text = strings.clone(original)})
-        piecetable.piecetable_delete(&state.table, lo, hi - lo)
-        append(&entry.ops, Edit_Op {kind = .Insert, pos = lo, text = strings.clone(transformed)})
-        piecetable.piecetable_insert(&state.table, lo, transformed)
+        append(&entry.ops, Edit_Op {kind = .Delete, pos = lo + offset, text = strings.clone(original)})
+        piecetable.piecetable_delete(&state.table, lo + offset, hi - lo)
+        append(&entry.ops, Edit_Op {kind = .Insert, pos = lo + offset, text = strings.clone(transformed)})
+        piecetable.piecetable_insert(&state.table, lo + offset, transformed)
         changed = true
 
         if had_selection {
-            cursor.anchor = lo
-            cursor.caret = hi
+            cursor.anchor = lo + offset
+            cursor.caret = lo + offset + len(transformed)
+        } else {
+            // Hold the caret where it sat in the word, on a rune boundary.
+            rel := min(caret - lo, len(transformed))
+            for rel < len(transformed) && transformed[rel] & 0xC0 == 0x80 {
+                rel += 1
+            }
+            cursor.caret = lo + offset + rel
+            cursor.anchor = cursor.caret
         }
+        offset += len(transformed) - (hi - lo)
     }
 
     if changed {
@@ -326,40 +377,36 @@ transform_case :: proc(state: ^State, mode: Case_Transform) {
 }
 
 @(private = "file")
-transform_case_bytes :: proc(s: string, mode: Case_Transform, allocator := context.temp_allocator) -> string {
-    buf := make([]u8, len(s), allocator)
+transform_case_string :: proc(s: string, mode: Case_Transform, allocator := context.temp_allocator) -> string {
+    builder := strings.builder_make(0, len(s), allocator)
     at_word_start := true
-    for i in 0 ..< len(s) {
-        c := s[i]
+    for r in s {
+        word := is_word_rune(r)
         switch mode {
         case .Upper:
-            buf[i] = ascii_upper(c)
+            strings.write_rune(&builder, unicode.to_upper(r))
         case .Lower:
-            buf[i] = ascii_lower(c)
+            strings.write_rune(&builder, unicode.to_lower(r))
         case .Title:
-            word := is_word_byte(c)
+            // Not unicode.to_title: it searches one table and indexes another,
+            // and differs from to_upper only for a few digraphs.
             switch {
             case word && at_word_start:
-                buf[i] = ascii_upper(c)
+                strings.write_rune(&builder, unicode.to_upper(r))
             case word:
-                buf[i] = ascii_lower(c)
+                strings.write_rune(&builder, unicode.to_lower(r))
             case:
-                buf[i] = c
+                strings.write_rune(&builder, r)
             }
-            at_word_start = !word
         }
+        at_word_start = !word
     }
-    return string(buf)
+    return strings.to_string(builder)
 }
 
 @(private = "file")
-ascii_upper :: proc(b: u8) -> u8 {
-    return b >= 'a' && b <= 'z' ? b - 32 : b
-}
-
-@(private = "file")
-ascii_lower :: proc(b: u8) -> u8 {
-    return b >= 'A' && b <= 'Z' ? b + 32 : b
+is_word_rune :: proc(r: rune) -> bool {
+    return r == '_' || unicode.is_letter(r) || unicode.is_digit(r)
 }
 
 // Joins the lines covered by the primary selection into one; with no selection,
@@ -714,7 +761,7 @@ insert_soft_tab :: proc(state: ^State) {
             piecetable.piecetable_delete(&state.table, lo + offset, hi - lo)
         }
         width := tab_width(state)
-        count := width - (column(txt, lo) % width)
+        count := width - (cursor_column(state, txt, lo) % width)
         all_spaces := INDENT_SPACES
         spaces := all_spaces[:count]
         append(&entry.ops, Edit_Op {kind = .Insert, pos = lo + offset, text = strings.clone(spaces)})
@@ -938,7 +985,7 @@ align_at_char :: proc(state: ^State, target: rune) {
         if ws == start {
             continue // target is the first non-blank; leave indentation alone
         }
-        content_col := column(txt, ws)
+        content_col := cursor_column(state, txt, ws)
         append(&targets, Line_Target {ws_start = ws, char_pos = char_pos, content_col = content_col})
         align_col = max(align_col, content_col + 1)
     }

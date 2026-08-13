@@ -288,10 +288,11 @@ thor_status_info :: proc(data: rawptr) -> widgets.Status_Info {
 
         text := textedit.text(&file.state)
         caret := textedit.primary_cursor(&file.state).caret
-        line_start := textedit.line_start(text, caret)
         caret_line := textedit.state_line_index(&file.state, caret)
         info.line = caret_line + 1
-        info.column = utf8.rune_count_in_string(text[line_start:caret]) + 1
+        // Counted from the logical line start, so on a soft-wrapped continuation
+        // row this and the caret's pixel column are deliberately different.
+        info.column = textedit.column(text, caret, textedit.tab_width(&file.state)) + 1
 
         // With no transient notice up, show the diagnostic on the caret's line
         // (an error outranks a warning) so its message is readable without a hover.

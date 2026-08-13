@@ -28,20 +28,81 @@ test_copy_payload :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_copy_payload_multi_caret :: proc(t: ^testing.T) {
+    state := ops_state("one\ntwo\nthree", 0)
+    defer destroy(&state)
+    set_cursors(&state, {Cursor{caret = 1, anchor = 1}, Cursor{caret = 9, anchor = 9}})
+
+    payload, had_selection := copy_payload(&state)
+    testing.expect(t, !had_selection, "no selection expected")
+    testing.expect_value(t, payload, "one\nthree")
+
+    // Two carets on one line yield it once.
+    set_cursors(&state, {Cursor{caret = 4, anchor = 4}, Cursor{caret = 6, anchor = 6}})
+    payload, _ = copy_payload(&state)
+    testing.expect_value(t, payload, "two\n")
+}
+
+@(test)
 test_select_word_and_next :: proc(t: ^testing.T) {
     state := ops_state("foo bar foo baz foo", 9) // inside first... second "foo"? caret 9 = inside "foo" at 8
     defer destroy(&state)
 
-    select_word_or_next(&state)
+    select_word_or_next(&state, true)
     lo, hi := selection_range(primary_cursor(&state))
     testing.expect_value(t, text(&state)[lo:hi], "foo")
 
-    select_word_or_next(&state)
+    select_word_or_next(&state, true)
     testing.expect_value(t, len(state.cursors), 2)
-    select_word_or_next(&state) // wraps to the first occurrence
+    select_word_or_next(&state, true) // wraps to the first occurrence
     testing.expect_value(t, len(state.cursors), 3)
-    select_word_or_next(&state) // everything selected already: no growth
+    select_word_or_next(&state, true) // everything selected already: no growth
     testing.expect_value(t, len(state.cursors), 3)
+}
+
+@(test)
+test_select_next_skips_substring :: proc(t: ^testing.T) {
+    state := ops_state("foo food foo", 1)
+    defer destroy(&state)
+
+    select_word_or_next(&state, true)
+    select_word_or_next(&state, true) // "food" is not a whole-word hit
+    testing.expect_value(t, len(state.cursors), 2)
+    lo, hi := selection_range(state.cursors[1])
+    testing.expect_value(t, lo, 9)
+    testing.expect_value(t, hi, 12)
+
+    // Substring mode reaches the "foo" inside "food".
+    sub := ops_state("foo food foo", 1)
+    defer destroy(&sub)
+    select_word_or_next(&sub, false)
+    select_word_or_next(&sub, false)
+    slo, shi := selection_range(sub.cursors[1])
+    testing.expect_value(t, slo, 4)
+    testing.expect_value(t, shi, 7)
+}
+
+@(test)
+test_select_next_reaches_occurrence_before_primary :: proc(t: ^testing.T) {
+    // Starting on the last "foo", the wrap must reach the middle one, not stop
+    // at the document-first occurrence because it is already selected.
+    state := ops_state("foo bar foo baz foo", 17)
+    defer destroy(&state)
+
+    select_word_or_next(&state, true) // selects the third "foo" at 16
+    select_word_or_next(&state, true) // wraps to the first at 0
+    testing.expect_value(t, len(state.cursors), 2)
+    select_word_or_next(&state, true) // must find the middle one at 8
+    testing.expect_value(t, len(state.cursors), 3)
+
+    found := false
+    for cursor in state.cursors {
+        lo, hi := selection_range(cursor)
+        if lo == 8 && hi == 11 {
+            found = true
+        }
+    }
+    testing.expect(t, found, "the occurrence between the first and the primary is reachable")
 }
 
 @(test)
@@ -104,6 +165,18 @@ test_align_at_char :: proc(t: ^testing.T) {
     state2.cursors[0].caret = len(text(&state2))
     align_at_char(&state2, '=')
     testing.expect_value(t, text(&state2), "x = 1\n= 2\nnope")
+
+    // A tab-indented line contributes its display width, so the space padding
+    // lands the target on the same column the tab-indented one reaches.
+    tabbed_src := "\tb = 2\nlonger = 3"
+    tabbed := ops_state(tabbed_src, 0)
+    defer destroy(&tabbed)
+    tabbed.cursors[0].anchor = 0
+    tabbed.cursors[0].caret = len(tabbed_src)
+    align_at_char(&tabbed, '=')
+    // "\tb" ends at column 5 and "longer" at 6, so both '=' land on column 7.
+    // Counting the tab as one column would pad "\tb" out to column 10.
+    testing.expect_value(t, text(&tabbed), "\tb  = 2\nlonger = 3")
 }
 
 @(test)
@@ -169,6 +242,14 @@ test_insert_soft_tab :: proc(t: ^testing.T) {
     insert_soft_tab(&state)
     testing.expect_value(t, text(&state), "    ab  ")
     testing.expect_value(t, primary_cursor(&state).caret, 8)
+
+    // A literal tab counts as a whole stop, so the caret after "\tab" is at
+    // column 6 and pads 2 to reach column 8 — counting the tab as one column
+    // would pad 1.
+    tabbed := ops_state("\tab", 3)
+    defer destroy(&tabbed)
+    insert_soft_tab(&tabbed)
+    testing.expect_value(t, text(&tabbed), "\tab  ")
 }
 
 @(test)

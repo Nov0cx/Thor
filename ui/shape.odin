@@ -83,6 +83,7 @@ Placed_Glyph :: struct {
     offset_x: i32,
     offset_y: i32,
     advance:  i32,
+    tab:      bool, // no glyph: `advance` is the cell, the walker snaps to the next stop
 }
 
 // Placement scratch for a cache miss; cloned into shape_cache on success and
@@ -209,6 +210,34 @@ shape_ligatures_enabled :: proc() -> bool {
     return ligatures_enabled
 }
 
+// Display cells per tab stop, pushed down from the tab_width setting. A cell is
+// the font's space advance. Deliberately not part of the shape cache key: a tab
+// is placed as a marker and resolved when the placement is walked, so a width
+// change needs no shape_cache_clear. Main thread only.
+@(private = "file")
+tab_width_cells := 4
+
+// Per-document tab widths are not honoured here — only the global setting is
+// pushed down, so a document override would move the caret off the pixels.
+shape_set_tab_width :: proc(cells: int) {
+    tab_width_cells = clamp(cells, 1, 16)
+}
+
+shape_tab_width :: proc() -> int {
+    return tab_width_cells
+}
+
+// Next tab stop at or after `pen`, measured from the line origin. A pen already
+// on a stop advances a whole span, so a tab is never zero-width.
+@(private)
+tab_stop :: proc(pen, cell: f32) -> f32 {
+    span := cell * cast(f32) tab_width_cells
+    if span <= 0 {
+        return pen + cell
+    }
+    return (cast(f32) (cast(int) (pen / span)) + 1) * span
+}
+
 // Shapes one line as a single left-to-right Latin run; the returned slice is
 // valid until the next shape_line call. The draw path uses shape_place_line,
 // which itemizes the line by script and direction first.
@@ -266,6 +295,14 @@ shape_place_line :: proc(family: ^Font_Family, font: rl.Font, size: i32, line: s
 
 @(private = "file")
 place_glyph :: proc(shaped: map[u32]Shaped_Glyph, font: rl.Font, line: string, info: hb.glyph_info_t) {
+    // Before the glyph lookup: a font whose cmap maps U+0009 would otherwise
+    // return a mapped glyph and never become a tab.
+    if cluster := cast(int) info.cluster; cluster >= 0 && cluster < len(line) && line[cluster] == '\t' {
+        space := rl.GetGlyphIndex(font, ' ')
+        append(&placed, Placed_Glyph {advance = cast(i32) font.glyphs[space].advanceX, tab = true})
+        return
+    }
+
     gid := cast(u32) info.codepoint
     if glyph, mapped := shaped[gid]; mapped {
         append(
@@ -306,15 +343,30 @@ place_glyph :: proc(shaped: map[u32]Shaped_Glyph, font: rl.Font, line: string, i
 }
 
 // Draws one line via shaping; false when the family/size has no shaping data,
-// so the caller falls back to the codepoint path.
-draw_line_shaped :: proc(family: ^Font_Family, font: rl.Font, size: i32, line: string, x, y: i32, color: rl.Color) -> bool {
+// so the caller falls back to the codepoint path. `origin` is the distance from
+// the line origin to the start of `line`, so a caller drawing one line in pieces
+// keeps the tab stops on one grid.
+draw_line_shaped :: proc(
+    family: ^Font_Family,
+    font: rl.Font,
+    size: i32,
+    line: string,
+    x, y: i32,
+    color: rl.Color,
+    origin: f32 = 0,
+) -> bool {
     glyphs, ok := shape_place_line(family, font, size, line)
     if !ok {
         return false
     }
 
+    base := cast(f32) x - origin // virtual x of column 0
     pen := cast(f32) x
     for glyph in glyphs {
+        if glyph.tab {
+            pen = base + tab_stop(pen - base, cast(f32) glyph.advance)
+            continue
+        }
         if glyph.rect.width > 0 {
             rl.DrawTextureRec(
                 font.texture,
@@ -331,15 +383,25 @@ draw_line_shaped :: proc(family: ^Font_Family, font: rl.Font, size: i32, line: s
 // Width of one line via shaping; false when the family/size has no shaping
 // data. A ligature has its own advance, so the shaped sum is the only width
 // that agrees with draw_line_shaped.
-measure_line_shaped :: proc(family: ^Font_Family, font: rl.Font, size: i32, line: string) -> (f32, bool) {
+measure_line_shaped :: proc(
+    family: ^Font_Family,
+    font: rl.Font,
+    size: i32,
+    line: string,
+    origin: f32 = 0,
+) -> (f32, bool) {
     glyphs, ok := shape_place_line(family, font, size, line)
     if !ok {
         return 0, false
     }
 
-    width: f32 = 0
+    pen := origin
     for glyph in glyphs {
-        width += cast(f32) glyph.advance
+        if glyph.tab {
+            pen = tab_stop(pen, cast(f32) glyph.advance)
+            continue
+        }
+        pen += cast(f32) glyph.advance
     }
-    return width, true
+    return pen - origin, true
 }

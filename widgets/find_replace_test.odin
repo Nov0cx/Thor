@@ -120,6 +120,29 @@ test_find_case_sensitive_toggle :: proc(t: ^testing.T) {
     testing.expect_value(t, len(fr.matches), 2)
 }
 
+// A non-ASCII query folds by rune, so it also matches text whose case mapping
+// has a different encoded width (ẞ is three bytes, ß is two).
+@(test)
+test_find_case_insensitive_unicode :: proc(t: ^testing.T) {
+    state: textedit.State
+    editor: Editor
+    fr := fixture(&state, &editor, "Straße STRAẞE strasse\n")
+    defer fixture_destroy(&state, &editor, fr)
+
+    ctx: ui.Context
+    find_replace_open(fr, &ctx, &editor, false)
+    fr_test_type(fr, &ctx, "straße")
+    testing.expect_value(t, len(fr.matches), 2)
+    testing.expect_value(t, fr.matches[0].start, 0)
+    testing.expect_value(t, fr.matches[0].end, 7) // "Straße", 7 bytes
+    testing.expect_value(t, fr.matches[1].start, 8)
+    testing.expect_value(t, fr.matches[1].end, 16) // "STRAẞE", 8 bytes
+
+    // Case-sensitive drops both folded hits.
+    fr_test_chord(fr, &ctx, .C)
+    testing.expect_value(t, len(fr.matches), 0)
+}
+
 // Alt+W drops the occurrences glued to a longer identifier.
 @(test)
 test_find_whole_word_toggle :: proc(t: ^testing.T) {

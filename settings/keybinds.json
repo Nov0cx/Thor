@@ -46,6 +46,7 @@
         "add_cursor_above": "ctrl+alt+up",
         "collapse_cursors": "escape",
         "select_word": "ctrl+d",
+        "select_word_substring": "ctrl+shift+d",
         "select_line": "ctrl+l",
         "select_all": "ctrl+a"
     },

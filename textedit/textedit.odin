@@ -4,6 +4,7 @@
 package textedit
 
 import "core:strings"
+import "core:unicode"
 import "core:unicode/utf8"
 
 import "../piecetable"
@@ -160,7 +161,7 @@ set_single_cursor :: proc(state: ^State, pos: int) {
     txt := text(state)
     p := clamp(pos, 0, len(txt))
     clear(&state.cursors)
-    append(&state.cursors, Cursor {caret = p, anchor = p, preferred_column = column(txt, p)})
+    append(&state.cursors, Cursor {caret = p, anchor = p, preferred_column = cursor_column(state, txt, p)})
 }
 
 // Replaces the whole cursor set, clamped to the buffer (used when the content is
@@ -175,7 +176,7 @@ set_cursors :: proc(state: ^State, cursors: []Cursor) {
         append(&state.cursors, Cursor {
             caret = caret,
             anchor = anchor,
-            preferred_column = column(txt, caret),
+            preferred_column = cursor_column(state, txt, caret),
         })
     }
     if len(state.cursors) == 0 {
@@ -191,7 +192,7 @@ select_range :: proc(state: ^State, lo, hi: int) {
     a := clamp(lo, 0, len(txt))
     b := clamp(hi, 0, len(txt))
     clear(&state.cursors)
-    append(&state.cursors, Cursor {anchor = a, caret = b, preferred_column = column(txt, b)})
+    append(&state.cursors, Cursor {anchor = a, caret = b, preferred_column = cursor_column(state, txt, b)})
 }
 
 collapse_to_primary :: proc(state: ^State) {
@@ -206,7 +207,7 @@ select_all :: proc(state: ^State) {
     append(&state.cursors, Cursor {
         caret = len(txt),
         anchor = 0,
-        preferred_column = column(txt, len(txt)),
+        preferred_column = cursor_column(state, txt, len(txt)),
     })
 }
 
@@ -238,7 +239,7 @@ normalize_cursors :: proc(state: ^State) {
         if !cursors_merge(state.cursors[i - 1], state.cursors[i]) {
             continue
         }
-        state.cursors[i] = merged_cursor(state.cursors[i - 1], state.cursors[i], txt)
+        state.cursors[i] = merged_cursor(state.cursors[i - 1], state.cursors[i], txt, tab_width(state))
         ordered_remove(&state.cursors, i - 1)
     }
 }
@@ -266,7 +267,7 @@ cursors_merge :: proc(a, b: Cursor) -> bool {
 // One cursor covering both ranges, facing the way b faces, or a's way when b is
 // a bare caret.
 @(private)
-merged_cursor :: proc(a, b: Cursor, txt: string) -> Cursor {
+merged_cursor :: proc(a, b: Cursor, txt: string, tab_width: int) -> Cursor {
     a_lo, a_hi := selection_range(a)
     b_lo, b_hi := selection_range(b)
     lo, hi := min(a_lo, b_lo), max(a_hi, b_hi)
@@ -275,7 +276,7 @@ merged_cursor :: proc(a, b: Cursor, txt: string) -> Cursor {
     if reversed {
         out = Cursor {caret = lo, anchor = hi}
     }
-    out.preferred_column = column(txt, out.caret)
+    out.preferred_column = column(txt, out.caret, tab_width)
     return out
 }
 
@@ -293,16 +294,14 @@ move_horizontal :: proc(state: ^State, delta: int, extend: bool) {
             lo, hi := selection_range(cursor)
             cursor.caret = delta < 0 ? lo : hi
         } else if delta < 0 && cursor.caret > 0 {
-            _, width := utf8.decode_last_rune_in_string(txt[:cursor.caret])
-            cursor.caret -= width
+            cursor.caret = grapheme_prev(txt, cursor.caret)
         } else if delta > 0 && cursor.caret < len(txt) {
-            _, width := utf8.decode_rune_in_string(txt[cursor.caret:])
-            cursor.caret += width
+            cursor.caret = grapheme_next(txt, cursor.caret)
         }
         if !extend {
             cursor.anchor = cursor.caret
         }
-        cursor.preferred_column = column(txt, cursor.caret)
+        cursor.preferred_column = cursor_column(state, txt, cursor.caret)
     }
     normalize_cursors(state)
 }
@@ -318,7 +317,7 @@ move_word :: proc(state: ^State, direction: int, extend: bool) {
         if !extend {
             cursor.anchor = cursor.caret
         }
-        cursor.preferred_column = column(txt, cursor.caret)
+        cursor.preferred_column = cursor_column(state, txt, cursor.caret)
     }
     normalize_cursors(state)
 }
@@ -327,7 +326,7 @@ move_vertical :: proc(state: ^State, delta: int, extend: bool) {
     txt := text(state)
     for &cursor in state.cursors {
         start, _ := line_start_relative(txt, cursor.caret, delta)
-        cursor.caret = offset_for_column(txt, start, cursor.preferred_column)
+        cursor.caret = offset_for_column(txt, start, cursor.preferred_column, tab_width(state))
         if !extend {
             cursor.anchor = cursor.caret
         }
@@ -354,7 +353,7 @@ move_line_end :: proc(state: ^State, extend: bool) {
         if !extend {
             cursor.anchor = cursor.caret
         }
-        cursor.preferred_column = column(txt, cursor.caret)
+        cursor.preferred_column = cursor_column(state, txt, cursor.caret)
     }
     normalize_cursors(state)
 }
@@ -377,7 +376,7 @@ move_document_end :: proc(state: ^State, extend: bool) {
         if !extend {
             cursor.anchor = cursor.caret
         }
-        cursor.preferred_column = column(txt, cursor.caret)
+        cursor.preferred_column = cursor_column(state, txt, cursor.caret)
     }
     normalize_cursors(state)
 }
@@ -389,11 +388,11 @@ move_to_matching_bracket :: proc(state: ^State, extend: bool) {
     txt := text(state)
     for &cursor in state.cursors {
         if bracket_pos, match_pos, forward, found := find_matching_bracket(txt, cursor.caret); found {
-            apply_delimiter_jump(&cursor, txt, bracket_pos, match_pos, forward, extend)
+            apply_delimiter_jump(&cursor, txt, bracket_pos, match_pos, forward, extend, tab_width(state))
             continue
         }
         if quote_pos, match_pos, forward, found := find_matching_quote(txt, cursor.caret); found {
-            apply_delimiter_jump(&cursor, txt, quote_pos, match_pos, forward, extend)
+            apply_delimiter_jump(&cursor, txt, quote_pos, match_pos, forward, extend, tab_width(state))
             continue
         }
         if open_pos, close_pos, found := enclosing_pair(txt, cursor.caret); found {
@@ -404,7 +403,7 @@ move_to_matching_bracket :: proc(state: ^State, extend: bool) {
                 cursor.caret = open_pos
                 cursor.anchor = open_pos
             }
-            cursor.preferred_column = column(txt, cursor.caret)
+            cursor.preferred_column = cursor_column(state, txt, cursor.caret)
         }
     }
     normalize_cursors(state)
@@ -414,7 +413,7 @@ move_to_matching_bracket :: proc(state: ^State, extend: bool) {
 // the partner delimiter. `forward` is true when the matched delimiter lies to
 // the right of the one under the caret.
 @(private)
-apply_delimiter_jump :: proc(cursor: ^Cursor, txt: string, delim_pos, match_pos: int, forward, extend: bool) {
+apply_delimiter_jump :: proc(cursor: ^Cursor, txt: string, delim_pos, match_pos: int, forward, extend: bool, tab_width: int) {
     if extend {
         if forward {
             cursor.anchor = delim_pos
@@ -427,7 +426,7 @@ apply_delimiter_jump :: proc(cursor: ^Cursor, txt: string, delim_pos, match_pos:
         cursor.caret = match_pos
         cursor.anchor = match_pos
     }
-    cursor.preferred_column = column(txt, cursor.caret)
+    cursor.preferred_column = column(txt, cursor.caret, tab_width)
 }
 
 // Selects the text between the innermost bracket pair around the caret,
@@ -441,7 +440,7 @@ select_between_brackets :: proc(state: ^State) {
         }
         cursor.anchor = open_pos + 1
         cursor.caret = close_pos
-        cursor.preferred_column = column(txt, cursor.caret)
+        cursor.preferred_column = cursor_column(state, txt, cursor.caret)
     }
     normalize_cursors(state)
 }
@@ -455,7 +454,7 @@ add_cursor_vertical :: proc(state: ^State, delta: int) {
         if !full {
             continue
         }
-        pos := offset_for_column(txt, start, cursor.preferred_column)
+        pos := offset_for_column(txt, start, cursor.preferred_column, tab_width(state))
         append(&spawned, Cursor {caret = pos, anchor = pos, preferred_column = cursor.preferred_column})
     }
     for cursor in spawned {
@@ -473,7 +472,7 @@ insert_text :: proc(state: ^State, s: string) {
 
     // Replacing a selection is its own undo step, and only a single typed
     // character joins a typing run — never a paste or a completion insert.
-    coalesce := has_any_selection(state) || !is_single_rune(s) ? Coalesce.None : .Typing
+    coalesce := has_any_selection(state) || !is_single_grapheme(s) ? Coalesce.None : .Typing
 
     // Cursors are kept sorted; apply low to high, shifting later positions.
     offset := 0
@@ -493,14 +492,14 @@ insert_text :: proc(state: ^State, s: string) {
     finish_edit(state, &entry, coalesce)
 }
 
-// True when `s` holds exactly one rune, i.e. one keystroke's worth of text.
+// True when `s` holds exactly one grapheme cluster, i.e. one keystroke's worth
+// of text. A combining mark typed onto a letter is one cluster, not two.
 @(private)
-is_single_rune :: proc(s: string) -> bool {
+is_single_grapheme :: proc(s: string) -> bool {
     if len(s) == 0 {
         return false
     }
-    _, width := utf8.decode_rune_in_string(s)
-    return width == len(s)
+    return grapheme_next(s, 0) == len(s)
 }
 
 // Matching close for an auto-paired opener; ok=false if r is not an opener.
@@ -563,7 +562,7 @@ insert_or_step :: proc(state: ^State, close: rune) {
     edited := false
     for &cursor in state.cursors {
         lo, hi := selection_range(cursor)
-        if hi == lo && match_at(txt, lo, close_s, true) {
+        if hi == lo && strings.has_prefix(txt[lo:], close_s) {
             cursor.caret = lo + offset + cw
             cursor.anchor = cursor.caret
             continue
@@ -603,7 +602,7 @@ insert_quote :: proc(state: ^State, q: rune) {
     offset := 0
     for &cursor in state.cursors {
         lo, _ := selection_range(cursor)
-        if match_at(txt, lo, q_s, true) {
+        if strings.has_prefix(txt[lo:], q_s) {
             cursor.caret = lo + offset + qw
             cursor.anchor = cursor.caret
             continue
@@ -664,25 +663,32 @@ is_auto_pair_bytes :: proc(open, close: u8) -> bool {
     return false
 }
 
-// True when `query` occurs at byte offset `pos` in txt (ASCII case-insensitive
-// when insensitive).
+// Byte length of the occurrence of `query` at offset `pos` in txt, and whether
+// there is one. A folded match can span more bytes than the query, because case
+// mapping changes the encoded width: ẞ is three bytes, the ß it folds to is two.
 @(private)
-match_at :: proc(txt: string, pos: int, query: string, case_sensitive: bool) -> bool {
-    if pos + len(query) > len(txt) {
-        return false
-    }
-    for i in 0 ..< len(query) {
-        a := txt[pos + i]
-        b := query[i]
-        if !case_sensitive {
-            if a >= 'A' && a <= 'Z' {a += 32}
-            if b >= 'A' && b <= 'Z' {b += 32}
+match_at :: proc(txt: string, pos: int, query: string, case_sensitive: bool) -> (int, bool) {
+    if case_sensitive {
+        if pos + len(query) > len(txt) || txt[pos:pos + len(query)] != query {
+            return 0, false
         }
-        if a != b {
-            return false
-        }
+        return len(query), true
     }
-    return true
+
+    i, j := pos, 0
+    for j < len(query) {
+        if i >= len(txt) {
+            return 0, false
+        }
+        a, aw := utf8.decode_rune_in_string(txt[i:])
+        b, bw := utf8.decode_rune_in_string(query[j:])
+        if unicode.to_lower(a) != unicode.to_lower(b) {
+            return 0, false
+        }
+        i += aw
+        j += bw
+    }
+    return i - pos, true
 }
 
 // Replaces every occurrence of `query` with `replacement` as a single undo
@@ -697,20 +703,21 @@ replace_all :: proc(state: ^State, query, replacement: string, case_sensitive: b
     offset := 0
     count := 0
     i := 0
-    for i + len(query) <= len(txt) {
-        if !match_at(txt, i, query, case_sensitive) {
+    for i < len(txt) {
+        width, found := match_at(txt, i, query, case_sensitive)
+        if !found {
             i += 1
             continue
         }
-        append(&entry.ops, Edit_Op {kind = .Delete, pos = i + offset, text = strings.clone(txt[i:i + len(query)])})
-        piecetable.piecetable_delete(&state.table, i + offset, len(query))
+        append(&entry.ops, Edit_Op {kind = .Delete, pos = i + offset, text = strings.clone(txt[i:i + width])})
+        piecetable.piecetable_delete(&state.table, i + offset, width)
         if len(replacement) > 0 {
             append(&entry.ops, Edit_Op {kind = .Insert, pos = i + offset, text = strings.clone(replacement)})
             piecetable.piecetable_insert(&state.table, i + offset, replacement)
         }
-        offset += len(replacement) - len(query)
+        offset += len(replacement) - width
         count += 1
-        i += len(query)
+        i += width
     }
 
     if count > 0 {
@@ -739,8 +746,7 @@ delete_backward :: proc(state: ^State) {
                 lo -= 1
                 hi += 1
             } else {
-                _, width := utf8.decode_last_rune_in_string(txt[:lo])
-                lo -= width
+                lo = grapheme_prev(txt, lo)
             }
         }
         if hi > lo {
@@ -771,8 +777,7 @@ delete_forward :: proc(state: ^State) {
     for &cursor in state.cursors {
         lo, hi := selection_range(cursor)
         if hi == lo && lo < len(txt) {
-            _, width := utf8.decode_rune_in_string(txt[lo:])
-            hi = lo + width
+            hi = grapheme_next(txt, lo)
         }
         if hi > lo {
             append(&entry.ops, Edit_Op {kind = .Delete, pos = lo + offset, text = strings.clone(txt[lo:hi])})
@@ -845,7 +850,7 @@ redo :: proc(state: ^State) {
 finish_edit :: proc(state: ^State, entry: ^Undo_Entry, coalesce := Coalesce.None) {
     txt := text(state)
     for &cursor in state.cursors {
-        cursor.preferred_column = column(txt, cursor.caret)
+        cursor.preferred_column = cursor_column(state, txt, cursor.caret)
     }
     normalize_cursors(state)
     entry.cursors_after = clone_cursors(state)
@@ -1193,23 +1198,120 @@ line_start_relative :: proc(txt: string, pos: int, delta: int) -> (start: int, f
     return start, true
 }
 
-// Rune column of `pos` within its line.
-column :: proc(txt: string, pos: int) -> int {
-    start := line_start(txt, pos)
-    return utf8.rune_count_in_string(txt[start:pos])
+// Bytes scanned back to find a cluster start. A cluster longer than this
+// degrades to one rune, never to a partial rune.
+@(private)
+GRAPHEME_BACKSCAN :: 64
+
+// Byte offset of the grapheme-cluster boundary after `pos`.
+grapheme_next :: proc(txt: string, pos: int) -> int {
+    if pos >= len(txt) {
+        return len(txt)
+    }
+    it := utf8.decode_grapheme_iterator_make(txt[pos:])
+    // The first boundary is always 0; the second one ends this cluster. Only
+    // `byte_index` is usable: the iterator's `text` is sliced by display cells.
+    _, _, ok := utf8.decode_grapheme_iterate(&it)
+    if !ok {
+        return len(txt)
+    }
+    _, next, more := utf8.decode_grapheme_iterate(&it)
+    return more ? pos + next.byte_index : len(txt)
 }
 
-// Byte offset `col` runes into the line starting at `start`, clamped to the
-// end of that line.
-offset_for_column :: proc(txt: string, start: int, col: int) -> int {
-    pos := start
-    current := 0
-    for pos < len(txt) && txt[pos] != '\n' && current < col {
-        _, width := utf8.decode_rune_in_string(txt[pos:])
-        pos += width
-        current += 1
+// Byte offset of the grapheme-cluster boundary before `pos`. Scans a bounded
+// window instead of the whole prefix, so a keystroke stays O(1).
+grapheme_prev :: proc(txt: string, pos: int) -> int {
+    if pos <= 0 {
+        return 0
     }
-    return pos
+    from := max(0, pos - GRAPHEME_BACKSCAN)
+    // A window opening mid-rune would mis-segment.
+    for from < pos && txt[from] & 0xC0 == 0x80 {
+        from += 1
+    }
+
+    best := from
+    it := utf8.decode_grapheme_iterator_make(txt[from:pos])
+    for {
+        _, cluster, ok := utf8.decode_grapheme_iterate(&it)
+        if !ok {
+            break
+        }
+        best = from + cluster.byte_index
+    }
+    return best
+}
+
+// Display columns spanned by `s` counted from column 0: a tab advances to the
+// next multiple of tab_width, every other grapheme cluster counts one. Stops at
+// a newline. An ASCII run is stepped by byte, but only while the next byte is
+// ASCII too, since a combining mark would join the cluster before it.
+display_width :: proc(s: string, tab_width: int) -> int {
+    width := max(tab_width, 1)
+    col := 0
+    for i := 0; i < len(s); {
+        b := s[i]
+        switch {
+        case b == '\n':
+            return col
+        case b == '\t':
+            col += width - (col % width)
+            i += 1
+        case b < 0x80 && (i + 1 >= len(s) || s[i + 1] < 0x80):
+            col += 1
+            i += 1
+        case:
+            i = grapheme_next(s, i)
+            col += 1
+        }
+    }
+    return col
+}
+
+// Byte offset at display column `col` in `s`, never past it: a tab straddling
+// `col` is not entered, so the offset lands before it. Stops at a newline.
+display_offset :: proc(s: string, col: int, tab_width: int) -> int {
+    width := max(tab_width, 1)
+    current := 0
+    i := 0
+    for i < len(s) && current < col {
+        b := s[i]
+        if b == '\n' {
+            break
+        }
+        next, step := current + 1, 1
+        switch {
+        case b == '\t':
+            next = current + width - (current % width)
+        case b < 0x80 && (i + 1 >= len(s) || s[i + 1] < 0x80):
+        case:
+            step = grapheme_next(s, i) - i
+        }
+        if next > col {
+            break // only a tab overshoots, and it is not entered
+        }
+        current = next
+        i += step
+    }
+    return i
+}
+
+// Display column of `pos` at the document's tab width.
+@(private)
+cursor_column :: proc(state: ^State, txt: string, pos: int) -> int {
+    return column(txt, pos, tab_width(state))
+}
+
+// Display column of `pos` within its line.
+column :: proc(txt: string, pos: int, tab_width: int) -> int {
+    return display_width(txt[line_start(txt, pos):pos], tab_width)
+}
+
+// Byte offset at display column `col` in the line starting at `start`, clamped
+// to the end of that line.
+offset_for_column :: proc(txt: string, start: int, col: int, tab_width: int) -> int {
+    return start + display_offset(txt[start:], col, tab_width)
 }
 
 @(private)
@@ -1219,6 +1321,23 @@ is_word_byte :: proc(b: u8) -> bool {
         (b >= 'a' && b <= 'z') ||
         (b >= 'A' && b <= 'Z') ||
         b >= 0x80
+}
+
+// True when [start, end) is not glued to a word character, tested only on the
+// sides where the span's own edge is one. A span ending in punctuation is not
+// rejected for what follows it.
+@(private)
+word_bounded :: proc(txt: string, start, end: int) -> bool {
+    if end <= start {
+        return true
+    }
+    if is_word_byte(txt[start]) && start > 0 && is_word_byte(txt[start - 1]) {
+        return false
+    }
+    if is_word_byte(txt[end - 1]) && end < len(txt) && is_word_byte(txt[end]) {
+        return false
+    }
+    return true
 }
 
 @(private)

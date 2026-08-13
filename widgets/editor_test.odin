@@ -242,3 +242,28 @@ test_visual_row_movement :: proc(t: ^testing.T) {
     editor_move_visual(&editor, -1, false)
     testing.expect_value(t, textedit.primary_cursor(&state).caret, 16)
 }
+
+// Up/Down goes through editor_move_visual, not textedit.move_vertical, so the
+// display columns have to reach here too or tab-indented lines drift.
+@(test)
+test_visual_row_movement_with_tabs :: proc(t: ^testing.T) {
+    state: textedit.State
+    textedit.init(&state)
+    defer textedit.destroy(&state)
+    // "\tab" spans columns 0..6; line 2 starts at byte 4.
+    textedit.set_text(&state, "\tab\n12345678")
+
+    editor: Editor
+    editor.state = &state
+    editor.font_size = 16
+    defer delete(editor.visual_rows)
+
+    textedit.select_range(&state, 12, 12) // column 8 on line 2
+    editor_move_visual(&editor, -1, false)
+    // Column 8 is past the end of "\tab" (column 6), so it clamps to the end.
+    testing.expect_value(t, textedit.primary_cursor(&state).caret, 3)
+
+    textedit.select_range(&state, 1, 1) // just past the tab: column 4
+    editor_move_visual(&editor, 1, false)
+    testing.expect_value(t, textedit.primary_cursor(&state).caret, 8)
+}

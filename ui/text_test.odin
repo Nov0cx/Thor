@@ -310,6 +310,37 @@ test_async_font_load :: proc(t: ^testing.T) {
         }
         // Multiple lines measure as the widest line.
         testing.expect_value(t, measure_text("ab\nabcd\na", 17, name), cell * 4)
+
+        // A tab advances to the next stop, not by one space. A tab already on a
+        // stop advances a whole span, so it is never zero-width.
+        testing.expect_value(t, measure_text("\t", 17, name), cell * 4)
+        testing.expect_value(t, measure_text("a\t", 17, name), cell * 4)
+        testing.expect_value(t, measure_text("abc\t", 17, name), cell * 4)
+        testing.expect_value(t, measure_text("abcd\t", 17, name), cell * 8)
+        testing.expect_value(t, measure_text("\tab", 17, name), cell * 6)
+
+        // tab_origin moves the grid: the same tab measured as if it started two
+        // cells into the line reaches the same stop, so it is two cells wide.
+        testing.expect_value(t, measure_text("\t", 17, name, cell * 2), cell * 2)
+        // Measuring a line in pieces totals the same as measuring it whole.
+        piece := measure_text("ab", 17, name)
+        testing.expect_value(t, piece + measure_text("\tc", 17, name, piece), measure_text("ab\tc", 17, name))
+    }
+
+    // The tab width reaches shaping without a cache clear: a tab is placed as a
+    // marker and resolved when the placement is walked, so the cached line stays
+    // valid. Restored to the default for any later test.
+    {
+        cell := measure_text("0", 17, "JetBrainsMono")
+        before := shape_cache_len(&shape_cache)
+        testing.expect_value(t, measure_text("\ta", 17, "JetBrainsMono"), cell * 5)
+        shape_set_tab_width(8)
+        testing.expect_value(t, shape_tab_width(), 8)
+        testing.expect_value(t, measure_text("\ta", 17, "JetBrainsMono"), cell * 9)
+        // The line was shaped once; the width change added no cache entry.
+        testing.expect_value(t, shape_cache_len(&shape_cache), before + 1)
+        shape_set_tab_width(4)
+        testing.expect_value(t, measure_text("\ta", 17, "JetBrainsMono"), cell * 5)
     }
 
     // The ligatures setting reaches shaping: with it off, "->" shapes to the

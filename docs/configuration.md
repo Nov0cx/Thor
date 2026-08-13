@@ -12,7 +12,7 @@ General editor preferences.
 | Key | Meaning | Default |
 | --- | --- | --- |
 | `font_size` | Editor font size, in points | `18` |
-| `tab_width` | Spaces per indent level | `4` |
+| `tab_width` | Spaces per indent level, and the width of a rendered tab stop | `4` |
 | `autosave_delay_ms` | Delay after the last edit before autosave | `1500` |
 | `ligatures` | Draw programming ligatures (`->` as one glyph) | `true` |
 | `format_on_save` | Format the active buffer before an explicit save (`ctrl + s`, Save All, the palette) — never before an autosave | `false` |

@@ -2,6 +2,7 @@ package widgets
 
 import "core:fmt"
 import "core:text/regex"
+import "core:unicode"
 import "core:unicode/utf8"
 import rl "vendor:raylib"
 
@@ -154,6 +155,37 @@ fr_fold :: #force_inline proc(c: u8, sensitive: bool) -> u8 {
 }
 
 @(private = "file")
+fr_is_ascii :: proc(s: string) -> bool {
+    for i in 0 ..< len(s) {
+        if s[i] >= 0x80 {
+            return false
+        }
+    }
+    return true
+}
+
+// Byte length of the case-folded occurrence of `query` at `pos`, and whether
+// there is one. Case mapping changes the encoded width — ẞ is three bytes, the
+// ß it folds to is two — so a match is not len(query) bytes.
+@(private = "file")
+fr_fold_match_at :: proc(text: string, pos: int, query: string) -> (int, bool) {
+    i, j := pos, 0
+    for j < len(query) {
+        if i >= len(text) {
+            return 0, false
+        }
+        a, aw := utf8.decode_rune_in_string(text[i:])
+        b, bw := utf8.decode_rune_in_string(query[j:])
+        if unicode.to_lower(a) != unicode.to_lower(b) {
+            return 0, false
+        }
+        i += aw
+        j += bw
+    }
+    return i - pos, true
+}
+
+@(private = "file")
 fr_is_word_byte :: proc(b: u8) -> bool {
     return b == '_' || (b >= '0' && b <= '9') || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || b >= 0x80
 }
@@ -274,6 +306,23 @@ find_replace_scan_regex :: proc(fr: ^Find_Replace, text, pattern: string) {
 // O(document length) instead of O(document length x query length).
 @(private = "file")
 find_replace_scan_literal :: proc(fr: ^Find_Replace, text, query: string) {
+    // A folded non-ASCII query cannot drive the byte-indexed skip table, since a
+    // match is not len(query) bytes wide. Rune-wise scan for those, so the fast
+    // path still covers every ASCII query.
+    if !fr.case_sensitive && !fr_is_ascii(query) {
+        for i := 0; i < len(text); {
+            if width, found := fr_fold_match_at(text, i, query);
+               found && (!fr.whole_word || fr_word_bounded(text, i, i + width)) {
+                append(&fr.matches, Fr_Match {i, i + width})
+                i += width
+                continue
+            }
+            _, w := utf8.decode_rune_in_string(text[i:])
+            i += max(w, 1)
+        }
+        return
+    }
+
     n := len(query)
     skip := fr_skip_table(query, fr.case_sensitive)
     i := 0

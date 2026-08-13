@@ -350,6 +350,136 @@ test_transform_case :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_transform_case_unicode :: proc(t: ^testing.T) {
+    state: State
+    init(&state)
+    defer destroy(&state)
+
+    // ß uppercases to the capital sharp s, which is one byte wider, so the
+    // cursor has to be remapped rather than kept at the pre-edit offset.
+    set_text(&state, "straße")
+    select_range(&state, 0, len("straße"))
+    transform_case(&state, .Upper)
+    testing.expect_value(t, text(&state), "STRAẞE")
+    lo, hi := selection_range(primary_cursor(&state))
+    testing.expect_value(t, lo, 0)
+    testing.expect_value(t, hi, len("STRAẞE"))
+
+    transform_case(&state, .Lower)
+    testing.expect_value(t, text(&state), "straße")
+
+    set_text(&state, "ΑΒΓ δεζ Привет")
+    select_range(&state, 0, len("ΑΒΓ δεζ Привет"))
+    transform_case(&state, .Lower)
+    testing.expect_value(t, text(&state), "αβγ δεζ привет")
+    transform_case(&state, .Title)
+    testing.expect_value(t, text(&state), "Αβγ Δεζ Привет")
+}
+
+@(test)
+test_transform_case_multi_cursor_length_change :: proc(t: ^testing.T) {
+    // Two words that both grow a byte: the second cursor's edit must land at
+    // the offset the first one shifted it to.
+    state: State
+    init(&state)
+    defer destroy(&state)
+
+    set_text(&state, "straße gasse straße")
+    // "straße" is 7 bytes, so the second word runs [14, 21).
+    set_cursors(&state, {Cursor{anchor = 0, caret = 7}, Cursor{anchor = 14, caret = 21}})
+    transform_case(&state, .Upper)
+    testing.expect_value(t, text(&state), "STRAẞE gasse STRAẞE")
+
+    undo(&state)
+    testing.expect_value(t, text(&state), "straße gasse straße")
+}
+
+@(test)
+test_grapheme_stepping :: proc(t: ^testing.T) {
+    state: State
+    init(&state)
+    defer destroy(&state)
+
+    // "e" + combining acute, a ZWJ emoji sequence, and a regional-indicator flag.
+    content := "éx\U0001F469‍\U0001F4BB\U0001F1E9\U0001F1EA"
+    set_text(&state, content)
+    set_single_cursor(&state, 0)
+
+    move_horizontal(&state, 1, false)
+    testing.expect_value(t, primary_cursor(&state).caret, 3) // whole cluster
+    move_horizontal(&state, 1, false)
+    testing.expect_value(t, primary_cursor(&state).caret, 4) // "x"
+    move_horizontal(&state, 1, false)
+    testing.expect_value(t, primary_cursor(&state).caret, 15) // ZWJ sequence
+    move_horizontal(&state, 1, false)
+    testing.expect_value(t, primary_cursor(&state).caret, 23) // flag
+
+    // Stepping back retraces the same boundaries.
+    for expected in ([4]int {15, 4, 3, 0}) {
+        move_horizontal(&state, -1, false)
+        testing.expect_value(t, primary_cursor(&state).caret, expected)
+    }
+
+    // Backspace removes a whole cluster, never half of one.
+    set_single_cursor(&state, len(content))
+    delete_backward(&state)
+    testing.expect_value(t, text(&state), "éx\U0001F469‍\U0001F4BB")
+    delete_backward(&state)
+    testing.expect_value(t, text(&state), "éx")
+
+    // Delete forward is the same rule from the other side.
+    set_single_cursor(&state, 0)
+    delete_forward(&state)
+    testing.expect_value(t, text(&state), "x")
+}
+
+@(test)
+test_tab_display_columns :: proc(t: ^testing.T) {
+    // A tab advances to the next stop; one already on a stop advances a span.
+    testing.expect_value(t, column("\tab", 3, 4), 6)
+    testing.expect_value(t, column("a\tb", 2, 4), 4)
+    testing.expect_value(t, column("abc\t", 4, 4), 4)
+    testing.expect_value(t, column("abcd\t", 5, 4), 8)
+    testing.expect_value(t, column("\tab", 3, 8), 10)
+
+    // A grapheme cluster is one column, however many runes it holds.
+    testing.expect_value(t, column("éx", 4, 4), 2)
+
+    // Never overshoot: a column inside a tab's span lands before the tab.
+    testing.expect_value(t, offset_for_column("\tab", 0, 2, 4), 0)
+    testing.expect_value(t, offset_for_column("\tab", 0, 4, 4), 1)
+    testing.expect_value(t, offset_for_column("\tab", 0, 5, 4), 2)
+
+    // Round trip: every reachable column maps back to the offset it came from.
+    line := "\ta\tbc\td"
+    for p := 0; p <= len(line); p += 1 {
+        if p < len(line) && line[p] & 0xC0 == 0x80 {
+            continue
+        }
+        testing.expect_value(t, offset_for_column(line, 0, column(line, p, 4), 4), p)
+    }
+}
+
+@(test)
+test_vertical_movement_across_tabs :: proc(t: ^testing.T) {
+    state: State
+    init(&state)
+    defer destroy(&state)
+
+    // Line 2's caret sits at display column 8; going down onto a tab-indented
+    // line and back up must restore it.
+    set_text(&state, "\t\tdeep\n12345678end")
+    set_single_cursor(&state, 15) // line 2 starts at 7, so this is after "12345678"
+    testing.expect_value(t, primary_cursor(&state).preferred_column, 8)
+
+    move_vertical(&state, -1, false)
+    testing.expect_value(t, primary_cursor(&state).caret, 2) // two tabs reach column 8
+
+    move_vertical(&state, 1, false)
+    testing.expect_value(t, primary_cursor(&state).caret, 15)
+}
+
+@(test)
 test_join_lines :: proc(t: ^testing.T) {
     state: State
     init(&state)
