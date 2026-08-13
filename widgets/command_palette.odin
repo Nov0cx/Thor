@@ -325,6 +325,7 @@ command_palette_pick :: proc(
     for item in items {
         append(&palette.files, strings.clone(item))
     }
+    command_palette_clear_pick_items(palette)
     palette.prompt_label = label
     palette.pick_run = run
     palette.pick_data = data
@@ -380,10 +381,10 @@ command_palette_pick_rich_loading :: proc(
     palette.pick_data = data
     palette.pick_rich = true
     palette.pick_loading = true
-    palette.on_query_changed = on_query_changed
-    palette.on_query_changed_data = on_query_changed_data
     palette.visible = true
     command_palette_reset(palette, .Pick)
+    palette.on_query_changed = on_query_changed
+    palette.on_query_changed_data = on_query_changed_data
     command_palette_capture_return_focus(palette, ctx)
     ctx.focused = &palette.widget
     ui.widget_bring_to_front(&palette.widget)
@@ -456,6 +457,10 @@ command_palette_clear_pick_items :: proc(palette: ^Command_Palette) {
 @(private = "file")
 command_palette_reset :: proc(palette: ^Command_Palette, mode: Palette_Mode) {
     palette.mode = mode
+    // Belongs to the picker that is closing; only the opener that wants one sets
+    // it again, after this call.
+    palette.on_query_changed = nil
+    palette.on_query_changed_data = nil
     clear(&palette.query)
     palette.caret = 0
     palette.selected = 0

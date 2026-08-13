@@ -65,6 +65,30 @@ test_pick_rich_hint :: proc(t: ^testing.T) {
     testing.expect(t, len(palette.pick_items) == 1)
 }
 
+@(private = "file")
+count_query_changed :: proc(data: rawptr, query: string) {
+    seen := cast(^int) data
+    seen^ += 1
+}
+
+// The query hook of a picker that re-dispatches (workspace symbols) belongs to
+// that picker alone: the next one opened must not inherit it.
+@(test)
+test_query_hook_does_not_outlive_its_picker :: proc(t: ^testing.T) {
+    palette := command_palette_create("palette")
+    defer command_palette_destroy(&palette.widget)
+
+    ctx: ui.Context
+    seen: int
+    command_palette_pick_rich_loading(palette, &ctx, "Workspace symbols", nil, nil, count_query_changed, &seen)
+    type_rune(palette, &ctx, 'a')
+    testing.expect_value(t, seen, 1)
+
+    command_palette_pick(palette, &ctx, "Run task", {"build"}, nil, nil)
+    type_rune(palette, &ctx, 'b')
+    testing.expectf(t, seen == 1, "the stale hook fired from the next picker, %d calls", seen)
+}
+
 // Backspace at the start of the input is a no-op, not a wrap to the end.
 @(test)
 test_prompt_backspace_at_start :: proc(t: ^testing.T) {
