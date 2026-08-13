@@ -303,6 +303,52 @@ test_sort_imports_keeps_binding_name :: proc(t: ^testing.T) {
 	testing.expect(t, strings.contains(out, "import \"core:strings\"\nimport rl \"vendor:raylib\""), out)
 }
 
+@(test)
+test_space_single_line_blocks :: proc(t: ^testing.T) {
+	opts := default_options()
+	opts.space_single_line_blocks = true
+	src := "package p\nf :: proc() { return }\n"
+	out, ok := format(src, opts)
+	defer delete(out)
+	testing.expect(t, ok)
+	testing.expect(t, strings.contains(out, "proc() { return }"), out)
+	out2, ok2 := format(out, opts)
+	defer delete(out2)
+	testing.expect(t, ok2)
+	testing.expect_value(t, out2, out)
+}
+
+@(test)
+test_space_single_line_blocks_off :: proc(t: ^testing.T) {
+	src := "package p\nf :: proc() { return }\n"
+	out, ok := format(src, default_options())
+	defer delete(out)
+	testing.expect(t, ok)
+	testing.expect(t, strings.contains(out, "proc() {\n\treturn\n}"), out)
+}
+
+@(test)
+test_space_single_line_blocks_multiline_untouched :: proc(t: ^testing.T) {
+	opts := default_options()
+	opts.space_single_line_blocks = true
+	src := "package p\nf :: proc() {\n\treturn\n}\n"
+	out, ok := format(src, opts)
+	defer delete(out)
+	testing.expect(t, ok)
+	testing.expect(t, strings.contains(out, "proc() {\n\treturn\n}"), out)
+}
+
+@(test)
+test_space_single_line_blocks_comment_untouched :: proc(t: ^testing.T) {
+	opts := default_options()
+	opts.space_single_line_blocks = true
+	src := "package p\nf :: proc() { return /* x */ }\n"
+	out, ok := format(src, opts)
+	defer delete(out)
+	testing.expect(t, ok)
+	testing.expect(t, !strings.contains(out, "{ return"), out)
+}
+
 @(private)
 token_stream :: proc(src: string) -> [dynamic]tokenizer.Token {
 	t: tokenizer.Tokenizer

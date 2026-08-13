@@ -66,9 +66,56 @@ print_block :: proc(pr: ^Printer, out: ^[dynamic]Doc, block: ^ast.Block_Stmt, is
 	} else {
 		append(out, text(" "))
 	}
+	if print_one_line_block(pr, out, block) {
+		return
+	}
 	open := ast.Node{pos = block.open, end = block.open}
 	close := ast.Node{pos = block.close, end = block.close}
 	print_brace_body(pr, out, open, close, block.stmts, print_stmt_item, false)
+}
+
+// `{ stmt }` for a block the source already wrote on one line, under
+// space_single_line_blocks. Decided from the source alone, never from a width
+// measurement, so a second format sees the same one-line source and makes the
+// same choice. The option never collapses a block the source spread over lines
+// — it only declines to expand one.
+@(private)
+print_one_line_block :: proc(pr: ^Printer, out: ^[dynamic]Doc, block: ^ast.Block_Stmt) -> bool {
+	if !pr.opts.space_single_line_blocks || block.open.line != block.close.line {
+		return false
+	}
+	only: ^ast.Stmt
+	for stmt in block.stmts {
+		if stmt == nil {
+			continue
+		}
+		if only != nil {
+			return false
+		}
+		only = stmt
+	}
+	if only == nil {
+		return false
+	}
+	// A comment inside would need a separator, and a separator emits a line.
+	for cg in pr.comments[pr.comment_idx:] {
+		if cg.pos.line > block.close.line {
+			break
+		}
+		if cg.pos.line >= block.open.line {
+			return false
+		}
+	}
+
+	item: [dynamic]Doc
+	print_stmt(pr, &item, only)
+	if _, flat := measure_flat_children(item[:], &pr.opts); !flat {
+		return false
+	}
+	append(out, text("{ "))
+	append(out, ..item[:])
+	append(out, text(" }"))
+	return true
 }
 
 // A statement/proc body: a `do stmt` shorthand (kept unless convert_do),
