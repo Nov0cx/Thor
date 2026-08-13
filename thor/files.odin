@@ -453,6 +453,23 @@ thor_open_file_at :: proc(thor: ^Thor, path: string) -> ^Open_File {
     return file
 }
 
+// Repoints an open tab from `old_path` to `new_path` after a rename or a move,
+// so it keeps its buffer and saves to the new location. A no-op when no tab
+// pointed at old_path; a folder never matches one.
+@(private)
+thor_retarget_open_file :: proc(thor: ^Thor, old_path, new_path: string) {
+    canonical := new_path
+    if abs, err := filepath.abs(new_path, context.temp_allocator); err == nil {
+        canonical = abs
+    }
+    if file, _ := thor_find_open_file(thor, old_path); file != nil {
+        delete(file.path)
+        file.path = strings.clone(canonical)
+        file.name = thor_file_base(file.path)
+    }
+    thor_update_tab_labels(thor)
+}
+
 // File extension including the dot (".odin"), or "" when the name has none.
 thor_file_extension :: proc(name: string) -> string {
     dot := strings.last_index_byte(name, '.')
@@ -1486,21 +1503,7 @@ thor_prompt_rename :: proc(data: rawptr, name: string) {
         }
     }
 
-    // Retarget an open tab for the renamed file so it keeps its buffer and saves
-    // to the new location. Folders never match an open file.
-    canonical := new_path
-    if abs, err := filepath.abs(new_path, context.temp_allocator); err == nil {
-        canonical = abs
-    }
-    for file in thor.open_files {
-        if thor_same_path(file.path, old_path) {
-            delete(file.path)
-            file.path = strings.clone(canonical)
-            file.name = thor_file_base(file.path)
-            break
-        }
-    }
-    thor_update_tab_labels(thor)
+    thor_retarget_open_file(thor, old_path, new_path)
 
     widgets.tree_refresh(thor.tree)
     thor_refresh_git_status(thor)
@@ -1545,19 +1548,7 @@ thor_tree_move :: proc(data: rawptr, src_path: string, dst_dir: string) {
         }
     }
 
-    canonical := new_path
-    if abs, err := filepath.abs(new_path, context.temp_allocator); err == nil {
-        canonical = abs
-    }
-    for file in thor.open_files {
-        if thor_same_path(file.path, src_path) {
-            delete(file.path)
-            file.path = strings.clone(canonical)
-            file.name = thor_file_base(file.path)
-            break
-        }
-    }
-    thor_update_tab_labels(thor)
+    thor_retarget_open_file(thor, src_path, new_path)
 
     widgets.tree_refresh(thor.tree)
     thor_refresh_git_status(thor)
@@ -1721,19 +1712,7 @@ thor_rename_resource :: proc(thor: ^Thor, old_path, new_path: string, overwrite:
         }
     }
 
-    canonical := new_path
-    if abs, err := filepath.abs(new_path, context.temp_allocator); err == nil {
-        canonical = abs
-    }
-    for file in thor.open_files {
-        if thor_same_path(file.path, old_path) {
-            delete(file.path)
-            file.path = strings.clone(canonical)
-            file.name = thor_file_base(file.path)
-            break
-        }
-    }
-    thor_update_tab_labels(thor)
+    thor_retarget_open_file(thor, old_path, new_path)
     return true, ""
 }
 
