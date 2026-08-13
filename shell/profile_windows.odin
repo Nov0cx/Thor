@@ -79,9 +79,12 @@ profiles_detect :: proc(allocator := context.allocator) -> []Profile {
     )
 
     // The MSVC environment is loaded by the batch file the installer ships;
-    // -startdir=none keeps it from moving out of the workspace directory.
+    // -startdir=none keeps it from moving out of the workspace directory. The
+    // prompt builds for the machine it runs on, which is not this binary's own
+    // architecture when an x64 build runs emulated on ARM64.
     if vsdevcmd, ok := msvc.find_vsdevcmd(); ok {
-        call := fmt.tprintf(`call "%s" -arch=amd64 -host_arch=amd64 -startdir=none`, vsdevcmd)
+        arch := msvc.native_arch()
+        call := fmt.tprintf("%s -startdir=none", msvc.vsdevcmd_call(vsdevcmd, arch))
         add_profile(
             &list,
             "msvc",

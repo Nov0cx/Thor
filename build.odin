@@ -134,6 +134,7 @@ run_tests :: proc() -> bool {
         "lang/lsp",
         "lang/odin",
         "lang/odin/format",
+        "msvc",
         "piecetable",
         "plugin",
         "setting",
@@ -417,8 +418,11 @@ exec_msvc :: proc(args: []string, working_dir := "") -> bool {
         }
         // VsDevCmd.bat prints a spurious "vswhere.exe not found" on stderr, so
         // both streams go to nul; the exit code still reports a real failure, and
-        // the batch file stays on disk to run by hand.
-        fmt.sbprintfln(&script, `call "%s" -arch=amd64 -host_arch=amd64 >nul 2>&1 || exit /b 1`, vsdevcmd)
+        // the batch file stays on disk to run by hand. The target is this
+        // driver's own architecture, which is the one the editor is built for —
+        // an emulated x64 driver builds an x64 editor and must say so.
+        target := ODIN_ARCH == .arm64 ? "arm64" : "amd64"
+        fmt.sbprintfln(&script, "%s >nul 2>&1 || exit /b 1", msvc.vsdevcmd_call(vsdevcmd, target))
         fmt.sbprintln(&script, command_line(args))
 
         // Backslashes: cmd.exe reads a leading forward slash as a switch.
