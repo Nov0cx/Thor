@@ -184,8 +184,15 @@ watch_add :: proc(w: ^Watcher, dir: string) -> bool {
     if err != .NONE {
         return false
     }
-    // A directory watched twice answers with the descriptor it already has.
-    if _, taken := w.platform.watches[wd]; taken {
+    // A directory watched twice answers with the descriptor it already has. The
+    // descriptor follows the inode, so a directory renamed inside the tree comes
+    // back that way under its new path; keep the path, not the entry.
+    if known, taken := w.platform.watches[wd]; taken {
+        if known == dir {
+            return true
+        }
+        delete(known, w.allocator)
+        w.platform.watches[wd] = strings.clone(dir, w.allocator)
         return true
     }
     w.platform.watches[wd] = strings.clone(dir, w.allocator)
