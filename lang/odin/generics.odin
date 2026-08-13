@@ -5,7 +5,6 @@
 // survives.
 package odin
 
-import "core:strconv"
 import "core:strings"
 
 import lang ".."
@@ -32,80 +31,15 @@ Poly_Shape :: struct {
 // case drops one.
 @(private)
 peel_poly_shape :: proc(text: string) -> (shape: Poly_Shape, leaf: string, ok: bool) {
-    s := strings.trim_space(text)
-    soa := false
-    for {
-        for strings.has_prefix(s, "^") {
-            if shape.pointers >= POINTER_DEPTH_LIMIT {
-                return {}, "", false
-            }
-            shape.pointers += 1
-            s = strings.trim_space(s[1:])
-        }
-        if strings.has_prefix(s, "#soa") {
-            soa = true
-            s = strings.trim_space(s[4:])
-        }
-        layer: Container_Layer
-        rest: string
-        switch {
-        case strings.has_prefix(s, "map["):
-            inner, after, bok := bracket_group(s[3:])
-            if !bok {
-                return {}, "", false
-            }
-            layer = Container_Layer{kind = .Map}
-            if key, kok := plain_type_ref(strings.trim_space(inner)); kok {
-                layer.key = key.name
-                layer.key_pkg = key.pkg
-            }
-            rest = after
-        case strings.has_prefix(s, "bit_set["):
-            // The set holds what is inside the brackets, and what follows them
-            // is nothing — same as result_type_ref, a bit_set ends the walk.
-            inner, _, bok := bracket_group(s[7:])
-            if !bok {
-                return {}, "", false
-            }
-            if semi := strings.index_byte(inner, ';'); semi >= 0 {
-                inner = inner[:semi] // `bit_set[Axis; u8]` — a backing type
-            }
-            if shape.depth >= CONTAINER_DEPTH_LIMIT {
-                log_container_depth_exceeded()
-                return {}, "", false
-            }
-            shape.containers[shape.depth] = Container_Layer{kind = .Bit_Set}
-            shape.depth += 1
-            return shape, strings.trim_space(inner), true
-        case strings.has_prefix(s, "["):
-            inner, after, bok := bracket_group(s)
-            if !bok {
-                return {}, "", false
-            }
-            layer = Container_Layer{kind = .Array}
-            trimmed := strings.trim_space(inner)
-            if trimmed == "dynamic" {
-                layer.dyn = true
-            } else if n, nok := strconv.parse_int(trimmed); nok {
-                layer.length = n
-            }
-            layer.soa = soa
-            soa = false
-            rest = after
-        case:
-            if space := strings.index_proc(s, strings.is_space); space >= 0 {
-                s = s[:space]
-            }
-            return shape, s, true
-        }
-        if shape.depth >= CONTAINER_DEPTH_LIMIT {
-            log_container_depth_exceeded()
-            return {}, "", false
-        }
-        shape.containers[shape.depth] = layer
-        shape.depth += 1
-        s = strings.trim_space(rest)
+    pointers, layers, depth, l, _, pok := peel_containers(
+        text,
+        limit_pointers = true,
+        stop_at_proc = false,
+    )
+    if !pok {
+        return {}, "", false
     }
+    return Poly_Shape{pointers = pointers, containers = layers, depth = depth}, l, true
 }
 
 // A parameter's type text without its name, a variadic `..` marker or a

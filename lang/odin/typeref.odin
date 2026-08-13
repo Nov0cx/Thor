@@ -422,31 +422,78 @@ after_paren_group :: proc(text: string, want_inner := false) -> (string, bool) {
 // gone by now.
 @(private)
 result_type_ref :: proc(text: string) -> (Type_Ref, bool) {
-    s := strip_result_name(strings.trim_space(text))
+    _, layers, depth, leaf, kind, ok := peel_containers(
+        strip_result_name(strings.trim_space(text)),
+        limit_pointers = false,
+        stop_at_proc = true,
+    )
+    if !ok {
+        return {}, false
+    }
+    if kind == .Proc_Signature {
+        return wrap_layers(Type_Ref{proc_sig = leaf}, layers[:depth])
+    }
+    tr, tok := plain_type_ref(leaf)
+    if !tok {
+        return {}, false
+    }
+    return wrap_layers(tr, layers[:depth])
+}
 
-    // Outermost first, since that is the order they are written in; the element
-    // is wrapped in the reverse order, innermost first.
-    layers: [CONTAINER_DEPTH_LIMIT]Container_Layer
-    count := 0
+// What ended a container walk: a plain type name, a bit_set's element text, or
+// a whole proc signature.
+@(private)
+Peel_Leaf :: enum {
+    Name,
+    Bit_Set,
+    Proc_Signature,
+}
+
+// The pointer and container prefixes of a type text, peeled outermost first
+// (the element is wrapped back on in the reverse order). `limit_pointers`
+// counts each `^` and rejects past POINTER_DEPTH_LIMIT, where a result that is
+// auto-dereferenced only drops them; `stop_at_proc` reports a proc signature
+// rather than reading it as a name. The leaf comes back as text, since
+// result_type_ref resolves it eagerly while peel_poly_shape's caller may still
+// see a polymorphic `$T`.
+@(private)
+peel_containers :: proc(
+    text: string,
+    limit_pointers, stop_at_proc: bool,
+) -> (
+    pointers: int,
+    layers: [CONTAINER_DEPTH_LIMIT]Container_Layer,
+    depth: int,
+    leaf: string,
+    kind: Peel_Leaf,
+    ok: bool,
+) {
+    s := strings.trim_space(text)
     soa := false
     for {
         for strings.has_prefix(s, "^") {
+            if limit_pointers {
+                if pointers >= POINTER_DEPTH_LIMIT {
+                    return 0, {}, 0, "", .Name, false
+                }
+                pointers += 1
+            }
             s = strings.trim_space(s[1:])
         }
         if strings.has_prefix(s, "#soa") {
             soa = true
             s = strings.trim_space(s[4:])
         }
-        if is_proc_signature(s) {
-            return wrap_layers(Type_Ref{proc_sig = s}, layers[:count])
+        if stop_at_proc && is_proc_signature(s) {
+            return pointers, layers, depth, s, .Proc_Signature, true
         }
         layer: Container_Layer
         rest: string
         switch {
         case strings.has_prefix(s, "map["):
-            inner, after, ok := bracket_group(s[3:])
-            if !ok {
-                return {}, false
+            inner, after, bok := bracket_group(s[3:])
+            if !bok {
+                return 0, {}, 0, "", .Name, false
             }
             layer = Container_Layer{kind = .Map}
             if key, kok := plain_type_ref(strings.trim_space(inner)); kok {
@@ -457,28 +504,24 @@ result_type_ref :: proc(text: string) -> (Type_Ref, bool) {
         case strings.has_prefix(s, "bit_set["):
             // The set holds what is inside the brackets, and what follows them is
             // nothing — so a bit_set ends the walk rather than continuing it.
-            inner, _, ok := bracket_group(s[7:])
-            if !ok {
-                return {}, false
+            inner, _, bok := bracket_group(s[7:])
+            if !bok {
+                return 0, {}, 0, "", .Name, false
             }
             if semi := strings.index_byte(inner, ';'); semi >= 0 {
                 inner = inner[:semi] // `bit_set[Axis; u8]` — a backing type, not the element
             }
-            elem, eok := plain_type_ref(strings.trim_space(inner))
-            if !eok {
-                return {}, false
-            }
-            if count >= CONTAINER_DEPTH_LIMIT {
+            if depth >= CONTAINER_DEPTH_LIMIT {
                 log_container_depth_exceeded()
-                return {}, false
+                return 0, {}, 0, "", .Name, false
             }
-            layers[count] = Container_Layer{kind = .Bit_Set}
-            count += 1
-            return wrap_layers(elem, layers[:count])
+            layers[depth] = Container_Layer{kind = .Bit_Set}
+            depth += 1
+            return pointers, layers, depth, strings.trim_space(inner), .Bit_Set, true
         case strings.has_prefix(s, "["):
-            inner, after, ok := bracket_group(s)
-            if !ok {
-                return {}, false
+            inner, after, bok := bracket_group(s)
+            if !bok {
+                return 0, {}, 0, "", .Name, false
             }
             layer = Container_Layer{kind = .Array}
             inner = strings.trim_space(inner)
@@ -496,18 +539,14 @@ result_type_ref :: proc(text: string) -> (Type_Ref, bool) {
             if space := strings.index_proc(s, strings.is_space); space >= 0 {
                 s = s[:space]
             }
-            tr, ok := plain_type_ref(s)
-            if !ok {
-                return {}, false
-            }
-            return wrap_layers(tr, layers[:count])
+            return pointers, layers, depth, s, .Name, true
         }
-        if count >= CONTAINER_DEPTH_LIMIT {
+        if depth >= CONTAINER_DEPTH_LIMIT {
             log_container_depth_exceeded()
-            return {}, false
+            return 0, {}, 0, "", .Name, false
         }
-        layers[count] = layer
-        count += 1
+        layers[depth] = layer
+        depth += 1
         s = strings.trim_space(rest)
     }
 }
