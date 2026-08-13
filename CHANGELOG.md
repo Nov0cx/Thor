@@ -101,3 +101,9 @@ First release. Thor runs on Windows, Linux and macOS.
 - On Windows on ARM, the "Developer Command Prompt" shell and the dependency build load the ARM64 MSVC tools instead of the x64 ones, and an installation carrying only the ARM64 toolset is found.
 - On Linux and macOS, opening a folder that is already open brings that window to the front, through `xdotool`, `wmctrl` or `osascript`. When none of them can, the status bar says the window could not be raised instead of only naming it.
 - On Linux and the BSDs, "File: Reveal in File Explorer" selects the file in the file manager instead of only opening its folder, as it already did on Windows and macOS. Nautilus, Dolphin, Nemo, Thunar, PCManFM-Qt and Caja answer; a file manager that does not still gets the folder opened.
+- On Linux and macOS, key chords follow the keyboard layout, as they already did on Windows: on QWERTZ, `ctrl + z` undoes on the key labeled Z. Digit and punctuation chords follow the layout too, on every platform.
+- A held key repeats, so holding `ctrl + v` pastes more than once. The shortcuts that open or toggle something still act once per press.
+- Ligatures and right-to-left text are drawn at every font size. Zooming to a size the font manifest does not name no longer turned them off, and the tab strip and status bar get them as well.
+- `AltGr` with the mouse wheel scrolls the editor instead of zooming it.
+- The hover popup closes when the pointer leaves the editor, instead of staying up over the text it no longer points at.
+- Plugin API: `thor.on_key_up(fn)` (permission `keys`) reports key releases, with the table `thor.on_key` receives.
