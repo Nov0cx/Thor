@@ -205,14 +205,18 @@ thor_open_folder_in_new_window :: proc(thor: ^Thor, dir: string) {
     }
 }
 
-// Records a "don't ask again" choice. It goes to the global settings, never the
+// Records a "don't ask again" choice. It goes to the user layer, never the
 // workspace .thor/ overlay: which window a folder opens in is a personal
 // preference, not something a checked-in workspace config imposes on everyone.
 // Updates the live config in place rather than reloading — the caller is about
 // to open a folder, which reloads anyway.
 thor_persist_open_folder_in :: proc(thor: ^Thor, choice: setting.Open_Folder_In) {
     value := setting.open_folder_in_value(choice)
-    setting.persist_string("settings/settings.json", "open_folder_in", value)
+    path := strings.concatenate({setting.USER_DIR, "/settings.json"}, context.temp_allocator)
+    if !setting.persist_string(path, "open_folder_in", value) {
+        thor_flash_status(thor, "Could not save settings", is_error = true)
+        return
+    }
     delete(thor.config.general.open_folder_in)
     thor.config.general.open_folder_in = strings.clone(value)
     thor_settings_mark_clean(thor)

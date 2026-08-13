@@ -8,7 +8,8 @@ Two ways to get Thor:
   [Releases](https://github.com/Nov0cx/Thor/releases) page and unpack it
   anywhere. `thor` (or `thor.exe`) is ready to run; `assets/`, `plugins/` and
   `settings/` beside it are loaded at startup, so keep the whole folder
-  together.
+  together. What you change in Settings lands in a `user/` directory beside
+  them, which no update replaces.
 - **Build from source** — see [Building from Source](building.md). Needed if
   no release matches your platform, or you want a development build.
 
@@ -26,9 +27,10 @@ background check off entirely with `check_for_updates` in
 
 Installing downloads the archive for your platform, checks it against the
 `SHA256SUMS` the release publishes, replaces the files beside the binary and
-restarts into the same folder. Two things are left alone: any file in
-`settings/` you have edited (only files you do not have are added), and
-`sessions/`, which holds your open tabs and layout.
+restarts into the same folder. Two things are left alone: `user/`, which holds
+everything you changed in Settings, and `sessions/`, which holds your open tabs
+and layout. An install made before those two directories were split gets its
+`settings/` carried over into `user/` on the first update.
 
 Thor updates itself only when it is a release build unpacked from an archive.
 A build from source, or one in a directory it cannot write (`/opt`,

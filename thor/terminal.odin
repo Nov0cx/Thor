@@ -599,10 +599,11 @@ thor_shell_commit :: proc(data: rawptr, choice: string) {
     if !ok {
         return
     }
-    setting.persist_string(thor_active_settings_path(thor), "default_shell", choice)
-    delete(thor.config.general.default_shell)
-    thor.config.general.default_shell = strings.clone(choice)
-    thor_settings_mark_clean(thor)
+    if !setting.persist_string(thor_active_settings_path(thor), "default_shell", choice) {
+        thor_flash_status(thor, SETTINGS_SAVE_FAILED, is_error = true)
+        return
+    }
+    thor_reload_settings(thor)
     thor_show_console(thor)
     thor_terminal_open(thor, profile)
 }

@@ -1,11 +1,26 @@
 # Configuration
 
-Configuration is layered: global `settings/*.json` beside the binary,
-overlaid by a workspace's `.thor/` directory. Most of it is also reachable
-without editing JSON by hand, through the in-editor **Settings** view and the
-command palette (`ctrl + .`).
+Configuration is layered, each layer overlaying the one before it per key:
 
-## `settings/settings.json`
+| Layer | Where | Written by |
+| --- | --- | --- |
+| Shipped defaults | `settings/*.json` beside the binary | Thor's releases and builds — replaced wholesale by an update |
+| Your settings | `user/*.json` beside the binary | The Settings view and the command palette |
+| Workspace | `<project>/.thor/*.json` | You, per project; usually checked in |
+
+Both files of a layer above may name only the keys they change. Nothing Thor
+writes ever lands in `settings/`, so an update or a rebuild cannot lose your
+settings; keep your own edits in `user/` for the same reason. `user/` is created
+on the first change and needs no `settings/` counterpart.
+
+Most of it is reachable without editing JSON by hand, through the in-editor
+**Settings** view and the command palette (`ctrl + .`). The Settings view's
+**General** tab writes `user/`, its **Workspace** tab writes `.thor/`. The
+palette's "Open Settings (JSON)" and its keybinds and comments counterparts open
+whichever of the two a change would go to, creating the file when it is not
+there yet.
+
+## `settings.json`
 
 General editor preferences.
 
@@ -28,12 +43,11 @@ General editor preferences.
 | `language_backends` | Per-backend switch, one level more precise than `language_intelligence`: an object keyed by backend id (`"odin"` for the built-in support, or an `lsp.json` server's own `id`) whose value is the same shape as `language_intelligence` itself — a plain boolean, or an object with `"enabled"` plus per-feature toggles — scoped to that one backend | `{}` (every backend fully enabled) |
 
 An unset key falls back to its default, so a `settings.json` only needs the
-keys you want to change. Changing `theme`, `font` or an icon pack from
-Settings applies immediately; hand-editing the file needs a restart.
-`language_intelligence` and `language_backends` both apply immediately too,
-whether changed from the Settings view's **Language** category or by hand.
+keys you want to change. Every key applies as soon as the file is written,
+whether from the Settings view or by hand — the files of all three layers are
+watched.
 
-## `settings/keybinds.json`
+## `keybinds.json`
 
 Maps an action name to a key chord. See [Keybindings](keybindings.md) for the
 shipped bindings; rebind by editing this file (Settings has no key-remap UI
@@ -53,7 +67,7 @@ A chord is modifiers and one key, joined with `+`, in any order — for example
 The shipped bindings all use `ctrl`; bind `cmd` here to reach the Command key on
 macOS. An empty string unbinds an action.
 
-## `settings/lsp.json`
+## `lsp.json`
 
 The language servers Thor may start. Odin is served in the editor itself and
 needs no server; every other language gets its features — hover, go to
@@ -95,11 +109,11 @@ Entries shipped by default: `clangd`, `rust-analyzer`, `gopls`, `basedpyright`,
 | `extensions` | File extensions it claims, each with its leading dot |
 | `command` | Program and arguments; the program is looked up on `PATH` when not an absolute path |
 | `root_markers` | Files that mark the project root, looked for at and above the opened file; the workspace root is used when none is found |
-| `enabled` | `false` removes the entry |
+| `enabled` | `false` starts the entry switched off: it stops claiming its extensions, so another entry can take the language over, and it still lists in Settings where it can be switched back on |
 | `cwd` | Working directory; empty is the project root |
 | `env` | `"KEY=VALUE"` entries added to the environment |
 | `init_options`, `settings` | JSON passed to the server as its initialization options and its configuration |
-| `features` | Which features to ask this server for, by the `language_intelligence` names |
+| `features` | Which features to ask this server for, by the `language_intelligence` names. Like `enabled`, this states where the switches start, and `language_backends` overrides whichever of them it names |
 | `override` | `true` puts this server ahead of the built-in Odin support for `.odin` |
 
 A server claims an extension all-or-nothing, so overriding `.odin` also gives up
@@ -112,19 +126,21 @@ the native printer below. Selection and on-type formatting are LSP-only; the
 native Odin printer answers whole-document formatting alone. A server's own
 config file (`.clang-format`, `rustfmt.toml`, ...) governs how it formats,
 same as it would from any other editor. This table is also read when a workspace opens — including switching to a different folder, which
-restarts the servers for the new root — so editing `settings/lsp.json` or
-`.thor/lsp.json` for the workspace you already have open still needs it
-reopened to take effect. Turning a server (or the built-in Odin support) on or
-off, or gating one of its features, does not have that limitation: the
-Settings view's **Language** category lists every configured server (plus
-Odin) under **Language Servers**, each with its own on/off switch and, once
-enabled, a foldable **Features** group of per-kind toggles — both take effect
-on the next request, the same as `language_intelligence` itself, via the
-`language_backends` key above. Turning a server off there leaves an
+restarts the servers for the new root — so editing any `lsp.json` for the
+workspace you already have open still needs it reopened to take effect. Turning
+a server (or the built-in Odin support) on or off, or gating one of its
+features, does not have that limitation: the Settings view's **Language**
+category lists every configured server (plus Odin) under **Language Servers**,
+each with its own on/off switch and, once enabled, a foldable **Features** group
+of per-kind toggles — both take effect on the next request, the same as
+`language_intelligence` itself, via the `language_backends` key above. Those
+switches start where `lsp.json` puts them and are stored under
+`language_backends`, so a server the file turns off is still listed and can be
+switched back on without editing JSON. Turning a server off leaves an
 already-running process idle rather than stopping it outright; it only stops
 when the workspace reopens or Thor exits.
 
-## `settings/comments.json`
+## `comments.json`
 
 Maps a language id to its line-comment marker and the file extensions that use
 it, driving `ctrl + k` (toggle line comment). Add an entry here to teach Thor a
@@ -198,8 +214,9 @@ its root, layered on top of the global settings above. This repository's own
 - **`lsp.json`** — language servers for this project, in the shape described
   above. An entry is merged onto the shipped one with the same `id`, so a
   project can change one server's command or arguments without repeating the
-  rest of the table; `"enabled": false` removes a shipped server here, and an
-  `id` nothing ships adds one.
+  rest of the table; `"enabled": false` switches a shipped server off here —
+  which is how a project hands a language to a different server — and an `id`
+  nothing ships adds one.
 
 - **`plugins/`** — the workspace's own Lua plugins, in addition to the bundled
   ones under the Thor install. See [Plugins](plugins.md).

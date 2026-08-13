@@ -8,7 +8,7 @@ physical position.
 A held key repeats, except for the shortcuts that open or toggle something —
 those act once per press.
 
-Every binding below is a default and can be changed in `settings/keybinds.json`
+Every binding below is a default and can be changed in `keybinds.json`
 — see [Configuration](configuration.md) for the chord format, including the
 `cmd` token that reaches the Command key on macOS.
 
@@ -207,7 +207,7 @@ the shell's state (`cd`, environment) is not.
 
 The five "Terminal:" palette actions — New Terminal, Close Terminal, Next
 Terminal, Restart Shell, Select Default Shell — ship unbound; give them chords in
-the `terminal` group of `settings/keybinds.json`. Which shell new terminals open
+the `terminal` group of `keybinds.json`. Which shell new terminals open
 with is the `default_shell` setting (Settings > Terminal > Default Shell);
 empty means the best shell found on the machine.
 
@@ -241,7 +241,7 @@ The dropdown also carries "Run Task...", "Add Task...", "Remove Task..." and
 `<workspace>/.thor/tasks.json`. That file is committable and reloads as soon as
 it is saved. Which task is selected is personal, so it stays in the session
 rather than the file. The same actions are in the command palette under "Tasks:"
-and can be given chords in `settings/keybinds.json` — "Tasks: Run Selected Task"
+and can be given chords in `keybinds.json` — "Tasks: Run Selected Task"
 is the one worth binding.
 
 ```json
@@ -258,9 +258,10 @@ is the one worth binding.
 `ctrl + .` opens the command palette. Type to fuzzy-filter, arrows/enter to run,
 escape to dismiss. Commands that have a keybinding show the chord right-aligned
 in the list. "Go to File" and "Go to Line" switch it into file / line input
-modes. All bindings above live in `settings/keybinds.json`; comment markers in
-`settings/comments.json`; tab width, font size and autosave delay in
-`settings/settings.json`.
+modes. All bindings above live in `keybinds.json`; comment markers in
+`comments.json`; tab width, font size and autosave delay in `settings.json` —
+see [Configuration](configuration.md) for the three directories those are
+layered from.
 
 ## Help
 
@@ -274,4 +275,4 @@ The **Help** menu opens this manual without leaving the editor:
 
 The pages ship beside the binary, so they are readable offline. The same three
 actions are in the command palette under "Help:" and take chords in
-`settings/keybinds.json` as `docs`, `docs_page` and `docs_browser`.
+`keybinds.json` as `docs`, `docs_page` and `docs_browser`.

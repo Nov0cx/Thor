@@ -517,19 +517,24 @@ lowest latency.
   own `id` otherwise) whose value is either a bare bool (that backend's master
   switch alone) or an object of `"enabled"` plus one key per request kind,
   layered the same way (only the keys a file names overlay what's already
-  there). Read by `setting.backend_enabled`/`backend_features`, backed by
-  `General.language_backends: map[string]Backend_Setting`.
-  `thor_apply_language_settings` pushes it onto both backends: `lsp.Server`
-  gets `admin_enabled`/`admin_features` (atomic — `resolve` reads them off a
-  worker thread through `client_server_for`), ANDed with that server's own
-  `lsp.json`-file `enabled`/`features` rather than replacing them, so either
-  layer declining a kind is enough; `odin.Engine` gets the same pair, read from
-  its `handles`/`supports`. A disabled server is left running idle rather than
-  stopped — the same "administratively blocked, not torn down" precedent the
-  plugin-permission gate already sets — until the workspace reloads or the app
-  exits. The Settings modal's "Language Servers" group lists every configured
-  id (`lsp.client_server_ids` plus the fixed `"odin"`) as its own on/off row,
-  and each enabled backend gets its own foldable "*id* Features" group of
+  there). Read by `setting.backend_state`, backed by
+  `General.language_backends: map[string]Backend_Setting`, whose `enabled_set` /
+  `features_set` fields say which keys a layer actually stated.
+  `thor_backend_gate` resolves the answer: a key the settings state wins, a key
+  none of them state falls back to the backend's own default — an `lsp.json`
+  entry's `enabled`/`features` for a server (`lsp.client_server_defaults`),
+  everything on for the Odin engine. `thor_apply_language_settings` pushes the
+  result onto both backends: `lsp.Server` gets `admin_enabled`/`admin_features`
+  (atomic — `resolve` reads them off a worker thread through
+  `client_server_for`), which `server_create` seeded from the config, so the
+  settings own the gate the file only started; `odin.Engine` gets the same pair,
+  read from its `handles`/`supports`. A disabled server is left running idle
+  rather than stopped — the same "administratively blocked, not torn down"
+  precedent the plugin-permission gate already sets — until the workspace reloads
+  or the app exits. The Settings modal's "Language Servers" group lists every
+  configured id (`lsp.client_server_ids` plus the fixed `"odin"`) as its own
+  on/off row, including a server `lsp.json` turned off, so it can be turned back
+  on; each enabled backend gets its own foldable "*id* Features" group of
   per-kind rows below it — the precise, per-backend version of the coarse
   `language_intelligence` gate above.
 - **Go back / go forward (Ctrl+Alt+Left / Ctrl+Alt+Right):** every jump records

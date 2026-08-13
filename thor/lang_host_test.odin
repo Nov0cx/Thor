@@ -5,6 +5,7 @@ import "core:strings"
 import "core:testing"
 
 import "../lang"
+import "../setting"
 import "../textedit"
 
 // A rename touching a file that is not open is written straight to disk, so the
@@ -84,6 +85,47 @@ test_redo_edits_in_closed_files :: proc(t: ^testing.T) {
     testing.expect(t, thor_undo_last_edits(thor), "the set is undoable again after a redo")
     again, _ := os.read_entire_file(PATH, context.temp_allocator)
     testing.expect_value(t, string(again), ORIGINAL)
+}
+
+// The settings own a backend's gate for every key they state, and state nothing
+// for the rest — those fall back to the backend's own default. Without a client
+// the fallback is fully on, which is what the in-client Odin engine always uses.
+@(test)
+test_backend_gate_resolves_stated_over_default :: proc(t: ^testing.T) {
+    thor := new(Thor)
+    defer free(thor)
+    thor.config.general.language_backends = make(map[string]setting.Backend_Setting)
+    defer {
+        for key in thor.config.general.language_backends {
+            delete(key)
+        }
+        delete(thor.config.general.language_backends)
+    }
+
+    on, features := thor_backend_gate(thor, &thor.config, ODIN_BACKEND_ID)
+    testing.expect(t, on, "a backend no layer names must default to on")
+    testing.expect_value(t, features, lang.FEATURES_ALL)
+
+    // A layer that names one feature and nothing else: only that key is owned.
+    thor.config.general.language_backends[strings.clone(ODIN_BACKEND_ID)] = setting.Backend_Setting {
+        enabled      = false,
+        features     = lang.FEATURES_ALL - {.Format},
+        features_set = {.Format},
+    }
+    on, features = thor_backend_gate(thor, &thor.config, ODIN_BACKEND_ID)
+    testing.expect(t, on, "an unstated enabled key must not take this struct's own default")
+    testing.expect_value(t, features, lang.FEATURES_ALL - {.Format})
+
+    // The same entry, now stating the switch too.
+    thor.config.general.language_backends[ODIN_BACKEND_ID] = setting.Backend_Setting {
+        enabled      = false,
+        enabled_set  = true,
+        features     = lang.FEATURES_ALL,
+        features_set = {},
+    }
+    on, features = thor_backend_gate(thor, &thor.config, ODIN_BACKEND_ID)
+    testing.expect(t, !on)
+    testing.expect_value(t, features, lang.FEATURES_ALL)
 }
 
 // A file that changed after the undo is left alone: what redo would write over

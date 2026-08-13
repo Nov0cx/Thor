@@ -89,9 +89,11 @@ test_config_workspace_overlays_by_id :: proc(t: ^testing.T) {
     testing.expect_value(t, server.cwd, "/global")
 }
 
-// A new id adds a server; "enabled": false is how a workspace removes one.
+// A new id adds a server; "enabled": false is how a workspace turns one off. It
+// stays in the table so Settings can list it and turn it back on, and it stops
+// claiming its extensions.
 @(test)
-test_config_workspace_adds_and_removes :: proc(t: ^testing.T) {
+test_config_workspace_adds_and_disables :: proc(t: ^testing.T) {
     cfg := merge(
         `{"servers": [
             {"id": "clangd", "extensions": [".c"], "command": ["clangd"]},
@@ -104,13 +106,34 @@ test_config_workspace_adds_and_removes :: proc(t: ^testing.T) {
     )
     defer config_destroy(&cfg)
 
-    testing.expect_value(t, len(cfg.servers), 2)
-    _, has_clangd := find(&cfg, "clangd")
-    testing.expect(t, !has_clangd)
+    testing.expect_value(t, len(cfg.servers), 3)
+    clangd, has_clangd := find(&cfg, "clangd")
+    testing.expect(t, has_clangd, "a disabled server must stay listed")
+    testing.expect(t, !clangd.enabled)
+    _, claims_c := config_server_for(&cfg, ".c")
+    testing.expect(t, !claims_c, "a disabled server must not claim its extensions")
     _, has_gopls := find(&cfg, "gopls")
     testing.expect(t, has_gopls)
     _, has_zls := find(&cfg, "zls")
     testing.expect(t, has_zls)
+}
+
+// Turning a shipped server off is how a workspace hands its language to another
+// entry: the disabled one must not consume the extension on the way past.
+@(test)
+test_config_disabled_server_yields_extension :: proc(t: ^testing.T) {
+    cfg := merge(
+        `{"servers": [{"id": "basedpyright", "extensions": [".py"], "command": ["basedpyright-langserver"]}]}`,
+        `{"servers": [
+            {"id": "basedpyright", "enabled": false},
+            {"id": "ruff", "extensions": [".py"], "command": ["ruff", "server"]}
+        ]}`,
+    )
+    defer config_destroy(&cfg)
+
+    server, found := config_server_for(&cfg, ".py")
+    testing.expect(t, found, "the enabled entry must take the language over")
+    testing.expect_value(t, server.id, "ruff")
 }
 
 // An entry with nothing to start is not a server. Nor is one with no id, which

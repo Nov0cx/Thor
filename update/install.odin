@@ -18,7 +18,9 @@ import "../shell"
 // The names the swap replaces, each renamed aside before its new copy lands.
 // The order is the swap's: the binary and the library it loads move first, as
 // one group, because a failure there is the only one that needs a rollback.
-SWAPPED_DIRS :: [?]string{"assets", "plugins", "docs"}
+// settings/ is in the list because it holds shipped defaults only — what the
+// user writes lives in user/, which no update touches.
+SWAPPED_DIRS :: [?]string{"assets", "plugins", "docs", "settings"}
 
 // The file the writability probe creates and removes.
 @(private = "file")

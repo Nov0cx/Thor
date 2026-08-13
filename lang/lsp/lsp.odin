@@ -180,8 +180,11 @@ client_server_for :: proc(c: ^Client, ext: string) -> (^Server, bool) {
             if strings.equal_fold(ext, ".odin") && !s.config.override {
                 return nil, false
             }
+            // A disabled claimant does not consume the extension: turning one
+            // off is how a later entry (a workspace file's own server) takes
+            // the language over.
             if !server_admin_enabled(s) {
-                return nil, false
+                break
             }
             return s, true
         }
@@ -201,6 +204,21 @@ client_server_ids :: proc(c: ^Client, allocator := context.temp_allocator) -> []
         out[i] = s.config.id
     }
     return out
+}
+
+// The admin gate `id` starts at, as its lsp.json entry states it. What the
+// settings fall back to for a backend they say nothing about, so a server turned
+// off in lsp.json reads as off in Settings instead of on.
+client_server_defaults :: proc(c: ^Client, id: string) -> (enabled: bool, features: bit_set[lang.Request_Kind], ok: bool) {
+    if c == nil {
+        return true, lang.FEATURES_ALL, false
+    }
+    for s in c.servers {
+        if s.config.id == id {
+            return s.config.enabled, s.config.features, true
+        }
+    }
+    return true, lang.FEATURES_ALL, false
 }
 
 // Settings-driven on/off for one configured server, by id. False when no server

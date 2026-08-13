@@ -258,13 +258,7 @@ thor_theme_preview :: proc(data: rawptr, choice: string) {
 thor_theme_commit :: proc(data: rawptr, choice: string) {
     thor := cast(^Thor) data
     thor_theme_preview(thor, choice)
-    setting.persist_string(thor_active_settings_path(thor), "theme", choice)
-    delete(thor.config.general.theme)
-    thor.config.general.theme = strings.clone(choice)
-    thor_settings_mark_clean(thor)
-    if widgets.settings_view_is_open(thor.settings_view) {
-        thor_populate_settings_view(thor)
-    }
+    thor_persist_string_setting(thor, "theme", choice)
 }
 
 // Preferences: Change Font -> pick from the registered text families in a dialog
@@ -295,13 +289,7 @@ thor_font_commit :: proc(data: rawptr, choice: string) {
         thor_plugin_print(thor, strings.concatenate({"\nFont ", choice, " is not available.\n"}, context.temp_allocator))
         return
     }
-    setting.persist_string(thor_active_settings_path(thor), "font", choice)
-    delete(thor.config.general.font)
-    thor.config.general.font = strings.clone(choice)
-    thor_settings_mark_clean(thor)
-    if widgets.settings_view_is_open(thor.settings_view) {
-        thor_populate_settings_view(thor)
-    }
+    thor_persist_string_setting(thor, "font", choice)
 }
 
 // Picker rows for the ligatures setting.
@@ -334,12 +322,11 @@ thor_ligatures_commit :: proc(data: rawptr, choice: string) {
     thor := cast(^Thor) data
     enabled := choice == LIGATURE_LABELS[0]
     ui.shape_set_ligatures(enabled)
-    setting.persist_bool(thor_active_settings_path(thor), "ligatures", enabled)
-    thor.config.general.ligatures = enabled
-    thor_settings_mark_clean(thor)
-    if widgets.settings_view_is_open(thor.settings_view) {
-        thor_populate_settings_view(thor)
+    if !setting.persist_bool(thor_active_settings_path(thor), "ligatures", enabled) {
+        thor_flash_status(thor, SETTINGS_SAVE_FAILED, is_error = true)
+        return
     }
+    thor_reload_settings(thor)
 }
 
 // Icon families sharing a pack group are alternatives for the same set of icon
@@ -390,21 +377,27 @@ thor_open_icon_pack_dialog :: proc(
     )
 }
 
-// Applies `choice` to `group`, persists it under `key`, and writes it back into
-// `stored` (the owned config field) so the settings view redraws with it.
+// Applies `choice` to `group` and persists it under `key`; the reload writes it
+// back into the config and redraws the settings view.
 @(private = "file")
-thor_icon_pack_apply :: proc(thor: ^Thor, group, key, choice: string, stored: ^string) {
+thor_icon_pack_apply :: proc(thor: ^Thor, group, key, choice: string) {
     if !ui.icon_set_active_pack(group, choice) {
         thor_plugin_print(thor, strings.concatenate({"\nIcon pack ", choice, " is not available.\n"}, context.temp_allocator))
         return
     }
-    setting.persist_string(thor_active_settings_path(thor), key, choice)
-    delete(stored^)
-    stored^ = strings.clone(choice)
-    thor_settings_mark_clean(thor)
-    if widgets.settings_view_is_open(thor.settings_view) {
-        thor_populate_settings_view(thor)
+    thor_persist_string_setting(thor, key, choice)
+}
+
+// Writes one string settings key to the active layer and reloads, which is what
+// re-applies it and refreshes the modal. A write that did not land is reported
+// and changes nothing, so the row keeps reading what is actually on disk.
+@(private = "file")
+thor_persist_string_setting :: proc(thor: ^Thor, key, value: string) {
+    if !setting.persist_string(thor_active_settings_path(thor), key, value) {
+        thor_flash_status(thor, SETTINGS_SAVE_FAILED, is_error = true)
+        return
     }
+    thor_reload_settings(thor)
 }
 
 // Preferences: Change Icon Pack -> pick from the installed primary icon packs
@@ -426,7 +419,7 @@ thor_icon_pack_preview :: proc(_: rawptr, choice: string) {
 // Applies the chosen icon pack and persists it as the new default.
 thor_icon_pack_commit :: proc(data: rawptr, choice: string) {
     thor := cast(^Thor) data
-    thor_icon_pack_apply(thor, PRIMARY_ICON_PACK_GROUP, "icon_pack", choice, &thor.config.general.icon_pack)
+    thor_icon_pack_apply(thor, PRIMARY_ICON_PACK_GROUP, "icon_pack", choice)
 }
 
 // Preferences: Change File Icon Pack -> pick which pack draws the file tree's
@@ -445,5 +438,5 @@ thor_file_icon_pack_preview :: proc(_: rawptr, choice: string) {
 
 thor_file_icon_pack_commit :: proc(data: rawptr, choice: string) {
     thor := cast(^Thor) data
-    thor_icon_pack_apply(thor, FILE_ICON_PACK_GROUP, "file_icon_pack", choice, &thor.config.general.file_icon_pack)
+    thor_icon_pack_apply(thor, FILE_ICON_PACK_GROUP, "file_icon_pack", choice)
 }

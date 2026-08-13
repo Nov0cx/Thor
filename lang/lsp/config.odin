@@ -16,6 +16,11 @@ import lang ".."
 // relative.
 GLOBAL_CONFIG :: "settings/lsp.json"
 
+// The user layer, beside the shipped one. A build and an update replace
+// `settings/` wholesale and leave `user/` alone, so this is where a change the
+// user makes belongs.
+USER_CONFIG :: "user/lsp.json"
+
 WORKSPACE_CONFIG_DIR :: ".thor"
 WORKSPACE_CONFIG :: "lsp.json"
 
@@ -30,6 +35,8 @@ Server_Config :: struct {
     root_markers: []string, // owned
     init_options: string,   // owned; JSON text, "" when the key is absent
     settings:     string,   // owned; JSON text, "" when the key is absent
+    // The admin gate this entry starts at. Both seed the Server's own
+    // admin_enabled/admin_features, which the settings then own outright.
     features:     bit_set[lang.Request_Kind],
     enabled:      bool,
     override:     bool, // register ahead of the in-client Odin engine
@@ -41,15 +48,16 @@ Config :: struct {
     allocator: runtime.Allocator,
 }
 
-// Reads the shipped table and overlays the workspace's. A file that is absent,
-// unreadable or malformed contributes nothing: a broken workspace file must not
-// remove the servers the shipped one names.
+// Reads the shipped table, then the user's, then the workspace's. A file that is
+// absent, unreadable or malformed contributes nothing: a broken workspace file
+// must not remove the servers the shipped one names.
 config_load :: proc(workspace: string, allocator := context.allocator) -> Config {
     cfg := Config {
         servers   = make([dynamic]Server_Config, allocator),
         allocator = allocator,
     }
     config_merge_file(&cfg, GLOBAL_CONFIG)
+    config_merge_file(&cfg, USER_CONFIG)
     if workspace != "" {
         path, jerr := filepath.join({workspace, WORKSPACE_CONFIG_DIR, WORKSPACE_CONFIG}, context.temp_allocator)
         if jerr == nil {
@@ -69,13 +77,16 @@ config_destroy :: proc(cfg: ^Config) {
 }
 
 // The configured server for `ext`, compared without case because a path carries
-// whatever case the file system gave it. The first claimant wins: two entries on
-// one extension is a config mistake, not a fallback chain.
+// whatever case the file system gave it. The first enabled claimant wins: two
+// enabled entries on one extension is a config mistake, not a fallback chain.
 config_server_for :: proc(cfg: ^Config, ext: string) -> (^Server_Config, bool) {
     if ext == "" {
         return nil, false
     }
     for &server in cfg.servers {
+        if !server.enabled {
+            continue
+        }
         for candidate in server.extensions {
             if strings.equal_fold(candidate, ext) {
                 return &server, true
@@ -148,13 +159,14 @@ config_index :: proc(cfg: ^Config, id: string) -> int {
     return -1
 }
 
-// Drops the entries that name no server to start: `enabled: false`, which is how
-// a workspace file removes a shipped one, and an empty `command`.
+// Drops the entries that name no server to start: an empty `command`. An entry
+// with `enabled: false` stays — it seeds the server's admin gate off, which
+// keeps it listed in Settings and turnable back on.
 @(private)
 config_finish :: proc(cfg: ^Config) {
     kept := 0
     for &server in cfg.servers {
-        if !server.enabled || len(server.command) == 0 {
+        if len(server.command) == 0 {
             server_config_destroy(&server, cfg.allocator)
             continue
         }

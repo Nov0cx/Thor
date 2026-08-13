@@ -244,7 +244,11 @@ subprocess LSP client as an optional second backend behind the same seam.
   dispatch path can forget the check. `manager_allows(ext, kind)` is the per-kind question a caller
   with a fallback asks; `thor_apply_language_settings` pushes the setting onto the manager.
 - `lang/lsp` is the subprocess LSP backend, one `Server` per entry of the merged server table
-  (`settings/lsp.json` overlaid by `<workspace>/.thor/lsp.json`). `lang/LSP_PLAN.md` is its design.
+  (`settings/lsp.json` overlaid by `user/lsp.json` overlaid by `<workspace>/.thor/lsp.json`). An
+  entry's `enabled`/`features` **seed** that server's `admin_enabled`/`admin_features` at
+  `server_create` and state nothing after — `language_backends` owns the keys it names, so a server
+  turned off in `lsp.json` still lists in Settings and can be turned back on, and it stops claiming
+  its extensions so a later entry can take the language over. `lang/LSP_PLAN.md` is its design.
   A server is started by the first document event for an extension it claims, never at init. One
   pump thread per server does everything that can block on a pipe — spawn, handshake, outbox drain,
   restart — so `notify` on the main thread only queues. `state` is atomic and `caps` is written once
@@ -328,14 +332,20 @@ node userdata over the same seam. `plugins/README.md` is the plugin-author-facin
 
 Thor moves its working directory to the executable at startup, so `assets/`, `plugins/`,
 `settings/` and `docs/` are loaded *beside the binary*; the build stages fresh copies there on every
-build. The folder Thor opens still comes from the directory it was launched in.
+build, and the updater swaps all four. The folder Thor opens still comes from the directory it was
+launched in.
 
-Configuration is layered: global `settings/*.json` (settings, keybinds, comment prefixes, and
-`lsp.json`, the language-server table) overlaid by a workspace's `.thor/` directory. `.thor/` also
+Configuration is layered in three: the shipped `settings/*.json` (settings, keybinds, comment
+prefixes, and `lsp.json`, the language-server table), overlaid by `user/*.json`, overlaid by a
+workspace's `.thor/` directory. `settings/` is **read-only to the running editor** — a build and an
+update replace it wholesale, so anything Thor writes goes to `user/` (`setting.USER_DIR`,
+`thor_active_settings_path`) or to `.thor/`, never there; `user/` is gitignored, never staged and
+never swapped. `update_swap.odin` carries a pre-split install's `settings/*.json` into `user/` once,
+on its first update. `.thor/` also
 holds `tasks.json` (named shell commands surfaced in the titlebar), `odin-analyzer.json`
 (per-workspace analyzer collections and feature toggles — deliberately Thor's own file, not
 `ols.json`), `lsp.json` (server entries merged onto the shipped ones by `id`; `"enabled": false`
-removes one) and `plugins/` (the workspace's own Lua plugins). This repo has its own `.thor/`, so
+switches one off) and `plugins/` (the workspace's own Lua plugins). This repo has its own `.thor/`, so
 those files serve as working examples.
 
 ## User documentation

@@ -3,6 +3,7 @@
 *.dll
 *.local*
 sessions/
+user/
 .todo.txt
 git/*
 bin

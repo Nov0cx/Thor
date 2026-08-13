@@ -235,41 +235,44 @@ thor_workspace_config_dir :: proc(workspace_dir: string, allocator := context.te
     return strings.concatenate({workspace_dir, "/.thor"}, allocator)
 }
 
+// What a settings write that did not land reports. The install directory can be
+// read-only, and a change that only shows on screen is a change the next start
+// loses without a word.
+SETTINGS_SAVE_FAILED :: "Could not save settings"
+
 // Path a GUI-driven change writes to. While the Settings modal is open, its
 // General/Workspace tab picks the file explicitly; otherwise (a command bound
 // directly to a shortcut or the palette) the workspace .thor/ overlay wins
-// when initialized, since it is what actually takes effect, else the global
-// settings/ file.
+// when initialized, since it is what actually takes effect, else the user/
+// layer. Never settings/, which a build and an update replace wholesale.
 thor_active_settings_path :: proc(thor: ^Thor) -> string {
-    if widgets.settings_view_is_open(thor.settings_view) {
-        if widgets.settings_view_scope(thor.settings_view) == .Workspace {
-            return strings.concatenate({thor_workspace_config_dir(thor.workspace_dir), "/settings.json"}, context.temp_allocator)
-        }
-        return "settings/settings.json"
-    }
-    if thor.workspace_initialized {
-        return strings.concatenate({thor_workspace_config_dir(thor.workspace_dir), "/settings.json"}, context.temp_allocator)
-    }
-    return "settings/settings.json"
+    return thor_active_config_path(thor, "settings.json")
 }
 
 thor_active_keybinds_path :: proc(thor: ^Thor) -> string {
-    if widgets.settings_view_is_open(thor.settings_view) {
-        if widgets.settings_view_scope(thor.settings_view) == .Workspace {
-            return strings.concatenate({thor_workspace_config_dir(thor.workspace_dir), "/keybinds.json"}, context.temp_allocator)
-        }
-        return "settings/keybinds.json"
-    }
-    if thor.workspace_initialized {
-        return strings.concatenate({thor_workspace_config_dir(thor.workspace_dir), "/keybinds.json"}, context.temp_allocator)
-    }
-    return "settings/keybinds.json"
+    return thor_active_config_path(thor, "keybinds.json")
 }
 
-// Loads the global settings/ config, then overlays the workspace's .thor/ config
-// when initialized (recorded in workspace_initialized). Shared by startup and reload.
+@(private = "file")
+thor_active_config_path :: proc(thor: ^Thor, name: string) -> string {
+    workspace := false
+    if widgets.settings_view_is_open(thor.settings_view) {
+        workspace = widgets.settings_view_scope(thor.settings_view) == .Workspace
+    } else {
+        workspace = thor.workspace_initialized
+    }
+    if workspace {
+        return strings.concatenate({thor_workspace_config_dir(thor.workspace_dir), "/", name}, context.temp_allocator)
+    }
+    return strings.concatenate({setting.USER_DIR, "/", name}, context.temp_allocator)
+}
+
+// Loads the shipped settings/ defaults, overlays the user/ layer the GUI writes,
+// then the workspace's .thor/ config when initialized (recorded in
+// workspace_initialized). Shared by startup and reload.
 thor_load_config :: proc(thor: ^Thor, workspace_dir: string) {
-    thor.config = setting.load("settings")
+    thor.config = setting.load(setting.GLOBAL_DIR)
+    setting.load_overlay(&thor.config, setting.USER_DIR)
     cfg_dir := thor_workspace_config_dir(workspace_dir)
     thor.workspace_initialized = os.is_dir(cfg_dir)
     if thor.workspace_initialized {
@@ -803,9 +806,24 @@ thor_cmd_new_theme :: proc(data: rawptr) {
     thor_open_file(thor, dst)
 }
 
-thor_cmd_open_keybinds :: proc(data: rawptr) {thor_open_file(cast(^Thor) data, "settings/keybinds.json")}
-thor_cmd_open_comments :: proc(data: rawptr) {thor_open_file(cast(^Thor) data, "settings/comments.json")}
-thor_cmd_open_settings :: proc(data: rawptr) {thor_open_file(cast(^Thor) data, "settings/settings.json")}
+// Opens a config file for hand editing: the same layer a GUI change writes to,
+// so what the palette opens is what actually takes effect. An absent file opens
+// as an empty object rather than not at all — the user layer starts empty.
+@(private = "file")
+thor_open_config_file :: proc(thor: ^Thor, name: string) {
+    path := thor_active_config_path(thor, name)
+    if !os.exists(path) {
+        if !setting.persist_object(path) {
+            thor_flash_status(thor, "Could not create the config file", is_error = true)
+            return
+        }
+    }
+    thor_open_file(thor, path)
+}
+
+thor_cmd_open_keybinds :: proc(data: rawptr) {thor_open_config_file(cast(^Thor) data, "keybinds.json")}
+thor_cmd_open_comments :: proc(data: rawptr) {thor_open_config_file(cast(^Thor) data, "comments.json")}
+thor_cmd_open_settings :: proc(data: rawptr) {thor_open_config_file(cast(^Thor) data, "settings.json")}
 thor_cmd_reload_settings :: proc(data: rawptr) {thor_reload_settings(cast(^Thor) data)}
 
 // The cached index once it has been warmed (thor_refresh_file_index); a

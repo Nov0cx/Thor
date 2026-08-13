@@ -233,13 +233,15 @@ test_server_supports :: proc(t: ^testing.T) {
     testing.expect(t, server_supports(s, .Definition))
     testing.expect(t, server_supports(s, .Semantic_Tokens))
 
-    f.config.features -= {.Hover}
+    // The config seeds the admin gate at server_create, so a later change to it
+    // reaches the server through the same setter the settings use.
+    server_set_admin_features(s, server_admin_features(s) - {.Hover})
     testing.expect(t, server_start(s, SOURCE))
     testing.expect(t, wait_state(s, .Ready), "the handshake did not finish")
 
     testing.expect(t, server_supports(s, .Definition))
     testing.expect(t, server_supports(s, .Rename))
-    // Advertised, but the config turned it off.
+    // Advertised, but the admin gate turned it off.
     testing.expect(t, !server_supports(s, .Hover))
     // Never advertised.
     testing.expect(t, !server_supports(s, .Semantic_Tokens))

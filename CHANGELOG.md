@@ -1,3 +1,12 @@
+# 2026.08.2
+
+- Settings changed in the editor are kept in `user/*.json` beside the binary. A build and an update replace `settings/*.json`, which lost every change made in the Settings view; `user/` is left alone. An older install carries its `settings/` over on the first update.
+- Every language server and its features are switched from Settings and stay switched after a restart. This was written to a file the next update replaced.
+- A language server that `lsp.json` turns off is still listed in Settings and can be turned back on there.
+- A language server turned off no longer holds on to its file types, so another entry for the same language starts instead.
+- A settings change that cannot be written reports "Could not save settings" instead of showing a value that is not stored.
+- "Open Settings (JSON)", "Open Keybinds (JSON)" and "Open Comments (JSON)" open the file a change from the editor writes to, and create it when it is absent.
+
 # 2026.08.1
 
 - The Linux, Arch Linux and macOS archives are published next to the Windows one. Only the Windows archive was built for `2026.08.0`.

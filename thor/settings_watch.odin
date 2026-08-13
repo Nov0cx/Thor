@@ -4,8 +4,10 @@ import "core:os"
 import "core:strings"
 import rl "vendor:raylib"
 
-// Live settings reload. The config files live under settings/ (and, for an
-// initialized workspace, its .thor/ overlay) rather than the workspace tree the
+import "../setting"
+
+// Live settings reload. The config files live under settings/ and user/ (and,
+// for an initialized workspace, its .thor/ overlay) rather than the workspace tree the
 // file watcher covers, so they are polled here by modification time. An external
 // edit — from another editor, or Thor's own Settings modal — reloads and
 // re-applies them without a restart.
@@ -14,12 +16,14 @@ import rl "vendor:raylib"
 SETTINGS_POLL_INTERVAL :: 0.4
 
 // Config files whose edits trigger a reload, appended to `out` (temp-allocated
-// paths for the overlay). settings/ is relative to the exe dir (the CWD).
+// paths for the overlay). settings/ and user/ are relative to the exe dir (the CWD).
 @(private = "file")
 thor_settings_files :: proc(thor: ^Thor, out: ^[dynamic]string) {
-    append(out, "settings/settings.json")
-    append(out, "settings/keybinds.json")
-    append(out, "settings/comments.json")
+    for dir in ([]string{setting.GLOBAL_DIR, setting.USER_DIR}) {
+        for name in ([]string{"/settings.json", "/keybinds.json", "/comments.json"}) {
+            append(out, strings.concatenate({dir, name}, context.temp_allocator))
+        }
+    }
     if thor.workspace_initialized {
         dir := thor_workspace_config_dir(thor.workspace_dir)
         append(out, strings.concatenate({dir, "/settings.json"}, context.temp_allocator))

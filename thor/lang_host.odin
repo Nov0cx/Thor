@@ -75,11 +75,13 @@ thor_apply_language_settings :: proc(thor: ^Thor) {
     before := thor_language_gate(thor)
     lang.manager_set_enabled(&thor.lang_manager, enabled)
     lang.manager_set_features(&thor.lang_manager, features)
-    odin.engine_set_enabled(thor.odin_engine, setting.backend_enabled(&thor.config, ODIN_BACKEND_ID))
-    odin.engine_set_features(thor.odin_engine, setting.backend_features(&thor.config, ODIN_BACKEND_ID))
+    odin_on, odin_features := thor_backend_gate(thor, &thor.config, ODIN_BACKEND_ID)
+    odin.engine_set_enabled(thor.odin_engine, odin_on)
+    odin.engine_set_features(thor.odin_engine, odin_features)
     for id in lsp.client_server_ids(thor.lsp_client) {
-        lsp.client_set_server_enabled(thor.lsp_client, id, setting.backend_enabled(&thor.config, id))
-        lsp.client_set_server_features(thor.lsp_client, id, setting.backend_features(&thor.config, id))
+        server_on, server_features := thor_backend_gate(thor, &thor.config, id)
+        lsp.client_set_server_enabled(thor.lsp_client, id, server_on)
+        lsp.client_set_server_features(thor.lsp_client, id, server_features)
     }
     after := thor_language_gate(thor)
     if after == before {
@@ -104,6 +106,28 @@ thor_apply_language_settings :: proc(thor: ^Thor) {
     for pane in 0 ..< len(thor.pane_file) {
         thor_bind_pane(thor, pane, keep_view = true)
     }
+}
+
+// One backend's effective admin gate: what the config layers state, and the
+// backend's own default for every key none of them states. An LSP server takes
+// its default from its lsp.json entry, so a server turned off there reads as off
+// in Settings and can be turned back on; the Odin engine has no such file and
+// defaults to fully on. Shared by thor_apply_language_settings and the Settings
+// rows, so what the modal shows is what the seam enforces.
+thor_backend_gate :: proc(thor: ^Thor, config: ^setting.Settings, id: string) -> (enabled: bool, features: bit_set[lang.Request_Kind]) {
+    enabled, features = true, lang.FEATURES_ALL
+    if id != ODIN_BACKEND_ID {
+        enabled, features, _ = lsp.client_server_defaults(thor.lsp_client, id)
+    }
+    state, found := setting.backend_state(config, id)
+    if !found {
+        return
+    }
+    if state.enabled_set {
+        enabled = state.enabled
+    }
+    features = (features - state.features_set) + (state.features & state.features_set)
+    return
 }
 
 // The kinds the manager currently lets through, master switch included.

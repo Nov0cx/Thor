@@ -2,6 +2,7 @@ package setting
 
 import "core:encoding/json"
 import "core:os"
+import "core:strings"
 import "core:testing"
 
 import "../lang"
@@ -255,6 +256,79 @@ test_backend_feature_persist_round_trip :: proc(t: ^testing.T) {
     testing.expect(t, !backend_feature_enabled(&s, "clangd", .Hover))
     testing.expect(t, backend_feature_enabled(&s, "clangd", .Completion), "an untouched feature must still default to on")
     testing.expect(t, backend_feature_enabled(&s, "rust-analyzer", .Hover), "another backend must be untouched")
+}
+
+// The *_set fields say which keys a layer stated, so a caller can tell a stated
+// value from this struct's default and fall back to the backend's own.
+@(test)
+test_backend_state_records_what_a_layer_stated :: proc(t: ^testing.T) {
+    path := "thor_backend_state_test.json"
+    defer os.remove(path)
+
+    testing.expect(t, persist_double_nested_bool(path, LANGUAGE_BACKENDS_SETTING, "clangd", lang.feature_name(.Format), false))
+
+    s := load_from_dir_for_test(path)
+    defer destroy(&s)
+
+    state, found := backend_state(&s, "clangd")
+    testing.expect(t, found)
+    testing.expect(t, !state.enabled_set, "a file that names only a feature states nothing about enabled")
+    testing.expect_value(t, state.features_set, bit_set[lang.Request_Kind]{.Format})
+    testing.expect(t, .Format not_in state.features)
+
+    _, unknown := backend_state(&s, "gopls")
+    testing.expect(t, !unknown, "an id no layer names must report nothing")
+}
+
+// The bare-bool form states the enabled switch and nothing else.
+@(test)
+test_backend_state_bare_bool_form :: proc(t: ^testing.T) {
+    path := "thor_backend_state_bool_test.json"
+    defer os.remove(path)
+
+    testing.expect(t, persist_nested_bool(path, LANGUAGE_BACKENDS_SETTING, "clangd", false))
+
+    s := load_from_dir_for_test(path)
+    defer destroy(&s)
+
+    state, found := backend_state(&s, "clangd")
+    testing.expect(t, found)
+    testing.expect(t, state.enabled_set)
+    testing.expect(t, !state.enabled)
+    testing.expect_value(t, state.features_set, bit_set[lang.Request_Kind]{})
+}
+
+// The three layers apply in order: the shipped defaults, then the user layer the
+// GUI writes, then a workspace's own. A key a later layer does not name keeps
+// what the one before it put there.
+@(test)
+test_load_overlay_layers_in_order :: proc(t: ^testing.T) {
+    global := "thor_layer_global.tmp"
+    user := "thor_layer_user.tmp"
+    workspace := "thor_layer_workspace.tmp"
+    defer for dir in ([]string{global, user, workspace}) {
+        os.remove(concat_for_test(dir, "/settings.json"))
+        os.remove(dir)
+    }
+
+    testing.expect(t, persist_int(concat_for_test(global, "/settings.json"), "tab_width", 2))
+    testing.expect(t, persist_int(concat_for_test(global, "/settings.json"), "font_size", 12))
+    testing.expect(t, persist_int(concat_for_test(user, "/settings.json"), "font_size", 20))
+    testing.expect(t, persist_int(concat_for_test(workspace, "/settings.json"), "tab_width", 8))
+
+    s := load(global)
+    defer destroy(&s)
+    load_overlay(&s, user)
+    load_overlay(&s, workspace)
+
+    testing.expect_value(t, tab_width(&s), 8)
+    testing.expect_value(t, font_size(&s), 20)
+    testing.expect_value(t, autosave_delay_ms(&s), 1500)
+}
+
+@(private = "file")
+concat_for_test :: proc(a, b: string) -> string {
+    return strings.concatenate({a, b}, context.temp_allocator)
 }
 
 // A chord round-trips through the canonical spec: the tokens the parser reads

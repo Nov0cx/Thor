@@ -13,7 +13,9 @@ import "core:fmt"
 import "core:log"
 import "core:os"
 import "core:path/filepath"
+import "core:strings"
 
+import "../setting"
 import "../shell"
 import "../update"
 
@@ -54,8 +56,9 @@ thor_swap_and_relaunch :: proc(thor: ^Thor) {
     if !thor_swap_locked_files(thor, root) {
         return
     }
+    // Before the swap replaces settings/, since that is what it saves.
+    thor_migrate_user_settings()
     thor_swap_directories(thor, root)
-    thor_merge_settings(root)
 
     // The staged copy has served its purpose; a leftover only costs disk and
     // the next start clears it anyway.
@@ -169,45 +172,39 @@ thor_swap_directories :: proc(thor: ^Thor, root: string) {
     }
 }
 
-// Adds the settings files the new build ships and this install does not have.
-// A file the user edited is never overwritten, and sessions/ is neither read
-// nor written: an absent key falls back to the code's own default, so the cost
-// of skipping one is nothing.
+// Carries an install made before settings/ and user/ were split over into the
+// new layout. An install that already has user/ is left alone, so this runs at
+// most once: the swap is the only place that knows settings/ still holds what
+// the user wrote, and a fresh install never reaches it.
 @(private = "file")
-thor_merge_settings :: proc(root: string) {
-    source, join_err := filepath.join({root, "settings"}, context.temp_allocator)
-    if join_err != nil {
-        log.errorf("Could not build the staged settings path: %v", join_err)
+thor_migrate_user_settings :: proc() {
+    if os.is_dir(setting.USER_DIR) || !os.is_dir(setting.GLOBAL_DIR) {
         return
     }
-    entries, err := os.read_all_directory_by_path(source, context.temp_allocator)
+    entries, err := os.read_all_directory_by_path(setting.GLOBAL_DIR, context.temp_allocator)
     if err != nil {
-        log.warnf("The update ships no readable settings dir: %v", err)
+        log.warnf("Could not read %q: %v", setting.GLOBAL_DIR, err)
         return
     }
-    if !os.is_dir("settings") {
-        if make_err := os.make_directory_all("settings"); make_err != nil {
-            log.errorf("Could not create settings dir: %v", make_err)
-            return
-        }
+    if make_err := os.make_directory_all(setting.USER_DIR); make_err != nil {
+        log.errorf("Could not create %q: %v", setting.USER_DIR, make_err)
+        return
     }
     for entry in entries {
-        destination, dest_err := filepath.join({"settings", entry.name}, context.temp_allocator)
-        from, from_err := filepath.join({source, entry.name}, context.temp_allocator)
+        if entry.type == .Directory || !strings.has_suffix(entry.name, ".json") {
+            continue
+        }
+        destination, dest_err := filepath.join({setting.USER_DIR, entry.name}, context.temp_allocator)
+        from, from_err := filepath.join({setting.GLOBAL_DIR, entry.name}, context.temp_allocator)
         if dest_err != nil || from_err != nil {
             log.warnf("Could not build a path for %q: %v", entry.name, dest_err != nil ? dest_err : from_err)
             continue
         }
-        if os.exists(destination) {
-            continue
-        }
-        copy_err := entry.type == .Directory \
-            ? os.copy_directory_all(destination, from) \
-            : os.copy_file(destination, from)
-        if copy_err != nil {
-            log.warnf("Could not add %q: %v", destination, copy_err)
+        if copy_err := os.copy_file(destination, from); copy_err != nil {
+            log.warnf("Could not carry %q over: %v", entry.name, copy_err)
         }
     }
+    log.infof("Carried the settings of an older install into %q", setting.USER_DIR)
 }
 
 // The name a replaced file is kept under until the next start.

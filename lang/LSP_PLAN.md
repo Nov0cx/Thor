@@ -725,8 +725,9 @@ A user who wants OLS adds it in `.thor/lsp.json` with `"override": true`.
 
 ### Interaction with the existing gates
 
-Three layers, all AND-ed, none replacing another — the same rule as
-`ROADMAP.md:507-511`:
+Three layers. The first and third are AND-ed; the second seeds the second's own
+admin gate rather than capping it, so the settings can turn a server or a kind
+`lsp.json` declined back on:
 
 1. **`settings.json` `language_intelligence`**, the master switch plus per-kind
    rows (`setting/setting.odin:641-664`), enforced on the `Manager` through
@@ -735,10 +736,13 @@ Three layers, all AND-ed, none replacing another — the same rule as
    in-flight work, and the new push channel is gated the same way inside
    `manager_dispatch`. No new code in the settings UI or in
    `thor_apply_language_settings`.
-2. **`lsp.json` `features`** per server, enforced inside `supports`.
+2. **`lsp.json` `enabled`/`features`** per server, seeding the `Server`'s
+   `admin_enabled`/`admin_features` at `server_create`. `language_backends`
+   overwrites the keys it states; `supports` reads the admin pair alone.
 3. **The server's advertised capabilities**, also inside `supports`.
 
-A kind runs only when all three allow it. `.thor/settings.json` can still carry
+A kind runs when the master gate, the admin gate and the capabilities all allow
+it. `.thor/settings.json` can still carry
 `language_intelligence` per workspace, which remains the per-folder way to gate a
 kind a server offers no toggle for.
 

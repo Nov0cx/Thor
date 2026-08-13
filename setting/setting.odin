@@ -1,7 +1,12 @@
 package setting
 
-// Loads Thor's config from settings/ (comments.json, keybinds.json,
-// settings.json). Missing or malformed files degrade to empty lookups.
+// Loads Thor's config from a directory of comments.json, keybinds.json and
+// settings.json. Missing or malformed files degrade to empty lookups.
+//
+// Three layers, each overlaying the last per key: GLOBAL_DIR holds the shipped
+// defaults, USER_DIR what the GUI writes, and a workspace's .thor/ its own
+// overlay. Only USER_DIR and .thor/ are ever written — GLOBAL_DIR is replaced
+// wholesale by a build and by an update.
 
 import "core:encoding/json"
 import "core:log"
@@ -66,10 +71,15 @@ General :: struct {
 }
 
 // One backend's admin gate: mirrors General's own language_enabled/
-// language_features pair, scoped to a single backend id.
+// language_features pair, scoped to a single backend id. The *_set fields say
+// which keys a config layer actually stated; a key no layer states falls back to
+// the backend's own default (an lsp.json entry's `enabled`/`features`) rather
+// than to this struct's.
 Backend_Setting :: struct {
-    enabled:  bool,
-    features: bit_set[lang.Request_Kind],
+    enabled:      bool,
+    features:     bit_set[lang.Request_Kind],
+    enabled_set:  bool,
+    features_set: bit_set[lang.Request_Kind],
 }
 
 // settings.json key holding the language-intelligence gate: either a boolean
@@ -85,6 +95,14 @@ LANGUAGE_ENABLED_KEY :: "enabled"
 // feature). Layered the same way: only the ids, and within an id only the
 // keys, present in a given file overlay what's already there.
 LANGUAGE_BACKENDS_SETTING :: "language_backends"
+
+// The shipped defaults, staged beside the binary by a build and swapped by an
+// update. Read-only: nothing Thor writes lands here.
+GLOBAL_DIR :: "settings"
+
+// What the GUI writes, beside the binary and beside GLOBAL_DIR. Never staged
+// and never swapped, so a build or an update keeps it.
+USER_DIR :: "user"
 
 // Where an opened folder goes. Parsed from the open_folder_in setting.
 Open_Folder_In :: enum {
@@ -262,8 +280,18 @@ language_feature_enabled :: proc(s: ^Settings, kind: lang.Request_Kind) -> bool 
     return s.general.language_enabled && kind in s.general.language_features
 }
 
+// What the config layers state about one backend, and whether any of them named
+// it at all. The caller reads the *_set fields to tell a stated value from the
+// struct's default, and falls back to the backend's own default for the rest.
+backend_state :: proc(s: ^Settings, id: string) -> (Backend_Setting, bool) {
+    cfg, ok := s.general.language_backends[id]
+    return cfg, ok
+}
+
 // Whether one backend (an LSP server id, or "odin" for the in-client analyzer)
-// is admin-enabled. An id the config never mentions is enabled by default.
+// is admin-enabled by the settings alone. An id the config never mentions is
+// enabled by default — a caller that has a backend default to fall back to
+// wants backend_state instead.
 backend_enabled :: proc(s: ^Settings, id: string) -> bool {
     cfg, ok := s.general.language_backends[id]
     return !ok || cfg.enabled
@@ -324,6 +352,13 @@ persist_string :: proc(path, key, value: string) -> bool {
     root := load_root_object(path)
     root[key] = json.String(value)
     return write_object(path, root)
+}
+
+// Creates `path` as an empty settings object when it does not exist, keeping an
+// existing file as it is. Lets a layer the user has never written be opened for
+// hand editing.
+persist_object :: proc(path: string) -> bool {
+    return write_object(path, load_root_object(path))
 }
 
 // Like persist_string but for an integer field (tab_width, font_size, ...).
@@ -417,12 +452,31 @@ load_root_object :: proc(path: string) -> json.Object {
     return make(json.Object, allocator = context.temp_allocator)
 }
 
+// The directory part of a config path, empty when it names none. Both
+// separators count: a workspace path carries whatever the platform gave it.
+@(private)
+parent_dir :: proc(path: string) -> string {
+    cut := strings.last_index_any(path, "/\\")
+    if cut <= 0 {
+        return ""
+    }
+    return path[:cut]
+}
+
 @(private)
 write_object :: proc(path: string, root: json.Object) -> bool {
     data, err := json.marshal(root, {pretty = true, use_spaces = true, spaces = 4}, context.temp_allocator)
     if err != nil {
         log.errorf("Cannot marshal settings %q: %v", path, err)
         return false
+    }
+    // USER_DIR does not exist until the first write to it.
+    dir := parent_dir(path)
+    if dir != "" && dir != "." && !os.is_dir(dir) {
+        if derr := os.make_directory(dir); derr != nil {
+            log.errorf("Cannot create settings directory %q: %v", dir, derr)
+            return false
+        }
     }
     if werr := os.write_entire_file(path, data); werr != nil {
         log.errorf("Cannot write settings %q: %v", path, werr)
@@ -775,11 +829,17 @@ read_backend_toggles :: proc(s: ^Settings, root: json.Object) {
         #partial switch v in value {
         case json.Boolean:
             cfg.enabled = bool(v)
+            cfg.enabled_set = true
         case json.Object:
-            read_bool(v, LANGUAGE_ENABLED_KEY, &cfg.enabled)
+            if read_bool(v, LANGUAGE_ENABLED_KEY, &cfg.enabled) {
+                cfg.enabled_set = true
+            }
             for kind in lang.Request_Kind {
                 on := kind in cfg.features
-                read_bool(v, lang.feature_name(kind), &on)
+                if !read_bool(v, lang.feature_name(kind), &on) {
+                    continue
+                }
+                cfg.features_set += {kind}
                 if on {
                     cfg.features += {kind}
                 } else {
@@ -819,11 +879,16 @@ read_int :: proc(obj: json.Object, key: string, dst: ^int) {
 }
 
 // Reads a boolean field into dst, leaving the default in place if absent.
+// Returns whether the file stated the key, which is what tells a stated `false`
+// from an unstated one.
 @(private)
-read_bool :: proc(obj: json.Object, key: string, dst: ^bool) {
-    if value, ok := obj[key].(json.Boolean); ok {
-        dst^ = cast(bool) value
+read_bool :: proc(obj: json.Object, key: string, dst: ^bool) -> bool {
+    value, ok := obj[key].(json.Boolean)
+    if !ok {
+        return false
     }
+    dst^ = cast(bool) value
+    return true
 }
 
 @(private)

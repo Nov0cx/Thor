@@ -50,10 +50,11 @@ test_client_set_server_enabled_gates_dispatch :: proc(t: ^testing.T) {
     testing.expect(t, !client_set_server_enabled(&c, "unknown", false), "an unconfigured id must not be found")
 }
 
-// The per-kind admin gate ANDs with the server's own lsp.json features rather
-// than replacing them: a kind either layer declines stays declined.
+// The server's own lsp.json features seed the per-kind admin gate and state
+// nothing after that, so the settings can decline a kind the file allowed and
+// allow one the file declined.
 @(test)
-test_client_set_server_features_ands_with_config :: proc(t: ^testing.T) {
+test_client_set_server_features_seeded_by_config :: proc(t: ^testing.T) {
     extensions := [1]string{".fake"}
     command := [1]string{"fake-language-server"}
 
@@ -76,18 +77,21 @@ test_client_set_server_features_ands_with_config :: proc(t: ^testing.T) {
     }
 
     testing.expect(t, supports(&c, ".fake", .Hover))
-    testing.expect(t, !supports(&c, ".fake", .Rename), "the lsp.json config already declined Rename")
+    testing.expect(t, !supports(&c, ".fake", .Rename), "the lsp.json config seeded Rename off")
+
+    defaults_enabled, defaults_features, defaults_ok := client_server_defaults(&c, "fake")
+    testing.expect(t, defaults_ok)
+    testing.expect(t, defaults_enabled)
+    testing.expect_value(t, defaults_features, lang.FEATURES_ALL - {.Rename})
 
     testing.expect(t, client_set_server_features(&c, "fake", lang.FEATURES_ALL - {.Hover}))
     testing.expect(t, !supports(&c, ".fake", .Hover), "the settings-driven gate must decline Hover now")
-    testing.expect(t, !supports(&c, ".fake", .Rename), "the config's own decline must still hold, not be overridden")
+    testing.expect(t, supports(&c, ".fake", .Rename), "the settings own the gate the config only seeded")
     testing.expect(t, supports(&c, ".fake", .Completion), "an untouched kind must still be answered")
 
-    testing.expect(t, client_set_server_features(&c, "fake", lang.FEATURES_ALL))
-    testing.expect(t, supports(&c, ".fake", .Hover), "restoring the settings gate must let Hover through again")
-    testing.expect(t, !supports(&c, ".fake", .Rename), "the config's own decline is independent of the settings gate")
-
     testing.expect(t, !client_set_server_features(&c, "unknown", lang.FEATURES_ALL))
+    _, _, unknown_ok := client_server_defaults(&c, "unknown")
+    testing.expect(t, !unknown_ok, "an unconfigured id has no defaults to report")
 }
 
 // The ids a settings UI enumerates are exactly the configured servers', in

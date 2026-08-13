@@ -90,14 +90,14 @@ Server :: struct {
     // lang.result_free, which uses the Manager's.
     allocator:   runtime.Allocator,
     state:       Server_State, // atomic
-    // Settings-driven admin gate, independent of config.enabled (which only
-    // decides whether the server exists in the merged table at all). Atomic:
-    // resolve (worker thread) reaches it through client_server_for.
+    // The admin gate the settings own. config.enabled/config.features seed it in
+    // server_create and state nothing after that, so a server turned off in
+    // lsp.json can be turned back on in Settings. Atomic: resolve (worker
+    // thread) reaches it through client_server_for.
     admin_enabled: bool, // atomic
-    // Settings-driven per-kind gate, independent of config.features (the
-    // lsp.json-file gate). ANDed with it in server_supports: a kind declined by
-    // either layer is declined. Atomic: server_supports runs main-thread only,
-    // but this is set from the same settings path as admin_enabled.
+    // The per-kind half of that gate, seeded from config.features. Atomic:
+    // server_supports runs main-thread only, but this is set from the same
+    // settings path as admin_enabled.
     admin_features: bit_set[lang.Request_Kind], // atomic
     caps:        Capabilities, // written before state becomes .Ready, never after
     caps_set:    bool,         // pump thread only
@@ -139,8 +139,8 @@ server_create :: proc(config: ^Server_Config, workspace: string, allocator := co
     s.workspace = strings.clone(workspace, allocator)
     s.allocator = allocator
     s.state = .Idle
-    s.admin_enabled = true
-    s.admin_features = lang.FEATURES_ALL
+    s.admin_enabled = config.enabled
+    s.admin_features = config.features
     s.outbox = make([dynamic]Doc_Notice, allocator)
     s.docs = make([dynamic]^Document, allocator)
     s.pushes = make([dynamic]lang.Result, allocator)
@@ -224,9 +224,6 @@ server_ensure_started :: proc(s: ^Server, req: ^lang.Request) -> bool {
 // otherwise the first requests after a start are swallowed and the user learns
 // that a feature works only on the second try. Main thread, no lock.
 server_supports :: proc(s: ^Server, kind: lang.Request_Kind) -> bool {
-    if kind not_in s.config.features {
-        return false
-    }
     if kind not_in server_admin_features(s) {
         return false
     }

@@ -31,9 +31,9 @@ thor_cmd_open_settings_gui :: proc(data: rawptr) {
 
 // Rebuilds every row from the config for the view's current scope. Called on
 // open, on a scope switch and after any change reloads, so the displayed
-// values always match what is actually on disk for that scope. General reads
-// a fresh, unmerged settings/ snapshot (thor.config already has the workspace
-// overlay folded in); Workspace reads the live merged thor.config.
+// values always match what is actually on disk for that scope. General reads a
+// fresh settings/ + user/ snapshot without the workspace overlay (thor.config
+// has that folded in); Workspace reads the live merged thor.config.
 thor_populate_settings_view :: proc(thor: ^Thor) {
     view := thor.settings_view
     widgets.settings_view_clear(view)
@@ -48,7 +48,8 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
     general_snapshot: setting.Settings
     config: ^setting.Settings
     if owns_snapshot {
-        general_snapshot = setting.load("settings")
+        general_snapshot = setting.load(setting.GLOBAL_DIR)
+        setting.load_overlay(&general_snapshot, setting.USER_DIR)
         config = &general_snapshot
     } else {
         config = &thor.config
@@ -108,17 +109,18 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
         widgets.settings_view_begin_group(view, LANGUAGE_BACKENDS_GROUP, "Language Servers", collapsed = true)
         for id in backend_ids {
             label := id == ODIN_BACKEND_ID ? "Odin Analyzer" : id
-            widgets.settings_view_add_choice(view, thor_language_backend_id(id), label, thor_on_off_label(setting.backend_enabled(config, id)))
+            on, _ := thor_backend_gate(thor, config, id)
+            widgets.settings_view_add_choice(view, thor_language_backend_id(id), label, thor_on_off_label(on))
         }
         widgets.settings_view_end_group(view)
 
         // Each backend's own feature rows, folded under a group per backend —
         // shown only for a backend that is itself still on.
         for id in backend_ids {
-            if !setting.backend_enabled(config, id) {
+            on, features := thor_backend_gate(thor, config, id)
+            if !on {
                 continue
             }
-            features := setting.backend_features(config, id)
             group_label := id == ODIN_BACKEND_ID ? "Odin Analyzer Features" : fmt.tprintf("%s Features", id)
             widgets.settings_view_begin_group(view, thor_language_backend_feature_group(id), group_label, collapsed = true)
             for kind in lang.Request_Kind {
@@ -179,7 +181,10 @@ thor_on_settings_scope_change :: proc(data: rawptr, scope: widgets.Settings_Scop
 // applies live (and refreshes the modal's rows).
 thor_on_setting_number :: proc(data: rawptr, id: string, value: int) {
     thor := cast(^Thor) data
-    setting.persist_int(thor_active_settings_path(thor), id, value)
+    if !setting.persist_int(thor_active_settings_path(thor), id, value) {
+        thor_flash_status(thor, SETTINGS_SAVE_FAILED, is_error = true)
+        return
+    }
     thor_reload_settings(thor)
 }
 
@@ -406,13 +411,11 @@ thor_language_master_preview :: proc(_: rawptr, _: string) {}
 thor_language_master_commit :: proc(data: rawptr, choice: string) {
     thor := cast(^Thor) data
     on := choice == ON_OFF_LABELS[0]
-    setting.persist_nested_bool(thor_active_settings_path(thor), setting.LANGUAGE_SETTING, setting.LANGUAGE_ENABLED_KEY, on)
-    thor.config.general.language_enabled = on
-    thor_apply_language_settings(thor)
-    thor_settings_mark_clean(thor)
-    if widgets.settings_view_is_open(thor.settings_view) {
-        thor_populate_settings_view(thor)
+    if !setting.persist_nested_bool(thor_active_settings_path(thor), setting.LANGUAGE_SETTING, setting.LANGUAGE_ENABLED_KEY, on) {
+        thor_flash_status(thor, SETTINGS_SAVE_FAILED, is_error = true)
+        return
     }
+    thor_reload_settings(thor)
 }
 
 // Settings row: format the active buffer before every explicit save. Nothing
@@ -433,13 +436,7 @@ thor_format_on_save_preview :: proc(_: rawptr, _: string) {}
 @(private = "file")
 thor_format_on_save_commit :: proc(data: rawptr, choice: string) {
     thor := cast(^Thor) data
-    on := choice == ON_OFF_LABELS[0]
-    setting.persist_bool(thor_active_settings_path(thor), "format_on_save", on)
-    thor.config.general.format_on_save = on
-    thor_settings_mark_clean(thor)
-    if widgets.settings_view_is_open(thor.settings_view) {
-        thor_populate_settings_view(thor)
-    }
+    thor_persist_bool_setting(thor, "format_on_save", choice == ON_OFF_LABELS[0])
 }
 
 // Settings row: the background update check. Off leaves Help > Check for
@@ -460,13 +457,7 @@ thor_check_for_updates_preview :: proc(_: rawptr, _: string) {}
 @(private = "file")
 thor_check_for_updates_commit :: proc(data: rawptr, choice: string) {
     thor := cast(^Thor) data
-    on := choice == ON_OFF_LABELS[0]
-    setting.persist_bool(thor_active_settings_path(thor), "check_for_updates", on)
-    thor.config.general.check_for_updates = on
-    thor_settings_mark_clean(thor)
-    if widgets.settings_view_is_open(thor.settings_view) {
-        thor_populate_settings_view(thor)
-    }
+    thor_persist_bool_setting(thor, "check_for_updates", choice == ON_OFF_LABELS[0])
 }
 
 // Settings row: dispatch Format_On_Type as a trigger character is typed.
@@ -487,13 +478,19 @@ thor_format_on_type_preview :: proc(_: rawptr, _: string) {}
 @(private = "file")
 thor_format_on_type_commit :: proc(data: rawptr, choice: string) {
     thor := cast(^Thor) data
-    on := choice == ON_OFF_LABELS[0]
-    setting.persist_bool(thor_active_settings_path(thor), "format_on_type", on)
-    thor.config.general.format_on_type = on
-    thor_settings_mark_clean(thor)
-    if widgets.settings_view_is_open(thor.settings_view) {
-        thor_populate_settings_view(thor)
+    thor_persist_bool_setting(thor, "format_on_type", choice == ON_OFF_LABELS[0])
+}
+
+// Writes one boolean settings key to the active layer and reloads, which is what
+// re-applies it and refreshes the modal. A write that did not land is reported
+// and changes nothing, so the row keeps reading what is actually on disk.
+@(private = "file")
+thor_persist_bool_setting :: proc(thor: ^Thor, key: string, on: bool) {
+    if !setting.persist_bool(thor_active_settings_path(thor), key, on) {
+        thor_flash_status(thor, SETTINGS_SAVE_FAILED, is_error = true)
+        return
     }
+    thor_reload_settings(thor)
 }
 
 // Settings row: turn one backend (the Odin analyzer, or an lsp.json server) on
@@ -504,7 +501,7 @@ thor_format_on_type_commit :: proc(data: rawptr, choice: string) {
 thor_cmd_change_language_backend :: proc(thor: ^Thor, backend_id: string) {
     delete(thor.language_backend_target)
     thor.language_backend_target = strings.clone(backend_id)
-    on := setting.backend_enabled(&thor.config, backend_id)
+    on, _ := thor_backend_gate(thor, &thor.config, backend_id)
     widgets.select_dialog_open(
         thor.select_dialog, &thor.ui_context, backend_id,
         ON_OFF_LABELS[:], thor_on_off_label(on),
@@ -521,23 +518,7 @@ thor_language_backend_commit :: proc(data: rawptr, choice: string) {
     if thor.language_backend_target == "" {
         return
     }
-    on := choice == ON_OFF_LABELS[0]
-    setting.persist_double_nested_bool(thor_active_settings_path(thor), setting.LANGUAGE_BACKENDS_SETTING, thor.language_backend_target, setting.LANGUAGE_ENABLED_KEY, on)
-    cfg, existed := thor.config.general.language_backends[thor.language_backend_target]
-    if !existed {
-        cfg = setting.Backend_Setting{enabled = true, features = lang.FEATURES_ALL}
-    }
-    cfg.enabled = on
-    if existed {
-        thor.config.general.language_backends[thor.language_backend_target] = cfg
-    } else {
-        thor.config.general.language_backends[strings.clone(thor.language_backend_target)] = cfg
-    }
-    thor_apply_language_settings(thor)
-    thor_settings_mark_clean(thor)
-    if widgets.settings_view_is_open(thor.settings_view) {
-        thor_populate_settings_view(thor)
-    }
+    thor_persist_backend_key(thor, setting.LANGUAGE_ENABLED_KEY, choice == ON_OFF_LABELS[0])
 }
 
 // Settings row: turn one feature on or off for one backend specifically (as
@@ -549,7 +530,8 @@ thor_cmd_change_language_backend_feature :: proc(thor: ^Thor, backend_id: string
     delete(thor.language_backend_target)
     thor.language_backend_target = strings.clone(backend_id)
     thor.language_backend_feature_kind = kind
-    on := setting.backend_feature_enabled(&thor.config, backend_id, kind)
+    _, features := thor_backend_gate(thor, &thor.config, backend_id)
+    on := kind in features
     title := fmt.tprintf("%s — %s", backend_id, LANGUAGE_FEATURE_LABELS[kind])
     widgets.select_dialog_open(
         thor.select_dialog, &thor.ui_context, title,
@@ -567,29 +549,23 @@ thor_language_backend_feature_commit :: proc(data: rawptr, choice: string) {
     if thor.language_backend_target == "" {
         return
     }
-    on := choice == ON_OFF_LABELS[0]
-    kind := thor.language_backend_feature_kind
-    setting.persist_double_nested_bool(thor_active_settings_path(thor), setting.LANGUAGE_BACKENDS_SETTING, thor.language_backend_target, lang.feature_name(kind), on)
+    thor_persist_backend_key(thor, lang.feature_name(thor.language_backend_feature_kind), choice == ON_OFF_LABELS[0])
+}
 
-    cfg, existed := thor.config.general.language_backends[thor.language_backend_target]
-    if !existed {
-        cfg = setting.Backend_Setting{enabled = true, features = lang.FEATURES_ALL}
+// Writes one key of the target backend's language_backends entry to the active
+// layer and reloads. `key` is either LANGUAGE_ENABLED_KEY or a feature name —
+// the two share a shape, and both need the reload to reach the seam.
+@(private = "file")
+thor_persist_backend_key :: proc(thor: ^Thor, key: string, on: bool) {
+    ok := setting.persist_double_nested_bool(
+        thor_active_settings_path(thor), setting.LANGUAGE_BACKENDS_SETTING,
+        thor.language_backend_target, key, on,
+    )
+    if !ok {
+        thor_flash_status(thor, SETTINGS_SAVE_FAILED, is_error = true)
+        return
     }
-    if on {
-        cfg.features += {kind}
-    } else {
-        cfg.features -= {kind}
-    }
-    if existed {
-        thor.config.general.language_backends[thor.language_backend_target] = cfg
-    } else {
-        thor.config.general.language_backends[strings.clone(thor.language_backend_target)] = cfg
-    }
-    thor_apply_language_settings(thor)
-    thor_settings_mark_clean(thor)
-    if widgets.settings_view_is_open(thor.settings_view) {
-        thor_populate_settings_view(thor)
-    }
+    thor_reload_settings(thor)
 }
 
 // Settings row ids for plugin permissions are prefixed, so one Choice handler
@@ -666,6 +642,9 @@ thor_on_setting_keybind :: proc(data: rawptr, id: string, key: rl.KeyboardKey, m
     thor := cast(^Thor) data
     kb := setting.Keybind {key = key, mods = mods}
     spec := setting.keybind_spec(kb, context.temp_allocator)
-    setting.persist_keybind(thor_active_keybinds_path(thor), id, spec)
+    if !setting.persist_keybind(thor_active_keybinds_path(thor), id, spec) {
+        thor_flash_status(thor, SETTINGS_SAVE_FAILED, is_error = true)
+        return
+    }
     thor_reload_settings(thor)
 }
