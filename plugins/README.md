@@ -51,7 +51,7 @@ A plugin declares what it needs in `plugin.json` beside `plugin.lua`:
 | `read`     | `thor.read` |
 | `write`    | `thor.write`, `thor.doc` |
 | `ui`       | `thor.button`, `thor.menu`, `thor.panel`, `thor.prompt`, `thor.pick`, `thor.confirm` |
-| `keys`     | `thor.on_key` |
+| `keys`     | `thor.on_key`, `thor.on_key_up` |
 | `tick`     | `thor.on_tick` |
 
 No manifest grants nothing, which is all a syntax-only plugin needs. A denied
@@ -133,7 +133,12 @@ watches what the user typed wants `on_tick`; one that watches which chord was
 pressed wants `on_key`. `fn` gets one table: `chord` in the display form
 `thor.keybind` returns, and the booleans `ctrl`, `shift`, `alt` and `cmd` — `cmd`
 is the Command key on macOS and the Windows key elsewhere. Return `true` to
-consume the press.
+consume the press. A key held down repeats for the editor but not for `on_key`,
+which fires once per press.
+
+`thor.on_key_up(fn)` (same permission) is the release half, with the same table.
+It is registered apart from `on_key`, so a plugin that wants presses only keeps
+getting presses only.
 
 ## Languages
 

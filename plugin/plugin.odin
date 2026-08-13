@@ -157,6 +157,9 @@ Manager :: struct {
     measure_text_proc: Measure_Text_Proc,
     // The on_key handler; only one plugin holds it, the last with `keys` to ask.
     key:          Callback,
+    // The on_key_up handler, registered apart from `key` so a plugin that wants
+    // presses only never sees a release.
+    key_up:       Callback,
     // When the on_tick handlers last ran (see manager_dispatch_tick).
     tick_at:      time.Tick,
     // Start of the call running in this state (see call_guarded); one manager,
@@ -230,6 +233,7 @@ manager_init :: proc(m: ^Manager) {
     m.by_ext = make(map[string]int)
     m.plugins = make([dynamic]Plugin)
     m.key = Callback {-1, NOREF}
+    m.key_up = Callback {-1, NOREF}
     m.dialog = Callback {-1, NOREF}
     m.tick_at = time.tick_now()
     m.commands = make(map[string]Callback)
@@ -241,6 +245,7 @@ manager_init :: proc(m: ^Manager) {
 manager_destroy :: proc(m: ^Manager) {
     context.allocator = m.allocator
     release(m, &m.key)
+    release(m, &m.key_up)
     release(m, &m.dialog)
     for name, cb in m.commands {
         unref(m, cb.ref)
@@ -510,6 +515,7 @@ push_api_table :: proc(m: ^Manager, index: int) {
     }
     if .Keys in perms {
         bind(L, m, index, api, "on_key", api_on_key)
+        bind(L, m, index, api, "on_key_up", api_on_key_up)
     }
     if .Tick in perms {
         bind(L, m, index, api, "on_tick", api_on_tick)
@@ -613,6 +619,22 @@ api_on_key :: proc "c" (L: ^lua.State) -> c.int {
     release(m, &m.key)
     lua.pushvalue(L, 1) // ref pops the top, so copy the argument up
     m.key = Callback {index, int(lua.L_ref(L, lua.REGISTRYINDEX))}
+    return 0
+}
+
+// thor.on_key_up(fn): handler run for every key release, given the table
+// on_key gets. Needs the `keys` permission.
+@(private)
+api_on_key_up :: proc "c" (L: ^lua.State) -> c.int {
+    context = runtime.default_context()
+    m, index := caller(L)
+    if m == nil || !lua.isfunction(L, 1) {
+        return 0
+    }
+    context.allocator = m.allocator
+    release(m, &m.key_up)
+    lua.pushvalue(L, 1) // ref pops the top, so copy the argument up
+    m.key_up = Callback {index, int(lua.L_ref(L, lua.REGISTRYINDEX))}
     return 0
 }
 
@@ -951,12 +973,23 @@ manager_run_command :: proc(m: ^Manager, name: string) -> bool {
 // Dispatches a key press to the on_key handler. `chord` is the display string
 // (same format as thor.keybind). Returns whether the plugin consumed it.
 manager_dispatch_key :: proc(m: ^Manager, chord: string, mods: input.Modifiers) -> (consumed: bool) {
-    if m.key.ref == NOREF {
+    return dispatch_key(m, m.key, "on_key", chord, mods)
+}
+
+// Dispatches a key release to the on_key_up handler, which gets the table
+// on_key gets.
+manager_dispatch_key_up :: proc(m: ^Manager, chord: string, mods: input.Modifiers) -> (consumed: bool) {
+    return dispatch_key(m, m.key_up, "on_key_up", chord, mods)
+}
+
+@(private = "file")
+dispatch_key :: proc(m: ^Manager, cb: Callback, name: string, chord: string, mods: input.Modifiers) -> (consumed: bool) {
+    if cb.ref == NOREF {
         return false
     }
     L := m.state
 
-    lua.rawgeti(L, lua.REGISTRYINDEX, lua.Integer(m.key.ref))
+    lua.rawgeti(L, lua.REGISTRYINDEX, lua.Integer(cb.ref))
     if !lua.isfunction(L, -1) {
         lua.pop(L, 1)
         return false
@@ -974,7 +1007,7 @@ manager_dispatch_key :: proc(m: ^Manager, chord: string, mods: input.Modifiers) 
     lua.pushboolean(L, b32(.Cmd in mods))
     lua.setfield(L, -2, "cmd")
 
-    if !call_guarded(m, m.key.owner, 1, 1, "on_key") {
+    if !call_guarded(m, cb.owner, 1, 1, name) {
         return false
     }
     consumed = bool(lua.toboolean(L, -1))
