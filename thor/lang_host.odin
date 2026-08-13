@@ -379,12 +379,14 @@ thor_goto_workspace_symbol :: proc(thor: ^Thor) {
     }
 }
 
-// The palette's on_query_changed hook: re-dispatches Workspace_Symbols with
-// the typed text as `req.query`, which only a server-backed backend reads —
-// the in-client Odin engine ignores it and keeps its full scan, answered
-// client-side by the picker's own fuzzy filter as it always was. Debounced
-// like completion, so a burst of keystrokes costs one dispatch; the picker
-// keeps showing its current rows (re-marked loading) until the new ones land.
+// The palette's on_query_changed hook: re-dispatches Workspace_Symbols with the
+// typed text as `req.query`. Both backends filter on it, so a keystroke on a
+// large workspace carries back the matches instead of every symbol; the picker
+// still ranks and re-filters what it gets. The first, pre-typing dispatch sends
+// no query and gets the whole list, which is what makes the chord instant.
+// Debounced like completion, so a burst of keystrokes costs one dispatch; the
+// picker keeps showing its current rows (re-marked loading) until the new ones
+// land.
 @(private = "file")
 thor_workspace_symbol_query_changed :: proc(data: rawptr, query: string) {
     thor := cast(^Thor)data

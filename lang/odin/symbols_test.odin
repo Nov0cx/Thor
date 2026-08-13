@@ -300,3 +300,63 @@ test_index_reflects_file_change :: proc(t: ^testing.T) {
         testing.expect(t, strings.has_suffix(loc2.path, "helper.odin"), "renamed should resolve into helper.odin")
     }
 }
+
+// Workspace symbols answer only what matches req.query; an empty query still
+// answers everything, which is the shape of the first, pre-typing dispatch.
+@(test)
+test_workspace_symbols_filters_on_query :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := "package demo\n\nAlpha :: proc() {}\nBeta :: proc() {}\nGamma :: proc() {}\n"
+
+    all := workspace_symbols_for(e, src, "")
+    defer free_symbols(&all)
+    testing.expectf(t, len(all.symbols) == 3, "empty query must answer everything, got %d", len(all.symbols))
+
+    hit := workspace_symbols_for(e, src, "bet")
+    defer free_symbols(&hit)
+    testing.expectf(t, len(hit.symbols) == 1, "expected only Beta, got %d", len(hit.symbols))
+    if len(hit.symbols) == 1 {
+        testing.expect_value(t, hit.symbols[0].name, "Beta")
+    }
+
+    none := workspace_symbols_for(e, src, "zzz")
+    defer free_symbols(&none)
+    testing.expectf(t, len(none.symbols) == 0, "a query nothing matches must answer nothing, got %d", len(none.symbols))
+}
+
+// Document symbols share collect_symbols_into and must stay unfiltered.
+@(test)
+test_document_symbols_ignore_query :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := "package demo\n\nAlpha :: proc() {}\nBeta :: proc() {}\n"
+    req := lang.Request {
+        kind   = .Document_Symbols,
+        path   = "buffer.odin",
+        ext    = ".odin",
+        source = src,
+        query  = "zzz",
+    }
+    res := lang.Result{kind = .Document_Symbols}
+    resolve(e, &req, &res)
+    defer free_symbols(&res)
+
+    testing.expectf(t, len(res.symbols) == 2, "an outline must ignore query, got %d", len(res.symbols))
+}
+
+@(private = "file")
+workspace_symbols_for :: proc(e: ^Engine, source, query: string) -> lang.Result {
+    req := lang.Request {
+        kind   = .Workspace_Symbols,
+        path   = "buffer.odin",
+        ext    = ".odin",
+        source = source,
+        query  = query,
+    }
+    res := lang.Result{kind = .Workspace_Symbols}
+    resolve(e, &req, &res)
+    return res
+}

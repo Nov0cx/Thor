@@ -261,20 +261,21 @@ index_find_defs :: proc(
 }
 
 // Workspace symbols: appends every indexed declaration of a shown kind (proc,
-// type, enum, constant, var — the outline set), excluding the live file `skip`
-// whose decls the caller already collected from the unsaved buffer.
+// type, enum, constant, var — the outline set) whose name matches `query`,
+// excluding the live file `skip` whose decls the caller already collected from
+// the unsaved buffer. An empty query matches everything.
 //
 // Visibility is deliberately not applied here. Ctrl+Q is navigation, not name
 // resolution: a `@(private)` declaration is still a place in the workspace the
 // user wants to jump to, and dropping it would only make it unreachable.
 @(private)
-index_all_symbols :: proc(e: ^Engine, skip: string, res: ^lang.Result) {
+index_all_symbols :: proc(e: ^Engine, skip, query: string, res: ^lang.Result) {
     for path, entry in e.index.files {
         if path_equal(path, skip) {
             continue
         }
         for sym in entry.decls {
-            if !symbol_kind_shown(sym.kind) {
+            if !symbol_kind_shown(sym.kind) || !lang.symbol_matches(query, sym.name) {
                 continue
             }
             append(&res.symbols, index_symbol_row(sym, path))

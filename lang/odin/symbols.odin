@@ -9,7 +9,9 @@ import "core:sync"
 import lang ".."
 import ts "../../vendor/odin-tree-sitter"
 
-// Appends `source`'s top-level declarations (in `path`) to res.symbols. Reuses
+// Appends `source`'s top-level declarations (in `path`) whose name matches
+// `query` to res.symbols; an empty query keeps them all, which is what a
+// document outline always passes. Reuses
 // collect_defs — the same walk go-to-definition uses — and keeps only the
 // file-scope symbols a symbol list should show (procedures, types, enums,
 // constants and package-level vars), dropping parameters, struct fields, labels
@@ -17,10 +19,10 @@ import ts "../../vendor/odin-tree-sitter"
 // context.allocator (the Manager's), freed on the main thread after the editor
 // reads them; the signature is the real Odin declaration line.
 @(private)
-collect_symbols_into :: proc(e: ^Engine, root: ts.Node, source, path: string, res: ^lang.Result) {
+collect_symbols_into :: proc(e: ^Engine, root: ts.Node, source, path: string, res: ^lang.Result, query := "") {
     defs := collect_defs(e, root, source)
     for d in defs {
-        if !d.top_level || !symbol_kind_shown(d.kind) {
+        if !d.top_level || !symbol_kind_shown(d.kind) || !lang.symbol_matches(query, d.name) {
             continue
         }
         ident_start := clamp(d.ident_start, 0, len(source))
@@ -46,19 +48,21 @@ collect_document_symbols :: proc(e: ^Engine, root: ts.Node, source, path: string
     res.ok = true
 }
 
-// Fills `res` with every top-level declaration across the workspace: the live
-// buffer first (so unsaved edits win over its on-disk copy, which is skipped),
-// then every other file straight from the symbol index (no re-parse of unchanged
-// files). Sorted by name (ties by path) for a stable, fuzzy-searchable list.
+// Fills `res` with every top-level declaration across the workspace whose name
+// matches req.query: the live buffer first (so unsaved edits win over its
+// on-disk copy, which is skipped), then every other file straight from the
+// symbol index (no re-parse of unchanged files). Sorted by name (ties by path)
+// for a stable list the picker then ranks itself. An empty query answers
+// everything, which is what the first, pre-typing dispatch sends.
 @(private)
 collect_workspace_symbols :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, req: ^lang.Request, res: ^lang.Result) {
     if req.path != "" {
-        collect_symbols_into(e, root, req.source, req.path, res)
+        collect_symbols_into(e, root, req.source, req.path, res, req.query)
     }
     if req.workspace != "" {
         sync.lock(&e.index.mutex)
         index_sync(e, parser, req)
-        index_all_symbols(e, req.path, res)
+        index_all_symbols(e, req.path, req.query, res)
         sync.unlock(&e.index.mutex)
     }
     slice.sort_by(res.symbols[:], proc(a, b: lang.Symbol) -> bool {
