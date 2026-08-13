@@ -123,10 +123,9 @@ shape_collect_ligature_glyphs :: proc(file_data: []u8, seen: ^map[u32]bool) -> [
 }
 
 // Shapes one run of a line. The whole line goes to HarfBuzz and the run selects
-// a part of it, so a run keeps the context of its neighbours (Arabic joining
-// forms need it) and the clusters stay byte offsets into the line.
-// The language stays "en": it selects only locl variants, and a code editor must
-// draw the same text on every machine.
+// part of it, so a run keeps its neighbours' context (Arabic joining needs it)
+// and clusters stay byte offsets into the line. The language stays "en", which
+// selects only locl variants, so a code editor draws the same text everywhere.
 @(private = "file")
 shape_into :: proc(
     buffer: ^hb.buffer_t,
@@ -227,20 +226,14 @@ shape_line_run :: proc(family: ^Font_Family, line: string, run: Shape_Run) -> ([
     return shape_into(shape_buffer, family.hb_font, line, run, features)
 }
 
-// Places one shaped line; false when the family/size has no shaping data, so
-// the caller falls back to the codepoint path. Advances come from
-// Shaped_Glyph, not HarfBuzz, to stay aligned with the atlas.
-//
-// Results are cached in shape_cache.odin, keyed by (family, size, ligatures,
-// line content): a hit returns the cache-owned slice with no itemizing or
-// HarfBuzz call at all. The cache assumes family.shaped/hb_font never change
-// after startup (true today); a future feature that rebakes an atlas or
-// reassigns hb_font at runtime must call shape_cache_clear() after doing so,
-// or this cache will keep serving stale glyph rects.
-//
-// The returned slice is cache-owned: valid until its entry is evicted or
-// shape_cache_clear runs, not just "until the next call" — the caller must
-// not mutate or free it.
+// Places one shaped line; false when the family/size has no shaping data, so the
+// caller falls back to the codepoint path. Advances come from Shaped_Glyph, not
+// HarfBuzz, to stay aligned with the atlas. Cached by (family, size, ligatures,
+// line content), which assumes family.shaped/hb_font never change after startup:
+// a runtime atlas rebake must call shape_cache_clear or this keeps serving stale
+// glyph rects. The returned slice is cache-owned — valid until its entry is
+// evicted, not merely until the next call — so the caller must not mutate or
+// free it.
 @(private = "file")
 shape_place_line :: proc(family: ^Font_Family, font: rl.Font, size: i32, line: string) -> ([]Placed_Glyph, bool) {
     if family == nil || family.hb_font == nil {

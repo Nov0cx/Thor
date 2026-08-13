@@ -3,18 +3,14 @@ package ui
 import "core:slice"
 import "core:strings"
 
-// Bounds cache memory regardless of file size or session length. Only
-// preloaded (family, size) combinations ever reach shape_place_line's cache
-// path (a size outside preload_sizes has no family.shaped entry and returns
-// false before touching the cache), so this capacity bounds distinct line
-// content, generously covering many screens across every open pane.
+// Bounds cache memory regardless of file size or session length. Only preloaded
+// (family, size) combinations reach the cache path at all, so this capacity
+// bounds distinct line content — many screens across every open pane.
 SHAPE_CACHE_CAPACITY :: 4096
 
-// Cache key: content-addressed, not position-addressed. An edited line
-// becomes a different key rather than invalidating anything that pointed at
-// the old text; stale entries for since-edited text just age out via LRU.
-// `line` borrows the caller's string for a lookup; shape_cache_put clones it
-// into cache-owned storage before it becomes a stored key.
+// Cache key: content-addressed, so an edited line becomes a different key rather
+// than invalidating anything, and stale entries age out via LRU. `line` borrows
+// the caller's string for a lookup; shape_cache_put clones it before storing.
 Shape_Cache_Key :: struct {
     family:    ^Font_Family,
     size:      i32,
@@ -95,11 +91,9 @@ shape_cache_len :: proc(cache: ^Shape_Cache) -> int {
     return len(cache.entries)
 }
 
-// Frees every entry and the map's own backing storage, leaving cache ready
-// to reuse (a nil map lazily reallocates on the next put). Also the hook a
-// future runtime font-atlas rebuild must call after mutating
-// family.shaped/hb_font; nothing does today, since no such rebuild path
-// exists yet.
+// Frees every entry and the map's backing storage, leaving the cache reusable (a
+// nil map reallocates on the next put). Also the hook a runtime font-atlas
+// rebuild must call after mutating family.shaped/hb_font.
 shape_cache_clear :: proc(cache: ^Shape_Cache) {
     for _, entry in cache.entries {
         delete(entry.key.line)
