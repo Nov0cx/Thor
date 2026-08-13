@@ -83,12 +83,11 @@ Open_File :: struct {
     indent_revision:    u64,
     indent_ready:       bool,
     indent_time:        f64,
-    // What the analyzer proved each identifier in the buffer to be, layered over
-    // the grammar's spans by thor_update_highlights. `semantic_ready` marks a
-    // result having landed at all (revision 0 is a real revision), and the
-    // overlay is kept across an edit at its now-slightly-stale offsets until the
-    // next one lands — dropping it would flash the file back to plain syntax
-    // colors on every keystroke.
+    // What the analyzer proved each identifier to be, layered over the grammar's
+    // spans by thor_update_highlights. `semantic_ready` marks a result having
+    // landed at all, since revision 0 is a real revision. Kept at slightly stale
+    // offsets across an edit — dropping it would flash the file back to plain
+    // syntax colors on every keystroke.
     semantic:           [dynamic]lang.Semantic_Token,
     semantic_revision:  u64,
     semantic_ready:     bool,
@@ -221,11 +220,10 @@ thor_detect_line_ending :: proc(content: string) -> Line_Ending {
     return .LF
 }
 
-// Disk bytes as the buffer stores them: every CRLF collapsed to LF, whatever
-// the detected ending, so a mixed file leaves no stray CR in the text. Hands
-// back `content` itself (allocated = false) when there is nothing to collapse,
-// so a plain LF file is not copied; a caller that frees the result must check
-// `allocated` first, or it frees bytes it does not own.
+// Disk bytes as the buffer stores them: every CRLF collapsed to LF, so a mixed
+// file leaves no stray CR. Hands back `content` itself with allocated = false
+// when there is nothing to collapse, so a caller that frees the result must
+// check `allocated` or it frees bytes it does not own.
 thor_to_buffer_text :: proc(content: string, allocator := context.temp_allocator) -> (text: string, allocated: bool) {
     if !strings.contains(content, "\r\n") {
         return content, false
@@ -644,16 +642,13 @@ thor_start_load :: proc(thor: ^Thor, file: ^Open_File, image, reload, force: boo
     return job
 }
 
-// Reloads an already-open file's buffer from disk after an external change (fed
-// by the file watcher). A model reuploads straight to the GPU on the main
-// thread, same as its initial load. An image or text file skips one already
-// being saved or reloaded, one still waiting on a conflict answer, and one
-// whose initial load has not landed yet; it goes through the same async load
-// path as a fresh open, and the reap (thor_apply_reload for text,
-// thor_apply_image for an image) diffs or replaces accordingly, so our own
-// saves echoing back through the watcher are no-ops. A text buffer with
-// unsaved edits is never replaced behind the user's back: the reap asks
-// first, unless `force` says the user already answered.
+// Reloads an already-open buffer from disk after an external change, through the
+// same async load path as a fresh open; a model reuploads to the GPU on the main
+// thread instead. Skips a file already saving or reloading, one awaiting a
+// conflict answer, and one whose initial load has not landed. The reap diffs
+// rather than replaces, so our own saves echoing back through the watcher are
+// no-ops, and a buffer with unsaved edits is asked about first unless `force`
+// says the user already answered.
 thor_reload_file :: proc(thor: ^Thor, file: ^Open_File, force := false) {
     if file.closed || file.saving {
         return
@@ -908,11 +903,10 @@ thor_load_model :: proc(file: ^Open_File) {
     file.model_loaded = true
 }
 
-// Reuploads a model after an external change, on the main thread (the GL
-// context lives here) — raylib exports no file->CPU-mesh loader, so a model
-// cannot be decoded off-thread the way an image now is (thor_apply_image).
-// Unloads the old GPU handle and clears its loaded flag before reloading, so
-// a failure mid-reload never leaves a freed or stale handle marked live.
+// Reuploads a model after an external change, on the main thread where the GL
+// context lives — raylib exports no file->CPU-mesh loader, so a model cannot be
+// decoded off-thread the way an image is. The old handle is unloaded and its
+// flag cleared first, so a failure mid-reload never marks a freed handle live.
 @(private = "file")
 thor_reload_gpu_asset :: proc(thor: ^Thor, file: ^Open_File) {
     if file.model_loaded {
@@ -994,11 +988,10 @@ thor_close_file :: proc(thor: ^Thor, index: int) {
     }
 }
 
-// `force` writes a buffer that matches its last save; used when the bytes change
-// without an edit, as a line-ending switch does. Skips a file with a reload in
-// flight: that read is unsynchronized against a concurrent write, so racing it
-// with a save here could let a torn read land in the buffer once both reap (see
-// thor_apply_reload). The buffer stays dirty, so the next autosave pass retries.
+// `force` writes a buffer that matches its last save, for bytes that change
+// without an edit as a line-ending switch does. Skips a file with a reload in
+// flight — that read is unsynchronized against a write, so racing them could
+// land a torn read in the buffer. The buffer stays dirty and autosave retries.
 thor_save_file :: proc(thor: ^Thor, file: ^Open_File, force := false) {
     if !file.loaded || file.saving || file.closed || file.reloading {
         return
@@ -1057,11 +1050,9 @@ thor_update_files :: proc(thor: ^Thor) {
     thor_apply_pending_goto(thor)
     thor_update_editor_view(thor)
 
-    // Orphan-save insurance: a .Format result that never reaches
-    // thor_apply_format (cancelled by a feature toggle, a workspace switch,
-    // shutdown) would otherwise strand format_save_pending forever. Once no
-    // format is left in flight, flush it unformatted rather than wait — the
-    // autosave sweep below is a second backstop behind this one.
+    // Orphan-save insurance: a .Format result cancelled before thor_apply_format
+    // would strand format_save_pending forever. With no format left in flight,
+    // flush it unformatted rather than wait.
     if thor.format_save_pending && thor.format_request_id == 0 {
         thor.format_save_pending = false
         if file := thor_open_file_at(thor, thor.format_path); file != nil {
@@ -1725,10 +1716,9 @@ Import_Result :: enum {
 }
 
 // Checks a path dropped from outside the editor against `dst_dir` and queues the
-// copy in `entries`, which thor_start_file_op then runs. A name collision is
-// reported rather than overwritten — on disk, or against a copy queued earlier
-// in the same drop, which is not on disk yet. Every failure flashes its reason,
-// so no branch here can leave the drop looking ignored.
+// copy in `entries` for thor_start_file_op. A name collision is reported rather
+// than overwritten, on disk or against a copy queued earlier in the same drop.
+// Every failure flashes its reason, so no branch leaves the drop looking ignored.
 thor_queue_import :: proc(
     thor: ^Thor,
     entries: ^[dynamic]File_Op_Entry,
