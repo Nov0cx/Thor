@@ -197,19 +197,19 @@ theme_load :: proc(path: string) -> (Theme, bool) {
 // plugin can never leave text uncolored by accident.
 theme_role_color :: proc(theme: Theme, role: string) -> rl.Color {
     switch role {
-    case "background":  return theme.background
-    case "foreground":  return theme.foreground
-    case "keywords":    return theme.keywords_color
-    case "functions":   return theme.functions_color
-    case "strings":     return theme.strings_color
-    case "operators":   return theme.operators_color
-    case "comments":    return theme.comments_color
-    case "numbers":     return theme.numbers_color
-    case "parameters":  return theme.parameters_color
-    case "attributes":  return theme.attributes_color
-    case "variables":   return theme.variables_color
-    case "tags":        return theme.tags_color
-    case "links":       return theme.links_color
+    case "background":       return theme.background
+    case "foreground":       return theme.foreground
+    case "keywords":         return theme.keywords_color
+    case "functions":        return theme.functions_color
+    case "strings":          return theme.strings_color
+    case "operators":        return theme.operators_color
+    case "comments":         return theme.comments_color
+    case "numbers":          return theme.numbers_color
+    case "parameters":       return theme.parameters_color
+    case "attributes":       return theme.attributes_color
+    case "variables":        return theme.variables_color
+    case "tags":             return theme.tags_color
+    case "links":            return theme.links_color
     case "warning":          return theme.warning_color
     case "conflict":         return theme.conflict_color
     case "submodule":        return theme.submodule_color
@@ -218,8 +218,8 @@ theme_role_color :: proc(theme: Theme, role: string) -> rl.Color {
     case "danger":           return theme.danger_color
     case "success":          return theme.success_color
     case "muted":            return theme.muted_color
-    case "accent":      return theme.accent_color
-    case "error":       return theme.error_color
+    case "accent":           return theme.accent_color
+    case "error":            return theme.error_color
     }
     return theme.foreground
 }
