@@ -453,10 +453,11 @@ thor_find_references :: proc(thor: ^Thor) {
     )
 }
 
-// Ctrl+R: rename the symbol under the caret across the workspace. Prompts for the
-// new name (prefilled with the current one) in the palette; thor_prompt_rename
-// dispatches the request once it is confirmed. Reports whether the prompt opened,
-// so the chord can fall back to find/replace when there is no symbol to rename.
+// Ctrl+R: rename the symbol under the caret across the workspace. Prompts for
+// the new name (prefilled with the current one) in the palette;
+// thor_confirm_symbol_rename dispatches the request once it is confirmed.
+// Reports whether the prompt opened, so the chord can fall back to find/replace
+// when there is no symbol to rename.
 thor_rename_symbol :: proc(thor: ^Thor) -> bool {
     file := thor_active_open_file(thor)
     if file == nil || !file.loaded {
@@ -487,7 +488,7 @@ thor_rename_symbol :: proc(thor: ^Thor) -> bool {
         thor.command_palette,
         &thor.ui_context,
         "Rename symbol",
-        thor_prompt_rename,
+        thor_confirm_symbol_rename,
         thor,
         source[lo:hi],
     )
@@ -499,7 +500,7 @@ thor_rename_symbol :: proc(thor: ^Thor) -> bool {
 // buffer's path and revision are remembered, so thor_apply_rename can tell the
 // file the edits were computed against from the others they touch.
 @(private = "file")
-thor_prompt_rename :: proc(data: rawptr, input: string) {
+thor_confirm_symbol_rename :: proc(data: rawptr, input: string) {
     thor := cast(^Thor) data
     new_name := strings.trim_space(input)
     if new_name == "" {

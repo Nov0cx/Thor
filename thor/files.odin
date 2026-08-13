@@ -1404,7 +1404,7 @@ thor_confirm_delete :: proc(data: rawptr) {
 }
 
 // Tree callback / menu entry: begin renaming `path`. Opens the name prompt
-// seeded with the current base name; the rename runs in thor_prompt_rename.
+// seeded with the current base name; the rename runs in thor_confirm_rename.
 thor_begin_rename :: proc(thor: ^Thor, path: string) {
     if path == "" {
         return
@@ -1416,7 +1416,7 @@ thor_begin_rename :: proc(thor: ^Thor, path: string) {
         thor.command_palette,
         &thor.ui_context,
         "New name",
-        thor_prompt_rename,
+        thor_confirm_rename,
         thor,
         thor_file_base(path),
     )
@@ -1424,7 +1424,7 @@ thor_begin_rename :: proc(thor: ^Thor, path: string) {
 
 // Name prompt accepted: rename the file/folder on disk within its directory and
 // retarget any open tab that pointed at it.
-thor_prompt_rename :: proc(data: rawptr, name: string) {
+thor_confirm_rename :: proc(data: rawptr, name: string) {
     thor := cast(^Thor) data
     old_path := thor.pending_rename_path
     defer {
@@ -1482,7 +1482,7 @@ thor_prompt_rename :: proc(data: rawptr, name: string) {
 
 // Tree widget callback: a row was dropped onto dst_dir. Reparents the file or
 // folder on disk and retargets any open tab that pointed at it (folders never
-// match an open file, matching thor_prompt_rename's rename behavior).
+// match an open file, matching thor_confirm_rename's rename behavior).
 thor_tree_move :: proc(data: rawptr, src_path: string, dst_dir: string) {
     thor := cast(^Thor) data
 
@@ -1660,7 +1660,7 @@ thor_create_resource :: proc(path: string, overwrite, ignore_if_exists: bool) ->
     return true, ""
 }
 
-// Resource_Op.Rename's non-interactive counterpart to thor_prompt_rename:
+// Resource_Op.Rename's non-interactive counterpart to thor_confirm_rename:
 // same cross-device fallback and open-tab retarget, minus the confirmation
 // prompt and the "already exists" refusal when the server asked to overwrite.
 @(private)

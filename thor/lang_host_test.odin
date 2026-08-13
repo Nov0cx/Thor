@@ -326,7 +326,7 @@ test_delete_resource :: proc(t: ^testing.T) {
 }
 
 // Resource_Op.Rename moves the file on disk and retargets any open tab that
-// pointed at the old path, the same way thor_prompt_rename does.
+// pointed at the old path, the same way thor_confirm_rename does.
 @(test)
 test_rename_resource_moves_file_and_retargets_tab :: proc(t: ^testing.T) {
     OLD :: "thor_rename_resource_old.tmp"
