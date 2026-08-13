@@ -152,7 +152,10 @@ only while `IsWindow` holds and the window still belongs to the recorded pid; a 
 a record the next reader prunes. user32 cannot be linked (its `CloseWindow`/`ShowCursor` collide with
 raylib's), so those calls are resolved from `user32.dll` at runtime. POSIX has no portable way to
 raise another process's window, so `windows_posix.odin` proves the pid with `kill(pid, 0)` and
-`thor_focus_window` does nothing: the folder still reads as taken, it is just not brought forward.
+`thor_focus_window` shells out to whatever helper the machine has — `xdotool` or `wmctrl` on a
+desktop, `osascript` on macOS. It returns whether the raise went, and `thor_flash_open_elsewhere`
+says which happened; a false there is ordinary (Wayland, a missing helper, no Accessibility grant),
+so the folder still reads as taken, it is only not brought forward.
 
 Folder opens the user drives go through `thor_open_folder_request`, which settles the no-choice cases
 and then obeys the `open_folder_in` setting (`ask` / `same` / `new`). `thor_open_folder` itself still

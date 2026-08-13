@@ -82,9 +82,10 @@ test_stale_window_record_is_pruned :: proc(t: ^testing.T) {
     defer delete(path)
     defer os.remove(path)
 
-    hwnd, ok := thor_workspace_window(WORKSPACE)
+    window, ok := thor_workspace_window(WORKSPACE)
     testing.expect(t, !ok, "a record with no live window must read as free")
-    testing.expect(t, hwnd == nil, "a stale record must hand back no window")
+    testing.expect(t, window == {}, "a stale record must hand back no window")
+    testing.expect(t, !thor_focus_window(window), "a window that is not there cannot be raised")
     testing.expect(t, !os.exists(path), "a stale record must be removed")
 }
 

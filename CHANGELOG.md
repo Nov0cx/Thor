@@ -99,3 +99,4 @@ First release. Thor runs on Windows, Linux and macOS.
 - A key chord can name the Command key: `cmd` (also `command`, `super`, `meta` or `win`) in `settings/keybinds.json`, so macOS bindings such as `cmd+s` are possible. `option` is accepted as a second spelling of `alt`.
 - Plugin API: the table `thor.on_key` receives carries a `cmd` field next to `ctrl`, `shift` and `alt`.
 - On Windows on ARM, the "Developer Command Prompt" shell and the dependency build load the ARM64 MSVC tools instead of the x64 ones, and an installation carrying only the ARM64 toolset is found.
+- On Linux and macOS, opening a folder that is already open brings that window to the front, through `xdotool`, `wmctrl` or `osascript`. When none of them can, the status bar says the window could not be raised instead of only naming it.

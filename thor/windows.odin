@@ -11,8 +11,10 @@ package thor
 // process; a crashed window leaves a stale file that the next reader removes.
 
 import "core:encoding/json"
+import "core:fmt"
 import "core:log"
 import "core:os"
+import "core:path/filepath"
 import "core:strings"
 
 import "../shell"
@@ -39,11 +41,20 @@ Window_State :: enum u8 {
     Unknown,
 }
 
+// Another window, as far as this process can name it. On Windows that is the
+// handle; on POSIX only the pid, since no window identity crosses a process
+// boundary there.
+Window_Ref :: struct {
+    handle: Window_Handle,
+    pid:    int,
+}
+
 // Finding and raising a window is platform work: windows_windows.odin resolves
-// the user32 calls, windows_posix.odin only proves the process. Each platform
-// file supplies `Window_Handle` plus three procedures — `thor_native_window`
-// returns the handle this process records, `thor_window_live` reads a record's
-// state, and `thor_focus_window` brings that window to the front.
+// the user32 calls, windows_posix.odin proves the process and shells out to a
+// desktop helper. Each platform file supplies `Window_Handle` plus three
+// procedures — `thor_native_window` returns the handle this process records,
+// `thor_window_live` reads a record's state, and `thor_focus_window` brings that
+// window to the front and reports whether it could.
 
 // Record file for a workspace: sessions/windows/<path-key>.json, keyed exactly
 // like that workspace's session file.
@@ -130,22 +141,22 @@ thor_read_window_record :: proc(path: string) -> (Window_Record, bool) {
 // The live window owning `workspace`, or ok=false when the folder is free. A
 // record whose window is gone (or now belongs to another process, the handle
 // having been recycled) is stale and removed here, so the folder frees itself.
-thor_workspace_window :: proc(workspace: string) -> (Window_Handle, bool) {
+thor_workspace_window :: proc(workspace: string) -> (Window_Ref, bool) {
     path := thor_window_file(workspace)
     record, read_ok := thor_read_window_record(path)
     if !read_ok {
-        return nil, false
+        return {}, false
     }
     if record.pid == os.get_pid() {
-        return nil, false // our own claim is not another window
+        return {}, false // our own claim is not another window
     }
 
     handle, state := thor_window_live(record.hwnd, record.pid)
     switch state {
     case .Live:
-        return handle, true
+        return Window_Ref {handle = handle, pid = record.pid}, true
     case .Unknown:
-        return nil, false
+        return {}, false
     case .Gone:
     }
 
@@ -153,7 +164,20 @@ thor_workspace_window :: proc(workspace: string) -> (Window_Handle, bool) {
     if err := os.remove(path); err != nil {
         log.warnf("Could not remove stale window record %q: %v", path, err)
     }
-    return nil, false
+    return {}, false
+}
+
+// Reports that `workspace` belongs to another window. `raised` says whether that
+// window was brought forward: a desktop that gives no way to raise it leaves the
+// user with a message about a window they cannot see, so name that instead of
+// implying something happened.
+thor_flash_open_elsewhere :: proc(thor: ^Thor, workspace: string, raised: bool) {
+    name := filepath.base(workspace)
+    if raised {
+        thor_flash_status(thor, fmt.tprintf("%s is already open in another window", name))
+        return
+    }
+    thor_flash_status(thor, fmt.tprintf("%s is open in another window, which could not be raised", name))
 }
 
 // Launches a second Thor on `workspace`. The new process resolves the folder

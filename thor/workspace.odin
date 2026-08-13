@@ -122,9 +122,8 @@ thor_open_folder_request :: proc(thor: ^Thor, dir: string) {
     }
     // A folder open in another window is raised rather than opened twice: two
     // processes on one folder would fight over its session file.
-    if hwnd, taken := thor_workspace_window(resolved); taken {
-        thor_focus_window(hwnd)
-        thor_flash_status(thor, fmt.tprintf("%s is already open in another window", filepath.base(resolved)))
+    if window, taken := thor_workspace_window(resolved); taken {
+        thor_flash_open_elsewhere(thor, resolved, thor_focus_window(window))
         return
     }
 
@@ -414,9 +413,8 @@ thor_new_window_for :: proc(thor: ^Thor, dir: string) {
         thor_flash_status(thor, "Already open in this window")
         return
     }
-    if hwnd, taken := thor_workspace_window(resolved); taken {
-        thor_focus_window(hwnd)
-        thor_flash_status(thor, fmt.tprintf("%s is already open in another window", filepath.base(resolved)))
+    if window, taken := thor_workspace_window(resolved); taken {
+        thor_flash_open_elsewhere(thor, resolved, thor_focus_window(window))
         return
     }
     thor_open_folder_in_new_window(thor, resolved)

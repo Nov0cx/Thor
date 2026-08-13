@@ -99,12 +99,16 @@ thor_window_live :: proc(hwnd: i64, pid: int) -> (Window_Handle, Window_State) {
 // Brings an existing window to the front. A minimized window is restored first —
 // an unconditional restore would un-maximize one that is merely behind. The
 // foreground handover is allowed because the calling window currently holds it.
-thor_focus_window :: proc(hwnd: Window_Handle) {
+thor_focus_window :: proc(ref: Window_Ref) -> bool {
+    if ref.handle == nil {
+        return false
+    }
     u32 := thor_load_user32()
-    if u32.is_iconic != nil && u32.show_window != nil && u32.is_iconic(hwnd) {
-        u32.show_window(hwnd, SW_RESTORE)
+    if u32.is_iconic != nil && u32.show_window != nil && u32.is_iconic(ref.handle) {
+        u32.show_window(ref.handle, SW_RESTORE)
     }
-    if u32.set_foreground != nil {
-        u32.set_foreground(hwnd)
+    if u32.set_foreground == nil {
+        return false
     }
+    return bool(u32.set_foreground(ref.handle))
 }
