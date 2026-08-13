@@ -1,23 +1,16 @@
 // Type-aware member access (`value.field`).
 //
-// The engine has no general type system, but the most common selector — a field
-// of a struct-typed value — is resolvable with a narrow, name-based inference:
-// find the operand's declaration, read its struct type, locate that struct (same
-// file, an imported package, or the workspace index) and match the field. The
-// type comes from a written-down declaration (`p: Point`, a parameter) or, for a
-// `:=` binding, from its initializer — a composite literal, an aliased value, or
-// the declared result type of the procedure it calls (`p := make_point()`, which
-// resolves the callee the same three ways signature help does). Chained access
-// (`a.b.c`) recurses through each struct's field type, and a pointer type is
-// transparently dereferenced (Odin auto-derefs `.`). A struct embedded with
-// `using` answers for its fields as if they were the outer struct's own, and a
-// container (`[]T`, `[N]T`, `[dynamic]T`, `map[K]V`, `bit_set[T]`) resolves to
-// its element once it is indexed, sliced or ranged over — never before, since a
-// container is not the type it holds, except for the two members an array offers
-// itself (container.odin). Containers nest, so `map[string][]Point` takes two of
-// those steps. A proc-typed value carries its signature, so calling it yields its
-// declared result. Anything else (an un-narrowed union, a builtin) doesn't
-// resolve, and the caller falls back to the flat name scan.
+// The engine has no general type system: a field of a struct-typed value is
+// resolved by a narrow, name-based inference that finds the operand's
+// declaration, reads its struct type, locates that struct (same file, an
+// imported package, or the workspace index) and matches the field. The type
+// comes from a written-down declaration or, for a `:=` binding, from its
+// initializer — a composite literal, an aliased value, or the callee's declared
+// result. Chained access recurses through each field type; a pointer is
+// dereferenced; a `using` embed answers for its fields as the outer struct's
+// own; a container resolves to its element only once indexed, sliced or ranged
+// over, and containers nest. A proc-typed value yields its declared result.
+// Anything else does not resolve and the caller falls back to the flat scan.
 //
 // This file infers a type from an expression; typeref.odin reads one out of a
 // written-down type, and decl.odin locates the declaration it names.
@@ -40,12 +33,11 @@ Container :: enum {
     Bit_Set,
 }
 
-// One level of container around an element type, plus — for a map — the type it
-// is keyed by, so `for k in m` and `m[.Member]` know what a key is. Only a plain
-// (optionally qualified) key name is tracked; `map[[2]int]V` records none.
-// `length`, `dyn` and `soa` describe an array: how a fixed one is written and
-// how many components it swizzles, and whether it holds one array per field of
-// its element (see container.odin).
+// One level of container around an element type, plus a map's key type so
+// `for k in m` and `m[.Member]` know what a key is. Only a plain (optionally
+// qualified) key name is tracked. `length`, `dyn` and `soa` describe an array:
+// how a fixed one is written, and whether it holds one array per field of its
+// element (see container.odin).
 @(private)
 Container_Layer :: struct {
     kind:    Container,
@@ -70,13 +62,11 @@ log_container_depth_exceeded :: proc() {
     log.debugf("odin: container nesting past %d levels is not inferred", CONTAINER_DEPTH_LIMIT)
 }
 
-// A named type reference: the type name plus an optional package qualifier
-// (`pkg` in `p: pkg.Point`), the containers wrapped around it (innermost first —
-// the name is then the *element* type, a map's value), the signature of a
-// proc-typed value (whose `name` is empty, since a proc type names nothing), and
-// the file the reference was read from, so a qualifier written in another file
-// resolves against *that* file's imports. Strings slice the source they were read
-// from unless explicitly cloned, so a Type_Ref that must outlive a parse is
+// A named type reference: the type name, an optional package qualifier, the
+// containers wrapped around it (innermost first, making the name the *element*
+// type), the signature of a proc-typed value (whose `name` is empty), and the
+// file it was read from, so a qualifier resolves against *that* file's imports.
+// Strings slice the source unless cloned, so a Type_Ref outliving a parse is
 // temp-cloned.
 @(private)
 Type_Ref :: struct {
@@ -350,12 +340,10 @@ infer_expr_result :: proc(
     return {}, false
 }
 
-// A `binary_expression`'s result: comparison, logical and `or_else` all read
-// off the operator alone, arithmetic and bitwise take whichever operand names
-// a type. `m[k] or_else 0` is a binary_expression too — `or_else` is its
-// operator, not a node of its own (confirmed with ts-probe) — and it is
-// type-transparent: the fallback must already unify with the left operand's
-// type, so the result is simply that operand's.
+// A `binary_expression`'s result: comparison, logical and `or_else` read off the
+// operator alone, arithmetic and bitwise take whichever operand names a type.
+// `m[k] or_else 0` is a binary_expression whose operator is `or_else`, not a node
+// of its own, and it is type-transparent: the result is the left operand's.
 @(private)
 binary_expr_type :: proc(
     e: ^Engine,
@@ -480,11 +468,9 @@ composite_type_name :: proc(node: ts.Node, source: string) -> (Type_Ref, bool) {
 }
 
 // Type of the value named `name` visible at `offset`: the nearest enclosing
-// binding — a parameter, a typed `var` declaration, or a `:=` short declaration
-// whose initializer's type is inferred (a composite literal, a call's result, or
-// another binding it aliases). A local shadows a file-scope binding, an inner
-// scope shadows an outer, a later declaration shadows an earlier — like
-// resolve_local.
+// binding — a parameter, a typed `var` declaration, or a `:=` whose initializer
+// is inferred. Shadowing follows resolve_local: local over file scope, inner
+// scope over outer, later declaration over earlier.
 @(private)
 binding_type_ref :: proc(
     e: ^Engine,
@@ -639,12 +625,10 @@ type_switch_parts :: proc(node: ts.Node) -> (ident, operand: ts.Node, ok: bool) 
     return {}, {}, false
 }
 
-// The bindings a type switch gives its variable: `switch v in u { case Circle: }`
-// reads `v` as a Circle inside that case and as something else in the next, so
-// each case contributes its own binding scoped to itself. A case listing several
-// types (`case Circle, Square:`) leaves the variable as the union, and the default
-// case narrows nothing — neither names one type, so neither binds. The union
-// itself is never consulted: the case says what the value is there.
+// The bindings a type switch gives its variable: each case contributes one
+// scoped to itself, so `switch v in u` reads `v` as a Circle in that case and
+// otherwise in the next. A case listing several types and the default case name
+// no single type, so neither binds. The union itself is never consulted.
 @(private)
 type_switch_bindings :: proc(node: ts.Node, source, name: string, out: ^[dynamic]Binding) {
     ident, _, ok := type_switch_parts(node)
@@ -740,12 +724,11 @@ named_decl_type :: proc(node: ts.Node, source, name: string) -> (Type_Ref, bool)
     return {}, false
 }
 
-// The binding `name` gets from a `:=` short declaration (a `=` reassignment is not
-// a declaration and is ignored). The declared names are the identifier children
-// before the `:=` token, the initializers the expressions after it, so the
-// expression this name binds to is either its positional partner (`a, b := x, y`)
-// or — when one call feeds several names — the call plus the result slot to take
-// (`v, ok := f()`). The type of that expression is inferred on demand.
+// The binding `name` gets from a `:=` short declaration; a `=` reassignment is
+// not a declaration and is ignored. Names are the identifier children before the
+// `:=`, initializers the expressions after, so the bound expression is either the
+// positional partner (`a, b := x, y`) or the call plus a result slot
+// (`v, ok := f()`). Its type is inferred on demand.
 @(private)
 short_decl_binding :: proc(node: ts.Node, source, name: string) -> (Binding, bool) {
     is_decl := false
@@ -787,13 +770,11 @@ short_decl_binding :: proc(node: ts.Node, source, name: string) -> (Binding, boo
     return {}, false
 }
 
-// The binding `name` gets from a range loop (`for value in expr`, `for k, v in
-// expr`). Only the range form declares variables — the three-clause form's
-// `i := 0` is an assignment_statement collect_bindings already handles — so the
-// `in` token is what identifies it. The variables are the identifier children
-// before `in`, the ranged expression the first named child after it; the element
-// type is inferred on demand. A loop variable is visible only inside its loop, so
-// the binding is scoped to the statement rather than the enclosing block.
+// The binding `name` gets from a range loop. Only the range form declares
+// variables — the three-clause form's `i := 0` is an assignment_statement
+// collect_bindings already handles — so the `in` token identifies it. Variables
+// are the identifiers before `in`, the ranged expression the first named child
+// after. Scoped to the statement, since a loop variable ends with its loop.
 @(private)
 range_binding :: proc(node: ts.Node, source, name: string) -> (Binding, bool) {
     vars := 0

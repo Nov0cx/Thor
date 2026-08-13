@@ -43,12 +43,11 @@ Def :: struct {
     overload:     bool,
 }
 
-// Whether a declaration of `vis` can be named from *another* file — one beside
-// it in its package when `same_package`, one in an importing package otherwise.
-// The question every cross-file scan asks, and the only place visibility is
-// interpreted: a file-private declaration reaches no other file at all, and a
-// package-private one only its own directory. A declaration's own file never
-// asks, since lexical resolution answers there first.
+// Whether a declaration of `vis` can be named from *another* file — one beside it
+// in its package when `same_package`, one in an importing package otherwise. The
+// only place visibility is interpreted: file-private reaches no other file,
+// package-private only its own directory. A declaration's own file never asks,
+// since lexical resolution answers there first.
 @(private)
 def_reaches :: proc(vis: Visibility, same_package: bool) -> bool {
     switch vis {
@@ -223,13 +222,10 @@ resolve :: proc(data: rawptr, req: ^lang.Request, res: ^lang.Result) {
     // written are what chooses between them.
     call := caret_call_site(root, ident)
 
-    // 0) Selector `operand.member`. Two resolutions, in order:
-    //    a) Package-qualified `pkg.lang.Symbol`: when the operand names an imported
-    //       package, the symbol lives in that package's directory, so resolve
-    //       there and never fall through to the flat scan (which ignores package
-    //       boundaries and could match a same-named symbol elsewhere).
-    //    b) Value member `value.field`: infer the operand's static type and
-    //       resolve the field in that struct (see resolve_member).
+    // Selector `operand.member`, in order: a package-qualified `pkg.Symbol`
+    // resolves in that package's directory and never falls through to the flat
+    // scan, which ignores package boundaries; otherwise the operand's static type
+    // is inferred and the field resolved in that struct (resolve_member).
     if op_node, member_ident, is_sel := selector_parts(ident); is_sel {
         caret_on_member := same_node(ident, member_ident)
         if is_identifier(op_node) {
@@ -314,11 +310,9 @@ identifier_at :: proc(root: ts.Node, source: string, offset: int) -> (ts.Node, b
 }
 
 // A computed-type hover for the smallest expression around `req.offset` that
-// infer_expr_result can type, once identifier_at has already failed — so this
-// only ever fires on an operator, a cast's parens or `or_else`'s keyword, never
-// on a bare identifier (which resolves through the declaration-text path
-// above instead). Renders with type_ref_text rather than a declaration slice,
-// since there is no single declaration an expression like `a + b` stands for.
+// infer_expr_result can type, reached only once identifier_at has failed — so it
+// fires on an operator, a cast's parens or `or_else`, never a bare identifier.
+// Renders with type_ref_text, since no single declaration stands for `a + b`.
 @(private)
 hover_expr :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, req: ^lang.Request, res: ^lang.Result) {
     expr, eok := hoverable_expr_at(root, req.source, req.offset)
@@ -571,11 +565,10 @@ collect_value_decls :: proc(node: ts.Node, source: string, defs: ^[dynamic]Def) 
         }
     case "overloaded_procedure_declaration":
         // `make :: proc{make_slice, make_map}` — its own node type, which the
-        // LOCALS query has no rule for, so the group's name would go undeclared
-        // while the procedures it gathers are declared normally. The first
-        // identifier is the group; the rest are references to its members. An
-        // `@(builtin)` in front puts an `attributes` child before it, so the
-        // first *identifier* is the name rather than the first named child.
+        // LOCALS query has no rule for, so the group's name would go undeclared.
+        // The first identifier is the group, the rest reference its members; an
+        // `@(builtin)` puts an `attributes` child first, so it is the first
+        // *identifier* that names it, not the first named child.
         for i in 0 ..< ts.node_named_child_count(node) {
             c := ts.node_named_child(node, i)
             if !is_identifier(c) {
@@ -598,16 +591,12 @@ collect_value_decls :: proc(node: ts.Node, source: string, defs: ^[dynamic]Def) 
             break
         }
     case "named_type":
-        // `-> (track, thumb: rl.Rectangle, ok: bool)` — a procedure's named
-        // results, which the LOCALS query has no rule for either. Like the
-        // parameters they sit beside, the names precede the `(type ...)` child
-        // and are visible throughout the procedure: assignable in its body and
-        // returnable bare. A real one always sits inside the parens of a
-        // `tuple_type` — a bare, unparenthesized `-> T,` immediately followed by
-        // more `name: type` fields parses as this same node with no parens
-        // around it, a grammar ambiguity that would otherwise leak the next
-        // struct field's name (and its own return type) as fake top-level
-        // definitions.
+        // `-> (track, thumb: rl.Rectangle, ok: bool)` — named results, which the
+        // LOCALS query has no rule for. Their names precede the `(type ...)`
+        // child and are visible throughout the procedure. The parens check is
+        // load-bearing: an unparenthesized `-> T,` followed by more `name: type`
+        // fields parses as this same node, and would leak the next struct field
+        // as a fake top-level definition.
         if pt := ts.node_parent(node); !ts.node_is_null(pt) && string(ts.node_type(pt)) == "tuple_type" {
             for i in 0 ..< ts.node_named_child_count(node) {
                 c := ts.node_named_child(node, i)
@@ -728,12 +717,11 @@ def_better :: proc(a, b: Def, offset: int) -> bool {
     return abs(a.ident_start - offset) < abs(b.ident_start - offset)
 }
 
-// Finds the file declaring `name` via the symbol index, then re-parses just that
-// one file to fill `res` (hover wants the full declaration text, which the index
-// doesn't keep). The live buffer (req.path) was already searched with its unsaved
-// edits, so it is excluded. Package first, then the whole workspace — the same
-// two-phase reach go-to-definition uses, explained at index_package_dir. Syncs
-// the index under its mutex first.
+// Finds the file declaring `name` via the symbol index, then re-parses that one
+// file to fill `res`, since hover wants the full declaration text the index does
+// not keep. The live buffer was already searched with its unsaved edits and is
+// excluded. Package first, then the workspace (see index_package_dir); syncs the
+// index under its mutex first.
 @(private)
 scan_workspace :: proc(
     e: ^Engine,
@@ -806,13 +794,11 @@ scan_file :: proc(
     }
 }
 
-// Go-to-definition's cross-file scan. Gathers the top-level declarations named
-// `name` into res.symbols; unlike scan_workspace (first hit wins, used by hover)
-// it never stops early within a scope, since a name can be declared more than
-// once and the user should choose. A single hit collapses back to res.location
-// (the direct-jump path the caller already handles); two or more stay as
-// candidates for a picker. The scope is the requesting file's own package first
-// and the whole workspace only after — see index_package_dir.
+// Go-to-definition's cross-file scan: gathers every top-level declaration named
+// `name` into res.symbols. Unlike scan_workspace (first hit wins, used by hover)
+// it never stops early within a scope, since the user should choose between
+// duplicates. A single hit collapses back to res.location; two or more stay as
+// picker candidates. Package first, workspace after — see index_package_dir.
 @(private)
 resolve_definition_workspace :: proc(
     e: ^Engine,
@@ -856,11 +842,10 @@ resolve_definition_workspace :: proc(
 }
 
 // Replaces a lone indexed procedure-group match with its members. The index
-// records that a declaration is a group but not what it gathers — only its
-// signature line — so the file it points at is re-parsed for the group's Def and
-// the members are resolved from there. Reports false when that file no longer
-// declares the group (the index had gone stale) or no member resolves, leaving
-// the group itself to answer.
+// records that a declaration is a group but not what it gathers, so the file it
+// points at is re-parsed for the group's Def. False when that file no longer
+// declares the group (a stale index) or no member resolves, leaving the group
+// itself to answer.
 @(private = "file")
 expand_index_group :: proc(
     e: ^Engine,
