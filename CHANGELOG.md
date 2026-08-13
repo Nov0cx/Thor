@@ -1,6 +1,6 @@
 # 2026.08.0
 
-First release. Thor runs on Windows, Linux and macOS.
+This is the first release of Thor. Read the README.md for more information.
 
 - `ctrl + alt + l` / "Edit: Format Document" formats the active Odin file with a native in-editor formatter — no external tool required.
 - `format_on_save` setting formats an Odin file before an explicit save (off by default; never runs on autosave).
