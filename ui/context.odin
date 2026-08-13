@@ -10,6 +10,14 @@ Global_Key_Proc :: #type proc(data: rawptr, event: ^Event) -> bool
 DOUBLE_CLICK_SECS :: 0.4
 DOUBLE_CLICK_DIST :: 4
 
+// A key held down. `physical` is what raylib polls, `mapped` what the layout
+// prints on it: the press stores both, so a layout switch mid-hold cannot give
+// the release a different key than the press.
+Held_Key :: struct {
+    physical: rl.KeyboardKey,
+    mapped:   rl.KeyboardKey,
+}
+
 Context :: struct {
     root:      ^Widget, // owned, freed by context_destroy
     events:    Event_Queue,
@@ -19,6 +27,12 @@ Context :: struct {
     focused:   ^Widget,
     mouse_pos: rl.Vector2,
     prev_mouse_pos: rl.Vector2,
+    // The modifiers of this frame, for a draw that has no event to read them
+    // off. Holds the AltGr suppression the events get.
+    mods:      input.Modifiers,
+    // The keys held since their press. Drives the repeat and the release event,
+    // which raylib reports per key instead of over a queue.
+    held:      [dynamic]Held_Key,
     // The last hit test of the frame. Every mouse event of a frame carries the
     // same position, so the tree is walked once instead of once per event.
     // Dropped at the head of a frame, because layout runs before the events, and
@@ -38,6 +52,7 @@ Context :: struct {
 
 context_init :: proc(ctx: ^Context) {
     event_queue_init(&ctx.events)
+    ctx.held = make([dynamic]Held_Key, 0, 8)
 }
 
 context_destroy :: proc(ctx: ^Context) {
@@ -49,6 +64,8 @@ context_destroy :: proc(ctx: ^Context) {
     ctx.hit_widget = nil
     ctx.hit_valid = false
     event_queue_destroy(&ctx.events)
+    delete(ctx.held)
+    ctx.held = nil
 }
 
 // Drops every reference into `subtree`. Call before destroying it, or the hot,
@@ -115,6 +132,28 @@ context_draw :: proc(ctx: ^Context) {
     widget_draw_tree(ctx.root, ctx)
 }
 
+// Records a key as held. A key already in the list keeps the mapping its press
+// gave it, so a repeat cannot rename it half way.
+@(private = "file")
+context_hold_key :: proc(ctx: ^Context, physical, mapped: rl.KeyboardKey) {
+    for held in ctx.held {
+        if held.physical == physical {
+            return
+        }
+    }
+    append(&ctx.held, Held_Key{physical = physical, mapped = mapped})
+}
+
+@(private = "file")
+is_modifier_key :: proc(key: rl.KeyboardKey) -> bool {
+    #partial switch key {
+    case .LEFT_CONTROL, .RIGHT_CONTROL, .LEFT_SHIFT, .RIGHT_SHIFT,
+         .LEFT_ALT, .RIGHT_ALT, .LEFT_SUPER, .RIGHT_SUPER:
+        return true
+    }
+    return false
+}
+
 context_collect_input :: proc(ctx: ^Context) {
     event_queue_clear(&ctx.events)
     // Layout ran, so the bounds the last test read are gone.
@@ -145,11 +184,13 @@ context_collect_input :: proc(ctx: ^Context) {
     if rl.IsKeyDown(.LEFT_SUPER) || rl.IsKeyDown(.RIGHT_SUPER) {
         mods += {.Cmd}
     }
+    ctx.mods = mods
 
     event_queue_push(&ctx.events, Event {
         kind = .Mouse_Move,
         mouse_position = ctx.mouse_pos,
         mouse_delta = mouse_delta,
+        mods = mods,
     })
 
     if rl.IsMouseButtonPressed(.LEFT) {
@@ -232,6 +273,7 @@ context_collect_input :: proc(ctx: ^Context) {
             mouse_delta = mouse_delta,
             wheel_delta = wheel.y,
             wheel_delta_x = wheel.x,
+            mods = mods,
         })
     }
 
@@ -241,27 +283,35 @@ context_collect_input :: proc(ctx: ^Context) {
             break
         }
 
+        mapped := remap_key_to_layout(key)
+        context_hold_key(ctx, key, mapped)
         event_queue_push(&ctx.events, Event {
             kind = .Key_Press,
-            key = remap_key_to_layout(key),
+            key = mapped,
             mods = mods,
         })
     }
 
-    // GetKeyPressed only reports the initial press; held keys need the
-    // repeat flag so editing keys keep firing.
-    repeatable_keys := [?]rl.KeyboardKey {
-        .BACKSPACE, .DELETE, .ENTER, .KP_ENTER, .TAB,
-        .LEFT, .RIGHT, .UP, .DOWN,
-        .PAGE_UP, .PAGE_DOWN, .HOME, .END,
-        .Z, .Y,
-    }
-    for key in repeatable_keys {
-        if rl.IsKeyPressedRepeat(key) {
+    // GetKeyPressed reports the initial press only, and raylib has no queue of
+    // repeats or releases: both are polled per held key.
+    #reverse for held, index in ctx.held {
+        if rl.IsKeyUp(held.physical) {
+            event_queue_push(&ctx.events, Event {
+                kind = .Key_Release,
+                key = held.mapped,
+                mods = mods,
+            })
+            unordered_remove(&ctx.held, index)
+            continue
+        }
+        // A held modifier repeats on some platforms and means nothing on its
+        // own, so only the key it modifies fires again.
+        if !is_modifier_key(held.physical) && rl.IsKeyPressedRepeat(held.physical) {
             event_queue_push(&ctx.events, Event {
                 kind = .Key_Press,
-                key = remap_key_to_layout(key),
+                key = held.mapped,
                 mods = mods,
+                repeat = true,
             })
         }
     }
@@ -289,7 +339,16 @@ context_process_events :: proc(ctx: ^Context) {
 
         switch event.kind {
         case .Mouse_Move:
-            ctx.hot = context_hit_test(ctx, event.mouse_position)
+            hot := context_hit_test(ctx, event.mouse_position)
+            if hot != ctx.hot && ctx.hot != nil {
+                // Only the widget that held the hover hears this: an ancestor
+                // of it still has the cursor inside itself.
+                leave := event
+                leave.kind = .Mouse_Leave
+                leave.target = ctx.hot
+                widget_send_event(ctx.hot, ctx, &leave)
+            }
+            ctx.hot = hot
 
             if ctx.active != nil {
                 event.target = ctx.active
@@ -304,7 +363,7 @@ context_process_events :: proc(ctx: ^Context) {
                 widget_dispatch_event(ctx.hot, ctx, &hover)
             }
 
-        case .Mouse_Hover:
+        case .Mouse_Hover, .Mouse_Leave:
             // Synthesized above, never queued; nothing to do at the top level.
 
         case .Mouse_Down:
@@ -329,6 +388,7 @@ context_process_events :: proc(ctx: ^Context) {
                         kind = .Click,
                         mouse_position = event.mouse_position,
                         mouse_button = event.mouse_button,
+                        mods = event.mods,
                         target = release_target,
                     }
 
@@ -345,8 +405,8 @@ context_process_events :: proc(ctx: ^Context) {
                 widget_dispatch_event(event.target, ctx, &event)
             }
 
-        case .Key_Press, .Text_Input:
-            if event.kind == .Key_Press && ctx.global_key != nil && ctx.global_key(ctx.global_key_data, &event) {
+        case .Key_Press, .Key_Release, .Text_Input:
+            if event.kind != .Text_Input && ctx.global_key != nil && ctx.global_key(ctx.global_key_data, &event) {
                 break
             }
             if ctx.focused != nil {

@@ -11,10 +11,14 @@ Event_Type :: enum {
     // for the hovered widget so it can drive dwell-based UI (e.g. hover popups)
     // without stealing the drag-only Mouse_Move path.
     Mouse_Hover,
+    // The cursor left the widget: sent to the widget that was hovered, not to
+    // its ancestors, which still hold the cursor.
+    Mouse_Leave,
     Mouse_Down,
     Mouse_Up,
     Click,
     Key_Press,
+    Key_Release,
     Text_Input,
     Scroll,
 }
@@ -29,6 +33,9 @@ Event :: struct {
     key:            rl.KeyboardKey,
     codepoint:      rune,
     mods:           input.Modifiers,
+    // Set on a Key_Press the key repeat produced, not the first one. Lets a
+    // one-shot action ignore a held key.
+    repeat:         bool,
     // Consecutive clicks at the same spot: 1 = single, 2 = double, ...
     click_count:    int,
     target:         ^Widget,

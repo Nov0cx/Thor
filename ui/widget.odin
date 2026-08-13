@@ -202,6 +202,15 @@ widget_layout_tree :: proc(widget: ^Widget, bounds: rl.Rectangle) {
     }
 }
 
+// Sends `event` to one widget only. For an event that names a single widget,
+// like the hover it just lost, where an ancestor must not hear it.
+widget_send_event :: proc(widget: ^Widget, ctx: ^Context, event: ^Event) -> bool {
+    if widget == nil || !widget.visible || !widget.enabled || widget.vtable.handle_event == nil {
+        return false
+    }
+    return widget.vtable.handle_event(widget, ctx, event)
+}
+
 // Sends `event` to `start`, then up to each ancestor until one consumes it. The
 // parent is read before the handler runs, so a handler that unlinks or destroys
 // its own widget still bubbles along the chain it had at dispatch time.
