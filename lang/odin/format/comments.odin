@@ -15,29 +15,29 @@ import "core:strings"
 // keeps the two apart without threading an id through print_field, print_expr
 // and print_value_decl. Id 0 is "no cell".
 Align_Cell :: struct {
-	head:  int, // the name..':' cell
-	value: int, // the type cell, so what follows it lines up
+    head:  int, // the name..':' cell
+    value: int, // the type cell, so what follows it lines up
 }
 
 Printer :: struct {
-	opts:          Options,
-	src:           string,
-	comments:      []^ast.Comment_Group,
-	comment_idx:   int,
-	next_align_id: int,
-	align_ids:     map[rawptr]Align_Cell,
+    opts:          Options,
+    src:           string,
+    comments:      []^ast.Comment_Group,
+    comment_idx:   int,
+    next_align_id: int,
+    align_ids:     map[rawptr]Align_Cell,
 }
 
 @(private)
 next_align :: proc(pr: ^Printer) -> int {
-	pr.next_align_id += 1
-	return pr.next_align_id
+    pr.next_align_id += 1
+    return pr.next_align_id
 }
 
 // The cell ids for `node`, or the zero value when it is in no run.
 @(private)
 align_cell :: proc(pr: ^Printer, node: rawptr) -> Align_Cell {
-	return pr.align_ids[node]
+    return pr.align_ids[node]
 }
 
 // Whether two consecutive body items may share one alignment run: directly
@@ -50,20 +50,20 @@ align_cell :: proc(pr: ^Printer, node: rawptr) -> Align_Cell {
 // reached, and a comment before it fails the first test anyway.
 @(private)
 same_align_run :: proc(pr: ^Printer, prev_end_line, next_start_line: int) -> bool {
-	if next_start_line > prev_end_line + 1 {
-		return false
-	}
-	for i := pr.comment_idx; i < len(pr.comments); i += 1 {
-		cg := pr.comments[i]
-		if cg.pos.line <= prev_end_line {
-			continue
-		}
-		if cg.pos.line >= next_start_line {
-			break
-		}
-		return false
-	}
-	return true
+    if next_start_line > prev_end_line + 1 {
+        return false
+    }
+    for i := pr.comment_idx; i < len(pr.comments); i += 1 {
+        cg := pr.comments[i]
+        if cg.pos.line <= prev_end_line {
+            continue
+        }
+        if cg.pos.line >= next_start_line {
+            break
+        }
+        return false
+    }
+    return true
 }
 
 // blanks between two lines that are `gap` apart (gap = next.line - prev.line),
@@ -71,28 +71,28 @@ same_align_run :: proc(pr: ^Printer, prev_end_line, next_start_line: int) -> boo
 // line gap into "how many blank lines sit between them", never negative.
 @(private)
 blanks_between :: proc(prev_line, next_line: int) -> int {
-	gap := next_line - prev_line - 1
-	if gap < 0 {
-		return 0
-	}
-	return gap
+    gap := next_line - prev_line - 1
+    if gap < 0 {
+        return 0
+    }
+    return gap
 }
 
 @(private)
 comment_group_text :: proc(pr: ^Printer, cg: ^ast.Comment_Group, out: ^[dynamic]Doc) {
-	for tok, i in cg.list {
-		if i > 0 {
-			blanks := blanks_between(cg.list[i - 1].pos.line, tok.pos.line)
-			append(out, hard_line(blanks))
-		}
-		trimmed := strings.trim_right_space(tok.text)
-		append(out, text(trimmed))
-		if strings.has_prefix(trimmed, "//") {
-			// A line comment rendered flat would swallow whatever follows it
-			// on that line, so every enclosing group has to break.
-			append(out, break_parent())
-		}
-	}
+    for tok, i in cg.list {
+        if i > 0 {
+            blanks := blanks_between(cg.list[i - 1].pos.line, tok.pos.line)
+            append(out, hard_line(blanks))
+        }
+        trimmed := strings.trim_right_space(tok.text)
+        append(out, text(trimmed))
+        if strings.has_prefix(trimmed, "//") {
+            // A line comment rendered flat would swallow whatever follows it
+            // on that line, so every enclosing group has to break.
+            append(out, break_parent())
+        }
+    }
 }
 
 // Appends every pending comment group that starts on `line` (the line the
@@ -101,18 +101,18 @@ comment_group_text :: proc(pr: ^Printer, cg: ^ast.Comment_Group, out: ^[dynamic]
 // should now treat as "last printed" (the trailing comment's own last line).
 @(private)
 flush_trailing :: proc(pr: ^Printer, out: ^[dynamic]Doc, line: int) -> int {
-	last_line := line
-	for pr.comment_idx < len(pr.comments) {
-		cg := pr.comments[pr.comment_idx]
-		if cg.pos.line != last_line {
-			break
-		}
-		append(out, text("  "))
-		comment_group_text(pr, cg, out)
-		last_line = cg.list[len(cg.list) - 1].pos.line
-		pr.comment_idx += 1
-	}
-	return last_line
+    last_line := line
+    for pr.comment_idx < len(pr.comments) {
+        cg := pr.comments[pr.comment_idx]
+        if cg.pos.line != last_line {
+            break
+        }
+        append(out, text("  "))
+        comment_group_text(pr, cg, out)
+        last_line = cg.list[len(cg.list) - 1].pos.line
+        pr.comment_idx += 1
+    }
+    return last_line
 }
 
 // Flushes any trailing comment clinging to prev's last line, then every
@@ -125,49 +125,49 @@ flush_trailing :: proc(pr: ^Printer, out: ^[dynamic]Doc, line: int) -> int {
 // behind.
 @(private)
 flush_before :: proc(pr: ^Printer, out: ^[dynamic]Doc, prev_line: int, has_prev: bool, next_line: int, has_next: bool) -> (last_line: int, had_content: bool) {
-	last_line = prev_line
-	had_content = has_prev
-	if has_prev {
-		last_line = flush_trailing(pr, out, prev_line)
-	}
+    last_line = prev_line
+    had_content = has_prev
+    if has_prev {
+        last_line = flush_trailing(pr, out, prev_line)
+    }
 
-	for pr.comment_idx < len(pr.comments) {
-		cg := pr.comments[pr.comment_idx]
-		if has_next && cg.pos.line >= next_line {
-			break
-		}
-		if had_content || len(out^) > 0 {
-			append(out, hard_line(blanks_between(last_line, cg.pos.line)))
-		}
-		comment_group_text(pr, cg, out)
-		last_line = cg.list[len(cg.list) - 1].pos.line
-		pr.comment_idx += 1
-		last_line = flush_trailing(pr, out, last_line)
-		had_content = true
-	}
-	return
+    for pr.comment_idx < len(pr.comments) {
+        cg := pr.comments[pr.comment_idx]
+        if has_next && cg.pos.line >= next_line {
+            break
+        }
+        if had_content || len(out^) > 0 {
+            append(out, hard_line(blanks_between(last_line, cg.pos.line)))
+        }
+        comment_group_text(pr, cg, out)
+        last_line = cg.list[len(cg.list) - 1].pos.line
+        pr.comment_idx += 1
+        last_line = flush_trailing(pr, out, last_line)
+        had_content = true
+    }
+    return
 }
 
 // flush_before, plus the gap up to `next` itself. Appends everything to
 // `out`; the caller still owns emitting `next`'s own content afterward.
 @(private)
 separator :: proc(pr: ^Printer, out: ^[dynamic]Doc, prev_line: int, has_prev: bool, next_line: int, has_next: bool) {
-	last_line, had_content := flush_before(pr, out, prev_line, has_prev, next_line, has_next)
-	if has_next {
-		if had_content || len(out^) > 0 {
-			append(out, hard_line(blanks_between(last_line, next_line)))
-		}
-	}
+    last_line, had_content := flush_before(pr, out, prev_line, has_prev, next_line, has_next)
+    if has_next {
+        if had_content || len(out^) > 0 {
+            append(out, hard_line(blanks_between(last_line, next_line)))
+        }
+    }
 }
 
 // Flushes every comment left in pr.comments (called once, after the last
 // top-level declaration) so trailing free-floating comments are never lost.
 @(private)
 flush_remaining :: proc(pr: ^Printer, out: ^[dynamic]Doc, prev_line: int, has_prev: bool) {
-	separator(pr, out, prev_line, has_prev, 0, false)
+    separator(pr, out, prev_line, has_prev, 0, false)
 }
 
 @(private)
 pos_line :: proc(pos: tokenizer.Pos) -> int {
-	return pos.line
+    return pos.line
 }
