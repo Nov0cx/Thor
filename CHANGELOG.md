@@ -1,3 +1,7 @@
+# 2026.08.1
+
+- The Linux, Arch Linux and macOS archives are published next to the Windows one. Only the Windows archive was built for `2026.08.0`.
+
 # 2026.08.0
 
 This is the first release of Thor. Read the README.md for more information.
