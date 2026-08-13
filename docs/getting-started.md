@@ -42,6 +42,11 @@ Opening a second folder while one is already open asks whether to replace the
 current window's workspace or launch a new window — configurable via the
 `open_folder_in` setting (see [Configuration](configuration.md)).
 
+A folder that is already open in another window is never opened twice; that
+window is brought to the front instead. On Linux and macOS this needs a desktop
+helper — `xdotool` or `wmctrl` on X11, `osascript` on macOS — and the status bar
+says so when none is available (Wayland has no equivalent).
+
 ## A first tour
 
 - **Explorer** (`ctrl + b` to toggle) — the file tree for the open folder.
