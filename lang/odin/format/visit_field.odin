@@ -29,15 +29,10 @@ field_name_is_synthetic :: proc(f: ^ast.Field) -> bool {
 	return f.names[0].pos == f.type.pos
 }
 
-// A field, in one of four shapes depending on which alignment cells the
-// pre-pass gave it: no cell (the plain form), a head cell so the colons line
-// up, a value cell so the defaults do, or both. With a value cell alone the
-// head and the type share one wide cell — an align cell inside another would
-// have to know the inner cell's *padded* width, which measure_flat cannot
-// report.
-//
-// The `using` and `#no_alias` prefixes belong inside the head cell: a cell that
-// starts past the indent column is padded relative to the wrong place.
+// A field. With a head cell from the pre-pass the name side is padded so the
+// types line up; with none the output is the plain form. The `using` and
+// `#no_alias` prefixes belong inside the cell: one that starts past the indent
+// column is padded relative to the wrong place.
 @(private)
 print_field :: proc(pr: ^Printer, out: ^[dynamic]Doc, f: ^ast.Field) {
 	cell := align_cell(pr, rawptr(f))
@@ -68,30 +63,15 @@ print_field :: proc(pr: ^Printer, out: ^[dynamic]Doc, f: ^ast.Field) {
 		print_expr(pr, &type_doc, f.type)
 	}
 
-	switch {
-	case cell.head != 0:
+	if cell.head != 0 {
 		append(out, align(cell.head, head[:]))
-		if has_colon {
-			append(out, text(after_cell))
-		}
-		if cell.value != 0 {
-			append(out, align(cell.value, type_doc[:]))
-		} else {
-			append(out, ..type_doc[:])
-		}
-	case cell.value != 0:
-		if has_colon {
-			append(&head, text(after_cell))
-		}
-		append(&head, ..type_doc[:])
-		append(out, align(cell.value, head[:]))
-	case:
+	} else {
 		append(out, ..head[:])
-		if has_colon {
-			append(out, text(after_cell))
-		}
-		append(out, ..type_doc[:])
 	}
+	if has_colon {
+		append(out, text(after_cell))
+	}
+	append(out, ..type_doc[:])
 
 	if f.default_value != nil {
 		if f.type != nil {
@@ -194,10 +174,53 @@ print_field_brace_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, close_line: int
 	append_brace_close(out, body[:])
 }
 
+// One head id per maximal run of two or more adjacent `name = value` elements,
+// so their `=` line up. Bare enum members and union variants have no field to
+// pad and end a run. Shared by enum bodies and multi-line composite literals.
+@(private)
+assign_field_value_align_ids :: proc(pr: ^Printer, exprs: []^ast.Expr) {
+	if !pr.opts.align_struct_values {
+		return
+	}
+	for i := 0; i < len(exprs); {
+		if !is_flat_field_value(exprs[i]) {
+			i += 1
+			continue
+		}
+		end := i + 1
+		for end < len(exprs) &&
+		    is_flat_field_value(exprs[end]) &&
+		    same_align_run(pr, exprs[end - 1].end.line, exprs[end].pos.line) {
+			end += 1
+		}
+		if end - i >= 2 {
+			id := next_align(pr)
+			for ex in exprs[i:end] {
+				cell := pr.align_ids[rawptr(ex)]
+				cell.head = id
+				pr.align_ids[rawptr(ex)] = cell
+			}
+		}
+		i = end
+	}
+}
+
+// A `name = value` element whose name stays on one line, so its cell is
+// paddable.
+@(private)
+is_flat_field_value :: proc(ex: ^ast.Expr) -> bool {
+	fv, ok := ex.derived_expr.(^ast.Field_Value)
+	if !ok || fv.field == nil {
+		return false
+	}
+	return fv.field.pos.line == fv.field.end.line
+}
+
 // One bare expression per line, comma-terminated — union variants and enum
 // fields.
 @(private)
 print_expr_brace_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, close_line: int, exprs: []^ast.Expr) {
+	assign_field_value_align_ids(pr, exprs)
 	append(out, text("{"))
 	if len(exprs) == 0 {
 		body: [dynamic]Doc
@@ -241,9 +264,27 @@ append_brace_close :: proc(out: ^[dynamic]Doc, body: []Doc) {
 
 @(private)
 print_bit_field_field :: proc(pr: ^Printer, out: ^[dynamic]Doc, f: ^ast.Bit_Field_Field) {
-	print_expr(pr, out, f.name)
-	append(out, text(colon_sep(pr)))
-	print_expr(pr, out, f.type)
+	cell := align_cell(pr, rawptr(f))
+	in_cell, after_cell := colon_split(pr)
+
+	head: [dynamic]Doc
+	print_expr(pr, &head, f.name)
+	append(&head, text(in_cell))
+	if cell.head != 0 {
+		append(out, align(cell.head, head[:]))
+	} else {
+		append(out, ..head[:])
+	}
+	append(out, text(after_cell))
+
+	type_doc: [dynamic]Doc
+	print_expr(pr, &type_doc, f.type)
+	if cell.value != 0 {
+		append(out, align(cell.value, type_doc[:]))
+	} else {
+		append(out, ..type_doc[:])
+	}
+
 	append(out, text(" | "))
 	print_expr(pr, out, f.bit_size)
 	if f.tag.text != "" {
@@ -252,8 +293,33 @@ print_bit_field_field :: proc(pr: ^Printer, out: ^[dynamic]Doc, f: ^ast.Bit_Fiel
 	}
 }
 
+// A bit-field field is always `name: type | bits`, so every member of a run is
+// alignable: the head cell lines up the types, the value cell the `|`.
+@(private)
+assign_bit_field_align_ids :: proc(pr: ^Printer, fields: []^ast.Bit_Field_Field) {
+	if !pr.opts.align_struct_fields && !pr.opts.align_struct_values {
+		return
+	}
+	for i := 0; i < len(fields); {
+		end := i + 1
+		for end < len(fields) &&
+		    same_align_run(pr, fields[end - 1].end.line, fields[end].pos.line) {
+			end += 1
+		}
+		if end - i >= 2 {
+			head_id := pr.opts.align_struct_fields ? next_align(pr) : 0
+			value_id := pr.opts.align_struct_values ? next_align(pr) : 0
+			for f in fields[i:end] {
+				pr.align_ids[rawptr(f)] = Align_Cell{head = head_id, value = value_id}
+			}
+		}
+		i = end
+	}
+}
+
 @(private)
 print_bit_field_brace_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, close_line: int, fields: []^ast.Bit_Field_Field) {
+	assign_bit_field_align_ids(pr, fields)
 	append(out, text("{"))
 	if len(fields) == 0 {
 		body: [dynamic]Doc

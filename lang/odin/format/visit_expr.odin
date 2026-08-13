@@ -119,7 +119,13 @@ print_expr :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: ^ast.Expr) {
 		print_call_expr(pr, out, e)
 
 	case ^ast.Field_Value:
-		print_expr(pr, out, e.field)
+		if cell := align_cell(pr, rawptr(expr)); cell.head != 0 {
+			field_doc: [dynamic]Doc
+			print_expr(pr, &field_doc, e.field)
+			append(out, align(cell.head, field_doc[:]))
+		} else {
+			print_expr(pr, out, e.field)
+		}
 		append(out, text(" = "))
 		print_expr(pr, out, e.value)
 
@@ -337,6 +343,7 @@ print_comp_lit_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: ^ast.Comp_Lit) 
 		append(out, text("}"))
 		return
 	}
+	assign_field_value_align_ids(pr, e.elems)
 	body: [dynamic]Doc
 	prev_line := e.open.line
 	has_prev := true

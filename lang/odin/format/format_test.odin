@@ -145,6 +145,60 @@ test_align_fields_multiline_type_not_padded :: proc(t: ^testing.T) {
 	testing.expect(t, assert_no_trailing_whitespace(t, "<inline>", out), out)
 }
 
+@(test)
+test_align_struct_values_comp_lit :: proc(t: ^testing.T) {
+	opts := default_options()
+	opts.exp_multiline_composite_literals = true
+	src := "package p\nv := Foo{\n\ta = 1,\n\tlonger = 2,\n}\n"
+	out, ok := format(src, opts)
+	defer delete(out)
+	testing.expect(t, ok)
+	testing.expect(t, strings.contains(out, "\ta      = 1,"), out)
+	testing.expect(t, strings.contains(out, "\tlonger = 2,"), out)
+}
+
+@(test)
+test_align_struct_values_off :: proc(t: ^testing.T) {
+	opts := default_options()
+	opts.align_struct_values = false
+	src := "package p\nE :: enum {\n\tA = 1,\n\tLong = 2,\n}\n"
+	out, ok := format(src, opts)
+	defer delete(out)
+	testing.expect(t, ok)
+	testing.expect(t, strings.contains(out, "\tA = 1,"), out)
+}
+
+@(test)
+test_align_values_break_on_bare_member :: proc(t: ^testing.T) {
+	src := "package p\nE :: enum {\n\tA = 1,\n\tBare,\n\tCcc = 2,\n\tDddd = 3,\n}\n"
+	out, ok := format(src, default_options())
+	defer delete(out)
+	testing.expect(t, ok)
+	testing.expect(t, strings.contains(out, "\tA = 1,"), out)
+	testing.expect(t, strings.contains(out, "\tCcc  = 2,"), out)
+	testing.expect(t, assert_no_trailing_whitespace(t, "<inline>", out), out)
+}
+
+@(test)
+test_align_enum_values :: proc(t: ^testing.T) {
+	src := "package p\nE :: enum {\n\tA = 1,\n\tLong = 2,\n}\n"
+	out, ok := format(src, default_options())
+	defer delete(out)
+	testing.expect(t, ok)
+	testing.expect(t, strings.contains(out, "\tA    = 1,"), out)
+	testing.expect(t, strings.contains(out, "\tLong = 2,"), out)
+}
+
+@(test)
+test_align_bit_field :: proc(t: ^testing.T) {
+	src := "package p\nB :: bit_field u32 {\n\ta: int | 3,\n\tlonger: uint | 4,\n}\n"
+	out, ok := format(src, default_options())
+	defer delete(out)
+	testing.expect(t, ok)
+	testing.expect(t, strings.contains(out, "\ta:      int  | 3,"), out)
+	testing.expect(t, strings.contains(out, "\tlonger: uint | 4,"), out)
+}
+
 @(private)
 token_stream :: proc(src: string) -> [dynamic]tokenizer.Token {
 	t: tokenizer.Tokenizer
