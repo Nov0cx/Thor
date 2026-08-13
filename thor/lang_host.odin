@@ -1835,11 +1835,3 @@ thor_clear_pending_goto :: proc(thor: ^Thor) {
     thor.pending_goto_line = 0
 }
 
-// File extension including the dot (".odin"), or "" when the name has none.
-thor_file_extension :: proc(name: string) -> string {
-    dot := strings.last_index_byte(name, '.')
-    if dot < 0 {
-        return ""
-    }
-    return name[dot:]
-}

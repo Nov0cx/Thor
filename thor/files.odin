@@ -375,7 +375,7 @@ thor_apply_file_op :: proc(thor: ^Thor, job: ^File_Op_Job) {
     moved_but_left := 0
     failed := ""
     for entry in job.entries {
-        name := file_base_name(entry.src)
+        name := thor_file_base(entry.src)
         switch {
         case entry.err != nil && job.kind == .Move && entry.moved:
             // The copy landed at dst; only cleanup of src failed. Not data loss.
@@ -416,7 +416,7 @@ thor_apply_file_op :: proc(thor: ^Thor, job: ^File_Op_Job) {
         noun := done == 1 ? "item" : "items"
         thor_flash_status(thor, fmt.tprintf("Moved %d %s", done, noun))
     case done == 1:
-        thor_flash_status(thor, fmt.tprintf("Deleted %s", file_base_name(job.entries[0].src)))
+        thor_flash_status(thor, fmt.tprintf("Deleted %s", thor_file_base(job.entries[0].src)))
     case:
         thor_flash_status(thor, fmt.tprintf("Deleted %d items", done))
     }
@@ -436,14 +436,20 @@ thor_apply_file_op :: proc(thor: ^Thor, job: ^File_Op_Job) {
     thor_refresh_git_status(thor)
 }
 
-@(private = "file")
-file_base_name :: proc(path: string) -> string {
-    for i := len(path) - 1; i >= 0; i -= 1 {
-        if path[i] == '\\' || path[i] == '/' {
-            return path[i + 1:]
-        }
+// File extension including the dot (".odin"), or "" when the name has none.
+thor_file_extension :: proc(name: string) -> string {
+    dot := strings.last_index_byte(name, '.')
+    if dot < 0 {
+        return ""
     }
-    return path
+    return name[dot:]
+}
+
+// The final path component ("Dockerfile" from "app/Dockerfile"), handling both
+// path separators.
+thor_file_base :: proc(path: string) -> string {
+    slash := max(strings.last_index_byte(path, '/'), strings.last_index_byte(path, '\\'))
+    return path[slash + 1:]
 }
 
 // Directory portion of path, without the base name or a trailing separator.
@@ -584,7 +590,7 @@ thor_open_file :: proc(thor: ^Thor, path: string) {
 
     file := new(Open_File)
     file.path = strings.clone(canonical)
-    file.name = file_base_name(file.path)
+    file.name = thor_file_base(file.path)
     textedit.init(&file.state)
     append(&thor.open_files, file)
 
@@ -1358,7 +1364,7 @@ thor_tree_delete :: proc(data: rawptr, path: string) {
     if len(thor.pending_delete_paths) > 1 {
         thor.delete_prompt = fmt.aprintf("Delete %d items?", len(thor.pending_delete_paths))
     } else {
-        thor.delete_prompt = strings.concatenate({"Delete \"", file_base_name(path), "\"?"})
+        thor.delete_prompt = strings.concatenate({"Delete \"", thor_file_base(path), "\"?"})
     }
 
     widgets.command_palette_confirm(
@@ -1412,7 +1418,7 @@ thor_begin_rename :: proc(thor: ^Thor, path: string) {
         "New name",
         thor_prompt_rename,
         thor,
-        file_base_name(path),
+        thor_file_base(path),
     )
 }
 
@@ -1478,7 +1484,7 @@ thor_prompt_rename :: proc(data: rawptr, name: string) {
         if thor_same_path(file.path, old_path) {
             delete(file.path)
             file.path = strings.clone(canonical)
-            file.name = file_base_name(file.path)
+            file.name = thor_file_base(file.path)
             break
         }
     }
@@ -1494,7 +1500,7 @@ thor_prompt_rename :: proc(data: rawptr, name: string) {
 thor_tree_move :: proc(data: rawptr, src_path: string, dst_dir: string) {
     thor := cast(^Thor) data
 
-    new_path, _ := filepath.join({dst_dir, file_base_name(src_path)}, context.temp_allocator)
+    new_path, _ := filepath.join({dst_dir, thor_file_base(src_path)}, context.temp_allocator)
     if thor_same_path(src_path, new_path) {
         return
     }
@@ -1535,7 +1541,7 @@ thor_tree_move :: proc(data: rawptr, src_path: string, dst_dir: string) {
         if thor_same_path(file.path, src_path) {
             delete(file.path)
             file.path = strings.clone(canonical)
-            file.name = file_base_name(file.path)
+            file.name = thor_file_base(file.path)
             break
         }
     }
@@ -1711,7 +1717,7 @@ thor_rename_resource :: proc(thor: ^Thor, old_path, new_path: string, overwrite:
         if thor_same_path(file.path, old_path) {
             delete(file.path)
             file.path = strings.clone(canonical)
-            file.name = file_base_name(file.path)
+            file.name = thor_file_base(file.path)
             break
         }
     }
@@ -1773,7 +1779,7 @@ thor_queue_import :: proc(
     entries: ^[dynamic]File_Op_Entry,
     src_path, dst_dir: string,
 ) -> Import_Result {
-    name := file_base_name(src_path)
+    name := thor_file_base(src_path)
     new_path, join_err := filepath.join({dst_dir, name}, context.temp_allocator)
     if join_err != nil {
         log.warnf("Cannot import %q into %q: %v", src_path, dst_dir, join_err)

@@ -351,7 +351,7 @@ thor_language_name :: proc(thor: ^Thor, name: string) -> string {
     if label, ok := thor_builtin_language_name(name); ok {
         return label
     }
-    if ext := thor_file_ext(name); len(ext) > 1 {
+    if ext := thor_file_extension(name); len(ext) > 1 {
         return strings.to_upper(ext[1:], context.temp_allocator)
     }
     return "Plain Text"

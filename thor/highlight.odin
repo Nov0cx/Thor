@@ -244,27 +244,12 @@ thor_token_capture :: proc(kind: lang.Token_Kind) -> string {
 // plugin claims it, else the bare filename ("Dockerfile", "Makefile") so files
 // with no extension can still map to a language. Falls back to the extension.
 thor_highlight_key :: proc(plugins: ^plugin.Manager, name: string) -> string {
-    if ext := thor_file_ext(name); ext != "" && plugin.supports(plugins, ext) {
+    if ext := thor_file_extension(name); ext != "" && plugin.supports(plugins, ext) {
         return ext
     }
     if base := thor_file_base(name); plugin.supports(plugins, base) {
         return base
     }
-    return thor_file_ext(name)
+    return thor_file_extension(name)
 }
 
-// File extension including the dot (".odin"), or "" when there is none.
-thor_file_ext :: proc(name: string) -> string {
-    dot := strings.last_index_byte(name, '.')
-    if dot < 0 {
-        return ""
-    }
-    return name[dot:]
-}
-
-// The final path component ("Dockerfile" from "app/Dockerfile"), handling both
-// path separators.
-thor_file_base :: proc(name: string) -> string {
-    slash := max(strings.last_index_byte(name, '/'), strings.last_index_byte(name, '\\'))
-    return name[slash + 1:]
-}
