@@ -39,11 +39,10 @@ File_Entry :: struct {
     idents:  map[string]bool, // unique identifier names, engine-owned keys
 }
 
-// A workspace-wide store of parsed top-level declarations, resident on the
-// engine across requests so a cross-file lookup re-parses only the files that
-// changed rather than the whole tree. Guarded by its own mutex; every owned
-// field uses `alloc` (the engine's allocator, captured at create), never the
-// per-request Manager allocator that query results clone into.
+// A workspace-wide store of parsed top-level declarations, resident across
+// requests so a cross-file lookup re-parses only the files that changed. Guarded
+// by its own mutex; every owned field uses `alloc`, the engine's allocator, never
+// the per-request Manager one that query results clone into.
 @(private)
 Symbol_Index :: struct {
     mutex: sync.Mutex,
@@ -53,17 +52,14 @@ Symbol_Index :: struct {
     alloc: runtime.Allocator,
 }
 
-// Ensures the index reflects `req.workspace` on disk. Rebuilds from scratch when
-// the workspace changed; otherwise re-`read_dir`s the tree (cheap) and re-parses
-// only files whose stat differs, plus new files, and drops entries for files that
-// vanished — so the expensive parse is skipped for the unchanged majority. All
-// index storage lands in the engine allocator (context set locally); the caller
-// holds e.index.mutex. Bounded by the same file/depth guards as the old scan.
+// Ensures the index reflects `req.workspace` on disk: a full rebuild when the
+// workspace changed, otherwise a re-`read_dir` that re-parses only the files
+// whose stat differs and prunes the ones that vanished. Index storage lands in
+// the engine allocator; the caller holds e.index.mutex.
 //
-// A cancelled request abandons the walk part-way, which leaves the index merely
-// stale, never wrong: the entries it did refresh are correct, and the next sync
-// re-stats everything anyway. The prune is skipped in that case — `seen` is
-// incomplete, so pruning against it would drop live files.
+// A cancelled request abandons the walk part-way, leaving the index stale but
+// never wrong. The prune is skipped then: `seen` is incomplete, so pruning
+// against it would drop live files.
 @(private)
 index_sync :: proc(e: ^Engine, parser: ts.Parser, req: ^lang.Request) {
     workspace := req.workspace
@@ -222,16 +218,13 @@ index_collect_idents :: proc(node: ts.Node, source: string, set: ^map[string]boo
     }
 }
 
-// Cross-file goto: appends every indexed top-level declaration named `name`
-// (excluding the live file `skip`, already searched lexically) to res.symbols as
-// picker candidates, sorted by path for a stable order. `dir` narrows the search
-// to one package (see index_scoped); "" searches the whole workspace. Owned
-// strings clone into context.allocator (the Manager's, as resolve left it).
-// Caller holds the mutex.
-//
-// Reports whether the *only* match is a procedure group, so the caller can reach
-// through to its members instead of landing on the list. Meaningless when several
-// files declare the name: that ambiguity goes to the picker as it is.
+// Cross-file goto: appends every indexed top-level declaration named `name` to
+// res.symbols as picker candidates, sorted by path, excluding the live file
+// `skip` that was already searched lexically. `dir` narrows to one package, ""
+// searches the workspace. Owned strings clone into context.allocator; caller
+// holds the mutex. Reports whether the *only* match is a procedure group, so the
+// caller can reach through to its members; meaningless when several files
+// declare the name, which goes to the picker as it is.
 @(private)
 index_find_defs :: proc(
     e: ^Engine,
@@ -260,14 +253,11 @@ index_find_defs :: proc(
     return single_overload && len(res.symbols) == 1
 }
 
-// Workspace symbols: appends every indexed declaration of a shown kind (proc,
-// type, enum, constant, var — the outline set) whose name matches `query`,
-// excluding the live file `skip` whose decls the caller already collected from
-// the unsaved buffer. An empty query matches everything.
-//
-// Visibility is deliberately not applied here. Ctrl+Q is navigation, not name
-// resolution: a `@(private)` declaration is still a place in the workspace the
-// user wants to jump to, and dropping it would only make it unreachable.
+// Workspace symbols: appends every indexed declaration of an outline kind whose
+// name matches `query` (empty matches everything), excluding the live file
+// `skip` the caller already collected from the unsaved buffer. Visibility is
+// deliberately not applied — Ctrl+Q is navigation, so a `@(private)` declaration
+// is still a place to jump to.
 @(private)
 index_all_symbols :: proc(e: ^Engine, skip, query: string, res: ^lang.Result) {
     for path, entry in e.index.files {
@@ -283,15 +273,12 @@ index_all_symbols :: proc(e: ^Engine, skip, query: string, res: ^lang.Result) {
     }
 }
 
-// Adds every top-level declaration name in the workspace to `out`. The semantic
-// classifier's "is this name declared anywhere" test, asked once per request
-// rather than once per identifier so the walk that follows needs no lock.
-// Reports whether the index held any file at all — a false says the index is
-// empty, which must not be read as "nothing is declared".
-//
-// Keys clone into `alloc`: the index rows are engine-owned and another worker may
-// reparse this entry and free its strings the moment the mutex drops. Caller
-// holds the mutex.
+// Adds every top-level declaration name in the workspace to `out` — the semantic
+// classifier's "is this declared anywhere" test, asked once per request so the
+// walk that follows needs no lock. Reports whether the index held any file at
+// all, which must not be read as "nothing is declared". Keys clone into `alloc`,
+// since another worker may reparse an entry and free its strings the moment the
+// mutex drops. Caller holds the mutex.
 @(private)
 index_declared_names :: proc(e: ^Engine, out: ^map[string]bool, alloc: runtime.Allocator) -> bool {
     any_file := false
@@ -339,12 +326,11 @@ index_first_path :: proc(
     return best, found
 }
 
-// Appends the path of every indexed file that mentions `name` (excluding the
-// live file `skip`) to `out`, each cloned into `out`'s allocator so it survives
-// after the caller drops the mutex. Files whose `idents` lack the name — the
-// majority — are skipped, so the reference scan re-parses only real candidates.
-// `skip` matters more here than elsewhere: the buffer was scanned already, and a
-// spelling that failed to match it would list every one of its usages twice.
+// Appends the path of every indexed file that mentions `name` to `out`, cloned
+// into `out`'s allocator so it survives the mutex being dropped. Files whose
+// `idents` lack the name are skipped, so the reference scan re-parses only real
+// candidates. A `skip` that fails to match its file would list the live buffer's
+// usages twice.
 @(private)
 index_ref_files :: proc(e: ^Engine, name, skip: string, out: ^[dynamic]string) {
     for path, entry in e.index.files {
@@ -358,13 +344,12 @@ index_ref_files :: proc(e: ^Engine, name, skip: string, out: ^[dynamic]string) {
 }
 
 // Completion: appends the indexed top-level declarations of the files sitting
-// directly in `dir` (a package is one flat directory), excluding the live file
-// `skip` and filtered by `prefix`. Reports whether the directory held any indexed
-// file at all — false means it lies outside the indexed workspace (a stdlib or
-// collection package), and the caller falls back to reading it off disk. Caller
-// holds the mutex; result strings clone into context.allocator (the Manager's),
-// and the dedup keys into scratch, so nothing borrows an index row past the
-// unlock — another worker may reparse this entry and free its strings.
+// directly in `dir` (a package is one flat directory), excluding `skip` and
+// filtered by `prefix`. Reports whether the directory held any indexed file —
+// false means it lies outside the workspace (a stdlib or collection package) and
+// the caller reads it off disk. Caller holds the mutex; result strings clone into
+// context.allocator and dedup keys into scratch, so nothing borrows an index row
+// past the unlock.
 @(private)
 index_dir_completions :: proc(
     e: ^Engine,
@@ -411,14 +396,11 @@ index_scoped :: proc(path, dir: string) -> bool {
     return dir == "" || path_in_dir(path, dir)
 }
 
-// Whether `path` names a file directly inside `dir` — same prefix, one separator,
-// nothing further nested. `/` and `\` compare equal and, on Windows, so do the
-// two cases of a letter: the index keys the spellings os.read_dir produced and
-// the caller's come from filepath.dir, and neither the separator nor the case is
-// something the filesystem distinguishes. The comparison is otherwise literal, so
-// the usual canonicalization assumption applies. A spelling that doesn't line up
-// just misses, and every caller widens or falls back to disk when it does — this
-// can only cost speed, never candidates.
+// Whether `path` names a file directly inside `dir` — same prefix, one
+// separator, nothing nested further. `/` and `\` compare equal, and on Windows
+// so do the two cases of a letter, since the index keys os.read_dir's spellings
+// and callers pass filepath.dir's. Otherwise literal: a spelling that does not
+// line up just misses, and every caller widens or falls back to disk.
 @(private)
 path_in_dir :: proc(path, dir: string) -> bool {
     if dir == "" || len(path) <= len(dir) + 1 {
@@ -457,27 +439,13 @@ is_path_sep :: proc(b: u8) -> bool {
 }
 
 // The directory a package-scoped query should filter on for the file at `path`.
-//
-// **Why every bare-name lookup starts here.** A bare identifier in Odin names
-// something in its own scope, its own file, its own *package* or the builtin
-// set — never a declaration in another directory, which is reachable only
-// through an import and a qualifier. A flat workspace match therefore answers
-// with symbols the compiler would not even see: two packages each declaring
-// `init` turned every goto on one into a picker over both. So the cross-file
-// consumers (goto, hover, the type locator, signature help) query this directory
-// first and only widen to the whole workspace when the package declares nothing
-// of the name. Widening is a guess by then rather than a wrong answer — the
-// correct one does not exist — and it keeps the reach the engine had for the
-// cases it still cannot model, so a miss here costs precision, never candidates.
-//
-// The returned dir is the spelling the index actually keys that file's siblings
-// under, which is the part that takes care: the request carries the path its file
-// was opened with, the index the one os.read_dir produced. So the literal dir is
-// taken when the index holds a file in it, and the absolute form tried only when
-// it holds none — a package whose spelling doesn't line up would otherwise scope
-// every lookup to an empty set and widen straight back to the flat scan, which is
-// exactly the imprecision the scoping removes. Never fails: an unmatched path
-// keeps its own dir, which simply finds nothing. Caller holds the mutex.
+// A bare identifier never names a declaration in another directory, so the
+// cross-file consumers query this dir first and widen to the workspace only when
+// the package declares nothing of the name. The returned dir is the spelling the
+// index keys that file's siblings under — the literal dir when the index holds a
+// file in it, the absolute form otherwise — since a spelling that does not line
+// up would scope every lookup to an empty set. Never fails: an unmatched path
+// keeps its own dir and simply finds nothing. Caller holds the mutex.
 @(private)
 index_package_dir :: proc(e: ^Engine, path: string) -> string {
     dir := filepath.dir(path) // a slice of `path`, no allocation
@@ -511,13 +479,11 @@ index_dir_populated :: proc(e: ^Engine, dir: string) -> bool {
     return false
 }
 
-// Tier 3 of index_package_dir: resolves each distinct index directory (deduped
-// — a package holds several files) with path_real and compares against `real`,
-// already resolved by the caller. Only reached once the cheap literal and
-// filepath.abs tiers have both missed, so the extra open-and-query calls are
-// paid on a genuine spelling mismatch, never on the common case. Returns the
-// index's own spelling of the matching directory — path_in_dir and its callers
-// key off that spelling, not the OS-canonical one.
+// Tier 3 of index_package_dir: resolves each distinct index directory with
+// path_real and compares against `real`. Reached only once the literal and
+// filepath.abs tiers have both missed, so the extra open-and-query calls are paid
+// on a genuine spelling mismatch. Returns the index's own spelling, which is what
+// path_in_dir keys off.
 @(private = "file")
 index_dir_real_match :: proc(e: ^Engine, real: string) -> (dir: string, found: bool) {
     seen := make(map[string]bool, 0, context.temp_allocator)
