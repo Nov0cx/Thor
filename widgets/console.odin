@@ -323,11 +323,12 @@ console_try_activate :: proc(console: ^Console, pos: rl.Vector2) -> bool {
     return false
 }
 
-// Appends text to the scrollback and re-pins the view to the bottom. Control
-// bytes are resolved here, since output that comes straight off a shell carries
-// them: a CR before a newline is dropped, a bare CR rewinds to the start of the
-// line the way a progress bar expects, and an escape sequence is removed because
-// the console draws plain text.
+// Appends text to the scrollback. The view follows only while `autoscroll`
+// holds, so output cannot pull the user out of the scrollback they are reading.
+// Control bytes are resolved here, since output that comes straight off a shell
+// carries them: a CR before a newline is dropped, a bare CR rewinds to the start
+// of the line the way a progress bar expects, and an escape sequence is removed
+// because the console draws plain text.
 console_append :: proc(console: ^Console, text: string) {
     data := transmute([]u8) text
     // A CRLF split across two chunks: the CR was held back last time.
@@ -363,7 +364,6 @@ console_append :: proc(console: ^Console, text: string) {
             i += 1
         }
     }
-    console.autoscroll = true
 }
 
 // Drops the last line back to its start, for a carriage return that rewrites it.

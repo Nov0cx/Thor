@@ -130,6 +130,29 @@ test_console_scroll_stops_at_the_ends :: proc(t: ^testing.T) {
     testing.expect(t, !console.autoscroll, "the view stays put above the last line")
 }
 
+// Output that lands while the user reads the scrollback leaves the view where
+// it is, instead of pulling it back to the last line.
+@(test)
+test_console_output_does_not_pull_the_view_down :: proc(t: ^testing.T) {
+    console := console_create("test")
+    defer console_destroy(&console.widget)
+    console_clear(console)
+    console.bounds = rl.Rectangle {0, 0, 400, 200}
+
+    for _ in 0 ..< 100 {
+        console_append(console, "line\n")
+    }
+
+    event := ui.Event {kind = .Scroll, wheel_delta = 1000}
+    console_handle_event(&console.widget, nil, &event)
+    testing.expect_value(t, console.scroll_y, 0)
+    testing.expect(t, !console.autoscroll, "the wheel left the view following")
+
+    console_append(console, "more output\n")
+    testing.expect_value(t, console.scroll_y, 0)
+    testing.expect(t, !console.autoscroll, "new output re-pinned the view to the bottom")
+}
+
 // The arrow keys walk the submitted commands, and the line below the newest one
 // is empty so the user can type a fresh command.
 @(test)
