@@ -107,3 +107,4 @@ First release. Thor runs on Windows, Linux and macOS.
 - `AltGr` with the mouse wheel scrolls the editor instead of zooming it.
 - The hover popup closes when the pointer leaves the editor, instead of staying up over the text it no longer points at.
 - Plugin API: `thor.on_key_up(fn)` (permission `keys`) reports key releases, with the table `thor.on_key` receives.
+- A relative line jump takes a count of more than one digit: the digits typed while `alt` is held make one number, so a gutter distance of 10 or more is reachable. The jump runs when `alt` is released, and the status bar shows the count while it is typed.

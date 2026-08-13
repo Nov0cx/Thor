@@ -36,6 +36,11 @@ Status_Info :: struct {
     // clears it after a timeout.
     message:       string,
     is_error:      bool,
+    // Relative-line jump count the user is typing; jump_active hides the segment
+    // when unset, so a pending 0 still shows.
+    jump_active:   bool,
+    jump_count:    int,
+    jump_up:       bool,
 }
 
 Status_Proc :: #type proc(data: rawptr) -> Status_Info
@@ -184,6 +189,12 @@ statusbar_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
         pulse := 0.5 + 0.5 * math.sin(rl.GetTime() * BUSY_PULSE_RATE)
         color.a = cast(u8) (140 + 115 * pulse)
         x = statusbar_draw_segment(statusbar, x, "loader-2", info.busy_message, color)
+    }
+
+    // Relative-line jump being typed, so the count reads back before it runs.
+    if info.jump_active {
+        jump := fmt.tprintf("Jump %d %s", info.jump_count, info.jump_up ? "up" : "down")
+        x = statusbar_draw_segment(statusbar, x, "", jump, statusbar.accent_color)
     }
 
     // Transient notice; errors in red, everything else accented, so it stands

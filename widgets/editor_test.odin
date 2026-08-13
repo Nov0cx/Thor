@@ -4,6 +4,8 @@ import "core:testing"
 
 import rl "vendor:raylib"
 
+import "../input"
+
 import "../textedit"
 
 import "../ui"
@@ -241,6 +243,115 @@ test_visual_row_movement :: proc(t: ^testing.T) {
     textedit.select_range(&state, 21, 21) // column 2 of "gamma", now at 19
     editor_move_visual(&editor, -1, false)
     testing.expect_value(t, textedit.primary_cursor(&state).caret, 16)
+}
+
+// Twenty lines of three characters, so line i starts at byte 4 * i, with the
+// caret on line 0.
+@(private = "file")
+editor_test_jump_setup :: proc(editor: ^Editor, state: ^textedit.State) {
+    textedit.set_text(
+        state,
+        "l00\nl01\nl02\nl03\nl04\nl05\nl06\nl07\nl08\nl09\n" +
+        "l10\nl11\nl12\nl13\nl14\nl15\nl16\nl17\nl18\nl19",
+    )
+    editor.state = state
+    editor.font_size = 16
+    editor.bounds = rl.Rectangle {0, 0, 600, 600}
+    textedit.select_range(state, 0, 0)
+}
+
+@(private = "file")
+editor_test_key :: proc(editor: ^Editor, key: rl.KeyboardKey, mods: input.Modifiers, repeat := false) {
+    event := ui.Event {kind = .Key_Press, key = key, mods = mods, repeat = repeat}
+    editor_handle_event(&editor.widget, nil, &event)
+}
+
+// The alt release, which is what ends a jump: by then the polled modifiers no
+// longer hold Alt.
+@(private = "file")
+editor_test_release_alt :: proc(editor: ^Editor) {
+    event := ui.Event {kind = .Key_Release, key = .LEFT_ALT}
+    editor_handle_event(&editor.widget, nil, &event)
+}
+
+@(private = "file")
+editor_test_caret_line :: proc(editor: ^Editor) -> int {
+    return textedit.state_line_index(editor.state, textedit.primary_cursor(editor.state).caret)
+}
+
+// The digits typed while alt is held make one count, so a gutter distance of ten
+// or more is reachable. Nothing moves until alt is released.
+@(test)
+test_relative_jump_multi_digit :: proc(t: ^testing.T) {
+    state: textedit.State
+    textedit.init(&state)
+    defer textedit.destroy(&state)
+
+    editor: Editor
+    defer delete(editor.visual_rows)
+    editor_test_jump_setup(&editor, &state)
+
+    editor_test_key(&editor, .ONE, {.Alt})
+    editor_test_key(&editor, .TWO, {.Alt})
+    testing.expect_value(t, editor_test_caret_line(&editor), 0)
+    count, up, active := editor_pending_jump(&editor)
+    testing.expect_value(t, count, 12)
+    testing.expect(t, active && !up, "a count is pending, downward")
+
+    editor_test_release_alt(&editor)
+    testing.expect_value(t, editor_test_caret_line(&editor), 12)
+    _, _, active = editor_pending_jump(&editor)
+    testing.expect(t, !active, "the release consumes the count")
+
+    // Shift on the last digit turns the same count around.
+    editor_test_key(&editor, .ONE, {.Alt})
+    editor_test_key(&editor, .ZERO, {.Alt, .Shift})
+    editor_test_release_alt(&editor)
+    testing.expect_value(t, editor_test_caret_line(&editor), 2)
+}
+
+// One digit still jumps that far, and a held digit must not repeat itself into
+// the count.
+@(test)
+test_relative_jump_single_digit_and_repeat :: proc(t: ^testing.T) {
+    state: textedit.State
+    textedit.init(&state)
+    defer textedit.destroy(&state)
+
+    editor: Editor
+    defer delete(editor.visual_rows)
+    editor_test_jump_setup(&editor, &state)
+
+    editor_test_key(&editor, .THREE, {.Alt})
+    editor_test_key(&editor, .THREE, {.Alt}, true)
+    editor_test_key(&editor, .THREE, {.Alt}, true)
+    editor_test_release_alt(&editor)
+    testing.expect_value(t, editor_test_caret_line(&editor), 3)
+}
+
+// Another key abandons the count; a modifier does not, since shift is taken
+// part-way through one.
+@(test)
+test_relative_jump_cancelled :: proc(t: ^testing.T) {
+    state: textedit.State
+    textedit.init(&state)
+    defer textedit.destroy(&state)
+
+    editor: Editor
+    defer delete(editor.visual_rows)
+    editor_test_jump_setup(&editor, &state)
+
+    editor_test_key(&editor, .FOUR, {.Alt})
+    editor_test_key(&editor, .LEFT_SHIFT, {.Alt})
+    _, _, active := editor_pending_jump(&editor)
+    testing.expect(t, active, "a modifier press keeps the count")
+
+    editor_test_key(&editor, .RIGHT, {.Alt})
+    _, _, active = editor_pending_jump(&editor)
+    testing.expect(t, !active, "another key drops the count")
+
+    editor_test_release_alt(&editor)
+    testing.expect_value(t, editor_test_caret_line(&editor), 0)
 }
 
 // Up/Down goes through editor_move_visual, not textedit.move_vertical, so the

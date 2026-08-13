@@ -91,6 +91,13 @@ reference.
 | ctrl + shift + p | select everything between the brackets / quotes (excludes them) |
 | ctrl + shift + # (ctrl + shift + \ on US) | select to matching bracket / quote (includes them) |
 
+The line numbers in the gutter are relative to the caret's line, and `alt` + a
+number jumps that far. Every digit typed while `alt` is held makes one number, so
+a distance of 10 or more is reached by typing its digits: hold `alt`, type `2`
+`3`, release `alt` to jump 23 lines down. The count is shown in the status bar
+while it is typed, and the jump runs when `alt` is released. Add `shift` to jump
+up instead.
+
 Bracket motions match `()`, `[]`, `{}`; quote motions match `"`, `'` and `` ` ``
 (paired left-to-right on the caret's line).
 

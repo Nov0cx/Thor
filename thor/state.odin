@@ -263,6 +263,12 @@ thor_status_info :: proc(data: rawptr) -> widgets.Status_Info {
         info.message = thor.status_message
         info.is_error = thor.status_message_error
     }
+    // Only the focused editor's jump count is being typed; a count another pane
+    // was left holding is not shown.
+    if editor := thor_pane_editor(thor, thor.active_pane);
+       thor.ui_context.focused == &editor.widget {
+        info.jump_count, info.jump_up, info.jump_active = widgets.editor_pending_jump(editor)
+    }
 
     file := thor_active_open_file(thor)
     if file == nil {

@@ -144,7 +144,8 @@ context_hold_key :: proc(ctx: ^Context, physical, mapped: rl.KeyboardKey) {
     append(&ctx.held, Held_Key{physical = physical, mapped = mapped})
 }
 
-@(private = "file")
+// True for a key that only modifies another one, so a widget can tell a chord
+// being built from a key that ends it.
 is_modifier_key :: proc(key: rl.KeyboardKey) -> bool {
     #partial switch key {
     case .LEFT_CONTROL, .RIGHT_CONTROL, .LEFT_SHIFT, .RIGHT_SHIFT,

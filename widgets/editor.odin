@@ -216,6 +216,12 @@ Editor :: struct {
     // center/top/bottom. Phase resets when the caret moves.
     recenter_phase:     int,
     recenter_caret:     int,
+    // Relative-line jump being typed: the digits pressed while alt is held make
+    // one count, and the move runs when alt is released. jump_active separates a
+    // pending 0 from no count at all.
+    jump_active:        bool,
+    jump_count:         int,
+    jump_up:            bool,
     // Autocompletion popup, shown while typing a word: buffer words (textual) or,
     // for a backend-backed language, semantic candidates. Items are owned clones;
     // colors run parallel (per-row tint, empty for the plain buffer-word list).
@@ -490,6 +496,7 @@ editor_set_state :: proc(editor: ^Editor, state: ^textedit.State) {
     clear(&editor.folded)
     editor_dismiss_completion(editor)
     editor_clear_hover(editor)
+    editor_cancel_jump(editor)
     editor.hover_probe_offset = -1
     editor_clamp_scroll(editor)
 }
@@ -974,6 +981,7 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
 
     #partial switch event.kind {
     case .Mouse_Down:
+        editor_cancel_jump(editor)
         if event.mouse_button == .RIGHT {
             if editor.on_context_menu != nil {
                 editor.on_context_menu(editor.context_menu_data, event.mouse_position)
@@ -1135,6 +1143,12 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
         }
     case .Key_Press:
         return editor_handle_key(editor, event)
+    case .Key_Release:
+        // The alt release ends a relative-line jump. `mods` is polled before the
+        // release scan, so the frame alt goes up already reads it as up.
+        if !(.Alt in event.mods) {
+            return editor_flush_jump(editor)
+        }
     case .Mouse_Up, .Click, .None:
         editor.scrollbar_dragging = false
     }
@@ -1231,13 +1245,22 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
         }
     }
 
-    // alt+number: relative line down, alt+shift+number: relative line up.
+    // alt+number: relative line down, alt+shift+number: relative line up. The
+    // digits make one count, applied when alt is released (see .Key_Release), so
+    // a distance of ten or more is reachable.
     if alt_only {
         if digit, is_digit := editor_key_digit(event.key); is_digit {
-            textedit.move_vertical(state, (.Shift in event.mods) ? -digit : digit, false)
-            editor_scroll_to_caret(editor)
+            // A held digit must not repeat itself into the count.
+            if !event.repeat {
+                editor_push_jump_digit(editor, digit, .Shift in event.mods)
+            }
             return true
         }
+    }
+    // Any other key ends the sequence, so an abandoned count never applies later.
+    // A modifier press is not one: shift is taken part-way through a count.
+    if !ui.is_modifier_key(event.key) {
+        editor_cancel_jump(editor)
     }
 
     // The comment-toggle chord is configurable, so match it here rather than
@@ -1744,6 +1767,52 @@ editor_key_digit :: proc(key: rl.KeyboardKey) -> (int, bool) {
     case .NINE, .KP_9: return 9, true
     }
     return 0, false
+}
+
+// Largest count the digits can build. A leaned-on key stops here instead of
+// making a number no buffer can answer.
+@(private = "file")
+JUMP_COUNT_MAX :: 999_999
+
+// Appends a digit to the relative-line jump being typed. The direction comes
+// from the last digit, so shift can be taken or dropped mid-count.
+@(private = "file")
+editor_push_jump_digit :: proc(editor: ^Editor, digit: int, up: bool) {
+    if editor.jump_count <= JUMP_COUNT_MAX / 10 {
+        editor.jump_count = editor.jump_count * 10 + digit
+    }
+    editor.jump_up = up
+    editor.jump_active = true
+}
+
+// Runs the jump the digits made and clears the count. Returns whether one ran.
+editor_flush_jump :: proc(editor: ^Editor) -> bool {
+    if !editor.jump_active {
+        return false
+    }
+    editor.jump_active = false
+    count := editor.jump_count
+    up := editor.jump_up
+    editor.jump_count = 0
+    editor.jump_up = false
+    if count == 0 || editor.state == nil {
+        return false
+    }
+    textedit.move_vertical(editor.state, up ? -count : count, false)
+    editor_scroll_to_caret(editor)
+    return true
+}
+
+// Drops the count without moving.
+editor_cancel_jump :: proc(editor: ^Editor) {
+    editor.jump_active = false
+    editor.jump_count = 0
+    editor.jump_up = false
+}
+
+// The jump count being typed, for the status bar.
+editor_pending_jump :: proc(editor: ^Editor) -> (count: int, up: bool, active: bool) {
+    return editor.jump_count, editor.jump_up, editor.jump_active
 }
 
 editor_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
