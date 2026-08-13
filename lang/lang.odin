@@ -64,12 +64,9 @@ Hover_Info :: struct {
     end:   int,
 }
 
-// Package-documentation payload: a rendered documentation page for the package
-// the caret refers to (an import, a `pkg.Symbol` operand, or the file's own
-// package). `title` is a short heading ("package fmt"), `path` the package
-// directory it was rendered from, and `text` the full page — the package's
-// public top-level declarations, each with the doc comment above it. The editor
-// shows it in a side pane.
+// A rendered documentation page for the package the caret refers to: `title` is
+// a short heading ("package fmt"), `path` the directory it was rendered from,
+// `text` the public top-level declarations with their doc comments.
 Doc_Info :: struct {
     title: string, // owned; "package fmt"
     path:  string, // owned; the package directory the page was built from
@@ -85,30 +82,22 @@ Signature_Entry :: struct {
     active_end:   int,
 }
 
-// Signature-help payload for the call the caret sits in. A list rather than a
-// single signature because a call can name a procedure *group*
-// (`sizes :: proc{sized_a, sized_b}`), whose own declaration has no parameters
-// at all — the members are the only thing worth showing, and which of them the
-// call means is not decided until the arguments are written. An ordinary call
-// answers with exactly one entry.
-//
-// `active` indexes the entry the arguments written so far best match; the editor
-// emphasizes that one and shows the rest as the alternatives they are.
+// Signature help for the call the caret sits in. A list, because a call can name
+// a procedure group (`sizes :: proc{sized_a, sized_b}`) whose own declaration
+// has no parameters — only its members are worth showing. An ordinary call
+// answers with one entry. `active` indexes the entry the written arguments best
+// match; the editor emphasizes that one.
 Signature_Info :: struct {
     entries: [dynamic]Signature_Entry, // owned, freed in job_free
     active:  int,
 }
 
 // One entry in a symbol list (a file outline, or the whole workspace): a
-// declaration's name, its kind (the LOCALS capture suffix: "function", "type",
-// "enum", "constant", "var" — drives the display color), the real Odin
-// declaration line ("add :: proc(a, b: int) -> int"), the file it lives in and
-// the 1-based line there, and the byte offset to jump to (the identifier start).
-// References reuse this shape: kind is "reference" and signature is the source
-// line the usage sits on (its code context), with path/line/offset the jump.
-// Completion candidates reuse it too: name is the identifier to insert, kind
-// drives the row color ("function"/"type"/... or "keyword"), signature is a
-// display label; path/line/offset go unused.
+// declaration's name, its kind (the LOCALS capture suffix, which drives the
+// display color), its real Odin declaration line, and the file, 1-based line and
+// byte offset to jump to. References reuse the shape with kind "reference" and
+// the usage's source line as the signature; completion candidates reuse it with
+// name as the text to insert and path/line/offset unused.
 Symbol :: struct {
     name:      string, // owned
     kind:      string, // owned
@@ -149,14 +138,10 @@ Resource_Op_Kind :: enum {
 
 // A file-level change a WorkspaceEdit named alongside its text edits: LSP's
 // CreateFile / RenameFile / DeleteFile. `path` is the file created or deleted,
-// or a rename's source; `new_path` is set for Rename only.
-//
-// An applier runs every result's resource ops in a fixed phase order — Create,
-// then its text edits, then Rename, then Delete — rather than replaying
-// documentChanges' own array position. The one interleaving that matters in
-// practice (create a file, then populate it) is exactly what the fixed order
-// gets right; same-file interleaving with a rename or delete is not a pattern
-// real emitters use, so the array position beyond that is not preserved.
+// or a rename's source; `new_path` is set for Rename only. An applier runs these
+// in a fixed phase order — Create, text edits, Rename, Delete — rather than
+// documentChanges' array position, which gets create-then-populate right and
+// does not preserve interleavings real emitters do not produce.
 Resource_Op :: struct {
     kind:             Resource_Op_Kind,
     path:             string, // owned; absolute
@@ -184,15 +169,11 @@ Code_Action :: struct {
     arguments:     string, // owned; the command's arguments as raw JSON array text
 }
 
-// What a classified identifier turned out to be. The grammar cannot tell most of
-// these apart — a parameter, a local, a field and a package all parse as a bare
-// `identifier`, which is why the highlighter paints them alike — so the kind is
-// what the analyzer proved about the name, not what the parse shape suggests.
-//
-// `Unresolved` is the one kind that is an *absence*: nothing in the file, its
-// imports or the workspace declares the name. It is only ever emitted when every
-// lookup completed and came up empty, so a backend that cannot see far enough to
-// be sure must leave the name unclassified rather than call it unresolved.
+// What a classified identifier turned out to be — what the analyzer proved, not
+// what the parse shape suggests, since a parameter, a local, a field and a
+// package all parse as a bare `identifier`. `Unresolved` is an *absence*:
+// emitted only when every lookup completed and came up empty, so a backend that
+// cannot see far enough must leave the name unclassified instead.
 Token_Kind :: enum {
     Parameter,
     Local,
@@ -205,11 +186,9 @@ Token_Kind :: enum {
 }
 
 // One classified identifier: a byte range and what the analyzer proved it to be.
-// Unlike every other payload here this carries no owned strings — a file's worth
-// of tokens is thousands of rows, and a `string` kind would mean a clone and a
-// free per identifier per keystroke, which would make this the heaviest
-// allocator traffic in the seam by a wide margin. The enum costs nothing and the
-// editor maps it to a color itself.
+// Carries no owned strings, unlike every other payload here — a file is
+// thousands of rows, so a `string` kind would be a clone and a free per
+// identifier per keystroke. The editor maps the enum to a color itself.
 Semantic_Token :: struct {
     start: int,
     end:   int,
@@ -245,12 +224,10 @@ Diagnostic :: struct {
     message:  string, // owned
 }
 
-// A check's full answer for one scope. `scope` is the directory (or single file)
-// the check covered, and `items` is exhaustive for it: a file that no longer has
-// errors simply stops appearing, so `scope` is the only thing that tells the
-// editor whose old squiggles to retire. An empty `items` with a scope set means
-// "that whole scope is clean", not "nothing was checked" — `ok` distinguishes
-// those.
+// A check's full answer for one scope. `items` is exhaustive for `scope`, so a
+// file that no longer has errors just stops appearing and `scope` is what tells
+// the editor whose old squiggles to retire. Empty `items` with a scope set means
+// the scope is clean, not that nothing was checked — `ok` distinguishes those.
 Diagnostic_Report :: struct {
     scope: string, // owned, absolute directory or file path
     items: [dynamic]Diagnostic,
@@ -330,13 +307,11 @@ request_cancelled :: proc(req: ^Request) -> bool {
     return req.cancel != nil && sync.atomic_load(req.cancel)
 }
 
-// A completed request. Owned fields use the Manager's allocator and are freed
-// on the main thread after the editor consumes them (see manager_dispatch).
-// `cancelled` marks a result nobody is waiting for any more: manager_dispatch
-// frees it without calling the handler, so `ok == false` always means "the
-// backend found nothing", never "the work was abandoned half-done".
-// `id` is 0 on a result no request asked for (see Backend.poll), so a consumer
-// that matches a stored request id must tolerate it.
+// A completed request. Owned fields use the Manager's allocator and are freed on
+// the main thread after the editor consumes them. A `cancelled` result is freed
+// without reaching the handler, so `ok == false` always means "found nothing",
+// never "abandoned half-done". `id` is 0 on a result no request asked for (see
+// Backend.poll), which a consumer matching a stored id must tolerate.
 Result :: struct {
     id:        u64,
     kind:      Request_Kind,
@@ -397,12 +372,11 @@ Backend :: struct {
     handles: proc(data: rawptr, ext: string) -> bool,
     resolve: proc(data: rawptr, req: ^Request, res: ^Result),
     destroy: proc(data: rawptr),
-    // True when the backend can answer `kind` for `ext`. nil means every kind it
-    // claims by extension. An LSP backend answers from the server's advertised
-    // capabilities, so manager_allows can tell a caller with a fallback (rename
-    // -> find and replace) that the fallback is the one to run. Called on the
-    // main thread while a worker may be inside resolve, so it must read only
-    // atomically published data and must not lock.
+    // True when the backend can answer `kind` for `ext`; nil means every kind it
+    // claims by extension. Lets manager_allows tell a caller with a fallback
+    // (rename -> find and replace) which one to run. Called on the main thread
+    // while a worker may be inside resolve, so it must read only atomically
+    // published data and must not lock.
     supports: proc(data: rawptr, ext: string, kind: Request_Kind) -> bool,
     // Takes the next result the backend produced without being asked (a server
     // pushing diagnostics). Called on the main thread once per frame until it
@@ -433,12 +407,10 @@ DEBOUNCE_HOVER :: 150 * time.Millisecond
 // behind an explicit save, must cost one run and not one per file.
 DEBOUNCE_CHECK :: 400 * time.Millisecond
 
-// How many jobs the worker pool runs at once. Requests are latency-bound (a
-// parse, a stat walk) rather than throughput-bound, and cancellation keeps at
-// most one live job per kind, so a handful of workers covers the useful
-// concurrency; the cap is what stops a workspace scan behind every keystroke
-// from spawning a thread each. The floor is 2 so a slow request (a workspace
-// scan) can never wedge the pool against a fast one (hover) queued behind it.
+// How many jobs the worker pool runs at once. Requests are latency-bound and
+// cancellation keeps at most one live job per kind, so the cap only has to stop
+// a workspace scan per keystroke from spawning a thread each. The floor is 2, so
+// a slow scan can never wedge the pool against a fast hover queued behind it.
 WORKERS_MIN :: 2
 WORKERS_MAX :: 4
 
@@ -463,12 +435,11 @@ Job :: struct {
     cancelled: bool, // written by the main thread, read atomically by the worker
 }
 
-// A request waiting out its debounce delay. One slot per kind: a newer request
-// of the same kind overwrites the slot, so a burst of keystrokes costs a single
-// dispatch instead of one per key. The strings are owned by the Manager's
-// allocator and move into the Job when the slot is flushed. `id` is reserved
-// when the slot is filled, so the caller can key its result slot on it right
-// away even though no worker exists yet.
+// A request waiting out its debounce delay. One slot per kind, overwritten by a
+// newer request of that kind, so a burst of keystrokes costs one dispatch. The
+// strings are Manager-allocated and move into the Job when the slot is flushed.
+// `id` is reserved when the slot is filled, so the caller can key its result
+// slot on it before a worker exists.
 @(private)
 Pending :: struct {
     active:    bool,
@@ -561,14 +532,12 @@ manager_backend_named :: proc(m: ^Manager, name: string) -> (Backend, bool) {
     return {}, false
 }
 
-// Replaces the whole registered set in one call, in the order given. For a
-// workspace change, where precedence between backends (an LSP client's
-// "override" flag) can flip per workspace and must be re-decided in order,
-// not patched at a fixed index — manager_register only appends, so changing
-// order needs the set rebuilt. The caller must already have drained the
-// manager (manager_cancel_all + a manager_busy loop) so no worker is inside
-// a backend's resolve, and must destroy any outgoing backend itself first: a
-// backend left out of `backends` is simply dropped, never destroyed here.
+// Replaces the whole registered set in one call, in the order given — for a
+// workspace change, where precedence (an LSP client's "override" flag) can flip
+// and manager_register only appends. The caller must have drained the manager
+// (manager_cancel_all plus a manager_busy loop) so no worker is inside a
+// backend's resolve, and must destroy any outgoing backend itself: one left out
+// of `backends` is dropped, never destroyed here.
 manager_set_backends :: proc(m: ^Manager, backends: ..Backend) {
     clear(&m.backends)
     for b in backends {
@@ -683,15 +652,13 @@ manager_on_type_trigger :: proc(m: ^Manager, ext, char: string) -> bool {
     return b.on_type_trigger(b.data, ext, char)
 }
 
-// Dispatches a request on a worker thread. Snapshots the string inputs into the
-// Manager's allocator so the caller keeps ownership of its own buffers. Returns
-// the request id, or 0 when the feature gate refuses the kind or no backend
-// handles the extension. The result arrives via manager_dispatch on a later
-// frame. `new_name` is Rename's argument, `query` is Workspace_Symbols';
-// `end` is Code_Actions' selection high end (negative, its default, means "no
-// selection" and collapses to `offset`); `diagnostics` is Code_Actions' own
-// overlapping diagnostics; `command`/`command_args` are Execute_Command's.
-// Every other kind ignores them all.
+// Dispatches a request on a worker thread, snapshotting the string inputs into
+// the Manager's allocator so the caller keeps its own buffers. Returns the
+// request id, or 0 when the feature gate refuses the kind or no backend handles
+// the extension; the result arrives via manager_dispatch on a later frame. The
+// per-kind arguments — `new_name` (Rename), `query` (Workspace_Symbols), `end`,
+// `diagnostics` (Code_Actions, a negative `end` collapsing to `offset`) and
+// `command`/`command_args` (Execute_Command) — are ignored by every other kind.
 manager_request :: proc(
     m: ^Manager,
     kind: Request_Kind,
@@ -853,13 +820,12 @@ manager_cancel :: proc(m: ^Manager, id: u64) -> bool {
     return true
 }
 
-// Cancels every in-flight request of `kind`. This is the "latest wins" primitive
-// for the kinds the editor re-triggers as the user types (completion, signature
-// help, hover): cancel the previous ones, then dispatch. Cancelling by kind
-// rather than by a remembered id also catches requests the caller has lost track
-// of. A debounced request of `kind` still waiting out its delay is dropped too,
-// so an explicit trigger can't be overtaken by the typing-driven one it replaced.
-// Returns how many were cancelled.
+// Cancels every in-flight request of `kind` — the "latest wins" primitive for
+// the kinds the editor re-triggers as the user types. Cancelling by kind rather
+// than by a remembered id also catches requests the caller lost track of, and a
+// debounced request of `kind` is dropped too, so an explicit trigger cannot be
+// overtaken by the typing-driven one it replaced. Returns how many were
+// cancelled.
 manager_cancel_kind :: proc(m: ^Manager, kind: Request_Kind) -> int {
     n := 0
     if pending_clear(m, kind) {
@@ -937,21 +903,16 @@ manager_request_latest :: proc(
     )
 }
 
-// Queues a request to be dispatched once `delay` has passed without another
-// request of the same kind arriving. For the triggers that fire on every
-// keystroke (completion, signature help): cancellation already stops a
-// superseded request mid-work, but it still costs a thread and a full buffer
-// clone per key — the debounce collapses a burst into one dispatch. Any
-// in-flight or pending request of the same kind is cancelled first, so only the
-// last keystroke's answer is ever computed.
+// Queues a request to be dispatched once `delay` has passed without another of
+// the same kind arriving, collapsing a burst of keystrokes into one dispatch
+// where plain cancellation would still cost a thread and a buffer clone per key.
+// Any in-flight or pending request of the kind is cancelled first.
 //
 // The id is reserved now and belongs to the eventual request, so the caller can
 // store it in its result slot immediately. Returns 0 when the feature gate
-// refuses the kind or no backend handles the extension (nothing is queued, and
-// no slot is filled). The delay is measured from this call, not from
-// the first keystroke of the burst, so continuous typing keeps deferring the
-// dispatch — flushed by manager_flush_debounced, which manager_dispatch calls
-// once per frame.
+// refuses the kind or no backend handles the extension. The delay runs from this
+// call, not from the burst's first keystroke, so continuous typing keeps
+// deferring the dispatch; manager_flush_debounced releases it.
 manager_request_debounced :: proc(
     m: ^Manager,
     kind: Request_Kind,
@@ -999,14 +960,11 @@ manager_request_debounced :: proc(
 }
 
 // Dispatches every debounced request whose delay has elapsed, moving the slot's
-// snapshot into the job (no second clone). Called at the head of
-// manager_dispatch, so a host that already reaps results once per frame gets
-// this for free. `force` ignores the timers — for tests, and for a caller that
-// wants the queue drained now. Returns how many were dispatched.
-//
-// An EXCLUSIVE_KINDS slot is held back while a job of its kind is still in
-// flight, which `force` does not override: the slot is the waiting room for that
-// kind, so the wait costs no worker and the newest snapshot still wins.
+// snapshot into the job with no second clone. Called at the head of
+// manager_dispatch, so a host that reaps once per frame gets this for free.
+// `force` ignores the timers, but not the EXCLUSIVE_KINDS hold-back: that slot
+// waits out an in-flight job of its kind, costing no worker while the newest
+// snapshot still wins. Returns how many were dispatched.
 manager_flush_debounced :: proc(m: ^Manager, force := false) -> int {
     n := 0
     for kind in Request_Kind {
@@ -1136,12 +1094,11 @@ job_run :: proc(job: ^Job) {
     sync.unlock(&m.mutex)
 }
 
-// Drains finished jobs on the main thread. For each, invokes
-// `handler(user, ^Result)`, then frees the job and all its owned memory. The
-// handler must copy anything from the Result it wants to keep past the call.
-// A cancelled job is joined and freed but never handed to the handler: its
-// result was superseded, and it may be partial. Debounced requests whose delay
-// has run out are dispatched first, so this one per-frame call drives both ends.
+// Drains finished jobs on the main thread: invokes `handler(user, ^Result)`,
+// then frees the job and everything it owns, so the handler must copy what it
+// keeps past the call. A cancelled job is freed without reaching the handler —
+// its result was superseded and may be partial. Debounced requests are
+// dispatched first, so this one per-frame call drives both ends.
 manager_dispatch :: proc(m: ^Manager, user: rawptr, handler: proc(user: rawptr, res: ^Result)) {
     manager_flush_debounced(m)
 
@@ -1295,12 +1252,11 @@ manager_busy_kinds :: proc(m: ^Manager) -> (kinds: bit_set[Request_Kind]) {
     return
 }
 
-// Drains in-flight jobs, stops the worker pool (so no thread touches freed
-// backend state), tears down each backend, and frees the Manager's own storage.
-// Every request is cancelled first so a workspace-wide scan started just before
-// quit bails at its next check instead of holding the shutdown open; that also
-// empties the debounce slots, so the drain loop's manager_dispatch can't keep
-// dispatching new work.
+// Drains in-flight jobs, stops the worker pool so no thread touches freed
+// backend state, tears down each backend and frees the Manager's storage. Every
+// request is cancelled first, so a workspace scan started just before quit bails
+// at its next check; that also empties the debounce slots, so the drain loop
+// cannot keep dispatching new work.
 manager_destroy :: proc(m: ^Manager) {
     manager_cancel_all(m)
     for manager_busy(m) {
