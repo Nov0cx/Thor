@@ -313,7 +313,7 @@ tree_root :: proc "c" (L: ^lua.State) -> c.int {
 tree_language :: proc "c" (L: ^lua.State) -> c.int {
     context = runtime.default_context()
     ud := cast(^Ts_Tree) lua.L_checkudata(L, 1, TREE_MT)
-    if ud == nil {
+    if ud == nil || ud.tree == nil {
         lua.pushnil(L)
         return 1
     }
@@ -326,7 +326,7 @@ tree_language :: proc "c" (L: ^lua.State) -> c.int {
 tree_source :: proc "c" (L: ^lua.State) -> c.int {
     context = runtime.default_context()
     ud := cast(^Ts_Tree) lua.L_checkudata(L, 1, TREE_MT)
-    if ud == nil {
+    if ud == nil || ud.tree == nil {
         lua.pushnil(L)
         return 1
     }
