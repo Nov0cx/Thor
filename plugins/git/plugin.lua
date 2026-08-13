@@ -63,7 +63,9 @@ local function render_status()
     end
 
     local branch = git("rev-parse --abbrev-ref HEAD")
-    local upstream = git("rev-list --left-right --count @{upstream}...HEAD 2>nul")
+    -- No redirect: it must run on both shells, and stderr is merged into stdout
+    -- anyway, so a branch with no upstream simply fails the match below.
+    local upstream = git("rev-list --left-right --count @{upstream}...HEAD")
     local ahead, behind = "0", "0"
     local b, a = upstream:match("^(%d+)%s+(%d+)$")
     if a then
