@@ -1085,7 +1085,12 @@ thor_show_package_doc :: proc(thor: ^Thor, res: ^lang.Result) {
     // A .md doc so it renders as Markdown documentation (OLS-style: fenced
     // signatures + doc prose), not as an Odin source tab.
     file_name := strings.concatenate({stem, ".md"}, context.temp_allocator)
-    path, _ := filepath.join({dir, file_name}, context.temp_allocator)
+    path, join_err := filepath.join({dir, file_name}, context.temp_allocator)
+    if join_err != nil {
+        log.errorf("Could not build a doc path for %q: %v", file_name, join_err)
+        thor_flash_status(thor, "Could not write the documentation page", is_error = true)
+        return
+    }
 
     // The doc goes in the pane the user is not editing in.
     thor_render_doc_in_pane(thor, path, res.doc.text, 1 - thor.active_pane)
@@ -1113,8 +1118,8 @@ thor_docs_dir :: proc() -> string {
     if base == "" {
         return ""
     }
-    joined, _ := filepath.join({base, "thor-docs"}, context.temp_allocator)
-    return joined
+    joined, join_err := filepath.join({base, "thor-docs"}, context.temp_allocator)
+    return join_err == nil ? joined : ""
 }
 
 // A filesystem-safe stem for a package's doc file: keeps identifier bytes,

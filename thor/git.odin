@@ -142,7 +142,10 @@ git_parse_status :: proc(thor: ^Thor, output: string, out: ^map[string]widgets.G
 // its own colour rather than the generic Modified tint a dirty submodule earns.
 @(private = "file")
 git_mark_submodules :: proc(thor: ^Thor, out: ^map[string]widgets.Git_Status) {
-    path, _ := filepath.join({thor.workspace_dir, ".gitmodules"}, context.temp_allocator)
+    path, join_err := filepath.join({thor.workspace_dir, ".gitmodules"}, context.temp_allocator)
+    if join_err != nil {
+        return
+    }
     data, read_err := os.read_entire_file(path, context.temp_allocator)
     if read_err != nil {
         return

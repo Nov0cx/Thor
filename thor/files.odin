@@ -1437,7 +1437,12 @@ thor_confirm_rename :: proc(data: rawptr, name: string) {
         return
     }
 
-    new_path, _ := filepath.join({filepath.dir(old_path), name}, context.temp_allocator)
+    new_path, join_err := filepath.join({filepath.dir(old_path), name}, context.temp_allocator)
+    if join_err != nil {
+        log.warnf("Cannot rename %q to %q: %v", old_path, name, join_err)
+        thor_flash_status(thor, "Could not rename", is_error = true)
+        return
+    }
     if thor_same_path(old_path, new_path) {
         return
     }
@@ -1486,7 +1491,12 @@ thor_confirm_rename :: proc(data: rawptr, name: string) {
 thor_tree_move :: proc(data: rawptr, src_path: string, dst_dir: string) {
     thor := cast(^Thor) data
 
-    new_path, _ := filepath.join({dst_dir, thor_file_base(src_path)}, context.temp_allocator)
+    new_path, join_err := filepath.join({dst_dir, thor_file_base(src_path)}, context.temp_allocator)
+    if join_err != nil {
+        log.warnf("Cannot move %q into %q: %v", src_path, dst_dir, join_err)
+        thor_flash_status(thor, "Could not move", is_error = true)
+        return
+    }
     if thor_same_path(src_path, new_path) {
         return
     }

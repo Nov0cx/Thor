@@ -294,7 +294,12 @@ thor_cmd_rename_file :: proc(data: rawptr) {
 
 thor_prompt_new_file :: proc(data: rawptr, name: string) {
     thor := cast(^Thor) data
-    path, _ := filepath.join({thor.menu_target_dir, name}, context.temp_allocator)
+    path, join_err := filepath.join({thor.menu_target_dir, name}, context.temp_allocator)
+    if join_err != nil {
+        log.errorf("Could not build a path for %q: %v", name, join_err)
+        thor_flash_status(thor, "Could not create file", is_error = true)
+        return
+    }
     if !os.exists(path) {
         if err := os.write_entire_file(path, []byte{}); err != nil {
             log.errorf("Could not create %q: %v", path, err)
@@ -309,7 +314,12 @@ thor_prompt_new_file :: proc(data: rawptr, name: string) {
 
 thor_prompt_new_folder :: proc(data: rawptr, name: string) {
     thor := cast(^Thor) data
-    path, _ := filepath.join({thor.menu_target_dir, name}, context.temp_allocator)
+    path, join_err := filepath.join({thor.menu_target_dir, name}, context.temp_allocator)
+    if join_err != nil {
+        log.errorf("Could not build a path for %q: %v", name, join_err)
+        thor_flash_status(thor, "Could not create folder", is_error = true)
+        return
+    }
     if !os.exists(path) {
         if err := os.make_directory(path); err != nil {
             log.errorf("Could not create %q: %v", path, err)
