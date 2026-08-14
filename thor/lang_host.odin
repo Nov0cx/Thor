@@ -1314,6 +1314,9 @@ thor_editor_hover :: proc(data: rawptr, editor: ^widgets.Editor, state: ^textedi
             file.state.revision,
             thor.workspace_dir,
         )
+        if id == 0 {
+            return
+        }
         thor.hover_editor = editor
         thor.hover_request_id = id
         return
