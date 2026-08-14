@@ -213,12 +213,22 @@ thor_update_editor_view :: proc(thor: ^Thor) {
     if preview_pane == 0 {
         thor.markdown_view.grow = thor.editor.grow
         widgets.markdown_view_set_font_size(thor.markdown_view, thor.editor2.font_size)
-        widgets.markdown_view_set_source(thor.markdown_view, textedit.text(&file.state), file.state.revision)
+        widgets.markdown_view_set_source(
+            thor.markdown_view,
+            textedit.text(&file.state),
+            file.state.revision,
+            &file.state,
+        )
     }
     if preview_pane == 1 {
         thor.markdown_view2.grow = thor.editor2.grow
         widgets.markdown_view_set_font_size(thor.markdown_view2, thor.editor.font_size)
-        widgets.markdown_view_set_source(thor.markdown_view2, textedit.text(&file.state), file.state.revision)
+        widgets.markdown_view_set_source(
+            thor.markdown_view2,
+            textedit.text(&file.state),
+            file.state.revision,
+            &file.state,
+        )
     }
 }
 

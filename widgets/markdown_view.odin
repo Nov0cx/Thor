@@ -16,6 +16,7 @@ Markdown_View :: struct {
     // text slice borrows from this buffer, so it must outlive the item list.
     source:         string,
     source_rev:     u64,
+    source_owner:   rawptr, // borrowed buffer identity, paired with source_rev
     items:          [dynamic]Md_Item,
     // Marker strings (ordered-list numbers) that are not slices of `source`.
     owned:          [dynamic]string,
@@ -130,18 +131,24 @@ markdown_view_set_font_size :: proc(view: ^Markdown_View, size: i32) {
     view.base_font_size = clamp(size, 11, 40)
 }
 
-// Points the view at the document text. Re-clones only when the revision moves,
-// so switching tabs to the same buffer or a static frame is free.
-markdown_view_set_source :: proc(view: ^Markdown_View, text: string, revision: u64) {
-    if view.built && view.source_rev == revision && view.source == text {
+// Points the view at the document text. `owner` is the buffer the text belongs
+// to: (owner, revision) identifies the content, so a static frame costs no
+// compare. Revision 0 is not an identity — set_text resets it — so that case
+// falls back to comparing the bytes, which is also what makes a reused owner
+// address safe: a newly opened buffer starts at 0.
+markdown_view_set_source :: proc(view: ^Markdown_View, text: string, revision: u64, owner: rawptr = nil) {
+    same := view.source_owner == owner && view.source_rev == revision
+    if same && (owner == nil || revision == 0) {
+        same = view.source == text
+    }
+    if same {
         return
     }
-    if view.source_rev != revision || view.source != text {
-        delete(view.source)
-        view.source = strings.clone(text)
-        view.source_rev = revision
-        view.built = false
-    }
+    delete(view.source)
+    view.source = strings.clone(text)
+    view.source_rev = revision
+    view.source_owner = owner
+    view.built = false
 }
 
 markdown_view_set_on_link :: proc(view: ^Markdown_View, on_link: Markdown_Link_Proc, data: rawptr) {
