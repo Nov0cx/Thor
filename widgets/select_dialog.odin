@@ -138,7 +138,11 @@ select_dialog_open :: proc(
     select_dialog_scroll_into_view(dialog)
 
     dialog.visible = true
-    dialog.return_focus = ctx.focused
+    // A second open while already up must not clobber the real target with the
+    // dialog's own widget.
+    if ctx.focused != &dialog.widget {
+        dialog.return_focus = ctx.focused
+    }
     ctx.focused = &dialog.widget
     ui.widget_bring_to_front(&dialog.widget)
 }

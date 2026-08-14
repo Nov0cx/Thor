@@ -355,7 +355,11 @@ settings_view_open :: proc(view: ^Settings_View, ctx: ^ui.Context) {
     clear(&view.search)
     view.selected = 0
     view.visible = true
-    view.return_focus = ctx.focused
+    // A repeat chord while already open must not clobber the real target with
+    // the view's own widget.
+    if ctx.focused != &view.widget {
+        view.return_focus = ctx.focused
+    }
     ctx.focused = &view.widget
     ui.widget_bring_to_front(&view.widget)
 }

@@ -389,7 +389,11 @@ git_view_open :: proc(view: ^Git_View, ctx: ^ui.Context, kind := Git_View_Kind.C
     git_view_field_clear(&view.description)
     git_view_set_status_line(view, "", false)
     view.visible = true
-    view.return_focus = ctx.focused
+    // A repeat chord while already open must not clobber the real target with
+    // the view's own widget.
+    if ctx.focused != &view.widget {
+        view.return_focus = ctx.focused
+    }
     ctx.focused = &view.widget
     ui.widget_bring_to_front(&view.widget)
 }

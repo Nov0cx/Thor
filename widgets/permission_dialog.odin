@@ -138,7 +138,11 @@ permission_dialog_open :: proc(
     dialog.hot = .None
 
     dialog.visible = true
-    dialog.return_focus = ctx.focused
+    // A second prompt while one is up must not clobber the real target with the
+    // dialog's own widget.
+    if ctx.focused != &dialog.widget {
+        dialog.return_focus = ctx.focused
+    }
     ctx.focused = &dialog.widget
     ui.widget_bring_to_front(&dialog.widget)
 }
