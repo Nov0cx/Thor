@@ -18,6 +18,23 @@ test_theme_load :: proc(t: ^testing.T) {
     testing.expect(t, theme.keywords_color == rl.Color{0xC7, 0x92, 0xEA, 0xFF}, "keywords")
 }
 
+// Only `#` plus 6 or 8 hex digits parses; the loader warns about the rest.
+@(test)
+test_parse_hex_color :: proc(t: ^testing.T) {
+    color, ok := parse_hex_color("#7f80FF")
+    testing.expect(t, ok, "6 digits parse")
+    testing.expect(t, color == rl.Color{0x7F, 0x80, 0xFF, 0xFF}, "6-digit value")
+
+    color, ok = parse_hex_color("#7f80FF40")
+    testing.expect(t, ok, "8 digits parse")
+    testing.expect(t, color == rl.Color{0x7F, 0x80, 0xFF, 0x40}, "8-digit value")
+
+    for value in ([]string {"7f80ff", "#7f80f", "#7f80fg", "#ff_f00", "#+f0f0f"}) {
+        _, bad_ok := parse_hex_color(value)
+        testing.expectf(t, !bad_ok, "%q must not parse", value)
+    }
+}
+
 @(test)
 test_theme_load_missing_falls_back :: proc(t: ^testing.T) {
     theme, ok := theme_load("assets/themes/does-not-exist.json")

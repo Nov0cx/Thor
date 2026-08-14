@@ -240,6 +240,15 @@ parse_hex_color :: proc(value: string) -> (rl.Color, bool) {
         return rl.Color {}, false
     }
 
+    // parse_uint takes digit separators and a sign, so "#ff_f00" would pass.
+    for i in 0 ..< len(hex) {
+        switch hex[i] {
+        case '0' ..= '9', 'a' ..= 'f', 'A' ..= 'F':
+        case:
+            return rl.Color {}, false
+        }
+    }
+
     parsed, ok := strconv.parse_uint(hex, 16)
     if !ok {
         return rl.Color {}, false
