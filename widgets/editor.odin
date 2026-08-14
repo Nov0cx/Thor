@@ -1559,7 +1559,11 @@ editor_toggle_wrap :: proc(editor: ^Editor) {
     editor_clamp_scroll(editor)
 }
 
+// A no-op without a buffer: the menu route has no key-handler guard in front of it.
 editor_copy :: proc(editor: ^Editor) {
+    if editor == nil || editor.state == nil {
+        return
+    }
     payload, _ := textedit.copy_payload(editor.state, context.temp_allocator)
     if payload != "" {
         rl.SetClipboardText(strings.clone_to_cstring(payload, context.temp_allocator))
@@ -1567,6 +1571,9 @@ editor_copy :: proc(editor: ^Editor) {
 }
 
 editor_cut :: proc(editor: ^Editor) {
+    if editor == nil || editor.state == nil {
+        return
+    }
     payload, had_selection := textedit.copy_payload(editor.state, context.temp_allocator)
     if payload == "" {
         return
@@ -1579,6 +1586,9 @@ editor_cut :: proc(editor: ^Editor) {
 }
 
 editor_paste :: proc(editor: ^Editor) {
+    if editor == nil || editor.state == nil {
+        return
+    }
     clip := rl.GetClipboardText()
     if clip == nil {
         return
