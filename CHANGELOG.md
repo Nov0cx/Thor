@@ -1,5 +1,14 @@
 # 2026.08.4
 
+- A signature popup closes with the file it belongs to. It could stay on the new tab after a switch.
+- Edit > Cut, Copy and Paste with no file open do nothing instead of closing the editor.
+- A keybinding capture binds the action you picked. A settings reload while the chord was awaited could bind another one.
+- Escape from a modal returns to the editor. Opening the modal a second time while it was up trapped the focus in it.
+- A documentation page that cannot be written says so, instead of `F3` doing nothing.
+- New File and New Folder refuse a name like `.`, `..` or one that holds a path separator.
+- A documentation or plugin page opens in the tab it is already in, whatever the case of its path. A second tab of the same file could open.
+- A split keeps the focused pane over a restart.
+- A hover explanation is no longer lost when a request lands right after a refused one.
 - A Settings picker shows its title again. The header of a language server feature picker, such as `gopls — Hover`, was blank or held stray characters.
 - A Settings picker opens centered in the Settings window. It used to sit above it, over the editor.
 - The Meadow Dew theme reads clearly: syntax, status and interface text stay legible on the editor, the panels, a selection and a hovered row. Panel and menu text was almost white on a light surface.
