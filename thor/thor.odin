@@ -24,6 +24,11 @@ Thor :: struct {
     config: setting.Settings,
     plugins: plugin.Manager,
     theme: ui.Theme,
+    // The theme picker's rows, cached so opening it does not re-parse every
+    // palette. Parallel and aligned by index; see thor_available_theme_choices.
+    theme_labels: []string, // owned
+    theme_files: []string, // owned
+    theme_stamp: i64, // newest modification time the cache was built from
     root_panel: ^widgets.Panel,
     root_stack: ^widgets.Stack,
     top_bar: ^widgets.Titlebar,
@@ -800,6 +805,7 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.finished_updates)
     thor_clear_update(thor)
     thor_clear_file_index(thor)
+    thor_free_theme_choices(thor)
     strings.builder_destroy(&thor.console_backlog)
     delete(thor.app_binds)
     thor_clear_git_status(thor)

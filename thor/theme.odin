@@ -1,7 +1,9 @@
 package thor
 
 import "core:log"
+import "core:os"
 import "core:path/filepath"
+import "core:slice"
 import "core:strings"
 import rl "vendor:raylib"
 
@@ -57,17 +59,54 @@ thor_available_themes :: proc(allocator := context.temp_allocator) -> []string {
 
 // Installed themes as parallel (display name, file base) slices: `labels` are the
 // human names from each theme's "name" field, `files` the base names used to load
-// and persist them. Aligned by index.
-thor_available_theme_choices :: proc(allocator := context.temp_allocator) -> (labels, files: []string) {
-    files = thor_available_themes(allocator)
-    names := make([dynamic]string, allocator)
-    for file in files {
+// and persist them. Aligned by index, and owned by `thor` — borrowed until the
+// next call.
+//
+// A display name costs a whole palette parse, so the pair is cached and rebuilt
+// only when the set of theme files or the newest of their modification times
+// moves. `assets/themes/` sits beside the binary, outside the watched workspace,
+// so the stat is what notices an edit.
+thor_available_theme_choices :: proc(thor: ^Thor) -> (labels, files: []string) {
+    names := thor_available_themes(context.temp_allocator)
+    stamp := i64(0)
+    for file in names {
+        path := strings.concatenate({"assets/themes/", file, ".json"}, context.temp_allocator)
+        if info, err := os.stat(path, context.temp_allocator); err == nil {
+            stamp = max(stamp, info.modification_time._nsec)
+        }
+    }
+    if thor.theme_labels != nil && thor.theme_stamp == stamp && slice.equal(thor.theme_files, names) {
+        return thor.theme_labels, thor.theme_files
+    }
+
+    thor_free_theme_choices(thor)
+    labels_out := make([dynamic]string)
+    files_out := make([dynamic]string)
+    for file in names {
         path := strings.concatenate({"assets/themes/", file, ".json"}, context.temp_allocator)
         theme, _ := ui.theme_load(path)
-        append(&names, strings.clone(theme.name, allocator))
+        append(&labels_out, strings.clone(theme.name))
+        append(&files_out, strings.clone(file))
         ui.theme_destroy(&theme)
     }
-    return names[:], files
+    thor.theme_labels = labels_out[:]
+    thor.theme_files = files_out[:]
+    thor.theme_stamp = stamp
+    return thor.theme_labels, thor.theme_files
+}
+
+// Frees the cached theme choices. Called before a rebuild and at shutdown.
+thor_free_theme_choices :: proc(thor: ^Thor) {
+    for label in thor.theme_labels {
+        delete(label)
+    }
+    for file in thor.theme_files {
+        delete(file)
+    }
+    delete(thor.theme_labels)
+    delete(thor.theme_files)
+    thor.theme_labels = nil
+    thor.theme_files = nil
 }
 
 // Reapplies thor.theme to every widget that caches a color. The draw loop reads
@@ -309,7 +348,7 @@ thor_theme_terminal_tabs :: proc(thor: ^Thor) {
 // previews each one live as the selection moves.
 thor_cmd_change_theme :: proc(data: rawptr) {
     thor := cast(^Thor) data
-    labels, files := thor_available_theme_choices()
+    labels, files := thor_available_theme_choices(thor)
     if len(files) == 0 {
         thor_plugin_print(thor, "\nNo themes are installed.\n")
         return
