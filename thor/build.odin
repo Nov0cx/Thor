@@ -153,6 +153,35 @@ thor_build_ui :: proc(thor: ^Thor) {
     )
     thor.settings_view.visible = false
 
+    thor.git_view = widgets.git_view_create("git-view")
+    widgets.git_view_set_colors(
+        thor.git_view,
+        thor.theme.second_background,
+        thor.theme.highlight,
+        thor.theme.highlight,
+        thor.theme.background,
+        thor.theme.primary_text_color,
+        thor.theme.muted_color,
+        thor.theme.accent_color,
+        rl.Color {thor.theme.accent_color.r, thor.theme.accent_color.g, thor.theme.accent_color.b, 40},
+        thor.theme.success_color,
+        thor.theme.danger_color,
+        thor.theme.warning_color,
+        thor.theme.conflict_color,
+    )
+    widgets.git_view_set_callbacks(
+        thor.git_view,
+        widgets.Git_View_Callbacks {
+            on_view_changed = thor_on_git_view_changed,
+            on_stage = thor_on_git_stage,
+            on_select_file = thor_on_git_select_file,
+            on_commit = thor_on_git_commit,
+            on_sync = thor_on_git_sync,
+        },
+        thor,
+    )
+    thor.git_view.visible = false
+
     thor.find_replace = widgets.find_replace_create("find-replace")
     widgets.find_replace_set_colors(
         thor.find_replace,
@@ -561,6 +590,7 @@ thor_connect_tree :: proc(thor: ^Thor) {
     widgets.append_child(&thor.root_panel.widget, &thor.command_palette.widget)
     widgets.append_child(&thor.root_panel.widget, &thor.select_dialog.widget)
     widgets.append_child(&thor.root_panel.widget, &thor.settings_view.widget)
+    widgets.append_child(&thor.root_panel.widget, &thor.git_view.widget)
     widgets.append_child(&thor.root_panel.widget, &thor.find_replace.widget)
     // The menu is added after the palette so it sits above it (bring_to_front
     // on open keeps whichever overlay opened last on top anyway).

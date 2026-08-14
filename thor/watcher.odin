@@ -42,6 +42,11 @@ thor_poll_watcher :: proc(thor: ^Thor) {
     if thor.watch_git_dirty {
         thor.watch_git_dirty = false
         thor_refresh_git_status(thor)
+        // The open modal follows outside changes (a terminal commit, an
+        // external editor) the same way the tree tint does.
+        if widgets.git_view_is_open(thor.git_view) {
+            thor_git_op(thor, .Snapshot)
+        }
     }
     if thor.file_index_dirty && time.tick_since(thor.file_index_at) >= FILE_INDEX_INTERVAL {
         thor.file_index_dirty = false

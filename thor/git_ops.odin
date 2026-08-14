@@ -71,23 +71,6 @@ Git_File_Entry :: struct {
     staged: bool,
 }
 
-Git_Diff_Row_Kind :: enum u8 {
-    Hunk,     // @@ header
-    Context,
-    Added,
-    Removed,
-    Meta,     // binary marker, missing-newline marker, truncation marker
-}
-
-// One display row of a unified diff. Line numbers are 1-based; 0 means the
-// row has no line on that side.
-Git_Diff_Row :: struct {
-    kind:     Git_Diff_Row_Kind,
-    old_line: int,
-    new_line: int,
-    text:     string,  // owned; tabs expanded
-}
-
 // Spawns `op` on a worker thread. Mutations are refused while one runs (the
 // view disables its buttons; this is the safety net). Snapshot coalesces like
 // thor_refresh_git_status does.
@@ -285,7 +268,7 @@ thor_apply_git_op :: proc(thor: ^Thor, job: ^Git_Op_Job) {
         }
     case .Diff_File:
         if !stale && job.serial == thor.git_diff_serial {
-            thor_git_apply_diff(thor, job)
+            thor_git_push_diff(thor, job)
         }
     case .Stage, .Unstage, .Stage_All, .Unstage_All, .Commit, .Fetch, .Pull, .Push:
         thor.git_mutation_inflight = false
@@ -321,26 +304,19 @@ thor_git_apply_snapshot :: proc(thor: ^Thor, job: ^Git_Op_Job) {
         thor.git_branch = strings.clone(branch)
     }
 
-    // The view push lands here once the git view exists.
-}
-
-@(private = "file")
-thor_git_apply_diff :: proc(thor: ^Thor, job: ^Git_Op_Job) {
-    // The view push lands here once the git view exists.
-    _ = thor
-    _ = job
+    thor_git_push_snapshot(thor, job)
 }
 
 @(private = "file")
 thor_git_apply_mutation :: proc(thor: ^Thor, job: ^Git_Op_Job) {
-    if job.ok && job.code == 0 {
-        return
+    thor_git_finish_mutation(thor, job)
+    if (!job.ok || job.code != 0) && !widgets.git_view_is_open(thor.git_view) {
+        line := git_first_line(job.output)
+        if line == "" {
+            line = "git command failed"
+        }
+        thor_flash_status(thor, line, is_error = true)
     }
-    line := git_first_line(job.output)
-    if line == "" {
-        line = "git command failed"
-    }
-    thor_flash_status(thor, line, is_error = true)
 }
 
 // Display branch for a snapshot: the branch name, "detached @ <hash>" on a
@@ -458,10 +434,10 @@ git_parse_upstream_counts :: proc(output: string) -> (ahead, behind: int, ok: bo
     return
 }
 
-// Parses a unified diff into display rows, running the old/new line counters
-// through each hunk. File headers are dropped; binary and missing-newline
-// markers become Meta rows.
-git_parse_diff_rows :: proc(output: string, out: ^[dynamic]Git_Diff_Row) {
+// Parses a unified diff into display rows (the git view's own row type),
+// running the old/new line counters through each hunk. File headers are
+// dropped; binary and missing-newline markers become Meta rows.
+git_parse_diff_rows :: proc(output: string, out: ^[dynamic]widgets.Git_Diff_Row) {
     old_line, new_line := 0, 0
     in_hunk := false
 
@@ -470,7 +446,7 @@ git_parse_diff_rows :: proc(output: string, out: ^[dynamic]Git_Diff_Row) {
         line := strings.trim_suffix(raw, "\r")
 
         if len(out) >= GIT_DIFF_MAX_ROWS {
-            append(out, Git_Diff_Row{.Meta, 0, 0, strings.clone("diff truncated")})
+            append(out, widgets.Git_Diff_Row{.Meta, 0, 0, strings.clone("diff truncated")})
             return
         }
 
@@ -481,15 +457,15 @@ git_parse_diff_rows :: proc(output: string, out: ^[dynamic]Git_Diff_Row) {
             }
             old_line, new_line = old_start, new_start
             in_hunk = true
-            append(out, Git_Diff_Row{.Hunk, 0, 0, git_diff_text(line)})
+            append(out, widgets.Git_Diff_Row{.Hunk, 0, 0, git_diff_text(line)})
             continue
         }
         if strings.has_prefix(line, "Binary files ") {
-            append(out, Git_Diff_Row{.Meta, 0, 0, git_diff_text(line)})
+            append(out, widgets.Git_Diff_Row{.Meta, 0, 0, git_diff_text(line)})
             continue
         }
         if strings.has_prefix(line, "\\ ") {
-            append(out, Git_Diff_Row{.Meta, 0, 0, git_diff_text(line[2:])})
+            append(out, widgets.Git_Diff_Row{.Meta, 0, 0, git_diff_text(line[2:])})
             continue
         }
         if !in_hunk {
@@ -498,19 +474,19 @@ git_parse_diff_rows :: proc(output: string, out: ^[dynamic]Git_Diff_Row) {
 
         switch {
         case strings.has_prefix(line, "+"):
-            append(out, Git_Diff_Row{.Added, 0, new_line, git_diff_text(line[1:])})
+            append(out, widgets.Git_Diff_Row{.Added, 0, new_line, git_diff_text(line[1:])})
             new_line += 1
         case strings.has_prefix(line, "-"):
-            append(out, Git_Diff_Row{.Removed, old_line, 0, git_diff_text(line[1:])})
+            append(out, widgets.Git_Diff_Row{.Removed, old_line, 0, git_diff_text(line[1:])})
             old_line += 1
         case strings.has_prefix(line, " "):
-            append(out, Git_Diff_Row{.Context, old_line, new_line, git_diff_text(line[1:])})
+            append(out, widgets.Git_Diff_Row{.Context, old_line, new_line, git_diff_text(line[1:])})
             old_line += 1
             new_line += 1
         case line == "":
             // An empty context line loses its leading space to trailing-space
             // stripping in transit; it still counts on both sides.
-            append(out, Git_Diff_Row{.Context, old_line, new_line, strings.clone("")})
+            append(out, widgets.Git_Diff_Row{.Context, old_line, new_line, strings.clone("")})
             old_line += 1
             new_line += 1
         case:
@@ -547,13 +523,6 @@ git_parse_hunk_starts :: proc(line: string) -> (old_start, new_start: int, ok: b
     new_start, _ = git_parse_range(parts[1][1:]) or_return
     ok = true
     return
-}
-
-git_diff_rows_destroy :: proc(rows: ^[dynamic]Git_Diff_Row) {
-    for row in rows {
-        delete(row.text)
-    }
-    delete(rows^)
 }
 
 // Quotes one path for a shell command line. Windows command lines have no

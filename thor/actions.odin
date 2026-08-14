@@ -42,6 +42,10 @@ thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
     if widgets.settings_view_is_open(thor.settings_view) {
         return false
     }
+    // The git modal owns the keyboard the same way (the commit box is typed in).
+    if widgets.git_view_is_open(thor.git_view) {
+        return false
+    }
 
     chord := setting.keybind_to_string(
         setting.Keybind{key = event.key, mods = event.mods},

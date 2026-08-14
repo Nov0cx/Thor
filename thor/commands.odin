@@ -472,6 +472,7 @@ thor_register_commands :: proc(thor: ^Thor) {
     thor_add_bindable_command(thor, "Help: Documentation in Browser", "docs_browser", thor_cmd_docs_browser, thor)
     thor_add_bindable_command(thor, "Help: Check for Updates", "check_for_updates", thor_cmd_check_for_updates, thor)
     thor_add_bindable_command(thor, "Settings: Open Settings GUI", "open_settings_gui", thor_cmd_open_settings_gui, thor)
+    thor_add_bindable_command(thor, "Git: Open Git UI", "open_git_gui", thor_cmd_open_git_view, thor)
     thor_add_bindable_command(thor, "Settings: Open Keybinds", "open_keybinds", thor_cmd_open_keybinds, thor)
     thor_add_bindable_command(thor, "Settings: Open Comments", "open_comments", thor_cmd_open_comments, thor)
     thor_add_bindable_command(thor, "Settings: Open General Settings", "open_settings", thor_cmd_open_settings, thor)

@@ -86,6 +86,8 @@ Thor :: struct {
     select_dialog: ^widgets.Select_Dialog,
     // Modal GUI editor for every setting (editor prefs, theme/font, keybinds).
     settings_view: ^widgets.Settings_View,
+    // Modal git UI (changes, commit; more views to come). See git_ui.odin.
+    git_view: ^widgets.Git_View,
     // Auto-reload of the config files: a signature of their modification times,
     // refreshed after each load; the poll loop reloads when it changes on disk.
     settings_sig: i64,

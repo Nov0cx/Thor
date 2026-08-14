@@ -53,7 +53,18 @@
                 "window",
                 "brain",
                 "puzzle",
-                "keyboard"
+                "keyboard",
+                "git-commit",
+                "history",
+                "world-www",
+                "cloud-down",
+                "arrow-up",
+                "arrow-down",
+                "check",
+                "brand-github",
+                "brand-gitlab",
+                "git-pull-request",
+                "upload"
             ],
             "icons": {
                 "12-hours": "\ufc53",

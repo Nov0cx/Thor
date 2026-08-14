@@ -75,13 +75,13 @@ test_git_upstream_counts :: proc(t: ^testing.T) {
 // it holds on its side, 0 on the side it has none.
 @(test)
 test_git_diff_rows_number_both_sides :: proc(t: ^testing.T) {
-    rows := make([dynamic]Git_Diff_Row)
-    defer git_diff_rows_destroy(&rows)
+    rows := make([dynamic]widgets.Git_Diff_Row)
+    defer widgets.git_view_diff_rows_destroy(&rows)
     diff := "diff --git a/f b/f\nindex 111..222 100644\n--- a/f\n+++ b/f\n@@ -2,2 +2,2 @@ ctx\n line two\n-old three\n+new three\n"
     git_parse_diff_rows(diff, &rows)
 
     testing.expect_value(t, len(rows), 4)
-    testing.expect_value(t, rows[0].kind, Git_Diff_Row_Kind.Hunk)
+    testing.expect_value(t, rows[0].kind, widgets.Git_Diff_Row_Kind.Hunk)
     expect_diff_row(t, rows[1], .Context, 2, 2, "line two")
     expect_diff_row(t, rows[2], .Removed, 3, 0, "old three")
     expect_diff_row(t, rows[3], .Added, 0, 3, "new three")
@@ -90,8 +90,8 @@ test_git_diff_rows_number_both_sides :: proc(t: ^testing.T) {
 // Windows git can emit CRLF; the rows must not carry the \r into drawing.
 @(test)
 test_git_diff_rows_strip_crlf :: proc(t: ^testing.T) {
-    rows := make([dynamic]Git_Diff_Row)
-    defer git_diff_rows_destroy(&rows)
+    rows := make([dynamic]widgets.Git_Diff_Row)
+    defer widgets.git_view_diff_rows_destroy(&rows)
     git_parse_diff_rows("@@ -1 +1 @@\r\n-a\r\n+b\r\n", &rows)
 
     testing.expect_value(t, len(rows), 3)
@@ -103,16 +103,16 @@ test_git_diff_rows_strip_crlf :: proc(t: ^testing.T) {
 // a second file's headers close the previous hunk.
 @(test)
 test_git_diff_rows_meta_and_second_file :: proc(t: ^testing.T) {
-    rows := make([dynamic]Git_Diff_Row)
-    defer git_diff_rows_destroy(&rows)
+    rows := make([dynamic]widgets.Git_Diff_Row)
+    defer widgets.git_view_diff_rows_destroy(&rows)
     diff := "@@ -1 +1 @@\n+x\n\\ No newline at end of file\ndiff --git a/img b/img\nindex 111..222\nBinary files a/img and b/img differ\n"
     git_parse_diff_rows(diff, &rows)
 
     testing.expect_value(t, len(rows), 4)
     expect_diff_row(t, rows[1], .Added, 0, 1, "x")
-    testing.expect_value(t, rows[2].kind, Git_Diff_Row_Kind.Meta)
+    testing.expect_value(t, rows[2].kind, widgets.Git_Diff_Row_Kind.Meta)
     testing.expect_value(t, rows[2].text, "No newline at end of file")
-    testing.expect_value(t, rows[3].kind, Git_Diff_Row_Kind.Meta)
+    testing.expect_value(t, rows[3].kind, widgets.Git_Diff_Row_Kind.Meta)
 }
 
 // Past the cap the parser stops with one truncation marker, so a huge diff
@@ -126,13 +126,13 @@ test_git_diff_rows_truncate :: proc(t: ^testing.T) {
         strings.write_string(&b, "+line\n")
     }
 
-    rows := make([dynamic]Git_Diff_Row)
-    defer git_diff_rows_destroy(&rows)
+    rows := make([dynamic]widgets.Git_Diff_Row)
+    defer widgets.git_view_diff_rows_destroy(&rows)
     git_parse_diff_rows(strings.to_string(b), &rows)
 
     testing.expect_value(t, len(rows), GIT_DIFF_MAX_ROWS + 1)
     last := rows[len(rows) - 1]
-    testing.expect_value(t, last.kind, Git_Diff_Row_Kind.Meta)
+    testing.expect_value(t, last.kind, widgets.Git_Diff_Row_Kind.Meta)
     testing.expect_value(t, last.text, "diff truncated")
 }
 
@@ -174,7 +174,7 @@ expect_git_entry :: proc(t: ^testing.T, entry: Git_File_Entry, path: string, sta
 }
 
 @(private = "file")
-expect_diff_row :: proc(t: ^testing.T, row: Git_Diff_Row, kind: Git_Diff_Row_Kind, old_line, new_line: int, text: string, loc := #caller_location) {
+expect_diff_row :: proc(t: ^testing.T, row: widgets.Git_Diff_Row, kind: widgets.Git_Diff_Row_Kind, old_line, new_line: int, text: string, loc := #caller_location) {
     testing.expect_value(t, row.kind, kind, loc = loc)
     testing.expect_value(t, row.old_line, old_line, loc = loc)
     testing.expect_value(t, row.new_line, new_line, loc = loc)

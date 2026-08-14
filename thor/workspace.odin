@@ -266,6 +266,7 @@ thor_open_folder :: proc(thor: ^Thor, dir: string) {
     thor_drain_io(thor)
     thor_set_active_file(thor, -1)
     thor_clear_git_status(thor)
+    thor_git_view_reset(thor)
     thor_clear_file_index(thor)
     thor.pending_goto_active = false
     delete(thor.pending_goto_path)

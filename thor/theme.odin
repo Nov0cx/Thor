@@ -115,6 +115,11 @@ thor_apply_theme :: proc(thor: ^Thor) {
         t.second_background, t.highlight, t.highlight, t.background, t.primary_text_color, t.muted_color, t.accent_color,
         selected,
     )
+    widgets.git_view_set_colors(
+        thor.git_view,
+        t.second_background, t.highlight, t.highlight, t.background, t.primary_text_color, t.muted_color, t.accent_color,
+        selected, t.success_color, t.danger_color, t.warning_color, t.conflict_color,
+    )
     widgets.find_replace_set_colors(
         thor.find_replace,
         t.second_background, t.accent_color, t.background, t.primary_text_color, t.muted_color, t.buttons, t.accent_color,
