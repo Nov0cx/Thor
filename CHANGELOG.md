@@ -6,6 +6,9 @@
 - Meadow Dew separates its surfaces more: stronger borders, and a distinct step between the editor, the panels, the title bar and an active control.
 - `tab` over a selection leaves blank lines alone. It used to fill them with trailing whitespace.
 - A theme color with an invalid digit, such as `#ff_f00`, is reported and skipped. It used to be accepted and give a wrong color.
+- Mjolnir, Jogo, Ember Night and Verdant Shade read clearly. Comments, gutter line numbers and status colors stay legible on the editor, the panels, a selection and a hovered row.
+- Panel and window edges are visible in every theme. A border was almost the color of the background behind it, and in Material Deep Ocean it was the same color.
+- The `Text` theme color sets the editor text. Nothing read it before; the editor took its color from `Primary Text Color`, which still colors the panels, the menus and the tabs.
 
 # 2026.08.3
 
