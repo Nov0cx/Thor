@@ -64,9 +64,11 @@ thor_close_workspace :: proc(thor: ^Thor) {
     // thor_refresh_file_index no-ops on the empty workspace, which is right
     // for the welcome page — there is nothing to index.
 
-    // The workspace's .thor/ overlay and plugins no longer apply.
+    // The workspace's .thor/ overlay and plugins no longer apply. The rebuild is
+    // deferred: this runs inside a command callback, and a plugin-registered one
+    // stands on the widgets thor_reload_plugins destroys.
     thor_reload_settings(thor)
-    thor_reload_plugins(thor)
+    thor.plugin_reload_pending = true
 
     widgets.tree_set_root(thor.tree, "")
     // The palette holds the prefix by reference and the old one was just freed.
