@@ -6,6 +6,14 @@
 - With a folder open, where there is no welcome page, the same card floats in the corner of the editor on the first start of each day. Its close box shuts it, and the line under it turns tips off for good.
 - `tip_of_the_day` setting, and a Settings row under Appearance, turns the tip of the day off.
 - `settings/tips.json` holds the tips. `user/tips.json` and a workspace `.thor/tips.json` add their own to the shipped set instead of replacing it.
+- A built-in Git UI, a centered window in the settings style, opens from the new "Git" top-bar menu or the command palette: "Git: Open Git UI" (`open_git_gui`), "Git: History" (`open_git_history`) and "Git: Branches" (`open_git_branches`), each bindable.
+- Changes view: stage and unstage files one by one or all at once, discard a file after a confirmation, and read a colored diff with line numbers. The commit box takes a subject and a description, can amend, and `ctrl + enter` commits. Fetch, pull and push sit in the header with the ahead/behind counts.
+- History view: the commit log, loaded further on demand, with the diff of each commit.
+- Branches view: branches, remotes, tags and stashes. A click checks a branch out, and the status bar branch follows; stashes save, apply, pop and drop.
+- Settings view: the local and global git config, read and edited in place. Keys like `user.name` and `user.email` are always listed.
+- Hosting view: recognizes GitHub and GitLab from `origin`, opens the repository, a file or a commit in the browser, lists and creates pull requests through `gh` or `glab` when installed (the browser otherwise), and clones from a URL.
+- Every git command runs in the background, so the editor does not freeze on a slow repository.
+- The bundled git plugin shrinks to a "Git LFS" dropdown, shown only when `git-lfs` is installed. Its old Git dropdown is replaced by the native menu.
 
 # 2026.08.2
 
