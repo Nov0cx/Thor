@@ -226,6 +226,18 @@ test_indent_outdent :: proc(t: ^testing.T) {
     testing.expect_value(t, text(&state), "aaa\nbbb\nccc")
 }
 
+// Indenting a blank line would only add trailing whitespace, so it is skipped.
+@(test)
+test_indent_skips_blank_lines :: proc(t: ^testing.T) {
+    state := ops_state("aaa\n\n  \nbbb", 0)
+    defer destroy(&state)
+    state.cursors[0].anchor = 0
+    state.cursors[0].caret = 11 // covers all four lines
+
+    indent_lines(&state)
+    testing.expect_value(t, text(&state), "    aaa\n\n  \n    bbb")
+}
+
 @(test)
 test_insert_soft_tab :: proc(t: ^testing.T) {
     state := ops_state("ab", 0)

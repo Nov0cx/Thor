@@ -864,11 +864,28 @@ insert_brace_block :: proc(state: ^State) {
     finish_edit(state, &entry)
 }
 
+// True when the line starting at `start` holds only spaces and tabs.
+@(private = "file")
+line_is_blank :: proc(txt: string, start: int) -> bool {
+    end := line_end(txt, start)
+    for i := start; i < end; i += 1 {
+        if txt[i] != ' ' && txt[i] != '\t' {
+            return false
+        }
+    }
+    return true
+}
+
+// Indents the covered lines. Blank lines are skipped, which would only gain
+// trailing whitespace.
 indent_lines :: proc(state: ^State) {
     txt := text(state)
     starts := covered_line_starts(txt, state)
     edits := make([dynamic]Line_Edit, context.temp_allocator)
     for start in starts {
+        if line_is_blank(txt, start) {
+            continue
+        }
         append(&edits, Line_Edit {pos = start, insert = indent_unit(state)})
     }
     apply_line_edits(state, txt, edits[:])
