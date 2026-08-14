@@ -45,7 +45,7 @@ async_jobs: [dynamic]^Font_Load_Job
 // height grows the atlas further still; one wider than the atlas itself is
 // skipped with a zero rect rather than packed, which would overrun into the
 // next row or past the buffer entirely. Caller frees atlas_data and recs
-// with rl.MemFree.
+// with rl.MemFree. Returns a nil atlas_data when an allocation fails.
 @(private)
 pack_glyph_atlas :: proc(glyphs: [^]rl.GlyphInfo, count: int, size: i32, family_name: string) -> (atlas_data: [^]u8, atlas_w, atlas_h: c.int, recs: [^]rl.Rectangle) {
     PADDING :: 4
@@ -67,8 +67,17 @@ pack_glyph_atlas :: proc(glyphs: [^]rl.GlyphInfo, count: int, size: i32, family_
 
     // Zeroed: the padding between packed glyphs stays fully transparent.
     atlas_data = cast([^]u8) rl.MemAlloc(cast(c.uint) (atlas_w * atlas_h))
+    if atlas_data == nil {
+        log.errorf("font %s: no memory for a %dx%d atlas", family_name, atlas_w, atlas_h)
+        return nil, 0, 0, nil
+    }
     mem.zero(atlas_data, cast(int) (atlas_w * atlas_h))
     recs = cast([^]rl.Rectangle) rl.MemAlloc(cast(c.uint) (count * size_of(rl.Rectangle)))
+    if recs == nil {
+        log.errorf("font %s: no memory for %d glyph rects", family_name, count)
+        rl.MemFree(atlas_data)
+        return nil, 0, 0, nil
+    }
 
     offset_x: c.int = PADDING
     offset_y: c.int = PADDING
@@ -102,6 +111,12 @@ pack_glyph_atlas :: proc(glyphs: [^]rl.GlyphInfo, count: int, size: i32, family_
         for offset_y + row_h + PADDING > atlas_h {
             new_h := atlas_h * 2
             new_data := cast([^]u8) rl.MemAlloc(cast(c.uint) (atlas_w * new_h))
+            if new_data == nil {
+                log.errorf("font %s: no memory to grow the atlas to %dx%d", family_name, atlas_w, new_h)
+                rl.MemFree(atlas_data)
+                rl.MemFree(recs)
+                return nil, 0, 0, nil
+            }
             mem.copy(new_data, atlas_data, cast(int) (atlas_w * atlas_h))
             mem.zero(&new_data[atlas_w * atlas_h], cast(int) (atlas_w * (new_h - atlas_h)))
             rl.MemFree(atlas_data)
@@ -130,6 +145,18 @@ pack_glyph_atlas :: proc(glyphs: [^]rl.GlyphInfo, count: int, size: i32, family_
     }
 
     return
+}
+
+// Frees baked glyphs and their bitmaps. Used only before a font is published;
+// after that rl.UnloadFont does the same walk.
+@(private = "file")
+free_glyphs :: proc(glyphs: [^]rl.GlyphInfo, count: int) {
+    for k in 0 ..< count {
+        if glyphs[k].image.data != nil {
+            rl.MemFree(glyphs[k].image.data)
+        }
+    }
+    rl.MemFree(glyphs)
 }
 
 @(private = "file")
@@ -199,6 +226,10 @@ font_bake_job :: proc(job: ^Font_Load_Job) {
 
     count := len(baked)
     glyphs := cast([^]rl.GlyphInfo) rl.MemAlloc(cast(c.uint) (count * size_of(rl.GlyphInfo)))
+    if glyphs == nil {
+        log.errorf("font %s: no memory for %d glyphs", job.family.name, count)
+        return
+    }
     // A glyph without a bitmap keeps its zeroed image; the packer tests image.data.
     mem.zero(glyphs, count * size_of(rl.GlyphInfo))
 
@@ -215,14 +246,17 @@ font_bake_job :: proc(job: ^Font_Load_Job) {
             // Space has no bitmap; give it a blank image so atlas packing
             // reserves its advance width, exactly like raylib does.
             if glyph.advanceX > 0 {
-                blank := rl.MemAlloc(cast(c.uint) (glyph.advanceX * job.size))
-                mem.zero(blank, cast(int) (glyph.advanceX * job.size))
-                glyph.image = rl.Image {
-                    data = blank,
-                    width = glyph.advanceX,
-                    height = job.size,
-                    mipmaps = 1,
-                    format = .UNCOMPRESSED_GRAYSCALE,
+                // Without the image the space keeps its zeroed one and only
+                // loses its reserved atlas width; its advance still counts.
+                if blank := rl.MemAlloc(cast(c.uint) (glyph.advanceX * job.size)); blank != nil {
+                    mem.zero(blank, cast(int) (glyph.advanceX * job.size))
+                    glyph.image = rl.Image {
+                        data = blank,
+                        width = glyph.advanceX,
+                        height = job.size,
+                        mipmaps = 1,
+                        format = .UNCOMPRESSED_GRAYSCALE,
+                    }
                 }
             } else {
                 glyph.advanceX = 0
@@ -236,14 +270,17 @@ font_bake_job :: proc(job: ^Font_Load_Job) {
         glyph.offsetY = offset_y + cast(c.int) (cast(f32) ascent * scale)
 
         if bitmap != nil && width > 0 && height > 0 {
-            data := rl.MemAlloc(cast(c.uint) (width * height))
-            mem.copy(data, bitmap, cast(int) (width * height))
-            glyph.image = rl.Image {
-                data = data,
-                width = width,
-                height = height,
-                mipmaps = 1,
-                format = .UNCOMPRESSED_GRAYSCALE,
+            // A failed copy leaves the zeroed image, so this one glyph draws
+            // nothing rather than losing the whole font.
+            if data := rl.MemAlloc(cast(c.uint) (width * height)); data != nil {
+                mem.copy(data, bitmap, cast(int) (width * height))
+                glyph.image = rl.Image {
+                    data = data,
+                    width = width,
+                    height = height,
+                    mipmaps = 1,
+                    format = .UNCOMPRESSED_GRAYSCALE,
+                }
             }
         }
         if bitmap != nil {
@@ -252,10 +289,21 @@ font_bake_job :: proc(job: ^Font_Load_Job) {
     }
 
     atlas_data, atlas_w, atlas_h, recs := pack_glyph_atlas(glyphs, count, job.size, job.family.name)
+    if atlas_data == nil {
+        free_glyphs(glyphs, count)
+        return
+    }
 
     // Convert GRAYSCALE to GRAY_ALPHA (gray=255, alpha=coverage).
     pixel_count := cast(int) (atlas_w * atlas_h)
     gray_alpha := cast([^]u8) rl.MemAlloc(cast(c.uint) (pixel_count * 2))
+    if gray_alpha == nil {
+        log.errorf("font %s: no memory for the %dx%d gray-alpha atlas", job.family.name, atlas_w, atlas_h)
+        rl.MemFree(atlas_data)
+        rl.MemFree(recs)
+        free_glyphs(glyphs, count)
+        return
+    }
     for i in 0 ..< pixel_count {
         gray_alpha[2 * i] = 255
         gray_alpha[2 * i + 1] = atlas_data[i]
