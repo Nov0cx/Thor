@@ -45,6 +45,7 @@ Watcher :: struct {
     // after they are dispatched.
     mutex:       sync.Mutex,
     pending:     [dynamic]Change,
+    head:        int, // first undispatched entry of `pending`; entries before it are freed
     platform:    Platform, // what the platform's worker needs
     worker:      ^thread.Thread,
     running:     bool,
@@ -100,9 +101,15 @@ watcher_poll :: proc(w: ^Watcher) {
 
     changes := make([dynamic]Change, context.temp_allocator)
     sync.lock(&w.mutex)
-    count := min(len(w.pending), WATCH_DRAIN_MAX)
-    append(&changes, ..w.pending[:count])
-    remove_range(&w.pending, 0, count)
+    count := min(len(w.pending) - w.head, WATCH_DRAIN_MAX)
+    append(&changes, ..w.pending[w.head:][:count])
+    w.head += count
+    // Reclaim only once the queue is empty; a burst is dispatched by moving the
+    // cursor, not by memmoving the tail under the mutex on every poll.
+    if w.head >= len(w.pending) {
+        clear(&w.pending)
+        w.head = 0
+    }
     sync.unlock(&w.mutex)
 
     for change in changes {
@@ -124,8 +131,9 @@ watcher_destroy :: proc(w: ^Watcher) {
         w.running = false
     }
     watch_release(w)
-    // Changes gathered but never polled still own their path strings.
-    for change in w.pending {
+    // Changes gathered but never polled still own their path strings. The ones
+    // before `head` were dispatched and freed already.
+    for change in w.pending[w.head:] {
         delete(change.path, w.allocator)
     }
     delete(w.pending)

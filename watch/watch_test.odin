@@ -176,7 +176,7 @@ test_watcher_poll_caps_one_drain :: proc(t: ^testing.T) {
     w.subscribers = make([dynamic]Subscriber)
     w.running = true
     defer {
-        for c in w.pending {
+        for c in w.pending[w.head:] {
             delete(c.path, w.allocator)
         }
         delete(w.pending)
@@ -193,7 +193,7 @@ test_watcher_poll_caps_one_drain :: proc(t: ^testing.T) {
 
     watcher_poll(&w)
     testing.expect_value(t, len(sink.changes), WATCH_DRAIN_MAX)
-    testing.expect_value(t, len(w.pending), 50)
+    testing.expect_value(t, len(w.pending) - w.head, 50)
 }
 
 // Closing the workspace destroys the watcher and quitting destroys it again, so
