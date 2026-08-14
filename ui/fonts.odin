@@ -27,6 +27,11 @@ Font_Family :: struct {
     preload_sizes: []i32, // owned
     // Icon fonts have no ligatures, so the shaping probes skip them.
     icon_font:     bool,
+    // Glyph ids the ligature probes reach, collected once per family: shaping
+    // returns the same ids at every pixel size. `ligature_scan` says the probe
+    // ran, since an empty result is a valid answer.
+    ligature_gids: []u32, // owned
+    ligature_scan: bool,
     // Icon families only. Display name for pickers, and the group name
     // ("primary") that makes this family an alternative to sibling families
     // in the same group, swappable at runtime via icon_set_active_pack.

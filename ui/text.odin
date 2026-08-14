@@ -216,10 +216,12 @@ font_bake_job :: proc(job: ^Font_Load_Job) {
         return
     }
 
-    // Ligature glyphs reach only through shaping; probe common sequences and
-    // bake the new glyph ids. Icon fonts have none, so skip them.
-    if !job.family.icon_font {
-        for gid in shape_collect_ligature_glyphs(file_data, &seen) {
+    // Ligature glyphs reach only through shaping. The probe set is per family,
+    // not per size, so it is collected once; it is empty for an icon font.
+    shape_family_probe_ligatures(job.family)
+    for gid in job.family.ligature_gids {
+        if !seen[gid] {
+            seen[gid] = true
             append(&baked, Bake_Entry {value = -1, gid = gid})
         }
     }
@@ -363,6 +365,9 @@ bootstrap_worker :: proc(args: ^Bootstrap_Args) {
     text_load_icon_manifest(args.icon_manifest)
 
     for _, family in families {
+        // Probe here, on one thread: the per-size jobs below share the result
+        // and would otherwise race to write it.
+        shape_family_probe_ligatures(family)
         for size in family.preload_sizes {
             job := new(Font_Load_Job)
             job.family = family

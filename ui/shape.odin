@@ -91,13 +91,30 @@ Placed_Glyph :: struct {
 @(private = "file")
 placed: [dynamic]Placed_Glyph
 
-// Shapes the probes with a worker-local HarfBuzz font; returns glyph ids not
-// already covered by the codepoint atlas. Runs on the rasterizer threads.
-shape_collect_ligature_glyphs :: proc(file_data: []u8, seen: ^map[u32]bool) -> [dynamic]u32 {
+// Fills the family's probe glyph set once. The ids come out of shaping alone
+// and never depend on the pixel size, so every size of a family bakes the same
+// set. Not thread-safe: the bootstrap worker calls it before it spawns the
+// per-size jobs, and the on-demand bake path is main-thread only.
+shape_family_probe_ligatures :: proc(family: ^Font_Family) {
+    if family.ligature_scan {
+        return
+    }
+    family.ligature_scan = true
+    if family.icon_font {
+        return
+    }
+    family.ligature_gids = shape_collect_ligature_glyphs(family.file_data)
+}
+
+// Shapes the probes with a local HarfBuzz font; returns the distinct glyph ids
+// they produce.
+@(private)
+shape_collect_ligature_glyphs :: proc(file_data: []u8) -> []u32 {
     extra := make([dynamic]u32)
     if len(file_data) == 0 {
-        return extra
+        return extra[:]
     }
+    seen := make(map[u32]bool, 0, context.temp_allocator)
 
     blob := hb.blob_create(raw_data(file_data), cast(c.uint) len(file_data), .MEMORY_MODE_READONLY, nil, nil)
     face := hb.face_create(blob, 0)
@@ -120,7 +137,7 @@ shape_collect_ligature_glyphs :: proc(file_data: []u8, seen: ^map[u32]bool) -> [
             }
         }
     }
-    return extra
+    return extra[:]
 }
 
 // Shapes one run of a line. The whole line goes to HarfBuzz and the run selects
