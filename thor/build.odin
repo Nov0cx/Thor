@@ -502,7 +502,7 @@ thor_build_content :: proc(thor: ^Thor) {
     thor.welcome_recent_label = welcome_recent_label
 
     thor.welcome_recent_stack = widgets.stack_create("welcome-recent-stack", .Vertical)
-    widgets.stack_set_gap(thor.welcome_recent_stack, 6)
+    widgets.stack_set_gap(thor.welcome_recent_stack, WELCOME_RECENT_GAP)
     widgets.stack_set_padding(thor.welcome_recent_stack, ui.padding(0))
     widgets.stack_set_background(thor.welcome_recent_stack, rl.Color {0, 0, 0, 0})
 

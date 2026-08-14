@@ -63,7 +63,7 @@ Launching the GUI from an agent-spawned process hangs in `rl.InitWindow` — ver
   like `build.odin`. It skips `vendor/` and `bin/`, and skips `_test.odin` files because `odin check`
   drops them. A failure exits 2 with the compiler output.
 
-Five skills in `.claude/skills/`:
+Six skills in `.claude/skills/`:
 
 - `verify` — the verification sweep to run after an Odin change: per-package type-check, the Linux
   and macOS cross-checks with their expected noise named, then `build.odin -- test`. It also covers
@@ -76,6 +76,10 @@ Five skills in `.claude/skills/`:
   plugin permissions, build steps) after a user-facing change, and regenerates `docs/html/`.
 - `changelog` — records a user-visible change in `CHANGELOG.md` as short bullets under the right
   `year.month.patch` heading. Owns that file alone, so it composes with `update-docs`.
+- `release` — cuts a release: `VERSION` in `thor/cli.odin`, the changelog heading, the `v*` tag, and
+  the `gh` watch of `release.yml` until the archives are published. Marked
+  `disable-model-invocation: true`, so it runs only when the user types `/release`; the agent never
+  tags or publishes on its own.
 
 Three subagents in `.claude/agents/`: `layering-reviewer` and `ownership-reviewer` (read-only
 reviews of a diff) and `changelog-writer` (runs the `changelog` skill).

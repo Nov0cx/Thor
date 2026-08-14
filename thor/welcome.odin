@@ -18,6 +18,15 @@ Welcome_Recent_Entry :: struct {
     path: string, // owned
 }
 
+// Rows the welcome page shows. thor_recent_workspaces keeps RECENT_WORKSPACES_MAX
+// of them; the column has no room for that many.
+WELCOME_RECENT_ROWS :: 5
+
+// Row geometry. thor_welcome_refresh_recent gives the stack the height of its
+// rows, which the stack cannot measure itself.
+WELCOME_RECENT_ROW_HEIGHT :: 36
+WELCOME_RECENT_GAP :: 6
+
 // Tears down the current workspace and returns to the welcome page: the
 // teardown half of thor_open_folder, without opening a replacement. A later
 // bare launch goes back to the welcome page too, since the last-workspace
@@ -139,7 +148,11 @@ thor_welcome_refresh_recent :: proc(thor: ^Thor) {
     }
     thor_welcome_clear_recent_entries(thor)
 
+    rows := 0
     for path in thor_recent_workspaces(context.temp_allocator) {
+        if rows >= WELCOME_RECENT_ROWS {
+            break
+        }
         entry := new(Welcome_Recent_Entry)
         entry.thor = thor
         entry.path = strings.clone(path)
@@ -148,7 +161,20 @@ thor_welcome_refresh_recent :: proc(thor: ^Thor) {
         row := widgets.button_create("welcome-recent-row", filepath.base(entry.path))
         thor_theme_secondary_button(thor, row)
         widgets.button_set_on_click(row, thor_welcome_open_recent, entry)
-        row.min_size = {0, 36}
+        // The label is the folder name alone, so two folders of one name read the same.
+        ui.widget_set_tooltip(&row.widget, entry.path)
+        row.min_size = {0, WELCOME_RECENT_ROW_HEIGHT}
         widgets.append_child(&thor.welcome_recent_stack.widget, &row.widget)
+        rows += 1
     }
+
+    // The parent stack gives a child that does not grow exactly min_size.y, and
+    // ui.widget_hit_test stops at a widget the point misses. Without this the rows
+    // draw but no click reaches them.
+    height: f32 = 0
+    if rows > 0 {
+        height = cast(f32) rows * WELCOME_RECENT_ROW_HEIGHT + cast(f32) (rows - 1) * WELCOME_RECENT_GAP
+    }
+    thor.welcome_recent_stack.min_size.y = height
+    thor.welcome_recent_label.visible = rows > 0
 }
