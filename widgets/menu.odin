@@ -162,11 +162,11 @@ menu_layout :: proc(widget: ^ui.Widget, bounds: rl.Rectangle) {
 
     x := menu.anchor.x
     y := menu.anchor.y
-    if x + width > bounds.width {
-        x = bounds.width - width
+    if x + width > bounds.x + bounds.width {
+        x = bounds.x + bounds.width - width
     }
-    if y + height > bounds.height {
-        y = bounds.height - height
+    if y + height > bounds.y + bounds.height {
+        y = bounds.y + bounds.height - height
     }
     x = max(x, bounds.x)
     y = max(y, bounds.y)
