@@ -496,6 +496,7 @@ editor_set_state :: proc(editor: ^Editor, state: ^textedit.State) {
     clear(&editor.folded)
     editor_dismiss_completion(editor)
     editor_clear_hover(editor)
+    editor_clear_signature(editor)
     editor_cancel_jump(editor)
     editor.hover_probe_offset = -1
     editor_clamp_scroll(editor)
