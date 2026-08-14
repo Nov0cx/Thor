@@ -29,6 +29,17 @@ Thor :: struct {
     theme_labels: []string, // owned
     theme_files: []string, // owned
     theme_stamp: i64, // newest modification time the cache was built from
+    // The color role the picker is editing and the value it had when it opened,
+    // so a cancel puts it back. Owned; "" when no picker is up.
+    theme_edit_key: string, // owned
+    theme_edit_original: rl.Color,
+    // Generator seeds, kept between the rows that set them and the Generate row.
+    theme_seed_background: rl.Color,
+    theme_seed_accent: rl.Color,
+    theme_seed_dark: bool,
+    // True while thor.theme holds a generated preview rather than the configured
+    // palette, so an edit cannot write the preview over a saved theme.
+    theme_preview_generated: bool,
     root_panel: ^widgets.Panel,
     root_stack: ^widgets.Stack,
     top_bar: ^widgets.Titlebar,
@@ -93,6 +104,11 @@ Thor :: struct {
     permission_dialog: ^widgets.Permission_Dialog,
     // Modal GUI editor for every setting (editor prefs, theme/font, keybinds).
     settings_view: ^widgets.Settings_View,
+    // Modal theme window (every color role of the active theme), opened by the
+    // Theme Colors row of Settings. See theme_ui.odin.
+    theme_editor: ^widgets.Theme_Editor,
+    // Modal color picker the theme window's rows open.
+    color_picker: ^widgets.Color_Picker,
     // Modal git UI (changes, commit; more views to come). See git_ui.odin.
     git_view: ^widgets.Git_View,
     // Auto-reload of the config files: a signature of their modification times,
@@ -547,6 +563,7 @@ init :: proc() -> ^Thor {
     // Plugins are loaded later (after the console exists and the host services
     // are wired) so a plugin can print and read keybinds from its load body.
     thor_load_active_theme(thor)
+    thor_reset_theme_seeds(thor)
     thor.active_file = ui.make_signal(-1)
     thor.explorer_visible = ui.make_signal(true)
     thor.console_visible = ui.make_signal(true)
@@ -857,6 +874,7 @@ shutdown :: proc(thor: ^Thor) {
     thor_clear_plugin_requests(thor)
     delete(thor.plugin_requests)
     delete(thor.plugin_setting_target)
+    delete(thor.theme_edit_key)
     delete(thor.language_backend_target)
     thor_welcome_clear_recent_entries(thor)
     delete(thor.welcome_recent_entries)

@@ -1,5 +1,9 @@
 # 2026.08.4
 
+- Settings > Appearance > Theme Colors opens a theme window: every color of the active theme under a foldable group, each row a swatch that opens a color picker with a saturation/value square, a hue strip, an alpha strip and a hex field. The change previews on the editor before it is kept.
+- The theme window generates a whole theme from a background color, an accent color and a Dark/Light mode, holding the text and syntax colors to a readable contrast against the background. Save Generated Theme writes it under a given name and switches to it.
+- An edited theme is written to `user/themes/`, which a build and an update leave alone. Editing a shipped theme copies it there first.
+- `Preferences: New Theme` writes a copy of the active theme instead of a file of empty values, which reported 37 invalid colors on the file it had just made.
 - A signature popup closes with the file it belongs to. It could stay on the new tab after a switch.
 - Edit > Cut, Copy and Paste with no file open do nothing instead of closing the editor.
 - A keybinding capture binds the action you picked. A settings reload while the chord was awaited could bind another one.

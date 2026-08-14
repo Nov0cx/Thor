@@ -148,3 +148,39 @@ test_color_shade_keeps_alpha :: proc(t: ^testing.T) {
     translucent := rl.Color {0x4F, 0xC3, 0xF7, 128}
     testing.expect(t, color_shade(translucent, 0.2).a == 128, "shading is opaque to alpha")
 }
+
+@(test)
+test_color_rotate_hue_wraps :: proc(t: ^testing.T) {
+    // 350 degrees plus 30 is 20, not 380.
+    red := rl.ColorFromHSV(350, 0.8, 0.9)
+    red.a = 128
+    turned := color_rotate_hue(red, 30)
+    hsv := rl.ColorToHSV(turned)
+
+    testing.expectf(t, hsv.x > 19 && hsv.x < 21, "the hue wraps past 360, got %v", hsv.x)
+    testing.expectf(t, hsv.y > 0.79 && hsv.y < 0.81, "saturation stays, got %v", hsv.y)
+    testing.expectf(t, hsv.z > 0.89 && hsv.z < 0.91, "value stays, got %v", hsv.z)
+    testing.expect(t, turned.a == 128, "alpha stays")
+}
+
+@(test)
+test_color_ensure_contrast :: proc(t: ^testing.T) {
+    dark := rl.Color {0x11, 0x13, 0x1A, 255}
+    light := rl.Color {0xF5, 0xF5, 0xF2, 255}
+
+    for background in ([]rl.Color {dark, light}) {
+        // A mid grey reads at about 4 either way, so both directions have work to do.
+        fixed := color_ensure_contrast(rl.Color {0x70, 0x70, 0x70, 255}, background, 4.5)
+        ratio := color_contrast_ratio(fixed, background)
+        testing.expectf(t, ratio >= 4.5, "%v: lifted to AA, got %v", background, ratio)
+    }
+
+    // Already readable: returned untouched, not re-derived.
+    white := rl.Color {255, 255, 255, 255}
+    testing.expect(t, color_ensure_contrast(white, dark, 4.5) == white, "a passing color is left alone")
+
+    // 21 against a mid grey is impossible; the extreme comes back rather than a loop.
+    grey := rl.Color {128, 128, 128, 255}
+    extreme := color_ensure_contrast(rl.Color {0x40, 0x80, 0xC0, 255}, grey, 21)
+    testing.expect(t, color_luminance(extreme) < 0.01, "an impossible ratio settles on the far end")
+}

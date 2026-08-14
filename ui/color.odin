@@ -56,3 +56,70 @@ color_shade :: proc(color: rl.Color, amount: f32) -> rl.Color {
     shaded.a = color.a
     return shaded
 }
+
+// `color` with the HSV components given, keeping its alpha. rl.ColorFromHSV
+// always returns an opaque color.
+color_with_hsv :: proc(color: rl.Color, hue, saturation, value: f32) -> rl.Color {
+    out := rl.ColorFromHSV(hue, saturation, value)
+    out.a = color.a
+    return out
+}
+
+// `color` turned `degrees` around the hue wheel, keeping saturation, value and
+// alpha. A grey color has no hue to turn and comes back unchanged.
+color_rotate_hue :: proc(color: rl.Color, degrees: f32) -> rl.Color {
+    hsv := rl.ColorToHSV(color)
+    return color_with_hsv(color, math.mod(hsv.x + degrees + 360, 360), hsv.y, hsv.z)
+}
+
+// `a` blended `t` of the way to `b` (0 to 1), keeping a's alpha.
+color_mix :: proc(a, b: rl.Color, t: f32) -> rl.Color {
+    mixed := rl.ColorLerp(a, b, clamp(t, 0, 1))
+    mixed.a = a.a
+    return mixed
+}
+
+// Iterations of the bisect in color_ensure_contrast. Fixed, so a ratio no color
+// can reach terminates instead of looping.
+@(private = "file")
+CONTRAST_STEPS :: 12
+
+// `foreground` moved away from `background` until it reads at `ratio` (WCAG), or
+// as far as white or black goes. The HSV value moves first, so a palette keeps its
+// hue where it can; a saturated hue is short of the floor even at its brightest
+// (pure blue reads 2.4 on black), so the rest of the way is a blend toward white
+// or black, which desaturates it. Returns the extreme when even that misses.
+color_ensure_contrast :: proc(foreground, background: rl.Color, ratio: f32) -> rl.Color {
+    if color_contrast_ratio(foreground, background) >= ratio {
+        return foreground
+    }
+
+    // Away from the background is toward white on a dark one, toward black on a
+    // light one.
+    toward_light := color_on(background) == COLOR_ON_LIGHT
+    hsv := rl.ColorToHSV(foreground)
+    lifted := color_with_hsv(foreground, hsv.x, hsv.y, toward_light ? 1 : 0)
+    if color_contrast_ratio(lifted, background) >= ratio {
+        return color_bisect(foreground, lifted, background, ratio)
+    }
+    return color_bisect(lifted, toward_light ? rl.WHITE : rl.BLACK, background, ratio)
+}
+
+// The point along `near` to `far` closest to `near` that still reads at `ratio`.
+// Both ends differ in luminance alone, so the ratio is monotone along the blend.
+@(private = "file")
+color_bisect :: proc(near, far, background: rl.Color, ratio: f32) -> rl.Color {
+    best := far
+    low, high := f32(0), f32(1)
+    for _ in 0 ..< CONTRAST_STEPS {
+        mid := (low + high) / 2
+        candidate := color_mix(near, far, mid)
+        if color_contrast_ratio(candidate, background) >= ratio {
+            best = candidate
+            high = mid
+        } else {
+            low = mid
+        }
+    }
+    return best
+}

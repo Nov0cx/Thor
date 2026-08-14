@@ -69,6 +69,7 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
         theme = DEFAULT_THEME
     }
     widgets.settings_view_add_choice(view, "theme", "Theme", theme)
+    widgets.settings_view_add_choice(view, THEME_EDITOR_SETTING, "Theme Colors", "Edit...")
     widgets.settings_view_add_choice(view, "font", "Font", ui.text_default_family())
     icon_pack := setting.icon_pack_name(config)
     if icon_pack == "" {
@@ -204,6 +205,10 @@ thor_on_setting_choice :: proc(data: rawptr, id: string) {
     }
     if backend_id, is_backend := thor_language_backend_name(id); is_backend {
         thor_cmd_change_language_backend(thor, backend_id)
+        return
+    }
+    if id == THEME_EDITOR_SETTING {
+        thor_open_theme_editor(thor)
         return
     }
     if id == setting.LANGUAGE_SETTING {

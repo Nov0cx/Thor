@@ -34,7 +34,7 @@ General editor preferences.
 | `tip_of_the_day` | Show the tip of the day: the card on the welcome page, and the card that opens over the editor on the first start of a day | `true` |
 | `format_on_save` | Format the active buffer before an explicit save (`ctrl + s`, Save All, the palette) — never before an autosave | `false` |
 | `format_on_type` | Dispatch on-type formatting as a trigger character is typed — `}` for Odin, a language server's own choice otherwise | `false` |
-| `theme` | Active color theme, a name under `assets/themes/` with no extension (e.g. `"mjolnir"`) | built-in default |
+| `theme` | Active color theme, a name with no extension (e.g. `"mjolnir"`), looked up in `user/themes/` first and then `assets/themes/` | built-in default |
 | `font` | Text font family, a name in `assets/fonts/fonts.json` | built-in default |
 | `icon_pack` | Primary icon pack, a family in `assets/icons/icons.json` | built-in default |
 | `file_icon_pack` | File-icon pack, same set as `icon_pack` | built-in default |
@@ -259,9 +259,31 @@ its root, layered on top of the global settings above. This repository's own
 
 ## Themes, fonts and icons
 
-- Themes live in `assets/themes/*.json`, one file per theme; pick one by name
-  (no extension) in `theme`, or through Settings, which lists every theme
-  found.
+- Themes live in `assets/themes/*.json` (shipped) and `user/themes/*.json`
+  (yours), one file per theme; pick one by name (no extension) in `theme`, or
+  through Settings, which lists every theme found. A user theme shadows a
+  shipped one of the same name.
+
+- **Settings > Appearance > Theme Colors** opens the theme window: every color
+  role of the active theme under a foldable group (Surfaces, Text, Status,
+  Syntax), each row a swatch. A row opens a color picker with a
+  saturation/value square, a hue strip, an alpha strip and a hex field. The
+  change previews on the running editor, and OK writes it; Escape or a click
+  outside puts the old color back.
+
+- Editing a shipped theme copies it into `user/themes/` first and edits the
+  copy. `assets/` is replaced by every build and by every update, so only the
+  user layer survives one.
+
+- The theme window's **Generate From Colors** group builds a whole palette from
+  a background seed, an accent seed and a Dark/Light mode: the surfaces are
+  shaded from the background, the text and syntax colors are held to a WCAG AA
+  contrast floor against it, and the syntax palette is rotated off the accent.
+  It previews live; **Save Generated Theme** names it, writes
+  `user/themes/<name>.json` and switches to it.
+
+- **Preferences: New Theme** writes a copy of the active palette to
+  `user/themes/custom.json` and opens it for hand editing.
 - Fonts and icon packs are named in `assets/fonts/fonts.json` and
   `assets/icons/icons.json`; Settings lists the available names for `font`,
   `icon_pack` and `file_icon_pack`.

@@ -166,6 +166,36 @@ thor_build_ui :: proc(thor: ^Thor) {
     )
     thor.settings_view.visible = false
 
+    thor.theme_editor = widgets.theme_editor_create("theme-editor")
+    widgets.theme_editor_set_colors(
+        thor.theme_editor,
+        thor.theme.second_background,
+        thor.theme.highlight,
+        thor.theme.highlight,
+        thor.theme.background,
+        thor.theme.primary_text_color,
+        thor.theme.muted_color,
+        thor.theme.accent_color,
+        rl.Color {thor.theme.accent_color.r, thor.theme.accent_color.g, thor.theme.accent_color.b, 40},
+    )
+    widgets.theme_editor_set_callbacks(
+        thor.theme_editor, thor_on_theme_editor_color, thor_on_theme_editor_action, thor,
+    )
+    thor.theme_editor.visible = false
+
+    thor.color_picker = widgets.color_picker_create("color-picker")
+    widgets.color_picker_set_colors(
+        thor.color_picker,
+        thor.theme.second_background,
+        thor.theme.highlight,
+        thor.theme.highlight,
+        thor.theme.background,
+        thor.theme.primary_text_color,
+        thor.theme.muted_color,
+        thor.theme.accent_color,
+    )
+    thor.color_picker.visible = false
+
     thor.git_view = widgets.git_view_create("git-view")
     widgets.git_view_set_colors(
         thor.git_view,
@@ -618,6 +648,10 @@ thor_connect_tree :: proc(thor: ^Thor) {
     widgets.append_child(&thor.root_panel.widget, &thor.select_dialog.widget)
     widgets.append_child(&thor.root_panel.widget, &thor.permission_dialog.widget)
     widgets.append_child(&thor.root_panel.widget, &thor.settings_view.widget)
+    // After the settings view, and the picker after the theme window: each opens
+    // from the one before it and has to sit above it.
+    widgets.append_child(&thor.root_panel.widget, &thor.theme_editor.widget)
+    widgets.append_child(&thor.root_panel.widget, &thor.color_picker.widget)
     widgets.append_child(&thor.root_panel.widget, &thor.git_view.widget)
     widgets.append_child(&thor.root_panel.widget, &thor.find_replace.widget)
     // The menu is added after the palette so it sits above it (bring_to_front

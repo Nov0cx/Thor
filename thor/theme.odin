@@ -14,6 +14,28 @@ import "../widgets"
 // Built-in theme used when none is configured or the configured one fails to load.
 DEFAULT_THEME :: "mjolnir"
 
+// Shipped themes. Replaced wholesale by every build and by every update, so
+// nothing Thor writes may land here.
+SHIPPED_THEME_DIR :: "assets/themes"
+// User themes: what the theme editor writes, beside setting.USER_DIR. Gitignored,
+// never staged, never swapped by an update.
+USER_THEME_DIR :: "user/themes"
+
+// The file `name` resolves to: the user copy shadows the shipped one. Falls back
+// to the shipped path when neither exists, so a failure names the shipped file.
+thor_theme_path :: proc(name: string, allocator := context.temp_allocator) -> string {
+    user := thor_user_theme_path(name, allocator)
+    if os.exists(user) {
+        return user
+    }
+    return strings.concatenate({SHIPPED_THEME_DIR, "/", name, ".json"}, allocator)
+}
+
+// Where an edit to `name` is written: always the user layer.
+thor_user_theme_path :: proc(name: string, allocator := context.temp_allocator) -> string {
+    return strings.concatenate({USER_THEME_DIR, "/", name, ".json"}, allocator)
+}
+
 // Loads the theme named in settings (falling back to the default) into
 // thor.theme. Called once at startup, before the widgets are built.
 thor_load_active_theme :: proc(thor: ^Thor) {
@@ -24,36 +46,48 @@ thor_load_active_theme :: proc(thor: ^Thor) {
     thor_load_theme_by_name(thor, name)
 }
 
-// Replaces thor.theme with the theme file assets/themes/<name>.json, freeing the
+// Replaces thor.theme with the theme file `name` resolves to, freeing the
 // previous one. Falls back to the built-in default when the file is unreadable.
 thor_load_theme_by_name :: proc(thor: ^Thor, name: string) {
-    path := strings.concatenate({"assets/themes/", name, ".json"}, context.temp_allocator)
-    theme, ok := ui.theme_load(path)
+    theme, ok := ui.theme_load(thor_theme_path(name))
     if !ok && name != DEFAULT_THEME {
         log.warnf("Theme %q failed to load; using %q", name, DEFAULT_THEME)
         ui.theme_destroy(&theme)
-        default_path := strings.concatenate({"assets/themes/", DEFAULT_THEME, ".json"}, context.temp_allocator)
         // theme_load returns the built-in theme and logs on failure, so the
         // fallback always lands on a complete palette.
-        theme, _ = ui.theme_load(default_path)
+        theme, _ = ui.theme_load(thor_theme_path(DEFAULT_THEME))
     }
 
     ui.theme_destroy(&thor.theme)
     thor.theme = theme
+    // A palette read from disk, so any generated preview is gone.
+    thor.theme_preview_generated = false
     log.infof("Loaded theme: %s", thor.theme.name)
 }
 
-// Theme names available under assets/themes/ (base names, no extension), sorted.
+// Theme names available in both theme directories (base names, no extension),
+// sorted, each listed once — a user theme and a shipped one of the same name are
+// one entry, the user's.
 thor_available_themes :: proc(allocator := context.temp_allocator) -> []string {
-    matches, err := filepath.glob("assets/themes/*.json", context.temp_allocator)
-    if err != nil {
-        return {}
-    }
     names := make([dynamic]string, allocator)
-    for path in matches {
-        base := filepath.base(path)
-        append(&names, strings.clone(strings.trim_suffix(base, ".json"), allocator))
+    seen := make(map[string]bool, 16, context.temp_allocator)
+    for dir in ([]string {USER_THEME_DIR, SHIPPED_THEME_DIR}) {
+        pattern := strings.concatenate({dir, "/*.json"}, context.temp_allocator)
+        // A fresh install has no user/themes; that is not a failure of the listing.
+        matches, err := filepath.glob(pattern, context.temp_allocator)
+        if err != nil {
+            continue
+        }
+        for path in matches {
+            name := strings.trim_suffix(filepath.base(path), ".json")
+            if name in seen {
+                continue
+            }
+            seen[name] = true
+            append(&names, strings.clone(name, allocator))
+        }
     }
+    slice.sort(names[:])
     return names[:]
 }
 
@@ -64,13 +98,14 @@ thor_available_themes :: proc(allocator := context.temp_allocator) -> []string {
 //
 // A display name costs a whole palette parse, so the pair is cached and rebuilt
 // only when the set of theme files or the newest of their modification times
-// moves. `assets/themes/` sits beside the binary, outside the watched workspace,
-// so the stat is what notices an edit.
+// moves. Both theme directories sit beside the binary, outside the watched
+// workspace, so the stat is what notices an edit. It stats the resolved path, so
+// adding or removing a user copy also moves the stamp.
 thor_available_theme_choices :: proc(thor: ^Thor) -> (labels, files: []string) {
     names := thor_available_themes(context.temp_allocator)
     stamp := i64(0)
     for file in names {
-        path := strings.concatenate({"assets/themes/", file, ".json"}, context.temp_allocator)
+        path := thor_theme_path(file)
         if info, err := os.stat(path, context.temp_allocator); err == nil {
             stamp = max(stamp, info.modification_time._nsec)
         }
@@ -83,7 +118,7 @@ thor_available_theme_choices :: proc(thor: ^Thor) -> (labels, files: []string) {
     labels_out := make([dynamic]string)
     files_out := make([dynamic]string)
     for file in names {
-        path := strings.concatenate({"assets/themes/", file, ".json"}, context.temp_allocator)
+        path := thor_theme_path(file)
         theme, _ := ui.theme_load(path)
         append(&labels_out, strings.clone(theme.name))
         append(&files_out, strings.clone(file))
@@ -109,11 +144,24 @@ thor_free_theme_choices :: proc(thor: ^Thor) {
     thor.theme_files = nil
 }
 
-// Reapplies thor.theme to every widget that caches a color. The draw loop reads
-// thor.theme directly for the window clear, so those update for free; this walks
-// the widget tree for everything that was colored at build time. Mirrors the
-// color assignments in build.odin, so the two must stay in step.
+// Reapplies thor.theme everywhere: the widgets that cache a color, and the syntax
+// spans that bake one in.
 thor_apply_theme :: proc(thor: ^Thor) {
+    thor_apply_theme_widgets(thor)
+    // Syntax spans bake in theme colors, so every open file needs new ones. Only
+    // mark them stale: the per-frame pane pass recolors the files on screen with
+    // a window to scope to, and one off screen costs nothing until it is shown.
+    for file in thor.open_files {
+        file.highlighted = false
+    }
+}
+
+// The widget half alone. The draw loop reads thor.theme directly for the window
+// clear, so those update for free; this walks the widget tree for everything that
+// was colored at build time. Mirrors the color assignments in build.odin, so the
+// two must stay in step. The color picker's drag preview calls this per frame,
+// where re-highlighting every open buffer would not pay for itself.
+thor_apply_theme_widgets :: proc(thor: ^Thor) {
     t := thor.theme
     selected := rl.Color {t.accent_color.r, t.accent_color.g, t.accent_color.b, 40}
 
@@ -158,6 +206,15 @@ thor_apply_theme :: proc(thor: ^Thor) {
         thor.settings_view,
         t.second_background, t.highlight, t.highlight, t.background, t.primary_text_color, t.muted_color, t.accent_color,
         selected,
+    )
+    widgets.theme_editor_set_colors(
+        thor.theme_editor,
+        t.second_background, t.highlight, t.highlight, t.background, t.primary_text_color, t.muted_color, t.accent_color,
+        selected,
+    )
+    widgets.color_picker_set_colors(
+        thor.color_picker,
+        t.second_background, t.highlight, t.highlight, t.background, t.primary_text_color, t.muted_color, t.accent_color,
     )
     widgets.git_view_set_colors(
         thor.git_view,
@@ -257,13 +314,6 @@ thor_apply_theme :: proc(thor: ^Thor) {
         hint       = t.muted_color,
         font_size  = 15,
     })
-
-    // Syntax spans bake in theme colors, so every open file needs new ones. Only
-    // mark them stale: the per-frame pane pass recolors the files on screen with
-    // a window to scope to, and one off screen costs nothing until it is shown.
-    for file in thor.open_files {
-        file.highlighted = false
-    }
 }
 
 // Menu-bar button coloring (File/Edit/View/Help/Git and plugin buttons).
@@ -374,6 +424,8 @@ thor_theme_preview :: proc(data: rawptr, choice: string) {
 thor_theme_commit :: proc(data: rawptr, choice: string) {
     thor := cast(^Thor) data
     thor_theme_preview(thor, choice)
+    // The generator seeds follow the palette the user just chose.
+    thor_reset_theme_seeds(thor)
     thor_persist_string_setting(thor, "theme", choice)
 }
 
@@ -507,7 +559,7 @@ thor_icon_pack_apply :: proc(thor: ^Thor, group, key, choice: string) {
 // Writes one string settings key to the active layer and reloads, which is what
 // re-applies it and refreshes the modal. A write that did not land is reported
 // and changes nothing, so the row keeps reading what is actually on disk.
-@(private = "file")
+@(private)
 thor_persist_string_setting :: proc(thor: ^Thor, key, value: string) {
     if !setting.persist_string(thor_active_settings_path(thor), key, value) {
         thor_flash_status(thor, SETTINGS_SAVE_FAILED, is_error = true)

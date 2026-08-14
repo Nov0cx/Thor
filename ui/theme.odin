@@ -48,6 +48,75 @@ Theme :: struct {
     parameters_color:       rl.Color,
 }
 
+// Which part of the UI a color role belongs to. Orders THEME_COLORS and names the
+// fold groups the Settings modal builds from it.
+Theme_Color_Group :: enum {
+    Surfaces,
+    Text,
+    Status,
+    Syntax,
+}
+
+THEME_GROUP_LABELS := [Theme_Color_Group]string {
+    .Surfaces = "Surfaces",
+    .Text     = "Text",
+    .Status   = "Status",
+    .Syntax   = "Syntax",
+}
+
+// One color role: the key a theme file names it by, and the offset of its field.
+Theme_Color_Entry :: struct {
+    key:    string,
+    offset: uintptr,
+    group:  Theme_Color_Group,
+}
+
+// Every color role, grouped and in the order a written theme lists them. The one
+// key-to-field mapping in the program: theme_assign_color, theme_color, theme_save
+// and the Settings rows all read it.
+THEME_COLORS := [?]Theme_Color_Entry {
+    {"Background",             offset_of(Theme, background),             .Surfaces},
+    {"Second Background",      offset_of(Theme, second_background),      .Surfaces},
+    {"Contrast",               offset_of(Theme, contrast),               .Surfaces},
+    {"Buttons",                offset_of(Theme, buttons),                .Surfaces},
+    {"Active",                 offset_of(Theme, active),                 .Surfaces},
+    {"Highlight",              offset_of(Theme, highlight),              .Surfaces},
+    {"Border",                 offset_of(Theme, border),                 .Surfaces},
+    {"Notifications",          offset_of(Theme, notifications),          .Surfaces},
+    {"Tree",                   offset_of(Theme, tree),                   .Surfaces},
+    {"Selection Background",   offset_of(Theme, selection_background),   .Surfaces},
+    {"Accent Color",           offset_of(Theme, accent_color),           .Surfaces},
+    {"Accent Secondary Color", offset_of(Theme, accent_secondary_color), .Surfaces},
+
+    {"Text",                   offset_of(Theme, text),                   .Text},
+    {"Primary Text Color",     offset_of(Theme, primary_text_color),     .Text},
+    {"Foreground",             offset_of(Theme, foreground),             .Text},
+    {"Muted Color",            offset_of(Theme, muted_color),            .Text},
+    {"Disabled",               offset_of(Theme, disabled),               .Text},
+    {"Selection Foreground",   offset_of(Theme, selection_foreground),   .Text},
+    {"Excluded Files Color",   offset_of(Theme, excluded_files_color),   .Text},
+    {"Links Color",            offset_of(Theme, links_color),            .Text},
+
+    {"Success Color",          offset_of(Theme, success_color),          .Status},
+    {"Warning Color",          offset_of(Theme, warning_color),          .Status},
+    {"Info Color",             offset_of(Theme, info_color),             .Status},
+    {"Danger Color",           offset_of(Theme, danger_color),           .Status},
+    {"Error Color",            offset_of(Theme, error_color),            .Status},
+    {"Conflict Color",         offset_of(Theme, conflict_color),         .Status},
+    {"Submodule Color",        offset_of(Theme, submodule_color),        .Status},
+
+    {"Comments Color",         offset_of(Theme, comments_color),         .Syntax},
+    {"Keywords Color",         offset_of(Theme, keywords_color),         .Syntax},
+    {"Functions Color",        offset_of(Theme, functions_color),        .Syntax},
+    {"Strings Color",          offset_of(Theme, strings_color),          .Syntax},
+    {"Numbers Color",          offset_of(Theme, numbers_color),          .Syntax},
+    {"Operators Color",        offset_of(Theme, operators_color),        .Syntax},
+    {"Variables Color",        offset_of(Theme, variables_color),        .Syntax},
+    {"Parameters Color",       offset_of(Theme, parameters_color),       .Syntax},
+    {"Attributes Color",       offset_of(Theme, attributes_color),       .Syntax},
+    {"Tags Color",             offset_of(Theme, tags_color),             .Syntax},
+}
+
 theme_material_deep_ocean :: proc() -> Theme {
     return Theme {
         name = "Material Deep ocean",
@@ -271,85 +340,117 @@ parse_hex_color :: proc(value: string) -> (rl.Color, bool) {
     }, true
 }
 
+// The color field `key` names, nil for an unknown key.
+theme_color_ptr :: proc(theme: ^Theme, key: string) -> ^rl.Color {
+    for entry in THEME_COLORS {
+        if entry.key == key {
+            return theme_color_field(theme, entry.offset)
+        }
+    }
+    return nil
+}
+
+// The color field of THEME_COLORS[index].
+theme_color_at :: proc(theme: ^Theme, index: int) -> ^rl.Color {
+    return theme_color_field(theme, THEME_COLORS[index].offset)
+}
+
+@(private = "file")
+theme_color_field :: proc(theme: ^Theme, offset: uintptr) -> ^rl.Color {
+    return cast(^rl.Color) (uintptr(theme) + offset)
+}
+
 theme_assign_color :: proc(theme: ^Theme, key: string, color: rl.Color) -> bool {
-    switch key {
-    case "Background":
-        theme.background = color
-    case "Foreground":
-        theme.foreground = color
-    case "Text":
-        theme.text = color
-    case "Selection Background":
-        theme.selection_background = color
-    case "Selection Foreground":
-        theme.selection_foreground = color
-    case "Buttons":
-        theme.buttons = color
-    case "Second Background":
-        theme.second_background = color
-    case "Disabled":
-        theme.disabled = color
-    case "Contrast":
-        theme.contrast = color
-    case "Active":
-        theme.active = color
-    case "Border":
-        theme.border = color
-    case "Highlight":
-        theme.highlight = color
-    case "Tree":
-        theme.tree = color
-    case "Notifications":
-        theme.notifications = color
-    case "Accent Color":
-        theme.accent_color = color
-    case "Excluded Files Color":
-        theme.excluded_files_color = color
-    case "Success Color":
-        theme.success_color = color
-    case "Warning Color":
-        theme.warning_color = color
-    case "Info Color":
-        theme.info_color = color
-    case "Danger Color":
-        theme.danger_color = color
-    case "Submodule Color":
-        theme.submodule_color = color
-    case "Conflict Color":
-        theme.conflict_color = color
-    case "Accent Secondary Color":
-        theme.accent_secondary_color = color
-    case "Muted Color":
-        theme.muted_color = color
-    case "Primary Text Color":
-        theme.primary_text_color = color
-    case "Error Color":
-        theme.error_color = color
-    case "Comments Color":
-        theme.comments_color = color
-    case "Variables Color":
-        theme.variables_color = color
-    case "Links Color":
-        theme.links_color = color
-    case "Functions Color":
-        theme.functions_color = color
-    case "Keywords Color":
-        theme.keywords_color = color
-    case "Tags Color":
-        theme.tags_color = color
-    case "Strings Color":
-        theme.strings_color = color
-    case "Operators Color":
-        theme.operators_color = color
-    case "Attributes Color":
-        theme.attributes_color = color
-    case "Numbers Color":
-        theme.numbers_color = color
-    case "Parameters Color":
-        theme.parameters_color = color
-    case:
+    field := theme_color_ptr(theme, key)
+    if field == nil {
+        return false
+    }
+    field^ = color
+    return true
+}
+
+// The color `key` names; ok is false for an unknown key.
+theme_color :: proc(theme: ^Theme, key: string) -> (color: rl.Color, ok: bool) {
+    field := theme_color_ptr(theme, key)
+    if field == nil {
+        return {}, false
+    }
+    return field^, true
+}
+
+@(private = "file")
+HEX_DIGITS := "0123456789ABCDEF"
+
+// "#RRGGBB", or "#RRGGBBAA" when the color is not opaque. Uppercase, as the
+// shipped themes are written.
+color_to_hex :: proc(color: rl.Color, allocator := context.temp_allocator) -> string {
+    buf: [9]u8
+    buf[0] = '#'
+    n := 1
+    for value in ([]u8 {color.r, color.g, color.b}) {
+        buf[n] = HEX_DIGITS[value >> 4]
+        buf[n + 1] = HEX_DIGITS[value & 0xF]
+        n += 2
+    }
+    if color.a != 0xFF {
+        buf[n] = HEX_DIGITS[color.a >> 4]
+        buf[n + 1] = HEX_DIGITS[color.a & 0xF]
+        n += 2
+    }
+    return strings.clone(string(buf[:n]), allocator)
+}
+
+// Writes `theme` as the JSON theme_load reads, keys in THEME_COLORS order. Map
+// iteration is unordered, so the object is built by hand to keep the file stable.
+// Missing parent directories are created, so a first write to user/ lands.
+theme_save :: proc(theme: Theme, path: string) -> bool {
+    name, marshal_err := json.marshal(theme.name, allocator = context.temp_allocator)
+    if marshal_err != nil {
+        log.errorf("Cannot encode theme name %q: %v", theme.name, marshal_err)
         return false
     }
 
+    builder := strings.builder_make(context.temp_allocator)
+    strings.write_string(&builder, "{\n    \"name\": ")
+    strings.write_bytes(&builder, name)
+    strings.write_string(&builder, ",\n    \"colors\": {\n")
+    palette := theme
+    for entry, i in THEME_COLORS {
+        strings.write_string(&builder, "        \"")
+        strings.write_string(&builder, entry.key)
+        strings.write_string(&builder, "\": \"")
+        strings.write_string(&builder, color_to_hex(theme_color_at(&palette, i)^))
+        strings.write_string(&builder, i == len(THEME_COLORS) - 1 ? "\"\n" : "\",\n")
+    }
+    strings.write_string(&builder, "    }\n}\n")
+
+    if !theme_make_dirs(path) {
+        return false
+    }
+    if err := os.write_entire_file(path, builder.buf[:]); err != nil {
+        log.errorf("Cannot write theme %q: %v", path, err)
+        return false
+    }
+    return true
+}
+
+// Creates the directories above `path`, one level at a time — os.make_directory
+// makes only one, and user/themes needs user/ first. An existing directory is not
+// an error.
+@(private = "file")
+theme_make_dirs :: proc(path: string) -> bool {
+    for i in 0 ..< len(path) {
+        if path[i] != '/' && path[i] != '\\' {
+            continue
+        }
+        dir := path[:i]
+        if dir == "" || os.exists(dir) {
+            continue
+        }
+        if err := os.make_directory(dir); err != nil && !os.exists(dir) {
+            log.errorf("Cannot create directory %q: %v", dir, err)
+            return false
+        }
+    }
     return true
 }

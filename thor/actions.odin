@@ -46,6 +46,11 @@ thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
     if widgets.git_view_is_open(thor.git_view) {
         return false
     }
+    // So do the theme window and the color picker over it (Escape closes them,
+    // and the picker's hex field is typed in).
+    if widgets.theme_editor_is_open(thor.theme_editor) || widgets.color_picker_is_open(thor.color_picker) {
+        return false
+    }
 
     chord := setting.keybind_to_string(
         setting.Keybind{key = event.key, mods = event.mods},

@@ -757,62 +757,22 @@ thor_cmd_command_palette :: proc(data: rawptr) {
 
 thor_cmd_add_font :: proc(data: rawptr) {thor_open_file(cast(^Thor) data, "assets/fonts/fonts.json")}
 
-@(private = "file")
-EMPTY_THEME :: 
-`{
-    "name": "",
-    "colors": {
-        "Background": "",
-        "Foreground": "",
-        "Text": "",
-        "Selection Background": "",
-        "Selection Foreground": "",
-        "Buttons": "",
-        "Second Background": "",
-        "Disabled": "",
-        "Contrast": "",
-        "Active": "",
-        "Border": "",
-        "Highlight": "",
-        "Tree": "",
-        "Notifications": "",
-        "Accent Color": "",
-        "Excluded Files Color": "",
-        "Success Color": "",
-        "Warning Color": "",
-        "Info Color": "",
-        "Danger Color": "",
-        "Submodule Color": "",
-        "Conflict Color": "",
-        "Accent Secondary Color": "",
-        "Muted Color": "",
-        "Primary Text Color": "",
-        "Error Color": "",
-        "Comments Color": "",
-        "Variables Color": "",
-        "Links Color": "",
-        "Functions Color": "",
-        "Keywords Color": "",
-        "Tags Color": "",
-        "Strings Color": "",
-        "Operators Color": "",
-        "Attributes Color": "",
-        "Numbers Color": "",
-        "Parameters Color": ""
-    }
-}`
-
+// File > New Theme: copies the active palette into user/themes/custom.json and
+// opens it. assets/themes is replaced by every build and by every update, so a
+// hand-edited theme only survives in the user layer.
 thor_cmd_new_theme :: proc(data: rawptr) {
     thor := cast(^Thor) data
-    dst :: "assets/themes/custom.json"
-    if !os.exists(dst) {
-        if err := os.write_entire_file(dst, EMPTY_THEME); err != nil {
-            log.errorf("Could not create %q: %v", dst, err)
+    path := thor_user_theme_path("custom")
+    if !os.exists(path) {
+        palette := thor.theme
+        // A borrowed name on a struct copy: this palette is never theme_destroy'd.
+        palette.name = "Custom"
+        if !ui.theme_save(palette, path) {
             thor_flash_status(thor, "Could not create theme file", is_error = true)
             return
         }
     }
-    thor_open_file(thor, dst)
+    thor_open_file(thor, path)
 }
 
 // Opens a config file for hand editing: the same layer a GUI change writes to,
