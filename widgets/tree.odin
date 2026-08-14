@@ -51,6 +51,11 @@ Tree_Node :: struct {
     load_failed: bool, // the last read of this directory failed
     parent:   ^Tree_Node, // nil for the root; used for keyboard navigation
     children: [dynamic]^Tree_Node,
+    // Last ellipsis-truncation of `name`, so redrawing an unchanged row costs no
+    // measuring. Owned, "" until one is made; `name` never changes under a node.
+    cut:       string,
+    cut_width: i32, // the width it was cut to fit
+    cut_font:  i32, // the font size it was measured at
 }
 
 // Directory tree fed lazily from the filesystem; a folder reads on first open.
@@ -304,6 +309,20 @@ tree_status_letter :: proc(status: Git_Status) -> string {
     case .Submodule: return "S"
     }
     return ""
+}
+
+// The row's drawn name, truncated to fit and cached on the node: the search
+// below measures a string per step, and a row is redrawn every frame.
+@(private = "file")
+tree_row_name :: proc(node: ^Tree_Node, max_width: i32, font_size: i32) -> string {
+    if node.cut != "" && node.cut_width == max_width && node.cut_font == font_size {
+        return node.cut
+    }
+    delete(node.cut)
+    node.cut = strings.clone(tree_truncate_name(node.name, max_width, font_size))
+    node.cut_width = max_width
+    node.cut_font = font_size
+    return node.cut
 }
 
 // Ellipsis-truncates name to fit max_width, so a long file name is cut short
@@ -572,6 +591,7 @@ tree_node_destroy :: proc(node: ^Tree_Node) {
     delete(node.children)
     delete(node.name)
     delete(node.path)
+    delete(node.cut)
     free(node)
 }
 
@@ -1117,7 +1137,7 @@ tree_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
         if has_badge {
             right_edge -= cast(f32) ui.measure_text(letter, tree.font_size) + 6
         }
-        name := tree_truncate_name(node.name, cast(i32) (right_edge - x), tree.font_size)
+        name := tree_row_name(node, cast(i32) (right_edge - x), tree.font_size)
         ui.draw_text(name, cast(i32) x, text_y, tree.font_size, color)
 
         // Right-aligned status letter for files (folders only get the tint).
