@@ -64,7 +64,8 @@
                 "brand-github",
                 "brand-gitlab",
                 "git-pull-request",
-                "upload"
+                "upload",
+                "trash"
             ],
             "icons": {
                 "12-hours": "\ufc53",

@@ -1,5 +1,6 @@
 package thor
 
+import "core:fmt"
 import "core:os"
 import "core:strings"
 
@@ -14,17 +15,53 @@ import "../widgets"
 GIT_UNTRACKED_PREVIEW_MAX :: 512 * 1024
 
 thor_cmd_open_git_view :: proc(data: rawptr) {
+    thor_cmd_open_git_kind(data, .Changes)
+}
+
+thor_cmd_open_git_history :: proc(data: rawptr) {
+    thor_cmd_open_git_kind(data, .History)
+}
+
+thor_cmd_open_git_branches :: proc(data: rawptr) {
+    thor_cmd_open_git_kind(data, .Branches)
+}
+
+@(private = "file")
+thor_cmd_open_git_kind :: proc(data: rawptr, kind: widgets.Git_View_Kind) {
     thor := cast(^Thor) data
     if thor.git_prefix == "" {
         thor_flash_status(thor, "Not a git repository", is_error = true)
         return
     }
-    thor_open_git_view(thor, .Changes)
+    thor_open_git_view(thor, kind)
 }
 
+// The history page size, and how much "Load more" adds.
+GIT_LOG_PAGE :: 200
+
 thor_open_git_view :: proc(thor: ^Thor, kind: widgets.Git_View_Kind) {
+    thor.git_log_count = GIT_LOG_PAGE
     widgets.git_view_open(thor.git_view, &thor.ui_context, kind)
     thor_git_op(thor, .Snapshot)
+    thor_git_populate_view(thor, kind)
+}
+
+// Fetches what a view shows; called on open and on a sidebar switch. Cheap to
+// repeat — every fetch is one async job.
+@(private = "file")
+thor_git_populate_view :: proc(thor: ^Thor, kind: widgets.Git_View_Kind) {
+    #partial switch kind {
+    case .History:
+        thor_git_request_log(thor)
+    case .Branches:
+        thor_git_op(thor, .Refs)
+    }
+}
+
+@(private = "file")
+thor_git_request_log :: proc(thor: ^Thor) {
+    count := fmt.tprintf("%d", thor.git_log_count)
+    thor_git_op(thor, .Log, count)
 }
 
 // Force-closes the modal and orphans every in-flight op; called on a
@@ -42,9 +79,75 @@ thor_git_view_reset :: proc(thor: ^Thor) {
 // ---- widget callbacks ----
 
 thor_on_git_view_changed :: proc(data: rawptr, kind: widgets.Git_View_Kind) {
-    // Only Changes exists so far; later views populate lazily from here.
-    _ = data
-    _ = kind
+    thor := cast(^Thor) data
+    thor_git_populate_view(thor, kind)
+}
+
+thor_on_git_select_commit :: proc(data: rawptr, hash: string) {
+    thor := cast(^Thor) data
+    thor.git_diff_serial += 1 // handled inside thor_git_op, but a Commit_Show may race a Diff_File
+    thor_git_op(thor, .Commit_Show, hash)
+}
+
+thor_on_git_load_more :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    thor.git_log_count += GIT_LOG_PAGE
+    thor_git_request_log(thor)
+}
+
+thor_on_git_checkout :: proc(data: rawptr, kind: widgets.Git_Ref_Kind, name: string) {
+    thor := cast(^Thor) data
+    // A dirty-tree checkout is left to git: it refuses rather than losing
+    // work, and the refusal lands in the status line.
+    op := kind == .Remote ? Git_Op.Checkout_Remote : Git_Op.Checkout
+    thor_git_start_mutation(thor, op, name)
+}
+
+thor_on_git_stash :: proc(data: rawptr, op: widgets.Git_Stash_Op, name: string) {
+    thor := cast(^Thor) data
+    git_op: Git_Op
+    switch op {
+    case .Save:  git_op = .Stash_Save
+    case .Apply: git_op = .Stash_Apply
+    case .Pop:   git_op = .Stash_Pop
+    case .Drop:  git_op = .Stash_Drop
+    }
+    thor_git_start_mutation(thor, git_op, name)
+}
+
+// Discard is the one destructive action, so it goes through the palette's
+// yes/no confirm; the path and prompt live on Thor until the answer.
+thor_on_git_discard :: proc(data: rawptr, path: string) {
+    thor := cast(^Thor) data
+    delete(thor.git_discard_path)
+    thor.git_discard_path = strings.clone(path)
+    delete(thor.git_discard_prompt)
+    thor.git_discard_prompt = strings.clone(fmt.tprintf("Discard changes in %s?", path))
+    widgets.command_palette_confirm(
+        thor.command_palette, &thor.ui_context, thor.git_discard_prompt, thor_git_discard_confirmed, thor,
+    )
+}
+
+@(private = "file")
+thor_git_discard_confirmed :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    if thor.git_discard_path == "" {
+        return
+    }
+    // Untracked files have nothing in the index to check out; discarding one
+    // deletes it.
+    abs := git_path(thor, thor.git_discard_path)
+    if status, ok := thor.git_status[git_map_key(abs)]; ok && status == .Untracked {
+        if remove_err := os.remove(strings.clone(abs, context.temp_allocator)); remove_err != nil {
+            widgets.git_view_set_status_line(thor.git_view, "could not delete the file", true)
+        }
+        thor_refresh_git_status(thor)
+        thor_git_op(thor, .Snapshot)
+    } else {
+        thor_git_start_mutation(thor, .Discard, thor.git_discard_path)
+    }
+    delete(thor.git_discard_path)
+    thor.git_discard_path = ""
 }
 
 thor_on_git_stage :: proc(data: rawptr, path: string, stage: bool) {
@@ -93,13 +196,15 @@ thor_git_start_mutation :: proc(thor: ^Thor, op: Git_Op, arg := "", arg2 := "", 
 // one is read off disk and shown as fully added.
 @(private = "file")
 thor_git_request_diff :: proc(thor: ^Thor, path: string, staged: bool) {
+    // Any new selection supersedes an in-flight diff — also the synchronous
+    // untracked preview, which dispatches no job of its own.
+    thor.git_diff_serial += 1
     if !staged {
         if status, ok := thor.git_status[git_map_key(git_path(thor, path))]; ok && status == .Untracked {
             thor_git_show_untracked(thor, path)
             return
         }
     }
-    thor.git_diff_serial += 1 // supersede a pending result even without a new job
     thor_git_op(thor, .Diff_File, path, flag = staged)
 }
 
@@ -147,8 +252,8 @@ thor_git_push_snapshot :: proc(thor: ^Thor, job: ^Git_Op_Job) {
     if display == "" {
         display = "(no commits yet)"
     }
-    ahead, behind, upstream_ok := git_parse_upstream_counts(job.upstream_output)
-    has_upstream := job.upstream_code == 0 && upstream_ok
+    ahead, behind, upstream_ok := git_parse_upstream_counts(job.aux[2])
+    has_upstream := job.aux_codes[2] == 0 && upstream_ok
     widgets.git_view_set_header(view, display, ahead, behind, has_upstream)
 
     entries := make([dynamic]Git_File_Entry)
@@ -166,6 +271,85 @@ thor_git_push_snapshot :: proc(thor: ^Thor, job: ^Git_Op_Job) {
         widgets.git_view_clear_diff(view)
         widgets.git_view_set_diff(view, "", make([dynamic]widgets.Git_Diff_Row))
     }
+}
+
+thor_git_push_log :: proc(thor: ^Thor, job: ^Git_Op_Job) {
+    view := thor.git_view
+    if view == nil || !widgets.git_view_is_open(view) {
+        return
+    }
+    entries := make([dynamic]Git_Log_Entry)
+    defer git_log_entries_destroy(&entries)
+    git_parse_log(job.output, &entries)
+
+    widgets.git_view_clear_commits(view)
+    for entry in entries {
+        widgets.git_view_add_commit(view, entry.hash, entry.short, entry.subject, entry.author, entry.date, entry.refs)
+    }
+    // A full page means the history probably goes on.
+    widgets.git_view_set_commits_has_more(view, len(entries) >= thor.git_log_count)
+}
+
+thor_git_push_refs :: proc(thor: ^Thor, job: ^Git_Op_Job) {
+    view := thor.git_view
+    if view == nil || !widgets.git_view_is_open(view) {
+        return
+    }
+    widgets.git_view_clear_refs(view)
+
+    locals := make([dynamic]string)
+    defer {
+        for name in locals {
+            delete(name)
+        }
+        delete(locals)
+    }
+    current := git_parse_branch_lines(job.output, &locals)
+    for name in locals {
+        widgets.git_view_add_ref(view, .Branch, name, "", name == current)
+    }
+
+    names := make([dynamic]string)
+    defer {
+        for name in names {
+            delete(name)
+        }
+        delete(names)
+    }
+    git_parse_name_lines(job.aux[0], &names)
+    for name in names {
+        widgets.git_view_add_ref(view, .Remote, name, "", false)
+    }
+    clear_names(&names)
+    git_parse_name_lines(job.aux[1], &names)
+    for name in names {
+        widgets.git_view_add_ref(view, .Tag, name, "", false)
+    }
+
+    ids := make([dynamic]string)
+    subjects := make([dynamic]string)
+    defer {
+        for id in ids {
+            delete(id)
+        }
+        delete(ids)
+        for subject in subjects {
+            delete(subject)
+        }
+        delete(subjects)
+    }
+    git_parse_stash_lines(job.aux[2], &ids, &subjects)
+    for id, i in ids {
+        widgets.git_view_add_ref(view, .Stash, id, subjects[i], false)
+    }
+}
+
+@(private = "file")
+clear_names :: proc(names: ^[dynamic]string) {
+    for name in names {
+        delete(name)
+    }
+    clear(names)
 }
 
 thor_git_push_diff :: proc(thor: ^Thor, job: ^Git_Op_Job) {
@@ -207,11 +391,18 @@ git_op_done_label :: proc(op: Git_Op) -> string {
     switch op {
     case .Stage, .Stage_All:     return "Staged"
     case .Unstage, .Unstage_All: return "Unstaged"
+    case .Discard:               return "Discarded"
     case .Commit:                return "Committed"
     case .Fetch:                 return "Fetched"
     case .Pull:                  return "Pulled"
     case .Push:                  return "Pushed"
-    case .Snapshot, .Diff_File:  return ""
+    case .Checkout, .Checkout_Remote: return "Checked out"
+    case .Stash_Save:            return "Stashed"
+    case .Stash_Apply:           return "Stash applied"
+    case .Stash_Pop:             return "Stash popped"
+    case .Stash_Drop:            return "Stash dropped"
+    case .Snapshot, .Diff_File, .Log, .Commit_Show, .Refs:
+        return ""
     }
     return ""
 }

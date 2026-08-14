@@ -177,9 +177,15 @@ thor_build_ui :: proc(thor: ^Thor) {
             on_select_file = thor_on_git_select_file,
             on_commit = thor_on_git_commit,
             on_sync = thor_on_git_sync,
+            on_select_commit = thor_on_git_select_commit,
+            on_load_more = thor_on_git_load_more,
+            on_checkout = thor_on_git_checkout,
+            on_stash = thor_on_git_stash,
+            on_discard = thor_on_git_discard,
         },
         thor,
     )
+    widgets.git_view_set_views(thor.git_view, {.Changes, .History, .Branches})
     thor.git_view.visible = false
 
     thor.find_replace = widgets.find_replace_create("find-replace")

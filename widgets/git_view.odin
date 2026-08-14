@@ -15,6 +15,12 @@ import "../ui"
 // Left column holding the two file lists.
 @(private)
 GIT_FILES_WIDTH :: f32(340)
+// One history row: subject over short-hash, author and date.
+@(private)
+GIT_COMMIT_ROW :: f32(44)
+// One row of the branches view.
+@(private)
+GIT_REF_ROW :: f32(28)
 // One file row, and one diff row.
 @(private)
 GIT_FILE_ROW :: f32(26)
@@ -52,6 +58,20 @@ Git_Sync_Op :: enum {
     Push,
 }
 
+Git_Ref_Kind :: enum {
+    Branch,
+    Remote,
+    Tag,
+    Stash,
+}
+
+Git_Stash_Op :: enum {
+    Save,
+    Apply,
+    Pop,
+    Drop,
+}
+
 Git_Diff_Row_Kind :: enum u8 {
     Hunk,     // @@ header
     Context,
@@ -76,6 +96,34 @@ Git_View_File :: struct {
     status:  Git_Status,
 }
 
+@(private)
+Git_View_Commit :: struct {
+    hash:    string,  // owned; the key handed back to callbacks
+    short:   string,  // owned
+    subject: string,  // owned
+    author:  string,  // owned
+    date:    string,  // owned
+    refs:    string,  // owned; decorations, "" for none
+}
+
+// A branch, remote branch, tag or stash. For a stash `name` is the stash id
+// ("stash@{0}") and `subject` its message; for the rest subject is "".
+@(private)
+Git_View_Ref :: struct {
+    kind:    Git_Ref_Kind,
+    name:    string,  // owned
+    subject: string,  // owned
+    current: bool,
+}
+
+// One display row of the branches view: a fold header for a kind, or a ref.
+@(private)
+Git_Ref_Row :: struct {
+    header: bool,
+    kind:   Git_Ref_Kind,
+    index:  int,  // into view.refs when !header
+}
+
 Git_View_Changed_Proc :: #type proc(data: rawptr, kind: Git_View_Kind)
 // `path` is "" for the whole list ("Stage All" / "Unstage All").
 Git_Stage_Proc :: #type proc(data: rawptr, path: string, stage: bool)
@@ -83,12 +131,24 @@ Git_Select_File_Proc :: #type proc(data: rawptr, path: string, staged: bool)
 Git_Commit_Proc :: #type proc(data: rawptr, subject, description: string, amend: bool)
 Git_Sync_Proc :: #type proc(data: rawptr, op: Git_Sync_Op)
 
+Git_Select_Commit_Proc :: #type proc(data: rawptr, hash: string)
+Git_Load_More_Proc :: #type proc(data: rawptr)
+Git_Checkout_Proc :: #type proc(data: rawptr, kind: Git_Ref_Kind, name: string)
+// `name` is "" for .Save.
+Git_Stash_Proc :: #type proc(data: rawptr, op: Git_Stash_Op, name: string)
+Git_Discard_Proc :: #type proc(data: rawptr, path: string)
+
 Git_View_Callbacks :: struct {
-    on_view_changed: Git_View_Changed_Proc,
-    on_stage:        Git_Stage_Proc,
-    on_select_file:  Git_Select_File_Proc,
-    on_commit:       Git_Commit_Proc,
-    on_sync:         Git_Sync_Proc,
+    on_view_changed:  Git_View_Changed_Proc,
+    on_stage:         Git_Stage_Proc,
+    on_select_file:   Git_Select_File_Proc,
+    on_commit:        Git_Commit_Proc,
+    on_sync:          Git_Sync_Proc,
+    on_select_commit: Git_Select_Commit_Proc,
+    on_load_more:     Git_Load_More_Proc,
+    on_checkout:      Git_Checkout_Proc,
+    on_stash:         Git_Stash_Proc,
+    on_discard:       Git_Discard_Proc,
 }
 
 // A minimal editable text buffer; caret is a byte offset on a rune boundary.
@@ -136,6 +196,16 @@ Git_View :: struct {
     description: Git_Text_Field,
     desc_scroll: f32,
     amend:       bool,
+    // History view.
+    commits:          [dynamic]Git_View_Commit,
+    commit_sel:       int,  // -1 = none
+    commits_scroll:   f32,
+    commits_has_more: bool,  // draws a "Load more" row after the last commit
+    // Branches view.
+    refs:          [dynamic]Git_View_Ref,
+    ref_sel:       int,  // index into the flattened row list; -1 = none
+    refs_scroll:   f32,
+    ref_collapsed: [Git_Ref_Kind]bool,
     // Geometry, computed in layout.
     box:     rl.Rectangle,
     sidebar: rl.Rectangle,
@@ -180,7 +250,11 @@ git_view_create :: proc(id: string) -> ^Git_View {
     view.diff_rows = make([dynamic]Git_Diff_Row)
     view.subject.buf = make([dynamic]u8)
     view.description.buf = make([dynamic]u8)
+    view.commits = make([dynamic]Git_View_Commit)
+    view.refs = make([dynamic]Git_View_Ref)
     view.sel_index = -1
+    view.commit_sel = -1
+    view.ref_sel = -1
     view.width = 1080
     view.height = 680
     view.header_height = 56
@@ -239,6 +313,8 @@ git_view_open :: proc(view: ^Git_View, ctx: ^ui.Context, kind := Git_View_Kind.C
     view.staged_scroll = 0
     view.diff_scroll = 0
     view.desc_scroll = 0
+    view.commits_scroll = 0
+    view.refs_scroll = 0
     view.amend = false
     git_view_field_clear(&view.subject)
     git_view_field_clear(&view.description)
@@ -320,6 +396,63 @@ git_view_selected_file :: proc(view: ^Git_View) -> (path: string, staged: bool, 
         return
     }
     return list[view.sel_index].path, view.sel_staged, true
+}
+
+git_view_clear_commits :: proc(view: ^Git_View) {
+    for commit in view.commits {
+        git_view_commit_free(commit)
+    }
+    clear(&view.commits)
+    view.commit_sel = -1
+    view.commits_has_more = false
+}
+
+git_view_add_commit :: proc(view: ^Git_View, hash, short, subject, author, date, refs: string) {
+    append(&view.commits, Git_View_Commit {
+        hash = strings.clone(hash),
+        short = strings.clone(short),
+        subject = strings.clone(subject),
+        author = strings.clone(author),
+        date = strings.clone(date),
+        refs = strings.clone(refs),
+    })
+}
+
+git_view_set_commits_has_more :: proc(view: ^Git_View, has_more: bool) {
+    view.commits_has_more = has_more
+}
+
+git_view_clear_refs :: proc(view: ^Git_View) {
+    for ref in view.refs {
+        git_view_ref_free(ref)
+    }
+    clear(&view.refs)
+    view.ref_sel = -1
+}
+
+git_view_add_ref :: proc(view: ^Git_View, kind: Git_Ref_Kind, name, subject: string, current: bool) {
+    append(&view.refs, Git_View_Ref {
+        kind = kind,
+        name = strings.clone(name),
+        subject = strings.clone(subject),
+        current = current,
+    })
+}
+
+@(private = "file")
+git_view_commit_free :: proc(commit: Git_View_Commit) {
+    delete(commit.hash)
+    delete(commit.short)
+    delete(commit.subject)
+    delete(commit.author)
+    delete(commit.date)
+    delete(commit.refs)
+}
+
+@(private = "file")
+git_view_ref_free :: proc(ref: Git_View_Ref) {
+    delete(ref.name)
+    delete(ref.subject)
 }
 
 // Takes ownership of `rows` and the strings in them.
@@ -407,6 +540,10 @@ git_view_clamp_scrolls :: proc(view: ^Git_View) {
     view.staged_scroll = clamp(view.staged_scroll, 0, git_view_max_scroll(len(view.staged), GIT_FILE_ROW, staged_list.height))
     diff_list := git_view_diff_list_rect(view)
     view.diff_scroll = clamp(view.diff_scroll, 0, git_view_max_scroll(len(view.diff_rows), GIT_DIFF_ROW, diff_list.height))
+    commits := git_view_commits_list_rect(view)
+    view.commits_scroll = clamp(view.commits_scroll, 0, git_view_max_scroll(git_view_commit_row_count(view), GIT_COMMIT_ROW, commits.height))
+    refs := git_view_refs_list_rect(view)
+    view.refs_scroll = clamp(view.refs_scroll, 0, git_view_max_scroll(git_view_ref_row_count(view), GIT_REF_ROW, refs.height))
 }
 
 @(private)
@@ -480,6 +617,13 @@ git_view_file_action_rect :: proc(row: rl.Rectangle) -> rl.Rectangle {
     return rl.Rectangle {row.x + row.width - SETTINGS_ROW_PAD - size, row.y + (row.height - size) * 0.5, size, size}
 }
 
+// The discard icon box left of the stage box; unstaged rows only.
+@(private)
+git_view_file_discard_rect :: proc(row: rl.Rectangle) -> rl.Rectangle {
+    action := git_view_file_action_rect(row)
+    return rl.Rectangle {action.x - 4 - action.width, action.y, action.width, action.height}
+}
+
 // The right column: diff over the commit box, right of the file lists.
 @(private)
 git_view_right_rect :: proc(view: ^Git_View) -> rl.Rectangle {
@@ -487,10 +631,123 @@ git_view_right_rect :: proc(view: ^Git_View) -> rl.Rectangle {
     return rl.Rectangle {body.x + GIT_FILES_WIDTH, body.y, body.width - GIT_FILES_WIDTH, body.height}
 }
 
+// The commit box exists only in the changes view; history gives the diff the
+// full column.
 @(private)
 git_view_diff_rect :: proc(view: ^Git_View) -> rl.Rectangle {
     right := git_view_right_rect(view)
-    return rl.Rectangle {right.x, right.y, right.width, right.height - GIT_COMMIT_BOX}
+    if view.kind == .Changes {
+        right.height -= GIT_COMMIT_BOX
+    }
+    return right
+}
+
+// ---- history geometry ----
+
+@(private)
+git_view_commits_list_rect :: proc(view: ^Git_View) -> rl.Rectangle {
+    body := git_view_body_rect(view)
+    return rl.Rectangle {body.x, body.y, GIT_FILES_WIDTH, body.height}
+}
+
+// Rows shown in the commit list: the commits, plus the "Load more" row.
+@(private)
+git_view_commit_row_count :: proc(view: ^Git_View) -> int {
+    count := len(view.commits)
+    if view.commits_has_more {
+        count += 1
+    }
+    return count
+}
+
+@(private)
+git_view_commit_row_rect :: proc(view: ^Git_View, index: int) -> rl.Rectangle {
+    list := git_view_commits_list_rect(view)
+    return rl.Rectangle {list.x, list.y + cast(f32) index * GIT_COMMIT_ROW - view.commits_scroll, list.width, GIT_COMMIT_ROW}
+}
+
+@(private = "file")
+git_view_commit_row_at :: proc(view: ^Git_View, point: rl.Vector2) -> int {
+    list := git_view_commits_list_rect(view)
+    if !rl.CheckCollisionPointRec(point, list) {
+        return -1
+    }
+    index := cast(int) ((point.y - list.y + view.commits_scroll) / GIT_COMMIT_ROW)
+    if index < 0 || index >= git_view_commit_row_count(view) {
+        return -1
+    }
+    return index
+}
+
+// ---- branches geometry ----
+
+@(private)
+git_view_refs_list_rect :: proc(view: ^Git_View) -> rl.Rectangle {
+    return git_view_body_rect(view)
+}
+
+// Flattens the refs into display rows: a fold header per kind, then its refs
+// while unfolded.
+@(private)
+git_view_ref_rows :: proc(view: ^Git_View, out: ^[dynamic]Git_Ref_Row) {
+    for kind in Git_Ref_Kind {
+        append(out, Git_Ref_Row {header = true, kind = kind})
+        if view.ref_collapsed[kind] {
+            continue
+        }
+        for ref, i in view.refs {
+            if ref.kind == kind {
+                append(out, Git_Ref_Row {kind = kind, index = i})
+            }
+        }
+    }
+}
+
+@(private)
+git_view_ref_row_count :: proc(view: ^Git_View) -> int {
+    count := len(Git_Ref_Kind)
+    for kind in Git_Ref_Kind {
+        if view.ref_collapsed[kind] {
+            continue
+        }
+        for ref in view.refs {
+            if ref.kind == kind {
+                count += 1
+            }
+        }
+    }
+    return count
+}
+
+@(private)
+git_view_ref_row_rect :: proc(view: ^Git_View, index: int) -> rl.Rectangle {
+    list := git_view_refs_list_rect(view)
+    return rl.Rectangle {list.x, list.y + cast(f32) index * GIT_REF_ROW - view.refs_scroll, list.width, GIT_REF_ROW}
+}
+
+@(private = "file")
+git_view_ref_row_at :: proc(view: ^Git_View, point: rl.Vector2) -> int {
+    list := git_view_refs_list_rect(view)
+    if !rl.CheckCollisionPointRec(point, list) {
+        return -1
+    }
+    index := cast(int) ((point.y - list.y + view.refs_scroll) / GIT_REF_ROW)
+    if index < 0 || index >= git_view_ref_row_count(view) {
+        return -1
+    }
+    return index
+}
+
+// The three hover actions on a stash row: apply, pop, drop.
+@(private)
+git_view_stash_action_rects :: proc(row: rl.Rectangle) -> (apply, pop, drop: rl.Rectangle) {
+    size: f32 = 20
+    gap: f32 = 4
+    y := row.y + (row.height - size) * 0.5
+    drop = rl.Rectangle {row.x + row.width - SETTINGS_ROW_PAD - size, y, size, size}
+    pop = rl.Rectangle {drop.x - gap - size, y, size, size}
+    apply = rl.Rectangle {pop.x - gap - size, y, size, size}
+    return
 }
 
 @(private)
@@ -626,11 +883,112 @@ git_view_key :: proc(view: ^Git_View, ctx: ^ui.Context, event: ^ui.Event) {
         return
     }
 
-    #partial switch view.focus {
-    case .Files:
-        git_view_files_key(view, event)
-    case .Diff:
+    if view.focus == .Diff {
         git_view_diff_key(view, event)
+        return
+    }
+    switch view.kind {
+    case .Changes:
+        git_view_files_key(view, event)
+    case .History:
+        git_view_history_key(view, event)
+    case .Branches:
+        git_view_branches_key(view, event)
+    case .Settings, .Hosting:
+    }
+}
+
+@(private = "file")
+git_view_history_key :: proc(view: ^Git_View, event: ^ui.Event) {
+    #partial switch event.key {
+    case .UP:
+        git_view_select_commit(view, view.commit_sel - 1)
+    case .DOWN:
+        git_view_select_commit(view, view.commit_sel + 1)
+    case .ENTER, .KP_ENTER:
+        view.focus = .Diff
+    }
+}
+
+@(private)
+git_view_select_commit :: proc(view: ^Git_View, index: int) {
+    if len(view.commits) == 0 {
+        return
+    }
+    next := clamp(index, 0, len(view.commits) - 1)
+    if next == view.commit_sel {
+        return
+    }
+    view.commit_sel = next
+
+    list := git_view_commits_list_rect(view)
+    top := cast(f32) next * GIT_COMMIT_ROW
+    if top < view.commits_scroll {
+        view.commits_scroll = top
+    } else if top + GIT_COMMIT_ROW > view.commits_scroll + list.height {
+        view.commits_scroll = top + GIT_COMMIT_ROW - list.height
+    }
+
+    if view.cbs.on_select_commit != nil {
+        view.cbs.on_select_commit(view.data, view.commits[next].hash)
+    }
+}
+
+@(private = "file")
+git_view_branches_key :: proc(view: ^Git_View, event: ^ui.Event) {
+    count := git_view_ref_row_count(view)
+    #partial switch event.key {
+    case .UP:
+        view.ref_sel = count == 0 ? -1 : clamp(view.ref_sel - 1, 0, count - 1)
+        git_view_scroll_ref_into_view(view)
+    case .DOWN:
+        view.ref_sel = count == 0 ? -1 : clamp(view.ref_sel + 1, 0, count - 1)
+        git_view_scroll_ref_into_view(view)
+    case .ENTER, .KP_ENTER:
+        git_view_activate_ref(view, view.ref_sel)
+    }
+}
+
+@(private = "file")
+git_view_scroll_ref_into_view :: proc(view: ^Git_View) {
+    if view.ref_sel < 0 {
+        return
+    }
+    list := git_view_refs_list_rect(view)
+    top := cast(f32) view.ref_sel * GIT_REF_ROW
+    if top < view.refs_scroll {
+        view.refs_scroll = top
+    } else if top + GIT_REF_ROW > view.refs_scroll + list.height {
+        view.refs_scroll = top + GIT_REF_ROW - list.height
+    }
+}
+
+// Enter or click on a branches row: folds a header, checks out a branch, tag
+// or remote branch, applies a stash.
+@(private = "file")
+git_view_activate_ref :: proc(view: ^Git_View, index: int) {
+    rows := make([dynamic]Git_Ref_Row, context.temp_allocator)
+    git_view_ref_rows(view, &rows)
+    if index < 0 || index >= len(rows) {
+        return
+    }
+    row := rows[index]
+    if row.header {
+        view.ref_collapsed[row.kind] = !view.ref_collapsed[row.kind]
+        return
+    }
+    if view.busy {
+        return
+    }
+    ref := view.refs[row.index]
+    if ref.kind == .Stash {
+        if view.cbs.on_stash != nil {
+            view.cbs.on_stash(view.data, .Apply, ref.name)
+        }
+        return
+    }
+    if !ref.current && view.cbs.on_checkout != nil {
+        view.cbs.on_checkout(view.data, ref.kind, ref.name)
     }
 }
 
@@ -852,19 +1210,31 @@ git_view_scroll :: proc(view: ^Git_View, event: ^ui.Event) {
     point := event.mouse_position
     delta := event.wheel_delta
 
-    if view.kind != .Changes {
-        return
-    }
-    _, unstaged_list := git_view_section_rects(view, false)
-    _, staged_list := git_view_section_rects(view, true)
-    diff_list := git_view_diff_list_rect(view)
-    switch {
-    case rl.CheckCollisionPointRec(point, unstaged_list):
-        view.unstaged_scroll -= delta * GIT_FILE_ROW
-    case rl.CheckCollisionPointRec(point, staged_list):
-        view.staged_scroll -= delta * GIT_FILE_ROW
-    case rl.CheckCollisionPointRec(point, diff_list):
-        view.diff_scroll -= delta * GIT_DIFF_ROW * 3
+    switch view.kind {
+    case .Changes:
+        _, unstaged_list := git_view_section_rects(view, false)
+        _, staged_list := git_view_section_rects(view, true)
+        diff_list := git_view_diff_list_rect(view)
+        switch {
+        case rl.CheckCollisionPointRec(point, unstaged_list):
+            view.unstaged_scroll -= delta * GIT_FILE_ROW
+        case rl.CheckCollisionPointRec(point, staged_list):
+            view.staged_scroll -= delta * GIT_FILE_ROW
+        case rl.CheckCollisionPointRec(point, diff_list):
+            view.diff_scroll -= delta * GIT_DIFF_ROW * 3
+        }
+    case .History:
+        switch {
+        case rl.CheckCollisionPointRec(point, git_view_commits_list_rect(view)):
+            view.commits_scroll -= delta * GIT_COMMIT_ROW
+        case rl.CheckCollisionPointRec(point, git_view_diff_list_rect(view)):
+            view.diff_scroll -= delta * GIT_DIFF_ROW * 3
+        }
+    case .Branches:
+        if rl.CheckCollisionPointRec(point, git_view_refs_list_rect(view)) {
+            view.refs_scroll -= delta * GIT_REF_ROW
+        }
+    case .Settings, .Hosting:
     }
     git_view_clamp_scrolls(view)
 }
@@ -885,9 +1255,76 @@ git_view_mouse_down :: proc(view: ^Git_View, ctx: ^ui.Context, point: rl.Vector2
     if git_view_click_sidebar(view, point) {
         return
     }
-    if view.kind == .Changes {
+    switch view.kind {
+    case .Changes:
         git_view_click_changes(view, point)
+    case .History:
+        git_view_click_history(view, point)
+    case .Branches:
+        git_view_click_branches(view, point)
+    case .Settings, .Hosting:
     }
+}
+
+@(private = "file")
+git_view_click_history :: proc(view: ^Git_View, point: rl.Vector2) {
+    index := git_view_commit_row_at(view, point)
+    if index < 0 {
+        if rl.CheckCollisionPointRec(point, git_view_diff_list_rect(view)) {
+            view.focus = .Diff
+        }
+        return
+    }
+    view.focus = .Files
+    if index >= len(view.commits) {
+        if view.cbs.on_load_more != nil {
+            view.cbs.on_load_more(view.data)
+        }
+        return
+    }
+    git_view_select_commit(view, index)
+}
+
+@(private = "file")
+git_view_click_branches :: proc(view: ^Git_View, point: rl.Vector2) {
+    index := git_view_ref_row_at(view, point)
+    if index < 0 {
+        return
+    }
+    view.focus = .Files
+    view.ref_sel = index
+
+    rows := make([dynamic]Git_Ref_Row, context.temp_allocator)
+    git_view_ref_rows(view, &rows)
+    row := rows[index]
+
+    // The stashes header carries a "Stash changes" action.
+    if row.header && row.kind == .Stash && !view.busy && view.cbs.on_stash != nil {
+        header := git_view_ref_row_rect(view, index)
+        if rl.CheckCollisionPointRec(point, git_view_section_action_rect(view, header, "Stash changes")) {
+            view.cbs.on_stash(view.data, .Save, "")
+            return
+        }
+    }
+
+    // A stash row's hover actions take the click before the row does.
+    if !row.header && view.refs[row.index].kind == .Stash && !view.busy && view.cbs.on_stash != nil {
+        apply, pop, drop := git_view_stash_action_rects(git_view_ref_row_rect(view, index))
+        name := view.refs[row.index].name
+        switch {
+        case rl.CheckCollisionPointRec(point, apply):
+            view.cbs.on_stash(view.data, .Apply, name)
+            return
+        case rl.CheckCollisionPointRec(point, pop):
+            view.cbs.on_stash(view.data, .Pop, name)
+            return
+        case rl.CheckCollisionPointRec(point, drop):
+            view.cbs.on_stash(view.data, .Drop, name)
+            return
+        }
+        return // a plain click on a stash row only selects
+    }
+    git_view_activate_ref(view, index)
 }
 
 @(private = "file")
@@ -951,7 +1388,7 @@ git_view_click_changes :: proc(view: ^Git_View, point: rl.Vector2) {
         }
     }
 
-    // File rows: the action box stages/unstages, the rest selects.
+    // File rows: the action boxes stage/unstage or discard, the rest selects.
     for staged in ([2]bool {false, true}) {
         index := git_view_file_row_at(view, staged, point)
         if index < 0 {
@@ -962,6 +1399,10 @@ git_view_click_changes :: proc(view: ^Git_View, point: rl.Vector2) {
         if rl.CheckCollisionPointRec(point, git_view_file_action_rect(row)) && !view.busy && view.cbs.on_stage != nil {
             list := staged ? &view.staged : &view.unstaged
             view.cbs.on_stage(view.data, list[index].path, !staged)
+            return
+        }
+        if !staged && rl.CheckCollisionPointRec(point, git_view_file_discard_rect(row)) && !view.busy && view.cbs.on_discard != nil {
+            view.cbs.on_discard(view.data, view.unstaged[index].path)
             return
         }
         git_view_select_file(view, staged, index)
@@ -1035,6 +1476,10 @@ git_view_destroy :: proc(widget: ^ui.Widget) {
     }
     delete(view.unstaged)
     delete(view.staged)
+    git_view_clear_commits(view)
+    delete(view.commits)
+    git_view_clear_refs(view)
+    delete(view.refs)
     git_view_free_diff(view)
     delete(view.branch)
     delete(view.status_line)

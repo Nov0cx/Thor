@@ -156,14 +156,89 @@ test_git_quote_path :: proc(t: ^testing.T) {
 // nothing when HEAD cannot resolve (unborn repo).
 @(test)
 test_git_snapshot_branch :: proc(t: ^testing.T) {
-    named := Git_Op_Job{branch_output = "master\n"}
+    named := Git_Op_Job{aux = {"master\n", "", ""}}
     testing.expect_value(t, git_snapshot_branch(&named), "master")
 
-    detached := Git_Op_Job{branch_output = "HEAD\n", head_output = "4a26066\n"}
+    detached := Git_Op_Job{aux = {"HEAD\n", "4a26066\n", ""}}
     testing.expect_value(t, git_snapshot_branch(&detached), "detached @ 4a26066")
 
-    unborn := Git_Op_Job{branch_output = "fatal: ambiguous argument 'HEAD'\n", branch_code = 128}
+    unborn := Git_Op_Job{aux = {"fatal: ambiguous argument 'HEAD'\n", "", ""}, aux_codes = {128, 0, 0}}
     testing.expect_value(t, git_snapshot_branch(&unborn), "")
+}
+
+// Control-character separators keep a record intact whatever the subject
+// holds; a malformed record is dropped, not misread.
+@(test)
+test_git_parse_log :: proc(t: ^testing.T) {
+    entries := make([dynamic]Git_Log_Entry)
+    defer git_log_entries_destroy(&entries)
+    output := "abc123\x1fabc\x1fAda\x1f2026-08-14\x1fHEAD -> master\x1ffix: a\x1fsubject\x1e" + // 7 fields: dropped
+        "def456\x1fdef\x1fBob\x1f2026-08-13\x1f\x1fadd \"quotes\" and\ttabs\x1e\n"
+    git_parse_log(output, &entries)
+
+    testing.expect_value(t, len(entries), 1)
+    testing.expect_value(t, entries[0].hash, "def456")
+    testing.expect_value(t, entries[0].short, "def")
+    testing.expect_value(t, entries[0].author, "Bob")
+    testing.expect_value(t, entries[0].date, "2026-08-13")
+    testing.expect_value(t, entries[0].refs, "")
+    testing.expect_value(t, entries[0].subject, "add \"quotes\" and\ttabs")
+}
+
+@(test)
+test_git_parse_branch_lines :: proc(t: ^testing.T) {
+    names := make([dynamic]string)
+    defer {
+        for name in names {
+            delete(name)
+        }
+        delete(names)
+    }
+    current := git_parse_branch_lines("feature\t \nmaster\t*\n", &names)
+
+    testing.expect_value(t, len(names), 2)
+    testing.expect_value(t, names[0], "feature")
+    testing.expect_value(t, names[1], "master")
+    testing.expect_value(t, current, "master")
+}
+
+// The remote listing carries the symbolic origin/HEAD entry, which is not a
+// branch anyone checks out.
+@(test)
+test_git_parse_name_lines_skip_head :: proc(t: ^testing.T) {
+    names := make([dynamic]string)
+    defer {
+        for name in names {
+            delete(name)
+        }
+        delete(names)
+    }
+    git_parse_name_lines("origin/HEAD\norigin/master\n\norigin/feature\n", &names)
+
+    testing.expect_value(t, len(names), 2)
+    testing.expect_value(t, names[0], "origin/master")
+    testing.expect_value(t, names[1], "origin/feature")
+}
+
+@(test)
+test_git_parse_stash_lines :: proc(t: ^testing.T) {
+    ids := make([dynamic]string)
+    subjects := make([dynamic]string)
+    defer {
+        for id in ids {
+            delete(id)
+        }
+        delete(ids)
+        for subject in subjects {
+            delete(subject)
+        }
+        delete(subjects)
+    }
+    git_parse_stash_lines("stash@{0}\tWIP on master: 4a26066 signing\nnot a stash line\n", &ids, &subjects)
+
+    testing.expect_value(t, len(ids), 1)
+    testing.expect_value(t, ids[0], "stash@{0}")
+    testing.expect_value(t, subjects[0], "WIP on master: 4a26066 signing")
 }
 
 @(private = "file")

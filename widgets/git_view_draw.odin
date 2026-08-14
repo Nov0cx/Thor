@@ -94,8 +94,14 @@ git_view_draw :: proc(widget: ^ui.Widget, _: ^ui.Context) {
     git_view_draw_sidebar(view, mouse)
     git_view_draw_header(view, mouse)
 
-    if view.kind == .Changes {
+    switch view.kind {
+    case .Changes:
         git_view_draw_changes(view, mouse)
+    case .History:
+        git_view_draw_history(view, mouse)
+    case .Branches:
+        git_view_draw_branches(view, mouse)
+    case .Settings, .Hosting:
     }
     git_view_draw_footer(view)
 }
@@ -251,7 +257,16 @@ git_view_draw_footer :: proc(view: ^Git_View) {
         color = git_view_tint(view.muted_color, 200)
     } else if text == "" {
         // The UI font carries no arrow glyphs, so the hint names the keys.
-        text = "Tab focus  ·  Space stage/unstage  ·  Ctrl+Enter commit  ·  Esc close"
+        switch view.kind {
+        case .Changes:
+            text = "Tab focus  ·  Space stage/unstage  ·  Ctrl+Enter commit  ·  Esc close"
+        case .History:
+            text = "Up/Down commits  ·  Esc close"
+        case .Branches:
+            text = "Up/Down navigate  ·  Enter check out  ·  Esc close"
+        case .Settings, .Hosting:
+            text = "Esc close"
+        }
     }
     text = git_view_fit_tail(text, 12, rect.width - 32)
     tw := ui.measure_text(text, 12)
@@ -359,17 +374,20 @@ git_view_draw_file_section :: proc(view: ^Git_View, staged: bool, mouse: rl.Vect
             status_color,
         )
 
-        // Name, leaving room for the hover action box.
+        // Name, leaving room for the hover action boxes.
         name_x := chip.x + chip.width + 8
         max_w := rect.x + rect.width - SETTINGS_ROW_PAD - name_x
         if hovered {
-            max_w -= 24
+            max_w -= staged ? 24 : 48
         }
         name := git_view_fit_tail(file.display, 14, max_w)
         ui.draw_text(name, cast(i32) name_x, cast(i32) (rect.y + (rect.height - 14) * 0.5), 14, view.text_color)
 
         if hovered && !view.busy {
             git_view_draw_icon_button(view, git_view_file_action_rect(rect), staged ? "minus" : "plus", 14, mouse)
+            if !staged {
+                git_view_draw_icon_button(view, git_view_file_discard_rect(rect), "trash", 14, mouse)
+            }
         }
     }
     ui.end_clip()
@@ -524,6 +542,205 @@ git_view_draw_commit_box :: proc(view: ^Git_View, mouse: rl.Vector2) {
         14,
         label_color,
     )
+}
+
+// ---- history view ----
+
+@(private = "file")
+git_view_draw_history :: proc(view: ^Git_View, mouse: rl.Vector2) {
+    list := git_view_commits_list_rect(view)
+    right := git_view_right_rect(view)
+    rl.DrawRectangleRec(
+        rl.Rectangle {right.x, right.y, 1, right.height}, git_view_tint(view.muted_color, 45),
+    )
+
+    if len(view.commits) == 0 {
+        ui.draw_text(
+            "No commits",
+            cast(i32) (list.x + SETTINGS_ITEM_INSET + 12),
+            cast(i32) (list.y + 8),
+            14,
+            git_view_tint(view.muted_color, 120),
+        )
+        git_view_draw_diff(view)
+        return
+    }
+
+    ui.begin_clip(list)
+    for commit, index in view.commits {
+        rect := git_view_commit_row_rect(view, index)
+        if rect.y + rect.height < list.y || rect.y > list.y + list.height {
+            continue
+        }
+        band := rl.Rectangle {
+            rect.x + SETTINGS_ITEM_INSET, rect.y + 2, rect.width - SETTINGS_ITEM_INSET * 2, rect.height - 4,
+        }
+        if index == view.commit_sel {
+            rl.DrawRectangleRounded(band, 0.35, 6, view.selected_color)
+        } else if rl.CheckCollisionPointRec(mouse, rect) {
+            rl.DrawRectangleRounded(band, 0.35, 6, git_view_tint(view.text_color, 10))
+        }
+
+        text_x := rect.x + SETTINGS_ITEM_INSET + 12
+        max_w := rect.width - SETTINGS_ITEM_INSET * 2 - 24
+
+        // Ref decorations as a pill after the subject.
+        subject_w := max_w
+        pill_label := ""
+        if commit.refs != "" {
+            pill_label = git_view_fit_tail(commit.refs, 11, 160)
+            subject_w -= cast(f32) ui.measure_text(pill_label, 11) + 24
+        }
+        subject := git_view_fit_tail(commit.subject, 14, subject_w)
+        ui.draw_text(subject, cast(i32) text_x, cast(i32) (rect.y + 7), 14, view.text_color)
+        if pill_label != "" {
+            pw := cast(f32) ui.measure_text(pill_label, 11)
+            pill := rl.Rectangle {text_x + cast(f32) ui.measure_text(subject, 14) + 10, rect.y + 6, pw + 12, 17}
+            rl.DrawRectangleRounded(pill, 0.5, 8, git_view_tint(view.accent_color, 32))
+            ui.draw_text(pill_label, cast(i32) (pill.x + 6), cast(i32) (pill.y + 3), 11, view.accent_color)
+        }
+
+        meta := fmt.tprintf("%s · %s · %s", commit.short, commit.author, commit.date)
+        ui.draw_text(git_view_fit_tail(meta, 12, max_w), cast(i32) text_x, cast(i32) (rect.y + 25), 12, view.muted_color)
+    }
+
+    // The "Load more" row after the last commit.
+    if view.commits_has_more {
+        rect := git_view_commit_row_rect(view, len(view.commits))
+        if rect.y <= list.y + list.height && rect.y + rect.height >= list.y {
+            label := "Load more..."
+            hover := rl.CheckCollisionPointRec(mouse, rect)
+            tw := ui.measure_text(label, 14)
+            ui.draw_text(
+                label,
+                cast(i32) (rect.x + (rect.width - cast(f32) tw) * 0.5),
+                cast(i32) (rect.y + (rect.height - 14) * 0.5),
+                14,
+                hover ? view.accent_color : view.muted_color,
+            )
+        }
+    }
+    ui.end_clip()
+
+    content := cast(f32) git_view_commit_row_count(view) * GIT_COMMIT_ROW
+    if track, thumb, ok := ui.scrollbar_rects(list, content, view.commits_scroll, GIT_SCROLLBAR_STYLE); ok {
+        rl.DrawRectangleRounded(track, 0.5, 4, git_view_tint(view.muted_color, 15))
+        rl.DrawRectangleRounded(thumb, 0.5, 4, git_view_tint(view.muted_color, 120))
+    }
+
+    git_view_draw_diff(view)
+}
+
+// ---- branches view ----
+
+@(private = "file")
+git_view_ref_kind_label :: proc(kind: Git_Ref_Kind) -> string {
+    switch kind {
+    case .Branch: return "BRANCHES"
+    case .Remote: return "REMOTES"
+    case .Tag:    return "TAGS"
+    case .Stash:  return "STASHES"
+    }
+    return ""
+}
+
+@(private = "file")
+git_view_ref_icon :: proc(kind: Git_Ref_Kind) -> string {
+    switch kind {
+    case .Branch, .Remote: return "git-branch"
+    case .Tag:             return "point"
+    case .Stash:           return "device-floppy"
+    }
+    return ""
+}
+
+@(private = "file")
+git_view_draw_branches :: proc(view: ^Git_View, mouse: rl.Vector2) {
+    list := git_view_refs_list_rect(view)
+    rows := make([dynamic]Git_Ref_Row, context.temp_allocator)
+    git_view_ref_rows(view, &rows)
+
+    ui.begin_clip(list)
+    for row, index in rows {
+        rect := git_view_ref_row_rect(view, index)
+        if rect.y + rect.height < list.y || rect.y > list.y + list.height {
+            continue
+        }
+        hovered := rl.CheckCollisionPointRec(mouse, rect)
+
+        if row.header {
+            chevron := view.ref_collapsed[row.kind] ? "chevron-right" : "chevron-down"
+            x := rect.x + SETTINGS_ITEM_INSET + 12
+            ui.draw_icon(chevron, cast(i32) x, cast(i32) (rect.y + (rect.height - 16) * 0.5), 16, view.accent_color)
+            ui.draw_text(
+                git_view_ref_kind_label(row.kind),
+                cast(i32) (x + 22),
+                cast(i32) (rect.y + (rect.height - 12) * 0.5),
+                12,
+                git_view_tint(view.muted_color, 200),
+            )
+            if row.kind == .Stash && !view.busy {
+                action := git_view_section_action_rect(view, rect, "Stash changes")
+                action_hover := rl.CheckCollisionPointRec(mouse, action)
+                if action_hover {
+                    rl.DrawRectangleRounded(action, 0.35, 6, git_view_tint(view.accent_color, 25))
+                }
+                ui.draw_text(
+                    "Stash changes",
+                    cast(i32) (action.x + 8),
+                    cast(i32) (action.y + (action.height - 12) * 0.5),
+                    12,
+                    action_hover ? view.accent_color : view.muted_color,
+                )
+            }
+            continue
+        }
+
+        ref := view.refs[row.index]
+        band := rl.Rectangle {
+            rect.x + SETTINGS_ITEM_INSET, rect.y + 1, rect.width - SETTINGS_ITEM_INSET * 2, rect.height - 2,
+        }
+        if index == view.ref_sel {
+            rl.DrawRectangleRounded(band, 0.35, 6, view.selected_color)
+        } else if hovered {
+            rl.DrawRectangleRounded(band, 0.35, 6, git_view_tint(view.text_color, 10))
+        }
+
+        x := rect.x + SETTINGS_ITEM_INSET + 12 + SETTINGS_GROUP_INDENT
+        icon_color := ref.current ? view.accent_color : view.muted_color
+        ui.draw_icon(git_view_ref_icon(ref.kind), cast(i32) x, cast(i32) (rect.y + (rect.height - 16) * 0.5), 16, icon_color)
+        x += 22
+
+        label := ref.name
+        if ref.kind == .Stash && ref.subject != "" {
+            label = fmt.tprintf("%s  %s", ref.name, ref.subject)
+        }
+        max_w := rect.x + rect.width - SETTINGS_ROW_PAD - x
+        if ref.kind == .Stash && hovered {
+            max_w -= 76
+        }
+        text_color := ref.current ? view.text_color : git_view_tint(view.text_color, 220)
+        ui.draw_text(git_view_fit_tail(label, 14, max_w), cast(i32) x, cast(i32) (rect.y + (rect.height - 14) * 0.5), 14, text_color)
+
+        if ref.current {
+            check_x := x + cast(f32) ui.measure_text(label, 14) + 8
+            ui.draw_icon("check", cast(i32) check_x, cast(i32) (rect.y + (rect.height - 14) * 0.5), 14, view.accent_color)
+        }
+
+        if ref.kind == .Stash && hovered && !view.busy {
+            apply, pop, drop := git_view_stash_action_rects(rect)
+            git_view_draw_icon_button(view, apply, "check", 14, mouse)
+            git_view_draw_icon_button(view, pop, "arrow-up", 14, mouse)
+            git_view_draw_icon_button(view, drop, "trash", 14, mouse)
+        }
+    }
+    ui.end_clip()
+
+    content := cast(f32) len(rows) * GIT_REF_ROW
+    if track, thumb, ok := ui.scrollbar_rects(list, content, view.refs_scroll, GIT_SCROLLBAR_STYLE); ok {
+        rl.DrawRectangleRounded(track, 0.5, 4, git_view_tint(view.muted_color, 15))
+        rl.DrawRectangleRounded(thumb, 0.5, 4, git_view_tint(view.muted_color, 120))
+    }
 }
 
 // A text field in the search box's clothes: darker fill, accent border and a

@@ -25,16 +25,26 @@ GIT_NETWORK_TIMEOUT :: 60 * time.Second
 GIT_DIFF_MAX_ROWS :: 5000
 
 Git_Op :: enum {
-    Snapshot,   // status -z + branch + upstream counts
-    Diff_File,  // unified diff of one path (arg), staged when flag is set
-    Stage,      // arg = repo-relative path
+    Snapshot,        // status -z + branch + upstream counts
+    Diff_File,       // unified diff of one path (arg), staged when flag is set
+    Log,             // arg = commit count
+    Commit_Show,     // arg = hash
+    Refs,            // branches + remotes + tags + stashes
+    Stage,           // arg = repo-relative path
     Unstage,
     Stage_All,
     Unstage_All,
-    Commit,     // arg = subject, arg2 = description, flag = amend
+    Discard,         // arg = repo-relative path
+    Commit,          // arg = subject, arg2 = description, flag = amend
     Fetch,
     Pull,
     Push,
+    Checkout,        // arg = branch or tag name
+    Checkout_Remote, // arg = remote branch ("origin/x"), makes a local "x"
+    Stash_Save,      // arg = optional message
+    Stash_Apply,     // arg = "stash@{N}"
+    Stash_Pop,
+    Stash_Drop,
 }
 
 // One git command run off-thread. cwd/arg/arg2 are cloned at dispatch so the
@@ -54,12 +64,11 @@ Git_Op_Job :: struct {
     output:     string,  // owned; main command output
     code:       int,
     ok:         bool,
-    // Snapshot only; owned.
-    branch_output:   string,  // rev-parse --abbrev-ref HEAD
-    branch_code:     int,
-    head_output:     string,  // rev-parse --short HEAD, when detached
-    upstream_output: string,  // rev-list --left-right --count @{upstream}...HEAD
-    upstream_code:   int,
+    // Secondary command outputs, owned; what each slot holds depends on the
+    // op — Snapshot: branch / short head / upstream counts, Refs: remote
+    // branches / tags / stash list.
+    aux:       [3]string,
+    aux_codes: [3]int,
 }
 
 // One changed path from `git status --porcelain -z`, assigned to the staged
@@ -101,7 +110,8 @@ thor_git_op :: proc(thor: ^Thor, op: Git_Op, arg := "", arg2 := "", flag := fals
     job.arg = strings.clone(arg)
     job.arg2 = strings.clone(arg2)
     job.flag = flag
-    if op == .Diff_File {
+    // Both fill the diff pane, so both race the same serial.
+    if op == .Diff_File || op == .Commit_Show {
         thor.git_diff_serial += 1
         job.serial = thor.git_diff_serial
     }
@@ -112,9 +122,10 @@ thor_git_op :: proc(thor: ^Thor, op: Git_Op, arg := "", arg2 := "", flag := fals
 
 git_op_is_mutation :: proc(op: Git_Op) -> bool {
     switch op {
-    case .Stage, .Unstage, .Stage_All, .Unstage_All, .Commit, .Fetch, .Pull, .Push:
+    case .Stage, .Unstage, .Stage_All, .Unstage_All, .Discard, .Commit, .Fetch, .Pull, .Push,
+         .Checkout, .Checkout_Remote, .Stash_Save, .Stash_Apply, .Stash_Pop, .Stash_Drop:
         return true
-    case .Snapshot, .Diff_File:
+    case .Snapshot, .Diff_File, .Log, .Commit_Show, .Refs:
         return false
     }
     return false
@@ -132,7 +143,11 @@ git_op_worker :: proc(job: ^Git_Op_Job) {
         git_run_diff_file(job)
     case .Commit:
         git_run_commit(job)
-    case .Stage, .Unstage, .Stage_All, .Unstage_All, .Fetch, .Pull, .Push:
+    case .Refs:
+        git_run_refs(job)
+    case .Stage, .Unstage, .Stage_All, .Unstage_All, .Discard, .Fetch, .Pull, .Push,
+         .Log, .Commit_Show, .Checkout, .Checkout_Remote,
+         .Stash_Save, .Stash_Apply, .Stash_Pop, .Stash_Drop:
         git_run_simple(job)
     }
 
@@ -141,14 +156,26 @@ git_op_worker :: proc(job: ^Git_Op_Job) {
     sync.unlock(&job.owner.io_mutex)
 }
 
+// Snapshot slots: aux[0] = rev-parse --abbrev-ref HEAD, aux[1] = short HEAD
+// hash (only when detached), aux[2] = upstream ahead/behind counts.
 @(private = "file")
 git_run_snapshot :: proc(job: ^Git_Op_Job) {
     job.output, job.code, job.ok = shell.run_status("git status --porcelain -z", job.cwd, GIT_LOCAL_TIMEOUT)
-    job.branch_output, job.branch_code, _ = shell.run_status("git rev-parse --abbrev-ref HEAD", job.cwd, GIT_LOCAL_TIMEOUT)
-    if strings.trim_space(job.branch_output) == "HEAD" {
-        job.head_output, _, _ = shell.run_status("git rev-parse --short HEAD", job.cwd, GIT_LOCAL_TIMEOUT)
+    job.aux[0], job.aux_codes[0], _ = shell.run_status("git rev-parse --abbrev-ref HEAD", job.cwd, GIT_LOCAL_TIMEOUT)
+    if strings.trim_space(job.aux[0]) == "HEAD" {
+        job.aux[1], job.aux_codes[1], _ = shell.run_status("git rev-parse --short HEAD", job.cwd, GIT_LOCAL_TIMEOUT)
     }
-    job.upstream_output, job.upstream_code, _ = shell.run_status("git rev-list --left-right --count @{upstream}...HEAD", job.cwd, GIT_LOCAL_TIMEOUT)
+    job.aux[2], job.aux_codes[2], _ = shell.run_status("git rev-list --left-right --count @{upstream}...HEAD", job.cwd, GIT_LOCAL_TIMEOUT)
+}
+
+// Refs slots: output = local branches, aux[0] = remote branches, aux[1] =
+// tags, aux[2] = stash list.
+@(private = "file")
+git_run_refs :: proc(job: ^Git_Op_Job) {
+    job.output, job.code, job.ok = shell.run_status("git branch --format=%(refname:short)%09%(HEAD)", job.cwd, GIT_LOCAL_TIMEOUT)
+    job.aux[0], job.aux_codes[0], _ = shell.run_status("git branch -r --format=%(refname:short)", job.cwd, GIT_LOCAL_TIMEOUT)
+    job.aux[1], job.aux_codes[1], _ = shell.run_status("git tag --list", job.cwd, GIT_LOCAL_TIMEOUT)
+    job.aux[2], job.aux_codes[2], _ = shell.run_status("git stash list --format=%gd%x09%gs", job.cwd, GIT_LOCAL_TIMEOUT)
 }
 
 @(private = "file")
@@ -219,19 +246,86 @@ git_run_simple :: proc(job: ^Git_Op_Job) {
     cmd: string
     timeout := GIT_LOCAL_TIMEOUT
     switch job.op {
-    case .Stage, .Unstage:
+    case .Stage, .Unstage, .Discard:
         quoted, quote_ok := git_quote_path(job.arg)
         if !quote_ok {
             job.output = strings.clone("unsupported character in path")
             job.code = -1
             return
         }
-        verb := job.op == .Stage ? "git add -- " : "git reset -q -- "
+        verb := "git add -- "
+        #partial switch job.op {
+        case .Unstage: verb = "git reset -q -- "
+        case .Discard: verb = "git checkout -- "
+        }
         cmd = strings.concatenate({verb, quoted}, context.temp_allocator)
     case .Stage_All:
         cmd = "git add -A"
     case .Unstage_All:
         cmd = "git reset -q"
+    case .Log:
+        // Control-character field/record separators survive any subject text;
+        // %x1f splits fields, %x1e ends a record.
+        cmd = strings.concatenate(
+            {"git log --date=short -n ", job.arg, " --format=%H%x1f%h%x1f%an%x1f%ad%x1f%D%x1f%s%x1e"},
+            context.temp_allocator,
+        )
+    case .Commit_Show:
+        quoted, quote_ok := git_quote_path(job.arg)
+        if !quote_ok {
+            job.output = strings.clone("unsupported hash")
+            job.code = -1
+            return
+        }
+        // --format= drops the header: the list row already carries it, so the
+        // output is the pure diff the row parser reads.
+        cmd = strings.concatenate({"git show --no-color --format= ", quoted}, context.temp_allocator)
+    case .Checkout:
+        quoted, quote_ok := git_quote_path(job.arg)
+        if !quote_ok {
+            job.output = strings.clone("unsupported character in name")
+            job.code = -1
+            return
+        }
+        cmd = strings.concatenate({"git checkout ", quoted}, context.temp_allocator)
+    case .Checkout_Remote:
+        // "origin/feature" -> local "feature" tracking it.
+        local := job.arg
+        if slash := strings.index_byte(local, '/'); slash >= 0 {
+            local = local[slash + 1:]
+        }
+        remote_quoted, remote_ok := git_quote_path(job.arg)
+        local_quoted, local_ok := git_quote_path(local)
+        if !remote_ok || !local_ok {
+            job.output = strings.clone("unsupported character in name")
+            job.code = -1
+            return
+        }
+        cmd = strings.concatenate({"git checkout -b ", local_quoted, " ", remote_quoted}, context.temp_allocator)
+    case .Stash_Save:
+        cmd = "git stash push"
+        if job.arg != "" {
+            quoted, quote_ok := git_quote_path(job.arg)
+            if !quote_ok {
+                job.output = strings.clone("unsupported character in message")
+                job.code = -1
+                return
+            }
+            cmd = strings.concatenate({"git stash push -m ", quoted}, context.temp_allocator)
+        }
+    case .Stash_Apply, .Stash_Pop, .Stash_Drop:
+        quoted, quote_ok := git_quote_path(job.arg)
+        if !quote_ok {
+            job.output = strings.clone("unsupported stash name")
+            job.code = -1
+            return
+        }
+        verb := "git stash apply "
+        #partial switch job.op {
+        case .Stash_Pop:  verb = "git stash pop "
+        case .Stash_Drop: verb = "git stash drop "
+        }
+        cmd = strings.concatenate({verb, quoted}, context.temp_allocator)
     case .Fetch:
         cmd = "git fetch --all --prune"
         timeout = GIT_NETWORK_TIMEOUT
@@ -241,7 +335,7 @@ git_run_simple :: proc(job: ^Git_Op_Job) {
     case .Push:
         cmd = "git push"
         timeout = GIT_NETWORK_TIMEOUT
-    case .Snapshot, .Diff_File, .Commit:
+    case .Snapshot, .Diff_File, .Commit, .Refs:
         return
     }
     job.output, job.code, job.ok = shell.run_status(cmd, job.cwd, timeout)
@@ -270,7 +364,20 @@ thor_apply_git_op :: proc(thor: ^Thor, job: ^Git_Op_Job) {
         if !stale && job.serial == thor.git_diff_serial {
             thor_git_push_diff(thor, job)
         }
-    case .Stage, .Unstage, .Stage_All, .Unstage_All, .Commit, .Fetch, .Pull, .Push:
+    case .Log:
+        if !stale {
+            thor_git_push_log(thor, job)
+        }
+    case .Commit_Show:
+        if !stale && job.serial == thor.git_diff_serial {
+            thor_git_push_diff(thor, job)
+        }
+    case .Refs:
+        if !stale {
+            thor_git_push_refs(thor, job)
+        }
+    case .Stage, .Unstage, .Stage_All, .Unstage_All, .Discard, .Commit, .Fetch, .Pull, .Push,
+         .Checkout, .Checkout_Remote, .Stash_Save, .Stash_Apply, .Stash_Pop, .Stash_Drop:
         thor.git_mutation_inflight = false
         thor_refresh_git_status(thor)
         if !stale {
@@ -287,9 +394,9 @@ git_op_free :: proc(job: ^Git_Op_Job) {
     delete(job.arg)
     delete(job.arg2)
     delete(job.output)
-    delete(job.branch_output)
-    delete(job.head_output)
-    delete(job.upstream_output)
+    for out in job.aux {
+        delete(out)
+    }
     free(job)
 }
 
@@ -322,12 +429,12 @@ thor_git_apply_mutation :: proc(thor: ^Thor, job: ^Git_Op_Job) {
 // Display branch for a snapshot: the branch name, "detached @ <hash>" on a
 // detached HEAD, "" when the branch could not be read (unborn repo).
 git_snapshot_branch :: proc(job: ^Git_Op_Job, allocator := context.temp_allocator) -> string {
-    if job.branch_code != 0 {
+    if job.aux_codes[0] != 0 {
         return ""
     }
-    branch := strings.trim_space(job.branch_output)
+    branch := strings.trim_space(job.aux[0])
     if branch == "HEAD" {
-        hash := strings.trim_space(job.head_output)
+        hash := strings.trim_space(job.aux[1])
         if hash == "" {
             return ""
         }
@@ -523,6 +630,109 @@ git_parse_hunk_starts :: proc(line: string) -> (old_start, new_start: int, ok: b
     new_start, _ = git_parse_range(parts[1][1:]) or_return
     ok = true
     return
+}
+
+// One record of the Log format. All owned.
+Git_Log_Entry :: struct {
+    hash:    string,
+    short:   string,
+    author:  string,
+    date:    string,
+    refs:    string,  // decorations ("HEAD -> master, origin/master"), "" for none
+    subject: string,
+}
+
+// Splits the %x1e-terminated, %x1f-separated log records. The separators are
+// control characters no subject can carry, so a multi-line or odd subject
+// cannot break a record.
+git_parse_log :: proc(output: string, out: ^[dynamic]Git_Log_Entry) {
+    rest := output
+    for {
+        end := strings.index_byte(rest, 0x1e)
+        if end < 0 {
+            break
+        }
+        record := strings.trim_space(rest[:end])
+        rest = rest[end + 1:]
+        parts := strings.split(record, "\x1f", context.temp_allocator)
+        if len(parts) != 6 {
+            continue
+        }
+        append(out, Git_Log_Entry {
+            hash = strings.clone(parts[0]),
+            short = strings.clone(parts[1]),
+            author = strings.clone(parts[2]),
+            date = strings.clone(parts[3]),
+            refs = strings.clone(strings.trim_space(parts[4])),
+            subject = strings.clone(parts[5]),
+        })
+    }
+}
+
+git_log_entries_destroy :: proc(entries: ^[dynamic]Git_Log_Entry) {
+    for entry in entries {
+        delete(entry.hash)
+        delete(entry.short)
+        delete(entry.author)
+        delete(entry.date)
+        delete(entry.refs)
+        delete(entry.subject)
+    }
+    delete(entries^)
+}
+
+// "name<TAB>*" lines from `git branch --format=%(refname:short)%09%(HEAD)`.
+// Cloned names appended to `out`; the current branch's name lands in
+// `current`, borrowed from `out`.
+git_parse_branch_lines :: proc(output: string, out: ^[dynamic]string) -> (current: string) {
+    it := output
+    for line in strings.split_lines_iterator(&it) {
+        trimmed := strings.trim_right_space(line)
+        if trimmed == "" {
+            continue
+        }
+        name := trimmed
+        is_current := false
+        if tab := strings.index_byte(trimmed, '\t'); tab >= 0 {
+            is_current = strings.trim_space(trimmed[tab + 1:]) == "*"
+            name = trimmed[:tab]
+        }
+        if name == "" {
+            continue
+        }
+        append(out, strings.clone(name))
+        if is_current {
+            current = out[len(out) - 1]
+        }
+    }
+    return
+}
+
+// Plain one-name-per-line output (tags, remote branches). Skips the symbolic
+// "origin/HEAD" entry a remote listing carries.
+git_parse_name_lines :: proc(output: string, out: ^[dynamic]string) {
+    it := output
+    for line in strings.split_lines_iterator(&it) {
+        name := strings.trim_space(line)
+        if name == "" || strings.has_suffix(name, "/HEAD") {
+            continue
+        }
+        append(out, strings.clone(name))
+    }
+}
+
+// "stash@{N}<TAB>subject" lines from `git stash list --format=%gd%x09%gs`.
+git_parse_stash_lines :: proc(output: string, ids, subjects: ^[dynamic]string) {
+    it := output
+    for line in strings.split_lines_iterator(&it) {
+        trimmed := strings.trim_space(line)
+        tab := strings.index_byte(trimmed, '\t')
+        if tab <= 0 {
+            continue
+        }
+        append(ids, strings.clone(trimmed[:tab]))
+        append(subjects, strings.clone(strings.trim_space(trimmed[tab + 1:])))
+    }
 }
 
 // Quotes one path for a shell command line. Windows command lines have no

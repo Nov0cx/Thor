@@ -399,6 +399,8 @@ thor_open_view_menu :: proc(data: rawptr, ctx: ^ui.Context, widget: ^ui.Widget) 
     widgets.menu_add(thor.menu, "Toggle Fullscreen", thor_cmd_toggle_fullscreen, thor)
     widgets.menu_add_separator(thor.menu)
     widgets.menu_add(thor.menu, "Git", thor_cmd_open_git_view, thor)
+    widgets.menu_add(thor.menu, "Git History", thor_cmd_open_git_history, thor)
+    widgets.menu_add(thor.menu, "Git Branches", thor_cmd_open_git_branches, thor)
     thor_open_dropdown(thor, thor.menu_view_button)
 }
 

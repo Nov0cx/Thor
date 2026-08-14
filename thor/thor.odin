@@ -306,6 +306,12 @@ Thor :: struct {
     git_ui_snapshot_inflight: bool,
     git_ui_snapshot_dirty: bool,
     git_mutation_inflight: bool,
+    // Commits the history view has asked for; "Load more" raises it.
+    git_log_count: int,
+    // Discard confirmation state: the path awaiting the answer and the prompt
+    // the palette borrows while it is open. Owned clones.
+    git_discard_path: string,
+    git_discard_prompt: string,
     // Language intelligence: in-client analyzers (and, later, an LSP subprocess)
     // behind one seam. Requests run on worker threads and are reaped each frame.
     lang_manager: lang.Manager,
@@ -798,6 +804,8 @@ shutdown :: proc(thor: ^Thor) {
     thor_clear_pending_open_folder(thor)
     delete(thor.git_branch)
     delete(thor.git_prefix)
+    delete(thor.git_discard_path)
+    delete(thor.git_discard_prompt)
     thor_clear_tasks(thor)
     delete(thor.active_task_name)
     delete(thor.pending_task_name)
