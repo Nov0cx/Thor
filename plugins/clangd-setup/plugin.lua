@@ -29,13 +29,21 @@ local function detect_os()
     return "linux"
 end
 
-local OS_NAME = detect_os()
+-- Resolved on first use, not at load: detect_os shells out, and every plugin
+-- doing that while loading adds a process spawn to startup.
+local os_name_cache
+local function os_name()
+    if not os_name_cache then
+        os_name_cache = detect_os()
+    end
+    return os_name_cache
+end
 
 -- First line of `where` (Windows) or `command -v` (POSIX), trimmed; "" when
 -- the binary is not found.
 local function which(bin)
     local out
-    if OS_NAME == "windows" then
+    if os_name() == "windows" then
         out = thor.exec("where " .. bin .. " 2>nul")
     else
         out = thor.exec("command -v " .. bin .. " 2>/dev/null")
@@ -44,7 +52,7 @@ local function which(bin)
 end
 
 local function install_command()
-    return SERVER.install[OS_NAME] or SERVER.install.any
+    return SERVER.install[os_name()] or SERVER.install.any
 end
 
 local function json_escape(s)
@@ -116,7 +124,7 @@ end
 
 thor.on_command("clangd-status", function()
     local path = which(SERVER.bin)
-    local out = "# " .. SERVER.label .. " Setup\n\nChecked against: `" .. OS_NAME .. "`\n\n" ..
+    local out = "# " .. SERVER.label .. " Setup\n\nChecked against: `" .. os_name() .. "`\n\n" ..
         (path ~= "" and ("found: `" .. path .. "`\n") or "not found on PATH\n")
     thor.doc(".thor/clangd-status.md", out, true)
 end)
@@ -129,7 +137,7 @@ thor.on_command("clangd-install", function()
 
     local command = install_command()
     if not command then
-        thor.print("\n[clangd-setup] " .. SERVER.label .. ": no automatic installer for " .. OS_NAME .. "\n" ..
+        thor.print("\n[clangd-setup] " .. SERVER.label .. ": no automatic installer for " .. os_name() .. "\n" ..
             (SERVER.hint and (SERVER.hint .. "\n") or ""))
         return
     end
@@ -150,7 +158,7 @@ end)
 local buildsystem = require "buildsystem"
 
 thor.on_command("clangd-configure", function()
-    buildsystem.configure({ which = which, add_task = add_task, os_name = OS_NAME })
+    buildsystem.configure({ which = which, add_task = add_task, os_name = os_name() })
 end)
 
 thor.menu("LSP Setup", {
