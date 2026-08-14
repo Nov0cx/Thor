@@ -256,7 +256,12 @@ text_load_icon_manifest :: proc(manifest_path: string) -> bool {
             if !glyph_ok || len(glyph) == 0 {
                 continue
             }
-            codepoint, _ := utf8.decode_rune_in_string(string(glyph))
+            // A real U+FFFD decodes with size 3, so only a failed decode is skipped.
+            codepoint, rune_size := utf8.decode_rune_in_string(string(glyph))
+            if codepoint == utf8.RUNE_ERROR && rune_size <= 1 {
+                log.warnf("Icon manifest %q: icon %q has an invalid glyph", manifest_path, name)
+                continue
+            }
             icon_map[strings.clone(name)] = Icon_Glyph {family = family_key, codepoint = codepoint}
             own_icons[strings.clone(name)] = codepoint
         }
