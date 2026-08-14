@@ -40,8 +40,8 @@ A plugin declares what it needs in `plugin.json` beside `plugin.lua`:
 
 ```json
 {
-    "name": "Git",
-    "permissions": ["exec", "write", "ui"]
+    "name": "Git LFS",
+    "permissions": ["exec", "ui"]
 }
 ```
 

@@ -166,6 +166,23 @@ buffer alone.
 | f12 | toggle borderless fullscreen |
 | (unbound) | toggle the editor split — see below |
 
+## Git
+
+The Git UI ("Git" in the top bar; the palette actions "Git: Open Git UI",
+"Git: History" and "Git: Branches" ship unbound — bindable as `open_git_gui`,
+`open_git_history`, `open_git_branches`). Inside the modal:
+
+| Binding | Action |
+| --- | --- |
+| tab | cycle files, diff, commit subject, description |
+| up / down | move the file, commit or branch selection |
+| space | stage / unstage the selected file |
+| enter | show the diff; check out the selected branch; edit the selected config value |
+| ctrl + enter | commit |
+| escape | leave a text field, then close the modal |
+
+See [Git](git.md) for the full tour.
+
 ## Editor split
 
 "View: Toggle Split Editor" (command palette, or the View menu) shows a second
