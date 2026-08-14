@@ -2,6 +2,8 @@
 
 - A Settings picker shows its title again. The header of a language server feature picker, such as `gopls — Hover`, was blank or held stray characters.
 - A Settings picker opens centered in the Settings window. It used to sit above it, over the editor.
+- The Meadow Dew theme reads clearly: syntax, status and interface text stay legible on the editor, the panels, a selection and a hovered row. Panel and menu text was almost white on a light surface.
+- Meadow Dew separates its surfaces more: stronger borders, and a distinct step between the editor, the panels, the title bar and an active control.
 
 # 2026.08.3
 
