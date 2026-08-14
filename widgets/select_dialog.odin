@@ -14,7 +14,7 @@ Select_Choice_Proc :: #type proc(data: rawptr, choice: string)
 // or an outside click reverts to the option that was active when it opened.
 Select_Dialog :: struct {
     using widget: ui.Widget,
-    title:        string,          // borrowed; owned by the caller
+    title:        string,          // owned copy
     // Row labels shown in the list, and the value handed to the callbacks for
     // each row. They differ when the display name isn't the persisted id (e.g.
     // a theme's "name" vs. its file base); values == options otherwise.
@@ -34,7 +34,8 @@ Select_Dialog :: struct {
     row_height:   f32,
     header_height: f32,
     max_rows:     int,
-    top_offset:   f32,
+    // Smallest gap kept to the top edge when the box is taller than the screen.
+    top_margin:   f32,
     backdrop_color:   rl.Color,
     background_color: rl.Color,
     border_color:     rl.Color,
@@ -62,7 +63,7 @@ select_dialog_create :: proc(id: string) -> ^Select_Dialog {
     dialog.row_height = 30
     dialog.header_height = 44
     dialog.max_rows = 12
-    dialog.top_offset = 90
+    dialog.top_margin = 10
     dialog.backdrop_color = rl.Color {0, 0, 0, 120}
     dialog.background_color = rl.Color {24, 26, 31, 250}
     dialog.header_color = rl.Color {31, 34, 51, 255}
@@ -91,7 +92,8 @@ select_dialog_set_colors :: proc(
 // Opens the picker over `labels`. `values` is the value passed to the callbacks
 // for each label (defaults to the labels themselves); `current` is matched
 // against it to pick the starting row. `preview` runs as the selection moves;
-// `commit` runs on confirm. Items are copied, so the caller keeps its slices.
+// `commit` runs on confirm. The title and the items are copied, so a caller can
+// pass temporary strings.
 select_dialog_open :: proc(
     dialog: ^Select_Dialog,
     ctx: ^ui.Context,
@@ -116,7 +118,11 @@ select_dialog_open :: proc(
         append(&dialog.values, strings.clone(value))
     }
 
-    dialog.title = title
+    // Cloned before the old one is freed: the caller can pass dialog.title back.
+    heading := strings.clone(title)
+    delete(dialog.title)
+    dialog.title = heading
+
     dialog.preview = preview
     dialog.commit = commit
     dialog.data = data
@@ -211,9 +217,11 @@ select_dialog_layout :: proc(widget: ^ui.Widget, bounds: rl.Rectangle) {
     width := min(dialog.width, bounds.width - 80)
     height := dialog.header_height + cast(f32) visible_rows * dialog.row_height + 10
 
+    // Centered: the picker opens over the settings modal, which is centered too,
+    // so it lands inside it and not above it.
     dialog.box = rl.Rectangle {
         x = bounds.x + (bounds.width - width) * 0.5,
-        y = bounds.y + dialog.top_offset,
+        y = max(bounds.y + dialog.top_margin, bounds.y + (bounds.height - height) * 0.5),
         width = width,
         height = height,
     }
@@ -374,5 +382,6 @@ select_dialog_destroy :: proc(widget: ^ui.Widget) {
     }
     delete(dialog.options)
     delete(dialog.values)
+    delete(dialog.title)
     free(dialog)
 }
