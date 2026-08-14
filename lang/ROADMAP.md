@@ -1240,7 +1240,12 @@ lowest latency.
       - *Stat-based validation* per request: re-`read_dir` the tree (cheap) and
         re-parse only files whose `modtime`/`size` differ, plus new files; drop
         deleted files. Correct with zero host coupling — the win is skipping the
-        parse for unchanged files.
+        parse for unchanged files. The walk is not free at 4000 files, so the
+        kinds that redraw as the user types (`INDEX_TYPING_KINDS` — signature
+        help, semantic tokens) reuse a walk younger than `INDEX_WALK_INTERVAL`
+        instead of repeating it. Every other kind walks, including completion:
+        a cross-file candidate list must show what the last request found.
+        `index_forget` and `index_clear` drop the stamp.
       - *Reindex on save*: the engine's `notify` slot marks one path stale
         (`index_forget`) — a fast path over the stat-walk. No file watcher exists,
         so external edits rely on the stat-walk.

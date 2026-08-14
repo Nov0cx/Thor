@@ -9,6 +9,7 @@ import "core:path/filepath"
 import "core:slice"
 import "core:strings"
 import "core:sync"
+import "core:time"
 
 import lang ".."
 import ts "../../vendor/odin-tree-sitter"
@@ -45,12 +46,27 @@ File_Entry :: struct {
 // the per-request Manager one that query results clone into.
 @(private)
 Symbol_Index :: struct {
-    mutex: sync.Mutex,
-    files: map[string]File_Entry, // keyed by the path exactly as os.read_dir spells it
-    root:  string,                // the workspace this was built for
-    built: bool,
-    alloc: runtime.Allocator,
+    mutex:  sync.Mutex,
+    files:  map[string]File_Entry, // keyed by the path exactly as os.read_dir spells it
+    root:   string,                // the workspace this was built for
+    built:  bool,
+    walked: time.Time,             // when the last complete walk ended; zero when none has
+    alloc:  runtime.Allocator,
 }
+
+// How long a walk of the workspace stands for the requests that fire while the
+// user types: they ask again on the next keystroke, so re-stat'ing thousands of
+// files for each one buys nothing. Every other kind walks, and a save
+// invalidates through index_forget.
+@(private)
+INDEX_WALK_INTERVAL :: 1 * time.Second
+
+// Kinds that redraw as the user types rather than answering a question the user
+// waits on, and so accept an index up to INDEX_WALK_INTERVAL old. Completion is
+// deliberately absent: a cross-file candidate list must show what the last
+// request would have found.
+@(private)
+INDEX_TYPING_KINDS :: bit_set[lang.Request_Kind]{.Signature_Help, .Semantic_Tokens}
 
 // Ensures the index reflects `req.workspace` on disk: a full rebuild when the
 // workspace changed, otherwise a re-`read_dir` that re-parses only the files
@@ -74,14 +90,19 @@ index_sync :: proc(e: ^Engine, parser: ts.Parser, req: ^lang.Request) {
         idx.files = make(map[string]File_Entry)
         idx.root = strings.clone(workspace)
         idx.built = true
+    } else if req.kind in INDEX_TYPING_KINDS &&
+       idx.walked != {} &&
+       time.since(idx.walked) < INDEX_WALK_INTERVAL {
+        return
     }
 
     seen := make(map[string]bool, 0, context.temp_allocator)
     count := 0
     index_sync_dir(e, parser, req, workspace, &seen, &count, 0)
     if lang.request_cancelled(req) {
-        return
+        return // stale, never wrong — and unstamped, so the next sync walks
     }
+    idx.walked = time.now()
 
     // Prune files that disappeared (collect first; can't delete while ranging).
     stale := make([dynamic]string, context.temp_allocator)
@@ -549,6 +570,9 @@ index_forget :: proc(e: ^Engine, path: string) {
         index_free_entry(idx, entry)
         delete_key(&idx.files, key)
         delete(key, idx.alloc)
+        // The entry is gone, so the next sync must walk to find the file again,
+        // however recently one ran.
+        idx.walked = {}
         return
     }
 }
@@ -567,4 +591,5 @@ index_clear :: proc(e: ^Engine) {
     idx.files = nil
     idx.root = ""
     idx.built = false
+    idx.walked = {}
 }
