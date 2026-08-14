@@ -135,24 +135,18 @@ thor_plugin_doc :: proc(host: rawptr, path: string, text: string, focus: bool) {
         return
     }
 
-    canonical := path
-    if abs, err := filepath.abs(path, context.temp_allocator); err == nil {
-        canonical = abs
-    }
-    for file, index in thor.open_files {
-        if file.path == canonical {
-            if file.loaded {
-                // Replace the buffer to match what we just wrote and keep it
-                // marked clean, so the refresh doesn't trigger an autosave.
-                textedit.set_text(&file.state, text)
-                file.saved_revision = file.state.revision
-            }
-            if focus {
-                thor_set_active_file(thor, index)
-                thor.ui_context.focused = &thor.editor.widget
-            }
-            return
+    if file, index := thor_find_open_file(thor, path); file != nil {
+        if file.loaded {
+            // Replace the buffer to match what we just wrote and keep it
+            // marked clean, so the refresh doesn't trigger an autosave.
+            textedit.set_text(&file.state, text)
+            file.saved_revision = file.state.revision
         }
+        if focus {
+            thor_set_active_file(thor, index)
+            thor.ui_context.focused = &thor.editor.widget
+        }
+        return
     }
 
     thor_open_file(thor, path)

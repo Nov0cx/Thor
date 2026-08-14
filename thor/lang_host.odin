@@ -1134,17 +1134,15 @@ thor_render_doc_in_pane :: proc(thor: ^Thor, path, text: string, pane: int) {
         thor_apply_split(thor)
     }
 
-    for file, index in thor.open_files {
-        if file.path == canonical {
-            if file.loaded {
-                textedit.set_text(&file.state, text)
-                file.saved_revision = file.state.revision
-            }
-            thor.pane_file[pane] = index
-            thor_bind_pane(thor, pane)
-            thor_sync_active_signal(thor)
-            return
+    if file, index := thor_find_open_file(thor, canonical); file != nil {
+        if file.loaded {
+            textedit.set_text(&file.state, text)
+            file.saved_revision = file.state.revision
         }
+        thor.pane_file[pane] = index
+        thor_bind_pane(thor, pane)
+        thor_sync_active_signal(thor)
+        return
     }
 
     // Not open yet: thor_open_file routes to the active pane, so borrow it
