@@ -159,10 +159,13 @@ piecetable_insert :: proc(pt: ^Piece_Table, pos: int, text: string) {
 
     add_start := len(pt.add)
     append(&pt.add, text)
-    pt.length += len(text)
     pt.stale = true
 
+    // Split first: split_at compares `pos` against pt.length, so the increment
+    // must land after it or an append at the end misses the end-of-buffer fast
+    // path and walks the whole piece list.
     index := piecetable_split_at(pt, pos)
+    pt.length += len(text)
     // The split's own hint is the true offset it landed on (pos itself may be
     // an out-of-range value split_at only clamped), so extend from that.
     at_split := pt.hint_index == index
