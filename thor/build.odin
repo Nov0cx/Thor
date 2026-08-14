@@ -328,7 +328,7 @@ thor_build_content :: proc(thor: ^Thor) {
     thor.editor = widgets.editor_create("editor")
     widgets.editor_set_colors(
         thor.editor,
-        thor.theme.primary_text_color,
+        thor.theme.text,
         thor.theme.muted_color,
         thor.theme.background,
         thor.theme.second_background,
@@ -348,7 +348,7 @@ thor_build_content :: proc(thor: ^Thor) {
     thor.editor2 = widgets.editor_create("editor2")
     widgets.editor_set_colors(
         thor.editor2,
-        thor.theme.primary_text_color,
+        thor.theme.text,
         thor.theme.muted_color,
         thor.theme.background,
         thor.theme.second_background,

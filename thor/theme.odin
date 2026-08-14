@@ -150,7 +150,7 @@ thor_apply_theme :: proc(thor: ^Thor) {
     for editor in ([]^widgets.Editor {thor.editor, thor.editor2}) {
         widgets.editor_set_colors(
             editor,
-            t.primary_text_color, t.muted_color, t.background, t.second_background, t.border, t.border, t.accent_color,
+            t.text, t.muted_color, t.background, t.second_background, t.border, t.border, t.accent_color,
         )
         widgets.editor_set_diagnostic_colors(editor, t.error_color, t.warning_color)
     }

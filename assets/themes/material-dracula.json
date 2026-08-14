@@ -3,7 +3,7 @@
     "colors": {
       "Background": "#282A36",
       "Foreground": "#F8F8F2",
-      "Text": "#6272A4",
+      "Text": "#F8F8F2",
       "Selection Background": "#44475A",
       "Selection Foreground": "#8BE9FD",
       "Buttons": "#393C4B",
@@ -11,7 +11,7 @@
       "Disabled": "#6272A4",
       "Contrast": "#191A21",
       "Active": "#44475A",
-      "Border": "#21222C",
+      "Border": "#646980",
       "Highlight": "#6272A4",
       "Tree": "#44475A50",
       "Notifications": "#1D2228",
