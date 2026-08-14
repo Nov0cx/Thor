@@ -22,7 +22,10 @@ Shape_Cache_Key :: struct {
 Shape_Cache_Entry :: struct {
     key:    Shape_Cache_Key, // cache-owned line
     glyphs: []Placed_Glyph,  // cache-owned
-    used:   u64,             // LRU stamp
+    // Recency list links, borrowed. Entries are heap-stable, so the list holds
+    // the LRU order without a stamp or a scan.
+    newer:  ^Shape_Cache_Entry,
+    older:  ^Shape_Cache_Entry,
 }
 
 // Draw-time shaping cache. Main thread only, like the rest of shape.odin, so
@@ -30,7 +33,39 @@ Shape_Cache_Entry :: struct {
 // an isolated instance instead of the shared package one.
 Shape_Cache :: struct {
     entries: map[Shape_Cache_Key]^Shape_Cache_Entry,
-    clock:   u64,
+    newest:  ^Shape_Cache_Entry, // most recently used, borrowed
+    oldest:  ^Shape_Cache_Entry, // eviction victim, borrowed
+}
+
+// Detaches an entry from the recency list.
+@(private = "file")
+shape_cache_unlink :: proc(cache: ^Shape_Cache, entry: ^Shape_Cache_Entry) {
+    if entry.older != nil {
+        entry.older.newer = entry.newer
+    } else {
+        cache.oldest = entry.newer
+    }
+    if entry.newer != nil {
+        entry.newer.older = entry.older
+    } else {
+        cache.newest = entry.older
+    }
+    entry.newer = nil
+    entry.older = nil
+}
+
+// Puts an unlinked entry at the most-recent end.
+@(private = "file")
+shape_cache_link_newest :: proc(cache: ^Shape_Cache, entry: ^Shape_Cache_Entry) {
+    entry.older = cache.newest
+    entry.newer = nil
+    if cache.newest != nil {
+        cache.newest.newer = entry
+    }
+    cache.newest = entry
+    if cache.oldest == nil {
+        cache.oldest = entry
+    }
 }
 
 // Draw-time cache; the one shape_place_line consults. Main thread only,
@@ -41,12 +76,12 @@ shape_cache: Shape_Cache
 // Cache lookup; a hit bumps the entry's recency and hands back its
 // cache-owned glyphs directly (no HarfBuzz, no itemizing).
 shape_cache_get :: proc(cache: ^Shape_Cache, key: Shape_Cache_Key) -> ([]Placed_Glyph, bool) {
-    cache.clock += 1
     entry, hit := cache.entries[key]
     if !hit {
         return nil, false
     }
-    entry.used = cache.clock
+    shape_cache_unlink(cache, entry)
+    shape_cache_link_newest(cache, entry)
     return entry.glyphs, true
 }
 
@@ -57,29 +92,23 @@ shape_cache_put :: proc(cache: ^Shape_Cache, key: Shape_Cache_Key, glyphs: []Pla
     if len(cache.entries) >= SHAPE_CACHE_CAPACITY {
         shape_cache_evict_oldest(cache)
     }
-    cache.clock += 1
     entry := new(Shape_Cache_Entry)
     entry.key = key
     entry.key.line = strings.clone(key.line)
     entry.glyphs = slice.clone(glyphs)
-    entry.used = cache.clock
+    shape_cache_link_newest(cache, entry)
     cache.entries[entry.key] = entry
     return entry.glyphs
 }
 
-// Oldest-first eviction: one linear scan over the capacity-bounded entry set,
-// amortized against the itemize+HarfBuzz-shape cost the triggering miss pays.
+// Drops the tail of the recency list.
 @(private = "file")
 shape_cache_evict_oldest :: proc(cache: ^Shape_Cache) {
-    oldest: ^Shape_Cache_Entry
-    for _, entry in cache.entries {
-        if oldest == nil || entry.used < oldest.used {
-            oldest = entry
-        }
-    }
+    oldest := cache.oldest
     if oldest == nil {
         return
     }
+    shape_cache_unlink(cache, oldest)
     delete_key(&cache.entries, oldest.key)
     delete(oldest.key.line)
     delete(oldest.glyphs)
@@ -102,9 +131,10 @@ shape_cache_clear :: proc(cache: ^Shape_Cache) {
     }
     delete(cache.entries)
     cache.entries = nil
+    cache.newest = nil
+    cache.oldest = nil
 }
 
 shape_cache_shutdown :: proc() {
     shape_cache_clear(&shape_cache)
-    shape_cache.clock = 0
 }
