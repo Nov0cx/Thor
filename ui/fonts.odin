@@ -380,7 +380,9 @@ text_set_default_family :: proc(name: string) -> bool {
 draw_icon :: proc(name: string, x, y, size: i32, color: rl.Color) {
     glyph, ok := icon_map[name]
     if !ok {
-        if !icon_warned[name] {
+        // Fonts are disabled when the arena failed to init; there is no
+        // allocator for the warn set then, and nothing draws either.
+        if font_allocator.procedure != nil && !icon_warned[name] {
             icon_warned[strings.clone(name, font_allocator)] = true
             log.warnf("Unknown icon %q", name)
         }
