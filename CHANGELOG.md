@@ -1,3 +1,8 @@
+# 2026.08.4
+
+- A Settings picker shows its title again. The header of a language server feature picker, such as `gopls — Hover`, was blank or held stray characters.
+- A Settings picker opens centered in the Settings window. It used to sit above it, over the editor.
+
 # 2026.08.3
 
 - A control explains itself when the cursor rests on it: the title bar buttons, the explorer and console toggles, a tab and its close box, a status bar segment, and an explorer row with its path and git state. The chord the control is bound to is under the text, read from the keybindings in force.
