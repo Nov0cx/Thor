@@ -261,6 +261,7 @@ Thor :: struct {
     finished_loads: [dynamic]^Load_Job,
     finished_saves: [dynamic]^Save_Job,
     finished_git: [dynamic]^Git_Status_Job,
+    finished_git_ops: [dynamic]^Git_Op_Job,
     finished_file_ops: [dynamic]^File_Op_Job,
     finished_shells: [dynamic]^Shell_Detect_Job,
     finished_file_index: [dynamic]^File_Index_Job,
@@ -294,6 +295,15 @@ Thor :: struct {
     git_status: map[string]widgets.Git_Status,
     git_status_inflight: bool,
     git_status_dirty: bool,  // a refresh was requested while one was running
+    // Git view op state (see git_ops.odin): the generation stamps every job so
+    // results from a closed view or an earlier workspace are dropped; the
+    // serial does the same for a superseded file diff; the snapshot flags
+    // coalesce like git_status_inflight/dirty; one mutation runs at a time.
+    git_ui_generation: int,
+    git_diff_serial: int,
+    git_ui_snapshot_inflight: bool,
+    git_ui_snapshot_dirty: bool,
+    git_mutation_inflight: bool,
     // Language intelligence: in-client analyzers (and, later, an LSP subprocess)
     // behind one seam. Requests run on worker threads and are reaped each frame.
     lang_manager: lang.Manager,
@@ -535,6 +545,7 @@ init :: proc() -> ^Thor {
     thor.finished_loads = make([dynamic]^Load_Job)
     thor.finished_saves = make([dynamic]^Save_Job)
     thor.finished_git = make([dynamic]^Git_Status_Job)
+    thor.finished_git_ops = make([dynamic]^Git_Op_Job)
     thor.finished_file_ops = make([dynamic]^File_Op_Job)
     thor.finished_shells = make([dynamic]^Shell_Detect_Job)
     thor.finished_file_index = make([dynamic]^File_Index_Job)
@@ -764,6 +775,7 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.finished_loads)
     delete(thor.finished_saves)
     delete(thor.finished_git)
+    delete(thor.finished_git_ops)
     delete(thor.finished_file_ops)
     delete(thor.finished_shells)
     delete(thor.finished_file_index)

@@ -226,7 +226,7 @@ git_put :: proc(out: ^map[string]widgets.Git_Status, abs: string, status: widget
     out[abs] = status
 }
 
-@(private = "file")
+@(private)
 git_valid_code :: proc(code: string) -> bool {
     for c in transmute([]u8) code {
         switch c {
@@ -238,7 +238,7 @@ git_valid_code :: proc(code: string) -> bool {
     return true
 }
 
-@(private = "file")
+@(private)
 git_status_from_code :: proc(code: string) -> widgets.Git_Status {
     // code is the 2-char XY field: X = staged (index), Y = worktree.
     if code == "??" {
@@ -354,7 +354,7 @@ git_parse_hunk_header :: proc(line: string) -> (old_count, new_start, new_count:
 
 // Parses "N" or "N,M" (a bare N means count 1, git's convention for a hunk
 // touching a single line). Rejects negative values, which the callers index with.
-@(private = "file")
+@(private)
 git_parse_range :: proc(s: string) -> (start, count: int, ok: bool) {
     if comma := strings.index_byte(s, ','); comma >= 0 {
         start = strconv.parse_int(s[:comma]) or_return

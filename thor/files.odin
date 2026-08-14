@@ -1143,6 +1143,7 @@ thor_process_io :: proc(thor: ^Thor) {
     loads := make([dynamic]^Load_Job, context.temp_allocator)
     saves := make([dynamic]^Save_Job, context.temp_allocator)
     git := make([dynamic]^Git_Status_Job, context.temp_allocator)
+    git_ops := make([dynamic]^Git_Op_Job, context.temp_allocator)
     ops := make([dynamic]^File_Op_Job, context.temp_allocator)
     shells := make([dynamic]^Shell_Detect_Job, context.temp_allocator)
     file_index := make([dynamic]^File_Index_Job, context.temp_allocator)
@@ -1157,6 +1158,9 @@ thor_process_io :: proc(thor: ^Thor) {
     }
     for job in thor.finished_git {
         append(&git, job)
+    }
+    for job in thor.finished_git_ops {
+        append(&git_ops, job)
     }
     for job in thor.finished_file_ops {
         append(&ops, job)
@@ -1173,6 +1177,7 @@ thor_process_io :: proc(thor: ^Thor) {
     clear(&thor.finished_loads)
     clear(&thor.finished_saves)
     clear(&thor.finished_git)
+    clear(&thor.finished_git_ops)
     clear(&thor.finished_file_ops)
     clear(&thor.finished_shells)
     clear(&thor.finished_file_index)
@@ -1286,6 +1291,10 @@ thor_process_io :: proc(thor: ^Thor) {
 
     for job in git {
         thor_apply_git_status(thor, job)
+    }
+
+    for job in git_ops {
+        thor_apply_git_op(thor, job)
     }
 
     for job in ops {
