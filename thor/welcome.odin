@@ -71,6 +71,10 @@ thor_close_workspace :: proc(thor: ^Thor) {
     )
 
     thor_welcome_refresh_recent(thor)
+    // The workspace's .thor/tips.json went away with it, and the floating card
+    // has no editor to float over.
+    thor.startup_tip_card.visible = false
+    thor_refresh_tip_cards(thor)
     thor_apply_layout_state(thor) // hides explorer/console, shows the welcome page
     thor_record_last_workspace("") // a bare launch later goes to the welcome page
 

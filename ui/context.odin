@@ -51,11 +51,14 @@ Context :: struct {
     // every Key_Press before focus dispatch; returning true consumes it.
     global_key:      Global_Key_Proc,
     global_key_data: rawptr,
+    // Hover explanations; see tooltip.odin.
+    tooltip:         Tooltip_State,
 }
 
 context_init :: proc(ctx: ^Context) {
     event_queue_init(&ctx.events)
     ctx.held = make([dynamic]Held_Key, 0, 8)
+    tooltip_init(&ctx.tooltip)
 }
 
 context_destroy :: proc(ctx: ^Context) {
@@ -69,6 +72,7 @@ context_destroy :: proc(ctx: ^Context) {
     event_queue_destroy(&ctx.events)
     delete(ctx.held)
     ctx.held = nil
+    tooltip_destroy(&ctx.tooltip)
 }
 
 // Drops every reference into `subtree`. Call before destroying it, or the hot,
@@ -87,6 +91,9 @@ context_forget :: proc(ctx: ^Context, subtree: ^Widget) {
     }
     ctx.hit_widget = nil
     ctx.hit_valid = false
+    // The dwell can name a widget in the subtree, and its anchor is that
+    // widget's bounds.
+    tooltip_clear(&ctx.tooltip)
 }
 
 // The widget a drag belongs to: the press target of the first held button in
@@ -146,6 +153,9 @@ context_draw :: proc(ctx: ^Context) {
     }
 
     widget_draw_tree(ctx.root, ctx)
+    // After the tree: the widgets just pushed their tooltip requests, and the
+    // box must land over every one of them.
+    tooltip_frame(ctx)
 }
 
 // Records a key as held. A key already in the list keeps the mapping its press

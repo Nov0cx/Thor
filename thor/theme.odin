@@ -190,6 +190,23 @@ thor_apply_theme :: proc(thor: ^Thor) {
     }
     // Theme-colored labels.
     widgets.label_set_text_color(thor.explorer_title_label, t.primary_text_color)
+    // Built with the welcome page, so both are nil while the first theme loads.
+    for card in ([]^widgets.Tip_Card{thor.welcome_tip_card, thor.startup_tip_card}) {
+        if card != nil {
+            widgets.tip_card_set_colors(
+                card,
+                t.second_background, t.border, t.primary_text_color, t.muted_color, t.accent_color,
+            )
+        }
+    }
+
+    ui.context_set_tooltip_style(&thor.ui_context, ui.Tooltip_Style {
+        background = t.second_background,
+        border     = t.border,
+        text       = t.primary_text_color,
+        hint       = t.muted_color,
+        font_size  = 15,
+    })
 
     // Syntax spans bake in theme colors, so every open file needs new ones. Only
     // mark them stale: the per-frame pane pass recolors the files on screen with

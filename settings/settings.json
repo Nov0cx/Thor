@@ -6,6 +6,8 @@
     "format_on_save": false,
     "format_on_type": false,
     "check_for_updates": true,
+    "tooltips": true,
+    "tip_of_the_day": true,
     "open_folder_in": "ask",
     "default_shell": "",
     "language_intelligence": true

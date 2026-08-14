@@ -1,0 +1,104 @@
+{
+    "tips": [
+        {
+            "title": "The command palette runs everything",
+            "body": "Every action in Thor is in the palette, with the chord it is bound to beside it. It is the fastest way to find a command whose name you only half remember.",
+            "action": "command_palette"
+        },
+        {
+            "title": "Open a file by its name",
+            "body": "Quick open searches the whole workspace by file name. Type a few letters of the path to narrow it further.",
+            "action": "quick_open"
+        },
+        {
+            "title": "Edit with more than one caret",
+            "body": "Ctrl and a click puts another caret in the buffer, and the chord below adds one on the line under the last. Every caret then types, moves and deletes together.",
+            "action": "add_cursor_below"
+        },
+        {
+            "title": "Select the next occurrence",
+            "body": "The first press selects the word under the caret, each one after that the next occurrence of it, with a caret of its own. Rename a local variable without leaving the keyboard.",
+            "action": "select_word"
+        },
+        {
+            "title": "Two files side by side",
+            "body": "The editor splits into two panes. Each pane keeps its own tab, so a header and its implementation stay on screen together.",
+            "action": "toggle_split"
+        },
+        {
+            "title": "Name your build commands",
+            "body": "Put the commands you run often in .thor/tasks.json. Each one gets a name in the title bar selector, and the chord below runs the selected one in the console.",
+            "action": "run_selected_task"
+        },
+        {
+            "title": "One shell per console tab",
+            "body": "The + in the console opens another terminal, from every shell found on the machine. Each shell stays alive between commands, so cd and environment variables persist.",
+            "action": "toggle_console"
+        },
+        {
+            "title": "Go to the definition",
+            "body": "Jumps to where the symbol under the caret is declared; ctrl and a click does the same. Thor analyzes Odin in the editor itself, and uses a language server for the other languages.",
+            "action": "goto_definition"
+        },
+        {
+            "title": "Go back where you came from",
+            "body": "The jump list remembers each place you jumped from, so a walk through several definitions retraces in the order you made it.",
+            "action": "jump_back"
+        },
+        {
+            "title": "Find every use of a symbol",
+            "body": "Lists everywhere the symbol under the caret is used. Rename Symbol in the palette then changes all of them at once, instead of one search and replace at a time.",
+            "action": "find_references"
+        },
+        {
+            "title": "Let the editor fix it",
+            "body": "Offers the code actions for the caret: the import a name needs, the unused declaration to drop, the fix for the error under it.",
+            "action": "code_actions"
+        },
+        {
+            "title": "Format the file you are in",
+            "body": "The Odin formatter is built in, so no external tool is needed. Turn on format_on_save in the settings to run it before every explicit save.",
+            "action": "format_document"
+        },
+        {
+            "title": "Read Markdown as a page",
+            "body": "Renders the Markdown file in the pane instead of showing its source. The manual under Help opens the same way.",
+            "action": "toggle_markdown_preview"
+        },
+        {
+            "title": "Fold what you are not reading",
+            "body": "Folds the block at the caret; the arrow beside a line number does the same with the mouse. A folded block stays folded while you work elsewhere in the file.",
+            "action": "toggle_fold"
+        },
+        {
+            "title": "Find the symbol, not the file",
+            "body": "Searches every symbol in the workspace by name. Go to Symbol does the same inside the file you are in.",
+            "action": "goto_workspace_symbol"
+        },
+        {
+            "title": "Comment out a block",
+            "body": "Comments the selected lines with the marker of their language, and uncomments them when they already carry it.",
+            "action": "toggle_line_comment"
+        },
+        {
+            "title": "Move a line without cutting it",
+            "body": "Carries the line, or the whole selection, past its neighbour. The duplicate chords leave a copy behind instead.",
+            "action": "move_line_up"
+        },
+        {
+            "title": "Every folder keeps its own session",
+            "body": "Thor remembers the open tabs and the panel layout per folder. Reopen the folder and you are back where you left it.",
+            "action": "open_folder"
+        },
+        {
+            "title": "Settings per workspace",
+            "body": "A .thor/ folder in the workspace overlays your own settings, keybindings, tasks and language servers. Only the keys it names change, so the rest still comes from your defaults.",
+            "action": "open_settings_gui"
+        },
+        {
+            "title": "Languages are plugins",
+            "body": "Each language is a small Lua plugin under plugins/. A workspace can carry its own in .thor/plugins, and Thor asks before it loads one.",
+            "action": ""
+        }
+    ]
+}

@@ -104,6 +104,7 @@ thor_build_plugin_panel :: proc(thor: ^Thor, p: ^Plugin_Panel) {
     thor_theme_icon_button(thor, close, thor.theme.highlight)
     widgets.button_set_on_click(close, thor_plugin_panel_close_click, p)
     close.min_size = rl.Vector2 {24, 20}
+    ui.widget_set_tooltip(&close.widget, "Close this panel")
 
     p.content = widgets.stack_create("plugin-panel-content", .Vertical)
     widgets.stack_set_gap(p.content, 6)

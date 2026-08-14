@@ -81,6 +81,8 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
     }
     widgets.settings_view_add_choice(view, "file_icon_pack", "File Icon Pack", file_icon_pack)
     widgets.settings_view_add_choice(view, "ligatures", "Ligatures", thor_ligatures_label(config))
+    widgets.settings_view_add_choice(view, "tooltips", "Tooltips", thor_on_off_label(setting.tooltips(config)))
+    widgets.settings_view_add_choice(view, "tip_of_the_day", "Tip of the Day", thor_on_off_label(setting.tip_of_the_day(config)))
     widgets.settings_view_add_choice(view, "format_on_save", "Format on Save", thor_on_off_label(setting.format_on_save(config)))
     widgets.settings_view_add_choice(view, "format_on_type", "Format on Type", thor_on_off_label(setting.format_on_type(config)))
 
@@ -219,6 +221,10 @@ thor_on_setting_choice :: proc(data: rawptr, id: string) {
         thor_cmd_change_file_icon_pack(thor)
     case "ligatures":
         thor_cmd_change_ligatures(thor)
+    case "tooltips":
+        thor_cmd_change_tooltips(thor)
+    case "tip_of_the_day":
+        thor_cmd_change_tip_of_the_day(thor)
     case "format_on_save":
         thor_cmd_change_format_on_save(thor)
     case "format_on_type":
@@ -416,6 +422,48 @@ thor_language_master_commit :: proc(data: rawptr, choice: string) {
         return
     }
     thor_reload_settings(thor)
+}
+
+// Settings row: the hover explanations. Nothing to preview — the dialog covers
+// the controls they would appear over.
+@(private = "file")
+thor_cmd_change_tooltips :: proc(thor: ^Thor) {
+    on := setting.tooltips(&thor.config)
+    widgets.select_dialog_open(
+        thor.select_dialog, &thor.ui_context, "Tooltips",
+        ON_OFF_LABELS[:], thor_on_off_label(on),
+        thor_tooltips_preview, thor_tooltips_commit, thor,
+    )
+}
+
+@(private = "file")
+thor_tooltips_preview :: proc(_: rawptr, _: string) {}
+
+@(private = "file")
+thor_tooltips_commit :: proc(data: rawptr, choice: string) {
+    thor := cast(^Thor) data
+    thor_persist_bool_setting(thor, "tooltips", choice == ON_OFF_LABELS[0])
+}
+
+// Settings row: the tip of the day. Off hides the welcome page card and keeps
+// the card over the editor closed. Nothing to preview — the next start shows it.
+@(private = "file")
+thor_cmd_change_tip_of_the_day :: proc(thor: ^Thor) {
+    on := setting.tip_of_the_day(&thor.config)
+    widgets.select_dialog_open(
+        thor.select_dialog, &thor.ui_context, "Tip of the Day",
+        ON_OFF_LABELS[:], thor_on_off_label(on),
+        thor_tip_of_the_day_preview, thor_tip_of_the_day_commit, thor,
+    )
+}
+
+@(private = "file")
+thor_tip_of_the_day_preview :: proc(_: rawptr, _: string) {}
+
+@(private = "file")
+thor_tip_of_the_day_commit :: proc(data: rawptr, choice: string) {
+    thor := cast(^Thor) data
+    thor_persist_bool_setting(thor, "tip_of_the_day", choice == ON_OFF_LABELS[0])
 }
 
 // Settings row: format the active buffer before every explicit save. Nothing

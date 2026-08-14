@@ -12,6 +12,8 @@ BUSY_PULSE_RATE :: 4.0
 Status_Info :: struct {
     branch:        string,
     file_name:     string,
+    // Full path of the file, for the file segment's hover explanation.
+    file_path:     string,
     language:      string,
     line:          int,
     column:        int,
@@ -110,8 +112,19 @@ statusbar_set_colors :: proc(statusbar: ^Statusbar, text, dim, background, accen
     return statusbar
 }
 
+// Draws one segment at `x` and returns where the next one starts. `tip` is the
+// hover explanation of the whole segment; the bar is one widget, so the segment
+// asks for it here, where its rectangle is known.
 @(private = "file")
-statusbar_draw_segment :: proc(statusbar: ^Statusbar, x: f32, icon: string, text: string, color: rl.Color) -> f32 {
+statusbar_draw_segment :: proc(
+    statusbar: ^Statusbar,
+    ctx: ^ui.Context,
+    x: f32,
+    icon: string,
+    text: string,
+    color: rl.Color,
+    tip := "",
+) -> f32 {
     cursor := x
     icon_y := cast(i32) (statusbar.bounds.y + (statusbar.bounds.height - cast(f32) statusbar.icon_size) * 0.5)
     text_y := cast(i32) (statusbar.bounds.y + (statusbar.bounds.height - cast(f32) statusbar.font_size) * 0.5)
@@ -124,7 +137,15 @@ statusbar_draw_segment :: proc(statusbar: ^Statusbar, x: f32, icon: string, text
         ui.draw_text(text, cast(i32) cursor, text_y, statusbar.font_size, color)
         cursor += cast(f32) ui.measure_text(text, statusbar.font_size)
     }
-    return cursor + 18
+
+    end := cursor + 18
+    if tip != "" && ctx.hot == &statusbar.widget {
+        rect := rl.Rectangle {x, statusbar.bounds.y, end - x, statusbar.bounds.height}
+        if rl.CheckCollisionPointRec(ctx.mouse_pos, rect) {
+            ui.tooltip_request(ctx, rect, tip)
+        }
+    }
+    return end
 }
 
 @(private = "file")
@@ -168,17 +189,18 @@ statusbar_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
     // Left side: branch, file, save state.
     x := statusbar.bounds.x + 12
     if info.branch != "" {
-        x = statusbar_draw_segment(statusbar, x, "git-branch", info.branch, statusbar.text_color)
+        x = statusbar_draw_segment(statusbar, ctx, x, "git-branch", info.branch, statusbar.text_color, "Git branch of the workspace")
     }
     if info.file_open {
-        x = statusbar_draw_segment(statusbar, x, "file", info.file_name, statusbar.text_color)
+        path := info.file_path != "" ? info.file_path : info.file_name
+        x = statusbar_draw_segment(statusbar, ctx, x, "file", info.file_name, statusbar.text_color, path)
 
         if info.saving {
-            x = statusbar_draw_segment(statusbar, x, "device-floppy", "Saving...", statusbar.dim_color)
+            x = statusbar_draw_segment(statusbar, ctx, x, "device-floppy", "Saving...", statusbar.dim_color, "The file is being written to disk")
         } else if info.modified {
-            x = statusbar_draw_segment(statusbar, x, "point", "Unsaved", statusbar.dim_color)
+            x = statusbar_draw_segment(statusbar, ctx, x, "point", "Unsaved", statusbar.dim_color, "The file has changes that are not saved")
         } else {
-            x = statusbar_draw_segment(statusbar, x, "circle-check", "Saved", statusbar.dim_color)
+            x = statusbar_draw_segment(statusbar, ctx, x, "circle-check", "Saved", statusbar.dim_color, "The file agrees with the copy on disk")
         }
     }
 
@@ -188,20 +210,20 @@ statusbar_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
         color := statusbar.dim_color
         pulse := 0.5 + 0.5 * math.sin(rl.GetTime() * BUSY_PULSE_RATE)
         color.a = cast(u8) (140 + 115 * pulse)
-        x = statusbar_draw_segment(statusbar, x, "loader-2", info.busy_message, color)
+        x = statusbar_draw_segment(statusbar, ctx, x, "loader-2", info.busy_message, color)
     }
 
     // Relative-line jump being typed, so the count reads back before it runs.
     if info.jump_active {
         jump := fmt.tprintf("Jump %d %s", info.jump_count, info.jump_up ? "up" : "down")
-        x = statusbar_draw_segment(statusbar, x, "", jump, statusbar.accent_color)
+        x = statusbar_draw_segment(statusbar, ctx, x, "", jump, statusbar.accent_color)
     }
 
     // Transient notice; errors in red, everything else accented, so it stands
     // out against the segments.
     if info.message != "" {
         color := info.is_error ? statusbar.error_color : statusbar.accent_color
-        x = statusbar_draw_segment(statusbar, x, "", info.message, color)
+        x = statusbar_draw_segment(statusbar, ctx, x, "", info.message, color)
     }
 
     // Right side: cursor position, encoding, language.
@@ -211,16 +233,16 @@ statusbar_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
         right := statusbar.bounds.x + statusbar.bounds.width - 12
         if info.language != "" {
             right -= statusbar_segment_width(statusbar, "", info.language)
-            statusbar_draw_segment(statusbar, right, "", info.language, statusbar.text_color)
+            statusbar_draw_segment(statusbar, ctx, right, "", info.language, statusbar.text_color, "Language of the file, and the syntax it colors with")
         }
         if info.indent_width > 0 {
             label := info.indent_spaces ? "Spaces" : "Tab Size"
             indent := fmt.tprintf("%s: %d", label, info.indent_width)
             right -= statusbar_segment_width(statusbar, "", indent)
-            statusbar_draw_segment(statusbar, right, "", indent, statusbar.dim_color)
+            statusbar_draw_segment(statusbar, ctx, right, "", indent, statusbar.dim_color, "Indentation the file is written with")
         }
         right -= statusbar_segment_width(statusbar, "", "UTF-8")
-        statusbar_draw_segment(statusbar, right, "", "UTF-8", statusbar.dim_color)
+        statusbar_draw_segment(statusbar, ctx, right, "", "UTF-8", statusbar.dim_color, "Text encoding of the file")
         // Clickable, so it lights up under the cursor to say so.
         if info.line_ending != "" {
             width := statusbar_segment_width(statusbar, "", info.line_ending)
@@ -233,15 +255,15 @@ statusbar_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
                rl.CheckCollisionPointRec(ctx.mouse_pos, statusbar.line_ending_bounds) {
                 color = statusbar.accent_color
             }
-            statusbar_draw_segment(statusbar, right, "", info.line_ending, color)
+            statusbar_draw_segment(statusbar, ctx, right, "", info.line_ending, color, "Line endings on disk. Click to change them")
         }
         if info.zoom > 0 {
             zoom := fmt.tprintf("%d%%", info.zoom)
             right -= statusbar_segment_width(statusbar, "", zoom)
-            statusbar_draw_segment(statusbar, right, "", zoom, statusbar.dim_color)
+            statusbar_draw_segment(statusbar, ctx, right, "", zoom, statusbar.dim_color, "Editor zoom, against the font size in the settings")
         }
         right -= statusbar_segment_width(statusbar, "", position)
-        statusbar_draw_segment(statusbar, right, "", position, statusbar.text_color)
+        statusbar_draw_segment(statusbar, ctx, right, "", position, statusbar.text_color, "Line and column of the caret")
     }
 }
 

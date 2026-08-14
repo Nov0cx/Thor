@@ -1,3 +1,12 @@
+# 2026.08.3
+
+- A control explains itself when the cursor rests on it: the title bar buttons, the explorer and console toggles, a tab and its close box, a status bar segment, and an explorer row with its path and git state. The chord the control is bound to is under the text, read from the keybindings in force.
+- `tooltips` setting, and a Settings row under Appearance, turns the hover explanations off.
+- The welcome page carries a tip of the day, with the chord it is about resolved from your own keybindings. The arrows on the card step through the rest.
+- With a folder open, where there is no welcome page, the same card floats in the corner of the editor on the first start of each day. Its close box shuts it, and the line under it turns tips off for good.
+- `tip_of_the_day` setting, and a Settings row under Appearance, turns the tip of the day off.
+- `settings/tips.json` holds the tips. `user/tips.json` and a workspace `.thor/tips.json` add their own to the shipped set instead of replacing it.
+
 # 2026.08.2
 
 - Settings changed in the editor are kept in `user/*.json` beside the binary. A build and an update replace `settings/*.json`, which lost every change made in the Settings view; `user/` is left alone. An older install carries its `settings/` over on the first update.

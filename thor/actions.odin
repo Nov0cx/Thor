@@ -165,6 +165,11 @@ thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
         return false
     }
 
+    // Escape closes the tip of the day before anything else reads it.
+    if event.key == .ESCAPE && event.mods == {} && thor_tip_close_on_escape(thor) {
+        return true
+    }
+
     // User-bound app/file/view commands (unbound by default). Checked here so a
     // bound chord fires regardless of focus, like the built-in binds below.
     if thor_dispatch_app_bind(thor, event) {

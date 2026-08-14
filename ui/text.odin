@@ -509,6 +509,53 @@ measure_text :: proc(text: string, font_size: i32, family := "", tab_origin: i32
     return cast(i32) max_width
 }
 
+// Breaks `text` into lines no wider than `max_width`, at spaces. An embedded
+// newline always breaks; a single word wider than the limit keeps its own line
+// instead of being dropped. Lines point into `text`, so they live as long as it
+// does; only the slice is allocated.
+wrap_text :: proc(
+    text: string,
+    max_width: f32,
+    font_size: i32,
+    family := "",
+    allocator := context.temp_allocator,
+) -> []string {
+    lines := make([dynamic]string, allocator)
+    source := text
+
+    for paragraph in strings.split_lines_iterator(&source) {
+        if paragraph == "" {
+            append(&lines, paragraph)
+            continue
+        }
+
+        line_start := 0
+        // Byte after the last word placed on the current line, so a break drops
+        // the space between the two words instead of leading the next line.
+        line_end := 0
+        word_start := 0
+
+        for i := 0; i <= len(paragraph); i += 1 {
+            if i < len(paragraph) && paragraph[i] != ' ' {
+                continue
+            }
+
+            word_end := i
+            candidate := paragraph[line_start:word_end]
+            if line_end > line_start && cast(f32) measure_text(candidate, font_size, family) > max_width {
+                append(&lines, paragraph[line_start:line_end])
+                line_start = word_start
+            }
+            line_end = word_end
+            word_start = i + 1
+        }
+
+        append(&lines, paragraph[line_start:line_end])
+    }
+
+    return lines[:]
+}
+
 // See measure_text for `tab_origin`.
 draw_text :: proc(text: string, x, y, font_size: i32, color: rl.Color, family := "", tab_origin: i32 = 0) {
     if text == "" {

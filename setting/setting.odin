@@ -55,6 +55,11 @@ General :: struct {
     // Ask GitHub for a newer release shortly after start, at most once a day.
     // On by default; Help > Check for Updates asks whatever this holds.
     check_for_updates: bool,
+    // Show the hover explanation of a control after a short dwell. On by default.
+    tooltips:          bool,
+    // Show the tip of the day: the card on the welcome page, and the one that
+    // opens over the editor on the first start of a day. On by default.
+    tip_of_the_day:    bool,
     // Language intelligence: the master switch and the features still allowed
     // under it, read from the "language_intelligence" entry. Both are on by
     // default; the editor pushes them onto lang.Manager, which enforces them.
@@ -111,12 +116,26 @@ Open_Folder_In :: enum {
     New,
 }
 
+// One entry of tips.json: a short lesson the welcome page shows, one a day.
+Tip :: struct {
+    title:  string, // owned
+    body:   string, // owned
+    // The keybinds.json action the tip is about ("command_palette"), never a
+    // chord: the reader resolves it against the keybinds in force, so a rebind
+    // shows the new chord. Owned; "" for a tip with no action of its own.
+    action: string,
+}
+
 Settings :: struct {
     // File extension (".odin") -> line-comment marker ("//").
     comments: map[string]string,
     // Action name ("toggle_line_comment") -> bound chord.
     keybinds: map[string]Keybind,
     general:  General,
+    // The tips of every config layer, in load order. Layers append here rather
+    // than overlay: a workspace adds its own tips, it does not hide the shipped
+    // ones. Owned.
+    tips:     [dynamic]Tip,
 }
 
 // Reads comments.json and keybinds.json from dir. Always returns an
@@ -125,6 +144,7 @@ load :: proc(dir: string) -> Settings {
     s: Settings
     s.comments = make(map[string]string)
     s.keybinds = make(map[string]Keybind)
+    s.tips = make([dynamic]Tip)
     s.general = General {
         tab_width         = 4,
         font_size         = 18,
@@ -133,6 +153,8 @@ load :: proc(dir: string) -> Settings {
         format_on_save    = false,
         format_on_type    = false,
         check_for_updates = true,
+        tooltips          = true,
+        tip_of_the_day    = true,
         language_enabled  = true,
         language_features = lang.FEATURES_ALL,
         language_backends = make(map[string]Backend_Setting),
@@ -153,6 +175,7 @@ load_dir :: proc(s: ^Settings, dir: string) {
     load_comments(s, strings.concatenate({dir, "/comments.json"}, context.temp_allocator))
     load_keybinds(s, strings.concatenate({dir, "/keybinds.json"}, context.temp_allocator))
     load_general(s, strings.concatenate({dir, "/settings.json"}, context.temp_allocator))
+    load_tips(s, strings.concatenate({dir, "/tips.json"}, context.temp_allocator))
 }
 
 destroy :: proc(s: ^Settings) {
@@ -178,6 +201,14 @@ destroy :: proc(s: ^Settings) {
         delete(key)
     }
     delete(s.general.language_backends)
+
+    for tip in s.tips {
+        delete(tip.title)
+        delete(tip.body)
+        delete(tip.action)
+    }
+    delete(s.tips)
+    s.tips = nil
 }
 
 // Line-comment marker for a file, or "" when the language is unknown (which
@@ -261,6 +292,17 @@ format_on_type :: proc(s: ^Settings) -> bool {
 // Whether Thor asks GitHub for a newer release in the background.
 check_for_updates :: proc(s: ^Settings) -> bool {
     return s.general.check_for_updates
+}
+
+// Whether a control explains itself when the cursor rests on it.
+tooltips :: proc(s: ^Settings) -> bool {
+    return s.general.tooltips
+}
+
+// Whether the tip of the day is shown. Off hides the welcome page card and
+// keeps the card over the editor closed; tips.json is still read.
+tip_of_the_day :: proc(s: ^Settings) -> bool {
+    return s.general.tip_of_the_day
 }
 
 // Whether language intelligence runs at all. Off makes every backend silent,
@@ -748,6 +790,48 @@ load_comments :: proc(s: ^Settings, path: string) {
     }
 }
 
+// Reads tips.json: {"tips": [{"title": ..., "body": ..., "action": ...}]}.
+// Appends, so the shipped tips come first and a user/ or workspace file adds to
+// them. An entry with no title or no body is skipped; a half tip would show as
+// a blank card.
+@(private)
+load_tips :: proc(s: ^Settings, path: string) {
+    root, ok := parse_object(path)
+    if !ok {
+        return
+    }
+    read_tips(s, root, path)
+}
+
+// The tips of one already-parsed file. `path` only names the file in a warning.
+@(private)
+read_tips :: proc(s: ^Settings, root: json.Object, path: string) {
+    entries, entries_ok := root["tips"].(json.Array)
+    if !entries_ok {
+        log.warnf("Settings %q: no \"tips\" array", path)
+        return
+    }
+
+    for value in entries {
+        entry, entry_ok := value.(json.Object)
+        if !entry_ok {
+            continue
+        }
+        title, title_ok := entry["title"].(json.String)
+        body, body_ok := entry["body"].(json.String)
+        if !title_ok || !body_ok || title == "" || body == "" {
+            log.warnf("Settings %q: a tip has no \"title\" or no \"body\"", path)
+            continue
+        }
+        action, _ := entry["action"].(json.String)
+        append(&s.tips, Tip {
+            title  = strings.clone(string(title)),
+            body   = strings.clone(string(body)),
+            action = strings.clone(string(action)),
+        })
+    }
+}
+
 // Inserts or overwrites a comment marker, reusing the owned key and freeing the
 // old value on overwrite so an overlay does not leak.
 @(private)
@@ -777,6 +861,8 @@ load_general :: proc(s: ^Settings, path: string) {
     read_bool(root, "format_on_save", &s.general.format_on_save)
     read_bool(root, "format_on_type", &s.general.format_on_type)
     read_bool(root, "check_for_updates", &s.general.check_for_updates)
+    read_bool(root, "tooltips", &s.general.tooltips)
+    read_bool(root, "tip_of_the_day", &s.general.tip_of_the_day)
     read_string(root, "open_folder_in", &s.general.open_folder_in)
     read_string(root, "default_shell", &s.general.default_shell)
     read_language(s, root)

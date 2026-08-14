@@ -6,6 +6,8 @@ import "../ui"
 
 Tab_Info :: struct {
     name:     string,
+    // Hover explanation, usually the file's path. Borrowed for the frame.
+    tooltip:  string,
     modified: bool,
     loading:  bool,
 }
@@ -312,6 +314,11 @@ tabbar_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
         // Right slot: close x when hovered, otherwise the modified dot or a
         // loading spinner glyph; empty when the file is clean.
         close_hovered := hovered && rl.CheckCollisionPointRec(state.ctx.mouse_pos, close_rect)
+        if close_hovered {
+            ui.tooltip_request(state.ctx, close_rect, "Close Tab")
+        } else if hovered {
+            ui.tooltip_request(state.ctx, rect, info.tooltip)
+        }
         icon_x := cast(i32) (close_rect.x + (close_rect.width - cast(f32) tabbar.icon_size) * 0.5)
         icon_y := cast(i32) (close_rect.y + (close_rect.height - cast(f32) tabbar.icon_size) * 0.5)
 

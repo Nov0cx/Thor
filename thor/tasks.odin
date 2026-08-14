@@ -217,6 +217,7 @@ thor_sync_task_selector :: proc(thor: ^Thor) {
         TASK_SELECTOR_MIN_WIDTH,
         TASK_SELECTOR_MAX_WIDTH,
     )
+    thor_sync_task_tooltip(thor)
 }
 
 // ---------------------------------------------------------------------------

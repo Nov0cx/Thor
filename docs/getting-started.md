@@ -73,10 +73,18 @@ active. The first folder becomes the workspace; a second folder argument is
 ignored, because one window holds one workspace. Use `File > Open Folder...`
 with `open_folder_in` set to `new` to get a second folder in its own window.
 
-A bare `thor` with no past session opens a welcome page instead: `Open
-Folder`, `Open File` and a list of recently opened workspaces. `File > Close
-Workspace` returns to it from an open workspace, and a later bare launch comes
-back to the welcome page too.
+A bare `thor` with no past session opens a welcome page instead: a tip of the
+day, `Open Folder`, `Open File` and a list of recently opened workspaces. `File
+> Close Workspace` returns to it from an open workspace, and a later bare launch
+comes back to the welcome page too.
+
+The tip card carries one tip a day, with the chord it is about read from your
+own keybindings. The arrows on it step through the rest, and `tips.json` holds
+them (see [Configuration](configuration.md)).
+
+With a folder open there is no welcome page, so the same card floats in the
+corner of the editor on the first start of each day. `✕` closes it for now, the
+line under it turns tips off for good, and so does the `tip_of_the_day` setting.
 
 Inside the editor, `File > Open Folder...` switches the workspace and
 `File > Open File...` opens a file from anywhere; dropping a folder or files on
@@ -101,6 +109,10 @@ says so when none is available (Wayland has no equivalent).
   tab strip lists the shells found on the machine.
 - **Command palette** (`ctrl + .`) — fuzzy-search and run any action Thor
   exposes; every keybinding below is also a command here.
+
+Rest the cursor on a control to see what it does: the title bar buttons, a tab,
+a status bar segment and an explorer row all explain themselves, with the chord
+they are bound to under the text. The `tooltips` setting turns this off.
 
 For Odin, hover a symbol with `ctrl` held to see its declaration, `alt + enter`
 (or `ctrl + click`) to jump to its definition, and `ctrl + shift + u` for the

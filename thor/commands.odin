@@ -185,6 +185,10 @@ thor_apply_settings :: proc(thor: ^Thor) {
     textedit.set_default_tab_width(setting.tab_width(&thor.config))
     ui.shape_set_tab_width(setting.tab_width(&thor.config))
     ui.shape_set_ligatures(setting.ligatures(&thor.config))
+    ui.context_set_tooltips_enabled(&thor.ui_context, setting.tooltips(&thor.config))
+    // After the chords above are resolved: each tooltip carries the one its
+    // control is bound to.
+    thor_apply_tooltips(thor)
     thor_apply_language_settings(thor)
 }
 
@@ -224,6 +228,8 @@ thor_reload_settings :: proc(thor: ^Thor) {
 
     thor_apply_settings(thor)
     thor_load_tasks(thor)
+    // The tips and the chords they name both came from the config just replaced.
+    thor_refresh_tip_cards(thor)
     thor_settings_mark_clean(thor)
     if widgets.settings_view_is_open(thor.settings_view) {
         thor_populate_settings_view(thor)
@@ -322,8 +328,8 @@ thor_quick_open :: proc(thor: ^Thor) {
     widgets.command_palette_open_files(thor.command_palette, &thor.ui_context)
 }
 
-// Chord label for a keybind action; "" when unbound (no shortcut shown).
-@(private = "file")
+// Chord label for a keybind action; "" when unbound (no shortcut shown). Also
+// the dim second line of a control's tooltip, see thor_apply_tooltips.
 thor_action_shortcut :: proc(thor: ^Thor, action: string) -> string {
     if kb, ok := setting.keybind(&thor.config, action); ok {
         return setting.keybind_to_string(kb, context.temp_allocator)

@@ -380,3 +380,64 @@ test_parse_keybind_refuses_an_unknown_token :: proc(t: ^testing.T) {
     testing.expect(t, cleared, "an empty spec is an explicit unbind")
     testing.expect(t, unbind.key == .KEY_NULL, "an unbind must leave the key unset")
 }
+
+// Layers one tips.json body onto `s`, the way load_dir does per config layer.
+@(private = "file")
+apply_tips_json :: proc(t: ^testing.T, s: ^Settings, body: string) {
+    value, err := json.parse(transmute([]u8) body, allocator = context.temp_allocator)
+    if !testing.expectf(t, err == .None, "test JSON did not parse: %v", err) {
+        return
+    }
+    root, ok := value.(json.Object)
+    if !testing.expect(t, ok, "test JSON is not an object") {
+        return
+    }
+    read_tips(s, root, "tips.json")
+}
+
+// Tips append across the config layers instead of overlaying: a workspace adds
+// its own tips and the shipped ones stay.
+@(test)
+test_tips_append_across_layers :: proc(t: ^testing.T) {
+    s: Settings
+    s.tips = make([dynamic]Tip)
+    defer destroy(&s)
+
+    apply_tips_json(t, &s, `{"tips": [{"title": "Shipped", "body": "One", "action": "command_palette"}]}`)
+    apply_tips_json(t, &s, `{"tips": [{"title": "Workspace", "body": "Two"}]}`)
+
+    testing.expect_value(t, len(s.tips), 2)
+    if len(s.tips) == 2 {
+        testing.expect_value(t, s.tips[0].title, "Shipped")
+        // The action, not a chord: the reader resolves it against the keybinds.
+        testing.expect_value(t, s.tips[0].action, "command_palette")
+        testing.expect_value(t, s.tips[1].title, "Workspace")
+        // A tip with no action carries an empty one, never an unset string.
+        testing.expect_value(t, s.tips[1].action, "")
+    }
+}
+
+// A half tip would draw as a blank card, so it is dropped and the rest of the
+// file still loads. A file with no "tips" array leaves what is there alone.
+@(test)
+test_tips_skip_incomplete_entries :: proc(t: ^testing.T) {
+    s: Settings
+    s.tips = make([dynamic]Tip)
+    defer destroy(&s)
+
+    apply_tips_json(t, &s, `{"tips": [
+        {"title": "No body"},
+        {"body": "No title"},
+        {"title": "", "body": "Empty title"},
+        {"title": "Empty body", "body": ""},
+        "not an object",
+        {"title": "Good", "body": "Kept"}
+    ]}`)
+    testing.expect_value(t, len(s.tips), 1)
+    if len(s.tips) == 1 {
+        testing.expect_value(t, s.tips[0].title, "Good")
+    }
+
+    apply_tips_json(t, &s, `{"font_size": 18}`)
+    testing.expect_value(t, len(s.tips), 1)
+}

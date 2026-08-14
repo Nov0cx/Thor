@@ -1,5 +1,6 @@
 package ui
 
+import "core:strings"
 import rl "vendor:raylib"
 
 Widget_Layout_Proc :: #type proc(widget: ^Widget, bounds: rl.Rectangle)
@@ -24,6 +25,10 @@ Widget :: struct {
     grow:         f32,
     visible:      bool,
     enabled:      bool,
+    // Hover explanation, and the dim second line under it (a key chord). Owned;
+    // set them with widget_set_tooltip.
+    tooltip:      string,
+    tooltip_hint: string,
     parent:       ^Widget, // borrowed
     // The child list. widget_destroy_tree walks first_child and next_sibling,
     // so those two links own; last_child and prev_sibling only point back.
@@ -44,6 +49,15 @@ widget_init :: proc(widget: ^Widget, id: string, vtable: Widget_VTable) {
 
 widget_set_grow :: proc(widget: ^Widget, grow: f32) {
     widget.grow = grow
+}
+
+// Sets the hover explanation. Clones, so a caller may pass scratch text and may
+// re-set it as often as the label it describes changes.
+widget_set_tooltip :: proc(widget: ^Widget, text: string, hint := "") {
+    delete(widget.tooltip)
+    delete(widget.tooltip_hint)
+    widget.tooltip = strings.clone(text)
+    widget.tooltip_hint = strings.clone(hint)
 }
 
 widget_bring_to_front :: proc(widget: ^Widget) {
@@ -258,6 +272,10 @@ widget_destroy_tree :: proc(widget: ^Widget) {
         widget_destroy_tree(child)
         child = next
     }
+
+    // Before the vtable, which frees the struct these two live in.
+    delete(widget.tooltip)
+    delete(widget.tooltip_hint)
 
     if widget.vtable.destroy != nil {
         widget.vtable.destroy(widget)

@@ -385,3 +385,17 @@ test_tree_drop_target_rejects_self :: proc(t: ^testing.T) {
     testing.expect_value(t, tree.drag_target_path, "")
     testing.expect(t, !folder.expanded, "the drag never expanded the folder")
 }
+
+// Every status the tree can report needs a word for the row's hover
+// explanation; a new enum member with no case would show the path alone.
+@(test)
+test_tree_status_name_covers_every_status :: proc(t: ^testing.T) {
+    for status in Git_Status {
+        name := tree_status_name(status)
+        if status == .None {
+            testing.expect_value(t, name, "")
+            continue
+        }
+        testing.expect(t, name != "", "a git status has no name for the tooltip")
+    }
+}

@@ -346,6 +346,11 @@ tabstrip_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
         // shows a clean name.
         if hovered {
             close_hovered := rl.CheckCollisionPointRec(state.ctx.mouse_pos, close_rect)
+            if close_hovered {
+                ui.tooltip_request(state.ctx, close_rect, "Close Terminal")
+            } else {
+                ui.tooltip_request(state.ctx, rect, info.tooltip)
+            }
             icon_size: i32 = 14
             icon_x := cast(i32) (close_rect.x + (close_rect.width - cast(f32) icon_size) * 0.5)
             icon_y := cast(i32) (close_rect.y + (close_rect.height - cast(f32) icon_size) * 0.5)
@@ -360,6 +365,7 @@ tabstrip_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
     add_rect := tabstrip_add_bounds(strip)
     add_hovered := state.hot && rl.CheckCollisionPointRec(ctx.mouse_pos, add_rect)
     if add_hovered {
+        ui.tooltip_request(ctx, add_rect, "New Terminal")
         rl.DrawRectangleRounded(rl.Rectangle {
             x = add_rect.x,
             y = add_rect.y + STRIP_INSET,

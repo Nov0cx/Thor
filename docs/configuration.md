@@ -30,6 +30,8 @@ General editor preferences.
 | `tab_width` | Spaces per indent level, and the width of a rendered tab stop | `4` |
 | `autosave_delay_ms` | Delay after the last edit before autosave | `1500` |
 | `ligatures` | Draw programming ligatures (`->` as one glyph) | `true` |
+| `tooltips` | Explain a control when the cursor rests on it — title bar buttons, tabs, status bar segments, explorer rows | `true` |
+| `tip_of_the_day` | Show the tip of the day: the card on the welcome page, and the card that opens over the editor on the first start of a day | `true` |
 | `format_on_save` | Format the active buffer before an explicit save (`ctrl + s`, Save All, the palette) — never before an autosave | `false` |
 | `format_on_type` | Dispatch on-type formatting as a trigger character is typed — `}` for Odin, a language server's own choice otherwise | `false` |
 | `theme` | Active color theme, a name under `assets/themes/` with no extension (e.g. `"mjolnir"`) | built-in default |
@@ -146,6 +148,37 @@ Maps a language id to its line-comment marker and the file extensions that use
 it, driving `ctrl + k` (toggle line comment). Add an entry here to teach Thor a
 new language's comment syntax.
 
+## `tips.json`
+
+The tips Thor shows, one a day. This file is the one exception to the layering
+above: layers **append** rather than overlay, so a `user/tips.json` or a
+workspace `.thor/tips.json` adds tips instead of hiding the shipped ones.
+
+```json
+{
+    "tips": [
+        {
+            "title": "The command palette runs everything",
+            "body": "Every action in Thor is in the palette, with the chord it is bound to beside it.",
+            "action": "command_palette"
+        }
+    ]
+}
+```
+
+| Key | Meaning |
+| --- | --- |
+| `title` | The headline. Required; an entry without one is skipped |
+| `body` | The paragraph under it. Required |
+| `action` | The `keybinds.json` action the tip is about, never a chord. Thor resolves it against the bindings in force, so a rebind shows the new chord. Omit it, or leave it empty, for a tip with no action of its own |
+
+The card shows the tip of the current day and the arrows step through the rest.
+It sits on the welcome page, and with a folder open it floats in the corner of
+the editor on the first start of each day — `✕` closes it, and the line under it
+turns tips off for good (the `tip_of_the_day` setting). Which tip, which day,
+and the day the floating card last opened are remembered in `sessions/tips.json`
+beside the binary, not in your settings.
+
 ## Per-workspace: `.thor/`
 
 An opened folder can carry its own configuration in a `.thor/` directory at
@@ -217,6 +250,9 @@ its root, layered on top of the global settings above. This repository's own
   rest of the table; `"enabled": false` switches a shipped server off here —
   which is how a project hands a language to a different server — and an `id`
   nothing ships adds one.
+
+- **`tips.json`** — tips of this project's own, in the shape described above.
+  They are added to the shipped ones, not put in their place.
 
 - **`plugins/`** — the workspace's own Lua plugins, in addition to the bundled
   ones under the Thor install. See [Plugins](plugins.md).

@@ -503,7 +503,14 @@ thor_terminal_tab_info :: proc(data: rawptr, index: int) -> widgets.Tab_Info {
     if total > 1 {
         name = fmt.tprintf("%s %d", name, ordinal)
     }
-    return {name = name, loading = term.running, modified = term.dead}
+    tooltip := term.profile.name
+    switch {
+    case term.dead:
+        tooltip = fmt.tprintf("%s\nThe shell has stopped", term.profile.name)
+    case term.running:
+        tooltip = fmt.tprintf("%s\nA command is running", term.profile.name)
+    }
+    return {name = name, tooltip = tooltip, loading = term.running, modified = term.dead}
 }
 
 // Tabbar_Active_Proc

@@ -73,6 +73,11 @@ Thor :: struct {
     welcome_recent_entries: [dynamic]^Welcome_Recent_Entry,
     welcome_open_folder_button: ^widgets.Button,
     welcome_open_file_button: ^widgets.Button,
+    // Tip of the day; hidden while no config layer holds a tip.
+    welcome_tip_card: ^widgets.Tip_Card,
+    // The same tip, floating over the editor. Opened on the first start of a
+    // day with a workspace open, where the welcome page is not shown.
+    startup_tip_card: ^widgets.Tip_Card,
     // The active terminal's console; nil when the last terminal is closed.
     console: ^widgets.Console,
     terminal_tabs: ^widgets.Tabstrip,
@@ -611,6 +616,10 @@ init :: proc() -> ^Thor {
     thor_activate_icon_pack(PRIMARY_ICON_PACK_GROUP, setting.icon_pack_name(&thor.config), DEFAULT_ICON_PACK)
     thor_activate_icon_pack(FILE_ICON_PACK_GROUP, setting.file_icon_pack_name(&thor.config), DEFAULT_FILE_ICON_PACK)
     lap(&phase, "text_finish_async_load")
+
+    // After the session: the card measures its own text, and the fonts it
+    // measures with are only loaded above.
+    thor_tip_open_startup(thor)
 
     log.infof("Startup took %.1f ms", time.duration_milliseconds(time.tick_since(start)))
 

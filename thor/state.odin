@@ -284,6 +284,7 @@ thor_status_info :: proc(data: rawptr) -> widgets.Status_Info {
 
     info.file_open = true
     info.file_name = file.name
+    info.file_path = file.path
     info.language = thor_language_name(thor, file.name)
     thor_refresh_indent(file)
     // detect_indent reports no width for tabs, and a width of 0 hides the
@@ -433,6 +434,7 @@ thor_tab_info :: proc(data: rawptr, index: int) -> widgets.Tab_Info {
     file := thor.open_files[index]
     return widgets.Tab_Info {
         name = len(file.tab_label) > 0 ? file.tab_label : file.name,
+        tooltip = file.path,
         modified = file.loaded && file.state.revision != file.saved_revision,
         loading = !thor_file_ready(file) && !file.load_failed,
     }

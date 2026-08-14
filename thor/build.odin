@@ -413,6 +413,35 @@ thor_build_content :: proc(thor: ^Thor) {
     welcome_open_file.min_size = rl.Vector2 {0, 40}
     thor.welcome_open_file_button = welcome_open_file
 
+    thor.welcome_tip_card = widgets.tip_card_create("welcome-tip")
+    widgets.tip_card_set_colors(
+        thor.welcome_tip_card,
+        thor.theme.second_background,
+        thor.theme.border,
+        thor.theme.primary_text_color,
+        thor.theme.muted_color,
+        thor.theme.accent_color,
+    )
+    widgets.tip_card_set_on_step(thor.welcome_tip_card, thor_tip_card_step, thor)
+    // A starting height only; the card measures its own text on every layout.
+    thor.welcome_tip_card.min_size = rl.Vector2 {0, 150}
+
+    // The same card floating in the corner of the editor area, for the start of
+    // a day with a workspace open — the welcome page above is not shown then.
+    thor.startup_tip_card = widgets.tip_card_create("startup-tip")
+    widgets.tip_card_set_colors(
+        thor.startup_tip_card,
+        thor.theme.second_background,
+        thor.theme.border,
+        thor.theme.primary_text_color,
+        thor.theme.muted_color,
+        thor.theme.accent_color,
+    )
+    widgets.tip_card_set_float(thor.startup_tip_card, 380)
+    widgets.tip_card_set_on_step(thor.startup_tip_card, thor_tip_card_step, thor)
+    widgets.tip_card_set_on_close(thor.startup_tip_card, thor_tip_card_close, thor)
+    thor.startup_tip_card.visible = false
+
     welcome_recent_label := widgets.label_create("welcome-recent-label", "Recent")
     widgets.label_set_text_color(welcome_recent_label, thor.theme.muted_color)
     welcome_recent_label.min_size = rl.Vector2 {0, 24}
@@ -427,6 +456,7 @@ thor_build_content :: proc(thor: ^Thor) {
     widgets.append_child(&welcome_col.widget, &welcome_logo.widget)
     widgets.append_child(&welcome_col.widget, &welcome_title.widget)
     widgets.append_child(&welcome_col.widget, &welcome_subtitle.widget)
+    widgets.append_child(&welcome_col.widget, &thor.welcome_tip_card.widget)
     widgets.append_child(&welcome_col.widget, &welcome_open_folder.widget)
     widgets.append_child(&welcome_col.widget, &welcome_open_file.widget)
     widgets.append_child(&welcome_col.widget, &welcome_recent_label.widget)
@@ -439,6 +469,7 @@ thor_build_content :: proc(thor: ^Thor) {
 
     widgets.append_child(&thor.welcome_panel.widget, &welcome_row.widget)
     thor_welcome_refresh_recent(thor)
+    thor_refresh_tip_cards(thor)
 
     thor.markdown_view = widgets.markdown_view_create("markdown-view")
     widgets.markdown_view_set_colors(thor.markdown_view, thor.theme)
@@ -513,6 +544,8 @@ thor_build_content :: proc(thor: ^Thor) {
     widgets.append_child(&thor.editor_panel.widget, &thor.image_view.widget)
     widgets.append_child(&thor.editor_panel.widget, &thor.model_view.widget)
     widgets.append_child(&thor.editor_panel.widget, &thor.welcome_panel.widget)
+    // Last, so the floating tip is over the panes and is hit-tested before them.
+    widgets.append_child(&thor.editor_panel.widget, &thor.startup_tip_card.widget)
 
     widgets.append_child(&thor.console_stack.widget, &thor.console_header.widget)
     widgets.append_child(&thor.console_header.widget, &thor.terminal_tabs.widget)

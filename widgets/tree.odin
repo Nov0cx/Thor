@@ -1,5 +1,6 @@
 package widgets
 
+import "core:fmt"
 import "core:os"
 import "core:slice"
 import "core:strings"
@@ -276,8 +277,21 @@ tree_status_color :: proc(tree: ^Tree, status: Git_Status) -> rl.Color {
     return tree.text_color
 }
 
-// Single-letter badge drawn at the right of a file row (VS Code-style).
-@(private = "file")
+// Full name of a git status, for the row's hover explanation.
+tree_status_name :: proc(status: Git_Status) -> string {
+    switch status {
+    case .None:      return ""
+    case .Modified:  return "Modified"
+    case .Added:     return "Added"
+    case .Untracked: return "Untracked"
+    case .Deleted:   return "Deleted"
+    case .Renamed:   return "Renamed"
+    case .Conflict:  return "Merge conflict"
+    case .Submodule: return "Submodule"
+    }
+    return ""
+}
+
 tree_status_letter :: proc(status: Git_Status) -> string {
     switch status {
     case .None:      return ""
@@ -1040,9 +1054,10 @@ tree_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
         }
 
         node := row.node
+        hovered := mouse_inside && rl.CheckCollisionPointRec(ctx.mouse_pos, row_rect)
         if node.path in tree.multi_selected {
             rl.DrawRectangleRec(row_rect, tree.selected_color)
-        } else if mouse_inside && rl.CheckCollisionPointRec(ctx.mouse_pos, row_rect) {
+        } else if hovered {
             rl.DrawRectangleRec(row_rect, tree.hover_color)
         }
         if tree.dragging && tree.drag_target_path != "" && node.path == tree.drag_target_path {
@@ -1080,6 +1095,18 @@ tree_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
         // not pass for an empty one.
         if node.load_failed {
             color = tree.error_color
+        }
+
+        // The path, since a deep row is indented far enough to hide it, plus the
+        // git state the tint and the badge only hint at.
+        if hovered {
+            tip := node.path
+            if node.load_failed {
+                tip = fmt.tprintf("%s\nCould not be read", node.path)
+            } else if name := tree_status_name(status); name != "" {
+                tip = fmt.tprintf("%s\n%s", node.path, name)
+            }
+            ui.tooltip_request(ctx, row_rect, tip)
         }
 
         // The name is truncated to leave room for the status badge, so a long
