@@ -72,6 +72,9 @@ pack_glyph_atlas :: proc(glyphs: [^]rl.GlyphInfo, count: int, size: i32, family_
 
     offset_x: c.int = PADDING
     offset_y: c.int = PADDING
+    // Tallest glyph placed in the current row: a row advances by that, not by
+    // the nominal size, or a glyph taller than the row overlaps the next one.
+    row_h := size
     for k in 0 ..< count {
         glyph := glyphs[k]
         gw, gh := glyph.image.width, glyph.image.height
@@ -87,14 +90,16 @@ pack_glyph_atlas :: proc(glyphs: [^]rl.GlyphInfo, count: int, size: i32, family_
 
         if offset_x >= atlas_w - gw - 2 * PADDING {
             offset_x = PADDING
-            offset_y += size + 2 * PADDING
+            offset_y += row_h + 2 * PADDING
+            row_h = size
         }
+        row_h = max(row_h, gh)
 
         // Grow past whichever is taller: the nominal row height or this
         // glyph's own bitmap (an accent or icon glyph can exceed size).
         // Loops since one doubling may still be short for a very tall glyph;
         // checked every row, not only a wrap, so a tall first glyph is covered.
-        for offset_y + max(size, gh) + PADDING > atlas_h {
+        for offset_y + row_h + PADDING > atlas_h {
             new_h := atlas_h * 2
             new_data := cast([^]u8) rl.MemAlloc(cast(c.uint) (atlas_w * new_h))
             mem.copy(new_data, atlas_data, cast(int) (atlas_w * atlas_h))

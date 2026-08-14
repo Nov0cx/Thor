@@ -44,6 +44,33 @@ test_pack_glyph_atlas_grows_for_tall_glyph :: proc(t: ^testing.T) {
     testing.expect(t, rec.y + rec.height <= cast(f32) atlas_h, "tall glyph overruns atlas height")
 }
 
+// A row must advance by its tallest glyph: advancing by the nominal size lets
+// a tall glyph overlap the rects of the row packed after it.
+@(test)
+test_pack_glyph_atlas_rows_do_not_overlap :: proc(t: ^testing.T) {
+    glyphs := make([]rl.GlyphInfo, 40, context.temp_allocator)
+    for &glyph in glyphs {
+        glyph.image = {width = 30, height = 10}
+    }
+    glyphs[5].image = {width = 30, height = 200} // taller than the nominal row
+
+    atlas_data, _, _, recs := pack_glyph_atlas(raw_data(glyphs), len(glyphs), 16, "test")
+    defer rl.MemFree(atlas_data)
+    defer rl.MemFree(recs)
+
+    for i in 0 ..< len(glyphs) {
+        for j in i + 1 ..< len(glyphs) {
+            a, b := recs[i], recs[j]
+            overlaps :=
+                a.x < b.x + b.width &&
+                b.x < a.x + a.width &&
+                a.y < b.y + b.height &&
+                b.y < a.y + a.height
+            testing.expectf(t, !overlaps, "rects %d %v and %d %v overlap", i, a, j, b)
+        }
+    }
+}
+
 // Runs manifest loading plus the full async CPU rasterization pipeline
 // headlessly (the texture upload is skipped by raylib when no GPU is ready).
 // Guards against the raylib 6.0 LoadFontData binding regression that
