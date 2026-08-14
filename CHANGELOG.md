@@ -14,6 +14,10 @@
 - Hosting view: recognizes GitHub and GitLab from `origin`, opens the repository, a file or a commit in the browser, lists and creates pull requests through `gh` or `glab` when installed (the browser otherwise), and clones from a URL.
 - Every git command runs in the background, so the editor does not freeze on a slow repository.
 - The bundled git plugin shrinks to a "Git LFS" dropdown, shown only when `git-lfs` is installed. Its old Git dropdown is replaced by the native menu.
+- The plugin permission prompt is a proper window: one row per plugin with its id and what it asks for, scrolling when there are more than fit, answered with **Allow** or **Not now**. The list used to run off the edge of the screen on the first start.
+- The welcome page centers its logo, title and subtitle, and lines the "Recent" heading up with the buttons below it.
+- The "Open Folder" button takes its label and its hover and pressed colors from the theme accent, so the text reads on every theme and the button keeps its own color when the cursor is on it.
+- The welcome page follows a theme change instead of keeping the colors of the theme it was built with.
 
 # 2026.08.2
 

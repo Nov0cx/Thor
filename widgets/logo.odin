@@ -4,14 +4,22 @@ import rl "vendor:raylib"
 
 import "../ui"
 
-// Draws a borrowed texture fit to the widget height, left-aligned. Used for the
-// titlebar mark. The texture is owned by the host (unloaded at shutdown), not
-// here. An optional on_click fires the host's action (opening Settings); once
-// set, a press on the logo no longer bubbles to the titlebar as a window drag.
+// Where the texture sits across the widget width.
+Logo_Align :: enum {
+    Left,
+    Center,
+}
+
+// Draws a borrowed texture fit to the widget height. Left-aligned by default,
+// which is what the titlebar mark wants; the welcome page centers it. The
+// texture is owned by the host (unloaded at shutdown), not here. An optional
+// on_click fires the host's action (opening Settings); once set, a press on the
+// logo no longer bubbles to the titlebar as a window drag.
 Logo :: struct {
     using widget: ui.Widget,
     texture:      rl.Texture2D,
     padding:      ui.Padding,
+    align:        Logo_Align,
     on_click:     #type proc(data: rawptr),
     click_data:   rawptr,
 }
@@ -33,6 +41,11 @@ logo_create :: proc(id: string) -> ^Logo {
 
 logo_set_texture :: proc(logo: ^Logo, texture: rl.Texture2D) -> ^Logo {
     logo.texture = texture
+    return logo
+}
+
+logo_set_align :: proc(logo: ^Logo, align: Logo_Align) -> ^Logo {
+    logo.align = align
     return logo
 }
 
@@ -66,8 +79,12 @@ logo_draw :: proc(widget: ^ui.Widget, _: ^ui.Context) {
     scale := avail_h / cast(f32) logo.texture.height
     draw_w := cast(f32) logo.texture.width * scale
     draw_h := avail_h
+    draw_x := logo.bounds.x + logo.padding.left
+    if logo.align == .Center {
+        draw_x = logo.bounds.x + (logo.bounds.width - draw_w) * 0.5
+    }
     dest := rl.Rectangle {
-        x = logo.bounds.x + logo.padding.left,
+        x = draw_x,
         y = logo.bounds.y + (logo.bounds.height - draw_h) * 0.5,
         width = draw_w,
         height = draw_h,

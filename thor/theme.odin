@@ -110,6 +110,11 @@ thor_apply_theme :: proc(thor: ^Thor) {
         thor.select_dialog,
         t.second_background, t.accent_color, t.highlight, t.primary_text_color, t.muted_color, selected, t.accent_color,
     )
+    widgets.permission_dialog_set_colors(
+        thor.permission_dialog,
+        t.second_background, t.border, t.highlight, t.primary_text_color, t.muted_color,
+        rl.Color {t.primary_text_color.r, t.primary_text_color.g, t.primary_text_color.b, 10}, t.accent_color,
+    )
     widgets.settings_view_set_colors(
         thor.settings_view,
         t.second_background, t.highlight, t.highlight, t.background, t.primary_text_color, t.muted_color, t.accent_color,
@@ -204,6 +209,7 @@ thor_apply_theme :: proc(thor: ^Thor) {
             )
         }
     }
+    thor_theme_welcome(thor)
 
     ui.context_set_tooltip_style(&thor.ui_context, ui.Tooltip_Style {
         background = t.second_background,
@@ -231,6 +237,55 @@ thor_theme_menu_button :: proc(thor: ^Thor, button: ^widgets.Button) {
 thor_theme_window_button :: proc(thor: ^Thor, button: ^widgets.Button, hover: rl.Color) {
     widgets.button_set_colors(button, thor.theme.foreground, thor.theme.buttons, hover, thor.theme.active, thor.theme.buttons)
     widgets.button_set_border_thickness(button, 0)
+}
+
+// Primary call-to-action coloring. Every shipped accent is a light color, so the
+// label and both states are derived from it: a fixed light label reads at 2:1 on
+// most of them, and a hover taken from another role leaves the accent's hue
+// entirely. `ui.color_shade` moves away from the label, so the states only get
+// easier to read.
+thor_theme_accent_button :: proc(thor: ^Thor, button: ^widgets.Button) {
+    accent := thor.theme.accent_color
+    widgets.button_set_colors(
+        button,
+        ui.color_on(accent),
+        accent,
+        ui.color_shade(accent, 0.10),
+        ui.color_shade(accent, 0.20),
+        accent,
+    )
+    widgets.button_set_border_thickness(button, 0)
+}
+
+// Welcome page and recent-row coloring for every button that is not the primary
+// action.
+thor_theme_secondary_button :: proc(thor: ^Thor, button: ^widgets.Button) {
+    t := thor.theme
+    widgets.button_set_colors(button, t.primary_text_color, t.buttons, t.highlight, t.active, t.border)
+}
+
+// Welcome page coloring. The page is built once and lives for the whole session,
+// so a theme change only reaches it here. The recent rows are recolored in place
+// instead of rebuilt: a rebuild inside an event dispatch frees the widgets the
+// dispatch stands on.
+thor_theme_welcome :: proc(thor: ^Thor) {
+    // Built together, so one nil says the whole page is not up yet.
+    if thor.welcome_panel == nil {
+        return
+    }
+    t := thor.theme
+
+    widgets.panel_set_background(thor.welcome_panel, t.background)
+    widgets.label_set_text_color(thor.welcome_title_label, t.primary_text_color)
+    widgets.label_set_text_color(thor.welcome_subtitle_label, t.muted_color)
+    widgets.label_set_text_color(thor.welcome_recent_label, t.muted_color)
+
+    thor_theme_accent_button(thor, thor.welcome_open_folder_button)
+    thor_theme_secondary_button(thor, thor.welcome_open_file_button)
+
+    for child := thor.welcome_recent_stack.first_child; child != nil; child = child.next_sibling {
+        thor_theme_secondary_button(thor, cast(^widgets.Button) child)
+    }
 }
 
 // Flat panel collapse/restore icon-button coloring; `background` matches the

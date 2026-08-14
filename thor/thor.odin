@@ -84,6 +84,8 @@ Thor :: struct {
     command_palette: ^widgets.Command_Palette,
     // Modal picker for Preferences (theme/font), with live preview.
     select_dialog: ^widgets.Select_Dialog,
+    // Modal prompt listing the plugins waiting on a permission answer.
+    permission_dialog: ^widgets.Permission_Dialog,
     // Modal GUI editor for every setting (editor prefs, theme/font, keybinds).
     settings_view: ^widgets.Settings_View,
     // Modal git UI (changes, commit; more views to come). See git_ui.odin.
@@ -154,7 +156,6 @@ Thor :: struct {
     // Plugins held until the user allows the permissions they ask for, and the
     // prompt that asks for one source of them (see plugin_trust.odin).
     plugin_requests: [dynamic]Plugin_Request,
-    plugin_prompt_message: string,  // owned; the palette borrows it
     plugin_prompt_shown: bool,
     plugin_prompt_source: Plugin_Source,
     // An answer asked for the plugin VM to be rebuilt; done on the next frame.

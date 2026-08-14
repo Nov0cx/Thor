@@ -130,6 +130,19 @@ thor_build_ui :: proc(thor: ^Thor) {
     )
     thor.select_dialog.visible = false
 
+    thor.permission_dialog = widgets.permission_dialog_create("permission-dialog")
+    widgets.permission_dialog_set_colors(
+        thor.permission_dialog,
+        thor.theme.second_background,
+        thor.theme.border,
+        thor.theme.highlight,
+        thor.theme.primary_text_color,
+        thor.theme.muted_color,
+        rl.Color {thor.theme.primary_text_color.r, thor.theme.primary_text_color.g, thor.theme.primary_text_color.b, 10},
+        thor.theme.accent_color,
+    )
+    thor.permission_dialog.visible = false
+
     thor.settings_view = widgets.settings_view_create("settings-view")
     widgets.settings_view_set_colors(
         thor.settings_view,
@@ -423,30 +436,31 @@ thor_build_content :: proc(thor: ^Thor) {
     ui.widget_set_grow(&welcome_bottom_spacer.widget, 1)
     welcome_bottom_spacer.min_size = rl.Vector2 {0, 0}
 
+    // The column stretches every child to its full width, so the hero centers
+    // itself rather than sitting against the left edge.
     welcome_logo := widgets.logo_create("welcome-logo")
     widgets.logo_set_texture(welcome_logo, thor.top_logo_texture)
+    widgets.logo_set_align(welcome_logo, .Center)
     welcome_logo.min_size = rl.Vector2 {96, 96}
     welcome_logo.padding = ui.padding(0)
 
     welcome_title := widgets.label_create("welcome-title", "Thor")
-    widgets.label_set_text_color(welcome_title, thor.theme.primary_text_color)
+    widgets.label_set_align(welcome_title, .Center)
     welcome_title.font_size = 28
     welcome_title.min_size = rl.Vector2 {0, 36}
     thor.welcome_title_label = welcome_title
 
     welcome_subtitle := widgets.label_create("welcome-subtitle", "No workspace open")
-    widgets.label_set_text_color(welcome_subtitle, thor.theme.muted_color)
+    widgets.label_set_align(welcome_subtitle, .Center)
     welcome_subtitle.min_size = rl.Vector2 {0, 28}
     thor.welcome_subtitle_label = welcome_subtitle
 
     welcome_open_folder := widgets.button_create("welcome-open-folder", "Open Folder")
-    widgets.button_set_colors(welcome_open_folder, thor.theme.primary_text_color, thor.theme.accent_color, thor.theme.accent_secondary_color, thor.theme.active, thor.theme.border)
     widgets.button_set_on_click(welcome_open_folder, thor_welcome_open_folder, thor)
     welcome_open_folder.min_size = rl.Vector2 {0, 40}
     thor.welcome_open_folder_button = welcome_open_folder
 
     welcome_open_file := widgets.button_create("welcome-open-file", "Open File")
-    widgets.button_set_colors(welcome_open_file, thor.theme.primary_text_color, thor.theme.buttons, thor.theme.highlight, thor.theme.active, thor.theme.border)
     widgets.button_set_on_click(welcome_open_file, thor_welcome_open_file, thor)
     welcome_open_file.min_size = rl.Vector2 {0, 40}
     thor.welcome_open_file_button = welcome_open_file
@@ -480,8 +494,10 @@ thor_build_content :: proc(thor: ^Thor) {
     widgets.tip_card_set_on_close(thor.startup_tip_card, thor_tip_card_close, thor)
     thor.startup_tip_card.visible = false
 
+    // Section heading, so it stays left-aligned but flush with the button edges
+    // rather than indented by the default label padding.
     welcome_recent_label := widgets.label_create("welcome-recent-label", "Recent")
-    widgets.label_set_text_color(welcome_recent_label, thor.theme.muted_color)
+    welcome_recent_label.padding = ui.padding_xy(0, 10)
     welcome_recent_label.min_size = rl.Vector2 {0, 24}
     thor.welcome_recent_label = welcome_recent_label
 
@@ -507,6 +523,7 @@ thor_build_content :: proc(thor: ^Thor) {
 
     widgets.append_child(&thor.welcome_panel.widget, &welcome_row.widget)
     thor_welcome_refresh_recent(thor)
+    thor_theme_welcome(thor)
     thor_refresh_tip_cards(thor)
 
     thor.markdown_view = widgets.markdown_view_create("markdown-view")
@@ -599,6 +616,7 @@ thor_connect_tree :: proc(thor: ^Thor) {
     // Added last so they overlay everything and are hit-tested first.
     widgets.append_child(&thor.root_panel.widget, &thor.command_palette.widget)
     widgets.append_child(&thor.root_panel.widget, &thor.select_dialog.widget)
+    widgets.append_child(&thor.root_panel.widget, &thor.permission_dialog.widget)
     widgets.append_child(&thor.root_panel.widget, &thor.settings_view.widget)
     widgets.append_child(&thor.root_panel.widget, &thor.git_view.widget)
     widgets.append_child(&thor.root_panel.widget, &thor.find_replace.widget)

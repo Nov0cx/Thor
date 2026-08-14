@@ -146,7 +146,7 @@ thor_welcome_refresh_recent :: proc(thor: ^Thor) {
         append(&thor.welcome_recent_entries, entry)
 
         row := widgets.button_create("welcome-recent-row", filepath.base(entry.path))
-        widgets.button_set_colors(row, thor.theme.primary_text_color, thor.theme.buttons, thor.theme.highlight, thor.theme.active, thor.theme.border)
+        thor_theme_secondary_button(thor, row)
         widgets.button_set_on_click(row, thor_welcome_open_recent, entry)
         row.min_size = {0, 36}
         widgets.append_child(&thor.welcome_recent_stack.widget, &row.widget)

@@ -20,7 +20,10 @@ A plugin only gets capabilities it declares (`exec`, `read`, `write`, `ui`,
 `keys`, `tick`) and only after you allow it. Plugins asking for nothing —
 every syntax plugin — load silently. A plugin that asks for something holds
 until you answer a prompt Thor shows once per session, batching every waiting
-plugin into it.
+plugin into it. The prompt lists one row per plugin — its id and what it asks
+for — and scrolls when there are more than fit. **Allow** (or Enter) runs all of
+them; **Not now** (or Escape) leaves them all unloaded and asks again next
+start.
 
 Your answers are remembered (in `sessions/plugin-grants.json`), so the prompt
 does not repeat unless a plugin starts asking for more. **Settings > Plugin

@@ -176,39 +176,35 @@ thor_prompt_plugin_permissions :: proc(thor: ^Thor) {
     thor.plugin_prompt_shown = true
     thor.plugin_prompt_source = source
 
-    b := strings.builder_make()
-    if source == .Workspace {
-        strings.write_string(&b, "Run this folder's own plugins? ")
-    } else {
-        strings.write_string(&b, "Allow these plugins? ")
-    }
-    first := true
+    // One row per plugin. The dialog copies both slices, so the temp allocator
+    // is enough even though the requests behind them are dropped in the answer.
+    ids := make([dynamic]string, context.temp_allocator)
+    perms := make([dynamic]string, context.temp_allocator)
     for request in thor.plugin_requests {
         if request.source != source {
             continue
         }
-        if !first {
-            strings.write_string(&b, "; ")
-        }
-        first = false
-        strings.write_string(&b, request.id)
-        strings.write_string(&b, ": ")
-        strings.write_string(&b, thor_plugin_permission_text(request.perms))
+        append(&ids, request.id)
+        append(&perms, thor_plugin_permission_text(request.perms))
     }
-    if source == .Workspace {
-        strings.write_string(&b, fmt.tprintf("  (from %s — change later in Settings)", WORKSPACE_PLUGIN_DIR))
-    } else {
-        strings.write_string(&b, "  (change later in Settings)")
-    }
-    thor.plugin_prompt_message = strings.to_string(b)
 
-    widgets.command_palette_confirm(
-        thor.command_palette,
+    title := "Allow these plugins?"
+    note := "Change later in Settings."
+    if source == .Workspace {
+        title = "Run this folder's own plugins?"
+        note = fmt.tprintf("From %s. Change later in Settings.", WORKSPACE_PLUGIN_DIR)
+    }
+
+    widgets.permission_dialog_open(
+        thor.permission_dialog,
         &thor.ui_context,
-        thor.plugin_prompt_message,
+        title,
+        note,
+        ids[:],
+        perms[:],
         thor_grant_plugin_permissions,
-        thor,
         thor_cancel_plugin_permissions,
+        thor,
     )
 }
 
@@ -256,8 +252,6 @@ thor_grant_plugin_permissions :: proc(data: rawptr) {
         thor_drop_plugin_requests(thor, .Bundled)
         // Let the next frame ask about the workspace group, if there is one.
         thor.plugin_prompt_shown = false
-        delete(thor.plugin_prompt_message)
-        thor.plugin_prompt_message = ""
     case .Workspace:
         // An allowed workspace plugin may replace a bundled one already running,
         // which only a rebuild settles.
@@ -274,8 +268,6 @@ thor_cancel_plugin_permissions :: proc(data: rawptr) {
     thor := cast(^Thor) data
     thor_drop_plugin_requests(thor, thor.plugin_prompt_source)
     thor.plugin_prompt_shown = false
-    delete(thor.plugin_prompt_message)
-    thor.plugin_prompt_message = ""
 }
 
 // Whether any plugin of `source` is still waiting.
@@ -302,15 +294,13 @@ thor_drop_plugin_requests :: proc(thor: ^Thor, source: Plugin_Source) {
     }
 }
 
-// Frees the pending requests and the prompt text.
+// Frees the pending requests. The prompt owns its own copies of what it shows.
 thor_clear_plugin_requests :: proc(thor: ^Thor) {
     for request in thor.plugin_requests {
         delete(request.id)
         delete(request.dir)
     }
     clear(&thor.plugin_requests)
-    delete(thor.plugin_prompt_message)
-    thor.plugin_prompt_message = ""
 }
 
 // One plugin as the Settings modal shows it: where it came from, what it wants,
