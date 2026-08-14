@@ -1123,6 +1123,8 @@ thor_doc_file_stem :: proc(name: string) -> string {
 @(private = "file")
 thor_render_doc_in_pane :: proc(thor: ^Thor, path, text: string, pane: int) {
     if werr := os.write_entire_file(path, transmute([]byte) text); werr != nil {
+        log.errorf("Could not write %q: %v", path, werr)
+        thor_flash_status(thor, "Could not write the documentation page", is_error = true)
         return
     }
     canonical := thor_abs_path(path)
