@@ -28,6 +28,9 @@ Session :: struct {
     split_visible:     bool,
     split_ratio:       f32,
     split_second_file: int,
+    // Pane that had focus, 0 or 1. An absent field reads as 0, so a session
+    // written before this field restores focus to the first pane.
+    active_pane:       int,
     // Name of the task the titlebar selector shows; the tasks themselves are
     // committed with the workspace, which one you last picked is not.
     active_task:       string,
@@ -250,6 +253,7 @@ thor_save_session :: proc(thor: ^Thor) {
         split_visible     = thor.split_visible,
         split_ratio       = thor.split_ratio,
         split_second_file = thor.pane_file[1],
+        active_pane       = thor.active_pane,
         active_task       = thor.active_task_name,
     }
 
@@ -318,5 +322,12 @@ thor_restore_session :: proc(thor: ^Thor) {
     // it in later if it was left unset.
     if session.split_second_file >= 0 && session.split_second_file < len(thor.open_files) {
         thor.pane_file[1] = session.split_second_file
+    }
+    // The focus must move with it: thor_sync_active_pane re-reads the pane off
+    // ui_context every frame and would snap back to pane 0.
+    if session.split_visible && session.active_pane == 1 {
+        thor.active_pane = 1
+        thor.ui_context.focused = &thor.editor2.widget
+        thor_sync_active_signal(thor)
     }
 }
