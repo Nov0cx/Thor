@@ -52,3 +52,18 @@ test_dispatch_bubbles_past_self_detaching_handler :: proc(t: ^testing.T) {
     testing.expect(t, handled, "root consumed the event but dispatch reported false")
     testing.expect(t, leaf.parent == nil, "leaf stayed linked to its parent")
 }
+
+// An anchor with no parent has no child list, so the insert must be dropped:
+// linking there builds a chain no parent owns and no destroy walk reaches.
+@(test)
+test_insert_after_parentless_anchor_is_dropped :: proc(t: ^testing.T) {
+    anchor, child: Widget
+    widget_init(&anchor, "anchor", {})
+    widget_init(&child, "child", {})
+
+    widget_insert_after(&anchor, &child)
+
+    testing.expect(t, anchor.next_sibling == nil, "anchor linked an orphan")
+    testing.expect(t, child.parent == nil, "child took a parent it was never added to")
+    testing.expect(t, child.prev_sibling == nil, "child linked to the anchor")
+}

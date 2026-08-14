@@ -106,7 +106,13 @@ widget_append_child :: proc(parent, child: ^Widget) {
 }
 
 // Links `child` in immediately after `anchor` among its parent's children.
+// A parentless anchor has no child list to link into, so the insert is dropped
+// rather than left as a chain no parent owns and no destroy reaches.
 widget_insert_after :: proc(anchor, child: ^Widget) {
+    if anchor == nil || anchor.parent == nil {
+        return
+    }
+
     child.parent = anchor.parent
     child.prev_sibling = anchor
     child.next_sibling = anchor.next_sibling
