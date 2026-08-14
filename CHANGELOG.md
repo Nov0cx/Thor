@@ -4,6 +4,8 @@
 - A Settings picker opens centered in the Settings window. It used to sit above it, over the editor.
 - The Meadow Dew theme reads clearly: syntax, status and interface text stay legible on the editor, the panels, a selection and a hovered row. Panel and menu text was almost white on a light surface.
 - Meadow Dew separates its surfaces more: stronger borders, and a distinct step between the editor, the panels, the title bar and an active control.
+- `tab` over a selection leaves blank lines alone. It used to fill them with trailing whitespace.
+- A theme color with an invalid digit, such as `#ff_f00`, is reported and skipped. It used to be accepted and give a wrong color.
 
 # 2026.08.3
 
