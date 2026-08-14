@@ -16,6 +16,9 @@ package lang
 @(private)
 DIFF_LINE_CAP :: 1500
 
+// The DP cells hold an LCS length, which never exceeds the cap, so they are u16.
+#assert(DIFF_LINE_CAP < int(max(u16)))
+
 Diff_Span :: struct {
     start: int, // byte offset in `old`
     end:   int, // byte offset in `old`, exclusive
@@ -125,7 +128,7 @@ diff_spans :: proc(old, new: string, allocator := context.allocator) -> []Diff_S
 diff_lcs :: proc(old, new: string, a, b: []Diff_Line, spans: ^[dynamic]Diff_Span) {
     na, nb := len(a), len(b)
     // dp[i*  (nb+1) + j] = LCS length of a[:i], b[:j]
-    dp := make([]int, (na + 1) * (nb + 1), context.temp_allocator)
+    dp := make([]u16, (na + 1) * (nb + 1), context.temp_allocator)
     row :: proc(nb: int, i: int) -> int {return i * (nb + 1)}
     for i := 1; i <= na; i += 1 {
         for j := 1; j <= nb; j += 1 {
