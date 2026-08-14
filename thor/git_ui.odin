@@ -2,6 +2,7 @@ package thor
 
 import "core:fmt"
 import "core:os"
+import "core:path/filepath"
 import "core:strings"
 
 import "../widgets"
@@ -55,6 +56,18 @@ thor_git_populate_view :: proc(thor: ^Thor, kind: widgets.Git_View_Kind) {
         thor_git_request_log(thor)
     case .Branches:
         thor_git_op(thor, .Refs)
+    case .Settings:
+        thor_git_op(thor, .Config_List)
+    case .Hosting:
+        thor.git_prs_requested = false
+        widgets.git_view_set_clone_dir_hint(thor.git_view, filepath.dir(thor.workspace_dir))
+        thor_git_op(thor, .Remote_Url)
+        if !thor.git_cli_probed {
+            thor_git_op(thor, .CLI_Probe)
+        } else {
+            thor_git_maybe_list_prs(thor)
+        }
+        thor_git_update_hosting_card(thor)
     }
 }
 
@@ -71,6 +84,8 @@ thor_git_view_reset :: proc(thor: ^Thor) {
     thor.git_ui_snapshot_inflight = false
     thor.git_ui_snapshot_dirty = false
     thor.git_mutation_inflight = false
+    thor.git_prs_requested = false
+    git_host_info_destroy(&thor.git_host)
     if thor.git_view != nil && widgets.git_view_is_open(thor.git_view) {
         widgets.git_view_close(thor.git_view, &thor.ui_context)
     }
@@ -113,6 +128,70 @@ thor_on_git_stash :: proc(data: rawptr, op: widgets.Git_Stash_Op, name: string) 
     case .Drop:  git_op = .Stash_Drop
     }
     thor_git_start_mutation(thor, git_op, name)
+}
+
+thor_on_git_config_set :: proc(data: rawptr, global: bool, key, value: string) {
+    thor := cast(^Thor) data
+    thor_git_start_mutation(thor, .Config_Set, key, value, global)
+}
+
+thor_on_git_hosting :: proc(data: rawptr, action: widgets.Git_Hosting_Action, arg, arg2: string) {
+    thor := cast(^Thor) data
+    switch action {
+    case .Open_Repo:
+        thor_git_open_host_page(thor, git_host_repo_url(thor.git_host))
+    case .Open_File:
+        file := thor_active_open_file(thor)
+        if file == nil || !strings.has_prefix(git_map_key(file.path), git_map_key(thor.git_prefix)) {
+            widgets.git_view_set_status_line(thor.git_view, "No repository file is active", true)
+            return
+        }
+        rel, _ := strings.replace_all(file.path[len(thor.git_prefix):], "\\", "/", context.temp_allocator)
+        thor_git_open_host_page(thor, git_host_file_url(thor.git_host, thor.git_branch, rel))
+    case .Open_Commit:
+        // The branch head's commit page; hosts resolve a ref there.
+        thor_git_open_host_page(thor, git_host_commit_url(thor.git_host, thor.git_branch))
+    case .Create_Pr:
+        cli := thor_git_host_cli(thor)
+        if cli == "" {
+            thor_git_open_host_page(thor, git_host_compare_url(thor.git_host, thor.git_branch))
+            return
+        }
+        thor_git_start_mutation(thor, .PR_Create, thor.git_branch, flag = cli == "glab")
+    case .Open_Pr:
+        if !thor_open_in_browser(arg) {
+            widgets.git_view_set_status_line(thor.git_view, "Could not open the browser", true)
+        }
+    case .Clone:
+        thor_git_start_mutation(thor, .Clone, arg, arg2)
+    }
+}
+
+@(private = "file")
+thor_git_open_host_page :: proc(thor: ^Thor, url: string) {
+    if thor.git_host.kind == .None {
+        widgets.git_view_set_status_line(thor.git_view, "No remote detected", true)
+        return
+    }
+    if !thor_open_in_browser(url) {
+        widgets.git_view_set_status_line(thor.git_view, "Could not open the browser", true)
+    }
+}
+
+// The CLI serving this host, "" when none applies.
+@(private = "file")
+thor_git_host_cli :: proc(thor: ^Thor) -> string {
+    #partial switch thor.git_host.kind {
+    case .GitHub:
+        if thor.git_has_gh {
+            return "gh"
+        }
+    case .GitLab:
+        if thor.git_has_glab {
+            return "glab"
+        }
+    }
+    return ""
 }
 
 // Discard is the one destructive action, so it goes through the palette's
@@ -352,6 +431,129 @@ clear_names :: proc(names: ^[dynamic]string) {
     clear(names)
 }
 
+// The keys the settings view always lists, set or not; the rest of the
+// config follows in git's own order.
+@(private = "file")
+GIT_CURATED_CONFIG := [?]string {
+    "user.name", "user.email", "pull.rebase", "fetch.prune",
+    "push.autoSetupRemote", "core.autocrlf", "commit.gpgsign", "init.defaultBranch",
+}
+
+thor_git_push_config :: proc(thor: ^Thor, job: ^Git_Op_Job) {
+    view := thor.git_view
+    if view == nil || !widgets.git_view_is_open(view) {
+        return
+    }
+    widgets.git_view_clear_config(view)
+
+    for global in ([2]bool {false, true}) {
+        entries := make([dynamic]Git_Config_Entry)
+        defer git_config_entries_destroy(&entries)
+        git_parse_config_z(global ? job.aux[0] : job.output, &entries)
+
+        for curated in GIT_CURATED_CONFIG {
+            value := ""
+            is_set := false
+            for entry in entries {
+                if entry.key == curated {
+                    value = entry.value
+                    is_set = true
+                    break
+                }
+            }
+            widgets.git_view_add_config(view, global, curated, value, is_set)
+        }
+        for entry in entries {
+            curated := false
+            for name in GIT_CURATED_CONFIG {
+                if entry.key == name {
+                    curated = true
+                    break
+                }
+            }
+            if !curated {
+                widgets.git_view_add_config(view, global, entry.key, entry.value, true)
+            }
+        }
+    }
+}
+
+thor_git_apply_remote_url :: proc(thor: ^Thor, job: ^Git_Op_Job) {
+    git_host_info_destroy(&thor.git_host)
+    if job.ok && job.code == 0 {
+        if info, parse_ok := git_parse_remote_url(job.output); parse_ok {
+            thor.git_host = info
+        }
+    }
+    thor_git_update_hosting_card(thor)
+    thor_git_maybe_list_prs(thor)
+}
+
+thor_git_apply_cli_probe :: proc(thor: ^Thor, job: ^Git_Op_Job) {
+    thor.git_cli_probed = true
+    thor.git_has_gh = git_cli_present(job.output, job.code)
+    thor.git_has_glab = git_cli_present(job.aux[0], job.aux_codes[0])
+    thor_git_update_hosting_card(thor)
+    thor_git_maybe_list_prs(thor)
+}
+
+// Rebuilds the hosting card from what is known so far.
+@(private = "file")
+thor_git_update_hosting_card :: proc(thor: ^Thor) {
+    view := thor.git_view
+    if view == nil || !widgets.git_view_is_open(view) {
+        return
+    }
+    label := ""
+    icon := "world-www"
+    switch thor.git_host.kind {
+    case .None:
+    case .GitHub:
+        label = strings.concatenate({"GitHub — ", thor.git_host.path}, context.temp_allocator)
+        icon = "brand-github"
+    case .GitLab:
+        label = strings.concatenate({"GitLab — ", thor.git_host.path}, context.temp_allocator)
+        icon = "brand-gitlab"
+    case .Other:
+        label = strings.concatenate({thor.git_host.host, " — ", thor.git_host.path}, context.temp_allocator)
+    }
+    widgets.git_view_set_hosting(view, label, icon, thor_git_host_cli(thor), thor.git_host.kind != .None)
+}
+
+// Asks for the PR list once the host and the CLI answer are both in.
+@(private = "file")
+thor_git_maybe_list_prs :: proc(thor: ^Thor) {
+    if thor.git_prs_requested || !thor.git_cli_probed {
+        return
+    }
+    cli := thor_git_host_cli(thor)
+    if cli == "" {
+        return
+    }
+    view := thor.git_view
+    if view == nil || !widgets.git_view_is_open(view) {
+        return
+    }
+    thor.git_prs_requested = true
+    thor_git_op(thor, .PR_List, flag = cli == "glab")
+}
+
+thor_git_push_prs :: proc(thor: ^Thor, job: ^Git_Op_Job) {
+    view := thor.git_view
+    if view == nil || !widgets.git_view_is_open(view) {
+        return
+    }
+    entries := make([dynamic]Git_Pr_Entry)
+    defer git_pr_entries_destroy(&entries)
+    widgets.git_view_clear_prs(view)
+    if !git_parse_pr_json(job.output, &entries) {
+        return
+    }
+    for entry in entries {
+        widgets.git_view_add_pr(view, entry.number, entry.title, entry.branch, entry.url)
+    }
+}
+
 thor_git_push_diff :: proc(thor: ^Thor, job: ^Git_Op_Job) {
     view := thor.git_view
     if view == nil || !widgets.git_view_is_open(view) {
@@ -380,8 +582,20 @@ thor_git_finish_mutation :: proc(thor: ^Thor, job: ^Git_Op_Job) {
         return
     }
 
-    if job.op == .Commit {
+    #partial switch job.op {
+    case .Commit:
         widgets.git_view_clear_commit(view)
+    case .Config_Set:
+        thor_git_op(thor, .Config_List)
+    case .PR_Create:
+        // The CLI prints the created request's page; open it.
+        if url := git_first_url(job.output); url != "" {
+            thor_open_in_browser(url)
+        }
+    case .Clone:
+        widgets.git_view_close(view, &thor.ui_context)
+        thor_open_folder_request(thor, job.arg2)
+        return
     }
     widgets.git_view_set_status_line(view, git_op_done_label(job.op), false)
 }
@@ -401,7 +615,10 @@ git_op_done_label :: proc(op: Git_Op) -> string {
     case .Stash_Apply:           return "Stash applied"
     case .Stash_Pop:             return "Stash popped"
     case .Stash_Drop:            return "Stash dropped"
-    case .Snapshot, .Diff_File, .Log, .Commit_Show, .Refs:
+    case .Config_Set:            return "Saved"
+    case .PR_Create:             return "Pull request created"
+    case .Clone:                 return "Cloned"
+    case .Snapshot, .Diff_File, .Log, .Commit_Show, .Refs, .Config_List, .Remote_Url, .CLI_Probe, .PR_List:
         return ""
     }
     return ""

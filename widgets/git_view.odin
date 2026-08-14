@@ -43,13 +43,18 @@ Git_View_Kind :: enum {
     Hosting,
 }
 
-// What the keyboard talks to. Tab cycles through them.
+// What the keyboard talks to. Tab cycles through the changes-view stations;
+// the field stations past Description belong to the settings and hosting
+// views and are entered by click.
 @(private)
 Git_Focus :: enum {
     Files,
     Diff,
     Subject,
     Description,
+    Config_Edit,
+    Clone_Url,
+    Clone_Dir,
 }
 
 Git_Sync_Op :: enum {
@@ -70,6 +75,15 @@ Git_Stash_Op :: enum {
     Apply,
     Pop,
     Drop,
+}
+
+Git_Hosting_Action :: enum {
+    Open_Repo,
+    Open_File,    // the active editor file
+    Open_Commit,  // the last commit
+    Create_Pr,
+    Open_Pr,      // arg = the PR's URL
+    Clone,        // arg = URL, arg2 = destination directory
 }
 
 Git_Diff_Row_Kind :: enum u8 {
@@ -124,6 +138,33 @@ Git_Ref_Row :: struct {
     index:  int,  // into view.refs when !header
 }
 
+// One git config entry shown in the settings view. An unset curated key draws
+// as "not set".
+@(private)
+Git_View_Config :: struct {
+    global: bool,
+    key:    string,  // owned
+    value:  string,  // owned
+    is_set: bool,
+}
+
+// One display row of the settings view: a LOCAL/GLOBAL fold header, or a
+// config entry.
+@(private)
+Git_Config_Row :: struct {
+    header: bool,
+    global: bool,
+    index:  int,  // into view.config_rows when !header
+}
+
+@(private)
+Git_View_Pr :: struct {
+    number: int,
+    title:  string,  // owned
+    branch: string,  // owned
+    url:    string,  // owned
+}
+
 Git_View_Changed_Proc :: #type proc(data: rawptr, kind: Git_View_Kind)
 // `path` is "" for the whole list ("Stage All" / "Unstage All").
 Git_Stage_Proc :: #type proc(data: rawptr, path: string, stage: bool)
@@ -138,6 +179,9 @@ Git_Checkout_Proc :: #type proc(data: rawptr, kind: Git_Ref_Kind, name: string)
 Git_Stash_Proc :: #type proc(data: rawptr, op: Git_Stash_Op, name: string)
 Git_Discard_Proc :: #type proc(data: rawptr, path: string)
 
+Git_Config_Set_Proc :: #type proc(data: rawptr, global: bool, key, value: string)
+Git_Hosting_Proc :: #type proc(data: rawptr, action: Git_Hosting_Action, arg, arg2: string)
+
 Git_View_Callbacks :: struct {
     on_view_changed:  Git_View_Changed_Proc,
     on_stage:         Git_Stage_Proc,
@@ -149,6 +193,8 @@ Git_View_Callbacks :: struct {
     on_checkout:      Git_Checkout_Proc,
     on_stash:         Git_Stash_Proc,
     on_discard:       Git_Discard_Proc,
+    on_config_set:    Git_Config_Set_Proc,
+    on_hosting:       Git_Hosting_Proc,
 }
 
 // A minimal editable text buffer; caret is a byte offset on a rune boundary.
@@ -206,6 +252,22 @@ Git_View :: struct {
     ref_sel:       int,  // index into the flattened row list; -1 = none
     refs_scroll:   f32,
     ref_collapsed: [Git_Ref_Kind]bool,
+    // Settings view (git config).
+    config_rows:       [dynamic]Git_View_Config,
+    config_sel:        int,  // flattened row index; -1 = none
+    config_edit_index: int,  // config_rows index being edited; -1 = none
+    config_edit:       Git_Text_Field,
+    config_scroll:     f32,
+    config_collapsed:  [2]bool,  // [0] local, [1] global
+    // Hosting view.
+    host_label:      string,  // owned; "GitHub — owner/repo", "" while unknown
+    host_icon:       string,  // owned; a brand icon name
+    cli_name:        string,  // owned; "gh", "glab" or ""
+    host_has_remote: bool,
+    prs:             [dynamic]Git_View_Pr,
+    clone_url:       Git_Text_Field,
+    clone_dir:       Git_Text_Field,
+    hosting_scroll:  f32,
     // Geometry, computed in layout.
     box:     rl.Rectangle,
     sidebar: rl.Rectangle,
@@ -252,9 +314,16 @@ git_view_create :: proc(id: string) -> ^Git_View {
     view.description.buf = make([dynamic]u8)
     view.commits = make([dynamic]Git_View_Commit)
     view.refs = make([dynamic]Git_View_Ref)
+    view.config_rows = make([dynamic]Git_View_Config)
+    view.config_edit.buf = make([dynamic]u8)
+    view.prs = make([dynamic]Git_View_Pr)
+    view.clone_url.buf = make([dynamic]u8)
+    view.clone_dir.buf = make([dynamic]u8)
     view.sel_index = -1
     view.commit_sel = -1
     view.ref_sel = -1
+    view.config_sel = -1
+    view.config_edit_index = -1
     view.width = 1080
     view.height = 680
     view.header_height = 56
@@ -439,6 +508,55 @@ git_view_add_ref :: proc(view: ^Git_View, kind: Git_Ref_Kind, name, subject: str
     })
 }
 
+git_view_clear_config :: proc(view: ^Git_View) {
+    for row in view.config_rows {
+        delete(row.key)
+        delete(row.value)
+    }
+    clear(&view.config_rows)
+    view.config_sel = -1
+    view.config_edit_index = -1
+}
+
+git_view_add_config :: proc(view: ^Git_View, global: bool, key, value: string, is_set: bool) {
+    append(&view.config_rows, Git_View_Config {
+        global = global,
+        key = strings.clone(key),
+        value = strings.clone(value),
+        is_set = is_set,
+    })
+}
+
+// `label` is "" while origin is unknown or absent; `icon` a brand icon name;
+// `cli` the CLI the PR actions will use, "" when none is installed.
+git_view_set_hosting :: proc(view: ^Git_View, label, icon, cli: string, has_remote: bool) {
+    delete(view.host_label)
+    view.host_label = strings.clone(label)
+    delete(view.host_icon)
+    view.host_icon = strings.clone(icon)
+    delete(view.cli_name)
+    view.cli_name = strings.clone(cli)
+    view.host_has_remote = has_remote
+}
+
+git_view_clear_prs :: proc(view: ^Git_View) {
+    for pr in view.prs {
+        delete(pr.title)
+        delete(pr.branch)
+        delete(pr.url)
+    }
+    clear(&view.prs)
+}
+
+git_view_add_pr :: proc(view: ^Git_View, number: int, title, branch, url: string) {
+    append(&view.prs, Git_View_Pr {
+        number = number,
+        title = strings.clone(title),
+        branch = strings.clone(branch),
+        url = strings.clone(url),
+    })
+}
+
 @(private = "file")
 git_view_commit_free :: proc(commit: Git_View_Commit) {
     delete(commit.hash)
@@ -544,6 +662,8 @@ git_view_clamp_scrolls :: proc(view: ^Git_View) {
     view.commits_scroll = clamp(view.commits_scroll, 0, git_view_max_scroll(git_view_commit_row_count(view), GIT_COMMIT_ROW, commits.height))
     refs := git_view_refs_list_rect(view)
     view.refs_scroll = clamp(view.refs_scroll, 0, git_view_max_scroll(git_view_ref_row_count(view), GIT_REF_ROW, refs.height))
+    view.config_scroll = clamp(view.config_scroll, 0, git_view_max_scroll(git_view_config_row_count(view), GIT_REF_ROW, refs.height))
+    view.hosting_scroll = clamp(view.hosting_scroll, 0, max(0, git_view_hosting_content_height(view) - refs.height))
 }
 
 @(private)
@@ -738,6 +858,135 @@ git_view_ref_row_at :: proc(view: ^Git_View, point: rl.Vector2) -> int {
     return index
 }
 
+// ---- settings (git config) geometry ----
+
+// Flattens the config entries into display rows: a LOCAL and a GLOBAL fold
+// header, each followed by its entries while unfolded.
+@(private)
+git_view_config_rows :: proc(view: ^Git_View, out: ^[dynamic]Git_Config_Row) {
+    for global in ([2]bool {false, true}) {
+        append(out, Git_Config_Row {header = true, global = global})
+        if view.config_collapsed[global ? 1 : 0] {
+            continue
+        }
+        for row, i in view.config_rows {
+            if row.global == global {
+                append(out, Git_Config_Row {global = global, index = i})
+            }
+        }
+    }
+}
+
+@(private)
+git_view_config_row_count :: proc(view: ^Git_View) -> int {
+    count := 2
+    for row in view.config_rows {
+        if !view.config_collapsed[row.global ? 1 : 0] {
+            count += 1
+        }
+    }
+    return count
+}
+
+// The settings rows reuse the branches view's full-body list geometry and
+// row height, with config_scroll in place of refs_scroll.
+@(private)
+git_view_config_row_rect :: proc(view: ^Git_View, index: int) -> rl.Rectangle {
+    list := git_view_refs_list_rect(view)
+    return rl.Rectangle {list.x, list.y + cast(f32) index * GIT_REF_ROW - view.config_scroll, list.width, GIT_REF_ROW}
+}
+
+@(private = "file")
+git_view_config_row_at :: proc(view: ^Git_View, point: rl.Vector2) -> int {
+    list := git_view_refs_list_rect(view)
+    if !rl.CheckCollisionPointRec(point, list) {
+        return -1
+    }
+    index := cast(int) ((point.y - list.y + view.config_scroll) / GIT_REF_ROW)
+    if index < 0 || index >= git_view_config_row_count(view) {
+        return -1
+    }
+    return index
+}
+
+// ---- hosting geometry ----
+
+@(private)
+Git_Hosting_Item_Kind :: enum {
+    Card,
+    Action_Repo,
+    Action_File,
+    Action_Commit,
+    Action_Pr,
+    Pr_Header,
+    Pr,        // index into view.prs
+    Cli_Hint,
+    Clone_Header,
+    Clone_Url_Field,
+    Clone_Dir_Field,
+    Clone_Button,
+}
+
+@(private)
+Git_Hosting_Item :: struct {
+    kind:  Git_Hosting_Item_Kind,
+    rect:  rl.Rectangle,
+    index: int,
+}
+
+// Lays the hosting view out top to bottom; draw and hit-test read the same
+// list, so they cannot drift apart.
+@(private)
+git_view_hosting_items :: proc(view: ^Git_View, out: ^[dynamic]Git_Hosting_Item) {
+    body := git_view_refs_list_rect(view)
+    x := body.x + SETTINGS_ITEM_INSET + 12
+    w := body.width - (SETTINGS_ITEM_INSET + 12) * 2
+    y := body.y + 10 - view.hosting_scroll
+
+    push :: proc(out: ^[dynamic]Git_Hosting_Item, kind: Git_Hosting_Item_Kind, x, y, w, h: f32, index := 0) -> f32 {
+        append(out, Git_Hosting_Item {kind = kind, rect = rl.Rectangle {x, y, w, h}, index = index})
+        return y + h
+    }
+
+    y = push(out, .Card, x, y, w, 40)
+    y += 10
+    if view.host_has_remote {
+        y = push(out, .Action_Repo, x, y, w, 30)
+        y = push(out, .Action_File, x, y, w, 30)
+        y = push(out, .Action_Commit, x, y, w, 30)
+        y = push(out, .Action_Pr, x, y, w, 30)
+        y += 10
+        y = push(out, .Pr_Header, x, y, w, 28)
+        if view.cli_name == "" {
+            y = push(out, .Cli_Hint, x, y, w, 26)
+        } else {
+            for i in 0 ..< len(view.prs) {
+                y = push(out, .Pr, x, y, w, 26, i)
+            }
+            if len(view.prs) == 0 {
+                y = push(out, .Cli_Hint, x, y, w, 26)
+            }
+        }
+        y += 10
+    }
+    y = push(out, .Clone_Header, x, y, w, 28)
+    y = push(out, .Clone_Url_Field, x, y + 4, w, 30) + 8
+    y = push(out, .Clone_Dir_Field, x, y, w, 30) + 8
+    push(out, .Clone_Button, x + w - 96, y, 96, 28)
+}
+
+@(private)
+git_view_hosting_content_height :: proc(view: ^Git_View) -> f32 {
+    items := make([dynamic]Git_Hosting_Item, context.temp_allocator)
+    git_view_hosting_items(view, &items)
+    if len(items) == 0 {
+        return 0
+    }
+    last := items[len(items) - 1].rect
+    body := git_view_refs_list_rect(view)
+    return last.y + last.height + view.hosting_scroll - body.y + 12
+}
+
 // The three hover actions on a stash row: apply, pop, drop.
 @(private)
 git_view_stash_action_rects :: proc(row: rl.Rectangle) -> (apply, pop, drop: rl.Rectangle) {
@@ -867,18 +1116,28 @@ git_view_key :: proc(view: ^Git_View, ctx: ^ui.Context, event: ^ui.Event) {
 
     #partial switch event.key {
     case .ESCAPE:
-        if view.focus == .Subject || view.focus == .Description {
+        if field, _ := git_view_focused_field(view); field != nil {
+            view.config_edit_index = -1
             view.focus = .Files
         } else {
             git_view_close(view, ctx)
         }
         return
     case .TAB:
-        view.focus = Git_Focus((cast(int) view.focus + 1) % len(Git_Focus))
+        // Tab cycles the changes view's stations only.
+        if view.kind == .Changes {
+            #partial switch view.focus {
+            case .Files:       view.focus = .Diff
+            case .Diff:        view.focus = .Subject
+            case .Subject:     view.focus = .Description
+            case .Description: view.focus = .Files
+            case:              view.focus = .Files
+            }
+        }
         return
     }
 
-    if view.focus == .Subject || view.focus == .Description {
+    if field, _ := git_view_focused_field(view); field != nil {
         git_view_field_key(view, event)
         return
     }
@@ -894,8 +1153,99 @@ git_view_key :: proc(view: ^Git_View, ctx: ^ui.Context, event: ^ui.Event) {
         git_view_history_key(view, event)
     case .Branches:
         git_view_branches_key(view, event)
-    case .Settings, .Hosting:
+    case .Settings:
+        git_view_settings_key(view, event)
+    case .Hosting:
     }
+}
+
+// The editable field the focus names, or nil.
+@(private = "file")
+git_view_focused_field :: proc(view: ^Git_View) -> (field: ^Git_Text_Field, multiline: bool) {
+    #partial switch view.focus {
+    case .Subject:     return &view.subject, false
+    case .Description: return &view.description, true
+    case .Config_Edit: return &view.config_edit, false
+    case .Clone_Url:   return &view.clone_url, false
+    case .Clone_Dir:   return &view.clone_dir, false
+    }
+    return nil, false
+}
+
+@(private = "file")
+git_view_settings_key :: proc(view: ^Git_View, event: ^ui.Event) {
+    count := git_view_config_row_count(view)
+    #partial switch event.key {
+    case .UP:
+        view.config_sel = count == 0 ? -1 : clamp(view.config_sel - 1, 0, count - 1)
+        git_view_scroll_config_into_view(view)
+    case .DOWN:
+        view.config_sel = count == 0 ? -1 : clamp(view.config_sel + 1, 0, count - 1)
+        git_view_scroll_config_into_view(view)
+    case .ENTER, .KP_ENTER:
+        git_view_activate_config(view, view.config_sel)
+    }
+}
+
+@(private = "file")
+git_view_scroll_config_into_view :: proc(view: ^Git_View) {
+    if view.config_sel < 0 {
+        return
+    }
+    list := git_view_refs_list_rect(view)
+    top := cast(f32) view.config_sel * GIT_REF_ROW
+    if top < view.config_scroll {
+        view.config_scroll = top
+    } else if top + GIT_REF_ROW > view.config_scroll + list.height {
+        view.config_scroll = top + GIT_REF_ROW - list.height
+    }
+}
+
+// Enter or click on a settings row: folds a header, or starts editing the
+// entry's value.
+@(private = "file")
+git_view_activate_config :: proc(view: ^Git_View, index: int) {
+    rows := make([dynamic]Git_Config_Row, context.temp_allocator)
+    git_view_config_rows(view, &rows)
+    if index < 0 || index >= len(rows) {
+        return
+    }
+    row := rows[index]
+    if row.header {
+        scope := row.global ? 1 : 0
+        view.config_collapsed[scope] = !view.config_collapsed[scope]
+        return
+    }
+    entry := view.config_rows[row.index]
+    view.config_edit_index = row.index
+    git_view_field_clear(&view.config_edit)
+    if entry.is_set {
+        git_view_field_insert(&view.config_edit, entry.value, false)
+    }
+    view.focus = .Config_Edit
+}
+
+// Commits the value being edited.
+@(private = "file")
+git_view_submit_config :: proc(view: ^Git_View) {
+    index := view.config_edit_index
+    view.config_edit_index = -1
+    view.focus = .Files
+    if index < 0 || index >= len(view.config_rows) || view.cbs.on_config_set == nil {
+        return
+    }
+    entry := view.config_rows[index]
+    view.cbs.on_config_set(view.data, entry.global, entry.key, strings.trim_space(string(view.config_edit.buf[:])))
+}
+
+@(private = "file")
+git_view_submit_clone :: proc(view: ^Git_View) {
+    url := strings.trim_space(string(view.clone_url.buf[:]))
+    dir := strings.trim_space(string(view.clone_dir.buf[:]))
+    if url == "" || dir == "" || view.busy || view.cbs.on_hosting == nil {
+        return
+    }
+    view.cbs.on_hosting(view.data, .Clone, url, dir)
 }
 
 @(private = "file")
@@ -1078,14 +1428,17 @@ git_view_select_file :: proc(view: ^Git_View, staged: bool, index: int) {
 
 @(private = "file")
 git_view_field_key :: proc(view: ^Git_View, event: ^ui.Event) {
-    field := view.focus == .Subject ? &view.subject : &view.description
+    field, multiline := git_view_focused_field(view)
+    if field == nil {
+        return
+    }
     text := string(field.buf[:])
 
-    // Paste, filtered like typed input: no \r ever, no \n in the subject.
+    // Paste, filtered like typed input: no \r ever, no \n in a single line.
     if (.Ctrl in event.mods) && event.key == .V {
         clip := rl.GetClipboardText()
         if clip != nil {
-            git_view_field_insert(field, string(clip), view.focus == .Description)
+            git_view_field_insert(field, string(clip), multiline)
         }
         return
     }
@@ -1117,10 +1470,17 @@ git_view_field_key :: proc(view: ^Git_View, event: ^ui.Event) {
             field.caret = git_view_caret_vertical(text, field.caret, 1)
         }
     case .ENTER, .KP_ENTER:
-        if view.focus == .Subject {
+        #partial switch view.focus {
+        case .Subject:
             view.focus = .Description
-        } else {
+        case .Description:
             git_view_field_insert(field, "\n", true)
+        case .Config_Edit:
+            git_view_submit_config(view)
+        case .Clone_Url:
+            view.focus = .Clone_Dir
+        case .Clone_Dir:
+            git_view_submit_clone(view)
         }
     }
 }
@@ -1189,7 +1549,8 @@ git_view_caret_vertical :: proc(text: string, caret: int, dir: int) -> int {
 
 @(private = "file")
 git_view_text_input :: proc(view: ^Git_View, event: ^ui.Event) {
-    if view.focus != .Subject && view.focus != .Description {
+    field, _ := git_view_focused_field(view)
+    if field == nil {
         return
     }
     if (.Ctrl in event.mods) && !(.Alt in event.mods) {
@@ -1198,7 +1559,6 @@ git_view_text_input :: proc(view: ^Git_View, event: ^ui.Event) {
     if event.codepoint < 32 || event.codepoint == 127 {
         return
     }
-    field := view.focus == .Subject ? &view.subject : &view.description
     buffer, width := utf8.encode_rune(event.codepoint)
     inject_at(&field.buf, field.caret, ..buffer[:width])
     field.caret += width
@@ -1234,7 +1594,14 @@ git_view_scroll :: proc(view: ^Git_View, event: ^ui.Event) {
         if rl.CheckCollisionPointRec(point, git_view_refs_list_rect(view)) {
             view.refs_scroll -= delta * GIT_REF_ROW
         }
-    case .Settings, .Hosting:
+    case .Settings:
+        if rl.CheckCollisionPointRec(point, git_view_refs_list_rect(view)) {
+            view.config_scroll -= delta * GIT_REF_ROW
+        }
+    case .Hosting:
+        if rl.CheckCollisionPointRec(point, git_view_refs_list_rect(view)) {
+            view.hosting_scroll -= delta * GIT_REF_ROW
+        }
     }
     git_view_clamp_scrolls(view)
 }
@@ -1262,8 +1629,75 @@ git_view_mouse_down :: proc(view: ^Git_View, ctx: ^ui.Context, point: rl.Vector2
         git_view_click_history(view, point)
     case .Branches:
         git_view_click_branches(view, point)
-    case .Settings, .Hosting:
+    case .Settings:
+        git_view_click_settings(view, point)
+    case .Hosting:
+        git_view_click_hosting(view, point)
     }
+}
+
+@(private = "file")
+git_view_click_settings :: proc(view: ^Git_View, point: rl.Vector2) {
+    index := git_view_config_row_at(view, point)
+    if index < 0 {
+        view.config_edit_index = -1
+        view.focus = .Files
+        return
+    }
+    view.config_sel = index
+    git_view_activate_config(view, index)
+}
+
+@(private = "file")
+git_view_click_hosting :: proc(view: ^Git_View, point: rl.Vector2) {
+    items := make([dynamic]Git_Hosting_Item, context.temp_allocator)
+    git_view_hosting_items(view, &items)
+    for item in items {
+        if !rl.CheckCollisionPointRec(point, item.rect) {
+            continue
+        }
+        switch item.kind {
+        case .Action_Repo:
+            git_view_fire_hosting(view, .Open_Repo, "", "")
+        case .Action_File:
+            git_view_fire_hosting(view, .Open_File, "", "")
+        case .Action_Commit:
+            git_view_fire_hosting(view, .Open_Commit, "", "")
+        case .Action_Pr:
+            git_view_fire_hosting(view, .Create_Pr, "", "")
+        case .Pr:
+            if item.index >= 0 && item.index < len(view.prs) {
+                git_view_fire_hosting(view, .Open_Pr, view.prs[item.index].url, "")
+            }
+        case .Clone_Url_Field:
+            view.focus = .Clone_Url
+            view.clone_url.caret = len(view.clone_url.buf)
+        case .Clone_Dir_Field:
+            view.focus = .Clone_Dir
+            view.clone_dir.caret = len(view.clone_dir.buf)
+        case .Clone_Button:
+            git_view_submit_clone(view)
+        case .Card, .Pr_Header, .Cli_Hint, .Clone_Header:
+        }
+        return
+    }
+    view.focus = .Files
+}
+
+@(private = "file")
+git_view_fire_hosting :: proc(view: ^Git_View, action: Git_Hosting_Action, arg, arg2: string) {
+    if view.busy || view.cbs.on_hosting == nil {
+        return
+    }
+    view.cbs.on_hosting(view.data, action, arg, arg2)
+}
+
+// Seeds the clone destination once, so a typed path is not overwritten.
+git_view_set_clone_dir_hint :: proc(view: ^Git_View, dir: string) {
+    if len(view.clone_dir.buf) > 0 {
+        return
+    }
+    git_view_field_insert(&view.clone_dir, dir, false)
 }
 
 @(private = "file")
@@ -1480,11 +1914,21 @@ git_view_destroy :: proc(widget: ^ui.Widget) {
     delete(view.commits)
     git_view_clear_refs(view)
     delete(view.refs)
+    git_view_clear_config(view)
+    delete(view.config_rows)
+    git_view_clear_prs(view)
+    delete(view.prs)
     git_view_free_diff(view)
     delete(view.branch)
     delete(view.status_line)
     delete(view.restore_path)
+    delete(view.host_label)
+    delete(view.host_icon)
+    delete(view.cli_name)
     delete(view.subject.buf)
     delete(view.description.buf)
+    delete(view.config_edit.buf)
+    delete(view.clone_url.buf)
+    delete(view.clone_dir.buf)
     free(view)
 }

@@ -45,7 +45,17 @@ Git_Op :: enum {
     Stash_Apply,     // arg = "stash@{N}"
     Stash_Pop,
     Stash_Drop,
+    Config_List,     // local + global tables
+    Config_Set,      // arg = key, arg2 = value, flag = global
+    Remote_Url,      // origin's URL
+    CLI_Probe,       // gh + glab --version
+    PR_List,         // flag = use glab
+    PR_Create,       // arg = branch, flag = use glab
+    Clone,           // arg = url, arg2 = destination directory
 }
+
+// Cloning fetches a whole repository, so it gets its own generous timeout.
+GIT_CLONE_TIMEOUT :: 120 * time.Second
 
 // One git command run off-thread. cwd/arg/arg2 are cloned at dispatch so the
 // worker never reads Thor state; generation and serial let the main thread
@@ -123,9 +133,10 @@ thor_git_op :: proc(thor: ^Thor, op: Git_Op, arg := "", arg2 := "", flag := fals
 git_op_is_mutation :: proc(op: Git_Op) -> bool {
     switch op {
     case .Stage, .Unstage, .Stage_All, .Unstage_All, .Discard, .Commit, .Fetch, .Pull, .Push,
-         .Checkout, .Checkout_Remote, .Stash_Save, .Stash_Apply, .Stash_Pop, .Stash_Drop:
+         .Checkout, .Checkout_Remote, .Stash_Save, .Stash_Apply, .Stash_Pop, .Stash_Drop,
+         .Config_Set, .PR_Create, .Clone:
         return true
-    case .Snapshot, .Diff_File, .Log, .Commit_Show, .Refs:
+    case .Snapshot, .Diff_File, .Log, .Commit_Show, .Refs, .Config_List, .Remote_Url, .CLI_Probe, .PR_List:
         return false
     }
     return false
@@ -145,9 +156,14 @@ git_op_worker :: proc(job: ^Git_Op_Job) {
         git_run_commit(job)
     case .Refs:
         git_run_refs(job)
+    case .Config_List:
+        git_run_config_list(job)
+    case .CLI_Probe:
+        git_run_cli_probe(job)
     case .Stage, .Unstage, .Stage_All, .Unstage_All, .Discard, .Fetch, .Pull, .Push,
          .Log, .Commit_Show, .Checkout, .Checkout_Remote,
-         .Stash_Save, .Stash_Apply, .Stash_Pop, .Stash_Drop:
+         .Stash_Save, .Stash_Apply, .Stash_Pop, .Stash_Drop,
+         .Config_Set, .Remote_Url, .PR_List, .PR_Create, .Clone:
         git_run_simple(job)
     }
 
@@ -176,6 +192,20 @@ git_run_refs :: proc(job: ^Git_Op_Job) {
     job.aux[0], job.aux_codes[0], _ = shell.run_status("git branch -r --format=%(refname:short)", job.cwd, GIT_LOCAL_TIMEOUT)
     job.aux[1], job.aux_codes[1], _ = shell.run_status("git tag --list", job.cwd, GIT_LOCAL_TIMEOUT)
     job.aux[2], job.aux_codes[2], _ = shell.run_status("git stash list --format=%gd%x09%gs", job.cwd, GIT_LOCAL_TIMEOUT)
+}
+
+// Config slots: output = --local -z, aux[0] = --global -z.
+@(private = "file")
+git_run_config_list :: proc(job: ^Git_Op_Job) {
+    job.output, job.code, job.ok = shell.run_status("git config --list --local -z", job.cwd, GIT_LOCAL_TIMEOUT)
+    job.aux[0], job.aux_codes[0], _ = shell.run_status("git config --list --global -z", job.cwd, GIT_LOCAL_TIMEOUT)
+}
+
+// Probe slots: output = gh --version, aux[0] = glab --version.
+@(private = "file")
+git_run_cli_probe :: proc(job: ^Git_Op_Job) {
+    job.output, job.code, job.ok = shell.run_status("gh --version", job.cwd, GIT_LOCAL_TIMEOUT)
+    job.aux[0], job.aux_codes[0], _ = shell.run_status("glab --version", job.cwd, GIT_LOCAL_TIMEOUT)
 }
 
 @(private = "file")
@@ -335,7 +365,45 @@ git_run_simple :: proc(job: ^Git_Op_Job) {
     case .Push:
         cmd = "git push"
         timeout = GIT_NETWORK_TIMEOUT
-    case .Snapshot, .Diff_File, .Commit, .Refs:
+    case .Config_Set:
+        key_quoted, key_ok := git_quote_path(job.arg)
+        value_quoted, value_ok := git_quote_path(job.arg2)
+        if !key_ok || !value_ok {
+            job.output = strings.clone("unsupported character in the value")
+            job.code = -1
+            return
+        }
+        scope := job.flag ? "--global " : ""
+        cmd = strings.concatenate({"git config ", scope, key_quoted, " ", value_quoted}, context.temp_allocator)
+    case .Remote_Url:
+        cmd = "git remote get-url origin"
+    case .PR_List:
+        cmd = job.flag ? "glab mr list --output json" : "gh pr list --json number,title,headRefName,url --limit 50"
+        timeout = GIT_NETWORK_TIMEOUT
+    case .PR_Create:
+        if job.flag {
+            cmd = "glab mr create --fill --yes"
+        } else {
+            quoted, quote_ok := git_quote_path(job.arg)
+            if !quote_ok {
+                job.output = strings.clone("unsupported character in branch")
+                job.code = -1
+                return
+            }
+            cmd = strings.concatenate({"gh pr create --fill --head ", quoted}, context.temp_allocator)
+        }
+        timeout = GIT_NETWORK_TIMEOUT
+    case .Clone:
+        url_quoted, url_ok := git_quote_path(job.arg)
+        dir_quoted, dir_ok := git_quote_path(job.arg2)
+        if !url_ok || !dir_ok {
+            job.output = strings.clone("unsupported character in the URL or path")
+            job.code = -1
+            return
+        }
+        cmd = strings.concatenate({"git clone ", url_quoted, " ", dir_quoted}, context.temp_allocator)
+        timeout = GIT_CLONE_TIMEOUT
+    case .Snapshot, .Diff_File, .Commit, .Refs, .Config_List, .CLI_Probe:
         return
     }
     job.output, job.code, job.ok = shell.run_status(cmd, job.cwd, timeout)
@@ -376,8 +444,23 @@ thor_apply_git_op :: proc(thor: ^Thor, job: ^Git_Op_Job) {
         if !stale {
             thor_git_push_refs(thor, job)
         }
+    case .Config_List:
+        if !stale {
+            thor_git_push_config(thor, job)
+        }
+    case .Remote_Url:
+        if !stale {
+            thor_git_apply_remote_url(thor, job)
+        }
+    case .CLI_Probe:
+        thor_git_apply_cli_probe(thor, job)
+    case .PR_List:
+        if !stale {
+            thor_git_push_prs(thor, job)
+        }
     case .Stage, .Unstage, .Stage_All, .Unstage_All, .Discard, .Commit, .Fetch, .Pull, .Push,
-         .Checkout, .Checkout_Remote, .Stash_Save, .Stash_Apply, .Stash_Pop, .Stash_Drop:
+         .Checkout, .Checkout_Remote, .Stash_Save, .Stash_Apply, .Stash_Pop, .Stash_Drop,
+         .Config_Set, .PR_Create, .Clone:
         thor.git_mutation_inflight = false
         thor_refresh_git_status(thor)
         if !stale {
@@ -719,6 +802,43 @@ git_parse_name_lines :: proc(output: string, out: ^[dynamic]string) {
         }
         append(out, strings.clone(name))
     }
+}
+
+// One "key\nvalue" entry of `git config --list -z`. Both owned.
+Git_Config_Entry :: struct {
+    key:   string,
+    value: string,
+}
+
+// NUL-terminated entries; the first newline splits key from value, and a
+// value can carry newlines of its own.
+git_parse_config_z :: proc(output: string, out: ^[dynamic]Git_Config_Entry) {
+    rest := output
+    for len(rest) > 0 {
+        nul := strings.index_byte(rest, 0)
+        entry := nul >= 0 ? rest[:nul] : rest
+        rest = nul >= 0 ? rest[nul + 1:] : ""
+        if strings.trim_space(entry) == "" {
+            continue
+        }
+        newline := strings.index_byte(entry, '\n')
+        if newline < 0 {
+            append(out, Git_Config_Entry{strings.clone(strings.trim_space(entry)), strings.clone("")})
+            continue
+        }
+        append(out, Git_Config_Entry{
+            strings.clone(strings.trim_space(entry[:newline])),
+            strings.clone(entry[newline + 1:]),
+        })
+    }
+}
+
+git_config_entries_destroy :: proc(entries: ^[dynamic]Git_Config_Entry) {
+    for entry in entries {
+        delete(entry.key)
+        delete(entry.value)
+    }
+    delete(entries^)
 }
 
 // "stash@{N}<TAB>subject" lines from `git stash list --format=%gd%x09%gs`.

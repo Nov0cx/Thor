@@ -101,7 +101,10 @@ git_view_draw :: proc(widget: ^ui.Widget, _: ^ui.Context) {
         git_view_draw_history(view, mouse)
     case .Branches:
         git_view_draw_branches(view, mouse)
-    case .Settings, .Hosting:
+    case .Settings:
+        git_view_draw_settings(view, mouse)
+    case .Hosting:
+        git_view_draw_hosting(view, mouse)
     }
     git_view_draw_footer(view)
 }
@@ -738,6 +741,176 @@ git_view_draw_branches :: proc(view: ^Git_View, mouse: rl.Vector2) {
 
     content := cast(f32) len(rows) * GIT_REF_ROW
     if track, thumb, ok := ui.scrollbar_rects(list, content, view.refs_scroll, GIT_SCROLLBAR_STYLE); ok {
+        rl.DrawRectangleRounded(track, 0.5, 4, git_view_tint(view.muted_color, 15))
+        rl.DrawRectangleRounded(thumb, 0.5, 4, git_view_tint(view.muted_color, 120))
+    }
+}
+
+// ---- settings view (git config) ----
+
+@(private = "file")
+git_view_draw_settings :: proc(view: ^Git_View, mouse: rl.Vector2) {
+    list := git_view_refs_list_rect(view)
+    rows := make([dynamic]Git_Config_Row, context.temp_allocator)
+    git_view_config_rows(view, &rows)
+
+    ui.begin_clip(list)
+    for row, index in rows {
+        rect := git_view_config_row_rect(view, index)
+        if rect.y + rect.height < list.y || rect.y > list.y + list.height {
+            continue
+        }
+        hovered := rl.CheckCollisionPointRec(mouse, rect)
+
+        if row.header {
+            scope := row.global ? 1 : 0
+            chevron := view.config_collapsed[scope] ? "chevron-right" : "chevron-down"
+            x := rect.x + SETTINGS_ITEM_INSET + 12
+            ui.draw_icon(chevron, cast(i32) x, cast(i32) (rect.y + (rect.height - 16) * 0.5), 16, view.accent_color)
+            ui.draw_text(
+                row.global ? "GLOBAL" : "LOCAL",
+                cast(i32) (x + 22),
+                cast(i32) (rect.y + (rect.height - 12) * 0.5),
+                12,
+                git_view_tint(view.muted_color, 200),
+            )
+            continue
+        }
+
+        entry := view.config_rows[row.index]
+        band := rl.Rectangle {
+            rect.x + SETTINGS_ITEM_INSET, rect.y + 1, rect.width - SETTINGS_ITEM_INSET * 2, rect.height - 2,
+        }
+        if index == view.config_sel {
+            rl.DrawRectangleRounded(band, 0.35, 6, view.selected_color)
+        } else if hovered {
+            rl.DrawRectangleRounded(band, 0.35, 6, git_view_tint(view.text_color, 10))
+        }
+
+        x := rect.x + SETTINGS_ITEM_INSET + 12 + SETTINGS_GROUP_INDENT
+        ui.draw_text(entry.key, cast(i32) x, cast(i32) (rect.y + (rect.height - 14) * 0.5), 14, view.text_color)
+
+        // The value, or the edit field over it.
+        if view.config_edit_index == row.index {
+            field := rl.Rectangle {rect.x + rect.width * 0.5, rect.y + 2, rect.width * 0.5 - SETTINGS_ROW_PAD, rect.height - 4}
+            git_view_draw_field(view, field, &view.config_edit, view.focus == .Config_Edit, "value", false)
+            continue
+        }
+        value := entry.value
+        color := view.accent_color
+        if !entry.is_set {
+            value = "not set"
+            color = git_view_tint(view.muted_color, 120)
+        }
+        value = git_view_fit_tail(value, 14, rect.width * 0.5 - SETTINGS_ROW_PAD)
+        vw := ui.measure_text(value, 14)
+        ui.draw_text(
+            value,
+            cast(i32) (rect.x + rect.width - SETTINGS_ROW_PAD - cast(f32) vw),
+            cast(i32) (rect.y + (rect.height - 14) * 0.5),
+            14,
+            color,
+        )
+    }
+    ui.end_clip()
+
+    content := cast(f32) len(rows) * GIT_REF_ROW
+    if track, thumb, ok := ui.scrollbar_rects(list, content, view.config_scroll, GIT_SCROLLBAR_STYLE); ok {
+        rl.DrawRectangleRounded(track, 0.5, 4, git_view_tint(view.muted_color, 15))
+        rl.DrawRectangleRounded(thumb, 0.5, 4, git_view_tint(view.muted_color, 120))
+    }
+}
+
+// ---- hosting view ----
+
+@(private = "file")
+git_view_draw_hosting :: proc(view: ^Git_View, mouse: rl.Vector2) {
+    list := git_view_refs_list_rect(view)
+    items := make([dynamic]Git_Hosting_Item, context.temp_allocator)
+    git_view_hosting_items(view, &items)
+
+    ui.begin_clip(list)
+    for item in items {
+        rect := item.rect
+        if rect.y + rect.height < list.y || rect.y > list.y + list.height {
+            continue
+        }
+        hovered := rl.CheckCollisionPointRec(mouse, rect)
+
+        switch item.kind {
+        case .Card:
+            rl.DrawRectangleRounded(rect, 0.35, 6, view.field_color)
+            rl.DrawRectangleRoundedLinesEx(rect, 0.35, 6, 1, git_view_tint(view.muted_color, 60))
+            icon := view.host_icon == "" ? "world-www" : view.host_icon
+            ui.draw_icon(icon, cast(i32) (rect.x + 12), cast(i32) (rect.y + (rect.height - 18) * 0.5), 18, view.accent_color)
+            label := view.host_label == "" ? "No remote detected" : view.host_label
+            color := view.host_label == "" ? view.muted_color : view.text_color
+            ui.draw_text(git_view_fit_tail(label, 15, rect.width - 52), cast(i32) (rect.x + 40), cast(i32) (rect.y + (rect.height - 15) * 0.5), 15, color)
+        case .Action_Repo, .Action_File, .Action_Commit, .Action_Pr:
+            label := "Open repository in browser"
+            #partial switch item.kind {
+            case .Action_File:   label = "Open current file in browser"
+            case .Action_Commit: label = "Open last commit in browser"
+            case .Action_Pr:     label = view.cli_name == "" ? "Create pull request (browser)" : "Create pull request"
+            }
+            band := rl.Rectangle {rect.x, rect.y + 1, rect.width, rect.height - 2}
+            if hovered && !view.busy {
+                rl.DrawRectangleRounded(band, 0.35, 6, git_view_tint(view.text_color, 10))
+            }
+            ui.draw_text(label, cast(i32) (rect.x + 8), cast(i32) (rect.y + (rect.height - 14) * 0.5), 14, view.text_color)
+            ui.draw_icon(
+                "chevron-right",
+                cast(i32) (rect.x + rect.width - SETTINGS_ROW_PAD - 16),
+                cast(i32) (rect.y + (rect.height - 16) * 0.5),
+                16,
+                view.muted_color,
+            )
+        case .Pr_Header:
+            ui.draw_text("PULL REQUESTS", cast(i32) (rect.x + 4), cast(i32) (rect.y + (rect.height - 12) * 0.5), 12, git_view_tint(view.muted_color, 200))
+        case .Pr:
+            pr := view.prs[item.index]
+            band := rl.Rectangle {rect.x, rect.y + 1, rect.width, rect.height - 2}
+            if hovered {
+                rl.DrawRectangleRounded(band, 0.35, 6, git_view_tint(view.text_color, 10))
+            }
+            label := fmt.tprintf("#%d  %s  (%s)", pr.number, pr.title, pr.branch)
+            ui.draw_text(git_view_fit_tail(label, 14, rect.width - 16), cast(i32) (rect.x + 8), cast(i32) (rect.y + (rect.height - 14) * 0.5), 14, view.text_color)
+        case .Cli_Hint:
+            hint := view.cli_name == "" ? "Install gh or glab to list pull requests" : "No open pull requests"
+            ui.draw_text(hint, cast(i32) (rect.x + 8), cast(i32) (rect.y + (rect.height - 13) * 0.5), 13, git_view_tint(view.muted_color, 150))
+        case .Clone_Header:
+            ui.draw_text("CLONE REPOSITORY", cast(i32) (rect.x + 4), cast(i32) (rect.y + (rect.height - 12) * 0.5), 12, git_view_tint(view.muted_color, 200))
+        case .Clone_Url_Field:
+            git_view_draw_field(view, rect, &view.clone_url, view.focus == .Clone_Url, "Repository URL", false)
+        case .Clone_Dir_Field:
+            git_view_draw_field(view, rect, &view.clone_dir, view.focus == .Clone_Dir, "Destination folder", false)
+        case .Clone_Button:
+            enabled := !view.busy && len(view.clone_url.buf) > 0 && len(view.clone_dir.buf) > 0
+            hover := enabled && hovered
+            fill := view.field_color
+            border := git_view_tint(view.muted_color, 60)
+            label_color := git_view_tint(view.muted_color, 120)
+            if enabled {
+                fill = hover ? git_view_tint(view.accent_color, 45) : git_view_tint(view.accent_color, 25)
+                border = view.accent_color
+                label_color = hover ? view.accent_color : view.text_color
+            }
+            rl.DrawRectangleRounded(rect, 0.35, 6, fill)
+            rl.DrawRectangleRoundedLinesEx(rect, 0.35, 6, 1, border)
+            lw := ui.measure_text("Clone", 14)
+            ui.draw_text(
+                "Clone",
+                cast(i32) (rect.x + (rect.width - cast(f32) lw) * 0.5),
+                cast(i32) (rect.y + (rect.height - 14) * 0.5),
+                14,
+                label_color,
+            )
+        }
+    }
+    ui.end_clip()
+
+    content := git_view_hosting_content_height(view)
+    if track, thumb, ok := ui.scrollbar_rects(list, content, view.hosting_scroll, GIT_SCROLLBAR_STYLE); ok {
         rl.DrawRectangleRounded(track, 0.5, 4, git_view_tint(view.muted_color, 15))
         rl.DrawRectangleRounded(thumb, 0.5, 4, git_view_tint(view.muted_color, 120))
     }

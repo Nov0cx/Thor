@@ -18,6 +18,7 @@ thor_apply_tooltips :: proc(thor: ^Thor) {
     ui.widget_set_tooltip(&thor.menu_file_button.widget, "Files, folders and windows")
     ui.widget_set_tooltip(&thor.menu_edit_button.widget, "Undo, clipboard and selection")
     ui.widget_set_tooltip(&thor.menu_view_button.widget, "Panels, split view and appearance")
+    ui.widget_set_tooltip(&thor.menu_git_button.widget, "Changes, history and branches", thor_action_shortcut(thor, "open_git_gui"))
     ui.widget_set_tooltip(&thor.menu_help_button.widget, "Tutorial, manual and updates")
 
     ui.widget_set_tooltip(&thor.explorer_toggle_button.widget, "Hide the explorer", explorer)

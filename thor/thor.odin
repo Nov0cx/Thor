@@ -125,6 +125,7 @@ Thor :: struct {
     menu_file_button: ^widgets.Button,
     menu_edit_button: ^widgets.Button,
     menu_view_button: ^widgets.Button,
+    menu_git_button: ^widgets.Button,
     menu_help_button: ^widgets.Button,
     // Titlebar hammer mark and its borrowed texture (unloaded at shutdown).
     top_logo: ^widgets.Logo,
@@ -308,6 +309,14 @@ Thor :: struct {
     git_mutation_inflight: bool,
     // Commits the history view has asked for; "Load more" raises it.
     git_log_count: int,
+    // What origin points at (owned strings; kind None while unknown), whether
+    // the gh/glab CLIs answered a probe, and whether the open hosting view
+    // already asked for its PR list.
+    git_host: Git_Host_Info,
+    git_has_gh: bool,
+    git_has_glab: bool,
+    git_cli_probed: bool,
+    git_prs_requested: bool,
     // Discard confirmation state: the path awaiting the answer and the prompt
     // the palette borrows while it is open. Owned clones.
     git_discard_path: string,
@@ -806,6 +815,7 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.git_prefix)
     delete(thor.git_discard_path)
     delete(thor.git_discard_prompt)
+    git_host_info_destroy(&thor.git_host)
     thor_clear_tasks(thor)
     delete(thor.active_task_name)
     delete(thor.pending_task_name)

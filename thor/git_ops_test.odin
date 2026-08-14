@@ -220,6 +220,23 @@ test_git_parse_name_lines_skip_head :: proc(t: ^testing.T) {
     testing.expect_value(t, names[1], "origin/feature")
 }
 
+// A -z config entry is "key\nvalue" and the value may hold newlines of its
+// own; a valueless key still lists.
+@(test)
+test_git_parse_config_z :: proc(t: ^testing.T) {
+    entries := make([dynamic]Git_Config_Entry)
+    defer git_config_entries_destroy(&entries)
+    git_parse_config_z("user.name\nAda Lovelace\x00core.autocrlf\ntrue\x00alias.lg\nlog --graph\nall\x00some.flag\x00", &entries)
+
+    testing.expect_value(t, len(entries), 4)
+    testing.expect_value(t, entries[0].key, "user.name")
+    testing.expect_value(t, entries[0].value, "Ada Lovelace")
+    testing.expect_value(t, entries[2].key, "alias.lg")
+    testing.expect_value(t, entries[2].value, "log --graph\nall")
+    testing.expect_value(t, entries[3].key, "some.flag")
+    testing.expect_value(t, entries[3].value, "")
+}
+
 @(test)
 test_git_parse_stash_lines :: proc(t: ^testing.T) {
     ids := make([dynamic]string)

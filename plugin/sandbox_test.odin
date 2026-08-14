@@ -118,7 +118,7 @@ test_scan_reports_manifest_permissions :: proc(t: ^testing.T) {
         switch p.id {
         case "git":
             seen_git = true
-            testing.expectf(t, p.perms == {.Exec, .Write, .Ui}, "git asks for %v", p.perms)
+            testing.expectf(t, p.perms == {.Exec, .Ui}, "git asks for %v", p.perms)
         case "odin":
             seen_language = true
             testing.expectf(t, p.perms == {}, "a language plugin asks for %v", p.perms)

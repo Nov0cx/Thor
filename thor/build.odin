@@ -182,10 +182,12 @@ thor_build_ui :: proc(thor: ^Thor) {
             on_checkout = thor_on_git_checkout,
             on_stash = thor_on_git_stash,
             on_discard = thor_on_git_discard,
+            on_config_set = thor_on_git_config_set,
+            on_hosting = thor_on_git_hosting,
         },
         thor,
     )
-    widgets.git_view_set_views(thor.git_view, {.Changes, .History, .Branches})
+    widgets.git_view_set_views(thor.git_view, {.Changes, .History, .Branches, .Settings, .Hosting})
     thor.git_view.visible = false
 
     thor.find_replace = widgets.find_replace_create("find-replace")
@@ -222,6 +224,7 @@ thor_build_controls :: proc(thor: ^Thor) {
     thor.menu_file_button = thor_create_menu_button(thor, "menu-file", "File")
     thor.menu_edit_button = thor_create_menu_button(thor, "menu-edit", "Edit")
     thor.menu_view_button = thor_create_menu_button(thor, "menu-view", "View")
+    thor.menu_git_button = thor_create_menu_button(thor, "menu-git", "Git")
     thor.menu_help_button = thor_create_menu_button(thor, "menu-help", "Help")
     thor.explorer_toggle_button = thor_create_icon_button(thor, "explorer-toggle", "layout-sidebar-left-collapse", thor_toggle_explorer, thor.theme.highlight)
     thor.explorer_restore_button = thor_create_icon_button(thor, "explorer-restore", "layout-sidebar-left-expand", thor_toggle_explorer, thor.theme.buttons)
@@ -551,6 +554,7 @@ thor_build_content :: proc(thor: ^Thor) {
     widgets.append_child(&thor.top_bar.widget, &thor.menu_file_button.widget)
     widgets.append_child(&thor.top_bar.widget, &thor.menu_edit_button.widget)
     widgets.append_child(&thor.top_bar.widget, &thor.menu_view_button.widget)
+    widgets.append_child(&thor.top_bar.widget, &thor.menu_git_button.widget)
     widgets.append_child(&thor.top_bar.widget, &thor.menu_help_button.widget)
     widgets.append_child(&thor.top_bar.widget, &top_spacer.widget)
     widgets.append_child(&thor.top_bar.widget, &thor.update_button.widget)

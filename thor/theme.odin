@@ -167,7 +167,7 @@ thor_apply_theme :: proc(thor: ^Thor) {
     // Buttons. The Git top-bar button is a plugin button, recolored in the
     // plugin_buttons loop below, not here.
     for b in ([]^widgets.Button {
-        thor.menu_file_button, thor.menu_edit_button, thor.menu_view_button, thor.menu_help_button,
+        thor.menu_file_button, thor.menu_edit_button, thor.menu_view_button, thor.menu_git_button, thor.menu_help_button,
     }) {
         thor_theme_menu_button(thor, b)
     }

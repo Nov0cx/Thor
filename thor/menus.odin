@@ -24,6 +24,7 @@ thor_wire_menus :: proc(thor: ^Thor) {
     widgets.button_set_on_click(thor.menu_file_button, thor_open_file_menu, thor)
     widgets.button_set_on_click(thor.menu_edit_button, thor_open_edit_menu, thor)
     widgets.button_set_on_click(thor.menu_view_button, thor_open_view_menu, thor)
+    widgets.button_set_on_click(thor.menu_git_button, thor_open_git_menu, thor)
     widgets.button_set_on_click(thor.menu_help_button, thor_open_help_menu, thor)
 }
 
@@ -397,11 +398,16 @@ thor_open_view_menu :: proc(data: rawptr, ctx: ^ui.Context, widget: ^ui.Widget) 
     widgets.menu_add(thor.menu, "Toggle Whitespace", thor_cmd_toggle_whitespace, thor)
     widgets.menu_add(thor.menu, "Toggle Split Editor", thor_cmd_toggle_split, thor)
     widgets.menu_add(thor.menu, "Toggle Fullscreen", thor_cmd_toggle_fullscreen, thor)
-    widgets.menu_add_separator(thor.menu)
-    widgets.menu_add(thor.menu, "Git", thor_cmd_open_git_view, thor)
-    widgets.menu_add(thor.menu, "Git History", thor_cmd_open_git_history, thor)
-    widgets.menu_add(thor.menu, "Git Branches", thor_cmd_open_git_branches, thor)
     thor_open_dropdown(thor, thor.menu_view_button)
+}
+
+thor_open_git_menu :: proc(data: rawptr, ctx: ^ui.Context, widget: ^ui.Widget) {
+    thor := cast(^Thor) data
+    widgets.menu_clear(thor.menu)
+    widgets.menu_add(thor.menu, "Changes", thor_cmd_open_git_view, thor)
+    widgets.menu_add(thor.menu, "History", thor_cmd_open_git_history, thor)
+    widgets.menu_add(thor.menu, "Branches", thor_cmd_open_git_branches, thor)
+    thor_open_dropdown(thor, thor.menu_git_button)
 }
 
 thor_open_help_menu :: proc(data: rawptr, ctx: ^ui.Context, widget: ^ui.Widget) {
