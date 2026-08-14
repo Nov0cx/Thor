@@ -296,8 +296,23 @@ thor_cmd_rename_file :: proc(data: rawptr) {
     }
 }
 
+// True when `name` names one new entry of a folder: the palette already refuses
+// an empty prompt, the rest is what a join would turn into another directory.
+@(private = "file")
+thor_valid_entry_name :: proc(name: string) -> bool {
+    if name == "" || name == "." || name == ".." {
+        return false
+    }
+    return !strings.contains(name, "/") && !strings.contains(name, "\\")
+}
+
 thor_prompt_new_file :: proc(data: rawptr, name: string) {
     thor := cast(^Thor) data
+    name := strings.trim_space(name)
+    if !thor_valid_entry_name(name) {
+        thor_flash_status(thor, "Not a valid file name", is_error = true)
+        return
+    }
     path, join_err := filepath.join({thor.menu_target_dir, name}, context.temp_allocator)
     if join_err != nil {
         log.errorf("Could not build a path for %q: %v", name, join_err)
@@ -318,6 +333,11 @@ thor_prompt_new_file :: proc(data: rawptr, name: string) {
 
 thor_prompt_new_folder :: proc(data: rawptr, name: string) {
     thor := cast(^Thor) data
+    name := strings.trim_space(name)
+    if !thor_valid_entry_name(name) {
+        thor_flash_status(thor, "Not a valid folder name", is_error = true)
+        return
+    }
     path, join_err := filepath.join({thor.menu_target_dir, name}, context.temp_allocator)
     if join_err != nil {
         log.errorf("Could not build a path for %q: %v", name, join_err)
