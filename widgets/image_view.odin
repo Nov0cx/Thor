@@ -163,8 +163,15 @@ image_view_draw :: proc(widget: ^ui.Widget, _: ^ui.Context) {
 image_view_draw_checker :: proc(view: ^Image_View, dest: rl.Rectangle) {
     cols := cast(int) (dest.width / CHECKER_SIZE) + 1
     rows := cast(int) (dest.height / CHECKER_SIZE) + 1
-    for row in 0 ..< rows {
-        for col in 0 ..< cols {
+    // Only the cells the viewport shows are drawn; a zoomed-in image is far
+    // larger than its pane and the rest would only be clipped away. The indices
+    // stay absolute to `dest`, so the pattern keeps its phase while panning.
+    first_col := clamp(cast(int) ((view.bounds.x - dest.x) / CHECKER_SIZE), 0, cols)
+    first_row := clamp(cast(int) ((view.bounds.y - dest.y) / CHECKER_SIZE), 0, rows)
+    last_col := clamp(cast(int) ((view.bounds.x + view.bounds.width - dest.x) / CHECKER_SIZE) + 1, first_col, cols)
+    last_row := clamp(cast(int) ((view.bounds.y + view.bounds.height - dest.y) / CHECKER_SIZE) + 1, first_row, rows)
+    for row in first_row ..< last_row {
+        for col in first_col ..< last_col {
             color := (row + col) % 2 == 0 ? view.checker_a : view.checker_b
             cell := rl.Rectangle {
                 x = dest.x + cast(f32) col * CHECKER_SIZE,
