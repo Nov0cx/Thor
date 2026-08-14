@@ -54,9 +54,12 @@ piecetable_length :: proc(pt: ^Piece_Table) -> int {
     return pt.length
 }
 
+// Replaces the contents with `text`. The new table is built first, because
+// `text` can borrow this table's own snapshot, which the destroy frees.
 piecetable_set_text :: proc(pt: ^Piece_Table, text: string) {
+    fresh := piecetable_create(text)
     piecetable_destroy(pt)
-    pt^ = piecetable_create(text)
+    pt^ = fresh
 }
 
 // Splits the piece containing `pos` unless it already falls on a boundary, and

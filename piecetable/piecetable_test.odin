@@ -105,6 +105,18 @@ test_type_then_backspace :: proc(t: ^testing.T) {
     testing.expect_value(t, len(pt.pieces), 1)
 }
 
+// set_text must survive text that borrows the table's own snapshot: the new
+// table is built before the old one is freed.
+@(test)
+test_set_text_from_own_view :: proc(t: ^testing.T) {
+    pt := piecetable_create("hello")
+    defer piecetable_destroy(&pt)
+
+    piecetable_set_text(&pt, piecetable_view(&pt))
+    testing.expect_value(t, piecetable_view(&pt), "hello")
+    testing.expect_value(t, piecetable_length(&pt), 5)
+}
+
 // The snapshot is rebuilt on the first read after each edit, and only then.
 @(test)
 test_view_tracks_edits :: proc(t: ^testing.T) {
