@@ -105,6 +105,10 @@ Settings_View :: struct {
     // `rows`. While set, the host suppresses its global shortcuts so the press
     // reaches this widget.
     capturing:    int,
+    // Id of that row; owned, "" when not capturing. The chord commits against
+    // this, never the index: a repopulate rebuilds every row, so the index can
+    // come to name another action.
+    capturing_id: string,
     // Keyboard-highlighted row (-1 = none), an index into `visible_rows`.
     // Up/Down move it; Left/Right nudge a Number row; Enter activates a Choice
     // or Keybind row. Mouse clicks also move it, so the two stay in sync.
@@ -222,8 +226,10 @@ settings_view_set_workspace_available :: proc(view: ^Settings_View, available: b
 
 // Drops every row and category, keeping scroll/scope/capture so a live
 // repopulate (after a change persists and reloads) does not reset the view.
-// settings_view_open resets those.
+// The capture keeps its id only: settings_view_add_keybind re-points the index
+// when the row comes back. settings_view_open resets those.
 settings_view_clear :: proc(view: ^Settings_View) {
+    view.capturing = -1
     for row in view.rows {
         delete(row.id)
         delete(row.label)
@@ -335,11 +341,15 @@ settings_view_add_keybind :: proc(view: ^Settings_View, id, label, chord: string
         category = strings.clone(view.current_category),
         group = strings.clone(view.current_group),
     })
+    // The row a repopulate dropped mid-capture: point the capture back at it.
+    if view.capturing < 0 && view.capturing_id != "" && view.capturing_id == id {
+        view.capturing = len(view.rows) - 1
+    }
 }
 
 settings_view_open :: proc(view: ^Settings_View, ctx: ^ui.Context) {
     view.scroll = 0
-    view.capturing = -1
+    settings_view_end_capture(view)
     view.scope = .General
     view.selected_category = 0
     clear(&view.search)
@@ -360,10 +370,25 @@ settings_view_is_capturing :: proc(view: ^Settings_View) -> bool {
     return view != nil && view.visible && view.capturing >= 0
 }
 
+// Waits for a chord on the row at `index`, keeping its id as the commit target.
+@(private = "file")
+settings_view_begin_capture :: proc(view: ^Settings_View, index: int) {
+    delete(view.capturing_id)
+    view.capturing_id = strings.clone(view.rows[index].id)
+    view.capturing = index
+}
+
+@(private = "file")
+settings_view_end_capture :: proc(view: ^Settings_View) {
+    delete(view.capturing_id)
+    view.capturing_id = ""
+    view.capturing = -1
+}
+
 @(private = "file")
 settings_view_close :: proc(view: ^Settings_View, ctx: ^ui.Context) {
     view.visible = false
-    view.capturing = -1
+    settings_view_end_capture(view)
     if ctx.focused == &view.widget {
         ctx.focused = view.return_focus
     }
@@ -713,7 +738,7 @@ settings_view_mouse_down :: proc(view: ^Settings_View, ctx: ^ui.Context, point: 
     }
     // A press anywhere else cancels an in-progress capture.
     if view.capturing >= 0 {
-        view.capturing = -1
+        settings_view_end_capture(view)
         return
     }
     if rl.CheckCollisionPointRec(point, settings_view_close_rect(view)) {
@@ -783,13 +808,15 @@ settings_view_capture_key :: proc(view: ^Settings_View, event: ^ui.Event) {
          .LEFT_SUPER, .RIGHT_SUPER:
         return
     case .ESCAPE:
-        view.capturing = -1
+        settings_view_end_capture(view)
         return
     }
-    row := view.capturing
-    view.capturing = -1
-    if row >= 0 && row < len(view.rows) && view.on_keybind != nil {
-        view.on_keybind(view.data, view.rows[row].id, event.key, event.mods)
+    // The callback repopulates the rows, so the capture ends first and the id
+    // outlives the row it came from.
+    id := strings.clone(view.capturing_id, context.temp_allocator)
+    settings_view_end_capture(view)
+    if id != "" && view.on_keybind != nil {
+        view.on_keybind(view.data, id, event.key, event.mods)
     }
 }
 
@@ -865,7 +892,7 @@ settings_view_activate_selected :: proc(view: ^Settings_View) {
             view.on_choice(view.data, item.id)
         }
     case .Keybind:
-        view.capturing = vi
+        settings_view_begin_capture(view, vi)
     case .Group:
         settings_view_toggle_group(view, item.id)
     }
@@ -908,7 +935,7 @@ settings_view_click :: proc(view: ^Settings_View, point: rl.Vector2) {
                 view.on_keybind(view.data, item.id, .KEY_NULL, {})
             }
         } else {
-            view.capturing = vi
+            settings_view_begin_capture(view, vi)
         }
     }
 }
@@ -1308,6 +1335,7 @@ settings_view_draw_scrollbar :: proc(view: ^Settings_View, list: rl.Rectangle) {
 settings_view_destroy :: proc(widget: ^ui.Widget) {
     view := cast(^Settings_View) widget
     settings_view_clear(view)
+    delete(view.capturing_id)
     delete(view.rows)
     delete(view.categories)
     delete(view.visible_rows)
