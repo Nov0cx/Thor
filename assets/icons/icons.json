@@ -11,7 +11,9 @@
             "pack_group": "primary",
             "preload": [
                 "chevron-right",
+                "chevron-left",
                 "chevron-down",
+                "bulb",
                 "folder",
                 "folder-open",
                 "file",
