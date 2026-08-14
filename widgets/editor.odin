@@ -230,6 +230,15 @@ Editor :: struct {
     completion_colors:   [dynamic]rl.Color,
     completion_selected: int,
     completion_prefix:   int, // byte length of the already-typed prefix
+    // What the buffer-word list was built from, so typing one more character of
+    // the same word narrows it instead of rescanning the buffer. `full` says the
+    // list holds every match rather than the first COMPLETION_MAX_ITEMS, which
+    // is what makes narrowing exact. Only editor_update_completion sets these.
+    completion_full:     bool,
+    completion_word:     string, // owned, the prefix the list was built for
+    completion_start:    int,    // byte offset of that word
+    completion_rev:      u64,    // state revision it was built at
+    completion_size:     int,    // document length at that revision
 }
 
 editor_set_on_context_menu :: proc(editor: ^Editor, on_context_menu: Context_Menu_Proc, data: rawptr) {
@@ -1677,6 +1686,9 @@ editor_dismiss_completion :: proc(editor: ^Editor) {
     clear(&editor.completion_colors)
     editor.completion_selected = 0
     editor.completion_prefix = 0
+    editor.completion_full = false
+    delete(editor.completion_word)
+    editor.completion_word = ""
 }
 
 // Rebuilds the candidate list: distinct words elsewhere in the buffer sharing
@@ -1701,12 +1713,24 @@ editor_update_completion :: proc(editor: ^Editor) {
         return
     }
 
+    switch editor_narrow_completion(editor, txt, start, prefix) {
+    case .Kept:
+        editor_hold_completion(editor, txt, start, prefix)
+        return
+    case .Empty:
+        editor_dismiss_completion(editor)
+        return
+    case .Rescan:
+    }
+
     for item in editor.completion_items {
         delete(item)
     }
     clear(&editor.completion_items)
     clear(&editor.completion_colors)
 
+    seen := make(map[string]bool, 0, context.temp_allocator) // keys borrow txt
+    capped := false
     i := 0
     for i < len(txt) {
         if !editor_is_word_byte(txt[i]) {
@@ -1724,18 +1748,13 @@ editor_update_completion :: proc(editor: ^Editor) {
         if len(word) <= len(prefix) || !strings.has_prefix(word, prefix) {
             continue
         }
-        seen := false
-        for existing in editor.completion_items {
-            if existing == word {
-                seen = true
-                break
-            }
-        }
-        if seen {
+        if seen[word] {
             continue
         }
+        seen[word] = true
         append(&editor.completion_items, strings.clone(word))
         if len(editor.completion_items) >= COMPLETION_MAX_ITEMS {
+            capped = true
             break
         }
     }
@@ -1744,9 +1763,58 @@ editor_update_completion :: proc(editor: ^Editor) {
         editor_dismiss_completion(editor)
         return
     }
+    editor.completion_full = !capped
+    editor_hold_completion(editor, txt, start, prefix)
+}
+
+// Records what the buffer-word list was built from and shows it.
+@(private = "file")
+editor_hold_completion :: proc(editor: ^Editor, txt: string, start: int, prefix: string) {
+    delete(editor.completion_word)
+    editor.completion_word = strings.clone(prefix)
+    editor.completion_start = start
+    editor.completion_rev = editor.state.revision
+    editor.completion_size = len(txt)
     editor.completion_active = true
     editor.completion_prefix = len(prefix)
     editor.completion_selected = 0
+}
+
+@(private = "file")
+Narrow_Result :: enum {
+    Rescan, // the list can't be reused; scan the buffer
+    Kept,   // narrowed to the candidates that still match
+    Empty,  // narrowed to nothing, and a scan would find nothing either
+}
+
+// Drops the candidates that no longer match after one more character of the same
+// word was typed. Every word matching the longer prefix matches the shorter one,
+// so this is exact — as long as the list was complete, and as long as the only
+// edit since was the typed characters, which the revision and length checks prove.
+@(private = "file")
+editor_narrow_completion :: proc(editor: ^Editor, txt: string, start: int, prefix: string) -> Narrow_Result {
+    grown := len(prefix) - len(editor.completion_word)
+    if !editor.completion_active || !editor.completion_full || grown <= 0 {
+        return .Rescan
+    }
+    if editor.completion_start != start || editor.completion_rev + 1 != editor.state.revision {
+        return .Rescan
+    }
+    if editor.completion_size + grown != len(txt) || !strings.has_prefix(prefix, editor.completion_word) {
+        return .Rescan
+    }
+
+    kept := 0
+    for item in editor.completion_items {
+        if len(item) > len(prefix) && strings.has_prefix(item, prefix) {
+            editor.completion_items[kept] = item
+            kept += 1
+            continue
+        }
+        delete(item)
+    }
+    resize(&editor.completion_items, kept)
+    return kept == 0 ? .Empty : .Kept
 }
 
 // Inserts the remainder of the selected candidate beyond the typed prefix.
@@ -2877,6 +2945,7 @@ editor_destroy :: proc(widget: ^ui.Widget) {
     }
     delete(editor.completion_items)
     delete(editor.completion_colors)
+    delete(editor.completion_word)
     delete(editor.foldable)
     delete(editor.folded)
     free(editor)

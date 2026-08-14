@@ -33,6 +33,36 @@ editor_test_completion_setup :: proc(editor: ^Editor, state: ^textedit.State, te
     editor_ensure_visual_rows(editor)
 }
 
+// Typing one more character of the same word narrows the candidate list in place
+// instead of rescanning the buffer, so the result must still be exactly the words
+// that match, in first-occurrence order.
+@(test)
+test_completion_narrows_while_typing :: proc(t: ^testing.T) {
+    state: textedit.State
+    textedit.init(&state)
+    defer textedit.destroy(&state)
+
+    editor: Editor
+    defer delete(editor.visual_rows)
+    defer delete(editor.completion_items)
+    defer delete(editor.completion_colors)
+    defer delete(editor.completion_word)
+    defer editor_test_free_completions(&editor)
+
+    editor_test_completion_setup(&editor, &state, "alpha albatross alpine \n")
+    for r in "alp" {
+        event := ui.Event {kind = .Text_Input, codepoint = r}
+        editor_handle_event(&editor.widget, nil, &event)
+    }
+
+    testing.expect(t, editor.completion_active, "typing a word opens the popup")
+    testing.expect(t, editor.completion_full, "a list under the cap holds every match")
+    testing.expect_value(t, len(editor.completion_items), 2)
+    testing.expect_value(t, editor.completion_items[0], "alpha")
+    testing.expect_value(t, editor.completion_items[1], "alpine")
+    testing.expect_value(t, editor.completion_prefix, 3)
+}
+
 // Clicking a candidate accepts it. The click point comes from the shared rects,
 // never from a fixed pixel: ui.measure_text reports 0 with no font atlas, so the
 // box collapses to its minimum width in a headless run.
