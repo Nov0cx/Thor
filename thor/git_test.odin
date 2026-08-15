@@ -35,6 +35,29 @@ test_git_status_keys_use_the_native_separator :: proc(t: ^testing.T) {
     testing.expect_value(t, len(status), 5)
 }
 
+// With core.quotePath on, git wraps a non-ASCII path in quotes and prints its
+// bytes as octal escapes. Left encoded, the key matches no row and the file
+// carries no tint.
+@(test)
+test_git_status_unquotes_a_c_quoted_path :: proc(t: ^testing.T) {
+    thor := new(Thor)
+    defer free(thor)
+    thor.git_prefix = strings.concatenate({"repo", filepath.SEPARATOR_STRING}, context.temp_allocator)
+
+    status := make(map[string]widgets.Git_Status)
+    defer {
+        for path in status {
+            delete(path)
+        }
+        delete(status)
+    }
+    // "\303\274" is the UTF-8 for "ü"; the rename keeps the new path only.
+    git_parse_status(thor, " M \"src/\\303\\274ber.odin\"\nR  \"a.odin\" -> \"b\\tc.odin\"\n", &status)
+
+    expect_git_status(t, status, native("repo", "src", "über.odin"), .Modified)
+    expect_git_status(t, status, native("repo", "b\tc.odin"), .Renamed)
+}
+
 // A conflict outranks the Modified marker its ancestors would otherwise take.
 @(test)
 test_git_status_conflict_wins_on_ancestors :: proc(t: ^testing.T) {

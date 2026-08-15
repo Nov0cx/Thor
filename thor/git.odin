@@ -49,8 +49,8 @@ git_status_worker :: proc(job: ^Git_Status_Job) {
     context.allocator = job.allocator
     defer free_all(context.temp_allocator)
 
-    // -z avoids path quoting but complicates rename parsing; the plain porcelain
-    // format is enough for highlighting.
+    // -z complicates rename parsing; the plain porcelain format is enough for
+    // highlighting, and git_unquote_path undoes the quoting -z would have avoided.
     job.output = shell.run("git status --porcelain", job.owner.workspace_dir)
     // --unified=0 drops context lines, leaving just the changed ranges the
     // gutter needs. Fails harmlessly (empty diff) on a repo with no commits yet.
@@ -134,6 +134,73 @@ git_key :: proc(thor: ^Thor, rel: string) -> string {
     return strings.clone(git_map_key(git_path(thor, rel)))
 }
 
+// Decodes git's C-style path quoting. With core.quotePath on (the default) a
+// path holding non-ASCII or control bytes is printed wrapped in double quotes,
+// its bytes as \nnn octal escapes. An unquoted path comes back untouched. On
+// scratch.
+@(private = "file")
+git_unquote_path :: proc(path: string) -> string {
+    if len(path) < 2 || path[0] != '"' || path[len(path) - 1] != '"' {
+        return path
+    }
+    inner := path[1:len(path) - 1]
+    b := strings.builder_make(context.temp_allocator)
+    for i := 0; i < len(inner); {
+        if inner[i] != '\\' || i + 1 >= len(inner) {
+            strings.write_byte(&b, inner[i])
+            i += 1
+            continue
+        }
+        escape := inner[i + 1]
+        switch escape {
+        case 'a':
+            strings.write_byte(&b, '\a')
+            i += 2
+        case 'b':
+            strings.write_byte(&b, '\b')
+            i += 2
+        case 'f':
+            strings.write_byte(&b, '\f')
+            i += 2
+        case 'n':
+            strings.write_byte(&b, '\n')
+            i += 2
+        case 'r':
+            strings.write_byte(&b, '\r')
+            i += 2
+        case 't':
+            strings.write_byte(&b, '\t')
+            i += 2
+        case 'v':
+            strings.write_byte(&b, '\v')
+            i += 2
+        case '"', '\\':
+            strings.write_byte(&b, escape)
+            i += 2
+        case '0' ..= '7':
+            // Three octal digits are one byte, so a UTF-8 name arrives one
+            // escape per byte and reassembles here.
+            if i + 3 < len(inner) && git_is_octal(inner[i + 2]) && git_is_octal(inner[i + 3]) {
+                value := (int(escape - '0') << 6) | (int(inner[i + 2] - '0') << 3) | int(inner[i + 3] - '0')
+                strings.write_byte(&b, u8(value))
+                i += 4
+            } else {
+                strings.write_byte(&b, escape)
+                i += 2
+            }
+        case:
+            strings.write_byte(&b, escape)
+            i += 2
+        }
+    }
+    return strings.to_string(b)
+}
+
+@(private = "file")
+git_is_octal :: proc(c: u8) -> bool {
+    return c >= '0' && c <= '7'
+}
+
 // Parses porcelain lines into absolute-path -> status entries, marking every
 // ancestor directory so folders containing changes are tinted.
 @(private)
@@ -150,7 +217,7 @@ git_parse_status :: proc(thor: ^Thor, output: string, out: ^map[string]widgets.G
         if arrow := strings.index(rel, " -> "); arrow >= 0 {
             rel = rel[arrow + 4:]
         }
-        rel = strings.trim_space(rel)
+        rel = git_unquote_path(strings.trim_space(rel))
         if rel == "" {
             continue
         }

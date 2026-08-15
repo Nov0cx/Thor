@@ -8,6 +8,7 @@ package odin
 import "core:fmt"
 import "core:os"
 import "core:path/filepath"
+import "core:slice"
 import "core:strings"
 import "core:sync"
 
@@ -79,6 +80,14 @@ push_action :: proc(res: ^lang.Result, req: ^lang.Request, title, kind: string, 
             new_text = strings.clone(spec.new_text),
         })
     }
+    // The seam wants (path, start) ascending; a producer sweeping sibling files
+    // gets them in map order, which is arbitrary between runs.
+    slice.sort_by(action.edits[:], proc(a, b: lang.Text_Edit) -> bool {
+        if a.path != b.path {
+            return a.path < b.path
+        }
+        return a.start < b.start
+    })
     append(&res.actions, action)
 }
 
