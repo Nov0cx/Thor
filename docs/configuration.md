@@ -26,7 +26,7 @@ General editor preferences.
 
 | Key | Meaning | Default |
 | --- | --- | --- |
-| `font_size` | Editor font size, in points | `18` |
+| `font_size` | Editor font size, in points; the git view scales with it | `18` |
 | `tab_width` | Spaces per indent level, and the width of a rendered tab stop | `4` |
 | `autosave_delay_ms` | Delay after the last edit before autosave | `1500` |
 | `ligatures` | Draw programming ligatures (`->` as one glyph) | `true` |

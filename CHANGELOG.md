@@ -1,5 +1,9 @@
 # 2026.08.6
 
+- The git view knows Git LFS: tracked files carry an `LFS` badge in the changes lists, an LFS pointer diff shows as one "LFS object" row with hash and size instead of the raw pointer text, and the git Settings view lists the LFS version and tracked patterns with "Pull LFS files" and "Track pattern..." actions.
+- The git view shows hover hints: the fetch/pull/push buttons, status letter chips, stage/unstage/discard buttons, stash actions, ref pills, the ahead/behind counts and the Amend checkbox explain themselves.
+- Git view text follows the `font_size` setting; it was fixed and one step smaller than the settings view.
+- The "Install ... with:" confirmation on the Language Servers page kept its text; it could turn to garbage while the dialog stayed open.
 - Settings (`ctrl + ,`) has a "Language Servers" category, also under Help > Language Servers and on the `open_language_servers` action. Each server lists its status, the program it runs, where that program was found on PATH, the project root, the file types it claims, why it last failed, and an on/off switch.
 - A server row installs the server with its own install command in the console, opens its documentation, and for clangd sets the open project up with a `compile_commands.json`.
 - Restart Language Servers, Add a Server... and Look for Installed Servers Again sit above the list. Add a Server... writes a skeleton entry and opens it.

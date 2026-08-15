@@ -18,6 +18,9 @@ left, the selected file's diff on the right, and the commit box under it.
 - Click a file to see its diff — colored added/removed lines with old/new
   line numbers, hunk headers, binary and truncation markers. An untracked
   file previews as fully added.
+- A file tracked by Git LFS carries an `LFS` badge, and its pointer diff
+  shows as one "LFS object" row with the object's hash and size instead of
+  the raw pointer text.
 - Hovering a row shows its actions: stage (`+`) or unstage (`−`), and for
   unstaged files discard (trash icon, asks for confirmation; discarding an
   untracked file deletes it). Each section header has a Stage All / Unstage
@@ -56,6 +59,12 @@ keys — `user.name`, `user.email`, `pull.rebase`, `fetch.prune`,
 the configuration follows. Click a row to edit its value, `enter` saves,
 `esc` cancels.
 
+A **GIT LFS** group follows the configuration: the installed `git lfs`
+version, the tracked patterns, **Pull LFS files** (`git lfs pull`) and
+**Track pattern...**, which asks for a pattern (e.g. `*.png`) and runs
+`git lfs track` on it. With LFS missing the group says so and offers no
+actions.
+
 ## Hosting
 
 What `origin` points at, and actions for it:
@@ -74,6 +83,7 @@ What `origin` points at, and actions for it:
 
 ## Git LFS
 
-The bundled `git` plugin contributes a **Git LFS** top-bar dropdown (status,
-pull, track) — it only appears when `git lfs` is installed. See
-[Plugins](plugins.md).
+The Changes lists badge LFS-tracked files, and the Settings view carries the
+LFS status and actions (see above). The bundled `git` plugin also contributes
+a **Git LFS** top-bar dropdown (status, pull, track) — it only appears when
+`git lfs` is installed. See [Plugins](plugins.md).
