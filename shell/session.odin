@@ -50,9 +50,14 @@ scan_end_marker :: proc(text: string, token: string) -> (before: string, code: i
         return "", 0, text, false
     }
 
-    // The marker is written by this process; a tail without digits reads as 0.
-    code, _ = strconv.parse_int(strings.trim_space(tail[:newline]))
-    return trim_prompt_tail(text[:at]), code, tail[newline + 1:], true
+    // The marker is written by this process, so the tail is a number for every
+    // shipped profile. A tail without digits is a profile whose status expansion
+    // did not run: report it as a failure, never as the 0 that reads as success.
+    parsed, ok := strconv.parse_int(strings.trim_space(tail[:newline]))
+    if !ok {
+        parsed = -1
+    }
+    return trim_prompt_tail(text[:at]), parsed, tail[newline + 1:], true
 }
 
 // Length of the suffix of `text` that could still grow into `token`. Everything

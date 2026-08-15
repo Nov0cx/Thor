@@ -220,26 +220,51 @@ spawn :: proc(exe: string, arg: string, cwd: string) -> bool {
         argv[1] = strings.clone_to_cstring(arg, context.temp_allocator)
     }
 
+    // A fork cannot report a failed exec, and the intermediate child exits with 0
+    // whatever the grandchild does, so its status says nothing. The grandchild
+    // sends its errno over this pipe instead and a successful exec closes it.
+    status_fds: [2]posix.FD
+    if posix.pipe(&status_fds) != .OK {
+        return false
+    }
+
     pid := posix.fork()
     if pid < 0 {
+        close_fds(status_fds[0], status_fds[1])
         return false
     }
     if pid == 0 {
-        if posix.fork() == 0 {
+        posix.close(status_fds[0])
+        second := posix.fork()
+        if second < 0 {
+            report_start_failure(status_fds[1])
+        }
+        if second == 0 {
             // Its own session: a Ctrl+C in a debug console stops here.
             posix.setsid()
+            // Closed by a successful exec, which is how the parent reads success.
+            if posix.fcntl(status_fds[1], .SETFD, posix.FD_CLOEXEC) < 0 {
+                report_start_failure(status_fds[1])
+            }
             if cwd_c != nil && posix.chdir(cwd_c) != .OK {
-                posix._exit(1)
+                report_start_failure(status_fds[1])
             }
             posix.execv(exe_c, raw_data(argv[:]))
-            posix._exit(1) // execv only returns when it failed
+            report_start_failure(status_fds[1]) // execv only returns when it failed
         }
+        // The grandchild owns the write end now; _exit closes this copy, which is
+        // what lets the parent's read end rather than block on init's adoptee.
         posix._exit(0)
     }
 
+    close_fds(status_fds[1])
     // The intermediate child exits at once; reaping it here leaves no zombie.
     status: c.int
     for posix.waitpid(pid, &status, {}) < 0 && posix.errno() == .EINTR {
     }
-    return true
+
+    started := start_succeeded(status_fds[0])
+    posix.close(status_fds[0])
+    // The grandchild belongs to init, so a failed exec leaves nothing to reap.
+    return started
 }

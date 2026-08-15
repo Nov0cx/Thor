@@ -25,6 +25,15 @@ test_scan_end_marker_exit_code :: proc(t: ^testing.T) {
     testing.expect_value(t, code, 3)
 }
 
+// A profile whose status expansion did not run leaves text where the number
+// belongs. That is a failure, not the 0 that reads as success.
+@(test)
+test_scan_end_marker_unreadable_exit_code :: proc(t: ^testing.T) {
+    _, code, _, found := scan_end_marker("TOKEN$?\n", "TOKEN")
+    testing.expect(t, found)
+    testing.expect_value(t, code, -1)
+}
+
 // Output that ends mid-line keeps the marker on the same line, so the text
 // ahead of it is still the command's.
 @(test)
