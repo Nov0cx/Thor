@@ -3,6 +3,7 @@ package thor
 import "core:log"
 import "core:os"
 import "core:path/filepath"
+import "core:slice"
 import "core:strings"
 import "core:sync"
 import "core:time"
@@ -552,9 +553,34 @@ init :: proc() -> ^Thor {
     // what puts it back.
     update.install_cleanup_leftovers()
 
+    // Settings load before the font loader, so it knows which families and
+    // icon packs the startup atlases must cover.
+    thor := new(Thor)
+    thor_load_config(thor, workspace_dir)
+    lap(&phase, "load config")
+
     // Rasterize fonts on worker threads while the main thread creates the
-    // window and builds the widget tree.
-    ui.text_begin_async_load("assets/fonts/fonts.json", "assets/icons/icons.json")
+    // window and builds the widget tree. Only the families in use bake now;
+    // the rest register and bake on first use.
+    preload_families := make([dynamic]string, context.temp_allocator)
+    if fam := setting.font_family(&thor.config); fam != "" {
+        append(&preload_families, fam)
+    }
+    preload_packs := make([dynamic]string, context.temp_allocator)
+    for pack in ([4]string {
+        setting.icon_pack_name(&thor.config), DEFAULT_ICON_PACK,
+        setting.file_icon_pack_name(&thor.config), DEFAULT_FILE_ICON_PACK,
+    }) {
+        if pack != "" && !slice.contains(preload_packs[:], pack) {
+            append(&preload_packs, pack)
+        }
+    }
+    extra_sizes := [2]i32 {cast(i32) setting.font_size(&thor.config), WELCOME_TITLE_FONT_SIZE}
+    ui.text_begin_async_load("assets/fonts/fonts.json", "assets/icons/icons.json", ui.Text_Preload {
+        families = preload_families[:],
+        icon_packs = preload_packs[:],
+        extra_sizes = extra_sizes[:],
+    })
     lap(&phase, "text_begin_async_load")
 
     when !ODIN_DEBUG {
@@ -573,9 +599,7 @@ init :: proc() -> ^Thor {
     rl.SetTargetFPS(60)
     rl.SetExitKey(.KEY_NULL)
 
-    thor := new(Thor)
     ui.context_init(&thor.ui_context)
-    thor_load_config(thor, workspace_dir)
     plugin.manager_init(&thor.plugins)
     // Plugins are loaded later (after the console exists and the host services
     // are wired) so a plugin can print and read keybinds from its load body.
@@ -627,10 +651,12 @@ init :: proc() -> ^Thor {
         lang.manager_register(&thor.lang_manager, odin.engine_backend(thor.odin_engine))
         lang.manager_register(&thor.lang_manager, lsp.client_backend(thor.lsp_client))
     }
+    lap(&phase, "lang init")
 
     log.infof("Loaded theme: %s", thor.theme.name)
 
     thor_build_ui(thor)
+    lap(&phase, "build widget tree")
     thor.select_dialog.return_focus = &thor.editor.widget
     widgets.command_palette_set_navigation(thor.command_palette, thor_palette_list_files, thor_palette_open_file, thor_palette_goto_line, thor.workspace_prefix, thor)
     thor_register_commands(thor)
@@ -640,6 +666,7 @@ init :: proc() -> ^Thor {
     thor_apply_settings(thor)
     thor_settings_mark_clean(thor)
     thor_lsp_mark_clean(thor)
+    lap(&phase, "terminals + settings")
 
     // Now that the console and keybinds exist, expose the host services and load
     // plugins (their load body may print or query keybinds, e.g. the tutorial).
@@ -647,6 +674,7 @@ init :: proc() -> ^Thor {
     thor.top_bar_plugin_anchor = &thor.menu_help_button.widget
     thor_set_plugin_host(thor)
     thor_load_plugins(thor)
+    lap(&phase, "load plugins")
     thor_set_active_file(thor, -1)
     thor_restore_session(thor)
     // Files passed on the command line open last and in order, so the final one
@@ -661,6 +689,7 @@ init :: proc() -> ^Thor {
     if thor.split_visible {
         thor_bind_pane(thor, 1)
     }
+    lap(&phase, "restore session")
     ui.context_set_root(&thor.ui_context, &thor.root_panel.widget)
     ui.context_set_global_key(&thor.ui_context, thor_global_key, thor)
     thor_refresh_git_status(thor)
@@ -669,7 +698,7 @@ init :: proc() -> ^Thor {
     // Claim the workspace now that the window handle exists, so another window
     // opening this folder raises us instead of starting a duplicate.
     thor_register_window(thor)
-    lap(&phase, "build widget tree")
+    lap(&phase, "watcher + git + index")
 
     // Texture upload needs the GL context, so it happens here on the main
     // thread once the rasterizer threads are done.
@@ -807,6 +836,7 @@ run :: proc(thor: ^Thor) {
         // Here for the same reason: the update prompt takes focus, and the swap
         // it can start replaces the files the frame below would draw from.
         thor_poll_update(thor)
+        ui.text_pump_async()
         plugin.manager_dispatch_tick(&thor.plugins)
         ui.context_update(&thor.ui_context)
         thor_sync_active_pane(thor)

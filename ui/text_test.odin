@@ -1,6 +1,7 @@
 package ui
 
 import "core:testing"
+import "core:time"
 import rl "vendor:raylib"
 
 // A glyph wider than any atlas this input packs into must not be packed:
@@ -75,8 +76,17 @@ test_pack_glyph_atlas_rows_do_not_overlap :: proc(t: ^testing.T) {
 // headlessly (the texture upload is skipped by raylib when no GPU is ready).
 // Guards against the raylib 6.0 LoadFontData binding regression that
 // corrupted memory. Run from the repository root: odin test ui
+// One test proc: both phases share the global font state, and the test runner
+// runs separate tests in parallel.
 @(test)
 test_async_font_load :: proc(t: ^testing.T) {
+    check_full_async_load(t)
+    check_selective_preload(t)
+}
+
+// An empty Text_Preload bakes every family, the pre-selective-startup pipeline.
+@(private = "file")
+check_full_async_load :: proc(t: ^testing.T) {
     text_begin_async_load("assets/fonts/fonts.json", "assets/icons/icons.json")
     text_finish_async_load()
     defer text_shutdown()
@@ -473,4 +483,116 @@ test_async_font_load :: proc(t: ^testing.T) {
             testing.expect_value(t, one[0], "aaa bbb")
         }
     }
+}
+
+// The startup path: only the named families and icon packs bake; the rest
+// register for the pickers and bake on first use (get_font) or ahead of a
+// picker (text_prebake_async).
+@(private = "file")
+check_selective_preload :: proc(t: ^testing.T) {
+    preload_families := [1]string {"Iosevka"}
+    preload_packs := [2]string {"material", "mdi"}
+    extra_sizes := [1]i32 {28}
+    text_begin_async_load("assets/fonts/fonts.json", "assets/icons/icons.json", Text_Preload {
+        families = preload_families[:],
+        icon_packs = preload_packs[:],
+        extra_sizes = extra_sizes[:],
+    })
+    text_finish_async_load()
+    defer text_shutdown()
+
+    // The manifest default always bakes, with the extra size on top.
+    jetbrains, jetbrains_ok := families["JetBrainsMono"]
+    testing.expect(t, jetbrains_ok, "JetBrainsMono family missing")
+    if jetbrains_ok {
+        testing.expect_value(t, len(jetbrains.cache), 7) // 6 manifest sizes + 28
+        font, ok := jetbrains.cache[28]
+        testing.expect(t, ok, "extra size 28 not baked")
+        if ok {
+            testing.expect_value(t, font.baseSize, i32(28))
+        }
+    }
+
+    iosevka, iosevka_ok := families["Iosevka"]
+    testing.expect(t, iosevka_ok, "Iosevka family missing")
+    if iosevka_ok {
+        testing.expect_value(t, len(iosevka.cache), 5) // 4 manifest sizes + 28
+        testing.expect(t, iosevka.hb_font != nil, "baked family has no shaping font")
+    }
+
+    // Outside the preload set: registered without file data or atlases, but
+    // still listed for the font picker.
+    cascadia, cascadia_ok := families["CascadiaCode"]
+    testing.expect(t, cascadia_ok, "deferred family not registered")
+    if cascadia_ok {
+        testing.expect_value(t, len(cascadia.file_data), 0)
+        testing.expect_value(t, len(cascadia.cache), 0)
+        testing.expect(t, cascadia.hb_font == nil, "deferred family has a shaping font")
+    }
+    testing.expect_value(t, len(text_family_names()), 10)
+
+    // Wanted icon packs bake at the manifest sizes; the others defer, yet their
+    // names still resolve (the pack pickers need the full map).
+    material, material_ok := families["material"]
+    testing.expect(t, material_ok, "material icon family missing")
+    if material_ok {
+        testing.expect_value(t, len(material.cache), 3)
+    }
+    tabler, tabler_ok := families[ICON_FAMILY]
+    testing.expect(t, tabler_ok, "deferred icon family not registered")
+    if tabler_ok {
+        testing.expect_value(t, len(tabler.file_data), 0)
+        testing.expect_value(t, len(tabler.cache), 0)
+    }
+    _, dev_found := icon_codepoint("devicon-c-plain")
+    testing.expect(t, dev_found, "deferred pack's icon missing from the icon map")
+
+    // First use of a deferred family reads, probes and bakes it, ligatures and
+    // shaping font included.
+    lazy := get_font(17, "CascadiaCode")
+    testing.expect_value(t, lazy.baseSize, i32(17))
+    if cascadia_ok {
+        testing.expect(t, len(cascadia.file_data) > 0, "lazy bake did not read the file")
+        testing.expect(t, cascadia.hb_font != nil, "lazy bake has no shaping font")
+        shaped, shaped_ok := cascadia.shaped[17]
+        testing.expect(t, shaped_ok, "lazy bake has no shaped map")
+        testing.expect(t, len(shaped) > 0, "lazy shaped map is empty")
+
+        arrow, arrow_n := shape_line(cascadia, "->")
+        testing.expect_value(t, arrow_n, 2)
+        if arrow_n == 2 {
+            arrow_gid := arrow[0].codepoint
+            dash, dash_n := shape_line(cascadia, "-")
+            testing.expect_value(t, dash_n, 1)
+            if dash_n == 1 {
+                testing.expect(t, arrow_gid != dash[0].codepoint, "lazy '->' did not trigger ligature substitution")
+            }
+        }
+    }
+
+    // Prebake bakes off-thread and publishes through the pump.
+    prebake_names := [1]string {"FiraCode"}
+    spawned := text_prebake_async(prebake_names[:], extra_sizes[:])
+    testing.expect_value(t, spawned, 5) // 4 manifest sizes + 28
+    published := 0
+    for _ in 0 ..< 10_000 {
+        published += text_pump_async()
+        if published >= spawned {
+            break
+        }
+        time.sleep(time.Millisecond)
+    }
+    testing.expect_value(t, published, spawned)
+    fira, fira_ok := families["FiraCode"]
+    testing.expect(t, fira_ok, "FiraCode family missing")
+    if fira_ok {
+        testing.expect_value(t, len(fira.cache), 5)
+        testing.expect(t, fira.hb_font != nil, "prebaked family has no shaping font")
+        _, shaped_ok := fira.shaped[28]
+        testing.expect(t, shaped_ok, "prebaked size has no shaped map")
+    }
+
+    // Everything cached: a repeat spawns nothing and publishes nothing.
+    testing.expect_value(t, text_prebake_async(prebake_names[:], extra_sizes[:]), 0)
+    testing.expect_value(t, text_pump_async(), 0)
 }

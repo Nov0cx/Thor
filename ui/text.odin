@@ -1,11 +1,14 @@
 package ui
 
+import "base:runtime"
 import "core:c"
 import "core:log"
 import "core:math"
 import "core:mem"
 import "core:mem/virtual"
+import "core:slice"
 import "core:strings"
+import "core:sync"
 import "core:thread"
 import rl "vendor:raylib"
 import stbtt "vendor:stb/truetype"
@@ -26,6 +29,9 @@ Font_Load_Job :: struct {
     shaped:      map[u32]Shaped_Glyph,
     ok:          bool,
     worker:      ^thread.Thread,
+    // Set by the worker when the bake ends; text_pump_async polls it so a
+    // prebake job is joined only once finished.
+    done:        bool,
 }
 
 // One glyph scheduled for rasterization: cmap glyphs carry their codepoint;
@@ -162,6 +168,7 @@ free_glyphs :: proc(glyphs: [^]rl.GlyphInfo, count: int) {
 @(private = "file")
 font_load_worker :: proc(job: ^Font_Load_Job) {
     font_bake_job(job)
+    sync.atomic_store(&job.done, true)
 }
 
 // Uploads a baked atlas and records the size. Main thread only: the upload
@@ -336,10 +343,53 @@ font_bake_job :: proc(job: ^Font_Load_Job) {
     job.ok = true
 }
 
+// What the startup load bakes. Empty slices mean everything, which keeps
+// headless callers and tests on the full pipeline. Families outside the set
+// register without their TTF and bake on first use (get_font) or ahead of a
+// picker (text_prebake_async).
+Text_Preload :: struct {
+    families:    []string, // text families to bake now; the manifest default is always added
+    icon_packs:  []string, // icon families to bake now
+    extra_sizes: []i32,    // extra sizes for every baked text family
+}
+
 @(private = "file")
 Bootstrap_Args :: struct {
     font_manifest: string,
     icon_manifest: string,
+    preload:       Text_Preload,
+}
+
+@(private = "file")
+preload_clone :: proc(preload: Text_Preload, allocator: runtime.Allocator) -> Text_Preload {
+    clone := Text_Preload {
+        families    = make([]string, len(preload.families), allocator),
+        icon_packs  = make([]string, len(preload.icon_packs), allocator),
+        extra_sizes = slice.clone(preload.extra_sizes, allocator),
+    }
+    for name, i in preload.families {
+        clone.families[i] = strings.clone(name, allocator)
+    }
+    for name, i in preload.icon_packs {
+        clone.icon_packs[i] = strings.clone(name, allocator)
+    }
+    return clone
+}
+
+// A baked text family covers its manifest sizes plus the caller's extras (the
+// configured font_size, the welcome title); icon fonts keep their own sizes.
+@(private = "file")
+bake_sizes :: proc(family: ^Font_Family, extra: []i32) -> []i32 {
+    sizes := make([dynamic]i32, context.temp_allocator)
+    append(&sizes, ..family.preload_sizes)
+    if !family.icon_font {
+        for size in extra {
+            if size > 0 && !slice.contains(sizes[:], size) {
+                append(&sizes, size)
+            }
+        }
+    }
+    return sizes[:]
 }
 
 @(private = "file")
@@ -361,14 +411,18 @@ bootstrap_worker :: proc(args: ^Bootstrap_Args) {
         defer log.destroy_console_logger(context.logger)
     }
 
-    text_load_font_manifest(args.font_manifest)
-    text_load_icon_manifest(args.icon_manifest)
+    text_load_font_manifest(args.font_manifest, args.preload.families)
+    text_load_icon_manifest(args.icon_manifest, args.preload.icon_packs)
 
     for _, family in families {
+        // Outside the preload set: registered for the pickers, baked on first use.
+        if len(family.file_data) == 0 {
+            continue
+        }
         // Probe here, on one thread: the per-size jobs below share the result
         // and would otherwise race to write it.
         shape_family_probe_ligatures(family)
-        for size in family.preload_sizes {
+        for size in bake_sizes(family, args.preload.extra_sizes) {
             job := new(Font_Load_Job)
             job.family = family
             job.size = size
@@ -380,9 +434,11 @@ bootstrap_worker :: proc(args: ^Bootstrap_Args) {
     free_all(context.temp_allocator)
 }
 
-// Loads both manifests and rasterizes every family at its preload sizes on
-// worker threads. Safe before InitWindow; nothing here touches GL.
-text_begin_async_load :: proc(font_manifest, icon_manifest: string) {
+// Loads both manifests and rasterizes the preload set at its sizes on worker
+// threads. Safe before InitWindow; nothing here touches GL. No measure_text or
+// get_font may run before text_finish_async_load: the bootstrap thread still
+// writes the family table.
+text_begin_async_load :: proc(font_manifest, icon_manifest: string, preload := Text_Preload{}) {
     if arena_err := virtual.arena_init_growing(&font_arena); arena_err != nil {
         log.warnf("Font arena init failed: %v; fonts disabled", arena_err)
         return
@@ -392,6 +448,7 @@ text_begin_async_load :: proc(font_manifest, icon_manifest: string) {
     bootstrap_args = new(Bootstrap_Args, font_allocator)
     bootstrap_args.font_manifest = strings.clone(font_manifest, font_allocator)
     bootstrap_args.icon_manifest = strings.clone(icon_manifest, font_allocator)
+    bootstrap_args.preload = preload_clone(preload, font_allocator)
     bootstrap_thread = thread.create_and_start_with_poly_data(bootstrap_args, bootstrap_worker)
 }
 
@@ -446,6 +503,13 @@ get_font :: proc(font_size: i32, family_name := "") -> rl.Font {
         return font
     }
 
+    if !family_ensure_loaded(family) {
+        // Recorded so a file that cannot load is tried once, not every frame.
+        fallback := rl.GetFontDefault()
+        family.cache[font_size] = fallback
+        return fallback
+    }
+
     job := Font_Load_Job{family = family, size = font_size}
     font_bake_job(&job)
     if !job.ok {
@@ -455,7 +519,115 @@ get_font :: proc(font_size: i32, family_name := "") -> rl.Font {
         family.cache[font_size] = fallback
         return fallback
     }
-    return font_job_publish(&job)
+    font := font_job_publish(&job)
+    // A family loaded lazily gets its draw-time shaping font with its first bake.
+    shape_family_init(family)
+    return font
+}
+
+@(private = "file")
+prebake_jobs: [dynamic]^Font_Load_Job
+
+@(private = "file")
+prebake_pending :: proc(family: ^Font_Family, size: i32) -> bool {
+    for job in prebake_jobs {
+        if job.family == family && job.size == size {
+            return true
+        }
+    }
+    return false
+}
+
+// Frees a baked-but-unpublished job's raylib buffers; Odin-side memory is
+// arena-owned.
+@(private = "file")
+prebake_discard :: proc(job: ^Font_Load_Job) {
+    rl.UnloadImage(job.atlas)
+    rl.MemFree(job.recs)
+    free_glyphs(job.glyphs, cast(int) job.glyph_count)
+}
+
+// Bakes the missing sizes of `family_names` on worker threads, so a later
+// switch (font or icon-pack picker) draws without a main-thread bake. Sizes
+// baked are each family's preload_sizes plus `sizes`; cached and in-flight
+// ones are skipped. Main thread only; text_pump_async publishes the results.
+// Returns the number of jobs spawned.
+text_prebake_async :: proc(family_names: []string, sizes: []i32 = nil) -> int {
+    if font_allocator.procedure == nil {
+        return 0
+    }
+    // The probe below allocates the family's ligature gids; they live as long
+    // as the family, so they go in the arena.
+    context.allocator = font_allocator
+    spawned := 0
+    for name in family_names {
+        family, found := families[name]
+        if !found || !family_ensure_loaded(family) {
+            continue
+        }
+        // Probed before the spawn, same as the bootstrap thread: the workers
+        // share the result and must never write it.
+        shape_family_probe_ligatures(family)
+        for size in bake_sizes(family, sizes) {
+            if _, cached := family.cache[size]; cached {
+                continue
+            }
+            if prebake_pending(family, size) {
+                continue
+            }
+            if prebake_jobs == nil {
+                prebake_jobs = make([dynamic]^Font_Load_Job, font_allocator)
+            }
+            job := new(Font_Load_Job, font_allocator)
+            job.family = family
+            job.size = size
+            job.worker = thread.create_and_start_with_poly_data(job, font_load_worker)
+            append(&prebake_jobs, job)
+            spawned += 1
+        }
+    }
+    return spawned
+}
+
+// Publishes finished prebake atlases; cheap when none are in flight. Main
+// thread only (the texture upload needs GL). Returns the number published.
+text_pump_async :: proc() -> int {
+    published := 0
+    for i := 0; i < len(prebake_jobs); {
+        job := prebake_jobs[i]
+        if !sync.atomic_load(&job.done) {
+            i += 1
+            continue
+        }
+        thread.join(job.worker)
+        thread.destroy(job.worker)
+        if !job.ok {
+            log.warnf("Failed to rasterize font %q at size %d", job.family.path, job.size)
+        } else if _, cached := job.family.cache[job.size]; cached {
+            // A sync bake (get_font) won the race; drop the duplicate.
+            prebake_discard(job)
+        } else {
+            font_job_publish(job)
+            shape_family_init(job.family)
+            published += 1
+        }
+        unordered_remove(&prebake_jobs, i)
+    }
+    return published
+}
+
+// Joins and discards every in-flight prebake job. Part of text_shutdown; runs
+// before the family teardown so no worker outlives the arena.
+@(private)
+prebake_drain :: proc() {
+    for job in prebake_jobs {
+        thread.join(job.worker)
+        thread.destroy(job.worker)
+        if job.ok {
+            prebake_discard(job)
+        }
+    }
+    prebake_jobs = nil
 }
 
 text_line_height :: proc(font_size: i32) -> i32 {

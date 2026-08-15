@@ -1,5 +1,8 @@
 # 2026.08.6
 
+- The editor starts much faster: only the configured font, the default font and the active icon packs rasterize at startup instead of every installed family.
+- The other families still list in the font and icon pack pickers; they bake in the background when a picker opens, or on first use.
+- The welcome page title font is preloaded, so the first frame no longer stalls on it.
 - The git view knows Git LFS: tracked files carry an `LFS` badge in the changes lists, an LFS pointer diff shows as one "LFS object" row with hash and size instead of the raw pointer text, and the git Settings view lists the LFS version and tracked patterns with "Pull LFS files" and "Track pattern..." actions.
 - The git view shows hover hints: the fetch/pull/push buttons, status letter chips, stage/unstage/discard buttons, stash actions, ref pills, the ahead/behind counts and the Amend checkbox explain themselves.
 - Git view text follows the `font_size` setting; it was fixed and one step smaller than the settings view.

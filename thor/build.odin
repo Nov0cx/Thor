@@ -5,6 +5,10 @@ import rl "vendor:raylib"
 import "../ui"
 import "../widgets"
 
+// Welcome hero title size; preloaded at startup (thor.init), so the first
+// welcome frame needs no synchronous bake.
+WELCOME_TITLE_FONT_SIZE :: 28
+
 thor_build_ui :: proc(thor: ^Thor) {
     thor.root_panel = widgets.panel_create("root-panel", thor.theme.background)
     thor.root_stack = widgets.stack_create("root-stack", .Vertical)
@@ -490,7 +494,7 @@ thor_build_content :: proc(thor: ^Thor) {
 
     welcome_title := widgets.label_create("welcome-title", "Thor")
     widgets.label_set_align(welcome_title, .Center)
-    welcome_title.font_size = 28
+    welcome_title.font_size = WELCOME_TITLE_FONT_SIZE
     welcome_title.min_size = rl.Vector2 {0, 36}
     thor.welcome_title_label = welcome_title
 

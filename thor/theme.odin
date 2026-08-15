@@ -439,6 +439,10 @@ thor_cmd_change_font :: proc(data: rawptr) {
         thor_plugin_print(thor, "\nNo font families are registered.\n")
         return
     }
+    // Warm the unbaked families off-thread, so moving the selection previews
+    // without a main-thread bake.
+    sizes := [2]i32 {cast(i32) setting.font_size(&thor.config), WELCOME_TITLE_FONT_SIZE}
+    ui.text_prebake_async(families, sizes[:])
     widgets.select_dialog_open(
         thor.select_dialog, &thor.ui_context, "Change Font", families, ui.text_default_family(),
         thor_font_preview, thor_font_commit, thor,
@@ -536,6 +540,8 @@ thor_open_icon_pack_dialog :: proc(
         thor_plugin_print(thor, "\nNo icon packs are installed.\n")
         return
     }
+    // Warm the unbaked packs off-thread, so the preview switch draws at once.
+    ui.text_prebake_async(names)
     active := current
     if active == "" {
         active = ui.icon_active_pack(group)
