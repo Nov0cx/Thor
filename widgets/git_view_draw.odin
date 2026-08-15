@@ -117,7 +117,7 @@ git_view_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
     case .Branches:
         git_view_draw_branches(view, ctx, mouse)
     case .Settings:
-        git_view_draw_settings(view, mouse)
+        git_view_draw_settings(view, ctx, mouse)
     case .Hosting:
         git_view_draw_hosting(view, mouse)
     }
@@ -414,8 +414,24 @@ git_view_draw_file_section :: proc(view: ^Git_View, ctx: ^ui.Context, staged: bo
         if hovered {
             max_w -= staged ? 24 : 48
         }
+        if file.is_lfs {
+            max_w -= cast(f32) ui.measure_text("LFS", view.font_badge) + 16
+        }
         name := git_view_fit_tail(file.display, view.font_body, max_w)
         ui.draw_text(name, cast(i32) name_x, cast(i32) (rect.y + (rect.height - cast(f32) view.font_body) * 0.5), view.font_body, view.text_color)
+
+        if file.is_lfs {
+            pill_w := cast(f32) ui.measure_text("LFS", view.font_badge) + 8
+            pill_h := cast(f32) view.font_badge + 4
+            pill := rl.Rectangle {
+                name_x + cast(f32) ui.measure_text(name, view.font_body) + 8,
+                rect.y + (rect.height - pill_h) * 0.5,
+                pill_w, pill_h,
+            }
+            rl.DrawRectangleRounded(pill, 0.5, 8, git_view_tint(view.accent_color, 32))
+            ui.draw_text("LFS", cast(i32) (pill.x + 4), cast(i32) (pill.y + (pill_h - cast(f32) view.font_badge) * 0.5), view.font_badge, view.accent_color)
+            git_view_tip(view, ctx, pill, "Tracked by Git LFS", mouse)
+        }
 
         if hovered && !view.busy {
             action := git_view_file_action_rect(rect)
@@ -795,7 +811,7 @@ git_view_draw_branches :: proc(view: ^Git_View, ctx: ^ui.Context, mouse: rl.Vect
 // ---- settings view (git config) ----
 
 @(private = "file")
-git_view_draw_settings :: proc(view: ^Git_View, mouse: rl.Vector2) {
+git_view_draw_settings :: proc(view: ^Git_View, ctx: ^ui.Context, mouse: rl.Vector2) {
     list := git_view_refs_list_rect(view)
     rows := make([dynamic]Git_Config_Row, context.temp_allocator)
     git_view_config_rows(view, &rows)
@@ -807,6 +823,11 @@ git_view_draw_settings :: proc(view: ^Git_View, mouse: rl.Vector2) {
             continue
         }
         hovered := rl.CheckCollisionPointRec(mouse, rect)
+
+        if row.lfs != .None {
+            git_view_draw_lfs_row(view, ctx, row, rect, index, hovered, mouse)
+            continue
+        }
 
         if row.header {
             scope := row.global ? 1 : 0
@@ -864,6 +885,78 @@ git_view_draw_settings :: proc(view: ^Git_View, mouse: rl.Vector2) {
     if track, thumb, ok := ui.scrollbar_rects(list, content, view.config_scroll, GIT_SCROLLBAR_STYLE); ok {
         rl.DrawRectangleRounded(track, 0.5, 4, git_view_tint(view.muted_color, 15))
         rl.DrawRectangleRounded(thumb, 0.5, 4, git_view_tint(view.muted_color, 120))
+    }
+}
+
+// One row of the settings view's GIT LFS group.
+@(private = "file")
+git_view_draw_lfs_row :: proc(
+    view: ^Git_View,
+    ctx: ^ui.Context,
+    row: Git_Config_Row,
+    rect: rl.Rectangle,
+    index: int,
+    hovered: bool,
+    mouse: rl.Vector2,
+) {
+    x := rect.x + SETTINGS_ITEM_INSET + 12
+    switch row.lfs {
+    case .None:
+    case .Header:
+        ui.draw_text(
+            "GIT LFS",
+            cast(i32) (x + 22),
+            cast(i32) (rect.y + (rect.height - cast(f32) view.font_small) * 0.5),
+            view.font_small,
+            git_view_tint(view.muted_color, 200),
+        )
+    case .Status:
+        text := view.lfs_available ? view.lfs_version : "Git LFS not installed"
+        ui.draw_text(
+            text,
+            cast(i32) (x + SETTINGS_GROUP_INDENT),
+            cast(i32) (rect.y + (rect.height - cast(f32) view.font_body) * 0.5),
+            view.font_body,
+            git_view_tint(view.muted_color, 150),
+        )
+    case .Pattern:
+        if row.index < 0 || row.index >= len(view.lfs_patterns) {
+            return
+        }
+        ui.draw_text(
+            view.lfs_patterns[row.index],
+            cast(i32) (x + SETTINGS_GROUP_INDENT),
+            cast(i32) (rect.y + (rect.height - cast(f32) view.font_body) * 0.5),
+            view.font_body,
+            view.text_color,
+        )
+        git_view_tip(view, ctx, rect, "Pattern tracked by Git LFS", mouse)
+    case .Pull, .Track:
+        band := rl.Rectangle {
+            rect.x + SETTINGS_ITEM_INSET, rect.y + 1, rect.width - SETTINGS_ITEM_INSET * 2, rect.height - 2,
+        }
+        if index == view.config_sel {
+            rl.DrawRectangleRounded(band, 0.35, 6, view.selected_color)
+        } else if hovered && !view.busy {
+            rl.DrawRectangleRounded(band, 0.35, 6, git_view_tint(view.text_color, 10))
+        }
+        label := row.lfs == .Pull ? "Pull LFS files" : "Track pattern..."
+        tip := row.lfs == .Pull ? "git lfs pull" : "git lfs track"
+        ui.draw_text(
+            label,
+            cast(i32) (x + SETTINGS_GROUP_INDENT),
+            cast(i32) (rect.y + (rect.height - cast(f32) view.font_body) * 0.5),
+            view.font_body,
+            view.busy ? git_view_tint(view.muted_color, 120) : view.text_color,
+        )
+        ui.draw_icon(
+            "chevron-right",
+            cast(i32) (rect.x + rect.width - SETTINGS_ROW_PAD - 16),
+            cast(i32) (rect.y + (rect.height - 16) * 0.5),
+            16,
+            view.muted_color,
+        )
+        git_view_tip(view, ctx, rect, tip, mouse)
     }
 }
 

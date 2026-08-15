@@ -240,6 +240,7 @@ thor_build_ui :: proc(thor: ^Thor) {
             on_discard = thor_on_git_discard,
             on_config_set = thor_on_git_config_set,
             on_hosting = thor_on_git_hosting,
+            on_lfs = thor_on_git_lfs,
         },
         thor,
     )

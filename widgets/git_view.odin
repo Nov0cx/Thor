@@ -92,6 +92,7 @@ Git_View_File :: struct {
     path:    string,  // owned; repo-relative, the key handed back to callbacks
     display: string,  // owned
     status:  Git_Status,
+    is_lfs:  bool,
 }
 
 @(private)
@@ -132,13 +133,25 @@ Git_View_Config :: struct {
     is_set: bool,
 }
 
-// One display row of the settings view: a LOCAL/GLOBAL fold header, or a
-// config entry.
+// A row of the settings view's GIT LFS group; .None marks a config row.
+@(private)
+Git_Lfs_Row :: enum u8 {
+    None,
+    Header,
+    Status,   // version, or "not installed"
+    Pattern,  // index into view.lfs_patterns
+    Pull,
+    Track,
+}
+
+// One display row of the settings view: a LOCAL/GLOBAL fold header, a config
+// entry, or a GIT LFS row.
 @(private)
 Git_Config_Row :: struct {
     header: bool,
     global: bool,
-    index:  int,  // into view.config_rows when !header
+    index:  int,  // into view.config_rows when !header, view.lfs_patterns for .Pattern
+    lfs:    Git_Lfs_Row,
 }
 
 @(private)
@@ -166,6 +179,12 @@ Git_Discard_Proc :: #type proc(data: rawptr, path: string)
 Git_Config_Set_Proc :: #type proc(data: rawptr, global: bool, key, value: string)
 Git_Hosting_Proc :: #type proc(data: rawptr, action: Git_Hosting_Action, arg, arg2: string)
 
+Git_Lfs_Op :: enum {
+    Pull,
+    Track,
+}
+Git_Lfs_Proc :: #type proc(data: rawptr, op: Git_Lfs_Op)
+
 Git_View_Callbacks :: struct {
     on_view_changed:  Git_View_Changed_Proc,
     on_stage:         Git_Stage_Proc,
@@ -179,6 +198,7 @@ Git_View_Callbacks :: struct {
     on_discard:       Git_Discard_Proc,
     on_config_set:    Git_Config_Set_Proc,
     on_hosting:       Git_Hosting_Proc,
+    on_lfs:           Git_Lfs_Proc,
 }
 
 // A minimal editable text buffer; caret is a byte offset on a rune boundary.
@@ -243,6 +263,12 @@ Git_View :: struct {
     config_edit:       Git_Text_Field,
     config_scroll:     f32,
     config_collapsed:  [2]bool,  // [0] local, [1] global
+    // Git LFS (settings view). version and patterns owned; lfs_files keys
+    // owned, the tracked-file set the changes list marks.
+    lfs_available: bool,
+    lfs_version:   string,
+    lfs_patterns:  [dynamic]string,
+    lfs_files:     map[string]bool,
     // Hosting view.
     host_label:      string,  // owned; "GitHub — owner/repo", "" while unknown
     host_icon:       string,  // owned; a brand icon name
@@ -314,6 +340,8 @@ git_view_create :: proc(id: string) -> ^Git_View {
     view.refs = make([dynamic]Git_View_Ref)
     view.config_rows = make([dynamic]Git_View_Config)
     view.config_edit.buf = make([dynamic]u8)
+    view.lfs_patterns = make([dynamic]string)
+    view.lfs_files = make(map[string]bool)
     view.prs = make([dynamic]Git_View_Pr)
     view.clone_url.buf = make([dynamic]u8)
     view.clone_dir.buf = make([dynamic]u8)
@@ -472,10 +500,39 @@ git_view_add_file :: proc(view: ^Git_View, path, display: string, status: Git_St
         path = strings.clone(path),
         display = strings.clone(display),
         status = status,
+        is_lfs = path in view.lfs_files,
     })
     if view.restore_path == path && view.restore_staged == staged && view.sel_index < 0 {
         view.sel_staged = staged
         view.sel_index = len(list) - 1
+    }
+}
+
+// Replaces the LFS state the settings view shows and re-marks the file lists
+// against the tracked-file set; the probe and the snapshot land in any order.
+git_view_set_lfs :: proc(view: ^Git_View, available: bool, version: string, patterns: []string, files: []string) {
+    view.lfs_available = available
+    delete(view.lfs_version)
+    view.lfs_version = strings.clone(version)
+    for pattern in view.lfs_patterns {
+        delete(pattern)
+    }
+    clear(&view.lfs_patterns)
+    for pattern in patterns {
+        append(&view.lfs_patterns, strings.clone(pattern))
+    }
+    for key, _ in view.lfs_files {
+        delete(key)
+    }
+    clear(&view.lfs_files)
+    for file in files {
+        view.lfs_files[strings.clone(file)] = true
+    }
+    for &file in view.unstaged {
+        file.is_lfs = file.path in view.lfs_files
+    }
+    for &file in view.staged {
+        file.is_lfs = file.path in view.lfs_files
     }
 }
 
@@ -895,15 +952,27 @@ git_view_config_rows :: proc(view: ^Git_View, out: ^[dynamic]Git_Config_Row) {
             }
         }
     }
+    append(out, Git_Config_Row {lfs = .Header})
+    append(out, Git_Config_Row {lfs = .Status})
+    if view.lfs_available {
+        for _, i in view.lfs_patterns {
+            append(out, Git_Config_Row {lfs = .Pattern, index = i})
+        }
+        append(out, Git_Config_Row {lfs = .Pull})
+        append(out, Git_Config_Row {lfs = .Track})
+    }
 }
 
 @(private)
 git_view_config_row_count :: proc(view: ^Git_View) -> int {
-    count := 2
+    count := 4
     for row in view.config_rows {
         if !view.config_collapsed[row.global ? 1 : 0] {
             count += 1
         }
+    }
+    if view.lfs_available {
+        count += len(view.lfs_patterns) + 2
     }
     return count
 }
@@ -1231,6 +1300,19 @@ git_view_activate_config :: proc(view: ^Git_View, index: int) {
         return
     }
     row := rows[index]
+    if row.lfs != .None {
+        #partial switch row.lfs {
+        case .Pull:
+            if !view.busy && view.cbs.on_lfs != nil {
+                view.cbs.on_lfs(view.data, .Pull)
+            }
+        case .Track:
+            if !view.busy && view.cbs.on_lfs != nil {
+                view.cbs.on_lfs(view.data, .Track)
+            }
+        }
+        return
+    }
     if row.header {
         scope := row.global ? 1 : 0
         view.config_collapsed[scope] = !view.config_collapsed[scope]
@@ -1939,6 +2021,15 @@ git_view_destroy :: proc(widget: ^ui.Widget) {
     git_view_clear_prs(view)
     delete(view.prs)
     git_view_free_diff(view)
+    delete(view.lfs_version)
+    for pattern in view.lfs_patterns {
+        delete(pattern)
+    }
+    delete(view.lfs_patterns)
+    for key, _ in view.lfs_files {
+        delete(key)
+    }
+    delete(view.lfs_files)
     delete(view.branch)
     delete(view.status_line)
     delete(view.restore_path)

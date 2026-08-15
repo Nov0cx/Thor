@@ -1,6 +1,7 @@
 package thor
 
 import "base:runtime"
+import "core:fmt"
 import "core:os"
 import "core:path/filepath"
 import "core:strconv"
@@ -52,6 +53,9 @@ Git_Op :: enum {
     PR_List,         // flag = use glab
     PR_Create,       // arg = branch, flag = use glab
     Clone,           // arg = url, arg2 = destination directory
+    Lfs_Probe,       // git lfs version + ls-files + tracked patterns
+    Lfs_Pull,        // fetch + checkout of LFS objects
+    Lfs_Track,       // arg = pattern
 }
 
 // Cloning fetches a whole repository, so it gets its own generous timeout.
@@ -134,9 +138,9 @@ git_op_is_mutation :: proc(op: Git_Op) -> bool {
     switch op {
     case .Stage, .Unstage, .Stage_All, .Unstage_All, .Discard, .Commit, .Fetch, .Pull, .Push,
          .Checkout, .Checkout_Remote, .Stash_Save, .Stash_Apply, .Stash_Pop, .Stash_Drop,
-         .Config_Set, .PR_Create, .Clone:
+         .Config_Set, .PR_Create, .Clone, .Lfs_Pull, .Lfs_Track:
         return true
-    case .Snapshot, .Diff_File, .Log, .Commit_Show, .Refs, .Config_List, .Remote_Url, .CLI_Probe, .PR_List:
+    case .Snapshot, .Diff_File, .Log, .Commit_Show, .Refs, .Config_List, .Remote_Url, .CLI_Probe, .PR_List, .Lfs_Probe:
         return false
     }
     return false
@@ -160,10 +164,12 @@ git_op_worker :: proc(job: ^Git_Op_Job) {
         git_run_config_list(job)
     case .CLI_Probe:
         git_run_cli_probe(job)
+    case .Lfs_Probe:
+        git_run_lfs_probe(job)
     case .Stage, .Unstage, .Stage_All, .Unstage_All, .Discard, .Fetch, .Pull, .Push,
          .Log, .Commit_Show, .Checkout, .Checkout_Remote,
          .Stash_Save, .Stash_Apply, .Stash_Pop, .Stash_Drop,
-         .Config_Set, .Remote_Url, .PR_List, .PR_Create, .Clone:
+         .Config_Set, .Remote_Url, .PR_List, .PR_Create, .Clone, .Lfs_Pull, .Lfs_Track:
         git_run_simple(job)
     }
 
@@ -206,6 +212,18 @@ git_run_config_list :: proc(job: ^Git_Op_Job) {
 git_run_cli_probe :: proc(job: ^Git_Op_Job) {
     job.output, job.code, job.ok = shell.run_status("gh --version", job.cwd, GIT_LOCAL_TIMEOUT)
     job.aux[0], job.aux_codes[0], _ = shell.run_status("glab --version", job.cwd, GIT_LOCAL_TIMEOUT)
+}
+
+// LFS slots: output = git lfs version, aux[0] = tracked file names, aux[1] =
+// tracked patterns. The listings are skipped when the CLI is missing.
+@(private = "file")
+git_run_lfs_probe :: proc(job: ^Git_Op_Job) {
+    job.output, job.code, job.ok = shell.run_status("git lfs version", job.cwd, GIT_LOCAL_TIMEOUT)
+    if !job.ok || job.code != 0 {
+        return
+    }
+    job.aux[0], job.aux_codes[0], _ = shell.run_status("git lfs ls-files -n", job.cwd, GIT_LOCAL_TIMEOUT)
+    job.aux[1], job.aux_codes[1], _ = shell.run_status("git lfs track", job.cwd, GIT_LOCAL_TIMEOUT)
 }
 
 @(private = "file")
@@ -403,7 +421,18 @@ git_run_simple :: proc(job: ^Git_Op_Job) {
         }
         cmd = strings.concatenate({"git clone ", url_quoted, " ", dir_quoted}, context.temp_allocator)
         timeout = GIT_CLONE_TIMEOUT
-    case .Snapshot, .Diff_File, .Commit, .Refs, .Config_List, .CLI_Probe:
+    case .Lfs_Pull:
+        cmd = "git lfs pull"
+        timeout = GIT_NETWORK_TIMEOUT
+    case .Lfs_Track:
+        quoted, quote_ok := git_quote_path(job.arg)
+        if !quote_ok {
+            job.output = strings.clone("unsupported character in pattern")
+            job.code = -1
+            return
+        }
+        cmd = strings.concatenate({"git lfs track ", quoted}, context.temp_allocator)
+    case .Snapshot, .Diff_File, .Commit, .Refs, .Config_List, .CLI_Probe, .Lfs_Probe:
         return
     }
     job.output, job.code, job.ok = shell.run_status(cmd, job.cwd, timeout)
@@ -454,13 +483,17 @@ thor_apply_git_op :: proc(thor: ^Thor, job: ^Git_Op_Job) {
         }
     case .CLI_Probe:
         thor_git_apply_cli_probe(thor, job)
+    case .Lfs_Probe:
+        if !stale {
+            thor_git_apply_lfs_probe(thor, job)
+        }
     case .PR_List:
         if !stale {
             thor_git_push_prs(thor, job)
         }
     case .Stage, .Unstage, .Stage_All, .Unstage_All, .Discard, .Commit, .Fetch, .Pull, .Push,
          .Checkout, .Checkout_Remote, .Stash_Save, .Stash_Apply, .Stash_Pop, .Stash_Drop,
-         .Config_Set, .PR_Create, .Clone:
+         .Config_Set, .PR_Create, .Clone, .Lfs_Pull, .Lfs_Track:
         thor.git_mutation_inflight = false
         thor_refresh_git_status(thor)
         if !stale {
@@ -853,6 +886,117 @@ git_parse_stash_lines :: proc(output: string, ids, subjects: ^[dynamic]string) {
         append(ids, strings.clone(trimmed[:tab]))
         append(subjects, strings.clone(strings.trim_space(trimmed[tab + 1:])))
     }
+}
+
+GIT_LFS_POINTER_PREFIX :: "version https://git-lfs.github.com/spec/"
+
+// "    *.png (.gitattributes)" lines from `git lfs track`; the header line
+// carries no indent and is dropped.
+git_parse_lfs_patterns :: proc(output: string, out: ^[dynamic]string) {
+    it := output
+    for line in strings.split_lines_iterator(&it) {
+        if len(line) == 0 || (line[0] != ' ' && line[0] != '\t') {
+            continue
+        }
+        pattern := strings.trim_space(line)
+        if open := strings.last_index(pattern, " ("); open > 0 && strings.has_suffix(pattern, ")") {
+            pattern = strings.trim_right_space(pattern[:open])
+        }
+        if pattern != "" {
+            append(out, strings.clone(pattern))
+        }
+    }
+}
+
+// True when every added or removed line of a unified diff is a Git LFS
+// pointer field, with a pointer version line among them.
+git_diff_is_lfs_pointer :: proc(output: string) -> bool {
+    saw_version := false
+    saw_change := false
+    it := output
+    for raw in strings.split_lines_iterator(&it) {
+        line := strings.trim_suffix(raw, "\r")
+        if len(line) == 0 || (line[0] != '+' && line[0] != '-') {
+            continue
+        }
+        if strings.has_prefix(line, "+++") || strings.has_prefix(line, "---") {
+            continue
+        }
+        body := strings.trim_space(line[1:])
+        saw_change = true
+        if strings.has_prefix(body, GIT_LFS_POINTER_PREFIX) {
+            saw_version = true
+            continue
+        }
+        if body == "" || strings.has_prefix(body, "oid ") || strings.has_prefix(body, "size ") {
+            continue
+        }
+        return false
+    }
+    return saw_version && saw_change
+}
+
+// Collapses an LFS pointer diff into Meta rows naming the objects instead of
+// showing the raw pointer text.
+git_lfs_pointer_rows :: proc(output: string, out: ^[dynamic]widgets.Git_Diff_Row) {
+    new_label := git_lfs_side_label(output, '+')
+    old_label := git_lfs_side_label(output, '-')
+    if new_label != "" {
+        append(out, widgets.Git_Diff_Row{.Meta, 0, 0, strings.concatenate({"LFS object ", new_label})})
+    }
+    if old_label != "" {
+        prefix := new_label == "" ? "LFS object removed: " : "was "
+        append(out, widgets.Git_Diff_Row{.Meta, 0, 0, strings.concatenate({prefix, old_label})})
+    }
+    if len(out) == 0 {
+        append(out, widgets.Git_Diff_Row{.Meta, 0, 0, strings.clone("LFS pointer change")})
+    }
+}
+
+// "sha256:ab12cd34ef56 · 12.3 MB" for one side of a pointer diff, "" when the
+// side has no oid.
+@(private = "file")
+git_lfs_side_label :: proc(output: string, sign: u8, allocator := context.temp_allocator) -> string {
+    oid := ""
+    size := -1
+    it := output
+    for raw in strings.split_lines_iterator(&it) {
+        line := strings.trim_suffix(raw, "\r")
+        if len(line) < 2 || line[0] != sign || line[1] == sign {
+            continue
+        }
+        body := strings.trim_space(line[1:])
+        if strings.has_prefix(body, "oid ") {
+            oid = strings.trim_space(body[4:])
+        } else if strings.has_prefix(body, "size ") {
+            size, _ = strconv.parse_int(strings.trim_space(body[5:]))
+        }
+    }
+    if oid == "" {
+        return ""
+    }
+    if colon := strings.index_byte(oid, ':'); colon >= 0 && len(oid) > colon + 13 {
+        oid = oid[:colon + 13]
+    }
+    if size >= 0 {
+        return strings.concatenate({oid, " · ", git_size_label(size)}, allocator)
+    }
+    return strings.clone(oid, allocator)
+}
+
+// "12.3 MB" for a byte count.
+git_size_label :: proc(bytes: int, allocator := context.temp_allocator) -> string {
+    units := [?]string {"KB", "MB", "GB", "TB"}
+    value := cast(f64) bytes
+    index := -1
+    for value >= 1024 && index < len(units) - 1 {
+        value /= 1024
+        index += 1
+    }
+    if index < 0 {
+        return strings.clone(fmt.tprintf("%d B", bytes), allocator)
+    }
+    return strings.clone(fmt.tprintf("%.1f %s", value, units[index]), allocator)
 }
 
 // Quotes one path for a shell command line. Windows command lines have no

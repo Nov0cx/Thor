@@ -44,6 +44,7 @@ thor_open_git_view :: proc(thor: ^Thor, kind: widgets.Git_View_Kind) {
     thor.git_log_count = GIT_LOG_PAGE
     widgets.git_view_open(thor.git_view, &thor.ui_context, kind)
     thor_git_op(thor, .Snapshot)
+    thor_git_op(thor, .Lfs_Probe)
     thor_git_populate_view(thor, kind)
 }
 
@@ -229,6 +230,32 @@ thor_git_discard_confirmed :: proc(data: rawptr) {
     thor.git_discard_path = ""
 }
 
+thor_on_git_lfs :: proc(data: rawptr, op: widgets.Git_Lfs_Op) {
+    thor := cast(^Thor) data
+    switch op {
+    case .Pull:
+        thor_git_start_mutation(thor, .Lfs_Pull)
+    case .Track:
+        widgets.command_palette_prompt(
+            thor.command_palette,
+            &thor.ui_context,
+            "Pattern to track (e.g. *.png)",
+            thor_git_lfs_track_submitted,
+            thor,
+        )
+    }
+}
+
+@(private = "file")
+thor_git_lfs_track_submitted :: proc(data: rawptr, text: string) {
+    thor := cast(^Thor) data
+    pattern := strings.trim_space(text)
+    if pattern == "" {
+        return
+    }
+    thor_git_start_mutation(thor, .Lfs_Track, pattern)
+}
+
 thor_on_git_stage :: proc(data: rawptr, path: string, stage: bool) {
     thor := cast(^Thor) data
     op: Git_Op
@@ -298,6 +325,12 @@ thor_git_show_untracked :: proc(thor: ^Thor, path: string) {
     }
 
     rows := make([dynamic]widgets.Git_Diff_Row)
+    // A file checked out without the smudge filter is the pointer itself.
+    if strings.has_prefix(string(data), GIT_LFS_POINTER_PREFIX) {
+        append(&rows, widgets.Git_Diff_Row{.Meta, 0, 0, strings.clone("Git LFS pointer file")})
+        widgets.git_view_set_diff(view, path, rows)
+        return
+    }
     line_number := 1
     it := string(data)
     for raw in strings.split_lines_iterator(&it) {
@@ -489,6 +522,41 @@ thor_git_apply_remote_url :: proc(thor: ^Thor, job: ^Git_Op_Job) {
     thor_git_maybe_list_prs(thor)
 }
 
+// Pushes the LFS probe into the open view: availability, version, tracked
+// patterns and the tracked-file set the changes list marks.
+thor_git_apply_lfs_probe :: proc(thor: ^Thor, job: ^Git_Op_Job) {
+    view := thor.git_view
+    if view == nil || !widgets.git_view_is_open(view) {
+        return
+    }
+    available := job.ok && job.code == 0
+    version := ""
+    if available {
+        version = git_first_line(job.output)
+        if space := strings.index_byte(version, ' '); space > 0 {
+            version = version[:space]
+        }
+    }
+
+    patterns := make([dynamic]string)
+    files := make([dynamic]string)
+    defer {
+        for pattern in patterns {
+            delete(pattern)
+        }
+        delete(patterns)
+        for file in files {
+            delete(file)
+        }
+        delete(files)
+    }
+    if available {
+        git_parse_lfs_patterns(job.aux[1], &patterns)
+        git_parse_name_lines(job.aux[0], &files)
+    }
+    widgets.git_view_set_lfs(view, available, version, patterns[:], files[:])
+}
+
 thor_git_apply_cli_probe :: proc(thor: ^Thor, job: ^Git_Op_Job) {
     thor.git_cli_probed = true
     thor.git_has_gh = git_cli_present(job.output, job.code)
@@ -560,7 +628,11 @@ thor_git_push_diff :: proc(thor: ^Thor, job: ^Git_Op_Job) {
         return
     }
     rows := make([dynamic]widgets.Git_Diff_Row)
-    git_parse_diff_rows(job.output, &rows)
+    if git_diff_is_lfs_pointer(job.output) {
+        git_lfs_pointer_rows(job.output, &rows)
+    } else {
+        git_parse_diff_rows(job.output, &rows)
+    }
     widgets.git_view_set_diff(view, job.arg, rows)
 }
 
@@ -587,6 +659,10 @@ thor_git_finish_mutation :: proc(thor: ^Thor, job: ^Git_Op_Job) {
         widgets.git_view_clear_commit(view)
     case .Config_Set:
         thor_git_op(thor, .Config_List)
+    case .Lfs_Pull, .Lfs_Track:
+        // Track edits .gitattributes and pull materializes files; both change
+        // what the probe reports.
+        thor_git_op(thor, .Lfs_Probe)
     case .PR_Create:
         // The CLI prints the created request's page; open it.
         if url := git_first_url(job.output); url != "" {
@@ -618,7 +694,9 @@ git_op_done_label :: proc(op: Git_Op) -> string {
     case .Config_Set:            return "Saved"
     case .PR_Create:             return "Pull request created"
     case .Clone:                 return "Cloned"
-    case .Snapshot, .Diff_File, .Log, .Commit_Show, .Refs, .Config_List, .Remote_Url, .CLI_Probe, .PR_List:
+    case .Lfs_Pull:              return "LFS objects pulled"
+    case .Lfs_Track:             return "Pattern tracked"
+    case .Snapshot, .Diff_File, .Log, .Commit_Show, .Refs, .Config_List, .Remote_Url, .CLI_Probe, .PR_List, .Lfs_Probe:
         return ""
     }
     return ""

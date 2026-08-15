@@ -258,6 +258,65 @@ test_git_parse_stash_lines :: proc(t: ^testing.T) {
     testing.expect_value(t, subjects[0], "WIP on master: 4a26066 signing")
 }
 
+// An LFS pointer diff collapses into Meta rows naming both objects instead of
+// the raw pointer text.
+@(test)
+test_git_lfs_pointer_diff_collapses :: proc(t: ^testing.T) {
+    diff := strings.concatenate({
+        "diff --git a/big.bin b/big.bin\nindex 111..222 100644\n--- a/big.bin\n+++ b/big.bin\n",
+        "@@ -1,3 +1,3 @@\n",
+        "-version https://git-lfs.github.com/spec/v1\n",
+        "-oid sha256:aaaabbbbccccddddeeee\n",
+        "-size 1024\n",
+        "+version https://git-lfs.github.com/spec/v1\n",
+        "+oid sha256:eeeeffff000011112222\n",
+        "+size 2097152\n",
+    }, context.temp_allocator)
+    testing.expect(t, git_diff_is_lfs_pointer(diff), "pointer diff not detected")
+
+    rows := make([dynamic]widgets.Git_Diff_Row)
+    defer widgets.git_view_diff_rows_destroy(&rows)
+    git_lfs_pointer_rows(diff, &rows)
+    testing.expect_value(t, len(rows), 2)
+    expect_diff_row(t, rows[0], .Meta, 0, 0, "LFS object sha256:eeeeffff0000 · 2.0 MB")
+    expect_diff_row(t, rows[1], .Meta, 0, 0, "was sha256:aaaabbbbcccc · 1.0 KB")
+}
+
+// A textual diff must never collapse, pointer version line or not.
+@(test)
+test_git_lfs_pointer_detection_rejects_text :: proc(t: ^testing.T) {
+    diff := "--- a/f\n+++ b/f\n@@ -1 +1 @@\n-old line\n+new line\n"
+    testing.expect(t, !git_diff_is_lfs_pointer(diff), "text diff detected as pointer")
+
+    mixed := "@@ -1 +1 @@\n+version https://git-lfs.github.com/spec/v1\n+plain text\n"
+    testing.expect(t, !git_diff_is_lfs_pointer(mixed), "mixed diff detected as pointer")
+}
+
+// `git lfs track` lines: indented "<pattern> (<source>)"; the header carries
+// no indent and drops.
+@(test)
+test_git_lfs_patterns_parse :: proc(t: ^testing.T) {
+    patterns := make([dynamic]string)
+    defer {
+        for pattern in patterns {
+            delete(pattern)
+        }
+        delete(patterns)
+    }
+    git_parse_lfs_patterns("Listing tracked patterns\n    *.png (.gitattributes)\n    assets/*.bin (.gitattributes)\n", &patterns)
+
+    testing.expect_value(t, len(patterns), 2)
+    testing.expect_value(t, patterns[0], "*.png")
+    testing.expect_value(t, patterns[1], "assets/*.bin")
+}
+
+@(test)
+test_git_size_label :: proc(t: ^testing.T) {
+    testing.expect_value(t, git_size_label(500), "500 B")
+    testing.expect_value(t, git_size_label(2048), "2.0 KB")
+    testing.expect_value(t, git_size_label(1536 * 1024), "1.5 MB")
+}
+
 @(private = "file")
 expect_git_entry :: proc(t: ^testing.T, entry: Git_File_Entry, path: string, status: widgets.Git_Status, staged: bool, loc := #caller_location) {
     testing.expect_value(t, entry.path, path, loc = loc)
