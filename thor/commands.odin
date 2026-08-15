@@ -11,6 +11,7 @@ import "core:time"
 import "core:unicode/utf8"
 import rl "vendor:raylib"
 
+import "../lang/lsp"
 import "../setting"
 import "../textedit"
 import "../ui"
@@ -259,6 +260,10 @@ thor_active_keybinds_path :: proc(thor: ^Thor) -> string {
     return thor_active_config_path(thor, "keybinds.json")
 }
 
+thor_active_lsp_path :: proc(thor: ^Thor) -> string {
+    return thor_active_config_path(thor, lsp.WORKSPACE_CONFIG)
+}
+
 @(private = "file")
 thor_active_config_path :: proc(thor: ^Thor, name: string) -> string {
     workspace := false
@@ -472,6 +477,8 @@ thor_register_commands :: proc(thor: ^Thor) {
     thor_add_bindable_command(thor, "Help: Documentation in Browser", "docs_browser", thor_cmd_docs_browser, thor)
     thor_add_bindable_command(thor, "Help: Check for Updates", "check_for_updates", thor_cmd_check_for_updates, thor)
     thor_add_bindable_command(thor, "Settings: Open Settings GUI", "open_settings_gui", thor_cmd_open_settings_gui, thor)
+    thor_add_bindable_command(thor, "Language: Language Servers", "open_language_servers", thor_cmd_open_language_servers, thor)
+    thor_add_bindable_command(thor, "Language: Restart Servers", "restart_language_servers", thor_cmd_restart_language_servers, thor)
     thor_add_bindable_command(thor, "Git: Open Git UI", "open_git_gui", thor_cmd_open_git_view, thor)
     thor_add_bindable_command(thor, "Git: History", "open_git_history", thor_cmd_open_git_history, thor)
     thor_add_bindable_command(thor, "Git: Branches", "open_git_branches", thor_cmd_open_git_branches, thor)

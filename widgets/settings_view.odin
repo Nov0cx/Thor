@@ -20,6 +20,8 @@ import "../ui"
 Settings_Number_Proc :: #type proc(data: rawptr, id: string, value: int)
 // Fired when a choice row is clicked; the host opens its own picker for `id`.
 Settings_Choice_Proc :: #type proc(data: rawptr, id: string)
+// Fired when an action row's button is pressed; the host does the work.
+Settings_Action_Proc :: #type proc(data: rawptr, id: string)
 // Fired when a keybinding is captured or cleared; key = .KEY_NULL means unbind.
 Settings_Keybind_Proc :: #type proc(data: rawptr, id: string, key: rl.KeyboardKey, mods: input.Modifiers)
 // Fired when the General/Workspace tab is switched; the host repopulates rows
@@ -57,15 +59,27 @@ Settings_Row_Kind :: enum {
     Choice,  // label + value; clicking asks the host to open a picker
     Keybind, // label + chord; clicking captures a new chord, a clear box unbinds
     Group,   // chevron + label; clicking folds or unfolds the rows under it
+    Info,    // label + read-only value; nothing to click
+    Action,  // label + a button at the right edge; clicking asks the host to act
+}
+
+// How a value reads. A row states what its value means and the view picks the
+// color, so no host spells a theme color of its own.
+Settings_Tone :: enum {
+    Normal,
+    Good,
+    Warn,
+    Bad,
 }
 
 Settings_Row :: struct {
     kind:     Settings_Row_Kind,
     id:       string, // owned; stable key handed back to the callbacks
     label:    string, // owned
-    value:    string, // owned; formatted display (number, choice, chord)
+    value:    string, // owned; formatted display (number, choice, chord, button label)
     category: string, // owned; id of the Settings_Category this row belongs to
     group:    string, // owned; id of the Group row holding it, "" outside a group
+    tone:              Settings_Tone,
     number:            int,
     min, max, step:    int,
 }
@@ -130,6 +144,7 @@ Settings_View :: struct {
     // Callbacks into the host.
     on_number:         Settings_Number_Proc,
     on_choice:         Settings_Choice_Proc,
+    on_action:         Settings_Action_Proc,
     on_keybind:        Settings_Keybind_Proc,
     on_scope_change:   Settings_Scope_Proc,
     on_init_workspace: Settings_Init_Workspace_Proc,
@@ -137,12 +152,17 @@ Settings_View :: struct {
     return_focus: ^ui.Widget,
     background_color: rl.Color,
     border_color:     rl.Color,
-    header_color:     rl.Color,
     field_color:      rl.Color,
+    header_color:     rl.Color,
     text_color:       rl.Color,
     muted_color:      rl.Color,
     accent_color:     rl.Color,
     selected_color:   rl.Color,
+    // What a Settings_Tone draws as. Set apart from the eight above, which every
+    // modal here shares.
+    good_color:       rl.Color,
+    warn_color:       rl.Color,
+    bad_color:        rl.Color,
 }
 
 settings_view_vtable := ui.Widget_VTable {
@@ -181,7 +201,18 @@ settings_view_create :: proc(id: string) -> ^Settings_View {
     view.muted_color = rl.Color {120, 128, 160, 255}
     view.accent_color = rl.Color {132, 255, 255, 255}
     view.selected_color = rl.Color {132, 255, 255, 40}
+    view.good_color = rl.Color {126, 214, 143, 255}
+    view.warn_color = rl.Color {230, 192, 108, 255}
+    view.bad_color = rl.Color {235, 118, 118, 255}
     return view
+}
+
+// The three tone colors, apart from the eight every modal here shares so the
+// existing call keeps its shape.
+settings_view_set_status_colors :: proc(view: ^Settings_View, good, warn, bad: rl.Color) {
+    view.good_color = good
+    view.warn_color = warn
+    view.bad_color = bad
 }
 
 settings_view_set_colors :: proc(
@@ -203,6 +234,7 @@ settings_view_set_callbacks :: proc(
     view: ^Settings_View,
     on_number: Settings_Number_Proc,
     on_choice: Settings_Choice_Proc,
+    on_action: Settings_Action_Proc,
     on_keybind: Settings_Keybind_Proc,
     on_scope_change: Settings_Scope_Proc,
     on_init_workspace: Settings_Init_Workspace_Proc,
@@ -210,6 +242,7 @@ settings_view_set_callbacks :: proc(
 ) {
     view.on_number = on_number
     view.on_choice = on_choice
+    view.on_action = on_action
     view.on_keybind = on_keybind
     view.on_scope_change = on_scope_change
     view.on_init_workspace = on_init_workspace
@@ -268,7 +301,11 @@ settings_view_begin_category :: proc(view: ^Settings_View, id, label, icon: stri
 // Adds a foldable header and puts every row added after it inside the group,
 // until settings_view_end_group. `collapsed` is the state the group starts in;
 // once the user folds it, that answer wins over the default.
-settings_view_begin_group :: proc(view: ^Settings_View, id, label: string, collapsed := false) {
+// `value` is a summary drawn at the header's right edge, so a folded group still
+// says what is inside it.
+settings_view_begin_group :: proc(
+    view: ^Settings_View, id, label: string, collapsed := false, value := "", tone := Settings_Tone.Normal,
+) {
     if id not_in view.collapsed {
         view.collapsed[strings.clone(id)] = collapsed
     }
@@ -276,9 +313,10 @@ settings_view_begin_group :: proc(view: ^Settings_View, id, label: string, colla
         kind = .Group,
         id = strings.clone(id),
         label = strings.clone(label),
-        value = strings.clone(""),
+        value = strings.clone(value),
         category = strings.clone(view.current_category),
         group = strings.clone(""),
+        tone = tone,
     })
     delete(view.current_group)
     view.current_group = strings.clone(id)
@@ -331,6 +369,67 @@ settings_view_add_choice :: proc(view: ^Settings_View, id, label, value: string)
     })
 }
 
+// A read-only row: a label and what it is. Nothing clicks it and the keyboard
+// steps over it, so it never reads as a control that does nothing.
+settings_view_add_info :: proc(view: ^Settings_View, id, label, value: string, tone := Settings_Tone.Normal) {
+    append(&view.rows, Settings_Row {
+        kind = .Info,
+        id = strings.clone(id),
+        label = strings.clone(label),
+        value = strings.clone(value),
+        category = strings.clone(view.current_category),
+        group = strings.clone(view.current_group),
+        tone = tone,
+    })
+}
+
+// A row with one button at its right edge. `button` is the text on it, which is
+// also what sizes it.
+settings_view_add_action :: proc(view: ^Settings_View, id, label, button: string, tone := Settings_Tone.Normal) {
+    append(&view.rows, Settings_Row {
+        kind = .Action,
+        id = strings.clone(id),
+        label = strings.clone(label),
+        value = strings.clone(button),
+        category = strings.clone(view.current_category),
+        group = strings.clone(view.current_group),
+        tone = tone,
+    })
+}
+
+// How the elision measures. Only a test replaces it: ui.measure_text answers 0
+// with no font loaded, which is every headless run.
+Settings_Measure_Proc :: #type proc(text: string, size: i32) -> i32
+
+@(private = "file")
+settings_view_measure :: proc(text: string, size: i32) -> i32 {
+    return ui.measure_text(text, size)
+}
+
+// `text` cut to fit `max_width`, with a trailing ellipsis. Temp-allocated: it is
+// drawn in the same frame it is made.
+settings_view_elide :: proc(
+    text: string, max_width: f32, size: i32, measure: Settings_Measure_Proc = settings_view_measure,
+) -> string {
+    if max_width <= 0 || cast(f32) measure(text, size) <= max_width {
+        return text
+    }
+    ELLIPSIS :: "..."
+    room := max_width - cast(f32) measure(ELLIPSIS, size)
+    if room <= 0 {
+        return ELLIPSIS
+    }
+    // Cut on rune boundaries, so a multi-byte character is never halved.
+    end := 0
+    for _, index in text {
+        if cast(f32) measure(text[:index], size) > room {
+            break
+        }
+        end = index
+    }
+    return strings.concatenate({text[:end], ELLIPSIS}, context.temp_allocator)
+}
+
 // `chord` is the display string ("Ctrl+K"), or "" for an unbound action.
 settings_view_add_keybind :: proc(view: ^Settings_View, id, label, chord: string) {
     append(&view.rows, Settings_Row {
@@ -362,6 +461,19 @@ settings_view_open :: proc(view: ^Settings_View, ctx: ^ui.Context) {
     }
     ctx.focused = &view.widget
     ui.widget_bring_to_front(&view.widget)
+}
+
+// Opens on a named category instead of the first one, for a command that goes
+// straight to one page. An id no category answers to opens the first, so a
+// renamed category is never a dead command.
+settings_view_open_at :: proc(view: ^Settings_View, ctx: ^ui.Context, category: string) {
+    settings_view_open(view, ctx)
+    for entry, index in view.categories {
+        if entry.id == category {
+            view.selected_category = index
+            return
+        }
+    }
 }
 
 settings_view_is_open :: proc(view: ^Settings_View) -> bool {
@@ -572,6 +684,20 @@ settings_view_number_rects :: proc(view: ^Settings_View, row: rl.Rectangle) -> (
     value = rl.Rectangle {plus.x - gap - val_w, cy, val_w, btn}
     minus = rl.Rectangle {value.x - gap - btn, cy, btn, btn}
     return
+}
+
+// The button on an Action row, at its right edge. It is as wide as its label, so
+// the hit test and the drawing must measure the same text.
+@(private)
+settings_view_action_rect :: proc(view: ^Settings_View, row: rl.Rectangle, label: string) -> rl.Rectangle {
+    height: f32 = 26
+    width := cast(f32) ui.measure_text(label, 14) + 24
+    return rl.Rectangle {
+        row.x + row.width - SETTINGS_ROW_PAD - width,
+        row.y + (row.height - height) * 0.5,
+        width,
+        height,
+    }
 }
 
 // The clear ("unbind") box on a Keybind row, at its right edge.
@@ -899,6 +1025,10 @@ settings_view_activate_selected :: proc(view: ^Settings_View) {
         settings_view_begin_capture(view, vi)
     case .Group:
         settings_view_toggle_group(view, item.id)
+    case .Action:
+        if view.on_action != nil {
+            view.on_action(view.data, item.id)
+        }
     }
 }
 
@@ -941,6 +1071,15 @@ settings_view_click :: proc(view: ^Settings_View, point: rl.Vector2) {
         } else {
             settings_view_begin_capture(view, vi)
         }
+    case .Action:
+        // The button alone, so a click meant for the row's text does nothing.
+        if rl.CheckCollisionPointRec(point, settings_view_action_rect(view, rect, item.value)) {
+            if view.on_action != nil {
+                view.on_action(view.data, item.id)
+            }
+        }
+    case .Info:
+    // Nothing to click.
     }
 }
 
@@ -1195,6 +1334,17 @@ settings_view_draw_row :: proc(
             view.accent_color,
         )
         ui.draw_text(item.label, cast(i32) (label_x + 22), label_y, 16, view.text_color)
+        // The summary, so a folded group still says what is inside it.
+        if item.value != "" {
+            tw := ui.measure_text(item.value, 14)
+            ui.draw_text(
+                item.value,
+                cast(i32) (rect.x + rect.width - SETTINGS_ROW_PAD - cast(f32) tw),
+                cast(i32) (rect.y + (rect.height - 14) * 0.5),
+                14,
+                settings_view_tone_color(view, item.tone),
+            )
+        }
         return
     }
 
@@ -1241,6 +1391,29 @@ settings_view_draw_row :: proc(
         )
         tw := ui.measure_text(item.value, 16)
         ui.draw_text(item.value, cast(i32) (icon_x - 8 - cast(f32) tw), label_y, 16, view.accent_color)
+    case .Info:
+        color := settings_view_tone_color(view, item.tone)
+        right := rect.x + rect.width - SETTINGS_ROW_PAD
+        // A dot for anything that is not ordinary, so a state reads at a glance
+        // before the text is read at all.
+        if item.tone != .Normal {
+            right -= 14
+            rl.DrawCircleV({right + 6, rect.y + rect.height * 0.5}, 4, color)
+        }
+        // The label keeps its room; what is left is the value's, since a command
+        // line or an install path is the part that runs long.
+        room := right - 8 - (label_x + cast(f32) ui.measure_text(item.label, 16) + 16)
+        text := settings_view_elide(item.value, room, 14)
+        tw := ui.measure_text(text, 14)
+        ui.draw_text(
+            text,
+            cast(i32) (right - 8 - cast(f32) tw),
+            cast(i32) (rect.y + (rect.height - 14) * 0.5),
+            14,
+            color,
+        )
+    case .Action:
+        settings_view_draw_action_button(view, settings_view_action_rect(view, rect, item.value), item, mouse)
     case .Keybind:
         clear_rect := settings_view_clear_rect(view, rect)
         capturing := view.capturing == row_index
@@ -1275,6 +1448,43 @@ settings_view_draw_row :: proc(
             capturing ? view.accent_color : view.text_color,
         )
     }
+}
+
+// What a tone draws as. Normal is the muted secondary text every other value
+// row already uses.
+@(private = "file")
+settings_view_tone_color :: proc(view: ^Settings_View, tone: Settings_Tone) -> rl.Color {
+    switch tone {
+    case .Good:
+        return view.good_color
+    case .Warn:
+        return view.warn_color
+    case .Bad:
+        return view.bad_color
+    case .Normal:
+        return view.muted_color
+    }
+    return view.muted_color
+}
+
+// The framed button on an Action row. A tone colors its border and text, so a
+// destructive or missing-server action reads apart from an ordinary one.
+@(private = "file")
+settings_view_draw_action_button :: proc(
+    view: ^Settings_View, rect: rl.Rectangle, item: ^Settings_Row, mouse: rl.Vector2,
+) {
+    color := item.tone == .Normal ? view.accent_color : settings_view_tone_color(view, item.tone)
+    hover := rl.CheckCollisionPointRec(mouse, rect)
+    rl.DrawRectangleRounded(rect, 0.35, 6, hover ? settings_view_tint(color, 30) : view.field_color)
+    rl.DrawRectangleRoundedLinesEx(rect, 0.35, 6, 1, settings_view_tint(color, hover ? 255 : 90))
+    tw := ui.measure_text(item.value, 14)
+    ui.draw_text(
+        item.value,
+        cast(i32) (rect.x + (rect.width - cast(f32) tw) * 0.5),
+        cast(i32) (rect.y + (rect.height - 14) * 0.5),
+        14,
+        color,
+    )
 }
 
 // A borderless icon box for the chrome (close, clear).

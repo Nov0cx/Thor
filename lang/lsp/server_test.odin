@@ -395,9 +395,15 @@ test_server_eof_during_handshake :: proc(t: ^testing.T) {
     testing.expect(t, server_start(s, SOURCE))
     testing.expect(t, wait_state(s, .Failed), "a dead handshake left the server running")
     testing.expect(t, !server_supports(s, .Definition))
+
+    // Kept for the status view: a failed server that says nothing reads exactly
+    // like a language nobody configured.
+    reason := server_last_error(s, context.temp_allocator)
+    testing.expectf(t, strings.contains(reason, "initialize"), "the reason was %q", reason)
 }
 
-// A start that finds no program fails without a process and without a wait.
+// A start that finds no program fails without a process and without a wait, and
+// names the program the user has to install.
 @(test)
 test_server_no_program :: proc(t: ^testing.T) {
     f: Fake
@@ -412,6 +418,9 @@ test_server_no_program :: proc(t: ^testing.T) {
         path = SOURCE,
     }
     testing.expect(t, !server_ensure_started(s, &req))
+
+    reason := server_last_error(s, context.temp_allocator)
+    testing.expectf(t, strings.contains(reason, "fake-language-server"), "the reason was %q", reason)
 }
 
 // A server that dies after the handshake is restarted, and a stop during the
@@ -708,14 +717,16 @@ test_server_publishes_diagnostics :: proc(t: ^testing.T) {
     testing.expect(t, !server_poll(s, &empty), "a push for a file the editor never opened was kept")
 }
 
-// A config that declines diagnostics for this server declines its pushes too: the
-// poll channel must not walk around the gate a request goes through.
+// Declining diagnostics for this server declines its pushes too: the poll
+// channel must not walk around the gate a request goes through. The gate is the
+// admin one the settings own, not the lsp.json seed, so turning the feature off
+// in Settings stops the pushes without a restart.
 @(test)
-test_server_push_obeys_the_config :: proc(t: ^testing.T) {
+test_server_push_obeys_the_admin_gate :: proc(t: ^testing.T) {
     f: Fake
     s := fake_server(&f, CAPS_ALL)
     defer fake_end(&f, s)
-    f.config.features -= {.Diagnostics}
+    server_set_admin_features(s, server_admin_features(s) - {.Diagnostics})
 
     server_notify(s, .Opened, SOURCE, ".fake", BUFFER, 1)
     testing.expect(t, wait_sent(&f, `"method":"textDocument/didOpen"`), "didOpen never arrived")

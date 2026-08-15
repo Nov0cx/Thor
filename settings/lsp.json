@@ -2,52 +2,312 @@
     "servers": [
         {
             "id": "clangd",
+            "name": "clangd (C / C++)",
             "extensions": [".c", ".h", ".cpp", ".hpp", ".cc", ".hh", ".cxx", ".hxx"],
             "command": ["clangd", "--background-index"],
             "root_markers": ["compile_commands.json", ".clangd", ".git"],
+            "install": {
+                "windows": "winget install -e --id LLVM.LLVM",
+                "darwin": "brew install llvm",
+                "linux": "sudo apt-get update && sudo apt-get install -y clangd"
+            },
+            "setup_command": "configure-compile-commands",
+            "docs_url": "https://clangd.llvm.org/installation",
             "enabled": true
         },
         {
             "id": "rust-analyzer",
+            "name": "rust-analyzer (Rust)",
             "extensions": [".rs"],
             "command": ["rust-analyzer"],
             "root_markers": ["Cargo.toml", "rust-project.json", ".git"],
+            "install": { "any": "rustup component add rust-analyzer" },
+            "docs_url": "https://rust-analyzer.github.io/manual.html#installation",
             "enabled": true
         },
         {
             "id": "gopls",
+            "name": "gopls (Go)",
             "extensions": [".go"],
             "command": ["gopls"],
             "root_markers": ["go.work", "go.mod", ".git"],
+            "install": { "any": "go install golang.org/x/tools/gopls@latest" },
+            "docs_url": "https://pkg.go.dev/golang.org/x/tools/gopls",
             "enabled": true
         },
         {
             "id": "basedpyright",
+            "name": "basedpyright (Python)",
             "extensions": [".py", ".pyi"],
             "command": ["basedpyright-langserver", "--stdio"],
             "root_markers": ["pyproject.toml", "setup.py", "setup.cfg", "requirements.txt", ".git"],
+            "install": {
+                "windows": "python -m pip install -U basedpyright",
+                "any": "python3 -m pip install -U basedpyright"
+            },
+            "docs_url": "https://docs.basedpyright.com",
             "enabled": true
         },
         {
             "id": "typescript",
+            "name": "typescript-language-server (TS / JS)",
             "extensions": [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"],
             "command": ["typescript-language-server", "--stdio"],
             "root_markers": ["tsconfig.json", "jsconfig.json", "package.json", ".git"],
+            "install": { "any": "npm install -g typescript-language-server typescript" },
+            "docs_url": "https://github.com/typescript-language-server/typescript-language-server",
             "enabled": true
         },
         {
             "id": "lua-language-server",
+            "name": "lua-language-server (Lua)",
             "extensions": [".lua"],
             "command": ["lua-language-server"],
             "root_markers": [".luarc.json", ".luarc.jsonc", ".git"],
+            "install": {
+                "windows": "winget install -e --id LuaLS.lua-language-server",
+                "darwin": "brew install lua-language-server",
+                "linux": "sudo apt-get update && sudo apt-get install -y lua-language-server"
+            },
+            "docs_url": "https://luals.github.io/wiki/installation",
             "enabled": true
         },
         {
             "id": "zls",
+            "name": "zls (Zig)",
             "extensions": [".zig", ".zon"],
             "command": ["zls"],
             "root_markers": ["build.zig", "build.zig.zon", ".git"],
+            "install": {
+                "windows": "winget install -e --id zigtools.zls",
+                "darwin": "brew install zls"
+            },
+            "docs_url": "https://github.com/zigtools/zls#installation",
             "enabled": true
+        },
+
+        {
+            "id": "slangd",
+            "name": "slangd (Slang)",
+            "extensions": [".slang", ".slangh"],
+            "command": ["slangd"],
+            "root_markers": [".git"],
+            "docs_url": "https://github.com/shader-slang/slang/releases",
+            "enabled": false
+        },
+        {
+            "id": "pyright",
+            "name": "pyright (Python)",
+            "extensions": [".py", ".pyi"],
+            "command": ["pyright-langserver", "--stdio"],
+            "root_markers": ["pyproject.toml", "setup.py", "setup.cfg", "requirements.txt", ".git"],
+            "install": { "any": "npm install -g pyright" },
+            "docs_url": "https://microsoft.github.io/pyright",
+            "enabled": false
+        },
+        {
+            "id": "ruff",
+            "name": "ruff (Python)",
+            "extensions": [".py", ".pyi"],
+            "command": ["ruff", "server"],
+            "root_markers": ["pyproject.toml", "ruff.toml", ".ruff.toml", ".git"],
+            "install": {
+                "windows": "python -m pip install -U ruff",
+                "any": "python3 -m pip install -U ruff"
+            },
+            "docs_url": "https://docs.astral.sh/ruff/editors",
+            "enabled": false
+        },
+        {
+            "id": "jdtls",
+            "name": "jdtls (Java)",
+            "extensions": [".java"],
+            "command": ["jdtls"],
+            "root_markers": ["pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle", ".git"],
+            "docs_url": "https://github.com/eclipse-jdtls/eclipse.jdt.ls",
+            "enabled": false
+        },
+        {
+            "id": "kotlin-language-server",
+            "name": "kotlin-language-server (Kotlin)",
+            "extensions": [".kt", ".kts"],
+            "command": ["kotlin-language-server"],
+            "root_markers": ["build.gradle.kts", "build.gradle", "settings.gradle.kts", ".git"],
+            "install": { "darwin": "brew install kotlin-language-server" },
+            "docs_url": "https://github.com/fwcd/kotlin-language-server",
+            "enabled": false
+        },
+        {
+            "id": "csharp-ls",
+            "name": "csharp-ls (C#)",
+            "extensions": [".cs"],
+            "command": ["csharp-ls"],
+            "root_markers": ["global.json", "Directory.Build.props", ".git"],
+            "install": { "any": "dotnet tool install --global csharp-ls" },
+            "docs_url": "https://github.com/razzmatazz/csharp-language-server",
+            "enabled": false
+        },
+        {
+            "id": "haskell-language-server",
+            "name": "haskell-language-server (Haskell)",
+            "extensions": [".hs", ".lhs"],
+            "command": ["haskell-language-server-wrapper", "--lsp"],
+            "root_markers": ["stack.yaml", "cabal.project", ".git"],
+            "install": { "any": "ghcup install hls" },
+            "docs_url": "https://haskell-language-server.readthedocs.io",
+            "enabled": false
+        },
+        {
+            "id": "nil",
+            "name": "nil (Nix)",
+            "extensions": [".nix"],
+            "command": ["nil"],
+            "root_markers": ["flake.nix", "default.nix", ".git"],
+            "install": { "any": "nix profile install nixpkgs#nil" },
+            "docs_url": "https://github.com/oxalica/nil",
+            "enabled": false
+        },
+        {
+            "id": "ocamllsp",
+            "name": "ocamllsp (OCaml)",
+            "extensions": [".ml", ".mli"],
+            "command": ["ocamllsp"],
+            "root_markers": ["dune-project", ".git"],
+            "install": { "any": "opam install ocaml-lsp-server" },
+            "docs_url": "https://github.com/ocaml/ocaml-lsp",
+            "enabled": false
+        },
+        {
+            "id": "ruby-lsp",
+            "name": "ruby-lsp (Ruby)",
+            "extensions": [".rb", ".rake", ".gemspec"],
+            "command": ["ruby-lsp"],
+            "root_markers": ["Gemfile", ".ruby-version", ".git"],
+            "install": { "any": "gem install ruby-lsp" },
+            "docs_url": "https://shopify.github.io/ruby-lsp",
+            "enabled": false
+        },
+        {
+            "id": "intelephense",
+            "name": "intelephense (PHP)",
+            "extensions": [".php"],
+            "command": ["intelephense", "--stdio"],
+            "root_markers": ["composer.json", ".git"],
+            "install": { "any": "npm install -g intelephense" },
+            "docs_url": "https://intelephense.com",
+            "enabled": false
+        },
+        {
+            "id": "json-languageserver",
+            "name": "vscode-json-language-server (JSON)",
+            "extensions": [".json", ".jsonc"],
+            "command": ["vscode-json-language-server", "--stdio"],
+            "root_markers": [".git"],
+            "install": { "any": "npm install -g vscode-langservers-extracted" },
+            "docs_url": "https://github.com/hrsh7th/vscode-langservers-extracted",
+            "enabled": false
+        },
+        {
+            "id": "yaml-language-server",
+            "name": "yaml-language-server (YAML)",
+            "extensions": [".yaml", ".yml"],
+            "command": ["yaml-language-server", "--stdio"],
+            "root_markers": [".git"],
+            "install": { "any": "npm install -g yaml-language-server" },
+            "docs_url": "https://github.com/redhat-developer/yaml-language-server",
+            "enabled": false
+        },
+        {
+            "id": "html-languageserver",
+            "name": "vscode-html-language-server (HTML)",
+            "extensions": [".html", ".htm"],
+            "command": ["vscode-html-language-server", "--stdio"],
+            "root_markers": ["package.json", ".git"],
+            "install": { "any": "npm install -g vscode-langservers-extracted" },
+            "docs_url": "https://github.com/hrsh7th/vscode-langservers-extracted",
+            "enabled": false
+        },
+        {
+            "id": "css-languageserver",
+            "name": "vscode-css-language-server (CSS)",
+            "extensions": [".css", ".scss", ".less"],
+            "command": ["vscode-css-language-server", "--stdio"],
+            "root_markers": ["package.json", ".git"],
+            "install": { "any": "npm install -g vscode-langservers-extracted" },
+            "docs_url": "https://github.com/hrsh7th/vscode-langservers-extracted",
+            "enabled": false
+        },
+        {
+            "id": "taplo",
+            "name": "taplo (TOML)",
+            "extensions": [".toml"],
+            "command": ["taplo", "lsp", "stdio"],
+            "root_markers": [".taplo.toml", "taplo.toml", ".git"],
+            "install": { "any": "cargo install taplo-cli --locked --features lsp" },
+            "docs_url": "https://taplo.tamasfe.dev/cli/introduction.html",
+            "enabled": false
+        },
+        {
+            "id": "marksman",
+            "name": "marksman (Markdown)",
+            "extensions": [".md", ".markdown"],
+            "command": ["marksman", "server"],
+            "root_markers": [".marksman.toml", ".git"],
+            "install": { "darwin": "brew install marksman" },
+            "docs_url": "https://github.com/artempyanykh/marksman",
+            "enabled": false
+        },
+        {
+            "id": "bash-language-server",
+            "name": "bash-language-server (Shell)",
+            "extensions": [".sh", ".bash", ".zsh"],
+            "command": ["bash-language-server", "start"],
+            "root_markers": [".git"],
+            "install": { "any": "npm install -g bash-language-server" },
+            "docs_url": "https://github.com/bash-lsp/bash-language-server",
+            "enabled": false
+        },
+        {
+            "id": "cmake-language-server",
+            "name": "cmake-language-server (CMake)",
+            "extensions": [".cmake"],
+            "command": ["cmake-language-server"],
+            "root_markers": ["CMakeLists.txt", ".git"],
+            "install": {
+                "windows": "python -m pip install -U cmake-language-server",
+                "any": "python3 -m pip install -U cmake-language-server"
+            },
+            "docs_url": "https://github.com/regen100/cmake-language-server",
+            "enabled": false
+        },
+        {
+            "id": "terraform-ls",
+            "name": "terraform-ls (Terraform)",
+            "extensions": [".tf", ".tfvars"],
+            "command": ["terraform-ls", "serve"],
+            "root_markers": [".terraform", ".git"],
+            "install": { "darwin": "brew install hashicorp/tap/terraform-ls" },
+            "docs_url": "https://github.com/hashicorp/terraform-ls",
+            "enabled": false
+        },
+        {
+            "id": "lemminx",
+            "name": "lemminx (XML)",
+            "extensions": [".xml", ".xsd", ".xsl"],
+            "command": ["lemminx"],
+            "root_markers": [".git"],
+            "docs_url": "https://github.com/eclipse-lemminx/lemminx",
+            "enabled": false
+        },
+        {
+            "id": "nimlangserver",
+            "name": "nimlangserver (Nim)",
+            "extensions": [".nim", ".nims", ".nimble"],
+            "command": ["nimlangserver"],
+            "root_markers": ["nim.cfg", "config.nims", ".git"],
+            "install": { "any": "nimble install nimlangserver" },
+            "docs_url": "https://github.com/nim-lang/langserver",
+            "enabled": false
         }
     ]
 }

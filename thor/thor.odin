@@ -350,6 +350,21 @@ Thor :: struct {
     // The optional subprocess LSP backend. Owned by the manager, which destroys
     // every backend it holds, so shutdown frees nothing here.
     lsp_client: ^lsp.Client,
+    // Whether each configured server's program answers on PATH, kept between
+    // Settings populates: the lookup stats every PATH directory and the table
+    // holds dozens of servers. Keys and Lsp_Probe.exe owned; see thor/lsp_ui.odin.
+    lsp_probes: map[string]Lsp_Probe,
+    // The install command the Language Servers panel is asking about; owned.
+    lsp_install_command: string,
+    // Set when an lsp.json layer changed or the user asked for a restart. Acted
+    // on at the head of the run loop, never inside an event: thor_reload_lang
+    // destroys the backend a dispatch may be standing on.
+    lang_reload_pending: bool,
+    // Signature of the three lsp.json layers, and the per-server states the
+    // health poll last saw. Both owned; see thor/settings_watch.odin.
+    lsp_sig: i64,
+    lsp_health: [dynamic]Lsp_Health,
+    lsp_health_poll_time: f64,
     // Recursive async watch of the workspace tree. Its changes feed the explorer
     // (tree + git refresh) and the open buffers (reload on external edits) via
     // subscribers wired in thor_init_watcher. The two flags coalesce a burst of
@@ -582,6 +597,8 @@ init :: proc() -> ^Thor {
     thor_load_tasks(thor)
     thor.open_files = make([dynamic]^Open_File)
     thor.zombie_files = make([dynamic]^Open_File)
+    thor.lsp_probes = make(map[string]Lsp_Probe)
+    thor.lsp_health = make([dynamic]Lsp_Health)
     thor.finished_loads = make([dynamic]^Load_Job)
     thor.finished_saves = make([dynamic]^Save_Job)
     thor.finished_git = make([dynamic]^Git_Status_Job)
@@ -620,6 +637,7 @@ init :: proc() -> ^Thor {
     thor_terminals_init(thor)
     thor_apply_settings(thor)
     thor_settings_mark_clean(thor)
+    thor_lsp_mark_clean(thor)
 
     // Now that the console and keybinds exist, expose the host services and load
     // plugins (their load body may print or query keybinds, e.g. the tutorial).
@@ -770,10 +788,14 @@ run :: proc(thor: ^Thor) {
         thor_poll_dropped_files(thor)
         thor_poll_watcher(thor)
         thor_poll_settings(thor)
+        // Before anything dispatches: the rebuild drains the manager and
+        // destroys the LSP backend, which no in-flight request may be inside.
+        thor_poll_lang_reload(thor)
         thor_update_files(thor)
         thor_sync_lang_documents(thor)
         lang.manager_dispatch(&thor.lang_manager, thor, thor_on_lang_result)
         thor_poll_lang_busy(thor)
+        thor_poll_lsp_health(thor)
         // Asked here, not during init: the prompt takes focus, and init still
         // opens files and restores the session after the plugins load. The
         // rebuild an answer asks for is done here too, not in the dialog
@@ -844,6 +866,9 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.active_task_name)
     delete(thor.pending_task_name)
     lang.manager_destroy(&thor.lang_manager)
+    thor_lsp_probes_destroy(thor)
+    thor_lsp_health_destroy(thor)
+    delete(thor.lsp_install_command)
     delete(thor.pending_goto_path)
     thor_clear_jump_list(thor)
     delete(thor.jump_back)

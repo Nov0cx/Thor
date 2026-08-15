@@ -263,7 +263,13 @@ subprocess LSP client as an optional second backend behind the same seam.
   position in it, since the pump drains document events on its own schedule. `position.odin`
   converts between the seam's byte offsets and the protocol's UTF-16 `(line, character)`.
   Registration order is the precedence: `thor.init` puts the Odin engine first unless an entry sets
-  `"override": true` for `.odin`.
+  `"override": true` for `.odin`. `config.odin` reports what a config file got wrong
+  (`Config_Problem`) instead of dropping it silently, and resolves `install` per platform plus
+  `${workspace}`/`${userHome}`/`${env:NAME}`; `client_server_status` is the snapshot the settings
+  panel reads, behind `status_mutex` — a leaf lock over `root`/`restarts`/`last_error`, since a
+  status read must never take `conn_lock`, which is held shared for a whole round trip. All three
+  `lsp.json` layers are watched (`thor/settings_watch.odin`) and rebuild the client through
+  `thor.lang_reload_pending` at the head of the run loop, never inside an event.
 - `thor/lang_host.odin` is the editor side: dispatches requests, routes results back to the pane that
   asked, drops superseded ones. `thor_lang_notify` / `thor_sync_lang_documents` mirror the open
   buffers onto a backend that tracks documents — one `.Changed` per file per frame, driven by

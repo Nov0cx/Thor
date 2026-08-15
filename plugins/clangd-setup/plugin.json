@@ -1,5 +1,0 @@
-{
-    "name": "clangd Setup",
-    "description": "Checks whether clangd is on PATH, turns installing it into a workspace task, and detects the project's build system (CMake, Bazel, Make, or a bare build script) to help produce compile_commands.json.",
-    "permissions": ["exec", "read", "write", "ui"]
-}

@@ -97,7 +97,9 @@
         "init_workspace": "",
         "open_comments": "",
         "open_keybinds": "",
-        "reload_settings": ""
+        "reload_settings": "",
+        "open_language_servers": "",
+        "restart_language_servers": ""
     },
     "terminal": {
         "new_terminal": "",

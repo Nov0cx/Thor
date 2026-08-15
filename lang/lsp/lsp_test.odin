@@ -126,6 +126,92 @@ test_client_server_ids :: proc(t: ^testing.T) {
     }
 }
 
+// The snapshot a status view reads before anything started: not running, not
+// installed, and carrying the setup text the panel offers.
+@(test)
+test_client_server_status :: proc(t: ^testing.T) {
+    extensions := [2]string{".py", ".pyi"}
+    command := [1]string{"thor-no-such-language-server"}
+
+    c: Client
+    c.config.servers = make([dynamic]Server_Config, 1)
+    defer delete(c.config.servers)
+    c.config.servers[0] = Server_Config {
+        id         = "basedpyright",
+        name       = "basedpyright (Python)",
+        extensions = extensions[:],
+        command    = command[:],
+        install    = "pipx install basedpyright",
+        docs_url   = "https://example.invalid",
+        features   = lang.FEATURES_ALL,
+        enabled    = true,
+    }
+    c.servers = make([dynamic]^Server, 0)
+    append(&c.servers, server_create(&c.config.servers[0], ""))
+    defer {
+        for s in c.servers {
+            server_stop(s)
+            server_destroy(s)
+        }
+        delete(c.servers)
+    }
+
+    status, ok := client_server_status(&c, "basedpyright", context.temp_allocator)
+    testing.expect(t, ok, "the configured id must have a status")
+    if !ok {
+        return
+    }
+    testing.expect_value(t, status.name, "basedpyright (Python)")
+    testing.expect_value(t, status.state, Server_State.Idle)
+    testing.expect_value(t, server_state_name(status.state), "Not started")
+    testing.expect(t, !status.installed, "a made-up program must not be found on PATH")
+    testing.expect_value(t, status.exe, "")
+    testing.expect_value(t, status.root, "")
+    testing.expect_value(t, status.restarts, 0)
+    testing.expect_value(t, status.last_error, "")
+    testing.expect(t, status.enabled)
+    testing.expect_value(t, status.install_command, "pipx install basedpyright")
+    testing.expect(t, status.claimed_by == "", "the only claimant owns its own extension")
+    testing.expect_value(t, len(status.extensions), 2)
+
+    _, missing := client_server_status(&c, "nothing", context.temp_allocator)
+    testing.expect(t, !missing)
+}
+
+// Two enabled entries on one language: the first owns it and the second is dead
+// config. The status names the owner, so the collision is visible instead of
+// silent.
+@(test)
+test_client_extension_owner :: proc(t: ^testing.T) {
+    extensions := [1]string{".py"}
+    command := [1]string{"x"}
+
+    c: Client
+    c.config.servers = make([dynamic]Server_Config, 2)
+    defer delete(c.config.servers)
+    c.config.servers[0] = Server_Config{id = "basedpyright", extensions = extensions[:], command = command[:], features = lang.FEATURES_ALL, enabled = true}
+    c.config.servers[1] = Server_Config{id = "ruff", extensions = extensions[:], command = command[:], features = lang.FEATURES_ALL, enabled = true}
+    c.servers = make([dynamic]^Server, 0)
+    append(&c.servers, server_create(&c.config.servers[0], ""))
+    append(&c.servers, server_create(&c.config.servers[1], ""))
+    defer {
+        for s in c.servers {
+            server_stop(s)
+            server_destroy(s)
+        }
+        delete(c.servers)
+    }
+
+    owner, taken := client_extension_owner(&c, ".py")
+    testing.expect(t, taken)
+    testing.expect_value(t, owner, "basedpyright")
+
+    first, _ := client_server_status(&c, "basedpyright", context.temp_allocator)
+    testing.expect_value(t, first.claimed_by, "")
+    second, _ := client_server_status(&c, "ruff", context.temp_allocator)
+    testing.expect_value(t, second.claimed_by, "basedpyright")
+}
+
 // server[0] must not starve server[1]: poll starts from poll_next, not always
 // from servers[0], so pushes queued on both are taken in round-robin order
 // rather than draining the first server dry before the second is ever asked.

@@ -1,5 +1,8 @@
 package lsp
 
+import "core:fmt"
+import "core:os"
+import "core:strings"
 import "core:testing"
 
 import lang ".."
@@ -9,15 +12,34 @@ import lang ".."
 // The merge of one or more config files, in the order a load applies them.
 @(private = "file")
 merge :: proc(texts: ..string) -> Config {
+    return merge_in("", ..texts)
+}
+
+// The same, against a workspace root the ${workspace} variable can expand to.
+@(private = "file")
+merge_in :: proc(workspace: string, texts: ..string) -> Config {
     cfg := Config {
         servers   = make([dynamic]Server_Config),
+        problems  = make([dynamic]Config_Problem),
+        workspace = strings.clone(workspace),
         allocator = context.allocator,
     }
     for text in texts {
-        config_merge_text(&cfg, text)
+        config_merge_text(&cfg, text, "test.json")
     }
     config_finish(&cfg)
     return cfg
+}
+
+// True when some problem's message holds `needle`.
+@(private = "file")
+reports :: proc(cfg: ^Config, needle: string) -> bool {
+    for problem in cfg.problems {
+        if strings.contains(problem.message, needle) {
+            return true
+        }
+    }
+    return false
 }
 
 @(private = "file")
@@ -257,14 +279,177 @@ test_config_json_passthrough :: proc(t: ^testing.T) {
     testing.expect_value(t, cfg.servers[0].settings, "")
 }
 
-// The shipped table itself: it must parse, and every entry in it must be one a
-// server can be started from.
+// A file that cannot be a config says so, instead of leaving the user to guess
+// why their server is missing.
+@(test)
+test_config_reports_broken_files :: proc(t: ^testing.T) {
+    cases := []struct {
+        text:   string,
+        needle: string,
+    } {
+        {"not json at all", "not valid JSON"},
+        {`[]`, "must be a JSON object"},
+        {`{"other": 1}`, `no "servers" array`},
+        {`{"servers": {}}`, `"servers" must be an array`},
+        {`{"servers": [1]}`, "entry #1 is not an object"},
+        {`{"servers": [{"command": ["x"]}]}`, `entry #1 has no "id"`},
+    }
+    for c in cases {
+        cfg := merge(c.text)
+        defer config_destroy(&cfg)
+        testing.expectf(t, reports(&cfg, c.needle), "%q did not report %q", c.text, c.needle)
+    }
+}
+
+// A key nothing answers to is worth a word, but never costs the server: a file
+// written for a later version still loads here.
+@(test)
+test_config_reports_unknown_and_mistyped_keys :: proc(t: ^testing.T) {
+    cfg := merge(
+        `{"servers": [{"id": "s", "extensions": [".s"], "command": ["s"],
+            "init_optionz": {}, "root_markers": "not-an-array"}]}`,
+    )
+    defer config_destroy(&cfg)
+
+    testing.expect_value(t, len(cfg.servers), 1)
+    testing.expect(t, reports(&cfg, `unknown key "init_optionz"`), "the misspelled key is named")
+    testing.expect(t, reports(&cfg, `"root_markers" must be an array`), "the wrong type is named")
+}
+
+// An entry that names no command cannot start anything, and says why it went.
+@(test)
+test_config_reports_a_dropped_entry :: proc(t: ^testing.T) {
+    cfg := merge(`{"servers": [{"id": "no-command", "extensions": [".x"]}]}`)
+    defer config_destroy(&cfg)
+
+    testing.expect_value(t, len(cfg.servers), 0)
+    testing.expect(t, reports(&cfg, "names no command"), "the drop is reported")
+}
+
+// `init_options` is the spelling the documentation carried for a while; it must
+// reach the same field as the current one, with no complaint.
+@(test)
+test_config_accepts_the_init_options_alias :: proc(t: ^testing.T) {
+    cfg := merge(`{"servers": [{"id": "s", "extensions": [".s"], "command": ["s"],
+        "init_options": {"a": 1}}]}`)
+    defer config_destroy(&cfg)
+
+    testing.expect_value(t, len(cfg.servers), 1)
+    testing.expect_value(t, cfg.servers[0].init_options, `{"a":1}`)
+    testing.expect(t, !reports(&cfg, "unknown key"), "the alias is not an unknown key")
+}
+
+// The setup fields the panel reads: a display name, the install command for this
+// platform alone, and the two opaque strings the host acts on.
+@(test)
+test_config_parses_setup_fields :: proc(t: ^testing.T) {
+    cfg := merge(
+        `{"servers": [{"id": "s", "name": "Server (Lang)", "extensions": [".s"], "command": ["s"],
+            "install": {"windows": "winget install s", "darwin": "brew install s", "linux": "apt install s"},
+            "docs_url": "https://example.invalid", "setup_command": "s-configure"}]}`,
+    )
+    defer config_destroy(&cfg)
+
+    testing.expect_value(t, len(cfg.servers), 1)
+    server := &cfg.servers[0]
+    testing.expect_value(t, server_display_name(server), "Server (Lang)")
+    testing.expect_value(t, server.docs_url, "https://example.invalid")
+    testing.expect_value(t, server.setup_command, "s-configure")
+    when ODIN_OS == .Windows {
+        testing.expect_value(t, server.install, "winget install s")
+    } else when ODIN_OS == .Darwin {
+        testing.expect_value(t, server.install, "brew install s")
+    } else {
+        testing.expect_value(t, server.install, "apt install s")
+    }
+}
+
+// A platform the entry says nothing about falls back to "any".
+@(test)
+test_config_install_falls_back_to_any :: proc(t: ^testing.T) {
+    cfg := merge(
+        `{"servers": [{"id": "s", "extensions": [".s"], "command": ["s"],
+            "install": {"any": "go install example.invalid/s@latest"}}]}`,
+    )
+    defer config_destroy(&cfg)
+
+    testing.expect_value(t, len(cfg.servers), 1)
+    testing.expect_value(t, cfg.servers[0].install, "go install example.invalid/s@latest")
+}
+
+// The display name of an entry that states none is its id.
+@(test)
+test_config_name_falls_back_to_id :: proc(t: ^testing.T) {
+    cfg := merge(`{"servers": [{"id": "zls", "extensions": [".zig"], "command": ["zls"]}]}`)
+    defer config_destroy(&cfg)
+
+    testing.expect_value(t, len(cfg.servers), 1)
+    testing.expect_value(t, server_display_name(&cfg.servers[0]), "zls")
+}
+
+// The variables a per-project server path needs. A name nothing answers to is
+// left as written, so it fails to resolve visibly instead of silently becoming
+// an empty path.
+@(test)
+test_config_expands_variables :: proc(t: ^testing.T) {
+    home := config_home()
+    cfg := merge_in(
+        "ws",
+        `{"servers": [{"id": "s", "extensions": [".s"], "command": ["${workspace}/.venv/bin/s", "--home=${userHome}"],
+            "cwd": "${workspace}/sub", "env": {"TOOL": "${nope}"}}]}`,
+    )
+    defer config_destroy(&cfg)
+
+    testing.expect_value(t, len(cfg.servers), 1)
+    server := &cfg.servers[0]
+    testing.expect_value(t, server.command[0], "ws/.venv/bin/s")
+    testing.expect_value(t, server.cwd, "ws/sub")
+    testing.expect_value(t, server.env[0], "TOOL=${nope}")
+    testing.expect(t, reports(&cfg, "${nope}"), "the unresolved variable is named")
+    if home != "" {
+        testing.expect_value(t, server.command[1], strings.concatenate({"--home=", home}, context.temp_allocator))
+    }
+}
+
+// An environment variable the machine sets reaches the command; one it does not
+// is left as written.
+@(test)
+test_config_expands_environment :: proc(t: ^testing.T) {
+    KEY :: "USERPROFILE" when ODIN_OS == .Windows else "HOME"
+
+    cfg := merge(`{"servers": [{"id": "s", "extensions": [".s"], "command": ["s", "--at=${env:THOR_NO_SUCH_VAR}"]}]}`)
+    defer config_destroy(&cfg)
+    testing.expect_value(t, len(cfg.servers), 1)
+    testing.expect_value(t, cfg.servers[0].command[1], "--at=${env:THOR_NO_SUCH_VAR}")
+
+    value := os.get_env(KEY, context.temp_allocator)
+    if value == "" {
+        return
+    }
+    text := fmt.tprintf(`{{"servers": [{{"id": "s", "extensions": [".s"], "command": ["s", "${{env:%s}}"]}}]}}`, KEY)
+    set := merge(text)
+    defer config_destroy(&set)
+    testing.expect_value(t, len(set.servers), 1)
+    testing.expect_value(t, set.servers[0].command[1], value)
+}
+
+// The shipped table itself: it must parse with nothing to report, and every
+// entry in it must be one a server can be started from. Merged on its own, so a
+// developer's own user/lsp.json cannot fail the build.
 @(test)
 test_config_shipped_table :: proc(t: ^testing.T) {
-    cfg := config_load("")
+    data, rerr := os.read_entire_file(GLOBAL_CONFIG, context.temp_allocator)
+    testing.expect(t, rerr == nil, "settings/lsp.json must be readable from the repository root")
+    if rerr != nil {
+        return
+    }
+    cfg := merge(string(data))
     defer config_destroy(&cfg)
 
     testing.expect(t, len(cfg.servers) > 0)
+    for problem in cfg.problems {
+        testing.expectf(t, false, "settings/lsp.json: %s", config_problem_text(problem, context.temp_allocator))
+    }
     for server in cfg.servers {
         testing.expectf(t, server.id != "", "an entry has no id")
         testing.expectf(t, len(server.command) > 0, "%q has no command", server.id)
@@ -274,6 +459,28 @@ test_config_shipped_table :: proc(t: ^testing.T) {
         for ext in server.extensions {
             testing.expectf(t, ext[0] == '.', "%q claims %q", server.id, ext)
             testing.expectf(t, ext != ".odin", "%q claims .odin, which is served in-client")
+        }
+        // A root marker is stat-ed, never matched: a glob would simply never
+        // find the root and the server would start at the workspace instead.
+        for marker in server.root_markers {
+            testing.expectf(t, !strings.contains(marker, "*"), "%q has the glob root marker %q", server.id, marker)
+        }
+        testing.expectf(t, len(server.root_markers) > 0, "%q names no root marker", server.id)
+    }
+
+    // Exactly one entry may claim a language out of the box. Every other entry
+    // for it ships off, so the first enabled claimant is never a surprise.
+    claimed := make(map[string]string, context.temp_allocator)
+    for server in cfg.servers {
+        if !server.enabled {
+            continue
+        }
+        for ext in server.extensions {
+            if owner, taken := claimed[ext]; taken {
+                testing.expectf(t, false, "%q and %q both ship enabled for %q", owner, server.id, ext)
+                continue
+            }
+            claimed[ext] = server.id
         }
     }
 

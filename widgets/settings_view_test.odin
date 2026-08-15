@@ -10,6 +10,8 @@ Settings_Record :: struct {
     number_calls: int,
     number_id:    string,
     number_value: int,
+    action_calls: int,
+    action_id:    string,
 }
 
 @(private = "file")
@@ -18,6 +20,13 @@ settings_on_number :: proc(data: rawptr, id: string, value: int) {
     record.number_calls += 1
     record.number_id = id
     record.number_value = value
+}
+
+@(private = "file")
+settings_on_action :: proc(data: rawptr, id: string) {
+    record := cast(^Settings_Record) data
+    record.action_calls += 1
+    record.action_id = id
 }
 
 @(private = "file")
@@ -127,7 +136,7 @@ test_settings_stepper_hit_rects :: proc(t: ^testing.T) {
 
     record: Settings_Record
     ctx: ui.Context
-    settings_view_set_callbacks(view, settings_on_number, nil, nil, nil, nil, &record)
+    settings_view_set_callbacks(view, settings_on_number, nil, settings_on_action, nil, nil, nil, &record)
     settings_populate(view, 1)
     settings_view_open(view, &ctx)
     settings_view_layout(&view.widget, SETTINGS_TEST_BOUNDS)
@@ -223,6 +232,126 @@ test_settings_group_search :: proc(t: ^testing.T) {
     append(&view.search, ..transmute([]u8) string("analyzer"))
     settings_view_layout(&view.widget, SETTINGS_TEST_BOUNDS)
     testing.expectf(t, len(view.visible_rows) == 0, "a group header matched the search, %d rows", len(view.visible_rows))
+}
+
+// An action row answers its button and nothing else: a click on the row's text
+// must not fire it, since the row is mostly text.
+@(test)
+test_settings_action_row_fires_on_its_button :: proc(t: ^testing.T) {
+    view := settings_view_create("settings")
+    defer settings_view_destroy(&view.widget)
+
+    record: Settings_Record
+    ctx: ui.Context
+    settings_view_set_callbacks(view, settings_on_number, nil, settings_on_action, nil, nil, nil, &record)
+    settings_view_begin_category(view, "servers", "Language Servers", "server")
+    settings_view_add_action(view, "restart", "Restart Language Servers", "Restart")
+    settings_view_open(view, &ctx)
+    settings_view_layout(&view.widget, SETTINGS_TEST_BOUNDS)
+
+    row := settings_view_row_rect(view, 0)
+    button := settings_view_action_rect(view, row, "Restart")
+    testing.expect(t, button.x > row.x, "the button left the row")
+
+    settings_click(view, &ctx, rl.Vector2 {row.x + 20, row.y + row.height * 0.5})
+    testing.expectf(t, record.action_calls == 0, "a click on the label fired the action %d times", record.action_calls)
+
+    settings_click(view, &ctx, settings_center(button))
+    testing.expectf(t, record.action_calls == 1, "expected one call, got %d", record.action_calls)
+    testing.expect(t, record.action_id == "restart", "the wrong id reached the host")
+
+    // Enter on the selected row fires it without aiming at the button.
+    enter := ui.Event {kind = .Key_Press, key = .ENTER}
+    settings_view_handle_event(&view.widget, &ctx, &enter)
+    testing.expectf(t, record.action_calls == 2, "Enter did not fire the action, %d calls", record.action_calls)
+}
+
+// An info row is text. Neither a click nor Enter may reach the host through it.
+@(test)
+test_settings_info_row_is_inert :: proc(t: ^testing.T) {
+    view := settings_view_create("settings")
+    defer settings_view_destroy(&view.widget)
+
+    record: Settings_Record
+    ctx: ui.Context
+    settings_view_set_callbacks(view, settings_on_number, nil, settings_on_action, nil, nil, nil, &record)
+    settings_view_begin_category(view, "servers", "Language Servers", "server")
+    settings_view_add_info(view, "status", "Status", "Ready", .Good)
+    settings_view_open(view, &ctx)
+    settings_view_layout(&view.widget, SETTINGS_TEST_BOUNDS)
+
+    row := settings_view_row_rect(view, 0)
+    settings_click(view, &ctx, settings_center(row))
+    enter := ui.Event {kind = .Key_Press, key = .ENTER}
+    settings_view_handle_event(&view.widget, &ctx, &enter)
+    testing.expectf(t, record.action_calls == 0, "an info row fired the host %d times", record.action_calls)
+    testing.expectf(t, view.selected == 0, "the row is still selectable, got %d", view.selected)
+}
+
+// A command that opens on one page lands on it; an id no category answers to
+// opens the first, so a renamed category is never a dead command.
+@(test)
+test_settings_open_at_category :: proc(t: ^testing.T) {
+    view := settings_view_create("settings")
+    defer settings_view_destroy(&view.widget)
+
+    ctx: ui.Context
+    settings_populate(view, 4)
+
+    settings_view_open_at(view, &ctx, "c")
+    testing.expectf(t, view.selected_category == 2, "expected category 2, got %d", view.selected_category)
+
+    settings_view_open_at(view, &ctx, "no-such-category")
+    testing.expectf(t, view.selected_category == 0, "expected the first category, got %d", view.selected_category)
+}
+
+// A group header carries a summary, and it survives the repopulate a change
+// causes — the header is rebuilt from the host's text every time.
+@(test)
+test_settings_group_value :: proc(t: ^testing.T) {
+    view := settings_view_create("settings")
+    defer settings_view_destroy(&view.widget)
+
+    ctx: ui.Context
+    settings_view_begin_category(view, "servers", "Language Servers", "server")
+    settings_view_begin_group(view, "servers.clangd", "clangd (C/C++)", collapsed = true, value = "Ready", tone = .Good)
+    settings_view_add_info(view, "servers.clangd.status", "Status", "Ready", .Good)
+    settings_view_end_group(view)
+    settings_view_open(view, &ctx)
+    settings_view_layout(&view.widget, SETTINGS_TEST_BOUNDS)
+
+    testing.expectf(t, len(view.visible_rows) == 1, "the group did not start folded, %d rows", len(view.visible_rows))
+    header := &view.rows[view.visible_rows[0]]
+    testing.expect(t, header.value == "Ready", "the group header lost its summary")
+    testing.expect(t, header.tone == .Good, "the group header lost its tone")
+}
+
+// One unit per byte, so the elision can be measured with no font loaded.
+@(private = "file")
+settings_measure_bytes :: proc(text: string, _: i32) -> i32 {
+    return cast(i32) len(text)
+}
+
+// The elision keeps what fits and never splits a character in half.
+@(test)
+test_settings_elide :: proc(t: ^testing.T) {
+    short := "clangd"
+    testing.expect(t, settings_view_elide(short, 40, 14, settings_measure_bytes) == short, "a fitting string was cut")
+
+    long := "C:/Program Files/LLVM/bin/clangd.exe --background-index"
+    cut := settings_view_elide(long, 20, 14, settings_measure_bytes)
+    testing.expectf(t, len(cut) == 20, "expected 20 bytes to fit, got %d (%q)", len(cut), cut)
+    testing.expect(t, cut[len(cut) - 3:] == "...", "the cut string has no ellipsis")
+    testing.expect(t, long[:len(cut) - 3] == cut[:len(cut) - 3], "the kept half is not the head of the text")
+
+    // No room for anything but the ellipsis still answers something drawable.
+    testing.expect(t, settings_view_elide(long, 2, 14, settings_measure_bytes) == "...", "a too-narrow cut must still be text")
+
+    // A multi-byte character is never halved: "ü" is two bytes, so a limit that
+    // lands inside it must drop it whole.
+    wide := "üüüü"
+    narrow := settings_view_elide(wide, 6, 14, settings_measure_bytes)
+    testing.expectf(t, narrow == "\u00fc...", "a rune was split, got %q", narrow)
 }
 
 // The close box closes the view, and so does a click outside the box.

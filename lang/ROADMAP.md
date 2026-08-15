@@ -1681,6 +1681,62 @@ Landed since (M9):
 
 Still to add: nothing from the M9 list — it is complete.
 
+### M10 — setup and visibility
+
+Everything around the client, rather than the protocol. What was missing was
+never a feature: it was getting a server configured, knowing whether it worked,
+and changing it without a restart.
+
+- [x] `Config_Problem` (`lang/lsp/config.odin`): every silent drop reports
+      instead — invalid JSON, a non-object root, a missing or non-array
+      `servers`, an entry with no `id`, a known key of the wrong type, an
+      unknown key (a warning, never a drop, so a file written for a later
+      version still loads), and an entry `config_finish` drops for naming no
+      command. Exported by `client_diagnostics`, rendered by the panel, and
+      logged once at `config_load`.
+- [x] `initialization_options` also accepts `init_options`, the spelling the
+      documentation carried.
+- [x] Schema: `name`, `install` (per platform, resolved at parse time against
+      `ODIN_OS` so the host makes no platform decision), `docs_url`,
+      `setup_command`, and `${workspace}` / `${userHome}` / `${env:NAME}`
+      expansion in `command`, `cwd` and `env` values. An unresolvable name is
+      left as written and reported.
+- [x] `Server_Status` + `client_server_status` / `client_extension_owner` /
+      `server_state_name` (`lang/lsp/lsp.odin`): the state, the resolved
+      program, the root, the restart count, the last error, and the entry that
+      took the extension when a second one claims it. `status_mutex` is the new
+      leaf lock over `root`, `restarts` and `last_error`; the pump snapshots the
+      stderr tail into `last_error` at the moment a start fails, since
+      `conn_lock` is held shared for a whole round trip and a live read of it
+      could wait out a request.
+- [x] Pushed `publishDiagnostics`, `$/progress` and `workspace/applyEdit` now
+      pass the Settings-owned `server_admin_features` gate, not the `lsp.json`
+      seed. Turning Diagnostics off for one server in Settings stops its pushes.
+- [x] Editor side (`thor/lsp_ui.odin`, `thor/lsp_config.odin`): a Language
+      Servers settings category with status, install, restart, docs and an
+      "Add a Server…" writer; `lsp.json` watched in all three layers and
+      reloaded through `thor.lang_reload_pending` at the head of the run loop;
+      `thor_reload_lang` re-mirrors the open buffers onto the new servers and
+      drops what the dead ones left on screen; `thor_poll_lsp_health` says once
+      when a server fails, crashes or comes back.
+- [x] The seven `plugins/*-setup` Lua plugins are gone. Their PATH check is
+      `lsp.executable_find` (no process spawn), their install table is the
+      `install` key, and their one genuinely external piece —
+      `compile_commands.json` detection — is `plugins/compile-commands`, reached
+      from the panel through `setup_command`.
+
+Cut from M10, deliberately:
+
+- **Multiple servers per language.** One enabled entry answers for an extension.
+  The collision is now visible (`Server_Status.claimed_by`) instead of silent,
+  which is a different thing from fixing it.
+- **`filenames` for extensionless files** (`Makefile`, `CMakeLists.txt`). It
+  reads like an `lsp.json` key and is really a change to the seam's routing
+  key: `lang.Manager`, `handles`, `supports`, `notify` and `on_type_trigger` all
+  key on an extension.
+- **Per-server restart.** `stopping` is a one-way latch and the "no worker in
+  flight" precondition needs the whole-manager drain `thor_reload_lang` does.
+
 `LSP_PLAN.md` is the implementation plan for all of it: the `lang/lsp` package
 and what it may import, the child process and `Content-Length` transport, the
 notification channel a pushed `publishDiagnostics` needs, the per-kind method

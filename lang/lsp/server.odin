@@ -13,11 +13,14 @@
 // dead connection, so `conn` cannot be freed under a request. `docs_mutex` guards
 // the document list both of them read. A worker takes `conn_lock` first and
 // `docs_mutex` second; nothing takes them the other way round. `push_mutex` is
-// independent of both and is never held with either.
+// independent of both and is never held with either. `status_mutex` is a leaf:
+// it guards the three fields a status read takes and is never held while any
+// other lock here is.
 package lsp
 
 import "base:runtime"
 import "core:encoding/json"
+import "core:fmt"
 import "core:log"
 import "core:os"
 import "core:path/filepath"
@@ -84,7 +87,7 @@ Server :: struct {
     config:      ^Server_Config, // borrowed from the Client's Config
     workspace:   string,         // owned
     trigger:     string,         // owned; the file that first needed the server
-    root:        string,         // owned; chosen by the pump at the first launch
+    root:        string,         // owned; chosen by the pump at the first launch; guarded by status_mutex
     folders:     string,         // owned; the workspaceFolders array, as JSON text
     // Must be the Manager's allocator: a pushed result is built here and freed by
     // lang.result_free, which uses the Manager's.
@@ -123,7 +126,11 @@ Server :: struct {
     push_mutex:  sync.Mutex,
     pushes:      [dynamic]lang.Result, // owned; guarded by push_mutex
     push_head:   int,                  // read cursor into pushes; guarded by push_mutex
-    restarts:    int,                  // pump thread only
+    // What a status read takes. The pump writes all three; the main thread reads
+    // them, so a plain field would be a race. A leaf lock, held for the copy only.
+    status_mutex: sync.Mutex,
+    restarts:    int,                  // guarded by status_mutex
+    last_error:  string,               // owned; guarded by status_mutex; "" until one start failed
     // How the process is opened, and what it is opened from. The default starts
     // the configured command; a test replaces it with a scripted server running
     // in this process, which is what makes the lifetime testable with no server
@@ -150,6 +157,40 @@ server_create :: proc(config: ^Server_Config, workspace: string, allocator := co
 
 server_state :: proc(s: ^Server) -> Server_State {
     return sync.atomic_load(&s.state)
+}
+
+// What to call a state in the interface.
+server_state_name :: proc(state: Server_State) -> string {
+    switch state {
+    case .Idle:
+        return "Not started"
+    case .Starting:
+        return "Starting"
+    case .Ready:
+        return "Ready"
+    case .Stopping:
+        return "Stopping"
+    case .Crashed:
+        return "Restarting"
+    case .Failed:
+        return "Failed"
+    }
+    return "Unknown"
+}
+
+// The project root the pump chose, "" until the first launch. Cloned, because
+// the pump owns the field and may replace it.
+@(private)
+server_root_copy :: proc(s: ^Server, allocator: runtime.Allocator) -> string {
+    sync.guard(&s.status_mutex)
+    return strings.clone(s.root, allocator)
+}
+
+// Why the server last stopped answering, "" while it never has.
+@(private)
+server_last_error :: proc(s: ^Server, allocator: runtime.Allocator) -> string {
+    sync.guard(&s.status_mutex)
+    return strings.clone(s.last_error, allocator)
 }
 
 server_admin_enabled :: proc(s: ^Server) -> bool {
@@ -333,6 +374,7 @@ server_destroy :: proc(s: ^Server) {
     delete(s.workspace, s.allocator)
     delete(s.trigger, s.allocator)
     delete(s.root, s.allocator)
+    delete(s.last_error, s.allocator)
     delete(s.folders, s.allocator)
     free(s, s.allocator)
 }
@@ -363,20 +405,45 @@ server_pump :: proc(s: ^Server) {
 
         // The connection ended without anyone asking it to.
         server_teardown(s)
-        if s.restarts >= RESTART_LIMIT {
-            log.warnf("lsp: %s died %d times and will not be started again", s.config.id, s.restarts + 1)
+        restarts := server_restarts(s)
+        if restarts >= RESTART_LIMIT {
+            log.warnf("lsp: %s died %d times and will not be started again", s.config.id, restarts + 1)
+            server_note_error(s, fmt.tprintf("stopped answering %d times and will not be started again", restarts + 1))
             sync.atomic_store(&s.state, .Failed)
             server_drop_outbox(s)
             return
         }
         sync.atomic_store(&s.state, .Crashed)
         log.warnf("lsp: %s died; restarting", s.config.id)
-        if !server_backoff(s, RESTART_BACKOFF[s.restarts]) {
+        server_note_error(s, "stopped answering; restarting")
+        if !server_backoff(s, RESTART_BACKOFF[restarts]) {
             return
         }
+        sync.lock(&s.status_mutex)
         s.restarts += 1
+        sync.unlock(&s.status_mutex)
         sync.atomic_store(&s.state, .Starting)
     }
+}
+
+// How many times the server has been started again after dying.
+@(private)
+server_restarts :: proc(s: ^Server) -> int {
+    sync.guard(&s.status_mutex)
+    return s.restarts
+}
+
+// Records why a start or a connection ended, replacing what was there. The pump
+// calls it at the moment the reason is known — a status read must never reach
+// for the connection itself, since conn_lock is held shared for a whole round
+// trip and a read of it could wait out a request.
+@(private)
+server_note_error :: proc(s: ^Server, text: string) {
+    message := strings.clone(text, s.allocator)
+    sync.lock(&s.status_mutex)
+    delete(s.last_error, s.allocator)
+    s.last_error = message
+    sync.unlock(&s.status_mutex)
 }
 
 // Spawns the process and runs the handshake. The documents of a server that died
@@ -384,12 +451,22 @@ server_pump :: proc(s: ^Server) {
 @(private)
 server_launch :: proc(s: ^Server) -> bool {
     if s.root == "" {
-        s.root = server_root(s, s.trigger)
-        s.folders = folders_json(s.root, s.allocator)
+        root := server_root(s, s.trigger)
+        s.folders = folders_json(root, s.allocator)
+        sync.lock(&s.status_mutex)
+        s.root = root
+        sync.unlock(&s.status_mutex)
     }
     transport, opened := s.open(s)
     if !opened {
-        log.debugf("lsp: %s did not start (%v)", s.config.id, s.config.command)
+        // The two ways a start fails read the same from here, so the message
+        // names the one the user can act on: an uninstalled server.
+        log.warnf("lsp: %s did not start (%v)", s.config.id, s.config.command)
+        if _, found := executable_find(s.config.command[0], context.temp_allocator); found {
+            server_note_error(s, fmt.tprintf("%s could not be started", s.config.command[0]))
+        } else {
+            server_note_error(s, fmt.tprintf("%s was not found on PATH", s.config.command[0]))
+        }
         return false
     }
     conn := conn_start(transport, s.allocator, Conn_Answers {
@@ -408,6 +485,9 @@ server_launch :: proc(s: ^Server) -> bool {
     if err != .None {
         tail := conn_stderr_tail(s.conn, s.allocator)
         log.warnf("lsp: %s did not answer initialize (%v) %s", s.config.id, err, tail)
+        // Snapshotted here rather than read live later: conn_lock is held shared
+        // for a whole round trip, and the connection is about to be torn down.
+        server_note_error(s, fmt.tprintf("did not answer initialize (%v) %s", err, strings.trim_space(tail)))
         delete(tail, s.allocator)
         conn_free_value(s.conn, result)
         server_teardown(s)
@@ -493,7 +573,7 @@ lsp_apply_done :: proc(token: rawptr, applied: bool) {
 @(private)
 server_apply_edit :: proc(data: rawptr, params: json.Value) -> bool {
     s := cast(^Server) data
-    if .Apply_Edit not_in s.config.features {
+    if .Apply_Edit not_in server_admin_features(s) {
         return false
     }
     object, is_object := params.(json.Object)
@@ -573,16 +653,18 @@ server_drain_pushes :: proc(s: ^Server) {
         if !ok {
             return
         }
-        // The config gate, which a push would otherwise walk around. The
-        // advertised capabilities are not asked: publishDiagnostics needs none.
-        if note.method == "textDocument/publishDiagnostics" && .Diagnostics in s.config.features {
+        // The admin gate, which a push would otherwise walk around. The settings
+        // own it, so turning Diagnostics off for one server stops its pushes too.
+        // The advertised capabilities are not asked: publishDiagnostics needs none.
+        features := server_admin_features(s)
+        if note.method == "textDocument/publishDiagnostics" && .Diagnostics in features {
             if res, decoded := decode_publish_diagnostics(s, note.params); decoded {
                 sync.lock(&s.push_mutex)
                 append(&s.pushes, res)
                 sync.unlock(&s.push_mutex)
             }
         }
-        if note.method == "$/progress" && .Progress in s.config.features {
+        if note.method == "$/progress" && .Progress in features {
             if res, decoded := decode_progress(note.params); decoded {
                 sync.lock(&s.push_mutex)
                 append(&s.pushes, res)

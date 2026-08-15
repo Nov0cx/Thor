@@ -7,7 +7,6 @@ import rl "vendor:raylib"
 
 import "../input"
 import "../lang"
-import "../lang/lsp"
 import "../plugin"
 import "../setting"
 import "../shell"
@@ -96,46 +95,33 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
     widgets.settings_view_begin_category(view, "updates", "Updates", "download")
     widgets.settings_view_add_choice(view, "check_for_updates", "Check for Updates", thor_on_off_label(setting.check_for_updates(config)))
 
-    // The backend rows, and each backend's own feature rows, only while the
-    // master switch is on: off, none of them does anything, and a screenful of
-    // dead rows reads as a screenful of broken ones.
+    // The Odin analyzer's rows, only while the master switch is on: off, none of
+    // them does anything, and a screenful of dead rows reads as a screenful of
+    // broken ones. Every other backend is a language server, which the Language
+    // Servers category owns (thor/lsp_ui.odin) so its state and setup have room.
     widgets.settings_view_begin_category(view, "language", "Language", "brain")
     language_on := setting.language_enabled(config)
     widgets.settings_view_add_choice(view, setting.LANGUAGE_SETTING, "Language Intelligence", thor_on_off_label(language_on))
     if language_on {
-        backend_ids := make([dynamic]string, context.temp_allocator)
-        append(&backend_ids, ODIN_BACKEND_ID)
-        for id in lsp.client_server_ids(thor.lsp_client, context.temp_allocator) {
-            append(&backend_ids, id)
-        }
-
-        widgets.settings_view_begin_group(view, LANGUAGE_BACKENDS_GROUP, "Language Servers", collapsed = true)
-        for id in backend_ids {
-            label := id == ODIN_BACKEND_ID ? "Odin Analyzer" : id
-            on, _ := thor_backend_gate(thor, config, id)
-            widgets.settings_view_add_choice(view, thor_language_backend_id(id), label, thor_on_off_label(on))
-        }
-        widgets.settings_view_end_group(view)
-
-        // Each backend's own feature rows, folded under a group per backend —
-        // shown only for a backend that is itself still on.
-        for id in backend_ids {
-            on, features := thor_backend_gate(thor, config, id)
-            if !on {
-                continue
-            }
-            group_label := id == ODIN_BACKEND_ID ? "Odin Analyzer Features" : fmt.tprintf("%s Features", id)
-            widgets.settings_view_begin_group(view, thor_language_backend_feature_group(id), group_label, collapsed = true)
+        odin_on, odin_features := thor_backend_gate(thor, config, ODIN_BACKEND_ID)
+        widgets.settings_view_add_choice(
+            view, thor_language_backend_id(ODIN_BACKEND_ID), "Odin Analyzer", thor_on_off_label(odin_on),
+        )
+        if odin_on {
+            widgets.settings_view_begin_group(
+                view, thor_language_backend_feature_group(ODIN_BACKEND_ID), "Odin Analyzer Features", collapsed = true,
+            )
             for kind in lang.Request_Kind {
                 widgets.settings_view_add_choice(
                     view,
-                    thor_language_backend_feature_id(id, kind),
+                    thor_language_backend_feature_id(ODIN_BACKEND_ID, kind),
                     LANGUAGE_FEATURE_LABELS[kind],
-                    thor_on_off_label(kind in features),
+                    thor_on_off_label(kind in odin_features),
                 )
             }
             widgets.settings_view_end_group(view)
         }
+        thor_populate_lsp_category(thor)
     }
 
     // Bundled plugins only where they want a permission: the language plugins
@@ -295,7 +281,6 @@ thor_open_folder_in_commit :: proc(data: rawptr, choice: string) {
 @(private = "file")
 ON_OFF_LABELS := [?]string {"On", "Off"}
 
-@(private = "file")
 thor_on_off_label :: proc(on: bool) -> string {
     return on ? ON_OFF_LABELS[0] : ON_OFF_LABELS[1]
 }
@@ -310,17 +295,11 @@ ODIN_ANALYZER_GROUP :: "language.odin"
 // this id, so it can't collide with a configured server's own id.
 ODIN_BACKEND_ID :: "odin"
 
-// Fold group holding one on/off row per backend — the Odin analyzer plus every
-// configured LSP server.
-@(private = "file")
-LANGUAGE_BACKENDS_GROUP :: "language.backends"
-
 // A backend's row id, prefixed like the plugin and feature rows so one Choice
 // handler tells them apart.
 @(private = "file")
 LANGUAGE_BACKEND_PREFIX :: "language_backend:"
 
-@(private = "file")
 thor_language_backend_id :: proc(id: string) -> string {
     return strings.concatenate({LANGUAGE_BACKEND_PREFIX, id}, context.temp_allocator)
 }
@@ -338,7 +317,6 @@ thor_language_backend_name :: proc(id: string) -> (string, bool) {
 // backend gets one — a generalization of ODIN_ANALYZER_GROUP, which stays as
 // the Odin analyzer's own group id so its persisted collapsed/expanded state
 // survives this change.
-@(private = "file")
 thor_language_backend_feature_group :: proc(id: string) -> string {
     if id == ODIN_BACKEND_ID {
         return ODIN_ANALYZER_GROUP
@@ -352,7 +330,6 @@ thor_language_backend_feature_group :: proc(id: string) -> string {
 @(private = "file")
 LANGUAGE_BACKEND_FEATURE_PREFIX :: "language_backend_feature:"
 
-@(private = "file")
 thor_language_backend_feature_id :: proc(backend_id: string, kind: lang.Request_Kind) -> string {
     return strings.concatenate({LANGUAGE_BACKEND_FEATURE_PREFIX, backend_id, ":", lang.feature_name(kind)}, context.temp_allocator)
 }
@@ -377,7 +354,6 @@ thor_language_backend_feature_name :: proc(id: string) -> (backend_id: string, k
 
 // Row labels for the language features, in Request_Kind order. The user-facing
 // names of the commands each one serves, not the seam's kind names.
-@(private = "file")
 LANGUAGE_FEATURE_LABELS := [lang.Request_Kind]string {
     .Definition        = "Go to Definition",
     .Hover             = "Hover",

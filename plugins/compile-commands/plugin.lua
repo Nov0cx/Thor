@@ -1,17 +1,14 @@
--- Detects whether gopls answers on PATH and, if not, adds a workspace task
--- that installs it. Installers commonly run well past the two-second budget
--- a plugin call gets, and thor.exec kills everything left in the command's
--- process tree the moment the call that started it returns — so the install
--- itself has to run in the console (via a task), not through thor.exec
--- directly.
+-- Detects the project's build system and helps produce the
+-- compile_commands.json clangd needs (see buildsystem.lua). Reached from
+-- Settings > Language Servers > clangd > "Set Up This Project", which runs the
+-- `configure-compile-commands` command below; the entry that names it is
+-- `"setup_command"` in settings/lsp.json.
+--
+-- Whether clangd itself is installed is not asked here: the editor looks on
+-- PATH natively and offers the install. This plugin is only the part that
+-- tracks external build tooling, which is why it stays Lua.
 
 local TASKS_FILE = ".thor/tasks.json"
-
-local SERVER = {
-    id = "gopls", label = "gopls (Go)", bin = "gopls",
-    install = { any = "go install golang.org/x/tools/gopls@latest" },
-    hint = "Installs to $(go env GOPATH)/bin — make sure that directory is on PATH.",
-}
 
 -- "Windows_NT" expands from cmd.exe's %OS% but reaches /bin/sh as the literal
 -- text, so this tells the two apart without a dedicated host API.
@@ -44,10 +41,6 @@ local function which(bin)
         out = thor.exec("command -v " .. bin .. " 2>/dev/null")
     end
     return (out:match("^[^\r\n]*") or ""):gsub("%s+$", "")
-end
-
-local function install_command()
-    return SERVER.install[os_name()] or SERVER.install.any
 end
 
 local function json_escape(s)
@@ -117,40 +110,8 @@ local function add_task(name, command)
     return true
 end
 
-thor.on_command("gopls-status", function()
-    local path = which(SERVER.bin)
-    local out = "# " .. SERVER.label .. " Setup\n\nChecked against: `" .. os_name() .. "`\n\n" ..
-        (path ~= "" and ("found: `" .. path .. "`\n") or "not found on PATH\n")
-    thor.doc(".thor/gopls-status.md", out, true)
+local buildsystem = require "buildsystem"
+
+thor.on_command("configure-compile-commands", function()
+    buildsystem.configure({ which = which, add_task = add_task, os_name = os_name() })
 end)
-
-thor.on_command("gopls-install", function()
-    if which(SERVER.bin) ~= "" then
-        thor.print("\n[gopls-setup] " .. SERVER.label .. " is already on PATH\n")
-        return
-    end
-
-    local command = install_command()
-    if not command then
-        thor.print("\n[gopls-setup] " .. SERVER.label .. ": no automatic installer for " .. os_name() .. "\n" ..
-            (SERVER.hint and (SERVER.hint .. "\n") or ""))
-        return
-    end
-
-    thor.confirm("Install " .. SERVER.label .. " via: " .. command .. "?", function()
-        local task_name = "Install " .. SERVER.label
-        local ok, err = add_task(task_name, command)
-        if not ok then
-            thor.print("\n[gopls-setup] could not add a task (" .. err .. "); run this yourself instead:\n> " .. command .. "\n")
-            return
-        end
-        thor.print("\n[gopls-setup] added task \"" .. task_name .. "\" — run it from the titlebar Tasks selector.\n" ..
-            "Installs run in the console, not through this plugin, since they usually take longer than a plugin call may block for.\n" ..
-            (SERVER.hint and (SERVER.hint .. "\n") or ""))
-    end)
-end)
-
-thor.menu("LSP Setup", {
-    {label = "gopls: Check Status",     command = "gopls-status"},
-    {label = "gopls: Install Missing…", command = "gopls-install"},
-})

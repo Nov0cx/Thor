@@ -161,10 +161,17 @@ thor_build_ui :: proc(thor: ^Thor) {
         thor.theme.accent_color,
         rl.Color {thor.theme.accent_color.r, thor.theme.accent_color.g, thor.theme.accent_color.b, 40},
     )
+    widgets.settings_view_set_status_colors(
+        thor.settings_view,
+        thor.theme.success_color,
+        thor.theme.warning_color,
+        thor.theme.error_color,
+    )
     widgets.settings_view_set_callbacks(
         thor.settings_view,
         thor_on_setting_number,
         thor_on_setting_choice,
+        thor_on_setting_action,
         thor_on_setting_keybind,
         thor_on_settings_scope_change,
         thor_cmd_init_workspace,

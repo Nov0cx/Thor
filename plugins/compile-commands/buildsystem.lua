@@ -4,10 +4,10 @@
 -- extractor (bzlmod only) via MODULE.bazel and a root BUILD file, or adds a
 -- Make task through bear (POSIX) / compiledb (Windows). Anything that would
 -- run a build stays a task the caller (plugin.lua) triggers from the
--- console, not something run here directly — mirroring the install pattern
--- in plugin.lua. `require` shares this plugin's `thor` table but not
--- plugin.lua's locals, so the caller passes `which`/`add_task`/`os_name` in
--- explicitly.
+-- console, not something run here directly: a build runs well past the
+-- budget a plugin call gets. `require` shares this plugin's `thor` table but
+-- not plugin.lua's locals, so the caller passes `which`/`add_task`/`os_name`
+-- in explicitly.
 
 local M = {}
 
@@ -50,7 +50,7 @@ refresh_compile_commands(
     end
 
     add_task("Generate compile_commands.json (Bazel)", "bazel run //:refresh_compile_commands")
-    thor.print("\n[clangd-setup] Bazel (bzlmod) project detected: " ..
+    thor.print("\n[compile-commands] Bazel (bzlmod) project detected: " ..
         (build_wired and ("the refresh_compile_commands target is already in " .. build_path)
                       or ("added the refresh_compile_commands target to " .. build_path)) ..
         "; added a task to run it.\n")
@@ -94,9 +94,9 @@ local function configure_make(which, add_task, os_name)
     if os_name == "windows" then
         if which("compiledb") ~= "" then
             add_task("Generate compile_commands.json (Make)", "compiledb make")
-            thor.print("\n[clangd-setup] Makefile detected: added a task running `compiledb make`.\n")
+            thor.print("\n[compile-commands] Makefile detected: added a task running `compiledb make`.\n")
         else
-            thor.print("\n[clangd-setup] Makefile detected, but compiledb is not on PATH.\n")
+            thor.print("\n[compile-commands] Makefile detected, but compiledb is not on PATH.\n")
             thor.confirm("compiledb is not on PATH — add a task to install it (pip install compiledb)?", function()
                 add_task("Install compiledb", "pip install compiledb")
             end)
@@ -106,9 +106,9 @@ local function configure_make(which, add_task, os_name)
 
     if which("bear") ~= "" then
         add_task("Generate compile_commands.json (Make)", "bear -- make")
-        thor.print("\n[clangd-setup] Makefile detected: added a task running `bear -- make`.\n")
+        thor.print("\n[compile-commands] Makefile detected: added a task running `bear -- make`.\n")
     else
-        thor.print("\n[clangd-setup] Makefile detected, but bear is not on PATH.\n")
+        thor.print("\n[compile-commands] Makefile detected, but bear is not on PATH.\n")
         offer_bear_install(os_name, add_task)
     end
 end
@@ -119,22 +119,22 @@ function M.configure(ctx)
     local which, add_task, os_name = ctx.which, ctx.add_task, ctx.os_name
 
     if exists("compile_commands.json") then
-        thor.print("\n[clangd-setup] compile_commands.json is already present at the workspace root.\n")
+        thor.print("\n[compile-commands] compile_commands.json is already present at the workspace root.\n")
         return
     end
     if exists(".clangd") and thor.read(".clangd"):find("CompilationDatabase", 1, true) then
-        thor.print("\n[clangd-setup] .clangd already points clangd at a compilation database.\n")
+        thor.print("\n[compile-commands] .clangd already points clangd at a compilation database.\n")
         return
     end
 
     if exists("CMakeLists.txt") then
         add_task("Generate compile_commands.json (CMake)", "cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON")
         if exists(".clangd") then
-            thor.print("\n[clangd-setup] CMake project detected: added a task to configure the build.\n" ..
+            thor.print("\n[compile-commands] CMake project detected: added a task to configure the build.\n" ..
                 "A .clangd already exists here, so it was left alone — make sure it names your build directory as CompilationDatabase.\n")
         else
             thor.write(".clangd", "CompileFlags:\n  CompilationDatabase: build\n")
-            thor.print("\n[clangd-setup] CMake project detected: added a task to configure the build, and wrote .clangd pointing clangd at build/.\n" ..
+            thor.print("\n[compile-commands] CMake project detected: added a task to configure the build, and wrote .clangd pointing clangd at build/.\n" ..
                 "Run \"Generate compile_commands.json (CMake)\" from the Tasks selector, then reopen this workspace's C/C++ files.\n")
         end
         return
@@ -145,7 +145,7 @@ function M.configure(ctx)
         return
     end
     if exists("WORKSPACE") or exists("WORKSPACE.bazel") then
-        thor.print("\n[clangd-setup] Bazel WORKSPACE detected, but no MODULE.bazel (bzlmod) — this plugin only automates the bzlmod setup.\n" ..
+        thor.print("\n[compile-commands] Bazel WORKSPACE detected, but no MODULE.bazel (bzlmod) — this plugin only automates the bzlmod setup.\n" ..
             "See https://github.com/hedronvision/bazel-compile-commands-extractor for the WORKSPACE-based instructions.\n")
         return
     end
@@ -156,7 +156,7 @@ function M.configure(ctx)
     end
 
     if os_name ~= "windows" and exists("build.sh") then
-        thor.print("\n[clangd-setup] build.sh found with no known build system — re-run it through bear to capture compile_commands.json:\n" ..
+        thor.print("\n[compile-commands] build.sh found with no known build system — re-run it through bear to capture compile_commands.json:\n" ..
             "> bear -- ./build.sh\n")
         if which("bear") == "" then
             offer_bear_install(os_name, add_task)
@@ -164,13 +164,13 @@ function M.configure(ctx)
         return
     end
     if os_name == "windows" and exists("build.bat") then
-        thor.print("\n[clangd-setup] build.bat found with no known build system. There is no bear equivalent on Windows, " ..
+        thor.print("\n[compile-commands] build.bat found with no known build system. There is no bear equivalent on Windows, " ..
             "so this cannot be automated — switch to CMake, or hand-write compile_commands.json " ..
             "(see https://clang.llvm.org/docs/JSONCompilationDatabase.html).\n")
         return
     end
 
-    thor.print("\n[clangd-setup] no CMake/Bazel/Make/build script detected at the workspace root — nothing to configure.\n")
+    thor.print("\n[compile-commands] no CMake/Bazel/Make/build script detected at the workspace root — nothing to configure.\n")
 end
 
 return M

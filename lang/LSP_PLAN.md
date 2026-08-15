@@ -1204,6 +1204,12 @@ its tests pass, and nothing regresses.
             `ROADMAP.md`'s "Landed since (M9)" note.
       - [x] A selection range on `Request`, unlocking selection-scoped code
             actions — see `ROADMAP.md`'s "Landed since (M9)" note.
+- [x] **M10 — Setup and visibility.** Config diagnostics (`Config_Problem`), the
+      `name`/`install`/`docs_url`/`setup_command` keys and `${...}` expansion,
+      `Server_Status` behind a new `status_mutex` leaf lock, the Settings >
+      Language Servers category, a watched and hot-reloaded `lsp.json`, and the
+      retirement of the seven `plugins/*-setup` Lua plugins. `ROADMAP.md`'s
+      "M10" section is the source of truth for what landed and what was cut.
 
 ## Open questions
 

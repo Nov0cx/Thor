@@ -13,10 +13,13 @@ main :: proc() {
         return
     }
 
-    when ODIN_DEBUG {
-        context.logger = log.create_console_logger(opt = {.Level, .Terminal_Color})
-        defer log.destroy_console_logger(context.logger)
+    // Outside the debug block: a release build starts with no console, so the
+    // file half of this is the only place its warnings ever land.
+    logging := thor.log_init(.Debug when ODIN_DEBUG else .Info)
+    defer thor.log_destroy(logging)
+    context.logger = logging.logger
 
+    when ODIN_DEBUG {
         track: mem.Tracking_Allocator
         mem.tracking_allocator_init(&track, context.allocator)
         context.allocator = mem.tracking_allocator(&track)

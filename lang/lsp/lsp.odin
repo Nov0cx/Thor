@@ -192,6 +192,91 @@ client_server_for :: proc(c: ^Client, ext: string) -> (^Server, bool) {
     return nil, false
 }
 
+// What the config files got wrong, for the settings UI to show. Read-only and
+// owned by the Client's Config, so it dies with the Client.
+client_diagnostics :: proc(c: ^Client) -> []Config_Problem {
+    if c == nil {
+        return nil
+    }
+    return c.config.problems[:]
+}
+
+// Everything a status view says about one server. Every string and slice comes
+// from `allocator` and is the caller's: a workspace change frees the whole
+// Config, so nothing here may be held across a reload.
+Server_Status :: struct {
+    id:              string,
+    name:            string,
+    state:           Server_State,
+    extensions:      []string,
+    command:         []string,
+    exe:             string, // the program as resolved on PATH, "" when absent
+    installed:       bool,
+    root:            string, // "" until the server started once
+    restarts:        int,
+    last_error:      string, // "" while it never failed
+    enabled:         bool,
+    features:        bit_set[lang.Request_Kind],
+    install_command: string, // already chosen for this platform
+    docs_url:        string,
+    setup_command:   string,
+    claimed_by:      string, // an earlier enabled entry that owns its first extension
+}
+
+// One server's status by id. `probe` false leaves `exe`/`installed` unset, for a
+// caller that keeps the PATH lookup itself: it walks every PATH directory, and a
+// table of dozens of servers must not repeat that on every redraw.
+client_server_status :: proc(
+    c: ^Client, id: string, allocator := context.temp_allocator, probe := true,
+) -> (Server_Status, bool) {
+    if c == nil {
+        return {}, false
+    }
+    for s in c.servers {
+        if s.config.id != id {
+            continue
+        }
+        status := Server_Status {
+            id              = strings.clone(s.config.id, allocator),
+            name            = strings.clone(server_display_name(s.config), allocator),
+            state           = server_state(s),
+            extensions      = strings_clone(s.config.extensions, allocator),
+            command         = strings_clone(s.config.command, allocator),
+            root            = server_root_copy(s, allocator),
+            restarts        = server_restarts(s),
+            last_error      = server_last_error(s, allocator),
+            enabled         = server_admin_enabled(s),
+            features        = server_admin_features(s),
+            install_command = strings.clone(s.config.install, allocator),
+            docs_url        = strings.clone(s.config.docs_url, allocator),
+            setup_command   = strings.clone(s.config.setup_command, allocator),
+        }
+        if probe && len(s.config.command) > 0 {
+            status.exe, status.installed = executable_find(s.config.command[0], allocator)
+        }
+        if len(s.config.extensions) > 0 {
+            if owner, taken := client_extension_owner(c, s.config.extensions[0]); taken && owner != id {
+                status.claimed_by = strings.clone(owner, allocator)
+            }
+        }
+        return status, true
+    }
+    return {}, false
+}
+
+// The id of the entry that answers for `ext`, so a second entry claiming the
+// same language can say who took it. One enabled claimant per extension is the
+// rule everywhere else in this package; this is how it is made visible. The id
+// is **borrowed** from the Client's Config and dies with it — clone it to keep
+// it across a workspace change.
+client_extension_owner :: proc(c: ^Client, ext: string) -> (string, bool) {
+    s, found := client_server_for(c, ext)
+    if !found {
+        return "", false
+    }
+    return s.config.id, true
+}
+
 // The configured id of every server in the table, for a caller (the settings UI,
 // thor_apply_language_settings) that needs to enumerate them without reaching
 // into Client.config.servers directly.

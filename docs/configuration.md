@@ -78,20 +78,38 @@ help, completion, diagnostics, semantic colors, rename, code actions, and
 document/selection/on-type formatting — from the server named here.
 
 A server is started the first time you open a file it claims, never before, and
-is stopped when Thor exits. A server that is not installed simply never starts
-and the language stays a plain text file. Each server below has its own
-bundled **`<name>` Setup** top-bar menu that checks whether it is on `PATH`
-and, if not, adds a workspace task that installs it — see
-[`plugins/clangd-setup`](../plugins/clangd-setup/plugin.lua),
-[`plugins/rust-analyzer-setup`](../plugins/rust-analyzer-setup/plugin.lua),
-[`plugins/gopls-setup`](../plugins/gopls-setup/plugin.lua),
-[`plugins/basedpyright-setup`](../plugins/basedpyright-setup/plugin.lua),
-[`plugins/typescript-setup`](../plugins/typescript-setup/plugin.lua),
-[`plugins/lua-language-server-setup`](../plugins/lua-language-server-setup/plugin.lua) and
-[`plugins/zls-setup`](../plugins/zls-setup/plugin.lua).
+is stopped when Thor exits.
 
-`clangd-setup` additionally has a **Configure compile_commands.json…** command
-that detects the project's build system and helps produce the compilation
+## Settings > Language Servers
+
+Everything about a server is in one place: **Settings** (`ctrl + ,`) →
+**Language Servers**, also reachable from **Help > Language Servers** or the
+`open_language_servers` action. Every configured server has a foldable group
+showing what it is doing and what to do about it:
+
+| Row | What it says |
+| --- | --- |
+| Status | `Not started`, `Starting`, `Ready`, `Restarting` or `Failed` |
+| Program | The command line the entry names |
+| Installed At | Where the program was found on `PATH`, or **not found on PATH** |
+| Project Root | The directory the server was started in, once it has started |
+| File Types | The extensions it claims, and the server that answers for them when an earlier entry already took them |
+| Last Error | Why the last start or connection ended, with the server's own error output |
+| Enabled | Switches the server on and off; takes effect on the next request |
+| Install It | Runs the entry's install command in the console. Needs a terminal open |
+| Set Up This Project | For clangd, the `compile_commands.json` helper below |
+| Documentation | Opens the server's own install page in a browser |
+
+Above the servers are **Restart Language Servers**, **Add a Server…** (writes a
+skeleton entry into the right `lsp.json` and opens it) and **Look for Installed
+Servers Again** (`PATH` is only checked when the panel is built). A
+**Configuration Problems** group appears when a config file has something wrong
+with it — invalid JSON, an unknown key, a key of the wrong type, or an entry
+with no command — instead of the entry quietly not being there.
+
+`clangd`'s **Set Up This Project** runs the bundled
+[`plugins/compile-commands`](../plugins/compile-commands/plugin.lua) plugin,
+which detects the project's build system and helps produce the compilation
 database clangd needs: it adds a workspace task for CMake
 (`-DCMAKE_EXPORT_COMPILE_COMMANDS=ON`) or Make (`bear` on Linux/macOS,
 `compiledb` on Windows), and for Bazel it can wire up [hedron's
@@ -99,48 +117,83 @@ bazel-compile-commands-extractor](https://github.com/hedronvision/bazel-compile-
 into `MODULE.bazel` (bzlmod only) before adding the task that runs it. A bare
 build script with no recognized build system only gets a hint, since running
 an arbitrary script is not something this plugin does on its own. See
-[`plugins/clangd-setup/buildsystem.lua`](../plugins/clangd-setup/buildsystem.lua)
+[`plugins/compile-commands/buildsystem.lua`](../plugins/compile-commands/buildsystem.lua)
 for the exact detection order.
 
-Entries shipped by default: `clangd`, `rust-analyzer`, `gopls`, `basedpyright`,
+## The server table
+
+Servers shipped **on**: `clangd`, `rust-analyzer`, `gopls`, `basedpyright`,
 `typescript`, `lua-language-server` and `zls`.
+
+Servers shipped **off**, one switch away in Settings: `slangd`, `pyright`,
+`ruff`, `jdtls`, `kotlin-language-server`, `csharp-ls`,
+`haskell-language-server`, `nil`, `ocamllsp`, `ruby-lsp`, `intelephense`,
+`json-languageserver`, `yaml-language-server`, `html-languageserver`,
+`css-languageserver`, `taplo`, `marksman`, `bash-language-server`,
+`cmake-language-server`, `terraform-ls`, `lemminx` and `nimlangserver`. An entry
+that ships off costs nothing until it is switched on: no process starts, and it
+does not claim its extensions, so it never competes with one that is on.
 
 | Key | Meaning |
 | --- | --- |
 | `id` | Name for this entry; a workspace file overlays an entry by its `id` |
+| `name` | What Settings calls it; the `id` when absent |
 | `extensions` | File extensions it claims, each with its leading dot |
 | `command` | Program and arguments; the program is looked up on `PATH` when not an absolute path |
-| `root_markers` | Files that mark the project root, looked for at and above the opened file; the workspace root is used when none is found |
+| `root_markers` | Files that mark the project root, looked for at and above the opened file; the workspace root is used when none is found. File names, never globs — each one is looked for as written |
 | `enabled` | `false` starts the entry switched off: it stops claiming its extensions, so another entry can take the language over, and it still lists in Settings where it can be switched back on |
 | `cwd` | Working directory; empty is the project root |
 | `env` | `"KEY=VALUE"` entries added to the environment |
-| `init_options`, `settings` | JSON passed to the server as its initialization options and its configuration |
+| `initialization_options`, `settings` | JSON passed to the server as its initialization options and its configuration. `init_options` is accepted as an older spelling of the first |
+| `install` | Install command per platform — `windows`, `darwin`, `linux`, or `any` for one that fits all three. What the panel's **Install It** button runs |
+| `docs_url` | The server's own install page, opened by the **Documentation** button |
+| `setup_command` | A plugin command offered as **Set Up This Project**; `clangd` names the `compile-commands` plugin's |
 | `features` | Which features to ask this server for, by the `language_intelligence` names. Like `enabled`, this states where the switches start, and `language_backends` overrides whichever of them it names |
 | `override` | `true` puts this server ahead of the built-in Odin support for `.odin` |
+
+`command`, `cwd` and the values in `env` expand three variables:
+`${workspace}` (the open folder), `${userHome}` and `${env:NAME}`. A name with
+no value here is left as written and reported in **Configuration Problems**, so
+a typo shows as a path that does not resolve rather than an empty one. This is
+what points an entry at a project-local server:
+
+```json
+{ "id": "ruff", "command": ["${workspace}/.venv/bin/ruff", "server"] }
+```
 
 A server claims an extension all-or-nothing, so overriding `.odin` also gives up
 what only the built-in support has: `Package_Doc` (`f3`) has no LSP equivalent,
 and the `.thor/odin-analyzer.json` collection mechanism goes with it.
 
-Known limitations: formatting follows the same `override` precedence as every
-other feature — a server given `.odin` outright formats it too, in place of
-the native printer below. Selection and on-type formatting are LSP-only; the
-native Odin printer answers whole-document formatting alone. A server's own
-config file (`.clang-format`, `rustfmt.toml`, ...) governs how it formats,
-same as it would from any other editor. This table is also read when a workspace opens — including switching to a different folder, which
-restarts the servers for the new root — so editing any `lsp.json` for the
-workspace you already have open still needs it reopened to take effect. Turning
-a server (or the built-in Odin support) on or off, or gating one of its
-features, does not have that limitation: the Settings view's **Language**
-category lists every configured server (plus Odin) under **Language Servers**,
-each with its own on/off switch and, once enabled, a foldable **Features** group
-of per-kind toggles — both take effect on the next request, the same as
-`language_intelligence` itself, via the `language_backends` key above. Those
+One enabled entry answers for an extension. A second one claiming the same
+language is not a fallback chain — it simply never starts, and its **File
+Types** row names the entry that took it. Switch the first one off to hand the
+language over.
+
+Editing any of the three `lsp.json` layers reloads the servers where they
+stand: the files are watched, and the change takes effect without reopening the
+folder. **Restart Language Servers** does the same on demand, and every open
+file is re-sent to the new servers. Switching a server (or the built-in Odin
+support) on or off, or gating one of its features, needs no reload at all — it
+takes effect on the next request, via the `language_backends` key above. Those
 switches start where `lsp.json` puts them and are stored under
 `language_backends`, so a server the file turns off is still listed and can be
 switched back on without editing JSON. Turning a server off leaves an
-already-running process idle rather than stopping it outright; it only stops
-when the workspace reopens or Thor exits.
+already-running process idle rather than stopping it outright.
+
+When a server does not start, crashes, or gives up after three restarts, the
+statusline says so once and the panel's **Status** and **Last Error** rows keep
+the reason. The same lines go to `user/thor.log`, which is rewritten at every
+start.
+
+Known limitations: matching is by file extension, so a file with no extension
+(`Makefile`, `Dockerfile`, `CMakeLists.txt`) cannot be given a server, even
+where syntax highlighting recognizes it. Formatting follows the same `override`
+precedence as every other feature — a server given `.odin` outright formats it
+too, in place of the native printer below. Selection and on-type formatting are
+LSP-only; the native Odin printer answers whole-document formatting alone. A
+server's own config file (`.clang-format`, `rustfmt.toml`, ...) governs how it
+formats, same as it would from any other editor.
 
 ## `comments.json`
 

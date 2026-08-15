@@ -1,5 +1,19 @@
 # 2026.08.6
 
+- Settings (`ctrl + ,`) has a "Language Servers" category, also under Help > Language Servers and on the `open_language_servers` action. Each server lists its status, the program it runs, where that program was found on PATH, the project root, the file types it claims, why it last failed, and an on/off switch.
+- A server row installs the server with its own install command in the console, opens its documentation, and for clangd sets the open project up with a `compile_commands.json`.
+- Restart Language Servers, Add a Server... and Look for Installed Servers Again sit above the list. Add a Server... writes a skeleton entry and opens it.
+- A language server that is not installed, crashes or fails its handshake says so in the status bar, and the page keeps the reason with the server's own error output. A release build reported none of it before.
+- Language server activity is written to `user/thor.log`, rewritten at each start.
+- An `lsp.json` that is not valid JSON, misses its `servers` array, names an unknown key or a key of the wrong type, or holds an entry with no command, is reported under "Configuration Problems" on the page and in the log. Such an entry used to be dropped silently.
+- `init_options` is accepted beside `initialization_options`. The documentation named the first, the parser read the second.
+- Editing `settings/lsp.json`, `user/lsp.json` or `<workspace>/.thor/lsp.json` restarts the servers where they stand and re-sends the open files to them. The folder had to be reopened before.
+- "Language: Restart Servers" (`restart_language_servers`) restarts the servers on demand.
+- 22 more servers ship, all switched off: slangd, pyright, ruff, jdtls, kotlin-language-server, csharp-ls, haskell-language-server, nil, ocamllsp, ruby-lsp, intelephense, and servers for JSON, YAML, HTML, CSS, TOML, Markdown, Bash, CMake, Terraform, XML and Nim. Each carries its install command and is one switch away in Settings.
+- `lsp.json` takes `name`, `install`, `docs_url` and `setup_command`, and expands `${workspace}`, `${userHome}` and `${env:NAME}` in `command`, `cwd` and `env`, which points an entry at a server inside a virtual environment or a project directory.
+- The "LSP Setup" top bar dropdown and the seven `*-setup` plugins behind it are gone. The Language Servers page does their work, and clangd's `compile_commands.json` helper stays as the `compile-commands` plugin, run from that page.
+- Turning a server's Diagnostics feature off in Settings stops the diagnostics the server pushes on its own.
+- Two servers that claim one language: the second still does not start, and the page names the server that took the language.
 - The window follows the cursor when the titlebar is dragged on Linux. The window moved in steps and fell behind the cursor.
 - A double click on the titlebar maximizes the window, and restores it.
 - A drag on a maximized window restores it and keeps the grabbed point under the cursor.

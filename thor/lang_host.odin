@@ -172,6 +172,135 @@ thor_reload_lang :: proc(thor: ^Thor) {
     // per-backend toggle is re-pushed here: the earlier push in this same
     // workspace switch went to the Client that was just replaced.
     thor_apply_language_settings(thor)
+
+    // The old Client's servers and their documents are gone, but the buffers
+    // still read as mirrored. Re-open them on the new servers and drop what the
+    // dead ones left on screen. thor_open_folder closes every file first, which
+    // is why this never showed there.
+    for file in thor.open_files {
+        if !file.loaded {
+            continue
+        }
+        file.lang_open = false
+        file.lang_revision = 0
+        thor_clear_file_diagnostics(file)
+        file.diagnostics_revision = 0
+        clear(&file.semantic)
+        file.semantic_ready = false
+        file.highlighted = false
+        thor_lang_notify(thor, file, .Opened)
+    }
+
+    thor_lsp_clear_probes(thor)
+    thor_lsp_mark_clean(thor)
+    thor_lsp_clear_health(thor)
+    if widgets.settings_view_is_open(thor.settings_view) {
+        thor_populate_settings_view(thor)
+    }
+}
+
+// Run-loop head: rebuilds the LSP client when an lsp.json layer changed or the
+// user asked for a restart. Never inline in an event — thor_reload_lang drains
+// the manager and destroys the backend a dispatch would be standing on, the same
+// reason thor_reload_plugins is deferred.
+thor_poll_lang_reload :: proc(thor: ^Thor) {
+    if !thor.lang_reload_pending {
+        return
+    }
+    thor.lang_reload_pending = false
+    thor_reload_lang(thor)
+}
+
+// Command / panel action: start every language server again against the config
+// as it now reads on disk.
+thor_cmd_restart_language_servers :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    thor.lang_reload_pending = true
+    thor_flash_status(thor, "Restarting language servers")
+}
+
+// The last state the health poll saw for one server, so only a change is
+// reported.
+Lsp_Health :: struct {
+    id:    string, // owned
+    state: lsp.Server_State,
+}
+
+// How often the server states are read. A start, a crash and a give-up are all
+// slower than this by orders of magnitude.
+@(private = "file")
+LSP_HEALTH_INTERVAL :: 1.0
+
+// What a state change is worth saying, if anything. Pure, so the rule is
+// testable with no Client: `ok` false means the change is not worth a notice.
+thor_lsp_health_flash :: proc(previous, current: lsp.Server_State) -> (message: string, is_error: bool, ok: bool) {
+    if previous == current {
+        return "", false, false
+    }
+    #partial switch current {
+    case .Failed:
+        if previous == .Crashed {
+            return "%s stopped answering and will not be started again", true, true
+        }
+        return "%s did not start — see Settings > Language Servers", true, true
+    case .Crashed:
+        return "%s stopped answering; restarting", true, true
+    case .Ready:
+        // Only worth saying when it is the recovery from one of the above.
+        if previous == .Crashed {
+            return "%s is answering again", false, true
+        }
+    }
+    return "", false, false
+}
+
+// Run-loop tick: says once when a server gives up, crashes or comes back. One
+// atomic load per server, so the throttle is about noise and not cost.
+thor_poll_lsp_health :: proc(thor: ^Thor) {
+    now := rl.GetTime()
+    if now - thor.lsp_health_poll_time < LSP_HEALTH_INTERVAL {
+        return
+    }
+    thor.lsp_health_poll_time = now
+
+    for id in lsp.client_server_ids(thor.lsp_client, context.temp_allocator) {
+        status, found := lsp.client_server_status(thor.lsp_client, id, context.temp_allocator, probe = false)
+        if !found {
+            continue
+        }
+        at := -1
+        for entry, index in thor.lsp_health {
+            if entry.id == id {
+                at = index
+                break
+            }
+        }
+        if at < 0 {
+            append(&thor.lsp_health, Lsp_Health{id = strings.clone(id), state = status.state})
+            continue
+        }
+        previous := thor.lsp_health[at].state
+        thor.lsp_health[at].state = status.state
+        if format, is_error, say := thor_lsp_health_flash(previous, status.state); say {
+            thor_flash_status(thor, fmt.tprintf(format, status.name), is_error)
+        }
+    }
+}
+
+// Drops what the poll remembers, so the servers a rebuild made are reported
+// from scratch rather than against the states of the ones it replaced. The ids
+// are owned, so this is not a plain `clear`.
+thor_lsp_clear_health :: proc(thor: ^Thor) {
+    for entry in thor.lsp_health {
+        delete(entry.id)
+    }
+    clear(&thor.lsp_health)
+}
+
+thor_lsp_health_destroy :: proc(thor: ^Thor) {
+    thor_lsp_clear_health(thor)
+    delete(thor.lsp_health)
+    thor.lsp_health = nil
 }
 
 // Mirrors one buffer event onto a backend that tracks documents; a backend that

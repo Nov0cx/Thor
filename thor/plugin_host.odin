@@ -270,7 +270,7 @@ thor_plugin_find_menu_button :: proc(thor: ^Thor, label: string) -> ^Plugin_Top_
 // the given rows (each running its command) when clicked, like File/Edit/Help.
 // A second call with a label already in use appends its rows to that button,
 // behind a separator, instead of adding a duplicate button — how several
-// per-language setup plugins share one "LSP Setup" dropdown.
+// plugins of one kind share one dropdown.
 thor_plugin_menu :: proc(host: rawptr, label: string, entries: []plugin.Menu_Entry) {
     thor := cast(^Thor) host
 

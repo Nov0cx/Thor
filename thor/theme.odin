@@ -207,6 +207,7 @@ thor_apply_theme_widgets :: proc(thor: ^Thor) {
         t.second_background, t.highlight, t.highlight, t.background, t.primary_text_color, t.muted_color, t.accent_color,
         selected,
     )
+    widgets.settings_view_set_status_colors(thor.settings_view, t.success_color, t.warning_color, t.error_color)
     widgets.theme_editor_set_colors(
         thor.theme_editor,
         t.second_background, t.highlight, t.highlight, t.background, t.primary_text_color, t.muted_color, t.accent_color,
