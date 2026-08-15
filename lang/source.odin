@@ -19,6 +19,9 @@ source_read :: proc(path: string, allocator := context.temp_allocator) -> (strin
     if !strings.contains(source, "\r\n") {
         return source, true
     }
-    out, _ := strings.replace_all(source, "\r\n", "\n", allocator)
+    out, allocated := strings.replace_all(source, "\r\n", "\n", allocator)
+    if allocated {
+        delete(data, allocator) // the read before the collapse, dead once `out` holds it
+    }
     return out, true
 }

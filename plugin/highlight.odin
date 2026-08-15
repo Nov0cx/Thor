@@ -14,6 +14,10 @@ import "../syntax"
 Span :: struct {
     start: int,
     end:   int,
+    // Borrowed, never freed by the caller: the grammar path points into the
+    // plugin's own capture map, the lexer path into the span allocator (Lua
+    // frees its strings when the call returns). Read it before the next
+    // highlight call or a plugin reload, which invalidate both.
     role:  string,
 }
 
