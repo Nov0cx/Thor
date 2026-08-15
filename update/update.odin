@@ -69,6 +69,7 @@ Status :: enum {
     Bad_Url,
     Bad_Size,
     Download_Failed,
+    Unreadable_Download,
     Bad_Checksum,
     Extract_Failed,
     Bad_Archive,
@@ -135,6 +136,8 @@ status_message :: proc(status: Status) -> string {
         return "The download is not the size the release names"
     case .Download_Failed:
         return "The download did not finish"
+    case .Unreadable_Download:
+        return "The downloaded archive could not be read"
     case .Bad_Checksum:
         return "The download does not match its checksum"
     case .Extract_Failed:

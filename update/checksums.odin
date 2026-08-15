@@ -5,6 +5,7 @@ package update
 
 import "core:crypto/sha2"
 import "core:encoding/hex"
+import "core:io"
 import "core:os"
 import "core:strings"
 
@@ -68,15 +69,21 @@ sha256_file :: proc(path: string) -> (digest: [sha2.DIGEST_SIZE_256]byte, ok: bo
     buffer := make([]byte, HASH_CHUNK, context.temp_allocator)
     ctx: sha2.Context_256
     sha2.init_256(&ctx)
+    // os.read reports the end of the file as io.EOF, possibly with final bytes.
     for {
         read, read_err := os.read(handle, buffer)
+        if read > 0 {
+            sha2.update(&ctx, buffer[:read])
+        }
+        if read_err == io.Error.EOF {
+            break
+        }
         if read_err != nil {
             return {}, false
         }
         if read == 0 {
             break
         }
-        sha2.update(&ctx, buffer[:read])
     }
     sha2.final(&ctx, digest[:])
     return digest, true

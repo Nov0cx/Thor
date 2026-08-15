@@ -69,12 +69,19 @@ thor_cli_paths :: proc(args: []string, allocator := context.temp_allocator) -> [
 
 // Answers a version or help flag on stdout. Returns true when the caller must
 // exit instead of starting the editor.
+//
+// The platform files cli_windows.odin and cli_posix.odin supply:
+//   cli_attach_console :: proc()
+// Windows attaches the parent console, since a release binary links the windows
+// subsystem and starts without one. POSIX is a no-op.
 cli_handled :: proc(args: []string) -> bool {
     switch thor_cli_action(args) {
     case .Version:
+        cli_attach_console()
         fmt.printfln("thor %s", VERSION)
         return true
     case .Help:
+        cli_attach_console()
         fmt.printfln("thor %s", VERSION)
         fmt.println(USAGE)
         return true

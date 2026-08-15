@@ -228,6 +228,13 @@ append_link_flags :: proc(args: ^[dynamic]string) {
         }
         append(args, fmt.tprintf("-extra-linker-flags:-L%s/lib", prefix))
     }
+    // A release binary must not open a console beside the window. Debug keeps
+    // the console subsystem for the logger and the tracking-allocator report.
+    when ODIN_OS == .Windows {
+        if opt.release {
+            append(args, "-subsystem:windows")
+        }
+    }
 }
 
 // The icon and the file properties the executable carries. Windows only: the

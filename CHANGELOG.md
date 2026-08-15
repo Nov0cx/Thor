@@ -1,3 +1,9 @@
+# 2026.08.5
+
+- The Windows release binary opens without a console window beside the editor. `thor --version` and `thor --help` still print in the shell that started them.
+- The auto-updater installs again. The checksum read took the end of the archive for an error, so every download reported "The download does not match its checksum".
+- An archive the updater cannot read reports "The downloaded archive could not be read" instead of a false checksum mismatch.
+
 # 2026.08.4
 
 - Settings > Appearance > Theme Colors opens a theme window: every color of the active theme under a foldable group, each row a swatch that opens a color picker with a saturation/value square, a hue strip, an alpha strip and a hex field. The change previews on the editor before it is kept.

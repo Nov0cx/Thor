@@ -153,7 +153,11 @@ install_apply :: proc(plan: Install_Plan, agent: string, cancel: ^bool, allocato
         return result
     }
     digest, hashed := sha256_file(archive_path)
-    if !hashed || !digest_matches(digest, expected) {
+    if !hashed {
+        result.status = .Unreadable_Download
+        return result
+    }
+    if !digest_matches(digest, expected) {
         result.status = .Bad_Checksum
         return result
     }

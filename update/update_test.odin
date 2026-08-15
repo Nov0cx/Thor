@@ -1,5 +1,6 @@
 package update
 
+import "core:os"
 import "core:strings"
 import "core:testing"
 
@@ -165,6 +166,28 @@ test_sha256_bytes :: proc(t: ^testing.T) {
         digest_matches(empty, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
         "the digest of nothing is known",
     )
+}
+
+// The file digest agrees with the byte digest, the EOF of the final read and
+// all.
+@(test)
+test_sha256_file :: proc(t: ^testing.T) {
+    path :: "zsha256_file_test.tmp"
+    content := transmute([]byte)string("The staged archive stands in for this line.\n")
+    if err := os.write_entire_file(path, content); err != nil {
+        testing.expectf(t, false, "could not write %q: %v", path, err)
+        return
+    }
+    defer if err := os.remove(path); err != nil {
+        testing.expectf(t, false, "could not remove %q: %v", path, err)
+    }
+
+    digest, ok := sha256_file(path)
+    testing.expect(t, ok, "a readable file hashes")
+    testing.expect_value(t, digest, sha256_bytes(content))
+
+    _, ok = sha256_file("zsha256_file_missing.tmp")
+    testing.expect(t, !ok, "a missing file does not hash")
 }
 
 // A payload shaped like the real one, keys the struct does not declare and all.
