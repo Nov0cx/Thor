@@ -478,6 +478,9 @@ Manager :: struct {
     // manager_request_debounced, emptied by manager_flush_debounced and the
     // cancels), so unlike `active` they need no lock.
     pending:   [Request_Kind]Pending,
+    // Reserved ids a flush could not dispatch, answered as `ok == false` by the
+    // next manager_dispatch. Main-thread only, like `pending`.
+    failed:    [dynamic]Result,
     // The feature gate the host's config sets: the master switch and the kinds
     // that may still be dispatched. Main-thread only, read by every request
     // entry point. manager_init turns everything on.
@@ -493,6 +496,7 @@ manager_init :: proc(m: ^Manager, allocator := context.allocator) {
     m.finished = make([dynamic]^Job, allocator)
     m.active = make(map[u64]^Job, 0, allocator)
     m.queue = make([dynamic]^Job, allocator)
+    m.failed = make([dynamic]Result, allocator)
     m.next_id = 1
 
     m.workers = make([]^thread.Thread, pool_size(), allocator)
@@ -980,7 +984,7 @@ manager_flush_debounced :: proc(m: ^Manager, force := false) -> int {
         }
         slot := p^
         p.active = false // clear before dispatching: the strings are the job's now
-        dispatch_owned(
+        dispatched := dispatch_owned(
             m,
             slot.id,
             kind,
@@ -997,6 +1001,13 @@ manager_flush_debounced :: proc(m: ^Manager, force := false) -> int {
             slot.tab_size,
             slot.trigger,
         )
+        if dispatched == 0 {
+            // The backend stopped claiming the kind between the reserve and here
+            // — a server that died, a feature switched off. The caller stored the
+            // reserved id already, so answer it rather than leave the slot stale.
+            append(&m.failed, Result{id = slot.id, kind = kind})
+            continue
+        }
         n += 1
     }
     return n
@@ -1116,6 +1127,16 @@ manager_dispatch :: proc(m: ^Manager, user: rawptr, handler: proc(user: rawptr, 
         }
         job_free(m, job)
     }
+
+    // Reserved ids no job was ever built for. Answered like any other empty
+    // result, which is what clears the caller's request slot.
+    for &res in m.failed {
+        if handler != nil {
+            handler(user, &res)
+        }
+        result_free(m, &res)
+    }
+    clear(&m.failed)
 
     // Results no request asked for. Gated like a dispatch, so a kind the user
     // turned off cannot arrive through the back door. Bounded per backend, so a
@@ -1276,6 +1297,7 @@ manager_destroy :: proc(m: ^Manager) {
     delete(m.finished)
     delete(m.active)
     delete(m.queue)
+    delete(m.failed)
 }
 
 // Retires the pool: one wake per worker so each sees `shutdown` and returns,
