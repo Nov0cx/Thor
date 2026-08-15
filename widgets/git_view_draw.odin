@@ -128,21 +128,21 @@ git_view_draw_shadow :: proc(view: ^Git_View) {
 @(private = "file")
 git_view_draw_header :: proc(view: ^Git_View, mouse: rl.Vector2) {
     x := view.box.x + 20
-    title_y := cast(i32) (view.box.y + (view.header_height - 18) * 0.5)
-    ui.draw_text("Git", cast(i32) x, title_y, 18, view.text_color)
-    x += cast(f32) ui.measure_text("Git", 18) + 14
+    title_y := cast(i32) (view.box.y + (view.header_height - cast(f32) view.font_title) * 0.5)
+    ui.draw_text("Git", cast(i32) x, title_y, view.font_title, view.text_color)
+    x += cast(f32) ui.measure_text("Git", view.font_title) + 14
 
     if view.branch != "" {
         icon_y := cast(i32) (view.box.y + (view.header_height - 16) * 0.5)
         ui.draw_icon("git-branch", cast(i32) x, icon_y, 16, view.accent_color)
         x += 20
-        branch_y := cast(i32) (view.box.y + (view.header_height - 15) * 0.5)
-        ui.draw_text(view.branch, cast(i32) x, branch_y, 15, view.accent_color)
-        x += cast(f32) ui.measure_text(view.branch, 15) + 12
+        branch_y := cast(i32) (view.box.y + (view.header_height - cast(f32) view.font_primary) * 0.5)
+        ui.draw_text(view.branch, cast(i32) x, branch_y, view.font_primary, view.accent_color)
+        x += cast(f32) ui.measure_text(view.branch, view.font_primary) + 12
 
         if view.has_upstream && (view.ahead > 0 || view.behind > 0) {
             counts := fmt.tprintf("%d ahead · %d behind", view.ahead, view.behind)
-            ui.draw_text(counts, cast(i32) x, cast(i32) (view.box.y + (view.header_height - 12) * 0.5), 12, view.muted_color)
+            ui.draw_text(counts, cast(i32) x, cast(i32) (view.box.y + (view.header_height - cast(f32) view.font_small) * 0.5), view.font_small, view.muted_color)
         }
     }
 
@@ -224,17 +224,18 @@ git_view_draw_sidebar :: proc(view: ^Git_View, mouse: rl.Vector2) {
         icon_color := selected ? view.accent_color : view.muted_color
         text_color := selected ? view.text_color : view.muted_color
         ui.draw_icon(git_view_kind_icon(kind), cast(i32) (rect.x + 12), cast(i32) (rect.y + (rect.height - 16) * 0.5), 16, icon_color)
-        ui.draw_text(git_view_kind_label(kind), cast(i32) (rect.x + 38), cast(i32) (rect.y + (rect.height - 15) * 0.5), 15, text_color)
+        ui.draw_text(git_view_kind_label(kind), cast(i32) (rect.x + 38), cast(i32) (rect.y + (rect.height - cast(f32) view.font_primary) * 0.5), view.font_primary, text_color)
 
         // Change count on the Changes entry, as a small pill.
         if kind == .Changes {
             count := len(view.unstaged) + len(view.staged)
             if count > 0 {
                 label := fmt.tprintf("%d", count)
-                tw := cast(f32) ui.measure_text(label, 12)
-                pill := rl.Rectangle {rect.x + rect.width - 12 - tw - 12, rect.y + (rect.height - 18) * 0.5, tw + 12, 18}
+                tw := cast(f32) ui.measure_text(label, view.font_small)
+                pill_h := cast(f32) view.font_small + 5
+                pill := rl.Rectangle {rect.x + rect.width - 12 - tw - 12, rect.y + (rect.height - pill_h) * 0.5, tw + 12, pill_h}
                 rl.DrawRectangleRounded(pill, 0.5, 8, git_view_tint(view.accent_color, 32))
-                ui.draw_text(label, cast(i32) (pill.x + 6), cast(i32) (pill.y + 3), 12, view.accent_color)
+                ui.draw_text(label, cast(i32) (pill.x + 6), cast(i32) (pill.y + (pill_h - cast(f32) view.font_small) * 0.5), view.font_small, view.accent_color)
             }
         }
     }
@@ -271,13 +272,13 @@ git_view_draw_footer :: proc(view: ^Git_View) {
             text = "Esc close"
         }
     }
-    text = git_view_fit_tail(text, 12, rect.width - 32)
-    tw := ui.measure_text(text, 12)
+    text = git_view_fit_tail(text, view.font_small, rect.width - 32)
+    tw := ui.measure_text(text, view.font_small)
     ui.draw_text(
         text,
         cast(i32) (rect.x + (rect.width - cast(f32) tw) * 0.5),
-        cast(i32) (rect.y + (rect.height - 12) * 0.5),
-        12,
+        cast(i32) (rect.y + (rect.height - cast(f32) view.font_small) * 0.5),
+        view.font_small,
         color,
     )
 }
@@ -308,8 +309,8 @@ git_view_draw_file_section :: proc(view: ^Git_View, staged: bool, mouse: rl.Vect
     ui.draw_text(
         title,
         cast(i32) (header.x + SETTINGS_ITEM_INSET + 12),
-        cast(i32) (header.y + (header.height - 12) * 0.5),
-        12,
+        cast(i32) (header.y + (header.height - cast(f32) view.font_small) * 0.5),
+        view.font_small,
         git_view_tint(view.muted_color, 200),
     )
     if staged {
@@ -328,8 +329,8 @@ git_view_draw_file_section :: proc(view: ^Git_View, staged: bool, mouse: rl.Vect
         ui.draw_text(
             label,
             cast(i32) (action.x + 8),
-            cast(i32) (action.y + (action.height - 12) * 0.5),
-            12,
+            cast(i32) (action.y + (action.height - cast(f32) view.font_small) * 0.5),
+            view.font_small,
             hover ? view.accent_color : view.muted_color,
         )
     }
@@ -340,7 +341,7 @@ git_view_draw_file_section :: proc(view: ^Git_View, staged: bool, mouse: rl.Vect
             message,
             cast(i32) (list.x + SETTINGS_ITEM_INSET + 12),
             cast(i32) (list.y + 8),
-            14,
+            view.font_body,
             git_view_tint(view.muted_color, 120),
         )
         return
@@ -365,15 +366,16 @@ git_view_draw_file_section :: proc(view: ^Git_View, staged: bool, mouse: rl.Vect
 
         // Status letter chip.
         status_color := git_view_status_color(view, file.status)
-        chip := rl.Rectangle {rect.x + SETTINGS_ITEM_INSET + 8, rect.y + (rect.height - 16) * 0.5, 16, 16}
+        chip_size := cast(f32) view.font_badge + 4
+        chip := rl.Rectangle {rect.x + SETTINGS_ITEM_INSET + 8, rect.y + (rect.height - chip_size) * 0.5, chip_size, chip_size}
         rl.DrawRectangleRounded(chip, 0.35, 6, git_view_tint(status_color, 40))
         letter := tree_status_letter(file.status)
-        lw := ui.measure_text(letter, 11)
+        lw := ui.measure_text(letter, view.font_badge)
         ui.draw_text(
             letter,
             cast(i32) (chip.x + (chip.width - cast(f32) lw) * 0.5),
-            cast(i32) (chip.y + 2),
-            11,
+            cast(i32) (chip.y + (chip.height - cast(f32) view.font_badge) * 0.5),
+            view.font_badge,
             status_color,
         )
 
@@ -383,8 +385,8 @@ git_view_draw_file_section :: proc(view: ^Git_View, staged: bool, mouse: rl.Vect
         if hovered {
             max_w -= staged ? 24 : 48
         }
-        name := git_view_fit_tail(file.display, 14, max_w)
-        ui.draw_text(name, cast(i32) name_x, cast(i32) (rect.y + (rect.height - 14) * 0.5), 14, view.text_color)
+        name := git_view_fit_tail(file.display, view.font_body, max_w)
+        ui.draw_text(name, cast(i32) name_x, cast(i32) (rect.y + (rect.height - cast(f32) view.font_body) * 0.5), view.font_body, view.text_color)
 
         if hovered && !view.busy {
             git_view_draw_icon_button(view, git_view_file_action_rect(rect), staged ? "minus" : "plus", 14, mouse)
@@ -395,7 +397,7 @@ git_view_draw_file_section :: proc(view: ^Git_View, staged: bool, mouse: rl.Vect
     }
     ui.end_clip()
 
-    content := cast(f32) count * GIT_FILE_ROW
+    content := cast(f32) count * view.row_file
     if track, thumb, ok := ui.scrollbar_rects(list, content, staged ? view.staged_scroll : view.unstaged_scroll, GIT_SCROLLBAR_STYLE); ok {
         rl.DrawRectangleRounded(track, 0.5, 4, git_view_tint(view.muted_color, 15))
         rl.DrawRectangleRounded(thumb, 0.5, 4, git_view_tint(view.muted_color, 120))
@@ -408,28 +410,28 @@ git_view_draw_diff :: proc(view: ^Git_View, ) {
     list := git_view_diff_list_rect(view)
 
     if view.diff_title != "" {
-        title := git_view_fit_tail(view.diff_title, 13, diff.width - 32)
+        title := git_view_fit_tail(view.diff_title, view.font_meta, diff.width - 32)
         ui.draw_text(
             title,
             cast(i32) (diff.x + 16),
-            cast(i32) (diff.y + (GIT_DIFF_TITLE - 13) * 0.5),
-            13,
+            cast(i32) (diff.y + (view.row_diff_title - cast(f32) view.font_meta) * 0.5),
+            view.font_meta,
             git_view_tint(view.muted_color, 200),
         )
         rl.DrawRectangleRec(
-            rl.Rectangle {diff.x + 1, diff.y + GIT_DIFF_TITLE - 1, diff.width - 2, 1},
+            rl.Rectangle {diff.x + 1, diff.y + view.row_diff_title - 1, diff.width - 2, 1},
             git_view_tint(view.muted_color, 30),
         )
     }
 
     if len(view.diff_rows) == 0 {
         message := view.diff_title == "" ? "Select a file to see its diff" : "No changes to show"
-        tw := ui.measure_text(message, 15)
+        tw := ui.measure_text(message, view.font_primary)
         ui.draw_text(
             message,
             cast(i32) (list.x + (list.width - cast(f32) tw) * 0.5),
             cast(i32) (list.y + list.height * 0.4),
-            15,
+            view.font_primary,
             view.muted_color,
         )
         return
@@ -440,21 +442,21 @@ git_view_draw_diff :: proc(view: ^Git_View, ) {
 
     ui.begin_clip(list)
     for row, index in view.diff_rows {
-        top := list.y + cast(f32) index * GIT_DIFF_ROW - view.diff_scroll
-        if top + GIT_DIFF_ROW < list.y || top > list.y + list.height {
+        top := list.y + cast(f32) index * view.row_diff - view.diff_scroll
+        if top + view.row_diff < list.y || top > list.y + list.height {
             continue
         }
-        rect := rl.Rectangle {list.x, top, list.width, GIT_DIFF_ROW}
-        text_y := cast(i32) (top + (GIT_DIFF_ROW - 14) * 0.5)
+        rect := rl.Rectangle {list.x, top, list.width, view.row_diff}
+        text_y := cast(i32) (top + (view.row_diff - cast(f32) view.font_body) * 0.5)
 
         color := view.text_color
         switch row.kind {
         case .Hunk:
             rl.DrawRectangleRec(rect, git_view_tint(view.accent_color, 14))
-            ui.draw_text(git_view_fit_tail(row.text, 13, rect.width - 24), cast(i32) (list.x + 12), text_y, 13, view.accent_color)
+            ui.draw_text(git_view_fit_tail(row.text, view.font_meta, rect.width - 24), cast(i32) (list.x + 12), text_y, view.font_meta, view.accent_color)
             continue
         case .Meta:
-            ui.draw_text(git_view_fit_tail(row.text, 13, rect.width - 24), cast(i32) (list.x + 12), text_y, 13, view.muted_color)
+            ui.draw_text(git_view_fit_tail(row.text, view.font_meta, rect.width - 24), cast(i32) (list.x + 12), text_y, view.font_meta, view.muted_color)
             continue
         case .Added:
             rl.DrawRectangleRec(rect, git_view_tint(view.added_color, 26))
@@ -473,17 +475,17 @@ git_view_draw_diff :: proc(view: ^Git_View, ) {
         }
         if row.old_line > 0 {
             n := fmt.tprintf("%d", row.old_line)
-            nw := ui.measure_text(n, 12)
-            ui.draw_text(n, cast(i32) (list.x + gutter - cast(f32) nw), text_y, 12, number_color)
+            nw := ui.measure_text(n, view.font_small)
+            ui.draw_text(n, cast(i32) (list.x + gutter - cast(f32) nw), text_y, view.font_small, number_color)
         }
         if row.new_line > 0 {
             n := fmt.tprintf("%d", row.new_line)
-            nw := ui.measure_text(n, 12)
-            ui.draw_text(n, cast(i32) (list.x + gutter * 2 - cast(f32) nw), text_y, 12, number_color)
+            nw := ui.measure_text(n, view.font_small)
+            ui.draw_text(n, cast(i32) (list.x + gutter * 2 - cast(f32) nw), text_y, view.font_small, number_color)
         }
 
         if row.text != "" {
-            ui.draw_text(row.text, cast(i32) text_x, text_y, 14, color)
+            ui.draw_text(row.text, cast(i32) text_x, text_y, view.font_body, color)
         }
     }
     ui.end_clip()
@@ -493,7 +495,7 @@ git_view_draw_diff :: proc(view: ^Git_View, ) {
         rl.Rectangle {list.x + gutter * 2 + 5, list.y, 1, list.height}, git_view_tint(view.muted_color, 30),
     )
 
-    content := cast(f32) len(view.diff_rows) * GIT_DIFF_ROW
+    content := cast(f32) len(view.diff_rows) * view.row_diff
     if track, thumb, ok := ui.scrollbar_rects(list, content, view.diff_scroll, GIT_SCROLLBAR_STYLE); ok {
         rl.DrawRectangleRounded(track, 0.5, 4, git_view_tint(view.muted_color, 15))
         rl.DrawRectangleRounded(thumb, 0.5, 4, git_view_tint(view.muted_color, 120))
@@ -520,7 +522,7 @@ git_view_draw_commit_box :: proc(view: ^Git_View, mouse: rl.Vector2) {
     if view.amend {
         ui.draw_icon("check", cast(i32) (check.x + 1), cast(i32) (check.y + 1), 14, view.accent_color)
     }
-    ui.draw_text("Amend", cast(i32) (check.x + 22), cast(i32) (amend.y + 2), 14, view.text_color)
+    ui.draw_text("Amend", cast(i32) (check.x + 22), cast(i32) (amend.y + 2), view.font_body, view.text_color)
 
     // Commit button.
     button := git_view_commit_button_rect(view)
@@ -537,12 +539,12 @@ git_view_draw_commit_box :: proc(view: ^Git_View, mouse: rl.Vector2) {
     rl.DrawRectangleRounded(button, 0.35, 6, fill)
     rl.DrawRectangleRoundedLinesEx(button, 0.35, 6, 1, border)
     label := view.amend ? "Amend" : "Commit"
-    lw := ui.measure_text(label, 14)
+    lw := ui.measure_text(label, view.font_body)
     ui.draw_text(
         label,
         cast(i32) (button.x + (button.width - cast(f32) lw) * 0.5),
-        cast(i32) (button.y + (button.height - 14) * 0.5),
-        14,
+        cast(i32) (button.y + (button.height - cast(f32) view.font_body) * 0.5),
+        view.font_body,
         label_color,
     )
 }
@@ -562,7 +564,7 @@ git_view_draw_history :: proc(view: ^Git_View, mouse: rl.Vector2) {
             "No commits",
             cast(i32) (list.x + SETTINGS_ITEM_INSET + 12),
             cast(i32) (list.y + 8),
-            14,
+            view.font_body,
             git_view_tint(view.muted_color, 120),
         )
         git_view_draw_diff(view)
@@ -591,20 +593,21 @@ git_view_draw_history :: proc(view: ^Git_View, mouse: rl.Vector2) {
         subject_w := max_w
         pill_label := ""
         if commit.refs != "" {
-            pill_label = git_view_fit_tail(commit.refs, 11, 160)
-            subject_w -= cast(f32) ui.measure_text(pill_label, 11) + 24
+            pill_label = git_view_fit_tail(commit.refs, view.font_badge, 160)
+            subject_w -= cast(f32) ui.measure_text(pill_label, view.font_badge) + 24
         }
-        subject := git_view_fit_tail(commit.subject, 14, subject_w)
-        ui.draw_text(subject, cast(i32) text_x, cast(i32) (rect.y + 7), 14, view.text_color)
+        subject := git_view_fit_tail(commit.subject, view.font_body, subject_w)
+        ui.draw_text(subject, cast(i32) text_x, cast(i32) (rect.y + 7), view.font_body, view.text_color)
         if pill_label != "" {
-            pw := cast(f32) ui.measure_text(pill_label, 11)
-            pill := rl.Rectangle {text_x + cast(f32) ui.measure_text(subject, 14) + 10, rect.y + 6, pw + 12, 17}
+            pw := cast(f32) ui.measure_text(pill_label, view.font_badge)
+            pill_h := cast(f32) view.font_badge + 6
+            pill := rl.Rectangle {text_x + cast(f32) ui.measure_text(subject, view.font_body) + 10, rect.y + 6, pw + 12, pill_h}
             rl.DrawRectangleRounded(pill, 0.5, 8, git_view_tint(view.accent_color, 32))
-            ui.draw_text(pill_label, cast(i32) (pill.x + 6), cast(i32) (pill.y + 3), 11, view.accent_color)
+            ui.draw_text(pill_label, cast(i32) (pill.x + 6), cast(i32) (pill.y + (pill_h - cast(f32) view.font_badge) * 0.5), view.font_badge, view.accent_color)
         }
 
         meta := fmt.tprintf("%s · %s · %s", commit.short, commit.author, commit.date)
-        ui.draw_text(git_view_fit_tail(meta, 12, max_w), cast(i32) text_x, cast(i32) (rect.y + 25), 12, view.muted_color)
+        ui.draw_text(git_view_fit_tail(meta, view.font_small, max_w), cast(i32) text_x, cast(i32) (rect.y + 10 + cast(f32) view.font_body), view.font_small, view.muted_color)
     }
 
     // The "Load more" row after the last commit.
@@ -613,19 +616,19 @@ git_view_draw_history :: proc(view: ^Git_View, mouse: rl.Vector2) {
         if rect.y <= list.y + list.height && rect.y + rect.height >= list.y {
             label := "Load more..."
             hover := rl.CheckCollisionPointRec(mouse, rect)
-            tw := ui.measure_text(label, 14)
+            tw := ui.measure_text(label, view.font_body)
             ui.draw_text(
                 label,
                 cast(i32) (rect.x + (rect.width - cast(f32) tw) * 0.5),
-                cast(i32) (rect.y + (rect.height - 14) * 0.5),
-                14,
+                cast(i32) (rect.y + (rect.height - cast(f32) view.font_body) * 0.5),
+                view.font_body,
                 hover ? view.accent_color : view.muted_color,
             )
         }
     }
     ui.end_clip()
 
-    content := cast(f32) git_view_commit_row_count(view) * GIT_COMMIT_ROW
+    content := cast(f32) git_view_commit_row_count(view) * view.row_commit
     if track, thumb, ok := ui.scrollbar_rects(list, content, view.commits_scroll, GIT_SCROLLBAR_STYLE); ok {
         rl.DrawRectangleRounded(track, 0.5, 4, git_view_tint(view.muted_color, 15))
         rl.DrawRectangleRounded(thumb, 0.5, 4, git_view_tint(view.muted_color, 120))
@@ -678,8 +681,8 @@ git_view_draw_branches :: proc(view: ^Git_View, mouse: rl.Vector2) {
             ui.draw_text(
                 git_view_ref_kind_label(row.kind),
                 cast(i32) (x + 22),
-                cast(i32) (rect.y + (rect.height - 12) * 0.5),
-                12,
+                cast(i32) (rect.y + (rect.height - cast(f32) view.font_small) * 0.5),
+                view.font_small,
                 git_view_tint(view.muted_color, 200),
             )
             if row.kind == .Stash && !view.busy {
@@ -691,8 +694,8 @@ git_view_draw_branches :: proc(view: ^Git_View, mouse: rl.Vector2) {
                 ui.draw_text(
                     "Stash changes",
                     cast(i32) (action.x + 8),
-                    cast(i32) (action.y + (action.height - 12) * 0.5),
-                    12,
+                    cast(i32) (action.y + (action.height - cast(f32) view.font_small) * 0.5),
+                    view.font_small,
                     action_hover ? view.accent_color : view.muted_color,
                 )
             }
@@ -723,10 +726,10 @@ git_view_draw_branches :: proc(view: ^Git_View, mouse: rl.Vector2) {
             max_w -= 76
         }
         text_color := ref.current ? view.text_color : git_view_tint(view.text_color, 220)
-        ui.draw_text(git_view_fit_tail(label, 14, max_w), cast(i32) x, cast(i32) (rect.y + (rect.height - 14) * 0.5), 14, text_color)
+        ui.draw_text(git_view_fit_tail(label, view.font_body, max_w), cast(i32) x, cast(i32) (rect.y + (rect.height - cast(f32) view.font_body) * 0.5), view.font_body, text_color)
 
         if ref.current {
-            check_x := x + cast(f32) ui.measure_text(label, 14) + 8
+            check_x := x + cast(f32) ui.measure_text(label, view.font_body) + 8
             ui.draw_icon("check", cast(i32) check_x, cast(i32) (rect.y + (rect.height - 14) * 0.5), 14, view.accent_color)
         }
 
@@ -739,7 +742,7 @@ git_view_draw_branches :: proc(view: ^Git_View, mouse: rl.Vector2) {
     }
     ui.end_clip()
 
-    content := cast(f32) len(rows) * GIT_REF_ROW
+    content := cast(f32) len(rows) * view.row_ref
     if track, thumb, ok := ui.scrollbar_rects(list, content, view.refs_scroll, GIT_SCROLLBAR_STYLE); ok {
         rl.DrawRectangleRounded(track, 0.5, 4, git_view_tint(view.muted_color, 15))
         rl.DrawRectangleRounded(thumb, 0.5, 4, git_view_tint(view.muted_color, 120))
@@ -770,8 +773,8 @@ git_view_draw_settings :: proc(view: ^Git_View, mouse: rl.Vector2) {
             ui.draw_text(
                 row.global ? "GLOBAL" : "LOCAL",
                 cast(i32) (x + 22),
-                cast(i32) (rect.y + (rect.height - 12) * 0.5),
-                12,
+                cast(i32) (rect.y + (rect.height - cast(f32) view.font_small) * 0.5),
+                view.font_small,
                 git_view_tint(view.muted_color, 200),
             )
             continue
@@ -788,7 +791,7 @@ git_view_draw_settings :: proc(view: ^Git_View, mouse: rl.Vector2) {
         }
 
         x := rect.x + SETTINGS_ITEM_INSET + 12 + SETTINGS_GROUP_INDENT
-        ui.draw_text(entry.key, cast(i32) x, cast(i32) (rect.y + (rect.height - 14) * 0.5), 14, view.text_color)
+        ui.draw_text(entry.key, cast(i32) x, cast(i32) (rect.y + (rect.height - cast(f32) view.font_body) * 0.5), view.font_body, view.text_color)
 
         // The value, or the edit field over it.
         if view.config_edit_index == row.index {
@@ -802,19 +805,19 @@ git_view_draw_settings :: proc(view: ^Git_View, mouse: rl.Vector2) {
             value = "not set"
             color = git_view_tint(view.muted_color, 120)
         }
-        value = git_view_fit_tail(value, 14, rect.width * 0.5 - SETTINGS_ROW_PAD)
-        vw := ui.measure_text(value, 14)
+        value = git_view_fit_tail(value, view.font_body, rect.width * 0.5 - SETTINGS_ROW_PAD)
+        vw := ui.measure_text(value, view.font_body)
         ui.draw_text(
             value,
             cast(i32) (rect.x + rect.width - SETTINGS_ROW_PAD - cast(f32) vw),
-            cast(i32) (rect.y + (rect.height - 14) * 0.5),
-            14,
+            cast(i32) (rect.y + (rect.height - cast(f32) view.font_body) * 0.5),
+            view.font_body,
             color,
         )
     }
     ui.end_clip()
 
-    content := cast(f32) len(rows) * GIT_REF_ROW
+    content := cast(f32) len(rows) * view.row_ref
     if track, thumb, ok := ui.scrollbar_rects(list, content, view.config_scroll, GIT_SCROLLBAR_STYLE); ok {
         rl.DrawRectangleRounded(track, 0.5, 4, git_view_tint(view.muted_color, 15))
         rl.DrawRectangleRounded(thumb, 0.5, 4, git_view_tint(view.muted_color, 120))
@@ -845,7 +848,7 @@ git_view_draw_hosting :: proc(view: ^Git_View, mouse: rl.Vector2) {
             ui.draw_icon(icon, cast(i32) (rect.x + 12), cast(i32) (rect.y + (rect.height - 18) * 0.5), 18, view.accent_color)
             label := view.host_label == "" ? "No remote detected" : view.host_label
             color := view.host_label == "" ? view.muted_color : view.text_color
-            ui.draw_text(git_view_fit_tail(label, 15, rect.width - 52), cast(i32) (rect.x + 40), cast(i32) (rect.y + (rect.height - 15) * 0.5), 15, color)
+            ui.draw_text(git_view_fit_tail(label, view.font_primary, rect.width - 52), cast(i32) (rect.x + 40), cast(i32) (rect.y + (rect.height - cast(f32) view.font_primary) * 0.5), view.font_primary, color)
         case .Action_Repo, .Action_File, .Action_Commit, .Action_Pr:
             label := "Open repository in browser"
             #partial switch item.kind {
@@ -857,7 +860,7 @@ git_view_draw_hosting :: proc(view: ^Git_View, mouse: rl.Vector2) {
             if hovered && !view.busy {
                 rl.DrawRectangleRounded(band, 0.35, 6, git_view_tint(view.text_color, 10))
             }
-            ui.draw_text(label, cast(i32) (rect.x + 8), cast(i32) (rect.y + (rect.height - 14) * 0.5), 14, view.text_color)
+            ui.draw_text(label, cast(i32) (rect.x + 8), cast(i32) (rect.y + (rect.height - cast(f32) view.font_body) * 0.5), view.font_body, view.text_color)
             ui.draw_icon(
                 "chevron-right",
                 cast(i32) (rect.x + rect.width - SETTINGS_ROW_PAD - 16),
@@ -866,7 +869,7 @@ git_view_draw_hosting :: proc(view: ^Git_View, mouse: rl.Vector2) {
                 view.muted_color,
             )
         case .Pr_Header:
-            ui.draw_text("PULL REQUESTS", cast(i32) (rect.x + 4), cast(i32) (rect.y + (rect.height - 12) * 0.5), 12, git_view_tint(view.muted_color, 200))
+            ui.draw_text("PULL REQUESTS", cast(i32) (rect.x + 4), cast(i32) (rect.y + (rect.height - cast(f32) view.font_small) * 0.5), view.font_small, git_view_tint(view.muted_color, 200))
         case .Pr:
             pr := view.prs[item.index]
             band := rl.Rectangle {rect.x, rect.y + 1, rect.width, rect.height - 2}
@@ -874,12 +877,12 @@ git_view_draw_hosting :: proc(view: ^Git_View, mouse: rl.Vector2) {
                 rl.DrawRectangleRounded(band, 0.35, 6, git_view_tint(view.text_color, 10))
             }
             label := fmt.tprintf("#%d  %s  (%s)", pr.number, pr.title, pr.branch)
-            ui.draw_text(git_view_fit_tail(label, 14, rect.width - 16), cast(i32) (rect.x + 8), cast(i32) (rect.y + (rect.height - 14) * 0.5), 14, view.text_color)
+            ui.draw_text(git_view_fit_tail(label, view.font_body, rect.width - 16), cast(i32) (rect.x + 8), cast(i32) (rect.y + (rect.height - cast(f32) view.font_body) * 0.5), view.font_body, view.text_color)
         case .Cli_Hint:
             hint := view.cli_name == "" ? "Install gh or glab to list pull requests" : "No open pull requests"
-            ui.draw_text(hint, cast(i32) (rect.x + 8), cast(i32) (rect.y + (rect.height - 13) * 0.5), 13, git_view_tint(view.muted_color, 150))
+            ui.draw_text(hint, cast(i32) (rect.x + 8), cast(i32) (rect.y + (rect.height - cast(f32) view.font_meta) * 0.5), view.font_meta, git_view_tint(view.muted_color, 150))
         case .Clone_Header:
-            ui.draw_text("CLONE REPOSITORY", cast(i32) (rect.x + 4), cast(i32) (rect.y + (rect.height - 12) * 0.5), 12, git_view_tint(view.muted_color, 200))
+            ui.draw_text("CLONE REPOSITORY", cast(i32) (rect.x + 4), cast(i32) (rect.y + (rect.height - cast(f32) view.font_small) * 0.5), view.font_small, git_view_tint(view.muted_color, 200))
         case .Clone_Url_Field:
             git_view_draw_field(view, rect, &view.clone_url, view.focus == .Clone_Url, "Repository URL", false)
         case .Clone_Dir_Field:
@@ -897,12 +900,12 @@ git_view_draw_hosting :: proc(view: ^Git_View, mouse: rl.Vector2) {
             }
             rl.DrawRectangleRounded(rect, 0.35, 6, fill)
             rl.DrawRectangleRoundedLinesEx(rect, 0.35, 6, 1, border)
-            lw := ui.measure_text("Clone", 14)
+            lw := ui.measure_text("Clone", view.font_body)
             ui.draw_text(
                 "Clone",
                 cast(i32) (rect.x + (rect.width - cast(f32) lw) * 0.5),
-                cast(i32) (rect.y + (rect.height - 14) * 0.5),
-                14,
+                cast(i32) (rect.y + (rect.height - cast(f32) view.font_body) * 0.5),
+                view.font_body,
                 label_color,
             )
         }
@@ -932,20 +935,21 @@ git_view_draw_field :: proc(
     rl.DrawRectangleRoundedLinesEx(rect, 0.4, 8, 1, border)
 
     text := string(field.buf[:])
-    line_height: f32 = 20
+    font := view.font_primary
+    line_height := cast(f32) font + 5
     text_x := cast(i32) (rect.x + 10)
 
     if text == "" && !focused {
-        ui.draw_text(placeholder, text_x, cast(i32) (rect.y + (min(rect.height, 30) - 15) * 0.5), 15, git_view_tint(view.muted_color, 120))
+        ui.draw_text(placeholder, text_x, cast(i32) (rect.y + (min(rect.height, 30) - cast(f32) font) * 0.5), font, git_view_tint(view.muted_color, 120))
         return
     }
 
     if !multiline {
-        y := cast(i32) (rect.y + (rect.height - 15) * 0.5)
-        ui.draw_text(text, text_x, y, 15, view.text_color)
+        y := cast(i32) (rect.y + (rect.height - cast(f32) font) * 0.5)
+        ui.draw_text(text, text_x, y, font, view.text_color)
         if focused {
-            caret_x := text_x + cast(i32) ui.measure_text(text[:field.caret], 15) + 1
-            rl.DrawRectangle(caret_x, y, 2, 15, view.accent_color)
+            caret_x := text_x + cast(i32) ui.measure_text(text[:field.caret], font) + 1
+            rl.DrawRectangle(caret_x, y, 2, font, view.accent_color)
         }
         return
     }
@@ -968,10 +972,10 @@ git_view_draw_field :: proc(
         line := line_end >= 0 ? it[:line_end] : it
         y := rect.y + 5 + cast(f32) line_index * line_height - view.desc_scroll
         if y + line_height >= rect.y && y <= rect.y + rect.height {
-            ui.draw_text(line, text_x, cast(i32) y, 15, view.text_color)
+            ui.draw_text(line, text_x, cast(i32) y, font, view.text_color)
             if focused && field.caret >= offset && field.caret <= offset + len(line) {
-                caret_x := text_x + cast(i32) ui.measure_text(line[:field.caret - offset], 15) + 1
-                rl.DrawRectangle(caret_x, cast(i32) y, 2, 15, view.accent_color)
+                caret_x := text_x + cast(i32) ui.measure_text(line[:field.caret - offset], font) + 1
+                rl.DrawRectangle(caret_x, cast(i32) y, 2, font, view.accent_color)
             }
         }
         if line_end < 0 {

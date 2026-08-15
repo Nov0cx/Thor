@@ -15,25 +15,9 @@ import "../ui"
 // Left column holding the two file lists.
 @(private)
 GIT_FILES_WIDTH :: f32(340)
-// One history row: subject over short-hash, author and date.
-@(private)
-GIT_COMMIT_ROW :: f32(44)
-// One row of the branches view.
-@(private)
-GIT_REF_ROW :: f32(28)
-// One file row, and one diff row.
-@(private)
-GIT_FILE_ROW :: f32(26)
-@(private)
-GIT_DIFF_ROW :: f32(20)
-// A section header ("UNSTAGED (3)  Stage All") over each file list.
-@(private)
-GIT_SECTION_HEADER :: f32(28)
-// The commit box under the diff, and the diff title strip over it.
+// The commit box under the diff.
 @(private)
 GIT_COMMIT_BOX :: f32(150)
-@(private)
-GIT_DIFF_TITLE :: f32(26)
 
 Git_View_Kind :: enum {
     Changes,
@@ -278,6 +262,20 @@ Git_View :: struct {
     category_height: f32,
     footer_height:   f32,
     sidebar_width:   f32,
+    // Text sizes and row heights, derived from the Font Size setting; see
+    // git_view_set_font_size.
+    font_title:     i32,
+    font_primary:   i32,
+    font_body:      i32,
+    font_meta:      i32,
+    font_small:     i32,
+    font_badge:     i32,
+    row_file:       f32,
+    row_diff:       f32,
+    row_ref:        f32,
+    row_commit:     f32,
+    row_section:    f32,
+    row_diff_title: f32,
     cbs:  Git_View_Callbacks,
     data: rawptr,
     return_focus: ^ui.Widget,
@@ -326,6 +324,7 @@ git_view_create :: proc(id: string) -> ^Git_View {
     view.config_edit_index = -1
     view.width = 1080
     view.height = 680
+    git_view_set_font_size(view, 18)
     view.header_height = 56
     view.category_height = 36
     view.footer_height = 34
@@ -363,6 +362,23 @@ git_view_set_colors :: proc(
     view.warning_color = warning
     view.conflict_color = conflict
     return view
+}
+
+// Derives every text size and row height from the Font Size setting.
+git_view_set_font_size :: proc(view: ^Git_View, size: int) {
+    base := cast(i32) clamp(size, 10, 32)
+    view.font_title = base
+    view.font_primary = max(base - 2, 8)
+    view.font_body = max(base - 3, 8)
+    view.font_meta = max(base - 4, 8)
+    view.font_small = max(base - 5, 8)
+    view.font_badge = max(base - 6, 8)
+    view.row_file = cast(f32) view.font_body + 11
+    view.row_diff = cast(f32) view.font_body + 5
+    view.row_ref = cast(f32) view.font_body + 13
+    view.row_commit = cast(f32) (view.font_body + view.font_small) + 16
+    view.row_section = cast(f32) view.font_small + 15
+    view.row_diff_title = cast(f32) view.font_meta + 12
 }
 
 git_view_set_callbacks :: proc(view: ^Git_View, cbs: Git_View_Callbacks, data: rawptr) {
@@ -658,15 +674,15 @@ git_view_clamp_selection :: proc(view: ^Git_View) {
 git_view_clamp_scrolls :: proc(view: ^Git_View) {
     _, unstaged_list := git_view_section_rects(view, false)
     _, staged_list := git_view_section_rects(view, true)
-    view.unstaged_scroll = clamp(view.unstaged_scroll, 0, git_view_max_scroll(len(view.unstaged), GIT_FILE_ROW, unstaged_list.height))
-    view.staged_scroll = clamp(view.staged_scroll, 0, git_view_max_scroll(len(view.staged), GIT_FILE_ROW, staged_list.height))
+    view.unstaged_scroll = clamp(view.unstaged_scroll, 0, git_view_max_scroll(len(view.unstaged), view.row_file, unstaged_list.height))
+    view.staged_scroll = clamp(view.staged_scroll, 0, git_view_max_scroll(len(view.staged), view.row_file, staged_list.height))
     diff_list := git_view_diff_list_rect(view)
-    view.diff_scroll = clamp(view.diff_scroll, 0, git_view_max_scroll(len(view.diff_rows), GIT_DIFF_ROW, diff_list.height))
+    view.diff_scroll = clamp(view.diff_scroll, 0, git_view_max_scroll(len(view.diff_rows), view.row_diff, diff_list.height))
     commits := git_view_commits_list_rect(view)
-    view.commits_scroll = clamp(view.commits_scroll, 0, git_view_max_scroll(git_view_commit_row_count(view), GIT_COMMIT_ROW, commits.height))
+    view.commits_scroll = clamp(view.commits_scroll, 0, git_view_max_scroll(git_view_commit_row_count(view), view.row_commit, commits.height))
     refs := git_view_refs_list_rect(view)
-    view.refs_scroll = clamp(view.refs_scroll, 0, git_view_max_scroll(git_view_ref_row_count(view), GIT_REF_ROW, refs.height))
-    view.config_scroll = clamp(view.config_scroll, 0, git_view_max_scroll(git_view_config_row_count(view), GIT_REF_ROW, refs.height))
+    view.refs_scroll = clamp(view.refs_scroll, 0, git_view_max_scroll(git_view_ref_row_count(view), view.row_ref, refs.height))
+    view.config_scroll = clamp(view.config_scroll, 0, git_view_max_scroll(git_view_config_row_count(view), view.row_ref, refs.height))
     view.hosting_scroll = clamp(view.hosting_scroll, 0, max(0, git_view_hosting_content_height(view) - refs.height))
 }
 
@@ -698,15 +714,15 @@ git_view_section_rects :: proc(view: ^Git_View, staged: bool) -> (header, list: 
     body := git_view_body_rect(view)
     half := body.height * 0.5
     top := staged ? body.y + half : body.y
-    header = rl.Rectangle {body.x, top, GIT_FILES_WIDTH, GIT_SECTION_HEADER}
-    list = rl.Rectangle {body.x, top + GIT_SECTION_HEADER, GIT_FILES_WIDTH, half - GIT_SECTION_HEADER}
+    header = rl.Rectangle {body.x, top, GIT_FILES_WIDTH, view.row_section}
+    list = rl.Rectangle {body.x, top + view.row_section, GIT_FILES_WIDTH, half - view.row_section}
     return
 }
 
 // The "Stage All" / "Unstage All" action at a section header's right edge.
 @(private)
 git_view_section_action_rect :: proc(view: ^Git_View, header: rl.Rectangle, label: string) -> rl.Rectangle {
-    tw := cast(f32) ui.measure_text(label, 12)
+    tw := cast(f32) ui.measure_text(label, view.font_small)
     w := tw + 16
     return rl.Rectangle {header.x + header.width - SETTINGS_ROW_PAD - w, header.y + (header.height - 20) * 0.5, w, 20}
 }
@@ -715,7 +731,7 @@ git_view_section_action_rect :: proc(view: ^Git_View, header: rl.Rectangle, labe
 git_view_file_row_rect :: proc(view: ^Git_View, staged: bool, index: int) -> rl.Rectangle {
     _, list := git_view_section_rects(view, staged)
     scroll := staged ? view.staged_scroll : view.unstaged_scroll
-    return rl.Rectangle {list.x, list.y + cast(f32) index * GIT_FILE_ROW - scroll, list.width, GIT_FILE_ROW}
+    return rl.Rectangle {list.x, list.y + cast(f32) index * view.row_file - scroll, list.width, view.row_file}
 }
 
 // Index in a section's list under `point`, or -1.
@@ -726,7 +742,7 @@ git_view_file_row_at :: proc(view: ^Git_View, staged: bool, point: rl.Vector2) -
         return -1
     }
     scroll := staged ? view.staged_scroll : view.unstaged_scroll
-    index := cast(int) ((point.y - list.y + scroll) / GIT_FILE_ROW)
+    index := cast(int) ((point.y - list.y + scroll) / view.row_file)
     count := staged ? len(view.staged) : len(view.unstaged)
     if index < 0 || index >= count {
         return -1
@@ -787,7 +803,7 @@ git_view_commit_row_count :: proc(view: ^Git_View) -> int {
 @(private)
 git_view_commit_row_rect :: proc(view: ^Git_View, index: int) -> rl.Rectangle {
     list := git_view_commits_list_rect(view)
-    return rl.Rectangle {list.x, list.y + cast(f32) index * GIT_COMMIT_ROW - view.commits_scroll, list.width, GIT_COMMIT_ROW}
+    return rl.Rectangle {list.x, list.y + cast(f32) index * view.row_commit - view.commits_scroll, list.width, view.row_commit}
 }
 
 @(private = "file")
@@ -796,7 +812,7 @@ git_view_commit_row_at :: proc(view: ^Git_View, point: rl.Vector2) -> int {
     if !rl.CheckCollisionPointRec(point, list) {
         return -1
     }
-    index := cast(int) ((point.y - list.y + view.commits_scroll) / GIT_COMMIT_ROW)
+    index := cast(int) ((point.y - list.y + view.commits_scroll) / view.row_commit)
     if index < 0 || index >= git_view_commit_row_count(view) {
         return -1
     }
@@ -846,7 +862,7 @@ git_view_ref_row_count :: proc(view: ^Git_View) -> int {
 @(private)
 git_view_ref_row_rect :: proc(view: ^Git_View, index: int) -> rl.Rectangle {
     list := git_view_refs_list_rect(view)
-    return rl.Rectangle {list.x, list.y + cast(f32) index * GIT_REF_ROW - view.refs_scroll, list.width, GIT_REF_ROW}
+    return rl.Rectangle {list.x, list.y + cast(f32) index * view.row_ref - view.refs_scroll, list.width, view.row_ref}
 }
 
 @(private = "file")
@@ -855,7 +871,7 @@ git_view_ref_row_at :: proc(view: ^Git_View, point: rl.Vector2) -> int {
     if !rl.CheckCollisionPointRec(point, list) {
         return -1
     }
-    index := cast(int) ((point.y - list.y + view.refs_scroll) / GIT_REF_ROW)
+    index := cast(int) ((point.y - list.y + view.refs_scroll) / view.row_ref)
     if index < 0 || index >= git_view_ref_row_count(view) {
         return -1
     }
@@ -897,7 +913,7 @@ git_view_config_row_count :: proc(view: ^Git_View) -> int {
 @(private)
 git_view_config_row_rect :: proc(view: ^Git_View, index: int) -> rl.Rectangle {
     list := git_view_refs_list_rect(view)
-    return rl.Rectangle {list.x, list.y + cast(f32) index * GIT_REF_ROW - view.config_scroll, list.width, GIT_REF_ROW}
+    return rl.Rectangle {list.x, list.y + cast(f32) index * view.row_ref - view.config_scroll, list.width, view.row_ref}
 }
 
 @(private = "file")
@@ -906,7 +922,7 @@ git_view_config_row_at :: proc(view: ^Git_View, point: rl.Vector2) -> int {
     if !rl.CheckCollisionPointRec(point, list) {
         return -1
     }
-    index := cast(int) ((point.y - list.y + view.config_scroll) / GIT_REF_ROW)
+    index := cast(int) ((point.y - list.y + view.config_scroll) / view.row_ref)
     if index < 0 || index >= git_view_config_row_count(view) {
         return -1
     }
@@ -1006,7 +1022,7 @@ git_view_stash_action_rects :: proc(row: rl.Rectangle) -> (apply, pop, drop: rl.
 @(private)
 git_view_diff_list_rect :: proc(view: ^Git_View) -> rl.Rectangle {
     diff := git_view_diff_rect(view)
-    return rl.Rectangle {diff.x, diff.y + GIT_DIFF_TITLE, diff.width, diff.height - GIT_DIFF_TITLE}
+    return rl.Rectangle {diff.x, diff.y + view.row_diff_title, diff.width, diff.height - view.row_diff_title}
 }
 
 @(private)
@@ -1030,7 +1046,7 @@ git_view_description_rect :: proc(view: ^Git_View) -> rl.Rectangle {
 @(private)
 git_view_amend_rect :: proc(view: ^Git_View) -> rl.Rectangle {
     desc := git_view_description_rect(view)
-    label_w := cast(f32) ui.measure_text("Amend", 14)
+    label_w := cast(f32) ui.measure_text("Amend", view.font_body)
     return rl.Rectangle {desc.x, desc.y + desc.height + 9, 16 + 6 + label_w, 18}
 }
 
@@ -1197,11 +1213,11 @@ git_view_scroll_config_into_view :: proc(view: ^Git_View) {
         return
     }
     list := git_view_refs_list_rect(view)
-    top := cast(f32) view.config_sel * GIT_REF_ROW
+    top := cast(f32) view.config_sel * view.row_ref
     if top < view.config_scroll {
         view.config_scroll = top
-    } else if top + GIT_REF_ROW > view.config_scroll + list.height {
-        view.config_scroll = top + GIT_REF_ROW - list.height
+    } else if top + view.row_ref > view.config_scroll + list.height {
+        view.config_scroll = top + view.row_ref - list.height
     }
 }
 
@@ -1276,11 +1292,11 @@ git_view_select_commit :: proc(view: ^Git_View, index: int) {
     view.commit_sel = next
 
     list := git_view_commits_list_rect(view)
-    top := cast(f32) next * GIT_COMMIT_ROW
+    top := cast(f32) next * view.row_commit
     if top < view.commits_scroll {
         view.commits_scroll = top
-    } else if top + GIT_COMMIT_ROW > view.commits_scroll + list.height {
-        view.commits_scroll = top + GIT_COMMIT_ROW - list.height
+    } else if top + view.row_commit > view.commits_scroll + list.height {
+        view.commits_scroll = top + view.row_commit - list.height
     }
 
     if view.cbs.on_select_commit != nil {
@@ -1309,11 +1325,11 @@ git_view_scroll_ref_into_view :: proc(view: ^Git_View) {
         return
     }
     list := git_view_refs_list_rect(view)
-    top := cast(f32) view.ref_sel * GIT_REF_ROW
+    top := cast(f32) view.ref_sel * view.row_ref
     if top < view.refs_scroll {
         view.refs_scroll = top
-    } else if top + GIT_REF_ROW > view.refs_scroll + list.height {
-        view.refs_scroll = top + GIT_REF_ROW - list.height
+    } else if top + view.row_ref > view.refs_scroll + list.height {
+        view.refs_scroll = top + view.row_ref - list.height
     }
 }
 
@@ -1367,15 +1383,15 @@ git_view_diff_key :: proc(view: ^Git_View, event: ^ui.Event) {
     list := git_view_diff_list_rect(view)
     #partial switch event.key {
     case .UP:
-        view.diff_scroll -= GIT_DIFF_ROW
+        view.diff_scroll -= view.row_diff
     case .DOWN:
-        view.diff_scroll += GIT_DIFF_ROW
+        view.diff_scroll += view.row_diff
     case .PAGE_UP:
         view.diff_scroll -= list.height
     case .PAGE_DOWN:
         view.diff_scroll += list.height
     }
-    view.diff_scroll = clamp(view.diff_scroll, 0, git_view_max_scroll(len(view.diff_rows), GIT_DIFF_ROW, list.height))
+    view.diff_scroll = clamp(view.diff_scroll, 0, git_view_max_scroll(len(view.diff_rows), view.row_diff, list.height))
 }
 
 // Moves the combined selection: the unstaged list flows into the staged one.
@@ -1416,14 +1432,14 @@ git_view_select_file :: proc(view: ^Git_View, staged: bool, index: int) {
 
     _, list := git_view_section_rects(view, staged)
     scroll := staged ? &view.staged_scroll : &view.unstaged_scroll
-    top := cast(f32) index * GIT_FILE_ROW
+    top := cast(f32) index * view.row_file
     if top < scroll^ {
         scroll^ = top
-    } else if top + GIT_FILE_ROW > scroll^ + list.height {
-        scroll^ = top + GIT_FILE_ROW - list.height
+    } else if top + view.row_file > scroll^ + list.height {
+        scroll^ = top + view.row_file - list.height
     }
     count := staged ? len(view.staged) : len(view.unstaged)
-    scroll^ = clamp(scroll^, 0, git_view_max_scroll(count, GIT_FILE_ROW, list.height))
+    scroll^ = clamp(scroll^, 0, git_view_max_scroll(count, view.row_file, list.height))
 
     if path, sel_staged, ok := git_view_selected_file(view); ok && view.cbs.on_select_file != nil {
         view.cbs.on_select_file(view.data, path, sel_staged)
@@ -1581,30 +1597,30 @@ git_view_scroll :: proc(view: ^Git_View, event: ^ui.Event) {
         diff_list := git_view_diff_list_rect(view)
         switch {
         case rl.CheckCollisionPointRec(point, unstaged_list):
-            view.unstaged_scroll -= delta * GIT_FILE_ROW
+            view.unstaged_scroll -= delta * view.row_file
         case rl.CheckCollisionPointRec(point, staged_list):
-            view.staged_scroll -= delta * GIT_FILE_ROW
+            view.staged_scroll -= delta * view.row_file
         case rl.CheckCollisionPointRec(point, diff_list):
-            view.diff_scroll -= delta * GIT_DIFF_ROW * 3
+            view.diff_scroll -= delta * view.row_diff * 3
         }
     case .History:
         switch {
         case rl.CheckCollisionPointRec(point, git_view_commits_list_rect(view)):
-            view.commits_scroll -= delta * GIT_COMMIT_ROW
+            view.commits_scroll -= delta * view.row_commit
         case rl.CheckCollisionPointRec(point, git_view_diff_list_rect(view)):
-            view.diff_scroll -= delta * GIT_DIFF_ROW * 3
+            view.diff_scroll -= delta * view.row_diff * 3
         }
     case .Branches:
         if rl.CheckCollisionPointRec(point, git_view_refs_list_rect(view)) {
-            view.refs_scroll -= delta * GIT_REF_ROW
+            view.refs_scroll -= delta * view.row_ref
         }
     case .Settings:
         if rl.CheckCollisionPointRec(point, git_view_refs_list_rect(view)) {
-            view.config_scroll -= delta * GIT_REF_ROW
+            view.config_scroll -= delta * view.row_ref
         }
     case .Hosting:
         if rl.CheckCollisionPointRec(point, git_view_refs_list_rect(view)) {
-            view.hosting_scroll -= delta * GIT_REF_ROW
+            view.hosting_scroll -= delta * view.row_ref
         }
     }
     git_view_clamp_scrolls(view)
