@@ -102,6 +102,8 @@ says so when none is available (Wayland has no equivalent).
 
 ## A first tour
 
+- **Title bar** — drag it to move the window, double-click it to maximize the
+  window or to restore it; the buttons on its right minimize, maximize and close.
 - **Explorer** (`ctrl + b` to toggle) — the file tree for the open folder.
 - **Editor** — tabs across the top; `ctrl + tab` for fuzzy file search,
   `ctrl + w` to close a tab.

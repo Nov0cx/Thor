@@ -23,6 +23,16 @@ thor_toggle_maximize :: proc(data: rawptr, _: ^ui.Context, _: ^ui.Widget) {
     thor.window_maximized = !thor.window_maximized
 }
 
+// Titlebar hooks: the widget drags and double-clicks through these instead of
+// reading the window state itself, so window_maximized stays in step.
+thor_window_is_maximized :: proc(data: rawptr) -> bool {
+    return (cast(^Thor) data).window_maximized
+}
+
+thor_titlebar_toggle_maximize :: proc(data: rawptr) {
+    thor_toggle_maximize(data, nil, nil)
+}
+
 thor_close_window :: proc(data: rawptr, _: ^ui.Context, _: ^ui.Widget) {
     thor := cast(^Thor) data
     thor.should_close = true

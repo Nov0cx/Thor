@@ -1,9 +1,14 @@
 package widgets
 
 import "core:c"
+import "core:math"
 import rl "vendor:raylib"
 
 import "../ui"
+
+// Cursor travel that turns a press on a maximized window into a restore.
+@(private = "file")
+UNMAXIMIZE_THRESHOLD :: 4
 
 Titlebar :: struct {
     using widget: ui.Widget,
@@ -11,6 +16,14 @@ Titlebar :: struct {
     padding:          ui.Padding,
     background_color: rl.Color,
     dragging:         bool,
+    // Grabbed point: x as a fraction of the window width, so a restore mid-drag
+    // puts it back proportionally along the smaller titlebar.
+    grab_ratio:       f32,
+    grab_y:           f32,
+    // The maximize state lives in the host, not here.
+    is_maximized:     #type proc(data: rawptr) -> bool,
+    toggle_maximize:  #type proc(data: rawptr),
+    maximize_data:    rawptr,
 }
 
 titlebar_vtable := ui.Widget_VTable {
@@ -40,6 +53,19 @@ titlebar_set_padding :: proc(titlebar: ^Titlebar, padding: ui.Padding) -> ^Title
 
 titlebar_set_background :: proc(titlebar: ^Titlebar, background_color: rl.Color) -> ^Titlebar {
     titlebar.background_color = background_color
+    return titlebar
+}
+
+// Sets the hooks the drag needs to read and change the maximize state.
+titlebar_set_maximize :: proc(
+    titlebar: ^Titlebar,
+    is_maximized: #type proc(data: rawptr) -> bool,
+    toggle_maximize: #type proc(data: rawptr),
+    data: rawptr,
+) -> ^Titlebar {
+    titlebar.is_maximized = is_maximized
+    titlebar.toggle_maximize = toggle_maximize
+    titlebar.maximize_data = data
     return titlebar
 }
 
@@ -98,24 +124,75 @@ titlebar_layout :: proc(widget: ^ui.Widget, bounds: rl.Rectangle) {
     }
 }
 
+// Window origin that puts the grabbed point back under the cursor. Anchored on
+// the grab point, not on per-frame deltas: X11 sends no motion event when the
+// window itself moves, so a delta-driven drag oscillates instead of tracking.
+titlebar_drag_position :: proc(window_pos, mouse_pos, grab: rl.Vector2) -> [2]c.int {
+    return [2]c.int {
+        cast(c.int) math.round(window_pos[0] + mouse_pos[0] - grab[0]),
+        cast(c.int) math.round(window_pos[1] + mouse_pos[1] - grab[1]),
+    }
+}
+
+// The grabbed point in the window of this frame.
+@(private = "file")
+titlebar_grab :: proc(titlebar: ^Titlebar) -> rl.Vector2 {
+    return rl.Vector2 {titlebar.grab_ratio * cast(f32) rl.GetScreenWidth(), titlebar.grab_y}
+}
+
 titlebar_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event) -> bool {
     titlebar := cast(^Titlebar) widget
 
     #partial switch event.kind {
     case .Mouse_Down:
-        if event.target == widget || event.target.vtable.handle_event == nil {
-            titlebar.dragging = true
+        if event.mouse_button != .LEFT {
+            return false
+        }
+        if event.target != widget && event.target.vtable.handle_event != nil {
+            return false
+        }
+        if event.click_count >= 2 {
+            titlebar.dragging = false
+            if titlebar.toggle_maximize != nil {
+                titlebar.toggle_maximize(titlebar.maximize_data)
+            }
             return true
         }
+        titlebar.dragging = true
+        width := cast(f32) rl.GetScreenWidth()
+        titlebar.grab_ratio = width > 0 ? event.mouse_position[0] / width : 0
+        titlebar.grab_y = event.mouse_position[1]
+        return true
     case .Mouse_Move:
-        if titlebar.dragging {
-            pos := rl.GetWindowPosition()
-            rl.SetWindowPosition(
-                cast(c.int) (pos[0] + event.mouse_delta[0]),
-                cast(c.int) (pos[1] + event.mouse_delta[1]),
-            )
+        if !titlebar.dragging {
+            return false
+        }
+        // The window manager can swallow the release, a drag past a screen edge
+        // does, which would leave the window glued to the cursor.
+        if !rl.IsMouseButtonDown(.LEFT) {
+            titlebar.dragging = false
+            return false
+        }
+        grab := titlebar_grab(titlebar)
+        if titlebar.toggle_maximize != nil && titlebar.is_maximized != nil &&
+           titlebar.is_maximized(titlebar.maximize_data) {
+            moved := abs(event.mouse_position[0] - grab[0]) > UNMAXIMIZE_THRESHOLD ||
+                abs(event.mouse_position[1] - grab[1]) > UNMAXIMIZE_THRESHOLD
+            if moved {
+                // The restored size lands one frame later, and grab_ratio then
+                // puts the grabbed point back under the cursor.
+                titlebar.toggle_maximize(titlebar.maximize_data)
+            }
             return true
         }
+        pos := rl.GetWindowPosition()
+        current := [2]c.int {cast(c.int) math.round(pos[0]), cast(c.int) math.round(pos[1])}
+        target := titlebar_drag_position(pos, event.mouse_position, grab)
+        // A move of zero still costs an X11 round trip every frame.
+        if target != current {
+            rl.SetWindowPosition(target[0], target[1])
+        }
+        return true
     case .Mouse_Up:
         titlebar.dragging = false
     case .Click, .Key_Press, .None:

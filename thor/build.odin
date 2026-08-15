@@ -16,6 +16,12 @@ thor_build_ui :: proc(thor: ^Thor) {
     widgets.titlebar_set_gap(thor.top_bar, 8)
     widgets.titlebar_set_padding(thor.top_bar, ui.padding_xy(12, 8))
     widgets.titlebar_set_background(thor.top_bar, thor.theme.buttons)
+    widgets.titlebar_set_maximize(
+        thor.top_bar,
+        thor_window_is_maximized,
+        thor_titlebar_toggle_maximize,
+        thor,
+    )
     thor.top_bar.min_size = rl.Vector2 {0, 44}
 
     thor.workspace_row = widgets.stack_create("workspace-row", .Horizontal)

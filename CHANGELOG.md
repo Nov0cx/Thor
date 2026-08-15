@@ -1,3 +1,11 @@
+# 2026.08.6
+
+- The window follows the cursor when the titlebar is dragged on Linux. The window moved in steps and fell behind the cursor.
+- A double click on the titlebar maximizes the window, and restores it.
+- A drag on a maximized window restores it and keeps the grabbed point under the cursor.
+- Only the left mouse button drags the window. A right or middle click on the titlebar also moved it.
+- The window stops following the cursor when the button is released outside the window.
+
 # 2026.08.5
 
 - The Windows release binary opens without a console window beside the editor. `thor --version` and `thor --help` still print in the shell that started them.
