@@ -48,6 +48,21 @@ git_view_kind_icon :: proc(kind: Git_View_Kind) -> string {
 }
 
 @(private = "file")
+git_view_status_name :: proc(status: Git_Status) -> string {
+    switch status {
+    case .None:      return ""
+    case .Modified:  return "Modified"
+    case .Renamed:   return "Renamed"
+    case .Added:     return "Added"
+    case .Untracked: return "Untracked"
+    case .Deleted:   return "Deleted"
+    case .Conflict:  return "Conflict"
+    case .Submodule: return "Submodule"
+    }
+    return ""
+}
+
+@(private = "file")
 git_view_status_color :: proc(view: ^Git_View, status: Git_Status) -> rl.Color {
     switch status {
     case .None:                return view.text_color
@@ -78,7 +93,7 @@ git_view_fit_tail :: proc(text: string, font_size: i32, max_width: f32) -> strin
     return "..."
 }
 
-git_view_draw :: proc(widget: ^ui.Widget, _: ^ui.Context) {
+git_view_draw :: proc(widget: ^ui.Widget, ctx: ^ui.Context) {
     view := cast(^Git_View) widget
     if !view.visible {
         return
@@ -92,21 +107,29 @@ git_view_draw :: proc(widget: ^ui.Widget, _: ^ui.Context) {
 
     // The sidebar comes first: the header divider lies on its top edge.
     git_view_draw_sidebar(view, mouse)
-    git_view_draw_header(view, mouse)
+    git_view_draw_header(view, ctx, mouse)
 
     switch view.kind {
     case .Changes:
-        git_view_draw_changes(view, mouse)
+        git_view_draw_changes(view, ctx, mouse)
     case .History:
-        git_view_draw_history(view, mouse)
+        git_view_draw_history(view, ctx, mouse)
     case .Branches:
-        git_view_draw_branches(view, mouse)
+        git_view_draw_branches(view, ctx, mouse)
     case .Settings:
         git_view_draw_settings(view, mouse)
     case .Hosting:
         git_view_draw_hosting(view, mouse)
     }
     git_view_draw_footer(view)
+}
+
+// Asks for a hover hint over `rect` while the view is the hot widget.
+@(private = "file")
+git_view_tip :: proc(view: ^Git_View, ctx: ^ui.Context, rect: rl.Rectangle, text: string, mouse: rl.Vector2) {
+    if ctx != nil && ctx.hot == &view.widget && rl.CheckCollisionPointRec(mouse, rect) {
+        ui.tooltip_request(ctx, rect, text)
+    }
 }
 
 // Three fading outlines under the box; there is no blur, so the steps stand
@@ -126,7 +149,7 @@ git_view_draw_shadow :: proc(view: ^Git_View) {
 }
 
 @(private = "file")
-git_view_draw_header :: proc(view: ^Git_View, mouse: rl.Vector2) {
+git_view_draw_header :: proc(view: ^Git_View, ctx: ^ui.Context, mouse: rl.Vector2) {
     x := view.box.x + 20
     title_y := cast(i32) (view.box.y + (view.header_height - cast(f32) view.font_title) * 0.5)
     ui.draw_text("Git", cast(i32) x, title_y, view.font_title, view.text_color)
@@ -142,15 +165,19 @@ git_view_draw_header :: proc(view: ^Git_View, mouse: rl.Vector2) {
 
         if view.has_upstream && (view.ahead > 0 || view.behind > 0) {
             counts := fmt.tprintf("%d ahead · %d behind", view.ahead, view.behind)
-            ui.draw_text(counts, cast(i32) x, cast(i32) (view.box.y + (view.header_height - cast(f32) view.font_small) * 0.5), view.font_small, view.muted_color)
+            counts_y := view.box.y + (view.header_height - cast(f32) view.font_small) * 0.5
+            ui.draw_text(counts, cast(i32) x, cast(i32) counts_y, view.font_small, view.muted_color)
+            counts_rect := rl.Rectangle {x, counts_y, cast(f32) ui.measure_text(counts, view.font_small), cast(f32) view.font_small}
+            git_view_tip(view, ctx, counts_rect, "Commits ahead and behind the upstream branch", mouse)
         }
     }
 
     fetch, pull, push := git_view_sync_rects(view)
-    git_view_draw_sync_button(view, fetch, "cloud-down", mouse)
-    git_view_draw_sync_button(view, pull, "arrow-down", mouse)
-    git_view_draw_sync_button(view, push, "arrow-up", mouse)
+    git_view_draw_sync_button(view, ctx, fetch, "cloud-down", "Fetch", mouse)
+    git_view_draw_sync_button(view, ctx, pull, "arrow-down", "Pull", mouse)
+    git_view_draw_sync_button(view, ctx, push, "arrow-up", "Push", mouse)
     git_view_draw_icon_button(view, git_view_close_rect(view), "x", 16, mouse)
+    git_view_tip(view, ctx, git_view_close_rect(view), "Close", mouse)
 
     rl.DrawRectangleRec(
         rl.Rectangle {view.box.x + 1, view.box.y + view.header_height, view.box.width - 2, 1},
@@ -160,8 +187,9 @@ git_view_draw_header :: proc(view: ^Git_View, mouse: rl.Vector2) {
 
 // A framed toolbar button, dimmed while a command runs.
 @(private = "file")
-git_view_draw_sync_button :: proc(view: ^Git_View, rect: rl.Rectangle, icon: string, mouse: rl.Vector2) {
+git_view_draw_sync_button :: proc(view: ^Git_View, ctx: ^ui.Context, rect: rl.Rectangle, icon, tip: string, mouse: rl.Vector2) {
     hover := !view.busy && rl.CheckCollisionPointRec(mouse, rect)
+    git_view_tip(view, ctx, rect, tip, mouse)
     rl.DrawRectangleRounded(rect, 0.35, 6, hover ? git_view_tint(view.accent_color, 25) : view.field_color)
     rl.DrawRectangleRoundedLinesEx(
         rect, 0.35, 6, 1, hover ? view.accent_color : git_view_tint(view.muted_color, 60),
@@ -286,9 +314,9 @@ git_view_draw_footer :: proc(view: ^Git_View) {
 // ---- changes view ----
 
 @(private = "file")
-git_view_draw_changes :: proc(view: ^Git_View, mouse: rl.Vector2) {
-    git_view_draw_file_section(view, false, mouse)
-    git_view_draw_file_section(view, true, mouse)
+git_view_draw_changes :: proc(view: ^Git_View, ctx: ^ui.Context, mouse: rl.Vector2) {
+    git_view_draw_file_section(view, ctx, false, mouse)
+    git_view_draw_file_section(view, ctx, true, mouse)
 
     // Divider between the file column and the diff.
     right := git_view_right_rect(view)
@@ -296,12 +324,12 @@ git_view_draw_changes :: proc(view: ^Git_View, mouse: rl.Vector2) {
         rl.Rectangle {right.x, right.y, 1, right.height}, git_view_tint(view.muted_color, 45),
     )
 
-    git_view_draw_diff(view)
-    git_view_draw_commit_box(view, mouse)
+    git_view_draw_diff(view, ctx)
+    git_view_draw_commit_box(view, ctx, mouse)
 }
 
 @(private = "file")
-git_view_draw_file_section :: proc(view: ^Git_View, staged: bool, mouse: rl.Vector2) {
+git_view_draw_file_section :: proc(view: ^Git_View, ctx: ^ui.Context, staged: bool, mouse: rl.Vector2) {
     header, list := git_view_section_rects(view, staged)
     count := staged ? len(view.staged) : len(view.unstaged)
 
@@ -378,6 +406,7 @@ git_view_draw_file_section :: proc(view: ^Git_View, staged: bool, mouse: rl.Vect
             view.font_badge,
             status_color,
         )
+        git_view_tip(view, ctx, chip, git_view_status_name(file.status), mouse)
 
         // Name, leaving room for the hover action boxes.
         name_x := chip.x + chip.width + 8
@@ -389,9 +418,13 @@ git_view_draw_file_section :: proc(view: ^Git_View, staged: bool, mouse: rl.Vect
         ui.draw_text(name, cast(i32) name_x, cast(i32) (rect.y + (rect.height - cast(f32) view.font_body) * 0.5), view.font_body, view.text_color)
 
         if hovered && !view.busy {
-            git_view_draw_icon_button(view, git_view_file_action_rect(rect), staged ? "minus" : "plus", 14, mouse)
+            action := git_view_file_action_rect(rect)
+            git_view_draw_icon_button(view, action, staged ? "minus" : "plus", 14, mouse)
+            git_view_tip(view, ctx, action, staged ? "Unstage" : "Stage", mouse)
             if !staged {
-                git_view_draw_icon_button(view, git_view_file_discard_rect(rect), "trash", 14, mouse)
+                discard := git_view_file_discard_rect(rect)
+                git_view_draw_icon_button(view, discard, "trash", 14, mouse)
+                git_view_tip(view, ctx, discard, "Discard changes", mouse)
             }
         }
     }
@@ -405,7 +438,7 @@ git_view_draw_file_section :: proc(view: ^Git_View, staged: bool, mouse: rl.Vect
 }
 
 @(private = "file")
-git_view_draw_diff :: proc(view: ^Git_View, ) {
+git_view_draw_diff :: proc(view: ^Git_View, ctx: ^ui.Context) {
     diff := git_view_diff_rect(view)
     list := git_view_diff_list_rect(view)
 
@@ -422,6 +455,11 @@ git_view_draw_diff :: proc(view: ^Git_View, ) {
             rl.Rectangle {diff.x + 1, diff.y + view.row_diff_title - 1, diff.width - 2, 1},
             git_view_tint(view.muted_color, 30),
         )
+        // Head-truncated: the hint carries the full title.
+        if title != view.diff_title {
+            strip := rl.Rectangle {diff.x, diff.y, diff.width, view.row_diff_title}
+            git_view_tip(view, ctx, strip, view.diff_title, rl.GetMousePosition())
+        }
     }
 
     if len(view.diff_rows) == 0 {
@@ -503,7 +541,7 @@ git_view_draw_diff :: proc(view: ^Git_View, ) {
 }
 
 @(private = "file")
-git_view_draw_commit_box :: proc(view: ^Git_View, mouse: rl.Vector2) {
+git_view_draw_commit_box :: proc(view: ^Git_View, ctx: ^ui.Context, mouse: rl.Vector2) {
     box := git_view_commit_rect(view)
     rl.DrawRectangleRec(
         rl.Rectangle {box.x, box.y, box.width, 1}, git_view_tint(view.muted_color, 45),
@@ -523,6 +561,7 @@ git_view_draw_commit_box :: proc(view: ^Git_View, mouse: rl.Vector2) {
         ui.draw_icon("check", cast(i32) (check.x + 1), cast(i32) (check.y + 1), 14, view.accent_color)
     }
     ui.draw_text("Amend", cast(i32) (check.x + 22), cast(i32) (amend.y + 2), view.font_body, view.text_color)
+    git_view_tip(view, ctx, amend, "Rewrite the last commit instead of adding a new one", mouse)
 
     // Commit button.
     button := git_view_commit_button_rect(view)
@@ -552,7 +591,7 @@ git_view_draw_commit_box :: proc(view: ^Git_View, mouse: rl.Vector2) {
 // ---- history view ----
 
 @(private = "file")
-git_view_draw_history :: proc(view: ^Git_View, mouse: rl.Vector2) {
+git_view_draw_history :: proc(view: ^Git_View, ctx: ^ui.Context, mouse: rl.Vector2) {
     list := git_view_commits_list_rect(view)
     right := git_view_right_rect(view)
     rl.DrawRectangleRec(
@@ -567,7 +606,7 @@ git_view_draw_history :: proc(view: ^Git_View, mouse: rl.Vector2) {
             view.font_body,
             git_view_tint(view.muted_color, 120),
         )
-        git_view_draw_diff(view)
+        git_view_draw_diff(view, ctx)
         return
     }
 
@@ -604,6 +643,7 @@ git_view_draw_history :: proc(view: ^Git_View, mouse: rl.Vector2) {
             pill := rl.Rectangle {text_x + cast(f32) ui.measure_text(subject, view.font_body) + 10, rect.y + 6, pw + 12, pill_h}
             rl.DrawRectangleRounded(pill, 0.5, 8, git_view_tint(view.accent_color, 32))
             ui.draw_text(pill_label, cast(i32) (pill.x + 6), cast(i32) (pill.y + (pill_h - cast(f32) view.font_badge) * 0.5), view.font_badge, view.accent_color)
+            git_view_tip(view, ctx, pill, commit.refs, mouse)
         }
 
         meta := fmt.tprintf("%s · %s · %s", commit.short, commit.author, commit.date)
@@ -634,7 +674,7 @@ git_view_draw_history :: proc(view: ^Git_View, mouse: rl.Vector2) {
         rl.DrawRectangleRounded(thumb, 0.5, 4, git_view_tint(view.muted_color, 120))
     }
 
-    git_view_draw_diff(view)
+    git_view_draw_diff(view, ctx)
 }
 
 // ---- branches view ----
@@ -661,7 +701,7 @@ git_view_ref_icon :: proc(kind: Git_Ref_Kind) -> string {
 }
 
 @(private = "file")
-git_view_draw_branches :: proc(view: ^Git_View, mouse: rl.Vector2) {
+git_view_draw_branches :: proc(view: ^Git_View, ctx: ^ui.Context, mouse: rl.Vector2) {
     list := git_view_refs_list_rect(view)
     rows := make([dynamic]Git_Ref_Row, context.temp_allocator)
     git_view_ref_rows(view, &rows)
@@ -738,6 +778,9 @@ git_view_draw_branches :: proc(view: ^Git_View, mouse: rl.Vector2) {
             git_view_draw_icon_button(view, apply, "check", 14, mouse)
             git_view_draw_icon_button(view, pop, "arrow-up", 14, mouse)
             git_view_draw_icon_button(view, drop, "trash", 14, mouse)
+            git_view_tip(view, ctx, apply, "Apply", mouse)
+            git_view_tip(view, ctx, pop, "Pop", mouse)
+            git_view_tip(view, ctx, drop, "Drop", mouse)
         }
     }
     ui.end_clip()
