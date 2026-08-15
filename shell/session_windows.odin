@@ -94,8 +94,11 @@ session_start :: proc(profile: Profile, cwd: string) -> (^Session, bool) {
 
 // Writes to the shell's stdin. The caller terminates lines itself.
 session_write :: proc(session: ^Session, text: string) -> bool {
-    if session == nil || len(text) == 0 {
-        return session != nil
+    if session == nil || session.stdin_w == nil {
+        return false
+    }
+    if len(text) == 0 {
+        return true
     }
     data := transmute([]u8) text
     for sent := 0; sent < len(data); {

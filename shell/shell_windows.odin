@@ -108,8 +108,10 @@ run_status :: proc(command: string, cwd: string, timeout: time.Duration = 0) -> 
                 // full one: the wait itself doubles as the sleep between polls,
                 // woken early the moment the process exits instead of noticing
                 // up to one slice late.
+                // The peek above can push past the deadline, and a negative
+                // duration converts to a DWORD of 0xFFFFFFFF, which is INFINITE.
                 remaining := time.duration_milliseconds(timeout - time.tick_since(start))
-                wait_ms := win32.DWORD(min(remaining, 50))
+                wait_ms := win32.DWORD(clamp(remaining, 0, 50))
                 if win32.WaitForSingleObject(pi.hProcess, wait_ms) != win32.WAIT_OBJECT_0 {
                     continue
                 }

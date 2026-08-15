@@ -71,8 +71,13 @@ watcher_init :: proc(w: ^Watcher, root: string) -> bool {
         return false
     }
 
-    w.running = true
     w.worker = thread.create_and_start_with_poly_data(w, watch_worker)
+    if w.worker == nil {
+        // Inert, and destroy must not join a thread that never started.
+        watch_release(w)
+        return false
+    }
+    w.running = true
     return true
 }
 
