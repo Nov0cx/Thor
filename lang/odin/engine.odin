@@ -9,6 +9,7 @@
 // point every request funnels through).
 package odin
 
+import "core:log"
 import "core:sync"
 
 import lang ".."
@@ -55,9 +56,13 @@ engine_create :: proc() -> ^Engine {
     e.admin_enabled = true
     e.admin_features = lang.FEATURES_ALL
     e.language = ts_odin.tree_sitter_odin()
-    query, _, err := ts.query_new(e.language, ts_odin.LOCALS)
+    // Without it resolve answers nothing for every kind past formatting, which
+    // reads as "found nothing" rather than as a broken engine — so say so.
+    query, offset, err := ts.query_new(e.language, ts_odin.LOCALS)
     if err == .None {
         e.locals = query
+    } else {
+        log.errorf("odin: the LOCALS query failed at byte %d: %v", offset, err)
     }
     e.index.alloc = context.allocator
     e.index.files = make(map[string]File_Entry, 0, e.index.alloc)

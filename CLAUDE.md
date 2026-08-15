@@ -107,7 +107,8 @@ be tested headlessly.
 - `plugin` — the Lua 5.4 VM, the language registry plugins fill at load, and the mapping from
   tree-sitter captures to theme *roles*.
 - `lang` + `lang/odin` + `lang/lsp` — language intelligence (see below). `lang/lsp` may import only
-  `core:*`, `base:runtime`, `lang` and `shell` — never `setting`, which imports `lang`.
+  `core:*`, `base:runtime`, `lang`, `shell` and `treecache` (for `source_edit`, the byte diff an
+  incremental `didChange` needs) — never `setting`, which imports `lang`.
 - `setting`, `watch`, `shell` — JSON settings/keybinds, the async recursive file-system watcher,
   process execution.
 - `msvc` — where VsDevCmd.bat is, found with vswhere. A leaf both `shell` (the developer-prompt
