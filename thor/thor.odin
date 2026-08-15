@@ -354,8 +354,10 @@ Thor :: struct {
     // Settings populates: the lookup stats every PATH directory and the table
     // holds dozens of servers. Keys and Lsp_Probe.exe owned; see thor/lsp_ui.odin.
     lsp_probes: map[string]Lsp_Probe,
-    // The install command the Language Servers panel is asking about; owned.
+    // The install command the Language Servers panel is asking about and the
+    // prompt the palette borrows while it is open; owned.
     lsp_install_command: string,
+    lsp_install_prompt: string,
     // Set when an lsp.json layer changed or the user asked for a restart. Acted
     // on at the head of the run loop, never inside an event: thor_reload_lang
     // destroys the backend a dispatch may be standing on.
@@ -869,6 +871,7 @@ shutdown :: proc(thor: ^Thor) {
     thor_lsp_probes_destroy(thor)
     thor_lsp_health_destroy(thor)
     delete(thor.lsp_install_command)
+    delete(thor.lsp_install_prompt)
     delete(thor.pending_goto_path)
     thor_clear_jump_list(thor)
     delete(thor.jump_back)

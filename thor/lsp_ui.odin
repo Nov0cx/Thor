@@ -325,10 +325,14 @@ thor_lsp_install :: proc(thor: ^Thor, id: string) {
     }
     delete(thor.lsp_install_command)
     thor.lsp_install_command = strings.clone(status.install_command)
+    delete(thor.lsp_install_prompt)
+    thor.lsp_install_prompt = strings.clone(
+        fmt.tprintf("Install %s with: %s", status.name, status.install_command),
+    )
     widgets.command_palette_confirm(
         thor.command_palette,
         &thor.ui_context,
-        fmt.tprintf("Install %s with: %s", status.name, status.install_command),
+        thor.lsp_install_prompt,
         thor_lsp_confirm_install,
         thor,
     )
