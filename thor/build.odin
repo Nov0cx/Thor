@@ -9,6 +9,10 @@ import "../widgets"
 // welcome frame needs no synchronous bake.
 WELCOME_TITLE_FONT_SIZE :: 28
 
+// Height of the explorer header and of the tab bar. They sit on the two sides
+// of the explorer splitter, so one value keeps their separators on one line.
+WORKSPACE_HEADER_HEIGHT :: 38
+
 thor_build_ui :: proc(thor: ^Thor) {
     thor.root_panel = widgets.panel_create("root-panel", thor.theme.background)
     thor.root_stack = widgets.stack_create("root-stack", .Vertical)
@@ -52,9 +56,9 @@ thor_build_ui :: proc(thor: ^Thor) {
 
     thor.explorer_header = widgets.stack_create("explorer-header", .Horizontal)
     widgets.stack_set_gap(thor.explorer_header, 8)
-    widgets.stack_set_padding(thor.explorer_header, ui.padding_xy(10, 8))
+    widgets.stack_set_padding(thor.explorer_header, ui.padding_xy(10, 7))
     widgets.stack_set_background(thor.explorer_header, thor.theme.highlight)
-    thor.explorer_header.min_size = rl.Vector2 {0, 40}
+    thor.explorer_header.min_size = rl.Vector2 {0, WORKSPACE_HEADER_HEIGHT}
 
     thor.explorer_splitter = widgets.splitter_create("explorer-splitter", .Vertical)
     widgets.splitter_set_on_drag(thor.explorer_splitter, thor_resize_explorer, thor)
@@ -371,7 +375,7 @@ thor_build_content :: proc(thor: ^Thor) {
         thor_tab_close,
         thor,
     )
-    thor.tabbar.min_size = rl.Vector2 {0, 38}
+    thor.tabbar.min_size = rl.Vector2 {0, WORKSPACE_HEADER_HEIGHT}
 
     thor.editor = widgets.editor_create("editor")
     widgets.editor_set_colors(
