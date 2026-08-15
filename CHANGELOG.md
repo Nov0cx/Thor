@@ -1,5 +1,6 @@
 # 2026.08.6
 
+- The explorer header is as tall as the tab bar, so the line under both is one line. The explorer one sat two pixels lower.
 - The editor starts much faster: only the configured font, the default font and the active icon packs rasterize at startup instead of every installed family.
 - The other families still list in the font and icon pack pickers; they bake in the background when a picker opens, or on first use.
 - The welcome page title font is preloaded, so the first frame no longer stalls on it.
