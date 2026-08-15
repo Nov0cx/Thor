@@ -1,3 +1,13 @@
+# 2026.08.7
+
+- A command whose exit status cannot be read is reported as failed. A shell that did not expand its status made the command read as successful.
+- A second window that cannot start says so. A missing or unrunnable executable looked like a window that opened.
+- A command that runs past its timeout can no longer hang the editor.
+- Closing a folder whose file watcher never started no longer crashes.
+- The command palette stops waiting for a symbol, signature or on-type format request whose language server stopped mid-typing. It held its loading state forever.
+- A file whose name holds non-ASCII characters shows its git status colour in the explorer. Git quotes such a path, and the quoted spelling matched no row.
+- A `LOCALS` query that fails to build is written to `user/thor.log`. Odin language intelligence answered nothing to every request without saying why.
+
 # 2026.08.6
 
 - The explorer header is as tall as the tab bar, so the line under both is one line. The explorer one sat two pixels lower.
