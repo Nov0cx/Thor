@@ -178,6 +178,43 @@ main :: proc() {
     testing.expectf(t, label2 == "sized_two :: proc(a: int, b: int) -> int", "two slots pick: got %q", label2)
 }
 
+// Members of one arity are separated by what the call writes, so the popup marks
+// the member the argument reaches rather than the first that takes an argument at
+// all. The alias makes the two disagree only after it is followed.
+@(test)
+test_signature_help_overload_picks_by_type :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package demo
+
+Meters :: f32
+
+take_s :: proc(v: string) -> int {
+	return 1
+}
+
+take_f :: proc(v: f32) -> int {
+	return 2
+}
+
+take :: proc{take_s, take_f}
+
+main :: proc() {
+	m: Meters
+	_ = take(m)
+}
+`
+    at := strings.index(src, "take(m)") + len("take(")
+    sig, ok := sig_help(e, src, at)
+    defer sig_free(sig)
+    testing.expect(t, ok, "expected signature help on a procedure group")
+    testing.expectf(t, len(sig.entries) == 2, "expected one entry per member: got %d", len(sig.entries))
+
+    label, _ := sig_active(sig)
+    testing.expectf(t, label == "take_f :: proc(v: f32) -> int", "active entry: got %q", label)
+}
+
 // The members live in a sibling file of the group's package, and the group is
 // reached across files: both hops are the package-directory scan.
 @(test)

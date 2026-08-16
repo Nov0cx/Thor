@@ -214,12 +214,49 @@ arity_fits :: proc(sites: []Member_Site, argc: int, keep: []bool) -> []bool {
     return fits
 }
 
+// One written argument, read at most once for the whole group. A group is narrowed
+// member by member, and inferring the same expression once per member — up to
+// OVERLOAD_LIMIT times — is the pass's entire cost.
+@(private = "file")
+Arg_Info :: struct {
+    node:       ts.Node,
+    class:      Literal_Class,
+    is_literal: bool,
+    tr:         Type_Ref,
+    inferred:   bool,
+    done:       bool,
+}
+
+// A polymorphic name bound to a type written at the call (`pack(int, v)` for
+// `proc($T: typeid, v: T)`). Only the explicit form binds this way; the shorthand
+// `v: $T` binds from the argument's own inferred type instead.
+@(private = "file")
+Poly_Bound :: struct {
+    name: string,
+    tr:   Type_Ref,
+}
+
+// A canonical form already resolved. Keyed by the file the name was written in as
+// well as by the name: two packages may each declare a `Handle`, and the argument
+// side is anchored in the request file while the parameter side is anchored in the
+// member's own.
+@(private = "file")
+Canon_Key :: struct {
+    origin:           string,
+    pkg:              string,
+    name:             string,
+    through_distinct: bool,
+}
+
 // Which members every written argument fits by type. Each argument is matched
 // against the parameter in its own slot, and only a positive mismatch rejects a
 // member — an argument whose type does not infer says nothing about any of them.
 // A call written with named arguments (`f(x = 1)`) is not read at all, since the
 // slots are then not the order they are written in.
-@(private = "file")
+//
+// Package-visible: signature help picks its active entry with the same answer.
+// Cancellation is polled per member, since that path runs while the user types.
+@(private)
 types_fit :: proc(
     e: ^Engine,
     parser: ts.Parser,
@@ -233,17 +270,30 @@ types_fit :: proc(
     if call_has_named_argument(call.node) {
         return fits
     }
+    args := make([]Arg_Info, argc, context.temp_allocator)
+    memo := make(map[Canon_Key]Type_Ref, 0, context.temp_allocator)
     for site, i in sites {
-        if !keep[i] {
+        if !keep[i] || lang.request_cancelled(req) {
             continue
         }
+        polys := signature_poly_names(site.label)
+        bindings := polymorphic_params(site.label)
+        explicit := explicit_bindings(e, parser, req, call, site.label, args, argc)
         fits[i] = true
         for slot in 0 ..< argc {
-            param, pok := signature_param_type(site.label, slot)
-            if !pok {
-                continue // a type the reader cannot spell out is no evidence
+            text, tok := signature_param_text(site.label, slot)
+            if !tok {
+                continue // a slot the reader cannot spell out is no evidence
             }
-            if !argument_fits(e, parser, req, call, slot, param) {
+            param, pok := member_param_type(
+                e, parser, req, call, args,
+                site.label, text, slot, bindings, explicit, polys,
+            )
+            if !pok {
+                continue
+            }
+            param.origin = site.path // the alias is spelled in the member's package
+            if !types_compatible(e, parser, req, call.root, arg_info(e, parser, req, call, args, slot), param, &memo) {
                 fits[i] = false
                 break
             }
@@ -252,35 +302,177 @@ types_fit :: proc(
     return fits
 }
 
-// Whether the argument in `slot` can be passed to a parameter of type `param`.
-// True unless something is known about both sides and they disagree: an untyped
-// literal is matched by the class of type it converts to, anything else by the
-// type it infers to, and neither an unreadable argument nor an unreadable
-// parameter rejects anything.
+// The type a member's parameter takes in `slot`, with a polymorphic name resolved
+// to whatever the call binds it to. Reports false when the slot says nothing: an
+// unresolved `$Name`, a name the signature declared but nothing pins down, or a
+// type this engine does not read.
 @(private = "file")
-argument_fits :: proc(
+member_param_type :: proc(
     e: ^Engine,
     parser: ts.Parser,
     req: ^lang.Request,
     call: Call_Site,
+    args: []Arg_Info,
+    label, text: string,
     slot: int,
+    bindings: []Poly_Binding,
+    explicit: []Poly_Bound,
+    polys: []string,
+) -> (Type_Ref, bool) {
+    if shape, b, ok := param_poly_use(label, bindings, slot); ok {
+        bound: Type_Ref
+        bok := false
+        for written in explicit {
+            if written.name == b.name {
+                bound, bok = written.tr, true
+                break
+            }
+        }
+        if !bok && b.index != slot {
+            // The binding site itself is its own argument, which proves nothing.
+            bound, bok = poly_binding_value(e, parser, call.root, req, call.node, b, 0)
+        }
+        if !bok {
+            return {}, false
+        }
+        return wrap_layers(bound, shape.containers[:shape.depth])
+    }
+    if param_text_is_poly(text, polys) {
+        return {}, false
+    }
+    return param_type_ref(text)
+}
+
+// The names `label` binds explicitly (`$T: typeid`) and the types the call writes
+// for them. A slot holding a *value* is not one of them: a `t: typeid` variable
+// reads as a type name here but names no type, so a slot whose argument infers to
+// something is left alone.
+@(private = "file")
+explicit_bindings :: proc(
+    e: ^Engine,
+    parser: ts.Parser,
+    req: ^lang.Request,
+    call: Call_Site,
+    label: string,
+    args: []Arg_Info,
+    argc: int,
+) -> []Poly_Bound {
+    out := make([dynamic]Poly_Bound, context.temp_allocator)
+    for slot in 0 ..< argc {
+        name, tr, ok := explicit_type_argument(label, req.source, call.node, slot)
+        if !ok || arg_info(e, parser, req, call, args, slot).inferred {
+            continue
+        }
+        append(&out, Poly_Bound{name = name, tr = tr})
+    }
+    return out[:]
+}
+
+// The `slot`-th argument, read on first use and kept for every later member.
+@(private = "file")
+arg_info :: proc(
+    e: ^Engine,
+    parser: ts.Parser,
+    req: ^lang.Request,
+    call: Call_Site,
+    args: []Arg_Info,
+    slot: int,
+) -> ^Arg_Info {
+    a := &args[slot]
+    if a.done {
+        return a
+    }
+    a.done = true
+    a.node = call_argument(call.node, slot)
+    if ts.node_is_null(a.node) {
+        return a
+    }
+    if a.class, a.is_literal = literal_class(a.node); a.is_literal {
+        return a
+    }
+    a.tr, a.inferred = infer_expr_type(e, parser, call.root, req, a.node)
+    return a
+}
+
+// Whether an argument can be passed to a parameter of type `param`. True unless
+// something is known about both sides and they disagree: an untyped literal is
+// matched by the class of type it converts to, anything else by the type it infers
+// to, and neither an unreadable argument nor an unreadable parameter rejects
+// anything. A pair that matches nothing outright is retried on both sides'
+// canonical forms, which is what carries an alias to the type it stands for.
+@(private = "file")
+types_compatible :: proc(
+    e: ^Engine,
+    parser: ts.Parser,
+    req: ^lang.Request,
+    root: ts.Node,
+    arg: ^Arg_Info,
     param: Type_Ref,
+    memo: ^map[Canon_Key]Type_Ref,
 ) -> bool {
-    arg := call_argument(call.node, slot)
-    if ts.node_is_null(arg) || param.name == "any" || param.proc_sig != "" {
+    if ts.node_is_null(arg.node) || param.name == "any" || param.proc_sig != "" {
         return true
     }
-    if class, is_literal := literal_class(arg); is_literal {
+    if arg.is_literal {
         // A container's name is its element's (`[]int` reads as int), which says
         // nothing about what a literal may be passed to, so it decides nothing.
-        accepts, known := builtin_accepts(param.name)
-        return !known || !type_is_bare(param) || class in accepts
+        if accepts, known := builtin_accepts(param.name); known {
+            return !type_is_bare(param) || arg.class in accepts
+        }
+        // A distinct type takes the literals the type under it takes.
+        base := canon(e, parser, req, root, param, true, memo)
+        accepts, known := builtin_accepts(base.name)
+        return !known || !type_is_bare(base) || arg.class in accepts
     }
-    inferred, iok := infer_expr_type(e, parser, call.root, req, arg)
-    if !iok {
+    if !arg.inferred {
         return true
     }
-    return type_refs_match(inferred, param)
+    if type_refs_match(arg.tr, param) {
+        return true
+    }
+    return type_refs_match(
+        canon(e, parser, req, root, arg.tr, false, memo),
+        canon(e, parser, req, root, param, false, memo),
+    )
+}
+
+// canonical_type_ref over the memo. Only the leaf is resolved and remembered — the
+// containers around it are the caller's, and an alias may add its own on top
+// (`Row :: []Point`). A miss is remembered too: learning that a name stands for
+// nothing costs a package read.
+@(private = "file")
+canon :: proc(
+    e: ^Engine,
+    parser: ts.Parser,
+    req: ^lang.Request,
+    root: ts.Node,
+    tr: Type_Ref,
+    through_distinct: bool,
+    memo: ^map[Canon_Key]Type_Ref,
+) -> Type_Ref {
+    if tr.name == "" || tr.proc_sig != "" {
+        return tr
+    }
+    leaf := element_type(tr)
+    key := Canon_Key {
+        origin           = leaf.origin,
+        pkg              = leaf.pkg,
+        name             = leaf.name,
+        through_distinct = through_distinct,
+    }
+    resolved, hit := memo[key]
+    if !hit {
+        resolved = canonical_type_ref(e, parser, root, req, leaf, through_distinct)
+        memo[key] = resolved
+    }
+    out := resolved
+    for i in 0 ..< tr.depth {
+        ok: bool
+        if out, ok = wrap_container(out, tr.containers[i]); !ok {
+            return tr
+        }
+    }
+    return out
 }
 
 // The `index`-th written argument of a call. The callee is the call's first

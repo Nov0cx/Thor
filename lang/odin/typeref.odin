@@ -307,19 +307,34 @@ proc_param_type :: proc(source: string, d: Def, index: int) -> (Type_Ref, bool) 
 // carries, the lookup keeping its signature line rather than a Def of its own.
 @(private)
 signature_param_type :: proc(sig: string, index: int) -> (Type_Ref, bool) {
+    text, ok := signature_param_text(sig, index)
+    if !ok {
+        return {}, false
+    }
+    return param_type_ref(text)
+}
+
+// The text of the parameter that fills argument slot `index`, before it is read as
+// a type — what the polymorphic pass needs, a `$` being exactly what a Type_Ref
+// cannot carry. Grouped parameters (`a, b: Axis`) write the type once, on the last
+// name of the group, so a slot with no `:` of its own borrows the next slot that
+// has one. A variadic tail (`rest: ..int`) answers for every argument past the
+// fixed parameters.
+@(private)
+signature_param_text :: proc(sig: string, index: int) -> (string, bool) {
     inner, ok := after_paren_group(sig, want_inner = true)
     if !ok || index < 0 {
-        return {}, false
+        return "", false
     }
     parts := split_top_level(inner)
     if len(parts) == 0 {
-        return {}, false
+        return "", false
     }
     i := index
     if i >= len(parts) {
         // Nothing but a variadic tail takes more arguments than it has parameters.
         if !strings.contains(parts[len(parts) - 1], "..") {
-            return {}, false
+            return "", false
         }
         i = len(parts) - 1
     }
@@ -327,9 +342,9 @@ signature_param_type :: proc(sig: string, index: int) -> (Type_Ref, bool) {
         i += 1
     }
     if i >= len(parts) {
-        return {}, false
+        return "", false
     }
-    return param_type_ref(parts[i])
+    return parts[i], true
 }
 
 // One parameter's type text (`a: Axis`, `rest: ..int`, `c: int = 3`, an unnamed

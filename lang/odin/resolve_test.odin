@@ -994,6 +994,349 @@ test_definition_overload_package_qualified :: proc(t: ^testing.T) {
     testing.expectf(t, strings.has_suffix(res.location.path, "api.odin"), "path: got %q", res.location.path)
 }
 
+// An alias names the type it stands for, so an argument declared with one reaches
+// the member taking that type. Both members mismatch on the written name alone.
+@(test)
+test_definition_overload_alias_matches_base :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package demo
+
+Meters :: f32
+
+take_f :: proc(v: f32) -> int {
+	return 1
+}
+
+take_s :: proc(v: string) -> int {
+	return 2
+}
+
+take :: proc{take_f, take_s}
+
+main :: proc() {
+	m: Meters
+	_ = take(m)
+}
+`
+    res := definition_at(e, src, "take(m)")
+    defer free_definition(&res)
+
+    testing.expect(t, res.ok, "expected go-to-definition on a procedure group")
+    testing.expectf(t, len(res.symbols) == 0, "the alias picks one member: got %d candidates", len(res.symbols))
+    want := strings.index(src, "take_f ::")
+    testing.expectf(t, res.location.start == want, "jump target: got %d, want %d", res.location.start, want)
+}
+
+// An alias of a distinct type stops at that type, not at what it is built from,
+// so both sides of the comparison land on the same name.
+@(test)
+test_definition_overload_alias_of_distinct :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package demo
+
+M :: distinct f32
+L :: M
+
+take_l :: proc(v: L) -> int {
+	return 1
+}
+
+take_s :: proc(v: string) -> int {
+	return 2
+}
+
+take :: proc{take_l, take_s}
+
+main :: proc() {
+	m: M
+	_ = take(m)
+}
+`
+    res := definition_at(e, src, "take(m)")
+    defer free_definition(&res)
+
+    testing.expect(t, res.ok, "expected go-to-definition on a procedure group")
+    testing.expectf(t, len(res.symbols) == 0, "the alias picks one member: got %d candidates", len(res.symbols))
+    want := strings.index(src, "take_l ::")
+    testing.expectf(t, res.location.start == want, "jump target: got %d, want %d", res.location.start, want)
+}
+
+// A distinct type is its own type: an `f32` argument reaches the `f32` member and
+// never the one taking a distinct type built from f32.
+@(test)
+test_definition_overload_distinct_is_not_its_base :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package demo
+
+Meters :: distinct f32
+
+take_m :: proc(v: Meters) -> int {
+	return 1
+}
+
+take_f :: proc(v: f32) -> int {
+	return 2
+}
+
+take :: proc{take_m, take_f}
+
+main :: proc() {
+	x: f32
+	_ = take(x)
+}
+`
+    res := definition_at(e, src, "take(x)")
+    defer free_definition(&res)
+
+    testing.expect(t, res.ok, "expected go-to-definition on a procedure group")
+    testing.expectf(t, len(res.symbols) == 0, "the operand picks one member: got %d candidates", len(res.symbols))
+    want := strings.index(src, "take_f ::")
+    testing.expectf(t, res.location.start == want, "jump target: got %d, want %d", res.location.start, want)
+}
+
+// An untyped literal converts to a distinct type exactly as it does to the type
+// under it, so the literal's class still separates the members.
+@(test)
+test_definition_overload_distinct_takes_its_base_literals :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package demo
+
+Meters :: distinct f32
+Name :: distinct string
+
+take_m :: proc(v: Meters) -> int {
+	return 1
+}
+
+take_n :: proc(v: Name) -> int {
+	return 2
+}
+
+take :: proc{take_m, take_n}
+
+main :: proc() {
+	_ = take("hi")
+}
+`
+    res := definition_at(e, src, "take(\"hi\")")
+    defer free_definition(&res)
+
+    testing.expect(t, res.ok, "expected go-to-definition on a procedure group")
+    testing.expectf(t, len(res.symbols) == 0, "the literal picks one member: got %d candidates", len(res.symbols))
+    want := strings.index(src, "take_n ::")
+    testing.expectf(t, res.location.start == want, "jump target: got %d, want %d", res.location.start, want)
+}
+
+// An alias may add containers of its own (`Row :: []Point`), which stack under the
+// ones the argument writes rather than replacing them — so a slice reaches the
+// alias member and a bare value still reaches the bare one.
+@(test)
+test_definition_overload_alias_adds_container :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package demo
+
+Point :: struct {
+	x: int,
+}
+
+Row :: []Point
+
+draw_row :: proc(r: Row) -> int {
+	return 1
+}
+
+draw_p :: proc(p: Point) -> int {
+	return 2
+}
+
+draw :: proc{draw_row, draw_p}
+
+main :: proc() {
+	xs: []Point
+	p: Point
+	_ = draw(xs)
+	_ = draw(p)
+}
+`
+    slice_res := definition_at(e, src, "draw(xs)")
+    defer free_definition(&slice_res)
+
+    testing.expect(t, slice_res.ok, "expected go-to-definition on a procedure group")
+    testing.expectf(
+        t,
+        len(slice_res.symbols) == 0,
+        "the slice picks one member: got %d candidates",
+        len(slice_res.symbols),
+    )
+    want_row := strings.index(src, "draw_row ::")
+    testing.expectf(t, slice_res.location.start == want_row, "slice target: got %d, want %d", slice_res.location.start, want_row)
+
+    bare_res := definition_at(e, src, "draw(p)")
+    defer free_definition(&bare_res)
+
+    testing.expect(t, bare_res.ok, "expected go-to-definition on a procedure group")
+    testing.expectf(
+        t,
+        len(bare_res.symbols) == 0,
+        "the bare value picks one member: got %d candidates",
+        len(bare_res.symbols),
+    )
+    want_p := strings.index(src, "draw_p ::")
+    testing.expectf(t, bare_res.location.start == want_p, "bare target: got %d, want %d", bare_res.location.start, want_p)
+}
+
+// A parameter written as a name an earlier `$T: typeid` bound is not an ordinary
+// type: it takes whatever the call binds T to, so the generic member survives an
+// argument the concrete one cannot take.
+@(test)
+test_definition_overload_polymorphic_typeid_keeps_member :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package demo
+
+Point :: struct {
+	x: int,
+}
+
+pack_any :: proc($T: typeid, v: T) -> int {
+	return 1
+}
+
+pack_str :: proc(a: string, v: string) -> int {
+	return 2
+}
+
+pack :: proc{pack_any, pack_str}
+
+main :: proc() {
+	p: Point
+	_ = pack(Point, p)
+}
+`
+    res := definition_at(e, src, "pack(Point, p)")
+    defer free_definition(&res)
+
+    testing.expect(t, res.ok, "expected go-to-definition on a procedure group")
+    testing.expectf(t, len(res.symbols) == 0, "the generic member is the only fit: got %d candidates", len(res.symbols))
+    want := strings.index(src, "pack_any ::")
+    testing.expectf(t, res.location.start == want, "jump target: got %d, want %d", res.location.start, want)
+}
+
+// The written type argument binds the name, so a later slot that disagrees with it
+// rejects the generic member instead of exempting it.
+@(test)
+test_definition_overload_polymorphic_binding_rejects :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package demo
+
+pack_any :: proc($T: typeid, v: T) -> int {
+	return 1
+}
+
+pack_str :: proc(a: typeid, v: string) -> int {
+	return 2
+}
+
+pack :: proc{pack_any, pack_str}
+
+main :: proc() {
+	_ = pack(int, "hi")
+}
+`
+    res := definition_at(e, src, "pack(int, \"hi\")")
+    defer free_definition(&res)
+
+    testing.expect(t, res.ok, "expected go-to-definition on a procedure group")
+    testing.expectf(t, len(res.symbols) == 0, "the bound type picks one member: got %d candidates", len(res.symbols))
+    want := strings.index(src, "pack_str ::")
+    testing.expectf(t, res.location.start == want, "jump target: got %d, want %d", res.location.start, want)
+}
+
+// A `$` declared inside a container's brackets names a polymorphic type just as a
+// bare one does, so a later parameter written with that name is no evidence and
+// the member stands.
+@(test)
+test_definition_overload_polymorphic_map_key_keeps_member :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package demo
+
+Point :: struct {
+	x: int,
+}
+
+collect :: proc(m: map[$K]$V, k: K) -> int {
+	return 1
+}
+
+collect_str :: proc(m: string, k: string) -> int {
+	return 2
+}
+
+collect_any :: proc{collect, collect_str}
+
+main :: proc() {
+	table: map[Point]int
+	p: Point
+	_ = collect_any(table, p)
+}
+`
+    res := definition_at(e, src, "collect_any(table, p)")
+    defer free_definition(&res)
+
+    testing.expect(t, res.ok, "expected go-to-definition on a procedure group")
+    testing.expectf(t, len(res.symbols) == 0, "the generic member is the only fit: got %d candidates", len(res.symbols))
+    want := strings.index(src, "collect ::")
+    testing.expectf(t, res.location.start == want, "jump target: got %d, want %d", res.location.start, want)
+}
+
+// A member's parameter type is spelled in the *group's* package, so that is where
+// it is resolved. The requesting package declares a `Handle` of its own; reading
+// that one would make `Handle` an int and leave both members standing.
+@(test)
+test_definition_overload_distinct_resolves_in_member_package :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    root := "thor_lang_goto_overload_anchor_ws"
+    lib := strings.concatenate({root, "/lib"}, context.temp_allocator)
+    _ = os.make_directory(root)
+    _ = os.make_directory(lib)
+
+    lib_path := strings.concatenate({lib, "/api.odin"}, context.temp_allocator)
+    lib_src := "package lib\n\nHandle :: distinct string\n\ntake_h :: proc(v: Handle) -> int {\n\treturn 1\n}\n\ntake_i :: proc(v: int) -> int {\n\treturn 2\n}\n\ntake :: proc{take_h, take_i}\n"
+    _ = os.write_entire_file(lib_path, transmute([]byte)lib_src)
+
+    defer os.remove(root)
+    defer os.remove(lib)
+    defer os.remove(lib_path)
+
+    main_path := strings.concatenate({root, "/main.odin"}, context.temp_allocator)
+    main_src := "package app\n\nimport \"lib\"\n\nHandle :: distinct int\n\nmain :: proc() {\n\t_ = lib.take(1)\n}\n"
+
+    res := definition_at(e, main_src, "take(1)", root, main_path)
+    defer free_definition(&res)
+
+    testing.expect(t, res.ok, "expected go-to-definition on a package-qualified group")
+    testing.expectf(t, len(res.symbols) == 0, "the literal picks one member: got %d candidates", len(res.symbols))
+    want := strings.index(lib_src, "take_i ::")
+    testing.expectf(t, res.location.start == want, "jump target: got %d, want %d", res.location.start, want)
+}
+
 // hover_at runs a Hover request at `at` and returns the result. Callers own
 // res.hover.text.
 @(private)

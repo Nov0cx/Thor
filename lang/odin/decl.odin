@@ -4,6 +4,7 @@
 package odin
 
 import "core:os"
+import "core:path/filepath"
 import "core:strings"
 import "core:sync"
 
@@ -17,12 +18,15 @@ import ts "../../vendor/odin-tree-sitter"
 Decl_Visitor :: #type proc(decl: ts.Node, source, path: string, ctx: rawptr)
 
 // What one lookup turned up: nothing, the declaration itself (already visited), or
-// an `X :: Y` alias naming the type to look for instead.
+// a name standing for another type — `X :: Y`, or `X :: distinct Y`, which the
+// compiler treats as its own type. Both name the type to look for instead; only
+// canonical_type_ref separates them.
 @(private)
 Decl_Hit :: enum {
     Missed,
     Visited,
     Alias,
+    Distinct,
 }
 
 // How many `X :: Y` hops are followed before giving up, so a cycle (`A :: B`,
@@ -49,12 +53,117 @@ visit_type_decl :: proc(
     tr := tr
     for _ in 0 ..< ALIAS_DEPTH_LIMIT {
         next, hit := find_type_decl(e, parser, root, req, tr, decl_type, index_kind, visit, ctx)
-        if hit != .Alias {
+        if hit != .Alias && hit != .Distinct {
             return hit == .Visited
         }
         tr = next
     }
     return false
+}
+
+// The type a name ends at, following `X :: Y` — what two types must be reduced to
+// before they are compared. `through_distinct` follows `X :: distinct Y` as well,
+// which an untyped literal needs: it converts to a distinct type exactly as it does
+// to the type under it. Left false the walk stops *at* the distinct name, which is
+// its own type to the compiler and takes no value of the type it is built from.
+//
+// The leaf is resolved alone and `tr`'s own containers are wrapped back on, over
+// any the alias itself added (`Row :: []Point`). Answers `tr` unchanged when
+// nothing resolves, a cycle reaches ALIAS_DEPTH_LIMIT, or the layers no longer
+// fit — a canonical form is evidence, never an error.
+@(private)
+canonical_type_ref :: proc(
+    e: ^Engine,
+    parser: ts.Parser,
+    root: ts.Node,
+    req: ^lang.Request,
+    tr: Type_Ref,
+    through_distinct: bool,
+) -> Type_Ref {
+    if tr.name == "" || tr.proc_sig != "" {
+        return tr
+    }
+    cur := element_type(tr)
+    moved := false
+    for _ in 0 ..< ALIAS_DEPTH_LIMIT {
+        next, hit := alias_hop(e, parser, root, req, cur)
+        if hit == .Distinct && !through_distinct {
+            break // the distinct name is the answer, never what it is built from
+        }
+        if hit != .Alias && hit != .Distinct {
+            break
+        }
+        cur = next
+        moved = true
+        if !type_is_bare(cur) {
+            break // an alias that adds containers ends the walk
+        }
+    }
+    if !moved {
+        return tr
+    }
+    // Type_Ref keeps its containers innermost first, so they wrap back on in
+    // written order — unlike wrap_layers, which reverses a Poly_Shape's.
+    out := cur
+    for i in 0 ..< tr.depth {
+        ok: bool
+        if out, ok = wrap_container(out, tr.containers[i]); !ok {
+            return tr
+        }
+    }
+    return out
+}
+
+// One `X :: Y` hop, anchored to the file the name was written in. Deliberately not
+// find_type_decl: that reads the symbol index, whose unqualified lookup is scoped
+// to the *requesting* file's package — the wrong package for a procedure group's
+// parameter, which is spelled in the group's own — and whose index_sync walks the
+// whole workspace for every kind but the two that redraw while typing. An alias is
+// declared in the package that uses it, and a package is a flat directory, so the
+// directory beside the name is the whole search.
+@(private = "file")
+alias_hop :: proc(
+    e: ^Engine,
+    parser: ts.Parser,
+    root: ts.Node,
+    req: ^lang.Request,
+    tr: Type_Ref,
+) -> (Type_Ref, Decl_Hit) {
+    if tr.name == "" {
+        return {}, .Missed
+    }
+    if tr.pkg != "" {
+        if raw, found := import_path(root, req.source, tr.pkg); found {
+            if dir, dok := package_dir(e, raw, req.path, req.workspace); dok {
+                next, hit := visit_decl_in_dir(e, parser, dir, tr.name, req.path, "", nil, nil)
+                if hit != .Missed {
+                    return next, hit
+                }
+            }
+        }
+        if tr.origin != "" && tr.origin != req.path {
+            return visit_qualified_in_origin(e, parser, req, tr, "", nil, nil)
+        }
+        return {}, .Missed
+    }
+
+    anchor := tr.origin != "" ? tr.origin : req.path
+    dir := filepath.dir(anchor)
+    skip := req.path
+    if same_dir(dir, filepath.dir(req.path)) {
+        // The live buffer answers first: its on-disk copy may be stale.
+        next, hit := probe_decl(root, req.source, req.path, tr.name, "", nil, nil)
+        if hit != .Missed {
+            return next, hit
+        }
+    } else {
+        next, hit := visit_decl_in_file(e, parser, anchor, tr.name, "", nil, nil)
+        if hit != .Missed {
+            return next, hit
+        }
+        skip = anchor
+    }
+    return visit_decl_in_dir(e, parser, dir, tr.name, skip, "", nil, nil)
 }
 
 // One pass of visit_type_decl's lookup. Resolution order mirrors goto: the request
@@ -142,7 +251,9 @@ index_type_path :: proc(
 }
 
 // One parsed file's answer for `name`: the declaration itself (visited here), the
-// type an alias stands for, or nothing.
+// type an alias stands for, or nothing. An empty `decl_type` asks for the alias
+// alone — canonical_type_ref wants where a name leads, not what it declares — and
+// `visit` may then be nil, since nothing is ever visited.
 @(private)
 probe_decl :: proc(
     root: ts.Node,
@@ -150,39 +261,41 @@ probe_decl :: proc(
     visit: Decl_Visitor,
     ctx: rawptr,
 ) -> (Type_Ref, Decl_Hit) {
-    if decl, ok := locate_decl(root, source, name, decl_type); ok {
-        visit(decl, source, path, ctx)
-        return {}, .Visited
+    if decl_type != "" {
+        if decl, ok := locate_decl(root, source, name, decl_type); ok {
+            visit(decl, source, path, ctx)
+            return {}, .Visited
+        }
     }
-    if alias, ok := locate_alias(root, source, name, path); ok {
-        return alias, .Alias
-    }
-    return {}, .Missed
+    return locate_alias(root, source, name, path)
 }
 
 // The type an `X :: Y` alias stands for: a plain rename (`Vec :: Point`), a
 // package-qualified one (`Vec :: other.Point`), or a `distinct` type, which is a
-// separate type to the compiler but carries the same members. The target is cloned
-// with `path` as its origin, so a qualifier written here resolves against this
-// file's imports rather than the requesting file's. A constant that is not a type
-// name (`MAX :: 100`) is not an alias, and neither is one of several names sharing
-// a declaration (`A, B :: 1, 2`).
+// separate type to the compiler but carries the same members — reported as
+// `.Distinct` so a caller that compares types can stop there while a caller that
+// wants members keeps walking. The target is cloned with `path` as its origin, so
+// a qualifier written here resolves against this file's imports rather than the
+// requesting file's. A constant that is not a type name (`MAX :: 100`) is not an
+// alias, and neither is one of several names sharing a declaration (`A, B :: 1, 2`).
 @(private)
-locate_alias :: proc(root: ts.Node, source, name, path: string) -> (Type_Ref, bool) {
+locate_alias :: proc(root: ts.Node, source, name, path: string) -> (Type_Ref, Decl_Hit) {
     decl, ok := locate_decl(root, source, name, "const_declaration")
     if !ok {
-        return {}, false
+        return {}, .Missed
     }
     base := decl_body_start(decl)
     if ts.node_named_child_count(decl) - base != 2 {
-        return {}, false
+        return {}, .Missed
     }
     value := ts.node_named_child(decl, base + 1)
+    hit := Decl_Hit.Alias
     if string(ts.node_type(value)) == "distinct_type" {
         value = ts.node_named_child(value, 0)
+        hit = .Distinct
     }
     if ts.node_is_null(value) {
-        return {}, false
+        return {}, .Missed
     }
     // A type name reads as a type after `distinct` and as an expression otherwise,
     // and the grammar spells `other.P` differently in the two positions.
@@ -191,9 +304,9 @@ locate_alias :: proc(root: ts.Node, source, name, path: string) -> (Type_Ref, bo
         tr, tok = expr_type_name(value, source)
     }
     if !tok || (tr.name == name && tr.pkg == "") {
-        return {}, false
+        return {}, .Missed
     }
-    return clone_type_ref(tr, path), true
+    return clone_type_ref(tr, path), hit
 }
 
 // visit_type_decl for a package-qualified type whose qualifier is spelled in

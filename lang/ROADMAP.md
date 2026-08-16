@@ -183,8 +183,11 @@ lowest latency.
   from the top — the underlying declaration can live in another file or package
   than the alias, and a qualifier written in the alias (`Vec :: other.Point`) is
   resolved against *its* file's imports. `distinct` types come along, being a
-  separate type to the compiler but the same members here, as do chains of
-  aliases, capped by `ALIAS_DEPTH_LIMIT` so a cycle can't loop. An alias is a
+  separate type to the compiler but the same members here — `locate_alias` reports
+  which of the two a hop was (`Decl_Hit.Alias` / `.Distinct`) so a caller comparing
+  *types* rather than gathering members can stop at the distinct name; see
+  **Overload sets**. Chains of aliases come along too, capped by
+  `ALIAS_DEPTH_LIMIT` so a cycle can't loop. An alias is a
   constant rather than a type declaration, so the workspace index is asked for
   both kinds. Everything downstream of the locator inherits this: goto, hover,
   `value.` completion and implicit enum selectors all see through an alias. An
@@ -395,7 +398,7 @@ lowest latency.
   declaration heads none, and every member then stands). Two passes run over the
   resolved members, each only narrowing what the one before left:
 
-  1. **Arity**, the same signal signature help picks its active entry with
+  1. **Arity**, the first signal signature help picks its active entry with
      (`arity_takes`): every required parameter written and no more than the list
      takes, a variadic tail absorbing any surplus and a defaulted parameter
      (`loc := #caller_location`) counting as optional — without which
@@ -405,9 +408,45 @@ lowest latency.
      it converts (`1` fits every numeric parameter, `"s"` every string one);
      anything else is inferred by `infer_expr_type` and compared by name and
      containers. Only a positive mismatch rejects: an argument that does not
-     infer, a parameter that is polymorphic (`$T`) or `any`, and a call written
-     with named arguments (`f(x = 1)`, whose slots are not the written order) all
-     say nothing about any member.
+     infer, a parameter of type `any` or one no `$Name` pins down, and a call
+     written with named arguments (`f(x = 1)`, whose slots are not the written
+     order) all say nothing about any member. Each argument is inferred **once
+     for the whole group**, not once per member.
+
+     **Aliases and distinct types are followed** (`canonical_type_ref`,
+     `decl.odin`) when the written names match nothing outright: `Vec :: Point`
+     reaches a `Point` parameter, while `Handle :: distinct Point` does not,
+     because the walk stops *at* a `distinct` name — its own type to the
+     compiler. `Decl_Hit.Distinct` is what separates the two; `locate_alias`
+     used to drop the marker, which was right for its one earlier consumer
+     (members carry through a distinct type) and wrong here. An untyped literal
+     asks the opposite question and so walks *through* `distinct` as well, since
+     a distinct type converts from the literals its base does — that is what lets
+     `set(1)` separate `proc(v: Meters)` from `proc(v: Name)`. An alias may add
+     containers of its own (`Row :: []Point`), which stack under the ones the
+     argument writes.
+
+     Resolution is **anchored to the package the name was written in**
+     (`alias_hop`) and never reads the symbol index: the index's unqualified
+     lookup is scoped to the *requesting* file's package, which is the wrong one
+     for a member's parameter, and its `index_sync` walks the whole workspace for
+     every request kind but the two that redraw while typing. An alias lives in
+     the package that uses it, and a package is a flat directory. Results are
+     memoized per request, keyed by origin as well as name, so two packages each
+     declaring a `Handle` never answer for one another.
+
+     **Polymorphic parameters** are read rather than guessed. `signature_poly_names`
+     collects every `$Name` a signature declares by scanning the parameter text,
+     not by composing the two shape recognizers — `map[$K]$V` peels to the leaf
+     `$V` alone, `[$N]f32` holds its `$N` inside the brackets, and neither would
+     collect a name a later `k: K` then reads as an ordinary type and rejects the
+     member over. A slot that *uses* a bound name takes what the call binds it to:
+     the written type argument for the explicit `$T: typeid` form
+     (`explicit_type_argument`, skipped when the argument turns out to be a value),
+     otherwise the inferred type of the argument that binds it
+     (`poly_binding_value`, shared with `polymorphic_call_result`). A name nothing
+     pins down leaves its slot as no evidence. Constraints are still not validated,
+     so a constraint can cost narrowing but can never narrow wrongly.
 
   **A pass that leaves nothing standing is ignored** — a filter is evidence,
   never the last word, so an argument the engine reads wrongly costs a picker
@@ -440,10 +479,11 @@ lowest latency.
 
   Covered by `test_signature_help_overload_set` (one entry per member, arity
   picking the active one), `_tracks_arity` (the active entry moving as the comma
-  is typed), `_cross_file` (group and members reached through the package scan),
-  `_falls_back_to_group` (every member qualified), `test_param_arity` (empty,
-  nested-type commas, a result tuple, variadic, a defaulted tail) and
-  `test_hover_procedure_group_keeps_members`; goto by
+  is typed), `_picks_by_type` (members of one arity, the active entry chosen by
+  the argument through an alias), `_cross_file` (group and members reached through
+  the package scan), `_falls_back_to_group` (every member qualified),
+  `test_param_arity` (empty, nested-type commas, a result tuple, variadic, a
+  defaulted tail) and `test_hover_procedure_group_keeps_members`; goto by
   `test_definition_overload_offers_members` (members a slice argument cannot tell
   apart, one candidate each with its own jump target and line), `_picks_by_arity`
   (the call reaching one member is a jump), `_picks_by_literal_type` and
@@ -454,11 +494,24 @@ lowest latency.
   buffer) and `_package_qualified` (narrowing through the package path).
   `test_definition_builtin_group` pins the toolchain's own `append`.
 
-  **Still open:** the type pass reads what `infer_expr_type` reads and no more —
-  a member taken by a distinct type, an alias, or a polymorphic parameter is
-  neither chosen nor rejected, and an argument the inference layer cannot type
-  leaves the picker. Widening that is the same precision work the rest of the
-  type layer waits on.
+  The alias, distinct and polymorphic narrowing above is covered by
+  `_alias_matches_base`, `_alias_of_distinct` (the walk stopping at the distinct
+  name both sides land on), `_distinct_is_not_its_base` (the guard: an `f32`
+  argument still reaches the `f32` member), `_distinct_takes_its_base_literals`,
+  `_alias_adds_container` (both directions, so the added layers do not over-match),
+  `_polymorphic_typeid_keeps_member`, `_polymorphic_binding_rejects` (the written
+  type argument narrowing rather than exempting), `_polymorphic_map_key_keeps_member`
+  (the `$` inside a container's brackets) and `_distinct_resolves_in_member_package`
+  (a real workspace where the caller declares a rival `Handle`, which anchoring is
+  what keeps out).
+
+  **Still open:** an argument the inference layer cannot type leaves the picker,
+  and a named generic type's own type argument (`List($T)`) is still not modeled —
+  no `Type_Ref` carries one. `signature_text` also cuts a non-group declaration at
+  its first newline, so a member whose signature is written across several lines
+  yields an unbalanced paren group and *neither* pass can read it; that is a
+  separate fix, since flattening instead would change every multi-line
+  procedure's rendered signature in hover, the outline and the symbol index.
 - **Rename (Ctrl+R):** prompts for a new name in the palette (prefilled with
   the symbol under the caret), then rewrites every usage find-references would
   list, plus the declaration it leaves out (`Rename` request → `rename`, the same

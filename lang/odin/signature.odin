@@ -35,23 +35,25 @@ signature_help :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, req: ^lang.
 
     active := call_active_param(call, req.offset)
     entries := make([dynamic]lang.Signature_Entry, context.allocator)
+    typed: []bool // per entry, whether the written arguments fit it
 
     // A procedure group stands in for its members: its own declaration names no
     // parameters, so signing the group would show a call's arguments against an
     // empty list. The members are what the call actually reaches.
     if d.overload {
-        overload_entries(e, parser, root, req, src, path, d, active, &entries)
+        typed = overload_entries(e, parser, root, req, call, src, path, d, active, &entries)
     }
     // An ordinary procedure — or a group none of whose members could be found
     // (every one written qualified, or declared outside its package). The group's
     // own declaration is then still the most informative thing there is.
     if len(entries) == 0 {
         append(&entries, signature_entry(signature_text(src, d), active))
+        typed = nil
     }
 
     res.signature = lang.Signature_Info {
         entries = entries,
-        active  = pick_overload(entries[:], call_arg_count(call, req.source), active),
+        active  = pick_overload(entries[:], typed, call_arg_count(call, req.source), active),
     }
     res.ok = true
 }
@@ -180,15 +182,21 @@ arity_takes :: proc(label: string, argc: int) -> bool {
 }
 
 // The entry a call best matches. Arity is the strong signal, and the one that
-// actually separates a group's members (`proc(int)` from `proc(int, int)`). When
-// nothing fits — a call still being typed, or a group whose members differ by
-// parameter *type* rather than count, which this does not read — the first entry
-// with a parameter in the slot the caret sits on wins, and failing that the
-// first entry: a call in progress must still show something.
+// separates most of a group's members (`proc(int)` from `proc(int, int)`);
+// `typed` — empty when there is nothing to read — separates the rest by what the
+// written arguments are, so members of one arity still land on the right entry.
+// When nothing fits — a call still being typed, or members no argument tells
+// apart — the first entry with a parameter in the slot the caret sits on wins,
+// and failing that the first entry: a call in progress must still show something.
 @(private)
-pick_overload :: proc(entries: []lang.Signature_Entry, argc, active: int) -> int {
+pick_overload :: proc(entries: []lang.Signature_Entry, typed: []bool, argc, active: int) -> int {
     if len(entries) <= 1 {
         return 0
+    }
+    for entry, i in entries {
+        if arity_takes(entry.label, argc) && i < len(typed) && typed[i] {
+            return i
+        }
     }
     for entry, i in entries {
         if arity_takes(entry.label, argc) {
@@ -352,20 +360,43 @@ find_proc_in_dir :: proc(
 // package-locally (see overload_sites); one that resolves to nothing is left out,
 // so a group written entirely qualified produces no entries at all and the caller
 // falls back to the group's own declaration.
+//
+// Reports, per entry, whether the call's written arguments fit that member — what
+// picks the active entry among members of one arity. Temp-allocated, and indexed
+// by *entry*, not by site, since an unresolved member has no entry.
 @(private)
 overload_entries :: proc(
     e: ^Engine,
     parser: ts.Parser,
     root: ts.Node,
     req: ^lang.Request,
+    call: ts.Node,
     group_src, group_path: string,
     d: Def,
     active: int,
     out: ^[dynamic]lang.Signature_Entry,
-) {
-    for site in overload_sites(e, parser, root, req, group_src, group_path, d) {
+) -> []bool {
+    sites := overload_sites(e, parser, root, req, group_src, group_path, d)
+    keep := make([]bool, len(sites), context.temp_allocator)
+    for site, i in sites {
+        keep[i] = site.label != ""
+    }
+    fits := types_fit(
+        e,
+        parser,
+        req,
+        Call_Site{node = call, root = root},
+        sites,
+        call_arg_count(call, req.source),
+        keep,
+    )
+
+    typed := make([dynamic]bool, context.temp_allocator)
+    for site, i in sites {
         if site.label != "" {
             append(out, signature_entry(site.label, active))
+            append(&typed, fits[i])
         }
     }
+    return typed[:]
 }

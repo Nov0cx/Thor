@@ -158,6 +158,164 @@ polymorphic_params :: proc(sig: string) -> []Poly_Binding {
     return out[:]
 }
 
+// Every polymorphic name `sig`'s parameter list declares, found by scanning its
+// text for `$Name`. A lexical scan rather than a composition of poly_param_shape
+// and explicit_poly_name, because those two read only the shapes they resolve a
+// *binding* from: `map[$K]$V` peels to the leaf `$V` alone, `[$N]f32` holds its
+// `$N` inside the brackets, and `List($T)` matches neither — each of which would
+// leave a later `k: K` reading as an ordinary type named `K` and rejecting the
+// member that declared it. A default value is cut first, so a `$` written in one
+// is never collected. Temp-allocated.
+@(private)
+signature_poly_names :: proc(sig: string) -> []string {
+    if !strings.contains(sig, "$") {
+        return nil
+    }
+    inner, ok := after_paren_group(sig, want_inner = true)
+    if !ok {
+        return nil
+    }
+    names := make([dynamic]string, context.temp_allocator)
+    for part in split_top_level(inner) {
+        s := part
+        if eq := strings.index_byte(s, '='); eq >= 0 {
+            s = s[:eq]
+        }
+        for i in 0 ..< len(s) {
+            if s[i] != '$' {
+                continue
+            }
+            end := i + 1
+            for end < len(s) && is_ident_byte(s[end]) {
+                end += 1
+            }
+            if name := s[i + 1:end]; valid_identifier(name) {
+                append(&names, name)
+            }
+        }
+    }
+    return names[:]
+}
+
+// Whether a parameter's text names a type this engine cannot pin down: it declares
+// a polymorphic name itself, or it uses one the same signature declared. Such a
+// slot is no evidence either way — never matched, never rejected. A constraint
+// (`$T: typeid/Ordered`) is not read: only the binding site is recognized, so a
+// constraint can cost narrowing but can never narrow wrongly.
+@(private)
+param_text_is_poly :: proc(text: string, poly: []string) -> bool {
+    if len(poly) == 0 {
+        return false
+    }
+    if strings.contains(text, "$") {
+        return true
+    }
+    _, leaf, ok := peel_poly_shape(strip_param_decorations(text))
+    if !ok {
+        return false
+    }
+    for name in poly {
+        if name == leaf {
+            return true
+        }
+    }
+    return false
+}
+
+// Which of `bindings`, if any, parameter slot `index` uses, and what wraps it
+// there — the parameter-list twin of result_poly_use, for narrowing a procedure
+// group by an argument written against a `T` an earlier slot bound.
+@(private)
+param_poly_use :: proc(
+    sig: string,
+    bindings: []Poly_Binding,
+    index: int,
+) -> (
+    shape: Poly_Shape,
+    binding: Poly_Binding,
+    ok: bool,
+) {
+    text, tok := signature_param_text(sig, index)
+    if !tok {
+        return {}, {}, false
+    }
+    leaf_shape, leaf, sok := peel_poly_shape(strip_param_decorations(text))
+    if !sok {
+        return {}, {}, false
+    }
+    for b in bindings {
+        if b.name == leaf {
+            return leaf_shape, b, true
+        }
+    }
+    return {}, {}, false
+}
+
+// The type `binding` is bound to at this call: the argument filling its parameter
+// slot, with the container layers that parameter wraps the name in unwrapped off.
+// Odin resolves every `$Name` at the call site, so no name is ever substituted
+// textually — the concrete type is read off the argument itself.
+@(private)
+poly_binding_value :: proc(
+    e: ^Engine,
+    parser: ts.Parser,
+    root: ts.Node,
+    req: ^lang.Request,
+    call: ts.Node,
+    binding: Poly_Binding,
+    depth: int,
+) -> (Type_Ref, bool) {
+    arg := call_argument(call, binding.index)
+    if ts.node_is_null(arg) {
+        return {}, false
+    }
+    tr, ok := infer_expr_result(e, parser, root, req, arg, 0, depth + 1)
+    if !ok {
+        return {}, false
+    }
+    for _ in 0 ..< binding.shape.depth {
+        elem, _, uok := unwrap_container(tr)
+        if !uok {
+            return {}, false
+        }
+        tr = elem
+    }
+    return tr, true
+}
+
+// The type argument written at an explicit binding slot (`identity2(int, v)` for
+// `proc($T: typeid, v: T)`). The argument there *names* a type rather than being a
+// value of one, so it is read with expr_type_name instead of being inferred.
+@(private)
+explicit_type_argument :: proc(
+    sig: string,
+    source: string,
+    call: ts.Node,
+    index: int,
+) -> (
+    name: string,
+    tr: Type_Ref,
+    ok: bool,
+) {
+    text, tok := signature_param_text(sig, index)
+    if !tok {
+        return "", {}, false
+    }
+    bound, eok := explicit_poly_name(text)
+    if !eok {
+        return "", {}, false
+    }
+    arg := call_argument(call, index)
+    if ts.node_is_null(arg) {
+        return "", {}, false
+    }
+    named, nok := expr_type_name(arg, source)
+    if !nok {
+        return "", {}, false
+    }
+    return bound, named, true
+}
+
 // Which of `bindings`, if any, result slot `index` uses, and what wraps it
 // there. Splits the (possibly tupled) result list the same way
 // signature_result_type does, peels that slot's text, and matches its bare
@@ -258,20 +416,9 @@ polymorphic_call_result :: proc(
     if !rok {
         return {}, false
     }
-    arg := call_argument(call, binding.index)
-    if ts.node_is_null(arg) {
-        return {}, false
-    }
-    arg_tr, aok := infer_expr_result(e, parser, root, req, arg, 0, depth + 1)
+    arg_tr, aok := poly_binding_value(e, parser, root, req, call, binding, depth)
     if !aok {
         return {}, false
-    }
-    for _ in 0 ..< binding.shape.depth {
-        elem, _, uok := unwrap_container(arg_tr)
-        if !uok {
-            return {}, false
-        }
-        arg_tr = elem
     }
     return wrap_layers(arg_tr, result_shape.containers[:result_shape.depth])
 }

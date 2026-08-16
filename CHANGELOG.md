@@ -23,6 +23,10 @@
 - `ctrl + z` takes back the files a language server's refactor created, renamed or deleted, together with the edits that came with them; `ctrl + shift + z` puts the whole thing back. Only the edits could be undone before.
 - A language server can claim whole file names: `"filenames": ["Makefile", "CMakeLists.txt"]` in `lsp.json`. Files with no usable extension reached no server at all before.
 - Settings > Language Servers restarts one server on its own, and "Language: Restart One Server" does the same from the command palette. A server that gave up after repeated crashes starts again.
+- `f12` on a call to an Odin procedure group reaches the member whose parameter is written as a type alias (`Meters :: f32`). No member matched before, so the candidate picker opened.
+- A `distinct` type takes the untyped literals its base type takes, which tells members apart that differ only by that type: `set(1)` and `set("x")` reach their own member. A `distinct f32` is still not an `f32`, so an `f32` argument reaches the `f32` member.
+- A group member with a generic parameter (`proc($T: typeid, v: T)`, `proc(m: map[$K]$V, k: K)`) is no longer refused because a later parameter reuses the bound name, which could send `f12` to the wrong member. A call that writes the type argument narrows on it.
+- The signature popup marks the member the written arguments reach, not the first one whose parameter count fits.
 
 # 2026.08.6
 
