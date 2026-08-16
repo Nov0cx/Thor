@@ -394,5 +394,5 @@ main :: proc() {
     selector_completions(e, src, "v.", &res)
     defer free_symbols(&res)
 
-    testing.expect(t, len(res.symbols) == 0, "a union offers no members on a plain dot")
+    testing.expect(t, len(res.completions) == 0, "a union offers no members on a plain dot")
 }

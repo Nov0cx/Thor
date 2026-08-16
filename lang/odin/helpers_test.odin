@@ -55,7 +55,9 @@ free_definition :: proc(res: ^lang.Result) {
     delete(res.location.path)
 }
 
-// Frees a symbol result's owned strings (the engine clones into context.allocator).
+// Frees a symbol or completion result's owned strings (the engine clones into
+// context.allocator). Both shapes in one helper: a completion request answers in
+// `completions` and leaves `symbols` empty, and the tests call this either way.
 @(private)
 free_symbols :: proc(res: ^lang.Result) {
     for sym in res.symbols {
@@ -65,6 +67,7 @@ free_symbols :: proc(res: ^lang.Result) {
         delete(sym.path)
     }
     delete(res.symbols)
+    free_completions(res)
 }
 
 @(private)
@@ -224,12 +227,24 @@ sig_has :: proc(sig: lang.Signature_Info, label: string) -> bool {
 // True when the completion result offers a candidate named `name`.
 @(private)
 has_completion :: proc(res: ^lang.Result, name: string) -> bool {
-    for sym in res.symbols {
-        if sym.name == name {
+    for item in res.completions {
+        if item.label == name {
             return true
         }
     }
     return false
+}
+
+// The completion half of free_symbols. The engine offers plain identifiers only,
+// so the edit and command fields are never filled.
+@(private)
+free_completions :: proc(res: ^lang.Result) {
+    for item in res.completions {
+        delete(item.label)
+        delete(item.kind)
+        delete(item.detail)
+    }
+    delete(res.completions)
 }
 
 // Like resolve_def but with a caller-chosen file path, so a cross-file test can

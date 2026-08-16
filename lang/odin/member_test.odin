@@ -237,10 +237,10 @@ main :: proc() {
     testing.expect(t, res.ok, "expected member completions")
     testing.expect(t, has_completion(&res, "x"), "missing field x")
     testing.expect(t, has_completion(&res, "y"), "missing field y")
-    for sym in res.symbols {
-        if sym.name == "x" {
-            testing.expectf(t, sym.kind == "field", "x kind: got %q", sym.kind)
-            testing.expectf(t, sym.signature == "x: int", "x label: got %q", sym.signature)
+    for item in res.completions {
+        if item.label == "x" {
+            testing.expectf(t, item.kind == "field", "x kind: got %q", item.kind)
+            testing.expectf(t, item.detail == "x: int", "x label: got %q", item.detail)
         }
     }
 }
@@ -539,12 +539,12 @@ main :: proc() {
 
         if i == 0 {
             testing.expect(t, has_completion(&res, "radius"), "a narrowed value offers its own fields")
-            testing.expectf(t, len(res.symbols) == 1, "%s offers only that type: got %d", probe.label, len(res.symbols))
+            testing.expectf(t, len(res.completions) == 1, "%s offers only that type: got %d", probe.label, len(res.completions))
             continue
         }
         // Several types leave the variable as the union, and the default case
         // narrows nothing — neither names one type to reach members through.
-        testing.expectf(t, !res.ok, "%s narrows to no single type, got %d candidates", probe.label, len(res.symbols))
+        testing.expectf(t, !res.ok, "%s narrows to no single type, got %d candidates", probe.label, len(res.completions))
     }
 }
 

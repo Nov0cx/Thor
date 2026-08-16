@@ -142,6 +142,8 @@ result_release :: proc(res: ^lang.Result) {
     for action in res.actions {
         delete(action.title)
         delete(action.kind)
+        delete(action.command)
+        delete(action.arguments)
         for edit in action.edits {
             delete(edit.path)
             delete(edit.old_text)
@@ -155,6 +157,24 @@ result_release :: proc(res: ^lang.Result) {
         delete(action.resource_ops)
     }
     delete(res.actions)
+    for item in res.completions {
+        delete(item.label)
+        delete(item.kind)
+        delete(item.detail)
+        delete(item.insert)
+        delete(item.filter)
+        delete(item.sort)
+        delete(item.command)
+        delete(item.arguments)
+        delete(item.raw)
+        for edit in item.extra_edits {
+            delete(edit.path)
+            delete(edit.old_text)
+            delete(edit.new_text)
+        }
+        delete(item.extra_edits)
+    }
+    delete(res.completions)
     delete(res.tokens)
     delete(res.report.scope)
     for item in res.report.items {
@@ -581,7 +601,7 @@ test_decode_signature_help_overloads :: proc(t: ^testing.T) {
 }
 
 // The CompletionList form, the padding some servers put on a label, and the
-// snippet that must not be inserted as it stands.
+// snippet that arrives as a template rather than as the text to type.
 @(test)
 test_decode_completion_list :: proc(t: ^testing.T) {
     s := held_server()
@@ -592,31 +612,37 @@ test_decode_completion_list :: proc(t: ^testing.T) {
         s,
         &req,
         `{"isIncomplete":true,"items":[` +
-        `{"label":" alpha","kind":3,"detail":"int alpha(void)"},` +
-        `{"label":"beta","kind":6,"insertText":"beta_impl"},` +
-        `{"label":"gamma","kind":3,"insertText":"gamma($1)","insertTextFormat":2},` +
-        `{"label":"Delta","kind":7}]}`,
+        `{"label":" alpha","kind":3,"detail":"int alpha(void)","sortText":"0"},` +
+        `{"label":"beta","kind":6,"insertText":"beta_impl","sortText":"1"},` +
+        `{"label":"gamma","kind":3,"insertText":"gamma($1)","insertTextFormat":2,"sortText":"2"},` +
+        `{"label":"Delta","kind":7,"sortText":"3"}]}`,
     )
     defer result_release(&res)
 
     testing.expect(t, res.ok)
-    testing.expect_value(t, len(res.symbols), 4)
-    if len(res.symbols) != 4 {
+    testing.expect(t, res.incomplete, "isIncomplete says the list must be asked for again")
+    testing.expect_value(t, len(res.completions), 4)
+    if len(res.completions) != 4 {
         return
     }
-    testing.expect_value(t, res.symbols[0].name, "alpha")
-    testing.expect_value(t, res.symbols[0].kind, "function")
-    testing.expect_value(t, res.symbols[0].signature, "int alpha(void)")
+    testing.expect_value(t, res.completions[0].label, "alpha")
+    testing.expect_value(t, res.completions[0].kind, "function")
+    testing.expect_value(t, res.completions[0].detail, "int alpha(void)")
     // insertText is what the server means to be typed.
-    testing.expect_value(t, res.symbols[1].name, "beta_impl")
-    testing.expect_value(t, res.symbols[1].kind, "var")
-    // A snippet is refused: snippetSupport is advertised false.
-    testing.expect_value(t, res.symbols[2].name, "gamma")
-    testing.expect_value(t, res.symbols[3].kind, "type")
-    testing.expect_value(t, res.symbols[3].signature, "Delta")
+    testing.expect_value(t, res.completions[1].insert, "beta_impl")
+    testing.expect_value(t, res.completions[1].kind, "var")
+    // A snippet keeps its placeholders and says so; the editor expands it.
+    testing.expect_value(t, res.completions[2].insert, "gamma($1)")
+    testing.expect(t, res.completions[2].snippet, "insertTextFormat 2 is a template")
+    testing.expect_value(t, res.completions[3].kind, "type")
+    testing.expect_value(t, res.completions[3].detail, "Delta")
+    // No range of its own leaves the editor to replace the word being typed.
+    testing.expect_value(t, res.completions[0].start, -1)
+    testing.expect_value(t, res.completions[0].end, -1)
 }
 
-// The bare CompletionItem[] form decodes the same way.
+// The bare CompletionItem[] form decodes the same way, and a list that does not
+// say otherwise is complete — the editor may narrow it as the word grows.
 @(test)
 test_decode_completion_array :: proc(t: ^testing.T) {
     s := held_server()
@@ -627,10 +653,209 @@ test_decode_completion_array :: proc(t: ^testing.T) {
     defer result_release(&res)
 
     testing.expect(t, res.ok)
-    testing.expect_value(t, len(res.symbols), 1)
-    if len(res.symbols) == 1 {
-        testing.expect_value(t, res.symbols[0].kind, "constant")
+    testing.expect(t, !res.incomplete, "an array carries no isIncomplete, so the list is whole")
+    testing.expect_value(t, len(res.completions), 1)
+    if len(res.completions) == 1 {
+        testing.expect_value(t, res.completions[0].kind, "constant")
     }
+}
+
+// sortText is the order the server wants, not the order it sent; a candidate
+// without one sorts by its label.
+@(test)
+test_decode_completion_sorts_by_sort_text :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Completion, SOURCE, 0)
+
+    res := decode_reply(
+        s,
+        &req,
+        `[{"label":"zeta","sortText":"0001"},` +
+        `{"label":"alpha","sortText":"0002"},` +
+        `{"label":"beta","sortText":"0003"}]`,
+    )
+    defer result_release(&res)
+
+    testing.expect_value(t, len(res.completions), 3)
+    if len(res.completions) != 3 {
+        return
+    }
+    testing.expect_value(t, res.completions[0].label, "zeta")
+    testing.expect_value(t, res.completions[1].label, "alpha")
+    testing.expect_value(t, res.completions[2].label, "beta")
+}
+
+// textEdit names its own text and the byte range it replaces; filterText is what
+// the editor matches the typed word against when the label is spelled otherwise.
+@(test)
+test_decode_completion_text_edit :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Completion, SOURCE, 5)
+
+    res := decode_reply(
+        s,
+        &req,
+        `[{"label":"alphabet","filterText":"alpha",` +
+        `"textEdit":{"newText":"alphabet",` +
+        `"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}}}}]`,
+    )
+    defer result_release(&res)
+
+    testing.expect_value(t, len(res.completions), 1)
+    if len(res.completions) != 1 {
+        return
+    }
+    testing.expect_value(t, res.completions[0].insert, "alphabet")
+    testing.expect_value(t, res.completions[0].filter, "alpha")
+    testing.expect_value(t, res.completions[0].start, 0)
+    testing.expect_value(t, res.completions[0].end, 5)
+}
+
+// An InsertReplaceEdit takes its `replace` range: insertReplaceSupport is never
+// advertised, so a server that sends one anyway means the wider of the two.
+@(test)
+test_decode_completion_insert_replace_edit :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Completion, SOURCE, 5)
+
+    res := decode_reply(
+        s,
+        &req,
+        `[{"label":"alphabet","textEdit":{"newText":"alphabet",` +
+        `"insert":{"start":{"line":0,"character":0},"end":{"line":0,"character":3}},` +
+        `"replace":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}}}}]`,
+    )
+    defer result_release(&res)
+
+    testing.expect_value(t, len(res.completions), 1)
+    if len(res.completions) == 1 {
+        testing.expect_value(t, res.completions[0].end, 5)
+    }
+}
+
+// A range that does not resolve leaves the candidate with none rather than one
+// that points at the wrong bytes; insertText still stands.
+@(test)
+test_decode_completion_refuses_a_bad_text_edit :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Completion, SOURCE, 5)
+
+    res := decode_reply(
+        s,
+        &req,
+        `[{"label":"alpha","insertText":"alpha_impl",` +
+        `"textEdit":{"newText":"alphabet",` +
+        `"range":{"start":{"line":0,"character":5},"end":{"line":0,"character":0}}}}]`,
+    )
+    defer result_release(&res)
+
+    testing.expect_value(t, len(res.completions), 1)
+    if len(res.completions) != 1 {
+        return
+    }
+    testing.expect_value(t, res.completions[0].insert, "alpha_impl")
+    testing.expect_value(t, res.completions[0].start, -1)
+}
+
+// additionalTextEdits are the changes elsewhere a candidate needs — an import
+// line — and carry the bytes they matched so the applier can verify them. A
+// command rides through as the raw JSON the server sent.
+@(test)
+test_decode_completion_additional_edits_and_command :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Completion, SOURCE, 5)
+
+    res := decode_reply(
+        s,
+        &req,
+        `[{"label":"alpha","additionalTextEdits":[` +
+        `{"newText":"import x\n","range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}}}],` +
+        `"command":{"command":"editor.action.triggerSuggest","arguments":[1,"two"]}}]`,
+    )
+    defer result_release(&res)
+
+    testing.expect_value(t, len(res.completions), 1)
+    if len(res.completions) != 1 {
+        return
+    }
+    item := res.completions[0]
+    testing.expect_value(t, len(item.extra_edits), 1)
+    if len(item.extra_edits) == 1 {
+        testing.expect_value(t, item.extra_edits[0].start, 0)
+        testing.expect_value(t, item.extra_edits[0].end, 5)
+        testing.expect_value(t, item.extra_edits[0].old_text, "alpha")
+        testing.expect_value(t, item.extra_edits[0].new_text, "import x\n")
+    }
+    testing.expect_value(t, item.command, "editor.action.triggerSuggest")
+    testing.expect_value(t, item.arguments, `[1,"two"]`)
+}
+
+// A server that does not resolve gets no candidate re-serialized for it: the raw
+// JSON exists only to be echoed back on completionItem/resolve.
+@(test)
+test_decode_completion_keeps_raw_only_when_resolvable :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Completion, SOURCE, 0)
+
+    plain := decode_reply(s, &req, `[{"label":"alpha","data":{"id":7}}]`)
+    defer result_release(&plain)
+    testing.expect_value(t, len(plain.completions), 1)
+    if len(plain.completions) == 1 {
+        testing.expect_value(t, plain.completions[0].raw, "")
+    }
+
+    s.caps.resolve_items = true
+    kept := decode_reply(s, &req, `[{"label":"alpha","data":{"id":7}}]`)
+    defer result_release(&kept)
+    testing.expect_value(t, len(kept.completions), 1)
+    if len(kept.completions) == 1 {
+        testing.expect(t, kept.completions[0].raw != "", "a resolving server needs the item back")
+    }
+}
+
+// completionItem/resolve answers the same candidate with the parts the server
+// deferred filled in; only those parts are read, since the text has already
+// landed by then.
+@(test)
+test_decode_resolve_completion :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Resolve_Completion, SOURCE, 0)
+
+    res := decode_reply(
+        s,
+        &req,
+        `{"label":"alpha","detail":"int alpha(void)","additionalTextEdits":[` +
+        `{"newText":"import x\n","range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}}}]}`,
+    )
+    defer result_release(&res)
+
+    testing.expect(t, res.ok)
+    testing.expect_value(t, len(res.completions), 1)
+    if len(res.completions) == 1 {
+        testing.expect_value(t, len(res.completions[0].extra_edits), 1)
+    }
+}
+
+// A resolve that filled nothing in is not a result: there is nothing to apply,
+// and ok=false is what the seam reads as "found nothing".
+@(test)
+test_decode_resolve_completion_without_edits :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Resolve_Completion, SOURCE, 0)
+
+    res := decode_reply(s, &req, `{"label":"alpha","detail":"int alpha(void)"}`)
+    defer result_release(&res)
+
+    testing.expect(t, !res.ok)
+    testing.expect_value(t, len(res.completions), 0)
 }
 
 // The delta rule: a new line resets the character, the same line adds to it, and

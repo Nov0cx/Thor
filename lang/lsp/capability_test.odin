@@ -31,9 +31,18 @@ test_capabilities_providers :: proc(t: ^testing.T) {
         }}`,
     )
 
+    // Resolve_Completion rides completionProvider, the way Package_Doc rides
+    // hoverProvider; whether the server actually resolves is a second question.
     testing.expect_value(
         t, caps.kinds,
-        bit_set[lang.Request_Kind]{.Definition, .Hover, .Package_Doc, .Completion, .Semantic_Tokens},
+        bit_set[lang.Request_Kind] {
+            .Definition,
+            .Hover,
+            .Package_Doc,
+            .Completion,
+            .Resolve_Completion,
+            .Semantic_Tokens,
+        },
     )
 }
 
@@ -160,6 +169,36 @@ test_capabilities_real_reply :: proc(t: ^testing.T) {
         caps.kinds,
         lang.FEATURES_ALL - {.Diagnostics, .Progress, .Apply_Edit, .Format, .Format_Range, .Format_On_Type},
     )
+}
+
+// completionProvider's own options: whether the server fills a candidate in on a
+// second round trip, and the characters it wants to be told about.
+@(test)
+test_capabilities_completion_options :: proc(t: ^testing.T) {
+    caps := decode(
+        `{"capabilities": {
+            "completionProvider": {"resolveProvider": true, "triggerCharacters": [".", ":"]}
+        }}`,
+    )
+
+    testing.expect(t, .Completion in caps.kinds)
+    testing.expect(t, .Resolve_Completion in caps.kinds)
+    testing.expect(t, caps.resolve_items)
+    testing.expect_value(t, len(caps.item_triggers), 2)
+    if len(caps.item_triggers) == 2 {
+        testing.expect_value(t, caps.item_triggers[0], ".")
+    }
+}
+
+// A server that completes but never resolves claims the kind through the same
+// provider key, so the request path checks resolve_items rather than the bit.
+@(test)
+test_capabilities_completion_without_resolve :: proc(t: ^testing.T) {
+    caps := decode(`{"capabilities": {"completionProvider": true}}`)
+
+    testing.expect(t, .Completion in caps.kinds)
+    testing.expect(t, !caps.resolve_items, "no resolveProvider means no second round trip")
+    testing.expect_value(t, len(caps.item_triggers), 0)
 }
 
 // documentFormattingProvider / documentRangeFormattingProvider both follow the

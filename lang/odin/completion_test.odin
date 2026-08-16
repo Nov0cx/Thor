@@ -49,10 +49,10 @@ main :: proc() {
 
     // A top-level candidate carries its declaration line and kind; the caret's own
     // partial word is never offered back as a candidate.
-    for sym in res.symbols {
-        if sym.name == "count_items" {
-            testing.expectf(t, sym.signature == "count_items :: proc() -> int", "count_items label: got %q", sym.signature)
-            testing.expectf(t, sym.kind == "function", "count_items kind: got %q", sym.kind)
+    for item in res.completions {
+        if item.label == "count_items" {
+            testing.expectf(t, item.detail == "count_items :: proc() -> int", "count_items label: got %q", item.detail)
+            testing.expectf(t, item.kind == "function", "count_items kind: got %q", item.kind)
         }
     }
     testing.expect(t, !has_completion(&res, "coun"), "the typed prefix is not a candidate")
@@ -74,9 +74,9 @@ test_completion_keyword :: proc(t: ^testing.T) {
 
     testing.expect(t, res.ok, "expected a keyword completion")
     testing.expect(t, has_completion(&res, "string"), "missing builtin string")
-    for sym in res.symbols {
-        if sym.name == "string" {
-            testing.expectf(t, sym.kind == "keyword", "string kind: got %q", sym.kind)
+    for item in res.completions {
+        if item.label == "string" {
+            testing.expectf(t, item.kind == "keyword", "string kind: got %q", item.kind)
         }
     }
 }
@@ -135,9 +135,9 @@ test_completion_package_name :: proc(t: ^testing.T) {
     testing.expect(t, res.ok, "expected the imported package as a candidate")
     testing.expect(t, has_completion(&res, "widgets"), "missing imported package widgets")
     testing.expect(t, !has_completion(&res, "fmt"), "fmt does not share the prefix")
-    for sym in res.symbols {
-        if sym.name == "widgets" {
-            testing.expectf(t, sym.kind == "namespace", "widgets kind: got %q", sym.kind)
+    for item in res.completions {
+        if item.label == "widgets" {
+            testing.expectf(t, item.kind == "namespace", "widgets kind: got %q", item.kind)
         }
     }
 }

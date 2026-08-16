@@ -35,9 +35,9 @@ main :: proc() {
     testing.expect(t, res.ok, "expected enum selector completions")
     testing.expect(t, has_completion(&res, "Horizontal"), "missing member Horizontal")
     testing.expect(t, has_completion(&res, "Vertical"), "missing member Vertical")
-    for sym in res.symbols {
-        if sym.name == "Horizontal" {
-            testing.expectf(t, sym.kind == "enum_member", "Horizontal kind: got %q", sym.kind)
+    for item in res.completions {
+        if item.label == "Horizontal" {
+            testing.expectf(t, item.kind == "enum_member", "Horizontal kind: got %q", item.kind)
         }
     }
 }

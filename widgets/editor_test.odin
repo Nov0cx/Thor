@@ -20,6 +20,8 @@ editor_test_free_completions :: proc(editor: ^Editor) {
         delete(row.filter)
     }
     clear(&editor.completion_rows)
+    delete(editor.completion_word)
+    editor.completion_word = ""
 }
 
 // A stack editor with one caret at the end of `text`, laid out large enough for
@@ -47,7 +49,6 @@ test_completion_narrows_while_typing :: proc(t: ^testing.T) {
     editor: Editor
     defer delete(editor.visual_rows)
     defer delete(editor.completion_rows)
-    defer delete(editor.completion_word)
     defer editor_test_free_completions(&editor)
 
     editor_test_completion_setup(&editor, &state, "alpha albatross alpine \n")
@@ -405,4 +406,189 @@ test_visual_row_movement_with_tabs :: proc(t: ^testing.T) {
     textedit.select_range(&state, 1, 1) // just past the tab: column 4
     editor_move_visual(&editor, 1, false)
     testing.expect_value(t, textedit.primary_cursor(&state).caret, 8)
+}
+
+// The snippet grammar, in one pass: a bare tabstop, a placeholder with a
+// default, a choice that keeps only its first alternative, a mirror of an
+// earlier stop, an escape, and the exit stop that sorts last.
+@(test)
+test_snippet_parse_grammar :: proc(t: ^testing.T) {
+    snip := snippet_parse(`fn(${1:name}, ${2|a,b|}) \$$1$0`)
+    defer snippet_destroy(&snip)
+
+    testing.expect_value(t, snip.text, "fn(name, a) $name")
+    // Visit order: 1, its mirror, 2, then 0.
+    testing.expect_value(t, len(snip.stops), 4)
+    if len(snip.stops) != 4 {
+        return
+    }
+    testing.expect_value(t, snip.stops[0].index, 1)
+    testing.expect_value(t, snip.stops[0].start, 3)
+    testing.expect_value(t, snip.stops[0].end, 7)
+    testing.expect_value(t, snip.stops[1].index, 1) // the mirror, filled with "name"
+    testing.expect_value(t, snip.stops[1].end - snip.stops[1].start, 4)
+    testing.expect_value(t, snip.stops[2].index, 2)
+    testing.expect_value(t, snip.stops[3].index, 0)
+    testing.expect_value(t, snip.stops[3].start, len(snip.text))
+}
+
+// A variable Thor cannot answer falls back to its written default, and one it
+// can is substituted instead of it. An unclosed construct is text, not a stop.
+@(test)
+test_snippet_parse_variables :: proc(t: ^testing.T) {
+    snip := snippet_parse("${TM_LINE_NUMBER}:${NOPE:fallback}:${1", Snippet_Vars{line = 7})
+    defer snippet_destroy(&snip)
+
+    testing.expect_value(t, snip.text, "7:fallback:${1")
+    testing.expect_value(t, len(snip.stops), 0)
+}
+
+// Accepting a snippet candidate expands it, selects the first placeholder, and
+// Tab walks to the next one and then out.
+@(test)
+test_snippet_session_walks_tabstops :: proc(t: ^testing.T) {
+    state: textedit.State
+    textedit.init(&state)
+    defer textedit.destroy(&state)
+
+    editor: Editor
+    defer delete(editor.visual_rows)
+    defer delete(editor.completion_rows)
+    defer delete(editor.snippet_stops)
+    defer editor_test_free_completions(&editor)
+
+    editor_test_completion_setup(&editor, &state, "fn\n")
+    editor_set_completions(
+        &editor,
+        []Completion_Item{{text = "fn", owner_id = 1, insert = "fn(${1:a}, ${2:b})$0", snippet = true, start = -1, end = -1}},
+    )
+    testing.expect_value(t, len(editor.completion_rows), 1)
+
+    tab := ui.Event {kind = .Key_Press, key = .TAB}
+    editor_handle_event(&editor.widget, nil, &tab)
+
+    testing.expect_value(t, textedit.text(&state), "fn(a, b)\n")
+    testing.expect(t, editor.snippet_active, "a template opens a session")
+    testing.expect_value(t, textedit.primary_cursor(&state).anchor, 3)
+    testing.expect_value(t, textedit.primary_cursor(&state).caret, 4)
+
+    editor_handle_event(&editor.widget, nil, &tab)
+    testing.expect_value(t, textedit.primary_cursor(&state).anchor, 6)
+    testing.expect_value(t, textedit.primary_cursor(&state).caret, 7)
+
+    // The exit stop places the caret and closes the session.
+    editor_handle_event(&editor.widget, nil, &tab)
+    testing.expect(t, !editor.snippet_active, "$0 is where the session ends")
+    testing.expect_value(t, textedit.primary_cursor(&state).caret, 8)
+}
+
+// Typing over a placeholder moves the stops after it by what the edit changed,
+// so the next Tab still lands on the right bytes.
+@(test)
+test_snippet_session_follows_typing :: proc(t: ^testing.T) {
+    state: textedit.State
+    textedit.init(&state)
+    defer textedit.destroy(&state)
+
+    editor: Editor
+    defer delete(editor.visual_rows)
+    defer delete(editor.completion_rows)
+    defer delete(editor.snippet_stops)
+    defer editor_test_free_completions(&editor)
+
+    editor_test_completion_setup(&editor, &state, "fn\n")
+    editor_set_completions(
+        &editor,
+        []Completion_Item{{text = "fn", owner_id = 1, insert = "fn(${1:a}, ${2:b})$0", snippet = true, start = -1, end = -1}},
+    )
+    tab := ui.Event {kind = .Key_Press, key = .TAB}
+    editor_handle_event(&editor.widget, nil, &tab)
+
+    typed := ui.Event {kind = .Text_Input, codepoint = 'z'}
+    editor_handle_event(&editor.widget, nil, &typed)
+    testing.expect_value(t, textedit.text(&state), "fn(z, b)\n")
+
+    editor_handle_event(&editor.widget, nil, &tab)
+    testing.expect(t, editor.snippet_active, "one edit inside the active stop keeps the session")
+    testing.expect_value(t, textedit.primary_cursor(&state).anchor, 6)
+    testing.expect_value(t, textedit.primary_cursor(&state).caret, 7)
+}
+
+// A caret that leaves the snippet ends the session: the offsets can no longer be
+// followed, and guessing at them would splice text at the wrong place.
+@(test)
+test_snippet_session_ends_when_the_caret_leaves :: proc(t: ^testing.T) {
+    state: textedit.State
+    textedit.init(&state)
+    defer textedit.destroy(&state)
+
+    editor: Editor
+    defer delete(editor.visual_rows)
+    defer delete(editor.completion_rows)
+    defer delete(editor.snippet_stops)
+    defer editor_test_free_completions(&editor)
+
+    editor_test_completion_setup(&editor, &state, "fn\n")
+    editor_set_completions(
+        &editor,
+        []Completion_Item{{text = "fn", owner_id = 1, insert = "fn(${1:a}, ${2:b})$0", snippet = true, start = -1, end = -1}},
+    )
+    tab := ui.Event {kind = .Key_Press, key = .TAB}
+    editor_handle_event(&editor.widget, nil, &tab)
+    testing.expect(t, editor.snippet_active)
+
+    // "fn(a, b)\n": the snippet spans [0, 8), so the byte past the newline is out.
+    textedit.set_single_cursor(&state, 9)
+    end := ui.Event {kind = .Key_Press, key = .END}
+    editor_handle_event(&editor.widget, nil, &end)
+    testing.expect(t, !editor.snippet_active, "the caret left the snippet's span")
+}
+
+// A candidate that names the range it replaces replaces exactly that, rather
+// than appending whatever follows the typed prefix.
+@(test)
+test_completion_replaces_its_own_range :: proc(t: ^testing.T) {
+    state: textedit.State
+    textedit.init(&state)
+    defer textedit.destroy(&state)
+
+    editor: Editor
+    defer delete(editor.visual_rows)
+    defer delete(editor.completion_rows)
+    defer delete(editor.snippet_stops)
+    defer editor_test_free_completions(&editor)
+
+    editor_test_completion_setup(&editor, &state, "al\n")
+    editor_set_completions(
+        &editor,
+        []Completion_Item{{text = "alpha", owner_id = 1, insert = "ALPHA", start = 0, end = 2}},
+    )
+    tab := ui.Event {kind = .Key_Press, key = .TAB}
+    editor_handle_event(&editor.widget, nil, &tab)
+
+    testing.expect_value(t, textedit.text(&state), "ALPHA\n")
+}
+
+// A candidate already spelled out in full survives the filter when its owner
+// backs it: what it is there for may be the import it carries, not its letters.
+@(test)
+test_completion_keeps_a_fully_typed_owner_row :: proc(t: ^testing.T) {
+    state: textedit.State
+    textedit.init(&state)
+    defer textedit.destroy(&state)
+
+    editor: Editor
+    defer delete(editor.visual_rows)
+    defer delete(editor.completion_rows)
+    defer editor_test_free_completions(&editor)
+
+    editor_test_completion_setup(&editor, &state, "al\n")
+    editor_set_completions(
+        &editor,
+        []Completion_Item{{text = "al", owner_id = 1, start = -1, end = -1}, {text = "al"}},
+    )
+    testing.expect_value(t, len(editor.completion_rows), 1)
+    if len(editor.completion_rows) == 1 {
+        testing.expect_value(t, editor.completion_rows[0].owner_id, 1)
+    }
 }
