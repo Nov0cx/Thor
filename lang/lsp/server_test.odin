@@ -257,22 +257,22 @@ test_server_document_sync :: proc(t: ^testing.T) {
     s := fake_server(&f, CAPS_ALL)
     defer fake_end(&f, s)
 
-    server_notify(s, .Opened, SOURCE, ".fake", "one", 1)
+    server_notify(s, .Opened, SOURCE, "one", 1)
     testing.expect(t, wait_state(s, .Ready), "the open did not start the server")
     testing.expect(t, wait_sent(&f, `"method":"textDocument/didOpen"`), "didOpen never arrived")
     testing.expect(t, fake_sent(&f, `"languageId":"fake"`))
     testing.expect(t, fake_sent(&f, `"uri":"` + SOURCE_URI + `"`))
     testing.expect(t, fake_sent(&f, `"text":"one"`))
 
-    server_notify(s, .Changed, SOURCE, ".fake", "one two", 2)
+    server_notify(s, .Changed, SOURCE, "one two", 2)
     testing.expect(t, wait_sent(&f, `"method":"textDocument/didChange"`), "didChange never arrived")
     testing.expect(t, fake_sent(&f, `"version":2`))
     testing.expect(t, fake_sent(&f, `"text":"one two"`))
 
-    server_notify(s, .Saved, SOURCE, ".fake", "", 2)
+    server_notify(s, .Saved, SOURCE, "", 2)
     testing.expect(t, wait_sent(&f, `"method":"textDocument/didSave"`), "didSave never arrived")
 
-    server_notify(s, .Closed, SOURCE, ".fake", "", 2)
+    server_notify(s, .Closed, SOURCE, "", 2)
     testing.expect(t, wait_sent(&f, `"method":"textDocument/didClose"`), "didClose never arrived")
 
     open_at := fake_index(&f, `"method":"textDocument/didOpen"`)
@@ -300,23 +300,23 @@ test_server_change_coalescing :: proc(t: ^testing.T) {
         server_destroy(s)
     }
 
-    server_notify(s, .Changed, SOURCE, ".fake", "one", 1)
-    server_notify(s, .Changed, SOURCE, ".fake", "two", 2)
+    server_notify(s, .Changed, SOURCE, "one", 1)
+    server_notify(s, .Changed, SOURCE, "two", 2)
     testing.expect_value(t, len(s.outbox), 1)
     testing.expect_value(t, s.outbox[0].source, "two")
     testing.expect_value(t, s.outbox[0].revision, 2)
 
     // A close between them ends the fold: the newer text belongs after the
     // close, not before it.
-    server_notify(s, .Closed, SOURCE, ".fake", "", 2)
-    server_notify(s, .Changed, SOURCE, ".fake", "three", 3)
+    server_notify(s, .Closed, SOURCE, "", 2)
+    server_notify(s, .Changed, SOURCE, "three", 3)
     testing.expect_value(t, len(s.outbox), 3)
     testing.expect_value(t, s.outbox[0].source, "two")
     testing.expect_value(t, s.outbox[1].event, lang.Doc_Event.Closed)
     testing.expect_value(t, s.outbox[2].source, "three")
 
     // Another file never folds into this one's.
-    server_notify(s, .Changed, SOURCE + "x", ".fake", "other", 1)
+    server_notify(s, .Changed, SOURCE + "x", "other", 1)
     testing.expect_value(t, len(s.outbox), 4)
 }
 
@@ -327,12 +327,12 @@ test_server_sync_declined :: proc(t: ^testing.T) {
     s := fake_server(&f, `{"capabilities":{"textDocumentSync":0,"hoverProvider":true}}`)
     defer fake_end(&f, s)
 
-    server_notify(s, .Opened, SOURCE, ".fake", "one", 1)
+    server_notify(s, .Opened, SOURCE, "one", 1)
     testing.expect(t, wait_state(s, .Ready), "the open did not start the server")
     testing.expect(t, wait_sent(&f, `"method":"initialized"`), "initialized was never sent")
 
     // The change is applied to the document either way; only the wire is quiet.
-    server_notify(s, .Changed, SOURCE, ".fake", "two", 2)
+    server_notify(s, .Changed, SOURCE, "two", 2)
     time.sleep(50 * time.Millisecond)
     testing.expect(t, !fake_sent(&f, "textDocument/didOpen"), "didOpen was sent to a server that declined it")
     testing.expect(t, !fake_sent(&f, "textDocument/didChange"), "didChange was sent to a server that declined it")
@@ -351,12 +351,12 @@ test_server_incremental_sync :: proc(t: ^testing.T) {
     s := fake_server(&f, CAPS_INCREMENTAL)
     defer fake_end(&f, s)
 
-    server_notify(s, .Opened, SOURCE, ".fake", "hello world", 1)
+    server_notify(s, .Opened, SOURCE, "hello world", 1)
     testing.expect(t, wait_state(s, .Ready), "the open did not start the server")
     testing.expect(t, wait_sent(&f, `"method":"textDocument/didOpen"`), "didOpen never arrived")
     testing.expect(t, fake_sent(&f, `"text":"hello world"`), "didOpen must still carry the whole buffer")
 
-    server_notify(s, .Changed, SOURCE, ".fake", "hello brave world", 2)
+    server_notify(s, .Changed, SOURCE, "hello brave world", 2)
     testing.expect(t, wait_sent(&f, `"method":"textDocument/didChange"`), "didChange never arrived")
     testing.expect(t, fake_sent(&f, `"range"`), "an Incremental server must get a ranged change")
     testing.expect(t, fake_sent(&f, `"text":"brave "`), "the change must carry only the replaced substring")
@@ -372,11 +372,11 @@ test_server_full_sync_fallback :: proc(t: ^testing.T) {
     s := fake_server(&f, CAPS_ALL) // "change":1
     defer fake_end(&f, s)
 
-    server_notify(s, .Opened, SOURCE, ".fake", "hello world", 1)
+    server_notify(s, .Opened, SOURCE, "hello world", 1)
     testing.expect(t, wait_state(s, .Ready), "the open did not start the server")
     testing.expect(t, wait_sent(&f, `"method":"textDocument/didOpen"`), "didOpen never arrived")
 
-    server_notify(s, .Changed, SOURCE, ".fake", "hello brave world", 2)
+    server_notify(s, .Changed, SOURCE, "hello brave world", 2)
     testing.expect(t, wait_sent(&f, `"method":"textDocument/didChange"`), "didChange never arrived")
     testing.expect(t, fake_sent(&f, `"text":"hello brave world"`), "a Full server must still get the whole buffer")
     testing.expect(t, !fake_sent(&f, `"range"`), "a Full server must not get a ranged change")
@@ -443,6 +443,40 @@ test_server_crash_restarts :: proc(t: ^testing.T) {
     start := time.tick_now()
     server_stop(s)
     testing.expect(t, time.tick_since(start) < RESTART_BACKOFF[0], "the stop waited out the backoff")
+}
+
+// A manual restart puts a running server back where server_create left it: the
+// stopping latch is released so it starts again, and the crash count and the
+// last error a give-up left behind are cleared.
+@(test)
+test_server_restart_resets_the_latch :: proc(t: ^testing.T) {
+    f: Fake
+    s := fake_server(&f, CAPS_ALL)
+    defer fake_end(&f, s)
+
+    testing.expect(t, server_start(s, SOURCE))
+    testing.expect(t, wait_state(s, .Ready), "the handshake did not finish")
+
+    // What a crash loop that gave up leaves behind.
+    sync.lock(&s.status_mutex)
+    s.restarts = RESTART_LIMIT
+    sync.unlock(&s.status_mutex)
+    server_note_error(s, "stopped answering")
+
+    // The serve worker goes first: server_stop frees the mock's buffers.
+    fake_kill(&f)
+    server_restart(s)
+
+    testing.expect_value(t, server_state(s), Server_State.Idle)
+    testing.expect_value(t, server_restarts(s), 0)
+    testing.expect_value(t, server_last_error(s, context.temp_allocator), "")
+
+    // It starts again — a server still holding the latch never would. The second
+    // open finds no program, which is how the attempt is observed with no second
+    // scripted transport.
+    f.refuse = true
+    testing.expect(t, server_start(s, SOURCE), "a restarted server refused to start again")
+    testing.expect(t, wait_state(s, .Failed), "the second start never ran")
 }
 
 // The two requests a server makes of its client, answered from the config.
@@ -597,8 +631,8 @@ test_server_publish_never_goes_backwards :: proc(t: ^testing.T) {
     testing.expect(t, wait_state(s, .Ready), "the handshake did not finish")
 
     sync.lock(&s.docs_mutex)
-    server_publish(s, SOURCE, ".fake", "three", 3)
-    server_publish(s, SOURCE, ".fake", "two", 2)
+    server_publish(s, SOURCE, "three", 3)
+    server_publish(s, SOURCE, "two", 2)
     doc, found := server_find(s, SOURCE)
     sync.unlock(&s.docs_mutex)
 
@@ -679,7 +713,7 @@ test_server_publishes_diagnostics :: proc(t: ^testing.T) {
     s := fake_server(&f, CAPS_ALL)
     defer fake_end(&f, s)
 
-    server_notify(s, .Opened, SOURCE, ".fake", BUFFER, 9)
+    server_notify(s, .Opened, SOURCE, BUFFER, 9)
     testing.expect(t, wait_sent(&f, `"method":"textDocument/didOpen"`), "didOpen never arrived")
 
     // A file the editor never opened has no buffer to place a position in.
@@ -729,7 +763,7 @@ test_server_push_obeys_the_admin_gate :: proc(t: ^testing.T) {
     defer fake_end(&f, s)
     server_set_admin_features(s, server_admin_features(s) - {.Diagnostics})
 
-    server_notify(s, .Opened, SOURCE, ".fake", BUFFER, 1)
+    server_notify(s, .Opened, SOURCE, BUFFER, 1)
     testing.expect(t, wait_sent(&f, `"method":"textDocument/didOpen"`), "didOpen never arrived")
 
     mock_frame(
@@ -752,7 +786,7 @@ test_server_progress_push :: proc(t: ^testing.T) {
     s := fake_server(&f, CAPS_ALL)
     defer fake_end(&f, s)
 
-    server_notify(s, .Opened, SOURCE, ".fake", BUFFER, 1)
+    server_notify(s, .Opened, SOURCE, BUFFER, 1)
     testing.expect(t, wait_sent(&f, `"method":"textDocument/didOpen"`), "didOpen never arrived")
 
     mock_frame(
@@ -818,7 +852,7 @@ test_apply_edit_round_trip :: proc(t: ^testing.T) {
     s := fake_server(&f, CAPS_ALL)
     defer fake_end(&f, s)
 
-    server_notify(s, .Opened, SOURCE, ".fake", BUFFER, 1)
+    server_notify(s, .Opened, SOURCE, BUFFER, 1)
     testing.expect(t, wait_sent(&f, `"method":"textDocument/didOpen"`), "didOpen never arrived")
 
     mock_frame(
@@ -861,7 +895,7 @@ test_apply_edit_push_sorts_edits :: proc(t: ^testing.T) {
     s := fake_server(&f, CAPS_ALL)
     defer fake_end(&f, s)
 
-    server_notify(s, .Opened, SOURCE, ".fake", BUFFER, 1)
+    server_notify(s, .Opened, SOURCE, BUFFER, 1)
     testing.expect(t, wait_sent(&f, `"method":"textDocument/didOpen"`), "didOpen never arrived")
 
     // "gamma" (line 1, byte 11) before "alpha" (line 0, byte 0).
@@ -905,7 +939,7 @@ test_apply_edit_push_carries_resource_ops :: proc(t: ^testing.T) {
     s := fake_server(&f, CAPS_ALL)
     defer fake_end(&f, s)
 
-    server_notify(s, .Opened, SOURCE, ".fake", BUFFER, 1)
+    server_notify(s, .Opened, SOURCE, BUFFER, 1)
     testing.expect(t, wait_sent(&f, `"method":"textDocument/didOpen"`), "didOpen never arrived")
 
     mock_frame(
@@ -945,7 +979,7 @@ test_server_drop_push_frees_resource_ops :: proc(t: ^testing.T) {
     s := fake_server(&f, CAPS_ALL)
     defer fake_end(&f, s)
 
-    server_notify(s, .Opened, SOURCE, ".fake", BUFFER, 1)
+    server_notify(s, .Opened, SOURCE, BUFFER, 1)
     testing.expect(t, wait_sent(&f, `"method":"textDocument/didOpen"`), "didOpen never arrived")
 
     mock_frame(
@@ -971,7 +1005,7 @@ test_apply_edit_times_out_when_never_applied :: proc(t: ^testing.T) {
     s := fake_server(&f, CAPS_ALL)
     defer fake_end(&f, s)
 
-    server_notify(s, .Opened, SOURCE, ".fake", BUFFER, 1)
+    server_notify(s, .Opened, SOURCE, BUFFER, 1)
     testing.expect(t, wait_sent(&f, `"method":"textDocument/didOpen"`), "didOpen never arrived")
 
     mock_frame(
@@ -1354,7 +1388,7 @@ test_server_code_actions_diagnostics_context :: proc(t: ^testing.T) {
     defer free_all(context.temp_allocator)
     f.by_method["textDocument/codeAction"] = `[]`
 
-    server_notify(s, .Opened, SOURCE, ".fake", BUFFER, 1)
+    server_notify(s, .Opened, SOURCE, BUFFER, 1)
     testing.expect(t, wait_sent(&f, `"method":"textDocument/didOpen"`), "didOpen never arrived")
 
     mock_frame(

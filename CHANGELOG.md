@@ -20,6 +20,9 @@
 - An update that cannot be swapped in leaves the editor working. The file watcher and the claim on the open folder come back, and the downloaded build stays staged, so the retry needs no second download.
 - An update that cannot start the new build says the update is in place and asks for a manual start, instead of leaving the window without a file watcher.
 - A restart after an update keeps the session it saved. The closing window wrote its own state over the one the new window had restored.
+- `ctrl + z` takes back the files a language server's refactor created, renamed or deleted, together with the edits that came with them; `ctrl + shift + z` puts the whole thing back. Only the edits could be undone before.
+- A language server can claim whole file names: `"filenames": ["Makefile", "CMakeLists.txt"]` in `lsp.json`. Files with no usable extension reached no server at all before.
+- Settings > Language Servers restarts one server on its own, and "Language: Restart One Server" does the same from the command palette. A server that gave up after repeated crashes starts again.
 
 # 2026.08.6
 

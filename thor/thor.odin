@@ -373,6 +373,9 @@ Thor :: struct {
     // on at the head of the run loop, never inside an event: thor_reload_lang
     // destroys the backend a dispatch may be standing on.
     lang_reload_pending: bool,
+    // The one server a row or the palette asked to restart, acted on at the same
+    // point and for the same reason. Owned; "" when none is owed.
+    lang_restart_id: string,
     // Signature of the three lsp.json layers, and the per-server states the
     // health poll last saw. Both owned; see thor/settings_watch.odin.
     lsp_sig: i64,
@@ -941,6 +944,7 @@ shutdown :: proc(thor: ^Thor) {
     thor_lsp_health_destroy(thor)
     delete(thor.lsp_install_command)
     delete(thor.lsp_install_prompt)
+    delete(thor.lang_restart_id)
     delete(thor.pending_goto_path)
     thor_clear_jump_list(thor)
     delete(thor.jump_back)

@@ -119,6 +119,21 @@ test_language_id_for :: proc(t: ^testing.T) {
     testing.expect_value(t, language_id_for(""), "")
 }
 
+// A file whose name a server claims gets the languageId of that name, whatever
+// its extension says — both separators, since a path arrives as the platform
+// spells it.
+@(test)
+test_language_id_for_path :: proc(t: ^testing.T) {
+    testing.expect_value(t, language_id_for_path("src/main.c"), "c")
+    testing.expect_value(t, language_id_for_path(`src\main.c`), "c")
+    testing.expect_value(t, language_id_for_path("src/Makefile"), "makefile")
+    testing.expect_value(t, language_id_for_path(`src\CMakeLists.txt`), "cmake")
+    testing.expect_value(t, language_id_for_path("Dockerfile"), "dockerfile")
+    // A name nothing claims still answers by extension, and none at all is "".
+    testing.expect_value(t, language_id_for_path("notes.txt"), "txt")
+    testing.expect_value(t, language_id_for_path("src/LICENSE"), "")
+}
+
 // A document starts at version 1 and the index always describes the text that was
 // last sent.
 @(test)

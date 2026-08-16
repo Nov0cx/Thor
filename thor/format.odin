@@ -44,7 +44,7 @@ thor_format_file :: proc(thor: ^Thor, file: ^Open_File) -> bool {
     if file == nil || !file.loaded {
         return false
     }
-    ext := thor_file_extension(file.name)
+    ext := thor_lang_key(thor, file.name)
     if !lang.manager_allows(&thor.lang_manager, ext, .Format) {
         return false
     }
@@ -81,7 +81,7 @@ thor_format_selection :: proc(thor: ^Thor, file: ^Open_File) -> bool {
     if !textedit.has_selection(cursor) {
         return thor_format_file(thor, file)
     }
-    ext := thor_file_extension(file.name)
+    ext := thor_lang_key(thor, file.name)
     if !lang.manager_allows(&thor.lang_manager, ext, .Format_Range) {
         return false
     }
@@ -120,7 +120,7 @@ thor_format_on_type :: proc(thor: ^Thor, file: ^Open_File, offset: int, char: st
     if file == nil || !file.loaded || !setting.format_on_type(&thor.config) {
         return
     }
-    ext := thor_file_extension(file.name)
+    ext := thor_lang_key(thor, file.name)
     if !lang.manager_on_type_trigger(&thor.lang_manager, ext, char) {
         return
     }

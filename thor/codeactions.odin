@@ -32,7 +32,7 @@ thor_code_actions :: proc(thor: ^Thor) {
     if file == nil || !file.loaded {
         return
     }
-    ext := thor_file_extension(file.name)
+    ext := thor_lang_key(thor, file.name)
     // manager_allows, not manager_supports: a backend that gates code actions
     // off must leave Ctrl+. doing nothing, not answering an error.
     if !lang.manager_allows(&thor.lang_manager, ext, .Code_Actions) {
@@ -194,7 +194,7 @@ thor_run_action_command :: proc(thor: ^Thor, action: Pending_Action) -> bool {
     if file == nil || !file.loaded {
         return false
     }
-    ext := thor_file_extension(file.name)
+    ext := thor_lang_key(thor, file.name)
     if !lang.manager_allows(&thor.lang_manager, ext, .Execute_Command) {
         return false
     }

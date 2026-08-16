@@ -101,7 +101,7 @@ thor_bind_editor :: proc(thor: ^Thor, editor: ^widgets.Editor, file: ^Open_File,
         return
     }
     widgets.editor_set_comment_prefix(editor, setting.comment_prefix(&thor.config, file.name))
-    ext := thor_file_extension(file.name)
+    ext := thor_lang_key(thor, file.name)
     widgets.editor_set_completion_semantic(editor, lang.manager_allows(&thor.lang_manager, ext, .Completion))
     widgets.editor_set_on_type_enabled(editor, lang.manager_allows(&thor.lang_manager, ext, .Format_On_Type))
     // What a snippet's $TM_FILENAME and $TM_DIRECTORY resolve to.

@@ -1539,10 +1539,12 @@ Landed since (`lang/lsp`, M1–M7):
       text edits, then Rename, then Delete — rather than replaying
       `documentChanges`' own array position (see `lang.Resource_Op`'s doc
       comment for why that is enough in practice). Only an unrecognized `kind`
-      still refuses the whole set. Neither a resource op nor the file it
-      touches joins the edits' combined Ctrl+Z record — same as the explorer's
-      own rename/delete, which have no undo of their own either; a follow-up
-      would need new `Edit_Undo_File` variants for a reversible rename/delete.
+      still refuses the whole set. Each op joins the edits' combined Ctrl+Z
+      record as an `Edit_Undo_File` of kind `.Created` / `.Renamed` /
+      `.Deleted`, so one Ctrl+Z takes the whole refactor back — files and text
+      together — and Ctrl+Shift+Z puts it back. A target that cannot be
+      restored from a string (a directory, or bytes that would not read) makes
+      the set unrecorded outright rather than half reversible.
       `Code_Actions` calls `codeAction/resolve` eagerly on the same
       worker for any action returned with no `edit`. An action that still has
       none is kept when it names a `command`: `Code_Action` carries the command
@@ -1780,17 +1782,48 @@ and changing it without a restart.
       `compile_commands.json` detection — is `plugins/compile-commands`, reached
       from the panel through `setup_command`.
 
+Landed since (M11):
+
+- [x] **`filenames` for extensionless files** (`Makefile`, `CMakeLists.txt`).
+      The seam routes by a *key*, not an extension: `thor_lang_key`
+      (`thor/lang_host.odin`) answers a file's bare name when a backend claims
+      that name and its extension otherwise, the same shape and the same
+      precedence `thor_highlight_key` uses — a name beats an extension, so
+      `CMakeLists.txt` reaches a cmake server rather than a `.txt` one.
+      `lang.manager_claims` is the question it asks, deliberately outside the
+      `enabled` gate so the key does not change when the user switches language
+      intelligence off. On the `lsp.json` side an entry's `filenames` array is
+      kept verbatim (unlike `extensions`, which force-adds the leading dot) and
+      matched ahead of it in `server_claims` / `client_server_for`. `didOpen`'s
+      `languageId` follows: `language_id_for_path` names `Makefile`,
+      `CMakeLists.txt` and `Dockerfile` before it falls back to the extension,
+      and both places a `didOpen` is built (the first open and a restart's
+      re-open) go through it, so the two never disagree.
+      **Covered by** `test_lang_key_prefers_a_claimed_file_name`,
+      `test_language_id_for_path`,
+      `test_config_filenames_are_kept_verbatim`,
+      `test_config_server_for_filename` and `test_client_handles_a_file_name`.
+- [x] **Per-server restart.** `server_restart` (`lang/lsp/server.odin`) is the
+      one place the `stopping` latch is released: it runs `server_stop`, then
+      puts the server back where `server_create` left it — `.Idle`, no pump, no
+      queued events, no undrained pushes, `restarts`/`last_error` cleared, so a
+      `.Failed` server the crash loop gave up on starts again. The documents and
+      `caps` are kept: `server_launch` re-opens the documents itself, and `caps`
+      is the field `supports` reads with no lock. `client_restart_server` is the
+      by-id entry point. The host defers it exactly as it defers a whole reload
+      (`Thor.lang_restart_id`, acted on in `thor_poll_lang_reload`), because the
+      "no worker in flight" precondition needs the manager drain — now
+      `thor_drain_lang_manager`, shared with `thor_reload_lang`. Reachable as a
+      "Restart This Server" row in each server's Settings group and as the
+      "Language: Restart One Server" palette command.
+      **Covered by** `test_server_restart_resets_the_latch` and
+      `test_client_set_server_enabled_gates_dispatch`.
+
 Cut from M10, deliberately:
 
 - **Multiple servers per language.** One enabled entry answers for an extension.
   The collision is now visible (`Server_Status.claimed_by`) instead of silent,
   which is a different thing from fixing it.
-- **`filenames` for extensionless files** (`Makefile`, `CMakeLists.txt`). It
-  reads like an `lsp.json` key and is really a change to the seam's routing
-  key: `lang.Manager`, `handles`, `supports`, `notify` and `on_type_trigger` all
-  key on an extension.
-- **Per-server restart.** `stopping` is a one-way latch and the "no worker in
-  flight" precondition needs the whole-manager drain `thor_reload_lang` does.
 
 `LSP_PLAN.md` is the implementation plan for all of it: the `lang/lsp` package
 and what it may import, the child process and `Content-Length` transport, the
@@ -1826,7 +1859,6 @@ not a status, so this section stays the source of truth for what is built.
   dispatch bug), and `Rename`/`Code_Actions`/a pushed `applyEdit` now apply a
   `WorkspaceEdit`'s `CreateFile`/`RenameFile`/`DeleteFile` operations
   (`lang.Resource_Op`) — in a fixed phase order rather than
-  `documentChanges`' own array position, and with no Ctrl+Z of their own (see
-  `lang.Resource_Op`'s doc comment and the M9 Rename/Code Actions entry
-  above). A follow-up: reversible resource ops would need new
-  `Edit_Undo_File` variants.
+  `documentChanges`' own array position, and inside the edits' own Ctrl+Z
+  record (see `lang.Resource_Op`'s doc comment and the M9 Rename/Code Actions
+  entry above).

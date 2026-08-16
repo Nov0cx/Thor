@@ -139,6 +139,17 @@ thor_language_gate :: proc(thor: ^Thor) -> bit_set[lang.Request_Kind] {
     return lang.manager_features(&thor.lang_manager)
 }
 
+// The key the lang seam routes a file by: its bare name when a backend claims
+// that name ("Makefile", "CMakeLists.txt"), else its extension. The same shape
+// as thor_highlight_key, and the name wins for the same reason — a file whose
+// extension names the wrong language must still reach its own server.
+thor_lang_key :: proc(thor: ^Thor, name: string) -> string {
+    if base := thor_file_base(name); lang.manager_claims(&thor.lang_manager, base) {
+        return base
+    }
+    return thor_file_extension(name)
+}
+
 // Rebuilds the LSP client against the new workspace root on a folder switch.
 // Only the LSP side: lsp.client_create reads the server tables once, so a stale
 // Client would keep talking to the old root, while the Odin engine re-validates
@@ -173,10 +184,22 @@ thor_reload_lang :: proc(thor: ^Thor) {
     // workspace switch went to the Client that was just replaced.
     thor_apply_language_settings(thor)
 
-    // The old Client's servers and their documents are gone, but the buffers
-    // still read as mirrored. Re-open them on the new servers and drop what the
-    // dead ones left on screen. thor_open_folder closes every file first, which
-    // is why this never showed there.
+    thor_remirror_open_files(thor)
+
+    thor_lsp_clear_probes(thor)
+    thor_lsp_mark_clean(thor)
+    thor_lsp_clear_health(thor)
+    if widgets.settings_view_is_open(thor.settings_view) {
+        thor_populate_settings_view(thor)
+    }
+}
+
+// Re-opens every loaded buffer on the backends and drops what the old ones left
+// on screen. The buffers still read as mirrored after a client rebuild, so
+// without this a file the editor holds is known to no server. thor_open_folder
+// closes every file first, which is why this never showed there.
+@(private = "file")
+thor_remirror_open_files :: proc(thor: ^Thor) {
     for file in thor.open_files {
         if !file.loaded {
             continue
@@ -190,25 +213,51 @@ thor_reload_lang :: proc(thor: ^Thor) {
         file.highlighted = false
         thor_lang_notify(thor, file, .Opened)
     }
+}
 
-    thor_lsp_clear_probes(thor)
-    thor_lsp_mark_clean(thor)
+// Drains the Manager so no worker is inside a backend's resolve. What
+// thor_reload_lang and a per-server restart both need before they touch a
+// server's pump — the same guarantee manager_destroy gives at shutdown.
+@(private = "file")
+thor_drain_lang_manager :: proc(thor: ^Thor) {
+    lang.manager_cancel_all(&thor.lang_manager)
+    for lang.manager_busy(&thor.lang_manager) {
+        lang.manager_dispatch(&thor.lang_manager, nil, nil)
+        time.sleep(time.Millisecond)
+    }
+    lang.manager_dispatch(&thor.lang_manager, nil, nil)
+}
+
+// Run-loop head: rebuilds the LSP client when an lsp.json layer changed or the
+// user asked for a restart, and restarts one server when a row or the palette
+// asked for that. Never inline in an event — both drain the manager and stop a
+// pump a dispatch would be standing on, the same reason thor_reload_plugins is
+// deferred.
+thor_poll_lang_reload :: proc(thor: ^Thor) {
+    if thor.lang_reload_pending {
+        thor.lang_reload_pending = false
+        // A whole rebuild supersedes one server's restart.
+        delete(thor.lang_restart_id)
+        thor.lang_restart_id = ""
+        thor_reload_lang(thor)
+        return
+    }
+    if thor.lang_restart_id == "" {
+        return
+    }
+    id := thor.lang_restart_id
+    thor.lang_restart_id = ""
+    defer delete(id)
+
+    thor_drain_lang_manager(thor)
+    if !lsp.client_restart_server(thor.lsp_client, id) {
+        return
+    }
+    thor_remirror_open_files(thor)
     thor_lsp_clear_health(thor)
     if widgets.settings_view_is_open(thor.settings_view) {
         thor_populate_settings_view(thor)
     }
-}
-
-// Run-loop head: rebuilds the LSP client when an lsp.json layer changed or the
-// user asked for a restart. Never inline in an event — thor_reload_lang drains
-// the manager and destroys the backend a dispatch would be standing on, the same
-// reason thor_reload_plugins is deferred.
-thor_poll_lang_reload :: proc(thor: ^Thor) {
-    if !thor.lang_reload_pending {
-        return
-    }
-    thor.lang_reload_pending = false
-    thor_reload_lang(thor)
 }
 
 // Command / panel action: start every language server again against the config
@@ -217,6 +266,22 @@ thor_cmd_restart_language_servers :: proc(data: rawptr) {
     thor := cast(^Thor) data
     thor.lang_reload_pending = true
     thor_flash_status(thor, "Restarting language servers")
+}
+
+// Asks for one server to be restarted at the head of the next frame. Deferred
+// for the same reason a whole reload is: the drain it needs must not run inside
+// the event callback that asked for it.
+thor_request_server_restart :: proc(thor: ^Thor, id: string) {
+    if id == "" {
+        return
+    }
+    delete(thor.lang_restart_id)
+    thor.lang_restart_id = strings.clone(id)
+    name := id
+    if status, found := lsp.client_server_status(thor.lsp_client, id, context.temp_allocator, probe = false); found {
+        name = status.name
+    }
+    thor_flash_status(thor, fmt.tprintf("Restarting %s", name))
 }
 
 // The last state the health poll saw for one server, so only a change is
@@ -309,7 +374,7 @@ thor_lsp_health_destroy :: proc(thor: ^Thor) {
 // need a mirror already, `.Closed` ends it. A save sends the pending text first,
 // so the server saves what it last saw.
 thor_lang_notify :: proc(thor: ^Thor, file: ^Open_File, event: lang.Doc_Event) {
-    ext := thor_file_extension(file.name)
+    ext := thor_lang_key(thor, file.name)
     switch event {
     case .Opened:
         if file.lang_open || !file.loaded {
@@ -392,7 +457,7 @@ thor_dispatch_goto :: proc(thor: ^Thor, file: ^Open_File, offset: int) {
     if !file.loaded {
         return
     }
-    ext := thor_file_extension(file.name)
+    ext := thor_lang_key(thor, file.name)
     if !lang.manager_supports(&thor.lang_manager, ext) {
         return
     }
@@ -424,7 +489,7 @@ thor_goto_symbol :: proc(thor: ^Thor) {
     if file == nil || !file.loaded {
         return
     }
-    ext := thor_file_extension(file.name)
+    ext := thor_lang_key(thor, file.name)
     if !lang.manager_supports(&thor.lang_manager, ext) {
         return
     }
@@ -449,7 +514,7 @@ thor_goto_symbol :: proc(thor: ^Thor) {
 thor_workspace_symbol_scope :: proc(thor: ^Thor) -> (ext, path, source: string, revision: u64) {
     ext = ".odin"
     if file := thor_active_open_file(thor); file != nil && file.loaded {
-        if e := thor_file_extension(file.name); lang.manager_allows(&thor.lang_manager, e, .Workspace_Symbols) {
+        if e := thor_lang_key(thor, file.name); lang.manager_allows(&thor.lang_manager, e, .Workspace_Symbols) {
             ext = e
             path = file.path
             source = textedit.text(&file.state)
@@ -549,7 +614,7 @@ thor_find_references :: proc(thor: ^Thor) {
     if file == nil || !file.loaded {
         return
     }
-    ext := thor_file_extension(file.name)
+    ext := thor_lang_key(thor, file.name)
     if !lang.manager_supports(&thor.lang_manager, ext) {
         return
     }
@@ -589,7 +654,7 @@ thor_rename_symbol :: proc(thor: ^Thor) -> bool {
     }
     // manager_allows, not manager_supports: with rename gated off the chord must
     // fall back to find and replace rather than answer nothing.
-    if !lang.manager_allows(&thor.lang_manager, thor_file_extension(file.name), .Rename) {
+    if !lang.manager_allows(&thor.lang_manager, thor_lang_key(thor, file.name), .Rename) {
         return false
     }
     cursor := textedit.primary_cursor(&file.state)
@@ -634,7 +699,7 @@ thor_confirm_symbol_rename :: proc(data: rawptr, input: string) {
     if file == nil || !file.loaded {
         return
     }
-    ext := thor_file_extension(file.name)
+    ext := thor_lang_key(thor, file.name)
     if !lang.manager_supports(&thor.lang_manager, ext) {
         return
     }
@@ -680,6 +745,17 @@ Edit_Target :: struct {
     edits:     [dynamic]lang.Text_Edit, // temp-allocated; the edits borrow the caller's strings
 }
 
+// What one recorded entry did to its file, so a move knows how to reverse it.
+// `.Text` is the zero value: an edit set with no resource operation records
+// exactly what it always did.
+@(private)
+Edit_Undo_Kind :: enum {
+    Text,    // the content changed
+    Created, // the file was made
+    Renamed, // the file moved to new_path
+    Deleted, // the file was removed
+}
+
 // One file the last applied edit set touched, and what it takes to move it in
 // either direction. An open file rides its own buffer entry, `revision` proving
 // that entry is still on top of its stack; a file that was not open carries both
@@ -687,11 +763,14 @@ Edit_Target :: struct {
 // since matches neither and is refused rather than clobbered.
 @(private)
 Edit_Undo_File :: struct {
-    path:     string, // owned, canonical
+    kind:     Edit_Undo_Kind,
+    path:     string, // owned, canonical; a rename's source
+    new_path: string, // owned; .Renamed only, "" otherwise
     open:     bool,
     revision: u64,    // open files: the buffer revision the last move left behind
-    before:   string, // owned; closed files: the content from before the edits
-    after:    string, // owned; closed files: the content the edits wrote
+    before:   string, // owned; the content from before the move
+    after:    string, // owned; the content the move wrote
+    existed:  bool,   // .Created: the target already held `before` and was overwritten
 }
 
 // Applies a backend's edits — all of them, or none. Every edit is validated
@@ -707,8 +786,9 @@ Edit_Undo_File :: struct {
 //
 // `resource_ops` runs in a fixed phase order around the text edits — Create,
 // then the edits, then Rename, then Delete (see lang.Resource_Op). Create is
-// first because an edit may target a file it just made. Neither joins the edits'
-// Ctrl+Z record, same as the explorer's own rename and delete.
+// first because an edit may target a file it just made. Each one joins the
+// edits' Ctrl+Z record, unless its target cannot be restored from a string — a
+// directory, or a file that would not read — which drops the record entirely.
 @(private)
 thor_apply_edits :: proc(
     thor: ^Thor,
@@ -717,35 +797,59 @@ thor_apply_edits :: proc(
     snapshot: u64,
     resource_ops: []lang.Resource_Op = nil,
 ) -> (applied: int, files: int, ok: bool, reason: string) {
+    // What it takes to reverse each file, gathered as it is written; handed to
+    // thor_commit_edit_undo below so ctrl+z can take the whole set back.
+    record := make([dynamic]Edit_Undo_File)
+    committed := false
+    defer if !committed {
+        thor_free_edit_undo(record[:])
+        delete(record)
+    }
+    reversible := true
+
     for op in resource_ops {
         if op.kind != .Create {
             continue
         }
+        existed := os.exists(op.path)
+        // The one case thor_create_resource leaves the file alone.
+        untouched := existed && op.ignore_if_exists && !op.overwrite
+        before: string
+        if existed && !untouched {
+            if data, rerr := os.read_entire_file(op.path, context.temp_allocator); rerr == nil && !os.is_dir(op.path) {
+                before = string(data)
+            } else {
+                reversible = false
+            }
+        }
         if cok, creason := thor_create_resource(op.path, op.overwrite, op.ignore_if_exists); !cok {
+            committed = thor_commit_edit_undo(thor, record, reversible)
             return 0, 0, false, creason
         }
+        if untouched {
+            continue
+        }
+        append(&record, Edit_Undo_File {
+            kind    = .Created,
+            path    = strings.clone(op.path),
+            existed = existed,
+            before  = strings.clone(before),
+        })
     }
 
     targets := make([dynamic]Edit_Target, context.temp_allocator)
     for edit in edits {
         index, found := thor_edit_target(thor, &targets, edit.path, origin, snapshot)
         if !found {
+            committed = thor_commit_edit_undo(thor, record, reversible)
             return 0, 0, false, "save the affected files first"
         }
         target := &targets[index]
         if edit.start < 0 || edit.end > len(target.text) || target.text[edit.start:edit.end] != edit.old_text {
+            committed = thor_commit_edit_undo(thor, record, reversible)
             return 0, 0, false, "the files changed under it"
         }
         append(&target.edits, edit)
-    }
-
-    // What it takes to reverse each file, gathered as it is written; handed to
-    // thor_set_edit_undo below so ctrl+z can take the whole set back.
-    record := make([dynamic]Edit_Undo_File)
-    committed := false
-    defer if !committed {
-        thor_free_edit_undo(record[:])
-        delete(record)
     }
 
     for &target in targets {
@@ -782,8 +886,7 @@ thor_apply_edits :: proc(
         written := thor_to_disk_text(strings.to_string(b), target.ending, context.temp_allocator)
         if werr := os.write_entire_file(target.path, transmute([]byte) written); werr != nil {
             // Whatever landed before this file stays undoable.
-            thor_set_edit_undo(thor, record)
-            committed = true
+            committed = thor_commit_edit_undo(thor, record, reversible)
             return applied, len(targets), false, "a file could not be written"
         }
         append(&record, Edit_Undo_File {
@@ -793,32 +896,83 @@ thor_apply_edits :: proc(
         })
         applied += len(target.edits)
     }
-    if len(record) > 0 {
-        thor_set_edit_undo(thor, record)
-        committed = true
-    }
 
     for op in resource_ops {
         if op.kind != .Rename {
             continue
         }
+        // An overwriting rename destroys what stood at the target, which no
+        // record here can put back.
+        if op.overwrite && os.exists(op.new_path) && !thor_same_path(op.path, op.new_path) {
+            reversible = false
+        }
         if rok, rreason := thor_rename_resource(thor, op.path, op.new_path, op.overwrite); !rok {
+            committed = thor_commit_edit_undo(thor, record, reversible)
+            thor_refresh_after_resource_ops(thor)
             return applied, len(targets), false, rreason
         }
+        if thor_same_path(op.path, op.new_path) {
+            continue // thor_rename_resource made this a no-op
+        }
+        append(&record, Edit_Undo_File {
+            kind     = .Renamed,
+            path     = strings.clone(op.path),
+            new_path = strings.clone(op.new_path),
+        })
     }
     for op in resource_ops {
         if op.kind != .Delete {
             continue
         }
+        before: string
+        if data, rerr := os.read_entire_file(op.path, context.temp_allocator); rerr == nil && !os.is_dir(op.path) {
+            before = string(data)
+        } else if os.exists(op.path) {
+            reversible = false // a directory, or bytes that would not read
+        }
         if dok, dreason := thor_delete_resource(thor, op.path); !dok {
+            committed = thor_commit_edit_undo(thor, record, reversible)
+            thor_refresh_after_resource_ops(thor)
             return applied, len(targets), false, dreason
         }
+        append(&record, Edit_Undo_File {
+            kind   = .Deleted,
+            path   = strings.clone(op.path),
+            before = strings.clone(before),
+        })
     }
     if len(resource_ops) > 0 {
-        widgets.tree_refresh(thor.tree)
-        thor_refresh_git_status(thor)
+        thor_refresh_after_resource_ops(thor)
     }
+    committed = thor_commit_edit_undo(thor, record, reversible)
     return applied, len(targets), true, ""
+}
+
+// What the explorer and the git status have to be told after a file appeared,
+// moved or went away.
+@(private = "file")
+thor_refresh_after_resource_ops :: proc(thor: ^Thor) {
+    if thor.tree != nil {
+        widgets.tree_refresh(thor.tree)
+    }
+    thor_refresh_git_status(thor)
+}
+
+// Publishes the reversal record, and reports whether it took ownership of it.
+// An unreversible set drops the older record too: ctrl+z must not reverse a set
+// that no longer describes the tree.
+@(private = "file")
+thor_commit_edit_undo :: proc(thor: ^Thor, record: [dynamic]Edit_Undo_File, reversible: bool) -> bool {
+    if !reversible {
+        thor_clear_edit_undo(thor)
+        thor_clear_edit_redo(thor)
+        return false
+    }
+    if len(record) == 0 {
+        return false
+    }
+    thor_set_edit_undo(thor, record)
+    return true
 }
 
 // Replaces the reversal record, freeing the one it supersedes: only the most
@@ -849,30 +1003,67 @@ thor_clear_edit_redo :: proc(thor: ^Thor) {
 thor_free_edit_undo :: proc(entries: []Edit_Undo_File) {
     for entry in entries {
         delete(entry.path)
+        delete(entry.new_path)
         delete(entry.before)
         delete(entry.after)
     }
 }
 
+// True when any entry moved a file rather than its content, so the explorer and
+// the git status have to be refreshed after the move.
+@(private = "file")
+thor_record_moves_files :: proc(record: []Edit_Undo_File) -> bool {
+    for entry in record {
+        if entry.kind != .Text {
+            return true
+        }
+    }
+    return false
+}
+
 // Reverses the last applied edit set across every file it touched, buffers and
 // on-disk copies alike. Returns false — touching nothing — when any of them has
 // moved on since; Ctrl+Z falls through to the focused buffer's own undo then.
+// Walked backwards: the applier's phase order was Create, edits, Rename, Delete,
+// and reversing it in place would undo a rename before the delete that followed it.
 thor_undo_last_edits :: proc(thor: ^Thor) -> bool {
     if !thor_edits_still_apply(thor, thor.edit_undo[:], forward = true) {
         return false
     }
 
     failed := false
-    for &entry in thor.edit_undo {
-        if entry.open {
-            file := thor_open_file_at(thor, entry.path)
-            textedit.undo(&file.state)
-            entry.revision = file.state.revision // what a redo has to still find
-            continue
+    #reverse for &entry in thor.edit_undo {
+        switch entry.kind {
+        case .Text:
+            if entry.open {
+                file := thor_open_file_at(thor, entry.path)
+                textedit.undo(&file.state)
+                entry.revision = file.state.revision // what a redo has to still find
+                continue
+            }
+            if werr := os.write_entire_file(entry.path, transmute([]byte) entry.before); werr != nil {
+                failed = true
+            }
+        case .Created:
+            // Overwritten targets get their bytes back; a file the set made goes.
+            if entry.existed {
+                if werr := os.write_entire_file(entry.path, transmute([]byte) entry.before); werr != nil {
+                    failed = true
+                }
+            } else if dok, _ := thor_delete_resource(thor, entry.path); !dok {
+                failed = true
+            }
+        case .Renamed:
+            if rok, _ := thor_rename_resource(thor, entry.new_path, entry.path, false); !rok {
+                failed = true
+            }
+        case .Deleted:
+            if werr := os.write_entire_file(entry.path, transmute([]byte) entry.before); werr != nil {
+                failed = true
+            }
         }
-        if werr := os.write_entire_file(entry.path, transmute([]byte) entry.before); werr != nil {
+        if failed {
             thor_flash_status(thor, "Undo incomplete: a file could not be written", is_error = true)
-            failed = true
             break
         }
     }
@@ -880,6 +1071,9 @@ thor_undo_last_edits :: proc(thor: ^Thor) -> bool {
     files := len(thor.edit_undo)
     record := thor.edit_undo
     thor.edit_undo = nil
+    if thor_record_moves_files(record[:]) {
+        thor_refresh_after_resource_ops(thor)
+    }
     if failed {
         // Half reversed: there is no consistent state left to redo back to.
         thor_free_edit_undo(record[:])
@@ -903,15 +1097,32 @@ thor_redo_last_edits :: proc(thor: ^Thor) -> bool {
 
     failed := false
     for &entry in thor.edit_redo {
-        if entry.open {
-            file := thor_open_file_at(thor, entry.path)
-            textedit.redo(&file.state)
-            entry.revision = file.state.revision // what a later undo has to find
-            continue
+        switch entry.kind {
+        case .Text:
+            if entry.open {
+                file := thor_open_file_at(thor, entry.path)
+                textedit.redo(&file.state)
+                entry.revision = file.state.revision // what a later undo has to find
+                continue
+            }
+            if werr := os.write_entire_file(entry.path, transmute([]byte) entry.after); werr != nil {
+                failed = true
+            }
+        case .Created:
+            if werr := os.write_entire_file(entry.path, transmute([]byte) entry.after); werr != nil {
+                failed = true
+            }
+        case .Renamed:
+            if rok, _ := thor_rename_resource(thor, entry.path, entry.new_path, false); !rok {
+                failed = true
+            }
+        case .Deleted:
+            if dok, _ := thor_delete_resource(thor, entry.path); !dok {
+                failed = true
+            }
         }
-        if werr := os.write_entire_file(entry.path, transmute([]byte) entry.after); werr != nil {
+        if failed {
             thor_flash_status(thor, "Redo incomplete: a file could not be written", is_error = true)
-            failed = true
             break
         }
     }
@@ -919,6 +1130,9 @@ thor_redo_last_edits :: proc(thor: ^Thor) -> bool {
     files := len(thor.edit_redo)
     record := thor.edit_redo
     thor.edit_redo = nil
+    if thor_record_moves_files(record[:]) {
+        thor_refresh_after_resource_ops(thor)
+    }
     if failed {
         thor_free_edit_undo(record[:])
         delete(record)
@@ -941,6 +1155,40 @@ thor_edits_still_apply :: proc(thor: ^Thor, record: []Edit_Undo_File, forward: b
     }
     for entry in record {
         file := thor_open_file_at(thor, entry.path)
+        switch entry.kind {
+        case .Created:
+            // Forward the file holds what the create wrote; backward it holds
+            // what it had before, or is not there at all.
+            if !forward && !entry.existed {
+                if os.exists(entry.path) {
+                    return false
+                }
+                continue
+            }
+            if !thor_file_holds(entry.path, forward ? entry.after : entry.before) {
+                return false
+            }
+            continue
+        case .Renamed:
+            from := forward ? entry.new_path : entry.path
+            to := forward ? entry.path : entry.new_path
+            if !os.exists(from) || os.exists(to) {
+                return false
+            }
+            continue
+        case .Deleted:
+            if forward {
+                if os.exists(entry.path) {
+                    return false
+                }
+                continue
+            }
+            if !thor_file_holds(entry.path, entry.before) {
+                return false
+            }
+            continue
+        case .Text:
+        }
         if entry.open {
             // The revision proves the buffer entry is still on top: textedit
             // bumps it on every edit, undo and redo alike.
@@ -949,8 +1197,7 @@ thor_edits_still_apply :: proc(thor: ^Thor, record: []Edit_Undo_File, forward: b
             }
             continue
         }
-        data, err := os.read_entire_file(entry.path, context.temp_allocator)
-        if err != nil || string(data) != (forward ? entry.after : entry.before) {
+        if !thor_file_holds(entry.path, forward ? entry.after : entry.before) {
             return false
         }
         // Opened since it was rewritten: the reload that the write triggers must
@@ -960,6 +1207,13 @@ thor_edits_still_apply :: proc(thor: ^Thor, record: []Edit_Undo_File, forward: b
         }
     }
     return true
+}
+
+// True when the file at `path` reads back exactly `content`.
+@(private = "file")
+thor_file_holds :: proc(path, content: string) -> bool {
+    data, err := os.read_entire_file(path, context.temp_allocator)
+    return err == nil && string(data) == content
 }
 
 // Applies a rename's edits once they land.
@@ -1091,7 +1345,7 @@ thor_request_signature :: proc(thor: ^Thor, editor: ^widgets.Editor, file: ^Open
     if editor == nil || file == nil || !file.loaded {
         return
     }
-    ext := thor_file_extension(file.name)
+    ext := thor_lang_key(thor, file.name)
     if !lang.manager_supports(&thor.lang_manager, ext) {
         return
     }
@@ -1138,7 +1392,7 @@ thor_package_doc :: proc(thor: ^Thor) {
     if file == nil || !file.loaded {
         return
     }
-    ext := thor_file_extension(file.name)
+    ext := thor_lang_key(thor, file.name)
     if !lang.manager_supports(&thor.lang_manager, ext) {
         return
     }
@@ -1295,7 +1549,7 @@ thor_editor_completion :: proc(data: rawptr, editor: ^widgets.Editor, state: ^te
         if !file.loaded {
             return false
         }
-        ext := thor_file_extension(file.name)
+        ext := thor_lang_key(thor, file.name)
         if !lang.manager_supports(&thor.lang_manager, ext) {
             return false
         }
@@ -1484,7 +1738,7 @@ thor_resolve_completion :: proc(thor: ^Thor, file: ^Open_File, item: lang.Comple
         &thor.lang_manager,
         .Resolve_Completion,
         file.path,
-        thor_file_extension(file.name),
+        thor_lang_key(thor, file.name),
         textedit.text(&file.state),
         at,
         file.state.revision,
@@ -1505,7 +1759,7 @@ thor_run_completion_command :: proc(thor: ^Thor, file: ^Open_File, item: lang.Co
         &thor.lang_manager,
         .Execute_Command,
         file.path,
-        thor_file_extension(file.name),
+        thor_lang_key(thor, file.name),
         textedit.text(&file.state),
         0,
         file.state.revision,
@@ -1567,7 +1821,7 @@ thor_request_semantic :: proc(thor: ^Thor, file: ^Open_File) {
     if file.semantic_ready && file.semantic_revision == file.state.revision {
         return
     }
-    ext := thor_file_extension(file.name)
+    ext := thor_lang_key(thor, file.name)
     if !lang.manager_supports(&thor.lang_manager, ext) {
         return
     }
@@ -1637,7 +1891,7 @@ thor_editor_hover :: proc(data: rawptr, editor: ^widgets.Editor, state: ^textedi
         if !file.loaded {
             return
         }
-        ext := thor_file_extension(file.name)
+        ext := thor_lang_key(thor, file.name)
         if !lang.manager_supports(&thor.lang_manager, ext) {
             return
         }

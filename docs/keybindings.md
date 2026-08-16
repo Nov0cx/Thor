@@ -293,9 +293,10 @@ is the one worth binding.
 `ctrl + .` opens the command palette. Type to fuzzy-filter, arrows/enter to run,
 escape to dismiss. Commands that have a keybinding show the chord right-aligned
 in the list. "Go to File" and "Go to Line" switch it into file / line input
-modes. Two "Language:" actions ship unbound and take chords in `keybinds.json`
-as `open_language_servers` (Settings' Language Servers page) and
-`restart_language_servers`. All bindings above live in `keybinds.json`; comment markers in
+modes. Three "Language:" actions ship unbound and take chords in `keybinds.json`
+as `open_language_servers` (Settings' Language Servers page),
+`restart_language_servers` and `restart_one_language_server` (pick one server
+from a list). All bindings above live in `keybinds.json`; comment markers in
 `comments.json`; tab width, font size and autosave delay in `settings.json` —
 see [Configuration](configuration.md) for the three directories those are
 layered from.

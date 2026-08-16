@@ -48,6 +48,43 @@ test_client_set_server_enabled_gates_dispatch :: proc(t: ^testing.T) {
     testing.expect(t, handles(&c, ".fake"), "re-enabling must let the server claim its extension again")
 
     testing.expect(t, !client_set_server_enabled(&c, "unknown", false), "an unconfigured id must not be found")
+
+    // A restart of a server that never started is a no-op that still reports the
+    // id was found; an unconfigured one is not.
+    testing.expect(t, client_restart_server(&c, "fake"), "the configured id must be found")
+    testing.expect_value(t, server_state(c.servers[0]), Server_State.Idle)
+    testing.expect(t, !client_restart_server(&c, "unknown"), "an unconfigured id must not be found")
+}
+
+// A `filenames` entry claims a bare name through the same seam an extension
+// does, so a file with no usable extension is routable at last.
+@(test)
+test_client_handles_a_file_name :: proc(t: ^testing.T) {
+    filenames := [1]string{"Makefile"}
+    command := [1]string{"fake-language-server"}
+
+    c: Client
+    c.config.servers = make([dynamic]Server_Config, 1)
+    defer delete(c.config.servers)
+    c.config.servers[0] = Server_Config {
+        id        = "make",
+        filenames = filenames[:],
+        command   = command[:],
+        features  = lang.FEATURES_ALL,
+        enabled   = true,
+    }
+    c.servers = make([dynamic]^Server, 0)
+    append(&c.servers, server_create(&c.config.servers[0], ""))
+    defer {
+        server_stop(c.servers[0])
+        server_destroy(c.servers[0])
+        delete(c.servers)
+    }
+
+    testing.expect(t, handles(&c, "Makefile"), "a configured file name must be claimed")
+    testing.expect(t, handles(&c, "makefile"), "the file system's case must not decide it")
+    testing.expect(t, supports(&c, "Makefile", .Definition))
+    testing.expect(t, !handles(&c, ".mk"), "an extension the entry never named must claim nothing")
 }
 
 // The server's own lsp.json features seed the per-kind admin gate and state

@@ -402,6 +402,144 @@ test_rename_resource_moves_file_and_retargets_tab :: proc(t: ^testing.T) {
     testing.expect(t, thor_same_path(file.path, NEW), "the open tab was not retargeted")
 }
 
+// A backend that claims one bare file name and one extension, for the routing
+// key below.
+@(private = "file")
+key_handles :: proc(data: rawptr, ext: string) -> bool {
+    return ext == "Makefile" || ext == ".key"
+}
+
+@(private = "file")
+key_resolve :: proc(data: rawptr, req: ^lang.Request, res: ^lang.Result) {}
+
+// A file whose name a backend claims routes by that name; everything else routes
+// by its extension, so a claimed basename is the only thing that displaces one.
+@(test)
+test_lang_key_prefers_a_claimed_file_name :: proc(t: ^testing.T) {
+    thor := new(Thor)
+    defer free(thor)
+    lang.manager_init(&thor.lang_manager)
+    defer lang.manager_destroy(&thor.lang_manager)
+    lang.manager_register(&thor.lang_manager, lang.Backend {name = "key-probe", handles = key_handles, resolve = key_resolve})
+
+    testing.expect_value(t, thor_lang_key(thor, "src/Makefile"), "Makefile")
+    testing.expect_value(t, thor_lang_key(thor, "src/main.key"), ".key")
+    // Claimed by nobody: the extension answers, and an extensionless name that
+    // no backend names still reads as "".
+    testing.expect_value(t, thor_lang_key(thor, "src/notes.txt"), ".txt")
+    testing.expect_value(t, thor_lang_key(thor, "src/LICENSE"), "")
+}
+
+// A WorkspaceEdit's resource operations join the same Ctrl+Z record its text
+// edits do, so a refactor that made, moved and removed files is taken back whole
+// and put back again.
+@(test)
+test_undo_and_redo_resource_ops :: proc(t: ^testing.T) {
+    MADE :: "thor_resource_made.tmp"
+    OLD :: "thor_resource_old.tmp"
+    NEW :: "thor_resource_new.tmp"
+    GONE :: "thor_resource_gone.tmp"
+
+    testing.expect(t, os.write_entire_file(OLD, "moved") == nil, "could not create test file")
+    testing.expect(t, os.write_entire_file(GONE, "removed") == nil, "could not create test file")
+    defer os.remove(MADE)
+    defer os.remove(OLD)
+    defer os.remove(NEW)
+    defer os.remove(GONE)
+
+    thor := new(Thor)
+    defer free(thor)
+    thor.open_files = make([dynamic]^Open_File)
+    defer delete(thor.open_files)
+    defer thor_clear_edit_undo(thor)
+    defer thor_clear_edit_redo(thor)
+    defer delete(thor.status_message)
+
+    ops := []lang.Resource_Op {
+        {kind = .Create, path = MADE},
+        {kind = .Rename, path = OLD, new_path = NEW},
+        {kind = .Delete, path = GONE},
+    }
+    _, _, ok, reason := thor_apply_edits(thor, nil, "", 0, ops)
+    testing.expectf(t, ok, "apply refused the resource ops: %s", reason)
+    testing.expect(t, os.exists(MADE), "Create never wrote its file")
+    testing.expect(t, os.exists(NEW) && !os.exists(OLD), "Rename never moved its file")
+    testing.expect(t, !os.exists(GONE), "Delete never removed its file")
+
+    testing.expect(t, thor_undo_last_edits(thor), "undo refused the set it had just applied")
+    testing.expect(t, !os.exists(MADE), "undo left the created file behind")
+    testing.expect(t, os.exists(OLD) && !os.exists(NEW), "undo did not move the file back")
+    restored, rerr := os.read_entire_file(GONE, context.temp_allocator)
+    testing.expect(t, rerr == nil, "undo did not put the deleted file back")
+    testing.expect_value(t, string(restored), "removed")
+
+    testing.expect(t, thor_redo_last_edits(thor), "redo refused the set it had just reversed")
+    testing.expect(t, os.exists(MADE), "redo did not make the file again")
+    testing.expect(t, os.exists(NEW) && !os.exists(OLD), "redo did not move the file again")
+    testing.expect(t, !os.exists(GONE), "redo did not remove the file again")
+}
+
+// A delete whose target is a directory cannot be put back from a string, so the
+// set is applied with no record at all rather than one that half reverses.
+@(test)
+test_resource_op_on_a_directory_is_not_undoable :: proc(t: ^testing.T) {
+    DIR :: "thor_resource_dir.tmp"
+    testing.expect(t, os.make_directory(DIR) == nil, "could not create test directory")
+    defer os.remove(DIR)
+
+    thor := new(Thor)
+    defer free(thor)
+    thor.open_files = make([dynamic]^Open_File)
+    defer delete(thor.open_files)
+    defer thor_clear_edit_undo(thor)
+    defer thor_clear_edit_redo(thor)
+    defer delete(thor.status_message)
+
+    ops := []lang.Resource_Op{{kind = .Delete, path = DIR}}
+    _, _, ok, reason := thor_apply_edits(thor, nil, "", 0, ops)
+    testing.expectf(t, ok, "apply refused a directory delete: %s", reason)
+    testing.expect(t, !os.exists(DIR), "the directory was not removed")
+    testing.expect(t, !thor_undo_last_edits(thor), "an unreversible set must leave nothing to undo")
+}
+
+// The record follows a rename, so undoing one that moved an open file takes the
+// tab back to the old path with it.
+@(test)
+test_undo_rename_retargets_the_open_tab :: proc(t: ^testing.T) {
+    OLD :: "thor_resource_tab_old.tmp"
+    NEW :: "thor_resource_tab_new.tmp"
+    testing.expect(t, os.write_entire_file(OLD, "x") == nil, "could not create test file")
+    defer os.remove(OLD)
+    defer os.remove(NEW)
+
+    thor := new(Thor)
+    defer free(thor)
+    thor.open_files = make([dynamic]^Open_File)
+    defer delete(thor.open_files)
+    defer thor_clear_edit_undo(thor)
+    defer thor_clear_edit_redo(thor)
+    defer delete(thor.status_message)
+
+    file := new(Open_File)
+    file.path = strings.clone(OLD)
+    file.name = OLD
+    file.loaded = true
+    defer {
+        delete(file.path)
+        delete(file.tab_label)
+        free(file)
+    }
+    append(&thor.open_files, file)
+
+    ops := []lang.Resource_Op{{kind = .Rename, path = OLD, new_path = NEW}}
+    _, _, ok, _ := thor_apply_edits(thor, nil, "", 0, ops)
+    testing.expect(t, ok, "apply refused the rename")
+    testing.expect(t, thor_same_path(file.path, NEW), "the tab did not follow the rename")
+
+    testing.expect(t, thor_undo_last_edits(thor), "undo refused the rename it had just applied")
+    testing.expect(t, thor_same_path(file.path, OLD), "the tab did not follow the undo")
+}
+
 // A rename target that already exists refuses the op unless the server asked
 // to overwrite it.
 @(test)

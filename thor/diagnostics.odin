@@ -19,7 +19,7 @@ import "../widgets"
 // save — costs one compiler run instead of one per file, and cancels any check
 // already running for an older revision.
 thor_request_diagnostics :: proc(thor: ^Thor, file: ^Open_File) {
-    ext := thor_file_extension(file.name)
+    ext := thor_lang_key(thor, file.name)
     if !lang.manager_supports(&thor.lang_manager, ext) {
         return
     }

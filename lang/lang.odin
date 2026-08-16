@@ -170,7 +170,8 @@ Resource_Op_Kind :: enum {
 // or a rename's source; `new_path` is set for Rename only. An applier runs these
 // in a fixed phase order — Create, text edits, Rename, Delete — rather than
 // documentChanges' array position, which gets create-then-populate right and
-// does not preserve interleavings real emitters do not produce.
+// does not preserve interleavings real emitters do not produce. A reversal walks
+// that order backwards.
 Resource_Op :: struct {
     kind:             Resource_Op_Kind,
     path:             string, // owned; absolute
@@ -624,6 +625,14 @@ manager_supports :: proc(m: ^Manager, ext: string) -> bool {
         return false
     }
     _, ok := backend_for(m, ext)
+    return ok
+}
+
+// True when some backend claims `key`, whether or not the seam is switched on.
+// What a caller asks to settle a file's routing key: the key must not change
+// when the user turns language intelligence off.
+manager_claims :: proc(m: ^Manager, key: string) -> bool {
+    _, ok := backend_for(m, key)
     return ok
 }
 

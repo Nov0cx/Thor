@@ -93,16 +93,19 @@ showing what it is doing and what to do about it:
 | Program | The command line the entry names |
 | Installed At | Where the program was found on `PATH`, or **not found on PATH** |
 | Project Root | The directory the server was started in, once it has started |
-| File Types | The extensions it claims, and the server that answers for them when an earlier entry already took them |
+| File Types | The file names and extensions it claims, and the server that answers for them when an earlier entry already took them |
 | Last Error | Why the last start or connection ended, with the server's own error output |
 | Enabled | Switches the server on and off; takes effect on the next request |
+| Restart This Server | Stops just this server and starts it again on the next file that needs it. Clears a `Failed` it gave up with |
 | Install It | Runs the entry's install command in the console. Needs a terminal open |
 | Set Up This Project | For clangd, the `compile_commands.json` helper below |
 | Documentation | Opens the server's own install page in a browser |
 
 Above the servers are **Restart Language Servers**, **Add a Server…** (writes a
 skeleton entry into the right `lsp.json` and opens it) and **Look for Installed
-Servers Again** (`PATH` is only checked when the panel is built). A
+Servers Again** (`PATH` is only checked when the panel is built). One server on
+its own is restarted from its **Restart This Server** row, or from the command
+palette with **Language: Restart One Server** (`restart_one_language_server`). A
 **Configuration Problems** group appears when a config file has something wrong
 with it — invalid JSON, an unknown key, a key of the wrong type, or an entry
 with no command — instead of the entry quietly not being there.
@@ -139,6 +142,7 @@ does not claim its extensions, so it never competes with one that is on.
 | `id` | Name for this entry; a workspace file overlays an entry by its `id` |
 | `name` | What Settings calls it; the `id` when absent |
 | `extensions` | File extensions it claims, each with its leading dot |
+| `filenames` | Whole file names it claims, written out (`"Makefile"`, `"CMakeLists.txt"`) — for files with no extension, or one that names another language. Matched before `extensions` |
 | `command` | Program and arguments; the program is looked up on `PATH` when not an absolute path |
 | `root_markers` | Files that mark the project root, looked for at and above the opened file; the workspace root is used when none is found. File names, never globs — each one is looked for as written |
 | `enabled` | `false` starts the entry switched off: it stops claiming its extensions, so another entry can take the language over, and it still lists in Settings where it can be switched back on |

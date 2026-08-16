@@ -145,7 +145,7 @@ notify :: proc(data: rawptr, event: lang.Doc_Event, path, ext, source: string, r
     if !found {
         return
     }
-    server_notify(s, event, path, ext, source, revision)
+    server_notify(s, event, path, source, revision)
 }
 
 // Runs with no worker in flight: manager_destroy drains the pool before it calls
@@ -163,7 +163,8 @@ client_destroy :: proc(data: rawptr) {
     free(c, c.allocator)
 }
 
-// The server configured for `ext`. `.odin` is served in-client, so a server is
+// The server configured for the routing key `ext` — an extension (".c") or a
+// bare file name ("Makefile"). `.odin` is served in-client, so a server is
 // given it only where the config says so outright — belt and braces, since
 // registration order already decides it, and a server started for a language it
 // will never be asked about costs memory for nothing.
@@ -173,21 +174,18 @@ client_server_for :: proc(c: ^Client, ext: string) -> (^Server, bool) {
         return nil, false
     }
     for s in c.servers {
-        for candidate in s.config.extensions {
-            if !strings.equal_fold(candidate, ext) {
-                continue
-            }
-            if strings.equal_fold(ext, ".odin") && !s.config.override {
-                return nil, false
-            }
-            // A disabled claimant does not consume the extension: turning one
-            // off is how a later entry (a workspace file's own server) takes
-            // the language over.
-            if !server_admin_enabled(s) {
-                break
-            }
-            return s, true
+        if !server_claims(s.config, ext) {
+            continue
         }
+        if strings.equal_fold(ext, ".odin") && !s.config.override {
+            return nil, false
+        }
+        // A disabled claimant does not consume the key: turning one off is how
+        // a later entry (a workspace file's own server) takes the language over.
+        if !server_admin_enabled(s) {
+            continue
+        }
+        return s, true
     }
     return nil, false
 }
@@ -209,6 +207,7 @@ Server_Status :: struct {
     name:            string,
     state:           Server_State,
     extensions:      []string,
+    filenames:       []string,
     command:         []string,
     exe:             string, // the program as resolved on PATH, "" when absent
     installed:       bool,
@@ -241,6 +240,7 @@ client_server_status :: proc(
             name            = strings.clone(server_display_name(s.config), allocator),
             state           = server_state(s),
             extensions      = strings_clone(s.config.extensions, allocator),
+            filenames       = strings_clone(s.config.filenames, allocator),
             command         = strings_clone(s.config.command, allocator),
             root            = server_root_copy(s, allocator),
             restarts        = server_restarts(s),
@@ -254,8 +254,13 @@ client_server_status :: proc(
         if probe && len(s.config.command) > 0 {
             status.exe, status.installed = executable_find(s.config.command[0], allocator)
         }
-        if len(s.config.extensions) > 0 {
-            if owner, taken := client_extension_owner(c, s.config.extensions[0]); taken && owner != id {
+        // The first key it claims, file names first, is the one asked about.
+        first := len(s.config.filenames) > 0 ? s.config.filenames[0] : ""
+        if first == "" && len(s.config.extensions) > 0 {
+            first = s.config.extensions[0]
+        }
+        if first != "" {
+            if owner, taken := client_extension_owner(c, first); taken && owner != id {
                 status.claimed_by = strings.clone(owner, allocator)
             }
         }
@@ -314,6 +319,23 @@ client_set_server_enabled :: proc(c: ^Client, id: string, enabled: bool) -> bool
     for s in c.servers {
         if s.config.id == id {
             server_set_admin_enabled(s, enabled)
+            return true
+        }
+    }
+    return false
+}
+
+// Stops one configured server and puts it back to idle, so the next document
+// event starts it again. False when no server has that id. The caller must have
+// drained the Manager first — server_restart stops a pump a worker could still
+// be talking to.
+client_restart_server :: proc(c: ^Client, id: string) -> bool {
+    if c == nil {
+        return false
+    }
+    for s in c.servers {
+        if s.config.id == id {
+            server_restart(s)
             return true
         }
     }

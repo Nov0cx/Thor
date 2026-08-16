@@ -237,7 +237,10 @@ Thor's LSP alternative: LSP-shaped features served **in-client** by native analy
 subprocess LSP client as an optional second backend behind the same seam.
 
 - `lang/lang.odin` is the seam: a `Backend` vtable (`handles`/`resolve`/`destroy`), a `Manager` that
-  routes a `Request` by file extension onto a worker pool and reaps `Result`s on the main thread.
+  routes a `Request` by *routing key* onto a worker pool and reaps `Result`s on the main thread. The
+  key is `thor_lang_key`: a file's bare name when a backend claims that name (`lang.manager_claims`,
+  outside the `enabled` gate so the key never moves), else its extension — the shape and the
+  precedence `thor_highlight_key` already uses.
   **Byte offsets are the position currency** everywhere (the piece table works in bytes), counted
   over source with CRLF collapsed to LF — read files with `source_read`, not `os.read_entire_file`,
   or offsets into a CRLF file miss by one byte per line; an LSP
@@ -263,8 +266,10 @@ subprocess LSP client as an optional second backend behind the same seam.
   entry's `enabled`/`features` **seed** that server's `admin_enabled`/`admin_features` at
   `server_create` and state nothing after — `language_backends` owns the keys it names, so a server
   turned off in `lsp.json` still lists in Settings and can be turned back on, and it stops claiming
-  its extensions so a later entry can take the language over. `lang/LSP_PLAN.md` is its design.
-  A server is started by the first document event for an extension it claims, never at init. One
+  its extensions so a later entry can take the language over. An entry claims routing keys through
+  `extensions` (each force-given its leading dot) and `filenames` (whole names, kept verbatim and
+  matched first). `lang/LSP_PLAN.md` is its design.
+  A server is started by the first document event for a key it claims, never at init. One
   pump thread per server does everything that can block on a pipe — spawn, handshake, outbox drain,
   restart — so `notify` on the main thread only queues. `state` is atomic and `caps` is written once
   before the first `.Ready`, which is what lets `supports` read them with no lock. A worker in
@@ -280,11 +285,18 @@ subprocess LSP client as an optional second backend behind the same seam.
   panel reads, behind `status_mutex` — a leaf lock over `root`/`restarts`/`last_error`, since a
   status read must never take `conn_lock`, which is held shared for a whole round trip. All three
   `lsp.json` layers are watched (`thor/settings_watch.odin`) and rebuild the client through
-  `thor.lang_reload_pending` at the head of the run loop, never inside an event.
+  `thor.lang_reload_pending` at the head of the run loop, never inside an event. One server alone is
+  restarted with `server_restart` (`client_restart_server` by id) — the one place the `stopping`
+  latch is released; it keeps the documents (`server_launch` re-opens them) and `caps` (read with no
+  lock), and clears the crash count a give-up reached. It is deferred through `thor.lang_restart_id`
+  at the same point and for the same reason, since it needs `thor_drain_lang_manager` first.
 - `thor/lang_host.odin` is the editor side: dispatches requests, routes results back to the pane that
   asked, drops superseded ones. `thor_lang_notify` / `thor_sync_lang_documents` mirror the open
   buffers onto a backend that tracks documents — one `.Changed` per file per frame, driven by
-  `Open_File.lang_revision`.
+  `Open_File.lang_revision`. `thor_apply_edits` is the all-or-nothing applier every backend edit set
+  goes through; a `WorkspaceEdit`'s resource ops (create/rename/delete) join its cross-file Ctrl+Z
+  record as `Edit_Undo_File` kinds, and a target no string can restore (a directory) drops the record
+  rather than leaving it half reversible.
 - **`lang/ROADMAP.md` is the living source of truth** for what works and what is missing. Read it
   before adding a feature here, and update it after.
 

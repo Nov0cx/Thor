@@ -32,6 +32,10 @@ Server_Config :: struct {
     id:           string,   // owned; the key a workspace entry overlays on
     name:         string,   // owned; display name, the id when the key is absent
     extensions:   []string, // owned; each with its leading '.'
+    // Exact file names it claims, for files whose extension names no language
+    // ("Makefile") or names the wrong one ("CMakeLists.txt"). Matched ahead of
+    // `extensions`, and kept verbatim — no leading dot is added.
+    filenames:    []string, // owned
     command:      []string, // owned; [0] is the program, resolved on PATH when not absolute
     cwd:          string,   // owned; empty is the workspace root
     env:          []string, // owned; "K=V" overlay on the parent environment
@@ -136,24 +140,39 @@ config_report :: proc(cfg: ^Config, file, id, message: string) {
     )
 }
 
-// The configured server for `ext`, compared without case because a path carries
+// The configured server for the routing key `key` — an extension (".c") or a
+// bare file name ("Makefile") — compared without case because a path carries
 // whatever case the file system gave it. The first enabled claimant wins: two
-// enabled entries on one extension is a config mistake, not a fallback chain.
-config_server_for :: proc(cfg: ^Config, ext: string) -> (^Server_Config, bool) {
-    if ext == "" {
+// enabled entries on one key is a config mistake, not a fallback chain.
+config_server_for :: proc(cfg: ^Config, key: string) -> (^Server_Config, bool) {
+    if key == "" {
         return nil, false
     }
     for &server in cfg.servers {
         if !server.enabled {
             continue
         }
-        for candidate in server.extensions {
-            if strings.equal_fold(candidate, ext) {
-                return &server, true
-            }
+        if server_claims(&server, key) {
+            return &server, true
         }
     }
     return nil, false
+}
+
+// True when the entry names `key` among its file names or its extensions.
+@(private)
+server_claims :: proc(server: ^Server_Config, key: string) -> bool {
+    for candidate in server.filenames {
+        if strings.equal_fold(candidate, key) {
+            return true
+        }
+    }
+    for candidate in server.extensions {
+        if strings.equal_fold(candidate, key) {
+            return true
+        }
+    }
+    return false
 }
 
 @(private)
@@ -350,6 +369,7 @@ KNOWN_KEYS :: [?]string {
     "id",
     "name",
     "extensions",
+    "filenames",
     "command",
     "root_markers",
     "env",
@@ -399,6 +419,14 @@ server_overlay :: proc(cfg: ^Config, server: ^Server_Config, entry: json.Object,
             server.extensions = extension_list(arr, alloc)
         } else {
             config_report(cfg, path, id, `"extensions" must be an array of strings`)
+        }
+    }
+    if value, has := entry["filenames"]; has {
+        if arr, ok := value.(json.Array); ok {
+            strings_free(server.filenames, alloc)
+            server.filenames = string_list(arr, alloc)
+        } else {
+            config_report(cfg, path, id, `"filenames" must be an array of strings`)
         }
     }
     if value, has := entry["command"]; has {
@@ -536,6 +564,7 @@ server_config_destroy :: proc(server: ^Server_Config, alloc: runtime.Allocator) 
     delete(server.docs_url, alloc)
     delete(server.setup_command, alloc)
     strings_free(server.extensions, alloc)
+    strings_free(server.filenames, alloc)
     strings_free(server.command, alloc)
     strings_free(server.root_markers, alloc)
     strings_free(server.env, alloc)

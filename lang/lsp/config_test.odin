@@ -240,6 +240,59 @@ test_config_extensions_get_a_dot :: proc(t: ^testing.T) {
     testing.expect_value(t, cfg.servers[0].extensions[2], ".hpp")
 }
 
+// `filenames` claims a bare name verbatim — no dot is added, unlike
+// `extensions` — and a later layer replaces the list rather than adding to it.
+@(test)
+test_config_filenames_are_kept_verbatim :: proc(t: ^testing.T) {
+    cfg := merge(
+        `{"servers": [{"id": "cmake", "filenames": ["Makefile"], "command": ["s"]}]}`,
+        `{"servers": [{"id": "cmake", "filenames": ["CMakeLists.txt", "Makefile"]}]}`,
+    )
+    defer config_destroy(&cfg)
+
+    server, ok := find(&cfg, "cmake")
+    testing.expect(t, ok, "the entry was dropped")
+    if !ok {
+        return
+    }
+    testing.expect_value(t, len(server.filenames), 2)
+    testing.expect_value(t, server.filenames[0], "CMakeLists.txt")
+    testing.expect_value(t, server.filenames[1], "Makefile")
+}
+
+// A file name beats an extension, so a file whose extension names another
+// language still reaches the server that claims its name.
+@(test)
+test_config_server_for_filename :: proc(t: ^testing.T) {
+    cfg := merge(
+        `{"servers": [
+            {"id": "cmake", "filenames": ["CMakeLists.txt"], "extensions": [".cmake"], "command": ["s"]},
+            {"id": "text", "extensions": [".txt"], "command": ["t"]}
+        ]}`,
+    )
+    defer config_destroy(&cfg)
+
+    server, ok := config_server_for(&cfg, "cmakelists.txt")
+    testing.expect(t, ok, "a bare file name claimed nothing")
+    if ok {
+        testing.expect_value(t, server.id, "cmake")
+    }
+    other, has := config_server_for(&cfg, ".txt")
+    testing.expect(t, has, "the extension entry stopped answering")
+    if has {
+        testing.expect_value(t, other.id, "text")
+    }
+}
+
+// A key of the wrong type is reported and leaves the field as it was.
+@(test)
+test_config_filenames_must_be_an_array :: proc(t: ^testing.T) {
+    cfg := merge(`{"servers": [{"id": "s", "filenames": "Makefile", "command": ["s"]}]}`)
+    defer config_destroy(&cfg)
+
+    testing.expect(t, reports(&cfg, `"filenames" must be an array of strings`), "a bad type went unreported")
+}
+
 // The lookup a request makes, and the case a path can arrive in.
 @(test)
 test_config_server_for_extension :: proc(t: ^testing.T) {

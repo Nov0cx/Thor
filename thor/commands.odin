@@ -480,6 +480,7 @@ thor_register_commands :: proc(thor: ^Thor) {
     thor_add_bindable_command(thor, "Settings: Open Settings GUI", "open_settings_gui", thor_cmd_open_settings_gui, thor)
     thor_add_bindable_command(thor, "Language: Language Servers", "open_language_servers", thor_cmd_open_language_servers, thor)
     thor_add_bindable_command(thor, "Language: Restart Servers", "restart_language_servers", thor_cmd_restart_language_servers, thor)
+    thor_add_bindable_command(thor, "Language: Restart One Server", "restart_one_language_server", thor_cmd_restart_one_language_server, thor)
     thor_add_bindable_command(thor, "Git: Open Git UI", "open_git_gui", thor_cmd_open_git_view, thor)
     thor_add_bindable_command(thor, "Git: History", "open_git_history", thor_cmd_open_git_history, thor)
     thor_add_bindable_command(thor, "Git: Branches", "open_git_branches", thor_cmd_open_git_branches, thor)

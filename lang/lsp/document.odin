@@ -228,6 +228,23 @@ path_equal :: proc(a, b: string) -> bool {
     }
 }
 
+// The `languageId` of the file at `path`: its whole name where that names a
+// language, else its extension. Every didOpen goes through this, so a restart's
+// re-open names the same language the first open did.
+language_id_for_path :: proc(path: string) -> string {
+    slash := max(strings.last_index_byte(path, '/'), strings.last_index_byte(path, '\\'))
+    switch path[slash + 1:] {
+    case "Makefile", "makefile", "GNUmakefile":
+        return "makefile"
+    case "Dockerfile", "dockerfile", "Containerfile":
+        return "dockerfile"
+    case "CMakeLists.txt":
+        return "cmake"
+    }
+    dot := strings.last_index_byte(path[slash + 1:], '.')
+    return language_id_for(dot < 0 ? "" : path[slash + 1 + dot:])
+}
+
 // The `languageId` of didOpen. A server that serves one language ignores it, but
 // clangd reads it to tell a header from a source file. An extension nothing names
 // passes through without its dot.

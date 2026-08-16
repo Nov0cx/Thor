@@ -78,7 +78,6 @@ Server_State :: enum {
 Doc_Notice :: struct {
     event:    lang.Doc_Event,
     path:     string, // owned
-    ext:      string, // owned
     source:   string, // owned; empty for Saved and Closed
     revision: u64,
 }
@@ -279,7 +278,7 @@ server_supports :: proc(s: ^Server, kind: lang.Request_Kind) -> bool {
 
 // Queues a document event and returns. Main thread: it must never wait on a
 // server, so nothing here touches the connection.
-server_notify :: proc(s: ^Server, event: lang.Doc_Event, path, ext, source: string, revision: u64) {
+server_notify :: proc(s: ^Server, event: lang.Doc_Event, path, source: string, revision: u64) {
     #partial switch server_state(s) {
     case .Failed, .Stopping:
         return
@@ -291,7 +290,6 @@ server_notify :: proc(s: ^Server, event: lang.Doc_Event, path, ext, source: stri
     notice := Doc_Notice {
         event    = event,
         path     = strings.clone(path, s.allocator),
-        ext      = strings.clone(ext, s.allocator),
         revision = revision,
     }
     if event == .Opened || event == .Changed {
@@ -320,7 +318,6 @@ server_notify :: proc(s: ^Server, event: lang.Doc_Event, path, ext, source: stri
     }
     if replaced {
         delete(notice.path, s.allocator)
-        delete(notice.ext, s.allocator)
     } else {
         append(&s.outbox, notice)
     }
@@ -355,6 +352,48 @@ server_stop :: proc(s: ^Server) {
         conn_destroy(conn)
         sync.rw_mutex_unlock(&s.conn_lock)
     }
+}
+
+// Stops the server and puts it back where server_create left it, so the next
+// document event or request starts a fresh process. Same precondition as
+// server_stop — main thread, no worker in flight — because it is server_stop
+// that does the work; `stopping` is a one-way latch everywhere else, and this is
+// the one place it is released.
+//
+// The documents are kept: server_launch opens them all again, which is what
+// makes a restart invisible above this line. So are `caps`, which `supports`
+// reads with no lock and the same program would only re-advertise. The give-up
+// a crash loop reached is cleared — a manual restart is the user overruling it.
+server_restart :: proc(s: ^Server) {
+    server_stop(s)
+
+    sync.lock(&s.start_mutex)
+    s.started = false
+    sync.unlock(&s.start_mutex)
+
+    delete(s.trigger, s.allocator)
+    s.trigger = ""
+
+    sync.lock(&s.status_mutex)
+    s.restarts = 0
+    delete(s.last_error, s.allocator)
+    s.last_error = ""
+    sync.unlock(&s.status_mutex)
+
+    // Both belong to the process that just went: queued events the new one gets
+    // through the document re-open, and pushes (diagnostics) about its own text.
+    server_drop_outbox(s)
+
+    sync.lock(&s.push_mutex)
+    for &res in s.pushes[s.push_head:] {
+        server_drop_push(s, &res)
+    }
+    clear(&s.pushes)
+    s.push_head = 0
+    sync.unlock(&s.push_mutex)
+
+    sync.atomic_store(&s.stopping, false)
+    sync.atomic_store(&s.state, .Idle)
 }
 
 // Frees the server. server_stop must have run.
@@ -510,7 +549,7 @@ server_launch :: proc(s: ^Server) -> bool {
     }
     sync.lock(&s.docs_mutex)
     for doc in s.docs {
-        server_send_open(s, doc, language_id_for(filepath.ext(doc.path)))
+        server_send_open(s, doc, language_id_for_path(doc.path))
     }
     sync.unlock(&s.docs_mutex)
     return true
@@ -757,7 +796,7 @@ server_apply :: proc(s: ^Server, notice: Doc_Notice) {
     sync.guard(&s.docs_mutex)
     switch notice.event {
     case .Opened, .Changed:
-        server_publish(s, notice.path, notice.ext, notice.source, notice.revision)
+        server_publish(s, notice.path, notice.source, notice.revision)
     case .Saved:
         doc, found := server_find(s, notice.path)
         if !found || !doc.open || !s.caps.saves {
@@ -785,7 +824,7 @@ server_apply :: proc(s: ^Server, notice: Doc_Notice) {
 // file, so an older one is a queued event a request already overtook. The caller
 // holds docs_mutex.
 @(private)
-server_publish :: proc(s: ^Server, path, ext, source: string, revision: u64) {
+server_publish :: proc(s: ^Server, path, source: string, revision: u64) {
     doc, found := server_find(s, path)
     if found && doc.open && revision <= doc.revision {
         return
@@ -808,7 +847,7 @@ server_publish :: proc(s: ^Server, path, ext, source: string, revision: u64) {
 
     doc = server_document(s, path, source, revision)
     if !doc.open {
-        server_send_open(s, doc, language_id_for(ext))
+        server_send_open(s, doc, language_id_for_path(path))
         return
     }
     if !s.caps.changes {
@@ -831,7 +870,7 @@ server_publish :: proc(s: ^Server, path, ext, source: string, revision: u64) {
 @(private)
 server_sync_document :: proc(s: ^Server, req: ^lang.Request) {
     sync.guard(&s.docs_mutex)
-    server_publish(s, req.path, req.ext, req.source, req.revision)
+    server_publish(s, req.path, req.source, req.revision)
 }
 
 // The byte range a server's two positions name in a document it already holds,
@@ -1070,7 +1109,6 @@ server_drop_outbox :: proc(s: ^Server) {
 @(private)
 notice_destroy :: proc(s: ^Server, notice: ^Doc_Notice) {
     delete(notice.path, s.allocator)
-    delete(notice.ext, s.allocator)
     delete(notice.source, s.allocator)
     notice^ = {}
 }

@@ -92,6 +92,31 @@ thor_cmd_open_language_servers :: proc(data: rawptr) {
     widgets.settings_view_open_at(thor.settings_view, &thor.ui_context, LSP_CATEGORY)
 }
 
+// Picks one configured server and restarts it, for the palette. Ids, not
+// display names: an id is the key lsp.json names it by, and the picker is where
+// a user who edits that file looks.
+thor_cmd_restart_one_language_server :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    ids := lsp.client_server_ids(thor.lsp_client, context.temp_allocator)
+    if len(ids) == 0 {
+        thor_flash_status(thor, "No language servers are configured", is_error = true)
+        return
+    }
+    widgets.command_palette_pick(
+        thor.command_palette,
+        &thor.ui_context,
+        "Restart which language server?",
+        ids,
+        thor_lsp_pick_restart,
+        thor,
+    )
+}
+
+@(private = "file")
+thor_lsp_pick_restart :: proc(data: rawptr, choice: string) {
+    thor_request_server_restart(cast(^Thor) data, choice)
+}
+
 // Builds the whole category. Called from thor_populate_settings_view, so it is
 // rebuilt on open, on a scope switch and after every change.
 thor_populate_lsp_category :: proc(thor: ^Thor) {
@@ -189,7 +214,10 @@ thor_lsp_populate_server :: proc(thor: ^Thor, id: string) {
         info(view, id, "root", "Project Root", status.root)
     }
 
-    extensions := strings.join(status.extensions, " ", context.temp_allocator)
+    claimed := make([dynamic]string, context.temp_allocator)
+    append(&claimed, ..status.filenames)
+    append(&claimed, ..status.extensions)
+    extensions := strings.join(claimed[:], " ", context.temp_allocator)
     if status.claimed_by != "" {
         info(view, id, "ext", "File Types", fmt.tprintf("%s — answered by %s", extensions, status.claimed_by), .Warn)
     } else {
@@ -200,6 +228,7 @@ thor_lsp_populate_server :: proc(thor: ^Thor, id: string) {
     }
 
     widgets.settings_view_add_choice(view, thor_language_backend_id(id), "Enabled", thor_on_off_label(on))
+    widgets.settings_view_add_action(view, thor_lsp_action_id(.Restart, id), "Restart This Server", "Restart")
     if !status.installed && status.install_command != "" {
         widgets.settings_view_add_action(view, thor_lsp_action_id(.Install, id), "Install It", "Install")
     }
@@ -296,7 +325,12 @@ thor_on_setting_action :: proc(data: rawptr, id: string) {
     }
     switch action {
     case .Restart:
-        thor_cmd_restart_language_servers(thor)
+        // The category-level row names no server and restarts them all.
+        if argument == "" {
+            thor_cmd_restart_language_servers(thor)
+        } else {
+            thor_request_server_restart(thor, argument)
+        }
     case .Add:
         thor_lsp_prompt_new_server(thor)
     case .Rescan:
