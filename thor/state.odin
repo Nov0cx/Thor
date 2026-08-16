@@ -1,5 +1,6 @@
 package thor
 
+import "core:path/filepath"
 import "core:strings"
 import "core:unicode/utf8"
 import rl "vendor:raylib"
@@ -103,6 +104,10 @@ thor_bind_editor :: proc(thor: ^Thor, editor: ^widgets.Editor, file: ^Open_File,
     ext := thor_file_extension(file.name)
     widgets.editor_set_completion_semantic(editor, lang.manager_allows(&thor.lang_manager, ext, .Completion))
     widgets.editor_set_on_type_enabled(editor, lang.manager_allows(&thor.lang_manager, ext, .Format_On_Type))
+    // What a snippet's $TM_FILENAME and $TM_DIRECTORY resolve to.
+    dir := filepath.dir(file.path)
+    defer delete(dir)
+    widgets.editor_set_snippet_vars(editor, file.path, dir)
     if keep_view {
         widgets.editor_reload_state(editor, &file.state)
     } else {

@@ -103,11 +103,11 @@ on_type_trigger :: proc(data: rawptr, ext, char: string) -> bool {
     return ext == ".odin" && char == ON_TYPE_TRIGGERS
 }
 
-// Execute_Command is a server-side seam: an in-client analyzer answers with
-// edits computed up front, so it has no command to run. Declined outright rather
-// than left to answer ok=false.
+// Both are server-side seams: an in-client analyzer answers with edits computed
+// up front, so it has no command to run and nothing about a candidate left to
+// resolve. Declined outright rather than left to answer ok=false.
 @(private)
-UNSUPPORTED :: bit_set[lang.Request_Kind]{.Execute_Command}
+UNSUPPORTED :: bit_set[lang.Request_Kind]{.Execute_Command, .Resolve_Completion}
 
 // The settings-driven per-kind gate: every capability the engine has
 // (definition, goto, completion, formatting, …) is unconditional, so only a

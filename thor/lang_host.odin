@@ -1311,6 +1311,7 @@ thor_editor_completion :: proc(data: rawptr, editor: ^widgets.Editor, state: ^te
             offset,
             file.state.revision,
             thor.workspace_dir,
+            trigger = thor_completion_trigger(source, offset),
         )
         if id == 0 {
             return false
@@ -1320,6 +1321,22 @@ thor_editor_completion :: proc(data: rawptr, editor: ^widgets.Editor, state: ^te
         return true
     }
     return false
+}
+
+// The character that opened the list, when it is not part of the word being
+// typed — a backend uses it to tell an explicit list from one a character asked
+// for. A word character is never a trigger: the request is for the word, not for
+// the letter that grew it.
+@(private = "file")
+thor_completion_trigger :: proc(source: string, offset: int) -> string {
+    if offset <= 0 || offset > len(source) {
+        return ""
+    }
+    c := source[offset - 1]
+    if c == '_' || (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c >= 0x80 {
+        return ""
+    }
+    return source[offset - 1:offset]
 }
 
 // Fills the completion popup once its request lands. Drops a superseded result
@@ -1332,17 +1349,209 @@ thor_update_completion :: proc(thor: ^Thor, res: ^lang.Result) {
     }
     thor.completion_request_id = 0
     editor := thor.completion_editor
-    if !res.ok || len(res.symbols) == 0 || editor.state == nil || editor.state.revision != res.revision {
+    if !res.ok || len(res.completions) == 0 || editor.state == nil || editor.state.revision != res.revision {
         return
     }
+    file := thor_open_file_for_state(thor, editor.state)
+    if file == nil {
+        return
+    }
+    thor_completion_take(thor, res, file)
+
     items := make([dynamic]widgets.Completion_Item, context.temp_allocator)
-    for sym in res.symbols {
+    for item, i in thor.completion_items {
         append(&items, widgets.Completion_Item {
-            text  = sym.name,
-            color = thor_symbol_color(thor, sym.kind),
+            text     = item.label,
+            owner_id = i + 1, // zero says "the editor's own buffer word"
+            insert   = item.insert,
+            filter   = item.filter,
+            start    = item.start,
+            end      = item.end,
+            snippet  = item.snippet,
+            color    = thor_symbol_color(thor, item.kind),
         })
     }
-    widgets.editor_set_completions(editor, items[:])
+    widgets.editor_set_completions(editor, items[:], complete = !res.incomplete)
+}
+
+// Takes the candidates off a result and keeps them: the Result is freed as soon
+// as this handler returns, but the popup hands one back on accept a keystroke or
+// more later. The owned strings move, they are not cloned again.
+@(private = "file")
+thor_completion_take :: proc(thor: ^Thor, res: ^lang.Result, file: ^Open_File) {
+    thor_completion_clear(thor)
+    thor.completion_items = res.completions
+    res.completions = nil // ownership moved; result_free must not free it twice
+    thor.completion_path = strings.clone(file.path)
+    thor.completion_revision = res.revision
+}
+
+@(private)
+thor_completion_clear :: proc(thor: ^Thor) {
+    for item in thor.completion_items {
+        delete(item.label)
+        delete(item.kind)
+        delete(item.detail)
+        delete(item.insert)
+        delete(item.filter)
+        delete(item.sort)
+        delete(item.command)
+        delete(item.arguments)
+        delete(item.raw)
+        for edit in item.extra_edits {
+            delete(edit.path)
+            delete(edit.old_text)
+            delete(edit.new_text)
+        }
+        delete(item.extra_edits)
+    }
+    delete(thor.completion_items)
+    thor.completion_items = nil
+    delete(thor.completion_path)
+    thor.completion_path = ""
+    thor.completion_revision = 0
+}
+
+// The open file a widget's buffer belongs to, or nil.
+@(private = "file")
+thor_open_file_for_state :: proc(thor: ^Thor, state: ^textedit.State) -> ^Open_File {
+    for file in thor.open_files {
+        if &file.state == state {
+            return file
+        }
+    }
+    return nil
+}
+
+// Finishes an accepted candidate: the text is already in the buffer, so what is
+// left is the changes it needs elsewhere (an import line), the parts a deferring
+// server only fills in on resolve, and any command it named. The extra edits were
+// computed against the buffer as it was before the accept, so anything at or past
+// where the text landed shifts by the length it changed; thor_apply_edits then
+// validates every one against what is really there and refuses the whole set
+// rather than splicing half of it.
+thor_completion_accept :: proc(
+    data: rawptr,
+    editor: ^widgets.Editor,
+    state: ^textedit.State,
+    owner_id, at, delta: int,
+) {
+    thor := cast(^Thor) data
+    index := owner_id - 1
+    if index < 0 || index >= len(thor.completion_items) {
+        return
+    }
+    item := thor.completion_items[index]
+    file := thor_open_file_for_state(thor, state)
+    if file == nil || file.path != thor.completion_path {
+        return
+    }
+
+    if len(item.extra_edits) > 0 {
+        thor_apply_completion_edits(thor, file, item.extra_edits[:], at, delta)
+    }
+    if item.raw != "" {
+        thor_resolve_completion(thor, file, item, at, delta)
+    }
+    if item.command != "" {
+        thor_run_completion_command(thor, file, item)
+    }
+}
+
+// Applies one candidate's edits, shifted onto the buffer as it is now.
+@(private = "file")
+thor_apply_completion_edits :: proc(thor: ^Thor, file: ^Open_File, edits: []lang.Text_Edit, at, delta: int) {
+    shifted := make([dynamic]lang.Text_Edit, 0, len(edits), context.temp_allocator)
+    for edit in edits {
+        moved := edit
+        if moved.start >= at {
+            moved.start += delta
+            moved.end += delta
+        }
+        append(&shifted, moved)
+    }
+    if _, _, ok, reason := thor_apply_edits(thor, shifted[:], file.path, file.state.revision); !ok {
+        thor_flash_status(thor, fmt.tprintf("completion follow-up aborted: %s", reason), is_error = true)
+    }
+}
+
+// Asks the server for the parts of the candidate it deferred. Async: the answer
+// lands after the text has, which is why the edits it brings are shifted the same
+// way and validated before they are applied.
+@(private = "file")
+thor_resolve_completion :: proc(thor: ^Thor, file: ^Open_File, item: lang.Completion_Item, at, delta: int) {
+    id := lang.manager_request_latest(
+        &thor.lang_manager,
+        .Resolve_Completion,
+        file.path,
+        thor_file_extension(file.name),
+        textedit.text(&file.state),
+        at,
+        file.state.revision,
+        thor.workspace_dir,
+        item = item.raw,
+    )
+    if id == 0 {
+        return
+    }
+    thor.resolve_request_id = id
+    thor.resolve_at = at
+    thor.resolve_delta = delta
+}
+
+@(private = "file")
+thor_run_completion_command :: proc(thor: ^Thor, file: ^Open_File, item: lang.Completion_Item) {
+    id := lang.manager_request_latest(
+        &thor.lang_manager,
+        .Execute_Command,
+        file.path,
+        thor_file_extension(file.name),
+        textedit.text(&file.state),
+        0,
+        file.state.revision,
+        thor.workspace_dir,
+        command = item.command,
+        command_args = item.arguments,
+    )
+    if id == 0 {
+        return
+    }
+    thor.execute_command_request_id = id
+    delete(thor.execute_command_title)
+    thor.execute_command_title = strings.clone(item.label)
+}
+
+// Applies what completionItem/resolve filled in. The edits were computed against
+// the buffer the resolve request carried — the one right after the accept — so
+// they need no further shifting; thor_apply_edits still validates them, and a
+// buffer the user has since typed in refuses them rather than splicing blind.
+@(private = "file")
+thor_apply_resolved_completion :: proc(thor: ^Thor, res: ^lang.Result) {
+    if res.id != thor.resolve_request_id {
+        return
+    }
+    thor.resolve_request_id = 0
+    if !res.ok || len(res.completions) == 0 {
+        return
+    }
+    item := res.completions[0]
+    file := thor_open_file_at(thor, thor.completion_path)
+    if file == nil {
+        return
+    }
+    if len(item.extra_edits) > 0 {
+        if _, _, ok, reason := thor_apply_edits(
+            thor,
+            item.extra_edits[:],
+            file.path,
+            file.state.revision,
+        ); !ok {
+            thor_flash_status(thor, fmt.tprintf("completion follow-up aborted: %s", reason), is_error = true)
+        }
+    }
+    if item.command != "" {
+        thor_run_completion_command(thor, file, item)
+    }
 }
 
 // Asks the analyzer what every identifier in `file` is, so the highlighter can
@@ -1486,6 +1695,8 @@ thor_on_lang_result :: proc(user: rawptr, res: ^lang.Result) {
         thor_show_signature(thor, res)
     case .Completion:
         thor_update_completion(thor, res)
+    case .Resolve_Completion:
+        thor_apply_resolved_completion(thor, res)
     case .Package_Doc:
         thor_show_package_doc(thor, res)
     case .Rename:

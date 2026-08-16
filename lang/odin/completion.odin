@@ -634,13 +634,33 @@ complete_dir_scan :: proc(
 }
 
 // Sorts completion candidates by name for a stable list and flags the result ok
-// when any matched.
+// when any matched. Every complete path ends here, so this is also where the
+// rows the producers built as Symbols — the shape they share with goto and
+// references — move into the seam's completion shape. The owned strings move,
+// they are not cloned again. The engine offers plain identifiers only: no
+// snippet, no range of its own and no follow-up work, so those fields stay at
+// their unset values.
 @(private)
 finish_completion :: proc(res: ^lang.Result) {
     slice.sort_by(res.symbols[:], proc(a, b: lang.Symbol) -> bool {
         return a.name < b.name
     })
-    res.ok = len(res.symbols) > 0
+    if len(res.symbols) > 0 {
+        res.completions = make([dynamic]lang.Completion_Item, 0, len(res.symbols))
+    }
+    for sym in res.symbols {
+        append(&res.completions, lang.Completion_Item {
+            label  = sym.name,
+            kind   = sym.kind,
+            detail = sym.signature,
+            start  = -1,
+            end    = -1,
+        })
+        delete(sym.path) // unset on a candidate, but a producer shared with goto may fill it
+    }
+    delete(res.symbols)
+    res.symbols = nil // the strings moved into `completions`; freeing both would double-free
+    res.ok = len(res.completions) > 0
 }
 
 // Byte range, within a signature line, of the `active`-th parameter — used to

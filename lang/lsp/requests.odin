@@ -44,6 +44,7 @@ METHODS := [lang.Request_Kind]string {
     .Format_Range      = "textDocument/rangeFormatting",
     .Format_On_Type    = "textDocument/onTypeFormatting",
     .Execute_Command   = "workspace/executeCommand",
+    .Resolve_Completion = "completionItem/resolve",
     .Progress          = "", // unsolicited push, never sent as an outgoing request
     .Apply_Edit        = "", // unsolicited push, never sent as an outgoing request
 }
@@ -109,6 +110,12 @@ request_answer :: proc(s: ^Server, req: ^lang.Request, res: ^lang.Result) {
         return
     }
 
+    // Resolve_Completion rides completionProvider, which every completing server
+    // advertises; only one that also sets resolveProvider answers the method.
+    if req.kind == .Resolve_Completion && (!s.caps.resolve_items || req.item == "") {
+        return
+    }
+
     params := request_params(&ask)
     value, err := conn_call(ask.conn, method, params, request_deadline(req.kind), req.cancel)
     defer conn_free_value(ask.conn, value)
@@ -149,6 +156,12 @@ request_params :: proc(ask: ^Ask) -> string {
         }
         append(&out, `}`)
         return string(out[:])
+    }
+
+    // completionItem/resolve takes the candidate itself as its params: the server
+    // gets back the object it sent, `data` and all, and answers a filled-in copy.
+    if ask.req.kind == .Resolve_Completion {
+        return ask.req.item
     }
 
     out := make([dynamic]u8, context.temp_allocator)
@@ -205,8 +218,16 @@ request_params :: proc(ask: ^Ask) -> string {
         // A declaration is not a use of itself; Thor's own references drop it.
         append(&out, `,"context":{"includeDeclaration":false}`)
     case .Completion:
-        // Invoked: the editor opens the popup, never a trigger character.
-        append(&out, `,"context":{"triggerKind":1}`)
+        // TriggerCharacter (2) only for a character the server itself named — a
+        // server that offers members solely on its own trigger lists nothing
+        // when the same keystroke arrives as Invoked (1).
+        if trigger_character(ask) {
+            append(&out, `,"context":{"triggerKind":2,"triggerCharacter":`)
+            write_quoted(&out, ask.req.trigger)
+            append(&out, `}`)
+        } else {
+            append(&out, `,"context":{"triggerKind":1}`)
+        }
     case .Rename:
         append(&out, `,"newName":`)
         write_quoted(&out, ask.req.new_name)
@@ -283,6 +304,21 @@ prepare_rename_ok :: proc(ask: ^Ask) -> bool {
         }
     }
     return true
+}
+
+// True when the character that opened the popup is one the server asked to be
+// told about.
+@(private)
+trigger_character :: proc(ask: ^Ask) -> bool {
+    if ask.req.trigger == "" {
+        return false
+    }
+    for t in ask.server.caps.item_triggers {
+        if t == ask.req.trigger {
+            return true
+        }
+    }
+    return false
 }
 
 @(private)

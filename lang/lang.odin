@@ -38,6 +38,12 @@ Request_Kind :: enum {
     // changes back as a pushed Apply_Edit, so the result carries no edits of its
     // own — only whether the command ran.
     Execute_Command,
+    // Fills in the parts of a completion candidate the backend deferred — the
+    // changes elsewhere it needs, and its follow-up command. Dispatched when the
+    // user picks a row, never while the list is being built, and carries the
+    // candidate back verbatim in Request.item. Only a backend that defers
+    // answers it; an in-client analyzer computes everything up front.
+    Resolve_Completion,
     // Push-only: never dispatched through manager_request*, only produced by
     // Backend.poll (a server's unsolicited $/progress notification).
     Progress,
@@ -96,8 +102,7 @@ Signature_Info :: struct {
 // declaration's name, its kind (the LOCALS capture suffix, which drives the
 // display color), its real Odin declaration line, and the file, 1-based line and
 // byte offset to jump to. References reuse the shape with kind "reference" and
-// the usage's source line as the signature; completion candidates reuse it with
-// name as the text to insert and path/line/offset unused.
+// the usage's source line as the signature.
 Symbol :: struct {
     name:      string, // owned
     kind:      string, // owned
@@ -117,6 +122,30 @@ Text_Edit :: struct {
     end:      int,
     old_text: string, // owned; the bytes the backend matched at [start, end)
     new_text: string, // owned; what replaces them
+}
+
+// One completion candidate. `label` is the row text and `insert` what lands in
+// the buffer — an editor-agnostic snippet template when `snippet` is set.
+// `start`/`end` are byte offsets in the request's own source that the insert
+// replaces, both -1 when the backend named no range and the editor falls back to
+// the word being typed. `extra_edits` are the changes elsewhere the candidate
+// needs, such as an import line. The last four are a deferring backend's
+// round-trip payloads and are empty for an in-client one.
+Completion_Item :: struct {
+    label:       string, // owned; the row text
+    kind:        string, // owned; drives the row color, the vocabulary Symbol.kind uses
+    detail:      string, // owned; the signature shown beside the row
+    insert:      string, // owned; "" inserts the label
+    filter:      string, // owned; what the editor's prefix filter matches, "" the label
+    sort:        string, // owned; the backend's ordering key, "" the label
+    start:       int,    // byte offset the insert replaces; -1 when unset
+    end:         int,    // one past it; -1 when unset
+    snippet:     bool,   // `insert` is a snippet template, not literal text
+    preselect:   bool,   // the backend's own pick for the initially selected row
+    extra_edits: [dynamic]Text_Edit, // owned; applied after the insert lands
+    command:     string, // owned; run after the edits, "" when none
+    arguments:   string, // owned; the command's arguments as raw JSON array text
+    raw:         string, // owned; the candidate verbatim as JSON text, echoed back on resolve
 }
 
 // A formatter's opinion on a file's line ending, read from its own config
@@ -286,8 +315,9 @@ Request :: struct {
     // Format / Format_Range / Format_On_Type: spaces per indent level of the
     // request's buffer. 0 means unset — a backend falls back to its own default.
     tab_size: int,
-    // Format_On_Type only; owned. The character just typed, as UTF-8. "" for
-    // every other kind.
+    // Format_On_Type and Completion; owned. The character just typed, as UTF-8,
+    // "" when the request was not driven by one. A backend uses it to tell an
+    // explicitly opened list from one a character asked for.
     trigger:  string,
     // Execute_Command only; owned. The command identifier, and its arguments as
     // the raw JSON array text the offer carried — kept verbatim rather than
@@ -295,6 +325,10 @@ Request :: struct {
     // own shapes.
     command:      string,
     command_args: string,
+    // Resolve_Completion only; owned. The candidate the user picked, verbatim as
+    // the raw JSON text the offer carried — kept undecoded for the same reason
+    // command_args is.
+    item:      string,
     cancel:    ^bool,  // Job-owned cancellation flag; read via request_cancelled, nil when hand-built
 }
 
@@ -322,7 +356,14 @@ Result :: struct {
     hover:     Hover_Info,      // Hover
     doc:       Doc_Info,        // Package_Doc
     signature: Signature_Info,  // Signature_Help
-    symbols:   [dynamic]Symbol, // Document_Symbols / Workspace_Symbols / References / Completion; owned, freed in job_free
+    symbols:   [dynamic]Symbol, // Document_Symbols / Workspace_Symbols / References; owned, freed in job_free
+    // Completion; owned, freed in job_free. In the order the editor lists them —
+    // a backend that has an opinion sorts before it answers.
+    completions: [dynamic]Completion_Item,
+    // Completion. True when the backend answered only the candidates it could
+    // find quickly, so the editor must ask again as the word grows instead of
+    // narrowing the list it has.
+    incomplete:  bool,
     // Rename; owned, freed in job_free. Sorted ascending by (path, start), so an
     // applier walks one file's edits back-to-front to keep the offsets valid.
     edits:     [dynamic]Text_Edit,
@@ -661,8 +702,9 @@ manager_on_type_trigger :: proc(m: ^Manager, ext, char: string) -> bool {
 // request id, or 0 when the feature gate refuses the kind or no backend handles
 // the extension; the result arrives via manager_dispatch on a later frame. The
 // per-kind arguments — `new_name` (Rename), `query` (Workspace_Symbols), `end`,
-// `diagnostics` (Code_Actions, a negative `end` collapsing to `offset`) and
-// `command`/`command_args` (Execute_Command) — are ignored by every other kind.
+// `diagnostics` (Code_Actions, a negative `end` collapsing to `offset`),
+// `command`/`command_args` (Execute_Command) and `item` (Resolve_Completion) —
+// are ignored by every other kind.
 manager_request :: proc(
     m: ^Manager,
     kind: Request_Kind,
@@ -678,6 +720,7 @@ manager_request :: proc(
     trigger := "",
     command := "",
     command_args := "",
+    item := "",
 ) -> u64 {
     if !manager_feature_enabled(m, kind) {
         return 0
@@ -706,6 +749,7 @@ manager_request :: proc(
         strings.clone(trigger),
         strings.clone(command),
         strings.clone(command_args),
+        strings.clone(item),
     )
 }
 
@@ -747,6 +791,7 @@ dispatch_owned :: proc(
     trigger: string = "",
     command: string = "",
     command_args: string = "",
+    item: string = "",
 ) -> u64 {
     context.allocator = m.allocator
     backend, ok := backend_for_kind(m, ext, kind)
@@ -761,6 +806,7 @@ dispatch_owned :: proc(
         delete(trigger)
         delete(command)
         delete(command_args)
+        delete(item)
         return 0
     }
 
@@ -784,6 +830,7 @@ dispatch_owned :: proc(
         trigger     = trigger,
         command      = command,
         command_args = command_args,
+        item         = item,
     }
     job.request.cancel = &job.cancelled // stable for the job's lifetime
     job.result.id = id
@@ -885,6 +932,7 @@ manager_request_latest :: proc(
     trigger := "",
     command := "",
     command_args := "",
+    item := "",
 ) -> u64 {
     manager_cancel_kind(m, kind)
     return manager_request(
@@ -904,6 +952,7 @@ manager_request_latest :: proc(
         trigger,
         command,
         command_args,
+        item,
     )
 }
 
@@ -1175,6 +1224,7 @@ job_free :: proc(m: ^Manager, job: ^Job) {
     delete(job.request.workspace)
     delete(job.request.command)
     delete(job.request.command_args)
+    delete(job.request.item)
     delete(job.request.new_name)
     delete(job.request.query)
     free_diagnostic_refs(job.request.diagnostics)
@@ -1210,6 +1260,24 @@ result_free :: proc(m: ^Manager, res: ^Result) {
         delete(sym.path)
     }
     delete(res.symbols)
+    for item in res.completions {
+        delete(item.label)
+        delete(item.kind)
+        delete(item.detail)
+        delete(item.insert)
+        delete(item.filter)
+        delete(item.sort)
+        delete(item.command)
+        delete(item.arguments)
+        delete(item.raw)
+        for edit in item.extra_edits {
+            delete(edit.path)
+            delete(edit.old_text)
+            delete(edit.new_text)
+        }
+        delete(item.extra_edits)
+    }
+    delete(res.completions)
     for edit in res.edits {
         delete(edit.path)
         delete(edit.old_text)

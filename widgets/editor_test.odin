@@ -14,10 +14,12 @@ import "../ui"
 // editor.odin, so a stack editor frees them here.
 @(private = "file")
 editor_test_free_completions :: proc(editor: ^Editor) {
-    for item in editor.completion_items {
-        delete(item)
+    for row in editor.completion_rows {
+        delete(row.text)
+        delete(row.insert)
+        delete(row.filter)
     }
-    clear(&editor.completion_items)
+    clear(&editor.completion_rows)
 }
 
 // A stack editor with one caret at the end of `text`, laid out large enough for
@@ -44,8 +46,7 @@ test_completion_narrows_while_typing :: proc(t: ^testing.T) {
 
     editor: Editor
     defer delete(editor.visual_rows)
-    defer delete(editor.completion_items)
-    defer delete(editor.completion_colors)
+    defer delete(editor.completion_rows)
     defer delete(editor.completion_word)
     defer editor_test_free_completions(&editor)
 
@@ -57,9 +58,9 @@ test_completion_narrows_while_typing :: proc(t: ^testing.T) {
 
     testing.expect(t, editor.completion_active, "typing a word opens the popup")
     testing.expect(t, editor.completion_full, "a list under the cap holds every match")
-    testing.expect_value(t, len(editor.completion_items), 2)
-    testing.expect_value(t, editor.completion_items[0], "alpha")
-    testing.expect_value(t, editor.completion_items[1], "alpine")
+    testing.expect_value(t, len(editor.completion_rows), 2)
+    testing.expect_value(t, editor.completion_rows[0].text, "alpha")
+    testing.expect_value(t, editor.completion_rows[1].text, "alpine")
     testing.expect_value(t, editor.completion_prefix, 3)
 }
 
@@ -74,13 +75,12 @@ test_completion_click_accepts :: proc(t: ^testing.T) {
 
     editor: Editor
     defer delete(editor.visual_rows)
-    defer delete(editor.completion_items)
-    defer delete(editor.completion_colors)
+    defer delete(editor.completion_rows)
     defer editor_test_free_completions(&editor)
 
     editor_test_completion_setup(&editor, &state, "al\n")
     editor_set_completions(&editor, []Completion_Item{{text = "alpha"}, {text = "alphabet"}})
-    testing.expect_value(t, len(editor.completion_items), 2)
+    testing.expect_value(t, len(editor.completion_rows), 2)
 
     box, lh, top, ok := editor_completion_rects(&editor)
     testing.expect(t, ok, "an active popup has a box")
@@ -109,15 +109,14 @@ test_completion_click_outside_rows :: proc(t: ^testing.T) {
 
     editor: Editor
     defer delete(editor.visual_rows)
-    defer delete(editor.completion_items)
-    defer delete(editor.completion_colors)
+    defer delete(editor.completion_rows)
     defer editor_test_free_completions(&editor)
 
     editor_test_completion_setup(&editor, &state, "al\n")
     editor_set_completions(&editor, []Completion_Item{{text = "alpha"}, {text = "alphabet"}})
 
     box, lh, _, _ := editor_completion_rects(&editor)
-    below := rl.Vector2 {box.x + 4, box.y + 2 + lh * cast(f32) len(editor.completion_items) + 1}
+    below := rl.Vector2 {box.x + 4, box.y + 2 + lh * cast(f32) len(editor.completion_rows) + 1}
     testing.expect_value(t, editor_completion_row_at(&editor, below), -1)
 
     left := rl.Vector2 {box.x - 4, box.y + 2}
@@ -134,8 +133,7 @@ test_completion_scroll_walks_candidates :: proc(t: ^testing.T) {
 
     editor: Editor
     defer delete(editor.visual_rows)
-    defer delete(editor.completion_items)
-    defer delete(editor.completion_colors)
+    defer delete(editor.completion_rows)
     defer editor_test_free_completions(&editor)
 
     editor_test_completion_setup(&editor, &state, "al\n")

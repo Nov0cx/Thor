@@ -12,7 +12,9 @@ import lang ".."
 // The `initialize` result key that advertises each request kind. Indexed by
 // Request_Kind, so a new kind must name its key here as well. Package_Doc has no
 // LSP equivalent of its own; it rides hoverProvider, the request it is actually
-// sent as, so the two kinds are claimed together.
+// sent as, so the two kinds are claimed together. Resolve_Completion rides
+// completionProvider the same way — whether the server actually resolves is a
+// second question, answered by `resolve_completions`.
 @(private)
 PROVIDER_KEYS := [lang.Request_Kind]string {
     .Definition        = "definitionProvider",
@@ -31,6 +33,7 @@ PROVIDER_KEYS := [lang.Request_Kind]string {
     .Format_Range      = "documentRangeFormattingProvider",
     .Format_On_Type    = "documentOnTypeFormattingProvider",
     .Execute_Command   = "executeCommandProvider",
+    .Resolve_Completion = "completionProvider",
     .Progress          = "", // unsolicited push; no capability gate, same as Package_Doc
     .Apply_Edit        = "", // unsolicited push; no capability gate, same as Package_Doc
 }
@@ -53,9 +56,11 @@ Capabilities :: struct {
     saves:            bool,     // it wants didSave
     prepare_rename:   bool,     // renameProvider.prepareProvider
     resolve_actions:  bool,     // codeActionProvider.resolveProvider
+    resolve_items:    bool,     // completionProvider.resolveProvider
     token_legend:     []Token_Legend_Entry, // owned; indexed by the server's tokenTypes
     token_delta:      bool,     // semanticTokensProvider.full.delta: the /full/delta method may be asked for
     on_type_triggers: []string, // owned; documentOnTypeFormattingProvider's trigger characters
+    item_triggers:    []string, // owned; completionProvider's trigger characters
     allocator:        runtime.Allocator,    // what built token_legend
 }
 
@@ -95,6 +100,14 @@ capabilities_decode :: proc(result: json.Value, allocator := context.allocator) 
             caps.resolve_actions = bool(flag)
         }
     }
+    if options, ok := advertised["completionProvider"].(json.Object); ok {
+        if flag, fok := options["resolveProvider"].(json.Boolean); fok {
+            caps.resolve_items = bool(flag)
+        }
+        if triggers, tok := options["triggerCharacters"].(json.Array); tok {
+            caps.item_triggers = string_list(triggers, caps.allocator)
+        }
+    }
     return caps
 }
 
@@ -111,6 +124,13 @@ capabilities_destroy :: proc(caps: ^Capabilities) {
         }
         delete(caps.on_type_triggers, caps.allocator)
         caps.on_type_triggers = nil
+    }
+    if caps.item_triggers != nil {
+        for s in caps.item_triggers {
+            delete(s, caps.allocator)
+        }
+        delete(caps.item_triggers, caps.allocator)
+        caps.item_triggers = nil
     }
 }
 

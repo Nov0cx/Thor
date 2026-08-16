@@ -33,17 +33,35 @@ Signature_Proc :: #type proc(data: rawptr, editor: ^Editor, state: ^textedit.Sta
 // it took over completion, so the editor skips its buffer-word fallback.
 Completion_Proc :: #type proc(data: rawptr, editor: ^Editor, state: ^textedit.State, offset: int) -> bool
 
+// Fired once an accepted candidate's text has landed, so the owner can apply the
+// changes elsewhere the candidate needs (an import line) and run whatever
+// follow-up its backend named. `owner_id` is the id the owner gave the row; `at`
+// is the byte offset the text replaced and `delta` its net length change, so an
+// edit computed against the buffer as it was before the accept can be moved onto
+// the buffer as it is now.
+Completion_Accept_Proc :: #type proc(data: rawptr, editor: ^Editor, state: ^textedit.State, owner_id, at, delta: int)
+
 // On-type formatting request, fired after a character lands in a buffer whose
 // language has a backend that asked for it (see editor_set_on_type_enabled).
 // `char` is the character just inserted, as UTF-8; the owner asks the seam
 // whether it is a trigger before dispatching anything.
 On_Type_Proc :: #type proc(data: rawptr, editor: ^Editor, state: ^textedit.State, offset: int, char: string)
 
-// One completion candidate handed back by the owner: the identifier to insert and
-// the color to tint its row (by symbol kind).
+// One completion candidate handed back by the owner. `text` is the row, `insert`
+// what lands in the buffer and `filter` what the typed prefix is matched
+// against; the last two fall back to `text` when empty. `owner_id` is an id the
+// owner gives the row, handed back on accept so it can finish the work the text
+// alone cannot carry — zero says the row is the editor's own buffer word, and the
+// fields below it are read only for a row that has one.
 Completion_Item :: struct {
-    text:  string,
-    color: rl.Color,
+    text:     string,
+    owner_id: int,
+    insert:   string,
+    filter:   string,
+    start:    int, // byte offset the insert replaces; negative replaces the typed word
+    end:      int, // one past it
+    snippet:  bool, // `insert` is a snippet template (see snippet.odin)
+    color:    rl.Color,
 }
 
 // One on-screen row. A wrapped logical line spans several; `first` carries the
@@ -181,6 +199,10 @@ Editor :: struct {
     on_completion:       Completion_Proc,
     completion_data:     rawptr,
     completion_semantic: bool,
+    // Fired after an accepted candidate's text lands, so the owner can finish
+    // what the row alone could not carry. Only rows the owner supplied reach it.
+    on_completion_accept:   Completion_Accept_Proc,
+    completion_accept_data: rawptr,
     // On-type formatting: fired after a character is typed, when the language's
     // backend asked for that character as a trigger. The widget carries no
     // trigger set of its own — it calls back on every character and the owner
@@ -223,22 +245,33 @@ Editor :: struct {
     jump_count:         int,
     jump_up:            bool,
     // Autocompletion popup, shown while typing a word: buffer words (textual) or,
-    // for a backend-backed language, semantic candidates. Items are owned clones;
-    // colors run parallel (per-row tint, empty for the plain buffer-word list).
+    // for a backend-backed language, semantic candidates. Row strings are owned
+    // clones.
     completion_active:   bool,
-    completion_items:    [dynamic]string,
-    completion_colors:   [dynamic]rl.Color,
+    completion_rows:     [dynamic]Completion_Item,
     completion_selected: int,
     completion_prefix:   int, // byte length of the already-typed prefix
-    // What the buffer-word list was built from, so typing one more character of
-    // the same word narrows it instead of rescanning the buffer. `full` says the
-    // list holds every match rather than the first COMPLETION_MAX_ITEMS, which
-    // is what makes narrowing exact. Only editor_update_completion sets these.
+    // What the list was built from, so typing one more character of the same word
+    // narrows it instead of asking again. `full` says the list holds every match
+    // rather than the first COMPLETION_MAX_ITEMS, which is what makes narrowing
+    // exact — a semantic list only claims it when its backend called the list
+    // complete.
     completion_full:     bool,
     completion_word:     string, // owned, the prefix the list was built for
     completion_start:    int,    // byte offset of that word
     completion_rev:      u64,    // state revision it was built at
     completion_size:     int,    // document length at that revision
+    // Live snippet session, from an accepted candidate whose insert was a
+    // template. Stops are absolute byte offsets, kept current by the typed delta
+    // alone — every other kind of edit ends the session (see editor_snippet_sync).
+    snippet_active: bool,
+    snippet_stops:  [dynamic]Snippet_Stop, // owned
+    snippet_at:     int, // index of the active stop
+    snippet_rev:    u64, // state revision the offsets are valid at
+    snippet_size:   int, // document length at that revision
+    snippet_lo:     int, // the snippet's own span, so a caret that leaves it ends the session
+    snippet_hi:     int,
+    snippet_vars:   Snippet_Vars, // owned strings; what $TM_FILENAME and friends resolve to
 }
 
 editor_set_on_context_menu :: proc(editor: ^Editor, on_context_menu: Context_Menu_Proc, data: rawptr) {
@@ -264,6 +297,20 @@ editor_set_on_signature :: proc(editor: ^Editor, on_signature: Signature_Proc, d
 editor_set_on_completion :: proc(editor: ^Editor, on_completion: Completion_Proc, data: rawptr) {
     editor.on_completion = on_completion
     editor.completion_data = data
+}
+
+editor_set_on_completion_accept :: proc(editor: ^Editor, on_accept: Completion_Accept_Proc, data: rawptr) {
+    editor.on_completion_accept = on_accept
+    editor.completion_accept_data = data
+}
+
+// What a snippet's $TM_FILENAME and $TM_DIRECTORY resolve to. Clones both; unset
+// leaves those variables empty, which a template's own default then fills.
+editor_set_snippet_vars :: proc(editor: ^Editor, filename, directory: string) {
+    delete(editor.snippet_vars.filename)
+    delete(editor.snippet_vars.directory)
+    editor.snippet_vars.filename = strings.clone(filename)
+    editor.snippet_vars.directory = strings.clone(directory)
 }
 
 // Marks whether the active buffer's language has a completion backend. When true
@@ -339,9 +386,10 @@ editor_request_completion :: proc(editor: ^Editor) -> bool {
 
 // Fills the completion popup with owner-supplied candidates (a semantic result).
 // Recomputes the current word prefix so a candidate that no longer matches an
-// edit made since the request is dropped, and inserts on accept exactly as the
-// buffer-word path does (the shared prefix is kept, the remainder typed).
-editor_set_completions :: proc(editor: ^Editor, items: []Completion_Item) {
+// edit made since the request is dropped. `complete` says the owner listed every
+// match, which is what lets the next keystroke narrow the list here instead of
+// asking for it again.
+editor_set_completions :: proc(editor: ^Editor, items: []Completion_Item, complete := false) {
     editor_dismiss_completion(editor)
     if editor.state == nil || len(items) == 0 {
         return
@@ -359,21 +407,54 @@ editor_set_completions :: proc(editor: ^Editor, items: []Completion_Item) {
     }
 
     for it in items {
-        if len(it.text) <= len(prefix) || !strings.has_prefix(it.text, prefix) {
-            continue // fully-typed or no longer matching after a late edit
+        if !editor_completion_matches(it, prefix) {
+            continue
         }
-        append(&editor.completion_items, strings.clone(it.text))
-        append(&editor.completion_colors, it.color)
-        if len(editor.completion_items) >= COMPLETION_MAX_ITEMS {
-            break
+        append(&editor.completion_rows, editor_completion_clone(it))
+        if len(editor.completion_rows) >= COMPLETION_MAX_ITEMS {
+            complete := complete && len(editor.completion_rows) == len(items)
+            editor_hold_completion(editor, txt, start, prefix, complete)
+            return
         }
     }
-    if len(editor.completion_items) == 0 {
+    if len(editor.completion_rows) == 0 {
         return
     }
-    editor.completion_active = true
-    editor.completion_prefix = len(prefix)
-    editor.completion_selected = 0
+    editor_hold_completion(editor, txt, start, prefix, complete)
+}
+
+// True when a candidate still matches what has been typed. A candidate the owner
+// supplied is matched on its filter text, which a backend sets when the row is
+// not spelled the way the match is, and it is kept even when the word is already
+// spelled out — its point may be the changes it carries elsewhere, not the
+// letters at the caret.
+@(private = "file")
+editor_completion_matches :: proc(it: Completion_Item, prefix: string) -> bool {
+    against := it.filter != "" ? it.filter : it.text
+    if !strings.has_prefix(against, prefix) {
+        return false
+    }
+    return len(it.text) > len(prefix) || it.owner_id != 0
+}
+
+@(private = "file")
+editor_completion_clone :: proc(it: Completion_Item) -> Completion_Item {
+    row := it
+    row.text = strings.clone(it.text)
+    row.insert = strings.clone(it.insert)
+    row.filter = strings.clone(it.filter)
+    return row
+}
+
+// The text a row puts in the buffer, and the range it replaces. A row that named
+// neither falls back to the candidate's own text over the word being typed.
+@(private = "file")
+editor_completion_target :: proc(editor: ^Editor, row: Completion_Item, txt: string, caret: int) -> (text: string, start, end: int) {
+    text = row.insert != "" ? row.insert : row.text
+    if row.owner_id != 0 && row.start >= 0 && row.end >= row.start && row.end <= len(txt) {
+        return text, row.start, row.end
+    }
+    return text, caret - editor.completion_prefix, caret
 }
 
 // Shows the hover popup with `text` describing bytes [start, end). Ignored when
@@ -461,8 +542,8 @@ editor_create :: proc(id: string) -> ^Editor {
     editor.visual_rows = make([dynamic]Visual_Row)
     editor.recenter_caret = -1
     editor.hover_probe_offset = -1
-    editor.completion_items = make([dynamic]string)
-    editor.completion_colors = make([dynamic]rl.Color)
+    editor.completion_rows = make([dynamic]Completion_Item)
+    editor.snippet_stops = make([dynamic]Snippet_Stop)
     editor.foldable = make(map[int]int)
     editor.folded = make(map[int]bool)
     editor.min_size = rl.Vector2 {0, 280}
@@ -988,6 +1069,9 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
     if editor.state == nil {
         return false
     }
+    // Brings a live snippet session up to date with whatever the last event did
+    // to the buffer, or ends it when that cannot be followed.
+    editor_snippet_sync(editor)
 
     #partial switch event.kind {
     case .Mouse_Down:
@@ -1105,7 +1189,7 @@ editor_handle_event :: proc(widget: ^ui.Widget, _: ^ui.Context, event: ^ui.Event
         // must stay put under it, or the popup moves away from the caret.
         if box, _, _, ok := editor_completion_rects(editor);
            ok && rl.CheckCollisionPointRec(event.mouse_position, box) {
-            count := len(editor.completion_items)
+            count := len(editor.completion_rows)
             step := event.wheel_delta > 0 ? -1 : 1
             editor.completion_selected = (editor.completion_selected + step + count) % count
             return true
@@ -1217,6 +1301,23 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
         }
     }
 
+    // A live snippet session owns Tab and Escape, but only while no popup is up:
+    // the popup keeps them, and accepting from it starts a new session anyway.
+    if editor.snippet_active && !editor.completion_active &&
+       !(.Ctrl in event.mods) && !(.Alt in event.mods) {
+        #partial switch event.key {
+        case .TAB:
+            editor_snippet_advance(editor, .Shift in event.mods ? -1 : 1)
+            editor_scroll_to_caret(editor)
+            return true
+        case .ESCAPE:
+            editor_end_snippet(editor)
+            return true
+        case .ENTER, .KP_ENTER:
+            editor_end_snippet(editor) // then handled below, so the newline lands
+        }
+    }
+
     // While the popup is up it owns the plain navigation and accept keys. A
     // modifier chord closes it and runs normally; Backspace/Delete refresh it.
     if editor.completion_active {
@@ -1225,11 +1326,11 @@ editor_handle_key :: proc(editor: ^Editor, event: ^ui.Event) -> bool {
         } else {
             #partial switch event.key {
             case .UP:
-                n := len(editor.completion_items)
+                n := len(editor.completion_rows)
                 editor.completion_selected = (editor.completion_selected - 1 + n) % n
                 return true
             case .DOWN:
-                n := len(editor.completion_items)
+                n := len(editor.completion_rows)
                 editor.completion_selected = (editor.completion_selected + 1) % n
                 return true
             case .TAB:
@@ -1675,20 +1776,26 @@ editor_is_word_rune :: proc(r: rune) -> bool {
 
 @(private = "file")
 editor_dismiss_completion :: proc(editor: ^Editor) {
-    if !editor.completion_active && len(editor.completion_items) == 0 {
+    if !editor.completion_active && len(editor.completion_rows) == 0 {
         return
     }
     editor.completion_active = false
-    for item in editor.completion_items {
-        delete(item)
+    for row in editor.completion_rows {
+        editor_completion_free(row)
     }
-    clear(&editor.completion_items)
-    clear(&editor.completion_colors)
+    clear(&editor.completion_rows)
     editor.completion_selected = 0
     editor.completion_prefix = 0
     editor.completion_full = false
     delete(editor.completion_word)
     editor.completion_word = ""
+}
+
+@(private = "file")
+editor_completion_free :: proc(row: Completion_Item) {
+    delete(row.text)
+    delete(row.insert)
+    delete(row.filter)
 }
 
 // Rebuilds the candidate list: distinct words elsewhere in the buffer sharing
@@ -1715,7 +1822,7 @@ editor_update_completion :: proc(editor: ^Editor) {
 
     switch editor_narrow_completion(editor, txt, start, prefix) {
     case .Kept:
-        editor_hold_completion(editor, txt, start, prefix)
+        editor_hold_completion(editor, txt, start, prefix, true)
         return
     case .Empty:
         editor_dismiss_completion(editor)
@@ -1723,11 +1830,10 @@ editor_update_completion :: proc(editor: ^Editor) {
     case .Rescan:
     }
 
-    for item in editor.completion_items {
-        delete(item)
+    for row in editor.completion_rows {
+        editor_completion_free(row)
     }
-    clear(&editor.completion_items)
-    clear(&editor.completion_colors)
+    clear(&editor.completion_rows)
 
     seen := make(map[string]bool, 0, context.temp_allocator) // keys borrow txt
     capped := false
@@ -1752,29 +1858,31 @@ editor_update_completion :: proc(editor: ^Editor) {
             continue
         }
         seen[word] = true
-        append(&editor.completion_items, strings.clone(word))
-        if len(editor.completion_items) >= COMPLETION_MAX_ITEMS {
+        append(&editor.completion_rows, Completion_Item {text = strings.clone(word)})
+        if len(editor.completion_rows) >= COMPLETION_MAX_ITEMS {
             capped = true
             break
         }
     }
 
-    if len(editor.completion_items) == 0 {
+    if len(editor.completion_rows) == 0 {
         editor_dismiss_completion(editor)
         return
     }
-    editor.completion_full = !capped
-    editor_hold_completion(editor, txt, start, prefix)
+    editor_hold_completion(editor, txt, start, prefix, !capped)
 }
 
-// Records what the buffer-word list was built from and shows it.
+// Records what the list was built from and shows it. `full` says every match is
+// in it, which is what editor_narrow_completion needs to narrow instead of
+// asking again.
 @(private = "file")
-editor_hold_completion :: proc(editor: ^Editor, txt: string, start: int, prefix: string) {
+editor_hold_completion :: proc(editor: ^Editor, txt: string, start: int, prefix: string, full: bool) {
     delete(editor.completion_word)
     editor.completion_word = strings.clone(prefix)
     editor.completion_start = start
     editor.completion_rev = editor.state.revision
     editor.completion_size = len(txt)
+    editor.completion_full = full
     editor.completion_active = true
     editor.completion_prefix = len(prefix)
     editor.completion_selected = 0
@@ -1805,31 +1913,202 @@ editor_narrow_completion :: proc(editor: ^Editor, txt: string, start: int, prefi
     }
 
     kept := 0
-    for item in editor.completion_items {
-        if len(item) > len(prefix) && strings.has_prefix(item, prefix) {
-            editor.completion_items[kept] = item
+    for row in editor.completion_rows {
+        if editor_completion_matches(row, prefix) {
+            editor.completion_rows[kept] = row
             kept += 1
             continue
         }
-        delete(item)
+        editor_completion_free(row)
     }
-    resize(&editor.completion_items, kept)
+    resize(&editor.completion_rows, kept)
     return kept == 0 ? .Empty : .Kept
 }
 
-// Inserts the remainder of the selected candidate beyond the typed prefix.
+// Puts the selected candidate in the buffer: its own text over its own range
+// when it named them, otherwise the remainder of the word past the typed prefix.
+// A snippet template opens a session instead of landing as it is written. The
+// owner is told afterwards, with where the text went, so it can apply whatever
+// the row could not carry.
 @(private = "file")
 editor_accept_completion :: proc(editor: ^Editor) {
-    if !editor.completion_active || len(editor.completion_items) == 0 {
+    if !editor.completion_active || len(editor.completion_rows) == 0 {
         return
     }
-    word := editor.completion_items[editor.completion_selected]
-    if len(word) > editor.completion_prefix {
-        suffix := strings.clone(word[editor.completion_prefix:], context.temp_allocator)
-        textedit.insert_text(editor.state, suffix)
-    }
+    row := editor.completion_rows[editor.completion_selected]
+    txt := textedit.text(editor.state)
+    caret := textedit.primary_cursor(editor.state).caret
+    text, start, end := editor_completion_target(editor, row, txt, caret)
+    // The row is freed with the list below, so its strings must not outlive it.
+    text = strings.clone(text, context.temp_allocator)
+    owner_id := row.owner_id
+    snippet := row.snippet
     editor_dismiss_completion(editor)
+
+    delta := 0
+    if snippet {
+        delta = editor_insert_snippet(editor, text, start, end)
+    } else {
+        editor_end_snippet(editor)
+        if start != end || text != "" {
+            if textedit.replace_range(editor.state, start, end - start, text) == .None {
+                delta = len(text) - (end - start)
+            }
+        }
+    }
+    if owner_id != 0 && editor.on_completion_accept != nil {
+        editor.on_completion_accept(editor.completion_accept_data, editor, editor.state, owner_id, start, delta)
+    }
     editor_scroll_to_caret(editor)
+}
+
+// Replaces [start, end) with the parsed template and opens a session on its
+// stops, the caret landing on the first. Returns the byte length change.
+@(private = "file")
+editor_insert_snippet :: proc(editor: ^Editor, template: string, start, end: int) -> int {
+    editor_end_snippet(editor)
+    txt := textedit.text(editor.state)
+    vars := editor.snippet_vars
+    vars.line = 1
+    line_start := 0
+    for i in 0 ..< clamp(start, 0, len(txt)) {
+        if txt[i] == '\n' {
+            vars.line += 1
+            line_start = i + 1
+        }
+    }
+    line_end := line_start
+    for line_end < len(txt) && txt[line_end] != '\n' {
+        line_end += 1
+    }
+    vars.line_text = txt[line_start:line_end]
+
+    // Parsed before the edit: the variables above borrow the text it replaces.
+    snip := snippet_parse(template, vars, context.temp_allocator)
+    if textedit.replace_range(editor.state, start, end - start, snip.text) != .None {
+        return 0
+    }
+    delta := len(snip.text) - (end - start)
+    if len(snip.stops) == 0 {
+        textedit.set_single_cursor(editor.state, start + len(snip.text))
+        return delta
+    }
+
+    for stop in snip.stops {
+        append(&editor.snippet_stops, Snippet_Stop {
+            start = start + stop.start,
+            end   = start + stop.end,
+            index = stop.index,
+        })
+    }
+    editor.snippet_active = true
+    editor.snippet_lo = start
+    editor.snippet_hi = start + len(snip.text)
+    editor_snippet_goto(editor, 0)
+    return delta
+}
+
+// Selects one stop and takes the offsets' revision stamp from the buffer as it
+// is now. A zero-width stop is a caret, not a selection.
+@(private = "file")
+editor_snippet_goto :: proc(editor: ^Editor, at: int) {
+    stop := editor.snippet_stops[at]
+    editor.snippet_at = at
+    if stop.end > stop.start {
+        textedit.select_range(editor.state, stop.start, stop.end)
+    } else {
+        textedit.set_single_cursor(editor.state, stop.start)
+    }
+    editor.snippet_rev = editor.state.revision
+    editor.snippet_size = textedit.length(editor.state)
+}
+
+@(private = "file")
+editor_end_snippet :: proc(editor: ^Editor) {
+    if !editor.snippet_active && len(editor.snippet_stops) == 0 {
+        return
+    }
+    editor.snippet_active = false
+    clear(&editor.snippet_stops)
+    editor.snippet_at = 0
+    editor.snippet_lo = 0
+    editor.snippet_hi = 0
+}
+
+// Moves to the next stop with a different tabstop number — a number used twice
+// is one destination, the second occurrence being a mirror filled at insert
+// time. Reaching the exit stop places the caret there and ends the session, as
+// does stepping past the last stop.
+@(private = "file")
+editor_snippet_advance :: proc(editor: ^Editor, step: int) {
+    if !editor.snippet_active || len(editor.snippet_stops) == 0 {
+        return
+    }
+    index := editor.snippet_stops[editor.snippet_at].index
+    next := editor.snippet_at + step
+    for next >= 0 && next < len(editor.snippet_stops) && editor.snippet_stops[next].index == index {
+        next += step
+    }
+    if next < 0 {
+        return // already on the first stop
+    }
+    if next >= len(editor.snippet_stops) {
+        editor_end_snippet(editor)
+        return
+    }
+    exit := editor.snippet_stops[next].index == 0
+    editor_snippet_goto(editor, next)
+    if exit {
+        editor_end_snippet(editor)
+    }
+}
+
+// Keeps the stop offsets in step with what was typed inside the active one, and
+// ends the session for anything else. Conservative on purpose: textedit has no
+// markers, so a session that cannot prove its offsets is dropped rather than
+// guessed at — a second cursor, an undo, a batched edit, or a caret that left
+// the snippet all end it.
+@(private = "file")
+editor_snippet_sync :: proc(editor: ^Editor) {
+    if !editor.snippet_active {
+        return
+    }
+    state := editor.state
+    if state == nil || len(state.cursors) != 1 {
+        editor_end_snippet(editor)
+        return
+    }
+    if state.revision != editor.snippet_rev {
+        // One step, and one only: an undo goes backwards and a batched edit
+        // jumps further, and neither can be followed by a length delta.
+        if state.revision != editor.snippet_rev + 1 {
+            editor_end_snippet(editor)
+            return
+        }
+        size := textedit.length(state)
+        delta := size - editor.snippet_size
+        active := editor.snippet_stops[editor.snippet_at]
+        for &stop, i in editor.snippet_stops {
+            if i == editor.snippet_at {
+                stop.end += delta
+                continue
+            }
+            if stop.start >= active.end {
+                stop.start += delta
+                stop.end += delta
+            }
+        }
+        editor.snippet_hi += delta
+        editor.snippet_rev = state.revision
+        editor.snippet_size = size
+        if grown := editor.snippet_stops[editor.snippet_at]; grown.end < grown.start {
+            editor_end_snippet(editor) // the edit ate past the placeholder
+            return
+        }
+    }
+    if caret := textedit.primary_cursor(state).caret; caret < editor.snippet_lo || caret > editor.snippet_hi {
+        editor_end_snippet(editor)
+    }
 }
 
 editor_key_digit :: proc(key: rl.KeyboardKey) -> (int, bool) {
@@ -2375,7 +2654,7 @@ editor_caret_screen :: proc(editor: ^Editor) -> (x, y, line_height: f32, ok: boo
 // the hit-test so the two cannot drift. `ok` is false when no popup is up.
 @(private)
 editor_completion_rects :: proc(editor: ^Editor) -> (box: rl.Rectangle, row_height: f32, top: int, ok: bool) {
-    if !editor.completion_active || len(editor.completion_items) == 0 {
+    if !editor.completion_active || len(editor.completion_rows) == 0 {
         return
     }
     caret_x, caret_y, lh, caret_ok := editor_caret_screen(editor)
@@ -2383,10 +2662,10 @@ editor_completion_rects :: proc(editor: ^Editor) -> (box: rl.Rectangle, row_heig
         return
     }
 
-    visible := min(len(editor.completion_items), COMPLETION_MAX_ROWS)
+    visible := min(len(editor.completion_rows), COMPLETION_MAX_ROWS)
     width: f32 = 140
-    for item in editor.completion_items {
-        w := cast(f32) ui.measure_text(item, editor.font_size) + 24
+    for row in editor.completion_rows {
+        w := cast(f32) ui.measure_text(row.text, editor.font_size) + 24
         if w > width {
             width = w
         }
@@ -2419,7 +2698,7 @@ editor_completion_row_at :: proc(editor: ^Editor, point: rl.Vector2) -> int {
         return -1
     }
     row := top + cast(int) ((point.y - (box.y + 2)) / lh)
-    if row < top || row >= top + COMPLETION_MAX_ROWS || row >= len(editor.completion_items) {
+    if row < top || row >= top + COMPLETION_MAX_ROWS || row >= len(editor.completion_rows) {
         return -1
     }
     return row
@@ -2435,7 +2714,7 @@ editor_draw_completion :: proc(editor: ^Editor) {
     rl.DrawRectangleRec(box, editor.gutter_color)
     rl.DrawRectangleLinesEx(box, 1, editor.border_color)
 
-    visible := min(len(editor.completion_items) - top, COMPLETION_MAX_ROWS)
+    visible := min(len(editor.completion_rows) - top, COMPLETION_MAX_ROWS)
     for i in 0 ..< visible {
         idx := top + i
         row_y := box.y + 2 + cast(f32) i * lh
@@ -2443,11 +2722,10 @@ editor_draw_completion :: proc(editor: ^Editor) {
             rl.DrawRectangleRec(rl.Rectangle {box.x, row_y, box.width, lh}, editor.selection_color)
         }
         text_y := cast(i32) (row_y + (lh - cast(f32) editor.font_size) * 0.5)
-        color := editor.text_color
-        if idx < len(editor.completion_colors) {
-            color = editor.completion_colors[idx]
-        }
-        ui.draw_text(editor.completion_items[idx], cast(i32) (box.x + 8), text_y, editor.font_size, color)
+        row := editor.completion_rows[idx]
+        // A buffer word carries no tint of its own.
+        color := row.color.a == 0 ? editor.text_color : row.color
+        ui.draw_text(row.text, cast(i32) (box.x + 8), text_y, editor.font_size, color)
     }
 }
 
@@ -2940,12 +3218,14 @@ editor_destroy :: proc(widget: ^ui.Widget) {
     delete(editor.visual_rows)
     delete(editor.hover_text)
     delete(editor.signature_text)
-    for item in editor.completion_items {
-        delete(item)
+    for row in editor.completion_rows {
+        editor_completion_free(row)
     }
-    delete(editor.completion_items)
-    delete(editor.completion_colors)
+    delete(editor.completion_rows)
     delete(editor.completion_word)
+    delete(editor.snippet_stops)
+    delete(editor.snippet_vars.filename)
+    delete(editor.snippet_vars.directory)
     delete(editor.foldable)
     delete(editor.folded)
     free(editor)

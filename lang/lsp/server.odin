@@ -1184,6 +1184,11 @@ initialize_params :: proc(s: ^Server) -> string {
 // would be dropped. utf-8 is offered first, since a server that counts in bytes
 // removes the position conversion entirely. `resourceOperations` names the three
 // thor_apply_edits applies, so a rename that moves a file is not refused.
+//
+// Three completion capabilities are left out on purpose: insertReplaceSupport,
+// labelDetailsSupport and completionList.itemDefaults. Without them a server must
+// send one plain TextEdit per candidate and no shared defaults, which is the only
+// shape decode_completion reads.
 @(private)
 CLIENT_CAPABILITIES :: `{` +
 `"general":{"positionEncodings":["utf-8","utf-16"]},` +
@@ -1195,7 +1200,8 @@ CLIENT_CAPABILITIES :: `{` +
 `"textDocument":{` +
 `"synchronization":{"dynamicRegistration":false,"didSave":true,"willSave":false,"willSaveWaitUntil":false},` +
 `"completion":{"dynamicRegistration":false,"contextSupport":true,` +
-`"completionItem":{"snippetSupport":false,"documentationFormat":["plaintext"],"deprecatedSupport":false,"preselectSupport":false}},` +
+`"completionItem":{"snippetSupport":true,"documentationFormat":["plaintext"],"deprecatedSupport":false,"preselectSupport":true,` +
+`"resolveSupport":{"properties":["detail","documentation","additionalTextEdits","command"]}}},` +
 `"hover":{"dynamicRegistration":false,"contentFormat":["plaintext","markdown"]},` +
 `"signatureHelp":{"dynamicRegistration":false,` +
 `"signatureInformation":{"documentationFormat":["plaintext"],"parameterInformation":{"labelOffsetSupport":true}}},` +

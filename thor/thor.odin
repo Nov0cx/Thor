@@ -446,6 +446,19 @@ Thor :: struct {
     // the candidates route back to the right editor.
     completion_editor: ^widgets.Editor,
     completion_request_id: u64,
+    // The candidates the last result offered, cloned: the Result is freed when
+    // its handler returns, but the popup hands a row back on accept a keystroke
+    // or more later. Path and revision are the buffer they were computed
+    // against, which the applier validates their edits against.
+    completion_items: [dynamic]lang.Completion_Item,
+    completion_path: string, // owned
+    completion_revision: u64,
+    // In-flight Resolve_Completion, and where the accepted candidate's text
+    // landed, so an edit the server computed against the buffer as it was before
+    // the accept can be moved onto the buffer as it is now.
+    resolve_request_id: u64,
+    resolve_at: int,
+    resolve_delta: int,
     // In-flight package-doc request: its request id, so a superseded result (a
     // newer F3 for another package) is dropped instead of overwriting the newer one.
     package_doc_request_id: u64,
@@ -919,6 +932,7 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.rename_path)
     delete(thor.code_action_path)
     delete(thor.execute_command_title)
+    thor_completion_clear(thor)
     delete(thor.semantic_path)
     delete(thor.format_path)
     delete(thor.format_range_path)

@@ -33,6 +33,8 @@ request_decode :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
         decode_signature_help(ask, value, res)
     case .Completion:
         decode_completion(ask, value, res)
+    case .Resolve_Completion:
+        decode_resolve_completion(ask, value, res)
     case .Diagnostics:
         decode_pull_diagnostics(ask, value, res)
     case .Semantic_Tokens:
@@ -258,9 +260,10 @@ decode_signature_help :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
     res.ok = true
 }
 
-// `CompletionList` or `CompletionItem[]`. `textEdit`, `additionalTextEdits`,
-// `command` and `isIncomplete` are dropped: the popup inserts one word at the
-// caret and filters the list itself.
+// `CompletionList` or `CompletionItem[]`. Sorted by sortText before it is
+// answered: a server returns its candidates unordered and states the order it
+// wants in that key. `labelDetails` and `itemDefaults` are dropped — neither is
+// advertised, so a server must not send a candidate that needs them.
 @(private)
 decode_completion :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
     items, is_array := value.(json.Array)
@@ -268,6 +271,9 @@ decode_completion :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
         list, is_list := value.(json.Object)
         if !is_list {
             return
+        }
+        if flag, fok := list["isIncomplete"].(json.Boolean); fok {
+            res.incomplete = bool(flag)
         }
         items, is_array = list["items"].(json.Array)
         if !is_array {
@@ -278,42 +284,171 @@ decode_completion :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
         return
     }
 
-    res.symbols = make([dynamic]lang.Symbol)
+    res.completions = make([dynamic]lang.Completion_Item, 0, len(items))
     for item in items {
         object, is_object := item.(json.Object)
         if !is_object {
             continue
         }
-        label, has_label := object["label"].(json.String)
-        if !has_label {
-            continue
-        }
-        // Some servers pad a label to align the list; the inserted word must not
-        // carry that padding.
-        name := strings.trim_space(string(label))
-        // insertText is what the server means to be typed. A snippet is refused:
-        // snippetSupport is advertised false, so its placeholders would be typed
-        // out as they are.
-        format, has_format := number(object["insertTextFormat"])
-        if insert, has_insert := object["insertText"].(json.String); has_insert && (!has_format || format == 1) {
-            name = string(insert)
-        }
-        if name == "" {
-            continue
-        }
-        // An absent kind or detail reads as 0 / "", their protocol defaults.
-        kind, _ := number(object["kind"])
-        detail, _ := object["detail"].(json.String)
-        append(
-            &res.symbols,
-            lang.Symbol {
-                name = strings.clone(name),
-                kind = strings.clone(completion_kind_name(int(kind))),
-                signature = strings.clone(detail == "" ? strings.trim_space(string(label)) : string(detail)),
-            },
-        )
+        append_completion(ask, object, res)
     }
-    res.ok = len(res.symbols) > 0
+    slice.sort_by(res.completions[:], proc(a, b: lang.Completion_Item) -> bool {
+        a_key := a.sort != "" ? a.sort : a.label
+        b_key := b.sort != "" ? b.sort : b.label
+        if a_key != b_key {
+            return a_key < b_key
+        }
+        return a.label < b.label
+    })
+    res.ok = len(res.completions) > 0
+}
+
+// One CompletionItem. The text to insert comes from textEdit, then insertText,
+// then the label; only textEdit also names the range it replaces, and a range
+// that does not resolve leaves the candidate with none, so the editor falls back
+// to the word being typed.
+@(private)
+append_completion :: proc(ask: ^Ask, object: json.Object, res: ^lang.Result) {
+    label, has_label := object["label"].(json.String)
+    if !has_label {
+        return
+    }
+    // Some servers pad a label to align the list; neither the row nor the
+    // inserted text may carry that padding.
+    row := strings.trim_space(string(label))
+    if row == "" {
+        return
+    }
+
+    insert := row
+    format, has_format := number(object["insertTextFormat"])
+    snippet := has_format && format == 2
+    if text, has_text := object["insertText"].(json.String); has_text && text != "" {
+        insert = string(text)
+    }
+    start, end := -1, -1
+    if text, lo, hi, ok := completion_edit(ask, object["textEdit"]); ok {
+        insert = text
+        start, end = lo, hi
+    }
+
+    extra := make([dynamic]lang.Text_Edit)
+    if edits, eok := object["additionalTextEdits"].(json.Array); eok && len(edits) > 0 {
+        if !decode_text_edits(ask, ask.uri, edits, &extra) {
+            // All or nothing: a half-decoded import block would be applied as one.
+            for edit in extra {
+                delete(edit.path)
+                delete(edit.old_text)
+                delete(edit.new_text)
+            }
+            clear(&extra)
+        }
+    }
+
+    // A candidate's `command` is a Command object nested under that key, the
+    // second shape decode_action_command already unwraps.
+    command, arguments := decode_action_command(object)
+
+    // An absent kind, detail, filterText or sortText reads as 0 / "", their
+    // protocol defaults.
+    kind, _ := number(object["kind"])
+    detail, _ := object["detail"].(json.String)
+    filter, _ := object["filterText"].(json.String)
+    sort, _ := object["sortText"].(json.String)
+    preselect, _ := object["preselect"].(json.Boolean)
+
+    // Only a server that resolves is worth keeping the candidate's own JSON for;
+    // otherwise every row in the list would pay to be re-serialized for nothing.
+    raw: string
+    if ask.server.caps.resolve_items {
+        raw = strings.clone(json_text(object, context.temp_allocator))
+    }
+
+    append(&res.completions, lang.Completion_Item {
+        label       = strings.clone(row),
+        kind        = strings.clone(completion_kind_name(int(kind))),
+        detail      = strings.clone(detail == "" ? row : string(detail)),
+        insert      = strings.clone(insert),
+        filter      = strings.clone(string(filter)),
+        sort        = strings.clone(string(sort)),
+        start       = start,
+        end         = end,
+        snippet     = snippet,
+        preselect   = bool(preselect),
+        extra_edits = extra,
+        command     = strings.clone(command),
+        arguments   = strings.clone(arguments),
+        raw         = raw,
+    })
+}
+
+// A candidate's own textEdit: its replacement text and the byte range it covers
+// in the request's buffer. An InsertReplaceEdit takes its `replace` range —
+// insertReplaceSupport is not advertised, but a server that sends one anyway
+// means the wider of the two, which is what the popup does with the typed word.
+@(private)
+completion_edit :: proc(ask: ^Ask, value: json.Value) -> (text: string, start, end: int, ok: bool) {
+    object, is_object := value.(json.Object)
+    if !is_object {
+        return
+    }
+    new_text, has_text := object["newText"].(json.String)
+    if !has_text {
+        return
+    }
+    span, has_span := object["range"]
+    if !has_span {
+        span, has_span = object["replace"]
+    }
+    if !has_span {
+        span, has_span = object["insert"]
+    }
+    start_line, start_char, end_line, end_char, has_range := range_of(span)
+    if !has_range {
+        return
+    }
+    lo := offset_from_position(&ask.lines, start_line, start_char)
+    hi := offset_from_position(&ask.lines, end_line, end_char)
+    if lo > hi || lo < 0 || hi > len(ask.req.source) {
+        return
+    }
+    return string(new_text), lo, hi, true
+}
+
+// `completionItem/resolve`. The reply is the same candidate with the parts the
+// server deferred filled in; only what the editor still needs is read, since the
+// text has already landed by the time this answers.
+@(private)
+decode_resolve_completion :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
+    object, is_object := value.(json.Object)
+    if !is_object {
+        return
+    }
+    item := lang.Completion_Item {
+        start = -1,
+        end   = -1,
+    }
+    if edits, eok := object["additionalTextEdits"].(json.Array); eok && len(edits) > 0 {
+        item.extra_edits = make([dynamic]lang.Text_Edit)
+        if !decode_text_edits(ask, ask.uri, edits, &item.extra_edits) {
+            for edit in item.extra_edits {
+                delete(edit.path)
+                delete(edit.old_text)
+                delete(edit.new_text)
+            }
+            clear(&item.extra_edits)
+        }
+    }
+    command, arguments := decode_action_command(object)
+    item.command = strings.clone(command)
+    item.arguments = strings.clone(arguments)
+    if len(item.extra_edits) == 0 && item.command == "" {
+        delete(item.extra_edits)
+        return
+    }
+    res.completions = make([dynamic]lang.Completion_Item, 0, 1)
+    append(&res.completions, item)
+    res.ok = true
 }
 
 // `RelatedFullDocumentDiagnosticReport`. An "unchanged" report is refused: no
