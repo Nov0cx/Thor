@@ -76,8 +76,8 @@ odin run build.odin -file -- test
 ```
 
 CI runs the tests on all four platforms before it packs anything, so a failing
-test makes no release — it only wastes the run. Never launch the GUI to check a
-release build; `rl.InitWindow` hangs in an agent-spawned process.
+test makes no release — it only wastes the run. The tests are the release check:
+starting the GUI works but proves little here.
 
 ## 4. Commit and push
 

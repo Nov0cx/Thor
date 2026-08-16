@@ -5,9 +5,11 @@ description: Runs Thor's verification sweep — per-package type-check, the Linu
 
 # Verify
 
-Thor's verification sweep. **Never launch the GUI to verify a change** —
-`rl.InitWindow` hangs in an agent-spawned process. Type-checks and the test
-suites are the whole signal.
+Thor's verification sweep. Type-checks and the test suites are the signal here:
+they need no display and they are what CI gates on. The GUI does start from an
+agent-spawned process when a change really needs the running app — launch it
+detached and read `user/thor.log` beside the binary, which records what every
+startup phase cost.
 
 Run the steps in order and stop at the first real failure.
 

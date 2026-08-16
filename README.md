@@ -69,6 +69,7 @@ The [`docs/`](docs/) folder is the full user manual:
 - [Keybindings](docs/keybindings.md)
 - [Git](docs/git.md) — changes, history, branches, config, GitHub/GitLab
 - [Plugins](docs/plugins.md)
+- [Troubleshooting](docs/troubleshooting.md) — the log file, a slow start
 
 For the codebase itself (architecture, package layout, contributing), see
 [`CLAUDE.md`](CLAUDE.md).

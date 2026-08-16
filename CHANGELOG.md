@@ -1,5 +1,8 @@
 # 2026.08.7
 
+- Windows starts in under a second again. raylib scans for game controllers while it makes the window, which reads every HID device on the machine; one that does not answer cost 40 s of the start. Thor holds the scan back for the length of window creation.
+- Window creation slower than two seconds is written to `user/thor.log` with what to look at.
+- New Troubleshooting page in the manual: the log file, a slow start, a language server or plugin that stays quiet.
 - A completion from a language server brings the import line it needs. Only the name was inserted, leaving the file uncompilable.
 - A completion replaces the range the server named, so a candidate spelled differently from the typed word lands correctly.
 - A completion that arrives as a snippet is expanded with its placeholders selected. `tab` and `shift + tab` walk them, `escape` leaves the snippet.

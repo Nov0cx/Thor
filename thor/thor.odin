@@ -20,6 +20,10 @@ import "../update"
 import "../watch"
 import "../widgets"
 
+// A window creation slower than this is a machine fault, not normal work, and
+// gets an explanation in the log.
+SLOW_WINDOW_WARN_SECS :: 2.0
+
 Thor :: struct {
     ui_context: ui.Context,
     config: setting.Settings,
@@ -606,7 +610,19 @@ init :: proc() -> ^Thor {
         rl.SetTraceLogLevel(.WARNING)
     }
     rl.SetConfigFlags({.WINDOW_UNDECORATED, .WINDOW_RESIZABLE})
+    // The game controller scan raylib makes here reads every HID device on
+    // Windows and stalls on one that does not answer (thor/dinput_windows.odin).
+    suppressed := dinput_suppress()
     rl.InitWindow(1280, 800, "Thor")
+    if suppressed {
+        dinput_restore()
+    }
+    if secs := time.duration_seconds(time.tick_since(phase)); secs > SLOW_WINDOW_WARN_SECS {
+        log.warnf(
+            "Window creation took %.1f s. A device or graphics driver that answers slowly delays it; see docs/troubleshooting.md.",
+            secs,
+        )
+    }
     lap(&phase, "InitWindow")
 
     // Window/taskbar icon; freed once raylib has copied it.

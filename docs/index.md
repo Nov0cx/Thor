@@ -18,6 +18,8 @@ manual: how to get it running and how to use it. For the codebase itself, see
   and GitHub/GitLab actions.
 - [Plugins](plugins.md) — syntax highlighting, workspace plugins, and the
   permission prompt.
+- [Troubleshooting](troubleshooting.md) — the log file, a slow start, a language
+  server or plugin that stays quiet.
 
 ## Generating HTML
 

@@ -46,8 +46,16 @@ Linking needs MSVC on PATH (Thor links `harfbuzz.lib` and `libtree-sitter.lib`).
 `VsDevCmd.bat` itself via `vswhere`, so a plain shell works for `odin run build.odin`; a bare
 `odin build main` / `odin test <pkg>` requires a developer shell. `odin check` needs neither.
 
-Launching the GUI from an agent-spawned process hangs in `rl.InitWindow` — verify changes with
-`odin check` / `odin build` / the test suites, not by running the app.
+The GUI does start from an agent-spawned process — what read as a hang was `rl.InitWindow` taking
+40 s, which `thor/dinput_windows.odin` now removes. Launch it detached and read `user/thor.log`
+beside the binary, never through a pipe the tool waits on:
+
+```powershell
+$p = Start-Process bin\debug\thor.exe -PassThru -RedirectStandardOutput out.txt
+# wait for "Startup took" in bin/debug/user/thor.log, then Stop-Process -Id $p.Id
+```
+
+`odin check` / `odin build` / the test suites stay the faster signal, and are the whole signal in CI.
 
 ## Hooks and skills
 
@@ -131,8 +139,10 @@ forward declarations, so the shared file states the contract — the types and p
 platform files must supply — as a comment. The pairs are `shell/shell_*`, `shell/child_*` (the
 piped child process a language server runs in), `watch/watch_*`,
 `thor/windows_*` (multi-window records), `thor/dialogs_*` (file pickers), `thor/filemap_*` (the
-load worker's read-only mapping) and `thor/reveal_*` (file-manager reveal and the browser open
-behind Help > Documentation). `watch/` is the one three-way split —
+load worker's read-only mapping), `thor/reveal_*` (file-manager reveal and the browser open
+behind Help > Documentation) and `thor/dinput_*` (the DirectInput block around window creation:
+raylib's game-controller scan reads every HID device, and one that does not answer costs seconds —
+the Windows half refuses `dinput8.dll` through its own import table for the length of `InitWindow`). `watch/` is the one three-way split —
 `watch_windows.odin` blocks on ReadDirectoryChangesW, `watch_linux.odin` on inotify, and
 `watch_posix.odin` (`#+build darwin, freebsd, openbsd, netbsd`) polls the tree. `watch/scan.odin`
 and `watch/poll.odin` are deliberately platform-free, so the polling watcher's diff is testable on
