@@ -1493,7 +1493,8 @@ Landed since (`lang/lsp`, M1–M7):
       LSP covers everything else (clangd, rust-analyzer, gopls, …); an entry that
       sets `"override": true` for `.odin` swaps the order.
 - [x] Ten request kinds answered: `Definition`, `Hover`, `Document_Symbols`,
-      `Workspace_Symbols`, `References`, `Signature_Help`, `Completion`,
+      `Workspace_Symbols`, `References`, `Signature_Help`, `Completion`
+      (plus `Resolve_Completion`, its follow-up),
       `Diagnostics`, `Semantic_Tokens` and `Package_Doc`
       (`requests.odin` for the method and the params, `decode.odin` for the
       reply). A request publishes its own buffer to the server before it names a
@@ -1503,8 +1504,6 @@ Landed since (`lang/lsp`, M1–M7):
       server token never overrules a grammar color with a worse one, and
       `Unresolved` is never emitted — an absent token is not proof of an
       undeclared name. This is where `Field` and `Enum_Member` first become real.
-      Deliberate lossage: completion drops `textEdit`, `additionalTextEdits`,
-      `command` and snippets, and does not call `completionItem/resolve`.
       `workspace/symbol` carries the picker's typed text (see the
       `workspace/symbol` query entry below), and
       `thor_goto_workspace_symbol` (`thor/lang_host.odin`) does not send that
@@ -1553,6 +1552,62 @@ Landed since (`lang/lsp`, M1–M7):
       pushed `workspace/applyEdit` path, so nothing waits on the reply. An action
       carrying both applies its edits first, the order LSP defines; one with
       neither is dropped. The in-client Odin engine declines the kind outright.
+- [x] **Completion candidates carry everything the protocol gives them.**
+      `lang.Completion_Item` (`lang.odin`) replaces the `Symbol` completion used
+      to borrow: the row and the text to insert are separate, and the candidate
+      also carries the byte range it replaces (`textEdit`), the changes it needs
+      elsewhere (`additionalTextEdits`), its follow-up `command`, its
+      `filterText`/`sortText`, whether the insert is a snippet template, and the
+      raw JSON to echo back on resolve. `decode_completion` sorts by `sortText`
+      before it answers — a server returns candidates unordered and states the
+      order it wants in that key. `isIncomplete` reaches the popup as
+      `Result.incomplete`: a complete list is narrowed client-side as the word
+      grows instead of being asked for again on every keystroke.
+      `insertReplaceSupport`, `labelDetailsSupport` and
+      `completionList.itemDefaults` are deliberately not advertised, so a server
+      must send one plain `TextEdit` per candidate and no shared defaults.
+      An `InsertReplaceEdit` sent anyway takes its `replace` range.
+      **Covered by** `test_decode_completion_text_edit`,
+      `test_decode_completion_insert_replace_edit`,
+      `test_decode_completion_sorts_by_sort_text`,
+      `test_decode_completion_additional_edits_and_command` and
+      `test_decode_completion_refuses_a_bad_text_edit`.
+- [x] **`completionItem/resolve`, on accept.** `lang.Request_Kind`
+      `.Resolve_Completion` (`completionItem/resolve`, gated on
+      `completionProvider.resolveProvider`) sends the picked candidate back
+      verbatim in `Request.item`, which is what TypeScript, Go and Rust servers
+      need before they will produce an auto-import edit at all. Dispatched from
+      `thor_completion_accept` (`thor/lang_host.odin`) *after* the text lands, so
+      the edits it brings are validated by `thor_apply_edits` against what is
+      really in the file and the whole set is refused rather than half-spliced.
+      `resolveSupport` names `detail`, `documentation`, `additionalTextEdits` and
+      `command`. The in-client Odin engine declines the kind outright — it
+      computes everything up front.
+      **Covered by** `test_decode_resolve_completion`,
+      `test_decode_resolve_completion_without_edits` and
+      `test_capabilities_completion_options`.
+- [x] **Snippets, with tabstop navigation.** `snippetSupport` is advertised and
+      `widgets/snippet.odin` parses the template: `$1`, `${1}`, `${1:default}`,
+      `${1|a,b|}` (first alternative), `$0`, the `\$`/`\}`/`\\` escapes and the
+      `TM_*` variables. Accepting one opens a session on the editor — the first
+      placeholder is selected, Tab and Shift+Tab walk the stops, `$0` is where
+      the caret leaves, and Escape ends it. The stops are plain byte offsets
+      kept current by the typed delta alone, since `textedit` has no markers, so
+      anything that cannot be followed — a second cursor, an undo, a batched
+      edit, a caret that left the snippet — ends the session rather than guesses.
+      **Still open:** a tabstop used twice mirrors the first's text at insert
+      time only; editing one does not follow into the other. A
+      `${1/regex/format/}` transform is dropped, the stop kept.
+      **Covered by** `test_snippet_parse_grammar`, `test_snippet_parse_variables`,
+      `test_snippet_session_walks_tabstops`, `test_snippet_session_follows_typing`
+      and `test_snippet_session_ends_when_the_caret_leaves`.
+- [x] **A real completion context.** `completionProvider.triggerCharacters` is
+      read into `Capabilities.item_triggers`, and a request fired by one of them
+      sends `triggerKind: 2` with the character instead of the `Invoked` (1) it
+      always claimed — a server that offers members only on its own trigger
+      lists nothing when the same keystroke arrives as an explicit request.
+      `Request.trigger`, which was Format_On_Type-only, now carries the character
+      just typed for completion as well.
 
 Landed since (M9):
 

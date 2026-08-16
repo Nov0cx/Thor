@@ -1,5 +1,11 @@
 # 2026.08.7
 
+- A completion from a language server brings the import line it needs. Only the name was inserted, leaving the file uncompilable.
+- A completion replaces the range the server named, so a candidate spelled differently from the typed word lands correctly.
+- A completion that arrives as a snippet is expanded with its placeholders selected. `tab` and `shift + tab` walk them, `escape` leaves the snippet.
+- Completion candidates are listed in the order the server asks for, not the order it happened to send.
+- A candidate whose match text differs from its label is offered instead of dropped.
+- Settings > Language Servers gains a `Completion Follow-Up Edits` toggle per server.
 - A command whose exit status cannot be read is reported as failed. A shell that did not expand its status made the command read as successful.
 - A second window that cannot start says so. A missing or unrunnable executable looked like a window that opened.
 - A command that runs past its timeout can no longer hang the editor.

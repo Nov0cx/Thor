@@ -240,6 +240,24 @@ The popup also takes the mouse: hovering a candidate highlights it, clicking one
 accepts it, and the wheel over the popup walks the list instead of scrolling the
 text.
 
+In a language served by a language server, a candidate may bring more than its
+own name: the import line it needs is added at the top of the file, and a
+function may arrive as a snippet with its arguments already in place.
+
+### Snippets
+
+When an accepted candidate is a snippet, its first placeholder is selected and
+typing replaces it.
+
+| Key | Action |
+| --- | --- |
+| tab | jump to the next placeholder |
+| shift + tab | jump back to the previous one |
+| escape | leave the snippet and keep the text |
+
+The last stop puts the caret where the snippet ends and closes it. Clicking
+outside the snippet, or undoing, also ends it.
+
 ## Tasks
 
 Left of the window controls sit three task buttons: **+** adds a task, the
