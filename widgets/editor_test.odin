@@ -592,3 +592,44 @@ test_completion_keeps_a_fully_typed_owner_row :: proc(t: ^testing.T) {
         testing.expect_value(t, editor.completion_rows[0].owner_id, 1)
     }
 }
+
+// A complete list narrows in place as the word grows, and a candidate that named
+// the range it replaces has that range moved by the characters just typed.
+@(test)
+test_completion_narrows_a_complete_owner_list :: proc(t: ^testing.T) {
+    state: textedit.State
+    textedit.init(&state)
+    defer textedit.destroy(&state)
+
+    editor: Editor
+    defer delete(editor.visual_rows)
+    defer delete(editor.completion_rows)
+    defer delete(editor.snippet_stops)
+    defer editor_test_free_completions(&editor)
+
+    editor_test_completion_setup(&editor, &state, "al\n")
+    editor_set_completions(
+        &editor,
+        []Completion_Item {
+            {text = "alpha", owner_id = 1, insert = "ALPHA", start = 0, end = 2},
+            {text = "beta", owner_id = 2, start = -1, end = -1},
+        },
+        complete = true,
+    )
+    testing.expect_value(t, len(editor.completion_rows), 1)
+    testing.expect(t, editor.completion_full, "a complete list may be narrowed here")
+
+    typed := ui.Event {kind = .Text_Input, codepoint = 'p'}
+    editor_handle_event(&editor.widget, nil, &typed)
+
+    testing.expect_value(t, len(editor.completion_rows), 1)
+    if len(editor.completion_rows) != 1 {
+        return
+    }
+    // "al" became "alp": the replaced range grew with it.
+    testing.expect_value(t, editor.completion_rows[0].end, 3)
+
+    tab := ui.Event {kind = .Key_Press, key = .TAB}
+    editor_handle_event(&editor.widget, nil, &tab)
+    testing.expect_value(t, textedit.text(&state), "ALPHA\n")
+}

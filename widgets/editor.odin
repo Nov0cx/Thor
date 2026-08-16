@@ -406,21 +406,22 @@ editor_set_completions :: proc(editor: ^Editor, items: []Completion_Item, comple
         return
     }
 
-    for it in items {
+    capped := false
+    for it, i in items {
         if !editor_completion_matches(it, prefix) {
             continue
         }
         append(&editor.completion_rows, editor_completion_clone(it))
+        // The cap only makes the list partial when it stopped a real remainder.
         if len(editor.completion_rows) >= COMPLETION_MAX_ITEMS {
-            complete := complete && len(editor.completion_rows) == len(items)
-            editor_hold_completion(editor, txt, start, prefix, complete)
-            return
+            capped = i < len(items) - 1
+            break
         }
     }
     if len(editor.completion_rows) == 0 {
         return
     }
-    editor_hold_completion(editor, txt, start, prefix, complete)
+    editor_hold_completion(editor, txt, start, prefix, complete && !capped)
 }
 
 // True when a candidate still matches what has been typed. A candidate the owner
@@ -1899,6 +1900,8 @@ Narrow_Result :: enum {
 // word was typed. Every word matching the longer prefix matches the shorter one,
 // so this is exact — as long as the list was complete, and as long as the only
 // edit since was the typed characters, which the revision and length checks prove.
+// A candidate that named the range it replaces has that range moved by the same
+// characters, which landed where the word ended.
 @(private = "file")
 editor_narrow_completion :: proc(editor: ^Editor, txt: string, start: int, prefix: string) -> Narrow_Result {
     grown := len(prefix) - len(editor.completion_word)
@@ -1911,10 +1914,20 @@ editor_narrow_completion :: proc(editor: ^Editor, txt: string, start: int, prefi
     if editor.completion_size + grown != len(txt) || !strings.has_prefix(prefix, editor.completion_word) {
         return .Rescan
     }
+    typed_at := editor.completion_start + len(editor.completion_word)
 
     kept := 0
     for row in editor.completion_rows {
         if editor_completion_matches(row, prefix) {
+            row := row
+            if row.owner_id != 0 && row.start >= 0 {
+                if row.start > typed_at {
+                    row.start += grown
+                }
+                if row.end >= typed_at {
+                    row.end += grown
+                }
+            }
             editor.completion_rows[kept] = row
             kept += 1
             continue
