@@ -7,6 +7,10 @@
 - The command palette stops waiting for a symbol, signature or on-type format request whose language server stopped mid-typing. It held its loading state forever.
 - A file whose name holds non-ASCII characters shows its git status colour in the explorer. Git quotes such a path, and the quoted spelling matched no row.
 - A `LOCALS` query that fails to build is written to `user/thor.log`. Odin language intelligence answered nothing to every request without saying why.
+- An update installs and restarts. The path of the running Thor was freed before the new build was started, so the update landed but the editor said it could not restart.
+- An update that cannot be swapped in leaves the editor working. The file watcher and the claim on the open folder come back, and the downloaded build stays staged, so the retry needs no second download.
+- An update that cannot start the new build says the update is in place and asks for a manual start, instead of leaving the window without a file watcher.
+- A restart after an update keeps the session it saved. The closing window wrote its own state over the one the new window had restored.
 
 # 2026.08.6
 

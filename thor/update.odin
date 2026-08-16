@@ -154,6 +154,12 @@ thor_install_update :: proc(thor: ^Thor) {
     if thor.update_inflight || thor.update_state != .Found || thor.update_url == "" {
         return
     }
+    // A tree a failed swap left staged. The retry is that swap, not a second
+    // download of an archive already downloaded and verified.
+    if thor.update_swap_root != "" {
+        thor.update_swap_pending = true
+        return
+    }
     target, has_target := update.target_host()
     if !has_target {
         thor_flash_status(thor, update.status_message(.No_Asset), true)
@@ -223,8 +229,8 @@ update_install_worker :: proc(job: ^Update_Job) {
 
 // Applies a finished job (called from thor_process_io). The swap itself is
 // never done here: thor_drain_io calls this at shutdown, where replacing the
-// install would race the teardown, so an ok install only sets update_swap_root
-// and thor_poll_update acts on it.
+// install would race the teardown, so an ok install only sets
+// update_swap_pending and thor_poll_update acts on it.
 thor_apply_update_job :: proc(thor: ^Thor, job: ^Update_Job) {
     thread.join(job.worker)
     thread.destroy(job.worker)
@@ -294,6 +300,7 @@ thor_apply_update_install :: proc(thor: ^Thor, job: ^Update_Job) {
     if job.status == .Ok {
         delete(thor.update_swap_root)
         thor.update_swap_root = strings.clone(job.out_root)
+        thor.update_swap_pending = true
         return
     }
     // The release is still there to retry or to fetch by hand, so the button
@@ -340,6 +347,7 @@ thor_clear_update :: proc(thor: ^Thor) {
     thor.update_asset = ""
     thor.update_prompt = ""
     thor.update_swap_root = ""
+    thor.update_swap_pending = false
 }
 
 // Asks an in-flight download to stop between slices, so quitting mid-update
@@ -353,7 +361,7 @@ thor_cancel_update :: proc(thor: ^Thor) {
 // The updater's frame slot, called from the run loop. Everything that takes
 // focus or replaces files happens here rather than in a callback or a drain.
 thor_poll_update :: proc(thor: ^Thor) {
-    if thor.update_swap_root != "" {
+    if thor.update_swap_pending {
         thor_swap_and_relaunch(thor)
         return
     }

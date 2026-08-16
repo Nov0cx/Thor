@@ -15,12 +15,30 @@ import "core:sync"
 
 import "../shell"
 
-// The names the swap replaces, each renamed aside before its new copy lands.
-// The order is the swap's: the binary and the library it loads move first, as
-// one group, because a failure there is the only one that needs a rollback.
-// settings/ is in the list because it holds shipped defaults only — what the
-// user writes lives in user/, which no update touches.
-SWAPPED_DIRS :: [?]string{"assets", "plugins", "docs", "settings"}
+// The binary and the library it loads. Locked exactly alike, so the swap moves
+// them as one group and a failure there is the only one that needs a rollback.
+@(rodata)
+LOCKED_NAMES := [?]string{"thor" + EXE_SUFFIX, "lua54.dll"} when ODIN_OS == .Windows else [?]string{"thor" + EXE_SUFFIX}
+
+// The directories the swap replaces, each renamed aside before its new copy
+// lands. settings/ is in the list because it holds shipped defaults only — what
+// the user writes lives in user/, which no update touches. libs/ holds the
+// dylibs the process maps, so only macOS carries it.
+@(rodata)
+SWAPPED_DIRS := [?]string{"libs", "assets", "plugins", "docs", "settings"} when ODIN_OS == .Darwin else [?]string{"assets", "plugins", "docs", "settings"}
+
+// Every name a swap replaces, in the swap's own order. One list, so a name the
+// swap gains cannot escape the restore.
+swapped_names :: proc(allocator := context.temp_allocator) -> []string {
+    names := make([dynamic]string, 0, len(LOCKED_NAMES) + len(SWAPPED_DIRS), allocator)
+    for name in LOCKED_NAMES {
+        append(&names, name)
+    }
+    for dir in SWAPPED_DIRS {
+        append(&names, dir)
+    }
+    return names[:]
+}
 
 // The file the writability probe creates and removes.
 @(private = "file")
@@ -258,40 +276,41 @@ cancelled :: proc(cancel: ^bool) -> bool {
     return cancel != nil && sync.atomic_load(cancel)
 }
 
-// Settles whatever a previous run left behind, and must run before anything
-// reads assets/, plugins/ or settings/. For each replaced name: the backup goes
-// when the new file is in place, and comes back when it is not. The one case it
-// cannot answer is a death between the binary's rename and its copy, where
-// there is no binary left to run this.
-install_cleanup_leftovers :: proc() {
-    names := make([dynamic]string, 0, 8, context.temp_allocator)
-    append(&names, "thor" + EXE_SUFFIX)
-    when ODIN_OS == .Windows {
-        append(&names, "lua54.dll")
-    }
-    when ODIN_OS == .Darwin {
-        append(&names, "libs")
-    }
-    for dir in SWAPPED_DIRS {
-        append(&names, dir)
-    }
-
+// Settles what a swap left behind under `install`. For each name: the backup
+// goes when the new copy is in place, and comes back when it is not.
+restore_names :: proc(install: string, names: []string) {
     for live in names {
-        old := strings.concatenate({live, OLD_SUFFIX}, context.temp_allocator)
+        live_path, old, ok := swap_paths(install, live, context.temp_allocator)
+        if !ok {
+            continue
+        }
         if !os.exists(old) {
             continue
         }
-        if os.exists(live) {
+        if os.exists(live_path) {
             if err := os.remove_all(old); err != nil {
                 log.warnf("Could not remove %q: %v", old, err)
             }
             continue
         }
         log.warnf("An interrupted update left %q behind, putting it back", old)
-        if err := os.rename(old, live); err != nil {
-            log.errorf("Could not restore %q: %v", live, err)
+        if err := os.rename(old, live_path); err != nil {
+            log.errorf("Could not restore %q: %v", live_path, err)
         }
     }
+}
+
+// restore_names over every name a swap replaces.
+install_restore :: proc(install: string) {
+    restore_names(install, swapped_names())
+}
+
+// Settles whatever a previous run left behind in the working directory, and
+// must run before anything reads assets/, plugins/ or settings/. The one case
+// it cannot answer is a death between the binary's rename and its copy, where
+// there is no binary left to run this.
+install_cleanup_leftovers :: proc() {
+    install_restore(".")
     if err := os.remove_all(STAGE_DIR); err != nil && os.exists(STAGE_DIR) {
         log.warnf("Could not clear %q: %v", STAGE_DIR, err)
     }

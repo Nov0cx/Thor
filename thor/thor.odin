@@ -204,7 +204,10 @@ Thor :: struct {
     update_job: ^Update_Job,
     // A staged update waiting to be swapped in. Owned; the swap runs from
     // thor_poll_update and never from the io drain, which shutdown also calls.
+    // The root outlives a failed swap so a retry needs no second download, so
+    // the flag and not the root is what says a swap is due.
     update_swap_root: string,
+    update_swap_pending: bool,
     // Plugin whose permission row opened the picker (see settings_ui.odin).
     plugin_setting_target: string,  // owned
     plugin_setting_source: Plugin_Source,
@@ -220,6 +223,9 @@ Thor :: struct {
     plugin_dock_bottom_stack: ^widgets.Stack,
     top_bar_plugin_anchor: ^ui.Widget,
     should_close: bool,
+    // Set once an update started the new build: the session file belongs to that
+    // process now, so this one must not write over it on the way out.
+    relaunching: bool,
     window_maximized: bool,
     explorer_width: f32,
     console_height: f32,
@@ -852,7 +858,11 @@ run :: proc(thor: ^Thor) {
 
 shutdown :: proc(thor: ^Thor) {
     thor_unregister_window(thor.workspace_dir)
-    thor_save_session(thor)
+    // An update saved the session before it started the new build, which has
+    // restored from that file; a second save here would write over it.
+    if !thor.relaunching {
+        thor_save_session(thor)
+    }
     // Stop the watcher first so no new reload jobs are queued while we drain.
     thor_shutdown_watcher(thor)
     thor_terminals_shutdown(thor)
