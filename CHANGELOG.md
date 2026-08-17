@@ -29,6 +29,9 @@
 - The signature popup marks the member the written arguments reach, not the first one whose parameter count fits.
 - A procedure written across several lines shows its whole signature in the outline, workspace symbols and the completion list. It was cut at the first line break, which also stopped `f12` telling such members of a procedure group apart.
 - A parameter default written as a composite literal (`x: Point = {}`) no longer cuts the signature short in hover and the symbol rows.
+- Find and replace searches again when the buffer changes under the open box — a reload from disk, an undo, a refactor from a language server or a tab switch. Replace and Replace All wrote at the offsets of the text that was there before, which put the replacement in the wrong place.
+- Renaming or moving a file waits for its own save to finish first. A save that landed after the rename wrote the old name back to disk, and on Windows the open write could stop the rename.
+- Markdown highlighting holds bold and italics over a line break inside a paragraph or a list item, and `code` inside bold keeps its own colour. A lone `**` no longer reads as italics, and the `_` inside a name like `pending_jobs` no longer starts an emphasis that runs to the next word.
 
 # 2026.08.6
 
