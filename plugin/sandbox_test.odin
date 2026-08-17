@@ -1,10 +1,12 @@
 package plugin
 
+import "core:c"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
 import "core:testing"
 import "core:time"
+import lua "vendor:lua/5.4"
 
 // Host stub: records what a plugin asked the editor to do.
 @(private = "file")
@@ -170,6 +172,44 @@ test_sandbox_isolates_globals :: proc(t: ^testing.T) {
     probe := `thor.print("libs=" .. tostring(io) .. tostring(package) .. tostring(debug) .. tostring(load) .. tostring(os.execute))`
     manager_load_source(&m, "probe", "plugins/probe", probe, {})
     testing.expectf(t, strings.contains(printed(&r), "libs=nilnilnilnilnil"), "unsafe library reachable: %q", printed(&r))
+}
+
+// Precompiled bytecode is refused on both chunk paths. Lua 5.4 does not verify
+// bytecode, so a binary chunk would reach past the sandbox that dropping `load`
+// and `loadfile` closes.
+@(test)
+test_sandbox_refuses_lua_bytecode :: proc(t: ^testing.T) {
+    r: Recorder
+    recorder_init(&r)
+    defer recorder_destroy(&r)
+    m: Manager
+    recording_manager(&m, &r)
+    defer manager_destroy(&m)
+
+    // Dumped on the raw state, so the blob is a chunk this Lua does accept.
+    dumped := `blob = string.dump(function() escaped = true end)`
+    testing.expect(t, lua.L_dostring(m.state, strings.clone_to_cstring(dumped, context.temp_allocator)) == 0, "dump runs")
+    lua.getglobal(m.state, "blob")
+    size: c.size_t
+    ptr := lua.tolstring(m.state, -1, &size)
+    bytes := transmute([^]byte) ptr
+    bytecode := strings.clone(string(bytes[:size]), context.temp_allocator)
+    lua.pop(m.state, 1)
+    testing.expect(t, len(bytecode) > 0 && bytecode[0] == 0x1b, "string.dump did not produce a binary chunk")
+
+    testing.expect(t, !manager_load_source(&m, "binary", "plugins/binary", bytecode, {}), "a bytecode plugin loaded")
+
+    dir := "bin/test/bytecode-plugin"
+    os.make_directory(dir)
+    path, join_err := filepath.join({dir, "mod.lua"}, context.temp_allocator)
+    testing.expect(t, join_err == nil, "module path joined")
+    testing.expect(t, os.write_entire_file(path, transmute([]byte) bytecode) == nil, "module written")
+    defer os.remove(path)
+
+    script := `local ok = pcall(require, "mod")
+thor.print("required=" .. tostring(ok))`
+    manager_load_source(&m, "requirer", dir, script, {})
+    testing.expectf(t, strings.contains(printed(&r), "required=false"), "require loaded bytecode: %q", printed(&r))
 }
 
 // Standard-library tables are cloned per plugin, so one plugin monkey-patching

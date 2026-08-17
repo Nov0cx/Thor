@@ -17,6 +17,8 @@ Every plugin runs in its own environment inside one shared Lua state:
   `coroutine` and the clock half of `os` (`clock`, `date`, `difftime`, `time`).
   `io`, `package` and `debug` are never loaded; `load`, `dofile`, `loadfile` and
   `collectgarbage` are removed. The string metatable is locked.
+- A plugin is Lua source. Precompiled bytecode is refused, because Lua does not
+  verify it and a binary chunk would reach past everything above.
 - `require "name"` loads `name.lua` from the plugin's own folder into the same
   environment. Plain names only — nothing outside the folder resolves.
 - One call into a plugin may hold the frame for two seconds. Past that the call

@@ -432,6 +432,12 @@ new_plugin :: proc(m: ^Manager, id, dir: string, perms: Permissions) -> int {
     return index
 }
 
+// Chunk mode: text only. Lua 5.4 does not verify bytecode, so a precompiled
+// chunk would run past `_ENV` and every sandbox limit — the same reason the
+// sandbox drops `load` and `loadfile`.
+@(private)
+CHUNK_MODE :: cstring("t")
+
 // Loads a plugin chunk from `path` (or from `source` when given), points its
 // `_ENV` at the plugin's sandbox, and runs it under the time budget.
 @(private)
@@ -440,9 +446,9 @@ load_chunk :: proc(m: ^Manager, index: int, path: string, source: []byte) -> boo
     status: lua.Status
     if source != nil {
         name := strings.concatenate({"@", m.plugins[index].id}, context.temp_allocator)
-        status = lua.L_loadbuffer(L, raw_data(source), len(source), strings.clone_to_cstring(name, context.temp_allocator))
+        status = lua.L_loadbuffer(L, raw_data(source), len(source), strings.clone_to_cstring(name, context.temp_allocator), CHUNK_MODE)
     } else {
-        status = lua.L_loadfile(L, strings.clone_to_cstring(path, context.temp_allocator))
+        status = lua.L_loadfile(L, strings.clone_to_cstring(path, context.temp_allocator), CHUNK_MODE)
     }
     if status != .OK {
         log.warnf("plugin %s failed to load: %s", m.plugins[index].id, lua.tostring(L, -1))

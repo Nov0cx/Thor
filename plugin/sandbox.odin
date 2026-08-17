@@ -407,7 +407,7 @@ api_require :: proc "c" (L: ^lua.State) -> c.int {
         lua.L_error(L, "require: could not resolve %s", strings.clone_to_cstring(name, context.temp_allocator))
         return 0
     }
-    if lua.L_loadfile(L, strings.clone_to_cstring(path, context.temp_allocator)) != .OK {
+    if lua.L_loadfile(L, strings.clone_to_cstring(path, context.temp_allocator), CHUNK_MODE) != .OK {
         lua.L_error(L, "require: %s", lua.tostring(L, -1))
         return 0
     }
