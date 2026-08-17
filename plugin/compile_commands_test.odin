@@ -58,6 +58,65 @@ test_compile_commands_cmake_adds_task_and_dot_clangd :: proc(t: ^testing.T) {
     testing.expect(t, strings.contains(dot_clangd, "CompilationDatabase: build"), ".clangd points at build/")
 }
 
+// A task whose command holds an escaped quote and a bare brace survives the
+// rewrite. The reader used to stop the capture at the first quote and split
+// objects on brace balance, so adding a task rewrote the file from a parse
+// that had lost half of the existing one.
+@(test)
+test_compile_commands_keeps_quoted_task :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+
+    env := make_fake_env("linux")
+    defer destroy_fake_env(&env)
+    env.files[resolved("CMakeLists.txt")] = strings.clone("cmake_minimum_required(VERSION 3.20)\n")
+    existing := `{
+	"tasks": [
+		{
+			"name": "commit",
+			"command": "git commit -m \"wip }\""
+		}
+	]
+}`
+    env.files[resolved(".thor/tasks.json")] = strings.clone(existing)
+
+    manager_set_host(&m, fake_host(&env))
+    manager_load(&m)
+    testing.expect(t, manager_run_command(&m, "configure-compile-commands"), "configure-compile-commands ran")
+
+    tasks_json := env.files[resolved(".thor/tasks.json")]
+    testing.expectf(t, strings.contains(tasks_json, `"command": "git commit -m \"wip }\""`),
+        "the quoted task was mangled by the rewrite: %s", tasks_json)
+    testing.expect(t, strings.contains(tasks_json, "cmake -S . -B build"), "the CMake task was still added")
+}
+
+// An unknown key means a shape the plugin must not rewrite: it reports that
+// instead of dropping the key.
+@(test)
+test_compile_commands_refuses_unknown_task_key :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+
+    env := make_fake_env("linux")
+    defer destroy_fake_env(&env)
+    env.files[resolved("CMakeLists.txt")] = strings.clone("cmake_minimum_required(VERSION 3.20)\n")
+    existing := `{"tasks":[{"name":"build","command":"make","cwd":"sub"}]}`
+    env.files[resolved(".thor/tasks.json")] = strings.clone(existing)
+
+    manager_set_host(&m, fake_host(&env))
+    manager_load(&m)
+    testing.expect(t, manager_run_command(&m, "configure-compile-commands"), "configure-compile-commands ran")
+
+    testing.expect(t, env.files[resolved(".thor/tasks.json")] == existing, "tasks.json was rewritten")
+    told := false
+    for line in env.printed {
+        told ||= strings.contains(line, "by hand")
+    }
+    testing.expect(t, told, "the user was not told to add the task by hand")
+}
+
 // An existing .clangd (for any other reason) is never clobbered, even though
 // the CMake task is still added.
 @(test)
