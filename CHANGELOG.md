@@ -32,6 +32,11 @@
 - Find and replace searches again when the buffer changes under the open box — a reload from disk, an undo, a refactor from a language server or a tab switch. Replace and Replace All wrote at the offsets of the text that was there before, which put the replacement in the wrong place.
 - Renaming or moving a file waits for its own save to finish first. A save that landed after the rename wrote the old name back to disk, and on Windows the open write could stop the rename.
 - Markdown highlighting holds bold and italics over a line break inside a paragraph or a list item, and `code` inside bold keeps its own colour. A lone `**` no longer reads as italics, and the `_` inside a name like `pending_jobs` no longer starts an emphasis that runs to the next word.
+- A plugin is Lua source. A precompiled bytecode file is refused, since Lua does not verify it and it would reach past the sandbox.
+- The clangd setup keeps a task whose command holds a quote or a brace. Adding a task rewrote `.thor/tasks.json` from a parse that had lost part of the task already in it.
+- The clangd setup says when it cannot add a task, instead of naming a task it never added.
+- A build, an `npm install` or a `git gc` no longer floods the editor on Windows. Changes inside `node_modules` and `.git/objects` are ignored there too, as they already were on Linux and macOS.
+- Git status follows a burst of file changes at most four times a second, and its diff covers the open files, so the editor stays responsive while something writes into a large working tree.
 
 # 2026.08.6
 
