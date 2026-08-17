@@ -318,6 +318,41 @@ test_markdown_plugin_highlights :: proc(t: ^testing.T) {
     }
 }
 
+// Emphasis holds over a soft line break, keeps the code spans inside it their
+// own color, and `_` inside an identifier opens none of it. A line lexer left
+// the bold text uncolored, read the orphan ** as italics, and italicized from
+// one snake_case word to the next.
+@(test)
+test_markdown_emphasis_spans_soft_breaks :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+    manager_load(&m)
+
+    src := "- **`one.odin:1` frees `path` while a job\n  borrows it.** Both pending_jobs and use_after count.\n"
+    spans := highlight(&m, "", src, ".md", context.allocator)
+    defer {
+        for s in spans {
+            delete(s.role)
+        }
+        delete(spans)
+    }
+
+    expect :: proc(t: ^testing.T, spans: []Span, src, needle, want: string) {
+        got := role_covering(spans, src, needle)
+        testing.expectf(t, got == want, "%q: role %q, want %q", needle, got, want)
+    }
+    expect(t, spans, src, "**`one", "conflict")
+    expect(t, spans, src, " frees ", "conflict")
+    expect(t, spans, src, "borrows it.**", "conflict")
+    expect(t, spans, src, "`path`", "strings")
+    expect(t, spans, src, "pending_jobs and use_after", "")
+
+    for i in 1 ..< len(spans) {
+        testing.expect(t, spans[i - 1].end <= spans[i].start, "spans overlap or unordered")
+    }
+}
+
 // Loads the real plugins/batch/plugin.lua and highlights a Windows batch script
 // through its pure-Lua lexer, confirming comments, keywords, variables, labels
 // and operators resolve to the expected roles and that spans stay ordered and
