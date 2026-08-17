@@ -1337,6 +1337,45 @@ test_definition_overload_distinct_resolves_in_member_package :: proc(t: ^testing
     testing.expectf(t, res.location.start == want, "jump target: got %d, want %d", res.location.start, want)
 }
 
+// A member whose signature is written across several lines keeps its whole
+// parameter group in the label, so both narrowing passes can read it. A label cut
+// at the first newline would end at `draw_point :: proc(` and separate nothing.
+@(test)
+test_definition_overload_multiline_signature :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package demo
+
+draw_point :: proc(
+	x: int,
+	y: int,
+) -> int {
+	return 1
+}
+
+draw_text :: proc(
+	s: string,
+	y: int,
+) -> int {
+	return 2
+}
+
+draw :: proc{draw_point, draw_text}
+
+main :: proc() {
+	_ = draw("hi", 2)
+}
+`
+    res := definition_at(e, src, `draw("hi"`)
+    defer free_definition(&res)
+
+    testing.expect(t, res.ok, "expected go-to-definition on a procedure group")
+    testing.expectf(t, len(res.symbols) == 0, "the literal picks one member: got %d candidates", len(res.symbols))
+    want := strings.index(src, "draw_text ::")
+    testing.expectf(t, res.location.start == want, "jump target: got %d, want %d", res.location.start, want)
+}
+
 // hover_at runs a Hover request at `at` and returns the result. Callers own
 // res.hover.text.
 @(private)

@@ -503,15 +503,22 @@ lowest latency.
   type argument narrowing rather than exempting), `_polymorphic_map_key_keeps_member`
   (the `$` inside a container's brackets) and `_distinct_resolves_in_member_package`
   (a real workspace where the caller declares a rival `Handle`, which anchoring is
-  what keeps out).
+  what keeps out). `_multiline_signature` covers the label itself: two members
+  written across several lines, which a cut label could not separate at all.
+
+  A member's label must hold its whole parameter group or both passes go blind:
+  `signature_text` used to cut a declaration at its first newline, leaving a
+  multi-line member as `draw_point :: proc(`, whose parens never balance. It now
+  flattens instead (`flatten_lines`, already the group path), and the body-brace
+  cut counts only depth-zero braces (`body_brace_index`), so a default value like
+  `x: Point = {}` no longer truncates the signature either. Both changes are
+  visible wherever the one-line text is shown — the outline, workspace symbols,
+  completion labels and the symbol index — and `declaration_text` shares the brace
+  scan, so hover follows.
 
   **Still open:** an argument the inference layer cannot type leaves the picker,
   and a named generic type's own type argument (`List($T)`) is still not modeled —
-  no `Type_Ref` carries one. `signature_text` also cuts a non-group declaration at
-  its first newline, so a member whose signature is written across several lines
-  yields an unbalanced paren group and *neither* pass can read it; that is a
-  separate fix, since flattening instead would change every multi-line
-  procedure's rendered signature in hover, the outline and the symbol index.
+  no `Type_Ref` carries one.
 - **Rename (Ctrl+R):** prompts for a new name in the palette (prefilled with
   the symbol under the caret), then rewrites every usage find-references would
   list, plus the declaration it leaves out (`Rename` request → `rename`, the same

@@ -43,8 +43,11 @@ fill_result :: proc(res: ^lang.Result, req: ^lang.Request, path, source: string,
 
 // One-line signature for a symbol-list row: `name :: type`, trimmed. Starts at
 // the declared identifier (so any leading `@(...)` attribute is skipped) and
-// stops at the body brace or first newline. `foo :: proc(x: int) -> int {` and
-// `Point :: struct {` yield `foo :: proc(x: int) -> int` and `Point :: struct`.
+// stops at the body brace. `foo :: proc(x: int) -> int {` and `Point :: struct {`
+// yield `foo :: proc(x: int) -> int` and `Point :: struct`. A signature written
+// across several lines is flattened onto one, never cut — a truncated head like
+// `foo :: proc(` has an unbalanced parameter group, which blinds every reader of
+// this text (`param_arity`, `signature_param_text`, overload narrowing).
 // Cloned into context.allocator.
 @(private)
 signature_text :: proc(source: string, d: Def) -> string {
@@ -54,19 +57,61 @@ signature_text :: proc(source: string, d: Def) -> string {
 
     // A procedure group's brace opens its member list, not a body, and the list
     // is the only thing the row has to say — cutting at the brace would leave
-    // every group in the workspace showing the same `sizes :: proc`. It is kept
-    // whole and flattened onto the one line the row has room for.
-    if d.overload {
-        return flatten_lines(text)
+    // every group in the workspace showing the same `sizes :: proc`.
+    if !d.overload {
+        if brace := body_brace_index(text); brace >= 0 {
+            text = text[:brace]
+        }
     }
+    return flatten_lines(text)
+}
 
-    if brace := strings.index_byte(text, '{'); brace >= 0 {
-        text = text[:brace]
+// Index of the brace that opens a body, or -1. Braces nested in a parameter list
+// or an index expression belong to a default value (`x: Point = {}`) or a type,
+// not a body, so only depth-zero braces count; string and rune literals are
+// skipped whole.
+@(private = "file")
+body_brace_index :: proc(text: string) -> int {
+    depth := 0
+    i := 0
+    for i < len(text) {
+        switch text[i] {
+        case '(', '[':
+            depth += 1
+        case ')', ']':
+            depth -= 1
+        case '{':
+            if depth <= 0 {
+                return i
+            }
+        case '"', '`', '\'':
+            i = literal_end(text, i)
+            continue
+        }
+        i += 1
     }
-    if nl := strings.index_byte(text, '\n'); nl >= 0 {
-        text = text[:nl]
+    return -1
+}
+
+// Index just past the string or rune literal that opens at `start`, or past the
+// end of the text when it is never closed. Backslash escapes are honored, except
+// in a raw (backquoted) string, which has none.
+@(private = "file")
+literal_end :: proc(text: string, start: int) -> int {
+    quote := text[start]
+    i := start + 1
+    for i < len(text) {
+        c := text[i]
+        if c == '\\' && quote != '`' {
+            i += 2
+            continue
+        }
+        if c == quote {
+            return i + 1
+        }
+        i += 1
     }
-    return strings.clone(strings.trim_space(text))
+    return len(text)
 }
 
 // `text` with every run of whitespace collapsed to a single space, so a
@@ -103,13 +148,13 @@ declaration_text :: proc(source: string, d: Def) -> string {
     end := clamp(d.decl_end, start, len(source))
     text := source[start:end]
 
-    // Procedures: show the signature, not the body. The first `{` opens the body
-    // (attributes use `(...)`, the signature has no brace), so cutting there keeps
-    // any attribute line and the `name :: proc(...) -> ...` head. A procedure
-    // group is the exception — it has no body, and the brace it does have holds
-    // the members, which are the whole content of the declaration.
+    // Procedures: show the signature, not the body. The first depth-zero `{` opens
+    // the body, so cutting there keeps any attribute line and the
+    // `name :: proc(...) -> ...` head. A procedure group is the exception — it has
+    // no body, and the brace it does have holds the members, which are the whole
+    // content of the declaration.
     if d.kind == "function" && !d.overload {
-        if brace := strings.index_byte(text, '{'); brace >= 0 {
+        if brace := body_brace_index(text); brace >= 0 {
             text = text[:brace]
         }
     }

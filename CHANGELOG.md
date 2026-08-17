@@ -27,6 +27,8 @@
 - A `distinct` type takes the untyped literals its base type takes, which tells members apart that differ only by that type: `set(1)` and `set("x")` reach their own member. A `distinct f32` is still not an `f32`, so an `f32` argument reaches the `f32` member.
 - A group member with a generic parameter (`proc($T: typeid, v: T)`, `proc(m: map[$K]$V, k: K)`) is no longer refused because a later parameter reuses the bound name, which could send `f12` to the wrong member. A call that writes the type argument narrows on it.
 - The signature popup marks the member the written arguments reach, not the first one whose parameter count fits.
+- A procedure written across several lines shows its whole signature in the outline, workspace symbols and the completion list. It was cut at the first line break, which also stopped `f12` telling such members of a procedure group apart.
+- A parameter default written as a composite literal (`x: Point = {}`) no longer cuts the signature short in hover and the symbol rows.
 
 # 2026.08.6
 
