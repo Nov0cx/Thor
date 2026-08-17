@@ -31,6 +31,11 @@ Find_Replace :: struct {
     show_replace:  bool, // replace row + buttons visible
     matches:       [dynamic]Fr_Match,
     current:       int,
+    // Buffer the offsets in `matches` were scanned from. set_text puts the
+    // revision back to 0, so the pointer and the length are part of the identity.
+    match_state:   ^textedit.State,
+    match_rev:     u64,
+    match_size:    int,
     // Search modifiers. They survive a close, so the next open keeps them, and
     // reset when Thor restarts.
     case_sensitive: bool,
@@ -239,7 +244,11 @@ find_replace_recompute :: proc(fr: ^Find_Replace) {
     clear(&fr.matches)
     fr.current = 0
     fr.regex_bad = false
-    if fr.editor == nil || fr.editor.state == nil {
+    state := fr.editor != nil ? fr.editor.state : nil
+    fr.match_state = state
+    fr.match_rev = state != nil ? state.revision : 0
+    fr.match_size = state != nil ? textedit.length(state) : 0
+    if state == nil {
         return
     }
     query := string(fr.find[:])
@@ -248,8 +257,8 @@ find_replace_recompute :: proc(fr: ^Find_Replace) {
         return
     }
 
-    text := textedit.text(fr.editor.state)
-    from, _ := textedit.selection_range(textedit.primary_cursor(fr.editor.state))
+    text := textedit.text(state)
+    from, _ := textedit.selection_range(textedit.primary_cursor(state))
 
     if fr.use_regex {
         find_replace_scan_regex(fr, text, query)
@@ -338,6 +347,23 @@ find_replace_scan_literal :: proc(fr: ^Find_Replace, text, query: string) {
     }
 }
 
+// Re-scans when the buffer moved under the offsets: a reload, an undo, a backend
+// edit or a tab switch leaves them pointing at other bytes. Does not move the
+// selection -- it runs from layout, before the frame's events.
+@(private = "file")
+find_replace_sync :: proc(fr: ^Find_Replace) {
+    state := fr.editor != nil ? fr.editor.state : nil
+    if state == nil {
+        if fr.match_state != nil {
+            find_replace_recompute(fr)
+        }
+        return
+    }
+    if fr.match_state != state || fr.match_rev != state.revision || fr.match_size != textedit.length(state) {
+        find_replace_recompute(fr)
+    }
+}
+
 @(private = "file")
 find_replace_select_current :: proc(fr: ^Find_Replace) {
     if fr.editor == nil || fr.editor.state == nil || len(fr.matches) == 0 {
@@ -350,6 +376,7 @@ find_replace_select_current :: proc(fr: ^Find_Replace) {
 
 @(private = "file")
 find_replace_step :: proc(fr: ^Find_Replace, delta: int) {
+    find_replace_sync(fr)
     if len(fr.matches) == 0 {
         return
     }
@@ -360,6 +387,7 @@ find_replace_step :: proc(fr: ^Find_Replace, delta: int) {
 
 @(private = "file")
 find_replace_do_replace :: proc(fr: ^Find_Replace) {
+    find_replace_sync(fr)
     if fr.editor == nil || fr.editor.state == nil || len(fr.matches) == 0 {
         return
     }
@@ -376,6 +404,7 @@ find_replace_do_replace :: proc(fr: ^Find_Replace) {
 // a literal replace_all cannot do.
 @(private = "file")
 find_replace_do_replace_all :: proc(fr: ^Find_Replace) {
+    find_replace_sync(fr)
     if fr.editor == nil || fr.editor.state == nil || len(fr.matches) == 0 {
         return
     }
@@ -383,6 +412,7 @@ find_replace_do_replace_all :: proc(fr: ^Find_Replace) {
     for match in fr.matches {
         append(&ranges, textedit.Replace {start = match.start, end = match.end, text = string(fr.replace[:])})
     }
+    // The sync above scanned this revision, so replace_ranges keeps every range.
     textedit.replace_ranges(fr.editor.state, ranges[:])
     find_replace_recompute(fr)
     editor_scroll_to_caret(fr.editor)
@@ -417,6 +447,9 @@ find_replace_requery_now :: proc(fr: ^Find_Replace) {
 find_replace_layout :: proc(widget: ^ui.Widget, bounds: rl.Rectangle) {
     fr := cast(^Find_Replace) widget
     fr.bounds = bounds
+    // Layout runs before this frame's events, so the match count drawn and the
+    // button pressed both see offsets scanned from the buffer as it stands.
+    find_replace_sync(fr)
 
     width := min(fr.width, bounds.width - 80)
     rows := fr.show_replace ? 3 : 2 // find, [replace], buttons

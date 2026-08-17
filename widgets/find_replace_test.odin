@@ -34,6 +34,17 @@ fr_test_type :: proc(fr: ^Find_Replace, ctx: ^ui.Context, text: string) {
     }
 }
 
+// Clicks the center of one of the box's buttons.
+@(private = "file")
+fr_test_click :: proc(fr: ^Find_Replace, ctx: ^ui.Context, button: rl.Rectangle) {
+    event := ui.Event {
+        kind = .Mouse_Down,
+        mouse_button = .LEFT,
+        mouse_position = rl.Vector2 {button.x + button.width * 0.5, button.y + button.height * 0.5},
+    }
+    find_replace_handle_event(&fr.widget, ctx, &event)
+}
+
 @(private = "file")
 fr_test_chord :: proc(fr: ^Find_Replace, ctx: ^ui.Context, key: rl.KeyboardKey) {
     event := ui.Event {kind = .Key_Press, key = key, mods = {.Alt}}
@@ -308,6 +319,85 @@ test_find_regex_replace_all :: proc(t: ^testing.T) {
 
     textedit.undo(&state)
     testing.expect_value(t, textedit.text(&state), "a1 b22 c333\n")
+}
+
+// A reload replaced the buffer under the open box. The stored offsets name other
+// bytes now, so Replace has to scan again first. set_text puts the revision back
+// to 0, which is why the stamp carries the length too.
+@(test)
+test_find_replace_rescans_after_reload :: proc(t: ^testing.T) {
+    state: textedit.State
+    editor: Editor
+    fr := fixture(&state, &editor, "alpha beta alpha\n")
+    defer fixture_destroy(&state, &editor, fr)
+
+    ctx: ui.Context
+    find_replace_open(fr, &ctx, &editor, true)
+    fr_test_type(fr, &ctx, "alpha")
+
+    tab := ui.Event {kind = .Key_Press, key = .TAB}
+    find_replace_handle_event(&fr.widget, &ctx, &tab)
+    fr_test_type(fr, &ctx, "x")
+
+    // Laid out first, so the mutation lands after this frame's sync and only the
+    // check inside the replace itself can catch it.
+    find_replace_layout(&fr.widget, rl.Rectangle {0, 0, 1200, 800})
+    textedit.set_text(&state, "zzz alpha zzz\n")
+    fr_test_click(fr, &ctx, fr.btn_replace)
+    testing.expect_value(t, textedit.text(&state), "zzz x zzz\n")
+}
+
+// An edit above the matches shifts every one of them. Replace All must rewrite
+// the occurrences, not the bytes that moved into their old offsets.
+@(test)
+test_find_replace_all_rescans_after_edit :: proc(t: ^testing.T) {
+    state: textedit.State
+    editor: Editor
+    fr := fixture(&state, &editor, "alpha beta alpha\n")
+    defer fixture_destroy(&state, &editor, fr)
+
+    ctx: ui.Context
+    find_replace_open(fr, &ctx, &editor, true)
+    fr_test_type(fr, &ctx, "alpha")
+
+    tab := ui.Event {kind = .Key_Press, key = .TAB}
+    find_replace_handle_event(&fr.widget, &ctx, &tab)
+    fr_test_type(fr, &ctx, "x")
+
+    find_replace_layout(&fr.widget, rl.Rectangle {0, 0, 1200, 800})
+    err := textedit.insert_at(&state, 0, "// ")
+    testing.expect_value(t, err, nil)
+
+    fr_test_click(fr, &ctx, fr.btn_all)
+    testing.expect_value(t, textedit.text(&state), "// x beta x\n")
+}
+
+// The box holds the pane, not the buffer, so a tab switch repoints it at another
+// buffer. Both start at revision 0 and hold the same byte count here, so only the
+// buffer's identity tells the two apart.
+@(test)
+test_find_rescans_after_buffer_swap :: proc(t: ^testing.T) {
+    state: textedit.State
+    editor: Editor
+    fr := fixture(&state, &editor, "alpha beta alpha\n")
+    defer fixture_destroy(&state, &editor, fr)
+
+    other: textedit.State
+    textedit.init(&other)
+    textedit.set_text(&other, "zz alpha zz beta\n")
+    defer textedit.destroy(&other)
+
+    ctx: ui.Context
+    find_replace_open(fr, &ctx, &editor, false)
+    fr_test_type(fr, &ctx, "alpha")
+    testing.expectf(t, len(fr.matches) == 2, "expected 2 matches, got %d", len(fr.matches))
+
+    editor.state = &other
+    enter := ui.Event {kind = .Key_Press, key = .ENTER}
+    find_replace_handle_event(&fr.widget, &ctx, &enter)
+    testing.expectf(t, len(fr.matches) == 1, "expected the new buffer's 1 match, got %d", len(fr.matches))
+    lo, hi := textedit.selection_range(textedit.primary_cursor(&other))
+    testing.expectf(t, lo == 3 && hi == 8, "expected the match at 3..8, got %d..%d", lo, hi)
 }
 
 // Replace All goes through replace_ranges, so the whole sweep is one undo entry.
