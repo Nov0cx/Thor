@@ -1193,12 +1193,17 @@ thor_process_io :: proc(thor: ^Thor) {
 
     thor_process_terminals(thor)
 
+    // A file the last git refresh did not know about is outside the diff's
+    // pathspec (git_diff_command), so its gutter stays empty until one runs
+    // that names it. A restore opening many files coalesces into one refresh.
+    opened := false
     for job in loads {
         thread.join(job.worker)
         thread.destroy(job.worker)
 
         file := job.file
         reload := job.reload
+        opened ||= !reload && !job.image && job.ok
         if job.image {
             thor_apply_image(thor, job)
         } else if reload {
@@ -1261,6 +1266,9 @@ thor_process_io :: proc(thor: ^Thor) {
             thor_rebind_file_panes(thor, file)
         }
         thor_reap_file(thor, file)
+    }
+    if opened {
+        thor_refresh_git_status(thor)
     }
 
     for job in saves {

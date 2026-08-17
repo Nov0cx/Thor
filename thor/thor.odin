@@ -331,6 +331,7 @@ Thor :: struct {
     git_status: map[string]widgets.Git_Status,
     git_status_inflight: bool,
     git_status_dirty: bool,  // a refresh was requested while one was running
+    git_status_at: time.Tick,  // when the last refresh started; the watcher's rate limit
     // Git view op state (see git_ops.odin): the generation stamps every job so
     // results from a closed view or an earlier workspace are dropped; the
     // serial does the same for a superseded file diff; the snapshot flags

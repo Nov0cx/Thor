@@ -7,6 +7,7 @@ import "core:strconv"
 import "core:strings"
 import "core:sync"
 import "core:thread"
+import "core:time"
 
 import "../shell"
 import "../textedit"
@@ -19,9 +20,20 @@ Git_Status_Job :: struct {
     owner:       ^Thor,
     allocator:   runtime.Allocator,
     worker:      ^thread.Thread,
+    diff_cmd:    string, // owned, built on the main thread: the worker never reads open_files
     output:      string, // owned porcelain output, parsed and freed on the main thread
     diff_output: string, // owned `git diff HEAD` output, parsed and freed on the main thread
 }
+
+// --unified=0 drops context lines, leaving just the changed ranges the gutter
+// needs. Fails harmlessly (empty diff) on a repo with no commits yet.
+@(private = "file")
+GIT_DIFF_BASE :: "git diff HEAD --unified=0 --no-color"
+
+// A command line longer than this is refused by Windows, so the pathspec is
+// dropped rather than the diff.
+@(private)
+GIT_DIFF_CMD_MAX :: 30000
 
 // Spawns a status refresh unless one is already running or this is not a repo.
 // Cheap to call from anything that might change the working tree.
@@ -35,13 +47,50 @@ thor_refresh_git_status :: proc(thor: ^Thor) {
         return
     }
     thor.git_status_inflight = true
+    thor.git_status_at = time.tick_now()
+
+    paths := make([dynamic]string, context.temp_allocator)
+    for file in thor.open_files {
+        if !file.closed && file.path != "" {
+            append(&paths, file.path)
+        }
+    }
 
     job := new(Git_Status_Job)
     job.owner = thor
     job.allocator = context.allocator
+    job.diff_cmd = git_diff_command(paths[:], context.allocator)
 
     thor.inflight_jobs += 1
     job.worker = thread.create_and_start_with_poly_data(job, git_status_worker)
+}
+
+// The diff command for `paths`. git_apply_diff keeps hunks for open files only,
+// so a whole-repo diff is work thrown away — but a file opened after the last
+// refresh is outside the pathspec, which is why a landed load refreshes again
+// (thor_process_io). Falls back to the whole repo when there is nothing open,
+// when a path cannot be quoted, or when the command line grows too long.
+git_diff_command :: proc(paths: []string, allocator := context.temp_allocator) -> string {
+    if len(paths) == 0 {
+        return strings.clone(GIT_DIFF_BASE, allocator)
+    }
+
+    b: strings.Builder
+    strings.builder_init(&b, context.temp_allocator)
+    strings.write_string(&b, GIT_DIFF_BASE)
+    strings.write_string(&b, " --")
+    for path in paths {
+        quoted, ok := git_quote_path(path, context.temp_allocator)
+        if !ok {
+            return strings.clone(GIT_DIFF_BASE, allocator)
+        }
+        strings.write_byte(&b, ' ')
+        strings.write_string(&b, quoted)
+        if strings.builder_len(b) > GIT_DIFF_CMD_MAX {
+            return strings.clone(GIT_DIFF_BASE, allocator)
+        }
+    }
+    return strings.clone(strings.to_string(b), allocator)
 }
 
 @(private = "file")
@@ -52,9 +101,7 @@ git_status_worker :: proc(job: ^Git_Status_Job) {
     // -z complicates rename parsing; the plain porcelain format is enough for
     // highlighting, and git_unquote_path undoes the quoting -z would have avoided.
     job.output = shell.run("git status --porcelain", job.owner.workspace_dir)
-    // --unified=0 drops context lines, leaving just the changed ranges the
-    // gutter needs. Fails harmlessly (empty diff) on a repo with no commits yet.
-    job.diff_output = shell.run("git diff HEAD --unified=0 --no-color", job.owner.workspace_dir)
+    job.diff_output = shell.run(job.diff_cmd, job.owner.workspace_dir)
 
     sync.lock(&job.owner.io_mutex)
     append(&job.owner.finished_git, job)
@@ -78,6 +125,7 @@ thor_apply_git_status :: proc(thor: ^Thor, job: ^Git_Status_Job) {
     git_parse_diff(thor, job.diff_output, &diff)
     git_apply_diff(thor, &status, &diff)
 
+    delete(job.diff_cmd)
     delete(job.output)
     delete(job.diff_output)
     free(job)

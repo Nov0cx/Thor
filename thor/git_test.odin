@@ -201,6 +201,33 @@ native :: proc(parts: ..string) -> string {
     return joined
 }
 
+// The diff is scoped to the open files, since git_apply_diff throws away every
+// hunk outside them. The fallbacks matter more than the fast path: a pathspec
+// that cannot be built must leave a whole-repo diff, never a broken command.
+@(test)
+test_git_diff_command_scopes_to_open_files :: proc(t: ^testing.T) {
+    whole := git_diff_command(nil)
+    testing.expect(t, !strings.contains(whole, " -- "), "nothing open should diff the whole repo")
+
+    scoped := git_diff_command({"src/a b.odin", "src/c.odin"})
+    testing.expect(t, strings.has_prefix(scoped, whole), "the scoped diff keeps the base command")
+    testing.expectf(t, strings.contains(scoped, `"src/a b.odin"`), "a path with a space is unquoted: %s", scoped)
+    testing.expectf(t, strings.contains(scoped, `"src/c.odin"`), "the second path is missing: %s", scoped)
+
+    // Forty characters per path, so the budget is passed well before the end.
+    long := strings.repeat("p", 40, context.temp_allocator)
+    many := make([dynamic]string, context.temp_allocator)
+    for _ in 0 ..< GIT_DIFF_CMD_MAX / 20 {
+        append(&many, long)
+    }
+    testing.expect_value(t, git_diff_command(many[:]), whole)
+
+    when ODIN_OS == .Windows {
+        // git_quote_path has no safe escape for an embedded quote there.
+        testing.expect_value(t, git_diff_command({`src\a"b.odin`}), whole)
+    }
+}
+
 @(private = "file")
 expect_git_status :: proc(
     t: ^testing.T,

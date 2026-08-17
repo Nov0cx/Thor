@@ -25,12 +25,20 @@ thor_init_watcher :: proc(thor: ^Thor) {
     watch.watcher_subscribe(&thor.watcher, thor_watch_content, thor)
 }
 
+// Floor between two watcher-driven git refreshes. The inflight/dirty pair
+// collapses concurrent requests but has no time component, so a burst re-ran
+// `git status` and `git diff` back to back for as long as it lasted.
+GIT_STATUS_INTERVAL :: 250 * time.Millisecond
+
 // Run-loop tick: dispatch the buffered changes to the subscribers (which set the
 // coalescing flags and kick reloads), then apply the batched explorer refresh at
 // most once — a save or a `git` command can fire a burst of events. The
 // quick-open index follows the same tree-shape signal, but on its own
 // FILE_INDEX_INTERVAL throttle so a build writing into the tree cannot keep a
-// walk permanently running.
+// walk permanently running. Git status has a shorter floor of its own; the flag
+// stays set while it blocks, so the refresh lands on a later frame. An explicit
+// action (a save, a menu refresh, a finished git op) calls
+// thor_refresh_git_status directly and is never delayed.
 thor_poll_watcher :: proc(thor: ^Thor) {
     watch.watcher_poll(&thor.watcher)
 
@@ -39,7 +47,7 @@ thor_poll_watcher :: proc(thor: ^Thor) {
         widgets.tree_refresh(thor.tree)
         thor.file_index_dirty = true
     }
-    if thor.watch_git_dirty {
+    if thor.watch_git_dirty && time.tick_since(thor.git_status_at) >= GIT_STATUS_INTERVAL {
         thor.watch_git_dirty = false
         thor_refresh_git_status(thor)
         // The open modal follows outside changes (a terminal commit, an
