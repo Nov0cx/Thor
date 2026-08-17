@@ -29,6 +29,37 @@ change_of :: proc(changes: []Change, path: string) -> (Change, bool) {
     return {}, false
 }
 
+// The per-event filter the recursive Windows watcher applies. A skipped
+// directory still reports itself; only what is inside it is noise.
+@(test)
+test_scan_skip_rel_covers_contents_only :: proc(t: ^testing.T) {
+    cases := []struct{rel: string, skip: bool} {
+        {"src\\main.odin", false},
+        {"node_modules", false},
+        {"node_modules\\pkg\\dist\\a.js", true},
+        {"node_modules/pkg/dist/a.js", true},
+        {"web\\node_modules\\pkg\\a.js", true},
+        {"node_modules_helper.odin", false},
+        {"src\\node_modules_helper.odin", false},
+        {".git\\index", false},
+        {".git\\objects", false},
+        {".git\\objects\\ab\\cdef", true},
+        {".git\\lfs\\objects\\a", true},
+        {".git\\refs\\heads\\master", false},
+        {"objects\\ab\\cdef", false}, // only git's own object store is noise
+        {"", false},
+    }
+    for c in cases {
+        testing.expectf(
+            t,
+            scan_skip_rel("D:\\work\\repo", c.rel) == c.skip,
+            "scan_skip_rel(%q) should be %v",
+            c.rel,
+            c.skip,
+        )
+    }
+}
+
 @(test)
 test_scan_finish_sorts_and_keeps_paths :: proc(t: ^testing.T) {
     s := scan_of({{path = "b/x"}, {path = "a"}, {path = "a/z"}})

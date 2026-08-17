@@ -196,6 +196,48 @@ test_watcher_poll_caps_one_drain :: proc(t: ^testing.T) {
     testing.expect_value(t, len(w.pending) - w.head, 50)
 }
 
+// A burst that outruns the drain never empties the queue, so the tail moves
+// down once the cursor passes WATCH_COMPACT_AT — without it `pending` grows for
+// as long as the burst lasts. Hand-built like the test above, for the same
+// reason. The change after the compaction proves nothing was lost or repeated.
+@(test)
+test_watcher_poll_compacts_a_long_burst :: proc(t: ^testing.T) {
+    w: Watcher
+    w.allocator = context.allocator
+    w.pending = make([dynamic]Change)
+    w.subscribers = make([dynamic]Subscriber)
+    w.running = true
+    defer {
+        for c in w.pending[w.head:] {
+            delete(c.path, w.allocator)
+        }
+        delete(w.pending)
+        delete(w.subscribers)
+    }
+
+    sink: Sink
+    defer sink_destroy(&sink)
+    watcher_subscribe(&w, sink_collect, &sink)
+
+    total := WATCH_COMPACT_AT + 3 * WATCH_DRAIN_MAX
+    for i in 0 ..< total {
+        watch_emit(&w, .Modified, fmt.tprintf("file_%d.tmp", i))
+    }
+
+    polls := (WATCH_COMPACT_AT + WATCH_DRAIN_MAX - 1) / WATCH_DRAIN_MAX
+    for _ in 0 ..< polls {
+        watcher_poll(&w)
+    }
+    dispatched := polls * WATCH_DRAIN_MAX
+    testing.expect_value(t, w.head, 0)
+    testing.expect_value(t, len(w.pending), total - dispatched)
+    testing.expect_value(t, len(sink.changes), dispatched)
+
+    sink_clear(&sink)
+    watcher_poll(&w)
+    testing.expect_value(t, sink.changes[0].path, fmt.tprintf("file_%d.tmp", dispatched))
+}
+
 // Closing the workspace destroys the watcher and quitting destroys it again, so
 // the second destroy must free nothing twice.
 @(test)

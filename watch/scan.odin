@@ -80,6 +80,31 @@ scan_skip_dir :: proc(parent, name: string) -> bool {
     return false
 }
 
+// True for a path that lies *inside* a directory scan_skip_dir excludes, given
+// `rel` relative to `root` in either separator. The directory itself is not
+// skipped, so its own create/delete still reports. The recursive Windows
+// watcher reports one such path per event and filters here; a walk filters by
+// not descending, and inotify by not watching.
+@(private)
+scan_skip_rel :: proc(root, rel: string) -> bool {
+    parent := filepath.base(root)
+    rest := rel
+    for {
+        cut := strings.index_any(rest, "/\\")
+        if cut < 0 {
+            return false // the last segment is the path itself, not a parent
+        }
+        name := rest[:cut]
+        if name != "" && scan_skip_dir(parent, name) {
+            return true
+        }
+        if name != "" {
+            parent = name
+        }
+        rest = rest[cut + 1:]
+    }
+}
+
 // Reads one directory and recurses into its subdirectories. A directory that
 // cannot be read (removed while the walk runs, or not ours to read) counts as
 // empty: the next scan reports whatever it finds there then.

@@ -161,7 +161,10 @@ watch_parse :: proc(w: ^Watcher, data: []u8) {
         name_wchars := int(info.file_name_length) / size_of(win32.WCHAR)
         name_ptr := cast([^]u16) &info.file_name
         rel, conv_err := win32.utf16_to_utf8(name_ptr[:name_wchars], context.temp_allocator)
-        if conv_err == nil && rel != "" {
+        // One recursive handle covers the whole tree, so a dependency tree or
+        // git's object store is filtered per event here. The other platforms
+        // never generate the event at all.
+        if conv_err == nil && rel != "" && !scan_skip_rel(w.root, rel) {
             path := strings.concatenate({w.root, "\\", rel}, context.temp_allocator)
             kind: Change_Kind
             switch info.action {

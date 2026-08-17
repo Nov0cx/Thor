@@ -95,6 +95,12 @@ watcher_subscribe :: proc(w: ^Watcher, callback: Callback, data: rawptr) {
 // instead of stalling one; the rest stays in `pending` for the next poll.
 WATCH_DRAIN_MAX :: 256
 
+// How far the read cursor may run ahead before the dispatched head is dropped.
+// Without it a burst longer than the drain rate grows `pending` for as long as
+// it lasts, since the buffer is otherwise reclaimed only once it empties.
+@(private)
+WATCH_COMPACT_AT :: 4096
+
 // Drains up to WATCH_DRAIN_MAX changes gathered since the last call and
 // delivers each to every subscriber. Call once per frame on the main thread.
 // Change paths are freed after dispatch, so a subscriber must copy anything
@@ -110,9 +116,15 @@ watcher_poll :: proc(w: ^Watcher) {
     append(&changes, ..w.pending[w.head:][:count])
     w.head += count
     // Reclaim only once the queue is empty; a burst is dispatched by moving the
-    // cursor, not by memmoving the tail under the mutex on every poll.
+    // cursor, not by memmoving the tail under the mutex on every poll. A burst
+    // that outruns the drain never empties it, so the tail moves down once the
+    // cursor is far enough for the copy to be worth its cost.
     if w.head >= len(w.pending) {
         clear(&w.pending)
+        w.head = 0
+    } else if w.head >= WATCH_COMPACT_AT {
+        remaining := copy(w.pending[:], w.pending[w.head:])
+        resize(&w.pending, remaining)
         w.head = 0
     }
     sync.unlock(&w.mutex)
