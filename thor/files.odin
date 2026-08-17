@@ -469,6 +469,9 @@ thor_open_file_at :: proc(thor: ^Thor, path: string) -> ^Open_File {
 // pointed at old_path; a folder never matches one.
 @(private)
 thor_retarget_open_file :: proc(thor: ^Thor, old_path, new_path: string) {
+    // A worker borrows file.path, which the free below ends. The callers settle
+    // before the rename itself, so this settles nothing in the usual path.
+    thor_settle_jobs_under(thor, old_path)
     canonical := new_path
     if abs, err := filepath.abs(new_path, context.temp_allocator); err == nil {
         canonical = abs
@@ -1361,16 +1364,18 @@ thor_drain_io :: proc(thor: ^Thor) {
     }
 }
 
-// Stops a save that is writing under `path` and waits for it to reap. The delete
-// runs on its own worker, so without this the two race and a write landing after
-// the removal puts the file back. Zombie files count: a tab closed earlier can
-// still be saving. Blocks the frame, which a save already in flight is short
-// enough for.
+// Stops a save that is writing under `path` and waits for every job on those
+// files to reap. A delete or a rename runs against the same names, so without
+// this the two race: a write landing after a delete puts the file back, one
+// landing after a rename re-creates the old name, and Load_Job.path/Save_Job.path
+// borrow file.path, which a retarget frees. Zombie files count: a tab closed
+// earlier can still be saving. Blocks the frame, which a job already in flight is
+// short enough for.
 @(private = "file")
-thor_settle_saves_under :: proc(thor: ^Thor, path: string) {
+thor_settle_jobs_under :: proc(thor: ^Thor, path: string) {
     for {
-        pending := thor_cancel_saves_under(thor.open_files, path)
-        pending |= thor_cancel_saves_under(thor.zombie_files, path)
+        pending := thor_cancel_jobs_under(thor.open_files, path)
+        pending |= thor_cancel_jobs_under(thor.zombie_files, path)
         if !pending {
             return
         }
@@ -1380,15 +1385,18 @@ thor_settle_saves_under :: proc(thor: ^Thor, path: string) {
     }
 }
 
-// Marks every save under `path` as cancelled, answering whether one is still
-// writing. Re-run each round: thor_process_io frees the records that reap.
+// Marks every save under `path` as cancelled, answering whether a job on one of
+// those files is still running. Re-run each round: thor_process_io frees the
+// records that reap. A load has no cancel of its own and is waited out.
 @(private = "file")
-thor_cancel_saves_under :: proc(files: [dynamic]^Open_File, path: string) -> (pending: bool) {
+thor_cancel_jobs_under :: proc(files: [dynamic]^Open_File, path: string) -> (pending: bool) {
     for file in files {
-        if !file.saving || !thor_path_within(file.path, path) {
+        if file.pending_jobs == 0 || !thor_path_within(file.path, path) {
             continue
         }
-        sync.atomic_store(&file.save_cancel, true)
+        if file.saving {
+            sync.atomic_store(&file.save_cancel, true)
+        }
         pending = true
     }
     return
@@ -1463,7 +1471,7 @@ thor_confirm_delete :: proc(data: rawptr) {
 
     entries: [dynamic]File_Op_Entry
     for path in thor.pending_delete_paths {
-        thor_settle_saves_under(thor, path)
+        thor_settle_jobs_under(thor, path)
         thor_close_files_under(thor, path)
         append(&entries, File_Op_Entry{src = strings.clone(path)})
     }
@@ -1518,6 +1526,9 @@ thor_confirm_rename :: proc(data: rawptr, name: string) {
         thor_flash_status(thor, "Could not rename: already exists", is_error = true)
         return
     }
+    // Before the rename, not after: a write still open on the old name fails it on
+    // Windows, and one that lands after it re-creates the name the user renamed away.
+    thor_settle_jobs_under(thor, old_path)
     if err := os.rename(old_path, new_path); err != nil {
         if !thor_is_cross_device_error(err) {
             log.warnf("Failed to rename %q to %q: %v", old_path, new_path, err)
@@ -1572,6 +1583,7 @@ thor_tree_move :: proc(data: rawptr, src_path: string, dst_dir: string) {
         thor_flash_status(thor, "Could not move: already exists", is_error = true)
         return
     }
+    thor_settle_jobs_under(thor, src_path)
     if err := os.rename(src_path, new_path); err != nil {
         if !thor_is_cross_device_error(err) {
             log.warnf("Failed to move %q to %q: %v", src_path, new_path, err)
@@ -1748,6 +1760,7 @@ thor_rename_resource :: proc(thor: ^Thor, old_path, new_path: string, overwrite:
     if !overwrite && os.exists(new_path) {
         return false, "the target already exists"
     }
+    thor_settle_jobs_under(thor, old_path)
     if err := os.rename(old_path, new_path); err != nil {
         if !thor_is_cross_device_error(err) {
             return false, "could not rename the file"
@@ -1772,6 +1785,7 @@ thor_delete_resource :: proc(thor: ^Thor, path: string) -> (ok: bool, reason: st
     if !os.exists(path) {
         return false, "the file no longer exists"
     }
+    thor_settle_jobs_under(thor, path)
     if _, index := thor_find_open_file(thor, path); index >= 0 {
         thor_close_file(thor, index)
     }
