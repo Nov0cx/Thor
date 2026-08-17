@@ -29,6 +29,16 @@ swap_paths :: proc(install: string, name: string, allocator := context.temp_allo
     return joined, strings.concatenate({joined, OLD_SUFFIX}, allocator), true
 }
 
+// Removes a file or a whole directory. `os.remove_all` opens its path as a
+// directory, which answers ENOTDIR for a file on Darwin, so a file is unlinked.
+@(private)
+remove_path :: proc(path: string) -> os.Error {
+    if os.is_dir(path) {
+        return os.remove_all(path)
+    }
+    return os.remove(path)
+}
+
 // Moves each of `names` aside inside `install` and copies the staged copy in.
 // All or none: the stage is read first, so a name the archive does not hold
 // fails before anything moves, and a failure after the first rename puts every
@@ -127,7 +137,7 @@ swap_dirs :: proc(install: string, staged: string, dirs: []string) -> (replaced:
             failed += 1
             continue
         }
-        if err := os.remove_all(old); err != nil && os.exists(old) {
+        if err := remove_path(old); err != nil && os.exists(old) {
             log.errorf("Could not remove %q: %v", old, err)
             failed += 1
             continue

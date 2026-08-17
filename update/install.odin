@@ -288,7 +288,7 @@ restore_names :: proc(install: string, names: []string) {
             continue
         }
         if os.exists(live_path) {
-            if err := os.remove_all(old); err != nil {
+            if err := remove_path(old); err != nil {
                 log.warnf("Could not remove %q: %v", old, err)
             }
             continue

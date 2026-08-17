@@ -1,5 +1,6 @@
 # 2026.08.7
 
+- macOS: an update drops the backup of the binary it replaced. The removal asked for a directory, so `thor.old` stayed beside the new build.
 - Windows starts in under a second again. raylib scans for game controllers while it makes the window, which reads every HID device on the machine; one that does not answer cost 40 s of the start. Thor holds the scan back for the length of window creation.
 - Window creation slower than two seconds is written to `user/thor.log` with what to look at.
 - New Troubleshooting page in the manual: the log file, a slow start, a language server or plugin that stays quiet.
