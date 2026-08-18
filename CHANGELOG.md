@@ -1,3 +1,8 @@
+# 2026.08.8
+
+- Closing a tab no longer crashes the editor. The gutter kept the diagnostics and git diff marks of the closed file, which are freed with it, and the same frame drew from them.
+- A file that has just finished loading opens in its pane and reaches the language server. The result of the read was used after it was freed.
+
 # 2026.08.7
 
 - macOS: an update drops the backup of the binary it replaced. The removal asked for a directory, so `thor.old` stayed beside the new build.

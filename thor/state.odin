@@ -79,6 +79,10 @@ thor_bind_pane :: proc(thor: ^Thor, pane: int, keep_view := false) {
         file = thor.open_files[index]
     }
     thor_bind_editor(thor, thor_pane_editor(thor, pane), file, keep_view)
+    // The rebind dropped the previous buffer's borrowed spans; push this file's
+    // now, so the gutter is right for the rest of the frame.
+    thor_sync_pane_diagnostics(thor, pane)
+    thor_sync_pane_diff(thor, pane)
 }
 
 // Binds a single editor widget to a file's buffer, or shows a placeholder while
@@ -142,11 +146,14 @@ thor_apply_file_highlights :: proc(thor: ^Thor, file: ^Open_File) {
 // offsets). Called every frame — pushing a borrowed slice is just a pointer set.
 thor_sync_pane_diagnostics :: proc(thor: ^Thor, pane: int) {
     index := thor.pane_file[pane]
+    editor := thor_pane_editor(thor, pane)
     if index < 0 || index >= len(thor.open_files) {
+        // An empty pane must drop what it holds: the slice belongs to a
+        // file that can be freed.
+        widgets.editor_set_diagnostics(editor, nil)
         return
     }
     file := thor.open_files[index]
-    editor := thor_pane_editor(thor, pane)
     if file.loaded && file.diagnostics_revision == file.state.revision && len(file.diagnostics) > 0 {
         widgets.editor_set_diagnostics(editor, file.diagnostics[:])
     } else {
@@ -158,11 +165,14 @@ thor_sync_pane_diagnostics :: proc(thor: ^Thor, pane: int) {
 // thor_sync_pane_diagnostics — pushing a borrowed slice is just a pointer set.
 thor_sync_pane_diff :: proc(thor: ^Thor, pane: int) {
     index := thor.pane_file[pane]
+    editor := thor_pane_editor(thor, pane)
     if index < 0 || index >= len(thor.open_files) {
+        // An empty pane must drop what it holds: the slice belongs to a
+        // file that can be freed.
+        widgets.editor_set_diff_lines(editor, nil)
         return
     }
     file := thor.open_files[index]
-    editor := thor_pane_editor(thor, pane)
     if file.loaded && len(file.diff_lines) > 0 {
         widgets.editor_set_diff_lines(editor, file.diff_lines[:])
     } else {

@@ -1203,8 +1203,11 @@ thor_process_io :: proc(thor: ^Thor) {
 
         file := job.file
         reload := job.reload
-        opened ||= !reload && !job.image && job.ok
-        if job.image {
+        // Read before the free below; job is gone by the time these decide
+        // the .Opened notify and the re-bind.
+        image := job.image
+        opened ||= !reload && !image && job.ok
+        if image {
             thor_apply_image(thor, job)
         } else if reload {
             thor_apply_reload(thor, job)
@@ -1249,7 +1252,7 @@ thor_process_io :: proc(thor: ^Thor) {
             }
         }
 
-        if job.image {
+        if image {
             // thor_update_editor_view already swaps the image view in per
             // frame from texture_loaded; binding here is what settles the
             // editor's placeholder text underneath it, on both an open and a

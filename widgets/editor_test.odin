@@ -633,3 +633,31 @@ test_completion_narrows_a_complete_owner_list :: proc(t: ^testing.T) {
     editor_handle_event(&editor.widget, nil, &tab)
     testing.expect_value(t, textedit.text(&state), "ALPHA\n")
 }
+
+// Diagnostics and diff lines are borrowed from the open file, whose owner frees
+// them the moment its tab closes. Binding another buffer must drop both, or the
+// same frame's draw reads freed memory.
+@(test)
+test_set_state_drops_borrowed_spans :: proc(t: ^testing.T) {
+    state: textedit.State
+    textedit.init(&state)
+    defer textedit.destroy(&state)
+    textedit.set_text(&state, "alpha\nbeta\n")
+
+    editor: Editor
+    defer delete(editor.visual_rows)
+    editor.font_size = 16
+    editor.bounds = rl.Rectangle {0, 0, 600, 600}
+    editor_set_state(&editor, &state)
+
+    diagnostics := []Diagnostic {{start = 0, end = 5, line = 0, severity = .Error, message = "bad"}}
+    diffs := []Diff_Line_Kind {.Added, .Modified}
+    editor_set_diagnostics(&editor, diagnostics)
+    editor_set_diff_lines(&editor, diffs)
+    testing.expect(t, len(editor.diagnostics) == 1, "the setter pushes the borrowed diagnostics")
+    testing.expect(t, len(editor.diff_lines) == 2, "the setter pushes the borrowed diff lines")
+
+    editor_set_state(&editor, nil)
+    testing.expect(t, editor.diagnostics == nil, "closing the buffer drops the borrowed diagnostics")
+    testing.expect(t, editor.diff_lines == nil, "closing the buffer drops the borrowed diff lines")
+}

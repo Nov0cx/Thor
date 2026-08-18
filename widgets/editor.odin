@@ -576,6 +576,10 @@ editor_set_state :: proc(editor: ^Editor, state: ^textedit.State) {
     editor.state = state
     editor.scroll_y = 0
     editor.highlights = nil
+    // Borrowed from the previous buffer, whose owner can be freed right after
+    // this rebind (a tab close). The owner pushes the new file's spans back.
+    editor.diagnostics = nil
+    editor.diff_lines = nil
     editor.recenter_caret = -1
     // Rows were built from the previous buffer; drop them so layout/draw rebuild
     // against the new one. A bare revision check can miss the swap when the two
