@@ -8,7 +8,7 @@ import "core:fmt"
 
 // Release version, year.month.patch. The same value the top CHANGELOG.md
 // heading carries.
-VERSION :: "2026.08.7"
+VERSION :: "2026.08.8"
 
 USAGE ::
 `Usage: thor [path...]
