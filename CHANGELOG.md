@@ -2,6 +2,7 @@
 
 - Closing a tab no longer crashes the editor. The gutter kept the diagnostics and git diff marks of the closed file, which are freed with it, and the same frame drew from them.
 - A file that has just finished loading opens in its pane and reaches the language server. The result of the read was used after it was freed.
+- The editor no longer stops at random after a file opens. The path of an open file was freed every time a pane bound it, and freed a second time when the file closed.
 
 # 2026.08.7
 

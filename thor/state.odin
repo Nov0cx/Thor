@@ -109,8 +109,7 @@ thor_bind_editor :: proc(thor: ^Thor, editor: ^widgets.Editor, file: ^Open_File,
     widgets.editor_set_completion_semantic(editor, lang.manager_allows(&thor.lang_manager, ext, .Completion))
     widgets.editor_set_on_type_enabled(editor, lang.manager_allows(&thor.lang_manager, ext, .Format_On_Type))
     // What a snippet's $TM_FILENAME and $TM_DIRECTORY resolve to.
-    dir := filepath.dir(file.path)
-    defer delete(dir)
+    dir := filepath.dir(file.path) // a slice of file.path, no allocation
     widgets.editor_set_snippet_vars(editor, file.path, dir)
     if keep_view {
         widgets.editor_reload_state(editor, &file.state)
