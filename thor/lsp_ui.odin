@@ -6,8 +6,7 @@ import "core:strings"
 import "../lang"
 import "../lang/lsp"
 import "../plugin"
-import "../ui"
-import "../widgets"
+import ui "../vendor/loom/loom"
 
 // The "Language Servers" settings category: what every configured server is,
 // what state it is in, and the actions that get it working. It replaces the
@@ -89,7 +88,7 @@ thor_lsp_group :: proc(id: string) -> string {
 thor_cmd_open_language_servers :: proc(data: rawptr) {
     thor := cast(^Thor) data
     thor_populate_settings_view(thor)
-    widgets.settings_view_open_at(thor.settings_view, &thor.ui_context, LSP_CATEGORY)
+    thor_settings_open_at(thor, LSP_CATEGORY)
 }
 
 // Picks one configured server and restarts it, for the palette. Ids, not
@@ -102,9 +101,8 @@ thor_cmd_restart_one_language_server :: proc(data: rawptr) {
         thor_flash_status(thor, "No language servers are configured", is_error = true)
         return
     }
-    widgets.command_palette_pick(
-        thor.command_palette,
-        &thor.ui_context,
+    thor_palette_pick(
+        thor,
         "Restart which language server?",
         ids,
         thor_lsp_pick_restart,
@@ -120,14 +118,14 @@ thor_lsp_pick_restart :: proc(data: rawptr, choice: string) {
 // Builds the whole category. Called from thor_populate_settings_view, so it is
 // rebuilt on open, on a scope switch and after every change.
 thor_populate_lsp_category :: proc(thor: ^Thor) {
-    view := thor.settings_view
-    widgets.settings_view_begin_category(view, LSP_CATEGORY, "Language Servers", "server")
+    view := &thor.settings
+    thor_settings_begin_category(view, LSP_CATEGORY, "Language Servers", "server")
 
     thor_lsp_populate_problems(thor)
 
-    widgets.settings_view_add_action(view, thor_lsp_action_id(.Restart, ""), "Restart Language Servers", "Restart")
-    widgets.settings_view_add_action(view, thor_lsp_action_id(.Add, ""), "Add a Server...", "Add")
-    widgets.settings_view_add_action(view, thor_lsp_action_id(.Rescan, ""), "Look for Installed Servers Again", "Scan")
+    thor_settings_add_action(view, thor_lsp_action_id(.Restart, ""), "Restart Language Servers", "Restart")
+    thor_settings_add_action(view, thor_lsp_action_id(.Add, ""), "Add a Server...", "Add")
+    thor_settings_add_action(view, thor_lsp_action_id(.Rescan, ""), "Look for Installed Servers Again", "Scan")
 
     for id in lsp.client_server_ids(thor.lsp_client, context.temp_allocator) {
         thor_lsp_populate_server(thor, id)
@@ -143,8 +141,8 @@ thor_lsp_populate_problems :: proc(thor: ^Thor) {
         return
     }
 
-    view := thor.settings_view
-    widgets.settings_view_begin_group(
+    view := &thor.settings
+    thor_settings_begin_group(
         view,
         "language_servers.problems",
         "Configuration Problems",
@@ -156,15 +154,15 @@ thor_lsp_populate_problems :: proc(thor: ^Thor) {
         if problem.file != "" {
             label = fmt.tprintf("%s · %s", problem.file, label)
         }
-        widgets.settings_view_add_info(view, fmt.tprintf("lsp_info:problem:%d", index), label, problem.message, .Bad)
+        thor_settings_add_info(view, fmt.tprintf("lsp_info:problem:%d", index), label, problem.message, .Bad)
     }
     for path in ([?]string{lsp.GLOBAL_CONFIG, lsp.USER_CONFIG}) {
         if !thor_lsp_problem_names(problems, path) {
             continue
         }
-        widgets.settings_view_add_action(view, thor_lsp_action_id(.Open, path), fmt.tprintf("Open %s", path), "Open")
+        thor_settings_add_action(view, thor_lsp_action_id(.Open, path), fmt.tprintf("Open %s", path), "Open")
     }
-    widgets.settings_view_end_group(view)
+    thor_settings_end_group(view)
 }
 
 @(private = "file")
@@ -181,7 +179,7 @@ thor_lsp_problem_names :: proc(problems: []lsp.Config_Problem, path: string) -> 
 // feature group settings_ui.odin's own row ids drive.
 @(private = "file")
 thor_lsp_populate_server :: proc(thor: ^Thor, id: string) {
-    view := thor.settings_view
+    view := &thor.settings
     status, found := lsp.client_server_status(thor.lsp_client, id, context.temp_allocator, probe = false)
     if !found {
         return
@@ -193,14 +191,14 @@ thor_lsp_populate_server :: proc(thor: ^Thor, id: string) {
     on, features := thor_backend_gate(thor, &thor.config, id)
     summary, summary_tone := thor_lsp_summary(status, on)
 
-    widgets.settings_view_begin_group(
+    thor_settings_begin_group(
         view, thor_lsp_group(id), status.name, collapsed = true, value = summary, tone = summary_tone,
     )
 
-    info :: proc(view: ^widgets.Settings_View, id, field, label, value: string, tone := widgets.Settings_Tone.Normal) {
+    info :: proc(view: ^Settings_State, id, field, label, value: string, tone := Settings_Tone.Normal) {
         // Ids stay distinct per server, so a row always names one thing even
         // though nothing clicks an info row.
-        widgets.settings_view_add_info(view, fmt.tprintf("lsp_info:%s:%s", id, field), label, value, tone)
+        thor_settings_add_info(view, fmt.tprintf("lsp_info:%s:%s", id, field), label, value, tone)
     }
 
     info(view, id, "state", "Status", lsp.server_state_name(status.state), thor_lsp_state_tone(status.state))
@@ -227,41 +225,41 @@ thor_lsp_populate_server :: proc(thor: ^Thor, id: string) {
         info(view, id, "error", "Last Error", status.last_error, .Bad)
     }
 
-    widgets.settings_view_add_choice(view, thor_language_backend_id(id), "Enabled", thor_on_off_label(on))
-    widgets.settings_view_add_action(view, thor_lsp_action_id(.Restart, id), "Restart This Server", "Restart")
+    thor_settings_add_choice(view, thor_language_backend_id(id), "Enabled", thor_on_off_label(on))
+    thor_settings_add_action(view, thor_lsp_action_id(.Restart, id), "Restart This Server", "Restart")
     if !status.installed && status.install_command != "" {
-        widgets.settings_view_add_action(view, thor_lsp_action_id(.Install, id), "Install It", "Install")
+        thor_settings_add_action(view, thor_lsp_action_id(.Install, id), "Install It", "Install")
     }
     if status.setup_command != "" {
-        widgets.settings_view_add_action(view, thor_lsp_action_id(.Setup, id), "Set Up This Project", "Configure")
+        thor_settings_add_action(view, thor_lsp_action_id(.Setup, id), "Set Up This Project", "Configure")
     }
     if status.docs_url != "" {
-        widgets.settings_view_add_action(view, thor_lsp_action_id(.Docs, id), "Documentation", "Open")
+        thor_settings_add_action(view, thor_lsp_action_id(.Docs, id), "Documentation", "Open")
     }
-    widgets.settings_view_end_group(view)
+    thor_settings_end_group(view)
 
     if !on {
         return
     }
-    widgets.settings_view_begin_group(
+    thor_settings_begin_group(
         view, thor_language_backend_feature_group(id), fmt.tprintf("%s Features", status.name), collapsed = true,
         value = fmt.tprintf("%d of %d on", card(features), len(lang.Request_Kind)),
     )
     for kind in lang.Request_Kind {
-        widgets.settings_view_add_choice(
+        thor_settings_add_choice(
             view,
             thor_language_backend_feature_id(id, kind),
             LANGUAGE_FEATURE_LABELS[kind],
             thor_on_off_label(kind in features),
         )
     }
-    widgets.settings_view_end_group(view)
+    thor_settings_end_group(view)
 }
 
 // The one line a folded group shows. Off and not-installed come before the
 // running state: both mean the language has no server whatever the process did.
 @(private = "file")
-thor_lsp_summary :: proc(status: lsp.Server_Status, enabled: bool) -> (string, widgets.Settings_Tone) {
+thor_lsp_summary :: proc(status: lsp.Server_Status, enabled: bool) -> (string, Settings_Tone) {
     switch {
     case !enabled:
         return "Off", .Normal
@@ -274,7 +272,7 @@ thor_lsp_summary :: proc(status: lsp.Server_Status, enabled: bool) -> (string, w
 }
 
 @(private = "file")
-thor_lsp_state_tone :: proc(state: lsp.Server_State) -> widgets.Settings_Tone {
+thor_lsp_state_tone :: proc(state: lsp.Server_State) -> Settings_Tone {
     #partial switch state {
     case .Ready:
         return .Good
@@ -363,9 +361,8 @@ thor_lsp_install :: proc(thor: ^Thor, id: string) {
     thor.lsp_install_prompt = strings.clone(
         fmt.tprintf("Install %s with: %s", status.name, status.install_command),
     )
-    widgets.command_palette_confirm(
-        thor.command_palette,
-        &thor.ui_context,
+    thor_palette_confirm(
+        thor,
         thor.lsp_install_prompt,
         thor_lsp_confirm_install,
         thor,
@@ -379,14 +376,15 @@ thor_lsp_confirm_install :: proc(data: rawptr) {
     if command == "" {
         return
     }
-    if thor.console == nil {
+    console := thor_active_console(thor)
+    if console == nil {
         thor_flash_status(thor, "Open a terminal first", is_error = true)
         return
     }
-    if !ui.signal_get(&thor.console_visible) {
-        ui.signal_set(&thor.console_visible, true)
+    if !signal_get(&thor.console_visible) {
+        signal_set(&thor.console_visible, true)
     }
-    if !widgets.console_run_command(thor.console, command) {
+    if !thor_console_run_command(console, command) {
         thor_flash_status(thor, "A command is already running", is_error = true)
         return
     }

@@ -7,10 +7,10 @@ import "core:strings"
 import "core:testing"
 import "core:time"
 
+import "../editview"
 import "../textedit"
-import "../ui"
+import ui "../vendor/loom/loom"
 import "../watch"
-import "../widgets"
 
 // Exercises the async load -> edit -> save -> close pipeline headlessly:
 // only the editor widget is real, no window or GL is needed. Run from the
@@ -26,37 +26,23 @@ test_async_file_roundtrip :: proc(t: ^testing.T) {
 
     thor := new(Thor)
     defer free(thor)
-    thor.active_file = ui.make_signal(-1)
+    defer editview.editor_destroy(&thor.editor)
+    defer editview.editor_destroy(&thor.editor2)
+    thor.active_file = make_signal(-1)
     thor.open_files = make([dynamic]^Open_File)
     thor.zombie_files = make([dynamic]^Open_File)
     thor.finished_loads = make([dynamic]^Load_Job)
     thor.finished_saves = make([dynamic]^Save_Job)
     thor.pane_file = {-1, -1}
-    thor.editor = widgets.editor_create("test-editor")
-    thor.editor2 = widgets.editor_create("test-editor2")
     // thor_update_files picks the view for the active file, so the image, model
     // and markdown views have to exist even though nothing draws them here.
-    thor.editor_split_row = widgets.stack_create("test-editor-split-row", .Horizontal)
-    thor.image_view = widgets.image_view_create("test-image-view")
-    thor.model_view = widgets.model_view_create("test-model-view")
-    thor.markdown_view = widgets.markdown_view_create("test-markdown-view")
-    thor.markdown_view2 = widgets.markdown_view_create("test-markdown-view2")
     // thor_update_editor_view also swaps the welcome page in when there is no
     // workspace, which this headless Thor never sets.
-    thor.welcome_panel = widgets.panel_create("test-welcome-panel", {})
     defer {
         delete(thor.open_files)
         delete(thor.zombie_files)
         delete(thor.finished_loads)
         delete(thor.finished_saves)
-        widgets.editor_destroy(&thor.editor.widget)
-        widgets.editor_destroy(&thor.editor2.widget)
-        widgets.stack_destroy(&thor.editor_split_row.widget)
-        widgets.image_view_destroy(&thor.image_view.widget)
-        widgets.model_view_destroy(&thor.model_view.widget)
-        widgets.markdown_view_destroy(&thor.markdown_view.widget)
-        widgets.markdown_view_destroy(&thor.markdown_view2.widget)
-        widgets.panel_destroy(&thor.welcome_panel.widget)
     }
 
     // Open: spawns the mmap loader thread and activates the tab.
@@ -101,7 +87,7 @@ test_async_file_roundtrip :: proc(t: ^testing.T) {
     testing.expect_value(t, len(thor.open_files), 0)
     testing.expect_value(t, len(thor.zombie_files), 0)
     testing.expect(t, thor.editor.state == nil, "editor still borrows a closed buffer")
-    testing.expect_value(t, ui.signal_get(&thor.active_file), -1)
+    testing.expect_value(t, signal_get(&thor.active_file), -1)
 }
 
 // Line-ending detection and CRLF collapsing now run on the load worker
@@ -119,33 +105,19 @@ test_async_load_prepares_crlf_text :: proc(t: ^testing.T) {
 
     thor := new(Thor)
     defer free(thor)
-    thor.active_file = ui.make_signal(-1)
+    defer editview.editor_destroy(&thor.editor)
+    defer editview.editor_destroy(&thor.editor2)
+    thor.active_file = make_signal(-1)
     thor.open_files = make([dynamic]^Open_File)
     thor.zombie_files = make([dynamic]^Open_File)
     thor.finished_loads = make([dynamic]^Load_Job)
     thor.finished_saves = make([dynamic]^Save_Job)
     thor.pane_file = {-1, -1}
-    thor.editor = widgets.editor_create("test-editor")
-    thor.editor2 = widgets.editor_create("test-editor2")
-    thor.editor_split_row = widgets.stack_create("test-editor-split-row", .Horizontal)
-    thor.image_view = widgets.image_view_create("test-image-view")
-    thor.model_view = widgets.model_view_create("test-model-view")
-    thor.markdown_view = widgets.markdown_view_create("test-markdown-view")
-    thor.markdown_view2 = widgets.markdown_view_create("test-markdown-view2")
-    thor.welcome_panel = widgets.panel_create("test-welcome-panel", {})
     defer {
         delete(thor.open_files)
         delete(thor.zombie_files)
         delete(thor.finished_loads)
         delete(thor.finished_saves)
-        widgets.editor_destroy(&thor.editor.widget)
-        widgets.editor_destroy(&thor.editor2.widget)
-        widgets.stack_destroy(&thor.editor_split_row.widget)
-        widgets.image_view_destroy(&thor.image_view.widget)
-        widgets.model_view_destroy(&thor.model_view.widget)
-        widgets.markdown_view_destroy(&thor.markdown_view.widget)
-        widgets.markdown_view_destroy(&thor.markdown_view2.widget)
-        widgets.panel_destroy(&thor.welcome_panel.widget)
     }
 
     thor_open_file(thor, TEST_PATH)
@@ -173,6 +145,8 @@ test_async_load_prepares_crlf_text :: proc(t: ^testing.T) {
 test_image_tab_is_not_stuck_loading :: proc(t: ^testing.T) {
     thor := new(Thor)
     defer free(thor)
+    defer editview.editor_destroy(&thor.editor)
+    defer editview.editor_destroy(&thor.editor2)
     thor.open_files = make([dynamic]^Open_File)
     defer delete(thor.open_files)
 
@@ -665,8 +639,6 @@ test_async_file_ops :: proc(t: ^testing.T) {
 
     thor := test_make_thor()
     defer test_free_thor(thor)
-    thor.tree = widgets.tree_create("test-tree", ROOT)
-    defer widgets.tree_destroy(&thor.tree.widget)
     defer delete(thor.pending_delete_paths)
 
     // Import the folder, then the same folder again: the second collides with the
@@ -709,6 +681,8 @@ test_async_file_ops :: proc(t: ^testing.T) {
 test_tab_labels_disambiguate :: proc(t: ^testing.T) {
     thor := new(Thor)
     defer free(thor)
+    defer editview.editor_destroy(&thor.editor)
+    defer editview.editor_destroy(&thor.editor2)
     thor.open_files = make([dynamic]^Open_File)
     defer delete(thor.open_files)
 
@@ -761,8 +735,6 @@ test_delete_settles_an_inflight_save :: proc(t: ^testing.T) {
 
     thor := test_make_thor()
     defer test_free_thor(thor)
-    thor.tree = widgets.tree_create("test-tree", ROOT)
-    defer widgets.tree_destroy(&thor.tree.widget)
     defer delete(thor.pending_delete_paths)
 
     thor_open_file(thor, TEST_PATH)
@@ -800,45 +772,29 @@ test_delete_settles_an_inflight_save :: proc(t: ^testing.T) {
 @(private = "file")
 test_make_thor :: proc() -> ^Thor {
     thor := new(Thor)
-    thor.active_file = ui.make_signal(-1)
+    thor.active_file = make_signal(-1)
     thor.open_files = make([dynamic]^Open_File)
     thor.zombie_files = make([dynamic]^Open_File)
     thor.finished_loads = make([dynamic]^Load_Job)
     thor.finished_saves = make([dynamic]^Save_Job)
     thor.finished_file_ops = make([dynamic]^File_Op_Job)
     thor.pane_file = {-1, -1}
-    thor.editor = widgets.editor_create("test-editor")
-    thor.editor2 = widgets.editor_create("test-editor2")
-    thor.editor_split_row = widgets.stack_create("test-editor-split-row", .Horizontal)
-    thor.image_view = widgets.image_view_create("test-image-view")
-    thor.model_view = widgets.model_view_create("test-model-view")
-    thor.markdown_view = widgets.markdown_view_create("test-markdown-view")
-    thor.markdown_view2 = widgets.markdown_view_create("test-markdown-view2")
     // thor_update_editor_view also swaps the welcome page in when there is no
     // workspace, which this headless Thor never sets.
-    thor.welcome_panel = widgets.panel_create("test-welcome-panel", {})
     // The disk-conflict prompt runs through the palette; creating it only allocates.
-    thor.command_palette = widgets.command_palette_create("test-palette")
     return thor
 }
 
 @(private = "file")
 test_free_thor :: proc(thor: ^Thor) {
+    editview.editor_destroy(&thor.editor)
+    editview.editor_destroy(&thor.editor2)
     delete(thor.status_message)
     delete(thor.conflict_prompt)
-    widgets.command_palette_destroy(&thor.command_palette.widget)
     delete(thor.open_files)
     delete(thor.zombie_files)
     delete(thor.finished_loads)
     delete(thor.finished_saves)
     delete(thor.finished_file_ops)
-    widgets.editor_destroy(&thor.editor.widget)
-    widgets.editor_destroy(&thor.editor2.widget)
-    widgets.stack_destroy(&thor.editor_split_row.widget)
-    widgets.image_view_destroy(&thor.image_view.widget)
-    widgets.model_view_destroy(&thor.model_view.widget)
-    widgets.markdown_view_destroy(&thor.markdown_view.widget)
-    widgets.markdown_view_destroy(&thor.markdown_view2.widget)
-    widgets.panel_destroy(&thor.welcome_panel.widget)
     free(thor)
 }

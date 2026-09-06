@@ -11,7 +11,6 @@ import "core:thread"
 import "core:time"
 
 import "../shell"
-import "../widgets"
 
 // Async git commands for the git view: one Git_Op_Job per operation, run on a
 // worker thread and drained by thor_process_io. The parsers are pure and take
@@ -90,7 +89,7 @@ Git_Op_Job :: struct {
 // two entries. Conflicts yield one unstaged entry.
 Git_File_Entry :: struct {
     path:   string,  // owned; repo-relative, forward slashes
-    status: widgets.Git_Status,
+    status: Git_Status,
     staged: bool,
 }
 
@@ -533,7 +532,7 @@ thor_git_apply_snapshot :: proc(thor: ^Thor, job: ^Git_Op_Job) {
 @(private = "file")
 thor_git_apply_mutation :: proc(thor: ^Thor, job: ^Git_Op_Job) {
     thor_git_finish_mutation(thor, job)
-    if (!job.ok || job.code != 0) && !widgets.git_view_is_open(thor.git_view) {
+    if (!job.ok || job.code != 0) && !thor.git_open {
         line := git_first_line(job.output)
         if line == "" {
             line = "git command failed"
@@ -626,7 +625,7 @@ git_next_field :: proc(rest: ^string) -> (field: string, ok: bool) {
 }
 
 @(private = "file")
-git_letter_status :: proc(c: u8) -> widgets.Git_Status {
+git_letter_status :: proc(c: u8) -> Git_Status {
     switch c {
     case 'A', 'C': return .Added
     case 'D':      return .Deleted
@@ -660,7 +659,7 @@ git_parse_upstream_counts :: proc(output: string) -> (ahead, behind: int, ok: bo
 // Parses a unified diff into display rows (the git view's own row type),
 // running the old/new line counters through each hunk. File headers are
 // dropped; binary and missing-newline markers become Meta rows.
-git_parse_diff_rows :: proc(output: string, out: ^[dynamic]widgets.Git_Diff_Row) {
+git_parse_diff_rows :: proc(output: string, out: ^[dynamic]Git_Diff_Row) {
     old_line, new_line := 0, 0
     in_hunk := false
 
@@ -669,7 +668,7 @@ git_parse_diff_rows :: proc(output: string, out: ^[dynamic]widgets.Git_Diff_Row)
         line := strings.trim_suffix(raw, "\r")
 
         if len(out) >= GIT_DIFF_MAX_ROWS {
-            append(out, widgets.Git_Diff_Row{.Meta, 0, 0, strings.clone("diff truncated")})
+            append(out, Git_Diff_Row{.Meta, 0, 0, strings.clone("diff truncated")})
             return
         }
 
@@ -680,15 +679,15 @@ git_parse_diff_rows :: proc(output: string, out: ^[dynamic]widgets.Git_Diff_Row)
             }
             old_line, new_line = old_start, new_start
             in_hunk = true
-            append(out, widgets.Git_Diff_Row{.Hunk, 0, 0, git_diff_text(line)})
+            append(out, Git_Diff_Row{.Hunk, 0, 0, git_diff_text(line)})
             continue
         }
         if strings.has_prefix(line, "Binary files ") {
-            append(out, widgets.Git_Diff_Row{.Meta, 0, 0, git_diff_text(line)})
+            append(out, Git_Diff_Row{.Meta, 0, 0, git_diff_text(line)})
             continue
         }
         if strings.has_prefix(line, "\\ ") {
-            append(out, widgets.Git_Diff_Row{.Meta, 0, 0, git_diff_text(line[2:])})
+            append(out, Git_Diff_Row{.Meta, 0, 0, git_diff_text(line[2:])})
             continue
         }
         if !in_hunk {
@@ -697,19 +696,19 @@ git_parse_diff_rows :: proc(output: string, out: ^[dynamic]widgets.Git_Diff_Row)
 
         switch {
         case strings.has_prefix(line, "+"):
-            append(out, widgets.Git_Diff_Row{.Added, 0, new_line, git_diff_text(line[1:])})
+            append(out, Git_Diff_Row{.Added, 0, new_line, git_diff_text(line[1:])})
             new_line += 1
         case strings.has_prefix(line, "-"):
-            append(out, widgets.Git_Diff_Row{.Removed, old_line, 0, git_diff_text(line[1:])})
+            append(out, Git_Diff_Row{.Removed, old_line, 0, git_diff_text(line[1:])})
             old_line += 1
         case strings.has_prefix(line, " "):
-            append(out, widgets.Git_Diff_Row{.Context, old_line, new_line, git_diff_text(line[1:])})
+            append(out, Git_Diff_Row{.Context, old_line, new_line, git_diff_text(line[1:])})
             old_line += 1
             new_line += 1
         case line == "":
             // An empty context line loses its leading space to trailing-space
             // stripping in transit; it still counts on both sides.
-            append(out, widgets.Git_Diff_Row{.Context, old_line, new_line, strings.clone("")})
+            append(out, Git_Diff_Row{.Context, old_line, new_line, strings.clone("")})
             old_line += 1
             new_line += 1
         case:
@@ -938,18 +937,18 @@ git_diff_is_lfs_pointer :: proc(output: string) -> bool {
 
 // Collapses an LFS pointer diff into Meta rows naming the objects instead of
 // showing the raw pointer text.
-git_lfs_pointer_rows :: proc(output: string, out: ^[dynamic]widgets.Git_Diff_Row) {
+git_lfs_pointer_rows :: proc(output: string, out: ^[dynamic]Git_Diff_Row) {
     new_label := git_lfs_side_label(output, '+')
     old_label := git_lfs_side_label(output, '-')
     if new_label != "" {
-        append(out, widgets.Git_Diff_Row{.Meta, 0, 0, strings.concatenate({"LFS object ", new_label})})
+        append(out, Git_Diff_Row{.Meta, 0, 0, strings.concatenate({"LFS object ", new_label})})
     }
     if old_label != "" {
         prefix := new_label == "" ? "LFS object removed: " : "was "
-        append(out, widgets.Git_Diff_Row{.Meta, 0, 0, strings.concatenate({prefix, old_label})})
+        append(out, Git_Diff_Row{.Meta, 0, 0, strings.concatenate({prefix, old_label})})
     }
     if len(out) == 0 {
-        append(out, widgets.Git_Diff_Row{.Meta, 0, 0, strings.clone("LFS pointer change")})
+        append(out, Git_Diff_Row{.Meta, 0, 0, strings.clone("LFS pointer change")})
     }
 }
 

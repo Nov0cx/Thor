@@ -5,8 +5,7 @@ import "core:strings"
 
 import "../lang"
 import "../textedit"
-import "../widgets"
-
+import "../editview"
 // Compiler diagnostics, editor side. The check itself lives behind the language
 // seam — `lang/odin/check.odin` runs `odin check` on a pool worker and answers a
 // lang.Diagnostic_Report like any other request — so what is left here is only
@@ -99,7 +98,7 @@ thor_apply_diagnostic :: proc(thor: ^Thor, d: lang.Diagnostic, revision: u64) {
     start := textedit.state_line_start(&file.state, line0) + (d.col - 1)
     start = clamp(start, 0, len(text))
     end := diagnostic_token_end(text, start)
-    append(&file.diagnostics, widgets.Diagnostic {
+    append(&file.diagnostics, editview.Diagnostic {
         start    = start,
         end      = end,
         line     = line0,
@@ -112,7 +111,7 @@ thor_apply_diagnostic :: proc(thor: ^Thor, d: lang.Diagnostic, revision: u64) {
 // The seam's severity as the editor's. Both carry the same two levels; the split
 // is what keeps the language layer free of widget types.
 @(private = "file")
-editor_severity :: proc(severity: lang.Diagnostic_Severity) -> widgets.Diagnostic_Severity {
+editor_severity :: proc(severity: lang.Diagnostic_Severity) -> editview.Diagnostic_Severity {
     return severity == .Warning ? .Warning : .Error
 }
 

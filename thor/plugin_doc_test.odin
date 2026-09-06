@@ -5,9 +5,9 @@ import "core:testing"
 import "core:time"
 
 import "../setting"
+import "../editview"
 import "../textedit"
-import "../ui"
-import "../widgets"
+import ui "../vendor/loom/loom"
 
 // Verifies the thor.doc host service (thor_plugin_doc): the first call opens a
 // tab that loads the written text, and a second call refreshes the same tab's
@@ -19,26 +19,20 @@ test_plugin_doc_opens_and_refreshes :: proc(t: ^testing.T) {
 
     thor := new(Thor)
     defer free(thor)
+    defer editview.editor_destroy(&thor.editor)
+    defer editview.editor_destroy(&thor.editor2)
     thor.config = setting.load("settings")
     defer setting.destroy(&thor.config)
-    thor.active_file = ui.make_signal(-1)
+    thor.active_file = make_signal(-1)
     thor.open_files = make([dynamic]^Open_File)
     thor.zombie_files = make([dynamic]^Open_File)
     thor.finished_loads = make([dynamic]^Load_Job)
     thor.finished_saves = make([dynamic]^Save_Job)
     thor.pane_file = {-1, -1}
-    thor.editor = widgets.editor_create("test-editor")
-    thor.editor2 = widgets.editor_create("test-editor2")
     // thor_update_files runs the per-frame view swap, which sets these three
     // every call, so a partial Thor still needs them.
-    thor.image_view = widgets.image_view_create("test-image-view")
-    thor.model_view = widgets.model_view_create("test-model-view")
-    thor.markdown_view = widgets.markdown_view_create("test-markdown-view")
-    thor.markdown_view2 = widgets.markdown_view_create("test-markdown-view2")
-    thor.editor_split_row = widgets.stack_create("test-editor-split-row", .Horizontal)
     // thor_update_editor_view also swaps the welcome page in when there is no
     // workspace, which this headless Thor never sets.
-    thor.welcome_panel = widgets.panel_create("test-welcome-panel", {})
     defer {
         for len(thor.open_files) > 0 {
             thor_close_file(thor, 0)
@@ -47,14 +41,6 @@ test_plugin_doc_opens_and_refreshes :: proc(t: ^testing.T) {
         delete(thor.zombie_files)
         delete(thor.finished_loads)
         delete(thor.finished_saves)
-        widgets.editor_destroy(&thor.editor.widget)
-        widgets.editor_destroy(&thor.editor2.widget)
-        widgets.image_view_destroy(&thor.image_view.widget)
-        widgets.model_view_destroy(&thor.model_view.widget)
-        widgets.markdown_view_destroy(&thor.markdown_view.widget)
-        widgets.markdown_view_destroy(&thor.markdown_view2.widget)
-        widgets.stack_destroy(&thor.editor_split_row.widget)
-        widgets.panel_destroy(&thor.welcome_panel.widget)
     }
     defer os.remove(PATH)
 

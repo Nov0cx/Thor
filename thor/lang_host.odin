@@ -8,12 +8,26 @@ import "core:strings"
 import "core:time"
 import rl "vendor:raylib"
 
+import ui "../vendor/loom/loom"
 import "../lang"
 import "../lang/lsp"
 import "../lang/odin"
 import "../setting"
 import "../textedit"
-import "../widgets"
+import "../editview"
+// Points both editor panes at the handlers that answer them. Called once at
+// startup: the panes are values on Thor and outlive every frame's tree.
+thor_wire_editors :: proc(thor: ^Thor) {
+    for editor in ([2]^editview.Editor{&thor.editor, &thor.editor2}) {
+        editview.editor_set_on_save(editor, thor_request_save, thor)
+        editview.editor_set_on_goto_definition(editor, thor_editor_goto_definition, thor)
+        editview.editor_set_on_hover(editor, thor_editor_hover, thor)
+        editview.editor_set_on_signature(editor, thor_editor_signature_help, thor)
+        editview.editor_set_on_completion(editor, thor_editor_completion, thor)
+        editview.editor_set_on_completion_accept(editor, thor_completion_accept, thor)
+        editview.editor_set_on_type(editor, thor_editor_on_type, thor)
+    }
+}
 
 // How long a transient statusline notice stays up.
 STATUS_MESSAGE_SECS :: 3.0
@@ -189,7 +203,7 @@ thor_reload_lang :: proc(thor: ^Thor) {
     thor_lsp_clear_probes(thor)
     thor_lsp_mark_clean(thor)
     thor_lsp_clear_health(thor)
-    if widgets.settings_view_is_open(thor.settings_view) {
+    if thor_settings_is_open(thor) {
         thor_populate_settings_view(thor)
     }
 }
@@ -255,7 +269,7 @@ thor_poll_lang_reload :: proc(thor: ^Thor) {
     }
     thor_remirror_open_files(thor)
     thor_lsp_clear_health(thor)
-    if widgets.settings_view_is_open(thor.settings_view) {
+    if thor_settings_is_open(thor) {
         thor_populate_settings_view(thor)
     }
 }
@@ -556,9 +570,8 @@ thor_goto_workspace_symbol :: proc(thor: ^Thor) {
         }
     }
     thor.workspace_symbols_request_id = id
-    widgets.command_palette_pick_rich_loading(
-        thor.command_palette,
-        &thor.ui_context,
+    thor_palette_pick_rich_loading(
+        thor,
         "Go to symbol...",
         thor_pick_symbol,
         thor,
@@ -570,7 +583,7 @@ thor_goto_workspace_symbol :: proc(thor: ^Thor) {
         // (pyright, gopls, clangd): skip that round trip entirely and land the
         // picker straight in its "type to search" state; on_query_changed
         // dispatches the first real request once the user types.
-        widgets.command_palette_pick_rich_set(thor.command_palette, {}, "Type to search workspace symbols…")
+        thor_palette_pick_rich_set(thor, {}, "Type to search workspace symbols…")
     }
 }
 
@@ -603,7 +616,7 @@ thor_workspace_symbol_query_changed :: proc(data: rawptr, query: string) {
     }
     thor.workspace_symbols_request_id = id
     thor.workspace_symbols_typing = true
-    widgets.command_palette_set_loading(thor.command_palette)
+    thor_palette_set_loading(thor)
 }
 
 // F10: list every usage of the symbol under the caret in a fuzzy picker — its
@@ -633,9 +646,8 @@ thor_find_references :: proc(thor: ^Thor) {
         return
     }
     thor.references_request_id = id
-    widgets.command_palette_pick_rich_loading(
-        thor.command_palette,
-        &thor.ui_context,
+    thor_palette_pick_rich_loading(
+        thor,
         "References...",
         thor_pick_symbol,
         thor,
@@ -673,9 +685,8 @@ thor_rename_symbol :: proc(thor: ^Thor) -> bool {
             return false
         }
     }
-    widgets.command_palette_prompt(
-        thor.command_palette,
-        &thor.ui_context,
+    thor_palette_prompt(
+        thor,
         "Rename symbol",
         thor_confirm_symbol_rename,
         thor,
@@ -952,9 +963,7 @@ thor_apply_edits :: proc(
 // moved or went away.
 @(private = "file")
 thor_refresh_after_resource_ops :: proc(thor: ^Thor) {
-    if thor.tree != nil {
-        widgets.tree_refresh(thor.tree)
-    }
+    thor_explorer_refresh(thor)
     thor_refresh_git_status(thor)
 }
 
@@ -1311,7 +1320,7 @@ thor_signature_help :: proc(thor: ^Thor) {
 // Editor auto-trigger: as the caret moves inside a call (typing `(`/`,`, editing
 // arguments), resolve the enclosing call silently — no flash when the caret is
 // not in one, and any live popup is dismissed instead.
-thor_editor_signature_help :: proc(data: rawptr, editor: ^widgets.Editor, state: ^textedit.State, offset: int) {
+thor_editor_signature_help :: proc(data: rawptr, editor: ^editview.Editor, state: ^textedit.State, offset: int) {
     thor := cast(^Thor) data
     for file in thor.open_files {
         if &file.state != state {
@@ -1325,7 +1334,7 @@ thor_editor_signature_help :: proc(data: rawptr, editor: ^widgets.Editor, state:
 // Editor auto-trigger: fired by the widget after a character is typed. Finds
 // the file bound to `state`, exactly like thor_editor_signature_help, and asks
 // thor_format_on_type whether it applies.
-thor_editor_on_type :: proc(data: rawptr, editor: ^widgets.Editor, state: ^textedit.State, offset: int, char: string) {
+thor_editor_on_type :: proc(data: rawptr, editor: ^editview.Editor, state: ^textedit.State, offset: int, char: string) {
     thor := cast(^Thor) data
     for file in thor.open_files {
         if &file.state != state {
@@ -1341,7 +1350,7 @@ thor_editor_on_type :: proc(data: rawptr, editor: ^widgets.Editor, state: ^texte
 // dispatches no new request. `auto` marks the typing-driven trigger (silent on
 // miss, debounced) apart from the keybind (flashes on miss, immediate).
 @(private = "file")
-thor_request_signature :: proc(thor: ^Thor, editor: ^widgets.Editor, file: ^Open_File, auto: bool) {
+thor_request_signature :: proc(thor: ^Thor, editor: ^editview.Editor, file: ^Open_File, auto: bool) {
     if editor == nil || file == nil || !file.loaded {
         return
     }
@@ -1540,7 +1549,7 @@ thor_render_doc_in_pane :: proc(thor: ^Thor, path, text: string, pane: int) {
 // Editor auto-trigger: dispatches a Completion request at `offset`, remembering
 // the pane so the async result routes back to it. Returns true when one was
 // dispatched, so the editor holds off on its buffer-word fallback.
-thor_editor_completion :: proc(data: rawptr, editor: ^widgets.Editor, state: ^textedit.State, offset: int) -> bool {
+thor_editor_completion :: proc(data: rawptr, editor: ^editview.Editor, state: ^textedit.State, offset: int) -> bool {
     thor := cast(^Thor) data
     for file in thor.open_files {
         if &file.state != state {
@@ -1612,9 +1621,9 @@ thor_update_completion :: proc(thor: ^Thor, res: ^lang.Result) {
     }
     thor_completion_take(thor, res, file)
 
-    items := make([dynamic]widgets.Completion_Item, context.temp_allocator)
+    items := make([dynamic]editview.Completion_Item, context.temp_allocator)
     for item, i in thor.completion_items {
-        append(&items, widgets.Completion_Item {
+        append(&items, editview.Completion_Item {
             text     = item.label,
             owner_id = i + 1, // zero says "the editor's own buffer word"
             insert   = item.insert,
@@ -1625,7 +1634,7 @@ thor_update_completion :: proc(thor: ^Thor, res: ^lang.Result) {
             color    = thor_symbol_color(thor, item.kind),
         })
     }
-    widgets.editor_set_completions(editor, items[:], complete = !res.incomplete)
+    editview.editor_set_completions(editor, items[:], complete = !res.incomplete)
 }
 
 // Takes the candidates off a result and keeps them: the Result is freed as soon
@@ -1686,7 +1695,7 @@ thor_open_file_for_state :: proc(thor: ^Thor, state: ^textedit.State) -> ^Open_F
 // rather than splicing half of it.
 thor_completion_accept :: proc(
     data: rawptr,
-    editor: ^widgets.Editor,
+    editor: ^editview.Editor,
     state: ^textedit.State,
     owner_id, at, delta: int,
 ) {
@@ -1882,7 +1891,7 @@ thor_clear_doc_symbols :: proc(thor: ^Thor) {
 // Mouse dwell: the editor asks the owner to resolve a hover at `offset`. The
 // pane is remembered so the async result routes back to it. A snapshot of the
 // buffer goes with the request, so the worker never races later edits.
-thor_editor_hover :: proc(data: rawptr, editor: ^widgets.Editor, state: ^textedit.State, offset: int) {
+thor_editor_hover :: proc(data: rawptr, editor: ^editview.Editor, state: ^textedit.State, offset: int) {
     thor := cast(^Thor) data
     for file in thor.open_files {
         if &file.state != state {
@@ -1937,7 +1946,7 @@ thor_on_lang_result :: proc(user: rawptr, res: ^lang.Result) {
         }
         editor := thor.hover_editor
         if res.ok && editor.state != nil && editor.state.revision == res.revision {
-            widgets.editor_show_hover(editor, res.hover.text, res.hover.start, res.hover.end)
+            editview.editor_show_hover(editor, res.hover.text, res.hover.start, res.hover.end)
         }
     case .Document_Symbols:
         thor_show_symbols(thor, res, "No symbols in file")
@@ -2012,7 +2021,7 @@ thor_show_signature :: proc(thor: ^Thor, res: ^lang.Result) {
         // An auto request that finds no call just dismisses whatever popup was up
         // (the caret has moved out of the call); only the explicit keybind flashes.
         if auto {
-            widgets.editor_clear_signature(editor)
+            editview.editor_clear_signature(editor)
         } else {
             thor_flash_status(thor, "No signature found")
         }
@@ -2021,7 +2030,7 @@ thor_show_signature :: proc(thor: ^Thor, res: ^lang.Result) {
     if editor.state == nil || editor.state.revision != res.revision {
         return
     }
-    widgets.editor_show_signature(
+    editview.editor_show_signature(
         editor,
         thor_signature_text(res.signature),
         textedit.primary_cursor(editor.state).caret,
@@ -2078,28 +2087,28 @@ thor_update_references :: proc(thor: ^Thor, res: ^lang.Result) {
         return
     }
     thor.references_request_id = 0
-    if !widgets.command_palette_pick_loading(thor.command_palette) {
+    if !thor_palette_pick_loading(thor) {
         return // picker closed or replaced by another pick; drop the result
     }
     if !res.ok || len(res.symbols) == 0 {
-        widgets.command_palette_close(thor.command_palette, &thor.ui_context)
+        thor_palette_close(thor)
         thor_flash_status(thor, "No references found")
         return
     }
     items := thor_build_reference_items(thor, res)
-    widgets.command_palette_pick_rich_set(thor.command_palette, items)
+    thor_palette_pick_rich_set(thor, items)
 }
 
 // Builds the references picker rows: each is the source line the usage sits on,
 // with a "path:line" preview under the selected row. Rebuilds the jump targets
 // in the same order, so the shared pick callback maps a row to file and offset.
 @(private = "file")
-thor_build_reference_items :: proc(thor: ^Thor, res: ^lang.Result) -> []widgets.Pick_Item {
+thor_build_reference_items :: proc(thor: ^Thor, res: ^lang.Result) -> []Pick_Item {
     thor_clear_doc_symbols(thor)
-    items := make([dynamic]widgets.Pick_Item, context.temp_allocator)
+    items := make([dynamic]Pick_Item, context.temp_allocator)
     for sym in res.symbols {
         append(&thor.doc_symbols, Doc_Symbol {path = strings.clone(sym.path), offset = sym.offset})
-        append(&items, widgets.Pick_Item {
+        append(&items, Pick_Item {
             text     = sym.signature,
             name_len = 0,
             color    = thor.theme.primary_text_color,
@@ -2120,20 +2129,20 @@ thor_update_workspace_symbols :: proc(thor: ^Thor, res: ^lang.Result) {
         return
     }
     thor.workspace_symbols_request_id = 0
-    if !widgets.command_palette_pick_loading(thor.command_palette) {
+    if !thor_palette_pick_loading(thor) {
         return // picker closed or replaced by another pick; drop the result
     }
     if !res.ok || len(res.symbols) == 0 {
         if thor.workspace_symbols_typing {
-            widgets.command_palette_pick_rich_set(thor.command_palette, {})
+            thor_palette_pick_rich_set(thor, {})
             return
         }
-        widgets.command_palette_close(thor.command_palette, &thor.ui_context)
+        thor_palette_close(thor)
         thor_flash_status(thor, "No symbols in workspace")
         return
     }
     items := thor_build_symbol_items(thor, res)
-    widgets.command_palette_pick_rich_set(thor.command_palette, items)
+    thor_palette_pick_rich_set(thor, items)
 }
 
 // Builds the rich symbol picker and opens it. Each row is the real Odin
@@ -2147,9 +2156,8 @@ thor_show_symbols :: proc(thor: ^Thor, res: ^lang.Result, empty_message: string)
         return
     }
     items := thor_build_symbol_items(thor, res)
-    widgets.command_palette_pick_rich(
-        thor.command_palette,
-        &thor.ui_context,
+    thor_palette_pick_rich(
+        thor,
         "Go to symbol...",
         items,
         thor_pick_symbol,
@@ -2162,9 +2170,8 @@ thor_show_symbols :: proc(thor: ^Thor, res: ^lang.Result, empty_message: string)
 @(private = "file")
 thor_show_definition_candidates :: proc(thor: ^Thor, res: ^lang.Result) {
     items := thor_build_symbol_items(thor, res)
-    widgets.command_palette_pick_rich(
-        thor.command_palette,
-        &thor.ui_context,
+    thor_palette_pick_rich(
+        thor,
         "Multiple definitions...",
         items,
         thor_pick_symbol,
@@ -2176,9 +2183,9 @@ thor_show_definition_candidates :: proc(thor: ^Thor, res: ^lang.Result) {
 // returns the matching rich rows in the same order, temp-allocated (the palette
 // deep-copies them). Shared by the document-symbol and workspace-symbol pickers.
 @(private = "file")
-thor_build_symbol_items :: proc(thor: ^Thor, res: ^lang.Result) -> []widgets.Pick_Item {
+thor_build_symbol_items :: proc(thor: ^Thor, res: ^lang.Result) -> []Pick_Item {
     thor_clear_doc_symbols(thor)
-    items := make([dynamic]widgets.Pick_Item, context.temp_allocator)
+    items := make([dynamic]Pick_Item, context.temp_allocator)
     for sym in res.symbols {
         append(&thor.doc_symbols, Doc_Symbol {path = strings.clone(sym.path), offset = sym.offset})
         // A server-backed symbol carries no signature when it could not read the
@@ -2186,7 +2193,7 @@ thor_build_symbol_items :: proc(thor: ^Thor, res: ^lang.Result) -> []widgets.Pic
         // cross-file workspace scan needs a disk read the native engine never
         // does): fall back to the bare name rather than a row with no text.
         text := sym.signature != "" ? sym.signature : sym.name
-        append(&items, widgets.Pick_Item {
+        append(&items, Pick_Item {
             text     = text,
             name_len = min(len(sym.name), len(text)),
             color    = thor_symbol_color(thor, sym.kind),
@@ -2220,7 +2227,7 @@ thor_symbol_detail :: proc(thor: ^Thor, sym: lang.Symbol) -> string {
 // Tints a symbol name by its kind, reusing the theme's syntax colors so the
 // picker reads like code.
 @(private)
-thor_symbol_color :: proc(thor: ^Thor, kind: string) -> rl.Color {
+thor_symbol_color :: proc(thor: ^Thor, kind: string) -> ui.Color {
     switch kind {
     case "function": return thor.theme.functions_color
     case "type":     return thor.theme.keywords_color
@@ -2324,7 +2331,7 @@ thor_apply_pending_goto :: proc(thor: ^Thor) {
 thor_place_caret :: proc(thor: ^Thor, file: ^Open_File, offset: int) {
     textedit.set_single_cursor(&file.state, offset)
     editor := thor_active_editor(thor)
-    widgets.editor_center_on_caret(editor)
+    editview.editor_center_on_caret(editor)
 }
 
 @(private = "file")

@@ -5,12 +5,11 @@ import "core:strings"
 import rl "vendor:raylib"
 
 import "../setting"
-import "../ui"
-import "../widgets"
-
-// The Theme window (widgets.Theme_Editor), opened by the "Theme Colors" row of
-// the Settings modal: one row per color role of the active palette, each opening
-// the color picker, plus the rows that generate a whole palette from two seeds.
+import ui "../vendor/loom/loom"
+import "../theme"
+// Fills and answers the Theme window opened by the "Theme Colors" row of the
+// Settings modal: one row per color role of the active palette, each opening the
+// color picker, plus the rows that generate a whole palette from two seeds.
 // The picker previews onto the running editor and only writes on OK, always into
 // user/themes — assets/themes is replaced by every build and by every update.
 
@@ -53,7 +52,7 @@ thor_theme_action_name :: proc(id: string) -> (string, bool) {
 
 // Fold group per color group. Stable, since it keys the view's collapsed map.
 @(private = "file")
-THEME_GROUP_IDS := [ui.Theme_Color_Group]string {
+THEME_GROUP_IDS := [theme.Color_Group]string {
     .Surfaces = "theme.surfaces",
     .Text     = "theme.text",
     .Status   = "theme.status",
@@ -68,60 +67,60 @@ THEME_MODE_LABELS := [?]string {"Dark", "Light"}
 thor_reset_theme_seeds :: proc(thor: ^Thor) {
     thor.theme_seed_background = thor.theme.background
     thor.theme_seed_accent = thor.theme.accent_color
-    thor.theme_seed_dark = ui.color_on(thor.theme.background) == ui.COLOR_ON_LIGHT
+    thor.theme_seed_dark = theme.color_on(thor.theme.background) == theme.COLOR_ON_LIGHT
 }
 
 // Fills the window: the generator first, then every color role under a fold group
-// of its own. Driven by ui.THEME_COLORS, so it needs no key list.
+// of its own. Driven by theme.COLORS, so it needs no key list.
 thor_populate_theme_editor :: proc(thor: ^Thor) {
-    editor := thor.theme_editor
-    widgets.theme_editor_clear(editor)
-    widgets.theme_editor_set_title(editor, thor.theme.name)
+    editor := &thor.theme_editor
+    thor_theme_editor_clear(editor)
+    thor_theme_editor_set_title(editor, thor.theme.name)
 
-    widgets.theme_editor_begin_group(editor, "theme.generate", "Generate From Colors", collapsed = true)
-    widgets.theme_editor_add_action(editor, "mode", "Mode", THEME_MODE_LABELS[thor.theme_seed_dark ? 0 : 1])
-    widgets.theme_editor_add_color(
+    thor_theme_editor_begin_group(editor, "theme.generate", "Generate From Colors", collapsed = true)
+    thor_theme_editor_add_action(editor, "mode", "Mode", THEME_MODE_LABELS[thor.theme_seed_dark ? 0 : 1])
+    thor_theme_editor_add_color(
         editor, "seed_background", "Background Seed",
-        ui.color_to_hex(thor.theme_seed_background), thor.theme_seed_background,
+        theme.to_hex(thor.theme_seed_background), thor.theme_seed_background,
     )
-    widgets.theme_editor_add_color(
-        editor, "seed_accent", "Accent Seed", ui.color_to_hex(thor.theme_seed_accent), thor.theme_seed_accent,
+    thor_theme_editor_add_color(
+        editor, "seed_accent", "Accent Seed", theme.to_hex(thor.theme_seed_accent), thor.theme_seed_accent,
     )
-    widgets.theme_editor_add_action(editor, "generate", "Save Generated Theme", "Name it...")
-    widgets.theme_editor_end_group(editor)
+    thor_theme_editor_add_action(editor, "generate", "Save Generated Theme", "Name it...")
+    thor_theme_editor_end_group(editor)
 
-    group := ui.Theme_Color_Group.Surfaces
+    group := theme.Color_Group.Surfaces
     open_group := false
-    for entry, i in ui.THEME_COLORS {
+    for entry, i in theme.COLORS {
         if i == 0 || entry.group != group {
             if open_group {
-                widgets.theme_editor_end_group(editor)
+                thor_theme_editor_end_group(editor)
             }
             group = entry.group
-            widgets.theme_editor_begin_group(
-                editor, THEME_GROUP_IDS[group], ui.THEME_GROUP_LABELS[group], collapsed = group != .Surfaces,
+            thor_theme_editor_begin_group(
+                editor, THEME_GROUP_IDS[group], theme.GROUP_LABELS[group], collapsed = group != .Surfaces,
             )
             open_group = true
         }
-        color := ui.theme_color_at(&thor.theme, i)^
-        widgets.theme_editor_add_color(editor, entry.key, entry.key, ui.color_to_hex(color), color)
+        color := theme.color_at(&thor.theme, i)^
+        thor_theme_editor_add_color(editor, entry.key, entry.key, theme.to_hex(color), color)
     }
     if open_group {
-        widgets.theme_editor_end_group(editor)
+        thor_theme_editor_end_group(editor)
     }
 }
 
 // Settings > Appearance > Theme Colors: opens the window over the modal.
 thor_open_theme_editor :: proc(thor: ^Thor) {
     thor_populate_theme_editor(thor)
-    widgets.theme_editor_open(thor.theme_editor, &thor.ui_context)
+    thor_theme_editor_open(thor)
 }
 
 // Rebuilds the rows when the window is up, so a committed color refreshes its
 // swatch and hex.
 @(private = "file")
 thor_refresh_theme_editor :: proc(thor: ^Thor) {
-    if widgets.theme_editor_is_open(thor.theme_editor) {
+    if thor_theme_editor_is_open(thor) {
         thor_populate_theme_editor(thor)
     }
 }
@@ -139,8 +138,8 @@ thor_on_theme_editor_color :: proc(data: rawptr, key: string) {
     if thor_is_theme_seed(key) {
         seed := key == "seed_background" ? thor.theme_seed_background : thor.theme_seed_accent
         label := key == "seed_background" ? "Background Seed" : "Accent Seed"
-        widgets.color_picker_open(
-            thor.color_picker, &thor.ui_context, label, thor_theme_action_id(key), seed,
+        thor_color_picker_open(
+            thor, label, thor_theme_action_id(key), seed,
             thor_theme_seed_preview, thor_theme_seed_commit, thor_theme_seed_cancel, thor,
         )
         return
@@ -157,31 +156,30 @@ thor_on_theme_editor_action :: proc(data: rawptr, action: string) {
 // can put it back.
 @(private = "file")
 thor_open_theme_color :: proc(thor: ^Thor, key: string) {
-    field := ui.theme_color_ptr(&thor.theme, key)
+    field := theme.color_ptr(&thor.theme, key)
     if field == nil {
         return
     }
     delete(thor.theme_edit_key)
     thor.theme_edit_key = strings.clone(key)
     thor.theme_edit_original = field^
-    widgets.color_picker_open(
-        thor.color_picker, &thor.ui_context, key, thor_theme_color_id(key), field^,
+    thor_color_picker_open(
+        thor, key, thor_theme_color_id(key), field^,
         thor_theme_color_preview, thor_theme_color_commit, thor_theme_color_cancel, thor,
     )
 }
 
-// Writes `color` into the palette and pushes it onto the widgets. A syntax role
-// also marks the open files stale, since its color is baked into their spans;
-// every other role reaches the screen through a widget's cached color, and
-// re-highlighting every buffer per drag frame would not pay for itself.
+// Writes `color` into the palette. A syntax role also marks the open files
+// stale, since its color is baked into their spans; every other role reaches the
+// screen through the pushed theme, and re-highlighting every buffer per drag
+// frame would not pay for itself.
 @(private = "file")
-thor_theme_color_apply :: proc(thor: ^Thor, key: string, color: rl.Color) {
-    field := ui.theme_color_ptr(&thor.theme, key)
+thor_theme_color_apply :: proc(thor: ^Thor, key: string, color: ui.Color) {
+    field := theme.color_ptr(&thor.theme, key)
     if field == nil {
         return
     }
     field^ = color
-    thor_apply_theme_widgets(thor)
     if thor_theme_color_group(key) == .Syntax {
         for file in thor.open_files {
             file.highlighted = false
@@ -190,8 +188,8 @@ thor_theme_color_apply :: proc(thor: ^Thor, key: string, color: rl.Color) {
 }
 
 @(private = "file")
-thor_theme_color_group :: proc(key: string) -> ui.Theme_Color_Group {
-    for entry in ui.THEME_COLORS {
+thor_theme_color_group :: proc(key: string) -> theme.Color_Group {
+    for entry in theme.COLORS {
         if entry.key == key {
             return entry.group
         }
@@ -199,7 +197,7 @@ thor_theme_color_group :: proc(key: string) -> ui.Theme_Color_Group {
     return .Surfaces
 }
 
-thor_theme_color_preview :: proc(data: rawptr, id: string, color: rl.Color) {
+thor_theme_color_preview :: proc(data: rawptr, id: string, color: ui.Color) {
     thor := cast(^Thor) data
     key, ok := thor_theme_color_key(id)
     if !ok {
@@ -214,7 +212,7 @@ thor_theme_color_preview :: proc(data: rawptr, id: string, color: rl.Color) {
 // thor_reload_settings is deliberately not on this path: it only re-applies a
 // theme when the theme *name* changed, and editing the active theme changes no
 // settings key at all.
-thor_theme_color_commit :: proc(data: rawptr, id: string, color: rl.Color) {
+thor_theme_color_commit :: proc(data: rawptr, id: string, color: ui.Color) {
     thor := cast(^Thor) data
     key, ok := thor_theme_color_key(id)
     if !ok {
@@ -228,7 +226,7 @@ thor_theme_color_commit :: proc(data: rawptr, id: string, color: rl.Color) {
     }
 
     thor_theme_color_apply(thor, key, color)
-    if !ui.theme_save(thor.theme, path) {
+    if !theme.save(thor.theme, path) {
         thor_flash_status(thor, SETTINGS_SAVE_FAILED, is_error = true)
         thor_theme_color_cancel(thor, id)
         return
@@ -271,7 +269,7 @@ thor_theme_ensure_writable :: proc(thor: ^Thor) -> string {
     if os.exists(path) {
         return path
     }
-    if !ui.theme_save(thor.theme, path) {
+    if !theme.save(thor.theme, path) {
         thor_flash_status(thor, SETTINGS_SAVE_FAILED, is_error = true)
         return ""
     }
@@ -284,15 +282,23 @@ thor_theme_ensure_writable :: proc(thor: ^Thor) -> string {
 thor_run_theme_action :: proc(thor: ^Thor, action: string) {
     switch action {
     case "mode":
-        widgets.select_dialog_open(
-            thor.select_dialog, &thor.ui_context, "Generator Mode",
-            THEME_MODE_LABELS[:], THEME_MODE_LABELS[thor.theme_seed_dark ? 0 : 1],
-            thor_theme_mode_preview, thor_theme_mode_commit, thor,
-        )
+        thor_select_open(
+        thor,
+        "Generator Mode",
+        THEME_MODE_LABELS[:],
+        THEME_MODE_LABELS[thor.theme_seed_dark ? 0 : 1],
+        thor_theme_mode_preview,
+        thor_theme_mode_commit,
+        thor,
+    )
     case "generate":
-        widgets.command_palette_prompt(
-            thor.command_palette, &thor.ui_context, "Theme name", thor_confirm_generate_theme, thor, "My Theme",
-        )
+        thor_palette_prompt(
+        thor,
+        "Theme name",
+        thor_confirm_generate_theme,
+        thor,
+        "My Theme",
+    )
     }
 }
 
@@ -300,8 +306,8 @@ thor_run_theme_action :: proc(thor: ^Thor, action: string) {
 // nothing. The generator is arithmetic alone, so a drag can run it per frame.
 @(private = "file")
 thor_theme_generate_preview :: proc(thor: ^Thor) {
-    generated := ui.theme_generate("Generated", thor.theme_seed_background, thor.theme_seed_accent, thor.theme_seed_dark)
-    ui.theme_destroy(&thor.theme)
+    generated := theme.generate("Generated", thor.theme_seed_background, thor.theme_seed_accent, thor.theme_seed_dark)
+    theme.destroy(&thor.theme)
     thor.theme = generated
     thor.theme_preview_generated = true
     thor_apply_theme(thor)
@@ -333,14 +339,14 @@ thor_theme_mode_commit :: proc(data: rawptr, choice: string) {
 }
 
 @(private = "file")
-thor_theme_seed_preview :: proc(data: rawptr, id: string, color: rl.Color) {
+thor_theme_seed_preview :: proc(data: rawptr, id: string, color: ui.Color) {
     thor := cast(^Thor) data
     thor_theme_set_seed(thor, id, color)
     thor_theme_generate_preview(thor)
 }
 
 @(private = "file")
-thor_theme_seed_commit :: proc(data: rawptr, id: string, color: rl.Color) {
+thor_theme_seed_commit :: proc(data: rawptr, id: string, color: ui.Color) {
     thor := cast(^Thor) data
     thor_theme_seed_preview(thor, id, color)
     // The palette on screen is the generated one; it is saved by the Generate row,
@@ -356,7 +362,7 @@ thor_theme_seed_cancel :: proc(data: rawptr, _: string) {
 }
 
 @(private = "file")
-thor_theme_set_seed :: proc(thor: ^Thor, id: string, color: rl.Color) {
+thor_theme_set_seed :: proc(thor: ^Thor, id: string, color: ui.Color) {
     action, ok := thor_theme_action_name(id)
     if !ok {
         return
@@ -389,9 +395,9 @@ thor_confirm_generate_theme :: proc(data: rawptr, name: string) {
         return
     }
 
-    generated := ui.theme_generate(trimmed, thor.theme_seed_background, thor.theme_seed_accent, thor.theme_seed_dark)
-    defer ui.theme_destroy(&generated)
-    if !ui.theme_save(generated, path) {
+    generated := theme.generate(trimmed, thor.theme_seed_background, thor.theme_seed_accent, thor.theme_seed_dark)
+    defer theme.destroy(&generated)
+    if !theme.save(generated, path) {
         thor_flash_status(thor, SETTINGS_SAVE_FAILED, is_error = true)
         return
     }

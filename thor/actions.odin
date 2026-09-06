@@ -4,15 +4,13 @@ import rl "vendor:raylib"
 
 import "../plugin"
 import "../setting"
-import "../ui"
-import "../widgets"
-
-thor_minimize_window :: proc(_: rawptr, _: ^ui.Context, _: ^ui.Widget) {
+import ui "../vendor/loom/loom"
+import "../editview"
+thor_minimize_window :: proc() {
     rl.MinimizeWindow()
 }
 
-thor_toggle_maximize :: proc(data: rawptr, _: ^ui.Context, _: ^ui.Widget) {
-    thor := cast(^Thor) data
+thor_toggle_maximize :: proc(thor: ^Thor) {
     // IsWindowMaximized() can report false after MaximizeWindow() on an
     // undecorated window, so track the state ourselves to keep the toggle symmetric.
     if thor.window_maximized {
@@ -30,10 +28,10 @@ thor_window_is_maximized :: proc(data: rawptr) -> bool {
 }
 
 thor_titlebar_toggle_maximize :: proc(data: rawptr) {
-    thor_toggle_maximize(data, nil, nil)
+    thor_toggle_maximize(cast(^Thor) data)
 }
 
-thor_close_window :: proc(data: rawptr, _: ^ui.Context, _: ^ui.Widget) {
+thor_close_window :: proc(data: rawptr) {
     thor := cast(^Thor) data
     thor.should_close = true
 }
@@ -42,23 +40,22 @@ thor_toggle_fullscreen :: proc(_: ^Thor) {
     rl.ToggleBorderlessWindowed()
 }
 
-// App-level shortcuts, dispatched before widget focus (see
-// ui.context_set_global_key): they work no matter what is focused.
-thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
-    thor := cast(^Thor) data
+// App-level shortcuts, read from the key stream before the tree is built, so
+// they work no matter what holds the focus.
+thor_global_key :: proc(thor: ^Thor, event: ui.Key_Event) -> bool {
 
     // While the Settings modal is open it owns the keyboard (Escape closes it,
     // and a keybinding row may be capturing a chord), so no global shortcut fires.
-    if widgets.settings_view_is_open(thor.settings_view) {
+    if thor.settings_open {
         return false
     }
     // The git modal owns the keyboard the same way (the commit box is typed in).
-    if widgets.git_view_is_open(thor.git_view) {
+    if thor.git_open {
         return false
     }
     // So do the theme window and the color picker over it (Escape closes them,
     // and the picker's hex field is typed in).
-    if widgets.theme_editor_is_open(thor.theme_editor) || widgets.color_picker_is_open(thor.color_picker) {
+    if thor.theme_editor_open || thor.color_picker_open {
         return false
     }
 
@@ -68,7 +65,7 @@ thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
     )
 
     // A release only reaches the plugins: every shortcut here acts on the press.
-    if event.kind == .Key_Release {
+    if event.action == .Release {
         if chord == "" {
             return false
         }
@@ -77,7 +74,7 @@ thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
 
     // A held key only continues the undo/redo trail; every other shortcut here
     // is a one-shot that must not fire once per repeat tick.
-    if event.repeat {
+    if event.action == .Repeat {
         return thor_global_undo_redo(thor, event)
     }
 
@@ -110,8 +107,8 @@ thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
     // replace: ctrl+r in the find bar is how the replace field is revealed.
     if setting.keybind_matches(thor.replace_key, event.key, event.mods) {
         overlay :=
-            widgets.command_palette_is_open(thor.command_palette) ||
-            widgets.find_replace_is_open(thor.find_replace)
+            thor_palette_is_open(thor) ||
+            thor.find_open
         if overlay || !thor_rename_symbol(thor) {
             thor_open_find(thor, true)
         }
@@ -119,7 +116,7 @@ thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
     }
     // Go to line opens the palette in line mode regardless of focus.
     if setting.keybind_matches(thor.goto_line_key, event.key, event.mods) {
-        widgets.command_palette_open_line(thor.command_palette, &thor.ui_context)
+        thor_palette_open_line(thor)
         return true
     }
     // Go to definition (Alt+Enter) resolves the symbol under the caret.
@@ -180,12 +177,12 @@ thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
 
     // While an overlay is open it owns the keyboard (dispatched via focus),
     // so app shortcuts below are suppressed.
-    if widgets.command_palette_is_open(thor.command_palette) || widgets.find_replace_is_open(thor.find_replace) {
+    if thor_palette_is_open(thor) || thor.find_open {
         return false
     }
 
     // Escape closes the tip of the day before anything else reads it.
-    if event.key == .ESCAPE && event.mods == {} && thor_tip_close_on_escape(thor) {
+    if event.key == .Escape && event.mods == {} && thor_tip_close_on_escape(thor) {
         return true
     }
 
@@ -202,7 +199,7 @@ thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
         return true
     }
     if setting.keybind_matches(thor.console_toggle_key, event.key, event.mods) {
-        thor_toggle_console(thor, nil, nil)
+        thor_toggle_console(thor)
         return true
     }
 
@@ -237,7 +234,7 @@ thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
         return true
     }
     if setting.keybind_matches(thor.close_tab_key, event.key, event.mods) {
-        thor_close_file(thor, ui.signal_get(&thor.active_file))
+        thor_close_file(thor, signal_get(&thor.active_file))
         return true
     }
     if setting.keybind_matches(thor.next_tab_key, event.key, event.mods) {
@@ -249,7 +246,7 @@ thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
         return true
     }
     if setting.keybind_matches(thor.toggle_explorer_key, event.key, event.mods) {
-        thor_toggle_explorer(thor, nil, nil)
+        thor_toggle_explorer(thor)
         return true
     }
 
@@ -262,7 +259,7 @@ thor_global_key :: proc(data: rawptr, event: ^ui.Event) -> bool {
 // the dispatch, so the editor never sees a claimed key and cannot move the same
 // buffer twice.
 @(private = "file")
-thor_global_undo_redo :: proc(thor: ^Thor, event: ^ui.Event) -> bool {
+thor_global_undo_redo :: proc(thor: ^Thor, event: ui.Key_Event) -> bool {
     if !(.Ctrl in event.mods) || (.Alt in event.mods) {
         return false
     }
@@ -305,57 +302,52 @@ thor_cycle_tab :: proc(thor: ^Thor, direction: int) {
     if count == 0 {
         return
     }
-    active := ui.signal_get(&thor.active_file)
+    active := signal_get(&thor.active_file)
     thor_set_active_file(thor, ((active + direction) % count + count) % count)
 }
 
 // Moves keyboard focus to the editor. The editor pane is always present, so no
 // panel needs opening.
 thor_focus_editor :: proc(thor: ^Thor) {
-    thor.ui_context.focused = &thor.editor.widget
+    thor.focus_request = "pane0"
 }
 
 // Reveals the explorer panel if collapsed, then focuses the file tree so it can
 // be driven with the arrow keys.
 thor_focus_explorer :: proc(thor: ^Thor) {
-    if !ui.signal_get(&thor.explorer_visible) {
-        ui.signal_set(&thor.explorer_visible, true)
+    if !signal_get(&thor.explorer_visible) {
+        signal_set(&thor.explorer_visible, true)
     }
-    widgets.tree_focus(thor.tree)
-    thor.ui_context.focused = &thor.tree.widget
+    thor.focus_request = "explorer"
 }
 
 // Reveals the console panel if collapsed, then focuses it for command input.
 thor_focus_terminal :: proc(thor: ^Thor) {
-    if !ui.signal_get(&thor.console_visible) {
-        ui.signal_set(&thor.console_visible, true)
+    if !signal_get(&thor.console_visible) {
+        signal_set(&thor.console_visible, true)
     }
-    if thor.console != nil {
-        thor.ui_context.focused = &thor.console.widget
+    if thor_active_console(thor) != nil {
+        thor.focus_request = "console"
     }
 }
 
-thor_toggle_explorer :: proc(data: rawptr, _: ^ui.Context, _: ^ui.Widget) {
+thor_toggle_explorer :: proc(data: rawptr) {
     thor := cast(^Thor) data
-    ui.signal_set(&thor.explorer_visible, !ui.signal_get(&thor.explorer_visible))
+    signal_set(&thor.explorer_visible, !signal_get(&thor.explorer_visible))
 }
 
-thor_toggle_console :: proc(data: rawptr, _: ^ui.Context, _: ^ui.Widget) {
+thor_toggle_console :: proc(data: rawptr) {
     thor := cast(^Thor) data
-    ui.signal_set(&thor.console_visible, !ui.signal_get(&thor.console_visible))
+    signal_set(&thor.console_visible, !signal_get(&thor.console_visible))
 }
 
-// Shows/hides the second editor pane and sizes both from split_ratio. The
-// panes share the active file's buffer; the ratio is pane 1's width share.
+// Called after split_visible or split_ratio moves. The view sizes both panes
+// from split_ratio; the one thing that cannot wait for it is pane 2's zoom.
 thor_apply_split :: proc(thor: ^Thor) {
-    thor.editor2.visible = thor.split_visible
-    thor.editor_split_splitter.visible = thor.split_visible
-    thor.editor.grow = thor.split_ratio
-    thor.editor2.grow = 1 - thor.split_ratio
     if thor.split_visible {
         // Match pane 2's zoom to pane 1 when the split opens; afterwards each
         // pane zooms independently (ctrl+scroll targets the hovered pane).
-        widgets.editor_set_font_size(thor.editor2, thor.editor.font_size)
+        editview.editor_set_font_size(&thor.editor2, thor.editor.font_size)
     }
 }
 
@@ -370,11 +362,11 @@ thor_toggle_split :: proc(thor: ^Thor) {
         thor_apply_split(thor)
         thor_bind_pane(thor, 1)
         thor.active_pane = 1
-        thor.ui_context.focused = &thor.editor2.widget
+        thor.focus_request = "pane1"
     } else {
         thor_apply_split(thor)
         thor.active_pane = 0
-        thor.ui_context.focused = &thor.editor.widget
+        thor.focus_request = "pane0"
     }
     thor_sync_active_signal(thor)
 }
@@ -395,9 +387,7 @@ thor_second_pane_default :: proc(thor: ^Thor) -> int {
 
 // Splitter drag: shift the pane-1 width share by the dragged fraction of the
 // row, clamped so neither pane collapses.
-thor_resize_split :: proc(data: rawptr, delta: f32) {
-    thor := cast(^Thor) data
-    width := thor.editor_split_row.bounds.width
+thor_resize_split :: proc(thor: ^Thor, delta, width: f32) {
     if width <= 0 {
         return
     }

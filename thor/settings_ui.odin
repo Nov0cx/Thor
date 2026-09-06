@@ -10,18 +10,16 @@ import "../lang"
 import "../plugin"
 import "../setting"
 import "../shell"
-import "../ui"
-import "../widgets"
-
-// Wires and drives the Settings modal (widgets.Settings_View). The widget draws
-// and edits the rows; this file owns the settings knowledge: it builds the rows
-// from the live config and persists each change, letting the auto-reload path
-// re-apply it.
+import ui "../vendor/loom/loom"
+import "../font"
+// Wires and drives the Settings modal. `settings_view.odin` draws and edits the
+// rows; this file owns the settings knowledge: it builds the rows from the live
+// config and persists each change, letting the auto-reload path re-apply it.
 
 // Opens the Settings modal, (re)building its rows from the current config.
 thor_open_settings_view :: proc(thor: ^Thor) {
     thor_populate_settings_view(thor)
-    widgets.settings_view_open(thor.settings_view, &thor.ui_context)
+    thor_settings_open(thor)
 }
 
 thor_cmd_open_settings_gui :: proc(data: rawptr) {
@@ -34,11 +32,11 @@ thor_cmd_open_settings_gui :: proc(data: rawptr) {
 // fresh settings/ + user/ snapshot without the workspace overlay (thor.config
 // has that folded in); Workspace reads the live merged thor.config.
 thor_populate_settings_view :: proc(thor: ^Thor) {
-    view := thor.settings_view
-    widgets.settings_view_clear(view)
-    widgets.settings_view_set_workspace_available(view, thor.workspace_initialized)
+    view := &thor.settings
+    thor_settings_clear(view)
+    thor_settings_set_workspace_available(view, thor.workspace_initialized)
 
-    scope := widgets.settings_view_scope(view)
+    scope := thor_settings_scope(view)
     if scope == .Workspace && !thor.workspace_initialized {
         return
     }
@@ -57,69 +55,69 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
         setting.destroy(&general_snapshot)
     }
 
-    widgets.settings_view_begin_category(view, "editor", "Editor", "adjustments")
-    widgets.settings_view_add_number(view, "tab_width", "Tab Width", setting.tab_width(config), 1, 16, 1)
-    widgets.settings_view_add_number(view, "font_size", "Font Size", setting.font_size(config), 8, 48, 1)
-    widgets.settings_view_add_number(view, "autosave_delay_ms", "Autosave Delay (ms)", setting.autosave_delay_ms(config), 0, 10000, 250)
+    thor_settings_begin_category(view, "editor", "Editor", "adjustments")
+    thor_settings_add_number(view, "tab_width", "Tab Width", setting.tab_width(config), 1, 16, 1)
+    thor_settings_add_number(view, "font_size", "Font Size", setting.font_size(config), 8, 48, 1)
+    thor_settings_add_number(view, "autosave_delay_ms", "Autosave Delay (ms)", setting.autosave_delay_ms(config), 0, 10000, 250)
 
-    widgets.settings_view_begin_category(view, "appearance", "Appearance", "palette")
+    thor_settings_begin_category(view, "appearance", "Appearance", "palette")
     theme := setting.theme_name(config)
     if theme == "" {
         theme = DEFAULT_THEME
     }
-    widgets.settings_view_add_choice(view, "theme", "Theme", theme)
-    widgets.settings_view_add_choice(view, THEME_EDITOR_SETTING, "Theme Colors", "Edit...")
-    widgets.settings_view_add_choice(view, "font", "Font", ui.text_default_family())
+    thor_settings_add_choice(view, "theme", "Theme", theme)
+    thor_settings_add_choice(view, THEME_EDITOR_SETTING, "Theme Colors", "Edit...")
+    thor_settings_add_choice(view, "font", "Font", font.default_family())
     icon_pack := setting.icon_pack_name(config)
     if icon_pack == "" {
-        icon_pack = ui.icon_active_pack(PRIMARY_ICON_PACK_GROUP)
+        icon_pack = font.icon_active_pack(PRIMARY_ICON_PACK_GROUP)
     }
-    widgets.settings_view_add_choice(view, "icon_pack", "Icon Pack", icon_pack)
+    thor_settings_add_choice(view, "icon_pack", "Icon Pack", icon_pack)
     file_icon_pack := setting.file_icon_pack_name(config)
     if file_icon_pack == "" {
-        file_icon_pack = ui.icon_active_pack(FILE_ICON_PACK_GROUP)
+        file_icon_pack = font.icon_active_pack(FILE_ICON_PACK_GROUP)
     }
-    widgets.settings_view_add_choice(view, "file_icon_pack", "File Icon Pack", file_icon_pack)
-    widgets.settings_view_add_choice(view, "ligatures", "Ligatures", thor_ligatures_label(config))
-    widgets.settings_view_add_choice(view, "tooltips", "Tooltips", thor_on_off_label(setting.tooltips(config)))
-    widgets.settings_view_add_choice(view, "tip_of_the_day", "Tip of the Day", thor_on_off_label(setting.tip_of_the_day(config)))
-    widgets.settings_view_add_choice(view, "format_on_save", "Format on Save", thor_on_off_label(setting.format_on_save(config)))
-    widgets.settings_view_add_choice(view, "format_on_type", "Format on Type", thor_on_off_label(setting.format_on_type(config)))
+    thor_settings_add_choice(view, "file_icon_pack", "File Icon Pack", file_icon_pack)
+    thor_settings_add_choice(view, "ligatures", "Ligatures", thor_ligatures_label(config))
+    thor_settings_add_choice(view, "tooltips", "Tooltips", thor_on_off_label(setting.tooltips(config)))
+    thor_settings_add_choice(view, "tip_of_the_day", "Tip of the Day", thor_on_off_label(setting.tip_of_the_day(config)))
+    thor_settings_add_choice(view, "format_on_save", "Format on Save", thor_on_off_label(setting.format_on_save(config)))
+    thor_settings_add_choice(view, "format_on_type", "Format on Type", thor_on_off_label(setting.format_on_type(config)))
 
-    widgets.settings_view_begin_category(view, "windows", "Windows", "window")
-    widgets.settings_view_add_choice(view, "open_folder_in", "Open Folder In", thor_open_folder_in_label(config))
+    thor_settings_begin_category(view, "windows", "Windows", "window")
+    thor_settings_add_choice(view, "open_folder_in", "Open Folder In", thor_open_folder_in_label(config))
 
-    widgets.settings_view_begin_category(view, "terminal", "Terminal", "terminal-2")
-    widgets.settings_view_add_choice(view, "default_shell", "Default Shell", thor_default_shell_label(thor, config))
+    thor_settings_begin_category(view, "terminal", "Terminal", "terminal-2")
+    thor_settings_add_choice(view, "default_shell", "Default Shell", thor_default_shell_label(thor, config))
 
-    widgets.settings_view_begin_category(view, "updates", "Updates", "download")
-    widgets.settings_view_add_choice(view, "check_for_updates", "Check for Updates", thor_on_off_label(setting.check_for_updates(config)))
+    thor_settings_begin_category(view, "updates", "Updates", "download")
+    thor_settings_add_choice(view, "check_for_updates", "Check for Updates", thor_on_off_label(setting.check_for_updates(config)))
 
     // The Odin analyzer's rows, only while the master switch is on: off, none of
     // them does anything, and a screenful of dead rows reads as a screenful of
     // broken ones. Every other backend is a language server, which the Language
     // Servers category owns (thor/lsp_ui.odin) so its state and setup have room.
-    widgets.settings_view_begin_category(view, "language", "Language", "brain")
+    thor_settings_begin_category(view, "language", "Language", "brain")
     language_on := setting.language_enabled(config)
-    widgets.settings_view_add_choice(view, setting.LANGUAGE_SETTING, "Language Intelligence", thor_on_off_label(language_on))
+    thor_settings_add_choice(view, setting.LANGUAGE_SETTING, "Language Intelligence", thor_on_off_label(language_on))
     if language_on {
         odin_on, odin_features := thor_backend_gate(thor, config, ODIN_BACKEND_ID)
-        widgets.settings_view_add_choice(
+        thor_settings_add_choice(
             view, thor_language_backend_id(ODIN_BACKEND_ID), "Odin Analyzer", thor_on_off_label(odin_on),
         )
         if odin_on {
-            widgets.settings_view_begin_group(
+            thor_settings_begin_group(
                 view, thor_language_backend_feature_group(ODIN_BACKEND_ID), "Odin Analyzer Features", collapsed = true,
             )
             for kind in lang.Request_Kind {
-                widgets.settings_view_add_choice(
+                thor_settings_add_choice(
                     view,
                     thor_language_backend_feature_id(ODIN_BACKEND_ID, kind),
                     LANGUAGE_FEATURE_LABELS[kind],
                     thor_on_off_label(kind in odin_features),
                 )
             }
-            widgets.settings_view_end_group(view)
+            thor_settings_end_group(view)
         }
         thor_populate_lsp_category(thor)
     }
@@ -134,7 +132,7 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
     if scope == .General {
         states := thor_plugin_permission_states(thor)
         if len(states) > 0 {
-            widgets.settings_view_begin_category(view, "plugins", "Plugins", "puzzle")
+            thor_settings_begin_category(view, "plugins", "Plugins", "puzzle")
             for state in states {
                 names := plugin.permission_names(state.perms, context.temp_allocator)
                 wants := len(names) > 0 ? strings.join(names, ", ", context.temp_allocator) : "no permissions"
@@ -142,12 +140,12 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
                 if state.source == .Workspace {
                     label = fmt.tprintf("%s — %s (%s)", state.id, WORKSPACE_PLUGIN_DIR, wants)
                 }
-                widgets.settings_view_add_choice(view, thor_plugin_setting_id(state.source, state.id), label, state.allowed ? "Allowed" : "Blocked")
+                thor_settings_add_choice(view, thor_plugin_setting_id(state.source, state.id), label, state.allowed ? "Allowed" : "Blocked")
             }
         }
     }
 
-    widgets.settings_view_begin_category(view, "keybindings", "Keybindings", "keyboard")
+    thor_settings_begin_category(view, "keybindings", "Keybindings", "keyboard")
     actions := make([dynamic]string, context.temp_allocator)
     for action in config.keybinds {
         append(&actions, action)
@@ -156,13 +154,13 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
     for action in actions {
         kb := config.keybinds[action]
         chord := setting.keybind_to_string(kb, context.temp_allocator)
-        widgets.settings_view_add_keybind(view, action, action, chord)
+        thor_settings_add_keybind(view, action, action, chord)
     }
 }
 
 // Fired when the header's General/Workspace tab is switched; the widget has
 // already updated view.scope, so a plain repopulate picks up the new source.
-thor_on_settings_scope_change :: proc(data: rawptr, scope: widgets.Settings_Scope) {
+thor_on_settings_scope_change :: proc(data: rawptr, scope: Settings_Scope) {
     thor_populate_settings_view(cast(^Thor) data)
 }
 
@@ -253,10 +251,14 @@ thor_open_folder_in_label :: proc(config: ^setting.Settings) -> string {
 // Settings row: choose where an opened folder goes. Nothing to preview — the
 // choice only takes effect the next time a folder is opened.
 thor_cmd_change_open_folder_in :: proc(thor: ^Thor) {
-    widgets.select_dialog_open(
-        thor.select_dialog, &thor.ui_context, "Open Folder In",
-        OPEN_FOLDER_IN_LABELS[:], thor_open_folder_in_label(&thor.config),
-        thor_open_folder_in_preview, thor_open_folder_in_commit, thor,
+    thor_select_open(
+        thor,
+        "Open Folder In",
+        OPEN_FOLDER_IN_LABELS[:],
+        thor_open_folder_in_label(&thor.config),
+        thor_open_folder_in_preview,
+        thor_open_folder_in_commit,
+        thor,
     )
 }
 
@@ -272,7 +274,7 @@ thor_open_folder_in_commit :: proc(data: rawptr, choice: string) {
         }
     }
     thor_persist_open_folder_in(thor, picked)
-    if widgets.settings_view_is_open(thor.settings_view) {
+    if thor_settings_is_open(thor) {
         thor_populate_settings_view(thor)
     }
 }
@@ -385,10 +387,14 @@ LANGUAGE_FEATURE_LABELS := [lang.Request_Kind]string {
 @(private = "file")
 thor_cmd_change_language_master :: proc(thor: ^Thor) {
     on := setting.language_enabled(&thor.config)
-    widgets.select_dialog_open(
-        thor.select_dialog, &thor.ui_context, "Language Intelligence",
-        ON_OFF_LABELS[:], thor_on_off_label(on),
-        thor_language_master_preview, thor_language_master_commit, thor,
+    thor_select_open(
+        thor,
+        "Language Intelligence",
+        ON_OFF_LABELS[:],
+        thor_on_off_label(on),
+        thor_language_master_preview,
+        thor_language_master_commit,
+        thor,
     )
 }
 
@@ -411,10 +417,14 @@ thor_language_master_commit :: proc(data: rawptr, choice: string) {
 @(private = "file")
 thor_cmd_change_tooltips :: proc(thor: ^Thor) {
     on := setting.tooltips(&thor.config)
-    widgets.select_dialog_open(
-        thor.select_dialog, &thor.ui_context, "Tooltips",
-        ON_OFF_LABELS[:], thor_on_off_label(on),
-        thor_tooltips_preview, thor_tooltips_commit, thor,
+    thor_select_open(
+        thor,
+        "Tooltips",
+        ON_OFF_LABELS[:],
+        thor_on_off_label(on),
+        thor_tooltips_preview,
+        thor_tooltips_commit,
+        thor,
     )
 }
 
@@ -432,10 +442,14 @@ thor_tooltips_commit :: proc(data: rawptr, choice: string) {
 @(private = "file")
 thor_cmd_change_tip_of_the_day :: proc(thor: ^Thor) {
     on := setting.tip_of_the_day(&thor.config)
-    widgets.select_dialog_open(
-        thor.select_dialog, &thor.ui_context, "Tip of the Day",
-        ON_OFF_LABELS[:], thor_on_off_label(on),
-        thor_tip_of_the_day_preview, thor_tip_of_the_day_commit, thor,
+    thor_select_open(
+        thor,
+        "Tip of the Day",
+        ON_OFF_LABELS[:],
+        thor_on_off_label(on),
+        thor_tip_of_the_day_preview,
+        thor_tip_of_the_day_commit,
+        thor,
     )
 }
 
@@ -453,10 +467,14 @@ thor_tip_of_the_day_commit :: proc(data: rawptr, choice: string) {
 @(private = "file")
 thor_cmd_change_format_on_save :: proc(thor: ^Thor) {
     on := setting.format_on_save(&thor.config)
-    widgets.select_dialog_open(
-        thor.select_dialog, &thor.ui_context, "Format on Save",
-        ON_OFF_LABELS[:], thor_on_off_label(on),
-        thor_format_on_save_preview, thor_format_on_save_commit, thor,
+    thor_select_open(
+        thor,
+        "Format on Save",
+        ON_OFF_LABELS[:],
+        thor_on_off_label(on),
+        thor_format_on_save_preview,
+        thor_format_on_save_commit,
+        thor,
     )
 }
 
@@ -474,10 +492,14 @@ thor_format_on_save_commit :: proc(data: rawptr, choice: string) {
 @(private = "file")
 thor_cmd_change_check_for_updates :: proc(thor: ^Thor) {
     on := setting.check_for_updates(&thor.config)
-    widgets.select_dialog_open(
-        thor.select_dialog, &thor.ui_context, "Check for Updates",
-        ON_OFF_LABELS[:], thor_on_off_label(on),
-        thor_check_for_updates_preview, thor_check_for_updates_commit, thor,
+    thor_select_open(
+        thor,
+        "Check for Updates",
+        ON_OFF_LABELS[:],
+        thor_on_off_label(on),
+        thor_check_for_updates_preview,
+        thor_check_for_updates_commit,
+        thor,
     )
 }
 
@@ -495,10 +517,14 @@ thor_check_for_updates_commit :: proc(data: rawptr, choice: string) {
 @(private = "file")
 thor_cmd_change_format_on_type :: proc(thor: ^Thor) {
     on := setting.format_on_type(&thor.config)
-    widgets.select_dialog_open(
-        thor.select_dialog, &thor.ui_context, "Format on Type",
-        ON_OFF_LABELS[:], thor_on_off_label(on),
-        thor_format_on_type_preview, thor_format_on_type_commit, thor,
+    thor_select_open(
+        thor,
+        "Format on Type",
+        ON_OFF_LABELS[:],
+        thor_on_off_label(on),
+        thor_format_on_type_preview,
+        thor_format_on_type_commit,
+        thor,
     )
 }
 
@@ -532,10 +558,14 @@ thor_cmd_change_language_backend :: proc(thor: ^Thor, backend_id: string) {
     delete(thor.language_backend_target)
     thor.language_backend_target = strings.clone(backend_id)
     on, _ := thor_backend_gate(thor, &thor.config, backend_id)
-    widgets.select_dialog_open(
-        thor.select_dialog, &thor.ui_context, backend_id,
-        ON_OFF_LABELS[:], thor_on_off_label(on),
-        thor_language_backend_preview, thor_language_backend_commit, thor,
+    thor_select_open(
+        thor,
+        backend_id,
+        ON_OFF_LABELS[:],
+        thor_on_off_label(on),
+        thor_language_backend_preview,
+        thor_language_backend_commit,
+        thor,
     )
 }
 
@@ -563,10 +593,14 @@ thor_cmd_change_language_backend_feature :: proc(thor: ^Thor, backend_id: string
     _, features := thor_backend_gate(thor, &thor.config, backend_id)
     on := kind in features
     title := fmt.tprintf("%s — %s", backend_id, LANGUAGE_FEATURE_LABELS[kind])
-    widgets.select_dialog_open(
-        thor.select_dialog, &thor.ui_context, title,
-        ON_OFF_LABELS[:], thor_on_off_label(on),
-        thor_language_backend_feature_preview, thor_language_backend_feature_commit, thor,
+    thor_select_open(
+        thor,
+        title,
+        ON_OFF_LABELS[:],
+        thor_on_off_label(on),
+        thor_language_backend_feature_preview,
+        thor_language_backend_feature_commit,
+        thor,
     )
 }
 
@@ -644,10 +678,14 @@ thor_cmd_change_plugin_permission :: proc(thor: ^Thor, source: Plugin_Source, pl
     delete(thor.plugin_setting_target)
     thor.plugin_setting_target = strings.clone(plugin_id)
     thor.plugin_setting_source = source
-    widgets.select_dialog_open(
-        thor.select_dialog, &thor.ui_context, "Plugin Permissions",
-        PLUGIN_PERMISSION_LABELS[:], current,
-        thor_plugin_permission_preview, thor_plugin_permission_commit, thor,
+    thor_select_open(
+        thor,
+        "Plugin Permissions",
+        PLUGIN_PERMISSION_LABELS[:],
+        current,
+        thor_plugin_permission_preview,
+        thor_plugin_permission_commit,
+        thor,
     )
 }
 
@@ -661,14 +699,14 @@ thor_plugin_permission_commit :: proc(data: rawptr, choice: string) {
         return
     }
     thor_set_plugin_allowed(thor, thor.plugin_setting_source, thor.plugin_setting_target, choice == "Allowed")
-    if widgets.settings_view_is_open(thor.settings_view) {
+    if thor_settings_is_open(thor) {
         thor_populate_settings_view(thor)
     }
 }
 
 // Persists a captured (or cleared) chord to keybinds.json, then reloads so the
 // binding takes effect immediately.
-thor_on_setting_keybind :: proc(data: rawptr, id: string, key: rl.KeyboardKey, mods: input.Modifiers) {
+thor_on_setting_keybind :: proc(data: rawptr, id: string, key: ui.Key, mods: input.Modifiers) {
     thor := cast(^Thor) data
     kb := setting.Keybind {key = key, mods = mods}
     spec := setting.keybind_spec(kb, context.temp_allocator)

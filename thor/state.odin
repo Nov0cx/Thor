@@ -9,27 +9,19 @@ import "../lang"
 import "../plugin"
 import "../setting"
 import "../textedit"
-import "../ui"
-import "../widgets"
-
+import ui "../vendor/loom/loom"
+import "../editview"
+// Keeps the two dock sizes usable. The panels themselves are declared from the
+// visibility signals each frame, so there is nothing else to push here.
 thor_apply_layout_state :: proc(thor: ^Thor) {
-    has_workspace := thor.workspace_dir != ""
-    explorer_visible := has_workspace && ui.signal_get(&thor.explorer_visible)
-    console_visible := has_workspace && ui.signal_get(&thor.console_visible)
-
-    thor.explorer_panel.visible = explorer_visible
-    thor.explorer_splitter.visible = explorer_visible
-    thor.explorer_stub_panel.visible = has_workspace && !explorer_visible
-
-    thor.console_splitter.visible = console_visible
-    thor.console_panel.visible = console_visible
-    thor.console_stub_panel.visible = has_workspace && !console_visible
-
-    thor.tabbar.visible = has_workspace
-
-    thor.explorer_panel.min_size[0] = thor.explorer_width
-    thor.console_panel.min_size[1] = thor.console_height
+    thor.explorer_width = clamp(thor.explorer_width, EXPLORER_MIN_W, EXPLORER_MAX_W)
+    thor.console_height = clamp(thor.console_height, CONSOLE_MIN_H, CONSOLE_MAX_H)
 }
+
+EXPLORER_MIN_W :: f32(160)
+EXPLORER_MAX_W :: f32(640)
+CONSOLE_MIN_H :: f32(110)
+CONSOLE_MAX_H :: f32(720)
 
 thor_on_visibility_changed :: proc(data: rawptr, value: bool) {
     thor_apply_layout_state(cast(^Thor) data)
@@ -37,21 +29,21 @@ thor_on_visibility_changed :: proc(data: rawptr, value: bool) {
 
 // Widget for a pane index (0 = primary, 1 = split).
 @(private)
-thor_pane_editor :: proc(thor: ^Thor, pane: int) -> ^widgets.Editor {
-    return pane == 0 ? thor.editor : thor.editor2
+thor_pane_editor :: proc(thor: ^Thor, pane: int) -> ^editview.Editor {
+    return pane == 0 ? &thor.editor : &thor.editor2
 }
 
 // Widget of the pane the user is in, the target of every command that acts on
 // one pane only.
 @(private)
-thor_active_editor :: proc(thor: ^Thor) -> ^widgets.Editor {
+thor_active_editor :: proc(thor: ^Thor) -> ^editview.Editor {
     return thor_pane_editor(thor, thor.active_pane)
 }
 
 // Mirrors the focused pane's file into the active_file signal, the value the
 // tabbar, status bar and file commands read.
 thor_sync_active_signal :: proc(thor: ^Thor) {
-    ui.signal_set(&thor.active_file, thor.pane_file[thor.active_pane])
+    signal_set(&thor.active_file, thor.pane_file[thor.active_pane])
 }
 
 // Opens `index` in the focused pane. A still-loading file leaves the pane empty
@@ -87,7 +79,7 @@ thor_bind_pane :: proc(thor: ^Thor, pane: int, keep_view := false) {
 
 // Binds a single editor widget to a file's buffer, or shows a placeholder while
 // there is nothing loaded to draw.
-thor_bind_editor :: proc(thor: ^Thor, editor: ^widgets.Editor, file: ^Open_File, keep_view := false) {
+thor_bind_editor :: proc(thor: ^Thor, editor: ^editview.Editor, file: ^Open_File, keep_view := false) {
     if file == nil || file.load_failed || !file.loaded {
         editor.placeholder = "No file open"
         if file != nil {
@@ -101,23 +93,23 @@ thor_bind_editor :: proc(thor: ^Thor, editor: ^widgets.Editor, file: ^Open_File,
             case:                  editor.placeholder = "Loading..."
             }
         }
-        widgets.editor_set_state(editor, nil)
+        editview.editor_set_state(editor, nil)
         return
     }
-    widgets.editor_set_comment_prefix(editor, setting.comment_prefix(&thor.config, file.name))
+    editview.editor_set_comment_prefix(editor, setting.comment_prefix(&thor.config, file.name))
     ext := thor_lang_key(thor, file.name)
-    widgets.editor_set_completion_semantic(editor, lang.manager_allows(&thor.lang_manager, ext, .Completion))
-    widgets.editor_set_on_type_enabled(editor, lang.manager_allows(&thor.lang_manager, ext, .Format_On_Type))
+    editview.editor_set_completion_semantic(editor, lang.manager_allows(&thor.lang_manager, ext, .Completion))
+    editview.editor_set_on_type_enabled(editor, lang.manager_allows(&thor.lang_manager, ext, .Format_On_Type))
     // What a snippet's $TM_FILENAME and $TM_DIRECTORY resolve to.
     dir := filepath.dir(file.path) // a slice of file.path, no allocation
-    widgets.editor_set_snippet_vars(editor, file.path, dir)
+    editview.editor_set_snippet_vars(editor, file.path, dir)
     if keep_view {
-        widgets.editor_reload_state(editor, &file.state)
+        editview.editor_reload_state(editor, &file.state)
     } else {
-        widgets.editor_set_state(editor, &file.state)
+        editview.editor_set_state(editor, &file.state)
     }
-    widgets.editor_set_highlights(editor, file.highlights[:])
-    widgets.editor_set_folds(editor, file.folds[:])
+    editview.editor_set_highlights(editor, file.highlights[:])
+    editview.editor_set_folds(editor, file.folds[:])
 }
 
 // Re-binds any pane currently showing `file` (used after its load completes).
@@ -134,8 +126,8 @@ thor_apply_file_highlights :: proc(thor: ^Thor, file: ^Open_File) {
     for index, pane in thor.pane_file {
         if index >= 0 && index < len(thor.open_files) && thor.open_files[index] == file {
             editor := thor_pane_editor(thor, pane)
-            widgets.editor_set_highlights(editor, file.highlights[:])
-            widgets.editor_set_folds(editor, file.folds[:])
+            editview.editor_set_highlights(editor, file.highlights[:])
+            editview.editor_set_folds(editor, file.folds[:])
         }
     }
 }
@@ -149,14 +141,14 @@ thor_sync_pane_diagnostics :: proc(thor: ^Thor, pane: int) {
     if index < 0 || index >= len(thor.open_files) {
         // An empty pane must drop what it holds: the slice belongs to a
         // file that can be freed.
-        widgets.editor_set_diagnostics(editor, nil)
+        editview.editor_set_diagnostics(editor, nil)
         return
     }
     file := thor.open_files[index]
     if file.loaded && file.diagnostics_revision == file.state.revision && len(file.diagnostics) > 0 {
-        widgets.editor_set_diagnostics(editor, file.diagnostics[:])
+        editview.editor_set_diagnostics(editor, file.diagnostics[:])
     } else {
-        widgets.editor_set_diagnostics(editor, nil)
+        editview.editor_set_diagnostics(editor, nil)
     }
 }
 
@@ -168,47 +160,50 @@ thor_sync_pane_diff :: proc(thor: ^Thor, pane: int) {
     if index < 0 || index >= len(thor.open_files) {
         // An empty pane must drop what it holds: the slice belongs to a
         // file that can be freed.
-        widgets.editor_set_diff_lines(editor, nil)
+        editview.editor_set_diff_lines(editor, nil)
         return
     }
     file := thor.open_files[index]
     if file.loaded && len(file.diff_lines) > 0 {
-        widgets.editor_set_diff_lines(editor, file.diff_lines[:])
+        editview.editor_set_diff_lines(editor, file.diff_lines[:])
     } else {
-        widgets.editor_set_diff_lines(editor, nil)
+        editview.editor_set_diff_lines(editor, nil)
     }
 }
 
-// Swaps the image view in for image files and the model view in for 3D models
-// (both whole-panel overlays), and swaps
-// the markdown preview in for whichever pane is not currently focused when the
-// active file is markdown and preview is on -- the focused pane keeps showing
-// the source, like opening the preview "to the side". Called every frame so it
-// tracks tab switches, splits, toggles and closes without each having to poke it.
-thor_update_editor_view :: proc(thor: ^Thor) {
+// What one editor pane shows.
+Pane_Content :: enum {
+    Editor,
+    Markdown,
+}
+
+// What the workspace area shows this frame. An image, a model and the welcome
+// page each take the whole area; otherwise the two panes show a source or the
+// rendered markdown beside it.
+Workspace_View :: struct {
+    file:     ^Open_File, // borrowed, nil when no file is active
+    image:    bool,
+    model:    bool,
+    welcome:  bool,
+    split:    bool,
+    pane:     [2]Pane_Content,
+}
+
+// Decides what the workspace area shows: the image view for image files, the
+// model view for 3D models (both whole-area), and the markdown preview in
+// whichever pane is not focused when the active file is markdown and preview is
+// on. The focused pane keeps the source, like opening the preview to the side.
+// Called once a frame, so it tracks tab switches, splits, toggles and closes
+// without each having to poke it.
+thor_workspace_view :: proc(thor: ^Thor) -> Workspace_View {
     file := thor_active_open_file(thor)
-    show_image := file != nil && file.is_image && file.texture_loaded
-    show_model := file != nil && file.is_model && file.model_loaded
-    show_md := !show_image && !show_model && thor.markdown_preview &&
+    out := Workspace_View{file = file}
+    out.image = file != nil && file.is_image && file.texture_loaded
+    out.model = file != nil && file.is_model && file.model_loaded
+    out.welcome = thor.workspace_dir == ""
+
+    show_md := !out.image && !out.model && thor.markdown_preview &&
         file != nil && file.loaded && thor_is_markdown(file.name)
-
-    has_workspace := thor.workspace_dir != ""
-    thor.image_view.visible = show_image
-    thor.model_view.visible = show_model
-    thor.editor_split_row.visible = has_workspace && !show_image && !show_model
-    thor.welcome_panel.visible = !has_workspace
-
-    if show_image {
-        widgets.image_view_set_texture(thor.image_view, file.texture, file.name)
-    } else {
-        widgets.image_view_set_texture(thor.image_view, {}, "")
-    }
-
-    if show_model {
-        widgets.model_view_set_model(thor.model_view, file.model, file.model_bounds, file.name)
-    } else {
-        widgets.model_view_set_model(thor.model_view, {}, {}, "")
-    }
 
     // The preview needs a second pane to sit beside the source; open the split
     // first if it is not already on, without moving focus off the source.
@@ -216,34 +211,12 @@ thor_update_editor_view :: proc(thor: ^Thor) {
         thor.split_visible = true
         thor_apply_split(thor)
     }
+    out.split = thor.split_visible
 
-    preview_pane := show_md ? 1 - thor.active_pane : -1
-
-    thor.editor.visible = preview_pane != 0
-    thor.markdown_view.visible = preview_pane == 0
-    thor.editor2.visible = thor.split_visible && preview_pane != 1
-    thor.markdown_view2.visible = preview_pane == 1
-
-    if preview_pane == 0 {
-        thor.markdown_view.grow = thor.editor.grow
-        widgets.markdown_view_set_font_size(thor.markdown_view, thor.editor2.font_size)
-        widgets.markdown_view_set_source(
-            thor.markdown_view,
-            textedit.text(&file.state),
-            file.state.revision,
-            &file.state,
-        )
+    if show_md {
+        out.pane[1 - thor.active_pane] = .Markdown
     }
-    if preview_pane == 1 {
-        thor.markdown_view2.grow = thor.editor2.grow
-        widgets.markdown_view_set_font_size(thor.markdown_view2, thor.editor.font_size)
-        widgets.markdown_view_set_source(
-            thor.markdown_view2,
-            textedit.text(&file.state),
-            file.state.revision,
-            &file.state,
-        )
-    }
+    return out
 }
 
 @(private = "file")
@@ -262,12 +235,16 @@ thor_is_markdown :: proc(name: string) -> bool {
 // Follows keyboard focus: whichever editor pane holds focus becomes the active
 // pane, so the tabbar and status bar track it. Called once per frame.
 thor_sync_active_pane :: proc(thor: ^Thor) {
+    // A pending request wins over what the view saw: a right-click focuses the
+    // pane and the menu takes the focus straight after, so `focus_owner` would
+    // name the menu.
+    named := thor.focus_request != "" ? thor.focus_request : thor.focus_owner
     pane := thor.active_pane
     if !thor.split_visible {
         pane = 0
-    } else if thor.ui_context.focused == &thor.editor.widget {
+    } else if named == "pane0" {
         pane = 0
-    } else if thor.ui_context.focused == &thor.editor2.widget {
+    } else if named == "pane1" {
         pane = 1
     }
     if pane != thor.active_pane {
@@ -276,10 +253,10 @@ thor_sync_active_pane :: proc(thor: ^Thor) {
     }
 }
 
-thor_status_info :: proc(data: rawptr) -> widgets.Status_Info {
+thor_status_info :: proc(data: rawptr) -> Status_Info {
     thor := cast(^Thor) data
 
-    info: widgets.Status_Info
+    info: Status_Info
     info.branch = thor.git_branch
     info.line = 1
     info.column = 1
@@ -297,8 +274,8 @@ thor_status_info :: proc(data: rawptr) -> widgets.Status_Info {
     // Only the focused editor's jump count is being typed; a count another pane
     // was left holding is not shown.
     if editor := thor_pane_editor(thor, thor.active_pane);
-       thor.ui_context.focused == &editor.widget {
-        info.jump_count, info.jump_up, info.jump_active = widgets.editor_pending_jump(editor)
+       editor.focused {
+        info.jump_count, info.jump_up, info.jump_active = editview.editor_pending_jump(editor)
     }
 
     file := thor_active_open_file(thor)
@@ -453,10 +430,10 @@ thor_file_ready :: proc(file: ^Open_File) -> bool {
     return file.loaded || file.texture_loaded || file.model_loaded
 }
 
-thor_tab_info :: proc(data: rawptr, index: int) -> widgets.Tab_Info {
+thor_tab_info :: proc(data: rawptr, index: int) -> Tab_Info {
     thor := cast(^Thor) data
     file := thor.open_files[index]
-    return widgets.Tab_Info {
+    return Tab_Info {
         name = len(file.tab_label) > 0 ? file.tab_label : file.name,
         tooltip = file.path,
         modified = file.loaded && file.state.revision != file.saved_revision,
@@ -466,7 +443,7 @@ thor_tab_info :: proc(data: rawptr, index: int) -> widgets.Tab_Info {
 
 thor_tab_active :: proc(data: rawptr) -> int {
     thor := cast(^Thor) data
-    return ui.signal_get(&thor.active_file)
+    return signal_get(&thor.active_file)
 }
 
 thor_tab_select :: proc(data: rawptr, index: int) {

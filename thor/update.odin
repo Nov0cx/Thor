@@ -19,12 +19,11 @@ import "core:thread"
 import "core:time"
 
 import "../setting"
-import "../ui"
+import ui "../vendor/loom/loom"
 import "../update"
-import "../widgets"
 
 import rl "vendor:raylib"
-
+import "../font"
 // The titlebar button's metrics, matching the task selector beside it.
 @(private = "file")
 UPDATE_BUTTON_PAD_X :: 10
@@ -167,7 +166,6 @@ thor_install_update :: proc(thor: ^Thor) {
     }
     thor.update_inflight = true
     thor.update_state = .Installing
-    thor_sync_update_button(thor)
 
     job := new(Update_Job)
     job.owner = thor
@@ -257,7 +255,6 @@ thor_apply_update_job :: proc(thor: ^Thor, job: ^Update_Job) {
     free(job)
     thor.update_inflight = false
     thor.inflight_jobs -= 1
-    thor_sync_update_button(thor)
 }
 
 @(private = "file")
@@ -401,9 +398,8 @@ thor_prompt_update :: proc(thor: ^Thor) {
             VERSION,
         )
     }
-    widgets.command_palette_confirm(
-        thor.command_palette,
-        &thor.ui_context,
+    thor_palette_confirm(
+        thor,
         thor.update_prompt,
         thor_accept_update,
         thor,
@@ -433,7 +429,7 @@ thor_dismiss_update :: proc(data: rawptr) {
 
 // The titlebar button. Re-asks while an update is waiting, reports progress
 // while one installs.
-thor_click_update :: proc(data: rawptr, _: ^ui.Context, _: ^ui.Widget) {
+thor_click_update :: proc(data: rawptr) {
     thor := cast(^Thor) data
     if thor.update_state == .Installing {
         thor_flash_status(thor, "The update is downloading")
@@ -460,25 +456,13 @@ thor_open_release_page :: proc(thor: ^Thor) {
     }
 }
 
-// Points the titlebar button at the found version and sizes it to its label.
-// No-op before the titlebar is built.
-thor_sync_update_button :: proc(thor: ^Thor) {
-    button := thor.update_button
-    if button == nil {
-        return
+// The titlebar update button: whether it shows, its label and its icon. False
+// while no update is found and while one is already applied.
+thor_update_button_state :: proc(thor: ^Thor) -> (label, icon: string, shown: bool) {
+    if thor.update_state != .Found && thor.update_state != .Installing {
+        return "", "", false
     }
-    button.visible = thor.update_state == .Found || thor.update_state == .Installing
-    if !button.visible {
-        return
-    }
-    button.text = thor.update_version
-    button.icon = thor.update_state == .Installing ? "loader-2" : "download"
-    label_width := cast(f32) ui.measure_text(button.text, button.font_size)
-    button.min_size.x = clamp(
-        label_width + UPDATE_BUTTON_PAD_X * 2 + UPDATE_BUTTON_ICON_SIZE + 8,
-        UPDATE_BUTTON_MIN_WIDTH,
-        UPDATE_BUTTON_MAX_WIDTH,
-    )
+    return thor.update_version, thor.update_state == .Installing ? "loader-2" : "download", true
 }
 
 // Reads what a previous run remembered. A missing file is the first run and is

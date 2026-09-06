@@ -8,10 +8,10 @@ import "core:fmt"
 import "core:strings"
 import rl "vendor:raylib"
 
+import ui "../vendor/loom/loom"
 import "../lang"
 import "../textedit"
-import "../widgets"
-
+import "../editview"
 // A fix held between the offer and the pick. The Result its edits came from is
 // freed as soon as the handler returns (see manager_dispatch), so both the title
 // and the edits are cloned into Thor-owned storage the pick callback reads on a
@@ -88,7 +88,7 @@ overlapping_diagnostics :: proc(file: ^Open_File, lo, hi: int) -> []lang.Diagnos
 // The editor's severity as the seam's. Both carry the same two levels; the
 // split is what keeps widgets free of the language layer's types.
 @(private = "file")
-lang_severity :: proc(severity: widgets.Diagnostic_Severity) -> lang.Diagnostic_Severity {
+lang_severity :: proc(severity: editview.Diagnostic_Severity) -> lang.Diagnostic_Severity {
     return severity == .Warning ? .Warning : .Error
 }
 
@@ -106,7 +106,7 @@ thor_show_code_actions :: proc(thor: ^Thor, res: ^lang.Result) {
     }
 
     thor_clear_code_actions(thor)
-    items := make([dynamic]widgets.Pick_Item, context.temp_allocator)
+    items := make([dynamic]Pick_Item, context.temp_allocator)
     for action in res.actions {
         pending := Pending_Action {
             title     = strings.clone(action.title),
@@ -132,16 +132,15 @@ thor_show_code_actions :: proc(thor: ^Thor, res: ^lang.Result) {
             })
         }
         append(&thor.code_actions, pending)
-        append(&items, widgets.Pick_Item {
+        append(&items, Pick_Item {
             text     = action.title,
             name_len = len(action.title),
             color    = thor_action_color(thor, action.kind),
             detail   = thor_action_detail(action),
         })
     }
-    widgets.command_palette_pick_rich(
-        thor.command_palette,
-        &thor.ui_context,
+    thor_palette_pick_rich(
+        thor,
         "Code actions...",
         items[:],
         thor_pick_code_action,
@@ -263,7 +262,7 @@ thor_action_detail :: proc(action: lang.Code_Action) -> string {
 // Tints an action row by its kind, reusing the theme's syntax colors so a fix
 // reads apart from a refactor.
 @(private = "file")
-thor_action_color :: proc(thor: ^Thor, kind: string) -> rl.Color {
+thor_action_color :: proc(thor: ^Thor, kind: string) -> ui.Color {
     switch kind {
     case "quickfix":
         return thor_symbol_color(thor, "function")

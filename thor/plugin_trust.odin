@@ -20,7 +20,6 @@ import "core:path/filepath"
 import "core:strings"
 
 import "../plugin"
-import "../widgets"
 
 @(private = "file")
 GRANTS_FILE :: "sessions/plugin-grants.json"
@@ -112,8 +111,8 @@ thor_load_plugins :: proc(thor: ^Thor) {
 // workspace plugin replace (or stop replacing) a bundled one.
 thor_reload_plugins :: proc(thor: ^Thor) {
     thor.plugin_reload_pending = false
-    thor_clear_plugin_buttons(thor, true)
-    thor_clear_plugin_panels(thor, true)
+    thor_clear_plugin_buttons(thor)
+    thor_clear_plugin_panels(thor)
     thor_clear_plugin_requests(thor)
     thor.plugin_prompt_shown = false
 
@@ -195,9 +194,8 @@ thor_prompt_plugin_permissions :: proc(thor: ^Thor) {
         note = fmt.tprintf("From %s. Change later in Settings.", WORKSPACE_PLUGIN_DIR)
     }
 
-    widgets.permission_dialog_open(
-        thor.permission_dialog,
-        &thor.ui_context,
+    thor_permission_open(
+        thor,
         title,
         note,
         ids[:],

@@ -16,9 +16,8 @@ import rl "vendor:raylib"
 import "../lang"
 import "../setting"
 import "../textedit"
-import "../ui"
-import "../widgets"
-
+import ui "../vendor/loom/loom"
+import "../editview"
 // Line terminator a file uses on disk. The buffer always holds LF, so a CRLF
 // file is collapsed on load and expanded again on save; the editing core and
 // every byte offset downstream never see a CR.
@@ -69,14 +68,14 @@ Open_File :: struct {
     // The spans cover `highlight_start ..< highlight_end` only — the pane's view
     // plus a margin, not the whole buffer — so a pane that scrolls out of that
     // window re-highlights. Highlighting a large file whole costs seconds.
-    highlights:         [dynamic]widgets.Highlight_Span,
+    highlights:         [dynamic]editview.Highlight_Span,
     highlight_revision: u64,
     highlighted:        bool,
     highlight_start:    int,
     highlight_end:      int,
     // Foldable line ranges. These follow the buffer, not the view, so they are
     // recomputed on a revision change only — never on a scroll.
-    folds:              [dynamic]widgets.Fold_Range,
+    folds:              [dynamic]editview.Fold_Range,
     folds_revision:     u64,
     folds_ready:        bool,
     // Indentation read off the buffer for the status bar. detect_indent walks the
@@ -103,11 +102,11 @@ Open_File :: struct {
     // Compiler diagnostics from the last `odin check` of this file's package,
     // and the buffer revision they were computed against. Shown only while the
     // buffer still matches that revision (an edit clears them until re-checked).
-    diagnostics:        [dynamic]widgets.Diagnostic,
+    diagnostics:        [dynamic]editview.Diagnostic,
     diagnostics_revision: u64,
     // Line-level git diff vs HEAD, refreshed alongside git status. Index i
     // (0-based) holds line i's status; drives the editor's gutter diff bar.
-    diff_lines:         [dynamic]widgets.Diff_Line_Kind,
+    diff_lines:         [dynamic]editview.Diff_Line_Kind,
     // Image files bypass the text pipeline: the pixels load into a GPU texture
     // and show in the image view instead of the editor. `loaded` stays false.
     is_image:           bool,
@@ -443,7 +442,7 @@ thor_apply_file_op :: proc(thor: ^Thor, job: ^File_Op_Job) {
     free(job)
     thor.inflight_jobs -= 1
 
-    widgets.tree_refresh(thor.tree)
+    thor_explorer_refresh(thor)
     thor_refresh_git_status(thor)
 }
 
@@ -598,7 +597,7 @@ thor_update_tab_labels :: proc(thor: ^Thor) {
 }
 
 thor_active_open_file :: proc(thor: ^Thor) -> ^Open_File {
-    index := ui.signal_get(&thor.active_file)
+    index := signal_get(&thor.active_file)
     if index < 0 || index >= len(thor.open_files) {
         return nil
     }
@@ -774,14 +773,13 @@ thor_prompt_disk_conflict :: proc(thor: ^Thor) {
         thor.conflict_prompt = strings.concatenate(
             {"\"", file.name, "\" changed on disk. Reload and discard your edits?"},
         )
-        widgets.command_palette_confirm(
-            thor.command_palette,
-            &thor.ui_context,
-            thor.conflict_prompt,
-            thor_confirm_disk_reload,
-            thor,
-            thor_dismiss_disk_reload,
-        )
+        thor_palette_confirm(
+        thor,
+        thor.conflict_prompt,
+        thor_confirm_disk_reload,
+        thor,
+        thor_dismiss_disk_reload,
+    )
         return
     }
 }
@@ -825,11 +823,11 @@ thor_rebind_reloaded_panes :: proc(thor: ^Thor, file: ^Open_File, old_text, new_
             continue
         }
         editor := pane == 0 ? thor.editor : thor.editor2
-        top := widgets.editor_top_offset(editor)
+        top := editview.editor_top_offset(&editor)
         moved := thor_remap_offset(old_text, new_text, top, prefix, suffix)
         shift := textedit.line_index(new_text, moved) - textedit.line_index(old_text, top)
         thor_bind_pane(thor, pane, keep_view = true)
-        widgets.editor_scroll_lines(editor, shift)
+        editview.editor_scroll_lines(&editor, shift)
     }
 }
 
@@ -1065,8 +1063,7 @@ thor_request_save :: proc(data: rawptr) {
 thor_update_files :: proc(thor: ^Thor) {
     thor_process_io(thor)
     thor_apply_pending_goto(thor)
-    thor_update_editor_view(thor)
-
+    
     // Orphan-save insurance: a .Format result cancelled before thor_apply_format
     // would strand format_save_pending forever. With no format left in flight,
     // flush it unformatted rather than wait.
@@ -1136,7 +1133,7 @@ thor_highlight_pane_file :: proc(thor: ^Thor, pane: int) {
         return
     }
     editor := thor_pane_editor(thor, pane)
-    visible_start, visible_end, ok := widgets.editor_visible_byte_range(editor)
+    visible_start, visible_end, ok := editview.editor_visible_byte_range(editor)
     if ok && (visible_start < file.highlight_start || visible_end > file.highlight_end) {
         thor_update_highlights(thor, file)
     }
@@ -1441,7 +1438,7 @@ thor_tree_delete :: proc(data: rawptr, path: string) {
     }
 
     thor_clear_pending_deletes(thor)
-    selection := widgets.tree_selection(thor.tree)
+    selection := thor_explorer_selection(thor)
     if len(selection) > 1 && slice.contains(selection, path) {
         for selected in selection {
             append(&thor.pending_delete_paths, strings.clone(selected))
@@ -1457,9 +1454,8 @@ thor_tree_delete :: proc(data: rawptr, path: string) {
         thor.delete_prompt = strings.concatenate({"Delete \"", thor_file_base(path), "\"?"})
     }
 
-    widgets.command_palette_confirm(
-        thor.command_palette,
-        &thor.ui_context,
+    thor_palette_confirm(
+        thor,
         thor.delete_prompt,
         thor_confirm_delete,
         thor,
@@ -1498,9 +1494,8 @@ thor_begin_rename :: proc(thor: ^Thor, path: string) {
     delete(thor.pending_rename_path)
     thor.pending_rename_path = strings.clone(path)
 
-    widgets.command_palette_prompt(
-        thor.command_palette,
-        &thor.ui_context,
+    thor_palette_prompt(
+        thor,
         "New name",
         thor_confirm_rename,
         thor,
@@ -1570,7 +1565,7 @@ thor_confirm_rename :: proc(data: rawptr, name: string) {
 
     thor_retarget_open_file(thor, old_path, new_path)
 
-    widgets.tree_refresh(thor.tree)
+    thor_explorer_refresh(thor)
     thor_refresh_git_status(thor)
 }
 
@@ -1621,16 +1616,15 @@ thor_tree_move :: proc(data: rawptr, src_path: string, dst_dir: string) {
 
     thor_retarget_open_file(thor, src_path, new_path)
 
-    widgets.tree_refresh(thor.tree)
+    thor_explorer_refresh(thor)
     thor_refresh_git_status(thor)
 }
 
-// Tree widget callback: rows were dragged out of the explorer and released at
-// `position`. Dropping on the editor column opens the files as tabs; anywhere
-// else (title bar, status bar, off-window) the drag is abandoned.
-thor_tree_drag_out :: proc(data: rawptr, paths: []string, position: rl.Vector2) {
-    thor := cast(^Thor) data
-    if thor.editor_column == nil || !rl.CheckCollisionPointRec(position, thor.editor_column.bounds) {
+// Rows were dragged out of the explorer and released at `position`. Dropping on
+// the editor column opens the files as tabs; anywhere else (title bar, status
+// bar, off-window) the drag is abandoned.
+thor_tree_drag_out :: proc(thor: ^Thor, paths: []string, position: ui.Vec2) {
+    if !ui.rect_contains(thor.editor_rect, position) {
         return
     }
     opened := 0

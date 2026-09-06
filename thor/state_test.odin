@@ -3,8 +3,7 @@ package thor
 import "core:testing"
 
 import "../textedit"
-import "../ui"
-import "../widgets"
+import "../editview"
 
 // A right-click into the split pane focuses it, but the menu takes the focus
 // straight after, so the frame's own sync would read the menu instead. The
@@ -14,27 +13,25 @@ import "../widgets"
 test_active_pane_follows_focus :: proc(t: ^testing.T) {
     thor := new(Thor)
     defer free(thor)
-    thor.active_file = ui.make_signal(-1)
+    thor.active_file = make_signal(-1)
     thor.pane_file = {-1, -1}
-    thor.editor = widgets.editor_create("test-editor")
-    defer widgets.editor_destroy(&thor.editor.widget)
-    thor.editor2 = widgets.editor_create("test-editor2")
-    defer widgets.editor_destroy(&thor.editor2.widget)
+    defer editview.editor_destroy(&thor.editor)
+    defer editview.editor_destroy(&thor.editor2)
 
-    thor.ui_context.focused = &thor.editor2.widget
+    thor.focus_request = "pane1"
     thor_sync_active_pane(thor)
     testing.expect_value(t, thor.active_pane, 0)
-    testing.expect_value(t, thor_active_editor(thor), thor.editor)
+    testing.expect_value(t, thor_active_editor(thor), &thor.editor)
 
     thor.split_visible = true
     thor_sync_active_pane(thor)
     testing.expect_value(t, thor.active_pane, 1)
-    testing.expect_value(t, thor_active_editor(thor), thor.editor2)
+    testing.expect_value(t, thor_active_editor(thor), &thor.editor2)
 
-    thor.ui_context.focused = &thor.editor.widget
+    thor.focus_request = "pane0"
     thor_sync_active_pane(thor)
     testing.expect_value(t, thor.active_pane, 0)
-    testing.expect_value(t, thor_active_editor(thor), thor.editor)
+    testing.expect_value(t, thor_active_editor(thor), &thor.editor)
 }
 
 // An Open_File over `src`, loaded and saved. The caller destroys it.
@@ -119,14 +116,14 @@ test_can_undo_and_redo_follow_the_buffer :: proc(t: ^testing.T) {
     defer delete(thor.open_files)
 
     // No file open at all: both rows stay dead.
-    ui.signal_set(&thor.active_file, -1)
+    signal_set(&thor.active_file, -1)
     testing.expect(t, !thor_can_undo(thor), "nothing is open, so there is nothing to undo")
     testing.expect(t, !thor_can_redo(thor), "nothing is open, so there is nothing to redo")
 
     file := indent_test_file("alpha\n")
     defer indent_test_destroy(file)
     append(&thor.open_files, file)
-    ui.signal_set(&thor.active_file, 0)
+    signal_set(&thor.active_file, 0)
 
     // set_text clears the history, so an untouched buffer has nothing either.
     testing.expect(t, !thor_can_undo(thor), "an untouched buffer has no history")

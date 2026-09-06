@@ -11,7 +11,7 @@ import "core:strings"
 import "../lang"
 import "../setting"
 import "../textedit"
-
+import "../editview"
 // Runs whatever save format_on_save left pending for the just-finished
 // format (files.odin sets format_save_pending before dispatching), then, for
 // a Save All in progress, pops and dispatches the next queued file — one at
@@ -111,7 +111,7 @@ thor_format_selection :: proc(thor: ^Thor, file: ^Open_File) -> bool {
 }
 
 // Fired by the editor after a character lands, when the buffer's backend asked
-// for it as an on-type trigger (widgets.editor_set_on_type_enabled,
+// for it as an on-type trigger (editview.editor_set_on_type_enabled,
 // lang.manager_on_type_trigger). Debounced like completion, so a fast typist's
 // burst of trigger characters costs one round trip. Silent throughout —
 // thor_apply_on_type_format never flashes the statusline, since an edit

@@ -3,7 +3,6 @@ package thor
 import "core:time"
 
 import "../watch"
-import "../widgets"
 
 // Workspace file watcher wiring. The generic watcher (../watch) reports disk
 // changes under the workspace root; here two subscribers consume them — the
@@ -44,7 +43,7 @@ thor_poll_watcher :: proc(thor: ^Thor) {
 
     if thor.watch_tree_dirty {
         thor.watch_tree_dirty = false
-        widgets.tree_refresh(thor.tree)
+        thor_explorer_refresh(thor)
         thor.file_index_dirty = true
     }
     if thor.watch_git_dirty && time.tick_since(thor.git_status_at) >= GIT_STATUS_INTERVAL {
@@ -52,7 +51,7 @@ thor_poll_watcher :: proc(thor: ^Thor) {
         thor_refresh_git_status(thor)
         // The open modal follows outside changes (a terminal commit, an
         // external editor) the same way the tree tint does.
-        if widgets.git_view_is_open(thor.git_view) {
+        if thor.git_open {
             thor_git_op(thor, .Snapshot)
         }
     }

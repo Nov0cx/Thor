@@ -107,7 +107,6 @@ thor_update_swap_failed :: proc(thor: ^Thor, message: string, restore := true) {
         thor_init_watcher(thor)
     }
     thor.update_state = .Found
-    thor_sync_update_button(thor)
     thor_flash_status(thor, message, true)
 }
 
@@ -119,6 +118,5 @@ thor_update_swap_stranded :: proc(thor: ^Thor) {
     thor_register_window(thor)
     thor_init_watcher(thor)
     thor.update_state = .Idle
-    thor_sync_update_button(thor)
     thor_flash_status(thor, "Thor was updated. Close it and start it again", true)
 }

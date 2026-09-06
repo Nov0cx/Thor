@@ -14,9 +14,10 @@ import rl "vendor:raylib"
 import "../lang/lsp"
 import "../setting"
 import "../textedit"
-import "../ui"
-import "../widgets"
-
+import ui "../vendor/loom/loom"
+import "../font"
+import "../theme"
+import "../editview"
 // Applies the configurable settings to the live widgets. Called at startup and
 // on reload, so both paths stay in sync.
 thor_apply_settings :: proc(thor: ^Thor) {
@@ -26,12 +27,12 @@ thor_apply_settings :: proc(thor: ^Thor) {
     if kb, ok := setting.keybind(&thor.config, "command_palette"); ok {
         thor.command_palette_key = kb
     } else {
-        thor.command_palette_key = setting.Keybind {key = .PERIOD, mods = {.Ctrl}}
+        thor.command_palette_key = setting.Keybind {key = .Period, mods = {.Ctrl}}
     }
     if kb, ok := setting.keybind(&thor.config, "quick_open"); ok {
         thor.quick_open_key = kb
     } else {
-        thor.quick_open_key = setting.Keybind {key = .TAB, mods = {.Ctrl}}
+        thor.quick_open_key = setting.Keybind {key = .Tab, mods = {.Ctrl}}
     }
     if kb, ok := setting.keybind(&thor.config, "toggle_fullscreen"); ok {
         thor.fullscreen_key = kb
@@ -96,7 +97,7 @@ thor_apply_settings :: proc(thor: ^Thor) {
     if kb, ok := setting.keybind(&thor.config, "goto_definition"); ok {
         thor.goto_def_key = kb
     } else {
-        thor.goto_def_key = setting.Keybind {key = .ENTER, mods = {.Alt}}
+        thor.goto_def_key = setting.Keybind {key = .Enter, mods = {.Alt}}
     }
     if kb, ok := setting.keybind(&thor.config, "goto_symbol"); ok {
         thor.goto_symbol_key = kb
@@ -116,7 +117,7 @@ thor_apply_settings :: proc(thor: ^Thor) {
     if kb, ok := setting.keybind(&thor.config, "signature_help"); ok {
         thor.signature_help_key = kb
     } else {
-        thor.signature_help_key = setting.Keybind {key = .SPACE, mods = {.Ctrl, .Shift}}
+        thor.signature_help_key = setting.Keybind {key = .Space, mods = {.Ctrl, .Shift}}
     }
     if kb, ok := setting.keybind(&thor.config, "package_doc"); ok {
         thor.package_doc_key = kb
@@ -133,12 +134,12 @@ thor_apply_settings :: proc(thor: ^Thor) {
     if kb, ok := setting.keybind(&thor.config, "jump_back"); ok {
         thor.jump_back_key = kb
     } else {
-        thor.jump_back_key = setting.Keybind {key = .LEFT, mods = {.Ctrl, .Alt}}
+        thor.jump_back_key = setting.Keybind {key = .Left, mods = {.Ctrl, .Alt}}
     }
     if kb, ok := setting.keybind(&thor.config, "jump_forward"); ok {
         thor.jump_forward_key = kb
     } else {
-        thor.jump_forward_key = setting.Keybind {key = .RIGHT, mods = {.Ctrl, .Alt}}
+        thor.jump_forward_key = setting.Keybind {key = .Right, mods = {.Ctrl, .Alt}}
     }
     if kb, ok := setting.keybind(&thor.config, "last_file"); ok {
         thor.last_file_key = kb
@@ -158,12 +159,12 @@ thor_apply_settings :: proc(thor: ^Thor) {
     if kb, ok := setting.keybind(&thor.config, "next_tab"); ok {
         thor.next_tab_key = kb
     } else {
-        thor.next_tab_key = setting.Keybind {key = .PAGE_DOWN, mods = {.Ctrl}}
+        thor.next_tab_key = setting.Keybind {key = .Page_Down, mods = {.Ctrl}}
     }
     if kb, ok := setting.keybind(&thor.config, "previous_tab"); ok {
         thor.previous_tab_key = kb
     } else {
-        thor.previous_tab_key = setting.Keybind {key = .PAGE_UP, mods = {.Ctrl}}
+        thor.previous_tab_key = setting.Keybind {key = .Page_Up, mods = {.Ctrl}}
     }
     if kb, ok := setting.keybind(&thor.config, "toggle_explorer"); ok {
         thor.toggle_explorer_key = kb
@@ -181,16 +182,14 @@ thor_apply_settings :: proc(thor: ^Thor) {
         }
     }
 
-    widgets.editor_set_font_size(thor.editor, cast(i32) setting.font_size(&thor.config))
-    widgets.editor_set_font_size(thor.editor2, cast(i32) setting.font_size(&thor.config))
-    widgets.git_view_set_font_size(thor.git_view, setting.font_size(&thor.config))
+    editview.editor_set_font_size(&thor.editor, cast(i32) setting.font_size(&thor.config))
+    editview.editor_set_font_size(&thor.editor2, cast(i32) setting.font_size(&thor.config))
     textedit.set_default_tab_width(setting.tab_width(&thor.config))
-    ui.shape_set_tab_width(setting.tab_width(&thor.config))
-    ui.shape_set_ligatures(setting.ligatures(&thor.config))
-    ui.context_set_tooltips_enabled(&thor.ui_context, setting.tooltips(&thor.config))
+    font.set_tab_width(setting.tab_width(&thor.config))
+    font.set_ligatures(setting.ligatures(&thor.config))
+    ui.set_tooltips_enabled(setting.tooltips(&thor.config))
     // After the chords above are resolved: each tooltip carries the one its
     // control is bound to.
-    thor_apply_tooltips(thor)
     thor_apply_language_settings(thor)
 }
 
@@ -213,17 +212,17 @@ thor_reload_settings :: proc(thor: ^Thor) {
         thor_apply_theme(thor)
     }
     if thor.config.general.font != old_font && thor.config.general.font != "" {
-        if !ui.text_set_default_family(thor.config.general.font) {
+        if !font.set_default_family(thor.config.general.font) {
             log.warnf("Configured font %q is not available; using the default", thor.config.general.font)
         }
     }
     if thor.config.general.icon_pack != old_icon_pack && thor.config.general.icon_pack != "" {
-        if !ui.icon_set_active_pack(PRIMARY_ICON_PACK_GROUP, thor.config.general.icon_pack) {
+        if !font.icon_set_active_pack(PRIMARY_ICON_PACK_GROUP, thor.config.general.icon_pack) {
             log.warnf("Configured icon pack %q is not available; using the default", thor.config.general.icon_pack)
         }
     }
     if thor.config.general.file_icon_pack != old_file_icon_pack && thor.config.general.file_icon_pack != "" {
-        if !ui.icon_set_active_pack(FILE_ICON_PACK_GROUP, thor.config.general.file_icon_pack) {
+        if !font.icon_set_active_pack(FILE_ICON_PACK_GROUP, thor.config.general.file_icon_pack) {
             log.warnf("Configured file icon pack %q is not available; using the default", thor.config.general.file_icon_pack)
         }
     }
@@ -233,7 +232,7 @@ thor_reload_settings :: proc(thor: ^Thor) {
     // The tips and the chords they name both came from the config just replaced.
     thor_refresh_tip_cards(thor)
     thor_settings_mark_clean(thor)
-    if widgets.settings_view_is_open(thor.settings_view) {
+    if thor_settings_is_open(thor) {
         thor_populate_settings_view(thor)
     }
 }
@@ -268,8 +267,8 @@ thor_active_lsp_path :: proc(thor: ^Thor) -> string {
 @(private = "file")
 thor_active_config_path :: proc(thor: ^Thor, name: string) -> string {
     workspace := false
-    if widgets.settings_view_is_open(thor.settings_view) {
-        workspace = widgets.settings_view_scope(thor.settings_view) == .Workspace
+    if thor_settings_is_open(thor) {
+        workspace = thor_settings_scope(&thor.settings) == .Workspace
     } else {
         workspace = thor.workspace_initialized
     }
@@ -317,25 +316,21 @@ thor_cmd_init_workspace :: proc(data: rawptr) {
     thor_reload_settings(thor)
 }
 
-thor_open_find :: proc(thor: ^Thor, show_replace: bool) {
-    widgets.find_replace_open(thor.find_replace, &thor.ui_context, thor_active_editor(thor), show_replace)
-}
-
 thor_toggle_command_palette :: proc(thor: ^Thor) {
-    if widgets.command_palette_is_open(thor.command_palette) {
-        widgets.command_palette_close(thor.command_palette, &thor.ui_context)
+    if thor_palette_is_open(thor) {
+        thor_palette_close(thor)
     } else {
-        widgets.command_palette_open(thor.command_palette, &thor.ui_context)
+        thor_palette_open(thor)
     }
 }
 
 // Quick-open: jumps straight into the palette's file search.
 thor_quick_open :: proc(thor: ^Thor) {
-    widgets.command_palette_open_files(thor.command_palette, &thor.ui_context)
+    thor_palette_open_files(thor)
 }
 
 // Chord label for a keybind action; "" when unbound (no shortcut shown). Also
-// the dim second line of a control's tooltip, see thor_apply_tooltips.
+// the dim second line of a control's tooltip, which the view declares.
 thor_action_shortcut :: proc(thor: ^Thor, action: string) -> string {
     if kb, ok := setting.keybind(&thor.config, action); ok {
         return setting.keybind_to_string(kb, context.temp_allocator)
@@ -357,16 +352,16 @@ App_Bind :: struct {
 // a chord.
 @(private = "file")
 thor_add_bindable_command :: proc(thor: ^Thor, title, action: string, run: proc(data: rawptr), data: rawptr) {
-    widgets.command_palette_add(thor.command_palette, title, run, data, thor_action_shortcut(thor, action))
+    thor_palette_add(thor, title, run, data, thor_action_shortcut(thor, action))
     append(&thor.app_binds, App_Bind {action = action, run = run, data = data})
 }
 
 // Runs the app command bound to this chord, if any. Called from thor_global_key
 // after the built-in binds, so a user-set chord invokes an otherwise key-less
 // command. Unbound entries (KEY_NULL) never match a real press.
-thor_dispatch_app_bind :: proc(thor: ^Thor, event: ^ui.Event) -> bool {
+thor_dispatch_app_bind :: proc(thor: ^Thor, event: ui.Key_Event) -> bool {
     for bind in thor.app_binds {
-        if bind.key.key != .KEY_NULL &&
+        if bind.key.key != .None &&
            setting.keybind_matches(bind.key, event.key, event.mods) {
             if bind.run != nil {
                 bind.run(bind.data)
@@ -380,21 +375,20 @@ thor_dispatch_app_bind :: proc(thor: ^Thor, event: ^ui.Event) -> bool {
 // Registers every palette command. Titles use a "Category: Action" convention
 // so fuzzy search on the category works too.
 thor_register_commands :: proc(thor: ^Thor) {
-    p := thor.command_palette
     sc :: thor_action_shortcut
 
-    widgets.command_palette_add(p, "View: Toggle Explorer", thor_cmd_toggle_explorer, thor, sc(thor, "toggle_explorer"))
-    widgets.command_palette_add(p, "View: Toggle Console", thor_cmd_toggle_console, thor, sc(thor, "toggle_console"))
-    widgets.command_palette_add(p, "View: Zoom In", thor_cmd_zoom_in, thor, sc(thor, "zoom_in"))
-    widgets.command_palette_add(p, "View: Zoom Out", thor_cmd_zoom_out, thor, sc(thor, "zoom_out"))
+    thor_palette_add(thor, "View: Toggle Explorer", thor_cmd_toggle_explorer, thor, sc(thor, "toggle_explorer"))
+    thor_palette_add(thor, "View: Toggle Console", thor_cmd_toggle_console, thor, sc(thor, "toggle_console"))
+    thor_palette_add(thor, "View: Zoom In", thor_cmd_zoom_in, thor, sc(thor, "zoom_in"))
+    thor_palette_add(thor, "View: Zoom Out", thor_cmd_zoom_out, thor, sc(thor, "zoom_out"))
     thor_add_bindable_command(thor, "View: Reset Zoom", "reset_zoom", thor_cmd_zoom_reset, thor)
     thor_add_bindable_command(thor, "View: Toggle Maximize", "toggle_maximize", thor_cmd_toggle_maximize, thor)
-    widgets.command_palette_add(p, "View: Toggle Fullscreen", thor_cmd_toggle_fullscreen, thor, sc(thor, "toggle_fullscreen"))
+    thor_palette_add(thor, "View: Toggle Fullscreen", thor_cmd_toggle_fullscreen, thor, sc(thor, "toggle_fullscreen"))
     thor_add_bindable_command(thor, "View: Toggle Word Wrap", "toggle_word_wrap", thor_cmd_toggle_wrap, thor)
     thor_add_bindable_command(thor, "View: Toggle Whitespace", "toggle_whitespace", thor_cmd_toggle_whitespace, thor)
-    widgets.command_palette_add(p, "View: Toggle Split Editor", thor_cmd_toggle_split, thor, sc(thor, "toggle_split"))
+    thor_palette_add(thor, "View: Toggle Split Editor", thor_cmd_toggle_split, thor, sc(thor, "toggle_split"))
     thor_add_bindable_command(thor, "View: Toggle Markdown Preview", "toggle_markdown_preview", thor_cmd_toggle_markdown_preview, thor)
-    widgets.command_palette_add(p, "View: Recenter", thor_cmd_recenter, thor, sc(thor, "recenter"))
+    thor_palette_add(thor, "View: Recenter", thor_cmd_recenter, thor, sc(thor, "recenter"))
 
     thor_add_bindable_command(thor, "Terminal: New Terminal", "new_terminal", thor_cmd_new_terminal, thor)
     thor_add_bindable_command(thor, "Terminal: Close Terminal", "close_terminal", thor_cmd_close_terminal, thor)
@@ -407,60 +401,60 @@ thor_register_commands :: proc(thor: ^Thor) {
     thor_add_bindable_command(thor, "File: Open Folder in New Window", "open_folder_new_window", thor_cmd_open_folder_new_window, thor)
     thor_add_bindable_command(thor, "File: New File", "new_file", thor_cmd_new_file, thor)
     thor_add_bindable_command(thor, "File: New Folder", "new_folder", thor_cmd_new_folder, thor)
-    widgets.command_palette_add(p, "File: Save", thor_cmd_save, thor, sc(thor, "save"))
+    thor_palette_add(thor, "File: Save", thor_cmd_save, thor, sc(thor, "save"))
     thor_add_bindable_command(thor, "File: Save All", "save_all", thor_cmd_save_all, thor)
     thor_add_bindable_command(thor, "File: Rename File", "rename_file", thor_cmd_rename_file, thor)
     thor_add_bindable_command(thor, "File: Reload from Disk", "reload_from_disk", thor_cmd_reload_from_disk, thor)
-    widgets.command_palette_add(p, "File: Close Tab", thor_cmd_close_tab, thor, sc(thor, "close_tab"))
+    thor_palette_add(thor, "File: Close Tab", thor_cmd_close_tab, thor, sc(thor, "close_tab"))
     thor_add_bindable_command(thor, "File: Close All Tabs", "close_all_tabs", thor_cmd_close_all, thor)
     thor_add_bindable_command(thor, "File: Close Workspace", "close_workspace", thor_cmd_close_workspace, thor)
-    widgets.command_palette_add(p, "File: Next Tab", thor_cmd_next_tab, thor, sc(thor, "next_tab"))
-    widgets.command_palette_add(p, "File: Previous Tab", thor_cmd_prev_tab, thor, sc(thor, "previous_tab"))
-    widgets.command_palette_add(p, "File: Switch to Last File", thor_cmd_last_file, thor, sc(thor, "last_file"))
+    thor_palette_add(thor, "File: Next Tab", thor_cmd_next_tab, thor, sc(thor, "next_tab"))
+    thor_palette_add(thor, "File: Previous Tab", thor_cmd_prev_tab, thor, sc(thor, "previous_tab"))
+    thor_palette_add(thor, "File: Switch to Last File", thor_cmd_last_file, thor, sc(thor, "last_file"))
     thor_add_bindable_command(thor, "File: Use LF Line Endings", "line_endings_lf", thor_cmd_line_endings_lf, thor)
     thor_add_bindable_command(thor, "File: Use CRLF Line Endings", "line_endings_crlf", thor_cmd_line_endings_crlf, thor)
     thor_add_bindable_command(thor, "File: Show Indentation", "show_indentation", thor_cmd_show_indentation, thor)
     thor_add_bindable_command(thor, "File: Copy Path", "copy_path", thor_cmd_copy_path, thor)
     thor_add_bindable_command(thor, "File: Reveal in File Explorer", "reveal_in_explorer", thor_cmd_reveal, thor)
 
-    // Data is the palette itself: these switch it into another input mode.
-    widgets.command_palette_add(p, "Go to File", widgets.command_palette_goto_file_command, p, sc(thor, "quick_open"))
-    widgets.command_palette_add(p, "Go to Line", widgets.command_palette_goto_line_command, p, sc(thor, "goto_line"))
+    // These switch the palette into another input mode instead of closing it.
+    thor_palette_add(thor, "Go to File", thor_palette_goto_file_command, thor, sc(thor, "quick_open"))
+    thor_palette_add(thor, "Go to Line", thor_palette_goto_line_command, thor, sc(thor, "goto_line"))
 
-    widgets.command_palette_add(p, "Find", thor_cmd_find, thor, sc(thor, "find"))
-    widgets.command_palette_add(p, "Replace", thor_cmd_replace, thor, sc(thor, "replace"))
+    thor_palette_add(thor, "Find", thor_cmd_find, thor, sc(thor, "find"))
+    thor_palette_add(thor, "Replace", thor_cmd_replace, thor, sc(thor, "replace"))
 
     // Undo/redo have editor-local keys, so plain palette entries rather than
     // thor_add_bindable_command.
-    widgets.command_palette_add(p, "Edit: Undo", thor_cmd_undo, thor, sc(thor, "undo"))
-    widgets.command_palette_add(p, "Edit: Redo", thor_cmd_redo, thor, sc(thor, "redo"))
-    widgets.command_palette_add(p, "Edit: Toggle Line Comment", thor_cmd_toggle_comment, thor, sc(thor, "toggle_line_comment"))
-    widgets.command_palette_add(p, "Edit: Select All", thor_cmd_select_all, thor, sc(thor, "select_all"))
-    widgets.command_palette_add(p, "Edit: Duplicate Line", thor_cmd_duplicate_line, thor, sc(thor, "duplicate_line_down"))
-    widgets.command_palette_add(p, "Edit: Delete Line", thor_cmd_delete_line, thor, sc(thor, "delete_line"))
-    widgets.command_palette_add(p, "Edit: Join Lines", thor_cmd_join_lines, thor, sc(thor, "join_lines"))
-    widgets.command_palette_add(p, "Edit: Move Line Up", thor_cmd_move_line_up, thor, sc(thor, "move_line_up"))
-    widgets.command_palette_add(p, "Edit: Move Line Down", thor_cmd_move_line_down, thor, sc(thor, "move_line_down"))
-    widgets.command_palette_add(p, "Edit: Uppercase", thor_cmd_uppercase, thor, sc(thor, "uppercase"))
-    widgets.command_palette_add(p, "Edit: Lowercase", thor_cmd_lowercase, thor, sc(thor, "lowercase"))
-    widgets.command_palette_add(p, "Edit: Capitalize", thor_cmd_capitalize, thor, sc(thor, "capitalize"))
-    widgets.command_palette_add(p, "Edit: Trim Trailing Whitespace", thor_cmd_trim_whitespace, thor, sc(thor, "trim_trailing_whitespace"))
-    widgets.command_palette_add(p, "Edit: Format Document", thor_cmd_format_document, thor, sc(thor, "format_document"))
-    widgets.command_palette_add(p, "Edit: Format Selection", thor_cmd_format_selection, thor, sc(thor, "format_selection"))
-    widgets.command_palette_add(p, "Edit: Align at Character", thor_cmd_align_at_char, thor, sc(thor, "align_at_char"))
+    thor_palette_add(thor, "Edit: Undo", thor_cmd_undo, thor, sc(thor, "undo"))
+    thor_palette_add(thor, "Edit: Redo", thor_cmd_redo, thor, sc(thor, "redo"))
+    thor_palette_add(thor, "Edit: Toggle Line Comment", thor_cmd_toggle_comment, thor, sc(thor, "toggle_line_comment"))
+    thor_palette_add(thor, "Edit: Select All", thor_cmd_select_all, thor, sc(thor, "select_all"))
+    thor_palette_add(thor, "Edit: Duplicate Line", thor_cmd_duplicate_line, thor, sc(thor, "duplicate_line_down"))
+    thor_palette_add(thor, "Edit: Delete Line", thor_cmd_delete_line, thor, sc(thor, "delete_line"))
+    thor_palette_add(thor, "Edit: Join Lines", thor_cmd_join_lines, thor, sc(thor, "join_lines"))
+    thor_palette_add(thor, "Edit: Move Line Up", thor_cmd_move_line_up, thor, sc(thor, "move_line_up"))
+    thor_palette_add(thor, "Edit: Move Line Down", thor_cmd_move_line_down, thor, sc(thor, "move_line_down"))
+    thor_palette_add(thor, "Edit: Uppercase", thor_cmd_uppercase, thor, sc(thor, "uppercase"))
+    thor_palette_add(thor, "Edit: Lowercase", thor_cmd_lowercase, thor, sc(thor, "lowercase"))
+    thor_palette_add(thor, "Edit: Capitalize", thor_cmd_capitalize, thor, sc(thor, "capitalize"))
+    thor_palette_add(thor, "Edit: Trim Trailing Whitespace", thor_cmd_trim_whitespace, thor, sc(thor, "trim_trailing_whitespace"))
+    thor_palette_add(thor, "Edit: Format Document", thor_cmd_format_document, thor, sc(thor, "format_document"))
+    thor_palette_add(thor, "Edit: Format Selection", thor_cmd_format_selection, thor, sc(thor, "format_selection"))
+    thor_palette_add(thor, "Edit: Align at Character", thor_cmd_align_at_char, thor, sc(thor, "align_at_char"))
 
-    widgets.command_palette_add(p, "Selection: Add Cursor Above", thor_cmd_add_cursor_above, thor, sc(thor, "add_cursor_above"))
-    widgets.command_palette_add(p, "Selection: Add Cursor Below", thor_cmd_add_cursor_below, thor, sc(thor, "add_cursor_below"))
-    widgets.command_palette_add(p, "Go to Matching Bracket", thor_cmd_matching_bracket, thor, sc(thor, "matching_bracket"))
-    widgets.command_palette_add(p, "Go to Symbol in File", thor_cmd_goto_symbol, thor, sc(thor, "goto_symbol"))
-    widgets.command_palette_add(p, "Go to Symbol in Workspace", thor_cmd_goto_workspace_symbol, thor, sc(thor, "goto_workspace_symbol"))
-    widgets.command_palette_add(p, "Go Back", thor_cmd_jump_back, thor, sc(thor, "jump_back"))
-    widgets.command_palette_add(p, "Go Forward", thor_cmd_jump_forward, thor, sc(thor, "jump_forward"))
-    widgets.command_palette_add(p, "Find All References", thor_cmd_find_references, thor, sc(thor, "find_references"))
-    widgets.command_palette_add(p, "Signature Help", thor_cmd_signature_help, thor, sc(thor, "signature_help"))
-    widgets.command_palette_add(p, "Show Package Documentation", thor_cmd_package_doc, thor, sc(thor, "package_doc"))
-    widgets.command_palette_add(p, "Rename Symbol", thor_cmd_rename_symbol, thor, sc(thor, "replace"))
-    widgets.command_palette_add(p, "Code Actions", thor_cmd_code_actions, thor, sc(thor, "code_actions"))
+    thor_palette_add(thor, "Selection: Add Cursor Above", thor_cmd_add_cursor_above, thor, sc(thor, "add_cursor_above"))
+    thor_palette_add(thor, "Selection: Add Cursor Below", thor_cmd_add_cursor_below, thor, sc(thor, "add_cursor_below"))
+    thor_palette_add(thor, "Go to Matching Bracket", thor_cmd_matching_bracket, thor, sc(thor, "matching_bracket"))
+    thor_palette_add(thor, "Go to Symbol in File", thor_cmd_goto_symbol, thor, sc(thor, "goto_symbol"))
+    thor_palette_add(thor, "Go to Symbol in Workspace", thor_cmd_goto_workspace_symbol, thor, sc(thor, "goto_workspace_symbol"))
+    thor_palette_add(thor, "Go Back", thor_cmd_jump_back, thor, sc(thor, "jump_back"))
+    thor_palette_add(thor, "Go Forward", thor_cmd_jump_forward, thor, sc(thor, "jump_forward"))
+    thor_palette_add(thor, "Find All References", thor_cmd_find_references, thor, sc(thor, "find_references"))
+    thor_palette_add(thor, "Signature Help", thor_cmd_signature_help, thor, sc(thor, "signature_help"))
+    thor_palette_add(thor, "Show Package Documentation", thor_cmd_package_doc, thor, sc(thor, "package_doc"))
+    thor_palette_add(thor, "Rename Symbol", thor_cmd_rename_symbol, thor, sc(thor, "replace"))
+    thor_palette_add(thor, "Code Actions", thor_cmd_code_actions, thor, sc(thor, "code_actions"))
 
     thor_add_bindable_command(thor, "Fold: Toggle Fold", "toggle_fold", thor_cmd_toggle_fold, thor)
     thor_add_bindable_command(thor, "Fold: Fold All", "fold_all", thor_cmd_fold_all, thor)
@@ -498,27 +492,26 @@ thor_register_commands :: proc(thor: ^Thor) {
     thor_add_bindable_command(thor, "Preferences: Ligatures", "change_ligatures", thor_cmd_change_ligatures, thor)
 }
 
-thor_cmd_toggle_explorer :: proc(data: rawptr) {thor_toggle_explorer(data, nil, nil)}
-thor_cmd_toggle_console :: proc(data: rawptr) {thor_toggle_console(data, nil, nil)}
-thor_cmd_toggle_maximize :: proc(data: rawptr) {thor_toggle_maximize(data, nil, nil)}
+thor_cmd_toggle_explorer :: proc(data: rawptr) {thor_toggle_explorer(cast(^Thor) data)}
+thor_cmd_toggle_console :: proc(data: rawptr) {thor_toggle_console(cast(^Thor) data)}
+thor_cmd_toggle_maximize :: proc(data: rawptr) {thor_toggle_maximize(cast(^Thor) data)}
 thor_cmd_toggle_fullscreen :: proc(data: rawptr) {thor_toggle_fullscreen(cast(^Thor) data)}
-thor_cmd_toggle_wrap :: proc(data: rawptr) {widgets.editor_toggle_wrap((cast(^Thor) data).editor)}
+thor_cmd_toggle_wrap :: proc(data: rawptr) {editview.editor_toggle_wrap(&(cast(^Thor) data).editor)}
 
 // Both panes, so a split does not end up with one pane marking indentation and
 // the other not.
 thor_cmd_toggle_whitespace :: proc(data: rawptr) {
     thor := cast(^Thor) data
-    widgets.editor_toggle_whitespace(thor.editor)
-    widgets.editor_toggle_whitespace(thor.editor2)
+    editview.editor_toggle_whitespace(&thor.editor)
+    editview.editor_toggle_whitespace(&thor.editor2)
 }
 thor_cmd_toggle_split :: proc(data: rawptr) {thor_toggle_split(cast(^Thor) data)}
 
 // Flips the rendered markdown preview. Only visibly does anything while a
-// markdown file is active (thor_update_editor_view gates the swap).
+// markdown file is active (thor_workspace_view gates the swap).
 thor_cmd_toggle_markdown_preview :: proc(data: rawptr) {
     thor := cast(^Thor) data
     thor.markdown_preview = !thor.markdown_preview
-    thor_update_editor_view(thor)
 }
 thor_cmd_find :: proc(data: rawptr) {thor_open_find(cast(^Thor) data, false)}
 thor_cmd_replace :: proc(data: rawptr) {thor_open_find(cast(^Thor) data, true)}
@@ -565,24 +558,24 @@ thor_cmd_show_indentation :: proc(data: rawptr) {
 // sync (ctrl+scroll still zooms only the hovered pane).
 thor_cmd_zoom_in :: proc(data: rawptr) {
     thor := cast(^Thor) data
-    widgets.editor_zoom(thor.editor, 1)
-    widgets.editor_zoom(thor.editor2, 1)
+    editview.editor_zoom(&thor.editor, 1)
+    editview.editor_zoom(&thor.editor2, 1)
 }
 thor_cmd_zoom_out :: proc(data: rawptr) {
     thor := cast(^Thor) data
-    widgets.editor_zoom(thor.editor, -1)
-    widgets.editor_zoom(thor.editor2, -1)
+    editview.editor_zoom(&thor.editor, -1)
+    editview.editor_zoom(&thor.editor2, -1)
 }
 
 thor_cmd_zoom_reset :: proc(data: rawptr) {
     thor := cast(^Thor) data
-    widgets.editor_set_font_size(thor.editor, cast(i32) setting.font_size(&thor.config))
-    widgets.editor_set_font_size(thor.editor2, cast(i32) setting.font_size(&thor.config))
+    editview.editor_set_font_size(&thor.editor, cast(i32) setting.font_size(&thor.config))
+    editview.editor_set_font_size(&thor.editor2, cast(i32) setting.font_size(&thor.config))
 }
 
 thor_cmd_close_tab :: proc(data: rawptr) {
     thor := cast(^Thor) data
-    thor_close_file(thor, ui.signal_get(&thor.active_file))
+    thor_close_file(thor, signal_get(&thor.active_file))
 }
 
 thor_cmd_close_all :: proc(data: rawptr) {
@@ -626,7 +619,7 @@ thor_cmd_undo :: proc(data: rawptr) {
     }
     if s := thor_edit_state(data); s != nil {
         textedit.undo(s)
-        widgets.editor_scroll_to_caret(thor_pane_editor(thor, thor.active_pane))
+        editview.editor_scroll_to_caret(thor_pane_editor(thor, thor.active_pane))
     }
 }
 
@@ -637,7 +630,7 @@ thor_cmd_redo :: proc(data: rawptr) {
     }
     if s := thor_edit_state(data); s != nil {
         textedit.redo(s)
-        widgets.editor_scroll_to_caret(thor_pane_editor(thor, thor.active_pane))
+        editview.editor_scroll_to_caret(thor_pane_editor(thor, thor.active_pane))
     }
 }
 
@@ -685,7 +678,7 @@ thor_cmd_capitalize :: proc(data: rawptr) {if s := thor_edit_state(data); s != n
 // selected line into the same column (e.g. line up a block of `=` assignments).
 thor_cmd_align_at_char :: proc(data: rawptr) {
     thor := cast(^Thor) data
-    widgets.command_palette_prompt(thor.command_palette, &thor.ui_context, "Align on character", thor_prompt_align_at_char, thor)
+    thor_palette_prompt(thor, "Align on character", thor_prompt_align_at_char, thor)
 }
 
 thor_prompt_align_at_char :: proc(data: rawptr, text: string) {
@@ -700,11 +693,11 @@ thor_prompt_align_at_char :: proc(data: rawptr, text: string) {
 
 // Folding acts on the focused pane's editor (the one whose fold state the user
 // sees), unlike zoom which drives both panes.
-thor_cmd_toggle_fold :: proc(data: rawptr) {widgets.editor_toggle_fold(thor_active_editor(cast(^Thor) data))}
-thor_cmd_fold_all :: proc(data: rawptr) {widgets.editor_fold_all(thor_active_editor(cast(^Thor) data))}
-thor_cmd_unfold_all :: proc(data: rawptr) {widgets.editor_unfold_all(thor_active_editor(cast(^Thor) data))}
+thor_cmd_toggle_fold :: proc(data: rawptr) {editview.editor_toggle_fold(thor_active_editor(cast(^Thor) data))}
+thor_cmd_fold_all :: proc(data: rawptr) {editview.editor_fold_all(thor_active_editor(cast(^Thor) data))}
+thor_cmd_unfold_all :: proc(data: rawptr) {editview.editor_unfold_all(thor_active_editor(cast(^Thor) data))}
 
-thor_cmd_recenter :: proc(data: rawptr) {widgets.editor_recenter(thor_active_editor(cast(^Thor) data))}
+thor_cmd_recenter :: proc(data: rawptr) {editview.editor_recenter(thor_active_editor(cast(^Thor) data))}
 thor_cmd_last_file :: proc(data: rawptr) {thor_flip_last_file(cast(^Thor) data)}
 
 // Save All: files that don't need formatting save immediately; among files
@@ -761,7 +754,7 @@ thor_cmd_reveal :: proc(data: rawptr) {
 
 thor_cmd_command_palette :: proc(data: rawptr) {
     thor := cast(^Thor) data
-    widgets.command_palette_open(thor.command_palette, &thor.ui_context)
+    thor_palette_open(thor)
 }
 
 thor_cmd_add_font :: proc(data: rawptr) {thor_open_file(cast(^Thor) data, "assets/fonts/fonts.json")}
@@ -776,7 +769,7 @@ thor_cmd_new_theme :: proc(data: rawptr) {
         palette := thor.theme
         // A borrowed name on a struct copy: this palette is never theme_destroy'd.
         palette.name = "Custom"
-        if !ui.theme_save(palette, path) {
+        if !theme.save(palette, path) {
             thor_flash_status(thor, "Could not create theme file", is_error = true)
             return
         }
@@ -981,5 +974,5 @@ thor_palette_goto_line :: proc(data: rawptr, line: int) {
     thor_jump_record(thor)
     pos := textedit.state_line_start(&file.state, line - 1)
     textedit.set_single_cursor(&file.state, pos)
-    widgets.editor_center_on_caret(thor_active_editor(thor))
+    editview.editor_center_on_caret(thor_active_editor(thor))
 }

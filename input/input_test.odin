@@ -17,11 +17,11 @@ test_modifier_from_token_reads_every_spelling :: proc(t: ^testing.T) {
     expect_token(t, "shift", .Shift)
     expect_token(t, "alt", .Alt)
     expect_token(t, "option", .Alt)
-    expect_token(t, "cmd", .Cmd)
-    expect_token(t, "command", .Cmd)
-    expect_token(t, "super", .Cmd)
-    expect_token(t, "meta", .Cmd)
-    expect_token(t, "win", .Cmd)
+    expect_token(t, "cmd", .Super)
+    expect_token(t, "command", .Super)
+    expect_token(t, "super", .Super)
+    expect_token(t, "meta", .Super)
+    expect_token(t, "win", .Super)
 }
 
 // A key name must not read as a modifier, or the chord would lose its key.
@@ -36,14 +36,14 @@ test_modifier_from_token_refuses_a_key :: proc(t: ^testing.T) {
 @(test)
 test_write_tokens_keeps_the_parse_order :: proc(t: ^testing.T) {
     b := strings.builder_make(context.temp_allocator)
-    write_tokens(&b, {.Cmd, .Ctrl, .Shift, .Alt})
+    write_tokens(&b, {.Super, .Ctrl, .Shift, .Alt})
     testing.expect_value(t, strings.to_string(b), "ctrl+shift+alt+cmd+")
 }
 
 @(test)
 test_write_names_is_the_display_form :: proc(t: ^testing.T) {
     b := strings.builder_make(context.temp_allocator)
-    write_names(&b, {.Cmd, .Shift})
+    write_names(&b, {.Super, .Shift})
     testing.expect_value(t, strings.to_string(b), "Shift+Cmd+")
 
     empty := strings.builder_make(context.temp_allocator)

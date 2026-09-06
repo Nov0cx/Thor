@@ -4,31 +4,23 @@ import "core:os"
 import "core:testing"
 import "core:time"
 
+import "../editview"
 import "../textedit"
-import "../ui"
-import "../widgets"
+import ui "../vendor/loom/loom"
 
 // Builds a headless Thor with the two panes and views thor_update_files needs,
 // the same shape test_async_file_roundtrip uses. No window, no GL.
 @(private = "file")
 make_test_thor :: proc() -> ^Thor {
     thor := new(Thor)
-    thor.active_file = ui.make_signal(-1)
+    thor.active_file = make_signal(-1)
     thor.open_files = make([dynamic]^Open_File)
     thor.zombie_files = make([dynamic]^Open_File)
     thor.finished_loads = make([dynamic]^Load_Job)
     thor.finished_saves = make([dynamic]^Save_Job)
     thor.pane_file = {-1, -1}
-    thor.editor = widgets.editor_create("test-editor")
-    thor.editor2 = widgets.editor_create("test-editor2")
-    thor.editor_split_row = widgets.stack_create("test-editor-split-row", .Horizontal)
-    thor.image_view = widgets.image_view_create("test-image-view")
-    thor.model_view = widgets.model_view_create("test-model-view")
-    thor.markdown_view = widgets.markdown_view_create("test-markdown-view")
-    thor.markdown_view2 = widgets.markdown_view_create("test-markdown-view2")
     // thor_update_editor_view also swaps the welcome page in when there is no
     // workspace, which this headless Thor never sets.
-    thor.welcome_panel = widgets.panel_create("test-welcome-panel", {})
     return thor
 }
 
@@ -38,6 +30,10 @@ destroy_test_thor :: proc(thor: ^Thor) {
         thor_close_file(thor, 0)
     }
     thor_drain_io(thor)
+    // After the closes: closing the last file rebinds the panes, which sets the
+    // snippet variables again.
+    editview.editor_destroy(&thor.editor)
+    editview.editor_destroy(&thor.editor2)
     thor_clear_jump_list(thor)
     delete(thor.jump_back)
     delete(thor.jump_forward)
@@ -45,14 +41,6 @@ destroy_test_thor :: proc(thor: ^Thor) {
     delete(thor.zombie_files)
     delete(thor.finished_loads)
     delete(thor.finished_saves)
-    widgets.editor_destroy(&thor.editor.widget)
-    widgets.editor_destroy(&thor.editor2.widget)
-    widgets.stack_destroy(&thor.editor_split_row.widget)
-    widgets.image_view_destroy(&thor.image_view.widget)
-    widgets.model_view_destroy(&thor.model_view.widget)
-    widgets.markdown_view_destroy(&thor.markdown_view.widget)
-    widgets.markdown_view_destroy(&thor.markdown_view2.widget)
-    widgets.panel_destroy(&thor.welcome_panel.widget)
     free(thor)
 }
 

@@ -7,9 +7,9 @@ import rl "vendor:raylib"
 import "../lang"
 import "../plugin"
 import "../textedit"
-import "../ui"
-import "../widgets"
-
+import ui "../vendor/loom/loom"
+import "../theme"
+import "../editview"
 // Byte window to highlight `file` over: what the pane showing it displays, plus
 // a screen of margin on each side so a small scroll does not re-run the query.
 // ok is false when no pane shows the file, or its rows are not built yet.
@@ -20,8 +20,8 @@ thor_highlight_window :: proc(thor: ^Thor, file: ^Open_File) -> (start, end: int
             continue
         }
         editor := thor_pane_editor(thor, pane)
-        margin := max(widgets.editor_visible_row_count(editor), 1)
-        return widgets.editor_visible_byte_range(editor, margin)
+        margin := max(editview.editor_visible_row_count(editor), 1)
+        return editview.editor_visible_byte_range(editor, margin)
     }
     return 0, 0, false
 }
@@ -49,7 +49,7 @@ thor_update_highlights :: proc(thor: ^Thor, file: ^Open_File) {
         win_end = clamp(win_end, win_start, len(source))
         // The buffer's path lets a grammar-backed language re-parse only what
         // this revision changed, off the tree it kept from the last one.
-        grammar := make([dynamic]widgets.Highlight_Span, context.temp_allocator)
+        grammar := make([dynamic]editview.Highlight_Span, context.temp_allocator)
         spans, covered_start, covered_end := plugin.highlight_range(
             &thor.plugins,
             file.path,
@@ -64,8 +64,8 @@ thor_update_highlights :: proc(thor: ^Thor, file: ^Open_File) {
         // instead would re-highlight a buffer already covered on every scroll.
         win_start, win_end = covered_start, covered_end
         for span in spans {
-            color := ui.theme_role_color(thor.theme, span.role)
-            append(&grammar, widgets.Highlight_Span{span.start, span.end, color})
+            color := theme.role_color(thor.theme, span.role)
+            append(&grammar, editview.Highlight_Span{span.start, span.end, color})
         }
         thor_merge_semantic(thor, file, key, grammar[:], win_start, win_end)
     }
@@ -115,7 +115,7 @@ thor_update_folds :: proc(thor: ^Thor, file: ^Open_File) {
     source := textedit.text(&file.state)
     clear(&file.folds)
     for r in plugin.fold_ranges(&thor.plugins, file.path, source, key, context.temp_allocator) {
-        append(&file.folds, widgets.Fold_Range{r.start_line, r.end_line})
+        append(&file.folds, editview.Fold_Range{r.start_line, r.end_line})
     }
     file.folds_revision = file.state.revision
     file.folds_ready = true
@@ -135,7 +135,7 @@ thor_merge_semantic :: proc(
     thor: ^Thor,
     file: ^Open_File,
     key: string,
-    grammar: []widgets.Highlight_Span,
+    grammar: []editview.Highlight_Span,
     win_start, win_end: int,
 ) {
     if len(file.semantic) == 0 {
@@ -144,13 +144,13 @@ thor_merge_semantic :: proc(
     }
 
     roles: [lang.Token_Kind]string
-    colors: [lang.Token_Kind]rl.Color
+    colors: [lang.Token_Kind]ui.Color
     for kind in lang.Token_Kind {
         roles[kind] = plugin.role_for(&thor.plugins, key, thor_token_capture(kind))
-        colors[kind] = ui.theme_role_color(thor.theme, roles[kind])
+        colors[kind] = theme.role_color(thor.theme, roles[kind])
     }
 
-    over := make([dynamic]widgets.Highlight_Span, 0, len(file.semantic), context.temp_allocator)
+    over := make([dynamic]editview.Highlight_Span, 0, len(file.semantic), context.temp_allocator)
     cut := win_start
     for token in file.semantic {
         if roles[token.kind] == "" {
@@ -166,7 +166,7 @@ thor_merge_semantic :: proc(
         if start >= end {
             continue
         }
-        append(&over, widgets.Highlight_Span{start, end, colors[token.kind]})
+        append(&over, editview.Highlight_Span{start, end, colors[token.kind]})
         cut = end
     }
     thor_overlay_spans(&file.highlights, grammar, over[:])
@@ -178,7 +178,7 @@ thor_merge_semantic :: proc(
 // ascending and non-overlapping, which is what lets the editor draw it with a
 // single cursor that only ever moves forward.
 @(private)
-thor_overlay_spans :: proc(out: ^[dynamic]widgets.Highlight_Span, base, over: []widgets.Highlight_Span) {
+thor_overlay_spans :: proc(out: ^[dynamic]editview.Highlight_Span, base, over: []editview.Highlight_Span) {
     b := 0
     // Where base[b] still has ink: an earlier overlay span may have covered its
     // opening bytes.
@@ -191,13 +191,13 @@ thor_overlay_spans :: proc(out: ^[dynamic]widgets.Highlight_Span, base, over: []
             from := max(under.start, cut)
             if under.end <= span.start {
                 if from < under.end {
-                    append(out, widgets.Highlight_Span{from, under.end, under.color})
+                    append(out, editview.Highlight_Span{from, under.end, under.color})
                 }
                 b += 1
                 continue
             }
             if from < span.start {
-                append(out, widgets.Highlight_Span{from, span.start, under.color})
+                append(out, editview.Highlight_Span{from, span.start, under.color})
             }
             break
         }
@@ -213,7 +213,7 @@ thor_overlay_spans :: proc(out: ^[dynamic]widgets.Highlight_Span, base, over: []
         under := base[b]
         from := max(under.start, cut)
         if from < under.end {
-            append(out, widgets.Highlight_Span{from, under.end, under.color})
+            append(out, editview.Highlight_Span{from, under.end, under.color})
         }
     }
 }

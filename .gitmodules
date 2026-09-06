@@ -4,3 +4,6 @@
 [submodule "vendor/odin-tree-sitter"]
 	path = vendor/odin-tree-sitter
 	url = https://github.com/laytan/odin-tree-sitter
+[submodule "vendor/loom"]
+	path = vendor/loom
+	url = https://github.com/Nov0cx/Loom

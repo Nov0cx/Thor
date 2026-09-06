@@ -1,14 +1,16 @@
 // Host side of plugin panels. A plugin describes its panel as plugin.View_Nodes
-// (see plugin/view.odin) and this file turns that description into widgets, then
-// routes clicks, list selections and canvas draws back into the plugin VM.
+// (see plugin/view.odin); this file keeps that description and declares it as a
+// Loom tree each frame, routing clicks, list selections and canvas draws back
+// into the plugin VM.
 package thor
 
 import "core:strings"
 import rl "vendor:raylib"
 
+import "../font"
 import "../plugin"
-import "../ui"
-import "../widgets"
+import "../theme"
+import ui "../vendor/loom/loom"
 
 // Where a panel docks. An unknown name docks right.
 Plugin_Dock :: enum {
@@ -16,26 +18,17 @@ Plugin_Dock :: enum {
     Bottom,
 }
 
-// A dockable panel a plugin created with thor.panel. Its content widgets are
-// rebuilt on every render, so everything they borrow is owned here.
+// A dockable panel a plugin created with thor.panel. The node tree is cloned on
+// every render, so nothing it holds points into the plugin's temp allocator.
 Plugin_Panel :: struct {
     thor:     ^Thor,
     id:       string, // owned; "<plugin>/<name>"
-    title:    string, // owned; the header label borrows it
+    title:    string, // owned
     dock:     Plugin_Dock,
-    panel:    ^widgets.Panel, // outer container, a child of the dock stack
-    content:  ^widgets.Stack, // holds the rendered nodes
-    actions:  [dynamic]^Plugin_Panel_Action, // owned
+    visible:  bool,
+    nodes:    []plugin.View_Node, // owned; the whole tree, cloned
+    // One record per canvas node, kept because a draw callback takes a rawptr.
     canvases: [dynamic]^Plugin_Panel_Canvas, // owned
-    texts:    [dynamic]string,               // owned; widget labels borrow these
-}
-
-// A click target: a button, or one row of a list.
-Plugin_Panel_Action :: struct {
-    panel:  ^Plugin_Panel,
-    action: int,
-    row:    int,    // -1 for a button
-    item:   string, // borrowed from Plugin_Panel.texts
 }
 
 // A canvas node, drawn by calling back into the plugin every frame.
@@ -44,16 +37,23 @@ Plugin_Panel_Canvas :: struct {
     action: int,
 }
 
+// Font size a canvas draws and measures text at.
+@(private = "file")
+PLUGIN_CANVAS_FONT_SIZE :: 14
+
+PLUGIN_DOCK_RIGHT_W :: f32(280)
+PLUGIN_DOCK_BOTTOM_H :: f32(200)
+
 // thor.panel{...}: creates the panel, or retitles it when it already exists. It
 // stays hidden until the plugin calls :show().
 thor_plugin_panel :: proc(host: rawptr, id, title, dock: string) {
-    thor := cast(^Thor) host
+    thor := cast(^Thor)host
     side := dock == "bottom" ? Plugin_Dock.Bottom : Plugin_Dock.Right
 
     if p := thor_find_plugin_panel(thor, id); p != nil {
+        heading := strings.clone(title)
         delete(p.title)
-        p.title = strings.clone(title)
-        thor_plugin_panel_set_title(p)
+        p.title = heading
         return
     }
 
@@ -62,116 +62,37 @@ thor_plugin_panel :: proc(host: rawptr, id, title, dock: string) {
     p.id = strings.clone(id)
     p.title = strings.clone(title)
     p.dock = side
-    p.actions = make([dynamic]^Plugin_Panel_Action)
     p.canvases = make([dynamic]^Plugin_Panel_Canvas)
-    p.texts = make([dynamic]string)
-    thor_build_plugin_panel(thor, p)
-    p.panel.visible = false
     append(&thor.plugin_panels, p)
-
-    stack := side == .Bottom ? thor.plugin_dock_bottom_stack : thor.plugin_dock_right_stack
-    widgets.append_child(&stack.widget, &p.panel.widget)
-    thor_update_plugin_docks(thor)
 }
 
-// Builds the panel chrome: a header with the title and a close button, over the
-// content stack the render fills.
-@(private = "file")
-thor_build_plugin_panel :: proc(thor: ^Thor, p: ^Plugin_Panel) {
-    p.panel = widgets.panel_create("plugin-panel", thor.theme.second_background)
-    ui.widget_set_grow(&p.panel.widget, 1)
-    p.panel.min_size = rl.Vector2 {0, 80}
-
-    stack := widgets.stack_create("plugin-panel-stack", .Vertical)
-    widgets.stack_set_gap(stack, 1)
-    widgets.stack_set_padding(stack, ui.padding(0))
-    widgets.stack_set_background(stack, thor.theme.border)
-    ui.widget_set_grow(&stack.widget, 1)
-
-    header := widgets.stack_create("plugin-panel-header", .Horizontal)
-    widgets.stack_set_gap(header, 8)
-    widgets.stack_set_padding(header, ui.padding_xy(10, 6))
-    widgets.stack_set_background(header, thor.theme.highlight)
-    header.min_size = rl.Vector2 {0, 32}
-
-    label := widgets.label_create("plugin-panel-title", p.title)
-    widgets.label_set_text_color(label, thor.theme.primary_text_color)
-    ui.widget_set_grow(&label.widget, 1)
-    label.min_size = rl.Vector2 {0, 20}
-
-    close := widgets.button_create("plugin-panel-close", "")
-    widgets.button_set_icon(close, "x", 14)
-    thor_theme_icon_button(thor, close, thor.theme.highlight)
-    widgets.button_set_on_click(close, thor_plugin_panel_close_click, p)
-    close.min_size = rl.Vector2 {24, 20}
-    ui.widget_set_tooltip(&close.widget, "Close this panel")
-
-    p.content = widgets.stack_create("plugin-panel-content", .Vertical)
-    widgets.stack_set_gap(p.content, 6)
-    widgets.stack_set_padding(p.content, ui.padding(8))
-    widgets.stack_set_background(p.content, thor.theme.second_background)
-    ui.widget_set_grow(&p.content.widget, 1)
-
-    widgets.append_child(&p.panel.widget, &stack.widget)
-    widgets.append_child(&stack.widget, &header.widget)
-    widgets.append_child(&stack.widget, &p.content.widget)
-    widgets.append_child(&header.widget, &label.widget)
-    widgets.append_child(&header.widget, &close.widget)
-}
-
-// Points the header label at the panel's current title.
-@(private = "file")
-thor_plugin_panel_set_title :: proc(p: ^Plugin_Panel) {
-    stack := p.panel.first_child
-    if stack == nil || stack.first_child == nil {
-        return
-    }
-    if label := stack.first_child.first_child; label != nil {
-        (cast(^widgets.Label) label).text = p.title
-    }
-}
-
-// panel:render(nodes): rebuilds the panel's contents. Anything the previous
+// panel:render(nodes): replaces the panel's contents. Anything the previous
 // render owned goes first, so a plugin may re-render as often as it likes.
 thor_plugin_panel_render :: proc(host: rawptr, id: string, nodes: []plugin.View_Node) {
-    thor := cast(^Thor) host
+    thor := cast(^Thor)host
     p := thor_find_plugin_panel(thor, id)
     if p == nil {
         return
     }
     thor_clear_plugin_panel(p)
-    for node in nodes {
-        if child := thor_build_view_node(p, node); child != nil {
-            widgets.append_child(&p.content.widget, child)
-        }
-    }
+    p.nodes = plugin_clone_nodes(p, nodes)
 }
 
 // panel:show(): reveals the panel and its dock.
 thor_plugin_panel_show :: proc(host: rawptr, id: string) {
-    thor := cast(^Thor) host
+    thor := cast(^Thor)host
     if p := thor_find_plugin_panel(thor, id); p != nil {
-        p.panel.visible = true
-        thor_update_plugin_docks(thor)
+        p.visible = true
     }
 }
 
-// panel:close(): hides the panel and drops the widgets it held.
+// panel:close(): hides the panel and drops the contents it held.
 thor_plugin_panel_close :: proc(host: rawptr, id: string) {
-    thor := cast(^Thor) host
+    thor := cast(^Thor)host
     if p := thor_find_plugin_panel(thor, id); p != nil {
         thor_clear_plugin_panel(p)
-        p.panel.visible = false
-        thor_update_plugin_docks(thor)
+        p.visible = false
     }
-}
-
-// The close button in a panel's header, which also tells the plugin its panel
-// is gone so a later render does not resurrect stale contents.
-@(private = "file")
-thor_plugin_panel_close_click :: proc(data: rawptr, _: ^ui.Context, _: ^ui.Widget) {
-    p := cast(^Plugin_Panel) data
-    thor_plugin_panel_close(p.thor, p.id)
 }
 
 @(private = "file")
@@ -186,262 +107,419 @@ thor_find_plugin_panel :: proc(thor: ^Thor, id: string) -> ^Plugin_Panel {
 
 // A dock shows only while one of its panels does, so an unused side takes no
 // width or height from the editor.
-@(private = "file")
-thor_update_plugin_docks :: proc(thor: ^Thor) {
-    right, bottom := false, false
+thor_plugin_dock_visible :: proc(thor: ^Thor, dock: Plugin_Dock) -> bool {
     for p in thor.plugin_panels {
-        if !p.panel.visible {
-            continue
-        }
-        switch p.dock {
-        case .Right:  right = true
-        case .Bottom: bottom = true
+        if p.visible && p.dock == dock {
+            return true
         }
     }
-    thor.plugin_dock_right.visible = right
-    thor.plugin_dock_bottom.visible = bottom
+    return false
 }
 
-// Destroys the rendered widgets and frees everything they borrowed.
+// Frees the rendered node tree and the canvas records that went with it.
 @(private = "file")
 thor_clear_plugin_panel :: proc(p: ^Plugin_Panel) {
-    child := p.content.first_child
-    for child != nil {
-        next := child.next_sibling
-        ui.context_forget(&p.thor.ui_context, child)
-        ui.widget_remove_child(child)
-        ui.widget_destroy_tree(child)
-        child = next
-    }
-    for action in p.actions {
-        free(action)
-    }
-    clear(&p.actions)
+    plugin_free_nodes(p.nodes)
+    p.nodes = nil
     for canvas in p.canvases {
         free(canvas)
     }
     clear(&p.canvases)
-    for text in p.texts {
-        delete(text)
-    }
-    clear(&p.texts)
 }
 
-// Drops every panel plugins built. `destroy_widgets` unlinks and destroys their
-// chrome, which a reload must do and shutdown must not — the context tears the
-// whole widget tree down on its own.
-thor_clear_plugin_panels :: proc(thor: ^Thor, destroy_widgets: bool) {
+// Drops every panel plugins built.
+thor_clear_plugin_panels :: proc(thor: ^Thor) {
     for p in thor.plugin_panels {
-        thor_destroy_plugin_panel(p, destroy_widgets)
+        thor_destroy_plugin_panel(p)
     }
     clear(&thor.plugin_panels)
-    thor_update_plugin_docks(thor)
 }
 
-// Frees a panel outright. Its rendered contents always go; `destroy_widgets`
-// takes the chrome with them. A merely closed panel keeps both, so :show() can
-// bring it back.
-thor_destroy_plugin_panel :: proc(p: ^Plugin_Panel, destroy_widgets := false) {
+thor_destroy_plugin_panel :: proc(p: ^Plugin_Panel) {
     thor_clear_plugin_panel(p)
-    if destroy_widgets {
-        ui.context_forget(&p.thor.ui_context, &p.panel.widget)
-        ui.widget_remove_child(&p.panel.widget)
-        ui.widget_destroy_tree(&p.panel.widget)
-    }
-    delete(p.actions)
     delete(p.canvases)
-    delete(p.texts)
     delete(p.title)
     delete(p.id)
     free(p)
 }
 
-// Keeps `text` alive for as long as the widgets that borrow it.
+// A plugin's nodes live in its temp allocator, so the whole tree is copied.
 @(private = "file")
-thor_panel_text :: proc(p: ^Plugin_Panel, text: string) -> string {
-    owned := strings.clone(text)
-    append(&p.texts, owned)
-    return owned
+plugin_clone_nodes :: proc(p: ^Plugin_Panel, nodes: []plugin.View_Node) -> []plugin.View_Node {
+    if len(nodes) == 0 {
+        return nil
+    }
+    out := make([]plugin.View_Node, len(nodes))
+    for node, i in nodes {
+        out[i] = node
+        out[i].text = strings.clone(node.text)
+        out[i].role = strings.clone(node.role)
+        if len(node.items) > 0 {
+            items := make([]string, len(node.items))
+            for item, j in node.items {
+                items[j] = strings.clone(item)
+            }
+            out[i].items = items
+        } else {
+            out[i].items = nil
+        }
+        out[i].children = plugin_clone_nodes(p, node.children)
+        if node.kind == .Canvas {
+            target := new(Plugin_Panel_Canvas)
+            target.panel = p
+            target.action = node.action
+            append(&p.canvases, target)
+        }
+    }
+    return out
 }
 
-// Builds one node (and its children). Returns nil for a node the host does not
-// render, so the caller simply skips it.
 @(private = "file")
-thor_build_view_node :: proc(p: ^Plugin_Panel, node: plugin.View_Node) -> ^ui.Widget {
-    thor := p.thor
+plugin_free_nodes :: proc(nodes: []plugin.View_Node) {
+    for node in nodes {
+        delete(node.text)
+        delete(node.role)
+        for item in node.items {
+            delete(item)
+        }
+        delete(node.items)
+        plugin_free_nodes(node.children)
+    }
+    delete(nodes)
+}
+
+// A theme role, or `fallback` when the plugin named none.
+@(private = "file")
+thor_plugin_role_color :: proc(thor: ^Thor, role: string, fallback: ui.Color) -> ui.Color {
+    if role == "" {
+        return fallback
+    }
+    return theme.role_color(thor.theme, role)
+}
+
+// ---- the view ---------------------------------------------------------------------
+
+// Every visible panel of one side, stacked. The caller places the dock.
+thor_plugin_dock_view :: proc(thor: ^Thor, dock: Plugin_Dock) {
+    ui.scope(
+        {
+            key = dock == .Right ? "plugin-dock-right" : "plugin-dock-bottom",
+            props = {
+                w = dock == .Right ? ui.Px(PLUGIN_DOCK_RIGHT_W) : ui.Grow(1),
+                h = dock == .Right ? ui.Grow(1) : ui.Px(PLUGIN_DOCK_BOTTOM_H),
+                dir = .Column,
+                gap = {0, 1},
+                bg = thor.theme.border,
+            },
+        },
+    )
+
+    for p, index in thor.plugin_panels {
+        if !p.visible || p.dock != dock {
+            continue
+        }
+        ui.push_id_int(i64(index))
+        plugin_panel_view(thor, p)
+        ui.pop_id()
+    }
+}
+
+@(private = "file")
+plugin_panel_view :: proc(thor: ^Thor, p: ^Plugin_Panel) {
+    ui.scope(
+        {
+            key = "panel",
+            props = {
+                w = ui.Grow(1),
+                h = ui.Grow(1),
+                min_h = 80,
+                dir = .Column,
+                bg = thor.theme.second_background,
+            },
+        },
+    )
+
+    {
+        ui.scope(
+            {
+                key = "header",
+                props = {
+                    w = ui.Grow(1),
+                    h = ui.Px(32),
+                    dir = .Row,
+                    align = .Center,
+                    gap = {8, 0},
+                    pad = ui.xy(10, 0),
+                    bg = thor.theme.highlight,
+                },
+            },
+        )
+        ui.label(
+            p.title,
+            {
+                key = "title",
+                props = {
+                    w = ui.Grow(1),
+                    color = thor.theme.primary_text_color,
+                    text_wrap = .Ellipsis,
+                },
+            },
+        )
+        close := ui.scope(
+            {
+                key = "close",
+                flags = {.Clickable},
+                props = {
+                    w = ui.Px(24),
+                    h = ui.Px(20),
+                    dir = .Row,
+                    justify = .Center,
+                    align = .Center,
+                    radius = ui.rad(4),
+                    cursor = .Pointer,
+                },
+                hover = {bg = thor.theme.active},
+            },
+        )
+        thor_icon_label(thor, "x", thor.theme.primary_text_color, 14)
+        ui.tooltip("Close this panel", close.id)
+        if close.clicked {
+            // The plugin is told too, so a later render does not resurrect
+            // contents the user closed.
+            thor_plugin_panel_close(thor, p.id)
+            return
+        }
+    }
+
+    ui.scope(
+        {
+            key = "content",
+            flags = {.Clip, .Scroll_Y},
+            props = {
+                w = ui.Grow(1),
+                h = ui.Grow(1),
+                dir = .Column,
+                gap = {0, 6},
+                pad = ui.all(8),
+                bg = thor.theme.second_background,
+            },
+        },
+    )
+    plugin_view_nodes(thor, p, p.nodes)
+}
+
+@(private = "file")
+plugin_view_nodes :: proc(thor: ^Thor, p: ^Plugin_Panel, nodes: []plugin.View_Node) {
+    for node, index in nodes {
+        ui.push_id_int(i64(index))
+        plugin_view_node(thor, p, node)
+        ui.pop_id()
+    }
+}
+
+@(private = "file")
+plugin_view_node :: proc(thor: ^Thor, p: ^Plugin_Panel, node: plugin.View_Node) {
     switch node.kind {
     case .Label:
-        label := widgets.label_create("plugin-label", thor_panel_text(p, node.text))
-        widgets.label_set_text_color(label, thor_plugin_role_color(thor, node.role, thor.theme.foreground))
-        widgets.label_set_top_align(label, true)
-        label.min_size = rl.Vector2 {0, 20}
-        return &label.widget
+        ui.label(
+            node.text,
+            {
+                key = "label",
+                props = {
+                    w = ui.Grow(1),
+                    color = thor_plugin_role_color(thor, node.role, thor.theme.foreground),
+                    text_wrap = .Words,
+                },
+            },
+        )
 
     case .Button:
-        button := widgets.button_create("plugin-button", thor_panel_text(p, node.text))
-        widgets.button_set_colors(
-            button,
+        if plugin_view_button(
+            thor,
+            "button",
+            node.text,
             thor_plugin_role_color(thor, node.role, thor.theme.primary_text_color),
             thor.theme.buttons,
-            thor.theme.highlight,
-            thor.theme.active,
-            thor.theme.border,
-        )
-        button.min_size = rl.Vector2 {0, 26}
-        widgets.button_set_on_click(button, thor_plugin_panel_action_click, thor_panel_action(p, node.action, -1, ""))
-        return &button.widget
+        ) {
+            plugin_panel_click(p, node.action)
+        }
 
     case .Row, .Column:
-        axis: ui.Axis = node.kind == .Row ? .Horizontal : .Vertical
-        stack := widgets.stack_create("plugin-stack", axis)
-        widgets.stack_set_gap(stack, node.gap > 0 ? node.gap : 6)
-        widgets.stack_set_padding(stack, ui.padding(0))
-        if node.height > 0 {
-            stack.min_size = rl.Vector2 {0, node.height}
-        }
-        for child in node.children {
-            if built := thor_build_view_node(p, child); built != nil {
-                widgets.append_child(&stack.widget, built)
-            }
-        }
-        return &stack.widget
+        ui.scope(
+            {
+                key = "stack",
+                props = {
+                    w = ui.Grow(1),
+                    h = node.height > 0 ? ui.Px(node.height) : ui.FIT,
+                    dir = node.kind == .Row ? .Row : .Column,
+                    gap = node.kind == .Row \
+                    ? ui.Vec2{node.gap > 0 ? node.gap : 6, 0} \
+                    : ui.Vec2{0, node.gap > 0 ? node.gap : 6},
+                },
+            },
+        )
+        plugin_view_nodes(thor, p, node.children)
 
     case .List:
-        stack := widgets.stack_create("plugin-list", .Vertical)
-        widgets.stack_set_gap(stack, 2)
-        widgets.stack_set_padding(stack, ui.padding(0))
+        ui.scope(
+            {key = "list", props = {w = ui.Grow(1), h = ui.FIT, dir = .Column, gap = {0, 2}}},
+        )
         for item, row in node.items {
-            entry := widgets.button_create("plugin-list-row", thor_panel_text(p, item))
-            widgets.button_set_colors(
-                entry,
+            ui.push_id_int(i64(row))
+            hit := plugin_view_button(
+                thor,
+                "row",
+                item,
                 thor_plugin_role_color(thor, node.role, thor.theme.foreground),
                 thor.theme.second_background,
-                thor.theme.highlight,
-                thor.theme.active,
-                thor.theme.second_background,
             )
-            entry.min_size = rl.Vector2 {0, 22}
-            widgets.button_set_on_click(entry, thor_plugin_panel_action_click, thor_panel_action(p, node.action, row, thor_panel_text(p, item)))
-            widgets.append_child(&stack.widget, &entry.widget)
+            ui.pop_id()
+            if hit {
+                plugin_panel_select(p, node.action, row, item)
+                return
+            }
         }
-        return &stack.widget
 
     case .Separator:
-        line := widgets.panel_create("plugin-separator", thor.theme.border)
-        line.min_size = rl.Vector2 {0, 1}
-        return &line.widget
+        ui.leaf({key = "sep", props = {w = ui.Grow(1), h = ui.Px(1), bg = thor.theme.border}})
 
     case .Spacer:
-        space := widgets.panel_create("plugin-spacer", rl.Color {0, 0, 0, 0})
-        if node.height > 0 {
-            space.min_size = rl.Vector2 {0, node.height}
-        } else {
-            ui.widget_set_grow(&space.widget, 1)
-        }
-        return &space.widget
+        ui.leaf(
+            {
+                key = "spacer",
+                props = {
+                    w = ui.Grow(1),
+                    h = node.height > 0 ? ui.Px(node.height) : ui.Grow(1),
+                },
+            },
+        )
 
     case .Canvas:
-        canvas := widgets.canvas_create("plugin-canvas")
-        canvas.min_size = rl.Vector2 {0, node.height > 0 ? node.height : 120}
-        target := new(Plugin_Panel_Canvas)
-        target.panel = p
-        target.action = node.action
-        append(&p.canvases, target)
-        widgets.canvas_set_on_draw(canvas, thor_plugin_canvas_draw, target)
-        return &canvas.widget
+        target := plugin_canvas_for(p, node.action)
+        if target == nil {
+            return
+        }
+        ui.custom(
+            {
+                key = "canvas",
+                props = {w = ui.Grow(1), h = ui.Px(node.height > 0 ? node.height : 120)},
+            },
+            plugin_canvas_draw,
+            target,
+        )
+    }
+}
+
+// The record for `action`, made when the tree was cloned. A canvas node with no
+// record was added outside a render and draws nothing.
+@(private = "file")
+plugin_canvas_for :: proc(p: ^Plugin_Panel, action: int) -> ^Plugin_Panel_Canvas {
+    for canvas in p.canvases {
+        if canvas.action == action {
+            return canvas
+        }
     }
     return nil
 }
 
-// A click target owned by the panel until its next render.
 @(private = "file")
-thor_panel_action :: proc(p: ^Plugin_Panel, action, row: int, item: string) -> ^Plugin_Panel_Action {
-    target := new(Plugin_Panel_Action)
-    target.panel = p
-    target.action = action
-    target.row = row
-    target.item = item
-    append(&p.actions, target)
-    return target
-}
-
-// Runs a button's on_click, or a list row's on_select.
-@(private = "file")
-thor_plugin_panel_action_click :: proc(data: rawptr, _: ^ui.Context, _: ^ui.Widget) {
-    target := cast(^Plugin_Panel_Action) data
-    if target.action < 0 {
+plugin_panel_click :: proc(p: ^Plugin_Panel, action: int) {
+    if action < 0 {
         return
     }
-    if target.row < 0 {
-        plugin.manager_panel_click(&target.panel.thor.plugins, target.panel.id, target.action)
-    } else {
-        plugin.manager_panel_select(&target.panel.thor.plugins, target.panel.id, target.action, target.row, target.item)
+    plugin.manager_panel_click(&p.thor.plugins, p.id, action)
+}
+
+@(private = "file")
+plugin_panel_select :: proc(p: ^Plugin_Panel, action, row: int, item: string) {
+    if action < 0 {
+        return
     }
+    plugin.manager_panel_select(&p.thor.plugins, p.id, action, row, item)
+}
+
+@(private = "file")
+plugin_view_button :: proc(thor: ^Thor, key, text: string, color, fill: ui.Color) -> bool {
+    it := ui.scope(
+        {
+            key = key,
+            flags = {.Clickable},
+            props = {
+                w = ui.Grow(1),
+                h = ui.Px(26),
+                dir = .Row,
+                align = .Center,
+                pad = ui.xy(8, 0),
+                radius = ui.rad(4),
+                bg = fill,
+                border = {width = ui.all(1), color = thor.theme.border},
+                cursor = .Pointer,
+            },
+            hover = {bg = thor.theme.active},
+        },
+    )
+    ui.label(text, {key = "text", props = {w = ui.Grow(1), color = color, text_wrap = .Ellipsis}})
+    return it.clicked
 }
 
 // Runs a canvas's draw callback for the frame. The plugin's draw calls land in
 // thor_plugin_draw_* below while this runs.
 @(private = "file")
-thor_plugin_canvas_draw :: proc(data: rawptr, bounds: rl.Rectangle) {
-    target := cast(^Plugin_Panel_Canvas) data
-    if target.action < 0 {
+plugin_canvas_draw :: proc(node: ^ui.Node, user: rawptr) {
+    target := cast(^Plugin_Panel_Canvas)user
+    if target == nil || target.action < 0 {
         return
     }
     plugin.manager_panel_draw(
         &target.panel.thor.plugins,
         target.panel.id,
         target.action,
-        bounds.x,
-        bounds.y,
-        bounds.width,
-        bounds.height,
+        node.rect.x,
+        node.rect.y,
+        node.rect.w,
+        node.rect.h,
     )
-}
-
-// A theme role, or `fallback` when the plugin named none.
-@(private = "file")
-thor_plugin_role_color :: proc(thor: ^Thor, role: string, fallback: rl.Color) -> rl.Color {
-    if role == "" {
-        return fallback
-    }
-    return ui.theme_role_color(thor.theme, role)
 }
 
 // ctx:rect / ctx:outline inside a canvas draw.
 thor_plugin_draw_rect :: proc(host: rawptr, x, y, w, h: f32, role: string, fill: bool) {
-    thor := cast(^Thor) host
-    rect := rl.Rectangle {x, y, w, h}
+    thor := cast(^Thor)host
+    rect := rl.Rectangle{x, y, w, h}
     color := thor_plugin_role_color(thor, role, thor.theme.foreground)
     if fill {
-        rl.DrawRectangleRec(rect, color)
+        rl.DrawRectangleRec(rect, {color[0], color[1], color[2], color[3]})
     } else {
-        rl.DrawRectangleLinesEx(rect, 1, color)
+        rl.DrawRectangleLinesEx(rect, 1, {color[0], color[1], color[2], color[3]})
     }
 }
 
 // ctx:text inside a canvas draw.
 thor_plugin_draw_text :: proc(host: rawptr, x, y: f32, text, role: string) {
-    thor := cast(^Thor) host
-    ui.draw_text(text, i32(x), i32(y), PLUGIN_CANVAS_FONT_SIZE, thor_plugin_role_color(thor, role, thor.theme.foreground))
+    thor := cast(^Thor)host
+    color := thor_plugin_role_color(thor, role, thor.theme.foreground)
+    font.draw(
+        text,
+        i32(x),
+        i32(y),
+        PLUGIN_CANVAS_FONT_SIZE,
+        {color[0], color[1], color[2], color[3]},
+    )
 }
 
 // ctx:line inside a canvas draw.
 thor_plugin_draw_line :: proc(host: rawptr, x0, y0, x1, y1, thickness: f32, role: string) {
-    thor := cast(^Thor) host
+    thor := cast(^Thor)host
+    color := thor_plugin_role_color(thor, role, thor.theme.foreground)
     rl.DrawLineEx(
-        rl.Vector2 {x0, y0},
-        rl.Vector2 {x1, y1},
+        rl.Vector2{x0, y0},
+        rl.Vector2{x1, y1},
         thickness,
-        thor_plugin_role_color(thor, role, thor.theme.foreground),
+        {color[0], color[1], color[2], color[3]},
     )
 }
 
 // ctx:measure: the size ctx:text would take.
 thor_plugin_measure_text :: proc(_: rawptr, text: string) -> (f32, f32) {
-    width := ui.measure_text(text, PLUGIN_CANVAS_FONT_SIZE)
-    return f32(width), f32(ui.text_line_height(PLUGIN_CANVAS_FONT_SIZE))
+    width := font.measure(text, PLUGIN_CANVAS_FONT_SIZE)
+    return f32(width), f32(font.line_height(PLUGIN_CANVAS_FONT_SIZE))
 }
-
-// Font size a canvas draws and measures text at.
-@(private = "file")
-PLUGIN_CANVAS_FONT_SIZE :: 14

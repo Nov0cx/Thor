@@ -11,8 +11,7 @@ import "core:time"
 
 import "../shell"
 import "../textedit"
-import "../widgets"
-
+import "../editview"
 // Async `git status --porcelain`: a worker captures the output, the main thread
 // parses it into an absolute-path -> status map. Every ancestor directory of a
 // change is marked too, so folders containing changes get tinted.
@@ -114,14 +113,14 @@ thor_apply_git_status :: proc(thor: ^Thor, job: ^Git_Status_Job) {
     thread.join(job.worker)
     thread.destroy(job.worker)
 
-    status := make(map[string]widgets.Git_Status)
+    status := make(map[string]Git_Status)
     git_parse_status(thor, job.output, &status)
     git_mark_submodules(thor, &status)
 
     thor_clear_git_status(thor)
     thor.git_status = status
 
-    diff := make(map[string][dynamic]widgets.Diff_Line_Kind)
+    diff := make(map[string][dynamic]editview.Diff_Line_Kind)
     git_parse_diff(thor, job.diff_output, &diff)
     git_apply_diff(thor, &status, &diff)
 
@@ -148,7 +147,7 @@ thor_clear_git_status :: proc(thor: ^Thor) {
 }
 
 // Tree_Status_Proc: look up a path's status for highlighting.
-thor_tree_git_status :: proc(data: rawptr, path: string, _: bool) -> widgets.Git_Status {
+thor_tree_git_status :: proc(data: rawptr, path: string, _: bool) -> Git_Status {
     thor := cast(^Thor) data
     if status, ok := thor.git_status[git_map_key(path)]; ok {
         return status
@@ -252,7 +251,7 @@ git_is_octal :: proc(c: u8) -> bool {
 // Parses porcelain lines into absolute-path -> status entries, marking every
 // ancestor directory so folders containing changes are tinted.
 @(private)
-git_parse_status :: proc(thor: ^Thor, output: string, out: ^map[string]widgets.Git_Status) {
+git_parse_status :: proc(thor: ^Thor, output: string, out: ^map[string]Git_Status) {
     it := output
     for line in strings.split_lines_iterator(&it) {
         // Format is "XY PATH": two status chars, a space, then the path. Guards
@@ -280,7 +279,7 @@ git_parse_status :: proc(thor: ^Thor, output: string, out: ^map[string]widgets.G
 // from the repo's .gitmodules. Runs after status parsing so a submodule keeps
 // its own colour rather than the generic Modified tint a dirty submodule earns.
 @(private = "file")
-git_mark_submodules :: proc(thor: ^Thor, out: ^map[string]widgets.Git_Status) {
+git_mark_submodules :: proc(thor: ^Thor, out: ^map[string]Git_Status) {
     data, read_err := os.read_entire_file(git_path(thor, ".gitmodules"), context.temp_allocator)
     if read_err != nil {
         return
@@ -314,8 +313,8 @@ git_mark_submodules :: proc(thor: ^Thor, out: ^map[string]widgets.Git_Status) {
 // Marks each ancestor directory of a repo-relative path (a/b/c -> a/b, a) as
 // containing changes. Conflict wins over the generic Modified marker.
 @(private)
-git_mark_ancestors :: proc(thor: ^Thor, repo_rel: string, status: widgets.Git_Status, out: ^map[string]widgets.Git_Status) {
-    agg := status == .Conflict ? widgets.Git_Status.Conflict : widgets.Git_Status.Modified
+git_mark_ancestors :: proc(thor: ^Thor, repo_rel: string, status: Git_Status, out: ^map[string]Git_Status) {
+    agg := status == .Conflict ? Git_Status.Conflict : Git_Status.Modified
     rel := repo_rel
     for {
         slash := strings.last_index_byte(rel, '/')
@@ -330,7 +329,7 @@ git_mark_ancestors :: proc(thor: ^Thor, repo_rel: string, status: widgets.Git_St
 // Inserts abs -> status, taking ownership of `abs` as the key. If the key is
 // already present, frees the duplicate and only upgrades a marker to Conflict.
 @(private = "file")
-git_put :: proc(out: ^map[string]widgets.Git_Status, abs: string, status: widgets.Git_Status) {
+git_put :: proc(out: ^map[string]Git_Status, abs: string, status: Git_Status) {
     if existing, ok := out[abs]; ok {
         if status == .Conflict && existing != .Conflict {
             out[abs] = .Conflict
@@ -354,7 +353,7 @@ git_valid_code :: proc(code: string) -> bool {
 }
 
 @(private)
-git_status_from_code :: proc(code: string) -> widgets.Git_Status {
+git_status_from_code :: proc(code: string) -> Git_Status {
     // code is the 2-char XY field: X = staged (index), Y = worktree.
     if code == "??" {
         return .Untracked
@@ -377,7 +376,7 @@ git_status_from_code :: proc(code: string) -> widgets.Git_Status {
 // a pure deletion has no line of its own in the new file, so it attaches to the
 // line right after the removal (or line 0 if the removal was at the top).
 @(private)
-git_parse_diff :: proc(thor: ^Thor, output: string, out: ^map[string][dynamic]widgets.Diff_Line_Kind) {
+git_parse_diff :: proc(thor: ^Thor, output: string, out: ^map[string][dynamic]editview.Diff_Line_Kind) {
     it := output
     current := "" // absolute path the following hunks belong to; empty = skip
 
@@ -403,7 +402,7 @@ git_parse_diff :: proc(thor: ^Thor, output: string, out: ^map[string][dynamic]wi
 
         arr, has := out[current]
         if !has {
-            arr = make([dynamic]widgets.Diff_Line_Kind)
+            arr = make([dynamic]editview.Diff_Line_Kind)
         }
         switch {
         case new_count == 0:
@@ -431,7 +430,7 @@ git_parse_diff :: proc(thor: ^Thor, output: string, out: ^map[string][dynamic]wi
 // Frees a key the map never took: a file with no hunk at all (a mode-only or a
 // binary change) leaves one behind, and only the map's own keys are freed later.
 @(private = "file")
-git_drop_unused_key :: proc(out: ^map[string][dynamic]widgets.Diff_Line_Kind, key: string) {
+git_drop_unused_key :: proc(out: ^map[string][dynamic]editview.Diff_Line_Kind, key: string) {
     if key == "" {
         return
     }
@@ -442,9 +441,9 @@ git_drop_unused_key :: proc(out: ^map[string][dynamic]widgets.Diff_Line_Kind, ke
 
 // Grows arr with .None entries until it covers index n-1.
 @(private = "file")
-git_diff_ensure_len :: proc(arr: ^[dynamic]widgets.Diff_Line_Kind, n: int) {
+git_diff_ensure_len :: proc(arr: ^[dynamic]editview.Diff_Line_Kind, n: int) {
     for len(arr^) < n {
-        append(arr, widgets.Diff_Line_Kind.None)
+        append(arr, editview.Diff_Line_Kind.None)
     }
 }
 
@@ -487,7 +486,7 @@ git_parse_range :: proc(s: string) -> (start, count: int, ok: bool) {
 // A file with no HEAD to diff against (freshly created, still untracked or
 // newly staged) reads as fully Added instead.
 @(private = "file")
-git_apply_diff :: proc(thor: ^Thor, status: ^map[string]widgets.Git_Status, diff: ^map[string][dynamic]widgets.Diff_Line_Kind) {
+git_apply_diff :: proc(thor: ^Thor, status: ^map[string]Git_Status, diff: ^map[string][dynamic]editview.Diff_Line_Kind) {
     for file in thor.open_files {
         clear(&file.diff_lines)
         key := git_map_key(file.path)
@@ -496,7 +495,7 @@ git_apply_diff :: proc(thor: ^Thor, status: ^map[string]widgets.Git_Status, diff
         } else if s, has := status[key]; has && (s == .Untracked || s == .Added) {
             n := textedit.state_line_count(&file.state)
             for _ in 0 ..< n {
-                append(&file.diff_lines, widgets.Diff_Line_Kind.Added)
+                append(&file.diff_lines, editview.Diff_Line_Kind.Added)
             }
         }
     }

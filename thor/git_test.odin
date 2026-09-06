@@ -5,8 +5,7 @@ import "core:path/filepath"
 import "core:strings"
 import "core:testing"
 
-import "../widgets"
-
+import "../editview"
 // Git prints repo-relative paths with forward slashes, but the explorer tree and
 // Open_File.path both carry native separators. A key built with the wrong one
 // matches nothing, which is how the whole feature stayed invisible on POSIX.
@@ -16,7 +15,7 @@ test_git_status_keys_use_the_native_separator :: proc(t: ^testing.T) {
     defer free(thor)
     thor.git_prefix = strings.concatenate({"repo", filepath.SEPARATOR_STRING}, context.temp_allocator)
 
-    status := make(map[string]widgets.Git_Status)
+    status := make(map[string]Git_Status)
     defer {
         for path in status {
             delete(path)
@@ -44,7 +43,7 @@ test_git_status_unquotes_a_c_quoted_path :: proc(t: ^testing.T) {
     defer free(thor)
     thor.git_prefix = strings.concatenate({"repo", filepath.SEPARATOR_STRING}, context.temp_allocator)
 
-    status := make(map[string]widgets.Git_Status)
+    status := make(map[string]Git_Status)
     defer {
         for path in status {
             delete(path)
@@ -65,7 +64,7 @@ test_git_status_conflict_wins_on_ancestors :: proc(t: ^testing.T) {
     defer free(thor)
     thor.git_prefix = strings.concatenate({"repo", filepath.SEPARATOR_STRING}, context.temp_allocator)
 
-    status := make(map[string]widgets.Git_Status)
+    status := make(map[string]Git_Status)
     defer {
         for path in status {
             delete(path)
@@ -87,7 +86,7 @@ test_git_status_lookup_folds_case_on_windows :: proc(t: ^testing.T) {
     defer free(thor)
     thor.git_prefix = strings.concatenate({"repo", filepath.SEPARATOR_STRING}, context.temp_allocator)
 
-    status := make(map[string]widgets.Git_Status)
+    status := make(map[string]Git_Status)
     defer {
         for path in status {
             delete(path)
@@ -112,7 +111,7 @@ test_git_diff_keys_use_the_native_separator :: proc(t: ^testing.T) {
     defer free(thor)
     thor.git_prefix = strings.concatenate({"repo", filepath.SEPARATOR_STRING}, context.temp_allocator)
 
-    diff := make(map[string][dynamic]widgets.Diff_Line_Kind)
+    diff := make(map[string][dynamic]editview.Diff_Line_Kind)
     defer {
         for path, lines in diff {
             delete(path)
@@ -129,9 +128,9 @@ test_git_diff_keys_use_the_native_separator :: proc(t: ^testing.T) {
         return
     }
     testing.expect_value(t, len(lines), 3)
-    testing.expect_value(t, lines[0], widgets.Diff_Line_Kind.None)
-    testing.expect_value(t, lines[1], widgets.Diff_Line_Kind.Added)
-    testing.expect_value(t, lines[2], widgets.Diff_Line_Kind.Added)
+    testing.expect_value(t, lines[0], editview.Diff_Line_Kind.None)
+    testing.expect_value(t, lines[1], editview.Diff_Line_Kind.Added)
+    testing.expect_value(t, lines[2], editview.Diff_Line_Kind.Added)
 }
 
 // A file header with no hunk under it (a mode-only or a binary change) builds a
@@ -142,7 +141,7 @@ test_git_diff_drops_a_key_with_no_hunk :: proc(t: ^testing.T) {
     defer free(thor)
     thor.git_prefix = strings.concatenate({"repo", filepath.SEPARATOR_STRING}, context.temp_allocator)
 
-    diff := make(map[string][dynamic]widgets.Diff_Line_Kind)
+    diff := make(map[string][dynamic]editview.Diff_Line_Kind)
     defer {
         for path, lines in diff {
             delete(path)
@@ -231,9 +230,9 @@ test_git_diff_command_scopes_to_open_files :: proc(t: ^testing.T) {
 @(private = "file")
 expect_git_status :: proc(
     t: ^testing.T,
-    status: map[string]widgets.Git_Status,
+    status: map[string]Git_Status,
     key: string,
-    want: widgets.Git_Status,
+    want: Git_Status,
     loc := #caller_location,
 ) {
     // `key` is the path the tree carries; the lookup folds it exactly as

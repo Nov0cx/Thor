@@ -9,8 +9,7 @@ import "core:thread"
 
 import "../setting"
 import "../shell"
-import "../ui"
-import "../widgets"
+import ui "../vendor/loom/loom"
 
 // One console widget bound to one persistent shell. The shell outlives the
 // commands run in it, so a `cd` sticks and a developer environment loaded once
@@ -18,7 +17,7 @@ import "../widgets"
 // thread turns that into scrollback.
 Terminal :: struct {
     owner:     ^Thor,
-    console:   ^widgets.Console, // owned widget, a child of console_stack
+    console:   Console, // owned; declared by the console panel while this tab is active
     profile:   shell.Profile,    // borrowed from owner.shell_profiles
     session:   ^shell.Session,   // owned; nil once the shell is gone
     reader:    ^thread.Thread,   // owned
@@ -59,18 +58,14 @@ thor_terminal_create :: proc(thor: ^Thor, profile: shell.Profile) -> ^Terminal {
 
     // Widget ids are borrowed, so every terminal shares one literal; nothing
     // looks a console up by id.
-    term.console = widgets.console_create("terminal")
-    thor_terminal_apply_theme(thor, term)
-    widgets.console_set_on_link(term.console, thor_console_link, thor_console_activate, thor)
-    widgets.console_set_on_run(term.console, thor_terminal_submit, term)
-    widgets.console_set_on_interrupt(term.console, thor_terminal_interrupt, term)
-    widgets.console_set_on_context_menu(term.console, thor_console_context_menu, thor)
-    ui.widget_set_grow(&term.console.widget, 1)
-    term.console.min_size = {0, 110}
-
-    widgets.console_clear(term.console)
+    thor_console_init(&term.console)
+    thor_console_set_on_link(&term.console, thor_console_link, thor_console_activate, thor)
+    thor_console_set_on_run(&term.console, thor_terminal_submit, term)
+    thor_console_set_on_interrupt(&term.console, thor_terminal_interrupt, term)
+    
+    thor_console_clear(&term.console)
     if !thor_terminal_open_session(term) {
-        widgets.console_append(term.console, fmt.tprintf("Could not start %s.\n", profile.name))
+        thor_console_append(&term.console, fmt.tprintf("Could not start %s.\n", profile.name))
         term.dead = true
     }
     return term
@@ -92,7 +87,7 @@ thor_terminal_open_session :: proc(term: ^Terminal) -> bool {
     term.running = true
     clear(&term.carry)
 
-    widgets.console_append(term.console, fmt.tprintf("%s  %s\n", term.profile.name, term.owner.workspace_dir))
+    thor_console_append(&term.console, fmt.tprintf("%s  %s\n", term.profile.name, term.owner.workspace_dir))
     term.reader = thread.create_and_start_with_poly_data(term, thor_terminal_reader)
 
     for command in term.profile.init {
@@ -137,8 +132,8 @@ thor_terminal_write_line :: proc(term: ^Terminal, line: string) {
 thor_terminal_submit :: proc(data: rawptr, command: string) {
     term := cast(^Terminal) data
     if term.session == nil {
-        widgets.console_append(term.console, "The shell is not running. Restart it from the console menu.\n")
-        widgets.console_command_finished(term.console)
+        thor_console_append(&term.console, "The shell is not running. Restart it from the console menu.\n")
+        thor_console_command_finished(&term.console)
         return
     }
     if term.running {
@@ -159,10 +154,10 @@ thor_terminal_interrupt :: proc(data: rawptr) {
         return
     }
     if shell.session_interrupt(term.session) {
-        widgets.console_append(term.console, "^C\n")
+        thor_console_append(&term.console, "^C\n")
         return
     }
-    widgets.console_append(term.console, "^C  restarting the shell\n")
+    thor_console_append(&term.console, "^C  restarting the shell\n")
     thor_terminal_restart(term)
 }
 
@@ -172,10 +167,10 @@ thor_terminal_interrupt :: proc(data: rawptr) {
 thor_terminal_restart :: proc(term: ^Terminal) {
     thor_terminal_close_session(term)
     if !thor_terminal_open_session(term) {
-        widgets.console_append(term.console, fmt.tprintf("Could not start %s.\n", term.profile.name))
+        thor_console_append(&term.console, fmt.tprintf("Could not start %s.\n", term.profile.name))
         term.dead = true
     }
-    widgets.console_command_finished(term.console)
+    thor_console_command_finished(&term.console)
 }
 
 // Stops the shell and joins the reader. Output the reader already handed over is
@@ -220,8 +215,8 @@ thor_terminal_pump :: proc(term: ^Terminal) -> bool {
     if ended && !term.dead {
         term.dead = true
         term.running = false
-        widgets.console_append(term.console, "[the shell exited]\n")
-        widgets.console_command_finished(term.console)
+        thor_console_append(&term.console, "[the shell exited]\n")
+        thor_console_command_finished(&term.console)
     }
     return finished
 }
@@ -254,7 +249,7 @@ thor_terminal_consume :: proc(term: ^Terminal, chunk: string) -> bool {
 @(private = "file")
 thor_terminal_emit :: proc(term: ^Terminal, text: string) {
     if term.capturing && text != "" {
-        widgets.console_append(term.console, text)
+        thor_console_append(&term.console, text)
     }
 }
 
@@ -267,9 +262,9 @@ thor_terminal_finish :: proc(term: ^Terminal, code: int) -> bool {
     term.running = false
     term.capturing = false
     if was_ready && code != 0 {
-        widgets.console_append(term.console, fmt.tprintf("[exit %d]\n", code))
+        thor_console_append(&term.console, fmt.tprintf("[exit %d]\n", code))
     }
-    widgets.console_command_finished(term.console)
+    thor_console_command_finished(&term.console)
     return was_ready
 }
 
@@ -277,17 +272,12 @@ thor_terminal_finish :: proc(term: ^Terminal, code: int) -> bool {
 // tree. Shutdown uses this: the console widget dies with the root.
 thor_terminal_release :: proc(term: ^Terminal) {
     thor_terminal_close_session(term)
+    thor_console_destroy(&term.console)
     delete(term.pending)
     delete(term.carry)
     delete(term.token)
     delete(term.end_cmd)
     free(term)
-}
-
-thor_terminal_apply_theme :: proc(thor: ^Thor, term: ^Terminal) {
-    t := thor.theme
-    widgets.console_set_colors(term.console, t.foreground, t.accent_color, t.second_background, t.accent_color)
-    widgets.console_set_link_color(term.console, t.info_color)
 }
 
 // One entry of the shell menu, so a menu item knows which shell it names.
@@ -307,7 +297,7 @@ Shell_Detect_Job :: struct {
 
 // Starts the shell detection. Called once the widget tree exists, since the
 // terminal it opens is a child of the console stack. The console panel stays
-// empty until the scan lands, so `thor.console` is nil for the first frames.
+// empty until the scan lands, so there is no console for the first frames.
 thor_terminals_init :: proc(thor: ^Thor) {
     thor.terminals = make([dynamic]^Terminal)
     thor.terminals_live = true
@@ -359,8 +349,9 @@ thor_apply_shell_profiles :: proc(thor: ^Thor, job: ^Shell_Detect_Job) {
     }
     // No focus: startup belongs to the editor.
     thor_terminal_open(thor, thor_terminal_default_profile(thor), focus = false)
-    if thor.console != nil && strings.builder_len(thor.console_backlog) > 0 {
-        widgets.console_append(thor.console, strings.to_string(thor.console_backlog))
+    if console := thor_active_console(thor);
+       console != nil && strings.builder_len(thor.console_backlog) > 0 {
+        thor_console_append(console, strings.to_string(thor.console_backlog))
         strings.builder_reset(&thor.console_backlog)
     }
 }
@@ -382,21 +373,26 @@ thor_terminal_default_profile :: proc(thor: ^Thor) -> shell.Profile {
 thor_terminal_open :: proc(thor: ^Thor, profile: shell.Profile, focus := true) {
     term := thor_terminal_create(thor, profile)
     append(&thor.terminals, term)
-    widgets.append_child(&thor.console_stack.widget, &term.console.widget)
     thor_terminal_select(thor, len(thor.terminals) - 1, focus)
 }
 
-// Shows the terminal at `index` and hides the others. An out-of-range index
-// leaves the console panel empty, which is what a closed last tab means.
+// Makes the terminal at `index` the one the console panel declares. An
+// out-of-range index leaves the panel empty, which is what a closed last tab
+// means.
 thor_terminal_select :: proc(thor: ^Thor, index: int, focus := true) {
     thor.active_terminal = index >= 0 && index < len(thor.terminals) ? index : -1
-    for term, i in thor.terminals {
-        term.console.visible = i == thor.active_terminal
+    if focus && thor_active_console(thor) != nil {
+        thor.focus_request = "console"
     }
-    thor.console = thor.active_terminal >= 0 ? thor.terminals[thor.active_terminal].console : nil
-    if focus && thor.console != nil {
-        thor.ui_context.focused = &thor.console.widget
+}
+
+// The active tab's console, or nil when the last terminal is closed. Every user
+// of it needs the nil guard.
+thor_active_console :: proc(thor: ^Thor) -> ^Console {
+    if term := thor_active_terminal(thor); term != nil {
+        return &term.console
     }
+    return nil
 }
 
 // Ends the terminal at `index` and drops its tab.
@@ -407,9 +403,6 @@ thor_terminal_close :: proc(thor: ^Thor, index: int) {
     term := thor.terminals[index]
     ordered_remove(&thor.terminals, index)
 
-    ui.context_forget(&thor.ui_context, &term.console.widget)
-    ui.widget_remove_child(&term.console.widget)
-    ui.widget_destroy_tree(&term.console.widget)
     thor_terminal_release(term)
 
     thor_terminal_select(thor, min(index, len(thor.terminals) - 1))
@@ -435,8 +428,8 @@ thor_process_terminals :: proc(thor: ^Thor) {
     }
 }
 
-// Ends every shell. The console widgets belong to the widget tree, which is
-// destroyed with the root.
+// Ends every shell. A terminal owns its console, so releasing it frees the
+// scrollback with it.
 thor_terminals_shutdown :: proc(thor: ^Thor) {
     for term in thor.terminals {
         thor_terminal_release(term)
@@ -449,7 +442,6 @@ thor_terminals_shutdown :: proc(thor: ^Thor) {
     thor.terminals_live = false
     thor.shell_choices = nil
     thor.shell_profiles = nil
-    thor.console = nil
     thor.active_terminal = -1
 }
 
@@ -460,12 +452,11 @@ thor_terminal_tab_add :: proc(data: rawptr) {
     if len(thor.shell_profiles) == 0 {
         return
     }
-    widgets.menu_clear(thor.menu)
+    thor_menu_clear(thor)
     for profile, i in thor.shell_profiles {
-        widgets.menu_add(thor.menu, profile.name, thor_menu_open_shell, &thor.shell_choices[i])
+        thor_menu_add(thor, profile.name, thor_menu_open_shell, &thor.shell_choices[i])
     }
-    anchor := widgets.tabstrip_add_bounds(thor.terminal_tabs)
-    widgets.menu_open(thor.menu, &thor.ui_context, {anchor.x, anchor.y + anchor.height})
+    thor_menu_open(thor, thor.menu_anchor)
 }
 
 @(private = "file")
@@ -481,7 +472,7 @@ thor_terminal_tab_count :: proc(data: rawptr) -> int {
 
 // Tabbar_Info_Proc: the shell's name, numbered when several tabs run the same
 // shell, and a busy mark while a command runs.
-thor_terminal_tab_info :: proc(data: rawptr, index: int) -> widgets.Tab_Info {
+thor_terminal_tab_info :: proc(data: rawptr, index: int) -> Tab_Info {
     thor := cast(^Thor) data
     if index < 0 || index >= len(thor.terminals) {
         return {}
@@ -531,8 +522,8 @@ thor_terminal_tab_close :: proc(data: rawptr, index: int) {
 // Reveals the console panel, so a terminal command is visible when it acts.
 @(private = "file")
 thor_show_console :: proc(thor: ^Thor) {
-    if !ui.signal_get(&thor.console_visible) {
-        ui.signal_set(&thor.console_visible, true)
+    if !signal_get(&thor.console_visible) {
+        signal_set(&thor.console_visible, true)
     }
 }
 
@@ -587,9 +578,15 @@ thor_cmd_select_shell :: proc(data: rawptr) {
         labels[i] = profile.name
         ids[i] = profile.id
     }
-    widgets.select_dialog_open(
-        thor.select_dialog, &thor.ui_context, "Select Shell", labels, thor_terminal_default_profile(thor).name,
-        thor_shell_preview, thor_shell_commit, thor, ids,
+    thor_select_open(
+        thor,
+        "Select Shell",
+        labels,
+        thor_terminal_default_profile(thor).name,
+        thor_shell_preview,
+        thor_shell_commit,
+        thor,
+        ids,
     )
 }
 

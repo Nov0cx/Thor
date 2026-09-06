@@ -12,7 +12,7 @@ import "core:os"
 import "core:strings"
 import rl "vendor:raylib"
 
-import "../ui"
+import ui "../vendor/loom/loom"
 
 // On-disk shape of a session. Field names are the JSON keys.
 @(private = "file")
@@ -245,8 +245,8 @@ thor_save_session :: proc(thor: ^Thor) {
         workspace        = thor.workspace_dir,
         open_files       = paths[:],
         active_file      = thor.pane_file[0],
-        explorer_visible = ui.signal_get(&thor.explorer_visible),
-        console_visible  = ui.signal_get(&thor.console_visible),
+        explorer_visible = signal_get(&thor.explorer_visible),
+        console_visible  = signal_get(&thor.console_visible),
         explorer_width   = thor.explorer_width,
         console_height   = thor.console_height,
         window_maximized  = thor.window_maximized,
@@ -297,8 +297,8 @@ thor_restore_session :: proc(thor: ^Thor) {
     if session.console_height > 0 {
         thor.console_height = session.console_height
     }
-    ui.signal_set(&thor.explorer_visible, session.explorer_visible)
-    ui.signal_set(&thor.console_visible, session.console_visible)
+    signal_set(&thor.explorer_visible, session.explorer_visible)
+    signal_set(&thor.console_visible, session.console_visible)
     thor.split_visible = session.split_visible
     if session.split_ratio > 0 {
         thor.split_ratio = clamp(session.split_ratio, 0.15, 0.85)
@@ -327,7 +327,7 @@ thor_restore_session :: proc(thor: ^Thor) {
     // ui_context every frame and would snap back to pane 0.
     if session.split_visible && session.active_pane == 1 {
         thor.active_pane = 1
-        thor.ui_context.focused = &thor.editor2.widget
+        thor.focus_request = "pane1"
         thor_sync_active_signal(thor)
     }
 }

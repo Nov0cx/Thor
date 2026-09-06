@@ -63,7 +63,7 @@ jobs:
           release: latest
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      # Odin ships prebuilt vendor:stb only for Windows and macOS; ui/text.odin
+      # Odin ships prebuilt vendor:stb only for Windows and macOS; font/text.odin
       # imports stb/truetype, so Linux has to compile them first. Newer Odin
       # replaced the Makefile with build_stb.sh; older releases still need make.
       - name: Build vendor STB libraries

@@ -347,7 +347,7 @@ test_keybind_spec_round_trips :: proc(t: ^testing.T) {
 // a user may reach for.
 @(test)
 test_parse_keybind_reads_cmd :: proc(t: ^testing.T) {
-    want := Keybind {key = .P, mods = {.Cmd, .Shift}}
+    want := Keybind {key = .P, mods = {.Super, .Shift}}
     for spec in ([?]string {"cmd+shift+p", "shift+cmd+p", "super+shift+p", "meta+shift+p", "win+shift+p"}) {
         kb, ok := parse_keybind(spec)
         testing.expectf(t, ok, "%q did not parse", spec)
@@ -363,9 +363,9 @@ test_keybind_matches_separates_cmd_from_ctrl :: proc(t: ^testing.T) {
     cmd_k, _ := parse_keybind("cmd+k")
 
     testing.expect(t, keybind_matches(ctrl_k, .K, {.Ctrl}))
-    testing.expect(t, !keybind_matches(ctrl_k, .K, {.Cmd}))
-    testing.expect(t, !keybind_matches(ctrl_k, .K, {.Ctrl, .Cmd}))
-    testing.expect(t, keybind_matches(cmd_k, .K, {.Cmd}))
+    testing.expect(t, !keybind_matches(ctrl_k, .K, {.Super}))
+    testing.expect(t, !keybind_matches(ctrl_k, .K, {.Ctrl, .Super}))
+    testing.expect(t, keybind_matches(cmd_k, .K, {.Super}))
     testing.expect(t, !keybind_matches(cmd_k, .K, {.Ctrl}))
 }
 
@@ -378,7 +378,7 @@ test_parse_keybind_refuses_an_unknown_token :: proc(t: ^testing.T) {
 
     unbind, cleared := parse_keybind("   ")
     testing.expect(t, cleared, "an empty spec is an explicit unbind")
-    testing.expect(t, unbind.key == .KEY_NULL, "an unbind must leave the key unset")
+    testing.expect(t, unbind.key == .None, "an unbind must leave the key unset")
 }
 
 // Layers one tips.json body onto `s`, the way load_dir does per config layer.

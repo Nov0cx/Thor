@@ -5,9 +5,8 @@ import "core:os"
 import "core:path/filepath"
 import "core:strings"
 
-import "../widgets"
 
-// Wires and drives the git modal (widgets.Git_View). The widget draws the
+// Wires and drives the git modal (Git_View). The widget draws the
 // lists and the commit box; this file owns the git knowledge: it dispatches
 // every command through thor_git_op and routes the results back in.
 
@@ -28,7 +27,7 @@ thor_cmd_open_git_branches :: proc(data: rawptr) {
 }
 
 @(private = "file")
-thor_cmd_open_git_kind :: proc(data: rawptr, kind: widgets.Git_View_Kind) {
+thor_cmd_open_git_kind :: proc(data: rawptr, kind: Git_View_Kind) {
     thor := cast(^Thor) data
     if thor.git_prefix == "" {
         thor_flash_status(thor, "Not a git repository", is_error = true)
@@ -40,9 +39,9 @@ thor_cmd_open_git_kind :: proc(data: rawptr, kind: widgets.Git_View_Kind) {
 // The history page size, and how much "Load more" adds.
 GIT_LOG_PAGE :: 200
 
-thor_open_git_view :: proc(thor: ^Thor, kind: widgets.Git_View_Kind) {
+thor_open_git_view :: proc(thor: ^Thor, kind: Git_View_Kind) {
     thor.git_log_count = GIT_LOG_PAGE
-    widgets.git_view_open(thor.git_view, &thor.ui_context, kind)
+    thor_git_view_open(thor, kind)
     thor_git_op(thor, .Snapshot)
     thor_git_op(thor, .Lfs_Probe)
     thor_git_populate_view(thor, kind)
@@ -51,7 +50,7 @@ thor_open_git_view :: proc(thor: ^Thor, kind: widgets.Git_View_Kind) {
 // Fetches what a view shows; called on open and on a sidebar switch. Cheap to
 // repeat — every fetch is one async job.
 @(private = "file")
-thor_git_populate_view :: proc(thor: ^Thor, kind: widgets.Git_View_Kind) {
+thor_git_populate_view :: proc(thor: ^Thor, kind: Git_View_Kind) {
     #partial switch kind {
     case .History:
         thor_git_request_log(thor)
@@ -61,7 +60,7 @@ thor_git_populate_view :: proc(thor: ^Thor, kind: widgets.Git_View_Kind) {
         thor_git_op(thor, .Config_List)
     case .Hosting:
         thor.git_prs_requested = false
-        widgets.git_view_set_clone_dir_hint(thor.git_view, filepath.dir(thor.workspace_dir))
+        thor_git_view_set_clone_dir_hint(&thor.git, filepath.dir(thor.workspace_dir))
         thor_git_op(thor, .Remote_Url)
         if !thor.git_cli_probed {
             thor_git_op(thor, .CLI_Probe)
@@ -87,14 +86,14 @@ thor_git_view_reset :: proc(thor: ^Thor) {
     thor.git_mutation_inflight = false
     thor.git_prs_requested = false
     git_host_info_destroy(&thor.git_host)
-    if thor.git_view != nil && widgets.git_view_is_open(thor.git_view) {
-        widgets.git_view_close(thor.git_view, &thor.ui_context)
+    if thor.git_open {
+        thor_git_view_close(thor)
     }
 }
 
 // ---- widget callbacks ----
 
-thor_on_git_view_changed :: proc(data: rawptr, kind: widgets.Git_View_Kind) {
+thor_on_git_view_changed :: proc(data: rawptr, kind: Git_View_Kind) {
     thor := cast(^Thor) data
     thor_git_populate_view(thor, kind)
 }
@@ -111,7 +110,7 @@ thor_on_git_load_more :: proc(data: rawptr) {
     thor_git_request_log(thor)
 }
 
-thor_on_git_checkout :: proc(data: rawptr, kind: widgets.Git_Ref_Kind, name: string) {
+thor_on_git_checkout :: proc(data: rawptr, kind: Git_Ref_Kind, name: string) {
     thor := cast(^Thor) data
     // A dirty-tree checkout is left to git: it refuses rather than losing
     // work, and the refusal lands in the status line.
@@ -119,7 +118,7 @@ thor_on_git_checkout :: proc(data: rawptr, kind: widgets.Git_Ref_Kind, name: str
     thor_git_start_mutation(thor, op, name)
 }
 
-thor_on_git_stash :: proc(data: rawptr, op: widgets.Git_Stash_Op, name: string) {
+thor_on_git_stash :: proc(data: rawptr, op: Git_Stash_Op, name: string) {
     thor := cast(^Thor) data
     git_op: Git_Op
     switch op {
@@ -136,7 +135,7 @@ thor_on_git_config_set :: proc(data: rawptr, global: bool, key, value: string) {
     thor_git_start_mutation(thor, .Config_Set, key, value, global)
 }
 
-thor_on_git_hosting :: proc(data: rawptr, action: widgets.Git_Hosting_Action, arg, arg2: string) {
+thor_on_git_hosting :: proc(data: rawptr, action: Git_Hosting_Action, arg, arg2: string) {
     thor := cast(^Thor) data
     switch action {
     case .Open_Repo:
@@ -144,7 +143,7 @@ thor_on_git_hosting :: proc(data: rawptr, action: widgets.Git_Hosting_Action, ar
     case .Open_File:
         file := thor_active_open_file(thor)
         if file == nil || !strings.has_prefix(git_map_key(file.path), git_map_key(thor.git_prefix)) {
-            widgets.git_view_set_status_line(thor.git_view, "No repository file is active", true)
+            thor_git_view_set_status_line(&thor.git, "No repository file is active", true)
             return
         }
         rel, _ := strings.replace_all(file.path[len(thor.git_prefix):], "\\", "/", context.temp_allocator)
@@ -161,7 +160,7 @@ thor_on_git_hosting :: proc(data: rawptr, action: widgets.Git_Hosting_Action, ar
         thor_git_start_mutation(thor, .PR_Create, thor.git_branch, flag = cli == "glab")
     case .Open_Pr:
         if !thor_open_in_browser(arg) {
-            widgets.git_view_set_status_line(thor.git_view, "Could not open the browser", true)
+            thor_git_view_set_status_line(&thor.git, "Could not open the browser", true)
         }
     case .Clone:
         thor_git_start_mutation(thor, .Clone, arg, arg2)
@@ -171,11 +170,11 @@ thor_on_git_hosting :: proc(data: rawptr, action: widgets.Git_Hosting_Action, ar
 @(private = "file")
 thor_git_open_host_page :: proc(thor: ^Thor, url: string) {
     if thor.git_host.kind == .None {
-        widgets.git_view_set_status_line(thor.git_view, "No remote detected", true)
+        thor_git_view_set_status_line(&thor.git, "No remote detected", true)
         return
     }
     if !thor_open_in_browser(url) {
-        widgets.git_view_set_status_line(thor.git_view, "Could not open the browser", true)
+        thor_git_view_set_status_line(&thor.git, "Could not open the browser", true)
     }
 }
 
@@ -203,8 +202,11 @@ thor_on_git_discard :: proc(data: rawptr, path: string) {
     thor.git_discard_path = strings.clone(path)
     delete(thor.git_discard_prompt)
     thor.git_discard_prompt = strings.clone(fmt.tprintf("Discard changes in %s?", path))
-    widgets.command_palette_confirm(
-        thor.command_palette, &thor.ui_context, thor.git_discard_prompt, thor_git_discard_confirmed, thor,
+    thor_palette_confirm(
+        thor,
+        thor.git_discard_prompt,
+        thor_git_discard_confirmed,
+        thor,
     )
 }
 
@@ -219,7 +221,7 @@ thor_git_discard_confirmed :: proc(data: rawptr) {
     abs := git_path(thor, thor.git_discard_path)
     if status, ok := thor.git_status[git_map_key(abs)]; ok && status == .Untracked {
         if remove_err := os.remove(strings.clone(abs, context.temp_allocator)); remove_err != nil {
-            widgets.git_view_set_status_line(thor.git_view, "could not delete the file", true)
+            thor_git_view_set_status_line(&thor.git, "could not delete the file", true)
         }
         thor_refresh_git_status(thor)
         thor_git_op(thor, .Snapshot)
@@ -230,19 +232,18 @@ thor_git_discard_confirmed :: proc(data: rawptr) {
     thor.git_discard_path = ""
 }
 
-thor_on_git_lfs :: proc(data: rawptr, op: widgets.Git_Lfs_Op) {
+thor_on_git_lfs :: proc(data: rawptr, op: Git_Lfs_Op) {
     thor := cast(^Thor) data
     switch op {
     case .Pull:
         thor_git_start_mutation(thor, .Lfs_Pull)
     case .Track:
-        widgets.command_palette_prompt(
-            thor.command_palette,
-            &thor.ui_context,
-            "Pattern to track (e.g. *.png)",
-            thor_git_lfs_track_submitted,
-            thor,
-        )
+        thor_palette_prompt(
+        thor,
+        "Pattern to track (e.g. *.png)",
+        thor_git_lfs_track_submitted,
+        thor,
+    )
     }
 }
 
@@ -277,7 +278,7 @@ thor_on_git_commit :: proc(data: rawptr, subject, description: string, amend: bo
     thor_git_start_mutation(thor, .Commit, subject, description, amend)
 }
 
-thor_on_git_sync :: proc(data: rawptr, op: widgets.Git_Sync_Op) {
+thor_on_git_sync :: proc(data: rawptr, op: Git_Sync_Op) {
     thor := cast(^Thor) data
     git_op: Git_Op
     switch op {
@@ -294,8 +295,8 @@ thor_git_start_mutation :: proc(thor: ^Thor, op: Git_Op, arg := "", arg2 := "", 
         return
     }
     thor_git_op(thor, op, arg, arg2, flag)
-    widgets.git_view_set_busy(thor.git_view, true)
-    widgets.git_view_set_status_line(thor.git_view, "", false)
+    thor_git_view_set_busy(&thor.git, true)
+    thor_git_view_set_status_line(&thor.git, "", false)
 }
 
 // Fetches the diff for a selected file: a tracked file asks git, an untracked
@@ -316,26 +317,26 @@ thor_git_request_diff :: proc(thor: ^Thor, path: string, staged: bool) {
 
 @(private = "file")
 thor_git_show_untracked :: proc(thor: ^Thor, path: string) {
-    view := thor.git_view
+    view := &thor.git
     abs := git_path(thor, path)
     data, read_err := os.read_entire_file(abs, context.temp_allocator)
     if read_err != nil || len(data) > GIT_UNTRACKED_PREVIEW_MAX {
-        widgets.git_view_set_diff(view, path, make([dynamic]widgets.Git_Diff_Row))
+        thor_git_view_set_diff(view, path, make([dynamic]Git_Diff_Row))
         return
     }
 
-    rows := make([dynamic]widgets.Git_Diff_Row)
+    rows := make([dynamic]Git_Diff_Row)
     // A file checked out without the smudge filter is the pointer itself.
     if strings.has_prefix(string(data), GIT_LFS_POINTER_PREFIX) {
-        append(&rows, widgets.Git_Diff_Row{.Meta, 0, 0, strings.clone("Git LFS pointer file")})
-        widgets.git_view_set_diff(view, path, rows)
+        append(&rows, Git_Diff_Row{.Meta, 0, 0, strings.clone("Git LFS pointer file")})
+        thor_git_view_set_diff(view, path, rows)
         return
     }
     line_number := 1
     it := string(data)
     for raw in strings.split_lines_iterator(&it) {
         if len(rows) >= GIT_DIFF_MAX_ROWS {
-            append(&rows, widgets.Git_Diff_Row{.Meta, 0, 0, strings.clone("diff truncated")})
+            append(&rows, Git_Diff_Row{.Meta, 0, 0, strings.clone("diff truncated")})
             break
         }
         line := strings.trim_suffix(raw, "\r")
@@ -343,10 +344,10 @@ thor_git_show_untracked :: proc(thor: ^Thor, path: string) {
         if !was_allocation {
             expanded = strings.clone(line)
         }
-        append(&rows, widgets.Git_Diff_Row{.Added, 0, line_number, expanded})
+        append(&rows, Git_Diff_Row{.Added, 0, line_number, expanded})
         line_number += 1
     }
-    widgets.git_view_set_diff(view, path, rows)
+    thor_git_view_set_diff(view, path, rows)
 }
 
 // ---- result routing (called from thor_apply_git_op) ----
@@ -354,8 +355,8 @@ thor_git_show_untracked :: proc(thor: ^Thor, path: string) {
 // Pushes a snapshot into the open view: header, both lists, and a refreshed
 // diff for the file that stayed selected.
 thor_git_push_snapshot :: proc(thor: ^Thor, job: ^Git_Op_Job) {
-    view := thor.git_view
-    if view == nil || !widgets.git_view_is_open(view) {
+    view := &thor.git
+    if !thor.git_open {
         return
     }
 
@@ -366,48 +367,48 @@ thor_git_push_snapshot :: proc(thor: ^Thor, job: ^Git_Op_Job) {
     }
     ahead, behind, upstream_ok := git_parse_upstream_counts(job.aux[2])
     has_upstream := job.aux_codes[2] == 0 && upstream_ok
-    widgets.git_view_set_header(view, display, ahead, behind, has_upstream)
+    thor_git_view_set_header(view, display, ahead, behind, has_upstream)
 
     entries := make([dynamic]Git_File_Entry)
     defer git_file_entries_destroy(&entries)
     git_parse_porcelain_z(job.output, &entries)
 
-    widgets.git_view_clear_files(view)
+    thor_git_view_clear_files(view)
     for entry in entries {
-        widgets.git_view_add_file(view, entry.path, entry.path, entry.status, entry.staged)
+        thor_git_view_add_file(view, entry.path, entry.path, entry.status, entry.staged)
     }
 
-    if path, staged, ok := widgets.git_view_selected_file(view); ok {
+    if path, staged, ok := thor_git_view_selected_file(view); ok {
         thor_git_request_diff(thor, path, staged)
     } else {
-        widgets.git_view_clear_diff(view)
-        widgets.git_view_set_diff(view, "", make([dynamic]widgets.Git_Diff_Row))
+        thor_git_view_clear_diff(view)
+        thor_git_view_set_diff(view, "", make([dynamic]Git_Diff_Row))
     }
 }
 
 thor_git_push_log :: proc(thor: ^Thor, job: ^Git_Op_Job) {
-    view := thor.git_view
-    if view == nil || !widgets.git_view_is_open(view) {
+    view := &thor.git
+    if !thor.git_open {
         return
     }
     entries := make([dynamic]Git_Log_Entry)
     defer git_log_entries_destroy(&entries)
     git_parse_log(job.output, &entries)
 
-    widgets.git_view_clear_commits(view)
+    thor_git_view_clear_commits(view)
     for entry in entries {
-        widgets.git_view_add_commit(view, entry.hash, entry.short, entry.subject, entry.author, entry.date, entry.refs)
+        thor_git_view_add_commit(view, entry.hash, entry.short, entry.subject, entry.author, entry.date, entry.refs)
     }
     // A full page means the history probably goes on.
-    widgets.git_view_set_commits_has_more(view, len(entries) >= thor.git_log_count)
+    thor_git_view_set_commits_has_more(view, len(entries) >= thor.git_log_count)
 }
 
 thor_git_push_refs :: proc(thor: ^Thor, job: ^Git_Op_Job) {
-    view := thor.git_view
-    if view == nil || !widgets.git_view_is_open(view) {
+    view := &thor.git
+    if !thor.git_open {
         return
     }
-    widgets.git_view_clear_refs(view)
+    thor_git_view_clear_refs(view)
 
     locals := make([dynamic]string)
     defer {
@@ -418,7 +419,7 @@ thor_git_push_refs :: proc(thor: ^Thor, job: ^Git_Op_Job) {
     }
     current := git_parse_branch_lines(job.output, &locals)
     for name in locals {
-        widgets.git_view_add_ref(view, .Branch, name, "", name == current)
+        thor_git_view_add_ref(view, .Branch, name, "", name == current)
     }
 
     names := make([dynamic]string)
@@ -430,12 +431,12 @@ thor_git_push_refs :: proc(thor: ^Thor, job: ^Git_Op_Job) {
     }
     git_parse_name_lines(job.aux[0], &names)
     for name in names {
-        widgets.git_view_add_ref(view, .Remote, name, "", false)
+        thor_git_view_add_ref(view, .Remote, name, "", false)
     }
     clear_names(&names)
     git_parse_name_lines(job.aux[1], &names)
     for name in names {
-        widgets.git_view_add_ref(view, .Tag, name, "", false)
+        thor_git_view_add_ref(view, .Tag, name, "", false)
     }
 
     ids := make([dynamic]string)
@@ -452,7 +453,7 @@ thor_git_push_refs :: proc(thor: ^Thor, job: ^Git_Op_Job) {
     }
     git_parse_stash_lines(job.aux[2], &ids, &subjects)
     for id, i in ids {
-        widgets.git_view_add_ref(view, .Stash, id, subjects[i], false)
+        thor_git_view_add_ref(view, .Stash, id, subjects[i], false)
     }
 }
 
@@ -473,11 +474,11 @@ GIT_CURATED_CONFIG := [?]string {
 }
 
 thor_git_push_config :: proc(thor: ^Thor, job: ^Git_Op_Job) {
-    view := thor.git_view
-    if view == nil || !widgets.git_view_is_open(view) {
+    view := &thor.git
+    if !thor.git_open {
         return
     }
-    widgets.git_view_clear_config(view)
+    thor_git_view_clear_config(view)
 
     for global in ([2]bool {false, true}) {
         entries := make([dynamic]Git_Config_Entry)
@@ -494,7 +495,7 @@ thor_git_push_config :: proc(thor: ^Thor, job: ^Git_Op_Job) {
                     break
                 }
             }
-            widgets.git_view_add_config(view, global, curated, value, is_set)
+            thor_git_view_add_config(view, global, curated, value, is_set)
         }
         for entry in entries {
             curated := false
@@ -505,7 +506,7 @@ thor_git_push_config :: proc(thor: ^Thor, job: ^Git_Op_Job) {
                 }
             }
             if !curated {
-                widgets.git_view_add_config(view, global, entry.key, entry.value, true)
+                thor_git_view_add_config(view, global, entry.key, entry.value, true)
             }
         }
     }
@@ -525,8 +526,8 @@ thor_git_apply_remote_url :: proc(thor: ^Thor, job: ^Git_Op_Job) {
 // Pushes the LFS probe into the open view: availability, version, tracked
 // patterns and the tracked-file set the changes list marks.
 thor_git_apply_lfs_probe :: proc(thor: ^Thor, job: ^Git_Op_Job) {
-    view := thor.git_view
-    if view == nil || !widgets.git_view_is_open(view) {
+    view := &thor.git
+    if !thor.git_open {
         return
     }
     available := job.ok && job.code == 0
@@ -554,7 +555,7 @@ thor_git_apply_lfs_probe :: proc(thor: ^Thor, job: ^Git_Op_Job) {
         git_parse_lfs_patterns(job.aux[1], &patterns)
         git_parse_name_lines(job.aux[0], &files)
     }
-    widgets.git_view_set_lfs(view, available, version, patterns[:], files[:])
+    thor_git_view_set_lfs(view, available, version, patterns[:], files[:])
 }
 
 thor_git_apply_cli_probe :: proc(thor: ^Thor, job: ^Git_Op_Job) {
@@ -568,8 +569,8 @@ thor_git_apply_cli_probe :: proc(thor: ^Thor, job: ^Git_Op_Job) {
 // Rebuilds the hosting card from what is known so far.
 @(private = "file")
 thor_git_update_hosting_card :: proc(thor: ^Thor) {
-    view := thor.git_view
-    if view == nil || !widgets.git_view_is_open(view) {
+    view := &thor.git
+    if !thor.git_open {
         return
     }
     label := ""
@@ -585,7 +586,7 @@ thor_git_update_hosting_card :: proc(thor: ^Thor) {
     case .Other:
         label = strings.concatenate({thor.git_host.host, " — ", thor.git_host.path}, context.temp_allocator)
     }
-    widgets.git_view_set_hosting(view, label, icon, thor_git_host_cli(thor), thor.git_host.kind != .None)
+    thor_git_view_set_hosting(view, label, icon, thor_git_host_cli(thor), thor.git_host.kind != .None)
 }
 
 // Asks for the PR list once the host and the CLI answer are both in.
@@ -598,8 +599,8 @@ thor_git_maybe_list_prs :: proc(thor: ^Thor) {
     if cli == "" {
         return
     }
-    view := thor.git_view
-    if view == nil || !widgets.git_view_is_open(view) {
+    view := &thor.git
+    if !thor.git_open {
         return
     }
     thor.git_prs_requested = true
@@ -607,56 +608,56 @@ thor_git_maybe_list_prs :: proc(thor: ^Thor) {
 }
 
 thor_git_push_prs :: proc(thor: ^Thor, job: ^Git_Op_Job) {
-    view := thor.git_view
-    if view == nil || !widgets.git_view_is_open(view) {
+    view := &thor.git
+    if !thor.git_open {
         return
     }
     entries := make([dynamic]Git_Pr_Entry)
     defer git_pr_entries_destroy(&entries)
-    widgets.git_view_clear_prs(view)
+    thor_git_view_clear_prs(view)
     if !git_parse_pr_json(job.output, &entries) {
         return
     }
     for entry in entries {
-        widgets.git_view_add_pr(view, entry.number, entry.title, entry.branch, entry.url)
+        thor_git_view_add_pr(view, entry.number, entry.title, entry.branch, entry.url)
     }
 }
 
 thor_git_push_diff :: proc(thor: ^Thor, job: ^Git_Op_Job) {
-    view := thor.git_view
-    if view == nil || !widgets.git_view_is_open(view) {
+    view := &thor.git
+    if !thor.git_open {
         return
     }
-    rows := make([dynamic]widgets.Git_Diff_Row)
+    rows := make([dynamic]Git_Diff_Row)
     if git_diff_is_lfs_pointer(job.output) {
         git_lfs_pointer_rows(job.output, &rows)
     } else {
         git_parse_diff_rows(job.output, &rows)
     }
-    widgets.git_view_set_diff(view, job.arg, rows)
+    thor_git_view_set_diff(view, job.arg, rows)
 }
 
 // Ends a mutation on the view: reports the failure or clears the commit box,
 // and re-snapshots so the lists match the new state.
 thor_git_finish_mutation :: proc(thor: ^Thor, job: ^Git_Op_Job) {
-    view := thor.git_view
-    if view == nil || !widgets.git_view_is_open(view) {
+    view := &thor.git
+    if !thor.git_open {
         return
     }
-    widgets.git_view_set_busy(view, false)
+    thor_git_view_set_busy(view, false)
 
     if !job.ok || job.code != 0 {
         line := git_first_line(job.output)
         if line == "" {
             line = "git command failed"
         }
-        widgets.git_view_set_status_line(view, line, true)
+        thor_git_view_set_status_line(view, line, true)
         return
     }
 
     #partial switch job.op {
     case .Commit:
-        widgets.git_view_clear_commit(view)
+        thor_git_view_clear_commit(view)
     case .Config_Set:
         thor_git_op(thor, .Config_List)
     case .Lfs_Pull, .Lfs_Track:
@@ -669,11 +670,11 @@ thor_git_finish_mutation :: proc(thor: ^Thor, job: ^Git_Op_Job) {
             thor_open_in_browser(url)
         }
     case .Clone:
-        widgets.git_view_close(view, &thor.ui_context)
+        thor_git_view_close(thor)
         thor_open_folder_request(thor, job.arg2)
         return
     }
-    widgets.git_view_set_status_line(view, git_op_done_label(job.op), false)
+    thor_git_view_set_status_line(view, git_op_done_label(job.op), false)
 }
 
 @(private = "file")

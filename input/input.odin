@@ -1,20 +1,16 @@
-// The modifier keys a chord can hold. A leaf both `ui` (which reads the live
-// state off raylib and stamps it on an event) and `setting` (which parses and
-// writes a chord) import, so the set of modifiers and their spelling exist once.
+// How a chord's modifiers are spelled, read and written. The set itself is
+// Loom's; this package owns only the names, so a spec round-trips through one
+// spelling wherever it is parsed or shown.
 package input
 
 import "core:strings"
 
-// Cmd is the Command key on macOS and the Windows/Super key elsewhere; raylib
-// reports both as LEFT_SUPER / RIGHT_SUPER.
-Modifier :: enum u8 {
-    Ctrl,
-    Shift,
-    Alt,
-    Cmd,
-}
+import ui "../vendor/loom/loom"
 
-Modifiers :: bit_set[Modifier; u8]
+// Super is Command on macOS and the Windows key elsewhere. It is spelled "Cmd"
+// on the way out, and every one of its aliases is read on the way in.
+Modifier :: ui.Mod
+Modifiers :: ui.Mod_Set
 
 // The modifier a spec token names, e.g. "ctrl" or "super". The token must be
 // lowercase and trimmed; anything else is a key name, not a modifier.
@@ -27,7 +23,7 @@ modifier_from_token :: proc(token: string) -> (Modifier, bool) {
     case "alt", "option":
         return .Alt, true
     case "cmd", "command", "super", "meta", "win":
-        return .Cmd, true
+        return .Super, true
     }
     return .Ctrl, false
 }
@@ -44,7 +40,7 @@ write_tokens :: proc(b: ^strings.Builder, mods: Modifiers) {
     if .Alt in mods {
         strings.write_string(b, "alt+")
     }
-    if .Cmd in mods {
+    if .Super in mods {
         strings.write_string(b, "cmd+")
     }
 }
@@ -60,7 +56,7 @@ write_names :: proc(b: ^strings.Builder, mods: Modifiers) {
     if .Alt in mods {
         strings.write_string(b, "Alt+")
     }
-    if .Cmd in mods {
+    if .Super in mods {
         strings.write_string(b, "Cmd+")
     }
 }

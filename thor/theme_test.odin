@@ -5,8 +5,8 @@ import "core:slice"
 import "core:testing"
 import rl "vendor:raylib"
 
-import "../ui"
-
+import ui "../vendor/loom/loom"
+import "../theme"
 // The picker's rows are cached: a second open reuses the parsed labels, and the
 // two slices stay aligned so select_dialog_open can index files by label.
 @(test)
@@ -30,7 +30,7 @@ test_theme_choices_are_cached_and_aligned :: proc(t: ^testing.T) {
 // each other, and from the plugin and language-backend ids, by prefix alone.
 @(test)
 test_theme_row_ids_roundtrip :: proc(t: ^testing.T) {
-    for entry in ui.THEME_COLORS {
+    for entry in theme.COLORS {
         id := thor_theme_color_id(entry.key)
         key, ok := thor_theme_color_key(id)
         testing.expectf(t, ok && key == entry.key, "%q does not survive its id", entry.key)
@@ -82,9 +82,9 @@ test_user_theme_shadows_shipped :: proc(t: ^testing.T) {
 
     // theme_mjolnir's name is a literal, unlike theme_load's, so this palette is
     // never destroyed.
-    palette := ui.theme_mjolnir()
+    palette := theme.mjolnir()
     palette.background = {0x01, 0x02, 0x03, 0xFF}
-    testing.expect(t, ui.theme_save(palette, path), "the user copy writes")
+    testing.expect(t, theme.save(palette, path), "the user copy writes")
 
     testing.expect(t, thor_theme_path(DEFAULT_THEME) == path, "the user copy wins the lookup")
 
@@ -98,7 +98,7 @@ test_user_theme_shadows_shipped :: proc(t: ^testing.T) {
     testing.expectf(t, count == 1, "the shadowed theme is listed %d times", count)
     testing.expect(t, slice.is_sorted(names), "the merged listing is sorted")
 
-    loaded, ok := ui.theme_load(thor_theme_path(DEFAULT_THEME))
-    defer ui.theme_destroy(&loaded)
-    testing.expect(t, ok && loaded.background == rl.Color {0x01, 0x02, 0x03, 0xFF}, "the user copy is the one loaded")
+    loaded, ok := theme.load(thor_theme_path(DEFAULT_THEME))
+    defer theme.destroy(&loaded)
+    testing.expect(t, ok && loaded.background == ui.Color {0x01, 0x02, 0x03, 0xFF}, "the user copy is the one loaded")
 }

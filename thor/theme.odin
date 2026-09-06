@@ -8,9 +8,10 @@ import "core:strings"
 import rl "vendor:raylib"
 
 import "../setting"
-import "../ui"
-import "../widgets"
-
+import ui "../vendor/loom/loom"
+import "../font"
+import "../theme"
+import "../editview"
 // Built-in theme used when none is configured or the configured one fails to load.
 DEFAULT_THEME :: "mjolnir"
 
@@ -49,17 +50,17 @@ thor_load_active_theme :: proc(thor: ^Thor) {
 // Replaces thor.theme with the theme file `name` resolves to, freeing the
 // previous one. Falls back to the built-in default when the file is unreadable.
 thor_load_theme_by_name :: proc(thor: ^Thor, name: string) {
-    theme, ok := ui.theme_load(thor_theme_path(name))
+    loaded, ok := theme.load(thor_theme_path(name))
     if !ok && name != DEFAULT_THEME {
         log.warnf("Theme %q failed to load; using %q", name, DEFAULT_THEME)
-        ui.theme_destroy(&theme)
-        // theme_load returns the built-in theme and logs on failure, so the
+        theme.destroy(&loaded)
+        // theme.load returns the built-in palette and logs on failure, so the
         // fallback always lands on a complete palette.
-        theme, _ = ui.theme_load(thor_theme_path(DEFAULT_THEME))
+        loaded, _ = theme.load(thor_theme_path(DEFAULT_THEME))
     }
 
-    ui.theme_destroy(&thor.theme)
-    thor.theme = theme
+    theme.destroy(&thor.theme)
+    thor.theme = loaded
     // A palette read from disk, so any generated preview is gone.
     thor.theme_preview_generated = false
     log.infof("Loaded theme: %s", thor.theme.name)
@@ -119,10 +120,10 @@ thor_available_theme_choices :: proc(thor: ^Thor) -> (labels, files: []string) {
     files_out := make([dynamic]string)
     for file in names {
         path := thor_theme_path(file)
-        theme, _ := ui.theme_load(path)
-        append(&labels_out, strings.clone(theme.name))
+        loaded, _ := theme.load(path)
+        append(&labels_out, strings.clone(loaded.name))
         append(&files_out, strings.clone(file))
-        ui.theme_destroy(&theme)
+        theme.destroy(&loaded)
     }
     thor.theme_labels = labels_out[:]
     thor.theme_files = files_out[:]
@@ -144,255 +145,15 @@ thor_free_theme_choices :: proc(thor: ^Thor) {
     thor.theme_files = nil
 }
 
-// Reapplies thor.theme everywhere: the widgets that cache a color, and the syntax
-// spans that bake one in.
+// Reapplies thor.theme. The tree reads it through thor_push_theme each frame, so
+// only the syntax spans that bake a color in need work.
 thor_apply_theme :: proc(thor: ^Thor) {
-    thor_apply_theme_widgets(thor)
     // Syntax spans bake in theme colors, so every open file needs new ones. Only
     // mark them stale: the per-frame pane pass recolors the files on screen with
     // a window to scope to, and one off screen costs nothing until it is shown.
     for file in thor.open_files {
         file.highlighted = false
     }
-}
-
-// The widget half alone. The draw loop reads thor.theme directly for the window
-// clear, so those update for free; this walks the widget tree for everything that
-// was colored at build time. Mirrors the color assignments in build.odin, so the
-// two must stay in step. The color picker's drag preview calls this per frame,
-// where re-highlighting every open buffer would not pay for itself.
-thor_apply_theme_widgets :: proc(thor: ^Thor) {
-    t := thor.theme
-    selected := rl.Color {t.accent_color.r, t.accent_color.g, t.accent_color.b, 40}
-
-    widgets.panel_set_background(thor.root_panel, t.background)
-    widgets.panel_set_background(thor.explorer_stub_panel, t.buttons)
-    widgets.panel_set_background(thor.explorer_panel, t.second_background)
-    widgets.panel_set_background(thor.editor_panel, t.background)
-    widgets.panel_set_background(thor.console_panel, t.second_background)
-    widgets.panel_set_background(thor.console_stub_panel, t.buttons)
-
-    widgets.stack_set_background(thor.root_stack, t.border)
-    widgets.stack_set_background(thor.workspace_row, t.border)
-    widgets.stack_set_background(thor.explorer_stub_stack, t.buttons)
-    widgets.stack_set_background(thor.explorer_stack, t.border)
-    widgets.stack_set_background(thor.explorer_header, t.highlight)
-    widgets.stack_set_background(thor.editor_column, t.border)
-    widgets.stack_set_background(thor.console_stack, t.border)
-    widgets.stack_set_background(thor.console_header, t.highlight)
-    widgets.stack_set_background(thor.console_stub_stack, t.buttons)
-    widgets.stack_set_background(thor.editor_split_row, t.border)
-
-    widgets.titlebar_set_background(thor.top_bar, t.buttons)
-
-    widgets.splitter_set_colors(thor.explorer_splitter, t.border, t.highlight, t.accent_color)
-    widgets.splitter_set_colors(thor.console_splitter, t.border, t.highlight, t.accent_color)
-    widgets.splitter_set_colors(thor.editor_split_splitter, t.border, t.highlight, t.accent_color)
-
-    widgets.command_palette_set_colors(
-        thor.command_palette,
-        t.second_background, t.accent_color, t.background, t.primary_text_color, t.muted_color, selected, t.accent_color,
-    )
-    widgets.select_dialog_set_colors(
-        thor.select_dialog,
-        t.second_background, t.accent_color, t.highlight, t.primary_text_color, t.muted_color, selected, t.accent_color,
-    )
-    widgets.permission_dialog_set_colors(
-        thor.permission_dialog,
-        t.second_background, t.border, t.highlight, t.primary_text_color, t.muted_color,
-        rl.Color {t.primary_text_color.r, t.primary_text_color.g, t.primary_text_color.b, 10}, t.accent_color,
-    )
-    widgets.settings_view_set_colors(
-        thor.settings_view,
-        t.second_background, t.highlight, t.highlight, t.background, t.primary_text_color, t.muted_color, t.accent_color,
-        selected,
-    )
-    widgets.settings_view_set_status_colors(thor.settings_view, t.success_color, t.warning_color, t.error_color)
-    widgets.theme_editor_set_colors(
-        thor.theme_editor,
-        t.second_background, t.highlight, t.highlight, t.background, t.primary_text_color, t.muted_color, t.accent_color,
-        selected,
-    )
-    widgets.color_picker_set_colors(
-        thor.color_picker,
-        t.second_background, t.highlight, t.highlight, t.background, t.primary_text_color, t.muted_color, t.accent_color,
-    )
-    widgets.git_view_set_colors(
-        thor.git_view,
-        t.second_background, t.highlight, t.highlight, t.background, t.primary_text_color, t.muted_color, t.accent_color,
-        selected, t.success_color, t.danger_color, t.warning_color, t.conflict_color,
-    )
-    widgets.find_replace_set_colors(
-        thor.find_replace,
-        t.second_background, t.accent_color, t.background, t.primary_text_color, t.muted_color, t.buttons, t.accent_color,
-    )
-    widgets.menu_set_colors(
-        thor.menu,
-        t.second_background, t.accent_color, t.primary_text_color, t.muted_color, selected, t.border,
-    )
-
-    widgets.tree_set_colors(
-        thor.tree,
-        t.foreground, t.primary_text_color, t.info_color, t.muted_color, t.tree, t.selection_background,
-        t.second_background, t.highlight,
-    )
-    widgets.tree_set_error_color(thor.tree, t.error_color)
-    widgets.tree_set_git_colors(thor.tree, t.warning_color, t.success_color, t.danger_color, t.conflict_color, t.submodule_color)
-
-    widgets.tabbar_set_colors(
-        thor.tabbar,
-        t.foreground, t.primary_text_color, t.active, t.buttons, t.background, t.tree, t.accent_color,
-    )
-
-    for editor in ([]^widgets.Editor {thor.editor, thor.editor2}) {
-        widgets.editor_set_colors(
-            editor,
-            t.text, t.muted_color, t.background, t.second_background, t.border, t.border, t.accent_color,
-        )
-        widgets.editor_set_diagnostic_colors(editor, t.error_color, t.warning_color)
-    }
-
-    widgets.image_view_set_colors(thor.image_view, t.background, t.second_background, t.buttons, t.primary_text_color)
-    widgets.model_view_set_colors(
-        thor.model_view,
-        t.background, t.second_background, t.buttons, t.primary_text_color,
-        t.second_background, t.highlight, t.accent_color,
-    )
-    widgets.markdown_view_set_colors(thor.markdown_view, t)
-    widgets.markdown_view_set_colors(thor.markdown_view2, t)
-    for term in thor.terminals {
-        thor_terminal_apply_theme(thor, term)
-    }
-    thor_theme_terminal_tabs(thor)
-    widgets.statusbar_set_colors(thor.statusbar, t.foreground, t.muted_color, t.buttons, t.accent_color, t.error_color)
-
-    // Buttons. The Git top-bar button is a plugin button, recolored in the
-    // plugin_buttons loop below, not here.
-    for b in ([]^widgets.Button {
-        thor.menu_file_button, thor.menu_edit_button, thor.menu_view_button, thor.menu_git_button, thor.menu_help_button,
-    }) {
-        thor_theme_menu_button(thor, b)
-    }
-    thor_theme_window_button(thor, thor.tasks_add_button, t.highlight)
-    thor_theme_menu_button(thor, thor.tasks_select_button)
-    // Built with the titlebar, so it is nil while the first theme loads.
-    if thor.update_button != nil {
-        thor_theme_menu_button(thor, thor.update_button)
-        thor.update_button.text_color = t.success_color
-    }
-    // The run arrow keeps a green tint of its own; its hover stays neutral.
-    thor_theme_window_button(thor, thor.tasks_run_button, t.highlight)
-    thor.tasks_run_button.text_color = t.success_color
-    thor_theme_window_button(thor, thor.minimize_button, t.highlight)
-    thor_theme_window_button(thor, thor.maximize_button, t.highlight)
-    thor_theme_window_button(thor, thor.close_button, t.danger_color)
-    thor_theme_icon_button(thor, thor.explorer_toggle_button, t.highlight)
-    thor_theme_icon_button(thor, thor.explorer_restore_button, t.buttons)
-    thor_theme_icon_button(thor, thor.console_toggle_button, t.highlight)
-    thor_theme_icon_button(thor, thor.console_restore_button, t.buttons)
-    for pb in thor.plugin_buttons {
-        if pb.button != nil {
-            thor_theme_menu_button(thor, pb.button)
-        }
-    }
-    // Theme-colored labels.
-    widgets.label_set_text_color(thor.explorer_title_label, t.primary_text_color)
-    // Built with the welcome page, so both are nil while the first theme loads.
-    for card in ([]^widgets.Tip_Card{thor.welcome_tip_card, thor.startup_tip_card}) {
-        if card != nil {
-            widgets.tip_card_set_colors(
-                card,
-                t.second_background, t.border, t.primary_text_color, t.muted_color, t.accent_color,
-            )
-        }
-    }
-    thor_theme_welcome(thor)
-
-    ui.context_set_tooltip_style(&thor.ui_context, ui.Tooltip_Style {
-        background = t.second_background,
-        border     = t.border,
-        text       = t.primary_text_color,
-        hint       = t.muted_color,
-        font_size  = 15,
-    })
-}
-
-// Menu-bar button coloring (File/Edit/View/Help/Git and plugin buttons).
-thor_theme_menu_button :: proc(thor: ^Thor, button: ^widgets.Button) {
-    widgets.button_set_colors(button, thor.theme.foreground, thor.theme.buttons, thor.theme.highlight, thor.theme.active, thor.theme.buttons)
-    widgets.button_set_border_thickness(button, 0)
-}
-
-// Titlebar window control coloring; `hover` is the per-button tint.
-thor_theme_window_button :: proc(thor: ^Thor, button: ^widgets.Button, hover: rl.Color) {
-    widgets.button_set_colors(button, thor.theme.foreground, thor.theme.buttons, hover, thor.theme.active, thor.theme.buttons)
-    widgets.button_set_border_thickness(button, 0)
-}
-
-// Primary call-to-action coloring. Every shipped accent is a light color, so the
-// label and both states are derived from it: a fixed light label reads at 2:1 on
-// most of them, and a hover taken from another role leaves the accent's hue
-// entirely. `ui.color_shade` moves away from the label, so the states only get
-// easier to read.
-thor_theme_accent_button :: proc(thor: ^Thor, button: ^widgets.Button) {
-    accent := thor.theme.accent_color
-    widgets.button_set_colors(
-        button,
-        ui.color_on(accent),
-        accent,
-        ui.color_shade(accent, 0.10),
-        ui.color_shade(accent, 0.20),
-        accent,
-    )
-    widgets.button_set_border_thickness(button, 0)
-}
-
-// Welcome page and recent-row coloring for every button that is not the primary
-// action.
-thor_theme_secondary_button :: proc(thor: ^Thor, button: ^widgets.Button) {
-    t := thor.theme
-    widgets.button_set_colors(button, t.primary_text_color, t.buttons, t.highlight, t.active, t.border)
-}
-
-// Welcome page coloring. The page is built once and lives for the whole session,
-// so a theme change only reaches it here. The recent rows are recolored in place
-// instead of rebuilt: a rebuild inside an event dispatch frees the widgets the
-// dispatch stands on.
-thor_theme_welcome :: proc(thor: ^Thor) {
-    // Built together, so one nil says the whole page is not up yet.
-    if thor.welcome_panel == nil {
-        return
-    }
-    t := thor.theme
-
-    widgets.panel_set_background(thor.welcome_panel, t.background)
-    widgets.label_set_text_color(thor.welcome_title_label, t.primary_text_color)
-    widgets.label_set_text_color(thor.welcome_subtitle_label, t.muted_color)
-    widgets.label_set_text_color(thor.welcome_recent_label, t.muted_color)
-
-    thor_theme_accent_button(thor, thor.welcome_open_folder_button)
-    thor_theme_secondary_button(thor, thor.welcome_open_file_button)
-
-    for child := thor.welcome_recent_stack.first_child; child != nil; child = child.next_sibling {
-        thor_theme_secondary_button(thor, cast(^widgets.Button) child)
-    }
-}
-
-// Flat panel collapse/restore icon-button coloring; `background` matches the
-// container so only the hover state reads as a button.
-thor_theme_icon_button :: proc(thor: ^Thor, button: ^widgets.Button, background: rl.Color) {
-    widgets.button_set_colors(button, thor.theme.foreground, background, thor.theme.active, thor.theme.border, background)
-    widgets.button_set_border_thickness(button, 0)
-}
-
-// Terminal tab strip coloring. The strip blends into the console header and the
-// active tab takes the console body color, so the tab reads as the panel below it.
-thor_theme_terminal_tabs :: proc(thor: ^Thor) {
-    t := thor.theme
-    widgets.tabstrip_set_colors(
-        thor.terminal_tabs,
-        t.muted_color, t.primary_text_color, t.highlight, t.second_background, t.tree, t.accent_color, t.error_color,
-    )
 }
 
 // Preferences: Change Theme -> pick from the installed themes in a dialog that
@@ -408,9 +169,15 @@ thor_cmd_change_theme :: proc(data: rawptr) {
     if current == "" {
         current = DEFAULT_THEME
     }
-    widgets.select_dialog_open(
-        thor.select_dialog, &thor.ui_context, "Change Theme", labels, current,
-        thor_theme_preview, thor_theme_commit, thor, files,
+    thor_select_open(
+        thor,
+        "Change Theme",
+        labels,
+        current,
+        thor_theme_preview,
+        thor_theme_commit,
+        thor,
+        files,
     )
 }
 
@@ -434,7 +201,7 @@ thor_theme_commit :: proc(data: rawptr, choice: string) {
 // that previews each one live as the selection moves.
 thor_cmd_change_font :: proc(data: rawptr) {
     thor := cast(^Thor) data
-    families := ui.text_family_names()
+    families := font.family_names()
     if len(families) == 0 {
         thor_plugin_print(thor, "\nNo font families are registered.\n")
         return
@@ -442,23 +209,28 @@ thor_cmd_change_font :: proc(data: rawptr) {
     // Warm the unbaked families off-thread, so moving the selection previews
     // without a main-thread bake.
     sizes := [2]i32 {cast(i32) setting.font_size(&thor.config), WELCOME_TITLE_FONT_SIZE}
-    ui.text_prebake_async(families, sizes[:])
-    widgets.select_dialog_open(
-        thor.select_dialog, &thor.ui_context, "Change Font", families, ui.text_default_family(),
-        thor_font_preview, thor_font_commit, thor,
+    font.prebake_async(families, sizes[:])
+    thor_select_open(
+        thor,
+        "Change Font",
+        families,
+        font.default_family(),
+        thor_font_preview,
+        thor_font_commit,
+        thor,
     )
 }
 
 // Switches the default text font live (no persistence): the dialog's preview.
 // Text is drawn through the default family everywhere, so it shows next frame.
 thor_font_preview :: proc(_: rawptr, choice: string) {
-    ui.text_set_default_family(choice)
+    font.set_default_family(choice)
 }
 
 // Applies the chosen font and persists it as the new default.
 thor_font_commit :: proc(data: rawptr, choice: string) {
     thor := cast(^Thor) data
-    if !ui.text_set_default_family(choice) {
+    if !font.set_default_family(choice) {
         thor_plugin_print(thor, strings.concatenate({"\nFont ", choice, " is not available.\n"}, context.temp_allocator))
         return
     }
@@ -478,23 +250,27 @@ thor_ligatures_label :: proc(config: ^setting.Settings) -> string {
 // the plain glyphs. Shaping runs per frame, so the choice shows at once.
 thor_cmd_change_ligatures :: proc(data: rawptr) {
     thor := cast(^Thor) data
-    widgets.select_dialog_open(
-        thor.select_dialog, &thor.ui_context, "Ligatures",
-        LIGATURE_LABELS[:], thor_ligatures_label(&thor.config),
-        thor_ligatures_preview, thor_ligatures_commit, thor,
+    thor_select_open(
+        thor,
+        "Ligatures",
+        LIGATURE_LABELS[:],
+        thor_ligatures_label(&thor.config),
+        thor_ligatures_preview,
+        thor_ligatures_commit,
+        thor,
     )
 }
 
 // Switches ligatures live (no persistence): the dialog's preview.
 thor_ligatures_preview :: proc(_: rawptr, choice: string) {
-    ui.shape_set_ligatures(choice == LIGATURE_LABELS[0])
+    font.set_ligatures(choice == LIGATURE_LABELS[0])
 }
 
 // Applies the choice and persists it.
 thor_ligatures_commit :: proc(data: rawptr, choice: string) {
     thor := cast(^Thor) data
     enabled := choice == LIGATURE_LABELS[0]
-    ui.shape_set_ligatures(enabled)
+    font.set_ligatures(enabled)
     if !setting.persist_bool(thor_active_settings_path(thor), "ligatures", enabled) {
         thor_flash_status(thor, SETTINGS_SAVE_FAILED, is_error = true)
         return
@@ -516,13 +292,13 @@ DEFAULT_FILE_ICON_PACK :: "mdi"
 // Makes `configured` the active pack for `group`, falling back to `fallback`
 // when it is unset or names a pack that did not register.
 thor_activate_icon_pack :: proc(group, configured, fallback: string) {
-    if configured != "" && ui.icon_set_active_pack(group, configured) {
+    if configured != "" && font.icon_set_active_pack(group, configured) {
         return
     }
     if configured != "" {
         log.warnf("Configured icon pack %q is not available; using %q", configured, fallback)
     }
-    if !ui.icon_set_active_pack(group, fallback) {
+    if !font.icon_set_active_pack(group, fallback) {
         log.warnf("Default icon pack %q is not available for group %q", fallback, group)
     }
 }
@@ -533,22 +309,28 @@ thor_activate_icon_pack :: proc(group, configured, fallback: string) {
 thor_open_icon_pack_dialog :: proc(
     thor: ^Thor,
     group, title, current: string,
-    preview, commit: widgets.Select_Choice_Proc,
+    preview, commit: Select_Choice_Proc,
 ) {
-    labels, names := ui.icon_pack_choices(group)
+    labels, names := font.icon_pack_choices(group)
     if len(names) == 0 {
         thor_plugin_print(thor, "\nNo icon packs are installed.\n")
         return
     }
     // Warm the unbaked packs off-thread, so the preview switch draws at once.
-    ui.text_prebake_async(names)
+    font.prebake_async(names)
     active := current
     if active == "" {
-        active = ui.icon_active_pack(group)
+        active = font.icon_active_pack(group)
     }
-    widgets.select_dialog_open(
-        thor.select_dialog, &thor.ui_context, title, labels, active,
-        preview, commit, thor, names,
+    thor_select_open(
+        thor,
+        title,
+        labels,
+        active,
+        preview,
+        commit,
+        thor,
+        names,
     )
 }
 
@@ -556,7 +338,7 @@ thor_open_icon_pack_dialog :: proc(
 // back into the config and redraws the settings view.
 @(private = "file")
 thor_icon_pack_apply :: proc(thor: ^Thor, group, key, choice: string) {
-    if !ui.icon_set_active_pack(group, choice) {
+    if !font.icon_set_active_pack(group, choice) {
         thor_plugin_print(thor, strings.concatenate({"\nIcon pack ", choice, " is not available.\n"}, context.temp_allocator))
         return
     }
@@ -588,7 +370,7 @@ thor_cmd_change_icon_pack :: proc(data: rawptr) {
 // Switches the active icon pack live (no persistence): the dialog's preview.
 // Icon names are resolved at draw time, so this shows next frame.
 thor_icon_pack_preview :: proc(_: rawptr, choice: string) {
-    ui.icon_set_active_pack(PRIMARY_ICON_PACK_GROUP, choice)
+    font.icon_set_active_pack(PRIMARY_ICON_PACK_GROUP, choice)
 }
 
 // Applies the chosen icon pack and persists it as the new default.
@@ -608,7 +390,7 @@ thor_cmd_change_file_icon_pack :: proc(data: rawptr) {
 }
 
 thor_file_icon_pack_preview :: proc(_: rawptr, choice: string) {
-    ui.icon_set_active_pack(FILE_ICON_PACK_GROUP, choice)
+    font.icon_set_active_pack(FILE_ICON_PACK_GROUP, choice)
 }
 
 thor_file_icon_pack_commit :: proc(data: rawptr, choice: string) {

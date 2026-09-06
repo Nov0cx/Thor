@@ -8,7 +8,6 @@ import "core:path/filepath"
 import "core:strings"
 
 import "../lang/lsp"
-import "../widgets"
 
 // Writing lsp.json. The package that parses that file (lang/lsp) deliberately
 // never writes it — it reads its config with core:encoding/json because
@@ -19,9 +18,8 @@ import "../widgets"
 // entry is not asked for a field at a time: a form for `command`, `args` and
 // `env` would be a worse JSON editor than the one Thor already is.
 thor_lsp_prompt_new_server :: proc(thor: ^Thor) {
-    widgets.command_palette_prompt(
-        thor.command_palette,
-        &thor.ui_context,
+    thor_palette_prompt(
+        thor,
         "Server id (for example: ruff)",
         thor_lsp_new_server_submit,
         thor,

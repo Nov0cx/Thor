@@ -15,9 +15,8 @@ import "core:os"
 import "core:strings"
 import rl "vendor:raylib"
 
-import "../ui"
-import "../widgets"
-
+import ui "../vendor/loom/loom"
+import "../font"
 // Selector geometry: the button tracks the width of its label between these
 // bounds, leaving room for the padding and the caret. The icon size matches the
 // other titlebar controls so it comes from an atlas that is already baked (only
@@ -92,8 +91,8 @@ tasks_encode :: proc(tasks: []^Task, allocator := context.temp_allocator) -> ([]
 thor_load_tasks :: proc(thor: ^Thor) {
     // The dropdown borrows task names as its row labels, so it must not outlive
     // them; a config poll can reload while it is open.
-    if thor.menu != nil && widgets.menu_is_open(thor.menu) {
-        widgets.menu_close(thor.menu, &thor.ui_context)
+    if thor_menu_is_open(thor) {
+        thor_menu_close(thor)
     }
     thor_clear_tasks(thor)
     defer thor_sync_task_selector(thor)
@@ -163,14 +162,14 @@ thor_find_task :: proc(thor: ^Thor, name: string) -> ^Task {
 
 // Runs `task` in the console, revealing the panel first.
 thor_run_task :: proc(thor: ^Thor, task: ^Task) {
-    if !ui.signal_get(&thor.console_visible) {
-        ui.signal_set(&thor.console_visible, true)
+    if !signal_get(&thor.console_visible) {
+        signal_set(&thor.console_visible, true)
     }
-    if thor.console == nil {
+    if thor_active_console(thor) == nil {
         thor_flash_status(thor, "No terminal is open", true)
         return
     }
-    if !widgets.console_run_command(thor.console, task.command) {
+    if !thor_console_run_command(thor_active_console(thor), task.command) {
         thor_flash_status(thor, "A command is already running", true)
     }
 }
@@ -197,27 +196,19 @@ thor_select_task :: proc(thor: ^Thor, name: string) {
     thor_sync_task_selector(thor)
 }
 
-// Points the selector at the active task, falling back to the first one when
-// the selection is gone (removed, or carried over from another workspace), and
-// resizes the button to its label. No-op before the titlebar is built.
+// Points the selector at the active task, falling back to the first one when the
+// selection is gone (removed, or carried over from another workspace).
 thor_sync_task_selector :: proc(thor: ^Thor) {
-    if thor_active_task(thor) == nil {
-        delete(thor.active_task_name)
-        thor.active_task_name = len(thor.tasks) > 0 ? strings.clone(thor.tasks[0].name) : ""
-    }
-
-    button := thor.tasks_select_button
-    if button == nil {
+    if thor_active_task(thor) != nil {
         return
     }
-    button.text = thor.active_task_name != "" ? thor.active_task_name : "No tasks"
-    label_width := cast(f32) ui.measure_text(button.text, button.font_size)
-    button.min_size.x = clamp(
-        label_width + TASK_SELECTOR_PAD_X * 2 + TASK_SELECTOR_ICON_SIZE + 8,
-        TASK_SELECTOR_MIN_WIDTH,
-        TASK_SELECTOR_MAX_WIDTH,
-    )
-    thor_sync_task_tooltip(thor)
+    delete(thor.active_task_name)
+    thor.active_task_name = len(thor.tasks) > 0 ? strings.clone(thor.tasks[0].name) : ""
+}
+
+// The selector's label.
+thor_task_selector_label :: proc(thor: ^Thor) -> string {
+    return thor.active_task_name != "" ? thor.active_task_name : "No tasks"
 }
 
 // ---------------------------------------------------------------------------
@@ -226,25 +217,22 @@ thor_sync_task_selector :: proc(thor: ^Thor) {
 
 // Selector dropdown: the workspace tasks, then the rows that edit them. Picking
 // a task selects it; the run button next to the selector runs it.
-thor_open_tasks_menu :: proc(data: rawptr, _: ^ui.Context, _: ^ui.Widget) {
+thor_open_tasks_menu :: proc(data: rawptr) {
     thor := cast(^Thor) data
 
-    widgets.menu_clear(thor.menu)
+    thor_menu_clear(thor)
     if len(thor.tasks) == 0 {
-        widgets.menu_add(thor.menu, "No tasks", nil, nil, false)
+        thor_menu_add(thor, "No tasks", nil, nil, false)
     }
     for task in thor.tasks {
-        widgets.menu_add(thor.menu, task.name, thor_menu_select_task, task)
+        thor_menu_add(thor, task.name, thor_menu_select_task, task)
     }
-    widgets.menu_add_separator(thor.menu)
-    widgets.menu_add(thor.menu, "Run Task...", thor_cmd_run_task, thor, len(thor.tasks) > 0)
-    widgets.menu_add(thor.menu, "Add Task...", thor_cmd_add_task, thor)
-    widgets.menu_add(thor.menu, "Remove Task...", thor_cmd_remove_task, thor, len(thor.tasks) > 0)
-    widgets.menu_add(thor.menu, "Edit Tasks (JSON)", thor_cmd_edit_tasks, thor)
-
-    button := thor.tasks_select_button
-    anchor := rl.Vector2 {button.bounds.x, button.bounds.y + button.bounds.height}
-    widgets.menu_open(thor.menu, &thor.ui_context, anchor)
+    thor_menu_add_separator(thor)
+    thor_menu_add(thor, "Run Task...", thor_cmd_run_task, thor, len(thor.tasks) > 0)
+    thor_menu_add(thor, "Add Task...", thor_cmd_add_task, thor)
+    thor_menu_add(thor, "Remove Task...", thor_cmd_remove_task, thor, len(thor.tasks) > 0)
+    thor_menu_add(thor, "Edit Tasks (JSON)", thor_cmd_edit_tasks, thor)
+    thor_menu_open(thor, thor.menu_anchor)
 }
 
 // Menu row: selects the task the row was built from.
@@ -255,12 +243,12 @@ thor_menu_select_task :: proc(data: rawptr) {
 }
 
 // Titlebar add button.
-thor_click_add_task :: proc(data: rawptr, _: ^ui.Context, _: ^ui.Widget) {
+thor_click_add_task :: proc(data: rawptr) {
     thor_cmd_add_task(data)
 }
 
 // Titlebar run button.
-thor_click_run_task :: proc(data: rawptr, _: ^ui.Context, _: ^ui.Widget) {
+thor_click_run_task :: proc(data: rawptr) {
     thor_cmd_run_active_task(data)
 }
 
@@ -296,7 +284,7 @@ thor_cmd_run_task :: proc(data: rawptr) {
         thor_flash_status(thor, "No tasks in this workspace", true)
         return
     }
-    widgets.command_palette_pick(thor.command_palette, &thor.ui_context, "Run task", thor_task_names(thor), thor_pick_run_task, thor)
+    thor_palette_pick(thor, "Run task", thor_task_names(thor), thor_pick_run_task, thor)
 }
 
 @(private = "file")
@@ -312,7 +300,7 @@ thor_pick_run_task :: proc(data: rawptr, name: string) {
 // rather than duplicated.
 thor_cmd_add_task :: proc(data: rawptr) {
     thor := cast(^Thor) data
-    widgets.command_palette_prompt(thor.command_palette, &thor.ui_context, "Task name", thor_prompt_task_name, thor)
+    thor_palette_prompt(thor, "Task name", thor_prompt_task_name, thor)
 }
 
 @(private = "file")
@@ -320,7 +308,7 @@ thor_prompt_task_name :: proc(data: rawptr, name: string) {
     thor := cast(^Thor) data
     delete(thor.pending_task_name)
     thor.pending_task_name = strings.clone(name)
-    widgets.command_palette_prompt(thor.command_palette, &thor.ui_context, "Command to run", thor_prompt_task_command, thor)
+    thor_palette_prompt(thor, "Command to run", thor_prompt_task_command, thor)
 }
 
 @(private = "file")
@@ -356,7 +344,7 @@ thor_cmd_remove_task :: proc(data: rawptr) {
         thor_flash_status(thor, "No tasks in this workspace", true)
         return
     }
-    widgets.command_palette_pick(thor.command_palette, &thor.ui_context, "Remove task", thor_task_names(thor), thor_pick_remove_task, thor)
+    thor_palette_pick(thor, "Remove task", thor_task_names(thor), thor_pick_remove_task, thor)
 }
 
 @(private = "file")

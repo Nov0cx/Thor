@@ -10,7 +10,6 @@ import "core:path/filepath"
 import "core:slice"
 import "core:strings"
 
-import "../widgets"
 
 // Documentation folder beside the binary. Thor moves its working directory to
 // the executable at startup, so the path is relative.
@@ -91,7 +90,7 @@ thor_cmd_docs_page :: proc(data: rawptr) {
         thor_flash_status(thor, "No documentation is installed beside Thor", true)
         return
     }
-    widgets.command_palette_pick(thor.command_palette, &thor.ui_context, "Documentation", pages, thor_pick_docs_page, thor)
+    thor_palette_pick(thor, "Documentation", pages, thor_pick_docs_page, thor)
 }
 
 @(private = "file")

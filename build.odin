@@ -139,6 +139,8 @@ run_tests :: proc() -> bool {
     }
 
     packages := []string {
+        "editview",
+        "font",
         "input",
         "lang",
         "lang/lsp",
@@ -147,16 +149,18 @@ run_tests :: proc() -> bool {
         "msvc",
         "piecetable",
         "plugin",
+        "render",
+        "search",
         "setting",
         "shell",
+        "snippet",
         "syntax",
         "textedit",
+        "theme",
         "thor",
         "treecache",
-        "ui",
         "update",
         "watch",
-        "widgets",
     }
     // Every package runs, so one report names each broken one; a stop at the
     // first would hide the rest from a CI log.

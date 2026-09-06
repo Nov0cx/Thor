@@ -12,14 +12,14 @@ import "core:encoding/json"
 import "core:log"
 import "core:os"
 import "core:strings"
-import rl "vendor:raylib"
+import ui "../vendor/loom/loom"
 
 import "../input"
 import "../lang"
 
 // A parsed key chord, e.g. "ctrl+shift+k" -> {key = .K, mods = {.Ctrl, .Shift}}.
 Keybind :: struct {
-    key:  rl.KeyboardKey,
+    key:  ui.Key,
     mods: input.Modifiers,
 }
 
@@ -529,7 +529,7 @@ write_object :: proc(path: string, root: json.Object) -> bool {
 
 // True when an incoming key event exactly matches the chord (modifiers must
 // match precisely so ctrl+k and ctrl+shift+k stay distinct).
-keybind_matches :: proc(kb: Keybind, key: rl.KeyboardKey, mods: input.Modifiers) -> bool {
+keybind_matches :: proc(kb: Keybind, key: ui.Key, mods: input.Modifiers) -> bool {
     return kb.key == key && kb.mods == mods
 }
 
@@ -537,7 +537,7 @@ keybind_matches :: proc(kb: Keybind, key: rl.KeyboardKey, mods: input.Modifiers)
 // "Ctrl+Shift+K". Returns "" for an unset key so callers can treat it as "no
 // binding".
 keybind_to_string :: proc(kb: Keybind, allocator := context.temp_allocator) -> string {
-    if kb.key == .KEY_NULL {
+    if kb.key == .None {
         return ""
     }
     b := strings.builder_make(allocator)
@@ -547,10 +547,10 @@ keybind_to_string :: proc(kb: Keybind, allocator := context.temp_allocator) -> s
 }
 
 // Serializes a chord to the canonical spec parse_keybind reads back, e.g.
-// {key = .PAGE_UP, mods = {.Ctrl}} -> "ctrl+page_up". An unset key yields "" (an
+// {key = .Page_Up, mods = {.Ctrl}} -> "ctrl+page_up". An unset key yields "" (an
 // unbind).
 keybind_spec :: proc(kb: Keybind, allocator := context.temp_allocator) -> string {
-    if kb.key == .KEY_NULL {
+    if kb.key == .None {
         return strings.clone("", allocator)
     }
     b := strings.builder_make(allocator)
@@ -561,27 +561,27 @@ keybind_spec :: proc(kb: Keybind, allocator := context.temp_allocator) -> string
 
 // Canonical lowercase token for a key, matching key_from_name so the spec round-trips.
 @(private)
-write_key_token :: proc(b: ^strings.Builder, key: rl.KeyboardKey) {
+write_key_token :: proc(b: ^strings.Builder, key: ui.Key) {
     #partial switch key {
-    case .PAGE_UP:      strings.write_string(b, "page_up");   return
-    case .PAGE_DOWN:    strings.write_string(b, "page_down"); return
-    case .UP:           strings.write_string(b, "up");        return
-    case .DOWN:         strings.write_string(b, "down");      return
-    case .LEFT:         strings.write_string(b, "left");      return
-    case .RIGHT:        strings.write_string(b, "right");     return
-    case .HOME:         strings.write_string(b, "home");      return
-    case .END:          strings.write_string(b, "end");       return
-    case .ENTER, .KP_ENTER: strings.write_string(b, "enter"); return
-    case .ESCAPE:       strings.write_string(b, "escape");    return
-    case .TAB:          strings.write_string(b, "tab");       return
-    case .SPACE:        strings.write_string(b, "space");     return
-    case .BACKSPACE:    strings.write_string(b, "backspace"); return
-    case .DELETE:       strings.write_string(b, "delete");    return
-    case .BACKSLASH:    strings.write_string(b, "backslash"); return
-    case .PERIOD:       strings.write_string(b, "period");    return
-    case .COMMA:        strings.write_string(b, "comma");     return
-    case .KP_ADD:       strings.write_string(b, "kp_add");      return
-    case .KP_SUBTRACT:  strings.write_string(b, "kp_subtract"); return
+    case .Page_Up:      strings.write_string(b, "page_up");   return
+    case .Page_Down:    strings.write_string(b, "page_down"); return
+    case .Up:           strings.write_string(b, "up");        return
+    case .Down:         strings.write_string(b, "down");      return
+    case .Left:         strings.write_string(b, "left");      return
+    case .Right:        strings.write_string(b, "right");     return
+    case .Home:         strings.write_string(b, "home");      return
+    case .End:          strings.write_string(b, "end");       return
+    case .Enter: strings.write_string(b, "enter"); return
+    case .Escape:       strings.write_string(b, "escape");    return
+    case .Tab:          strings.write_string(b, "tab");       return
+    case .Space:        strings.write_string(b, "space");     return
+    case .Backspace:    strings.write_string(b, "backspace"); return
+    case .Delete:       strings.write_string(b, "delete");    return
+    case .Backslash:    strings.write_string(b, "backslash"); return
+    case .Period:       strings.write_string(b, "period");    return
+    case .Comma:        strings.write_string(b, "comma");     return
+    case .Pad_Add:       strings.write_string(b, "kp_add");      return
+    case .Pad_Subtract:  strings.write_string(b, "kp_subtract"); return
     case .F1:  strings.write_string(b, "f1");  return
     case .F2:  strings.write_string(b, "f2");  return
     case .F3:  strings.write_string(b, "f3");  return
@@ -596,38 +596,38 @@ write_key_token :: proc(b: ^strings.Builder, key: rl.KeyboardKey) {
     case .F12: strings.write_string(b, "f12"); return
     }
     ki := int(key)
-    if ki >= int(rl.KeyboardKey.A) && ki <= int(rl.KeyboardKey.Z) {
-        strings.write_byte(b, u8('a' + (ki - int(rl.KeyboardKey.A))))
+    if ki >= int(ui.Key.A) && ki <= int(ui.Key.Z) {
+        strings.write_byte(b, u8('a' + (ki - int(ui.Key.A))))
         return
     }
-    if ki >= int(rl.KeyboardKey.ZERO) && ki <= int(rl.KeyboardKey.NINE) {
-        strings.write_byte(b, u8('0' + (ki - int(rl.KeyboardKey.ZERO))))
+    if ki >= int(ui.Key.Num_0) && ki <= int(ui.Key.Num_9) {
+        strings.write_byte(b, u8('0' + (ki - int(ui.Key.Num_0))))
         return
     }
 }
 
 @(private)
-write_key_name :: proc(b: ^strings.Builder, key: rl.KeyboardKey) {
+write_key_name :: proc(b: ^strings.Builder, key: ui.Key) {
     #partial switch key {
-    case .PAGE_UP:      strings.write_string(b, "PgUp");  return
-    case .PAGE_DOWN:    strings.write_string(b, "PgDn");  return
-    case .UP:           strings.write_string(b, "Up");    return
-    case .DOWN:         strings.write_string(b, "Down");  return
-    case .LEFT:         strings.write_string(b, "Left");  return
-    case .RIGHT:        strings.write_string(b, "Right"); return
-    case .HOME:         strings.write_string(b, "Home");  return
-    case .END:          strings.write_string(b, "End");   return
-    case .ENTER, .KP_ENTER: strings.write_string(b, "Enter"); return
-    case .ESCAPE:       strings.write_string(b, "Esc");   return
-    case .TAB:          strings.write_string(b, "Tab");   return
-    case .SPACE:        strings.write_string(b, "Space"); return
-    case .BACKSPACE:    strings.write_string(b, "Backspace"); return
-    case .DELETE:       strings.write_string(b, "Del");   return
-    case .BACKSLASH:    strings.write_string(b, "\\");    return
-    case .PERIOD:       strings.write_string(b, ".");     return
-    case .COMMA:        strings.write_string(b, ",");     return
-    case .KP_ADD:       strings.write_string(b, "+");     return
-    case .KP_SUBTRACT:  strings.write_string(b, "-");     return
+    case .Page_Up:      strings.write_string(b, "PgUp");  return
+    case .Page_Down:    strings.write_string(b, "PgDn");  return
+    case .Up:           strings.write_string(b, "Up");    return
+    case .Down:         strings.write_string(b, "Down");  return
+    case .Left:         strings.write_string(b, "Left");  return
+    case .Right:        strings.write_string(b, "Right"); return
+    case .Home:         strings.write_string(b, "Home");  return
+    case .End:          strings.write_string(b, "End");   return
+    case .Enter: strings.write_string(b, "Enter"); return
+    case .Escape:       strings.write_string(b, "Esc");   return
+    case .Tab:          strings.write_string(b, "Tab");   return
+    case .Space:        strings.write_string(b, "Space"); return
+    case .Backspace:    strings.write_string(b, "Backspace"); return
+    case .Delete:       strings.write_string(b, "Del");   return
+    case .Backslash:    strings.write_string(b, "\\");    return
+    case .Period:       strings.write_string(b, ".");     return
+    case .Comma:        strings.write_string(b, ",");     return
+    case .Pad_Add:       strings.write_string(b, "+");     return
+    case .Pad_Subtract:  strings.write_string(b, "-");     return
     case .F1:  strings.write_string(b, "F1");  return
     case .F2:  strings.write_string(b, "F2");  return
     case .F3:  strings.write_string(b, "F3");  return
@@ -642,12 +642,12 @@ write_key_name :: proc(b: ^strings.Builder, key: rl.KeyboardKey) {
     case .F12: strings.write_string(b, "F12"); return
     }
     ki := int(key)
-    if ki >= int(rl.KeyboardKey.A) && ki <= int(rl.KeyboardKey.Z) {
-        strings.write_byte(b, u8('A' + (ki - int(rl.KeyboardKey.A))))
+    if ki >= int(ui.Key.A) && ki <= int(ui.Key.Z) {
+        strings.write_byte(b, u8('A' + (ki - int(ui.Key.A))))
         return
     }
-    if ki >= int(rl.KeyboardKey.ZERO) && ki <= int(rl.KeyboardKey.NINE) {
-        strings.write_byte(b, u8('0' + (ki - int(rl.KeyboardKey.ZERO))))
+    if ki >= int(ui.Key.Num_0) && ki <= int(ui.Key.Num_9) {
+        strings.write_byte(b, u8('0' + (ki - int(ui.Key.Num_0))))
         return
     }
     strings.write_string(b, "?")
@@ -682,40 +682,40 @@ parse_keybind :: proc(spec: string) -> (Keybind, bool) {
 }
 
 @(private)
-key_from_name :: proc(name: string) -> (rl.KeyboardKey, bool) {
+key_from_name :: proc(name: string) -> (ui.Key, bool) {
     if len(name) == 1 {
         c := name[0]
         switch {
         case c >= 'a' && c <= 'z':
-            return rl.KeyboardKey(int(rl.KeyboardKey.A) + int(c - 'a')), true
+            return ui.Key(int(ui.Key.A) + int(c - 'a')), true
         case c >= 'A' && c <= 'Z':
-            return rl.KeyboardKey(int(rl.KeyboardKey.A) + int(c - 'A')), true
+            return ui.Key(int(ui.Key.A) + int(c - 'A')), true
         case c >= '0' && c <= '9':
-            return rl.KeyboardKey(int(rl.KeyboardKey.ZERO) + int(c - '0')), true
+            return ui.Key(int(ui.Key.Num_0) + int(c - '0')), true
         }
     }
 
     switch name {
-    case "page_up":   return .PAGE_UP, true
-    case "page_down": return .PAGE_DOWN, true
-    case "up":        return .UP, true
-    case "down":      return .DOWN, true
-    case "left":      return .LEFT, true
-    case "right":     return .RIGHT, true
-    case "home":      return .HOME, true
-    case "end":       return .END, true
-    case "enter":     return .ENTER, true
-    case "escape":    return .ESCAPE, true
-    case "tab":       return .TAB, true
-    case "space":     return .SPACE, true
-    case "backspace": return .BACKSPACE, true
-    case "delete":    return .DELETE, true
+    case "page_up":   return .Page_Up, true
+    case "page_down": return .Page_Down, true
+    case "up":        return .Up, true
+    case "down":      return .Down, true
+    case "left":      return .Left, true
+    case "right":     return .Right, true
+    case "home":      return .Home, true
+    case "end":       return .End, true
+    case "enter":     return .Enter, true
+    case "escape":    return .Escape, true
+    case "tab":       return .Tab, true
+    case "space":     return .Space, true
+    case "backspace": return .Backspace, true
+    case "delete":    return .Delete, true
     // Physical key right of the home row: \ on US, # on QWERTZ.
-    case "backslash": return .BACKSLASH, true
-    case ".", "period": return .PERIOD, true
-    case ",", "comma":  return .COMMA, true
-    case "kp_add":      return .KP_ADD, true
-    case "kp_subtract": return .KP_SUBTRACT, true
+    case "backslash": return .Backslash, true
+    case ".", "period": return .Period, true
+    case ",", "comma":  return .Comma, true
+    case "kp_add":      return .Pad_Add, true
+    case "kp_subtract": return .Pad_Subtract, true
     case "f1":  return .F1, true
     case "f2":  return .F2, true
     case "f3":  return .F3, true
@@ -729,7 +729,7 @@ key_from_name :: proc(name: string) -> (rl.KeyboardKey, bool) {
     case "f11": return .F11, true
     case "f12": return .F12, true
     }
-    return .KEY_NULL, false
+    return .None, false
 }
 
 @(private)

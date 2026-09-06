@@ -11,8 +11,7 @@ import "../plugin"
 import "../setting"
 import "../shell"
 import "../textedit"
-import "../ui"
-import "../widgets"
+import ui "../vendor/loom/loom"
 
 // One row of a plugin dropdown (see thor.menu). A separator carries no command.
 Plugin_Menu_Item :: struct {
@@ -29,7 +28,6 @@ Plugin_Top_Button :: struct {
     label:   string, // owned; the button borrows it as its text
     command: string, // owned
     entries: [dynamic]Plugin_Menu_Item, // owned; empty for a flat button
-    button:  ^widgets.Button, // the top-bar button, kept so a theme change recolors it
 }
 
 // Host services handed to the plugin manager (see plugin.manager_set_host),
@@ -63,16 +61,9 @@ thor_set_plugin_host :: proc(thor: ^Thor) {
     })
 }
 
-// Drops every top-bar button plugins added. `destroy_widgets` unlinks and
-// destroys them, which a reload must do and shutdown must not — the context
-// tears the whole widget tree down on its own.
-thor_clear_plugin_buttons :: proc(thor: ^Thor, destroy_widgets: bool) {
+// Drops every top-bar button plugins added.
+thor_clear_plugin_buttons :: proc(thor: ^Thor) {
     for pb in thor.plugin_buttons {
-        if destroy_widgets {
-            ui.context_forget(&thor.ui_context, &pb.button.widget)
-            ui.widget_remove_child(&pb.button.widget)
-            ui.widget_destroy_tree(&pb.button.widget)
-        }
         for entry in pb.entries {
             delete(entry.label)
             delete(entry.command)
@@ -83,8 +74,6 @@ thor_clear_plugin_buttons :: proc(thor: ^Thor, destroy_widgets: bool) {
         free(pb)
     }
     clear(&thor.plugin_buttons)
-    // The next button links in after Help again, as it did at startup.
-    thor.top_bar_plugin_anchor = &thor.menu_help_button.widget
 }
 
 // thor.print(text): append plugin output to the console, revealing it if hidden.
@@ -92,13 +81,13 @@ thor_plugin_print :: proc(host: rawptr, text: string) {
     thor := cast(^Thor) host
     // No terminal yet (shell detection is still running): hold the text, the
     // first terminal takes it.
-    if thor.console == nil {
+    if thor_active_console(thor) == nil {
         strings.write_string(&thor.console_backlog, text)
         return
     }
-    widgets.console_append(thor.console, text)
-    if !ui.signal_get(&thor.console_visible) {
-        ui.signal_set(&thor.console_visible, true)
+    thor_console_append(thor_active_console(thor), text)
+    if !signal_get(&thor.console_visible) {
+        signal_set(&thor.console_visible, true)
     }
 }
 
@@ -144,7 +133,7 @@ thor_plugin_doc :: proc(host: rawptr, path: string, text: string, focus: bool) {
         }
         if focus {
             thor_set_active_file(thor, index)
-            thor.ui_context.focused = &thor.editor.widget
+            thor.focus_request = "pane0"
         }
         return
     }
@@ -170,7 +159,7 @@ thor_plugin_workspace :: proc(host: rawptr) -> string {
 // no file is open (empty maps to nil in Lua).
 thor_plugin_active_path :: proc(host: rawptr) -> string {
     thor := cast(^Thor) host
-    index := ui.signal_get(&thor.active_file)
+    index := signal_get(&thor.active_file)
     if index < 0 || index >= len(thor.open_files) {
         return ""
     }
@@ -223,24 +212,14 @@ thor_plugin_refresh_git :: proc(host: rawptr) {
     thor_refresh_git_status(thor)
 }
 
-// Creates a top-bar button labelled `label`, linked in just after Help (or the
-// previous plugin button), and records it for theming and teardown.
+// Records a top-bar button labelled `label`. The titlebar declares them after
+// Help, in registration order.
 @(private = "file")
 thor_plugin_add_button :: proc(thor: ^Thor, label: string) -> ^Plugin_Top_Button {
     pb := new(Plugin_Top_Button)
     pb.thor = thor
     pb.label = strings.clone(label)
     append(&thor.plugin_buttons, pb)
-
-    button := thor_create_menu_button(thor, "plugin-button", pb.label)
-    pb.button = button
-
-    if thor.top_bar_plugin_anchor != nil {
-        ui.widget_insert_after(thor.top_bar_plugin_anchor, &button.widget)
-    } else {
-        widgets.append_child(&thor.top_bar.widget, &button.widget)
-    }
-    thor.top_bar_plugin_anchor = &button.widget
     return pb
 }
 
@@ -250,7 +229,6 @@ thor_plugin_button :: proc(host: rawptr, label: string, command: string) {
     thor := cast(^Thor) host
     pb := thor_plugin_add_button(thor, label)
     pb.command = strings.clone(command)
-    widgets.button_set_on_click(pb.button, thor_plugin_button_click, pb)
 }
 
 // A dropdown button already registered under `label`, or nil. Only matches a
@@ -278,7 +256,6 @@ thor_plugin_menu :: proc(host: rawptr, label: string, entries: []plugin.Menu_Ent
     if pb == nil {
         pb = thor_plugin_add_button(thor, label)
         pb.entries = make([dynamic]Plugin_Menu_Item, 0, len(entries))
-        widgets.button_set_on_click(pb.button, thor_plugin_menu_open, pb)
     } else if len(pb.entries) > 0 {
         append(&pb.entries, Plugin_Menu_Item{separator = true})
     }
@@ -294,26 +271,25 @@ thor_plugin_menu :: proc(host: rawptr, label: string, entries: []plugin.Menu_Ent
 }
 
 // Click handler for a flat plugin button; runs its command.
-thor_plugin_button_click :: proc(data: rawptr, _: ^ui.Context, _: ^ui.Widget) {
+thor_plugin_button_click :: proc(data: rawptr) {
     pb := cast(^Plugin_Top_Button) data
     plugin.manager_run_command(&pb.thor.plugins, pb.command)
 }
 
 // Click handler for a dropdown plugin button; builds the shared menu from the
 // button's entries and opens it just below the button.
-thor_plugin_menu_open :: proc(data: rawptr, _: ^ui.Context, _: ^ui.Widget) {
+thor_plugin_menu_open :: proc(data: rawptr) {
     pb := cast(^Plugin_Top_Button) data
     thor := pb.thor
-    widgets.menu_clear(thor.menu)
+    thor_menu_clear(thor)
     for &entry in pb.entries {
         if entry.separator {
-            widgets.menu_add_separator(thor.menu)
+            thor_menu_add_separator(thor)
         } else {
-            widgets.menu_add(thor.menu, entry.label, thor_plugin_menu_item_click, &entry)
+            thor_menu_add(thor, entry.label, thor_plugin_menu_item_click, &entry)
         }
     }
-    anchor := rl.Vector2 {pb.button.bounds.x, pb.button.bounds.y + pb.button.bounds.height}
-    widgets.menu_open(thor.menu, &thor.ui_context, anchor)
+    thor_menu_open(thor, thor.menu_anchor)
 }
 
 // Runs the command behind a chosen dropdown row.
@@ -326,21 +302,21 @@ thor_plugin_menu_item_click :: proc(data: rawptr) {
 // handed back to the plugin (plugin.manager_dialog_text).
 thor_plugin_prompt :: proc(host: rawptr, label: string) {
     thor := cast(^Thor) host
-    widgets.command_palette_prompt(thor.command_palette, &thor.ui_context, label, thor_plugin_dialog_text, thor)
+    thor_palette_prompt(thor, label, thor_plugin_dialog_text, thor)
 }
 
 // thor.pick(label, items, fn): opens the fuzzy picker; the chosen item is handed
 // back to the plugin (plugin.manager_dialog_text).
 thor_plugin_pick :: proc(host: rawptr, label: string, items: []string) {
     thor := cast(^Thor) host
-    widgets.command_palette_pick(thor.command_palette, &thor.ui_context, label, items, thor_plugin_dialog_text, thor)
+    thor_palette_pick(thor, label, items, thor_plugin_dialog_text, thor)
 }
 
 // thor.confirm(message, fn): opens the yes/no confirmation; a confirm is handed
 // back to the plugin (plugin.manager_dialog_confirm).
 thor_plugin_confirm :: proc(host: rawptr, message: string) {
     thor := cast(^Thor) host
-    widgets.command_palette_confirm(thor.command_palette, &thor.ui_context, message, thor_plugin_dialog_confirm, thor)
+    thor_palette_confirm(thor, message, thor_plugin_dialog_confirm, thor)
 }
 
 // Shared submit trampoline for prompt/pick: forwards the text into the plugin VM.

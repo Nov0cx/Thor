@@ -15,20 +15,68 @@ import "../lang/odin"
 import "../plugin"
 import "../setting"
 import "../shell"
-import "../ui"
 import "../update"
 import "../watch"
-import "../widgets"
-
+import "../font"
+import "../theme"
+import "../editview"
+import "../render"
+import ui "../vendor/loom/loom"
 // A window creation slower than this is a machine fault, not normal work, and
 // gets an explanation in the log.
 SLOW_WINDOW_WARN_SECS :: 2.0
 
 Thor :: struct {
     ui_context: ui.Context,
+    backend: render.Backend,
+    // The two editor panes. Owned here: undo history and cursors outlive any
+    // one frame's tree.
+    editor: editview.Editor,
+    editor2: editview.Editor,
+    // Font handles the views style with.
+    font_ui: ui.Font,
+    font_mono: ui.Font,
+    font_icons: ui.Font,
+    // Which overlay is up. Only one modal shows at a time; the palette and the
+    // find bar sit above whatever else is open.
+    settings_open: bool,
+    // The settings modal's own rows, categories and capture; see settings_view.odin.
+    settings: Settings_State,
+    settings_category: string, // borrowed, "" opens where it was left
+    git_open: bool,
+    // The git modal's own lists, diff and commit box; see git_view.odin.
+    git: Git_View,
+    theme_editor_open: bool,
+    // The theme window's own rows and fold state; see theme_editor.odin.
+    theme_editor: Theme_Editor,
+    color_picker_open: bool,
+    // The color picker's HSV state and hex field; see color_picker.odin.
+    color_picker: Color_Picker,
+    permission_open: bool,
+    // The plugin permission prompt's rows and answers; see permission.odin.
+    permission: Permission_Dialog,
+    select_open: bool,
+    // The select dialog's own state (title, options, live preview).
+    select: Select_Dialog,
+    find_open: bool,
+    find_replace_mode: bool,
+    // The find bar's query, matches and modifiers; see find.odin.
+    find: Find_Replace,
+    palette_open: bool,
+    // The palette's own state (modes, command list, matches); see palette.odin.
+    palette: Palette,
+    menu_open: bool,
+    // The popup menu's item list and anchor; see menu.odin.
+    menu: Menu,
+    menu_anchor: ui.Vec2,
+    // Focus is a Loom node, so a command names the pane it wants and the view
+    // hands the keyboard over on the next frame. `focus_owner` is what the view
+    // saw last frame, which is what a command asking "where am I" reads.
+    focus_request: string,
+    focus_owner: string,
     config: setting.Settings,
     plugins: plugin.Manager,
-    theme: ui.Theme,
+    theme: theme.Theme,
     // The theme picker's rows, cached so opening it does not re-parse every
     // palette. Parallel and aligned by index; see thor_available_theme_choices.
     theme_labels: []string, // owned
@@ -37,91 +85,39 @@ Thor :: struct {
     // The color role the picker is editing and the value it had when it opened,
     // so a cancel puts it back. Owned; "" when no picker is up.
     theme_edit_key: string, // owned
-    theme_edit_original: rl.Color,
+    theme_edit_original: ui.Color,
     // Generator seeds, kept between the rows that set them and the Generate row.
-    theme_seed_background: rl.Color,
-    theme_seed_accent: rl.Color,
+    theme_seed_background: ui.Color,
+    theme_seed_accent: ui.Color,
     theme_seed_dark: bool,
     // True while thor.theme holds a generated preview rather than the configured
     // palette, so an edit cannot write the preview over a saved theme.
     theme_preview_generated: bool,
-    root_panel: ^widgets.Panel,
-    root_stack: ^widgets.Stack,
-    top_bar: ^widgets.Titlebar,
-    workspace_row: ^widgets.Stack,
-    explorer_stub_panel: ^widgets.Panel,
-    explorer_stub_stack: ^widgets.Stack,
-    explorer_panel: ^widgets.Panel,
-    explorer_stack: ^widgets.Stack,
-    explorer_header: ^widgets.Stack,
-    explorer_splitter: ^widgets.Splitter,
-    editor_column: ^widgets.Stack,
-    editor_panel: ^widgets.Panel,
-    console_splitter: ^widgets.Splitter,
-    console_panel: ^widgets.Panel,
-    console_stack: ^widgets.Stack,
-    console_header: ^widgets.Stack,
-    console_stub_panel: ^widgets.Panel,
-    console_stub_stack: ^widgets.Stack,
-    tree: ^widgets.Tree,
-    tabbar: ^widgets.Tabbar,
-    statusbar: ^widgets.Statusbar,
-    editor: ^widgets.Editor,
     // Second editor pane, shown side-by-side with the first when the split is
     // on. Both view the active file's buffer (shared state, independent scroll).
-    editor2: ^widgets.Editor,
     // Overlays the editor panel when the active file is an image; the editor
     // rows are hidden while it shows.
-    image_view: ^widgets.Image_View,
     // The same overlay for 3D model files: an orbit camera over the loaded meshes.
-    model_view: ^widgets.Model_View,
     // Rendered markdown preview, shown in place of whichever pane is not
     // focused (pane 0's slot / pane 1's slot respectively) while preview is on
     // and the active file is markdown. Toggled by "View: Toggle Markdown Preview".
-    markdown_view: ^widgets.Markdown_View,
-    markdown_view2: ^widgets.Markdown_View,
     markdown_preview: bool,
-    editor_split_row: ^widgets.Stack,
-    editor_split_splitter: ^widgets.Splitter,
-    // Shown in place of the editor while workspace_dir is "" (startup with no
-    // path/session, or after Close Workspace). welcome_recent_stack is rebuilt
-    // on every show; welcome_recent_entries are its buttons' owned click data.
-    welcome_panel: ^widgets.Panel,
-    welcome_title_label: ^widgets.Label,
-    welcome_subtitle_label: ^widgets.Label,
-    welcome_recent_label: ^widgets.Label,
-    welcome_recent_stack: ^widgets.Stack,
-    welcome_recent_entries: [dynamic]^Welcome_Recent_Entry,
-    welcome_open_folder_button: ^widgets.Button,
-    welcome_open_file_button: ^widgets.Button,
-    // Tip of the day; hidden while no config layer holds a tip.
-    welcome_tip_card: ^widgets.Tip_Card,
-    // The same tip, floating over the editor. Opened on the first start of a
-    // day with a workspace open, where the welcome page is not shown.
-    startup_tip_card: ^widgets.Tip_Card,
+    // Tip of the day, floating over the editor. Opened on the first start of a
+    // day with a workspace open, where the welcome page is not shown; the
+    // welcome page shows the same tip inline.
+    tip_open: bool,
     // The active terminal's console; nil when the last terminal is closed.
-    console: ^widgets.Console,
-    terminal_tabs: ^widgets.Tabstrip,
-    command_palette: ^widgets.Command_Palette,
     // Modal picker for Preferences (theme/font), with live preview.
-    select_dialog: ^widgets.Select_Dialog,
     // Modal prompt listing the plugins waiting on a permission answer.
-    permission_dialog: ^widgets.Permission_Dialog,
     // Modal GUI editor for every setting (editor prefs, theme/font, keybinds).
-    settings_view: ^widgets.Settings_View,
     // Modal theme window (every color role of the active theme), opened by the
     // Theme Colors row of Settings. See theme_ui.odin.
-    theme_editor: ^widgets.Theme_Editor,
     // Modal color picker the theme window's rows open.
-    color_picker: ^widgets.Color_Picker,
     // Modal git UI (changes, commit; more views to come). See git_ui.odin.
-    git_view: ^widgets.Git_View,
     // Auto-reload of the config files: a signature of their modification times,
     // refreshed after each load; the poll loop reloads when it changes on disk.
     settings_sig: i64,
     settings_poll_time: f64,
-    find_replace: ^widgets.Find_Replace,
-    menu: ^widgets.Menu,
     command_palette_key: setting.Keybind,
     quick_open_key: setting.Keybind,
     fullscreen_key: setting.Keybind,
@@ -144,35 +140,24 @@ Thor :: struct {
     // Toggles the editor split. Unbound by default (KEY_NULL), so it only fires
     // once the user sets a "toggle_split" chord in keybinds.json.
     split_key: setting.Keybind,
-    active_file: ui.Signal(int),
+    active_file: Signal(int),
     // Most-recently-active file before the current one, for the ctrl+e flip.
     // Cleared when that file is closed so the pointer never dangles.
     last_active_file: ^Open_File,
-    explorer_visible: ui.Signal(bool),
-    console_visible: ui.Signal(bool),
-    menu_file_button: ^widgets.Button,
-    menu_edit_button: ^widgets.Button,
-    menu_view_button: ^widgets.Button,
-    menu_git_button: ^widgets.Button,
-    menu_help_button: ^widgets.Button,
+    // The file tree's node set, selection and drag state; see explorer.odin.
+    explorer: Explorer,
+    // Last frame's editor column rect, the drop target of an explorer drag.
+    editor_rect: ui.Rect,
+    // The dock is arranged once; after that it keeps what the user dragged it into.
+    dock_seeded: bool,
+    explorer_visible: Signal(bool),
+    console_visible: Signal(bool),
     // Titlebar hammer mark and its borrowed texture (unloaded at shutdown).
-    top_logo: ^widgets.Logo,
     top_logo_texture: rl.Texture2D,
     // Titlebar/panel labels that carry a theme color, kept so a live theme
     // change can recolor them (most labels are theme-neutral and not stored).
-    explorer_title_label: ^widgets.Label,
-    explorer_toggle_button: ^widgets.Button,
-    explorer_restore_button: ^widgets.Button,
-    console_toggle_button: ^widgets.Button,
-    console_restore_button: ^widgets.Button,
     // Titlebar task controls, left of the window controls: add, the selector
     // naming the active task (opens the dropdown), and run (see tasks.odin).
-    tasks_add_button: ^widgets.Button,
-    tasks_select_button: ^widgets.Button,
-    tasks_run_button: ^widgets.Button,
-    minimize_button: ^widgets.Button,
-    maximize_button: ^widgets.Button,
-    close_button: ^widgets.Button,
     // Top-bar buttons added by plugins via thor.button, and the widget a new one
     // is linked in after (advances so buttons keep registration order).
     plugin_buttons: [dynamic]^Plugin_Top_Button,
@@ -197,7 +182,6 @@ Thor :: struct {
     update_prompt: string,
     update_size: i64,
     update_state: Update_State,
-    update_button: ^widgets.Button,
     update_installable: bool,
     // The prompt is asked once per found version: a dismissal is remembered in
     // sessions/update.json and the button becomes the only way back to it.
@@ -221,11 +205,6 @@ Thor :: struct {
     // language_backend_feature_kind — the two never have a picker open at once.
     language_backend_target: string,  // owned
     language_backend_feature_kind: lang.Request_Kind,
-    plugin_dock_right: ^widgets.Panel,
-    plugin_dock_right_stack: ^widgets.Stack,
-    plugin_dock_bottom: ^widgets.Panel,
-    plugin_dock_bottom_stack: ^widgets.Stack,
-    top_bar_plugin_anchor: ^ui.Widget,
     should_close: bool,
     // Set once an update started the new build: the session file belongs to that
     // process now, so this one must not write over it on the way out.
@@ -328,7 +307,7 @@ Thor :: struct {
     shell_choices: []Shell_Choice,  // owned, one per profile
     // Working-tree status keyed by absolute path (matches tree node paths),
     // recomputed off-thread; git_status_inflight guards against overlapping runs.
-    git_status: map[string]widgets.Git_Status,
+    git_status: map[string]Git_Status,
     git_status_inflight: bool,
     git_status_dirty: bool,  // a refresh was requested while one was running
     git_status_at: time.Tick,  // when the last refresh started; the watcher's rate limit
@@ -419,7 +398,7 @@ Thor :: struct {
     jump_navigating: bool,
     // In-flight hover request: the editor pane that asked and the request id, so
     // a result can be routed back to the right pane and stale ones dropped.
-    hover_editor: ^widgets.Editor,
+    hover_editor: ^editview.Editor,
     hover_request_id: u64,
     // In-flight workspace-symbols scan: its request id. The picker opens
     // immediately in a loading state; the matching result fills it in, and a
@@ -443,7 +422,7 @@ Thor :: struct {
     // In-flight signature-help request: the pane it came from and its request id,
     // so a superseded result (the caret moved on to another call, or a plain tab
     // switch with no new request) is dropped rather than routed to a stale pane.
-    signature_editor: ^widgets.Editor,
+    signature_editor: ^editview.Editor,
     signature_request_id: u64,
     // Whether the in-flight signature request was auto-triggered (typing in a
     // call) rather than the explicit keybind. An auto request that resolves to no
@@ -452,7 +431,7 @@ Thor :: struct {
     // In-flight completion request: the pane it came from and its request id, so a
     // superseded result (a later keystroke fired a newer request) is dropped and
     // the candidates route back to the right editor.
-    completion_editor: ^widgets.Editor,
+    completion_editor: ^editview.Editor,
     completion_request_id: u64,
     // The candidates the last result offered, cloned: the Result is freed when
     // its handler returns, but the popup hands a row back on accept a keystroke
@@ -603,7 +582,7 @@ init :: proc() -> ^Thor {
         }
     }
     extra_sizes := [2]i32 {cast(i32) setting.font_size(&thor.config), WELCOME_TITLE_FONT_SIZE}
-    ui.text_begin_async_load("assets/fonts/fonts.json", "assets/icons/icons.json", ui.Text_Preload {
+    font.begin_async_load("assets/fonts/fonts.json", "assets/icons/icons.json", font.Preload {
         families = preload_families[:],
         icon_packs = preload_packs[:],
         extra_sizes = extra_sizes[:],
@@ -638,17 +617,20 @@ init :: proc() -> ^Thor {
     rl.SetTargetFPS(60)
     rl.SetExitKey(.KEY_NULL)
 
-    ui.context_init(&thor.ui_context)
+    // Loom draws through the raylib backend and nothing below it knows about
+    // raylib. The fonts register after the async load, which needs the GL
+    // context, so the handles are taken further down.
+    ui.init(&thor.ui_context, ui.Config{backend = render.init(&thor.backend)})
     plugin.manager_init(&thor.plugins)
     // Plugins are loaded later (after the console exists and the host services
     // are wired) so a plugin can print and read keybinds from its load body.
     thor_load_active_theme(thor)
     thor_reset_theme_seeds(thor)
-    thor.active_file = ui.make_signal(-1)
-    thor.explorer_visible = ui.make_signal(true)
-    thor.console_visible = ui.make_signal(true)
-    ui.signal_set_listener(&thor.explorer_visible, thor_on_visibility_changed, thor)
-    ui.signal_set_listener(&thor.console_visible, thor_on_visibility_changed, thor)
+    thor.active_file = make_signal(-1)
+    thor.explorer_visible = make_signal(true)
+    thor.console_visible = make_signal(true)
+    signal_set_listener(&thor.explorer_visible, thor_on_visibility_changed, thor)
+    signal_set_listener(&thor.console_visible, thor_on_visibility_changed, thor)
     thor.explorer_width = 250
     thor.console_height = 190
     thor.split_ratio = 0.5
@@ -694,12 +676,20 @@ init :: proc() -> ^Thor {
 
     log.infof("Loaded theme: %s", thor.theme.name)
 
-    thor_build_ui(thor)
-    lap(&phase, "build widget tree")
-    thor.select_dialog.return_focus = &thor.editor.widget
-    widgets.command_palette_set_navigation(thor.command_palette, thor_palette_list_files, thor_palette_open_file, thor_palette_goto_line, thor.workspace_prefix, thor)
+    thor_palette_init(thor)
+    thor_select_init(thor)
+    thor_menu_init(thor)
+    thor_settings_init(thor)
+    thor_theme_editor_init(thor)
+    thor_color_picker_init(thor)
+    thor_permission_init(thor)
+    thor_find_init(thor)
+    thor_git_view_init(thor)
+    thor_explorer_init(thor, workspace_dir)
+    lap(&phase, "view state")
     thor_register_commands(thor)
     thor_wire_menus(thor)
+    thor_wire_editors(thor)
     // After the tree is built: a terminal adds its console to the console stack.
     thor_terminals_init(thor)
     thor_apply_settings(thor)
@@ -709,8 +699,6 @@ init :: proc() -> ^Thor {
 
     // Now that the console and keybinds exist, expose the host services and load
     // plugins (their load body may print or query keybinds, e.g. the tutorial).
-    // Plugin top-bar buttons link in just after the Help button.
-    thor.top_bar_plugin_anchor = &thor.menu_help_button.widget
     thor_set_plugin_host(thor)
     thor_load_plugins(thor)
     lap(&phase, "load plugins")
@@ -729,8 +717,6 @@ init :: proc() -> ^Thor {
         thor_bind_pane(thor, 1)
     }
     lap(&phase, "restore session")
-    ui.context_set_root(&thor.ui_context, &thor.root_panel.widget)
-    ui.context_set_global_key(&thor.ui_context, thor_global_key, thor)
     thor_refresh_git_status(thor)
     thor_refresh_file_index(thor)
     thor_init_watcher(thor)
@@ -741,11 +727,11 @@ init :: proc() -> ^Thor {
 
     // Texture upload needs the GL context, so it happens here on the main
     // thread once the rasterizer threads are done.
-    ui.text_finish_async_load()
+    font.finish_async_load()
     // The font families are only registered once loading finishes, so apply the
     // configured text font here rather than before the async load.
     if fam := setting.font_family(&thor.config); fam != "" {
-        if !ui.text_set_default_family(fam) {
+        if !font.set_default_family(fam) {
             log.warnf("Configured font %q is not available; using the default", fam)
         }
     }
@@ -754,6 +740,11 @@ init :: proc() -> ^Thor {
     // of them must win explicitly rather than by map iteration order.
     thor_activate_icon_pack(PRIMARY_ICON_PACK_GROUP, setting.icon_pack_name(&thor.config), DEFAULT_ICON_PACK)
     thor_activate_icon_pack(FILE_ICON_PACK_GROUP, setting.file_icon_pack_name(&thor.config), DEFAULT_FILE_ICON_PACK)
+    // Font handles name a family the backend has registered; the families only
+    // exist once the load above finishes.
+    thor.font_ui = render.register_family(&thor.backend, font.default_family())
+    thor.font_mono = render.register_family(&thor.backend, font.default_family())
+    thor.font_icons = render.register_family(&thor.backend, font.ICON_FAMILY)
     lap(&phase, "text_finish_async_load")
 
     // After the session: the card measures its own text, and the fonts it
@@ -875,14 +866,19 @@ run :: proc(thor: ^Thor) {
         // Here for the same reason: the update prompt takes focus, and the swap
         // it can start replaces the files the frame below would draw from.
         thor_poll_update(thor)
-        ui.text_pump_async()
+        font.pump_async()
         plugin.manager_dispatch_tick(&thor.plugins)
-        ui.context_update(&thor.ui_context)
         thor_sync_active_pane(thor)
 
+        // Loom builds the tree from the state above and hands back a draw list;
+        // the backend is the only thing below that knows about raylib.
+        ui.begin_frame(render.poll_input(&thor.backend))
+        thor_frame(thor)
+        list := ui.end_frame()
+
         rl.BeginDrawing()
-        rl.ClearBackground(thor.theme.contrast)
-        ui.context_draw(&thor.ui_context)
+        rl.ClearBackground(render.raylib_color(thor.theme.contrast))
+        render.draw(&thor.backend, list)
         rl.EndDrawing()
 
         free_all(context.temp_allocator)
@@ -970,23 +966,34 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.lsp_progress_message)
     thor_clear_doc_symbols(thor)
     delete(thor.doc_symbols)
-    thor_clear_plugin_buttons(thor, false)
+    thor_clear_plugin_buttons(thor)
     delete(thor.plugin_buttons)
-    thor_clear_plugin_panels(thor, false)
+    thor_clear_plugin_panels(thor)
     delete(thor.plugin_panels)
     thor_clear_plugin_requests(thor)
     delete(thor.plugin_requests)
     delete(thor.plugin_setting_target)
     delete(thor.theme_edit_key)
     delete(thor.language_backend_target)
-    thor_welcome_clear_recent_entries(thor)
-    delete(thor.welcome_recent_entries)
     setting.destroy(&thor.config)
     plugin.manager_destroy(&thor.plugins)
 
-    ui.theme_destroy(&thor.theme)
-    ui.context_destroy(&thor.ui_context)
-    ui.text_shutdown()
+    theme.destroy(&thor.theme)
+    thor_palette_destroy(thor)
+    thor_select_destroy(thor)
+    thor_menu_destroy(thor)
+    thor_settings_destroy(thor)
+    thor_theme_editor_destroy(thor)
+    thor_color_picker_destroy(thor)
+    thor_permission_destroy(thor)
+    thor_find_destroy(thor)
+    thor_git_view_destroy(thor)
+    thor_explorer_destroy(thor)
+    editview.editor_destroy(&thor.editor)
+    editview.editor_destroy(&thor.editor2)
+    ui.destroy(&thor.ui_context)
+    render.destroy(&thor.backend)
+    font.shutdown()
     rl.UnloadTexture(thor.top_logo_texture)
     rl.CloseWindow()
     free(thor)

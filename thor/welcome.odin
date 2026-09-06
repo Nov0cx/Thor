@@ -6,26 +6,16 @@ package thor
 
 import "core:log"
 import "core:path/filepath"
-import "core:strings"
 
-import "../ui"
-import "../widgets"
-
-// Boxed click data for one recent-workspace row: the button callback only
-// carries one rawptr, so the row's path rides along with the owning Thor.
-Welcome_Recent_Entry :: struct {
-    thor: ^Thor,
-    path: string, // owned
-}
+import ui "../vendor/loom/loom"
 
 // Rows the welcome page shows. thor_recent_workspaces keeps RECENT_WORKSPACES_MAX
 // of them; the column has no room for that many.
 WELCOME_RECENT_ROWS :: 5
 
-// Row geometry. thor_welcome_refresh_recent gives the stack the height of its
-// rows, which the stack cannot measure itself.
-WELCOME_RECENT_ROW_HEIGHT :: 36
-WELCOME_RECENT_GAP :: 6
+WELCOME_WIDTH :: f32(520)
+WELCOME_RECENT_ROW_H :: f32(36)
+WELCOME_TITLE_FONT_SIZE :: i32(28)
 
 // Tears down the current workspace and returns to the welcome page: the
 // teardown half of thor_open_folder, without opening a replacement. A later
@@ -70,21 +60,12 @@ thor_close_workspace :: proc(thor: ^Thor) {
     thor_reload_settings(thor)
     thor.plugin_reload_pending = true
 
-    widgets.tree_set_root(thor.tree, "")
+    thor_explorer_set_root(thor, "")
     // The palette holds the prefix by reference and the old one was just freed.
-    widgets.command_palette_set_navigation(
-        thor.command_palette,
-        thor_palette_list_files,
-        thor_palette_open_file,
-        thor_palette_goto_line,
-        thor.workspace_prefix,
-        thor,
-    )
 
-    thor_welcome_refresh_recent(thor)
     // The workspace's .thor/tips.json went away with it, and the floating card
     // has no editor to float over.
-    thor.startup_tip_card.visible = false
+    thor.tip_open = false
     thor_refresh_tip_cards(thor)
     thor_apply_layout_state(thor) // hides explorer/console, shows the welcome page
     thor_record_last_workspace("") // a bare launch later goes to the welcome page
@@ -102,13 +83,13 @@ thor_cmd_close_workspace :: proc(data: rawptr) {
 }
 
 // Welcome page: pick a folder to open as the workspace.
-thor_welcome_open_folder :: proc(data: rawptr, ctx: ^ui.Context, widget: ^ui.Widget) {
+thor_welcome_open_folder :: proc(data: rawptr) {
     thor_cmd_open_folder(data)
 }
 
 // Welcome page: pick a file anywhere on disk and make its folder the
 // workspace, mirroring the CLI single-file launch case.
-thor_welcome_open_file :: proc(data: rawptr, ctx: ^ui.Context, widget: ^ui.Widget) {
+thor_welcome_open_file :: proc(data: rawptr) {
     thor := cast(^Thor) data
     if path, ok := thor_pick_file("Open File", ""); ok {
         defer delete(path)
@@ -117,66 +98,183 @@ thor_welcome_open_file :: proc(data: rawptr, ctx: ^ui.Context, widget: ^ui.Widge
     }
 }
 
-// Welcome page: open a row from the recent-workspaces list.
-thor_welcome_open_recent :: proc(data: rawptr, ctx: ^ui.Context, widget: ^ui.Widget) {
-    entry := cast(^Welcome_Recent_Entry) data
-    thor_open_folder_request(entry.thor, entry.path)
+// ---- the view ---------------------------------------------------------------------
+
+// Shown in place of the editor while no workspace is open: the mark, the two
+// open buttons, the recent list and the tip of the day.
+thor_welcome_view :: proc(thor: ^Thor) {
+    ui.scope(
+        {
+            key = "welcome",
+            props = {
+                w = ui.Grow(1),
+                h = ui.Grow(1),
+                dir = .Column,
+                justify = .Center,
+                align = .Center,
+                bg = thor.theme.background,
+            },
+        },
+    )
+
+    ui.scope(
+        {
+            key = "column",
+            props = {
+                w = ui.Px(WELCOME_WIDTH),
+                max_w = ui.viewport().x - 80,
+                h = ui.FIT,
+                dir = .Column,
+                gap = {0, 10},
+            },
+        },
+    )
+
+    ui.label(
+        "Thor",
+        {
+            key = "title",
+            props = {
+                color = thor.theme.foreground,
+                font_size = f32(WELCOME_TITLE_FONT_SIZE),
+                text_wrap = .None,
+            },
+        },
+    )
+    ui.label(
+        "Open a folder to start, or pick a file.",
+        {key = "sub", props = {color = thor.theme.muted_color, text_wrap = .None}},
+    )
+
+    {
+        ui.scope(
+            {
+                key = "actions",
+                props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, gap = {8, 0}, margin = {t = 6}},
+            },
+        )
+        if welcome_button(thor, "open-folder", "Open Folder", "folder") {
+            thor_cmd_open_folder(thor)
+            return
+        }
+        if welcome_button(thor, "open-file", "Open File", "file") {
+            thor_welcome_open_file(thor)
+            return
+        }
+    }
+
+    welcome_recent(thor)
+    welcome_tip(thor)
 }
 
-// Frees the recent-row click data (owned paths and the boxed entries), without
-// touching the row widgets. Shared by a refresh (which destroys the widgets
-// itself, in step with the entries) and shutdown (where ui.context_destroy
-// already destroys the widget tree, so only the entries are left to free).
-thor_welcome_clear_recent_entries :: proc(thor: ^Thor) {
-    for entry in thor.welcome_recent_entries {
-        delete(entry.path)
-        free(entry)
+@(private = "file")
+welcome_recent :: proc(thor: ^Thor) {
+    paths := thor_recent_workspaces(context.temp_allocator)
+    if len(paths) == 0 {
+        return
     }
-    clear(&thor.welcome_recent_entries)
-}
 
-// Rebuilds the recent-workspaces list: destroys the previous rows and their
-// click data, then appends one button per thor_recent_workspaces() entry.
-// Called once at startup (thor_build_content) and again after closing a
-// workspace, so the list always reflects the folder just left.
-thor_welcome_refresh_recent :: proc(thor: ^Thor) {
-    child := thor.welcome_recent_stack.first_child
-    for child != nil {
-        next := child.next_sibling
-        ui.context_forget(&thor.ui_context, child)
-        ui.widget_remove_child(child)
-        ui.widget_destroy_tree(child)
-        child = next
-    }
-    thor_welcome_clear_recent_entries(thor)
+    ui.label(
+        "Recent",
+        {key = "recent-label", props = {color = thor.theme.disabled, margin = {t = 14}, text_wrap = .None}},
+    )
+    ui.scope(
+        {
+            key = "recent",
+            props = {w = ui.Grow(1), h = ui.FIT, dir = .Column, gap = {0, 6}},
+        },
+    )
 
-    rows := 0
-    for path in thor_recent_workspaces(context.temp_allocator) {
-        if rows >= WELCOME_RECENT_ROWS {
+    for path, index in paths {
+        if index >= WELCOME_RECENT_ROWS {
             break
         }
-        entry := new(Welcome_Recent_Entry)
-        entry.thor = thor
-        entry.path = strings.clone(path)
-        append(&thor.welcome_recent_entries, entry)
+        ui.push_id_int(i64(index))
+        it := ui.scope(
+            {
+                key = "row",
+                flags = {.Clickable},
+                props = {
+                    w = ui.Grow(1),
+                    h = ui.Px(WELCOME_RECENT_ROW_H),
+                    dir = .Row,
+                    align = .Center,
+                    gap = {8, 0},
+                    pad = ui.xy(10, 0),
+                    radius = ui.rad(6),
+                    bg = thor.theme.buttons,
+                    cursor = .Pointer,
+                },
+                hover = {bg = thor.theme.active},
+            },
+        )
+        thor_icon_label(thor, "folder", thor.theme.muted_color)
+        ui.label(
+            filepath.base(path),
+            {key = "name", props = {color = thor.theme.foreground, text_wrap = .None}},
+        )
+        // The name alone reads the same for two folders of one name, so the
+        // whole path rides beside it.
+        ui.label(
+            path,
+            {key = "path", props = {w = ui.Grow(1), color = thor.theme.disabled, text_wrap = .Ellipsis}},
+        )
+        ui.pop_id()
 
-        row := widgets.button_create("welcome-recent-row", filepath.base(entry.path))
-        thor_theme_secondary_button(thor, row)
-        widgets.button_set_on_click(row, thor_welcome_open_recent, entry)
-        // The label is the folder name alone, so two folders of one name read the same.
-        ui.widget_set_tooltip(&row.widget, entry.path)
-        row.min_size = {0, WELCOME_RECENT_ROW_HEIGHT}
-        widgets.append_child(&thor.welcome_recent_stack.widget, &row.widget)
-        rows += 1
+        if it.clicked {
+            thor_open_folder_request(thor, path)
+            return
+        }
+    }
+}
+
+@(private = "file")
+welcome_tip :: proc(thor: ^Thor) {
+    tip, index, count, shortcut, ok := thor_tip_current(thor)
+    if !ok {
+        return
     }
 
-    // The parent stack gives a child that does not grow exactly min_size.y, and
-    // ui.widget_hit_test stops at a widget the point misses. Without this the rows
-    // draw but no click reaches them.
-    height: f32 = 0
-    if rows > 0 {
-        height = cast(f32) rows * WELCOME_RECENT_ROW_HEIGHT + cast(f32) (rows - 1) * WELCOME_RECENT_GAP
-    }
-    thor.welcome_recent_stack.min_size.y = height
-    thor.welcome_recent_label.visible = rows > 0
+    ui.scope(
+        {
+            key = "tip",
+            props = {
+                w = ui.Grow(1),
+                h = ui.FIT,
+                dir = .Column,
+                gap = {0, 8},
+                pad = ui.all(14),
+                margin = {t = 18},
+                radius = ui.rad(8),
+                bg = thor.theme.second_background,
+                border = {width = ui.all(1), color = thor.theme.border},
+            },
+        },
+    )
+    thor_tip_card_body(thor, tip, index, count, shortcut, closable = false)
+}
+
+@(private = "file")
+welcome_button :: proc(thor: ^Thor, key, label, icon: string) -> bool {
+    it := ui.scope(
+        {
+            key = key,
+            flags = {.Clickable},
+            props = {
+                h = ui.Px(34),
+                dir = .Row,
+                align = .Center,
+                gap = {8, 0},
+                pad = ui.xy(14, 0),
+                radius = ui.rad(6),
+                bg = thor.theme.buttons,
+                border = {width = ui.all(1), color = thor.theme.accent_color},
+                cursor = .Pointer,
+            },
+            hover = {bg = thor.theme.active},
+        },
+    )
+    thor_icon_label(thor, icon, thor.theme.accent_color)
+    ui.label(label, {key = "text", props = {color = thor.theme.foreground, text_wrap = .None}})
+    return it.clicked
 }

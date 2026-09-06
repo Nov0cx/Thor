@@ -1010,7 +1010,7 @@ dispatch_key :: proc(m: ^Manager, cb: Callback, name: string, chord: string, mod
     lua.setfield(L, -2, "shift")
     lua.pushboolean(L, b32(.Alt in mods))
     lua.setfield(L, -2, "alt")
-    lua.pushboolean(L, b32(.Cmd in mods))
+    lua.pushboolean(L, b32(.Super in mods))
     lua.setfield(L, -2, "cmd")
 
     if !call_guarded(m, cb.owner, 1, 1, name) {

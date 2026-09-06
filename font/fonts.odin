@@ -1,0 +1,462 @@
+package font
+
+import "base:runtime"
+import "core:encoding/json"
+import "core:log"
+import "core:mem/virtual"
+import "core:os"
+import "core:slice"
+import "core:strings"
+import "core:unicode/utf8"
+import rl "vendor:raylib"
+
+import hb "../vendor/odin-harfbuzz/harfbuzz"
+
+// Arena owning all font-system memory. The bootstrap thread fills it, ownership
+// hands to the main thread at finish_async_load, and shutdown frees it.
+font_arena: virtual.Arena
+font_allocator: runtime.Allocator
+
+// A font family is one TTF file plus the codepoint set baked into its atlases.
+// The file data stays resident so non-preloaded sizes load on demand.
+Font_Family :: struct {
+    name:          string,
+    path:          string,
+    file_data:     []u8, // owned
+    codepoints:    []rune, // owned
+    preload_sizes: []i32, // owned
+    // Icon fonts have no ligatures, so the shaping probes skip them.
+    icon_font:     bool,
+    // Glyph ids the ligature probes reach, collected once per family: shaping
+    // returns the same ids at every pixel size. `ligature_scan` says the probe
+    // ran, since an empty result is a valid answer.
+    ligature_gids: []u32, // owned
+    ligature_scan: bool,
+    // Icon families only. Display name for pickers, and the group name
+    // ("primary") that makes this family an alternative to sibling families
+    // in the same group, swappable at runtime via icon_set_active_pack.
+    label:         string,
+    pack_group:    string,
+    // Icon families only: every name this family defines, independent of
+    // `preload` — the source icon_set_active_pack repoints icon_map from.
+    own_icons:     map[string]rune, // owned
+    cache:         map[i32]rl.Font, // owned
+    // Per preloaded size: glyph index -> atlas entry, for the HarfBuzz
+    // shaped draw path (includes ligature glyphs, which have no codepoint).
+    shaped:        map[i32]map[u32]Shaped_Glyph, // owned
+    // Persistent HarfBuzz objects for main-thread shaping at draw time;
+    // created in finish_async_load, destroyed in shutdown.
+    hb_blob:       ^hb.blob_t, // owned
+    hb_face:       ^hb.face_t, // owned
+    hb_font:       ^hb.font_t, // owned
+}
+
+// Family name of the manifest's primary (UI) icon set. Widgets address
+// icons by icon name through draw_icon, never through this directly.
+ICON_FAMILY :: "icons"
+
+families: map[string]^Font_Family
+default_family_name: string
+
+// Icons from every set share one namespace; each name carries the family it
+// resolves in (e.g. "folder" vs. "devicon-c-plain").
+@(private = "file")
+Icon_Glyph :: struct {
+    family:    string,
+    codepoint: rune,
+}
+
+@(private = "file")
+icon_map: map[string]Icon_Glyph
+
+@(private = "file")
+icon_warned: map[string]bool
+
+// Pack group name -> the family name currently backing its shared icon names
+// (e.g. "primary" -> "icons" or "material"). Values point at Font_Family.name,
+// which is font-arena owned, so entries stay valid without cloning.
+@(private = "file")
+active_pack: map[string]string
+
+// Load ASCII, Latin-1 Supplement, and Latin Extended-A so characters
+// like äöüéè render instead of falling back to '?'.
+build_codepoint_list :: proc(allocator := context.temp_allocator) -> [dynamic]rune {
+    codepoints := make([dynamic]rune, allocator)
+    for c: rune = 0x0020; c <= 0x007E; c += 1 {
+        append(&codepoints, c)
+    }
+    for c: rune = 0x00A0; c <= 0x017F; c += 1 {
+        append(&codepoints, c)
+    }
+    extras := [?]rune {'€', '–', '—', '‘', '’', '“', '”', '…'}
+    for c in extras {
+        append(&codepoints, c)
+    }
+    return codepoints
+}
+
+// With read_data false the family registers without its TTF; the file is read
+// on first use (family_ensure_loaded), so unused families cost no startup IO.
+@(private = "file")
+register_family :: proc(name, ttf_path: string, codepoints: []rune, preload_sizes: []i32, read_data := true) -> ^Font_Family {
+    data: []u8
+    if read_data {
+        loaded, read_err := os.read_entire_file_from_path(ttf_path, context.allocator)
+        if read_err != nil {
+            log.warnf("Font family %q: cannot read %q: %v", name, ttf_path, read_err)
+            return nil
+        }
+        data = loaded
+    }
+
+    family := new(Font_Family)
+    family.name = strings.clone(name)
+    family.path = strings.clone(ttf_path)
+    family.file_data = data
+    family.codepoints = slice.clone(codepoints)
+    family.preload_sizes = slice.clone(preload_sizes)
+    family.cache = make(map[i32]rl.Font)
+    family.shaped = make(map[i32]map[u32]Shaped_Glyph)
+    families[family.name] = family
+    return family
+}
+
+@(private = "file")
+manifest_dir :: proc(path: string) -> string {
+    index := max(strings.last_index_byte(path, '/'), strings.last_index_byte(path, '\\'))
+    if index < 0 {
+        return ""
+    }
+    return path[:index + 1]
+}
+
+@(private = "file")
+manifest_parse :: proc(path: string) -> (json.Object, bool) {
+    data, read_err := os.read_entire_file_from_path(path, context.temp_allocator)
+    if read_err != nil {
+        log.warnf("Cannot read manifest %q: %v", path, read_err)
+        return nil, false
+    }
+
+    root, parse_err := json.parse(data, parse_integers = true, allocator = context.temp_allocator)
+    if parse_err != .None {
+        log.warnf("Cannot parse manifest %q: %v", path, parse_err)
+        return nil, false
+    }
+
+    obj, ok := root.(json.Object)
+    if !ok {
+        log.warnf("Manifest %q: root is not an object", path)
+        return nil, false
+    }
+    return obj, true
+}
+
+@(private = "file")
+manifest_sizes :: proc(entry: json.Object, key: string) -> [dynamic]i32 {
+    sizes := make([dynamic]i32, context.temp_allocator)
+    array, ok := entry[key].(json.Array)
+    if !ok {
+        return sizes
+    }
+    for value in array {
+        #partial switch v in value {
+        case json.Integer:
+            append(&sizes, cast(i32) v)
+        case json.Float:
+            append(&sizes, cast(i32) v)
+        }
+    }
+    return sizes
+}
+
+// Reads a family's TTF on first use: families outside the startup preload set
+// register without their file data. Main thread only.
+@(private)
+family_ensure_loaded :: proc(family: ^Font_Family) -> bool {
+    if len(family.file_data) > 0 {
+        return true
+    }
+    data, read_err := os.read_entire_file_from_path(family.path, font_allocator)
+    if read_err != nil {
+        log.warnf("Font family %q: cannot read %q: %v", family.name, family.path, read_err)
+        return false
+    }
+    family.file_data = data
+    return true
+}
+
+// Registers every text font family in the manifest (paths relative to it).
+// Safe before InitWindow; nothing here touches GL. A family outside `wanted`
+// (nil or empty: all) registers with its TTF unread, deferred to first use;
+// the manifest default is always read.
+load_font_manifest :: proc(manifest_path: string, wanted: []string = nil) -> bool {
+    root, root_ok := manifest_parse(manifest_path)
+    if !root_ok {
+        return false
+    }
+    dir := manifest_dir(manifest_path)
+
+    if value, has_default := root["default"]; has_default {
+        if name, ok := value.(json.String); ok {
+            default_family_name = strings.clone(string(name))
+        }
+    }
+
+    fonts, fonts_ok := root["fonts"].(json.Object)
+    if !fonts_ok {
+        log.warnf("Font manifest %q: missing \"fonts\" object", manifest_path)
+        return false
+    }
+
+    text_codepoints := build_codepoint_list(context.temp_allocator)
+    registered := 0
+    for name, value in fonts {
+        entry, entry_ok := value.(json.Object)
+        if !entry_ok {
+            log.warnf("Font manifest %q: entry %q is not an object", manifest_path, name)
+            continue
+        }
+        rel, rel_ok := entry["path"].(json.String)
+        if !rel_ok {
+            log.warnf("Font manifest %q: entry %q has no \"path\"", manifest_path, name)
+            continue
+        }
+
+        sizes := manifest_sizes(entry, "preload_sizes")
+        full_path := strings.concatenate({dir, strings.trim_prefix(string(rel), "./")}, context.temp_allocator)
+        read_data := len(wanted) == 0 || name == default_family_name || slice.contains(wanted, name)
+        if register_family(name, full_path, text_codepoints[:], sizes[:], read_data) != nil {
+            registered += 1
+        }
+    }
+
+    // No explicit default: fall back to any registered family.
+    if default_family_name == "" {
+        for name in fonts {
+            default_family_name = strings.clone(name)
+            break
+        }
+    }
+    return registered > 0
+}
+
+// Registers one icon family per "fonts" entry plus the icon name ->
+// (family, codepoint) map. Only "preload" icons are baked into startup atlases.
+// A family outside `wanted` (nil or empty: all) defers its TTF to first use;
+// the icon name map always covers every family.
+load_icon_manifest :: proc(manifest_path: string, wanted: []string = nil) -> bool {
+    root, root_ok := manifest_parse(manifest_path)
+    if !root_ok {
+        return false
+    }
+    dir := manifest_dir(manifest_path)
+
+    fonts, fonts_ok := root["fonts"].(json.Object)
+    if !fonts_ok {
+        log.warnf("Icon manifest %q: missing \"fonts\" object", manifest_path)
+        return false
+    }
+
+    sizes := manifest_sizes(root, "preload_sizes")
+    icon_map = make(map[string]Icon_Glyph)
+    icon_warned = make(map[string]bool)
+    active_pack = make(map[string]string)
+
+    registered := 0
+    for family_name, value in fonts {
+        entry, entry_ok := value.(json.Object)
+        if !entry_ok {
+            log.warnf("Icon manifest %q: entry %q is not an object", manifest_path, family_name)
+            continue
+        }
+        rel, rel_ok := entry["font"].(json.String)
+        if !rel_ok {
+            log.warnf("Icon manifest %q: entry %q has no \"font\"", manifest_path, family_name)
+            continue
+        }
+        icons, icons_ok := entry["icons"].(json.Object)
+        if !icons_ok {
+            log.warnf("Icon manifest %q: entry %q has no \"icons\" object", manifest_path, family_name)
+            continue
+        }
+
+        family_key := strings.clone(family_name)
+        own_icons := make(map[string]rune)
+        for name, glyph_value in icons {
+            glyph, glyph_ok := glyph_value.(json.String)
+            if !glyph_ok || len(glyph) == 0 {
+                continue
+            }
+            // A real U+FFFD decodes with size 3, so only a failed decode is skipped.
+            codepoint, rune_size := utf8.decode_rune_in_string(string(glyph))
+            if codepoint == utf8.RUNE_ERROR && rune_size <= 1 {
+                log.warnf("Icon manifest %q: icon %q has an invalid glyph", manifest_path, name)
+                continue
+            }
+            // One clone backs both maps; neither frees entries individually.
+            name_key := strings.clone(name)
+            icon_map[name_key] = Icon_Glyph {family = family_key, codepoint = codepoint}
+            own_icons[name_key] = codepoint
+        }
+
+        codepoints := make([dynamic]rune, context.temp_allocator)
+        if preload, preload_ok := entry["preload"].(json.Array); preload_ok {
+            for preload_value in preload {
+                name, name_ok := preload_value.(json.String)
+                if !name_ok {
+                    continue
+                }
+                if glyph, found := icon_map[string(name)]; found && glyph.family == family_key {
+                    append(&codepoints, glyph.codepoint)
+                } else {
+                    log.warnf("Icon manifest %q: preload icon %q not in icon map", manifest_path, name)
+                }
+            }
+        }
+
+        full_path := strings.concatenate({dir, strings.trim_prefix(string(rel), "./")}, context.temp_allocator)
+        read_data := len(wanted) == 0 || slice.contains(wanted, family_name)
+        if family := register_family(family_key, full_path, codepoints[:], sizes[:], read_data); family != nil {
+            family.icon_font = true
+            family.own_icons = own_icons
+            if label, ok := entry["label"].(json.String); ok {
+                family.label = strings.clone(string(label))
+            } else {
+                family.label = strings.clone(family_key)
+            }
+            if group, ok := entry["pack_group"].(json.String); ok {
+                family.pack_group = strings.clone(string(group))
+            }
+            registered += 1
+        }
+    }
+    return registered > 0
+}
+
+icon_codepoint :: proc(name: string) -> (rune, bool) {
+    glyph, ok := icon_map[name]
+    return glyph.codepoint, ok
+}
+
+// Family and codepoint `name` resolves in. A caller that draws the glyph itself
+// must ask for the family too: icon_set_active_pack moves a name between
+// families, and the codepoint means nothing in the wrong one.
+icon_glyph :: proc(name: string) -> (family: string, codepoint: rune, ok: bool) {
+    glyph, found := icon_map[name]
+    return glyph.family, glyph.codepoint, found
+}
+
+// Icon families sharing `pack_group` (e.g. "primary"), as parallel (display
+// label, family name) slices sorted by family name. The family name is what
+// icon_set_active_pack expects; the label is what a picker should display.
+icon_pack_choices :: proc(pack_group: string, allocator := context.temp_allocator) -> (labels, names: []string) {
+    names_dyn := make([dynamic]string, allocator)
+    for name, family in families {
+        if family.pack_group == pack_group {
+            append(&names_dyn, name)
+        }
+    }
+    slice.sort(names_dyn[:])
+
+    labels_dyn := make([dynamic]string, allocator)
+    for name in names_dyn {
+        append(&labels_dyn, families[name].label)
+    }
+    return labels_dyn[:], names_dyn[:]
+}
+
+// The family currently backing `pack_group`'s shared icon names, or "" if
+// icon_set_active_pack was never called for that group.
+icon_active_pack :: proc(pack_group: string) -> string {
+    return active_pack[pack_group]
+}
+
+// Repoints every icon name `family_name` defines to that family, so widgets
+// drawing those (unprefixed) names switch glyphs immediately with no
+// re-rasterization — both families' atlases are already preloaded. Fails
+// (returns false) for an unknown family or one outside `pack_group`.
+icon_set_active_pack :: proc(pack_group, family_name: string) -> bool {
+    family, found := families[family_name]
+    if !found || family.pack_group != pack_group {
+        return false
+    }
+    for name, codepoint in family.own_icons {
+        icon_map[name] = Icon_Glyph {family = family.name, codepoint = codepoint}
+    }
+    active_pack[pack_group] = family.name
+    return true
+}
+
+// Names of every registered text (non-icon) font family, sorted, so the UI can
+// offer them in a font picker. Allocated in `allocator`.
+family_names :: proc(allocator := context.temp_allocator) -> []string {
+    names := make([dynamic]string, allocator)
+    for name, family in families {
+        if !family.icon_font {
+            append(&names, name)
+        }
+    }
+    slice.sort(names[:])
+    return names[:]
+}
+
+// The current default text family (used wherever draw/measure get no
+// explicit family).
+default_family :: proc() -> string {
+    return default_family_name
+}
+
+// Switches the default text family to `name`. Fails (returns false, leaving the
+// default untouched) for an unknown or icon-only family. The default points at
+// the family's own owned name, so no allocation is made.
+set_default_family :: proc(name: string) -> bool {
+    family, found := families[name]
+    if !found || family.icon_font {
+        return false
+    }
+    default_family_name = family.name
+    return true
+}
+
+// Draws a single icon glyph; size is the pixel height of the icon font.
+draw_icon :: proc(name: string, x, y, size: i32, color: rl.Color) {
+    glyph, ok := icon_map[name]
+    if !ok {
+        // Fonts are disabled when the arena failed to init; there is no
+        // allocator for the warn set then, and nothing draws either.
+        if font_allocator.procedure != nil && !icon_warned[name] {
+            icon_warned[strings.clone(name, font_allocator)] = true
+            log.warnf("Unknown icon %q", name)
+        }
+        return
+    }
+    font := get_font(size, glyph.family)
+    rl.DrawTextCodepoint(font, glyph.codepoint, rl.Vector2 {cast(f32) x, cast(f32) y}, cast(f32) size, color)
+}
+
+
+shutdown :: proc() {
+    prebake_drain()
+    // Fonts hold raylib/libc glyph buffers and GPU textures, so unload them
+    // individually; all Odin-side memory goes with the arena.
+    default_texture_id := rl.GetFontDefault().texture.id
+    for _, family in families {
+        for _, font in family.cache {
+            if font.texture.id != default_texture_id {
+                rl.UnloadFont(font)
+            }
+        }
+        shape_family_destroy(family)
+    }
+    shape_shutdown()
+
+    families = nil
+    icon_map = nil
+    icon_warned = nil
+    active_pack = nil
+    default_family_name = ""
+
+    virtual.arena_destroy(&font_arena)
+    font_allocator = {}
+}

@@ -13,8 +13,7 @@ import "core:strings"
 import rl "vendor:raylib"
 
 import "../setting"
-import "../ui"
-import "../widgets"
+import ui "../vendor/loom/loom"
 
 // Splits a launch argument into the workspace folder (owned) and the file to
 // open (owned, "" for a folder argument): a file's folder becomes the
@@ -145,9 +144,8 @@ thor_prompt_open_folder :: proc(thor: ^Thor, dir: string) {
     thor.pending_open_folder = strings.clone(dir)
     thor.open_folder_prompt = fmt.aprintf("Open %s in", filepath.base(dir))
 
-    widgets.command_palette_pick(
-        thor.command_palette,
-        &thor.ui_context,
+    thor_palette_pick(
+        thor,
         thor.open_folder_prompt,
         OPEN_FOLDER_CHOICES[:],
         thor_pick_open_folder,
@@ -295,16 +293,8 @@ thor_open_folder :: proc(thor: ^Thor, dir: string) {
     // reopens any file so the first .Opened notify reaches a live server.
     thor_reload_lang(thor)
 
-    widgets.tree_set_root(thor.tree, thor.workspace_dir)
+    thor_explorer_set_root(thor, thor.workspace_dir)
     // The palette holds the prefix by reference and the old one was just freed.
-    widgets.command_palette_set_navigation(
-        thor.command_palette,
-        thor_palette_list_files,
-        thor_palette_open_file,
-        thor_palette_goto_line,
-        thor.workspace_prefix,
-        thor,
-    )
 
     thor_restore_session(thor)
     thor_apply_layout_state(thor)
@@ -351,8 +341,8 @@ thor_poll_dropped_files :: proc(thor: ^Thor) {
     // though the shell swallowed every mouse-move during the drag.
     dst_dir: string
     over_tree := false
-    if ui.signal_get(&thor.explorer_visible) {
-        dst_dir, over_tree = widgets.tree_drop_target_at(thor.tree, rl.GetMousePosition())
+    if signal_get(&thor.explorer_visible) {
+        dst_dir, over_tree = thor_explorer_drop_target_at(thor, ui.mouse_pos())
     }
     log.debugf("Dropped %d path(s) at %v, folder %q", files.count, rl.GetMousePosition(), dst_dir)
 
