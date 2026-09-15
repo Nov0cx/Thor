@@ -194,8 +194,6 @@ Editor :: struct {
     // Ctrl+Click go-to-definition, a completion accepted with the mouse); the
     // drag that a physical click emits must not turn into a selection.
     suppress_drag:      bool,
-    // Scrollbar drag: `scrollbar_grab` is where inside the thumb it was taken,
-    // so the thumb keeps its grip on the cursor instead of jumping.
     // Right-click opens a context menu supplied by the owner.
     on_context_menu:    Context_Menu_Proc,
     context_menu_data:  rawptr,

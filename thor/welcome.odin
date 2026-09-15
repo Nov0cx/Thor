@@ -153,11 +153,23 @@ thor_welcome_view :: proc(thor: ^Thor) {
                 props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, gap = {8, 0}, margin = {t = 6}},
             },
         )
-        if welcome_button(thor, "open-folder", "Open Folder", "folder") {
+        if welcome_button(
+            thor,
+            "open-folder",
+            "Open Folder",
+            "folder",
+            "Open a folder as the workspace",
+        ) {
             thor_cmd_open_folder(thor)
             return
         }
-        if welcome_button(thor, "open-file", "Open File", "file") {
+        if welcome_button(
+            thor,
+            "open-file",
+            "Open File",
+            "file",
+            "Open one file, and its folder as the workspace",
+        ) {
             thor_welcome_open_file(thor)
             return
         }
@@ -255,7 +267,7 @@ welcome_tip :: proc(thor: ^Thor) {
 }
 
 @(private = "file")
-welcome_button :: proc(thor: ^Thor, key, label, icon: string) -> bool {
+welcome_button :: proc(thor: ^Thor, key, label, icon, tip: string) -> bool {
     it := ui.scope(
         {
             key = key,
@@ -276,5 +288,6 @@ welcome_button :: proc(thor: ^Thor, key, label, icon: string) -> bool {
     )
     thor_icon_label(thor, icon, thor.theme.accent_color)
     ui.label(label, {key = "text", props = {color = thor.theme.foreground, text_wrap = .None}})
+    thor_tip(thor, it.id, tip)
     return it.clicked
 }

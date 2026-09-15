@@ -36,6 +36,10 @@ draw :: proc(b: ^Backend, list: ui.Draw_List) {
 	for len(b.clip) > 0 {
 		pop_clip(b)
 	}
+	// The batch is not on the GPU yet: raylib flushes it in EndDrawing, so the
+	// state it is restored to here would be the state it is drawn under. Drain
+	// it first, or every triangle still pending is culled.
+	rlgl.DrawRenderBatchActive()
 	rlgl.EnableBackfaceCulling()
 }
 

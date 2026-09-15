@@ -168,7 +168,9 @@ poll_input :: proc(b: ^Backend) -> ui.Input {
 		window_pos = {pos.x, pos.y},
 		dpi        = b.dpi,
 		mouse      = ui.Vec2(rl.GetMousePosition()),
-		wheel      = ui.Vec2(rl.GetMouseWheelMoveV()),
+		// raylib counts a wheel rolled away from the hand as positive; Loom
+		// counts a scroll down as positive. They are opposite.
+		wheel      = -ui.Vec2(rl.GetMouseWheelMoveV()),
 	}
 
 	// AltGr types { } @ on a non-US layout and must never act as a shortcut

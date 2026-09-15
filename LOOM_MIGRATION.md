@@ -10,7 +10,7 @@ Work happens on the `loom` branch. This file is the working plan; delete it when
 
 | | |
 |---|---|
-| Loom upstream | done, `1dd9c8c` — `viewport`, a public `set_scroll`, `set_tooltips_enabled` |
+| Loom upstream | done — `viewport`, a public `set_scroll`, `set_tooltips_enabled`, then the four below |
 | Foundation packages | **green** — `editview` `render` `font` `theme` `snippet` `setting` `input` `plugin` `textedit` `lang` `syntax` `piecetable` `shell` `watch` `update` `treecache` |
 | `thor/` | **green** — every view written, `odin check thor` clean, 138 tests pass |
 | `ui/`, `widgets/` | **deleted** |
@@ -38,6 +38,20 @@ Thor needed five things v0.1 did not have. All are in `d00b486`, documented in L
   node still measures the whole list. Rows must be one height.
 - **Misc.** `Interaction.hover_entered` / `hover_exited` / `click_count`; a bilinear `Gradient` kind
   for the colour picker's saturation/value square.
+
+Four more the manual pass asked for:
+
+- **Vertical text.** `Props.text_align_v` places a node's own text down the node, as `text_align`
+  places it across. `justify` / `align` place *children*, so a leaf's text never saw them — which is
+  why every fixed-height chrome button sat high and left.
+- **Bars from the flag.** `.Scroll_X` / `.Scroll_Y` alone now draws the scrollbars; `scroll()` is
+  only the usual props around that. `.No_Bars` keeps the scrolling and drops them (the dock tab
+  strip).
+- **Scrolled content is not an intrinsic size.** A scrolling node no longer reports its content as
+  its own fit on that axis, so a list beside a fixed header stops squeezing it.
+- **`.Wheel`.** The flagged node takes the unscaled delta in `Interaction.wheel` and scrolls nothing,
+  and reports even when nothing would move — what the editor pane needs for Ctrl + wheel zoom and
+  the wheel over a completion popup. Its offset then moves only through `set_scroll`.
 
 If something else is missing, extend Loom rather than working around it — that is the standing
 decision for this migration.
@@ -76,7 +90,8 @@ Each of these cost time to work out; keep them.
 - **Theme is pushed once.** `thor_push_theme` maps Thor's 36 roles onto Loom's 21 slots and calls
   `ui.set_theme`; styling then cascades. The old 400-line re-push pass is deleted — do not bring back
   per-widget colour setters.
-- **Tooltips are declared at the node** (`ui.tooltip(text, for_id)`). `thor/tooltips.odin` is gone.
+- **Tooltips are declared at the node** (`ui.tooltip(text, for_id)`), so `thor/tooltips.odin` holds
+  the text and the chord lookup, not a one-pass setter over stored widgets.
 - **`Signal` lives in `thor`** — it never needed the toolkit.
 - **`setting.Keybind` is `{ui.Key, ui.Mod_Set}`.** `input` is now only the *spelling* of modifiers;
   Loom owns the set, and Loom's `.Super` is spelled "Cmd" on the way out.
@@ -126,6 +141,22 @@ Everything below is done; what is left is the manual pass, the docs and the chan
 - `editview.editor_destroy` — the pane owned `visual_rows`, its completion rows, the fold maps and
   the snippet variables and nothing freed them.
 - `ui/` and `widgets/` deleted, dropped from `build.odin`.
+
+### Found in the manual pass
+
+- The titlebar buttons wrote their text top-left, the editor pane took no wheel, and no panel drew a
+  scrollbar. All three were Loom gaps; see "What Loom gained" above. The editor pane now carries
+  `.Scroll_Y` for the bar and `.Wheel` for the delta, and states the document height with one in-flow
+  sizer leaf, since its rows are absolute and out of flow.
+- **`render.draw` culled the tail of every frame.** It turned backface culling off for the draw list
+  and back on at the end, but rlgl only uploads the batch when raylib flushes it in `EndDrawing` —
+  under the restored state. Everything still pending after the last flush (a scissor change is what
+  forces one) was culled, so `fill_poly` drew nothing from the status bar onward: a dropdown was a
+  border with the file tree showing through. `rlgl.DrawRenderBatchActive()` before the restore drains
+  it first. Any state `draw` sets now has to be drained the same way.
+- `thor/tooltips.odin` is back, as the declaration helpers `thor_tip` / `thor_menu_tip` /
+  `thor_task_select_tip` the view calls at each node. The dim chord line is an `Element.spans` run,
+  which `merge_element` now carries.
 
 ### Not carried over
 

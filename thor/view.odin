@@ -201,6 +201,7 @@ thor_titlebar :: proc(thor: ^Thor) {
     for label, i in MENU_LABELS {
         ui.push_id_int(i64(i))
         it := thor_text_button(thor, label, {key = "menu", props = {w = ui.Px(70)}})
+        thor_menu_tip(thor, it.id, i)
         ui.pop_id()
         if it.clicked {
             thor.menu_anchor = {it.rect.x, it.rect.y + it.rect.h}
@@ -213,13 +214,13 @@ thor_titlebar :: proc(thor: ^Thor) {
     thor_task_controls(thor)
     thor_update_button(thor)
 
-    if thor_titlebar_button(thor, "minus", "min") {
+    if thor_titlebar_button(thor, "minus", "min", tip = "Minimize") {
         thor_minimize_window()
     }
-    if thor_titlebar_button(thor, "square", "max") {
+    if thor_titlebar_button(thor, "square", "max", tip = "Maximize or restore") {
         thor_toggle_maximize(thor)
     }
-    if thor_titlebar_button(thor, "x", "close", danger = true) {
+    if thor_titlebar_button(thor, "x", "close", danger = true, tip = "Close the window") {
         thor.should_close = true
     }
 }
@@ -274,6 +275,8 @@ thor_task_controls :: proc(thor: ^Thor) {
     ); add.clicked {
         thor_cmd_add_task(thor)
         return
+    } else {
+        thor_tip(thor, add.id, "Add a task to the workspace", thor_action_shortcut(thor, "add_task"))
     }
 
     sel := thor_text_button(
@@ -285,6 +288,7 @@ thor_task_controls :: proc(thor: ^Thor) {
             hover = {bg = thor.theme.active},
         },
     )
+    thor_task_select_tip(thor, sel.id)
     if sel.clicked {
         thor.menu_anchor = {sel.rect.x, sel.rect.y + sel.rect.h}
         thor_open_tasks_menu(thor)
@@ -301,6 +305,7 @@ thor_task_controls :: proc(thor: ^Thor) {
     )
     thor_icon_label(thor, "player-play", thor.theme.success_color, 14)
     ui.end()
+    thor_tip(thor, run.id, "Run the selected task", thor_action_shortcut(thor, "run_selected_task"))
     if run.clicked {
         thor_click_run_task(thor)
     }
@@ -332,6 +337,7 @@ thor_update_button :: proc(thor: ^Thor) {
     thor_icon_label(thor, icon, thor.theme.accent_color, 14)
     ui.label(label, {key = "text", props = {color = thor.theme.foreground, text_wrap = .None}})
     ui.end()
+    thor_tip(thor, it.id, "A new version is available. Click to install it")
     if it.clicked {
         thor_click_update(thor)
     }
@@ -340,6 +346,8 @@ thor_update_button :: proc(thor: ^Thor) {
 // A flat chrome button. Loom's button fills with the accent and writes its text
 // in accent_text, which suits a dialog's confirm and not the titlebar, so the
 // fill, the border and the text colour are stated here instead of inherited.
+// text_align/text_align_v place the node's own text; justify/align place
+// children, which a leaf has none of.
 @(private = "file")
 thor_text_button :: proc(
     thor: ^Thor,
@@ -354,8 +362,8 @@ thor_text_button :: proc(
             w = ui.FIT,
             h = ui.Px(28),
             pad = ui.xy(10, 0),
-            justify = .Center,
-            align = .Center,
+            text_align = .Center,
+            text_align_v = .Center,
             radius = ui.rad(4),
             color = thor.theme.foreground,
             cursor = .Pointer,
@@ -368,7 +376,12 @@ thor_text_button :: proc(
 }
 
 @(private = "file")
-thor_titlebar_button :: proc(thor: ^Thor, icon, key: string, danger := false) -> bool {
+thor_titlebar_button :: proc(
+    thor: ^Thor,
+    icon, key: string,
+    danger := false,
+    tip := "",
+) -> bool {
     hover := danger ? thor.theme.danger_color : thor.theme.buttons
     it := ui.begin(
         {
@@ -386,6 +399,7 @@ thor_titlebar_button :: proc(thor: ^Thor, icon, key: string, danger := false) ->
     )
     thor_icon_label(thor, icon, thor.theme.foreground, 14)
     ui.end()
+    thor_tip(thor, it.id, tip)
     return it.clicked
 }
 
@@ -409,7 +423,9 @@ thor_workspace :: proc(thor: ^Thor) {
         thor_explorer_view(thor)
         ui.end_panel()
     }
-    if ui.panel(dock, EDITOR_PANEL) {
+    // The editor holds its place: no dock tab above its own tab strip, and no
+    // drag out of the middle of the layout.
+    if ui.panel(dock, EDITOR_PANEL, flags = {.No_Tab, .Fixed}) {
         thor_editor_column(thor)
         ui.end_panel()
     }
@@ -449,7 +465,7 @@ thor_seed_dock :: proc(thor: ^Thor, dock: ui.Dock_Id) {
 
     left, rest := ui.dock_split(dock, "", .Left, thor.explorer_width / max(ui.viewport().x, 1))
     ui.dock_panel(dock, EXPLORER_PANEL, left)
-    ui.dock_panel(dock, EDITOR_PANEL, rest)
+    ui.dock_panel(dock, EDITOR_PANEL, rest, {.No_Tab, .Fixed})
 
     _, bottom := ui.dock_split(dock, EDITOR_PANEL, .Bottom, 1 - thor.console_height / max(ui.viewport().y, 1))
     ui.dock_panel(dock, CONSOLE_PANEL, bottom)
@@ -587,10 +603,13 @@ thor_tabbar :: proc(thor: ^Thor) {
 
 @(private = "file")
 thor_editor_pane :: proc(thor: ^Thor, editor: ^editview.Editor, key: string) {
+    // .Scroll_Y is for the scrollbar alone. .Wheel gives the pane the raw delta
+    // and moves no offset itself: editview owns scroll_y, and it needs the wheel
+    // even at the end of the file, for zoom and for the completion popup.
     it := ui.begin(
         {
             key = key,
-            flags = {.Clip, .Clickable, .Focusable, .Draggable},
+            flags = {.Clip, .Clickable, .Focusable, .Draggable, .Scroll_Y, .Wheel},
             // Relative, so it is the containing block of the rows: Loom resolves
             // an absolute inset against the nearest positioned ancestor, which
             // would otherwise be the dock panel above the tab strip.
@@ -603,6 +622,13 @@ thor_editor_pane :: proc(thor: ^Thor, editor: ^editview.Editor, key: string) {
         },
     )
     defer ui.end()
+
+    // A scroll the pane did not push is a drag of the thumb or a click on the
+    // track; the editor adopts it before it reads scroll_y again.
+    if it.node.scroll.y != editor.scroll_y {
+        editor.scroll_y = it.node.scroll.y
+    }
+    defer ui.set_scroll(it.node, .Y, editor.scroll_y)
 
     editor.view = it.rect
     editor.focused = it.focused
@@ -629,6 +655,12 @@ thor_editor_pane :: proc(thor: ^Thor, editor: ^editview.Editor, key: string) {
 
     text := textedit.text(editor.state)
     rows := editor.visual_rows[:]
+
+    // The rows are absolute and out of flow, so this states the document height
+    // for Loom: it is what the scrollbar and the scroll clamp are sized from.
+    // Zero-width: the pane does not scroll sideways.
+    ui.leaf({key = "content", props = {w = ui.Px(0), h = ui.Px(f32(len(rows)) * line_h)}})
+
     first := clamp(int(editor.scroll_y / line_h), 0, len(rows) - 1)
     last := clamp(first + int(it.rect.h / line_h) + 2, first, len(rows))
     text_x := editor.gutter_width

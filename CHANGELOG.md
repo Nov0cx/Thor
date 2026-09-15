@@ -1,3 +1,13 @@
+# 2026.09.0
+
+- The editor has no dock tab of its own. Its file tabs sit at the top of the pane.
+- The editor keeps its place: it does not drag out of the layout, and a panel dropped on its middle is refused. A panel dropped on one of its edges still splits beside it.
+- The mouse wheel scrolls the editor again, and `Ctrl` + wheel changes the font size.
+- Every panel that scrolls has its scrollbar back: the editor, the explorer, the console, the git panel, settings, the theme editor, a plugin panel and the permission prompt. Drag the thumb, or click the track to move by a page.
+- The titlebar labels sit in the middle of their buttons.
+- Dropdown menus, dialogs and every other panel over the editor are opaque again. Their fill was drawn but never reached the screen, so the file tree showed through a menu.
+- Tooltips are back on the titlebar menus, the task controls, the update button, the window buttons and the welcome page, each with its keybind on a second line.
+
 # 2026.08.8
 
 - Closing a tab no longer crashes the editor. The gutter kept the diagnostics and git diff marks of the closed file, which are freed with it, and the same frame drew from them.
