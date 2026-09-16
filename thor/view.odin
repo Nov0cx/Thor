@@ -729,13 +729,14 @@ thor_paint_fold_marker :: proc(thor: ^Thor, editor: ^editview.Editor, x, row_y: 
     radius := max(size * 0.09, 1.5)
     gap := radius * 3
     box_x := x + 8
+    top := row_y + render.half_leading(size)
     ui.paint_rect(
-        {box_x - 5, row_y + size * 0.15, gap * 2 + 10, size * 0.7},
+        {box_x - 5, top + size * 0.15, gap * 2 + 10, size * 0.7},
         thor.theme.selection_background,
         ui.rad(size * 0.35),
         true,
     )
-    cy := row_y + size * 0.5
+    cy := top + size * 0.5
     for i in 0 ..< 3 {
         ui.paint_rect(
             {box_x + f32(i) * gap - radius, cy - radius, radius * 2, radius * 2},
@@ -922,7 +923,7 @@ thor_paint_fold_chevron :: proc(
     folded: bool,
 ) {
     cx := col_x + col_w * 0.5
-    cy := row_y + f32(editor.font_size) * 0.5
+    cy := row_y + render.half_leading(f32(editor.font_size)) + f32(editor.font_size) * 0.5
     s := f32(editor.font_size) * 0.3
     points: [3]ui.Vec2
     if folded {
@@ -949,8 +950,10 @@ thor_paint_diagnostics :: proc(
     }
     for index in first ..< last {
         row := rows[index]
-        // Seated just under the glyph box; the row text is top-aligned.
-        y := f32(index) * line_h - editor.scroll_y + f32(editor.font_size) - 1
+        // Seated just under the glyph box, which sits half a leading down the row.
+        y :=
+            f32(index) * line_h - editor.scroll_y +
+            render.half_leading(f32(editor.font_size)) + f32(editor.font_size) - 1
         for d in editor.diagnostics {
             lo := max(d.start, row.start)
             hi := min(d.end, row.end)
@@ -1044,7 +1047,7 @@ thor_paint_carets :: proc(
             ui.paint_rect(
                 {
                     text_x + x,
-                    f32(index) * line_h - editor.scroll_y,
+                    f32(index) * line_h - editor.scroll_y + render.half_leading(f32(editor.font_size)),
                     2,
                     f32(editor.font_size),
                 },

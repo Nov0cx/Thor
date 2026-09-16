@@ -13,8 +13,20 @@ DEFAULT_FONT :: ui.Font(0)
 
 // The font package reports one line height and no vertical metrics, so the
 // split below is the convention the whole editor draws by: the baseline sits
-// four fifths down the em, and the leftover of the line height is the gap.
+// four fifths down the em, and the leading the line height carries over the em
+// is shared evenly above and below it. Splitting the leading is what centres a
+// line of text in its own box, so a label in a row needs no alignment of its own.
 ASCENT_FRACTION :: f32(0.8)
+
+// Half the leading of one line: the gap between the top of a row and the top of
+// the em its glyphs are drawn in. Anything painted against the glyphs rather
+// than against the row adds it.
+half_leading :: proc(size: f32) -> f32 {
+	if size <= 0 {
+		return 0
+	}
+	return (f32(font.line_height(i32(size))) - size) * 0.5
+}
 
 // Registers `name` and reports the handle that addresses it.
 register_family :: proc(b: ^Backend, name: string) -> ui.Font {
@@ -40,13 +52,15 @@ font_metrics :: proc(f: ui.Font, size: f32, user: rawptr) -> ui.Font_Metrics {
 	if size <= 0 {
 		return {}
 	}
-	ascent := size * ASCENT_FRACTION
+	leading := half_leading(size)
+	ascent := size * ASCENT_FRACTION + leading
 	return {
 		ascent = ascent,
-		// Negative, as Loom expects, so ascent - descent + line_gap is the
-		// line height the font package reports.
-		descent = ascent - size,
-		line_gap = f32(font.line_height(i32(size))) - size,
+		// Negative, as Loom expects. The ink spans the whole line height, half
+		// the leading over the em and half under it, so ascent - descent is what
+		// the font package reports and no gap is left to place.
+		descent = ascent - size - leading * 2,
+		line_gap = 0,
 	}
 }
 

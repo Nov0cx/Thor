@@ -18,6 +18,20 @@ test_the_metrics_add_up_to_the_line_height :: proc(t: ^testing.T) {
 	}
 }
 
+// The leading is split, so the em the glyphs are drawn in sits centred in the
+// line box. Everything the editor lays out in rows relies on that, from a tab
+// name to a titlebar icon.
+@(test)
+test_the_leading_is_shared_above_and_below_the_em :: proc(t: ^testing.T) {
+	for size in ([]f32{12, 14, 16, 24, 32}) {
+		m := font_metrics(DEFAULT_FONT, size, nil)
+		over := m.ascent - size * ASCENT_FRACTION
+		under := (m.ascent - m.descent) - size - over
+		testing.expect_value(t, over, half_leading(size))
+		testing.expect_value(t, under, over)
+	}
+}
+
 @(test)
 test_a_zero_size_has_no_metrics :: proc(t: ^testing.T) {
 	testing.expect_value(t, font_metrics(DEFAULT_FONT, 0, nil), ui.Font_Metrics{})
