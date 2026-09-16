@@ -194,33 +194,38 @@ previously active file in the new pane when there is one.
 
 ## Terminal
 
-The console panel is a live shell, one per tab. **+** on the tab strip lists the
-shells found on this machine and opens a terminal on the one you pick; the dot on
-a tab marks a running command, and turns red when the shell has ended.
+The console panel is a terminal emulator, one shell per tab on a pseudo-terminal
+of its own, so a full-screen program, colours and a shell's own line editing all
+work as they do in any other terminal. **+** on the tab strip lists the shells
+found on this machine and opens a terminal on the one you pick; a tab turns red
+when its shell has ended.
+
+Keys go to the shell, which draws its own prompt and keeps its own history, so
+up / down, tab completion and ctrl + r are the shell's, not the editor's.
 
 | Binding | Action |
 | --- | --- |
 | ctrl + t | toggle the console panel |
 | ctrl + shift + t | focus the terminal (opens the panel if collapsed) |
-| enter | run the typed line (goes to the running command's stdin while one runs) |
-| up / down | walk the commands run in this terminal |
-| ctrl + c | interrupt the running command |
-| ctrl + shift + c | copy the selected scrollback text, or all of it with nothing selected (works whether or not a command is running) |
-| ctrl + v | paste into the input line, at the caret |
-| left / right | move the caret in the input line |
-| home / end | jump to the start / end of the input line |
-| delete | delete the character after the caret |
-| click on the input line | place the caret there |
-| click + drag | select scrollback text |
-| ctrl + click | open the file a path in the output points at |
+| ctrl + c | interrupt the running command, or copy when text is selected |
+| ctrl + shift + c | copy the selection, or the whole scrollback with nothing selected |
+| ctrl + v | paste, fenced when the program asked for bracketed paste |
+| shift + page up / page down | scroll the scrollback by a screen |
+| wheel | scroll the scrollback, or move a full-screen program that reads no mouse |
+| click + drag | select text; shift + drag selects even while a program reads the mouse |
+| click on a path | open the file an error line points at |
+| click on a link | open a hyperlink the program marked |
 
 Right-click the console for the same actions as a menu: "Copy" (the
 selection, when there is one), "Copy All", "Paste", plus Clear and the
 terminal-tab actions.
 
-`ctrl + c` sends an interrupt on Linux and macOS. Windows cannot signal a shell
-that reads from a pipe, so Thor restarts it instead — the scrollback is kept, but
-the shell's state (`cd`, environment) is not.
+While the terminal holds the keyboard the editor's chords stay out of its way:
+only the command palette, quick open, and the binds that toggle or focus a panel
+still reach the editor. Everything else is the shell's.
+
+The grid follows the panel: resize it and the shell re-wraps, and a full-screen
+program redraws.
 
 The five "Terminal:" palette actions — New Terminal, Close Terminal, Next
 Terminal, Restart Shell, Select Default Shell — ship unbound; give them chords in

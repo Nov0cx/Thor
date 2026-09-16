@@ -118,7 +118,9 @@ be tested headlessly.
   `core:*`, `base:runtime`, `lang`, `shell` and `treecache` (for `source_edit`, the byte diff an
   incremental `didChange` needs) — never `setting`, which imports `lang`.
 - `setting`, `watch`, `shell` — JSON settings/keybinds, the async recursive file-system watcher,
-  process execution.
+  process execution and the pseudo-terminal a shell runs on.
+- `vt` — the terminal emulator: the escape parser, the cell grid, the scrollback and the key, paste
+  and mouse encoders. A leaf: no UI, no OS calls, no threads, so all of it is tested headlessly.
 - `msvc` — where VsDevCmd.bat is, found with vswhere. A leaf both `shell` (the developer-prompt
   profile) and `build.odin` import, so the lookup exists once.
 - `thor` — the application: owns `Thor` (all state), builds the widget tree (`build.odin`), and
@@ -178,43 +180,62 @@ replaces the workspace outright — call it only when the window is already deci
 
 ## Terminals
 
-The console panel holds one terminal per tab, each on a live shell process. `shell/profile_*.odin`
-detects the shells installed on the machine (pwsh, Windows PowerShell, cmd, the MSVC developer
-prompt, Git Bash, MSYS2, Cygwin, WSL, nu — bash/zsh/fish and friends on POSIX) as `Profile` records:
-the executable, its arguments, quiet `init` commands and a `Profile_Kind` that picks the syntax of
-the end marker. `shell/session_*.odin` is the process pair: the shell starts **once** with piped
-stdin/stdout (stderr shares the stdout pipe, so output stays interleaved) and stays alive, which is
-what makes `cd`, environment variables and the loaded MSVC environment persist between commands.
+The console panel holds one terminal per tab, each a real terminal emulator over a shell on its own
+pseudo-terminal. `shell/profile_*.odin` detects the shells installed on the machine (pwsh, Windows
+PowerShell, cmd, the MSVC developer prompt, Git Bash, MSYS2, Cygwin, WSL, nu — bash/zsh/fish and
+friends on POSIX) as `Profile` records: the executable, its arguments and the `init` commands typed
+once at start (the developer prompt loads the MSVC environment with one). The shell starts **once**
+and stays alive, which is what makes `cd`, environment variables and that environment persist.
 
-There is no PTY: full-screen TUI programs and ANSI colors are out of scope, and the console strips
-escape sequences instead of rendering them. Command completion is found with an **end marker** —
-after every submitted command the terminal writes a shell-specific `end_command` that prints
-`<token><exit-code>`; its arrival ends the command and carries the status. The reader thread hands
-raw bytes over `io_mutex` and `thor_terminal_consume` scans them, so the scan must survive a marker
-split across two reads: `carry` holds the tail, `partial_marker_len` releases only what cannot grow
-into the token, and a whole token without its newline is held back entirely.
+`shell/pty_*.odin` is the process pair. Windows uses ConPTY: two pipes, `CreatePseudoConsole`, then
+a `STARTUPINFOEXW` whose proc-thread attribute list names the pseudo-console.
+**`PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE` takes the HPCON itself as the attribute value, not a pointer
+to it, and the client must not start suspended** — either mistake costs the child a
+`STATUS_DLL_INIT_FAILED` (0xC0000142) before it runs a line. POSIX opens `/dev/ptmx`
+(`posix_openpt`/`grantpt`/`unlockpt`), and the forked child calls `setsid` and `TIOCSCTTY` so the
+slave is its controlling terminal — which is what makes ctrl + c a signal instead of a byte. Both
+sides set `TERM=xterm-256color`, both resize with the panel (`ResizePseudoConsole`, `TIOCSWINSZ`),
+and there is no interrupt call: ctrl + c is a byte the terminal writes.
 
 Killing a shell has to take its children with it: Windows puts the process in a Job Object with
-`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` (started suspended, assigned, then resumed), POSIX calls
-`setpgid(0, 0)` in the forked child so `killpg` reaches the whole group. That process group is also
-why `session_interrupt` (ctrl + c) works on POSIX and returns false on Windows, where the caller
-restarts the shell instead. Teardown is two-phase: `session_terminate` is safe to call while the
-reader blocks in `read`, then the thread is joined, then `session_destroy` frees.
+`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, POSIX kills the process group `setsid` made. Teardown is
+two-phase: `pty_terminate` is safe to call while the reader blocks in `read` (it kills, then closes
+the pseudo-console, which is what wakes that reader), then the thread is joined, then `pty_destroy`
+frees.
 
-`thor/terminal.odin` is the editor side: a `Terminal` owns its `widgets.Console` (a child of the
-console stack, only the active one visible), its session and its reader thread, and `Thor.console`
-points at the active one — **it is nil until the first terminal opens and again when the last one is
-closed**, so every user of it needs a nil guard. Detection is a job like any other
-(`Shell_Detect_Job`): it runs vswhere and walks the registry, too slow for the first frame, so the
-console panel is empty for the first frames and plugin output printed before it lands is held in
-`Thor.console_backlog`. `thor_terminals_shutdown` nils the lists it frees, since draining the I/O
-queue after it still pumps terminals — a detection that lands then finds no terminal list and only
-frees its profiles.
+`vt` is the emulator itself and knows nothing about UI, OS or threads: the DEC ANSI parser
+(`parser.odin`) byte by byte with UTF-8 in the ground state, the grid and scrollback (`term.odin`,
+`screen.odin`), what every sequence means (`dispatch.odin`), the key, paste and mouse encoders
+(`keys.odin`) and text extraction for a selection (`text.odin`). It covers the VT220/xterm set a
+shell and a full-screen program use — SGR with 256 and direct colour, the scrolling region, the
+alternate screen, origin and insert modes, DEC line drawing, mouse tracking in every encoding,
+bracketed paste, OSC titles, palette, hyperlinks, clipboard and the shell-integration marks, and the
+device reports a program asks for. Sixel and DCS payloads are read and dropped. A resize keeps the
+content and does not reflow a wrapped line.
+
+Byte offsets in, bytes out: `term_feed` takes what the reader read, `term_take_reply` gives back what
+the emulator owes the shell (a cursor report, a colour answer), and the host writes it. Every state
+the host needs — the cursor, the title, the working directory, a bell, an OSC 52 clipboard, an OSC
+133 command end — is read and cleared through a `term_take_*` call.
+
+`thor/terminal.odin` is the editor side: a `Terminal` owns its `Console`, its pty and its reader
+thread, and `thor_active_console` is **nil until the first terminal opens and again when the last one
+is closed**, so every user of it needs a nil guard. `thor/console_view.odin` draws the grid — one
+node per run of cells that share a style, so a full screen costs a few hundred nodes — and turns keys
+and mouse events into the bytes the modes the shell set ask for. A focused terminal claims almost
+every chord (`thor_terminal_owns_key`): only the palette, quick open and the panel-focus binds still
+reach the editor. Detection is a job like any other (`Shell_Detect_Job`): it runs vswhere and walks
+the registry, too slow for the first frame, so the console panel is empty for the first frames and
+plugin output printed before it lands is held in `Thor.console_backlog`. `thor_terminals_shutdown`
+nils the lists it frees, since draining the I/O queue after it still pumps terminals — a detection
+that lands then finds no terminal list and only frees its profiles.
+
+Most shells say nothing about a command ending, so the git status is refreshed when the output goes
+quiet (`SETTLE_DELAY`), and at once when a shell does send the OSC 133 mark.
 
 A language server run from `lang/lsp` is a separate child abstraction (`shell/child_*.odin`), not a
-second `shell.Session`: `Session` merges stderr into stdout on purpose so a terminal shows both
-interleaved, and a server's stderr log lines landing inside the `Content-Length` frame stream would
-desynchronise the JSON-RPC parser permanently.
+pty: a server's stderr log lines landing inside the `Content-Length` frame stream would desynchronise
+the JSON-RPC parser permanently, and a server has no use for a terminal.
 
 ## Async work
 

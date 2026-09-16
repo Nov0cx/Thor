@@ -1,5 +1,14 @@
 # 2026.09.0
 
+- The console is a terminal. Each tab runs its shell on a pseudo-terminal, so the shell draws its own prompt, its own history and its own completion, and a full-screen program, colours and progress bars work as they do in any other terminal.
+- `ctrl + c` interrupts the running command on every platform. Windows used to restart the shell instead, which lost the working directory and the environment it had loaded.
+- The terminal follows the panel: resize it and the shell re-wraps, and a full-screen program redraws.
+- Terminal selection, copy and paste: drag to select, `ctrl + shift + c` to copy, `ctrl + v` to paste (fenced when the program asked for bracketed paste), `shift + page up`/`page down` and the wheel to scroll the scrollback.
+- A program that reads the mouse gets it. `shift` + drag still selects while one does.
+- Terminal colours follow the theme, and a program can still set its own.
+- A hyperlink a program marks opens in the browser; a file path in the output still opens in the editor.
+- While the terminal holds the keyboard the editor stays out of its way: only the command palette, quick open and the panel-focus binds still reach the editor, so `ctrl + r`, `ctrl + f` and the rest are the shell's.
+- Text sits in the middle of its line everywhere it is laid out in rows — file tabs, explorer rows, the status bar, titlebar buttons and icons. It hung half the line gap high.
 - Odin files color whole names again. The analyzer's colors were drawn at byte offsets of the text it last read, so an edit above them colored only the tail of a name and left the next name plain. They are now moved onto the current text first.
 - A file that changes on disk under an open tab re-derives its colors, folds and diagnostics from the new text, instead of keeping the ones belonging to the text it replaced.
 - The analyzer keeps coloring after a folder switch, a language-server restart or a change in Settings. One classification runs at a time, and a request dropped by any of those held that slot for the rest of the session.
