@@ -3,6 +3,7 @@
 package thor
 
 import "core:fmt"
+import "core:math"
 import "core:strings"
 import "core:unicode/utf8"
 import rl "vendor:raylib"
@@ -582,6 +583,12 @@ thor_tabbar :: proc(thor: ^Thor) {
         thor_icon_label(thor, "x", thor.theme.muted_color, 12)
         ui.end()
         ui.end()
+        // The close button sits inside the tab, so the tab's own tip would come
+        // up over it as well. The inner one wins.
+        thor_tip(thor, close.id, "Close Tab")
+        if !close.hovered {
+            thor_tip(thor, it.id, info.tooltip)
+        }
         ui.pop_id()
 
         // The list is rebuilt below, so a close waits until the loop is done.
@@ -1056,60 +1063,174 @@ thor_row_x :: proc(editor: ^editview.Editor, text: string, row_start, at: int) -
     return f32(font.measure(text[row_start:at], editor.font_size, ""))
 }
 
-// ---- status bar ----------------------------------------------------------------
+// ---- status bar --------------------------------------------------------------
+
+// Radians per second of the busy segment's alpha pulse.
+@(private = "file")
+BUSY_PULSE_RATE :: 4.0
+
+// One status segment: an optional icon, a label, and the hover explanation the
+// terse label needs. A clickable segment lights up under the pointer to say so.
+@(private = "file")
+thor_status_segment :: proc(
+    thor: ^Thor,
+    key, icon, text: string,
+    color: ui.Color,
+    tip := "",
+    clickable := false,
+) -> ui.Interaction {
+    // Hoverable, not clickable: a segment that only explains itself still has
+    // to be hit-tested, or the tip never comes up.
+    e := ui.Element {
+        key = key,
+        flags = {.Hoverable},
+        props = {
+            h = ui.Grow(1),
+            dir = .Row,
+            align = .Center,
+            gap = {4, 0},
+            color = color,
+        },
+    }
+    if clickable {
+        e.flags = {.Clickable}
+        e.props.cursor = .Pointer
+        e.hover = {color = thor.theme.accent_color}
+    }
+
+    it := ui.begin(e)
+    if icon != "" {
+        thor_icon_label(thor, icon, color, 16)
+    }
+    if text != "" {
+        ui.label(text, {key = "text", props = {text_wrap = .None}})
+    }
+    ui.end()
+    thor_tip(thor, it.id, tip)
+    return it
+}
 
 @(private = "file")
 thor_statusbar :: proc(thor: ^Thor) {
     info := thor_status_info(thor)
+    text := thor.theme.foreground
+    dim := thor.theme.muted_color
 
     ui.scope(
         {
             key = "statusbar",
+            flags = {.Clip},
             props = {
                 w = ui.Grow(1),
                 h = ui.Px(STATUSBAR_HEIGHT),
                 dir = .Row,
-                align = .Center,
-                gap = {16, 0},
+                align = .Stretch,
+                gap = {18, 0},
                 pad = ui.xy(12, 0),
                 bg = thor.theme.second_background,
-                color = thor.theme.muted_color,
+                color = dim,
             },
         },
     )
 
     if info.branch != "" {
-        ui.label(info.branch, {key = "branch", props = {text_wrap = .None}})
+        thor_status_segment(thor, "branch", "git-branch", info.branch, text, "Git branch of the workspace")
     }
-    if info.busy && info.busy_message != "" {
-        ui.label(info.busy_message, {key = "busy", props = {text_wrap = .None}})
+    if info.file_open {
+        path := info.file_path != "" ? info.file_path : info.file_name
+        thor_status_segment(thor, "file", "file", info.file_name, text, path)
+
+        switch {
+        case info.saving:
+            thor_status_segment(thor, "save", "device-floppy", "Saving...", dim, "The file is being written to disk")
+        case info.modified:
+            thor_status_segment(thor, "save", "point", "Unsaved", dim, "The file has changes that are not saved")
+        case:
+            thor_status_segment(thor, "save", "circle-check", "Saved", dim, "The file agrees with the copy on disk")
+        }
     }
+
+    // Analyzer work in flight. The icon pulses, so it reads as ongoing without
+    // a rotating spinner.
+    if info.busy {
+        pulse := 0.5 + 0.5 * math.sin(f32(rl.GetTime()) * BUSY_PULSE_RATE)
+        color := dim
+        color[3] = u8(140 + 115 * pulse)
+        thor_status_segment(thor, "busy", "loader-2", info.busy_message, color, "Language intelligence is working on this file")
+    }
+
+    // The relative-line jump being typed, so the count reads back before it runs.
+    if info.jump_active {
+        jump := fmt.tprintf("Jump %d %s", info.jump_count, info.jump_up ? "up" : "down")
+        thor_status_segment(thor, "jump", "", jump, thor.theme.accent_color, "The relative jump you are typing. Enter runs it")
+    }
+
+    // Transient notice; errors in red, everything else accented, so it stands
+    // out against the segments.
     if info.message != "" {
-        ui.label(
-            info.message,
-            {
-                key = "message",
-                props = {
-                    color = info.is_error ? thor.theme.danger_color : thor.theme.muted_color,
-                    text_wrap = .None,
-                },
-            },
-        )
+        color := info.is_error ? thor.theme.danger_color : thor.theme.accent_color
+        thor_status_segment(thor, "message", "", info.message, color)
     }
 
     ui.spacer()
 
-    if info.file_open {
-        ui.label(
-            fmt.tprintf("Ln %d, Col %d", info.line, info.column),
-            {key = "caret", props = {text_wrap = .None}},
+    if !info.file_open {
+        return
+    }
+
+    thor_status_segment(
+        thor,
+        "caret",
+        "",
+        fmt.tprintf("Ln %d, Col %d", info.line, info.column),
+        text,
+        "Line and column of the caret",
+    )
+    if info.zoom > 0 {
+        thor_status_segment(
+            thor,
+            "zoom",
+            "",
+            fmt.tprintf("%d%%", info.zoom),
+            dim,
+            "Editor zoom, against the font size in the settings",
         )
-        if info.language != "" {
-            ui.label(info.language, {key = "lang", props = {text_wrap = .None}})
+    }
+    if info.line_ending != "" {
+        eol := thor_status_segment(
+            thor,
+            "eol",
+            "",
+            info.line_ending,
+            dim,
+            "Line endings on disk. Click to change them",
+            clickable = true,
+        )
+        if eol.clicked {
+            thor_toggle_line_ending(thor)
         }
-        if info.line_ending != "" {
-            ui.label(info.line_ending, {key = "eol", props = {text_wrap = .None}})
-        }
+    }
+    thor_status_segment(thor, "encoding", "", "UTF-8", dim, "Text encoding of the file")
+    if info.indent_width > 0 {
+        label := info.indent_spaces ? "Spaces" : "Tab Size"
+        thor_status_segment(
+            thor,
+            "indent",
+            "",
+            fmt.tprintf("%s: %d", label, info.indent_width),
+            dim,
+            "Indentation the file is written with",
+        )
+    }
+    if info.language != "" {
+        thor_status_segment(
+            thor,
+            "lang",
+            "",
+            info.language,
+            text,
+            "Language of the file, and the syntax it colors with",
+        )
     }
 }
 

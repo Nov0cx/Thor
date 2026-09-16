@@ -594,10 +594,11 @@ explorer_row :: proc(thor: ^Thor, node: ^Explorer_Node, depth: int) -> ui.Intera
         thor_icon_label(thor, explorer_file_icon(node.name), tint)
     }
 
+    status := thor_tree_git_status(thor, node.path, node.is_dir)
     color := node.is_dir ? thor.theme.foreground : thor.theme.primary_text_color
     if node.load_failed {
         color = thor.theme.danger_color
-    } else if status := thor_tree_git_status(thor, node.path, node.is_dir); status != .None {
+    } else if status != .None {
         color = explorer_status_color(thor, status)
     }
 
@@ -605,6 +606,11 @@ explorer_row :: proc(thor: ^Thor, node: ^Explorer_Node, depth: int) -> ui.Intera
         node.name,
         {key = "name", props = {w = ui.Grow(1), color = color, text_wrap = .Ellipsis}},
     )
+
+    // The path, since a deep row is indented far enough to hide it, plus the git
+    // state the tint alone only hints at.
+    detail := node.load_failed ? "Could not be read" : git_status_name(status)
+    thor_tip(thor, it.id, node.path, detail)
     return it
 }
 

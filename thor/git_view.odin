@@ -653,10 +653,15 @@ git_view_header :: proc(thor: ^Thor) {
         {key = "branch", props = {color = thor.theme.foreground, text_wrap = .None}},
     )
     if v.has_upstream && (v.ahead > 0 || v.behind > 0) {
-        ui.label(
+        track := ui.label(
             fmt.tprintf("%d ahead, %d behind", v.ahead, v.behind),
-            {key = "track", props = {color = thor.theme.muted_color, text_wrap = .None}},
+            {
+                key = "track",
+                flags = {.Hoverable},
+                props = {color = thor.theme.muted_color, text_wrap = .None},
+            },
         )
+        thor_tip(thor, track.id, "Commits ahead and behind the upstream branch")
     }
     ui.leaf({key = "gap", props = {w = ui.Grow(1)}})
 
@@ -687,6 +692,7 @@ git_view_header :: proc(thor: ^Thor) {
         },
     )
     thor_icon_label(thor, "x", thor.theme.muted_color)
+    thor_tip(thor, close.id, "Close", thor_action_shortcut(thor, "open_git_gui"))
     if close.clicked {
         thor_git_view_close(thor)
     }
@@ -979,12 +985,27 @@ git_view_file_row :: proc(
         ui.label("LFS", {key = "lfs", props = {color = thor.theme.disabled, text_wrap = .None}})
     }
 
+    // The chip and the LFS pill are no hit targets of their own - a click on
+    // one has to reach the row - so what they mean rides on the row's tip.
+    detail := git_status_name(file.status)
+    if file.is_lfs {
+        detail = detail != "" ? fmt.tprintf("%s, tracked by Git LFS", detail) : "Tracked by Git LFS"
+    }
+    thor_tip(thor, it.id, file.path, detail)
+
     action := Git_File_Action.None
     if !v.busy {
-        if git_view_button(thor, "stage", staged ? "Unstage" : "Stage", true) {
+        if git_view_button(
+            thor,
+            "stage",
+            staged ? "Unstage" : "Stage",
+            true,
+            staged ? "Take the file out of the next commit" : "Put the file in the next commit",
+        ) {
             action = .Stage
         }
-        if !staged && git_view_button(thor, "discard", "Discard", true) {
+        if !staged &&
+           git_view_button(thor, "discard", "Discard", true, "Throw the changes to the file away") {
             action = .Discard
         }
     }
@@ -1009,10 +1030,11 @@ git_view_diff :: proc(thor: ^Thor) {
             },
         },
     )
-    ui.label(
+    title := ui.label(
         v.diff_title != "" ? v.diff_title : "No file selected",
         {
             key = "title",
+            flags = {.Hoverable},
             props = {
                 w = ui.Grow(1),
                 h = ui.Px(GIT_ROW_H),
@@ -1023,6 +1045,7 @@ git_view_diff :: proc(thor: ^Thor) {
             },
         },
     )
+    thor_tip(thor, title.id, v.diff_title)
 
     ui.scope(
         {
@@ -1141,7 +1164,13 @@ git_view_commit_box :: proc(thor: ^Thor) {
             props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, align = .Center, gap = {8, 0}},
         },
     )
-    if git_view_toggle(thor, "amend", "Amend", v.amend) {
+    if git_view_toggle(
+        thor,
+        "amend",
+        "Amend",
+        v.amend,
+        "Rewrite the last commit instead of adding a new one",
+    ) {
         v.amend = !v.amend
     }
     ui.leaf({key = "gap", props = {w = ui.Grow(1)}})
@@ -1324,15 +1353,15 @@ git_view_ref_row :: proc(thor: ^Thor, ref: Git_View_Ref) -> bool {
     }
 
     if ref.kind == .Stash {
-        if git_view_button(thor, "apply", "Apply", true) {
+        if git_view_button(thor, "apply", "Apply", true, "Restore the stash and keep it") {
             thor_on_git_stash(thor, .Apply, ref.name)
             return true
         }
-        if git_view_button(thor, "pop", "Pop", true) {
+        if git_view_button(thor, "pop", "Pop", true, "Restore the stash and drop it") {
             thor_on_git_stash(thor, .Pop, ref.name)
             return true
         }
-        if git_view_button(thor, "drop", "Drop", true) {
+        if git_view_button(thor, "drop", "Drop", true, "Throw the stash away") {
             thor_on_git_stash(thor, .Drop, ref.name)
             return true
         }
@@ -1730,7 +1759,7 @@ git_view_row_button :: proc(thor: ^Thor, key, label: string) -> bool {
 }
 
 @(private = "file")
-git_view_button :: proc(thor: ^Thor, key, label: string, enabled: bool) -> bool {
+git_view_button :: proc(thor: ^Thor, key, label: string, enabled: bool, tip := "") -> bool {
     it := ui.scope(
         {
             key = key,
@@ -1757,11 +1786,14 @@ git_view_button :: proc(thor: ^Thor, key, label: string, enabled: bool) -> bool 
             },
         },
     )
+    // A disabled button is no hit target, so it explains itself only while it
+    // can be pressed.
+    thor_tip(thor, it.id, tip)
     return enabled && it.clicked
 }
 
 @(private = "file")
-git_view_toggle :: proc(thor: ^Thor, key, label: string, on: bool) -> bool {
+git_view_toggle :: proc(thor: ^Thor, key, label: string, on: bool, tip := "") -> bool {
     it := ui.scope(
         {
             key = key,
@@ -1783,5 +1815,6 @@ git_view_toggle :: proc(thor: ^Thor, key, label: string, on: bool) -> bool {
         label,
         {key = "text", props = {color = thor.theme.foreground, text_wrap = .None}},
     )
+    thor_tip(thor, it.id, tip)
     return it.clicked
 }

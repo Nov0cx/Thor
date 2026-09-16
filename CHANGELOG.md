@@ -6,7 +6,9 @@
 - Every panel that scrolls has its scrollbar back: the editor, the explorer, the console, the git panel, settings, the theme editor, a plugin panel and the permission prompt. Drag the thumb, or click the track to move by a page.
 - The titlebar labels sit in the middle of their buttons.
 - Dropdown menus, dialogs and every other panel over the editor are opaque again. Their fill was drawn but never reached the screen, so the file tree showed through a menu.
-- Tooltips are back on the titlebar menus, the task controls, the update button, the window buttons and the welcome page, each with its keybind on a second line.
+- Tooltips are back on the titlebar menus, the task controls, the update button, the window buttons, the welcome page, the editor tabs and their close buttons, the explorer rows, the recent folders, the tip of the day and the git panel, each with its keybind on a second line.
+- Tooltip text sits in the middle of its box, and a tooltip too long for one line grows to hold every line of it.
+- The status bar shows all its segments again: git branch, file name, save state, analyzer work, the relative jump being typed, notices, caret position, zoom, line endings, encoding, indentation and language. Click the line-ending segment to switch between `LF` and `CRLF`.
 
 # 2026.08.8
 

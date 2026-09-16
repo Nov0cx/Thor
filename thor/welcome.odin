@@ -231,6 +231,8 @@ welcome_recent :: proc(thor: ^Thor) {
             path,
             {key = "path", props = {w = ui.Grow(1), color = thor.theme.disabled, text_wrap = .Ellipsis}},
         )
+        // A long path is cut short above, so the whole one goes in the tip.
+        thor_tip(thor, it.id, path)
         ui.pop_id()
 
         if it.clicked {

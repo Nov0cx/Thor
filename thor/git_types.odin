@@ -15,6 +15,29 @@ Git_Status :: enum u8 {
 	Submodule,
 }
 
+// What a status reads as in a hover explanation or a chip.
+git_status_name :: proc(status: Git_Status) -> string {
+	switch status {
+	case .None:
+		return ""
+	case .Modified:
+		return "Modified"
+	case .Added:
+		return "Added"
+	case .Untracked:
+		return "Untracked"
+	case .Deleted:
+		return "Deleted"
+	case .Renamed:
+		return "Renamed"
+	case .Conflict:
+		return "Merge conflict"
+	case .Submodule:
+		return "Submodule"
+	}
+	return ""
+}
+
 Git_Diff_Row_Kind :: enum u8 {
 	Hunk, // @@ header
 	Context,

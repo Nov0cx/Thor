@@ -302,6 +302,7 @@ thor_tip_card_body :: proc(
                 },
             )
             thor_icon_label(thor, "x", thor.theme.muted_color, 14)
+            thor_tip(thor, close.id, "Close this tip")
             if close.clicked {
                 thor_tip_card_close(thor, false)
                 return
@@ -348,6 +349,7 @@ thor_tip_card_body :: proc(
                 "Do not show tips again",
                 {key = "text", props = {color = thor.theme.disabled, text_wrap = .None}},
             )
+            thor_tip(thor, never.id, "Turn the tip of the day off")
             if never.clicked {
                 thor_tip_card_close(thor, true)
                 return
@@ -357,14 +359,14 @@ thor_tip_card_body :: proc(
         }
 
         if count > 1 {
-            if thor_tip_arrow(thor, "prev", "chevron-left") {
+            if thor_tip_arrow(thor, "prev", "chevron-left", "Previous tip") {
                 thor_tip_step(thor, -1)
             }
             ui.label(
                 fmt.tprintf("%d / %d", index + 1, count),
                 {key = "pos", props = {color = thor.theme.disabled, text_wrap = .None}},
             )
-            if thor_tip_arrow(thor, "next", "chevron-right") {
+            if thor_tip_arrow(thor, "next", "chevron-right", "Next tip") {
                 thor_tip_step(thor, 1)
             }
         }
@@ -372,7 +374,7 @@ thor_tip_card_body :: proc(
 }
 
 @(private = "file")
-thor_tip_arrow :: proc(thor: ^Thor, key, icon: string) -> bool {
+thor_tip_arrow :: proc(thor: ^Thor, key, icon, tip: string) -> bool {
     it := ui.scope(
         {
             key = key,
@@ -390,5 +392,6 @@ thor_tip_arrow :: proc(thor: ^Thor, key, icon: string) -> bool {
         },
     )
     thor_icon_label(thor, icon, thor.theme.muted_color, 14)
+    thor_tip(thor, it.id, tip)
     return it.clicked
 }
