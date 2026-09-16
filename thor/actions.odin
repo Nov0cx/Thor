@@ -59,6 +59,11 @@ thor_global_key :: proc(thor: ^Thor, event: ui.Key_Event) -> bool {
         return false
     }
 
+    // A focused terminal is a real terminal: the chord belongs to the shell.
+    if thor_terminal_owns_key(thor, event) {
+        return false
+    }
+
     chord := setting.keybind_to_string(
         setting.Keybind{key = event.key, mods = event.mods},
         context.temp_allocator,
@@ -304,6 +309,31 @@ thor_cycle_tab :: proc(thor: ^Thor, direction: int) {
     }
     active := signal_get(&thor.active_file)
     thor_set_active_file(thor, ((active + direction) % count + count) % count)
+}
+
+// Whether the terminal takes this chord instead of the editor. Only the binds
+// that move the focus back out of it still reach the editor, so a shell keeps
+// ctrl + c, ctrl + d and everything else it reads.
+@(private = "file")
+thor_terminal_owns_key :: proc(thor: ^Thor, event: ui.Key_Event) -> bool {
+    if !thor.console_focused {
+        return false
+    }
+    escapes := [?]setting.Keybind {
+        thor.command_palette_key,
+        thor.quick_open_key,
+        thor.console_toggle_key,
+        thor.focus_terminal_key,
+        thor.focus_editor_key,
+        thor.focus_explorer_key,
+        thor.fullscreen_key,
+    }
+    for bind in escapes {
+        if setting.keybind_matches(bind, event.key, event.mods) {
+            return false
+        }
+    }
+    return true
 }
 
 // Moves keyboard focus to the editor. The editor pane is always present, so no

@@ -4,11 +4,6 @@ package shell
 import "core:os"
 import "core:strings"
 
-// An empty prompt function: PowerShell writes the prompt to stdout before every
-// command it reads, and a terminal draws its own.
-@(private = "file")
-POWERSHELL_QUIET :: "function prompt { '' }"
-
 // A shell to look for, and how to drive it once found.
 @(private = "file")
 Known :: struct {
@@ -29,7 +24,7 @@ KNOWN := []Known {
     {"fish", "Fish", "fish", {"-l"}, {}, .Fish},
     {"sh", "Shell", "sh", {"-l"}, {}, .Posix},
     {"nu", "Nushell", "nu", {}, {}, .Nushell},
-    {"pwsh", "PowerShell", "pwsh", {"-NoLogo"}, {POWERSHELL_QUIET}, .Powershell},
+    {"pwsh", "PowerShell", "pwsh", {"-NoLogo"}, {}, .Powershell},
 }
 
 // The directories a shell lands in outside PATH, so a shell that the editor's

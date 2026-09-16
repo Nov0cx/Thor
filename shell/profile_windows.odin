@@ -8,16 +8,6 @@ import "core:strings"
 import win32 "core:sys/windows"
 import "../msvc"
 
-// An empty prompt function: PowerShell writes the prompt to stdout before every
-// command it reads, and a terminal draws its own.
-@(private = "file")
-POWERSHELL_QUIET :: "function prompt { '' }"
-
-// cmd.exe has no empty prompt, so it is reduced to one space; the terminal drops
-// the blank run that sits just before an end marker.
-@(private = "file")
-CMD_QUIET :: "prompt $S"
-
 // Every shell installed on this machine, best first.
 profiles_detect :: proc(allocator := context.allocator) -> []Profile {
     list := make([dynamic]Profile, allocator)
@@ -43,7 +33,7 @@ profiles_detect :: proc(allocator := context.allocator) -> []Profile {
             which_temp("pwsh.exe"),
         },
         {"-NoLogo"},
-        {POWERSHELL_QUIET},
+        {},
         .Powershell,
         allocator,
     )
@@ -54,13 +44,12 @@ profiles_detect :: proc(allocator := context.allocator) -> []Profile {
         "Windows PowerShell",
         {join_temp(system32, "WindowsPowerShell/v1.0/powershell.exe")},
         {"-NoLogo"},
-        {POWERSHELL_QUIET},
+        {},
         .Powershell,
         allocator,
     )
 
-    // /Q keeps cmd from echoing back every line it reads off the pipe.
-    add_profile(&list, "cmd", "Command Prompt", {comspec, join_temp(system32, "cmd.exe")}, {"/Q"}, {CMD_QUIET}, .Cmd, allocator)
+    add_profile(&list, "cmd", "Command Prompt", {comspec, join_temp(system32, "cmd.exe")}, {}, {}, .Cmd, allocator)
 
     add_profile(
         &list,
@@ -90,8 +79,8 @@ profiles_detect :: proc(allocator := context.allocator) -> []Profile {
             "msvc",
             "Developer Command Prompt",
             {comspec, join_temp(system32, "cmd.exe")},
-            {"/Q"},
-            {call, CMD_QUIET},
+            {},
+            {call},
             .Cmd,
             allocator,
         )

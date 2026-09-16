@@ -302,6 +302,9 @@ Thor :: struct {
     // held apart from it.
     terminals_live: bool,
     active_terminal: int,
+    // The terminal holds the keyboard, so a chord belongs to the shell and not
+    // to the editor. Written by the console view every frame.
+    console_focused: bool,
     // The shells installed on this machine, best first. owned
     shell_profiles: []shell.Profile,
     shell_choices: []Shell_Choice,  // owned, one per profile

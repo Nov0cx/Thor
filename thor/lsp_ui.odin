@@ -385,7 +385,7 @@ thor_lsp_confirm_install :: proc(data: rawptr) {
         signal_set(&thor.console_visible, true)
     }
     if !thor_console_run_command(console, command) {
-        thor_flash_status(thor, "A command is already running", is_error = true)
+        thor_flash_status(thor, "The terminal has no shell running", is_error = true)
         return
     }
     // The PATH lookup is stale the moment the install finishes, and nothing here

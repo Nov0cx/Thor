@@ -3,8 +3,8 @@ package shell
 import "core:os"
 import "core:strings"
 
-// A shell a terminal can run on: the executable, the arguments that make it read
-// commands from a pipe, and the syntax the terminal needs to drive it.
+// A shell a terminal can run on: the executable, the arguments it starts
+// interactive under, and the syntax family it belongs to.
 //
 // Each platform file supplies:
 //
@@ -28,8 +28,8 @@ Profile :: struct {
     name: string,   // shown in the tab and the shell menu
     exe:  string,   // absolute path
     args: []string, // owned
-    // Commands sent once at start, whose output the terminal drops. They quiet
-    // the prompt and, for a developer shell, load the MSVC environment.
+    // Commands written once at start, as if they had been typed. A developer
+    // shell loads the MSVC environment with one.
     init: []string, // owned
     kind: Profile_Kind,
 }
@@ -61,27 +61,6 @@ profile_find :: proc(profiles: []Profile, id: string) -> (Profile, bool) {
         }
     }
     return {}, false
-}
-
-// The command that makes a shell announce that the previous command finished:
-// `token` followed by the exit status on a line of its own. The terminal sends
-// it after every command and treats its arrival as the end of the output.
-end_command :: proc(kind: Profile_Kind, token: string, allocator := context.allocator) -> string {
-    switch kind {
-    case .Cmd:
-        return strings.concatenate({"echo ", token, "%ERRORLEVEL%"}, allocator)
-    case .Powershell:
-        // $LASTEXITCODE only tracks native programs, so a cmdlet failure is read
-        // off $? instead.
-        return strings.concatenate({`Write-Output "`, token, `$(if ($?) { 0 } else { 1 })"`}, allocator)
-    case .Fish:
-        return strings.concatenate({"printf '%s%s\\n' '", token, "' $status"}, allocator)
-    case .Nushell:
-        return strings.concatenate({`print $"`, token, `($env.LAST_EXIT_CODE)"`}, allocator)
-    case .Posix:
-        return strings.concatenate({"printf '%s%s\\n' '", token, "' \"$?\""}, allocator)
-    }
-    return strings.clone("", allocator)
 }
 
 // Absolute path of `name` on PATH, searched the way the platform searches it.

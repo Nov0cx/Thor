@@ -170,7 +170,7 @@ thor_run_task :: proc(thor: ^Thor, task: ^Task) {
         return
     }
     if !thor_console_run_command(thor_active_console(thor), task.command) {
-        thor_flash_status(thor, "A command is already running", true)
+        thor_flash_status(thor, "The terminal has no shell running", true)
     }
 }
 

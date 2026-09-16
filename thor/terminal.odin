@@ -6,64 +6,61 @@ import "core:log"
 import "core:strings"
 import "core:sync"
 import "core:thread"
+import rl "vendor:raylib"
 
 import "../setting"
 import "../shell"
-import ui "../vendor/loom/loom"
+import "../vt"
 
-// One console widget bound to one persistent shell. The shell outlives the
+// One console bound to one shell on a pseudo-terminal. The shell outlives the
 // commands run in it, so a `cd` sticks and a developer environment loaded once
 // stays loaded; a reader thread pushes its output into `pending` and the main
-// thread turns that into scrollback.
+// thread feeds that to the emulator.
 Terminal :: struct {
     owner:     ^Thor,
-    console:   Console, // owned; declared by the console panel while this tab is active
-    profile:   shell.Profile,    // borrowed from owner.shell_profiles
-    session:   ^shell.Session,   // owned; nil once the shell is gone
-    reader:    ^thread.Thread,   // owned
+    console:   Console,        // owned; declared by the console panel while this tab is active
+    profile:   shell.Profile,  // borrowed from owner.shell_profiles
+    pty:       ^shell.Pty,     // owned; nil once the shell is gone
+    reader:    ^thread.Thread, // owned
     allocator: runtime.Allocator,
-    token:     string,           // owned, the end marker the shell echoes
-    end_cmd:   string,           // owned, the command that writes the marker
     // Raw shell output the reader has not handed over. Guarded by owner.io_mutex.
     pending:   [dynamic]u8,
     // The reader reached the end of the stream. Guarded by owner.io_mutex.
     ended:     bool,
-    // Output that is not yet a whole line, or is a partial end marker.
-    carry:     [dynamic]u8,
-    // A command's output is wanted. Cleared by its end marker, so the prompt the
-    // shell writes next lands nowhere.
-    capturing: bool,
-    // The shell answered the init commands and is ready for the user.
-    ready:     bool,
-    // A command is running, so a submitted line is its stdin, not a new command.
-    running:   bool,
     // The shell exited and was reported; the tab keeps its scrollback.
     dead:      bool,
+    // When the output that just arrived is taken to have settled. A command that
+    // finished may have touched the working tree, and most shells say nothing
+    // about it, so the pause after the output is the signal.
+    settle_at: f64,
 }
 
 @(private = "file")
-READ_BUFFER :: 4096
+READ_BUFFER :: 8192
 
-// Starts a terminal on `profile` in the workspace directory. Returns nil when
-// the shell does not start.
+// How long the output must be quiet before a command counts as finished.
+@(private = "file")
+SETTLE_DELAY :: 0.35
+
+// Starts a terminal on `profile` in the workspace directory. Returns a terminal
+// whose shell is marked dead when it does not start.
 thor_terminal_create :: proc(thor: ^Thor, profile: shell.Profile) -> ^Terminal {
     term := new(Terminal)
     term.owner = thor
     term.profile = profile
     term.allocator = context.allocator
     term.pending = make([dynamic]u8)
-    term.carry = make([dynamic]u8)
-    term.token = shell.end_token(len(thor.terminals))
-    term.end_cmd = shell.end_command(profile.kind, term.token)
 
-    // Widget ids are borrowed, so every terminal shares one literal; nothing
-    // looks a console up by id.
     thor_console_init(&term.console)
+    thor_console_apply_theme(thor, &term.console)
     thor_console_set_on_link(&term.console, thor_console_link, thor_console_activate, thor)
-    thor_console_set_on_run(&term.console, thor_terminal_submit, term)
-    thor_console_set_on_interrupt(&term.console, thor_terminal_interrupt, term)
-    
-    thor_console_clear(&term.console)
+    thor_console_set_on_write(
+        &term.console,
+        thor_terminal_write,
+        thor_terminal_resize,
+        term,
+    )
+
     if !thor_terminal_open_session(term) {
         thor_console_append(&term.console, fmt.tprintf("Could not start %s.\n", profile.name))
         term.dead = true
@@ -71,29 +68,28 @@ thor_terminal_create :: proc(thor: ^Thor, profile: shell.Profile) -> ^Terminal {
     return term
 }
 
-// Starts the shell and its reader thread, then sends the profile's init
-// commands. Their output is dropped, since it is only prompt setup.
+// Starts the shell and its reader thread, then types the profile's init
+// commands — the one a developer prompt loads its environment with.
 @(private = "file")
 thor_terminal_open_session :: proc(term: ^Terminal) -> bool {
-    session, ok := shell.session_start(term.profile, term.owner.workspace_dir)
+    pty, ok := shell.pty_start(
+        term.profile,
+        term.owner.workspace_dir,
+        term.console.cols,
+        term.console.rows,
+    )
     if !ok {
         return false
     }
-    term.session = session
+    term.pty = pty
     term.ended = false
     term.dead = false
-    term.ready = false
-    term.capturing = false
-    term.running = true
-    clear(&term.carry)
 
-    thor_console_append(&term.console, fmt.tprintf("%s  %s\n", term.profile.name, term.owner.workspace_dir))
     term.reader = thread.create_and_start_with_poly_data(term, thor_terminal_reader)
-
     for command in term.profile.init {
-        thor_terminal_write_line(term, command)
+        shell.pty_write(term.pty, command)
+        shell.pty_write(term.pty, "\r")
     }
-    thor_terminal_write_line(term, term.end_cmd)
     return true
 }
 
@@ -104,7 +100,7 @@ thor_terminal_reader :: proc(term: ^Terminal) {
     context.allocator = term.allocator
     buf: [READ_BUFFER]u8
     for {
-        read := shell.session_read(term.session, buf[:])
+        read := shell.pty_read(term.pty, buf[:])
         if read <= 0 {
             break
         }
@@ -117,166 +113,132 @@ thor_terminal_reader :: proc(term: ^Terminal) {
     sync.unlock(&term.owner.io_mutex)
 }
 
-@(private = "file")
-thor_terminal_write_line :: proc(term: ^Terminal, line: string) {
-    if term.session == nil {
+// Console_Write_Proc: everything the user types, and every answer the emulator
+// owes the shell.
+thor_terminal_write :: proc(data: rawptr, bytes: string) {
+    term := cast(^Terminal) data
+    if term.pty == nil {
         return
     }
-    shell.session_write(term.session, line)
-    shell.session_write(term.session, "\n")
+    shell.pty_write(term.pty, bytes)
 }
 
-// Console_Run_Proc: a line submitted at the prompt. While a command runs the
-// line is its stdin; otherwise it is a new command, followed by the marker that
-// reports where its output ends.
-thor_terminal_submit :: proc(data: rawptr, command: string) {
+// Console_Resize_Proc: the panel changed size, so the shell re-wraps and a
+// full-screen program redraws.
+thor_terminal_resize :: proc(data: rawptr, cols, rows: int) {
     term := cast(^Terminal) data
-    if term.session == nil {
-        thor_console_append(&term.console, "The shell is not running. Restart it from the console menu.\n")
-        thor_console_command_finished(&term.console)
+    if term.pty == nil {
         return
     }
-    if term.running {
-        thor_terminal_write_line(term, command)
-        return
-    }
-    term.capturing = true
-    term.running = true
-    thor_terminal_write_line(term, command)
-    thor_terminal_write_line(term, term.end_cmd)
-}
-
-// Console_Interrupt_Proc: stops the running command. Where the platform cannot
-// signal it, the shell is restarted instead.
-thor_terminal_interrupt :: proc(data: rawptr) {
-    term := cast(^Terminal) data
-    if term.session == nil || !term.running {
-        return
-    }
-    if shell.session_interrupt(term.session) {
-        thor_console_append(&term.console, "^C\n")
-        return
-    }
-    thor_console_append(&term.console, "^C  restarting the shell\n")
-    thor_terminal_restart(term)
+    shell.pty_resize(term.pty, cols, rows)
 }
 
 // Ends the shell and starts a fresh one on the same profile, keeping the
-// scrollback. Used by the interrupt on platforms without one, and after the
-// shell exits.
+// scrollback.
 thor_terminal_restart :: proc(term: ^Terminal) {
     thor_terminal_close_session(term)
+    thor_console_append(&term.console, "\n")
     if !thor_terminal_open_session(term) {
-        thor_console_append(&term.console, fmt.tprintf("Could not start %s.\n", term.profile.name))
+        thor_console_append(
+            &term.console,
+            fmt.tprintf("Could not start %s.\n", term.profile.name),
+        )
         term.dead = true
     }
-    thor_console_command_finished(&term.console)
 }
 
 // Stops the shell and joins the reader. Output the reader already handed over is
 // dropped: it belongs to a session that is gone.
 @(private = "file")
 thor_terminal_close_session :: proc(term: ^Terminal) {
-    if term.session == nil {
+    if term.pty == nil {
         return
     }
-    shell.session_terminate(term.session)
+    shell.pty_terminate(term.pty)
     if term.reader != nil {
         thread.join(term.reader)
         thread.destroy(term.reader)
         term.reader = nil
     }
-    shell.session_destroy(term.session)
-    term.session = nil
-    term.running = false
+    shell.pty_destroy(term.pty)
+    term.pty = nil
     sync.lock(&term.owner.io_mutex)
     clear(&term.pending)
+    term.ended = false
     sync.unlock(&term.owner.io_mutex)
 }
 
-// Moves one frame of shell output into the scrollback. Returns whether a command
-// finished, which is when the working tree may have changed.
+// Moves one frame of shell output into the emulator and writes back whatever it
+// answers. Returns whether a command finished, which is when the working tree
+// may have changed.
 thor_terminal_pump :: proc(term: ^Terminal) -> bool {
+    if term.console.term == nil {
+        return false
+    }
     sync.lock(&term.owner.io_mutex)
-    chunk := ""
+    chunk: []u8
     if len(term.pending) > 0 {
         data := make([]u8, len(term.pending), context.temp_allocator)
         copy(data, term.pending[:])
         clear(&term.pending)
-        chunk = string(data)
+        chunk = data
     }
     ended := term.ended
     sync.unlock(&term.owner.io_mutex)
 
-    finished := false
-    if chunk != "" {
-        finished = thor_terminal_consume(term, chunk)
+    now := rl.GetTime()
+    if len(chunk) > 0 {
+        thor_console_feed(&term.console, chunk)
+        term.settle_at = now + SETTLE_DELAY
     }
+
+    finished := false
+    // The shell integration mark is the exact answer where a shell sends one.
+    if _, ok := vt.term_take_command_end(term.console.term); ok {
+        finished = true
+        term.settle_at = 0
+    }
+    if term.settle_at != 0 && now >= term.settle_at {
+        term.settle_at = 0
+        finished = true
+    }
+
+    thor_terminal_drain_replies(term)
+
     if ended && !term.dead {
         term.dead = true
-        term.running = false
-        thor_console_append(&term.console, "[the shell exited]\n")
-        thor_console_command_finished(&term.console)
+        thor_console_append(&term.console, "\n[the shell exited]\n")
     }
     return finished
 }
 
-// Splits `chunk` on the end markers it carries, shows the output between them,
-// and holds back a tail that may still grow into a marker.
+// What the emulator owes the outside world: a device report back to the shell,
+// and the text an OSC 52 asked to put on the clipboard.
 @(private = "file")
-thor_terminal_consume :: proc(term: ^Terminal, chunk: string) -> bool {
-    text := strings.concatenate({string(term.carry[:]), chunk}, context.temp_allocator)
-    clear(&term.carry)
-
-    finished := false
-    for {
-        before, code, rest, found := shell.scan_end_marker(text, term.token)
-        if !found {
-            break
+thor_terminal_drain_replies :: proc(term: ^Terminal) {
+    t := term.console.term
+    if t == nil {
+        return
+    }
+    if pending := vt.term_take_reply(t); len(pending) > 0 {
+        if term.pty != nil {
+            shell.pty_write(term.pty, string(pending))
         }
-        thor_terminal_emit(term, before)
-        finished |= thor_terminal_finish(term, code)
-        text = rest
+        vt.term_clear_reply(t)
     }
-
-    // A whole token without its newline waits for the exit status behind it.
-    hold := strings.contains(text, term.token) ? len(text) : shell.partial_marker_len(text, term.token)
-    thor_terminal_emit(term, text[:len(text) - hold])
-    append(&term.carry, ..transmute([]u8) text[len(text) - hold:])
-    return finished
+    if text, ok := vt.term_take_clipboard(t); ok && text != "" {
+        rl.SetClipboardText(strings.clone_to_cstring(text, context.temp_allocator))
+    }
+    // The bell is read so it cannot pile up; the editor does not ring.
+    vt.term_take_bell(t)
 }
 
-@(private = "file")
-thor_terminal_emit :: proc(term: ^Terminal, text: string) {
-    if term.capturing && text != "" {
-        thor_console_append(&term.console, text)
-    }
-}
-
-// An end marker arrived. Returns whether it ended a user command, as opposed to
-// the init commands that make the shell ready.
-@(private = "file")
-thor_terminal_finish :: proc(term: ^Terminal, code: int) -> bool {
-    was_ready := term.ready
-    term.ready = true
-    term.running = false
-    term.capturing = false
-    if was_ready && code != 0 {
-        thor_console_append(&term.console, fmt.tprintf("[exit %d]\n", code))
-    }
-    thor_console_command_finished(&term.console)
-    return was_ready
-}
-
-// Stops the shell and frees the terminal, leaving its widget to whoever owns the
-// tree. Shutdown uses this: the console widget dies with the root.
+// Stops the shell and frees the terminal, the emulator and its scrollback with
+// it.
 thor_terminal_release :: proc(term: ^Terminal) {
     thor_terminal_close_session(term)
     thor_console_destroy(&term.console)
     delete(term.pending)
-    delete(term.carry)
-    delete(term.token)
-    delete(term.end_cmd)
     free(term)
 }
 
@@ -383,6 +345,7 @@ thor_terminal_select :: proc(thor: ^Thor, index: int, focus := true) {
     thor.active_terminal = index >= 0 && index < len(thor.terminals) ? index : -1
     if focus && thor_active_console(thor) != nil {
         thor.focus_request = "console"
+        thor_active_console(thor).focus_pending = true
     }
 }
 
@@ -416,7 +379,7 @@ thor_active_terminal :: proc(thor: ^Thor) -> ^Terminal {
     return thor.terminals[thor.active_terminal]
 }
 
-// Moves every terminal's output into its scrollback. A finished command may have
+// Moves every terminal's output into its emulator. A finished command may have
 // touched the working tree, so the git status is refreshed once for the frame.
 thor_process_terminals :: proc(thor: ^Thor) {
     finished := false
@@ -425,6 +388,13 @@ thor_process_terminals :: proc(thor: ^Thor) {
     }
     if finished {
         thor_refresh_git_status(thor)
+    }
+}
+
+// Re-seeds every terminal's colours after the theme changed.
+thor_terminals_apply_theme :: proc(thor: ^Thor) {
+    for term in thor.terminals {
+        thor_console_apply_theme(thor, &term.console)
     }
 }
 
@@ -471,7 +441,7 @@ thor_terminal_tab_count :: proc(data: rawptr) -> int {
 }
 
 // Tabbar_Info_Proc: the shell's name, numbered when several tabs run the same
-// shell, and a busy mark while a command runs.
+// shell. The tooltip carries whatever title the shell set for itself.
 thor_terminal_tab_info :: proc(data: rawptr, index: int) -> Tab_Info {
     thor := cast(^Thor) data
     if index < 0 || index >= len(thor.terminals) {
@@ -498,10 +468,10 @@ thor_terminal_tab_info :: proc(data: rawptr, index: int) -> Tab_Info {
     switch {
     case term.dead:
         tooltip = fmt.tprintf("%s\nThe shell has stopped", term.profile.name)
-    case term.running:
-        tooltip = fmt.tprintf("%s\nA command is running", term.profile.name)
+    case term.console.term != nil && term.console.term.title != "":
+        tooltip = fmt.tprintf("%s\n%s", term.profile.name, term.console.term.title)
     }
-    return {name = name, tooltip = tooltip, loading = term.running, modified = term.dead}
+    return {name = name, tooltip = tooltip, modified = term.dead}
 }
 
 // Tabbar_Active_Proc

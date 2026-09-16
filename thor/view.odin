@@ -433,6 +433,10 @@ thor_workspace :: proc(thor: ^Thor) {
     if ui.panel(dock, CONSOLE_PANEL, &console) {
         thor_console_panel(thor)
         ui.end_panel()
+    } else {
+        // A panel that is not declared holds no focus, and the global chords
+        // read that flag before the tree is built.
+        thor.console_focused = false
     }
     if thor_plugin_dock_visible(thor, .Right) && ui.panel(dock, PLUGIN_RIGHT_PANEL) {
         thor_plugin_dock_view(thor, .Right)
@@ -477,6 +481,7 @@ thor_seed_dock :: proc(thor: ^Thor, dock: ui.Dock_Id) {
 thor_console_panel :: proc(thor: ^Thor) {
     console := thor_active_console(thor)
     if console == nil {
+        thor.console_focused = false
         ui.label(
             "No terminal",
             {key = "no-terminal", props = {pad = ui.xy(12, 8), color = thor.theme.disabled}},

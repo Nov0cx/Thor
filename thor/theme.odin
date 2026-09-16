@@ -146,7 +146,7 @@ thor_free_theme_choices :: proc(thor: ^Thor) {
 }
 
 // Reapplies thor.theme. The tree reads it through thor_push_theme each frame, so
-// only the syntax spans that bake a color in need work.
+// only the syntax spans and the terminal palettes that bake a color in need work.
 thor_apply_theme :: proc(thor: ^Thor) {
     // Syntax spans bake in theme colors, so every open file needs new ones. Only
     // mark them stale: the per-frame pane pass recolors the files on screen with
@@ -154,6 +154,7 @@ thor_apply_theme :: proc(thor: ^Thor) {
     for file in thor.open_files {
         file.highlighted = false
     }
+    thor_terminals_apply_theme(thor)
 }
 
 // Preferences: Change Theme -> pick from the installed themes in a dialog that
