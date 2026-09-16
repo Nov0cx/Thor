@@ -160,6 +160,7 @@ run_tests :: proc() -> bool {
         "thor",
         "treecache",
         "update",
+        "vt",
         "watch",
     }
     // Every package runs, so one report names each broken one; a stop at the
