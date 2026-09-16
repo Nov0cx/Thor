@@ -455,6 +455,11 @@ Thor :: struct {
     // whole-file classification to its own round trip.
     semantic_request_id: u64,
     semantic_path: string,
+    // The buffer snapshot that request carries (owned). It becomes the file's
+    // semantic_source when the result lands, so the tokens can be rebased onto
+    // later text; a request that never lands frees it instead, since tokens the
+    // file already holds were classified over something else.
+    semantic_source: string,
     // In-flight rename: its request id and the path of the buffer it was computed
     // against (owned), so its edits can be told apart from the ones landing in
     // other files — that buffer is validated against the snapshotted revision,
@@ -951,6 +956,7 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.execute_command_title)
     thor_completion_clear(thor)
     delete(thor.semantic_path)
+    delete(thor.semantic_source)
     delete(thor.format_path)
     delete(thor.format_range_path)
     delete(thor.on_type_path)

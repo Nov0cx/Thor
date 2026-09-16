@@ -1,5 +1,9 @@
 # 2026.09.0
 
+- Odin files color whole names again. The analyzer's colors were drawn at byte offsets of the text it last read, so an edit above them colored only the tail of a name and left the next name plain. They are now moved onto the current text first.
+- A file that changes on disk under an open tab re-derives its colors, folds and diagnostics from the new text, instead of keeping the ones belonging to the text it replaced.
+- The analyzer keeps coloring after a folder switch, a language-server restart or a change in Settings. One classification runs at a time, and a request dropped by any of those held that slot for the rest of the session.
+- Typing recolors on the same frame as the character, not the one after it.
 - The editor has no dock tab of its own. Its file tabs sit at the top of the pane.
 - The editor keeps its place: it does not drag out of the layout, and a panel dropped on its middle is refused. A panel dropped on one of its edges still splits beside it.
 - The mouse wheel scrolls the editor again, and `Ctrl` + wheel changes the font size.

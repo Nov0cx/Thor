@@ -130,6 +130,7 @@ thor_plugin_doc :: proc(host: rawptr, path: string, text: string, focus: bool) {
             // marked clean, so the refresh doesn't trigger an autosave.
             textedit.set_text(&file.state, text)
             file.saved_revision = file.state.revision
+            thor_invalidate_file_derived(file)
         }
         if focus {
             thor_set_active_file(thor, index)

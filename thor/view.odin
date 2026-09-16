@@ -495,9 +495,9 @@ thor_editor_column :: proc(thor: ^Thor) {
     thor_tabbar(thor)
 
     ui.scope({key = "panes", props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Row, gap = {1, 0}}})
-    thor_editor_pane(thor, &thor.editor, "pane0")
+    thor_editor_pane(thor, &thor.editor, 0, "pane0")
     if thor.split_visible {
-        thor_editor_pane(thor, &thor.editor2, "pane1")
+        thor_editor_pane(thor, &thor.editor2, 1, "pane1")
     }
 }
 
@@ -609,7 +609,7 @@ thor_tabbar :: proc(thor: ^Thor) {
 // ---- the editor pane ----------------------------------------------------------
 
 @(private = "file")
-thor_editor_pane :: proc(thor: ^Thor, editor: ^editview.Editor, key: string) {
+thor_editor_pane :: proc(thor: ^Thor, editor: ^editview.Editor, pane: int, key: string) {
     // .Scroll_Y is for the scrollbar alone. .Wheel gives the pane the raw delta
     // and moves no offset itself: editview owns scroll_y, and it needs the wheel
     // even at the end of the file, for zoom and for the completion popup.
@@ -654,6 +654,9 @@ thor_editor_pane :: proc(thor: ^Thor, editor: ^editview.Editor, key: string) {
         return
     }
     editview.editor_ensure_visual_rows(editor)
+    // Here, not in thor_update_files: the rows this frame's keystrokes rebuilt
+    // are what the window is scoped to, and the spans are read a few lines below.
+    thor_highlight_pane_file(thor, pane)
 
     line_h := f32(font.line_height(editor.font_size))
     if line_h <= 0 || len(editor.visual_rows) == 0 {

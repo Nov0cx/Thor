@@ -344,15 +344,20 @@ request_cancelled :: proc(req: ^Request) -> bool {
 
 // A completed request. Owned fields use the Manager's allocator and are freed on
 // the main thread after the editor consumes them. A `cancelled` result is freed
-// without reaching the handler, so `ok == false` always means "found nothing",
-// never "abandoned half-done". `id` is 0 on a result no request asked for (see
-// Backend.poll), which a consumer matching a stored id must tolerate.
+// without reaching the handler, so `ok == false` always means "found nothing" —
+// never "abandoned half-done", and never "nothing ran", which `undispatched`
+// names instead. `id` is 0 on a result no request asked for (see Backend.poll),
+// which a consumer matching a stored id must tolerate.
 Result :: struct {
     id:        u64,
     kind:      Request_Kind,
     revision:  u64,
     ok:        bool,
     cancelled: bool,
+    // The Manager answered this itself: no backend was left to take the request
+    // by the time its debounce slot flushed. Nothing was computed, so a consumer
+    // must not record it as an answer.
+    undispatched: bool,
     location:  Location,        // Definition
     hover:     Hover_Info,      // Hover
     doc:       Doc_Info,        // Package_Doc
@@ -924,6 +929,31 @@ manager_cancel_all :: proc(m: ^Manager) -> int {
     return n
 }
 
+// True while `id` can still answer: it holds a debounce slot, a dispatched job,
+// or a reserved id waiting to fail. A cancelled result is freed without reaching
+// the handler, so a host that keys one result slot on an id has no other way to
+// tell a lost request from one still coming — and a slot never released refuses
+// every later request of that kind.
+manager_has_request :: proc(m: ^Manager, id: u64) -> bool {
+    if id == 0 {
+        return false
+    }
+    for kind in Request_Kind {
+        if m.pending[kind].active && m.pending[kind].id == id {
+            return true
+        }
+    }
+    for res in m.failed {
+        if res.id == id {
+            return true
+        }
+    }
+    sync.lock(&m.mutex)
+    defer sync.unlock(&m.mutex)
+    _, live := m.active[id]
+    return live
+}
+
 // Cancels the in-flight requests of `kind` and dispatches a replacement. The
 // common path for a per-keystroke trigger, so a caller can't forget the cancel.
 manager_request_latest :: proc(
@@ -1063,7 +1093,7 @@ manager_flush_debounced :: proc(m: ^Manager, force := false) -> int {
             // The backend stopped claiming the kind between the reserve and here
             // — a server that died, a feature switched off. The caller stored the
             // reserved id already, so answer it rather than leave the slot stale.
-            append(&m.failed, Result{id = slot.id, kind = kind})
+            append(&m.failed, Result{id = slot.id, kind = kind, revision = slot.revision, undispatched = true})
             continue
         }
         n += 1

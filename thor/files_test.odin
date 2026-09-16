@@ -8,6 +8,7 @@ import "core:testing"
 import "core:time"
 
 import "../editview"
+import "../lang"
 import "../textedit"
 import ui "../vendor/loom/loom"
 import "../watch"
@@ -797,4 +798,71 @@ test_free_thor :: proc(thor: ^Thor) {
     delete(thor.finished_saves)
     delete(thor.finished_file_ops)
     free(thor)
+}
+
+// A disk change under an open buffer replaces its text, and textedit.set_text
+// returns the revision to 0 with it. Anything derived from the old text and
+// kept reads as fresh at that revision and is never derived again — the
+// classification then colors bytes of text that is gone.
+@(test)
+test_reload_drops_data_derived_from_the_old_text :: proc(t: ^testing.T) {
+    TEST_PATH :: "thor_reload_derived.tmp"
+
+    write_err := os.write_entire_file(TEST_PATH, transmute([]u8) string("alpha :: 1\n"))
+    testing.expect(t, write_err == nil, "could not create test file")
+    defer os.remove(TEST_PATH)
+
+    thor := test_make_thor()
+    defer test_free_thor(thor)
+
+    thor_open_file(thor, TEST_PATH)
+    file := thor.open_files[0]
+    thor_drain_io(thor)
+    testing.expect(t, file.loaded, "load did not complete")
+
+    // What a landed classification, highlight pass and fold pass leave behind,
+    // all stamped with the revision the buffer is on now.
+    append(&file.semantic, lang.Semantic_Token{0, 5, .Type})
+    file.semantic_source = strings.clone(textedit.text(&file.state))
+    file.semantic_revision = file.state.revision
+    file.semantic_ready = true
+    file.highlighted = true
+    file.highlight_revision = file.state.revision
+    file.folds_ready = true
+    file.folds_revision = file.state.revision
+
+    rewrite_err := os.write_entire_file(TEST_PATH, transmute([]u8) string("beta :: 2\n"))
+    testing.expect(t, rewrite_err == nil, "could not rewrite test file")
+    thor_reload_file(thor, file)
+    thor_drain_io(thor)
+    testing.expect_value(t, textedit.text(&file.state), "beta :: 2\n")
+
+    testing.expect(t, len(file.semantic) == 0, "the old text's classification survived the reload")
+    testing.expect(t, !file.semantic_ready, "a kept overlay reads as fresh and is never re-asked")
+    testing.expect_value(t, file.semantic_source, "")
+    testing.expect(t, !file.highlighted, "the old text's highlight spans survived the reload")
+    testing.expect(t, !file.folds_ready, "the old text's folds survived the reload")
+
+    thor_close_file(thor, 0)
+}
+
+// One classification runs at a time, and the slot that paces them is keyed on a
+// request id. A cancelled result never reaches its handler — a workspace switch,
+// a server restart or a feature toggle drops it — so without this the slot is
+// held for the life of the process and no file is ever classified again.
+@(test)
+test_semantic_slot_recovers_from_a_lost_result :: proc(t: ^testing.T) {
+    thor := test_make_thor()
+    defer test_free_thor(thor)
+
+    // The shape a cancel leaves: an id the Manager no longer knows.
+    thor.semantic_request_id = 4242
+    thor.semantic_path = strings.clone("a.odin")
+    thor.semantic_source = strings.clone("alpha :: 1\n")
+
+    thor_update_files(thor)
+
+    testing.expect_value(t, thor.semantic_request_id, u64(0))
+    testing.expect_value(t, thor.semantic_path, "")
+    testing.expect_value(t, thor.semantic_source, "")
 }

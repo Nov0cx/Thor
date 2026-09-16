@@ -793,3 +793,87 @@ test_debounce_slots_are_per_kind :: proc(t: ^testing.T) {
     delivered := drain_manager(&m)
     testing.expectf(t, delivered == 1, "expected only the Signature_Help result (got %d)", delivered)
 }
+
+// A host that keys one result slot on a request id has no way to tell a request
+// still coming from one that was cancelled — a cancelled result is freed before
+// the handler — so the Manager answers it. Without this the slot is never
+// released and every later request of that kind is refused.
+@(test)
+test_has_request_follows_a_request_through_its_life :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+
+    p := Probe{}
+    manager_register(&m, probe_backend(&p))
+
+    testing.expect(t, !manager_has_request(&m, 0), "id 0 names no request")
+
+    // Debounced: the id is reserved before any worker exists, and the slot holds
+    // it until the flush.
+    pending := manager_request_debounced(&m, .Semantic_Tokens, "a.probe", ".probe", "", 0, 0, "")
+    testing.expect(t, pending != 0, "expected the probe backend to claim .probe")
+    testing.expect(t, manager_has_request(&m, pending), "a pending request is still coming")
+
+    manager_cancel(&m, pending)
+    testing.expect(t, !manager_has_request(&m, pending), "a dropped slot holds nothing")
+
+    // Dispatched: held while the worker runs, released once the job is reaped.
+    id := manager_request(&m, .Semantic_Tokens, "a.probe", ".probe", "", 0, 0, "")
+    testing.expect(t, wait_for(&p.started, 1), "worker never started")
+    testing.expect(t, manager_has_request(&m, id), "a dispatched request is still coming")
+    sync.atomic_store(&p.release, true)
+    drain_manager(&m)
+    testing.expect(t, !manager_has_request(&m, id), "a reaped request is gone")
+}
+
+// The Manager answers a request no backend was left to take. It has to name the
+// revision the caller asked about: a 0 there reads as "classified at revision 0"
+// to a consumer gating on the revision, which on an unedited buffer is true and
+// pins an empty answer forever.
+@(test)
+test_undispatched_result_names_its_request :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+
+    p := Push_Probe{allocator = m.allocator}
+    defer delete(p.queued)
+    defer delete(p.events)
+    manager_register(&m, push_backend(&p))
+
+    id := manager_request_debounced(&m, .Semantic_Tokens, "a.push", ".push", "", 0, 42, "")
+    testing.expect(t, id != 0, "expected the push backend to claim .push")
+
+    // The backend stops answering the kind between the reserve and the flush —
+    // a server that died, a feature switched off.
+    p.unsupported = {.Semantic_Tokens}
+    manager_flush_debounced(&m, force = true)
+
+    got := Undispatched_Probe{}
+    manager_dispatch(&m, &got, record_undispatched)
+    testing.expectf(t, got.seen == 1, "expected exactly one answer (got %d)", got.seen)
+    testing.expect_value(t, got.id, id)
+    testing.expect_value(t, got.revision, u64(42))
+    testing.expect(t, got.undispatched, "an answer no backend computed must say so")
+    testing.expect(t, !got.ok, "nothing ran, so nothing was found")
+}
+
+@(private = "file")
+Undispatched_Probe :: struct {
+    seen:         int,
+    id:           u64,
+    revision:     u64,
+    ok:           bool,
+    undispatched: bool,
+}
+
+@(private = "file")
+record_undispatched :: proc(user: rawptr, res: ^Result) {
+    g := cast(^Undispatched_Probe) user
+    g.seen += 1
+    g.id = res.id
+    g.revision = res.revision
+    g.ok = res.ok
+    g.undispatched = res.undispatched
+}

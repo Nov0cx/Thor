@@ -1132,16 +1132,24 @@ lowest latency.
       **One request at a time**, on top of the 50ms debounce. Nothing is waiting
       on the colours, and holding the slot until the last result lands paces a
       whole-file walk to its own round trip instead of firing one per keystroke.
-      With a split view the two panes take turns across frames.
+      With a split view the two panes take turns across frames. The slot is
+      released again by `thor_update_files` when `lang.manager_has_request` says
+      the Manager has forgotten the id: a cancelled result never reaches the
+      handler, so a drain, a feature toggle or a client rebuild would otherwise
+      hold the slot for the life of the process.
 
-      **A stale overlay is applied, not dropped.** A result is merged even when
-      the buffer has moved past the revision it was computed at: the offsets are
-      then a keystroke or two behind, which is a far smaller lie than flashing
-      the file back to plain syntax colours on every keystroke. The merge clamps
-      them to the source and to the token before them, so a stale pair can never
-      come out overlapping. Shifting the overlay past the edit instead (the
-      `treecache.source_edit` diff already computes exactly that span) is still
-      open; at this cadence it has not looked worth it.
+      **A stale overlay is rebased, not dropped.** A result is merged even when
+      the buffer has moved past the revision it was computed at — flashing the
+      file back to plain syntax colours on every keystroke is worse — but the
+      tokens are put where the text they name now is first. `Open_File` keeps the
+      snapshot each classification ran over, and `thor_rebase_semantic` diffs it
+      against the live buffer with `thor_common_affixes`: a token below the
+      change keeps its offsets, one above it moves by the change in length, and
+      one the change runs through is dropped, since a trimmed token colours part
+      of an identifier. The test is the text, not the revision, because
+      `textedit.set_text` returns the revision to 0 and an equal revision then
+      proves nothing. `thor_semantic_spans` drops a token that overlaps the one
+      before it for the same reason.
 
       **The merge.** `thor_overlay_spans` interleaves two ascending,
       non-overlapping lists into one with the overlay winning — it replaces the

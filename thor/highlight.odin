@@ -21,7 +21,11 @@ thor_highlight_window :: proc(thor: ^Thor, file: ^Open_File) -> (start, end: int
         }
         editor := thor_pane_editor(thor, pane)
         margin := max(editview.editor_visible_row_count(editor), 1)
-        return editview.editor_visible_byte_range(editor, margin)
+        // A pane whose rows are not built yet answers nothing; the other pane
+        // showing the same file may already have them.
+        if s, e, got := editview.editor_visible_byte_range(editor, margin); got {
+            return s, e, true
+        }
     }
     return 0, 0, false
 }
@@ -67,7 +71,7 @@ thor_update_highlights :: proc(thor: ^Thor, file: ^Open_File) {
             color := theme.role_color(thor.theme, span.role)
             append(&grammar, editview.Highlight_Span{span.start, span.end, color})
         }
-        thor_merge_semantic(thor, file, key, grammar[:], win_start, win_end)
+        thor_merge_semantic(thor, file, key, source, grammar[:], win_start, win_end)
     }
 
     file.highlighted = true
@@ -127,14 +131,13 @@ thor_update_folds :: proc(thor: ^Thor, file: ^Open_File) {
 //
 // A kind the language leaves unmapped is dropped rather than colored, which
 // keeps the grammar's answer instead of overruling it with the default
-// foreground. The overlay can be a revision or two behind the buffer, so its
-// offsets are clamped to the source — and to the token before them, since a
-// stale token pair could otherwise overlap — and an empty range is dropped.
+// foreground. A classification behind the buffer is rebased onto it first, so
+// the overlay survives an edit without coloring bytes it never classified.
 @(private)
 thor_merge_semantic :: proc(
     thor: ^Thor,
     file: ^Open_File,
-    key: string,
+    key, source: string,
     grammar: []editview.Highlight_Span,
     win_start, win_end: int,
 ) {
@@ -143,33 +146,82 @@ thor_merge_semantic :: proc(
         return
     }
 
-    roles: [lang.Token_Kind]string
-    colors: [lang.Token_Kind]ui.Color
-    for kind in lang.Token_Kind {
-        roles[kind] = plugin.role_for(&thor.plugins, key, thor_token_capture(kind))
-        colors[kind] = theme.role_color(thor.theme, roles[kind])
+    tokens := file.semantic[:]
+    // The overlay is a keystroke or two behind the buffer: put its tokens where
+    // the text they name now is, rather than merging at offsets that have moved.
+    // Keyed on the text, not the revision, because a reload returns the revision
+    // to 0 and an equal revision would then prove nothing.
+    if file.semantic_source != "" && file.semantic_source != source {
+        moved := make([dynamic]lang.Semantic_Token, 0, len(tokens), context.temp_allocator)
+        thor_rebase_semantic(&moved, tokens, file.semantic_source, source)
+        tokens = moved[:]
     }
 
-    over := make([dynamic]editview.Highlight_Span, 0, len(file.semantic), context.temp_allocator)
-    cut := win_start
-    for token in file.semantic {
-        if roles[token.kind] == "" {
+    colors: [lang.Token_Kind]ui.Color
+    mapped: bit_set[lang.Token_Kind]
+    for kind in lang.Token_Kind {
+        role := plugin.role_for(&thor.plugins, key, thor_token_capture(kind))
+        if role == "" {
             continue
         }
-        // Clipped to the highlighted window: the grammar spans cover only that,
-        // and an overlay reaching outside it would color bytes with no base.
-        if token.end <= win_start || token.start >= win_end {
-            continue
-        }
-        start := clamp(token.start, cut, win_end)
-        end := clamp(token.end, cut, win_end)
-        if start >= end {
-            continue
-        }
-        append(&over, editview.Highlight_Span{start, end, colors[token.kind]})
-        cut = end
+        colors[kind] = theme.role_color(thor.theme, role)
+        mapped += {kind}
     }
+
+    over := make([dynamic]editview.Highlight_Span, 0, len(tokens), context.temp_allocator)
+    thor_semantic_spans(&over, tokens, colors, mapped, win_start, win_end)
     thor_overlay_spans(&file.highlights, grammar, over[:])
+}
+
+// The tokens of `old_text` at their offsets in `new_text`. The two texts differ
+// over one span only — what their common affixes leave — so a token below it
+// keeps its offsets and one above it moves by the change in length. A token the
+// span reaches into is dropped: the bytes it classified are gone, and a trimmed
+// one colors part of a name. Ascending, non-overlapping input stays so.
+@(private)
+thor_rebase_semantic :: proc(
+    out: ^[dynamic]lang.Semantic_Token,
+    tokens: []lang.Semantic_Token,
+    old_text, new_text: string,
+) {
+    prefix, suffix := thor_common_affixes(old_text, new_text)
+    tail := len(old_text) - suffix
+    delta := len(new_text) - len(old_text)
+    for token in tokens {
+        if token.end <= prefix {
+            append(out, token)
+        } else if token.start >= tail {
+            append(out, lang.Semantic_Token{token.start + delta, token.end + delta, token.kind})
+        }
+    }
+}
+
+// The overlay spans for `tokens`: each kind resolved to its color, clipped to
+// the highlighted window, and a token that overlaps the one before it dropped
+// rather than trimmed — a trimmed token colors part of an identifier, which
+// reads as a rendering fault. A kind no role maps is left to the grammar.
+@(private)
+thor_semantic_spans :: proc(
+    out: ^[dynamic]editview.Highlight_Span,
+    tokens: []lang.Semantic_Token,
+    colors: [lang.Token_Kind]ui.Color,
+    mapped: bit_set[lang.Token_Kind],
+    win_start, win_end: int,
+) {
+    // Advanced by every accepted token, even one the window clips away, so the
+    // emitted spans stay ascending and non-overlapping.
+    cut := 0
+    for token in tokens {
+        if token.kind not_in mapped || token.start < cut {
+            continue
+        }
+        cut = token.end
+        start := max(token.start, win_start)
+        end := min(token.end, win_end)
+        if start < end {
+            append(out, editview.Highlight_Span{start, end, colors[token.kind]})
+        }
+    }
 }
 
 // Interleaves two ascending, non-overlapping span lists into one, `over` winning

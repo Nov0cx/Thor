@@ -110,9 +110,8 @@ thor_apply_language_settings :: proc(thor: ^Thor) {
     }
     if .Semantic_Tokens not_in after {
         for file in thor.open_files {
-            clear(&file.semantic)
-            file.semantic_ready = false
-            file.highlighted = false // re-merged by the per-frame highlight pass, now without the overlay
+            // Re-merged by the per-frame highlight pass, now without the overlay.
+            thor_clear_file_semantic(file)
         }
     }
     // The editors are told once per bind whether semantic completion exists, so
@@ -222,9 +221,7 @@ thor_remirror_open_files :: proc(thor: ^Thor) {
         file.lang_revision = 0
         thor_clear_file_diagnostics(file)
         file.diagnostics_revision = 0
-        clear(&file.semantic)
-        file.semantic_ready = false
-        file.highlighted = false
+        thor_clear_file_semantic(file)
         thor_lang_notify(thor, file, .Opened)
     }
 }
@@ -1530,6 +1527,7 @@ thor_render_doc_in_pane :: proc(thor: ^Thor, path, text: string, pane: int) {
         if file.loaded {
             textedit.set_text(&file.state, text)
             file.saved_revision = file.state.revision
+            thor_invalidate_file_derived(file)
         }
         thor.pane_file[pane] = index
         thor_bind_pane(thor, pane)
@@ -1853,14 +1851,19 @@ thor_request_semantic :: proc(thor: ^Thor, file: ^Open_File) {
     thor.semantic_request_id = id
     delete(thor.semantic_path)
     thor.semantic_path = strings.clone(file.path)
+    // What the tokens will be classified over. The merge rebases them onto the
+    // live text through it, since the buffer moves on while this is in flight.
+    delete(thor.semantic_source)
+    thor.semantic_source = strings.clone(source)
 }
 
 // Stores a classification once it lands and marks the file's highlights stale.
 // Looked up by path, since the tab may have closed while the request was in
 // flight. Applied even when the buffer has moved past the revision it was
-// computed at: offsets a keystroke behind beat flashing back to plain syntax
-// colors. An empty result still advances the revision, so a file the analyzer
-// has nothing to say about is not re-asked every frame.
+// computed at — offsets a keystroke behind beat flashing back to plain syntax
+// colors — because the snapshot stored beside it lets the merge rebase them. An
+// empty result still advances the revision, so a file the analyzer has nothing
+// to say about is not re-asked every frame.
 @(private = "file")
 thor_update_semantic :: proc(thor: ^Thor, res: ^lang.Result) {
     if res.id != thor.semantic_request_id {
@@ -1870,11 +1873,18 @@ thor_update_semantic :: proc(thor: ^Thor, res: ^lang.Result) {
     file := thor_open_file_at(thor, thor.semantic_path)
     delete(thor.semantic_path)
     thor.semantic_path = ""
-    if file == nil {
+    source := thor.semantic_source
+    thor.semantic_source = ""
+    // No backend took the request, so nothing was classified. Leaving the file
+    // unanswered is what makes the highlight pass ask again.
+    if file == nil || res.undispatched {
+        delete(source)
         return
     }
     clear(&file.semantic)
     append(&file.semantic, ..res.tokens[:])
+    delete(file.semantic_source)
+    file.semantic_source = source
     file.semantic_revision = res.revision
     file.semantic_ready = true
     file.highlighted = false // re-merged by the per-frame highlight pass

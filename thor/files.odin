@@ -88,12 +88,17 @@ Open_File :: struct {
     indent_time:        f64,
     // What the analyzer proved each identifier to be, layered over the grammar's
     // spans by thor_update_highlights. `semantic_ready` marks a result having
-    // landed at all, since revision 0 is a real revision. Kept at slightly stale
-    // offsets across an edit — dropping it would flash the file back to plain
-    // syntax colors on every keystroke.
+    // landed at all, since revision 0 is a real revision. Kept across an edit —
+    // dropping it would flash the file back to plain syntax colors on every
+    // keystroke — but rebased onto the current text first, so a token never
+    // paints part of an identifier.
     semantic:           [dynamic]lang.Semantic_Token,
     semantic_revision:  u64,
     semantic_ready:     bool,
+    // The buffer text `semantic` was classified over. Owned; empty until a
+    // result lands. thor_rebase_semantic diffs it against the live text to move
+    // the tokens onto it.
+    semantic_source:    string,
     // Document sync for a backend that mirrors the editor's buffers.
     // `lang_open` marks the mirror as started, `lang_revision` the buffer
     // revision it last received. See thor_lang_notify.
@@ -694,6 +699,33 @@ thor_reload_file :: proc(thor: ^Thor, file: ^Open_File, force := false) {
     thor_start_load(thor, file, image = file.is_image, reload = true, force = force)
 }
 
+// Drops the analyzer's classification and the text it was taken over. The
+// highlights go with it: they hold the merged overlay, so leaving them would
+// keep on screen the colors this just took away.
+thor_clear_file_semantic :: proc(file: ^Open_File) {
+    clear(&file.semantic)
+    delete(file.semantic_source)
+    file.semantic_source = ""
+    file.semantic_revision = 0
+    file.semantic_ready = false
+    file.highlighted = false
+}
+
+// Marks everything derived from `file`'s text stale. Every path that replaces a
+// buffer wholesale must call it: textedit.set_text zeroes the revision, so data
+// left behind reads as fresh at revision 0 and is never derived again.
+thor_invalidate_file_derived :: proc(file: ^Open_File) {
+    file.highlighted = false
+    file.highlight_revision = 0
+    file.folds_ready = false
+    file.folds_revision = 0
+    file.indent_ready = false
+    file.indent_revision = 0
+    thor_clear_file_diagnostics(file)
+    file.diagnostics_revision = 0
+    thor_clear_file_semantic(file)
+}
+
 // Applies a reload job's freshly mapped bytes to its open buffer, if they differ
 // from what's shown. Leaves the buffer untouched when the file is unreadable or
 // the disk already matches; a buffer whose unsaved edits the new bytes would
@@ -745,10 +777,7 @@ thor_apply_reload :: proc(thor: ^Thor, job: ^Load_Job) {
     textedit.set_cursors(&file.state, cursors[:])
     file.saved_revision = file.state.revision // set_text zeroed it; stay clean
     file.last_seen_revision = file.state.revision
-    file.highlighted = false // re-highlighted by the per-frame pass
-    file.folds_ready = false // set_text zeroed the revision folds_revision holds
-    thor_clear_file_diagnostics(file)
-    file.diagnostics_revision = 0
+    thor_invalidate_file_derived(file)
     // Re-bind here, not in thor_process_io: only this frame still holds the old
     // text the panes need to keep their view on the same lines.
     if !file.closed {
@@ -834,7 +863,7 @@ thor_rebind_reloaded_panes :: proc(thor: ^Thor, file: ^Open_File, old_text, new_
 // Length of the shared prefix of two texts, and of their shared suffix beyond
 // it: what lies between them is the whole change. Both end on a rune boundary,
 // so a mapped offset never lands inside a rune.
-@(private = "file")
+@(private = "package")
 thor_common_affixes :: proc(old_text, new_text: string) -> (prefix, suffix: int) {
     limit := min(len(old_text), len(new_text))
     for prefix < limit && old_text[prefix] == new_text[prefix] {
@@ -1074,6 +1103,21 @@ thor_update_files :: proc(thor: ^Thor) {
         }
     }
 
+    // The same insurance for the classification slot, which holds one request at
+    // a time for every file. A cancelled result never reaches thor_update_semantic
+    // — a workspace switch, a server restart or a feature toggle drops it — and
+    // the slot would then refuse every later request for the process's life.
+    // Ahead of lang.manager_dispatch in the run loop, so a result reaped this
+    // frame has already cleared the slot through its handler.
+    if thor.semantic_request_id != 0 &&
+       !lang.manager_has_request(&thor.lang_manager, thor.semantic_request_id) {
+        thor.semantic_request_id = 0
+        delete(thor.semantic_path)
+        thor.semantic_path = ""
+        delete(thor.semantic_source)
+        thor.semantic_source = ""
+    }
+
     autosave_delay := time.Duration(setting.autosave_delay_ms(&thor.config)) * time.Millisecond
     for file in thor.open_files {
         if !file.loaded || file.saving {
@@ -1092,11 +1136,9 @@ thor_update_files :: proc(thor: ^Thor) {
         }
     }
 
-    // Keep each visible pane's buffer highlighted (only the two shown files).
-    thor_highlight_pane_file(thor, 0)
-    if thor.split_visible && thor.pane_file[1] != thor.pane_file[0] {
-        thor_highlight_pane_file(thor, 1)
-    }
+    // The highlight pass runs in the pane's own paint, not here: it reads the
+    // visual rows to scope its window, and the rows are rebuilt after this
+    // frame's keystrokes are dispatched.
 
     // Push (or clear, when the buffer moved past the checked revision) each
     // visible pane's diagnostics.
@@ -1115,7 +1157,7 @@ thor_update_files :: proc(thor: ^Thor) {
 // Re-parses the file shown in `pane` if its highlights are missing, stale, or no
 // longer cover what the pane displays — the spans span a window around the view,
 // so scrolling out of it needs a fresh one just as an edit does.
-@(private = "file")
+@(private = "package")
 thor_highlight_pane_file :: proc(thor: ^Thor, pane: int) {
     index := thor.pane_file[pane]
     if index < 0 || index >= len(thor.open_files) {
@@ -1338,6 +1380,7 @@ thor_free_open_file :: proc(file: ^Open_File) {
     delete(file.highlights)
     delete(file.folds)
     delete(file.semantic)
+    delete(file.semantic_source)
     thor_clear_file_diagnostics(file)
     delete(file.diagnostics)
     delete(file.diff_lines)
