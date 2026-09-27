@@ -202,37 +202,51 @@ welcome_recent :: proc(thor: ^Thor) {
             break
         }
         ui.push_id_int(i64(index))
-        it := ui.scope(
-            {
-                key = "row",
-                flags = {.Clickable},
-                props = {
-                    w = ui.Grow(1),
-                    h = ui.Px(WELCOME_RECENT_ROW_H),
-                    dir = .Row,
-                    align = .Center,
-                    gap = {8, 0},
-                    pad = ui.xy(10, 0),
-                    radius = ui.rad(6),
-                    bg = thor.theme.buttons,
-                    cursor = .Pointer,
+
+        // `ui.scope` closes at the end of its own block, so the row needs one:
+        // `pop_id` outside it would leave the id stack short of what the node
+        // recorded, which Loom panics on.
+        it: ui.Interaction
+        {
+            it = ui.scope(
+                {
+                    key = "row",
+                    flags = {.Clickable},
+                    props = {
+                        w = ui.Grow(1),
+                        h = ui.Px(WELCOME_RECENT_ROW_H),
+                        dir = .Row,
+                        align = .Center,
+                        gap = {8, 0},
+                        pad = ui.xy(10, 0),
+                        radius = ui.rad(6),
+                        bg = thor.theme.buttons,
+                        cursor = .Pointer,
+                    },
+                    hover = {bg = thor.theme.active},
                 },
-                hover = {bg = thor.theme.active},
-            },
-        )
-        thor_icon_label(thor, "folder", thor.theme.muted_color)
-        ui.label(
-            filepath.base(path),
-            {key = "name", props = {color = thor.theme.foreground, text_wrap = .None}},
-        )
-        // The name alone reads the same for two folders of one name, so the
-        // whole path rides beside it.
-        ui.label(
-            path,
-            {key = "path", props = {w = ui.Grow(1), color = thor.theme.disabled, text_wrap = .Ellipsis}},
-        )
-        // A long path is cut short above, so the whole one goes in the tip.
-        thor_tip(thor, it.id, path)
+            )
+            thor_icon_label(thor, "folder", thor.theme.muted_color)
+            ui.label(
+                filepath.base(path),
+                {key = "name", props = {color = thor.theme.foreground, text_wrap = .None}},
+            )
+            // The name alone reads the same for two folders of one name, so the
+            // whole path rides beside it.
+            ui.label(
+                path,
+                {
+                    key = "path",
+                    props = {
+                        w = ui.Grow(1),
+                        color = thor.theme.disabled,
+                        text_wrap = .Ellipsis,
+                    },
+                },
+            )
+            // A long path is cut short above, so the whole one goes in the tip.
+            thor_tip(thor, it.id, path)
+        }
         ui.pop_id()
 
         if it.clicked {

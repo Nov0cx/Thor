@@ -1208,42 +1208,66 @@ git_view_history :: proc(thor: ^Thor) {
     for commit, index in v.commits {
         ui.push_id_int(i64(index))
         on := v.commit_sel == index
-        it := ui.scope(
-            {
-                key = "row",
-                flags = {.Clickable},
-                props = {
-                    w = ui.Grow(1),
-                    h = ui.Px(GIT_ROW_H + 8),
-                    dir = .Row,
-                    align = .Center,
-                    gap = {10, 0},
-                    pad = ui.xy(14, 0),
-                    bg = on ? thor.theme.selection_background : nil,
-                    cursor = .Pointer,
+
+        // `ui.scope` closes at the end of its own block, so the row needs one:
+        // `pop_id` outside it would leave the id stack short of what the node
+        // recorded, which Loom panics on.
+        it: ui.Interaction
+        {
+            it = ui.scope(
+                {
+                    key = "row",
+                    flags = {.Clickable},
+                    props = {
+                        w = ui.Grow(1),
+                        h = ui.Px(GIT_ROW_H + 8),
+                        dir = .Row,
+                        align = .Center,
+                        gap = {10, 0},
+                        pad = ui.xy(14, 0),
+                        bg = on ? thor.theme.selection_background : nil,
+                        cursor = .Pointer,
+                    },
+                    hover = {bg = on ? thor.theme.selection_background : thor.theme.buttons},
                 },
-                hover = {bg = on ? thor.theme.selection_background : thor.theme.buttons},
-            },
-        )
-        ui.label(
-            commit.short,
-            {key = "hash", props = {color = thor.theme.accent_color, font = thor.font_mono, text_wrap = .None}},
-        )
-        ui.label(
-            commit.subject,
-            {key = "subject", props = {w = ui.Grow(1), color = thor.theme.foreground, text_wrap = .Ellipsis}},
-        )
-        if commit.refs != "" {
+            )
             ui.label(
-                commit.refs,
-                {key = "refs", props = {color = thor.theme.info_color, text_wrap = .None}},
+                commit.short,
+                {
+                    key = "hash",
+                    props = {
+                        color = thor.theme.accent_color,
+                        font = thor.font_mono,
+                        text_wrap = .None,
+                    },
+                },
+            )
+            ui.label(
+                commit.subject,
+                {
+                    key = "subject",
+                    props = {
+                        w = ui.Grow(1),
+                        color = thor.theme.foreground,
+                        text_wrap = .Ellipsis,
+                    },
+                },
+            )
+            if commit.refs != "" {
+                ui.label(
+                    commit.refs,
+                    {key = "refs", props = {color = thor.theme.info_color, text_wrap = .None}},
+                )
+            }
+            ui.label(
+                commit.author,
+                {key = "author", props = {color = thor.theme.muted_color, text_wrap = .None}},
+            )
+            ui.label(
+                commit.date,
+                {key = "date", props = {color = thor.theme.disabled, text_wrap = .None}},
             )
         }
-        ui.label(
-            commit.author,
-            {key = "author", props = {color = thor.theme.muted_color, text_wrap = .None}},
-        )
-        ui.label(commit.date, {key = "date", props = {color = thor.theme.disabled, text_wrap = .None}})
         ui.pop_id()
 
         if it.clicked {

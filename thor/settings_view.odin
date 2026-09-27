@@ -664,36 +664,42 @@ settings_sidebar :: proc(thor: ^Thor) {
         ui.push_id_int(i64(index))
         on := index == s.selected_category && len(s.search) == 0
 
-        it := ui.scope(
-            {
-                key = "cat",
-                flags = {.Clickable},
-                props = {
-                    w = ui.Grow(1),
-                    h = ui.Px(SETTINGS_CATEGORY_H),
-                    dir = .Row,
-                    align = .Center,
-                    gap = {8, 0},
-                    pad = ui.xy(8, 0),
-                    radius = ui.rad(6),
-                    bg = on ? thor.theme.selection_background : nil,
-                    cursor = .Pointer,
+        // `ui.scope` closes at the end of its own block, so the row needs one:
+        // `pop_id` outside it would leave the id stack short of what the node
+        // recorded, which Loom panics on.
+        it: ui.Interaction
+        {
+            it = ui.scope(
+                {
+                    key = "cat",
+                    flags = {.Clickable},
+                    props = {
+                        w = ui.Grow(1),
+                        h = ui.Px(SETTINGS_CATEGORY_H),
+                        dir = .Row,
+                        align = .Center,
+                        gap = {8, 0},
+                        pad = ui.xy(8, 0),
+                        radius = ui.rad(6),
+                        bg = on ? thor.theme.selection_background : nil,
+                        cursor = .Pointer,
+                    },
+                    hover = {bg = on ? thor.theme.selection_background : thor.theme.buttons},
                 },
-                hover = {bg = on ? thor.theme.selection_background : thor.theme.buttons},
-            },
-        )
-        thor_icon_label(thor, entry.icon, on ? thor.theme.foreground : thor.theme.muted_color)
-        ui.label(
-            entry.label,
-            {
-                key = "label",
-                props = {
-                    w = ui.Grow(1),
-                    color = on ? thor.theme.foreground : thor.theme.muted_color,
-                    text_wrap = .Ellipsis,
+            )
+            thor_icon_label(thor, entry.icon, on ? thor.theme.foreground : thor.theme.muted_color)
+            ui.label(
+                entry.label,
+                {
+                    key = "label",
+                    props = {
+                        w = ui.Grow(1),
+                        color = on ? thor.theme.foreground : thor.theme.muted_color,
+                        text_wrap = .Ellipsis,
+                    },
                 },
-            },
-        )
+            )
+        }
         ui.pop_id()
 
         if it.clicked && (index != s.selected_category || len(s.search) > 0) {

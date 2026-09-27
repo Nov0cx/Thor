@@ -23,6 +23,10 @@
 - Tooltip text sits in the middle of its box, and a tooltip too long for one line grows to hold every line of it.
 - The status bar shows all its segments again: git branch, file name, save state, analyzer work, the relative jump being typed, notices, caret position, zoom, line endings, encoding, indentation and language. Click the line-ending segment to switch between `LF` and `CRLF`.
 - The Odin formatter follows Odin's new `asm` template syntax. A file holding an `asm` block refused to format, because the block no longer parsed.
+- Opening Settings no longer crashes the editor, and neither does the git panel's History view.
+- The welcome page lists its recent folders again. It panicked on its first frame whenever one was listed, so closing the workspace left Thor unable to start at all.
+- Dialogs are centred over a dimmed backdrop again. The command palette, quick open, the theme picker, the git panel, Settings, the theme editor, the colour picker and the plugin permission prompt drew in the top-left corner of the window with nothing behind them, and the git panel covered the menu bar.
+- A click outside a dialog closes it again: the titlebar menus, the git panel, Settings, the theme editor and the colour picker. Their backdrop had no size to click on.
 
 # 2026.08.8
 
