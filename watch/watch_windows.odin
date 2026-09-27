@@ -156,10 +156,10 @@ watch_parse :: proc(w: ^Watcher, data: []u8) {
     for offset < len(data) {
         info := cast(^win32.FILE_NOTIFY_INFORMATION) raw_data(data[offset:])
 
-        // file_name is a WCHAR run of file_name_length bytes, reported relative to
+        // FileName is a WCHAR run of FileNameLength bytes, reported relative to
         // the watched root and already using backslash separators.
-        name_wchars := int(info.file_name_length) / size_of(win32.WCHAR)
-        name_ptr := cast([^]u16) &info.file_name
+        name_wchars := int(info.FileNameLength) / size_of(win32.WCHAR)
+        name_ptr := cast([^]u16) &info.FileName
         rel, conv_err := win32.utf16_to_utf8(name_ptr[:name_wchars], context.temp_allocator)
         // One recursive handle covers the whole tree, so a dependency tree or
         // git's object store is filtered per event here. The other platforms
@@ -167,7 +167,7 @@ watch_parse :: proc(w: ^Watcher, data: []u8) {
         if conv_err == nil && rel != "" && !scan_skip_rel(w.root, rel) {
             path := strings.concatenate({w.root, "\\", rel}, context.temp_allocator)
             kind: Change_Kind
-            switch info.action {
+            switch info.Action {
             case win32.FILE_ACTION_ADDED, win32.FILE_ACTION_RENAMED_NEW_NAME:
                 kind = .Created
             case win32.FILE_ACTION_REMOVED, win32.FILE_ACTION_RENAMED_OLD_NAME:
@@ -178,9 +178,9 @@ watch_parse :: proc(w: ^Watcher, data: []u8) {
             watch_emit(w, kind, path)
         }
 
-        if info.next_entry_offset == 0 {
+        if info.NextEntryOffset == 0 {
             break
         }
-        offset += int(info.next_entry_offset)
+        offset += int(info.NextEntryOffset)
     }
 }

@@ -432,6 +432,73 @@ test_character_width_zero :: proc(t: ^testing.T) {
     testing.expect(t, strings.contains(out, "g(a, b)"), out)
 }
 
+@(test)
+test_asm_template_round_trip :: proc(t: ^testing.T) {
+    src := `package p
+
+f :: proc() -> int {
+	g := asm(a: int, b: int) -> (int) [x: int = %rax, y -> x, #volatile, #clobber %rcx] {
+		mov %rax, [%rsp + 0x8]
+		lea %r10, [%rsp + %rcx*8 - 0x10]
+		mov [%gs:0x10]:u8, 0x0
+		test %flags.z
+		push {%r0..=%r7}
+		pop {%r0, %r1}
+		jnb .end
+	.loop:
+		jnz .loop
+	.end:
+		#align 16
+		ret
+	}(1, 2)
+	return g
+}
+`
+    out, ok := format(src, default_options())
+    defer delete(out)
+    testing.expect(t, ok, out)
+    before := token_stream(src)
+    defer delete(before)
+    after := token_stream(out)
+    defer delete(after)
+    if len(before) != len(after) {
+        fmt.println("ASM TOKEN COUNT MISMATCH: before:", len(before), "after:", len(after), "\n", out)
+        testing.fail(t)
+        return
+    }
+    for i in 0 ..< len(before) {
+        if before[i].kind != after[i].kind || before[i].text != after[i].text {
+            fmt.println("ASM TOKEN MISMATCH at", i, "before:", before[i], "after:", after[i], "\n", out)
+            testing.fail(t)
+            return
+        }
+    }
+    out2, ok2 := format(out, default_options())
+    defer delete(out2)
+    testing.expect(t, ok2)
+    testing.expect_value(t, out2, out)
+}
+
+@(test)
+test_asm_body_keeps_comments :: proc(t: ^testing.T) {
+    src := `package p
+
+f :: proc() {
+	asm() {
+		// touch the guard page
+		mov %rax, 0x1 // the first one
+		ret
+	}()
+}
+`
+    out, ok := format(src, default_options())
+    defer delete(out)
+    testing.expect(t, ok, out)
+    testing.expect(t, strings.contains(out, "// touch the guard page"), out)
+    testing.expect(t, strings.contains(out, "mov %rax, 0x1"), out)
+    testing.expect(t, strings.contains(out, "// the first one"), out)
+}
+
 @(private)
 token_stream :: proc(src: string) -> [dynamic]tokenizer.Token {
     t: tokenizer.Tokenizer

@@ -22,6 +22,7 @@
 - Tooltips are back on the titlebar menus, the task controls, the update button, the window buttons, the welcome page, the editor tabs and their close buttons, the explorer rows, the recent folders, the tip of the day and the git panel, each with its keybind on a second line.
 - Tooltip text sits in the middle of its box, and a tooltip too long for one line grows to hold every line of it.
 - The status bar shows all its segments again: git branch, file name, save state, analyzer work, the relative jump being typed, notices, caret position, zoom, line endings, encoding, indentation and language. Click the line-ending segment to switch between `LF` and `CRLF`.
+- The Odin formatter follows Odin's new `asm` template syntax. A file holding an `asm` block refused to format, because the block no longer parsed.
 
 # 2026.08.8
 

@@ -209,8 +209,20 @@ print_expr :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: ^ast.Expr) {
         append(out, text(" "))
         print_expr(pr, out, e.expr)
 
-    case ^ast.Inline_Asm_Expr:
-        print_inline_asm(pr, out, e)
+    case ^ast.Asm_Template:
+        print_asm_template(pr, out, e)
+
+    case ^ast.Asm_Register:
+        print_asm_register(pr, out, e)
+
+    case ^ast.Asm_Label:
+        print_asm_label(pr, out, e)
+
+    case ^ast.Asm_Memory_Operand:
+        print_asm_memory_operand(pr, out, e)
+
+    case ^ast.Asm_Register_Group:
+        print_asm_register_group(pr, out, e)
 
     case ^ast.Proc_Group:
         append(out, text("proc"))
@@ -419,38 +431,6 @@ print_call_expr :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: ^ast.Call_Expr) {
 }
 
 @(private)
-print_inline_asm :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: ^ast.Inline_Asm_Expr) {
-    append(out, text("asm"))
-    if len(e.param_types) > 0 {
-        append(out, text("("))
-        print_expr_list(pr, out, e.param_types)
-        append(out, text(")"))
-    }
-    if e.return_type != nil {
-        append(out, text(" -> "))
-        print_expr(pr, out, e.return_type)
-    }
-    if e.has_side_effects {
-        append(out, text(" #side_effects"))
-    }
-    if e.is_align_stack {
-        append(out, text(" #align_stack"))
-    }
-    switch e.dialect {
-    case .Default:
-    case .ATT:
-        append(out, text(" #att"))
-    case .Intel:
-        append(out, text(" #intel"))
-    }
-    append(out, text(" {"))
-    print_expr(pr, out, e.constraints_string)
-    append(out, text(", "))
-    print_expr(pr, out, e.asm_string)
-    append(out, text("}"))
-}
-
-@(private)
 print_proc_tags :: proc(pr: ^Printer, out: ^[dynamic]Doc, tags: ast.Proc_Tags) {
     if .Bounds_Check in tags {
         append(out, text(" #bounds_check"))
@@ -481,6 +461,21 @@ print_proc_type_head :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: ^ast.Proc_Type
         append(out, text(cc))
     }
     append_field_list_group(pr, out, "(", ")", e.params)
+    print_signature_results(pr, out, e)
+}
+
+// The `-> ...` half of a signature, shared with the `asm` template — a lone
+// unnamed result keeps its bare form, every other list is parenthesised.
+// parenthesise_single keeps the parentheses of a lone unnamed result for an
+// `asm` template that carries a specification list: `-> int [` re-parses as a
+// slice of the result type, `-> (int) [` does not.
+@(private)
+print_signature_results :: proc(
+    pr: ^Printer,
+    out: ^[dynamic]Doc,
+    e: ^ast.Proc_Type,
+    parenthesise_single := false,
+) {
     if e.diverging {
         append(out, text(" -> !"))
         return
@@ -490,7 +485,7 @@ print_proc_type_head :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: ^ast.Proc_Type
     }
     append(out, text(" -> "))
     single_unnamed := len(e.results.list) == 1 && len(e.results.list[0].names) == 0
-    if single_unnamed {
+    if single_unnamed && !parenthesise_single {
         print_field(pr, out, e.results.list[0])
         return
     }

@@ -611,6 +611,23 @@ print_stmt :: proc(pr: ^Printer, out: ^[dynamic]Doc, stmt: ^ast.Stmt) {
         append(out, text("using "))
         print_expr_list(pr, out, s.list)
 
+    case ^ast.Asm_Instruction:
+        print_asm_instruction(pr, out, s)
+
+    case ^ast.Asm_Label_Decl:
+        print_asm_label_decl(pr, out, s)
+
+    case ^ast.Asm_Directive:
+        print_asm_directive(pr, out, s)
+
+    // Only ever reached through print_asm_template's specification list, never
+    // as a statement of a body.
+    case ^ast.Asm_Spec:
+        print_asm_spec(pr, out, s)
+
+    case ^ast.Asm_Clobber:
+        print_asm_clobber(pr, out, s)
+
     case ^ast.Bad_Decl:
     // Unreachable: format() refuses any source with a parse error.
 
