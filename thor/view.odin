@@ -47,6 +47,9 @@ Status_Info :: struct {
 // One editor tab.
 Tab_Info :: struct {
     name:     string,
+    // The file's own path; `name` is the disambiguated label, so the icon reads
+    // the type from here. Borrowed.
+    path:     string,
     tooltip:  string,
     modified: bool,
     loading:  bool,
@@ -577,15 +580,15 @@ thor_tabbar :: proc(thor: ^Thor) {
                 hover = {bg = thor.theme.buttons},
             },
         )
-        ui.label(
-            info.name,
-            {
-                props = {
-                    color = on ? thor.theme.foreground : thor.theme.muted_color,
-                    text_wrap = .None,
-                },
-            },
-        )
+        // The icon takes the language's vendor colour, as the explorer's does;
+        // an unknown type follows the tab's own text, so an inactive tab dims
+        // whole.
+        text := on ? thor.theme.foreground : thor.theme.muted_color
+        base := thor_file_base(info.path)
+        thor_icon_label(thor, thor_file_icon(base), thor_file_icon_tint(base, text), 14, "ficon")
+        // Ellipsis, not None: a full strip squeezes every tab, and a label that
+        // cannot shrink runs under its own close button.
+        ui.label(info.name, {props = {color = text, text_wrap = .Ellipsis}})
         if info.modified {
             ui.leaf(
                 {

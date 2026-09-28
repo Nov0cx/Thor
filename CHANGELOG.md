@@ -47,6 +47,11 @@
 - A tooltip sits under the control it explains and draws over an open menu or dialog. A titlebar tooltip landed wherever the pointer was and disappeared behind the menu it described.
 - Help > Tutorial writes its documents to `user/plugins/tutorial/` beside the binary. They landed in the open project's `.thor/`, which made every repository dirty.
 - New plugin call `thor.data_path(name)`: the path of `name` in the plugin's own `user/plugins/<id>/` folder, for state that must outlive a workspace switch.
+- Quick open reads name first: the file type's icon, the file name, then its folder dim beside it. Every row used to be one dim path.
+- File tabs carry the file type's icon in the language's colour, as the explorer's rows do. A tab squeezed by a full strip now shortens its name with an ellipsis instead of drawing it under its own close button.
+- Menu rows show their keyboard chord, the one the command palette shows for the same command. Rebinding it in Settings changes both.
+- The find bar opens at the top right of the editor pane it searches. It opened at the left edge of the window, over the explorer.
+- The text cursor in a search box, a prompt and every other input is as tall as the letters beside it. It was as tall as the whole line.
 
 # 2026.08.8
 

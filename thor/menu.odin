@@ -8,11 +8,14 @@ import ui "../vendor/loom/loom"
 MENU_MIN_W :: f32(180)
 MENU_ROW_H :: f32(26)
 
-// One row. `title` and `shortcut` are borrowed: every opener passes a literal,
-// and the list is rebuilt on the next open.
+// One row. `title`, `shortcut` and `action` are borrowed: every opener passes a
+// literal, and the list is rebuilt on the next open. `action` is the keybinds
+// name the row's chord comes from; the view resolves it, since a chord string
+// answers from the temp allocator and an item outlives the frame.
 Menu_Item :: struct {
     title:     string,
     shortcut:  string,
+    action:    string,
     run:       proc(data: rawptr),
     data:      rawptr,
     enabled:   bool,
@@ -44,6 +47,7 @@ thor_menu_add :: proc(
     run: proc(data: rawptr),
     data: rawptr,
     enabled := true,
+    action := "",
     shortcut := "",
 ) {
     append(
@@ -51,6 +55,7 @@ thor_menu_add :: proc(
         Menu_Item {
             title = title,
             shortcut = shortcut,
+            action = action,
             run = run,
             data = data,
             enabled = enabled,
@@ -214,11 +219,12 @@ menu_row :: proc(thor: ^Thor, item: Menu_Item) -> bool {
             },
         },
     )
-    if item.shortcut != "" {
-        ui.label(
-            item.shortcut,
-            {key = "sc", props = {color = thor.theme.disabled, text_wrap = .None}},
-        )
+    chord := item.shortcut
+    if chord == "" {
+        chord = thor_action_shortcut(thor, item.action)
+    }
+    if chord != "" {
+        ui.label(chord, {key = "sc", props = {color = thor.theme.disabled, text_wrap = .None}})
     }
     return item.enabled && it.clicked
 }

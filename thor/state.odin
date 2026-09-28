@@ -460,6 +460,7 @@ thor_tab_info :: proc(data: rawptr, index: int) -> Tab_Info {
     file := thor.open_files[index]
     return Tab_Info {
         name = len(file.tab_label) > 0 ? file.tab_label : file.name,
+        path = file.path,
         tooltip = file.path,
         modified = file.loaded && file.state.revision != file.saved_revision,
         loading = !thor_file_ready(file) && !file.load_failed,

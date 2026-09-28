@@ -12,6 +12,8 @@ import ui "../vendor/loom/loom"
 
 FIND_WIDTH :: f32(520)
 FIND_TOP :: f32(90)
+// Inset from the top right corner of the pane the bar searches.
+FIND_GAP :: f32(12)
 
 Find_Replace :: struct {
     // The pane the bar searches. Borrowed; re-taken on every open.
@@ -201,15 +203,25 @@ thor_find_view :: proc(thor: ^Thor) {
     f := &thor.find
     find_sync(f)
 
+    // Top right of the pane it searches, never over the explorer. The rect is
+    // zero until that pane has been laid out once, which is what the fallback
+    // to the window is for.
+    x, y, width := f32(0), FIND_TOP, FIND_WIDTH
+    if f.editor != nil && f.editor.view.w > FIND_GAP * 2 {
+        pane := f.editor.view
+        width = min(FIND_WIDTH, pane.w - FIND_GAP * 2)
+        x = pane.x + pane.w - width - FIND_GAP
+        y = pane.y + FIND_GAP
+    }
+
     ui.scope(
         {
             key = "find",
             flags = {.Floating, .Clickable},
             props = {
                 position = .Fixed,
-                inset = {t = FIND_TOP},
-                w = ui.Px(FIND_WIDTH),
-                max_w = ui.viewport().x - 40,
+                inset = {l = x, t = y},
+                w = ui.Px(width),
                 h = ui.FIT,
                 dir = .Column,
                 gap = {0, 6},

@@ -805,7 +805,7 @@ palette_row :: proc(thor: ^Thor, index: int) -> bool {
 
     if p.mode == .Pick && p.pick_rich {
         item := p.pick_items[source]
-        spans := palette_rich_spans(item, query, mark)
+        spans := palette_split_spans(item.text, item.name_len, item.color, query, mark)
         ui.leaf(
             {
                 key = "text",
@@ -822,16 +822,34 @@ palette_row :: proc(thor: ^Thor, index: int) -> bool {
     }
 
     label := palette_display(thor, source)
+    base := on ? thor.theme.foreground : thor.theme.muted_color
+    name_len := 0
+
+    // A file reads name first, with its folder dim beside it, behind the icon of
+    // its type. One text node, so the marks keep one byte space over both halves.
+    if p.mode == .Files {
+        name := thor_file_base(label)
+        name_len = len(name)
+        if dir := label[:len(label) - name_len]; dir != "" {
+            label = strings.concatenate({name, "  ", dir}, context.temp_allocator)
+        }
+        base = thor.theme.muted_color
+        thor_icon_label(thor, thor_file_icon(name), thor_file_icon_tint(name, base), 14)
+    }
+
+    spans: []ui.Text_Span
+    if name_len > 0 {
+        spans = palette_split_spans(label, name_len, thor.theme.foreground, query, mark)
+    } else {
+        spans = palette_match_spans(query, label, mark)
+    }
+
     ui.label(
         label,
         {
             key = "text",
-            spans = palette_match_spans(query, label, mark),
-            props = {
-                w = ui.Grow(1),
-                color = on ? thor.theme.foreground : thor.theme.muted_color,
-                text_wrap = .Ellipsis,
-            },
+            spans = spans,
+            props = {w = ui.Grow(1), color = base, text_wrap = .Ellipsis},
         },
     )
     if p.mode == .Commands {
@@ -934,19 +952,25 @@ palette_match_spans :: proc(query, text: string, color: ui.Color) -> []ui.Text_S
     return runs[:]
 }
 
-// A rich pick row's colour runs: the name in the item's own colour, the matched
-// characters marked over both halves. Sorted and non-overlapping, as
-// ui.Text_Span asks. Temp-allocated.
+// Colour runs for a two-part row: the leading `name_len` bytes in `color` over
+// the node's own dim colour, the matched characters marked over both halves.
+// Sorted and non-overlapping, as ui.Text_Span asks. Temp-allocated.
 @(private = "file")
-palette_rich_spans :: proc(item: Pick_Item, query: string, mark: ui.Color) -> []ui.Text_Span {
-    name_end := clamp(item.name_len, 0, len(item.text))
-    marks := palette_match_spans(query, item.text, mark)
+palette_split_spans :: proc(
+    text: string,
+    name_len: int,
+    color: ui.Color,
+    query: string,
+    mark: ui.Color,
+) -> []ui.Text_Span {
+    name_end := clamp(name_len, 0, len(text))
+    marks := palette_match_spans(query, text, mark)
     if len(marks) == 0 {
         if name_end <= 0 {
             return nil
         }
         runs := make([]ui.Text_Span, 1, context.temp_allocator)
-        runs[0] = {start = 0, end = name_end, color = item.color}
+        runs[0] = {start = 0, end = name_end, color = color}
         return runs
     }
 
@@ -954,13 +978,13 @@ palette_rich_spans :: proc(item: Pick_Item, query: string, mark: ui.Color) -> []
     at := 0
     for m in marks {
         if at < m.start && at < name_end {
-            append(&runs, ui.Text_Span{start = at, end = min(m.start, name_end), color = item.color})
+            append(&runs, ui.Text_Span{start = at, end = min(m.start, name_end), color = color})
         }
         append(&runs, m)
         at = m.end
     }
     if at < name_end {
-        append(&runs, ui.Text_Span{start = at, end = name_end, color = item.color})
+        append(&runs, ui.Text_Span{start = at, end = name_end, color = color})
     }
     return runs[:]
 }

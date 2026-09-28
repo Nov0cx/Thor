@@ -51,19 +51,21 @@ site in `thor/` and `editview/` is balanced.
 
 ## P2 — defects and polish
 
-- [ ] A directory can open as an editor tab. A restored session opened the `sessions` folder,
+- [x] A directory can open as an editor tab. A restored session opened the `sessions` folder,
       logged `Failed to load` (`thor/files.odin:1264`) and left a blank tab that survives a
       restart. Refuse a directory at open and drop one from a restored session.
-- [ ] Help > Tutorial writes `.thor/tutorial/tutorial.md`, which git tracks, so the tutorial always
+- [x] Help > Tutorial writes `.thor/tutorial/tutorial.md`, which git tracks, so the tutorial always
       makes the repository dirty. Its live copy belongs in `user/`.
-- [ ] A titlebar tooltip draws inside the tab strip and an open menu covers it.
-- [ ] The palette and quick open do not mark the matched characters, so a weak match reads like a
+- [x] A titlebar tooltip draws inside the tab strip and an open menu covers it.
+- [x] The palette and quick open do not mark the matched characters, so a weak match reads like a
       strong one.
-- [ ] Quick open prints one dim relative path per row: no name-first split, no file icon.
-- [ ] Tabs carry no file-type icon. The explorer does.
-- [ ] Menu items show no chord. The palette shows one for the same command.
-- [ ] The find bar opens at the window's left edge, over the explorer, not over the editor pane it
+- [x] Quick open prints one dim relative path per row: no name-first split, no file icon.
+- [x] Tabs carry no file-type icon. The explorer does.
+- [x] Menu items show no chord. The palette shows one for the same command.
+- [x] The find bar opens at the window's left edge, over the explorer, not over the editor pane it
       searches (`thor/find.odin:209` sets only `inset = {t = FIND_TOP}`).
+- [x] The text cursor in an input is the whole line box, so it reads long beside the glyphs. The
+      editor's own caret is the em box (`thor/view.odin:1173`); Loom's input caret now matches.
 - [ ] The editor has no indent guides and the explorer has no tree guides.
 - [ ] The gutter's relative line numbers have no setting. They feed the `alt + <digit>` jump, but
       there is no way to ask for absolute numbers.
