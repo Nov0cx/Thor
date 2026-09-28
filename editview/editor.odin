@@ -2229,35 +2229,29 @@ editor_parse_hex_color :: proc(digits: string) -> (ui.Color, bool) {
 }
 
 // Padding kept on each side of a swatch inside its reserved gap.
-@(private = "file")
 SWATCH_PAD :: 3
 
 // Fraction of the character height a swatch fills; the rest is top/bottom
-// padding so the square sits centered with air around it, like VS Code.
-@(private = "file")
+// padding so the square sits centered with air around it, like a code editor's.
 SWATCH_SCALE :: 0.7
 
 // Upper bound on swatches tracked per visual row; extras beyond it are ignored.
-@(private = "file")
 MAX_ROW_SWATCHES :: 64
 
 // One hex color found in a row, in row-relative bytes. `anchor` is where the
 // reserved gap opens (before the literal and any opening quote).
-@(private = "file")
 Row_Swatch :: struct {
     anchor: int,
     color:  ui.Color,
 }
 
 // Width reserved for one swatch: the square plus padding on both sides.
-@(private = "file")
 editor_swatch_span :: proc(editor: ^Editor) -> f32 {
     return cast(f32) editor.font_size * SWATCH_SCALE + 2 * SWATCH_PAD
 }
 
 // Finds every hex color literal in `s` (a row's text), recording its color and
 // the byte at which its reserved gap opens. Returns how many were written.
-@(private = "file")
 editor_scan_swatches :: proc(s: string, out: []Row_Swatch) -> int {
     count := 0
     i := 0

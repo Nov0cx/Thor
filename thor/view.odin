@@ -717,12 +717,17 @@ thor_editor_pane :: proc(thor: ^Thor, editor: ^editview.Editor, pane: int, key: 
         if row.end > len(text) || row.start > row.end {
             break
         }
+        row_text := text[row.start:row.end]
+        buffer: [editview.MAX_ROW_SWATCHES]editview.Row_Swatch
+        swatches := thor_row_swatches(row_text, buffer[:])
+        spans := thor_row_spans(editor, row_text, row.start, row.end, swatches)
+
         ui.push_id_int(i64(index))
         ui.leaf(
             {
                 key = "row",
-                text = text[row.start:row.end],
-                spans = thor_row_spans(editor, row.start, row.end),
+                text = row_text,
+                spans = spans,
                 props = {
                     position = .Absolute,
                     inset = {text_x, f32(index) * line_h - editor.scroll_y, 0, 0},
@@ -738,14 +743,20 @@ thor_editor_pane :: proc(thor: ^Thor, editor: ^editview.Editor, pane: int, key: 
         )
         ui.pop_id()
 
+        row_y := f32(index) * line_h - editor.scroll_y
+        for swatch in swatches {
+            gap_end := text_x + thor_row_x(editor, text, row.start, row.end, row.start + swatch.anchor, spans)
+            thor_paint_swatch(editor, swatch.color, gap_end, row_y)
+        }
+
         // On the last visual row of a collapsed start line, a pill stands in for
         // the hidden body.
         if editor.folded[row.line] {
             if _, foldable := editor.foldable[row.line]; foldable {
                 tail := index + 1 >= len(rows) || rows[index + 1].line != row.line
                 if tail {
-                    x := text_x + thor_row_x(editor, text, row.start, row.end)
-                    thor_paint_fold_marker(thor, editor, x, f32(index) * line_h - editor.scroll_y)
+                    x := text_x + thor_row_x(editor, text, row.start, row.end, row.end, spans)
+                    thor_paint_fold_marker(thor, editor, x, row_y)
                 }
             }
         }
@@ -824,13 +835,31 @@ thor_editor_intents :: proc(thor: ^Thor, editor: ^editview.Editor, it: ui.Intera
     }
 }
 
-// The syntax spans that fall inside one row, rebased to the row's first byte.
-@(private = "file")
-thor_row_spans :: proc(editor: ^editview.Editor, start, end: int) -> []ui.Text_Span {
-    if len(editor.highlights) == 0 || end <= start {
+// The syntax spans that fall inside one row, rebased to the row's first byte,
+// with a hex literal's swatch gap merged in as a span `lead`. A highlight that
+// covers an anchor is split there, and an anchor no highlight covers rides on a
+// zero-length span, so the run builder stops at every gap.
+thor_row_spans :: proc(
+    editor: ^editview.Editor,
+    row_text: string,
+    start, end: int,
+    swatches: []editview.Row_Swatch,
+) -> []ui.Text_Span {
+    if end <= start {
         return nil
     }
+    gap := editview.editor_swatch_span(editor)
     out := make([dynamic]ui.Text_Span, 0, 16, context.temp_allocator)
+
+    at := 0
+    take_lead :: proc(swatches: []editview.Row_Swatch, at: ^int, anchor: int, gap: f32) -> f32 {
+        if at^ < len(swatches) && swatches[at^].anchor == anchor {
+            at^ += 1
+            return gap
+        }
+        return 0
+    }
+
     for h in editor.highlights {
         if h.end <= start {
             continue
@@ -838,16 +867,52 @@ thor_row_spans :: proc(editor: ^editview.Editor, start, end: int) -> []ui.Text_S
         if h.start >= end {
             break
         }
-        append(
-            &out,
-            ui.Text_Span {
-                start = max(h.start, start) - start,
-                end = min(h.end, end) - start,
-                color = h.color,
-            },
-        )
+        lo := max(h.start, start) - start
+        hi := min(h.end, end) - start
+
+        // Anchors before this highlight carry their gap on their own.
+        for at < len(swatches) && swatches[at].anchor < lo {
+            append(&out, ui.Text_Span{start = swatches[at].anchor, end = swatches[at].anchor, lead = gap})
+            at += 1
+        }
+
+        piece := lo
+        lead := take_lead(swatches, &at, lo, gap)
+        for at < len(swatches) && swatches[at].anchor < hi {
+            append(&out, ui.Text_Span{start = piece, end = swatches[at].anchor, color = h.color, lead = lead})
+            piece = swatches[at].anchor
+            lead = gap
+            at += 1
+        }
+        append(&out, ui.Text_Span{start = piece, end = hi, color = h.color, lead = lead})
+    }
+
+    for ; at < len(swatches); at += 1 {
+        append(&out, ui.Text_Span{start = swatches[at].anchor, end = swatches[at].anchor, lead = gap})
+    }
+    if len(out) == 0 {
+        return nil
     }
     return out[:]
+}
+
+// The swatches of one row, scanned into `out` and returned as the prefix used.
+thor_row_swatches :: proc(row_text: string, out: []editview.Row_Swatch) -> []editview.Row_Swatch {
+    return out[:editview.editor_scan_swatches(row_text, out)]
+}
+
+// The filled square inside a swatch's reserved gap. `x` is the pen the gap
+// closes at, which is what the spans put the following text at.
+@(private = "file")
+thor_paint_swatch :: proc(editor: ^editview.Editor, color: ui.Color, x, row_y: f32) {
+    size := f32(editor.font_size) * editview.SWATCH_SCALE
+    left := x - size - editview.SWATCH_PAD
+    top := row_y + render.half_leading(f32(editor.font_size)) + (f32(editor.font_size) - size) * 0.5
+    ui.paint_rect({left, top, size, size}, color, {}, true)
+    ui.paint_rect({left, top, size, 1}, {0, 0, 0, 140}, {}, true)
+    ui.paint_rect({left, top + size - 1, size, 1}, {0, 0, 0, 140}, {}, true)
+    ui.paint_rect({left, top, 1, size}, {0, 0, 0, 140}, {}, true)
+    ui.paint_rect({left + size - 1, top, 1, size}, {0, 0, 0, 140}, {}, true)
 }
 
 @(private = "file")
@@ -993,8 +1058,8 @@ thor_paint_diagnostics :: proc(
             if lo >= hi {
                 continue
             }
-            x0 := text_x + thor_row_x(editor, text, row.start, lo)
-            x1 := text_x + thor_row_x(editor, text, row.start, hi)
+            x0 := text_x + thor_row_x(editor, text, row.start, row.end, lo)
+            x1 := text_x + thor_row_x(editor, text, row.start, row.end, hi)
             color := d.severity == .Error ? thor.theme.error_color : thor.theme.warning_color
             thor_paint_squiggle(x0, x1, y, color)
         }
@@ -1043,8 +1108,8 @@ thor_paint_selections :: proc(
             if b <= a {
                 continue
             }
-            x0 := thor_row_x(editor, text, row.start, a)
-            x1 := thor_row_x(editor, text, row.start, b)
+            x0 := thor_row_x(editor, text, row.start, row.end, a)
+            x1 := thor_row_x(editor, text, row.start, row.end, b)
             ui.paint_rect(
                 {
                     text_x + x0,
@@ -1076,7 +1141,7 @@ thor_paint_carets :: proc(
             if cursor.caret < row.start || cursor.caret > row.end {
                 continue
             }
-            x := thor_row_x(editor, text, row.start, cursor.caret)
+            x := thor_row_x(editor, text, row.start, row.end, cursor.caret)
             ui.paint_rect(
                 {
                     text_x + x,
@@ -1093,13 +1158,34 @@ thor_paint_carets :: proc(
     }
 }
 
-// Pen x of byte `at` inside the row that starts at `row_start`.
+// Pen x of byte `at` inside the row [row_start, row_end), including the gaps the
+// row's swatches reserve before it — the same gaps the row's spans put in the
+// laid-out text, so a caret, a selection and a squiggle all land on the glyphs.
+// A caller that already built the spans passes them instead of a second scan.
 @(private = "file")
-thor_row_x :: proc(editor: ^editview.Editor, text: string, row_start, at: int) -> f32 {
-    if at <= row_start || row_start >= len(text) || at > len(text) {
-        return 0
+thor_row_x :: proc(
+    editor: ^editview.Editor,
+    text: string,
+    row_start, row_end, at: int,
+    spans: []ui.Text_Span = nil,
+) -> f32 {
+    rel := clamp(at - row_start, 0, max(row_end - row_start, 0))
+    lead: f32
+    if spans != nil {
+        lead = ui.span_lead_before(spans, rel)
+    } else if row_start < row_end && row_end <= len(text) {
+        buffer: [editview.MAX_ROW_SWATCHES]editview.Row_Swatch
+        swatches := thor_row_swatches(text[row_start:row_end], buffer[:])
+        for swatch in swatches {
+            if swatch.anchor <= rel {
+                lead += editview.editor_swatch_span(editor)
+            }
+        }
     }
-    return f32(font.measure(text[row_start:at], editor.font_size, ""))
+    if at <= row_start || row_start >= len(text) || at > len(text) {
+        return lead
+    }
+    return f32(font.measure(text[row_start:at], editor.font_size, "")) + lead
 }
 
 // ---- status bar --------------------------------------------------------------
