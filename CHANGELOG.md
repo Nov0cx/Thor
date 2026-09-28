@@ -36,6 +36,12 @@
 - The image, model and markdown views are a tab's content, so the explorer, the terminal and the file tabs stay on screen while one is open, and a split can show two.
 - Hex colour literals show their swatch again, inline before the literal.
 - A click on a line holding a `#RRGGBB` literal lands on the character it was aimed at. The editor counted the swatch gap that nothing was drawing, so every click past the literal resolved about a character to the left.
+- The completion popup is back, under the caret. Arrows and the wheel walk the candidates, a click accepts one, and the list flips above the caret near the bottom of the pane.
+- The signature-help card is back, over the caret: `ctrl + shift + space`, and by itself as arguments are typed.
+- The hover card is back. A dwell over a squiggle explains the diagnostic in its severity colour, and a dwell with `ctrl` held shows the declaration of the symbol under the pointer.
+- `ctrl` + hover underlines the word go-to-definition would jump to.
+- "View: Toggle Whitespace" marks indentation again: a dot per space and an arrow per tab, in both panes of a split.
+- An edit closes a hover or signature card that pointed at the bytes it moved, and a pane that loses the keyboard closes its candidate list and its signature card.
 
 # 2026.08.8
 

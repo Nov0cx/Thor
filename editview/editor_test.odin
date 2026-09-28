@@ -2,10 +2,6 @@ package editview
 
 import "core:testing"
 
-import rl "vendor:raylib"
-
-import "../input"
-
 import "../textedit"
 import ui "../vendor/loom/loom"
 
@@ -644,4 +640,119 @@ test_set_state_drops_borrowed_spans :: proc(t: ^testing.T) {
     editor_set_state(&editor, nil)
     testing.expect(t, editor.diagnostics == nil, "closing the buffer drops the borrowed diagnostics")
     testing.expect(t, editor.diff_lines == nil, "closing the buffer drops the borrowed diff lines")
+}
+
+// A stack editor over `text`, laid out large enough for a card to fit, with the
+// rows built. The caller frees visual_rows.
+@(private = "file")
+editor_test_overlay_setup :: proc(editor: ^Editor, state: ^textedit.State, text: string) {
+    textedit.init(state)
+    textedit.set_text(state, text)
+    editor.font_size = 16
+    editor.view = ui.Rect{0, 0, 600, 600}
+    editor_set_state(editor, state)
+    editor_ensure_visual_rows(editor)
+}
+
+// Screen point on visual row `row`, just inside the text column. font.measure
+// reports 0 with no font atlas, so every cluster is zero wide and any x past the
+// gutter resolves to the row's last byte — the row is what the point picks, which
+// is all these tests need.
+@(private = "file")
+editor_test_row_point :: proc(editor: ^Editor, row: int) -> ui.Vec2 {
+    lh := cast(f32) font.line_height(editor.font_size)
+    return {
+        editor.view.x + editor.gutter_width + 1,
+        editor.view.y + cast(f32) row * lh + lh * 0.5,
+    }
+}
+
+// The underline is the ctrl gesture, not the hover: without the modifier there is
+// no link, and a point over whitespace names no word.
+@(test)
+test_link_range_wants_ctrl_and_a_word :: proc(t: ^testing.T) {
+    state: textedit.State
+    defer textedit.destroy(&state)
+
+    editor: Editor
+    defer delete(editor.visual_rows)
+    editor_test_overlay_setup(&editor, &state, "alpha\nbeta  \n")
+
+    point := editor_test_row_point(&editor, 0)
+
+    _, _, ok := editor_link_range(&editor, point, {})
+    testing.expect(t, !ok, "no modifier is no link")
+
+    _, _, ok = editor_link_range(&editor, point, {.Shift})
+    testing.expect(t, !ok, "another modifier is no link either")
+
+    lo, hi, found := editor_link_range(&editor, point, {.Ctrl})
+    testing.expect(t, found, "ctrl over a word is a link")
+    testing.expect_value(t, lo, 0)
+    testing.expect_value(t, hi, 5)
+
+    // Row 1 ends in spaces, and whitespace is no word.
+    _, _, ok = editor_link_range(&editor, editor_test_row_point(&editor, 1), {.Ctrl})
+    testing.expect(t, !ok, "whitespace names no word")
+}
+
+// An edit moves the bytes a card was anchored to, so the tick drops it. A hover
+// carries a diagnostic message the compiler measured against the old text, which
+// is the other half of the same reason.
+@(test)
+test_overlay_tick_drops_a_stale_card :: proc(t: ^testing.T) {
+    state: textedit.State
+    defer textedit.destroy(&state)
+
+    editor: Editor
+    defer delete(editor.visual_rows)
+    defer editor_clear_hover(&editor)
+    defer editor_clear_signature(&editor)
+    editor_test_overlay_setup(&editor, &state, "alpha\n")
+    editor.focused = true
+
+    // editor_show_hover refuses without a pending dwell.
+    editor.hover_probe_offset = 0
+    editor_show_hover(&editor, "a thing", 0, 5)
+    editor_show_signature(&editor, "proc(a: int)", 0)
+    testing.expect(t, editor.hover_active, "the hover card is up")
+    testing.expect(t, editor.signature_active, "the signature card is up")
+
+    editor_overlay_tick(&editor)
+    testing.expect(t, editor.hover_active, "an untouched buffer keeps the hover card")
+    testing.expect(t, editor.signature_active, "an untouched buffer keeps the signature card")
+
+    textedit.insert_text(&state, "x")
+    editor_overlay_tick(&editor)
+    testing.expect(t, !editor.hover_active, "an edit drops the hover card")
+    testing.expect(t, !editor.signature_active, "an edit drops the signature card")
+}
+
+// The candidate list and the signature belong to the pane that holds the
+// keyboard. A dwell peeks without focusing, so the hover card is not theirs to
+// drop — editor_leave owns that one.
+@(test)
+test_overlay_tick_drops_an_unfocused_card :: proc(t: ^testing.T) {
+    state: textedit.State
+    defer textedit.destroy(&state)
+
+    editor: Editor
+    defer delete(editor.visual_rows)
+    defer delete(editor.completion_rows)
+    defer editor_test_free_completions(&editor)
+    defer editor_clear_hover(&editor)
+    editor_test_overlay_setup(&editor, &state, "al\n")
+    textedit.select_range(&state, 2, 2)
+
+    editor_set_completions(&editor, []Completion_Item{{text = "alpha"}})
+    editor_show_signature(&editor, "proc(a: int)", 0)
+    editor.hover_probe_offset = 0
+    editor_show_hover(&editor, "a thing", 0, 2)
+    testing.expect(t, editor.completion_active, "the list is up")
+
+    editor.focused = false
+    editor_overlay_tick(&editor)
+    testing.expect(t, !editor.completion_active, "losing the keyboard drops the list")
+    testing.expect(t, !editor.signature_active, "losing the keyboard drops the signature card")
+    testing.expect(t, editor.hover_active, "the hover card does not need the keyboard")
 }

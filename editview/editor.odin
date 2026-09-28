@@ -475,13 +475,14 @@ editor_completion_target :: proc(editor: ^Editor, row: Completion_Item, txt: str
 // Shows the hover popup with `text` describing bytes [start, end). Ignored when
 // the cursor has since moved (no request is pending), so a late result can't pop
 // up after the mouse left the symbol. Clones `text`. `accent` tints the border,
-// zero leaving it the focus color.
+// zero leaving it the focus color. The text is broken to the popup's width here,
+// the one place every hover passes through.
 editor_show_hover :: proc(editor: ^Editor, text: string, start, end: int, accent := ui.Color{}) {
     if editor.hover_probe_offset < 0 || text == "" {
         return
     }
     delete(editor.hover_text)
-    editor.hover_text = strings.clone(text)
+    editor.hover_text = strings.clone(hover_wrapped(editor, text))
     editor.hover_start = start
     editor.hover_end = end
     editor.hover_accent = accent
@@ -533,6 +534,7 @@ editor_destroy :: proc(editor: ^Editor) {
     delete(editor.snippet_vars.directory)
     delete(editor.visual_rows)
     delete(editor.completion_rows)
+    delete(editor.snippet_stops)
     delete(editor.foldable)
     delete(editor.folded)
 }
@@ -2028,7 +2030,7 @@ editor_handle_hover :: proc(editor: ^Editor, mouse: ui.Vec2, mod: bool, now: f64
     }
     if d, has := editor_hover_diagnostic(editor, pos, whole_line = in_gutter); has {
         color := d.severity == .Error ? editor.diagnostic_error_color : editor.diagnostic_warn_color
-        editor_show_hover(editor, hover_wrapped(editor, d.message), d.start, d.end, color)
+        editor_show_hover(editor, d.message, d.start, d.end, color)
     }
 }
 
@@ -2099,7 +2101,6 @@ hover_wrapped :: proc(editor: ^Editor, text: string) -> string {
 
 // Screen x, top y, and line height of byte `offset` (clamped to its visual row).
 // ok=false when there is nothing to anchor to.
-@(private = "file")
 editor_screen_at :: proc(editor: ^Editor, offset: int) -> (x, y, line_height: f32, ok: bool) {
     if editor.state == nil || len(editor.visual_rows) == 0 {
         return 0, 0, 0, false
@@ -2131,7 +2132,6 @@ editor_caret_screen :: proc(editor: ^Editor) -> (x, y, line_height: f32, ok: boo
 // row. The popup sits under the caret, flips above when there is no room below
 // and is nudged left to stay inside the editor bounds. Shared by the draw and
 // the hit-test so the two cannot drift. `ok` is false when no popup is up.
-@(private)
 editor_completion_rects :: proc(editor: ^Editor) -> (box: ui.Rect, row_height: f32, top: int, ok: bool) {
     if !editor.completion_active || len(editor.completion_rows) == 0 {
         return
@@ -2182,13 +2182,6 @@ editor_completion_row_at :: proc(editor: ^Editor, point: ui.Vec2) -> int {
     }
     return row
 }
-
-// Dot size as a fraction of the character height, and the alpha the markers are
-// drawn at, so indentation reads as texture and not as text.
-@(private = "file")
-WHITESPACE_DOT_SCALE :: 0.14
-@(private = "file")
-WHITESPACE_ALPHA :: 130
 
 @(private = "file")
 editor_hex_value :: proc(b: u8) -> (u8, bool) {
@@ -2375,6 +2368,20 @@ editor_pos_at :: proc(editor: ^Editor, position: ui.Vec2) -> (int, bool) {
     return boundaries[lo], true
 }
 
+// Byte range of the word under `mouse` while ctrl is held: the go-to-definition
+// affordance the view underlines. Recomputed every frame, not gated on the hover
+// dwell or on an async result. ok=false when ctrl is up or there is no word.
+editor_link_range :: proc(editor: ^Editor, mouse: ui.Vec2, mods: ui.Mod_Set) -> (start, end: int, ok: bool) {
+    if editor == nil || editor.state == nil || !(.Ctrl in mods) {
+        return 0, 0, false
+    }
+    pos, hit := editor_pos_at(editor, mouse)
+    if !hit {
+        return 0, 0, false
+    }
+    return textedit.word_range_at(textedit.text(editor.state), pos)
+}
+
 // Click: places a single caret at the position.
 editor_place_caret_at :: proc(editor: ^Editor, position: ui.Vec2) {
     if pos, ok := editor_pos_at(editor, position); ok {
@@ -2493,6 +2500,30 @@ editor_sync :: proc(editor: ^Editor) {
     if editor != nil && editor.state != nil {
         editor_snippet_sync(editor)
     }
+}
+
+// Drops a card the frame can no longer stand behind. An edit moves the bytes a
+// hover or a signature was anchored to, and for a diagnostic it invalidates the
+// message as well; the completion list and the signature card belong to the pane
+// that holds the keyboard. Called once a frame by the view, after it writes
+// `focused`. The hover card survives a focus change, since a dwell peeks without
+// focusing; `editor_leave` drops that one.
+editor_overlay_tick :: proc(editor: ^Editor) {
+    if editor == nil {
+        return
+    }
+    revision := editor.state != nil ? editor.state.revision : 0
+    if editor.hover_active && revision != editor.hover_revision {
+        editor_clear_hover(editor)
+    }
+    if editor.signature_active && revision != editor.signature_revision {
+        editor_clear_signature(editor)
+    }
+    if editor.focused {
+        return
+    }
+    editor_dismiss_completion(editor)
+    editor_clear_signature(editor)
 }
 
 editor_press :: proc(

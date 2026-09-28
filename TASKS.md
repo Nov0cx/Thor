@@ -34,11 +34,11 @@ site in `thor/` and `editview/` is balanced.
       a grow or a stretch now fills the containing block. It also gives the backdrops their real
       rect back, so click-outside closes a menu, the git panel, settings, the theme editor and the
       colour picker again.
-- [ ] The completion popup does not render. `editview` fills `completion_rows`; no node reads it.
-- [ ] The signature-help card does not render.
-- [ ] The hover card does not render.
-- [ ] The ctrl + hover underline for go-to-definition is gone.
-- [ ] Whitespace markers are gone. "View: Toggle Whitespace" still runs and shows nothing.
+- [x] The completion popup does not render. `editview` fills `completion_rows`; no node reads it.
+- [x] The signature-help card does not render.
+- [x] The hover card does not render.
+- [x] The ctrl + hover underline for go-to-definition is gone.
+- [x] Whitespace markers are gone. "View: Toggle Whitespace" still runs and shows nothing.
 - [x] Hex colour swatches are gone. A swatch needs a width-carrying `Text_Span` in Loom first.
 - [x] The markdown preview is gone. `f4` is still bound and does nothing.
 - [x] The image preview is gone. `Workspace_View` still reports `image`.

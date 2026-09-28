@@ -172,17 +172,20 @@ Everything below is done; what is left is the manual pass, the docs and the chan
   that covers one. `ui.span_lead_before` is what a host adds to its own arithmetic.
 - **The terminal's dock slot.** A panel toggled off used to lose its place; Loom now parks it, and
   `ui.dock_focus` raises a tab by name so `focus_terminal` can reach one behind another tab.
+- **The editor pane's five overlays**, in `thor/editor_overlay.odin`. The three cards — completion,
+  signature help, hover — are `.Floating` + `.Pass_Through` nodes at `position = .Fixed`: floating so
+  they escape the pane's clip, pass-through because `editview` owns their hit test through the
+  *pane's* interaction, and a clickable card would take the press a candidate needs. The completion
+  box is `editor_completion_rects` verbatim, so what is drawn is what is clicked. The whitespace
+  markers and the Ctrl+hover underline are `ui.paint_*` in the pane's own slot, positioned with
+  `thor_row_x` like every other row painter, so a swatch gap moves them with the glyphs. Two rules
+  the deleted `editor_draw` owned came back as `editview.editor_overlay_tick`: an edit drops a card
+  whose anchor it moved, and losing the keyboard drops the candidate list and the signature.
 
 ### Still missing in the editor pane
 
-`editview` holds the state for each; only the view is gone.
-
-- **The completion popup, the signature-help card and the hover card.** `editor.completion_rows`,
-  the snippet stops and `editor.hover_text` / `hover_start` / `hover_end` are all kept and the
-  callbacks now fill them, but nothing declares a node for them, so a result lands and never shows.
-- **Whitespace markers** (`editor.show_whitespace`, a dot per space and an arrow per tab). The
-  swatch gap is the groundwork: a marker wants the same reserved width.
-- The **Ctrl+hover underline** for go-to-definition.
+A live snippet session's stops are not marked. `editor.snippet_stops` is kept and tab walks it; no
+node draws a band over the stop the caret is on.
 
 ### Known outside the migration
 

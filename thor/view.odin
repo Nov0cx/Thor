@@ -672,7 +672,12 @@ thor_editor_pane :: proc(thor: ^Thor, editor: ^editview.Editor, pane: int, key: 
 
     editor.view = it.rect
     editor.focused = it.focused
+    // The severity tint a diagnostic hover card wears. Pushed per frame, so a
+    // theme switch reaches it.
+    editor.diagnostic_error_color = thor.theme.error_color
+    editor.diagnostic_warn_color = thor.theme.warning_color
     editview.editor_sync(editor)
+    editview.editor_overlay_tick(editor)
 
     if it.focused {
         thor.focus_owner = key
@@ -694,6 +699,15 @@ thor_editor_pane :: proc(thor: ^Thor, editor: ^editview.Editor, pane: int, key: 
     line_h := f32(font.line_height(editor.font_size))
     if line_h <= 0 || len(editor.visual_rows) == 0 {
         return
+    }
+
+    // Ctrl + hover marks the word go-to-definition would jump to. Resolved before
+    // the text and the rows are borrowed, since the lookup reads both itself.
+    link_lo, link_hi := -1, -1
+    if it.hovered {
+        if lo, hi, found := editview.editor_link_range(editor, ui.mouse_pos(), ui.mods()); found {
+            link_lo, link_hi = lo, hi
+        }
     }
 
     text := textedit.text(editor.state)
@@ -749,6 +763,11 @@ thor_editor_pane :: proc(thor: ^Thor, editor: ^editview.Editor, pane: int, key: 
             thor_paint_swatch(editor, swatch.color, gap_end, row_y)
         }
 
+        if editor.show_whitespace {
+            thor_paint_row_whitespace(thor, editor, text, row, spans, text_x, row_y)
+        }
+        thor_paint_row_link(thor, editor, text, row, spans, text_x, row_y, link_lo, link_hi)
+
         // On the last visual row of a collapsed start line, a pill stands in for
         // the hidden body.
         if editor.folded[row.line] {
@@ -763,6 +782,7 @@ thor_editor_pane :: proc(thor: ^Thor, editor: ^editview.Editor, pane: int, key: 
     }
 
     thor_paint_carets(thor, editor, text, rows, first, last, line_h, text_x)
+    thor_editor_overlays(thor, editor)
 }
 
 // The "…" pill that stands in for a collapsed region, just past the end of the
@@ -1162,7 +1182,7 @@ thor_paint_carets :: proc(
 // row's swatches reserve before it — the same gaps the row's spans put in the
 // laid-out text, so a caret, a selection and a squiggle all land on the glyphs.
 // A caller that already built the spans passes them instead of a second scan.
-@(private = "file")
+@(private)
 thor_row_x :: proc(
     editor: ^editview.Editor,
     text: string,
