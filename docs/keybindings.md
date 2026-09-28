@@ -162,9 +162,37 @@ buffer alone.
 | ctrl + scroll wheel | zoom editor font |
 | ctrl + numpad + / numpad - | zoom editor font |
 | ctrl + shift + j | recenter the view on the caret (repeat cycles center / top / bottom) |
-| f4 | toggle the rendered markdown preview (markdown files only); links in it are clickable — a URL opens in the browser, a relative path opens as a tab |
+| f4 | toggle the rendered markdown preview (markdown files only) — see [Previews](#previews) |
 | f12 | toggle borderless fullscreen |
 | (unbound) | toggle the editor split — see below |
+
+## Previews
+
+Three file kinds open in a view of their own instead of the text editor. Each is
+a tab like any other, in the pane its tab owns, so the explorer, the terminal and
+the tab strip stay where they are, and a split can show two at once.
+
+**Markdown** (`f4`, markdown files only) renders the file beside its source: the
+focused pane keeps the text, the other shows the page, and the split opens if it
+was closed. A link in it is clickable — a URL opens in the browser, a relative
+path opens as a tab.
+
+**Images** (`.png .jpg .jpeg .bmp .gif .tga .psd .hdr .qoi`) open fit to the
+pane, never scaled past 1:1. A checkerboard behind them shows the transparent
+pixels; the name, pixel size and zoom sit in the bottom-left corner.
+
+**3D models** (`.obj .gltf .glb .iqm .vox .m3d`) open on a ground grid, framed to
+the model. The mesh, vertex and triangle counts sit in the bottom-left corner,
+and the button in the top-right corner spins the model.
+
+| Binding | Action |
+| --- | --- |
+| wheel | image: zoom toward the cursor; model: zoom the camera |
+| click + drag | image: pan; model: orbit |
+| shift + drag, or right button + drag | model: pan |
+
+The zoom, pan and camera reset when the tab changes file, and a file edited
+outside Thor is reloaded into its view.
 
 ## Git
 
@@ -206,7 +234,7 @@ up / down, tab completion and ctrl + r are the shell's, not the editor's.
 | Binding | Action |
 | --- | --- |
 | ctrl + t | toggle the console panel |
-| ctrl + shift + t | focus the terminal (opens the panel if collapsed) |
+| ctrl + shift + t | focus the terminal (opens the panel if collapsed, and raises its tab when another panel is in front) |
 | ctrl + c | interrupt the running command, or copy when text is selected |
 | ctrl + shift + c | copy the selection, or the whole scrollback with nothing selected |
 | ctrl + v | paste, fenced when the program asked for bracketed paste |

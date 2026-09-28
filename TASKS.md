@@ -39,14 +39,14 @@ site in `thor/` and `editview/` is balanced.
 - [ ] The hover card does not render.
 - [ ] The ctrl + hover underline for go-to-definition is gone.
 - [ ] Whitespace markers are gone. "View: Toggle Whitespace" still runs and shows nothing.
-- [ ] Hex colour swatches are gone. A swatch needs a width-carrying `Text_Span` in Loom first.
-- [ ] The markdown preview is gone. `f4` is still bound and does nothing.
-- [ ] The image preview is gone. `Workspace_View` still reports `image`.
-- [ ] The 3D model preview is gone. `thor_load_model` still runs with no viewer.
-- [ ] `ctrl + t` off and on again re-docks Terminal beside Explorer in the left sidebar instead of
+- [x] Hex colour swatches are gone. A swatch needs a width-carrying `Text_Span` in Loom first.
+- [x] The markdown preview is gone. `f4` is still bound and does nothing.
+- [x] The image preview is gone. `Workspace_View` still reports `image`.
+- [x] The 3D model preview is gone. `thor_load_model` still runs with no viewer.
+- [x] `ctrl + t` off and on again re-docks Terminal beside Explorer in the left sidebar instead of
       its own slot, draws at a smaller cell size, and leaves the shell dead: a typed line echoes,
       nothing runs, and there is no prompt and no cursor.
-- [ ] `focus_terminal` (`ctrl + shift + t`) does not raise the Terminal dock tab, so the chord
+- [x] `focus_terminal` (`ctrl + shift + t`) does not raise the Terminal dock tab, so the chord
       looks dead when Terminal is behind Explorer.
 
 ## P2 — defects and polish

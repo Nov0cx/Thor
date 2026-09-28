@@ -11,8 +11,8 @@
 A code editor written in [Odin](https://odin-lang.org/) with
 [raylib](https://pkg.odin-lang.org/vendor/raylib/v6/). Tree-sitter syntax
 highlighting, an in-client Odin language server, LSP support for every other
-language, a real terminal, a built-in Git UI, and a sandboxed Lua plugin
-system.
+language, a real terminal, a built-in Git UI, image, 3D model and markdown
+previews, and a sandboxed Lua plugin system.
 
 > This repo is still in development — everything can break or change at any
 > time.

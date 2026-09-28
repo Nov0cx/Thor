@@ -112,6 +112,15 @@ says so when none is available (Wayland has no equivalent).
 - **Command palette** (`ctrl + .`) — fuzzy-search and run any action Thor
   exposes; every keybinding below is also a command here.
 
+Not every file is text. An image opens in a view that fits it to the pane, with
+a checkerboard behind its transparent pixels; a 3D model opens on a ground grid,
+orbited and zoomed with the mouse; and `f4` renders a markdown file beside its source.
+Each is an ordinary tab, so the explorer and the terminal stay where they are.
+See [Previews](keybindings.md#previews).
+
+A `#RRGGBB` colour literal shows its colour as a small square in front of it,
+wherever it appears — a theme file, CSS, a shader.
+
 Rest the cursor on a control to see what it does: the title bar buttons, a tab,
 a status bar segment and an explorer row all explain themselves, with the chord
 they are bound to under the text. The `tooltips` setting turns this off.
