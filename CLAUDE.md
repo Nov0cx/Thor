@@ -2,8 +2,9 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Thor is a code editor written in Odin on top of raylib. `README.md` covers user-facing usage and
-first-time setup; this file covers what is needed to change the code.
+Thor is a code editor written in Odin on top of raylib. `README.md` is the short front page — what
+Thor is, how to get it running and how to use it, and nothing more; every other user-facing page
+belongs in `docs/`. This file covers what is needed to change the code.
 
 ## Commands
 
@@ -81,7 +82,8 @@ Six skills in `.claude/skills/`:
 - `grammar-add` — adds a tree-sitter grammar, keeping `build.odin`, `syntax/syntax.odin` and the four
   CI workflows in step, then writes the plugin.
 - `update-docs` — brings `README.md` and `docs/` back in step with the code (settings, keybinds,
-  plugin permissions, build steps) after a user-facing change, and regenerates `docs/html/`.
+  plugin permissions, build steps) after a user-facing change, and regenerates `docs/html/`. Detail
+  lands in `docs/`; `README.md` gets a line only when the front page would otherwise be wrong.
 - `changelog` — records a user-visible change in `CHANGELOG.md` as short bullets under the right
   `year.month.patch` heading. Owns that file alone, so it composes with `update-docs`.
 - `release` — cuts a release: `VERSION` in `thor/cli.odin`, the changelog heading, the `v*` tag, and
@@ -404,11 +406,17 @@ those files serve as working examples.
 
 ## User documentation
 
-`README.md` is a short quick-start; the user manual is `docs/` (Markdown, one page per topic —
-getting started, building, configuration, keybindings, plugins). `docs/generate_html.py` renders it
-to static HTML in `docs/html/` (gitignored, not committed); `docs/requirements.txt` names the one
-dependency. Release archives ship the `docs/` Markdown sources alongside the binary (see
-`.github/workflows/release.yml`). The `update-docs` skill keeps both in step with the code.
+`README.md` holds only the most important information about the editor: what it is, how to install
+and build it, how to open a project, the few keys and commands a first session needs, and links into
+`docs/`. Keep it short. Everything else — full keybinding tables, every setting, plugin authoring,
+detailed build and platform notes, troubleshooting — goes in `docs/` and is linked from the README,
+never copied into it. A new user-facing topic is a `docs/` page, not a new README section.
+
+The user manual is `docs/` (Markdown, one page per topic — getting started, building, configuration,
+keybindings, plugins). `docs/generate_html.py` renders it to static HTML in `docs/html/` (gitignored,
+not committed); `docs/requirements.txt` names the one dependency. Release archives ship the `docs/`
+Markdown sources alongside the binary (see `.github/workflows/release.yml`). The `update-docs` skill
+keeps both in step with the code.
 
 ## Code style
 

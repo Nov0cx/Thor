@@ -5,10 +5,15 @@ description: Brings README.md and docs/ back in step with the code after a user-
 
 # Update docs
 
-`README.md` is a short quick-start. The user manual is `docs/`: one Markdown
-page per topic, `docs/generate_html.py` renders it to `docs/html/` (gitignored
-output, not committed). Nothing here documents internals — that is
-`CLAUDE.md`'s job.
+`README.md` holds only the most important information about the editor: what it
+is, how to install and build it, how to open a project, the few keys and
+commands a first session needs, and links into `docs/`. Everything else goes in
+`docs/` and is linked from the README, never copied into it. A new user-facing
+topic is a `docs/` page, not a new README section.
+
+The user manual is `docs/`: one Markdown page per topic, `docs/generate_html.py`
+renders it to `docs/html/` (gitignored output, not committed). Nothing here
+documents internals — that is `CLAUDE.md`'s job.
 
 `CHANGELOG.md` is not this skill's file — the `changelog` skill owns it, and a
 user-visible change usually needs both.
@@ -25,11 +30,12 @@ already says:
 | `docs/building.md` | `build.odin`'s flags (`-- run`, `-- deps`, `-- test`, `-- check`, `-- clean`, `-h`) and `vendor/README.md` |
 | `docs/plugins.md` | `plugins/README.md` (permission table, sandbox rules) |
 | `docs/getting-started.md` | first-run behavior: opening a project, `open_folder_in`, the tutorial |
-| `README.md` | all of the above, but only the quick-start slice — not the full detail each `docs/` page carries |
+| `README.md` | all of the above, but only the front-page slice — touch it only when the change makes the README itself wrong (a renamed build command, a changed first-run step, a new or removed `docs/` page); detail belongs on the `docs/` page |
 
 A new `General` field, a new `build.odin` flag, a renamed setting, a changed
-default chord, or a new plugin permission each mean the matching page (and
-maybe `README.md`) is now wrong or incomplete.
+default chord, or a new plugin permission each mean the matching `docs/` page is
+now wrong or incomplete. None of them belong in `README.md` unless the front
+page already stated the thing that changed.
 
 ## 2. Edit the Markdown, not generated HTML
 

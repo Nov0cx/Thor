@@ -17,14 +17,6 @@ previews, and a sandboxed Lua plugin system.
 > This repo is still in development — everything can break or change at any
 > time.
 
-## Contents
-
-- [Quick start](#quick-start)
-- [Opening a project](#opening-a-project)
-- [Command palette](#command-palette)
-- [Documentation](#documentation)
-- [License](#license)
-
 ## Quick start
 
 Download a build from [Releases](https://github.com/Nov0cx/Thor/releases), or
@@ -37,36 +29,32 @@ odin run build.odin -file -- deps   # once per machine: HarfBuzz + tree-sitter
 odin run build.odin -file -- run    # build and start
 ```
 
-Full dependency and per-platform setup: [`docs/building.md`](docs/building.md).
+Dependencies and per-platform setup: [`docs/building.md`](docs/building.md).
 
-## Opening a project
+## Using it
+
+Start Thor in a folder to open it as a workspace:
 
 ```bash
-thor                # reopen the last session's folder
-thor .              # open the folder Thor was called from
-thor src/           # open that folder
-thor main.odin      # open the file, with its folder as the workspace
-thor a.odin b.odin  # open both as tabs, with b.odin active
+thor .
 ```
 
-`File > Open Folder...` / `File > Open File...` do the same from inside the
-editor, and so does dropping a folder or files on the window. Each folder
-keeps its own session (open tabs, layout). More: [`docs/getting-started.md`](docs/getting-started.md).
+`File > Open Folder...` does the same from inside the editor, and so does
+dropping a folder or files on the window. Each folder keeps its own session —
+open tabs and layout — restored when you come back to it.
 
-## Command panel
-
-Press `ctrl + .` to open the command palette — fuzzy-search and run any
-action, including everything bound to a key. Full shortcut list:
-[`docs/keybindings.md`](docs/keybindings.md).
+`ctrl + .` opens the command palette: fuzzy-search and run any action Thor has,
+including everything bound to a key. **Help > Tutorial** walks through the rest
+inside the editor.
 
 ## Documentation
 
 The [`docs/`](docs/) folder is the full user manual:
 
-- [Getting Started](docs/getting-started.md)
+- [Getting Started](docs/getting-started.md) — install, update, open a project, first tour
 - [Building from Source](docs/building.md)
 - [Configuration](docs/configuration.md) — settings, themes, per-project `.thor/` files
-- [Keybindings](docs/keybindings.md)
+- [Keybindings](docs/keybindings.md) — every shortcut
 - [Git](docs/git.md) — changes, history, branches, config, GitHub/GitLab
 - [Plugins](docs/plugins.md)
 - [Troubleshooting](docs/troubleshooting.md) — the log file, a slow start
