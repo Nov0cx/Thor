@@ -4,6 +4,7 @@
 *.local*
 sessions/
 user/
+.thor/tutorial/
 .todo.txt
 git/*
 bin

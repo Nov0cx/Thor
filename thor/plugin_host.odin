@@ -34,6 +34,9 @@ Plugin_Top_Button :: struct {
 // so a Lua plugin can reach Thor without the plugin package depending on it.
 // Called again after a reload, since a fresh VM knows nothing of the host.
 thor_set_plugin_host :: proc(thor: ^Thor) {
+    if thor.plugin_data_root == "" {
+        thor.plugin_data_root = thor_plugin_data_root_path()
+    }
     plugin.manager_set_host(&thor.plugins, plugin.Host {
         data         = thor,
         print        = thor_plugin_print,
@@ -42,6 +45,7 @@ thor_set_plugin_host :: proc(thor: ^Thor) {
         exec         = thor_plugin_exec,
         button       = thor_plugin_button,
         workspace    = thor_plugin_workspace,
+        data_root    = thor_plugin_data_root,
         active_path  = thor_plugin_active_path,
         read         = thor_plugin_read,
         write        = thor_plugin_write,
@@ -154,6 +158,32 @@ thor_plugin_exec :: proc(host: rawptr, command: string, timeout: time.Duration) 
 thor_plugin_workspace :: proc(host: rawptr) -> string {
     thor := cast(^Thor) host
     return thor.workspace_dir
+}
+
+// Folder holding every plugin's data directory: user/plugins beside the binary,
+// resolved against the executable like the log file, since a plugin's data must
+// not follow the working directory. Owned by the caller.
+@(private = "file")
+thor_plugin_data_root_path :: proc() -> string {
+    dir := setting.USER_DIR
+    if exe, err := os.get_executable_path(context.temp_allocator); err == nil {
+        if joined, jerr := filepath.join({os.dir(exe), setting.USER_DIR}, context.temp_allocator);
+           jerr == nil {
+            dir = joined
+        }
+    }
+    path, jerr := filepath.join({dir, "plugins"}, context.temp_allocator)
+    if jerr != nil {
+        return strings.clone(setting.USER_DIR + "/plugins")
+    }
+    abs, aerr := filepath.abs(path, context.temp_allocator)
+    return strings.clone(aerr == nil ? abs : path)
+}
+
+// The root under which the sandbox gives each plugin its own data directory.
+thor_plugin_data_root :: proc(host: rawptr) -> string {
+    thor := cast(^Thor) host
+    return thor.plugin_data_root
 }
 
 // thor.active_path(): absolute path of the file in the active tab, or "" when

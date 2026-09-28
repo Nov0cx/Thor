@@ -238,6 +238,9 @@ thor_save_session :: proc(thor: ^Thor) {
 
     paths := make([dynamic]string, 0, len(thor.open_files), context.temp_allocator)
     for file in thor.open_files {
+        if os.is_dir(file.path) {
+            continue // a folder has no buffer; it would come back as a blank tab
+        }
         append(&paths, file.path)
     }
 
@@ -267,6 +270,17 @@ thor_save_session :: proc(thor: ^Thor) {
         log.errorf("Could not write session %q: %v", path, werr)
     }
     thor_record_last_workspace(thor.workspace_dir)
+}
+
+// A saved tab position moved through `remap`, or -1 when that entry was
+// dropped. An out-of-range position is returned as it was, for the caller's
+// own bounds check to reject.
+@(private = "file")
+thor_session_index :: proc(remap: []int, saved: int) -> int {
+    if saved < 0 || saved >= len(remap) {
+        return saved
+    }
+    return remap[saved]
 }
 
 // Restores this workspace's session: panel layout, reopened files, and active
@@ -310,18 +324,36 @@ thor_restore_session :: proc(thor: ^Thor) {
     // Ignored when the task is gone from tasks.json; the selector falls back.
     thor_select_task(thor, session.active_task)
 
+    // A folder an older build let open would come back as a blank tab and be
+    // saved again. Drop it here; the pane fields are positions in this list, so
+    // they move with it. Not routed to thor_open_folder_request: restore runs
+    // inside init, where that path can raise the picker or spawn a window.
+    kept := make([dynamic]string, 0, len(session.open_files), context.temp_allocator)
+    remap := make([]int, len(session.open_files), context.temp_allocator)
+    for p, i in session.open_files {
+        if os.is_dir(p) {
+            log.warnf("Dropping directory %q from the restored session", p)
+            remap[i] = -1
+            continue
+        }
+        remap[i] = len(kept)
+        append(&kept, p)
+    }
+    active := thor_session_index(remap, session.active_file)
+    second := thor_session_index(remap, session.split_second_file)
+
     // Reopen in saved order; each open sets itself active, so the saved active
     // tab is applied last.
-    for p in session.open_files {
+    for p in kept {
         thor_open_file(thor, p)
     }
-    if session.active_file >= 0 && session.active_file < len(thor.open_files) {
-        thor_set_active_file(thor, session.active_file)
+    if active >= 0 && active < len(thor.open_files) {
+        thor_set_active_file(thor, active)
     }
     // Pane 2's file (bound after the UI is up, in init). thor_toggle_split fills
     // it in later if it was left unset.
-    if session.split_second_file >= 0 && session.split_second_file < len(thor.open_files) {
-        thor.pane_file[1] = session.split_second_file
+    if second >= 0 && second < len(thor.open_files) {
+        thor.pane_file[1] = second
     }
     // The focus must move with it: thor_sync_active_pane re-reads the pane off
     // ui_context every frame and would snap back to pane 0.

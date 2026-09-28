@@ -142,7 +142,9 @@ the server table and how to add one of your own. A language server also scopes
 apply its own edits directly in the editor.
 
 **Help > Tutorial** opens an interactive walkthrough of the shortcuts above,
-inside the editor itself. **Help > Documentation** opens this manual in Thor's
+inside the editor itself. Its two documents are written beside the binary, in
+`user/plugins/tutorial/`, so working through it never changes the project you
+have open. **Help > Documentation** opens this manual in Thor's
 Markdown preview, and **Help > Documentation in Browser** opens it outside the
 editor.
 

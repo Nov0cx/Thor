@@ -530,10 +530,32 @@ manifest_permissions :: proc(dir: string) -> Permissions {
     return perms
 }
 
+// The plugin's own data directory under the host's data root, for state that
+// must outlive a workspace switch. Empty when the host names no root. The
+// result uses the temp allocator.
+@(private)
+plugin_data_dir :: proc(m: ^Manager, index: int) -> (dir: string, ok: bool) {
+    p := caller_plugin(m, index)
+    if p == nil || m.data_root_proc == nil {
+        return "", false
+    }
+    root := m.data_root_proc(m.host)
+    if root == "" {
+        return "", false
+    }
+    joined, jerr := filepath.join({root, p.id}, context.temp_allocator)
+    if jerr != nil {
+        return "", false
+    }
+    return joined, true
+}
+
 // Resolves `path` for a plugin and checks it stays inside a root the plugin may
-// touch: the open workspace or its own folder. A relative path is taken against
-// the workspace, so `thor.doc(".thor/git/status.md")` lands where the user
-// expects rather than beside the executable. The result uses the temp allocator.
+// touch: the open workspace, its own folder, or its data directory. A relative
+// path is taken against the workspace, so `thor.doc(".thor/git/status.md")`
+// lands where the user expects rather than beside the executable; a plugin
+// reaches its data directory through the absolute path thor.data_path gives.
+// The result uses the temp allocator.
 @(private)
 resolve_path :: proc(m: ^Manager, index: int, path: string) -> (resolved: string, ok: bool) {
     p := caller_plugin(m, index)
@@ -570,7 +592,14 @@ resolve_path :: proc(m: ^Manager, index: int, path: string) -> (resolved: string
     if is_within(clean, p.dir) {
         return clean, true
     }
-    log.warnf("plugin %s: %q is outside the workspace and the plugin folder", p.id, path)
+    if data, ok := plugin_data_dir(m, index); ok && is_within(clean, data) {
+        return clean, true
+    }
+    log.warnf(
+        "plugin %s: %q is outside the workspace, the plugin folder and the plugin data folder",
+        p.id,
+        path,
+    )
     return "", false
 }
 

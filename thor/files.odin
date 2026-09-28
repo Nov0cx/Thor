@@ -623,6 +623,15 @@ thor_open_file :: proc(thor: ^Thor, path: string) {
         return
     }
 
+    // A folder has no buffer. Callers that take a path from a language server,
+    // a console line or a session file reach here unguarded, and the load
+    // worker would leave a blank tab behind.
+    if os.is_dir(canonical) {
+        log.warnf("Refusing to open directory %q", canonical)
+        thor_flash_status(thor, "Only files can be opened in the editor", is_error = true)
+        return
+    }
+
     file := new(Open_File)
     file.path = strings.clone(canonical)
     file.name = thor_file_base(file.path)

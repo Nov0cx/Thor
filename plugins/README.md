@@ -31,8 +31,8 @@ Every plugin runs in its own environment inside one shared Lua state:
   is spent, and appends `[shell] command stopped after ...` to what it returns.
   A plugin that needs a long command must run it in pieces across `on_tick`.
 - File paths a plugin passes to `thor.read`, `thor.write` and `thor.doc` resolve
-  against the open workspace and must stay inside it or inside the plugin's own
-  folder.
+  against the open workspace and must stay inside it, inside the plugin's own
+  folder, or inside the plugin's data folder (see `thor.data_path`).
 
 This contains buggy and rogue plugins. It is not a boundary against native code.
 
@@ -106,9 +106,20 @@ makes a plugin editable in place, and what makes an allowed folder a folder you
 trust. Thor asks again when the plugin widens what it wants.
 
 Always available: `thor.register_language`, `thor.print`, `thor.keybind`,
-`thor.on_command`, `thor.workspace`, `thor.active_path`, `thor.refresh_git`,
-`thor.permissions`, `thor.theme` and `thor.ts`. Each one waits to be called, so a
+`thor.on_command`, `thor.workspace`, `thor.data_path`, `thor.active_path`,
+`thor.refresh_git`, `thor.permissions`, `thor.theme` and `thor.ts`. Each one waits to be called, so a
 plugin that asks for no permission runs only when the user does something.
+
+`thor.data_path(name)` gives the absolute path of `name` in the plugin's own
+data folder, `user/plugins/<id>` beside the binary. Use it for state that must
+outlive a workspace switch and must never land in the user's repository; a file
+the workspace owns stays a workspace-relative path. Reading and writing there
+still needs `read` and `write`.
+
+```lua
+local NOTES = thor.data_path "notes.md"
+thor.doc(NOTES, render(), true)
+```
 
 ## Following the editor
 

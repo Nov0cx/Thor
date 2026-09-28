@@ -12,6 +12,7 @@ import lua "vendor:lua/5.4"
 @(private = "file")
 Recorder :: struct {
     workspace: string,
+    data_root: string,
     output:    strings.Builder,
     written:   [dynamic]string,
     panels:    [dynamic]string,
@@ -22,6 +23,7 @@ Recorder :: struct {
 @(private = "file")
 recorder_init :: proc(r: ^Recorder) {
     r.workspace, _ = os.get_working_directory(context.allocator)
+    r.data_root = strings.concatenate({r.workspace, "/thor_plugin_data"})
     r.output = strings.builder_make()
     r.written = make([dynamic]string)
     r.panels = make([dynamic]string)
@@ -32,6 +34,7 @@ recorder_init :: proc(r: ^Recorder) {
 @(private = "file")
 recorder_destroy :: proc(r: ^Recorder) {
     delete(r.workspace)
+    delete(r.data_root)
     strings.builder_destroy(&r.output)
     for path in r.written {
         delete(path)
@@ -58,6 +61,11 @@ rec_print :: proc(host: rawptr, text: string) {
 @(private = "file")
 rec_workspace :: proc(host: rawptr) -> string {
     return (cast(^Recorder) host).workspace
+}
+
+@(private = "file")
+rec_data_root :: proc(host: rawptr) -> string {
+    return (cast(^Recorder) host).data_root
 }
 
 @(private = "file")
@@ -89,6 +97,7 @@ recording_manager :: proc(m: ^Manager, r: ^Recorder) {
         data         = r,
         print        = rec_print,
         workspace    = rec_workspace,
+        data_root    = rec_data_root,
         write        = rec_write,
         panel        = rec_panel,
         panel_render = rec_panel_render,
@@ -152,6 +161,37 @@ test_sandbox_hides_ungranted_api :: proc(t: ^testing.T) {
     granted := `thor.print(type(thor.exec) .. " " .. type(thor.panel))`
     testing.expect(t, manager_load_source(&m, "trusted", "plugins/trusted", granted, {.Exec, .Ui}), "plugin runs")
     testing.expectf(t, strings.contains(printed(&r), "function function"), "granted api missing: %q", printed(&r))
+}
+
+// thor.data_path names a folder outside the workspace, so plugin state survives
+// a workspace switch. The sandbox accepts a write there and still refuses
+// another plugin's folder under the same root.
+@(test)
+test_plugin_data_path_is_its_own_folder :: proc(t: ^testing.T) {
+    r: Recorder
+    recorder_init(&r)
+    defer recorder_destroy(&r)
+    // A workspace beside the data root, not over it, so only the data-folder
+    // branch of resolve_path can accept the write.
+    cwd := r.workspace
+    r.workspace = strings.concatenate({cwd, "/thor_plugin_ws"})
+    delete(cwd)
+    m: Manager
+    recording_manager(&m, &r)
+    defer manager_destroy(&m)
+
+    script := `thor.print("p=" .. tostring(thor.data_path("state.json")))
+thor.write(thor.data_path("state.json"), "kept")
+thor.write(thor.data_path("../other/steal.json"), "stolen")`
+    testing.expect(t, manager_load_source(&m, "demo", "plugins/demo", script, {.Write}), "plugin runs")
+
+    mine, join_err := filepath.join({r.data_root, "demo", "state.json"}, context.temp_allocator)
+    testing.expect(t, join_err == nil, "expected path joined")
+    testing.expectf(t, strings.contains(printed(&r), "p="), "data_path returned nothing: %q", printed(&r))
+    testing.expectf(t, len(r.written) == 1, "writes accepted: %v", r.written)
+    if len(r.written) == 1 {
+        testing.expect_value(t, r.written[0], mine)
+    }
 }
 
 // Globals are per plugin, and the libraries that reach outside the sandbox were

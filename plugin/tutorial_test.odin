@@ -12,21 +12,32 @@ import "core:time"
 @(private = "file")
 Tutor :: struct {
     workspace: string, // owned
+    data_root: string, // owned
     lab:       string, // owned; the playground buffer the plugin reads back
     doc:       string, // owned; the last tutorial.md rendered
+    doc_path:  string, // owned; where that render was addressed
     confirmed: bool,   // whether a reset was offered
 }
 
 @(private = "file")
 tutor_destroy :: proc(t: ^Tutor) {
     delete(t.workspace)
+    delete(t.data_root)
     delete(t.lab)
     delete(t.doc)
+    delete(t.doc_path)
 }
 
 @(private = "file")
 tut_workspace :: proc(host: rawptr) -> string {
     return (cast(^Tutor) host).workspace
+}
+
+// The tutorial writes both documents into its own data folder, which sits
+// beside the binary and outside the workspace.
+@(private = "file")
+tut_data_root :: proc(host: rawptr) -> string {
+    return (cast(^Tutor) host).data_root
 }
 
 // Every action is bound, so no challenge is dropped for want of a chord.
@@ -45,6 +56,8 @@ tut_doc :: proc(host: rawptr, path, text: string, focus: bool) {
     }
     delete(t.doc)
     t.doc = strings.clone(text)
+    delete(t.doc_path)
+    t.doc_path = strings.clone(path)
 }
 
 @(private = "file")
@@ -66,6 +79,7 @@ tut_confirm :: proc(host: rawptr, message: string) {
 tutorial_manager :: proc(m: ^Manager, t: ^Tutor) -> bool {
     cwd, _ := os.get_working_directory(context.allocator)
     t.workspace = cwd
+    t.data_root = strings.concatenate({cwd, "/thor_tutorial_data"})
     manager_init(m)
     manager_set_host(m, Host {
         data      = t,
@@ -73,6 +87,7 @@ tutorial_manager :: proc(m: ^Manager, t: ^Tutor) -> bool {
         doc       = tut_doc,
         read      = tut_read,
         workspace = tut_workspace,
+        data_root = tut_data_root,
         confirm   = tut_confirm,
     })
     return manager_load_plugin(m, "tutorial", "plugins/tutorial", {.Read, .Write, .Ui, .Keys, .Tick})
@@ -156,6 +171,13 @@ test_tutorial_starts_with_a_broken_playground :: proc(t: ^testing.T) {
     testing.expect(t, strings.contains(tutor.doc, "Now: Close the call"), "the parse task comes first")
     testing.expect(t, strings.contains(tutor.doc, "the `(` after `printfln` is never closed"), "the parse task explains the cause")
     testing.expect(t, strings.contains(tutor.doc, "Key<code_actions>"), "explanations quote the live keybinds")
+    // Written into the plugin's own data folder, never into the open workspace.
+    testing.expectf(
+        t,
+        strings.contains(tutor.doc_path, "thor_tutorial_data"),
+        "the tutorial was written outside its data folder: %q",
+        tutor.doc_path,
+    )
 }
 
 // A repaired buffer clears every task. The checks run off the tick and read the

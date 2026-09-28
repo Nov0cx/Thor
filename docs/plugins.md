@@ -47,6 +47,14 @@ build output. Two differences from bundled plugins:
 A workspace plugin whose id matches a bundled one replaces it for that
 workspace.
 
+## Where a plugin keeps its own files
+
+A plugin that must remember something writes it to `user/plugins/<id>/` beside
+the binary — the tutorial keeps its documents there, for instance. That folder
+survives a workspace switch and an update, and it is never part of a project you
+open. Files a plugin writes for the project itself still go to the workspace,
+usually under its `.thor/`.
+
 ## Adding your own
 
 See [`plugins/README.md`](../plugins/README.md) for the sandbox rules, the

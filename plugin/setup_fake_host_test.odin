@@ -79,6 +79,23 @@ fake_workspace :: proc(host: rawptr) -> string {
     return `C:\fake\workspace`
 }
 
+// Where a plugin's own data directory lives for the fake host: outside the
+// fake workspace, as the real one is (user/plugins beside the binary).
+fake_data_root :: proc(host: rawptr) -> string {
+    return `C:\fake\user\plugins`
+}
+
+// The absolute path a plugin's thor.data_path(`rel`) gives, and the key
+// fake_read/fake_write/fake_doc then see for it.
+resolved_data :: proc(id, rel: string) -> string {
+    full, _ := filepath.join({fake_data_root(nil), id, rel}, context.temp_allocator)
+    clean, err := filepath.abs(full, context.temp_allocator)
+    if err != nil {
+        clean, _ = filepath.clean(full, context.temp_allocator)
+    }
+    return clean
+}
+
 // The absolute path resolve_path (sandbox.odin) computes for `rel` under the
 // fake workspace — the key fake_read/fake_write/fake_doc actually see.
 resolved :: proc(rel: string) -> string {
@@ -140,5 +157,6 @@ fake_host :: proc(env: ^Fake_Env) -> Host {
         pick      = fake_pick,
         confirm   = fake_confirm,
         workspace = fake_workspace,
+        data_root = fake_data_root,
     }
 }

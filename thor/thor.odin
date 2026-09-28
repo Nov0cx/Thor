@@ -76,6 +76,9 @@ Thor :: struct {
     focus_owner: string,
     config: setting.Settings,
     plugins: plugin.Manager,
+    // Where a plugin's own data directory lives: user/plugins beside the binary,
+    // so plugin state survives a workspace switch and an update.
+    plugin_data_root: string, // owned
     theme: theme.Theme,
     // The theme picker's rows, cached so opening it does not re-parse every
     // palette. Parallel and aligned by index; see thor_available_theme_choices.
@@ -945,6 +948,7 @@ shutdown :: proc(thor: ^Thor) {
     thor_clear_git_status(thor)
     delete(thor.workspace_dir)
     delete(thor.workspace_prefix)
+    delete(thor.plugin_data_root)
     delete(thor.menu_target_dir)
     thor_clear_pending_deletes(thor)
     delete(thor.pending_delete_paths)

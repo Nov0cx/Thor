@@ -42,6 +42,11 @@
 - `ctrl` + hover underlines the word go-to-definition would jump to.
 - "View: Toggle Whitespace" marks indentation again: a dot per space and an arrow per tab, in both panes of a split.
 - An edit closes a hover or signature card that pointed at the bytes it moved, and a pane that loses the keyboard closes its candidate list and its signature card.
+- The command palette and quick open mark the characters the query matched, so a weak match no longer reads like a strong one.
+- A folder cannot open as an editor tab. One saved in an older session is dropped when the session is restored, instead of coming back as a tab that says "Could not open file".
+- A tooltip sits under the control it explains and draws over an open menu or dialog. A titlebar tooltip landed wherever the pointer was and disappeared behind the menu it described.
+- Help > Tutorial writes its documents to `user/plugins/tutorial/` beside the binary. They landed in the open project's `.thor/`, which made every repository dirty.
+- New plugin call `thor.data_path(name)`: the path of `name` in the plugin's own `user/plugins/<id>/` folder, for state that must outlive a workspace switch.
 
 # 2026.08.8
 

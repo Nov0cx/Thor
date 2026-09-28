@@ -2,9 +2,21 @@
 -- and a deliberately broken Odin file the reader repairs with Thor's own tools.
 -- Both documents are built from the live keybinds and the live buffer.
 
--- Relative to the open folder, so the tutorial lands in the workspace's .thor/.
-local DOC_PATH = ".thor/tutorial/tutorial.md"
-local LAB_PATH = ".thor/tutorial/playground.odin"
+-- In the plugin's own data folder beside the binary, so the tutorial survives a
+-- workspace switch and never dirties the open repository. A host without a data
+-- folder keeps the old workspace-relative copy.
+local function data_path(name)
+    if thor.data_path ~= nil then
+        local p = thor.data_path(name)
+        if p ~= nil and p ~= "" then
+            return p
+        end
+    end
+    return ".thor/tutorial/" .. name
+end
+
+local DOC_PATH = data_path("tutorial.md")
+local LAB_PATH = data_path("playground.odin")
 
 -- The chord bound to `action`, or `fallback` when it has none (or has no
 -- configurable binding at all).

@@ -61,6 +61,9 @@ Exec_Proc :: #type proc(host: rawptr, command: string, timeout: time.Duration) -
 Button_Proc :: #type proc(host: rawptr, label: string, command: string)
 // Returns the workspace directory (absolute). The host owns the string.
 Workspace_Proc :: #type proc(host: rawptr) -> string
+// Returns the folder holding every plugin's data directory (absolute), beside
+// the binary and outside any workspace. The host owns the string.
+Data_Root_Proc :: #type proc(host: rawptr) -> string
 // Returns the active editor file's absolute path, or "" when nothing is open.
 // The host owns the string.
 Active_Path_Proc :: #type proc(host: rawptr) -> string
@@ -102,6 +105,7 @@ Host :: struct {
     exec:        Exec_Proc,
     button:      Button_Proc,
     workspace:   Workspace_Proc,
+    data_root:   Data_Root_Proc,
     active_path: Active_Path_Proc,
     read:        Read_Proc,
     write:       Write_Proc,
@@ -139,6 +143,7 @@ Manager :: struct {
     exec_proc:        Exec_Proc,
     button_proc:      Button_Proc,
     workspace_proc:   Workspace_Proc,
+    data_root_proc:   Data_Root_Proc,
     active_path_proc: Active_Path_Proc,
     read_proc:        Read_Proc,
     write_proc:       Write_Proc,
@@ -203,6 +208,7 @@ manager_set_host :: proc(m: ^Manager, host: Host) {
     m.exec_proc = host.exec
     m.button_proc = host.button
     m.workspace_proc = host.workspace
+    m.data_root_proc = host.data_root
     m.active_path_proc = host.active_path
     m.read_proc = host.read
     m.write_proc = host.write
@@ -505,6 +511,7 @@ push_api_table :: proc(m: ^Manager, index: int) {
     bind(L, m, index, api, "keybind", api_keybind)
     bind(L, m, index, api, "on_command", api_on_command)
     bind(L, m, index, api, "workspace", api_workspace)
+    bind(L, m, index, api, "data_path", api_data_path)
     bind(L, m, index, api, "active_path", api_active_path)
     bind(L, m, index, api, "refresh_git", api_refresh_git)
     bind(L, m, index, api, "permissions", api_permissions)
@@ -708,6 +715,30 @@ api_workspace :: proc "c" (L: ^lua.State) -> c.int {
     context.allocator = m.allocator
     dir := m.workspace_proc(m.host)
     lua.pushstring(L, strings.clone_to_cstring(dir, context.temp_allocator))
+    return 1
+}
+
+// thor.data_path(name): the absolute path of `name` in this plugin's data
+// directory, beside the binary and outside any workspace, for state that must
+// outlive a workspace switch. Returns nil when the host names no data root.
+// Creates nothing; thor.doc and thor.write make the parent folders.
+@(private)
+api_data_path :: proc "c" (L: ^lua.State) -> c.int {
+    context = runtime.default_context()
+    m, index := caller(L)
+    if m == nil || lua.type(L, 1) != .STRING {
+        return 0
+    }
+    context.allocator = m.allocator
+    dir, ok := plugin_data_dir(m, index)
+    if !ok {
+        return 0
+    }
+    path, jerr := filepath.join({dir, string(lua.tostring(L, 1))}, context.temp_allocator)
+    if jerr != nil {
+        return 0
+    }
+    lua.pushstring(L, strings.clone_to_cstring(path, context.temp_allocator))
     return 1
 }
 

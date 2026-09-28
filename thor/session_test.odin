@@ -5,6 +5,8 @@ import "core:os"
 import "core:strings"
 import "core:testing"
 
+import "../editview"
+
 // thor_recent_workspaces / thor_record_recent_workspace persist to
 // sessions/recent.json, the same file a real run uses, so the test backs up
 // and restores whatever is there and only ever records folders it created
@@ -71,4 +73,76 @@ test_recent_workspaces :: proc(t: ^testing.T) {
         strings.equal_fold(capped[0], cap_dirs[len(cap_dirs) - 1]),
         "the most recently recorded folder must still lead",
     )
+}
+
+// A folder saved into a session (an older build let one open) is dropped on
+// restore, and the saved tab positions move with it. Writes and removes its own
+// session file. Run from the repository root: odin test thor
+@(test)
+test_restore_drops_a_directory :: proc(t: ^testing.T) {
+    WORKSPACE :: "thor_session_dir_test"
+    SUB :: WORKSPACE + "/sub"
+    NOTE :: WORKSPACE + "/note.txt"
+
+    testing.expect(t, os.make_directory(WORKSPACE) == nil, "could not create test workspace")
+    defer os.remove(WORKSPACE)
+    testing.expect(t, os.make_directory(SUB) == nil, "could not create test dir")
+    defer os.remove(SUB)
+    testing.expect(
+        t,
+        os.write_entire_file(NOTE, transmute([]u8)string("note\n")) == nil,
+        "could not create test file",
+    )
+    defer os.remove(NOTE)
+
+    if !os.is_dir("sessions") {
+        testing.expect(t, os.make_directory("sessions") == nil, "could not create sessions dir")
+    }
+    // Written by hand: the on-disk Session shape is file-private to session.odin.
+    // The folder comes first, so the saved active tab is position 1.
+    data := fmt.tprintf(
+        `{{"workspace":%q,"open_files":[%q,%q],"active_file":1,"split_second_file":-1}}`,
+        WORKSPACE,
+        SUB,
+        NOTE,
+    )
+    path := strings.concatenate(
+        {"sessions/", thor_path_key(WORKSPACE), ".json"},
+        context.temp_allocator,
+    )
+    testing.expect(
+        t,
+        os.write_entire_file(path, transmute([]u8)data) == nil,
+        "could not write the test session",
+    )
+    defer os.remove(path)
+
+    thor := new(Thor)
+    defer free(thor)
+    defer editview.editor_destroy(&thor.editor)
+    defer editview.editor_destroy(&thor.editor2)
+    thor.active_file = make_signal(-1)
+    thor.open_files = make([dynamic]^Open_File)
+    thor.zombie_files = make([dynamic]^Open_File)
+    thor.finished_loads = make([dynamic]^Load_Job)
+    thor.finished_saves = make([dynamic]^Save_Job)
+    thor.pane_file = {-1, -1}
+    thor.workspace_dir = WORKSPACE
+    defer {
+        delete(thor.status_message)
+        delete(thor.open_files)
+        delete(thor.zombie_files)
+        delete(thor.finished_loads)
+        delete(thor.finished_saves)
+    }
+
+    thor_restore_session(thor)
+    testing.expect_value(t, len(thor.open_files), 1)
+    testing.expect_value(t, thor.open_files[0].name, "note.txt")
+    // Position 1 in the saved list is position 0 in the restored one.
+    testing.expect_value(t, signal_get(&thor.active_file), 0)
+
+    thor_drain_io(thor)
+    thor_close_file(thor, 0)
+    testing.expect_value(t, len(thor.open_files), 0)
 }

@@ -61,6 +61,9 @@ PALETTE_ROW_H :: f32(30)
 PALETTE_INPUT_H :: f32(44)
 PALETTE_MAX_ROWS :: 10
 PALETTE_TOP :: f32(90)
+// Matched characters marked in one row. A longer query still filters and scores
+// in full; only the marks past this stop.
+PALETTE_MARK_MAX :: 64
 
 Palette :: struct {
     mode:                  Palette_Mode,
@@ -794,14 +797,15 @@ palette_row :: proc(thor: ^Thor, index: int) -> bool {
         },
     )
 
+    // The query marks the characters it matched, so a weak match reads as one.
+    // The selected row is already accent-tinted, so its marks take the selection
+    // foreground instead.
+    query := string(p.query[:])
+    mark := on ? thor.theme.selection_foreground : thor.theme.accent_color
+
     if p.mode == .Pick && p.pick_rich {
         item := p.pick_items[source]
-        spans: []ui.Text_Span
-        if item.name_len > 0 && item.name_len <= len(item.text) {
-            runs := make([]ui.Text_Span, 1, context.temp_allocator)
-            runs[0] = {start = 0, end = item.name_len, color = item.color}
-            spans = runs
-        }
+        spans := palette_rich_spans(item, query, mark)
         ui.leaf(
             {
                 key = "text",
@@ -817,10 +821,12 @@ palette_row :: proc(thor: ^Thor, index: int) -> bool {
         return it.clicked
     }
 
+    label := palette_display(thor, source)
     ui.label(
-        palette_display(thor, source),
+        label,
         {
             key = "text",
+            spans = palette_match_spans(query, label, mark),
             props = {
                 w = ui.Grow(1),
                 color = on ? thor.theme.foreground : thor.theme.muted_color,
@@ -844,8 +850,16 @@ palette_row :: proc(thor: ^Thor, index: int) -> bool {
 // Case-insensitive subsequence match, scoring consecutive runs and word starts.
 // Empty query matches all (score 0); ok=false when a query char is missing.
 fuzzy_score :: proc(query, text: string) -> (score: int, ok: bool) {
+    score, _, ok = fuzzy_match(query, text, nil)
+    return
+}
+
+// fuzzy_score, plus the byte offset of every matched character written into
+// `out` in ascending order. `count` is what `out` took; a nil `out` scores only,
+// which is what the filter over every source row wants.
+fuzzy_match :: proc(query, text: string, out: []int) -> (score: int, count: int, ok: bool) {
     if len(query) == 0 {
-        return 0, true
+        return 0, 0, true
     }
 
     qi := 0
@@ -866,6 +880,10 @@ fuzzy_score :: proc(query, text: string) -> (score: int, ok: bool) {
             if i == 0 {
                 score += 5
             }
+            if count < len(out) {
+                out[count] = i
+                count += 1
+            }
             streak += 1
             qi += 1
         } else {
@@ -874,11 +892,97 @@ fuzzy_score :: proc(query, text: string) -> (score: int, ok: bool) {
         prev_sep = is_separator(text[i])
     }
     if qi < len(query) {
-        return 0, false
+        return 0, 0, false
     }
     // Prefer tighter matches (less trailing text).
     score -= (len(text) - len(query)) / 8
-    return score, true
+    return score, count, true
+}
+
+// Colour runs over the characters `query` matched in `text`, adjacent ones
+// coalesced and every run snapped to rune boundaries (the match is byte-wise, so
+// a run must never cut a rune). Empty when nothing matched. Temp-allocated.
+palette_match_spans :: proc(query, text: string, color: ui.Color) -> []ui.Text_Span {
+    if len(query) == 0 || len(text) == 0 {
+        return nil
+    }
+    hits: [PALETTE_MARK_MAX]int
+    _, count, ok := fuzzy_match(query, text, hits[:])
+    if !ok || count == 0 {
+        return nil
+    }
+
+    runs := make([dynamic]ui.Text_Span, 0, count, context.temp_allocator)
+    for i := 0; i < count; i += 1 {
+        first := hits[i]
+        end := hits[i] + 1
+        for i + 1 < count && hits[i + 1] == end {
+            i += 1
+            end = hits[i] + 1
+        }
+        span := ui.Text_Span {
+            start = palette_rune_start(text, first),
+            end   = palette_rune_end(text, end),
+            color = color,
+        }
+        if len(runs) > 0 && runs[len(runs) - 1].end >= span.start {
+            runs[len(runs) - 1].end = max(runs[len(runs) - 1].end, span.end)
+            continue
+        }
+        append(&runs, span)
+    }
+    return runs[:]
+}
+
+// A rich pick row's colour runs: the name in the item's own colour, the matched
+// characters marked over both halves. Sorted and non-overlapping, as
+// ui.Text_Span asks. Temp-allocated.
+@(private = "file")
+palette_rich_spans :: proc(item: Pick_Item, query: string, mark: ui.Color) -> []ui.Text_Span {
+    name_end := clamp(item.name_len, 0, len(item.text))
+    marks := palette_match_spans(query, item.text, mark)
+    if len(marks) == 0 {
+        if name_end <= 0 {
+            return nil
+        }
+        runs := make([]ui.Text_Span, 1, context.temp_allocator)
+        runs[0] = {start = 0, end = name_end, color = item.color}
+        return runs
+    }
+
+    runs := make([dynamic]ui.Text_Span, 0, len(marks) * 2 + 1, context.temp_allocator)
+    at := 0
+    for m in marks {
+        if at < m.start && at < name_end {
+            append(&runs, ui.Text_Span{start = at, end = min(m.start, name_end), color = item.color})
+        }
+        append(&runs, m)
+        at = m.end
+    }
+    if at < name_end {
+        append(&runs, ui.Text_Span{start = at, end = name_end, color = item.color})
+    }
+    return runs[:]
+}
+
+// Start of the rune holding byte `at`.
+@(private = "file")
+palette_rune_start :: proc(text: string, at: int) -> int {
+    i := clamp(at, 0, max(len(text) - 1, 0))
+    for i > 0 && text[i] & 0xC0 == 0x80 {
+        i -= 1
+    }
+    return i
+}
+
+// End of the rune that begins before byte `at`.
+@(private = "file")
+palette_rune_end :: proc(text: string, at: int) -> int {
+    i := clamp(at, 0, len(text))
+    for i < len(text) && text[i] & 0xC0 == 0x80 {
+        i += 1
+    }
+    return i
 }
 
 @(private = "file")

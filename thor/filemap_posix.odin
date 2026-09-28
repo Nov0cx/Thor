@@ -28,6 +28,11 @@ file_map_open :: proc(m: ^File_Map, path: string) -> ([]u8, bool) {
     if posix.fstat(fd, &info) != .OK {
         return nil, false
     }
+    // A directory or a device reporting no size must not read as an empty
+    // buffer: a save would then write a file over it.
+    if !posix.S_ISREG(info.st_mode) {
+        return nil, false
+    }
     // A zero-length mapping is an error; a directory or a device fails at mmap.
     if info.st_size <= 0 {
         return nil, true

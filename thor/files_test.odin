@@ -91,6 +91,23 @@ test_async_file_roundtrip :: proc(t: ^testing.T) {
     testing.expect_value(t, signal_get(&thor.active_file), -1)
 }
 
+// A folder has no buffer. thor_open_file must refuse one outright: the load
+// worker would otherwise fail and strand a tab reading "Could not open file".
+@(test)
+test_open_file_refuses_a_directory :: proc(t: ^testing.T) {
+    DIR :: "thor_open_dir_test"
+    testing.expect(t, os.make_directory(DIR) == nil, "could not create test dir")
+    defer os.remove(DIR)
+
+    thor := test_make_thor()
+    defer test_free_thor(thor)
+
+    thor_open_file(thor, DIR)
+    testing.expect_value(t, len(thor.open_files), 0)
+    testing.expect_value(t, thor.inflight_jobs, 0)
+    testing.expect_value(t, thor.status_message, "Only files can be opened in the editor")
+}
+
 // Line-ending detection and CRLF collapsing now run on the load worker
 // (load_worker), not the reap on the main thread; this exercises that path
 // through the same async open/pump cycle as test_async_file_roundtrip,
