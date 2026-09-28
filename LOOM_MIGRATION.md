@@ -158,22 +158,36 @@ Everything below is done; what is left is the manual pass, the docs and the chan
   `thor_task_select_tip` the view calls at each node. The dim chord line is an `Element.spans` run,
   which `merge_element` now carries.
 
-### Not carried over
+### Carried over since
 
-The image, model and markdown views were dropped with `widgets/`. `Workspace_View` still reports
-`image` / `model` / `welcome` / the per-pane `Pane_Content`, so the panes have the state a rebuild
-needs; per the plan the two texture views become `Cmd_Image` over `render.register_texture`, and the
-markdown parse wants its own package first.
+- **The image, model and markdown views.** Each is a tab's content, in the pane its tab owns:
+  `Pane_Content` gained `.Image` and `.Model`, and `thor_workspace_view` decides per pane. The two
+  texture views are `Cmd_Image` over `render.register_texture`; the model's 3D pass renders to its
+  own target in `Thor.run`, before the draw list is replayed, since `render.draw` holds an unflushed
+  rlgl batch and a live scissor across the list. The markdown parse got its own leaf package,
+  `markdown/`, laid out against two measuring callbacks the host answers.
+- **The hex colour swatches.** Loom's `Text_Span` gained `lead`, blank width reserved before a
+  span's first byte, threaded through the measure, the runs, the caret and the hit test.
+  `thor_row_spans` merges a row's swatch anchors into its highlight spans, splitting a highlight
+  that covers one. `ui.span_lead_before` is what a host adds to its own arithmetic.
+- **The terminal's dock slot.** A panel toggled off used to lose its place; Loom now parks it, and
+  `ui.dock_focus` raises a tab by name so `focus_terminal` can reach one behind another tab.
 
-Still missing in the editor pane. `editview` holds the state for each; only the view is gone.
+### Still missing in the editor pane
+
+`editview` holds the state for each; only the view is gone.
 
 - **The completion popup, the signature-help card and the hover card.** `editor.completion_rows`,
   the snippet stops and `editor.hover_text` / `hover_start` / `hover_end` are all kept and the
   callbacks now fill them, but nothing declares a node for them, so a result lands and never shows.
-- **Whitespace markers** (`editor.show_whitespace`, a dot per space and an arrow per tab) and the
-  **hex colour swatches**. A swatch needs a gap reserved inside the row's text, which one text node
-  per row cannot express — it wants `tab_origin`-style pieces, or a `Text_Span` that carries a width.
+- **Whitespace markers** (`editor.show_whitespace`, a dot per space and an arrow per tab). The
+  swatch gap is the groundwork: a marker wants the same reserved width.
 - The **Ctrl+hover underline** for go-to-definition.
+
+### Known outside the migration
+
+The dock layout is not persisted: `ui.dock_save` / `ui.dock_load` are public and Thor calls
+neither, and a dragged splitter's ratio is never written back to the session.
 
 ## Verification
 

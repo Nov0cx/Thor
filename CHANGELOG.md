@@ -27,6 +27,15 @@
 - The welcome page lists its recent folders again. It panicked on its first frame whenever one was listed, so closing the workspace left Thor unable to start at all.
 - Dialogs are centred over a dimmed backdrop again. The command palette, quick open, the theme picker, the git panel, Settings, the theme editor, the colour picker and the plugin permission prompt drew in the top-left corner of the window with nothing behind them, and the git panel covered the menu bar.
 - A click outside a dialog closes it again: the titlebar menus, the git panel, Settings, the theme editor and the colour picker. Their backdrop had no size to click on.
+- `ctrl + t` off and on again puts the terminal back in its own slot at the bottom. It re-docked beside Explorer, behind the Explorer tab, at a grid a fifth the width, and the shell then read as dead: the prompt stayed split where it had wrapped, and nothing typed into it ran.
+- `ctrl + shift + t` raises the Terminal tab when the panel sits behind another one.
+- The terminal follows the `font_size` setting. It was fixed at 15 whatever the editor used.
+- Image files open in the image view again: fit to the pane, `wheel` to zoom toward the cursor, drag to pan, a checkerboard behind the transparent pixels, and the name, size and zoom in the corner.
+- 3D model files open in the model view again: drag to orbit, `shift` + drag or the right button to pan, `wheel` to zoom, over a ground grid, with a corner button that spins the model and the mesh, vertex and triangle counts in the corner.
+- `f4` opens the markdown preview again, beside the source. Headings, lists, quotes, rules, code blocks and inline styles are laid out, and a link opens in the browser or in the editor.
+- The image, model and markdown views are a tab's content, so the explorer, the terminal and the file tabs stay on screen while one is open, and a split can show two.
+- Hex colour literals show their swatch again, inline before the literal.
+- A click on a line holding a `#RRGGBB` literal lands on the character it was aimed at. The editor counted the swatch gap that nothing was drawing, so every click past the literal resolved about a character to the left.
 
 # 2026.08.8
 
