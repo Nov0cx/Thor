@@ -146,6 +146,7 @@ run_tests :: proc() -> bool {
         "lang/lsp",
         "lang/odin",
         "lang/odin/format",
+        "markdown",
         "msvc",
         "piecetable",
         "plugin",

@@ -408,8 +408,10 @@ thor_titlebar_button :: proc(
 
 @(private = "file")
 thor_workspace :: proc(thor: ^Thor) {
+    view := thor_workspace_view(thor)
+
     // No workspace, no panels: the welcome page takes the whole area.
-    if thor.workspace_dir == "" {
+    if view.welcome {
         thor_welcome_view(thor)
         return
     }
@@ -427,7 +429,7 @@ thor_workspace :: proc(thor: ^Thor) {
     // The editor holds its place: no dock tab above its own tab strip, and no
     // drag out of the middle of the layout.
     if ui.panel(dock, EDITOR_PANEL, flags = {.No_Tab, .Fixed}) {
-        thor_editor_column(thor)
+        thor_editor_column(thor, view)
         ui.end_panel()
     }
     if ui.panel(dock, CONSOLE_PANEL, &thor.console_open) {
@@ -502,7 +504,7 @@ thor_console_panel :: proc(thor: ^Thor) {
 }
 
 @(private = "file")
-thor_editor_column :: proc(thor: ^Thor) {
+thor_editor_column :: proc(thor: ^Thor, view: Workspace_View) {
     column := ui.scope({key = "editors", props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column}})
     // A drag released here opens the dropped rows as tabs; thor_tree_drag_out
     // reads the rect after the frame that saw the release.
@@ -510,9 +512,25 @@ thor_editor_column :: proc(thor: ^Thor) {
     thor_tabbar(thor)
 
     ui.scope({key = "panes", props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Row, gap = {1, 0}}})
-    thor_editor_pane(thor, &thor.editor, 0, "pane0")
-    if thor.split_visible {
-        thor_editor_pane(thor, &thor.editor2, 1, "pane1")
+    thor_workspace_pane(thor, view, 0, "pane0")
+    if view.split {
+        thor_workspace_pane(thor, view, 1, "pane1")
+    }
+}
+
+// One slot of the editor column: the source, an image, a model, or the rendered
+// markdown beside the source.
+@(private = "file")
+thor_workspace_pane :: proc(thor: ^Thor, view: Workspace_View, pane: int, key: string) {
+    switch view.pane[pane] {
+    case .Markdown:
+        thor_markdown_pane(thor, view.files[pane], key)
+    case .Image:
+        thor_image_view(thor, &thor.image_view[pane], view.files[pane], key)
+    case .Model:
+        thor_model_view(thor, &thor.model_view[pane], view.files[pane], key)
+    case .Editor:
+        thor_editor_pane(thor, thor_pane_editor(thor, pane), pane, key)
     }
 }
 

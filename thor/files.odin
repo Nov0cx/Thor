@@ -14,6 +14,7 @@ import "core:time"
 import rl "vendor:raylib"
 
 import "../lang"
+import "../render"
 import "../setting"
 import "../textedit"
 import ui "../vendor/loom/loom"
@@ -1027,7 +1028,7 @@ thor_close_file :: proc(thor: ^Thor, index: int) {
         file.closed = true
         append(&thor.zombie_files, file)
     } else {
-        thor_free_open_file(file)
+        thor_free_open_file(file, thor)
     }
 }
 
@@ -1369,8 +1370,13 @@ thor_process_io :: proc(thor: ^Thor) {
     }
 }
 
-thor_free_open_file :: proc(file: ^Open_File) {
+// `thor` is optional so a headless test can free a file with no backend: it is
+// only the draw-command texture table the image view registers into.
+thor_free_open_file :: proc(file: ^Open_File, thor: ^Thor = nil) {
     if file.texture_loaded {
+        if thor != nil {
+            render.forget_texture(&thor.backend, file.texture)
+        }
         rl.UnloadTexture(file.texture)
     }
     if file.model_loaded {
@@ -1400,7 +1406,7 @@ thor_reap_file :: proc(thor: ^Thor, file: ^Open_File) {
             break
         }
     }
-    thor_free_open_file(file)
+    thor_free_open_file(file, thor)
 }
 
 // Blocks until every load/save thread has finished; called from shutdown so

@@ -93,15 +93,16 @@ Thor :: struct {
     // True while thor.theme holds a generated preview rather than the configured
     // palette, so an edit cannot write the preview over a saved theme.
     theme_preview_generated: bool,
-    // Second editor pane, shown side-by-side with the first when the split is
-    // on. Both view the active file's buffer (shared state, independent scroll).
-    // Overlays the editor panel when the active file is an image; the editor
-    // rows are hidden while it shows.
-    // The same overlay for 3D model files: an orbit camera over the loaded meshes.
+    // Zoom and pan of the image view, and the orbit camera and render target of
+    // the model view. One per editor pane: a split can show two of either, and
+    // each keeps its own camera.
+    image_view: [2]Image_View,
+    model_view: [2]Model_View,
     // Rendered markdown preview, shown in place of whichever pane is not
-    // focused (pane 0's slot / pane 1's slot respectively) while preview is on
-    // and the active file is markdown. Toggled by "View: Toggle Markdown Preview".
+    // focused while preview is on and the active file is markdown. Toggled by
+    // "View: Toggle Markdown Preview".
     markdown_preview: bool,
+    markdown_view: Markdown_View,
     // Tip of the day, floating over the editor. Opened on the first start of a
     // day with a workspace open, where the welcome page is not shown; the
     // welcome page shows the same tip inline.
@@ -894,6 +895,9 @@ run :: proc(thor: ^Thor) {
 
         rl.BeginDrawing()
         rl.ClearBackground(render.raylib_color(thor.theme.contrast))
+        // The 3D pass owns the whole GL state for its target, so it runs before
+        // the draw list rather than from inside it.
+        thor_render_models(thor)
         render.draw(&thor.backend, list)
         rl.EndDrawing()
 
@@ -917,7 +921,7 @@ shutdown :: proc(thor: ^Thor) {
     thor_drain_io(thor)
 
     for file in thor.open_files {
-        thor_free_open_file(file)
+        thor_free_open_file(file, thor)
     }
     delete(thor.open_files)
     delete(thor.zombie_files)
@@ -932,6 +936,10 @@ shutdown :: proc(thor: ^Thor) {
     thor_clear_update(thor)
     thor_clear_file_index(thor)
     thor_free_theme_choices(thor)
+    for &view in thor.model_view {
+        thor_model_view_destroy(thor, &view)
+    }
+    thor_markdown_view_destroy(&thor.markdown_view)
     strings.builder_destroy(&thor.console_backlog)
     delete(thor.app_binds)
     thor_clear_git_status(thor)

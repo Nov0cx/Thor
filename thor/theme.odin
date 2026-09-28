@@ -155,6 +155,7 @@ thor_apply_theme :: proc(thor: ^Thor) {
         file.highlighted = false
     }
     thor_terminals_apply_theme(thor)
+    thor_markdown_recolor(&thor.markdown_view)
 }
 
 // Preferences: Change Theme -> pick from the installed themes in a dialog that

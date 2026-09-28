@@ -171,38 +171,48 @@ thor_sync_pane_diff :: proc(thor: ^Thor, pane: int) {
     }
 }
 
-// What one editor pane shows.
+// What one editor pane shows. An image and a model are a tab's content like a
+// source file is, so the explorer, the terminal and the tab strip stay.
 Pane_Content :: enum {
     Editor,
     Markdown,
+    Image,
+    Model,
 }
 
-// What the workspace area shows this frame. An image, a model and the welcome
-// page each take the whole area; otherwise the two panes show a source or the
-// rendered markdown beside it.
+// What the workspace area shows this frame: the welcome page when no folder is
+// open, otherwise each pane's own file, with the markdown preview beside the
+// source when it is on.
 Workspace_View :: struct {
-    file:     ^Open_File, // borrowed, nil when no file is active
-    image:    bool,
-    model:    bool,
-    welcome:  bool,
-    split:    bool,
-    pane:     [2]Pane_Content,
+    file:    ^Open_File, // borrowed, the active file; nil when none is
+    welcome: bool,
+    split:   bool,
+    pane:    [2]Pane_Content,
+    // The file each pane shows, which is not the active one for the other pane
+    // of a split. nil where the pane has none.
+    files:   [2]^Open_File, // borrowed
 }
 
-// Decides what the workspace area shows: the image view for image files, the
-// model view for 3D models (both whole-area), and the markdown preview in
-// whichever pane is not focused when the active file is markdown and preview is
-// on. The focused pane keeps the source, like opening the preview to the side.
-// Called once a frame, so it tracks tab switches, splits, toggles and closes
-// without each having to poke it.
+// Decides what each pane shows: the image view for an image, the model view for
+// a 3D model, and the markdown preview in whichever pane is not focused when the
+// active file is markdown and preview is on. The focused pane keeps the source,
+// like opening the preview to the side. Called once a frame, so it tracks tab
+// switches, splits, toggles and closes without each having to poke it.
 thor_workspace_view :: proc(thor: ^Thor) -> Workspace_View {
     file := thor_active_open_file(thor)
     out := Workspace_View{file = file}
-    out.image = file != nil && file.is_image && file.texture_loaded
-    out.model = file != nil && file.is_model && file.model_loaded
     out.welcome = thor.workspace_dir == ""
 
-    show_md := !out.image && !out.model && thor.markdown_preview &&
+    for pane in 0 ..< 2 {
+        index := thor.pane_file[pane]
+        if index < 0 || index >= len(thor.open_files) {
+            continue
+        }
+        out.files[pane] = thor.open_files[index]
+        out.pane[pane] = thor_pane_content(out.files[pane])
+    }
+
+    show_md := thor.markdown_preview &&
         file != nil && file.loaded && thor_is_markdown(file.name)
 
     // The preview needs a second pane to sit beside the source; open the split
@@ -214,9 +224,24 @@ thor_workspace_view :: proc(thor: ^Thor) -> Workspace_View {
     out.split = thor.split_visible
 
     if show_md {
-        out.pane[1 - thor.active_pane] = .Markdown
+        other := 1 - thor.active_pane
+        out.pane[other] = .Markdown
+        out.files[other] = file
     }
     return out
+}
+
+// A file still loading its pixels or meshes stays on the editor, which carries
+// the placeholder thor_bind_editor set.
+@(private = "file")
+thor_pane_content :: proc(file: ^Open_File) -> Pane_Content {
+    switch {
+    case file.is_image && file.texture_loaded:
+        return .Image
+    case file.is_model && file.model_loaded:
+        return .Model
+    }
+    return .Editor
 }
 
 @(private = "file")
