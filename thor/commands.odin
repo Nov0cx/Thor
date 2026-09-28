@@ -184,6 +184,7 @@ thor_apply_settings :: proc(thor: ^Thor) {
 
     editview.editor_set_font_size(&thor.editor, cast(i32) setting.font_size(&thor.config))
     editview.editor_set_font_size(&thor.editor2, cast(i32) setting.font_size(&thor.config))
+    thor_terminals_apply_font(thor)
     textedit.set_default_tab_width(setting.tab_width(&thor.config))
     font.set_tab_width(setting.tab_width(&thor.config))
     font.set_ligatures(setting.ligatures(&thor.config))

@@ -417,10 +417,10 @@ thor_workspace :: proc(thor: ^Thor) {
     dock := ui.dockspace("main", {mode = .In_Window}, {props = {w = ui.Grow(1), h = ui.Grow(1)}})
     thor_seed_dock(thor, dock)
 
-    explorer := signal_get(&thor.explorer_visible)
-    console := signal_get(&thor.console_visible)
+    thor.explorer_open = signal_get(&thor.explorer_visible)
+    thor.console_open = signal_get(&thor.console_visible)
 
-    if ui.panel(dock, EXPLORER_PANEL, &explorer) {
+    if ui.panel(dock, EXPLORER_PANEL, &thor.explorer_open) {
         thor_explorer_view(thor)
         ui.end_panel()
     }
@@ -430,13 +430,17 @@ thor_workspace :: proc(thor: ^Thor) {
         thor_editor_column(thor)
         ui.end_panel()
     }
-    if ui.panel(dock, CONSOLE_PANEL, &console) {
+    if ui.panel(dock, CONSOLE_PANEL, &thor.console_open) {
         thor_console_panel(thor)
         ui.end_panel()
     } else {
         // A panel that is not declared holds no focus, and the global chords
-        // read that flag before the tree is built.
+        // read that flag before the tree is built. console.focused is set only
+        // inside the body, so clear it here or it stays true behind another tab.
         thor.console_focused = false
+        if console := thor_active_console(thor); console != nil {
+            console.focused = false
+        }
     }
     if thor_plugin_dock_visible(thor, .Right) && ui.panel(dock, PLUGIN_RIGHT_PANEL) {
         thor_plugin_dock_view(thor, .Right)
@@ -447,10 +451,16 @@ thor_workspace :: proc(thor: ^Thor) {
         ui.end_panel()
     }
 
+    // A panel the user asked to raise is not declared while it sits behind
+    // another tab, thus the request waits here until the dock holds its tab.
+    if thor.dock_focus_request != "" && ui.dock_focus(dock, thor.dock_focus_request) {
+        thor.dock_focus_request = ""
+    }
+
     // A panel the user closed from its own tab puts the signal back, so the
     // View menu and the keybind agree with what is on screen.
-    signal_set(&thor.explorer_visible, explorer)
-    signal_set(&thor.console_visible, console)
+    signal_set(&thor.explorer_visible, thor.explorer_open)
+    signal_set(&thor.console_visible, thor.console_open)
 }
 
 EXPLORER_PANEL :: "Explorer"

@@ -351,13 +351,17 @@ thor_focus_explorer :: proc(thor: ^Thor) {
     thor.focus_request = "explorer"
 }
 
-// Reveals the console panel if collapsed, then focuses it for command input.
+// Reveals the console panel if collapsed, raises its dock tab, then focuses it
+// for command input. The focus goes on the console's own latch, not
+// thor.focus_request: the panel is not declared on the frame its tab is raised,
+// and a request the frame did not reach is dropped.
 thor_focus_terminal :: proc(thor: ^Thor) {
     if !signal_get(&thor.console_visible) {
         signal_set(&thor.console_visible, true)
     }
-    if thor_active_console(thor) != nil {
-        thor.focus_request = "console"
+    thor.dock_focus_request = CONSOLE_PANEL
+    if console := thor_active_console(thor); console != nil {
+        console.focus_pending = true
     }
 }
 

@@ -152,6 +152,14 @@ Thor :: struct {
     dock_seeded: bool,
     explorer_visible: Signal(bool),
     console_visible: Signal(bool),
+    // What `ui.panel` reads and writes for those two. The dock keeps the pointer
+    // across frames and writes through it when a tab's close button is hit, so it
+    // must not be a local of the view.
+    explorer_open: bool,
+    console_open: bool,
+    // A panel to raise the next time the dock holds its tab, since a panel
+    // behind another tab is never declared and cannot take focus.
+    dock_focus_request: string, // borrowed, a panel-name constant
     // Titlebar hammer mark and its borrowed texture (unloaded at shutdown).
     top_logo_texture: rl.Texture2D,
     // Titlebar/panel labels that carry a theme color, kept so a live theme

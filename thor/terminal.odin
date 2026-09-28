@@ -51,7 +51,7 @@ thor_terminal_create :: proc(thor: ^Thor, profile: shell.Profile) -> ^Terminal {
     term.allocator = context.allocator
     term.pending = make([dynamic]u8)
 
-    thor_console_init(&term.console)
+    thor_console_init(&term.console, cast(i32) setting.font_size(&thor.config))
     thor_console_apply_theme(thor, &term.console)
     thor_console_set_on_link(&term.console, thor_console_link, thor_console_activate, thor)
     thor_console_set_on_write(
@@ -395,6 +395,15 @@ thor_process_terminals :: proc(thor: ^Thor) {
 thor_terminals_apply_theme :: proc(thor: ^Thor) {
     for term in thor.terminals {
         thor_console_apply_theme(thor, &term.console)
+    }
+}
+
+// Follows the font size setting. The grid refits on the next frame, which tells
+// each shell its new size.
+thor_terminals_apply_font :: proc(thor: ^Thor) {
+    size := max(cast(i32) setting.font_size(&thor.config), 8)
+    for term in thor.terminals {
+        term.console.font_size = size
     }
 }
 

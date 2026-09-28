@@ -39,6 +39,9 @@ CURSOR_BLINK_PERIOD :: 1.0
 Console :: struct {
     term:           ^vt.Term, // owned
     font_size:      i32,
+    // The face the grid is measured and drawn in, so the cell advance cannot
+    // drift from the glyphs.
+    family:         string, // borrowed, owned by the font package
     // Lines scrolled back from the newest output; 0 pins the view to the bottom.
     scroll:         int,
     // The grid the view last measured, which is what the shell was told.
@@ -68,8 +71,9 @@ Console :: struct {
     link_data:      rawptr,
 }
 
-thor_console_init :: proc(console: ^Console) {
-    console.font_size = 15
+thor_console_init :: proc(console: ^Console, font_size: i32) {
+    console.font_size = max(font_size, 8)
+    console.family = font.default_family()
     console.cols, console.rows = 80, 24
     console.term = vt.term_make(console.cols, console.rows, CONSOLE_SCROLLBACK)
     console.focus_pending = true
@@ -328,7 +332,7 @@ console_grid :: proc(thor: ^Thor, console: ^Console) {
 // one measurement stands for every column.
 @(private = "file")
 console_cell_width :: proc(console: ^Console) -> f32 {
-    return f32(max(font.measure("M", console.font_size), 1))
+    return f32(max(font.measure("M", console.font_size, console.family), 1))
 }
 
 // Fits the grid to the panel and tells the shell when it changed.
