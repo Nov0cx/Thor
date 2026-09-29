@@ -18,6 +18,10 @@ TITLEBAR_HEIGHT :: 44
 STATUSBAR_HEIGHT :: 28
 TAB_HEIGHT :: 38
 GUTTER_PAD :: 10
+// The terminal strip: shorter than the file tabs, since it sits inside a panel.
+TERMINAL_STRIP_HEIGHT :: 28
+TERMINAL_STRIP_TAB_HEIGHT :: 22
+TERMINAL_STRIP_NAME_MAX :: 140
 
 // What the status bar shows. A field left zero hides its segment.
 Status_Info :: struct {
@@ -180,6 +184,25 @@ thor_icon_label :: proc(
     )
 }
 
+// The hammer mark, fit to `height` at the texture's own aspect. Draws nothing
+// while the texture is missing, which is what a headless run sees.
+thor_logo_image :: proc(thor: ^Thor, key: string, height: f32) {
+    tex := thor.top_logo_texture
+    if tex.id == 0 || tex.width == 0 || tex.height == 0 {
+        return
+    }
+    ui.image(
+        render.register_texture(&thor.backend, tex),
+        {
+            key = key,
+            props = {
+                w = ui.Px(height * f32(tex.width) / f32(tex.height)),
+                h = ui.Px(height),
+            },
+        },
+    )
+}
+
 // ---- titlebar ----------------------------------------------------------------
 
 @(private = "file")
@@ -201,6 +224,28 @@ thor_titlebar :: proc(thor: ^Thor) {
             },
         },
     )
+
+    logo := ui.begin(
+        {
+            key = "logo",
+            flags = {.Clickable},
+            props = {
+                w = ui.Px(34),
+                h = ui.Px(28),
+                justify = .Center,
+                align = .Center,
+                radius = ui.rad(4),
+                cursor = .Pointer,
+            },
+            hover = {bg = thor.theme.buttons},
+        },
+    )
+    thor_logo_image(thor, "mark", 22)
+    ui.end()
+    thor_tip(thor, logo.id, "Settings")
+    if logo.clicked {
+        thor_cmd_open_settings_gui(thor)
+    }
 
     for label, i in MENU_LABELS {
         ui.push_id_int(i64(i))
@@ -499,9 +544,18 @@ thor_seed_dock :: proc(thor: ^Thor, dock: ui.Dock_Id) {
     ui.dock_panel(dock, CONSOLE_PANEL, bottom)
 }
 
-// The active terminal, or the line that says there is none yet.
+// The terminal strip over the active terminal, or over the line that says there
+// is none yet.
 @(private = "file")
 thor_console_panel :: proc(thor: ^Thor) {
+    ui.scope(
+        {
+            key = "console-panel",
+            props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column, bg = thor.theme.background},
+        },
+    )
+    thor_terminal_strip(thor)
+
     console := thor_active_console(thor)
     if console == nil {
         thor.console_focused = false
@@ -512,6 +566,145 @@ thor_console_panel :: proc(thor: ^Thor) {
         return
     }
     thor_console_view(thor, console)
+}
+
+// One pill per terminal, with the add button at the right end. The panel's own
+// dock tab hides the panel, so the strip carries no chevron. Shift + wheel
+// scrolls it, as it does the dock's tab bar.
+@(private = "file")
+thor_terminal_strip :: proc(thor: ^Thor) {
+    ui.scope(
+        {
+            key = "terminal-strip",
+            flags = {.Clip, .Scroll_X, .No_Bars},
+            props = {
+                w = ui.Grow(1),
+                h = ui.Px(TERMINAL_STRIP_HEIGHT),
+                dir = .Row,
+                align = .Center,
+                gap = {2, 0},
+                pad = ui.xy(4, 0),
+                bg = thor.theme.second_background,
+            },
+        },
+    )
+
+    active := thor_terminal_tab_active(thor)
+    select_index := -1
+    close_index := -1
+    menu_index := -1
+
+    for i in 0 ..< thor_terminal_tab_count(thor) {
+        info := thor_terminal_tab_info(thor, i)
+        on := i == active
+
+        ui.push_id_int(i64(i))
+        it := ui.begin(
+            {
+                key = "tab",
+                flags = {.Clickable, .Group},
+                props = {
+                    h = ui.Px(TERMINAL_STRIP_TAB_HEIGHT),
+                    dir = .Row,
+                    align = .Center,
+                    gap = {6, 0},
+                    pad = ui.xy(9, 0),
+                    radius = ui.rad(6),
+                    bg = on ? thor.theme.background : thor.theme.second_background,
+                    cursor = .Pointer,
+                },
+                hover = {bg = on ? thor.theme.background : thor.theme.buttons},
+            },
+        )
+        // Status dot: red once the shell is gone, dim while it runs.
+        dot := on ? thor.theme.muted_color : thor.theme.disabled
+        if info.modified {
+            dot = thor.theme.danger_color
+        } else if info.loading {
+            dot = thor.theme.info_color
+        }
+        ui.leaf(
+            {
+                key = "dot",
+                props = {w = ui.Px(6), h = ui.Px(6), radius = ui.rad(3), bg = dot},
+            },
+        )
+        ui.label(
+            info.name,
+            {
+                props = {
+                    max_w = TERMINAL_STRIP_NAME_MAX,
+                    color = on ? thor.theme.foreground : thor.theme.muted_color,
+                    text_wrap = .Ellipsis,
+                },
+            },
+        )
+        close := ui.begin(
+            {
+                key = "close",
+                flags = {.Clickable},
+                props = {
+                    w = ui.Px(16),
+                    h = ui.Px(16),
+                    justify = .Center,
+                    align = .Center,
+                    radius = ui.rad(3),
+                },
+                hover = {bg = thor.theme.danger_color},
+            },
+        )
+        thor_icon_label(thor, "x", thor.theme.muted_color, 12)
+        ui.end()
+        ui.end()
+        // The close button sits inside the pill, so the pill's own tip would
+        // come up over it as well. The inner one wins.
+        thor_tip(thor, close.id, "Close Terminal")
+        if !close.hovered {
+            thor_tip(thor, it.id, info.tooltip)
+        }
+        ui.pop_id()
+
+        // The list is rebuilt below, so a close waits until the loop is done.
+        if close.clicked || it.middle_clicked {
+            close_index = i
+        } else if it.right_clicked {
+            menu_index = i
+        } else if it.clicked {
+            select_index = i
+        }
+    }
+
+    ui.spacer()
+    add := ui.begin(
+        {
+            key = "add",
+            flags = {.Clickable},
+            props = {
+                w = ui.Px(24),
+                h = ui.Px(TERMINAL_STRIP_TAB_HEIGHT),
+                justify = .Center,
+                align = .Center,
+                radius = ui.rad(4),
+                cursor = .Pointer,
+            },
+            hover = {bg = thor.theme.buttons},
+        },
+    )
+    thor_icon_label(thor, "plus", thor.theme.muted_color, 14)
+    ui.end()
+    thor_tip(thor, add.id, "New Terminal")
+
+    if close_index >= 0 {
+        thor_terminal_tab_close(thor, close_index)
+    } else if menu_index >= 0 {
+        thor_terminal_tab_context_menu(thor, menu_index, ui.mouse_pos())
+    } else if select_index >= 0 {
+        thor_terminal_tab_select(thor, select_index)
+    } else if add.clicked {
+        // The shell list drops out of the button, as a titlebar menu does.
+        thor.menu_anchor = {add.rect.x, add.rect.y + add.rect.h}
+        thor_terminal_tab_add(thor)
+    }
 }
 
 @(private = "file")
@@ -566,6 +759,7 @@ thor_tabbar :: proc(thor: ^Thor) {
     active := signal_get(&thor.active_file)
     select_index := -1
     close_index := -1
+    menu_index := -1
 
     for i in 0 ..< len(thor.open_files) {
         info := thor_tab_info(thor, i)
@@ -638,6 +832,8 @@ thor_tabbar :: proc(thor: ^Thor) {
         // The list is rebuilt below, so a close waits until the loop is done.
         if close.clicked || it.middle_clicked {
             close_index = i
+        } else if it.right_clicked {
+            menu_index = i
         } else if it.clicked {
             select_index = i
         }
@@ -645,6 +841,8 @@ thor_tabbar :: proc(thor: ^Thor) {
 
     if close_index >= 0 {
         thor_close_file(thor, close_index)
+    } else if menu_index >= 0 {
+        thor_tab_context_menu(thor, menu_index, ui.mouse_pos())
     } else if select_index >= 0 {
         thor_set_active_file(thor, select_index)
     }

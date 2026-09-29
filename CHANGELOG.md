@@ -58,6 +58,11 @@
 - The Settings box keeps its rounded corners. Its header and its sidebar painted square corners over them.
 - A live snippet boxes its placeholders: the one the caret is on in the accent colour, the ones `tab` still reaches dimmed. A placeholder used twice is one destination, so both of its boxes light up together.
 - The panel layout is kept per folder: which panel sits in which slot, how wide each is, and where a panel you toggled off goes back to. A dragged splitter stays where you put it across a restart, and each folder comes back to its own arrangement.
+- The terminal has its tab strip back: one pill per terminal over the grid, each with a status dot and a close button, and a `+` at the right end that lists the installed shells. A second terminal opened from the palette was invisible, reachable only through "Terminal: Next Terminal".
+- Right-click on a file tab opens Close, Close Others and Close All again.
+- Right-click on a terminal tab opens Close and Close All.
+- The hammer logo is back: at the left end of the titlebar, where a click opens Settings, and over the welcome page above the title.
+- The welcome page's recent folders line up. The folder icon, the folder name and the full path each keep their own column, so a long path no longer runs into the name beside it and the names no longer shift from row to row.
 
 # 2026.08.8
 

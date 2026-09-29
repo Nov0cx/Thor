@@ -16,6 +16,11 @@ WELCOME_RECENT_ROWS :: 5
 WELCOME_WIDTH :: f32(520)
 WELCOME_RECENT_ROW_H :: f32(36)
 WELCOME_TITLE_FONT_SIZE :: i32(28)
+WELCOME_LOGO_HEIGHT :: f32(72)
+// The recent list's icon and name columns. Fixed, so every path starts at one x.
+WELCOME_RECENT_ICON_W :: f32(18)
+WELCOME_RECENT_NAME_MIN :: f32(70)
+WELCOME_RECENT_NAME_MAX :: f32(180)
 
 // Tears down the current workspace and returns to the welcome page: the
 // teardown half of thor_open_folder, without opening a replacement. A later
@@ -130,6 +135,7 @@ thor_welcome_view :: proc(thor: ^Thor) {
         },
     )
 
+    thor_logo_image(thor, "logo", WELCOME_LOGO_HEIGHT)
     ui.label(
         "Thor",
         {
@@ -179,6 +185,20 @@ thor_welcome_view :: proc(thor: ^Thor) {
     welcome_tip(thor)
 }
 
+// Width of the name column: the widest name shown, so every path starts at one
+// x. Capped, since a long name would otherwise leave the path no room.
+@(private = "file")
+welcome_recent_name_width :: proc(paths: []string) -> f32 {
+    width := WELCOME_RECENT_NAME_MIN
+    for path, index in paths {
+        if index >= WELCOME_RECENT_ROWS {
+            break
+        }
+        width = max(width, ui.text_width(filepath.base(path)))
+    }
+    return min(width, WELCOME_RECENT_NAME_MAX)
+}
+
 @(private = "file")
 welcome_recent :: proc(thor: ^Thor) {
     paths := thor_recent_workspaces(context.temp_allocator)
@@ -196,6 +216,8 @@ welcome_recent :: proc(thor: ^Thor) {
             props = {w = ui.Grow(1), h = ui.FIT, dir = .Column, gap = {0, 6}},
         },
     )
+
+    name_w := welcome_recent_name_width(paths)
 
     for path, index in paths {
         if index >= WELCOME_RECENT_ROWS {
@@ -226,10 +248,34 @@ welcome_recent :: proc(thor: ^Thor) {
                     hover = {bg = thor.theme.active},
                 },
             )
+            // A row too narrow for its whole path shrinks every child, and a
+            // label then overflows its box instead of cutting the text. The
+            // floors freeze the icon and the name, so the path alone gives way
+            // and the columns line up down the list.
+            ui.begin(
+                {
+                    key = "icon",
+                    props = {
+                        w = ui.Px(WELCOME_RECENT_ICON_W),
+                        min_w = WELCOME_RECENT_ICON_W,
+                        justify = .Center,
+                        align = .Center,
+                    },
+                },
+            )
             thor_icon_label(thor, "folder", thor.theme.muted_color)
+            ui.end()
             ui.label(
                 filepath.base(path),
-                {key = "name", props = {color = thor.theme.foreground, text_wrap = .None}},
+                {
+                    key = "name",
+                    props = {
+                        w = ui.Px(name_w),
+                        min_w = name_w,
+                        color = thor.theme.foreground,
+                        text_wrap = .Ellipsis,
+                    },
+                },
             )
             // The name alone reads the same for two folders of one name, so the
             // whole path rides beside it.

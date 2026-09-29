@@ -424,10 +424,9 @@ thor_terminals_shutdown :: proc(thor: ^Thor) {
     thor.active_terminal = -1
 }
 
-// Tabstrip_Add_Proc: opens the list of installed shells under the add button;
-// picking one opens a terminal on it.
-thor_terminal_tab_add :: proc(data: rawptr) {
-    thor := cast(^Thor) data
+// Opens the list of installed shells under the add button; picking one opens a
+// terminal on it.
+thor_terminal_tab_add :: proc(thor: ^Thor) {
     if len(thor.shell_profiles) == 0 {
         return
     }
@@ -444,15 +443,13 @@ thor_menu_open_shell :: proc(data: rawptr) {
     thor_terminal_open(choice.thor, choice.thor.shell_profiles[choice.index])
 }
 
-// Tabbar_Count_Proc
-thor_terminal_tab_count :: proc(data: rawptr) -> int {
-    return len((cast(^Thor) data).terminals)
+thor_terminal_tab_count :: proc(thor: ^Thor) -> int {
+    return len(thor.terminals)
 }
 
-// Tabbar_Info_Proc: the shell's name, numbered when several tabs run the same
-// shell. The tooltip carries whatever title the shell set for itself.
-thor_terminal_tab_info :: proc(data: rawptr, index: int) -> Tab_Info {
-    thor := cast(^Thor) data
+// The shell's name, numbered when several tabs run the same shell. The tooltip
+// carries whatever title the shell set for itself.
+thor_terminal_tab_info :: proc(thor: ^Thor, index: int) -> Tab_Info {
     if index < 0 || index >= len(thor.terminals) {
         return {}
     }
@@ -483,19 +480,16 @@ thor_terminal_tab_info :: proc(data: rawptr, index: int) -> Tab_Info {
     return {name = name, tooltip = tooltip, modified = term.dead}
 }
 
-// Tabbar_Active_Proc
-thor_terminal_tab_active :: proc(data: rawptr) -> int {
-    return (cast(^Thor) data).active_terminal
+thor_terminal_tab_active :: proc(thor: ^Thor) -> int {
+    return thor.active_terminal
 }
 
-// Tabbar_Action_Proc
-thor_terminal_tab_select :: proc(data: rawptr, index: int) {
-    thor_terminal_select(cast(^Thor) data, index)
+thor_terminal_tab_select :: proc(thor: ^Thor, index: int) {
+    thor_terminal_select(thor, index)
 }
 
-// Tabbar_Action_Proc
-thor_terminal_tab_close :: proc(data: rawptr, index: int) {
-    thor_terminal_close(cast(^Thor) data, index)
+thor_terminal_tab_close :: proc(thor: ^Thor, index: int) {
+    thor_terminal_close(thor, index)
 }
 
 // Reveals the console panel, so a terminal command is visible when it acts.

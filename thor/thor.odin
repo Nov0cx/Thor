@@ -168,14 +168,9 @@ Thor :: struct {
     // A panel to raise the next time the dock holds its tab, since a panel
     // behind another tab is never declared and cannot take focus.
     dock_focus_request: string, // borrowed, a panel-name constant
-    // Titlebar hammer mark and its borrowed texture (unloaded at shutdown).
-    top_logo_texture: rl.Texture2D,
-    // Titlebar/panel labels that carry a theme color, kept so a live theme
-    // change can recolor them (most labels are theme-neutral and not stored).
-    // Titlebar task controls, left of the window controls: add, the selector
-    // naming the active task (opens the dropdown), and run (see tasks.odin).
-    // Top-bar buttons added by plugins via thor.button, and the widget a new one
-    // is linked in after (advances so buttons keep registration order).
+    // The hammer mark the titlebar and the welcome page draw.
+    top_logo_texture: rl.Texture2D, // owned, unloaded at shutdown
+    // Top-bar buttons added by plugins via thor.button, in registration order.
     plugin_buttons: [dynamic]^Plugin_Top_Button,
     // Panels plugins built (thor.panel) and the two docks holding them. A dock
     // shows only while one of its panels does (see plugin_panel.odin).
@@ -638,6 +633,9 @@ init :: proc() -> ^Thor {
         rl.SetWindowIcon(icon)
         rl.UnloadImage(icon)
     }
+    // The mark the titlebar and the welcome page draw. A texture needs the GL
+    // context the window just made.
+    thor.top_logo_texture = rl.LoadTexture("assets/branding/hammer.png")
     rl.SetTargetFPS(60)
     rl.SetExitKey(.KEY_NULL)
 
