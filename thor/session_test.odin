@@ -7,6 +7,14 @@ import "core:testing"
 
 import "../editview"
 
+// A fixture name no other run of the tests can collide with. Windows keeps the
+// name of a removed directory unusable while a handle on it is still open, thus
+// a run that reuses the name the last run removed can fail to create it.
+@(private)
+test_fixture_name :: proc(name: string) -> string {
+    return fmt.tprintf("%s_%d", name, os.get_pid())
+}
+
 // thor_recent_workspaces / thor_record_recent_workspace persist to
 // sessions/recent.json, the same file a real run uses, so the test backs up
 // and restores whatever is there and only ever records folders it created
@@ -23,12 +31,14 @@ test_recent_workspaces :: proc(t: ^testing.T) {
         }
     }
 
-    dir_a := "thor_recent_test_a"
-    dir_b := "thor_recent_test_b"
+    dir_a := test_fixture_name("thor_recent_test_a")
+    dir_b := test_fixture_name("thor_recent_test_b")
     testing.expect(t, os.make_directory(dir_a) == nil, "could not create test dir")
     testing.expect(t, os.make_directory(dir_b) == nil, "could not create test dir")
-    defer os.remove(dir_a)
-    defer os.remove(dir_b)
+    // thor_delete_tree, not os.remove: the removal loses the same race the
+    // creation does, and a fixture left behind is never reused under this name.
+    defer _ = thor_delete_tree(dir_a)
+    defer _ = thor_delete_tree(dir_b)
 
     thor_record_recent_workspace(dir_a)
     thor_record_recent_workspace(dir_b)
@@ -59,12 +69,12 @@ test_recent_workspaces :: proc(t: ^testing.T) {
     // The list never grows past the cap.
     cap_dirs: [RECENT_WORKSPACES_MAX + 1]string
     for i in 0 ..< len(cap_dirs) {
-        cap_dirs[i] = fmt.tprintf("thor_recent_test_cap_%d", i)
+        cap_dirs[i] = test_fixture_name(fmt.tprintf("thor_recent_test_cap_%d", i))
         testing.expect(t, os.make_directory(cap_dirs[i]) == nil, "could not create test dir")
         thor_record_recent_workspace(cap_dirs[i])
     }
     defer for dir in cap_dirs {
-        os.remove(dir)
+        _ = thor_delete_tree(dir)
     }
     capped := thor_recent_workspaces(context.temp_allocator)
     testing.expect(t, len(capped) <= RECENT_WORKSPACES_MAX, "recent workspaces must stay capped")

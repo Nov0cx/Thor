@@ -1719,12 +1719,12 @@ thor_is_link :: proc(path: string) -> bool {
 // call the file-op worker has no COM apartment for.
 thor_delete_tree :: proc(path: string) -> os.Error {
     if !os.is_dir(path) {
-        return os.remove(path)
+        return thor_remove_settled(path)
     }
     // os.is_dir follows links, so a junction reads as a directory here. Remove
     // the link alone — a recursion through it deletes the contents of the target.
     if thor_is_link(path) {
-        return os.remove(path)
+        return thor_remove_settled(path)
     }
 
     handle, open_err := os.open(path)
@@ -1743,7 +1743,31 @@ thor_delete_tree :: proc(path: string) -> os.Error {
             return err
         }
     }
-    return os.remove(path)
+    return thor_remove_settled(path)
+}
+
+// The longest a remove waits for a file to settle before it reports the failure.
+@(private = "file")
+REMOVE_SETTLE_MAX :: 64 * time.Millisecond
+
+// A remove that gives a scanner time to let go. Windows hands a file that was
+// just written to the virus scanner, which keeps it open for some milliseconds,
+// thus a remove answers Permission_Denied for a file nothing in Thor holds.
+// Retried with a growing wait; POSIX unlinks a file that is open, thus it
+// removes on the first call.
+@(private = "file")
+thor_remove_settled :: proc(path: string) -> os.Error {
+    err := os.remove(path)
+    when ODIN_OS == .Windows {
+        for wait := time.Millisecond; err != nil && wait <= REMOVE_SETTLE_MAX; wait *= 2 {
+            if !os.exists(path) {
+                return nil // something else won the race, and the path is gone either way
+            }
+            time.sleep(wait)
+            err = os.remove(path)
+        }
+    }
+    return err
 }
 
 // Copies a file or a whole directory tree to `dst`. Directories recurse; an

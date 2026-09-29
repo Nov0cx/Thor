@@ -656,13 +656,13 @@ editor_test_overlay_setup :: proc(editor: ^Editor, state: ^textedit.State, text:
 
 // Screen point on visual row `row`, just inside the text column. font.measure
 // reports 0 with no font atlas, so every cluster is zero wide and any x past the
-// gutter resolves to the row's last byte — the row is what the point picks, which
-// is all these tests need.
+// column's left edge resolves to the row's last byte — the row is what the point
+// picks, which is all these tests need.
 @(private = "file")
 editor_test_row_point :: proc(editor: ^Editor, row: int) -> ui.Vec2 {
     lh := cast(f32) font.line_height(editor.font_size)
     return {
-        editor.view.x + editor.gutter_width + 1,
+        editor.view.x + editor.gutter_width + TEXT_PAD_LEFT + 1,
         editor.view.y + cast(f32) row * lh + lh * 0.5,
     }
 }

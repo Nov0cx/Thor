@@ -540,7 +540,7 @@ thor_seed_dock :: proc(thor: ^Thor, dock: ui.Dock_Id) {
     ui.dock_panel(dock, EXPLORER_PANEL, left)
     ui.dock_panel(dock, EDITOR_PANEL, rest, {.No_Tab, .Fixed})
 
-    _, bottom := ui.dock_split(dock, EDITOR_PANEL, .Bottom, 1 - thor.console_height / max(ui.viewport().y, 1))
+    _, bottom := ui.dock_split(dock, EDITOR_PANEL, .Bottom, thor.console_height / max(ui.viewport().y, 1))
     ui.dock_panel(dock, CONSOLE_PANEL, bottom)
 }
 
@@ -929,7 +929,7 @@ thor_editor_pane :: proc(thor: ^Thor, editor: ^editview.Editor, pane: int, key: 
 
     first := clamp(int(editor.scroll_y / line_h), 0, len(rows) - 1)
     last := clamp(first + int(it.rect.h / line_h) + 2, first, len(rows))
-    text_x := editor.gutter_width
+    text_x := editor.gutter_width + editview.TEXT_PAD_LEFT
 
     thor_paint_gutter(thor, editor, it, rows, first, last, line_h)
     thor_paint_indent_guides(thor, editor, text, rows, first, last, line_h, text_x)

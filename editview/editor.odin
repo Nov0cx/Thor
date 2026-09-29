@@ -844,8 +844,12 @@ editor_toggle_fold_line :: proc(editor: ^Editor, line: int) {
 
 // Space between the pane border and the line numbers, and between the numbers
 // and the text column. Kept apart so the numbers clear the border on the left.
-GUTTER_PAD_LEFT :: 14
+GUTTER_PAD_LEFT :: 24
 GUTTER_PAD_RIGHT :: 12
+
+// Space between the gutter and the first character of a line. Outside the
+// gutter, thus it carries the editor background, not the gutter one.
+TEXT_PAD_LEFT :: 6
 
 // Width of the fold-chevron column on the gutter's inner edge, reserved only
 // when the buffer has foldable regions (so plain text keeps a tight gutter).
@@ -922,7 +926,7 @@ editor_indent_stops :: proc(editor: ^Editor, text: string, line: int) -> int {
 // Width available for text (inside the gutter, padding and scrollbar).
 @(private = "file")
 editor_text_width :: proc(editor: ^Editor) -> f32 {
-    return editor.view.w - editor.gutter_width - 10
+    return editor.view.w - editor.gutter_width - TEXT_PAD_LEFT - 10
 }
 
 // Column the wrap breaks at, or max(int) with wrapping off.
@@ -2161,7 +2165,7 @@ editor_screen_at :: proc(editor: ^Editor, offset: int) -> (x, y, line_height: f3
     row := editor.visual_rows[row_index]
     lh := cast(f32) font.line_height(editor.font_size)
     inner_top := editor.view.y
-    text_x := editor.view.x + editor.gutter_width
+    text_x := editor.view.x + editor.gutter_width + TEXT_PAD_LEFT
     yy := inner_top - editor.scroll_y + cast(f32) row_index * lh
     col := clamp(offset, row.start, row.end)
     xx := text_x + cast(f32) font.measure(text[row.start:col], editor.font_size) +
@@ -2381,7 +2385,7 @@ editor_pos_at :: proc(editor: ^Editor, position: ui.Vec2) -> (int, bool) {
     text := textedit.text(editor.state)
     line_height := cast(f32) font.line_height(editor.font_size)
     inner_top := editor.view.y
-    text_x := editor.view.x + editor.gutter_width
+    text_x := editor.view.x + editor.gutter_width + TEXT_PAD_LEFT
 
     target := cast(int) ((position.y - (inner_top - editor.scroll_y)) / line_height)
     target = clamp(target, 0, len(editor.visual_rows) - 1)

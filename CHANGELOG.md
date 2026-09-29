@@ -63,6 +63,10 @@
 - Right-click on a terminal tab opens Close and Close All.
 - The hammer logo is back: at the left end of the titlebar, where a click opens Settings, and over the welcome page above the title.
 - The welcome page's recent folders line up. The folder icon, the folder name and the full path each keep their own column, so a long path no longer runs into the name beside it and the names no longer shift from row to row.
+- The terminal opens at the height it is set to. A folder with no saved layout gave it three quarters of the window and left the editor a few lines.
+- The `Explorer` and `Terminal` tab labels sit on the same line as their close button. The label hung above it.
+- The line numbers clear the left edge of the pane, and the text clears the line numbers. Each column started hard against what sits to its left.
+- Deleting, renaming or refactoring a file no longer fails with "could not delete the file" on Windows when the virus scanner still holds the file it was just written to.
 
 # 2026.08.8
 
