@@ -88,8 +88,9 @@ line under it turns tips off for good, and so does the `tip_of_the_day` setting.
 
 Inside the editor, `File > Open Folder...` switches the workspace and
 `File > Open File...` opens a file from anywhere; dropping a folder or files on
-the window does the same. Each folder keeps its own session (open tabs,
-layout), restored when you come back to it.
+the window does the same. Each folder keeps its own session (open tabs, and the
+panel layout — which panel sits in which slot, how wide each is, and where a
+panel you toggled off goes back to), restored when you come back to it.
 
 Opening a second folder while one is already open asks whether to replace the
 current window's workspace or launch a new window — configurable via the

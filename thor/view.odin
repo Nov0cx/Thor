@@ -474,14 +474,22 @@ CONSOLE_PANEL :: "Terminal"
 PLUGIN_RIGHT_PANEL :: "Panels"
 PLUGIN_BOTTOM_PANEL :: "Output"
 
-// The starting arrangement. Only once: after this the dock keeps whatever the
-// user dragged it into.
+// The workspace's saved arrangement, or the starting one when it has none. Once
+// per workspace: after this the dock keeps whatever the user dragged it into,
+// and thor_dock_layout writes that back to the session. The reset is what makes
+// a folder switch land on the new folder's layout — dock_split splits what is
+// already there rather than replacing it.
 @(private = "file")
 thor_seed_dock :: proc(thor: ^Thor, dock: ui.Dock_Id) {
     if thor.dock_seeded {
         return
     }
     thor.dock_seeded = true
+    thor.dock_id = dock
+    ui.dock_reset(dock)
+    if thor.dock_layout != "" && ui.dock_load(dock, transmute([]byte)thor.dock_layout) {
+        return
+    }
 
     left, rest := ui.dock_split(dock, "", .Left, thor.explorer_width / max(ui.viewport().x, 1))
     ui.dock_panel(dock, EXPLORER_PANEL, left)

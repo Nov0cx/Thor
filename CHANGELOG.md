@@ -57,6 +57,7 @@
 - `relative_line_numbers` numbers the gutter from 1 instead of by distance from the caret line. Both switches sit under Settings > Editor.
 - The Settings box keeps its rounded corners. Its header and its sidebar painted square corners over them.
 - A live snippet boxes its placeholders: the one the caret is on in the accent colour, the ones `tab` still reaches dimmed. A placeholder used twice is one destination, so both of its boxes light up together.
+- The panel layout is kept per folder: which panel sits in which slot, how wide each is, and where a panel you toggled off goes back to. A dragged splitter stays where you put it across a restart, and each folder comes back to its own arrangement.
 
 # 2026.08.8
 

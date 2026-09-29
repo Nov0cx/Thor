@@ -10,7 +10,7 @@ Work happens on the `loom` branch. This file is the working plan; delete it when
 
 | | |
 |---|---|
-| Loom upstream | done — `viewport`, a public `set_scroll`, `set_tooltips_enabled`, then the four below |
+| Loom upstream | done — `viewport`, a public `set_scroll`, `set_tooltips_enabled`, `dock_reset`, then the four below |
 | Foundation packages | **green** — `editview` `render` `font` `theme` `snippet` `setting` `input` `plugin` `textedit` `lang` `syntax` `piecetable` `shell` `watch` `update` `treecache` |
 | `thor/` | **green** — every view written, `odin check thor` clean, 138 tests pass |
 | `ui/`, `widgets/` | **deleted** |
@@ -181,16 +181,17 @@ Everything below is done; what is left is the manual pass, the docs and the chan
   `thor_row_x` like every other row painter, so a swatch gap moves them with the glyphs. Two rules
   the deleted `editor_draw` owned came back as `editview.editor_overlay_tick`: an edit drops a card
   whose anchor it moved, and losing the keyboard drops the candidate list and the signature.
+- **The dock layout.** `Session.dock_layout` carries what `ui.dock_save` writes — the slots, the
+  splitter ratios and the home of every panel toggled off — and `thor_seed_dock` loads it instead of
+  seeding when the workspace has one. A restore drops the layout before any early return, so a
+  folder with no session of its own comes up on the default rather than on the outgoing folder's,
+  which the next save would write over its session. Loom gained `dock_reset` for that: `dock_split`
+  splits what is there instead of replacing it.
 - **A live snippet session's stops.** `thor_row_stops` clips the session's stops to a visual row and
   says which belong to the tabstop the caret is on — mirrors share a number, so every occurrence of
   it is marked — and `thor_paint_row_snippet_stops` boxes each one in the pane's own slot. A stop
   with no placeholder has no width to box and is a tick; a soft wrap makes two rows meet at one
   offset, and the row above keeps the mark.
-
-### Known outside the migration
-
-The dock layout is not persisted: `ui.dock_save` / `ui.dock_load` are public and Thor calls
-neither, and a dragged splitter's ratio is never written back to the session.
 
 ## Verification
 

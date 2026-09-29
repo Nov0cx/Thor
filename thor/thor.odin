@@ -152,8 +152,12 @@ Thor :: struct {
     explorer: Explorer,
     // Last frame's editor column rect, the drop target of an explorer drag.
     editor_rect: ui.Rect,
-    // The dock is arranged once; after that it keeps what the user dragged it into.
+    // The dock is arranged once per workspace: the saved layout, or the starting
+    // one. After that it keeps what the user dragged it into, and the session
+    // writes that back.
     dock_seeded: bool,
+    dock_id: ui.Dock_Id,
+    dock_layout: string, // owned, the restored layout, applied at the next arrange
     explorer_visible: Signal(bool),
     console_visible: Signal(bool),
     // What `ui.panel` reads and writes for those two. The dock keeps the pointer
@@ -948,6 +952,7 @@ shutdown :: proc(thor: ^Thor) {
     thor_clear_git_status(thor)
     delete(thor.workspace_dir)
     delete(thor.workspace_prefix)
+    delete(thor.dock_layout)
     delete(thor.plugin_data_root)
     delete(thor.menu_target_dir)
     thor_clear_pending_deletes(thor)

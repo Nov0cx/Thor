@@ -34,6 +34,11 @@ Session :: struct {
     // Name of the task the titlebar selector shows; the tasks themselves are
     // committed with the workspace, which one you last picked is not.
     active_task:       string,
+    // The dock's own arrangement as Loom writes it (an ini section): which panel
+    // sits in which slot, the splitter ratios, and where a panel toggled off goes
+    // back to. Absent for a session written before this field, which arranges the
+    // dock the default way.
+    dock_layout:       string,
 }
 
 // Longest readable part a key keeps. The hash after it carries the identity, so
@@ -258,6 +263,7 @@ thor_save_session :: proc(thor: ^Thor) {
         split_second_file = thor.pane_file[1],
         active_pane       = thor.active_pane,
         active_task       = thor.active_task_name,
+        dock_layout       = thor_dock_layout(thor),
     }
 
     data, err := json.marshal(session, {pretty = true}, context.temp_allocator)
@@ -270,6 +276,19 @@ thor_save_session :: proc(thor: ^Thor) {
         log.errorf("Could not write session %q: %v", path, werr)
     }
     thor_record_last_workspace(thor.workspace_dir)
+}
+
+// What the dock holds now, for the session file. A workspace whose dock was
+// never arranged this run — the welcome page, or a save before the first frame —
+// keeps the layout it restored rather than writing an empty one over it.
+@(private = "file")
+thor_dock_layout :: proc(thor: ^Thor) -> string {
+    if !thor.dock_seeded {
+        return thor.dock_layout
+    }
+    b := strings.builder_make(context.temp_allocator)
+    ui.dock_save(thor.dock_id, strings.to_writer(&b))
+    return strings.to_string(b)
 }
 
 // A saved tab position moved through `remap`, or -1 when that entry was
@@ -290,6 +309,14 @@ thor_restore_session :: proc(thor: ^Thor) {
     if thor.workspace_dir == "" {
         return
     }
+    // The dock belongs to the workspace, so it is re-arranged for this one: from
+    // the layout below when there is one, from the default when the file is
+    // missing or malformed. Dropped here, before any early return, or the
+    // outgoing folder's layout would be saved over this one's.
+    delete(thor.dock_layout)
+    thor.dock_layout = ""
+    thor.dock_seeded = false
+
     thor_migrate_legacy_session(thor.workspace_dir)
     path := thor_session_file(thor.workspace_dir)
     data, read_err := os.read_entire_file(path, context.temp_allocator)
@@ -310,6 +337,11 @@ thor_restore_session :: proc(thor: ^Thor) {
     }
     if session.console_height > 0 {
         thor.console_height = session.console_height
+    }
+    // Applied by the next thor_seed_dock, not here: the dock space only exists
+    // inside a frame, and a restore runs outside one.
+    if session.dock_layout != "" {
+        thor.dock_layout = strings.clone(session.dock_layout)
     }
     signal_set(&thor.explorer_visible, session.explorer_visible)
     signal_set(&thor.console_visible, session.console_visible)

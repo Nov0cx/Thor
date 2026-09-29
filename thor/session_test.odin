@@ -146,3 +146,77 @@ test_restore_drops_a_directory :: proc(t: ^testing.T) {
     thor_close_file(thor, 0)
     testing.expect_value(t, len(thor.open_files), 0)
 }
+
+// The dock layout rides the session file and waits for the next arrange: the
+// space only exists inside a frame, and a restore runs outside one. A restore
+// always drops what the outgoing workspace left, so a folder with no saved
+// layout comes up on the default one rather than the folder's before it.
+@(test)
+test_restore_hands_the_dock_layout_on :: proc(t: ^testing.T) {
+    WORKSPACE :: "thor_session_dock_test"
+    LAYOUT :: `[dock.main]
+root = n0
+n0.kind = tabs
+n0.tabs = Explorer
+`
+
+    testing.expect(t, os.make_directory(WORKSPACE) == nil, "could not create test workspace")
+    defer os.remove(WORKSPACE)
+    if !os.is_dir("sessions") {
+        testing.expect(t, os.make_directory("sessions") == nil, "could not create sessions dir")
+    }
+
+    // Written by hand: the on-disk Session shape is file-private to session.odin.
+    escaped, _ := strings.replace_all(LAYOUT, "\n", "\\n", context.temp_allocator)
+    data := fmt.tprintf(
+        `{{"workspace":%q,"open_files":[],"active_file":-1,"split_second_file":-1,"dock_layout":"%s"}}`,
+        WORKSPACE,
+        escaped,
+    )
+    path := strings.concatenate(
+        {"sessions/", thor_path_key(WORKSPACE), ".json"},
+        context.temp_allocator,
+    )
+    testing.expect(
+        t,
+        os.write_entire_file(path, transmute([]u8)data) == nil,
+        "could not write the test session",
+    )
+    defer os.remove(path)
+
+    thor := new(Thor)
+    defer free(thor)
+    defer editview.editor_destroy(&thor.editor)
+    defer editview.editor_destroy(&thor.editor2)
+    thor.active_file = make_signal(-1)
+    thor.open_files = make([dynamic]^Open_File)
+    thor.zombie_files = make([dynamic]^Open_File)
+    thor.finished_loads = make([dynamic]^Load_Job)
+    thor.finished_saves = make([dynamic]^Save_Job)
+    thor.pane_file = {-1, -1}
+    thor.workspace_dir = WORKSPACE
+    defer {
+        delete(thor.dock_layout)
+        delete(thor.status_message)
+        delete(thor.open_files)
+        delete(thor.zombie_files)
+        delete(thor.finished_loads)
+        delete(thor.finished_saves)
+    }
+
+    // What a workspace arranged earlier in the run leaves behind.
+    thor.dock_seeded = true
+
+    thor_restore_session(thor)
+    testing.expect_value(t, thor.dock_layout, LAYOUT)
+    testing.expect(t, !thor.dock_seeded, "the layout is applied by the next arrange, not here")
+
+    // A workspace with no session file of its own drops it rather than keeping
+    // the one on screen, which the next save would write over its session.
+    thor.dock_seeded = true
+    thor.workspace_dir = "thor_session_dock_missing"
+    thor_restore_session(thor)
+    testing.expect_value(t, thor.dock_layout, "")
+    testing.expect(t, !thor.dock_seeded, "a missing session still re-arranges the dock")
+    thor.workspace_dir = WORKSPACE
+}
