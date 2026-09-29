@@ -280,7 +280,9 @@ function may arrive as a snippet with its arguments already in place.
 ### Snippets
 
 When an accepted candidate is a snippet, its first placeholder is selected and
-typing replaces it.
+typing replaces it. Every placeholder of the session is boxed: the one the caret
+is on in the accent colour, the ones tab still reaches dimmed. A placeholder used
+twice is one destination, so both boxes light up together.
 
 | Key | Action |
 | --- | --- |

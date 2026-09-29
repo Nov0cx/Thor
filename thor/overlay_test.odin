@@ -3,6 +3,7 @@ package thor
 import "core:testing"
 
 import "../editview"
+import "../snippet"
 import ui "../vendor/loom/loom"
 
 // The row-level overlays are pure arithmetic over a row's bytes and its spans, so
@@ -109,4 +110,89 @@ test_the_link_is_clipped_to_its_row :: proc(t: ^testing.T) {
     // A half-open range that ends where the row starts covers nothing.
     _, _, ok = thor_row_link_bytes(second, 5, 10)
     testing.expect(t, !ok, "a range ending at the row start covers no byte of it")
+}
+
+// A live snippet session with two stops: the placeholder the caret is on, its
+// mirror, and the exit stop at the end.
+@(private = "file")
+snippet_editor :: proc(editor: ^editview.Editor, stops: ..snippet.Stop) {
+    editor.snippet_active = true
+    for stop in stops {
+        append(&editor.snippet_stops, stop)
+    }
+}
+
+// Every occurrence of the tabstop the caret is on is active; a later stop is not.
+@(test)
+test_a_mirror_carries_the_active_mark :: proc(t: ^testing.T) {
+    editor := overlay_editor()
+    defer delete(editor.snippet_stops)
+    snippet_editor(
+        &editor,
+        snippet.Stop{start = 2, end = 5, index = 1},
+        snippet.Stop{start = 8, end = 11, index = 1},
+        snippet.Stop{start = 14, end = 17, index = 2},
+    )
+
+    stops := thor_row_stops(&editor, editview.Visual_Row{start = 0, end = 20, first = true})
+    testing.expect_value(t, len(stops), 3)
+    testing.expect(t, stops[0].active, "the caret is on the first stop")
+    testing.expect(t, stops[1].active, "so its mirror is marked too")
+    testing.expect(t, !stops[2].active, "the next tabstop is not")
+}
+
+// A placeholder a soft wrap split is boxed on both rows, each taking its own
+// share, and a row it misses takes none.
+@(test)
+test_a_stop_is_clipped_to_its_row :: proc(t: ^testing.T) {
+    editor := overlay_editor()
+    defer delete(editor.snippet_stops)
+    snippet_editor(&editor, snippet.Stop{start = 6, end = 14, index = 1})
+
+    first := editview.Visual_Row{start = 0, end = 10, first = true}
+    second := editview.Visual_Row{start = 10, end = 20}
+
+    head := thor_row_stops(&editor, first)
+    testing.expect_value(t, len(head), 1)
+    testing.expect_value(t, head[0].start, 6)
+    testing.expect_value(t, head[0].end, 10)
+
+    tail := thor_row_stops(&editor, second)
+    testing.expect_value(t, len(tail), 1)
+    testing.expect_value(t, tail[0].start, 10)
+    testing.expect_value(t, tail[0].end, 14)
+
+    testing.expect_value(t, len(thor_row_stops(&editor, editview.Visual_Row{start = 20, end = 30})), 0)
+}
+
+// An empty stop has no byte to clip, so the row it sits in claims it. Two rows
+// meeting at its offset would both, which is why the continuation row declines.
+@(test)
+test_an_empty_stop_is_marked_once :: proc(t: ^testing.T) {
+    editor := overlay_editor()
+    defer delete(editor.snippet_stops)
+    snippet_editor(&editor, snippet.Stop{start = 10, end = 10, index = 0})
+
+    head := thor_row_stops(&editor, editview.Visual_Row{start = 0, end = 10, first = true})
+    testing.expect_value(t, len(head), 1)
+    testing.expect_value(t, head[0].start, 10)
+    testing.expect_value(t, head[0].end, 10)
+
+    testing.expect_value(t, len(thor_row_stops(&editor, editview.Visual_Row{start = 10, end = 20})), 0)
+    testing.expect_value(
+        t,
+        len(thor_row_stops(&editor, editview.Visual_Row{start = 10, end = 20, first = true})),
+        1,
+    )
+}
+
+// Nothing is marked when no session is live, even with stops still in the list.
+@(test)
+test_no_stops_without_a_live_session :: proc(t: ^testing.T) {
+    editor := overlay_editor()
+    defer delete(editor.snippet_stops)
+    snippet_editor(&editor, snippet.Stop{start = 2, end = 5, index = 1})
+    editor.snippet_active = false
+
+    testing.expect_value(t, len(thor_row_stops(&editor, editview.Visual_Row{start = 0, end = 20, first = true})), 0)
 }

@@ -181,11 +181,11 @@ Everything below is done; what is left is the manual pass, the docs and the chan
   `thor_row_x` like every other row painter, so a swatch gap moves them with the glyphs. Two rules
   the deleted `editor_draw` owned came back as `editview.editor_overlay_tick`: an edit drops a card
   whose anchor it moved, and losing the keyboard drops the candidate list and the signature.
-
-### Still missing in the editor pane
-
-A live snippet session's stops are not marked. `editor.snippet_stops` is kept and tab walks it; no
-node draws a band over the stop the caret is on.
+- **A live snippet session's stops.** `thor_row_stops` clips the session's stops to a visual row and
+  says which belong to the tabstop the caret is on — mirrors share a number, so every occurrence of
+  it is marked — and `thor_paint_row_snippet_stops` boxes each one in the pane's own slot. A stop
+  with no placeholder has no width to box and is a tick; a soft wrap makes two rows meet at one
+  offset, and the row above keeps the mark.
 
 ### Known outside the migration
 

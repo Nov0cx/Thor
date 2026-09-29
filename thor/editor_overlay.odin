@@ -1,6 +1,7 @@
-// The editor pane's overlays: the whitespace markers and the go-to-definition
-// underline inside a row, and the three cards that float over the pane. Every
-// one reads state `editview` already holds; none of it is retained here.
+// The editor pane's overlays: the whitespace markers, the go-to-definition
+// underline and the snippet stop boxes inside a row, and the three cards that
+// float over the pane. Every one reads state `editview` already holds; none of it
+// is retained here.
 package thor
 
 import "core:strings"
@@ -151,6 +152,82 @@ thor_paint_row_link :: proc(
     size := f32(editor.font_size)
     y := row_y + render.half_leading(size) + size - 1
     ui.paint_rect({x0, y, x1 - x0, 1}, thor.theme.foreground, {}, true)
+}
+
+// One snippet stop's mark on a row, in bytes, and whether it belongs to the
+// tabstop the caret is on. An empty stop has start == end.
+Row_Stop :: struct {
+    start, end: int,
+    active:     bool,
+}
+
+// The live snippet session's stops that fall on `row`, in the temp allocator.
+// Mirrors share a tabstop number, so every occurrence of the number the caret is
+// on is marked and the rest read as what tab reaches next.
+thor_row_stops :: proc(editor: ^editview.Editor, row: editview.Visual_Row) -> []Row_Stop {
+    if !editor.snippet_active || len(editor.snippet_stops) == 0 {
+        return nil
+    }
+    active := editor.snippet_stops[editor.snippet_at].index
+    out := make([dynamic]Row_Stop, 0, len(editor.snippet_stops), context.temp_allocator)
+    for stop in editor.snippet_stops {
+        if stop.end > stop.start {
+            if start, end, ok := thor_row_link_bytes(row, stop.start, stop.end); ok {
+                append(&out, Row_Stop{start = start, end = end, active = stop.index == active})
+            }
+            continue
+        }
+        // An empty stop covers no byte to clip. A soft wrap makes two rows meet
+        // at one offset; the row above it keeps the mark.
+        if stop.start < row.start || stop.start > row.end {
+            continue
+        }
+        if stop.start == row.start && !row.first {
+            continue
+        }
+        append(&out, Row_Stop{start = stop.start, end = stop.start, active = stop.index == active})
+    }
+    if len(out) == 0 {
+        return nil
+    }
+    return out[:]
+}
+
+// Boxes the live snippet session's stops on one row: the tabstop the caret is on
+// in the accent, the ones tab still reaches dim. An empty stop is a tick, having
+// no width to box.
+@(private)
+thor_paint_row_snippet_stops :: proc(
+    thor: ^Thor,
+    editor: ^editview.Editor,
+    text: string,
+    row: editview.Visual_Row,
+    spans: []ui.Text_Span,
+    text_x, row_y: f32,
+) {
+    size := f32(editor.font_size)
+    y := row_y + render.half_leading(size)
+    for stop in thor_row_stops(editor, row) {
+        color := stop.active ? thor.theme.accent_color : thor.theme.disabled
+        x0 := text_x + thor_row_x(editor, text, row.start, row.end, stop.start, spans)
+        x1 := text_x + thor_row_x(editor, text, row.start, row.end, stop.end, spans)
+        if x1 - x0 < 1 {
+            ui.paint_line({x0, y}, {x0, y + size}, 1, color)
+            continue
+        }
+        thor_paint_box({x0, y, x1 - x0, size}, color)
+    }
+}
+
+// A one-pixel outline over the glyphs.
+@(private = "file")
+thor_paint_box :: proc(rect: ui.Rect, color: ui.Color) {
+    x1 := rect.x + rect.w
+    y1 := rect.y + rect.h
+    ui.paint_line({rect.x, rect.y}, {x1, rect.y}, 1, color)
+    ui.paint_line({rect.x, y1}, {x1, y1}, 1, color)
+    ui.paint_line({rect.x, rect.y}, {rect.x, y1}, 1, color)
+    ui.paint_line({x1, rect.y}, {x1, y1}, 1, color)
 }
 
 // The three cards that stand over the pane. Each returns at once when its own

@@ -56,6 +56,7 @@
 - The explorer draws tree guides: one line per level above a row, down the middle of that level's chevron column.
 - `relative_line_numbers` numbers the gutter from 1 instead of by distance from the caret line. Both switches sit under Settings > Editor.
 - The Settings box keeps its rounded corners. Its header and its sidebar painted square corners over them.
+- A live snippet boxes its placeholders: the one the caret is on in the accent colour, the ones `tab` still reaches dimmed. A placeholder used twice is one destination, so both of its boxes light up together.
 
 # 2026.08.8
 

@@ -771,6 +771,7 @@ thor_editor_pane :: proc(thor: ^Thor, editor: ^editview.Editor, pane: int, key: 
             thor_paint_row_whitespace(thor, editor, text, row, spans, text_x, row_y)
         }
         thor_paint_row_link(thor, editor, text, row, spans, text_x, row_y, link_lo, link_hi)
+        thor_paint_row_snippet_stops(thor, editor, text, row, spans, text_x, row_y)
 
         // On the last visual row of a collapsed start line, a pill stands in for
         // the hidden body.
