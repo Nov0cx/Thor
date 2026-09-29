@@ -66,17 +66,16 @@ site in `thor/` and `editview/` is balanced.
       searches (`thor/find.odin:209` sets only `inset = {t = FIND_TOP}`).
 - [x] The text cursor in an input is the whole line box, so it reads long beside the glyphs. The
       editor's own caret is the em box (`thor/view.odin:1173`); Loom's input caret now matches.
-- [ ] The editor has no indent guides and the explorer has no tree guides.
-- [ ] The gutter's relative line numbers have no setting. They feed the `alt + <digit>` jump, but
+- [x] The editor has no indent guides and the explorer has no tree guides.
+- [x] The gutter's relative line numbers have no setting. They feed the `alt + <digit>` jump, but
       there is no way to ask for absolute numbers.
-- [ ] Loom's own test suite does not link. `odin run build.odin -file -- -target:tests` from
-      `vendor/loom` ends in `LNK2019: unresolved external symbol "user" in
-      tests::test_hoverable_is_a_target_without_clicks`. It predates the layout fix — the same
-      failure is there at `da84f19` with no local change — so a Loom change can only be verified
-      by `odin check` and by the running editor until it is repaired.
+- [x] Loom's own test suite does not link. The viewport ops were proc literals, and codegen emitted
+      their parameters as undefined globals named after the parameter. One named proc per op links
+      it; the suite then ran, and the one test it hid (a lead over a tab grid) expected two runs
+      where the layout makes three. 307 tests pass.
 
 ## Verified, not a defect
 
-- Relative line numbers are deliberate (`editview/editor.odin:1141`).
+- Relative line numbers are deliberate, and `relative_line_numbers` now turns them off.
 - Diagnostics work: a red gutter dot and the compiler message in the status bar.
 - Startup is 543 ms warm, of which `InitWindow` is 251 ms.
