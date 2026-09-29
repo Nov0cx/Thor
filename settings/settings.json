@@ -3,6 +3,8 @@
     "tab_width": 4,
     "autosave_delay_ms": 1500,
     "ligatures": true,
+    "indent_guides": true,
+    "relative_line_numbers": true,
     "format_on_save": false,
     "format_on_type": false,
     "check_for_updates": true,

@@ -52,6 +52,10 @@
 - Menu rows show their keyboard chord, the one the command palette shows for the same command. Rebinding it in Settings changes both.
 - The find bar opens at the top right of the editor pane it searches. It opened at the left edge of the window, over the explorer.
 - The text cursor in a search box, a prompt and every other input is as tall as the letters beside it. It was as tall as the whole line.
+- The editor draws indent guides: a vertical line at every indentation stop inside a line's own indent. A blank line takes the smaller indent of its nearest lines with text, so a guide ends with its block. `indent_guides` turns them off.
+- The explorer draws tree guides: one line per level above a row, down the middle of that level's chevron column.
+- `relative_line_numbers` numbers the gutter from 1 instead of by distance from the caret line. Both switches sit under Settings > Editor.
+- The Settings box keeps its rounded corners. Its header and its sidebar painted square corners over them.
 
 # 2026.08.8
 

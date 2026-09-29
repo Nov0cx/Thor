@@ -14,6 +14,8 @@ EXPLORER_INDENT :: f32(16)
 // Width of the fold-chevron column, held open on every row.
 EXPLORER_CHEVRON_W :: f32(16)
 EXPLORER_ICON :: f32(16)
+// Gap between the panel edge and the first column of a row.
+EXPLORER_PAD_L :: f32(6)
 
 Explorer_Node :: struct {
     name:        string, // owned
@@ -552,7 +554,7 @@ explorer_row :: proc(thor: ^Thor, node: ^Explorer_Node, depth: int) -> ui.Intera
                 dir = .Row,
                 align = .Center,
                 gap = {4, 0},
-                pad = {l = 6 + f32(depth) * EXPLORER_INDENT, r = 6},
+                pad = {l = EXPLORER_PAD_L + f32(depth) * EXPLORER_INDENT, r = 6},
                 bg = on ? thor.theme.selection_background : ui.Color{0, 0, 0, 0},
                 border = {
                     width = ui.all(drop ? 1 : 0),
@@ -563,6 +565,13 @@ explorer_row :: proc(thor: ^Thor, node: ^Explorer_Node, depth: int) -> ui.Intera
             hover = {bg = on ? thor.theme.selection_background : thor.theme.buttons},
         },
     )
+
+    // One guide per level above this row, down the middle of that level's chevron
+    // column, so a deep row reads back to the folder that holds it.
+    for level in 0 ..< depth {
+        x := EXPLORER_PAD_L + f32(level) * EXPLORER_INDENT + EXPLORER_CHEVRON_W * 0.5
+        ui.paint_rect({x, 0, 1, EXPLORER_ROW_H}, thor.theme.tree)
+    }
 
     // The chevron column is reserved on a file row as well, so a file icon and a
     // folder icon sit at the same indent.

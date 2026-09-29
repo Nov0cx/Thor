@@ -12,6 +12,10 @@ import ui "../vendor/loom/loom"
 SETTINGS_WIDTH :: f32(940)
 SETTINGS_HEIGHT :: f32(620)
 SETTINGS_SIDEBAR_W :: f32(210)
+// Corner radius of the box, and the radius its edge children take: the same
+// curve one border width in.
+SETTINGS_RADIUS :: f32(10)
+SETTINGS_INNER_RADIUS :: SETTINGS_RADIUS - 1
 SETTINGS_ROW_H :: f32(34)
 SETTINGS_CATEGORY_H :: f32(32)
 
@@ -517,7 +521,7 @@ settings_box :: proc(thor: ^Thor) {
                 max_h = ui.viewport().y - 80,
                 dir = .Column,
                 bg = thor.theme.background,
-                radius = ui.rad(10),
+                radius = ui.rad(SETTINGS_RADIUS),
                 border = {width = ui.all(1), color = thor.theme.border},
                 shadow = {offset = {0, 8}, blur = 32, color = thor.theme.contrast},
             },
@@ -553,6 +557,9 @@ settings_header :: proc(thor: ^Thor) {
                 gap = {10, 0},
                 pad = ui.xy(14, 12),
                 bg = thor.theme.second_background,
+                // The box's own corners, less its border: a square fill here
+                // would paint over the rounded corner it sits in.
+                radius = ui.rad4(SETTINGS_INNER_RADIUS, SETTINGS_INNER_RADIUS, 0, 0),
             },
         },
     )
@@ -656,6 +663,7 @@ settings_sidebar :: proc(thor: ^Thor) {
                 pad = {l = 8, r = 8, t = 10, b = 8},
                 gap = {0, 2},
                 bg = thor.theme.second_background,
+                radius = ui.rad4(0, 0, 0, SETTINGS_INNER_RADIUS),
             },
         },
     )

@@ -726,6 +726,7 @@ thor_editor_pane :: proc(thor: ^Thor, editor: ^editview.Editor, pane: int, key: 
     text_x := editor.gutter_width
 
     thor_paint_gutter(thor, editor, it, rows, first, last, line_h)
+    thor_paint_indent_guides(thor, editor, text, rows, first, last, line_h, text_x)
     thor_paint_selections(thor, editor, text, rows, first, last, line_h, text_x)
     thor_paint_diagnostics(thor, editor, text, rows, first, last, line_h, text_x)
 
@@ -947,6 +948,33 @@ thor_tab_px :: proc(thor: ^Thor, editor: ^editview.Editor) -> f32 {
     return f32(font.measure(" ", editor.font_size, "") * i32(width))
 }
 
+// A one-pixel guide at each indentation stop of every visible row, under the
+// text. The stops are whole tab widths, so they line up with the tab grid.
+@(private = "file")
+thor_paint_indent_guides :: proc(
+    thor: ^Thor,
+    editor: ^editview.Editor,
+    text: string,
+    rows: []editview.Visual_Row,
+    first, last: int,
+    line_h, text_x: f32,
+) {
+    if !editor.indent_guides {
+        return
+    }
+    step := f32(font.measure(" ", editor.font_size, "")) * f32(textedit.tab_width(editor.state))
+    if step <= 0 {
+        return
+    }
+    for index in first ..< last {
+        stops := editview.editor_indent_stops(editor, text, rows[index].line)
+        y := f32(index) * line_h - editor.scroll_y
+        for at in 0 ..< stops {
+            ui.paint_rect({text_x + f32(at) * step, y, 1, line_h}, thor.theme.tree)
+        }
+    }
+}
+
 @(private = "file")
 thor_paint_gutter :: proc(
     thor: ^Thor,
@@ -1006,8 +1034,12 @@ thor_paint_gutter :: proc(
         }
 
         on := row.line == caret_line
-        // Relative numbering, with the caret's own line showing where it is.
-        shown := on ? row.line + 1 : abs(row.line - caret_line)
+        // Relative numbering counts from the caret line, which still shows its
+        // own number; absolute numbering counts every line from 1.
+        shown := row.line + 1
+        if editor.relative_lines && !on {
+            shown = abs(row.line - caret_line)
+        }
         label := fmt.tprintf("%d", shown)
         width := f32(font.measure(label, editor.font_size, ""))
 

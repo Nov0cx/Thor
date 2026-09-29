@@ -45,6 +45,12 @@ General :: struct {
     default_shell:     string,
     // Draw the font's programming ligatures ("->" as one glyph). On by default.
     ligatures:         bool,
+    // Draw a vertical guide at every indentation stop inside a line's own
+    // indent. On by default.
+    indent_guides:     bool,
+    // Number the gutter by distance from the caret line, the count the
+    // alt + <digit> jump moves by. On by default; off numbers the lines from 1.
+    relative_lines:    bool,
     // Format the active buffer before an explicit save (Ctrl+S, Save All, the
     // palette) — never before an autosave. Off by default.
     format_on_save:    bool,
@@ -150,6 +156,8 @@ load :: proc(dir: string) -> Settings {
         font_size         = 18,
         autosave_delay_ms = 1500,
         ligatures         = true,
+        indent_guides     = true,
+        relative_lines    = true,
         format_on_save    = false,
         format_on_type    = false,
         check_for_updates = true,
@@ -277,6 +285,16 @@ default_shell :: proc(s: ^Settings) -> string {
 // Whether text draws the font's ligatures.
 ligatures :: proc(s: ^Settings) -> bool {
     return s.general.ligatures
+}
+
+// Whether the editor draws a guide at each indentation stop.
+indent_guides :: proc(s: ^Settings) -> bool {
+    return s.general.indent_guides
+}
+
+// Whether the gutter counts from the caret line instead of from 1.
+relative_line_numbers :: proc(s: ^Settings) -> bool {
+    return s.general.relative_lines
 }
 
 // Whether an explicit save formats the buffer first.
@@ -858,6 +876,8 @@ load_general :: proc(s: ^Settings, path: string) {
     read_string(root, "icon_pack", &s.general.icon_pack)
     read_string(root, "file_icon_pack", &s.general.file_icon_pack)
     read_bool(root, "ligatures", &s.general.ligatures)
+    read_bool(root, "indent_guides", &s.general.indent_guides)
+    read_bool(root, "relative_line_numbers", &s.general.relative_lines)
     read_bool(root, "format_on_save", &s.general.format_on_save)
     read_bool(root, "format_on_type", &s.general.format_on_type)
     read_bool(root, "check_for_updates", &s.general.check_for_updates)

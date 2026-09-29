@@ -756,3 +756,47 @@ test_overlay_tick_drops_an_unfocused_card :: proc(t: ^testing.T) {
     testing.expect(t, !editor.signature_active, "losing the keyboard drops the signature card")
     testing.expect(t, editor.hover_active, "the hover card does not need the keyboard")
 }
+
+// An indented line draws one guide per whole tab stop inside its own indent, so
+// a body at one level reads back to the line that opened it.
+@(test)
+test_indent_stops_count_the_levels :: proc(t: ^testing.T) {
+    state: textedit.State
+    textedit.init(&state)
+    defer textedit.destroy(&state)
+    textedit.set_tab_width(&state, 4)
+    textedit.set_text(&state, "a\n    b\n        c\n\td\n")
+
+    editor: Editor
+    editor.state = &state
+    text := textedit.text(&state)
+
+    testing.expect_value(t, editor_indent_stops(&editor, text, 0), 0)
+    testing.expect_value(t, editor_indent_stops(&editor, text, 1), 1)
+    testing.expect_value(t, editor_indent_stops(&editor, text, 2), 2)
+    // A tab is one stop wide, so it counts as one level.
+    testing.expect_value(t, editor_indent_stops(&editor, text, 3), 1)
+}
+
+// A blank line takes the smaller indent of its nearest non-blank neighbours, so
+// no guide outlives the block it belongs to, and none stands in empty space at
+// the end of the file.
+@(test)
+test_indent_stops_of_a_blank_line :: proc(t: ^testing.T) {
+    state: textedit.State
+    textedit.init(&state)
+    defer textedit.destroy(&state)
+    textedit.set_tab_width(&state, 4)
+    textedit.set_text(&state, "        a\n\n        b\n\nc\n\n")
+
+    editor: Editor
+    editor.state = &state
+    text := textedit.text(&state)
+
+    // Inside the block: both neighbours are two levels deep.
+    testing.expect_value(t, editor_indent_stops(&editor, text, 1), 2)
+    // After it: the line below is at the margin, so the block's guides stop here.
+    testing.expect_value(t, editor_indent_stops(&editor, text, 3), 0)
+    // Past the last line with text there is no block left to belong to.
+    testing.expect_value(t, editor_indent_stops(&editor, text, 5), 0)
+}

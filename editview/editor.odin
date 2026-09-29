@@ -157,6 +157,10 @@ Editor :: struct {
     // Marks the leading whitespace of each row: a dot per space, an arrow per
     // tab. Off until the user asks for it.
     show_whitespace:    bool,
+    // Draw a vertical guide at every indentation stop inside a line's indent.
+    indent_guides:      bool,
+    // Number the gutter by distance from the caret line instead of from 1.
+    relative_lines:     bool,
     visual_rows:        [dynamic]Visual_Row,
     // Buffer revision and wrap inputs the rows were last built from. A rebuild
     // walks the whole buffer, so every reader goes through
@@ -866,6 +870,53 @@ editor_update_gutter :: proc(editor: ^Editor) {
     char_width := cast(f32) font.measure("0", editor.font_size)
     editor.gutter_width = GUTTER_PAD_LEFT + char_width * cast(f32) max(digits, 2) + GUTTER_PAD_RIGHT +
         editor_fold_col_width(editor)
+}
+
+// How far a blank line looks for the block it sits in. A longer gap of empty
+// lines gets no guides, which bounds the scan on a file of them.
+INDENT_GUIDE_LOOKAROUND :: 64
+
+// Leading-whitespace width of the logical line at `line`, in display columns.
+// `has_text` is false for a line that holds nothing else.
+editor_line_indent :: proc(editor: ^Editor, text: string, line: int) -> (col: int, has_text: bool) {
+    if editor.state == nil {
+        return 0, false
+    }
+    start := textedit.state_line_start(editor.state, line)
+    end := textedit.line_end(text, start)
+    at := start
+    for at < end && (text[at] == ' ' || text[at] == '	') {
+        at += 1
+    }
+    return textedit.display_width(text[start:at], textedit.tab_width(editor.state)), at < end
+}
+
+// Indent guides the logical line at `line` draws: one per whole tab stop inside
+// its own indent. A blank line takes the smaller indent of its nearest non-blank
+// neighbours, so a guide ends with the block it belongs to.
+editor_indent_stops :: proc(editor: ^Editor, text: string, line: int) -> int {
+    if editor.state == nil {
+        return 0
+    }
+    col, has_text := editor_line_indent(editor, text, line)
+    if !has_text {
+        count := textedit.state_line_count(editor.state)
+        above, below := 0, 0
+        for at := line - 1; at >= 0 && at > line - INDENT_GUIDE_LOOKAROUND; at -= 1 {
+            if c, ok := editor_line_indent(editor, text, at); ok {
+                above = c
+                break
+            }
+        }
+        for at := line + 1; at < count && at < line + INDENT_GUIDE_LOOKAROUND; at += 1 {
+            if c, ok := editor_line_indent(editor, text, at); ok {
+                below = c
+                break
+            }
+        }
+        col = min(above, below)
+    }
+    return col / max(textedit.tab_width(editor.state), 1)
 }
 
 // Width available for text (inside the gutter, padding and scrollbar).

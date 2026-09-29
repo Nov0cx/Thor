@@ -5,6 +5,7 @@ import "core:slice"
 import "core:strings"
 import rl "vendor:raylib"
 
+import "../editview"
 import "../input"
 import "../lang"
 import "../plugin"
@@ -59,6 +60,10 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
     thor_settings_add_number(view, "tab_width", "Tab Width", setting.tab_width(config), 1, 16, 1)
     thor_settings_add_number(view, "font_size", "Font Size", setting.font_size(config), 8, 48, 1)
     thor_settings_add_number(view, "autosave_delay_ms", "Autosave Delay (ms)", setting.autosave_delay_ms(config), 0, 10000, 250)
+    thor_settings_add_choice(view, "indent_guides", "Indent Guides", thor_on_off_label(setting.indent_guides(config)))
+    thor_settings_add_choice(
+        view, "relative_line_numbers", "Relative Line Numbers", thor_on_off_label(setting.relative_line_numbers(config)),
+    )
 
     thor_settings_begin_category(view, "appearance", "Appearance", "palette")
     theme := setting.theme_name(config)
@@ -210,6 +215,10 @@ thor_on_setting_choice :: proc(data: rawptr, id: string) {
         thor_cmd_change_file_icon_pack(thor)
     case "ligatures":
         thor_cmd_change_ligatures(thor)
+    case "indent_guides":
+        thor_cmd_change_indent_guides(thor)
+    case "relative_line_numbers":
+        thor_cmd_change_relative_line_numbers(thor)
     case "tooltips":
         thor_cmd_change_tooltips(thor)
     case "tip_of_the_day":
@@ -410,6 +419,66 @@ thor_language_master_commit :: proc(data: rawptr, choice: string) {
         return
     }
     thor_reload_settings(thor)
+}
+
+// Settings row: the indentation guides. Both panes preview at once, so a split
+// never shows one pane with them and the other without.
+@(private = "file")
+thor_cmd_change_indent_guides :: proc(thor: ^Thor) {
+    thor_select_open(
+        thor,
+        "Indent Guides",
+        ON_OFF_LABELS[:],
+        thor_on_off_label(setting.indent_guides(&thor.config)),
+        thor_indent_guides_preview,
+        thor_indent_guides_commit,
+        thor,
+    )
+}
+
+@(private = "file")
+thor_indent_guides_preview :: proc(data: rawptr, choice: string) {
+    thor := cast(^Thor) data
+    for editor in ([2]^editview.Editor{&thor.editor, &thor.editor2}) {
+        editor.indent_guides = choice == ON_OFF_LABELS[0]
+    }
+}
+
+@(private = "file")
+thor_indent_guides_commit :: proc(data: rawptr, choice: string) {
+    thor := cast(^Thor) data
+    thor_indent_guides_preview(data, choice)
+    thor_persist_bool_setting(thor, "indent_guides", choice == ON_OFF_LABELS[0])
+}
+
+// Settings row: gutter numbering. Relative counts from the caret line, which is
+// the count alt + <digit> jumps by; off numbers the lines from 1.
+@(private = "file")
+thor_cmd_change_relative_line_numbers :: proc(thor: ^Thor) {
+    thor_select_open(
+        thor,
+        "Relative Line Numbers",
+        ON_OFF_LABELS[:],
+        thor_on_off_label(setting.relative_line_numbers(&thor.config)),
+        thor_relative_lines_preview,
+        thor_relative_lines_commit,
+        thor,
+    )
+}
+
+@(private = "file")
+thor_relative_lines_preview :: proc(data: rawptr, choice: string) {
+    thor := cast(^Thor) data
+    for editor in ([2]^editview.Editor{&thor.editor, &thor.editor2}) {
+        editor.relative_lines = choice == ON_OFF_LABELS[0]
+    }
+}
+
+@(private = "file")
+thor_relative_lines_commit :: proc(data: rawptr, choice: string) {
+    thor := cast(^Thor) data
+    thor_relative_lines_preview(data, choice)
+    thor_persist_bool_setting(thor, "relative_line_numbers", choice == ON_OFF_LABELS[0])
 }
 
 // Settings row: the hover explanations. Nothing to preview — the dialog covers

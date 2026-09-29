@@ -30,6 +30,8 @@ General editor preferences.
 | `tab_width` | Spaces per indent level, and the width of a rendered tab stop | `4` |
 | `autosave_delay_ms` | Delay after the last edit before autosave | `1500` |
 | `ligatures` | Draw programming ligatures (`->` as one glyph) | `true` |
+| `indent_guides` | Draw a vertical guide at every indentation stop inside a line's own indent | `true` |
+| `relative_line_numbers` | Number the gutter by distance from the caret line — the count `alt + <digit>` jumps by. Off numbers the lines from 1 | `true` |
 | `tooltips` | Explain a control when the cursor rests on it — title bar buttons, tabs, status bar segments, explorer rows | `true` |
 | `tip_of_the_day` | Show the tip of the day: the card on the welcome page, and the card that opens over the editor on the first start of a day | `true` |
 | `format_on_save` | Format the active buffer before an explicit save (`ctrl + s`, Save All, the palette) — never before an autosave | `false` |

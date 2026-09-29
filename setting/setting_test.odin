@@ -441,3 +441,25 @@ test_tips_skip_incomplete_entries :: proc(t: ^testing.T) {
     apply_tips_json(t, &s, `{"font_size": 18}`)
     testing.expect_value(t, len(s.tips), 1)
 }
+
+// Both display switches default on and are read from settings.json under the
+// names the file uses, so an "off" in a layer actually turns one off.
+@(test)
+test_display_switches_default_on_and_layer :: proc(t: ^testing.T) {
+    dir := "thor_display_layer.tmp"
+    defer {
+        os.remove(concat_for_test(dir, "/settings.json"))
+        os.remove(dir)
+    }
+
+    s := load(dir)
+    defer destroy(&s)
+    testing.expect(t, indent_guides(&s), "indent guides are on until a file says otherwise")
+    testing.expect(t, relative_line_numbers(&s), "so is relative numbering")
+
+    testing.expect(t, persist_bool(concat_for_test(dir, "/settings.json"), "indent_guides", false))
+    testing.expect(t, persist_bool(concat_for_test(dir, "/settings.json"), "relative_line_numbers", false))
+    load_overlay(&s, dir)
+    testing.expect(t, !indent_guides(&s), "the layer turns the guides off")
+    testing.expect(t, !relative_line_numbers(&s), "and the numbering absolute")
+}
