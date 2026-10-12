@@ -66,7 +66,38 @@ jobs:
       # runtime/parsers, and to link Thor (vendor:harfbuzz + libtree-sitter).
       - uses: ilammy/msvc-dev-cmd@v1
 
+      # The keys match windows.yml, so a release starts from the libraries the
+      # branch runs built. build.odin holds the HarfBuzz version.
+      - name: Name the caches
+        id: keys
+        shell: bash
+        run: |
+          harfbuzz="$(sed -n 's/^HARFBUZZ_VERSION :: "\(.*\)"\r\{0,1\}$/\1/p' build.odin)"
+          if [ -z "$harfbuzz" ]; then
+            echo "build.odin names no HARFBUZZ_VERSION" >&2
+            exit 1
+          fi
+          echo "harfbuzz=$harfbuzz" >> "$GITHUB_OUTPUT"
+          echo "rev=$(git rev-parse HEAD:vendor/odin-tree-sitter)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache HarfBuzz
+        id: harfbuzz
+        uses: actions/cache@v4
+        with:
+          path: vendor/odin-harfbuzz/libs/harfbuzz.lib
+          key: harfbuzz-windows-mt-${{ steps.keys.outputs.harfbuzz }}-v1
+
+      - name: Cache tree-sitter
+        uses: actions/cache@v4
+        with:
+          path: |
+            vendor/odin-tree-sitter/tree-sitter
+            vendor/odin-tree-sitter/parsers
+          key: tree-sitter-${{ runner.os }}-${{ runner.arch }}-${{ steps.keys.outputs.rev }}-${{ hashFiles('build.odin', 'syntax/syntax.odin') }}-v1
+
+      # Only the HarfBuzz build needs Python, meson and ninja.
       - uses: actions/setup-python@v5
+        if: steps.harfbuzz.outputs.cache-hit != 'true'
         with:
           python-version: "3.x"
 
@@ -75,13 +106,15 @@ jobs:
           release: latest
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      # meson and ninja build HarfBuzz, which is a local static library on
-      # Windows. build.odin drives both, and its GRAMMARS list names the
-      # tree-sitter parsers, so this workflow keeps no list of its own.
+      - name: Install meson and ninja
+        if: steps.harfbuzz.outputs.cache-hit != 'true'
+        run: python -m pip install --upgrade pip meson ninja
+
+      # HarfBuzz is a local static library on Windows. build.odin builds it and
+      # the tree-sitter parsers of its GRAMMARS list, and skips each library a
+      # cache restored, so this workflow keeps no list of its own.
       - name: Build the dependencies
-        run: |
-          python -m pip install --upgrade pip meson ninja
-          odin run build.odin -file -- deps -verbose
+        run: odin run build.odin -file -- deps -verbose
 
       # No archive is packed from code that fails its tests. The tests build
       # debug binaries into bin/test, which the pack does not touch.
@@ -144,6 +177,20 @@ jobs:
           else
             make -C "$src"
           fi
+
+      # The key matches ubuntu.yml. build.odin skips each library the cache
+      # restored.
+      - name: Name the tree-sitter cache
+        id: ts
+        run: echo "rev=$(git rev-parse HEAD:vendor/odin-tree-sitter)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache tree-sitter
+        uses: actions/cache@v4
+        with:
+          path: |
+            vendor/odin-tree-sitter/tree-sitter
+            vendor/odin-tree-sitter/parsers
+          key: tree-sitter-${{ runner.os }}-${{ runner.arch }}-${{ steps.ts.outputs.rev }}-${{ hashFiles('build.odin', 'syntax/syntax.odin') }}-v1
 
       - name: Build the dependencies
         run: odin run build.odin -file -- deps -verbose
@@ -220,6 +267,20 @@ jobs:
             make -C "$src"
           fi
 
+      # The key matches arch.yml. build.odin skips each library the cache
+      # restored.
+      - name: Name the tree-sitter cache
+        id: ts
+        run: echo "rev=$(git rev-parse HEAD:vendor/odin-tree-sitter)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache tree-sitter
+        uses: actions/cache@v4
+        with:
+          path: |
+            vendor/odin-tree-sitter/tree-sitter
+            vendor/odin-tree-sitter/parsers
+          key: tree-sitter-arch-${{ runner.os }}-${{ runner.arch }}-${{ steps.ts.outputs.rev }}-${{ hashFiles('build.odin', 'syntax/syntax.odin') }}-v1
+
       - name: Build the dependencies
         run: odin run build.odin -file -- deps -verbose
 
@@ -285,6 +346,20 @@ jobs:
         with:
           release: latest
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      # The key matches macos.yml. build.odin skips each library the cache
+      # restored.
+      - name: Name the tree-sitter cache
+        id: ts
+        run: echo "rev=$(git rev-parse HEAD:vendor/odin-tree-sitter)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache tree-sitter
+        uses: actions/cache@v4
+        with:
+          path: |
+            vendor/odin-tree-sitter/tree-sitter
+            vendor/odin-tree-sitter/parsers
+          key: tree-sitter-${{ runner.os }}-${{ runner.arch }}-${{ steps.ts.outputs.rev }}-${{ hashFiles('build.odin', 'syntax/syntax.odin') }}-v1
 
       - name: Build the dependencies
         run: odin run build.odin -file -- deps -verbose

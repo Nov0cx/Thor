@@ -1,7 +1,9 @@
 name: Ubuntu
 
 on:
+  # A tag runs release.yml only, which runs the tests itself.
   push:
+    branches: ["**"]
   pull_request:
 
 # Cancel superseded runs on the same ref.
@@ -75,7 +77,24 @@ jobs:
             make -C "$src"
           fi
 
+      # The libraries change only with the submodule or the grammar list. A
+      # grammar stays at the commit of the last cold build; bump the suffix of
+      # the key to get new grammar commits.
+      - name: Name the tree-sitter cache
+        id: ts
+        run: echo "rev=$(git rev-parse HEAD:vendor/odin-tree-sitter)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache tree-sitter
+        id: treesitter
+        uses: actions/cache@v4
+        with:
+          path: |
+            vendor/odin-tree-sitter/tree-sitter
+            vendor/odin-tree-sitter/parsers
+          key: tree-sitter-${{ runner.os }}-${{ runner.arch }}-${{ steps.ts.outputs.rev }}-${{ hashFiles('build.odin', 'syntax/syntax.odin') }}-v1
+
       - name: Build tree-sitter runtime + parsers
+        if: steps.treesitter.outputs.cache-hit != 'true'
         working-directory: vendor/odin-tree-sitter
         run: |
           odin run build -- install
