@@ -25,6 +25,7 @@
 - The explorer shows the git status letter at the right edge of a file row again (`M`, `A`, `U`, `D`, `R`, `!`, `S`).
 - A panel closed from its dock tab has a way back on screen: the status bar shows a button for a hidden Explorer and a hidden Terminal.
 - Settings no longer opens with an empty sidebar and "Nothing here" after it was left on the Workspace tab of a folder with no `.thor/`. The General tab also no longer shows the workspace's values on that open.
+- The bars between the panels are thinner: 3 px, down from 6.
 - The Odin formatter follows Odin's new `asm` template syntax. A file holding an `asm` block refused to format, because the block no longer parsed.
 - Opening Settings no longer crashes the editor, and neither does the git panel's History view.
 - The welcome page lists its recent folders again. It panicked on its first frame whenever one was listed, so closing the workspace left Thor unable to start at all.
