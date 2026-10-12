@@ -25,6 +25,8 @@ Menu_Item :: struct {
 Menu :: struct {
     items:  [dynamic]Menu_Item,
     anchor: ui.Vec2,
+    // Box size of the last frame, zero until the first layout.
+    size: ui.Vec2,
     // Pane key the focus goes back to when the menu closes.
     return_focus: string,
 }
@@ -73,6 +75,7 @@ thor_menu_open :: proc(thor: ^Thor, position: ui.Vec2) {
         thor.menu.return_focus = thor.focus_owner
     }
     thor.menu.anchor = position
+    thor.menu.size = {}
     thor.menu_open = true
 }
 
@@ -119,8 +122,17 @@ thor_menu_view :: proc(thor: ^Thor) {
     )
 
     // Kept inside the window: a menu near the right or bottom edge flips back.
+    // The size is a frame behind, so the first frame draws at the anchor.
     vp := ui.viewport()
     x, y := m.anchor.x, m.anchor.y
+    if m.size.x > 0 {
+        if x + m.size.x > vp.x {
+            x = max(vp.x - m.size.x, 0)
+        }
+        if y + m.size.y > vp.y {
+            y = max(m.anchor.y - m.size.y, 0)
+        }
+    }
     picked: Menu_Item
 
     {
@@ -143,16 +155,7 @@ thor_menu_view :: proc(thor: ^Thor) {
                 },
             },
         )
-        // The rect is a frame behind, which is exactly what the flip needs: the
-        // first frame draws at the anchor, the second corrects it.
-        if box.rect.w > 0 {
-            if x + box.rect.w > vp.x {
-                x = max(vp.x - box.rect.w, 0)
-            }
-            if y + box.rect.h > vp.y {
-                y = max(m.anchor.y - box.rect.h, 0)
-            }
-        }
+        m.size = {box.rect.w, box.rect.h}
 
         for item, i in m.items {
             ui.push_id_int(i64(i))
