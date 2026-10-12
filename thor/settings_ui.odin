@@ -168,12 +168,6 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
     }
 }
 
-// Fired when the header's General/Workspace tab is switched; the widget has
-// already updated view.scope, so a plain repopulate picks up the new source.
-thor_on_settings_scope_change :: proc(data: rawptr, scope: Settings_Scope) {
-    thor_populate_settings_view(cast(^Thor) data)
-}
-
 // Persists a nudged number to the active config layer, then reloads so it
 // applies live (and refreshes the modal's rows).
 thor_on_setting_number :: proc(data: rawptr, id: string, value: int) {

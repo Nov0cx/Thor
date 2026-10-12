@@ -706,18 +706,6 @@ editor_folded_end :: proc(editor: ^Editor, line: int) -> int {
     return -1
 }
 
-// True when `line` is inside a collapsed region (hidden). A line is hidden when
-// some collapsed fold covers it below its start; nesting needs no special case.
-@(private = "file")
-editor_line_hidden :: proc(editor: ^Editor, line: int) -> bool {
-    for start in editor.folded {
-        if end, ok := editor.foldable[start]; ok && line > start && line <= end {
-            return true
-        }
-    }
-    return false
-}
-
 // The visible line a caret on `line` should snap to: `line` itself when shown,
 // otherwise the start of the outermost collapsed region hiding it (that start is
 // always visible — a smaller-starting fold would cover it too and win here).
@@ -734,27 +722,6 @@ editor_visible_line :: proc(editor: ^Editor, line: int) -> int {
         }
     }
     return best
-}
-
-// Logical line of a byte offset, from the built visual rows. Rows ascend by
-// start, so this binary searches instead of scanning the text from byte 0.
-// Requires visual_rows to be in step with the buffer.
-@(private = "file")
-editor_line_at_offset :: proc(editor: ^Editor, pos: int) -> int {
-    rows := editor.visual_rows[:]
-    if len(rows) == 0 {
-        return 0
-    }
-    lo, hi := 0, len(rows) - 1
-    for lo < hi {
-        mid := (lo + hi + 1) / 2
-        if rows[mid].start <= pos {
-            lo = mid
-        } else {
-            hi = mid - 1
-        }
-    }
-    return rows[lo].line
 }
 
 // Pulls every caret out of a line hidden by a collapse onto the fold's visible

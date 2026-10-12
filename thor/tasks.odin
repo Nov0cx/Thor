@@ -242,11 +242,6 @@ thor_menu_select_task :: proc(data: rawptr) {
     thor_select_task(task.thor, task.name)
 }
 
-// Titlebar add button.
-thor_click_add_task :: proc(data: rawptr) {
-    thor_cmd_add_task(data)
-}
-
 // Titlebar run button.
 thor_click_run_task :: proc(data: rawptr) {
     thor_cmd_run_active_task(data)

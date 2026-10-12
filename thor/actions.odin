@@ -21,21 +21,6 @@ thor_toggle_maximize :: proc(thor: ^Thor) {
     thor.window_maximized = !thor.window_maximized
 }
 
-// Titlebar hooks: the widget drags and double-clicks through these instead of
-// reading the window state itself, so window_maximized stays in step.
-thor_window_is_maximized :: proc(data: rawptr) -> bool {
-    return (cast(^Thor) data).window_maximized
-}
-
-thor_titlebar_toggle_maximize :: proc(data: rawptr) {
-    thor_toggle_maximize(cast(^Thor) data)
-}
-
-thor_close_window :: proc(data: rawptr) {
-    thor := cast(^Thor) data
-    thor.should_close = true
-}
-
 thor_toggle_fullscreen :: proc(_: ^Thor) {
     rl.ToggleBorderlessWindowed()
 }
@@ -417,38 +402,4 @@ thor_second_pane_default :: proc(thor: ^Thor) -> int {
         }
     }
     return thor.pane_file[0]
-}
-
-// Splitter drag: shift the pane-1 width share by the dragged fraction of the
-// row, clamped so neither pane collapses.
-thor_resize_split :: proc(thor: ^Thor, delta, width: f32) {
-    if width <= 0 {
-        return
-    }
-    thor.split_ratio = clamp(thor.split_ratio + delta / width, 0.15, 0.85)
-    thor_apply_split(thor)
-}
-
-thor_resize_explorer :: proc(data: rawptr, delta: f32) {
-    thor := cast(^Thor) data
-    thor.explorer_width += delta
-    if thor.explorer_width < 160 {
-        thor.explorer_width = 160
-    }
-    if thor.explorer_width > 520 {
-        thor.explorer_width = 520
-    }
-    thor_apply_layout_state(thor)
-}
-
-thor_resize_console :: proc(data: rawptr, delta: f32) {
-    thor := cast(^Thor) data
-    thor.console_height -= delta
-    if thor.console_height < 120 {
-        thor.console_height = 120
-    }
-    if thor.console_height > 420 {
-        thor.console_height = 420
-    }
-    thor_apply_layout_state(thor)
 }

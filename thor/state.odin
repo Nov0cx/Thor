@@ -442,11 +442,6 @@ thor_builtin_language_name :: proc(name: string) -> (string, bool) {
     return "", false
 }
 
-thor_tab_count :: proc(data: rawptr) -> int {
-    thor := cast(^Thor) data
-    return len(thor.open_files)
-}
-
 // Whether a file has something to show: a loaded text buffer, an uploaded
 // image texture, or an uploaded model. `loaded` alone is never true for an
 // image or a model — they bypass the text pipeline entirely — so a caller
@@ -465,19 +460,4 @@ thor_tab_info :: proc(data: rawptr, index: int) -> Tab_Info {
         modified = file.loaded && file.state.revision != file.saved_revision,
         loading = !thor_file_ready(file) && !file.load_failed,
     }
-}
-
-thor_tab_active :: proc(data: rawptr) -> int {
-    thor := cast(^Thor) data
-    return signal_get(&thor.active_file)
-}
-
-thor_tab_select :: proc(data: rawptr, index: int) {
-    thor := cast(^Thor) data
-    thor_set_active_file(thor, index)
-}
-
-thor_tab_close :: proc(data: rawptr, index: int) {
-    thor := cast(^Thor) data
-    thor_close_file(thor, index)
 }

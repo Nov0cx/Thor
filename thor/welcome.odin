@@ -87,11 +87,6 @@ thor_cmd_close_workspace :: proc(data: rawptr) {
     thor_close_workspace(thor)
 }
 
-// Welcome page: pick a folder to open as the workspace.
-thor_welcome_open_folder :: proc(data: rawptr) {
-    thor_cmd_open_folder(data)
-}
-
 // Welcome page: pick a file anywhere on disk and make its folder the
 // workspace, mirroring the CLI single-file launch case.
 thor_welcome_open_file :: proc(data: rawptr) {
