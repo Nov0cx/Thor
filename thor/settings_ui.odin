@@ -17,10 +17,15 @@ import "../font"
 // rows; this file owns the settings knowledge: it builds the rows from the live
 // config and persists each change, letting the auto-reload path re-apply it.
 
-// Opens the Settings modal, (re)building its rows from the current config.
-thor_open_settings_view :: proc(thor: ^Thor) {
-    thor_populate_settings_view(thor)
+// Opens the Settings modal, (re)building its rows from the current config, on
+// `category` when one is named. The open goes first: it resets the scope the
+// populate reads.
+thor_open_settings_view :: proc(thor: ^Thor, category := "") {
     thor_settings_open(thor)
+    thor_populate_settings_view(thor)
+    if category != "" {
+        thor_settings_select_category(thor, category)
+    }
 }
 
 thor_cmd_open_settings_gui :: proc(data: rawptr) {

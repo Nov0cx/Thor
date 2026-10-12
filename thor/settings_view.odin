@@ -310,11 +310,10 @@ thor_settings_open :: proc(thor: ^Thor) {
     thor.settings_open = true
 }
 
-// Opens on a named category instead of the first one, for a command that goes
-// straight to one page. An id no category answers to opens the first, so a
-// renamed category is never a dead command.
-thor_settings_open_at :: proc(thor: ^Thor, category: string) {
-    thor_settings_open(thor)
+// Selects a category by id, for a command that goes straight to one page. An id
+// no category answers to keeps the selection, so a renamed category is never a
+// dead command.
+thor_settings_select_category :: proc(thor: ^Thor, category: string) {
     for entry, index in thor.settings.categories {
         if entry.id == category {
             thor.settings.selected_category = index

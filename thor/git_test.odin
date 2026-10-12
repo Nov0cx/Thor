@@ -57,6 +57,21 @@ test_git_status_unquotes_a_c_quoted_path :: proc(t: ^testing.T) {
     expect_git_status(t, status, native("repo", "b\tc.odin"), .Renamed)
 }
 
+// Every status but None has a one-character letter and a name.
+@(test)
+test_git_status_letter_covers_every_status :: proc(t: ^testing.T) {
+    testing.expect_value(t, git_status_letter(.None), "")
+    for status in Git_Status {
+        if status == .None {
+            continue
+        }
+        testing.expect_value(t, len(git_status_letter(status)), 1)
+        testing.expect(t, git_status_name(status) != "")
+    }
+    testing.expect_value(t, git_status_letter(.Modified), "M")
+    testing.expect_value(t, git_status_letter(.Untracked), "U")
+}
+
 // A conflict outranks the Modified marker its ancestors would otherwise take.
 @(test)
 test_git_status_conflict_wins_on_ancestors :: proc(t: ^testing.T) {

@@ -86,9 +86,7 @@ thor_lsp_group :: proc(id: string) -> string {
 
 // Opens Settings on this category, for the command and the menu row.
 thor_cmd_open_language_servers :: proc(data: rawptr) {
-    thor := cast(^Thor) data
-    thor_populate_settings_view(thor)
-    thor_settings_open_at(thor, LSP_CATEGORY)
+    thor_open_settings_view(cast(^Thor) data, LSP_CATEGORY)
 }
 
 // Picks one configured server and restarts it, for the palette. Ids, not

@@ -105,11 +105,14 @@ says so when none is available (Wayland has no equivalent).
 
 - **Title bar** — drag it to move the window, double-click it to maximize the
   window or to restore it; the buttons on its right minimize, maximize and close.
-- **Explorer** (`ctrl + b` to toggle) — the file tree for the open folder.
+- **Explorer** (`ctrl + b` to toggle) — the file tree for the open folder. A
+  changed file shows its git status letter at the right edge of its row.
 - **Editor** — tabs across the top; `ctrl + tab` for fuzzy file search,
   `ctrl + w` to close a tab.
 - **Console** (`ctrl + t` to toggle) — a real shell, one per tab; **+** on its
   tab strip lists the shells found on the machine.
+- **Status bar** — while the explorer or the console is closed, a button at its
+  left end brings the panel back.
 - **Command palette** (`ctrl + .`) — fuzzy-search and run any action Thor
   exposes; every keybinding below is also a command here.
 

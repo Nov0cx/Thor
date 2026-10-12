@@ -14,6 +14,8 @@ EXPLORER_INDENT :: f32(16)
 // Width of the fold-chevron column, held open on every row.
 EXPLORER_CHEVRON_W :: f32(16)
 EXPLORER_ICON :: f32(16)
+// Width of the git status letter at the right edge of a file row.
+EXPLORER_STATUS_W :: f32(12)
 // Gap between the panel edge and the first column of a row.
 EXPLORER_PAD_L :: f32(6)
 
@@ -580,6 +582,7 @@ explorer_row :: proc(thor: ^Thor, node: ^Explorer_Node, depth: int) -> ui.Intera
             key = "chevron",
             props = {
                 w = ui.Px(EXPLORER_CHEVRON_W),
+                min_w = EXPLORER_CHEVRON_W,
                 h = ui.Px(EXPLORER_ROW_H),
                 justify = .Center,
                 align = .Center,
@@ -592,12 +595,12 @@ explorer_row :: proc(thor: ^Thor, node: ^Explorer_Node, depth: int) -> ui.Intera
     ui.end()
 
     if node.is_dir {
-        thor_icon_label(thor, node.expanded ? "folder-open" : "folder", thor.theme.accent_color, key = "folder")
+        thor_icon_label(thor, node.expanded ? "folder-open" : "folder", thor.theme.accent_color, key = "folder", min_w = EXPLORER_ICON)
     } else {
         // The icon carries the language's vendor colour; unknown types keep the
         // neutral one.
         tint := thor_file_icon_tint(node.name, thor.theme.muted_color)
-        thor_icon_label(thor, thor_file_icon(node.name), tint)
+        thor_icon_label(thor, thor_file_icon(node.name), tint, min_w = EXPLORER_ICON)
     }
 
     status := thor_tree_git_status(thor, node.path, node.is_dir)
@@ -613,8 +616,26 @@ explorer_row :: proc(thor: ^Thor, node: ^Explorer_Node, depth: int) -> ui.Intera
         {key = "name", props = {w = ui.Grow(1), color = color, text_wrap = .Ellipsis}},
     )
 
+    // Files only: a folder keeps the tint alone. The fixed width keeps the
+    // letter whole when a long name shrinks the row.
+    if status != .None && !node.is_dir {
+        ui.label(
+            git_status_letter(status),
+            {
+                key = "status",
+                props = {
+                    w = ui.Px(EXPLORER_STATUS_W),
+                    min_w = EXPLORER_STATUS_W,
+                    text_align = .End,
+                    color = color,
+                    text_wrap = .None,
+                },
+            },
+        )
+    }
+
     // The path, since a deep row is indented far enough to hide it, plus the git
-    // state the tint alone only hints at.
+    // state the tint and the letter only hint at.
     detail := node.load_failed ? "Could not be read" : git_status_name(status)
     thor_tip(thor, it.id, node.path, detail)
     return it

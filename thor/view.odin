@@ -161,13 +161,15 @@ thor_icon_font :: proc(thor: ^Thor, family: string) -> ui.Font {
 }
 
 // `key` only matters where two icons are siblings under one node; the default
-// keeps every other call site to one word.
+// keeps every other call site to one word. `min_w` holds the icon open in a row
+// that shrinks.
 thor_icon_label :: proc(
     thor: ^Thor,
     name: string,
     color: ui.Color,
     size: f32 = 16,
     key := "icon",
+    min_w: f32 = 0,
 ) {
     text, family := thor_icon(name)
     ui.label(
@@ -179,6 +181,7 @@ thor_icon_label :: proc(
                 font = thor_icon_font(thor, family),
                 font_size = size,
                 text_wrap = .None,
+                min_w = min_w,
             },
         },
     )
@@ -1519,6 +1522,25 @@ thor_statusbar :: proc(thor: ^Thor) {
             },
         },
     )
+
+    // The way back for a panel closed from its dock tab. The welcome page has no
+    // dock, so it shows neither.
+    if thor.workspace_dir != "" {
+        if !signal_get(&thor.explorer_visible) {
+            it := thor_status_segment(thor, "show-explorer", "layout-sidebar-left-expand", "", dim, clickable = true)
+            thor_tip(thor, it.id, "Show Explorer", thor_action_shortcut(thor, "toggle_explorer"))
+            if it.clicked {
+                thor_toggle_explorer(thor)
+            }
+        }
+        if !signal_get(&thor.console_visible) {
+            it := thor_status_segment(thor, "show-console", "layout-bottombar-expand", "", dim, clickable = true)
+            thor_tip(thor, it.id, "Show Terminal", thor_action_shortcut(thor, "toggle_console"))
+            if it.clicked {
+                thor_toggle_console(thor)
+            }
+        }
+    }
 
     if info.branch != "" {
         thor_status_segment(thor, "branch", "git-branch", info.branch, text, "Git branch of the workspace")

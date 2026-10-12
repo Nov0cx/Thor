@@ -38,6 +38,29 @@ git_status_name :: proc(status: Git_Status) -> string {
 	return ""
 }
 
+// The one-character badge of a status, "" for a clean path.
+git_status_letter :: proc(status: Git_Status) -> string {
+	switch status {
+	case .None:
+		return ""
+	case .Modified:
+		return "M"
+	case .Added:
+		return "A"
+	case .Untracked:
+		return "U"
+	case .Deleted:
+		return "D"
+	case .Renamed:
+		return "R"
+	case .Conflict:
+		return "!"
+	case .Submodule:
+		return "S"
+	}
+	return ""
+}
+
 Git_Diff_Row_Kind :: enum u8 {
 	Hunk, // @@ header
 	Context,

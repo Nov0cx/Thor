@@ -22,6 +22,9 @@
 - Tooltips are back on the titlebar menus, the task controls, the update button, the window buttons, the welcome page, the editor tabs and their close buttons, the explorer rows, the recent folders, the tip of the day and the git panel, each with its keybind on a second line.
 - Tooltip text sits in the middle of its box, and a tooltip too long for one line grows to hold every line of it.
 - The status bar shows all its segments again: git branch, file name, save state, analyzer work, the relative jump being typed, notices, caret position, zoom, line endings, encoding, indentation and language. Click the line-ending segment to switch between `LF` and `CRLF`.
+- The explorer shows the git status letter at the right edge of a file row again (`M`, `A`, `U`, `D`, `R`, `!`, `S`).
+- A panel closed from its dock tab has a way back on screen: the status bar shows a button for a hidden Explorer and a hidden Terminal.
+- Settings no longer opens with an empty sidebar and "Nothing here" after it was left on the Workspace tab of a folder with no `.thor/`. The General tab also no longer shows the workspace's values on that open.
 - The Odin formatter follows Odin's new `asm` template syntax. A file holding an `asm` block refused to format, because the block no longer parsed.
 - Opening Settings no longer crashes the editor, and neither does the git panel's History view.
 - The welcome page lists its recent folders again. It panicked on its first frame whenever one was listed, so closing the workspace left Thor unable to start at all.
