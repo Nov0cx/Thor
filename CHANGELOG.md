@@ -1,4 +1,4 @@
-# 2026.09.0
+# 2026.10.0
 
 - The console is a terminal. Each tab runs its shell on a pseudo-terminal, so the shell draws its own prompt, its own history and its own completion, and a full-screen program, colours and progress bars work as they do in any other terminal.
 - `ctrl + c` interrupts the running command on every platform. Windows used to restart the shell instead, which lost the working directory and the environment it had loaded.
