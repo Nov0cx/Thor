@@ -1,7 +1,6 @@
 package vt
 
 import "core:strings"
-import "core:unicode/utf8"
 
 // The cursor, the scrolling region and everything that writes into the grid.
 // Every column and row here is 0-based; the protocol's 1-based numbers are
@@ -604,10 +603,4 @@ repeat_last :: proc(t: ^Term, last: rune, n: int) {
 @(private)
 reply :: proc(t: ^Term, text: string) {
     append(&t.reply, ..transmute([]u8) text)
-}
-
-@(private)
-reply_rune :: proc(t: ^Term, r: rune) {
-    buf, n := utf8.encode_rune(r)
-    append(&t.reply, ..buf[:n])
 }

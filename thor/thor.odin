@@ -42,7 +42,6 @@ Thor :: struct {
     settings_open: bool,
     // The settings modal's own rows, categories and capture; see settings_view.odin.
     settings: Settings_State,
-    settings_category: string, // borrowed, "" opens where it was left
     git_open: bool,
     // The git modal's own lists, diff and commit box; see git_view.odin.
     git: Git_View,
@@ -454,12 +453,8 @@ Thor :: struct {
     completion_items: [dynamic]lang.Completion_Item,
     completion_path: string, // owned
     completion_revision: u64,
-    // In-flight Resolve_Completion, and where the accepted candidate's text
-    // landed, so an edit the server computed against the buffer as it was before
-    // the accept can be moved onto the buffer as it is now.
+    // In-flight Resolve_Completion.
     resolve_request_id: u64,
-    resolve_at: int,
-    resolve_delta: int,
     // In-flight package-doc request: its request id, so a superseded result (a
     // newer F3 for another package) is dropped instead of overwriting the newer one.
     package_doc_request_id: u64,

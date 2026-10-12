@@ -78,10 +78,6 @@ thor_permission_open :: proc(
     thor.permission_open = true
 }
 
-thor_permission_is_open :: proc(thor: ^Thor) -> bool {
-    return thor.permission_open
-}
-
 @(private = "file")
 permission_clear :: proc(d: ^Permission_Dialog) {
     for item in d.items {

@@ -1712,7 +1712,7 @@ thor_completion_accept :: proc(
         thor_apply_completion_edits(thor, file, item.extra_edits[:], at, delta)
     }
     if item.raw != "" {
-        thor_resolve_completion(thor, file, item, at, delta)
+        thor_resolve_completion(thor, file, item, at)
     }
     if item.command != "" {
         thor_run_completion_command(thor, file, item)
@@ -1737,10 +1737,9 @@ thor_apply_completion_edits :: proc(thor: ^Thor, file: ^Open_File, edits: []lang
 }
 
 // Asks the server for the parts of the candidate it deferred. Async: the answer
-// lands after the text has, which is why the edits it brings are shifted the same
-// way and validated before they are applied.
+// lands after the text has, so its edits are validated before they are applied.
 @(private = "file")
-thor_resolve_completion :: proc(thor: ^Thor, file: ^Open_File, item: lang.Completion_Item, at, delta: int) {
+thor_resolve_completion :: proc(thor: ^Thor, file: ^Open_File, item: lang.Completion_Item, at: int) {
     id := lang.manager_request_latest(
         &thor.lang_manager,
         .Resolve_Completion,
@@ -1756,8 +1755,6 @@ thor_resolve_completion :: proc(thor: ^Thor, file: ^Open_File, item: lang.Comple
         return
     }
     thor.resolve_request_id = id
-    thor.resolve_at = at
-    thor.resolve_delta = delta
 }
 
 @(private = "file")

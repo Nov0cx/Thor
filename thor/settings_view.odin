@@ -326,12 +326,6 @@ thor_settings_is_open :: proc(thor: ^Thor) -> bool {
     return thor.settings_open
 }
 
-// True while a keybinding row waits for a chord; the host checks this to step
-// aside so the next press reaches the modal instead of firing a shortcut.
-thor_settings_is_capturing :: proc(thor: ^Thor) -> bool {
-    return thor.settings_open && thor.settings.capturing >= 0
-}
-
 @(private = "file")
 settings_close :: proc(thor: ^Thor) {
     thor.settings_open = false

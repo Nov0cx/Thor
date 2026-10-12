@@ -232,10 +232,6 @@ thor_git_view_open :: proc(thor: ^Thor, kind := Git_View_Kind.Changes) {
     thor.git_open = true
 }
 
-thor_git_view_is_open :: proc(thor: ^Thor) -> bool {
-    return thor.git_open
-}
-
 thor_git_view_close :: proc(thor: ^Thor) {
     if !thor.git_open {
         return
@@ -244,10 +240,6 @@ thor_git_view_close :: proc(thor: ^Thor) {
     if thor.git.return_focus != "" {
         thor.focus_request = thor.git.return_focus
     }
-}
-
-thor_git_view_set_views :: proc(v: ^Git_View, views: bit_set[Git_View_Kind]) {
-    v.views = views
 }
 
 thor_git_view_set_header :: proc(v: ^Git_View, branch: string, ahead, behind: int, has_upstream: bool) {

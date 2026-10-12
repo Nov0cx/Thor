@@ -297,11 +297,6 @@ term_destroy :: proc(t: ^Term) {
     free(t)
 }
 
-// The rows on screen now, top first. Borrowed until the next feed or resize.
-term_screen :: proc(t: ^Term) -> []Line {
-    return grid(t)[:]
-}
-
 // Lines the view can show: the scrollback followed by the screen. A history line
 // is only kept for the primary screen, so the alt screen reports its rows alone.
 term_total_lines :: proc(t: ^Term) -> int {

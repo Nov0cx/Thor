@@ -52,10 +52,6 @@ thor_find_destroy :: proc(thor: ^Thor) {
     delete(f.matches)
 }
 
-thor_find_is_open :: proc(thor: ^Thor) -> bool {
-    return thor.find_open
-}
-
 // Opens over `editor`, seeding the query from its selection when there is one.
 thor_open_find :: proc(thor: ^Thor, show_replace: bool) {
     f := &thor.find

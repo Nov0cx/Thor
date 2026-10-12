@@ -90,10 +90,6 @@ thor_color_picker_open :: proc(
     thor.color_picker_open = true
 }
 
-thor_color_picker_is_open :: proc(thor: ^Thor) -> bool {
-    return thor.color_picker_open
-}
-
 // The HSV state as RGBA: the single conversion out.
 thor_color_picker_color :: proc(p: ^Color_Picker) -> ui.Color {
     color := rl.ColorFromHSV(p.hue, p.sat, p.val)
