@@ -1,6 +1,6 @@
 ---
 name: ownership-reviewer
-description: Reviews Odin changes for memory-ownership and threading faults — borrowed vs owned data, the textedit snapshot lifetime, temp-allocator use, and the async job pattern. Use after changing thor/, textedit/, lang/, ui/, widgets/ or any worker-thread path.
+description: Reviews Odin changes for memory-ownership and threading faults — borrowed vs owned data, the textedit snapshot lifetime, temp-allocator use, and the async job pattern. Use after changing thor/, textedit/, lang/, editview/, render/, font/ or any worker-thread path.
 tools: Read, Grep, Glob, Bash
 ---
 
@@ -31,14 +31,14 @@ nothing between edits, but it dies at that first read. Flag:
 `shutdown` frees exactly the owned ones. Flag:
 - a new field holding heap data with no `// owned` comment and no free
 - a field marked `// owned` that `shutdown` does not free
-- a free of a borrowed field (`widgets.Editor` *borrows* its `textedit.State`
-  and never owns document data)
+- a free of a borrowed field (`editview.Editor` *borrows* its `textedit.State`
+  and never owns document data; `editor_destroy` frees only what the pane owns)
 - an owner change without the matching teardown change
 
 **The async pattern.** There is exactly one shape for off-thread work: the
 worker does its job, appends the job struct to a `[dynamic]^Job` on `Thor` under
 `io_mutex`, and the main thread drains that queue once per frame. Flag:
-- a worker that touches widgets or UI state
+- a worker that touches UI state or calls Loom
 - a worker allocating from the main allocator without care
 - a queue append not under `io_mutex`
 - a result freed on the wrong side of the handoff, or not at all when the

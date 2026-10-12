@@ -1,6 +1,6 @@
 ---
 name: layering-reviewer
-description: Checks Odin changes against Thor's package layering — downward-only dependencies, the widget callback seam, the plugin package's UI ban, and the platform file split. Use after adding imports, moving code between packages, or touching plugin/, widgets/ or ui/.
+description: Checks Odin changes against Thor's package layering — downward-only dependencies, the editview callback seam, the plugin package's UI ban, and the platform file split. Use after adding imports, moving code between packages, or touching plugin/, editview/, render/, font/ or theme/.
 tools: Read, Grep, Glob, Bash
 ---
 
@@ -14,19 +14,29 @@ Packages depend **downward only** in this list. Keeping that direction is what
 lets the lower layers be tested headlessly.
 
 ```
-piecetable  ->  textedit  ->  ui  ->  widgets
-                syntax / treecache
-                plugin
-                lang  ->  lang/odin
-                        ->  lang/lsp  ->  shell (incl. shell/child_*)
-                setting / watch / shell
-                thor      (the application, imports everything)
+piecetable  ->  textedit
+vendor/loom/loom          (Loom, imported as `ui`; a leaf)
+input / theme             (Loom only)
+font                      (raylib + HarfBuzz, no Loom)
+snippet / search / markdown / vt / msvc   (leaves)
+editview                  (textedit, font, snippet, setting, Loom)
+render                    (font, Loom, raylib)
+syntax / treecache
+plugin                    (input, syntax, treecache)
+lang  ->  lang/odin
+      ->  lang/lsp  ->  shell (incl. shell/child_*)
+setting / watch / shell / update
+thor      (the application, imports everything)
 ```
 
 - `piecetable` is a pure data structure.
 - `textedit` is UI-independent: cursors, selection, movement, edits, undo/redo.
-- `ui` is the raylib layer: `Widget` tree, `Context`, font atlas, HarfBuzz.
-- `widgets` builds on `ui.Widget`.
+- Loom is the UI library, the `vendor/loom` submodule. There is no `ui/` or
+  `widgets/` package; `thor` declares the tree once a frame.
+- `font` owns shaping, the atlas and the raylib fonts.
+- `editview` is the editor's state and behaviour with no drawing.
+- `render` is the Loom backend: the only package besides `thor` and `font`
+  that draws through raylib.
 - `syntax` yields capture-name-tagged spans and knows nothing about themes.
 - `thor` owns all state and hosts everything else. `main` only sets up the
   tracking allocator and calls `thor.init/run/shutdown`.
@@ -36,11 +46,15 @@ piecetable  ->  textedit  ->  ui  ->  widgets
 **Import direction.** Grep the changed files' imports and compare against the
 list. Flag any import that points up or sideways in a way the list does not
 allow. The ones that matter most:
-- `widgets` importing `thor` — widgets talk to the app through `#type proc`
+- `editview` importing `thor` — it talks to the app through `#type proc`
   callbacks (`Goto_Definition_Proc`, `Hover_Proc`, `Completion_Proc`, …) and
-  never by importing `thor`. A new widget-to-app call means a new callback type,
+  never by importing `thor`. A new editor-to-app call means a new callback type,
   not an import.
-- `textedit` or `piecetable` importing `ui`, `raylib` or anything drawing.
+- `editview` importing `render` or `raylib` — it draws nothing.
+- `textedit` or `piecetable` importing Loom, `raylib` or anything drawing.
+- `font` importing Loom, or `render` importing `thor`.
+- `snippet`, `search`, `markdown`, `vt` importing another Thor package
+  (`markdown` may import Loom).
 - `syntax` importing theme or color code.
 - `lang` importing UI. A backend that wants the buffer changed answers with
   `Text_Edit`s and never writes files itself.
@@ -48,17 +62,19 @@ allow. The ones that matter most:
   would be a cycle. `lang/lsp` parses `settings/lsp.json` / `.thor/lsp.json` itself with
   `core:encoding/json` instead of going through `setting`.
 
-**The plugin package never touches UI.** `thor.panel` describes widgets as
-`View_Node` data (`plugin/view.odin`) that `thor/plugin_panel.odin` turns into
-widgets; `thor.ts` (`plugin/api_ts.odin`) hands out tree and node userdata over
-the same seam. Flag any `plugin/` file reaching for `ui` or `widgets`.
+**The plugin package never touches UI.** `thor.panel` describes a view as
+`View_Node` data (`plugin/view.odin`) that `thor/plugin_panel.odin` declares as
+Loom nodes; `thor.ts` (`plugin/api_ts.odin`) hands out tree and node userdata
+over the same seam. Flag any `plugin/` file reaching for Loom
+(`vendor/loom/loom`), `render`, `font`, `theme` or `editview`. `input` is
+allowed.
 
 **Platform split.** No shared file may import `core:sys/windows`. OS calls live
 in a `<name>_windows.odin` / `<name>_posix.odin` pair tagged `#+build windows` /
 `#+build !windows`, with the platform-free part in `<name>.odin` stating the
 contract as a comment (Odin has no forward declarations). The pairs are
 `shell/shell_*`, `shell/child_*` (the piped process an LSP server runs in), `watch/watch_*`,
-`thor/windows_*`, `thor/dialogs_*`, `thor/filemap_*`, `thor/reveal_*`. `watch/scan.odin` is deliberately
+`thor/windows_*`, `thor/dialogs_*`, `thor/filemap_*`, `thor/reveal_*`, `thor/dinput_*`. `watch/scan.odin` is deliberately
 platform-free so the POSIX watcher's diff stays testable on Windows — flag
 anything that would make it OS-specific.
 

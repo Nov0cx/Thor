@@ -106,12 +106,28 @@ be tested headlessly.
   a stored revision to decide what is stale. `textedit.text` **borrows** that snapshot — reading it
   costs nothing between edits, but it dies at the first read after one, so a caller that keeps the
   text across an edit (or hands it to a thread) needs `text_clone`.
-- `ui` — raylib layer: `Widget` tree (intrusive linked children + a vtable of
-  layout/handle_event/draw/destroy), `Context` (hit testing, focus, event queue, global key hook),
-  the font/icon atlas + HarfBuzz shaping (`text.odin`, `shape.odin`), theme loading.
-- `widgets` — concrete widgets built on `ui.Widget`. `editor.odin` is the big one: it *borrows* a
-  `textedit.State` and never owns document data. Widgets talk to the app through `#type proc`
-  callbacks (`Goto_Definition_Proc`, `Hover_Proc`, `Completion_Proc`, …), never by importing `thor`.
+- `vendor/loom/loom` — Loom, the UI library: a submodule (`Nov0cx/Loom`) imported everywhere as
+  `ui "../vendor/loom/loom"`. A leaf that imports only `core:`/`base:`. There is no `ui/` or
+  `widgets/` package: the tree is declared once a frame from plain state. A missing capability is
+  added upstream in Loom and the submodule pointer bumped, not worked around here.
+- `input` — the spelling of keys and modifiers in a chord. Loom owns the set: `setting.Keybind` is
+  `{ui.Key, ui.Mod_Set}`.
+- `font` — HarfBuzz shaping, the per-size atlas and the shaped-line cache (`font.measure`,
+  `font.draw`, `font.line_height`, `font.draw_icon`). Owns the raylib fonts and imports no Loom.
+- `theme` — the named roles, `role_color` (public plugin API, do not rename), the contrast helpers
+  and the generator. Colours are `ui.Color`.
+- `snippet`, `search`, `markdown` — leaves: the LSP snippet grammar, the find engine (case folding,
+  whole word, regex), and the markdown parse and layout, measured through two host callbacks.
+- `editview` — the editor's state and behaviour with no drawing: folding, soft-wrap visual rows,
+  the completion lifecycle, live snippet sessions, key handling. An `Editor` *borrows* a
+  `textedit.State` and never owns document data. The view drives it through intents
+  (`editor_press`, `editor_drag`, `editor_release`, `editor_hover`, `editor_leave`, `editor_wheel`,
+  `editor_text`, `editor_key`), and each syncs the live snippet session first. It talks to the app
+  through `#type proc` callbacks (`Goto_Definition_Proc`, `Hover_Proc`, `Completion_Proc`, …),
+  never by importing `thor`.
+- `render` — the Loom backend: answers Loom's measure callbacks from `font`, replays the draw list
+  through rlgl, and `poll_input` turns raylib input into Loom's event stream (AltGr suppression,
+  layout remap, repeat and release synthesis).
 - `syntax` / `treecache` — tree-sitter parsing and resident per-buffer trees (incremental re-parse).
   `syntax` yields capture-name-tagged spans and knows nothing about themes or colors.
 - `plugin` — the Lua 5.4 VM, the language registry plugins fill at load, and the mapping from
@@ -125,14 +141,49 @@ be tested headlessly.
   and mouse encoders. A leaf: no UI, no OS calls, no threads, so all of it is tested headlessly.
 - `msvc` — where VsDevCmd.bat is, found with vswhere. A leaf both `shell` (the developer-prompt
   profile) and `build.odin` import, so the lookup exists once.
-- `thor` — the application: owns `Thor` (all state), builds the widget tree (`build.odin`), and
-  hosts everything else. `main` only sets up the debug tracking allocator and calls
-  `thor.init/run/shutdown`.
+- `update` — the self-updater: release check, download, checksum and the file swap. Imports `shell`.
+- `thor` — the application: owns `Thor` (all state), declares the whole tree once a frame
+  (`thor_frame`, `thor/view.odin`), and hosts everything else. Only `thor/thor.odin` (window
+  lifecycle) and `thor/files.odin` (image and model loading) call raylib directly. `main` only sets
+  up the debug tracking allocator and calls `thor.init/run/shutdown`.
 
 `Thor.run` is a plain per-frame loop: poll (dropped files, watcher, settings, IO) → reap async
 results → plugin ticks (`plugin.manager_dispatch_tick`, throttled to `TICK_INTERVAL`) →
-`ui.context_update` → draw → `free_all(context.temp_allocator)`. Anything allocated for one
-frame goes in the temp allocator.
+`ui.begin_frame(render.poll_input(...))` → `thor_frame` → `ui.end_frame` → `thor_render_models` →
+`render.draw` → `free_all(context.temp_allocator)`. Anything allocated for one frame goes in the
+temp allocator.
+
+## UI (Loom)
+
+Each view is state on `Thor` plus a `thor_*_view` procedure that declares its nodes every frame.
+
+- `Thor` holds no node or widget pointers. `editor` and `editor2` are `editview.Editor` values.
+- Focus is a node id, so a command cannot assign it. `thor.focus_request` names the pane the next
+  frame focuses; `thor.focus_owner` is the pane the view saw last frame. Pane keys are `"pane0"`,
+  `"pane1"`, `"explorer"`, `"console"`.
+- Modal state is a bool on `Thor` (`settings_open`, `git_open`, `find_open`, `palette_open`, …).
+- The theme is pushed once: `thor_push_theme` maps Thor's roles onto Loom's slots and calls
+  `ui.set_theme`. Do not add per-node colour setters.
+- A tooltip is declared at its node (`ui.tooltip`); `thor/tooltips.odin` holds the helpers
+  (`thor_tip`, `thor_menu_tip`).
+- Loom has no key routing: call order is priority, so the global keymap runs before the tree is
+  built.
+- Loom is one frame behind on interaction geometry. A new node has a zero rect and no hover until
+  frame two, so a test pumps 2–3 frames before it asserts.
+- A duplicate node id in one frame panics under `ODIN_DEBUG`. A loop body needs `ui.push_id_int(i)`
+  or an explicit `key`.
+- `render.draw` must call `rlgl.DrawRenderBatchActive()` before it restores GL state it set. rlgl
+  uploads the batch late, so the pending tail of the frame otherwise draws under the restored state.
+  The model 3D pass runs before `render.draw` for the same reason.
+- `ui.Color` is `distinct [4]u8` and is not assignable to `rl.Color`; `render.raylib_color` and
+  `theme.to_rl` convert.
+- Loom's wheel is positive for scroll down. `Cmd_Text.pos.y` is the baseline, `font.draw` takes the
+  top, and `font_metrics` must return a negative descent.
+- `render` ignores `Cmd_Push_Clip.radius`: a raylib scissor is axis-aligned.
+- `ui.dockspace` opens and closes its own node; `ui.panel` / `ui.end_panel` are a pair; `ui.scope`
+  closes at the end of the enclosing Odin scope.
+- `text_width` bypasses Loom's text cache on purpose; positional queries go to `render`'s backend
+  callbacks, where `font`'s shaped-line cache is.
 
 ## Platform split
 
@@ -161,7 +212,7 @@ the panics those two raise are expected noise; any other error is real.
 
 ## Multi-window
 
-raylib owns one window per process (the GL context, the input state and `ui`'s font atlas are all
+raylib owns one window per process (the GL context, the input state and `font`'s atlas are all
 process-global), so **a second window is a second process**, launched with the workspace as its path
 argument — exactly what a shell launch passes. `thor/windows.odin` holds the whole mechanism:
 `shell.spawn` starts the process, and each window records the folder it owns in
@@ -244,7 +295,7 @@ the JSON-RPC parser permanently, and a server has no use for a terminal.
 There is one pattern for all off-thread work and it is worth matching exactly: a worker thread does
 its job, then appends the job struct to a `[dynamic]^Job` on `Thor` under `io_mutex`; the main thread
 drains that queue once per frame and applies the result. File loads/saves (`thor/files.odin`),
-terminal output, git status and the whole `lang` seam all use it. Workers never touch widgets and
+terminal output, git status and the whole `lang` seam all use it. Workers never touch UI state and
 never allocate from the main allocator without care.
 
 `Backend.poll` is the one exception: an LSP server can volunteer a result (pushed diagnostics)
@@ -337,7 +388,7 @@ Every language is a Lua plugin at `plugins/<id>/plugin.lua`, backed either by a 
 returning `{start, end, role}` spans for formats where a grammar is overkill. Extensionless names
 (`Makefile`, `Dockerfile`) work because `thor_highlight_key` falls back from extension to basename.
 
-Colors resolve grammar capture → theme role (plugin) → `rl.Color` (`ui.theme_role_color`); the
+Colors resolve grammar capture → theme role (plugin) → `ui.Color` (`theme.role_color`); the
 analyzer's semantic tokens are layered over the grammar spans in `thor/highlight.odin`
 (`thor_merge_semantic` must emit ascending, non-overlapping spans — the editor walks them with one
 forward-only cursor).
@@ -373,15 +424,15 @@ then errors, so an override never leaves two plugins under one id.
 The VM has no per-plugin unload (registrations spread over `m.languages`/`m.commands`/`m.key`/…, and
 `Callback.owner` indexes `m.plugins`), so any change to the set rebuilds it: `thor_reload_plugins`
 destroys the manager, re-inits, re-wires the host (`thor_set_plugin_host`) and rescans. It must never
-run inside an event callback — it destroys the widgets the dispatch stands on — so the settings and
+run inside an event callback — it destroys the state the frame's view is reading — so the settings and
 prompt paths set `thor.plugin_reload_pending` and `thor_poll_plugin_reload` acts on it at the head of
 the run loop. `thor_open_folder` calls it directly, before `thor_restore_session`, since the
 languages the new set registers decide how the restored files color.
 
 Two rules keep the layering: a Lua C callback runs under `runtime.default_context()`, so anything
 allocating host-owned data must first set `context.allocator = m.allocator`; and the `plugin` package
-never touches UI — `thor.panel` describes widgets as `View_Node` data (`plugin/view.odin`) that
-`thor/plugin_panel.odin` turns into widgets, and `thor.ts` (`plugin/api_ts.odin`) hands out tree and
+never touches UI — `thor.panel` describes a view as `View_Node` data (`plugin/view.odin`) that
+`thor/plugin_panel.odin` declares as Loom nodes, and `thor.ts` (`plugin/api_ts.odin`) hands out tree and
 node userdata over the same seam. `plugins/README.md` is the plugin-author-facing reference.
 
 ## Runtime resources and configuration

@@ -25,8 +25,9 @@ package for a re-check (see the brief template).
 Cheap facts that set the document's frame and that agents would each redo:
 
 - `git log --oneline -15` and the current branch — what the repo is mid-build on.
-- LOC and test-file count per package (`piecetable`, `textedit`, `ui`, `widgets`, `syntax`,
-  `treecache`, `plugin`, `lang` (+ `lang/odin`), `setting`, `watch`, `shell`, `thor`).
+- LOC and test-file count per package (`piecetable`, `textedit`, `input`, `font`, `theme`,
+  `snippet`, `search`, `markdown`, `editview`, `render`, `syntax`, `treecache`, `plugin`, `lang`
+  (+ `lang/odin`, `lang/lsp`), `setting`, `watch`, `shell`, `vt`, `msvc`, `update`, `thor`).
 - Repo-wide grep for `TODO|FIXME|XXX|HACK` in non-vendor `.odin` files.
 - if exists `.todo.txt` (`done` / open / `~` maybe-later) and if exists `lang/ROADMAP.md`'s stated gaps.
 - The `packages` list in `run_tests` (`build.odin`) against the packages that actually hold a
@@ -39,14 +40,15 @@ they run in parallel, and write nothing until all seven have reported. Keep this
 across runs — it is what makes two analyses comparable.
 
 1. `piecetable` + `textedit`
-2. `ui`
-3. `widgets`
+2. `font` + `render` + `theme` + `input`
+3. `editview` + `snippet` + `search` + `markdown`
 4. `plugin` + `syntax` + `treecache`
 5. `lang` + `lang/odin` + `lang/lsp`
 6. `thor`
-7. `setting` + `watch` + `shell` + `build.odin` + `.github/workflows/` + `main`
+7. `setting` + `watch` + `shell` + `vt` + `msvc` + `update` + `build.odin` +
+   `.github/workflows/` + `main`
 
-Out of scope: `vendor/`, `bin/`, `assets/`. Lua under `plugins/` counts only for agent 4.
+Out of scope: `vendor/` (Loom, the UI library, included), `bin/`, `assets/`. Lua under `plugins/` counts only for agent 4.
 
 ### Brief template
 
@@ -74,13 +76,13 @@ Give each agent this, with the bracketed parts filled in:
 > Say plainly when a fault is not currently reachable and what keeps it unreachable.
 >
 > Check these Thor-specific rules for your packages, and treat a violation as a bug:
-> - Dependencies point downward only in the layer list in CLAUDE.md; `widgets` never imports
->   `thor`; the `plugin` package never touches UI.
+> - Dependencies point downward only in the layer list in CLAUDE.md; `editview`, `render` and
+>   the leaf packages never import `thor`; the `plugin` package never touches UI.
 > - Ownership: `// owned` vs borrowed fields; `shutdown` frees exactly the owned ones;
 >   `textedit.text` borrows a snapshot that dies at the first read after an edit — anything
 >   kept across an edit or handed to a thread needs `text_clone`.
 > - Async: worker → append job under `io_mutex` → main thread drains once per frame. Workers
->   touch no widgets. Per-frame allocations use the temp allocator.
+>   touch no UI state. Per-frame allocations use the temp allocator.
 > - Platform split: no shared file imports `core:sys/windows`; `_windows.odin` / `_posix.odin`
 >   pairs carry the OS calls behind the contract the shared file comments.
 > - Errors are always handled — flag every ignored fallible result (`_ = …`, a discarded `BOOL`
@@ -119,7 +121,7 @@ against the last run:
 
 ```
 # Thor Repository Analysis
-*Generated <date> by parallel subsystem audits (7 agents, 12 packages) plus manual repo recon.*
+*Generated <date> by parallel subsystem audits (7 agents, 23 packages) plus manual repo recon.*
 <two or three sentences: what Thor is, what this document covers>
 
 ## 1. State of the repo      <- the phase 1 table and facts

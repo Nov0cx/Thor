@@ -21,8 +21,11 @@ Run the steps in order and stop at the first real failure.
 odin check <package-dir> -no-entry-point
 ```
 
-Package directories: `piecetable`, `textedit`, `ui`, `widgets`, `syntax`,
-`treecache`, `plugin`, `lang`, `lang/odin`, `setting`, `watch`, `shell`, `thor`.
+Package directories: `piecetable`, `textedit`, `input`, `font`, `theme`,
+`snippet`, `search`, `markdown`, `editview`, `render`, `syntax`, `treecache`,
+`plugin`, `lang`, `lang/odin`, `lang/lsp`, `setting`, `watch`, `shell`, `vt`,
+`msvc`, `update`, `thor`. The UI library is the `vendor/loom` submodule and is
+not checked here.
 For the entry package use `odin check main` (no `-no-entry-point`). For
 `build.odin` use `odin check build.odin -file`.
 
@@ -51,8 +54,9 @@ The Windows Odin distribution misses libraries these targets need:
   `foreign hb` block. `macos.yml` injects that branch.
 
 Filter those two signatures out. **Any other error is real** — in particular any
-error whose path is under `thor/`, `lang/`, `shell/`, `watch/`, `ui/`,
-`widgets/`, `plugin/`, `syntax/`, `treecache/`, `textedit/` or `piecetable/`.
+error whose path is under `thor/`, `lang/`, `shell/`, `watch/`, `render/`,
+`font/`, `theme/`, `editview/`, `input/`, `plugin/`, `syntax/`, `treecache/`,
+`textedit/` or `piecetable/`.
 
 Do not read the exit code through a pipe — it reports the pipe's status, not
 odin's. Judge by the error text.

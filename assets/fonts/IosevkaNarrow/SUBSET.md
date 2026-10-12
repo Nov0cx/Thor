@@ -8,7 +8,7 @@ narrow Iosevka proportion; see ../Iosevka/SUBSET.md for the Extended
 JetBrains Mono's proportions more closely.
 
 Subset from 7.7 MB to the ranges the editor can actually bake —
-`build_codepoint_list` in `ui/fonts.odin` only requests Latin, so the rest
+`build_codepoint_list` in `font/fonts.odin` only requests Latin, so the rest
 was 46k unreachable glyphs:
 
     python -m fontTools.subset Iosevka-Regular.ttf \
