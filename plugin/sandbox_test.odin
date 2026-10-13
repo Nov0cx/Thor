@@ -581,6 +581,47 @@ thor.print("bytes=" .. tostring(matches[1].c.start_byte) .. ".." .. tostring(mat
     testing.expectf(t, strings.contains(out, "bytes=11..18"), "capture offsets wrong: %q", out)
 }
 
+// A node that outlives its tree answers nothing: a finaliser can free the tree
+// while the node is still reachable.
+@(test)
+test_ts_node_on_freed_tree :: proc(t: ^testing.T) {
+    r: Recorder
+    recorder_init(&r)
+    defer recorder_destroy(&r)
+    m: Manager
+    recording_manager(&m, &r)
+    defer manager_destroy(&m)
+
+    // The sandbox cannot reach `__gc`, so the test hands the finaliser in.
+    index := new_plugin(&m, "freed", "plugins/freed", {})
+    lua.rawgeti(m.state, lua.REGISTRYINDEX, lua.Integer(m.plugins[index].env_ref))
+    lua.pushcfunction(m.state, tree_gc)
+    lua.setfield(m.state, -2, "free_tree")
+    lua.pop(m.state, 1)
+
+    script := `local tree = thor.ts.parse("package p\n\n// note\n", "odin")
+local root = tree:root()
+local other = tree:root()
+free_tree(tree)
+thor.print("type=" .. tostring(root:type()) .. " text=[" .. root:text() .. "]")
+thor.print("end=" .. tostring(root.end_byte) .. " named=" .. tostring(root.named))
+thor.print("child=" .. tostring(root:child(0)) .. " count=" .. tostring(root:child_count()))
+thor.print("eq=" .. tostring(root == other) .. " str=" .. tostring(root))
+thor.print("root=" .. tostring(tree:root()))`
+    testing.expect(t, load_chunk(&m, index, "", transmute([]byte) script), "plugin runs")
+
+    out := printed(&r)
+    for want in ([]string {
+        "type=nil text=[]",
+        "end=nil named=nil",
+        "child=nil",
+        "eq=false str=<node>",
+        "root=nil",
+    }) {
+        testing.expectf(t, strings.contains(out, want), "missing %q in %q", want, out)
+    }
+}
+
 // A plugin that parses the same buffer again gets a tree seeded off the last
 // one, so the answer must not depend on what it parsed before: an edited source,
 // an unrelated one and a second grammar all read exactly as a cold parse would.

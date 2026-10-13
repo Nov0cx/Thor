@@ -469,14 +469,22 @@ push_node :: proc(L: ^lua.State, m: ^Manager, tree_index: c.int, node: ts.Node) 
 // The node at stack index 1 and the tree behind it.
 @(private)
 node_args :: proc(L: ^lua.State) -> (^Ts_Node, ^Ts_Tree, bool) {
-    node := cast(^Ts_Node) lua.L_checkudata(L, 1, NODE_MT)
+    lua.L_checkudata(L, 1, NODE_MT)
+    return node_at(L, 1)
+}
+
+// The node at `idx` and the tree behind it. False when `idx` holds no node or
+// the tree is freed: a ts.Node points into its tree.
+@(private)
+node_at :: proc(L: ^lua.State, idx: c.int) -> (^Ts_Node, ^Ts_Tree, bool) {
+    node := cast(^Ts_Node) lua.L_testudata(L, idx, NODE_MT)
     if node == nil {
         return nil, nil, false
     }
-    lua.getiuservalue(L, 1, 1)
+    lua.getiuservalue(L, idx, 1)
     tree := cast(^Ts_Tree) lua.L_testudata(L, -1, TREE_MT)
     lua.pop(L, 1)
-    if tree == nil {
+    if tree == nil || tree.tree == nil {
         return nil, nil, false
     }
     return node, tree, true
@@ -533,13 +541,26 @@ install_node_metatable :: proc(L: ^lua.State) {
 @(private)
 node_index :: proc "c" (L: ^lua.State) -> c.int {
     context = runtime.default_context()
-    node := cast(^Ts_Node) lua.L_testudata(L, 1, NODE_MT)
-    if node == nil || lua.type(L, 2) != .STRING {
+    if lua.L_testudata(L, 1, NODE_MT) == nil || lua.type(L, 2) != .STRING {
+        lua.pushnil(L)
+        return 1
+    }
+    key := string(lua.tostring(L, 2))
+    // A field reads the tree. A method name does not.
+    switch key {
+    case "start_byte", "end_byte", "start_row", "start_column", "end_row", "end_column", "named", "missing", "has_error":
+    case:
+        lua.pushvalue(L, 2)
+        lua.rawget(L, upvalueindex(1))
+        return 1
+    }
+    node, _, ok := node_at(L, 1)
+    if !ok {
         lua.pushnil(L)
         return 1
     }
 
-    switch string(lua.tostring(L, 2)) {
+    switch key {
     case "start_byte":
         lua.pushinteger(L, lua.Integer(ts.node_start_byte(node.node)))
         return 1
@@ -568,9 +589,7 @@ node_index :: proc "c" (L: ^lua.State) -> c.int {
         lua.pushboolean(L, b32(ts.node_has_error(node.node)))
         return 1
     }
-
-    lua.pushvalue(L, 2)
-    lua.rawget(L, upvalueindex(1))
+    lua.pushnil(L)
     return 1
 }
 
@@ -775,9 +794,9 @@ node_tostring :: proc "c" (L: ^lua.State) -> c.int {
 @(private)
 node_eq :: proc "c" (L: ^lua.State) -> c.int {
     context = runtime.default_context()
-    a := cast(^Ts_Node) lua.L_testudata(L, 1, NODE_MT)
-    b := cast(^Ts_Node) lua.L_testudata(L, 2, NODE_MT)
-    lua.pushboolean(L, b32(a != nil && b != nil && ts.node_eq(a.node, b.node)))
+    a, _, a_ok := node_at(L, 1)
+    b, _, b_ok := node_at(L, 2)
+    lua.pushboolean(L, b32(a_ok && b_ok && ts.node_eq(a.node, b.node)))
     return 1
 }
 
