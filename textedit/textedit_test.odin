@@ -1018,3 +1018,46 @@ test_bracket_match_skips_strings_and_comments :: proc(t: ^testing.T) {
     move_to_matching_bracket(&state, false)
     testing.expect_value(t, primary_cursor(&state).caret, 11)
 }
+
+@(test)
+test_undo_comes_back_to_saved_content :: proc(t: ^testing.T) {
+    state: State
+    init(&state)
+    defer destroy(&state)
+    set_text(&state, "abc")
+
+    saved := checkpoint(&state)
+    set_single_cursor(&state, 3)
+    type_runes(&state, "de")
+    testing.expect(t, content_id(&state) != saved, "an edit changes the content")
+    undo(&state)
+    testing.expect_value(t, content_id(&state), saved)
+    redo(&state)
+    testing.expect(t, content_id(&state) != saved, "a redo leaves the saved content")
+
+    // A save in a typing run splits the run, so undo stops at the save.
+    saved = checkpoint(&state)
+    type_runes(&state, "f")
+    undo(&state)
+    testing.expect_value(t, text(&state), "abcde")
+    testing.expect_value(t, content_id(&state), saved)
+}
+
+@(test)
+test_replace_text_can_be_undone :: proc(t: ^testing.T) {
+    state: State
+    init(&state)
+    defer destroy(&state)
+    set_text(&state, "one\ntwo\nthree")
+    set_single_cursor(&state, 13)
+
+    testing.expect(t, !replace_text(&state, "one\ntwo\nthree"), "the same text is no edit")
+    testing.expect(t, replace_text(&state, "one\n2\nthree"), "a new text is an edit")
+    testing.expect_value(t, text(&state), "one\n2\nthree")
+    testing.expect_value(t, state.undo_stack.count, 1)
+    testing.expect_value(t, primary_cursor(&state).caret, 11)
+
+    undo(&state)
+    testing.expect_value(t, text(&state), "one\ntwo\nthree")
+    testing.expect_value(t, primary_cursor(&state).caret, 13)
+}

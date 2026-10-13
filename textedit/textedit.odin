@@ -41,6 +41,9 @@ Undo_Entry :: struct {
     cursors_before: [dynamic]Cursor,  // owned
     cursors_after:  [dynamic]Cursor,  // owned
     coalesce:       Coalesce,
+    // State.content_id before and after the entry.
+    id_before:      u64,
+    id_after:       u64,
 }
 
 // Bounds on the undo history; the oldest entries are dropped once either is
@@ -71,6 +74,9 @@ State :: struct {
     // Bumped on every content change (edits, undo, redo, set_text); never lowered.
     // Callers compare against a saved revision to detect unsaved changes.
     revision:   u64,
+    // Names the content: the revision that first made it. Undo and redo bring
+    // an older value back, so equal ids mean equal text.
+    content_id: u64,
     // This document's soft-tab width; 0 follows the package default.
     tab_width:  int,
     // This document's indent style; Unknown follows the package default.
@@ -108,7 +114,57 @@ set_text :: proc(state: ^State, new_text: string) {
     state.undo_bytes = 0
     state.coalescing = false
     state.revision += 1
+    state.content_id = state.revision
     state.lines_valid = false
+}
+
+// Replaces the whole text as one undo entry, so a reload from disk can be
+// undone. Only the part that differs is recorded. The cursors are clamped to
+// the new text. False when the text is the same.
+replace_text :: proc(state: ^State, new_text: string) -> bool {
+    old := text(state)
+    if old == new_text {
+        return false
+    }
+    limit := min(len(old), len(new_text))
+    prefix := 0
+    for prefix < limit && old[prefix] == new_text[prefix] {
+        prefix += 1
+    }
+    suffix := 0
+    for suffix < limit - prefix && old[len(old) - 1 - suffix] == new_text[len(new_text) - 1 - suffix] {
+        suffix += 1
+    }
+
+    entry := Undo_Entry {cursors_before = clone_cursors(state)}
+    removed := old[prefix:len(old) - suffix]
+    inserted := new_text[prefix:len(new_text) - suffix]
+    if len(removed) > 0 {
+        append(&entry.ops, Edit_Op {kind = .Delete, pos = prefix, text = strings.clone(removed)})
+        piecetable.piecetable_delete(&state.table, prefix, len(removed))
+    }
+    if len(inserted) > 0 {
+        append(&entry.ops, Edit_Op {kind = .Insert, pos = prefix, text = strings.clone(inserted)})
+        piecetable.piecetable_insert(&state.table, prefix, inserted)
+    }
+    for &cursor in state.cursors {
+        cursor.caret = min(cursor.caret, len(new_text))
+        cursor.anchor = min(cursor.anchor, len(new_text))
+    }
+    finish_edit(state, &entry)
+    return true
+}
+
+// The id of the current content. See State.content_id.
+content_id :: proc(state: ^State) -> u64 {
+    return state.content_id
+}
+
+// The id of the current content, for a save. Ends the typing run, so the next
+// key makes its own undo entry and undo can come back to this content.
+checkpoint :: proc(state: ^State) -> u64 {
+    state.coalescing = false
+    return state.content_id
 }
 
 // The buffer's contents, borrowed from the piece table. Valid until the first
@@ -833,6 +889,7 @@ undo :: proc(state: ^State) {
     for cursor in entry.cursors_before {
         append(&state.cursors, cursor)
     }
+    state.content_id = entry.id_before
     append(&state.redo_stack, entry)
     state.revision += 1
 }
@@ -858,6 +915,7 @@ redo :: proc(state: ^State) {
     for cursor in entry.cursors_after {
         append(&state.cursors, cursor)
     }
+    state.content_id = entry.id_after
     ring_push(&state.undo_stack, entry)
     state.revision += 1
 }
@@ -871,6 +929,8 @@ finish_edit :: proc(state: ^State, entry: ^Undo_Entry, coalesce := Coalesce.None
     normalize_cursors(state)
     entry.cursors_after = clone_cursors(state)
     entry.coalesce = coalesce
+    entry.id_before = state.content_id
+    entry.id_after = state.revision + 1
 
     clear_entries(&state.redo_stack)
     if !coalesce_into_previous(state, entry) {
@@ -880,6 +940,7 @@ finish_edit :: proc(state: ^State, entry: ^Undo_Entry, coalesce := Coalesce.None
     trim_undo_history(state)
     state.coalescing = coalesce != .None
     state.revision += 1
+    state.content_id = state.revision
 }
 
 @(private)
@@ -1003,6 +1064,7 @@ coalesce_into_previous :: proc(state: ^State, entry: ^Undo_Entry) -> bool {
     }
     state.undo_bytes += shift
 
+    prev.id_after = entry.id_after
     delete(prev.cursors_after)
     prev.cursors_after = entry.cursors_after
     entry.cursors_after = nil

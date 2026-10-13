@@ -60,6 +60,9 @@ Open_File :: struct {
     save_cancel:        bool,
     pending_jobs:       int,
     saved_revision:     u64,
+    // textedit.content_id of the text on disk. An undo back to it moves
+    // saved_revision to the current revision (thor_sync_saved).
+    saved_content:      u64,
     last_seen_revision: u64,
     // What the next save writes; detected on load. A file Thor creates gets the
     // zero value, LF.
@@ -173,6 +176,7 @@ Save_Job :: struct {
     path:      string, // borrowed from file; valid while pending_jobs > 0
     text:      string, // owned snapshot, freed on the main thread
     revision:  u64,
+    content:   u64, // textedit.content_id of `text`
     worker:    ^thread.Thread,
     ok:        bool,
     // The write was dropped for a pending delete, so this is no failure to
@@ -721,6 +725,19 @@ thor_clear_file_semantic :: proc(file: ^Open_File) {
     file.highlighted = false
 }
 
+// Marks the buffer as the text on disk.
+thor_mark_saved :: proc(file: ^Open_File) {
+    file.saved_revision = file.state.revision
+    file.saved_content = textedit.content_id(&file.state)
+}
+
+// Makes a buffer clean again when undo or redo came back to the saved text.
+thor_sync_saved :: proc(file: ^Open_File) {
+    if file.state.revision != file.saved_revision && textedit.content_id(&file.state) == file.saved_content {
+        file.saved_revision = file.state.revision
+    }
+}
+
 // Marks everything derived from `file`'s text stale. Every path that replaces a
 // buffer wholesale must call it: textedit.set_text zeroes the revision, so data
 // left behind reads as fresh at revision 0 and is never derived again.
@@ -760,7 +777,7 @@ thor_apply_reload :: proc(thor: ^Thor, job: ^Load_Job) {
         file.line_ending = ending // an external tool may have converted it
         // The edits (or an undo of them) end at exactly what is on disk, so the
         // buffer is not dirty however many revisions it took to get there.
-        file.saved_revision = file.state.revision
+        thor_mark_saved(file)
         return
     }
     // Unsaved edits are never replaced behind the user's back — including edits
@@ -783,10 +800,12 @@ thor_apply_reload :: proc(thor: ^Thor, job: ^Load_Job) {
     }
 
     file.line_ending = ending
-    textedit.set_text(&file.state, buffer_text)
+    // One undo entry, so the reload can be undone.
+    textedit.replace_text(&file.state, buffer_text)
     textedit.set_cursors(&file.state, cursors[:])
-    file.saved_revision = file.state.revision // set_text bumped it; stay clean
+    thor_mark_saved(file)
     file.last_seen_revision = file.state.revision
+    thor_apply_indent(thor, file)
     thor_invalidate_file_derived(file)
     // Re-bind here, not in thor_process_io: only this frame still holds the old
     // text the panes need to keep their view on the same lines.
@@ -1064,6 +1083,7 @@ thor_save_file :: proc(thor: ^Thor, file: ^Open_File, force := false) {
     job.path = file.path
     job.text = thor_to_disk_text(textedit.text(&file.state), file.line_ending)
     job.revision = file.state.revision
+    job.content = textedit.checkpoint(&file.state)
     job.worker = thread.create_and_start_with_poly_data(job, save_worker)
 }
 
@@ -1133,6 +1153,7 @@ thor_update_files :: proc(thor: ^Thor) {
         if !file.loaded || file.saving {
             continue
         }
+        thor_sync_saved(file)
         if file.state.revision != file.last_seen_revision {
             file.last_seen_revision = file.state.revision
             file.last_edit = time.tick_now()
@@ -1264,7 +1285,7 @@ thor_process_io :: proc(thor: ^Thor) {
             file.line_ending = job.ending
             textedit.set_text(&file.state, job.text)
             file.loaded = true
-            file.saved_revision = file.state.revision
+            thor_mark_saved(file)
             file.last_seen_revision = file.state.revision
             thor_apply_indent(thor, file)
             thor_apply_lexical(thor, file)
@@ -1332,9 +1353,10 @@ thor_process_io :: proc(thor: ^Thor) {
         file := job.file
         file.saving = false
         if job.ok {
-            if job.revision > file.saved_revision {
-                file.saved_revision = job.revision
-            }
+            // The buffer can be past the saved text, or back at it by an undo.
+            file.saved_content = job.content
+            file.saved_revision = job.revision
+            thor_sync_saved(file)
             // A fresh save queues a re-check of the file's package; a language
             // with no checking backend queues nothing.
             if !file.closed {

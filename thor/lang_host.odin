@@ -1527,7 +1527,7 @@ thor_render_doc_in_pane :: proc(thor: ^Thor, path, text: string, pane: int) {
     if file, index := thor_find_open_file(thor, canonical); file != nil {
         if file.loaded {
             textedit.set_text(&file.state, text)
-            file.saved_revision = file.state.revision
+            thor_mark_saved(file)
             thor_invalidate_file_derived(file)
         }
         thor.pane_file[pane] = index

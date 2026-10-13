@@ -131,7 +131,7 @@ thor_plugin_doc :: proc(host: rawptr, path: string, text: string, focus: bool) {
             // Replace the buffer to match what we just wrote and keep it
             // marked clean, so the refresh doesn't trigger an autosave.
             textedit.set_text(&file.state, text)
-            file.saved_revision = file.state.revision
+            thor_mark_saved(file)
             thor_invalidate_file_derived(file)
         }
         if focus {
