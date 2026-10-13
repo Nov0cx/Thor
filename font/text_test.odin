@@ -93,12 +93,12 @@ check_full_async_load :: proc(t: ^testing.T) {
 
     testing.expect_value(t, default_family_name, "JetBrainsMono")
 
-    family, family_ok := families["JetBrainsMono"]
+    mono, family_ok := families["JetBrainsMono"]
     testing.expect(t, family_ok, "JetBrainsMono family missing")
     if family_ok {
-        testing.expect_value(t, len(family.cache), 6)
+        testing.expect_value(t, len(mono.cache), 6)
         for size in ([6]i32 {14, 15, 16, 17, 18, 20}) {
-            font, ok := family.cache[size]
+            font, ok := mono.cache[size]
             testing.expect(t, ok, "font size missing from cache")
             if !ok {
                 continue
@@ -110,7 +110,7 @@ check_full_async_load :: proc(t: ^testing.T) {
             testing.expect(t, font.recs != nil, "recs not set")
             testing.expect(t, font.glyphs != nil, "glyphs not set")
 
-            shaped, shaped_ok := family.shaped[size]
+            shaped, shaped_ok := mono.shaped[size]
             testing.expect(t, shaped_ok, "shaped map missing for preloaded size")
             testing.expect(t, len(shaped) > 325, "shaped map missing ligature glyphs")
 

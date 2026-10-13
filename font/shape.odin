@@ -316,7 +316,7 @@ place_glyph :: proc(shaped: map[u32]Shaped_Glyph, font: rl.Font, line: string, i
     // return a mapped glyph and never become a tab.
     if cluster := cast(int) info.cluster; cluster >= 0 && cluster < len(line) && line[cluster] == '\t' {
         space := rl.GetGlyphIndex(font, ' ')
-        append(&placed, Placed_Glyph {advance = cast(i32) font.glyphs[space].advanceX, tab = true})
+        append(&placed, Placed_Glyph {advance = font.glyphs[space].advanceX, tab = true})
         return
     }
 
@@ -348,15 +348,15 @@ place_glyph :: proc(shaped: map[u32]Shaped_Glyph, font: rl.Font, line: string, i
             &placed,
             Placed_Glyph {
                 rect = font.recs[index],
-                offset_x = cast(i32) baked.offsetX,
-                offset_y = cast(i32) baked.offsetY,
-                advance = cast(i32) baked.advanceX,
+                offset_x = baked.offsetX,
+                offset_y = baked.offsetY,
+                advance = baked.advanceX,
             },
         )
         return
     }
     space := rl.GetGlyphIndex(font, ' ')
-    append(&placed, Placed_Glyph {advance = cast(i32) font.glyphs[space].advanceX})
+    append(&placed, Placed_Glyph {advance = font.glyphs[space].advanceX})
 }
 
 // Draws one line via shaping; false when the family/size has no shaping data,

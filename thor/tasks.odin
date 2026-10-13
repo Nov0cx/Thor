@@ -13,10 +13,7 @@ import "core:encoding/json"
 import "core:log"
 import "core:os"
 import "core:strings"
-import rl "vendor:raylib"
 
-import ui "../vendor/loom/loom"
-import "../font"
 // Selector geometry: the button tracks the width of its label between these
 // bounds, leaving room for the padding and the caret. The icon size matches the
 // other titlebar controls so it comes from an atlas that is already baked (only
@@ -321,11 +318,11 @@ thor_prompt_task_command :: proc(data: rawptr, command: string) {
         delete(task.command)
         task.command = strings.clone(command)
     } else {
-        task := new(Task)
-        task.thor = thor
-        task.name = strings.clone(thor.pending_task_name)
-        task.command = strings.clone(command)
-        append(&thor.tasks, task)
+        created := new(Task)
+        created.thor = thor
+        created.name = strings.clone(thor.pending_task_name)
+        created.command = strings.clone(command)
+        append(&thor.tasks, created)
     }
     thor_save_tasks(thor)
     // A freshly entered task is what you want to run next.

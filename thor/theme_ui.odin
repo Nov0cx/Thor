@@ -2,7 +2,6 @@ package thor
 
 import "core:os"
 import "core:strings"
-import rl "vendor:raylib"
 
 import "../setting"
 import ui "../vendor/loom/loom"

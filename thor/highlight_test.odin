@@ -1,7 +1,6 @@
 package thor
 
 import "core:testing"
-import rl "vendor:raylib"
 
 import ui "../vendor/loom/loom"
 import "../editview"

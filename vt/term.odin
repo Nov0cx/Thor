@@ -402,7 +402,8 @@ term_take_clipboard :: proc(t: ^Term) -> (string, bool) {
 // off the bottom of the primary screen move into the scrollback, and the cursor
 // is clamped. Lines are not reflowed: a wrapped line stays split where it was.
 term_resize :: proc(t: ^Term, cols, rows: int) {
-    cols, rows := max(cols, 1), max(rows, 1)
+    cols, rows := cols, rows
+    cols, rows = max(cols, 1), max(rows, 1)
     if cols == t.cols && rows == t.rows {
         return
     }

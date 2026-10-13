@@ -592,7 +592,7 @@ resolve_path :: proc(m: ^Manager, index: int, path: string) -> (resolved: string
     if is_within(clean, p.dir) {
         return clean, true
     }
-    if data, ok := plugin_data_dir(m, index); ok && is_within(clean, data) {
+    if data, dok := plugin_data_dir(m, index); dok && is_within(clean, data) {
         return clean, true
     }
     log.warnf(

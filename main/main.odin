@@ -1,7 +1,8 @@
 package main
 
-import "core:log"
-import "core:mem"
+// Used by the debug build only.
+@(require) import "core:log"
+@(require) import "core:mem"
 import "core:os"
 
 import "../thor"

@@ -5,7 +5,6 @@ import "core:log"
 import "core:os"
 import "core:strconv"
 import "core:strings"
-import rl "vendor:raylib"
 
 import ui "../vendor/loom/loom"
 

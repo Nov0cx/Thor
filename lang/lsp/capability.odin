@@ -191,8 +191,8 @@ decode_legend :: proc(caps: ^Capabilities, value: json.Value) {
         return
     }
     entries := make([]Token_Legend_Entry, len(names), caps.allocator)
-    for value, index in names {
-        name, is_name := value.(json.String)
+    for entry, index in names {
+        name, is_name := entry.(json.String)
         if !is_name {
             continue
         }
@@ -219,8 +219,8 @@ decode_on_type_triggers :: proc(caps: ^Capabilities, value: json.Value) {
     triggers := make([dynamic]string, caps.allocator)
     append(&triggers, strings.clone(string(first), caps.allocator))
     if more, mok := options["moreTriggerCharacter"].(json.Array); mok {
-        for value in more {
-            if s, sok := value.(json.String); sok && s != "" {
+        for entry in more {
+            if s, sok := entry.(json.String); sok && s != "" {
                 append(&triggers, strings.clone(string(s), caps.allocator))
             }
         }

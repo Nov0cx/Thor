@@ -11,7 +11,6 @@ import "core:strings"
 import "../lang"
 import "../setting"
 import "../textedit"
-import "../editview"
 // Runs whatever save format_on_save left pending for the just-finished
 // format (files.odin sets format_save_pending before dispatching), then, for
 // a Save All in progress, pops and dispatches the next queued file — one at

@@ -3,7 +3,6 @@ package plugin
 import "core:os"
 import "core:strings"
 import "core:testing"
-import "core:time"
 
 // The tutorial plugin (plugins/tutorial) driven headlessly: a fake host serves
 // thor.read from an in-memory playground and records what thor.doc renders, so

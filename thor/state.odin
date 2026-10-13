@@ -2,14 +2,12 @@ package thor
 
 import "core:path/filepath"
 import "core:strings"
-import "core:unicode/utf8"
 import rl "vendor:raylib"
 
 import "../lang"
 import "../plugin"
 import "../setting"
 import "../textedit"
-import ui "../vendor/loom/loom"
 import "../editview"
 // Keeps the two dock sizes usable. The panels themselves are declared from the
 // visibility signals each frame, so there is nothing else to push here.

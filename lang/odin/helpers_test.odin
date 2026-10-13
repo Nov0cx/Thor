@@ -2,7 +2,6 @@
 // Manager's worker pool, so an analysis is exercised without threads.
 package odin
 
-import "core:os"
 import "core:strings"
 
 import lang ".."

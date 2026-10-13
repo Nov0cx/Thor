@@ -6,7 +6,6 @@ package thor
 
 import "core:fmt"
 import "core:strings"
-import rl "vendor:raylib"
 
 import ui "../vendor/loom/loom"
 import "../lang"

@@ -130,8 +130,8 @@ polymorphic_params :: proc(sig: string) -> []Poly_Binding {
     for part, i in parts {
         if name, shape, pok := poly_param_shape(part); pok {
             append(&bindings, Poly_Binding{name = name, index = i, shape = shape})
-        } else if name, eok := explicit_poly_name(part); eok {
-            append(&bindings, Poly_Binding{name = name, index = -1})
+        } else if explicit, eok := explicit_poly_name(part); eok {
+            append(&bindings, Poly_Binding{name = explicit, index = -1})
         }
     }
 

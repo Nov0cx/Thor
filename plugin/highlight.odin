@@ -2,7 +2,6 @@ package plugin
 
 import "base:runtime"
 import "core:c"
-import "core:log"
 import "core:strings"
 
 import lua "vendor:lua/5.4"

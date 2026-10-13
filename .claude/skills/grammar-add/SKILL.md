@@ -1,17 +1,17 @@
 ---
 name: grammar-add
-description: Adds a tree-sitter grammar to Thor, keeping build.odin, syntax/syntax.odin and the four CI workflows in sync and writing the language plugin. Use when adding syntax highlighting for a language that needs a compiled grammar.
+description: Adds a tree-sitter grammar to Thor, keeping build.odin and syntax/syntax.odin in sync and writing the language plugin. Use when adding syntax highlighting for a language that needs a compiled grammar.
 ---
 
 # Add a tree-sitter grammar
 
-Grammars are **compiled in**, so adding one touches four places that must stay
+Grammars are **compiled in**, so adding one touches three places that must stay
 in step. A miss breaks the build for everyone, on every platform. Queries are
 data and are handled separately (see *Highlights* below).
 
 Ask for the grammar repository URL if it was not given. Decide the **grammar id**
 first: it becomes an Odin identifier, so `c-sharp` becomes `c_sharp`. It is the
-same string in all four places.
+same string in all three places.
 
 ## Before you start
 
@@ -22,14 +22,19 @@ spans instead — see `plugins/ini` or `plugins/dotenv`. That path touches only
 
 ## 1. `build.odin` — the `GRAMMARS` table
 
-Add one row. The third field is the subdirectory holding the grammar, empty when
-it is at the repository root:
+Add one row. The third field is the commit the parser is built from — take it
+from `git ls-remote <url> HEAD`, never guess it. The fourth is the subdirectory
+holding the grammar, empty when it is at the repository root:
 
 ```odin
-{"zig",        "https://github.com/tree-sitter-grammars/tree-sitter-zig",  ""},
-{"php",        "https://github.com/tree-sitter/tree-sitter-php",           "php"},
-{"ocaml",      "https://github.com/tree-sitter/tree-sitter-ocaml",         "grammars/ocaml"},
+{"zig",   "https://github.com/tree-sitter-grammars/tree-sitter-zig", "6479aa13f32f701c383083d8b28360ebd682fb7d", ""},
+{"php",   "https://github.com/tree-sitter/tree-sitter-php",          "58d5643086ae60e93a3746cca648363ee97c8761", "php"},
+{"ocaml", "https://github.com/tree-sitter/tree-sitter-ocaml",        "3b2e14e0697d405c9aa0beddfa09b71f45abc504", "grammars/ocaml"},
 ```
+
+`deps` fetches exactly that commit. To move a grammar to a newer commit later,
+change the hash and run `deps`: the stamp beside the parser no longer matches,
+so that one parser is built again.
 
 Keep the column alignment of the existing rows. Add a `//` comment only where
 the row is surprising — a repository holding two grammars, or a name that is not
@@ -53,41 +58,10 @@ The generated procedure is `tree_sitter_<id>`. Where a grammar layers on
 another's query, concatenate — see the javascript/typescript/tsx rows for the
 pattern.
 
-## 3. The four CI workflows
+No CI workflow needs an edit: each one calls `build.odin -- deps`, which reads
+`GRAMMARS`. `-vet` in CI does not cover the generated parser package.
 
-`.github/workflows/windows.yml`, `ubuntu.yml`, `arch.yml` and `macos.yml` each
-install the parsers explicitly. Every one needs **two** edits:
-
-An entry in the `env:` block at the top:
-
-```yaml
-  TS_ZIG: https://github.com/tree-sitter-grammars/tree-sitter-zig
-```
-
-and a line in the *Build tree-sitter runtime + parsers* step. POSIX runners:
-
-```yaml
-          odin run build -- install-parser "$TS_ZIG" -yes
-```
-
-Windows uses `$env:` and quotes the flags:
-
-```yaml
-          odin run build -- install-parser $env:TS_ZIG -yes
-```
-
-Add `-path=<subdir>` when the grammar sits in a subdirectory, and `-name=<id>`
-when the repository name differs from the grammar id:
-
-```yaml
-          odin run build -- install-parser "$TS_CSHARP" -name=c_sharp -yes
-          odin run build -- install-parser "$TS_OCAML" -path=grammars/ocaml -name=ocaml -yes
-```
-
-`release.yml` needs **no** edit — it calls `build.odin -- deps`, which reads
-`GRAMMARS`.
-
-## 4. `plugins/<id>/plugin.lua`
+## 3. `plugins/<id>/plugin.lua`
 
 Copy `templates/plugin.lua` from this skill and fill in the name, extensions,
 grammar id and colors. Map the grammar's highlight-query capture names to theme
@@ -103,7 +77,7 @@ The plugin needs no `plugin.json` unless it wants a permission
 (`exec`/`read`/`write`/`ui`/`keys`/`tick`). A highlighting plugin wants none, and
 a permission-free plugin loads without prompting the user.
 
-## 5. Fetch and verify
+## 4. Fetch and verify
 
 ```bash
 odin run build.odin -file -- deps
@@ -124,11 +98,9 @@ plain after this, read that error first.
 
 ## Checklist
 
-Before reporting done, confirm all six:
+Before reporting done, confirm all four:
 
-- [ ] `GRAMMARS` row in `build.odin`
+- [ ] `GRAMMARS` row in `build.odin`, with the pinned commit
 - [ ] import in `syntax/syntax.odin`
 - [ ] `h.languages["<id>"]` registration in `syntax/syntax.odin`
-- [ ] `TS_<NAME>` env entry in **all four** workflows
-- [ ] `install-parser` line in **all four** workflows
 - [ ] `plugins/<id>/plugin.lua`

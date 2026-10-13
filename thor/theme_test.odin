@@ -3,7 +3,6 @@ package thor
 import "core:os"
 import "core:slice"
 import "core:testing"
-import rl "vendor:raylib"
 
 import ui "../vendor/loom/loom"
 import "../theme"

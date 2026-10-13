@@ -32,9 +32,12 @@ odin run build.odin -file -- deps
 
 This locates the MSVC tools itself on Windows (via `vswhere`), so no developer
 shell is needed just to run it. It builds HarfBuzz and every tree-sitter
-grammar `build.odin`'s `GRAMMARS` list names. For the manual recipes behind
-each step (useful if `deps` fails, or you only want to update one grammar),
-see [`vendor/README.md`](../vendor/README.md).
+grammar `build.odin`'s `GRAMMARS` list names. The build is reproducible: each
+grammar is pinned to a commit, and the HarfBuzz archive is checked against a
+SHA-256. Run `deps` again after a pull that moves a pin or the HarfBuzz
+version; it rebuilds only the libraries that changed. For the manual recipes
+behind each step (useful if `deps` fails), see
+[`vendor/README.md`](../vendor/README.md).
 
 ### Windows
 
@@ -77,6 +80,7 @@ odin run build.odin -file                   # build, debug
 odin run build.odin -file -- run            # build and start
 odin run build.odin -file -- run -release   # build and start an optimized one
 odin run build.odin -file -- check          # type-check, no binary
+odin run build.odin -file -- check -vet     # the same with -vet, as CI runs it
 odin run build.odin -file -- clean
 odin run build.odin -file -- -h             # list the flags
 ```
@@ -91,8 +95,12 @@ shell works for it; a bare `odin build main` needs a developer shell.
 ## Testing
 
 ```bash
-odin run build.odin -file -- test  # every tested package, into bin/test
+odin run build.odin -file -- test           # every tested package, into bin/test
+odin run build.odin -file -- test -release  # the same with the release flags
 ```
+
+A release is built without bounds checks and asserts, so the release workflow
+runs the tests both ways.
 
 Or one package at a time from a developer shell:
 

@@ -232,7 +232,7 @@ test_sandbox_refuses_lua_bytecode :: proc(t: ^testing.T) {
     lua.getglobal(m.state, "blob")
     size: c.size_t
     ptr := lua.tolstring(m.state, -1, &size)
-    bytes := transmute([^]byte) ptr
+    bytes := cast([^]byte) ptr
     bytecode := strings.clone(string(bytes[:size]), context.temp_allocator)
     lua.pop(m.state, 1)
     testing.expect(t, len(bytecode) > 0 && bytecode[0] == 0x1b, "string.dump did not produce a binary chunk")

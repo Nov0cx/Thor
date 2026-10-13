@@ -481,7 +481,7 @@ test_references_from_a_qualified_use :: proc(t: ^testing.T) {
     defer engine_destroy(e)
 
     rel := "thor_lang_refs_qual_ws"
-    root, main_path := refs_ws(t, rel)
+    root, _ := refs_ws(t, rel)
     defer refs_ws_clean(rel, root)
 
     // The caret on the member of `app.shared` names the same symbol as a bare use

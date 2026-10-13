@@ -7,12 +7,15 @@
 //    odin run build.odin -file -- run -release   # build and start an optimized one
 //    odin run build.odin -file -- check          # type-check, no binary
 //    odin run build.odin -file -- test           # run the package tests
+//    odin run build.odin -file -- test -release  # run them with the release flags
 //    odin run build.odin -file -- deps           # get and build HarfBuzz and tree-sitter
 //    odin run build.odin -file -- -h             # list the flags
 //
 // The Odin compiler reads the arguments before `--`, this program the rest.
 package build
 
+import "core:crypto/sha2"
+import "core:encoding/hex"
 import "core:flags"
 import "core:fmt"
 import "core:os"
@@ -26,6 +29,31 @@ LIB_EXT :: ".lib" when ODIN_OS == .Windows else ".a"
 EXE :: "thor" + EXE_EXT
 
 HARFBUZZ_VERSION :: "12.1.0"
+// The SHA-256 of harfbuzz-<version>.tar.xz. Change it together with the version.
+HARFBUZZ_SHA256 :: "e5c81b7f6e0b102dfb000cfa424538b8e896ab78a2f4b8a5ec8cae62ab43369e"
+
+// -Db_vscrt=mt and -Db_ndebug=true are load-bearing: Odin links the static CRT,
+// and a /MD build of HarfBuzz leaves __imp__wassert unresolved.
+HARFBUZZ_FLAGS := []string {
+    "--buildtype=release",
+    "-Db_vscrt=mt", "-Db_ndebug=true", "-Ddefault_library=static",
+    "-Dtests=disabled", "-Ddocs=disabled", "-Dbenchmark=disabled",
+    "-Dglib=disabled", "-Dgobject=disabled", "-Dcairo=disabled",
+    "-Dicu=disabled", "-Dfreetype=disabled", "-Dchafa=disabled",
+    "-Dutilities=disabled",
+}
+
+// The file beside a built library that names what it was built from. A library
+// with no stamp, or with a different one, is built again.
+STAMP :: "thor.stamp"
+
+// The packages -vet examines, by package name. The flag otherwise reaches the
+// third-party bindings under vendor/, which this repository cannot correct.
+// Add a package here when it is new.
+VET_PACKAGES ::
+    "main,thor,editview,font,input,lang,lsp,odin,odinfmt,markdown,msvc,piecetable," +
+    "plugin,render,search,setting,shell,snippet,syntax,textedit,theme,treecache," +
+    "update,vt,watch"
 
 ICON_FILE :: "assets/branding/thor.ico"
 VERSION_FILE :: "thor/cli.odin"
@@ -46,8 +74,8 @@ Command :: enum {
 
 Options :: struct {
     command: Command `args:"pos=0" usage:"The command to run (default: all)."`,
-    release: bool `usage:"Build optimized, into bin/release."`,
-    vet:     bool `usage:"Add -vet."`,
+    release: bool `usage:"Build optimized, into bin/release. With test: use the release flags."`,
+    vet:     bool `usage:"Add -vet for the packages of this repository."`,
     verbose: bool `usage:"Print each command before it runs."`,
 }
 
@@ -88,6 +116,14 @@ build_thor :: proc() -> bool {
     append_common_flags(&args)
     append_codegen_flags(&args)
     append_link_flags(&args)
+    // A release binary must not open a console beside the window. Debug keeps
+    // the console subsystem for the logger and the tracking-allocator report.
+    // A test binary always keeps it, for the report of the test runner.
+    when ODIN_OS == .Windows {
+        if opt.release {
+            append(&args, "-subsystem:windows")
+        }
+    }
     append_resource_flags(&args)
     if !exec_msvc(args[:]) {
         return false
@@ -209,7 +245,7 @@ clean :: proc() -> bool {
 // vet flag stays alone.
 append_common_flags :: proc(args: ^[dynamic]string) {
     if opt.vet {
-        append(args, "-vet")
+        append(args, "-vet", "-vet-packages:" + VET_PACKAGES)
     }
 }
 
@@ -232,13 +268,6 @@ append_link_flags :: proc(args: ^[dynamic]string) {
             prefix = "/opt/homebrew"
         }
         append(args, fmt.tprintf("-extra-linker-flags:-L%s/lib", prefix))
-    }
-    // A release binary must not open a console beside the window. Debug keeps
-    // the console subsystem for the logger and the tracking-allocator report.
-    when ODIN_OS == .Windows {
-        if opt.release {
-            append(args, "-subsystem:windows")
-        }
     }
 }
 
@@ -395,11 +424,12 @@ sign_binary :: proc() -> bool {
         // certificate.
         append(&args, "/tr", TIMESTAMP_URL, "/td", "SHA256")
         append(&args, "/f", certificate)
-        if password := os.get_env("THOR_SIGN_PASS", context.temp_allocator); password != "" {
+        password := os.get_env("THOR_SIGN_PASS", context.temp_allocator)
+        if password != "" {
             append(&args, "/p", password)
         }
         append(&args, join(out_dir, EXE))
-        signed := exec_msvc(args[:])
+        signed := exec_msvc(args[:], secret = password)
         // exec_msvc runs the command from a generated batch file and leaves it
         // on disk, so the password would stay there in plain text. Overwrite it
         // whatever the signing did.
@@ -438,40 +468,42 @@ copy_lua_dll :: proc(dir := "") -> bool {
 Grammar :: struct {
     name: string, // the parser directory and the generated package name
     url:  string,
+    rev:  string, // the commit the parser is built from
     path: string, // the subdirectory that holds grammar.js, when not the root
 }
 
-// The list mirrors the imports of syntax/syntax.odin and the CI workflows. A
-// missing parser breaks the build of the whole program, so keep the three in
-// step. Formats without a grammar use a Lua lexer in plugins/<id>/plugin.lua.
+// The list mirrors the imports of syntax/syntax.odin. A missing parser breaks
+// the build of the whole program, so keep the two in step. Each grammar is
+// pinned: `git ls-remote <url> HEAD` gives the commit to move a row to. Formats
+// without a grammar use a Lua lexer in plugins/<id>/plugin.lua.
 GRAMMARS := []Grammar {
-    {"odin",       "https://github.com/tree-sitter-grammars/tree-sitter-odin", ""},
-    {"lua",        "https://github.com/tree-sitter-grammars/tree-sitter-lua",  ""},
-    {"c",          "https://github.com/tree-sitter/tree-sitter-c",             ""},
-    {"cpp",        "https://github.com/tree-sitter/tree-sitter-cpp",           ""},
-    {"go",         "https://github.com/tree-sitter/tree-sitter-go",            ""},
-    {"javascript", "https://github.com/tree-sitter/tree-sitter-javascript",    ""},
+    {"odin",       "https://github.com/tree-sitter-grammars/tree-sitter-odin",       "d2ca8efb4487e156a60d5bd6db2598b872629403", ""},
+    {"lua",        "https://github.com/tree-sitter-grammars/tree-sitter-lua",        "10fe0054734eec83049514ea2e718b2a56acd0c9", ""},
+    {"c",          "https://github.com/tree-sitter/tree-sitter-c",                   "b780e47fc780ddc8da13afa35a3f4ed5c157823d", ""},
+    {"cpp",        "https://github.com/tree-sitter/tree-sitter-cpp",                 "c009222808634c1014f82438d4883753516a2c24", ""},
+    {"go",         "https://github.com/tree-sitter/tree-sitter-go",                  "2346a3ab1bb3857b48b29d779a1ef9799a248cd7", ""},
+    {"javascript", "https://github.com/tree-sitter/tree-sitter-javascript",          "58404d8cf191d69f2674a8fd507bd5776f46cb11", ""},
     // typescript and tsx are two grammars in one repository.
-    {"typescript", "https://github.com/tree-sitter/tree-sitter-typescript",    "typescript"},
-    {"tsx",        "https://github.com/tree-sitter/tree-sitter-typescript",    "tsx"},
-    {"jai",        "https://github.com/constantitus/tree-sitter-jai",          ""},
-    {"rust",       "https://github.com/tree-sitter/tree-sitter-rust",          ""},
-    {"python",     "https://github.com/tree-sitter/tree-sitter-python",        ""},
-    {"ruby",       "https://github.com/tree-sitter/tree-sitter-ruby",          ""},
-    {"java",       "https://github.com/tree-sitter/tree-sitter-java",          ""},
-    {"kotlin",     "https://github.com/fwcd/tree-sitter-kotlin",               ""},
-    {"zig",        "https://github.com/tree-sitter-grammars/tree-sitter-zig",  ""},
+    {"typescript", "https://github.com/tree-sitter/tree-sitter-typescript",          "75b3874edb2dc714fb1fd77a32013d0f8699989f", "typescript"},
+    {"tsx",        "https://github.com/tree-sitter/tree-sitter-typescript",          "75b3874edb2dc714fb1fd77a32013d0f8699989f", "tsx"},
+    {"jai",        "https://github.com/constantitus/tree-sitter-jai",                "96440b0f78a45bed1668d5693f26c0d30b4d1a84", ""},
+    {"rust",       "https://github.com/tree-sitter/tree-sitter-rust",                "77a3747266f4d621d0757825e6b11edcbf991ca5", ""},
+    {"python",     "https://github.com/tree-sitter/tree-sitter-python",              "26855eabccb19c6abf499fbc5b8dc7cc9ab8bc64", ""},
+    {"ruby",       "https://github.com/tree-sitter/tree-sitter-ruby",                "ad907a69da0c8a4f7a943a7fe012712208da6dee", ""},
+    {"java",       "https://github.com/tree-sitter/tree-sitter-java",                "e10607b45ff745f5f876bfa3e94fbcc6b44bdc11", ""},
+    {"kotlin",     "https://github.com/fwcd/tree-sitter-kotlin",                     "1852ea17b7f60fb3f9d84e0b1555d56b46b39fb1", ""},
+    {"zig",        "https://github.com/tree-sitter-grammars/tree-sitter-zig",        "6479aa13f32f701c383083d8b28360ebd682fb7d", ""},
     // The repository name c-sharp is not an Odin identifier.
-    {"c_sharp",    "https://github.com/tree-sitter/tree-sitter-c-sharp",       ""},
-    {"php",        "https://github.com/tree-sitter/tree-sitter-php",           "php"},
-    {"haskell",    "https://github.com/tree-sitter/tree-sitter-haskell",       ""},
-    {"ocaml",      "https://github.com/tree-sitter/tree-sitter-ocaml",         "grammars/ocaml"},
-    {"starlark",   "https://github.com/tree-sitter-grammars/tree-sitter-starlark",   ""},
-    {"hcl",        "https://github.com/tree-sitter-grammars/tree-sitter-hcl",        ""},
-    {"nix",        "https://github.com/nix-community/tree-sitter-nix",                ""},
-    {"pascal",     "https://github.com/Isopod/tree-sitter-pascal",                    ""},
-    {"nim",        "https://github.com/alaviss/tree-sitter-nim",                      ""},
-    {"commonlisp", "https://github.com/tree-sitter-grammars/tree-sitter-commonlisp",  ""},
+    {"c_sharp",    "https://github.com/tree-sitter/tree-sitter-c-sharp",             "8c0abe0b84a3681d3e6852ce2e2a1eecb4f731c5", ""},
+    {"php",        "https://github.com/tree-sitter/tree-sitter-php",                 "58d5643086ae60e93a3746cca648363ee97c8761", "php"},
+    {"haskell",    "https://github.com/tree-sitter/tree-sitter-haskell",             "97288e585b0bd44199720280d067fa35bacd81ff", ""},
+    {"ocaml",      "https://github.com/tree-sitter/tree-sitter-ocaml",               "3b2e14e0697d405c9aa0beddfa09b71f45abc504", "grammars/ocaml"},
+    {"starlark",   "https://github.com/tree-sitter-grammars/tree-sitter-starlark",   "a453dbf3ba433db0e5ec621a38a7e59d72e4dc69", ""},
+    {"hcl",        "https://github.com/tree-sitter-grammars/tree-sitter-hcl",        "64ad62785d442eb4d45df3a1764962dafd5bc98b", ""},
+    {"nix",        "https://github.com/nix-community/tree-sitter-nix",               "32c3ce98afdafc2ec9aedf0280a678750f76254c", ""},
+    {"pascal",     "https://github.com/Isopod/tree-sitter-pascal",                   "042119eca2e18a60e56317fb06ee3ba5c32cb447", ""},
+    {"nim",        "https://github.com/alaviss/tree-sitter-nim",                     "ac72ba30d16edf0be021588a9301ede4accd6cf4", ""},
+    {"commonlisp", "https://github.com/tree-sitter-grammars/tree-sitter-commonlisp", "32323509b3d9fe96607d151c2da2c9009eb13a2f", ""},
 }
 
 // Gets the submodules and builds their native libraries. These are gitignored
@@ -490,49 +522,49 @@ build_deps :: proc() -> bool {
 
 // Builds harfbuzz.lib, which the bindings expect at odin-harfbuzz/libs. Only
 // Windows needs it; elsewhere the bindings do `foreign import "system:harfbuzz"`.
-//
-// -Db_vscrt=mt and -Db_ndebug=true are load-bearing: Odin links the static CRT,
-// and a /MD build of HarfBuzz leaves __imp__wassert unresolved.
+// The stamp is outside the submodule, which ignores only libs/*.lib.
 build_harfbuzz :: proc() -> bool {
     lib := "vendor/odin-harfbuzz/libs/harfbuzz.lib"
-    if os.exists(lib) {
+    stamp := "vendor/harfbuzz.stamp"
+    flags := strings.join(HARFBUZZ_FLAGS, " ", context.temp_allocator)
+    want := fmt.tprintf("%s %s %s", HARFBUZZ_VERSION, HARFBUZZ_SHA256, flags)
+    if os.exists(lib) && stamp_current(stamp, want) {
         return true
     }
 
     work := "bin/deps"
+    archive := fmt.tprintf("harfbuzz-%s.tar.xz", HARFBUZZ_VERSION)
     src := join(work, fmt.tprintf("harfbuzz-%s", HARFBUZZ_VERSION))
-    if !mkdir(work) || !mkdir(filepath.dir(lib)) {
+    // A source tree of an earlier run can be partial.
+    if !mkdir(work) || !mkdir(filepath.dir(lib)) || !remove_tree(src) {
         return false
     }
 
-    if !os.exists(src) {
-        archive := fmt.tprintf("harfbuzz-%s.tar.xz", HARFBUZZ_VERSION)
+    if !archive_verified(join(work, archive)) {
         url := fmt.tprintf(
             "https://github.com/harfbuzz/harfbuzz/releases/download/%s/%s",
             HARFBUZZ_VERSION, archive,
         )
-        if !exec({"curl", "-L", "-o", archive, url}, work) {
+        if !exec({"curl", "-fL", "-o", archive, url}, work) {
             return false
         }
-        // The tar of Windows cannot read .xz.
-        script := fmt.tprintf("import tarfile; tarfile.open('%s').extractall(filter='data')", archive)
-        if !exec({"python", "-c", script}, work) {
+        if !archive_verified(join(work, archive)) {
+            fmt.eprintfln("[build] %s does not have the SHA-256 %s", archive, HARFBUZZ_SHA256)
             return false
         }
     }
+    // The tar of Windows cannot read .xz.
+    script := fmt.tprintf("import tarfile; tarfile.open('%s').extractall(filter='data')", archive)
+    if !exec({"python", "-c", script}, work) {
+        return false
+    }
 
-    if !os.exists(join(src, "build")) {
-        if !exec_msvc({
-            "meson", "setup", "build", "--buildtype=release",
-            "-Db_vscrt=mt", "-Db_ndebug=true", "-Ddefault_library=static",
-            "-Dtests=disabled", "-Ddocs=disabled", "-Dbenchmark=disabled",
-            "-Dglib=disabled", "-Dgobject=disabled", "-Dcairo=disabled",
-            "-Dicu=disabled", "-Dfreetype=disabled", "-Dchafa=disabled",
-            "-Dutilities=disabled",
-        }, src) {
-            fmt.eprintln("[build] meson and ninja come from `python -m pip install --user meson ninja`; the Scripts directory must be on PATH")
-            return false
-        }
+    setup := make([dynamic]string, context.temp_allocator)
+    append(&setup, "meson", "setup", "build")
+    append(&setup, ..HARFBUZZ_FLAGS)
+    if !exec_msvc(setup[:], src) {
+        fmt.eprintln("[build] meson and ninja come from `python -m pip install --user meson ninja`; the Scripts directory must be on PATH")
+        return false
     }
     if !exec_msvc({"meson", "compile", "-C", "build"}, src) {
         return false
@@ -544,28 +576,61 @@ build_harfbuzz :: proc() -> bool {
         fmt.eprintfln("[build] a copy of libharfbuzz.a failed: %v", err)
         return false
     }
-    return true
+    return stamp_write(stamp, want)
+}
+
+// Reports whether the file has the SHA-256 that HARFBUZZ_SHA256 names.
+archive_verified :: proc(path: string) -> bool {
+    data, err := os.read_entire_file(path, context.temp_allocator)
+    if err != nil {
+        return false
+    }
+    digest: [sha2.DIGEST_SIZE_256]byte
+    ctx: sha2.Context_256
+    sha2.init_256(&ctx)
+    sha2.update(&ctx, data)
+    sha2.final(&ctx, digest[:])
+    return string(hex.encode(digest[:], context.temp_allocator)) == HARFBUZZ_SHA256
 }
 
 // Builds the tree-sitter runtime and each parser of GRAMMARS into the submodule.
-// A library that is already there stays; delete it to force a rebuild.
+// A library with a current stamp stays.
 build_tree_sitter :: proc() -> bool {
     repo := "vendor/odin-tree-sitter"
 
-    if !os.exists(join(repo, "tree-sitter", "libtree-sitter" + LIB_EXT)) {
-        if !exec_msvc({"odin", "run", "build", "--", "install"}, repo) {
+    // The submodule commit selects the runtime version and writes the bindings,
+    // so each stamp names it.
+    binding, found := capture({"git", "rev-parse", "HEAD"}, repo)
+    if !found {
+        return false
+    }
+
+    runtime := join(repo, "tree-sitter")
+    if !os.exists(join(runtime, "libtree-sitter" + LIB_EXT)) || !stamp_current(join(runtime, STAMP), binding) {
+        // Without -clean the tool asks on stdin before it replaces a library.
+        if !exec_msvc({"odin", "run", "build", "--", "install", "-clean"}, repo) {
+            return false
+        }
+        if !stamp_write(join(runtime, STAMP), binding) {
             return false
         }
     }
 
     for g in GRAMMARS {
-        if os.exists(join(repo, "parsers", g.name, "parser" + LIB_EXT)) {
+        dir := join(repo, "parsers", g.name)
+        want := fmt.tprintf("%s %s %s %s", g.url, g.rev, g.path, binding)
+        if os.exists(join(dir, "parser" + LIB_EXT)) && stamp_current(join(dir, STAMP), want) {
             continue
         }
-        // The git URL is positional. -name keeps the generated package, the
-        // tree_sitter_<id> binding and the parser directory in agreement.
+        mirror, fetched := fetch_grammar(g)
+        if !fetched {
+            return false
+        }
+        // The repository is positional. -name keeps the generated package, the
+        // tree_sitter_<id> binding and the parser directory in agreement, and
+        // -yes replaces a parser that is already there.
         args := make([dynamic]string, context.temp_allocator)
-        append(&args, "odin", "run", "build", "--", "install-parser", g.url)
+        append(&args, "odin", "run", "build", "--", "install-parser", mirror)
         append(&args, fmt.tprintf("-name=%s", g.name))
         if g.path != "" {
             append(&args, fmt.tprintf("-path=%s", g.path))
@@ -574,6 +639,73 @@ build_tree_sitter :: proc() -> bool {
         if !exec_msvc(args[:], repo) {
             return false
         }
+        if !stamp_write(join(dir, STAMP), want) {
+            return false
+        }
+    }
+    return true
+}
+
+// Gets the pinned commit of a grammar into a bare repository under bin/deps and
+// returns its absolute path. install-parser clones the default branch of the
+// repository it is given and takes no revision, so it is given this one, whose
+// HEAD is the pinned commit.
+fetch_grammar :: proc(g: Grammar) -> (mirror: string, ok: bool) {
+    root := join("bin", "deps", "grammars")
+    // install-parser appends .git to a name that does not end with it.
+    dir := join(root, fmt.tprintf("%s.git", g.name))
+    if !mkdir(root) {
+        return "", false
+    }
+    // A write into a new repository fails at random on Windows when a scanner
+    // or a file watcher holds the file open, so the fetch gets three tries.
+    // unpackLimit keeps the commit as one pack, which is one file to write.
+    FETCH_TRIES :: 3
+    fetched := false
+    for try in 1 ..= FETCH_TRIES {
+        if !remove_tree(dir) || !exec({"git", "init", "--quiet", "--bare", dir}) {
+            return "", false
+        }
+        if exec({"git", "-c", "fetch.unpackLimit=1", "fetch", "--quiet", "--depth=1", g.url, g.rev}, dir) {
+            fetched = true
+            break
+        }
+        fmt.eprintfln("[build] fetch %d of %d of %s failed", try, FETCH_TRIES, g.url)
+    }
+    if !fetched {
+        fmt.eprintfln("[build] the commit %s of %s is not available", g.rev, g.url)
+        return "", false
+    }
+    if !exec({"git", "update-ref", "--no-deref", "HEAD", "FETCH_HEAD"}, dir) {
+        return "", false
+    }
+    abs, err := os.get_absolute_path(dir, context.temp_allocator)
+    if err != nil {
+        fmt.eprintfln("[build] the path %s is not resolvable: %v", dir, err)
+        return "", false
+    }
+    return abs, true
+}
+
+stamp_current :: proc(path, want: string) -> bool {
+    data, err := os.read_entire_file(path, context.temp_allocator)
+    return err == nil && string(data) == want
+}
+
+stamp_write :: proc(path, want: string) -> bool {
+    if err := os.write_entire_file(path, want); err != nil {
+        fmt.eprintfln("[build] a write of %s failed: %v", path, err)
+        return false
+    }
+    return true
+}
+
+// Deletes a directory tree. A tree that is absent is not an error; POSIX
+// reports that as Not_Exist, Windows as no error.
+remove_tree :: proc(path: string) -> bool {
+    if err := os.remove_all(path); err != nil && err != .Not_Exist {
+        fmt.eprintfln("[build] a delete of %s failed: %v", path, err)
+        return false
     }
     return true
 }
@@ -585,12 +717,12 @@ build_tree_sitter :: proc() -> bool {
 // The command goes through a generated batch file. VsDevCmd.bat sits under a path
 // with spaces, and cmd.exe unescapes a `cmd /c` line differently than the process
 // spawner quotes it; a file has no such layer.
-exec_msvc :: proc(args: []string, working_dir := "") -> bool {
+exec_msvc :: proc(args: []string, working_dir := "", secret := "") -> bool {
     when ODIN_OS != .Windows {
-        return exec(args, working_dir)
+        return exec(args, working_dir, secret = secret)
     } else {
         if os.get_env("VSINSTALLDIR", context.temp_allocator) != "" {
-            return exec(args, working_dir)
+            return exec(args, working_dir, secret = secret)
         }
         vsdevcmd, found := msvc.find_vsdevcmd()
         if !found {
@@ -628,17 +760,20 @@ exec_msvc :: proc(args: []string, working_dir := "") -> bool {
         }
 
         if opt.verbose {
-            fmt.printfln("  $ %s  [msvc]", command_line(args))
+            fmt.printfln("  $ %s  [msvc]", command_line(args, secret))
         }
         return exec({"cmd", "/c", bat}, quiet = true)
     }
 }
 
 // Joins the arguments into one command line, quoting each one that has a space.
-command_line :: proc(args: []string) -> string {
+// An argument equal to `secret` is masked, for a line that is printed.
+command_line :: proc(args: []string, secret := "") -> string {
     parts := make([dynamic]string, 0, len(args), context.temp_allocator)
     for arg in args {
-        if strings.contains(arg, " ") {
+        if secret != "" && arg == secret {
+            append(&parts, "***")
+        } else if strings.contains(arg, " ") {
             append(&parts, fmt.tprintf(`"%s"`, arg))
         } else {
             append(&parts, arg)
@@ -667,10 +802,10 @@ mkdir :: proc(path: string) -> bool {
 }
 
 // Does a command and waits for its end. The child writes to the console of this
-// program.
-exec :: proc(args: []string, working_dir := "", quiet := false) -> bool {
+// program. -verbose prints the command with the argument `secret` masked.
+exec :: proc(args: []string, working_dir := "", quiet := false, secret := "") -> bool {
     if opt.verbose && !quiet {
-        fmt.printfln("  $ %s", strings.join(args, " ", context.temp_allocator))
+        fmt.printfln("  $ %s", command_line(args, secret))
     }
 
     desc := os.Process_Desc {
@@ -693,4 +828,22 @@ exec :: proc(args: []string, working_dir := "", quiet := false) -> bool {
         return false
     }
     return state.exit_code == 0
+}
+
+// Does a command and returns what it wrote to stdout, without the outer spaces.
+capture :: proc(args: []string, working_dir := "") -> (out: string, ok: bool) {
+    desc := os.Process_Desc {
+        command     = args,
+        working_dir = working_dir,
+    }
+    state, stdout, stderr, err := os.process_exec(desc, context.temp_allocator)
+    if err != nil {
+        fmt.eprintfln("[build] a start of %q failed: %v", args[0], err)
+        return "", false
+    }
+    if state.exit_code != 0 {
+        fmt.eprintfln("[build] %s failed: %s", command_line(args), strings.trim_space(string(stderr)))
+        return "", false
+    }
+    return strings.trim_space(string(stdout)), true
 }

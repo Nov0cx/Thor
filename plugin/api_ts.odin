@@ -597,7 +597,7 @@ node_text :: proc "c" (L: ^lua.State) -> c.int {
         return 1
     }
     text := ts.node_text(node.node, tree.source)
-    lua.pushlstring(L, transmute(cstring) raw_data(text), c.size_t(len(text)))
+    lua.pushlstring(L, cstring(raw_data(text)), c.size_t(len(text)))
     return 1
 }
 

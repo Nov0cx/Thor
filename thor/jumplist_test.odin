@@ -6,7 +6,6 @@ import "core:time"
 
 import "../editview"
 import "../textedit"
-import ui "../vendor/loom/loom"
 
 // Builds a headless Thor with the two panes and views thor_update_files needs,
 // the same shape test_async_file_roundtrip uses. No window, no GL.

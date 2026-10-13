@@ -6,7 +6,6 @@ import "core:strings"
 import "../lang"
 import "../lang/lsp"
 import "../plugin"
-import ui "../vendor/loom/loom"
 
 // The "Language Servers" settings category: what every configured server is,
 // what state it is in, and the actions that get it working. It replaces the

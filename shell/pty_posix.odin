@@ -44,7 +44,8 @@ Pty :: struct {
 
 // Starts `profile` in `cwd` on a pseudo-terminal of `cols` x `rows`.
 pty_start :: proc(profile: Profile, cwd: string, cols, rows: int) -> (^Pty, bool) {
-    cols, rows := pty_clamp_size(cols, rows)
+    cols, rows := cols, rows
+    cols, rows = pty_clamp_size(cols, rows)
 
     // Everything the child reads must exist before the fork: only
     // async-signal-safe calls are legal between fork and exec.
@@ -193,7 +194,8 @@ pty_resize :: proc(pty: ^Pty, cols, rows: int) -> bool {
     if pty == nil || pty.master < 0 {
         return false
     }
-    cols, rows := pty_clamp_size(cols, rows)
+    cols, rows := cols, rows
+    cols, rows = pty_clamp_size(cols, rows)
     size := Winsize {
         ws_row = u16(rows),
         ws_col = u16(cols),

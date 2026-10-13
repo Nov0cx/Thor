@@ -3,7 +3,6 @@
 // declaration, widening to the package directory and then the workspace.
 package odin
 
-import "core:os"
 import "core:strings"
 import "core:sync"
 

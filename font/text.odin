@@ -334,9 +334,9 @@ font_bake_job :: proc(job: ^Font_Load_Job) {
     for entry, k in baked {
         job.shaped[entry.gid] = Shaped_Glyph {
             rect = recs[k],
-            offset_x = cast(i32) glyphs[k].offsetX,
-            offset_y = cast(i32) glyphs[k].offsetY,
-            advance = cast(i32) glyphs[k].advanceX,
+            offset_x = glyphs[k].offsetX,
+            offset_y = glyphs[k].offsetY,
+            advance = glyphs[k].advanceX,
         }
     }
 

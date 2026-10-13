@@ -10,10 +10,11 @@ package update
 import "core:log"
 import "core:os"
 import "core:path/filepath"
-import "core:strings"
+// Used on some platforms only.
+@(require) import "core:strings"
 import "core:sync"
 
-import "../shell"
+@(require) import "../shell"
 
 // The binary and the library it loads. Locked exactly alike, so the swap moves
 // them as one group and a failure there is the only one that needs a rollback.

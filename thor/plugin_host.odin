@@ -5,13 +5,11 @@ import "core:os"
 import "core:path/filepath"
 import "core:strings"
 import "core:time"
-import rl "vendor:raylib"
 
 import "../plugin"
 import "../setting"
 import "../shell"
 import "../textedit"
-import ui "../vendor/loom/loom"
 
 // One row of a plugin dropdown (see thor.menu). A separator carries no command.
 Plugin_Menu_Item :: struct {

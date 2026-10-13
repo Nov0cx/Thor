@@ -11,36 +11,6 @@ concurrency:
   group: ubuntu-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  # Grammars that syntax/syntax.odin hard-imports; each must be installed before
-  # the app will type-check/build (see vendor/README.md).
-  TS_ODIN: https://github.com/tree-sitter-grammars/tree-sitter-odin
-  TS_LUA: https://github.com/tree-sitter-grammars/tree-sitter-lua
-  TS_C: https://github.com/tree-sitter/tree-sitter-c
-  TS_CPP: https://github.com/tree-sitter/tree-sitter-cpp
-  TS_GO: https://github.com/tree-sitter/tree-sitter-go
-  TS_JS: https://github.com/tree-sitter/tree-sitter-javascript
-  # typescript and tsx are two grammars in one repo, selected by subdirectory.
-  TS_TS: https://github.com/tree-sitter/tree-sitter-typescript
-  TS_JAI: https://github.com/constantitus/tree-sitter-jai
-  TS_RUST: https://github.com/tree-sitter/tree-sitter-rust
-  TS_PYTHON: https://github.com/tree-sitter/tree-sitter-python
-  TS_RUBY: https://github.com/tree-sitter/tree-sitter-ruby
-  TS_JAVA: https://github.com/tree-sitter/tree-sitter-java
-  TS_KOTLIN: https://github.com/fwcd/tree-sitter-kotlin
-  TS_ZIG: https://github.com/tree-sitter-grammars/tree-sitter-zig
-  TS_CSHARP: https://github.com/tree-sitter/tree-sitter-c-sharp
-  # php and ocaml keep their grammar in a subdirectory, selected with -path.
-  TS_PHP: https://github.com/tree-sitter/tree-sitter-php
-  TS_HASKELL: https://github.com/tree-sitter/tree-sitter-haskell
-  TS_OCAML: https://github.com/tree-sitter/tree-sitter-ocaml
-  TS_STARLARK: https://github.com/tree-sitter-grammars/tree-sitter-starlark
-  TS_HCL: https://github.com/tree-sitter-grammars/tree-sitter-hcl
-  TS_NIX: https://github.com/nix-community/tree-sitter-nix
-  TS_PASCAL: https://github.com/Isopod/tree-sitter-pascal
-  TS_NIM: https://github.com/alaviss/tree-sitter-nim
-  TS_COMMONLISP: https://github.com/tree-sitter-grammars/tree-sitter-commonlisp
-
 jobs:
   ubuntu:
     name: Ubuntu
@@ -77,15 +47,14 @@ jobs:
             make -C "$src"
           fi
 
-      # The libraries change only with the submodule or the grammar list. A
-      # grammar stays at the commit of the last cold build; bump the suffix of
-      # the key to get new grammar commits.
+      # The key holds build.odin, which pins each grammar to a commit, so a new
+      # pin makes a new cache.
       - name: Name the tree-sitter cache
         id: ts
+        shell: bash
         run: echo "rev=$(git rev-parse HEAD:vendor/odin-tree-sitter)" >> "$GITHUB_OUTPUT"
 
       - name: Cache tree-sitter
-        id: treesitter
         uses: actions/cache@v4
         with:
           path: |
@@ -93,36 +62,14 @@ jobs:
             vendor/odin-tree-sitter/parsers
           key: tree-sitter-${{ runner.os }}-${{ runner.arch }}-${{ steps.ts.outputs.rev }}-${{ hashFiles('build.odin', 'syntax/syntax.odin') }}-v1
 
-      - name: Build tree-sitter runtime + parsers
-        if: steps.treesitter.outputs.cache-hit != 'true'
-        working-directory: vendor/odin-tree-sitter
-        run: |
-          odin run build -- install
-          odin run build -- install-parser "$TS_ODIN" -yes
-          odin run build -- install-parser "$TS_LUA" -yes
-          odin run build -- install-parser "$TS_C" -yes
-          odin run build -- install-parser "$TS_CPP" -yes
-          odin run build -- install-parser "$TS_GO" -yes
-          odin run build -- install-parser "$TS_JS" -yes
-          odin run build -- install-parser "$TS_TS" -path=typescript -name=typescript -yes
-          odin run build -- install-parser "$TS_TS" -path=tsx -name=tsx -yes
-          odin run build -- install-parser "$TS_JAI" -yes
-          odin run build -- install-parser "$TS_RUST" -yes
-          odin run build -- install-parser "$TS_PYTHON" -yes
-          odin run build -- install-parser "$TS_RUBY" -yes
-          odin run build -- install-parser "$TS_JAVA" -yes
-          odin run build -- install-parser "$TS_KOTLIN" -yes
-          odin run build -- install-parser "$TS_ZIG" -yes
-          odin run build -- install-parser "$TS_CSHARP" -name=c_sharp -yes
-          odin run build -- install-parser "$TS_PHP" -path=php -name=php -yes
-          odin run build -- install-parser "$TS_HASKELL" -yes
-          odin run build -- install-parser "$TS_OCAML" -path=grammars/ocaml -name=ocaml -yes
-          odin run build -- install-parser "$TS_STARLARK" -yes
-          odin run build -- install-parser "$TS_HCL" -yes
-          odin run build -- install-parser "$TS_NIX" -yes
-          odin run build -- install-parser "$TS_PASCAL" -yes
-          odin run build -- install-parser "$TS_NIM" -yes
-          odin run build -- install-parser "$TS_COMMONLISP" -yes
+      # build.odin builds the parsers of its GRAMMARS list, each at its pinned
+      # commit, and skips each library the cache restored, so this workflow
+      # keeps no list of its own.
+      - name: Build the dependencies
+        run: odin run build.odin -file -- deps -verbose
+
+      - name: Check with -vet
+        run: odin run build.odin -file -- check -vet -verbose
 
       - name: Build Thor
         run: odin build main -debug

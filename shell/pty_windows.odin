@@ -48,7 +48,8 @@ Pty :: struct {
 
 // Starts `profile` in `cwd` on a pseudo-console of `cols` x `rows`.
 pty_start :: proc(profile: Profile, cwd: string, cols, rows: int) -> (^Pty, bool) {
-    cols, rows := pty_clamp_size(cols, rows)
+    cols, rows := cols, rows
+    cols, rows = pty_clamp_size(cols, rows)
 
     // Two pipes: one the console host reads the shell's input from, one it
     // writes the shell's output to. Neither end is inheritable; the console
@@ -221,7 +222,8 @@ pty_resize :: proc(pty: ^Pty, cols, rows: int) -> bool {
     if pty == nil || pty.console == nil {
         return false
     }
-    cols, rows := pty_clamp_size(cols, rows)
+    cols, rows := cols, rows
+    cols, rows = pty_clamp_size(cols, rows)
     return ResizePseudoConsole(pty.console, {win32.SHORT(cols), win32.SHORT(rows)}) == 0
 }
 

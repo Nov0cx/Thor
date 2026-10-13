@@ -7,7 +7,6 @@ import "core:os"
 import "core:path/filepath"
 import "core:strings"
 
-import "../lang/lsp"
 
 // Writing lsp.json. The package that parses that file (lang/lsp) deliberately
 // never writes it — it reads its config with core:encoding/json because

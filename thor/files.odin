@@ -1571,7 +1571,8 @@ thor_confirm_rename :: proc(data: rawptr, name: string) {
         thor.pending_rename_path = ""
     }
 
-    name := strings.trim_space(name)
+    name := name
+    name = strings.trim_space(name)
     if old_path == "" || name == "" {
         return
     }

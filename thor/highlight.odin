@@ -1,8 +1,6 @@
 package thor
 
-import "core:strings"
 import "core:time"
-import rl "vendor:raylib"
 
 import "../lang"
 import "../plugin"

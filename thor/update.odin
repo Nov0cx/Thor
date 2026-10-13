@@ -19,11 +19,9 @@ import "core:thread"
 import "core:time"
 
 import "../setting"
-import ui "../vendor/loom/loom"
 import "../update"
 
 import rl "vendor:raylib"
-import "../font"
 // The titlebar button's metrics, matching the task selector beside it.
 @(private = "file")
 UPDATE_BUTTON_PAD_X :: 10

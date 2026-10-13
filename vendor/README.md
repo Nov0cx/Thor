@@ -6,7 +6,10 @@ Odin bindings for HarfBuzz 12.1.0, used for ligature shaping in `ui/shape.odin`.
 
 The bindings expect the static library at `odin-harfbuzz/libs/harfbuzz.lib`.
 That file is a local build artifact (gitignored inside the submodule), so it
-must be built once per machine:
+must be built once per machine. `odin run build.odin -file -- deps` does it: it
+checks the archive against `HARFBUZZ_SHA256` and writes `vendor/harfbuzz.stamp`,
+which names the version, the checksum and the meson flags. A library whose stamp
+differs is built again. The recipe by hand, which writes no stamp:
 
 ```powershell
 # Requirements: Visual Studio (MSVC), Python
@@ -37,8 +40,24 @@ Notes:
 Odin bindings for Tree-sitter, used for syntax highlighting in `syntax/`.
 
 The runtime static lib and each language parser are local build artifacts
-(gitignored inside the submodule), so they must be built once per machine from a
-Visual Studio developer shell (`Enter-VsDevShell`):
+(gitignored inside the submodule), so they must be built once per machine:
+
+```bash
+odin run build.odin -file -- deps
+```
+
+`GRAMMARS` in `build.odin` is the one list of grammars, and each row pins its
+grammar to a commit. `install-parser` of the submodule takes no revision — it
+clones the default branch — so `deps` first fetches the pinned commit into a
+bare repository under `bin/deps/grammars/` and gives the tool that path. Each
+parser directory gets a `thor.stamp` (URL, commit, subdirectory, submodule
+commit); a parser whose stamp differs is built again.
+
+`syntax/syntax.odin` hard-imports every parser of that list, so a fresh checkout
+must build all of them before the app will build.
+
+One parser by hand, from a Visual Studio developer shell — this takes the newest
+commit, not the pinned one, so `deps` builds it again:
 
 ```powershell
 cd vendor/odin-tree-sitter
@@ -46,31 +65,9 @@ cd vendor/odin-tree-sitter
 odin run build -- install
 # Grammar -> parsers/odin/parser.lib + generated bindings + queries
 odin run build -- install-parser https://github.com/tree-sitter-grammars/tree-sitter-odin -yes
-odin run build -- install-parser https://github.com/tree-sitter-grammars/tree-sitter-lua -yes
-odin run build -- install-parser https://github.com/tree-sitter/tree-sitter-c -yes
-odin run build -- install-parser https://github.com/tree-sitter/tree-sitter-cpp -yes
-odin run build -- install-parser https://github.com/tree-sitter/tree-sitter-go -yes
-odin run build -- install-parser https://github.com/tree-sitter/tree-sitter-javascript -yes
-odin run build -- install-parser https://github.com/tree-sitter/tree-sitter-typescript "-path=typescript" "-name=typescript" -yes
-odin run build -- install-parser https://github.com/tree-sitter/tree-sitter-typescript "-path=tsx" "-name=tsx" -yes
-odin run build -- install-parser https://github.com/constantitus/tree-sitter-jai -yes
-odin run build -- install-parser https://github.com/tree-sitter/tree-sitter-rust -yes
-odin run build -- install-parser https://github.com/tree-sitter/tree-sitter-python -yes
-odin run build -- install-parser https://github.com/tree-sitter/tree-sitter-ruby -yes
-odin run build -- install-parser https://github.com/tree-sitter/tree-sitter-java -yes
-odin run build -- install-parser https://github.com/fwcd/tree-sitter-kotlin -yes
-odin run build -- install-parser https://github.com/tree-sitter-grammars/tree-sitter-zig -yes
-odin run build -- install-parser https://github.com/tree-sitter/tree-sitter-c-sharp "-name=c_sharp" -yes
-odin run build -- install-parser https://github.com/tree-sitter/tree-sitter-php "-path=php" "-name=php" -yes
-odin run build -- install-parser https://github.com/tree-sitter/tree-sitter-haskell -yes
-odin run build -- install-parser https://github.com/tree-sitter/tree-sitter-ocaml "-path=grammars/ocaml" "-name=ocaml" -yes
 ```
 
-`syntax/syntax.odin` hard-imports every parser above, so a fresh checkout must
-install all of them (the exact list mirrors the CI workflows) before the app
-will build.
-
-Add a language: `install-parser <grammar-git-url>`, register the parser in
+Add a language: a `GRAMMARS` row in `build.odin`, then `deps`; register the parser in
 `syntax/syntax.odin` (`highlighter_create`, one `h.languages["<id>"]` line), and
 add a `plugins/<id>/plugin.lua` that maps the file extensions to that grammar id
 and its capture heads to theme color roles. Grammars whose highlights query

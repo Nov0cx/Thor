@@ -16,7 +16,9 @@ odin run build.odin -file                  # build into bin/debug
 odin run build.odin -file -- run           # build and start
 odin run build.odin -file -- run -release  # optimized, into bin/release
 odin run build.odin -file -- check         # type-check only (main reaches every package)
+odin run build.odin -file -- check -vet    # the same with -vet, which CI gates on
 odin run build.odin -file -- test          # every package with tests, into bin/test
+odin run build.odin -file -- test -release # the same with the flags a release is built with
 odin run build.odin -file -- clean
 odin run build.odin -file -- -h -verbose   # flags; -verbose echoes each command
 ```
@@ -34,11 +36,19 @@ Tests run with the repository root as the working directory, so they find `asset
 `run_tests` (`build.odin`) or CI will skip it. `run_tests` runs every package even after one fails,
 then names the failed ones together.
 
-Every push and pull request runs `.github/workflows/{windows,ubuntu,arch,macos}.yml`: each builds
-the editor and then runs `build.odin -- test`, so a merge is gated on the tests of all four
-platforms. No test opens a window, so the runners need no display.
+Every push and pull request runs `.github/workflows/{windows,ubuntu,arch,macos}.yml`: each runs
+`build.odin -- deps`, then `check -vet`, builds the editor and runs `build.odin -- test`, so a merge
+is gated on `-vet` and the tests of all four platforms. No test opens a window, so the runners need
+no display. `-vet` covers the packages `VET_PACKAGES` (`build.odin`) names — add a new package
+there, since the flag alone also reaches the third-party bindings under `vendor/`.
 
-A push of a `v*` tag runs `.github/workflows/release.yml`: it runs the tests, builds `-release` on
+`deps` is reproducible: each `GRAMMARS` row pins its grammar to a commit, the HarfBuzz archive is
+checked against `HARFBUZZ_SHA256`, and every built library has a stamp that names what it was built
+from, so a changed pin, version or flag builds that library again. Move a pin with
+`git ls-remote <url> HEAD`.
+
+A push of a `v*` tag runs `.github/workflows/release.yml`: it runs the tests, then runs them again
+with the release flags (`test -release`: no bounds checks, no asserts), builds `-release` on
 all four CI platforms, packs `bin/release` (binary + `assets/`, `plugins/`, `settings/`, `docs/`) into a zip
 or tarball, and publishes them. The publish job needs every build job, so one broken platform makes
 no release. A manual run builds the same archives and stops before the publish.
@@ -79,8 +89,8 @@ Six skills in `.claude/skills/`:
   the two lists a change can silently miss: the `packages` list in `run_tests` and `lang/ROADMAP.md`.
 - `ts-probe` — the throwaway `zprobe_test.odin` that dumps a real parse tree. Use it before matching
   a tree-sitter node type, field or child order.
-- `grammar-add` — adds a tree-sitter grammar, keeping `build.odin`, `syntax/syntax.odin` and the four
-  CI workflows in step, then writes the plugin.
+- `grammar-add` — adds a tree-sitter grammar, keeping `build.odin` and `syntax/syntax.odin` in step,
+  then writes the plugin.
 - `update-docs` — brings `README.md` and `docs/` back in step with the code (settings, keybinds,
   plugin permissions, build steps) after a user-facing change, and regenerates `docs/html/`. Detail
   lands in `docs/`; `README.md` gets a line only when the front page would otherwise be wrong.
@@ -393,10 +403,10 @@ analyzer's semantic tokens are layered over the grammar spans in `thor/highlight
 (`thor_merge_semantic` must emit ascending, non-overlapping spans — the editor walks them with one
 forward-only cursor).
 
-Adding a tree-sitter grammar means keeping **three lists in sync**, or the build breaks for everyone:
-the `GRAMMARS` table in `build.odin`, the hard imports + `h.languages[...]` registrations in
-`syntax/syntax.odin`, and the four per-platform `.github/workflows/*.yml` (`release.yml` needs no
-edit — it calls `build.odin -- deps`, which reads `GRAMMARS`). Then add the `plugins/<id>/plugin.lua`.
+Adding a tree-sitter grammar means keeping **two lists in sync**, or the build breaks for everyone:
+the `GRAMMARS` table in `build.odin` (with the commit the grammar is pinned to) and the hard imports
++ `h.languages[...]` registrations in `syntax/syntax.odin`. No workflow needs an edit — each calls
+`build.odin -- deps`, which reads `GRAMMARS`. Then add the `plugins/<id>/plugin.lua`.
 Grammars are compiled in; *queries* are data — a plugin's `highlights = "highlights.scm"` (or an
 inline query) replaces the built-in one via `syntax.set_highlights`, and a query that fails to
 compile is reported with its offset instead of silently uncoloring the language.

@@ -13,3 +13,4 @@ lsp-status.md
 ANALYSIS.md
 .update/
 .update-probe
+vendor/harfbuzz.stamp

@@ -90,7 +90,8 @@ cursor_down :: proc(t: ^Term, n: int) {
 
 @(private)
 cursor_left :: proc(t: ^Term, n: int) {
-    n := max(n, 1)
+    n := n
+    n = max(n, 1)
     t.cur.pending_wrap = false
     // Reverse wrap walks back onto the line above, which is how a shell erases
     // a prompt that ran over the right edge.
@@ -157,7 +158,8 @@ next_line :: proc(t: ^Term) {
 // top of the display, the rows that leave become history.
 @(private)
 scroll_up :: proc(t: ^Term, n: int) {
-    n := min(max(n, 1), t.bottom - t.top + 1)
+    n := n
+    n = min(max(n, 1), t.bottom - t.top + 1)
     context.allocator = t.allocator
     g := grid(t)
     keep_history := !t.alt_active && t.top == 0
@@ -178,7 +180,8 @@ scroll_up :: proc(t: ^Term, n: int) {
 // Moves the region down by `n` rows, blanking the rows that open at its top.
 @(private)
 scroll_down :: proc(t: ^Term, n: int) {
-    n := min(max(n, 1), t.bottom - t.top + 1)
+    n := n
+    n = min(max(n, 1), t.bottom - t.top + 1)
     context.allocator = t.allocator
     g := grid(t)
     for _ in 0 ..< n {
@@ -196,7 +199,8 @@ insert_lines :: proc(t: ^Term, n: int) {
     if t.cur.y < t.top || t.cur.y > t.bottom {
         return
     }
-    n := min(max(n, 1), t.bottom - t.cur.y + 1)
+    n := n
+    n = min(max(n, 1), t.bottom - t.cur.y + 1)
     context.allocator = t.allocator
     g := grid(t)
     for _ in 0 ..< n {
@@ -215,7 +219,8 @@ delete_lines :: proc(t: ^Term, n: int) {
     if t.cur.y < t.top || t.cur.y > t.bottom {
         return
     }
-    n := min(max(n, 1), t.bottom - t.cur.y + 1)
+    n := n
+    n = min(max(n, 1), t.bottom - t.cur.y + 1)
     context.allocator = t.allocator
     g := grid(t)
     for _ in 0 ..< n {
@@ -236,7 +241,8 @@ insert_chars :: proc(t: ^Term, n: int) {
     if line == nil {
         return
     }
-    n := min(max(n, 1), t.cols - t.cur.x)
+    n := n
+    n = min(max(n, 1), t.cols - t.cur.x)
     blank := blank_cell(t.cur.pen)
     for x := t.cols - 1; x >= t.cur.x + n; x -= 1 {
         line.cells[x] = line.cells[x - n]
@@ -254,7 +260,8 @@ delete_chars :: proc(t: ^Term, n: int) {
     if line == nil {
         return
     }
-    n := min(max(n, 1), t.cols - t.cur.x)
+    n := n
+    n = min(max(n, 1), t.cols - t.cur.x)
     blank := blank_cell(t.cur.pen)
     for x := t.cur.x; x < t.cols - n; x += 1 {
         line.cells[x] = line.cells[x + n]
@@ -411,7 +418,8 @@ restore_cursor :: proc(t: ^Term) {
 // and the rune's width ask.
 @(private)
 put_rune :: proc(t: ^Term, r: rune) {
-    r := charset_map(t, r)
+    r := r
+    r = charset_map(t, r)
     width := rune_width(r)
 
     if width == 0 {

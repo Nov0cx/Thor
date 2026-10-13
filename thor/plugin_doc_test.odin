@@ -7,7 +7,6 @@ import "core:time"
 import "../setting"
 import "../editview"
 import "../textedit"
-import ui "../vendor/loom/loom"
 
 // Verifies the thor.doc host service (thor_plugin_doc): the first call opens a
 // tab that loads the written text, and a second call refreshes the same tab's

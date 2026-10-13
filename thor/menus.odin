@@ -284,7 +284,8 @@ thor_valid_entry_name :: proc(name: string) -> bool {
 
 thor_prompt_new_file :: proc(data: rawptr, name: string) {
     thor := cast(^Thor) data
-    name := strings.trim_space(name)
+    name := name
+    name = strings.trim_space(name)
     if !thor_valid_entry_name(name) {
         thor_flash_status(thor, "Not a valid file name", is_error = true)
         return
@@ -309,7 +310,8 @@ thor_prompt_new_file :: proc(data: rawptr, name: string) {
 
 thor_prompt_new_folder :: proc(data: rawptr, name: string) {
     thor := cast(^Thor) data
-    name := strings.trim_space(name)
+    name := name
+    name = strings.trim_space(name)
     if !thor_valid_entry_name(name) {
         thor_flash_status(thor, "Not a valid folder name", is_error = true)
         return

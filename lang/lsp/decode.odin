@@ -1031,8 +1031,8 @@ decode_workspace_edit :: proc(
     ok := true
     if changes, has := object["documentChanges"].(json.Array); has {
         ok = decode_document_changes(ask, changes, out, ops)
-    } else if changes, has := object["changes"].(json.Object); has {
-        ok = decode_changes_map(ask, changes, out)
+    } else if change_map, has_map := object["changes"].(json.Object); has_map {
+        ok = decode_changes_map(ask, change_map, out)
     }
     if !ok {
         for edit in out[edit_start:] {

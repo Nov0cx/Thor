@@ -5,13 +5,10 @@ import "core:os"
 import "core:path/filepath"
 import "core:slice"
 import "core:strings"
-import rl "vendor:raylib"
 
 import "../setting"
-import ui "../vendor/loom/loom"
 import "../font"
 import "../theme"
-import "../editview"
 // Built-in theme used when none is configured or the configured one fails to load.
 DEFAULT_THEME :: "mjolnir"
 

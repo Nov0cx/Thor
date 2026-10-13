@@ -10,7 +10,6 @@ import "core:time"
 import "../editview"
 import "../lang"
 import "../textedit"
-import ui "../vendor/loom/loom"
 import "../watch"
 
 // Exercises the async load -> edit -> save -> close pipeline headlessly:

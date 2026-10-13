@@ -261,8 +261,10 @@ csi_tab_clear :: proc(t: ^Term, mode: int) {
 
 @(private = "file")
 csi_set_region :: proc(t: ^Term, top, bottom: int) {
-    top := clamp(top - 1, 0, t.rows - 1)
-    bottom := clamp(bottom - 1, 0, t.rows - 1)
+    top := top
+    top = clamp(top - 1, 0, t.rows - 1)
+    bottom := bottom
+    bottom = clamp(bottom - 1, 0, t.rows - 1)
     // A region of fewer than two rows is refused, which is what leaves a
     // terminal scrolling whole-screen after a bad request.
     if bottom <= top {

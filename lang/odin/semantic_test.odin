@@ -236,7 +236,7 @@ test_semantic_member_resolution_is_capped :: proc(t: ^testing.T) {
     total := SEMANTIC_MEMBER_LIMIT + 50
     b := strings.builder_make(context.temp_allocator)
     strings.write_string(&b, "package demo\n\nPoint :: struct {\n\tx: int,\n}\n\nrun :: proc(p: Point) {\n")
-    for i in 0 ..< total {
+    for _ in 0 ..< total {
         strings.write_string(&b, "\t_ = p.x\n")
     }
     strings.write_string(&b, "}\n")

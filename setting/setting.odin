@@ -898,7 +898,7 @@ load_general :: proc(s: ^Settings, path: string) {
 read_language :: proc(s: ^Settings, root: json.Object) {
     #partial switch value in root[LANGUAGE_SETTING] {
     case json.Boolean:
-        s.general.language_enabled = cast(bool) value
+        s.general.language_enabled = value
     case json.Object:
         read_bool(value, LANGUAGE_ENABLED_KEY, &s.general.language_enabled)
         for kind in lang.Request_Kind {
@@ -993,7 +993,7 @@ read_bool :: proc(obj: json.Object, key: string, dst: ^bool) -> bool {
     if !ok {
         return false
     }
-    dst^ = cast(bool) value
+    dst^ = value
     return true
 }
 
@@ -1021,7 +1021,7 @@ load_keybinds :: proc(s: ^Settings, path: string) {
                 log.warnf("Settings %q: %s.%s has invalid binding %q", path, group_name, action, spec)
                 continue
             }
-            if _, ok := s.keybinds[action]; ok {
+            if _, known := s.keybinds[action]; known {
                 s.keybinds[action] = kb // reuse existing owned key
             } else {
                 s.keybinds[strings.clone(action)] = kb

@@ -89,4 +89,8 @@ test_every_mapped_key_is_distinct :: proc(t: ^testing.T) {
 test_a_colour_round_trips :: proc(t: ^testing.T) {
 	testing.expect_value(t, raylib_color(ui.Color{12, 34, 56, 78}), rl.Color{12, 34, 56, 78})
 	testing.expect_value(t, raylib_rect(ui.Rect{1, 2, 3, 4}), rl.Rectangle{1, 2, 3, 4})
+	// The one call into raylib.lib of this test binary. The binding removes the
+	// default CRT and takes the one raylib.lib names, so an optimized link with
+	// no raylib object has no CRT.
+	testing.expect_value(t, rl.ColorToInt(raylib_color(ui.Color{12, 34, 56, 78})), 0x0c22384e)
 }

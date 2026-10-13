@@ -599,7 +599,6 @@ thor_git_maybe_list_prs :: proc(thor: ^Thor) {
     if cli == "" {
         return
     }
-    view := &thor.git
     if !thor.git_open {
         return
     }

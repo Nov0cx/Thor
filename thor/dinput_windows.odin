@@ -63,7 +63,7 @@ name_equals_fold :: proc "contextless" (name: cstring, want: string) -> bool {
         return c + ('a' - 'A') if 'A' <= c && c <= 'Z' else c
     }
 
-    bytes := transmute([^]u8) name
+    bytes := cast([^]u8) name
     for i in 0 ..< len(want) {
         if lower(bytes[i]) != lower(want[i]) {
             return false

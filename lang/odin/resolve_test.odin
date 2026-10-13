@@ -2,7 +2,6 @@
 // packages and the standard library.
 package odin
 
-import "core:fmt"
 import "core:os"
 import "core:strings"
 import "core:testing"

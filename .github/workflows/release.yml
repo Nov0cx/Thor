@@ -84,8 +84,10 @@ jobs:
         id: harfbuzz
         uses: actions/cache@v4
         with:
-          path: vendor/odin-harfbuzz/libs/harfbuzz.lib
-          key: harfbuzz-windows-mt-${{ steps.keys.outputs.harfbuzz }}-v1
+          path: |
+            vendor/odin-harfbuzz/libs/harfbuzz.lib
+            vendor/harfbuzz.stamp
+          key: harfbuzz-windows-mt-${{ steps.keys.outputs.harfbuzz }}-v2
 
       - name: Cache tree-sitter
         uses: actions/cache@v4
@@ -110,16 +112,22 @@ jobs:
         if: steps.harfbuzz.outputs.cache-hit != 'true'
         run: python -m pip install --upgrade pip meson ninja
 
-      # HarfBuzz is a local static library on Windows. build.odin builds it and
-      # the tree-sitter parsers of its GRAMMARS list, and skips each library a
-      # cache restored, so this workflow keeps no list of its own.
+      # HarfBuzz is a local static library on Windows. build.odin builds it from
+      # a checksummed archive, and the parsers of its GRAMMARS list each at its
+      # pinned commit. It skips each library a cache restored, so this workflow
+      # keeps no list of its own.
       - name: Build the dependencies
         run: odin run build.odin -file -- deps -verbose
 
       # No archive is packed from code that fails its tests. The tests build
-      # debug binaries into bin/test, which the pack does not touch.
+      # into bin/test, which the pack does not touch.
       - name: Run the tests
         run: odin run build.odin -file -- test -verbose
+
+      # The archive is built without bounds checks and asserts, so the tests
+      # run once more with the flags of the release.
+      - name: Run the tests with the release flags
+        run: odin run build.odin -file -- test -release -verbose
 
       - name: Build Thor
         run: odin run build.odin -file -- all -release -verbose
@@ -196,9 +204,14 @@ jobs:
         run: odin run build.odin -file -- deps -verbose
 
       # No archive is packed from code that fails its tests. The tests build
-      # debug binaries into bin/test, which the pack does not touch.
+      # into bin/test, which the pack does not touch.
       - name: Run the tests
         run: odin run build.odin -file -- test -verbose
+
+      # The archive is built without bounds checks and asserts, so the tests
+      # run once more with the flags of the release.
+      - name: Run the tests with the release flags
+        run: odin run build.odin -file -- test -release -verbose
 
       - name: Build Thor
         run: odin run build.odin -file -- all -release -verbose
@@ -285,9 +298,14 @@ jobs:
         run: odin run build.odin -file -- deps -verbose
 
       # No archive is packed from code that fails its tests. The tests build
-      # debug binaries into bin/test, which the pack does not touch.
+      # into bin/test, which the pack does not touch.
       - name: Run the tests
         run: odin run build.odin -file -- test -verbose
+
+      # The archive is built without bounds checks and asserts, so the tests
+      # run once more with the flags of the release.
+      - name: Run the tests with the release flags
+        run: odin run build.odin -file -- test -release -verbose
 
       - name: Build Thor
         run: odin run build.odin -file -- all -release -verbose
@@ -365,9 +383,14 @@ jobs:
         run: odin run build.odin -file -- deps -verbose
 
       # No archive is packed from code that fails its tests. The tests build
-      # debug binaries into bin/test, which the pack does not touch.
+      # into bin/test, which the pack does not touch.
       - name: Run the tests
         run: odin run build.odin -file -- test -verbose
+
+      # The archive is built without bounds checks and asserts, so the tests
+      # run once more with the flags of the release.
+      - name: Run the tests with the release flags
+        run: odin run build.odin -file -- test -release -verbose
 
       # build.odin points the linker at $HOMEBREW_PREFIX/lib, which the runner sets.
       - name: Build Thor

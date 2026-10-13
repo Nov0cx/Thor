@@ -234,7 +234,7 @@ resolve_call_target :: proc(
         if same_node(ts.node_named_child(parent, 1), call) && is_identifier(pkg_node) && is_identifier(fn) {
             pkg := ts.node_text(pkg_node, req.source)
             name := ts.node_text(fn, req.source)
-            if raw, ok := import_path(root, req.source, pkg); ok {
+            if raw, rok := import_path(root, req.source, pkg); rok {
                 if dir, dok := package_dir(e, raw, req.path, req.workspace); dok {
                     return find_proc_in_dir(e, parser, dir, name, req.path)
                 }
@@ -251,15 +251,15 @@ resolve_call_target :: proc(
     // Same file: a top-level procedure of this name (locals of the same name are
     // not callables we can sign, so require the "function" kind).
     defs := collect_defs(e, root, req.source)
-    if d, ok := resolve_local(defs[:], name, int(ts.node_start_byte(fn))); ok && d.kind == "function" {
-        return req.source, req.path, d, true
+    if local, lok := resolve_local(defs[:], name, int(ts.node_start_byte(fn))); lok && local.kind == "function" {
+        return req.source, req.path, local, true
     }
 
     // Package, then workspace (see index_package_dir): the index points at the
     // file declaring the procedure; re-parse just that one for its Def (the
     // caller needs the live source and decl range).
     if req.workspace != "" {
-        path, ok := "", false
+        decl_path, located := "", false
         sync.lock(&e.index.mutex)
         index_sync(e, parser, req)
         same_package := true
@@ -269,12 +269,12 @@ resolve_call_target :: proc(
             same_package = false
         }
         if found {
-            path = strings.clone(p, context.temp_allocator)
-            ok = true
+            decl_path = strings.clone(p, context.temp_allocator)
+            located = true
         }
         sync.unlock(&e.index.mutex)
-        if ok {
-            return first_proc_in_file(e, parser, path, name, same_package)
+        if located {
+            return first_proc_in_file(e, parser, decl_path, name, same_package)
         }
     }
 

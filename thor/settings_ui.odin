@@ -3,7 +3,6 @@ package thor
 import "core:fmt"
 import "core:slice"
 import "core:strings"
-import rl "vendor:raylib"
 
 import "../editview"
 import "../input"
