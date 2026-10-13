@@ -96,7 +96,7 @@ cursor_left :: proc(t: ^Term, n: int) {
     // Reverse wrap walks back onto the line above, which is how a shell erases
     // a prompt that ran over the right edge.
     if t.reverse_wrap {
-        for _ in 0 ..< n {
+        for _ in 0 ..< min(n, t.cols * t.rows) {
             if t.cur.x > 0 {
                 t.cur.x -= 1
             } else if t.cur.y > t.top {
@@ -586,7 +586,7 @@ DEC_GRAPHICS := [?]rune {
 
 @(private)
 put_tab :: proc(t: ^Term, n: int) {
-    for _ in 0 ..< max(n, 1) {
+    for _ in 0 ..< clamp(n, 1, t.cols) {
         t.cur.x = tab_stop_next(t, t.cur.x)
     }
     t.cur.pending_wrap = false
@@ -594,19 +594,19 @@ put_tab :: proc(t: ^Term, n: int) {
 
 @(private)
 put_backtab :: proc(t: ^Term, n: int) {
-    for _ in 0 ..< max(n, 1) {
+    for _ in 0 ..< clamp(n, 1, t.cols) {
         t.cur.x = tab_stop_prev(t, t.cur.x)
     }
     t.cur.pending_wrap = false
 }
 
-// REP: the last printed rune again, `n` times.
+// REP: the last printed rune again, `n` times, capped at one screen of them.
 @(private)
 repeat_last :: proc(t: ^Term, last: rune, n: int) {
     if last == 0 {
         return
     }
-    for _ in 0 ..< max(n, 1) {
+    for _ in 0 ..< clamp(n, 1, t.cols * t.rows) {
         put_rune(t, last)
     }
 }

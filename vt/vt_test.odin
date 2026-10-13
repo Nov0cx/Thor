@@ -202,6 +202,20 @@ test_wide_on_one_column_is_dropped :: proc(h: ^testing.T) {
 }
 
 @(test)
+test_repeat_stops_at_one_screen :: proc(h: ^testing.T) {
+    t := term_make(4, 2)
+    defer term_destroy(t)
+
+    feed(t, "X\x1b[65535b")
+    testing.expect_value(h, row_text(t, 1), "X")
+    testing.expect(h, len(t.scrollback) <= 2, "the repeat ran past one screen")
+
+    // A tab count past the row ends at the last column.
+    feed(t, "\r\x1b[65535I")
+    testing.expect_value(h, t.cur.x, 3)
+}
+
+@(test)
 test_utf8_split_across_feeds :: proc(h: ^testing.T) {
     t := term_make(4, 2)
     defer term_destroy(t)
