@@ -839,3 +839,34 @@ test_page_keys_move_by_the_view :: proc(t: ^testing.T) {
     editor_test_key(&editor, .Page_Up, {})
     testing.expect_value(t, editor_test_caret_line(&editor), 4)
 }
+
+@(test)
+test_editing_keys_follow_the_keymap :: proc(t: ^testing.T) {
+    state: textedit.State
+    textedit.init(&state)
+    defer textedit.destroy(&state)
+    editor: Editor
+    defer delete(editor.visual_rows)
+    editor_test_jump_setup(&editor, &state)
+    defer keymap_reset()
+
+    // The built-in chord, and shift on a movement chord extends the selection.
+    editor_test_key(&editor, .End, {.Ctrl})
+    testing.expect_value(t, editor_test_caret_line(&editor), 19)
+    editor_test_key(&editor, .Home, {.Ctrl, .Shift})
+    testing.expect(t, textedit.has_any_selection(&state), "shift extends")
+
+    // A moved chord works, and the old one stops.
+    keymap_bind(.File_End, {.G, {.Alt}})
+    textedit.select_range(&state, 0, 0)
+    editor_test_key(&editor, .End, {.Ctrl})
+    testing.expect_value(t, editor_test_caret_line(&editor), 0)
+    editor_test_key(&editor, .G, {.Alt})
+    testing.expect_value(t, editor_test_caret_line(&editor), 19)
+
+    // An action with no chord answers to no key.
+    keymap_bind(.Delete_Line, {})
+    before := textedit.length(&state)
+    editor_test_key(&editor, .K, {.Ctrl, .Shift})
+    testing.expect_value(t, textedit.length(&state), before)
+}

@@ -141,9 +141,6 @@ Editor :: struct {
     // language has none. Borrowed, set per language.
     comment_prefix:     string,
     comment_block:      [2]string,
-    // Comment-toggle chords (from keybinds.json).
-    comment_keybind:       setting.Keybind,
-    block_comment_keybind: setting.Keybind,
     font_size:          i32,
     gutter_width:       f32,
     scroll_y:           f32,
@@ -949,7 +946,7 @@ editor_page_rows :: proc(editor: ^Editor) -> int {
 }
 
 // Moves the cursors and the view by one page; `direction` is -1 or 1.
-@(private = "file")
+@(private)
 editor_page :: proc(editor: ^Editor, direction: int, extend: bool) {
     rows := editor_page_rows(editor) * direction
     editor_move_visual(editor, rows, extend)
@@ -1190,7 +1187,6 @@ editor_type_rune :: proc(editor: ^Editor, r: rune) {
 
 editor_handle_key :: proc(editor: ^Editor, event: ui.Key_Event) -> bool {
     state := editor.state
-    ctrl_only := (.Ctrl in event.mods) && !(.Alt in event.mods)
     alt_only := (.Alt in event.mods) && !(.Ctrl in event.mods)
 
     // A caret jump or Escape dismisses the signature popup; typing arguments
@@ -1275,282 +1271,42 @@ editor_handle_key :: proc(editor: ^Editor, event: ui.Key_Event) -> bool {
         editor_cancel_jump(editor)
     }
 
-    // The comment-toggle chord is configurable, so match it here rather than
-    // as a fixed case in the switch below.
-    if setting.keybind_matches(editor.comment_keybind, event.key, event.mods) {
-        editor_toggle_comment(editor)
-        editor_scroll_to_caret(editor)
-        return true
-    }
-    if setting.keybind_matches(editor.block_comment_keybind, event.key, event.mods) {
-        textedit.toggle_block_comment(state, editor.comment_block[0], editor.comment_block[1])
-        editor_scroll_to_caret(editor)
-        return true
+    // The chords keybinds.json can move come first; the keys below are fixed.
+    if action, extend := keymap_lookup(event.key, event.mods); action != .None {
+        if editor_run_action(editor, action, extend) {
+            return true
+        }
     }
 
+    extend := .Shift in event.mods
     #partial switch event.key {
     case .Backspace:
-        if ctrl_only {
-            textedit.delete_word_backward(state)
-            editor_dismiss_completion(editor)
-        } else {
-            textedit.delete_backward(state)
-            if !(editor.completion_semantic && editor_request_completion(editor)) {
-                editor_update_completion(editor)
-            }
+        textedit.delete_backward(state)
+        if !(editor.completion_semantic && editor_request_completion(editor)) {
+            editor_update_completion(editor)
         }
-        if editor.signature_active {
-            editor_request_signature(editor)
-        }
-        editor_scroll_to_caret(editor)
-        return true
     case .Delete:
-        if ctrl_only {
-            textedit.delete_word_forward(state)
-            editor_dismiss_completion(editor)
-        } else {
-            textedit.delete_forward(state)
-            if !(editor.completion_semantic && editor_request_completion(editor)) {
-                editor_update_completion(editor)
-            }
+        textedit.delete_forward(state)
+        if !(editor.completion_semantic && editor_request_completion(editor)) {
+            editor_update_completion(editor)
         }
-        if editor.signature_active {
-            editor_request_signature(editor)
-        }
-        editor_scroll_to_caret(editor)
-        return true
     case .Enter:
-        if ctrl_only {
-            if (.Shift in event.mods) {
-                textedit.insert_line_above(state)
-            } else {
-                textedit.insert_line_below(state)
-            }
-        } else {
-            textedit.insert_newline(state)
-            editor_request_on_type(editor, "\n")
-        }
-        editor_scroll_to_caret(editor)
-        return true
-    case .Tab:
-        if (.Shift in event.mods) {
-            textedit.outdent_lines(state)
-        } else if textedit.has_any_selection(state) {
-            textedit.indent_lines(state)
-        } else {
-            textedit.insert_tab(state)
-        }
-        editor_scroll_to_caret(editor)
-        return true
-    case .Escape:
-        textedit.clear_selections(state)
-        return true
+        textedit.insert_newline(state)
+        editor_request_on_type(editor, "\n")
     case .Left:
-        if ctrl_only {
-            textedit.move_word(state, -1, (.Shift in event.mods))
-        } else if alt_only {
-            textedit.move_line_start(state, (.Shift in event.mods))
-        } else {
-            textedit.move_horizontal(state, -1, (.Shift in event.mods))
-        }
-        if editor.signature_active {
-            editor_request_signature(editor)
-        }
-        editor_scroll_to_caret(editor)
-        return true
+        textedit.move_horizontal(state, -1, extend)
     case .Right:
-        if ctrl_only {
-            textedit.move_word(state, 1, (.Shift in event.mods))
-        } else if alt_only {
-            textedit.move_line_end(state, (.Shift in event.mods))
-        } else {
-            textedit.move_horizontal(state, 1, (.Shift in event.mods))
-        }
-        if editor.signature_active {
-            editor_request_signature(editor)
-        }
-        editor_scroll_to_caret(editor)
-        return true
+        textedit.move_horizontal(state, 1, extend)
     case .Up:
-        if (.Ctrl in event.mods) && (.Alt in event.mods) {
-            textedit.add_cursor_vertical(state, -1)
-        } else if ctrl_only {
-            textedit.move_document_start(state, (.Shift in event.mods))
-        } else if alt_only {
-            if (.Shift in event.mods) {
-                textedit.duplicate_lines(state, -1)
-            } else {
-                textedit.move_lines(state, -1)
-            }
-        } else {
-            editor_move_visual(editor, -1, (.Shift in event.mods))
-        }
-        editor_scroll_to_caret(editor)
-        return true
+        editor_move_visual(editor, -1, extend)
     case .Down:
-        if (.Ctrl in event.mods) && (.Alt in event.mods) {
-            textedit.add_cursor_vertical(state, 1)
-        } else if ctrl_only {
-            textedit.move_document_end(state, (.Shift in event.mods))
-        } else if alt_only {
-            if (.Shift in event.mods) {
-                textedit.duplicate_lines(state, 1)
-            } else {
-                textedit.move_lines(state, 1)
-            }
-        } else {
-            editor_move_visual(editor, 1, (.Shift in event.mods))
-        }
-        editor_scroll_to_caret(editor)
-        return true
-    case .Page_Up:
-        editor_page(editor, -1, (.Shift in event.mods))
-        return true
-    case .Page_Down:
-        editor_page(editor, 1, (.Shift in event.mods))
-        return true
-    case .Home:
-        if ctrl_only {
-            textedit.move_document_start(state, (.Shift in event.mods))
-        } else {
-            textedit.move_line_start(state, (.Shift in event.mods))
-        }
-        editor_scroll_to_caret(editor)
-        return true
-    case .End:
-        if ctrl_only {
-            textedit.move_document_end(state, (.Shift in event.mods))
-        } else {
-            textedit.move_line_end(state, (.Shift in event.mods))
-        }
-        editor_scroll_to_caret(editor)
-        return true
-    case .A:
-        if ctrl_only {
-            textedit.select_all(state)
-            return true
-        }
-    case .Z:
-        if ctrl_only {
-            if (.Shift in event.mods) {
-                textedit.redo(state)
-            } else {
-                textedit.undo(state)
-            }
-            editor_scroll_to_caret(editor)
-            return true
-        }
-    case .Y:
-        if ctrl_only {
-            textedit.redo(state)
-            editor_scroll_to_caret(editor)
-            return true
-        }
-    case .S:
-        if ctrl_only && editor.on_save != nil {
-            editor.on_save(editor.save_data)
-            return true
-        }
-    case .C:
-        if ctrl_only {
-            editor_copy(editor)
-            return true
-        } else if alt_only {
-            textedit.transform_case(state, .Title)
-            editor_scroll_to_caret(editor)
-            return true
-        }
-    case .U:
-        if alt_only {
-            textedit.transform_case(state, .Upper)
-            editor_scroll_to_caret(editor)
-            return true
-        }
-    case .X:
-        if ctrl_only {
-            editor_cut(editor)
-            editor_scroll_to_caret(editor)
-            return true
-        }
-    case .V:
-        if ctrl_only {
-            editor_paste(editor)
-            editor_scroll_to_caret(editor)
-            return true
-        }
-    case .D:
-        // Before the ctrl_only branch: ctrl_only does not exclude shift.
-        if ctrl_only && (.Shift in event.mods) {
-            textedit.select_word_or_next(state, false)
-            editor_scroll_to_caret(editor)
-            return true
-        }
-        if ctrl_only {
-            textedit.select_word_or_next(state, true)
-            editor_scroll_to_caret(editor)
-            return true
-        }
-    case .L:
-        if ctrl_only {
-            textedit.select_line(state)
-            editor_scroll_to_caret(editor)
-            return true
-        } else if alt_only {
-            textedit.transform_case(state, .Lower)
-            editor_scroll_to_caret(editor)
-            return true
-        }
-    case .J:
-        // ctrl+j joins the line below; ctrl+shift+j recenters the view.
-        if ctrl_only {
-            if (.Shift in event.mods) {
-                editor_recenter(editor)
-            } else {
-                textedit.join_lines(state)
-                editor_scroll_to_caret(editor)
-            }
-            return true
-        }
-    case .K:
-        // ctrl+shift+k deletes the line; ctrl+k is the comment toggle above.
-        if ctrl_only && (.Shift in event.mods) {
-            textedit.delete_lines(state)
-            editor_scroll_to_caret(editor)
-            return true
-        }
-    case .P:
-        // ctrl+p jumps to the matching/enclosing bracket; ctrl+shift+p selects
-        // between them, excluding the brackets.
-        if ctrl_only {
-            if (.Shift in event.mods) {
-                textedit.select_between_brackets(state)
-            } else {
-                textedit.move_to_matching_bracket(state, false)
-            }
-            editor_scroll_to_caret(editor)
-            return true
-        }
-    case .Backslash:
-        // Physical key right of the home row: \ on US layouts, # on QWERTZ.
-        if ctrl_only && (.Shift in event.mods) {
-            textedit.move_to_matching_bracket(state, true)
-            editor_scroll_to_caret(editor)
-            return true
-        }
-    case .Pad_Add:
-        if ctrl_only {
-            editor_zoom(editor, 1)
-            return true
-        }
-    case .Pad_Subtract:
-        if ctrl_only {
-            editor_zoom(editor, -1)
-            return true
-        }
+        editor_move_visual(editor, 1, extend)
     case:
+        return false
     }
-
-    return false
+    editor_refresh_signature(editor)
+    editor_scroll_to_caret(editor)
+    return true
 }
 
 editor_zoom :: proc(editor: ^Editor, delta: i32) {
@@ -1677,7 +1433,7 @@ editor_is_word_rune :: proc(r: rune) -> bool {
     return r == '_' || (r >= '0' && r <= '9') || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r >= 0x80
 }
 
-@(private = "file")
+@(private)
 editor_dismiss_completion :: proc(editor: ^Editor) {
     if !editor.completion_active && len(editor.completion_rows) == 0 {
         return

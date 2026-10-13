@@ -21,9 +21,13 @@ import "../editview"
 // Applies the configurable settings to the live widgets. Called at startup and
 // on reload, so both paths stay in sync.
 thor_apply_settings :: proc(thor: ^Thor) {
-    for editor in ([2]^editview.Editor{&thor.editor, &thor.editor2}) {
-        editor.comment_keybind, _ = setting.keybind(&thor.config, "toggle_line_comment")
-        editor.block_comment_keybind, _ = setting.keybind(&thor.config, "toggle_block_comment")
+    // The editing keys: the built-in chord unless a keybinds.json names one. An
+    // empty chord in a file takes the key away.
+    editview.keymap_reset()
+    for action in editview.Action {
+        if kb, ok := setting.keybind(&thor.config, editview.action_name(action)); ok && action != .None {
+            editview.keymap_bind(action, kb)
+        }
     }
     if kb, ok := setting.keybind(&thor.config, "command_palette"); ok {
         thor.command_palette_key = kb
