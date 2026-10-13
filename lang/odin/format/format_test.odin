@@ -800,3 +800,19 @@ test_repeated_unary_keeps_space :: proc(t: ^testing.T) {
     expect_keeps(t, "package p\nf :: proc(x: bool) {\n\ta := !!x\n}\n", "a := !!x\n")
     expect_keeps(t, "package p\nf :: proc(x: int) {\n\ta := -+x\n}\n", "a := -+x\n")
 }
+
+@(test)
+test_proc_literal_keeps_inlining :: proc(t: ^testing.T) {
+    expect_keeps(t, "package p\nf :: #force_inline proc(c: u8) -> u8 {\n\treturn c\n}\n", "f :: #force_inline proc(c: u8) -> u8 {")
+    expect_keeps(t, "package p\nf :: #force_no_inline proc() {\n}\n", "f :: #force_no_inline proc() {")
+
+    data, err := os.read_entire_file("search/search.odin", context.allocator)
+    if !testing.expect(t, err == nil, "search/search.odin did not read") {
+        return
+    }
+    defer delete(data)
+    out, ok := format(string(data), default_options())
+    defer delete(out)
+    testing.expect(t, ok)
+    testing.expect(t, strings.contains(out, "fold :: #force_inline proc("), "search.odin lost its #force_inline")
+}

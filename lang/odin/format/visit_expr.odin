@@ -410,15 +410,21 @@ print_comp_lit_body ::proc(pr: ^Printer, out: ^[dynamic]Doc, e: ^ast.Comp_Lit) {
     append(out, text("}"))
 }
 
+// The inlining directive of a call or a procedure literal.
 @(private)
-print_call_expr :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: ^ast.Call_Expr) {
-    switch e.inlining {
+print_inlining :: proc(out: ^[dynamic]Doc, inlining: ast.Proc_Inlining) {
+    switch inlining {
     case .None:
     case .Inline:
         append(out, text("#force_inline "))
     case .No_Inline:
         append(out, text("#force_no_inline "))
     }
+}
+
+@(private)
+print_call_expr ::proc(pr: ^Printer, out: ^[dynamic]Doc, e: ^ast.Call_Expr) {
+    print_inlining(out, e.inlining)
     if e.tailing == .Must_Tail {
         append(out, text("#must_tail "))
     }
@@ -515,6 +521,7 @@ print_signature_results :: proc(
 
 @(private)
 print_proc_lit :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: ^ast.Proc_Lit) {
+    print_inlining(out, e.inlining)
     print_proc_type_head(pr, out, e.type)
     print_where(pr, out, e.where_clauses)
     print_proc_tags(pr, out, e.tags)
