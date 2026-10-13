@@ -16,6 +16,8 @@ Token :: struct {
     glue:   bool,   // no space between it and the token before
     strike: bool,
     brk:    bool,   // a hard line break follows
+    image:  bool,   // `url` is an image the host can show, `text` its alternative text
+    size:   [2]f32, // the pixel size of that image
 }
 
 // The inline parse of one block: the token list it fills and whether white
@@ -130,6 +132,17 @@ inline_span :: proc(st: ^Inline, s: string, style: Style) {
                 continue
             }
 
+        case '!':
+            if i + 1 < len(s) && s[i + 1] == '[' {
+                if close, url, past, ok := scan_link(st.b, s, i + 1); ok {
+                    push_words(st, s[run:i], style)
+                    push_image(st, s[i + 2:close], url, style)
+                    i = past
+                    run = i
+                    continue
+                }
+            }
+
         case '[':
             if close, url, past, ok := scan_link(st.b, s, i); ok {
                 push_words(st, s[run:i], style)
@@ -182,6 +195,20 @@ push_token :: proc(st: ^Inline, tok: Token) {
     tok.glue = !st.space && len(st.tokens) > 0
     append(st.tokens, tok)
     st.space = false
+}
+
+// An image the host can size is an image token. Any other one is its
+// alternative text as a link to the source.
+@(private = "file")
+push_image :: proc(st: ^Inline, alt, src: string, style: Style) {
+    m := st.b.m
+    if m.image_size != nil {
+        if w, h, ok := m.image_size(src, m.user); ok && w > 0 && h > 0 {
+            push_token(st, Token{text = alt, url = src, image = true, size = {w, h}})
+            return
+        }
+    }
+    push_token(st, Token{text = alt != "" ? alt : src, color = st.b.pal.link, link = true, url = src, strike = style.strike})
 }
 
 // Splits plain text into word tokens. A word with no space before it is glued
@@ -309,6 +336,12 @@ link_text :: proc(text: string) -> (shown: string, code: bool) {
     }
     if len(text) > 4 && strings.has_prefix(text, "**") && strings.has_suffix(text, "**") {
         return text[2:len(text) - 2], false
+    }
+    // A linked image shows its alternative text.
+    if strings.has_prefix(text, "![") {
+        if close := strings.index_byte(text, ']'); close > 2 {
+            return text[2:close], false
+        }
     }
     return text, false
 }

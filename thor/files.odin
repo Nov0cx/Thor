@@ -1297,8 +1297,13 @@ thor_process_io :: proc(thor: ^Thor) {
     shells := make([dynamic]^Shell_Detect_Job, context.temp_allocator)
     file_index := make([dynamic]^File_Index_Job, context.temp_allocator)
     updates := make([dynamic]^Update_Job, context.temp_allocator)
+    md_images := make([dynamic]^Md_Image_Job, context.temp_allocator)
 
     sync.lock(&thor.io_mutex)
+    for job in thor.finished_md_images {
+        append(&md_images, job)
+    }
+    clear(&thor.finished_md_images)
     for job in thor.finished_loads {
         append(&loads, job)
     }
@@ -1498,6 +1503,9 @@ thor_process_io :: proc(thor: ^Thor) {
 
     for job in updates {
         thor_apply_update_job(thor, job)
+    }
+    for job in md_images {
+        thor_apply_md_image(thor, job)
     }
 
     // A save may have changed the working tree; refresh the status so the
@@ -2080,4 +2088,103 @@ thor_queue_import :: proc(
 
     append(entries, File_Op_Entry{src = strings.clone(src_path), dst = strings.clone(new_path)})
     return .Queued
+}
+
+// One image a markdown page names, under its absolute path.
+Md_Image :: struct {
+    texture: rl.Texture2D, // owned once `loaded`
+    loaded:  bool,
+    loading: bool, // a decode job is in flight
+    used:    bool, // the page built last names it
+}
+
+Md_Image_Job :: struct {
+    owner:     ^Thor,
+    allocator: mem.Allocator,
+    worker:    ^thread.Thread,
+    path:      string, // owned
+    decoded:   rl.Image,
+    ok:        bool,
+}
+
+// Starts the decode of one image file for the markdown preview.
+thor_md_image_start :: proc(thor: ^Thor, path: string) {
+    job := new(Md_Image_Job)
+    job.owner = thor
+    job.allocator = context.allocator
+    job.path = strings.clone(path)
+    thor.inflight_jobs += 1
+    job.worker = thread.create_and_start_with_poly_data(job, md_image_worker)
+}
+
+@(private = "file")
+md_image_worker :: proc(job: ^Md_Image_Job) {
+    context.allocator = job.allocator
+    defer {
+        free_all(context.temp_allocator)
+        sync.lock(&job.owner.io_mutex)
+        append(&job.owner.finished_md_images, job)
+        sync.unlock(&job.owner.io_mutex)
+    }
+
+    data, err := os.read_entire_file(job.path, context.allocator)
+    if err != nil {
+        return
+    }
+    defer delete(data)
+    if len(data) == 0 {
+        return
+    }
+    ext := strings.clone_to_cstring(filepath.ext(job.path), context.temp_allocator)
+    job.decoded = rl.LoadImageFromMemory(ext, raw_data(data), cast(c.int) len(data))
+    job.ok = rl.IsImageValid(job.decoded)
+    if !job.ok {
+        rl.UnloadImage(job.decoded)
+        job.decoded = {}
+    }
+}
+
+// Applies a decoded image to the preview that asked for it and lays the page
+// out again. A preview that no longer names the image drops the pixels.
+@(private = "file")
+thor_apply_md_image :: proc(thor: ^Thor, job: ^Md_Image_Job) {
+    thread.join(job.worker)
+    thread.destroy(job.worker)
+    thor.inflight_jobs -= 1
+    defer {
+        if job.decoded.data != nil {
+            rl.UnloadImage(job.decoded)
+        }
+        delete(job.path)
+        free(job)
+    }
+
+    view := &thor.markdown_view
+    image, found := &view.images[job.path]
+    if !found {
+        return
+    }
+    image.loading = false
+    view.built = false
+    if !job.ok {
+        log.warnf("Failed to load image %q", job.path)
+        return
+    }
+    texture := rl.LoadTextureFromImage(job.decoded)
+    if texture.id == 0 {
+        log.warnf("Failed to upload image %q", job.path)
+        return
+    }
+    rl.SetTextureFilter(texture, .BILINEAR)
+    image.texture = texture
+    image.loaded = true
+}
+
+// Frees the texture of one markdown image.
+thor_md_image_unload :: proc(thor: ^Thor, image: ^Md_Image) {
+    if image.loaded {
+        render.forget_texture(&thor.backend, image.texture)
+        rl.UnloadTexture(image.texture)
+    }
+    image^ = {}
 }

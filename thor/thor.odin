@@ -293,6 +293,7 @@ Thor :: struct {
     finished_file_searches: [dynamic]^File_Search_Job,
     finished_updates: [dynamic]^Update_Job,
     finished_outside_stats: [dynamic]^Outside_Stat_Job,
+    finished_md_images: [dynamic]^Md_Image_Job,
     // The tab a "could not be saved, close it?" prompt asks about, and the text
     // of the prompt. The file is borrowed; nil when the tab is gone.
     close_prompt_file: ^Open_File,
@@ -715,6 +716,7 @@ init :: proc() -> ^Thor {
     thor.finished_file_searches = make([dynamic]^File_Search_Job)
     thor.finished_updates = make([dynamic]^Update_Job)
     thor.finished_outside_stats = make([dynamic]^Outside_Stat_Job)
+    thor.finished_md_images = make([dynamic]^Md_Image_Job)
     thor.file_index = make([dynamic]string)
     strings.builder_init(&thor.console_backlog)
 
@@ -986,13 +988,14 @@ shutdown :: proc(thor: ^Thor) {
     thor_file_search_destroy(thor)
     delete(thor.finished_updates)
     delete(thor.finished_outside_stats)
+    delete(thor.finished_md_images)
     thor_clear_update(thor)
     thor_clear_file_index(thor)
     thor_free_theme_choices(thor)
     for &view in thor.model_view {
         thor_model_view_destroy(thor, &view)
     }
-    thor_markdown_view_destroy(&thor.markdown_view)
+    thor_markdown_view_destroy(thor, &thor.markdown_view)
     strings.builder_destroy(&thor.console_backlog)
     delete(thor.app_binds)
     thor_clear_git_status(thor)

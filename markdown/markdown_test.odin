@@ -166,6 +166,7 @@ test_heading_steps_the_size_and_rules :: proc(t: ^testing.T) {
             text_size = item.size
         case .Rect:
             rules += 1
+        case .Image:
         }
     }
     testing.expect_value(t, text_size, i32(16 + 13))
@@ -213,6 +214,7 @@ test_code_block_draws_verbatim :: proc(t: ^testing.T) {
             append(&texts, item.text)
         case .Rect:
             panels += 1
+        case .Image:
         }
     }
     testing.expect_value(t, panels, 1)
@@ -579,4 +581,71 @@ test_pipe_without_delimiter_is_text :: proc(t: ^testing.T) {
     defer page_destroy(&page)
     lay(&page, "a | b\nc | d\n")
     testing.expect_value(t, count_rects(&page), 0)
+}
+
+// A host that can show "wide.png" at 400 by 200 and nothing else.
+@(private = "file")
+image_metrics :: proc() -> Metrics {
+    m := fake_metrics()
+    m.image_size = proc(src: string, user: rawptr) -> (w, h: f32, ok: bool) {
+        return 400, 200, src == "wide.png"
+    }
+    return m
+}
+
+// An image is a box on its own row, scaled down to the column at its aspect.
+@(test)
+test_image_fits_the_column :: proc(t: ^testing.T) {
+    page: Page
+    defer page_destroy(&page)
+    layout(&page, "before ![a chart](wide.png \"Chart\") after\n", 200, 16, test_palette(), image_metrics())
+
+    found := false
+    for item in page.items {
+        if item.kind != .Image {
+            continue
+        }
+        found = true
+        testing.expect_value(t, item.url, "wide.png")
+        testing.expect_value(t, item.text, "a chart")
+        testing.expect_value(t, item.w, f32(200))
+        testing.expect_value(t, item.h, f32(100))
+    }
+    testing.expect(t, found, "the page holds the image")
+
+    before, _ := text_named(&page, "before")
+    after, _ := text_named(&page, "after")
+    testing.expect(t, after.y >= before.y + LINE + 100, "the text goes on under the image")
+}
+
+// An image the host cannot show is its alternative text, as a link to the source.
+@(test)
+test_image_falls_back_to_its_text :: proc(t: ^testing.T) {
+    page: Page
+    defer page_destroy(&page)
+    layout(&page, "![logo](https://example.org/logo.svg)\n", 600, 16, test_palette(), image_metrics())
+
+    logo, ok := text_named(&page, "logo")
+    testing.expect(t, ok, "the alternative text is drawn")
+    testing.expect_value(t, logo.url, "https://example.org/logo.svg")
+    for item in page.items {
+        testing.expect(t, item.kind != .Image)
+    }
+
+    // With no image callback every image is its text.
+    lay(&page, "![chart](wide.png)\n")
+    _, plain := text_named(&page, "chart")
+    testing.expect(t, plain)
+}
+
+// A linked image, the badge form, is a link that shows the alternative text.
+@(test)
+test_linked_image_is_a_link :: proc(t: ^testing.T) {
+    page: Page
+    defer page_destroy(&page)
+    lay(&page, "[![build](badge.svg)](https://example.org/ci)\n")
+
+    build, ok := text_named(&page, "build")
+    testing.expect(t, ok)
+    testing.expect_value(t, build.url, "https://example.org/ci")
 }

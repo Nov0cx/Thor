@@ -32,6 +32,9 @@ LIST_INDENT :: f32(24)
 @(private = "file")
 CODE_PAD :: f32(8)
 
+@(private = "file")
+IMAGE_GAP :: f32(4)
+
 // Parses the source into the page's item list. Block detection is line-oriented;
 // inline styling and word wrap happen per block. Every item text borrows from
 // `source`, so the caller keeps that alive as long as the page.
@@ -526,8 +529,39 @@ wrap_run :: proc(
 
     i := 0
     for i < len(tokens) {
+        // An image takes a row of its own, scaled down to the column.
+        if tok := tokens[i]; tok.image {
+            if len(row) > 0 {
+                if emit {
+                    emit_row(b, tokens, row[:], x, row_y, max_w, row_w, size, align)
+                }
+                clear(&row)
+                row_y += line_h
+                row_w = 0
+            }
+            scale := min(1, max_w / tok.size.x)
+            w, h := tok.size.x * scale, tok.size.y * scale
+            if emit {
+                left := x
+                switch align {
+                case .Left:
+                case .Center:
+                    left += (max_w - w) * 0.5
+                case .Right:
+                    left += max_w - w
+                }
+                append(
+                    &b.page.items,
+                    Item{kind = .Image, x = left, y = row_y, w = w, h = h, text = tok.text, url = tok.url},
+                )
+            }
+            row_y += h + IMAGE_GAP
+            i += 1
+            continue
+        }
+
         last := i + 1
-        for last < len(tokens) && tokens[last].glue && !tokens[last - 1].brk {
+        for last < len(tokens) && tokens[last].glue && !tokens[last - 1].brk && !tokens[last].image {
             last += 1
         }
         first := len(row)

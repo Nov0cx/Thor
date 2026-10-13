@@ -3,10 +3,12 @@
 // declaration of what it produced, plus the cache that decides when to re-parse.
 package thor
 
+import "core:path/filepath"
 import "core:strings"
 
 import "../font"
 import "../markdown"
+import "../render"
 import "../textedit"
 import ui "../vendor/loom/loom"
 
@@ -27,12 +29,70 @@ Markdown_View :: struct {
     built_width:  f32,
     built_font:   i32,
     hovered:      int,
+    // The folder of the document, which a relative image source is read against.
+    dir:          string, // owned
+    images:       map[string]Md_Image, // owned, with its keys; by absolute path
 }
 
-thor_markdown_view_destroy :: proc(view: ^Markdown_View) {
+thor_markdown_view_destroy :: proc(thor: ^Thor, view: ^Markdown_View) {
     markdown.page_destroy(&view.page)
     delete(view.source)
     view.source = ""
+    delete(view.dir)
+    view.dir = ""
+    for path, &image in view.images {
+        thor_md_image_unload(thor, &image)
+        delete(path)
+    }
+    delete(view.images)
+    view.images = nil
+}
+
+// The file an image source names: a path as it is, or one beside the document.
+// "" for a URL, which the preview does not fetch. In the temp allocator.
+@(private = "file")
+thor_markdown_image_path :: proc(view: ^Markdown_View, src: string) -> string {
+    if src == "" || strings.contains(src, "://") || strings.has_prefix(src, "data:") {
+        return ""
+    }
+    rel := src
+    if cut := strings.index_any(rel, "#?"); cut >= 0 {
+        rel = rel[:cut]
+    }
+    if rel == "" {
+        return ""
+    }
+    if filepath.is_abs(rel) {
+        return filepath.clean(rel, context.temp_allocator) or_else ""
+    }
+    if view.dir == "" {
+        return ""
+    }
+    path, err := filepath.join({view.dir, rel}, context.temp_allocator)
+    return err == nil ? path : ""
+}
+
+// The pixel size of an image the page names. The first ask starts its load;
+// the page is laid out again when the pixels land.
+@(private = "file")
+thor_markdown_image_size :: proc(src: string, user: rawptr) -> (w, h: f32, ok: bool) {
+    thor := cast(^Thor) user
+    view := &thor.markdown_view
+    path := thor_markdown_image_path(view, src)
+    if path == "" {
+        return
+    }
+    image, found := &view.images[path]
+    if !found {
+        view.images[strings.clone(path)] = Md_Image{loading = true, used = true}
+        thor_md_image_start(thor, path)
+        return
+    }
+    image.used = true
+    if !image.loaded {
+        return
+    }
+    return f32(image.texture.width), f32(image.texture.height), true
 }
 
 // Points the view at the document text. (owner, revision) identifies the
@@ -79,6 +139,8 @@ thor_markdown_metrics :: proc(thor: ^Thor) -> markdown.Metrics {
         line_height = proc(size: i32, user: rawptr) -> f32 {
             return f32(font.line_height(size))
         },
+        image_size = thor_markdown_image_size,
+        user = thor,
     }
 }
 
@@ -93,6 +155,9 @@ thor_markdown_ensure :: proc(thor: ^Thor, view: ^Markdown_View, avail: f32) {
        abs(view.built_width - avail) < 0.5 {
         return
     }
+    for _, &image in view.images {
+        image.used = false
+    }
     markdown.layout(
         &view.page,
         view.source,
@@ -101,6 +166,19 @@ thor_markdown_ensure :: proc(thor: ^Thor, view: ^Markdown_View, avail: f32) {
         thor_markdown_palette(thor),
         thor_markdown_metrics(thor),
     )
+    // An image the page no longer names is freed. One still loading is kept
+    // for its job to find.
+    stale := make([dynamic]string, context.temp_allocator)
+    for path, image in view.images {
+        if !image.used && !image.loading {
+            append(&stale, path)
+        }
+    }
+    for path in stale {
+        thor_md_image_unload(thor, &view.images[path])
+        delete_key(&view.images, path)
+        delete(path)
+    }
     view.built = true
     view.built_rev = view.source_rev
     view.built_width = avail
@@ -116,6 +194,11 @@ thor_markdown_recolor :: proc(view: ^Markdown_View) {
 thor_markdown_pane :: proc(thor: ^Thor, file: ^Open_File, key: string) {
     view := &thor.markdown_view
     if file != nil && file.loaded {
+        if dir := filepath.dir(file.path); dir != view.dir {
+            delete(view.dir)
+            view.dir = strings.clone(dir)
+            view.built = false
+        }
         thor_markdown_set_source(
             view,
             textedit.text(&file.state),
@@ -203,7 +286,9 @@ thor_markdown_items :: proc(
             continue
         }
         x := left + item.x
-        lit := view.hovered >= 0 && (index == view.hovered || index == view.hovered + 1)
+        // A link lights with the underline that follows its text.
+        lit := view.hovered >= 0 &&
+            (index == view.hovered || (index == view.hovered + 1 && view.page.items[view.hovered].kind == .Text))
         color := lit ? thor.theme.accent_color : item.color
         switch item.kind {
         case .Rect:
@@ -223,6 +308,25 @@ thor_markdown_items :: proc(
                         color = color,
                         font_size = f32(item.size),
                         text_wrap = .None,
+                    },
+                },
+            )
+            ui.pop_id()
+        case .Image:
+            image, found := view.images[thor_markdown_image_path(view, item.url)]
+            if !found || !image.loaded {
+                continue
+            }
+            ui.push_id_int(i64(index))
+            ui.image(
+                render.register_texture(&thor.backend, image.texture),
+                {
+                    key = "md",
+                    props = {
+                        position = .Absolute,
+                        inset = {l = x, t = y},
+                        w = ui.Px(item.w),
+                        h = ui.Px(item.h),
                     },
                 },
             )

@@ -7,10 +7,12 @@ import ui "../vendor/loom/loom"
 Item_Kind :: enum {
     Text,
     Rect,
+    Image,
 }
 
 // One laid-out primitive, relative to the content origin. `text` and `url`
 // borrow from the source `layout` was given, so that source must outlive the page.
+// An image has its source in `url` and its alternative text in `text`.
 Item :: struct {
     kind:  Item_Kind,
     x, y:  f32,
@@ -34,10 +36,13 @@ Palette :: struct {
     accent:  ui.Color,
 }
 
-// How the host measures the one face the page draws in.
+// How the host measures the one face the page draws in, and the images it can
+// show. `image_size` gives the pixel size of an image by its source as written;
+// nil, or false for a source the host cannot show, leaves the alternative text.
 Metrics :: struct {
     measure:     proc(text: string, size: i32, user: rawptr) -> f32,
     line_height: proc(size: i32, user: rawptr) -> f32,
+    image_size:  proc(src: string, user: rawptr) -> (w, h: f32, ok: bool),
     user:        rawptr,
 }
 
