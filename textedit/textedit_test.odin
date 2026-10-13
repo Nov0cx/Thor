@@ -278,6 +278,26 @@ test_multi_cursor_backspace :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_backspace_adjacent_carets_after_pair :: proc(t: ^testing.T) {
+    state: State
+    init(&state)
+    defer destroy(&state)
+
+    insert_text(&state, "())")
+    set_single_cursor(&state, 1)
+    append(&state.cursors, Cursor {caret = 2, anchor = 2})
+
+    // The first caret takes the pair, which is also what the second would delete.
+    delete_backward(&state)
+    testing.expect_value(t, text(&state), ")")
+    testing.expect_value(t, len(state.cursors), 1)
+    testing.expect_value(t, primary_cursor(&state).caret, 0)
+
+    undo(&state)
+    testing.expect_value(t, text(&state), "())")
+}
+
+@(test)
 test_utf8_columns :: proc(t: ^testing.T) {
     state: State
     init(&state)

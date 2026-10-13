@@ -738,6 +738,8 @@ delete_backward :: proc(state: ^State) {
 
     offset := 0
     changed := false
+    // End of the last deleted range, in offsets of `txt`.
+    done := 0
     for &cursor in state.cursors {
         lo, hi := selection_range(cursor)
         if hi == lo && lo > 0 {
@@ -749,6 +751,10 @@ delete_backward :: proc(state: ^State) {
                 lo = grapheme_prev(txt, lo)
             }
         }
+        // A range must not reach into the one the caret before it deleted.
+        lo = max(lo, done)
+        hi = max(hi, lo)
+        done = hi
         if hi > lo {
             append(&entry.ops, Edit_Op {kind = .Delete, pos = lo + offset, text = strings.clone(txt[lo:hi])})
             piecetable.piecetable_delete(&state.table, lo + offset, hi - lo)
@@ -774,11 +780,16 @@ delete_forward :: proc(state: ^State) {
 
     offset := 0
     changed := false
+    // End of the last deleted range, in offsets of `txt`.
+    done := 0
     for &cursor in state.cursors {
         lo, hi := selection_range(cursor)
         if hi == lo && lo < len(txt) {
             hi = grapheme_next(txt, lo)
         }
+        lo = max(lo, done)
+        hi = max(hi, lo)
+        done = hi
         if hi > lo {
             append(&entry.ops, Edit_Op {kind = .Delete, pos = lo + offset, text = strings.clone(txt[lo:hi])})
             piecetable.piecetable_delete(&state.table, lo + offset, hi - lo)
