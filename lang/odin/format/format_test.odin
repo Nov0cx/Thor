@@ -792,3 +792,11 @@ test_maybe_assertion_keeps_question :: proc(t: ^testing.T) {
     expect_keeps(t, "package p\nf :: proc(m: Maybe(int)) {\n\tv := m.?\n\tw := m.(int)\n}\n", "v := m.?\n")
     expect_keeps(t, "package p\nf :: proc(m: Maybe(int)) {\n\tw := m.(int)\n}\n", "w := m.(int)\n")
 }
+
+@(test)
+test_repeated_unary_keeps_space :: proc(t: ^testing.T) {
+    expect_keeps(t, "package p\nf :: proc(x: int) {\n\ta := - -x\n}\n", "a := - -x\n")
+    expect_keeps(t, "package p\nf :: proc(x: int) {\n\ta := + +x\n}\n", "a := + +x\n")
+    expect_keeps(t, "package p\nf :: proc(x: bool) {\n\ta := !!x\n}\n", "a := !!x\n")
+    expect_keeps(t, "package p\nf :: proc(x: int) {\n\ta := -+x\n}\n", "a := -+x\n")
+}

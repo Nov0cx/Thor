@@ -58,6 +58,13 @@ print_expr :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: ^ast.Expr) {
     case ^ast.Unary_Expr:
         append(out, text(e.op.text))
         if e.expr != nil {
+            // `--`, `++` and `&&` are one token each.
+            if inner, ok := e.expr.derived_expr.(^ast.Unary_Expr); ok && inner.op.kind == e.op.kind {
+                #partial switch e.op.kind {
+                case .Sub, .Add, .And:
+                    append(out, text(" "))
+                }
+            }
             print_expr(pr, out, e.expr)
         }
 
