@@ -28,6 +28,8 @@ General editor preferences.
 | --- | --- | --- |
 | `font_size` | Editor font size, in points; the git view and the terminal grid scale with it | `18` |
 | `tab_width` | Spaces per indent level, and the width of a rendered tab stop | `4` |
+| `insert_spaces` | Indent with spaces. `false` indents with a tab character | `true` |
+| `detect_indentation` | Take the indent style and width from the text of the file, so a tab-indented file gets tabs and a two-space file two spaces. A Makefile and a Go file get tabs with no text to read | `true` |
 | `autosave_delay_ms` | Delay after the last edit before autosave | `1500` |
 | `ligatures` | Draw programming ligatures (`->` as one glyph) | `true` |
 | `indent_guides` | Draw a vertical guide at every indentation stop inside a line's own indent | `true` |

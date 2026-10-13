@@ -190,6 +190,10 @@ thor_apply_settings :: proc(thor: ^Thor) {
     }
     thor_terminals_apply_font(thor)
     textedit.set_default_tab_width(setting.tab_width(&thor.config))
+    textedit.set_default_hard_tabs(!setting.insert_spaces(&thor.config))
+    for file in thor.open_files {
+        thor_apply_indent(thor, file)
+    }
     font.set_tab_width(setting.tab_width(&thor.config))
     font.set_ligatures(setting.ligatures(&thor.config))
     ui.set_tooltips_enabled(setting.tooltips(&thor.config))

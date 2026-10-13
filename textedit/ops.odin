@@ -760,10 +760,13 @@ apply_line_edits :: proc(state: ^State, txt: string, edits: []Line_Edit) {
     finish_edit(state, &entry)
 }
 
-// Soft indentation: a level is tab_width spaces, never a literal tab.
 // The width a State with no own width uses.
 @(private)
 g_default_tab_width := 4
+
+// The indent style a State with no own style uses: true for a literal tab.
+@(private)
+g_default_hard_tabs := false
 
 // Backing storage for indent_unit(); slicing gives 1..MAX_TAB_WIDTH spaces.
 @(private)
@@ -787,6 +790,28 @@ tab_width :: proc(state: ^State) -> int {
 // Sets this document's width only. A width of 0 returns it to the default.
 set_tab_width :: proc(state: ^State, width: int) {
     state.tab_width = width == 0 ? 0 : clamp(width, 1, MAX_TAB_WIDTH)
+}
+
+// Sets the indent style for every State that has no own style.
+set_default_hard_tabs :: proc(hard: bool) {
+    g_default_hard_tabs = hard
+}
+
+// True when one indent level of this document is a literal tab.
+uses_tabs :: proc(state: ^State) -> bool {
+    switch state.indent_style {
+    case .Tabs:
+        return true
+    case .Spaces:
+        return false
+    case .Unknown:
+    }
+    return g_default_hard_tabs
+}
+
+// Sets this document's indent style only. Unknown returns it to the default.
+set_indent_style :: proc(state: ^State, style: Indent_Style) {
+    state.indent_style = style
 }
 
 // What the leading whitespace of a document uses.
@@ -864,15 +889,19 @@ detect_indent :: proc(state: ^State) -> Indent_Info {
     return info
 }
 
+// One indent level: a tab, or tab_width spaces.
 @(private)
 indent_unit :: proc(state: ^State) -> string {
+    if uses_tabs(state) {
+        return "\t"
+    }
     spaces := INDENT_SPACES
     return spaces[:tab_width(state)]
 }
 
-// Soft-tab insert at each caret: adds spaces up to the next TAB_WIDTH column so
-// indentation snaps to consistent stops. Used for Tab without a selection.
-insert_soft_tab :: proc(state: ^State) {
+// Tab without a selection: a literal tab in a document that indents with tabs,
+// else spaces up to the next tab stop.
+insert_tab :: proc(state: ^State) {
     txt := text(state)
     entry := Undo_Entry {cursors_before = clone_cursors(state)}
 
@@ -888,6 +917,9 @@ insert_soft_tab :: proc(state: ^State) {
         count := width - (cursor_column(state, txt, lo) % width)
         all_spaces := INDENT_SPACES
         spaces := all_spaces[:count]
+        if uses_tabs(state) {
+            spaces, count = "\t", 1
+        }
         append(&entry.ops, Edit_Op {kind = .Insert, pos = lo + offset, text = strings.clone(spaces)})
         piecetable.piecetable_insert(&state.table, lo + offset, spaces)
         cursor.caret = lo + offset + count

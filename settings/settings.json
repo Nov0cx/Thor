@@ -1,6 +1,8 @@
 {
     "font_size": 18,
     "tab_width": 4,
+    "insert_spaces": true,
+    "detect_indentation": true,
     "autosave_delay_ms": 1500,
     "ligatures": true,
     "indent_guides": true,

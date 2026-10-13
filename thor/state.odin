@@ -313,7 +313,7 @@ thor_status_info :: proc(data: rawptr) -> Status_Info {
     thor_refresh_indent(file)
     // detect_indent reports no width for tabs, and a width of 0 hides the
     // segment, so a tab-indented file shows the column width one renders as.
-    info.indent_spaces = file.indent.style != .Tabs
+    info.indent_spaces = !textedit.uses_tabs(&file.state)
     info.indent_width = textedit.tab_width(&file.state)
     if file.indent.style == .Spaces && file.indent.width > 0 {
         info.indent_width = file.indent.width
@@ -376,6 +376,42 @@ thor_refresh_indent :: proc(file: ^Open_File) {
     file.indent_revision = file.state.revision
     file.indent_time = now
     file.indent_ready = true
+}
+
+// True for a file whose format wants a tab, whatever the settings say.
+@(private)
+thor_name_wants_tabs :: proc(name: string) -> bool {
+    switch name {
+    case "Makefile", "makefile", "GNUmakefile":
+        return true
+    }
+    switch filepath.ext(name) {
+    case ".mk", ".mak", ".go":
+        return true
+    }
+    return false
+}
+
+// Gives a loaded buffer its indent style and width: from its text when
+// detect_indentation is on, else from the settings.
+thor_apply_indent :: proc(thor: ^Thor, file: ^Open_File) {
+    if !file.loaded {
+        return
+    }
+    style := textedit.Indent_Style.Unknown
+    width := 0
+    if setting.detect_indentation(&thor.config) {
+        info := textedit.detect_indent(&file.state)
+        style = info.style
+        if info.style == .Spaces {
+            width = info.width
+        }
+    }
+    if style == .Unknown && thor_name_wants_tabs(file.name) {
+        style = .Tabs
+    }
+    textedit.set_indent_style(&file.state, style)
+    textedit.set_tab_width(&file.state, width)
 }
 
 // Language label for the status bar: the registered plugin's own name first, so

@@ -1239,7 +1239,7 @@ editor_handle_key :: proc(editor: ^Editor, event: ui.Key_Event) -> bool {
         } else if textedit.has_any_selection(state) {
             textedit.indent_lines(state)
         } else {
-            textedit.insert_soft_tab(state)
+            textedit.insert_tab(state)
         }
         editor_scroll_to_caret(editor)
         return true

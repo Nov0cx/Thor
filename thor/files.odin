@@ -1266,6 +1266,7 @@ thor_process_io :: proc(thor: ^Thor) {
             file.loaded = true
             file.saved_revision = file.state.revision
             file.last_seen_revision = file.state.revision
+            thor_apply_indent(thor, file)
         } else {
             file.load_failed = true
             if job.binary {

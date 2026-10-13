@@ -48,6 +48,10 @@ General :: struct {
     // Draw a vertical guide at every indentation stop inside a line's own
     // indent. On by default.
     indent_guides:     bool,
+    // Indent with spaces. Off indents with a literal tab. On by default.
+    insert_spaces:     bool,
+    // Take the indent style and width from the file's own text. On by default.
+    detect_indentation: bool,
     // Number the gutter by distance from the caret line, the count the
     // alt + <digit> jump moves by. On by default; off numbers the lines from 1.
     relative_lines:    bool,
@@ -165,6 +169,8 @@ load :: proc(dir: string) -> Settings {
         autosave_delay_ms = 1500,
         ligatures         = true,
         indent_guides     = true,
+        insert_spaces     = true,
+        detect_indentation = true,
         relative_lines    = true,
         format_on_save    = false,
         format_on_type    = false,
@@ -298,6 +304,16 @@ ligatures :: proc(s: ^Settings) -> bool {
 // Whether the editor draws a guide at each indentation stop.
 indent_guides :: proc(s: ^Settings) -> bool {
     return s.general.indent_guides
+}
+
+// Whether a new indent level is spaces and not a tab.
+insert_spaces :: proc(s: ^Settings) -> bool {
+    return s.general.insert_spaces
+}
+
+// Whether a file's own indentation overrides insert_spaces and tab_width.
+detect_indentation :: proc(s: ^Settings) -> bool {
+    return s.general.detect_indentation
 }
 
 // Whether the gutter counts from the caret line instead of from 1.
@@ -885,6 +901,8 @@ load_general :: proc(s: ^Settings, path: string) {
     read_string(root, "file_icon_pack", &s.general.file_icon_pack)
     read_bool(root, "ligatures", &s.general.ligatures)
     read_bool(root, "indent_guides", &s.general.indent_guides)
+    read_bool(root, "insert_spaces", &s.general.insert_spaces)
+    read_bool(root, "detect_indentation", &s.general.detect_indentation)
     read_bool(root, "relative_line_numbers", &s.general.relative_lines)
     read_bool(root, "format_on_save", &s.general.format_on_save)
     read_bool(root, "format_on_type", &s.general.format_on_type)

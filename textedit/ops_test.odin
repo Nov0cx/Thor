@@ -239,19 +239,19 @@ test_indent_skips_blank_lines :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_insert_soft_tab :: proc(t: ^testing.T) {
+test_insert_tab :: proc(t: ^testing.T) {
     state := ops_state("ab", 0)
     defer destroy(&state)
 
     // From column 0, a soft tab fills a whole TAB_WIDTH stop.
     set_single_cursor(&state, 0)
-    insert_soft_tab(&state)
+    insert_tab(&state)
     testing.expect_value(t, text(&state), "    ab")
     testing.expect_value(t, primary_cursor(&state).caret, 4)
 
     // From column 6, it only pads to the next stop (column 8): 2 spaces.
     set_single_cursor(&state, 6)
-    insert_soft_tab(&state)
+    insert_tab(&state)
     testing.expect_value(t, text(&state), "    ab  ")
     testing.expect_value(t, primary_cursor(&state).caret, 8)
 
@@ -260,7 +260,7 @@ test_insert_soft_tab :: proc(t: ^testing.T) {
     // would pad 1.
     tabbed := ops_state("\tab", 3)
     defer destroy(&tabbed)
-    insert_soft_tab(&tabbed)
+    insert_tab(&tabbed)
     testing.expect_value(t, text(&tabbed), "\tab  ")
 }
 
@@ -517,4 +517,27 @@ test_newline_splits_a_bracket_pair :: proc(t: ^testing.T) {
     insert_newline(&state)
     testing.expect_value(t, text(&state), "  f({\n      \n  })")
     testing.expect_value(t, primary_cursor(&state).caret, 12)
+}
+
+@(test)
+test_hard_tab_indent :: proc(t: ^testing.T) {
+    state := ops_state("all:\n\techo", 4)
+    defer destroy(&state)
+    set_indent_style(&state, .Tabs)
+
+    insert_newline(&state)
+    insert_tab(&state)
+    insert_text(&state, "x")
+    testing.expect_value(t, text(&state), "all:\n\tx\n\techo")
+
+    select_all(&state)
+    indent_lines(&state)
+    testing.expect_value(t, text(&state), "\tall:\n\t\tx\n\t\techo")
+    outdent_lines(&state)
+    testing.expect_value(t, text(&state), "all:\n\tx\n\techo")
+
+    set_indent_style(&state, .Spaces)
+    set_single_cursor(&state, 4)
+    insert_tab(&state)
+    testing.expect_value(t, text(&state), "all:    \n\tx\n\techo")
 }

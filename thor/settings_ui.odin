@@ -71,6 +71,10 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
         view, "autosave_delay_ms", "Autosave Delay (ms)", setting.autosave_delay_ms(config),
         setting.AUTOSAVE_DELAY_MIN, setting.AUTOSAVE_DELAY_MAX, 250,
     )
+    thor_settings_add_choice(view, "insert_spaces", "Insert Spaces", thor_on_off_label(setting.insert_spaces(config)))
+    thor_settings_add_choice(
+        view, "detect_indentation", "Detect Indentation", thor_on_off_label(setting.detect_indentation(config)),
+    )
     thor_settings_add_choice(view, "indent_guides", "Indent Guides", thor_on_off_label(setting.indent_guides(config)))
     thor_settings_add_choice(
         view, "relative_line_numbers", "Relative Line Numbers", thor_on_off_label(setting.relative_line_numbers(config)),
@@ -222,6 +226,16 @@ thor_on_setting_choice :: proc(data: rawptr, id: string) {
         thor_cmd_change_ligatures(thor)
     case "indent_guides":
         thor_cmd_change_indent_guides(thor)
+    case "insert_spaces":
+        thor_select_open(
+            thor, "Insert Spaces", ON_OFF_LABELS[:], thor_on_off_label(setting.insert_spaces(&thor.config)),
+            thor_no_preview, thor_insert_spaces_commit, thor,
+        )
+    case "detect_indentation":
+        thor_select_open(
+            thor, "Detect Indentation", ON_OFF_LABELS[:], thor_on_off_label(setting.detect_indentation(&thor.config)),
+            thor_no_preview, thor_detect_indentation_commit, thor,
+        )
     case "relative_line_numbers":
         thor_cmd_change_relative_line_numbers(thor)
     case "tooltips":
@@ -424,6 +438,20 @@ thor_language_master_commit :: proc(data: rawptr, choice: string) {
         return
     }
     thor_reload_settings(thor)
+}
+
+// Preview of a setting that shows nothing until it is committed.
+@(private = "file")
+thor_no_preview :: proc(_: rawptr, _: string) {}
+
+@(private = "file")
+thor_insert_spaces_commit :: proc(data: rawptr, choice: string) {
+    thor_persist_bool_setting(cast(^Thor) data, "insert_spaces", choice == ON_OFF_LABELS[0])
+}
+
+@(private = "file")
+thor_detect_indentation_commit :: proc(data: rawptr, choice: string) {
+    thor_persist_bool_setting(cast(^Thor) data, "detect_indentation", choice == ON_OFF_LABELS[0])
 }
 
 // Settings row: the indentation guides. Both panes preview at once, so a split

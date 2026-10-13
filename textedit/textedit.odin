@@ -73,6 +73,8 @@ State :: struct {
     revision:   u64,
     // This document's soft-tab width; 0 follows the package default.
     tab_width:  int,
+    // This document's indent style; Unknown follows the package default.
+    indent_style: Indent_Style,
     // Byte offset of every line start, so a line query is a binary search and not
     // a scan from byte 0. Rebuilt at the first query after a content change, like
     // the text snapshot, so a caller that never asks never pays. Offsets, not
