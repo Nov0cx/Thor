@@ -27,6 +27,10 @@
 - Word wrap is on by default again.
 - A file that changes on disk before its first edit now reaches the language server. Diagnostics and completion used the old text.
 - Starting Thor on a folder another window holds brings that window forward and does not open the folder twice. With files to open, it opens them with no workspace.
+- Opening another folder starts every terminal again in that folder. Each tab keeps its shell and its scrollback.
+- **Close Workspace** closes the terminals and stops the language servers of the closed folder.
+- **Settings: Add Font** opens `user/fonts.json`. It opened `assets/fonts/fonts.json`, which every update replaces.
+- `tab_width`, `font_size` and `autosave_delay_ms` outside their range in a settings file are set to the nearest limit: 1 to 16, 8 to 48 and 0 to 10000.
 
 # 2026.10.1
 
