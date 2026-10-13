@@ -1,8 +1,16 @@
 #+build windows
 package plugin
 
+import "base:runtime"
+import "core:os"
 import "core:strings"
 import win32 "core:sys/windows"
+
+// `path` made absolute against the working directory, with no link followed.
+@(private)
+path_absolute :: proc(path: string, allocator: runtime.Allocator) -> (string, os.Error) {
+    return os.get_absolute_path(path, allocator)
+}
 
 // The longest path FindFirstFileW takes with no `\\?\` prefix.
 @(private = "file")

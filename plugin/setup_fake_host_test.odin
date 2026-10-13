@@ -89,7 +89,7 @@ fake_data_root :: proc(host: rawptr) -> string {
 // fake_read/fake_write/fake_doc then see for it.
 resolved_data :: proc(id, rel: string) -> string {
     full, _ := filepath.join({fake_data_root(nil), id, rel}, context.temp_allocator)
-    clean, err := filepath.abs(full, context.temp_allocator)
+    clean, err := path_absolute(full, context.temp_allocator)
     if err != nil {
         clean, _ = filepath.clean(full, context.temp_allocator)
     }
@@ -100,7 +100,7 @@ resolved_data :: proc(id, rel: string) -> string {
 // fake workspace — the key fake_read/fake_write/fake_doc actually see.
 resolved :: proc(rel: string) -> string {
     full, _ := filepath.join({fake_workspace(nil), rel}, context.temp_allocator)
-    clean, err := filepath.abs(full, context.temp_allocator)
+    clean, err := path_absolute(full, context.temp_allocator)
     if err != nil {
         clean, _ = filepath.clean(full, context.temp_allocator)
     }

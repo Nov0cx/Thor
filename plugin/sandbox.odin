@@ -699,7 +699,7 @@ resolve_path :: proc(m: ^Manager, index: int, path: string) -> (resolved: string
             return "", false // an empty path would resolve to the process directory
         }
     }
-    clean, aerr := filepath.abs(full, context.temp_allocator)
+    clean, aerr := path_absolute(full, context.temp_allocator)
     if aerr != nil {
         cleaned, cerr := filepath.clean(full, context.temp_allocator)
         if cerr != nil {
@@ -748,13 +748,14 @@ Link_State :: enum {
 
 // link_windows.odin and link_posix.odin supply:
 //   path_link_state :: proc(path: string) -> Link_State
+//   path_absolute :: proc(path: string, allocator: runtime.Allocator) -> (string, os.Error)
 
 // True when a component of `path` below `root` is a symbolic link or a junction.
 // `path` must be within `root` (is_within). The walk ends at the first component
 // that does not exist; a component that cannot be read counts as a link.
 @(private)
 has_link_below :: proc(path, root: string) -> bool {
-    base, err := filepath.abs(root, context.temp_allocator)
+    base, err := path_absolute(root, context.temp_allocator)
     if err != nil {
         cleaned_root, cerr := filepath.clean(root, context.temp_allocator)
         if cerr != nil {
@@ -785,7 +786,7 @@ has_link_below :: proc(path, root: string) -> bool {
 // case and `\` are significant, so folding would make two different folders equal.
 @(private)
 is_within :: proc(path, root: string) -> bool {
-    base, err := filepath.abs(root, context.temp_allocator)
+    base, err := path_absolute(root, context.temp_allocator)
     if err != nil {
         cleaned_root, cerr := filepath.clean(root, context.temp_allocator)
         if cerr != nil {

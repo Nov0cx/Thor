@@ -427,7 +427,7 @@ new_plugin :: proc(m: ^Manager, id, dir: string, perms: Permissions) -> int {
     granted := perms
 
     abs_dir := dir
-    if resolved, err := filepath.abs(dir, context.temp_allocator); err == nil {
+    if resolved, err := path_absolute(dir, context.temp_allocator); err == nil {
         abs_dir = resolved
     }
 
