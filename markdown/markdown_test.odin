@@ -1,5 +1,6 @@
 package markdown
 
+import "core:strings"
 import "core:testing"
 
 import ui "../vendor/loom/loom"
@@ -491,4 +492,91 @@ test_quote_lines_fold :: proc(t: ^testing.T) {
     testing.expect_value(t, len(items), 2)
     testing.expect_value(t, items[1].y, items[0].y)
     testing.expect_value(t, count_rects(&page), 1)
+}
+
+@(private = "file")
+text_named :: proc(page: ^Page, text: string) -> (Item, bool) {
+    for item in page.items {
+        if item.kind == .Text && item.text == text {
+            return item, true
+        }
+    }
+    return {}, false
+}
+
+// A column is as wide as its widest cell, and a cell sits where the delimiter
+// row aligns it. The delimiter row is not text.
+@(test)
+test_table_columns_and_alignment :: proc(t: ^testing.T) {
+    page: Page
+    defer page_destroy(&page)
+    pal := test_palette()
+    lay(&page, "| name | n | mid |\n|:-----|--:|:---:|\n| ab | 12345 | x |\n| abcdef | 1 | xyz |\n")
+
+    for item in page.items {
+        if item.kind == .Text {
+            testing.expect(t, !strings.contains(item.text, "-"), "the delimiter row is not drawn")
+        }
+    }
+
+    // Columns: 6, 5 and 3 characters wide, each inside 10 px of padding.
+    name, _ := text_named(&page, "name")
+    ab, _ := text_named(&page, "ab")
+    testing.expect_value(t, name.x, f32(10))
+    testing.expect_value(t, ab.x, f32(10))
+    testing.expect_value(t, name.color, pal.strong)
+    testing.expect_value(t, ab.color, pal.text)
+    testing.expect(t, ab.y > name.y, "a body row is under the header")
+
+    // Right: the cell ends where the column ends.
+    one, _ := text_named(&page, "1")
+    wide, _ := text_named(&page, "12345")
+    testing.expect_value(t, wide.x, f32(80 + 10))
+    testing.expect_value(t, one.x + one.w, wide.x + wide.w)
+
+    // Center: one character in a three character column.
+    x, _ := text_named(&page, "x")
+    xyz, _ := text_named(&page, "xyz")
+    testing.expect_value(t, xyz.x, f32(80 + 70 + 10))
+    testing.expect_value(t, x.x, xyz.x + CELL)
+}
+
+// A table wider than the page shares the page, and its cells wrap.
+@(test)
+test_table_wraps_its_cells :: proc(t: ^testing.T) {
+    page: Page
+    defer page_destroy(&page)
+    lay(&page, "| a | b |\n|---|---|\n| one two three four | five six seven eight |\n", 240)
+
+    one, _ := text_named(&page, "one")
+    four, _ := text_named(&page, "four")
+    five, _ := text_named(&page, "five")
+    testing.expect(t, four.y > one.y, "the cell wraps")
+    testing.expect_value(t, five.y, one.y)
+    testing.expect(t, five.x >= 120, "the second column starts at the middle")
+    for item in page.items {
+        testing.expect(t, item.x + item.w <= 240 + 0.5, "nothing leaves the page")
+    }
+}
+
+// A pipe that is escaped or inside a code span does not split the cell.
+@(test)
+test_table_keeps_a_pipe_in_a_cell :: proc(t: ^testing.T) {
+    page: Page
+    defer page_destroy(&page)
+    lay(&page, "| a | b |\n|---|---|\n| `x|y` | p\\|q |\n")
+
+    _, code := text_named(&page, "x|y")
+    testing.expect(t, code, "the code span is one cell")
+    _, pipe := text_named(&page, "|")
+    testing.expect(t, pipe, "the escaped pipe is text")
+}
+
+// Text with a pipe and no delimiter row under it is a paragraph.
+@(test)
+test_pipe_without_delimiter_is_text :: proc(t: ^testing.T) {
+    page: Page
+    defer page_destroy(&page)
+    lay(&page, "a | b\nc | d\n")
+    testing.expect_value(t, count_rects(&page), 0)
 }

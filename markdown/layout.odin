@@ -90,6 +90,11 @@ layout :: proc(page: ^Page, source: string, avail: f32, base: i32, pal: Palette,
             continue
         }
 
+        if table_at(&b, i) {
+            i = emit_table(&b, i)
+            continue
+        }
+
         // Horizontal rule: a line of only -, * or _, three or more.
         if is_rule(trimmed) {
             b.y += 6
@@ -189,6 +194,9 @@ starts_block :: proc(b: ^Build, at: int, in_list := false) -> bool {
         return true
     }
     if _, _, ok := heading(t); ok {
+        return true
+    }
+    if table_at(b, at) {
         return true
     }
     // Only a list that starts at 1 interrupts running text.
