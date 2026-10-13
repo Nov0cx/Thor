@@ -7,7 +7,6 @@ import "core:fmt"
 import "core:strings"
 import "core:unicode/utf8"
 
-import "../setting"
 import "../textedit"
 import "../font"
 import "../snippet"

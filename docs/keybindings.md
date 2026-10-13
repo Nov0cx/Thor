@@ -21,7 +21,7 @@ Every binding below is a default and can be changed in `keybinds.json`
 | ctrl + alt + shift + o | open a folder in a new window |
 | ctrl + n | new file: prompts for a name, beside the explorer's selection when the explorer has focus, else in the workspace root |
 | ctrl + s | save file (autosave also runs 1.5s after the last edit) |
-| ctrl + w | close tab |
+| ctrl + w | close tab; an unsaved buffer is written first |
 | ctrl + page down / page up | next / previous tab |
 | ctrl + b | toggle explorer panel |
 | ctrl + t | toggle the console panel (a real shell — see Terminal below) |
@@ -36,6 +36,7 @@ Every binding below is a default and can be changed in `keybinds.json`
 | ctrl + hover | show the declaration of the symbol under the mouse |
 | ctrl + shift + u | code actions: the fixes available at the caret, in a picker (scoped to the selection instead, on a language-server-backed file) |
 | ctrl + f | find |
+| ctrl + shift + f | find in files |
 | ctrl + r | rename the symbol under the caret across every file that uses it; falls back to find & replace when the caret is not on a renameable symbol |
 
 ## Explorer
@@ -64,9 +65,24 @@ driven from the keyboard:
 
 The three toggles also work as buttons on the bottom row of the box, and each
 lights up while it is on. They stay set until Thor restarts. With `.*` on, a
-pattern that does not compile reads "Invalid pattern" where the match count
-sits; the replacement stays literal in every mode, so `$1` is not a capture
-reference.
+pattern that does not compile reads "bad pattern" where the match count sits.
+
+With `.*` on, the replacement can name what the pattern captured: `$1` to `$9`
+are the groups, `$0` and `$&` the whole match, `$$` a dollar sign, and `\n` and
+`\t` a newline and a tab. `^` and `$` match at every line, and a pattern that
+matches no text is a match too, so `^` replaced by `// ` puts a marker in front
+of every line. With `.*` off the replacement is the text as typed.
+
+## Find in files
+
+`ctrl + shift + f` opens a picker over the files of the folder. Type the text
+to find; the rows are the matching lines, and the line under the list names the
+file and the line of the selected row. `enter` opens the file at the match.
+
+The search uses the case, word and regular-expression toggles of the find bar.
+In a git work tree the files are the tracked and the untracked ones, so what
+`.gitignore` names is left out. A file with a NUL byte or over 4 MB is not
+read, and the list stops at 1000 matches.
 
 ## Clipboard
 
@@ -87,7 +103,8 @@ reference.
 | ctrl + up / down | start / end of file |
 | alt + number | jump n lines down |
 | alt + shift + number | jump n lines up |
-| page up / page down | move 8 lines |
+| page up / page down | move by the rows in view, less one |
+| shift + wheel | scroll sideways (word wrap off) |
 | ctrl + p | jump to matching / enclosing bracket or quote (works from inside a pair) |
 | ctrl + shift + p | select everything between the brackets / quotes (excludes them) |
 | ctrl + shift + # (ctrl + shift + \ on US) | select to matching bracket / quote (includes them) |
@@ -128,7 +145,8 @@ Add `shift` to any movement to extend the selection.
 | shift + alt + up / down | duplicate line up / down |
 | ctrl + enter / ctrl + shift + enter | insert line below / above |
 | tab / shift + tab (with selection) | indent / outdent lines |
-| ctrl + k | toggle line comment (per-language marker) |
+| ctrl + k | toggle line comment (per-language marker); a language with block comments only gets those |
+| shift + alt + a | toggle block comment around the selection, or around the text of the line |
 | alt + u / l / c | uppercase / lowercase / capitalize the selection (or the word under the caret) |
 | ctrl + shift + w | trim trailing whitespace |
 | ctrl + alt + l | format document (needs language intelligence; Odin in-client, other languages need a server with a formatter) |

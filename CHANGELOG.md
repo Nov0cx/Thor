@@ -1,5 +1,26 @@
 # 2026.10.4
 
+- A close no longer loses unsaved edits. A tab, a folder switch and a quit write every unsaved buffer first. It lost an edit younger than the autosave delay.
+- Open Folder with `format_on_save` on no longer drops unsaved edits.
+- A file the disk refuses to save asks before its tab closes. At exit its text is kept and the next open of the file puts the edits back.
+- Find in files: `ctrl + shift + f` lists the matching lines of the folder. Enter opens the file at the match. Files that `.gitignore` names are left out.
+- A regular-expression replace can use capture groups: `$1` to `$9`, `$0`, `$&`, `\n` and `\t`.
+- `^` and `$` match at every line in the find bar, and a pattern that matches no text is found. `^` can now put text in front of every line.
+- Undo back to the saved text shows the file as saved.
+- A reload from disk can be undone.
+- Tab inserts a tab character in a file that indents with tabs. `detect_indentation` reads the style and the width from the file; `insert_spaces` is the default. A Makefile and a Go file get tabs.
+- `shift + alt + a` toggles a block comment. `ctrl + k` uses block comments in a language that has no line comment.
+- Go to Matching Bracket does not count a bracket in a string or a comment, and an escaped quote does not end a string.
+- Move Line, Duplicate Line and Join Lines keep every cursor. They dropped all but one.
+- `ctrl + enter` and `ctrl + shift + enter` open a line with the indent of the current line. Enter between a bracket pair puts the closer on its own line.
+- Page Up and Page Down move by the rows in view. They moved 8 rows.
+- With word wrap off the editor scrolls sideways: the caret stays in view, `shift + wheel` scrolls, and a horizontal bar shows.
+- Soft wrap counts a wide CJK character or an emoji as two columns. Such a row ran past the edge.
+- The editing keys follow `keybinds.json`: undo, redo, the line and word commands, movement, selection, clipboard. A rebind changed the label only.
+- UTF-16 files open and save. They were refused as binary.
+- A UTF-8 byte order mark is kept and no longer shows as a character. The status bar names the encoding of the file.
+- A file with both LF and CRLF line endings shows "Mixed" and is saved as it came. A click on the label picks one ending.
+- A file outside the open folder reloads when it changes on disk.
 - A click on a row of the file tree gives the tree the keyboard. Delete and the arrow keys did nothing after a click.
 - `ctrl + n` makes a new file. With the file tree focused it lands beside the selection, and so does New Folder.
 

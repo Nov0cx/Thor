@@ -48,6 +48,12 @@ General editor preferences.
 | `language_intelligence` | Master switch for language features (hover, goto, completion, ...), both the built-in Odin support and any configured language server; either a plain boolean or an object with an `"enabled"` key plus per-feature toggles | `true` |
 | `language_backends` | Per-backend switch, one level more precise than `language_intelligence`: an object keyed by backend id (`"odin"` for the built-in support, or an `lsp.json` server's own `id`) whose value is the same shape as `language_intelligence` itself — a plain boolean, or an object with `"enabled"` plus per-feature toggles — scoped to that one backend | `{}` (every backend fully enabled) |
 
+Thor saves by itself, `autosave_delay_ms` after the last edit. A tab that
+closes, a folder switch and a quit write every unsaved buffer first. When the
+disk refuses a file, its tab asks before it closes, and at exit the text goes
+to `sessions/backups/` beside the binary; the next open of that file puts the
+edits back as an unsaved buffer.
+
 An unset key falls back to its default, so a `settings.json` only needs the
 keys you want to change. Every key applies as soon as the file is written,
 whether from the Settings view or by hand — the files of all three layers are
