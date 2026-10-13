@@ -224,9 +224,13 @@ panel_callback :: proc(m: ^Manager, id: string, action: int) -> Callback {
 @(private)
 parse_nodes :: proc(m: ^Manager, index: int, id: string, L: ^lua.State, tbl: c.int) -> []View_Node {
     out := make([dynamic]View_Node, context.temp_allocator)
-    n := lua.L_len(L, tbl)
+    n := list_len(L, tbl)
     for i in 1 ..= n {
         lua.rawgeti(L, tbl, i)
+        if lua.isnil(L, -1) {
+            lua.pop(L, 1)
+            break
+        }
         if lua.istable(L, -1) {
             append(&out, parse_node(m, index, id, L, lua.gettop(L)))
         }
@@ -257,9 +261,13 @@ parse_node :: proc(m: ^Manager, index: int, id: string, L: ^lua.State, tbl: c.in
     if lua.istable(L, -1) {
         items_tbl := lua.gettop(L)
         items := make([dynamic]string, context.temp_allocator)
-        count := lua.L_len(L, items_tbl)
+        count := list_len(L, items_tbl)
         for i in 1 ..= count {
             lua.rawgeti(L, items_tbl, i)
+            if lua.isnil(L, -1) {
+                lua.pop(L, 1)
+                break
+            }
             if lua.type(L, -1) == .STRING {
                 append(&items, strings.clone(string(lua.tostring(L, -1)), context.temp_allocator))
             }

@@ -53,6 +53,39 @@ test_collection_import :: proc(t: ^testing.T) {
     }
 }
 
+// A collection name goes into a compiler argument, so one that is not an
+// identifier never leaves the config.
+@(test)
+test_config_drops_a_collection_name_that_is_not_an_identifier :: proc(t: ^testing.T) {
+    testing.expect(t, is_collection_name("shared"))
+    testing.expect(t, is_collection_name("_my_lib2"))
+    testing.expect(t, !is_collection_name(""))
+    testing.expect(t, !is_collection_name("2fast"))
+    testing.expect(t, !is_collection_name("a b"))
+    testing.expect(t, !is_collection_name(`x" & calc & rem "`))
+
+    e := engine_create()
+    defer engine_destroy(e)
+
+    root := "thor_lang_inject_ws"
+    cfg_dir := strings.concatenate({root, "/.thor"}, context.temp_allocator)
+    _ = os.make_directory(root)
+    _ = os.make_directory(cfg_dir)
+    cfg := strings.concatenate({cfg_dir, "/odin-analyzer.json"}, context.temp_allocator)
+    defer os.remove(root)
+    defer os.remove(cfg_dir)
+    defer os.remove(cfg)
+
+    cfg_src := `{"collections":[{"name":"x\" & calc & rem \"","path":"."},{"name":"good","path":"."}]}`
+    _ = os.write_entire_file(cfg, transmute([]byte)cfg_src)
+
+    found := config_collections(e, root)
+    testing.expect_value(t, len(found), 1)
+    if len(found) == 1 {
+        testing.expect_value(t, found[0].name, "good")
+    }
+}
+
 @(test)
 test_config_feature_toggle :: proc(t: ^testing.T) {
     e := engine_create()

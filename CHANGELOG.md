@@ -1,3 +1,11 @@
+# 2026.10.2
+
+- A folder's own `.thor/lsp.json` is asked about before it is used. It names programs to start, so opening a cloned folder no longer starts one unprompted. The answer is remembered for that folder and that file; a changed file asks again.
+- The Odin compiler check no longer runs through a shell. A collection name in `.thor/odin-analyzer.json` could carry a second command; a name that is not an identifier is now dropped.
+- A plugin cannot outrun its two-second budget with `pcall`, `xpcall` or `coroutine.resume`: the budget error ends the whole call.
+- A plugin cannot set a `__gc` finaliser, which ran with no budget and could hang the editor.
+- A plugin lexer that returns a table with a `__len` metamethod no longer aborts or stalls the editor.
+
 # 2026.10.1
 
 - The console is a terminal. Each tab runs its shell on a pseudo-terminal, so the shell draws its own prompt, its own history and its own completion, and a full-screen program, colours and progress bars work as they do in any other terminal.

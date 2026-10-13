@@ -170,6 +170,9 @@ Manager :: struct {
     // Start of the call running in this state (see call_guarded); one manager,
     // one Lua state, so this lives on the manager rather than as a package global.
     active_start: time.Tick,
+    // Set by the budget hook, cleared when the next outer call starts. While it
+    // is set, pcall and coroutine.resume raise the error again.
+    budget_spent: bool,
     // Plugin the next tick pass starts at, so a pass cut short by TICK_BUDGET
     // resumes where it stopped.
     tick_next:    int,
@@ -295,6 +298,14 @@ manager_destroy :: proc(m: ^Manager) {
         lua.close(m.state)
         m.state = nil
     }
+}
+
+// Length of the list at `idx`, with no `__len` call: the host reads a plugin's
+// table outside the budget and outside a protected call. A loop over it must
+// also stop at the first nil, since a sparse table can report a huge border.
+@(private)
+list_len :: proc "c" (L: ^lua.State, idx: c.int) -> lua.Integer {
+    return lua.Integer(lua.rawlen(L, idx))
 }
 
 // Releases a registry ref. NOREF is a no-op.
@@ -828,9 +839,13 @@ api_menu :: proc "c" (L: ^lua.State) -> c.int {
     context.allocator = m.allocator
 
     entries := make([dynamic]Menu_Entry, context.temp_allocator)
-    n := lua.L_len(L, 2)
+    n := list_len(L, 2)
     for i in 1 ..= n {
         lua.rawgeti(L, 2, i)
+        if lua.isnil(L, -1) {
+            lua.pop(L, 1)
+            break
+        }
         ti := lua.gettop(L)
         if lua.istable(L, ti) {
             entry: Menu_Entry
@@ -891,9 +906,13 @@ api_pick :: proc "c" (L: ^lua.State) -> c.int {
     set_dialog(m, L, index, 3)
 
     items := make([dynamic]string, context.temp_allocator)
-    n := lua.L_len(L, 2)
+    n := list_len(L, 2)
     for i in 1 ..= n {
         lua.rawgeti(L, 2, i)
+        if lua.isnil(L, -1) {
+            lua.pop(L, 1)
+            break
+        }
         if lua.type(L, -1) == .STRING {
             append(&items, strings.clone(string(lua.tostring(L, -1)), context.temp_allocator))
         }
@@ -1085,9 +1104,13 @@ api_register_language :: proc "c" (L: ^lua.State) -> c.int {
     lua.getfield(L, 1, "extensions")
     if lua.istable(L, -1) {
         tbl := lua.gettop(L)
-        n := lua.L_len(L, tbl)
+        n := list_len(L, tbl)
         for i in 1 ..= n {
             lua.rawgeti(L, tbl, i)
+            if lua.isnil(L, -1) {
+                lua.pop(L, 1)
+                break
+            }
             if lua.type(L, -1) == .STRING {
                 append(&lang.extensions, strings.clone(string(lua.tostring(L, -1))))
             }

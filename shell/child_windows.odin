@@ -207,7 +207,7 @@ command_line_of :: proc(spec: Child_Spec) -> string {
     return strings.to_string(builder)
 }
 
-@(private = "file")
+@(private)
 append_argument :: proc(builder: ^strings.Builder, arg: string) {
     if arg != "" && !strings.contains_any(arg, " \t\"") {
         strings.write_string(builder, arg)

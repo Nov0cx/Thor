@@ -263,7 +263,9 @@ its root, layered on top of the global settings above. This repository's own
 - **`odin-analyzer.json`** — per-workspace settings for the Odin language
   intelligence: which analyzer collections to load and which features
   (`enable_hover`, `enable_document_symbols`, `enable_references`, ...) are on
-  for this workspace. This is Thor's own file, not `ols.json`.
+  for this workspace. This is Thor's own file, not `ols.json`. A collection
+  `name` must be an identifier (letters, digits and `_`, not starting with a
+  digit); any other name is dropped.
 
 - **`odin-formatter.json`** — per-workspace options for formatting `.odin`
   files — "Edit: Format Document", "Edit: Format Selection", `format_on_save`
@@ -309,6 +311,14 @@ its root, layered on top of the global settings above. This repository's own
   rest of the table; `"enabled": false` switches a shipped server off here —
   which is how a project hands a language to a different server — and an `id`
   nothing ships adds one.
+
+  This file comes with the folder and names programs to start, so Thor does
+  not read it until you allow it. The first time a folder with a
+  `.thor/lsp.json` opens, a prompt lists each entry and its command; **Allow**
+  loads the file, **Cancel** leaves it out until it changes or Thor restarts.
+  The answer is remembered for that folder and that exact file, in
+  `sessions/lsp-grants.json` beside the binary. Any change to the file asks
+  again. The shipped and the user `lsp.json` are never asked about.
 
 - **`tips.json`** — tips of this project's own, in the shape described above.
   They are added to the shipped ones, not put in their place.

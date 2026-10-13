@@ -19,14 +19,33 @@ REAP_INTERVAL :: 2 * time.Millisecond
 // wait, or a timeout — and only then is `code` meaningless. The returned output
 // is owned by context.allocator.
 run_status :: proc(command: string, cwd: string, timeout: time.Duration = 0) -> (output: string, code: int, ok: bool) {
+    command_c := strings.clone_to_cstring(command, context.temp_allocator)
+    argv := [?]cstring {"/bin/sh", "-c", command_c, nil}
+    return run_argv(argv[:], false, cwd, timeout)
+}
+
+// Runs `exe` with `args` in `cwd`, with no shell between: each argument reaches
+// the program as written. `exe` is searched on PATH when it names no directory.
+// The rest is the contract of `run_status`.
+exec_status :: proc(exe: string, args: []string, cwd: string, timeout: time.Duration = 0) -> (output: string, code: int, ok: bool) {
+    argv := make([]cstring, len(args) + 2, context.temp_allocator)
+    argv[0] = strings.clone_to_cstring(exe, context.temp_allocator)
+    for arg, index in args {
+        argv[index + 1] = strings.clone_to_cstring(arg, context.temp_allocator)
+    }
+    return run_argv(argv, true, cwd, timeout)
+}
+
+// Forks, executes the nil-terminated `argv` and collects its output. The body of
+// both `run_status` and `exec_status`. `search_path` looks argv[0] up on PATH.
+@(private = "file")
+run_argv :: proc(argv: []cstring, search_path: bool, cwd: string, timeout: time.Duration) -> (output: string, code: int, ok: bool) {
     // Everything the child reads must exist before the fork: only
     // async-signal-safe calls are legal between fork and exec.
-    command_c := strings.clone_to_cstring(command, context.temp_allocator)
     cwd_c: cstring
     if cwd != "" {
         cwd_c = strings.clone_to_cstring(cwd, context.temp_allocator)
     }
-    argv := [?]cstring {"/bin/sh", "-c", command_c, nil}
 
     out_fds, status_fds: [2]posix.FD
     if posix.pipe(&out_fds) != .OK {
@@ -71,8 +90,12 @@ run_status :: proc(command: string, cwd: string, timeout: time.Duration = 0) -> 
         if cwd_c != nil && posix.chdir(cwd_c) != .OK {
             report_start_failure(status_fds[1])
         }
-        posix.execv(argv[0], raw_data(argv[:]))
-        report_start_failure(status_fds[1]) // execv only returns when it failed
+        if search_path {
+            posix.execvp(argv[0], raw_data(argv))
+        } else {
+            posix.execv(argv[0], raw_data(argv))
+        }
+        report_start_failure(status_fds[1]) // an exec only returns when it failed
     }
 
     // The child owns the far ends now; the parent's copy of the write end must go

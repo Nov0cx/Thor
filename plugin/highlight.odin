@@ -228,11 +228,15 @@ run_lexer :: proc(
     }
 
     tbl := lua.gettop(L)
-    n := lua.L_len(L, tbl)
+    n := list_len(L, tbl)
     out := make([dynamic]Span, allocator)
     cut := 0
     for i in 1 ..= n {
         lua.rawgeti(L, tbl, i)
+        if lua.isnil(L, -1) {
+            lua.pop(L, 1)
+            break
+        }
         if lua.istable(L, -1) {
             elem := lua.gettop(L)
             s := clamp(elem_int(L, elem, 1), cut, len(source))

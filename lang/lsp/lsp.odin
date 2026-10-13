@@ -24,11 +24,12 @@ Client :: struct {
 
 // Reads the server table and builds an idle server for each entry. No process is
 // started here: a server that is never asked for costs one struct.
-client_create :: proc(workspace: string, allocator := context.allocator) -> ^Client {
+// `trust_workspace` lets `<workspace>/.thor/lsp.json` join the table.
+client_create :: proc(workspace: string, trust_workspace: bool, allocator := context.allocator) -> ^Client {
     c := new(Client, allocator)
     c.allocator = allocator
     c.workspace = strings.clone(workspace, allocator)
-    c.config = config_load(workspace, allocator)
+    c.config = config_load(workspace, trust_workspace, allocator)
     c.servers = make([dynamic]^Server, allocator)
     for &entry in c.config.servers {
         append(&c.servers, server_create(&entry, workspace, allocator))

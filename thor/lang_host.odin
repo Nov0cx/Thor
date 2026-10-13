@@ -181,7 +181,7 @@ thor_reload_lang :: proc(thor: ^Thor) {
         old.destroy(old.data)
     }
 
-    thor.lsp_client = lsp.client_create(thor.workspace_dir)
+    thor.lsp_client = lsp.client_create(thor.workspace_dir, thor_lsp_workspace_trusted(thor))
     lsp_backend := lsp.client_backend(thor.lsp_client)
     odin_backend := odin.engine_backend(thor.odin_engine)
     // Registration order is precedence (lang.manager_register's contract) —

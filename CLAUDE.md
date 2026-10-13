@@ -353,6 +353,10 @@ subprocess LSP client as an optional second backend behind the same seam.
   its extensions so a later entry can take the language over. An entry claims routing keys through
   `extensions` (each force-given its leading dot) and `filenames` (whole names, kept verbatim and
   matched first). `lang/LSP_PLAN.md` is its design.
+  The workspace layer is repo-supplied and names programs, so `client_create` takes
+  `trust_workspace` and skips it when false. `thor/lsp_trust.odin` decides: the grant in
+  `sessions/lsp-grants.json` keys on (workspace path, SHA-256 of the file), so any edit — a
+  plugin's `thor.write` included — asks again through the permission dialog.
   A server is started by the first document event for a key it claims, never at init. One
   pump thread per server does everything that can block on a pipe — spawn, handshake, outbox drain,
   restart — so `notify` on the main thread only queues. `state` is atomic and `caps` is written once

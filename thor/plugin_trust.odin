@@ -168,6 +168,10 @@ thor_prompt_plugin_permissions :: proc(thor: ^Thor) {
     if thor.plugin_prompt_shown || len(thor.plugin_requests) == 0 {
         return
     }
+    // The dialog is shared with the language-server prompt.
+    if thor.permission_open {
+        return
+    }
     source := Plugin_Source.Bundled
     if !thor_has_plugin_requests(thor, .Bundled) {
         source = .Workspace

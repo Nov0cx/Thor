@@ -12,6 +12,26 @@ import "core:time"
 // ran to completion — a pipe or start failure, or a timeout — and only then is
 // `code` meaningless. The returned output is owned by context.allocator.
 run_status :: proc(command: string, cwd: string, timeout: time.Duration = 0) -> (output: string, code: int, ok: bool) {
+    return run_command_line(fmt.tprintf("cmd.exe /d /c %s", command), cwd, timeout)
+}
+
+// Runs `exe` with `args` in `cwd`, with no shell between: each argument reaches
+// the program as written. `exe` is searched on PATH when it names no directory.
+// The rest is the contract of `run_status`.
+exec_status :: proc(exe: string, args: []string, cwd: string, timeout: time.Duration = 0) -> (output: string, code: int, ok: bool) {
+    builder := strings.builder_make(context.temp_allocator)
+    append_argument(&builder, exe)
+    for arg in args {
+        strings.write_byte(&builder, ' ')
+        append_argument(&builder, arg)
+    }
+    return run_command_line(strings.to_string(builder), cwd, timeout)
+}
+
+// Starts the command line `full` and collects its output. The body of both
+// `run_status` and `exec_status`.
+@(private = "file")
+run_command_line :: proc(full: string, cwd: string, timeout: time.Duration) -> (output: string, code: int, ok: bool) {
     sa := win32.SECURITY_ATTRIBUTES {
         nLength        = size_of(win32.SECURITY_ATTRIBUTES),
         bInheritHandle = true,
@@ -38,7 +58,6 @@ run_status :: proc(command: string, cwd: string, timeout: time.Duration = 0) -> 
     }
     pi: win32.PROCESS_INFORMATION
 
-    full := fmt.tprintf("cmd.exe /d /c %s", command)
     cmdline := win32.utf8_to_wstring(full, context.temp_allocator)
     // An empty directory is inherited, not passed: CreateProcessW refuses a
     // current directory that is the empty string and the start fails outright.

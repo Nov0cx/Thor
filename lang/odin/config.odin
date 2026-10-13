@@ -4,6 +4,7 @@ package odin
 
 import "base:runtime"
 import "core:encoding/json"
+import "core:log"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
@@ -153,6 +154,10 @@ config_parse :: proc(cache: ^Config_Cache, workspace, path: string) {
         if !nok || !pok || name == "" || p == "" {
             continue
         }
+        if !is_collection_name(name) {
+            log.warnf("odin-analyzer.json: collection name %q is not an identifier and was dropped", name)
+            continue
+        }
         dir: string
         if filepath.is_abs(p) {
             dir = strings.clone(p)
@@ -171,6 +176,27 @@ config_parse :: proc(cache: ^Config_Cache, workspace, path: string) {
             cache.cfg.collections[strings.clone(name)] = dir
         }
     }
+}
+
+// True for a name the compiler takes as a collection: an identifier. The name
+// goes into a compiler argument, so nothing else is let through.
+@(private)
+is_collection_name :: proc(name: string) -> bool {
+    if name == "" {
+        return false
+    }
+    for index in 0 ..< len(name) {
+        switch name[index] {
+        case 'a' ..= 'z', 'A' ..= 'Z', '_':
+            continue
+        case '0' ..= '9':
+            if index > 0 {
+                continue
+            }
+        }
+        return false
+    }
+    return true
 }
 
 // Resolved root directory of the workspace-defined collection `coll`, or false

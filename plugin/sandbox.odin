@@ -98,6 +98,83 @@ open_safe_libs :: proc(L: ^lua.State) {
     trim_os(L)
     lock_string_metatable(L)
     guard_coroutines(L)
+    guard_base(L)
+}
+
+// Replaces pcall, xpcall and setmetatable. The stock pcall would catch the
+// budget error, and a `__gc` finaliser runs with hooks off, so with no budget.
+@(private)
+guard_base :: proc(L: ^lua.State) {
+    lua.pushcfunction(L, sb_pcall)
+    lua.setglobal(L, "pcall")
+    lua.pushcfunction(L, sb_xpcall)
+    lua.setglobal(L, "xpcall")
+    lua.getglobal(L, "setmetatable")
+    lua.pushcclosure(L, sb_setmetatable, 1)
+    lua.setglobal(L, "setmetatable")
+}
+
+// True once the running call has overrun CALL_BUDGET.
+@(private)
+budget_is_spent :: proc "c" (L: ^lua.State) -> bool {
+    m := (^Manager)((^rawptr)(lua.getextraspace(L))^)
+    return m != nil && m.budget_spent
+}
+
+// pcall(f, ...): the stock body, but a spent budget is raised again.
+@(private)
+sb_pcall :: proc "c" (L: ^lua.State) -> c.int {
+    lua.L_checkany(L, 1)
+    lua.pushboolean(L, true)
+    lua.insert(L, 1)
+    status := lua.pcall(L, lua.gettop(L) - 2, lua.MULTRET, 0, 0, sb_pcall_done)
+    return sb_pcall_done(L, status, 0)
+}
+
+// xpcall(f, msgh, ...): the stock body, but a spent budget is raised again.
+@(private)
+sb_xpcall :: proc "c" (L: ^lua.State) -> c.int {
+    n := lua.gettop(L)
+    lua.L_checktype(L, 2, c.int(lua.TFUNCTION))
+    lua.pushboolean(L, true)
+    lua.pushvalue(L, 1)
+    lua.rotate(L, 3, 2)
+    status := lua.pcall(L, n - 2, lua.MULTRET, 2, 2, sb_pcall_done)
+    return sb_pcall_done(L, status, 2)
+}
+
+// Ends a protected call, also as the continuation after a yield. `extra` is the
+// count of stack slots below the results.
+@(private)
+sb_pcall_done :: proc "c" (L: ^lua.State, status: c.int, extra: lua.KContext) -> c.int {
+    if status != c.int(lua.Status.OK) && status != c.int(lua.Status.YIELD) {
+        if budget_is_spent(L) {
+            return c.int(lua.error(L))
+        }
+        lua.pushboolean(L, false)
+        lua.pushvalue(L, -2)
+        return 2
+    }
+    return lua.gettop(L) - c.int(extra)
+}
+
+// setmetatable(t, mt): refuses a metatable with a `__gc` entry, then calls the
+// stock one. Lua marks an object for finalisation only at this call, and any
+// value counts, since it can become a function later.
+@(private)
+sb_setmetatable :: proc "c" (L: ^lua.State) -> c.int {
+    if lua.type(L, 2) == .TABLE {
+        lua.pushstring(L, "__gc")
+        lua.rawget(L, 2)
+        if !lua.isnil(L, -1) {
+            return c.int(lua.L_error(L, "__gc is not available to a plugin"))
+        }
+        lua.pop(L, 1)
+    }
+    lua.pushvalue(L, upvalueindex(1))
+    lua.insert(L, 1)
+    lua.call(L, lua.gettop(L) - 1, lua.MULTRET)
+    return lua.gettop(L)
 }
 
 // Replaces the global `os` table with one holding only the clock entries.
@@ -237,6 +314,7 @@ budget_hook :: proc "c" (L: ^lua.State, _: ^lua.Debug) {
     if time.tick_since(m.active_start) < CALL_BUDGET {
         return
     }
+    m.budget_spent = true
     lua.pushstring(L, "plugin exceeded its time budget")
     lua.error(L)
 }
@@ -263,7 +341,47 @@ guard_coroutines :: proc(L: ^lua.State) {
     lua.setfield(L, -2, "create")
     lua.pushcfunction(L, co_wrap)
     lua.setfield(L, -2, "wrap")
+    lua.pushcfunction(L, co_resume)
+    lua.setfield(L, -2, "resume")
     lua.pop(L, 1)
+}
+
+// coroutine.resume(co, ...): the stock body, but a spent budget is raised again
+// and not returned as `false, message`.
+@(private)
+co_resume :: proc "c" (L: ^lua.State) -> c.int {
+    co := lua.tothread(L, 1)
+    if co == nil {
+        return lua.L_typeerror(L, 1, "coroutine")
+    }
+    nargs := lua.gettop(L) - 1
+    if lua.checkstack(co, nargs) == 0 {
+        lua.pushboolean(L, false)
+        lua.pushstring(L, "too many arguments to resume")
+        return 2
+    }
+    lua.xmove(L, co, nargs)
+
+    nres: c.int
+    status := lua.resume(co, L, nargs, &nres)
+    if status != .OK && status != .YIELD {
+        lua.xmove(co, L, 1)
+        if budget_is_spent(L) {
+            return c.int(lua.error(L))
+        }
+        lua.pushboolean(L, false)
+        lua.insert(L, -2)
+        return 2
+    }
+    if lua.checkstack(L, nres + 1) == 0 {
+        lua.settop(co, -nres - 1)
+        lua.pushboolean(L, false)
+        lua.pushstring(L, "too many results to resume")
+        return 2
+    }
+    lua.pushboolean(L, true)
+    lua.xmove(co, L, nres)
+    return nres + 1
 }
 
 // coroutine.create(f): the stock body, plus the budget hook on the new thread.
@@ -322,6 +440,7 @@ co_wrap_resume :: proc "c" (L: ^lua.State) -> c.int {
 call_guarded :: proc(m: ^Manager, owner: int, nargs, nres: c.int, what: string) -> bool {
     nested := lua.gethook(m.state) != nil
     if !nested {
+        m.budget_spent = false
         m.active_start = time.tick_now()
         lua.sethook(m.state, budget_hook, lua.MASKCOUNT, HOOK_STEP)
     }

@@ -9,7 +9,11 @@
 // under /bin/sh. Both supply
 //
 //     run_status :: proc(command: string, cwd: string, timeout: time.Duration = 0) -> (output: string, code: int, ok: bool)
+//     exec_status :: proc(exe: string, args: []string, cwd: string, timeout: time.Duration = 0) -> (output: string, code: int, ok: bool)
 //     spawn :: proc(exe: string, arg: string, cwd: string) -> bool
+//
+// `exec_status` is `run_status` with no shell: the arguments are a list, so
+// text from a file cannot become a second command.
 //
 // where a `timeout` above zero kills the command and everything it started once
 // it passes, and appends a note to the output — for the one caller that cannot

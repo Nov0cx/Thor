@@ -48,8 +48,12 @@ check_package :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
     // git use, and what a relative path in the output would be relative to. With
     // no workspace open, the package's own directory serves.
     cwd := req.workspace != "" ? req.workspace : dir
-    command := fmt.tprintf("odin check \"%s\" -no-entry-point%s", dir, collection_flags(e, req.workspace))
-    output, code, ran := shell.run_status(command, cwd)
+    args := make([dynamic]string, context.temp_allocator)
+    append(&args, "check", dir, "-no-entry-point")
+    collection_flags(e, req.workspace, &args)
+    // An argument list, not a shell line: the directory and the collection
+    // roots come from the workspace.
+    output, code, ran := shell.exec_status("odin", args[:], cwd)
     defer delete(output)
     if !ran {
         return
@@ -91,23 +95,21 @@ check_package :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
 
 // `-collection:<name>=<dir>` for every collection the workspace config declares.
 // The compiler reads no `.thor/odin-analyzer.json`.
-// Each flag is quoted whole — a collection root can hold spaces. An entry the
+// Each flag is one argument — a collection root can hold spaces. An entry the
 // compiler would reject (a reserved name, a path that is not a directory) aborts
 // the run before it checks anything, so such entries are dropped instead.
 // Scratch-allocated.
 @(private = "file")
-collection_flags :: proc(e: ^Engine, workspace: string) -> string {
-    b := strings.builder_make(context.temp_allocator)
+collection_flags :: proc(e: ^Engine, workspace: string, args: ^[dynamic]string) {
     for c in config_collections(e, workspace) {
         if c.name == "core" || c.name == "vendor" || c.name == "base" {
             continue
         }
-        if !os.is_dir(c.dir) {
+        if !is_collection_name(c.name) || !os.is_dir(c.dir) {
             continue
         }
-        fmt.sbprintf(&b, " \"-collection:%s=%s\"", c.name, c.dir)
+        append(args, fmt.tprintf("-collection:%s=%s", c.name, c.dir))
     }
-    return strings.to_string(b)
 }
 
 // A parsed diagnostic line: the decoded fields, with `path` and `message` still

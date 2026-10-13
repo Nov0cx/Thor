@@ -369,6 +369,11 @@ Thor :: struct {
     // The one server a row or the palette asked to restart, acted on at the same
     // point and for the same reason. Owned; "" when none is owed.
     lang_restart_id: string,
+    // The workspace's lsp.json waits on an answer (see lsp_trust.odin). The key
+    // is the workspace and file digest the question is about; owned.
+    lsp_trust_pending: bool,
+    lsp_trust_declined: bool,
+    lsp_trust_key: string,
     // Signature of the three lsp.json layers, and the per-server states the
     // health poll last saw. Both owned; see thor/settings_watch.odin.
     lsp_sig: i64,
@@ -681,7 +686,7 @@ init :: proc() -> ^Thor {
     // branches on it. No server process starts until a file it claims opens.
     lang.manager_init(&thor.lang_manager)
     thor.odin_engine = odin.engine_create()
-    thor.lsp_client = lsp.client_create(thor.workspace_dir)
+    thor.lsp_client = lsp.client_create(thor.workspace_dir, thor_lsp_workspace_trusted(thor))
     if lsp.client_overrides(thor.lsp_client, ".odin") {
         lang.manager_register(&thor.lang_manager, lsp.client_backend(thor.lsp_client))
         lang.manager_register(&thor.lang_manager, odin.engine_backend(thor.odin_engine))
@@ -880,6 +885,7 @@ run :: proc(thor: ^Thor) {
         // callback, which dispatches from widgets the rebuild destroys.
         thor_poll_plugin_reload(thor)
         thor_prompt_plugin_permissions(thor)
+        thor_prompt_lsp_trust(thor)
         // Here for the same reason: the update prompt takes focus, and the swap
         // it can start replaces the files the frame below would draw from.
         thor_poll_update(thor)
@@ -968,6 +974,7 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.lsp_install_command)
     delete(thor.lsp_install_prompt)
     delete(thor.lang_restart_id)
+    delete(thor.lsp_trust_key)
     delete(thor.pending_goto_path)
     thor_clear_jump_list(thor)
     delete(thor.jump_back)

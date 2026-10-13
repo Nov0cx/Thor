@@ -50,6 +50,30 @@ test_run_status_reports_the_exit_code :: proc(t: ^testing.T) {
     testing.expect_value(t, code, 3)
 }
 
+// An argument is not shell text: the metacharacters in it reach the program
+// unchanged and start nothing.
+@(test)
+test_exec_status_passes_arguments_whole :: proc(t: ^testing.T) {
+    hostile := `x" & echo INJECTED & rem "$(echo INJECTED)`
+    output, code, ran := exec_status("git", {"rev-parse", "--sq-quote", hostile}, ".")
+    defer delete(output)
+
+    testing.expect(t, ran, "the command did not run to completion")
+    testing.expect_value(t, code, 0)
+    testing.expectf(t, strings.contains(output, hostile), "the argument was changed: %q", output)
+    testing.expectf(t, strings.count(output, "INJECTED") == 2, "a second command ran: %q", output)
+}
+
+// The exit status of a program run without a shell.
+@(test)
+test_exec_status_reports_the_exit_code :: proc(t: ^testing.T) {
+    output, code, ran := exec_status("git", {"no-such-subcommand"}, ".")
+    defer delete(output)
+
+    testing.expect(t, ran, "the command did not run to completion")
+    testing.expect(t, code != 0, "a failed command reported success")
+}
+
 // Zero means no timeout, which every caller on a worker thread relies on.
 @(test)
 test_run_without_timeout_reads_to_the_end :: proc(t: ^testing.T) {

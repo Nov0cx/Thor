@@ -296,7 +296,8 @@ test_sandbox_stops_runaway_plugin :: proc(t: ^testing.T) {
 }
 
 // A Lua hook is per thread, so a coroutine gets its own; a runaway loop inside
-// one is cut off like any other, and the error reaches the plugin.
+// one is cut off like any other. The plugin cannot catch the budget error: it
+// ends the whole call.
 @(test)
 test_sandbox_stops_runaway_coroutine :: proc(t: ^testing.T) {
     r: Recorder
@@ -310,20 +311,139 @@ test_sandbox_stops_runaway_coroutine :: proc(t: ^testing.T) {
 local ok, err = pcall(spin)
 thor.print("wrap ok=" .. tostring(ok) .. " err=" .. tostring(err))`
     start := time.tick_now()
-    testing.expect(t, manager_load_source(&m, "cowrap", "plugins/cowrap", wrapped, {}), "plugin runs")
+    testing.expect(t, !manager_load_source(&m, "cowrap", "plugins/cowrap", wrapped, {}), "the budget error was caught")
     elapsed := time.tick_since(start)
-    out := printed(&r)
-    testing.expectf(t, strings.contains(out, "wrap ok=false"), "wrapped coroutine never stopped: %q", out)
-    testing.expectf(t, strings.contains(out, "time budget"), "stopped for another reason: %q", out)
     testing.expectf(t, elapsed >= CALL_BUDGET && elapsed < 4 * CALL_BUDGET, "stopped at %v", elapsed)
 
     created := `local co = coroutine.create(function() while true do end end)
 local ok, err = coroutine.resume(co)
 thor.print("resume ok=" .. tostring(ok) .. " err=" .. tostring(err) .. " status=" .. coroutine.status(co))`
-    testing.expect(t, manager_load_source(&m, "cocreate", "plugins/cocreate", created, {}), "plugin runs")
-    out = printed(&r)
-    testing.expectf(t, strings.contains(out, "resume ok=false"), "created coroutine never stopped: %q", out)
-    testing.expectf(t, strings.contains(out, "status=dead"), "the coroutine survived its budget: %q", out)
+    testing.expect(t, !manager_load_source(&m, "cocreate", "plugins/cocreate", created, {}), "the budget error was caught")
+    out := printed(&r)
+    testing.expectf(t, !strings.contains(out, "ok="), "the plugin ran on past its budget: %q", out)
+}
+
+// pcall in a loop cannot hold the frame: the budget error passes through every
+// protected call.
+@(test)
+test_sandbox_budget_passes_through_pcall :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+
+    script := `local function spin() while true do end end
+while true do pcall(spin) end`
+    start := time.tick_now()
+    testing.expect(t, !manager_load_source(&m, "catch", "plugins/catch", script, {}), "the plugin outran its budget")
+    elapsed := time.tick_since(start)
+    testing.expectf(t, elapsed >= CALL_BUDGET && elapsed < 4 * CALL_BUDGET, "stopped at %v", elapsed)
+
+    handled := `local function spin() while true do end end
+while true do xpcall(spin, function(e) return e end) end`
+    start = time.tick_now()
+    testing.expect(t, !manager_load_source(&m, "xcatch", "plugins/xcatch", handled, {}), "the plugin outran its budget")
+    testing.expectf(t, time.tick_since(start) < 4 * CALL_BUDGET, "xpcall held the frame")
+
+    // The next call starts with a new budget.
+    testing.expect(t, manager_load_source(&m, "after", "plugins/after", "local x = 1", {}), "a later plugin runs")
+}
+
+// The replaced pcall, xpcall and coroutine.resume keep the stock results for an
+// ordinary error and for a yield across them.
+@(test)
+test_sandbox_protected_calls_keep_their_results :: proc(t: ^testing.T) {
+    r: Recorder
+    recorder_init(&r)
+    defer recorder_destroy(&r)
+    m: Manager
+    recording_manager(&m, &r)
+    defer manager_destroy(&m)
+
+    script := `local ok, err = pcall(error, "boom")
+thor.print("pcall " .. tostring(ok) .. " " .. tostring(err))
+local a, b, c = pcall(function(x, y) return x + y, "two" end, 1, 2)
+thor.print("values " .. tostring(a) .. " " .. tostring(b) .. " " .. tostring(c))
+local xok, xerr = xpcall(function() error("inner") end, function(e) return "handled" end)
+thor.print("xpcall " .. tostring(xok) .. " " .. tostring(xerr))
+local xa, xb = xpcall(function(v) return v * 2 end, print, 21)
+thor.print("xvalues " .. tostring(xa) .. " " .. tostring(xb))
+local co = coroutine.create(function(v)
+    local got = select(2, pcall(coroutine.yield, v + 1))
+    error("done " .. tostring(got))
+end)
+local r1, v1 = coroutine.resume(co, 1)
+thor.print("yield " .. tostring(r1) .. " " .. tostring(v1))
+local r2, v2 = coroutine.resume(co, "back")
+thor.print("resume " .. tostring(r2) .. " " .. tostring(v2))
+local r3, v3 = coroutine.resume(co)
+thor.print("dead " .. tostring(r3) .. " " .. tostring(v3))`
+    testing.expect(t, manager_load_source(&m, "calls", "plugins/calls", script, {}), "plugin runs")
+    out := printed(&r)
+    testing.expectf(t, strings.contains(out, "pcall false boom"), "pcall: %q", out)
+    testing.expectf(t, strings.contains(out, "values true 3 two"), "pcall results: %q", out)
+    testing.expectf(t, strings.contains(out, "xpcall false handled"), "xpcall: %q", out)
+    testing.expectf(t, strings.contains(out, "xvalues true 42"), "xpcall results: %q", out)
+    testing.expectf(t, strings.contains(out, "yield true 2"), "yield across pcall: %q", out)
+    testing.expectf(t, strings.contains(out, "resume false") && strings.contains(out, "done back"), "resume: %q", out)
+    testing.expectf(t, strings.contains(out, "dead false cannot resume dead coroutine"), "dead coroutine: %q", out)
+}
+
+// A `__gc` finaliser runs with hooks off, so a plugin cannot set one.
+@(test)
+test_sandbox_refuses_a_finaliser :: proc(t: ^testing.T) {
+    r: Recorder
+    recorder_init(&r)
+    defer recorder_destroy(&r)
+    m: Manager
+    recording_manager(&m, &r)
+    defer manager_destroy(&m)
+
+    script := `setmetatable({}, {__gc = function() while true do end end})`
+    testing.expect(t, !manager_load_source(&m, "gc", "plugins/gc", script, {}), "a finaliser was accepted")
+    placeholder := `setmetatable({}, {__gc = true})`
+    testing.expect(t, !manager_load_source(&m, "gc2", "plugins/gc2", placeholder, {}), "a __gc placeholder was accepted")
+
+    plain := `local t = setmetatable({}, {__index = function(_, k) return k .. "!" end})
+thor.print("meta " .. t.hello .. " " .. tostring(getmetatable(t) ~= nil))`
+    testing.expect(t, manager_load_source(&m, "meta", "plugins/meta", plain, {}), "plugin runs")
+    testing.expectf(t, strings.contains(printed(&r), "meta hello! true"), "setmetatable: %q", printed(&r))
+}
+
+// The host measures a lexer result with no `__len` call: a metamethod there
+// would run outside the budget and outside a protected call.
+@(test)
+test_lexer_result_length_runs_no_metamethod :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+
+    script := `thor.register_language { name = "Raise", extensions = { ".raise" },
+    highlight = function() return setmetatable({}, {__len = function() error("x") end}) end }
+thor.register_language { name = "Huge", extensions = { ".huge" },
+    highlight = function() return setmetatable({ { 0, 1, "keywords" } }, {__len = function() return 1 << 60 end}) end }
+thor.register_language { name = "Sparse", extensions = { ".sparse" },
+    highlight = function()
+        local t = { { 0, 1, "keywords" } }
+        for i = 1, 62 do t[1 << i] = { 0, 1, "keywords" } end
+        t[3] = nil
+        return t
+    end }`
+    testing.expect(t, manager_load_source(&m, "len", "plugins/len", script, {}), "plugin runs")
+
+    raised := highlight(&m, "", "abc", ".raise", context.allocator)
+    testing.expect_value(t, len(raised), 0)
+    delete(raised)
+
+    start := time.tick_now()
+    for ext in ([]string{".huge", ".sparse"}) {
+        spans := highlight(&m, "", "abc", ext, context.allocator)
+        testing.expect_value(t, len(spans), 1)
+        for s in spans {
+            delete(s.role)
+        }
+        delete(spans)
+    }
+    testing.expectf(t, time.tick_since(start) < time.Second, "the host loop ran for %v", time.tick_since(start))
 }
 
 // Paths resolve against the workspace, and a path climbing out of it never

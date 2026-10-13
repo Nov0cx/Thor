@@ -9,7 +9,7 @@ import "../lang/lsp"
 @(private = "file")
 settings_test_thor :: proc() -> ^Thor {
     thor := new(Thor)
-    thor.lsp_client = lsp.client_create("")
+    thor.lsp_client = lsp.client_create("", false)
     thor_settings_init(thor)
     return thor
 }

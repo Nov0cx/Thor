@@ -371,7 +371,7 @@ thor_poll_update :: proc(thor: ^Thor) {
     }
     if thor.update_state == .Found && !thor.update_prompt_shown {
         // One prompt at a time: the plugin permissions ask for the same palette.
-        if thor.plugin_prompt_shown || len(thor.plugin_requests) > 0 {
+        if thor.plugin_prompt_shown || thor.permission_open || thor.lsp_trust_pending || len(thor.plugin_requests) > 0 {
             return
         }
         thor_prompt_update(thor)

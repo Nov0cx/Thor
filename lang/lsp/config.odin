@@ -9,6 +9,7 @@ import "core:fmt"
 import "core:log"
 import "core:os"
 import "core:path/filepath"
+import "core:slice"
 import "core:strings"
 
 import lang ".."
@@ -70,10 +71,71 @@ Config :: struct {
     allocator: runtime.Allocator,
 }
 
+// One entry of the workspace file, as a trust prompt shows it.
+Workspace_Command :: struct {
+    id:   string, // owned by the allocator given
+    text: string, // owned; the command line, with `cwd` and `env` when stated
+}
+
+// Path of the workspace's own server table.
+config_workspace_path :: proc(workspace: string, allocator := context.allocator) -> (string, bool) {
+    if workspace == "" {
+        return "", false
+    }
+    path, jerr := filepath.join({workspace, WORKSPACE_CONFIG_DIR, WORKSPACE_CONFIG}, allocator)
+    return path, jerr == nil
+}
+
+// The entries of `<workspace>/.thor/lsp.json` alone, unexpanded. Empty when the
+// file is absent, malformed or names no entry, so there is nothing to allow.
+config_workspace_commands :: proc(workspace: string, allocator := context.allocator) -> []Workspace_Command {
+    path, ok := config_workspace_path(workspace, context.temp_allocator)
+    if !ok {
+        return nil
+    }
+    scratch := Config {
+        servers   = make([dynamic]Server_Config, context.temp_allocator),
+        problems  = make([dynamic]Config_Problem, context.temp_allocator),
+        allocator = context.temp_allocator,
+    }
+    config_merge_file(&scratch, path)
+    if len(scratch.servers) == 0 {
+        return nil
+    }
+
+    out := make([]Workspace_Command, len(scratch.servers), allocator)
+    for server, index in scratch.servers {
+        b := strings.builder_make(context.temp_allocator)
+        if len(server.command) == 0 {
+            strings.write_string(&b, "changes a server already configured")
+        }
+        for arg, at in server.command {
+            if at > 0 {
+                strings.write_byte(&b, ' ')
+            }
+            strings.write_string(&b, arg)
+        }
+        if server.cwd != "" {
+            fmt.sbprintf(&b, "  (in %s)", server.cwd)
+        }
+        // A JSON object is a map, so the order is made stable here.
+        slice.sort(server.env)
+        for entry in server.env {
+            fmt.sbprintf(&b, "  %s", entry)
+        }
+        out[index] = Workspace_Command {
+            id   = strings.clone(server.id, allocator),
+            text = strings.clone(strings.to_string(b), allocator),
+        }
+    }
+    return out
+}
+
 // Reads the shipped table, then the user's, then the workspace's. A file that is
 // absent, unreadable or malformed contributes nothing: a broken workspace file
-// must not remove the servers the shipped one names.
-config_load :: proc(workspace: string, allocator := context.allocator) -> Config {
+// must not remove the servers the shipped one names. The workspace file comes
+// with the folder, so it is read only when the host says the user allowed it.
+config_load :: proc(workspace: string, trust_workspace: bool, allocator := context.allocator) -> Config {
     cfg := Config {
         servers   = make([dynamic]Server_Config, allocator),
         problems  = make([dynamic]Config_Problem, allocator),
@@ -82,10 +144,11 @@ config_load :: proc(workspace: string, allocator := context.allocator) -> Config
     }
     config_merge_file(&cfg, GLOBAL_CONFIG)
     config_merge_file(&cfg, USER_CONFIG)
-    if workspace != "" {
-        path, jerr := filepath.join({workspace, WORKSPACE_CONFIG_DIR, WORKSPACE_CONFIG}, context.temp_allocator)
-        if jerr == nil {
+    if path, ok := config_workspace_path(workspace, context.temp_allocator); ok {
+        if trust_workspace {
             config_merge_file(&cfg, path)
+        } else if os.exists(path) {
+            config_report(&cfg, path, "", "is not loaded until this folder's language servers are allowed")
         }
     }
     config_finish(&cfg)

@@ -51,6 +51,43 @@ find :: proc(cfg: ^Config, id: string) -> (^Server_Config, bool) {
     return &cfg.servers[at], true
 }
 
+// The workspace file comes with the folder: it joins the table only when the
+// host allows it, and its entries can be listed without loading them.
+@(test)
+test_config_gates_the_workspace_file :: proc(t: ^testing.T) {
+    root := "thor_lsp_trust_ws"
+    dir := strings.concatenate({root, "/", WORKSPACE_CONFIG_DIR}, context.temp_allocator)
+    path := strings.concatenate({dir, "/", WORKSPACE_CONFIG}, context.temp_allocator)
+    _ = os.make_directory(root)
+    _ = os.make_directory(dir)
+    defer os.remove(root)
+    defer os.remove(dir)
+    defer os.remove(path)
+
+    text := `{"servers": [{"id": "thor-test-evil", "extensions": [".md"], "command": ["evil", "--stdio"],
+        "cwd": "sub", "env": {"B": "2", "A": "1"}}]}`
+    testing.expect(t, os.write_entire_file(path, transmute([]byte)text) == nil, "wrote the workspace file")
+
+    closed := config_load(root, false)
+    defer config_destroy(&closed)
+    _, loaded := find(&closed, "thor-test-evil")
+    testing.expect(t, !loaded, "an untrusted workspace entry was loaded")
+    testing.expect(t, reports(&closed, "is not loaded"), "the skipped file was not reported")
+
+    open := config_load(root, true)
+    defer config_destroy(&open)
+    _, loaded = find(&open, "thor-test-evil")
+    testing.expect(t, loaded, "a trusted workspace entry was dropped")
+
+    commands := config_workspace_commands(root, context.temp_allocator)
+    testing.expect_value(t, len(commands), 1)
+    if len(commands) == 1 {
+        testing.expect_value(t, commands[0].id, "thor-test-evil")
+        testing.expect_value(t, commands[0].text, "evil --stdio  (in sub)  A=1  B=2")
+    }
+    testing.expect_value(t, len(config_workspace_commands("thor_lsp_no_such_ws", context.temp_allocator)), 0)
+}
+
 // Every field of a whole entry, since each one is a separate decode.
 @(test)
 test_config_parses_an_entry :: proc(t: ^testing.T) {

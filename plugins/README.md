@@ -24,7 +24,14 @@ Every plugin runs in its own environment inside one shared Lua state:
 - One call into a plugin may hold the frame for two seconds. Past that the call
   fails with `plugin exceeded its time budget` and the editor keeps running. The
   budget covers a coroutine too, and it is the call's budget: time a coroutine
-  spends resumed counts against the call that resumed it.
+  spends resumed counts against the call that resumed it. The budget error
+  cannot be caught: `pcall`, `xpcall` and `coroutine.resume` raise it again, so
+  it ends the whole call. Every other error they catch as usual.
+- `setmetatable` refuses a metatable with a `__gc` entry. A finaliser would run
+  outside the budget.
+- A list the host reads back — lexer spans, menu entries, picker items, panel
+  nodes — is measured raw: `__len` on it is not called, and reading stops at
+  the first `nil`.
 - `thor.exec` blocks the frame while the command runs, and the budget above
   cannot stop it — it counts Lua instructions, and there are none to count while
   a command runs. So `thor.exec` stops the command itself once the call's budget
