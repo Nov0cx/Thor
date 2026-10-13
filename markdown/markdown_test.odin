@@ -267,3 +267,228 @@ test_inline_styles_take_their_colors :: proc(t: ^testing.T) {
     testing.expect_value(t, seen["strong"], pal.strong)
     testing.expect_value(t, seen["code"], pal.code)
 }
+
+// The text items of a page, in order.
+@(private = "file")
+texts :: proc(page: ^Page) -> [dynamic]Item {
+    out := make([dynamic]Item, context.temp_allocator)
+    for item in page.items {
+        if item.kind == .Text {
+            append(&out, item)
+        }
+    }
+    return out
+}
+
+@(private = "file")
+count_rects :: proc(page: ^Page) -> int {
+    n := 0
+    for item in page.items {
+        if item.kind == .Rect {
+            n += 1
+        }
+    }
+    return n
+}
+
+// An escaped marker is the character itself, with no space around it and no
+// style opened.
+@(test)
+test_backslash_escape_is_literal :: proc(t: ^testing.T) {
+    page: Page
+    defer page_destroy(&page)
+    pal := test_palette()
+    lay(&page, "a\\*b\\* c\n")
+
+    items := texts(&page)
+    testing.expect_value(t, len(items), 5)
+    if len(items) != 5 {
+        return
+    }
+    testing.expect_value(t, items[1].text, "*")
+    testing.expect_value(t, items[1].color, pal.text)
+    // "a", "*", "b", "*" touch; "c" is one space on.
+    testing.expect_value(t, items[1].x, 1 * CELL)
+    testing.expect_value(t, items[3].x, 3 * CELL)
+    testing.expect_value(t, items[4].x, 5 * CELL)
+}
+
+// An underscore inside a word is not emphasis.
+@(test)
+test_underscore_in_a_word_stays :: proc(t: ^testing.T) {
+    page: Page
+    defer page_destroy(&page)
+    lay(&page, "snake_case_name and _em_\n")
+
+    items := texts(&page)
+    testing.expect_value(t, items[0].text, "snake_case_name")
+    testing.expect_value(t, items[len(items) - 1].text, "em")
+    testing.expect_value(t, items[len(items) - 1].color, test_palette().strong)
+}
+
+@(test)
+test_strikethrough_draws_a_line :: proc(t: ^testing.T) {
+    page: Page
+    defer page_destroy(&page)
+    lay(&page, "keep ~~drop~~\n")
+
+    testing.expect_value(t, count_rects(&page), 1)
+    items := texts(&page)
+    testing.expect_value(t, items[1].text, "drop")
+    for item in page.items {
+        if item.kind == .Rect {
+            testing.expect_value(t, item.x, items[1].x)
+            testing.expect_value(t, item.w, 4 * CELL)
+            testing.expect(t, item.y > items[1].y && item.y < items[1].y + LINE)
+        }
+    }
+}
+
+// Two spaces, a backslash or a <br> end the row; a plain line end does not.
+@(test)
+test_hard_break_starts_a_row :: proc(t: ^testing.T) {
+    page: Page
+    defer page_destroy(&page)
+
+    for source in ([]string{"one  \ntwo\n", "one\\\ntwo\n", "one<br>two\n"}) {
+        lay(&page, source)
+        items := texts(&page)
+        testing.expect_value(t, len(items), 2)
+        if len(items) == 2 {
+            testing.expect_value(t, items[1].y - items[0].y, LINE)
+            testing.expect_value(t, items[1].x, f32(0))
+        }
+    }
+
+    lay(&page, "one\ntwo\n")
+    items := texts(&page)
+    testing.expect_value(t, items[1].y, items[0].y)
+}
+
+// A line of = or - under a paragraph makes it a heading, and the underline is
+// not drawn as text.
+@(test)
+test_setext_heading :: proc(t: ^testing.T) {
+    page: Page
+    defer page_destroy(&page)
+
+    lay(&page, "Title\n=====\n\nSub\n---\n\nbody\n")
+    items := texts(&page)
+    testing.expect_value(t, len(items), 3)
+    if len(items) != 3 {
+        return
+    }
+    testing.expect_value(t, items[0].size, i32(16 + 13))
+    testing.expect_value(t, items[1].size, i32(16 + 8))
+    testing.expect_value(t, items[2].size, i32(16))
+    testing.expect_value(t, count_rects(&page), 2)
+}
+
+// A reference link takes its url from the definition, which is not drawn.
+@(test)
+test_reference_link_resolves :: proc(t: ^testing.T) {
+    page: Page
+    defer page_destroy(&page)
+    lay(&page, "see [the docs][Docs], [site] and [none]\n\n[docs]: building.md \"Build\"\n[site]: <https://example.org>\n")
+
+    urls: [dynamic]string
+    defer delete(urls)
+    for item in page.items {
+        if item.url != "" {
+            append(&urls, item.url)
+        }
+        if item.kind == .Text {
+            testing.expect(t, item.text != "building.md", "a definition is not text")
+        }
+    }
+    testing.expect_value(t, len(urls), 2)
+    if len(urls) == 2 {
+        testing.expect_value(t, urls[0], "building.md")
+        testing.expect_value(t, urls[1], "https://example.org")
+    }
+}
+
+@(test)
+test_autolink :: proc(t: ^testing.T) {
+    page: Page
+    defer page_destroy(&page)
+    lay(&page, "at <https://example.org/x> now\n")
+    testing.expect_value(t, first_url(&page), "https://example.org/x")
+}
+
+// A deeper indent is a deeper level; a shallower one comes back to its level.
+@(test)
+test_nested_list_indents :: proc(t: ^testing.T) {
+    page: Page
+    defer page_destroy(&page)
+    lay(&page, "- one\n  - two\n    - three\n  - four\n- five\n")
+
+    xs: [dynamic]f32
+    defer delete(xs)
+    for item in page.items {
+        if item.kind == .Text && item.text != "•" {
+            append(&xs, item.x)
+        }
+    }
+    testing.expect_value(t, len(xs), 5)
+    if len(xs) != 5 {
+        return
+    }
+    testing.expect_value(t, xs[0], f32(24))
+    testing.expect_value(t, xs[1], f32(48))
+    testing.expect_value(t, xs[2], f32(72))
+    testing.expect_value(t, xs[3], f32(48))
+    testing.expect_value(t, xs[4], f32(24))
+}
+
+// A plain line under an item belongs to the item, at its indent.
+@(test)
+test_list_item_continues :: proc(t: ^testing.T) {
+    page: Page
+    defer page_destroy(&page)
+    lay(&page, "- one\n  two\n")
+
+    items := texts(&page)
+    testing.expect_value(t, len(items), 3)
+    if len(items) == 3 {
+        testing.expect_value(t, items[2].text, "two")
+        testing.expect_value(t, items[2].y, items[1].y)
+    }
+}
+
+// A code line wider than the panel continues on the next row, and the panel
+// grows with it.
+@(test)
+test_code_block_wraps :: proc(t: ^testing.T) {
+    page: Page
+    defer page_destroy(&page)
+    // The panel is 116 px inside its padding: eleven characters a row.
+    lay(&page, "~~~\n0123456789abcdefghij\n~~~\n", 132)
+
+    items := texts(&page)
+    testing.expect_value(t, len(items), 2)
+    if len(items) != 2 {
+        return
+    }
+    testing.expect_value(t, items[0].text, "0123456789a")
+    testing.expect_value(t, items[1].text, "bcdefghij")
+    testing.expect_value(t, items[1].y - items[0].y, LINE)
+    for item in page.items {
+        if item.kind == .Rect {
+            testing.expect_value(t, item.h, 2 * LINE + 16)
+        }
+    }
+}
+
+// Consecutive quote lines are one block behind one bar.
+@(test)
+test_quote_lines_fold :: proc(t: ^testing.T) {
+    page: Page
+    defer page_destroy(&page)
+    lay(&page, "> one\n> two\n")
+
+    items := texts(&page)
+    testing.expect_value(t, len(items), 2)
+    testing.expect_value(t, items[1].y, items[0].y)
+    testing.expect_value(t, count_rects(&page), 1)
+}
