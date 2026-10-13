@@ -326,6 +326,35 @@ test_load_overlay_layers_in_order :: proc(t: ^testing.T) {
     testing.expect_value(t, autosave_delay_ms(&s), 1500)
 }
 
+// An integer outside its range loads as the nearest bound; one inside is kept.
+@(test)
+test_load_clamps_integers :: proc(t: ^testing.T) {
+    dir := "thor_clamp.tmp"
+    path := concat_for_test(dir, "/settings.json")
+    defer {
+        os.remove(path)
+        os.remove(dir)
+    }
+
+    testing.expect(t, persist_int(path, "font_size", -4))
+    testing.expect(t, persist_int(path, "tab_width", 0))
+    testing.expect(t, persist_int(path, "autosave_delay_ms", 99999999))
+
+    low := load(dir)
+    defer destroy(&low)
+    testing.expect_value(t, font_size(&low), FONT_SIZE_MIN)
+    testing.expect_value(t, tab_width(&low), TAB_WIDTH_MIN)
+    testing.expect_value(t, autosave_delay_ms(&low), AUTOSAVE_DELAY_MAX)
+
+    testing.expect(t, persist_int(path, "font_size", 500))
+    testing.expect(t, persist_int(path, "tab_width", 8))
+
+    high := load(dir)
+    defer destroy(&high)
+    testing.expect_value(t, font_size(&high), FONT_SIZE_MAX)
+    testing.expect_value(t, tab_width(&high), 8)
+}
+
 @(private = "file")
 concat_for_test :: proc(a, b: string) -> string {
     return strings.concatenate({a, b}, context.temp_allocator)

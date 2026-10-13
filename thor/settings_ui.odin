@@ -61,9 +61,16 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
     }
 
     thor_settings_begin_category(view, "editor", "Editor", "adjustments")
-    thor_settings_add_number(view, "tab_width", "Tab Width", setting.tab_width(config), 1, 16, 1)
-    thor_settings_add_number(view, "font_size", "Font Size", setting.font_size(config), 8, 48, 1)
-    thor_settings_add_number(view, "autosave_delay_ms", "Autosave Delay (ms)", setting.autosave_delay_ms(config), 0, 10000, 250)
+    thor_settings_add_number(
+        view, "tab_width", "Tab Width", setting.tab_width(config), setting.TAB_WIDTH_MIN, setting.TAB_WIDTH_MAX, 1,
+    )
+    thor_settings_add_number(
+        view, "font_size", "Font Size", setting.font_size(config), setting.FONT_SIZE_MIN, setting.FONT_SIZE_MAX, 1,
+    )
+    thor_settings_add_number(
+        view, "autosave_delay_ms", "Autosave Delay (ms)", setting.autosave_delay_ms(config),
+        setting.AUTOSAVE_DELAY_MIN, setting.AUTOSAVE_DELAY_MAX, 250,
+    )
     thor_settings_add_choice(view, "indent_guides", "Indent Guides", thor_on_off_label(setting.indent_guides(config)))
     thor_settings_add_choice(
         view, "relative_line_numbers", "Relative Line Numbers", thor_on_off_label(setting.relative_line_numbers(config)),

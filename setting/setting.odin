@@ -115,6 +115,14 @@ GLOBAL_DIR :: "settings"
 // and never swapped, so a build or an update keeps it.
 USER_DIR :: "user"
 
+// The range each integer setting is held to, in a file and in the settings panel.
+TAB_WIDTH_MIN :: 1
+TAB_WIDTH_MAX :: 16
+FONT_SIZE_MIN :: 8
+FONT_SIZE_MAX :: 48
+AUTOSAVE_DELAY_MIN :: 0
+AUTOSAVE_DELAY_MAX :: 10000
+
 // Where an opened folder goes. Parsed from the open_folder_in setting.
 Open_Folder_In :: enum {
     Ask,
@@ -868,9 +876,9 @@ load_general :: proc(s: ^Settings, path: string) {
     if !ok {
         return
     }
-    read_int(root, "tab_width", &s.general.tab_width)
-    read_int(root, "font_size", &s.general.font_size)
-    read_int(root, "autosave_delay_ms", &s.general.autosave_delay_ms)
+    read_int(root, "tab_width", &s.general.tab_width, TAB_WIDTH_MIN, TAB_WIDTH_MAX)
+    read_int(root, "font_size", &s.general.font_size, FONT_SIZE_MIN, FONT_SIZE_MAX)
+    read_int(root, "autosave_delay_ms", &s.general.autosave_delay_ms, AUTOSAVE_DELAY_MIN, AUTOSAVE_DELAY_MAX)
     read_string(root, "theme", &s.general.theme)
     read_string(root, "font", &s.general.font)
     read_string(root, "icon_pack", &s.general.icon_pack)
@@ -973,15 +981,25 @@ read_string :: proc(obj: json.Object, key: string, dst: ^string) {
     }
 }
 
-// Reads an integer field into dst, leaving the default in place if absent.
+// Reads an integer field into dst, leaving the default in place if absent. A
+// value outside lo..hi is clamped and reported.
 @(private)
-read_int :: proc(obj: json.Object, key: string, dst: ^int) {
+read_int :: proc(obj: json.Object, key: string, dst: ^int, lo, hi: int) {
+    value: i64
     #partial switch v in obj[key] {
     case json.Integer:
-        dst^ = cast(int) v
+        value = v
     case json.Float:
-        dst^ = cast(int) v
+        // A float outside the i64 range has no defined cast.
+        value = cast(i64) clamp(v, cast(f64) lo, cast(f64) hi)
+    case:
+        return
     }
+    clamped := clamp(value, cast(i64) lo, cast(i64) hi)
+    if clamped != value {
+        log.warnf("Setting %q: %d is outside %d..%d, using %d", key, value, lo, hi, clamped)
+    }
+    dst^ = cast(int) clamped
 }
 
 // Reads a boolean field into dst, leaving the default in place if absent.
