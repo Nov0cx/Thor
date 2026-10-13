@@ -628,11 +628,31 @@ test_line_table_matches_scan :: proc(t: ^testing.T) {
     testing.expect_value(t, state_line_count(&state), line_count(txt))
     testing.expect_value(t, state_line_start(&state, 1), line_start_of_index(txt, 1))
 
-    // set_text puts the revision back to 0, which the table cannot detect on its
-    // own.
+    // set_text replaces the whole buffer, so the table must be rebuilt.
     set_text(&state, "a\nb")
     testing.expect_value(t, state_line_count(&state), 2)
     testing.expect_value(t, state_line_start(&state, 1), 2)
+}
+
+// set_text is a content change: the revision must move, and never back, or a
+// reload of an unedited buffer reads as no change.
+@(test)
+test_set_text_bumps_revision :: proc(t: ^testing.T) {
+    state: State
+    init(&state)
+    defer destroy(&state)
+
+    set_text(&state, "one")
+    first := state.revision
+    testing.expect(t, first != 0, "set_text must change the revision of a new buffer")
+
+    set_text(&state, "two")
+    testing.expect(t, state.revision > first, "a second set_text must raise the revision")
+
+    insert_text(&state, "x")
+    edited := state.revision
+    set_text(&state, "three")
+    testing.expect(t, state.revision > edited, "set_text must not lower the revision")
 }
 
 // Types `s` one character at a time, the way the editor feeds keystrokes in.

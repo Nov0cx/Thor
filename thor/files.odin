@@ -785,7 +785,7 @@ thor_apply_reload :: proc(thor: ^Thor, job: ^Load_Job) {
     file.line_ending = ending
     textedit.set_text(&file.state, buffer_text)
     textedit.set_cursors(&file.state, cursors[:])
-    file.saved_revision = file.state.revision // set_text zeroed it; stay clean
+    file.saved_revision = file.state.revision // set_text bumped it; stay clean
     file.last_seen_revision = file.state.revision
     thor_invalidate_file_derived(file)
     // Re-bind here, not in thor_process_io: only this frame still holds the old
@@ -1264,8 +1264,8 @@ thor_process_io :: proc(thor: ^Thor) {
             file.line_ending = job.ending
             textedit.set_text(&file.state, job.text)
             file.loaded = true
-            file.saved_revision = 0
-            file.last_seen_revision = 0
+            file.saved_revision = file.state.revision
+            file.last_seen_revision = file.state.revision
         } else {
             file.load_failed = true
             if job.binary {

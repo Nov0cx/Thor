@@ -118,6 +118,38 @@ test_lang_sync_one_change_per_edit :: proc(t: ^testing.T) {
     testing.expect_value(t, len(probe.events), 2)
 }
 
+// A reload replaces the text of a buffer that was never edited. The backend
+// must get that text.
+@(test)
+test_lang_sync_sees_reload_of_unedited_buffer :: proc(t: ^testing.T) {
+    probe := Sync_Probe{}
+    thor := new(Thor)
+    defer free(thor)
+    thor.open_files = make([dynamic]^Open_File)
+    lang.manager_init(&thor.lang_manager)
+    lang.manager_register(&thor.lang_manager, sync_backend(&probe))
+    defer {
+        for file in thor.open_files {
+            thor_free_open_file(file)
+        }
+        delete(thor.open_files)
+        lang.manager_destroy(&thor.lang_manager)
+    }
+
+    file := sync_file(thor, "probe.sync", "one\n")
+    thor_lang_notify(thor, file, .Opened)
+    opened := file.state.revision
+
+    textedit.set_text(&file.state, "two\n")
+    thor_sync_lang_documents(thor)
+    testing.expect_value(t, len(probe.events), 2)
+    if len(probe.events) == 2 {
+        testing.expect_value(t, probe.events[1], lang.Doc_Event.Changed)
+        testing.expect_value(t, probe.sources[1], "two\n")
+        testing.expect(t, probe.revisions[1] > opened, "a reload must raise the revision the backend sees")
+    }
+}
+
 @(test)
 test_lang_sync_ignores_other_files :: proc(t: ^testing.T) {
     probe := Sync_Probe{}

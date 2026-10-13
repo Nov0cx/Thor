@@ -68,7 +68,7 @@ State :: struct {
     undo_bytes: int,
     // True while the top undo entry can still absorb the next keystroke.
     coalescing: bool,
-    // Bumped on every content change (edits, undo, redo); reset by set_text.
+    // Bumped on every content change (edits, undo, redo, set_text); never lowered.
     // Callers compare against a saved revision to detect unsaved changes.
     revision:   u64,
     // This document's soft-tab width; 0 follows the package default.
@@ -103,9 +103,7 @@ set_text :: proc(state: ^State, new_text: string) {
     append(&state.cursors, Cursor {})
     state.undo_bytes = 0
     state.coalescing = false
-    state.revision = 0
-    // The revision goes back to 0 here, so the table cannot detect this change by
-    // the revision alone.
+    state.revision += 1
     state.lines_valid = false
 }
 
