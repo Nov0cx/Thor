@@ -62,3 +62,36 @@ test_empty_query_matches_nothing :: proc(t: ^testing.T) {
     testing.expect(t, scan("abc", "", {}, &out))
     testing.expect_value(t, len(out), 0)
 }
+
+@(test)
+test_zero_width_pattern_matches_each_line :: proc(t: ^testing.T) {
+    out := make([dynamic]Match, context.temp_allocator)
+    testing.expect(t, scan("ab\ncd\nef", "^", {use_regex = true}, &out))
+    testing.expect_value(t, len(out), 3)
+    testing.expect_value(t, out[1].start, 3)
+    testing.expect_value(t, out[1].end, 3)
+
+    clear(&out)
+    testing.expect(t, scan("ab\ncd", "$", {use_regex = true}, &out))
+    testing.expect_value(t, len(out), 2)
+    testing.expect_value(t, out[0].start, 2)
+    testing.expect_value(t, out[1].start, 5)
+
+    // An empty match does not hide the matches after it.
+    clear(&out)
+    testing.expect(t, scan("baaa", "a*", {use_regex = true}, &out))
+    testing.expect_value(t, len(out), 2)
+    testing.expect_value(t, out[1].start, 1)
+    testing.expect_value(t, out[1].end, 4)
+}
+
+@(test)
+test_expand_capture_groups :: proc(t: ^testing.T) {
+    out := make([dynamic]Match, context.temp_allocator)
+    captures := make([dynamic][2]int, context.temp_allocator)
+    text := "key = value"
+    testing.expect(t, scan(text, "(\\w+) = (\\w+)", {use_regex = true}, &out, &captures))
+    testing.expect_value(t, len(out), 1)
+    testing.expect_value(t, expand(text, out[0], captures[:], "$2: $1"), "value: key")
+    testing.expect_value(t, expand(text, out[0], captures[:], "[$0] $$ $& $9 \\n"), "[key = value] $ key = value  \n")
+}

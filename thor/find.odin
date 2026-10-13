@@ -21,6 +21,8 @@ Find_Replace :: struct {
     find:           [dynamic]u8, // owned; ui.input edits it in place
     replace:        [dynamic]u8, // owned
     matches:        [dynamic]search.Match, // owned
+    // The capture groups of the regular-expression matches. Owned.
+    captures:       [dynamic][2]int,
     current:        int,
     // Buffer the offsets in `matches` were scanned from. `set_text` puts the
     // revision back to 0, so the pointer and the length are part of the identity.
@@ -43,6 +45,7 @@ thor_find_init :: proc(thor: ^Thor) {
     f.find = make([dynamic]u8)
     f.replace = make([dynamic]u8)
     f.matches = make([dynamic]search.Match)
+    f.captures = make([dynamic][2]int)
 }
 
 thor_find_destroy :: proc(thor: ^Thor) {
@@ -50,6 +53,7 @@ thor_find_destroy :: proc(thor: ^Thor) {
     delete(f.find)
     delete(f.replace)
     delete(f.matches)
+    delete(f.captures)
 }
 
 // Opens over `editor`, seeding the query from its selection when there is one.
@@ -90,6 +94,7 @@ find_close :: proc(thor: ^Thor) {
 @(private = "file")
 find_recompute :: proc(f: ^Find_Replace) {
     clear(&f.matches)
+    clear(&f.captures)
     f.current = 0
     f.regex_bad = false
     state := f.editor != nil ? f.editor.state : nil
@@ -102,7 +107,7 @@ find_recompute :: proc(f: ^Find_Replace) {
 
     text := textedit.text(state)
     from, _ := textedit.selection_range(textedit.primary_cursor(state))
-    if !search.scan(text, string(f.find[:]), f.options, &f.matches) {
+    if !search.scan(text, string(f.find[:]), f.options, &f.matches, &f.captures) {
         f.regex_bad = true
         return
     }
@@ -161,10 +166,35 @@ find_do_replace :: proc(f: ^Find_Replace) {
         return
     }
     match := f.matches[f.current]
-    textedit.select_range(f.editor.state, match.start, match.end)
-    textedit.insert_text(f.editor.state, string(f.replace[:]))
+    replacement := find_replacement(f, textedit.text(f.editor.state), match)
+    if err := textedit.replace_range(f.editor.state, match.start, match.end - match.start, replacement); err != .None {
+        return
+    }
+    // The caret goes after the new text, so the scan lands on the next match.
+    textedit.set_single_cursor(f.editor.state, match.start + len(replacement))
     find_recompute(f)
+    // A match that takes no text can match again at the caret: go past it.
+    if match.end == match.start {
+        caret := match.start + len(replacement)
+        f.current = 0
+        for next, index in f.matches {
+            if next.start > caret {
+                f.current = index
+                break
+            }
+        }
+    }
     find_select_current(f)
+}
+
+// The text one match is replaced with. A regular expression expands the capture
+// references; a literal query replaces with the text as typed. Temp allocator.
+@(private = "file")
+find_replacement :: proc(f: ^Find_Replace, text: string, match: search.Match) -> string {
+    if !f.options.use_regex {
+        return string(f.replace[:])
+    }
+    return search.expand(text, match, f.captures[:], string(f.replace[:]))
 }
 
 // Replaces every match at once. The ranges are already in hand, so this goes
@@ -178,10 +208,11 @@ find_do_replace_all :: proc(f: ^Find_Replace) {
         return
     }
     ranges := make([dynamic]textedit.Replace, 0, len(f.matches), context.temp_allocator)
+    text := textedit.text(f.editor.state)
     for match in f.matches {
         append(
             &ranges,
-            textedit.Replace{start = match.start, end = match.end, text = string(f.replace[:])},
+            textedit.Replace{start = match.start, end = match.end, text = find_replacement(f, text, match)},
         )
     }
     // The sync above scanned this revision, so replace_ranges keeps every range.

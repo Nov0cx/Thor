@@ -3,6 +3,7 @@
 // which is what lets the find bar and any other caller share one scanner.
 package search
 
+import "core:strings"
 import "core:text/regex"
 import "core:unicode"
 import "core:unicode/utf8"
@@ -10,8 +11,12 @@ import "core:unicode/utf8"
 // One match as a byte range. The length is not len(query): a regular expression
 // matches spans of its own size, and a case-folded match can change width.
 Match :: struct {
-    start: int,
-    end:   int,
+    start:       int,
+    end:         int,
+    // The capture groups of a regular-expression match: `group_count` ranges
+    // from `group_first` in the capture list scan filled. Group 0 is the match.
+    group_first: int,
+    group_count: int,
 }
 
 Options :: struct {
@@ -22,23 +27,25 @@ Options :: struct {
 
 // Appends every match of `query` in `text` to `out`. False means the pattern is
 // a regular expression that does not compile; `out` is left as it was found.
-scan :: proc(text, query: string, opts: Options, out: ^[dynamic]Match) -> bool {
+// `captures` takes the group ranges of each regular-expression match, for
+// expand; nil when the caller replaces nothing.
+scan :: proc(text, query: string, opts: Options, out: ^[dynamic]Match, captures: ^[dynamic][2]int = nil) -> bool {
     if len(query) == 0 {
         return true
     }
     if opts.use_regex {
-        return scan_regex(text, query, opts, out)
+        return scan_regex(text, query, opts, out, captures)
     }
     scan_literal(text, query, opts, out)
     return true
 }
 
-// Collects regular-expression matches over the whole document. A zero-width
-// match is dropped: it selects nothing, and replacing over one would splice
-// forever. The replacement stays literal in this mode — no capture references.
+// Collects regular-expression matches over the whole document. `^` and `$`
+// match at every line. A zero-width match is kept: it is where a replace
+// inserts. The scan steps one rune past it, which the iterator alone does not.
 @(private)
-scan_regex :: proc(text, pattern: string, opts: Options, out: ^[dynamic]Match) -> bool {
-    flags: regex.Flags = {.Unicode}
+scan_regex :: proc(text, pattern: string, opts: Options, out: ^[dynamic]Match, captures: ^[dynamic][2]int) -> bool {
+    flags: regex.Flags = {.Unicode, .Multiline}
     if !opts.case_sensitive {
         flags += {.Case_Insensitive}
     }
@@ -48,24 +55,126 @@ scan_regex :: proc(text, pattern: string, opts: Options, out: ^[dynamic]Match) -
     }
     defer regex.destroy(it)
 
+    // The engine does not scan ahead for a pattern that opens with `^`: it tries
+    // the scan position alone. Such a pattern is tried again at each line start.
+    anchored := starts_anchored(pattern)
+    last_end := -1
+    pos := 0 // where the next run of the engine starts
     for {
         capture, _, ok := regex.match_iterator(&it)
-        if !ok {
-            break
-        }
-        if len(capture.pos) == 0 {
-            break
+        if !ok || len(capture.pos) == 0 {
+            newline := anchored && pos < len(text) ? strings.index_byte(text[pos:], '\n') : -1
+            if newline < 0 {
+                break
+            }
+            pos += newline + 1
+            seek(&it, text, pos)
+            continue
         }
         start, end := capture.pos[0][0], capture.pos[0][1]
+        pos = end
         if end <= start {
+            // The iterator stops at a match that takes no text. Step one rune.
+            if start >= len(text) {
+                it.done = true
+            } else {
+                _, width := utf8.decode_rune_in_string(text[start:])
+                pos = start + width
+                seek(&it, text, pos)
+            }
+            // An empty match right after a match is part of that match.
+            if start == last_end {
+                continue
+            }
+        } else if opts.whole_word && !word_bounded(text, start, end) {
             continue
         }
-        if opts.whole_word && !word_bounded(text, start, end) {
-            continue
+        last_end = end
+
+        match := Match {start = start, end = end}
+        if captures != nil {
+            match.group_first = len(captures)
+            match.group_count = len(capture.pos)
+            append(captures, ..capture.pos)
         }
-        append(out, Match{start, end})
+        append(out, match)
     }
     return true
+}
+
+// Puts the iterator at byte `pos` for its next run.
+@(private)
+seek :: proc(it: ^regex.Match_Iterator, text: string, pos: int) {
+    it.vm.string_pointer = pos
+    // `^` reads the rune before the scan position.
+    it.vm.last_rune, _ = utf8.decode_last_rune_in_string(text[:pos])
+    it.done = false
+    // A run after the first one clears the thread lists; a failed first run
+    // does not count itself.
+    it.idx = max(it.idx, 1)
+}
+
+// True when the pattern opens with `^`, groups aside.
+@(private)
+starts_anchored :: proc(pattern: string) -> bool {
+    rest := pattern
+    for {
+        switch {
+        case strings.has_prefix(rest, "(?:"):
+            rest = rest[3:]
+        case strings.has_prefix(rest, "("):
+            rest = rest[1:]
+        case:
+            return strings.has_prefix(rest, "^")
+        }
+    }
+}
+
+// The replacement for one regular-expression match: `$1` to `$9` give a
+// capture group, `$0` and `$&` the whole match, `$$` a dollar sign, and `\n`,
+// `\t` and `\\` a newline, a tab and a backslash. A group that took no part
+// in the match gives nothing.
+expand :: proc(text: string, match: Match, captures: [][2]int, template: string, allocator := context.temp_allocator) -> string {
+    b := strings.builder_make(0, len(template), allocator)
+    for i := 0; i < len(template); i += 1 {
+        c := template[i]
+        if i + 1 >= len(template) || (c != '$' && c != '\\') {
+            strings.write_byte(&b, c)
+            continue
+        }
+        next := template[i + 1]
+        if c == '\\' {
+            switch next {
+            case 'n':  strings.write_byte(&b, '\n')
+            case 't':  strings.write_byte(&b, '\t')
+            case '\\': strings.write_byte(&b, '\\')
+            case:
+                strings.write_byte(&b, c)
+                continue
+            }
+            i += 1
+            continue
+        }
+        switch next {
+        case '$':
+            strings.write_byte(&b, '$')
+        case '&':
+            strings.write_string(&b, text[match.start:match.end])
+        case '0' ..= '9':
+            group := int(next - '0')
+            if group < match.group_count {
+                span := captures[match.group_first + group]
+                strings.write_string(&b, text[span[0]:span[1]])
+            } else if group == 0 {
+                strings.write_string(&b, text[match.start:match.end])
+            }
+        case:
+            strings.write_byte(&b, c)
+            continue
+        }
+        i += 1
+    }
+    return strings.to_string(b)
 }
 
 // Collects literal matches over the whole document. Re-run once per query change
@@ -81,7 +190,7 @@ scan_literal :: proc(text, query: string, opts: Options, out: ^[dynamic]Match) {
         for i := 0; i < len(text); {
             if width, found := fold_match_at(text, i, query);
                found && (!opts.whole_word || word_bounded(text, i, i + width)) {
-                append(out, Match{i, i + width})
+                append(out, Match {start = i, end = i + width})
                 i += width
                 continue
             }
@@ -97,7 +206,7 @@ scan_literal :: proc(text, query: string, opts: Options, out: ^[dynamic]Match) {
     for i + n <= len(text) {
         if match_at(text, i, query, opts.case_sensitive) {
             if !opts.whole_word || word_bounded(text, i, i + n) {
-                append(out, Match{i, i + n})
+                append(out, Match {start = i, end = i + n})
                 i += n
                 continue
             }
