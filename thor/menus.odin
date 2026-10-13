@@ -132,7 +132,7 @@ thor_terminal_tab_context_menu :: proc(thor: ^Thor, index: int, position: ui.Vec
 @(private = "file")
 thor_menu_close_tab :: proc(data: rawptr) {
     thor := cast(^Thor) data
-    thor_close_file(thor, thor.menu_target_tab)
+    thor_request_close_file(thor, thor.menu_target_tab)
 }
 
 // Closes every tab except the one the context menu targeted. Closes from the
@@ -144,12 +144,11 @@ thor_menu_close_other_tabs :: proc(data: rawptr) {
     if keep < 0 || keep >= len(thor.open_files) {
         return
     }
-    for len(thor.open_files) > keep + 1 {
-        thor_close_file(thor, len(thor.open_files) - 1)
-    }
-    for keep > 0 {
-        thor_close_file(thor, 0)
-        keep -= 1
+    // Last first, so an index stays good when a tab before it stays open.
+    for index := len(thor.open_files) - 1; index >= 0; index -= 1 {
+        if index != keep {
+            thor_request_close_file(thor, index, ask = false)
+        }
     }
 }
 

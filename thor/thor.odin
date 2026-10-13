@@ -293,6 +293,10 @@ Thor :: struct {
     finished_file_searches: [dynamic]^File_Search_Job,
     finished_updates: [dynamic]^Update_Job,
     finished_outside_stats: [dynamic]^Outside_Stat_Job,
+    // The tab a "could not be saved, close it?" prompt asks about, and the text
+    // of the prompt. The file is borrowed; nil when the tab is gone.
+    close_prompt_file: ^Open_File,
+    close_prompt: string, // owned
     // The look at the open files no watcher covers (watch_outside.odin).
     outside_stat_inflight: bool,
     outside_stat_at: time.Tick,
@@ -954,6 +958,10 @@ shutdown :: proc(thor: ^Thor) {
     if !thor.relaunching {
         thor_save_session(thor)
     }
+    // Before the buffers are freed: an edit younger than the autosave delay is
+    // written, and a buffer the disk refuses goes to a backup.
+    thor_flush_dirty_files(thor)
+    delete(thor.close_prompt)
     // Stop the watcher first so no new reload jobs are queued while we drain.
     thor_shutdown_watcher(thor)
     thor_terminals_shutdown(thor)

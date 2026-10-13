@@ -846,7 +846,7 @@ thor_tabbar :: proc(thor: ^Thor) {
     }
 
     if close_index >= 0 {
-        thor_close_file(thor, close_index)
+        thor_request_close_file(thor, close_index)
     } else if menu_index >= 0 {
         thor_tab_context_menu(thor, menu_index, ui.mouse_pos())
     } else if select_index >= 0 {

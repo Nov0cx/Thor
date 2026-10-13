@@ -253,8 +253,9 @@ thor_open_folder :: proc(thor: ^Thor, dir: string) {
 
     // Let the outgoing workspace go quiet before anything is swapped: a worker
     // thread must not outlive the state it points at.
-    thor_cmd_save_all(thor)
-    thor_drain_io(thor)
+    // Not Save All: with format_on_save that only queues a format, and the
+    // buffers are freed before it lands.
+    thor_flush_dirty_files(thor)
     thor_save_session(thor)
     thor_shutdown_watcher(thor)
 

@@ -73,6 +73,10 @@ Open_File :: struct {
     // What the file is on disk; the buffer is UTF-8 with no byte order mark.
     encoding:           Encoding,
     bom:                bool,
+    // The last save was refused. Autosave waits for an edit past
+    // `failed_revision` before it tries again, and a close asks first.
+    save_failed:        bool,
+    failed_revision:    u64,
     // Time and size on disk at the last look, for a file no watcher covers.
     disk_stamp:         Disk_Stamp,
     last_edit:          time.Tick,
@@ -1087,6 +1091,9 @@ thor_close_file :: proc(thor: ^Thor, index: int) {
     if thor.conflict_file == file {
         thor.conflict_file = nil // its prompt outlives the tab; answer nothing
     }
+    if thor.close_prompt_file == file {
+        thor.close_prompt_file = nil
+    }
     thor_lang_notify(thor, file, .Closed)
     ordered_remove(&thor.open_files, index)
     thor_update_tab_labels(thor)
@@ -1116,8 +1123,9 @@ thor_close_file :: proc(thor: ^Thor, index: int) {
 // without an edit as a line-ending switch does. Skips a file with a reload in
 // flight — that read is unsynchronized against a write, so racing them could
 // land a torn read in the buffer. The buffer stays dirty and autosave retries.
-thor_save_file :: proc(thor: ^Thor, file: ^Open_File, force := false) {
-    if !file.loaded || file.saving || file.closed || file.reloading {
+// `closing` writes the buffer of a tab that is closed already.
+thor_save_file :: proc(thor: ^Thor, file: ^Open_File, force := false, closing := false) {
+    if !file.loaded || file.saving || (file.closed && !closing) || file.reloading {
         return
     }
     if !force && file.state.revision == file.saved_revision {
@@ -1221,6 +1229,10 @@ thor_update_files :: proc(thor: ^Thor) {
             continue
         }
         if file.state.revision == file.saved_revision {
+            continue
+        }
+        // A refused save is not tried again until the buffer changes.
+        if file.save_failed && file.state.revision == file.failed_revision {
             continue
         }
         if time.tick_since(file.last_edit) >= autosave_delay {
@@ -1362,6 +1374,7 @@ thor_process_io :: proc(thor: ^Thor) {
             file.last_seen_revision = file.state.revision
             thor_apply_indent(thor, file)
             thor_apply_lexical(thor, file)
+            thor_restore_backup(thor, file)
         } else {
             file.load_failed = true
             if job.binary {
@@ -1429,7 +1442,13 @@ thor_process_io :: proc(thor: ^Thor) {
             // The buffer can be past the saved text, or back at it by an undo.
             file.saved_content = job.content
             file.saved_revision = job.revision
+            file.save_failed = false
             thor_sync_saved(file)
+            // The tab closed while this save ran and the buffer moved on: the
+            // new job keeps the record alive past the reap below.
+            if file.closed && thor_file_dirty(file) {
+                thor_save_file(thor, file, closing = true)
+            }
             // A fresh save queues a re-check of the file's package; a language
             // with no checking backend queues nothing.
             if !file.closed {
@@ -1437,6 +1456,12 @@ thor_process_io :: proc(thor: ^Thor) {
                 thor_request_diagnostics(thor, file)
             }
         } else if !job.cancelled {
+            file.save_failed = true
+            file.failed_revision = file.state.revision
+            // Nothing can ask about a closed tab: its edits go to a backup.
+            if file.closed {
+                thor_write_backup(file)
+            }
             log.warnf("Failed to save %q: %v", job.path, job.err)
             thor_flash_status(thor, fmt.tprintf("Could not save %s: %v", filepath.base(job.path), job.err), is_error = true)
         }

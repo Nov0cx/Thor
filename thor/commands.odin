@@ -594,14 +594,11 @@ thor_cmd_zoom_reset :: proc(data: rawptr) {
 
 thor_cmd_close_tab :: proc(data: rawptr) {
     thor := cast(^Thor) data
-    thor_close_file(thor, signal_get(&thor.active_file))
+    thor_request_close_file(thor, signal_get(&thor.active_file))
 }
 
 thor_cmd_close_all :: proc(data: rawptr) {
-    thor := cast(^Thor) data
-    for len(thor.open_files) > 0 {
-        thor_close_file(thor, 0)
-    }
+    thor_request_close_all(cast(^Thor) data)
 }
 
 thor_cmd_next_tab :: proc(data: rawptr) {thor_cycle_tab(cast(^Thor) data, 1)}

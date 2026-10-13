@@ -882,3 +882,54 @@ test_semantic_slot_recovers_from_a_lost_result :: proc(t: ^testing.T) {
     testing.expect_value(t, thor.semantic_path, "")
     testing.expect_value(t, thor.semantic_source, "")
 }
+
+// A buffer the disk refused is kept, and the next open of the file gets the
+// edits back as an unsaved buffer.
+@(test)
+test_backup_restores_unsaved_edits :: proc(t: ^testing.T) {
+    TEST_PATH :: "thor_backup.tmp"
+
+    write_err := os.write_entire_file(TEST_PATH, transmute([]u8) string("disk\n"))
+    testing.expect(t, write_err == nil, "could not create test file")
+    defer os.remove(TEST_PATH)
+
+    thor := test_make_thor()
+    defer test_free_thor(thor)
+
+    thor_open_file(thor, TEST_PATH)
+    file := thor.open_files[0]
+    for _ in 0 ..< 500 {
+        thor_update_files(thor)
+        if file.loaded || file.load_failed {
+            break
+        }
+        time.sleep(time.Millisecond)
+    }
+    testing.expect(t, file.loaded, "the file loads")
+
+    textedit.set_single_cursor(&file.state, 0)
+    textedit.insert_text(&file.state, "mine ")
+    testing.expect(t, thor_file_dirty(file), "an edit makes the buffer unsaved")
+    testing.expect(t, thor_write_backup(file), "the backup is written")
+    thor_close_file(thor, 0)
+
+    thor_open_file(thor, TEST_PATH)
+    file = thor.open_files[0]
+    for _ in 0 ..< 500 {
+        thor_update_files(thor)
+        if file.loaded || file.load_failed {
+            break
+        }
+        time.sleep(time.Millisecond)
+    }
+    testing.expect(t, file.loaded, "the file loads again")
+    testing.expect_value(t, textedit.text(&file.state), "mine disk\n")
+    testing.expect(t, thor_file_dirty(file), "the restored buffer is unsaved")
+
+    // Undo gives the text on disk, and the buffer is clean again.
+    textedit.undo(&file.state)
+    testing.expect_value(t, textedit.text(&file.state), "disk\n")
+    testing.expect(t, !thor_file_dirty(file), "undo comes back to the saved text")
+
+    thor_close_file(thor, 0)
+}

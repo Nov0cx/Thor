@@ -224,7 +224,7 @@ thor_global_key :: proc(thor: ^Thor, event: ui.Key_Event) -> bool {
         return true
     }
     if setting.keybind_matches(thor.close_tab_key, event.key, event.mods) {
-        thor_close_file(thor, signal_get(&thor.active_file))
+        thor_request_close_file(thor, signal_get(&thor.active_file))
         return true
     }
     if setting.keybind_matches(thor.next_tab_key, event.key, event.mods) {

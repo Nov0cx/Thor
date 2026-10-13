@@ -29,8 +29,9 @@ WELCOME_RECENT_NAME_MAX :: f32(180)
 thor_close_workspace :: proc(thor: ^Thor) {
     thor_unregister_window(thor.workspace_dir)
 
-    thor_cmd_save_all(thor)
-    thor_drain_io(thor)
+    // Not Save All: with format_on_save that only queues a format, and the
+    // buffers are freed before it lands.
+    thor_flush_dirty_files(thor)
     thor_save_session(thor)
     thor_shutdown_watcher(thor)
 
