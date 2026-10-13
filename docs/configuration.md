@@ -37,7 +37,7 @@ General editor preferences.
 | `format_on_save` | Format the active buffer before an explicit save (`ctrl + s`, Save All, the palette) — never before an autosave | `false` |
 | `format_on_type` | Dispatch on-type formatting as a trigger character is typed — `}` for Odin, a language server's own choice otherwise | `false` |
 | `theme` | Active color theme, a name with no extension (e.g. `"mjolnir"`), looked up in `user/themes/` first and then `assets/themes/` | built-in default |
-| `font` | Text font family, a name in `assets/fonts/fonts.json` | built-in default |
+| `font` | Text font family, a name in `assets/fonts/fonts.json` or `user/fonts.json` | built-in default |
 | `icon_pack` | Primary icon pack, a family in `assets/icons/icons.json` | built-in default |
 | `file_icon_pack` | File-icon pack, same set as `icon_pack` | built-in default |
 | `check_for_updates` | Ask GitHub for a newer release shortly after start, at most once a day. **Help > Check for Updates** asks whatever this holds | `true` |
@@ -356,3 +356,15 @@ its root, layered on top of the global settings above. This repository's own
 - Fonts and icon packs are named in `assets/fonts/fonts.json` and
   `assets/icons/icons.json`; Settings lists the available names for `font`,
   `icon_pack` and `file_icon_pack`.
+- **Settings: Add Font** opens `user/fonts.json`, the place for your own fonts.
+  `assets/fonts/` is replaced by every build and by every update. An entry has
+  the same shape as a shipped one, and its `path` is absolute or relative to
+  `user/`. A new font is listed after a restart.
+
+  ```json
+  {
+      "fonts": {
+          "MyFont": { "path": "fonts/MyFont-Regular.ttf" }
+      }
+  }
+  ```

@@ -5,6 +5,7 @@ import "core:encoding/json"
 import "core:log"
 import "core:mem/virtual"
 import "core:os"
+import "core:path/filepath"
 import "core:slice"
 import "core:strings"
 import "core:unicode/utf8"
@@ -189,8 +190,12 @@ family_ensure_loaded :: proc(family: ^Font_Family) -> bool {
 // Registers every text font family in the manifest (paths relative to it).
 // Safe before InitWindow; nothing here touches GL. A family outside `wanted`
 // (nil or empty: all) registers with its TTF unread, deferred to first use;
-// the manifest default is always read.
-load_font_manifest :: proc(manifest_path: string, wanted: []string = nil) -> bool {
+// the manifest default is always read. An `optional` manifest that does not
+// exist is not reported. A later manifest wins a family name and the default.
+load_font_manifest :: proc(manifest_path: string, wanted: []string = nil, optional := false) -> bool {
+    if optional && !os.exists(manifest_path) {
+        return false
+    }
     root, root_ok := manifest_parse(manifest_path)
     if !root_ok {
         return false
@@ -224,7 +229,10 @@ load_font_manifest :: proc(manifest_path: string, wanted: []string = nil) -> boo
         }
 
         sizes := manifest_sizes(entry, "preload_sizes")
-        full_path := strings.concatenate({dir, strings.trim_prefix(string(rel), "./")}, context.temp_allocator)
+        full_path := string(rel)
+        if !filepath.is_abs(full_path) {
+            full_path = strings.concatenate({dir, strings.trim_prefix(full_path, "./")}, context.temp_allocator)
+        }
         read_data := len(wanted) == 0 || name == default_family_name || slice.contains(wanted, name)
         if register_family(name, full_path, text_codepoints[:], sizes[:], read_data) != nil {
             registered += 1

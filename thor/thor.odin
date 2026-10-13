@@ -624,6 +624,7 @@ init :: proc() -> ^Thor {
         families = preload_families[:],
         icon_packs = preload_packs[:],
         extra_sizes = extra_sizes[:],
+        user_manifest = USER_FONTS_PATH,
     })
     lap(&phase, "text_begin_async_load")
 

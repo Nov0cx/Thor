@@ -348,9 +348,10 @@ font_bake_job :: proc(job: ^Font_Load_Job) {
 // register without their TTF and bake on first use (get_font) or ahead of a
 // picker (prebake_async).
 Preload :: struct {
-    families:    []string, // text families to bake now; the manifest default is always added
-    icon_packs:  []string, // icon families to bake now
-    extra_sizes: []i32,    // extra sizes for every baked text family
+    families:      []string, // text families to bake now; the manifest default is always added
+    icon_packs:    []string, // icon families to bake now
+    extra_sizes:   []i32,    // extra sizes for every baked text family
+    user_manifest: string,   // a second font manifest, loaded after the first; may be absent
 }
 
 @(private = "file")
@@ -363,9 +364,10 @@ Bootstrap_Args :: struct {
 @(private = "file")
 preload_clone :: proc(preload: Preload, allocator: runtime.Allocator) -> Preload {
     clone := Preload {
-        families    = make([]string, len(preload.families), allocator),
-        icon_packs  = make([]string, len(preload.icon_packs), allocator),
-        extra_sizes = slice.clone(preload.extra_sizes, allocator),
+        families      = make([]string, len(preload.families), allocator),
+        icon_packs    = make([]string, len(preload.icon_packs), allocator),
+        extra_sizes   = slice.clone(preload.extra_sizes, allocator),
+        user_manifest = strings.clone(preload.user_manifest, allocator),
     }
     for name, i in preload.families {
         clone.families[i] = strings.clone(name, allocator)
@@ -412,6 +414,9 @@ bootstrap_worker :: proc(args: ^Bootstrap_Args) {
     }
 
     load_font_manifest(args.font_manifest, args.preload.families)
+    if args.preload.user_manifest != "" {
+        load_font_manifest(args.preload.user_manifest, args.preload.families, optional = true)
+    }
     load_icon_manifest(args.icon_manifest, args.preload.icon_packs)
 
     for _, family in families {

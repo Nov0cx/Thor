@@ -1,5 +1,6 @@
 package font
 
+import "core:os"
 import "core:testing"
 import "core:time"
 import rl "vendor:raylib"
@@ -82,6 +83,42 @@ test_pack_glyph_atlas_rows_do_not_overlap :: proc(t: ^testing.T) {
 test_async_font_load :: proc(t: ^testing.T) {
     check_full_async_load(t)
     check_selective_preload(t)
+    check_user_manifest(t)
+}
+
+// A user manifest adds its families to the shipped ones and wins the default.
+// Its paths are relative to its own folder.
+@(private = "file")
+check_user_manifest :: proc(t: ^testing.T) {
+    dir :: "thor_user_fonts.tmp"
+    path :: dir + "/fonts.json"
+    body := "{\"default\": \"UserMono\", \"fonts\": {\"UserMono\": {\"path\": \"../assets/fonts/Hack/Hack-Regular.ttf\"}}}"
+    if !os.exists(dir) {
+        testing.expect_value(t, os.make_directory(dir), nil)
+    }
+    testing.expect_value(t, os.write_entire_file(path, body), nil)
+    defer {
+        os.remove(path)
+        os.remove(dir)
+    }
+
+    preload_families := [1]string {"JetBrainsMono"}
+    preload_packs := [1]string {"material"}
+    begin_async_load("assets/fonts/fonts.json", "assets/icons/icons.json", Preload {
+        families = preload_families[:],
+        icon_packs = preload_packs[:],
+        user_manifest = path,
+    })
+    finish_async_load()
+    defer shutdown()
+
+    testing.expect_value(t, default_family_name, "UserMono")
+    testing.expect_value(t, len(family_names()), 11)
+    user, user_ok := families["UserMono"]
+    testing.expect(t, user_ok, "user family not registered")
+    if user_ok {
+        testing.expect(t, len(user.file_data) > 0, "the user default was not read")
+    }
 }
 
 // An empty Preload bakes every family, the pre-selective-startup pipeline.

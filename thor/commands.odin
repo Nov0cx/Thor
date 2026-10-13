@@ -762,7 +762,32 @@ thor_cmd_command_palette :: proc(data: rawptr) {
     thor_palette_open(thor)
 }
 
-thor_cmd_add_font :: proc(data: rawptr) {thor_open_file(cast(^Thor) data, "assets/fonts/fonts.json")}
+// The user's font manifest, read after assets/fonts/fonts.json at startup.
+// assets/fonts is replaced by every build and by every update.
+USER_FONTS_PATH :: setting.USER_DIR + "/fonts.json"
+
+@(private = "file")
+USER_FONTS_TEMPLATE :: "{\n    \"fonts\": {}\n}\n"
+
+// Settings: Add Font: opens the user's font manifest, created empty when absent.
+thor_cmd_add_font :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    if !os.exists(USER_FONTS_PATH) {
+        if !os.exists(setting.USER_DIR) {
+            if err := os.make_directory(setting.USER_DIR); err != nil && !os.exists(setting.USER_DIR) {
+                log.errorf("Cannot create directory %q: %v", setting.USER_DIR, err)
+                thor_flash_status(thor, "Could not create the font file", is_error = true)
+                return
+            }
+        }
+        if err := os.write_entire_file(USER_FONTS_PATH, USER_FONTS_TEMPLATE); err != nil {
+            log.errorf("Cannot write %q: %v", USER_FONTS_PATH, err)
+            thor_flash_status(thor, "Could not create the font file", is_error = true)
+            return
+        }
+    }
+    thor_open_file(thor, USER_FONTS_PATH)
+}
 
 // File > New Theme: copies the active palette into user/themes/custom.json and
 // opens it. assets/themes is replaced by every build and by every update, so a
