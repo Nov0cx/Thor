@@ -855,6 +855,22 @@ thor_tabbar :: proc(thor: ^Thor) {
 
 // ---- the editor pane ----------------------------------------------------------
 
+// The interaction with the left-button results kept only when the mouse made
+// them. Loom also reports a press, a release and a click when Enter or Space
+// activates the focused node, and a pane that takes those keys has no use for it.
+thor_mouse_only :: proc(thor: ^Thor, it: ui.Interaction) -> ui.Interaction {
+    out := it
+    input := thor.ui_context.input
+    if .Left not_in input.mouse_pressed {
+        out.pressed = false
+    }
+    if .Left not_in input.mouse_released {
+        out.released = false
+        out.clicked = false
+    }
+    return out
+}
+
 @(private = "file")
 thor_editor_pane :: proc(thor: ^Thor, editor: ^editview.Editor, pane: int, key: string) {
     // .Scroll_Y is for the scrollbar alone. .Wheel gives the pane the raw delta
@@ -876,6 +892,8 @@ thor_editor_pane :: proc(thor: ^Thor, editor: ^editview.Editor, pane: int, key: 
         },
     )
     defer ui.end()
+    // Enter and Space are text here, not a click at the pointer.
+    it = thor_mouse_only(thor, it)
 
     // A scroll the pane did not push is a drag of the thumb or a click on the
     // track; the editor adopts it before it reads scroll_y again.

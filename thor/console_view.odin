@@ -313,6 +313,8 @@ console_grid :: proc(thor: ^Thor, console: ^Console) {
             },
         },
     )
+    // Enter and Space are bytes for the shell, not a click on the grid.
+    grid = thor_mouse_only(thor, grid)
 
     console_sync_size(console, grid.rect, cell_w, row_h)
     first := console_first_line(console)
