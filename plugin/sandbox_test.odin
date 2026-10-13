@@ -18,6 +18,8 @@ Recorder :: struct {
     panels:    [dynamic]string,
     kinds:     [dynamic]View_Kind,
     labels:    [dynamic]string,
+    depth:     int, // of the last rendered tree
+    count:     int, // nodes in the last rendered tree
 }
 
 @(private = "file")
@@ -87,6 +89,21 @@ rec_panel_render :: proc(host: rawptr, id: string, nodes: []View_Node) {
         append(&r.kinds, node.kind)
         append(&r.labels, strings.clone(node.text))
     }
+    r.depth, r.count = tree_size(nodes)
+}
+
+// The depth and the node count of a panel tree.
+@(private = "file")
+tree_size :: proc(nodes: []View_Node) -> (depth, count: int) {
+    if len(nodes) == 0 {
+        return 0, 0
+    }
+    for node in nodes {
+        below, inner := tree_size(node.children)
+        depth = max(depth, below)
+        count += inner + 1
+    }
+    return depth + 1, count
 }
 
 // A manager wired to `r`, ready to load plugin sources.
@@ -802,4 +819,33 @@ p:render {
 
     manager_panel_click(&m, "demo/status", 0)
     testing.expectf(t, strings.contains(printed(&r), "clicked"), "the click did not reach Lua: %q", printed(&r))
+}
+
+// A node that holds itself stops at MAX_VIEW_DEPTH, and a child shared at each
+// level stops at MAX_VIEW_NODES.
+@(test)
+test_panel_tree_is_bounded :: proc(t: ^testing.T) {
+    r: Recorder
+    recorder_init(&r)
+    defer recorder_destroy(&r)
+    m: Manager
+    recording_manager(&m, &r)
+    defer manager_destroy(&m)
+
+    cycle := `local p = thor.panel { id = "cycle", title = "Cycle", dock = "right" }
+local n = { kind = "column" }
+n.children = { n }
+p:render { n }`
+    testing.expect(t, manager_load_source(&m, "cycle", "plugins/cycle", cycle, {.Ui}), "plugin runs")
+    testing.expect_value(t, r.depth, MAX_VIEW_DEPTH)
+
+    shared := `local p = thor.panel { id = "wide", title = "Wide", dock = "right" }
+local n = { kind = "label" }
+for i = 1, 24 do n = { kind = "column", children = { n, n } } end
+p:render { n }`
+    start := time.tick_now()
+    testing.expect(t, manager_load_source(&m, "wide", "plugins/wide", shared, {.Ui}), "plugin runs")
+    testing.expect_value(t, r.count, MAX_VIEW_NODES)
+    testing.expectf(t, time.tick_since(start) < time.Second, "the parse ran for %v", time.tick_since(start))
+    testing.expect_value(t, lua.gettop(m.state), 0)
 }

@@ -7,6 +7,7 @@ package plugin
 
 import "base:runtime"
 import "core:c"
+import "core:log"
 import "core:strings"
 
 import lua "vendor:lua/5.4"
@@ -121,7 +122,17 @@ api_panel_render :: proc "c" (L: ^lua.State) -> c.int {
     context.allocator = m.allocator
 
     clear_panel_refs(m, id)
-    nodes := parse_nodes(m, index, id, L, 2)
+    parse := View_Parse {left = MAX_VIEW_NODES}
+    nodes := parse_nodes(m, index, id, L, 2, 0, &parse)
+    if parse.cut {
+        log.warnf(
+            "plugin %s: panel %s is cut at %d levels and %d nodes",
+            plugin_id(m, index),
+            id,
+            MAX_VIEW_DEPTH,
+            MAX_VIEW_NODES,
+        )
+    }
     if m.panel_render_proc != nil {
         m.panel_render_proc(m.host, id, nodes)
     }
@@ -219,11 +230,29 @@ panel_callback :: proc(m: ^Manager, id: string, action: int) -> Callback {
     return refs[action]
 }
 
+// The limits of one panel tree. A node table can hold itself, and a child that
+// is shared at each level doubles the tree with no Lua instruction for the
+// budget hook to count.
+MAX_VIEW_DEPTH :: 32
+MAX_VIEW_NODES :: 4096
+
+// The state of one parse_nodes walk.
+@(private)
+View_Parse :: struct {
+    left: int,  // nodes the tree may still hold
+    cut:  bool, // a limit dropped part of the tree
+}
+
 // Reads an array of node tables into View_Nodes. Everything lives in the temp
 // allocator: the host consumes the tree inside the render call.
+// Nodes below MAX_VIEW_DEPTH or past MAX_VIEW_NODES are dropped.
 @(private)
-parse_nodes :: proc(m: ^Manager, index: int, id: string, L: ^lua.State, tbl: c.int) -> []View_Node {
+parse_nodes :: proc(m: ^Manager, index: int, id: string, L: ^lua.State, tbl: c.int, depth: int, parse: ^View_Parse) -> []View_Node {
     out := make([dynamic]View_Node, context.temp_allocator)
+    if depth >= MAX_VIEW_DEPTH || lua.checkstack(L, VIEW_STACK_SLOTS) == 0 {
+        parse.cut = true
+        return out[:]
+    }
     n := list_len(L, tbl)
     for i in 1 ..= n {
         lua.rawgeti(L, tbl, i)
@@ -232,15 +261,25 @@ parse_nodes :: proc(m: ^Manager, index: int, id: string, L: ^lua.State, tbl: c.i
             break
         }
         if lua.istable(L, -1) {
-            append(&out, parse_node(m, index, id, L, lua.gettop(L)))
+            if parse.left <= 0 {
+                parse.cut = true
+                lua.pop(L, 1)
+                break
+            }
+            parse.left -= 1
+            append(&out, parse_node(m, index, id, L, lua.gettop(L), depth, parse))
         }
         lua.pop(L, 1)
     }
     return out[:]
 }
 
+// Lua stack slots one level of parse_nodes and parse_node needs.
 @(private)
-parse_node :: proc(m: ^Manager, index: int, id: string, L: ^lua.State, tbl: c.int) -> View_Node {
+VIEW_STACK_SLOTS :: 4
+
+@(private)
+parse_node :: proc(m: ^Manager, index: int, id: string, L: ^lua.State, tbl: c.int, depth: int, parse: ^View_Parse) -> View_Node {
     node: View_Node
     node.action = -1
     node.kind = view_kind(tbl_string(L, tbl, "kind"))
@@ -279,7 +318,7 @@ parse_node :: proc(m: ^Manager, index: int, id: string, L: ^lua.State, tbl: c.in
 
     lua.getfield(L, tbl, "children")
     if lua.istable(L, -1) {
-        node.children = parse_nodes(m, index, id, L, lua.gettop(L))
+        node.children = parse_nodes(m, index, id, L, lua.gettop(L), depth + 1, parse)
     }
     lua.pop(L, 1)
     return node
