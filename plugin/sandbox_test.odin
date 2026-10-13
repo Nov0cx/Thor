@@ -517,6 +517,42 @@ thor.write("../outside.txt", "x")`
     }
 }
 
+// A link inside the workspace can lead out of it, so a path through one never
+// reaches the host. Needs the right to make a link, which Windows gives only in
+// developer mode.
+@(test)
+test_sandbox_refuses_a_link :: proc(t: ^testing.T) {
+    r: Recorder
+    recorder_init(&r)
+    defer recorder_destroy(&r)
+    m: Manager
+    recording_manager(&m, &r)
+    defer manager_destroy(&m)
+
+    dir := "bin/test/link-plugin"
+    if mkerr := os.make_directory_all(dir); mkerr != nil && mkerr != .Exist {
+        testing.expectf(t, false, "test folder: %v", mkerr)
+        return
+    }
+    target, _ := filepath.join({r.workspace, "bin"}, context.temp_allocator)
+    link, _ := filepath.join({dir, "out"}, context.temp_allocator)
+    os.remove(link)
+    if os.symlink(target, link) != nil {
+        return
+    }
+    defer os.remove(link)
+
+    script := `thor.write("bin/test/link-plugin/out/escaped.txt", "x")
+thor.write("bin/test/link-plugin/out", "x")
+thor.write("bin/test/link-plugin/beside.txt", "x")`
+    manager_load_source(&m, "linker", "plugins/linker", script, {.Write})
+
+    testing.expectf(t, len(r.written) == 1, "writes accepted: %v", r.written)
+    if len(r.written) == 1 {
+        testing.expect(t, strings.contains(r.written[0], "beside.txt"), "the write beside the link went through")
+    }
+}
+
 // A plugin parses with a compiled-in grammar, walks the tree and runs its own
 // query, with capture names naming the matched nodes.
 @(test)

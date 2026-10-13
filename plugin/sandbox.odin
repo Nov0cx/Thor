@@ -676,6 +676,9 @@ plugin_data_dir :: proc(m: ^Manager, index: int) -> (dir: string, ok: bool) {
 // path is taken against the workspace, so `thor.doc(".thor/git/status.md")`
 // lands where the user expects rather than beside the executable; a plugin
 // reaches its data directory through the absolute path thor.data_path gives.
+// A path that goes through a link below its root is refused: the link can lead
+// out of the root. The check is made before the host opens the file, so a link
+// made between the two is not seen.
 // The result uses the temp allocator.
 @(private)
 resolve_path :: proc(m: ^Manager, index: int, path: string) -> (resolved: string, ok: bool) {
@@ -705,23 +708,76 @@ resolve_path :: proc(m: ^Manager, index: int, path: string) -> (resolved: string
         clean = cleaned
     }
 
+    root, found := "", false
     if m.workspace_proc != nil {
-        if root := m.workspace_proc(m.host); root != "" && is_within(clean, root) {
-            return clean, true
+        if workspace := m.workspace_proc(m.host); workspace != "" && is_within(clean, workspace) {
+            root, found = workspace, true
         }
     }
-    if is_within(clean, p.dir) {
-        return clean, true
+    if !found && is_within(clean, p.dir) {
+        root, found = p.dir, true
     }
-    if data, dok := plugin_data_dir(m, index); dok && is_within(clean, data) {
-        return clean, true
+    if !found {
+        if data, dok := plugin_data_dir(m, index); dok && is_within(clean, data) {
+            root, found = data, true
+        }
     }
-    log.warnf(
-        "plugin %s: %q is outside the workspace, the plugin folder and the plugin data folder",
-        p.id,
-        path,
-    )
-    return "", false
+    if !found {
+        log.warnf(
+            "plugin %s: %q is outside the workspace, the plugin folder and the plugin data folder",
+            p.id,
+            path,
+        )
+        return "", false
+    }
+    if has_link_below(clean, root) {
+        log.warnf("plugin %s: %q goes through a link", p.id, path)
+        return "", false
+    }
+    return clean, true
+}
+
+// What a path names, with no link followed.
+@(private)
+Link_State :: enum {
+    Missing, // nothing is there
+    Plain,   // a file or a folder
+    Link,    // a symbolic link or a junction
+    Unknown, // it could not be read
+}
+
+// link_windows.odin and link_posix.odin supply:
+//   path_link_state :: proc(path: string) -> Link_State
+
+// True when a component of `path` below `root` is a symbolic link or a junction.
+// `path` must be within `root` (is_within). The walk ends at the first component
+// that does not exist; a component that cannot be read counts as a link.
+@(private)
+has_link_below :: proc(path, root: string) -> bool {
+    base, err := filepath.abs(root, context.temp_allocator)
+    if err != nil {
+        cleaned_root, cerr := filepath.clean(root, context.temp_allocator)
+        if cerr != nil {
+            return true
+        }
+        base = cleaned_root
+    }
+    for len(base) > 0 && filepath.is_separator(base[len(base) - 1]) {
+        base = base[:len(base) - 1]
+    }
+    for i := len(base) + 1; i <= len(path); i += 1 {
+        if i < len(path) && !filepath.is_separator(path[i]) {
+            continue
+        }
+        switch path_link_state(path[:i]) {
+        case .Missing:
+            return false
+        case .Link, .Unknown:
+            return true
+        case .Plain:
+        }
+    }
+    return false
 }
 
 // True when `path` is `root` or sits under it. Windows folds case and separators,
