@@ -39,27 +39,35 @@ emit_table :: proc(b: ^Build, at: int) -> int {
         next += 1
     }
 
-    // The tokens of each cell, row by row. A short row has empty cells.
+    // The tokens of each cell, row by row. A short row has empty cells. A
+    // column is never narrower than the widest thing in it that cannot break.
     cells := make([][]Token, len(rows) * cols, context.temp_allocator)
     natural := make([]f32, cols, context.temp_allocator)
+    least := make([]f32, cols, context.temp_allocator)
     for row, r in rows {
         for c in 0 ..< min(cols, len(row)) {
             tokens := inline(b, row[c], r == 0 ? b.pal.strong : b.pal.text)
             cells[r * cols + c] = tokens[:]
-            natural[c] = max(natural[c], run_width(b, tokens[:]))
+            whole, unit := run_width(b, tokens[:])
+            natural[c] = max(natural[c], whole)
+            least[c] = max(least[c], unit)
         }
     }
 
+    // Too wide for the page: each column keeps its least width and the room
+    // that is left is shared by what each one still wants.
     widths := natural
-    total := f32(0)
-    for w in natural {
+    total, floor := f32(0), f32(0)
+    for w, c in natural {
         total += w
+        floor += least[c]
     }
     room := b.avail - f32(cols) * CELL_PAD_X * 2
-    if total > room && total > 0 {
-        least := measure(b.m, "www", b.base)
-        for &w in widths {
-            w = max(least, w * room / total)
+    if total > room {
+        spare := max(0, room - floor)
+        want := total - floor
+        for &w, c in widths {
+            w = least[c] + (want > 0 ? (w - least[c]) * spare / want : 0)
         }
     }
     table_w := f32(0)
@@ -93,18 +101,23 @@ emit_table :: proc(b: ^Build, at: int) -> int {
     return next
 }
 
-// The width of a token run on one row.
+// The width of a token run on one row, and of the widest part of it that a
+// row cannot break.
 @(private = "file")
-run_width :: proc(b: ^Build, tokens: []Token) -> f32 {
+run_width :: proc(b: ^Build, tokens: []Token) -> (whole, unit: f32) {
     space_w := measure(b.m, " ", b.base)
-    width := f32(0)
+    current := f32(0)
     for tok, i in tokens {
+        w := measure(b.m, tok.text, b.base)
         if i > 0 && !tok.glue {
-            width += space_w
+            whole += space_w
+            current = 0
         }
-        width += measure(b.m, tok.text, b.base)
+        whole += w
+        current += w
+        unit = max(unit, current)
     }
-    return width
+    return
 }
 
 // The cells of a table row, trimmed. The outer pipes are optional; an escaped

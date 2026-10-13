@@ -35,6 +35,9 @@ CODE_PAD :: f32(8)
 @(private = "file")
 IMAGE_GAP :: f32(4)
 
+@(private = "file")
+BULLET :: f32(5)
+
 // Parses the source into the page's item list. Block detection is line-oriented;
 // inline styling and word wrap happen per block. Every item text borrows from
 // `source`, so the caller keeps that alive as long as the page.
@@ -373,7 +376,7 @@ list_item :: proc(
     ok: bool,
 ) {
     if len(s) >= 2 && (s[0] == '-' || s[0] == '*' || s[0] == '+') && s[1] == ' ' {
-        return "•", strings.trim_left_space(s[2:]), false, 0, true
+        return "", strings.trim_left_space(s[2:]), false, 0, true
     }
     // Ordered: one or more digits, then '.' or ')', then a space.
     d := 0
@@ -427,10 +430,19 @@ emit_list_item :: proc(b: ^Build, depth: int, marker: string, ordered: bool, num
         label = s
     }
     left := LIST_INDENT * f32(depth)
-    append(
-        &b.page.items,
-        Item{kind = .Text, x = left + 6, y = b.y, text = label, size = b.base, color = b.pal.accent},
-    )
+    if ordered {
+        append(
+            &b.page.items,
+            Item{kind = .Text, x = left + 6, y = b.y, text = label, size = b.base, color = b.pal.accent},
+        )
+    } else {
+        // A square, not a glyph: the bullet character is not in every face.
+        mid := b.y + line_height(b.m, b.base) * 0.5
+        append(
+            &b.page.items,
+            Item{kind = .Rect, x = left + 8, y = mid - BULLET * 0.5, w = BULLET, h = BULLET, color = b.pal.accent},
+        )
+    }
     indent := left + LIST_INDENT
     b.y += wrap_run(b, tokens, indent, b.y, b.avail - indent, b.base)
 }
@@ -474,7 +486,8 @@ emit_code_block :: proc(b: ^Build, lines: []string) {
     b.y = top + height + f32(b.base) * 0.4
 }
 
-// How many bytes of `s` fit in `max_w`, cut at a rune and at least one rune.
+// How many bytes of `s` fit in `max_w`: cut at a rune, after a space when one
+// is near, and at least one rune.
 @(private = "file")
 fit :: proc(b: ^Build, s: string, max_w: f32, size: i32) -> int {
     if len(s) == 0 || measure(b.m, s, size) <= max_w {
@@ -496,7 +509,12 @@ fit :: proc(b: ^Build, s: string, max_w: f32, size: i32) -> int {
             hi = mid - 1
         }
     }
-    return ends[lo]
+    // A space in the later half of the row is a better place to cut.
+    n := ends[lo]
+    if space := strings.last_index_byte(s[:n], ' '); space + 1 < n && space > n / 2 {
+        n = space + 1
+    }
+    return n
 }
 
 @(private = "file")

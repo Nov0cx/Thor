@@ -429,7 +429,7 @@ test_nested_list_indents :: proc(t: ^testing.T) {
     xs: [dynamic]f32
     defer delete(xs)
     for item in page.items {
-        if item.kind == .Text && item.text != "•" {
+        if item.kind == .Text {
             append(&xs, item.x)
         }
     }
@@ -452,11 +452,12 @@ test_list_item_continues :: proc(t: ^testing.T) {
     lay(&page, "- one\n  two\n")
 
     items := texts(&page)
-    testing.expect_value(t, len(items), 3)
-    if len(items) == 3 {
-        testing.expect_value(t, items[2].text, "two")
-        testing.expect_value(t, items[2].y, items[1].y)
+    testing.expect_value(t, len(items), 2)
+    if len(items) == 2 {
+        testing.expect_value(t, items[1].text, "two")
+        testing.expect_value(t, items[1].y, items[0].y)
     }
+    testing.expect_value(t, count_rects(&page), 1) // the bullet
 }
 
 // A code line wider than the panel continues on the next row, and the panel
@@ -559,6 +560,12 @@ test_table_wraps_its_cells :: proc(t: ^testing.T) {
     for item in page.items {
         testing.expect(t, item.x + item.w <= 240 + 0.5, "nothing leaves the page")
     }
+
+    // A cell that cannot break keeps its column as wide as it is.
+    lay(&page, "| a | b |\n|---|---|\n| `unbreakable_name` | one two three four five six |\n", 300)
+    name, _ := text_named(&page, "unbreakable_name")
+    first, _ := text_named(&page, "one")
+    testing.expect(t, first.x >= name.x + name.w + 10, "the next column starts after it")
 }
 
 // A pipe that is escaped or inside a code span does not split the cell.
