@@ -426,6 +426,10 @@ put_rune :: proc(t: ^Term, r: rune) {
         combine_with_previous(t, r)
         return
     }
+    // A one-column grid has no room for a double-width rune.
+    if width == 2 && t.cols < 2 {
+        return
+    }
 
     if t.cur.pending_wrap && t.autowrap {
         if line := cursor_row(t); line != nil {

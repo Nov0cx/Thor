@@ -191,6 +191,17 @@ test_utf8_and_wide :: proc(h: ^testing.T) {
 }
 
 @(test)
+test_wide_on_one_column_is_dropped :: proc(h: ^testing.T) {
+    t := term_make(1, 2)
+    defer term_destroy(t)
+
+    feed(t, "a漢")
+    testing.expect_value(h, row_text(t, 0), "a")
+    testing.expect_value(h, row_text(t, 1), "")
+    testing.expect_value(h, t.cur.y, 0)
+}
+
+@(test)
 test_utf8_split_across_feeds :: proc(h: ^testing.T) {
     t := term_make(4, 2)
     defer term_destroy(t)
