@@ -3,6 +3,7 @@ package shell
 
 import "core:c"
 import "core:strings"
+import "core:sync"
 import "core:sys/posix"
 
 // The POSIX pseudo-terminal. The child leads its own session with the slave
@@ -39,7 +40,12 @@ Winsize :: struct {
 Pty :: struct {
     pid:    posix.pid_t, // owned, reaped by pty_destroy
     group:  posix.pid_t,
-    master: posix.FD, // owned, -1 after pty_terminate closes it
+    master: posix.FD, // owned, closed by pty_destroy
+    // A pipe pty_terminate writes to. A close of `master` does not wake a read
+    // that blocks on it, and a job in a group of its own keeps the slave open.
+    wake_r: posix.FD, // owned
+    wake_w: posix.FD, // owned
+    closed: bool,     // atomic; pty_terminate ran
 }
 
 // Starts `profile` in `cwd` on a pseudo-terminal of `cols` x `rows`.
@@ -81,6 +87,25 @@ pty_start :: proc(profile: Profile, cwd: string, cols, rows: int) -> (^Pty, bool
     // may overwrite.
     slave_path := strings.clone_to_cstring(string(slave_name), context.temp_allocator)
 
+    wake: [2]posix.FD
+    if posix.pipe(&wake) != .OK {
+        posix.close(master)
+        return nil, false
+    }
+    // No other child may inherit these: a copy of the master in a language
+    // server would hold the terminal open after its shell is gone. pty_read
+    // selects on two of them, which limits their numbers.
+    if posix.fcntl(master, .SETFD, posix.FD_CLOEXEC) < 0 ||
+       posix.fcntl(wake[0], .SETFD, posix.FD_CLOEXEC) < 0 ||
+       posix.fcntl(wake[1], .SETFD, posix.FD_CLOEXEC) < 0 ||
+       master >= posix.FD_SETSIZE ||
+       wake[0] >= posix.FD_SETSIZE {
+        posix.close(master)
+        posix.close(wake[0])
+        posix.close(wake[1])
+        return nil, false
+    }
+
     size := Winsize {
         ws_row = u16(rows),
         ws_col = u16(cols),
@@ -90,6 +115,8 @@ pty_start :: proc(profile: Profile, cwd: string, cols, rows: int) -> (^Pty, bool
     pid := posix.fork()
     if pid < 0 {
         posix.close(master)
+        posix.close(wake[0])
+        posix.close(wake[1])
         return nil, false
     }
     if pid == 0 {
@@ -123,6 +150,8 @@ pty_start :: proc(profile: Profile, cwd: string, cols, rows: int) -> (^Pty, bool
     // setsid put the child in a group of its own, named by its own pid.
     pty.group = pid
     pty.master = master
+    pty.wake_r = wake[0]
+    pty.wake_w = wake[1]
     return pty, true
 }
 
@@ -146,7 +175,7 @@ child_environment :: proc(allocator := context.allocator) -> []cstring {
 
 // Writes to the shell's input. The caller terminates lines itself.
 pty_write :: proc(pty: ^Pty, data: string) -> bool {
-    if pty == nil || pty.master < 0 {
+    if pty == nil || sync.atomic_load(&pty.closed) {
         return false
     }
     if len(data) == 0 {
@@ -170,13 +199,28 @@ pty_write :: proc(pty: ^Pty, data: string) -> bool {
     return true
 }
 
-// Blocks until the shell writes, and returns 0 at the end of the stream. A
-// pseudo-terminal whose child is gone answers EIO, which is that end.
+// Blocks until the shell writes, and returns 0 at the end of the stream or once
+// pty_terminate ran. A pseudo-terminal whose child is gone answers EIO, which is
+// that end.
 pty_read :: proc(pty: ^Pty, buf: []u8) -> int {
     if pty == nil || len(buf) == 0 {
         return 0
     }
     for {
+        // select and not poll: poll on macOS does not support a device.
+        ready: posix.fd_set
+        posix.FD_ZERO(&ready)
+        posix.FD_SET(pty.master, &ready)
+        posix.FD_SET(pty.wake_r, &ready)
+        if posix.select(c.int(max(pty.master, pty.wake_r)) + 1, &ready, nil, nil, nil) < 0 {
+            if posix.errno() == .EINTR {
+                continue
+            }
+            return 0
+        }
+        if posix.FD_ISSET(pty.wake_r, &ready) {
+            return 0
+        }
         read := posix.read(pty.master, raw_data(buf), c.size_t(len(buf)))
         if read < 0 {
             if posix.errno() == .EINTR {
@@ -191,7 +235,7 @@ pty_read :: proc(pty: ^Pty, buf: []u8) -> int {
 // Tells the terminal the grid changed. The kernel sends SIGWINCH with it, which
 // is how a full-screen program learns to redraw.
 pty_resize :: proc(pty: ^Pty, cols, rows: int) -> bool {
-    if pty == nil || pty.master < 0 {
+    if pty == nil || sync.atomic_load(&pty.closed) {
         return false
     }
     cols, rows := cols, rows
@@ -214,21 +258,25 @@ pty_terminate :: proc(pty: ^Pty) {
     if posix.killpg(pty.group, .SIGKILL) != .OK {
         posix.kill(pty.pid, .SIGKILL)
     }
-    if pty.master >= 0 {
-        posix.close(pty.master)
-        pty.master = -1
+    if sync.atomic_exchange(&pty.closed, true) {
+        return
+    }
+    // The master stays open until the reader is joined. The byte is what ends
+    // the read: a job the shell put in its own group survives the kill.
+    wake := [1]u8{1}
+    for posix.write(pty.wake_w, &wake[0], 1) < 0 && posix.errno() == .EINTR {
     }
 }
 
-// Releases the descriptor and reaps the shell. Only legal once the reader is
-// joined.
+// Releases the descriptors and reaps the shell. Only legal once the reader is
+// joined. The close of the master hangs up every job the kill did not reach.
 pty_destroy :: proc(pty: ^Pty) {
     if pty == nil {
         return
     }
-    if pty.master >= 0 {
-        posix.close(pty.master)
-    }
+    posix.close(pty.master)
+    posix.close(pty.wake_r)
+    posix.close(pty.wake_w)
     status: c.int
     for posix.waitpid(pty.pid, &status, {}) < 0 && posix.errno() == .EINTR {
     }
