@@ -21,6 +21,10 @@ POLL_SLICE :: 25 * time.Millisecond
 // How long a close waits for a server to end on its own before the kill.
 CLOSE_GRACE :: 1 * time.Second
 
+// The most bytes that may wait for a server to read them. Past it the server is
+// taken for dead.
+WRITE_LIMIT :: 64 * 1024 * 1024
+
 // The largest tail of the server's log that is kept. Oldest bytes are dropped.
 STDERR_TAIL :: 8 * 1024
 
@@ -69,15 +73,21 @@ Conn_Answers :: struct {
 }
 
 // One JSON-RPC connection over a Transport, which it owns. A reader thread takes
-// the frames and a second thread drains the server's log.
+// the frames, a second thread drains the server's log and a third writes, so no
+// caller blocks on a server that stopped reading.
 Conn :: struct {
     transport:     Transport,
     allocator:     runtime.Allocator,
     answers:       Conn_Answers, // borrowed; immutable for the connection's life
     reader:        ^thread.Thread, // owned
     draining:      ^thread.Thread, // owned; stderr
+    writer:        ^thread.Thread, // owned
     stopped:       bool,           // main thread only; conn_close has run
-    write_mutex:   sync.Mutex,     // one writer; the reader answers the server too
+    write_mutex:   sync.Mutex,
+    outgoing:      [dynamic][dynamic]u8, // owned; framed messages in send order; guarded by write_mutex
+    outgoing_size: int,                  // bytes in outgoing; guarded by write_mutex
+    write_ready:   sync.Sema,            // posted for every message and for the finish
+    write_finish:  bool,                 // atomic; the writer leaves once outgoing is empty
     pending_mutex: sync.Mutex,
     pending:       map[i64]^Pending, // owned
     next_id:       i64,
@@ -97,7 +107,9 @@ conn_start :: proc(transport: Transport, allocator := context.allocator, answers
     c.pending = make(map[i64]^Pending, allocator = allocator)
     c.notifications = make([dynamic]Notification, allocator)
     c.stderr_tail = make([dynamic]u8, allocator)
+    c.outgoing = make([dynamic][dynamic]u8, allocator)
     c.state = .Open
+    c.writer = thread.create_and_start_with_poly_data(c, conn_writer)
     c.reader = thread.create_and_start_with_poly_data(c, conn_reader)
     c.draining = thread.create_and_start_with_poly_data(c, conn_stderr_drain)
     return c
@@ -211,17 +223,30 @@ conn_stderr_tail :: proc(c: ^Conn, allocator := context.allocator) -> string {
     return strings.clone(string(c.stderr_tail[:]), allocator)
 }
 
-// Ends the connection: every waiter fails, the server's input closes, and both
-// threads are joined. The kill is what frees a reader parked on a server that
-// ignores a closed stdin. Runs once, on the main thread.
+// Ends the connection: every waiter fails, what is queued is written, the
+// server's input closes, and the three threads are joined. The kill is what
+// frees a reader parked on a server that ignores a closed stdin, and a writer
+// parked on one that does not read. Runs once, on the main thread.
 conn_close :: proc(c: ^Conn) {
     if c.stopped {
         return
     }
     c.stopped = true
     conn_fail(c)
-    c.transport.close(c.transport.data)
+
+    sync.atomic_store(&c.write_finish, true)
+    sync.sema_post(&c.write_ready)
     start := time.tick_now()
+    for !thread.is_done(c.writer) && time.tick_since(start) < CLOSE_GRACE {
+        time.sleep(time.Millisecond)
+    }
+    if !thread.is_done(c.writer) {
+        c.transport.kill(c.transport.data)
+    }
+    thread.join(c.writer)
+
+    c.transport.close(c.transport.data)
+    start = time.tick_now()
     for time.tick_since(start) < CLOSE_GRACE {
         if thread.is_done(c.reader) && thread.is_done(c.draining) {
             break
@@ -239,7 +264,12 @@ conn_destroy :: proc(c: ^Conn) {
     conn_close(c)
     thread.destroy(c.reader)
     thread.destroy(c.draining)
+    thread.destroy(c.writer)
     c.transport.destroy(c.transport.data)
+    for frame in c.outgoing {
+        delete(frame)
+    }
+    delete(c.outgoing)
     for note in c.notifications {
         conn_free_notification(c, note)
     }
@@ -349,15 +379,59 @@ write_quoted :: proc(out: ^[dynamic]u8, text: string) {
     append(out, "\"")
 }
 
-// Frames a body and writes it. One writer at a time: the reader thread answers
-// the server's own requests over the same stream.
+// Frames a body and queues it for the writer thread, so it never blocks on the
+// server. False when the connection is closed or the queue is past WRITE_LIMIT,
+// which ends the connection.
 @(private = "file")
 conn_write :: proc(c: ^Conn, body: []u8) -> bool {
+    if conn_state(c) == .Closed {
+        return false
+    }
     out := make([dynamic]u8, c.allocator)
-    defer delete(out)
     frame_write(&out, body)
-    sync.guard(&c.write_mutex)
-    return c.transport.write(c.transport.data, out[:])
+
+    sync.lock(&c.write_mutex)
+    if c.outgoing_size + len(out) > WRITE_LIMIT {
+        sync.unlock(&c.write_mutex)
+        delete(out)
+        conn_fail(c)
+        return false
+    }
+    append(&c.outgoing, out)
+    c.outgoing_size += len(out)
+    sync.unlock(&c.write_mutex)
+    sync.sema_post(&c.write_ready)
+    return true
+}
+
+// Writes the queued messages in order. A failed write is the end of the
+// connection. It leaves when conn_close asks and the queue is empty.
+@(private = "file")
+conn_writer :: proc(c: ^Conn) {
+    for {
+        sync.sema_wait(&c.write_ready)
+        for {
+            sync.lock(&c.write_mutex)
+            if len(c.outgoing) == 0 {
+                sync.unlock(&c.write_mutex)
+                break
+            }
+            frame := c.outgoing[0]
+            ordered_remove(&c.outgoing, 0)
+            c.outgoing_size -= len(frame)
+            sync.unlock(&c.write_mutex)
+
+            written := c.transport.write(c.transport.data, frame[:])
+            delete(frame)
+            if !written {
+                conn_fail(c)
+                return
+            }
+        }
+        if sync.atomic_load(&c.write_finish) {
+            return
+        }
+    }
 }
 
 // Takes the Pending out of the map, which is what claims it. A miss is the

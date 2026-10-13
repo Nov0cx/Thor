@@ -13,6 +13,11 @@ import "../../shell"
 // those readers block; a well-behaved server then exits on its own and both
 // readers see the end. `terminate` is the kill for one that does not. `destroy`
 // is legal only once both reader threads are joined.
+//
+// `write` may block for as long as the server does not read, so it runs on the
+// connection's writer thread only. `kill` ends the server with its input left
+// open, which makes a blocked `write` fail; `close` and `terminate` are legal
+// only when no write is in flight.
 Transport :: struct {
     data:      rawptr,
     write:     proc(data: rawptr, bytes: []u8) -> bool,
@@ -20,6 +25,7 @@ Transport :: struct {
     read_err:  proc(data: rawptr, buf: []u8) -> int,
     close:     proc(data: rawptr),
     terminate: proc(data: rawptr),
+    kill:      proc(data: rawptr),
     destroy:   proc(data: rawptr),
 }
 
@@ -48,6 +54,9 @@ transport_child :: proc(spec: shell.Child_Spec) -> (Transport, bool) {
         },
         terminate = proc(data: rawptr) {
             shell.child_terminate((^shell.Child)(data))
+        },
+        kill = proc(data: rawptr) {
+            shell.child_kill((^shell.Child)(data))
         },
         destroy = proc(data: rawptr) {
             shell.child_destroy((^shell.Child)(data))

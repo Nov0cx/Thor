@@ -12,7 +12,9 @@
 // shared for a whole round trip and taken outright by the pump when it replaces a
 // dead connection, so `conn` cannot be freed under a request. `docs_mutex` guards
 // the document list both of them read. A worker takes `conn_lock` first and
-// `docs_mutex` second; nothing takes them the other way round. `push_mutex` is
+// `docs_mutex` second; nothing takes them the other way round. A send under
+// either lock only queues: the connection's writer thread does the pipe write,
+// so a server that stops reading holds no lock. `push_mutex` is
 // independent of both and is never held with either. `status_mutex` is a leaf:
 // it guards the three fields a status read takes and is never held while any
 // other lock here is.

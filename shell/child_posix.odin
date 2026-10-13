@@ -191,6 +191,15 @@ child_terminate :: proc(child: ^Child) {
         return
     }
     child_close_in(child)
+    child_kill(child)
+}
+
+// Ends the process and leaves stdin open, so a child_write blocked on another
+// thread fails with no descriptor closed under it.
+child_kill :: proc(child: ^Child) {
+    if child == nil {
+        return
+    }
     // The whole group, so a process the child started dies with it instead of
     // holding an output pipe open.
     if posix.killpg(child.group, .SIGKILL) != .OK {

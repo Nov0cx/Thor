@@ -25,6 +25,7 @@ Mock :: struct {
     to_client: [dynamic]u8, // owned; what a read_out will take
     to_error:  [dynamic]u8, // owned; what a read_err will take
     closed:    bool,
+    stall:     bool, // set before the connection starts; a write blocks until the mock closes
 }
 
 mock_transport :: proc(mock: ^Mock) -> Transport {
@@ -32,6 +33,15 @@ mock_transport :: proc(mock: ^Mock) -> Transport {
         data = mock,
         write = proc(data: rawptr, bytes: []u8) -> bool {
             mock := (^Mock)(data)
+            for mock.stall {
+                sync.lock(&mock.mutex)
+                closed := mock.closed
+                sync.unlock(&mock.mutex)
+                if closed {
+                    return false
+                }
+                time.sleep(time.Millisecond)
+            }
             sync.guard(&mock.mutex)
             if mock.closed {
                 return false
@@ -51,6 +61,9 @@ mock_transport :: proc(mock: ^Mock) -> Transport {
             mock_close((^Mock)(data))
         },
         terminate = proc(data: rawptr) {
+            mock_close((^Mock)(data))
+        },
+        kill = proc(data: rawptr) {
             mock_close((^Mock)(data))
         },
         destroy = proc(data: rawptr) {
@@ -684,4 +697,23 @@ test_conn_keeps_the_stderr_tail :: proc(t: ^testing.T) {
         time.sleep(time.Millisecond)
     }
     testing.expect_value(t, conn_state(c), Conn_State.Open)
+}
+
+// A server that stops reading its input blocks the writer thread and nothing
+// else: a notification returns, a request runs out its deadline, and the close
+// ends the write with the kill.
+@(test)
+test_stalled_server_blocks_no_caller :: proc(t: ^testing.T) {
+    mock: Mock
+    mock.stall = true
+    conn := conn_start(mock_transport(&mock), context.allocator)
+
+    testing.expect(t, conn_notify(conn, "initialized", "{}"), "the notification was refused")
+    value, err := conn_call(conn, "shutdown", "", 50 * time.Millisecond)
+    conn_free_value(conn, value)
+    testing.expect_value(t, err, Rpc_Error.Timeout)
+
+    start := time.tick_now()
+    conn_destroy(conn)
+    testing.expect(t, time.tick_since(start) < 10 * time.Second, "the close waited on the write")
 }

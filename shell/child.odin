@@ -18,12 +18,15 @@ import "core:strings"
 //     child_close_in  :: proc(child: ^Child)
 //     child_alive     :: proc(child: ^Child) -> bool
 //     child_terminate :: proc(child: ^Child)
+//     child_kill      :: proc(child: ^Child)
 //     child_destroy   :: proc(child: ^Child)
 //
 // child_read_out and child_read_err block until the child writes and return 0 at
 // the end of their stream, so each belongs on a reader thread of its own.
 // child_close_in signals the end of input without ending the process, which is
-// how a filter learns to finish.
+// how a filter learns to finish. child_kill ends the process and leaves stdin
+// open: it is the one call that is safe while another thread blocks in
+// child_write, and that write then fails.
 //
 // child_start reports a program that could not be started on both platforms. A
 // fork cannot fail, so the POSIX side carries the exec's errno back over a pipe

@@ -153,6 +153,15 @@ child_terminate :: proc(child: ^Child) {
         return
     }
     child_close_in(child)
+    child_kill(child)
+}
+
+// Ends the process and leaves stdin open, so a child_write blocked on another
+// thread fails. A CloseHandle on a handle with a write pending waits for it.
+child_kill :: proc(child: ^Child) {
+    if child == nil {
+        return
+    }
     // The job kill also reaches the grandchildren it holds; a process kill
     // alone does not, but it is the best that is left when the job itself
     // refuses to die.
