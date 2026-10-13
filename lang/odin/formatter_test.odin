@@ -121,6 +121,59 @@ test_format_range_clips_to_selection :: proc(t: ^testing.T) {
     testing.expectf(t, strings.contains(formatted, "g :: proc() {\n\treturn"), "the selected region did not reindent:\n%s", formatted)
 }
 
+// Format Selection must not reorder imports: one line of a sorted run inside
+// the window would apply half of a move and repeat an import.
+@(test)
+test_format_range_keeps_imports_with_sort :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    root := "thor_lang_fmtsort_ws"
+    cfg_dir := strings.concatenate({root, "/.thor"}, context.temp_allocator)
+    _ = os.make_directory(root)
+    _ = os.make_directory(cfg_dir)
+    cfg := strings.concatenate({cfg_dir, "/odin-formatter.json"}, context.temp_allocator)
+    defer os.remove(root)
+    defer os.remove(cfg_dir)
+    defer os.remove(cfg)
+    cfg_src := `{"sort_imports": true}`
+    _ = os.write_entire_file(cfg, transmute([]byte)cfg_src)
+
+    src := "package demo\nimport \"core:os\"\nimport \"core:mem\"\nimport \"core:fmt\"\n"
+    lo := strings.index(src, "import")
+    hi := lo + strings.index(src[lo:], "\n")
+    req := lang.Request {
+        kind      = .Format_Range,
+        path      = "buffer.odin",
+        ext       = ".odin",
+        source    = src,
+        workspace = root,
+        offset    = lo,
+        end       = hi,
+    }
+    res := lang.Result{kind = .Format_Range}
+    resolve(e, &req, &res)
+    defer free_edits(&res)
+
+    formatted := apply_edits(src, &res)
+    for name in ([]string{"core:os", "core:mem", "core:fmt"}) {
+        testing.expectf(t, strings.count(formatted, name) == 1, "expected %s once, got:\n%s", name, formatted)
+    }
+
+    // The whole-document format still sorts.
+    all := lang.Request{kind = .Format, path = "buffer.odin", ext = ".odin", source = src, workspace = root}
+    all_res := lang.Result{kind = .Format}
+    resolve(e, &all, &all_res)
+    defer free_edits(&all_res)
+    sorted := apply_edits(src, &all_res)
+    testing.expectf(
+        t,
+        strings.contains(sorted, "\"core:fmt\"\nimport \"core:mem\"\nimport \"core:os\""),
+        "expected a sorted import run, got:\n%s",
+        sorted,
+    )
+}
+
 // Format-on-type at a closing brace reindents that line. The rest of the buffer
 // is already formatted while typing, so the printer's only change is the line
 // the trigger sits on.

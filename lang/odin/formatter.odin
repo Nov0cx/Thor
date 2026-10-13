@@ -189,6 +189,11 @@ format_document :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result, lo, h
     newline_present := cache.newline_present
     sync.unlock(&cache.mutex)
 
+    // A moved line is two spans, and a window can keep only one of them.
+    if req.kind != .Format {
+        opts.sort_imports = false
+    }
+
     out_alloc := context.allocator
     context.allocator = context.temp_allocator
 
