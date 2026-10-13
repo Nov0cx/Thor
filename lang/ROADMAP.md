@@ -1272,7 +1272,8 @@ lowest latency.
       `character_width` wraps call argument lists, procedure parameter lists and
       composite literals, one item per line with a trailing comma, and hugs any
       list holding an argument that forces a line break (a proc literal) as
-      before. `sort_imports` reorders a comment-free import run,
+      before. `sort_imports` reorders a comment-free import run (`.Format` only: a
+      window cannot apply half of a move),
       collection-qualified paths first. `align_struct_fields` lines up struct
       field types, `align_struct_values` the `=` of enum members and multi-line
       composite literals and the `|` of a bit field, `align_constant_definitions`

@@ -296,7 +296,7 @@ its root, layered on top of the global settings above. This repository's own
   The formatter never guesses at broken code — a file with a syntax error is
   left untouched. An import run with a comment in it is left in the order it
   was written, since moving an import would re-attach the comment beside it to
-  a different one. Format Selection and format-on-type reformat only inside the
+  a different one. Only Format Document sorts imports. Format Selection and format-on-type reformat only inside the
   lines they were given: a change that reaches past them is dropped rather than
   half-applied. `newline_style` only takes effect when the key is present:
   an absent key never flips a file's line ending, since the odinfmt schema's

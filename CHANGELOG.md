@@ -9,6 +9,12 @@
 - A plugin panel tree stops at 32 levels and 4096 nodes. A node that held itself crashed the editor.
 - A plugin path that goes through a symbolic link or a junction is refused, so a link in a folder cannot lead a plugin out of it.
 - A plugin syntax node whose tree is freed answers nothing instead of reading freed memory.
+- The Odin formatter keeps `x.?`. It printed `x.(?)`, which does not parse.
+- The Odin formatter keeps `#bounds_check`, `#no_bounds_check`, `#type_assert` and `#no_type_assert` on a statement or an expression. It dropped them.
+- The Odin formatter keeps `#force_inline` and `#force_no_inline` on a procedure literal.
+- The Odin formatter keeps the space in `- -x`, `+ +x` and `& &x`. Without it the two operators read as one.
+- A block that stands alone as a statement no longer gets a space before its `{`.
+- Format Selection does not sort imports. A selection inside an import run repeated one import and lost another; Format Document still sorts.
 
 # 2026.10.1
 
