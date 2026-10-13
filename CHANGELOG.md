@@ -1,3 +1,8 @@
+# 2026.10.4
+
+- A click on a row of the file tree gives the tree the keyboard. Delete and the arrow keys did nothing after a click.
+- `ctrl + n` makes a new file. With the file tree focused it lands beside the selection, and so does New Folder.
+
 # 2026.10.3
 
 - A folder's own `.thor/lsp.json` is asked about before it is used. It names programs to start, so opening a cloned folder no longer starts one unprompted. The answer is remembered for that folder and that file; a changed file asks again.

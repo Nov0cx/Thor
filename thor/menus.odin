@@ -245,17 +245,28 @@ thor_menu_explorer_copy_path :: proc(data: rawptr) {
 }
 
 
-// Command-palette / top-bar entry points: create relative to the workspace
-// root (the explorer right-click sets a more specific target itself).
+// Folder a keyboard or palette create lands in: beside the explorer's selection
+// when the tree has the focus, else the workspace root.
+@(private = "file")
+thor_create_target :: proc(thor: ^Thor) -> string {
+    selected := thor_explorer_selected(thor)
+    if thor.focus_owner != "explorer" || selected == "" {
+        return thor.workspace_dir
+    }
+    return os.is_dir(selected) ? selected : filepath.dir(selected) // borrowed
+}
+
+// Command-palette / top-bar / keybind entry points (the explorer right-click
+// sets its own target).
 thor_cmd_new_file :: proc(data: rawptr) {
     thor := cast(^Thor) data
-    thor_set_menu_target(thor, thor.workspace_dir)
+    thor_set_menu_target(thor, thor_create_target(thor))
     thor_menu_new_file(data)
 }
 
 thor_cmd_new_folder :: proc(data: rawptr) {
     thor := cast(^Thor) data
-    thor_set_menu_target(thor, thor.workspace_dir)
+    thor_set_menu_target(thor, thor_create_target(thor))
     thor_menu_new_folder(data)
 }
 

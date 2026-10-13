@@ -514,6 +514,8 @@ thor_explorer_view :: proc(thor: ^Thor) {
                 hovered = row.node
             }
             if it.pressed {
+                // A row is not focusable, so a press on one would drop the focus.
+                ui.set_focus(panel.id)
                 explorer_press(thor, row.node, ui.mods())
             }
             if it.dragging {

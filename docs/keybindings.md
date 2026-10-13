@@ -19,6 +19,7 @@ Every binding below is a default and can be changed in `keybinds.json`
 | ctrl + o | open a file from anywhere (shell picker) |
 | ctrl + alt + o | open a folder as the workspace (asks: this window or a new one) |
 | ctrl + alt + shift + o | open a folder in a new window |
+| ctrl + n | new file: prompts for a name, beside the explorer's selection when the explorer has focus, else in the workspace root |
 | ctrl + s | save file (autosave also runs 1.5s after the last edit) |
 | ctrl + w | close tab |
 | ctrl + page down / page up | next / previous tab |
@@ -39,8 +40,8 @@ Every binding below is a default and can be changed in `keybinds.json`
 
 ## Explorer
 
-When the explorer has focus (e.g. via ctrl + shift + b) it can be driven from
-the keyboard:
+When the explorer has focus (a click on a row, or ctrl + shift + b) it can be
+driven from the keyboard:
 
 | Binding | Action |
 | --- | --- |
@@ -48,7 +49,7 @@ the keyboard:
 | right | expand a folder, or step into its first child |
 | left | collapse a folder, or step out to its parent |
 | enter | open the selected file / toggle the selected folder |
-| delete | delete the selected file (after a confirmation dialog) |
+| delete | delete the selection, files and folders (after a confirmation dialog) |
 
 ## Find and replace
 

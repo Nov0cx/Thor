@@ -56,7 +56,7 @@
         "open_folder_new_window": "ctrl+alt+shift+o",
         "new_folder": "",
         "toggle_console": "ctrl+t",
-        "new_file": "",
+        "new_file": "ctrl+n",
         "reveal_in_explorer": "",
         "goto_workspace_symbol": "ctrl+q",
         "goto_symbol": "ctrl+shift+o",
