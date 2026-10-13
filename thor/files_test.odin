@@ -190,9 +190,9 @@ test_image_tab_is_not_stuck_loading :: proc(t: ^testing.T) {
 test_line_ending_detect :: proc(t: ^testing.T) {
     testing.expect_value(t, thor_detect_line_ending("a\nb\n"), Line_Ending.LF)
     testing.expect_value(t, thor_detect_line_ending("a\r\nb\r\n"), Line_Ending.CRLF)
-    // The first terminator decides; a mixed file is not left undecided.
-    testing.expect_value(t, thor_detect_line_ending("a\nb\r\n"), Line_Ending.LF)
-    testing.expect_value(t, thor_detect_line_ending("a\r\nb\n"), Line_Ending.CRLF)
+    // A file with both kinds is Mixed, and is written back as it came.
+    testing.expect_value(t, thor_detect_line_ending("a\nb\r\n"), Line_Ending.Mixed)
+    testing.expect_value(t, thor_detect_line_ending("a\r\nb\n"), Line_Ending.Mixed)
     // No terminator at all, and a lone CR, are both LF.
     testing.expect_value(t, thor_detect_line_ending(""), Line_Ending.LF)
     testing.expect_value(t, thor_detect_line_ending("one line"), Line_Ending.LF)

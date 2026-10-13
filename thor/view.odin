@@ -37,6 +37,7 @@ Status_Info :: struct {
     indent_spaces: bool,
     zoom:          int,
     line_ending:   string,
+    encoding:      string,
     file_open:     bool,
     modified:      bool,
     saving:        bool,
@@ -1668,7 +1669,9 @@ thor_statusbar :: proc(thor: ^Thor) {
             thor_toggle_line_ending(thor)
         }
     }
-    thor_status_segment(thor, "encoding", "", "UTF-8", dim, "Text encoding of the file")
+    if info.encoding != "" {
+        thor_status_segment(thor, "encoding", "", info.encoding, dim, "Text encoding of the file on disk")
+    }
     if info.indent_width > 0 {
         label := info.indent_spaces ? "Spaces" : "Tab Size"
         thor_status_segment(

@@ -19,12 +19,15 @@ import "../setting"
 import "../textedit"
 import ui "../vendor/loom/loom"
 import "../editview"
-// Line terminator a file uses on disk. The buffer always holds LF, so a CRLF
-// file is collapsed on load and expanded again on save; the editing core and
-// every byte offset downstream never see a CR.
+// Line terminator a file uses on disk. The buffer holds LF, so a CRLF file is
+// collapsed on load and expanded again on save; the editing core and every byte
+// offset downstream never see a CR. A file that mixes the two is Mixed: its
+// buffer keeps each CR and a save writes the bytes back as they are, until the
+// user picks one ending.
 Line_Ending :: enum u8 {
     LF,
     CRLF,
+    Mixed,
 }
 
 // One open document. The textedit state lives here, not in the editor widget,
@@ -67,6 +70,9 @@ Open_File :: struct {
     // What the next save writes; detected on load. A file Thor creates gets the
     // zero value, LF.
     line_ending:        Line_Ending,
+    // What the file is on disk; the buffer is UTF-8 with no byte order mark.
+    encoding:           Encoding,
+    bom:                bool,
     last_edit:          time.Tick,
     // Syntax highlight spans and the buffer revision they were computed from.
     // The spans cover `highlight_start ..< highlight_end` only — the pane's view
@@ -165,6 +171,9 @@ Load_Job :: struct {
     // (nothing needed collapsing) — every read of `text` must happen before
     // `buffer` is freed.
     ending:           Line_Ending,
+    // What the bytes were decoded from, and whether a byte order mark led them.
+    encoding:         Encoding,
+    bom:              bool,
     text:             string,
     text_allocated:   bool,
     text_allocator:   mem.Allocator,
@@ -222,16 +231,26 @@ File_Op_Job :: struct {
 
 // Status bar label for an ending.
 thor_line_ending_label :: proc(ending: Line_Ending) -> string {
-    return ending == .CRLF ? "CRLF" : "LF"
+    switch ending {
+    case .LF:
+        return "LF"
+    case .CRLF:
+        return "CRLF"
+    case .Mixed:
+        return "Mixed"
+    }
+    return "LF"
 }
 
-// The ending a file uses, taken from its first terminator: CRLF only when that
-// \n follows a \r. A file with no newline at all counts as LF.
+// The ending a file uses: Mixed when it has both kinds. A file with no newline
+// at all counts as LF.
 thor_detect_line_ending :: proc(content: string) -> Line_Ending {
-    for i in 0 ..< len(content) {
-        if content[i] == '\n' {
-            return i > 0 && content[i - 1] == '\r' ? .CRLF : .LF
-        }
+    lf, crlf := thor_count_line_endings(content)
+    switch {
+    case lf > 0 && crlf > 0:
+        return .Mixed
+    case crlf > 0:
+        return .CRLF
     }
     return .LF
 }
@@ -251,7 +270,8 @@ thor_to_buffer_text :: proc(content: string, allocator := context.temp_allocator
 // Buffer text as it goes to disk, expanded back to CRLF when that is the file's
 // ending. Always returns an owned string.
 thor_to_disk_text :: proc(text: string, ending: Line_Ending, allocator := context.allocator) -> string {
-    if ending == .LF {
+    // A Mixed buffer holds its CRs already.
+    if ending != .CRLF {
         return strings.clone(text, allocator)
     }
     // replace_all hands back the input unallocated when the file has no
@@ -300,20 +320,45 @@ load_worker :: proc(job: ^Load_Job) {
         return
     }
 
-    // NUL bytes in the head of the file mean it is not text; refuse instead
-    // of feeding garbage to the piece table.
-    probe := min(job.size, BINARY_PROBE_BYTES)
-    for i in 0 ..< probe {
-        if job.data[i] == 0 {
-            job.binary = true
+    bytes = job.buffer
+    encoding, bom := thor_detect_encoding(bytes)
+    job.encoding = encoding
+    job.bom = bom > 0
+    bytes = bytes[bom:]
+    job.text_allocator = context.allocator
+
+    content := string(bytes)
+    decoded := false
+    if encoding != .UTF8 {
+        text, decode_ok := thor_decode_utf16(bytes, encoding == .UTF16_BE, job.text_allocator)
+        if !decode_ok {
             return
         }
+        content, decoded = text, true
     }
 
-    content := job.size > 0 ? string(job.data[:job.size]) : ""
+    // NUL bytes in the head of the text mean it is not text; refuse instead
+    // of feeding garbage to the piece table.
+    probe := min(len(content), BINARY_PROBE_BYTES)
+    if strings.index_byte(content[:probe], 0) >= 0 {
+        job.binary = true
+        if decoded {
+            delete(content, job.text_allocator)
+        }
+        return
+    }
+
     job.ending = thor_detect_line_ending(content)
-    job.text_allocator = context.allocator
-    job.text, job.text_allocated = thor_to_buffer_text(content, job.text_allocator)
+    if job.ending == .Mixed {
+        job.text, job.text_allocated = content, decoded
+    } else {
+        job.text, job.text_allocated = thor_to_buffer_text(content, job.text_allocator)
+        // The collapse made a copy of the decoded text, or gave it back.
+        if decoded && job.text_allocated {
+            delete(content, job.text_allocator)
+        }
+        job.text_allocated ||= decoded
+    }
     job.ok = true
 }
 
@@ -773,6 +818,7 @@ thor_apply_reload :: proc(thor: ^Thor, job: ^Load_Job) {
     // buffer every time and reload on each watcher event. Both already
     // computed by the worker.
     ending := job.ending
+    file.encoding, file.bom = job.encoding, job.bom
     buffer_text := job.text
     // A copy: the cursor remap and the pane rebind below still read it after
     // set_text has replaced the buffer it came from.
@@ -1086,6 +1132,7 @@ thor_save_file :: proc(thor: ^Thor, file: ^Open_File, force := false) {
     job.file = file
     job.path = file.path
     job.text = thor_to_disk_text(textedit.text(&file.state), file.line_ending)
+    job.text = thor_encode_text(job.text, file.encoding, file.bom, context.allocator)
     job.revision = file.state.revision
     job.content = textedit.checkpoint(&file.state)
     job.worker = thread.create_and_start_with_poly_data(job, save_worker)
@@ -1095,8 +1142,16 @@ thor_save_file :: proc(thor: ^Thor, file: ^Open_File, force := false) {
 // since converting the file is the whole point of the action; a dirty one keeps
 // its pending edits and converts with the next save.
 thor_set_line_ending :: proc(thor: ^Thor, file: ^Open_File, ending: Line_Ending) {
-    if file == nil || !file.loaded || file.line_ending == ending {
+    if file == nil || !file.loaded || file.line_ending == ending || ending == .Mixed {
         return
+    }
+    // A Mixed buffer holds its CRs. One edit takes them out, and the next save
+    // writes the one ending.
+    if file.line_ending == .Mixed {
+        text, _ := thor_to_buffer_text(textedit.text(&file.state))
+        cursors := slice.clone(file.state.cursors[:], context.temp_allocator)
+        textedit.replace_text(&file.state, text)
+        textedit.set_cursors(&file.state, cursors)
     }
     file.line_ending = ending
     thor_flash_status(thor, fmt.tprintf("Line endings: %s", thor_line_ending_label(ending)))
@@ -1293,6 +1348,7 @@ thor_process_io :: proc(thor: ^Thor) {
             thor_apply_reload(thor, job)
         } else if job.ok {
             file.line_ending = job.ending
+            file.encoding, file.bom = job.encoding, job.bom
             textedit.set_text(&file.state, job.text)
             file.loaded = true
             thor_mark_saved(file)

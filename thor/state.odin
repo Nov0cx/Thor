@@ -324,6 +324,7 @@ thor_status_info :: proc(data: rawptr) -> Status_Info {
     info.modified = file.loaded && file.state.revision != file.saved_revision
     if file.loaded {
         info.line_ending = thor_line_ending_label(file.line_ending)
+        info.encoding = thor_encoding_label(file.encoding, file.bom)
 
         text := textedit.text(&file.state)
         caret := textedit.primary_cursor(&file.state).caret
