@@ -43,6 +43,9 @@ main :: proc() {
     }
 
     thor_instance := thor.init()
+    if thor_instance == nil {
+        return
+    }
     defer thor.shutdown(thor_instance)
 
     thor.run(thor_instance)

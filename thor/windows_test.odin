@@ -103,6 +103,25 @@ test_own_record_is_not_another_window :: proc(t: ^testing.T) {
     testing.expect(t, os.exists(path), "our own record must not be pruned")
 }
 
+// A launch keeps a folder no live window holds: no folder at all, a record a
+// crashed window left, and this process's own record.
+@(test)
+test_launch_keeps_a_free_folder :: proc(t: ^testing.T) {
+    testing.expect_value(t, thor_launch_held("", 0), Launch_Held.Free)
+
+    STALE :: "D:\\thor-window-test-launch-stale"
+    stale_path := write_test_record(t, STALE, 0x7FFFFFF2, 0)
+    defer delete(stale_path)
+    defer os.remove(stale_path)
+    testing.expect_value(t, thor_launch_held(STALE, 0), Launch_Held.Free)
+
+    OWN :: "D:\\thor-window-test-launch-own"
+    own_path := write_test_record(t, OWN, os.get_pid(), 0)
+    defer delete(own_path)
+    defer os.remove(own_path)
+    testing.expect_value(t, thor_launch_held(OWN, 2), Launch_Held.Free)
+}
+
 // Unregistering only drops our own claim. A record another window wrote (it took
 // the folder over after us) has to survive, or that window would stop being found.
 @(test)

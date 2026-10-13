@@ -535,8 +535,13 @@ Thor :: struct {
     status_message: string,
     status_message_time: f64,
     status_message_error: bool,
+    // True when the launch gave up a folder another window holds. That window
+    // owns the last-workspace record.
+    launch_dropped_held: bool,
 }
 
+// Starts the editor. Returns nil when the launch only raised another window;
+// the caller must exit then.
 init :: proc() -> ^Thor {
     start := time.tick_now()
     phase := start
@@ -573,6 +578,19 @@ init :: proc() -> ^Thor {
         workspace_dir = thor_last_workspace()
     }
 
+    // Two processes on one folder would both autosave its files and write its
+    // session, so a folder another window holds is never opened here.
+    held := thor_launch_held(workspace_dir, len(startup_files))
+    if held == .Exit {
+        delete(workspace_dir)
+        free_all(context.temp_allocator)
+        return nil
+    }
+    if held == .Drop {
+        delete(workspace_dir)
+        workspace_dir = ""
+    }
+
     // Settle an interrupted update before anything reads assets/ or plugins/:
     // a swap that died leaves the old copy under its .old name, and this is
     // what puts it back.
@@ -581,6 +599,7 @@ init :: proc() -> ^Thor {
     // Settings load before the font loader, so it knows which families and
     // icon packs the startup atlases must cover.
     thor := new(Thor)
+    thor.launch_dropped_held = held == .Drop
     thor_load_config(thor, workspace_dir)
     lap(&phase, "load config")
 

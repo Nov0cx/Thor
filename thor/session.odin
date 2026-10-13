@@ -275,6 +275,9 @@ thor_save_session :: proc(thor: ^Thor) {
     if werr := os.write_entire_file(path, data); werr != nil {
         log.errorf("Could not write session %q: %v", path, werr)
     }
+    if thor.launch_dropped_held && thor.workspace_dir == "" {
+        return
+    }
     thor_record_last_workspace(thor.workspace_dir)
 }
 

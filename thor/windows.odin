@@ -66,10 +66,9 @@ thor_window_file :: proc(workspace: string, allocator := context.temp_allocator)
 // raises this one. Called once the window exists (the handle is part of the
 // record) and again after every workspace switch.
 //
-// A folder a live window already holds is left alone: a switch never targets one
-// (thor_open_folder_request rules it out first), so this only fires when a launch
-// argument names a folder that is already open — and there the first window
-// stays the one raised, rather than both claiming and both writing its session.
+// A folder a live window already holds is left alone. A switch never targets one
+// (thor_open_folder_request rules it out first) and a launch drops it
+// (thor_launch_held), so this guard only covers a claim made in between.
 thor_register_window :: proc(thor: ^Thor) {
     if thor.workspace_dir == "" {
         return
@@ -99,6 +98,32 @@ thor_register_window :: proc(thor: ^Thor) {
     if werr := os.write_entire_file(path, data); werr != nil {
         log.errorf("Could not write window record %q: %v", path, werr)
     }
+}
+
+// What a launch does with its workspace.
+Launch_Held :: enum u8 {
+    Free, // no other window holds the folder
+    Exit, // the holder came forward and there is nothing else to show
+    Drop, // run with no workspace
+}
+
+// Settles a launch on `workspace` before the window exists. A folder another
+// window holds is raised there. This process then exits, unless it has files to
+// show or the raise did not go: an exit there would leave nothing on screen.
+thor_launch_held :: proc(workspace: string, file_count: int) -> Launch_Held {
+    if workspace == "" {
+        return .Free
+    }
+    window, taken := thor_workspace_window(workspace)
+    if !taken {
+        return .Free
+    }
+    raised := thor_focus_window(window)
+    log.infof("Workspace %s is held by another window (raised: %v)", workspace, raised)
+    if raised && file_count == 0 {
+        return .Exit
+    }
+    return .Drop
 }
 
 // Releases this process's claim on `workspace`. Called before a switch and at
