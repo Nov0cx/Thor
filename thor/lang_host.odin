@@ -26,6 +26,7 @@ thor_wire_editors :: proc(thor: ^Thor) {
         editview.editor_set_on_completion(editor, thor_editor_completion, thor)
         editview.editor_set_on_completion_accept(editor, thor_completion_accept, thor)
         editview.editor_set_on_type(editor, thor_editor_on_type, thor)
+        editor.wrap = true
     }
 }
 
