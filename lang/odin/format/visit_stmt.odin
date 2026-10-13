@@ -66,6 +66,12 @@ print_block :: proc(pr: ^Printer, out: ^[dynamic]Doc, block: ^ast.Block_Stmt, is
     } else {
         append(out, text(" "))
     }
+    print_block_braces(pr, out, block)
+}
+
+// The block from its `{`, with nothing before it.
+@(private)
+print_block_braces :: proc(pr: ^Printer, out: ^[dynamic]Doc, block: ^ast.Block_Stmt) {
     if print_one_line_block(pr, out, block) {
         return
     }
@@ -437,6 +443,7 @@ print_stmt :: proc(pr: ^Printer, out: ^[dynamic]Doc, stmt: ^ast.Stmt) {
     if stmt == nil {
         return
     }
+    print_state_flags(out, stmt.state_flags)
     switch s in stmt.derived_stmt {
     case ^ast.Bad_Stmt:
     // Unreachable: format() refuses any source with a parse error.
@@ -463,9 +470,11 @@ print_stmt :: proc(pr: ^Printer, out: ^[dynamic]Doc, stmt: ^ast.Stmt) {
     case ^ast.Block_Stmt:
         if s.label != nil {
             print_expr(pr, out, s.label)
-            append(out, text(": "))
+            append(out, text(":"))
+            print_block(pr, out, s, false)
+        } else {
+            print_block_braces(pr, out, s)
         }
-        print_block(pr, out, s, false)
 
     case ^ast.If_Stmt:
         if s.label != nil {

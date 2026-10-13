@@ -10,6 +10,7 @@ print_expr :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: ^ast.Expr) {
     if expr == nil {
         return
     }
+    print_state_flags(out, expr.state_flags)
     switch e in expr.derived_expr {
     case ^ast.Bad_Expr:
     // Unreachable: format() refuses any source with a parse error.
@@ -408,6 +409,27 @@ print_comp_lit_body ::proc(pr: ^Printer, out: ^[dynamic]Doc, e: ^ast.Comp_Lit) {
     append(out, indent(body[:]))
     append(out, hard_line(0))
     append(out, text("}"))
+}
+
+// The check directives a statement or an expression carries, each with a
+// space after it.
+@(private)
+print_state_flags :: proc(out: ^[dynamic]Doc, flags: ast.Node_State_Flags) {
+    if flags == {} {
+        return
+    }
+    if .Bounds_Check in flags {
+        append(out, text("#bounds_check "))
+    }
+    if .No_Bounds_Check in flags {
+        append(out, text("#no_bounds_check "))
+    }
+    if .Type_Assert in flags {
+        append(out, text("#type_assert "))
+    }
+    if .No_Type_Assert in flags {
+        append(out, text("#no_type_assert "))
+    }
 }
 
 // The inlining directive of a call or a procedure literal.

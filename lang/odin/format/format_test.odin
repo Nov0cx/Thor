@@ -816,3 +816,21 @@ test_proc_literal_keeps_inlining :: proc(t: ^testing.T) {
     testing.expect(t, ok)
     testing.expect(t, strings.contains(out, "fold :: #force_inline proc("), "search.odin lost its #force_inline")
 }
+
+@(test)
+test_check_directives_kept :: proc(t: ^testing.T) {
+    head :: "package p\nf :: proc(a: []int, v: any) {\n"
+    expect_keeps(t, head + "\t#no_bounds_check x := a[0]\n}\n", "\t#no_bounds_check x := a[0]\n")
+    expect_keeps(t, head + "\t#bounds_check {\n\t\ty := a[1]\n\t}\n}\n", "\t#bounds_check {\n")
+    expect_keeps(t, head + "\t#no_bounds_check for i in a {\n\t\t_ = i\n\t}\n}\n", "\t#no_bounds_check for i in a {\n")
+    expect_keeps(t, head + "\t#type_assert w := v.(int)\n}\n", "\t#type_assert w := v.(int)\n")
+    expect_keeps(t, head + "\t#no_type_assert w := v.(int)\n}\n", "\t#no_type_assert w := v.(int)\n")
+    expect_keeps(t, head + "\tq := #no_bounds_check a[2] + 1\n}\n", "\tq := #no_bounds_check a[2] + 1\n")
+    expect_keeps(t, head + "\t#no_bounds_check #no_type_assert u := a[3]\n}\n", "\t#no_bounds_check #no_type_assert u := a[3]\n")
+}
+
+@(test)
+test_bare_block_has_no_leading_space :: proc(t: ^testing.T) {
+    expect_keeps(t, "package p\nf :: proc() {\n\t{\n\t\tz := 1\n\t}\n}\n", "\n\t{\n\t\tz := 1\n\t}\n")
+    expect_keeps(t, "package p\nf :: proc() {\n\tblk: {\n\t\tbreak blk\n\t}\n}\n", "\n\tblk: {\n")
+}
