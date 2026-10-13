@@ -41,7 +41,7 @@ The previous release must be green — a red one usually repeats:
 gh run list --workflow=release.yml --limit 5
 git tag --sort=-v:refname | head -5
 ```
-
+Check if last push passed all cis. If not finished wait for i release creating beforet
 ## 2. Settle the version
 
 Three places have to say the same thing, and CI checks the first two against
