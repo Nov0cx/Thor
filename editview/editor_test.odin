@@ -800,3 +800,42 @@ test_indent_stops_of_a_blank_line :: proc(t: ^testing.T) {
     // Past the last line with text there is no block left to belong to.
     testing.expect_value(t, editor_indent_stops(&editor, text, 5), 0)
 }
+
+@(test)
+test_wrap_counts_wide_runes_as_two_cells :: proc(t: ^testing.T) {
+    editor: Editor
+    defer delete(editor.visual_rows)
+
+    // Four wide runes at three bytes each, in a row of five cells.
+    text := "日本語字"
+    editor_wrap_line(&editor, text, 0, len(text), 5, 0, 4)
+    testing.expect_value(t, len(editor.visual_rows), 2)
+    testing.expect_value(t, editor.visual_rows[0].end, 6)
+    testing.expect_value(t, editor.visual_rows[1].start, 6)
+
+    // A break never lands inside a cluster: e + combining acute is one cell.
+    clear(&editor.visual_rows)
+    marks := "aéb"
+    editor_wrap_line(&editor, marks, 0, len(marks), 2, 0, 4)
+    testing.expect_value(t, len(editor.visual_rows), 2)
+    testing.expect_value(t, editor.visual_rows[0].end, 4)
+}
+
+@(test)
+test_page_keys_move_by_the_view :: proc(t: ^testing.T) {
+    state: textedit.State
+    textedit.init(&state)
+    defer textedit.destroy(&state)
+    editor: Editor
+    defer delete(editor.visual_rows)
+    editor_test_jump_setup(&editor, &state)
+
+    // 20 lines; a 110 px view at 22 px a line shows 5 rows, so a page is 4.
+    editor.view = ui.Rect{0, 0, 600, 110}
+    editor_test_key(&editor, .Page_Down, {})
+    testing.expect_value(t, editor_test_caret_line(&editor), 4)
+    editor_test_key(&editor, .Page_Down, {})
+    testing.expect_value(t, editor_test_caret_line(&editor), 8)
+    editor_test_key(&editor, .Page_Up, {})
+    testing.expect_value(t, editor_test_caret_line(&editor), 4)
+}

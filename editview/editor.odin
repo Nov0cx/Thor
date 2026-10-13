@@ -147,6 +147,8 @@ Editor :: struct {
     font_size:          i32,
     gutter_width:       f32,
     scroll_y:           f32,
+    // Sideways scroll in pixels. Always 0 with wrap on.
+    scroll_x:           f32,
     background_color:   ui.Color,
     gutter_color:       ui.Color,
     border_color:       ui.Color,
@@ -173,6 +175,8 @@ Editor :: struct {
     rows_font_size:     i32,
     rows_width:         f32,
     rows_tab_width:     int,
+    // Display columns of the longest line, for the sideways scroll range.
+    rows_max_cols:      int,
     // Set by a change the stamps above cannot see (the fold set).
     rows_stale:         bool,
     // Syntax highlight spans for the current buffer; borrowed from the owner.
@@ -569,6 +573,7 @@ editor_toggle_comment :: proc(editor: ^Editor) {
 editor_set_state :: proc(editor: ^Editor, state: ^textedit.State) {
     editor.state = state
     editor.scroll_y = 0
+    editor.scroll_x = 0
     editor.highlights = nil
     // Borrowed from the previous buffer, whose owner can be freed right after
     // this rebind (a tab close). The owner pushes the new file's spans back.
@@ -595,9 +600,9 @@ editor_set_state :: proc(editor: ^Editor, state: ^textedit.State) {
 // disk), keeping the scroll offset so the view does not jump to the top. The
 // rows are gone, so the restored offset is clamped by the next rebuild.
 editor_reload_state :: proc(editor: ^Editor, state: ^textedit.State) {
-    scroll := editor.scroll_y
+    scroll, scroll_x := editor.scroll_y, editor.scroll_x
     editor_set_state(editor, state)
-    editor.scroll_y = scroll
+    editor.scroll_y, editor.scroll_x = scroll, scroll_x
 }
 
 // Byte offset the topmost visible row starts at; 0 before any row is built.
@@ -910,6 +915,49 @@ editor_text_width :: proc(editor: ^Editor) -> f32 {
     return editor.view.w - editor.gutter_width - TEXT_PAD_LEFT - 10
 }
 
+// Screen x of the first column of a row.
+@(private = "file")
+editor_text_x :: proc(editor: ^Editor) -> f32 {
+    return editor.view.x + editor.gutter_width + TEXT_PAD_LEFT - editor.scroll_x
+}
+
+// Pixel width of the longest line, from its column count. 0 with wrap on.
+editor_content_width :: proc(editor: ^Editor) -> f32 {
+    if editor.wrap {
+        return 0
+    }
+    return cast(f32) editor.rows_max_cols * cast(f32) font.measure("0", editor.font_size)
+}
+
+// Largest scroll_x that still shows text; 0 when every line fits the pane.
+editor_max_scroll_x :: proc(editor: ^Editor) -> f32 {
+    if editor.wrap || editor.view.w <= 0 {
+        return 0
+    }
+    // Room for the caret past the end of the longest line.
+    slack := cast(f32) font.measure("0", editor.font_size) * 4
+    return max(editor_content_width(editor) + slack - editor_text_width(editor), 0)
+}
+
+// Rows a page key moves: the rows in view less one, so one row carries over.
+editor_page_rows :: proc(editor: ^Editor) -> int {
+    line_height := cast(f32) font.line_height(editor.font_size)
+    if line_height <= 0 {
+        return 1
+    }
+    return max(cast(int) (editor.view.h / line_height) - 1, 1)
+}
+
+// Moves the cursors and the view by one page; `direction` is -1 or 1.
+@(private = "file")
+editor_page :: proc(editor: ^Editor, direction: int, extend: bool) {
+    rows := editor_page_rows(editor) * direction
+    editor_move_visual(editor, rows, extend)
+    editor.scroll_y += cast(f32) rows * cast(f32) font.line_height(editor.font_size)
+    editor_clamp_scroll(editor)
+    editor_scroll_to_caret(editor)
+}
+
 // Column the wrap breaks at, or max(int) with wrapping off.
 @(private = "file")
 editor_wrap_cols :: proc(editor: ^Editor) -> int {
@@ -983,12 +1031,17 @@ editor_rebuild_visual_rows :: proc(editor: ^Editor) {
     text := textedit.text(editor.state)
     cols := editor_wrap_cols(editor)
     tab_width := editor.rows_tab_width
+    editor.rows_max_cols = 0
 
     line_start := 0
     line_index := 0
     hidden_until := -1 // lines <= this are collapsed under a fold above; skip them
     for {
         line_end := textedit.line_end(text, line_start)
+        // A line is measured only when its bytes could beat the longest so far.
+        if !editor.wrap && (line_end - line_start) * tab_width > editor.rows_max_cols {
+            editor.rows_max_cols = max(editor.rows_max_cols, editor_line_cols(text[line_start:line_end], tab_width))
+        }
         if line_index > hidden_until {
             editor_wrap_line(editor, text, line_start, line_end, cols, line_index, tab_width)
             // A collapsed fold starting here hides everything down to its end.
@@ -1004,9 +1057,36 @@ editor_rebuild_visual_rows :: proc(editor: ^Editor) {
     }
 }
 
-// Appends the visual rows for one logical line, breaking at the last fitting
-// space (falling back to a hard character break).
+// Display cells of one line: a tab goes to the next stop, a wide rune takes two.
 @(private = "file")
+editor_line_cols :: proc(line: string, tab_width: int) -> int {
+    col := 0
+    for i := 0; i < len(line); {
+        cells, next := editor_cluster_cells(line, i, col, tab_width)
+        col += cells
+        i = next
+    }
+    return col
+}
+
+// Cells of the grapheme cluster at `i`, at column `col`, and the offset after it.
+@(private = "file")
+editor_cluster_cells :: proc(text: string, i, col, tab_width: int) -> (cells, next: int) {
+    b := text[i]
+    if b == '\t' {
+        return tab_width - (col % tab_width), i + 1
+    }
+    if b < 0x80 && (i + 1 >= len(text) || text[i + 1] < 0x80) {
+        return 1, i + 1
+    }
+    r, _ := utf8.decode_rune_in_string(text[i:])
+    return textedit.rune_cells(r), textedit.grapheme_next(text, i)
+}
+
+// Appends the visual rows for one logical line, breaking at the last fitting
+// space (falling back to a break between two clusters). A row never holds more
+// than `cols` cells, so a wide rune that does not fit starts the next row.
+@(private)
 editor_wrap_line :: proc(editor: ^Editor, text: string, line_start, line_end, cols, line_index, tab_width: int) {
     // With wrapping off cols is max(int), so the walk below can never break the
     // line — skip it rather than decoding every rune in the buffer per rebuild.
@@ -1021,8 +1101,9 @@ editor_wrap_line :: proc(editor: ^Editor, text: string, line_start, line_end, co
     first := true
     i := line_start
     for i < line_end {
-        r, w := utf8.decode_rune_in_string(text[i:])
-        if col >= cols {
+        cells, next := editor_cluster_cells(text[:line_end], i, col, tab_width)
+        // One cluster always fits an empty row, or a 1-column pane would loop.
+        if col + cells > cols && i > seg_start {
             brk := last_break > seg_start ? last_break : i
             append(&editor.visual_rows, Visual_Row {seg_start, brk, line_index, first})
             first = false
@@ -1032,11 +1113,11 @@ editor_wrap_line :: proc(editor: ^Editor, text: string, line_start, line_end, co
             i = brk
             continue
         }
-        col += r == '	' ? tab_width - (col % tab_width) : 1
-        i += w
-        if r == ' ' {
-            last_break = i
+        col += cells
+        if text[i] == ' ' {
+            last_break = next
         }
+        i = next
     }
     append(&editor.visual_rows, Visual_Row {seg_start, line_end, line_index, first})
 }
@@ -1323,12 +1404,10 @@ editor_handle_key :: proc(editor: ^Editor, event: ui.Key_Event) -> bool {
         editor_scroll_to_caret(editor)
         return true
     case .Page_Up:
-        editor_move_visual(editor, -8, (.Shift in event.mods))
-        editor_scroll_to_caret(editor)
+        editor_page(editor, -1, (.Shift in event.mods))
         return true
     case .Page_Down:
-        editor_move_visual(editor, 8, (.Shift in event.mods))
-        editor_scroll_to_caret(editor)
+        editor_page(editor, 1, (.Shift in event.mods))
         return true
     case .Home:
         if ctrl_only {
@@ -2150,7 +2229,7 @@ editor_screen_at :: proc(editor: ^Editor, offset: int) -> (x, y, line_height: f3
     row := editor.visual_rows[row_index]
     lh := cast(f32) font.line_height(editor.font_size)
     inner_top := editor.view.y
-    text_x := editor.view.x + editor.gutter_width + TEXT_PAD_LEFT
+    text_x := editor_text_x(editor)
     yy := inner_top - editor.scroll_y + cast(f32) row_index * lh
     col := clamp(offset, row.start, row.end)
     xx := text_x + cast(f32) font.measure(text[row.start:col], editor.font_size) +
@@ -2370,7 +2449,7 @@ editor_pos_at :: proc(editor: ^Editor, position: ui.Vec2) -> (int, bool) {
     text := textedit.text(editor.state)
     line_height := cast(f32) font.line_height(editor.font_size)
     inner_top := editor.view.y
-    text_x := editor.view.x + editor.gutter_width + TEXT_PAD_LEFT
+    text_x := editor_text_x(editor)
 
     target := cast(int) ((position.y - (inner_top - editor.scroll_y)) / line_height)
     target = clamp(target, 0, len(editor.visual_rows) - 1)
@@ -2479,6 +2558,24 @@ editor_scroll_to_caret :: proc(editor: ^Editor) {
     if caret_top + line_height > editor.scroll_y + view_height {
         editor.scroll_y = caret_top + line_height - view_height
     }
+
+    // With wrap off the caret can be past the pane edge. Two columns stay in
+    // view on the side the caret moves to.
+    if text_width := editor_text_width(editor); !editor.wrap && text_width > 0 {
+        caret := textedit.primary_cursor(editor.state).caret
+        row := editor.visual_rows[row_index]
+        text := textedit.text(editor.state)
+        col := clamp(caret, row.start, row.end)
+        caret_x := cast(f32) font.measure(text[row.start:col], editor.font_size) +
+            editor_swatch_offset(editor, text[row.start:row.end], col - row.start)
+        margin := min(cast(f32) font.measure("0", editor.font_size) * 2, text_width * 0.25)
+        if caret_x - margin < editor.scroll_x {
+            editor.scroll_x = caret_x - margin
+        }
+        if caret_x + margin > editor.scroll_x + text_width {
+            editor.scroll_x = caret_x + margin - text_width
+        }
+    }
     editor_clamp_scroll(editor)
 }
 
@@ -2516,8 +2613,10 @@ editor_max_scroll :: proc(editor: ^Editor) -> f32 {
 editor_clamp_scroll :: proc(editor: ^Editor) {
     if editor.state == nil {
         editor.scroll_y = 0
+        editor.scroll_x = 0
         return
     }
+    editor.scroll_x = clamp(editor.scroll_x, 0, editor_max_scroll_x(editor))
     max_scroll := editor_max_scroll(editor)
 
     if editor.scroll_y < 0 {
@@ -2715,6 +2814,18 @@ editor_wheel :: proc(editor: ^Editor, pos: ui.Vec2, delta: f32, mods: ui.Mod_Set
         return true
     }
     editor.scroll_y -= delta * cast(f32) font.line_height(editor.font_size) * 2
+    editor_clamp_scroll(editor)
+    return true
+}
+
+// A sideways wheel step: shift + wheel, or the second axis of a touchpad.
+editor_wheel_x :: proc(editor: ^Editor, delta: f32) -> bool {
+    if editor == nil || editor.state == nil || delta == 0 || editor.wrap {
+        return false
+    }
+    editor_clear_hover(editor)
+    editor.hover_probe_offset = -1
+    editor.scroll_x -= delta * cast(f32) font.measure("0", editor.font_size) * 6
     editor_clamp_scroll(editor)
     return true
 }

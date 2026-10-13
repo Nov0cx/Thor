@@ -873,13 +873,14 @@ thor_mouse_only :: proc(thor: ^Thor, it: ui.Interaction) -> ui.Interaction {
 
 @(private = "file")
 thor_editor_pane :: proc(thor: ^Thor, editor: ^editview.Editor, pane: int, key: string) {
-    // .Scroll_Y is for the scrollbar alone. .Wheel gives the pane the raw delta
-    // and moves no offset itself: editview owns scroll_y, and it needs the wheel
-    // even at the end of the file, for zoom and for the completion popup.
+    // .Scroll_X and .Scroll_Y are for the scrollbars alone. .Wheel gives the pane
+    // the raw delta and moves no offset itself: editview owns the scroll, and it
+    // needs the wheel even at the end of the file, for zoom and for the
+    // completion popup.
     it := ui.begin(
         {
             key = key,
-            flags = {.Clip, .Clickable, .Focusable, .Draggable, .Scroll_Y, .Wheel},
+            flags = {.Clip, .Clickable, .Focusable, .Draggable, .Scroll_X, .Scroll_Y, .Wheel},
             // Relative, so it is the containing block of the rows: Loom resolves
             // an absolute inset against the nearest positioned ancestor, which
             // would otherwise be the dock panel above the tab strip.
@@ -900,7 +901,11 @@ thor_editor_pane :: proc(thor: ^Thor, editor: ^editview.Editor, pane: int, key: 
     if it.node.scroll.y != editor.scroll_y {
         editor.scroll_y = it.node.scroll.y
     }
+    if it.node.scroll.x != editor.scroll_x {
+        editor.scroll_x = it.node.scroll.x
+    }
     defer ui.set_scroll(it.node, .Y, editor.scroll_y)
+    defer ui.set_scroll(it.node, .X, editor.scroll_x)
 
     editor.view = it.rect
     editor.focused = it.focused
@@ -946,15 +951,35 @@ thor_editor_pane :: proc(thor: ^Thor, editor: ^editview.Editor, pane: int, key: 
     rows := editor.visual_rows[:]
 
     // The rows are absolute and out of flow, so this states the document height
-    // for Loom: it is what the scrollbar and the scroll clamp are sized from.
-    // Zero-width: the pane does not scroll sideways.
-    ui.leaf({key = "content", props = {w = ui.Px(0), h = ui.Px(f32(len(rows)) * line_h)}})
+    // for Loom: it is what the scrollbars and the scroll clamp are sized from.
+    // The width is the pane's own plus the sideways range, 0 with wrap on.
+    content_w := f32(0)
+    if range := editview.editor_max_scroll_x(editor); range > 0 {
+        content_w = it.rect.w + range
+    }
+    ui.leaf({key = "content", props = {w = ui.Px(content_w), h = ui.Px(f32(len(rows)) * line_h)}})
 
     first := clamp(int(editor.scroll_y / line_h), 0, len(rows) - 1)
     last := clamp(first + int(it.rect.h / line_h) + 2, first, len(rows))
-    text_x := editor.gutter_width + editview.TEXT_PAD_LEFT
 
     thor_paint_gutter(thor, editor, it, rows, first, last, line_h)
+
+    // The text column clips, so text scrolled sideways does not draw over the
+    // gutter. Everything below is in its coordinates.
+    ui.begin(
+        {
+            key = "text",
+            flags = {.Clip},
+            props = {
+                position = .Absolute,
+                inset = {editor.gutter_width, 0, 0, 0},
+                w = ui.Px(max(it.rect.w - editor.gutter_width, 0)),
+                h = ui.Px(it.rect.h),
+            },
+        },
+    )
+    text_x := editview.TEXT_PAD_LEFT - editor.scroll_x
+
     thor_paint_indent_guides(thor, editor, text, rows, first, last, line_h, text_x)
     thor_paint_selections(thor, editor, text, rows, first, last, line_h, text_x)
     thor_paint_diagnostics(thor, editor, text, rows, first, last, line_h, text_x)
@@ -1016,6 +1041,7 @@ thor_editor_pane :: proc(thor: ^Thor, editor: ^editview.Editor, pane: int, key: 
     }
 
     thor_paint_carets(thor, editor, text, rows, first, last, line_h, text_x)
+    ui.end()
     thor_editor_overlays(thor, editor)
 }
 
@@ -1059,6 +1085,9 @@ thor_editor_intents :: proc(thor: ^Thor, editor: ^editview.Editor, it: ui.Intera
     if it.wheel.y != 0 {
         // Loom counts a wheel down as positive; the editor scrolls by lines.
         editview.editor_wheel(editor, ui.mouse_pos(), -it.wheel.y, ui.mods(), now)
+    }
+    if it.wheel.x != 0 {
+        editview.editor_wheel_x(editor, -it.wheel.x)
     }
     if it.pressed {
         editview.editor_press(editor, ui.mouse_pos(), .Left, ui.mods(), max(it.click_count, 1))
