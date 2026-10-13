@@ -30,6 +30,7 @@
 - Opening another folder starts every terminal again in that folder. Each tab keeps its shell and its scrollback.
 - **Close Workspace** closes the terminals and stops the language servers of the closed folder.
 - **Settings: Add Font** opens `user/fonts.json`. It opened `assets/fonts/fonts.json`, which every update replaces.
+- A rename or a move of a file that was just written no longer fails on Windows while the virus scanner holds the file. It is tried again for a moment, as a delete already is.
 - `tab_width`, `font_size` and `autosave_delay_ms` outside their range in a settings file are set to the nearest limit: 1 to 16, 8 to 48 and 0 to 10000.
 
 # 2026.10.1
