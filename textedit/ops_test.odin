@@ -456,3 +456,65 @@ test_insert_at_remaps_cursors :: proc(t: ^testing.T) {
     testing.expect_value(t, text(&state), "bcdef")
     testing.expect_value(t, primary_cursor(&state).caret, 3)
 }
+
+@(test)
+test_line_ops_keep_every_cursor :: proc(t: ^testing.T) {
+    state := ops_state("aaa\nbbb\nccc\nddd\neee", 0)
+    defer destroy(&state)
+
+    // Carets on "bbb" and "ddd".
+    set_cursors(&state, {Cursor {caret = 4, anchor = 4}, Cursor {caret = 12, anchor = 12}})
+    move_lines(&state, -1)
+    testing.expect_value(t, text(&state), "bbb\naaa\nddd\nccc\neee")
+    testing.expect_value(t, len(state.cursors), 2)
+    testing.expect_value(t, state.cursors[0].caret, 0)
+    testing.expect_value(t, state.cursors[1].caret, 8)
+
+    // The first block is at the top, so nothing moves.
+    move_lines(&state, -1)
+    testing.expect_value(t, text(&state), "bbb\naaa\nddd\nccc\neee")
+    testing.expect_value(t, len(state.cursors), 2)
+
+    move_lines(&state, 1)
+    testing.expect_value(t, text(&state), "aaa\nbbb\nccc\nddd\neee")
+
+    duplicate_lines(&state, 1)
+    testing.expect_value(t, text(&state), "aaa\nbbb\nbbb\nccc\nddd\nddd\neee")
+    testing.expect_value(t, state.cursors[0].caret, 8)
+    testing.expect_value(t, state.cursors[1].caret, 20)
+    undo(&state)
+    testing.expect_value(t, text(&state), "aaa\nbbb\nccc\nddd\neee")
+
+    set_cursors(&state, {Cursor {caret = 0, anchor = 0}, Cursor {caret = 12, anchor = 12}})
+    join_lines(&state)
+    testing.expect_value(t, text(&state), "aaa bbb\nccc\nddd eee")
+    testing.expect_value(t, len(state.cursors), 2)
+    testing.expect_value(t, state.cursors[0].caret, 3)
+    testing.expect_value(t, state.cursors[1].caret, 15)
+    undo(&state)
+    testing.expect_value(t, text(&state), "aaa\nbbb\nccc\nddd\neee")
+}
+
+@(test)
+test_insert_line_keeps_indent :: proc(t: ^testing.T) {
+    state := ops_state("    foo\n    bar", 5)
+    defer destroy(&state)
+
+    insert_line_below(&state)
+    testing.expect_value(t, text(&state), "    foo\n    \n    bar")
+    testing.expect_value(t, primary_cursor(&state).caret, 12)
+
+    insert_line_above(&state)
+    testing.expect_value(t, text(&state), "    foo\n    \n    \n    bar")
+    testing.expect_value(t, primary_cursor(&state).caret, 12)
+}
+
+@(test)
+test_newline_splits_a_bracket_pair :: proc(t: ^testing.T) {
+    state := ops_state("  f({})", 5)
+    defer destroy(&state)
+
+    insert_newline(&state)
+    testing.expect_value(t, text(&state), "  f({\n      \n  })")
+    testing.expect_value(t, primary_cursor(&state).caret, 12)
+}

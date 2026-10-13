@@ -230,86 +230,144 @@ trim_trailing_whitespace :: proc(state: ^State) {
     apply_line_edits(state, txt, edits[:])
 }
 
+// Opens a line under each cursor with the indentation insert_newline gives.
 insert_line_below :: proc(state: ^State) {
     move_line_end(state, false)
-    insert_text(state, "\n")
+    insert_newline(state)
 }
 
+// Opens a line over each cursor with the indentation of the cursor's line.
 insert_line_above :: proc(state: ^State) {
     move_line_start(state, false)
-    insert_text(state, "\n")
-    move_vertical(state, -1, false)
-}
-
-// Swaps the lines covered by the primary selection with the adjacent line.
-// Multi-cursor line moves are ambiguous, so secondary cursors collapse.
-move_lines :: proc(state: ^State, delta: int) {
-    collapse_to_primary(state)
     txt := text(state)
-    cursor := state.cursors[0]
-    lo, hi := selection_range(cursor)
-
-    block_start := line_start(txt, lo)
-    block_end := line_end(txt, hi)
-    block := txt[block_start:block_end]
-
     entry := Undo_Entry {cursors_before = clone_cursors(state)}
-    start, shift: int
-    replacement: string
 
-    if delta < 0 {
-        if block_start == 0 {
-            entry_destroy(&entry)
-            return
+    offset := 0
+    for &cursor in state.cursors {
+        ls := cursor.caret
+        ws := ls
+        for ws < len(txt) && (txt[ws] == ' ' || txt[ws] == '\t') {
+            ws += 1
         }
-        prev_start := line_start(txt, block_start - 1)
-        prev := txt[prev_start:block_start - 1]
-        replacement = strings.concatenate({block, "\n", prev}, context.temp_allocator)
-        start = prev_start
-        shift = -(len(prev) + 1)
-    } else {
-        if block_end >= len(txt) {
-            entry_destroy(&entry)
-            return
-        }
-        next_end := line_end(txt, block_end + 1)
-        next := txt[block_end + 1:next_end]
-        replacement = strings.concatenate({next, "\n", block}, context.temp_allocator)
-        start = block_start
-        shift = len(next) + 1
-        block_end = next_end
+        indent := txt[ls:ws]
+        insert_str := strings.concatenate({indent, "\n"}, context.temp_allocator)
+        append(&entry.ops, Edit_Op {kind = .Insert, pos = ls + offset, text = strings.clone(insert_str)})
+        piecetable.piecetable_insert(&state.table, ls + offset, insert_str)
+        cursor.caret = ls + offset + len(indent)
+        cursor.anchor = cursor.caret
+        offset += len(insert_str)
     }
-
-    removed := txt[start:block_end]
-    append(&entry.ops, Edit_Op {kind = .Delete, pos = start, text = strings.clone(removed)})
-    piecetable.piecetable_delete(&state.table, start, len(removed))
-    append(&entry.ops, Edit_Op {kind = .Insert, pos = start, text = strings.clone(replacement)})
-    piecetable.piecetable_insert(&state.table, start, replacement)
-
-    state.cursors[0].caret += shift
-    state.cursors[0].anchor += shift
     finish_edit(state, &entry)
 }
 
-// Duplicates the lines covered by the primary selection. delta < 0 keeps
-// the cursor on the upper copy, delta > 0 moves it to the lower copy.
-duplicate_lines :: proc(state: ^State, delta: int) {
-    collapse_to_primary(state)
-    txt := text(state)
-    cursor := state.cursors[0]
-    lo, hi := selection_range(cursor)
+// A run of whole lines, in offsets of the text before the edit.
+@(private = "file")
+Line_Block :: struct {
+    start: int, // first byte of the first line
+    end:   int, // the newline that ends the last line, or len(txt)
+}
 
-    block_start := line_start(txt, lo)
-    block_end := line_end(txt, hi)
-    inserted := strings.concatenate({txt[block_start:block_end], "\n"}, context.temp_allocator)
+// The line runs the cursors cover, ascending. Runs that touch are one run. A
+// selection that ends at a line start does not include that line.
+@(private = "file")
+covered_line_blocks :: proc(txt: string, state: ^State) -> [dynamic]Line_Block {
+    blocks := make([dynamic]Line_Block, context.temp_allocator)
+    for cursor in state.cursors {
+        lo, hi := selection_range(cursor)
+        if hi > lo && txt[hi - 1] == '\n' {
+            hi -= 1
+        }
+        block := Line_Block {line_start(txt, lo), line_end(txt, hi)}
+        if n := len(blocks); n > 0 && block.start <= blocks[n - 1].end + 1 {
+            blocks[n - 1].end = max(blocks[n - 1].end, block.end)
+            continue
+        }
+        append(&blocks, block)
+    }
+    return blocks
+}
+
+// Index of the block that holds the line of `pos`.
+@(private = "file")
+block_index :: proc(blocks: []Line_Block, pos: int) -> int {
+    index := 0
+    for block, i in blocks {
+        if block.start > pos {
+            break
+        }
+        index = i
+    }
+    return index
+}
+
+// Swaps the lines each cursor covers with the adjacent line. Nothing moves when
+// one block is at the edge of the buffer.
+move_lines :: proc(state: ^State, delta: int) {
+    txt := text(state)
+    blocks := covered_line_blocks(txt, state)
+    for block in blocks {
+        if (delta < 0 && block.start == 0) || (delta >= 0 && block.end >= len(txt)) {
+            return
+        }
+    }
 
     entry := Undo_Entry {cursors_before = clone_cursors(state)}
-    append(&entry.ops, Edit_Op {kind = .Insert, pos = block_start, text = strings.clone(inserted)})
-    piecetable.piecetable_insert(&state.table, block_start, inserted)
+    shifts := make([]int, len(blocks), context.temp_allocator)
+    for block, i in blocks {
+        lines := txt[block.start:block.end]
+        start, end: int
+        replacement: string
+        if delta < 0 {
+            start = line_start(txt, block.start - 1)
+            end = block.end
+            prev := txt[start:block.start - 1]
+            replacement = strings.concatenate({lines, "\n", prev}, context.temp_allocator)
+            shifts[i] = -(len(prev) + 1)
+        } else {
+            start = block.start
+            end = line_end(txt, block.end + 1)
+            next := txt[block.end + 1:end]
+            replacement = strings.concatenate({next, "\n", lines}, context.temp_allocator)
+            shifts[i] = len(next) + 1
+        }
+        // The replacement has the length of the text it replaces, so offsets hold.
+        append(&entry.ops, Edit_Op {kind = .Delete, pos = start, text = strings.clone(txt[start:end])})
+        piecetable.piecetable_delete(&state.table, start, end - start)
+        append(&entry.ops, Edit_Op {kind = .Insert, pos = start, text = strings.clone(replacement)})
+        piecetable.piecetable_insert(&state.table, start, replacement)
+    }
 
-    if delta > 0 {
-        state.cursors[0].caret += len(inserted)
-        state.cursors[0].anchor += len(inserted)
+    for &cursor in state.cursors {
+        lo, _ := selection_range(cursor)
+        shift := shifts[block_index(blocks[:], lo)]
+        cursor.caret += shift
+        cursor.anchor += shift
+    }
+    finish_edit(state, &entry)
+}
+
+// Duplicates the lines each cursor covers. delta < 0 keeps the cursors on the
+// upper copy, delta > 0 moves them to the lower copy.
+duplicate_lines :: proc(state: ^State, delta: int) {
+    txt := text(state)
+    blocks := covered_line_blocks(txt, state)
+
+    entry := Undo_Entry {cursors_before = clone_cursors(state)}
+    shifts := make([]int, len(blocks), context.temp_allocator)
+    offset := 0
+    for block, i in blocks {
+        inserted := strings.concatenate({txt[block.start:block.end], "\n"}, context.temp_allocator)
+        append(&entry.ops, Edit_Op {kind = .Insert, pos = block.start + offset, text = strings.clone(inserted)})
+        piecetable.piecetable_insert(&state.table, block.start + offset, inserted)
+        shifts[i] = offset + (delta > 0 ? len(inserted) : 0)
+        offset += len(inserted)
+    }
+
+    for &cursor in state.cursors {
+        lo, _ := selection_range(cursor)
+        shift := shifts[block_index(blocks[:], lo)]
+        cursor.caret += shift
+        cursor.anchor += shift
     }
     finish_edit(state, &entry)
 }
@@ -433,62 +491,104 @@ is_word_rune :: proc(r: rune) -> bool {
     return r == '_' || unicode.is_letter(r) || unicode.is_digit(r)
 }
 
-// Joins the lines covered by the primary selection into one; with no selection,
-// joins the current line with the one below. Each joined-in line's indentation
-// is replaced by a single space. Secondary cursors collapse.
-join_lines :: proc(state: ^State) {
-    collapse_to_primary(state)
-    txt := text(state)
-    cursor := state.cursors[0]
-    lo, hi := selection_range(cursor)
-    if hi > lo && txt[hi - 1] == '\n' {
-        hi -= 1
-    }
+// One run of lines join_lines makes into one line.
+@(private = "file")
+Join_Region :: struct {
+    start, end: int,    // offsets of the text before the edit
+    text:       string, // the joined line; temp allocator
+    head:       int,    // length of the first line in `text`, where the caret lands
+}
 
-    first := line_start(txt, lo)
-    last_ls := line_start(txt, hi)
-    if last_ls == first {
-        // Single line selected: join it with the following line.
-        le := line_end(txt, first)
-        if le >= len(txt) {
-            return // nothing below to join
-        }
-        last_ls = le + 1
-    }
-    region_end := line_end(txt, last_ls)
-    region := txt[first:region_end]
-
-    joined := strings.builder_make(context.temp_allocator)
+// The lines of `region` as one line. The indentation of each line after the
+// first becomes one space; `head` is the length of the trimmed first line.
+@(private = "file")
+joined_text :: proc(region: string) -> (joined: string, head: int) {
+    builder := strings.builder_make(context.temp_allocator)
     segments := strings.split(region, "\n", context.temp_allocator)
-    caret_at := first
     for seg, i in segments {
         if i == 0 {
-            head := strings.trim_right(seg, " \t\r")
-            strings.write_string(&joined, head)
-            caret_at = first + len(head)
+            first := strings.trim_right(seg, " \t\r")
+            strings.write_string(&builder, first)
+            head = len(first)
             continue
         }
         piece := strings.trim_space(seg)
         if piece == "" {
             continue
         }
-        current := strings.to_string(joined)
+        current := strings.to_string(builder)
         if len(current) > 0 && current[len(current) - 1] != ' ' {
-            strings.write_byte(&joined, ' ')
+            strings.write_byte(&builder, ' ')
         }
-        strings.write_string(&joined, piece)
+        strings.write_string(&builder, piece)
     }
-    replacement := strings.to_string(joined)
+    return strings.to_string(builder), head
+}
+
+// Joins the lines each selection covers into one line. A cursor with no
+// selection joins its line with the line below. Regions that share a line are
+// one region. One undo entry.
+join_lines :: proc(state: ^State) {
+    txt := text(state)
+    regions := make([dynamic]Join_Region, context.temp_allocator)
+    for cursor in state.cursors {
+        lo, hi := selection_range(cursor)
+        if hi > lo && txt[hi - 1] == '\n' {
+            hi -= 1
+        }
+        first := line_start(txt, lo)
+        last := line_start(txt, hi)
+        if last == first {
+            le := line_end(txt, first)
+            if le >= len(txt) {
+                continue // no line below
+            }
+            last = le + 1
+        }
+        end := line_end(txt, last)
+        if n := len(regions); n > 0 && first <= regions[n - 1].end {
+            regions[n - 1].end = max(regions[n - 1].end, end)
+            continue
+        }
+        append(&regions, Join_Region {start = first, end = end})
+    }
+    if len(regions) == 0 {
+        return
+    }
 
     entry := Undo_Entry {cursors_before = clone_cursors(state)}
-    removed := txt[first:region_end]
-    append(&entry.ops, Edit_Op {kind = .Delete, pos = first, text = strings.clone(removed)})
-    piecetable.piecetable_delete(&state.table, first, len(removed))
-    append(&entry.ops, Edit_Op {kind = .Insert, pos = first, text = strings.clone(replacement)})
-    piecetable.piecetable_insert(&state.table, first, replacement)
+    offset := 0
+    for &region in regions {
+        region.text, region.head = joined_text(txt[region.start:region.end])
+        pos := region.start + offset
+        append(&entry.ops, Edit_Op {kind = .Delete, pos = pos, text = strings.clone(txt[region.start:region.end])})
+        piecetable.piecetable_delete(&state.table, pos, region.end - region.start)
+        append(&entry.ops, Edit_Op {kind = .Insert, pos = pos, text = strings.clone(region.text)})
+        piecetable.piecetable_insert(&state.table, pos, region.text)
+        offset += len(region.text) - (region.end - region.start)
+    }
 
-    state.cursors[0].caret = caret_at
-    state.cursors[0].anchor = caret_at
+    for &cursor in state.cursors {
+        lo, _ := selection_range(cursor)
+        shift := 0
+        joined := false
+        for region in regions {
+            if region.start > lo {
+                break
+            }
+            if lo <= region.end {
+                cursor.caret = region.start + shift + region.head
+                cursor.anchor = cursor.caret
+                joined = true
+                break
+            }
+            shift += len(region.text) - (region.end - region.start)
+        }
+        if !joined {
+            cursor.caret += shift
+            cursor.anchor += shift
+        }
+    }
     finish_edit(state, &entry)
 }
 
@@ -799,8 +899,8 @@ insert_soft_tab :: proc(state: ^State) {
 }
 
 // Inserts a newline that keeps the current line's leading whitespace, and adds
-// one extra indent level when the caret follows an opening bracket. Replaces
-// any selection, like a normal newline insert.
+// one extra indent level when the caret follows an opening bracket. A closer
+// that follows the caret goes to its own line. Replaces any selection.
 insert_newline :: proc(state: ^State) {
     txt := text(state)
     entry := Undo_Entry {cursors_before = clone_cursors(state)}
@@ -827,14 +927,24 @@ insert_newline :: proc(state: ^State) {
             j -= 1
         }
         extra := ""
+        tail := ""
         if j >= ls && (txt[j] == '{' || txt[j] == '[' || txt[j] == '(') {
             extra = indent_unit(state)
+            // The closer of the pair goes to its own line.
+            k := hi
+            for k < len(txt) && (txt[k] == ' ' || txt[k] == '\t') {
+                k += 1
+            }
+            if k < len(txt) && is_auto_pair_bytes(txt[j], txt[k]) {
+                tail = strings.concatenate({"\n", indent}, context.temp_allocator)
+            }
         }
 
-        insert_str := strings.concatenate({"\n", indent, extra}, context.temp_allocator)
+        head := strings.concatenate({"\n", indent, extra}, context.temp_allocator)
+        insert_str := strings.concatenate({head, tail}, context.temp_allocator)
         append(&entry.ops, Edit_Op {kind = .Insert, pos = lo + offset, text = strings.clone(insert_str)})
         piecetable.piecetable_insert(&state.table, lo + offset, insert_str)
-        cursor.caret = lo + offset + len(insert_str)
+        cursor.caret = lo + offset + len(head)
         cursor.anchor = cursor.caret
         offset += len(insert_str) - (hi - lo)
     }
