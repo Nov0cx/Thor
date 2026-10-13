@@ -370,6 +370,29 @@ test_transform_case :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_transform_case_two_carets_one_word :: proc(t: ^testing.T) {
+    state: State
+    init(&state)
+    defer destroy(&state)
+
+    set_text(&state, "ßß ab")
+    set_single_cursor(&state, 0)
+    append(&state.cursors, Cursor {caret = 2, anchor = 2})
+    append(&state.cursors, Cursor {caret = 6, anchor = 6})
+
+    // The word is rewritten once, and each caret lands on a rune boundary.
+    transform_case(&state, .Upper)
+    testing.expect_value(t, text(&state), "ẞẞ AB")
+    testing.expect_value(t, len(state.cursors), 3)
+    testing.expect_value(t, state.cursors[0].caret, 0)
+    testing.expect_value(t, state.cursors[1].caret, 3)
+    testing.expect_value(t, state.cursors[2].caret, 8)
+
+    undo(&state)
+    testing.expect_value(t, text(&state), "ßß ab")
+}
+
+@(test)
 test_transform_case_unicode :: proc(t: ^testing.T) {
     state: State
     init(&state)

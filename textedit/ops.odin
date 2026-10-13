@@ -320,60 +320,84 @@ Case_Transform :: enum {
     Title, // capitalize the first letter of each word, lower-case the rest
 }
 
+// One range a case transform rewrites, in offsets of the text before the edit.
+@(private = "file")
+Case_Range :: struct {
+    lo, hi: int,
+    text:   string, // the transformed text; temp allocator
+}
+
 // Upper/lower/title-cases each selection, or the word under the caret when it
 // has none. Unicode-aware, so a transform can change the byte length (ß becomes
-// ẞ) and every later cursor is shifted by the running offset. One undo entry.
+// ẞ) and every cursor is mapped through the rewritten ranges. One undo entry.
 transform_case :: proc(state: ^State, mode: Case_Transform) {
     txt := text(state)
-    entry := Undo_Entry {cursors_before = clone_cursors(state)}
-    changed := false
 
-    // Cursors are in ascending order, so one running offset remaps them all.
-    offset := 0
-    for &cursor in state.cursors {
+    // Cursors are in ascending order, so the ranges are too. Two carets in one
+    // word name the same range, which is taken once.
+    ranges := make([dynamic]Case_Range, context.temp_allocator)
+    done := 0
+    for cursor in state.cursors {
         lo, hi := selection_range(cursor)
-        had_selection := hi > lo
-        caret := cursor.caret
-        if !had_selection {
+        if hi == lo {
             start, end, found := word_range_at(txt, cursor.caret)
             if !found {
                 continue
             }
             lo, hi = start, end
         }
+        if lo < done {
+            continue
+        }
+        done = hi
 
         original := txt[lo:hi]
         transformed := transform_case_string(original, mode)
-        if transformed == original {
+        if transformed != original {
+            append(&ranges, Case_Range {lo = lo, hi = hi, text = transformed})
+        }
+    }
+    if len(ranges) == 0 {
+        return
+    }
+
+    entry := Undo_Entry {cursors_before = clone_cursors(state)}
+    offset := 0
+    for r in ranges {
+        append(&entry.ops, Edit_Op {kind = .Delete, pos = r.lo + offset, text = strings.clone(txt[r.lo:r.hi])})
+        piecetable.piecetable_delete(&state.table, r.lo + offset, r.hi - r.lo)
+        append(&entry.ops, Edit_Op {kind = .Insert, pos = r.lo + offset, text = strings.clone(r.text)})
+        piecetable.piecetable_insert(&state.table, r.lo + offset, r.text)
+        offset += len(r.text) - (r.hi - r.lo)
+    }
+
+    for &cursor in state.cursors {
+        cursor.anchor = case_map_offset(ranges[:], cursor.anchor)
+        cursor.caret = case_map_offset(ranges[:], cursor.caret)
+    }
+    finish_edit(state, &entry)
+}
+
+// Where an offset of the old text lies after the ranges are rewritten. An offset
+// inside a range keeps its distance from the range start, on a rune boundary.
+@(private = "file")
+case_map_offset :: proc(ranges: []Case_Range, pos: int) -> int {
+    shift := 0
+    for r in ranges {
+        if pos <= r.lo {
+            break
+        }
+        if pos >= r.hi {
+            shift += len(r.text) - (r.hi - r.lo)
             continue
         }
-
-        append(&entry.ops, Edit_Op {kind = .Delete, pos = lo + offset, text = strings.clone(original)})
-        piecetable.piecetable_delete(&state.table, lo + offset, hi - lo)
-        append(&entry.ops, Edit_Op {kind = .Insert, pos = lo + offset, text = strings.clone(transformed)})
-        piecetable.piecetable_insert(&state.table, lo + offset, transformed)
-        changed = true
-
-        if had_selection {
-            cursor.anchor = lo + offset
-            cursor.caret = lo + offset + len(transformed)
-        } else {
-            // Hold the caret where it sat in the word, on a rune boundary.
-            rel := min(caret - lo, len(transformed))
-            for rel < len(transformed) && transformed[rel] & 0xC0 == 0x80 {
-                rel += 1
-            }
-            cursor.caret = lo + offset + rel
-            cursor.anchor = cursor.caret
+        rel := min(pos - r.lo, len(r.text))
+        for rel < len(r.text) && r.text[rel] & 0xC0 == 0x80 {
+            rel += 1
         }
-        offset += len(transformed) - (hi - lo)
+        return r.lo + shift + rel
     }
-
-    if changed {
-        finish_edit(state, &entry)
-    } else {
-        entry_destroy(&entry)
-    }
+    return pos + shift
 }
 
 @(private = "file")
