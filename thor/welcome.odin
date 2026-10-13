@@ -47,6 +47,7 @@ thor_close_workspace :: proc(thor: ^Thor) {
     thor_clear_jump_list(thor)
     thor_clear_tasks(thor)
     thor_sync_task_selector(thor)
+    thor_terminals_close_all(thor)
 
     delete(thor.workspace_dir)
     delete(thor.workspace_prefix)
@@ -64,6 +65,8 @@ thor_close_workspace :: proc(thor: ^Thor) {
     // stands on the widgets thor_reload_plugins destroys.
     thor_reload_settings(thor)
     thor.plugin_reload_pending = true
+    // The LSP client holds the old root. Deferred for the same reason.
+    thor.lang_reload_pending = true
 
     thor_explorer_set_root(thor, "")
     // The palette holds the prefix by reference and the old one was just freed.

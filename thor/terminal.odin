@@ -311,11 +311,6 @@ thor_apply_shell_profiles :: proc(thor: ^Thor, job: ^Shell_Detect_Job) {
     }
     // No focus: startup belongs to the editor.
     thor_terminal_open(thor, thor_terminal_default_profile(thor), focus = false)
-    if console := thor_active_console(thor);
-       console != nil && strings.builder_len(thor.console_backlog) > 0 {
-        thor_console_append(console, strings.to_string(thor.console_backlog))
-        strings.builder_reset(&thor.console_backlog)
-    }
 }
 
 // The configured shell, or the best one detected when it names a shell this
@@ -331,11 +326,16 @@ thor_terminal_default_profile :: proc(thor: ^Thor) -> shell.Profile {
     return thor.shell_profiles[0]
 }
 
-// Opens a terminal on `profile` and makes it the active one.
+// Opens a terminal on `profile` and makes it the active one. It takes the plugin
+// output held while there was no terminal.
 thor_terminal_open :: proc(thor: ^Thor, profile: shell.Profile, focus := true) {
     term := thor_terminal_create(thor, profile)
     append(&thor.terminals, term)
     thor_terminal_select(thor, len(thor.terminals) - 1, focus)
+    if strings.builder_len(thor.console_backlog) > 0 {
+        thor_console_append(&term.console, strings.to_string(thor.console_backlog))
+        strings.builder_reset(&thor.console_backlog)
+    }
 }
 
 // Makes the terminal at `index` the one the console panel declares. An
@@ -405,6 +405,32 @@ thor_terminals_apply_font :: proc(thor: ^Thor) {
     for term in thor.terminals {
         term.console.font_size = size
     }
+}
+
+// Starts every shell again in the workspace directory, keeping each tab and its
+// scrollback. Opens the default shell when no tab is left.
+thor_terminals_restart_all :: proc(thor: ^Thor) {
+    if !thor.terminals_live {
+        return
+    }
+    for term in thor.terminals {
+        thor_terminal_restart(term)
+    }
+    if len(thor.terminals) == 0 && len(thor.shell_profiles) > 0 {
+        thor_terminal_open(thor, thor_terminal_default_profile(thor), focus = false)
+    }
+}
+
+// Ends every shell and drops every tab. The list stays for the next terminal.
+thor_terminals_close_all :: proc(thor: ^Thor) {
+    if !thor.terminals_live {
+        return
+    }
+    for term in thor.terminals {
+        thor_terminal_release(term)
+    }
+    clear(&thor.terminals)
+    thor.active_terminal = -1
 }
 
 // Ends every shell. A terminal owns its console, so releasing it frees the

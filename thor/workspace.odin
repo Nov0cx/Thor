@@ -295,6 +295,7 @@ thor_open_folder :: proc(thor: ^Thor, dir: string) {
 
     thor_explorer_set_root(thor, thor.workspace_dir)
     // The palette holds the prefix by reference and the old one was just freed.
+    thor_terminals_restart_all(thor)
 
     thor_restore_session(thor)
     thor_apply_layout_state(thor)
