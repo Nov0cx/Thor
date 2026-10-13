@@ -25,18 +25,25 @@ package for a re-check (see the brief template).
 Cheap facts that set the document's frame and that agents would each redo:
 
 - `git log --oneline -15` and the current branch — what the repo is mid-build on.
-- LOC and test-file count per package (`piecetable`, `textedit`, `input`, `font`, `theme`,
-  `snippet`, `search`, `markdown`, `editview`, `render`, `syntax`, `treecache`, `plugin`, `lang`
-  (+ `lang/odin`, `lang/lsp`), `setting`, `watch`, `shell`, `vt`, `msvc`, `update`, `thor`).
+- LOC and test-file count per package — 25 of them: `piecetable`, `textedit`, `input`, `font`,
+  `theme`, `snippet`, `search`, `markdown`, `editview`, `render`, `syntax`, `treecache`, `plugin`,
+  `lang` (+ `lang/odin`, `lang/odin/format`, `lang/lsp`), `setting`, `watch`, `shell`, `vt`,
+  `msvc`, `update`, `thor`, `main`. A directory the list does not name is a new package: add it
+  here and to an agent below.
 - Repo-wide grep for `TODO|FIXME|XXX|HACK` in non-vendor `.odin` files.
-- if exists `.todo.txt` (`done` / open / `~` maybe-later) and if exists `lang/ROADMAP.md`'s stated gaps.
+- `.todo.txt`, if present (gitignored; `done` / open / `~` maybe-later).
+- `lang/ROADMAP.md`'s stated gaps: an open `- [ ]` box, a `Missing` sentence inside a ticked
+  entry, and the "Known limitations / cleanups" section at the end.
 - The `packages` list in `run_tests` (`build.odin`) against the packages that actually hold a
-  `_test.odin` — a mismatch means CI silently skips a suite.
+  `_test.odin` — a mismatch means CI silently skips a suite. `snippet` and `main` hold none and
+  are rightly absent.
+- The plugin count under `plugins/` and the shipped files in `settings/` (`settings.json`,
+  `keybinds.json`, `comments.json`, `lsp.json`, `tips.json`) — section 7 compares against them.
 
 ## Phase 2 — Parallel package agents
 
-Seven agents, `subagent_type: general-purpose`. **Issue all seven Agent calls in one message** so
-they run in parallel, and write nothing until all seven have reported. Keep this partition stable
+Nine agents, `subagent_type: general-purpose`. **Issue all nine Agent calls in one message** so
+they run in parallel, and write nothing until all nine have reported. Keep this partition stable
 across runs — it is what makes two analyses comparable.
 
 1. `piecetable` + `textedit`
@@ -47,19 +54,45 @@ across runs — it is what makes two analyses comparable.
 6. `thor`
 7. `setting` + `watch` + `shell` + `vt` + `msvc` + `update` + `build.odin` +
    `.github/workflows/` + `main`
+8. `lang/odin/format` — the Odin printer. Its worst fault is output that changes or loses code,
+   so its brief lists the constructs to trace (attributes, directives, `foreign`, `when`,
+   polymorphic parameters, comments in every position, a file with a parse error) and asks for
+   an input that is not idempotent.
+9. Documentation and shipped configuration, no Odin: `README.md`, `CHANGELOG.md`, `docs/`
+   (`generate_html.py` included), `plugins/README.md`, `settings/*.json`, `.thor/*.json`. Each
+   claim is checked against the code that implements it, and a finding cites both sides.
 
-Out of scope: `vendor/` (Loom, the UI library, included), `bin/`, `assets/`. Lua under `plugins/` counts only for agent 4.
+Out of scope: `vendor/` (Loom, the UI library, included), `bin/`, `build/`, `assets/`, `sessions/`,
+`user/`, `.claude/`. Lua under `plugins/` counts only for agent 4.
+
+Agents 5 and 6 hold about 35,000 and 36,000 lines. Give both a reading order for the non-test
+files and ask them to name what they did not read in full; a thin area goes into the methodology
+section.
+
+Each agent's brief also carries the rules only its packages have, taken from CLAUDE.md: the Loom
+and `render.draw` rules (agents 2 and 6), the snippet sync at each editor intent (3), the sandbox
+and the callback allocator (4), the `lang/lsp` import list, lock order and position conversion (5),
+the `thor_active_console` nil guard, the deferred plugin and LSP reloads and the read-only
+`settings/` (6), the pty, watcher, `vt` parser and updater contracts and the three grammar lists (7).
 
 ### Brief template
 
 Give each agent this, with the bracketed parts filled in:
 
-> Audit [packages] of the Thor repo at D:\thor. Read `CLAUDE.md` first — it states the
+> Audit [packages] of the Thor repo at [repo root]. Read `CLAUDE.md` first — it states the
 > architectural contract you are auditing against. Read every `.odin` file in those packages;
 > do not sample.
 >
 > Report findings in four categories: **bugs**, **style deviations from CLAUDE.md**,
-> **performance**, **missing or incomplete features**.
+> **performance**, **missing or incomplete features**. List **unnecessary or redundant tests**
+> apart from those: a test that repeats another's coverage, asserts nothing or tests a trivial
+> thing, with `file:line` and the test it repeats.
+>
+> [Agents 6, 7 and 9 only] **Keybinds and settings**: compare `settings/keybinds.json` and
+> `settings/settings.json` against the defaults in Odin, the chords a menu, a tooltip, the welcome
+> page and `settings/tips.json` show, and `docs/`. Report each chord or value that differs between
+> two of them, each command or key present on one side only, each chord bound twice in one
+> context, and each chord tested directly instead of through the keymap. Cite both sides.
 >
 > Evidence bar — a finding is only reportable if you read the code yourself and can cite
 > `path/file.odin:line`. State the concrete trigger: the input, state or sequence that makes it
@@ -87,7 +120,11 @@ Give each agent this, with the bracketed parts filled in:
 >   pairs carry the OS calls behind the contract the shared file comments.
 > - Errors are always handled — flag every ignored fallible result (`_ = …`, a discarded `BOOL`
 >   or `ok`) outside `_test.odin` fixtures.
-> - Comments are terse Odin-stdlib style stating *what*, not narrative *why*.
+> - Comments are terse Odin-stdlib style stating *what*, not narrative *why*; no segment
+>   comments, none on a trivial procedure; four-space indentation.
+> - Windows and POSIX paths are both handled.
+>
+> [The rules only these packages have.]
 >
 > [Re-run only] Re-check these findings from the previous analysis and say for each whether it
 > still reproduces in the current code, quoting the lines: [paste the still-open findings for
@@ -95,7 +132,8 @@ Give each agent this, with the bracketed parts filled in:
 >
 > Return a flat list. Per finding: category, severity, `file:line`, one sentence on the fault,
 > one sentence on the trigger. At most 12 bugs, 8 style, 8 performance — rank and cut, do not
-> pad. Report only; change no files.
+> pad. The test and keybind lists have no cap. Close with the files you read in full and the
+> ones you skimmed. Report only; change no files, run no build and no test.
 
 ## Phase 3 — Verify before writing
 
@@ -121,7 +159,7 @@ against the last run:
 
 ```
 # Thor Repository Analysis
-*Generated <date> by parallel subsystem audits (7 agents, 23 packages) plus manual repo recon.*
+*Generated <date> by parallel subsystem audits (9 agents, 25 packages) plus manual repo recon.*
 <two or three sentences: what Thor is, what this document covers>
 
 ## 1. State of the repo      <- the phase 1 table and facts
@@ -129,8 +167,8 @@ against the last run:
 ## 3. Potential bugs, ranked by severity   <- ### High / ### Medium / ### Low
 ## 4. Code style deviations from CLAUDE.md
 ## 5. Slow / inefficient code    <- lead with the one finding that compounds across layers
-## 6. List unnecessary or redundant tests
-## 7. Keybinds not matching default and default in code
+## 6. Unnecessary or redundant tests   <- per package, each with the test it repeats
+## 7. Keybinds and settings that differ between the shipped JSON, the code and the docs
 ## 8. Methodology     <- the partition, what was verified, and the commit the line numbers match
 ```
 
