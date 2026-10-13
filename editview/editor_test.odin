@@ -396,41 +396,6 @@ test_visual_row_movement_with_tabs :: proc(t: ^testing.T) {
     testing.expect_value(t, textedit.primary_cursor(&state).caret, 8)
 }
 
-// The snippet grammar, in one pass: a bare tabstop, a placeholder with a
-// default, a choice that keeps only its first alternative, a mirror of an
-// earlier stop, an escape, and the exit stop that sorts last.
-@(test)
-test_snippet_parse_grammar :: proc(t: ^testing.T) {
-    snip := snippet.parse(`fn(${1:name}, ${2|a,b|}) \$$1$0`)
-    defer snippet.destroy(&snip)
-
-    testing.expect_value(t, snip.text, "fn(name, a) $name")
-    // Visit order: 1, its mirror, 2, then 0.
-    testing.expect_value(t, len(snip.stops), 4)
-    if len(snip.stops) != 4 {
-        return
-    }
-    testing.expect_value(t, snip.stops[0].index, 1)
-    testing.expect_value(t, snip.stops[0].start, 3)
-    testing.expect_value(t, snip.stops[0].end, 7)
-    testing.expect_value(t, snip.stops[1].index, 1) // the mirror, filled with "name"
-    testing.expect_value(t, snip.stops[1].end - snip.stops[1].start, 4)
-    testing.expect_value(t, snip.stops[2].index, 2)
-    testing.expect_value(t, snip.stops[3].index, 0)
-    testing.expect_value(t, snip.stops[3].start, len(snip.text))
-}
-
-// A variable Thor cannot answer falls back to its written default, and one it
-// can is substituted instead of it. An unclosed construct is text, not a stop.
-@(test)
-test_snippet_parse_variables :: proc(t: ^testing.T) {
-    snip := snippet.parse("${TM_LINE_NUMBER}:${NOPE:fallback}:${1", snippet.Vars{line = 7})
-    defer snippet.destroy(&snip)
-
-    testing.expect_value(t, snip.text, "7:fallback:${1")
-    testing.expect_value(t, len(snip.stops), 0)
-}
-
 // Accepting a snippet candidate expands it, selects the first placeholder, and
 // Tab walks to the next one and then out.
 @(test)

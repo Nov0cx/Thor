@@ -190,6 +190,7 @@ run_tests :: proc() -> bool {
         "search",
         "setting",
         "shell",
+        "snippet",
         "syntax",
         "textedit",
         "theme",
