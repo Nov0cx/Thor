@@ -29,6 +29,20 @@ Plugin_Panel :: struct {
     nodes:    []plugin.View_Node, // owned; the whole tree, cloned
     // One record per canvas node, kept because a draw callback takes a rawptr.
     canvases: [dynamic]^Plugin_Panel_Canvas, // owned
+    hit:      Plugin_Panel_Hit,
+}
+
+// A click or a list pick the view saw this frame. Its callback may re-render the
+// panel, so it runs after the tree is declared.
+Plugin_Panel_Hit :: struct {
+    kind:   enum {
+        None,
+        Click,
+        Select,
+    },
+    action: int,
+    row:    int,
+    item:   string, // temp allocator
 }
 
 // A canvas node, drawn by calling back into the plugin every frame.
@@ -222,6 +236,20 @@ thor_plugin_dock_view :: proc(thor: ^Thor, dock: Plugin_Dock) {
         plugin_panel_view(thor, p)
         ui.pop_id()
     }
+
+    // A callback may add a panel, which moves the list, so it is indexed anew.
+    for index := 0; index < len(thor.plugin_panels); index += 1 {
+        p := thor.plugin_panels[index]
+        hit := p.hit
+        p.hit = {}
+        switch hit.kind {
+        case .None:
+        case .Click:
+            plugin_panel_click(p, hit.action)
+        case .Select:
+            plugin_panel_select(p, hit.action, hit.row, hit.item)
+        }
+    }
 }
 
 @(private = "file")
@@ -341,7 +369,7 @@ plugin_view_node :: proc(thor: ^Thor, p: ^Plugin_Panel, node: plugin.View_Node) 
             thor_plugin_role_color(thor, node.role, thor.theme.primary_text_color),
             thor.theme.buttons,
         ) {
-            plugin_panel_click(p, node.action)
+            p.hit = {kind = .Click, action = node.action}
         }
 
     case .Row, .Column:
@@ -375,7 +403,12 @@ plugin_view_node :: proc(thor: ^Thor, p: ^Plugin_Panel, node: plugin.View_Node) 
             )
             ui.pop_id()
             if hit {
-                plugin_panel_select(p, node.action, row, item)
+                p.hit = {
+                    kind   = .Select,
+                    action = node.action,
+                    row    = row,
+                    item   = strings.clone(item, context.temp_allocator),
+                }
                 return
             }
         }
@@ -427,7 +460,8 @@ plugin_panel_click :: proc(p: ^Plugin_Panel, action: int) {
     if action < 0 {
         return
     }
-    plugin.manager_panel_click(&p.thor.plugins, p.id, action)
+    // The id is the panel's own, which a callback may retitle or re-render.
+    plugin.manager_panel_click(&p.thor.plugins, strings.clone(p.id, context.temp_allocator), action)
 }
 
 @(private = "file")
@@ -435,7 +469,7 @@ plugin_panel_select :: proc(p: ^Plugin_Panel, action, row: int, item: string) {
     if action < 0 {
         return
     }
-    plugin.manager_panel_select(&p.thor.plugins, p.id, action, row, item)
+    plugin.manager_panel_select(&p.thor.plugins, strings.clone(p.id, context.temp_allocator), action, row, item)
 }
 
 @(private = "file")
