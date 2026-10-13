@@ -986,3 +986,35 @@ test_text_clone_survives_set_text :: proc(t: ^testing.T) {
     testing.expect_value(t, before, "before")
     testing.expect_value(t, text(&state), "after")
 }
+
+@(test)
+test_bracket_match_skips_strings_and_comments :: proc(t: ^testing.T) {
+    state: State
+    init(&state)
+    defer destroy(&state)
+    set_lexical(&state, {line_comment = "//", block_open = "/*", block_close = "*/"})
+
+    src := "f(\")\", ')', /* ) */ x) // )"
+    set_text(&state, src)
+    set_single_cursor(&state, 1)
+    move_to_matching_bracket(&state, false)
+    testing.expect_value(t, primary_cursor(&state).caret, 21)
+
+    // An escaped quote does not end the string.
+    set_text(&state, "g(\"a\\\")\" + b)")
+    set_single_cursor(&state, 1)
+    move_to_matching_bracket(&state, false)
+    testing.expect_value(t, primary_cursor(&state).caret, 12)
+
+    // A bracket inside a string matches inside the string.
+    set_text(&state, "s := \"(a)\" )")
+    set_single_cursor(&state, 6)
+    move_to_matching_bracket(&state, false)
+    testing.expect_value(t, primary_cursor(&state).caret, 8)
+
+    // A quote goes to the other end of its string.
+    set_text(&state, "x = \"a \\\" b\" y")
+    set_single_cursor(&state, 4)
+    move_to_matching_bracket(&state, false)
+    testing.expect_value(t, primary_cursor(&state).caret, 11)
+}

@@ -18,6 +18,7 @@
         "delete_line": "ctrl+shift+k",
         "undo": "ctrl+z",
         "toggle_line_comment": "ctrl+k",
+        "toggle_block_comment": "shift+alt+a",
         "capitalize": "alt+c",
         "join_lines": "ctrl+j",
         "duplicate_line_down": "shift+alt+down",

@@ -75,6 +75,8 @@ State :: struct {
     tab_width:  int,
     // This document's indent style; Unknown follows the package default.
     indent_style: Indent_Style,
+    // Comment and string syntax for bracket matching. Borrowed.
+    lexical:    Lexical,
     // Byte offset of every line start, so a line query is a binary search and not
     // a scan from byte 0. Rebuilt at the first query after a content change, like
     // the text snapshot, so a caller that never asks never pays. Offsets, not
@@ -382,20 +384,22 @@ move_document_end :: proc(state: ^State, extend: bool) {
 }
 
 // Jumps to (or selects up to, with extend) the delimiter matching the one the
-// cursor sits in front of. Brackets ()[]{} match by nesting depth; quotes
-// " ' ` match their partner on the same line.
+// cursor sits in front of. Brackets ()[]{} match by nesting depth and a quote
+// matches the other end of its string. A bracket in code does not count the
+// brackets in strings and comments.
 move_to_matching_bracket :: proc(state: ^State, extend: bool) {
     txt := text(state)
+    ranges := skip_ranges(txt, state.lexical)
     for &cursor in state.cursors {
-        if bracket_pos, match_pos, forward, found := find_matching_bracket(txt, cursor.caret); found {
+        if bracket_pos, match_pos, forward, found := find_matching_bracket(txt, ranges, cursor.caret); found {
             apply_delimiter_jump(&cursor, txt, bracket_pos, match_pos, forward, extend, tab_width(state))
             continue
         }
-        if quote_pos, match_pos, forward, found := find_matching_quote(txt, cursor.caret); found {
+        if quote_pos, match_pos, forward, found := find_matching_quote(txt, ranges, cursor.caret); found {
             apply_delimiter_jump(&cursor, txt, quote_pos, match_pos, forward, extend, tab_width(state))
             continue
         }
-        if open_pos, close_pos, found := enclosing_pair(txt, cursor.caret); found {
+        if open_pos, close_pos, found := enclosing_pair(txt, ranges, cursor.caret); found {
             if extend {
                 cursor.anchor = open_pos
                 cursor.caret = close_pos + 1
@@ -433,8 +437,9 @@ apply_delimiter_jump :: proc(cursor: ^Cursor, txt: string, delim_pos, match_pos:
 // excluding the brackets. Works next to a bracket or from inside the pair.
 select_between_brackets :: proc(state: ^State) {
     txt := text(state)
+    ranges := skip_ranges(txt, state.lexical)
     for &cursor in state.cursors {
-        open_pos, close_pos, found := bracket_span(txt, cursor.caret)
+        open_pos, close_pos, found := bracket_span_in(txt, ranges, cursor.caret)
         if !found {
             continue
         }
@@ -1427,197 +1432,4 @@ bracket_kind :: proc(b: u8) -> (open: u8, close: u8, forward: bool, ok: bool) {
         return '{', '}', false, true
     }
     return 0, 0, false, false
-}
-
-// Looks for a bracket at `pos` (or just before it) and finds its match.
-@(private)
-find_matching_bracket :: proc(txt: string, pos: int) -> (bracket_pos, match_pos: int, forward, found: bool) {
-    candidates := [2]int {pos, pos - 1}
-    for p in candidates {
-        if p < 0 || p >= len(txt) {
-            continue
-        }
-        open, close, fwd, ok := bracket_kind(txt[p])
-        if !ok {
-            continue
-        }
-        depth := 1
-        if fwd {
-            for i := p + 1; i < len(txt); i += 1 {
-                if txt[i] == open {
-                    depth += 1
-                } else if txt[i] == close {
-                    depth -= 1
-                    if depth == 0 {
-                        return p, i, true, true
-                    }
-                }
-            }
-        } else {
-            for i := p - 1; i >= 0; i -= 1 {
-                if txt[i] == close {
-                    depth += 1
-                } else if txt[i] == open {
-                    depth -= 1
-                    if depth == 0 {
-                        return p, i, false, true
-                    }
-                }
-            }
-        }
-    }
-    return 0, 0, false, false
-}
-
-// Resolves the delimiter pair to act on for a caret: prefers a bracket or quote
-// directly adjacent to the caret, otherwise the innermost pair enclosing it.
-bracket_span :: proc(txt: string, pos: int) -> (open_pos, close_pos: int, found: bool) {
-    if bracket_pos, match_pos, forward, ok := find_matching_bracket(txt, pos); ok {
-        if forward {
-            return bracket_pos, match_pos, true
-        }
-        return match_pos, bracket_pos, true
-    }
-    if quote_pos, match_pos, forward, ok := find_matching_quote(txt, pos); ok {
-        if forward {
-            return quote_pos, match_pos, true
-        }
-        return match_pos, quote_pos, true
-    }
-    return enclosing_pair(txt, pos)
-}
-
-// Innermost pair enclosing pos, considering both brackets and quotes; the pair
-// whose opener is closest to pos (largest opening offset) wins.
-@(private)
-enclosing_pair :: proc(txt: string, pos: int) -> (open_pos, close_pos: int, found: bool) {
-    bo, bc, bok := find_enclosing_bracket(txt, pos)
-    qo, qc, qok := find_enclosing_quote(txt, pos)
-    switch {
-    case bok && qok:
-        if qo > bo {
-            return qo, qc, true
-        }
-        return bo, bc, true
-    case bok:
-        return bo, bc, true
-    case qok:
-        return qo, qc, true
-    }
-    return 0, 0, false
-}
-
-@(private)
-is_quote_byte :: proc(b: u8) -> bool {
-    return b == '"' || b == '\'' || b == '`'
-}
-
-// Partner of a quote at or just before pos, on the same line. Parity of
-// same-type quotes before it decides open vs close (even => opening, partner right).
-@(private)
-find_matching_quote :: proc(txt: string, pos: int) -> (quote_pos, match_pos: int, forward, found: bool) {
-    candidates := [2]int {pos, pos - 1}
-    for p in candidates {
-        if p < 0 || p >= len(txt) || !is_quote_byte(txt[p]) {
-            continue
-        }
-        q := txt[p]
-        ls := line_start(txt, p)
-        le := line_end(txt, p)
-        count := 0
-        for i := ls; i < p; i += 1 {
-            if txt[i] == q {
-                count += 1
-            }
-        }
-        if count % 2 == 0 {
-            for i := p + 1; i < le; i += 1 {
-                if txt[i] == q {
-                    return p, i, true, true
-                }
-            }
-        } else {
-            for i := p - 1; i >= ls; i -= 1 {
-                if txt[i] == q {
-                    return p, i, false, true
-                }
-            }
-        }
-    }
-    return 0, 0, false, false
-}
-
-// Innermost quote pair on the caret's line enclosing pos (quotes excluded).
-// Same-type quotes cannot nest, so pairs form left-to-right; closest opener wins.
-@(private)
-find_enclosing_quote :: proc(txt: string, pos: int) -> (open_pos, close_pos: int, found: bool) {
-    ls := line_start(txt, pos)
-    le := line_end(txt, pos)
-    best_open := -1
-    best_close := -1
-    for q in ([?]u8 {'"', '\'', '`'}) {
-        open := -1
-        for i := ls; i < le; i += 1 {
-            if txt[i] != q {
-                continue
-            }
-            if open < 0 {
-                open = i
-            } else {
-                if pos > open && pos <= i && open > best_open {
-                    best_open = open
-                    best_close = i
-                }
-                open = -1
-            }
-        }
-    }
-    if best_open < 0 {
-        return 0, 0, false
-    }
-    return best_open, best_close, true
-}
-
-// Innermost bracket pair enclosing pos: scans left for the nearest unmatched
-// opener, then forward for its partner. Fallback when not next to a bracket.
-@(private)
-find_enclosing_bracket :: proc(txt: string, pos: int) -> (open_pos, close_pos: int, found: bool) {
-    // Closers seen per type while scanning left; an opener with no outstanding
-    // closer of its type is the one we enclose.
-    pending: [3]int // ( ) , [ ] , { }
-    open_char: u8
-    open_pos = -1
-    for i := min(pos, len(txt)) - 1; i >= 0; i -= 1 {
-        switch txt[i] {
-        case ')': pending[0] += 1
-        case ']': pending[1] += 1
-        case '}': pending[2] += 1
-        case '(':
-            if pending[0] > 0 { pending[0] -= 1 } else { open_pos = i; open_char = '(' }
-        case '[':
-            if pending[1] > 0 { pending[1] -= 1 } else { open_pos = i; open_char = '[' }
-        case '{':
-            if pending[2] > 0 { pending[2] -= 1 } else { open_pos = i; open_char = '{' }
-        }
-        if open_pos >= 0 {
-            break
-        }
-    }
-    if open_pos < 0 {
-        return 0, 0, false
-    }
-
-    open, close, _, _ := bracket_kind(open_char)
-    depth := 1
-    for i := open_pos + 1; i < len(txt); i += 1 {
-        if txt[i] == open {
-            depth += 1
-        } else if txt[i] == close {
-            depth -= 1
-            if depth == 0 {
-                return open_pos, i, true
-            }
-        }
-    }
-    return 0, 0, false
 }

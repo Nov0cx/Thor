@@ -137,10 +137,13 @@ Editor :: struct {
     on_save:            Editor_Save_Proc,
     save_data:          rawptr,
     placeholder:        string,
-    // Line-comment marker; empty disables comment toggling. Set per language.
+    // Line-comment marker and the two block-comment markers; empty when the
+    // language has none. Borrowed, set per language.
     comment_prefix:     string,
-    // Comment-toggle chord (from keybinds.json), defaults to Ctrl+K.
-    comment_keybind:    setting.Keybind,
+    comment_block:      [2]string,
+    // Comment-toggle chords (from keybinds.json).
+    comment_keybind:       setting.Keybind,
+    block_comment_keybind: setting.Keybind,
     font_size:          i32,
     gutter_width:       f32,
     scroll_y:           f32,
@@ -548,8 +551,19 @@ editor_set_on_save :: proc(editor: ^Editor, on_save: Editor_Save_Proc, data: raw
     editor.save_data = data
 }
 
-editor_set_comment_prefix :: proc(editor: ^Editor, prefix: string) {
-    editor.comment_prefix = prefix
+editor_set_comment_style :: proc(editor: ^Editor, line, block_open, block_close: string) {
+    editor.comment_prefix = line
+    editor.comment_block = {block_open, block_close}
+}
+
+// Toggles a line comment on the covered lines. A language with no line comment
+// gets its block comment.
+editor_toggle_comment :: proc(editor: ^Editor) {
+    if editor.comment_prefix != "" {
+        textedit.toggle_comment(editor.state, editor.comment_prefix)
+    } else {
+        textedit.toggle_block_comment(editor.state, editor.comment_block[0], editor.comment_block[1])
+    }
 }
 
 editor_set_state :: proc(editor: ^Editor, state: ^textedit.State) {
@@ -1182,9 +1196,13 @@ editor_handle_key :: proc(editor: ^Editor, event: ui.Key_Event) -> bool {
 
     // The comment-toggle chord is configurable, so match it here rather than
     // as a fixed case in the switch below.
-    if editor.comment_prefix != "" &&
-       setting.keybind_matches(editor.comment_keybind, event.key, event.mods) {
-        textedit.toggle_comment(state, editor.comment_prefix)
+    if setting.keybind_matches(editor.comment_keybind, event.key, event.mods) {
+        editor_toggle_comment(editor)
+        editor_scroll_to_caret(editor)
+        return true
+    }
+    if setting.keybind_matches(editor.block_comment_keybind, event.key, event.mods) {
+        textedit.toggle_block_comment(state, editor.comment_block[0], editor.comment_block[1])
         editor_scroll_to_caret(editor)
         return true
     }

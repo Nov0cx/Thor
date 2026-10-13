@@ -94,7 +94,8 @@ thor_bind_editor :: proc(thor: ^Thor, editor: ^editview.Editor, file: ^Open_File
         editview.editor_set_state(editor, nil)
         return
     }
-    editview.editor_set_comment_prefix(editor, setting.comment_prefix(&thor.config, file.name))
+    style := setting.comment_style(&thor.config, file.name)
+    editview.editor_set_comment_style(editor, style.line, style.block_open, style.block_close)
     ext := thor_lang_key(thor, file.name)
     editview.editor_set_completion_semantic(editor, lang.manager_allows(&thor.lang_manager, ext, .Completion))
     editview.editor_set_on_type_enabled(editor, lang.manager_allows(&thor.lang_manager, ext, .Format_On_Type))
@@ -412,6 +413,18 @@ thor_apply_indent :: proc(thor: ^Thor, file: ^Open_File) {
     }
     textedit.set_indent_style(&file.state, style)
     textedit.set_tab_width(&file.state, width)
+}
+
+// Gives a buffer the comment and string syntax of its language. The strings
+// are borrowed from the settings, so a settings reload must call this again.
+thor_apply_lexical :: proc(thor: ^Thor, file: ^Open_File) {
+    style := setting.comment_style(&thor.config, file.name)
+    textedit.set_lexical(&file.state, {
+        line_comment = style.line,
+        block_open   = style.block_open,
+        block_close  = style.block_close,
+        quotes       = style.quotes,
+    })
 }
 
 // Language label for the status bar: the registered plugin's own name first, so

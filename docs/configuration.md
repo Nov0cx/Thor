@@ -205,9 +205,15 @@ formats, same as it would from any other editor.
 
 ## `comments.json`
 
-Maps a language id to its line-comment marker and the file extensions that use
-it, driving `ctrl + k` (toggle line comment). Add an entry here to teach Thor a
-new language's comment syntax.
+Maps a language id to its comment syntax and the file extensions that use it.
+Add an entry here to teach Thor a new language's comment syntax.
+
+| Key | Meaning |
+| --- | --- |
+| `line` | Line-comment marker, for `ctrl + k` (toggle line comment) |
+| `block` | The two block-comment markers, `["/*", "*/"]`, for `shift + alt + a` (toggle block comment). A language with no `line` uses them for `ctrl + k` too |
+| `quotes` | The characters that open and close a string, so a bracket inside a string or a comment does not count when brackets are matched. Left out, `"`, `'` and `` ` `` all do. A short `'x'` is always a character literal |
+| `extensions` | File extensions, or whole file names such as `Makefile` |
 
 ## `tips.json`
 

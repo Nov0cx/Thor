@@ -372,6 +372,7 @@ thor_open_edit_menu :: proc(data: rawptr) {
     thor_menu_add_separator(thor)
     thor_menu_add(thor, "Select All", thor_cmd_select_all, thor, action = "select_all")
     thor_menu_add(thor, "Toggle Line Comment", thor_cmd_toggle_comment, thor, action = "toggle_line_comment")
+    thor_menu_add(thor, "Toggle Block Comment", thor_cmd_toggle_block_comment, thor, action = "toggle_block_comment")
     thor_menu_add_separator(thor)
     thor_menu_add(thor, "Duplicate Line", thor_cmd_duplicate_line, thor, action = "duplicate_line_down")
     thor_menu_add(thor, "Delete Line", thor_cmd_delete_line, thor, action = "delete_line")

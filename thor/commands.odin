@@ -21,8 +21,9 @@ import "../editview"
 // Applies the configurable settings to the live widgets. Called at startup and
 // on reload, so both paths stay in sync.
 thor_apply_settings :: proc(thor: ^Thor) {
-    if kb, ok := setting.keybind(&thor.config, "toggle_line_comment"); ok {
-        thor.editor.comment_keybind = kb
+    for editor in ([2]^editview.Editor{&thor.editor, &thor.editor2}) {
+        editor.comment_keybind, _ = setting.keybind(&thor.config, "toggle_line_comment")
+        editor.block_comment_keybind, _ = setting.keybind(&thor.config, "toggle_block_comment")
     }
     if kb, ok := setting.keybind(&thor.config, "command_palette"); ok {
         thor.command_palette_key = kb
@@ -193,6 +194,7 @@ thor_apply_settings :: proc(thor: ^Thor) {
     textedit.set_default_hard_tabs(!setting.insert_spaces(&thor.config))
     for file in thor.open_files {
         thor_apply_indent(thor, file)
+        thor_apply_lexical(thor, file)
     }
     font.set_tab_width(setting.tab_width(&thor.config))
     font.set_ligatures(setting.ligatures(&thor.config))
@@ -438,6 +440,9 @@ thor_register_commands :: proc(thor: ^Thor) {
     thor_palette_add(thor, "Edit: Undo", thor_cmd_undo, thor, sc(thor, "undo"))
     thor_palette_add(thor, "Edit: Redo", thor_cmd_redo, thor, sc(thor, "redo"))
     thor_palette_add(thor, "Edit: Toggle Line Comment", thor_cmd_toggle_comment, thor, sc(thor, "toggle_line_comment"))
+    thor_palette_add(
+        thor, "Edit: Toggle Block Comment", thor_cmd_toggle_block_comment, thor, sc(thor, "toggle_block_comment"),
+    )
     thor_palette_add(thor, "Edit: Select All", thor_cmd_select_all, thor, sc(thor, "select_all"))
     thor_palette_add(thor, "Edit: Duplicate Line", thor_cmd_duplicate_line, thor, sc(thor, "duplicate_line_down"))
     thor_palette_add(thor, "Edit: Delete Line", thor_cmd_delete_line, thor, sc(thor, "delete_line"))
@@ -603,9 +608,22 @@ thor_cmd_toggle_comment :: proc(data: rawptr) {
     if file == nil || !file.loaded {
         return
     }
-    if prefix := setting.comment_prefix(&thor.config, file.name); prefix != "" {
-        textedit.toggle_comment(&file.state, prefix)
+    style := setting.comment_style(&thor.config, file.name)
+    if style.line != "" {
+        textedit.toggle_comment(&file.state, style.line)
+    } else {
+        textedit.toggle_block_comment(&file.state, style.block_open, style.block_close)
     }
+}
+
+thor_cmd_toggle_block_comment :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    file := thor_active_open_file(thor)
+    if file == nil || !file.loaded {
+        return
+    }
+    style := setting.comment_style(&thor.config, file.name)
+    textedit.toggle_block_comment(&file.state, style.block_open, style.block_close)
 }
 
 // Editor commands operate on the active file's buffer; they no-op when no file

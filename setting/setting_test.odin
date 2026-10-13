@@ -184,7 +184,7 @@ test_backend_toggle_persist_round_trip :: proc(t: ^testing.T) {
 @(private = "file")
 load_from_dir_for_test :: proc(path: string) -> Settings {
     s: Settings
-    s.comments = make(map[string]string)
+    s.comments = make(map[string]Comment_Style)
     s.keybinds = make(map[string]Keybind)
     s.general.language_backends = make(map[string]Backend_Setting)
     load_general(&s, path)

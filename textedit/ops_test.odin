@@ -541,3 +541,27 @@ test_hard_tab_indent :: proc(t: ^testing.T) {
     insert_tab(&state)
     testing.expect_value(t, text(&state), "all:    \n\tx\n\techo")
 }
+
+@(test)
+test_toggle_block_comment :: proc(t: ^testing.T) {
+    state := ops_state("a = b + c", 0)
+    defer destroy(&state)
+
+    select_range(&state, 4, 9)
+    toggle_block_comment(&state, "/*", "*/")
+    testing.expect_value(t, text(&state), "a = /* b + c */")
+    lo, hi := selection_range(primary_cursor(&state))
+    testing.expect_value(t, lo, 4)
+    testing.expect_value(t, hi, 15)
+
+    toggle_block_comment(&state, "/*", "*/")
+    testing.expect_value(t, text(&state), "a = b + c")
+
+    // No selection: the text of the line, without its indent.
+    line := ops_state("    x := 1", 6)
+    defer destroy(&line)
+    toggle_block_comment(&line, "<!--", "-->")
+    testing.expect_value(t, text(&line), "    <!-- x := 1 -->")
+    toggle_block_comment(&line, "<!--", "-->")
+    testing.expect_value(t, text(&line), "    x := 1")
+}

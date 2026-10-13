@@ -144,9 +144,18 @@ Tip :: struct {
     action: string,
 }
 
+// How one language writes comments and strings. All strings are owned.
+Comment_Style :: struct {
+    line:        string, // "//"; "" for a language with no line comment
+    block_open:  string, // "/*"; "" for a language with no block comment
+    block_close: string,
+    // The bytes that open and close a string. "" stands for " ' and `.
+    quotes:      string,
+}
+
 Settings :: struct {
-    // File extension (".odin") -> line-comment marker ("//").
-    comments: map[string]string,
+    // File extension (".odin") or whole file name -> comment style.
+    comments: map[string]Comment_Style,
     // Action name ("toggle_line_comment") -> bound chord.
     keybinds: map[string]Keybind,
     general:  General,
@@ -160,7 +169,7 @@ Settings :: struct {
 // initialized Settings; parse failures just leave the maps sparse.
 load :: proc(dir: string) -> Settings {
     s: Settings
-    s.comments = make(map[string]string)
+    s.comments = make(map[string]Comment_Style)
     s.keybinds = make(map[string]Keybind)
     s.tips = make([dynamic]Tip)
     s.general = General {
@@ -203,7 +212,7 @@ load_dir :: proc(s: ^Settings, dir: string) {
 destroy :: proc(s: ^Settings) {
     for key, value in s.comments {
         delete(key)
-        delete(value)
+        comment_style_destroy(value)
     }
     delete(s.comments)
 
@@ -233,20 +242,25 @@ destroy :: proc(s: ^Settings) {
     s.tips = nil
 }
 
-// Line-comment marker for a file, or "" when the language is unknown (which
-// disables Ctrl+K commenting for that file).
+// Line-comment marker for a file, or "" when the language has none.
 comment_prefix :: proc(s: ^Settings, filename: string) -> string {
+    return comment_style(s, filename).line
+}
+
+// Comment and string syntax for a file; the zero value when the language is
+// unknown. The strings are borrowed from the settings.
+comment_style :: proc(s: ^Settings, filename: string) -> Comment_Style {
     slash := max(strings.last_index_byte(filename, '/'), strings.last_index_byte(filename, '\\'))
     base := filename[slash + 1:]
     // A whole-name entry ("CMakeLists.txt") wins over the extension it happens
     // to carry, and is the only key for a name that has none ("Makefile").
-    if prefix, ok := s.comments[base]; ok {
-        return prefix
+    if style, ok := s.comments[base]; ok {
+        return style
     }
 
     dot := strings.last_index_byte(base, '.')
     if dot < 0 {
-        return ""
+        return {}
     }
     return s.comments[base[dot:]]
 }
@@ -813,8 +827,21 @@ load_comments :: proc(s: ^Settings, path: string) {
         if !entry_ok {
             continue
         }
-        line, line_ok := entry["line"].(json.String)
-        if !line_ok {
+        style: Comment_Style
+        if line, line_ok := entry["line"].(json.String); line_ok {
+            style.line = string(line)
+        }
+        if block, block_ok := entry["block"].(json.Array); block_ok && len(block) == 2 {
+            open, open_ok := block[0].(json.String)
+            close, close_ok := block[1].(json.String)
+            if open_ok && close_ok {
+                style.block_open, style.block_close = string(open), string(close)
+            }
+        }
+        if quotes, quotes_ok := entry["quotes"].(json.String); quotes_ok {
+            style.quotes = string(quotes)
+        }
+        if style.line == "" && style.block_open == "" {
             continue
         }
         extensions, ext_ok := entry["extensions"].(json.Array)
@@ -827,7 +854,7 @@ load_comments :: proc(s: ^Settings, path: string) {
             if !ext_str_ok {
                 continue
             }
-            put_comment(s, string(ext), string(line))
+            put_comment(s, string(ext), style)
         }
     }
 }
@@ -874,15 +901,29 @@ read_tips :: proc(s: ^Settings, root: json.Object, path: string) {
     }
 }
 
-// Inserts or overwrites a comment marker, reusing the owned key and freeing the
-// old value on overwrite so an overlay does not leak.
 @(private)
-put_comment :: proc(s: ^Settings, ext, line: string) {
+comment_style_destroy :: proc(style: Comment_Style) {
+    delete(style.line)
+    delete(style.block_open)
+    delete(style.block_close)
+    delete(style.quotes)
+}
+
+// Inserts or overwrites a comment style. `style` is borrowed and cloned; an
+// overwrite keeps the owned key and frees the old value.
+@(private)
+put_comment :: proc(s: ^Settings, ext: string, style: Comment_Style) {
+    owned := Comment_Style {
+        line        = strings.clone(style.line),
+        block_open  = strings.clone(style.block_open),
+        block_close = strings.clone(style.block_close),
+        quotes      = strings.clone(style.quotes),
+    }
     if old, ok := s.comments[ext]; ok {
-        delete(old)
-        s.comments[ext] = strings.clone(line)
+        comment_style_destroy(old)
+        s.comments[ext] = owned
     } else {
-        s.comments[strings.clone(ext)] = strings.clone(line)
+        s.comments[strings.clone(ext)] = owned
     }
 }
 

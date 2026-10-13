@@ -737,7 +737,18 @@ apply_line_edits :: proc(state: ^State, txt: string, edits: []Line_Edit) {
     if len(edits) == 0 {
         return
     }
+    entry := write_line_edits(state, txt, edits)
+    for &cursor in state.cursors {
+        cursor.caret = remap_pos(cursor.caret, edits)
+        cursor.anchor = remap_pos(cursor.anchor, edits)
+    }
+    finish_edit(state, &entry)
+}
 
+// Writes position-ascending edits to the buffer and gives the undo entry. The
+// caller moves the cursors and calls finish_edit.
+@(private = "file")
+write_line_edits :: proc(state: ^State, txt: string, edits: []Line_Edit) -> Undo_Entry {
     entry := Undo_Entry {cursors_before = clone_cursors(state)}
     offset := 0
     for edit in edits {
@@ -752,12 +763,7 @@ apply_line_edits :: proc(state: ^State, txt: string, edits: []Line_Edit) {
         }
         offset += len(edit.insert) - edit.remove
     }
-
-    for &cursor in state.cursors {
-        cursor.caret = remap_pos(cursor.caret, edits)
-        cursor.anchor = remap_pos(cursor.anchor, edits)
-    }
-    finish_edit(state, &entry)
+    return entry
 }
 
 // The width a State with no own width uses.
@@ -1130,6 +1136,77 @@ toggle_comment :: proc(state: ^State, prefix: string) {
         }
     }
     apply_line_edits(state, txt, edits[:])
+}
+
+// Puts each selection between `open` and `close`, or takes them away from a
+// selection that has them. A cursor with no selection takes the text of its
+// line. A wrapped selection grows to hold the markers, so a second call undoes
+// the first. One undo entry.
+toggle_block_comment :: proc(state: ^State, open, close: string) {
+    if open == "" || close == "" {
+        return
+    }
+    txt := text(state)
+    edits := make([dynamic]Line_Edit, context.temp_allocator)
+    // Bytes the opener adds in front of each cursor's range; 0 for the others.
+    leads := make([]int, len(state.cursors), context.temp_allocator)
+    head := strings.concatenate({open, " "}, context.temp_allocator)
+    tail := strings.concatenate({" ", close}, context.temp_allocator)
+
+    done := 0
+    for cursor, index in state.cursors {
+        lo, hi := selection_range(cursor)
+        selected := hi > lo
+        if !selected {
+            lo = line_start(txt, lo)
+            hi = line_end(txt, lo)
+            for lo < hi && (txt[lo] == ' ' || txt[lo] == '\t') {
+                lo += 1
+            }
+            for hi > lo && (txt[hi - 1] == ' ' || txt[hi - 1] == '\t') {
+                hi -= 1
+            }
+        }
+        if hi <= lo || lo < done {
+            continue
+        }
+        done = hi
+
+        inner := txt[lo:hi]
+        if len(inner) >= len(open) + len(close) && strings.has_prefix(inner, open) && strings.has_suffix(inner, close) {
+            front := len(open)
+            if lo + front < hi - len(close) && txt[lo + front] == ' ' {
+                front += 1
+            }
+            back := hi - len(close)
+            if back - 1 >= lo + front && txt[back - 1] == ' ' {
+                back -= 1
+            }
+            append(&edits, Line_Edit {pos = lo, remove = front})
+            append(&edits, Line_Edit {pos = back, remove = hi - back})
+            continue
+        }
+        append(&edits, Line_Edit {pos = lo, insert = head})
+        append(&edits, Line_Edit {pos = hi, insert = tail})
+        if selected {
+            leads[index] = len(head)
+        }
+    }
+    if len(edits) == 0 {
+        return
+    }
+
+    entry := write_line_edits(state, txt, edits[:])
+    for &cursor, index in state.cursors {
+        cursor.caret = remap_pos(cursor.caret, edits[:])
+        cursor.anchor = remap_pos(cursor.anchor, edits[:])
+        if cursor.caret < cursor.anchor {
+            cursor.caret -= leads[index]
+        } else {
+            cursor.anchor -= leads[index]
+        }
+    }
+    finish_edit(state, &entry)
 }
 
 // Aligns the covered lines so the first `target` on each lands in one column,
