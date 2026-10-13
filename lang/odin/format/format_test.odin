@@ -770,3 +770,25 @@ test_round_trip_real_files :: proc(t: ^testing.T) {
         assert_round_trip(t, p)
     }
 }
+
+// Formats `src`, expects `want` in the result, and expects the result to
+// format to itself, which also proves it still parses.
+@(private = "file")
+expect_keeps :: proc(t: ^testing.T, src, want: string, loc := #caller_location) {
+    out, ok := format(src, default_options())
+    defer delete(out)
+    if !testing.expectf(t, ok, "format refused:\n%s", src, loc = loc) {
+        return
+    }
+    testing.expectf(t, strings.contains(out, want), "expected %q in:\n%s", want, out, loc = loc)
+    out2, ok2 := format(out, default_options())
+    defer delete(out2)
+    testing.expectf(t, ok2, "the result no longer parses:\n%s", out, loc = loc)
+    testing.expect_value(t, out2, out, loc = loc)
+}
+
+@(test)
+test_maybe_assertion_keeps_question :: proc(t: ^testing.T) {
+    expect_keeps(t, "package p\nf :: proc(m: Maybe(int)) {\n\tv := m.?\n\tw := m.(int)\n}\n", "v := m.?\n")
+    expect_keeps(t, "package p\nf :: proc(m: Maybe(int)) {\n\tw := m.(int)\n}\n", "w := m.(int)\n")
+}

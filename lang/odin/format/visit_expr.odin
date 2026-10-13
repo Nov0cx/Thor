@@ -191,7 +191,9 @@ print_expr :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: ^ast.Expr) {
     case ^ast.Type_Assertion:
         print_expr(pr, out, e.expr)
         append(out, text("."))
-        if e.type != nil {
+        if is_maybe_assertion(e) {
+            append(out, text("?"))
+        } else if e.type != nil {
             append(out, text("("))
             print_expr(pr, out, e.type)
             append(out, text(")"))
@@ -342,8 +344,18 @@ print_expr :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: ^ast.Expr) {
     }
 }
 
+// `x.?`: the parser stores the `?` as an operand-less unary expression.
 @(private)
-print_comp_lit_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: ^ast.Comp_Lit) {
+is_maybe_assertion :: proc(e: ^ast.Type_Assertion) -> bool {
+    if e.type == nil {
+        return false
+    }
+    u, ok := e.type.derived_expr.(^ast.Unary_Expr)
+    return ok && u.op.kind == .Question && u.expr == nil
+}
+
+@(private)
+print_comp_lit_body ::proc(pr: ^Printer, out: ^[dynamic]Doc, e: ^ast.Comp_Lit) {
     if len(e.elems) == 0 {
         append(out, text("{}"))
         return
