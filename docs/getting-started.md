@@ -101,6 +101,10 @@ window is brought to the front instead. On Linux and macOS this needs a desktop
 helper — `xdotool` or `wmctrl` on X11, `osascript` on macOS — and the status bar
 says so when none is available (Wayland has no equivalent).
 
+The same holds at launch. Starting Thor on a folder another window holds brings
+that window forward and the new process exits. With files on the command line,
+or when the window cannot be raised, Thor starts with no folder open.
+
 ## A first tour
 
 - **Title bar** — drag it to move the window, double-click it to maximize the

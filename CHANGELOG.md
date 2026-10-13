@@ -15,6 +15,15 @@
 - The Odin formatter keeps the space in `- -x`, `+ +x` and `& &x`. Without it the two operators read as one.
 - A block that stands alone as a statement no longer gets a space before its `{`.
 - Format Selection does not sort imports. A selection inside an import run repeated one import and lost another; Format Document still sorts.
+- Backspace with two carets next to an empty bracket pair no longer crashes the editor.
+- A case change with two carets in one word changes the word once. It left broken text behind.
+- A terminal narrowed to one column no longer corrupts memory when the shell prints a wide character.
+- A file full of terminal repeat sequences no longer stalls the editor when it is printed.
+- A language server that stops reading its input no longer hangs language features or the quit. It is restarted.
+- Linux and macOS: closing a terminal that has a background job no longer hangs the editor.
+- A plugin panel button or list row that re-renders its own panel no longer reads freed memory.
+- A file that changes on disk before its first edit now reaches the language server. Diagnostics and completion used the old text.
+- Starting Thor on a folder another window holds brings that window forward and does not open the folder twice. With files to open, it opens them with no workspace.
 
 # 2026.10.1
 
