@@ -292,6 +292,10 @@ Thor :: struct {
     finished_file_index: [dynamic]^File_Index_Job,
     finished_file_searches: [dynamic]^File_Search_Job,
     finished_updates: [dynamic]^Update_Job,
+    finished_outside_stats: [dynamic]^Outside_Stat_Job,
+    // The look at the open files no watcher covers (watch_outside.odin).
+    outside_stat_inflight: bool,
+    outside_stat_at: time.Tick,
     inflight_jobs: int,
     // Quick-open's cached file list, warmed off-thread at workspace open and
     // refreshed on watcher activity; thor_palette_list_files falls back to a
@@ -706,6 +710,7 @@ init :: proc() -> ^Thor {
     thor.finished_file_index = make([dynamic]^File_Index_Job)
     thor.finished_file_searches = make([dynamic]^File_Search_Job)
     thor.finished_updates = make([dynamic]^Update_Job)
+    thor.finished_outside_stats = make([dynamic]^Outside_Stat_Job)
     thor.file_index = make([dynamic]string)
     strings.builder_init(&thor.console_backlog)
 
@@ -900,6 +905,7 @@ run :: proc(thor: ^Thor) {
     for !rl.WindowShouldClose() && !thor.should_close {
         thor_poll_dropped_files(thor)
         thor_poll_watcher(thor)
+        thor_poll_outside_files(thor)
         thor_poll_settings(thor)
         // Before anything dispatches: the rebuild drains the manager and
         // destroys the LSP backend, which no in-flight request may be inside.
@@ -971,6 +977,7 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.finished_file_searches)
     thor_file_search_destroy(thor)
     delete(thor.finished_updates)
+    delete(thor.finished_outside_stats)
     thor_clear_update(thor)
     thor_clear_file_index(thor)
     thor_free_theme_choices(thor)

@@ -73,6 +73,8 @@ Open_File :: struct {
     // What the file is on disk; the buffer is UTF-8 with no byte order mark.
     encoding:           Encoding,
     bom:                bool,
+    // Time and size on disk at the last look, for a file no watcher covers.
+    disk_stamp:         Disk_Stamp,
     last_edit:          time.Tick,
     // Syntax highlight spans and the buffer revision they were computed from.
     // The spans cover `highlight_start ..< highlight_end` only — the pane's view
@@ -1274,6 +1276,7 @@ thor_highlight_pane_file :: proc(thor: ^Thor, pane: int) {
 thor_process_io :: proc(thor: ^Thor) {
     thor_file_search_tick(thor)
     file_searches := make([dynamic]^File_Search_Job, context.temp_allocator)
+    outside_stats := make([dynamic]^Outside_Stat_Job, context.temp_allocator)
     loads := make([dynamic]^Load_Job, context.temp_allocator)
     saves := make([dynamic]^Save_Job, context.temp_allocator)
     git := make([dynamic]^Git_Status_Job, context.temp_allocator)
@@ -1308,6 +1311,10 @@ thor_process_io :: proc(thor: ^Thor) {
     for job in thor.finished_file_searches {
         append(&file_searches, job)
     }
+    for job in thor.finished_outside_stats {
+        append(&outside_stats, job)
+    }
+    clear(&thor.finished_outside_stats)
     for job in thor.finished_updates {
         append(&updates, job)
     }
@@ -1459,6 +1466,9 @@ thor_process_io :: proc(thor: ^Thor) {
     }
     for job in file_searches {
         thor_apply_file_search(thor, job)
+    }
+    for job in outside_stats {
+        thor_apply_outside_stats(thor, job)
     }
 
     for job in updates {
