@@ -1,4 +1,4 @@
-# 2026.10.2
+# 2026.10.3
 
 - A folder's own `.thor/lsp.json` is asked about before it is used. It names programs to start, so opening a cloned folder no longer starts one unprompted. The answer is remembered for that folder and that file; a changed file asks again.
 - The Odin compiler check no longer runs through a shell. A collection name in `.thor/odin-analyzer.json` could carry a second command; a name that is not an identifier is now dropped.
