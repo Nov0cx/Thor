@@ -17,7 +17,7 @@ test_undo_edits_in_closed_files :: proc(t: ^testing.T) {
     ORIGINAL :: "alpha :: 1\nbeta :: alpha\n"
 
     testing.expect(t, os.write_entire_file(PATH, ORIGINAL) == nil, "could not create test file")
-    defer os.remove(PATH)
+    defer thor_remove_settled(PATH)
 
     thor := new(Thor)
     defer free(thor)
@@ -56,7 +56,7 @@ test_redo_edits_in_closed_files :: proc(t: ^testing.T) {
     RENAMED :: "gamma :: 1\nbeta :: gamma\n"
 
     testing.expect(t, os.write_entire_file(PATH, ORIGINAL) == nil, "could not create test file")
-    defer os.remove(PATH)
+    defer thor_remove_settled(PATH)
 
     thor := new(Thor)
     defer free(thor)
@@ -137,7 +137,7 @@ test_redo_edits_refuses_changed_file :: proc(t: ^testing.T) {
     TOUCHED :: "something else entirely\n"
 
     testing.expect(t, os.write_entire_file(PATH, ORIGINAL) == nil, "could not create test file")
-    defer os.remove(PATH)
+    defer thor_remove_settled(PATH)
 
     thor := new(Thor)
     defer free(thor)
@@ -167,7 +167,7 @@ test_new_edit_set_clears_redo :: proc(t: ^testing.T) {
     ORIGINAL :: "alpha :: 1\n"
 
     testing.expect(t, os.write_entire_file(PATH, ORIGINAL) == nil, "could not create test file")
-    defer os.remove(PATH)
+    defer thor_remove_settled(PATH)
 
     thor := new(Thor)
     defer free(thor)
@@ -246,7 +246,7 @@ test_undo_edits_refuses_changed_file :: proc(t: ^testing.T) {
     EDITED :: "gamma :: 1\nextra :: 2\n"
 
     testing.expect(t, os.write_entire_file(PATH, ORIGINAL) == nil, "could not create test file")
-    defer os.remove(PATH)
+    defer thor_remove_settled(PATH)
 
     thor := new(Thor)
     defer free(thor)
@@ -313,7 +313,7 @@ test_apply_edits_matches_origin_regardless_of_path_spelling :: proc(t: ^testing.
 @(test)
 test_create_resource_writes_empty_file :: proc(t: ^testing.T) {
     PATH :: "thor_create_resource.tmp"
-    defer os.remove(PATH)
+    defer thor_remove_settled(PATH)
 
     ok, reason := thor_create_resource(PATH, false, false)
     testing.expectf(t, ok, "create refused an empty target: %s", reason)
@@ -328,7 +328,7 @@ test_create_resource_writes_empty_file :: proc(t: ^testing.T) {
 test_create_resource_ignore_if_exists_leaves_content :: proc(t: ^testing.T) {
     PATH :: "thor_create_resource_ignore.tmp"
     testing.expect(t, os.write_entire_file(PATH, "kept") == nil, "could not create test file")
-    defer os.remove(PATH)
+    defer thor_remove_settled(PATH)
 
     ok, _ := thor_create_resource(PATH, false, true)
     testing.expect(t, ok, "ignore_if_exists must not refuse an existing target")
@@ -341,7 +341,7 @@ test_create_resource_ignore_if_exists_leaves_content :: proc(t: ^testing.T) {
 test_create_resource_refuses_existing_target :: proc(t: ^testing.T) {
     PATH :: "thor_create_resource_refuse.tmp"
     testing.expect(t, os.write_entire_file(PATH, "kept") == nil, "could not create test file")
-    defer os.remove(PATH)
+    defer thor_remove_settled(PATH)
 
     ok, _ := thor_create_resource(PATH, false, false)
     testing.expect(t, !ok, "create must refuse an existing target with no option set")
@@ -376,8 +376,8 @@ test_rename_resource_moves_file_and_retargets_tab :: proc(t: ^testing.T) {
     OLD :: "thor_rename_resource_old.tmp"
     NEW :: "thor_rename_resource_new.tmp"
     testing.expect(t, os.write_entire_file(OLD, "x") == nil, "could not create test file")
-    defer os.remove(OLD)
-    defer os.remove(NEW)
+    defer thor_remove_settled(OLD)
+    defer thor_remove_settled(NEW)
 
     thor := new(Thor)
     defer free(thor)
@@ -442,10 +442,10 @@ test_undo_and_redo_resource_ops :: proc(t: ^testing.T) {
 
     testing.expect(t, os.write_entire_file(OLD, "moved") == nil, "could not create test file")
     testing.expect(t, os.write_entire_file(GONE, "removed") == nil, "could not create test file")
-    defer os.remove(MADE)
-    defer os.remove(OLD)
-    defer os.remove(NEW)
-    defer os.remove(GONE)
+    defer thor_remove_settled(MADE)
+    defer thor_remove_settled(OLD)
+    defer thor_remove_settled(NEW)
+    defer thor_remove_settled(GONE)
 
     thor := new(Thor)
     defer free(thor)
@@ -485,7 +485,7 @@ test_undo_and_redo_resource_ops :: proc(t: ^testing.T) {
 test_resource_op_on_a_directory_is_not_undoable :: proc(t: ^testing.T) {
     DIR :: "thor_resource_dir.tmp"
     testing.expect(t, os.make_directory(DIR) == nil, "could not create test directory")
-    defer os.remove(DIR)
+    defer thor_remove_settled(DIR)
 
     thor := new(Thor)
     defer free(thor)
@@ -509,8 +509,8 @@ test_undo_rename_retargets_the_open_tab :: proc(t: ^testing.T) {
     OLD :: "thor_resource_tab_old.tmp"
     NEW :: "thor_resource_tab_new.tmp"
     testing.expect(t, os.write_entire_file(OLD, "x") == nil, "could not create test file")
-    defer os.remove(OLD)
-    defer os.remove(NEW)
+    defer thor_remove_settled(OLD)
+    defer thor_remove_settled(NEW)
 
     thor := new(Thor)
     defer free(thor)
@@ -548,8 +548,8 @@ test_rename_resource_refuses_existing_target :: proc(t: ^testing.T) {
     NEW :: "thor_rename_resource_refuse_new.tmp"
     testing.expect(t, os.write_entire_file(OLD, "x") == nil, "could not create test file")
     testing.expect(t, os.write_entire_file(NEW, "y") == nil, "could not create test file")
-    defer os.remove(OLD)
-    defer os.remove(NEW)
+    defer thor_remove_settled(OLD)
+    defer thor_remove_settled(NEW)
 
     thor := new(Thor)
     defer free(thor)

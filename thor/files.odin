@@ -1594,7 +1594,7 @@ thor_confirm_rename :: proc(data: rawptr, name: string) {
     // Before the rename, not after: a write still open on the old name fails it on
     // Windows, and one that lands after it re-creates the name the user renamed away.
     thor_settle_jobs_under(thor, old_path)
-    if err := os.rename(old_path, new_path); err != nil {
+    if err := thor_rename_settled(old_path, new_path); err != nil {
         if !thor_is_cross_device_error(err) {
             log.warnf("Failed to rename %q to %q: %v", old_path, new_path, err)
             thor_flash_status(thor, "Could not rename", is_error = true)
@@ -1649,7 +1649,7 @@ thor_tree_move :: proc(data: rawptr, src_path: string, dst_dir: string) {
         return
     }
     thor_settle_jobs_under(thor, src_path)
-    if err := os.rename(src_path, new_path); err != nil {
+    if err := thor_rename_settled(src_path, new_path); err != nil {
         if !thor_is_cross_device_error(err) {
             log.warnf("Failed to move %q to %q: %v", src_path, new_path, err)
             thor_flash_status(thor, "Could not move", is_error = true)
@@ -1756,7 +1756,7 @@ REMOVE_SETTLE_MAX :: 64 * time.Millisecond
 // thus a remove answers Permission_Denied for a file nothing in Thor holds.
 // Retried with a growing wait; POSIX unlinks a file that is open, thus it
 // removes on the first call.
-@(private = "file")
+@(private)
 thor_remove_settled :: proc(path: string) -> os.Error {
     err := os.remove(path)
     when ODIN_OS == .Windows {
@@ -1766,6 +1766,23 @@ thor_remove_settled :: proc(path: string) -> os.Error {
             }
             time.sleep(wait)
             err = os.remove(path)
+        }
+    }
+    return err
+}
+
+// A rename that gives a scanner time to let go, for the reason thor_remove_settled
+// states. A cross-device error is returned at once: no wait changes it.
+@(private = "file")
+thor_rename_settled :: proc(old_path, new_path: string) -> os.Error {
+    err := os.rename(old_path, new_path)
+    when ODIN_OS == .Windows {
+        for wait := time.Millisecond; err != nil && wait <= REMOVE_SETTLE_MAX; wait *= 2 {
+            if thor_is_cross_device_error(err) || !os.exists(old_path) {
+                break
+            }
+            time.sleep(wait)
+            err = os.rename(old_path, new_path)
         }
     }
     return err
@@ -1849,7 +1866,7 @@ thor_rename_resource :: proc(thor: ^Thor, old_path, new_path: string, overwrite:
         return false, "the target already exists"
     }
     thor_settle_jobs_under(thor, old_path)
-    if err := os.rename(old_path, new_path); err != nil {
+    if err := thor_rename_settled(old_path, new_path); err != nil {
         if !thor_is_cross_device_error(err) {
             return false, "could not rename the file"
         }
