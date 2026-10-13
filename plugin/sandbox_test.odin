@@ -323,6 +323,38 @@ thor.print("resume ok=" .. tostring(ok) .. " err=" .. tostring(err) .. " status=
     testing.expectf(t, !strings.contains(out, "ok="), "the plugin ran on past its budget: %q", out)
 }
 
+// require runs the module on the thread that called it, so a coroutine gets the
+// module value and the main stack stays intact.
+@(test)
+test_require_inside_coroutine :: proc(t: ^testing.T) {
+    r: Recorder
+    recorder_init(&r)
+    defer recorder_destroy(&r)
+    m: Manager
+    recording_manager(&m, &r)
+    defer manager_destroy(&m)
+
+    dir := "bin/test/require-coroutine-plugin"
+    os.make_directory(dir)
+    path, _ := filepath.join({dir, "mod.lua"}, context.temp_allocator)
+    testing.expect(t, os.write_entire_file(path, transmute([]byte) string(`return { value = 42 }`)) == nil, "module written")
+    defer os.remove(path)
+
+    script := `local inner = coroutine.wrap(function() return require("mod") end)()
+thor.print("inner=" .. tostring(inner and inner.value))
+local co = coroutine.create(function() return require("mod").value end)
+local ok, value = coroutine.resume(co)
+thor.print("resume=" .. tostring(ok) .. " " .. tostring(value))
+thor.print("outer=" .. tostring(require("mod") == inner))`
+    testing.expect(t, manager_load_source(&m, "cor", dir, script, {}), "plugin runs")
+
+    out := printed(&r)
+    testing.expectf(t, strings.contains(out, "inner=42"), "require in coroutine.wrap: %q", out)
+    testing.expectf(t, strings.contains(out, "resume=true 42"), "require in coroutine.resume: %q", out)
+    testing.expectf(t, strings.contains(out, "outer=true"), "the module cache: %q", out)
+    testing.expect_value(t, lua.gettop(m.state), 0)
+}
+
 // pcall in a loop cannot hold the frame: the budget error passes through every
 // protected call.
 @(test)

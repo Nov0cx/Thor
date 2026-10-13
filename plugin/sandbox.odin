@@ -431,26 +431,28 @@ co_wrap_resume :: proc "c" (L: ^lua.State) -> c.int {
     return nres
 }
 
-// Calls the function sitting under `nargs` arguments on the stack, under the
-// time budget. Logs a failure against the owning plugin and returns whether the
-// call completed; on success `nres` results are left on the stack.
+// Calls the function sitting under `nargs` arguments on the stack of `L`, under
+// the time budget. Logs a failure against the owning plugin and returns whether
+// the call completed; on success `nres` results are left on the stack.
+// `L` is the thread that holds the function: the main state, or the coroutine a
+// host call came from.
 // A nested call keeps the outer call's start, so re-entry cannot extend the
 // budget or clear the hook the outer call still needs.
 @(private)
-call_guarded :: proc(m: ^Manager, owner: int, nargs, nres: c.int, what: string) -> bool {
-    nested := lua.gethook(m.state) != nil
+call_guarded :: proc(m: ^Manager, L: ^lua.State, owner: int, nargs, nres: c.int, what: string) -> bool {
+    nested := lua.gethook(L) != nil
     if !nested {
         m.budget_spent = false
         m.active_start = time.tick_now()
-        lua.sethook(m.state, budget_hook, lua.MASKCOUNT, HOOK_STEP)
+        lua.sethook(L, budget_hook, lua.MASKCOUNT, HOOK_STEP)
     }
-    status := lua.pcall(m.state, nargs, nres, 0)
+    status := lua.pcall(L, nargs, nres, 0)
     if !nested {
-        lua.sethook(m.state, nil, lua.HookMask {}, 0)
+        lua.sethook(L, nil, lua.HookMask {}, 0)
     }
     if status != 0 {
-        log.warnf("plugin %s: %s failed: %s", plugin_id(m, owner), what, lua.tostring(m.state, -1))
-        lua.pop(m.state, 1)
+        log.warnf("plugin %s: %s failed: %s", plugin_id(m, owner), what, lua.tostring(L, -1))
+        lua.pop(L, 1)
         return false
     }
     return true
@@ -473,7 +475,7 @@ call_callback :: proc(m: ^Manager, cb: Callback, nargs, nres: c.int, what: strin
     if push_args != nil {
         push_args(L)
     }
-    return call_guarded(m, cb.owner, nargs, nres, what)
+    return call_guarded(m, L, cb.owner, nargs, nres, what)
 }
 
 // thor.print(text) and the sandbox's `print`: appends a line to the host's
@@ -534,7 +536,7 @@ api_require :: proc "c" (L: ^lua.State) -> c.int {
     // the module sees exactly what the plugin does.
     lua.rawgeti(L, lua.REGISTRYINDEX, lua.Integer(p.env_ref))
     lua.setupvalue(L, -2, 1)
-    if !call_guarded(m, index, 0, 1, "require") {
+    if !call_guarded(m, L, index, 0, 1, "require") {
         lua.pushnil(L)
         return 1
     }

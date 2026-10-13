@@ -219,7 +219,7 @@ run_lexer :: proc(
     // pushlstring, not a cstring: it copies the source once instead of twice and
     // keeps a buffer holding a NUL byte whole.
     lua.pushlstring(L, cstring(raw_data(source)), c.size_t(len(source)))
-    if !call_guarded(m, lang.lexer.owner, 1, 1, "lexer") {
+    if !call_guarded(m, m.state, lang.lexer.owner, 1, 1, "lexer") {
         return nil
     }
     if !lua.istable(L, -1) {

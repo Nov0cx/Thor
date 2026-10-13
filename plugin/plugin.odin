@@ -475,7 +475,7 @@ load_chunk :: proc(m: ^Manager, index: int, path: string, source: []byte) -> boo
 
     lua.rawgeti(L, lua.REGISTRYINDEX, lua.Integer(m.plugins[index].env_ref))
     lua.setupvalue(L, -2, 1) // a main chunk's first upvalue is _ENV
-    return call_guarded(m, index, 0, 0, "load")
+    return call_guarded(m, m.state, index, 0, 0, "load")
 }
 
 @(private)
@@ -949,7 +949,7 @@ manager_dialog_text :: proc(m: ^Manager, text: string) {
     lua.rawgeti(L, lua.REGISTRYINDEX, lua.Integer(cb.ref))
     if lua.isfunction(L, -1) {
         lua.pushstring(L, strings.clone_to_cstring(text, context.temp_allocator))
-        call_guarded(m, cb.owner, 1, 0, "dialog callback")
+        call_guarded(m, m.state, cb.owner, 1, 0, "dialog callback")
     } else {
         lua.pop(L, 1)
     }
@@ -966,7 +966,7 @@ manager_dialog_confirm :: proc(m: ^Manager) {
     L := m.state
     lua.rawgeti(L, lua.REGISTRYINDEX, lua.Integer(cb.ref))
     if lua.isfunction(L, -1) {
-        call_guarded(m, cb.owner, 0, 0, "confirm callback")
+        call_guarded(m, m.state, cb.owner, 0, 0, "confirm callback")
     } else {
         lua.pop(L, 1)
     }
@@ -1063,7 +1063,7 @@ dispatch_key :: proc(m: ^Manager, cb: Callback, name: string, chord: string, mod
     lua.pushboolean(L, b32(.Super in mods))
     lua.setfield(L, -2, "cmd")
 
-    if !call_guarded(m, cb.owner, 1, 1, name) {
+    if !call_guarded(m, m.state, cb.owner, 1, 1, name) {
         return false
     }
     consumed = bool(lua.toboolean(L, -1))

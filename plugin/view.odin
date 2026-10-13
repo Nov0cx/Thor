@@ -319,7 +319,7 @@ manager_panel_select :: proc(m: ^Manager, id: string, action, row: int, item: st
     }
     lua.pushinteger(L, lua.Integer(row + 1))
     lua.pushstring(L, strings.clone_to_cstring(item, context.temp_allocator))
-    call_guarded(m, cb.owner, 2, 0, "panel select")
+    call_guarded(m, m.state, cb.owner, 2, 0, "panel select")
 }
 
 // Runs a canvas's draw callback for the frame, giving it a context whose
@@ -338,7 +338,7 @@ manager_panel_draw :: proc(m: ^Manager, id: string, action: int, x, y, w, h: f32
     }
     m.canvas = Canvas_Rect{x, y, w, h}
     push_canvas(m, cb.owner, w, h)
-    call_guarded(m, cb.owner, 1, 0, "panel draw")
+    call_guarded(m, m.state, cb.owner, 1, 0, "panel draw")
     m.canvas = {}
 }
 
