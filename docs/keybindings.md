@@ -196,6 +196,13 @@ focused pane keeps the text, the other shows the page, and the split opens if it
 was closed. A link in it is clickable — a URL opens in the browser, a relative
 path opens as a tab.
 
+The page shows headings (`#` and the underlined form), paragraphs with hard line
+breaks, strong and emphasised text, `~~strikethrough~~`, code spans, fenced code
+blocks, quotes, rules, nested bullet and numbered lists, tables with column
+alignment, and links — inline, by reference and `<url>`. An image that is a file
+beside the document is drawn in the page, scaled to the column; a click opens it
+as a tab. An image on the web is not fetched: its text shows as a link.
+
 **Images** (`.png .jpg .jpeg .bmp .gif .tga .psd .hdr .qoi`) open fit to the
 pane, never scaled past 1:1. A checkerboard behind them shows the transparent
 pixels; the name, pixel size and zoom sit in the bottom-left corner.
@@ -301,7 +308,9 @@ function may arrive as a snippet with its arguments already in place.
 When an accepted candidate is a snippet, its first placeholder is selected and
 typing replaces it. Every placeholder of the session is boxed: the one the caret
 is on in the accent colour, the ones tab still reaches dimmed. A placeholder used
-twice is one destination, so both boxes light up together.
+twice is one destination: both boxes light up together, and what is typed in the
+first goes into the others. A placeholder with a set of choices opens them as a
+list — up and down pick one, tab or enter takes it.
 
 | Key | Action |
 | --- | --- |
@@ -311,6 +320,35 @@ twice is one destination, so both boxes light up together.
 
 The last stop puts the caret where the snippet ends and closes it. Clicking
 outside the snippet, or undoing, also ends it.
+
+A snippet of more than one line takes the indent of the line it lands on, and a
+tab in it becomes one indent level of the file.
+
+The template is the language-server snippet syntax:
+
+| Form | Meaning |
+| --- | --- |
+| `$1`, `${1}` | a placeholder; `$0` is where the caret ends |
+| `${1:text}` | a placeholder with a default |
+| `${1\|one,two\|}` | a placeholder with choices |
+| `${1/regex/format/flags}` | the text of placeholder 1, changed by the transform |
+| `$NAME`, `${NAME:text}` | a variable, with a default for when it is empty |
+| `${NAME/regex/format/flags}` | a variable, changed by the transform |
+
+The flags of a transform are `g` (every match), `i` (ignore case) and `m` (`^`
+and `$` at every line). Its format takes `$1` for a capture group,
+`${1:/upcase}`, `/downcase`, `/capitalize`, `/camelcase` and `/pascalcase`,
+and `${1:+text}`, `${1:?text:other}` and `${1:-other}` for a group that did or
+did not match.
+
+The variables: `TM_SELECTED_TEXT`, `TM_CURRENT_LINE`, `TM_LINE_NUMBER`,
+`TM_LINE_INDEX`, `TM_FILENAME`, `TM_FILENAME_BASE`, `TM_FILEPATH`,
+`TM_DIRECTORY`, `RELATIVE_FILEPATH`, `WORKSPACE_NAME`, `WORKSPACE_FOLDER`,
+`CLIPBOARD`, and for the local date and time `CURRENT_YEAR`,
+`CURRENT_YEAR_SHORT`, `CURRENT_MONTH`, `CURRENT_MONTH_NAME`,
+`CURRENT_MONTH_NAME_SHORT`, `CURRENT_DATE`, `CURRENT_DAY_NAME`,
+`CURRENT_DAY_NAME_SHORT`, `CURRENT_HOUR`, `CURRENT_MINUTE`, `CURRENT_SECOND`,
+`CURRENT_SECONDS_UNIX` and `CURRENT_TIMEZONE_OFFSET`.
 
 ## Tasks
 

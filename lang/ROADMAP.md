@@ -1658,20 +1658,30 @@ Landed since (`lang/lsp`, M1–M7):
       `test_decode_resolve_completion_without_edits` and
       `test_capabilities_completion_options`.
 - [x] **Snippets, with tabstop navigation.** `snippetSupport` is advertised and
-      `widgets/snippet.odin` parses the template: `$1`, `${1}`, `${1:default}`,
-      `${1|a,b|}` (first alternative), `$0`, the `\$`/`\}`/`\\` escapes and the
-      `TM_*` variables. Accepting one opens a session on the editor — the first
-      placeholder is selected, Tab and Shift+Tab walk the stops, `$0` is where
-      the caret leaves, and Escape ends it. The stops are plain byte offsets
-      kept current by the typed delta alone, since `textedit` has no markers, so
-      anything that cannot be followed — a second cursor, an undo, a batched
-      edit, a caret that left the snippet — ends the session rather than guesses.
-      **Still open:** a tabstop used twice mirrors the first's text at insert
-      time only; editing one does not follow into the other. A
-      `${1/regex/format/}` transform is dropped, the stop kept.
-      **Covered by** `test_snippet_parse_grammar`, `test_snippet_parse_variables`,
-      `test_snippet_session_walks_tabstops`, `test_snippet_session_follows_typing`
-      and `test_snippet_session_ends_when_the_caret_leaves`.
+      `snippet/snippet.odin` parses the template: `$1`, `${1}`, `${1:default}`,
+      `${1|a,b|}`, `${1/regex/format/flags}`, `$0`, the `\$`/`\}`/`\\` escapes
+      and the variables — `TM_*`, `RELATIVE_FILEPATH`, `WORKSPACE_*`,
+      `CLIPBOARD` and the `CURRENT_*` clock, each with the `:default` and the
+      transform form. `snippet/transform.odin` runs a transform on
+      `core:text/regex`'s machine directly, since the iterator drops a group
+      that took no part and so moves the number of every later group.
+      Accepting one opens a session on the editor — the first placeholder is
+      selected, Tab and Shift+Tab walk the stops, `$0` is where the caret
+      leaves, and Escape ends it. A choice stop lists its alternatives in the
+      completion popup. A tabstop used twice is one text: the sync writes the
+      first stop's text into its mirrors, each through its own transform, and
+      `textedit.join_last_undo` makes that part of the edit that caused it. A
+      multi-line template takes the indent of its line (`snippet.indent`).
+      The stops are plain byte offsets kept current by the typed delta alone,
+      since `textedit` has no markers, so anything that cannot be followed — a
+      second cursor, an undo, a batched edit, a caret that left the snippet —
+      ends the session rather than guesses.
+      **Covered by** `snippet/snippet_test.odin`,
+      `test_snippet_session_walks_tabstops`, `test_snippet_session_follows_typing`,
+      `test_snippet_session_ends_when_the_caret_leaves`,
+      `test_snippet_mirror_follows_typing`, `test_snippet_mirror_runs_its_transform`,
+      `test_snippet_undo_ends_the_session`, `test_snippet_choice_opens_a_list`
+      and `test_snippet_takes_the_line_indent`.
 - [x] **A real completion context.** `completionProvider.triggerCharacters` is
       read into `Capabilities.item_triggers`, and a request fired by one of them
       sends `triggerKind: 2` with the character instead of the `Invoked` (1) it

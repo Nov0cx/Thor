@@ -23,6 +23,16 @@
 - A file outside the open folder reloads when it changes on disk.
 - A click on a row of the file tree gives the tree the keyboard. Delete and the arrow keys did nothing after a click.
 - `ctrl + n` makes a new file. With the file tree focused it lands beside the selection, and so does New Folder.
+- A snippet placeholder used twice stays one text: what is typed in the first goes into the others, and one undo takes it back.
+- A snippet choice (`${1|a,b|}`) opens a list of its alternatives. It kept the first one only.
+- Snippet transforms work: `${1/regex/format/flags}` and `${VAR/regex/format/flags}`, with `/upcase`, `/downcase`, `/capitalize`, `/camelcase`, `/pascalcase` and the `:+`, `:?` and `:-` forms.
+- New snippet variables: `CLIPBOARD`, `TM_FILEPATH`, `RELATIVE_FILEPATH`, `WORKSPACE_NAME`, `WORKSPACE_FOLDER` and the `CURRENT_*` date and time set.
+- A multi-line snippet takes the indent of the line it lands on, and its tabs become the indent of the file.
+- The markdown preview shows tables, with column alignment and cells that wrap.
+- The markdown preview shows images that are files beside the document. An image on the web shows its text as a link.
+- The markdown preview nests lists, and reads setext headings, hard line breaks, `~~strikethrough~~`, reference links, `<url>` links and backslash escapes.
+- A long line of a code block in the preview continues on the next row. An underscore inside a word is no longer emphasis.
+- List bullets show in the preview. The bullet character was not in the font.
 
 # 2026.10.3
 

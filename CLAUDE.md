@@ -127,7 +127,7 @@ be tested headlessly.
 - `theme` — the named roles, `role_color` (public plugin API, do not rename), the contrast helpers
   and the generator. Colours are `ui.Color`.
 - `snippet`, `search`, `markdown` — leaves: the LSP snippet grammar, the find engine (case folding,
-  whole word, regex), and the markdown parse and layout, measured through two host callbacks.
+  whole word, regex), and the markdown parse and layout. The host answers three callbacks: text width, line height and image size.
 - `editview` — the editor's state and behaviour with no drawing: folding, soft-wrap visual rows,
   the completion lifecycle, live snippet sessions, key handling. An `Editor` *borrows* a
   `textedit.State` and never owns document data. The view drives it through intents
