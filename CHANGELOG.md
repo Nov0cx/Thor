@@ -1,5 +1,6 @@
 # 2026.10.4
 
+- The bar between the two editor panes of a split can be dragged. A double click centers it. The width is kept in the session.
 - A close no longer loses unsaved edits. A tab, a folder switch and a quit write every unsaved buffer first. It lost an edit younger than the autosave delay.
 - Open Folder with `format_on_save` on no longer drops unsaved edits.
 - A file the disk refuses to save asks before its tab closes. At exit its text is kept and the next open of the file puts the edits back.

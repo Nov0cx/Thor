@@ -24,6 +24,9 @@ TERMINAL_STRIP_TAB_HEIGHT :: 22
 TERMINAL_STRIP_NAME_MAX :: 140
 // Width of the bar between two dock panels, which is also its drag area.
 DOCK_SPLITTER_WIDTH :: 3
+SPLIT_HANDLE_WIDTH :: f32(3)
+SPLIT_MIN_RATIO :: f32(0.15)
+SPLIT_MAX_RATIO :: f32(0.85)
 
 // What the status bar shows. A field left zero hides its segment.
 Status_Info :: struct {
@@ -721,10 +724,57 @@ thor_editor_column :: proc(thor: ^Thor, view: Workspace_View) {
     thor.editor_rect = column.rect
     thor_tabbar(thor)
 
-    ui.scope({key = "panes", props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Row, gap = {1, 0}}})
-    thor_workspace_pane(thor, view, 0, "pane0")
-    if view.split {
+    panes := ui.scope({key = "panes", props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Row}})
+    if !view.split {
+        thor_workspace_pane(thor, view, 0, "pane0")
+        return
+    }
+
+    // The rect is from the last frame. The first frame of a split has none, so
+    // the two panes share the row.
+    avail := panes.rect.w - SPLIT_HANDLE_WIDTH
+    first: ui.Size = ui.Grow(1)
+    if avail > 0 {
+        first = ui.Px(math.round(avail * clamp(thor.split_ratio, SPLIT_MIN_RATIO, SPLIT_MAX_RATIO)))
+    }
+    {
+        ui.scope({key = "slot0", props = {w = first, h = ui.Grow(1)}})
+        thor_workspace_pane(thor, view, 0, "pane0")
+    }
+    thor_split_handle(thor, avail)
+    {
+        ui.scope({key = "slot1", props = {w = ui.Grow(1), h = ui.Grow(1)}})
         thor_workspace_pane(thor, view, 1, "pane1")
+    }
+}
+
+// The bar between the two panes. A drag moves split_ratio, a double click
+// centers it. avail is the row width the two panes share.
+@(private = "file")
+thor_split_handle :: proc(thor: ^Thor, avail: f32) {
+    it := ui.leaf(
+        {
+            key = "split",
+            flags = {.Clickable, .Draggable},
+            props = {
+                w = ui.Px(SPLIT_HANDLE_WIDTH),
+                h = ui.Grow(1),
+                bg = thor.theme.border,
+                cursor = .Resize_H,
+            },
+            hover = {bg = thor.theme.accent_color},
+        },
+    )
+    if it.double_clicked {
+        thor.split_ratio = 0.5
+        return
+    }
+    if it.pressed {
+        thor.split_grab = thor.split_ratio
+    }
+    if it.dragging && avail > 0 {
+        moved := ui.mouse_pos().x - it.drag_start.x
+        thor.split_ratio = clamp(thor.split_grab + moved / avail, SPLIT_MIN_RATIO, SPLIT_MAX_RATIO)
     }
 }
 

@@ -224,6 +224,7 @@ Thor :: struct {
     console_height: f32,
     split_visible: bool,
     split_ratio: f32,
+    split_grab: f32, // split_ratio at the press that started a handle drag
     // Each pane's open-files index (-1 = none); the two panes can show different
     // files. active_pane is the focused one, whose file the tabbar, status bar
     // and file commands act on (mirrored into the active_file signal).

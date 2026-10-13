@@ -350,7 +350,7 @@ thor_restore_session :: proc(thor: ^Thor) {
     signal_set(&thor.console_visible, session.console_visible)
     thor.split_visible = session.split_visible
     if session.split_ratio > 0 {
-        thor.split_ratio = clamp(session.split_ratio, 0.15, 0.85)
+        thor.split_ratio = clamp(session.split_ratio, SPLIT_MIN_RATIO, SPLIT_MAX_RATIO)
     }
     if session.window_maximized {
         rl.MaximizeWindow()
