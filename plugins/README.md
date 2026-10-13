@@ -39,7 +39,9 @@ Every plugin runs in its own environment inside one shared Lua state:
   A plugin that needs a long command must run it in pieces across `on_tick`.
 - File paths a plugin passes to `thor.read`, `thor.write` and `thor.doc` resolve
   against the open workspace and must stay inside it, inside the plugin's own
-  folder, or inside the plugin's data folder (see `thor.data_path`).
+  folder, or inside the plugin's data folder (see `thor.data_path`). A path
+  that goes through a symbolic link or a junction below one of those folders is
+  refused, also when the link points back inside.
 
 This contains buggy and rogue plugins. It is not a boundary against native code.
 
@@ -264,7 +266,8 @@ p:show()
 Node kinds: `label`, `button`, `row`, `column`, `list`, `separator`, `spacer`,
 `canvas`. `role` is a theme role, `gap` the spacing inside a row or column, and
 `height` fixes a canvas's or spacer's height. `dock` is `"right"` or `"bottom"`.
-For text entry use `thor.prompt`.
+For text entry use `thor.prompt`. A tree holds at most 32 levels and 4096 nodes;
+the rest is dropped and the log says so.
 
 A canvas draws in canvas coordinates, clipped to itself. Inside `draw`:
 `ctx.w`, `ctx.h`, `ctx:rect(x, y, w, h, role)`, `ctx:outline(x, y, w, h, role)`,

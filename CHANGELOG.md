@@ -5,6 +5,10 @@
 - A plugin cannot outrun its two-second budget with `pcall`, `xpcall` or `coroutine.resume`: the budget error ends the whole call.
 - A plugin cannot set a `__gc` finaliser, which ran with no budget and could hang the editor.
 - A plugin lexer that returns a table with a `__len` metamethod no longer aborts or stalls the editor.
+- `require` works inside a plugin coroutine. It ran the module on the wrong Lua stack.
+- A plugin panel tree stops at 32 levels and 4096 nodes. A node that held itself crashed the editor.
+- A plugin path that goes through a symbolic link or a junction is refused, so a link in a folder cannot lead a plugin out of it.
+- A plugin syntax node whose tree is freed answers nothing instead of reading freed memory.
 
 # 2026.10.1
 
