@@ -185,8 +185,10 @@ editor_run_action :: proc(editor: ^Editor, action: Action, extend: bool) -> bool
     case .None:
         return false
     case .Undo:
+        editor_end_snippet(editor)
         textedit.undo(state)
     case .Redo, .Redo_Alt:
+        editor_end_snippet(editor)
         textedit.redo(state)
     case .Delete_Word_Left:
         textedit.delete_word_backward(state)

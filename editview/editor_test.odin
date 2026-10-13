@@ -21,6 +21,12 @@ editor_test_free_completions :: proc(editor: ^Editor) {
     editor.completion_word = ""
 }
 
+@(private = "file")
+editor_test_free_snippet :: proc(editor: ^Editor) {
+    snippet.destroy(&editor.snippet_snip)
+    delete(editor.snippet_stops)
+}
+
 // A stack editor with one caret at the end of `text`, laid out large enough for
 // the completion popup to fit under the caret. The caller frees visual_rows.
 @(private = "file")
@@ -407,7 +413,7 @@ test_snippet_session_walks_tabstops :: proc(t: ^testing.T) {
     editor: Editor
     defer delete(editor.visual_rows)
     defer delete(editor.completion_rows)
-    defer delete(editor.snippet_stops)
+    defer editor_test_free_snippet(&editor)
     defer editor_test_free_completions(&editor)
 
     editor_test_completion_setup(&editor, &state, "fn\n")
@@ -445,7 +451,7 @@ test_snippet_session_follows_typing :: proc(t: ^testing.T) {
     editor: Editor
     defer delete(editor.visual_rows)
     defer delete(editor.completion_rows)
-    defer delete(editor.snippet_stops)
+    defer editor_test_free_snippet(&editor)
     defer editor_test_free_completions(&editor)
 
     editor_test_completion_setup(&editor, &state, "fn\n")
@@ -475,7 +481,7 @@ test_snippet_session_ends_when_the_caret_leaves :: proc(t: ^testing.T) {
     editor: Editor
     defer delete(editor.visual_rows)
     defer delete(editor.completion_rows)
-    defer delete(editor.snippet_stops)
+    defer editor_test_free_snippet(&editor)
     defer editor_test_free_completions(&editor)
 
     editor_test_completion_setup(&editor, &state, "fn\n")
@@ -503,7 +509,7 @@ test_completion_replaces_its_own_range :: proc(t: ^testing.T) {
     editor: Editor
     defer delete(editor.visual_rows)
     defer delete(editor.completion_rows)
-    defer delete(editor.snippet_stops)
+    defer editor_test_free_snippet(&editor)
     defer editor_test_free_completions(&editor)
 
     editor_test_completion_setup(&editor, &state, "al\n")
@@ -551,7 +557,7 @@ test_completion_narrows_a_complete_owner_list :: proc(t: ^testing.T) {
     editor: Editor
     defer delete(editor.visual_rows)
     defer delete(editor.completion_rows)
-    defer delete(editor.snippet_stops)
+    defer editor_test_free_snippet(&editor)
     defer editor_test_free_completions(&editor)
 
     editor_test_completion_setup(&editor, &state, "al\n")
@@ -834,4 +840,147 @@ test_editing_keys_follow_the_keymap :: proc(t: ^testing.T) {
     before := textedit.length(&state)
     editor_test_key(&editor, .K, {.Ctrl, .Shift})
     testing.expect_value(t, textedit.length(&state), before)
+}
+
+// Accepts the one candidate `template` makes over the word "fn" at the end of `text`.
+@(private = "file")
+editor_test_accept_snippet :: proc(editor: ^Editor, state: ^textedit.State, text, template: string) {
+    editor_test_completion_setup(editor, state, text)
+    editor_set_completions(
+        editor,
+        []Completion_Item{{text = "fn", owner_id = 1, insert = template, snippet = true, start = -1, end = -1}},
+    )
+    editor_key(editor, {key = .Tab})
+}
+
+// A tabstop used twice is one text: what is typed in the first lands in the
+// second, and one undo takes both back.
+@(test)
+test_snippet_mirror_follows_typing :: proc(t: ^testing.T) {
+    state: textedit.State
+    textedit.init(&state)
+    defer textedit.destroy(&state)
+
+    editor: Editor
+    defer delete(editor.visual_rows)
+    defer delete(editor.completion_rows)
+    defer editor_test_free_snippet(&editor)
+    defer editor_test_free_completions(&editor)
+
+    editor_test_accept_snippet(&editor, &state, "fn\n", "${1:a} = $1; ${2:b}$0")
+    testing.expect_value(t, textedit.text(&state), "a = a; b\n")
+
+    editor_text(&editor, 'z', {})
+    testing.expect_value(t, textedit.text(&state), "z = z; b\n")
+    editor_text(&editor, 'y', {})
+    testing.expect_value(t, textedit.text(&state), "zy = zy; b\n")
+    testing.expect_value(t, textedit.primary_cursor(&state).caret, 2)
+
+    editor_key(&editor, {key = .Backspace})
+    testing.expect_value(t, textedit.text(&state), "z = z; b\n")
+    testing.expect(t, editor.snippet_active, "the session follows its mirrors")
+
+    // The next stop is where the mirror edits left it.
+    editor_dismiss_completion(&editor)
+    editor_key(&editor, {key = .Tab})
+    testing.expect_value(t, textedit.primary_cursor(&state).anchor, 7)
+    testing.expect_value(t, textedit.primary_cursor(&state).caret, 8)
+
+    textedit.undo(&state)
+    testing.expect_value(t, textedit.text(&state), "zy = zy; b\n")
+}
+
+@(test)
+test_snippet_mirror_runs_its_transform :: proc(t: ^testing.T) {
+    state: textedit.State
+    textedit.init(&state)
+    defer textedit.destroy(&state)
+
+    editor: Editor
+    defer delete(editor.visual_rows)
+    defer delete(editor.completion_rows)
+    defer editor_test_free_snippet(&editor)
+    defer editor_test_free_completions(&editor)
+
+    editor_test_accept_snippet(&editor, &state, "fn\n", "${1:name} ${1/(.*)/${1:/upcase}/}$0")
+    testing.expect_value(t, textedit.text(&state), "name NAME\n")
+
+    editor_text(&editor, 'x', {})
+    editor_text(&editor, 'y', {})
+    testing.expect_value(t, textedit.text(&state), "xy XY\n")
+}
+
+// An undo cannot be followed by a length delta, so it ends the session.
+@(test)
+test_snippet_undo_ends_the_session :: proc(t: ^testing.T) {
+    state: textedit.State
+    textedit.init(&state)
+    defer textedit.destroy(&state)
+
+    editor: Editor
+    defer delete(editor.visual_rows)
+    defer delete(editor.completion_rows)
+    defer editor_test_free_snippet(&editor)
+    defer editor_test_free_completions(&editor)
+
+    editor_test_accept_snippet(&editor, &state, "fn\n", "${1:a} = $1;$0")
+    editor_text(&editor, 'z', {})
+    testing.expect_value(t, textedit.text(&state), "z = z;\n")
+
+    editor_run_action(&editor, .Undo, false)
+    testing.expect_value(t, textedit.text(&state), "a = a;\n")
+    testing.expect(t, !editor.snippet_active)
+}
+
+// A choice stop lists its alternatives; the accepted one goes over the stop and
+// the session carries on.
+@(test)
+test_snippet_choice_opens_a_list :: proc(t: ^testing.T) {
+    state: textedit.State
+    textedit.init(&state)
+    defer textedit.destroy(&state)
+
+    editor: Editor
+    defer delete(editor.visual_rows)
+    defer delete(editor.completion_rows)
+    defer editor_test_free_snippet(&editor)
+    defer editor_test_free_completions(&editor)
+
+    editor_test_accept_snippet(&editor, &state, "fn\n", "${1|one,three|}! ${2:b}$0")
+    testing.expect_value(t, textedit.text(&state), "one! b\n")
+    testing.expect(t, editor.completion_active && editor.completion_choice, "the alternatives are listed")
+    testing.expect_value(t, len(editor.completion_rows), 2)
+
+    editor_key(&editor, {key = .Down})
+    editor_key(&editor, {key = .Tab})
+    testing.expect_value(t, textedit.text(&state), "three! b\n")
+    testing.expect(t, !editor.completion_active)
+    testing.expect(t, editor.snippet_active, "a choice does not end the session")
+    testing.expect_value(t, textedit.primary_cursor(&state).anchor, 0)
+    testing.expect_value(t, textedit.primary_cursor(&state).caret, 5)
+
+    editor_key(&editor, {key = .Tab})
+    testing.expect_value(t, textedit.primary_cursor(&state).anchor, 7)
+    testing.expect_value(t, textedit.primary_cursor(&state).caret, 8)
+}
+
+// A multi-line template takes the indent of the line it lands on, and its own
+// tabs become one indent level each.
+@(test)
+test_snippet_takes_the_line_indent :: proc(t: ^testing.T) {
+    state: textedit.State
+    textedit.init(&state)
+    defer textedit.destroy(&state)
+    textedit.set_indent_style(&state, .Spaces)
+    textedit.set_tab_width(&state, 4)
+
+    editor: Editor
+    defer delete(editor.visual_rows)
+    defer delete(editor.completion_rows)
+    defer editor_test_free_snippet(&editor)
+    defer editor_test_free_completions(&editor)
+
+    editor_test_accept_snippet(&editor, &state, "  fn\n", "if {\n\t$0\n}")
+    testing.expect_value(t, textedit.text(&state), "  if {\n      \n  }\n")
+    testing.expect_value(t, textedit.primary_cursor(&state).caret, len("  if {\n      "))
 }

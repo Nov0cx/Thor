@@ -99,9 +99,9 @@ thor_bind_editor :: proc(thor: ^Thor, editor: ^editview.Editor, file: ^Open_File
     ext := thor_lang_key(thor, file.name)
     editview.editor_set_completion_semantic(editor, lang.manager_allows(&thor.lang_manager, ext, .Completion))
     editview.editor_set_on_type_enabled(editor, lang.manager_allows(&thor.lang_manager, ext, .Format_On_Type))
-    // What a snippet's $TM_FILENAME and $TM_DIRECTORY resolve to.
+    // What a snippet's file and workspace variables resolve to.
     dir := filepath.dir(file.path) // a slice of file.path, no allocation
-    editview.editor_set_snippet_vars(editor, file.path, dir)
+    editview.editor_set_snippet_vars(editor, file.path, dir, thor.workspace_dir)
     if keep_view {
         editview.editor_reload_state(editor, &file.state)
     } else {

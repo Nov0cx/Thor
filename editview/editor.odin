@@ -5,6 +5,8 @@ package editview
 
 import "core:fmt"
 import "core:strings"
+import "core:time"
+import "core:time/timezone"
 import "core:unicode/utf8"
 
 import "../textedit"
@@ -282,11 +284,13 @@ Editor :: struct {
     completion_start:    int,    // byte offset of that word
     completion_rev:      u64,    // state revision it was built at
     completion_size:     int,    // document length at that revision
+    completion_choice:   bool,   // the rows are the choices of the active snippet stop
     // Live snippet session, from an accepted candidate whose insert was a
     // template. Stops are absolute byte offsets, kept current by the typed delta
     // alone — every other kind of edit ends the session (see editor_snippet_sync).
     snippet_active: bool,
     snippet_stops:  [dynamic]snippet.Stop, // owned
+    snippet_snip:   snippet.Snippet,       // owned; the transforms and choices of the session
     snippet_at:     int, // index of the active stop
     snippet_rev:    u64, // state revision the offsets are valid at
     snippet_size:   int, // document length at that revision
@@ -325,13 +329,16 @@ editor_set_on_completion_accept :: proc(editor: ^Editor, on_accept: Completion_A
     editor.completion_accept_data = data
 }
 
-// What a snippet's $TM_FILENAME and $TM_DIRECTORY resolve to. Clones both; unset
-// leaves those variables empty, which a template's own default then fills.
-editor_set_snippet_vars :: proc(editor: ^Editor, filename, directory: string) {
+// What a snippet's $TM_FILEPATH, $TM_DIRECTORY and $WORKSPACE_FOLDER resolve to.
+// Clones all three; unset leaves those variables empty, which a template's own
+// default then fills.
+editor_set_snippet_vars :: proc(editor: ^Editor, filename, directory: string, workspace := "") {
     delete(editor.snippet_vars.filename)
     delete(editor.snippet_vars.directory)
+    delete(editor.snippet_vars.workspace)
     editor.snippet_vars.filename = strings.clone(filename)
     editor.snippet_vars.directory = strings.clone(directory)
+    editor.snippet_vars.workspace = strings.clone(workspace)
 }
 
 // Marks whether the active buffer's language has a completion backend. When true
@@ -539,6 +546,8 @@ editor_destroy :: proc(editor: ^Editor) {
     editor_clear_signature(editor)
     delete(editor.snippet_vars.filename)
     delete(editor.snippet_vars.directory)
+    delete(editor.snippet_vars.workspace)
+    snippet.destroy(&editor.snippet_snip)
     delete(editor.visual_rows)
     delete(editor.completion_rows)
     delete(editor.snippet_stops)
@@ -1235,7 +1244,7 @@ editor_handle_key :: proc(editor: ^Editor, event: ui.Key_Event) -> bool {
             case .Enter:
                 // Shift+Enter accepts the suggestion; a plain Enter dismisses the
                 // popup and inserts a newline as usual (handled below).
-                if (.Shift in event.mods) {
+                if (.Shift in event.mods) || editor.completion_choice {
                     editor_accept_completion(editor)
                     return true
                 }
@@ -1445,6 +1454,7 @@ editor_dismiss_completion :: proc(editor: ^Editor) {
     editor.completion_selected = 0
     editor.completion_prefix = 0
     editor.completion_full = false
+    editor.completion_choice = false
     delete(editor.completion_word)
     editor.completion_word = ""
 }
@@ -1541,6 +1551,7 @@ editor_hold_completion :: proc(editor: ^Editor, txt: string, start: int, prefix:
     editor.completion_rev = editor.state.revision
     editor.completion_size = len(txt)
     editor.completion_full = full
+    editor.completion_choice = false
     editor.completion_active = true
     editor.completion_prefix = len(prefix)
     editor.completion_selected = 0
@@ -1605,6 +1616,10 @@ editor_accept_completion :: proc(editor: ^Editor) {
     if !editor.completion_active || len(editor.completion_rows) == 0 {
         return
     }
+    if editor.completion_choice {
+        editor_accept_choice(editor)
+        return
+    }
     row := editor.completion_rows[editor.completion_selected]
     txt := textedit.text(editor.state)
     caret := textedit.primary_cursor(editor.state).caret
@@ -1652,25 +1667,42 @@ editor_insert_snippet :: proc(editor: ^Editor, template: string, start, end: int
         line_end += 1
     }
     vars.line_text = txt[line_start:line_end]
+    if lo, hi := textedit.selection_range(textedit.primary_cursor(editor.state)); hi > lo && hi <= len(txt) {
+        vars.selection = txt[lo:hi]
+    }
+    if strings.contains(template, "CLIPBOARD") {
+        clip, _ := strings.replace_all(ui.clipboard_text(), "\r\n", "\n", context.temp_allocator)
+        vars.clipboard = clip
+    }
+    if strings.contains(template, "CURRENT_") {
+        editor_snippet_clock(&vars)
+    }
+    lead := line_start
+    for lead < line_end && lead < start && (txt[lead] == ' ' || txt[lead] == '\t') {
+        lead += 1
+    }
 
     // Parsed before the edit: the variables above borrow the text it replaces.
-    snip := snippet.parse(template, vars, context.temp_allocator)
+    snip := snippet.parse(template, vars)
+    snippet.indent(&snip, txt[line_start:lead], textedit.indent_unit(editor.state))
     if textedit.replace_range(editor.state, start, end - start, snip.text) != .None {
+        snippet.destroy(&snip)
         return 0
     }
     delta := len(snip.text) - (end - start)
     if len(snip.stops) == 0 {
         textedit.set_single_cursor(editor.state, start + len(snip.text))
+        snippet.destroy(&snip)
         return delta
     }
 
     for stop in snip.stops {
-        append(&editor.snippet_stops, snippet.Stop {
-            start = start + stop.start,
-            end   = start + stop.end,
-            index = stop.index,
-        })
+        moved := stop
+        moved.start += start
+        moved.end += start
+        append(&editor.snippet_stops, moved)
     }
+    editor.snippet_snip = snip
     editor.snippet_active = true
     editor.snippet_lo = start
     editor.snippet_hi = start + len(snip.text)
@@ -1678,12 +1710,56 @@ editor_insert_snippet :: proc(editor: ^Editor, template: string, start, end: int
     return delta
 }
 
+// Fills the CURRENT_* variables from the local clock, UTC when the zone of the
+// machine cannot be read.
+@(private = "file")
+editor_snippet_clock :: proc(vars: ^snippet.Vars) {
+    now := time.now()
+    unix := time.time_to_unix(now)
+    offset := i64(0)
+    if region, ok := timezone.region_load("local", context.temp_allocator); ok && region != nil {
+        // The zone-local reading, taken as UTC, is the clock moved by the offset.
+        if utc, valid := time.time_to_datetime(now); valid {
+            if moved, converted := timezone.datetime_to_tz(utc, region); converted {
+                moved.tz = nil
+                if as_time, made := time.datetime_to_time(moved); made {
+                    offset = time.time_to_unix(as_time) - unix
+                }
+            }
+        }
+    }
+    local := time.unix(unix + offset, 0)
+    year, month, day := time.date(local)
+    hour, minute, second := time.clock(local)
+    vars.has_time = true
+    vars.year = year
+    vars.month = int(month)
+    vars.day = day
+    vars.weekday = int(time.weekday(local))
+    vars.hour = hour
+    vars.minute = minute
+    vars.second = second
+    vars.unix = unix
+    vars.utc_offset = int(offset / 60)
+}
+
 // Selects one stop and takes the offsets' revision stamp from the buffer as it
-// is now. A zero-width stop is a caret, not a selection.
+// is now. A zero-width stop is a caret, not a selection. A choice stop opens
+// its list.
 @(private = "file")
 editor_snippet_goto :: proc(editor: ^Editor, at: int) {
     stop := editor.snippet_stops[at]
     editor.snippet_at = at
+    editor_snippet_select(editor, stop)
+    if stop.choice_count > 0 {
+        editor_show_choices(editor, stop)
+    } else if editor.completion_choice {
+        editor_dismiss_completion(editor)
+    }
+}
+
+@(private = "file")
+editor_snippet_select :: proc(editor: ^Editor, stop: snippet.Stop) {
     if stop.end > stop.start {
         textedit.select_range(editor.state, stop.start, stop.end)
     } else {
@@ -1693,51 +1769,94 @@ editor_snippet_goto :: proc(editor: ^Editor, at: int) {
     editor.snippet_size = textedit.length(editor.state)
 }
 
+// Puts the alternatives of a choice stop in the completion popup.
 @(private = "file")
+editor_show_choices :: proc(editor: ^Editor, stop: snippet.Stop) {
+    editor_dismiss_completion(editor)
+    choices := editor.snippet_snip.choices[:]
+    last := stop.choice_first + stop.choice_count
+    if stop.choice_first < 0 || last > len(choices) {
+        return
+    }
+    for choice in choices[stop.choice_first:last] {
+        append(&editor.completion_rows, Completion_Item{text = strings.clone(choice), start = -1, end = -1})
+    }
+    editor.completion_active = true
+    editor.completion_choice = true
+}
+
+// Puts the selected alternative over the active stop and selects it again.
+@(private = "file")
+editor_accept_choice :: proc(editor: ^Editor) {
+    text := strings.clone(editor.completion_rows[editor.completion_selected].text, context.temp_allocator)
+    editor_dismiss_completion(editor)
+    if !editor.snippet_active || len(editor.snippet_stops) == 0 {
+        return
+    }
+    stop := editor.snippet_stops[editor.snippet_at]
+    if textedit.replace_range(editor.state, stop.start, stop.end - stop.start, text) != .None {
+        editor_end_snippet(editor)
+        return
+    }
+    editor_snippet_sync(editor)
+    if editor.snippet_active {
+        editor_snippet_select(editor, editor.snippet_stops[editor.snippet_at])
+    }
+    editor_scroll_to_caret(editor)
+}
+
+@(private)
 editor_end_snippet :: proc(editor: ^Editor) {
     if !editor.snippet_active && len(editor.snippet_stops) == 0 {
         return
     }
+    if editor.completion_choice {
+        editor_dismiss_completion(editor)
+    }
     editor.snippet_active = false
     clear(&editor.snippet_stops)
+    snippet.destroy(&editor.snippet_snip)
     editor.snippet_at = 0
     editor.snippet_lo = 0
     editor.snippet_hi = 0
 }
 
-// Moves to the next stop with a different tabstop number — a number used twice
-// is one destination, the second occurrence being a mirror filled at insert
-// time. Reaching the exit stop places the caret there and ends the session, as
-// does stepping past the last stop.
+// Moves to the next tabstop number, landing on its first stop — the others of
+// that number are its mirrors. Reaching the exit stop places the caret there
+// and ends the session, as does stepping past the last stop.
 @(private = "file")
 editor_snippet_advance :: proc(editor: ^Editor, step: int) {
     if !editor.snippet_active || len(editor.snippet_stops) == 0 {
         return
     }
-    index := editor.snippet_stops[editor.snippet_at].index
+    stops := editor.snippet_stops[:]
+    index := stops[editor.snippet_at].index
     next := editor.snippet_at + step
-    for next >= 0 && next < len(editor.snippet_stops) && editor.snippet_stops[next].index == index {
+    for next >= 0 && next < len(stops) && stops[next].index == index {
         next += step
     }
     if next < 0 {
         return // already on the first stop
     }
-    if next >= len(editor.snippet_stops) {
+    if next >= len(stops) {
         editor_end_snippet(editor)
         return
     }
-    exit := editor.snippet_stops[next].index == 0
+    for next > 0 && stops[next - 1].index == stops[next].index {
+        next -= 1
+    }
+    exit := stops[next].index == 0
     editor_snippet_goto(editor, next)
     if exit {
         editor_end_snippet(editor)
     }
 }
 
-// Keeps the stop offsets in step with what was typed inside the active one, and
-// ends the session for anything else. Conservative on purpose: textedit has no
-// markers, so a session that cannot prove its offsets is dropped rather than
-// guessed at — a second cursor, an undo, a batched edit, or a caret that left
-// the snippet all end it.
+// Keeps the stop offsets in step with what was typed inside the active one,
+// writes that text into its mirrors, and ends the session for anything else.
+// Conservative on purpose: textedit has no markers, so a session that cannot
+// prove its offsets is dropped rather than guessed at — a second cursor, a
+// batched edit, or a caret that left the snippet all end it.
 @(private = "file")
 editor_snippet_sync :: proc(editor: ^Editor) {
     if !editor.snippet_active {
@@ -1749,8 +1868,8 @@ editor_snippet_sync :: proc(editor: ^Editor) {
         return
     }
     if state.revision != editor.snippet_rev {
-        // One step, and one only: an undo goes backwards and a batched edit
-        // jumps further, and neither can be followed by a length delta.
+        // One step, and one only: a batched edit jumps further and cannot be
+        // followed by a length delta.
         if state.revision != editor.snippet_rev + 1 {
             editor_end_snippet(editor)
             return
@@ -1775,10 +1894,102 @@ editor_snippet_sync :: proc(editor: ^Editor) {
             editor_end_snippet(editor) // the edit ate past the placeholder
             return
         }
+        if !editor_snippet_mirror(editor) {
+            editor_end_snippet(editor)
+            return
+        }
     }
     if caret := textedit.primary_cursor(state).caret; caret < editor.snippet_lo || caret > editor.snippet_hi {
         editor_end_snippet(editor)
     }
+}
+
+// Writes the active stop's text into the other stops of its number, each
+// through its own transform, as part of the undo step that changed the text.
+// False when the buffer no longer holds the stops where the session has them.
+@(private = "file")
+editor_snippet_mirror :: proc(editor: ^Editor) -> bool {
+    state := editor.state
+    stops := editor.snippet_stops[:]
+    active := stops[editor.snippet_at]
+    txt := textedit.text(state)
+    if active.start < 0 || active.end > len(txt) {
+        return false
+    }
+    // The edit below ends the life of `txt`.
+    source := strings.clone(txt[active.start:active.end], context.temp_allocator)
+
+    Mirror :: struct {
+        stop: int,
+        edit: textedit.Replace,
+    }
+    mirrors := make([dynamic]Mirror, context.temp_allocator)
+    edits := make([dynamic]textedit.Replace, context.temp_allocator)
+    for stop, i in stops {
+        if i == editor.snippet_at || stop.index != active.index {
+            continue
+        }
+        if stop.start < active.end || stop.end > len(txt) || stop.end < stop.start {
+            return false
+        }
+        want := source
+        if stop.transform > 0 && stop.transform <= len(editor.snippet_snip.transforms) {
+            want = snippet.transform_apply(source, editor.snippet_snip.transforms[stop.transform - 1])
+        }
+        if txt[stop.start:stop.end] == want {
+            continue
+        }
+        edit := textedit.Replace{start = stop.start, end = stop.end, text = want}
+        append(&mirrors, Mirror{stop = i, edit = edit})
+        append(&edits, edit)
+    }
+    if len(edits) == 0 {
+        return true
+    }
+
+    cursor := textedit.primary_cursor(state)
+    if textedit.replace_ranges(state, edits[:]) != len(edits) {
+        return false
+    }
+    textedit.join_last_undo(state)
+
+    // Bytes the edits put before `pos`. An insert at `pos` itself is before a
+    // range that starts there and after one that ends there.
+    shift :: proc(mirrors: []Mirror, pos: int, is_end: bool) -> int {
+        total := 0
+        for m in mirrors {
+            before := m.edit.end < pos || (m.edit.end == pos && (!is_end || m.edit.start < pos))
+            if before {
+                total += len(m.edit.text) - (m.edit.end - m.edit.start)
+            }
+        }
+        return total
+    }
+    for &stop, i in stops {
+        mirrored := false
+        for m in mirrors {
+            if m.stop == i {
+                // Its own edit is not before it.
+                stop.start += shift(mirrors[:], m.edit.start, true)
+                stop.end = stop.start + len(m.edit.text)
+                mirrored = true
+                break
+            }
+        }
+        if !mirrored && i != editor.snippet_at {
+            stop.start += shift(mirrors[:], stop.start, false)
+            stop.end += shift(mirrors[:], stop.end, true)
+        }
+    }
+    for m in mirrors {
+        editor.snippet_hi += len(m.edit.text) - (m.edit.end - m.edit.start)
+    }
+    // Every mirror is after the active stop, so the caret stays where it was.
+    cursors := [1]textedit.Cursor{cursor}
+    textedit.set_cursors(state, cursors[:])
+    editor.snippet_rev = state.revision
+    editor.snippet_size = textedit.length(state)
+    return true
 }
 
 editor_key_digit :: proc(key: ui.Key) -> (int, bool) {
@@ -2600,6 +2811,7 @@ editor_text :: proc(editor: ^Editor, codepoint: rune, mods: ui.Mod_Set) -> bool 
     }
 
     editor_type_rune(editor, codepoint)
+    editor_sync(editor) // the mirrors take the character now, not at the next event
 
     // Refresh the popup while typing a word; any other character dismisses it.
     // Backend-backed buffers get semantic completion, the rest buffer words.
@@ -2638,5 +2850,7 @@ editor_key :: proc(editor: ^Editor, event: ui.Key_Event) -> bool {
         }
         return false
     }
-    return editor_handle_key(editor, event)
+    handled := editor_handle_key(editor, event)
+    editor_sync(editor)
+    return handled
 }

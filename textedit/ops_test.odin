@@ -565,3 +565,22 @@ test_toggle_block_comment :: proc(t: ^testing.T) {
     toggle_block_comment(&line, "<!--", "-->")
     testing.expect_value(t, text(&line), "    x := 1")
 }
+
+// Two edits joined are one undo step, and a redo puts both back.
+@(test)
+test_join_last_undo :: proc(t: ^testing.T) {
+    state := ops_state("a = a", 1)
+    defer destroy(&state)
+
+    insert_text(&state, "b")
+    testing.expect(t, insert_at(&state, 6, "b") == .None)
+    join_last_undo(&state)
+    testing.expect_value(t, text(&state), "ab = ab")
+
+    undo(&state)
+    testing.expect_value(t, text(&state), "a = a")
+    testing.expect_value(t, primary_cursor(&state).caret, 1)
+
+    redo(&state)
+    testing.expect_value(t, text(&state), "ab = ab")
+}

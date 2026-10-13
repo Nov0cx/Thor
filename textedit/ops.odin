@@ -896,7 +896,6 @@ detect_indent :: proc(state: ^State) -> Indent_Info {
 }
 
 // One indent level: a tab, or tab_width spaces.
-@(private)
 indent_unit :: proc(state: ^State) -> string {
     if uses_tabs(state) {
         return "\t"

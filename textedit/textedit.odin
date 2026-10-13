@@ -920,6 +920,24 @@ redo :: proc(state: ^State) {
     state.revision += 1
 }
 
+// Folds the newest undo entry into the one below it, so one undo takes both
+// back. For an edit that only follows from the edit before it.
+join_last_undo :: proc(state: ^State) {
+    if state.undo_stack.count < 2 {
+        return
+    }
+    top := ring_pop(&state.undo_stack)
+    prev := ring_at(&state.undo_stack, state.undo_stack.count - 1)
+    append(&prev.ops, ..top.ops[:])
+    delete(top.ops)
+    delete(top.cursors_before)
+    delete(prev.cursors_after)
+    prev.cursors_after = top.cursors_after
+    prev.id_after = top.id_after
+    prev.coalesce = .None
+    state.coalescing = false
+}
+
 @(private)
 finish_edit :: proc(state: ^State, entry: ^Undo_Entry, coalesce := Coalesce.None) {
     txt := text(state)
