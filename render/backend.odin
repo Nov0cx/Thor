@@ -13,6 +13,7 @@ MAX_SHADOW_STEPS :: 12
 Options :: struct {
 	arc_segments: int,
 	dpi:          f32,
+	right_alt:    Right_Alt,
 }
 
 // A key raylib reports as held. The physical key is what raylib answers about;

@@ -103,6 +103,7 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
     thor_settings_add_choice(view, "tip_of_the_day", "Tip of the Day", thor_on_off_label(setting.tip_of_the_day(config)))
     thor_settings_add_choice(view, "format_on_save", "Format on Save", thor_on_off_label(setting.format_on_save(config)))
     thor_settings_add_choice(view, "format_on_type", "Format on Type", thor_on_off_label(setting.format_on_type(config)))
+    thor_settings_add_choice(view, "right_alt", "Right Alt", thor_right_alt_label(config))
 
     thor_settings_begin_category(view, "windows", "Windows", "window")
     thor_settings_add_choice(view, "open_folder_in", "Open Folder In", thor_open_folder_in_label(config))
@@ -248,6 +249,8 @@ thor_on_setting_choice :: proc(data: rawptr, id: string) {
         thor_cmd_change_format_on_type(thor)
     case "open_folder_in":
         thor_cmd_change_open_folder_in(thor)
+    case "right_alt":
+        thor_cmd_change_right_alt(thor)
     case "default_shell":
         thor_cmd_select_shell(thor)
     case "check_for_updates":
@@ -302,6 +305,64 @@ thor_open_folder_in_commit :: proc(data: rawptr, choice: string) {
         }
     }
     thor_persist_open_folder_in(thor, picked)
+    if thor_settings_is_open(thor) {
+        thor_populate_settings_view(thor)
+    }
+}
+
+// Picker rows for right_alt, in Right_Alt order.
+@(private = "file")
+RIGHT_ALT_LABELS := [?]string {"Auto (Keyboard Layout)", "AltGr", "Alt"}
+
+// The current right_alt setting as its picker row.
+thor_right_alt_label :: proc(config: ^setting.Settings) -> string {
+    return RIGHT_ALT_LABELS[cast(int) setting.right_alt(config)]
+}
+
+// Pushes the right_alt setting onto the input backend.
+thor_apply_right_alt :: proc(thor: ^Thor) {
+    switch setting.right_alt(&thor.config) {
+    case .Auto:
+        thor.backend.opts.right_alt = .Auto
+    case .Alt_Gr:
+        thor.backend.opts.right_alt = .Alt_Gr
+    case .Alt:
+        thor.backend.opts.right_alt = .Alt
+    }
+}
+
+// Settings row: choose what Right Alt is.
+thor_cmd_change_right_alt :: proc(thor: ^Thor) {
+    thor_select_open(
+        thor,
+        "Right Alt",
+        RIGHT_ALT_LABELS[:],
+        thor_right_alt_label(&thor.config),
+        thor_open_folder_in_preview,
+        thor_right_alt_commit,
+        thor,
+    )
+}
+
+thor_right_alt_commit :: proc(data: rawptr, choice: string) {
+    thor := cast(^Thor) data
+    picked := setting.Right_Alt.Auto
+    for label, index in RIGHT_ALT_LABELS {
+        if label == choice {
+            picked = cast(setting.Right_Alt) index
+            break
+        }
+    }
+    value := setting.right_alt_value(picked)
+    path := strings.concatenate({setting.USER_DIR, "/settings.json"}, context.temp_allocator)
+    if !setting.persist_string(path, "right_alt", value) {
+        thor_flash_status(thor, "Could not save settings", is_error = true)
+        return
+    }
+    delete(thor.config.general.right_alt)
+    thor.config.general.right_alt = strings.clone(value)
+    thor_settings_mark_clean(thor)
+    thor_apply_right_alt(thor)
     if thor_settings_is_open(thor) {
         thor_populate_settings_view(thor)
     }

@@ -40,6 +40,9 @@ General :: struct {
     // What opening a folder does: "ask" (default), "same" to replace the current
     // window's workspace, "new" to launch another window. Owned, freed in destroy.
     open_folder_in:    string,
+    // What Right Alt is: "auto" (default) asks the keyboard layout, "altgr"
+    // types characters, "alt" is a shortcut modifier. Owned.
+    right_alt:         string,
     // The shell a new terminal starts, by profile id ("pwsh", "git-bash",
     // "msvc", ...). Empty picks the best shell installed. Owned.
     default_shell:     string,
@@ -134,6 +137,13 @@ Open_Folder_In :: enum {
     New,
 }
 
+// What Right Alt is. Parsed from the right_alt setting.
+Right_Alt :: enum {
+    Auto,
+    Alt_Gr,
+    Alt,
+}
+
 // One entry of tips.json: a short lesson the welcome page shows, one a day.
 Tip :: struct {
     title:  string, // owned
@@ -226,6 +236,7 @@ destroy :: proc(s: ^Settings) {
     delete(s.general.icon_pack)
     delete(s.general.file_icon_pack)
     delete(s.general.open_folder_in)
+    delete(s.general.right_alt)
     delete(s.general.default_shell)
 
     for key in s.general.language_backends {
@@ -441,6 +452,35 @@ open_folder_in_value :: proc(choice: Open_Folder_In) -> string {
         return "ask"
     }
     return "ask"
+}
+
+// What Right Alt is. Unset or unrecognized means Auto.
+right_alt :: proc(s: ^Settings) -> Right_Alt {
+    return parse_right_alt(s.general.right_alt)
+}
+
+// Maps the right_alt setting string onto the enum. Anything else is Auto.
+parse_right_alt :: proc(value: string) -> Right_Alt {
+    switch value {
+    case "altgr":
+        return .Alt_Gr
+    case "alt":
+        return .Alt
+    }
+    return .Auto
+}
+
+// The settings.json spelling of a choice, for persisting it back.
+right_alt_value :: proc(choice: Right_Alt) -> string {
+    switch choice {
+    case .Alt_Gr:
+        return "altgr"
+    case .Alt:
+        return "alt"
+    case .Auto:
+        return "auto"
+    }
+    return "auto"
 }
 
 // Rewrites `path` (a settings JSON object) with key set to value, preserving
@@ -951,6 +991,7 @@ load_general :: proc(s: ^Settings, path: string) {
     read_bool(root, "tooltips", &s.general.tooltips)
     read_bool(root, "tip_of_the_day", &s.general.tip_of_the_day)
     read_string(root, "open_folder_in", &s.general.open_folder_in)
+    read_string(root, "right_alt", &s.general.right_alt)
     read_string(root, "default_shell", &s.general.default_shell)
     read_language(s, root)
     read_backend_toggles(s, root)

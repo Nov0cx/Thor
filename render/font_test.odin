@@ -72,7 +72,26 @@ test_the_key_table_maps_both_ways :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_every_mapped_key_is_distinct :: proc(t: ^testing.T) {
+test_right_alt_is_alt_unless_it_is_alt_gr :: proc(t: ^testing.T) {
+	// Windows reports AltGr as left Ctrl + right Alt.
+	alt_gr := Mod_Keys{left_ctrl = true, right_alt = true}
+	testing.expect_value(t, mods_from_keys(alt_gr, true), ui.Mod_Set{})
+	testing.expect_value(t, mods_from_keys(alt_gr, false), ui.Mod_Set{.Ctrl, .Alt})
+
+	testing.expect_value(t, mods_from_keys({right_alt = true}, false), ui.Mod_Set{.Alt})
+	testing.expect_value(t, mods_from_keys({right_alt = true, shift = true}, true), ui.Mod_Set{.Shift})
+	testing.expect_value(t, mods_from_keys({left_alt = true, right_alt = true}, true), ui.Mod_Set{.Alt})
+	testing.expect_value(t, mods_from_keys({right_ctrl = true, super = true}, false), ui.Mod_Set{.Ctrl, .Super})
+
+	b: Backend
+	b.opts.right_alt = .Alt_Gr
+	testing.expect(t, right_alt_is_alt_gr(&b), "the setting forces AltGr")
+	b.opts.right_alt = .Alt
+	testing.expect(t, !right_alt_is_alt_gr(&b), "the setting forces Alt")
+}
+
+@(test)
+test_every_mapped_key_is_distinct:: proc(t: ^testing.T) {
 	// Two raylib keys may share one Loom key on purpose, but a raylib key must
 	// never appear twice, or its release fires against a stale mapping.
 	for a, i in KEYS {

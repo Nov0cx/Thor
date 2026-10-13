@@ -1,5 +1,7 @@
 # 2026.10.4
 
+- On Windows, the right Alt key is a shortcut modifier on a keyboard layout that has no AltGr, such as US QWERTY: `alt + up` and `ctrl + alt + l` work with it. On a layout with AltGr it types characters as before.
+- `right_alt` setting chooses `auto`, `altgr` or `alt` for the right Alt key.
 - The bar between the two editor panes of a split can be dragged. A double click centers it. The width is kept in the session.
 - A close no longer loses unsaved edits. A tab, a folder switch and a quit write every unsaved buffer first. It lost an edit younger than the autosave delay.
 - Open Folder with `format_on_save` on no longer drops unsaved edits.

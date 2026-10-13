@@ -147,6 +147,36 @@ is_modifier_key :: proc(k: rl.KeyboardKey) -> bool {
 	return false
 }
 
+// The modifier keys held in one frame.
+Mod_Keys :: struct {
+	left_ctrl:  bool,
+	right_ctrl: bool,
+	left_alt:   bool,
+	right_alt:  bool,
+	shift:      bool,
+	super:      bool,
+}
+
+// The modifier set of a frame. `alt_gr` says the held Right Alt is AltGr: it
+// types { } @ and is no shortcut modifier. Windows reports AltGr with a left
+// Ctrl of its own, so Ctrl is dropped with it.
+mods_from_keys :: proc(k: Mod_Keys, alt_gr: bool) -> ui.Mod_Set {
+	mods: ui.Mod_Set
+	if (k.left_ctrl || k.right_ctrl) && !alt_gr {
+		mods += {.Ctrl}
+	}
+	if k.shift {
+		mods += {.Shift}
+	}
+	if k.left_alt || (k.right_alt && !alt_gr) {
+		mods += {.Alt}
+	}
+	if k.super {
+		mods += {.Super}
+	}
+	return mods
+}
+
 @(private)
 hold_key :: proc(b: ^Backend, physical: rl.KeyboardKey, mapped: ui.Key) {
 	for h in b.held {
@@ -173,22 +203,16 @@ poll_input :: proc(b: ^Backend) -> ui.Input {
 		wheel      = -ui.Vec2(rl.GetMouseWheelMoveV()),
 	}
 
-	// AltGr types { } @ on a non-US layout and must never act as a shortcut
-	// modifier. Windows also reports it as left Ctrl, so Ctrl is suppressed
-	// while it is held. The modifiers come first, so every event carries them.
-	alt_gr := rl.IsKeyDown(.RIGHT_ALT)
-	if (rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL)) && !alt_gr {
-		out.mods += {.Ctrl}
+	// The modifiers come first, so every event carries them.
+	keys := Mod_Keys {
+		left_ctrl  = rl.IsKeyDown(.LEFT_CONTROL),
+		right_ctrl = rl.IsKeyDown(.RIGHT_CONTROL),
+		left_alt   = rl.IsKeyDown(.LEFT_ALT),
+		right_alt  = rl.IsKeyDown(.RIGHT_ALT),
+		shift      = rl.IsKeyDown(.LEFT_SHIFT) || rl.IsKeyDown(.RIGHT_SHIFT),
+		super      = rl.IsKeyDown(.LEFT_SUPER) || rl.IsKeyDown(.RIGHT_SUPER),
 	}
-	if rl.IsKeyDown(.LEFT_SHIFT) || rl.IsKeyDown(.RIGHT_SHIFT) {
-		out.mods += {.Shift}
-	}
-	if rl.IsKeyDown(.LEFT_ALT) {
-		out.mods += {.Alt}
-	}
-	if rl.IsKeyDown(.LEFT_SUPER) || rl.IsKeyDown(.RIGHT_SUPER) {
-		out.mods += {.Super}
-	}
+	out.mods = mods_from_keys(keys, keys.right_alt && right_alt_is_alt_gr(b))
 
 	for pair in BUTTONS {
 		if rl.IsMouseButtonDown(pair.rb) {

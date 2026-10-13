@@ -13,6 +13,7 @@
     "tooltips": true,
     "tip_of_the_day": true,
     "open_folder_in": "ask",
+    "right_alt": "auto",
     "default_shell": "",
     "language_intelligence": true
 }

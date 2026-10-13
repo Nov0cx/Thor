@@ -203,6 +203,7 @@ thor_apply_settings :: proc(thor: ^Thor) {
     font.set_tab_width(setting.tab_width(&thor.config))
     font.set_ligatures(setting.ligatures(&thor.config))
     ui.set_tooltips_enabled(setting.tooltips(&thor.config))
+    thor_apply_right_alt(thor)
     // After the chords above are resolved: each tooltip carries the one its
     // control is bound to.
     thor_apply_language_settings(thor)

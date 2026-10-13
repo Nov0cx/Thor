@@ -30,6 +30,23 @@ test_open_folder_in_round_trip :: proc(t: ^testing.T) {
     }
 }
 
+// Only the two explicit spellings override the layout.
+@(test)
+test_parse_right_alt :: proc(t: ^testing.T) {
+    testing.expect_value(t, parse_right_alt("altgr"), Right_Alt.Alt_Gr)
+    testing.expect_value(t, parse_right_alt("alt"), Right_Alt.Alt)
+    testing.expect_value(t, parse_right_alt("auto"), Right_Alt.Auto)
+    testing.expect_value(t, parse_right_alt(""), Right_Alt.Auto)
+    testing.expect_value(t, parse_right_alt("AltGr"), Right_Alt.Auto)
+
+    for choice in Right_Alt {
+        testing.expect_value(t, parse_right_alt(right_alt_value(choice)), choice)
+    }
+
+    s: Settings
+    testing.expect_value(t, right_alt(&s), Right_Alt.Auto)
+}
+
 // An absent open_folder_in leaves the default in place: a settings file written
 // before this key existed must still load as Ask.
 @(test)
