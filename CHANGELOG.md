@@ -22,6 +22,9 @@
 - A language server that stops reading its input no longer hangs language features or the quit. It is restarted.
 - Linux and macOS: closing a terminal that has a background job no longer hangs the editor.
 - A plugin panel button or list row that re-renders its own panel no longer reads freed memory.
+- Enter and Space no longer move the caret to the mouse pointer. Text typed after them landed in the wrong place.
+- Enter and Space in a terminal no longer clear the selection or send a mouse click to the program.
+- Word wrap is on by default again.
 - A file that changes on disk before its first edit now reaches the language server. Diagnostics and completion used the old text.
 - Starting Thor on a folder another window holds brings that window forward and does not open the folder twice. With files to open, it opens them with no workspace.
 
