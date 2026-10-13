@@ -290,6 +290,7 @@ Thor :: struct {
     finished_file_ops: [dynamic]^File_Op_Job,
     finished_shells: [dynamic]^Shell_Detect_Job,
     finished_file_index: [dynamic]^File_Index_Job,
+    finished_file_searches: [dynamic]^File_Search_Job,
     finished_updates: [dynamic]^Update_Job,
     inflight_jobs: int,
     // Quick-open's cached file list, warmed off-thread at workspace open and
@@ -301,6 +302,14 @@ Thor :: struct {
     file_index_inflight: bool,
     file_index_dirty: bool,
     file_index_at: time.Tick,
+    // Find in files. `file_search_serial` names the newest query; a worker reads
+    // it to stop a scan a newer query overtook. `file_search_waiting` is a query
+    // with no scan yet, started when the typing rests and no scan runs.
+    file_search_serial: u64,
+    file_search_query: string, // owned
+    file_search_due: time.Tick,
+    file_search_waiting: bool,
+    file_search_inflight: bool,
     // Plugin output printed while no terminal exists — shell detection is async,
     // so a plugin load body prints before the first one opens. Flushed into that
     // terminal when it opens. owned
@@ -695,6 +704,7 @@ init :: proc() -> ^Thor {
     thor.finished_file_ops = make([dynamic]^File_Op_Job)
     thor.finished_shells = make([dynamic]^Shell_Detect_Job)
     thor.finished_file_index = make([dynamic]^File_Index_Job)
+    thor.finished_file_searches = make([dynamic]^File_Search_Job)
     thor.finished_updates = make([dynamic]^Update_Job)
     thor.file_index = make([dynamic]string)
     strings.builder_init(&thor.console_backlog)
@@ -958,6 +968,8 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.finished_file_ops)
     delete(thor.finished_shells)
     delete(thor.finished_file_index)
+    delete(thor.finished_file_searches)
+    thor_file_search_destroy(thor)
     delete(thor.finished_updates)
     thor_clear_update(thor)
     thor_clear_file_index(thor)

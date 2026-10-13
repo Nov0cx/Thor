@@ -95,6 +95,8 @@ Palette :: struct {
     // Shown instead of a bare empty list when a load lands with no rows. Owned.
     pick_hint:             string,
     pick_index_run:        Palette_Pick_Index_Proc,
+    // The rows are an answer to the query already: every row stays, in order.
+    pick_unfiltered:       bool,
     on_query_changed:      Palette_Query_Changed_Proc,
     on_query_changed_data: rawptr,
 }
@@ -318,6 +320,23 @@ thor_palette_pick_rich_set :: proc(thor: ^Thor, items: []Pick_Item, hint: string
     palette_refilter(thor)
 }
 
+// Keeps every row of an open rich pick whatever the query is, for rows a scan
+// made from the query itself.
+thor_palette_set_unfiltered :: proc(thor: ^Thor) {
+    p := &thor.palette
+    if p.mode == .Pick && p.pick_rich {
+        p.pick_unfiltered = true
+    }
+}
+
+// Types `text` into the open palette, as if the user did.
+thor_palette_set_query :: proc(thor: ^Thor, text: string) {
+    p := &thor.palette
+    clear(&p.query)
+    append(&p.query, text)
+    palette_query_changed(thor)
+}
+
 // Command hooks (registered with data = the Thor) that switch modes in place.
 thor_palette_goto_file_command :: proc(data: rawptr) {
     palette_enter_files(cast(^Thor)data)
@@ -352,6 +371,7 @@ palette_reset :: proc(thor: ^Thor, mode: Palette_Mode) {
     // it again, after this call.
     p.on_query_changed = nil
     p.on_query_changed_data = nil
+    p.pick_unfiltered = false
     clear(&p.query)
     p.selected = 0
     p.scroll = 0
@@ -446,6 +466,9 @@ palette_refilter :: proc(thor: ^Thor) {
     p := &thor.palette
     clear(&p.matches)
     query := string(p.query[:])
+    if p.mode == .Pick && p.pick_unfiltered {
+        query = ""
+    }
     for i in 0 ..< palette_source_count(thor) {
         if score, ok := fuzzy_score(query, palette_display(thor, i)); ok {
             append(&p.matches, Palette_Match{index = i, score = score})

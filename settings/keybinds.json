@@ -119,6 +119,7 @@
     },
     "search": {
         "find": "ctrl+f",
+        "find_in_files": "ctrl+shift+f",
         "replace": "ctrl+r"
     },
     "view": {

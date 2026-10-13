@@ -302,7 +302,7 @@ load_worker :: proc(job: ^Load_Job) {
 
     // NUL bytes in the head of the file mean it is not text; refuse instead
     // of feeding garbage to the piece table.
-    probe := min(job.size, 8000)
+    probe := min(job.size, BINARY_PROBE_BYTES)
     for i in 0 ..< probe {
         if job.data[i] == 0 {
             job.binary = true
@@ -316,6 +316,10 @@ load_worker :: proc(job: ^Load_Job) {
     job.text, job.text_allocated = thor_to_buffer_text(content, job.text_allocator)
     job.ok = true
 }
+
+// Bytes read from the head of a file to tell text from binary: a NUL is binary.
+@(private)
+BINARY_PROBE_BYTES :: 8000
 
 @(private = "file")
 save_worker :: proc(job: ^Save_Job) {
@@ -1213,6 +1217,8 @@ thor_highlight_pane_file :: proc(thor: ^Thor, pane: int) {
 }
 
 thor_process_io :: proc(thor: ^Thor) {
+    thor_file_search_tick(thor)
+    file_searches := make([dynamic]^File_Search_Job, context.temp_allocator)
     loads := make([dynamic]^Load_Job, context.temp_allocator)
     saves := make([dynamic]^Save_Job, context.temp_allocator)
     git := make([dynamic]^Git_Status_Job, context.temp_allocator)
@@ -1244,6 +1250,9 @@ thor_process_io :: proc(thor: ^Thor) {
     for job in thor.finished_file_index {
         append(&file_index, job)
     }
+    for job in thor.finished_file_searches {
+        append(&file_searches, job)
+    }
     for job in thor.finished_updates {
         append(&updates, job)
     }
@@ -1254,6 +1263,7 @@ thor_process_io :: proc(thor: ^Thor) {
     clear(&thor.finished_file_ops)
     clear(&thor.finished_shells)
     clear(&thor.finished_file_index)
+    clear(&thor.finished_file_searches)
     clear(&thor.finished_updates)
     sync.unlock(&thor.io_mutex)
 
@@ -1390,6 +1400,9 @@ thor_process_io :: proc(thor: ^Thor) {
 
     for job in file_index {
         thor_apply_file_index(thor, job)
+    }
+    for job in file_searches {
+        thor_apply_file_search(thor, job)
     }
 
     for job in updates {

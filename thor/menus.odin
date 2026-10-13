@@ -383,6 +383,7 @@ thor_open_edit_menu :: proc(data: rawptr) {
     thor_menu_add(thor, "Format Selection", thor_cmd_format_selection, thor, action = "format_selection")
     thor_menu_add_separator(thor)
     thor_menu_add(thor, "Find", thor_cmd_find, thor, action = "find")
+    thor_menu_add(thor, "Find in Files", thor_cmd_find_in_files, thor, action = "find_in_files")
     thor_menu_add(thor, "Replace", thor_cmd_replace, thor, action = "replace")
     thor_menu_open(thor, thor.menu_anchor)
 }

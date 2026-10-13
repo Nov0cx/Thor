@@ -437,6 +437,7 @@ thor_register_commands :: proc(thor: ^Thor) {
     thor_palette_add(thor, "Go to Line", thor_palette_goto_line_command, thor, sc(thor, "goto_line"))
 
     thor_palette_add(thor, "Find", thor_cmd_find, thor, sc(thor, "find"))
+    thor_add_bindable_command(thor, "Find in Files", "find_in_files", thor_cmd_find_in_files, thor)
     thor_palette_add(thor, "Replace", thor_cmd_replace, thor, sc(thor, "replace"))
 
     // Undo/redo have editor-local keys, so plain palette entries rather than
