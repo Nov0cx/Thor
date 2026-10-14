@@ -14,6 +14,8 @@ import "core:log"
 import "core:os"
 import "core:strings"
 
+import "../atomicfile"
+
 // Selector geometry: the button tracks the width of its label between these
 // bounds, leaving room for the padding and the caret. The icon size matches the
 // other titlebar controls so it comes from an atlas that is already baked (only
@@ -138,7 +140,7 @@ thor_save_tasks :: proc(thor: ^Thor) {
         return
     }
     path := thor_tasks_file(thor.workspace_dir)
-    if err := os.write_entire_file(path, data); err != nil {
+    if err := atomicfile.write(path, data); err != nil {
         log.errorf("Could not write %q: %v", path, err)
         thor_flash_status(thor, "Could not save tasks", true)
         return

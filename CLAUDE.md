@@ -109,6 +109,9 @@ reviews of a diff) and `changelog-writer` (runs the `changelog` skill).
 Packages only ever depend downward in this list; keeping that direction is what lets the lower layers
 be tested headlessly.
 
+- `atomicfile` — `atomicfile.write` replaces a file through a temp file beside it and a rename, so a
+  crash mid-write leaves the old file whole. Every write that overwrites user or session data goes
+  through it. A leaf: imports only `core:`.
 - `piecetable` — the buffer representation. Pure data structure. Keeps the contents materialized as
   one snapshot, rebuilt by `piecetable_view` on the first read after an edit.
 - `textedit` — UI-independent editing core: cursors, selection, movement, edits, undo/redo with

@@ -36,6 +36,7 @@
 - The markdown preview nests lists, and reads setext headings, hard line breaks, `~~strikethrough~~`, reference links, `<url>` links and backslash escapes.
 - A long line of a code block in the preview continues on the next row. An underscore inside a word is no longer emphasis.
 - List bullets show in the preview. The bullet character was not in the font.
+- A save writes a temp file and renames it over the file. A crash, a kill or a full disk during a save no longer leaves the file empty or cut. Session, settings and grant files are written the same way.
 
 # 2026.10.3
 

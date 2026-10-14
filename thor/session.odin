@@ -12,6 +12,7 @@ import "core:os"
 import "core:strings"
 import rl "vendor:raylib"
 
+import "../atomicfile"
 import ui "../vendor/loom/loom"
 
 // On-disk shape of a session. Field names are the JSON keys.
@@ -163,7 +164,7 @@ thor_last_workspace :: proc() -> string {
 // Written on every session save and right after a folder switch, so an unclean
 // exit still comes back to the folder that was open.
 thor_record_last_workspace :: proc(workspace: string) {
-    if err := os.write_entire_file(LAST_WORKSPACE_FILE, transmute([]u8) workspace); err != nil {
+    if err := atomicfile.write(LAST_WORKSPACE_FILE, transmute([]u8) workspace); err != nil {
         log.errorf("Could not write %q: %v", LAST_WORKSPACE_FILE, err)
     }
 }
@@ -225,7 +226,7 @@ thor_record_recent_workspace :: proc(workspace: string) {
         log.errorf("Could not marshal recent workspaces: %v", err)
         return
     }
-    if werr := os.write_entire_file(RECENT_WORKSPACES_FILE, data); werr != nil {
+    if werr := atomicfile.write(RECENT_WORKSPACES_FILE, data); werr != nil {
         log.errorf("Could not write %q: %v", RECENT_WORKSPACES_FILE, werr)
     }
 }
@@ -272,7 +273,7 @@ thor_save_session :: proc(thor: ^Thor) {
         return
     }
     path := thor_session_file(thor.workspace_dir)
-    if werr := os.write_entire_file(path, data); werr != nil {
+    if werr := atomicfile.write(path, data); werr != nil {
         log.errorf("Could not write session %q: %v", path, werr)
     }
     if thor.launch_dropped_held && thor.workspace_dir == "" {

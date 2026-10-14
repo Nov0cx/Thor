@@ -6,6 +6,7 @@ import "core:os"
 import "core:strconv"
 import "core:strings"
 
+import "../atomicfile"
 import ui "../vendor/loom/loom"
 
 Theme :: struct {
@@ -385,7 +386,7 @@ save :: proc(theme: Theme, path: string) -> bool {
     if !theme_make_dirs(path) {
         return false
     }
-    if err := os.write_entire_file(path, builder.buf[:]); err != nil {
+    if err := atomicfile.write(path, builder.buf[:]); err != nil {
         log.errorf("Cannot write theme %q: %v", path, err)
         return false
     }

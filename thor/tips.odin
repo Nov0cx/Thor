@@ -15,6 +15,7 @@ import "core:os"
 import "core:strings"
 import "core:time"
 
+import "../atomicfile"
 import "../setting"
 
 import ui "../vendor/loom/loom"
@@ -217,7 +218,7 @@ thor_write_tips_record :: proc(record: Tips_Record) {
         log.errorf("Could not marshal the tips record: %v", err)
         return
     }
-    if werr := os.write_entire_file(TIPS_FILE, data); werr != nil {
+    if werr := atomicfile.write(TIPS_FILE, data); werr != nil {
         log.errorf("Could not write %q: %v", TIPS_FILE, werr)
     }
 }

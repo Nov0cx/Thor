@@ -18,6 +18,7 @@ import "core:sync"
 import "core:thread"
 import "core:time"
 
+import "../atomicfile"
 import "../setting"
 import "../update"
 
@@ -493,7 +494,7 @@ thor_write_update_record :: proc(last_check: i64, skipped_version: string) {
         log.errorf("Could not marshal the update record: %v", err)
         return
     }
-    if werr := os.write_entire_file(UPDATE_FILE, data); werr != nil {
+    if werr := atomicfile.write(UPDATE_FILE, data); werr != nil {
         log.errorf("Could not write %q: %v", UPDATE_FILE, werr)
     }
 }

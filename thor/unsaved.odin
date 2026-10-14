@@ -9,6 +9,7 @@ import "core:log"
 import "core:os"
 import "core:strings"
 
+import "../atomicfile"
 import "../textedit"
 
 BACKUP_DIR :: "sessions/backups"
@@ -41,7 +42,7 @@ thor_write_backup :: proc(file: ^Open_File) -> bool {
         }
     }
     target := thor_backup_file(file.path)
-    if err := os.write_entire_file(target, textedit.text(&file.state)); err != nil {
+    if err := atomicfile.write(target, transmute([]byte) textedit.text(&file.state)); err != nil {
         log.warnf("Cannot keep the unsaved edits of %q: %v", file.path, err)
         return false
     }

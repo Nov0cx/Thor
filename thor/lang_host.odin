@@ -8,6 +8,7 @@ import "core:strings"
 import "core:time"
 import rl "vendor:raylib"
 
+import "../atomicfile"
 import ui "../vendor/loom/loom"
 import "../lang"
 import "../lang/lsp"
@@ -893,7 +894,7 @@ thor_apply_edits :: proc(
         strings.write_string(&b, target.text[last:])
         // The splice works in LF; the file goes back with the endings it had.
         written := thor_to_disk_text(strings.to_string(b), target.ending, context.temp_allocator)
-        if werr := os.write_entire_file(target.path, transmute([]byte) written); werr != nil {
+        if werr := atomicfile.write(target.path, transmute([]byte) written); werr != nil {
             // Whatever landed before this file stays undoable.
             committed = thor_commit_edit_undo(thor, record, reversible)
             return applied, len(targets), false, "a file could not be written"
@@ -1048,13 +1049,13 @@ thor_undo_last_edits :: proc(thor: ^Thor) -> bool {
                 entry.revision = file.state.revision // what a redo has to still find
                 continue
             }
-            if werr := os.write_entire_file(entry.path, transmute([]byte) entry.before); werr != nil {
+            if werr := atomicfile.write(entry.path, transmute([]byte) entry.before); werr != nil {
                 failed = true
             }
         case .Created:
             // Overwritten targets get their bytes back; a file the set made goes.
             if entry.existed {
-                if werr := os.write_entire_file(entry.path, transmute([]byte) entry.before); werr != nil {
+                if werr := atomicfile.write(entry.path, transmute([]byte) entry.before); werr != nil {
                     failed = true
                 }
             } else if dok, _ := thor_delete_resource(thor, entry.path); !dok {
@@ -1065,7 +1066,7 @@ thor_undo_last_edits :: proc(thor: ^Thor) -> bool {
                 failed = true
             }
         case .Deleted:
-            if werr := os.write_entire_file(entry.path, transmute([]byte) entry.before); werr != nil {
+            if werr := atomicfile.write(entry.path, transmute([]byte) entry.before); werr != nil {
                 failed = true
             }
         }
@@ -1112,11 +1113,11 @@ thor_redo_last_edits :: proc(thor: ^Thor) -> bool {
                 entry.revision = file.state.revision // what a later undo has to find
                 continue
             }
-            if werr := os.write_entire_file(entry.path, transmute([]byte) entry.after); werr != nil {
+            if werr := atomicfile.write(entry.path, transmute([]byte) entry.after); werr != nil {
                 failed = true
             }
         case .Created:
-            if werr := os.write_entire_file(entry.path, transmute([]byte) entry.after); werr != nil {
+            if werr := atomicfile.write(entry.path, transmute([]byte) entry.after); werr != nil {
                 failed = true
             }
         case .Renamed:
@@ -1512,7 +1513,7 @@ thor_doc_file_stem :: proc(name: string) -> string {
 // pane without moving keyboard focus off the user's code.
 @(private = "file")
 thor_render_doc_in_pane :: proc(thor: ^Thor, path, text: string, pane: int) {
-    if werr := os.write_entire_file(path, transmute([]byte) text); werr != nil {
+    if werr := atomicfile.write(path, transmute([]byte) text); werr != nil {
         log.errorf("Could not write %q: %v", path, werr)
         thor_flash_status(thor, "Could not write the documentation page", is_error = true)
         return

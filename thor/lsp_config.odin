@@ -7,6 +7,8 @@ import "core:os"
 import "core:path/filepath"
 import "core:strings"
 
+import "../atomicfile"
+
 
 // Writing lsp.json. The package that parses that file (lang/lsp) deliberately
 // never writes it — it reads its config with core:encoding/json because
@@ -110,7 +112,7 @@ thor_lsp_append_server :: proc(path, id: string) -> bool {
             return false
         }
     }
-    if err := os.write_entire_file(path, data); err != nil {
+    if err := atomicfile.write(path, data); err != nil {
         log.errorf("Cannot write %q: %v", path, err)
         return false
     }

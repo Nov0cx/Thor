@@ -6,6 +6,7 @@ import "core:path/filepath"
 import "core:strings"
 import "core:time"
 
+import "../atomicfile"
 import "../plugin"
 import "../setting"
 import "../shell"
@@ -120,7 +121,7 @@ thor_plugin_doc :: proc(host: rawptr, path: string, text: string, focus: bool) {
             return
         }
     }
-    if werr := os.write_entire_file(path, transmute([]byte) text); werr != nil {
+    if werr := atomicfile.write(path, transmute([]byte) text); werr != nil {
         log.errorf("thor.doc: could not write %q: %v", path, werr)
         thor_flash_status(thor, "Plugin document could not be written", is_error = true)
         return
@@ -228,7 +229,7 @@ thor_plugin_write :: proc(host: rawptr, path: string, text: string) {
             return
         }
     }
-    if err := os.write_entire_file(path, transmute([]byte) text); err != nil {
+    if err := atomicfile.write(path, transmute([]byte) text); err != nil {
         log.errorf("thor.write: could not write %q: %v", path, err)
         thor_flash_status(thor, "Plugin file could not be written", is_error = true)
     }

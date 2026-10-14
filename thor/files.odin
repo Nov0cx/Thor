@@ -13,6 +13,7 @@ import "core:thread"
 import "core:time"
 import rl "vendor:raylib"
 
+import "../atomicfile"
 import "../lang"
 import "../render"
 import "../setting"
@@ -379,7 +380,7 @@ save_worker :: proc(job: ^Save_Job) {
     if sync.atomic_load(&job.file.save_cancel) {
         job.cancelled = true
     } else {
-        job.err = os.write_entire_file(job.path, job.text)
+        job.err = atomicfile.write(job.path, transmute([]byte) job.text)
         job.ok = job.err == nil
     }
     free_all(context.temp_allocator)

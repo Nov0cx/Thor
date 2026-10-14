@@ -17,6 +17,7 @@ import "core:os"
 import "core:path/filepath"
 import "core:strings"
 
+import "../atomicfile"
 import "../shell"
 
 // Directory of window records, next to the session files and likewise relative
@@ -95,7 +96,7 @@ thor_register_window :: proc(thor: ^Thor) {
         return
     }
     path := thor_window_file(thor.workspace_dir)
-    if werr := os.write_entire_file(path, data); werr != nil {
+    if werr := atomicfile.write(path, data); werr != nil {
         log.errorf("Could not write window record %q: %v", path, werr)
     }
 }

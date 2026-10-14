@@ -19,6 +19,7 @@ import "core:os"
 import "core:path/filepath"
 import "core:strings"
 
+import "../atomicfile"
 import "../plugin"
 
 @(private = "file")
@@ -453,7 +454,7 @@ thor_write_grant_file :: proc(bundled: []Plugin_Grant, workspaces: []Workspace_G
         log.errorf("Could not marshal plugin grants: %v", err)
         return
     }
-    if werr := os.write_entire_file(GRANTS_FILE, data); werr != nil {
+    if werr := atomicfile.write(GRANTS_FILE, data); werr != nil {
         log.errorf("Could not write %q: %v", GRANTS_FILE, werr)
     }
 }

@@ -12,6 +12,8 @@ import "core:encoding/json"
 import "core:log"
 import "core:os"
 import "core:strings"
+
+import "../atomicfile"
 import ui "../vendor/loom/loom"
 
 import "../input"
@@ -616,7 +618,7 @@ write_object :: proc(path: string, root: json.Object) -> bool {
             return false
         }
     }
-    if werr := os.write_entire_file(path, data); werr != nil {
+    if werr := atomicfile.write(path, data); werr != nil {
         log.errorf("Cannot write settings %q: %v", path, werr)
         return false
     }

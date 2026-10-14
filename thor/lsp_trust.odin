@@ -12,6 +12,7 @@ import "core:log"
 import "core:os"
 import "core:strings"
 
+import "../atomicfile"
 import "../lang/lsp"
 
 @(private = "file")
@@ -192,7 +193,7 @@ thor_write_lsp_grants :: proc(rows: []Lsp_Grant) {
         log.errorf("Could not marshal %q: %v", LSP_GRANTS_FILE, err)
         return
     }
-    if werr := os.write_entire_file(LSP_GRANTS_FILE, data); werr != nil {
+    if werr := atomicfile.write(LSP_GRANTS_FILE, data); werr != nil {
         log.errorf("Could not write %q: %v", LSP_GRANTS_FILE, werr)
     }
 }
