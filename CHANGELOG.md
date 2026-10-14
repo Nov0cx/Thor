@@ -38,6 +38,7 @@
 - List bullets show in the preview. The bullet character was not in the font.
 - A save writes a temp file and renames it over the file. A crash, a kill or a full disk during a save no longer leaves the file empty or cut. Session, settings and grant files are written the same way.
 - A plugin's `thor.read`, `thor.write`, `thor.doc` and `thor.exec` keep a NUL byte. The text was cut at the first one, so a read and a write back truncated the file.
+- A settings or keybinds file with a syntax error is no longer replaced by a change made in the GUI. The change is refused and the status bar says to check the file. It wiped the file before.
 
 # 2026.10.3
 

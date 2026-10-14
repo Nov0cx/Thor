@@ -196,6 +196,27 @@ test_backend_toggle_persist_round_trip :: proc(t: ^testing.T) {
     testing.expect(t, backend_enabled(&s, "rust-analyzer"), "an untouched id must still default to enabled")
 }
 
+// A file that does not parse is not written over; a missing one is created.
+@(test)
+test_persist_keeps_a_malformed_file :: proc(t: ^testing.T) {
+    path := "thor_malformed_settings_test.json"
+    defer os.remove(path)
+    BROKEN :: `{ "theme": `
+
+    testing.expect_value(t, os.write_entire_file(path, transmute([]byte) string(BROKEN)), nil)
+    testing.expect(t, !persist_string(path, "theme", "dark"), "a persist onto a malformed file must fail")
+    testing.expect(t, !persist_keybind(path, "save", "ctrl+s"), "a keybind persist onto a malformed file must fail")
+    data, err := os.read_entire_file(path, context.temp_allocator)
+    testing.expect_value(t, err, nil)
+    testing.expect_value(t, string(data), BROKEN)
+
+    testing.expect_value(t, os.remove(path), nil)
+    testing.expect(t, persist_string(path, "theme", "dark"), "a missing file must be created")
+    s := load_from_dir_for_test(path)
+    defer destroy(&s)
+    testing.expect_value(t, s.general.theme, "dark")
+}
+
 // Reads settings.json at an arbitrary path the way load_general does, for a
 // test that persists to a bare file rather than a dir/settings.json layout.
 @(private = "file")

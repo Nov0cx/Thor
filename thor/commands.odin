@@ -261,7 +261,7 @@ thor_workspace_config_dir :: proc(workspace_dir: string, allocator := context.te
 // What a settings write that did not land reports. The install directory can be
 // read-only, and a change that only shows on screen is a change the next start
 // loses without a word.
-SETTINGS_SAVE_FAILED :: "Could not save settings"
+SETTINGS_SAVE_FAILED :: "Could not save settings. Check the file for errors"
 
 // Path a GUI-driven change writes to. While the Settings modal is open, its
 // General/Workspace tab picks the file explicitly; otherwise (a command bound

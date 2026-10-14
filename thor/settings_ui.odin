@@ -356,7 +356,7 @@ thor_right_alt_commit :: proc(data: rawptr, choice: string) {
     value := setting.right_alt_value(picked)
     path := strings.concatenate({setting.USER_DIR, "/settings.json"}, context.temp_allocator)
     if !setting.persist_string(path, "right_alt", value) {
-        thor_flash_status(thor, "Could not save settings", is_error = true)
+        thor_flash_status(thor, SETTINGS_SAVE_FAILED, is_error = true)
         return
     }
     delete(thor.config.general.right_alt)

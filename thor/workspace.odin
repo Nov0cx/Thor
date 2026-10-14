@@ -212,7 +212,7 @@ thor_persist_open_folder_in :: proc(thor: ^Thor, choice: setting.Open_Folder_In)
     value := setting.open_folder_in_value(choice)
     path := strings.concatenate({setting.USER_DIR, "/settings.json"}, context.temp_allocator)
     if !setting.persist_string(path, "open_folder_in", value) {
-        thor_flash_status(thor, "Could not save settings", is_error = true)
+        thor_flash_status(thor, SETTINGS_SAVE_FAILED, is_error = true)
         return
     }
     delete(thor.config.general.open_folder_in)

@@ -487,9 +487,10 @@ right_alt_value :: proc(choice: Right_Alt) -> string {
 
 // Rewrites `path` (a settings JSON object) with key set to value, preserving
 // every other key. Used to persist a UI-chosen theme/font back into
-// settings.json. A missing/malformed file starts a fresh object. Returns ok.
+// settings.json. A missing file starts a fresh object; a malformed one is left
+// alone and the call returns false.
 persist_string :: proc(path, key, value: string) -> bool {
-    root := load_root_object(path)
+    root := load_root_object(path) or_return
     root[key] = json.String(value)
     return write_object(path, root)
 }
@@ -498,19 +499,20 @@ persist_string :: proc(path, key, value: string) -> bool {
 // existing file as it is. Lets a layer the user has never written be opened for
 // hand editing.
 persist_object :: proc(path: string) -> bool {
-    return write_object(path, load_root_object(path))
+    root := load_root_object(path) or_return
+    return write_object(path, root)
 }
 
 // Like persist_string but for an integer field (tab_width, font_size, ...).
 persist_int :: proc(path, key: string, value: int) -> bool {
-    root := load_root_object(path)
+    root := load_root_object(path) or_return
     root[key] = json.Integer(value)
     return write_object(path, root)
 }
 
 // Like persist_string but for a boolean field (ligatures, ...).
 persist_bool :: proc(path, key: string, value: bool) -> bool {
-    root := load_root_object(path)
+    root := load_root_object(path) or_return
     root[key] = json.Boolean(value)
     return write_object(path, root)
 }
@@ -520,7 +522,7 @@ persist_bool :: proc(path, key: string, value: bool) -> bool {
 // group that is missing, or holds anything but an object (the boolean shorthand
 // of "language_intelligence"), is replaced by a fresh one.
 persist_nested_bool :: proc(path, group, key: string, value: bool) -> bool {
-    root := load_root_object(path)
+    root := load_root_object(path) or_return
     obj, ok := root[group].(json.Object)
     if !ok {
         obj = make(json.Object, allocator = context.temp_allocator)
@@ -536,7 +538,7 @@ persist_nested_bool :: proc(path, group, key: string, value: bool) -> bool {
 // preserved; a level that is missing, or holds anything but an object (a bare
 // bool at that level), is replaced by a fresh one.
 persist_double_nested_bool :: proc(path, group, subgroup, key: string, value: bool) -> bool {
-    root := load_root_object(path)
+    root := load_root_object(path) or_return
     outer, outer_ok := root[group].(json.Object)
     if !outer_ok {
         outer = make(json.Object, allocator = context.temp_allocator)
@@ -555,7 +557,7 @@ persist_double_nested_bool :: proc(path, group, subgroup, key: string, value: bo
 // group already holds it and preserving every other binding. An action not yet
 // present lands in a "custom" group. An empty spec persists as an explicit unbind.
 persist_keybind :: proc(path, action, spec: string) -> bool {
-    root := load_root_object(path)
+    root := load_root_object(path) or_return
 
     updated := false
     for _, group_value in root {
@@ -583,13 +585,19 @@ persist_keybind :: proc(path, action, spec: string) -> bool {
 }
 
 // Parses `path` as a JSON object, or a fresh temp-allocated one when it is
-// missing or malformed. The result is only valid until the temp allocator resets.
+// missing. False when the file is there but cannot be read or parsed, so a
+// persist does not write over it. The result is only valid until the temp
+// allocator resets.
 @(private)
-load_root_object :: proc(path: string) -> json.Object {
+load_root_object :: proc(path: string) -> (json.Object, bool) {
     if existing, ok := parse_object(path); ok {
-        return existing
+        return existing, true
     }
-    return make(json.Object, allocator = context.temp_allocator)
+    if os.exists(path) {
+        log.warnf("Settings %q do not parse; not writing over them", path)
+        return nil, false
+    }
+    return make(json.Object, allocator = context.temp_allocator), true
 }
 
 // The directory part of a config path, empty when it names none. Both
