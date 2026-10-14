@@ -337,6 +337,66 @@ test_visual_move_keeps_its_column :: proc(t: ^testing.T) {
     testing.expect_value(t, textedit.primary_cursor(&state).caret, 17)
 }
 
+// Builds wrapped rows of `cols` cells by hand and stamps them fresh: with no
+// font atlas the editor cannot measure a column, so it would not wrap itself.
+@(private = "file")
+editor_test_wrap_rows :: proc(editor: ^Editor, state: ^textedit.State, cols: int) {
+    text := textedit.text(state)
+    editor.wrap = true
+    clear(&editor.visual_rows)
+    start, line := 0, 0
+    for {
+        end := textedit.line_end(text, start)
+        editor_wrap_line(editor, text, start, end, cols, line, 4)
+        if end >= len(text) {
+            break
+        }
+        start, line = end + 1, line + 1
+    }
+    editor.rows_revision = state.revision
+    editor.rows_wrap = true
+    editor.rows_font_size = editor.font_size
+    editor.rows_width = editor.view.w - editor.gutter_width - TEXT_PAD_LEFT - 10
+    editor.rows_tab_width = textedit.tab_width(state)
+    editor.rows_stale = false
+}
+
+// A wrap point belongs to the row it starts: Down from column 0 of a wrapped
+// line walks its rows, and a move never lands on the end of a row that wraps.
+@(test)
+test_wrapped_rows_own_their_wrap_point :: proc(t: ^testing.T) {
+    // Line 0 wraps into [0, 5), [5, 10), [10, 14); line 1 is [15, 20).
+    state: textedit.State
+    textedit.init(&state)
+    defer textedit.destroy(&state)
+    textedit.set_text(&state, "aaaa bbbb cccc\nxyzuv")
+
+    editor: Editor
+    editor.state = &state
+    editor.font_size = 16
+    defer delete(editor.visual_rows)
+    editor_test_wrap_rows(&editor, &state, 5)
+    testing.expect_value(t, len(editor.visual_rows), 4)
+
+    textedit.set_single_cursor(&state, 0)
+    editor_move_visual(&editor, 1, false)
+    testing.expect_value(t, textedit.primary_cursor(&state).caret, 5)
+    editor_move_visual(&editor, 1, false)
+    testing.expect_value(t, textedit.primary_cursor(&state).caret, 10)
+    editor_move_visual(&editor, 1, false)
+    testing.expect_value(t, textedit.primary_cursor(&state).caret, 15)
+
+    // Column 5 is the end of a full row: the end of the line's last row, but one
+    // cluster back on a row that wraps.
+    textedit.set_single_cursor(&state, 20)
+    editor_move_visual(&editor, -1, false)
+    testing.expect_value(t, textedit.primary_cursor(&state).caret, 14)
+    editor_move_visual(&editor, -1, false)
+    testing.expect_value(t, textedit.primary_cursor(&state).caret, 9)
+    editor_move_visual(&editor, -1, false)
+    testing.expect_value(t, textedit.primary_cursor(&state).caret, 4)
+}
+
 // Twenty lines of three characters, so line i starts at byte 4 * i, with the
 // caret on line 0.
 @(private = "file")

@@ -1204,9 +1204,29 @@ editor_visual_row_index :: proc(editor: ^Editor, pos: int) -> int {
         }
     }
     if low < len(rows) && rows[low].start <= pos {
+        // A wrap point belongs to the row it starts, not the one it ends.
+        if rows[low].end == pos && editor_row_continues(editor, low) {
+            return low + 1
+        }
         return low
     }
     return max(0, len(rows) - 1)
+}
+
+// Whether the row after `index` continues the same line past a soft wrap.
+editor_row_continues :: proc(editor: ^Editor, index: int) -> bool {
+    return index + 1 < len(editor.visual_rows) && !editor.visual_rows[index + 1].first
+}
+
+// `pos` in row `index`, moved off the row's end when that end is a wrap point
+// and so shows on the next row.
+@(private = "file")
+editor_clamp_to_row :: proc(editor: ^Editor, text: string, index, pos: int) -> int {
+    row := editor.visual_rows[index]
+    if pos < row.end || row.end <= row.start || !editor_row_continues(editor, index) {
+        return pos
+    }
+    return max(row.start, textedit.grapheme_prev(text, row.end))
 }
 
 // Byte offset at display column `col` within [start, end]. Columns are counted
@@ -2527,7 +2547,7 @@ editor_pos_at :: proc(editor: ^Editor, position: ui.Vec2) -> (int, bool) {
             lo = mid + 1
         }
     }
-    return boundaries[lo], true
+    return editor_clamp_to_row(editor, text, target, boundaries[lo]), true
 }
 
 // Byte range of the word under `mouse` while ctrl is held: the go-to-definition
@@ -2643,7 +2663,7 @@ editor_move_visual :: proc(editor: ^Editor, delta: int, extend: bool) {
 
         target := clamp(row_index + delta, 0, len(editor.visual_rows) - 1)
         trow := editor.visual_rows[target]
-        cursor.caret = editor_byte_at_col(text, trow.start, trow.end, col, tab_width)
+        cursor.caret = editor_clamp_to_row(editor, text, target, editor_byte_at_col(text, trow.start, trow.end, col, tab_width))
         cursor.preferred_column = col
         if !extend {
             cursor.anchor = cursor.caret

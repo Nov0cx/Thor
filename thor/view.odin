@@ -1506,6 +1506,9 @@ thor_paint_carets :: proc(
             if cursor.caret < row.start || cursor.caret > row.end {
                 continue
             }
+            if cursor.caret == row.end && editview.editor_row_continues(editor, index) {
+                continue // a wrap point shows on the row it starts
+            }
             x := thor_row_x(editor, text, row.start, row.end, cursor.caret)
             ui.paint_rect(
                 {
