@@ -40,6 +40,17 @@
 - A plugin's `thor.read`, `thor.write`, `thor.doc` and `thor.exec` keep a NUL byte. The text was cut at the first one, so a read and a write back truncated the file.
 - A settings or keybinds file with a syntax error is no longer replaced by a change made in the GUI. The change is refused and the status bar says to check the file. It wiped the file before.
 - An update copies each new folder and file beside the old one and renames it into place. A full disk during an update no longer leaves a half-copied folder that deleted the backup at the next start.
+- A quote typed over the closing quote only moves the caret. It added an undo step and cleared redo.
+- `ctrl + d` skips a match that overlaps a selection. On `aaaa` it merged every selection into one.
+- Word motion, double-click and `ctrl + d` count non-ASCII letters as part of a word and stop at a dash such as `—`. `foo—bar` was one word.
+- Snippet tabstops stay in place after typing in a nested placeholder or between two tabstops.
+- An unclosed snippet placeholder such as `${1:foo` stays as written. It was cut to `$`.
+- A collapsed fold moves with its line. Enter above it opened it.
+- Up and Down keep their column through a short line.
+- With word wrap on, Down from column 0 of a wrapped line goes through its rows. It stuck at the end of the first row.
+- A click in the text closes the completion list. A Tab after it replaced text at the new caret.
+- `#define` no longer shows a colour swatch.
+- The Odin formatter no longer adds a blank line after a multi-line `/* */` comment on each format.
 
 # 2026.10.3
 
