@@ -177,6 +177,9 @@ Editor :: struct {
     rows_max_cols:      int,
     // Set by a change the stamps above cannot see (the fold set).
     rows_stale:         bool,
+    // The cursors after the last vertical move, as editor_cursor_signature gives
+    // them. While it matches, each preferred_column is that move's goal column.
+    move_signature:     u64,
     // Syntax highlight spans for the current buffer; borrowed from the owner.
     highlights:         []Highlight_Span,
     // Compiler diagnostics for the current buffer; borrowed from the owner. Each
@@ -2628,19 +2631,43 @@ editor_move_visual :: proc(editor: ^Editor, delta: int, extend: bool) {
     }
     text := textedit.text(editor.state)
     tab_width := textedit.tab_width(editor.state)
+    // A run of vertical moves keeps the column it started at, through short rows.
+    keep_goal := editor.move_signature != 0 && editor.move_signature == editor_cursor_signature(editor)
     for &cursor in editor.state.cursors {
         row_index := editor_visual_row_index(editor, cursor.caret)
         row := editor.visual_rows[row_index]
         col := textedit.display_width(text[row.start:clamp(cursor.caret, row.start, row.end)], tab_width)
+        if keep_goal {
+            col = cursor.preferred_column
+        }
 
         target := clamp(row_index + delta, 0, len(editor.visual_rows) - 1)
         trow := editor.visual_rows[target]
         cursor.caret = editor_byte_at_col(text, trow.start, trow.end, col, tab_width)
+        cursor.preferred_column = col
         if !extend {
             cursor.anchor = cursor.caret
         }
     }
     textedit.normalize(editor.state)
+    editor.move_signature = editor_cursor_signature(editor)
+}
+
+// A hash of the revision, the wrap mode and every cursor.
+@(private = "file")
+editor_cursor_signature :: proc(editor: ^Editor) -> u64 {
+    hash := editor_hash_mix(14695981039346656037, editor.state.revision)
+    hash = editor_hash_mix(hash, u64(editor.wrap))
+    for cursor in editor.state.cursors {
+        hash = editor_hash_mix(hash, u64(cursor.caret))
+        hash = editor_hash_mix(hash, u64(cursor.anchor))
+    }
+    return hash
+}
+
+@(private = "file")
+editor_hash_mix :: proc(hash, value: u64) -> u64 {
+    return (hash ~ value) * 1099511628211
 }
 
 // Largest scroll_y that still shows content; 0 when the document fits the view.

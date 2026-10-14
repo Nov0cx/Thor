@@ -309,6 +309,34 @@ test_visual_row_movement :: proc(t: ^testing.T) {
     testing.expect_value(t, textedit.primary_cursor(&state).caret, 16)
 }
 
+// Down through a short line comes back to the column it started at. A
+// horizontal move in between starts a new run from the caret's column.
+@(test)
+test_visual_move_keeps_its_column :: proc(t: ^testing.T) {
+    // Lines start at 0, 11 and 15.
+    state: textedit.State
+    textedit.init(&state)
+    defer textedit.destroy(&state)
+    textedit.set_text(&state, "abcdefghij\nabc\nabcdefghij\n")
+
+    editor: Editor
+    editor.state = &state
+    editor.font_size = 16
+    defer delete(editor.visual_rows)
+
+    textedit.set_single_cursor(&state, 8)
+    editor_move_visual(&editor, 1, false)
+    testing.expect_value(t, textedit.primary_cursor(&state).caret, 14)
+    editor_move_visual(&editor, 1, false)
+    testing.expect_value(t, textedit.primary_cursor(&state).caret, 23)
+    editor_move_visual(&editor, -1, false)
+    testing.expect_value(t, textedit.primary_cursor(&state).caret, 14)
+
+    textedit.move_horizontal(&state, -1, false)
+    editor_move_visual(&editor, 1, false)
+    testing.expect_value(t, textedit.primary_cursor(&state).caret, 17)
+}
+
 // Twenty lines of three characters, so line i starts at byte 4 * i, with the
 // caret on line 0.
 @(private = "file")
