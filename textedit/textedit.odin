@@ -661,6 +661,7 @@ insert_quote :: proc(state: ^State, q: rune) {
     q_s := string(qbuf[:qw])
 
     offset := 0
+    edited := false
     for &cursor in state.cursors {
         lo, _ := selection_range(cursor)
         if strings.has_prefix(txt[lo:], q_s) {
@@ -668,6 +669,7 @@ insert_quote :: proc(state: ^State, q: rune) {
             cursor.anchor = cursor.caret
             continue
         }
+        edited = true
         pair := !(lo > 0 && is_word_byte_ascii(txt[lo - 1]))
         piecetable.piecetable_insert(&state.table, lo + offset, q_s)
         append(&entry.ops, Edit_Op {kind = .Insert, pos = lo + offset, text = strings.clone(q_s)})
@@ -679,7 +681,11 @@ insert_quote :: proc(state: ^State, q: rune) {
         cursor.anchor = cursor.caret
         offset += pair ? qw * 2 : qw
     }
-    finish_edit(state, &entry)
+    if edited {
+        finish_edit(state, &entry)
+    } else {
+        entry_destroy(&entry)
+    }
 }
 
 // True when typing `*` should auto-close a block comment: a single collapsed

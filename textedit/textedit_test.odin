@@ -587,6 +587,29 @@ test_quote_delimiters :: proc(t: ^testing.T) {
     testing.expect_value(t, primary_cursor(&state).caret, 10)
 }
 
+// Typing a quote over the closing one only moves the caret: no undo step, and
+// the redo stack stays.
+@(test)
+test_quote_step_over_is_no_edit :: proc(t: ^testing.T) {
+    state: State
+    init(&state)
+    defer destroy(&state)
+
+    insert_quote(&state, '"')
+    testing.expect_value(t, text(&state), "\"\"")
+    insert_text(&state, "x")
+    undo(&state)
+    depth := state.undo_stack.count
+    revision := state.revision
+
+    insert_quote(&state, '"')
+    testing.expect_value(t, text(&state), "\"\"")
+    testing.expect_value(t, primary_cursor(&state).caret, 2)
+    testing.expect_value(t, state.undo_stack.count, depth)
+    testing.expect_value(t, len(state.redo_stack), 1)
+    testing.expect_value(t, state.revision, revision)
+}
+
 @(test)
 test_relative_line_jump :: proc(t: ^testing.T) {
     state: State
