@@ -90,6 +90,56 @@ State :: struct {
     lines:          [dynamic]int, // owned
     lines_revision: u64,
     lines_valid:    bool,
+    // The last CHANGE_LOG changes, at index revision % CHANGE_LOG.
+    changes:        [CHANGE_LOG]Change,
+}
+
+// One content change: the bytes [lo, old_hi) of the text before it became the
+// bytes [lo, new_hi) of the text after it.
+Change :: struct {
+    revision: u64, // the revision the change made
+    lo:       int,
+    old_hi:   int,
+    new_hi:   int,
+}
+
+// Changes kept for a reader that is behind; older ones are lost.
+CHANGE_LOG :: 64
+
+// The change that made `revision`. False when it is no longer in the log.
+change_at :: proc(state: ^State, revision: u64) -> (Change, bool) {
+    change := state.changes[revision % CHANGE_LOG]
+    return change, revision != 0 && change.revision == revision
+}
+
+// Logs the span of `ops` as the change that made `revision`. With `reverse`,
+// the ops are undone: walked from the last, each kind inverted.
+@(private)
+record_change :: proc(state: ^State, revision: u64, ops: []Edit_Op, reverse := false) {
+    lo, hi, delta := 0, -1, 0
+    for i in 0 ..< len(ops) {
+        op := ops[reverse ? len(ops) - 1 - i : i]
+        n := len(op.text)
+        insert := (op.kind == .Insert) != reverse
+        if hi < 0 {
+            lo, hi = op.pos, op.pos
+        }
+        lo = min(lo, op.pos)
+        if insert {
+            hi = op.pos <= hi ? hi + n : op.pos + n
+            delta += n
+        } else {
+            hi = max(hi, op.pos + n) - n
+            delta -= n
+        }
+    }
+    hi = max(hi, lo)
+    state.changes[revision % CHANGE_LOG] = Change {
+        revision = revision,
+        lo       = lo,
+        old_hi   = hi - delta,
+        new_hi   = hi,
+    }
 }
 
 init :: proc(state: ^State) {
@@ -106,6 +156,7 @@ destroy :: proc(state: ^State) {
 }
 
 set_text :: proc(state: ^State, new_text: string) {
+    old_len := length(state)
     piecetable.piecetable_set_text(&state.table, new_text)
     ring_clear(&state.undo_stack)
     clear_entries(&state.redo_stack)
@@ -116,6 +167,11 @@ set_text :: proc(state: ^State, new_text: string) {
     state.revision += 1
     state.content_id = state.revision
     state.lines_valid = false
+    state.changes[state.revision % CHANGE_LOG] = Change {
+        revision = state.revision,
+        old_hi   = old_len,
+        new_hi   = len(new_text),
+    }
 }
 
 // Replaces the whole text as one undo entry, so a reload from disk can be
@@ -898,6 +954,7 @@ undo :: proc(state: ^State) {
     state.content_id = entry.id_before
     append(&state.redo_stack, entry)
     state.revision += 1
+    record_change(state, state.revision, entry.ops[:], true)
 }
 
 redo :: proc(state: ^State) {
@@ -924,6 +981,7 @@ redo :: proc(state: ^State) {
     state.content_id = entry.id_after
     ring_push(&state.undo_stack, entry)
     state.revision += 1
+    record_change(state, state.revision, entry.ops[:])
 }
 
 // Folds the newest undo entry into the one below it, so one undo takes both
@@ -955,6 +1013,7 @@ finish_edit :: proc(state: ^State, entry: ^Undo_Entry, coalesce := Coalesce.None
     entry.coalesce = coalesce
     entry.id_before = state.content_id
     entry.id_after = state.revision + 1
+    record_change(state, state.revision + 1, entry.ops[:])
 
     clear_entries(&state.redo_stack)
     if !coalesce_into_previous(state, entry) {

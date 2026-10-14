@@ -125,6 +125,51 @@ test_select_next_skips_an_overlapping_occurrence :: proc(t: ^testing.T) {
     testing.expect_value(t, hi, 4)
 }
 
+@(private = "file")
+expect_change :: proc(t: ^testing.T, state: ^State, lo, old_hi, new_hi: int, loc := #caller_location) {
+    change, ok := change_at(state, state.revision)
+    testing.expect(t, ok, "the last change is in the log", loc = loc)
+    testing.expect_value(t, change.lo, lo, loc = loc)
+    testing.expect_value(t, change.old_hi, old_hi, loc = loc)
+    testing.expect_value(t, change.new_hi, new_hi, loc = loc)
+}
+
+// Each revision logs the span it changed, in offsets of the text before and
+// after it.
+@(test)
+test_change_log_records_each_span :: proc(t: ^testing.T) {
+    state := ops_state("hello world", 0)
+    defer destroy(&state)
+    expect_change(t, &state, 0, 0, 11)
+
+    testing.expect_value(t, insert_at(&state, 5, ","), Error.None)
+    expect_change(t, &state, 5, 5, 6)
+    testing.expect_value(t, delete_range(&state, 0, 2), Error.None)
+    expect_change(t, &state, 0, 2, 0)
+    testing.expect_value(t, replace_range(&state, 1, 3, "XY"), Error.None)
+    expect_change(t, &state, 1, 4, 3)
+
+    // "lXY world": two edits far apart are one bounding span.
+    testing.expect_value(t, replace_ranges(&state, {{start = 0, end = 1, text = "L"}, {start = 4, end = 9, text = "w"}}), 2)
+    testing.expect_value(t, text(&state), "LXY w")
+    expect_change(t, &state, 0, 9, 5)
+
+    undo(&state)
+    expect_change(t, &state, 0, 5, 9)
+    redo(&state)
+    expect_change(t, &state, 0, 9, 5)
+
+    // A reader more than CHANGE_LOG revisions behind gets nothing.
+    behind := state.revision
+    for _ in 0 ..< CHANGE_LOG {
+        testing.expect_value(t, insert_at(&state, 0, "x"), Error.None)
+    }
+    _, ok := change_at(&state, behind)
+    testing.expect(t, !ok, "an overwritten change is gone")
+    _, ok = change_at(&state, behind + 1)
+    testing.expect(t, ok, "the oldest kept change is there")
+}
+
 // A selection that ends at a line start does not take that line.
 @(test)
 test_line_ops_skip_a_line_the_selection_only_touches :: proc(t: ^testing.T) {
