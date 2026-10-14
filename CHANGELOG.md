@@ -37,6 +37,7 @@
 - A long line of a code block in the preview continues on the next row. An underscore inside a word is no longer emphasis.
 - List bullets show in the preview. The bullet character was not in the font.
 - A save writes a temp file and renames it over the file. A crash, a kill or a full disk during a save no longer leaves the file empty or cut. Session, settings and grant files are written the same way.
+- A plugin's `thor.read`, `thor.write`, `thor.doc` and `thor.exec` keep a NUL byte. The text was cut at the first one, so a read and a write back truncated the file.
 
 # 2026.10.3
 

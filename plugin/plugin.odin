@@ -662,6 +662,12 @@ api_on_key_up :: proc "c" (L: ^lua.State) -> c.int {
     return 0
 }
 
+// Pushes `s` with its full length, NUL bytes included.
+@(private)
+push_string :: proc(L: ^lua.State, s: string) {
+    lua.pushlstring(L, cstring(raw_data(s)), c.size_t(len(s)))
+}
+
 // thor.doc(path, text[, focus]): renders `text` into a document tab at `path`,
 // updating the open buffer in place. A truthy `focus` reveals and focuses it.
 @(private)
@@ -678,7 +684,7 @@ api_doc :: proc "c" (L: ^lua.State) -> c.int {
     if !ok {
         return 0
     }
-    m.doc_proc(m.host, path, string(lua.tostring(L, 2)), bool(lua.toboolean(L, 3)))
+    m.doc_proc(m.host, path, arg_string(L, 2), bool(lua.toboolean(L, 3)))
     return 0
 }
 
@@ -695,7 +701,7 @@ api_exec :: proc "c" (L: ^lua.State) -> c.int {
     }
     context.allocator = m.allocator
     out := m.exec_proc(m.host, string(lua.tostring(L, 1)), budget_left(m))
-    lua.pushstring(L, strings.clone_to_cstring(out, context.temp_allocator))
+    push_string(L, out)
     delete(out) // host-owned result, freed after copying into Lua
     return 1
 }
@@ -791,7 +797,7 @@ api_read :: proc "c" (L: ^lua.State) -> c.int {
         return 1
     }
     out := m.read_proc(m.host, path)
-    lua.pushstring(L, strings.clone_to_cstring(out, context.temp_allocator))
+    push_string(L, out)
     delete(out) // host-owned result, freed after copying into Lua
     return 1
 }
@@ -810,7 +816,7 @@ api_write :: proc "c" (L: ^lua.State) -> c.int {
     if !ok {
         return 0
     }
-    m.write_proc(m.host, path, string(lua.tostring(L, 2)))
+    m.write_proc(m.host, path, arg_string(L, 2))
     return 0
 }
 
@@ -948,7 +954,7 @@ manager_dialog_text :: proc(m: ^Manager, text: string) {
     L := m.state
     lua.rawgeti(L, lua.REGISTRYINDEX, lua.Integer(cb.ref))
     if lua.isfunction(L, -1) {
-        lua.pushstring(L, strings.clone_to_cstring(text, context.temp_allocator))
+        push_string(L, text)
         call_guarded(m, m.state, cb.owner, 1, 0, "dialog callback")
     } else {
         lua.pop(L, 1)

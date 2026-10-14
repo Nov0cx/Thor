@@ -15,6 +15,7 @@ Recorder :: struct {
     data_root: string,
     output:    strings.Builder,
     written:   [dynamic]string,
+    text:      string, // owned; the text of the last write
     panels:    [dynamic]string,
     kinds:     [dynamic]View_Kind,
     labels:    [dynamic]string,
@@ -42,6 +43,7 @@ recorder_destroy :: proc(r: ^Recorder) {
         delete(path)
     }
     delete(r.written)
+    delete(r.text)
     for id in r.panels {
         delete(id)
     }
@@ -74,6 +76,14 @@ rec_data_root :: proc(host: rawptr) -> string {
 rec_write :: proc(host: rawptr, path, text: string) {
     r := cast(^Recorder) host
     append(&r.written, strings.clone(path))
+    delete(r.text)
+    r.text = strings.clone(text)
+}
+
+// Gives back the text of the last write, whatever the path.
+@(private = "file")
+rec_read :: proc(host: rawptr, path: string) -> string {
+    return strings.clone((cast(^Recorder) host).text)
 }
 
 @(private = "file")
@@ -115,6 +125,7 @@ recording_manager :: proc(m: ^Manager, r: ^Recorder) {
         print        = rec_print,
         workspace    = rec_workspace,
         data_root    = rec_data_root,
+        read         = rec_read,
         write        = rec_write,
         panel        = rec_panel,
         panel_render = rec_panel_render,
@@ -178,6 +189,22 @@ test_sandbox_hides_ungranted_api :: proc(t: ^testing.T) {
     granted := `thor.print(type(thor.exec) .. " " .. type(thor.panel))`
     testing.expect(t, manager_load_source(&m, "trusted", "plugins/trusted", granted, {.Exec, .Ui}), "plugin runs")
     testing.expectf(t, strings.contains(printed(&r), "function function"), "granted api missing: %q", printed(&r))
+}
+
+// A NUL byte goes through thor.write and comes back from thor.read whole.
+@(test)
+test_read_write_keep_nul_bytes :: proc(t: ^testing.T) {
+    r: Recorder
+    recorder_init(&r)
+    defer recorder_destroy(&r)
+    m: Manager
+    recording_manager(&m, &r)
+    defer manager_destroy(&m)
+
+    script := `thor.write("nul.txt", "a\0b"); local s = thor.read("nul.txt"); thor.print(#s .. " " .. (s == "a\0b" and "same" or "cut"))`
+    testing.expect(t, manager_load_source(&m, "nul", "plugins/nul", script, {.Read, .Write}), "plugin runs")
+    testing.expect_value(t, r.text, "a\x00b")
+    testing.expectf(t, strings.contains(printed(&r), "3 same"), "read back: %q", printed(&r))
 }
 
 // thor.data_path names a folder outside the workspace, so plugin state survives

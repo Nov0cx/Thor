@@ -492,12 +492,16 @@ arg_number :: proc "c" (L: ^lua.State, idx: c.int) -> f32 {
     return f32(lua.tonumber(L, idx))
 }
 
+// The Lua string at `idx` with its full length, NUL bytes included. Borrowed
+// from the Lua state; "" when it is not a string.
 @(private)
 arg_string :: proc "c" (L: ^lua.State, idx: c.int) -> string {
     if lua.type(L, idx) != .STRING {
         return ""
     }
-    return string(lua.tostring(L, idx))
+    size: c.size_t
+    ptr := lua.tolstring(L, idx, &size)
+    return transmute(string) runtime.Raw_String {cast([^]byte) ptr, int(size)}
 }
 
 // Reads a string field of the table at `tbl`; "" when absent.
