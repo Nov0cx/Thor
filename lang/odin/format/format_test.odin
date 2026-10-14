@@ -833,4 +833,17 @@ test_check_directives_kept :: proc(t: ^testing.T) {
 test_bare_block_has_no_leading_space :: proc(t: ^testing.T) {
     expect_keeps(t, "package p\nf :: proc() {\n\t{\n\t\tz := 1\n\t}\n}\n", "\n\t{\n\t\tz := 1\n\t}\n")
     expect_keeps(t, "package p\nf :: proc() {\n\tblk: {\n\t\tbreak blk\n\t}\n}\n", "\n\tblk: {\n")
+    expect_keeps(t, "package p\nf :: proc() {\n\tdefer {\n\t\tz := 1\n\t}\n}\n", "\n\tdefer {\n")
+}
+
+// A block comment over several lines adds no blank line after it.
+@(test)
+test_multi_line_block_comment_keeps_its_gap :: proc(t: ^testing.T) {
+    expect_keeps(
+        t,
+        "package p\nf :: proc() {\n\ta := 1\n\t/* one\n\t   two */\n\tb := 2\n}\n",
+        "\ta := 1\n\t/* one\n\t   two */\n\tb := 2\n",
+    )
+    expect_keeps(t, "package p\n/*\nhead\n*/\nX :: 1\n", "*/\nX :: 1\n")
+    expect_keeps(t, "package p\nX :: 1 /* a\nb */\nY :: 2\n", "b */\nY :: 2\n")
 }

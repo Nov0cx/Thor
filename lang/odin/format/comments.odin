@@ -82,7 +82,7 @@ blanks_between :: proc(prev_line, next_line: int) -> int {
 comment_group_text :: proc(pr: ^Printer, cg: ^ast.Comment_Group, out: ^[dynamic]Doc) {
     for tok, i in cg.list {
         if i > 0 {
-            blanks := blanks_between(cg.list[i - 1].pos.line, tok.pos.line)
+            blanks := blanks_between(comment_end_line(cg.list[i - 1]), tok.pos.line)
             append(out, hard_line(blanks))
         }
         trimmed := strings.trim_right_space(tok.text)
@@ -109,7 +109,7 @@ flush_trailing :: proc(pr: ^Printer, out: ^[dynamic]Doc, line: int) -> int {
         }
         append(out, text("  "))
         comment_group_text(pr, cg, out)
-        last_line = cg.list[len(cg.list) - 1].pos.line
+        last_line = comment_end_line(cg.list[len(cg.list) - 1])
         pr.comment_idx += 1
     }
     return last_line
@@ -140,7 +140,7 @@ flush_before :: proc(pr: ^Printer, out: ^[dynamic]Doc, prev_line: int, has_prev:
             append(out, hard_line(blanks_between(last_line, cg.pos.line)))
         }
         comment_group_text(pr, cg, out)
-        last_line = cg.list[len(cg.list) - 1].pos.line
+        last_line = comment_end_line(cg.list[len(cg.list) - 1])
         pr.comment_idx += 1
         last_line = flush_trailing(pr, out, last_line)
         had_content = true
@@ -165,6 +165,12 @@ separator :: proc(pr: ^Printer, out: ^[dynamic]Doc, prev_line: int, has_prev: bo
 @(private)
 flush_remaining :: proc(pr: ^Printer, out: ^[dynamic]Doc, prev_line: int, has_prev: bool) {
     separator(pr, out, prev_line, has_prev, 0, false)
+}
+
+// The line a comment ends on: a `/* */` can span several.
+@(private)
+comment_end_line :: proc(tok: tokenizer.Token) -> int {
+    return tok.pos.line + strings.count(tok.text, "\n")
 }
 
 @(private)
