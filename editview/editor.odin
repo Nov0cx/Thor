@@ -192,8 +192,11 @@ Editor :: struct {
     // Code folding. `foldable` maps a fold's start line (0-based) to its end line
     // (both from the owner's syntax analysis, refreshed each edit); `folded` is
     // the subset the user has collapsed. Folding a region hides start+1..end.
+    // `folded` maps each collapsed start line to its start offset at
+    // `folds_revision`, so an edit can move it to the line it went to.
     foldable:           map[int]int,
-    folded:             map[int]bool,
+    folded:             map[int]int,
+    folds_revision:     u64,
     // Word-drag: after a double-click the selection extends by whole words;
     // word_lo/word_hi bound that word so drags in either direction keep it.
     select_by_word:     bool,
@@ -592,6 +595,7 @@ editor_set_state :: proc(editor: ^Editor, state: ^textedit.State) {
     // new file's regions via editor_set_folds right after) and its collapsed set.
     clear(&editor.foldable)
     clear(&editor.folded)
+    editor.folds_revision = state != nil ? state.revision : 0
     editor_dismiss_completion(editor)
     editor_clear_hover(editor)
     editor_clear_signature(editor)
@@ -702,6 +706,7 @@ Fold_Range :: struct {
 editor_set_folds :: proc(editor: ^Editor, folds: []Fold_Range) {
     // A region only shapes the rows while it is collapsed, so with nothing
     // collapsed new ranges cannot move a row and the rows stand.
+    editor_remap_folds(editor)
     if len(editor.folded) > 0 {
         editor.rows_stale = true
     }
@@ -717,10 +722,60 @@ editor_set_folds :: proc(editor: ^Editor, folds: []Fold_Range) {
     }
 }
 
+// Moves every collapsed fold through the changes since `folds_revision`. A fold
+// whose start line was deleted is dropped; when the log no longer reaches back,
+// every fold opens.
+@(private = "file")
+editor_remap_folds :: proc(editor: ^Editor) {
+    state := editor.state
+    if state == nil || editor.folds_revision == state.revision {
+        return
+    }
+    if len(editor.folded) == 0 {
+        editor.folds_revision = state.revision
+        return
+    }
+    offsets := make([dynamic]int, 0, len(editor.folded), context.temp_allocator)
+    for _, offset in editor.folded {
+        append(&offsets, offset)
+    }
+    for revision := editor.folds_revision + 1; revision <= state.revision; revision += 1 {
+        change, ok := textedit.change_at(state, revision)
+        if !ok {
+            clear(&editor.folded)
+            editor.folds_revision = state.revision
+            editor.rows_stale = true
+            return
+        }
+        delta := change.new_hi - change.old_hi
+        for i := len(offsets) - 1; i >= 0; i -= 1 {
+            switch offset := offsets[i]; {
+            case offset > change.lo && offset < change.old_hi:
+                unordered_remove(&offsets, i)
+            case (offset >= change.old_hi && offset > change.lo) || (change.lo == change.old_hi && offset == change.lo):
+                offsets[i] = offset + delta
+            }
+        }
+    }
+    clear(&editor.folded)
+    for offset in offsets {
+        line := textedit.state_line_index(state, offset)
+        editor.folded[line] = textedit.state_line_start(state, line)
+    }
+    editor.folds_revision = state.revision
+    editor.rows_stale = true
+}
+
+// Collapses the fold that starts on `line`.
+@(private = "file")
+editor_fold_line :: proc(editor: ^Editor, line: int) {
+    editor.folded[line] = textedit.state_line_start(editor.state, line)
+}
+
 // End line of the fold starting at `line` when it is currently collapsed, or -1.
 @(private = "file")
 editor_folded_end :: proc(editor: ^Editor, line: int) -> int {
-    if !editor.folded[line] {
+    if line not_in editor.folded {
         return -1
     }
     if end, ok := editor.foldable[line]; ok {
@@ -772,6 +827,7 @@ editor_toggle_fold :: proc(editor: ^Editor) {
     if editor.state == nil {
         return
     }
+    editor_remap_folds(editor)
     caret_line := textedit.state_line_index(editor.state, textedit.primary_cursor(editor.state).caret)
     best := -1
     for start, end in editor.foldable {
@@ -782,10 +838,10 @@ editor_toggle_fold :: proc(editor: ^Editor) {
     if best < 0 {
         return
     }
-    if editor.folded[best] {
+    if best in editor.folded {
         delete_key(&editor.folded, best)
     } else {
-        editor.folded[best] = true
+        editor_fold_line(editor, best)
         editor_carets_out_of_folds(editor)
     }
     editor_rebuild_visual_rows(editor)
@@ -797,8 +853,9 @@ editor_fold_all :: proc(editor: ^Editor) {
     if editor.state == nil {
         return
     }
+    editor_remap_folds(editor)
     for start in editor.foldable {
-        editor.folded[start] = true
+        editor_fold_line(editor, start)
     }
     editor_carets_out_of_folds(editor)
     editor_rebuild_visual_rows(editor)
@@ -822,10 +879,11 @@ editor_toggle_fold_line :: proc(editor: ^Editor, line: int) {
     if _, ok := editor.foldable[line]; !ok {
         return
     }
-    if editor.folded[line] {
+    editor_remap_folds(editor)
+    if line in editor.folded {
         delete_key(&editor.folded, line)
     } else {
-        editor.folded[line] = true
+        editor_fold_line(editor, line)
         editor_carets_out_of_folds(editor)
     }
     editor_rebuild_visual_rows(editor)
@@ -983,6 +1041,7 @@ editor_ensure_visual_rows :: proc(editor: ^Editor) -> bool {
     if editor.state == nil {
         return false
     }
+    editor_remap_folds(editor)
     if editor_rows_fresh(editor) {
         return false
     }

@@ -1080,7 +1080,7 @@ thor_editor_pane :: proc(thor: ^Thor, editor: ^editview.Editor, pane: int, key: 
 
         // On the last visual row of a collapsed start line, a pill stands in for
         // the hidden body.
-        if editor.folded[row.line] {
+        if row.line in editor.folded {
             if _, foldable := editor.foldable[row.line]; foldable {
                 tail := index + 1 >= len(rows) || rows[index + 1].line != row.line
                 if tail {
@@ -1332,7 +1332,7 @@ thor_paint_gutter :: proc(
         }
 
         if _, foldable := editor.foldable[row.line]; foldable && fold_col > 0 {
-            folded := editor.folded[row.line]
+            folded := row.line in editor.folded
             if folded || gutter_hovered {
                 thor_paint_fold_chevron(thor, editor, fold_x, fold_col, y, folded)
             }

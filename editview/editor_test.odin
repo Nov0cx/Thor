@@ -213,14 +213,15 @@ test_caret_inside_collapsed_fold :: proc(t: ^testing.T) {
     editor.state = &state
     editor.font_size = 16
     editor.foldable = make(map[int]int)
-    editor.folded = make(map[int]bool)
+    editor.folded = make(map[int]int)
     defer delete(editor.foldable)
     defer delete(editor.folded)
     defer delete(editor.visual_rows)
 
     // "beta" stays visible; "gamma" and "delta" hide under it.
     editor_set_folds(&editor, []Fold_Range{{start_line = 1, end_line = 3}})
-    editor.folded[1] = true
+    editor.folded[1] = 6
+    editor.folds_revision = state.revision
 
     textedit.select_range(&state, 13, 13) // column 2 of the hidden "gamma"
     editor.rows_stale = true
@@ -236,6 +237,44 @@ test_caret_inside_collapsed_fold :: proc(t: ^testing.T) {
     editor_move_visual(&editor, -1, false)
     caret := textedit.primary_cursor(&state).caret
     testing.expect(t, caret >= 0 && caret <= len(textedit.text(&state)), "the caret stays in the buffer")
+}
+
+// A collapsed fold moves with its line: Enter above it pushes it down one line
+// instead of opening it, and deleting its start line drops it.
+@(test)
+test_fold_follows_an_edit_above :: proc(t: ^testing.T) {
+    // Lines start at 0, 3, 6, 9, 12, 15.
+    state: textedit.State
+    textedit.init(&state)
+    defer textedit.destroy(&state)
+    textedit.set_text(&state, "l0\nl1\nl2\nl3\nl4\nl5\n")
+
+    editor: Editor
+    editor.state = &state
+    editor.font_size = 16
+    defer delete(editor.foldable)
+    defer delete(editor.folded)
+    defer delete(editor.visual_rows)
+
+    editor_set_folds(&editor, []Fold_Range{{start_line = 2, end_line = 4}})
+    textedit.set_single_cursor(&state, 7)
+    editor_toggle_fold(&editor)
+    testing.expect(t, 2 in editor.folded)
+
+    textedit.set_single_cursor(&state, 2)
+    textedit.insert_newline(&state)
+    editor_set_folds(&editor, []Fold_Range{{start_line = 3, end_line = 5}})
+    testing.expect(t, 3 in editor.folded, "the fold moved down with its line")
+    testing.expect(t, 2 not_in editor.folded)
+    editor_ensure_visual_rows(&editor)
+    // l0, the new line, l1, l2 and l5 with the empty last line; l3 and l4 hide.
+    testing.expect_value(t, len(editor.visual_rows), 6)
+
+    // Deleting the start line with the line above it drops the fold.
+    textedit.select_range(&state, 6, 13)
+    textedit.delete_backward(&state)
+    editor_ensure_visual_rows(&editor)
+    testing.expect_value(t, len(editor.folded), 0)
 }
 
 // Vertical movement finds the caret's row by binary search over the row extents,
