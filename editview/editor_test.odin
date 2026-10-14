@@ -156,6 +156,16 @@ test_completion_click_in_text_dismisses :: proc(t: ^testing.T) {
     testing.expect(t, textedit.length(&state) > before_len, "the Tab was typed")
 }
 
+@(test)
+test_swatch_needs_a_word_end :: proc(t: ^testing.T) {
+    swatches: [4]Row_Swatch
+    testing.expect_value(t, editor_scan_swatches("#define X 1", swatches[:]), 0)
+    testing.expect_value(t, editor_scan_swatches("#abcdefgh", swatches[:]), 0)
+    testing.expect_value(t, editor_scan_swatches("c := #fff;", swatches[:]), 1)
+    testing.expect_value(t, swatches[0].anchor, 5)
+    testing.expect_value(t, editor_scan_swatches("\"#ff000080\"", swatches[:]), 1)
+}
+
 // The wheel over the popup walks the candidates and leaves the text where it is,
 // or the popup drifts away from the caret it belongs to.
 @(test)

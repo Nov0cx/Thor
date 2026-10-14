@@ -2440,7 +2440,9 @@ editor_scan_swatches :: proc(s: string, out: []Row_Swatch) -> int {
             j += 1
         }
         n := j - i - 1
-        if n == 3 || n == 4 || n == 6 || n == 8 {
+        // `#define` starts with the hex run "def"; a literal ends at a word end.
+        at_word_end := j >= len(s) || !editor_is_word_byte(s[j])
+        if at_word_end && (n == 3 || n == 4 || n == 6 || n == 8) {
             if color, ok := editor_parse_hex_color(s[i + 1:j]); ok {
                 anchor := i
                 if anchor > 0 && s[anchor - 1] == '"' {
