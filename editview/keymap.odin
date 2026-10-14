@@ -2,9 +2,14 @@
 // One table serves every editor: the chords are a user setting, not pane state.
 package editview
 
-import "../setting"
 import "../textedit"
 import ui "../vendor/loom/loom"
+
+// A key and the modifiers held with it.
+Chord :: struct {
+    key:  ui.Key,
+    mods: ui.Mod_Set,
+}
 
 // An editing command a chord runs. action_name gives the keybinds.json name.
 Action :: enum {
@@ -63,7 +68,7 @@ Action :: enum {
 @(private = "file")
 Action_Info :: struct {
     name:    string, // the keybinds.json action
-    key:     setting.Keybind, // the chord with no file to read
+    key:     Chord, // the chord with no file to read
     // The chord with shift added runs the action too and extends the selection.
     extends: bool,
 }
@@ -124,7 +129,7 @@ ACTIONS := [Action]Action_Info {
 
 // The chord of each action. A key of .None is an action with no chord.
 @(private = "file")
-g_keymap: [Action]setting.Keybind
+g_keymap: [Action]Chord
 
 @(private = "file")
 g_keymap_ready: bool
@@ -143,7 +148,7 @@ keymap_reset :: proc() {
 }
 
 // Gives an action its chord. A chord with key .None takes the chord away.
-keymap_bind :: proc(action: Action, chord: setting.Keybind) {
+keymap_bind :: proc(action: Action, chord: Chord) {
     if !g_keymap_ready {
         keymap_reset()
     }

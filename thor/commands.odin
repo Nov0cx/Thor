@@ -26,7 +26,7 @@ thor_apply_settings :: proc(thor: ^Thor) {
     editview.keymap_reset()
     for action in editview.Action {
         if kb, ok := setting.keybind(&thor.config, editview.action_name(action)); ok && action != .None {
-            editview.keymap_bind(action, kb)
+            editview.keymap_bind(action, {kb.key, kb.mods})
         }
     }
     if kb, ok := setting.keybind(&thor.config, "command_palette"); ok {
