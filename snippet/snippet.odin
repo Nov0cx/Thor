@@ -21,6 +21,7 @@ Stop :: struct {
     transform:    int, // 1-based into Snippet.transforms; 0 when the stop has none
     choice_first: int, // into Snippet.choices
     choice_count: int, // 0 when the stop is not a choice
+    depth:        int, // placeholders around the stop
 }
 
 // A parsed template: the text to insert and its stops, in visit order.
@@ -147,6 +148,7 @@ Parser :: struct {
     choices:    [dynamic]string,
     vars:       Vars,
     allocator:  mem.Allocator,
+    depth:      int, // placeholders open around `at`
 }
 
 // Visit order: ascending tabstop number with 0 last, since 0 is where the caret
@@ -231,11 +233,13 @@ snippet_braced_stop :: proc(p: ^Parser, index, at: int) -> bool {
         start := strings.builder_len(p.out)
         mark := len(p.stops)
         p.at = at + 1
+        p.depth += 1
         snippet_body(p, true)
+        p.depth -= 1
         if p.at >= len(p.src) || p.src[p.at] != '}' {
             return snippet_rewind(p, start, mark)
         }
-        append(&p.stops, Stop{start = start, end = strings.builder_len(p.out), index = index})
+        append(&p.stops, Stop{start = start, end = strings.builder_len(p.out), index = index, depth = p.depth})
         p.at += 1
         return true
     case '|':
@@ -321,7 +325,7 @@ snippet_rewind :: proc(p: ^Parser, start, mark: int) -> bool {
 snippet_add_stop :: proc(p: ^Parser, index: int, text: string) {
     start := strings.builder_len(p.out)
     strings.write_string(&p.out, text)
-    append(&p.stops, Stop{start = start, end = strings.builder_len(p.out), index = index})
+    append(&p.stops, Stop{start = start, end = strings.builder_len(p.out), index = index, depth = p.depth})
 }
 
 // The text the first stop of `index` produced, cloned out of the builder before

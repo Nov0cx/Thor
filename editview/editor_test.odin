@@ -890,6 +890,77 @@ test_snippet_mirror_follows_typing :: proc(t: ^testing.T) {
     testing.expect_value(t, textedit.text(&state), "zy = zy; b\n")
 }
 
+@(private = "file")
+editor_test_expect_selection :: proc(t: ^testing.T, state: ^textedit.State, lo, hi: int, loc := #caller_location) {
+    got_lo, got_hi := textedit.selection_range(textedit.primary_cursor(state))
+    testing.expect_value(t, got_lo, lo, loc = loc)
+    testing.expect_value(t, got_hi, hi, loc = loc)
+}
+
+// Typing in a nested placeholder grows the placeholder around it too.
+@(test)
+test_snippet_nested_stop_grows_its_parent :: proc(t: ^testing.T) {
+    state: textedit.State
+    textedit.init(&state)
+    defer textedit.destroy(&state)
+
+    editor: Editor
+    defer delete(editor.visual_rows)
+    defer delete(editor.completion_rows)
+    defer editor_test_free_snippet(&editor)
+    defer editor_test_free_completions(&editor)
+
+    editor_test_accept_snippet(&editor, &state, "fn\n", "f(${1:a, ${2:b}})$0")
+    testing.expect_value(t, textedit.text(&state), "f(a, b)\n")
+    editor_test_expect_selection(t, &state, 2, 6)
+
+    editor_key(&editor, {key = .Tab})
+    editor_test_expect_selection(t, &state, 5, 6)
+    editor_text(&editor, 'x', {})
+    editor_text(&editor, 'y', {})
+    testing.expect_value(t, textedit.text(&state), "f(a, xy)\n")
+
+    editor_dismiss_completion(&editor)
+    editor_key(&editor, {key = .Tab, mods = {.Shift}})
+    testing.expect(t, editor.snippet_active)
+    editor_test_expect_selection(t, &state, 2, 7)
+}
+
+// An edit between two stops moves the stops after it and leaves the active
+// one its own size.
+@(test)
+test_snippet_edit_outside_the_active_stop :: proc(t: ^testing.T) {
+    state: textedit.State
+    textedit.init(&state)
+    defer textedit.destroy(&state)
+
+    editor: Editor
+    defer delete(editor.visual_rows)
+    defer delete(editor.completion_rows)
+    defer editor_test_free_snippet(&editor)
+    defer editor_test_free_completions(&editor)
+
+    editor_test_accept_snippet(&editor, &state, "fn\n", "${1:a} + ${2:b} + ${3:c}$0")
+    testing.expect_value(t, textedit.text(&state), "a + b + c\n")
+    editor_key(&editor, {key = .Tab})
+    editor_test_expect_selection(t, &state, 4, 5)
+
+    // Typed after "a", before the active stop.
+    textedit.set_single_cursor(&state, 1)
+    editor_text(&editor, 'q', {})
+    testing.expect_value(t, textedit.text(&state), "aq + b + c\n")
+    testing.expect(t, editor.snippet_active, "the caret is still inside the snippet")
+
+    editor_dismiss_completion(&editor)
+    editor_key(&editor, {key = .Tab})
+    editor_test_expect_selection(t, &state, 9, 10)
+    editor_key(&editor, {key = .Tab, mods = {.Shift}})
+    editor_test_expect_selection(t, &state, 5, 6)
+    // An edit at the end of a stop that is not active does not grow it.
+    editor_key(&editor, {key = .Tab, mods = {.Shift}})
+    editor_test_expect_selection(t, &state, 0, 1)
+}
+
 @(test)
 test_snippet_mirror_runs_its_transform :: proc(t: ^testing.T) {
     state: textedit.State

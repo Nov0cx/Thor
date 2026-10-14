@@ -293,7 +293,6 @@ Editor :: struct {
     snippet_snip:   snippet.Snippet,       // owned; the transforms and choices of the session
     snippet_at:     int, // index of the active stop
     snippet_rev:    u64, // state revision the offsets are valid at
-    snippet_size:   int, // document length at that revision
     snippet_lo:     int, // the snippet's own span, so a caret that leaves it ends the session
     snippet_hi:     int,
     snippet_vars:   snippet.Vars, // owned strings; what $TM_FILENAME and friends resolve to
@@ -1766,7 +1765,6 @@ editor_snippet_select :: proc(editor: ^Editor, stop: snippet.Stop) {
         textedit.set_single_cursor(editor.state, stop.start)
     }
     editor.snippet_rev = editor.state.revision
-    editor.snippet_size = textedit.length(editor.state)
 }
 
 // Puts the alternatives of a choice stop in the completion popup.
@@ -1852,11 +1850,9 @@ editor_snippet_advance :: proc(editor: ^Editor, step: int) {
     }
 }
 
-// Keeps the stop offsets in step with what was typed inside the active one,
-// writes that text into its mirrors, and ends the session for anything else.
-// Conservative on purpose: textedit has no markers, so a session that cannot
-// prove its offsets is dropped rather than guessed at — a second cursor, a
-// batched edit, or a caret that left the snippet all end it.
+// Moves the stop offsets through every change since the last sync and writes
+// what was typed in the active stop into its mirrors. A second cursor, a change
+// that left the log, or a caret that left the snippet ends the session.
 @(private = "file")
 editor_snippet_sync :: proc(editor: ^Editor) {
     if !editor.snippet_active {
@@ -1867,41 +1863,61 @@ editor_snippet_sync :: proc(editor: ^Editor) {
         editor_end_snippet(editor)
         return
     }
-    if state.revision != editor.snippet_rev {
-        // One step, and one only: a batched edit jumps further and cannot be
-        // followed by a length delta.
-        if state.revision != editor.snippet_rev + 1 {
+    typed := false
+    for editor.snippet_rev < state.revision {
+        change, ok := textedit.change_at(state, editor.snippet_rev + 1)
+        if !ok {
             editor_end_snippet(editor)
             return
         }
-        size := textedit.length(state)
-        delta := size - editor.snippet_size
         active := editor.snippet_stops[editor.snippet_at]
+        typed ||= change.lo >= active.start && change.old_hi <= active.end
         for &stop, i in editor.snippet_stops {
-            if i == editor.snippet_at {
-                stop.end += delta
+            // The active stop and the placeholders around it take what is typed at their edges.
+            holds :=
+                i == editor.snippet_at ||
+                (stop.depth < active.depth && stop.start <= active.start && active.end <= stop.end)
+            replaced :=
+                change.old_hi > change.lo &&
+                stop.start >= change.lo &&
+                stop.end <= change.old_hi &&
+                stop.end > change.lo &&
+                stop.start < change.old_hi
+            if !holds && replaced {
+                stop.start, stop.end = change.new_hi, change.new_hi
                 continue
             }
-            if stop.start >= active.end {
-                stop.start += delta
-                stop.end += delta
-            }
+            stop.start = editor_snippet_map(change, stop.start, false, holds)
+            stop.end = editor_snippet_map(change, stop.end, true, holds)
         }
-        editor.snippet_hi += delta
-        editor.snippet_rev = state.revision
-        editor.snippet_size = size
-        if grown := editor.snippet_stops[editor.snippet_at]; grown.end < grown.start {
-            editor_end_snippet(editor) // the edit ate past the placeholder
-            return
-        }
-        if !editor_snippet_mirror(editor) {
-            editor_end_snippet(editor)
-            return
-        }
+        editor.snippet_lo = editor_snippet_map(change, editor.snippet_lo, false, true)
+        editor.snippet_hi = editor_snippet_map(change, editor.snippet_hi, true, true)
+        editor.snippet_rev += 1
+    }
+    if typed && !editor_snippet_mirror(editor) {
+        editor_end_snippet(editor)
+        return
     }
     if caret := textedit.primary_cursor(state).caret; caret < editor.snippet_lo || caret > editor.snippet_hi {
         editor_end_snippet(editor)
     }
+}
+
+// Where `pos` lands after `change`. At a pure insertion on `pos`, a stop that
+// grows keeps its start and moves its end; any other stop does the reverse.
+@(private = "file")
+editor_snippet_map :: proc(change: textedit.Change, pos: int, is_end, grows: bool) -> int {
+    switch {
+    case pos < change.lo:
+        return pos
+    case pos > change.old_hi:
+        return pos + change.new_hi - change.old_hi
+    case change.lo == change.old_hi:
+        return is_end == grows ? change.new_hi : pos
+    case pos == change.lo:
+        return pos
+    }
+    return change.new_hi
 }
 
 // Writes the active stop's text into the other stops of its number, each
@@ -1988,7 +2004,6 @@ editor_snippet_mirror :: proc(editor: ^Editor) -> bool {
     cursors := [1]textedit.Cursor{cursor}
     textedit.set_cursors(state, cursors[:])
     editor.snippet_rev = state.revision
-    editor.snippet_size = textedit.length(state)
     return true
 }
 
