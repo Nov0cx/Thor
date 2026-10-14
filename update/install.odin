@@ -277,9 +277,11 @@ cancelled :: proc(cancel: ^bool) -> bool {
     return cancel != nil && sync.atomic_load(cancel)
 }
 
-// Settles what a swap left behind under `install`. For each name: the backup
-// goes when the new copy is in place, and comes back when it is not.
+// Settles what a swap left behind under `install`. For each name: a staged copy
+// that never reached its live name goes, and the backup goes when the new copy
+// is in place and comes back when it is not.
 restore_names :: proc(install: string, names: []string) {
+    drop_fresh(install, names)
     for live in names {
         live_path, old, ok := swap_paths(install, live, context.temp_allocator)
         if !ok {

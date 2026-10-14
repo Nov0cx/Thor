@@ -80,6 +80,20 @@ present :: proc(dir: string, name: string) -> bool {
     return os.exists(at(dir, name))
 }
 
+// swap_files with its log silenced. A refusal it logs is the wanted answer, and
+// the test logger fails a test on an error line.
+@(private = "file")
+swap_files_quiet :: proc(install: string, staged: string, names: []string) -> (string, bool) {
+    context.logger = log.nil_logger()
+    return swap_files(install, staged, names)
+}
+
+@(private = "file")
+swap_dirs_quiet :: proc(install: string, staged: string, dirs: []string) -> (int, int) {
+    context.logger = log.nil_logger()
+    return swap_dirs(install, staged, dirs)
+}
+
 // The new copy lands and the one it replaced waits under its .old name.
 @(test)
 test_swap_files_replaces_and_backs_up :: proc(t: ^testing.T) {
@@ -101,13 +115,12 @@ test_swap_files_replaces_and_backs_up :: proc(t: ^testing.T) {
     testing.expect(t, holds(install, "lib.so", "new library"), "the new library must be in place")
     testing.expect(t, holds(install, "thor.bin" + OLD_SUFFIX, "old binary"), "the old binary must be kept")
     testing.expect(t, holds(install, "lib.so" + OLD_SUFFIX, "old library"), "the old library must be kept")
+    testing.expect(t, !present(install, "thor.bin" + NEW_SUFFIX), "the staged copy must be renamed into place")
 }
 
 // A name the archive does not hold stops the swap before anything moves.
 @(test)
 test_swap_files_refuses_an_incomplete_stage :: proc(t: ^testing.T) {
-    // The refusal it reports is the wanted answer, not a failed test.
-    context.logger = log.nil_logger()
     root, ok := scratch(t, "incomplete_stage")
     if !ok {
         return
@@ -119,7 +132,7 @@ test_swap_files_refuses_an_incomplete_stage :: proc(t: ^testing.T) {
     write(t, install, "lib.so", "old library")
     write(t, staged, "thor.bin", "new binary")
 
-    failed, swapped := swap_files(install, staged, {"thor.bin", "lib.so"})
+    failed, swapped := swap_files_quiet(install, staged, {"thor.bin", "lib.so"})
     testing.expect(t, !swapped, "an incomplete stage must not swap")
     testing.expect_value(t, failed, "lib.so")
     testing.expect(t, holds(install, "thor.bin", "old binary"), "the install must be untouched")
@@ -131,8 +144,6 @@ test_swap_files_refuses_an_incomplete_stage :: proc(t: ^testing.T) {
 // A copy that fails part-way puts every name back and leaves no half build.
 @(test)
 test_swap_files_rolls_back_a_failed_copy :: proc(t: ^testing.T) {
-    // The copy it reports is the wanted answer, not a failed test.
-    context.logger = log.nil_logger()
     root, ok := scratch(t, "rollback")
     if !ok {
         return
@@ -150,13 +161,15 @@ test_swap_files_rolls_back_a_failed_copy :: proc(t: ^testing.T) {
         return
     }
 
-    failed, swapped := swap_files(install, staged, {"thor.bin", "lib.so"})
+    failed, swapped := swap_files_quiet(install, staged, {"thor.bin", "lib.so"})
     testing.expect(t, !swapped, "a failed copy must not report a swap")
     testing.expect_value(t, failed, "lib.so")
     testing.expect(t, holds(install, "thor.bin", "old binary"), "the first name must be back")
     testing.expect(t, holds(install, "lib.so", "old library"), "the second name must be back")
     testing.expect(t, !present(install, "thor.bin" + OLD_SUFFIX), "no backup may be left over")
     testing.expect(t, !present(install, "lib.so" + OLD_SUFFIX), "no backup may be left over")
+    testing.expect(t, !present(install, "thor.bin" + NEW_SUFFIX), "no staged copy may be left over")
+    testing.expect(t, !present(install, "lib.so" + NEW_SUFFIX), "no staged copy may be left over")
 }
 
 // The backup an earlier update left is replaced, not kept.
@@ -201,6 +214,49 @@ test_swap_dirs_replaces_present_and_skips_absent :: proc(t: ^testing.T) {
     testing.expect(t, holds(install, "assets" + OLD_SUFFIX + "/icons.json", "old icons"), "the old directory must be kept")
     testing.expect(t, holds(install, "docs/index.md", "own docs"), "a directory the stage misses is left alone")
     testing.expect(t, !present(install, "docs" + OLD_SUFFIX), "a skipped directory is not moved aside")
+    testing.expect(t, !present(install, "assets" + NEW_SUFFIX), "the staged copy must be renamed into place")
+}
+
+// A copy that fails leaves the live directory as it was, with no backup and no
+// partial copy beside it.
+@(test)
+test_swap_dirs_keeps_live_on_a_failed_copy :: proc(t: ^testing.T) {
+    root, ok := scratch(t, "swap_dirs_fail")
+    if !ok {
+        return
+    }
+    defer drop(root)
+
+    install, staged := at(root, "install"), at(root, "staged")
+    write(t, install, "assets/icons.json", "old icons")
+    // A file passes the existence check and then refuses to copy as a directory.
+    write(t, staged, "assets", "not a directory")
+
+    replaced, failed := swap_dirs_quiet(install, staged, {"assets"})
+    testing.expect_value(t, replaced, 0)
+    testing.expect_value(t, failed, 1)
+    testing.expect(t, holds(install, "assets/icons.json", "old icons"), "the live directory must be untouched")
+    testing.expect(t, !present(install, "assets" + OLD_SUFFIX), "nothing may have moved aside")
+    testing.expect(t, !present(install, "assets" + NEW_SUFFIX), "no partial copy may be left")
+}
+
+// A staged copy that never reached its live name is dropped, and the backup of
+// that name comes back.
+@(test)
+test_restore_names_drops_a_partial_copy :: proc(t: ^testing.T) {
+    root, ok := scratch(t, "restore_partial")
+    if !ok {
+        return
+    }
+    defer drop(root)
+
+    write(t, root, "assets" + OLD_SUFFIX + "/icons.json", "old icons")
+    write(t, root, "assets" + NEW_SUFFIX + "/icons.json", "half")
+
+    restore_names(root, {"assets"})
+    testing.expect(t, holds(root, "assets/icons.json", "old icons"), "the backup must come back")
+    testing.expect(t, !present(root, "assets" + NEW_SUFFIX), "the partial copy must go")
+    testing.expect(t, !present(root, "assets" + OLD_SUFFIX), "the backup goes with the restore")
 }
 
 // A backup whose live name is gone comes back; one whose live name is there is

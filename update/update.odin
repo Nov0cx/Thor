@@ -39,6 +39,10 @@ STAGE_DIR :: ".update"
 // inode and a swap that dies part-way can be undone.
 OLD_SUFFIX :: ".old"
 
+// The suffix of a staged copy written beside its live name before it is renamed
+// into place.
+NEW_SUFFIX :: ".new"
+
 // An archive larger than this is refused before a byte is downloaded.
 MAX_ASSET_BYTES :: 512 * 1024 * 1024
 

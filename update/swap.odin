@@ -2,12 +2,14 @@ package update
 
 // Replacing an install's files with a staged copy of them.
 //
-// Every replaced name is renamed aside before its new copy lands, never removed
-// first. A rename inside one directory is a metadata operation, so it is legal
-// on a running image and on a loaded library, and it is what leaves a swap that
-// dies part-way recoverable: restore_names puts the backups back at the next
-// start. The one window it cannot cover is between the binary's rename and its
-// copy, where there is no binary left to run it.
+// Every staged copy is written beside its live name under NEW_SUFFIX first. Then
+// the live name is renamed aside, never removed, and the copy is renamed into
+// place, so a live name only ever holds a whole copy. A rename inside one
+// directory is a metadata operation, so it is legal on a running image and on a
+// loaded library, and it is what leaves a swap that dies part-way recoverable:
+// restore_names puts the backups back at the next start. The one window it
+// cannot cover is between the binary's two renames, where there is no binary
+// left to run it.
 //
 // Every path is an argument and no editor state is read, so the swap runs over
 // a scratch directory in a test.
@@ -39,10 +41,31 @@ remove_path :: proc(path: string) -> os.Error {
     return os.remove(path)
 }
 
-// Moves each of `names` aside inside `install` and copies the staged copy in.
-// All or none: the stage is read first, so a name the archive does not hold
-// fails before anything moves, and a failure after the first rename puts every
-// moved name back. `failed` names the file the swap stopped on.
+// The name a staged copy is written under beside its live path.
+@(private)
+fresh_path :: proc(live: string, allocator := context.temp_allocator) -> string {
+    return strings.concatenate({live, NEW_SUFFIX}, allocator)
+}
+
+// Removes the staged copy that sits beside the live path of each of `names`.
+@(private)
+drop_fresh :: proc(install: string, names: []string) {
+    for name in names {
+        live, _, ok := swap_paths(install, name)
+        if !ok {
+            continue
+        }
+        fresh := fresh_path(live)
+        if err := remove_path(fresh); err != nil && os.exists(fresh) {
+            log.warnf("Could not remove %q: %v", fresh, err)
+        }
+    }
+}
+
+// Replaces each of `names` inside `install` with its staged copy. All or none:
+// the stage is read and every copy is made before anything moves, and a failure
+// after the first move puts every name back. `failed` names the file the swap
+// stopped on.
 swap_files :: proc(install: string, staged: string, names: []string) -> (failed: string, ok: bool) {
     sources := make([dynamic]string, 0, len(names), context.temp_allocator)
     for name in names {
@@ -54,6 +77,30 @@ swap_files :: proc(install: string, staged: string, names: []string) -> (failed:
         append(&sources, source)
     }
 
+    for name, index in names {
+        live, _, paths_ok := swap_paths(install, name, context.temp_allocator)
+        if !paths_ok {
+            drop_fresh(install, names[:index])
+            return name, false
+        }
+        fresh := fresh_path(live)
+        if err := remove_path(fresh); err != nil && os.exists(fresh) {
+            log.errorf("Could not remove %q: %v", fresh, err)
+            drop_fresh(install, names[:index])
+            return name, false
+        }
+        if err := os.copy_file(fresh, sources[index]); err != nil {
+            log.errorf("Could not copy %q beside the install: %v", name, err)
+            drop_fresh(install, names[:index + 1])
+            return name, false
+        }
+        when ODIN_OS != .Windows {
+            if err := os.change_mode(fresh, os.perm_number(0o755)); err != nil {
+                log.warnf("Could not make %q executable: %v", fresh, err)
+            }
+        }
+    }
+
     // The names already renamed aside, so a failure below knows what to undo.
     moved := make([dynamic]string, 0, len(names), context.temp_allocator)
     rollback := proc(install: string, moved: []string) {
@@ -61,6 +108,10 @@ swap_files :: proc(install: string, staged: string, names: []string) -> (failed:
             live, old, ok := swap_paths(install, name)
             if !ok {
                 continue
+            }
+            // A copy already renamed into place goes before its backup comes back.
+            if err := os.remove(live); err != nil && os.exists(live) {
+                log.errorf("Could not remove the new %q: %v", live, err)
             }
             if err := os.rename(old, live); err != nil {
                 log.errorf("Could not undo the move of %q: %v", live, err)
@@ -72,6 +123,7 @@ swap_files :: proc(install: string, staged: string, names: []string) -> (failed:
         live, old, paths_ok := swap_paths(install, name, context.temp_allocator)
         if !paths_ok {
             rollback(install, moved[:])
+            drop_fresh(install, names)
             return name, false
         }
         // A backup from an earlier update. It has to go before the rename, and
@@ -79,48 +131,35 @@ swap_files :: proc(install: string, staged: string, names: []string) -> (failed:
         if err := os.remove(old); err != nil && os.exists(old) {
             log.errorf("Could not remove %q: %v", old, err)
             rollback(install, moved[:])
+            drop_fresh(install, names)
             return name, false
         }
         if err := os.rename(live, old); err != nil {
             log.errorf("Could not move %q aside: %v", live, err)
             rollback(install, moved[:])
+            drop_fresh(install, names)
             return name, false
         }
         append(&moved, name)
     }
 
-    for name, index in names {
+    for name in names {
         live, _, paths_ok := swap_paths(install, name, context.temp_allocator)
-        copy_err: os.Error = paths_ok ? os.copy_file(live, sources[index]) : .Invalid_Path
-        if copy_err != nil {
-            log.errorf("Could not copy %q into place: %v", name, copy_err)
-            // Whatever landed is half a build, so it goes before the backups
-            // come back.
-            for done in moved {
-                written, _, done_ok := swap_paths(install, done, context.temp_allocator)
-                if !done_ok {
-                    continue
-                }
-                if err := os.remove(written); err != nil && os.exists(written) {
-                    log.errorf("Could not remove the half-written %q: %v", written, err)
-                }
-            }
+        rename_err: os.Error = paths_ok ? os.rename(fresh_path(live), live) : .Invalid_Path
+        if rename_err != nil {
+            log.errorf("Could not put the new %q in place: %v", name, rename_err)
             rollback(install, moved[:])
+            drop_fresh(install, names)
             return name, false
-        }
-        when ODIN_OS != .Windows {
-            if err := os.change_mode(live, os.perm_number(0o755)); err != nil {
-                log.warnf("Could not make %q executable: %v", live, err)
-            }
         }
     }
     return "", true
 }
 
-// Replaces each of `dirs` under `install` with the staged one. A directory the
-// stage does not hold is left alone. A failure is counted rather than stopping
-// the rest: the backup stays under its .old name for the next start to restore,
-// which is better than a binary newer than the whole tree beside it.
+// Replaces each of `dirs` under `install` with the staged one, copied beside the
+// live directory and renamed into place. A directory the stage does not hold is
+// left alone. A failure is counted rather than stopping the rest, which is
+// better than a binary newer than the whole tree beside it.
 swap_dirs :: proc(install: string, staged: string, dirs: []string) -> (replaced: int, failed: int) {
     for dir in dirs {
         source, join_err := filepath.join({staged, dir}, context.temp_allocator)
@@ -137,18 +176,38 @@ swap_dirs :: proc(install: string, staged: string, dirs: []string) -> (replaced:
             failed += 1
             continue
         }
+        fresh := fresh_path(live)
+        if err := remove_path(fresh); err != nil && os.exists(fresh) {
+            log.errorf("Could not remove %q: %v", fresh, err)
+            failed += 1
+            continue
+        }
+        if err := os.copy_directory_all(fresh, source); err != nil {
+            log.errorf("Could not copy %q: %v", source, err)
+            drop_fresh(install, {dir})
+            failed += 1
+            continue
+        }
         if err := remove_path(old); err != nil && os.exists(old) {
             log.errorf("Could not remove %q: %v", old, err)
+            drop_fresh(install, {dir})
             failed += 1
             continue
         }
         if err := os.rename(live, old); err != nil && os.exists(live) {
             log.errorf("Could not move %q aside: %v", live, err)
+            drop_fresh(install, {dir})
             failed += 1
             continue
         }
-        if err := os.copy_directory_all(live, source); err != nil {
-            log.errorf("Could not copy %q: %v", source, err)
+        if err := os.rename(fresh, live); err != nil {
+            log.errorf("Could not put %q in place: %v", live, err)
+            if os.exists(old) {
+                if rerr := os.rename(old, live); rerr != nil {
+                    log.errorf("Could not restore %q: %v", live, rerr)
+                }
+            }
+            drop_fresh(install, {dir})
             failed += 1
             continue
         }
