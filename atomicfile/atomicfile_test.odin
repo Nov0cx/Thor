@@ -3,7 +3,6 @@ package atomicfile
 // Run from the repository root: odin test atomicfile
 
 import "core:fmt"
-import "core:log"
 import "core:os"
 import "core:strings"
 import "core:testing"
@@ -62,8 +61,7 @@ test_write_replaces_and_creates :: proc(t: ^testing.T) {
 
 @(test)
 test_write_follows_a_symlink :: proc(t: ^testing.T) {
-    // A symlink needs a privilege Windows may not grant; the warning is expected.
-    context.logger = log.nil_logger()
+    // A symlink needs a privilege Windows may not grant; the test then stops.
     dir, ok := scratch(t, "symlink")
     if !ok {
         return
