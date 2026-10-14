@@ -36,6 +36,36 @@ test_parse_variables :: proc(t: ^testing.T) {
     testing.expect_value(t, len(snip.stops), 0)
 }
 
+// An unclosed placeholder stays as written, with what was inside it.
+@(test)
+test_unclosed_placeholder_is_text :: proc(t: ^testing.T) {
+    snip := parse("a ${1:foo $2")
+    defer destroy(&snip)
+
+    testing.expect_value(t, snip.text, "a ${1:foo ")
+    testing.expect_value(t, len(snip.stops), 1)
+
+    unclosed_var := parse("x ${NOPE:bar")
+    defer destroy(&unclosed_var)
+    testing.expect_value(t, unclosed_var.text, "x ${NOPE:bar")
+}
+
+// A stop knows how many placeholders are around it.
+@(test)
+test_nested_stop_depth :: proc(t: ^testing.T) {
+    snip := parse("${1:a ${2:b ${3:c}}}")
+    defer destroy(&snip)
+
+    testing.expect_value(t, snip.text, "a b c")
+    testing.expect_value(t, len(snip.stops), 3)
+    if len(snip.stops) != 3 {
+        return
+    }
+    testing.expect_value(t, snip.stops[0].depth, 0)
+    testing.expect_value(t, snip.stops[1].depth, 1)
+    testing.expect_value(t, snip.stops[2].depth, 2)
+}
+
 @(test)
 test_file_and_clipboard_variables :: proc(t: ^testing.T) {
     vars := Vars {

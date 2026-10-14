@@ -179,8 +179,13 @@ snippet_body :: proc(p: ^Parser, nested: bool) {
         if nested && c == '}' {
             return
         }
-        if c == '$' && snippet_dollar(p) {
-            continue
+        if c == '$' {
+            dollar := p.at
+            if snippet_dollar(p) {
+                continue
+            }
+            // An unclosed construct read on to the end; it is text from its `$`.
+            p.at = dollar
         }
         strings.write_byte(&p.out, c)
         p.at += 1
