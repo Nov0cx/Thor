@@ -105,6 +105,41 @@ test_select_next_reaches_occurrence_before_primary :: proc(t: ^testing.T) {
     testing.expect(t, found, "the occurrence between the first and the primary is reachable")
 }
 
+// An occurrence that overlaps a selection is not a free one: on "aaaa" the
+// wrap must not add [1, 3), which would merge every selection into one.
+@(test)
+test_select_next_skips_an_overlapping_occurrence :: proc(t: ^testing.T) {
+    state := ops_state("aaaa", 0)
+    defer destroy(&state)
+    select_range(&state, 0, 2)
+
+    select_word_or_next(&state, false)
+    testing.expect_value(t, len(state.cursors), 2)
+    select_word_or_next(&state, false)
+    testing.expect_value(t, len(state.cursors), 2)
+    lo, hi := selection_range(state.cursors[0])
+    testing.expect_value(t, lo, 0)
+    testing.expect_value(t, hi, 2)
+    lo, hi = selection_range(state.cursors[1])
+    testing.expect_value(t, lo, 2)
+    testing.expect_value(t, hi, 4)
+}
+
+// A selection that ends at a line start does not take that line.
+@(test)
+test_line_ops_skip_a_line_the_selection_only_touches :: proc(t: ^testing.T) {
+    state := ops_state("aaa\nbbb\nccc", 0)
+    defer destroy(&state)
+
+    select_range(&state, 0, 4) // "aaa\n"
+    move_lines(&state, 1)
+    testing.expect_value(t, text(&state), "bbb\naaa\nccc")
+
+    select_range(&state, 4, 8) // "aaa\n"
+    duplicate_lines(&state, 1)
+    testing.expect_value(t, text(&state), "bbb\naaa\naaa\nccc")
+}
+
 @(test)
 test_move_and_duplicate_lines :: proc(t: ^testing.T) {
     state := ops_state("aaa\nbbb\nccc", 4) // caret on "bbb"

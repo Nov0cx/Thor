@@ -100,12 +100,17 @@ word_range_at :: proc(txt: string, pos: int) -> (int, int, bool) {
     return start, end, end > start
 }
 
-// True when a cursor already holds exactly [start, start + width).
+// True when a cursor touches [start, start + width): a selection that overlaps
+// it, or a caret strictly inside it.
 @(private = "file")
-occurrence_selected :: proc(state: ^State, start, width: int) -> bool {
+occurrence_taken :: proc(state: ^State, start, width: int) -> bool {
+    end := start + width
     for cursor in state.cursors {
         clo, chi := selection_range(cursor)
-        if clo == start && chi == start + width {
+        if clo == start && chi == end {
+            return true
+        }
+        if clo < chi ? clo < end && chi > start : clo > start && clo < end {
             return true
         }
     }
@@ -160,7 +165,7 @@ select_word_or_next :: proc(state: ^State, whole_word: bool) {
         if whole_word && !word_bounded(txt, at, at + len(needle)) {
             continue
         }
-        if occurrence_selected(state, at, len(needle)) {
+        if occurrence_taken(state, at, len(needle)) {
             continue
         }
         next = at
