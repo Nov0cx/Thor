@@ -2783,6 +2783,8 @@ editor_press :: proc(
         editor.suppress_drag = true
         return true
     }
+    // The list belongs to the caret it opened at, so a click anywhere else closes it.
+    editor_dismiss_completion(editor)
 
     // A click in the fold column toggles that line's fold instead of moving the
     // caret.

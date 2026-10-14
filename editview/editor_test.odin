@@ -1,5 +1,6 @@
 package editview
 
+import "core:strings"
 import "core:testing"
 
 import "../textedit"
@@ -123,6 +124,36 @@ test_completion_click_outside_rows :: proc(t: ^testing.T) {
 
     left := ui.Vec2 {box.x - 4, box.y + 2}
     testing.expect_value(t, editor_completion_row_at(&editor, left), -1)
+}
+
+// A click in the text closes the popup, so a Tab after it indents instead of
+// replacing the old prefix's length before the new caret.
+@(test)
+test_completion_click_in_text_dismisses :: proc(t: ^testing.T) {
+    state: textedit.State
+    textedit.init(&state)
+    defer textedit.destroy(&state)
+
+    editor: Editor
+    defer delete(editor.visual_rows)
+    defer delete(editor.completion_rows)
+    defer editor_test_free_completions(&editor)
+
+    editor_test_completion_setup(&editor, &state, "al\nxyz\n")
+    textedit.set_single_cursor(&state, 2)
+    editor_set_completions(&editor, []Completion_Item{{text = "alpha"}})
+    testing.expect(t, editor.completion_active)
+
+    box, _, _, _ := editor_completion_rects(&editor)
+    point := ui.Vec2 {box.x + box.w + 40, box.y + box.h + 40}
+    testing.expect_value(t, editor_completion_row_at(&editor, point), -1)
+    editor_press(&editor, point, .Left, {}, 1)
+    testing.expect(t, !editor.completion_active, "the click closed the popup")
+
+    before_len := textedit.length(&state)
+    editor_key(&editor, {key = .Tab})
+    testing.expect(t, !strings.contains(textedit.text(&state), "alpha"), "no candidate was accepted")
+    testing.expect(t, textedit.length(&state) > before_len, "the Tab was typed")
 }
 
 // The wheel over the popup walks the candidates and leaves the text where it is,
