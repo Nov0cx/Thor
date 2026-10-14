@@ -329,6 +329,39 @@ test_underscore_in_a_word_stays :: proc(t: ^testing.T) {
     testing.expect_value(t, items[len(items) - 1].color, test_palette().strong)
 }
 
+// A lone `*` between spaces is not emphasis, and `_` inside a word is not one.
+@(test)
+test_markers_that_open_nothing_stay :: proc(t: ^testing.T) {
+    page: Page
+    defer page_destroy(&page)
+    lay(&page, "2 * 3 * 4 and thor_open_folder\n")
+
+    items := texts(&page)
+    words := make([dynamic]string, context.temp_allocator)
+    for item in items {
+        append(&words, item.text)
+    }
+    testing.expect_value(t, strings.join(words[:], " ", context.temp_allocator), "2 * 3 * 4 and thor_open_folder")
+}
+
+// Punctuation right after a code span or a styled run keeps no space before it.
+@(test)
+test_punctuation_glues_to_the_span_before :: proc(t: ^testing.T) {
+    page: Page
+    defer page_destroy(&page)
+    lay(&page, "`code`. and **bold**, end\n")
+
+    items := texts(&page)
+    testing.expect_value(t, len(items), 6)
+    if len(items) != 6 {
+        return
+    }
+    testing.expect_value(t, items[1].text, ".")
+    testing.expect(t, items[1].x - (items[0].x + 4 * CELL) < CELL, "no space between the code span and its period")
+    testing.expect_value(t, items[4].text, ",")
+    testing.expect_value(t, items[4].x, items[3].x + 4 * CELL)
+}
+
 @(test)
 test_strikethrough_draws_a_line :: proc(t: ^testing.T) {
     page: Page
