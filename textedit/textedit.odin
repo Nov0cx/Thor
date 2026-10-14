@@ -998,11 +998,11 @@ Run_Class :: enum {
 }
 
 @(private)
-run_class :: proc(b: u8) -> Run_Class {
+run_class :: proc(r: rune) -> Run_Class {
     switch {
-    case is_word_byte(b):
+    case is_word_rune(r):
         return .Word
-    case b == ' ' || b == '\t':
+    case r == ' ' || r == '\t':
         return .Space
     }
     return .Other
@@ -1015,8 +1015,10 @@ same_run :: proc(run, next: string) -> bool {
     if len(run) == 0 || len(next) == 0 {
         return false
     }
-    class := run_class(run[len(run) - 1])
-    return class != .Other && class == run_class(next[0])
+    last, _ := utf8.decode_last_rune_in_string(run)
+    first, _ := utf8.decode_rune_in_string(next)
+    class := run_class(last)
+    return class != .Other && class == run_class(first)
 }
 
 @(private)
@@ -1429,13 +1431,33 @@ offset_for_column :: proc(txt: string, start: int, col: int, tab_width: int) -> 
     return start + display_offset(txt[start:], col, tab_width)
 }
 
+// A letter, a number, a combining mark or `_`.
 @(private)
-is_word_byte :: proc(b: u8) -> bool {
-    return b == '_' ||
-        (b >= '0' && b <= '9') ||
-        (b >= 'a' && b <= 'z') ||
-        (b >= 'A' && b <= 'Z') ||
-        b >= 0x80
+is_word_rune :: proc(r: rune) -> bool {
+    if r < 0x80 {
+        return is_word_byte_ascii(u8(r))
+    }
+    return unicode.is_letter(r) || unicode.is_number(r) || unicode.is_combining(r)
+}
+
+// Whether the rune at `pos` is a word rune, and its byte width.
+@(private)
+word_rune_after :: proc(txt: string, pos: int) -> (bool, int) {
+    if txt[pos] < 0x80 {
+        return is_word_byte_ascii(txt[pos]), 1
+    }
+    r, width := utf8.decode_rune_in_string(txt[pos:])
+    return is_word_rune(r), width
+}
+
+// Whether the rune that ends at `pos` is a word rune, and its byte width.
+@(private)
+word_rune_before :: proc(txt: string, pos: int) -> (bool, int) {
+    if txt[pos - 1] < 0x80 {
+        return is_word_byte_ascii(txt[pos - 1]), 1
+    }
+    r, width := utf8.decode_last_rune_in_string(txt[:pos])
+    return is_word_rune(r), width
 }
 
 // True when [start, end) is not glued to a word character, tested only on the
@@ -1446,13 +1468,45 @@ word_bounded :: proc(txt: string, start, end: int) -> bool {
     if end <= start {
         return true
     }
-    if is_word_byte(txt[start]) && start > 0 && is_word_byte(txt[start - 1]) {
-        return false
+    if first, _ := word_rune_after(txt, start); first && start > 0 {
+        if before, _ := word_rune_before(txt, start); before {
+            return false
+        }
     }
-    if is_word_byte(txt[end - 1]) && end < len(txt) && is_word_byte(txt[end]) {
-        return false
+    if last, _ := word_rune_before(txt, end); last && end < len(txt) {
+        if after, _ := word_rune_after(txt, end); after {
+            return false
+        }
     }
     return true
+}
+
+// The end of the run of word runes from `pos`.
+@(private)
+word_run_end :: proc(txt: string, pos: int) -> int {
+    p := pos
+    for p < len(txt) {
+        word, width := word_rune_after(txt, p)
+        if !word {
+            break
+        }
+        p += width
+    }
+    return p
+}
+
+// The start of the run of word runes that ends at `pos`.
+@(private)
+word_run_start :: proc(txt: string, pos: int) -> int {
+    p := pos
+    for p > 0 {
+        word, width := word_rune_before(txt, p)
+        if !word {
+            break
+        }
+        p -= width
+    }
+    return p
 }
 
 @(private)
@@ -1475,14 +1529,18 @@ word_boundary_right :: proc(txt: string, pos: int) -> int {
     if p < len(txt) && txt[p] == '\n' {
         return p
     }
-    if p < len(txt) && is_word_byte(txt[p]) {
-        for p < len(txt) && is_word_byte(txt[p]) {
-            p += 1
+    if p >= len(txt) {
+        return p
+    }
+    if word, _ := word_rune_after(txt, p); word {
+        return word_run_end(txt, p)
+    }
+    for p < len(txt) && !is_space_byte(txt[p]) && txt[p] != '\n' {
+        word, width := word_rune_after(txt, p)
+        if word {
+            break
         }
-    } else {
-        for p < len(txt) && !is_word_byte(txt[p]) && !is_space_byte(txt[p]) && txt[p] != '\n' {
-            p += 1
-        }
+        p += width
     }
     return p
 }
@@ -1502,14 +1560,18 @@ word_boundary_left :: proc(txt: string, pos: int) -> int {
     if p > 0 && txt[p - 1] == '\n' {
         return p
     }
-    if p > 0 && is_word_byte(txt[p - 1]) {
-        for p > 0 && is_word_byte(txt[p - 1]) {
-            p -= 1
+    if p <= 0 {
+        return 0
+    }
+    if word, _ := word_rune_before(txt, p); word {
+        return word_run_start(txt, p)
+    }
+    for p > 0 && !is_space_byte(txt[p - 1]) && txt[p - 1] != '\n' {
+        word, width := word_rune_before(txt, p)
+        if word {
+            break
         }
-    } else {
-        for p > 0 && !is_word_byte(txt[p - 1]) && !is_space_byte(txt[p - 1]) && txt[p - 1] != '\n' {
-            p -= 1
-        }
+        p -= width
     }
     return p
 }

@@ -89,14 +89,8 @@ select_line :: proc(state: ^State) {
 // Returns the [start, end) byte range of the word-characters surrounding pos,
 // and whether any were found. Used by double-click / word-drag selection.
 word_range_at :: proc(txt: string, pos: int) -> (int, int, bool) {
-    start := pos
-    end := pos
-    for start > 0 && is_word_byte(txt[start - 1]) {
-        start -= 1
-    }
-    for end < len(txt) && is_word_byte(txt[end]) {
-        end += 1
-    }
+    start := word_run_start(txt, pos)
+    end := word_run_end(txt, pos)
     return start, end, end > start
 }
 

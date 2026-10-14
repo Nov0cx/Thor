@@ -64,6 +64,42 @@ test_word_jump :: proc(t: ^testing.T) {
     testing.expect_value(t, primary_cursor(&state).caret, 15) // start of "four"
 }
 
+// A non-ASCII letter is part of a word, a non-ASCII dash is not.
+@(test)
+test_word_jump_unicode :: proc(t: ^testing.T) {
+    state: State
+    init(&state)
+    defer destroy(&state)
+
+    // "foo" 0..3, the em dash 3..6, "bar" 6..9, " " 9, "größe" 10..17.
+    insert_text(&state, "foo—bar größe")
+    set_single_cursor(&state, 0)
+
+    move_word(&state, 1, false)
+    testing.expect_value(t, primary_cursor(&state).caret, 3)
+    move_word(&state, 1, false)
+    testing.expect_value(t, primary_cursor(&state).caret, 6)
+    move_word(&state, 1, false)
+    testing.expect_value(t, primary_cursor(&state).caret, 9)
+    move_word(&state, 1, false)
+    testing.expect_value(t, primary_cursor(&state).caret, 17)
+    move_word(&state, -1, false)
+    testing.expect_value(t, primary_cursor(&state).caret, 10)
+    move_word(&state, -1, false)
+    testing.expect_value(t, primary_cursor(&state).caret, 6)
+
+    txt := text(&state)
+    lo, hi, found := word_range_at(txt, 1)
+    testing.expect(t, found)
+    testing.expect_value(t, lo, 0)
+    testing.expect_value(t, hi, 3)
+    lo, hi, found = word_range_at(txt, 12)
+    testing.expect(t, found)
+    testing.expect_value(t, lo, 10)
+    testing.expect_value(t, hi, 17)
+    testing.expect(t, word_bounded(txt, 6, 9), "the dash bounds \"bar\"")
+}
+
 @(test)
 test_bracket_match :: proc(t: ^testing.T) {
     state: State
