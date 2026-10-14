@@ -229,7 +229,7 @@ test_swap_dirs_keeps_live_on_a_failed_copy :: proc(t: ^testing.T) {
 
     install, staged := at(root, "install"), at(root, "staged")
     write(t, install, "assets/icons.json", "old icons")
-    // A file passes the existence check and then refuses to copy as a directory.
+    // A file passes the existence check but is not a directory.
     write(t, staged, "assets", "not a directory")
 
     replaced, failed := swap_dirs_quiet(install, staged, {"assets"})

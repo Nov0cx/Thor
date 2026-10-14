@@ -171,6 +171,12 @@ swap_dirs :: proc(install: string, staged: string, dirs: []string) -> (replaced:
         if !os.exists(source) {
             continue
         }
+        // macOS copyfile copies a plain file as if it were a directory.
+        if !os.is_dir(source) {
+            log.errorf("Could not copy %q: it is not a directory", source)
+            failed += 1
+            continue
+        }
         live, old, paths_ok := swap_paths(install, dir, context.temp_allocator)
         if !paths_ok {
             failed += 1
