@@ -7,6 +7,7 @@ package atomicfile
 import "core:log"
 import "core:os"
 import "core:strings"
+import "core:time"
 
 // The most symlink hops followed to the real file.
 @(private)
@@ -74,14 +75,45 @@ write_replace :: proc(target: string, data: []byte) -> os.Error {
         err = close_err
     }
     if err == nil {
-        err = os.rename(temp, target)
+        err = retry_rename(temp, target)
     }
     if err != nil {
-        if rerr := os.remove(temp); rerr != nil && os.exists(temp) {
+        if rerr := retry_remove(temp); rerr != nil && os.exists(temp) {
             log.warnf("Cannot remove the temp file %q: %v", temp, rerr)
         }
     }
     return err
+}
+
+// How often a refused rename or remove is tried. A virus scanner or an indexer
+// on Windows opens a new file for a moment, and the call then fails with a
+// sharing violation.
+@(private)
+RETRIES :: 10 when ODIN_OS == .Windows else 1
+
+@(private)
+RETRY_STEP :: 5 * time.Millisecond
+
+@(private)
+retry_rename :: proc(from, to: string) -> (err: os.Error) {
+    for attempt in 0 ..< RETRIES {
+        if err = os.rename(from, to); err != .Permission_Denied {
+            return
+        }
+        time.sleep(time.Duration(attempt + 1) * RETRY_STEP)
+    }
+    return
+}
+
+@(private)
+retry_remove :: proc(path: string) -> (err: os.Error) {
+    for attempt in 0 ..< RETRIES {
+        if err = os.remove(path); err != .Permission_Denied {
+            return
+        }
+        time.sleep(time.Duration(attempt + 1) * RETRY_STEP)
+    }
+    return
 }
 
 // Writes and flushes `data` into the temp file, giving it the mode of the file
