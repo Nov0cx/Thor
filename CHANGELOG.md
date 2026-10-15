@@ -10,7 +10,7 @@
 - Settings > Language Servers no longer offers to open the shipped `settings/lsp.json`, which a build and an update replace. It opens `user/lsp.json`.
 - Toggle Word Wrap acts on the pane in use. It always changed the left pane.
 - Every key can be captured for a keybind, `ctrl + minus` included. A key with no name was saved as `ctrl+` and lost.
-- An install updated from before `user/` existed carries its settings over. The log file stopped it.
+- An install updated from before `user/` existed carries its settings over. The log file stopped it, and on Linux and macOS the existing `user/` folder did too.
 - A question about a file changed on disk asks again when another prompt replaced it.
 - Renaming or moving a folder carries every open tab under it. Their saves failed until they were reopened.
 - A terminal with a full scrollback no longer slows down with every new line.
