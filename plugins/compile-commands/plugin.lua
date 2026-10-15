@@ -189,7 +189,7 @@ end
 -- "tasks" array) reports ok = false, so a hand-edited file is never rewritten
 -- from a parse that lost part of it.
 local function read_tasks()
-    local text = thor.read(TASKS_FILE)
+    local text = thor.read(TASKS_FILE) or ""
     if text:match("^%s*$") then
         return {}, true
     end

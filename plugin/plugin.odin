@@ -12,6 +12,7 @@ import "core:fmt"
 import "core:log"
 import "core:os"
 import "core:path/filepath"
+import "core:slice"
 import "core:strings"
 import "core:time"
 
@@ -68,8 +69,11 @@ Data_Root_Proc :: #type proc(host: rawptr) -> string
 // The host owns the string.
 Active_Path_Proc :: #type proc(host: rawptr) -> string
 // Returns the current text of the buffer at `path` (in-memory when the file is
-// open, else read from disk). The host owns the result; the caller frees it.
-Read_Proc :: #type proc(host: rawptr, path: string) -> string
+// open, else read from disk), and false when there is none to read. The caller
+// frees the text.
+Read_Proc :: #type proc(host: rawptr, path: string) -> (string, bool)
+// Whether a file or a folder is at `path`. Nil asks the disk.
+Exists_Proc :: #type proc(host: rawptr, path: string) -> bool
 // Writes `text` to `path` on disk without opening a tab, creating parent dirs.
 Write_Proc :: #type proc(host: rawptr, path: string, text: string)
 // Recomputes the tree's git-status colouring; called after a plugin mutates the
@@ -108,6 +112,7 @@ Host :: struct {
     data_root:   Data_Root_Proc,
     active_path: Active_Path_Proc,
     read:        Read_Proc,
+    exists:      Exists_Proc,
     write:       Write_Proc,
     refresh_git: Refresh_Git_Proc,
     menu:        Menu_Proc,
@@ -146,6 +151,7 @@ Manager :: struct {
     data_root_proc:   Data_Root_Proc,
     active_path_proc: Active_Path_Proc,
     read_proc:        Read_Proc,
+    exists_proc:      Exists_Proc,
     write_proc:       Write_Proc,
     refresh_git_proc: Refresh_Git_Proc,
     menu_proc:        Menu_Proc,
@@ -160,11 +166,11 @@ Manager :: struct {
     draw_text_proc:    Draw_Text_Proc,
     draw_line_proc:    Draw_Line_Proc,
     measure_text_proc: Measure_Text_Proc,
-    // The on_key handler; only one plugin holds it, the last with `keys` to ask.
-    key:          Callback,
-    // The on_key_up handler, registered apart from `key` so a plugin that wants
-    // presses only never sees a release.
-    key_up:       Callback,
+    // The on_key handlers, one per plugin, in load order. Owned.
+    key:          [dynamic]Callback,
+    // The on_key_up handlers, registered apart from `key` so a plugin that wants
+    // presses only never sees a release. Owned.
+    key_up:       [dynamic]Callback,
     // When the on_tick handlers last ran (see manager_dispatch_tick).
     tick_at:      time.Tick,
     // Start of the call running in this state (see call_guarded); one manager,
@@ -214,6 +220,7 @@ manager_set_host :: proc(m: ^Manager, host: Host) {
     m.data_root_proc = host.data_root
     m.active_path_proc = host.active_path
     m.read_proc = host.read
+    m.exists_proc = host.exists
     m.write_proc = host.write
     m.refresh_git_proc = host.refresh_git
     m.menu_proc = host.menu
@@ -241,8 +248,8 @@ manager_init :: proc(m: ^Manager) {
     m.languages = make([dynamic]Language)
     m.by_ext = make(map[string]int)
     m.plugins = make([dynamic]Plugin)
-    m.key = Callback {-1, NOREF}
-    m.key_up = Callback {-1, NOREF}
+    m.key = make([dynamic]Callback)
+    m.key_up = make([dynamic]Callback)
     m.dialog = Callback {-1, NOREF}
     m.tick_at = time.tick_now()
     m.commands = make(map[string]Callback)
@@ -253,8 +260,14 @@ manager_init :: proc(m: ^Manager) {
 
 manager_destroy :: proc(m: ^Manager) {
     context.allocator = m.allocator
-    release(m, &m.key)
-    release(m, &m.key_up)
+    for &cb in m.key {
+        release(m, &cb)
+    }
+    delete(m.key)
+    for &cb in m.key_up {
+        release(m, &cb)
+    }
+    delete(m.key_up)
     release(m, &m.dialog)
     for name, cb in m.commands {
         unref(m, cb.ref)
@@ -532,6 +545,8 @@ push_api_table :: proc(m: ^Manager, index: int) {
     }
     if .Read in perms {
         bind(L, m, index, api, "read", api_read)
+        bind(L, m, index, api, "exists", api_exists)
+        bind(L, m, index, api, "list", api_list)
     }
     if .Write in perms {
         bind(L, m, index, api, "write", api_write)
@@ -640,9 +655,8 @@ api_on_key :: proc "c" (L: ^lua.State) -> c.int {
         return 0
     }
     context.allocator = m.allocator
-    release(m, &m.key)
     lua.pushvalue(L, 1) // ref pops the top, so copy the argument up
-    m.key = Callback {index, int(lua.L_ref(L, lua.REGISTRYINDEX))}
+    set_handler(m, &m.key, Callback {index, int(lua.L_ref(L, lua.REGISTRYINDEX))})
     return 0
 }
 
@@ -656,10 +670,22 @@ api_on_key_up :: proc "c" (L: ^lua.State) -> c.int {
         return 0
     }
     context.allocator = m.allocator
-    release(m, &m.key_up)
     lua.pushvalue(L, 1) // ref pops the top, so copy the argument up
-    m.key_up = Callback {index, int(lua.L_ref(L, lua.REGISTRYINDEX))}
+    set_handler(m, &m.key_up, Callback {index, int(lua.L_ref(L, lua.REGISTRYINDEX))})
     return 0
+}
+
+// Puts `cb` in its plugin's slot of `handlers`, replacing what that plugin held.
+@(private = "file")
+set_handler :: proc(m: ^Manager, handlers: ^[dynamic]Callback, cb: Callback) {
+    for &held in handlers {
+        if held.owner == cb.owner {
+            release(m, &held)
+            held = cb
+            return
+        }
+    }
+    append(handlers, cb)
 }
 
 // Pushes `s` with its full length, NUL bytes included.
@@ -781,25 +807,87 @@ api_active_path :: proc "c" (L: ^lua.State) -> c.int {
 
 // thor.read(path): the current text of the buffer at `path`, taking the open
 // buffer's contents when it is open and falling back to disk. Confined to the
-// workspace and the plugin's own folder. Needs the `read` permission.
+// workspace and the plugin's own folder. Returns nil and a message for a file
+// that is missing, unreadable or outside those folders. Needs the `read` permission.
 @(private)
 api_read :: proc "c" (L: ^lua.State) -> c.int {
     context = runtime.default_context()
     m, index := caller(L)
     if m == nil || m.read_proc == nil || lua.type(L, 1) != .STRING {
-        lua.pushstring(L, "")
-        return 1
+        return push_failure(L, "thor.read takes a path")
     }
     context.allocator = m.allocator
     path, ok := resolve_path(m, index, string(lua.tostring(L, 1)))
     if !ok {
-        lua.pushstring(L, "")
-        return 1
+        return push_failure(L, "the path is outside the workspace and the plugin folder")
     }
-    out := m.read_proc(m.host, path)
+    out, read := m.read_proc(m.host, path)
+    if !read {
+        return push_failure(L, "the file cannot be read")
+    }
     push_string(L, out)
     delete(out) // host-owned result, freed after copying into Lua
     return 1
+}
+
+// thor.exists(path): whether a file or a folder is at `path`. Confined like
+// thor.read. Needs the `read` permission.
+@(private)
+api_exists :: proc "c" (L: ^lua.State) -> c.int {
+    context = runtime.default_context()
+    m, index := caller(L)
+    if m == nil || lua.type(L, 1) != .STRING {
+        lua.pushboolean(L, false)
+        return 1
+    }
+    context.allocator = m.allocator
+    path, ok := resolve_path(m, index, string(lua.tostring(L, 1)))
+    found := false
+    if ok {
+        found = m.exists_proc != nil ? m.exists_proc(m.host, path) : os.exists(path)
+    }
+    lua.pushboolean(L, b32(found))
+    return 1
+}
+
+// thor.list(dir): the entries of a folder as {name = "a.odin", dir = false}
+// rows sorted by name, or nil and a message. Confined like thor.read. Needs
+// the `read` permission.
+@(private)
+api_list :: proc "c" (L: ^lua.State) -> c.int {
+    context = runtime.default_context()
+    m, index := caller(L)
+    if m == nil || lua.type(L, 1) != .STRING {
+        return push_failure(L, "thor.list takes a path")
+    }
+    context.allocator = m.allocator
+    path, ok := resolve_path(m, index, string(lua.tostring(L, 1)))
+    if !ok {
+        return push_failure(L, "the path is outside the workspace and the plugin folder")
+    }
+    entries, err := os.read_all_directory_by_path(path, context.temp_allocator)
+    if err != nil {
+        return push_failure(L, "the folder cannot be read")
+    }
+    slice.sort_by(entries, proc(a, b: os.File_Info) -> bool {return a.name < b.name})
+    lua.createtable(L, c.int(len(entries)), 0)
+    for entry, i in entries {
+        lua.createtable(L, 0, 2)
+        push_string(L, entry.name)
+        lua.setfield(L, -2, "name")
+        lua.pushboolean(L, b32(entry.type == .Directory))
+        lua.setfield(L, -2, "dir")
+        lua.rawseti(L, -2, lua.Integer(i + 1))
+    }
+    return 1
+}
+
+// Pushes nil and `message`, the failure a Lua io call returns.
+@(private = "file")
+push_failure :: proc(L: ^lua.State, message: string) -> c.int {
+    lua.pushnil(L)
+    push_string(L, message)
+    return 2
 }
 
 // thor.write(path, text): writes `text` to `path` on disk without opening a tab.
@@ -1011,8 +1099,19 @@ api_on_command :: proc "c" (L: ^lua.State) -> c.int {
     name := string(lua.tostring(L, 1))
     lua.pushvalue(L, 2)
     cb := Callback {index, int(lua.L_ref(L, lua.REGISTRYINDEX))}
-    // Reuse the existing owned key on replace; clone for a new one.
+    // Reuse the existing owned key on replace; clone for a new one. A name
+    // another plugin holds stays with it.
     if existing, ok := m.commands[name]; ok {
+        if existing.owner != index {
+            log.warnf(
+                "plugin %s: command %q is taken by plugin %s",
+                m.plugins[index].id,
+                name,
+                m.plugins[existing.owner].id,
+            )
+            release(m, &cb)
+            return 0
+        }
         old := existing
         release(m, &old)
         m.commands[name] = cb
@@ -1032,20 +1131,31 @@ manager_run_command :: proc(m: ^Manager, name: string) -> bool {
     return call_callback(m, cb, 0, 0, "command")
 }
 
-// Dispatches a key press to the on_key handler. `chord` is the display string
-// (same format as thor.keybind). Returns whether the plugin consumed it.
+// Dispatches a key press to the on_key handlers in load order, until one
+// consumes it. `chord` is the display string (same format as thor.keybind).
 manager_dispatch_key :: proc(m: ^Manager, chord: string, mods: input.Modifiers) -> (consumed: bool) {
-    return dispatch_key(m, m.key, "on_key", chord, mods)
+    return dispatch_key(m, &m.key, "on_key", chord, mods)
 }
 
-// Dispatches a key release to the on_key_up handler, which gets the table
+// Dispatches a key release to the on_key_up handlers, which get the table
 // on_key gets.
 manager_dispatch_key_up :: proc(m: ^Manager, chord: string, mods: input.Modifiers) -> (consumed: bool) {
-    return dispatch_key(m, m.key_up, "on_key_up", chord, mods)
+    return dispatch_key(m, &m.key_up, "on_key_up", chord, mods)
 }
 
 @(private = "file")
-dispatch_key :: proc(m: ^Manager, cb: Callback, name: string, chord: string, mods: input.Modifiers) -> (consumed: bool) {
+dispatch_key :: proc(m: ^Manager, handlers: ^[dynamic]Callback, name: string, chord: string, mods: input.Modifiers) -> (consumed: bool) {
+    // By index: a handler can register another, which can move the array.
+    for i := 0; i < len(handlers); i += 1 {
+        if call_key_handler(m, handlers[i], name, chord, mods) {
+            return true
+        }
+    }
+    return false
+}
+
+@(private = "file")
+call_key_handler :: proc(m: ^Manager, cb: Callback, name: string, chord: string, mods: input.Modifiers) -> (consumed: bool) {
     if cb.ref == NOREF {
         return false
     }

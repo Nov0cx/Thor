@@ -25,6 +25,12 @@
 - Stopping or restarting a language server that is still starting no longer freezes the window for up to ten seconds.
 - An edit a language server asks for that the editor did not take in time is not applied later. The server was told it failed.
 - The Odin compiler check stops after two minutes.
+- Each plugin keeps its own `thor.on_key` and `thor.on_key_up` handler. A second plugin replaced the first one's.
+- A plugin command name stays with the plugin that registered it first. The console names the plugin that asked second.
+- `thor.read` returns `nil` and a message for a file it cannot read. It returned `""` for a missing and for an empty file alike.
+- `thor.exists(path)` and `thor.list(dir)` for plugins with the `read` permission.
+- `tree:query` gives every node of a quantified capture in `match.nodes`.
+- Tree-sitter queries evaluate `#contains?`, `#has-ancestor?` and `#is-not? local`. A predicate with too few operands is reported on the console.
 
 # 2026.10.4
 

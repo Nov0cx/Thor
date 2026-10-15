@@ -37,7 +37,7 @@ Every plugin runs in its own environment inside one shared Lua state:
   a command runs. So `thor.exec` stops the command itself once the call's budget
   is spent, and appends `[shell] command stopped after ...` to what it returns.
   A plugin that needs a long command must run it in pieces across `on_tick`.
-- File paths a plugin passes to `thor.read`, `thor.write` and `thor.doc` resolve
+- File paths a plugin passes to `thor.read`, `thor.exists`, `thor.list`, `thor.write` and `thor.doc` resolve
   against the open workspace and must stay inside it, inside the plugin's own
   folder, or inside the plugin's data folder (see `thor.data_path`). A path
   that goes through a symbolic link or a junction below one of those folders is
@@ -59,7 +59,7 @@ A plugin declares what it needs in `plugin.json` beside `plugin.lua`:
 | Permission | Grants |
 | ---------- | ------ |
 | `exec`     | `thor.exec` |
-| `read`     | `thor.read` |
+| `read`     | `thor.read`, `thor.exists`, `thor.list` |
 | `write`    | `thor.write`, `thor.doc` |
 | `ui`       | `thor.button`, `thor.menu`, `thor.panel`, `thor.prompt`, `thor.pick`, `thor.confirm` |
 | `keys`     | `thor.on_key`, `thor.on_key_up` |
@@ -141,7 +141,7 @@ short and do nothing when nothing changed:
 local last = nil
 
 thor.on_tick(function()
-    local src = thor.read "notes.md"
+    local src = thor.read "notes.md" or ""
     if src ~= last then
         last = src
         panel:render(outline_of(src))
@@ -161,6 +161,35 @@ which fires once per press.
 `thor.on_key_up(fn)` (same permission) is the release half, with the same table.
 It is registered apart from `on_key`, so a plugin that wants presses only keeps
 getting presses only.
+
+Each plugin holds one `on_key` and one `on_key_up` handler; a second call
+replaces its own. The handlers of all plugins run in load order until one
+returns `true`.
+
+`thor.on_command(name, fn)` names a command. A name another plugin registered
+first stays with that plugin, and the second registration is logged and ignored.
+
+## Files
+
+`thor.read(path)` (permission `read`) returns the text of the file: the open
+buffer when the file is open, else the file on disk. A file that is missing,
+cannot be read or is outside the allowed folders returns `nil` and a message,
+the way Lua's `io` calls fail; an empty file returns `""`.
+
+`thor.exists(path)` returns whether a file or a folder is there.
+
+`thor.list(dir)` returns the entries of a folder sorted by name, as
+`{ name = "main.odin", dir = false }` rows, or `nil` and a message.
+
+```lua
+local text, err = thor.read "build.json"
+if not text then
+    thor.print("no build.json: " .. err .. "\n")
+end
+for _, entry in ipairs(thor.list "src" or {}) do
+    if not entry.dir then thor.print(entry.name .. "\n") end
+end
+```
 
 ## Languages
 
@@ -201,9 +230,12 @@ query that does not compile is reported on the console with its byte offset and
 reason, and the language keeps the built-in query.
 
 A query may filter a pattern with `#eq?`, `#any-of?`, `#match?` (a regular
-expression), `#lua-match?` (a Lua pattern), `#has-parent?` and the `#not-` form
-of each. Directives (`#set!` and friends) are ignored. A predicate Thor does not
-evaluate never holds, which retires its whole pattern; the console names it once.
+expression), `#lua-match?` (a Lua pattern), `#contains?`, `#has-parent?`,
+`#has-ancestor?` and the `#not-` form of each. `#is? local` never holds and
+`#is-not? local` always holds, since Thor tracks no local scopes. Directives
+(`#set!` and friends) are ignored. A predicate Thor does not evaluate, or one
+with too few operands, never holds, which retires its whole pattern; the console
+names it once.
 
 Grammars stay compiled into the editor. Adding one is a source change (see
 `CLAUDE.md`); queries over an existing grammar are data.
@@ -228,7 +260,9 @@ end
 - `tree:root()`, `tree:language()`, `tree:source()`.
 - `tree:query(source)` — the query inline or as a `.scm` file in the plugin's
   folder. Returns an array of matches, each `{ pattern = n, [capture] = node }`,
-  or `nil, message` when the query does not compile.
+  or `nil, message` when the query does not compile. `[capture]` is the first
+  node a capture bound; `nodes[capture]` lists every node, for a quantified
+  capture such as `(comment)+ @c`.
 - Node fields: `start_byte`, `end_byte`, `start_row`, `start_column`, `end_row`,
   `end_column`, `named`, `missing`, `has_error`.
 - Node methods: `type()`, `text()`, `child(i)`, `child_count()`,

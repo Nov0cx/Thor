@@ -277,7 +277,7 @@ api_ts_parse_active :: proc "c" (L: ^lua.State) -> c.int {
         m.ts_state.lang_id = lang_id
     }
 
-    source := m.read_proc(m.host, path) // host-owned; taken over by Ts_Tree below, or freed on failure
+    source, _ := m.read_proc(m.host, path) // host-owned; taken over by Ts_Tree below, or freed on failure
     // The highlighter's entry for this path holds a tree of the buffer's own
     // grammar. Asking it for another grammar makes the two re-parse the file
     // whole in turn, every keystroke, so a mismatch goes to the plugin cache.
@@ -434,16 +434,29 @@ tree_query :: proc "c" (L: ^lua.State) -> c.int {
         if !syntax.predicates_ok(&m.highlighter, query, match, ud.source) {
             continue
         }
-        lua.createtable(L, 0, c.int(match.capture_count) + 1)
+        lua.createtable(L, 0, c.int(match.capture_count) + 2)
         entry := lua.gettop(L)
         lua.pushinteger(L, lua.Integer(match.pattern_index) + 1)
         lua.setfield(L, entry, "pattern")
+        // match[name] is the first node of a capture, match.nodes[name] all of them.
+        lua.createtable(L, 0, 0)
+        nodes := lua.gettop(L)
         for i in 0 ..< int(match.capture_count) {
             capture := match.captures[i]
-            name := ts.query_capture_name_for_id(query, capture.index)
+            name := strings.clone_to_cstring(ts.query_capture_name_for_id(query, capture.index), context.temp_allocator)
+            if lua.Type(lua.getfield(L, nodes, name)) == .NIL {
+                lua.pop(L, 1)
+                lua.createtable(L, 1, 0)
+                lua.pushvalue(L, -1)
+                lua.setfield(L, nodes, name)
+                push_node(L, m, 1, capture.node)
+                lua.setfield(L, entry, name)
+            }
             push_node(L, m, 1, capture.node)
-            lua.setfield(L, entry, strings.clone_to_cstring(name, context.temp_allocator))
+            lua.rawseti(L, -2, lua.Integer(lua.rawlen(L, -2)) + 1)
+            lua.pop(L, 1)
         }
+        lua.setfield(L, entry, "nodes")
         count += 1
         lua.rawseti(L, results, count)
     }

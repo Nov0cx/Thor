@@ -82,8 +82,8 @@ rec_write :: proc(host: rawptr, path, text: string) {
 
 // Gives back the text of the last write, whatever the path.
 @(private = "file")
-rec_read :: proc(host: rawptr, path: string) -> string {
-    return strings.clone((cast(^Recorder) host).text)
+rec_read :: proc(host: rawptr, path: string) -> (string, bool) {
+    return strings.clone((cast(^Recorder) host).text), true
 }
 
 @(private = "file")
@@ -606,6 +606,28 @@ thor.print("bytes=" .. tostring(matches[1].c.start_byte) .. ".." .. tostring(mat
     testing.expectf(t, strings.contains(out, "matches=1"), "query found no comment: %q", out)
     testing.expectf(t, strings.contains(out, "text=// note"), "capture text wrong: %q", out)
     testing.expectf(t, strings.contains(out, "bytes=11..18"), "capture offsets wrong: %q", out)
+}
+
+// A quantified capture keeps every node it bound, in match.nodes[name].
+@(test)
+test_ts_query_keeps_every_node_of_a_capture :: proc(t: ^testing.T) {
+    r: Recorder
+    recorder_init(&r)
+    defer recorder_destroy(&r)
+    m: Manager
+    recording_manager(&m, &r)
+    defer manager_destroy(&m)
+
+    script := `local tree = thor.ts.parse("package p\n\n// a\n// b\n", "odin")
+local matches, err = tree:query("((comment)+ @c)")
+if not matches then thor.print("query failed: " .. tostring(err)) return end
+thor.print("first=" .. matches[1].c:text())
+thor.print("count=" .. tostring(#matches[1].nodes.c))`
+    testing.expect(t, manager_load_source(&m, "quant", "plugins/quant", script, {}), "plugin runs")
+
+    out := printed(&r)
+    testing.expectf(t, strings.contains(out, "first=// a"), "first node wrong: %q", out)
+    testing.expectf(t, strings.contains(out, "count=2"), "nodes lost: %q", out)
 }
 
 // A node that outlives its tree answers nothing: a finaliser can free the tree

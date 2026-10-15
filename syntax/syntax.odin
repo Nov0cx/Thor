@@ -582,8 +582,8 @@ predicates_ok :: proc(h: ^Highlighter, query: ts.Query, match: ts.Query_Match, s
 }
 
 // Evaluates a pattern's predicates. Handles the filtering predicates the shipped
-// queries use (#eq?/#any-of?/#match?/#lua-match? and negations); #set! and other
-// directives pass through. Any predicate we can't evaluate fails conservatively
+// queries use (#eq?/#any-of?/#match?/#lua-match?/#contains?/#has-parent?/
+// #has-ancestor?/#is? and negations); #set! and other directives pass through. Any predicate we can't evaluate fails conservatively
 // so it can't mis-highlight.
 //
 // A predicate belongs to the pattern, so one that always fails silently retires
@@ -636,7 +636,12 @@ Predicate_Arg :: struct {
 // implementation.
 @(private)
 eval_predicate :: proc(h: ^Highlighter, op: string, args: []Predicate_Arg) -> bool {
+    // #is? names a property of the node. Thor tracks no locals, so no node is local.
+    if (op == "is?" || op == "is-not?") && len(args) > 0 && args[len(args) - 1].text == "local" {
+        return op == "is-not?"
+    }
     if len(args) < 2 {
+        report_unhandled(h, op, "has too few operands")
         return false
     }
     subject := args[0]
@@ -662,15 +667,48 @@ eval_predicate :: proc(h: ^Highlighter, op: string, args: []Predicate_Arg) -> bo
         return has_parent(subject, rest)
     case "not-has-parent?":
         return !has_parent(subject, rest)
+    case "has-ancestor?":
+        return has_ancestor(subject, rest)
+    case "not-has-ancestor?":
+        return !has_ancestor(subject, rest)
+    case "contains?":
+        return contains_any(subject.text, rest)
+    case "not-contains?":
+        return !contains_any(subject.text, rest)
     }
-    report_unhandled(h, op)
-    return false // unhandled filter (#is-not? local, #has-ancestor? ...)
+    report_unhandled(h, op, "is not evaluated")
+    return false
 }
 
 @(private)
 contains_text :: proc(args: []Predicate_Arg, text: string) -> bool {
     for arg in args {
         if arg.text == text {
+            return true
+        }
+    }
+    return false
+}
+
+// True when `text` holds one of the operands as a substring.
+@(private)
+contains_any :: proc(text: string, args: []Predicate_Arg) -> bool {
+    for arg in args {
+        if strings.contains(text, arg.text) {
+            return true
+        }
+    }
+    return false
+}
+
+// True when a node above the captured one has one of the named node types.
+@(private)
+has_ancestor :: proc(subject: Predicate_Arg, types: []Predicate_Arg) -> bool {
+    if !subject.capture || ts.node_is_null(subject.node) {
+        return false
+    }
+    for node := ts.node_parent(subject.node); !ts.node_is_null(node); node = ts.node_parent(node) {
+        if contains_text(types, string(ts.node_type(node))) {
             return true
         }
     }
@@ -754,12 +792,12 @@ lua_pattern_matches :: proc(text, pattern: string) -> bool {
 }
 
 @(private)
-report_unhandled :: proc(h: ^Highlighter, op: string) {
+report_unhandled :: proc(h: ^Highlighter, op: string, why: string) {
     if op in h.reported {
         return
     }
     h.reported[strings.clone(op)] = true
-    log.warnf("syntax: predicate #%s is not evaluated; its pattern never matches", op)
+    log.warnf("syntax: predicate #%s %s; its pattern never matches", op, why)
 }
 
 // The node a match bound to `capture_id`. Not every capture of a pattern is

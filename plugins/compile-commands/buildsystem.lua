@@ -12,7 +12,7 @@
 local M = {}
 
 local function exists(path)
-    return thor.read(path) ~= ""
+    return thor.exists(path)
 end
 
 local BEAR_INSTALL = { linux = "sudo apt-get update && sudo apt-get install -y bear", darwin = "brew install bear" }
@@ -35,7 +35,7 @@ end
 -- just written by configure_bazel below).
 local function wire_bazel_build_file(add_task)
     local build_path = exists("BUILD.bazel") and "BUILD.bazel" or (exists("BUILD") and "BUILD" or "BUILD.bazel")
-    local build_text = thor.read(build_path)
+    local build_text = thor.read(build_path) or ""
     local build_wired = build_text:find("hedron_compile_commands//:refresh_compile_commands.bzl", 1, true) ~= nil
 
     if not build_wired then
@@ -60,7 +60,7 @@ end
 -- (with confirmation, since it edits build files) if it is not already
 -- there, then the BUILD file target.
 local function configure_bazel(add_task)
-    local module_text = thor.read("MODULE.bazel")
+    local module_text = thor.read("MODULE.bazel") or ""
     if module_text:find("hedron_compile_commands", 1, true) then
         wire_bazel_build_file(add_task)
         return
@@ -122,7 +122,7 @@ function M.configure(ctx)
         thor.print("\n[compile-commands] compile_commands.json is already present at the workspace root.\n")
         return
     end
-    if exists(".clangd") and thor.read(".clangd"):find("CompilationDatabase", 1, true) then
+    if exists(".clangd") and (thor.read(".clangd") or ""):find("CompilationDatabase", 1, true) then
         thor.print("\n[compile-commands] .clangd already points clangd at a compilation database.\n")
         return
     end

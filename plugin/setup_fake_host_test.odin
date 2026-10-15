@@ -107,12 +107,17 @@ resolved :: proc(rel: string) -> string {
     return clean
 }
 
-fake_read :: proc(host: rawptr, path: string) -> string {
+fake_read :: proc(host: rawptr, path: string) -> (string, bool) {
     env := cast(^Fake_Env) host
     if v, ok := env.files[path]; ok {
-        return strings.clone(v)
+        return strings.clone(v), true
     }
-    return strings.clone("")
+    return "", false
+}
+
+fake_exists :: proc(host: rawptr, path: string) -> bool {
+    env := cast(^Fake_Env) host
+    return path in env.files
 }
 
 fake_write :: proc(host: rawptr, path: string, text: string) {
@@ -151,6 +156,7 @@ fake_host :: proc(env: ^Fake_Env) -> Host {
         data      = env,
         exec      = fake_exec,
         read      = fake_read,
+        exists    = fake_exists,
         write     = fake_write,
         doc       = fake_doc,
         print     = fake_print,

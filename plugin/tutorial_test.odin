@@ -60,12 +60,12 @@ tut_doc :: proc(host: rawptr, path, text: string, focus: bool) {
 }
 
 @(private = "file")
-tut_read :: proc(host: rawptr, path: string) -> string {
+tut_read :: proc(host: rawptr, path: string) -> (string, bool) {
     t := cast(^Tutor) host
     if strings.has_suffix(path, ".odin") {
-        return strings.clone(t.lab)
+        return strings.clone(t.lab), true
     }
-    return strings.clone("")
+    return "", false
 }
 
 @(private = "file")

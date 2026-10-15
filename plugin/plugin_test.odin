@@ -733,7 +733,7 @@ test_on_key_up_needs_permission :: proc(t: ^testing.T) {
 
     script := `if thor.on_key_up then thor.on_key_up(function() end) end`
     testing.expect(t, manager_load_source(&m, "quiet", "plugins/quiet", script, {}), "plugin script runs")
-    testing.expect(t, m.key_up.ref == NOREF, "a permission-free plugin registered a release handler")
+    testing.expect(t, len(m.key_up) == 0, "a permission-free plugin registered a release handler")
     testing.expect(t, !manager_dispatch_key_up(&m, "ctrl+z", {.Ctrl}), "a release was consumed with no handler")
 }
 
@@ -751,4 +751,51 @@ test_on_tick_needs_permission :: proc(t: ^testing.T) {
 
     m.tick_at._nsec -= i64(TICK_INTERVAL)
     manager_dispatch_tick(&m)
+}
+
+// Two plugins each keep their own key handler, and the first to consume a key ends the dispatch.
+@(test)
+test_on_key_is_per_plugin :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+
+    first := `seen = 0
+    thor.on_key(function(ev) seen = seen + 1 return ev.chord == "f5" end)`
+    second := `seen = 0
+    thor.on_key(function(ev) seen = seen + 1 return false end)`
+    testing.expect(t, manager_load_source(&m, "one", "plugins/one", first, {.Keys}), "first plugin runs")
+    testing.expect(t, manager_load_source(&m, "two", "plugins/two", second, {.Keys}), "second plugin runs")
+
+    reads :: proc(m: ^Manager, plugin: int) -> lua.Integer {
+        lua.rawgeti(m.state, lua.REGISTRYINDEX, lua.Integer(m.plugins[plugin].env_ref))
+        lua.getfield(m.state, -1, "seen")
+        n := lua.tointeger(m.state, -1)
+        lua.pop(m.state, 2)
+        return n
+    }
+
+    testing.expect(t, !manager_dispatch_key(&m, "f6", {}), "no handler consumes f6")
+    testing.expect_value(t, reads(&m, 0), 1)
+    testing.expect_value(t, reads(&m, 1), 1)
+    testing.expect(t, manager_dispatch_key(&m, "f5", {}), "the first plugin consumes f5")
+    testing.expect_value(t, reads(&m, 0), 2)
+    testing.expect_value(t, reads(&m, 1), 1)
+}
+
+// A command name stays with the plugin that registered it first.
+@(test)
+test_command_name_is_not_taken_over :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+
+    testing.expect(t, manager_load_source(&m, "one", "plugins/one", `ran = 0 thor.on_command("go", function() ran = 1 end)`, {}))
+    testing.expect(t, manager_load_source(&m, "two", "plugins/two", `ran = 0 thor.on_command("go", function() ran = 2 end)`, {}))
+    testing.expect(t, manager_run_command(&m, "go"))
+
+    lua.rawgeti(m.state, lua.REGISTRYINDEX, lua.Integer(m.plugins[0].env_ref))
+    lua.getfield(m.state, -1, "ran")
+    testing.expect_value(t, lua.tointeger(m.state, -1), 1)
+    lua.pop(m.state, 2)
 }

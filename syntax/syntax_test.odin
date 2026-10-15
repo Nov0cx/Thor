@@ -430,10 +430,21 @@ test_eval_predicate :: proc(t: ^testing.T) {
     check(t, &h, "match?", false, lit("# a comment"), lit("^#!/"))
     check(t, &h, "match?", true, lit("a#b"), lit("^a#b$"))
 
-    // Too few operands, and an operator no one evaluates.
-    check(t, &h, "eq?", false, lit("a"))
+    check(t, &h, "contains?", true, lit("TODO: x"), lit("FIXME"), lit("TODO"))
+    check(t, &h, "not-contains?", true, lit("done"), lit("TODO"))
+
+    // No node is local: Thor tracks no locals.
+    check(t, &h, "is-not?", true, lit("local"))
+    check(t, &h, "is?", false, lit("local"))
+
+    // A literal is no node, so it has no ancestor.
     check(t, &h, "has-ancestor?", false, lit("a"), lit("block"))
-    testing.expect(t, "has-ancestor?" in h.reported, "an unhandled operator must be reported")
+
+    // Too few operands, and an operator no one evaluates, are reported.
+    check(t, &h, "eq?", false, lit("a"))
+    testing.expect(t, "eq?" in h.reported, "a predicate with too few operands must be reported")
+    check(t, &h, "no-such?", false, lit("a"), lit("b"))
+    testing.expect(t, "no-such?" in h.reported, "an unhandled operator must be reported")
 }
 
 // A #match? pattern that does not compile retires its pattern and is cached as a

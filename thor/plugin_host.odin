@@ -199,7 +199,7 @@ thor_plugin_active_path :: proc(host: rawptr) -> string {
 // thor.read(path): the buffer text for `path`. Prefers the live in-memory buffer
 // (so a plugin sees unsaved edits, e.g. a commit message being typed) and falls
 // back to disk. The result is owned by the caller (see plugin.Read_Proc).
-thor_plugin_read :: proc(host: rawptr, path: string) -> string {
+thor_plugin_read :: proc(host: rawptr, path: string) -> (string, bool) {
     thor := cast(^Thor) host
 
     canonical := path
@@ -208,13 +208,14 @@ thor_plugin_read :: proc(host: rawptr, path: string) -> string {
     }
     for file in thor.open_files {
         if thor_path_equal(file.path, canonical) && file.loaded {
-            return textedit.text_clone(&file.state, context.allocator)
+            return textedit.text_clone(&file.state, context.allocator), true
         }
     }
-    if data, err2 := os.read_entire_file(canonical, context.allocator); err2 == nil {
-        return string(data)
+    data, err := os.read_entire_file(canonical, context.allocator)
+    if err != nil {
+        return "", false
     }
-    return strings.clone("")
+    return string(data), true
 }
 
 // thor.write(path, text): writes `text` to disk without opening or touching any
