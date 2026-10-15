@@ -64,3 +64,12 @@ test_console_location_trims_carriage_return :: proc(t: ^testing.T) {
     testing.expect(t, ok, "should parse despite trailing CR")
     testing.expect_value(t, loc.span_end, len("a.odin(1:1)"))
 }
+
+@(test)
+test_link_scheme_allowed :: proc(h: ^testing.T) {
+    testing.expect(h, thor_link_scheme_allowed("https://example.com"))
+    testing.expect(h, thor_link_scheme_allowed("HTTP://example.com"))
+    testing.expect(h, !thor_link_scheme_allowed("file:///etc/passwd"))
+    testing.expect(h, !thor_link_scheme_allowed("javascript:alert(1)"))
+    testing.expect(h, !thor_link_scheme_allowed("ms-msdt:/id"))
+}

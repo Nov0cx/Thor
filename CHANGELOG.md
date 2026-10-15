@@ -1,3 +1,9 @@
+# 2026.10.5
+
+- A hyperlink in terminal output opens only for a browser scheme (`http`, `https`, `mailto`, `ftp`).
+- `terminal_clipboard` setting lets a program in a terminal set the clipboard, or stops it. On by default.
+- A program that asks the terminal for its title gets an empty answer. The title was typed into the shell.
+
 # 2026.10.4
 
 - On Windows, the right Alt key is a shortcut modifier on a keyboard layout that has no AltGr, such as US QWERTY: `alt + up` and `ctrl + alt + l` work with it. On a layout with AltGr it types characters as before.

@@ -15,5 +15,6 @@
     "open_folder_in": "ask",
     "right_alt": "auto",
     "default_shell": "",
+    "terminal_clipboard": true,
     "language_intelligence": true
 }

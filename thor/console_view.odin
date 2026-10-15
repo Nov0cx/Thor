@@ -827,7 +827,10 @@ console_activate :: proc(console: ^Console, line, col: int) {
     }
     if col < len(row.cells) {
         if uri := vt.term_link(console.term, row.cells[col].link); uri != "" {
-            thor_open_in_browser(uri)
+            // A program names the URI, so only a browser scheme opens.
+            if thor_link_scheme_allowed(uri) {
+                thor_open_in_browser(uri)
+            }
             return
         }
     }

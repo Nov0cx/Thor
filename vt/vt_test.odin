@@ -447,3 +447,13 @@ test_text_all :: proc(h: ^testing.T) {
     testing.expect(h, strings.contains(term_text_all(t), "one"))
     testing.expect(h, strings.contains(term_text_all(t), "three"))
 }
+
+@(test)
+test_title_report_is_empty :: proc(h: ^testing.T) {
+    t := term_make(10, 2)
+    defer term_destroy(t)
+
+    feed(t, "\x1b]0;rm -rf /\x07\x1b[21t\x1b[20t")
+    testing.expect_value(h, string(term_take_reply(t)), "\x1b]l\x1b\\\x1b]L\x1b\\")
+    term_clear_reply(t)
+}

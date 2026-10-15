@@ -226,7 +226,7 @@ thor_terminal_drain_replies :: proc(term: ^Terminal) {
         }
         vt.term_clear_reply(t)
     }
-    if text, ok := vt.term_take_clipboard(t); ok && text != "" {
+    if text, ok := vt.term_take_clipboard(t); ok && text != "" && setting.terminal_clipboard(&term.owner.config) {
         rl.SetClipboardText(strings.clone_to_cstring(text, context.temp_allocator))
     }
     // The bell is read so it cannot pile up; the editor does not ring.

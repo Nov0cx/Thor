@@ -316,10 +316,10 @@ csi_window_op :: proc(t: ^Term, p: Params) {
         reply(t, fmt.tprintf("\x1b[6;%d;%dt", t.cell_h, t.cell_w))
     case 18, 19: // Text area and screen in characters
         reply(t, fmt.tprintf("\x1b[8;%d;%dt", t.rows, t.cols))
-    case 20: // Icon label
-        reply(t, fmt.tprintf("\x1b]L%s\x1b\\", t.icon_title))
-    case 21: // Window title
-        reply(t, fmt.tprintf("\x1b]l%s\x1b\\", t.title))
+    case 20: // Icon label, reported empty: an echoed title is typed into the shell
+        reply(t, "\x1b]L\x1b\\")
+    case 21: // Window title, reported empty for the same reason
+        reply(t, "\x1b]l\x1b\\")
     case 22: // Push the title
         if len(t.title_stack) < 16 {
             append(&t.title_stack, strings.clone(t.title, t.allocator))

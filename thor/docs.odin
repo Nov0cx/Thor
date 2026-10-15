@@ -98,9 +98,18 @@ thor_pick_docs_page :: proc(data: rawptr, name: string) {
     thor_open_docs_page(cast(^Thor) data, name)
 }
 
-// URL schemes a Markdown link may carry that the system browser handles.
-@(private = "file")
+// URL schemes a link may carry that the system browser handles.
 LINK_SCHEMES :: []string {"http://", "https://", "mailto:", "ftp://"}
+
+// Whether url starts with a scheme in LINK_SCHEMES, ignoring case.
+thor_link_scheme_allowed :: proc(url: string) -> bool {
+    for scheme in LINK_SCHEMES {
+        if len(url) >= len(scheme) && strings.equal_fold(url[:len(scheme)], scheme) {
+            return true
+        }
+    }
+    return false
+}
 
 // A link clicked in the Markdown preview. A URL goes to the browser; anything
 // else is a path relative to the document and opens as a tab, which is how the
@@ -112,13 +121,11 @@ thor_markdown_open_link :: proc(data: rawptr, url: string) {
         return
     }
 
-    for scheme in LINK_SCHEMES {
-        if strings.has_prefix(url, scheme) {
-            if !thor_open_in_browser(url) {
-                thor_flash_status(thor, "Could not open the browser", true)
-            }
-            return
+    if thor_link_scheme_allowed(url) {
+        if !thor_open_in_browser(url) {
+            thor_flash_status(thor, "Could not open the browser", true)
         }
+        return
     }
 
     file := thor_active_open_file(thor)

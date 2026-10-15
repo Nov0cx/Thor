@@ -110,6 +110,7 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
 
     thor_settings_begin_category(view, "terminal", "Terminal", "terminal-2")
     thor_settings_add_choice(view, "default_shell", "Default Shell", thor_default_shell_label(thor, config))
+    thor_settings_add_choice(view, "terminal_clipboard", "Programs Set Clipboard", thor_on_off_label(setting.terminal_clipboard(config)))
 
     thor_settings_begin_category(view, "updates", "Updates", "download")
     thor_settings_add_choice(view, "check_for_updates", "Check for Updates", thor_on_off_label(setting.check_for_updates(config)))
@@ -251,6 +252,11 @@ thor_on_setting_choice :: proc(data: rawptr, id: string) {
         thor_cmd_change_open_folder_in(thor)
     case "right_alt":
         thor_cmd_change_right_alt(thor)
+    case "terminal_clipboard":
+        thor_select_open(
+            thor, "Programs Set Clipboard", ON_OFF_LABELS[:], thor_on_off_label(setting.terminal_clipboard(&thor.config)),
+            thor_no_preview, thor_terminal_clipboard_commit, thor,
+        )
     case "default_shell":
         thor_cmd_select_shell(thor)
     case "check_for_updates":
@@ -513,6 +519,11 @@ thor_insert_spaces_commit :: proc(data: rawptr, choice: string) {
 @(private = "file")
 thor_detect_indentation_commit :: proc(data: rawptr, choice: string) {
     thor_persist_bool_setting(cast(^Thor) data, "detect_indentation", choice == ON_OFF_LABELS[0])
+}
+
+@(private = "file")
+thor_terminal_clipboard_commit :: proc(data: rawptr, choice: string) {
+    thor_persist_bool_setting(cast(^Thor) data, "terminal_clipboard", choice == ON_OFF_LABELS[0])
 }
 
 // Settings row: the indentation guides. Both panes preview at once, so a split

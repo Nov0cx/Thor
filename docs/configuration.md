@@ -46,6 +46,7 @@ General editor preferences.
 | `open_folder_in` | What opening a folder does: `"ask"`, `"same"` (replace this window's workspace), or `"new"` (open a window) | `"ask"` |
 | `right_alt` | What the right Alt key is: `"auto"` (AltGr when the keyboard layout types characters with it, else Alt; Linux and macOS cannot ask the layout and take AltGr), `"altgr"` (types characters, never part of a shortcut), or `"alt"` (a shortcut modifier like the left one) | `"auto"` |
 | `default_shell` | Shell new terminals start with, by profile id (`"pwsh"`, `"git-bash"`, `"msvc"`, ...); empty picks the best one installed | `""` |
+| `terminal_clipboard` | Let a program in a terminal set the clipboard (OSC 52) | `true` |
 | `language_intelligence` | Master switch for language features (hover, goto, completion, ...), both the built-in Odin support and any configured language server; either a plain boolean or an object with an `"enabled"` key plus per-feature toggles | `true` |
 | `language_backends` | Per-backend switch, one level more precise than `language_intelligence`: an object keyed by backend id (`"odin"` for the built-in support, or an `lsp.json` server's own `id`) whose value is the same shape as `language_intelligence` itself — a plain boolean, or an object with `"enabled"` plus per-feature toggles — scoped to that one backend | `{}` (every backend fully enabled) |
 

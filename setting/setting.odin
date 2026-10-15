@@ -48,6 +48,8 @@ General :: struct {
     // The shell a new terminal starts, by profile id ("pwsh", "git-bash",
     // "msvc", ...). Empty picks the best shell installed. Owned.
     default_shell:     string,
+    // Let a program in a terminal set the clipboard (OSC 52). On by default.
+    terminal_clipboard: bool,
     // Draw the font's programming ligatures ("->" as one glyph). On by default.
     ligatures:         bool,
     // Draw a vertical guide at every indentation stop inside a line's own
@@ -198,6 +200,7 @@ load :: proc(dir: string) -> Settings {
         check_for_updates = true,
         tooltips          = true,
         tip_of_the_day    = true,
+        terminal_clipboard = true,
         language_enabled  = true,
         language_features = lang.FEATURES_ALL,
         language_backends = make(map[string]Backend_Setting),
@@ -372,6 +375,11 @@ tooltips :: proc(s: ^Settings) -> bool {
 // keeps the card over the editor closed; tips.json is still read.
 tip_of_the_day :: proc(s: ^Settings) -> bool {
     return s.general.tip_of_the_day
+}
+
+// Whether a program in a terminal can set the clipboard.
+terminal_clipboard :: proc(s: ^Settings) -> bool {
+    return s.general.terminal_clipboard
 }
 
 // Whether language intelligence runs at all. Off makes every backend silent,
@@ -1000,6 +1008,7 @@ load_general :: proc(s: ^Settings, path: string) {
     read_bool(root, "check_for_updates", &s.general.check_for_updates)
     read_bool(root, "tooltips", &s.general.tooltips)
     read_bool(root, "tip_of_the_day", &s.general.tip_of_the_day)
+    read_bool(root, "terminal_clipboard", &s.general.terminal_clipboard)
     read_string(root, "open_folder_in", &s.general.open_folder_in)
     read_string(root, "right_alt", &s.general.right_alt)
     read_string(root, "default_shell", &s.general.default_shell)
