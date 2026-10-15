@@ -20,6 +20,7 @@ Git_Status_Job :: struct {
     allocator:   runtime.Allocator,
     worker:      ^thread.Thread,
     diff_cmd:    string, // owned, built on the main thread: the worker never reads open_files
+    dir:         string, // owned copy of workspace_dir
     output:      string, // owned porcelain output, parsed and freed on the main thread
     diff_output: string, // owned `git diff HEAD` output, parsed and freed on the main thread
 }
@@ -48,9 +49,11 @@ thor_refresh_git_status :: proc(thor: ^Thor) {
     thor.git_status_inflight = true
     thor.git_status_at = time.tick_now()
 
+    // A path outside the repo fails the whole diff, so only paths inside it go in.
+    root := strings.trim_right(thor.git_prefix, "/\\")
     paths := make([dynamic]string, context.temp_allocator)
     for file in thor.open_files {
-        if !file.closed && file.path != "" {
+        if !file.closed && file.path != "" && thor_path_within(file.path, root) {
             append(&paths, file.path)
         }
     }
@@ -59,6 +62,7 @@ thor_refresh_git_status :: proc(thor: ^Thor) {
     job.owner = thor
     job.allocator = context.allocator
     job.diff_cmd = git_diff_command(paths[:], context.allocator)
+    job.dir = strings.clone(thor.workspace_dir)
 
     thor.inflight_jobs += 1
     job.worker = thread.create_and_start_with_poly_data(job, git_status_worker)
@@ -99,8 +103,8 @@ git_status_worker :: proc(job: ^Git_Status_Job) {
 
     // -z complicates rename parsing; the plain porcelain format is enough for
     // highlighting, and git_unquote_path undoes the quoting -z would have avoided.
-    job.output = shell.run("git status --porcelain", job.owner.workspace_dir)
-    job.diff_output = shell.run(job.diff_cmd, job.owner.workspace_dir)
+    job.output = shell.run("git status --porcelain", job.dir)
+    job.diff_output = shell.run(job.diff_cmd, job.dir)
 
     sync.lock(&job.owner.io_mutex)
     append(&job.owner.finished_git, job)
@@ -125,6 +129,7 @@ thor_apply_git_status :: proc(thor: ^Thor, job: ^Git_Status_Job) {
     git_apply_diff(thor, &status, &diff)
 
     delete(job.diff_cmd)
+    delete(job.dir)
     delete(job.output)
     delete(job.diff_output)
     free(job)
@@ -383,7 +388,7 @@ git_parse_diff :: proc(thor: ^Thor, output: string, out: ^map[string][dynamic]ed
     for line in strings.split_lines_iterator(&it) {
         if strings.has_prefix(line, "+++ ") {
             git_drop_unused_key(out, current)
-            rel := line[4:]
+            rel := git_unquote_path(line[4:])
             if strings.has_prefix(rel, "b/") {
                 current = git_key(thor, rel[2:])
             } else {

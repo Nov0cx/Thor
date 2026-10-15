@@ -272,3 +272,25 @@ expect_git_repo :: proc(t: ^testing.T, dir, want_root, want_branch: string, loc 
     defer delete(branch)
     testing.expect_value(t, branch, want_branch, loc = loc)
 }
+
+// git quotes a name with a non-ASCII byte: `+++ "b/caf\303\251.txt"`.
+@(test)
+test_git_diff_reads_a_quoted_name :: proc(t: ^testing.T) {
+    thor := new(Thor)
+    defer free(thor)
+    thor.git_prefix = strings.concatenate({"repo", filepath.SEPARATOR_STRING}, context.temp_allocator)
+
+    diff := make(map[string][dynamic]editview.Diff_Line_Kind)
+    defer {
+        for path, lines in diff {
+            delete(path)
+            delete(lines)
+        }
+        delete(diff)
+    }
+    git_parse_diff(thor, "+++ \"b/caf\303\251.txt\"\n@@ -1,0 +1,1 @@\n", &diff)
+
+    key := native("repo", "café.txt")
+    _, ok := diff[git_map_key(key)]
+    testing.expectf(t, ok, "no diff for %q", key)
+}

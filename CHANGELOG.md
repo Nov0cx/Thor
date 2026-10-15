@@ -1,4 +1,6 @@
 # 2026.10.5
+- An open file outside the repository no longer clears the git marks of every other file.
+- A file whose name has a non-ASCII character gets its git gutter marks.
 
 - A hyperlink in terminal output opens only for a browser scheme (`http`, `https`, `mailto`, `ftp`).
 - `terminal_clipboard` setting lets a program in a terminal set the clipboard, or stops it. On by default.
