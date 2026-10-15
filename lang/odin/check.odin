@@ -10,9 +10,13 @@ import "core:path/filepath"
 import "core:strconv"
 import "core:strings"
 import "core:sync"
+import "core:time"
 
 import lang ".."
 import "../../shell"
+
+// Longest an `odin check` may run. A compiler that hangs holds the check lock.
+CHECK_TIMEOUT :: 2 * time.Minute
 
 // Checks the package directory holding `req.path` — one `odin check` run, whose
 // every diagnostic line lands in `res.report`. `-no-entry-point` lets a library
@@ -53,7 +57,7 @@ check_package :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
     collection_flags(e, req.workspace, &args)
     // An argument list, not a shell line: the directory and the collection
     // roots come from the workspace.
-    output, code, ran := shell.exec_status("odin", args[:], cwd)
+    output, code, ran := shell.exec_status("odin", args[:], cwd, CHECK_TIMEOUT)
     defer delete(output)
     if !ran {
         return

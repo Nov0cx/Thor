@@ -21,6 +21,10 @@
 - A comment above the first field of a struct stays on its own line.
 - A comment above a `#+build` tag stays above it and does not become the package doc.
 - The formatter keeps a UTF-8 byte order mark.
+- A language server that fails its first handshake is started again, up to three times. It stayed off until a restart.
+- Stopping or restarting a language server that is still starting no longer freezes the window for up to ten seconds.
+- An edit a language server asks for that the editor did not take in time is not applied later. The server was told it failed.
+- The Odin compiler check stops after two minutes.
 
 # 2026.10.4
 

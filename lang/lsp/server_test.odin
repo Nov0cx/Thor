@@ -58,6 +58,7 @@ Fake :: struct {
     opens:      int,    // how many times a transport was asked for
     refuse:     bool,   // a second start finds no program
     silent:     bool,   // it takes every request but the handshake and never answers
+    mute:       bool,   // it never answers the handshake either
     ended:      bool,   // the scripted server has been stopped
 }
 
@@ -80,6 +81,9 @@ fake_answer :: proc(sv: ^Serve, id: i64, method: string) {
     f := (^Fake)(sv.data)
     switch method {
     case "initialize":
+        if f.mute {
+            return
+        }
         mock_reply(sv.mock, id, f.caps)
     case:
         if f.silent {
@@ -382,8 +386,8 @@ test_server_full_sync_fallback :: proc(t: ^testing.T) {
     testing.expect(t, !fake_sent(&f, `"range"`), "a Full server must not get a ranged change")
 }
 
-// A server that dies during its handshake is failed for the session, and a failed
-// server claims nothing.
+// A server that dies during its handshake is started again after a backoff, and
+// claims nothing until a handshake finishes.
 @(test)
 test_server_eof_during_handshake :: proc(t: ^testing.T) {
     f: Fake
@@ -394,8 +398,7 @@ test_server_eof_during_handshake :: proc(t: ^testing.T) {
     fake_kill(&f)
 
     testing.expect(t, server_start(s, SOURCE))
-    testing.expect(t, wait_state(s, .Failed), "a dead handshake left the server running")
-    testing.expect(t, !server_supports(s, .Definition))
+    testing.expect(t, wait_state(s, .Crashed), "a dead handshake was not retried")
 
     // Kept for the status view: a failed server that says nothing reads exactly
     // like a language nobody configured.
@@ -996,9 +999,8 @@ test_server_drop_push_frees_resource_ops :: proc(t: ^testing.T) {
     testing.expect(t, wait_sent(&f, `"id":9,"result":{"applied":false}`), "an undrained apply must still answer the server")
 }
 
-// A pushed applyEdit nobody answers (language intelligence gated off mid-flight,
-// or the editor is simply too busy) must not hang the server past
-// APPLY_EDIT_TIMEOUT — the pump's own bounded wait answers "applied":false.
+// A pushed applyEdit the editor does not take within APPLY_EDIT_TIMEOUT is
+// answered "applied":false and expires: a later poll drops it unapplied.
 @(test)
 test_apply_edit_times_out_when_never_applied :: proc(t: ^testing.T) {
     f: Fake
@@ -1015,22 +1017,10 @@ test_apply_edit_times_out_when_never_applied :: proc(t: ^testing.T) {
         `":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"newText":"ALPHA"}]}}}}`,
     )
 
-    res: lang.Result
-    testing.expect(t, wait_push(s, &res), "the applyEdit push never reached the queue")
     testing.expect(t, wait_sent(&f, `"id":10,"result":{"applied":false}`), "a starved apply must still answer, not hang the server")
 
-    for edit in res.edits {
-        delete(edit.path)
-        delete(edit.old_text)
-        delete(edit.new_text)
-    }
-    delete(res.edits)
-    if res.on_applied != nil {
-        // Releases our half of the Apply_Wait refcount; the pump released its
-        // own when its wait timed out. A real host would never reach this
-        // late, but the struct still must not leak when it does.
-        res.on_applied(res.token, false)
-    }
+    res: lang.Result
+    testing.expect(t, !server_poll(s, &res), "an expired apply reached the editor")
 }
 
 // workspace/symbol carries no document and no position, only the query.
@@ -1456,3 +1446,19 @@ test_server_code_actions_selection_range :: proc(t: ^testing.T) {
         "the selection's end never reached the request",
     )
 }
+
+// A stop during the handshake cancels it, and does not wait out its deadline.
+@(test)
+test_server_stop_cancels_handshake :: proc(t: ^testing.T) {
+    f: Fake
+    s := fake_server(&f, CAPS_ALL)
+    f.mute = true
+    defer fake_end(&f, s)
+
+    testing.expect(t, server_start(s, SOURCE))
+    testing.expect(t, wait_sent(&f, `"method":"initialize"`), "the handshake never started")
+    start := time.tick_now()
+    server_stop(s)
+    testing.expect(t, time.tick_since(start) < DEADLINE_START / 2, "the stop waited out the handshake")
+}
+

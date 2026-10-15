@@ -431,32 +431,44 @@ server_pump :: proc(s: ^Server) {
     }
 
     for {
-        if !server_launch(s) {
+        launched, spawned := server_launch(s)
+        if sync.atomic_load(&s.stopping) {
+            return
+        }
+        // A program that did not spawn is not there; trying again finds the same.
+        if !launched && !spawned {
             sync.atomic_store(&s.state, .Failed)
             server_drop_outbox(s)
             return
         }
-        sync.atomic_store(&s.state, .Ready)
-        log.debugf("lsp: %s started, answering %v", s.config.id, s.caps.kinds)
+        if launched {
+            sync.atomic_store(&s.state, .Ready)
+            log.debugf("lsp: %s started, answering %v", s.config.id, s.caps.kinds)
 
-        server_serve(s)
-        if sync.atomic_load(&s.stopping) {
-            return
+            server_serve(s)
+            if sync.atomic_load(&s.stopping) {
+                return
+            }
+            // The connection ended without anyone asking it to.
+            server_teardown(s)
         }
 
-        // The connection ended without anyone asking it to.
-        server_teardown(s)
         restarts := server_restarts(s)
         if restarts >= RESTART_LIMIT {
-            log.warnf("lsp: %s died %d times and will not be started again", s.config.id, restarts + 1)
-            server_note_error(s, fmt.tprintf("stopped answering %d times and will not be started again", restarts + 1))
+            log.warnf("lsp: %s failed %d times and will not be started again", s.config.id, restarts + 1)
+            // A failed handshake keeps its own message, which names the cause.
+            if launched {
+                server_note_error(s, fmt.tprintf("stopped answering %d times and will not be started again", restarts + 1))
+            }
             sync.atomic_store(&s.state, .Failed)
             server_drop_outbox(s)
             return
         }
         sync.atomic_store(&s.state, .Crashed)
-        log.warnf("lsp: %s died; restarting", s.config.id)
-        server_note_error(s, "stopped answering; restarting")
+        if launched {
+            log.warnf("lsp: %s died; restarting", s.config.id)
+            server_note_error(s, "stopped answering; restarting")
+        }
         if !server_backoff(s, RESTART_BACKOFF[restarts]) {
             return
         }
@@ -488,9 +500,10 @@ server_note_error :: proc(s: ^Server, text: string) {
 }
 
 // Spawns the process and runs the handshake. The documents of a server that died
-// are opened again, so a restart is invisible above this line.
+// are opened again, so a restart is invisible above this line. `spawned` is false
+// when the process did not start.
 @(private)
-server_launch :: proc(s: ^Server) -> bool {
+server_launch :: proc(s: ^Server) -> (launched: bool, spawned: bool) {
     if s.root == "" {
         root := server_root(s, s.trigger)
         s.folders = folders_json(root, s.allocator)
@@ -508,7 +521,7 @@ server_launch :: proc(s: ^Server) -> bool {
         } else {
             server_note_error(s, fmt.tprintf("%s was not found on PATH", s.config.command[0]))
         }
-        return false
+        return false, false
     }
     conn := conn_start(transport, s.allocator, Conn_Answers {
         settings        = s.config.settings,
@@ -521,7 +534,8 @@ server_launch :: proc(s: ^Server) -> bool {
     sync.rw_mutex_unlock(&s.conn_lock)
 
     params := initialize_params(s)
-    result, err := conn_call(s.conn, "initialize", params, DEADLINE_START)
+    // A stop cancels the handshake, so it does not wait out the deadline.
+    result, err := conn_call(s.conn, "initialize", params, DEADLINE_START, &s.stopping)
     delete(params, s.allocator)
     if err != .None {
         tail := conn_stderr_tail(s.conn, s.allocator)
@@ -532,7 +546,7 @@ server_launch :: proc(s: ^Server) -> bool {
         delete(tail, s.allocator)
         conn_free_value(s.conn, result)
         server_teardown(s)
-        return false
+        return false, true
     }
     // Decoded from the first handshake only. `supports` reads this with no lock,
     // so a restart must not write it again: the same program advertises the same
@@ -554,7 +568,7 @@ server_launch :: proc(s: ^Server) -> bool {
         server_send_open(s, doc, language_id_for_path(doc.path))
     }
     sync.unlock(&s.docs_mutex)
-    return true
+    return true, true
 }
 
 // Drains the outbox until the server is stopped or the connection ends.
@@ -582,7 +596,16 @@ Apply_Wait :: struct {
     allocator: runtime.Allocator,
     mutex:     sync.Mutex, // guards `refs`
     refs:      int,
+    // Atomic: APPLY_OPEN, then APPLY_TAKEN by the main thread or APPLY_EXPIRED by the reader.
+    claim:     int,
 }
+
+@(private)
+APPLY_OPEN :: 0
+@(private)
+APPLY_TAKEN :: 1
+@(private)
+APPLY_EXPIRED :: 2
 
 @(private)
 apply_wait_release :: proc(wait: ^Apply_Wait) {
@@ -677,6 +700,13 @@ server_apply_edit :: proc(data: rawptr, params: json.Value) -> bool {
     sync.unlock(&s.push_mutex)
 
     got := sync.sema_wait_with_timeout(&wait.done, APPLY_EDIT_TIMEOUT)
+    if !got {
+        // An expired edit is never applied. One the main thread took is being applied now.
+        if _, expired := sync.atomic_compare_exchange_strong(&wait.claim, APPLY_OPEN, APPLY_EXPIRED); !expired {
+            sync.sema_wait(&wait.done)
+            got = true
+        }
+    }
     applied := got && wait.applied
     apply_wait_release(wait)
     return applied
@@ -724,7 +754,13 @@ server_drain_pushes :: proc(s: ^Server) {
 @(private)
 server_poll :: proc(s: ^Server, res: ^lang.Result) -> bool {
     sync.guard(&s.push_mutex)
+    for s.push_head < len(s.pushes) && !server_claim_push(s, &s.pushes[s.push_head]) {
+        server_drop_push(s, &s.pushes[s.push_head])
+        s.push_head += 1
+    }
     if s.push_head >= len(s.pushes) {
+        clear(&s.pushes)
+        s.push_head = 0
         return false
     }
     res^ = s.pushes[s.push_head]
@@ -739,6 +775,17 @@ server_poll :: proc(s: ^Server, res: ^lang.Result) -> bool {
         s.push_head = 0
     }
     return true
+}
+
+// Claims a push for the main thread. An Apply_Edit the reader already answered is refused.
+@(private)
+server_claim_push :: proc(s: ^Server, res: ^lang.Result) -> bool {
+    if res.kind != .Apply_Edit {
+        return true
+    }
+    wait := cast(^Apply_Wait) res.token
+    _, taken := sync.atomic_compare_exchange_strong(&wait.claim, APPLY_OPEN, APPLY_TAKEN)
+    return taken
 }
 
 // Frees a push nobody took: Diagnostics, Progress and Apply_Edit are the only
