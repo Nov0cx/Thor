@@ -1,5 +1,6 @@
 # 2026.10.5
 
+- Typing in a large file no longer rescans the whole file for line numbers and visual rows on every key.
 - An open file outside the repository no longer clears the git marks of every other file.
 - A file whose name has a non-ASCII character gets its git gutter marks.
 - A hyperlink in terminal output opens only for a browser scheme (`http`, `https`, `mailto`, `ftp`).

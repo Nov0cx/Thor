@@ -1,5 +1,6 @@
 package editview
 
+import "core:math/rand"
 import "core:strings"
 import "core:testing"
 
@@ -280,6 +281,61 @@ test_caret_inside_collapsed_fold :: proc(t: ^testing.T) {
     testing.expect(t, caret >= 0 && caret <= len(textedit.text(&state)), "the caret stays in the buffer")
 }
 
+// Rows patched through an edit equal rows built from scratch, with the longest
+// line kept right.
+@(test)
+test_patched_rows_match_rebuild :: proc(t: ^testing.T) {
+    state: textedit.State
+    textedit.init(&state)
+    defer textedit.destroy(&state)
+    textedit.set_text(&state, "alpha\n\tbeta gamma\n\nlongest line here\nz")
+
+    editor: Editor
+    editor.state = &state
+    editor.font_size = 16
+    defer delete(editor.visual_rows)
+
+    gen := rand.create_u64(5)
+    context.random_generator = rand.default_random_generator(&gen)
+    pieces := [?]string{"x", "\n", "a b\nc", "\t", "a very long line of text"}
+    editor_ensure_visual_rows(&editor)
+    for round in 0 ..< 300 {
+        n := textedit.length(&state)
+        pos := rand.int_max(n + 1)
+        switch rand.int_max(5) {
+        case 0, 1:
+            _ = textedit.insert_at(&state, pos, pieces[rand.int_max(len(pieces))])
+        case 2:
+            _ = textedit.delete_range(&state, pos, min(rand.int_max(30), n - pos))
+        case 3:
+            textedit.undo(&state)
+        case 4:
+            textedit.redo(&state)
+        }
+        if round % 3 == 0 {
+            continue
+        }
+        if state.revision != editor.rows_revision {
+            testing.expect(t, editor_patch_visual_rows(&editor), "the change log reaches the rows")
+        }
+        patched := make([]Visual_Row, len(editor.visual_rows), context.temp_allocator)
+        copy(patched, editor.visual_rows[:])
+        max_cols := editor.rows_max_cols
+        editor_rebuild_visual_rows(&editor)
+        same := len(patched) == len(editor.visual_rows) && max_cols == editor.rows_max_cols
+        for row, i in patched {
+            if !same {
+                break
+            }
+            same = row == editor.visual_rows[i]
+        }
+        if !same {
+            testing.expectf(t, false, "round %d: patched rows drifted (max %d vs %d)", round, max_cols, editor.rows_max_cols)
+            return
+        }
+    }
+}
+
 // A collapsed fold moves with its line: Enter above it pushes it down one line
 // instead of opening it, and deleting its start line drops it.
 @(test)
@@ -388,7 +444,7 @@ editor_test_wrap_rows :: proc(editor: ^Editor, state: ^textedit.State, cols: int
     start, line := 0, 0
     for {
         end := textedit.line_end(text, start)
-        editor_wrap_line(editor, text, start, end, cols, line, 4)
+        editor_wrap_line(&editor.visual_rows, text, start, end, cols, line, 4)
         if end >= len(text) {
             break
         }
@@ -947,7 +1003,7 @@ test_wrap_counts_wide_runes_as_two_cells :: proc(t: ^testing.T) {
 
     // Four wide runes at three bytes each, in a row of five cells.
     text := "日本語字"
-    editor_wrap_line(&editor, text, 0, len(text), 5, 0, 4)
+    editor_wrap_line(&editor.visual_rows, text, 0, len(text), 5, 0, 4)
     testing.expect_value(t, len(editor.visual_rows), 2)
     testing.expect_value(t, editor.visual_rows[0].end, 6)
     testing.expect_value(t, editor.visual_rows[1].start, 6)
@@ -955,7 +1011,7 @@ test_wrap_counts_wide_runes_as_two_cells :: proc(t: ^testing.T) {
     // A break never lands inside a cluster: e + combining acute is one cell.
     clear(&editor.visual_rows)
     marks := "aéb"
-    editor_wrap_line(&editor, marks, 0, len(marks), 2, 0, 4)
+    editor_wrap_line(&editor.visual_rows, marks, 0, len(marks), 2, 0, 4)
     testing.expect_value(t, len(editor.visual_rows), 2)
     testing.expect_value(t, editor.visual_rows[0].end, 4)
 }

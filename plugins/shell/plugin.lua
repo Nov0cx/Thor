@@ -127,4 +127,5 @@ thor.register_language {
     name       = "Shell",
     extensions = { ".sh", ".bash", ".zsh", ".ksh", ".bashrc", ".zshrc" },
     highlight  = lex,
+    line_based = true,
 }

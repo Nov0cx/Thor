@@ -1,5 +1,7 @@
 package piecetable
 
+import "core:math/rand"
+import "core:strings"
 import "core:testing"
 
 @(test)
@@ -117,7 +119,7 @@ test_set_text_from_own_view :: proc(t: ^testing.T) {
     testing.expect_value(t, piecetable_length(&pt), 5)
 }
 
-// The snapshot is rebuilt on the first read after each edit, and only then.
+// The snapshot is brought up to date on the first read after each edit, and only then.
 @(test)
 test_view_tracks_edits :: proc(t: ^testing.T) {
     pt := piecetable_create("hello world")
@@ -127,11 +129,11 @@ test_view_tracks_edits :: proc(t: ^testing.T) {
     testing.expect(t, !pt.stale, "a read must leave the snapshot fresh")
 
     piecetable_insert(&pt, 5, ",")
-    testing.expect(t, pt.stale, "an insert must stale the snapshot")
+    testing.expect_value(t, len(pt.pending), 1)
     testing.expect_value(t, piecetable_view(&pt), "hello, world")
 
     piecetable_delete(&pt, 0, 7)
-    testing.expect(t, pt.stale, "a delete must stale the snapshot")
+    testing.expect_value(t, len(pt.pending), 1)
     testing.expect_value(t, piecetable_view(&pt), "world")
 
     piecetable_set_text(&pt, "replaced")
@@ -264,4 +266,65 @@ test_unchecked_edits_clamp :: proc(t: ^testing.T) {
     piecetable_delete(&pt, 2, 99)
     testing.expect_value(t, piecetable_to_string(&pt, context.temp_allocator), "za")
     testing.expect_value(t, piecetable_length(&pt), 2)
+}
+
+// The snapshot patched in place from pending edits equals a full rebuild.
+@(test)
+test_patched_view_matches_rebuild :: proc(t: ^testing.T) {
+    pt := piecetable_create("line one\nline two\nline three\n")
+    defer piecetable_destroy(&pt)
+    model := strings.builder_make(context.temp_allocator)
+    strings.write_string(&model, piecetable_view(&pt))
+
+    gen := rand.create_u64(7)
+    context.random_generator = rand.default_random_generator(&gen)
+    words := [?]string{"x", "\n", "abc", "ü", "\tz\n"}
+    for round in 0 ..< 400 {
+        edits := 1 + rand.int_max(3)
+        for _ in 0 ..< edits {
+            n := len(model.buf)
+            pos := rand.int_max(n + 1)
+            if rand.int_max(2) == 0 || n == 0 {
+                word := words[rand.int_max(len(words))]
+                piecetable_insert(&pt, pos, word)
+                inject_at(&model.buf, pos, ..transmute([]u8)word)
+            } else {
+                count := min(1 + rand.int_max(4), n - pos)
+                piecetable_delete(&pt, pos, count)
+                remove_range(&model.buf, pos, pos + count)
+            }
+        }
+        if piecetable_view(&pt) != strings.to_string(model) {
+            testing.expectf(t, false, "round %d: patched snapshot drifted", round)
+            return
+        }
+    }
+}
+
+// More pending edits than MAX_PENDING fall back to a full rebuild.
+@(test)
+test_many_edits_rebuild :: proc(t: ^testing.T) {
+    pt := piecetable_create("abc")
+    defer piecetable_destroy(&pt)
+    _ = piecetable_view(&pt)
+
+    for i in 0 ..= MAX_PENDING {
+        piecetable_insert(&pt, i, "-")
+    }
+    testing.expect(t, pt.stale, "the overflow must mark the snapshot for a rebuild")
+    testing.expect_value(t, len(pt.pending), 0)
+    testing.expect_value(t, piecetable_view(&pt), "---------abc")
+}
+
+// A view borrowed before an edit stays intact until the next read.
+@(test)
+test_borrowed_view_survives_edit :: proc(t: ^testing.T) {
+    pt := piecetable_create("hello world")
+    defer piecetable_destroy(&pt)
+
+    before := piecetable_view(&pt)
+    piecetable_delete(&pt, 0, 6)
+    piecetable_insert(&pt, 0, before[6:])
+    testing.expect_value(t, before, "hello world")
+    testing.expect_value(t, piecetable_view(&pt), "worldworld")
 }

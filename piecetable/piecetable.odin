@@ -13,17 +13,31 @@ Piece :: struct {
     length: int,
 }
 
+// One edit not yet applied to the snapshot. The inserted bytes are read from
+// the add buffer.
+@(private)
+Pending_Op :: struct {
+    pos:       int,
+    add_start: int,
+    length:    int,
+    insert:    bool,
+}
+
+// Edits kept for an in-place patch of the snapshot; more make a full rebuild.
+MAX_PENDING :: 8
+
 Piece_Table :: struct {
     original: string,         // owned
     add:      [dynamic]u8,    // owned
     pieces:   [dynamic]Piece, // owned
     // Total bytes, maintained by the edits so a length query walks nothing.
     length:   int,
-    // The contents as one buffer, rebuilt by piecetable_view on the first read
-    // after an edit. Readers want the whole text far more often than the table
-    // changes, so it is materialized once per edit instead of once per read.
+    // The contents as one buffer, brought up to date by piecetable_view on the
+    // first read after an edit: patched in place from `pending`, or rebuilt.
     snapshot: [dynamic]u8, // owned
     stale:    bool,        // snapshot must be rebuilt before it is read
+    // Edits since the last read, applied in place to the valid snapshot.
+    pending:  [dynamic]Pending_Op, // owned
     // Piece index and its start offset, left by the last split. Edits at
     // ascending positions (typing, Replace All) resume scanning from here
     // instead of the top of pieces; -1 means no usable hint.
@@ -48,6 +62,7 @@ piecetable_destroy :: proc(pt: ^Piece_Table) {
     delete(pt.add)
     delete(pt.pieces)
     delete(pt.snapshot)
+    delete(pt.pending)
 }
 
 piecetable_length :: proc(pt: ^Piece_Table) -> int {
@@ -159,7 +174,7 @@ piecetable_insert :: proc(pt: ^Piece_Table, pos: int, text: string) {
 
     add_start := len(pt.add)
     append(&pt.add, text)
-    pt.stale = true
+    piecetable_note_edit(pt, Pending_Op {pos = clamp(pos, 0, pt.length), add_start = add_start, length = len(text), insert = true})
 
     // Split first: split_at compares `pos` against pt.length, so the increment
     // must land after it or an append at the end misses the end-of-buffer fast
@@ -203,10 +218,14 @@ piecetable_delete :: proc(pt: ^Piece_Table, pos: int, delete_length: int) {
     start_offset := pt.hint_offset
     end_index := piecetable_split_at(pt, pos + delete_length)
     // A range past the end removes less than asked, so count what really goes.
+    removed := 0
     for i in start_index ..< end_index {
-        pt.length -= pt.pieces[i].length
+        removed += pt.pieces[i].length
     }
-    pt.stale = true
+    pt.length -= removed
+    if removed > 0 {
+        piecetable_note_edit(pt, Pending_Op {pos = clamp(pos, 0, pt.length + removed), length = removed})
+    }
     remove_range(&pt.pieces, start_index, end_index)
     before := len(pt.pieces)
     // Removing the span can leave two runs of one buffer touching again.
@@ -243,6 +262,20 @@ piecetable_delete_checked :: proc(pt: ^Piece_Table, pos: int, delete_length: int
     return .None
 }
 
+// Queues an edit for the snapshot, or marks it for a full rebuild.
+@(private)
+piecetable_note_edit :: proc(pt: ^Piece_Table, op: Pending_Op) {
+    if pt.stale {
+        return
+    }
+    if len(pt.pending) >= MAX_PENDING {
+        pt.stale = true
+        clear(&pt.pending)
+        return
+    }
+    append(&pt.pending, op)
+}
+
 @(private)
 piecetable_piece_bytes :: proc(pt: ^Piece_Table, piece: Piece) -> string {
     switch piece.source {
@@ -266,6 +299,16 @@ piecetable_view :: proc(pt: ^Piece_Table) -> string {
             append(&pt.snapshot, buffer[piece.start:piece.start + piece.length])
         }
         pt.stale = false
+        clear(&pt.pending)
+    } else if len(pt.pending) > 0 {
+        for op in pt.pending {
+            if op.insert {
+                inject_at(&pt.snapshot, op.pos, ..pt.add[op.add_start:op.add_start + op.length])
+            } else {
+                remove_range(&pt.snapshot, op.pos, op.pos + op.length)
+            }
+        }
+        clear(&pt.pending)
     }
     return string(pt.snapshot[:])
 }

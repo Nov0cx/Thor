@@ -175,6 +175,7 @@ Editor :: struct {
     rows_tab_width:     int,
     // Display columns of the longest line, for the sideways scroll range.
     rows_max_cols:      int,
+    rows_max_line:      int, // the line rows_max_cols was measured on
     // Set by a change the stamps above cannot see (the fold set).
     rows_stale:         bool,
     // The cursors after the last vertical move, as editor_cursor_signature gives
@@ -1054,7 +1055,9 @@ editor_ensure_visual_rows :: proc(editor: ^Editor) -> bool {
     if len(editor.folded) > 0 {
         editor_carets_out_of_folds(editor)
     }
-    editor_rebuild_visual_rows(editor)
+    if !editor_patch_visual_rows(editor) {
+        editor_rebuild_visual_rows(editor)
+    }
     return true
 }
 
@@ -1098,24 +1101,155 @@ editor_rebuild_visual_rows :: proc(editor: ^Editor) {
     cols := editor_wrap_cols(editor)
     tab_width := editor.rows_tab_width
     editor.rows_max_cols = 0
+    editor.rows_max_line = 0
 
     line_start := 0
     line_index := 0
     hidden_until := -1 // lines <= this are collapsed under a fold above; skip them
     for {
         line_end := textedit.line_end(text, line_start)
-        // A line is measured only when its bytes could beat the longest so far.
-        if !editor.wrap && (line_end - line_start) * tab_width > editor.rows_max_cols {
-            editor.rows_max_cols = max(editor.rows_max_cols, editor_line_cols(text[line_start:line_end], tab_width))
+        if !editor.wrap {
+            editor_measure_line(editor, text, line_start, line_end, line_index, tab_width)
         }
         if line_index > hidden_until {
-            editor_wrap_line(editor, text, line_start, line_end, cols, line_index, tab_width)
+            editor_wrap_line(&editor.visual_rows, text, line_start, line_end, cols, line_index, tab_width)
             // A collapsed fold starting here hides everything down to its end.
             if end := editor_folded_end(editor, line_index); end > hidden_until {
                 hidden_until = end
             }
         }
         line_index += 1
+        if line_end >= len(text) {
+            break
+        }
+        line_start = line_end + 1
+    }
+}
+
+// Moves the rows through the changes since `rows_revision`: re-wraps only the
+// lines the changes touched and shifts the rows after them. False when the rows
+// need a full rebuild (folds, a moved wrap input, or a change log that no longer
+// reaches back).
+@(private)
+editor_patch_visual_rows :: proc(editor: ^Editor) -> bool {
+    state := editor.state
+    if editor.rows_stale || len(editor.folded) > 0 || len(editor.visual_rows) == 0 || editor.rows_wrap != editor.wrap {
+        return false
+    }
+    if editor.rows_tab_width != textedit.tab_width(state) {
+        return false
+    }
+    change, ok := textedit.changes_since(state, editor.rows_revision)
+    if !ok {
+        return false
+    }
+    editor_update_gutter(editor)
+    if editor.wrap && (editor.rows_font_size != editor.font_size || editor.rows_width != editor_text_width(editor)) {
+        return false
+    }
+
+    rows := &editor.visual_rows
+    text := textedit.text(state)
+    tab_width := editor.rows_tab_width
+    first_line := textedit.state_line_index(state, change.lo)
+    new_last := textedit.state_line_index(state, change.new_hi)
+
+    // The rows of the old lines first_line .. old_last, in old offsets.
+    first_row := editor_first_row_of_line(rows[:], first_line)
+    old_last := rows[editor_last_row_from(rows[:], change.old_hi)].line
+    end_row := editor_first_row_of_line(rows[:], old_last + 1)
+
+    fresh := make([dynamic]Visual_Row, 0, 8, context.temp_allocator)
+    cols := editor_wrap_cols(editor)
+    remeasure := !editor.wrap && editor.rows_max_line >= first_line && editor.rows_max_line <= old_last
+    line_start := textedit.state_line_start(state, first_line)
+    for line in first_line ..= new_last {
+        line_end := textedit.line_end(text, line_start)
+        editor_wrap_line(&fresh, text, line_start, line_end, cols, line, tab_width)
+        line_start = line_end + 1
+    }
+
+    delta := change.new_hi - change.old_hi
+    line_delta := new_last - old_last
+    for &row in rows[end_row:] {
+        row.start += delta
+        row.end += delta
+        row.line += line_delta
+    }
+    remove_range(rows, first_row, end_row)
+    inject_at(rows, first_row, ..fresh[:])
+
+    if !editor.wrap {
+        if remeasure {
+            editor_remeasure_lines(editor, text)
+        } else {
+            if editor.rows_max_line > old_last {
+                editor.rows_max_line += line_delta
+            }
+            line_start = textedit.state_line_start(state, first_line)
+            for line in first_line ..= new_last {
+                line_end := textedit.line_end(text, line_start)
+                editor_measure_line(editor, text, line_start, line_end, line, tab_width)
+                line_start = line_end + 1
+            }
+        }
+    }
+    editor.rows_revision = state.revision
+    return true
+}
+
+// Index of the first row of `line`, or len(rows) past the last line.
+@(private = "file")
+editor_first_row_of_line :: proc(rows: []Visual_Row, line: int) -> int {
+    lo, hi := 0, len(rows)
+    for lo < hi {
+        mid := lo + (hi - lo) / 2
+        if rows[mid].line < line {
+            lo = mid + 1
+        } else {
+            hi = mid
+        }
+    }
+    return lo
+}
+
+// Index of the last row that starts at or before `pos`.
+@(private = "file")
+editor_last_row_from :: proc(rows: []Visual_Row, pos: int) -> int {
+    lo, hi := 0, len(rows)
+    for lo < hi {
+        mid := lo + (hi - lo) / 2
+        if rows[mid].start <= pos {
+            lo = mid + 1
+        } else {
+            hi = mid
+        }
+    }
+    return max(lo - 1, 0)
+}
+
+// Takes the line into rows_max_cols when it is the longest so far. A line is
+// measured only when its bytes could beat the longest.
+@(private = "file")
+editor_measure_line :: proc(editor: ^Editor, text: string, line_start, line_end, line, tab_width: int) {
+    if (line_end - line_start) * tab_width <= editor.rows_max_cols {
+        return
+    }
+    if cols := editor_line_cols(text[line_start:line_end], tab_width); cols > editor.rows_max_cols {
+        editor.rows_max_cols = cols
+        editor.rows_max_line = line
+    }
+}
+
+// Measures every line again for rows_max_cols.
+@(private = "file")
+editor_remeasure_lines :: proc(editor: ^Editor, text: string) {
+    editor.rows_max_cols = 0
+    editor.rows_max_line = 0
+    line_start := 0
+    for line := 0; ; line += 1 {
+        line_end := textedit.line_end(text, line_start)
+        editor_measure_line(editor, text, line_start, line_end, line, editor.rows_tab_width)
         if line_end >= len(text) {
             break
         }
@@ -1153,11 +1287,11 @@ editor_cluster_cells :: proc(text: string, i, col, tab_width: int) -> (cells, ne
 // space (falling back to a break between two clusters). A row never holds more
 // than `cols` cells, so a wide rune that does not fit starts the next row.
 @(private)
-editor_wrap_line :: proc(editor: ^Editor, text: string, line_start, line_end, cols, line_index, tab_width: int) {
+editor_wrap_line :: proc(rows: ^[dynamic]Visual_Row, text: string, line_start, line_end, cols, line_index, tab_width: int) {
     // With wrapping off cols is max(int), so the walk below can never break the
     // line — skip it rather than decoding every rune in the buffer per rebuild.
     if line_start == line_end || cols == max(int) {
-        append(&editor.visual_rows, Visual_Row {line_start, line_end, line_index, true})
+        append(rows, Visual_Row {line_start, line_end, line_index, true})
         return
     }
 
@@ -1171,7 +1305,7 @@ editor_wrap_line :: proc(editor: ^Editor, text: string, line_start, line_end, co
         // One cluster always fits an empty row, or a 1-column pane would loop.
         if col + cells > cols && i > seg_start {
             brk := last_break > seg_start ? last_break : i
-            append(&editor.visual_rows, Visual_Row {seg_start, brk, line_index, first})
+            append(rows, Visual_Row {seg_start, brk, line_index, first})
             first = false
             seg_start = brk
             col = 0
@@ -1185,7 +1319,7 @@ editor_wrap_line :: proc(editor: ^Editor, text: string, line_start, line_end, co
         }
         i = next
     }
-    append(&editor.visual_rows, Visual_Row {seg_start, line_end, line_index, first})
+    append(rows, Visual_Row {seg_start, line_end, line_index, first})
 }
 
 // Index of the earliest visual row that owns byte offset `pos`; the last row

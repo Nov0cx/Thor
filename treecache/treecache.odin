@@ -205,12 +205,18 @@ free_entry :: proc(c: ^Cache, entry: ^Entry) {
 // covering them all — still truthful, tree-sitter reuses whatever falls outside
 // it. Being diff-based it assumes no ordering: sources arriving out of revision
 // order still describe a correct old->new edit. Both ends are pulled onto UTF-8
-// rune boundaries.
+// rune boundaries. The points come from the prefix scan and the changed spans,
+// never from a second scan of the prefix.
 source_edit :: proc(old, new: string) -> ts.Input_Edit {
     limit := min(len(old), len(new))
 
-    prefix := 0
+    // A pull back onto a rune start never crosses a newline, so the row holds.
+    prefix, row, line_start := 0, 0, 0
     for prefix < limit && old[prefix] == new[prefix] {
+        if new[prefix] == '\n' {
+            row += 1
+            line_start = prefix + 1
+        }
         prefix += 1
     }
     for prefix > 0 && prefix < len(new) && is_utf8_tail(new[prefix]) {
@@ -229,13 +235,14 @@ source_edit :: proc(old, new: string) -> ts.Input_Edit {
         new_end += 1
     }
 
+    start := ts.Point{row = u32(row), col = u32(prefix - line_start)} // the same in both
     return ts.Input_Edit {
         start_byte    = u32(prefix),
         old_end_byte  = u32(old_end),
         new_end_byte  = u32(new_end),
-        start_point   = byte_point(new, prefix), // a common prefix: the same in both
-        old_end_point = byte_point(old, old_end),
-        new_end_point = byte_point(new, new_end),
+        start_point   = start,
+        old_end_point = byte_point(old, prefix, old_end, start),
+        new_end_point = byte_point(new, prefix, new_end, start),
     }
 }
 
@@ -245,13 +252,15 @@ is_utf8_tail :: proc(b: byte) -> bool {
     return b & 0xC0 == 0x80
 }
 
-// The tree-sitter Point (0-based row, byte column) at `offset`. Only the edit
-// description needs these — callers here work in raw byte offsets — but
-// tree-sitter stores them on the nodes it shifts, so they have to be right.
+// The tree-sitter Point (0-based row, byte column) at `offset`, from `at`, the
+// point at byte `from`. Only the edit description needs these — callers here
+// work in raw byte offsets — but tree-sitter stores them on the nodes it shifts,
+// so they have to be right.
 @(private)
-byte_point :: proc(s: string, offset: int) -> ts.Point {
-    row, line_start := 0, 0
-    for i in 0 ..< offset {
+byte_point :: proc(s: string, from, offset: int, at: ts.Point) -> ts.Point {
+    row := int(at.row)
+    line_start := from - int(at.col)
+    for i in from ..< offset {
         if s[i] == '\n' {
             row += 1
             line_start = i + 1

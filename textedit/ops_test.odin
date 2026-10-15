@@ -1,5 +1,6 @@
 package textedit
 
+import "core:math/rand"
 import "core:testing"
 
 @(private = "file")
@@ -168,6 +169,98 @@ test_change_log_records_each_span :: proc(t: ^testing.T) {
     testing.expect(t, !ok, "an overwritten change is gone")
     _, ok = change_at(&state, behind + 1)
     testing.expect(t, ok, "the oldest kept change is there")
+}
+
+// The joined span of several revisions turns the old text into the new one.
+@(test)
+test_changes_since_joins_revisions :: proc(t: ^testing.T) {
+    state := ops_state("0123456789", 0)
+    defer destroy(&state)
+    base := state.revision
+
+    testing.expect_value(t, insert_at(&state, 8, "ab"), Error.None)
+    testing.expect_value(t, delete_range(&state, 1, 2), Error.None)
+    change, ok := changes_since(&state, base)
+    testing.expect(t, ok, "the revisions are in the log")
+    testing.expect_value(t, change.lo, 1)
+    testing.expect_value(t, change.old_hi, 8)
+    testing.expect_value(t, change.new_hi, 8)
+    testing.expect_value(t, text(&state), "034567ab89")
+
+    undo(&state)
+    undo(&state)
+    change, ok = changes_since(&state, base)
+    testing.expect(t, ok, "undo is in the log")
+    testing.expect(t, change.lo <= change.old_hi && change.new_hi - change.old_hi == 0, "undo of both returns the length")
+
+    _, ok = changes_since(&state, state.revision)
+    testing.expect(t, !ok, "no changes since the current revision")
+    for _ in 0 ..= CHANGE_LOG {
+        testing.expect_value(t, insert_at(&state, 0, "x"), Error.None)
+    }
+    _, ok = changes_since(&state, base)
+    testing.expect(t, !ok, "a reader behind the log gets nothing")
+}
+
+// The patched line table equals a fresh one after random edits, undo and redo.
+@(test)
+test_line_table_patch_matches_rebuild :: proc(t: ^testing.T) {
+    state := ops_state("a\nbb\n\nccc\n", 0)
+    defer destroy(&state)
+    gen := rand.create_u64(11)
+    context.random_generator = rand.default_random_generator(&gen)
+    pieces := [?]string{"x", "\n", "y\nz", "\n\n", "q"}
+
+    for round in 0 ..< 500 {
+        n := length(&state)
+        pos := rand.int_max(n + 1)
+        switch rand.int_max(6) {
+        case 0, 1:
+            _ = insert_at(&state, pos, pieces[rand.int_max(len(pieces))])
+        case 2:
+            _ = delete_range(&state, pos, min(rand.int_max(4), n - pos))
+        case 3:
+            if n > 2 {
+                set_cursors(&state, {{caret = 0, anchor = 0}, {caret = n, anchor = n}})
+                insert_text(&state, "\n")
+            }
+        case 4:
+            undo(&state)
+        case 5:
+            redo(&state)
+        }
+        // Read only every other round, so a patch can span several revisions.
+        if round % 2 == 1 {
+            continue
+        }
+        patched := clone_slice(line_table(&state), context.temp_allocator)
+        state.lines_valid = false
+        fresh := line_table(&state)
+        if !slices_equal(patched, fresh) {
+            testing.expectf(t, false, "round %d: patched %v, fresh %v", round, patched, fresh)
+            return
+        }
+    }
+}
+
+@(private = "file")
+clone_slice :: proc(s: []int, allocator := context.allocator) -> []int {
+    out := make([]int, len(s), allocator)
+    copy(out, s)
+    return out
+}
+
+@(private = "file")
+slices_equal :: proc(a, b: []int) -> bool {
+    if len(a) != len(b) {
+        return false
+    }
+    for v, i in a {
+        if b[i] != v {
+            return false
+        }
+    }
+    return true
 }
 
 // A selection that ends at a line start does not take that line.

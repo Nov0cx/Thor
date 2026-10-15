@@ -84,8 +84,9 @@ State :: struct {
     // Comment and string syntax for bracket matching. Borrowed.
     lexical:    Lexical,
     // Byte offset of every line start, so a line query is a binary search and not
-    // a scan from byte 0. Rebuilt at the first query after a content change, like
-    // the text snapshot, so a caller that never asks never pays. Offsets, not
+    // a scan from byte 0. Patched from the change log at the first query after a
+    // content change, like the text snapshot, and rebuilt when the log no longer
+    // reaches back. Offsets, not
     // slices, so an edit cannot leave it pointing into dead text.
     lines:          [dynamic]int, // owned
     lines_revision: u64,
@@ -110,6 +111,30 @@ CHANGE_LOG :: 64
 change_at :: proc(state: ^State, revision: u64) -> (Change, bool) {
     change := state.changes[revision % CHANGE_LOG]
     return change, revision != 0 && change.revision == revision
+}
+
+// The changes after `revision` up to the current one, joined into one span over
+// the text at `revision`. False when the log no longer reaches back that far.
+changes_since :: proc(state: ^State, revision: u64) -> (Change, bool) {
+    if revision == 0 || revision >= state.revision || state.revision - revision > CHANGE_LOG {
+        return {}, false
+    }
+    total, ok := change_at(state, revision + 1)
+    if !ok {
+        return {}, false
+    }
+    for r := revision + 2; r <= state.revision; r += 1 {
+        next, found := change_at(state, r)
+        if !found {
+            return {}, false
+        }
+        hi := max(total.new_hi, next.old_hi)
+        total.old_hi = hi - (total.new_hi - total.old_hi)
+        total.new_hi = hi + (next.new_hi - next.old_hi)
+        total.lo = min(total.lo, next.lo)
+    }
+    total.revision = state.revision
+    return total, true
 }
 
 // Logs the span of `ops` as the change that made `revision`. With `reverse`,
@@ -1223,7 +1248,7 @@ line_start_of_index :: proc(txt: string, line: int) -> int {
     return start
 }
 
-// The line table, rebuilt when the content changed since the last query. Main
+// The line table, brought up to date when the content changed since the last query. Main
 // thread only: it writes to the state.
 @(private)
 line_table :: proc(state: ^State) -> []int {
@@ -1232,6 +1257,11 @@ line_table :: proc(state: ^State) -> []int {
     }
 
     txt := text(state)
+    if change, ok := changes_since(state, state.lines_revision); state.lines_valid && ok {
+        patch_line_table(state, txt, change)
+        state.lines_revision = state.revision
+        return state.lines[:]
+    }
     clear(&state.lines)
     append(&state.lines, 0)
     for i in 0 ..< len(txt) {
@@ -1242,6 +1272,43 @@ line_table :: proc(state: ^State) -> []int {
     state.lines_revision = state.revision
     state.lines_valid = true
     return state.lines[:]
+}
+
+// Moves the line table through `change`: drops the starts it replaced, shifts the
+// ones after it and adds the starts of the new text `txt[lo:new_hi]`.
+@(private)
+patch_line_table :: proc(state: ^State, txt: string, change: Change) {
+    lines := &state.lines
+    // First start after lo, and first start after old_hi.
+    first := first_line_after(lines[:], change.lo)
+    last := first_line_after(lines[:], change.old_hi)
+    delta := change.new_hi - change.old_hi
+    for i in last ..< len(lines) {
+        lines[i] += delta
+    }
+    remove_range(lines, first, last)
+    added := make([dynamic]int, 0, 16, context.temp_allocator)
+    for i in change.lo ..< change.new_hi {
+        if txt[i] == '\n' {
+            append(&added, i + 1)
+        }
+    }
+    inject_at(lines, first, ..added[:])
+}
+
+// Index of the first entry of the sorted `lines` that is greater than `pos`.
+@(private)
+first_line_after :: proc(lines: []int, pos: int) -> int {
+    lo, hi := 0, len(lines)
+    for lo < hi {
+        mid := lo + (hi - lo) / 2
+        if lines[mid] <= pos {
+            lo = mid + 1
+        } else {
+            hi = mid
+        }
+    }
+    return lo
 }
 
 // Zero-based index of the line holding `pos`, over the line table. Same result as

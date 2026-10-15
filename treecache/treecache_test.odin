@@ -42,4 +42,29 @@ test_source_edit_points :: proc(t: ^testing.T) {
     testing.expectf(t, e.start_point.row == 1 && e.start_point.col == 1, "start: got %v", e.start_point)
     testing.expectf(t, e.old_end_point.row == 1 && e.old_end_point.col == 1, "old end: got %v", e.old_end_point)
     testing.expectf(t, e.new_end_point.row == 1 && e.new_end_point.col == 2, "new end: got %v", e.new_end_point)
+
+    // Each point equals a scan from byte 0, for edits that add and drop lines.
+    Case :: struct {
+        old, new: string,
+    }
+    cases := [?]Case {
+        {"abc", "aXc"},
+        {"a\nb\nc", "a\nb\nc\n\nd"},
+        {"one\ntwo\nthree", "one\nthree"},
+        {"x\n\n\ny", "x\nnew\nlines\n\ny"},
+        {"é\nü\nö", "é\nüü\nö"},
+        {"", "a\nb"},
+        {"a\nb", ""},
+    }
+    for c in cases {
+        e = source_edit(c.old, c.new)
+        expect_point(t, e.start_point, byte_point(c.new, 0, int(e.start_byte), {}))
+        expect_point(t, e.old_end_point, byte_point(c.old, 0, int(e.old_end_byte), {}))
+        expect_point(t, e.new_end_point, byte_point(c.new, 0, int(e.new_end_byte), {}))
+    }
+}
+
+@(private = "file")
+expect_point :: proc(t: ^testing.T, got, want: ts.Point, loc := #caller_location) {
+    testing.expectf(t, got == want, "got %v, want %v", got, want, loc = loc)
 }
