@@ -61,3 +61,34 @@ default_options :: proc() -> Options {
         align_constant_definitions   = false,
     }
 }
+
+// The range each integer option accepts.
+@(private)
+Int_Range :: struct {
+    key:      string,
+    offset:   uintptr,
+    min, max: int,
+}
+
+@(private)
+INT_RANGES := [?]Int_Range {
+    {"character_width", offset_of(Options, character_width), 20, 1000},
+    {"spaces",          offset_of(Options, spaces),          1,  16},
+    {"newline_limit",   offset_of(Options, newline_limit),   0,  16},
+    {"tabs_width",      offset_of(Options, tabs_width),      1,  16},
+}
+
+// Resets every integer option outside its range to the default, and returns
+// the keys it reset.
+validate_options :: proc(opts: ^Options, allocator := context.allocator) -> []string {
+    defaults := default_options()
+    reset := make([dynamic]string, allocator)
+    for r in INT_RANGES {
+        value := cast(^int) (uintptr(opts) + r.offset)
+        if value^ < r.min || value^ > r.max {
+            value^ = (cast(^int) (uintptr(&defaults) + r.offset))^
+            append(&reset, r.key)
+        }
+    }
+    return reset[:]
+}

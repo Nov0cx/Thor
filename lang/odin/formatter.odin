@@ -7,8 +7,10 @@ package odin
 
 import "base:runtime"
 import "core:encoding/json"
+import "core:log"
 import "core:os"
 import "core:path/filepath"
+import "core:slice"
 import "core:strings"
 import "core:sync"
 
@@ -82,19 +84,46 @@ format_config_ensure :: proc(cache: ^Format_Config_Cache, workspace: string) {
     }
 }
 
+// Reads the file onto the defaults. A key it does not know, a value of the
+// wrong type and a value out of range are logged and keep the default.
 @(private)
 format_config_parse :: proc(cache: ^Format_Config_Cache, path: string) {
     data, rerr := os.read_entire_file(path, context.temp_allocator)
     if rerr != nil {
+        log.warnf("odin-formatter.json: cannot read %q: %v", path, rerr)
         return
     }
     value, perr := json.parse(data, allocator = context.temp_allocator)
     if perr != .None {
+        log.warnf("odin-formatter.json: cannot parse %q: %v", path, perr)
         return
     }
     obj, ook := value.(json.Object)
     if !ook {
+        log.warnf("odin-formatter.json: %q is not an object", path)
         return
+    }
+
+    for key, v in obj {
+        is_int := slice.contains(FORMAT_INT_KEYS, key)
+        is_bool := slice.contains(FORMAT_BOOL_KEYS, key)
+        is_string := slice.contains(FORMAT_STRING_KEYS, key)
+        if !is_int && !is_bool && !is_string {
+            log.warnf("odin-formatter.json: unknown key %q", key)
+            continue
+        }
+        right := false
+        #partial switch _ in v {
+        case json.Integer, json.Float:
+            right = is_int
+        case json.Boolean:
+            right = is_bool
+        case json.String:
+            right = is_string
+        }
+        if !right {
+            log.warnf("odin-formatter.json: %q has a value of the wrong type and keeps its default", key)
+        }
     }
 
     // A plain integer ("tabs_width": 4) tokenizes as json.Integer, not
@@ -144,15 +173,39 @@ format_config_parse :: proc(cache: ^Format_Config_Cache, path: string) {
         case "Allman":     cache.opts.brace_style = .Allman
         case "Stroustrup": cache.opts.brace_style = .Stroustrup
         case "K_And_R":    cache.opts.brace_style = .K_And_R
+        case:
+            log.warnf("odin-formatter.json: brace_style %q is not _1TBS, Allman, Stroustrup or K_And_R", s)
         }
     }
     if s, ok := obj["newline_style"].(json.String); ok {
-        cache.newline_present = true
         switch s {
-        case "LF":   cache.opts.newline_style = .LF
-        case "CRLF": cache.opts.newline_style = .CRLF
+        case "LF":
+            cache.newline_present = true
+            cache.opts.newline_style = .LF
+        case "CRLF":
+            cache.newline_present = true
+            cache.opts.newline_style = .CRLF
+        case:
+            log.warnf("odin-formatter.json: newline_style %q is not LF or CRLF", s)
         }
     }
+
+    for key in format.validate_options(&cache.opts, context.temp_allocator) {
+        log.warnf("odin-formatter.json: %q is out of range and keeps its default", key)
+    }
+}
+
+// The keys of odin-formatter.json, by the type of their value.
+@(private)
+FORMAT_INT_KEYS := []string{"character_width", "spaces", "newline_limit", "tabs_width"}
+@(private)
+FORMAT_STRING_KEYS := []string{"brace_style", "newline_style"}
+@(private)
+FORMAT_BOOL_KEYS := []string {
+    "tabs", "convert_do", "exp_multiline_composite_literals", "indent_cases",
+    "inline_single_stmt_case", "spaces_around_colons", "sort_imports",
+    "space_single_line_blocks", "align_struct_fields", "align_struct_values",
+    "align_struct_declarations", "align_constant_definitions",
 }
 
 @(private)

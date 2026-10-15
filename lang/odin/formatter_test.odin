@@ -4,11 +4,14 @@
 // silently ignores every ordinarily-written integer setting in the file.
 package odin
 
+import "base:runtime"
+import "core:log"
 import "core:os"
 import "core:strings"
 import "core:testing"
 
 import lang ".."
+import "format"
 
 @(test)
 test_format_config_integer_settings_apply :: proc(t: ^testing.T) {
@@ -237,4 +240,43 @@ test_on_type_trigger_is_close_brace_only :: proc(t: ^testing.T) {
     testing.expect(t, on_type_trigger(e, ".odin", "}"))
     testing.expect(t, !on_type_trigger(e, ".odin", "\n"))
     testing.expect(t, !on_type_trigger(e, ".go", "}"))
+}
+
+@(private = "file")
+count_warnings :: proc(data: rawptr, level: log.Level, text: string, options: log.Options, location := #caller_location) {
+    if level >= .Warning {
+        (^int)(data)^ += 1
+    }
+}
+
+// A config key Thor does not know, a value of the wrong type, a bad brace
+// style and a value out of range are each logged and keep the default.
+@(test)
+test_format_config_reports_bad_values :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    root := "thor_lang_fmtcfg_bad_ws"
+    cfg_dir := strings.concatenate({root, "/.thor"}, context.temp_allocator)
+    _ = os.make_directory(root)
+    _ = os.make_directory(cfg_dir)
+    cfg := strings.concatenate({cfg_dir, "/odin-formatter.json"}, context.temp_allocator)
+    defer os.remove(root)
+    defer os.remove(cfg_dir)
+    defer os.remove(cfg)
+
+    cfg_src := `{"spaces": 0, "tabs": "yes", "brace_style": "GNU", "colour": 1, "character_width": 80}`
+    testing.expect_value(t, os.write_entire_file(cfg, transmute([]byte)cfg_src), nil)
+
+    warnings := 0
+    {
+        context.logger = runtime.Logger {count_warnings, &warnings, .Debug, {}}
+        format_config_ensure(&e.format_config, root)
+    }
+    testing.expect_value(t, warnings, 4)
+    opts := e.format_config.opts
+    testing.expect_value(t, opts.spaces, format.default_options().spaces)
+    testing.expect_value(t, opts.tabs, format.default_options().tabs)
+    testing.expect_value(t, opts.brace_style, format.Brace_Style._1TBS)
+    testing.expect_value(t, opts.character_width, 80)
 }

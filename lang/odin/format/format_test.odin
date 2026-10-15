@@ -903,3 +903,20 @@ test_byte_order_mark_is_kept :: proc(t: ^testing.T) {
     testing.expect(t, ok)
     testing.expect_value(t, out, "\xef\xbb\xbfpackage p\n")
 }
+
+// An integer option out of its range takes its default and is named.
+@(test)
+test_validate_options_resets_out_of_range :: proc(t: ^testing.T) {
+    opts := default_options()
+    opts.character_width = 5
+    opts.spaces = 0
+    opts.tabs_width = 4
+    opts.newline_limit = 99
+    reset := validate_options(&opts, context.temp_allocator)
+    testing.expect_value(t, len(reset), 3)
+    testing.expect_value(t, opts.character_width, default_options().character_width)
+    testing.expect_value(t, opts.spaces, default_options().spaces)
+    testing.expect_value(t, opts.newline_limit, default_options().newline_limit)
+    testing.expect_value(t, opts.tabs_width, 4)
+    testing.expect_value(t, len(validate_options(&opts, context.temp_allocator)), 0)
+}

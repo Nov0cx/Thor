@@ -308,6 +308,11 @@ its root, layered on top of the global settings above. This repository's own
   | `align_struct_declarations` | Align consecutive `Name :: struct` / `union` / `enum` / `bit_field` declarations' `::` | `false` |
   | `align_constant_definitions` | Align consecutive `NAME :: value` declarations' `::` | `false` |
 
+  `character_width` takes 20 to 1000, `spaces` and `tabs_width` 1 to 16 and
+  `newline_limit` 0 to 16. A key the formatter does not know, a value of the
+  wrong type or out of range, and an unknown `brace_style` or `newline_style`
+  are written to the log, and the key keeps its default.
+
   The formatter never guesses at broken code — a file with a syntax error is
   left untouched. An import run with a comment in it is left in the order it
   was written, since moving an import would re-attach the comment beside it to

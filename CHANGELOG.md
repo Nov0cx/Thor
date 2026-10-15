@@ -49,6 +49,7 @@
 - Files colored by a pure-Lua lexer fold: YAML, JSON, CSS, XML, TOML and the rest fold by indentation, and a closing bracket folds with its block.
 - Plugin API: a `fold` function in `thor.register_language` supplies a language's own folds.
 - The formatter's `brace_style` applies to `switch`, struct, union, enum and bit_field bodies. It applied to blocks only.
+- `odin-formatter.json` logs a key it does not know, a value of the wrong type and a value out of range, and keeps the default. A `spaces` of 0 gave no indent.
 
 # 2026.10.4
 
