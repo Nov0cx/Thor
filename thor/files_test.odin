@@ -933,3 +933,28 @@ test_backup_restores_unsaved_edits :: proc(t: ^testing.T) {
 
     thor_close_file(thor, 0)
 }
+
+// A renamed folder carries the tabs under it, and leaves a sibling with a longer name alone.
+@(test)
+test_retarget_moves_tabs_under_a_folder :: proc(t: ^testing.T) {
+    thor := new(Thor)
+    defer free(thor)
+
+    inside := new(Open_File)
+    sibling := new(Open_File)
+    inside.path = strings.clone(thor_abs_path("proj/src/a.odin"))
+    sibling.path = strings.clone(thor_abs_path("proj/srcs/b.odin"))
+    append(&thor.open_files, inside, sibling)
+    defer {
+        for file in thor.open_files {
+            delete(file.path)
+            delete(file.tab_label)
+            free(file)
+        }
+        delete(thor.open_files)
+    }
+
+    thor_retarget_open_file(thor, "proj/src", "proj/lib")
+    testing.expect(t, thor_same_path(inside.path, "proj/lib/a.odin"), inside.path)
+    testing.expect(t, thor_same_path(sibling.path, "proj/srcs/b.odin"), sibling.path)
+}

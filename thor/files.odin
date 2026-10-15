@@ -529,9 +529,9 @@ thor_open_file_at :: proc(thor: ^Thor, path: string) -> ^Open_File {
     return file
 }
 
-// Repoints an open tab from `old_path` to `new_path` after a rename or a move,
-// so it keeps its buffer and saves to the new location. A no-op when no tab
-// pointed at old_path; a folder never matches one.
+// Repoints the open tabs at `old_path`, or under it when it is a folder, to
+// `new_path` after a rename or a move, so they keep their buffers and save to
+// the new location.
 @(private)
 thor_retarget_open_file :: proc(thor: ^Thor, old_path, new_path: string) {
     // A worker borrows file.path, which the free below ends. The callers settle
@@ -541,9 +541,16 @@ thor_retarget_open_file :: proc(thor: ^Thor, old_path, new_path: string) {
     if abs, err := filepath.abs(new_path, context.temp_allocator); err == nil {
         canonical = abs
     }
-    if file, _ := thor_find_open_file(thor, old_path); file != nil {
+    old_canon := thor_canon_path(old_path)
+    for file in thor.open_files {
+        if file.closed || !thor_path_within(file.path, old_path) {
+            continue
+        }
+        // The part below the folder, in native separators.
+        tail := thor_canon_path(file.path)[len(old_canon):]
+        native, _ := strings.replace_all(tail, "/", filepath.SEPARATOR_STRING, context.temp_allocator)
         delete(file.path)
-        file.path = strings.clone(canonical)
+        file.path = strings.concatenate({canonical, native})
         file.name = thor_file_base(file.path)
     }
     thor_update_tab_labels(thor)
