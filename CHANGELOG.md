@@ -44,6 +44,7 @@
 - Characters beyond Latin draw: Cyrillic, Greek, box drawing and symbols from the font itself, CJK, emoji and the rest from the fonts the system ships. They were blank.
 - A numpad key is no longer taken as the main-block key its layout names: numpad 1 stays numpad 1.
 - A broken or missing font or icon manifest is written to `thor.log` in a release build. Icons went blank with no log line.
+- An icon outside its set's `preload` list draws. It was blank.
 
 # 2026.10.4
 

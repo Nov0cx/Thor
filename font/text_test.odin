@@ -3,6 +3,8 @@ package font
 import "base:runtime"
 import "core:log"
 import "core:os"
+import "core:slice"
+
 import "core:sync"
 import "core:testing"
 import "core:time"
@@ -321,6 +323,24 @@ check_full_async_load :: proc(t: ^testing.T) {
         // JetBrains Mono substitutes every backtick with a contextual-alternate
         // glyph that isn't in the atlas, so the fallback path must be exercised.
         testing.expect(t, unmapped > 0, "expected backtick to hit the codepoint fallback")
+    }
+
+    // An icon outside the preload list is rasterized from its own family.
+    if family, ok := families[ICON_FAMILY]; ok {
+        missing: rune = 0
+        for _, code in family.own_icons {
+            if !slice.contains(family.codepoints, code) {
+                missing = code
+                break
+            }
+        }
+        testing.expect(t, missing != 0, "every icon is preloaded; the test needs one that is not")
+        if missing != 0 {
+            glyph, glyph_ok := fallback_glyph(family, 16, missing)
+            testing.expect(t, glyph_ok, "an icon family refused the fallback")
+            testing.expect(t, glyph.rect.width > 0, "a non-preloaded icon has no bitmap")
+            testing.expect(t, glyph.advance > 0, "a non-preloaded icon has no advance")
+        }
     }
 
     // A size the manifest never named must bake the same way a preloaded one

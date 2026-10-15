@@ -126,10 +126,11 @@ fallback_shutdown :: proc() {
 }
 
 // The fallback glyph of `r` for `family` at `size`, rasterized on first use.
-// False only when the family cannot take a fallback (an icon font).
+// An icon outside the preload list comes here too. False when there is no
+// family or no font state.
 @(private)
 fallback_glyph :: proc(family: ^Font_Family, size: i32, r: rune) -> (Fallback_Glyph, bool) {
-    if family == nil || family.icon_font || size <= 0 || font_allocator.procedure == nil {
+    if family == nil || size <= 0 || font_allocator.procedure == nil {
         return {}, false
     }
     context.allocator = font_allocator
@@ -180,7 +181,8 @@ fallback_sheet :: proc(family: ^Font_Family, size: i32) -> ^Fallback_Sheet {
 }
 
 // Rasterizes `r` from the first face that has it: the family's own file, then
-// the system faces. A character no face has gets a blank glyph.
+// the system faces. An icon font uses its own file only: a system glyph is no
+// icon. A character no face has gets a blank glyph.
 @(private = "file")
 fallback_rasterize :: proc(family: ^Font_Family, sheet: ^Fallback_Sheet, size: i32, r: rune) -> Fallback_Glyph {
     own: stbtt.fontinfo
@@ -189,7 +191,11 @@ fallback_rasterize :: proc(family: ^Font_Family, sheet: ^Fallback_Sheet, size: i
             return fallback_bake(&own, sheet, size, gid)
         }
     }
+    if family.icon_font {
+        return Fallback_Glyph {advance = sheet.blank}
+    }
     for &face in system_faces {
+
         if !face_load(&face) {
             continue
         }
