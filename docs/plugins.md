@@ -19,7 +19,6 @@ lexer folds by indentation: a line folds over the deeper-indented lines after
 it, and a closing `}`, `]` or `)` at its indent folds with them. A plugin can
 supply its own folds instead.
 
-
 ## Permissions and the trust prompt
 
 A plugin only gets capabilities it declares (`exec`, `read`, `write`, `ui`,

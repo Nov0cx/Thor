@@ -516,7 +516,6 @@ push_api_table :: proc(m: ^Manager, index: int) {
     for entry in theme.COLORS {
         cs := strings.clone_to_cstring(entry.role, context.temp_allocator)
         lua.pushstring(L, cs)
-
         lua.setfield(L, -2, cs)
     }
     lua.setfield(L, api, "theme")
@@ -1264,7 +1263,6 @@ api_register_language :: proc "c" (L: ^lua.State) -> c.int {
     } else {
         lua.pop(L, 1)
     }
-
 
     if source, ok := field_string(L, "highlights"); ok && lang.grammar != "" {
         apply_highlights_override(m, index, lang.grammar, source)

@@ -218,7 +218,6 @@ a canvas call takes any of them. A role the theme does not know draws in
 | Status | `success`, `warning`, `info`, `danger`, `error`, `conflict`, `submodule` |
 | Syntax | `comments`, `keywords`, `functions`, `strings`, `numbers`, `operators`, `variables`, `parameters`, `attributes`, `tags` |
 
-
 A `highlight` function is given the whole buffer. Add `line_based = true` when it
 reads each line on its own, and it is given only the lines the pane shows, which
 is what keeps a large file responsive:

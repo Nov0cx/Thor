@@ -603,7 +603,6 @@ prebake_async :: proc(family_names: []string, sizes: []i32 = nil) -> int {
             job.logger = context.logger
             job.worker = thread.create_and_start_with_poly_data(job, font_load_worker)
             append(&prebake_jobs, job)
-
             spawned += 1
         }
     }

@@ -195,7 +195,6 @@ fallback_rasterize :: proc(family: ^Font_Family, sheet: ^Fallback_Sheet, size: i
         return Fallback_Glyph {advance = sheet.blank}
     }
     for &face in system_faces {
-
         if !face_load(&face) {
             continue
         }

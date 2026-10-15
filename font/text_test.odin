@@ -118,7 +118,6 @@ check_manifest_error_logged :: proc(t: ^testing.T) {
     testing.expect(t, sync.atomic_load(&count.errors) > 0, "a missing icon manifest logged no error")
 }
 
-
 // A user manifest adds its families to the shipped ones and wins the default.
 // Its paths are relative to its own folder.
 @(private = "file")

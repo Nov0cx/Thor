@@ -150,7 +150,6 @@ fold_ranges :: proc(m: ^Manager, path, source, ext: string, allocator := context
     if !syntax.supports(&m.highlighter, lang.grammar) {
         return nil
     }
-
     ranges := syntax.fold_ranges(&m.highlighter, path, source, lang.grammar, context.temp_allocator)
     out := make([dynamic]Fold_Range, 0, len(ranges), allocator)
     for r in ranges {
