@@ -1,6 +1,9 @@
 package font
 
+import "base:runtime"
+import "core:log"
 import "core:os"
+import "core:sync"
 import "core:testing"
 import "core:time"
 import rl "vendor:raylib"
@@ -84,7 +87,35 @@ test_async_font_load :: proc(t: ^testing.T) {
     check_full_async_load(t)
     check_selective_preload(t)
     check_user_manifest(t)
+    check_manifest_error_logged(t)
 }
+
+// Counts the errors logged from any thread.
+@(private = "file")
+Error_Count :: struct {
+    errors: int,
+}
+
+@(private = "file")
+count_errors :: proc(data: rawptr, level: log.Level, text: string, options: log.Options, location := #caller_location) {
+    if level >= .Error {
+        sync.atomic_add(&(^Error_Count)(data).errors, 1)
+    }
+}
+
+// An icon manifest that cannot load is logged by the loader thread.
+@(private = "file")
+check_manifest_error_logged :: proc(t: ^testing.T) {
+    count: Error_Count
+    {
+        context.logger = runtime.Logger {count_errors, &count, .Debug, {}}
+        begin_async_load("assets/fonts/fonts.json", "missing/icons.json")
+        finish_async_load()
+        shutdown()
+    }
+    testing.expect(t, sync.atomic_load(&count.errors) > 0, "a missing icon manifest logged no error")
+}
+
 
 // A user manifest adds its families to the shipped ones and wins the default.
 // Its paths are relative to its own folder.

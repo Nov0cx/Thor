@@ -6,6 +6,7 @@ import "core:log"
 import "core:math"
 import "core:mem"
 import "core:mem/virtual"
+import "core:os"
 import "core:slice"
 import "core:strings"
 import "core:sync"
@@ -30,6 +31,8 @@ Font_Load_Job :: struct {
     shaped:      map[u32]Shaped_Glyph,
     ok:          bool,
     worker:      ^thread.Thread,
+    // The spawning thread's logger: a new thread has none.
+    logger:      log.Logger,
     // Set by the worker when the bake ends; pump_async polls it so a
     // prebake job is joined only once finished.
     done:        bool,
@@ -168,6 +171,7 @@ free_glyphs :: proc(glyphs: [^]rl.GlyphInfo, count: int) {
 
 @(private = "file")
 font_load_worker :: proc(job: ^Font_Load_Job) {
+    context.logger = job.logger
     font_bake_job(job)
     sync.atomic_store(&job.done, true)
 }
@@ -360,6 +364,8 @@ Bootstrap_Args :: struct {
     font_manifest: string,
     icon_manifest: string,
     preload:       Preload,
+    // Only the logger is passed: the rest of the caller's context is its own.
+    logger:        log.Logger,
 }
 
 @(private = "file")
@@ -408,17 +414,19 @@ bootstrap_worker :: proc(args: ^Bootstrap_Args) {
     // Persistent font allocations land in the arena, touched only by this
     // thread until finish_async_load joins it.
     context.allocator = font_allocator
+    context.logger = args.logger
 
-    when ODIN_DEBUG {
-        context.logger = log.create_console_logger(opt = {.Level, .Terminal_Color})
-        defer log.destroy_console_logger(context.logger)
+    if !load_font_manifest(args.font_manifest, args.preload.families) {
+        log.errorf("Font manifest %q registered no family", args.font_manifest)
     }
-
-    load_font_manifest(args.font_manifest, args.preload.families)
-    if args.preload.user_manifest != "" {
-        load_font_manifest(args.preload.user_manifest, args.preload.families, optional = true)
+    if args.preload.user_manifest != "" && os.exists(args.preload.user_manifest) {
+        if !load_font_manifest(args.preload.user_manifest, args.preload.families, optional = true) {
+            log.errorf("Font manifest %q registered no family", args.preload.user_manifest)
+        }
     }
-    load_icon_manifest(args.icon_manifest, args.preload.icon_packs)
+    if !load_icon_manifest(args.icon_manifest, args.preload.icon_packs) {
+        log.errorf("Icon manifest %q registered no family; icons are blank", args.icon_manifest)
+    }
 
     for _, family in families {
         // Outside the preload set: registered for the pickers, baked on first use.
@@ -432,6 +440,7 @@ bootstrap_worker :: proc(args: ^Bootstrap_Args) {
             job := new(Font_Load_Job)
             job.family = family
             job.size = size
+            job.logger = context.logger
             job.worker = thread.create_and_start_with_poly_data(job, font_load_worker)
             append(&async_jobs, job)
         }
@@ -455,6 +464,7 @@ begin_async_load :: proc(font_manifest, icon_manifest: string, preload := Preloa
     bootstrap_args.font_manifest = strings.clone(font_manifest, font_allocator)
     bootstrap_args.icon_manifest = strings.clone(icon_manifest, font_allocator)
     bootstrap_args.preload = preload_clone(preload, font_allocator)
+    bootstrap_args.logger = context.logger
     bootstrap_thread = thread.create_and_start_with_poly_data(bootstrap_args, bootstrap_worker)
 }
 
@@ -590,8 +600,10 @@ prebake_async :: proc(family_names: []string, sizes: []i32 = nil) -> int {
             job := new(Font_Load_Job, font_allocator)
             job.family = family
             job.size = size
+            job.logger = context.logger
             job.worker = thread.create_and_start_with_poly_data(job, font_load_worker)
             append(&prebake_jobs, job)
+
             spawned += 1
         }
     }
