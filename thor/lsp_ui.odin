@@ -153,7 +153,8 @@ thor_lsp_populate_problems :: proc(thor: ^Thor) {
         }
         thor_settings_add_info(view, fmt.tprintf("lsp_info:problem:%d", index), label, problem.message, .Bad)
     }
-    for path in ([?]string{lsp.GLOBAL_CONFIG, lsp.USER_CONFIG}) {
+    // The shipped file is replaced by a build and an update, so only the user layer opens.
+    for path in ([?]string{lsp.USER_CONFIG}) {
         if !thor_lsp_problem_names(problems, path) {
             continue
         }

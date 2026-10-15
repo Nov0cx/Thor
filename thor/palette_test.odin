@@ -96,3 +96,20 @@ test_palette_match_spans_stay_on_runes :: proc(t: ^testing.T) {
     split := palette_match_spans("odin", "thor.odin", {})
     testing.expect_value(t, len(split), 2)
 }
+
+// A confirmation that another palette mode replaces reports itself dismissed.
+@(test)
+test_replaced_confirm_fires_cancel :: proc(t: ^testing.T) {
+    thor := new(Thor)
+    defer free(thor)
+    defer delete(thor.palette.query)
+
+    cancelled := 0
+    on_cancel :: proc(data: rawptr) {(cast(^int) data)^ += 1}
+    on_run :: proc(data: rawptr) {}
+    thor_palette_confirm(thor, "Reload?", on_run, &cancelled, on_cancel)
+    thor_palette_open_line(thor)
+    testing.expect_value(t, cancelled, 1)
+    thor_palette_close(thor)
+    testing.expect_value(t, cancelled, 1)
+}

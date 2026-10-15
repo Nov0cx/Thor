@@ -115,7 +115,7 @@ thor_open_folder_request :: proc(thor: ^Thor, dir: string) {
         thor_flash_status(thor, "Not a folder", true)
         return
     }
-    if strings.equal_fold(resolved, thor.workspace_dir) {
+    if thor_path_equal(resolved, thor.workspace_dir) {
         thor_flash_status(thor, "Already open in this window")
         return
     }
@@ -239,7 +239,7 @@ thor_open_folder :: proc(thor: ^Thor, dir: string) {
         thor_flash_status(thor, "Not a folder", true)
         return
     }
-    if strings.equal_fold(resolved, thor.workspace_dir) {
+    if thor_path_equal(resolved, thor.workspace_dir) {
         return
     }
     // Owned: the flush below drains I/O, which frees the temp allocator that
@@ -409,7 +409,7 @@ thor_new_window_for :: proc(thor: ^Thor, dir: string) {
         thor_flash_status(thor, "Not a folder", true)
         return
     }
-    if strings.equal_fold(resolved, thor.workspace_dir) {
+    if thor_path_equal(resolved, thor.workspace_dir) {
         thor_flash_status(thor, "Already open in this window")
         return
     }

@@ -673,98 +673,125 @@ keybind_spec :: proc(kb: Keybind, allocator := context.temp_allocator) -> string
     return strings.to_string(b)
 }
 
+// A key's token in a spec and its label for display.
+@(private)
+Key_Name :: struct {
+    token: string,
+    label: string,
+}
+
+// Every key a chord can name. A modifier key has none, so it cannot be bound alone.
+@(private)
+KEY_NAMES := #partial [ui.Key]Key_Name {
+    .A              = {"a", "A"},
+    .B              = {"b", "B"},
+    .C              = {"c", "C"},
+    .D              = {"d", "D"},
+    .E              = {"e", "E"},
+    .F              = {"f", "F"},
+    .G              = {"g", "G"},
+    .H              = {"h", "H"},
+    .I              = {"i", "I"},
+    .J              = {"j", "J"},
+    .K              = {"k", "K"},
+    .L              = {"l", "L"},
+    .M              = {"m", "M"},
+    .N              = {"n", "N"},
+    .O              = {"o", "O"},
+    .P              = {"p", "P"},
+    .Q              = {"q", "Q"},
+    .R              = {"r", "R"},
+    .S              = {"s", "S"},
+    .T              = {"t", "T"},
+    .U              = {"u", "U"},
+    .V              = {"v", "V"},
+    .W              = {"w", "W"},
+    .X              = {"x", "X"},
+    .Y              = {"y", "Y"},
+    .Z              = {"z", "Z"},
+    .Num_0          = {"0", "0"},
+    .Num_1          = {"1", "1"},
+    .Num_2          = {"2", "2"},
+    .Num_3          = {"3", "3"},
+    .Num_4          = {"4", "4"},
+    .Num_5          = {"5", "5"},
+    .Num_6          = {"6", "6"},
+    .Num_7          = {"7", "7"},
+    .Num_8          = {"8", "8"},
+    .Num_9          = {"9", "9"},
+    .F1             = {"f1", "F1"},
+    .F2             = {"f2", "F2"},
+    .F3             = {"f3", "F3"},
+    .F4             = {"f4", "F4"},
+    .F5             = {"f5", "F5"},
+    .F6             = {"f6", "F6"},
+    .F7             = {"f7", "F7"},
+    .F8             = {"f8", "F8"},
+    .F9             = {"f9", "F9"},
+    .F10            = {"f10", "F10"},
+    .F11            = {"f11", "F11"},
+    .F12            = {"f12", "F12"},
+    .Minus          = {"minus", "-"},
+    .Equal          = {"equal", "="},
+    .Left_Bracket   = {"left_bracket", "["},
+    .Right_Bracket  = {"right_bracket", "]"},
+    .Backslash      = {"backslash", "\\"},
+    .Semicolon      = {"semicolon", ";"},
+    .Apostrophe     = {"apostrophe", "'"},
+    .Grave          = {"grave", "`"},
+    .Comma          = {"comma", ","},
+    .Period         = {"period", "."},
+    .Slash          = {"slash", "/"},
+    .Tab            = {"tab", "Tab"},
+    .Left           = {"left", "Left"},
+    .Right          = {"right", "Right"},
+    .Up             = {"up", "Up"},
+    .Down           = {"down", "Down"},
+    .Home           = {"home", "Home"},
+    .End            = {"end", "End"},
+    .Page_Up        = {"page_up", "PgUp"},
+    .Page_Down      = {"page_down", "PgDn"},
+    .Insert         = {"insert", "Ins"},
+    .Backspace      = {"backspace", "Backspace"},
+    .Delete         = {"delete", "Del"},
+    .Enter          = {"enter", "Enter"},
+    .Escape         = {"escape", "Esc"},
+    .Space          = {"space", "Space"},
+    .Caps_Lock      = {"caps_lock", "CapsLock"},
+    .Num_Lock       = {"num_lock", "NumLock"},
+    .Scroll_Lock    = {"scroll_lock", "ScrollLock"},
+    .Print_Screen   = {"print_screen", "PrtSc"},
+    .Pause          = {"pause", "Pause"},
+    .Menu           = {"menu", "Menu"},
+    .Pad_0          = {"kp_0", "Num0"},
+    .Pad_1          = {"kp_1", "Num1"},
+    .Pad_2          = {"kp_2", "Num2"},
+    .Pad_3          = {"kp_3", "Num3"},
+    .Pad_4          = {"kp_4", "Num4"},
+    .Pad_5          = {"kp_5", "Num5"},
+    .Pad_6          = {"kp_6", "Num6"},
+    .Pad_7          = {"kp_7", "Num7"},
+    .Pad_8          = {"kp_8", "Num8"},
+    .Pad_9          = {"kp_9", "Num9"},
+    .Pad_Decimal    = {"kp_decimal", "Num."},
+    .Pad_Divide     = {"kp_divide", "Num/"},
+    .Pad_Multiply   = {"kp_multiply", "Num*"},
+    .Pad_Subtract   = {"kp_subtract", "-"},
+    .Pad_Add        = {"kp_add", "+"},
+    .Pad_Enter      = {"kp_enter", "NumEnter"},
+    .Pad_Equal      = {"kp_equal", "Num="},
+}
+
 // Canonical lowercase token for a key, matching key_from_name so the spec round-trips.
 @(private)
 write_key_token :: proc(b: ^strings.Builder, key: ui.Key) {
-    #partial switch key {
-    case .Page_Up:      strings.write_string(b, "page_up");   return
-    case .Page_Down:    strings.write_string(b, "page_down"); return
-    case .Up:           strings.write_string(b, "up");        return
-    case .Down:         strings.write_string(b, "down");      return
-    case .Left:         strings.write_string(b, "left");      return
-    case .Right:        strings.write_string(b, "right");     return
-    case .Home:         strings.write_string(b, "home");      return
-    case .End:          strings.write_string(b, "end");       return
-    case .Enter: strings.write_string(b, "enter"); return
-    case .Escape:       strings.write_string(b, "escape");    return
-    case .Tab:          strings.write_string(b, "tab");       return
-    case .Space:        strings.write_string(b, "space");     return
-    case .Backspace:    strings.write_string(b, "backspace"); return
-    case .Delete:       strings.write_string(b, "delete");    return
-    case .Backslash:    strings.write_string(b, "backslash"); return
-    case .Period:       strings.write_string(b, "period");    return
-    case .Comma:        strings.write_string(b, "comma");     return
-    case .Pad_Add:       strings.write_string(b, "kp_add");      return
-    case .Pad_Subtract:  strings.write_string(b, "kp_subtract"); return
-    case .F1:  strings.write_string(b, "f1");  return
-    case .F2:  strings.write_string(b, "f2");  return
-    case .F3:  strings.write_string(b, "f3");  return
-    case .F4:  strings.write_string(b, "f4");  return
-    case .F5:  strings.write_string(b, "f5");  return
-    case .F6:  strings.write_string(b, "f6");  return
-    case .F7:  strings.write_string(b, "f7");  return
-    case .F8:  strings.write_string(b, "f8");  return
-    case .F9:  strings.write_string(b, "f9");  return
-    case .F10: strings.write_string(b, "f10"); return
-    case .F11: strings.write_string(b, "f11"); return
-    case .F12: strings.write_string(b, "f12"); return
-    }
-    ki := int(key)
-    if ki >= int(ui.Key.A) && ki <= int(ui.Key.Z) {
-        strings.write_byte(b, u8('a' + (ki - int(ui.Key.A))))
-        return
-    }
-    if ki >= int(ui.Key.Num_0) && ki <= int(ui.Key.Num_9) {
-        strings.write_byte(b, u8('0' + (ki - int(ui.Key.Num_0))))
-        return
-    }
+    strings.write_string(b, KEY_NAMES[key].token)
 }
 
 @(private)
 write_key_name :: proc(b: ^strings.Builder, key: ui.Key) {
-    #partial switch key {
-    case .Page_Up:      strings.write_string(b, "PgUp");  return
-    case .Page_Down:    strings.write_string(b, "PgDn");  return
-    case .Up:           strings.write_string(b, "Up");    return
-    case .Down:         strings.write_string(b, "Down");  return
-    case .Left:         strings.write_string(b, "Left");  return
-    case .Right:        strings.write_string(b, "Right"); return
-    case .Home:         strings.write_string(b, "Home");  return
-    case .End:          strings.write_string(b, "End");   return
-    case .Enter: strings.write_string(b, "Enter"); return
-    case .Escape:       strings.write_string(b, "Esc");   return
-    case .Tab:          strings.write_string(b, "Tab");   return
-    case .Space:        strings.write_string(b, "Space"); return
-    case .Backspace:    strings.write_string(b, "Backspace"); return
-    case .Delete:       strings.write_string(b, "Del");   return
-    case .Backslash:    strings.write_string(b, "\\");    return
-    case .Period:       strings.write_string(b, ".");     return
-    case .Comma:        strings.write_string(b, ",");     return
-    case .Pad_Add:       strings.write_string(b, "+");     return
-    case .Pad_Subtract:  strings.write_string(b, "-");     return
-    case .F1:  strings.write_string(b, "F1");  return
-    case .F2:  strings.write_string(b, "F2");  return
-    case .F3:  strings.write_string(b, "F3");  return
-    case .F4:  strings.write_string(b, "F4");  return
-    case .F5:  strings.write_string(b, "F5");  return
-    case .F6:  strings.write_string(b, "F6");  return
-    case .F7:  strings.write_string(b, "F7");  return
-    case .F8:  strings.write_string(b, "F8");  return
-    case .F9:  strings.write_string(b, "F9");  return
-    case .F10: strings.write_string(b, "F10"); return
-    case .F11: strings.write_string(b, "F11"); return
-    case .F12: strings.write_string(b, "F12"); return
-    }
-    ki := int(key)
-    if ki >= int(ui.Key.A) && ki <= int(ui.Key.Z) {
-        strings.write_byte(b, u8('A' + (ki - int(ui.Key.A))))
-        return
-    }
-    if ki >= int(ui.Key.Num_0) && ki <= int(ui.Key.Num_9) {
-        strings.write_byte(b, u8('0' + (ki - int(ui.Key.Num_0))))
-        return
-    }
-    strings.write_string(b, "?")
+    label := KEY_NAMES[key].label
+    strings.write_string(b, label != "" ? label : "?")
 }
 
 // Parses "ctrl+shift+k" into a Keybind. Modifiers are order-insensitive; the
@@ -797,51 +824,20 @@ parse_keybind :: proc(spec: string) -> (Keybind, bool) {
 
 @(private)
 key_from_name :: proc(name: string) -> (ui.Key, bool) {
-    if len(name) == 1 {
-        c := name[0]
-        switch {
-        case c >= 'a' && c <= 'z':
-            return ui.Key(int(ui.Key.A) + int(c - 'a')), true
-        case c >= 'A' && c <= 'Z':
-            return ui.Key(int(ui.Key.A) + int(c - 'A')), true
-        case c >= '0' && c <= '9':
-            return ui.Key(int(ui.Key.Num_0) + int(c - '0')), true
-        }
-    }
-
     switch name {
-    case "page_up":   return .Page_Up, true
-    case "page_down": return .Page_Down, true
-    case "up":        return .Up, true
-    case "down":      return .Down, true
-    case "left":      return .Left, true
-    case "right":     return .Right, true
-    case "home":      return .Home, true
-    case "end":       return .End, true
-    case "enter":     return .Enter, true
-    case "escape":    return .Escape, true
-    case "tab":       return .Tab, true
-    case "space":     return .Space, true
-    case "backspace": return .Backspace, true
-    case "delete":    return .Delete, true
-    // Physical key right of the home row: \ on US, # on QWERTZ.
-    case "backslash": return .Backslash, true
-    case ".", "period": return .Period, true
-    case ",", "comma":  return .Comma, true
-    case "kp_add":      return .Pad_Add, true
-    case "kp_subtract": return .Pad_Subtract, true
-    case "f1":  return .F1, true
-    case "f2":  return .F2, true
-    case "f3":  return .F3, true
-    case "f4":  return .F4, true
-    case "f5":  return .F5, true
-    case "f6":  return .F6, true
-    case "f7":  return .F7, true
-    case "f8":  return .F8, true
-    case "f9":  return .F9, true
-    case "f10": return .F10, true
-    case "f11": return .F11, true
-    case "f12": return .F12, true
+    case ".":
+        return .Period, true
+    case ",":
+        return .Comma, true
+    case "-":
+        return .Minus, true
+    case "=":
+        return .Equal, true
+    }
+    for entry, key in KEY_NAMES {
+        if entry.token != "" && strings.equal_fold(entry.token, name) {
+            return key, true
+        }
     }
     return .None, false
 }

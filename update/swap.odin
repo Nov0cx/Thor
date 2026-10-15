@@ -223,9 +223,10 @@ swap_dirs :: proc(install: string, staged: string, dirs: []string) -> (replaced:
 }
 
 // Copies the *.json files of `from` into `to`, creating it. A `to` that already
-// exists is left alone, so this carries an older layout over at most once.
+// holds a JSON file is left alone, so this carries an older layout over at most
+// once. The log alone in `to` does not count: it is written at every start.
 migrate_json_files :: proc(from: string, to: string) -> (carried: int, ok: bool) {
-    if os.is_dir(to) || !os.is_dir(from) {
+    if !os.is_dir(from) || holds_json(to) {
         return 0, false
     }
     entries, err := os.read_all_directory_by_path(from, context.temp_allocator)
@@ -254,4 +255,24 @@ migrate_json_files :: proc(from: string, to: string) -> (carried: int, ok: bool)
         carried += 1
     }
     return carried, true
+}
+
+// Whether `dir` holds a *.json file. A directory that cannot be read counts as
+// holding one, so nothing is carried over a layout that cannot be seen.
+@(private = "file")
+holds_json :: proc(dir: string) -> bool {
+    if !os.is_dir(dir) {
+        return false
+    }
+    entries, err := os.read_all_directory_by_path(dir, context.temp_allocator)
+    if err != nil {
+        log.warnf("Could not read %q: %v", dir, err)
+        return true
+    }
+    for entry in entries {
+        if entry.type != .Directory && strings.has_suffix(entry.name, ".json") {
+            return true
+        }
+    }
+    return false
 }

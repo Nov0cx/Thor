@@ -1,10 +1,16 @@
 # 2026.10.5
+
 - An open file outside the repository no longer clears the git marks of every other file.
 - A file whose name has a non-ASCII character gets its git gutter marks.
-
 - A hyperlink in terminal output opens only for a browser scheme (`http`, `https`, `mailto`, `ftp`).
 - `terminal_clipboard` setting lets a program in a terminal set the clipboard, or stops it. On by default.
 - A program that asks the terminal for its title gets an empty answer. The title was typed into the shell.
+- On Linux and macOS, folder names are compared with case: a plugin or language-server grant for one folder does not cover a folder whose name differs only in case.
+- Settings > Language Servers no longer offers to open the shipped `settings/lsp.json`, which a build and an update replace. It opens `user/lsp.json`.
+- Toggle Word Wrap acts on the pane in use. It always changed the left pane.
+- Every key can be captured for a keybind, `ctrl + minus` included. A key with no name was saved as `ctrl+` and lost.
+- An install updated from before `user/` existed carries its settings over. The log file stopped it.
+- A question about a file changed on disk asks again when another prompt replaced it.
 
 # 2026.10.4
 

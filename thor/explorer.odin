@@ -401,7 +401,7 @@ explorer_clear_drag_sources :: proc(e: ^Explorer) {
 }
 
 // True when `path` is `ancestor` itself or lives somewhere inside it.
-// Case-insensitive, and it treats the two separators as equal since paths come
+// Case-insensitive on Windows, and it treats the two separators as equal since paths come
 // straight from os.read_dir without being canonicalized.
 explorer_path_within :: proc(path, ancestor: string) -> bool {
     if len(path) < len(ancestor) {
@@ -416,11 +416,13 @@ explorer_path_within :: proc(path, ancestor: string) -> bool {
         if ab == '/' {
             ab = '\\'
         }
-        if pb >= 'A' && pb <= 'Z' {
-            pb += 32
-        }
-        if ab >= 'A' && ab <= 'Z' {
-            ab += 32
+        when ODIN_OS == .Windows {
+            if pb >= 'A' && pb <= 'Z' {
+                pb += 32
+            }
+            if ab >= 'A' && ab <= 'Z' {
+                ab += 32
+            }
         }
         if pb != ab {
             return false

@@ -207,7 +207,7 @@ thor_plugin_read :: proc(host: rawptr, path: string) -> string {
         canonical = abs
     }
     for file in thor.open_files {
-        if file.path == canonical && file.loaded {
+        if thor_path_equal(file.path, canonical) && file.loaded {
             return textedit.text_clone(&file.state, context.allocator)
         }
     }

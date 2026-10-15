@@ -214,11 +214,11 @@ thor_palette_confirm :: proc(
     on_cancel: Palette_Confirm_Proc = nil,
 ) {
     p := &thor.palette
+    palette_show(thor, .Confirm)
     p.prompt_label = message
     p.confirm_run = run
     p.confirm_cancel = on_cancel
     p.confirm_data = data
-    palette_show(thor, .Confirm)
 }
 
 // Opens a fuzzy picker over `items`; `run` fires with the chosen string. Items
@@ -351,6 +351,12 @@ thor_palette_goto_line_command :: proc(data: rawptr) {
 @(private = "file")
 palette_show :: proc(thor: ^Thor, mode: Palette_Mode, reset := true) {
     p := &thor.palette
+    // A confirmation replaced unanswered is dismissed, so its caller can drop what it asked about.
+    if thor.palette_open && p.mode == .Confirm && p.confirm_cancel != nil {
+        cancel := p.confirm_cancel
+        p.confirm_cancel = nil
+        cancel(p.confirm_data)
+    }
     // A command that opens a nested mode runs while the palette already has the
     // focus; capturing then would point return_focus at the palette itself.
     if !thor.palette_open {

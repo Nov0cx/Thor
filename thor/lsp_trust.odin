@@ -144,7 +144,7 @@ thor_lsp_find_grant :: proc(rows: []Lsp_Grant, workspace, digest: string) -> boo
         return false
     }
     for row in rows {
-        if row.digest == digest && strings.equal_fold(row.workspace, workspace) {
+        if row.digest == digest && thor_path_equal(row.workspace, workspace) {
             return true
         }
     }
@@ -155,7 +155,7 @@ thor_lsp_find_grant :: proc(rows: []Lsp_Grant, workspace, digest: string) -> boo
 @(private)
 thor_lsp_set_grant :: proc(rows: ^[dynamic]Lsp_Grant, workspace, digest: string) {
     for &row in rows {
-        if strings.equal_fold(row.workspace, workspace) {
+        if thor_path_equal(row.workspace, workspace) {
             row.digest = digest
             return
         }

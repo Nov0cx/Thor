@@ -6,6 +6,7 @@ import "core:strings"
 import "core:testing"
 
 import "../lang"
+import ui "../vendor/loom/loom"
 
 // Run from the repository root: odin test setting
 
@@ -403,7 +404,7 @@ concat_for_test :: proc(a, b: string) -> string {
 // written back reads the same the next time.
 @(test)
 test_keybind_spec_round_trips :: proc(t: ^testing.T) {
-    for spec in ([?]string {"ctrl+s", "ctrl+shift+alt+cmd+k", "shift+cmd+p", "alt+page_up", "f5"}) {
+    for spec in ([?]string {"ctrl+s", "ctrl+shift+alt+cmd+k", "shift+cmd+p", "alt+page_up", "f5", "ctrl+minus", "ctrl+equal", "ctrl+slash", "ctrl+grave", "insert", "ctrl+kp_7", "shift+left_bracket"}) {
         kb, ok := parse_keybind(spec)
         testing.expectf(t, ok, "%q did not parse", spec)
         testing.expect_value(t, keybind_spec(kb, context.temp_allocator), spec)
@@ -529,4 +530,18 @@ test_display_switches_default_on_and_layer :: proc(t: ^testing.T) {
     load_overlay(&s, dir)
     testing.expect(t, !indent_guides(&s), "the layer turns the guides off")
     testing.expect(t, !relative_line_numbers(&s), "and the numbering absolute")
+}
+
+// Every key that is not a modifier has a token, so no capture writes "ctrl+".
+@(test)
+test_every_key_has_a_token :: proc(t: ^testing.T) {
+    for key in ui.Key {
+        #partial switch key {
+        case .None, .Left_Shift, .Right_Shift, .Left_Ctrl, .Right_Ctrl, .Left_Alt, .Right_Alt, .Left_Super, .Right_Super:
+            continue
+        }
+        spec := keybind_spec(Keybind{key = key, mods = {.Ctrl}}, context.temp_allocator)
+        back, ok := parse_keybind(spec)
+        testing.expectf(t, ok && back.key == key, "%v wrote %q", key, spec)
+    }
 }

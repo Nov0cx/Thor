@@ -479,7 +479,7 @@ thor_find_workspace_grant :: proc(rows: []Workspace_Grant, workspace, id: string
         return {}, false
     }
     for row in rows {
-        if row.id == id && strings.equal_fold(row.workspace, workspace) {
+        if row.id == id && thor_path_equal(row.workspace, workspace) {
             return plugin.permissions_from_names(row.permissions), true
         }
     }
@@ -512,7 +512,7 @@ thor_remove_grant :: proc(rows: ^[dynamic]Plugin_Grant, id: string) {
 thor_set_workspace_grant :: proc(rows: ^[dynamic]Workspace_Grant, workspace, id: string, perms: plugin.Permissions) {
     names := plugin.permission_names(perms, context.temp_allocator)
     for &row in rows {
-        if row.id == id && strings.equal_fold(row.workspace, workspace) {
+        if row.id == id && thor_path_equal(row.workspace, workspace) {
             row.permissions = names
             return
         }
@@ -523,7 +523,7 @@ thor_set_workspace_grant :: proc(rows: ^[dynamic]Workspace_Grant, workspace, id:
 @(private)
 thor_remove_workspace_grant :: proc(rows: ^[dynamic]Workspace_Grant, workspace, id: string) {
     for row, i in rows {
-        if row.id == id && strings.equal_fold(row.workspace, workspace) {
+        if row.id == id && thor_path_equal(row.workspace, workspace) {
             ordered_remove(rows, i)
             return
         }

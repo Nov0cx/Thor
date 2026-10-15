@@ -323,6 +323,8 @@ test_migrate_json_files :: proc(t: ^testing.T) {
     write(t, from, "notes.txt", "not a setting")
     // A directory named like a settings file, which the suffix alone would take.
     write(t, from, "themes.json/dark.json", "{}")
+    // The log is written to the target before any update runs.
+    write(t, to, "thor.log", "started")
 
     carried, migrated := migrate_json_files(from, to)
     testing.expect(t, migrated, "a missing target must be created")
@@ -333,6 +335,6 @@ test_migrate_json_files :: proc(t: ^testing.T) {
     testing.expect(t, !present(to, "themes.json"), "a directory is not carried")
 
     carried, migrated = migrate_json_files(from, to)
-    testing.expect(t, !migrated, "a target that is already there is left alone")
+    testing.expect(t, !migrated, "a target that holds settings is left alone")
     testing.expect_value(t, carried, 0)
 }

@@ -516,7 +516,7 @@ thor_cmd_toggle_explorer :: proc(data: rawptr) {thor_toggle_explorer(cast(^Thor)
 thor_cmd_toggle_console :: proc(data: rawptr) {thor_toggle_console(cast(^Thor) data)}
 thor_cmd_toggle_maximize :: proc(data: rawptr) {thor_toggle_maximize(cast(^Thor) data)}
 thor_cmd_toggle_fullscreen :: proc(data: rawptr) {thor_toggle_fullscreen(cast(^Thor) data)}
-thor_cmd_toggle_wrap :: proc(data: rawptr) {editview.editor_toggle_wrap(&(cast(^Thor) data).editor)}
+thor_cmd_toggle_wrap :: proc(data: rawptr) {editview.editor_toggle_wrap(thor_active_editor(cast(^Thor) data))}
 
 // Both panes, so a split does not end up with one pane marking indentation and
 // the other not.
