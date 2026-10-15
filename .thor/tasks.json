@@ -6,7 +6,7 @@
 		},
 		{
 			"name": "run release",
-			"command": "odin run build.odin -file -- run release"
+			"command": "odin run build.odin -file -- run -release"
 		}
 	]
 }

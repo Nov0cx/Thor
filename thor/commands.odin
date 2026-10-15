@@ -207,6 +207,7 @@ thor_apply_settings :: proc(thor: ^Thor) {
     // After the chords above are resolved: each tooltip carries the one its
     // control is bound to.
     thor_apply_language_settings(thor)
+    thor_palette_refresh_shortcuts(thor)
 }
 
 // Reloads the config from disk and re-applies it live: keybinds, sizes, the
@@ -368,7 +369,7 @@ App_Bind :: struct {
 // a chord.
 @(private = "file")
 thor_add_bindable_command :: proc(thor: ^Thor, title, action: string, run: proc(data: rawptr), data: rawptr) {
-    thor_palette_add(thor, title, run, data, thor_action_shortcut(thor, action))
+    thor_palette_add(thor, title, run, data, action = action)
     append(&thor.app_binds, App_Bind {action = action, run = run, data = data})
 }
 
@@ -391,20 +392,18 @@ thor_dispatch_app_bind :: proc(thor: ^Thor, event: ui.Key_Event) -> bool {
 // Registers every palette command. Titles use a "Category: Action" convention
 // so fuzzy search on the category works too.
 thor_register_commands :: proc(thor: ^Thor) {
-    sc :: thor_action_shortcut
-
-    thor_palette_add(thor, "View: Toggle Explorer", thor_cmd_toggle_explorer, thor, sc(thor, "toggle_explorer"))
-    thor_palette_add(thor, "View: Toggle Console", thor_cmd_toggle_console, thor, sc(thor, "toggle_console"))
-    thor_palette_add(thor, "View: Zoom In", thor_cmd_zoom_in, thor, sc(thor, "zoom_in"))
-    thor_palette_add(thor, "View: Zoom Out", thor_cmd_zoom_out, thor, sc(thor, "zoom_out"))
+    thor_palette_add(thor, "View: Toggle Explorer", thor_cmd_toggle_explorer, thor, action = "toggle_explorer")
+    thor_palette_add(thor, "View: Toggle Console", thor_cmd_toggle_console, thor, action = "toggle_console")
+    thor_palette_add(thor, "View: Zoom In", thor_cmd_zoom_in, thor, action = "zoom_in")
+    thor_palette_add(thor, "View: Zoom Out", thor_cmd_zoom_out, thor, action = "zoom_out")
     thor_add_bindable_command(thor, "View: Reset Zoom", "reset_zoom", thor_cmd_zoom_reset, thor)
     thor_add_bindable_command(thor, "View: Toggle Maximize", "toggle_maximize", thor_cmd_toggle_maximize, thor)
-    thor_palette_add(thor, "View: Toggle Fullscreen", thor_cmd_toggle_fullscreen, thor, sc(thor, "toggle_fullscreen"))
+    thor_palette_add(thor, "View: Toggle Fullscreen", thor_cmd_toggle_fullscreen, thor, action = "toggle_fullscreen")
     thor_add_bindable_command(thor, "View: Toggle Word Wrap", "toggle_word_wrap", thor_cmd_toggle_wrap, thor)
     thor_add_bindable_command(thor, "View: Toggle Whitespace", "toggle_whitespace", thor_cmd_toggle_whitespace, thor)
-    thor_palette_add(thor, "View: Toggle Split Editor", thor_cmd_toggle_split, thor, sc(thor, "toggle_split"))
+    thor_palette_add(thor, "View: Toggle Split Editor", thor_cmd_toggle_split, thor, action = "toggle_split")
     thor_add_bindable_command(thor, "View: Toggle Markdown Preview", "toggle_markdown_preview", thor_cmd_toggle_markdown_preview, thor)
-    thor_palette_add(thor, "View: Recenter", thor_cmd_recenter, thor, sc(thor, "recenter"))
+    thor_palette_add(thor, "View: Recenter", thor_cmd_recenter, thor, action = "recenter")
 
     thor_add_bindable_command(thor, "Terminal: New Terminal", "new_terminal", thor_cmd_new_terminal, thor)
     thor_add_bindable_command(thor, "Terminal: Close Terminal", "close_terminal", thor_cmd_close_terminal, thor)
@@ -417,16 +416,16 @@ thor_register_commands :: proc(thor: ^Thor) {
     thor_add_bindable_command(thor, "File: Open Folder in New Window", "open_folder_new_window", thor_cmd_open_folder_new_window, thor)
     thor_add_bindable_command(thor, "File: New File", "new_file", thor_cmd_new_file, thor)
     thor_add_bindable_command(thor, "File: New Folder", "new_folder", thor_cmd_new_folder, thor)
-    thor_palette_add(thor, "File: Save", thor_cmd_save, thor, sc(thor, "save"))
+    thor_palette_add(thor, "File: Save", thor_cmd_save, thor, action = "save")
     thor_add_bindable_command(thor, "File: Save All", "save_all", thor_cmd_save_all, thor)
     thor_add_bindable_command(thor, "File: Rename File", "rename_file", thor_cmd_rename_file, thor)
     thor_add_bindable_command(thor, "File: Reload from Disk", "reload_from_disk", thor_cmd_reload_from_disk, thor)
-    thor_palette_add(thor, "File: Close Tab", thor_cmd_close_tab, thor, sc(thor, "close_tab"))
+    thor_palette_add(thor, "File: Close Tab", thor_cmd_close_tab, thor, action = "close_tab")
     thor_add_bindable_command(thor, "File: Close All Tabs", "close_all_tabs", thor_cmd_close_all, thor)
     thor_add_bindable_command(thor, "File: Close Workspace", "close_workspace", thor_cmd_close_workspace, thor)
-    thor_palette_add(thor, "File: Next Tab", thor_cmd_next_tab, thor, sc(thor, "next_tab"))
-    thor_palette_add(thor, "File: Previous Tab", thor_cmd_prev_tab, thor, sc(thor, "previous_tab"))
-    thor_palette_add(thor, "File: Switch to Last File", thor_cmd_last_file, thor, sc(thor, "last_file"))
+    thor_palette_add(thor, "File: Next Tab", thor_cmd_next_tab, thor, action = "next_tab")
+    thor_palette_add(thor, "File: Previous Tab", thor_cmd_prev_tab, thor, action = "previous_tab")
+    thor_palette_add(thor, "File: Switch to Last File", thor_cmd_last_file, thor, action = "last_file")
     thor_add_bindable_command(thor, "File: Use LF Line Endings", "line_endings_lf", thor_cmd_line_endings_lf, thor)
     thor_add_bindable_command(thor, "File: Use CRLF Line Endings", "line_endings_crlf", thor_cmd_line_endings_crlf, thor)
     thor_add_bindable_command(thor, "File: Show Indentation", "show_indentation", thor_cmd_show_indentation, thor)
@@ -434,47 +433,47 @@ thor_register_commands :: proc(thor: ^Thor) {
     thor_add_bindable_command(thor, "File: Reveal in File Explorer", "reveal_in_explorer", thor_cmd_reveal, thor)
 
     // These switch the palette into another input mode instead of closing it.
-    thor_palette_add(thor, "Go to File", thor_palette_goto_file_command, thor, sc(thor, "quick_open"))
-    thor_palette_add(thor, "Go to Line", thor_palette_goto_line_command, thor, sc(thor, "goto_line"))
+    thor_palette_add(thor, "Go to File", thor_palette_goto_file_command, thor, action = "quick_open")
+    thor_palette_add(thor, "Go to Line", thor_palette_goto_line_command, thor, action = "goto_line")
 
-    thor_palette_add(thor, "Find", thor_cmd_find, thor, sc(thor, "find"))
+    thor_palette_add(thor, "Find", thor_cmd_find, thor, action = "find")
     thor_add_bindable_command(thor, "Find in Files", "find_in_files", thor_cmd_find_in_files, thor)
-    thor_palette_add(thor, "Replace", thor_cmd_replace, thor, sc(thor, "replace"))
+    thor_palette_add(thor, "Replace", thor_cmd_replace, thor, action = "replace")
 
     // Undo/redo have editor-local keys, so plain palette entries rather than
     // thor_add_bindable_command.
-    thor_palette_add(thor, "Edit: Undo", thor_cmd_undo, thor, sc(thor, "undo"))
-    thor_palette_add(thor, "Edit: Redo", thor_cmd_redo, thor, sc(thor, "redo"))
-    thor_palette_add(thor, "Edit: Toggle Line Comment", thor_cmd_toggle_comment, thor, sc(thor, "toggle_line_comment"))
+    thor_palette_add(thor, "Edit: Undo", thor_cmd_undo, thor, action = "undo")
+    thor_palette_add(thor, "Edit: Redo", thor_cmd_redo, thor, action = "redo")
+    thor_palette_add(thor, "Edit: Toggle Line Comment", thor_cmd_toggle_comment, thor, action = "toggle_line_comment")
     thor_palette_add(
-        thor, "Edit: Toggle Block Comment", thor_cmd_toggle_block_comment, thor, sc(thor, "toggle_block_comment"),
+        thor, "Edit: Toggle Block Comment", thor_cmd_toggle_block_comment, thor, action = "toggle_block_comment",
     )
-    thor_palette_add(thor, "Edit: Select All", thor_cmd_select_all, thor, sc(thor, "select_all"))
-    thor_palette_add(thor, "Edit: Duplicate Line", thor_cmd_duplicate_line, thor, sc(thor, "duplicate_line_down"))
-    thor_palette_add(thor, "Edit: Delete Line", thor_cmd_delete_line, thor, sc(thor, "delete_line"))
-    thor_palette_add(thor, "Edit: Join Lines", thor_cmd_join_lines, thor, sc(thor, "join_lines"))
-    thor_palette_add(thor, "Edit: Move Line Up", thor_cmd_move_line_up, thor, sc(thor, "move_line_up"))
-    thor_palette_add(thor, "Edit: Move Line Down", thor_cmd_move_line_down, thor, sc(thor, "move_line_down"))
-    thor_palette_add(thor, "Edit: Uppercase", thor_cmd_uppercase, thor, sc(thor, "uppercase"))
-    thor_palette_add(thor, "Edit: Lowercase", thor_cmd_lowercase, thor, sc(thor, "lowercase"))
-    thor_palette_add(thor, "Edit: Capitalize", thor_cmd_capitalize, thor, sc(thor, "capitalize"))
-    thor_palette_add(thor, "Edit: Trim Trailing Whitespace", thor_cmd_trim_whitespace, thor, sc(thor, "trim_trailing_whitespace"))
-    thor_palette_add(thor, "Edit: Format Document", thor_cmd_format_document, thor, sc(thor, "format_document"))
-    thor_palette_add(thor, "Edit: Format Selection", thor_cmd_format_selection, thor, sc(thor, "format_selection"))
-    thor_palette_add(thor, "Edit: Align at Character", thor_cmd_align_at_char, thor, sc(thor, "align_at_char"))
+    thor_palette_add(thor, "Edit: Select All", thor_cmd_select_all, thor, action = "select_all")
+    thor_palette_add(thor, "Edit: Duplicate Line", thor_cmd_duplicate_line, thor, action = "duplicate_line_down")
+    thor_palette_add(thor, "Edit: Delete Line", thor_cmd_delete_line, thor, action = "delete_line")
+    thor_palette_add(thor, "Edit: Join Lines", thor_cmd_join_lines, thor, action = "join_lines")
+    thor_palette_add(thor, "Edit: Move Line Up", thor_cmd_move_line_up, thor, action = "move_line_up")
+    thor_palette_add(thor, "Edit: Move Line Down", thor_cmd_move_line_down, thor, action = "move_line_down")
+    thor_palette_add(thor, "Edit: Uppercase", thor_cmd_uppercase, thor, action = "uppercase")
+    thor_palette_add(thor, "Edit: Lowercase", thor_cmd_lowercase, thor, action = "lowercase")
+    thor_palette_add(thor, "Edit: Capitalize", thor_cmd_capitalize, thor, action = "capitalize")
+    thor_palette_add(thor, "Edit: Trim Trailing Whitespace", thor_cmd_trim_whitespace, thor, action = "trim_trailing_whitespace")
+    thor_palette_add(thor, "Edit: Format Document", thor_cmd_format_document, thor, action = "format_document")
+    thor_palette_add(thor, "Edit: Format Selection", thor_cmd_format_selection, thor, action = "format_selection")
+    thor_palette_add(thor, "Edit: Align at Character", thor_cmd_align_at_char, thor, action = "align_at_char")
 
-    thor_palette_add(thor, "Selection: Add Cursor Above", thor_cmd_add_cursor_above, thor, sc(thor, "add_cursor_above"))
-    thor_palette_add(thor, "Selection: Add Cursor Below", thor_cmd_add_cursor_below, thor, sc(thor, "add_cursor_below"))
-    thor_palette_add(thor, "Go to Matching Bracket", thor_cmd_matching_bracket, thor, sc(thor, "matching_bracket"))
-    thor_palette_add(thor, "Go to Symbol in File", thor_cmd_goto_symbol, thor, sc(thor, "goto_symbol"))
-    thor_palette_add(thor, "Go to Symbol in Workspace", thor_cmd_goto_workspace_symbol, thor, sc(thor, "goto_workspace_symbol"))
-    thor_palette_add(thor, "Go Back", thor_cmd_jump_back, thor, sc(thor, "jump_back"))
-    thor_palette_add(thor, "Go Forward", thor_cmd_jump_forward, thor, sc(thor, "jump_forward"))
-    thor_palette_add(thor, "Find All References", thor_cmd_find_references, thor, sc(thor, "find_references"))
-    thor_palette_add(thor, "Signature Help", thor_cmd_signature_help, thor, sc(thor, "signature_help"))
-    thor_palette_add(thor, "Show Package Documentation", thor_cmd_package_doc, thor, sc(thor, "package_doc"))
-    thor_palette_add(thor, "Rename Symbol", thor_cmd_rename_symbol, thor, sc(thor, "replace"))
-    thor_palette_add(thor, "Code Actions", thor_cmd_code_actions, thor, sc(thor, "code_actions"))
+    thor_palette_add(thor, "Selection: Add Cursor Above", thor_cmd_add_cursor_above, thor, action = "add_cursor_above")
+    thor_palette_add(thor, "Selection: Add Cursor Below", thor_cmd_add_cursor_below, thor, action = "add_cursor_below")
+    thor_palette_add(thor, "Go to Matching Bracket", thor_cmd_matching_bracket, thor, action = "matching_bracket")
+    thor_palette_add(thor, "Go to Symbol in File", thor_cmd_goto_symbol, thor, action = "goto_symbol")
+    thor_palette_add(thor, "Go to Symbol in Workspace", thor_cmd_goto_workspace_symbol, thor, action = "goto_workspace_symbol")
+    thor_palette_add(thor, "Go Back", thor_cmd_jump_back, thor, action = "jump_back")
+    thor_palette_add(thor, "Go Forward", thor_cmd_jump_forward, thor, action = "jump_forward")
+    thor_palette_add(thor, "Find All References", thor_cmd_find_references, thor, action = "find_references")
+    thor_palette_add(thor, "Signature Help", thor_cmd_signature_help, thor, action = "signature_help")
+    thor_palette_add(thor, "Show Package Documentation", thor_cmd_package_doc, thor, action = "package_doc")
+    thor_palette_add(thor, "Rename Symbol", thor_cmd_rename_symbol, thor, action = "replace")
+    thor_palette_add(thor, "Code Actions", thor_cmd_code_actions, thor, action = "code_actions")
 
     thor_add_bindable_command(thor, "Fold: Toggle Fold", "toggle_fold", thor_cmd_toggle_fold, thor)
     thor_add_bindable_command(thor, "Fold: Fold All", "fold_all", thor_cmd_fold_all, thor)

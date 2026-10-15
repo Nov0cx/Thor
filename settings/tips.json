@@ -12,7 +12,7 @@
         },
         {
             "title": "Edit with more than one caret",
-            "body": "Ctrl and a click puts another caret in the buffer, and the chord below adds one on the line under the last. Every caret then types, moves and deletes together.",
+            "body": "The chord below adds a caret on the line under the last, and selecting the next occurrence of a word adds one there. Every caret then types, moves and deletes together.",
             "action": "add_cursor_below"
         },
         {

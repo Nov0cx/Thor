@@ -32,6 +32,12 @@
 - `tree:query` gives every node of a quantified capture in `match.nodes`.
 - Tree-sitter queries evaluate `#contains?`, `#has-ancestor?` and `#is-not? local`. A predicate with too few operands is reported on the console.
 - The Undo and Redo rows of the menus show the bound chords. They showed Ctrl+Z and Ctrl+Y whatever was bound.
+- `alt + c`, `alt + w` and `alt + r` toggle match case, whole word and regular expression in the find bar, as the manual said.
+- The command palette shows a new chord after a rebind. It showed the old one until a restart.
+- Settings > Keybindings lists the theme, font, icon pack, ligature, documentation, update, reload and git commands, unbound.
+- Toggle Comment works in C#, PHP, Ruby, Nix, Nim, PowerShell, HCL, Groovy, Common Lisp, Standard ML, Starlark, Dockerfile, .env and Pascal files.
+- The tip about more than one caret names the chords that add one. It said ctrl and a click, which goes to the definition.
+- The generated HTML manual links to the README and other files outside `docs/`.
 
 # 2026.10.4
 
@@ -228,11 +234,11 @@
 - `ctrl + z` takes back the files a language server's refactor created, renamed or deleted, together with the edits that came with them; `ctrl + shift + z` puts the whole thing back. Only the edits could be undone before.
 - A language server can claim whole file names: `"filenames": ["Makefile", "CMakeLists.txt"]` in `lsp.json`. Files with no usable extension reached no server at all before.
 - Settings > Language Servers restarts one server on its own, and "Language: Restart One Server" does the same from the command palette. A server that gave up after repeated crashes starts again.
-- `f12` on a call to an Odin procedure group reaches the member whose parameter is written as a type alias (`Meters :: f32`). No member matched before, so the candidate picker opened.
+- Go to definition on a call to an Odin procedure group reaches the member whose parameter is written as a type alias (`Meters :: f32`). No member matched before, so the candidate picker opened.
 - A `distinct` type takes the untyped literals its base type takes, which tells members apart that differ only by that type: `set(1)` and `set("x")` reach their own member. A `distinct f32` is still not an `f32`, so an `f32` argument reaches the `f32` member.
-- A group member with a generic parameter (`proc($T: typeid, v: T)`, `proc(m: map[$K]$V, k: K)`) is no longer refused because a later parameter reuses the bound name, which could send `f12` to the wrong member. A call that writes the type argument narrows on it.
+- A group member with a generic parameter (`proc($T: typeid, v: T)`, `proc(m: map[$K]$V, k: K)`) is no longer refused because a later parameter reuses the bound name, which could send go to definition to the wrong member. A call that writes the type argument narrows on it.
 - The signature popup marks the member the written arguments reach, not the first one whose parameter count fits.
-- A procedure written across several lines shows its whole signature in the outline, workspace symbols and the completion list. It was cut at the first line break, which also stopped `f12` telling such members of a procedure group apart.
+- A procedure written across several lines shows its whole signature in the outline, workspace symbols and the completion list. It was cut at the first line break, which also stopped go to definition telling such members of a procedure group apart.
 - A parameter default written as a composite literal (`x: Point = {}`) no longer cuts the signature short in hover and the symbol rows.
 - Find and replace searches again when the buffer changes under the open box — a reload from disk, an undo, a refactor from a language server or a tab switch. Replace and Replace All wrote at the offsets of the text that was there before, which put the replacement in the wrong place.
 - Renaming or moving a file waits for its own save to finish first. A save that landed after the rename wrote the old name back to disk, and on Windows the open write could stop the rename.

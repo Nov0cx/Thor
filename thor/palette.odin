@@ -14,6 +14,7 @@ import ui "../vendor/loom/loom"
 Palette_Command :: struct {
     title:    string, // borrowed; owned by the registrar
     shortcut: string, // owned; "" when the command has no keybind
+    action:   string, // borrowed static keybinds.json name; "" when it has none
     run:      proc(data: rawptr),
     data:     rawptr,
 }
@@ -122,19 +123,34 @@ thor_palette_destroy :: proc(thor: ^Thor) {
     delete(p.matches)
 }
 
-// Appends a command. `title` must outlive the palette; `shortcut` is copied.
+// Appends a command. `title` and `action` must outlive the palette; the chord
+// label comes from `action`, else `shortcut`, which is copied.
 thor_palette_add :: proc(
     thor: ^Thor,
     title: string,
     run: proc(data: rawptr),
     data: rawptr,
     shortcut := "",
+    action := "",
 ) {
-    sc := shortcut == "" ? "" : strings.clone(shortcut)
+    label := action != "" ? thor_action_shortcut(thor, action) : shortcut
+    sc := label == "" ? "" : strings.clone(label)
     append(
         &thor.palette.commands,
-        Palette_Command{title = title, shortcut = sc, run = run, data = data},
+        Palette_Command{title = title, shortcut = sc, action = action, run = run, data = data},
     )
+}
+
+// Labels every command with the chord its action is bound to now.
+thor_palette_refresh_shortcuts :: proc(thor: ^Thor) {
+    for &command in thor.palette.commands {
+        if command.action == "" {
+            continue
+        }
+        delete(command.shortcut)
+        label := thor_action_shortcut(thor, command.action)
+        command.shortcut = label == "" ? "" : strings.clone(label)
+    }
 }
 
 thor_palette_clear_commands :: proc(thor: ^Thor) {

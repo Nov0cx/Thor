@@ -275,6 +275,23 @@ thor_find_view :: proc(thor: ^Thor) {
     if ui.take_key(.Enter, {.Shift}) {
         find_step(f, -1)
     }
+    if ui.take_key(.C, {.Alt}) {
+        find_flip(f, &f.options.case_sensitive)
+    }
+    if ui.take_key(.W, {.Alt}) {
+        find_flip(f, &f.options.whole_word)
+    }
+    if ui.take_key(.R, {.Alt}) {
+        find_flip(f, &f.options.use_regex)
+    }
+}
+
+// Flips one search option and searches again.
+@(private = "file")
+find_flip :: proc(f: ^Find_Replace, option: ^bool) {
+    option^ = !option^
+    find_recompute(f)
+    find_select_current(f)
 }
 
 @(private = "file")
@@ -325,19 +342,13 @@ find_query_row :: proc(thor: ^Thor) {
     )
 
     if find_toggle(thor, "case", "Aa", f.options.case_sensitive) {
-        f.options.case_sensitive = !f.options.case_sensitive
-        find_recompute(f)
-        find_select_current(f)
+        find_flip(f, &f.options.case_sensitive)
     }
     if find_toggle(thor, "word", "ab", f.options.whole_word) {
-        f.options.whole_word = !f.options.whole_word
-        find_recompute(f)
-        find_select_current(f)
+        find_flip(f, &f.options.whole_word)
     }
     if find_toggle(thor, "regex", ".*", f.options.use_regex) {
-        f.options.use_regex = !f.options.use_regex
-        find_recompute(f)
-        find_select_current(f)
+        find_flip(f, &f.options.use_regex)
     }
 
     if find_icon_button(thor, "prev", "chevron-up") {

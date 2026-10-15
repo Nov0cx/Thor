@@ -18,8 +18,7 @@ USAGE ::
                    Several files open as several tabs, the last one active. The
                    first folder given becomes the workspace and any later one is
                    ignored, since a window holds one workspace. Without a path
-                   Thor opens the last workspace, then the directory it was
-                   started in.
+                   Thor opens the last workspace, or the welcome page.
 
 Options:
   --version, -v    Print the version and exit.

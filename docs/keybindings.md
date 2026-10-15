@@ -33,6 +33,13 @@ Every binding below is a default and can be changed in `keybinds.json`
 | ctrl + e | flip to the previously active file (press again to flip back) |
 | ctrl + g | go to line (opens the palette in line-number mode) |
 | alt + enter (or ctrl + click) | go to definition of the symbol under the caret |
+| ctrl + alt + left / right | jump back / forward through the places a jump left |
+| f10 | find all references to the symbol under the caret |
+| ctrl + shift + o | go to a symbol of the file |
+| ctrl + q | go to a symbol of the workspace |
+| ctrl + shift + space | show the signature of the call around the caret |
+| f2 | rename the file of the active tab |
+| f9 | run the selected task |
 | ctrl + hover | show the declaration of the symbol under the mouse |
 | ctrl + shift + u | code actions: the fixes available at the caret, in a picker (scoped to the selection instead, on a language-server-backed file) |
 | ctrl + f | find |
@@ -152,6 +159,7 @@ Add `shift` to any movement to extend the selection.
 | ctrl + alt + l | format document (needs language intelligence; Odin in-client, other languages need a server with a formatter) |
 | ctrl + alt + shift + l | format selection (falls back to the whole document with no selection) |
 | ctrl + shift + a | align selected lines on a character (prompts for the char, e.g. `=`) |
+| ctrl + shift + comma | fold or unfold the block at the caret |
 | enter | new line, keeping indent (extra level after an opening bracket) |
 
 Typing `{` at the end of a line opens a three-line block, placing the caret on
@@ -183,7 +191,7 @@ buffer alone.
 | ctrl + shift + j | recenter the view on the caret (repeat cycles center / top / bottom) |
 | f4 | toggle the rendered markdown preview (markdown files only) — see [Previews](#previews) |
 | f12 | toggle borderless fullscreen |
-| (unbound) | toggle the editor split — see below |
+| f1 | toggle the editor split — see below |
 
 ## Previews
 
@@ -228,12 +236,10 @@ The Git UI ("Git" in the top bar; the palette actions "Git: Open Git UI",
 
 | Binding | Action |
 | --- | --- |
-| tab | cycle files, diff, commit subject, description |
-| up / down | move the file, commit or branch selection |
-| space | stage / unstage the selected file |
-| enter | show the diff; check out the selected branch; edit the selected config value |
-| ctrl + enter | commit |
-| escape | leave a text field, then close the modal |
+| enter | save the config value being edited |
+| escape | close the modal |
+
+Everything else in the modal works with the mouse.
 
 See [Git](git.md) for the full tour.
 

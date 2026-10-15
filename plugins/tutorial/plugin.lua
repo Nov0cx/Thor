@@ -33,7 +33,7 @@ local function key(action, fallback)
     return "unbound"
 end
 
--- The full action catalogue, grouped like settings/keybinds.json. `action` is
+-- The full action catalogue, grouped like keybinds.json. `action` is
 -- looked up live so the shown chord matches whatever you have bound; `fallback`
 -- is shown when an action has no binding (or has no configurable one at all).
 local reference = {
@@ -205,9 +205,9 @@ local reference = {
         title = "Settings & preferences",
         entries = {
             { action = "open_settings_gui", desc = "Open the settings window" },
-            { action = "open_settings", desc = "Edit `settings/settings.json` as text" },
-            { action = "open_keybinds", desc = "Edit `settings/keybinds.json` as text" },
-            { action = "open_comments", desc = "Edit `settings/comments.json` (the comment marker per language)" },
+            { action = "open_settings", desc = "Edit `user/settings.json` as text" },
+            { action = "open_keybinds", desc = "Edit `user/keybinds.json` as text" },
+            { action = "open_comments", desc = "Edit `user/comments.json` (the comment marker per language)" },
             { action = "reload_settings", desc = "Reload every settings file from disk" },
             { action = "change_theme", desc = "Switch to another theme" },
             { action = "new_theme", desc = "Create a theme to edit" },
@@ -706,7 +706,7 @@ local function render(st)
 
     w("# Thor - Interactive Tutorial\n\n")
     w("Two parts, both live. **Part 1** drills the shortcuts you have bound, read\n")
-    w("straight from `settings/keybinds.json`. **Part 2** repairs a broken Odin file\n")
+    w("straight from the keybinds in force. **Part 2** repairs a broken Odin file\n")
     w("in the tab next door. This page rewrites itself while you work, so put it\n")
     w("beside the playground (`" .. key("toggle_split") .. "` splits the editor) and\n")
     w("watch the boxes tick.\n\n")
@@ -772,7 +772,7 @@ local function render(st)
     end
 
     w("## Every action explained\n\n")
-    w("Rebind anything in `settings/keybinds.json` (or in the settings window), then\n")
+    w("Rebind anything in `user/keybinds.json` (or in the settings window), then\n")
     w("reopen this tutorial from **Help -> Tutorial** to see the shortcuts update.\n")
     w("Anything listed as `unbound` has no chord yet and is still reachable by name\n")
     w("from the command palette.\n\n")
@@ -793,8 +793,8 @@ local function render(st)
     w("Typing an opening bracket or quote auto-inserts its closing pair; selecting\n")
     w("text and typing a bracket wraps the selection. Two or more word characters\n")
     w("pop up an autocompletion list (Up/Down to choose, Tab or Enter to accept,\n")
-    w("Esc to dismiss). Comment markers live in `settings/comments.json`; tab\n")
-    w("width, font size and autosave delay in `settings/settings.json`.\n")
+    w("Esc to dismiss). Comment markers live in `user/comments.json`; tab\n")
+    w("width, font size and autosave delay in `user/settings.json`.\n")
 
     return table.concat(out)
 end

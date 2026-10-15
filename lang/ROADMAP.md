@@ -1009,7 +1009,7 @@ lowest latency.
       Unlike LSP there is no offer-then-resolve round trip: that split exists to
       keep IPC off the offer path, and an in-client backend has none, so computing
       the edits up front is both cheaper and free of the window where the buffer
-      moves between offering a fix and applying it. Six producers, each reusing
+      moves between offering a fix and applying it. Five producers, each reusing
       machinery that already existed:
       *add missing import* (an unresolved `pkg.member` — searches `core:`/`vendor:`/
       `base:` under `ODIN_ROOT` two levels deep, the config's collections, then the
@@ -1927,7 +1927,7 @@ not a status, so this section stays the source of truth for what is built.
   entry under a mismatched spelling) is a duplicate-or-briefly-stale candidate,
   self-healing on the next stat-walk, not a wrong answer.
 - The vendored Odin `LOCALS` query models `:=` as `variable_declaration`, which
-  this grammar does not produce — handled in `collect_short_decls`; revisit if
+  this grammar does not produce — handled in `collect_value_decls`; revisit if
   the grammar is regenerated.
 - Only `.odin` is handled in-client. Another language is answered by a
   configured language server, which reaches only as far as that server does.

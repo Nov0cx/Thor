@@ -105,15 +105,16 @@ runs the tests both ways.
 Or one package at a time from a developer shell:
 
 ```bash
-odin test ui       # font/icon atlas pipeline + ligature shaping + theme loading
+odin test font     # font/icon atlas pipeline + ligature shaping
+odin test theme    # theme loading and the generator
 odin test thor     # async file load/save round-trip
 odin test syntax   # tree-sitter highlighting
 odin test plugin   # Lua plugin host
 odin test textedit # buffer, cursors, undo/redo
-odin test lang     # Odin language intelligence
+odin test lang/odin # Odin language intelligence
 odin test watch    # file-system watcher
-odin test shell    # shell sessions: end markers, prompt trimming
-odin test widgets  # console stream handling: control bytes, history, scrolling
+odin test shell    # shell profiles and process execution
+odin test vt       # terminal emulator: escapes, grid, scrollback
 ```
 
 Tests run with the repository root as the working directory, so they find

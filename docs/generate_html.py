@@ -74,8 +74,24 @@ def build_nav(pages: list[tuple[str, str]], current: str) -> str:
     return "\n".join(lines)
 
 
-def md_links_to_html(body_html: str) -> str:
-    return re.sub(r'href="([^"]+)\.md(#[^"]*)?"', r'href="\1.html\2"', body_html)
+LINK_ATTR = re.compile(r'(href|src)="([^"]*)"')
+SCHEME = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
+
+
+def md_links_to_html(body_html: str, stems: set[str]) -> str:
+    """Points a link to a generated page at its .html file, and rebases every
+    other relative link, since the pages sit one folder below docs/."""
+
+    def fix(match: re.Match) -> str:
+        attr, url = match.group(1), match.group(2)
+        if not url or url.startswith(("#", "/")) or SCHEME.match(url):
+            return match.group(0)
+        path, sep, frag = url.partition("#")
+        if path.endswith(".md") and "/" not in path and path[:-3] in stems:
+            return f'{attr}="{path[:-3]}.html{sep}{frag}"'
+        return f'{attr}="../{url}"'
+
+    return LINK_ATTR.sub(fix, body_html)
 
 
 def main() -> None:
@@ -92,7 +108,7 @@ def main() -> None:
     for stem, text in sources:
         title = dict(pages)[stem]
         body = markdown.markdown(text, extensions=MD_EXTENSIONS)
-        body = md_links_to_html(body)
+        body = md_links_to_html(body, {stem for stem, _ in pages})
         html = PAGE_TEMPLATE.format(title=title, css=CSS, nav=build_nav(pages, stem), body=body)
         out_path = OUT_DIR / f"{stem}.html"
         out_path.write_text(html, encoding="utf-8")

@@ -52,6 +52,14 @@
         "select_all": "ctrl+a"
     },
     "files_app": {
+        "reload_from_disk": "",
+        "check_for_updates": "",
+        "docs": "",
+        "docs_page": "",
+        "docs_browser": "",
+        "open_git_gui": "",
+        "open_git_history": "",
+        "open_git_branches": "",
         "open_file": "ctrl+o",
         "open_folder": "ctrl+alt+o",
         "open_folder_new_window": "ctrl+alt+shift+o",
@@ -90,6 +98,11 @@
         "save_all": ""
     },
     "settings": {
+        "change_theme": "",
+        "change_font": "",
+        "change_icon_pack": "",
+        "change_file_icon_pack": "",
+        "change_ligatures": "",
         "new_theme": "",
         "open_settings": "",
         "open_settings_gui": "ctrl+comma",

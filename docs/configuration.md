@@ -64,8 +64,7 @@ watched.
 ## `keybinds.json`
 
 Maps an action name to a key chord. See [Keybindings](keybindings.md) for the
-shipped bindings; rebind by editing this file (Settings has no key-remap UI
-yet), or open it directly via the command palette or **Tasks** dropdown's
+shipped bindings; rebind in Settings > Keybindings or by editing this file, or open it directly via the command palette or **Tasks** dropdown's
 "Edit Tasks (JSON)"-style actions.
 
 A chord is modifiers and one key, joined with `+`, in any order — for example
@@ -159,7 +158,7 @@ does not claim its extensions, so it never competes with one that is on.
 | `root_markers` | Files that mark the project root, looked for at and above the opened file; the workspace root is used when none is found. File names, never globs — each one is looked for as written |
 | `enabled` | `false` starts the entry switched off: it stops claiming its extensions, so another entry can take the language over, and it still lists in Settings where it can be switched back on |
 | `cwd` | Working directory; empty is the project root |
-| `env` | `"KEY=VALUE"` entries added to the environment |
+| `env` | An object of `"KEY": "value"` pairs added to the environment |
 | `initialization_options`, `settings` | JSON passed to the server as its initialization options and its configuration. `init_options` is accepted as an older spelling of the first |
 | `install` | Install command per platform — `windows`, `darwin`, `linux`, or `any` for one that fits all three. What the panel's **Install It** button runs |
 | `docs_url` | The server's own install page, opened by the **Documentation** button |
@@ -202,9 +201,7 @@ statusline says so once and the panel's **Status** and **Last Error** rows keep
 the reason. The same lines go to `user/thor.log`, which is rewritten at every
 start.
 
-Known limitations: matching is by file extension, so a file with no extension
-(`Makefile`, `Dockerfile`, `CMakeLists.txt`) cannot be given a server, even
-where syntax highlighting recognizes it. Formatting follows the same `override`
+Known limitations: Formatting follows the same `override`
 precedence as every other feature — a server given `.odin` outright formats it
 too, in place of the native printer below. Selection and on-type formatting are
 LSP-only; the native Odin printer answers whole-document formatting alone. A
