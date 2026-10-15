@@ -314,7 +314,8 @@ its root, layered on top of the global settings above. This repository's own
   are written to the log, and the key keeps its default.
 
   The formatter never guesses at broken code — a file with a syntax error is
-  left untouched. An import run with a comment in it is left in the order it
+  left untouched, and so is a file nested deeper than it can safely read (about
+  40 parentheses, 100 blocks or a 300-term expression). An import run with a comment in it is left in the order it
   was written, since moving an import would re-attach the comment beside it to
   a different one. Only Format Document sorts imports. Format Selection and format-on-type reformat only inside the
   lines they were given: a change that reaches past them is dropped rather than
