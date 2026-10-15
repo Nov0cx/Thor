@@ -500,6 +500,16 @@ check_full_async_load :: proc(t: ^testing.T) {
     arrow_mid := offset_at("a -> b", 3, 17, "JetBrainsMono")
     arrow_end := offset_at("a -> b", 4, 17, "JetBrainsMono")
     testing.expect(t, arrow_start < arrow_mid && arrow_mid < arrow_end, "the caret inside a ligature does not move")
+
+    // A character outside the baked set comes from the family's own file, and
+    // one no font has draws as a blank that still advances.
+    if family, ok := families["JetBrainsMono"]; ok {
+        zhe, zhe_ok := fallback_glyph(family, 17, 0x0416)
+        testing.expect(t, zhe_ok && zhe.page >= 1 && zhe.rect.width > 0, "Cyrillic Zhe was not taken from the family file")
+        none, none_ok := fallback_glyph(family, 17, 0x10FFFD)
+        testing.expect(t, none_ok && none.page == 0 && none.advance > 0, "a missing character has no blank advance")
+        testing.expect(t, measure("\u0416\u0416", 17, "JetBrainsMono") > measure("\u0416", 17, "JetBrainsMono"), "fallback glyphs do not advance")
+    }
 }
 
 // The startup path: only the named families and icon packs bake; the rest

@@ -126,7 +126,9 @@ be tested headlessly.
 - `input` — the spelling of keys and modifiers in a chord. Loom owns the set: `setting.Keybind` is
   `{ui.Key, input.Modifiers}`.
 - `font` — HarfBuzz shaping, the per-size atlas and the shaped-line cache (`font.measure`,
-  `font.draw`, `font.line_height`). Owns the raylib fonts and imports no Loom.
+  `font.draw`, `font.line_height`). Owns the raylib fonts and imports no Loom. A character the
+  atlas lacks is rasterized on demand from the family's own file, then a system face
+  (`font/fallback.odin`), onto per-size pages that grow.
 - `theme` — the named roles, `role_color` (public plugin API, do not rename), the contrast helpers
   and the generator. Colours are `ui.Color`.
 - `snippet`, `search`, `markdown` — leaves: the LSP snippet grammar, the find engine (case folding,

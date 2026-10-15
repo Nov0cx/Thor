@@ -375,6 +375,12 @@ its root, layered on top of the global settings above. This repository's own
   `assets/fonts/` is replaced by every build and by every update. An entry has
   the same shape as a shipped one, and its `path` is absolute or relative to
   `user/`. A new font is listed after a restart.
+- A character the font lacks is drawn from a fallback: first the font file
+  itself (it often covers more than Thor bakes up front), then the fonts the
+  system ships — Segoe UI Symbol, Microsoft YaHei, Meiryo, Malgun Gothic and
+  Segoe UI Emoji on Windows, Apple Symbols, PingFang and Hiragino on macOS,
+  DejaVu Sans and Noto Sans CJK on Linux. An emoji draws in one colour. A
+  character no font has leaves a blank.
 
   ```json
   {

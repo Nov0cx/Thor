@@ -52,6 +52,8 @@ Font_Family :: struct {
     hb_font:       ^hb.font_t, // owned
     // Ascent minus descent in font units: the em stb_truetype scales a pixel size by.
     hb_em_height:  f32,
+    // Per size: the characters the atlas lacks, taken from fallback faces.
+    fallback:      map[i32]^Fallback_Sheet, // owned
 }
 
 // Family name of the manifest's primary (UI) icon set.
@@ -426,6 +428,7 @@ set_default_family :: proc(name: string) -> bool {
 
 shutdown :: proc() {
     prebake_drain()
+    fallback_shutdown()
     // Fonts hold raylib/libc glyph buffers and GPU textures, so unload them
     // individually; all Odin-side memory goes with the arena.
     default_texture_id := rl.GetFontDefault().texture.id

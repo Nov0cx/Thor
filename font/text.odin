@@ -467,6 +467,9 @@ finish_async_load :: proc() {
         bootstrap_thread = nil
         bootstrap_args = nil
     }
+    if font_allocator.procedure != nil {
+        fallback_init()
+    }
 
     for job in async_jobs {
         thread.join(job.worker)

@@ -85,6 +85,7 @@ Placed_Glyph :: struct {
     offset_y: i32,
     advance:  i32,
     cluster:  i32, // byte offset in the line of the text the glyph draws
+    page:     i32, // 0 for the family atlas, else the 1-based fallback page
     tab:      bool, // no glyph: `advance` is the cell, the walker snaps to the next stop
     rtl:      bool, // the glyph belongs to a right-to-left run
 }
@@ -319,7 +320,7 @@ shape_place_line :: proc(family: ^Font_Family, font: rl.Font, size: i32, line: s
         positions := cast([^]hb.glyph_position_t) hb.buffer_get_glyph_positions(shape_buffer, &position_count)
         for i in 0 ..< glyph_count {
             first := len(placed)
-            place_glyph(shaped, font, line, infos[i])
+            place_glyph(family, size, shaped, font, line, infos[i])
             placed[first].rtl = run.level % 2 == 1
             if i < position_count && scale > 0 && !placed[first].tab {
                 apply_position(&placed[first], family.hb_font, infos[i], positions[i], scale)
@@ -349,7 +350,14 @@ apply_position :: proc(
 }
 
 @(private = "file")
-place_glyph :: proc(shaped: map[u32]Shaped_Glyph, font: rl.Font, line: string, info: hb.glyph_info_t) {
+place_glyph :: proc(
+    family: ^Font_Family,
+    size: i32,
+    shaped: map[u32]Shaped_Glyph,
+    font: rl.Font,
+    line: string,
+    info: hb.glyph_info_t,
+) {
     cluster := cast(int) info.cluster
     // Before the glyph lookup: a font whose cmap maps U+0009 would otherwise
     // return a mapped glyph and never become a tab.
@@ -395,6 +403,23 @@ place_glyph :: proc(shaped: map[u32]Shaped_Glyph, font: rl.Font, line: string, i
         )
         return
     }
+    // A character the atlas lacks: from the family's own file or a system face.
+    if r > 0 {
+        if glyph, ok := fallback_glyph(family, size, r); ok {
+            append(
+                &placed,
+                Placed_Glyph {
+                    rect = glyph.rect,
+                    offset_x = glyph.offset_x,
+                    offset_y = glyph.offset_y,
+                    advance = glyph.advance,
+                    cluster = i32(cluster),
+                    page = glyph.page,
+                },
+            )
+            return
+        }
+    }
     space := rl.GetGlyphIndex(font, ' ')
     append(&placed, Placed_Glyph {advance = font.glyphs[space].advanceX, cluster = i32(cluster)})
 }
@@ -425,8 +450,9 @@ draw_line_shaped :: proc(
             continue
         }
         if glyph.rect.width > 0 {
+            texture := glyph.page > 0 ? fallback_page(family, size, glyph.page) : font.texture
             rl.DrawTextureRec(
-                font.texture,
+                texture,
                 glyph.rect,
                 rl.Vector2 {pen + cast(f32) glyph.offset_x, cast(f32) y + cast(f32) glyph.offset_y},
                 color,
