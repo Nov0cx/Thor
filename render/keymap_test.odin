@@ -31,3 +31,14 @@ test_layout_name_falls_back_when_it_names_no_key :: proc(t: ^testing.T) {
     testing.expect_value(t, key_from_layout_name("abc", .F1), rl.KeyboardKey.F1)
     testing.expect_value(t, key_from_layout_name(" ", .SPACE), rl.KeyboardKey.SPACE)
 }
+
+@(test)
+test_numpad_keys_are_not_remapped :: proc(t: ^testing.T) {
+    testing.expect(t, !layout_remaps(.KP_1))
+    testing.expect(t, !layout_remaps(.KP_DIVIDE))
+    testing.expect(t, !layout_remaps(.KP_ENTER))
+    testing.expect(t, !layout_remaps(.F1))
+    testing.expect(t, layout_remaps(.Y))
+    testing.expect(t, layout_remaps(.ONE))
+    testing.expect(t, layout_remaps(.SEMICOLON))
+}

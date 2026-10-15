@@ -8,11 +8,20 @@ import rl "vendor:raylib"
 // labeled Z arrives as .Y. GetKeyName gives the character the active layout
 // prints on that key, which is what a shortcut must follow.
 remap_key_to_layout :: proc(key: rl.KeyboardKey) -> rl.KeyboardKey {
+    if !layout_remaps(key) {
+        return key
+    }
     name := rl.GetKeyName(key)
     if name == nil {
         return key
     }
     return key_from_layout_name(string(name), key)
+}
+
+// True for a main-block key the layout can relabel. A numpad key is not one:
+// its layout name ("1", "/") would make it the main-block key.
+layout_remaps :: proc(key: rl.KeyboardKey) -> bool {
+    return key >= .APOSTROPHE && key <= .GRAVE
 }
 
 // The raylib key `name` prints, or `fallback` when it names none: a layout can

@@ -42,6 +42,7 @@
 - Text uses the font's kerning, and an accent or other combining mark sits on its letter.
 - The caret and a click inside a ligature such as `->` land between its characters, and placing the caret on a long line costs less.
 - Characters beyond Latin draw: Cyrillic, Greek, box drawing and symbols from the font itself, CJK, emoji and the rest from the fonts the system ships. They were blank.
+- A numpad key is no longer taken as the main-block key its layout names: numpad 1 stays numpad 1.
 
 # 2026.10.4
 
