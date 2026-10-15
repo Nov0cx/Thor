@@ -21,6 +21,20 @@ warm_keyword_table :: proc "contextless" () {
     tokenizer.init(&t, "", "<warm>", silent_handler)
 }
 
+// The nesting budget of a source the formatter takes. The parser recurses per
+// bracket, a `(` or `[` costs it about two and a half times what a `{` costs,
+// and a worker thread's stack holds about 65 parentheses in a debug build.
+@(private)
+MAX_NESTING :: 200
+@(private)
+PAREN_COST :: 5
+@(private)
+BRACE_COST :: 2
+
+// The deepest the printer recurses into statements and expressions.
+@(private)
+MAX_DEPTH :: 300
+
 // The UTF-8 byte order mark.
 @(private)
 BOM :: "\xef\xbb\xbf"
@@ -47,6 +61,9 @@ format :: proc(source: string, opts: Options, allocator := context.allocator) ->
     p.err = silent_handler
     p.warn = silent_handler
 
+    if !nesting_ok(source) {
+        return "", false
+    }
     if !parser.parse_file(&p, &file) {
         return "", false
     }
@@ -61,6 +78,9 @@ format :: proc(source: string, opts: Options, allocator := context.allocator) ->
     pr.align_ids = make(map[rawptr]Align_Cell) // arena-backed, dropped with the AST
 
     doc := print_file(&pr, &file)
+    if pr.too_deep {
+        return "", false
+    }
     rendered := render(doc, &pr.opts, allocator)
     // The parser skips a byte order mark, so it is put back.
     if strings.has_prefix(source, BOM) {
@@ -73,4 +93,30 @@ format :: proc(source: string, opts: Options, allocator := context.allocator) ->
 
 @(private)
 silent_handler :: proc(pos: tokenizer.Pos, msg: string, args: ..any) {
+}
+
+// Whether the brackets in `source` stay inside MAX_NESTING.
+@(private)
+nesting_ok :: proc(source: string) -> bool {
+    t: tokenizer.Tokenizer
+    tokenizer.init(&t, source, "<format>", silent_handler)
+    depth := 0
+    for {
+        tok := tokenizer.scan(&t)
+        #partial switch tok.kind {
+        case .EOF:
+            return true
+        case .Open_Paren, .Open_Bracket:
+            depth += PAREN_COST
+        case .Open_Brace:
+            depth += BRACE_COST
+        case .Close_Paren, .Close_Bracket:
+            depth = max(depth - PAREN_COST, 0)
+        case .Close_Brace:
+            depth = max(depth - BRACE_COST, 0)
+        }
+        if depth > MAX_NESTING {
+            return false
+        }
+    }
 }

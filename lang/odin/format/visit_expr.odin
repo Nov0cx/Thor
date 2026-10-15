@@ -7,7 +7,13 @@ import "core:odin/ast"
 import "core:odin/tokenizer"
 
 print_expr :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: ^ast.Expr) {
-    if expr == nil {
+    if expr == nil || pr.too_deep {
+        return
+    }
+    pr.depth += 1
+    defer pr.depth -= 1
+    if pr.depth > MAX_DEPTH {
+        pr.too_deep = true
         return
     }
     print_state_flags(out, expr.state_flags)

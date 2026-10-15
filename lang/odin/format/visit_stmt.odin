@@ -436,7 +436,13 @@ print_switch_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, body: ^ast.Stmt) {
 }
 
 print_stmt :: proc(pr: ^Printer, out: ^[dynamic]Doc, stmt: ^ast.Stmt) {
-    if stmt == nil {
+    if stmt == nil || pr.too_deep {
+        return
+    }
+    pr.depth += 1
+    defer pr.depth -= 1
+    if pr.depth > MAX_DEPTH {
+        pr.too_deep = true
         return
     }
     print_state_flags(out, stmt.state_flags)

@@ -920,3 +920,37 @@ test_validate_options_resets_out_of_range :: proc(t: ^testing.T) {
     testing.expect_value(t, opts.tabs_width, 4)
     testing.expect_value(t, len(validate_options(&opts, context.temp_allocator)), 0)
 }
+
+// Nesting deeper than the formatter takes is refused, not printed; nesting
+// under the limit still formats.
+@(test)
+test_refuses_deep_nesting :: proc(t: ^testing.T) {
+    nest :: proc(levels: int) -> string {
+        b := strings.builder_make(context.temp_allocator)
+        strings.write_string(&b, "package p\nx := ")
+        for _ in 0 ..< levels {
+            strings.write_byte(&b, '(')
+        }
+        strings.write_byte(&b, '1')
+        for _ in 0 ..< levels {
+            strings.write_byte(&b, ')')
+        }
+        strings.write_byte(&b, '\n')
+        return strings.to_string(b)
+    }
+    _, deep_ok := format(nest(MAX_NESTING / PAREN_COST + 1), default_options())
+    testing.expect(t, !deep_ok, "a nesting past MAX_NESTING formatted")
+    out, ok := format(nest(MAX_NESTING / PAREN_COST), default_options())
+    defer delete(out)
+    testing.expect(t, ok, "a nesting under MAX_NESTING was refused")
+
+    // A long operator chain recurses in the printer only.
+    b := strings.builder_make(context.temp_allocator)
+    strings.write_string(&b, "package p\nx := 1")
+    for _ in 0 ..< MAX_DEPTH + 10 {
+        strings.write_string(&b, " + 1")
+    }
+    strings.write_byte(&b, '\n')
+    _, chain_ok := format(strings.to_string(b), default_options())
+    testing.expect(t, !chain_ok, "a chain past MAX_DEPTH formatted")
+}

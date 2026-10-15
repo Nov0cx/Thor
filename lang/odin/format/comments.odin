@@ -26,6 +26,8 @@ Printer :: struct {
     comment_idx:   int,
     next_align_id: int,
     align_ids:     map[rawptr]Align_Cell,
+    depth:         int,
+    too_deep:      bool, // the printer went past MAX_DEPTH; the output is not used
 }
 
 @(private)
