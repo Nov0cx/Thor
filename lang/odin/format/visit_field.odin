@@ -173,7 +173,8 @@ print_field_brace_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, close_line: int
         return
     }
     body: [dynamic]Doc
-    prev_line, has_prev := flush_before(pr, &body, 0, false, fields[0].pos.line, true)
+    open_line := open_brace_line(pr, fields[0].pos.offset, fields[0].pos.line)
+    prev_line, has_prev := flush_before(pr, &body, open_line, true, fields[0].pos.line, true)
     append(&body, hard_line(0))
     for f, i in fields {
         if i > 0 {

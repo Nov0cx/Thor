@@ -167,6 +167,29 @@ flush_remaining :: proc(pr: ^Printer, out: ^[dynamic]Doc, prev_line: int, has_pr
     separator(pr, out, prev_line, has_prev, 0, false)
 }
 
+// The line of the code before `offset`: the white space and the unprinted
+// comments between are skipped. The AST keeps no position for an open brace.
+@(private)
+open_brace_line :: proc(pr: ^Printer, offset, line: int) -> int {
+    at, at_line := offset, line
+    if pr.comment_idx < len(pr.comments) {
+        cg := pr.comments[pr.comment_idx]
+        if cg.pos.offset < at {
+            at, at_line = cg.pos.offset, cg.pos.line
+        }
+    }
+    for i := at - 1; i >= 0 && i < len(pr.src); i -= 1 {
+        switch pr.src[i] {
+        case '\n':
+            at_line -= 1
+        case ' ', '\t', '\r':
+        case:
+            return at_line
+        }
+    }
+    return at_line
+}
+
 // The line a comment ends on: a `/* */` can span several.
 @(private)
 comment_end_line :: proc(tok: tokenizer.Token) -> int {

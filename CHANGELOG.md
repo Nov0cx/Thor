@@ -15,6 +15,12 @@
 - A terminal with a full scrollback no longer slows down with every new line.
 - A flood of terminal output is drawn over several frames and no longer freezes the window.
 - A build writing many files rebuilds the file tree at most five times a second.
+- The Odin formatter indents like the file it formats, tabs or spaces, unless `odin-formatter.json` names the indent. It used tabs.
+- A language server's format uses tabs in a file that indents with tabs.
+- The formatter keeps stacked attributes in their order. It reversed them on every format.
+- A comment above the first field of a struct stays on its own line.
+- A comment above a `#+build` tag stays above it and does not become the package doc.
+- The formatter keeps a UTF-8 byte order mark.
 
 # 2026.10.4
 

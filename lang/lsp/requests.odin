@@ -260,9 +260,8 @@ request_params :: proc(ask: ^Ask) -> string {
     return string(out[:])
 }
 
-// FormattingOptions.tabSize/insertSpaces. `insertSpaces` is always true: Thor's
-// editor is soft-tabs only, so there is no "use real tabs" mode to advertise.
-// tabSize falls back to 4 when the request carries no buffer tab width.
+// FormattingOptions.tabSize/insertSpaces from the buffer's indent. tabSize falls
+// back to 4 when the request carries no buffer tab width.
 @(private)
 append_formatting_options :: proc(out: ^[dynamic]u8, ask: ^Ask) {
     tab_size := ask.req.tab_size
@@ -271,7 +270,7 @@ append_formatting_options :: proc(out: ^[dynamic]u8, ask: ^Ask) {
     }
     append(out, `,"options":{"tabSize":`)
     write_number(out, i64(tab_size))
-    append(out, `,"insertSpaces":true}`)
+    append(out, ask.req.use_tabs ? `,"insertSpaces":false}` : `,"insertSpaces":true}`)
 }
 
 // Sends textDocument/prepareRename at the caret. False means "not renameable

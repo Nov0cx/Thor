@@ -77,9 +77,10 @@ print_attribute :: proc(pr: ^Printer, out: ^[dynamic]Doc, a: ^ast.Attribute) {
     append(out, text(")"))
 }
 
+// The parser stores stacked attributes innermost first, so they print in reverse.
 @(private)
 print_attributes :: proc(pr: ^Printer, out: ^[dynamic]Doc, attrs: [dynamic]^ast.Attribute) {
-    for a in attrs {
+    #reverse for a in attrs {
         print_attribute(pr, out, a)
         append(out, hard_line(0))
     }

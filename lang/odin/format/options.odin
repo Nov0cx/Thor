@@ -50,7 +50,7 @@ default_options :: proc() -> Options {
         exp_multiline_composite_literals = false,
         brace_style                = ._1TBS,
         indent_cases                = false,
-        newline_style                = .CRLF,
+        newline_style                = .LF,
         inline_single_stmt_case      = false,
         spaces_around_colons         = false,
         sort_imports                 = true,

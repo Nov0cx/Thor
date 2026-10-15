@@ -847,3 +847,32 @@ test_multi_line_block_comment_keeps_its_gap :: proc(t: ^testing.T) {
     expect_keeps(t, "package p\n/*\nhead\n*/\nX :: 1\n", "*/\nX :: 1\n")
     expect_keeps(t, "package p\nX :: 1 /* a\nb */\nY :: 2\n", "b */\nY :: 2\n")
 }
+
+@(test)
+test_stacked_attributes_keep_their_order :: proc(t: ^testing.T) {
+    expect_keeps(
+        t,
+        "package p\n@(private)\n@(require_results)\nf :: proc() -> int {\n\treturn 1\n}\n",
+        "@(private)\n@(require_results)\nf ::",
+    )
+}
+
+@(test)
+test_comment_before_first_member_keeps_its_line :: proc(t: ^testing.T) {
+    expect_keeps(t, "package p\nFoo :: struct {\n\t// first\n\tx: int,\n}\n", "struct {\n\t// first\n\tx: int,")
+    expect_keeps(t, "package p\nFoo :: struct { // note\n\tx: int,\n}\n", "struct {  // note\n\tx: int,")
+}
+
+@(test)
+test_header_comment_stays_above_tags :: proc(t: ^testing.T) {
+    expect_keeps(t, "// Header\n\n#+build windows\npackage p\n", "// Header\n\n#+build windows\npackage p\n")
+    expect_keeps(t, "#+build windows\n// Doc\npackage p\n", "#+build windows\n// Doc\npackage p\n")
+}
+
+@(test)
+test_byte_order_mark_is_kept :: proc(t: ^testing.T) {
+    out, ok := format("\xef\xbb\xbfpackage p\n", default_options())
+    defer delete(out)
+    testing.expect(t, ok)
+    testing.expect_value(t, out, "\xef\xbb\xbfpackage p\n")
+}

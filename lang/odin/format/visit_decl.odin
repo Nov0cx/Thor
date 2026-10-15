@@ -9,10 +9,9 @@ print_file :: proc(pr: ^Printer, file: ^ast.File) -> Doc {
 
     prev_line := 0
     has_prev := false
-    for tag, i in file.tags {
-        if i > 0 {
-            append(&out, hard_line(0))
-        }
+    // A comment above a tag stays above it, so it does not become the package doc.
+    for tag in file.tags {
+        separator(pr, &out, prev_line, has_prev, tag.pos.line, true)
         append(&out, text(tag.text))
         prev_line = tag.pos.line
         has_prev = true

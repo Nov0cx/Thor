@@ -8,6 +8,7 @@ import "core:mem/virtual"
 import "core:odin/ast"
 import "core:odin/parser"
 import "core:odin/tokenizer"
+import "core:strings"
 
 // core:odin/tokenizer fills its keyword table on the first tokenizer.init, under a
 // double-checked lock that does not re-check: a second thread that arrives while the
@@ -19,6 +20,10 @@ warm_keyword_table :: proc "contextless" () {
     t: tokenizer.Tokenizer
     tokenizer.init(&t, "", "<warm>", silent_handler)
 }
+
+// The UTF-8 byte order mark.
+@(private)
+BOM :: "\xef\xbb\xbf"
 
 // format parses `source` (Odin source, LF-only — the lang seam's contract)
 // and returns its canonical layout under `opts`. ok is false when the source
@@ -57,6 +62,12 @@ format :: proc(source: string, opts: Options, allocator := context.allocator) ->
 
     doc := print_file(&pr, &file)
     rendered := render(doc, &pr.opts, allocator)
+    // The parser skips a byte order mark, so it is put back.
+    if strings.has_prefix(source, BOM) {
+        with_bom := strings.concatenate({BOM, rendered}, allocator)
+        delete(rendered, allocator)
+        rendered = with_bom
+    }
     return rendered, true
 }
 

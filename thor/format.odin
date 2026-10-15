@@ -58,6 +58,7 @@ thor_format_file :: proc(thor: ^Thor, file: ^Open_File) -> bool {
         file.state.revision,
         thor.workspace_dir,
         tab_size = textedit.tab_width(&file.state),
+        use_tabs = textedit.uses_tabs(&file.state),
     )
     if id == 0 {
         return false
@@ -99,6 +100,7 @@ thor_format_selection :: proc(thor: ^Thor, file: ^Open_File) -> bool {
         thor.workspace_dir,
         end = hi,
         tab_size = textedit.tab_width(&file.state),
+        use_tabs = textedit.uses_tabs(&file.state),
     )
     if id == 0 {
         return false
@@ -134,6 +136,7 @@ thor_format_on_type :: proc(thor: ^Thor, file: ^Open_File, offset: int, char: st
         file.state.revision,
         thor.workspace_dir,
         tab_size = textedit.tab_width(&file.state),
+        use_tabs = textedit.uses_tabs(&file.state),
         trigger = char,
     )
     if id == 0 {

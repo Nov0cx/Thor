@@ -33,6 +33,8 @@ Format_Config_Cache :: struct {
     size:            i64,
     opts:            format.Options,
     newline_present: bool,
+    // The file names the indent (`tabs`, `spaces` or `tabs_width`); else the buffer's own indent applies.
+    indent_present:  bool,
 }
 
 @(private)
@@ -43,6 +45,7 @@ format_config_ensure :: proc(cache: ^Format_Config_Cache, workspace: string) {
     if workspace == "" {
         cache.opts = format.default_options()
         cache.newline_present = false
+        cache.indent_present = false
         return
     }
     context.allocator = cache.alloc
@@ -65,6 +68,7 @@ format_config_ensure :: proc(cache: ^Format_Config_Cache, workspace: string) {
 
     cache.opts = format.default_options()
     cache.newline_present = false
+    cache.indent_present = false
     if cache.workspace != workspace {
         delete(cache.workspace, cache.alloc)
         cache.workspace = strings.clone(workspace)
@@ -112,6 +116,11 @@ format_config_parse :: proc(cache: ^Format_Config_Cache, path: string) {
         }
     }
 
+    for key in ([]string{"tabs", "spaces", "tabs_width"}) {
+        if key in obj {
+            cache.indent_present = true
+        }
+    }
     read_int(obj, "character_width", &cache.opts.character_width)
     read_int(obj, "spaces", &cache.opts.spaces)
     read_int(obj, "newline_limit", &cache.opts.newline_limit)
@@ -187,7 +196,14 @@ format_document :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result, lo, h
     format_config_ensure(cache, req.workspace)
     opts := cache.opts
     newline_present := cache.newline_present
+    indent_present := cache.indent_present
     sync.unlock(&cache.mutex)
+
+    if !indent_present && req.tab_size > 0 {
+        opts.tabs = req.use_tabs
+        opts.spaces = req.tab_size
+        opts.tabs_width = req.tab_size
+    }
 
     // A moved line is two spans, and a window can keep only one of them.
     if req.kind != .Format {

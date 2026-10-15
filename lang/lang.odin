@@ -316,6 +316,8 @@ Request :: struct {
     // Format / Format_Range / Format_On_Type: spaces per indent level of the
     // request's buffer. 0 means unset — a backend falls back to its own default.
     tab_size: int,
+    // The buffer indents with a literal tab.
+    use_tabs: bool,
     // Format_On_Type and Completion; owned. The character just typed, as UTF-8,
     // "" when the request was not driven by one. A backend uses it to tell an
     // explicitly opened list from one a character asked for.
@@ -502,6 +504,7 @@ Pending :: struct {
     query:       string,
     diagnostics: []Diagnostic_Ref,
     tab_size:    int,
+    use_tabs:    bool,
     trigger:     string,
     due:         time.Time,
 }
@@ -731,6 +734,7 @@ manager_request :: proc(
     end := -1,
     diagnostics: []Diagnostic_Ref = nil,
     tab_size := 0,
+    use_tabs := false,
     trigger := "",
     command := "",
     command_args := "",
@@ -760,6 +764,7 @@ manager_request :: proc(
         strings.clone(query),
         clone_diagnostic_refs(diagnostics, m.allocator),
         tab_size,
+        use_tabs,
         strings.clone(trigger),
         strings.clone(command),
         strings.clone(command_args),
@@ -802,6 +807,7 @@ dispatch_owned :: proc(
     query: string,
     diagnostics: []Diagnostic_Ref = nil,
     tab_size: int = 0,
+    use_tabs: bool = false,
     trigger: string = "",
     command: string = "",
     command_args: string = "",
@@ -841,6 +847,7 @@ dispatch_owned :: proc(
         query       = query,
         diagnostics = diagnostics,
         tab_size    = tab_size,
+        use_tabs    = use_tabs,
         trigger     = trigger,
         command      = command,
         command_args = command_args,
@@ -968,6 +975,7 @@ manager_request_latest :: proc(
     end := -1,
     diagnostics: []Diagnostic_Ref = nil,
     tab_size := 0,
+    use_tabs := false,
     trigger := "",
     command := "",
     command_args := "",
@@ -988,6 +996,7 @@ manager_request_latest :: proc(
         end,
         diagnostics,
         tab_size,
+        use_tabs,
         trigger,
         command,
         command_args,
@@ -1018,6 +1027,7 @@ manager_request_debounced :: proc(
     end := -1,
     diagnostics: []Diagnostic_Ref = nil,
     tab_size := 0,
+    use_tabs := false,
     trigger := "",
 ) -> u64 {
     if !manager_feature_enabled(m, kind) {
@@ -1045,6 +1055,7 @@ manager_request_debounced :: proc(
         query       = strings.clone(query),
         diagnostics = clone_diagnostic_refs(diagnostics, m.allocator),
         tab_size    = tab_size,
+        use_tabs    = use_tabs,
         trigger     = strings.clone(trigger),
         due         = time.time_add(time.now(), delay),
     }
@@ -1087,6 +1098,7 @@ manager_flush_debounced :: proc(m: ^Manager, force := false) -> int {
             slot.query,
             slot.diagnostics,
             slot.tab_size,
+            slot.use_tabs,
             slot.trigger,
         )
         if dispatched == 0 {

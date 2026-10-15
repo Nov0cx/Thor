@@ -286,15 +286,17 @@ its root, layered on top of the global settings above. This repository's own
 - **`odin-formatter.json`** — per-workspace options for formatting `.odin`
   files — "Edit: Format Document", "Edit: Format Selection", `format_on_save`
   and `format_on_type` all read it — mirroring the odinfmt (OLS) schema. An
-  absent file, or an absent key, uses the default shown:
+  absent file, or an absent key, uses the default shown. When the file names
+  none of `tabs`, `spaces` and `tabs_width`, the indent follows the file being
+  formatted (`insert_spaces`, `detect_indentation`, `tab_width`):
 
   | Key | Meaning | Default |
   | --- | --- | --- |
   | `character_width` | Column a call, parameter list or composite literal wraps at | `100` |
-  | `spaces` | Spaces per indent level (when `tabs` is `false`) | `4` |
+  | `spaces` | Spaces per indent level (when `tabs` is `false`) | the file's tab width |
   | `newline_limit` | Most blank lines kept between statements/declarations | `2` |
-  | `tabs` | Indent with tabs instead of spaces | `true` |
-  | `tabs_width` | Columns one tab counts as, for `character_width` | `4` |
+  | `tabs` | Indent with tabs instead of spaces | the file's indent style |
+  | `tabs_width` | Columns one tab counts as, for `character_width` | the file's tab width |
   | `convert_do` | Rewrite `if x do y()` to a braced block | `false` |
   | `exp_multiline_composite_literals` | Keep a composite literal that already spanned multiple lines from being collapsed onto one | `false` |
   | `brace_style` | `"_1TBS"`, `"Allman"`, `"Stroustrup"`, or `"K_And_R"` | `"_1TBS"` |
