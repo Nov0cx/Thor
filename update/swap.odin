@@ -234,7 +234,7 @@ migrate_json_files :: proc(from: string, to: string) -> (carried: int, ok: bool)
         log.warnf("Could not read %q: %v", from, err)
         return 0, false
     }
-    if make_err := os.make_directory_all(to); make_err != nil {
+    if make_err := os.make_directory_all(to); make_err != nil && make_err != .Exist {
         log.errorf("Could not create %q: %v", to, make_err)
         return 0, false
     }

@@ -16,7 +16,11 @@ test_lsp_grant_keys_on_workspace_and_digest :: proc(t: ^testing.T) {
 
     thor_lsp_set_grant(&rows, "work/repo", before)
     testing.expect(t, thor_lsp_find_grant(rows[:], "work/repo", before), "the grant was not found")
-    testing.expect(t, thor_lsp_find_grant(rows[:], "Work/Repo", before), "the folder match is case-sensitive")
+    when ODIN_OS == .Windows {
+        testing.expect(t, thor_lsp_find_grant(rows[:], "Work/Repo", before), "the folder match is case-sensitive")
+    } else {
+        testing.expect(t, !thor_lsp_find_grant(rows[:], "Work/Repo", before), "the folder match ignores case")
+    }
     testing.expect(t, !thor_lsp_find_grant(rows[:], "work/other", before), "a grant reached another folder")
     testing.expect(t, !thor_lsp_find_grant(rows[:], "work/repo", after), "a changed file stayed allowed")
     testing.expect(t, !thor_lsp_find_grant(rows[:], "", before), "no workspace was allowed")
