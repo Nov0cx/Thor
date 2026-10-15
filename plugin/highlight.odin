@@ -132,18 +132,25 @@ Fold_Range :: struct {
 }
 
 // Foldable line ranges for `source` under the language bound to `ext`, with
-// `path` identifying the buffer as for `highlight`. Only tree-sitter grammars
-// fold (a pure-Lua lexer has no parse tree); empty when no grammar-backed plugin
-// claims the extension.
+// `path` identifying the buffer as for `highlight`. A grammar folds by its parse
+// tree, a plugin `fold` function answers for its language, and any other
+// language folds by indentation. Empty when no plugin claims the extension.
 fold_ranges :: proc(m: ^Manager, path, source, ext: string, allocator := context.allocator) -> []Fold_Range {
     idx, ok := m.by_ext[ext]
     if !ok {
         return nil
     }
     lang := &m.languages[idx]
-    if lang.grammar == "" || !syntax.supports(&m.highlighter, lang.grammar) {
+    if lang.grammar == "" {
+        if lang.folder.ref != NOREF {
+            return run_folder(m, lang, source, allocator)
+        }
+        return indent_fold_ranges(source, allocator)
+    }
+    if !syntax.supports(&m.highlighter, lang.grammar) {
         return nil
     }
+
     ranges := syntax.fold_ranges(&m.highlighter, path, source, lang.grammar, context.temp_allocator)
     out := make([dynamic]Fold_Range, 0, len(ranges), allocator)
     for r in ranges {

@@ -236,7 +236,23 @@ The spans are then relative to the lines passed in, so a lexer must not assume
 it starts at byte 0 of the file. Leave the flag off for a lexer that carries
 state across lines — a block comment, a fenced block, a multi-line string.
 
-`highlights` replaces the grammar's compiled-in highlights query. A name ending
+A language without a grammar folds by indentation. Add a `fold` function to
+fold it some other way: it is given the whole buffer and returns
+`{ first, last }` line pairs, 1-based and inclusive. `first` stays visible and
+the lines after it up to `last` fold. A pair out of the buffer, or with `last`
+not after `first`, is dropped.
+
+```lua
+thor.register_language {
+    name       = "Notes",
+    extensions = { ".notes" },
+    highlight  = lex,
+    fold       = function(src) return { { 1, 4 }, { 6, 9 } } end,
+}
+```
+
+`highlights` replaces the grammar's compiled-in highlights query.
+ A name ending
 in `.scm` is read from the plugin's folder; anything else is the query itself. A
 query that does not compile is reported on the console with its byte offset and
 reason, and the language keeps the built-in query.

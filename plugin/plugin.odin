@@ -37,6 +37,7 @@ Language :: struct {
     // instead of the whole buffer. False for one that carries state across a
     // line — a block comment, a fence, a multi-line string.
     line_based: bool,
+    folder:     Callback, // Lua `fold` function, or an unset ref
 }
 
 // Host services a plugin can call back into, as plain function pointers so the
@@ -276,6 +277,7 @@ manager_destroy :: proc(m: ^Manager) {
     delete(m.panel_refs)
     for &lang in m.languages {
         release(m, &lang.lexer)
+        release(m, &lang.folder)
         free_language(&lang)
     }
     delete(m.languages)
@@ -1201,6 +1203,7 @@ api_register_language :: proc "c" (L: ^lua.State) -> c.int {
 
     lang: Language
     lang.lexer = Callback {index, NOREF}
+    lang.folder = Callback {index, NOREF}
     lang.colors = make(map[string]string)
     lang.extensions = make([dynamic]string)
 
@@ -1254,6 +1257,14 @@ api_register_language :: proc "c" (L: ^lua.State) -> c.int {
         return 0
     }
     lang.line_based = field_bool(L, "line_based")
+
+    lua.getfield(L, 1, "fold")
+    if lua.isfunction(L, -1) {
+        lang.folder.ref = int(lua.L_ref(L, lua.REGISTRYINDEX)) // pops the function
+    } else {
+        lua.pop(L, 1)
+    }
+
 
     if source, ok := field_string(L, "highlights"); ok && lang.grammar != "" {
         apply_highlights_override(m, index, lang.grammar, source)

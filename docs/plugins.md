@@ -14,6 +14,12 @@ config/markup formats such as JSON, Markdown, shell and batch. Nothing to
 configure — a file's extension (or, for extensionless names like `Makefile`,
 its basename) picks the plugin.
 
+Code folds by the parse tree for a grammar language. A language with a pure-Lua
+lexer folds by indentation: a line folds over the deeper-indented lines after
+it, and a closing `}`, `]` or `)` at its indent folds with them. A plugin can
+supply its own folds instead.
+
+
 ## Permissions and the trust prompt
 
 A plugin only gets capabilities it declares (`exec`, `read`, `write`, `ui`,

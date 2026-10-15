@@ -46,6 +46,8 @@
 - A broken or missing font or icon manifest is written to `thor.log` in a release build. Icons went blank with no log line.
 - An icon outside its set's `preload` list draws. It was blank.
 - Plugins can use every theme color through `thor.theme`: `text`, `border`, `selection_background` and the eleven other surface and text colors were missing.
+- Files colored by a pure-Lua lexer fold: YAML, JSON, CSS, XML, TOML and the rest fold by indentation, and a closing bracket folds with its block.
+- Plugin API: a `fold` function in `thor.register_language` supplies a language's own folds.
 
 # 2026.10.4
 

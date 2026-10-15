@@ -975,3 +975,56 @@ p:render { n }`
     testing.expectf(t, time.tick_since(start) < time.Second, "the parse ran for %v", time.tick_since(start))
     testing.expect_value(t, lua.gettop(m.state), 0)
 }
+
+// A lexer language folds by indentation; a closing bracket at the start line's
+// indent folds with its block, and trailing blank lines do not.
+@(test)
+test_lexer_language_folds_by_indent :: proc(t: ^testing.T) {
+    src := "a:\n  b: 1\n\n  c:\n    d: 2\ne: 3\n\n"
+    folds := indent_fold_ranges(src, context.temp_allocator)
+    testing.expect_value(t, len(folds), 2)
+    if len(folds) == 2 {
+        testing.expect_value(t, folds[0], Fold_Range{0, 4})
+        testing.expect_value(t, folds[1], Fold_Range{3, 4})
+    }
+
+    braces := indent_fold_ranges("x {\n\ty\n}\nz\n", context.temp_allocator)
+    testing.expect_value(t, len(braces), 1)
+    if len(braces) == 1 {
+        testing.expect_value(t, braces[0], Fold_Range{0, 2})
+    }
+
+    testing.expect_value(t, len(indent_fold_ranges("a\nb\n", context.temp_allocator)), 0)
+}
+
+// A plugin `fold` function answers for its language: its 1-based pairs come
+// back 0-based and sorted, and a pair out of range is dropped. A lexer language
+// without one folds by indentation.
+@(test)
+test_plugin_fold_function :: proc(t: ^testing.T) {
+    r: Recorder
+    recorder_init(&r)
+    defer recorder_destroy(&r)
+    m: Manager
+    recording_manager(&m, &r)
+    defer manager_destroy(&m)
+
+    script := `
+local function lex(src) return {} end
+local function fold(src) return { { 3, 4 }, { 1, 2 }, { 2, 2 }, { 0, 1 }, { 3, 99 } } end
+thor.register_language { name = "Folded", extensions = { ".fd" }, highlight = lex, fold = fold }
+thor.register_language { name = "Plain", extensions = { ".pl0" }, highlight = lex }
+`
+    testing.expect(t, manager_load_source(&m, "fd", "plugins/fd", script, {}), "plugin runs")
+
+    src := "a\nb\nc\nd\n"
+    folds := fold_ranges(&m, "", src, ".fd", context.temp_allocator)
+    testing.expect_value(t, len(folds), 2)
+    if len(folds) == 2 {
+        testing.expect_value(t, folds[0], Fold_Range{0, 1})
+        testing.expect_value(t, folds[1], Fold_Range{2, 3})
+    }
+
+    plain := fold_ranges(&m, "", "a\n  b\n", ".pl0", context.temp_allocator)
+    testing.expect_value(t, len(plain), 1)
+}
