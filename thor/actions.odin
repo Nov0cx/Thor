@@ -148,7 +148,7 @@ thor_global_key :: proc(thor: ^Thor, event: ui.Key_Event) -> bool {
         thor_package_doc(thor)
         return true
     }
-    // Code actions (Ctrl+.) offer the fixes available at the caret.
+    // Code actions (ctrl+shift+u) offer the fixes available at the caret.
     if setting.keybind_matches(thor.code_actions_key, event.key, event.mods) {
         thor_code_actions(thor)
         return true
@@ -158,8 +158,7 @@ thor_global_key :: proc(thor: ^Thor, event: ui.Key_Event) -> bool {
         thor_flip_last_file(thor)
         return true
     }
-    // Toggle the editor split. split_key is KEY_NULL unless the user bound it,
-    // so this never matches a real press until "toggle_split" is set.
+    // Toggle the editor split. An empty "toggle_split" chord never matches a press.
     if setting.keybind_matches(thor.split_key, event.key, event.mods) {
         thor_toggle_split(thor)
         return true

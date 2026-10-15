@@ -175,8 +175,6 @@ select_scroll_into_view :: proc(s: ^Select_Dialog) {
     }
 }
 
-// ---- the view ------------------------------------------------------------------
-
 thor_select_view :: proc(thor: ^Thor) {
     if !thor.select_open {
         return

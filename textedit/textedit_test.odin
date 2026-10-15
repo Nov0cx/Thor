@@ -225,29 +225,6 @@ test_block_comment_pairing :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_replace_all :: proc(t: ^testing.T) {
-    state: State
-    init(&state)
-    defer destroy(&state)
-
-    insert_text(&state, "foo bar Foo baz foo")
-
-    // Case-insensitive: replaces foo, Foo, foo.
-    count := replace_all(&state, "foo", "X", false)
-    testing.expect_value(t, count, 3)
-    testing.expect_value(t, text(&state), "X bar X baz X")
-
-    // Undo restores the original in one step.
-    undo(&state)
-    testing.expect_value(t, text(&state), "foo bar Foo baz foo")
-
-    // Case-sensitive: only the two lowercase.
-    count = replace_all(&state, "foo", "X", true)
-    testing.expect_value(t, count, 2)
-    testing.expect_value(t, text(&state), "X bar Foo baz X")
-}
-
-@(test)
 test_select_between_brackets :: proc(t: ^testing.T) {
     state: State
     init(&state)

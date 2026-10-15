@@ -144,8 +144,6 @@ thor_explorer_selected :: proc(thor: ^Thor) -> string {
     return thor.explorer.selected_path
 }
 
-// ---- the node tree -------------------------------------------------------------
-
 @(private = "file")
 explorer_make_root :: proc(e: ^Explorer, root_path: string) {
     e.root = new(Explorer_Node)
@@ -290,8 +288,6 @@ explorer_set_expanded :: proc(e: ^Explorer, node: ^Explorer_Node, expanded: bool
     }
     e.rows_dirty = true
 }
-
-// ---- selection -------------------------------------------------------------------
 
 @(private = "file")
 explorer_clear_selection :: proc(e: ^Explorer) {
@@ -462,8 +458,6 @@ explorer_drop_dir :: proc(e: ^Explorer, node: ^Explorer_Node) -> string {
     }
     return e.root != nil ? e.root.path : ""
 }
-
-// ---- the view ---------------------------------------------------------------------
 
 thor_explorer_view :: proc(thor: ^Thor) {
     e := &thor.explorer

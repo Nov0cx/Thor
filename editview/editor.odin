@@ -132,7 +132,7 @@ Editor :: struct {
     // reads them.
     view:               ui.Rect,
     focused:            bool,
-    // Borrowed from the open file; nil when none open. Held outside the widget
+    // Borrowed from the open file; nil when none open. Held outside the editor
     // so undo history and cursors survive tab switches.
     state:              ^textedit.State,
     on_save:            Editor_Save_Proc,
@@ -233,7 +233,7 @@ Editor :: struct {
     on_completion_accept:   Completion_Accept_Proc,
     completion_accept_data: rawptr,
     // On-type formatting: fired after a character is typed, when the language's
-    // backend asked for that character as a trigger. The widget carries no
+    // backend asked for that character as a trigger. The editor carries no
     // trigger set of its own — it calls back on every character and the owner
     // asks the seam.
     on_type:             On_Type_Proc,
@@ -697,7 +697,7 @@ editor_set_diff_lines :: proc(editor: ^Editor, diff_lines: []Diff_Line_Kind) {
 
 // A foldable line range, in 0-based logical lines: `start_line` stays visible,
 // start_line+1 .. end_line hide when collapsed. Matches plugin.Fold_Range so the
-// host can hand these over without the widget depending on the syntax layer.
+// host can hand these over without the editor depending on the syntax layer.
 Fold_Range :: struct {
     start_line: int,
     end_line:   int,
@@ -2716,7 +2716,6 @@ editor_clamp_scroll :: proc(editor: ^Editor) {
     }
 }
 
-// ---- what the view routes ---------------------------------------------------
 //
 // The view owns hit testing, scrolling and painting; these are the intents it
 // turns a pointer or a key into. Each reports whether the editor took it.

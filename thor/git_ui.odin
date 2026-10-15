@@ -91,8 +91,6 @@ thor_git_view_reset :: proc(thor: ^Thor) {
     }
 }
 
-// ---- widget callbacks ----
-
 thor_on_git_view_changed :: proc(data: rawptr, kind: Git_View_Kind) {
     thor := cast(^Thor) data
     thor_git_populate_view(thor, kind)
@@ -349,8 +347,6 @@ thor_git_show_untracked :: proc(thor: ^Thor, path: string) {
     }
     thor_git_view_set_diff(view, path, rows)
 }
-
-// ---- result routing (called from thor_apply_git_op) ----
 
 // Pushes a snapshot into the open view: header, both lists, and a refreshed
 // diff for the file that stayed selected.

@@ -179,8 +179,8 @@ Settings :: struct {
     tips:     [dynamic]Tip,
 }
 
-// Reads comments.json and keybinds.json from dir. Always returns an
-// initialized Settings; parse failures just leave the maps sparse.
+// Reads the settings, keybinds, comments and tips files from dir. Always returns
+// an initialized Settings; parse failures leave it sparse.
 load :: proc(dir: string) -> Settings {
     s: Settings
     s.comments = make(map[string]Comment_Style)

@@ -8,14 +8,14 @@ import ui "../vendor/loom/loom"
 
 @(test)
 test_the_metrics_add_up_to_the_line_height :: proc(t: ^testing.T) {
-	// Loom derives its line height from the three metrics, so the split has to
-	// come back to what the font package reports, or every row drifts.
-	for size in ([]f32{12, 14, 16, 24, 32}) {
-		m := font_metrics(DEFAULT_FONT, size, nil)
-		got := m.ascent - m.descent + m.line_gap
-		testing.expect_value(t, got, f32(font.line_height(i32(size))))
-		testing.expect(t, m.descent < 0, "the descent hangs below the baseline")
-	}
+    // Loom derives its line height from the three metrics, so the split has to
+    // come back to what the font package reports, or every row drifts.
+    for size in ([]f32{12, 14, 16, 24, 32}) {
+        m := font_metrics(DEFAULT_FONT, size, nil)
+        got := m.ascent - m.descent + m.line_gap
+        testing.expect_value(t, got, f32(font.line_height(i32(size))))
+        testing.expect(t, m.descent < 0, "the descent hangs below the baseline")
+    }
 }
 
 // The leading is split, so the em the glyphs are drawn in sits centred in the
@@ -23,93 +23,93 @@ test_the_metrics_add_up_to_the_line_height :: proc(t: ^testing.T) {
 // name to a titlebar icon.
 @(test)
 test_the_leading_is_shared_above_and_below_the_em :: proc(t: ^testing.T) {
-	for size in ([]f32{12, 14, 16, 24, 32}) {
-		m := font_metrics(DEFAULT_FONT, size, nil)
-		over := m.ascent - size * ASCENT_FRACTION
-		under := (m.ascent - m.descent) - size - over
-		testing.expect_value(t, over, half_leading(size))
-		testing.expect_value(t, under, over)
-	}
+    for size in ([]f32{12, 14, 16, 24, 32}) {
+        m := font_metrics(DEFAULT_FONT, size, nil)
+        over := m.ascent - size * ASCENT_FRACTION
+        under := (m.ascent - m.descent) - size - over
+        testing.expect_value(t, over, half_leading(size))
+        testing.expect_value(t, under, over)
+    }
 }
 
 @(test)
 test_a_zero_size_has_no_metrics :: proc(t: ^testing.T) {
-	testing.expect_value(t, font_metrics(DEFAULT_FONT, 0, nil), ui.Font_Metrics{})
+    testing.expect_value(t, font_metrics(DEFAULT_FONT, 0, nil), ui.Font_Metrics{})
 }
 
 @(test)
 test_a_family_handle_round_trips :: proc(t: ^testing.T) {
-	b: Backend
-	init(&b)
-	defer destroy(&b)
+    b: Backend
+    init(&b)
+    defer destroy(&b)
 
-	mono := register_family(&b, "mono")
-	sans := register_family(&b, "sans")
-	testing.expect(t, mono != sans, "two families get two handles")
-	testing.expect_value(t, family_of(&b, mono), "mono")
-	testing.expect_value(t, family_of(&b, sans), "sans")
+    mono := register_family(&b, "mono")
+    sans := register_family(&b, "sans")
+    testing.expect(t, mono != sans, "two families get two handles")
+    testing.expect_value(t, family_of(&b, mono), "mono")
+    testing.expect_value(t, family_of(&b, sans), "sans")
 
-	// A family registers once, however often it is asked for.
-	testing.expect_value(t, register_family(&b, "mono"), mono)
-	// An unregistered handle falls back to the default family.
-	testing.expect_value(t, family_of(&b, DEFAULT_FONT), "")
-	testing.expect_value(t, family_of(&b, ui.Font(99)), "")
+    // A family registers once, however often it is asked for.
+    testing.expect_value(t, register_family(&b, "mono"), mono)
+    // An unregistered handle falls back to the default family.
+    testing.expect_value(t, family_of(&b, DEFAULT_FONT), "")
+    testing.expect_value(t, family_of(&b, ui.Font(99)), "")
 }
 
 @(test)
 test_the_key_table_maps_both_ways :: proc(t: ^testing.T) {
-	testing.expect_value(t, ui_key(.F5), ui.Key.F5)
-	testing.expect_value(t, ui_key(.SEMICOLON), ui.Key.Semicolon)
-	testing.expect_value(t, ui_key(.KP_ENTER), ui.Key.Enter)
-	testing.expect_value(t, ui_key(.KP_5), ui.Key.Pad_5)
-	// A key raylib knows and Loom does not is dropped, never mapped to a wrong
-	// one, so a binding cannot fire by accident.
-	testing.expect_value(t, ui_key(.KEY_NULL), ui.Key.None)
+    testing.expect_value(t, ui_key(.F5), ui.Key.F5)
+    testing.expect_value(t, ui_key(.SEMICOLON), ui.Key.Semicolon)
+    testing.expect_value(t, ui_key(.KP_ENTER), ui.Key.Enter)
+    testing.expect_value(t, ui_key(.KP_5), ui.Key.Pad_5)
+    // A key raylib knows and Loom does not is dropped, never mapped to a wrong
+    // one, so a binding cannot fire by accident.
+    testing.expect_value(t, ui_key(.KEY_NULL), ui.Key.None)
 
-	testing.expect(t, is_modifier_key(.LEFT_CONTROL), "ctrl is a modifier")
-	testing.expect(t, is_modifier_key(.RIGHT_ALT), "altgr is a modifier")
-	testing.expect(t, !is_modifier_key(.A), "a letter is not")
+    testing.expect(t, is_modifier_key(.LEFT_CONTROL), "ctrl is a modifier")
+    testing.expect(t, is_modifier_key(.RIGHT_ALT), "altgr is a modifier")
+    testing.expect(t, !is_modifier_key(.A), "a letter is not")
 }
 
 @(test)
 test_right_alt_is_alt_unless_it_is_alt_gr :: proc(t: ^testing.T) {
-	// Windows reports AltGr as left Ctrl + right Alt.
-	alt_gr := Mod_Keys{left_ctrl = true, right_alt = true}
-	testing.expect_value(t, mods_from_keys(alt_gr, true), ui.Mod_Set{})
-	testing.expect_value(t, mods_from_keys(alt_gr, false), ui.Mod_Set{.Ctrl, .Alt})
+    // Windows reports AltGr as left Ctrl + right Alt.
+    alt_gr := Mod_Keys{left_ctrl = true, right_alt = true}
+    testing.expect_value(t, mods_from_keys(alt_gr, true), ui.Mod_Set{})
+    testing.expect_value(t, mods_from_keys(alt_gr, false), ui.Mod_Set{.Ctrl, .Alt})
 
-	testing.expect_value(t, mods_from_keys({right_alt = true}, false), ui.Mod_Set{.Alt})
-	testing.expect_value(t, mods_from_keys({right_alt = true, shift = true}, true), ui.Mod_Set{.Shift})
-	testing.expect_value(t, mods_from_keys({left_alt = true, right_alt = true}, true), ui.Mod_Set{.Alt})
-	testing.expect_value(t, mods_from_keys({right_ctrl = true, super = true}, false), ui.Mod_Set{.Ctrl, .Super})
+    testing.expect_value(t, mods_from_keys({right_alt = true}, false), ui.Mod_Set{.Alt})
+    testing.expect_value(t, mods_from_keys({right_alt = true, shift = true}, true), ui.Mod_Set{.Shift})
+    testing.expect_value(t, mods_from_keys({left_alt = true, right_alt = true}, true), ui.Mod_Set{.Alt})
+    testing.expect_value(t, mods_from_keys({right_ctrl = true, super = true}, false), ui.Mod_Set{.Ctrl, .Super})
 
-	b: Backend
-	b.opts.right_alt = .Alt_Gr
-	testing.expect(t, right_alt_is_alt_gr(&b), "the setting forces AltGr")
-	b.opts.right_alt = .Alt
-	testing.expect(t, !right_alt_is_alt_gr(&b), "the setting forces Alt")
+    b: Backend
+    b.opts.right_alt = .Alt_Gr
+    testing.expect(t, right_alt_is_alt_gr(&b), "the setting forces AltGr")
+    b.opts.right_alt = .Alt
+    testing.expect(t, !right_alt_is_alt_gr(&b), "the setting forces Alt")
 }
 
 @(test)
 test_every_mapped_key_is_distinct:: proc(t: ^testing.T) {
-	// Two raylib keys may share one Loom key on purpose, but a raylib key must
-	// never appear twice, or its release fires against a stale mapping.
-	for a, i in KEYS {
-		for b, j in KEYS {
-			if i >= j {
-				continue
-			}
-			testing.expect(t, a.rk != b.rk, "a raylib key is listed once")
-		}
-	}
+    // Two raylib keys may share one Loom key on purpose, but a raylib key must
+    // never appear twice, or its release fires against a stale mapping.
+    for a, i in KEYS {
+        for b, j in KEYS {
+            if i >= j {
+                continue
+            }
+            testing.expect(t, a.rk != b.rk, "a raylib key is listed once")
+        }
+    }
 }
 
 @(test)
 test_a_colour_round_trips :: proc(t: ^testing.T) {
-	testing.expect_value(t, raylib_color(ui.Color{12, 34, 56, 78}), rl.Color{12, 34, 56, 78})
-	testing.expect_value(t, raylib_rect(ui.Rect{1, 2, 3, 4}), rl.Rectangle{1, 2, 3, 4})
-	// The one call into raylib.lib of this test binary. The binding removes the
-	// default CRT and takes the one raylib.lib names, so an optimized link with
-	// no raylib object has no CRT.
-	testing.expect_value(t, rl.ColorToInt(raylib_color(ui.Color{12, 34, 56, 78})), 0x0c22384e)
+    testing.expect_value(t, raylib_color(ui.Color{12, 34, 56, 78}), rl.Color{12, 34, 56, 78})
+    testing.expect_value(t, raylib_rect(ui.Rect{1, 2, 3, 4}), rl.Rectangle{1, 2, 3, 4})
+    // The one call into raylib.lib of this test binary. The binding removes the
+    // default CRT and takes the one raylib.lib names, so an optimized link with
+    // no raylib object has no CRT.
+    testing.expect_value(t, rl.ColorToInt(raylib_color(ui.Color{12, 34, 56, 78})), 0x0c22384e)
 }

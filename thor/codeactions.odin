@@ -1,4 +1,4 @@
-// Code actions: the quick fixes the language engine offers at the caret. Ctrl+.
+// Code actions: the quick fixes the language engine offers at the caret. ctrl+shift+u
 // asks for them, the answers land in the rich picker, and choosing one applies
 // its edits through thor_apply_edits — the same all-or-nothing applier a rename
 // goes through, so a fix is one undo entry and never half-lands.
@@ -23,7 +23,7 @@ Pending_Action :: struct {
     arguments:    string, // owned; the command's arguments as raw JSON array text
 }
 
-// Ctrl+.: ask the engine what it can fix at the caret. Async; thor_show_code_actions
+// ctrl+shift+u: ask the engine what it can fix at the caret. Async; thor_show_code_actions
 // opens the picker when the result lands, so nothing is shown until there is
 // something to show.
 thor_code_actions :: proc(thor: ^Thor) {
@@ -33,7 +33,7 @@ thor_code_actions :: proc(thor: ^Thor) {
     }
     ext := thor_lang_key(thor, file.name)
     // manager_allows, not manager_supports: a backend that gates code actions
-    // off must leave Ctrl+. doing nothing, not answering an error.
+    // off must leave the code actions key doing nothing, not answering an error.
     if !lang.manager_allows(&thor.lang_manager, ext, .Code_Actions) {
         return
     }
@@ -92,7 +92,7 @@ lang_severity :: proc(severity: editview.Diagnostic_Severity) -> lang.Diagnostic
 }
 
 // Opens the picker once the offers land. A superseded request (the caret moved
-// and a newer Ctrl+. went out) is dropped by id.
+// and a newer request went out) is dropped by id.
 @(private)
 thor_show_code_actions :: proc(thor: ^Thor, res: ^lang.Result) {
     if res.id != thor.code_action_request_id {

@@ -103,8 +103,6 @@ permission_answer :: proc(thor: ^Thor, allow: bool) {
     }
 }
 
-// ---- the view ---------------------------------------------------------------------
-
 thor_permission_view :: proc(thor: ^Thor) {
     if !thor.permission_open {
         return

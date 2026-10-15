@@ -346,8 +346,6 @@ thor_palette_goto_line_command :: proc(data: rawptr) {
     palette_reset(cast(^Thor)data, .Line)
 }
 
-// ---- internals ---------------------------------------------------------------
-
 @(private = "file")
 palette_show :: proc(thor: ^Thor, mode: Palette_Mode, reset := true) {
     p := &thor.palette
@@ -587,8 +585,6 @@ palette_activate :: proc(thor: ^Thor) {
         }
     }
 }
-
-// ---- the view ----------------------------------------------------------------
 
 @(private = "file")
 palette_placeholder :: proc(p: ^Palette) -> string {
@@ -891,8 +887,6 @@ palette_row :: proc(thor: ^Thor, index: int) -> bool {
     }
     return it.clicked
 }
-
-// ---- fuzzy matching ------------------------------------------------------------
 
 // Case-insensitive subsequence match, scoring consecutive runs and word starts.
 // Empty query matches all (score 0); ok=false when a query char is missing.

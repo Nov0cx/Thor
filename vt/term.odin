@@ -503,8 +503,6 @@ term_soft_reset :: proc(t: ^Term) {
     t.utf8_len, t.utf8_need = 0, 0
 }
 
-// ---- the grid ------------------------------------------------------------------
-
 @(private)
 grid :: proc(t: ^Term) -> ^[dynamic]Line {
     return t.alt_active ? &t.alt : &t.primary

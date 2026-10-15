@@ -93,8 +93,6 @@ thor_menu_is_open :: proc(thor: ^Thor) -> bool {
     return thor.menu_open
 }
 
-// ---- the view --------------------------------------------------------------------
-
 thor_menu_view :: proc(thor: ^Thor) {
     if !thor.menu_open {
         return

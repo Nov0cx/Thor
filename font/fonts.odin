@@ -52,8 +52,7 @@ Font_Family :: struct {
     hb_font:       ^hb.font_t, // owned
 }
 
-// Family name of the manifest's primary (UI) icon set. Widgets address
-// icons by icon name through draw_icon, never through this directly.
+// Family name of the manifest's primary (UI) icon set.
 ICON_FAMILY :: "icons"
 
 families: map[string]^Font_Family
@@ -69,9 +68,6 @@ Icon_Glyph :: struct {
 
 @(private = "file")
 icon_map: map[string]Icon_Glyph
-
-@(private = "file")
-icon_warned: map[string]bool
 
 // Pack group name -> the family name currently backing its shared icon names
 // (e.g. "primary" -> "icons" or "material"). Values point at Font_Family.name,
@@ -268,7 +264,6 @@ load_icon_manifest :: proc(manifest_path: string, wanted: []string = nil) -> boo
 
     sizes := manifest_sizes(root, "preload_sizes")
     icon_map = make(map[string]Icon_Glyph)
-    icon_warned = make(map[string]bool)
     active_pack = make(map[string]string)
 
     registered := 0
@@ -427,23 +422,6 @@ set_default_family :: proc(name: string) -> bool {
     return true
 }
 
-// Draws a single icon glyph; size is the pixel height of the icon font.
-draw_icon :: proc(name: string, x, y, size: i32, color: rl.Color) {
-    glyph, ok := icon_map[name]
-    if !ok {
-        // Fonts are disabled when the arena failed to init; there is no
-        // allocator for the warn set then, and nothing draws either.
-        if font_allocator.procedure != nil && !icon_warned[name] {
-            icon_warned[strings.clone(name, font_allocator)] = true
-            log.warnf("Unknown icon %q", name)
-        }
-        return
-    }
-    font := get_font(size, glyph.family)
-    rl.DrawTextCodepoint(font, glyph.codepoint, rl.Vector2 {cast(f32) x, cast(f32) y}, cast(f32) size, color)
-}
-
-
 shutdown :: proc() {
     prebake_drain()
     // Fonts hold raylib/libc glyph buffers and GPU textures, so unload them
@@ -461,7 +439,6 @@ shutdown :: proc() {
 
     families = nil
     icon_map = nil
-    icon_warned = nil
     active_pack = nil
     default_family_name = ""
 

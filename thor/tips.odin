@@ -241,8 +241,6 @@ thor_write_tips_record :: proc(record: Tips_Record) {
     }
 }
 
-// ---- the view ---------------------------------------------------------------------
-
 TIP_CARD_WIDTH :: f32(420)
 
 // The floating card over the editor. The welcome page shows the same tip inline

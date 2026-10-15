@@ -111,8 +111,6 @@ Model_View :: struct {
     shader_view_dir: i32,
 }
 
-// ---- the view ----------------------------------------------------------------
-
 // One pane of the editor column, in the slot the file's tab owns.
 thor_model_view :: proc(thor: ^Thor, view: ^Model_View, file: ^Open_File, key: string) {
     thor_model_bind(view, file)
@@ -320,8 +318,6 @@ thor_model_button :: proc(thor: ^Thor, view: ^Model_View) {
     }
     thor_tip(thor, it.id, "Spin the model")
 }
-
-// ---- the 3D pass -------------------------------------------------------------
 
 // Renders each shown scene into its own target. Called once a frame from
 // Thor.run, after the tree is laid out and before the draw list is replayed.

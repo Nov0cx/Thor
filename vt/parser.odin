@@ -152,8 +152,6 @@ ground_byte :: proc(t: ^Term, b: u8) {
     }
 }
 
-// ---- UTF-8 -------------------------------------------------------------------
-
 @(private = "file")
 utf8_start :: proc(t: ^Term, b: u8) {
     switch {
@@ -224,8 +222,6 @@ print_rune :: proc(t: ^Term, r: rune) {
     }
 }
 
-// ---- escape ------------------------------------------------------------------
-
 @(private = "file")
 escape_byte :: proc(t: ^Term, b: u8) {
     switch {
@@ -271,8 +267,6 @@ escape_inter_byte :: proc(t: ^Term, b: u8) {
         t.state = .Ground
     }
 }
-
-// ---- CSI ---------------------------------------------------------------------
 
 @(private = "file")
 csi_byte :: proc(t: ^Term, b: u8) {
@@ -334,8 +328,6 @@ csi_byte :: proc(t: ^Term, b: u8) {
     }
 }
 
-// ---- OSC ---------------------------------------------------------------------
-
 @(private = "file")
 osc_byte :: proc(t: ^Term, b: u8) {
     switch {
@@ -358,8 +350,6 @@ osc_byte :: proc(t: ^Term, b: u8) {
         }
     }
 }
-
-// ---- DCS ---------------------------------------------------------------------
 
 @(private = "file")
 dcs_byte :: proc(t: ^Term, b: u8) {
@@ -414,8 +404,6 @@ str_ignore_byte :: proc(t: ^Term, b: u8) {
         t.state = .Ground
     }
 }
-
-// ---- C0 ----------------------------------------------------------------------
 
 @(private = "file")
 execute :: proc(t: ^Term, b: u8) {

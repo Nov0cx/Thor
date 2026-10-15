@@ -8,7 +8,7 @@ import lua "vendor:lua/5.4"
 
 import "../syntax"
 
-// A highlight span tagged with a theme color role (see ui.theme_role_color).
+// A highlight span tagged with a theme color role (see theme.role_color).
 // An empty role means "use the default foreground".
 Span :: struct {
     start: int,

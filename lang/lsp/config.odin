@@ -1,5 +1,5 @@
 // The server table: `settings/lsp.json` beside the binary, overlaid by
-// `<workspace>/.thor/lsp.json`. Read here with `core:encoding/json` and not
+// `user/lsp.json`, overlaid by `<workspace>/.thor/lsp.json`. Read here with `core:encoding/json` and not
 // through `setting`, which imports `lang` and would close a cycle.
 package lsp
 

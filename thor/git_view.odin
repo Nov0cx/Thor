@@ -559,8 +559,6 @@ git_status_color :: proc(thor: ^Thor, status: Git_Status) -> ui.Color {
     return thor.theme.muted_color
 }
 
-// ---- the view ---------------------------------------------------------------------
-
 thor_git_panel_view :: proc(thor: ^Thor) {
     if !thor.git_open {
         return
@@ -817,8 +815,6 @@ git_view_footer :: proc(thor: ^Thor) {
         },
     )
 }
-
-// ---- changes ----------------------------------------------------------------------
 
 @(private = "file")
 git_view_changes :: proc(thor: ^Thor) {
@@ -1176,8 +1172,6 @@ git_view_commit_box :: proc(thor: ^Thor) {
     }
 }
 
-// ---- history ----------------------------------------------------------------------
-
 @(private = "file")
 git_view_history :: proc(thor: ^Thor) {
     v := &thor.git
@@ -1275,8 +1269,6 @@ git_view_history :: proc(thor: ^Thor) {
         }
     }
 }
-
-// ---- branches ---------------------------------------------------------------------
 
 @(private = "file")
 GIT_REF_LABELS := [Git_Ref_Kind]string {
@@ -1389,8 +1381,6 @@ git_view_ref_row :: proc(thor: ^Thor, ref: Git_View_Ref) -> bool {
     }
     return false
 }
-
-// ---- settings (git config) --------------------------------------------------------
 
 @(private = "file")
 git_view_settings :: proc(thor: ^Thor) {
@@ -1549,8 +1539,6 @@ git_view_lfs :: proc(thor: ^Thor) {
     }
 }
 
-// ---- hosting ----------------------------------------------------------------------
-
 @(private = "file")
 git_view_hosting :: proc(thor: ^Thor) {
     v := &thor.git
@@ -1706,8 +1694,6 @@ git_view_pr_row :: proc(thor: ^Thor, pr: Git_View_Pr) -> bool {
     }
     return false
 }
-
-// ---- shared controls --------------------------------------------------------------
 
 @(private = "file")
 git_view_section_label :: proc(thor: ^Thor, text: string) {

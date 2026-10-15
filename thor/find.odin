@@ -221,8 +221,6 @@ find_do_replace_all :: proc(f: ^Find_Replace) {
     editview.editor_scroll_to_caret(f.editor)
 }
 
-// ---- the view ---------------------------------------------------------------------
-
 thor_find_view :: proc(thor: ^Thor) {
     if !thor.find_open {
         return

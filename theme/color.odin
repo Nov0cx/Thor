@@ -13,12 +13,12 @@ BLACK :: ui.Color{0, 0, 0, 255}
 // crosses over and back. `to_rl` is public because the drawing that has not
 // moved to the backend yet still takes a raylib colour.
 to_rl :: proc(c: ui.Color) -> rl.Color {
-	return {c[0], c[1], c[2], c[3]}
+    return {c[0], c[1], c[2], c[3]}
 }
 
 @(private)
 from_rl :: proc(c: rl.Color) -> ui.Color {
-	return {c.r, c.g, c.b, c.a}
+    return {c.r, c.g, c.b, c.a}
 }
 
 // Text drawn on a light background.

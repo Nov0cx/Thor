@@ -177,8 +177,6 @@ theme_editor_recompute_visible :: proc(e: ^Theme_Editor) {
     }
 }
 
-// ---- the view ---------------------------------------------------------------------
-
 thor_theme_editor_view :: proc(thor: ^Thor) {
     if !thor.theme_editor_open {
         return

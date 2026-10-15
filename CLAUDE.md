@@ -124,9 +124,9 @@ be tested headlessly.
   `widgets/` package: the tree is declared once a frame from plain state. A missing capability is
   added upstream in Loom and the submodule pointer bumped, not worked around here.
 - `input` — the spelling of keys and modifiers in a chord. Loom owns the set: `setting.Keybind` is
-  `{ui.Key, ui.Mod_Set}`.
+  `{ui.Key, input.Modifiers}`.
 - `font` — HarfBuzz shaping, the per-size atlas and the shaped-line cache (`font.measure`,
-  `font.draw`, `font.line_height`, `font.draw_icon`). Owns the raylib fonts and imports no Loom.
+  `font.draw`, `font.line_height`). Owns the raylib fonts and imports no Loom.
 - `theme` — the named roles, `role_color` (public plugin API, do not rename), the contrast helpers
   and the generator. Colours are `ui.Color`.
 - `snippet`, `search`, `markdown` — leaves: the LSP snippet grammar, the find engine (case folding,

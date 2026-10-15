@@ -22,15 +22,6 @@ thor_set_menu_target :: proc(thor: ^Thor, dir: string) {
     thor.menu_target_dir = strings.clone(dir)
 }
 
-// Accelerators for the undo/redo rows. Literals, not thor_action_shortcut: that
-// answers from the temp allocator and a menu holds its items across frames. The
-// editor hardcodes these keys (widgets/editor.odin), so they are also the truth
-// whatever settings/keybinds.json says.
-@(private = "file")
-UNDO_SHORTCUT :: "Ctrl+Z"
-@(private = "file")
-REDO_SHORTCUT :: "Ctrl+Y"
-
 thor_editor_context_menu :: proc(data: rawptr, position: ui.Vec2) {
     thor := cast(^Thor) data
     // The right-click focused its pane before this callback, but menu_open takes
@@ -39,8 +30,8 @@ thor_editor_context_menu :: proc(data: rawptr, position: ui.Vec2) {
     has_file := thor_active_open_file(thor) != nil
 
     thor_menu_clear(thor)
-    thor_menu_add(thor, "Undo", thor_cmd_undo, thor, thor_can_undo(thor), shortcut = UNDO_SHORTCUT)
-    thor_menu_add(thor, "Redo", thor_cmd_redo, thor, thor_can_redo(thor), shortcut = REDO_SHORTCUT)
+    thor_menu_add(thor, "Undo", thor_cmd_undo, thor, thor_can_undo(thor), action = "undo")
+    thor_menu_add(thor, "Redo", thor_cmd_redo, thor, thor_can_redo(thor), action = "redo")
     thor_menu_add_separator(thor)
     thor_menu_add(thor, "Cut", thor_menu_cut, thor, has_file, action = "cut")
     thor_menu_add(thor, "Copy", thor_menu_copy, thor, has_file, action = "copy")
@@ -366,8 +357,8 @@ thor_open_file_menu :: proc(data: rawptr) {
 thor_open_edit_menu :: proc(data: rawptr) {
     thor := cast(^Thor) data
     thor_menu_clear(thor)
-    thor_menu_add(thor, "Undo", thor_cmd_undo, thor, thor_can_undo(thor), shortcut = UNDO_SHORTCUT)
-    thor_menu_add(thor, "Redo", thor_cmd_redo, thor, thor_can_redo(thor), shortcut = REDO_SHORTCUT)
+    thor_menu_add(thor, "Undo", thor_cmd_undo, thor, thor_can_undo(thor), action = "undo")
+    thor_menu_add(thor, "Redo", thor_cmd_redo, thor, thor_can_redo(thor), action = "redo")
     thor_menu_add_separator(thor)
     thor_menu_add(thor, "Select All", thor_cmd_select_all, thor, action = "select_all")
     thor_menu_add(thor, "Toggle Line Comment", thor_cmd_toggle_comment, thor, action = "toggle_line_comment")

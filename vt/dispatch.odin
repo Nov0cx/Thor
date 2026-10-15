@@ -13,8 +13,6 @@ import "core:strings"
 @(private = "file")
 DA1 :: "\x1b[?62;1;2;6;22c"
 
-// ---- ESC ---------------------------------------------------------------------
-
 @(private)
 esc_dispatch :: proc(t: ^Term, final: u8) {
     if t.inter_n > 0 {
@@ -87,8 +85,6 @@ esc_with_intermediate :: proc(t: ^Term, final: u8) {
     case ' ': // S7C1T and S8C1T: replies stay seven-bit either way.
     }
 }
-
-// ---- CSI ---------------------------------------------------------------------
 
 @(private)
 csi_dispatch :: proc(t: ^Term, final: u8) {
@@ -333,8 +329,6 @@ csi_window_op :: proc(t: ^Term, p: Params) {
     }
 }
 
-// ---- modes -------------------------------------------------------------------
-
 @(private = "file")
 csi_set_mode :: proc(t: ^Term, on: bool) {
     p := t.params
@@ -472,8 +466,6 @@ mode_state :: proc(t: ^Term, mode: int, private: bool) -> (bool, bool) {
     }
     return false, false
 }
-
-// ---- SGR ---------------------------------------------------------------------
 
 @(private = "file")
 sgr :: proc(t: ^Term, p: Params) {
@@ -626,8 +618,6 @@ sgr_color :: proc(p: Params, index: ^int, fallback: Color) -> Color {
     }
     return fallback
 }
-
-// ---- OSC ---------------------------------------------------------------------
 
 @(private)
 osc_dispatch :: proc(t: ^Term, text: string) {
@@ -852,8 +842,6 @@ percent_decode :: proc(text: string, allocator := context.allocator) -> string {
     }
     return strings.to_string(builder)
 }
-
-// ---- DCS ---------------------------------------------------------------------
 
 // Only DECRQSS is answered: a program asks how a setting stands and gets it
 // back. Everything else, sixel included, is read and dropped.

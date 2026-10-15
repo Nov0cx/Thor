@@ -103,8 +103,6 @@ thor_welcome_open_file :: proc(data: rawptr) {
     }
 }
 
-// ---- the view ---------------------------------------------------------------------
-
 // Shown in place of the editor while no workspace is open: the mark, the two
 // open buttons, the recent list and the tip of the day.
 thor_welcome_view :: proc(thor: ^Thor) {

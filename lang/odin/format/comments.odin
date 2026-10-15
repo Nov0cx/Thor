@@ -195,8 +195,3 @@ open_brace_line :: proc(pr: ^Printer, offset, line: int) -> int {
 comment_end_line :: proc(tok: tokenizer.Token) -> int {
     return tok.pos.line + strings.count(tok.text, "\n")
 }
-
-@(private)
-pos_line :: proc(pos: tokenizer.Pos) -> int {
-    return pos.line
-}

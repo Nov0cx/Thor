@@ -3,7 +3,7 @@ package shell
 import "core:strings"
 
 // A child process with stdin, stdout and stderr on three separate pipes. The
-// sibling of `Session`, which merges stderr into stdout on purpose so a terminal
+// sibling of `Pty`, which merges stderr into stdout on purpose so a terminal
 // shows the two interleaved. A language server logs to stderr, and merged that
 // text lands inside the protocol's frame stream and desynchronises the parser,
 // so a server needs the streams apart.
@@ -33,7 +33,7 @@ import "core:strings"
 // of its own; otherwise a missing executable would read as a server that started
 // and died at once.
 //
-// Shutdown is three steps, one more than a Session because there are two
+// Shutdown is three steps, one more than a Pty because there are two
 // readers: child_terminate ends the process and is safe to call while a reader
 // blocks, both reader threads are joined, and only then child_destroy releases
 // the handles.

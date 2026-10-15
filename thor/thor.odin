@@ -144,8 +144,7 @@ Thor :: struct {
     next_tab_key: setting.Keybind,
     previous_tab_key: setting.Keybind,
     toggle_explorer_key: setting.Keybind,
-    // Toggles the editor split. Unbound by default (KEY_NULL), so it only fires
-    // once the user sets a "toggle_split" chord in keybinds.json.
+    // Toggles the editor split: the "toggle_split" chord, f1 by default.
     split_key: setting.Keybind,
     active_file: Signal(int),
     // Most-recently-active file before the current one, for the ctrl+e flip.

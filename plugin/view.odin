@@ -1,6 +1,6 @@
 // Plugin panels: a plugin describes a dockable panel as a tree of plain nodes
-// and the host turns that into widgets. The description is data, so this package
-// keeps no dependency on `ui` or `widgets`. A canvas node inverts the flow for
+// and the host declares them as Loom nodes. The description is data, so this
+// package keeps no dependency on the UI library. A canvas node inverts the flow for
 // custom drawing: the host calls back once per frame with the canvas bounds and
 // the plugin issues immediate-mode draw calls into it.
 package plugin
@@ -44,14 +44,14 @@ Canvas_Rect :: struct {
     x, y, w, h: f32,
 }
 
-// Creates the panel `id` (or updates its title) docked at `dock` ("right",
-// "bottom" or "left"). The host owns the widget; the plugin only names it.
+// Creates the panel `id` (or updates its title) docked at `dock` ("right" or
+// "bottom"). The host owns the panel; the plugin only names it.
 Panel_Proc :: #type proc(host: rawptr, id, title, dock: string)
 // Replaces the panel's contents with `nodes`, valid only for the call.
 Panel_Render_Proc :: #type proc(host: rawptr, id: string, nodes: []View_Node)
 // Reveals and focuses the panel.
 Panel_Show_Proc :: #type proc(host: rawptr, id: string)
-// Hides the panel and drops its widgets.
+// Hides the panel and drops its nodes.
 Panel_Close_Proc :: #type proc(host: rawptr, id: string)
 
 // Immediate-mode drawing inside the canvas being rendered. Coordinates are

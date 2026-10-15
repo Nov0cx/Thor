@@ -91,10 +91,6 @@ push_action :: proc(res: ^lang.Result, req: ^lang.Request, title, kind: string, 
     append(&res.actions, action)
 }
 
-// ---------------------------------------------------------------------------
-// Add missing import
-// ---------------------------------------------------------------------------
-
 // `fmt.println` with no `import "core:fmt"` above it: offer the import lines that
 // would resolve the qualifier. Only a *qualified* use asks for this — a bare
 // identifier names no package, so there is nothing to look up — and a qualifier
@@ -396,10 +392,6 @@ import_anchor :: proc(root: ts.Node, source: string) -> (offset: int, prefix: st
     return anchor, pre, true
 }
 
-// ---------------------------------------------------------------------------
-// Remove unused imports
-// ---------------------------------------------------------------------------
-
 // Imports the file never names. Offers the one under the caret on its own, and
 // the whole set together — skipping the bulk action when it would duplicate the
 // single one, so a file with exactly one dead import that the caret sits on
@@ -482,10 +474,6 @@ line_deletion :: proc(source: string, node: ts.Node) -> Edit_Spec {
     line_start, line_end := line_bounds(source, int(ts.node_start_byte(node)))
     return Edit_Spec{start = line_start, end = min(line_end + 1, len(source)), new_text = ""}
 }
-
-// ---------------------------------------------------------------------------
-// Fill switch cases
-// ---------------------------------------------------------------------------
 
 // A `switch` over an enum that does not name every member: offer the missing
 // `case` arms. A type switch is left alone — its cases name union variants, not
@@ -636,10 +624,6 @@ case_indent :: proc(sw: ts.Node, source: string) -> string {
     return strings.concatenate({line_indent(source, line_start), "\t"}, context.temp_allocator)
 }
 
-// ---------------------------------------------------------------------------
-// Declare variable
-// ---------------------------------------------------------------------------
-
 // `count = 1` where nothing declares `count`: offer turning the assignment into
 // the `:=` short declaration it was meant to be. Deliberately the only shape
 // offered — inserting a declaration above would have to name a type, and until
@@ -783,10 +767,6 @@ declared_in_package :: proc(e: ^Engine, parser: ts.Parser, req: ^lang.Request, n
     _, found := index_first_path(e, name, req.path, "", index_package_dir(e, req.path), true)
     return found
 }
-
-// ---------------------------------------------------------------------------
-// Text helpers
-// ---------------------------------------------------------------------------
 
 // The line containing `offset`, as `[start, end)` with `end` at the newline (or
 // at the end of the source, for a final line without one).

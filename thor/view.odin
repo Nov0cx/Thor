@@ -142,8 +142,6 @@ thor_overlays :: proc(thor: ^Thor) {
     thor_tip_card_view(thor)
 }
 
-// ---- icons -------------------------------------------------------------------
-
 // An icon is a glyph of an icon family, so it draws as ordinary text and needs
 // no escape out of the declarative pass. The glyph goes in the temp allocator:
 // the node holds the string until the draw, and the frame frees it after.
@@ -211,8 +209,6 @@ thor_logo_image :: proc(thor: ^Thor, key: string, height: f32) {
         },
     )
 }
-
-// ---- titlebar ----------------------------------------------------------------
 
 @(private = "file")
 MENU_LABELS := [?]string{"File", "Edit", "View", "Git", "Help"}
@@ -460,8 +456,6 @@ thor_titlebar_button :: proc(
     thor_tip(thor, it.id, tip)
     return it.clicked
 }
-
-// ---- workspace ---------------------------------------------------------------
 
 @(private = "file")
 thor_workspace :: proc(thor: ^Thor) {
@@ -794,8 +788,6 @@ thor_workspace_pane :: proc(thor: ^Thor, view: Workspace_View, pane: int, key: s
     }
 }
 
-// ---- tabs --------------------------------------------------------------------
-
 @(private = "file")
 thor_tabbar :: proc(thor: ^Thor) {
     ui.scope(
@@ -903,8 +895,6 @@ thor_tabbar :: proc(thor: ^Thor) {
         thor_set_active_file(thor, select_index)
     }
 }
-
-// ---- the editor pane ----------------------------------------------------------
 
 // The interaction with the left-button results kept only when the mouse made
 // them. Loom also reports a press, a release and a click when Enter or Space
@@ -1568,8 +1558,6 @@ thor_row_x :: proc(
     return f32(font.measure(text[row_start:at], editor.font_size, "")) + lead
 }
 
-// ---- status bar --------------------------------------------------------------
-
 // Radians per second of the busy segment's alpha pulse.
 @(private = "file")
 BUSY_PULSE_RATE :: 4.0
@@ -1759,8 +1747,6 @@ thor_statusbar :: proc(thor: ^Thor) {
         )
     }
 }
-
-// ---- shortcuts ---------------------------------------------------------------
 
 // Runs the global key hook over the frame's key stream, before the tree, so a
 // chord wins over whatever holds the focus. A taken event is consumed, which

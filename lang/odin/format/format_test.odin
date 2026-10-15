@@ -513,7 +513,7 @@ token_stream :: proc(src: string) -> [dynamic]tokenizer.Token {
         case .Semicolon:
             continue // Optional_Semicolons noise, or a real ';' the formatter splits onto its own line — neither is a meaning change
         case .Comma:
-            continue // a trailing comma before ) or } comes and goes with line-wrapping (phase 3, not yet implemented) — not a meaning change
+            continue // a trailing comma before ) or } comes and goes with line-wrapping (the printer wraps long lists) — not a meaning change
         }
         append(&out, tok)
         if tok.kind == .EOF {

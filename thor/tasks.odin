@@ -173,10 +173,6 @@ thor_run_task :: proc(thor: ^Thor, task: ^Task) {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Selection
-// ---------------------------------------------------------------------------
-
 // The selected task, or nil when nothing is selected or the name is stale.
 thor_active_task :: proc(thor: ^Thor) -> ^Task {
     if thor.active_task_name == "" {
@@ -210,10 +206,6 @@ thor_task_selector_label :: proc(thor: ^Thor) -> string {
     return thor.active_task_name != "" ? thor.active_task_name : "No tasks"
 }
 
-// ---------------------------------------------------------------------------
-// Titlebar task controls
-// ---------------------------------------------------------------------------
-
 // Selector dropdown: the workspace tasks, then the rows that edit them. Picking
 // a task selects it; the run button next to the selector runs it.
 thor_open_tasks_menu :: proc(data: rawptr) {
@@ -245,10 +237,6 @@ thor_menu_select_task :: proc(data: rawptr) {
 thor_click_run_task :: proc(data: rawptr) {
     thor_cmd_run_active_task(data)
 }
-
-// ---------------------------------------------------------------------------
-// Commands
-// ---------------------------------------------------------------------------
 
 // Task names in menu order, for the pickers.
 @(private = "file")

@@ -173,8 +173,6 @@ color_picker_notify :: proc(p: ^Color_Picker) {
     }
 }
 
-// ---- the view ---------------------------------------------------------------------
-
 thor_color_picker_view :: proc(thor: ^Thor) {
     if !thor.color_picker_open {
         return

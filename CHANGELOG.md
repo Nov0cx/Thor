@@ -31,6 +31,7 @@
 - `thor.exists(path)` and `thor.list(dir)` for plugins with the `read` permission.
 - `tree:query` gives every node of a quantified capture in `match.nodes`.
 - Tree-sitter queries evaluate `#contains?`, `#has-ancestor?` and `#is-not? local`. A predicate with too few operands is reported on the console.
+- The Undo and Redo rows of the menus show the bound chords. They showed Ctrl+Z and Ctrl+Y whatever was bound.
 
 # 2026.10.4
 

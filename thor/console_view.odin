@@ -278,8 +278,6 @@ console_history :: proc(console: ^Console) -> int {
     return max(vt.term_total_lines(console.term) - console.rows, 0)
 }
 
-// ---- the view ------------------------------------------------------------------------
-
 thor_console_view :: proc(thor: ^Thor, console: ^Console) {
     ui.scope(
         {
@@ -636,8 +634,6 @@ console_link_columns :: proc(console: ^Console, line: ^vt.Line, index: int) -> (
     return vt.column_of_offset(console.term, line, start),
         vt.column_of_offset(console.term, line, end)
 }
-
-// ---- input ---------------------------------------------------------------------------
 
 @(private = "file")
 console_input :: proc(

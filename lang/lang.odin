@@ -1,6 +1,6 @@
 // Language intelligence seam: an editor-agnostic, LSP-shaped request/response
 // layer whose backends run either in-client (a native analyzer on a bounded
-// pool of worker threads) or, later, out-of-process (a subprocess LSP client).
+// pool of worker threads) or out-of-process (a subprocess LSP client).
 // The editor only ever talks to the Manager; every backend answers through the
 // same async reap the file loader uses (worker appends to a mutex-guarded
 // queue, drained on the main thread once per frame).
@@ -410,8 +410,8 @@ Doc_Event :: enum {
     Closed,
 }
 
-// A language backend. Both the in-client engine and a future subprocess LSP
-// client implement this. `resolve` runs on a worker thread and may block
+// A language backend. Both the in-client engine and the subprocess LSP client
+// implement this. `resolve` runs on a worker thread and may block
 // (parse, disk scan, pipe read); it fills `res` using context.allocator for any
 // owned output. `handles` gates routing by file extension. The last three are
 // optional — nil is what an in-client engine leaves them.

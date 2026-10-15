@@ -211,8 +211,6 @@ thor_plugin_role_color :: proc(thor: ^Thor, role: string, fallback: ui.Color) ->
     return theme.role_color(thor.theme, role)
 }
 
-// ---- the view ---------------------------------------------------------------------
-
 // Every visible panel of one side, stacked. The caller places the dock.
 thor_plugin_dock_view :: proc(thor: ^Thor, dock: Plugin_Dock) {
     ui.scope(

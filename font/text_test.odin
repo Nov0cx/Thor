@@ -480,46 +480,6 @@ check_full_async_load :: proc(t: ^testing.T) {
     testing.expect_value(t, shape_cache_len(&shape_cache), after_first)
     _ = measure("second unique line", 17, "JetBrainsMono")
     testing.expect_value(t, shape_cache_len(&shape_cache), after_first + 1)
-
-    // wrap measures with measure, so it needs the loaded fonts. The
-    // family is monospace, which makes every expected width a cell count.
-    {
-        cell := cast(f32) measure("0", 17, "JetBrainsMono")
-
-        // Breaks at the last space that still fits, and the break eats it.
-        two := wrap("aaa bbb ccc", cell * 7, 17, "JetBrainsMono")
-        testing.expect_value(t, len(two), 2)
-        if len(two) == 2 {
-            testing.expect_value(t, two[0], "aaa bbb")
-            testing.expect_value(t, two[1], "ccc")
-        }
-
-        // A width that holds one word per line.
-        each := wrap("aaa bbb ccc", cell * 3, 17, "JetBrainsMono")
-        testing.expect_value(t, len(each), 3)
-
-        // A newline breaks whatever the width would have allowed.
-        forced := wrap("aaa\nbbb", cell * 100, 17, "JetBrainsMono")
-        testing.expect_value(t, len(forced), 2)
-        if len(forced) == 2 {
-            testing.expect_value(t, forced[0], "aaa")
-            testing.expect_value(t, forced[1], "bbb")
-        }
-
-        // A word wider than the limit keeps its own line instead of vanishing.
-        long := wrap("aaaaaaaaaa", cell * 3, 17, "JetBrainsMono")
-        testing.expect_value(t, len(long), 1)
-        if len(long) == 1 {
-            testing.expect_value(t, long[0], "aaaaaaaaaa")
-        }
-
-        // Text that fits stays one line.
-        one := wrap("aaa bbb", cell * 100, 17, "JetBrainsMono")
-        testing.expect_value(t, len(one), 1)
-        if len(one) == 1 {
-            testing.expect_value(t, one[0], "aaa bbb")
-        }
-    }
 }
 
 // The startup path: only the named families and icon packs bake; the rest

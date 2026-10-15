@@ -412,8 +412,6 @@ restore_cursor :: proc(t: ^Term) {
     t.cur.pending_wrap = false
 }
 
-// ---- printing ------------------------------------------------------------------
-
 // Writes one rune at the cursor, wrapping, inserting and combining as the modes
 // and the rune's width ask.
 @(private)

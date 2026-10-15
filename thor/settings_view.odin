@@ -424,8 +424,6 @@ settings_tone_color :: proc(thor: ^Thor, tone: Settings_Tone) -> ui.Color {
     return thor.theme.muted_color
 }
 
-// ---- the view ---------------------------------------------------------------------
-
 thor_settings_view :: proc(thor: ^Thor) {
     if !thor.settings_open {
         return
