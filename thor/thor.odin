@@ -109,6 +109,10 @@ Thor :: struct {
     // day with a workspace open, where the welcome page is not shown; the
     // welcome page shows the same tip inline.
     tip_open: bool,
+    // The welcome page's recent folders, read at most once a second. Owned.
+    welcome_recent:       []string,
+    welcome_recent_at:    time.Tick,
+    welcome_recent_valid: bool,
     // The active terminal's console; nil when the last terminal is closed.
     // Modal picker for Preferences (theme/font), with live preview.
     // Modal prompt listing the plugins waiting on a permission answer.
@@ -404,6 +408,7 @@ Thor :: struct {
     // events into a single explorer refresh per poll.
     watcher: watch.Watcher,
     watch_tree_dirty: bool,
+    explorer_refresh_at: time.Tick, // when the watcher last rebuilt the tree
     watch_git_dirty: bool,
     goto_def_key: setting.Keybind,
     goto_symbol_key: setting.Keybind,
@@ -977,6 +982,7 @@ shutdown :: proc(thor: ^Thor) {
         thor_free_open_file(file, thor)
     }
     delete(thor.open_files)
+    thor_welcome_recent_free(thor)
     delete(thor.zombie_files)
     delete(thor.finished_loads)
     delete(thor.finished_saves)

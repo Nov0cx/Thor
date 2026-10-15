@@ -90,6 +90,8 @@ test_scrollback_limit :: proc(h: ^testing.T) {
     }
     testing.expect_value(h, len(t.scrollback), 2)
     testing.expect_value(h, term_line_text(t, 0, context.temp_allocator), "c")
+    testing.expect_value(h, term_line_text(t, 1, context.temp_allocator), "d")
+    testing.expect_value(h, term_line_text(t, 2, context.temp_allocator), "e")
 }
 
 @(test)

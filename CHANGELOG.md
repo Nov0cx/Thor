@@ -12,6 +12,9 @@
 - An install updated from before `user/` existed carries its settings over. The log file stopped it.
 - A question about a file changed on disk asks again when another prompt replaced it.
 - Renaming or moving a folder carries every open tab under it. Their saves failed until they were reopened.
+- A terminal with a full scrollback no longer slows down with every new line.
+- A flood of terminal output is drawn over several frames and no longer freezes the window.
+- A build writing many files rebuilds the file tree at most five times a second.
 
 # 2026.10.4
 

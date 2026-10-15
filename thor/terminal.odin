@@ -168,6 +168,9 @@ thor_terminal_close_session :: proc(term: ^Terminal) {
     sync.unlock(&term.owner.io_mutex)
 }
 
+// Most shell output fed to the emulator in one frame, so a flood does not stall the frame.
+TERMINAL_FEED_MAX :: 256 * 1024
+
 // Moves one frame of shell output into the emulator and writes back whatever it
 // answers. Returns whether a command finished, which is when the working tree
 // may have changed.
@@ -178,12 +181,14 @@ thor_terminal_pump :: proc(term: ^Terminal) -> bool {
     sync.lock(&term.owner.io_mutex)
     chunk: []u8
     if len(term.pending) > 0 {
-        data := make([]u8, len(term.pending), context.temp_allocator)
-        copy(data, term.pending[:])
-        clear(&term.pending)
+        take := min(len(term.pending), TERMINAL_FEED_MAX)
+        data := make([]u8, take, context.temp_allocator)
+        copy(data, term.pending[:take])
+        remove_range(&term.pending, 0, take)
         chunk = data
     }
-    ended := term.ended
+    // The shell is over only once its last output is fed.
+    ended := term.ended && len(term.pending) == 0
     sync.unlock(&term.owner.io_mutex)
 
     now := rl.GetTime()

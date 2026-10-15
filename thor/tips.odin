@@ -192,21 +192,39 @@ thor_tip_close_on_escape :: proc(thor: ^Thor) -> bool {
     return true
 }
 
+// How long a read of the record serves the cards. Another window can move the pick.
+@(private = "file")
+TIPS_RECORD_TTL :: time.Second
+
+// The last record read or written, so the cards do not read the file every frame.
+@(private = "file")
+tips_cache: struct {
+    record:  Tips_Record,
+    read_at: time.Tick,
+    valid:   bool,
+}
+
 @(private = "file")
 thor_read_tips_record :: proc() -> (record: Tips_Record) {
+    if tips_cache.valid && time.tick_since(tips_cache.read_at) < TIPS_RECORD_TTL {
+        return tips_cache.record
+    }
+    defer tips_cache = {record, time.tick_now(), true}
     data, err := os.read_entire_file(TIPS_FILE, context.temp_allocator)
     if err != nil {
         return
     }
     if uerr := json.unmarshal(data, &record, allocator = context.temp_allocator); uerr != nil {
         log.warnf("Could not read %q: %v", TIPS_FILE, uerr)
-        return {}
+        record = {}
+        return
     }
     return record
 }
 
 @(private = "file")
 thor_write_tips_record :: proc(record: Tips_Record) {
+    tips_cache = {record, time.tick_now(), true}
     if !os.is_dir("sessions") {
         if err := os.make_directory("sessions"); err != nil {
             log.errorf("Could not create sessions dir: %v", err)

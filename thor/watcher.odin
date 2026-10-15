@@ -29,6 +29,9 @@ thor_init_watcher :: proc(thor: ^Thor) {
 // `git status` and `git diff` back to back for as long as it lasted.
 GIT_STATUS_INTERVAL :: 250 * time.Millisecond
 
+// Floor between two watcher-driven explorer rebuilds, so a build writing into the tree does not rebuild it every frame.
+EXPLORER_REFRESH_INTERVAL :: 200 * time.Millisecond
+
 // Run-loop tick: dispatch the buffered changes to the subscribers (which set the
 // coalescing flags and kick reloads), then apply the batched explorer refresh at
 // most once — a save or a `git` command can fire a burst of events. The
@@ -41,8 +44,9 @@ GIT_STATUS_INTERVAL :: 250 * time.Millisecond
 thor_poll_watcher :: proc(thor: ^Thor) {
     watch.watcher_poll(&thor.watcher)
 
-    if thor.watch_tree_dirty {
+    if thor.watch_tree_dirty && time.tick_since(thor.explorer_refresh_at) >= EXPLORER_REFRESH_INTERVAL {
         thor.watch_tree_dirty = false
+        thor.explorer_refresh_at = time.tick_now()
         thor_explorer_refresh(thor)
         thor.file_index_dirty = true
     }

@@ -6,6 +6,7 @@ package thor
 
 import "core:log"
 import "core:path/filepath"
+import "core:time"
 
 import ui "../vendor/loom/loom"
 
@@ -198,9 +199,36 @@ welcome_recent_name_width :: proc(paths: []string) -> f32 {
     return min(width, WELCOME_RECENT_NAME_MAX)
 }
 
+// How long a read of the recent list serves the welcome page.
+@(private = "file")
+WELCOME_RECENT_TTL :: time.Second
+
+// The recent folders, read again at most once per WELCOME_RECENT_TTL.
+@(private = "file")
+thor_welcome_recent_paths :: proc(thor: ^Thor) -> []string {
+    if thor.welcome_recent_valid && time.tick_since(thor.welcome_recent_at) < WELCOME_RECENT_TTL {
+        return thor.welcome_recent
+    }
+    thor_welcome_recent_free(thor)
+    thor.welcome_recent = thor_recent_workspaces()
+    thor.welcome_recent_at = time.tick_now()
+    thor.welcome_recent_valid = true
+    return thor.welcome_recent
+}
+
+// Frees the cached recent list.
+thor_welcome_recent_free :: proc(thor: ^Thor) {
+    for path in thor.welcome_recent {
+        delete(path)
+    }
+    delete(thor.welcome_recent)
+    thor.welcome_recent = nil
+    thor.welcome_recent_valid = false
+}
+
 @(private = "file")
 welcome_recent :: proc(thor: ^Thor) {
-    paths := thor_recent_workspaces(context.temp_allocator)
+    paths := thor_welcome_recent_paths(thor)
     if len(paths) == 0 {
         return
     }

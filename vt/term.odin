@@ -159,7 +159,8 @@ Term :: struct {
     primary:          [dynamic]Line, // owned
     alt:              [dynamic]Line, // owned
     alt_active:       bool,
-    scrollback:       [dynamic]Line, // owned, oldest first
+    scrollback:       [dynamic]Line, // owned ring, oldest at scrollback_head once full
+    scrollback_head:  int,
     scrollback_limit: int,
     cur:              Cursor,
     saved:            Saved_Cursor,
@@ -309,7 +310,7 @@ term_line :: proc(t: ^Term, index: int) -> ^Line {
         return nil
     }
     if index < len(t.scrollback) {
-        return &t.scrollback[index]
+        return &t.scrollback[(t.scrollback_head + index) % len(t.scrollback)]
     }
     row := index - len(t.scrollback)
     g := grid(t)
@@ -443,6 +444,7 @@ term_clear_scrollback :: proc(t: ^Term) {
     context.allocator = t.allocator
     grid_destroy(&t.scrollback)
     t.scrollback = make([dynamic]Line)
+    t.scrollback_head = 0
 }
 
 // RIS: back to the state a fresh terminal starts in, history included.
@@ -593,9 +595,10 @@ scrollback_push :: proc(t: ^Term, line: Line) {
     shrink(&line.cells)
 
     if len(t.scrollback) >= t.scrollback_limit {
-        oldest := t.scrollback[0]
-        delete(oldest.cells)
-        ordered_remove(&t.scrollback, 0)
+        delete(t.scrollback[t.scrollback_head].cells)
+        t.scrollback[t.scrollback_head] = line
+        t.scrollback_head = (t.scrollback_head + 1) % len(t.scrollback)
+        return
     }
     append(&t.scrollback, line)
 }

@@ -1169,6 +1169,21 @@ thor_editor_intents :: proc(thor: ^Thor, editor: ^editview.Editor, it: ui.Intera
     }
 }
 
+// Index of the first span that ends after `offset`. The spans ascend and do not overlap.
+@(private = "file")
+thor_first_span_after :: proc(spans: []editview.Highlight_Span, offset: int) -> int {
+    lo, hi := 0, len(spans)
+    for lo < hi {
+        mid := (lo + hi) / 2
+        if spans[mid].end <= offset {
+            lo = mid + 1
+        } else {
+            hi = mid
+        }
+    }
+    return lo
+}
+
 // The syntax spans that fall inside one row, rebased to the row's first byte,
 // with a hex literal's swatch gap merged in as a span `lead`. A highlight that
 // covers an anchor is split there, and an anchor no highlight covers rides on a
@@ -1194,10 +1209,7 @@ thor_row_spans :: proc(
         return 0
     }
 
-    for h in editor.highlights {
-        if h.end <= start {
-            continue
-        }
+    for h in editor.highlights[thor_first_span_after(editor.highlights[:], start):] {
         if h.start >= end {
             break
         }
