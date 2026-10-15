@@ -5,6 +5,7 @@ package odinfmt
 
 import "core:odin/ast"
 import "core:odin/tokenizer"
+import "core:strings"
 
 print_expr :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: ^ast.Expr) {
     if expr == nil || pr.too_deep {
@@ -79,6 +80,10 @@ print_expr :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: ^ast.Expr) {
         print_expr(pr, out, e.left)
         append(out, text(" "))
         append(out, text(e.op.text))
+        if comment_before(pr, e.right.pos.offset) {
+            print_binary_comments(pr, out, e)
+            return
+        }
         append(out, text(" "))
         print_expr(pr, out, e.right)
 
@@ -358,6 +363,40 @@ print_expr :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: ^ast.Expr) {
     }
 }
 
+// The right operand of `e` after the comments written before it. A block
+// comment on the operand's line stays inline; any other comment ends the line
+// after the operator, and the operand goes on the next line, one indent in.
+@(private)
+print_binary_comments :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: ^ast.Binary_Expr) {
+    inline := true
+    for i := pr.comment_idx; i < len(pr.comments) && pr.comments[i].pos.offset < e.right.pos.offset; i += 1 {
+        cg := pr.comments[i]
+        for tok in cg.list {
+            if !strings.has_prefix(tok.text, "/*") || comment_end_line(tok) != e.right.pos.line || tok.pos.line != e.right.pos.line {
+                inline = false
+            }
+        }
+    }
+    comments := take_comments_before(pr, e.right.pos.offset)
+    if inline {
+        for c in comments {
+            append(out, text(" "))
+            append(out, c)
+        }
+        append(out, text(" "))
+        print_expr(pr, out, e.right)
+        return
+    }
+    body: [dynamic]Doc
+    for c, i in comments {
+        append(&body, i == 0 ? text("  ") : hard_line(0))
+        append(&body, c)
+    }
+    append(&body, hard_line(0))
+    print_expr(pr, &body, e.right)
+    append(out, indent(body[:]))
+}
+
 // `x.?`: the parser stores the `?` as an operand-less unary expression.
 @(private)
 is_maybe_assertion :: proc(e: ^ast.Type_Assertion) -> bool {
@@ -386,13 +425,17 @@ print_comp_lit_body ::proc(pr: ^Printer, out: ^[dynamic]Doc, e: ^ast.Comp_Lit) {
             append(out, text("}"))
             return
         }
-        items := make([dynamic]Doc, 0, len(e.elems))
-        for el in e.elems {
+        items := make([dynamic]List_Item, 0, len(e.elems))
+        for el, i in e.elems {
+            item := List_Item {leading = take_comments_before(pr, el.pos.offset)}
             elem: [dynamic]Doc
             print_expr(pr, &elem, el)
-            append(&items, concat(elem[:]))
+            item.doc = concat(elem[:])
+            next := i + 1 < len(e.elems) ? e.elems[i + 1].pos.offset : e.close.offset
+            item.trailing = take_trailing(pr, el.end.line, next)
+            append(&items, item)
         }
-        append_list_group(pr, out, "{", "}", items[:])
+        append_list_group(pr, out, "{", "}", items[:], take_comments_before(pr, e.close.offset))
         return
     }
     append(out, text("{"))
@@ -471,16 +514,20 @@ print_call_expr ::proc(pr: ^Printer, out: ^[dynamic]Doc, e: ^ast.Call_Expr) {
             }
         }
     }
-    items := make([dynamic]Doc, 0, len(e.args))
+    items := make([dynamic]List_Item, 0, len(e.args))
     for a, i in e.args {
+        item := List_Item {leading = take_comments_before(pr, a.pos.offset)}
         arg: [dynamic]Doc
         if i == ellipsis_arg {
             append(&arg, text(".."))
         }
         print_expr(pr, &arg, a)
-        append(&items, concat(arg[:]))
+        item.doc = concat(arg[:])
+        next := i + 1 < len(e.args) ? e.args[i + 1].pos.offset : e.close.offset
+        item.trailing = take_trailing(pr, a.end.line, next)
+        append(&items, item)
     }
-    append_list_group(pr, out, "(", ")", items[:])
+    append_list_group(pr, out, "(", ")", items[:], take_comments_before(pr, e.close.offset))
 }
 
 @(private)
@@ -513,8 +560,18 @@ print_proc_type_head :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: ^ast.Proc_Type
         append(out, text(" "))
         append(out, text(cc))
     }
-    append_field_list_group(pr, out, "(", ")", e.params)
+    append_field_list_group(pr, out, "(", ")", e.params, params_end(e))
     print_signature_results(pr, out, e)
+}
+
+// The offset the parameter list of `e` ends by. The parser leaves
+// Field_List.close unset, so it is the first result, or the end of the type.
+@(private)
+params_end :: proc(e: ^ast.Proc_Type) -> int {
+    if e.results != nil && len(e.results.list) > 0 {
+        return e.results.list[0].pos.offset
+    }
+    return e.end.offset
 }
 
 // The `-> ...` half of a signature, shared with the `asm` template — a lone

@@ -197,3 +197,44 @@ open_brace_line :: proc(pr: ^Printer, offset, line: int) -> int {
 comment_end_line :: proc(tok: tokenizer.Token) -> int {
     return tok.pos.line + strings.count(tok.text, "\n")
 }
+
+// The pending comment groups that start before `offset`, one Doc each.
+@(private)
+take_comments_before :: proc(pr: ^Printer, offset: int) -> []Doc {
+    out := make([dynamic]Doc)
+    for pr.comment_idx < len(pr.comments) {
+        cg := pr.comments[pr.comment_idx]
+        if cg.pos.offset >= offset {
+            break
+        }
+        group_doc: [dynamic]Doc
+        comment_group_text(pr, cg, &group_doc)
+        append(&out, concat(group_doc[:]))
+        pr.comment_idx += 1
+    }
+    return out[:]
+}
+
+// The pending comment groups on `line` that start before `offset`: the
+// comments that trail an item on its own line.
+@(private)
+take_trailing :: proc(pr: ^Printer, line, offset: int) -> []Doc {
+    out := make([dynamic]Doc)
+    for pr.comment_idx < len(pr.comments) {
+        cg := pr.comments[pr.comment_idx]
+        if cg.pos.offset >= offset || cg.pos.line != line {
+            break
+        }
+        group_doc: [dynamic]Doc
+        comment_group_text(pr, cg, &group_doc)
+        append(&out, concat(group_doc[:]))
+        pr.comment_idx += 1
+    }
+    return out[:]
+}
+
+// Whether a pending comment group starts before `offset`.
+@(private)
+comment_before :: proc(pr: ^Printer, offset: int) -> bool {
+    return pr.comment_idx < len(pr.comments) && pr.comments[pr.comment_idx].pos.offset < offset
+}

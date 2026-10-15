@@ -526,6 +526,33 @@ f :: proc() {
     testing.expect(t, strings.contains(out, "// the first one"), out)
 }
 
+// A comment and the number of tokens of meaning before it.
+@(private)
+Comment_Anchor :: struct {
+    text:   string,
+    tokens: int,
+}
+
+@(private)
+comment_anchors :: proc(src: string) -> [dynamic]Comment_Anchor {
+    t: tokenizer.Tokenizer
+    tokenizer.init(&t, src, "<probe>")
+    out: [dynamic]Comment_Anchor
+    tokens := 0
+    for {
+        tok := tokenizer.scan(&t)
+        #partial switch tok.kind {
+        case .EOF:
+            return out
+        case .Comment:
+            append(&out, Comment_Anchor {strings.trim_right_space(tok.text), tokens})
+        case .Semicolon, .Comma:
+        case:
+            tokens += 1
+        }
+    }
+}
+
 @(private)
 token_stream :: proc(src: string) -> [dynamic]tokenizer.Token {
     t: tokenizer.Tokenizer
@@ -603,6 +630,20 @@ assert_round_trip :: proc(t: ^testing.T, path: string) {
     }
     if !assert_no_trailing_whitespace(t, path, out) {
         return
+    }
+
+    // A comment stays between the same two tokens.
+    comments_before := comment_anchors(source)
+    defer delete(comments_before)
+    comments_after := comment_anchors(out)
+    defer delete(comments_after)
+    for c, i in comments_before {
+        if i >= len(comments_after) || comments_after[i] != c {
+            got := i < len(comments_after) ? comments_after[i] : Comment_Anchor{}
+            fmt.println("COMMENT MOVED:", path, "want", c, "got", got)
+            testing.fail(t)
+            return
+        }
     }
 
     before := token_stream(source)
@@ -953,4 +994,42 @@ test_refuses_deep_nesting :: proc(t: ^testing.T) {
     strings.write_byte(&b, '\n')
     _, chain_ok := format(strings.to_string(b), default_options())
     testing.expect(t, !chain_ok, "a chain past MAX_DEPTH formatted")
+}
+
+// A comment inside an argument, parameter or composite-literal list, or between
+// the operands of a binary expression, stays where it was written, and a second
+// format leaves the output as it is.
+@(test)
+test_comments_inside_lists_stay_in_place :: proc(t: ^testing.T) {
+    Case :: struct {
+        src, want: string,
+    }
+    cases := []Case {
+        {
+            "package p\nf :: proc() {\n\tfoo(a, // first\n\t\tb)\n\tx := 1\n}\n",
+            "package p\nf :: proc() {\n\tfoo(\n\t\ta,  // first\n\t\tb,\n\t)\n\tx := 1\n}\n",
+        },
+        {
+            "package p\ng :: proc(\n\t// the count\n\tn: int,\n\tm: int, // the other\n) {\n}\n",
+            "package p\ng :: proc(\n\t// the count\n\tn: int,\n\tm: int,  // the other\n) {}\n",
+        },
+        {
+            "package p\nw := []int{\n\t1, // one\n\t2,\n\t// end\n}\n",
+            "package p\nw := []int{\n\t1,  // one\n\t2,\n\t// end\n}\n",
+        },
+        {
+            "package p\ny := a + // why\n\tb\nz := a + /* c */ b\n",
+            "package p\ny := a +  // why\n\tb\nz := a + /* c */ b\n",
+        },
+    }
+    for c in cases {
+        out, ok := format(c.src, default_options())
+        defer delete(out)
+        testing.expect(t, ok)
+        testing.expect_value(t, out, c.want)
+        again, again_ok := format(out, default_options())
+        defer delete(again)
+        testing.expect(t, again_ok)
+        testing.expect_value(t, again, out)
+    }
 }

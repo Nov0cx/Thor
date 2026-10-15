@@ -51,6 +51,7 @@
 - The formatter's `brace_style` applies to `switch`, struct, union, enum and bit_field bodies. It applied to blocks only.
 - `odin-formatter.json` logs a key it does not know, a value of the wrong type and a value out of range, and keeps the default. A `spaces` of 0 gave no indent.
 - The Odin formatter leaves a file with very deep nesting (about 40 parentheses, 100 blocks or a 300-term expression) untouched instead of crashing the editor.
+- The formatter keeps a comment inside a call's arguments, a parameter list or a composite literal, or between the operands of an expression, where it was written. It moved the comment below the statement.
 
 # 2026.10.4
 

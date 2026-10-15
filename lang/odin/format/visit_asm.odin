@@ -14,7 +14,7 @@ print_asm_template :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: ^ast.Asm_Templat
     if e.type == nil {
         append(out, text("()"))
     } else {
-        append_field_list_group(pr, out, "(", ")", e.type.params)
+        append_field_list_group(pr, out, "(", ")", e.type.params, params_end(e.type))
         print_signature_results(pr, out, e.type, has_specs)
     }
     print_asm_spec_list(pr, out, e)
@@ -56,7 +56,7 @@ print_asm_spec_list :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: ^ast.Asm_Templa
     if len(e.specs) == 0 && len(e.clobbers) == 0 {
         return
     }
-    items := make([dynamic]Doc, 0, len(e.specs) + len(e.clobbers))
+    items := make([dynamic]List_Item, 0, len(e.specs) + len(e.clobbers))
     si, ci := 0, 0
     for si < len(e.specs) || ci < len(e.clobbers) {
         take_spec := ci >= len(e.clobbers)
@@ -71,7 +71,7 @@ print_asm_spec_list :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: ^ast.Asm_Templa
             print_asm_clobber(pr, &item, e.clobbers[ci])
             ci += 1
         }
-        append(&items, concat(item[:]))
+        append(&items, List_Item {doc = concat(item[:])})
     }
     append(out, text(" "))
     append_list_group(pr, out, "[", "]", items[:])

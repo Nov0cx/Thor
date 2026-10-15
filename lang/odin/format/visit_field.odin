@@ -89,20 +89,25 @@ print_field :: proc(pr: ^Printer, out: ^[dynamic]Doc, f: ^ast.Field) {
 
 // print_field_list as a wrappable group — the parameter-list shape, where a
 // signature too long for character_width takes one parameter per line.
+// `close_offset` is where the list ends: a comment before it is in the list.
 @(private)
-append_field_list_group :: proc(pr: ^Printer, out: ^[dynamic]Doc, open, close: string, fl: ^ast.Field_List) {
+append_field_list_group :: proc(pr: ^Printer, out: ^[dynamic]Doc, open, close: string, fl: ^ast.Field_List, close_offset: int) {
     if fl == nil {
         append(out, text(open))
         append(out, text(close))
         return
     }
-    items := make([dynamic]Doc, 0, len(fl.list))
-    for f in fl.list {
+    items := make([dynamic]List_Item, 0, len(fl.list))
+    for f, i in fl.list {
+        item := List_Item {leading = take_comments_before(pr, f.pos.offset)}
         field: [dynamic]Doc
         print_field(pr, &field, f)
-        append(&items, concat(field[:]))
+        item.doc = concat(field[:])
+        next := i + 1 < len(fl.list) ? fl.list[i + 1].pos.offset : close_offset
+        item.trailing = take_trailing(pr, f.end.line, next)
+        append(&items, item)
     }
-    append_list_group(pr, out, open, close, items[:])
+    append_list_group(pr, out, open, close, items[:], take_comments_before(pr, close_offset))
 }
 
 @(private)

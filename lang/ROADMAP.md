@@ -1278,8 +1278,15 @@ lowest latency.
       field types, `align_struct_values` the `=` of enum members and multi-line
       composite literals and the `|` of a bit field, `align_constant_definitions`
       and `align_struct_declarations` the `::` of consecutive declarations.
-      Missing, Odin-printer-only: wrapping of long binary-expression chains and
-      procedure *result* lists, and alignment across a run split by a comment.
+      A comment inside a call's arguments, a parameter list or a composite
+      literal, or between the operands of a binary expression, stays where it
+      was written; such a list prints one item per line. `brace_style` covers
+      `switch` and type bodies, a bad `odin-formatter.json` value is logged and
+      keeps its default, and a source nested past what the parser's stack
+      holds is refused. Missing, Odin-printer-only: wrapping of long
+      binary-expression chains and procedure *result* lists, alignment across a
+      run split by a comment, and a comment in any other expression position
+      (an index, a selector), which still moves below its statement.
 
 ## Missing — scalability / performance
 
