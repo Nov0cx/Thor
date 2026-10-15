@@ -1,6 +1,5 @@
 package render
 
-import "core:unicode/utf8"
 import rl "vendor:raylib"
 
 import "../font"
@@ -72,8 +71,8 @@ measure_run :: proc(f: ui.Font, size: f32, text: string, spacing: f32, user: raw
     return f32(font.measure(text, i32(size), family_of(b, f)))
 }
 
-// A prefix width from the shaped-line cache, which is both cheaper and right
-// across a ligature, where measuring the prefix on its own is not.
+// The x of byte offset `at`, from the shaped line: right across a ligature,
+// where measuring the prefix on its own is not.
 offset_x :: proc(
     f: ui.Font,
     size: f32,
@@ -86,8 +85,7 @@ offset_x :: proc(
         return 0
     }
     b := (^Backend)(user)
-    i := min(at, len(text))
-    return f32(font.measure(text[:i], i32(size), family_of(b, f), i32(tab_origin)))
+    return font.offset_at(text, at, i32(size), family_of(b, f), i32(tab_origin))
 }
 
 // The rune boundary nearest `x`, rounded to whichever side the pointer is
@@ -104,25 +102,7 @@ index_at :: proc(
     }
 
     b := (^Backend)(user)
-    family := family_of(b, f)
-    px := i32(size)
-    org := i32(tab_origin)
-
-    prev, prev_w := 0, f32(0)
-    i := 0
-    for i < len(text) {
-        _, n := utf8.decode_rune_in_string(text[i:])
-        if n <= 0 {
-            n = 1
-        }
-        i += n
-        w := f32(font.measure(text[:i], px, family, org))
-        if w >= x {
-            return x - prev_w > w - x ? i : prev
-        }
-        prev, prev_w = i, w
-    }
-    return len(text)
+    return font.index_at(text, x, i32(size), family_of(b, f), i32(tab_origin))
 }
 
 set_cursor :: proc(c: ui.Cursor, user: rawptr) {

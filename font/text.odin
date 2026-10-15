@@ -10,6 +10,7 @@ import "core:slice"
 import "core:strings"
 import "core:sync"
 import "core:thread"
+import "core:unicode/utf8"
 import rl "vendor:raylib"
 import stbtt "vendor:stb/truetype"
 
@@ -771,3 +772,40 @@ draw :: proc(text: string, x, y, font_size: i32, color: rl.Color, family := "", 
         origin = 0
     }
 }
+
+// The x of byte offset `at` in one line of text. Right across a ligature,
+// where measuring the prefix on its own is not.
+offset_at :: proc(text: string, at: int, font_size: i32, family := "", tab_origin: i32 = 0) -> f32 {
+    i := clamp(at, 0, len(text))
+    name := family != "" ? family : default_family_name
+    font := get_font(font_size, family)
+    if x, ok := offset_x_shaped(families[name], font, font_size, text, i, cast(f32) tab_origin); ok {
+        return x
+    }
+    return f32(measure(text[:i], font_size, family, tab_origin))
+}
+
+// The rune boundary in one line of text nearest `x`, rounded to the closer side.
+index_at :: proc(text: string, x: f32, font_size: i32, family := "", tab_origin: i32 = 0) -> int {
+    if text == "" || x <= 0 {
+        return 0
+    }
+    name := family != "" ? family : default_family_name
+    font := get_font(font_size, family)
+    if index, ok := index_at_shaped(families[name], font, font_size, text, x, cast(f32) tab_origin); ok {
+        return index
+    }
+    prev, prev_w := 0, f32(0)
+    i := 0
+    for i < len(text) {
+        _, n := utf8.decode_rune_in_string(text[i:])
+        i += max(n, 1)
+        w := f32(measure(text[:i], font_size, family, tab_origin))
+        if w >= x {
+            return x - prev_w > w - x ? i : prev
+        }
+        prev, prev_w = i, w
+    }
+    return len(text)
+}
+

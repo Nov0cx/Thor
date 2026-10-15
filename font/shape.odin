@@ -1,6 +1,7 @@
 package font
 
 import "core:c"
+import "core:math"
 import "core:unicode/utf8"
 import rl "vendor:raylib"
 
@@ -83,7 +84,9 @@ Placed_Glyph :: struct {
     offset_x: i32,
     offset_y: i32,
     advance:  i32,
+    cluster:  i32, // byte offset in the line of the text the glyph draws
     tab:      bool, // no glyph: `advance` is the cell, the walker snaps to the next stop
+    rtl:      bool, // the glyph belongs to a right-to-left run
 }
 
 // Placement scratch for a cache miss; cloned into shape_cache on success and
@@ -194,6 +197,11 @@ shape_family_init :: proc(family: ^Font_Family) {
     family.hb_blob = hb.blob_create(raw_data(family.file_data), cast(c.uint) len(family.file_data), .MEMORY_MODE_READONLY, nil, nil)
     family.hb_face = hb.face_create(family.hb_blob, 0)
     family.hb_font = hb.font_create(family.hb_face)
+    // hb_font_extents_t holds nine reserved fields the binding leaves out.
+    extents: [12]hb.position_t
+    if family.hb_font != nil && bool(hb.font_get_h_extents(family.hb_font, cast(^hb.font_extents_t) &extents)) {
+        family.hb_em_height = f32(extents[0] - extents[1])
+    }
 }
 
 shape_family_destroy :: proc(family: ^Font_Family) {
@@ -298,25 +306,56 @@ shape_place_line :: proc(family: ^Font_Family, font: rl.Font, size: i32, line: s
         return glyphs, true
     }
 
+    // Pixels per font unit, as the atlas was baked: stb_truetype scales by the
+    // pixel size over ascent minus descent.
+    scale := family.hb_em_height > 0 ? f32(size) / family.hb_em_height : 0
+
     clear(&placed)
     // The runs come in visual order and a right-to-left run is already in visual
     // order inside itself, so appending them in order places the line correctly.
     for run in shape_itemize(line) {
         infos, glyph_count := shape_line_run(family, line, run)
+        position_count: c.uint
+        positions := cast([^]hb.glyph_position_t) hb.buffer_get_glyph_positions(shape_buffer, &position_count)
         for i in 0 ..< glyph_count {
+            first := len(placed)
             place_glyph(shaped, font, line, infos[i])
+            placed[first].rtl = run.level % 2 == 1
+            if i < position_count && scale > 0 && !placed[first].tab {
+                apply_position(&placed[first], family.hb_font, infos[i], positions[i], scale)
+            }
         }
     }
     return shape_cache_put(&shape_cache, key, placed[:]), true
 }
 
+// Adds what the font's positioning tables move a glyph by: the kerning delta
+// on the atlas advance, and the offset that puts a mark on its base.
+@(private = "file")
+apply_position :: proc(
+    glyph: ^Placed_Glyph,
+    hb_font: ^hb.font_t,
+    info: hb.glyph_info_t,
+    position: hb.glyph_position_t,
+    scale: f32,
+) {
+    nominal := hb.font_get_glyph_h_advance(hb_font, info.codepoint)
+    if delta := position.x_advance - nominal; delta != 0 {
+        glyph.advance = max(glyph.advance + i32(math.round(f32(delta) * scale)), 0)
+    }
+    glyph.offset_x += i32(math.round(f32(position.x_offset) * scale))
+    // HarfBuzz counts y up, the screen counts it down.
+    glyph.offset_y -= i32(math.round(f32(position.y_offset) * scale))
+}
+
 @(private = "file")
 place_glyph :: proc(shaped: map[u32]Shaped_Glyph, font: rl.Font, line: string, info: hb.glyph_info_t) {
+    cluster := cast(int) info.cluster
     // Before the glyph lookup: a font whose cmap maps U+0009 would otherwise
     // return a mapped glyph and never become a tab.
-    if cluster := cast(int) info.cluster; cluster >= 0 && cluster < len(line) && line[cluster] == '\t' {
+    if cluster >= 0 && cluster < len(line) && line[cluster] == '\t' {
         space := rl.GetGlyphIndex(font, ' ')
-        append(&placed, Placed_Glyph {advance = font.glyphs[space].advanceX, tab = true})
+        append(&placed, Placed_Glyph {advance = font.glyphs[space].advanceX, cluster = i32(cluster), tab = true})
         return
     }
 
@@ -329,6 +368,7 @@ place_glyph :: proc(shaped: map[u32]Shaped_Glyph, font: rl.Font, line: string, i
                 offset_x = glyph.offset_x,
                 offset_y = glyph.offset_y,
                 advance = glyph.advance,
+                cluster = i32(cluster),
             },
         )
         return
@@ -336,7 +376,6 @@ place_glyph :: proc(shaped: map[u32]Shaped_Glyph, font: rl.Font, line: string, i
 
     // Glyph substituted outside the baked set (e.g. JetBrains Mono's
     // contextual backtick): use the source char's baked glyph instead.
-    cluster := cast(int) info.cluster
     r: rune = 0
     if cluster >= 0 && cluster < len(line) {
         r, _ = utf8.decode_rune_in_string(line[cluster:])
@@ -351,12 +390,13 @@ place_glyph :: proc(shaped: map[u32]Shaped_Glyph, font: rl.Font, line: string, i
                 offset_x = baked.offsetX,
                 offset_y = baked.offsetY,
                 advance = baked.advanceX,
+                cluster = i32(cluster),
             },
         )
         return
     }
     space := rl.GetGlyphIndex(font, ' ')
-    append(&placed, Placed_Glyph {advance = font.glyphs[space].advanceX})
+    append(&placed, Placed_Glyph {advance = font.glyphs[space].advanceX, cluster = i32(cluster)})
 }
 
 // Draws one line via shaping; false when the family/size has no shaping data,
@@ -422,3 +462,109 @@ measure_line_shaped :: proc(
     }
     return pen - origin, true
 }
+
+// One cluster of a shaped left-to-right line: the bytes it draws, where it
+// starts and how far it advances.
+@(private = "file")
+Placed_Cluster :: struct {
+    start, end: int,
+    x, advance: f32,
+}
+
+// Walks the clusters of a shaped line in order. False when the line has no
+// shaping data or a right-to-left run, whose clusters do not ascend.
+@(private = "file")
+shape_clusters :: proc(
+    family: ^Font_Family,
+    font: rl.Font,
+    size: i32,
+    line: string,
+    origin: f32,
+    allocator := context.temp_allocator,
+) -> ([]Placed_Cluster, bool) {
+    glyphs, ok := shape_place_line(family, font, size, line)
+    if !ok {
+        return nil, false
+    }
+    clusters := make([dynamic]Placed_Cluster, 0, len(glyphs), allocator)
+    pen := origin
+    for glyph in glyphs {
+        if glyph.rtl {
+            return nil, false
+        }
+        start := pen
+        if glyph.tab {
+            pen = tab_stop(pen, cast(f32) glyph.advance)
+        } else {
+            pen += cast(f32) glyph.advance
+        }
+        at := int(glyph.cluster)
+        if n := len(clusters); n > 0 && clusters[n - 1].start == at {
+            clusters[n - 1].advance = pen - clusters[n - 1].x
+            continue
+        }
+        if n := len(clusters); n > 0 {
+            clusters[n - 1].end = at
+        }
+        append(&clusters, Placed_Cluster {start = at, end = len(line), x = start - origin, advance = pen - start})
+    }
+    return clusters[:], true
+}
+
+// The x of byte offset `at` in a shaped line. Inside a ligature the offset is
+// placed in proportion to the runes before it.
+offset_x_shaped :: proc(
+    family: ^Font_Family,
+    font: rl.Font,
+    size: i32,
+    line: string,
+    at: int,
+    origin: f32 = 0,
+) -> (x: f32, ok: bool) {
+    clusters := shape_clusters(family, font, size, line, origin) or_return
+    for cl in clusters {
+        if at <= cl.start {
+            return cl.x, true
+        }
+        if at < cl.end {
+            part := f32(utf8.rune_count_in_string(line[cl.start:at]))
+            whole := f32(max(utf8.rune_count_in_string(line[cl.start:cl.end]), 1))
+            return cl.x + cl.advance * part / whole, true
+        }
+    }
+    if len(clusters) == 0 {
+        return 0, true
+    }
+    last := clusters[len(clusters) - 1]
+    return last.x + last.advance, true
+}
+
+// The rune boundary of a shaped line nearest `x`.
+index_at_shaped :: proc(
+    family: ^Font_Family,
+    font: rl.Font,
+    size: i32,
+    line: string,
+    x: f32,
+    origin: f32 = 0,
+) -> (index: int, ok: bool) {
+    clusters := shape_clusters(family, font, size, line, origin) or_return
+    prev, prev_x := 0, f32(0)
+    for cl in clusters {
+        whole := max(utf8.rune_count_in_string(line[cl.start:cl.end]), 1)
+        at := cl.start
+        for k in 1 ..= whole {
+            if at < cl.end {
+                _, n := utf8.decode_rune_in_string(line[at:])
+                at += max(n, 1)
+            }
+            bx := cl.x + cl.advance * f32(k) / f32(whole)
+            if bx >= x {
+                return x - prev_x > bx - x ? min(at, len(line)) : prev, true
+            }
+            prev, prev_x = min(at, len(line)), bx
+        }
+    }
+    return len(line), true
+}
+

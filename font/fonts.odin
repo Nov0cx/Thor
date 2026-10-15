@@ -50,6 +50,8 @@ Font_Family :: struct {
     hb_blob:       ^hb.blob_t, // owned
     hb_face:       ^hb.face_t, // owned
     hb_font:       ^hb.font_t, // owned
+    // Ascent minus descent in font units: the em stb_truetype scales a pixel size by.
+    hb_em_height:  f32,
 }
 
 // Family name of the manifest's primary (UI) icon set.

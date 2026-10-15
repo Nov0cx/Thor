@@ -38,6 +38,8 @@
 - Toggle Comment works in C#, PHP, Ruby, Nix, Nim, PowerShell, HCL, Groovy, Common Lisp, Standard ML, Starlark, Dockerfile, .env and Pascal files.
 - The tip about more than one caret names the chords that add one. It said ctrl and a click, which goes to the definition.
 - The generated HTML manual links to the README and other files outside `docs/`.
+- Text uses the font's kerning, and an accent or other combining mark sits on its letter.
+- The caret and a click inside a ligature such as `->` land between its characters, and placing the caret on a long line costs less.
 
 # 2026.10.4
 

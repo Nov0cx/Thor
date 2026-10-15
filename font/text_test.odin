@@ -480,6 +480,26 @@ check_full_async_load :: proc(t: ^testing.T) {
     testing.expect_value(t, shape_cache_len(&shape_cache), after_first)
     _ = measure("second unique line", 17, "JetBrainsMono")
     testing.expect_value(t, shape_cache_len(&shape_cache), after_first + 1)
+
+    // The x of an offset and the offset at an x agree with each other and with
+    // the measured width, a ligature included.
+    for text in ([]string {"if x == 1 { return }", "a -> b", "\tx"}) {
+        testing.expect_value(t, offset_at(text, len(text), 17, "JetBrainsMono"), f32(measure(text, 17, "JetBrainsMono")))
+        prev := f32(-1)
+        for i in 0 ..= len(text) {
+            x := offset_at(text, i, 17, "JetBrainsMono")
+            testing.expectf(t, x >= prev, "%q: x of %d went back", text, i)
+            prev = x
+            if i > 0 {
+                testing.expectf(t, index_at(text, x, 17, "JetBrainsMono") == i, "%q: offset %d does not round-trip", text, i)
+            }
+        }
+    }
+    // Inside the "->" ligature the offset lands part of the way through it.
+    arrow_start := offset_at("a -> b", 2, 17, "JetBrainsMono")
+    arrow_mid := offset_at("a -> b", 3, 17, "JetBrainsMono")
+    arrow_end := offset_at("a -> b", 4, 17, "JetBrainsMono")
+    testing.expect(t, arrow_start < arrow_mid && arrow_mid < arrow_end, "the caret inside a ligature does not move")
 }
 
 // The startup path: only the named families and icon packs bake; the rest
