@@ -20,19 +20,11 @@ import lua "vendor:lua/5.4"
 
 import "../input"
 import "../syntax"
+import "../theme"
 import ts "../vendor/odin-tree-sitter"
 
 // Lua's LUA_NOREF; marks a callback slot with no Lua function.
 NOREF :: -2
-
-// Color roles exposed to plugins as `thor.theme.<role>`.
-@(private)
-ROLES := []string {
-    "background", "foreground", "keywords", "functions", "strings", "operators",
-    "comments", "numbers", "parameters", "attributes", "variables", "tags", "links",
-    "warning", "conflict", "submodule", "accent_secondary", "info", "danger", "success",
-    "muted", "accent", "error",
-}
 
 // A registered language; `grammar` is empty when `lexer` names a Lua lexer.
 Language :: struct {
@@ -517,10 +509,12 @@ push_api_table :: proc(m: ^Manager, index: int) {
     lua.createtable(L, 0, 24)
     api := lua.gettop(L)
 
-    lua.createtable(L, 0, c.int(len(ROLES)))
-    for role in ROLES {
-        cs := strings.clone_to_cstring(role, context.temp_allocator)
+    // Every color role, as `thor.theme.<role>`.
+    lua.createtable(L, 0, c.int(len(theme.COLORS)))
+    for entry in theme.COLORS {
+        cs := strings.clone_to_cstring(entry.role, context.temp_allocator)
         lua.pushstring(L, cs)
+
         lua.setfield(L, -2, cs)
     }
     lua.setfield(L, api, "theme")

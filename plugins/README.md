@@ -207,6 +207,18 @@ thor.register_language {
 back to `type`) to theme roles. Without `grammar`, supply a `highlight` function
 returning `{ start, end, role }` byte spans instead.
 
+`thor.theme` holds one entry per color of the theme, and a span, a panel node or
+a canvas call takes any of them. A role the theme does not know draws in
+`foreground`.
+
+| Group | Roles |
+| --- | --- |
+| Surfaces | `background`, `second_background`, `contrast`, `buttons`, `active`, `highlight`, `border`, `notifications`, `tree`, `selection_background`, `accent`, `accent_secondary` |
+| Text | `text`, `primary_text`, `foreground`, `muted`, `disabled`, `selection_foreground`, `excluded_files`, `links` |
+| Status | `success`, `warning`, `info`, `danger`, `error`, `conflict`, `submodule` |
+| Syntax | `comments`, `keywords`, `functions`, `strings`, `numbers`, `operators`, `variables`, `parameters`, `attributes`, `tags` |
+
+
 A `highlight` function is given the whole buffer. Add `line_based = true` when it
 reads each line on its own, and it is given only the lines the pane shows, which
 is what keeps a large file responsive:

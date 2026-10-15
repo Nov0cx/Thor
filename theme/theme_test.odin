@@ -111,3 +111,22 @@ test_theme_load_missing_falls_back :: proc(t: ^testing.T) {
     testing.expect(t, theme.name == fallback.name, "falls back to the built-in name")
     testing.expect(t, theme.background == fallback.background, "falls back to the built-in colors")
 }
+
+// Every color has a role id, no id names two colors, and each id resolves to
+// its own field.
+@(test)
+test_role_color_covers_every_color :: proc(t: ^testing.T) {
+    th := mjolnir()
+    seen := make(map[string]bool, context.temp_allocator)
+    for entry, i in COLORS {
+        testing.expectf(t, entry.role != "", "%q has no role", entry.key)
+        testing.expectf(t, !(entry.role in seen), "role %q names two colors", entry.role)
+        seen[entry.role] = true
+
+        want := ui.Color {u8(i), 0x11, 0x22, 0x33}
+        color_at(&th, i)^ = want
+        testing.expect_value(t, role_color(th, entry.role), want)
+    }
+    testing.expect_value(t, len(seen), 37)
+    testing.expect_value(t, role_color(th, "no such role"), th.foreground)
+}

@@ -71,52 +71,53 @@ Color_Entry :: struct {
     key:    string,
     offset: uintptr,
     group:  Color_Group,
+    role:   string, // the id plugins name it by (thor.theme.<role>)
 }
 
 // Every color role, grouped and in the order a written theme lists them. The one
-// key-to-field mapping in the program: assign_color, color, save
+// key-to-field mapping in the program: assign_color, color, role_color, save
 // and the Settings rows all read it.
 COLORS := [?]Color_Entry {
-    {"Background",             offset_of(Theme, background),             .Surfaces},
-    {"Second Background",      offset_of(Theme, second_background),      .Surfaces},
-    {"Contrast",               offset_of(Theme, contrast),               .Surfaces},
-    {"Buttons",                offset_of(Theme, buttons),                .Surfaces},
-    {"Active",                 offset_of(Theme, active),                 .Surfaces},
-    {"Highlight",              offset_of(Theme, highlight),              .Surfaces},
-    {"Border",                 offset_of(Theme, border),                 .Surfaces},
-    {"Notifications",          offset_of(Theme, notifications),          .Surfaces},
-    {"Tree",                   offset_of(Theme, tree),                   .Surfaces},
-    {"Selection Background",   offset_of(Theme, selection_background),   .Surfaces},
-    {"Accent Color",           offset_of(Theme, accent_color),           .Surfaces},
-    {"Accent Secondary Color", offset_of(Theme, accent_secondary_color), .Surfaces},
+    {"Background",             offset_of(Theme, background),             .Surfaces, "background"},
+    {"Second Background",      offset_of(Theme, second_background),      .Surfaces, "second_background"},
+    {"Contrast",               offset_of(Theme, contrast),               .Surfaces, "contrast"},
+    {"Buttons",                offset_of(Theme, buttons),                .Surfaces, "buttons"},
+    {"Active",                 offset_of(Theme, active),                 .Surfaces, "active"},
+    {"Highlight",              offset_of(Theme, highlight),              .Surfaces, "highlight"},
+    {"Border",                 offset_of(Theme, border),                 .Surfaces, "border"},
+    {"Notifications",          offset_of(Theme, notifications),          .Surfaces, "notifications"},
+    {"Tree",                   offset_of(Theme, tree),                   .Surfaces, "tree"},
+    {"Selection Background",   offset_of(Theme, selection_background),   .Surfaces, "selection_background"},
+    {"Accent Color",           offset_of(Theme, accent_color),           .Surfaces, "accent"},
+    {"Accent Secondary Color", offset_of(Theme, accent_secondary_color), .Surfaces, "accent_secondary"},
 
-    {"Text",                   offset_of(Theme, text),                   .Text},
-    {"Primary Text Color",     offset_of(Theme, primary_text_color),     .Text},
-    {"Foreground",             offset_of(Theme, foreground),             .Text},
-    {"Muted Color",            offset_of(Theme, muted_color),            .Text},
-    {"Disabled",               offset_of(Theme, disabled),               .Text},
-    {"Selection Foreground",   offset_of(Theme, selection_foreground),   .Text},
-    {"Excluded Files Color",   offset_of(Theme, excluded_files_color),   .Text},
-    {"Links Color",            offset_of(Theme, links_color),            .Text},
+    {"Text",                   offset_of(Theme, text),                   .Text,     "text"},
+    {"Primary Text Color",     offset_of(Theme, primary_text_color),     .Text,     "primary_text"},
+    {"Foreground",             offset_of(Theme, foreground),             .Text,     "foreground"},
+    {"Muted Color",            offset_of(Theme, muted_color),            .Text,     "muted"},
+    {"Disabled",               offset_of(Theme, disabled),               .Text,     "disabled"},
+    {"Selection Foreground",   offset_of(Theme, selection_foreground),   .Text,     "selection_foreground"},
+    {"Excluded Files Color",   offset_of(Theme, excluded_files_color),   .Text,     "excluded_files"},
+    {"Links Color",            offset_of(Theme, links_color),            .Text,     "links"},
 
-    {"Success Color",          offset_of(Theme, success_color),          .Status},
-    {"Warning Color",          offset_of(Theme, warning_color),          .Status},
-    {"Info Color",             offset_of(Theme, info_color),             .Status},
-    {"Danger Color",           offset_of(Theme, danger_color),           .Status},
-    {"Error Color",            offset_of(Theme, error_color),            .Status},
-    {"Conflict Color",         offset_of(Theme, conflict_color),         .Status},
-    {"Submodule Color",        offset_of(Theme, submodule_color),        .Status},
+    {"Success Color",          offset_of(Theme, success_color),          .Status,   "success"},
+    {"Warning Color",          offset_of(Theme, warning_color),          .Status,   "warning"},
+    {"Info Color",             offset_of(Theme, info_color),             .Status,   "info"},
+    {"Danger Color",           offset_of(Theme, danger_color),           .Status,   "danger"},
+    {"Error Color",            offset_of(Theme, error_color),            .Status,   "error"},
+    {"Conflict Color",         offset_of(Theme, conflict_color),         .Status,   "conflict"},
+    {"Submodule Color",        offset_of(Theme, submodule_color),        .Status,   "submodule"},
 
-    {"Comments Color",         offset_of(Theme, comments_color),         .Syntax},
-    {"Keywords Color",         offset_of(Theme, keywords_color),         .Syntax},
-    {"Functions Color",        offset_of(Theme, functions_color),        .Syntax},
-    {"Strings Color",          offset_of(Theme, strings_color),          .Syntax},
-    {"Numbers Color",          offset_of(Theme, numbers_color),          .Syntax},
-    {"Operators Color",        offset_of(Theme, operators_color),        .Syntax},
-    {"Variables Color",        offset_of(Theme, variables_color),        .Syntax},
-    {"Parameters Color",       offset_of(Theme, parameters_color),       .Syntax},
-    {"Attributes Color",       offset_of(Theme, attributes_color),       .Syntax},
-    {"Tags Color",             offset_of(Theme, tags_color),             .Syntax},
+    {"Comments Color",         offset_of(Theme, comments_color),         .Syntax,   "comments"},
+    {"Keywords Color",         offset_of(Theme, keywords_color),         .Syntax,   "keywords"},
+    {"Functions Color",        offset_of(Theme, functions_color),        .Syntax,   "functions"},
+    {"Strings Color",          offset_of(Theme, strings_color),          .Syntax,   "strings"},
+    {"Numbers Color",          offset_of(Theme, numbers_color),          .Syntax,   "numbers"},
+    {"Operators Color",        offset_of(Theme, operators_color),        .Syntax,   "operators"},
+    {"Variables Color",        offset_of(Theme, variables_color),        .Syntax,   "variables"},
+    {"Parameters Color",       offset_of(Theme, parameters_color),       .Syntax,   "parameters"},
+    {"Attributes Color",       offset_of(Theme, attributes_color),       .Syntax,   "attributes"},
+    {"Tags Color",             offset_of(Theme, tags_color),             .Syntax,   "tags"},
 }
 
 // The built-in fallback theme: used as the base every loaded theme overlays, and
@@ -224,30 +225,11 @@ load :: proc(path: string) -> (Theme, bool) {
 // the theme's current color. Unknown roles fall back to the foreground, so a
 // plugin can never leave text uncolored by accident.
 role_color :: proc(theme: Theme, role: string) -> ui.Color {
-    switch role {
-    case "background":       return theme.background
-    case "foreground":       return theme.foreground
-    case "keywords":         return theme.keywords_color
-    case "functions":        return theme.functions_color
-    case "strings":          return theme.strings_color
-    case "operators":        return theme.operators_color
-    case "comments":         return theme.comments_color
-    case "numbers":          return theme.numbers_color
-    case "parameters":       return theme.parameters_color
-    case "attributes":       return theme.attributes_color
-    case "variables":        return theme.variables_color
-    case "tags":             return theme.tags_color
-    case "links":            return theme.links_color
-    case "warning":          return theme.warning_color
-    case "conflict":         return theme.conflict_color
-    case "submodule":        return theme.submodule_color
-    case "accent_secondary": return theme.accent_secondary_color
-    case "info":             return theme.info_color
-    case "danger":           return theme.danger_color
-    case "success":          return theme.success_color
-    case "muted":            return theme.muted_color
-    case "accent":           return theme.accent_color
-    case "error":            return theme.error_color
+    theme := theme
+    for entry in COLORS {
+        if entry.role == role {
+            return theme_color_field(&theme, entry.offset)^
+        }
     }
     return theme.foreground
 }
