@@ -41,6 +41,33 @@ test_brace_style_allman :: proc(t: ^testing.T) {
     testing.expect(t, strings.contains(out, "proc()\n{"), out)
 }
 
+// Allman puts the brace of a switch and of every type body on its own line,
+// keeps an empty body on the line, and formats its own output the same.
+@(test)
+test_brace_style_allman_bodies :: proc(t: ^testing.T) {
+    opts := default_options()
+    opts.brace_style = .Allman
+    src := "package p\nS :: struct {\n\tx: int,\n}\nE :: enum u8 {\n\tA,\n}\nU :: union #no_nil {\n\tint,\n}\nB :: bit_field u8 {\n\ta: u8 | 4,\n}\nN :: struct {}\nf :: proc(x: int) {\n\tswitch x {\n\tcase 1:\n\t}\n}\n"
+    out, ok := format(src, opts)
+    defer delete(out)
+    testing.expect(t, ok)
+    for want in ([]string{"struct\n{", "enum u8\n{", "union #no_nil\n{", "bit_field u8\n{", "switch x\n\t{", "N :: struct {}"}) {
+        testing.expectf(t, strings.contains(out, want), "missing %q in:\n%s", want, out)
+    }
+    again, again_ok := format(out, opts)
+    defer delete(again)
+    testing.expect(t, again_ok, "Allman output does not parse")
+    testing.expect_value(t, again, out)
+
+    // K&R breaks a procedure body only.
+    opts.brace_style = .K_And_R
+    kr, kr_ok := format(src, opts)
+    defer delete(kr)
+    testing.expect(t, kr_ok)
+    testing.expect(t, strings.contains(kr, "struct {") && strings.contains(kr, "switch x {"), kr)
+    testing.expect(t, strings.contains(kr, "proc(x: int)\n{"), kr)
+}
+
 @(test)
 test_tabs_false_uses_spaces :: proc(t: ^testing.T) {
     opts := default_options()

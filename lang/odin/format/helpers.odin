@@ -101,6 +101,18 @@ brace_own_line :: proc(pr: ^Printer, is_proc_body: bool) -> bool {
     return false
 }
 
+// What goes between a construct and the `{` of its body: a line break when
+// brace_style puts the brace on its own line, else a space. An empty body
+// keeps `{}` on the line.
+@(private)
+print_brace_lead :: proc(pr: ^Printer, out: ^[dynamic]Doc, is_proc_body: bool, empty := false) {
+    if !empty && brace_own_line(pr, is_proc_body) {
+        append(out, hard_line(0))
+    } else {
+        append(out, text(" "))
+    }
+}
+
 // Whether `else` starts a new line after the closing brace (Allman and
 // Stroustrup) or continues it (`} else {`, _1TBS and K&R).
 @(private)

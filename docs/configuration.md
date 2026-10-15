@@ -296,7 +296,7 @@ its root, layered on top of the global settings above. This repository's own
   | `tabs_width` | Columns one tab counts as, for `character_width` | the file's tab width |
   | `convert_do` | Rewrite `if x do y()` to a braced block | `false` |
   | `exp_multiline_composite_literals` | Keep a composite literal that already spanned multiple lines from being collapsed onto one | `false` |
-  | `brace_style` | `"_1TBS"`, `"Allman"`, `"Stroustrup"`, or `"K_And_R"` | `"_1TBS"` |
+  | `brace_style` | `"_1TBS"`, `"Allman"`, `"Stroustrup"`, or `"K_And_R"`. Allman puts the `{` of every block, `switch` and type body on its own line; K&R only that of a procedure | `"_1TBS"` |
   | `indent_cases` | Indent a `switch`'s `case` bodies one level deeper than the label | `false` |
   | `newline_style` | `"LF"` or `"CRLF"` | unset (the file's own line ending is left alone) |
   | `inline_single_stmt_case` | Put a `case`'s body on the same line when it is one statement | `false` |

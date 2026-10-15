@@ -61,11 +61,7 @@ print_stmt_item :: proc(pr: ^Printer, out: ^[dynamic]Doc, item: ^ast.Stmt) {
 
 @(private)
 print_block :: proc(pr: ^Printer, out: ^[dynamic]Doc, block: ^ast.Block_Stmt, is_proc_body: bool) {
-    if brace_own_line(pr, is_proc_body) {
-        append(out, hard_line(0))
-    } else {
-        append(out, text(" "))
-    }
+    print_brace_lead(pr, out, is_proc_body)
     print_block_braces(pr, out, block)
 }
 
@@ -429,11 +425,11 @@ print_case_clause :: proc(pr: ^Printer, out: ^[dynamic]Doc, cc: ^ast.Case_Clause
 @(private)
 print_switch_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, body: ^ast.Stmt) {
     block, ok := body.derived_stmt.(^ast.Block_Stmt)
-    append(out, text(" "))
     if !ok {
-        append(out, text("{}"))
+        append(out, text(" {}"))
         return
     }
+    print_brace_lead(pr, out, false, len(block.stmts) == 0)
     open := ast.Node{pos = block.open, end = block.open}
     close := ast.Node{pos = block.close, end = block.close}
     print_brace_body(pr, out, open, close, block.stmts, print_case_item, pr.opts.indent_cases)

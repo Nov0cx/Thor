@@ -604,11 +604,11 @@ print_struct_type :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: ^ast.Struct_Type)
         append(out, text(" #simple"))
     }
     print_where(pr, out, e.where_clauses)
-    append(out, text(" "))
     if e.fields == nil {
-        append(out, text("{}"))
+        append(out, text(" {}"))
         return
     }
+    print_brace_lead(pr, out, false, len(e.fields.list) == 0)
     print_field_brace_body(pr, out, e.end.line, e.fields.list)
 }
 
@@ -635,7 +635,7 @@ print_union_type :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: ^ast.Union_Type) {
         append(out, text(" #shared_nil"))
     }
     print_where(pr, out, e.where_clauses)
-    append(out, text(" "))
+    print_brace_lead(pr, out, false, len(e.variants) == 0)
     print_expr_brace_body(pr, out, e.end.line, e.variants)
 }
 
@@ -646,7 +646,7 @@ print_enum_type :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: ^ast.Enum_Type) {
         append(out, text(" "))
         print_expr(pr, out, e.base_type)
     }
-    append(out, text(" "))
+    print_brace_lead(pr, out, false, len(e.fields) == 0)
     print_expr_brace_body(pr, out, e.close.line, e.fields)
 }
 
@@ -654,6 +654,6 @@ print_enum_type :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: ^ast.Enum_Type) {
 print_bit_field_type :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: ^ast.Bit_Field_Type) {
     append(out, text("bit_field "))
     print_expr(pr, out, e.backing_type)
-    append(out, text(" "))
+    print_brace_lead(pr, out, false, len(e.fields) == 0)
     print_bit_field_brace_body(pr, out, e.close.line, e.fields)
 }
