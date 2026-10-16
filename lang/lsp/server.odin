@@ -742,8 +742,55 @@ server_drain_pushes :: proc(s: ^Server) {
                 sync.unlock(&s.push_mutex)
             }
         }
+        if note.method == "window/logMessage" {
+            server_log_message(s, note.params)
+        }
+        if note.method == "window/showMessage" && .Message in features {
+            if text, type, decoded := decode_message(note.params); decoded {
+                server_push_message(s, text, type == 1)
+            }
+        }
         conn_free_notification(s.conn, note)
     }
+}
+
+// Writes a window/logMessage to the editor log under the server id.
+@(private)
+server_log_message :: proc(s: ^Server, params: json.Value) {
+    text, type, ok := decode_message(params)
+    if !ok {
+        return
+    }
+    text = strings.trim_right_space(text)
+    switch type {
+    case 1:
+        log.errorf("lsp %s: %s", s.config.id, text)
+    case 2:
+        log.warnf("lsp %s: %s", s.config.id, text)
+    case 3:
+        log.infof("lsp %s: %s", s.config.id, text)
+    case:
+        log.debugf("lsp %s: %s", s.config.id, text)
+    }
+}
+
+// Queues a window/showMessage. A message the main thread has not taken yet is
+// replaced, so a server that repeats itself cannot grow the queue.
+@(private)
+server_push_message :: proc(s: ^Server, text: string, is_error: bool) {
+    sync.guard(&s.push_mutex)
+    for &pending in s.pushes[s.push_head:] {
+        if pending.kind == .Message {
+            delete(pending.message.text, s.allocator)
+            pending.message = {strings.clone(text, s.allocator), is_error}
+            return
+        }
+    }
+    append(&s.pushes, lang.Result {
+        kind    = .Message,
+        ok      = true,
+        message = {strings.clone(text, s.allocator), is_error},
+    })
 }
 
 // Takes the oldest decoded push. Main thread, called until it answers false.
@@ -802,6 +849,7 @@ server_drop_push :: proc(s: ^Server, res: ^lang.Result) {
     }
     delete(res.report.items)
     delete(res.progress.message, s.allocator)
+    delete(res.message.text, s.allocator)
     if res.kind == .Apply_Edit {
         for edit in res.edits {
             delete(edit.path, s.allocator)

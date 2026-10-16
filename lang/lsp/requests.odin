@@ -47,6 +47,7 @@ METHODS := [lang.Request_Kind]string {
     .Resolve_Completion = "completionItem/resolve",
     .Progress          = "", // unsolicited push, never sent as an outgoing request
     .Apply_Edit        = "", // unsolicited push, never sent as an outgoing request
+    .Message           = "", // unsolicited push, never sent as an outgoing request
 }
 
 // One request in flight, and what it needs to turn positions into byte offsets.

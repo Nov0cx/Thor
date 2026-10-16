@@ -535,6 +535,22 @@ decode_publish_diagnostics :: proc(s: ^Server, params: json.Value) -> (lang.Resu
     return res, true
 }
 
+// `window/showMessage` and `window/logMessage`: `{type, message}`, where type 1
+// is an error and 2 a warning. False when the message is missing or empty.
+@(private)
+decode_message :: proc(params: json.Value) -> (text: string, type: int, ok: bool) {
+    object, is_object := params.(json.Object)
+    if !is_object {
+        return
+    }
+    message, has_message := object["message"].(json.String)
+    if !has_message || len(message) == 0 {
+        return
+    }
+    type = int(number(object["type"]) or_else 3)
+    return string(message), type, true
+}
+
 // `$/progress`, a `WorkDoneProgress` value: `{token, value: {kind, title?,
 // message?, percentage?}}`. "begin" and "report" produce a message ("message",
 // falling back to "title", with "(N%)" appended when given); "end" produces

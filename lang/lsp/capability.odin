@@ -36,6 +36,7 @@ PROVIDER_KEYS := [lang.Request_Kind]string {
     .Resolve_Completion = "completionProvider",
     .Progress          = "", // unsolicited push; no capability gate, same as Package_Doc
     .Apply_Edit        = "", // unsolicited push; no capability gate, same as Package_Doc
+    .Message           = "", // unsolicited push; no capability gate
 }
 
 // What one entry of a server's semantic-token legend means to Thor. `valid` is

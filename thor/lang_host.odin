@@ -1991,6 +1991,8 @@ thor_on_lang_result :: proc(user: rawptr, res: ^lang.Result) {
         thor_apply_progress(thor, res)
     case .Apply_Edit:
         thor_apply_pushed_edit(thor, res)
+    case .Message:
+        thor_flash_status(thor, res.message.text, res.message.error)
     }
 }
 

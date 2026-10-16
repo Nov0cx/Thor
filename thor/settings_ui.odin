@@ -471,6 +471,7 @@ LANGUAGE_FEATURE_LABELS := [lang.Request_Kind]string {
     .Resolve_Completion = "Completion Follow-Up Edits",
     .Progress           = "Progress Notifications",
     .Apply_Edit         = "Server-Applied Edits",
+    .Message            = "Server Messages",
 }
 
 // Settings row: turn language intelligence on or off, whole-seam. Nothing to

@@ -619,7 +619,10 @@ test_conn_answers_the_server :: proc(t: ^testing.T) {
         "an edit must be refused, not ignored",
     )
 
-    mock_frame(&mock, `{"jsonrpc":"2.0","id":"x","method":"window/showMessageRequest","params":{}}`)
+    mock_frame(&mock, `{"jsonrpc":"2.0","id":3,"method":"window/showMessageRequest","params":{}}`)
+    testing.expect(t, wait_written(&mock, `{"jsonrpc":"2.0","id":3,"result":null}`), "a message request must get no action")
+
+    mock_frame(&mock, `{"jsonrpc":"2.0","id":"x","method":"window/showDocument","params":{}}`)
     testing.expect(t, wait_written(&mock, `"id":"x"`), "a string id must come back a string")
     testing.expect(t, wait_written(&mock, `"code":-32601`), "an unknown method must get an error")
 }

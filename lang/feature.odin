@@ -29,6 +29,7 @@ FEATURE_NAMES := [Request_Kind]string {
     .Resolve_Completion = "resolve_completion",
     .Progress           = "progress",
     .Apply_Edit         = "apply_edit",
+    .Message            = "messages",
 }
 
 // The config-facing name of a request kind, e.g. "signature_help".

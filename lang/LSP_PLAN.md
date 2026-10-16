@@ -282,8 +282,9 @@ Per frame taken:
      synced for that URI>, report = {scope = <the file path>, items = ...}}` and
      appends to `notifications` under `notify_mutex`. Owned strings use the
      Manager allocator, which the client stores at construction.
-   - `window/logMessage`, `window/showMessage`, `$/logTrace` reach `core:log`
-     only.
+   - `window/logMessage` reaches `core:log` under the server id. `window/showMessage`
+     is a push-only `Message` result the statusline flashes; an untaken one is
+     replaced. `window/showMessageRequest` is answered `null`. `$/logTrace` is dropped.
    - `$/progress` was dropped in v1. M9 drives the statusline busy indicator
      with it — see `ROADMAP.md`'s "Landed since (M9)" note.
    - Unknown is logged and dropped.

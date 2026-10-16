@@ -813,6 +813,32 @@ test_server_progress_push :: proc(t: ^testing.T) {
     server_drop_push(s, &end)
 }
 
+// window/showMessage reaches the queue as a Message; a second one before the take replaces the first.
+@(test)
+test_server_show_message_push :: proc(t: ^testing.T) {
+    f: Fake
+    s := fake_server(&f, CAPS_ALL)
+    defer fake_end(&f, s)
+
+    server_notify(s, .Opened, SOURCE, BUFFER, 1)
+    testing.expect(t, wait_sent(&f, `"method":"textDocument/didOpen"`), "didOpen never arrived")
+
+    mock_frame(&f.mock, `{"jsonrpc":"2.0","method":"window/logMessage","params":{"type":4,"message":"chatter"}}`)
+    mock_frame(&f.mock, `{"jsonrpc":"2.0","method":"window/showMessage","params":{"type":3,"message":"first"}}`)
+    mock_frame(&f.mock, `{"jsonrpc":"2.0","method":"window/showMessage","params":{"type":1,"message":"no toolchain"}}`)
+    time.sleep(100 * time.Millisecond)
+
+    res: lang.Result
+    testing.expect(t, wait_push(s, &res), "the message never reached the queue")
+    testing.expect_value(t, res.kind, lang.Request_Kind.Message)
+    testing.expect_value(t, res.message.text, "no toolchain")
+    testing.expect(t, res.message.error)
+    server_drop_push(s, &res)
+
+    other: lang.Result
+    testing.expect(t, !server_poll(s, &other), "a replaced message or a log line reached the queue")
+}
+
 // server_poll advances a read cursor instead of shifting the array on every
 // take, compacting the drained prefix away once it crosses PUSH_COMPACT. From
 // the caller's side that must still behave like a plain FIFO, including

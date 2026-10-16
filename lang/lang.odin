@@ -51,6 +51,8 @@ Request_Kind :: enum {
     // carries the decoded WorkspaceEdit; `token`/`on_applied` on Result carry
     // the reply the server is waiting on back to the backend.
     Apply_Edit,
+    // Push-only, like Progress: a server's window/showMessage, in `message`.
+    Message,
 }
 
 // A byte range in a named file. Byte offsets, not line/column: the editor and
@@ -228,6 +230,12 @@ Semantic_Token :: struct {
 // One step of a server's unsolicited work-progress report ($/progress). `done`
 // marks the "end" phase, which carries no message — the editor clears its
 // indicator on it rather than showing a blank one.
+// A message a server asks the editor to show the user.
+Server_Message :: struct {
+    text:  string, // owned
+    error: bool,
+}
+
 Progress_Info :: struct {
     message: string, // owned; "" once done
     done:    bool,
@@ -392,6 +400,7 @@ Result :: struct {
     // the applier leaves the file's line ending untouched.
     newline:   Newline_Preference,
     progress:  Progress_Info, // Progress; owned message, freed in result_free
+    message:   Server_Message, // Message; owned text, freed in result_free
     // Apply_Edit only. `edits` (above) carries the decoded WorkspaceEdit. Not
     // owned strings — job_free/result_free must not touch them — but the
     // handler must call `on_applied(token, ok)` exactly once, since it is the
@@ -1366,6 +1375,7 @@ result_free :: proc(m: ^Manager, res: ^Result) {
     }
     delete(res.report.items)
     delete(res.progress.message)
+    delete(res.message.text)
 }
 
 // True while any request is still being worked. Used by manager_destroy and

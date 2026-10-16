@@ -1764,6 +1764,10 @@ Landed since (M9):
       (`thor/lang_host.odin`) stores it on `Thor.lsp_progress_message`, which
       `thor_status_info` shows in place of the generic `thor_lang_busy_label`
       text whenever it is set.
+- [x] `window/showMessage` into the statusline, through a push-only `Message`
+      kind (`Result.message`, the `messages` feature). An untaken message is
+      replaced, so the queue holds one. `window/logMessage` goes to the log
+      under the server id, and `window/showMessageRequest` is answered `null`.
 - [x] `workspace/applyEdit` routed through the push channel. `Conn_Answers`
       gained an `apply_edit` callback the owning `Server` wires
       (`server_apply_edit`); it decodes `params["edit"]` with the same

@@ -639,6 +639,9 @@ conn_answer :: proc(c: ^Conn, method: string, id_value: json.Value, params: json
         }
         append(&answer, "]")
         envelope_response(&out, id, string(answer[:]))
+    case "window/showMessageRequest":
+        // No action buttons, so the answer is "no action chosen".
+        envelope_response(&out, id, "null")
     case "workspace/workspaceFolders":
         envelope_response(&out, id, c.answers.folders == "" ? "null" : c.answers.folders)
     case:
