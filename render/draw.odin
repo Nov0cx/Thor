@@ -346,7 +346,7 @@ push_clip :: proc(b: ^Backend, r: rl.Rectangle) {
         next = {x0, y0, max(x1 - x0, 0), max(y1 - y0, 0)}
     }
     append(&b.clip, next)
-    apply_clip(b, next)
+    apply_clip(next)
 }
 
 @(private)
@@ -356,19 +356,19 @@ pop_clip :: proc(b: ^Backend) {
     }
     pop(&b.clip)
     if len(b.clip) > 0 {
-        apply_clip(b, b.clip[len(b.clip) - 1])
+        apply_clip(b.clip[len(b.clip) - 1])
     } else {
         rl.EndScissorMode()
     }
 }
 
 @(private)
-apply_clip :: proc(b: ^Backend, r: rl.Rectangle) {
-    s := b.dpi
+// The rect is in screen coordinates, the same space as every draw call; raylib scales it to the framebuffer.
+apply_clip :: proc(r: rl.Rectangle) {
     rl.BeginScissorMode(
-        c.int(math.round(r.x * s)),
-        c.int(math.round(r.y * s)),
-        c.int(math.round(r.width * s)),
-        c.int(math.round(r.height * s)),
+        c.int(math.round(r.x)),
+        c.int(math.round(r.y)),
+        c.int(math.round(r.width)),
+        c.int(math.round(r.height)),
     )
 }

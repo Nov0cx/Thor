@@ -1,3 +1,7 @@
+# 2026.10.6
+
+- Panels and scroll areas clip their content on a scaled display (125 % and up, Retina). The clip was scaled a second time.
+
 # 2026.10.5
 
 - Typing in a large file no longer rescans the whole file for line numbers and visual rows on every key.
