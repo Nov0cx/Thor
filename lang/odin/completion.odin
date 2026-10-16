@@ -611,7 +611,7 @@ complete_dir_scan :: proc(
         if info.type == .Directory || !strings.has_suffix(info.name, ".odin") {
             continue
         }
-        if info.fullpath == skip {
+        if lang.path_equal(info.fullpath, skip) {
             continue
         }
         source, sok := source_read(info.fullpath)

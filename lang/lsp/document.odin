@@ -210,24 +210,6 @@ uri_to_path :: proc(uri: string, allocator := context.allocator) -> (string, boo
     return string(out[:]), true
 }
 
-// Whether two paths name one file. Windows compares without case and reads the
-// two separators alike, because a URI carries only one of them.
-path_equal :: proc(a, b: string) -> bool {
-    when ODIN_OS == .Windows {
-        if len(a) != len(b) {
-            return false
-        }
-        for index in 0 ..< len(a) {
-            if path_byte(a[index]) != path_byte(b[index]) {
-                return false
-            }
-        }
-        return true
-    } else {
-        return a == b
-    }
-}
-
 // The `languageId` of the file at `path`: its whole name where that names a
 // language, else its extension. Every didOpen goes through this, so a restart's
 // re-open names the same language the first open did.
@@ -322,16 +304,6 @@ drive_prefixed :: proc(text: string) -> bool {
     return len(text) >= 5 && text[2] == '%' && text[3] == '3' && (text[4] == 'A' || text[4] == 'a')
 }
 
-@(private)
-path_byte :: proc(char: u8) -> u8 {
-    if char == '\\' {
-        return '/'
-    }
-    if char >= 'A' && char <= 'Z' {
-        return char + ('a' - 'A')
-    }
-    return char
-}
 
 @(private)
 write_number :: proc(out: ^[dynamic]u8, value: i64) {

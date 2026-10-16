@@ -254,7 +254,7 @@ index_find_defs :: proc(
     res: ^lang.Result,
 ) -> (single_overload: bool) {
     for path, entry in e.index.files {
-        if path_equal(path, skip) || !index_scoped(path, dir) {
+        if lang.path_equal(path, skip) || !index_scoped(path, dir) {
             continue
         }
         for sym in entry.decls {
@@ -282,7 +282,7 @@ index_find_defs :: proc(
 @(private)
 index_all_symbols :: proc(e: ^Engine, skip, query: string, res: ^lang.Result) {
     for path, entry in e.index.files {
-        if path_equal(path, skip) {
+        if lang.path_equal(path, skip) {
             continue
         }
         for sym in entry.decls {
@@ -327,7 +327,7 @@ index_first_path :: proc(
     best := ""
     found := false
     for path, entry in e.index.files {
-        if path_equal(path, skip) || !index_scoped(path, dir) {
+        if lang.path_equal(path, skip) || !index_scoped(path, dir) {
             continue
         }
         for sym in entry.decls {
@@ -355,7 +355,7 @@ index_first_path :: proc(
 @(private)
 index_ref_files :: proc(e: ^Engine, name, skip: string, out: ^[dynamic]string) {
     for path, entry in e.index.files {
-        if path_equal(path, skip) {
+        if lang.path_equal(path, skip) {
             continue
         }
         if name in entry.idents {
@@ -385,7 +385,7 @@ index_dir_completions :: proc(
             continue
         }
         indexed = true
-        if path_equal(path, skip) {
+        if lang.path_equal(path, skip) {
             continue
         }
         for sym in entry.decls {
@@ -428,36 +428,17 @@ path_in_dir :: proc(path, dir: string) -> bool {
         return false
     }
     for i in 0 ..< len(dir) {
-        a, b := path_byte(path[i]), path_byte(dir[i])
+        a, b := lang.path_byte(path[i]), lang.path_byte(dir[i])
         if a != b {
             return false
         }
     }
-    if !is_path_sep(path[len(dir)]) {
+    if !lang.is_path_sep(path[len(dir)]) {
         return false
     }
     return strings.index_any(path[len(dir) + 1:], "/\\") < 0
 }
 
-// One path byte normalized for comparison: either separator reads as `/`, and on
-// Windows an upper-case letter reads as its lower-case.
-@(private)
-path_byte :: proc(b: u8) -> u8 {
-    if is_path_sep(b) {
-        return '/'
-    }
-    when ODIN_OS == .Windows {
-        if b >= 'A' && b <= 'Z' {
-            return b + 32
-        }
-    }
-    return b
-}
-
-@(private)
-is_path_sep :: proc(b: u8) -> bool {
-    return b == '/' || b == '\\'
-}
 
 // The directory a package-scoped query should filter on for the file at `path`.
 // A bare identifier never names a declaration in another directory, so the
@@ -514,7 +495,7 @@ index_dir_real_match :: proc(e: ^Engine, real: string) -> (dir: string, found: b
             continue
         }
         seen[candidate] = true
-        if candidate_real, ok := path_real(candidate, context.temp_allocator); ok && path_equal(candidate_real, real) {
+        if candidate_real, ok := path_real(candidate, context.temp_allocator); ok && lang.path_equal(candidate_real, real) {
             return candidate, true
         }
     }
@@ -564,7 +545,7 @@ index_forget :: proc(e: ^Engine, path: string) {
     // The key is spelled as os.read_dir gave it, which need not match the
     // editor's spelling of the same file.
     for key, entry in idx.files {
-        if !path_equal(key, path) {
+        if !lang.path_equal(key, path) {
             continue
         }
         index_free_entry(idx, entry)

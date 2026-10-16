@@ -346,7 +346,7 @@ find_proc_in_dir :: proc(
         if info.type == .Directory || !strings.has_suffix(info.name, ".odin") {
             continue
         }
-        if info.fullpath == skip {
+        if lang.path_equal(info.fullpath, skip) {
             continue
         }
         if src, file, def, found := first_proc_in_file(e, parser, info.fullpath, name, false); found {

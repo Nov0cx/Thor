@@ -634,12 +634,12 @@ ref_site_equal :: proc(a, b: Field_Site) -> bool {
 // second try.
 @(private)
 same_dir :: proc(a, b: string) -> bool {
-    if path_equal(a, b) {
+    if lang.path_equal(a, b) {
         return true
     }
     abs_a, err_a := filepath.abs(a, context.temp_allocator)
     abs_b, err_b := filepath.abs(b, context.temp_allocator)
-    return err_a == nil && err_b == nil && path_equal(abs_a, abs_b)
+    return err_a == nil && err_b == nil && lang.path_equal(abs_a, abs_b)
 }
 
 // Where an identifier sits, and — for a member — the operand it is a member of
@@ -737,19 +737,3 @@ source_line :: proc(source: string, offset: int) -> string {
     return strings.clone(strings.trim_space(source[start:end]))
 }
 
-// Whether two paths name the same file, by the same normalization path_in_dir
-// uses: either separator reads as `/`, and on Windows case does not distinguish.
-// The comparison is otherwise literal — the spellings being compared come from
-// the same producer in every case that matters.
-@(private)
-path_equal :: proc(a, b: string) -> bool {
-    if len(a) != len(b) {
-        return false
-    }
-    for i in 0 ..< len(a) {
-        if path_byte(a[i]) != path_byte(b[i]) {
-            return false
-        }
-    }
-    return true
-}

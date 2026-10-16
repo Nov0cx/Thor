@@ -221,10 +221,10 @@ main :: proc() {
 
     saw_main, saw_helper := false, false
     for edit in action.edits {
-        if path_equal(edit.path, main_path) {
+        if lang.path_equal(edit.path, main_path) {
             saw_main = true
         }
-        if path_equal(edit.path, helper_path) {
+        if lang.path_equal(edit.path, helper_path) {
             saw_helper = true
             testing.expect(t, strings.contains(edit.new_text, `import "core:fmt"`), "sibling edit did not add the import")
         }

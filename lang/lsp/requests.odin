@@ -338,7 +338,7 @@ request_deadline :: proc(kind: lang.Request_Kind) -> time.Duration {
 // an unsaved tab) simply wrong.
 @(private)
 ask_source :: proc(ask: ^Ask, path: string) -> (string, bool) {
-    if path_equal(path, ask.req.path) {
+    if lang.path_equal(path, ask.req.path) {
         return ask.req.source, true
     }
     if text, found := ask.texts[path]; found {

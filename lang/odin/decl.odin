@@ -370,7 +370,7 @@ visit_decl_in_dir :: proc(
         if info.type == .Directory || !strings.has_suffix(info.name, ".odin") {
             continue
         }
-        if info.fullpath == skip {
+        if lang.path_equal(info.fullpath, skip) {
             continue
         }
         if alias, hit := visit_decl_in_file(e, parser, info.fullpath, name, decl_type, visit, ctx); hit != .Missed {

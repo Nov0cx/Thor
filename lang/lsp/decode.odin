@@ -837,7 +837,7 @@ decode_format :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
         }
         // A formatting reply may only touch the file it formatted.
         path, start, end, ok := resolve_range(ask, ask.uri, start_line, start_char, end_line, end_char)
-        if !ok || !path_equal(path, ask.req.path) || start > end {
+        if !ok || !lang.path_equal(path, ask.req.path) || start > end {
             return
         }
         append(&raw, Raw_Edit{start, end, string(new_text)})
@@ -1452,7 +1452,7 @@ resolve_range :: proc(
     if !is_file {
         return "", 0, 0, false
     }
-    if path_equal(named, ask.req.path) {
+    if lang.path_equal(named, ask.req.path) {
         return named,
             offset_from_position(&ask.lines, start_line, start_char),
             offset_from_position(&ask.lines, end_line, end_char),

@@ -306,7 +306,7 @@ server_notify :: proc(s: ^Server, event: lang.Doc_Event, path, source: string, r
     replaced := false
     if event == .Changed {
         #reverse for &queued in s.outbox {
-            if !path_equal(queued.path, path) {
+            if !lang.path_equal(queued.path, path) {
                 continue
             }
             if queued.event == .Changed {
@@ -1124,7 +1124,7 @@ server_document :: proc(s: ^Server, path, text: string, revision: u64) -> ^Docum
 @(private)
 server_find :: proc(s: ^Server, path: string) -> (^Document, bool) {
     for doc in s.docs {
-        if path_equal(doc.path, path) {
+        if lang.path_equal(doc.path, path) {
             return doc, true
         }
     }

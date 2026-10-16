@@ -31,7 +31,7 @@ test_path_real_agrees_on_relative_and_absolute :: proc(t: ^testing.T) {
     testing.expect(t, abs_ok, "path_real should resolve the absolute spelling")
     testing.expectf(
         t,
-        path_equal(from_rel, from_abs),
+        lang.path_equal(from_rel, from_abs),
         "expected the same canonical path, got %q and %q",
         from_rel,
         from_abs,
