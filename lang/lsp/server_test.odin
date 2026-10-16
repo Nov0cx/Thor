@@ -813,6 +813,25 @@ test_server_progress_push :: proc(t: ^testing.T) {
     server_drop_push(s, &end)
 }
 
+// A server turned off while it holds a file still gets the close, so a later start does not reopen it.
+@(test)
+test_client_closes_on_a_disabled_server :: proc(t: ^testing.T) {
+    f: Fake
+    s := fake_server(&f, CAPS_ALL)
+    defer fake_end(&f, s)
+    c: Client
+    c.servers = make([dynamic]^Server, 0)
+    defer delete(c.servers)
+    append(&c.servers, s)
+
+    notify(&c, .Opened, SOURCE, ".fake", BUFFER, 1)
+    testing.expect(t, wait_sent(&f, `"method":"textDocument/didOpen"`), "didOpen never arrived")
+
+    testing.expect(t, client_set_server_enabled(&c, "fake", false))
+    notify(&c, .Closed, SOURCE, ".fake", "", 0)
+    testing.expect(t, wait_sent(&f, `"method":"textDocument/didClose"`), "the disabled server never got the close")
+}
+
 // window/showMessage reaches the queue as a Message; a second one before the take replaces the first.
 @(test)
 test_server_show_message_push :: proc(t: ^testing.T) {

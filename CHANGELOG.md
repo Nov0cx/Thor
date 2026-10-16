@@ -6,6 +6,7 @@
 - A message a language server sends to the user shows in the statusline, and its log lines go to the editor log.
 - A language server that asks for one section of its `settings` gets that section. It got the whole object.
 - A language server `command` or `cwd` given as a relative path resolves against the open folder. It resolved beside the editor binary.
+- Closing a file tells a language server turned off since it opened. Turned back on, the server reopened the closed file.
 
 # 2026.10.5
 

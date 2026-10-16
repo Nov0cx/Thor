@@ -143,10 +143,33 @@ on_type_trigger :: proc(data: rawptr, ext: string, char: string) -> bool {
 notify :: proc(data: rawptr, event: lang.Doc_Event, path, ext, source: string, revision: u64) {
     c := cast(^Client)data
     s, found := client_server_for(c, ext)
-    if !found {
+    if found {
+        server_notify(s, event, path, source, revision)
+    }
+    if event == .Closed {
+        client_close_on_disabled(c, path, ext, s)
+    }
+}
+
+// Sends a close to each started server that claims `ext` but is turned off. It
+// can hold the file from before it was turned off; `served` already got the event.
+@(private)
+client_close_on_disabled :: proc(c: ^Client, path, ext: string, served: ^Server) {
+    if ext == "" {
         return
     }
-    server_notify(s, event, path, source, revision)
+    for s in c.servers {
+        if s == served || server_admin_enabled(s) || !server_claims(s.config, ext) {
+            continue
+        }
+        if strings.equal_fold(ext, ".odin") && !s.config.override {
+            continue
+        }
+        if server_state(s) == .Idle {
+            continue
+        }
+        server_notify(s, .Closed, path, "", 0)
+    }
 }
 
 // Runs with no worker in flight: manager_destroy drains the pool before it calls
