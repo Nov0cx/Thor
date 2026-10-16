@@ -36,31 +36,21 @@ Line_Ending :: enum u8 {
 Open_File :: struct {
     path:               string, // owned
     name:               string, // slice into path, do not free separately
-    // Tab label: base name, plus a trailing directory suffix on collision.
-    // Owned; recomputed by thor_update_tab_labels when the open set changes.
+    // Base name, plus a directory suffix on a collision. Owned; set by thor_update_tab_labels.
     tab_label:          string,
     state:              textedit.State,
     loaded:             bool,
     load_failed:        bool,
     saving:             bool,
-    // A disk-change reload is in flight for this file; guards against launching a
-    // second one while the first is still reading (the watcher can fire a burst),
-    // and against a concurrent save (see thor_save_file).
+    // A disk-change reload is in flight; no second reload or save starts.
     reloading:          bool,
-    // The file changed again while that read was in flight. One save fires several
-    // watcher events and the first read can land mid-write, so the last event must
-    // start another read instead of being dropped.
+    // The file changed again during that read, so another read follows it.
     reload_pending:     bool,
-    // The file changed on disk while this buffer held unsaved edits, and the user
-    // has not answered the conflict prompt yet. Blocks further reload attempts, so
-    // a burst of watcher events asks once.
+    // Changed on disk over unsaved edits, and the conflict prompt is not answered yet.
     disk_changed:       bool,
-    // Tab was closed while a load/save thread still references this record;
-    // it is freed on the main thread once pending_jobs drops to zero.
+    // The tab closed while a job holds the record; freed when pending_jobs is zero.
     closed:             bool,
-    // Tells the save worker to write nothing: the file is about to be deleted,
-    // and a write that lands after the removal would put it back. Written by the
-    // main thread, read atomically by save_worker.
+    // The save worker writes nothing: the file is being deleted. Read atomically by save_worker.
     save_cancel:        bool,
     pending_jobs:       int,
     saved_revision:     u64,

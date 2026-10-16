@@ -46,16 +46,11 @@ Undo_Entry :: struct {
     id_after:       u64,
 }
 
-// Bounds on the undo history; the oldest entries are dropped once either is
-// exceeded, so a long session cannot grow memory without limit. The newest
-// entry is always kept, however large.
+// Bounds on the undo history. Past either, the oldest entries are dropped; the newest always stays.
 MAX_UNDO_ENTRIES :: 1024
 MAX_UNDO_BYTES :: 16 * 1024 * 1024
 
-// The undo history: a ring, because the cap is reached in a long session and
-// every edit after that drops the oldest entry. A ring moves `start`; a plain
-// array would shift the whole history on every keystroke. The backing doubles
-// and is straightened out then, so the entries stay in one block.
+// The undo history, a ring over one block. Dropping the oldest entry moves `start`.
 Undo_Ring :: struct {
     entries: [dynamic]Undo_Entry, // owned
     start:   int, // slot of the oldest entry

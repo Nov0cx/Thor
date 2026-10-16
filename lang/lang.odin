@@ -182,11 +182,7 @@ Resource_Op :: struct {
     ignore_if_exists: bool,
 }
 
-// One fix the backend is offering at the caret: a title to show the user and the
-// edits that apply it. Unlike LSP, the edits are computed up front rather than
-// resolved in a second round trip — that split exists to keep IPC off the offer
-// path, and an in-client backend has no IPC to keep off it. Computing both at
-// once also closes the window where the buffer moves between offer and apply.
+// One fix offered at the caret: a title and the edits that apply it, computed up front.
 Code_Action :: struct {
     title:         string,              // owned; "Import core:fmt"
     kind:          string,              // owned; "quickfix" / "refactor" — drives the row color
@@ -452,23 +448,15 @@ Backend :: struct {
     on_type_trigger: proc(data: rawptr, ext: string, char: string) -> bool,
 }
 
-// How long a debounced request waits for the input to settle before it is
-// dispatched. The typing-driven kinds (completion, signature help) re-trigger on
-// every keystroke; hover is already dwell-gated, so its delay is only a floor
-// under a mouse sweeping across the buffer.
+// How long a debounced request waits for the input to settle. Hover is already
+// dwell-gated, so its delay is only a floor.
 DEBOUNCE_TYPING :: 50 * time.Millisecond
 DEBOUNCE_HOVER :: 150 * time.Millisecond
 
-// The delay for save-driven checks. Far longer than the typing delays because
-// the work behind it is far heavier — a whole compiler invocation over a package
-// — and because the trigger is coarser: a save-all, or an autosave landing
-// behind an explicit save, must cost one run and not one per file.
+// The delay for save-driven checks, long enough that a save-all costs one compiler run.
 DEBOUNCE_CHECK :: 400 * time.Millisecond
 
-// How many jobs the worker pool runs at once. Requests are latency-bound and
-// cancellation keeps at most one live job per kind, so the cap only has to stop
-// a workspace scan per keystroke from spawning a thread each. The floor is 2, so
-// a slow scan can never wedge the pool against a fast hover queued behind it.
+// How many jobs the worker pool runs at once. Two at least, so a slow scan cannot block a hover.
 WORKERS_MIN :: 2
 WORKERS_MAX :: 4
 

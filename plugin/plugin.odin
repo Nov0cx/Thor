@@ -191,12 +191,8 @@ Manager :: struct {
     canvas:       Canvas_Rect,
     // Tree-sitter state backing thor.ts (see api_ts.odin).
     ts_state:     Ts_State,
-    // `.scm` files read on behalf of a plugin query, keyed by resolved path so
-    // a `tree:query()` from a draw callback re-reads the file at most once
-    // per manager lifetime rather than every visible frame. The failure case
-    // is cached too (found = false), so a bad name is neither re-read nor
-    // re-logged. Keys and sources owned; dies with the manager, so editing a
-    // plugin's .scm while Thor runs takes effect on the next reload.
+    // `.scm` files read for plugin queries, by resolved path; a failure is cached
+    // too. Read once per manager, so an edited file takes effect on reload. Owned.
     query_files:  map[string]Query_File,
     // Callbacks of running thor.exec calls, by the id the host gave them. Owned refs.
     exec_pending: map[u64]Callback,
@@ -1413,13 +1409,8 @@ query_error_text :: proc(err: ts.Query_Error) -> string {
     return "unknown error"
 }
 
-// Resolves a query argument: a `.scm` name loads from the plugin folder,
-// anything else is the query itself. A `.scm` file is read at most once per
-// manager lifetime, through query_files (the failure case cached too), so a
-// plugin querying from a canvas draw callback does not re-read its file every
-// visible frame. Allocates explicitly with m.allocator rather than through
-// context, since the load-time caller (apply_highlights_override) does not
-// set context.allocator to it.
+// Resolves a query argument: a `.scm` name loads from the plugin folder through
+// query_files, anything else is the query itself. Allocates with m.allocator.
 @(private)
 query_source :: proc(m: ^Manager, index: int, source: string) -> (string, bool) {
     if !strings.has_suffix(source, ".scm") {

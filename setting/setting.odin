@@ -25,70 +25,50 @@ Keybind :: struct {
     mods: input.Modifiers,
 }
 
-// General editor preferences with sensible defaults, overridable via
-// settings.json.
+// General editor preferences, overridable via settings.json.
 General :: struct {
     tab_width:         int,
     font_size:         int,
     autosave_delay_ms: int,
-    // Active color theme (a name under assets/themes/, no extension), text
-    // font family (a name in fonts.json), and the primary and file icon packs
-    // (family names in icons.json). Empty means "use the built-in default"; all
-    // are owned strings, freed in destroy.
+    // Theme (assets/themes/ name), font family (fonts.json) and icon packs
+    // (icons.json). Empty is the built-in default. Owned.
     theme:             string,
     font:              string,
     icon_pack:         string,
     file_icon_pack:    string,
-    // What opening a folder does: "ask" (default), "same" to replace the current
-    // window's workspace, "new" to launch another window. Owned, freed in destroy.
+    // What opening a folder does: "ask" (default), "same" or "new" window. Owned.
     open_folder_in:    string,
-    // What Right Alt is: "auto" (default) asks the keyboard layout, "altgr"
-    // types characters, "alt" is a shortcut modifier. Owned.
+    // What Right Alt is: "auto" (default, from the layout), "altgr" or "alt". Owned.
     right_alt:         string,
-    // The shell a new terminal starts, by profile id ("pwsh", "git-bash",
-    // "msvc", ...). Empty picks the best shell installed. Owned.
+    // The profile id a new terminal starts ("pwsh", "git-bash", ...); empty picks the best one. Owned.
     default_shell:     string,
     // Let a program in a terminal set the clipboard (OSC 52). On by default.
     terminal_clipboard: bool,
     // Draw the font's programming ligatures ("->" as one glyph). On by default.
     ligatures:         bool,
-    // Draw a vertical guide at every indentation stop inside a line's own
-    // indent. On by default.
+    // Draw a guide at every indentation stop of a line's indent. On by default.
     indent_guides:     bool,
     // Indent with spaces. Off indents with a literal tab. On by default.
     insert_spaces:     bool,
     // Take the indent style and width from the file's own text. On by default.
     detect_indentation: bool,
-    // Number the gutter by distance from the caret line, the count the
-    // alt + <digit> jump moves by. On by default; off numbers the lines from 1.
+    // Number the gutter by distance from the caret line. On by default.
     relative_lines:    bool,
-    // Format the active buffer before an explicit save (Ctrl+S, Save All, the
-    // palette) — never before an autosave. Off by default.
+    // Format the buffer before an explicit save, never an autosave. Off by default.
     format_on_save:    bool,
-    // Format-on-type: dispatch Format_On_Type as the user types a trigger
-    // character the backend asked for. Off by default — an edit landing while
-    // the user is still typing is intrusive, unlike a save-triggered format.
+    // Format as a trigger character the backend asked for is typed. Off by default.
     format_on_type:    bool,
-    // Ask GitHub for a newer release shortly after start, at most once a day.
-    // On by default; Help > Check for Updates asks whatever this holds.
+    // Check for a newer release after start, at most once a day. On by default.
     check_for_updates: bool,
     // Show the hover explanation of a control after a short dwell. On by default.
     tooltips:          bool,
-    // Show the tip of the day: the card on the welcome page, and the one that
-    // opens over the editor on the first start of a day. On by default.
+    // Show the tip of the day on the welcome page and at the first start of a day. On by default.
     tip_of_the_day:    bool,
-    // Language intelligence: the master switch and the features still allowed
-    // under it, read from the "language_intelligence" entry. Both are on by
-    // default; the editor pushes them onto lang.Manager, which enforces them.
+    // The "language_intelligence" switch and its allowed features. On by default.
     language_enabled:  bool,
     language_features: bit_set[lang.Request_Kind],
-    // Per-backend admin gate: a server id ("clangd") or the Odin analyzer
-    // ("odin") mapped to its own enabled switch and feature bit_set, read from
-    // "language_backends"'s per-id entry the same way the top-level
-    // language_intelligence entry is read. An id absent from the map is fully
-    // enabled — this only ever holds ids a user has touched. ANDs with the
-    // top-level language_features gate rather than replacing it: a kind either
-    // one declines stays declined. Owned keys.
+    // "language_backends": a switch and features per backend id ("clangd", "odin").
+    // An absent id is fully on; ANDs with language_features. Owned keys.
     language_backends: map[string]Backend_Setting,
 }
 

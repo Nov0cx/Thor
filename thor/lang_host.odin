@@ -783,22 +783,12 @@ Edit_Undo_File :: struct {
     existed:  bool,   // .Created: the target already held `before` and was overwritten
 }
 
-// Applies a backend's edits — all of them, or none. Every edit is validated
-// against the content it will land in before any is written, since a set that
-// lands in some files and not others breaks a build silently. Open files are
-// edited through the buffer (one undo entry each); closed ones are rewritten in
-// place.
-//
-// `origin` is the buffer the edits were computed against — the one file allowed
-// to differ from its saved copy — and `snapshot` the revision it was at. A false
-// `ok` with `applied > 0` is the one partial case: a file could not be written
-// after earlier ones already had.
-//
-// `resource_ops` runs in a fixed phase order around the text edits — Create,
-// then the edits, then Rename, then Delete (see lang.Resource_Op). Create is
-// first because an edit may target a file it just made. Each one joins the
-// edits' Ctrl+Z record, unless its target cannot be restored from a string — a
-// directory, or a file that would not read — which drops the record entirely.
+// Applies a backend's edits, all or none: every edit is checked before any is
+// written. Open files change through the buffer, closed ones on disk. `origin` is
+// the buffer the edits were made against, at revision `snapshot`. A false `ok` with
+// `applied > 0` means a write failed after others landed.
+// `resource_ops` run as Create, the edits, Rename, Delete, and join the Ctrl+Z
+// record; a target that cannot be restored (a directory) drops the record.
 @(private)
 thor_apply_edits :: proc(
     thor: ^Thor,

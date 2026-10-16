@@ -38,9 +38,7 @@ Piece_Table :: struct {
     stale:    bool,        // snapshot must be rebuilt before it is read
     // Edits since the last read, applied in place to the valid snapshot.
     pending:  [dynamic]Pending_Op, // owned
-    // Piece index and its start offset, left by the last split. Edits at
-    // ascending positions (typing, Replace All) resume scanning from here
-    // instead of the top of pieces; -1 means no usable hint.
+    // Piece index and start offset of the last split, where the next scan starts; -1 when unset.
     hint_index:  int,
     hint_offset: int,
 }
@@ -77,11 +75,8 @@ piecetable_set_text :: proc(pt: ^Piece_Table, text: string) {
     pt^ = fresh
 }
 
-// Splits the piece containing `pos` unless it already falls on a boundary, and
-// returns the index of the piece starting there. An out-of-range `pos` clamps;
-// a negative one must not reach the split, which would write a piece of negative
-// length. Resumes from the last split's hint when it starts at or before `pos`,
-// so a pass of ascending edits scans each piece once instead of rescanning.
+// Splits the piece containing `pos` unless it is on a boundary, and returns the
+// index of the piece starting there. Clamps `pos`; scans from the hint when it is at or before `pos`.
 @(private)
 piecetable_split_at :: proc(pt: ^Piece_Table, pos: int) -> int {
     if pos <= 0 {
@@ -128,9 +123,7 @@ piecetable_set_hint :: proc(pt: ^Piece_Table, index, offset: int) {
     pt.hint_offset = offset
 }
 
-// Joins pieces[i - 1] and pieces[i] when they are neighbouring runs of the same
-// backing buffer. Without this the list grows by one entry per keystroke, and
-// every length query and materialization walks it.
+// Joins pieces[i - 1] and pieces[i] when they are adjacent runs of the same buffer.
 @(private)
 piecetable_merge_at :: proc(pt: ^Piece_Table, i: int) {
     if i <= 0 || i >= len(pt.pieces) {
@@ -157,16 +150,13 @@ piecetable_valid_offset :: proc(pt: ^Piece_Table, pos: int) -> bool {
     return pos >= 0 && pos <= pt.length
 }
 
-// True when `count` bytes from `pos` stay inside the buffer. Subtracts instead
-// of adding, so a very large `count` cannot overflow the sum.
+// True when `count` bytes from `pos` stay inside the buffer. Overflow-safe.
 piecetable_valid_range :: proc(pt: ^Piece_Table, pos, count: int) -> bool {
     return pos >= 0 && count >= 0 && pos <= pt.length && count <= pt.length - pos
 }
 
-// Inserts `text` at `pos`. `pos` must satisfy piecetable_valid_offset; an
-// out-of-range one is clamped to the start or the end, which silently writes
-// the text somewhere else. Use piecetable_insert_checked for a caller-supplied
-// offset.
+// Inserts `text` at `pos`. An out-of-range `pos` is clamped; use
+// piecetable_insert_checked for an offset from outside.
 piecetable_insert :: proc(pt: ^Piece_Table, pos: int, text: string) {
     if len(text) == 0 {
         return
@@ -176,9 +166,7 @@ piecetable_insert :: proc(pt: ^Piece_Table, pos: int, text: string) {
     append(&pt.add, text)
     piecetable_note_edit(pt, Pending_Op {pos = clamp(pos, 0, pt.length), add_start = add_start, length = len(text), insert = true})
 
-    // Split first: split_at compares `pos` against pt.length, so the increment
-    // must land after it or an append at the end misses the end-of-buffer fast
-    // path and walks the whole piece list.
+    // Split before the length grows, or an append misses the end-of-buffer fast path.
     index := piecetable_split_at(pt, pos)
     pt.length += len(text)
     // The split's own hint is the true offset it landed on (pos itself may be

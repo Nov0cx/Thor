@@ -374,24 +374,11 @@ result_poly_use :: proc(
     return {}, {}, false
 }
 
-// A call's result when the callee's declared result uses one of its own
-// polymorphic parameters — from the bare shorthand (`identity :: proc(v: $T)
-// -> T`) up through a container or pointer wrapping either side
-// (`proc(xs: []$T) -> T`, `proc(v: $T) -> []T`), several `$`-declared names
-// composed into a tuple result (`proc(a: $T, b: $U) -> (T, U)`), and the
-// explicit `$T: typeid`/`typeid/Constraint` binding form. Odin requires the
-// call site to have already resolved every `$Name` to something concrete, so
-// no text substitution of a name is ever needed: the concrete value is read
-// off the bound argument's own inferred type, the parameter's container
-// layers are unwrapped from it, and the result's are wrapped back on.
-// Pointers on either side are only counted while peeling, to walk past them —
-// a Type_Ref never carries one, so they apply no operation to the value
-// itself, matching how a pointer is already transparent everywhere else in
-// this engine. Not modeled at all: a named generic type's own type argument
-// (`^List($T)` cannot read "the T of a List(T)-typed argument", since no
-// Type_Ref anywhere carries one), and constraint validation (only the binding
-// site is recognized, never checked — Thor's diagnostics already come from a
-// real `odin check` run, see lang/odin/check.odin).
+// A call's result when the callee's result uses its own `$` parameters:
+// `proc(v: $T) -> T`, containers on either side (`[]$T -> T`, `$T -> []T`), tuples
+// of several names, and `$T: typeid`. The bound argument's type is unwrapped by the
+// parameter's layers and wrapped by the result's; pointers are skipped.
+// Not modeled: a named generic type's argument (`^List($T)`) and constraint checks.
 @(private)
 polymorphic_call_result :: proc(
     e: ^Engine,

@@ -15,48 +15,29 @@ import "../snippet"
 import ui "../vendor/loom/loom"
 Editor_Save_Proc :: #type proc(data: rawptr)
 
-// Ctrl+Click / go-to-definition request: carries the buffer the click landed in
-// and the byte offset under the cursor, so the owner can resolve the symbol.
+// Go-to-definition request (Ctrl+Click) for the byte offset under the cursor.
 Goto_Definition_Proc :: #type proc(data: rawptr, state: ^textedit.State, offset: int)
 
-// Hover request, fired once the cursor has dwelt over a spot with Ctrl held.
-// Carries the editor so an async result can be routed back to the pane it came
-// from, plus the buffer and the byte offset under the cursor. The owner resolves
-// a signature and calls editor_show_hover on the same editor.
+// Hover request after a Ctrl dwell. The owner answers with editor_show_hover on `editor`.
 Hover_Proc :: #type proc(data: rawptr, editor: ^Editor, state: ^textedit.State, offset: int)
 
-// Signature-help request, fired automatically as the caret moves inside a call
-// (typing `(`/`,`, editing arguments). Carries the buffer and the caret offset;
-// the owner resolves the enclosing call and calls editor_show_signature, or
-// editor_clear_signature when the caret is no longer in a call.
+// Signature-help request as the caret moves inside a call. The owner answers with
+// editor_show_signature, or editor_clear_signature outside a call.
 Signature_Proc :: #type proc(data: rawptr, editor: ^Editor, state: ^textedit.State, offset: int)
 
-// Code-completion request, fired as an identifier is typed in a buffer whose
-// language has a backend. Carries the caret offset; the owner resolves candidates
-// and fills the popup below via editor_set_completions (async). Returns true when
-// it took over completion, so the editor skips its buffer-word fallback.
+// Completion request as an identifier is typed. The owner answers with
+// editor_set_completions; true means it took over from the buffer-word list.
 Completion_Proc :: #type proc(data: rawptr, editor: ^Editor, state: ^textedit.State, offset: int) -> bool
 
-// Fired once an accepted candidate's text has landed, so the owner can apply the
-// changes elsewhere the candidate needs (an import line) and run whatever
-// follow-up its backend named. `owner_id` is the id the owner gave the row; `at`
-// is the byte offset the text replaced and `delta` its net length change, so an
-// edit computed against the buffer as it was before the accept can be moved onto
-// the buffer as it is now.
+// Called after an accepted candidate's text lands. `at` is where it went and
+// `delta` its net length change, to move an edit made against the old buffer.
 Completion_Accept_Proc :: #type proc(data: rawptr, editor: ^Editor, state: ^textedit.State, owner_id, at, delta: int)
 
-// On-type formatting request, fired after a character lands in a buffer whose
-// language has a backend that asked for it (see editor_set_on_type_enabled).
-// `char` is the character just inserted, as UTF-8; the owner asks the seam
-// whether it is a trigger before dispatching anything.
+// On-type formatting request after `char` (UTF-8) is typed. The owner decides if it is a trigger.
 On_Type_Proc :: #type proc(data: rawptr, editor: ^Editor, state: ^textedit.State, offset: int, char: string)
 
-// One completion candidate handed back by the owner. `text` is the row, `insert`
-// what lands in the buffer and `filter` what the typed prefix is matched
-// against; the last two fall back to `text` when empty. `owner_id` is an id the
-// owner gives the row, handed back on accept so it can finish the work the text
-// alone cannot carry — zero says the row is the editor's own buffer word, and the
-// fields below it are read only for a row that has one.
+// One completion candidate. `insert` and `filter` fall back to `text` when empty.
+// `owner_id` zero is the editor's own buffer word; the fields after it apply only to an owner row.
 Completion_Item :: struct {
     text:     string,
     owner_id: int,
@@ -127,19 +108,15 @@ key_is_modifier :: proc(k: ui.Key) -> bool {
 }
 
 Editor :: struct {
-    // The content box the view laid this editor out in, and whether it holds
-    // the keyboard. Both are written by the view once a frame; everything below
-    // reads them.
+    // The content box and keyboard focus, written by the view once a frame.
     view:               ui.Rect,
     focused:            bool,
-    // Borrowed from the open file; nil when none open. Held outside the editor
-    // so undo history and cursors survive tab switches.
+    // Borrowed from the open file; nil when none is open.
     state:              ^textedit.State,
     on_save:            Editor_Save_Proc,
     save_data:          rawptr,
     placeholder:        string,
-    // Line-comment marker and the two block-comment markers; empty when the
-    // language has none. Borrowed, set per language.
+    // Line and block comment markers of the language; empty when it has none. Borrowed.
     comment_prefix:     string,
     comment_block:      [2]string,
     font_size:          i32,
@@ -157,17 +134,14 @@ Editor :: struct {
     selection_color:    ui.Color,
     // Soft-wrap: overflowing lines continue on the next visual row.
     wrap:               bool,
-    // Marks the leading whitespace of each row: a dot per space, an arrow per
-    // tab. Off until the user asks for it.
+    // Draw a dot per leading space and an arrow per leading tab.
     show_whitespace:    bool,
     // Draw a vertical guide at every indentation stop inside a line's indent.
     indent_guides:      bool,
     // Number the gutter by distance from the caret line instead of from 1.
     relative_lines:     bool,
     visual_rows:        [dynamic]Visual_Row,
-    // Buffer revision and wrap inputs the rows were last built from. A rebuild
-    // walks the whole buffer, so every reader goes through
-    // editor_ensure_visual_rows and it runs only when one of these moved.
+    // The inputs visual_rows was built from; editor_ensure_visual_rows rebuilds when one moves.
     rows_revision:      u64,
     rows_wrap:          bool,
     rows_font_size:     i32,
@@ -178,37 +152,27 @@ Editor :: struct {
     rows_max_line:      int, // the line rows_max_cols was measured on
     // Set by a change the stamps above cannot see (the fold set).
     rows_stale:         bool,
-    // The cursors after the last vertical move, as editor_cursor_signature gives
-    // them. While it matches, each preferred_column is that move's goal column.
+    // editor_cursor_signature after the last vertical move; while it matches, preferred_column holds.
     move_signature:     u64,
     // Syntax highlight spans for the current buffer; borrowed from the owner.
     highlights:         []Highlight_Span,
-    // Compiler diagnostics for the current buffer; borrowed from the owner. Each
-    // range gets a colored squiggle and its line a gutter marker.
+    // Diagnostics for the current buffer, drawn as squiggles and gutter markers. Borrowed.
     diagnostics:            []Diagnostic,
     diagnostic_error_color: ui.Color,
     diagnostic_warn_color:  ui.Color,
-    // Line-level git diff vs HEAD, borrowed from the open file; index i (0-based)
-    // holds that line's status and draws a colored bar at the gutter's outer edge.
-    // Deleted has no line of its own, so it attaches to the line right after the
-    // removal (or line 0 if the removal was at the top of the file).
+    // Git status per line against HEAD, borrowed from the open file. Deleted marks
+    // the line after the removal.
     diff_lines:          []Diff_Line_Kind,
-    // Code folding. `foldable` maps a fold's start line (0-based) to its end line
-    // (both from the owner's syntax analysis, refreshed each edit); `folded` is
-    // the subset the user has collapsed. Folding a region hides start+1..end.
-    // `folded` maps each collapsed start line to its start offset at
-    // `folds_revision`, so an edit can move it to the line it went to.
+    // Folds: `foldable` maps a start line to its end line; `folded` maps each
+    // collapsed start line to its offset at `folds_revision`. A fold hides start+1..end.
     foldable:           map[int]int,
     folded:             map[int]int,
     folds_revision:     u64,
-    // Word-drag: after a double-click the selection extends by whole words;
-    // word_lo/word_hi bound that word so drags in either direction keep it.
+    // Drag after a double-click: the selection grows by whole words from word_lo..word_hi.
     select_by_word:     bool,
     word_lo:            int,
     word_hi:            int,
-    // The press was consumed by something that is not a caret placement (a
-    // Ctrl+Click go-to-definition, a completion accepted with the mouse); the
-    // drag that a physical click emits must not turn into a selection.
+    // The press did something other than place the caret, so its drag selects nothing.
     suppress_drag:      bool,
     // Right-click opens a context menu supplied by the owner.
     on_context_menu:    Context_Menu_Proc,
@@ -219,82 +183,62 @@ Editor :: struct {
     // Hover: a mouse-dwell request to the owner and the popup its result fills.
     on_hover:            Hover_Proc,
     hover_data:          rawptr,
-    // Signature help: an auto-trigger request to the owner as the caret moves in
-    // a call. The owner fills the popup below via editor_show_signature.
+    // Signature help: requested on `(` and `,` and while the popup is up.
     on_signature:        Signature_Proc,
     signature_data:      rawptr,
-    // Semantic completion: an owner-served request as an identifier is typed.
-    // When set (the buffer's language has a backend) it replaces the buffer-word
-    // completion; results arrive async via editor_set_completions.
+    // Backend completion; when set it replaces the buffer-word list.
     on_completion:       Completion_Proc,
     completion_data:     rawptr,
     completion_semantic: bool,
-    // Fired after an accepted candidate's text lands, so the owner can finish
-    // what the row alone could not carry. Only rows the owner supplied reach it.
+    // Called after an owner row is accepted.
     on_completion_accept:   Completion_Accept_Proc,
     completion_accept_data: rawptr,
-    // On-type formatting: fired after a character is typed, when the language's
-    // backend asked for that character as a trigger. The editor carries no
-    // trigger set of its own — it calls back on every character and the owner
-    // asks the seam.
+    // On-type formatting: called on every typed character while enabled.
     on_type:             On_Type_Proc,
     on_type_data:        rawptr,
     on_type_enabled:     bool,
-    // Dwell tracking: the spot the cursor settled on and when. hover_probe_offset
-    // is the byte offset a request was fired for (-1 = none), so a still cursor
-    // fires exactly once until it moves again. hover_mod_down is the previous
-    // frame's modifier state, so toggling it restarts the dwell.
+    // Hover dwell: where and when the cursor settled, the offset last asked
+    // about (-1 = none) and last frame's modifier state.
     hover_probe_pos:     ui.Vec2,
     hover_probe_time:    f64,
     hover_probe_offset:  int,
     hover_mod_down:      bool,
-    // Shown popup: text and the byte range it describes, set by editor_show_hover
-    // when a result lands. text is an owned clone. hover_accent tints the border
-    // when the popup carries a diagnostic; a zero color leaves it the default.
+    // The hover popup, set by editor_show_hover. hover_text is owned; a zero
+    // hover_accent keeps the default border.
     hover_active:        bool,
     hover_text:          string,
     hover_start:         int,
     hover_end:           int,
     hover_accent:        ui.Color,
     hover_revision:      u64,
-    // Signature-help popup: the enclosing call's signature, shown above the caret
-    // on explicit request (not a mouse dwell) and dismissed on Escape, a caret
-    // jump, or when focus leaves the pane. Owned text clone.
+    // The signature popup above the caret. Escape, a caret jump or a focus loss
+    // closes it. signature_text is owned.
     signature_active:    bool,
     signature_text:      string,
     signature_anchor:    int,
     signature_revision:  u64,
-    // recenter (Ctrl+Shift+J): repeated presses cycle the caret line
-    // center/top/bottom. Phase resets when the caret moves.
+    // Recenter cycle (center, top, bottom); it starts again when the caret moves.
     recenter_phase:     int,
     recenter_caret:     int,
-    // Relative-line jump being typed: the digits pressed while alt is held make
-    // one count, and the move runs when alt is released. jump_active separates a
-    // pending 0 from no count at all.
+    // Relative-line jump: the digits typed while alt is held, run on alt release.
     jump_active:        bool,
     jump_count:         int,
     jump_up:            bool,
-    // Autocompletion popup, shown while typing a word: buffer words (textual) or,
-    // for a backend-backed language, semantic candidates. Row strings are owned
-    // clones.
+    // The completion popup. Row strings are owned.
     completion_active:   bool,
     completion_rows:     [dynamic]Completion_Item,
     completion_selected: int,
     completion_prefix:   int, // byte length of the already-typed prefix
-    // What the list was built from, so typing one more character of the same word
-    // narrows it instead of asking again. `full` says the list holds every match
-    // rather than the first COMPLETION_MAX_ITEMS, which is what makes narrowing
-    // exact — a semantic list only claims it when its backend called the list
-    // complete.
+    // What the list was built from, so one more typed character narrows it.
+    // `full`: the list holds every match, not the first COMPLETION_MAX_ITEMS.
     completion_full:     bool,
     completion_word:     string, // owned, the prefix the list was built for
     completion_start:    int,    // byte offset of that word
     completion_rev:      u64,    // state revision it was built at
     completion_size:     int,    // document length at that revision
     completion_choice:   bool,   // the rows are the choices of the active snippet stop
-    // Live snippet session, from an accepted candidate whose insert was a
-    // template. Stops are absolute byte offsets, kept current by the typed delta
-    // alone — every other kind of edit ends the session (see editor_snippet_sync).
+    // Live snippet session. Stops are byte offsets moved by typing; any other edit
+    // ends the session (editor_snippet_sync).
     snippet_active: bool,
     snippet_stops:  [dynamic]snippet.Stop, // owned
     snippet_snip:   snippet.Snippet,       // owned; the transforms and choices of the session
@@ -1779,12 +1723,8 @@ Narrow_Result :: enum {
     Empty,  // narrowed to nothing, and a scan would find nothing either
 }
 
-// Drops the candidates that no longer match after one more character of the same
-// word was typed. Every word matching the longer prefix matches the shorter one,
-// so this is exact — as long as the list was complete, and as long as the only
-// edit since was the typed characters, which the revision and length checks prove.
-// A candidate that named the range it replaces has that range moved by the same
-// characters, which landed where the word ended.
+// Drops the candidates that no longer match the longer prefix, and moves each
+// named range by the typed characters. Exact only for a full list.
 @(private = "file")
 editor_narrow_completion :: proc(editor: ^Editor, txt: string, start: int, prefix: string) -> Narrow_Result {
     grown := len(prefix) - len(editor.completion_word)
@@ -1821,11 +1761,8 @@ editor_narrow_completion :: proc(editor: ^Editor, txt: string, start: int, prefi
     return kept == 0 ? .Empty : .Kept
 }
 
-// Puts the selected candidate in the buffer: its own text over its own range
-// when it named them, otherwise the remainder of the word past the typed prefix.
-// A snippet template opens a session instead of landing as it is written. The
-// owner is told afterwards, with where the text went, so it can apply whatever
-// the row could not carry.
+// Inserts the selected candidate over its range, or past the typed prefix. A
+// snippet opens a session. Then calls on_completion_accept.
 @(private = "file")
 editor_accept_completion :: proc(editor: ^Editor) {
     if !editor.completion_active || len(editor.completion_rows) == 0 {

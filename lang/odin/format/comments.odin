@@ -1,8 +1,5 @@
-// Comment interleaving. The parser appends every comment group it sees —
-// free-floating, leading-doc or trailing — to ast.File.comments in source
-// order, so a single position cursor over that list plus the ordinary node
-// walk is enough: the visitor never reads a node's own .docs/.comment field,
-// it just asks the cursor to catch up to the position it is about to print.
+// Comment interleaving: one cursor over ast.File.comments, in source order, that
+// the visitor moves up to each position it prints. Node .docs/.comment are not read.
 package odinfmt
 
 import "core:odin/ast"

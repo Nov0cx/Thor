@@ -281,14 +281,9 @@ shape_line_run :: proc(family: ^Font_Family, line: string, run: Shape_Run) -> ([
     return shape_into(shape_buffer, family.hb_font, line, run, features)
 }
 
-// Places one shaped line; false when the family/size has no shaping data, so the
-// caller falls back to the codepoint path. Advances come from Shaped_Glyph, not
-// HarfBuzz, to stay aligned with the atlas. Cached by (family, size, ligatures,
-// line content), which assumes family.shaped/hb_font never change after startup:
-// a runtime atlas rebake must call shape_cache_clear or this keeps serving stale
-// glyph rects. The returned slice is cache-owned — valid until its entry is
-// evicted, not merely until the next call — so the caller must not mutate or
-// free it.
+// Places one shaped line; false when the family has no shaping data. Cached by
+// family, size, ligatures and text; an atlas rebake must call shape_cache_clear.
+// The slice is cache-owned until its entry is evicted: do not change or free it.
 @(private = "file")
 shape_place_line :: proc(family: ^Font_Family, font: rl.Font, size: i32, line: string) -> ([]Placed_Glyph, bool) {
     if family == nil || family.hb_font == nil {

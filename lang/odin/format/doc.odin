@@ -1,13 +1,6 @@
-// A Wadler-style pretty-printing document: build once from the AST, then
-// render with a width-aware fits check. A Group renders flat (spaces, no
-// newlines) when it fits the remaining width, else broken (its Lines become
-// newlines); nested groups measure and decide independently, so a call that
-// fits still hugs one line inside an outer struct literal that had to break.
-//
-// A group's fits check measures the group alone, never the text that follows
-// it on the same line, so `foo(a, b) or_return` keeps the call flat even when
-// the tail crosses character_width. A full check needs a rest-of-document work
-// list; this one only ever under-breaks, and never emits wrong code.
+// A Wadler-style document built from the AST. A Group renders flat when it fits
+// the rest of the line, else its Lines break; each nested group decides alone.
+// The fits check measures the group only, not the text after it on the line.
 package odinfmt
 
 import "core:strings"

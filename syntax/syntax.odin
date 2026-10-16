@@ -277,14 +277,9 @@ Fold_Range :: struct {
     end_line:   int,
 }
 
-// Parses `source` and derives foldable line ranges from the syntax tree: any
-// node spanning more than one line is a candidate, keeping the widest region per
-// starting line (so `foo :: proc(...) {` and its `block` fold as one). Grammar-
-// agnostic — every compiled language folds with no per-language rules. The root
-// node is skipped so the whole file is never a single fold. `path` names the
-// buffer, as for `highlight` — folding runs right after it on the same source,
-// so it reuses that very tree. Ascending by start line, using `allocator`; empty
-// when the grammar is unknown or parsing fails.
+// Foldable line ranges of `source`: each node over more than one line, the
+// widest per start line, the root excluded. Reuses the tree `highlight` made for
+// `path`. Ascending by start line; empty when the grammar is unknown or the parse fails.
 fold_ranges :: proc(h: ^Highlighter, path, source, lang_id: string, allocator := context.allocator) -> []Fold_Range {
     entry, ok := h.languages[lang_id]
     if !ok {

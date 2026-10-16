@@ -62,12 +62,8 @@ color_on :: proc(background: ui.Color) -> ui.Color {
     return COLOR_ON_LIGHT
 }
 
-// `color` moved away from the label `color_on` picks for it: a light color gets
-// lighter, a dark one darker, by `amount` (0 to 1). The hue stays, so a hover or
-// pressed state keeps the accent's own color instead of jumping to another role,
-// and contrast against that label only improves. Some accents are marginal at
-// rest (solarized-dark reads 4.62 either way), so a state that moved toward the
-// label would drop below AA.
+// `color` moved away from its color_on label by `amount` (0 to 1): a light color
+// gets lighter, a dark one darker. The hue stays, and the label contrast only grows.
 color_shade :: proc(color: ui.Color, amount: f32) -> ui.Color {
     factor := color_on(color) == COLOR_ON_DARK ? amount : -amount
     shaded := from_rl(rl.ColorBrightness(to_rl(color), factor))
