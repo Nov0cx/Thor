@@ -27,6 +27,8 @@ Every plugin runs in its own environment inside one shared Lua state:
   spends resumed counts against the call that resumed it. The budget error
   cannot be caught: `pcall`, `xpcall` and `coroutine.resume` raise it again, so
   it ends the whole call. Every other error they catch as usual.
+- All plugins share one Lua state, and it may hold 256 MiB. An allocation past
+  that fails with `not enough memory`, which `pcall` catches like any other error.
 - `setmetatable` refuses a metatable with a `__gc` entry. A finaliser would run
   outside the budget.
 - A list the host reads back — lexer spans, menu entries, picker items, panel

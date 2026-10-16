@@ -339,6 +339,26 @@ test_sandbox_stops_runaway_plugin :: proc(t: ^testing.T) {
     testing.expectf(t, elapsed < 4 * CALL_BUDGET, "stopped too late: %v", elapsed)
 }
 
+// A plugin that allocates past the cap fails, and the state stays usable.
+@(test)
+test_sandbox_caps_memory :: proc(t: ^testing.T) {
+    r: Recorder
+    recorder_init(&r)
+    defer recorder_destroy(&r)
+    m: Manager
+    recording_manager(&m, &r)
+    defer manager_destroy(&m)
+    m.mem_cap = m.mem_used + 16 * 1024 * 1024
+
+    hog := `local parts = {}
+for i = 1, 64 do parts[i] = string.rep("x", 1024 * 1024) .. i end`
+    testing.expect(t, !manager_load_source(&m, "hog", "plugins/hog", hog, {}), "the allocation past the cap succeeded")
+    testing.expect(t, m.mem_used <= m.mem_cap, "the state holds more than its cap")
+    lua.gc(m.state, lua.GCCOLLECT)
+    testing.expect(t, manager_load_source(&m, "after", "plugins/after", `thor.print("still here")`, {}), "the state broke after the memory error")
+    testing.expect(t, strings.contains(strings.to_string(r.output), "still here"), "the next plugin did not run")
+}
+
 // A Lua hook is per thread, so a coroutine gets its own; a runaway loop inside
 // one is cut off like any other. The plugin cannot catch the budget error: it
 // ends the whole call.

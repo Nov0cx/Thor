@@ -193,6 +193,11 @@ Manager :: struct {
     // re-logged. Keys and sources owned; dies with the manager, so editing a
     // plugin's .scm while Thor runs takes effect on the next reload.
     query_files:  map[string]Query_File,
+    // Bytes the Lua state holds, and the most it may hold (see lua_alloc).
+    mem_used:     uint,
+    mem_cap:      uint,
+    // The logger of the context manager_init ran under, for lua_panic.
+    logger:       runtime.Logger,
 }
 
 @(private)
@@ -234,7 +239,10 @@ manager_set_host :: proc(m: ^Manager, host: Host) {
 // capture its address as a Lua upvalue.
 manager_init :: proc(m: ^Manager) {
     m.allocator = context.allocator
-    m.state = lua.L_newstate()
+    m.mem_cap = MEMORY_CAP
+    m.logger = context.logger
+    m.state = lua.newstate(lua_alloc, m)
+    lua.atpanic(m.state, lua_panic)
     (^rawptr)(lua.getextraspace(m.state))^ = m
     open_safe_libs(m.state)
     m.highlighter = syntax.highlighter_create()
@@ -305,6 +313,39 @@ manager_destroy :: proc(m: ^Manager) {
         lua.close(m.state)
         m.state = nil
     }
+}
+
+// Most memory the Lua state shared by all plugins may hold.
+MEMORY_CAP :: 256 * 1024 * 1024
+
+// The Lua allocator. It refuses a grow past m.mem_cap, which Lua raises as a memory error.
+@(private)
+lua_alloc :: proc "c" (ud: rawptr, ptr: rawptr, osize, nsize: c.size_t) -> rawptr {
+    m := (^Manager)(ud)
+    // With a nil ptr, osize is a type tag, not a size.
+    old := ptr == nil ? 0 : uint(osize)
+    if nsize == 0 {
+        runtime.heap_free(ptr)
+        m.mem_used -= old
+        return nil
+    }
+    if uint(nsize) > old && m.mem_used - old + uint(nsize) > m.mem_cap {
+        return nil
+    }
+    block := runtime.heap_resize(ptr, int(nsize))
+    if block != nil {
+        m.mem_used = m.mem_used - old + uint(nsize)
+    }
+    return block
+}
+
+// Logs an error raised outside a protected call. Lua aborts when it returns.
+@(private)
+lua_panic :: proc "c" (L: ^lua.State) -> c.int {
+    context = runtime.default_context()
+    context.logger = (^Manager)((^rawptr)(lua.getextraspace(L))^).logger
+    log.errorf("plugin: unprotected Lua error: %s", lua.tostring(L, -1))
+    return 0
 }
 
 // Length of the list at `idx`, with no `__len` call: the host reads a plugin's

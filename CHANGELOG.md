@@ -1,6 +1,7 @@
 # 2026.10.6
 
 - Panels and scroll areas clip their content on a scaled display (125 % and up, Retina). The clip was scaled a second time.
+- Plugins share a memory limit of 256 MiB. A plugin that allocates past it fails with `not enough memory`, and the editor keeps running.
 
 # 2026.10.5
 
