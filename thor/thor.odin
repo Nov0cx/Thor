@@ -298,6 +298,11 @@ Thor :: struct {
     finished_updates: [dynamic]^Update_Job,
     finished_outside_stats: [dynamic]^Outside_Stat_Job,
     finished_md_images: [dynamic]^Md_Image_Job,
+    finished_plugin_execs: [dynamic]^Plugin_Exec_Job,
+    // Reaped thor.exec results waiting for the run loop to call their plugin. Owned.
+    plugin_exec_results: [dynamic]^Plugin_Exec_Job,
+    // The id the last thor.exec with a callback got; unique for the process.
+    plugin_exec_next: u64,
     // The tab a "could not be saved, close it?" prompt asks about, and the text
     // of the prompt. The file is borrowed; nil when the tab is gone.
     close_prompt_file: ^Open_File,
@@ -715,6 +720,7 @@ init :: proc() -> ^Thor {
     thor.finished_saves = make([dynamic]^Save_Job)
     thor.finished_git = make([dynamic]^Git_Status_Job)
     thor.finished_git_ops = make([dynamic]^Git_Op_Job)
+    thor.finished_plugin_execs = make([dynamic]^Plugin_Exec_Job)
     thor.finished_file_ops = make([dynamic]^File_Op_Job)
     thor.finished_shells = make([dynamic]^Shell_Detect_Job)
     thor.finished_file_index = make([dynamic]^File_Index_Job)
@@ -937,6 +943,7 @@ run :: proc(thor: ^Thor) {
         // it can start replaces the files the frame below would draw from.
         thor_poll_update(thor)
         font.pump_async()
+        thor_dispatch_plugin_execs(thor)
         plugin.manager_dispatch_tick(&thor.plugins)
         thor_sync_active_pane(thor)
 
@@ -976,6 +983,7 @@ shutdown :: proc(thor: ^Thor) {
     // archive; asked to stop, it gives up after the current slice.
     thor_cancel_update(thor)
     thor_drain_io(thor)
+    thor_free_plugin_execs(thor)
 
     for file in thor.open_files {
         thor_free_open_file(file, thor)

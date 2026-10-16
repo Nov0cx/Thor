@@ -21,6 +21,8 @@ Recorder :: struct {
     labels:    [dynamic]string,
     depth:     int, // of the last rendered tree
     count:     int, // nodes in the last rendered tree
+    exec_ids:  u64, // the last id rec_exec_async gave
+    command:   string, // owned; the last command rec_exec_async got
 }
 
 @(private = "file")
@@ -53,6 +55,16 @@ recorder_destroy :: proc(r: ^Recorder) {
         delete(label)
     }
     delete(r.labels)
+    delete(r.command)
+}
+
+@(private = "file")
+rec_exec_async :: proc(host: rawptr, command: string) -> u64 {
+    r := cast(^Recorder) host
+    delete(r.command)
+    r.command = strings.clone(command)
+    r.exec_ids += 1
+    return r.exec_ids
 }
 
 @(private = "file")
@@ -129,6 +141,7 @@ recording_manager :: proc(m: ^Manager, r: ^Recorder) {
         write        = rec_write,
         panel        = rec_panel,
         panel_render = rec_panel_render,
+        exec_async   = rec_exec_async,
     })
 }
 
@@ -337,6 +350,29 @@ test_sandbox_stops_runaway_plugin :: proc(t: ^testing.T) {
     testing.expect(t, !ok, "runaway plugin reported as failed")
     testing.expectf(t, elapsed >= CALL_BUDGET, "stopped too early: %v", elapsed)
     testing.expectf(t, elapsed < 4 * CALL_BUDGET, "stopped too late: %v", elapsed)
+}
+
+// thor.exec with a callback returns at once; the callback gets the output and the code once.
+@(test)
+test_sandbox_exec_async_calls_back :: proc(t: ^testing.T) {
+    r: Recorder
+    recorder_init(&r)
+    defer recorder_destroy(&r)
+    m: Manager
+    recording_manager(&m, &r)
+    defer manager_destroy(&m)
+
+    source := `thor.exec("git status", function(out, code) thor.print("got " .. out .. " " .. code) end)
+thor.print("returned")`
+    testing.expect(t, manager_load_source(&m, "async", "plugins/async", source, {.Exec}), "the plugin failed to load")
+    testing.expect_value(t, r.command, "git status")
+    testing.expect_value(t, strings.to_string(r.output), "returned\n")
+
+    manager_exec_done(&m, r.exec_ids + 1, "stale", 1)
+    manager_exec_done(&m, r.exec_ids, "clean", 0)
+    manager_exec_done(&m, r.exec_ids, "again", 0)
+    testing.expect_value(t, strings.to_string(r.output), "returned\ngot clean 0\n")
+    testing.expect_value(t, len(m.exec_pending), 0)
 }
 
 // A plugin that allocates past the cap fails, and the state stays usable.

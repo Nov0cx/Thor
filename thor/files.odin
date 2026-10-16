@@ -1306,12 +1306,17 @@ thor_process_io :: proc(thor: ^Thor) {
     file_index := make([dynamic]^File_Index_Job, context.temp_allocator)
     updates := make([dynamic]^Update_Job, context.temp_allocator)
     md_images := make([dynamic]^Md_Image_Job, context.temp_allocator)
+    plugin_execs := make([dynamic]^Plugin_Exec_Job, context.temp_allocator)
 
     sync.lock(&thor.io_mutex)
     for job in thor.finished_md_images {
         append(&md_images, job)
     }
     clear(&thor.finished_md_images)
+    for job in thor.finished_plugin_execs {
+        append(&plugin_execs, job)
+    }
+    clear(&thor.finished_plugin_execs)
     for job in thor.finished_loads {
         append(&loads, job)
     }
@@ -1357,6 +1362,7 @@ thor_process_io :: proc(thor: ^Thor) {
     for job in shells {
         thor_apply_shell_profiles(thor, job)
     }
+    thor_reap_plugin_execs(thor, plugin_execs[:])
 
     thor_process_terminals(thor)
 

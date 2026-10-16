@@ -2,6 +2,7 @@
 
 - Panels and scroll areas clip their content on a scaled display (125 % and up, Retina). The clip was scaled a second time.
 - Plugins share a memory limit of 256 MiB. A plugin that allocates past it fails with `not enough memory`, and the editor keeps running.
+- `thor.exec(command, fn)` runs a command without holding the frame and calls `fn(output, code)` when it ends.
 
 # 2026.10.5
 

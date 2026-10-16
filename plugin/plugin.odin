@@ -51,6 +51,9 @@ Doc_Proc :: #type proc(host: rawptr, path: string, text: string, focus: bool)
 // stop the command after `timeout`, which holds the frame no longer than the
 // budget hook would.
 Exec_Proc :: #type proc(host: rawptr, command: string, timeout: time.Duration) -> string
+// Starts `command` in the workspace off the frame and returns an id unique for
+// the process. The host hands the result back through manager_exec_done.
+Exec_Async_Proc :: #type proc(host: rawptr, command: string) -> u64
 // Adds a top-bar button labelled `label` that runs the named command on click.
 Button_Proc :: #type proc(host: rawptr, label: string, command: string)
 // Returns the workspace directory (absolute). The host owns the string.
@@ -100,6 +103,7 @@ Host :: struct {
     keybind:     Keybind_Proc,
     doc:         Doc_Proc,
     exec:        Exec_Proc,
+    exec_async:  Exec_Async_Proc,
     button:      Button_Proc,
     workspace:   Workspace_Proc,
     data_root:   Data_Root_Proc,
@@ -139,6 +143,7 @@ Manager :: struct {
     keybind_proc:     Keybind_Proc,
     doc_proc:         Doc_Proc,
     exec_proc:        Exec_Proc,
+    exec_async_proc:  Exec_Async_Proc,
     button_proc:      Button_Proc,
     workspace_proc:   Workspace_Proc,
     data_root_proc:   Data_Root_Proc,
@@ -193,6 +198,8 @@ Manager :: struct {
     // re-logged. Keys and sources owned; dies with the manager, so editing a
     // plugin's .scm while Thor runs takes effect on the next reload.
     query_files:  map[string]Query_File,
+    // Callbacks of running thor.exec calls, by the id the host gave them. Owned refs.
+    exec_pending: map[u64]Callback,
     // Bytes the Lua state holds, and the most it may hold (see lua_alloc).
     mem_used:     uint,
     mem_cap:      uint,
@@ -213,6 +220,7 @@ manager_set_host :: proc(m: ^Manager, host: Host) {
     m.keybind_proc = host.keybind
     m.doc_proc = host.doc
     m.exec_proc = host.exec
+    m.exec_async_proc = host.exec_async
     m.button_proc = host.button
     m.workspace_proc = host.workspace
     m.data_root_proc = host.data_root
@@ -256,6 +264,7 @@ manager_init :: proc(m: ^Manager) {
     m.commands = make(map[string]Callback)
     m.panel_refs = make(map[string][dynamic]Callback)
     m.query_files = make(map[string]Query_File)
+    m.exec_pending = make(map[u64]Callback)
     ts_init(m)
 }
 
@@ -307,6 +316,10 @@ manager_destroy :: proc(m: ^Manager) {
         delete(qf.source)
     }
     delete(m.query_files)
+    for _, cb in m.exec_pending {
+        unref(m, cb.ref)
+    }
+    delete(m.exec_pending)
     ts_destroy(m)
     syntax.highlighter_destroy(&m.highlighter)
     if m.state != nil {
@@ -750,22 +763,56 @@ api_doc :: proc "c" (L: ^lua.State) -> c.int {
     return 0
 }
 
-// thor.exec(command): runs `command` in the workspace, returning its combined
-// stdout+stderr as a string. Blocks until it exits or the call budget runs out,
-// whichever comes first. Needs the `exec` permission.
+// thor.exec(command [, fn]): runs `command` in the workspace. With no `fn` it
+// blocks until the command exits or the call budget runs out, and returns the
+// combined stdout+stderr. With `fn` it returns at once, and `fn(output, code)`
+// runs on a later frame. Needs the `exec` permission.
 @(private)
 api_exec :: proc "c" (L: ^lua.State) -> c.int {
     context = runtime.default_context()
-    m, _ := caller(L)
-    if m == nil || m.exec_proc == nil || lua.type(L, 1) != .STRING {
+    m, index := caller(L)
+    if m == nil || lua.type(L, 1) != .STRING {
         lua.pushstring(L, "")
         return 1
     }
     context.allocator = m.allocator
+    if lua.isfunction(L, 2) {
+        if m.exec_async_proc == nil {
+            return 0
+        }
+        id := m.exec_async_proc(m.host, string(lua.tostring(L, 1)))
+        lua.pushvalue(L, 2)
+        m.exec_pending[id] = Callback {index, int(lua.L_ref(L, lua.REGISTRYINDEX))}
+        return 0
+    }
+    if m.exec_proc == nil {
+        lua.pushstring(L, "")
+        return 1
+    }
     out := m.exec_proc(m.host, string(lua.tostring(L, 1)), budget_left(m))
     push_string(L, out)
     delete(out) // host-owned result, freed after copying into Lua
     return 1
+}
+
+// Runs the callback of the thor.exec call `id` with the command's output and
+// exit code, then releases it. An id no pending call holds is ignored.
+manager_exec_done :: proc(m: ^Manager, id: u64, output: string, code: int) {
+    cb, found := m.exec_pending[id]
+    if !found {
+        return
+    }
+    delete_key(&m.exec_pending, id)
+    L := m.state
+    lua.rawgeti(L, lua.REGISTRYINDEX, lua.Integer(cb.ref))
+    if lua.isfunction(L, -1) {
+        push_string(L, output)
+        lua.pushinteger(L, lua.Integer(code))
+        call_guarded(m, L, cb.owner, 2, 0, "exec callback")
+    } else {
+        lua.pop(L, 1)
+    }
+    unref(m, cb.ref)
 }
 
 // thor.button(label, command): adds a top-bar button that runs the named

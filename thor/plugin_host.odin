@@ -1,9 +1,12 @@
 package thor
 
+import "base:runtime"
 import "core:log"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
+import "core:sync"
+import "core:thread"
 import "core:time"
 
 import "../atomicfile"
@@ -42,6 +45,7 @@ thor_set_plugin_host :: proc(thor: ^Thor) {
         keybind      = thor_plugin_keybind,
         doc          = thor_plugin_doc,
         exec         = thor_plugin_exec,
+        exec_async   = thor_plugin_exec_async,
         button       = thor_plugin_button,
         workspace    = thor_plugin_workspace,
         data_root    = thor_plugin_data_root,
@@ -151,6 +155,98 @@ thor_plugin_doc :: proc(host: rawptr, path: string, text: string, focus: bool) {
 thor_plugin_exec :: proc(host: rawptr, command: string, timeout: time.Duration) -> string {
     thor := cast(^Thor) host
     return shell.run(command, thor.workspace_dir, timeout)
+}
+
+// Longest a thor.exec with a callback may run before it is stopped.
+PLUGIN_EXEC_TIMEOUT :: 120 * time.Second
+
+// A thor.exec with a callback, run on a worker thread.
+Plugin_Exec_Job :: struct {
+    owner:     ^Thor,
+    allocator: runtime.Allocator,
+    worker:    ^thread.Thread,
+    id:        u64,
+    command:   string, // owned
+    cwd:       string, // owned
+    output:    string, // owned
+    code:      int,
+}
+
+// thor.exec(command, fn): starts `command` in the workspace on a worker thread.
+// The result reaches the plugin through thor_dispatch_plugin_execs.
+thor_plugin_exec_async :: proc(host: rawptr, command: string) -> u64 {
+    thor := cast(^Thor) host
+    thor.plugin_exec_next += 1
+    job := new(Plugin_Exec_Job)
+    job.owner = thor
+    job.allocator = context.allocator
+    job.id = thor.plugin_exec_next
+    job.command = strings.clone(command)
+    job.cwd = strings.clone(thor.workspace_dir)
+    thor.inflight_jobs += 1
+    job.worker = thread.create_and_start_with_poly_data(job, plugin_exec_worker)
+    return job.id
+}
+
+@(private = "file")
+plugin_exec_worker :: proc(job: ^Plugin_Exec_Job) {
+    context.allocator = job.allocator
+    defer free_all(context.temp_allocator)
+    ok: bool
+    job.output, job.code, ok = shell.run_status(job.command, job.cwd, PLUGIN_EXEC_TIMEOUT)
+    if !ok && job.code == 0 {
+        job.code = -1
+    }
+    sync.lock(&job.owner.io_mutex)
+    append(&job.owner.finished_plugin_execs, job)
+    sync.unlock(&job.owner.io_mutex)
+}
+
+// Joins finished thor.exec workers and queues them for thor_dispatch_plugin_execs.
+// Runs no Lua, so it is safe inside thor_process_io.
+thor_reap_plugin_execs :: proc(thor: ^Thor, jobs: []^Plugin_Exec_Job) {
+    for job in jobs {
+        thread.join(job.worker)
+        thread.destroy(job.worker)
+        job.worker = nil
+        append(&thor.plugin_exec_results, job)
+        thor.inflight_jobs -= 1
+    }
+}
+
+// Hands each reaped thor.exec result to its plugin callback. Called from the run
+// loop beside the tick dispatch. A result from before a plugin reload finds no
+// callback, since ids are unique for the process.
+thor_dispatch_plugin_execs :: proc(thor: ^Thor) {
+    if len(thor.plugin_exec_results) == 0 {
+        return
+    }
+    results := thor.plugin_exec_results
+    thor.plugin_exec_results = make([dynamic]^Plugin_Exec_Job)
+    for job in results {
+        plugin.manager_exec_done(&thor.plugins, job.id, job.output, job.code)
+        plugin_exec_free(job)
+    }
+    delete(results)
+}
+
+// Frees every reaped thor.exec result no callback took. Called at shutdown.
+thor_free_plugin_execs :: proc(thor: ^Thor) {
+    for job in thor.plugin_exec_results {
+        plugin_exec_free(job)
+    }
+    delete(thor.plugin_exec_results)
+    thor.plugin_exec_results = nil
+    delete(thor.finished_plugin_execs)
+    thor.finished_plugin_execs = nil
+}
+
+@(private = "file")
+plugin_exec_free :: proc(job: ^Plugin_Exec_Job) {
+    delete(job.command)
+    delete(job.cwd)
+    delete(job.output)
+    free(job)
 }
 
 // thor.workspace(): the absolute path of the open workspace directory.
