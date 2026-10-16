@@ -4,6 +4,7 @@
 - Plugins share a memory limit of 256 MiB. A plugin that allocates past it fails with `not enough memory`, and the editor keeps running.
 - `thor.exec(command, fn)` runs a command without holding the frame and calls `fn(output, code)` when it ends.
 - A message a language server sends to the user shows in the statusline, and its log lines go to the editor log.
+- A language server that asks for one section of its `settings` gets that section. It got the whole object.
 
 # 2026.10.5
 

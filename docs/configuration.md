@@ -159,7 +159,7 @@ does not claim its extensions, so it never competes with one that is on.
 | `enabled` | `false` starts the entry switched off: it stops claiming its extensions, so another entry can take the language over, and it still lists in Settings where it can be switched back on |
 | `cwd` | Working directory; empty is the project root |
 | `env` | An object of `"KEY": "value"` pairs added to the environment |
-| `initialization_options`, `settings` | JSON passed to the server as its initialization options and its configuration. `init_options` is accepted as an older spelling of the first |
+| `initialization_options`, `settings` | JSON passed to the server as its initialization options and its configuration. `init_options` is accepted as an older spelling of the first. A server that asks for one section of `settings` (`"gopls"`, `"gopls.ui"`) gets that part, or all of it when the first name is not a key |
 | `install` | Install command per platform — `windows`, `darwin`, `linux`, or `any` for one that fits all three. What the panel's **Install It** button runs |
 | `docs_url` | The server's own install page, opened by the **Documentation** button |
 | `setup_command` | A plugin command offered as **Set Up This Project**; `clangd` names the `compile-commands` plugin's |

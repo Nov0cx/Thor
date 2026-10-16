@@ -499,7 +499,7 @@ test_server_answers_configuration :: proc(t: ^testing.T) {
         &f.mock,
         `{"jsonrpc":"2.0","id":900,"method":"workspace/configuration","params":{"items":[{"section":"fake"},{"section":"other"}]}}`,
     )
-    testing.expect(t, wait_sent(&f, `[{"fake":{"level":2}},{"fake":{"level":2}}]`), "configuration went unanswered")
+    testing.expect(t, wait_sent(&f, `[{"level":2},{"fake":{"level":2}}]`), "configuration went unanswered")
 
     mock_frame(&f.mock, `{"jsonrpc":"2.0","id":901,"method":"workspace/workspaceFolders"}`)
     testing.expect(t, wait_sent(&f, `[{"uri":"` + WORKSPACE_URI + `","name":"ws"}]`), "workspaceFolders went unanswered")

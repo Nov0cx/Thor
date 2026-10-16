@@ -624,21 +624,9 @@ conn_answer :: proc(c: ^Conn, method: string, id_value: json.Value, params: json
         applied := c.answers.apply_edit != nil && c.answers.apply_edit(c.answers.apply_edit_data, params)
         envelope_response(&out, id, applied ? `{"applied":true}` : `{"applied":false}`)
     case "workspace/configuration":
-        // Every item gets the same answer: the server's configured settings.
-        // Which section an item asks for is not read, because the config carries
-        // one object per server and not one per section.
-        settings := c.answers.settings == "" ? "null" : c.answers.settings
-        answer := make([dynamic]u8, c.allocator)
-        defer delete(answer)
-        append(&answer, "[")
-        for index in 0 ..< configuration_items(params) {
-            if index > 0 {
-                append(&answer, ",")
-            }
-            append(&answer, settings)
-        }
-        append(&answer, "]")
-        envelope_response(&out, id, string(answer[:]))
+        answer := configuration_answer(c.answers.settings, params, c.allocator)
+        defer delete(answer, c.allocator)
+        envelope_response(&out, id, answer)
     case "window/showMessageRequest":
         // No action buttons, so the answer is "no action chosen".
         envelope_response(&out, id, "null")
@@ -650,19 +638,70 @@ conn_answer :: proc(c: ^Conn, method: string, id_value: json.Value, params: json
     conn_write(c, out[:])
 }
 
-// How many entries a workspace/configuration request asks for. One is assumed
-// when the shape is not the expected one, so the server still gets an answer.
+// The answer to workspace/configuration: one entry per item, the part of
+// `settings` its dotted `section` names, or null when that part is missing. An
+// item with no section gets all of `settings`, and so does a section whose first
+// name is not a key, for a config that holds the inner object itself. A request
+// of an unexpected shape gets one entry.
+@(private)
+configuration_answer :: proc(settings: string, params: json.Value, allocator := context.allocator) -> string {
+    root: json.Value
+    if settings != "" {
+        parsed, err := json.parse_string(settings, parse_integers = true, allocator = allocator)
+        if err == nil {
+            root = parsed
+        }
+    }
+    defer json.destroy_value(root, allocator)
+
+    items: json.Array
+    if object, is_object := params.(json.Object); is_object {
+        items, _ = object["items"].(json.Array)
+    }
+    answer := make([dynamic]u8, allocator)
+    append(&answer, "[")
+    for index in 0 ..< max(len(items), 1) {
+        if index > 0 {
+            append(&answer, ",")
+        }
+        section := ""
+        if index < len(items) {
+            if item, is_item := items[index].(json.Object); is_item {
+                if name, has_name := item["section"].(json.String); has_name {
+                    section = string(name)
+                }
+            }
+        }
+        text := json_text(configuration_section(root, section), allocator)
+        append(&answer, text == "" ? "null" : text)
+        delete(text, allocator)
+    }
+    append(&answer, "]")
+    return string(answer[:])
+}
+
+// The part of `root` the dotted `section` names; nil when it is missing.
 @(private = "file")
-configuration_items :: proc(params: json.Value) -> int {
-    object, is_object := params.(json.Object)
-    if !is_object {
-        return 1
+configuration_section :: proc(root: json.Value, section: string) -> json.Value {
+    if section == "" {
+        return root
     }
-    items, is_array := object["items"].(json.Array)
-    if !is_array || len(items) == 0 {
-        return 1
+    value := root
+    rest := section
+    first := true
+    for name in strings.split_iterator(&rest, ".") {
+        object, is_object := value.(json.Object)
+        if !is_object {
+            return nil
+        }
+        child, found := object[name]
+        if !found {
+            return root if first else nil
+        }
+        value = child
+        first = false
     }
-    return len(items)
+    return value
 }
 
 // The raw JSON text of an id. JSON-RPC allows a string id, and the answer must

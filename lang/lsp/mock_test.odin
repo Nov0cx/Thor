@@ -645,6 +645,37 @@ test_conn_answers_configuration_per_item :: proc(t: ^testing.T) {
     )
 }
 
+// Each item gets the part of the settings its section names.
+@(test)
+test_configuration_answer_by_section :: proc(t: ^testing.T) {
+    settings := `{"gopls":{"ui":{"hints":true},"local":"x"},"other":1}`
+    cases := [?]struct {
+        params: string,
+        want:   string,
+    } {
+        {`{"items":[{"section":"gopls"}]}`, `[{"local":"x","ui":{"hints":true}}]`},
+        {`{"items":[{"section":"gopls.ui"},{"section":"other"}]}`, `[{"hints":true},1]`},
+        {`{"items":[{"section":"gopls.missing"}]}`, `[null]`},
+        {`{"items":[{}]}`, `[{"gopls":{"local":"x","ui":{"hints":true}},"other":1}]`},
+        // A first name that is not a key: the config holds the inner object itself.
+        {`{"items":[{"section":"rust-analyzer"}]}`, `[{"gopls":{"local":"x","ui":{"hints":true}},"other":1}]`},
+        {`{}`, `[{"gopls":{"local":"x","ui":{"hints":true}},"other":1}]`},
+    }
+    for c in cases {
+        params, err := json.parse_string(c.params)
+        testing.expect(t, err == nil, c.params)
+        answer := configuration_answer(settings, params)
+        testing.expectf(t, answer == c.want, "%s: got %s, want %s", c.params, answer, c.want)
+        delete(answer)
+        json.destroy_value(params)
+    }
+    params, _ := json.parse_string(`{"items":[{"section":"a"}]}`)
+    defer json.destroy_value(params)
+    none := configuration_answer("", params)
+    defer delete(none)
+    testing.expect_value(t, none, "[null]")
+}
+
 // A reply nobody waits for is the normal end of a cancelled request, so it is
 // dropped and the reader keeps going.
 @(test)
