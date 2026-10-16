@@ -1,6 +1,7 @@
 package thor
 
 import "base:runtime"
+import "core:log"
 import "core:os"
 import "core:path/filepath"
 import "core:strconv"
@@ -23,6 +24,9 @@ Git_Status_Job :: struct {
     dir:         string, // owned copy of workspace_dir
     output:      string, // owned porcelain output, parsed and freed on the main thread
     diff_output: string, // owned `git diff HEAD` output, parsed and freed on the main thread
+    status_code: int,
+    status_ok:   bool, // git status ran and exited 0
+    diff_ok:     bool, // git diff ran and exited 0
 }
 
 // --unified=0 drops context lines, leaving just the changed ranges the gutter
@@ -103,8 +107,12 @@ git_status_worker :: proc(job: ^Git_Status_Job) {
 
     // -z complicates rename parsing; the plain porcelain format is enough for
     // highlighting, and git_unquote_path undoes the quoting -z would have avoided.
-    job.output = shell.run("git status --porcelain", job.dir)
-    job.diff_output = shell.run(job.diff_cmd, job.dir)
+    ran: bool
+    job.output, job.status_code, ran = shell.run_status("git status --porcelain", job.dir)
+    job.status_ok = ran && job.status_code == 0
+    diff_code: int
+    job.diff_output, diff_code, ran = shell.run_status(job.diff_cmd, job.dir)
+    job.diff_ok = ran && diff_code == 0
 
     sync.lock(&job.owner.io_mutex)
     append(&job.owner.finished_git, job)
@@ -112,21 +120,31 @@ git_status_worker :: proc(job: ^Git_Status_Job) {
 }
 
 // Drains a finished status job (called from thor_process_io): parses the output
-// into a fresh map and swaps it in for the old one.
+// into a fresh map and swaps it in for the old one. A failed git status keeps
+// the old map, so it does not read as a clean tree.
 thor_apply_git_status :: proc(thor: ^Thor, job: ^Git_Status_Job) {
     thread.join(job.worker)
     thread.destroy(job.worker)
 
-    status := make(map[string]Git_Status)
-    git_parse_status(thor, job.output, &status)
-    git_mark_submodules(thor, &status)
+    if job.status_ok {
+        thor.git_status_failed = false
+        status := make(map[string]Git_Status)
+        git_parse_status(thor, job.output, &status)
+        git_mark_submodules(thor, &status)
 
-    thor_clear_git_status(thor)
-    thor.git_status = status
+        thor_clear_git_status(thor)
+        thor.git_status = status
 
-    diff := make(map[string][dynamic]editview.Diff_Line_Kind)
-    git_parse_diff(thor, job.diff_output, &diff)
-    git_apply_diff(thor, &status, &diff)
+        // A repo with no commits has no HEAD to diff against: no hunks.
+        diff := make(map[string][dynamic]editview.Diff_Line_Kind)
+        if job.diff_ok {
+            git_parse_diff(thor, job.diff_output, &diff)
+        }
+        git_apply_diff(thor, &status, &diff)
+    } else if !thor.git_status_failed {
+        thor.git_status_failed = true
+        log.warnf("git status failed in %q (exit %d): %s", job.dir, job.status_code, strings.trim_space(job.output))
+    }
 
     delete(job.diff_cmd)
     delete(job.dir)

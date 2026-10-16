@@ -29,6 +29,8 @@ Terminal :: struct {
     ended:     bool,
     // The shell exited and was reported; the tab keeps its scrollback.
     dead:      bool,
+    // A write to the shell failed and was logged; one log line per session.
+    write_failed: bool,
     // When the output that just arrived is taken to have settled. A command that
     // finished may have touched the working tree, and most shells say nothing
     // about it, so the pause after the output is the signal.
@@ -84,11 +86,14 @@ thor_terminal_open_session :: proc(term: ^Terminal) -> bool {
     term.pty = pty
     term.ended = false
     term.dead = false
+    term.write_failed = false
 
     term.reader = thread.create_and_start_with_poly_data(term, thor_terminal_reader)
     for command in term.profile.init {
-        shell.pty_write(term.pty, command)
-        shell.pty_write(term.pty, "\r")
+        if !shell.pty_write(term.pty, command) || !shell.pty_write(term.pty, "\r") {
+            log.warnf("Could not send the start command %q to the %s shell", command, term.profile.name)
+            break
+        }
     }
     return true
 }
@@ -120,7 +125,16 @@ thor_terminal_write :: proc(data: rawptr, bytes: string) {
     if term.pty == nil {
         return
     }
-    shell.pty_write(term.pty, bytes)
+    thor_terminal_send(term, bytes)
+}
+
+// Writes `bytes` to the shell. The first failure in a session is logged.
+@(private = "file")
+thor_terminal_send :: proc(term: ^Terminal, bytes: string) {
+    if !shell.pty_write(term.pty, bytes) && !term.write_failed {
+        term.write_failed = true
+        log.warnf("Could not write to the %s shell", term.profile.name)
+    }
 }
 
 // Console_Resize_Proc: the panel changed size, so the shell re-wraps and a
@@ -130,7 +144,9 @@ thor_terminal_resize :: proc(data: rawptr, cols, rows: int) {
     if term.pty == nil {
         return
     }
-    shell.pty_resize(term.pty, cols, rows)
+    if !shell.pty_resize(term.pty, cols, rows) {
+        log.warnf("Could not resize the %s terminal to %dx%d", term.profile.name, cols, rows)
+    }
 }
 
 // Ends the shell and starts a fresh one on the same profile, keeping the
@@ -227,7 +243,7 @@ thor_terminal_drain_replies :: proc(term: ^Terminal) {
     }
     if pending := vt.term_take_reply(t); len(pending) > 0 {
         if term.pty != nil {
-            shell.pty_write(term.pty, string(pending))
+            thor_terminal_send(term, string(pending))
         }
         vt.term_clear_reply(t)
     }

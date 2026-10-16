@@ -349,6 +349,8 @@ Thor :: struct {
     // recomputed off-thread; git_status_inflight guards against overlapping runs.
     git_status: map[string]Git_Status,
     git_status_inflight: bool,
+    // The last git status failed and was logged; cleared by the next one that runs.
+    git_status_failed: bool,
     git_status_dirty: bool,  // a refresh was requested while one was running
     git_status_at: time.Tick,  // when the last refresh started; the watcher's rate limit
     // Git view op state (see git_ops.odin): the generation stamps every job so

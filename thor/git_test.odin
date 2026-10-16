@@ -4,6 +4,7 @@ import "core:os"
 import "core:path/filepath"
 import "core:strings"
 import "core:testing"
+import "core:thread"
 
 import "../editview"
 // Git prints repo-relative paths with forward slashes, but the explorer tree and
@@ -293,4 +294,35 @@ test_git_diff_reads_a_quoted_name :: proc(t: ^testing.T) {
     key := native("repo", "café.txt")
     _, ok := diff[git_map_key(key)]
     testing.expectf(t, ok, "no diff for %q", key)
+}
+
+@(private = "file")
+git_status_stub_worker :: proc(job: ^Git_Status_Job) {}
+
+// A git status that failed keeps the marks it had: it does not read as a clean tree.
+@(test)
+test_git_status_failure_keeps_the_old_marks :: proc(t: ^testing.T) {
+    thor := new(Thor)
+    defer free(thor)
+    thor.git_status = make(map[string]Git_Status)
+    thor.git_status[strings.clone("repo/a.odin")] = .Modified
+    defer thor_clear_git_status(thor)
+
+    job := new(Git_Status_Job)
+    job.owner = thor
+    job.allocator = context.allocator
+    job.diff_cmd = strings.clone("git diff")
+    job.dir = strings.clone("repo")
+    job.output = strings.clone("fatal: not a git repository")
+    job.status_code = 128
+    thor.git_status_inflight = true
+    thor.inflight_jobs += 1
+    job.worker = thread.create_and_start_with_poly_data(job, git_status_stub_worker)
+
+    thor_apply_git_status(thor, job)
+
+    testing.expect_value(t, len(thor.git_status), 1)
+    testing.expect(t, thor.git_status_failed, "the failure was not noted")
+    testing.expect(t, !thor.git_status_inflight)
+    testing.expect_value(t, thor.inflight_jobs, 0)
 }

@@ -7,6 +7,7 @@
 - A language server that asks for one section of its `settings` gets that section. It got the whole object.
 - A language server `command` or `cwd` given as a relative path resolves against the open folder. It resolved beside the editor binary.
 - Closing a file tells a language server turned off since it opened. Turned back on, the server reopened the closed file.
+- A failed `git status` keeps the file tree's git marks and writes the error to the log. The tree read as clean.
 
 # 2026.10.5
 
