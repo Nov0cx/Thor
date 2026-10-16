@@ -253,7 +253,7 @@ client_server_status :: proc(
             setup_command   = strings.clone(s.config.setup_command, allocator),
         }
         if probe && len(s.config.command) > 0 {
-            status.exe, status.installed = executable_find(s.config.command[0], allocator)
+            status.exe, status.installed = executable_find(s.config.command[0], s.workspace, allocator)
         }
         // The first key it claims, file names first, is the one asked about.
         first := len(s.config.filenames) > 0 ? s.config.filenames[0] : ""

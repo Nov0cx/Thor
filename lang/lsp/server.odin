@@ -516,7 +516,7 @@ server_launch :: proc(s: ^Server) -> (launched: bool, spawned: bool) {
         // The two ways a start fails read the same from here, so the message
         // names the one the user can act on: an uninstalled server.
         log.warnf("lsp: %s did not start (%v)", s.config.id, s.config.command)
-        if _, found := executable_find(s.config.command[0], context.temp_allocator); found {
+        if _, found := executable_find(s.config.command[0], s.workspace, context.temp_allocator); found {
             server_note_error(s, fmt.tprintf("%s could not be started", s.config.command[0]))
         } else {
             server_note_error(s, fmt.tprintf("%s was not found on PATH", s.config.command[0]))
@@ -1213,16 +1213,28 @@ notice_destroy :: proc(s: ^Server, notice: ^Doc_Notice) {
 // The default `open`: the configured command as a child process.
 @(private)
 server_open_child :: proc(s: ^Server) -> (Transport, bool) {
-    cmd, resolved := command_resolve(s.config.command, s.allocator)
+    cmd, resolved := command_resolve(s.config.command, s.workspace, s.allocator)
     if !resolved {
         return {}, false
     }
     defer command_destroy(&cmd)
+    cwd := s.root
+    if s.config.cwd != "" {
+        cwd = s.config.cwd
+        if s.workspace != "" && !filepath.is_abs(cwd) {
+            joined, err := filepath.join({s.workspace, cwd}, context.temp_allocator)
+            if err != nil {
+                log.warnf("lsp: %s: cannot join cwd %q to the workspace: %v", s.config.id, cwd, err)
+                return {}, false
+            }
+            cwd = joined
+        }
+    }
     return transport_child(
         shell.Child_Spec {
             exe = cmd.exe,
             args = cmd.args,
-            cwd = s.config.cwd != "" ? s.config.cwd : s.root,
+            cwd = cwd,
             env = s.config.env,
         },
     )

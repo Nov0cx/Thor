@@ -26,14 +26,22 @@ Command :: struct {
 
 // Absolute path of the program `name` names, or ok=false when nothing answers to
 // it — which is how an uninstalled server stays absent instead of failing at
-// every request. A name that holds a path separator is tested as written; a bare
-// name is searched on PATH.
-executable_find :: proc(name: string, allocator := context.allocator) -> (string, bool) {
+// every request. A name that holds a path separator is tested as written, and a
+// relative one against `base` when it is set; a bare name is searched on PATH.
+executable_find :: proc(name: string, base := "", allocator := context.allocator) -> (string, bool) {
     if name == "" {
         return "", false
     }
 
     if strings.contains(name, "/") || strings.contains(name, "\\") {
+        name := name
+        if base != "" && !filepath.is_abs(name) {
+            joined, err := filepath.join({base, name}, context.temp_allocator)
+            if err != nil {
+                return "", false
+            }
+            name = joined
+        }
         if os.is_file(name) {
             return strings.clone(name, allocator), true
         }
@@ -62,16 +70,16 @@ executable_find :: proc(name: string, allocator := context.allocator) -> (string
     return "", false
 }
 
-// The program and arguments that start `command`, with command[0] resolved on
-// PATH. A batch file is started through the command interpreter, because
+// The program and arguments that start `command`, with command[0] resolved as
+// executable_find resolves it. A batch file is started through the command interpreter, because
 // CreateProcessW cannot execute one. The arguments of a batch server are parsed
 // by that interpreter and not by the C runtime, so a '&' or a '|' in a configured
 // argument reaches it as an operator.
-command_resolve :: proc(command: []string, allocator := context.allocator) -> (Command, bool) {
+command_resolve :: proc(command: []string, base := "", allocator := context.allocator) -> (Command, bool) {
     if len(command) == 0 {
         return {}, false
     }
-    path, found := executable_find(command[0], context.temp_allocator)
+    path, found := executable_find(command[0], base, context.temp_allocator)
     if !found {
         return {}, false
     }

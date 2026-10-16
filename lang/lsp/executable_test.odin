@@ -1,6 +1,7 @@
 package lsp
 
 import "core:os"
+import "core:strings"
 import "core:testing"
 
 // Run from the repository root: odin test lang/lsp
@@ -27,6 +28,18 @@ test_executable_find_by_path :: proc(t: ^testing.T) {
     defer delete(path)
     testing.expect(t, ok)
     testing.expect_value(t, path, "./build.odin")
+}
+
+// A relative path resolves against the base, not the working directory.
+@(test)
+test_executable_find_relative_to_base :: proc(t: ^testing.T) {
+    path, ok := executable_find("./lsp/executable.odin", "lang")
+    defer delete(path)
+    testing.expect(t, ok, "the path was not found under the base")
+    testing.expect(t, strings.has_suffix(path, "executable.odin"))
+
+    _, beside := executable_find("./build.odin", "lang")
+    testing.expect(t, !beside, "a relative path resolved against the working directory")
 }
 
 // The PATH search, with the suffix a bare name needs on Windows: `cmd` is on

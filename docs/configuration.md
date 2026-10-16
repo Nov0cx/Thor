@@ -154,10 +154,10 @@ does not claim its extensions, so it never competes with one that is on.
 | `name` | What Settings calls it; the `id` when absent |
 | `extensions` | File extensions it claims, each with its leading dot |
 | `filenames` | Whole file names it claims, written out (`"Makefile"`, `"CMakeLists.txt"`) — for files with no extension, or one that names another language. Matched before `extensions` |
-| `command` | Program and arguments; the program is looked up on `PATH` when not an absolute path |
+| `command` | Program and arguments. A bare name is looked up on `PATH`; a relative path (`./bin/server`) resolves against the open folder |
 | `root_markers` | Files that mark the project root, looked for at and above the opened file; the workspace root is used when none is found. File names, never globs — each one is looked for as written |
 | `enabled` | `false` starts the entry switched off: it stops claiming its extensions, so another entry can take the language over, and it still lists in Settings where it can be switched back on |
-| `cwd` | Working directory; empty is the project root |
+| `cwd` | Working directory; empty is the project root, and a relative one resolves against the open folder |
 | `env` | An object of `"KEY": "value"` pairs added to the environment |
 | `initialization_options`, `settings` | JSON passed to the server as its initialization options and its configuration. `init_options` is accepted as an older spelling of the first. A server that asks for one section of `settings` (`"gopls"`, `"gopls.ui"`) gets that part, or all of it when the first name is not a key |
 | `install` | Install command per platform — `windows`, `darwin`, `linux`, or `any` for one that fits all three. What the panel's **Install It** button runs |

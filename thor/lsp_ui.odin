@@ -290,7 +290,7 @@ thor_lsp_probe :: proc(thor: ^Thor, id: string, command: []string) -> Lsp_Probe 
     }
     probe: Lsp_Probe
     if len(command) > 0 {
-        probe.exe, probe.installed = lsp.executable_find(command[0])
+        probe.exe, probe.installed = lsp.executable_find(command[0], thor.workspace_dir)
     }
     thor.lsp_probes[strings.clone(id)] = probe
     return probe
