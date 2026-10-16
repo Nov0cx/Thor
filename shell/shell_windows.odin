@@ -103,7 +103,10 @@ run_command_line :: proc(full: string, cwd: string, timeout: time.Duration) -> (
             win32.CloseHandle(job)
             job = nil
         }
-        win32.ResumeThread(pi.hThread)
+        if win32.ResumeThread(pi.hThread) == ~win32.DWORD(0) {
+            win32.TerminateProcess(pi.hProcess, 1)
+            return strings.clone("[shell] could not resume command\n"), -1, false
+        }
     }
 
     start := time.tick_now()

@@ -2,6 +2,7 @@
 package shell
 
 import "core:fmt"
+import "core:log"
 import "core:strings"
 import win32 "core:sys/windows"
 
@@ -92,14 +93,18 @@ pty_start :: proc(profile: Profile, cwd: string, cols, rows: int) -> (^Pty, bool
     pi: win32.PROCESS_INFORMATION
 
     // The child reads TERM to decide what it may send; ConPTY itself sets none.
-    win32.SetEnvironmentVariableW(
+    if !win32.SetEnvironmentVariableW(
         win32.utf8_to_wstring("TERM", context.temp_allocator),
         win32.utf8_to_wstring(PTY_TERM, context.temp_allocator),
-    )
-    win32.SetEnvironmentVariableW(
+    ) {
+        log.warnf("shell: could not set TERM for %s: %v", profile.name, win32.GetLastError())
+    }
+    if !win32.SetEnvironmentVariableW(
         win32.utf8_to_wstring("COLORTERM", context.temp_allocator),
         win32.utf8_to_wstring("truecolor", context.temp_allocator),
-    )
+    ) {
+        log.warnf("shell: could not set COLORTERM for %s: %v", profile.name, win32.GetLastError())
+    }
 
     cmdline := win32.utf8_to_wstring(command_line(profile), context.temp_allocator)
     wdir: win32.wstring

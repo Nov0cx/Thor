@@ -2,6 +2,7 @@
 package watch
 
 import "base:intrinsics"
+import "core:log"
 import "core:os"
 import "core:slice"
 import "core:strings"
@@ -45,6 +46,7 @@ EVENT_BUFFER :: 8 * 1024
 @(private)
 watch_start :: proc(w: ^Watcher) -> bool {
     if !os.is_dir(w.root) {
+        log.warnf("watch: %q is not a folder", w.root)
         return false
     }
     w.platform.stopping = false
@@ -52,6 +54,7 @@ watch_start :: proc(w: ^Watcher) -> bool {
 
     fd, err := linux.inotify_init1({.NONBLOCK, .CLOEXEC})
     if err != .NONE {
+        log.warnf("watch: inotify did not start (%v); polling %q", err, w.root)
         w.platform.polling = true
         return true
     }
@@ -128,10 +131,18 @@ watch_worker :: proc(w: ^Watcher) {
         // A wait that ends in a signal or an error reads `stopping` and waits
         // again; nothing is lost, the events stay queued.
         if ready, err := linux.poll(fds, POLL_TIMEOUT); err != .NONE || ready <= 0 {
+            if err != .NONE && err != .EINTR {
+                log.warnf("watch: waiting on inotify failed (%v); polling %q", err, w.root)
+                intrinsics.atomic_store(&w.platform.polling, true)
+            }
             continue
         }
         n, err := linux.read(w.platform.fd, buffer)
         if err != .NONE || n <= 0 {
+            if err != .NONE && err != .EINTR && err != .EAGAIN {
+                log.warnf("watch: reading inotify failed (%v); polling %q", err, w.root)
+                intrinsics.atomic_store(&w.platform.polling, true)
+            }
             continue
         }
         watch_consume(w, buffer[:n])
@@ -230,6 +241,7 @@ watch_add :: proc(w: ^Watcher, dir: string) -> bool {
     wd, err := linux.inotify_add_watch(w.platform.fd, path, EVENTS)
     if err != .NONE {
         if watch_exhausted(err) {
+            log.warnf("watch: out of inotify watches at %q (%v); polling %q", dir, err, w.root)
             intrinsics.atomic_store(&w.platform.polling, true)
         }
         return false

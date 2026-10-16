@@ -2,6 +2,7 @@
 package watch
 
 import "base:intrinsics"
+import "core:log"
 import "core:strings"
 import win32 "core:sys/windows"
 
@@ -40,6 +41,7 @@ watch_start :: proc(w: ^Watcher) -> bool {
         nil,
     )
     if w.platform.dir_handle == win32.INVALID_HANDLE_VALUE {
+        log.warnf("watch: cannot open %q: %v", w.root, win32.GetLastError())
         return false
     }
 
@@ -47,6 +49,7 @@ watch_start :: proc(w: ^Watcher) -> bool {
     // wait and it stays woken so the wait can't miss it.
     w.platform.stop_event = win32.CreateEventW(nil, true, false, nil)
     if w.platform.stop_event == nil {
+        log.warnf("watch: cannot make the stop event for %q: %v", w.root, win32.GetLastError())
         win32.CloseHandle(w.platform.dir_handle)
         w.platform.dir_handle = win32.INVALID_HANDLE_VALUE
         return false
@@ -57,7 +60,9 @@ watch_start :: proc(w: ^Watcher) -> bool {
 @(private)
 watch_stop :: proc(w: ^Watcher) {
     intrinsics.atomic_store(&w.platform.stopping, true)
-    win32.SetEvent(w.platform.stop_event)
+    if !win32.SetEvent(w.platform.stop_event) {
+        log.errorf("watch: cannot signal the worker for %q: %v", w.root, win32.GetLastError())
+    }
 }
 
 @(private)
@@ -82,12 +87,16 @@ watch_worker :: proc(w: ^Watcher) {
     overlapped: win32.OVERLAPPED
     overlapped.hEvent = win32.CreateEventW(nil, true, false, nil)
     if overlapped.hEvent == nil {
+        watch_fallback(w, "CreateEventW")
         return
     }
     defer win32.CloseHandle(overlapped.hEvent)
 
     for {
-        win32.ResetEvent(overlapped.hEvent)
+        if !win32.ResetEvent(overlapped.hEvent) {
+            watch_fallback(w, "ResetEvent")
+            return
+        }
         bytes: win32.DWORD
         ok := win32.ReadDirectoryChangesW(
             w.platform.dir_handle,
@@ -100,7 +109,7 @@ watch_worker :: proc(w: ^Watcher) {
             nil,
         )
         if !ok {
-            watch_fallback(w)
+            watch_fallback(w, "ReadDirectoryChangesW")
             return
         }
 
@@ -111,15 +120,21 @@ watch_worker :: proc(w: ^Watcher) {
             // stop_event (index 1) or a wait failure: cancel the pending read, then
             // block for its completion so the kernel is done writing into `buffer`
             // and `overlapped` before this frame frees them.
-            win32.CancelIo(w.platform.dir_handle)
+            if !win32.CancelIo(w.platform.dir_handle) {
+                log.warnf("watch: cannot cancel the read of %q: %v", w.root, win32.GetLastError())
+            }
             transferred: win32.DWORD
-            win32.GetOverlappedResult(w.platform.dir_handle, &overlapped, &transferred, true)
+            if !win32.GetOverlappedResult(w.platform.dir_handle, &overlapped, &transferred, true) {
+                if err := win32.GetLastError(); err != win32.ERROR_OPERATION_ABORTED {
+                    log.warnf("watch: the cancelled read of %q ended with %v", w.root, err)
+                }
+            }
             break
         }
 
         transferred: win32.DWORD
         if !win32.GetOverlappedResult(w.platform.dir_handle, &overlapped, &transferred, false) {
-            watch_fallback(w)
+            watch_fallback(w, "GetOverlappedResult")
             return
         }
         if transferred == 0 {
@@ -140,10 +155,11 @@ watch_worker :: proc(w: ^Watcher) {
 // session. The root change is the usual "events were lost" hint: it covers what
 // changed between the failure and the first snapshot.
 @(private = "file")
-watch_fallback :: proc(w: ^Watcher) {
+watch_fallback :: proc(w: ^Watcher, failed: string) {
     if intrinsics.atomic_load(&w.platform.stopping) {
         return
     }
+    log.warnf("watch: %s failed for %q (%v); polling the tree instead", failed, w.root, win32.GetLastError())
     watch_emit(w, .Modified, w.root)
     poll_worker(w, &w.platform.stopping)
 }

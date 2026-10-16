@@ -2,6 +2,7 @@
 package shell
 
 import "core:c"
+import "core:log"
 import "core:strings"
 import "core:sync"
 import "core:sys/posix"
@@ -68,7 +69,10 @@ pty_start :: proc(profile: Profile, cwd: string, cols, rows: int) -> (^Pty, bool
     }
 
     // A write to a shell that already exited must fail, not end the editor.
-    posix.signal(.SIGPIPE, auto_cast posix.SIG_IGN)
+    if rawptr(posix.signal(.SIGPIPE, auto_cast posix.SIG_IGN)) == posix.SIG_ERR {
+        log.errorf("shell: could not ignore SIGPIPE: %v", posix.errno())
+        return nil, false
+    }
 
     master := posix.posix_openpt({.RDWR, .NOCTTY})
     if master < 0 {

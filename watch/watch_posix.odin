@@ -2,6 +2,7 @@
 package watch
 
 import "base:intrinsics"
+import "core:log"
 import "core:os"
 
 // Polling watcher: no portable event interface covers a whole tree here, so the
@@ -16,6 +17,7 @@ Platform :: struct {
 watch_start :: proc(w: ^Watcher) -> bool {
     // The worker only scans, so nothing else would report an unwatchable root.
     if !os.is_dir(w.root) {
+        log.warnf("watch: %q is not a folder", w.root)
         return false
     }
     w.platform.stopping = false
