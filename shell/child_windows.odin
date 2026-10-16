@@ -54,7 +54,7 @@ child_start :: proc(spec: Child_Spec) -> (^Child, bool) {
     }
     pi: win32.PROCESS_INFORMATION
 
-    cmdline := win32.utf8_to_wstring(command_line_of(spec), context.temp_allocator)
+    cmdline := win32.utf8_to_wstring(command_line_join(spec.exe, spec.args), context.temp_allocator)
     wdir: win32.wstring
     if spec.cwd != "" {
         wdir = win32.utf8_to_wstring(spec.cwd, context.temp_allocator)
@@ -198,53 +198,6 @@ close_handles :: proc(handles: ..win32.HANDLE) {
             win32.CloseHandle(handle)
         }
     }
-}
-
-// The command line CreateProcessW parses. Quoting follows the rule the C runtime
-// parses back: an argument that is empty or holds a space, tab or quote is
-// quoted, and a run of backslashes is doubled where a quote follows it. A server
-// argument like --query-driver=C:\x y\* needs that; the shell profiles do not,
-// which is why session_windows.odin keeps a looser one of its own.
-@(private = "file")
-command_line_of :: proc(spec: Child_Spec) -> string {
-    builder := strings.builder_make(context.temp_allocator)
-    append_argument(&builder, spec.exe)
-    for arg in spec.args {
-        strings.write_byte(&builder, ' ')
-        append_argument(&builder, arg)
-    }
-    return strings.to_string(builder)
-}
-
-@(private)
-append_argument :: proc(builder: ^strings.Builder, arg: string) {
-    if arg != "" && !strings.contains_any(arg, " \t\"") {
-        strings.write_string(builder, arg)
-        return
-    }
-    strings.write_byte(builder, '"')
-    backslashes := 0
-    for index in 0 ..< len(arg) {
-        switch arg[index] {
-        case '\\':
-            backslashes += 1
-        case '"':
-            // Each backslash ahead of the quote is doubled, and the quote itself
-            // escaped, so the parser reads them as literals.
-            for _ in 0 ..< backslashes + 1 {
-                strings.write_byte(builder, '\\')
-            }
-            backslashes = 0
-        case:
-            backslashes = 0
-        }
-        strings.write_byte(builder, arg[index])
-    }
-    // A backslash run that ends the argument would escape the closing quote.
-    for _ in 0 ..< backslashes {
-        strings.write_byte(builder, '\\')
-    }
-    strings.write_byte(builder, '"')
 }
 
 // The parent's environment with `overlay` applied, as the double-NUL-terminated

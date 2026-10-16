@@ -483,11 +483,6 @@ transform_case_string :: proc(s: string, mode: Case_Transform, allocator := cont
     return strings.to_string(builder)
 }
 
-@(private = "file")
-is_word_rune :: proc(r: rune) -> bool {
-    return r == '_' || unicode.is_letter(r) || unicode.is_digit(r)
-}
-
 // One run of lines join_lines makes into one line.
 @(private = "file")
 Join_Region :: struct {

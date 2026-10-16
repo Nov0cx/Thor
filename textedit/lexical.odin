@@ -58,7 +58,7 @@ skip_ranges :: proc(txt: string, lex: Lexical) -> []Skip_Range {
             }
             append(&ranges, Skip_Range {i, end, .Comment})
             i = end
-        case is_quote_byte(b):
+        case is_quote(rune(b)):
             if end, ok := string_end(txt, i, strings.index_byte(quotes, b) >= 0); ok {
                 append(&ranges, Skip_Range {i, end, .String})
                 i = end
@@ -275,17 +275,12 @@ enclosing_pair :: proc(txt: string, ranges: []Skip_Range, pos: int) -> (open_pos
     return 0, 0, false
 }
 
-@(private)
-is_quote_byte :: proc(b: u8) -> bool {
-    return b == '"' || b == '\'' || b == '`'
-}
-
 // Partner of a quote at or just before pos: the other end of its string.
 @(private)
 find_matching_quote :: proc(txt: string, ranges: []Skip_Range, pos: int) -> (quote_pos, match_pos: int, forward, found: bool) {
     candidates := [2]int {pos, pos - 1}
     for p in candidates {
-        if p < 0 || p >= len(txt) || !is_quote_byte(txt[p]) {
+        if p < 0 || p >= len(txt) || !is_quote(rune(txt[p])) {
             continue
         }
         at := range_at(ranges, p)

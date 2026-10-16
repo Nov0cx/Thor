@@ -19,13 +19,53 @@ run_status :: proc(command: string, cwd: string, timeout: time.Duration = 0) -> 
 // the program as written. `exe` is searched on PATH when it names no directory.
 // The rest is the contract of `run_status`.
 exec_status :: proc(exe: string, args: []string, cwd: string, timeout: time.Duration = 0) -> (output: string, code: int, ok: bool) {
+    return run_command_line(command_line_join(exe, args), cwd, timeout)
+}
+
+// The command line CreateProcessW parses, in the temp allocator. Quoting follows
+// the rule the C runtime parses back: an argument that is empty or holds a space,
+// tab or quote is quoted, and a run of backslashes is doubled where a quote
+// follows it, as an argument like --query-driver=C:\x y\* needs.
+@(private)
+command_line_join :: proc(exe: string, args: []string) -> string {
     builder := strings.builder_make(context.temp_allocator)
     append_argument(&builder, exe)
     for arg in args {
         strings.write_byte(&builder, ' ')
         append_argument(&builder, arg)
     }
-    return run_command_line(strings.to_string(builder), cwd, timeout)
+    return strings.to_string(builder)
+}
+
+@(private)
+append_argument :: proc(builder: ^strings.Builder, arg: string) {
+    if arg != "" && !strings.contains_any(arg, " \t\"") {
+        strings.write_string(builder, arg)
+        return
+    }
+    strings.write_byte(builder, '"')
+    backslashes := 0
+    for index in 0 ..< len(arg) {
+        switch arg[index] {
+        case '\\':
+            backslashes += 1
+        case '"':
+            // Each backslash ahead of the quote is doubled, and the quote itself
+            // escaped, so the parser reads them as literals.
+            for _ in 0 ..< backslashes + 1 {
+                strings.write_byte(builder, '\\')
+            }
+            backslashes = 0
+        case:
+            backslashes = 0
+        }
+        strings.write_byte(builder, arg[index])
+    }
+    // A backslash run that ends the argument would escape the closing quote.
+    for _ in 0 ..< backslashes {
+        strings.write_byte(builder, '\\')
+    }
+    strings.write_byte(builder, '"')
 }
 
 // Starts the command line `full` and collects its output. The body of both

@@ -1,9 +1,7 @@
 #+build windows
 package shell
 
-import "core:fmt"
 import "core:log"
-import "core:strings"
 import win32 "core:sys/windows"
 
 // The Windows pseudo-console. ConPTY runs the console host itself and hands
@@ -106,7 +104,7 @@ pty_start :: proc(profile: Profile, cwd: string, cols, rows: int) -> (^Pty, bool
         log.warnf("shell: could not set COLORTERM for %s: %v", profile.name, win32.GetLastError())
     }
 
-    cmdline := win32.utf8_to_wstring(command_line(profile), context.temp_allocator)
+    cmdline := win32.utf8_to_wstring(command_line_join(profile.exe, profile.args), context.temp_allocator)
     wdir: win32.wstring
     if cwd != "" {
         wdir = win32.utf8_to_wstring(cwd, context.temp_allocator)
@@ -279,18 +277,3 @@ pty_destroy :: proc(pty: ^Pty) {
     free(pty)
 }
 
-// The command line CreateProcessW parses. Each part is quoted on its own: a
-// shell installed under Program Files would otherwise split into arguments.
-@(private = "file")
-command_line :: proc(profile: Profile) -> string {
-    builder := strings.builder_make(context.temp_allocator)
-    fmt.sbprintf(&builder, `"%s"`, profile.exe)
-    for arg in profile.args {
-        if strings.contains(arg, " ") {
-            fmt.sbprintf(&builder, ` "%s"`, arg)
-        } else {
-            fmt.sbprintf(&builder, " %s", arg)
-        }
-    }
-    return strings.to_string(builder)
-}
