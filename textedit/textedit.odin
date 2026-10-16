@@ -222,11 +222,11 @@ replace_text :: proc(state: ^State, new_text: string) -> bool {
     inserted := new_text[prefix:len(new_text) - suffix]
     if len(removed) > 0 {
         append(&entry.ops, Edit_Op {kind = .Delete, pos = prefix, text = strings.clone(removed)})
-        piecetable.piecetable_delete(&state.table, prefix, len(removed))
+        table_delete(state, prefix, len(removed))
     }
     if len(inserted) > 0 {
         append(&entry.ops, Edit_Op {kind = .Insert, pos = prefix, text = strings.clone(inserted)})
-        piecetable.piecetable_insert(&state.table, prefix, inserted)
+        table_insert(state, prefix, inserted)
     }
     for &cursor in state.cursors {
         cursor.caret = min(cursor.caret, len(new_text))
@@ -268,6 +268,21 @@ length :: proc(state: ^State) -> int {
 Error :: enum {
     None,
     Out_Of_Range,
+}
+
+// Inserts into the table at an offset textedit computed itself. An offset out of
+// range is a bug here, so it stops a debug build and changes nothing otherwise.
+@(private)
+table_insert :: proc(state: ^State, pos: int, text: string) {
+    err := piecetable.piecetable_insert_checked(&state.table, pos, text)
+    assert(err == .None, "textedit: insert offset out of range")
+}
+
+// Deletes from the table, as table_insert inserts.
+@(private)
+table_delete :: proc(state: ^State, pos, count: int) {
+    err := piecetable.piecetable_delete_checked(&state.table, pos, count)
+    assert(err == .None, "textedit: delete range out of range")
 }
 
 // True when `pos` can start an edit: 0 <= pos <= length. The end is included,
@@ -622,10 +637,10 @@ insert_text :: proc(state: ^State, s: string) {
         lo, hi := selection_range(cursor)
         if hi > lo {
             append(&entry.ops, Edit_Op {kind = .Delete, pos = lo + offset, text = strings.clone(txt[lo:hi])})
-            piecetable.piecetable_delete(&state.table, lo + offset, hi - lo)
+            table_delete(state, lo + offset, hi - lo)
         }
         append(&entry.ops, Edit_Op {kind = .Insert, pos = lo + offset, text = strings.clone(s)})
-        piecetable.piecetable_insert(&state.table, lo + offset, s)
+        table_insert(state, lo + offset, s)
         cursor.caret = lo + offset + len(s)
         cursor.anchor = cursor.caret
         offset += len(s) - (hi - lo)
@@ -679,10 +694,10 @@ insert_pair :: proc(state: ^State, open, close: rune) {
     offset := 0
     for &cursor in state.cursors {
         lo, hi := selection_range(cursor)
-        piecetable.piecetable_insert(&state.table, lo + offset, open_s)
+        table_insert(state, lo + offset, open_s)
         append(&entry.ops, Edit_Op {kind = .Insert, pos = lo + offset, text = strings.clone(open_s)})
         close_pos := hi + offset + ow
-        piecetable.piecetable_insert(&state.table, close_pos, close_s)
+        table_insert(state, close_pos, close_s)
         append(&entry.ops, Edit_Op {kind = .Insert, pos = close_pos, text = strings.clone(close_s)})
 
         cursor.anchor = lo + offset + ow
@@ -710,10 +725,10 @@ insert_or_step :: proc(state: ^State, close: rune) {
             continue
         }
         if hi > lo {
-            piecetable.piecetable_delete(&state.table, lo + offset, hi - lo)
+            table_delete(state, lo + offset, hi - lo)
             append(&entry.ops, Edit_Op {kind = .Delete, pos = lo + offset, text = strings.clone(txt[lo:hi])})
         }
-        piecetable.piecetable_insert(&state.table, lo + offset, close_s)
+        table_insert(state, lo + offset, close_s)
         append(&entry.ops, Edit_Op {kind = .Insert, pos = lo + offset, text = strings.clone(close_s)})
         cursor.caret = lo + offset + cw
         cursor.anchor = cursor.caret
@@ -752,10 +767,10 @@ insert_quote :: proc(state: ^State, q: rune) {
         }
         edited = true
         pair := !(lo > 0 && is_word_byte_ascii(txt[lo - 1]))
-        piecetable.piecetable_insert(&state.table, lo + offset, q_s)
+        table_insert(state, lo + offset, q_s)
         append(&entry.ops, Edit_Op {kind = .Insert, pos = lo + offset, text = strings.clone(q_s)})
         if pair {
-            piecetable.piecetable_insert(&state.table, lo + offset + qw, q_s)
+            table_insert(state, lo + offset + qw, q_s)
             append(&entry.ops, Edit_Op {kind = .Insert, pos = lo + offset + qw, text = strings.clone(q_s)})
         }
         cursor.caret = lo + offset + qw
@@ -791,7 +806,7 @@ insert_block_comment :: proc(state: ^State) {
     entry := Undo_Entry {cursors_before = clone_cursors(state)}
     cursor := &state.cursors[0]
     lo := cursor.caret
-    piecetable.piecetable_insert(&state.table, lo, "**/")
+    table_insert(state, lo, "**/")
     append(&entry.ops, Edit_Op {kind = .Insert, pos = lo, text = strings.clone("**/")})
     cursor.caret = lo + 1
     cursor.anchor = cursor.caret
@@ -838,7 +853,7 @@ delete_backward :: proc(state: ^State) {
         done = hi
         if hi > lo {
             append(&entry.ops, Edit_Op {kind = .Delete, pos = lo + offset, text = strings.clone(txt[lo:hi])})
-            piecetable.piecetable_delete(&state.table, lo + offset, hi - lo)
+            table_delete(state, lo + offset, hi - lo)
             changed = true
         }
         cursor.caret = lo + offset
@@ -873,7 +888,7 @@ delete_forward :: proc(state: ^State) {
         done = hi
         if hi > lo {
             append(&entry.ops, Edit_Op {kind = .Delete, pos = lo + offset, text = strings.clone(txt[lo:hi])})
-            piecetable.piecetable_delete(&state.table, lo + offset, hi - lo)
+            table_delete(state, lo + offset, hi - lo)
             changed = true
         }
         cursor.caret = lo + offset
@@ -899,9 +914,9 @@ undo :: proc(state: ^State) {
     #reverse for op in entry.ops {
         switch op.kind {
         case .Insert:
-            piecetable.piecetable_delete(&state.table, op.pos, len(op.text))
+            table_delete(state, op.pos, len(op.text))
         case .Delete:
-            piecetable.piecetable_insert(&state.table, op.pos, op.text)
+            table_insert(state, op.pos, op.text)
         }
     }
 
@@ -926,9 +941,9 @@ redo :: proc(state: ^State) {
     for op in entry.ops {
         switch op.kind {
         case .Insert:
-            piecetable.piecetable_insert(&state.table, op.pos, op.text)
+            table_insert(state, op.pos, op.text)
         case .Delete:
-            piecetable.piecetable_delete(&state.table, op.pos, len(op.text))
+            table_delete(state, op.pos, len(op.text))
         }
     }
 

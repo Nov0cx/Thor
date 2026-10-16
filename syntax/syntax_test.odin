@@ -591,3 +591,20 @@ test_highlight_range_straddling_node :: proc(t: ^testing.T) {
     }
     testing.expect(t, covering, "the straddling span was clipped to the window")
 }
+
+// A malformed Lua pattern is invalid and reported once; an empty match is a match.
+@(test)
+test_lua_pattern_matches :: proc(t: ^testing.T) {
+    h := highlighter_create()
+    defer highlighter_destroy(&h)
+
+    matched, valid := lua_pattern_matches(&h, "lua-match?", "TODO: x", "^TODO")
+    testing.expect(t, matched && valid)
+    matched, valid = lua_pattern_matches(&h, "lua-match?", "done", "^TODO")
+    testing.expect(t, !matched && valid)
+    matched, valid = lua_pattern_matches(&h, "lua-match?", "abc", "x*")
+    testing.expect(t, matched && valid, "an empty match is a match")
+    matched, valid = lua_pattern_matches(&h, "lua-match?", "abc", "(a")
+    testing.expect(t, !valid, "an unfinished capture is malformed")
+    testing.expect(t, "lua-match?" in h.reported, "the malformed pattern was not reported")
+}

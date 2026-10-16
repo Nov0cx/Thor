@@ -384,7 +384,11 @@ list_item :: proc(
         d += 1
     }
     if d > 0 && d + 1 < len(s) && (s[d] == '.' || s[d] == ')') && s[d + 1] == ' ' {
-        value, _ := strconv.parse_int(s[:d])
+        // A number too long for an int is not a list marker.
+        value, parsed := strconv.parse_int(s[:d])
+        if !parsed {
+            return "", "", false, 0, false
+        }
         return "", strings.trim_left_space(s[d + 2:]), true, value, true
     }
     return "", "", false, 0, false

@@ -92,7 +92,8 @@ Doc_Break_Parent :: struct {}
 
 @(private)
 doc_alloc :: proc(v: Doc_Variant, allocator := context.allocator) -> Doc {
-    d := new(Doc_Node, allocator)
+    d, err := new(Doc_Node, allocator)
+    assert(err == nil, "format: out of memory building the document")
     d.variant = v
     return d
 }

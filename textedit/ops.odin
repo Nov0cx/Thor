@@ -8,8 +8,6 @@ import "core:strings"
 import "core:unicode"
 import "core:unicode/utf8"
 
-import "../piecetable"
-
 has_any_selection :: proc(state: ^State) -> bool {
     for cursor in state.cursors {
         if has_selection(cursor) {
@@ -251,7 +249,7 @@ insert_line_above :: proc(state: ^State) {
         indent := txt[ls:ws]
         insert_str := strings.concatenate({indent, "\n"}, context.temp_allocator)
         append(&entry.ops, Edit_Op {kind = .Insert, pos = ls + offset, text = strings.clone(insert_str)})
-        piecetable.piecetable_insert(&state.table, ls + offset, insert_str)
+        table_insert(state, ls + offset, insert_str)
         cursor.caret = ls + offset + len(indent)
         cursor.anchor = cursor.caret
         offset += len(insert_str)
@@ -331,9 +329,9 @@ move_lines :: proc(state: ^State, delta: int) {
         }
         // The replacement has the length of the text it replaces, so offsets hold.
         append(&entry.ops, Edit_Op {kind = .Delete, pos = start, text = strings.clone(txt[start:end])})
-        piecetable.piecetable_delete(&state.table, start, end - start)
+        table_delete(state, start, end - start)
         append(&entry.ops, Edit_Op {kind = .Insert, pos = start, text = strings.clone(replacement)})
-        piecetable.piecetable_insert(&state.table, start, replacement)
+        table_insert(state, start, replacement)
     }
 
     for &cursor in state.cursors {
@@ -357,7 +355,7 @@ duplicate_lines :: proc(state: ^State, delta: int) {
     for block, i in blocks {
         inserted := strings.concatenate({txt[block.start:block.end], "\n"}, context.temp_allocator)
         append(&entry.ops, Edit_Op {kind = .Insert, pos = block.start + offset, text = strings.clone(inserted)})
-        piecetable.piecetable_insert(&state.table, block.start + offset, inserted)
+        table_insert(state, block.start + offset, inserted)
         shifts[i] = offset + (delta > 0 ? len(inserted) : 0)
         offset += len(inserted)
     }
@@ -422,9 +420,9 @@ transform_case :: proc(state: ^State, mode: Case_Transform) {
     offset := 0
     for r in ranges {
         append(&entry.ops, Edit_Op {kind = .Delete, pos = r.lo + offset, text = strings.clone(txt[r.lo:r.hi])})
-        piecetable.piecetable_delete(&state.table, r.lo + offset, r.hi - r.lo)
+        table_delete(state, r.lo + offset, r.hi - r.lo)
         append(&entry.ops, Edit_Op {kind = .Insert, pos = r.lo + offset, text = strings.clone(r.text)})
-        piecetable.piecetable_insert(&state.table, r.lo + offset, r.text)
+        table_insert(state, r.lo + offset, r.text)
         offset += len(r.text) - (r.hi - r.lo)
     }
 
@@ -561,9 +559,9 @@ join_lines :: proc(state: ^State) {
         region.text, region.head = joined_text(txt[region.start:region.end])
         pos := region.start + offset
         append(&entry.ops, Edit_Op {kind = .Delete, pos = pos, text = strings.clone(txt[region.start:region.end])})
-        piecetable.piecetable_delete(&state.table, pos, region.end - region.start)
+        table_delete(state, pos, region.end - region.start)
         append(&entry.ops, Edit_Op {kind = .Insert, pos = pos, text = strings.clone(region.text)})
-        piecetable.piecetable_insert(&state.table, pos, region.text)
+        table_insert(state, pos, region.text)
         offset += len(region.text) - (region.end - region.start)
     }
 
@@ -754,11 +752,11 @@ write_line_edits :: proc(state: ^State, txt: string, edits: []Line_Edit) -> Undo
         pos := edit.pos + offset
         if edit.remove > 0 {
             append(&entry.ops, Edit_Op {kind = .Delete, pos = pos, text = strings.clone(txt[edit.pos:edit.pos + edit.remove])})
-            piecetable.piecetable_delete(&state.table, pos, edit.remove)
+            table_delete(state, pos, edit.remove)
         }
         if len(edit.insert) > 0 {
             append(&entry.ops, Edit_Op {kind = .Insert, pos = pos, text = strings.clone(edit.insert)})
-            piecetable.piecetable_insert(&state.table, pos, edit.insert)
+            table_insert(state, pos, edit.insert)
         }
         offset += len(edit.insert) - edit.remove
     }
@@ -915,7 +913,7 @@ insert_tab :: proc(state: ^State) {
         lo, hi := selection_range(cursor)
         if hi > lo {
             append(&entry.ops, Edit_Op {kind = .Delete, pos = lo + offset, text = strings.clone(txt[lo:hi])})
-            piecetable.piecetable_delete(&state.table, lo + offset, hi - lo)
+            table_delete(state, lo + offset, hi - lo)
         }
         width := tab_width(state)
         count := width - (cursor_column(state, txt, lo) % width)
@@ -925,7 +923,7 @@ insert_tab :: proc(state: ^State) {
             spaces, count = "\t", 1
         }
         append(&entry.ops, Edit_Op {kind = .Insert, pos = lo + offset, text = strings.clone(spaces)})
-        piecetable.piecetable_insert(&state.table, lo + offset, spaces)
+        table_insert(state, lo + offset, spaces)
         cursor.caret = lo + offset + count
         cursor.anchor = cursor.caret
         offset += count - (hi - lo)
@@ -946,7 +944,7 @@ insert_newline :: proc(state: ^State) {
         lo, hi := selection_range(cursor)
         if hi > lo {
             append(&entry.ops, Edit_Op {kind = .Delete, pos = lo + offset, text = strings.clone(txt[lo:hi])})
-            piecetable.piecetable_delete(&state.table, lo + offset, hi - lo)
+            table_delete(state, lo + offset, hi - lo)
         }
 
         ls := line_start(txt, lo)
@@ -979,7 +977,7 @@ insert_newline :: proc(state: ^State) {
         head := strings.concatenate({"\n", indent, extra}, context.temp_allocator)
         insert_str := strings.concatenate({head, tail}, context.temp_allocator)
         append(&entry.ops, Edit_Op {kind = .Insert, pos = lo + offset, text = strings.clone(insert_str)})
-        piecetable.piecetable_insert(&state.table, lo + offset, insert_str)
+        table_insert(state, lo + offset, insert_str)
         cursor.caret = lo + offset + len(head)
         cursor.anchor = cursor.caret
         offset += len(insert_str) - (hi - lo)
@@ -1026,7 +1024,7 @@ insert_brace_block :: proc(state: ^State) {
     head := strings.concatenate({"{\n", indent, indent_unit(state)}, context.temp_allocator)
     full := strings.concatenate({head, "\n", indent, "}"}, context.temp_allocator)
 
-    piecetable.piecetable_insert(&state.table, lo, full)
+    table_insert(state, lo, full)
     append(&entry.ops, Edit_Op {kind = .Insert, pos = lo, text = strings.clone(full)})
     cursor.caret = lo + len(head)
     cursor.anchor = cursor.caret

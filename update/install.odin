@@ -206,7 +206,10 @@ install_apply :: proc(plan: Install_Plan, agent: string, cancel: ^bool, allocato
         // curl does not set the quarantine attribute, but a future transport
         // could, and the release notes tell the user to clear it by hand.
         command := strings.concatenate({"xattr -dr com.apple.quarantine \"", root, "\""}, context.temp_allocator)
-        output, _, _ := shell.run_status(command, "", XATTR_TIMEOUT)
+        output, code, ran := shell.run_status(command, "", XATTR_TIMEOUT)
+        if !ran || code != 0 {
+            log.warnf("Could not clear the quarantine mark on %q (exit %d): %s", root, code, strings.trim_space(output))
+        }
         delete(output)
     }
     when ODIN_OS == .Windows {
@@ -214,7 +217,10 @@ install_apply :: proc(plan: Install_Plan, agent: string, cancel: ^bool, allocato
         // would stop the binary this update relaunches. A failure here costs
         // only the warning, so it is not one the install reports.
         command := unblock_command(root, context.temp_allocator)
-        output, _, _ := shell.run_status(command, "", UNBLOCK_TIMEOUT)
+        output, code, ran := shell.run_status(command, "", UNBLOCK_TIMEOUT)
+        if !ran || code != 0 {
+            log.warnf("Could not clear the download mark on %q (exit %d): %s", root, code, strings.trim_space(output))
+        }
         delete(output)
     }
     when ODIN_OS != .Windows {

@@ -418,12 +418,17 @@ manager_scan :: proc(m: ^Manager, pattern := "plugins/*/plugin.lua", allocator :
 manager_scan_dir :: proc(m: ^Manager, root: string, allocator := context.temp_allocator) -> []Pending_Plugin {
     handle, open_err := os.open(root)
     if open_err != nil {
+        // A workspace with no plugin folder is the usual case.
+        if os.exists(root) {
+            log.warnf("plugin: cannot open %q: %v", root, open_err)
+        }
         return nil
     }
     defer os.close(handle)
 
     infos, read_err := os.read_dir(handle, -1, context.temp_allocator)
     if read_err != nil {
+        log.warnf("plugin: cannot read %q: %v", root, read_err)
         return nil
     }
 
@@ -433,7 +438,11 @@ manager_scan_dir :: proc(m: ^Manager, root: string, allocator := context.temp_al
             continue
         }
         script, jerr := filepath.join({info.fullpath, "plugin.lua"}, context.temp_allocator)
-        if jerr != nil || !os.is_file(script) {
+        if jerr != nil {
+            log.warnf("plugin: cannot join a path under %q: %v", info.fullpath, jerr)
+            continue
+        }
+        if !os.is_file(script) {
             continue
         }
         append(&out, Pending_Plugin {

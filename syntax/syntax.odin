@@ -5,6 +5,7 @@
 package syntax
 
 import "base:runtime"
+import "core:fmt"
 import "core:log"
 import "core:slice"
 import "core:strings"
@@ -660,9 +661,11 @@ eval_predicate :: proc(h: ^Highlighter, op: string, args: []Predicate_Arg) -> bo
     case "not-match?", "not-vim-match?":
         return !regex_matches(h, subject.text, rest[0].text)
     case "lua-match?":
-        return lua_pattern_matches(subject.text, rest[0].text)
+        matched, valid := lua_pattern_matches(h, op, subject.text, rest[0].text)
+        return valid && matched
     case "not-lua-match?":
-        return !lua_pattern_matches(subject.text, rest[0].text)
+        matched, valid := lua_pattern_matches(h, op, subject.text, rest[0].text)
+        return valid && !matched
     case "has-parent?":
         return has_parent(subject, rest)
     case "not-has-parent?":
@@ -783,12 +786,20 @@ escape_hashes :: proc(pattern: string, allocator: runtime.Allocator) -> string {
     return strings.to_string(out)
 }
 
-// True when the Lua pattern is found anywhere in `text`.
+// Whether the Lua pattern is found anywhere in `text`. A malformed pattern is
+// not valid and is reported once for `op`. An empty match is a match.
 @(private)
-lua_pattern_matches :: proc(text, pattern: string) -> bool {
+lua_pattern_matches :: proc(h: ^Highlighter, op, text, pattern: string) -> (matched, valid: bool) {
     matcher := text_match.matcher_init(text, pattern)
-    _, _, ok := text_match.matcher_find(&matcher)
-    return ok
+    _, _, found := text_match.matcher_find(&matcher)
+    #partial switch matcher.err {
+    case .OK:
+        return found, true
+    case .Match_Invalid:
+        return true, true
+    }
+    report_unhandled(h, op, fmt.tprintf("has a malformed pattern %q (%v)", pattern, matcher.err))
+    return false, false
 }
 
 @(private)
