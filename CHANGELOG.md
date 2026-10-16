@@ -9,6 +9,7 @@
 - Closing a file tells a language server turned off since it opened. Turned back on, the server reopened the closed file.
 - A failed `git status` keeps the file tree's git marks and writes the error to the log. The tree read as clean.
 - A `#lua-match?` query predicate whose pattern can match empty text matches. A malformed pattern is reported in the log once.
+- Go to definition, Go Back and the symbol pickers scroll to where they jump. The view stayed at the top of the file.
 
 # 2026.10.5
 

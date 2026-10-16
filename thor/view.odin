@@ -912,6 +912,20 @@ thor_mouse_only :: proc(thor: ^Thor, it: ui.Interaction) -> ui.Interaction {
     return out
 }
 
+// The pane scroll on one axis: Loom's value when it moved since the last push
+// (a scrollbar drag or a clamp), else the editor's own, which a jump can set
+// between frames.
+thor_pane_scroll_adopt :: proc(node, pushed, own: f32) -> f32 {
+    return node != pushed ? node : own
+}
+
+@(private = "file")
+thor_pane_scroll_push :: proc(node: ^ui.Node, editor: ^editview.Editor, pushed: ^ui.Vec2) {
+    ui.set_scroll(node, .Y, editor.scroll_y)
+    ui.set_scroll(node, .X, editor.scroll_x)
+    pushed^ = {editor.scroll_x, editor.scroll_y}
+}
+
 @(private = "file")
 thor_editor_pane :: proc(thor: ^Thor, editor: ^editview.Editor, pane: int, key: string) {
     // .Scroll_X and .Scroll_Y are for the scrollbars alone. .Wheel gives the pane
@@ -939,14 +953,10 @@ thor_editor_pane :: proc(thor: ^Thor, editor: ^editview.Editor, pane: int, key: 
 
     // A scroll the pane did not push is a drag of the thumb or a click on the
     // track; the editor adopts it before it reads scroll_y again.
-    if it.node.scroll.y != editor.scroll_y {
-        editor.scroll_y = it.node.scroll.y
-    }
-    if it.node.scroll.x != editor.scroll_x {
-        editor.scroll_x = it.node.scroll.x
-    }
-    defer ui.set_scroll(it.node, .Y, editor.scroll_y)
-    defer ui.set_scroll(it.node, .X, editor.scroll_x)
+    pushed := &thor.pane_scroll[pane]
+    editor.scroll_y = thor_pane_scroll_adopt(it.node.scroll.y, pushed.y, editor.scroll_y)
+    editor.scroll_x = thor_pane_scroll_adopt(it.node.scroll.x, pushed.x, editor.scroll_x)
+    defer thor_pane_scroll_push(it.node, editor, pushed)
 
     editor.view = it.rect
     editor.focused = it.focused

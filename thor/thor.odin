@@ -232,6 +232,8 @@ Thor :: struct {
     // files. active_pane is the focused one, whose file the tabbar, status bar
     // and file commands act on (mirrored into the active_file signal).
     pane_file: [2]int,
+    // The scroll each pane pushed to Loom last frame.
+    pane_scroll: [2]ui.Vec2,
     active_pane: int,
     // App/file/view commands that ship without a keybinding. Each carries its
     // config action name and resolved chord; unbound ones (KEY_NULL) never fire.
