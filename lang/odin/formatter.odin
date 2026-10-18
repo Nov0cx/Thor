@@ -234,10 +234,10 @@ line_bounds :: proc(source: string, offset: int) -> (lo, hi: int) {
 // minimal Text_Edit set — never a whole-buffer replace, which would drag
 // every cursor in the file to wherever the edit ends.
 //
-// The printer is whole-file only, so Format_Range and Format_On_Type format
-// everything and keep only the changes inside [lo, hi): a span that straddles
-// the edge is dropped, since the host aligns a selection to whole lines and a
-// half-applied reflow is worse than none.
+// Format_Range and Format_On_Type print only the file-scope declarations the
+// window overlaps (format_window), then keep only the changes inside [lo, hi): a
+// span that straddles the edge is dropped, since the host aligns a selection to
+// whole lines and a half-applied reflow is worse than none.
 @(private)
 format_document :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result, lo, hi: int) {
     if lang.request_cancelled(req) {
@@ -266,7 +266,13 @@ format_document :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result, lo, h
     out_alloc := context.allocator
     context.allocator = context.temp_allocator
 
-    formatted, ok := format.format(req.source, opts)
+    formatted: string
+    ok: bool
+    if req.kind == .Format {
+        formatted, ok = format.format(req.source, opts)
+    } else {
+        formatted, ok = format.format_window(req.source, lo, hi, opts)
+    }
     if !ok {
         return // syntax error — never guess at broken code
     }

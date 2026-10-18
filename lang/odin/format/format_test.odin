@@ -466,6 +466,34 @@ test_character_width_wraps_binary_chain :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_format_window_prints_only_overlapping_decls :: proc(t: ^testing.T) {
+    src := "package p\n\na :: proc(){x:=1}\n\n// keep\nb :: proc(){y:=2}\n"
+    lo := strings.index(src, "b ::")
+    out, ok := format_window(src, lo, lo + 3, default_options())
+    defer delete(out)
+    testing.expect(t, ok)
+    testing.expect(t, strings.contains(out, "a :: proc(){x:=1}\n"), out) // outside the window, as written
+    testing.expect(t, strings.contains(out, "// keep\nb :: proc() {\n\ty := 2\n}\n"), out)
+
+    whole, wok := format(src, default_options())
+    defer delete(whole)
+    testing.expect(t, wok)
+    testing.expect(t, strings.contains(whole, "b :: proc() {\n\ty := 2\n}\n"), whole)
+}
+
+@(test)
+test_format_window_widens_to_alignment_run :: proc(t: ^testing.T) {
+    opts := default_options()
+    opts.align_constant_definitions = true
+    src := "package p\n\nA::1\nLONGER::2\n"
+    lo := strings.index(src, "A::")
+    out, ok := format_window(src, lo, lo + 1, opts)
+    defer delete(out)
+    testing.expect(t, ok)
+    testing.expect(t, strings.contains(out, "A      :: 1\nLONGER :: 2\n"), out)
+}
+
+@(test)
 test_character_width_wraps_case_list_at_commas :: proc(t: ^testing.T) {
     opts := default_options()
     opts.character_width = 40
