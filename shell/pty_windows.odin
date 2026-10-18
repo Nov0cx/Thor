@@ -241,15 +241,13 @@ pty_terminate :: proc(pty: ^Pty) {
     if pty.job == nil || !TerminateJobObject(pty.job, 0) {
         win32.TerminateProcess(pty.process, 0)
     }
-    // Closing the console ends the output pipe, which is what wakes the reader.
-    // It waits for the client to go, so the kill above comes first.
+    // Closing the console ends the output pipe, which is what wakes the reader,
+    // and the input pipe, which ends a blocked pty_write. It waits for the
+    // client to go, so the kill above comes first. The input handle stays open
+    // until pty_destroy, since a writer may still hold it.
     if pty.console != nil {
         ClosePseudoConsole(pty.console)
         pty.console = nil
-    }
-    if pty.input != nil {
-        win32.CloseHandle(pty.input)
-        pty.input = nil
     }
 }
 

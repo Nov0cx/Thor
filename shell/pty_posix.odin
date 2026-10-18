@@ -195,6 +195,26 @@ pty_write :: proc(pty: ^Pty, data: string) -> bool {
     }
     bytes := transmute([]u8) data
     for sent := 0; sent < len(bytes); {
+        // Waits on the wake pipe too, so pty_terminate ends a write the shell
+        // does not read.
+        writable: posix.fd_set
+        woken: posix.fd_set
+        posix.FD_ZERO(&writable)
+        posix.FD_ZERO(&woken)
+        posix.FD_SET(pty.master, &writable)
+        posix.FD_SET(pty.wake_r, &woken)
+        if posix.select(c.int(max(pty.master, pty.wake_r)) + 1, &woken, &writable, nil, nil) < 0 {
+            if posix.errno() == .EINTR {
+                continue
+            }
+            return false
+        }
+        if posix.FD_ISSET(pty.wake_r, &woken) {
+            return false
+        }
+        if !posix.FD_ISSET(pty.master, &writable) {
+            continue
+        }
         rest := bytes[sent:]
         written := posix.write(pty.master, raw_data(rest), c.size_t(len(rest)))
         if written < 0 {

@@ -16,9 +16,11 @@ package shell
 //     pty_destroy   :: proc(pty: ^Pty)
 //
 // pty_read blocks until the shell writes and returns 0 at the end of the stream,
-// so it belongs on a reader thread. Shutdown is two steps: pty_terminate ends
-// the shell and everything it started and is safe to call while the reader
-// blocks, pty_destroy releases the handles once that reader is joined.
+// so it belongs on a reader thread. pty_write blocks while the shell does not
+// read, so it belongs on a writer thread. Shutdown is two steps: pty_terminate
+// ends the shell and everything it started, and makes a blocked read and a
+// blocked write return; pty_destroy releases the handles once both threads are
+// joined.
 //
 // There is no interrupt call: ctrl + c is a byte the terminal writes, and the
 // pseudo-terminal turns it into the signal, the same as on a real console.
