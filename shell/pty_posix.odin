@@ -115,6 +115,15 @@ pty_start :: proc(profile: Profile, cwd: string, cols, rows: int) -> (^Pty, bool
         posix.close(wake[1])
         return nil, false
     }
+    // Non-blocking, so a write to a full terminal waits in select, where the wake
+    // pipe can end it, and not inside write.
+    flags := posix.fcntl(master, .GETFL)
+    if flags < 0 || posix.fcntl(master, .SETFL, flags | posix.O_NONBLOCK) < 0 {
+        posix.close(master)
+        posix.close(wake[0])
+        posix.close(wake[1])
+        return nil, false
+    }
 
     size := Winsize {
         ws_row = u16(rows),
@@ -218,7 +227,7 @@ pty_write :: proc(pty: ^Pty, data: string) -> bool {
         rest := bytes[sent:]
         written := posix.write(pty.master, raw_data(rest), c.size_t(len(rest)))
         if written < 0 {
-            if posix.errno() == .EINTR {
+            if errno := posix.errno(); errno == .EINTR || errno == .EAGAIN {
                 continue
             }
             return false
@@ -255,7 +264,7 @@ pty_read :: proc(pty: ^Pty, buf: []u8) -> int {
         }
         read := posix.read(pty.master, raw_data(buf), c.size_t(len(buf)))
         if read < 0 {
-            if posix.errno() == .EINTR {
+            if errno := posix.errno(); errno == .EINTR || errno == .EAGAIN {
                 continue
             }
             return 0
