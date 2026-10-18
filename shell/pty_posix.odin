@@ -74,6 +74,12 @@ pty_start :: proc(profile: Profile, cwd: string, cols, rows: int) -> (^Pty, bool
         return nil, false
     }
 
+    sync.mutex_lock(&spawn_mutex)
+    locked := true
+    defer if locked {
+        sync.mutex_unlock(&spawn_mutex)
+    }
+
     master := posix.posix_openpt({.RDWR, .NOCTTY})
     if master < 0 {
         return nil, false
@@ -148,6 +154,8 @@ pty_start :: proc(profile: Profile, cwd: string, cols, rows: int) -> (^Pty, bool
         posix.execve(argv[0], raw_data(argv[:]), raw_data(envp))
         posix._exit(1) // execve only returns when it failed
     }
+    sync.mutex_unlock(&spawn_mutex)
+    locked = false
 
     pty := new(Pty)
     pty.pid = pid

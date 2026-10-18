@@ -22,7 +22,13 @@
 // as no argument to a program that reads a path from it.
 package shell
 
+import "core:sync"
 import "core:time"
+
+// Held from the creation of a child's pipes to the close of its ends in this
+// process, so a start on another thread does not inherit them.
+@(private)
+spawn_mutex: sync.Mutex
 
 // `run_status` without the status, for the callers that only want the output.
 run :: proc(command: string, cwd: string, timeout: time.Duration = 0) -> string {

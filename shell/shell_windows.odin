@@ -3,6 +3,7 @@ package shell
 
 import "core:fmt"
 import "core:strings"
+import "core:sync"
 import win32 "core:sys/windows"
 import "core:time"
 
@@ -77,6 +78,12 @@ run_command_line :: proc(full: string, cwd: string, timeout: time.Duration) -> (
         bInheritHandle = true,
     }
 
+    sync.mutex_lock(&spawn_mutex)
+    locked := true
+    defer if locked {
+        sync.mutex_unlock(&spawn_mutex)
+    }
+
     read_pipe, write_pipe: win32.HANDLE
     if !win32.CreatePipe(&read_pipe, &write_pipe, &sa, 0) {
         return strings.clone("[shell] could not create pipe\n"), -1, false
@@ -121,6 +128,8 @@ run_command_line :: proc(full: string, cwd: string, timeout: time.Duration) -> (
     // Close the parent's copy of the write end so ReadFile sees EOF when the
     // child (the only remaining writer) exits.
     win32.CloseHandle(write_pipe)
+    sync.mutex_unlock(&spawn_mutex)
+    locked = false
     if !started {
         if job != nil {
             win32.CloseHandle(job)

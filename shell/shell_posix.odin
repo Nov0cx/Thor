@@ -4,6 +4,7 @@ package shell
 import "core:c"
 import "core:fmt"
 import "core:strings"
+import "core:sync"
 import "core:sys/posix"
 import "core:time"
 
@@ -47,13 +48,19 @@ run_argv :: proc(argv: []cstring, search_path: bool, cwd: string, timeout: time.
         cwd_c = strings.clone_to_cstring(cwd, context.temp_allocator)
     }
 
+    sync.mutex_lock(&spawn_mutex)
+    locked := true
+    defer if locked {
+        sync.mutex_unlock(&spawn_mutex)
+    }
+
     out_fds, status_fds: [2]posix.FD
-    if posix.pipe(&out_fds) != .OK {
+    if !pipe_cloexec(&out_fds) {
         return strings.clone("[shell] could not create pipe\n"), -1, false
     }
     // A fork cannot report a failed exec, so the child sends its errno over this
     // pipe and a successful exec closes it instead.
-    if posix.pipe(&status_fds) != .OK {
+    if !pipe_cloexec(&status_fds) {
         close_fds(out_fds[0], out_fds[1])
         return strings.clone("[shell] could not create pipe\n"), -1, false
     }
@@ -101,6 +108,8 @@ run_argv :: proc(argv: []cstring, search_path: bool, cwd: string, timeout: time.
     // The child owns the far ends now; the parent's copy of the write end must go
     // so the read sees the end of the stream when the child exits.
     close_fds(out_fds[1], status_fds[1])
+    sync.mutex_unlock(&spawn_mutex)
+    locked = false
     // Also set in the parent, since either side may run first.
     posix.setpgid(pid, pid)
 
@@ -246,8 +255,14 @@ spawn :: proc(exe: string, arg: string, cwd: string) -> bool {
     // A fork cannot report a failed exec, and the intermediate child exits with 0
     // whatever the grandchild does, so its status says nothing. The grandchild
     // sends its errno over this pipe instead and a successful exec closes it.
+    sync.mutex_lock(&spawn_mutex)
+    locked := true
+    defer if locked {
+        sync.mutex_unlock(&spawn_mutex)
+    }
+
     status_fds: [2]posix.FD
-    if posix.pipe(&status_fds) != .OK {
+    if !pipe_cloexec(&status_fds) {
         return false
     }
 
@@ -281,6 +296,8 @@ spawn :: proc(exe: string, arg: string, cwd: string) -> bool {
     }
 
     close_fds(status_fds[1])
+    sync.mutex_unlock(&spawn_mutex)
+    locked = false
     // The intermediate child exits at once; reaping it here leaves no zombie.
     status: c.int
     for posix.waitpid(pid, &status, {}) < 0 && posix.errno() == .EINTR {

@@ -3,6 +3,7 @@ package shell
 
 import "core:c"
 import "core:strings"
+import "core:sync"
 import "core:sys/posix"
 
 // A child process on three pipes. It leads its own process group, so a kill
@@ -37,22 +38,28 @@ child_start :: proc(spec: Child_Spec) -> (^Child, bool) {
     // A write to a child that already exited must fail, not end the editor.
     posix.signal(.SIGPIPE, auto_cast posix.SIG_IGN)
 
+    sync.mutex_lock(&spawn_mutex)
+    locked := true
+    defer if locked {
+        sync.mutex_unlock(&spawn_mutex)
+    }
+
     in_fds, out_fds, err_fds, status_fds: [2]posix.FD
-    if posix.pipe(&out_fds) != .OK {
+    if !pipe_cloexec(&out_fds) {
         return nil, false
     }
-    if posix.pipe(&err_fds) != .OK {
+    if !pipe_cloexec(&err_fds) {
         close_fds(out_fds[0], out_fds[1])
         return nil, false
     }
-    if posix.pipe(&in_fds) != .OK {
+    if !pipe_cloexec(&in_fds) {
         close_fds(out_fds[0], out_fds[1], err_fds[0], err_fds[1])
         return nil, false
     }
     // A fork cannot report a failed exec, so the child sends its errno over this
     // pipe and a successful exec closes it instead. Without it a missing
     // executable would read as a server that started and died at once.
-    if posix.pipe(&status_fds) != .OK {
+    if !pipe_cloexec(&status_fds) {
         close_fds(out_fds[0], out_fds[1], err_fds[0], err_fds[1], in_fds[0], in_fds[1])
         return nil, false
     }
@@ -95,6 +102,8 @@ child_start :: proc(spec: Child_Spec) -> (^Child, bool) {
     // The child owns the far ends now; the parent's copies must go so a read sees
     // the end of a stream when the child exits.
     close_fds(in_fds[0], out_fds[1], err_fds[1], status_fds[1])
+    sync.mutex_unlock(&spawn_mutex)
+    locked = false
     // Also set in the parent, since either side may run first.
     posix.setpgid(pid, pid)
 
@@ -262,6 +271,20 @@ read_fd :: proc(fd: posix.FD, buf: []u8) -> int {
         }
         return int(read)
     }
+}
+
+// Opens a pipe with both ends close-on-exec. Call it with `spawn_mutex` held, so
+// no fork on another thread runs before the flags are set.
+@(private)
+pipe_cloexec :: proc(fds: ^[2]posix.FD) -> bool {
+    if posix.pipe(fds) != .OK {
+        return false
+    }
+    if posix.fcntl(fds[0], .SETFD, posix.FD_CLOEXEC) < 0 || posix.fcntl(fds[1], .SETFD, posix.FD_CLOEXEC) < 0 {
+        close_fds(fds[0], fds[1])
+        return false
+    }
+    return true
 }
 
 @(private)

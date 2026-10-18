@@ -2,6 +2,7 @@
 package shell
 
 import "core:strings"
+import "core:sync"
 import win32 "core:sys/windows"
 
 // A child process on three pipes. The job object holds it and everything it
@@ -21,6 +22,12 @@ child_start :: proc(spec: Child_Spec) -> (^Child, bool) {
     sa := win32.SECURITY_ATTRIBUTES {
         nLength        = size_of(win32.SECURITY_ATTRIBUTES),
         bInheritHandle = true,
+    }
+
+    sync.mutex_lock(&spawn_mutex)
+    locked := true
+    defer if locked {
+        sync.mutex_unlock(&spawn_mutex)
     }
 
     in_r, in_w, out_r, out_w, err_r, err_w: win32.HANDLE
@@ -77,6 +84,8 @@ child_start :: proc(spec: Child_Spec) -> (^Child, bool) {
     // The child owns the far ends now; the parent's copies must go so a read sees
     // the end of a stream when the child exits.
     close_handles(out_w, err_w, in_r)
+    sync.mutex_unlock(&spawn_mutex)
+    locked = false
     if !ok {
         close_handles(out_r, err_r, in_w)
         return nil, false
