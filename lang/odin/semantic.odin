@@ -16,6 +16,8 @@
 // so a name's colour and the declaration Alt+Enter jumps to can never disagree.
 package odin
 
+import "core:fmt"
+import "core:strings"
 import "core:sync"
 
 import lang ".."
@@ -30,6 +32,11 @@ import ts "../../vendor/odin-tree-sitter"
 // cost per keystroke.
 @(private)
 SEMANTIC_MEMBER_LIMIT :: 512
+
+// How many implicit selectors (`.Vertical`) one request resolves through the
+// expected-type walk, which can infer a call's callee or a comparison's other side.
+@(private)
+SEMANTIC_IMPLICIT_LIMIT :: 256
 
 @(private)
 semantic_tokens :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, req: ^lang.Request, res: ^lang.Result) {
@@ -53,17 +60,19 @@ semantic_tokens :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, req: ^lang
     dim := dimming_allowed(e, parser, root, req, &declared)
 
     ctx := Semantic_Ctx {
-        e             = e,
-        parser        = parser,
-        root          = root,
-        req           = req,
-        defs          = defs[:],
-        by_name       = by_name,
-        imports       = imports,
-        declared      = declared,
-        dim           = dim,
-        member_budget = SEMANTIC_MEMBER_LIMIT,
-        res           = res,
+        e               = e,
+        parser          = parser,
+        root            = root,
+        req             = req,
+        defs            = defs[:],
+        by_name         = by_name,
+        imports         = imports,
+        declared        = declared,
+        dim             = dim,
+        member_budget   = SEMANTIC_MEMBER_LIMIT,
+        implicit_budget = SEMANTIC_IMPLICIT_LIMIT,
+        enum_members    = make(map[string]map[string]bool, 0, context.temp_allocator),
+        res             = res,
     }
     classify_node(&ctx, root)
     res.ok = len(res.tokens) > 0
@@ -71,17 +80,19 @@ semantic_tokens :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, req: ^lang
 
 @(private)
 Semantic_Ctx :: struct {
-    e:             ^Engine,
-    parser:        ts.Parser,
-    root:          ts.Node,
-    req:           ^lang.Request,
-    defs:          []Def,
-    by_name:       map[string][dynamic]int,
-    imports:       map[string]bool,
-    declared:      map[string]bool,
-    dim:           bool,
-    member_budget: int,
-    res:           ^lang.Result,
+    e:               ^Engine,
+    parser:          ts.Parser,
+    root:            ts.Node,
+    req:             ^lang.Request,
+    defs:            []Def,
+    by_name:         map[string][dynamic]int,
+    imports:         map[string]bool,
+    declared:        map[string]bool,
+    dim:             bool,
+    member_budget:   int,
+    implicit_budget: int,
+    enum_members:    map[string]map[string]bool, // an enum's members, keyed by enum_key
+    res:             ^lang.Result,
 }
 
 // Buckets `defs`' indices by name, so classify_identifier's per-identifier
@@ -188,11 +199,9 @@ classify_identifier :: proc(ctx: ^Semantic_Ctx, node: ts.Node) {
 
 // `.Enum_Member` for `Axis.Vertical`, `.Field` for `p.x` — the qualified
 // selector shapes, where the operand is a real identifier this engine can
-// type. An implicit selector (`.Vertical`, no operand at all) needs the far
-// more expensive expected-type walk completion uses and is deliberately out of
-// scope here: false on a miss, same as any other unhandled shape, so the
-// caller falls through to the ordinary skip rather than reading it as
-// unresolved.
+// type, and an implicit selector (`.Vertical`), typed by the walk completion
+// uses. False on a miss, same as any other unhandled shape, so the caller falls
+// through to the ordinary skip rather than reading it as unresolved.
 @(private = "file")
 member_token_kind :: proc(ctx: ^Semantic_Ctx, node: ts.Node) -> (lang.Token_Kind, bool) {
     subject := selector_subject(node)
@@ -206,8 +215,11 @@ member_token_kind :: proc(ctx: ^Semantic_Ctx, node: ts.Node) -> (lang.Token_Kind
         return {}, false
     }
     operand := ts.node_named_child(holder, 0)
+    if same_node(operand, subject) && ts.node_start_byte(subject) != ts.node_start_byte(holder) {
+        return implicit_member_kind(ctx, holder, ts.node_text(node, ctx.req.source))
+    }
     if ts.node_is_null(operand) || same_node(operand, subject) || !is_identifier(operand) {
-        return {}, false // the operand itself, or an implicit selector with none at all
+        return {}, false // the operand itself
     }
     op_name := ts.node_text(operand, ctx.req.source)
     if op_name in ctx.imports {
@@ -233,6 +245,47 @@ member_token_kind :: proc(ctx: ^Semantic_Ctx, node: ts.Node) -> (lang.Token_Kind
         return .Field, true
     }
     return {}, false
+}
+
+// An implicit selector's member, when the type the selector's position expects is
+// an enum (or a container of one) that declares it.
+@(private = "file")
+implicit_member_kind :: proc(ctx: ^Semantic_Ctx, holder: ts.Node, name: string) -> (lang.Token_Kind, bool) {
+    if ctx.implicit_budget <= 0 {
+        return {}, false
+    }
+    ctx.implicit_budget -= 1
+    tr, ok := expected_type_in_tree(ctx.e, ctx.parser, ctx.root, ctx.req, int(ts.node_start_byte(holder)))
+    if !ok {
+        return {}, false
+    }
+    elem := element_type(tr)
+    if elem.name == "" {
+        return {}, false
+    }
+    key := fmt.tprintf("%s|%s|%s", elem.origin, elem.pkg, elem.name)
+    members, seen := ctx.enum_members[key]
+    if !seen {
+        members = make(map[string]bool, 0, context.temp_allocator)
+        visit_type_decl(ctx.e, ctx.parser, ctx.root, ctx.req, elem, "enum_declaration", "enum", enum_members_visitor, &members)
+        ctx.enum_members[key] = members
+    }
+    if name in members {
+        return .Enum_Member, true
+    }
+    return {}, false
+}
+
+// Decl_Visitor that records every member name of an enum.
+@(private = "file")
+enum_members_visitor :: proc(ed: ts.Node, source, path: string, ctx_raw: rawptr) {
+    members := cast(^map[string]bool) ctx_raw
+    for i in 1 ..< ts.node_named_child_count(ed) {
+        id := ts.node_named_child(ed, i)
+        if is_identifier(id) {
+            members[strings.clone(ts.node_text(id, source), context.temp_allocator)] = true
+        }
+    }
 }
 
 // Whether `tr` names an enum declaring a member called `name`.

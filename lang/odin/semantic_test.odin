@@ -181,13 +181,63 @@ pick :: proc() -> Axis {
 }
 
 @(test)
-test_semantic_implicit_enum_selector_stays_unclassified :: proc(t: ^testing.T) {
+test_semantic_implicit_enum_selector :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
 
-    // An implicit selector (no operand at all) needs the expected-type walk
-    // completion uses — out of scope for the whole-file semantic pass, so it
-    // stays exactly as before: unclassified, left to the highlighter.
+    // An implicit selector is typed by the position it sits in, the same walk
+    // completion uses: a result, an assignment, a comparison, a case, a field
+    // of a literal, a call argument and a bit_set literal.
+    src := `package demo
+
+Axis :: enum {
+	Vertical,
+	Horizontal,
+	Depth,
+	Width,
+	Height,
+	Length,
+	Size,
+}
+
+Box :: struct {
+	axis: Axis,
+}
+
+take :: proc(a: Axis) {}
+
+pick :: proc(a: Axis) -> Axis {
+	x: Axis
+	x = .Horizontal
+	if a == .Depth {
+	}
+	switch a {
+	case .Width:
+	}
+	b := Box{axis = .Height}
+	take(.Length)
+	s := bit_set[Axis]{.Size}
+	return .Vertical
+}
+`
+    res := semantic_at(e, src)
+    defer delete(res.tokens)
+
+    for needle in ([]string{"Horizontal\n\tif", "Depth {", "Width:", "Height}", "Length)", "Size}", "Vertical\n}"}) {
+        kind, ok := kind_at(&res, src, needle)
+        testing.expectf(t, ok, "expected a token for the implicit selector at %q", needle)
+        if ok {
+            testing.expectf(t, kind == .Enum_Member, "%q: got %v, want Enum_Member", needle, kind)
+        }
+    }
+}
+
+@(test)
+test_semantic_implicit_selector_unknown_member_stays_unclassified :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    // A name the expected enum does not declare is left to the highlighter.
     src := `package demo
 
 Axis :: enum {
@@ -195,13 +245,13 @@ Axis :: enum {
 }
 
 pick :: proc() -> Axis {
-	return .Vertical
+	return .Verticl
 }
 `
     res := semantic_at(e, src)
     defer delete(res.tokens)
 
-    testing.expect(t, !classified(&res, src, "Vertical\n}"), "expected the implicit selector to stay unclassified")
+    testing.expect(t, !classified(&res, src, "Verticl\n}"), "expected the misspelt member to stay unclassified")
 }
 
 @(test)

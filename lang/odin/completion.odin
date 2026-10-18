@@ -100,6 +100,12 @@ expected_type_in_tree :: proc(
                 return {}, false
             }
             return ctx.field_type, true
+        case "struct", "bit_set":
+            // `bit_set[Axis]{.}`, `[]Axis{.}` — a container literal that writes its
+            // own type. A struct's positional field names nothing to select from.
+            if tr, ok := composite_type_name(n, source); ok && !type_is_bare(tr) {
+                return tr, true
+            }
         case "call_expression":
             // `f(1, .)` — the parameter this argument fills, by position.
             fn := ts.node_child_by_field_name(n, "function")
