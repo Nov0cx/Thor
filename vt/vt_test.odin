@@ -348,6 +348,27 @@ test_resize_keeps_content :: proc(h: ^testing.T) {
 }
 
 @(test)
+test_resize_keeps_the_saved_cursor :: proc(h: ^testing.T) {
+    t := term_make(20, 6)
+    defer term_destroy(t)
+
+    // A full-screen program entered at row 3, resized, then left: the prompt
+    // comes back to where it was, not to the top left.
+    feed(t, "[4;5H[?1049h")
+    term_resize(t, 30, 8)
+    feed(t, "[?1049l")
+    testing.expect_value(h, t.cur.y, 3)
+    testing.expect_value(h, t.cur.x, 4)
+
+    // A shrink past the saved row clamps it into the grid.
+    feed(t, "[8;20H7")
+    term_resize(t, 10, 4)
+    feed(t, "8")
+    testing.expect_value(h, t.cur.x, 9)
+    testing.expect_value(h, t.cur.y, 3)
+}
+
+@(test)
 test_key_encoding :: proc(h: ^testing.T) {
     t := term_make(8, 2)
     defer term_destroy(t)

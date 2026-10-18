@@ -423,6 +423,7 @@ term_resize :: proc(t: ^Term, cols, rows: int) {
             scrollback_push(t, line)
             t.cur.y -= 1
         }
+        t.saved.cur.y = max(t.saved.cur.y - move, 0)
     }
 
     grid_resize(t, &t.primary, cols, rows)
@@ -435,8 +436,15 @@ term_resize :: proc(t: ^Term, cols, rows: int) {
     t.cur.x = clamp(t.cur.x, 0, cols - 1)
     t.cur.y = clamp(t.cur.y, 0, rows - 1)
     t.cur.pending_wrap = false
-    t.saved.valid = false
-    t.saved_alt.valid = false
+    saved_clamp(&t.saved, cols, rows)
+    saved_clamp(&t.saved_alt, cols, rows)
+}
+
+@(private = "file")
+saved_clamp :: proc(s: ^Saved_Cursor, cols, rows: int) {
+    s.cur.x = clamp(s.cur.x, 0, cols - 1)
+    s.cur.y = clamp(s.cur.y, 0, rows - 1)
+    s.cur.pending_wrap = false
 }
 
 // Drops the history. The screen itself is untouched.
