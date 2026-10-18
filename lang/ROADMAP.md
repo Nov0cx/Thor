@@ -516,9 +516,11 @@ lowest latency.
   completion labels and the symbol index — and `declaration_text` shares the brace
   scan, so hover follows.
 
-  **Still open:** an argument the inference layer cannot type leaves the picker,
-  and a named generic type's own type argument (`List($T)`) is still not modeled —
-  no `Type_Ref` carries one.
+  A named argument (`f(x = 1)`) is matched against the parameter of that name
+  (`call_written_args`, `param_slot_named`), and a member that declares no such
+  parameter does not fit. Two generic arguments (`List(int)` against
+  `List(f32)`) are compared as written. An argument no rule can type is still
+  no evidence, so it narrows nothing.
 - **Rename (Ctrl+R):** prompts for a new name in the palette (prefilled with
   the symbol under the caret), then rewrites every usage find-references would
   list, plus the declaration it leaves out (`Rename` request → `rename`, the same
@@ -736,9 +738,9 @@ lowest latency.
       loses to one, since such a match names whichever struct happened to declare
       it while the `using` names the one that is open here.
 
-      **Still open:** a `#soa` completion row labels the field with the element
-      struct's own declaration rather than the array it is held in. That falls
-      through to the flat name scan.
+      A `#soa` completion row labels the field with the array it is held in
+      (`x: []f32` for a `#soa[]Point`), the same text hover shows
+      (`held_field_signature`).
 
       Member *completion* takes the same
       operands goto and hover do — `a.b.`, `xs[0].` and `f().` all offer the
@@ -853,11 +855,21 @@ lowest latency.
       argument's own inferred type, then wraps the result's back on — the
       bare case is the zero-layers instance of this rule, not a separate path.
 
-      Still open, deliberately: a named generic type's own type argument
-      (`^List($T)`) — no `Type_Ref` anywhere carries one, since a plain `l:
-      List(int)` doesn't retain its `int` argument either, so there is no data
-      to read "the T of a `List(T)`-typed argument" from; and constraint
-      *validation* (rejecting an argument that doesn't satisfy `$T:
+      A named generic type keeps its arguments: `Type_Ref.type_args` holds the
+      text inside the parentheses (`int, 4` of `List(int, 4)`) and
+      `args_origin` the file it is written in. `type_ref_from_node` reads a
+      `polymorphic_type` node and `plain_type_ref` the same shape as text, so
+      `l: List(int)`, `List(int){}`, `-> List(T)` and `Points :: List(Point)`
+      all read. A field of a generic struct has the struct's own `$T` replaced
+      by the argument (`bind_struct_params`), through aliases and a nested
+      `next: ^Node(T)`. A bare `T` with no argument is a miss, never a
+      workspace type that happens to be named T. A parameter `l: ^List($E)`
+      binds E to the argument of the List passed (`Poly_Shape.generic`), an
+      unused `$T: typeid` binds from the type the call writes, and a result
+      `-> List(T)` is the generic with the bound names written in
+      (`generic_call_result`).
+
+      Still open, deliberately: constraint *validation* (rejecting an argument that doesn't satisfy `$T:
       typeid/Ordered`) — only the binding site is recognized, never checked,
       since Thor's diagnostics already come from a real `odin check` run
       (`check.odin`) that validates this authoritatively, and duplicating a
@@ -927,8 +939,11 @@ lowest latency.
       inclusion does not: a file with a `using` in reach, an operand whose type
       does not infer, a name that resolves nowhere, or a scan past
       `REF_INFER_LIMIT` all fall back to the flat name match, since a usage
-      dropped is a rename that leaves code broken. Still name-based where the type
-      layer cannot see: an interface-free `v.field` on an uninferable operand.
+      dropped is a rename that leaves code broken. A `v.field` whose `v` does not
+      infer is `Field_Any`: it keeps field positions only (member, field
+      declaration, field init, enum member), never a bare value of the same
+      spelling. An `#soa` operand names its element's field, and the inference
+      budget is spent per file.
       Workspace files come from the symbol index's per-file identifier sets — only
       files that mention the name are re-parsed.
 - [x] **Signature help.** Ctrl+Shift+Space; `Signature_Help` request served by
@@ -1188,11 +1203,14 @@ lowest latency.
       to the ordinary skip — unclassified, never misread as unresolved.
       Bounded by `SEMANTIC_MEMBER_LIMIT` (512): past that many qualified
       selectors in one file, the rest are left unclassified rather than paying
-      an unbounded per-selector resolution cost. **Still open:** an *implicit*
-      selector (`.Vertical`, no operand at all) needs the far more expensive
-      expected-type walk (`expected_type_at`) completion already pays for at
-      the caret — deliberately out of scope for a whole-file pass, so it
-      stays unclassified.
+      an unbounded per-selector resolution cost. An *implicit* selector
+      (`.Vertical`, no operand at all) is typed by `expected_type_in_tree`, the
+      walk completion uses, with no filler re-parse since the tree is whole,
+      and gets `.Enum_Member` when that enum declares it
+      (`implicit_member_kind`). Each enum's members are read once per request,
+      and `SEMANTIC_IMPLICIT_LIMIT` (256) bounds the walks. A container literal
+      that writes its own type (`bit_set[Axis]{.A}`, `[]Axis{.A}`) pins the
+      expected type for both.
 
       **Classifying a whole file's shadowing resolution is bounded.**
       `semantic_tokens` groups `collect_defs`'s output by name once
@@ -1249,10 +1267,12 @@ lowest latency.
       differently per backend. Odin: a native printer (`lang/odin/format`,
       package `odinfmt`) built on `core:odin/parser` — `core:odin/format`/
       `printer` are deprecated `#panic` stubs in the toolchain, so the printer
-      is hand-written, not inherited — answers all three. The printer is
-      whole-file only (`core:odin/parser` has no partial-parse entry point), so
-      `.Format_Range` and `.Format_On_Type` format everything and keep only the
-      diff spans inside their window: the selection for a range, the trigger's
+      is hand-written, not inherited — answers all three. `core:odin/parser`
+      has no partial-parse entry point, so `.Format_Range` and
+      `.Format_On_Type` parse the whole file, but `format_window` prints only
+      the file-scope declarations the window overlaps, widened to the
+      alignment runs they belong to, and splices them back. Only the diff spans
+      inside their window are kept: the selection for a range, the trigger's
       own line for on-type. A span that straddles the edge is dropped whole
       rather than half-applied, and only `.Format` may change the file's line
       endings. `}` is the engine's one on-type trigger. Every other language: the LSP
@@ -1287,10 +1307,12 @@ lowest latency.
       was written; such a list prints one item per line. `brace_style` covers
       `switch` and type bodies, a bad `odin-formatter.json` value is logged and
       keeps its default, and a source nested past what the parser's stack
-      holds is refused. Missing, Odin-printer-only: wrapping of long
-      binary-expression chains and procedure *result* lists, alignment across a
-      run split by a comment, and a comment in any other expression position
-      (an index, a selector), which still moves below its statement.
+      holds is refused. A run of one operator (`a && b && c`) breaks after each
+      operator past `character_width` and is printed by a loop, a result list
+      wraps like a parameter list, and a case list breaks at its commas. An
+      alignment run continues over whole-line comments; only a blank line
+      splits it. Missing, Odin-printer-only: a comment in any other expression
+      position (an index, a selector), which still moves below its statement.
 
 ## Missing — scalability / performance
 
@@ -1682,6 +1704,9 @@ Landed since (`lang/lsp`, M1–M7):
       completion popup. A tabstop used twice is one text: the sync writes the
       first stop's text into its mirrors, each through its own transform, and
       `textedit.join_last_undo` makes that part of the edit that caused it. A
+      mirror written before the stop that gives the default takes that default
+      at insert (`$1 = ${1:x}` inserts `x = x`), and a mirror before the active
+      stop moves the stop and the caret rather than ending the session. A
       multi-line template takes the indent of its line (`snippet.indent`).
       The stops are plain byte offsets kept current by the typed delta alone,
       since `textedit` has no markers, so anything that cannot be followed — a
@@ -1690,7 +1715,8 @@ Landed since (`lang/lsp`, M1–M7):
       **Covered by** `snippet/snippet_test.odin`,
       `test_snippet_session_walks_tabstops`, `test_snippet_session_follows_typing`,
       `test_snippet_session_ends_when_the_caret_leaves`,
-      `test_snippet_mirror_follows_typing`, `test_snippet_mirror_runs_its_transform`,
+      `test_snippet_mirror_follows_typing`, `test_snippet_mirror_of_a_later_default`,
+      `test_snippet_mirror_runs_its_transform`,
       `test_snippet_undo_ends_the_session`, `test_snippet_choice_opens_a_list`
       and `test_snippet_takes_the_line_indent`.
 - [x] **A real completion context.** `completionProvider.triggerCharacters` is
@@ -1934,13 +1960,14 @@ not a status, so this section stays the source of truth for what is built.
   canonical spelling (`path_real`, `lang/odin/path_windows.odin` /
   `path_posix.odin` — `GetFinalPathNameByHandleW` on Windows, already-realpath
   `filepath.abs` on POSIX) and compares those. Only runs once the cheap tiers
-  miss, so a workspace with matching spellings pays nothing extra. `path_equal`
-  and `path_in_dir` themselves stay a literal, separator/case-folded compare —
-  they run inside per-file loops over the whole index, where a `path_real` call
-  per file would reintroduce the cost tier 3 exists to avoid. Their remaining
-  imprecision (the `skip` exclusion missing a live buffer's own stale index
-  entry under a mismatched spelling) is a duplicate-or-briefly-stale candidate,
-  self-healing on the next stat-walk, not a wrong answer.
+  miss, so a workspace with matching spellings pays nothing extra. Each index
+  entry resolves its canonical spelling once, when it is first seen
+  (`File_Entry.canon`), so tier 3 is a scan with no lookups. The live buffer is
+  told apart from its own index entry under any spelling: the request path is
+  resolved once and kept on the index (`index_skip_real`, `index_is_skip`), and
+  a package-directory walk resolves only the file with the request's base name
+  (`is_request_file`). `path_equal` and `path_in_dir` themselves stay a
+  literal, separator/case-folded compare.
 - The vendored Odin `LOCALS` query models `:=` as `variable_declaration`, which
   this grammar does not produce — handled in `collect_value_decls`; revisit if
   the grammar is regenerated.

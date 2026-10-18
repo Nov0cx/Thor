@@ -6,6 +6,17 @@
 - Links and combining marks in terminal output keep working in a long session.
 - A language server, a git command or a terminal no longer hangs now and then because another process started at the same time held its pipe open.
 - A paste into a program that does not read its input no longer freezes the editor. A paste over 16 MiB is refused and logged.
+- Odin: a generic type's arguments are understood. `l: List(Point)` completes and jumps through `l.items[0].`, and a procedure that takes or returns a `List(T)` carries its `T`.
+- Odin: go to definition on a procedure group picks the member by named arguments and by generic arguments.
+- Odin: a completion row for an `#soa` array's field shows the array it is held in (`x: []f32`).
+- Odin: find references on `v.name` where `v`'s type is unknown lists only field uses. It listed every identifier of that name.
+- Odin: an implicit enum member (`.Vertical`) is coloured as an enum member.
+- Odin: completion after `.` inside `bit_set[Axis]{` or `[]Axis{` offers the enum's members.
+- Odin formatter: a long `a && b && c` breaks after its operators, a long result list and a long `case` list wrap, and struct fields and constants align across a comment line.
+- Odin formatter: a `switch` with no condition no longer gains two blank lines.
+- Odin: Format Selection and format on type change only the declarations they touch.
+- Snippets: `$1 = ${1:x}` inserts `x = x`. The first `$1` was empty.
+- Odin: a file opened through a symlink, a junction or a short name no longer shows its references twice.
 
 # 2026.10.6
 
