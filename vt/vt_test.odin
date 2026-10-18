@@ -354,16 +354,16 @@ test_resize_keeps_the_saved_cursor :: proc(h: ^testing.T) {
 
     // A full-screen program entered at row 3, resized, then left: the prompt
     // comes back to where it was, not to the top left.
-    feed(t, "[4;5H[?1049h")
+    feed(t, "\x1b[4;5H\x1b[?1049h")
     term_resize(t, 30, 8)
-    feed(t, "[?1049l")
+    feed(t, "\x1b[?1049l")
     testing.expect_value(h, t.cur.y, 3)
     testing.expect_value(h, t.cur.x, 4)
 
     // A shrink past the saved row clamps it into the grid.
-    feed(t, "[8;20H7")
+    feed(t, "\x1b[8;20H\x1b7")
     term_resize(t, 10, 4)
-    feed(t, "8")
+    feed(t, "\x1b8")
     testing.expect_value(h, t.cur.x, 9)
     testing.expect_value(h, t.cur.y, 3)
 }
