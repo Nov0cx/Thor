@@ -219,6 +219,11 @@ main :: proc() {
 
     testing.expect(t, has_completion(&res, "x"), "expected the element's x field")
     testing.expect(t, has_completion(&res, "y"), "expected the element's y field")
+    for item in res.completions {
+        if item.label == "x" {
+            testing.expectf(t, item.detail == "x: []f32", "soa completion detail: got %q", item.detail)
+        }
+    }
 }
 
 @(test)

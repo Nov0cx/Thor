@@ -637,10 +637,12 @@ struct_field :: proc(sd: ts.Node, source, field: string) -> (ident, type_node, f
 // prefix filter and the de-dup set.
 @(private)
 Fields_Ctx :: struct {
-    prefix: string,
-    env:    Embed_Env,
-    res:    ^lang.Result,
-    seen:   ^map[string]bool,
+    prefix:   string,
+    env:      Embed_Env,
+    res:      ^lang.Result,
+    seen:     ^map[string]bool,
+    held:     Container_Layer, // the layer each field is held in, when has_held
+    has_held: bool,
 }
 
 // Decl_Visitor that offers every field matching the prefix as a completion
@@ -673,10 +675,32 @@ fields_visitor :: proc(sd: ts.Node, source, path: string, ctx_raw: rawptr) {
             append(&ctx.res.symbols, lang.Symbol {
                 name      = strings.clone(fname),
                 kind      = strings.clone("field"),
-                signature = field_signature(source, c),
+                signature = held_field_signature(ctx, source, fname, c),
             })
         }
     }
+}
+
+// A field's label as it is held: `x: []f32` for an `#soa[]Point` field `x: f32`.
+// Falls back to the written line when the type does not read.
+@(private)
+held_field_signature :: proc(ctx: ^Fields_Ctx, source, name: string, field_node: ts.Node) -> string {
+    if !ctx.has_held {
+        return field_signature(source, field_node)
+    }
+    tn := ts.node_named_child(field_node, ts.node_named_child_count(field_node) - 1)
+    if string(ts.node_type(tn)) != "type" {
+        return field_signature(source, field_node)
+    }
+    tr, ok := type_ref_from_node(tn, source)
+    if !ok {
+        return field_signature(source, field_node)
+    }
+    held, hok := wrap_container(tr, ctx.held)
+    if !hok {
+        return field_signature(source, field_node)
+    }
+    return strings.concatenate({name, ": ", type_ref_text(held)})
 }
 
 // One field's `name: type` line, trimmed — a member-completion row's label.

@@ -189,8 +189,8 @@ member_type_text :: proc(field: string, tr: Type_Ref) -> string {
 }
 
 // Completion candidates a container operand offers. An `#soa` array offers its
-// element struct's fields — under their own declarations, which name the field's
-// element type rather than the array it is held in — and a swizzlable array its
+// element struct's fields, labelled with the array each is held in, and a
+// swizzlable array its
 // single components. Multi-component swizzles are not offered: there are hundreds
 // and none is likelier than the next.
 @(private)
@@ -211,10 +211,12 @@ complete_container_members :: proc(
     if layer.soa {
         elem, _, _ := unwrap_container(tr)
         ctx := Fields_Ctx {
-            prefix = prefix,
-            env    = Embed_Env{e = e, parser = parser, root = root, req = req},
-            res    = res,
-            seen   = seen,
+            prefix   = prefix,
+            env      = Embed_Env{e = e, parser = parser, root = root, req = req},
+            res      = res,
+            seen     = seen,
+            held     = soa_held_layer(layer),
+            has_held = true,
         }
         visit_type_decl(e, parser, root, req, elem, "struct_declaration", "type", fields_visitor, &ctx)
         return
