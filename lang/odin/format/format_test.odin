@@ -433,6 +433,50 @@ test_character_width_wraps_comp_lit :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_character_width_wraps_binary_chain :: proc(t: ^testing.T) {
+    opts := default_options()
+    opts.character_width = 30
+    src := "package p\nf :: proc() {\n\tif alpha_one && beta_two && gamma_three {\n\t}\n}\n"
+    out, ok := format(src, opts)
+    defer delete(out)
+    testing.expect(t, ok)
+    testing.expect(t, strings.contains(out, "if alpha_one &&\n\t\tbeta_two &&\n\t\tgamma_three {"), out)
+}
+
+@(test)
+test_character_width_wraps_case_list_at_commas :: proc(t: ^testing.T) {
+    opts := default_options()
+    opts.character_width = 40
+    src := "package p\nf :: proc() {\n\tswitch {\n\tcase alpha in set, beta in set, gamma in set:\n\t\treturn\n\t}\n}\n"
+    out, ok := format(src, opts)
+    defer delete(out)
+    testing.expect(t, ok)
+    testing.expect(t, strings.contains(out, "case alpha in set,\n\t\t\tbeta in set,\n\t\t\tgamma in set:"), out)
+    testing.expect(t, strings.contains(out, "switch {\n\t\tcase"), out) // no blank line after a tagless switch
+}
+
+@(test)
+test_binary_chain_stays_flat_when_it_fits :: proc(t: ^testing.T) {
+    src := "package p\nf :: proc() {\n\tx := a + b + c\n}\n"
+    out, ok := format(src, default_options())
+    defer delete(out)
+    testing.expect(t, ok)
+    testing.expect(t, strings.contains(out, "x := a + b + c\n"), out)
+}
+
+@(test)
+test_character_width_wraps_result_list :: proc(t: ^testing.T) {
+    opts := default_options()
+    opts.character_width = 40
+    src := "package p\nf :: proc() -> (alpha: int, beta: string, gamma: bool) {\n\treturn\n}\n"
+    out, ok := format(src, opts)
+    defer delete(out)
+    testing.expect(t, ok)
+    testing.expect(t, strings.contains(out, "-> (\n"), out)
+    testing.expect(t, strings.contains(out, "\tgamma: bool,\n) {"), out)
+}
+
+@(test)
 test_comp_lit_group_off_under_exp_multiline :: proc(t: ^testing.T) {
     opts := default_options()
     opts.character_width = 20
@@ -985,15 +1029,26 @@ test_refuses_deep_nesting :: proc(t: ^testing.T) {
     defer delete(out)
     testing.expect(t, ok, "a nesting under MAX_NESTING was refused")
 
-    // A long operator chain recurses in the printer only.
+    // A chain of alternating operators recurses in the printer only.
     b := strings.builder_make(context.temp_allocator)
     strings.write_string(&b, "package p\nx := 1")
-    for _ in 0 ..< MAX_DEPTH + 10 {
-        strings.write_string(&b, " + 1")
+    for i in 0 ..< MAX_DEPTH + 10 {
+        strings.write_string(&b, i % 2 == 0 ? " + 1" : " - 1")
     }
     strings.write_byte(&b, '\n')
     _, chain_ok := format(strings.to_string(b), default_options())
     testing.expect(t, !chain_ok, "a chain past MAX_DEPTH formatted")
+
+    // A run of one operator is printed by a loop, so its length is no limit.
+    same := strings.builder_make(context.temp_allocator)
+    strings.write_string(&same, "package p\nx := 1")
+    for _ in 0 ..< MAX_DEPTH + 10 {
+        strings.write_string(&same, " + 1")
+    }
+    strings.write_byte(&same, '\n')
+    long_out, long_ok := format(strings.to_string(same), default_options())
+    defer delete(long_out)
+    testing.expect(t, long_ok, "a one-operator chain past MAX_DEPTH was refused")
 }
 
 // A comment inside an argument, parameter or composite-literal list, or between

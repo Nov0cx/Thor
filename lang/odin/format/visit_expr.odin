@@ -77,15 +77,14 @@ print_expr :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: ^ast.Expr) {
         }
 
     case ^ast.Binary_Expr:
+        if !comment_before(pr, e.right.pos.offset) {
+            print_binary_chain(pr, out, e)
+            return
+        }
         print_expr(pr, out, e.left)
         append(out, text(" "))
         append(out, text(e.op.text))
-        if comment_before(pr, e.right.pos.offset) {
-            print_binary_comments(pr, out, e)
-            return
-        }
-        append(out, text(" "))
-        print_expr(pr, out, e.right)
+        print_binary_comments(pr, out, e)
 
     case ^ast.Paren_Expr:
         append(out, text("("))
@@ -363,6 +362,35 @@ print_expr :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: ^ast.Expr) {
     }
 }
 
+// A run of one operator (`a && b && c`) as a group: on one line when it fits
+// character_width, else broken after each operator with the operands one indent
+// in. A newline after an operator ends no statement in Odin.
+@(private)
+print_binary_chain :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: ^ast.Binary_Expr) {
+    first := e.left
+    rights := make([dynamic]^ast.Expr, context.temp_allocator)
+    append(&rights, e.right)
+    for {
+        inner, ok := first.derived_expr.(^ast.Binary_Expr)
+        if !ok || inner.op.kind != e.op.kind {
+            break
+        }
+        append(&rights, inner.right)
+        first = inner.left
+    }
+    head: [dynamic]Doc
+    print_expr(pr, &head, first)
+    body: [dynamic]Doc
+    #reverse for right in rights {
+        append(&body, text(" "))
+        append(&body, text(e.op.text))
+        append(&body, line())
+        print_expr(pr, &body, right)
+    }
+    append(&head, indent(body[:]))
+    append(out, group(head[:]))
+}
+
 // The right operand of `e` after the comments written before it. A block
 // comment on the operand's line stays inline; any other comment ends the line
 // after the operator, and the operand goes on the next line, one indent in.
@@ -599,9 +627,7 @@ print_signature_results :: proc(
         print_field(pr, out, e.results.list[0])
         return
     }
-    append(out, text("("))
-    print_field_list(pr, out, e.results)
-    append(out, text(")"))
+    append_field_list_group(pr, out, "(", ")", e.results, e.end.offset)
 }
 
 @(private)

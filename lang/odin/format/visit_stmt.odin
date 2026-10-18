@@ -400,8 +400,19 @@ print_case_item :: proc(pr: ^Printer, out: ^[dynamic]Doc, item: ^ast.Stmt) {
 print_case_clause :: proc(pr: ^Printer, out: ^[dynamic]Doc, cc: ^ast.Case_Clause) {
     append(out, text("case"))
     if len(cc.list) > 0 {
+        // Too long for character_width, the list breaks after each comma before
+        // any item breaks inside itself.
         append(out, text(" "))
-        print_expr_list(pr, out, cc.list)
+        head: [dynamic]Doc
+        print_expr(pr, &head, cc.list[0])
+        rest: [dynamic]Doc
+        for e in cc.list[1:] {
+            append(&rest, text(","))
+            append(&rest, line())
+            print_expr(pr, &rest, e)
+        }
+        append(&head, indent(rest[:]))
+        append(out, group(head[:]))
     }
     append(out, text(":"))
     if len(cc.body) == 0 {
@@ -418,7 +429,9 @@ print_case_clause :: proc(pr: ^Printer, out: ^[dynamic]Doc, cc: ^ast.Case_Clause
     // No flush here: the enclosing print_brace_body bounds any trailing
     // comment against the next case (or the switch's close) on its own next
     // separator call — flushing here would consume comments belonging to it.
-    print_stmt_list(pr, &body, cc.body, cc.case_pos.line, true)
+    // Counted from the colon: a wrapped case list ends on a later line than `case`.
+    head_line := cc.terminator.pos.line > 0 ? cc.terminator.pos.line : cc.case_pos.line
+    print_stmt_list(pr, &body, cc.body, head_line, true)
     append(out, indent(body[:]))
 }
 
@@ -430,8 +443,12 @@ print_switch_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, body: ^ast.Stmt) {
         return
     }
     print_brace_lead(pr, out, false, len(block.stmts) == 0)
-    open := ast.Node{pos = block.open, end = block.open}
-    close := ast.Node{pos = block.close, end = block.close}
+    // The parser builds a switch body from its brace tokens without setting
+    // open/close, only the node's own pos and end.
+    open_pos := block.open.line > 0 ? block.open : block.pos
+    close_pos := block.close.line > 0 ? block.close : block.end
+    open := ast.Node{pos = open_pos, end = open_pos}
+    close := ast.Node{pos = close_pos, end = close_pos}
     print_brace_body(pr, out, open, close, block.stmts, print_case_item, pr.opts.indent_cases)
 }
 
