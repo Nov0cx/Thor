@@ -1,3 +1,12 @@
+# 2026.10.7
+
+- Rename refuses a builtin, an import name, a named argument or a label. It renamed every identifier of that name in the workspace.
+- Find references on an import name lists the uses in its own file only.
+- Leaving a full-screen program such as vim after a terminal resize puts the prompt back where it was. It went to the top left.
+- Links and combining marks in terminal output keep working in a long session.
+- A language server, a git command or a terminal no longer hangs now and then because another process started at the same time held its pipe open.
+- A paste into a program that does not read its input no longer freezes the editor. A paste over 16 MiB is refused and logged.
+
 # 2026.10.6
 
 - Panels and scroll areas clip their content on a scaled display (125 % and up, Retina). The clip was scaled a second time.
