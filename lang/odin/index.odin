@@ -38,6 +38,7 @@ File_Entry :: struct {
     size:    i64,
     decls:   [dynamic]Index_Symbol,
     idents:  map[string]bool, // unique identifier names, engine-owned keys
+    canon:   string,          // the OS's own spelling of the path, "" when it did not resolve; owned
 }
 
 // A workspace-wide store of parsed top-level declarations, resident across
@@ -51,6 +52,7 @@ Symbol_Index :: struct {
     root:   string,                // the workspace this was built for
     built:  bool,
     walked: time.Time,             // when the last complete walk ended; zero when none has
+    reals:  map[string]string,     // a request path to its canonical spelling, "" when unresolved; owned
     alloc:  runtime.Allocator,
 }
 
@@ -214,10 +216,14 @@ index_reparse :: proc(e: ^Engine, parser: ts.Parser, key: string, modtime, size:
 
     // Existing key: free the old decls and update in place (the owned key stays).
     // New key: clone it into the engine allocator so it outlives the scratch info.
+    // The canonical spelling is resolved once, when the file is first seen.
     if old, ok := idx.files[key]; ok {
+        entry.canon = old.canon
+        old.canon = ""
         index_free_entry(idx, old)
         idx.files[key] = entry
     } else {
+        entry.canon, _ = path_real(key, context.allocator)
         idx.files[strings.clone(key)] = entry
     }
 }
@@ -253,8 +259,9 @@ index_find_defs :: proc(
     same_package: bool,
     res: ^lang.Result,
 ) -> (single_overload: bool) {
+    skip_real := index_skip_real(&e.index, skip)
     for path, entry in e.index.files {
-        if lang.path_equal(path, skip) || !index_scoped(path, dir) {
+        if index_is_skip(path, entry, skip, skip_real) || !index_scoped(path, dir) {
             continue
         }
         for sym in entry.decls {
@@ -281,8 +288,9 @@ index_find_defs :: proc(
 // is still a place to jump to.
 @(private)
 index_all_symbols :: proc(e: ^Engine, skip, query: string, res: ^lang.Result) {
+    skip_real := index_skip_real(&e.index, skip)
     for path, entry in e.index.files {
-        if lang.path_equal(path, skip) {
+        if index_is_skip(path, entry, skip, skip_real) {
             continue
         }
         for sym in entry.decls {
@@ -326,8 +334,9 @@ index_first_path :: proc(
 ) -> (string, bool) {
     best := ""
     found := false
+    skip_real := index_skip_real(&e.index, skip)
     for path, entry in e.index.files {
-        if lang.path_equal(path, skip) || !index_scoped(path, dir) {
+        if index_is_skip(path, entry, skip, skip_real) || !index_scoped(path, dir) {
             continue
         }
         for sym in entry.decls {
@@ -354,8 +363,9 @@ index_first_path :: proc(
 // usages twice.
 @(private)
 index_ref_files :: proc(e: ^Engine, name, skip: string, out: ^[dynamic]string) {
+    skip_real := index_skip_real(&e.index, skip)
     for path, entry in e.index.files {
-        if lang.path_equal(path, skip) {
+        if index_is_skip(path, entry, skip, skip_real) {
             continue
         }
         if name in entry.idents {
@@ -380,12 +390,13 @@ index_dir_completions :: proc(
     seen: ^map[string]bool,
 ) -> bool {
     indexed := false
+    skip_real := index_skip_real(&e.index, skip)
     for path, entry in e.index.files {
         if !path_in_dir(path, dir) {
             continue
         }
         indexed = true
-        if lang.path_equal(path, skip) {
+        if index_is_skip(path, entry, skip, skip_real) {
             continue
         }
         for sym in entry.decls {
@@ -407,6 +418,50 @@ index_dir_completions :: proc(
         }
     }
     return indexed
+}
+
+// The canonical spelling of the request path `skip`, resolved once per path and
+// kept on the index; "" when it does not resolve. Caller holds the mutex.
+@(private)
+index_skip_real :: proc(idx: ^Symbol_Index, skip: string) -> string {
+    if skip == "" {
+        return ""
+    }
+    if real, seen := idx.reals[skip]; seen {
+        return real
+    }
+    if idx.reals == nil {
+        idx.reals = make(map[string]string, 0, idx.alloc)
+    }
+    real, _ := path_real(skip, idx.alloc)
+    idx.reals[strings.clone(skip, idx.alloc)] = real
+    return real
+}
+
+// Whether the index row `path` is the request's own file `skip`, under the same
+// or another spelling (a symlink, a junction, an 8.3 short name).
+@(private)
+index_is_skip :: proc(path: string, entry: File_Entry, skip, skip_real: string) -> bool {
+    if lang.path_equal(path, skip) {
+        return true
+    }
+    return skip_real != "" && entry.canon != "" && lang.path_equal(entry.canon, skip_real)
+}
+
+// Whether `path`, a file of a directory walk, is the request's own file `skip`
+// under any spelling. Only a file with skip's base name is resolved, so a walk
+// costs at most one pair of lookups.
+@(private)
+is_request_file :: proc(path, skip: string) -> bool {
+    if lang.path_equal(path, skip) {
+        return true
+    }
+    if skip == "" || !lang.path_equal(filepath.base(path), filepath.base(skip)) {
+        return false
+    }
+    a, aok := path_real(path, context.temp_allocator)
+    b, bok := path_real(skip, context.temp_allocator)
+    return aok && bok && lang.path_equal(a, b)
 }
 
 // Whether an index row at `path` is in scope for a query confined to the package
@@ -481,22 +536,15 @@ index_dir_populated :: proc(e: ^Engine, dir: string) -> bool {
     return false
 }
 
-// Tier 3 of index_package_dir: resolves each distinct index directory with
-// path_real and compares against `real`. Reached only once the literal and
-// filepath.abs tiers have both missed, so the extra open-and-query calls are paid
-// on a genuine spelling mismatch. Returns the index's own spelling, which is what
-// path_in_dir keys off.
+// Tier 3 of index_package_dir: the index directory whose files' canonical
+// spellings sit in `real`. Each entry resolved its own spelling when it was first
+// indexed, so this is a scan with no lookups. Returns the index's own spelling,
+// which is what path_in_dir keys off.
 @(private = "file")
 index_dir_real_match :: proc(e: ^Engine, real: string) -> (dir: string, found: bool) {
-    seen := make(map[string]bool, 0, context.temp_allocator)
-    for path in e.index.files {
-        candidate := filepath.dir(path) // a slice of `path`, no allocation
-        if candidate in seen {
-            continue
-        }
-        seen[candidate] = true
-        if candidate_real, ok := path_real(candidate, context.temp_allocator); ok && lang.path_equal(candidate_real, real) {
-            return candidate, true
+    for path, entry in e.index.files {
+        if entry.canon != "" && lang.path_equal(filepath.dir(entry.canon), real) {
+            return filepath.dir(path), true
         }
     }
     return "", false
@@ -528,6 +576,7 @@ index_free_entry :: proc(idx: ^Symbol_Index, entry: File_Entry) {
         delete(name, idx.alloc)
     }
     delete(entry.idents)
+    delete(entry.canon, idx.alloc)
 }
 
 // Drops one file's entry so the next sync re-parses it, whatever its stat says.
@@ -568,6 +617,12 @@ index_clear :: proc(e: ^Engine) {
         delete(path, idx.alloc)
     }
     delete(idx.files)
+    for path, real in idx.reals {
+        delete(path, idx.alloc)
+        delete(real, idx.alloc)
+    }
+    delete(idx.reals)
+    idx.reals = nil
     delete(idx.root, idx.alloc)
     idx.files = nil
     idx.root = ""

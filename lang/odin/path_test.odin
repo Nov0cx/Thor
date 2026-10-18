@@ -115,3 +115,39 @@ cleanup_mismatched_workspace_spelling :: proc(mismatched_root: string) {
         delete(mismatched_root)
     }
 }
+
+// A buffer opened under another spelling of its own path is still told apart
+// from its on-disk copy in the index, so its usages are not listed twice.
+@(test)
+test_references_skip_buffer_under_another_spelling :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    rel := "thor_lang_path_skip_ws"
+    _ = os.make_directory(rel)
+    defer os.remove(rel)
+    root, abs_err := filepath.abs(rel, context.temp_allocator)
+    testing.expect(t, abs_err == nil, "could not absolutize the test workspace")
+    sub := strings.concatenate({root, "/sub"}, context.temp_allocator)
+    _ = os.make_directory(sub)
+    defer os.remove(sub)
+
+    src := "package p\n\nf :: proc() {}\n\ng :: proc() {\n\tf()\n}\n"
+    file := strings.concatenate({root, "/a.odin"}, context.temp_allocator)
+    _ = os.write_entire_file(file, transmute([]byte)src)
+    defer os.remove(file)
+
+    req := lang.Request {
+        kind      = .References,
+        path      = strings.concatenate({root, "/sub/../a.odin"}, context.temp_allocator),
+        ext       = ".odin",
+        source    = src,
+        offset    = strings.index(src, "f()"),
+        workspace = root,
+    }
+    res := lang.Result{kind = .References}
+    resolve(e, &req, &res)
+    defer free_symbols(&res)
+
+    testing.expectf(t, len(res.symbols) == 1, "expected the one call, got %d references", len(res.symbols))
+}
