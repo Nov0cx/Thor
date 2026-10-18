@@ -42,6 +42,7 @@ Ref_Target :: struct {
     dir:        string,    // Package: the declaring package's directory, temp-owned
     own_pkg:    bool,      // Package: the request file is one of that package's own
     one_file:   bool,      // Package: `@(private = "file")`, so its reach is the buffer alone
+    unbound:    bool,      // Any: no declaration a rename can move (an import alias, a builtin)
     owner:      Field_Site, // Field
 }
 
@@ -122,9 +123,23 @@ collect_references :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, req: ^l
     }
     name := ts.node_text(ident, req.source)
     target := ref_target(e, parser, root, req, ident, name)
+    collect_target_references(e, parser, root, req, &target, res)
+}
+
+// Gathers every occurrence that binds to `target`.
+@(private)
+collect_target_references :: proc(
+    e: ^Engine,
+    parser: ts.Parser,
+    root: ts.Node,
+    req: ^lang.Request,
+    target: ^Ref_Target,
+    res: ^lang.Result,
+) {
+    name := target.name
     budget := REF_INFER_LIMIT
 
-    ref_scan_tree(e, parser, root, req, &target, true, &budget, res)
+    ref_scan_tree(e, parser, root, req, target, true, &budget, res)
 
     // A local lives and dies in one scope of one file, and so does a
     // `@(private = "file")` declaration; everything else can be named from
@@ -141,7 +156,7 @@ collect_references :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, req: ^l
             if lang.request_cancelled(req) {
                 return
             }
-            ref_scan_file(e, parser, path, req, &target, &budget, res)
+            ref_scan_file(e, parser, path, req, target, &budget, res)
         }
     }
 
@@ -206,6 +221,12 @@ ref_target :: proc(
     case .Value:
         return ref_value_target(e, parser, root, req, name)
     case .Named_Arg, .Ignored:
+        // An enum member is named the same way at every use, so a flat rename holds.
+        parent := ts.node_parent(ident)
+        if !ts.node_is_null(parent) && string(ts.node_type(parent)) == "enum_declaration" {
+            break
+        }
+        return Ref_Target{name = name, kind = .Any, unbound = true}
     }
     return Ref_Target{name = name, kind = .Any}
 }
@@ -227,8 +248,12 @@ ref_value_target :: proc(
     }
     // An import alias or the package clause: what it names is a directory, not a
     // declaration this scan can bind occurrences to.
+    // An import name is per file, so its uses are in this file alone.
     if found && d.kind == "namespace" {
-        return Ref_Target{name = name, kind = .Any}
+        return Ref_Target{name = name, kind = .Any, one_file = true, unbound = true}
+    }
+    if _, imported := import_path(root, req.source, name); imported {
+        return Ref_Target{name = name, kind = .Any, one_file = true, unbound = true}
     }
 
     dir, declared := ref_own_package(e, parser, req, name)
@@ -244,7 +269,7 @@ ref_value_target :: proc(
     // Neither this file nor its package declares it: a name from the implicit
     // scope, or a typo. Nothing to bind to, so nothing is excluded either — and a
     // builtin is not renameable in any case, its declaration being the toolchain's.
-    return Ref_Target{name = name, kind = .Any}
+    return Ref_Target{name = name, kind = .Any, unbound = true}
 }
 
 // The requesting file's package directory, and whether that package declares

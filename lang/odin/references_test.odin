@@ -531,3 +531,51 @@ test_rename_stays_in_its_package :: proc(t: ^testing.T) {
     testing.expectf(t, declared == 2, "edits in the declaring file: got %d", declared)
     testing.expectf(t, len(res.edits) == 4, "rename edit count: got %d", len(res.edits))
 }
+
+@(test)
+test_rename_refuses_an_unbound_name :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := "package demo\n\nimport \"core:fmt\"\n\nmain :: proc() {\n\ts := \"ab\"\n\tfmt.println(len(s))\n}\n"
+    for needle in ([?]string{"len(", "fmt.println", "fmt\""}) {
+        res := rename_at(e, src, needle, "other")
+        defer free_edits(&res)
+        testing.expectf(t, !res.ok && len(res.edits) == 0, "rename at %q: got %d edits", needle, len(res.edits))
+    }
+}
+
+@(test)
+test_rename_keeps_an_enum_member :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := "package demo\n\nColor :: enum {\n\tRed,\n\tGreen,\n}\n\nc: Color = .Red\n"
+    res := rename_at(e, src, "Red,", "Crimson")
+    defer free_edits(&res)
+    testing.expectf(t, len(res.edits) == 2, "enum member rename edit count: got %d", len(res.edits))
+}
+
+@(test)
+test_refs_of_an_import_alias_stay_in_its_file :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    dir := "thor_lang_refs_alias_ws"
+    _ = os.make_directory(dir)
+    defer os.remove(dir)
+
+    other := strings.concatenate({dir, "/other.odin"}, context.temp_allocator)
+    other_src := "package demo\n\nimport \"core:fmt\"\n\nrun :: proc() {\n\tfmt.println(1)\n}\n"
+    _ = os.write_entire_file(other, transmute([]byte)other_src)
+    defer os.remove(other)
+
+    main_path := strings.concatenate({dir, "/main.odin"}, context.temp_allocator)
+    src := "package demo\n\nimport \"core:fmt\"\n\nmain :: proc() {\n\tfmt.println(2)\n}\n"
+    res := refs_at(e, src, "fmt.println", workspace = dir, path = main_path)
+    defer free_symbols(&res)
+    for sym in res.symbols {
+        testing.expectf(t, !strings.has_suffix(sym.path, "other.odin"), "alias reference leaked into %s", sym.path)
+    }
+    testing.expect(t, len(res.symbols) > 0, "expected the alias's own uses")
+}

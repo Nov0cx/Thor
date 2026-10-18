@@ -969,7 +969,11 @@ lowest latency.
       top-level name to its package (bare there, qualified elsewhere), a field to
       the struct declaring it — plus the declaration, which find-usages leaves out
       and a rename must obviously rewrite. Where the scan cannot prove a binding
-      it keeps the occurrence, so a rename is still wide before it is wrong. The
+      it keeps the occurrence, so a rename is still wide before it is wrong. A
+      name bound to no declaration — a builtin, an import name, a named argument,
+      a label — is refused (`Ref_Target.unbound`), since its flat match would
+      rewrite every same-named identifier; the references of an import name stay
+      in its own file. An enum member keeps the flat rename. The
       new name must be a legal Odin identifier and not a keyword/builtin
       (`valid_identifier`); gated by `enable_rename`.
 - [x] **Diagnostics.** A save queues a `Diagnostics` request for the saved file's

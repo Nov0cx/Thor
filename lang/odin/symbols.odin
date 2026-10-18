@@ -98,7 +98,12 @@ rename :: proc(e: ^Engine, parser: ts.Parser, root: ts.Node, req: ^lang.Request,
         return // renaming to itself: no edits, nothing to apply
     }
 
-    collect_references(e, parser, root, req, res)
+    // A name bound to no declaration would rename every same-named identifier.
+    target := ref_target(e, parser, root, req, ident, name)
+    if target.unbound {
+        return
+    }
+    collect_target_references(e, parser, root, req, &target, res)
     if !res.ok {
         return
     }
