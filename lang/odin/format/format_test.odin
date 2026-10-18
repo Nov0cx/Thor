@@ -123,13 +123,35 @@ test_align_run_breaks_on_blank_line :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_align_run_breaks_on_own_line_comment :: proc(t: ^testing.T) {
+test_align_run_spans_own_line_comment :: proc(t: ^testing.T) {
     src := "package p\nFoo :: struct {\n\tx: int,\n\tlonger: string,\n\t// note\n\ta: int,\n\tbb: string,\n}\n"
     out, ok := format(src, default_options())
     defer delete(out)
     testing.expect(t, ok)
     testing.expect(t, strings.contains(out, "\tx:      int,"), out)
+    testing.expect(t, strings.contains(out, "\t// note\n\ta:      int,"), out)
+}
+
+@(test)
+test_align_run_breaks_on_blank_line_after_comment :: proc(t: ^testing.T) {
+    src := "package p\nFoo :: struct {\n\tx: int,\n\tlonger: string,\n\t// note\n\n\ta: int,\n\tbb: string,\n}\n"
+    out, ok := format(src, default_options())
+    defer delete(out)
+    testing.expect(t, ok)
+    testing.expect(t, strings.contains(out, "\tx:      int,"), out)
     testing.expect(t, strings.contains(out, "\ta:  int,"), out)
+}
+
+@(test)
+test_align_constants_and_enum_span_comment :: proc(t: ^testing.T) {
+    opts := default_options()
+    opts.align_constant_definitions = true
+    src := "package p\nA :: 1\n// note\nLONGER :: 2\nE :: enum {\n\ta = 1,\n\t// note\n\tlonger = 2,\n}\n"
+    out, ok := format(src, opts)
+    defer delete(out)
+    testing.expect(t, ok)
+    testing.expect(t, strings.contains(out, "A      :: 1\n// note\nLONGER :: 2"), out)
+    testing.expect(t, strings.contains(out, "\ta      = 1,\n\t// note\n\tlonger = 2,"), out)
 }
 
 @(test)

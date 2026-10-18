@@ -39,19 +39,18 @@ align_cell :: proc(pr: ^Printer, node: rawptr) -> Align_Cell {
     return pr.align_ids[node]
 }
 
-// Whether two consecutive body items may share one alignment run: directly
-// adjacent lines, and no comment on a line strictly between them. A trailing
-// comment on prev's own last line does not break a run — flush_trailing prints
-// it after the cell, where it cannot move it.
+// Whether two consecutive body items may share one alignment run: every line
+// strictly between them holds a comment, so only a blank line breaks a run. A
+// comment line between two cells is printed on its own line at the cells' indent,
+// and a trailing comment on prev's own last line is printed after the cell, so
+// neither moves a cell's column.
 //
 // The scan may start at the cursor: every pre-pass runs before its body's emit
 // loop, so a comment inside that body is always at an index the cursor has not
-// reached, and a comment before it fails the first test anyway.
+// reached, and a comment before it is skipped by the first test.
 @(private)
 same_align_run :: proc(pr: ^Printer, prev_end_line, next_start_line: int) -> bool {
-    if next_start_line > prev_end_line + 1 {
-        return false
-    }
+    expect := prev_end_line + 1
     for i := pr.comment_idx; i < len(pr.comments); i += 1 {
         cg := pr.comments[i]
         if cg.pos.line <= prev_end_line {
@@ -60,9 +59,14 @@ same_align_run :: proc(pr: ^Printer, prev_end_line, next_start_line: int) -> boo
         if cg.pos.line >= next_start_line {
             break
         }
-        return false
+        for tok in cg.list {
+            if tok.pos.line != expect {
+                return false
+            }
+            expect = comment_end_line(tok) + 1
+        }
     }
-    return true
+    return expect == next_start_line
 }
 
 // blanks between two lines that are `gap` apart (gap = next.line - prev.line),

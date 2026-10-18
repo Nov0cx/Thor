@@ -183,7 +183,8 @@ import_run_end :: proc(pr: ^Printer, stmts: []^ast.Stmt, i: int) -> int {
         if stmts[end] == nil || !plain_import(stmts[end]) {
             break
         }
-        if end > i && !same_align_run(pr, stmts[end - 1].end.line, stmts[end].pos.line) {
+        // Adjacent lines only: a comment line between ends a sortable run.
+        if end > i && stmts[end].pos.line != stmts[end - 1].end.line + 1 {
             break
         }
         end += 1
@@ -191,8 +192,7 @@ import_run_end :: proc(pr: ^Printer, stmts: []^ast.Stmt, i: int) -> int {
     if end - i < 2 {
         return i
     }
-    // A trailing comment sits on the run's own last line, which same_align_run
-    // deliberately allows — here it must not, so check the whole span.
+    // A trailing comment on one of the run's lines pins it too.
     for cg in pr.comments[pr.comment_idx:] {
         if cg.pos.line < stmts[i].pos.line {
             continue
