@@ -775,12 +775,8 @@ osc_hyperlink :: proc(t: ^Term, rest: string) {
         t.cur.pen.link = 0
         return
     }
-    if len(t.links) >= MAX_LINKS {
-        t.cur.pen.link = 0
-        return
-    }
-    append(&t.links, strings.clone(uri, t.allocator))
-    t.cur.pen.link = u32(len(t.links) - 1)
+    id, ok := pool_intern(t, .Link, uri)
+    t.cur.pen.link = ok ? id : 0
 }
 
 // OSC 52: targets;base64. A query is not answered — the clipboard is the user's

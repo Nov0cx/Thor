@@ -532,22 +532,11 @@ combine_with_previous :: proc(t: ^Term, r: rune) {
     }
     strings.write_rune(&builder, r)
 
-    id, ok := grapheme_intern(t, strings.to_string(builder))
+    id, ok := pool_intern(t, .Grapheme, strings.to_string(builder))
     if !ok {
         return
     }
     cell.grapheme = id
-}
-
-// Adds a grapheme to the pool. The pool only grows, so it is capped: past the
-// cap a combining mark is dropped rather than left to grow without bound.
-@(private = "file")
-grapheme_intern :: proc(t: ^Term, text: string) -> (u32, bool) {
-    if len(t.graphemes) >= MAX_GRAPHEMES {
-        return 0, false
-    }
-    append(&t.graphemes, strings.clone(text, t.allocator))
-    return u32(len(t.graphemes) - 1), true
 }
 
 // Applies the character set the active Gn slot names. Only DEC special graphics

@@ -1,5 +1,6 @@
 package vt
 
+import "core:fmt"
 import "core:strings"
 import "core:testing"
 
@@ -319,6 +320,37 @@ test_osc_hyperlink :: proc(h: ^testing.T) {
     cells := t.primary[0].cells
     testing.expect_value(h, term_link(t, cells[0].link), "https://example.com")
     testing.expect_value(h, cells[4].link, u32(0))
+}
+
+@(test)
+test_link_pool_dedups_and_compacts :: proc(h: ^testing.T) {
+    t := term_make(8, 2, scrollback = 0)
+    defer term_destroy(t)
+
+    feed(t, "\x1b]8;;https://a\x1b\\x\x1b]8;;\x1b\\\x1b]8;;https://a\x1b\\y\x1b]8;;\x1b\\")
+    cells := t.primary[0].cells
+    testing.expect_value(h, cells[0].link, cells[1].link)
+    testing.expect_value(h, len(t.links), 2)
+
+    // More distinct links than the pool holds, each written over the last.
+    for i in 0 ..< MAX_LINKS + 100 {
+        feed(t, fmt.tprintf("\r\x1b]8;;https://x/%d\x1b\\z\x1b]8;;\x1b\\", i))
+    }
+    want := fmt.tprintf("https://x/%d", MAX_LINKS + 99)
+    testing.expect_value(h, term_link(t, t.primary[0].cells[0].link), want)
+    testing.expect(h, len(t.links) <= MAX_LINKS)
+}
+
+@(test)
+test_grapheme_pool_dedups :: proc(h: ^testing.T) {
+    t := term_make(8, 2)
+    defer term_destroy(t)
+
+    feed(t, "e\xcc\x81e\xcc\x81")
+    cells := t.primary[0].cells
+    testing.expect(h, cells[0].grapheme != 0)
+    testing.expect_value(h, cells[0].grapheme, cells[1].grapheme)
+    testing.expect_value(h, term_grapheme(t, cells[1].grapheme), "e\xcc\x81")
 }
 
 @(test)

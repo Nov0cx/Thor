@@ -199,9 +199,11 @@ Term :: struct {
     cwd:              string,
     // OSC 8 targets, index 0 unused so a cell's 0 means "no link". owned
     links:            [dynamic]string,
+    link_ids:         map[string]u32, // owned; keys borrow `links`
     // Base plus combining marks for the cells that need more than one rune,
     // index 0 unused. owned
     graphemes:        [dynamic]string,
+    grapheme_ids:     map[string]u32, // owned; keys borrow `graphemes`
     // What the host sets so the pixel and cell reports can answer.
     cell_w, cell_h:   int,
     // The two colours a Default cell resolves to and the cursor's, seeded from
@@ -253,6 +255,8 @@ term_make :: proc(
     t.title_stack = make([dynamic]string)
     t.links = make([dynamic]string)
     t.graphemes = make([dynamic]string)
+    t.link_ids = make(map[string]u32)
+    t.grapheme_ids = make(map[string]u32)
     t.reply = make([dynamic]u8)
     t.osc = make([dynamic]u8)
     // Index 0 of both pools means "none".
@@ -281,14 +285,11 @@ term_destroy :: proc(t: ^Term) {
         delete(entry)
     }
     delete(t.title_stack)
-    for link in t.links[1:] {
-        delete(link)
-    }
+    pool_clear(t)
     delete(t.links)
-    for g in t.graphemes[1:] {
-        delete(g)
-    }
+    delete(t.link_ids)
     delete(t.graphemes)
+    delete(t.grapheme_ids)
     delete(t.title)
     delete(t.icon_title)
     delete(t.cwd)
@@ -463,16 +464,7 @@ term_reset :: proc(t: ^Term) {
     grid_blank(t, &t.alt)
     t.alt_active = false
     t.palette = t.default_palette
-    for link in t.links[1:] {
-        delete(link)
-    }
-    clear(&t.links)
-    append(&t.links, "")
-    for g in t.graphemes[1:] {
-        delete(g)
-    }
-    clear(&t.graphemes)
-    append(&t.graphemes, "")
+    pool_clear(t)
     delete(t.title)
     delete(t.icon_title)
     t.title, t.icon_title = "", ""
