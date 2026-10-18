@@ -2098,7 +2098,8 @@ editor_snippet_mirror :: proc(editor: ^Editor) -> bool {
         if i == editor.snippet_at || stop.index != active.index {
             continue
         }
-        if stop.start < active.end || stop.end > len(txt) || stop.end < stop.start {
+        overlaps := stop.start < active.end && stop.end > active.start
+        if overlaps || stop.start < 0 || stop.end > len(txt) || stop.end < stop.start {
             return false
         }
         want := source
@@ -2145,7 +2146,7 @@ editor_snippet_mirror :: proc(editor: ^Editor) -> bool {
                 break
             }
         }
-        if !mirrored && i != editor.snippet_at {
+        if !mirrored {
             stop.start += shift(mirrors[:], stop.start, false)
             stop.end += shift(mirrors[:], stop.end, true)
         }
@@ -2153,7 +2154,9 @@ editor_snippet_mirror :: proc(editor: ^Editor) -> bool {
     for m in mirrors {
         editor.snippet_hi += len(m.edit.text) - (m.edit.end - m.edit.start)
     }
-    // Every mirror is after the active stop, so the caret stays where it was.
+    // A mirror before the active stop moves the caret inside it.
+    cursor.caret += shift(mirrors[:], cursor.caret, true)
+    cursor.anchor += shift(mirrors[:], cursor.anchor, true)
     cursors := [1]textedit.Cursor{cursor}
     textedit.set_cursors(state, cursors[:])
     editor.snippet_rev = state.revision

@@ -202,3 +202,24 @@ test_indent_moves_the_stops :: proc(t: ^testing.T) {
     // The exit stop is after the line indent and the unit.
     testing.expect_value(t, snip.stops[1].start, len("if cond {\n      "))
 }
+
+// A mirror written before the placeholder that gives its default takes that
+// default too, and the stops after it move.
+@(test)
+test_earlier_mirror_takes_later_default :: proc(t: ^testing.T) {
+    snip := parse("$1 = ${1:x}; ${2:y}$0")
+    defer destroy(&snip)
+
+    testing.expect_value(t, snip.text, "x = x; y")
+    testing.expect_value(t, len(snip.stops), 4)
+    if len(snip.stops) != 4 {
+        return
+    }
+    testing.expect_value(t, snip.stops[0].start, 0)
+    testing.expect_value(t, snip.stops[0].end, 1)
+    testing.expect_value(t, snip.stops[1].start, 4)
+    testing.expect_value(t, snip.stops[1].end, 5)
+    testing.expect_value(t, snip.stops[2].start, 7)
+    testing.expect_value(t, snip.stops[2].end, 8)
+    testing.expect_value(t, snip.stops[3].start, 8)
+}

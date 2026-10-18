@@ -85,6 +85,7 @@ parse :: proc(template: string, vars := Vars{}, allocator := context.allocator) 
         choices    = make([dynamic]string, allocator),
     }
     snippet_body(&p, false)
+    snippet_fill_mirrors(&p)
     snip := Snippet {
         text       = strings.to_string(p.out),
         stops      = p.stops,
@@ -331,6 +332,75 @@ snippet_add_stop :: proc(p: ^Parser, index: int, text: string) {
     start := strings.builder_len(p.out)
     strings.write_string(&p.out, text)
     append(&p.stops, Stop{start = start, end = strings.builder_len(p.out), index = index, depth = p.depth})
+}
+
+// Gives an empty stop the default that a later stop of its number writes, so
+// `$1 = ${1:x}` inserts `x = x`. The stops move with the text.
+@(private = "file")
+snippet_fill_mirrors :: proc(p: ^Parser) {
+    Fill :: struct {
+        stop: int,
+        text: string,
+    }
+    fills := make([dynamic]Fill, context.temp_allocator)
+    for stop, i in p.stops {
+        if stop.end > stop.start || stop.transform != 0 || stop.choice_count > 0 || stop.index == 0 {
+            continue
+        }
+        for later in p.stops[i + 1:] {
+            if later.index == stop.index && later.transform == 0 && later.end > later.start {
+                append(&fills, Fill{stop = i, text = string(p.out.buf[later.start:later.end])})
+                break
+            }
+        }
+    }
+    if len(fills) == 0 {
+        return
+    }
+    orig := slice.clone(p.stops[:], context.temp_allocator)
+    // Text order, which a nested placeholder can make differ from stop order.
+    for i in 1 ..< len(fills) {
+        for j := i; j > 0 && orig[fills[j].stop].start < orig[fills[j - 1].stop].start; j -= 1 {
+            fills[j], fills[j - 1] = fills[j - 1], fills[j]
+        }
+    }
+
+    old := strings.clone(strings.to_string(p.out), context.temp_allocator)
+    for &f in fills {
+        f.text = strings.clone(f.text, context.temp_allocator)
+    }
+    out := strings.builder_make(0, len(old) + 16, p.allocator)
+    prev := 0
+    for f in fills {
+        pos := orig[f.stop].start
+        strings.write_string(&out, old[prev:pos])
+        strings.write_string(&out, f.text)
+        prev = pos
+    }
+    strings.write_string(&out, old[prev:])
+    strings.builder_destroy(&p.out)
+    p.out = out
+
+    for &s, i in p.stops {
+        o := orig[i]
+        for f in fills {
+            pos := orig[f.stop].start
+            n := len(f.text)
+            if f.stop == i {
+                s.end += n
+                continue
+            }
+            // A placeholder around the filled stop grows; a stop after it moves.
+            contains := orig[f.stop].depth > o.depth && o.start <= pos && pos <= o.end
+            after := pos < o.start || (pos == o.start && !contains && i > f.stop)
+            if after {
+                s.start += n
+                s.end += n
+            } else if pos < o.end || (pos == o.end && contains) {
+                s.end += n
+            }
+        }
+    }
 }
 
 // The text the first stop of `index` produced, cloned out of the builder before

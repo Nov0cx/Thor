@@ -1114,6 +1114,28 @@ test_snippet_mirror_follows_typing :: proc(t: ^testing.T) {
     testing.expect_value(t, textedit.text(&state), "zy = zy; b\n")
 }
 
+// The first stop of a number is the one Tab lands on, even when a later one
+// writes the default; typing there replaces the default everywhere.
+@(test)
+test_snippet_mirror_of_a_later_default :: proc(t: ^testing.T) {
+    state: textedit.State
+    textedit.init(&state)
+    defer textedit.destroy(&state)
+
+    editor: Editor
+    defer delete(editor.visual_rows)
+    defer delete(editor.completion_rows)
+    defer editor_test_free_snippet(&editor)
+    defer editor_test_free_completions(&editor)
+
+    editor_test_accept_snippet(&editor, &state, "fn\n", "$1 = ${1:x};$0")
+    testing.expect_value(t, textedit.text(&state), "x = x;\n")
+
+    editor_text(&editor, 'q', {})
+    testing.expect_value(t, textedit.text(&state), "q = q;\n")
+    testing.expect_value(t, textedit.primary_cursor(&state).caret, 1)
+}
+
 @(private = "file")
 editor_test_expect_selection :: proc(t: ^testing.T, state: ^textedit.State, lo, hi: int, loc := #caller_location) {
     got_lo, got_hi := textedit.selection_range(textedit.primary_cursor(state))
