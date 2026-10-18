@@ -8,7 +8,8 @@
 // Exclusion needs proof, inclusion does not: rename runs this scan, and a usage
 // it drops is code left broken. A `using` in reach, an operand whose type does
 // not infer, a name that resolves nowhere — each falls back to the flat name
-// match this used to be.
+// match this used to be. A `v.name` whose `v` does not infer still names a field
+// of something, so it falls back to field positions only, never to a bare name.
 //
 // The declaration is the one occurrence the two consumers disagree about: it is
 // not a use of itself, but a rename that skipped it would leave it behind. The
@@ -28,10 +29,11 @@ import ts "../../vendor/odin-tree-sitter"
 // another occurrence of it is the same thing.
 @(private)
 Ref_Kind :: enum {
-    Any,     // resolved to nothing: every occurrence of the name, as before
-    Local,   // a local or a parameter: one declaration, in one file
-    Package, // a top-level declaration: bare in its package, qualified outside it
-    Field,   // a struct field: member position on a value of that struct
+    Any,       // resolved to nothing: every occurrence of the name, as before
+    Local,     // a local or a parameter: one declaration, in one file
+    Package,   // a top-level declaration: bare in its package, qualified outside it
+    Field,     // a struct field: member position on a value of that struct
+    Field_Any, // a field of a type that does not infer: every field position
 }
 
 @(private)
@@ -74,9 +76,9 @@ Ref_Pos :: enum {
     Ignored,    // a package clause, an import alias, an attribute, a label
 }
 
-// How many operand types one scan will infer before it stops proving and starts
-// accepting. Each inference can cost a file read and a parse, and a field name
-// like `x` can appear thousands of times in a workspace; past this the scan
+// How many operand types one file's scan will infer before it stops proving and
+// starts accepting. Each inference can cost a file read and a parse, and a field
+// name like `x` can appear thousands of times in one file; past this the scan
 // keeps the occurrences it can no longer judge rather than dropping them.
 @(private)
 REF_INFER_LIMIT :: 512
@@ -156,6 +158,7 @@ collect_target_references :: proc(
             if lang.request_cancelled(req) {
                 return
             }
+            budget = REF_INFER_LIMIT
             ref_scan_file(e, parser, path, req, target, &budget, res)
         }
     }
@@ -218,6 +221,7 @@ ref_target :: proc(
         if site, ok := operand_field_site(e, parser, root, req, operand, name); ok {
             return Ref_Target{name = name, kind = .Field, owner = site}
         }
+        return Ref_Target{name = name, kind = .Field_Any}
     case .Value:
         return ref_value_target(e, parser, root, req, name)
     case .Named_Arg, .Ignored:
@@ -497,6 +501,25 @@ ref_binds :: proc(s: ^Ref_Scan, node: ts.Node) -> (binds: bool, decl: bool) {
             return !ok || ref_site_equal(site, s.target.owner), false
         }
         return false, false
+    case .Field_Any:
+        // Every place a field or an enum member is named, never a bare value or
+        // a package's own symbol behind its qualifier.
+        #partial switch pos {
+        case .Field_Decl:
+            return true, true
+        case .Field_Init:
+            return true, false
+        case .Member:
+            if ts.node_is_null(operand) {
+                return true, false
+            }
+            return !operand_names_import(s.root, s.req.source, operand), false
+        case .Ignored:
+            parent := ts.node_parent(node)
+            member := !ts.node_is_null(parent) && string(ts.node_type(parent)) == "enum_declaration"
+            return member, member
+        }
+        return false, false
     case .Any:
         return true, false
     }
@@ -537,12 +560,12 @@ ref_operand_site :: proc(s: ^Ref_Scan, operand: ts.Node) -> (Field_Site, bool) {
     return site, ok
 }
 
-// Memo key for an operand: the name it is written as, in the block it is written
-// in — which is what its type is resolved from. Only a bare identifier is keyed;
-// a compound operand (`a.b.c`, `f().x`) is inferred each time.
+// Memo key for an operand: its text, in the block it is written in — which is
+// what its type is resolved from. A compound operand (`a.b.c`, `f().x`) is keyed
+// the same way, since its type is static too.
 @(private = "file")
 ref_operand_key :: proc(s: ^Ref_Scan, operand: ts.Node) -> (string, bool) {
-    if !is_identifier(operand) {
+    if ts.node_is_null(operand) {
         return "", false
     }
     scope := 0
@@ -565,6 +588,10 @@ operand_field_site :: proc(
     tr, ok := infer_expr_type(e, parser, root, req, operand)
     if !ok {
         return {}, false
+    }
+    // An `#soa` array holds its element's fields, one array each.
+    if layer, lok := outer_container(tr); lok && layer.soa {
+        tr, _, _ = unwrap_container(tr)
     }
     return field_site(e, parser, root, req, tr, field)
 }

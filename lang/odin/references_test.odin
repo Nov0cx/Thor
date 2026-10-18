@@ -579,3 +579,75 @@ test_refs_of_an_import_alias_stay_in_its_file :: proc(t: ^testing.T) {
     }
     testing.expect(t, len(res.symbols) > 0, "expected the alias's own uses")
 }
+
+@(test)
+test_references_uninferred_operand_keeps_field_positions :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    // `v` does not infer, so its `name` could be any struct's field: field
+    // positions stand, a local that only shares the spelling does not.
+    src := `package demo
+
+Thing :: struct {
+	name: string,
+}
+
+use :: proc() {
+	v := mystery()
+	name := 1
+	t := Thing{name = "a"}
+	_ = v.name
+	_ = t.name
+	_ = name
+}
+`
+    at := strings.index(src, "v.name") + len("v.")
+    res := refs_offset(e, src, at)
+    defer free_symbols(&res)
+
+    testing.expect(t, res.ok, "expected references to v.name")
+    want := []int {
+        strings.index(src, "Thing{name") + len("Thing{"),
+        strings.index(src, "v.name") + len("v."),
+        strings.index(src, "t.name") + len("t."),
+    }
+    got := ref_offsets(&res)
+    testing.expectf(t, len(got) == len(want), "ref count: got %d %v, want %d %v", len(got), got, len(want), want)
+    if len(got) == len(want) {
+        for offset, i in want {
+            testing.expectf(t, got[i] == offset, "ref %d: got %d, want %d", i, got[i], offset)
+        }
+    }
+}
+
+@(test)
+test_references_soa_operand_names_its_element :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    // `s.x` on an `#soa[]Point` is Point's x, not Rect's.
+    src := `package demo
+
+Point :: struct {
+	x: f32,
+}
+
+Rect :: struct {
+	x: f32,
+}
+
+use :: proc(s: #soa[]Point, r: Rect) {
+	_ = s.x
+	_ = r.x
+}
+`
+    at := strings.index(src, "x: f32")
+    res := refs_offset(e, src, at)
+    defer free_symbols(&res)
+
+    testing.expect(t, res.ok, "expected references to Point's x")
+    got := ref_offsets(&res)
+    want := strings.index(src, "s.x") + len("s.")
+    testing.expectf(t, len(got) == 1 && got[0] == want, "soa field refs: got %v, want [%d]", got, want)
+}
