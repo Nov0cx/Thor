@@ -29,6 +29,17 @@ Terminal :: struct {
     ended:     bool,
     // The shell exited and was reported; the tab keeps its scrollback.
     dead:      bool,
+    // Bytes for the shell, written by `writer`. Guarded by out_mutex.
+    outbox:    [dynamic]u8,
+    // The bytes the writer is sending. Owned by the writer between swaps.
+    sending:   [dynamic]u8,
+    writer:    ^thread.Thread, // owned
+    out_mutex: sync.Mutex,
+    out_cond:  sync.Cond,
+    // The writer must stop. Guarded by out_mutex.
+    out_stop:  bool,
+    // The writer could not write to the shell. Atomic.
+    write_error: bool,
     // A write to the shell failed and was logged; one log line per session.
     write_failed: bool,
     // When the output that just arrived is taken to have settled. A command that
@@ -44,6 +55,10 @@ READ_BUFFER :: 8192
 @(private = "file")
 SETTLE_DELAY :: 0.35
 
+// Most bytes queued for a shell that does not read. A larger paste is refused.
+@(private = "file")
+TERMINAL_OUTBOX_MAX :: 16 * 1024 * 1024
+
 // Starts a terminal on `profile` in the workspace directory. Returns a terminal
 // whose shell is marked dead when it does not start.
 thor_terminal_create :: proc(thor: ^Thor, profile: shell.Profile) -> ^Terminal {
@@ -52,6 +67,8 @@ thor_terminal_create :: proc(thor: ^Thor, profile: shell.Profile) -> ^Terminal {
     term.profile = profile
     term.allocator = context.allocator
     term.pending = make([dynamic]u8)
+    term.outbox = make([dynamic]u8)
+    term.sending = make([dynamic]u8)
 
     thor_console_init(&term.console, cast(i32) setting.font_size(&thor.config))
     thor_console_apply_theme(thor, &term.console)
@@ -87,15 +104,42 @@ thor_terminal_open_session :: proc(term: ^Terminal) -> bool {
     term.ended = false
     term.dead = false
     term.write_failed = false
+    sync.atomic_store(&term.write_error, false)
+    sync.lock(&term.out_mutex)
+    term.out_stop = false
+    clear(&term.outbox)
+    sync.unlock(&term.out_mutex)
 
     term.reader = thread.create_and_start_with_poly_data(term, thor_terminal_reader)
+    term.writer = thread.create_and_start_with_poly_data(term, thor_terminal_writer)
     for command in term.profile.init {
-        if !shell.pty_write(term.pty, command) || !shell.pty_write(term.pty, "\r") {
-            log.warnf("Could not send the start command %q to the %s shell", command, term.profile.name)
-            break
-        }
+        thor_terminal_send(term, command)
+        thor_terminal_send(term, "\r")
     }
     return true
+}
+
+// Writer thread: sends the queued bytes to the shell, so a shell that does not
+// read blocks this thread and not the frame.
+@(private = "file")
+thor_terminal_writer :: proc(term: ^Terminal) {
+    for {
+        sync.lock(&term.out_mutex)
+        for len(term.outbox) == 0 && !term.out_stop {
+            sync.wait(&term.out_cond, &term.out_mutex)
+        }
+        if term.out_stop {
+            sync.unlock(&term.out_mutex)
+            return
+        }
+        term.outbox, term.sending = term.sending, term.outbox
+        sync.unlock(&term.out_mutex)
+
+        if !shell.pty_write(term.pty, string(term.sending[:])) {
+            sync.atomic_store(&term.write_error, true)
+        }
+        clear(&term.sending)
+    }
 }
 
 // Reader thread: hands raw output to the main thread and stops at the end of the
@@ -128,13 +172,24 @@ thor_terminal_write :: proc(data: rawptr, bytes: string) {
     thor_terminal_send(term, bytes)
 }
 
-// Writes `bytes` to the shell. The first failure in a session is logged.
+// Queues `bytes` for the writer thread. Bytes past TERMINAL_OUTBOX_MAX are refused.
 @(private = "file")
 thor_terminal_send :: proc(term: ^Terminal, bytes: string) {
-    if !shell.pty_write(term.pty, bytes) && !term.write_failed {
-        term.write_failed = true
-        log.warnf("Could not write to the %s shell", term.profile.name)
+    if len(bytes) == 0 {
+        return
     }
+    sync.lock(&term.out_mutex)
+    queued := len(term.outbox) + len(bytes) <= TERMINAL_OUTBOX_MAX
+    if queued {
+        _, err := append(&term.outbox, ..transmute([]u8)bytes)
+        queued = err == nil
+    }
+    sync.unlock(&term.out_mutex)
+    if !queued {
+        log.warnf("The %s shell does not read its input; %d bytes were not sent", term.profile.name, len(bytes))
+        return
+    }
+    sync.signal(&term.out_cond)
 }
 
 // Console_Resize_Proc: the panel changed size, so the shell re-wraps and a
@@ -170,11 +225,21 @@ thor_terminal_close_session :: proc(term: ^Terminal) {
     if term.pty == nil {
         return
     }
+    sync.lock(&term.out_mutex)
+    term.out_stop = true
+    sync.unlock(&term.out_mutex)
+    sync.signal(&term.out_cond)
+    // Also ends a write the writer blocks in.
     shell.pty_terminate(term.pty)
     if term.reader != nil {
         thread.join(term.reader)
         thread.destroy(term.reader)
         term.reader = nil
+    }
+    if term.writer != nil {
+        thread.join(term.writer)
+        thread.destroy(term.writer)
+        term.writer = nil
     }
     shell.pty_destroy(term.pty)
     term.pty = nil
@@ -226,6 +291,11 @@ thor_terminal_pump :: proc(term: ^Terminal) -> bool {
 
     thor_terminal_drain_replies(term)
 
+    if !term.write_failed && sync.atomic_load(&term.write_error) {
+        term.write_failed = true
+        log.warnf("Could not write to the %s shell", term.profile.name)
+    }
+
     if ended && !term.dead {
         term.dead = true
         thor_console_append(&term.console, "\n[the shell exited]\n")
@@ -260,6 +330,8 @@ thor_terminal_release :: proc(term: ^Terminal) {
     thor_terminal_close_session(term)
     thor_console_destroy(&term.console)
     delete(term.pending)
+    delete(term.outbox)
+    delete(term.sending)
     free(term)
 }
 
