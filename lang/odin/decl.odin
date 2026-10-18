@@ -39,6 +39,8 @@ ALIAS_DEPTH_LIMIT :: 8
 // A name that resolves to an alias (`Vec :: Point`, `Handle :: distinct Point`)
 // is followed to what it stands for and looked up again from the top, since the
 // underlying declaration can live in another file or package than the alias.
+// `args`, when given, receives the generic arguments the last hop wrote
+// (`IntList :: List(int)`).
 @(private)
 visit_type_decl :: proc(
     e: ^Engine,
@@ -49,9 +51,13 @@ visit_type_decl :: proc(
     decl_type, index_kind: string,
     visit: Decl_Visitor,
     ctx: rawptr,
+    args: ^Type_Args = nil,
 ) -> bool {
     tr := tr
     for _ in 0 ..< ALIAS_DEPTH_LIMIT {
+        if args != nil && tr.type_args != "" {
+            args^ = type_args_of(tr, req.path)
+        }
         next, hit := find_type_decl(e, parser, root, req, tr, decl_type, index_kind, visit, ctx)
         if hit != .Alias && hit != .Distinct {
             return hit == .Visited
@@ -59,6 +65,21 @@ visit_type_decl :: proc(
         tr = next
     }
     return false
+}
+
+// A generic type's written arguments and the file they are written in.
+@(private)
+Type_Args :: struct {
+    text:   string,
+    origin: string,
+}
+
+// The arguments `tr` names its generic type with. `fallback` is the file a
+// reference with no origin was read from.
+@(private)
+type_args_of :: proc(tr: Type_Ref, fallback: string) -> Type_Args {
+    origin := tr.args_origin != "" ? tr.args_origin : tr.origin
+    return Type_Args{text = tr.type_args, origin = origin != "" ? origin : fallback}
 }
 
 // The type a name ends at, following `X :: Y` — what two types must be reduced to
@@ -510,6 +531,7 @@ Member_Ctx :: struct {
     decl_start:  int,
     decl_end:    int,
     field_type:  Type_Ref,
+    args:        Type_Args, // the operand's generic arguments, filled by visit_type_decl
 }
 
 // Decl_Visitor that finds one named field. Records its identifier range (the
@@ -522,7 +544,7 @@ member_visitor :: proc(sd: ts.Node, source, path: string, ctx_raw: rawptr) {
     ctx := cast(^Member_Ctx) ctx_raw
     id, tn, fd, ok := struct_field(sd, source, ctx.field)
     if !ok {
-        visit_embedded(sd, source, path, &ctx.env, member_visitor, ctx)
+        visit_embedded(sd, source, path, &ctx.env, member_visitor, ctx, &ctx.args)
         return
     }
     ctx.got = true
@@ -533,15 +555,130 @@ member_visitor :: proc(sd: ts.Node, source, path: string, ctx_raw: rawptr) {
     ctx.ident_end = int(ts.node_end_byte(id))
     ctx.decl_start = int(ts.node_start_byte(fd))
     ctx.decl_end = int(ts.node_end_byte(fd))
-    if tr, tok := type_ref_from_node(tn, source); tok {
-        ctx.field_type = clone_type_ref(tr, path)
+    tr, tok := type_ref_from_node(tn, source)
+    if !tok {
+        return
     }
+    sub, bound, bok := bind_struct_params(sd, source, tr, ctx.args)
+    switch {
+    case !bound:
+        ctx.field_type = clone_type_ref(tr, path)
+    case bok:
+        ctx.field_type = clone_type_ref(sub, sub.origin != "" ? sub.origin : path)
+    }
+}
+
+// `tr`, a field type written in the generic struct `sd`, with the struct's own
+// parameters (`$T`) replaced by `args`. `bound` is false when the type uses no
+// parameter. `ok` is false when it uses one that `args` does not supply, since a
+// bare `T` names no type anywhere else.
+@(private)
+bind_struct_params :: proc(sd: ts.Node, source: string, tr: Type_Ref, args: Type_Args) -> (out: Type_Ref, bound, ok: bool) {
+    names := struct_poly_names(sd, source)
+    if len(names) == 0 {
+        return tr, false, true
+    }
+    values: []string
+    if args.text != "" {
+        values = split_top_level(args.text)
+    }
+    if tr.pkg == "" && tr.proc_sig == "" {
+        for name, i in names {
+            if name != tr.name {
+                continue
+            }
+            if i >= len(values) {
+                return {}, true, false
+            }
+            sub, sok := result_type_ref(strings.trim_space(values[i]))
+            if !sok {
+                return {}, true, false
+            }
+            sub.origin = args.origin
+            for k in 0 ..< tr.depth {
+                if sub, sok = wrap_container(sub, tr.containers[k]); !sok {
+                    return {}, true, false
+                }
+            }
+            return sub, true, true
+        }
+    }
+    if tr.type_args != "" && len(values) > 0 {
+        if text, changed := substitute_names(tr.type_args, names, values); changed {
+            out = tr
+            out.type_args = text
+            out.args_origin = args.origin
+            return out, true, true
+        }
+    }
+    return tr, false, true
+}
+
+// The `$` names a generic struct declares (`T`, `N` of `struct($T: typeid, $N: int)`),
+// in order. Temp-allocated.
+@(private)
+struct_poly_names :: proc(sd: ts.Node, source: string) -> []string {
+    params: ts.Node
+    for i in 0 ..< ts.node_named_child_count(sd) {
+        c := ts.node_named_child(sd, i)
+        if string(ts.node_type(c)) == "polymorphic_parameters" {
+            params = c
+            break
+        }
+    }
+    if ts.node_is_null(params) {
+        return nil
+    }
+    names := make([dynamic]string, context.temp_allocator)
+    for i in 1 ..< ts.node_child_count(params) {
+        c := ts.node_child(params, i)
+        if is_identifier(c) && string(ts.node_type(ts.node_child(params, i - 1))) == "$" {
+            append(&names, ts.node_text(c, source))
+        }
+    }
+    return names[:]
+}
+
+// `text` with every whole-word use of `names[k]` replaced by `values[k]`.
+// Temp-allocated.
+@(private)
+substitute_names :: proc(text: string, names, values: []string) -> (string, bool) {
+    b := strings.builder_make(context.temp_allocator)
+    changed := false
+    i := 0
+    for i < len(text) {
+        if !is_ident_byte(text[i]) {
+            strings.write_byte(&b, text[i])
+            i += 1
+            continue
+        }
+        end := i
+        for end < len(text) && is_ident_byte(text[end]) {
+            end += 1
+        }
+        word := text[i:end]
+        replaced := false
+        for name, k in names {
+            if name == word && k < len(values) {
+                strings.write_string(&b, strings.trim_space(values[k]))
+                replaced = true
+                changed = true
+                break
+            }
+        }
+        if !replaced {
+            strings.write_string(&b, word)
+        }
+        i = end
+    }
+    return strings.to_string(b), changed
 }
 
 // Runs `visit` on every struct this one embeds with `using`, so an embedded
 // struct's fields answer as if they were the outer struct's own. The embedded
 // type is resolved the usual way (same file → imported package → workspace
-// index), qualified against the file the embedding was written in.
+// index), qualified against the file the embedding was written in. `args`, when
+// given, holds the embedded type's own generic arguments during its visit.
 @(private)
 visit_embedded :: proc(
     sd: ts.Node,
@@ -549,6 +686,7 @@ visit_embedded :: proc(
     env: ^Embed_Env,
     visit: Decl_Visitor,
     ctx: rawptr,
+    args: ^Type_Args = nil,
 ) {
     if env.e == nil || env.depth >= EMBED_DEPTH_LIMIT {
         return
@@ -571,9 +709,17 @@ visit_embedded :: proc(
             continue
         }
         tr = clone_type_ref(tr, path)
+        saved: Type_Args
+        if args != nil {
+            saved = args^
+            args^ = type_args_of(tr, path)
+        }
         env.depth += 1
-        visit_type_decl(env.e, env.parser, env.root, env.req, tr, "struct_declaration", "type", visit, ctx)
+        visit_type_decl(env.e, env.parser, env.root, env.req, tr, "struct_declaration", "type", visit, ctx, args)
         env.depth -= 1
+        if args != nil {
+            args^ = saved
+        }
     }
 }
 
@@ -598,6 +744,8 @@ clone_type_ref :: proc(tr: Type_Ref, path: string) -> Type_Ref {
     out.pkg = strings.clone(tr.pkg, context.temp_allocator)
     out.proc_sig = strings.clone(tr.proc_sig, context.temp_allocator)
     out.origin = strings.clone(path, context.temp_allocator)
+    out.type_args = strings.clone(tr.type_args, context.temp_allocator)
+    out.args_origin = strings.clone(tr.args_origin, context.temp_allocator)
     for i in 0 ..< out.depth {
         out.containers[i].key = strings.clone(tr.containers[i].key, context.temp_allocator)
         out.containers[i].key_pkg = strings.clone(tr.containers[i].key_pkg, context.temp_allocator)

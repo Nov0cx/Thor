@@ -23,6 +23,8 @@ Poly_Shape :: struct {
     pointers:   int,
     containers: [CONTAINER_DEPTH_LIMIT]Container_Layer, // outermost first
     depth:      int,
+    generic:    bool, // the name is one argument of a generic type (`List($T)`)
+    arg_slot:   int,  // which argument, when generic
 }
 
 // Walks `text`'s pointer and container prefixes into a Poly_Shape and returns
@@ -40,6 +42,39 @@ peel_poly_shape :: proc(text: string) -> (shape: Poly_Shape, leaf: string, ok: b
         return {}, "", false
     }
     return Poly_Shape{pointers = pointers, containers = layers, depth = depth}, l, true
+}
+
+// The arguments of a generic type leaf (`List(int, $T)`), each trimmed.
+// Temp-allocated.
+@(private)
+generic_leaf_args :: proc(leaf: string) -> ([]string, bool) {
+    open := strings.index_byte(leaf, '(')
+    if open <= 0 || leaf[len(leaf) - 1] != ')' {
+        return nil, false
+    }
+    if _, ok := plain_type_ref(strings.trim_space(leaf[:open])); !ok {
+        return nil, false
+    }
+    parts := split_top_level(leaf[open + 1:len(leaf) - 1])
+    for &part in parts {
+        part = strings.trim_space(part)
+    }
+    return parts, true
+}
+
+// Where `name` sits among a generic leaf's arguments, written bare or as `$name`.
+@(private)
+generic_arg_slot :: proc(leaf, name: string) -> (int, bool) {
+    args, ok := generic_leaf_args(leaf)
+    if !ok {
+        return 0, false
+    }
+    for arg, i in args {
+        if strings.trim_prefix(arg, "$") == name {
+            return i, true
+        }
+    }
+    return 0, false
 }
 
 // A parameter's type text without its name, a variadic `..` marker or a
@@ -61,9 +96,10 @@ strip_param_decorations :: proc(text: string) -> string {
 // wrapping it there.
 @(private)
 Poly_Binding :: struct {
-    name:  string,
-    index: int,
-    shape: Poly_Shape,
+    name:     string,
+    index:    int,
+    shape:    Poly_Shape,
+    explicit: bool, // bound by the type written at its own `$T: typeid` slot
 }
 
 // Whether one parameter's text (`v: $T`, `xs: []$T`, `l: ^$T`) declares a bare
@@ -73,7 +109,22 @@ Poly_Binding :: struct {
 @(private)
 poly_param_shape :: proc(text: string) -> (name: string, shape: Poly_Shape, ok: bool) {
     peeled, leaf, sok := peel_poly_shape(strip_param_decorations(text))
-    if !sok || !strings.has_prefix(leaf, "$") {
+    if !sok {
+        return "", {}, false
+    }
+    if !strings.has_prefix(leaf, "$") {
+        // `l: List($T)` binds T to the argument of the List the call passes.
+        args, gok := generic_leaf_args(leaf)
+        if !gok {
+            return "", {}, false
+        }
+        for arg, i in args {
+            if strings.has_prefix(arg, "$") && valid_identifier(arg[1:]) {
+                peeled.generic = true
+                peeled.arg_slot = i
+                return arg[1:], peeled, true
+            }
+        }
         return "", {}, false
     }
     name = leaf[1:]
@@ -113,11 +164,11 @@ explicit_poly_name :: proc(text: string) -> (string, bool) {
 // index and shape that binds each one at a call site. A name declared by the
 // explicit `$Name: typeid` form supplies no shape at its own parameter, so a
 // second pass finds it from the first later parameter whose peeled leaf reads
-// as that bare name — exactly how Odin itself infers `$T: typeid` from a
-// later parameter's usage when a caller passes no type argument explicitly. A
-// declared name with no such usage anywhere is dropped: resolving it would
-// need a call-site type argument this engine does not read, left unhandled
-// rather than guessed. Temp-allocated.
+// as that bare name, or as an argument of a generic type (`l: List(T)`) —
+// exactly how Odin itself infers `$T: typeid` from a later parameter's usage
+// when a caller passes no type argument explicitly. A declared name with no
+// such usage is bound by the type the call writes at its own slot.
+// Temp-allocated.
 @(private)
 polymorphic_params :: proc(sig: string) -> []Poly_Binding {
     inner, iok := after_paren_group(sig, want_inner = true)
@@ -131,31 +182,32 @@ polymorphic_params :: proc(sig: string) -> []Poly_Binding {
         if name, shape, pok := poly_param_shape(part); pok {
             append(&bindings, Poly_Binding{name = name, index = i, shape = shape})
         } else if explicit, eok := explicit_poly_name(part); eok {
-            append(&bindings, Poly_Binding{name = explicit, index = -1})
+            append(&bindings, Poly_Binding{name = explicit, index = i, explicit = true})
         }
     }
 
     for &b in bindings {
-        if b.index != -1 {
+        if !b.explicit {
             continue
         }
         for part, i in parts {
             shape, leaf, sok := peel_poly_shape(strip_param_decorations(part))
-            if sok && leaf == b.name {
-                b.index = i
-                b.shape = shape
+            if !sok {
+                continue
+            }
+            if leaf == b.name {
+                b.index, b.shape, b.explicit = i, shape, false
+                break
+            }
+            if slot, gok := generic_arg_slot(leaf, b.name); gok {
+                shape.generic = true
+                shape.arg_slot = slot
+                b.index, b.shape, b.explicit = i, shape, false
                 break
             }
         }
     }
-
-    out := make([dynamic]Poly_Binding, context.temp_allocator)
-    for b in bindings {
-        if b.index != -1 {
-            append(&out, b)
-        }
-    }
-    return out[:]
+    return bindings[:]
 }
 
 // Every polymorphic name `sig`'s parameter list declares, found by scanning its
@@ -218,6 +270,9 @@ param_text_is_poly :: proc(text: string, poly: []string) -> bool {
         if name == leaf {
             return true
         }
+        if _, used := generic_arg_slot(leaf, name); used {
+            return true
+        }
     }
     return false
 }
@@ -252,9 +307,9 @@ param_poly_use :: proc(
 }
 
 // The type `binding` is bound to at this call: the argument filling its parameter
-// slot, with the container layers that parameter wraps the name in unwrapped off.
-// Odin resolves every `$Name` at the call site, so no name is ever substituted
-// textually — the concrete type is read off the argument itself.
+// slot, with the container layers that parameter wraps the name in unwrapped off,
+// and for a generic parameter (`l: List($T)`) the matching argument of the type
+// passed. An explicit `$T: typeid` slot names the type outright.
 @(private)
 poly_binding_value :: proc(
     e: ^Engine,
@@ -269,6 +324,9 @@ poly_binding_value :: proc(
     if ts.node_is_null(arg) {
         return {}, false
     }
+    if binding.explicit {
+        return expr_type_name(arg, req.source)
+    }
     tr, ok := infer_expr_result(e, parser, root, req, arg, 0, depth + 1)
     if !ok {
         return {}, false
@@ -280,7 +338,22 @@ poly_binding_value :: proc(
         }
         tr = elem
     }
-    return tr, true
+    if !binding.shape.generic {
+        return tr, true
+    }
+    if tr.type_args == "" {
+        return {}, false
+    }
+    parts := split_top_level(tr.type_args)
+    if binding.shape.arg_slot >= len(parts) {
+        return {}, false
+    }
+    sub, sok := result_type_ref(strings.trim_space(parts[binding.shape.arg_slot]))
+    if !sok {
+        return {}, false
+    }
+    sub.origin = type_args_of(tr, req.path).origin
+    return sub, true
 }
 
 // The type argument written at an explicit binding slot (`identity2(int, v)` for
@@ -331,37 +404,10 @@ result_poly_use :: proc(
     binding: Poly_Binding,
     ok: bool,
 ) {
-    after, aok := after_paren_group(sig)
-    if !aok {
+    text, tok := result_slot_text(sig, index)
+    if !tok {
         return {}, {}, false
     }
-    if brace := strings.index_byte(after, '{'); brace >= 0 {
-        after = after[:brace]
-    }
-    arrow := strings.index(after, "->")
-    if arrow < 0 {
-        return {}, {}, false
-    }
-    results := strings.trim_space(after[arrow + 2:])
-
-    text: string
-    if strings.has_prefix(results, "(") {
-        inner, rok := after_paren_group(results, want_inner = true)
-        if !rok {
-            return {}, {}, false
-        }
-        parts := split_top_level(inner)
-        if index < 0 || index >= len(parts) {
-            return {}, {}, false
-        }
-        text = strip_result_name(strings.trim_space(parts[index]))
-    } else {
-        if index != 0 {
-            return {}, {}, false
-        }
-        text = results
-    }
-
     leaf_shape, leaf, sok := peel_poly_shape(text)
     if !sok {
         return {}, {}, false
@@ -376,9 +422,10 @@ result_poly_use :: proc(
 
 // A call's result when the callee's result uses its own `$` parameters:
 // `proc(v: $T) -> T`, containers on either side (`[]$T -> T`, `$T -> []T`), tuples
-// of several names, and `$T: typeid`. The bound argument's type is unwrapped by the
-// parameter's layers and wrapped by the result's; pointers are skipped.
-// Not modeled: a named generic type's argument (`^List($T)`) and constraint checks.
+// of several names, `$T: typeid`, and generic types on either side (`l: List($T)`,
+// `-> List(T)`). The bound argument's type is unwrapped by the parameter's layers
+// and wrapped by the result's; pointers are skipped. Constraints are not checked.
+// `path` is the callee's file.
 @(private)
 polymorphic_call_result :: proc(
     e: ^Engine,
@@ -386,7 +433,7 @@ polymorphic_call_result :: proc(
     root: ts.Node,
     req: ^lang.Request,
     call: ts.Node,
-    source: string,
+    source, path: string,
     d: Def,
     index, depth: int,
 ) -> (Type_Ref, bool) {
@@ -401,11 +448,84 @@ polymorphic_call_result :: proc(
     }
     result_shape, binding, rok := result_poly_use(sig, bindings, index)
     if !rok {
-        return {}, false
+        return generic_call_result(e, parser, root, req, call, sig, path, bindings, index, depth)
     }
     arg_tr, aok := poly_binding_value(e, parser, root, req, call, binding, depth)
     if !aok {
         return {}, false
     }
     return wrap_layers(arg_tr, result_shape.containers[:result_shape.depth])
+}
+
+// The text of result slot `index` of `sig`, its name dropped.
+@(private)
+result_slot_text :: proc(sig: string, index: int) -> (string, bool) {
+    after, aok := after_paren_group(sig)
+    if !aok {
+        return "", false
+    }
+    if brace := strings.index_byte(after, '{'); brace >= 0 {
+        after = after[:brace]
+    }
+    arrow := strings.index(after, "->")
+    if arrow < 0 {
+        return "", false
+    }
+    results := strings.trim_space(after[arrow + 2:])
+    if !strings.has_prefix(results, "(") {
+        return results, index == 0
+    }
+    inner, rok := after_paren_group(results, want_inner = true)
+    if !rok {
+        return "", false
+    }
+    parts := split_top_level(inner)
+    if index < 0 || index >= len(parts) {
+        return "", false
+    }
+    return strip_result_name(strings.trim_space(parts[index])), true
+}
+
+// A call's result written as a generic type over the callee's own names
+// (`-> List(T)`): the type with each name replaced by what the call binds it to.
+// Fails when the result uses a name the call does not bind.
+@(private = "file")
+generic_call_result :: proc(
+    e: ^Engine,
+    parser: ts.Parser,
+    root: ts.Node,
+    req: ^lang.Request,
+    call: ts.Node,
+    sig, path: string,
+    bindings: []Poly_Binding,
+    index, depth: int,
+) -> (Type_Ref, bool) {
+    text, tok := result_slot_text(sig, index)
+    if !tok {
+        return {}, false
+    }
+    tr, rok := result_type_ref(text)
+    if !rok || tr.type_args == "" {
+        return {}, false
+    }
+    args := tr.type_args
+    changed := false
+    for b in bindings {
+        if _, used := substitute_names(args, {b.name}, {""}); !used {
+            continue
+        }
+        bound, bok := poly_binding_value(e, parser, root, req, call, b, depth)
+        if !bok {
+            return {}, false
+        }
+        args, _ = substitute_names(args, {b.name}, {type_ref_text(bound)})
+        changed = true
+    }
+    if !changed {
+        return {}, false
+    }
+    tr.type_args = args
+    tr.origin = path
+    tr.args_origin = req.path
+    return tr, true
 }

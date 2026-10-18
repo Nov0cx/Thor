@@ -251,8 +251,8 @@ Canon_Key :: struct {
 // Which members every written argument fits by type. Each argument is matched
 // against the parameter in its own slot, and only a positive mismatch rejects a
 // member — an argument whose type does not infer says nothing about any of them.
-// A call written with named arguments (`f(x = 1)`) is not read at all, since the
-// slots are then not the order they are written in.
+// A named argument (`f(x = 1)`) is matched against the parameter of that name, and
+// a member that declares no such parameter does not fit.
 //
 // Package-visible: signature help picks its active entry with the same answer.
 // Cancellation is polled per member, since that path runs while the user types.
@@ -267,20 +267,42 @@ types_fit :: proc(
     keep: []bool,
 ) -> []bool {
     fits := make([]bool, len(sites), context.temp_allocator)
-    if call_has_named_argument(call.node) {
-        return fits
+    named := call_has_named_argument(call.node)
+    written: []Written_Arg
+    if named {
+        written = call_written_args(call.node, req.source)
     }
     args := make([]Arg_Info, argc, context.temp_allocator)
+    for &a, p in args {
+        if !named {
+            a.node = call_argument(call.node, p)
+        } else if p < len(written) {
+            a.node = written[p].node
+        }
+    }
     memo := make(map[Canon_Key]Type_Ref, 0, context.temp_allocator)
     for site, i in sites {
         if !keep[i] || lang.request_cancelled(req) {
             continue
         }
         polys := signature_poly_names(site.label)
-        bindings := polymorphic_params(site.label)
-        explicit := explicit_bindings(e, parser, req, call, site.label, args, argc)
+        // A binding names its argument by position, which named arguments break.
+        bindings: []Poly_Binding
+        explicit: []Poly_Bound
+        if !named {
+            bindings = polymorphic_params(site.label)
+            explicit = explicit_bindings(e, parser, req, call, site.label, args, argc)
+        }
         fits[i] = true
-        for slot in 0 ..< argc {
+        for p in 0 ..< argc {
+            slot := p
+            if p < len(written) && written[p].name != "" {
+                slot = param_slot_named(site.label, written[p].name)
+                if slot < 0 {
+                    fits[i] = false
+                    break
+                }
+            }
             text, tok := signature_param_text(site.label, slot)
             if !tok {
                 continue // a slot the reader cannot spell out is no evidence
@@ -293,7 +315,7 @@ types_fit :: proc(
                 continue
             }
             param.origin = site.path // the alias is spelled in the member's package
-            if !types_compatible(e, parser, req, call.root, arg_info(e, parser, req, call, args, slot), param, &memo) {
+            if !types_compatible(e, parser, req, call.root, arg_info(e, parser, req, call, args, p), param, &memo) {
                 fits[i] = false
                 break
             }
@@ -383,7 +405,6 @@ arg_info :: proc(
         return a
     }
     a.done = true
-    a.node = call_argument(call.node, slot)
     if ts.node_is_null(a.node) {
         return a
     }
@@ -501,6 +522,62 @@ call_has_named_argument :: proc(call: ts.Node) -> bool {
     return false
 }
 
+// One argument as written: its value and, for `x = 1`, the parameter it names.
+@(private = "file")
+Written_Arg :: struct {
+    name: string,
+    node: ts.Node,
+}
+
+// The arguments of a call in written order. Temp-allocated.
+@(private = "file")
+call_written_args :: proc(call: ts.Node, source: string) -> []Written_Arg {
+    out := make([dynamic]Written_Arg, context.temp_allocator)
+    fn := ts.node_child_by_field_name(call, "function")
+    count := ts.node_child_count(call)
+    name := ""
+    for i in 0 ..< count {
+        c := ts.node_child(call, i)
+        if !ts.node_is_named(c) || same_node(c, fn) || string(ts.node_type(c)) == "comment" {
+            continue
+        }
+        if is_identifier(c) && i + 1 < count && string(ts.node_type(ts.node_child(call, i + 1))) == "=" {
+            name = ts.node_text(c, source)
+            continue
+        }
+        append(&out, Written_Arg{name = name, node = c})
+        name = ""
+    }
+    return out[:]
+}
+
+// The slot of the parameter `label` declares under `name`, or -1.
+@(private = "file")
+param_slot_named :: proc(label, name: string) -> int {
+    inner, ok := after_paren_group(label, want_inner = true)
+    if !ok {
+        return -1
+    }
+    for part, i in split_top_level(inner) {
+        s := strings.trim_space(part)
+        if colon := strings.index_byte(s, ':'); colon >= 0 {
+            s = s[:colon]
+        }
+        for strings.has_prefix(s, "#") {
+            space := strings.index_proc(s, strings.is_space)
+            if space < 0 {
+                break
+            }
+            s = strings.trim_space(s[space:])
+        }
+        s = strings.trim_space(strings.trim_prefix(s, "using "))
+        if strings.trim_prefix(s, "$") == name {
+            return i
+        }
+    }
+    return -1
+}
+
 // The class of value an untyped literal writes. Odin converts an untyped
 // constant to whatever type it is passed to, so a literal argument fits by class
 // rather than by one type name: `1` fits every numeric parameter.
@@ -567,12 +644,37 @@ type_refs_match :: proc(arg, param: Type_Ref) -> bool {
     if arg.pkg != "" && param.pkg != "" && arg.pkg != param.pkg {
         return false
     }
+    if arg.type_args != "" && param.type_args != "" && !same_type_args(arg.type_args, param.type_args) {
+        return false
+    }
     for i in 0 ..< arg.depth {
         if arg.containers[i].kind != param.containers[i].kind {
             return false
         }
     }
     return true
+}
+
+// Whether two generic argument lists are written the same, spacing aside.
+@(private = "file")
+same_type_args :: proc(a, b: string) -> bool {
+    i, j := 0, 0
+    for {
+        for i < len(a) && strings.is_space(rune(a[i])) {
+            i += 1
+        }
+        for j < len(b) && strings.is_space(rune(b[j])) {
+            j += 1
+        }
+        if i >= len(a) || j >= len(b) {
+            return i >= len(a) && j >= len(b)
+        }
+        if a[i] != b[j] {
+            return false
+        }
+        i += 1
+        j += 1
+    }
 }
 
 // Answers with one member as the definition. A Location carries no signature, so

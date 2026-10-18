@@ -96,7 +96,7 @@ soa_member :: proc(
         field = field,
         env = Embed_Env{e = e, parser = parser, root = root, req = req},
     }
-    if !visit_type_decl(e, parser, root, req, elem, "struct_declaration", "type", member_visitor, ctx) || !ctx.got {
+    if !visit_type_decl(e, parser, root, req, elem, "struct_declaration", "type", member_visitor, ctx, &ctx.args) || !ctx.got {
         return {}, false
     }
     return soa_held_layer(layer), true

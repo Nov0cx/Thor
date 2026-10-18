@@ -72,8 +72,29 @@ type_ref_from_node :: proc(node: ts.Node, source: string, depth := 0) -> (Type_R
         // The element leads the brackets; a `; u8` backing type follows it as a
         // `type` child, which is not what the set holds.
         return contained_type(ts.node_named_child(n, 0), source, Container_Layer{kind = .Bit_Set})
+    case "polymorphic_type":
+        // `List(int, 4)`. The grammar hangs a pointer on the name (`^List($T)`).
+        head := ts.node_named_child(n, 0)
+        tr, ok := type_ref_from_node(head, source, depth)
+        if !ok || tr.proc_sig != "" {
+            return {}, false
+        }
+        tr.type_args = generic_args_text(n, head, source)
+        return tr, true
     }
     return {}, false
+}
+
+// The text inside a generic type's parentheses, past its name node `head`.
+@(private = "file")
+generic_args_text :: proc(n, head: ts.Node, source: string) -> string {
+    start := clamp(int(ts.node_end_byte(head)), 0, len(source))
+    end := clamp(int(ts.node_end_byte(n)), start, len(source))
+    text := strings.trim_space(source[start:end])
+    if len(text) < 2 || text[0] != '(' || text[len(text) - 1] != ')' {
+        return ""
+    }
+    return strings.trim_space(text[1:len(text) - 1])
 }
 
 // The element type of a container, tagged with the container that holds it.
@@ -155,6 +176,11 @@ expr_type_name :: proc(node: ts.Node, source: string, depth := 0) -> (Type_Ref, 
     case "array_type", "map_type":
         // A container literal (`[]Point{...}`) names a container type.
         return type_ref_from_node(node, source, depth)
+    case "call_expression":
+        // `List(int)` in value position: a generic type with its arguments.
+        if is_identifier(ts.node_child_by_field_name(node, "function")) {
+            return plain_type_ref(ts.node_text(node, source))
+        }
     }
     return {}, false
 }
@@ -194,7 +220,7 @@ call_result_type :: proc(
 
     src, path, d, found := resolve_call_target(e, parser, root, req, call, fn)
     if found && d.kind == "function" {
-        if tr, pok := polymorphic_call_result(e, parser, root, req, call, src, d, index, depth); pok {
+        if tr, pok := polymorphic_call_result(e, parser, root, req, call, src, path, d, index, depth); pok {
             return tr, true
         }
     }
@@ -550,11 +576,9 @@ peel_containers :: proc(
             rest = after
         case:
             // A trailing tail (`Point ---` on a foreign proc, a comment) is not
-            // part of the type; a container's brackets never hold a bare space.
-            if space := strings.index_proc(s, strings.is_space); space >= 0 {
-                s = s[:space]
-            }
-            return pointers, layers, depth, s, .Name, true
+            // part of the type; a container's brackets never hold a bare space,
+            // a generic type's parentheses can (`List(int, 4)`).
+            return pointers, layers, depth, s[:leaf_extent(s)], .Name, true
         }
         if depth >= CONTAINER_DEPTH_LIMIT {
             log_container_depth_exceeded()
@@ -564,6 +588,29 @@ peel_containers :: proc(
         depth += 1
         s = strings.trim_space(rest)
     }
+}
+
+// Where a leaf type name ends: past a generic type's balanced argument group, else
+// at the first space.
+@(private = "file")
+leaf_extent :: proc(s: string) -> int {
+    space := strings.index_proc(s, strings.is_space)
+    open := strings.index_byte(s, '(')
+    if open > 0 && (space < 0 || open < space) && s[:open] != "proc" {
+        depth := 0
+        for i in open ..< len(s) {
+            switch s[i] {
+            case '(':
+                depth += 1
+            case ')':
+                depth -= 1
+                if depth == 0 {
+                    return i + 1
+                }
+            }
+        }
+    }
+    return space >= 0 ? space : len(s)
 }
 
 // `tr` wrapped in `layers`, which are ordered outermost first.
@@ -671,6 +718,11 @@ type_ref_text :: proc(tr: Type_Ref) -> string {
         strings.write_string(&b, tr.proc_sig)
     } else {
         write_qualified(&b, tr.pkg, tr.name)
+        if tr.type_args != "" {
+            strings.write_byte(&b, '(')
+            strings.write_string(&b, tr.type_args)
+            strings.write_byte(&b, ')')
+        }
     }
     for _ in 0 ..< closers {
         strings.write_byte(&b, ']')
@@ -689,9 +741,22 @@ write_qualified :: proc(b: ^strings.Builder, pkg, name: string) {
     strings.write_string(b, name != "" ? name : "_")
 }
 
-// A bare — optionally package-qualified — type name as a Type_Ref.
+// A bare — optionally package-qualified — type name as a Type_Ref, with a generic
+// type's arguments (`List(int)`) kept as written.
 @(private)
 plain_type_ref :: proc(s: string) -> (Type_Ref, bool) {
+    if open := strings.index_byte(s, '('); open > 0 && s[len(s) - 1] == ')' {
+        rest, ok := after_paren_group(s[open:])
+        if !ok || strings.trim_space(rest) != "" {
+            return {}, false
+        }
+        tr, tok := plain_type_ref(strings.trim_space(s[:open]))
+        if !tok || tr.name == "proc" {
+            return {}, false
+        }
+        tr.type_args = strings.trim_space(s[open + 1:len(s) - 1])
+        return tr, true
+    }
     if dot := strings.index_byte(s, '.'); dot >= 0 {
         if is_plain_name(s[:dot]) && is_plain_name(s[dot + 1:]) {
             return Type_Ref{pkg = s[:dot], name = s[dot + 1:]}, true

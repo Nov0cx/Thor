@@ -96,7 +96,7 @@ expected_type_in_tree :: proc(
                 field = ts.node_text(name, source),
                 env = Embed_Env{e = e, parser = parser, root = root, req = req},
             }
-            if !visit_type_decl(e, parser, root, req, tr, "struct_declaration", "type", member_visitor, &ctx) || !ctx.got {
+            if !visit_type_decl(e, parser, root, req, tr, "struct_declaration", "type", member_visitor, &ctx, &ctx.args) || !ctx.got {
                 return {}, false
             }
             return ctx.field_type, true

@@ -66,16 +66,19 @@ log_container_depth_exceeded :: proc() {
 // containers wrapped around it (innermost first, making the name the *element*
 // type), the signature of a proc-typed value (whose `name` is empty), and the
 // file it was read from, so a qualifier resolves against *that* file's imports.
+// A named generic type keeps its written arguments (`int, 4` of `List(int, 4)`).
 // Strings slice the source unless cloned, so a Type_Ref outliving a parse is
 // temp-cloned.
 @(private)
 Type_Ref :: struct {
-    name:       string,
-    pkg:        string,
-    proc_sig:   string,
-    containers: [CONTAINER_DEPTH_LIMIT]Container_Layer,
-    depth:      int,
-    origin:     string,
+    name:        string,
+    pkg:         string,
+    proc_sig:    string,
+    containers:  [CONTAINER_DEPTH_LIMIT]Container_Layer,
+    depth:       int,
+    origin:      string,
+    type_args:   string, // "" when the name is not a generic type's
+    args_origin: string, // the file type_args are written in; "" when it is origin
 }
 
 // Whether the reference names a type outright, rather than a container of one.
@@ -196,7 +199,7 @@ resolve_member :: proc(
         field = field,
         env = Embed_Env{e = e, parser = parser, root = root, req = req},
     }
-    if !visit_type_decl(e, parser, root, req, tr, "struct_declaration", "type", member_visitor, &ctx) || !ctx.got {
+    if !visit_type_decl(e, parser, root, req, tr, "struct_declaration", "type", member_visitor, &ctx, &ctx.args) || !ctx.got {
         return false
     }
     #partial switch req.kind {
@@ -429,7 +432,7 @@ member_field_type :: proc(
         field = field,
         env = Embed_Env{e = e, parser = parser, root = root, req = req},
     }
-    if !visit_type_decl(e, parser, root, req, inner, "struct_declaration", "type", member_visitor, &ctx) || !ctx.got {
+    if !visit_type_decl(e, parser, root, req, inner, "struct_declaration", "type", member_visitor, &ctx, &ctx.args) || !ctx.got {
         return {}, false
     }
     return ctx.field_type, true
