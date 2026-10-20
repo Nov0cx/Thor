@@ -150,6 +150,9 @@ be tested headlessly.
 - `lang` + `lang/odin` + `lang/lsp` — language intelligence (see below). `lang/lsp` may import only
   `core:*`, `base:runtime`, `lang`, `shell` and `treecache` (for `source_edit`, the byte diff an
   incremental `didChange` needs) — never `setting`, which imports `lang`.
+  `lang/odin/syntax` (package `odinsyntax`, not `syntax`, which is taken) is the next engine's
+  front end (`odin-analyzer-plan.md`): the lexer and the lossless green tree. It imports only
+  `core:`. `debug_dump` prints its tree with trivia included.
 - `setting`, `watch`, `shell` — JSON settings/keybinds, the async recursive file-system watcher,
   process execution and the pseudo-terminal a shell runs on.
 - `vt` — the terminal emulator: the escape parser, the cell grid, the scrollback and the key, paste

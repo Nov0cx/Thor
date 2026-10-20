@@ -1983,3 +1983,11 @@ not a status, so this section stays the source of truth for what is built.
   `documentChanges`' own array position, and inside the edits' own Ctrl+Z
   record (see `lang.Resource_Op`'s doc comment and the M9 Rename/Code Actions
   entry above).
+
+## Next engine (`odin-analyzer-plan.md`)
+
+- `lang/odin/syntax` (package `odinsyntax`): lexer and lossless green tree.
+  The lexer never fails, emits trivia as tokens and puts implicit semicolons as
+  a flag on the newline. On all of Thor plus `base`/`core`/`vendor` it is
+  lossless and gives the same tokens as `core:odin/tokenizer`. Speed: about
+  108 MB/s with `-o:speed`. The parser is next (plan M1).
