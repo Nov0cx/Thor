@@ -34,7 +34,11 @@ Green_Builder :: struct {
     tree:     ^Green_Tree,
     stack:    [dynamic]Builder_Frame, // owned
     children: [dynamic]Green_Element, // owned
+    block:    []byte,                 // the rest of the arena block nodes are cut from
 }
+
+@(private)
+NODE_BLOCK :: 64 * mem.Kilobyte
 
 @(private)
 Builder_Frame :: struct {
@@ -94,14 +98,7 @@ builder_start_node_at :: proc(b: ^Green_Builder, checkpoint: int, kind: Syntax_K
 builder_wrap :: proc(b: ^Green_Builder, first, end: int, kind: Syntax_Kind) -> mem.Allocator_Error {
     assert(first <= end && end <= len(b.children))
     assert(len(b.stack) == 0 || first >= b.stack[len(b.stack) - 1].first)
-    alloc := tree_allocator(b.tree)
-    node := new(Green_Node, alloc) or_return
-    node.kind = kind
-    node.children = make([]Green_Element, end - first, alloc) or_return
-    copy(node.children, b.children[first:end])
-    for child in node.children {
-        node.text_len += element_len(child)
-    }
+    node := make_node(b, kind, b.children[first:end]) or_return
     if first == end {
         inject_at(&b.children, first, node) or_return
         return nil
@@ -127,17 +124,36 @@ builder_token :: proc(b: ^Green_Builder, kind: Token_Kind, flags: Token_Flags, t
     return nil
 }
 
+// Adds a token that lives in the tree arena already.
+builder_add_token :: #force_inline proc(b: ^Green_Builder, tok: ^Green_Token) {
+    append(&b.children, tok)
+}
+
+// A node and its children array, in one arena allocation.
+@(private)
+make_node :: proc(b: ^Green_Builder, kind: Syntax_Kind, children: []Green_Element) -> (node: ^Green_Node, err: mem.Allocator_Error) {
+    #assert(size_of(Green_Node) % align_of(Green_Node) == 0 && size_of(Green_Element) % align_of(Green_Node) == 0)
+    size := size_of(Green_Node) + len(children) * size_of(Green_Element)
+    if size > len(b.block) {
+        b.block = virtual.arena_alloc(&b.tree.arena, uint(max(size, NODE_BLOCK)), align_of(Green_Node)) or_return
+    }
+    data := b.block[:size]
+    b.block = b.block[size:]
+    node = (^Green_Node)(raw_data(data))
+    node.kind = kind
+    kids := ([^]Green_Element)(raw_data(data[size_of(Green_Node):]))[:len(children)]
+    copy(kids, children)
+    for child in kids {
+        node.text_len += element_len(child)
+    }
+    node.children = kids
+    return node, nil
+}
+
 // Closes the open node and adds it to its parent, or makes it the root.
 builder_finish_node :: proc(b: ^Green_Builder) -> mem.Allocator_Error {
     frame := pop(&b.stack)
-    alloc := tree_allocator(b.tree)
-    node := new(Green_Node, alloc) or_return
-    node.kind = frame.kind
-    node.children = make([]Green_Element, len(b.children) - frame.first, alloc) or_return
-    copy(node.children, b.children[frame.first:])
-    for child in node.children {
-        node.text_len += element_len(child)
-    }
+    node := make_node(b, frame.kind, b.children[frame.first:]) or_return
     resize(&b.children, frame.first)
     if len(b.stack) == 0 {
         b.tree.root = node
