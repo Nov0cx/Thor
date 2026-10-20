@@ -1996,4 +1996,40 @@ not a status, so this section stays the source of truth for what is built.
   The lexer never fails, emits trivia as tokens and puts implicit semicolons as
   a flag on the newline. On all of Thor plus `base`/`core`/`vendor` it is
   lossless and gives the same tokens as `core:odin/tokenizer`. Speed: about
-  108 MB/s with `-o:speed`. The parser is next (plan M1).
+  100 MB/s with `-o:speed`.
+- Parser (`parse` → `Parse{tree, errors}`): recursive descent that follows
+  `core:odin/parser` (its `Optional_Semicolons` mode) rule for rule, but builds
+  green nodes and never fails. Every node starts and ends on a significant
+  token; comments and whitespace stay in the parent. Node kinds are
+  `Syntax_Kind` (`kind.odin`). Attributes, labels and statement directives
+  (`#partial`, `#reverse`, `#no_bounds_check`) are the first children of the
+  statement they prefix; an expression directive is a `Tag_Expr`.
+  - **Recovery:** a missing token is left out of its node, not invented
+    (`a.` is a `Selector_Expr` with no field; `foo(` at EOF a call with an open
+    `Arg_List`). Skipped tokens go into one `Error` node; a skip takes whole
+    bracket groups and never a `}` that closes an open block. A newline after
+    `.`/`->`, or before `name :` after `:=`, ends the expression, so a dangling
+    selector or missing value does not take the next line. A missing comma
+    between elements on separate lines is reported as the compiler does, and
+    the list goes on. One error per offset.
+  - **Limits:** nesting and operator/postfix chains share a depth limit of 400
+    (`Too_Deep`, the rest of the expression skipped), so the tree stays shallow
+    enough for recursive walkers.
+  - **Checked by** `corpus_test.odin`: every file of Thor plus
+    `base`/`core`/`vendor` parses losslessly; each of the ~1,900 files
+    `core:odin/parser` accepts gives zero errors and the same top-level
+    declarations and expression nodes (calls, selectors, literals, binary,
+    index, slice, field values, parens, ternaries) by kind and offset. 20,000
+    rounds of random edits and every prefix of a file parse losslessly with no
+    stuck loop. `snapshot_test.odin` holds one input per plan §4.6 group in
+    `testdata/*.odin.txt` (`-define:SYNTAX_BLESS=true` rewrites the `.dump`
+    files); the inputs pass the compiler's own parser.
+  - **Cost (`-o:speed`):** about 33 MB/s lex + parse over the corpus;
+    `editview/editor.odin` (3,054 lines) in 2.8 ms, so about 9 ms per 10k
+    lines against the plan's 8 ms. The tree takes about 18 bytes per source
+    byte (about 40 bytes a token with its child slot), against the plan's 4×;
+    a compact token and element form is the fix.
+  - **Not yet:** typed AST views (`gen-syntax`), incremental reparse (M2), the
+    formatter port, live syntax errors through the engine. Some compiler-only
+    checks are not reported (`do` procedure bodies, unknown struct tags,
+    `#+` tags after `package`).
