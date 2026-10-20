@@ -439,8 +439,9 @@ our_decls :: proc(root: ^Green_Node) -> []Top_Decl {
     return out[:]
 }
 
-// Every corpus file parses into a tree that holds it exactly; a file core:odin/parser accepts
-// gives no syntax error and the same top-level declarations.
+// Every corpus file parses into a tree that holds it exactly and whose views read only children;
+// a file core:odin/parser accepts gives no syntax error, the same top-level declarations and
+// every required child of each view.
 @(test)
 test_corpus_parse :: proc(t: ^testing.T) {
     arena: virtual.Arena
@@ -472,6 +473,10 @@ test_corpus_parse :: proc(t: ^testing.T) {
             continue
         }
         theirs, their_shapes, ref_errors := reference_parse(f.path, f.src)
+        if msg := view_error(result.tree, ref_errors == 0 && len(result.errors) == 0); msg != "" {
+            testing.expectf(t, false, "%s: %s", f.path, msg)
+            failures += 1
+        }
         if ref_errors > 0 {
             rejected_by_reference += 1
             continue
