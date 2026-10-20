@@ -5,9 +5,12 @@ import "core:log"
 import "core:math/rand"
 import "core:mem"
 import "core:mem/virtual"
+import "core:odin/ast"
+import "core:odin/parser"
 import "core:odin/tokenizer"
 import "core:os"
 import "core:path/filepath"
+import "core:slice"
 import "core:strings"
 import "core:testing"
 import "core:time"
@@ -248,7 +251,324 @@ test_corpus_lossless_and_matches_reference :: proc(t: ^testing.T) {
     )
 }
 
-// Random byte edits on real files: the lexer must stay lossless and stop.
+// A top-level declaration as both parsers see it: a declared name, or the keyword of an
+// import, foreign or when.
+@(private = "file")
+Top_Decl :: struct {
+    kind:   Token_Kind,
+    offset: int,
+}
+
+// An expression node as both parsers see it.
+@(private = "file")
+Shape :: struct {
+    kind:   Syntax_Kind,
+    offset: int,
+}
+
+@(private = "file")
+reference_shapes :: proc(file: ^ast.File) -> []Shape {
+    out := make([dynamic]Shape, 0, 1024, context.temp_allocator)
+    visit :: proc(v: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
+        if node == nil {
+            return nil
+        }
+        out := (^[dynamic]Shape)(v.data)
+        kind := Syntax_Kind.None
+        #partial switch n in node.derived {
+        case ^ast.Selector_Call_Expr:
+            ast.walk(v, n.call)
+            return nil
+        case ^ast.Struct_Type:
+            ast.walk(v, n.min_field_align)
+            ast.walk(v, n.max_field_align)
+        case ^ast.Call_Expr:       kind = .Call_Expr
+        case ^ast.Selector_Expr:   kind = .Selector_Expr
+        case ^ast.Comp_Lit:        kind = .Comp_Lit
+        case ^ast.Proc_Lit:        kind = .Proc_Lit
+        case ^ast.Binary_Expr:     kind = .Binary_Expr
+        case ^ast.Index_Expr:      kind = .Index_Expr
+        case ^ast.Slice_Expr:      kind = .Slice_Expr
+        case ^ast.Field_Value:     kind = .Field_Value
+        case ^ast.Paren_Expr:      kind = .Paren_Expr
+        case ^ast.Ternary_If_Expr: kind = .Ternary_If_Expr
+        }
+        if kind != .None {
+            append(out, Shape{kind, node.pos.offset})
+        }
+        return v
+    }
+    v := ast.Visitor{visit = visit, data = &out}
+    for decl in file.decls {
+        ast.walk(&v, decl)
+    }
+    slice.sort_by(out[:], shape_less)
+    return out[:]
+}
+
+@(private = "file")
+shape_less :: proc(a, b: Shape) -> bool {
+    return a.offset < b.offset || (a.offset == b.offset && a.kind < b.kind)
+}
+
+// Where a node starts when the directives of a leading Tag_Expr are left out, as core:odin/parser places it.
+@(private = "file")
+after_tags :: proc(node: ^Green_Node, offset: u32) -> u32 {
+    if len(node.children) == 0 {
+        return offset
+    }
+    tag, is_tag := node.children[0].(^Green_Node)
+    if !is_tag || tag.kind != .Tag_Expr {
+        return offset
+    }
+    pos := offset
+    for child in tag.children {
+        switch c in child {
+        case ^Green_Node:
+            if c.kind != .Directive {
+                return after_tags(c, pos)
+            }
+        case ^Green_Token:
+            if !token_is_trivia(c.kind) {
+                return pos
+            }
+        }
+        pos += element_len(child)
+    }
+    return offset
+}
+
+@(private = "file")
+our_shapes :: proc(root: ^Green_Node) -> []Shape {
+    out := make([dynamic]Shape, 0, 1024, context.temp_allocator)
+    walk :: proc(node: ^Green_Node, offset: u32, out: ^[dynamic]Shape) {
+        #partial switch node.kind {
+        case .Call_Expr, .Selector_Expr, .Comp_Lit, .Proc_Lit, .Binary_Expr, .Index_Expr,
+             .Slice_Expr, .Field_Value, .Paren_Expr, .Ternary_If_Expr:
+            append(out, Shape{node.kind, int(after_tags(node, offset))})
+        case .Ternary_Expr:
+            append(out, Shape{.Ternary_If_Expr, int(after_tags(node, offset))})
+        }
+        pos := offset
+        for child in node.children {
+            if n, ok := child.(^Green_Node); ok {
+                walk(n, pos, out)
+            }
+            pos += element_len(child)
+        }
+    }
+    walk(root, 0, &out)
+    slice.sort_by(out[:], shape_less)
+    return out[:]
+}
+
+@(private = "file")
+reference_parse :: proc(path, src: string) -> (decls: []Top_Decl, shapes: []Shape, errors: int) {
+    context.allocator = context.temp_allocator
+    file := ast.File {
+        src      = src,
+        fullpath = path,
+    }
+    p := parser.default_parser({.Optional_Semicolons})
+    p.err = proc(pos: tokenizer.Pos, msg: string, args: ..any) {}
+    p.warn = proc(pos: tokenizer.Pos, msg: string, args: ..any) {}
+    parser.parse_file(&p, &file)
+    out := make([dynamic]Top_Decl, 0, len(file.decls))
+    for decl in file.decls {
+        #partial switch d in decl.derived_stmt {
+        case ^ast.Value_Decl:
+            for name in d.names {
+                append(&out, Top_Decl{.Ident, name.pos.offset})
+            }
+        case ^ast.Import_Decl:
+            append(&out, Top_Decl{.Import, d.import_tok.pos.offset})
+        case ^ast.Foreign_Import_Decl:
+            append(&out, Top_Decl{.Foreign, d.foreign_tok.pos.offset})
+        case ^ast.Foreign_Block_Decl:
+            append(&out, Top_Decl{.Foreign, d.tok.pos.offset})
+        case ^ast.When_Stmt:
+            append(&out, Top_Decl{.When, d.when_pos.offset})
+        }
+    }
+    if file.syntax_error_count > 0 {
+        return out[:], nil, file.syntax_error_count
+    }
+    return out[:], reference_shapes(&file), 0
+}
+
+@(private = "file")
+our_decls :: proc(root: ^Green_Node) -> []Top_Decl {
+    out := make([dynamic]Top_Decl, 0, len(root.children), context.temp_allocator)
+    pos: u32
+    for child in root.children {
+        defer pos += element_len(child)
+        node, is_node := child.(^Green_Node)
+        if !is_node {
+            continue
+        }
+        #partial switch node.kind {
+        case .Value_Decl:
+            off := pos
+            for c in node.children {
+                if n, ok := c.(^Green_Node); ok && n.kind == .Name_List {
+                    noff := off
+                    for nc in n.children {
+                        if nn, nok := nc.(^Green_Node); nok && (nn.kind == .Ident || nn.kind == .Poly_Type) {
+                            append(&out, Top_Decl{.Ident, int(noff)})
+                        }
+                        noff += element_len(nc)
+                    }
+                    break
+                }
+                off += element_len(c)
+            }
+        case .Import_Decl, .Foreign_Import_Decl, .Foreign_Block, .When_Stmt:
+            want := Token_Kind.Import
+            #partial switch node.kind {
+            case .Foreign_Import_Decl, .Foreign_Block: want = .Foreign
+            case .When_Stmt:                           want = .When
+            }
+            off := pos
+            for c in node.children {
+                if tok, ok := c.(^Green_Token); ok && tok.kind == want {
+                    append(&out, Top_Decl{want, int(off)})
+                    break
+                }
+                off += element_len(c)
+            }
+        }
+    }
+    return out[:]
+}
+
+// Every corpus file parses into a tree that holds it exactly; a file core:odin/parser accepts
+// gives no syntax error and the same top-level declarations.
+@(test)
+test_corpus_parse :: proc(t: ^testing.T) {
+    arena: virtual.Arena
+    files, loaded := load_corpus(t, &arena)
+    if !loaded {
+        return
+    }
+    defer virtual.arena_destroy(&arena)
+    failures := 0
+    total_bytes, accepted, rejected_by_reference: int
+    parse_time: time.Duration
+    for f in files {
+        if failures > 20 {
+            break
+        }
+        defer free_all(context.temp_allocator)
+        start := time.tick_now()
+        result, err := parse(f.src)
+        parse_time += time.tick_since(start)
+        total_bytes += len(f.src)
+        if !testing.expectf(t, err == nil, "%s: parse failed: %v", f.path, err) {
+            failures += 1
+            continue
+        }
+        defer parse_destroy(&result)
+        if !testing.expectf(t, green_text(result.tree.root, context.temp_allocator) == f.src, "%s: tree text differs from source", f.path) {
+            failures += 1
+            continue
+        }
+        theirs, their_shapes, ref_errors := reference_parse(f.path, f.src)
+        if ref_errors > 0 {
+            rejected_by_reference += 1
+            continue
+        }
+        accepted += 1
+        if len(result.errors) > 0 {
+            e := result.errors[0]
+            testing.expectf(t, false, "%s: %d syntax errors, first at %d: %s", f.path, len(result.errors), e.offset, error_message(e, context.temp_allocator))
+            failures += 1
+            continue
+        }
+        ours := our_decls(result.tree.root)
+        n := min(len(ours), len(theirs))
+        for i in 0 ..< n {
+            if ours[i] != theirs[i] {
+                testing.expectf(t, false, "%s: declaration %d is %v, reference has %v", f.path, i, ours[i], theirs[i])
+                failures += 1
+                break
+            }
+        }
+        if len(ours) != len(theirs) {
+            testing.expectf(t, false, "%s: %d top-level declarations, reference has %d", f.path, len(ours), len(theirs))
+            failures += 1
+            continue
+        }
+        shapes := our_shapes(result.tree.root)
+        for i in 0 ..< min(len(shapes), len(their_shapes)) {
+            if shapes[i] != their_shapes[i] {
+                testing.expectf(t, false, "%s: expression %d is %v, reference has %v", f.path, i, shapes[i], their_shapes[i])
+                failures += 1
+                break
+            }
+        }
+        if len(shapes) != len(their_shapes) {
+            testing.expectf(t, false, "%s: %d expressions, reference has %d", f.path, len(shapes), len(their_shapes))
+            failures += 1
+        }
+    }
+    secs := time.duration_seconds(parse_time)
+    log.infof(
+        "corpus: %d files accepted by core:odin/parser, %d rejected; parsed %d bytes in %.0f ms (%.1f MB/s)",
+        accepted, rejected_by_reference, total_bytes, secs * 1000, f64(total_bytes) / max(secs, 1e-9) / 1e6,
+    )
+    largest, largest_own: Corpus_File
+    for f in files {
+        if len(f.src) > len(largest.src) {
+            largest = f
+        }
+        if !strings.has_prefix(f.path, odin_root()) && len(f.src) > len(largest_own.src) {
+            largest_own = f
+        }
+    }
+    log_parse_speed(largest)
+    log_parse_speed(largest_own)
+}
+
+// Logs the best of ten parses of one file and the size of its tree.
+@(private = "file")
+log_parse_speed :: proc(f: Corpus_File) {
+    if f.src == "" {
+        return
+    }
+    best := max(time.Duration)
+    tree_bytes: uint
+    for _ in 0 ..< 10 {
+        start := time.tick_now()
+        result, err := parse(f.src)
+        best = min(best, time.tick_since(start))
+        if err == nil {
+            tree_bytes = result.tree.arena.total_used
+            parse_destroy(&result)
+        }
+        free_all(context.temp_allocator)
+    }
+    log.infof(
+        "%s: %d lines, %d bytes, parsed in %.2f ms (best of 10), tree %.1f bytes per source byte",
+        f.path, strings.count(f.src, "\n"), len(f.src), time.duration_milliseconds(best), f64(tree_bytes) / f64(len(f.src)),
+    )
+}
+
+// Parses `src` and reports whether the tree holds it exactly.
+@(private = "file")
+parses_losslessly :: proc(t: ^testing.T, src: string) -> bool {
+    result, err := parse(src)
+    if err != nil {
+        return false
+    }
+    defer parse_destroy(&result)
+    return green_text(result.tree.root, context.temp_allocator) == src
+}
+
+// Rounds of `test_fuzz_edits`; raise it with -define:SYNTAX_FUZZ_ROUNDS=n for a long run.
+@(private = "file")
+FUZZ_ROUNDS :: #config(SYNTAX_FUZZ_ROUNDS, 300)
+
+// Random byte edits on real files: the lexer and the parser must stay lossless and stop.
 @(test)
 test_fuzz_edits :: proc(t: ^testing.T) {
     state := rand.create(0x7468_6f72)
@@ -263,7 +583,7 @@ test_fuzz_edits :: proc(t: ^testing.T) {
         return
     }
     alphabet := "\"'`/*\\\n {}()[].:;#+-=xyz019\xef\xbb\xbf\xff\x00"
-    for round in 0 ..< 300 {
+    for round in 0 ..< FUZZ_ROUNDS {
         f := files[rand.int_max(len(files))]
         if len(f.src) == 0 {
             continue
@@ -294,11 +614,15 @@ test_fuzz_edits :: proc(t: ^testing.T) {
             testing.expectf(t, false, "round %d (%s): %s", round, f.path, msg)
             return
         }
+        if !parses_losslessly(t, src) {
+            testing.expectf(t, false, "round %d (%s): parse is not lossless", round, f.path)
+            return
+        }
         free_all(context.temp_allocator)
     }
 }
 
-// Every prefix of a file lexes losslessly: the path of typing a file from the top.
+// Every prefix of a file lexes and parses losslessly: the path of typing a file from the top.
 @(test)
 test_every_prefix :: proc(t: ^testing.T) {
     src, ok := read_source("lang/odin/syntax/lexer.odin")
@@ -310,6 +634,10 @@ test_every_prefix :: proc(t: ^testing.T) {
         toks := lex_all(src[:n], context.temp_allocator)
         if msg := lossless_error(src[:n], toks); msg != "" {
             testing.expectf(t, false, "prefix %d: %s", n, msg)
+            return
+        }
+        if !parses_losslessly(t, src[:n]) {
+            testing.expectf(t, false, "prefix %d: parse is not lossless", n)
             return
         }
         if n % 256 == 0 {
