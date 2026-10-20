@@ -2024,12 +2024,26 @@ not a status, so this section stays the source of truth for what is built.
     stuck loop. `snapshot_test.odin` holds one input per plan §4.6 group in
     `testdata/*.odin.txt` (`-define:SYNTAX_BLESS=true` rewrites the `.dump`
     files); the inputs pass the compiler's own parser.
-  - **Cost (`-o:speed`):** about 33 MB/s lex + parse over the corpus;
-    `editview/editor.odin` (3,054 lines) in 2.8 ms, so about 9 ms per 10k
-    lines against the plan's 8 ms. The tree takes about 18 bytes per source
-    byte (about 40 bytes a token with its child slot), against the plan's 4×;
-    a compact token and element form is the fix.
-  - **Not yet:** typed AST views (`gen-syntax`), incremental reparse (M2), the
-    formatter port, live syntax errors through the engine. Some compiler-only
-    checks are not reported (`do` procedure bodies, unknown struct tags,
+  - **Tree form:** a token holds no text, only kind, flags and length, and
+    sits inline in its parent's 8-byte child slot; a node is an 8-byte header
+    with its children after it. Token text is read from the tree's own source
+    copy by position, so a node is identified by its position, never by its
+    green pointer.
+  - **Cost (`-o:speed`):** about 43 MB/s lex + parse over the corpus;
+    `editview/editor.odin` (3,054 lines) in 2.2 ms, so about 7 ms per 10k
+    lines against the plan's 8 ms. The tree takes about 5.6 bytes per source
+    byte, the source copy included (plan §4.3: a 10k-line file under 3 MB).
+  - **Views:** `syntax.schema` lists every node kind, its categories (`expr`,
+    `type`, `stmt`, `decl`, `simple`) and the children its view reads;
+    `odin run build.odin -file -- gen_syntax` (package `syntaxgen`,
+    `lang/odin/syntax/gen`) writes `kind.odin`, `views.odin` and the accessor
+    table the tests use, and a test fails when they are stale. A view
+    (`Value_Decl`, `Selector_Expr`, …) is a distinct `Syntax_Node`: `as_<kind>`
+    casts, `<kind>_<child>(&view)` reads a child without an allocation and
+    gives `false` when it is missing. `view.odin` holds the query runtime and
+    the one hand-written accessor (`field_type`). The corpus test runs every
+    accessor on every node, and requires each `!` child in files the compiler
+    accepts.
+  - **Not yet:** incremental reparse (M2), the formatter port, live syntax
+    errors through the engine. Some compiler-only checks are not reported (`do` procedure bodies, unknown struct tags,
     `#+` tags after `package`).

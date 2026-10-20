@@ -20,6 +20,7 @@ odin run build.odin -file -- check -vet    # the same with -vet, which CI gates 
 odin run build.odin -file -- test          # every package with tests, into bin/test
 odin run build.odin -file -- test -release # the same with the flags a release is built with
 odin run build.odin -file -- clean
+odin run build.odin -file -- gen_syntax    # kind.odin + views.odin of lang/odin/syntax from syntax.schema
 odin run build.odin -file -- -h -verbose   # flags; -verbose echoes each command
 ```
 
@@ -152,8 +153,14 @@ be tested headlessly.
   incremental `didChange` needs) — never `setting`, which imports `lang`.
   `lang/odin/syntax` (package `odinsyntax`, not `syntax`, which is taken) is the next engine's
   front end (`odin-analyzer-plan.md`): the lexer, the error-resilient parser (`parse`) and the
-  lossless green tree. It imports only `core:`. `debug_dump` prints its tree, trivia optional;
-  `testdata/*.dump` are its snapshots (`-define:SYNTAX_BLESS=true` rewrites them).
+  lossless green tree. It imports only `core:`. A token is inline in an 8-byte child slot and holds
+  no text — read it through the red layer (`syntax_token_text`, `node_text`) — and a node is known
+  by its position, not its green pointer. `debug_dump` prints its tree, trivia optional;
+  `testdata/*.dump` are its snapshots (`-define:SYNTAX_BLESS=true` rewrites them). Node kinds and
+  the typed views (`as_value_decl`, `value_decl_names(&v)`, …) are generated from `syntax.schema`
+  by `build.odin -- gen_syntax` (`lang/odin/syntax/gen`, package `syntaxgen`); edit the schema, never
+  `kind.odin`/`views.odin`, and regenerate — a test fails when they are stale, and the corpus test
+  checks each view against the parser.
 - `setting`, `watch`, `shell` — JSON settings/keybinds, the async recursive file-system watcher,
   process execution and the pseudo-terminal a shell runs on.
 - `vt` — the terminal emulator: the escape parser, the cell grid, the scrollback and the key, paste

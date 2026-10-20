@@ -4,7 +4,8 @@
 "resolve what the caret names" navigator into a real static analyzer with its own type model,
 live diagnostics and lints.
 **Baseline:** `Nov0cx/Thor` at `29192c6` (release 2026.10.7).
-**Status:** proposal. Section 11 lists the feature questions whose answers change the plan.
+**Status:** M1 (lexer, parser, compact tree, typed views) landed; `lang/ROADMAP.md` ("Next engine")
+tracks the rest. Section 11 lists the feature questions whose answers change the plan.
 
 ---
 
@@ -170,13 +171,16 @@ Two layers, as in rust-analyzer's rowan:
   incremental reparse cheap and lets old snapshots stay readable while a new one is built.
 - **Red/cursor layer** (computed on demand): `Syntax_Node{green, offset, parent}` giving absolute
   byte offsets — exactly what every `lang.Request` handler needs.
-- **Typed AST views** generated from a small schema file: `Proc_Lit`, `Struct_Type`,
-  `Selector_Expr`, … each a thin wrapper with accessors (`proc_lit_params(n)`,
-  `selector_field(n) -> (Name_Ref, bool)`). Accessors return "missing" rather than crash, which is
-  how the analyzer copes with broken code. A code generator (`build.odin -- gen-syntax`) keeps the
-  kinds, views and a `debug_dump` in sync — the replacement for `ts-probe`.
+- **Typed AST views** generated from a small schema file (`syntax.schema`): `Proc_Lit`,
+  `Struct_Type`, `Selector_Expr`, … each a `distinct Syntax_Node` with accessors
+  (`proc_type_params(&v)`, `selector_expr_field(&v) -> (Ident, bool)`). Accessors return "missing"
+  rather than crash, which is how the analyzer copes with broken code. A code generator
+  (`build.odin -- gen_syntax`) keeps the kinds and views in sync, and the corpus test checks every
+  view against the parser — the replacement for `ts-probe`.
 
 Memory target: ≤ 24 bytes/token, ≤ 32 bytes/node in the green tree; a 10k-line file under ~3 MB.
+Landed: a token is inline in an 8-byte child slot with no text of its own (the tree keeps one copy of
+the source), a node an 8-byte header — about 5.6 bytes per source byte, the source included.
 
 ### 4.4 Error recovery
 
@@ -271,7 +275,7 @@ The parser is "done" when all of these parse to correct shapes (each gets a snap
 | Lex + parse a 10k-line file cold | ≤ 8 ms |
 | Incremental reparse after one keystroke | ≤ 0.5 ms p95 |
 | Parse all of `core:` cold (single thread) | ≤ 1.5 s; ≤ 400 ms on the worker pool |
-| Bytes of tree per source byte | ≤ 4× |
+| Bytes of tree per source byte | ≤ 8× (the §4.3 target; ≤ 4× needs 4-byte child slots and one arena per buffer) |
 
 A `bench` subcommand in `build.odin` tracks these so CI can flag regressions.
 
@@ -557,7 +561,7 @@ Strategy: strangler fig. Both engines exist side by side behind `"engine"` in th
 | Milestone | Deliverable | Exit criteria |
 | --- | --- | --- |
 | **M0 — Groundwork** (1–2 wk) | `syntax`/`sema` package skeletons, `run_tests` entries, engine switch in `config.odin`, test harness that runs every existing test against a chosen engine, benchmark harness, corpus fetcher | Harness green on `legacy`; corpus pinned |
-| **M1 — Lexer + parser** (4–6 wk) | 4.2–4.4, coverage list 4.6, `gen-syntax`, `debug_dump` | Lossless on corpus; zero errors on compiler-accepted files; fuzzing clean for 24 h; budgets 4.8 met |
+| **M1 — Lexer + parser** (4–6 wk) | 4.2–4.4, coverage list 4.6, `gen_syntax`, `debug_dump` | Lossless on corpus; zero errors on compiler-accepted files; fuzzing clean for 24 h; budgets 4.8 met |
 | **M2 — Incremental + formatter port** (2–3 wk) | 4.5; formatter on the new tree | Incremental = cold across scripted sessions; all 1,140 lines of `format_test.odin` pass; `core:odin/parser` no longer imported outside tests |
 | **M3 — Query DB, packages, item trees, resolution** (4 wk) | 5.1–5.3, universe scope from `builtins.odin`, stdlib disk cache | `Definition`, `References`, `Rename`, `Document/Workspace_Symbols`, `Package_Doc` pass all existing tests on `next`; build-aware duplicate handling |
 | **M4 — Types + body checking** (6–8 wk) | 5.4–5.5 incl. generics and overloads | `Hover`, `Completion`, `Signature_Help`, `Semantic_Tokens` pass all existing tests on `next`; every expression in Thor's sources gets a type (coverage metric ≥ 99%) |
@@ -690,5 +694,5 @@ These are the decisions that change scope, order or design. Each has my default 
   `formatter.odin` + `format/` (ported to the new tree), `path_*.odin`.
 - **Unchanged:** `lang/lang.odin` and the seam, `lang/lsp/*`, `thor/lang_host.odin`, `treecache`
   (still used by `syntax/` highlighting).
-- **Build:** `build.odin` — `run_tests` packages, `gen-syntax`, `bench`; the tree-sitter Odin grammar
+- **Build:** `build.odin` — `run_tests` packages, `gen_syntax`, `bench`; the tree-sitter Odin grammar
   stays in `GRAMMARS` while highlighting uses it (11.1.2).
