@@ -1,0 +1,290 @@
+# The node kinds of package odinsyntax and their typed views.
+# `odin run build.odin -file -- gen_syntax` writes kind.odin, views.odin and views_table_test.odin.
+#
+#   tokens <group> = Token_Kind ...           a token group, usable wherever a token is
+#   <Kind> [: category ...] [// doc]          a kind, in Syntax_Kind order; `-<Kind>` has no view
+#       <name>[!] = node <targets> [last] [after <tokens>] [before <tokens>] [// doc]
+#       <name>[!] = nodes <targets> [after <tokens>] [before <tokens>]
+#       <name>[!] = token <tokens> [last] [after <tokens>] [before <tokens>]
+#       <name>[!] = custom                    written by hand in view.odin
+#
+# Targets are kinds and categories. Only direct children count. `after` starts at the first of its
+# tokens; `before` stops at the next of its tokens. `!` marks a child that every node of the kind has
+# in code the compiler accepts; the corpus test checks it.
+
+tokens binary_op = Add Sub Mul Quo Mod Mod_Mod And Or Xor And_Not Shl Shr Cmp_And Cmp_Or Cmp_Eq Not_Eq Lt Gt Lt_Eq Gt_Eq In Not_In Ellipsis Range_Half Range_Full Where
+tokens unary_op = Add Sub Not Xor And Mul_Mul Increment Decrement
+tokens assign_op = Eq Add_Eq Sub_Eq Mul_Eq Quo_Eq Mod_Eq Mod_Mod_Eq And_Eq Or_Eq Xor_Eq And_Not_Eq Shl_Eq Shr_Eq Cmp_And_Eq Cmp_Or_Eq
+tokens branch = Break Continue Fallthrough
+tokens literal = Integer Float Imag Rune String
+
+-None // no node; a parse procedure that built nothing returns it
+Root
+    package = node Package_Decl
+    tags = nodes File_Tag
+    decls = nodes stmt
+-Error // tokens no rule absorbs
+
+File_Tag
+    token! = token File_Tag
+Package_Decl
+    name! = node Ident
+Import_Decl : stmt decl
+    alias = node Ident
+    path! = token String
+Foreign_Import_Decl : stmt decl
+    name = node Ident
+    path = token String
+    paths = nodes expr after Open_Brace
+Foreign_Block : stmt decl
+    attributes = nodes Attribute
+    library = node Ident
+    body! = node Block
+Value_Decl : stmt decl simple
+    attributes = nodes Attribute
+    names! = node Name_List
+    type = node expr after Colon before Eq Colon
+    values = node Expr_List
+Attribute
+    elems = nodes Ident Field_Value
+Name_List
+    names! = nodes expr
+Expr_List
+    items! = nodes expr Field_Value
+
+Block : stmt
+    stmts = nodes stmt after Open_Brace
+Do_Body // `do` and the one statement after it
+    stmt = node stmt after Do
+Expr_Stmt : stmt simple
+    expr! = node expr last
+Assign_Stmt : stmt simple
+    lhs! = node Expr_List before assign_op
+    op! = token assign_op
+    rhs! = node Expr_List after assign_op
+If_Stmt : stmt
+    label = node Label
+    init = node simple after If before Semicolon
+    cond! = node expr after If before Else
+    body! = node Block Do_Body before Else
+    else_branch = node If_Stmt Block Do_Body after Else
+When_Stmt : stmt decl
+    cond! = node expr after When before Else
+    body! = node Block Do_Body before Else
+    else_branch = node When_Stmt Block Do_Body after Else
+For_Stmt : stmt
+    label = node Label
+    init = node simple after For before Semicolon
+    cond = node expr after For
+    post = node simple after Semicolon
+    body! = node Block Do_Body
+Range_Stmt : stmt
+    label = node Label
+    unroll_args = node Arg_List before For
+    vars = node Expr_List after For before In
+    expr! = node expr after In
+    body! = node Block Do_Body
+Switch_Stmt : stmt
+    label = node Label
+    init = node simple after Switch before Semicolon
+    tag = node expr after Switch
+    body! = node Block
+Type_Switch_Stmt : stmt
+    label = node Label
+    vars = node Expr_List after Switch before In
+    subject! = node expr after In
+    body! = node Block
+Case_Clause
+    values = node Expr_List after Case before Colon
+    stmts = nodes stmt after Colon
+Return_Stmt : stmt
+    values = node Expr_List
+Defer_Stmt : stmt
+    stmt! = node stmt after Defer
+Branch_Stmt : stmt
+    keyword! = token branch
+    label = node Ident
+Using_Stmt : stmt
+    exprs! = node Expr_List
+Label
+    name! = node Ident
+
+Ident : expr
+    token! = token Ident
+Literal : expr
+    token! = token literal
+Context_Expr : expr
+Undef_Expr : expr
+Comp_Lit : expr
+    type = node expr before Open_Brace
+    elems = nodes expr Field_Value after Open_Brace
+Field_Value
+    name! = node expr before Eq
+    value! = node expr after Eq
+Paren_Expr : expr
+    expr! = node expr
+Selector_Expr : expr
+    operand! = node expr before Period Arrow_Right
+    field! = node Ident after Period Arrow_Right
+    arrow = token Arrow_Right
+Implicit_Selector : expr
+    field! = node Ident
+Selector_Call_Expr : expr
+    call! = node Call_Expr
+Index_Expr : expr
+    operand! = node expr before Open_Bracket
+    index! = node expr after Open_Bracket
+Matrix_Index_Expr : expr
+    operand! = node expr before Open_Bracket
+    row! = node expr after Open_Bracket before Comma
+    column! = node expr after Comma
+Slice_Expr : expr
+    operand! = node expr before Open_Bracket
+    low = node expr after Open_Bracket before Colon
+    high = node expr after Colon
+Deref_Expr : expr
+    operand! = node expr
+Call_Expr : expr
+    callee! = node expr
+    args! = node Arg_List
+Arg_List
+    args = nodes expr Field_Value Spread_Expr
+Spread_Expr : expr // `..x` in an argument list
+    expr! = node expr
+Unary_Expr : expr
+    op! = token unary_op
+    operand! = node expr
+Binary_Expr : expr
+    lhs! = node expr before binary_op
+    op! = token binary_op
+    rhs! = node expr after binary_op
+Ternary_Expr : expr // `c ? x : y`
+    cond! = node expr before Question
+    then! = node expr after Question before Colon
+    else_value! = node expr after Colon
+Ternary_If_Expr : expr
+    then! = node expr before If
+    cond! = node expr after If before Else
+    else_value! = node expr after Else
+Ternary_When_Expr : expr
+    then! = node expr before When
+    cond! = node expr after When before Else
+    else_value! = node expr after Else
+Or_Else_Expr : expr
+    lhs! = node expr before Or_Else
+    rhs! = node expr after Or_Else
+Or_Return_Expr : expr
+    operand! = node expr
+Or_Branch_Expr : expr
+    operand! = node expr before Or_Break Or_Continue
+    keyword! = token Or_Break Or_Continue
+    label = node Ident after Or_Break Or_Continue
+Type_Assertion : expr
+    operand! = node expr before Period
+    type = node expr after Open_Paren
+Cast_Expr : expr
+    keyword! = token Cast Transmute
+    type! = node expr after Open_Paren before Close_Paren
+    operand! = node expr after Close_Paren
+Auto_Cast_Expr : expr
+    operand! = node expr
+Proc_Lit : expr
+    type! = node Proc_Type
+    where_clause = node Where_Clause
+    tags = nodes Directive
+    body = node Block Do_Body
+Proc_Group : expr
+    members! = nodes expr after Open_Brace
+Directive : expr // `#name`
+    name! = token Ident
+Tag_Expr : expr // a directive and the expression or type it applies to
+    directive! = node Directive Call_Expr
+    expr! = node expr last
+Helper_Type : expr type
+    type! = node expr last
+
+Proc_Type : expr type
+    calling_convention = token String
+    params! = node Param_List
+    results = node Result_List
+    tags = nodes Directive
+Param_List
+    fields = nodes Field
+Result_List
+    fields = nodes Field
+    diverging = token Not
+Field_List
+    fields = nodes Field
+Field
+    names = node Name_List
+    type = custom
+    default = node expr after Eq
+    tag = token String
+    using = token Using
+Ellipsis_Type : expr type // `..T` of a variadic parameter
+    elem = node expr
+Where_Clause
+    constraints! = nodes expr
+Struct_Type : expr type
+    params = node Param_List
+    where_clause = node Where_Clause
+    fields! = node Field_List
+Union_Type : expr type
+    params = node Param_List
+    where_clause = node Where_Clause
+    variants = nodes expr after Open_Brace
+Enum_Type : expr type
+    backing = node expr before Open_Brace
+    members = nodes expr Field_Value after Open_Brace
+Bit_Set_Type : expr type
+    elem! = node expr after Open_Bracket before Semicolon Close_Bracket
+    backing = node expr after Semicolon
+Bit_Field_Type : expr type
+    backing! = node expr before Open_Brace
+    fields = nodes Bit_Field_Field
+Bit_Field_Field
+    name! = node Ident before Colon
+    type! = node expr after Colon before Or
+    bits! = node expr after Or
+    tag = token String
+Map_Type : expr type
+    key! = node expr after Open_Bracket before Close_Bracket
+    value! = node expr after Close_Bracket
+Matrix_Type : expr type
+    rows! = node expr after Open_Bracket before Comma
+    columns! = node expr after Comma before Close_Bracket
+    elem! = node expr after Close_Bracket
+Array_Type : expr type
+    len = node expr after Open_Bracket before Close_Bracket
+    elem! = node expr after Close_Bracket
+Dynamic_Array_Type : expr type
+    elem! = node expr after Close_Bracket
+Pointer_Type : expr type
+    elem! = node expr
+Multi_Pointer_Type : expr type
+    elem! = node expr after Close_Bracket
+Poly_Type : expr type
+    name! = node Ident before Quo
+    specialization = node expr after Quo
+Typeid_Type : expr type
+    specialization = node expr after Quo
+Distinct_Type : expr type
+    type! = node expr
+
+Asm_Template : expr
+    params = node Param_List
+    results = node Result_List
+    specs = node Asm_Spec_List
+    body = node Asm_Body
+Asm_Group : expr
+Asm_Spec_List
+Asm_Spec
+Asm_Clobber
+Asm_Body
+Asm_Instruction
+Asm_Label_Decl
+Asm_Label
+Asm_Directive
+Asm_Register
+Asm_Memory_Operand
+Asm_Register_Group

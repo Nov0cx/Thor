@@ -9,6 +9,7 @@
 //    odin run build.odin -file -- test           # run the package tests
 //    odin run build.odin -file -- test -release  # run them with the release flags
 //    odin run build.odin -file -- deps           # get and build HarfBuzz and tree-sitter
+//    odin run build.odin -file -- gen_syntax     # write the Odin syntax kinds and views from syntax.schema
 //    odin run build.odin -file -- -h             # list the flags
 //
 // The Odin compiler reads the arguments before `--`, this program the rest.
@@ -23,6 +24,7 @@ import "core:path/filepath"
 import "core:strconv"
 import "core:strings"
 import "msvc"
+import syntaxgen "lang/odin/syntax/gen"
 
 EXE_EXT :: ".exe" when ODIN_OS == .Windows else ""
 LIB_EXT :: ".lib" when ODIN_OS == .Windows else ".a"
@@ -51,7 +53,7 @@ STAMP :: "thor.stamp"
 // third-party bindings under vendor/, which this repository cannot correct.
 // Add a package here when it is new.
 VET_PACKAGES ::
-    "main,thor,atomicfile,editview,font,input,lang,lsp,odin,odinfmt,odinsyntax,markdown,msvc,piecetable," +
+    "main,thor,atomicfile,editview,font,input,lang,lsp,odin,odinfmt,odinsyntax,syntaxgen,markdown,msvc,piecetable," +
     "plugin,render,search,setting,shell,snippet,syntax,textedit,theme,treecache," +
     "update,vt,watch"
 
@@ -70,6 +72,7 @@ Command :: enum {
     run,
     deps,
     clean,
+    gen_syntax,
 }
 
 Options :: struct {
@@ -95,6 +98,7 @@ main :: proc() {
     case .run:   ok = build_thor() && launch()
     case .deps:  ok = build_deps()
     case .clean: ok = clean()
+    case .gen_syntax: ok = gen_syntax()
     }
 
     if !ok {
@@ -231,6 +235,35 @@ run_tests :: proc() -> bool {
 // the asset, plugin and settings paths are relative to it.
 launch :: proc() -> bool {
     return exec({join(out_dir, EXE)})
+}
+
+// Writes kind.odin, views.odin and views_table_test.odin of lang/odin/syntax from syntax.schema.
+gen_syntax :: proc() -> bool {
+    schema, serr := os.read_entire_file(syntaxgen.SCHEMA_PATH, context.temp_allocator)
+    if serr != nil {
+        fmt.eprintfln("[build] a read of %s failed: %v", syntaxgen.SCHEMA_PATH, serr)
+        return false
+    }
+    tokens, terr := os.read_entire_file(syntaxgen.TOKEN_PATH, context.temp_allocator)
+    if terr != nil {
+        fmt.eprintfln("[build] a read of %s failed: %v", syntaxgen.TOKEN_PATH, terr)
+        return false
+    }
+    out, errors := syntaxgen.generate(string(schema), string(tokens), context.temp_allocator)
+    if len(errors) > 0 {
+        for e in errors {
+            fmt.eprintln(e)
+        }
+        return false
+    }
+    files := [?][2]string{{syntaxgen.KIND_PATH, out.kinds}, {syntaxgen.VIEWS_PATH, out.views}, {syntaxgen.TABLE_PATH, out.table}}
+    for f in files {
+        if err := os.write_entire_file(f[0], f[1]); err != nil {
+            fmt.eprintfln("[build] a write of %s failed: %v", f[0], err)
+            return false
+        }
+    }
+    return true
 }
 
 clean :: proc() -> bool {
