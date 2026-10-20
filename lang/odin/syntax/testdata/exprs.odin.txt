@@ -1,0 +1,44 @@
+package exprs
+
+exprs :: proc() {
+    a := 1 + 2 * 3 - 4 / 5 % 6 %% 7
+    b := x &~ y | z ~ w & v << 2 >> 1
+    c := p && q || !r
+    d := 1 in s && 2 not_in s
+    e := a == b || a != b || a < b || a <= b || a > b || a >= b
+    f := -a + ~b + (&c)^
+    g := a ? b : c
+    h := a if cond else b
+    i := A when ODIN_DEBUG else B
+    j := cast(int)x + transmute(u32)y + auto_cast z + int(w)
+    k := v.(int)
+    l, ok := v.(f64)
+    m := v.?
+    n: Color = .Red
+    o := Point{x = 1, y = 2}
+    p2 := [3]int{0 = 1, 2 = 3}
+    q2 := [?]int{1, 2, 3}
+    r2 := map[string]int{"a" = 1}
+    s2 := xs[1:3]
+    t2 := xs[:]
+    u2 := xs[2:]
+    v2 := mat[1, 2]
+    w2 := obj->method(1)
+    x2 := #load("file.txt")
+    y2 := #load_or("missing", nil)
+    z2 := #file + #procedure
+    loc := #caller_location
+    has := #exists("path") && #defined(name) && #config(FLAG, false)
+    #assert(size_of(int) == 8)
+    h2 := #hash("text", "fnv32a")
+    pl := proc(x: int) -> int { return x }(3)
+    nested := ((1 + 2) * (3 + 4))
+    range_check := xs[1:3]
+    slice_lit := []int{}
+    call := f(a, b = 2, ..rest)
+    ptr := &arr[0]
+    deref := ptr^
+    s := "str" + `raw`
+    r := 'r'
+    fl := 1.5e3 + 0x1f + 0b101 + 0o17 + 1i
+}

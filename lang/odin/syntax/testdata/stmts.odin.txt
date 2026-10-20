@@ -1,0 +1,70 @@
+package stmts
+
+run :: proc(xs: []int, u: Value, m: map[string]int) -> (err: Error) {
+    if x := len(xs); x > 0 {
+        return
+    } else if x < 0 {
+    } else do return
+
+    when ODIN_DEBUG {
+    }
+
+    for i := 0; i < 10; i += 1 {}
+    for x in xs {}
+    for x, i in xs {}
+    for i in 0 ..< 10 {}
+    for i in 0 ..= 10 {}
+    for {
+        break
+    }
+    #reverse for x in xs {}
+    #unroll for i in 0 ..< 4 {}
+
+    switch x := 1; x {
+    case 1, 2:
+        fallthrough
+    case 3 ..< 5:
+    case:
+    }
+    switch v in u {
+    case int:
+    case f64, string:
+    }
+    #partial switch Color.Red {
+    case .Red:
+    }
+
+    outer: for x in xs {
+        inner: for y in xs {
+            if y == 0 do continue outer
+            break inner
+        }
+    }
+
+    defer cleanup()
+    defer {
+        cleanup()
+    }
+    using point: Point
+    using point
+
+    value := may_fail() or_return
+    for {
+        next() or_break
+        next() or_continue
+    }
+    fallback := lookup() or_else 0
+
+    #no_bounds_check {
+        _ = xs[0]
+    }
+    context = runtime.default_context()
+    context.allocator = context.temp_allocator
+    x, y := 1, 2
+    x, y = y, x
+    x += 1
+    {
+        nested := 1
+    }
+    return .None
+}

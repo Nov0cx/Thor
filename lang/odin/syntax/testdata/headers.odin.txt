@@ -1,0 +1,8 @@
+#+build windows, linux amd64
+#+private file
+#+feature dynamic-literals
+#+vet unused shadowing
+#+no-instrumentation
+package headers
+
+x :: 1

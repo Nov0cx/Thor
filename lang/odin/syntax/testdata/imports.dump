@@ -1,0 +1,122 @@
+Root@0..385
+  Package_Decl@0..15
+    Package@0..7 "package"
+    Ident@8..15
+      Ident@8..15 "imports"
+  Import_Decl@17..34
+    Import@17..23 "import"
+    String@24..34 "\"core:fmt\""
+  Import_Decl@35..60
+    Import@35..41 "import"
+    Ident@42..45
+      Ident@42..45 "str"
+    String@46..60 "\"core:strings\""
+  Import_Decl@61..82
+    Import@61..67 "import"
+    String@68..82 "\"base:runtime\""
+  Foreign_Import_Decl@84..114
+    Foreign@84..91 "foreign"
+    Import@92..98 "import"
+    Ident@99..103
+      Ident@99..103 "libc"
+    String@104..114 "\"system:c\""
+  Foreign_Import_Decl@115..194
+    Foreign@115..122 "foreign"
+    Import@123..129 "import"
+    Ident@130..138
+      Ident@130..138 "kernel32"
+    Open_Brace@139..140 "{"
+    Literal@145..166
+      String@145..166 "\"system:kernel32.lib\""
+    Comma@166..167 ","
+    Literal@172..191
+      String@172..191 "\"system:user32.lib\""
+    Comma@191..192 ","
+    Close_Brace@193..194 "}"
+  Foreign_Block@196..346
+    Attribute@196..253
+      At@196..197 "@"
+      Open_Paren@197..198 "("
+      Field_Value@198..230
+        Ident@198..224
+          Ident@198..224 "default_calling_convention"
+        Eq@225..226 "="
+        Literal@227..230
+          String@227..230 "\"c\""
+      Comma@230..231 ","
+      Field_Value@232..252
+        Ident@232..243
+          Ident@232..243 "link_prefix"
+        Eq@244..245 "="
+        Literal@246..252
+          String@246..252 "\"SDL_\""
+      Close_Paren@252..253 ")"
+    Foreign@254..261 "foreign"
+    Ident@262..266
+      Ident@262..266 "libc"
+    Block@267..346
+      Open_Brace@267..268 "{"
+      Value_Decl@273..308
+        Name_List@273..277
+          Ident@273..277
+            Ident@273..277 "puts"
+        Colon@278..279 ":"
+        Colon@279..280 ":"
+        Expr_List@281..308
+          Proc_Lit@281..308
+            Proc_Type@281..304
+              Proc@281..285 "proc"
+              Param_List@285..297
+                Open_Paren@285..286 "("
+                Field@286..296
+                  Name_List@286..287
+                    Ident@286..287
+                      Ident@286..287 "s"
+                  Colon@287..288 ":"
+                  Ident@289..296
+                    Ident@289..296 "cstring"
+                Close_Paren@296..297 ")"
+              Result_List@298..304
+                Arrow_Right@298..300 "->"
+                Field@301..304
+                  Ident@301..304
+                    Ident@301..304 "i32"
+            Undef@305..308 "---"
+      Value_Decl@313..344
+        Attribute@313..335
+          At@313..314 "@"
+          Open_Paren@314..315 "("
+          Field_Value@315..334
+            Ident@315..324
+              Ident@315..324 "link_name"
+            Eq@325..326 "="
+            Literal@327..334
+              String@327..334 "\"errno\""
+          Close_Paren@334..335 ")"
+        Name_List@336..339
+          Ident@336..339
+            Ident@336..339 "err"
+        Colon@339..340 ":"
+        Ident@341..344
+          Ident@341..344 "i32"
+      Close_Brace@345..346 "}"
+  Foreign_Block@348..384
+    Foreign@348..355 "foreign"
+    Block@356..384
+      Open_Brace@356..357 "{"
+      Value_Decl@362..382
+        Name_List@362..368
+          Ident@362..368
+            Ident@362..368 "hidden"
+        Colon@369..370 ":"
+        Colon@370..371 ":"
+        Expr_List@372..382
+          Proc_Lit@372..382
+            Proc_Type@372..378
+              Proc@372..376 "proc"
+              Param_List@376..378
+                Open_Paren@376..377 "("
+                Close_Paren@377..378 ")"
+            Undef@379..382 "---"
+      Close_Brace@383..384 "}"
+  EOF@385..385 ""

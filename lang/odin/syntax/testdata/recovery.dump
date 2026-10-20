@@ -1,0 +1,140 @@
+Root@0..182
+  Package_Decl@0..16
+    Package@0..7 "package"
+    Ident@8..16
+      Ident@8..16 "recovery"
+  Value_Decl@18..122
+    Name_List@18..24
+      Ident@18..24
+        Ident@18..24 "broken"
+    Colon@25..26 ":"
+    Colon@26..27 ":"
+    Expr_List@28..122
+      Proc_Lit@28..122
+        Proc_Type@28..34
+          Proc@28..32 "proc"
+          Param_List@32..34
+            Open_Paren@32..33 "("
+            Close_Paren@33..34 ")"
+        Block@35..122
+          Open_Brace@35..36 "{"
+          Expr_Stmt@41..43
+            Selector_Expr@41..43
+              Ident@41..42
+                Ident@41..42 "a"
+              Period@42..43 "."
+          Value_Decl@48..54
+            Name_List@48..49
+              Ident@48..49
+                Ident@48..49 "b"
+            Colon@50..51 ":"
+            Eq@51..52 "="
+            Expr_List@53..54
+              Literal@53..54
+                Integer@53..54 "1"
+          Value_Decl@59..63
+            Name_List@59..60
+              Ident@59..60
+                Ident@59..60 "x"
+            Colon@61..62 ":"
+            Eq@62..63 "="
+          Value_Decl@68..74
+            Name_List@68..69
+              Ident@68..69
+                Ident@68..69 "y"
+            Colon@70..71 ":"
+            Eq@71..72 "="
+            Expr_List@73..74
+              Literal@73..74
+                Integer@73..74 "2"
+          Expr_Stmt@79..88
+            Call_Expr@79..88
+              Ident@79..82
+                Ident@79..82 "foo"
+              Arg_List@82..88
+                Open_Paren@82..83 "("
+                Ident@83..84
+                  Ident@83..84 "a"
+                Comma@84..85 ","
+                Ident@86..87
+                  Ident@86..87 "b"
+          Expr_Stmt@92..97
+            Call_Expr@92..97
+              Ident@92..95
+                Ident@92..95 "bar"
+              Arg_List@95..97
+                Open_Paren@95..96 "("
+                Close_Paren@96..97 ")"
+          Value_Decl@102..112
+            Name_List@102..103
+              Ident@102..103
+                Ident@102..103 "z"
+            Colon@104..105 ":"
+            Eq@105..106 "="
+            Expr_List@107..112
+              Paren_Expr@107..112
+                Open_Paren@107..108 "("
+                Binary_Expr@108..112
+                  Literal@108..109
+                    Integer@108..109 "1"
+                  Add@110..111 "+"
+          Semicolon@112..113 ";"
+          Value_Decl@114..120
+            Name_List@114..115
+              Ident@114..115
+                Ident@114..115 "w"
+            Colon@116..117 ":"
+            Eq@117..118 "="
+            Expr_List@119..120
+              Literal@119..120
+                Integer@119..120 "3"
+          Close_Brace@121..122 "}"
+  Value_Decl@124..161
+    Name_List@124..125
+      Ident@124..125
+        Ident@124..125 "S"
+    Colon@126..127 ":"
+    Colon@127..128 ":"
+    Expr_List@129..161
+      Struct_Type@129..161
+        Struct@129..135 "struct"
+        Field_List@136..161
+          Open_Brace@136..137 "{"
+          Field@142..148
+            Name_List@142..143
+              Ident@142..143
+                Ident@142..143 "a"
+            Colon@143..144 ":"
+            Ident@145..148
+              Ident@145..148 "int"
+          Field@153..158
+            Name_List@153..154
+              Ident@153..154
+                Ident@153..154 "b"
+            Ident@155..158
+              Ident@155..158 "int"
+          Comma@158..159 ","
+          Close_Brace@160..161 "}"
+  Value_Decl@163..181
+    Name_List@163..168
+      Ident@163..168
+        Ident@163..168 "after"
+    Colon@169..170 ":"
+    Colon@170..171 ":"
+    Expr_List@172..181
+      Proc_Lit@172..181
+        Proc_Type@172..178
+          Proc@172..176 "proc"
+          Param_List@176..178
+            Open_Paren@176..177 "("
+            Close_Paren@177..178 ")"
+        Block@179..181
+          Open_Brace@179..180 "{"
+          Close_Brace@180..181 "}"
+  EOF@182..182 ""
+error@43..43 expected a selector, got newline
+error@63..63 expected an expression, got newline
+error@92..95 expected ')', got identifier
+error@112..113 expected an operand, got ';'
+error@148..148 expected ',', got newline
+error@155..158 expected ':', got identifier

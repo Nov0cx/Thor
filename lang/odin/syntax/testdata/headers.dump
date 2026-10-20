@@ -1,0 +1,25 @@
+Root@0..139
+  File_Tag@0..28
+    File_Tag@0..28 "#+build windows, linux amd64"
+  File_Tag@29..43
+    File_Tag@29..43 "#+private file"
+  File_Tag@44..70
+    File_Tag@44..70 "#+feature dynamic-literals"
+  File_Tag@71..93
+    File_Tag@71..93 "#+vet unused shadowing"
+  File_Tag@94..114
+    File_Tag@94..114 "#+no-instrumentation"
+  Package_Decl@115..130
+    Package@115..122 "package"
+    Ident@123..130
+      Ident@123..130 "headers"
+  Value_Decl@132..138
+    Name_List@132..133
+      Ident@132..133
+        Ident@132..133 "x"
+    Colon@134..135 ":"
+    Colon@135..136 ":"
+    Expr_List@137..138
+      Literal@137..138
+        Integer@137..138 "1"
+  EOF@139..139 ""
