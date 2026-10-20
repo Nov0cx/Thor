@@ -77,6 +77,47 @@ test_builder_nesting :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_builder_checkpoint_and_wrap :: proc(t: ^testing.T) {
+    src := "a+b c"
+    toks := lex_all(src, context.temp_allocator)
+    tree, err := tree_create()
+    if !testing.expect_value(t, err, nil) {
+        return
+    }
+    defer tree_destroy(tree)
+    b: Green_Builder
+    builder_init(&b, tree)
+    defer builder_destroy(&b)
+    builder_start_node(&b, .Root)
+    cp := builder_checkpoint(&b)
+    for tok in toks[:3] {
+        testing.expect_value(t, builder_token(&b, tok.kind, tok.flags, token_text(src, tok)), nil)
+    }
+    builder_start_node_at(&b, cp, .Binary_Expr)
+    testing.expect_value(t, builder_finish_node(&b), nil)
+    for tok in toks[3:] {
+        testing.expect_value(t, builder_token(&b, tok.kind, tok.flags, token_text(src, tok)), nil)
+    }
+    testing.expect_value(t, builder_wrap(&b, 2, 3, .Ident), nil)
+    testing.expect_value(t, builder_wrap(&b, 0, 0, .Error), nil)
+    testing.expect_value(t, builder_finish_node(&b), nil)
+
+    want := `Root@0..5
+  Error@0..0
+  Binary_Expr@0..3
+    Ident@0..1 "a"
+    Add@1..2 "+"
+    Ident@2..3 "b"
+  Whitespace@3..4 " "
+  Ident@4..5
+    Ident@4..5 "c"
+  EOF@5..5 "" {Implicit_Semi}
+`
+    testing.expect_value(t, debug_dump(tree.root, context.temp_allocator), want)
+    testing.expect_value(t, green_text(tree.root, context.temp_allocator), src)
+}
+
+@(test)
 test_token_at_every_offset :: proc(t: ^testing.T) {
     src := "package p\n\nf :: proc() { /* c */ return }\n"
     toks := lex_all(src, context.temp_allocator)

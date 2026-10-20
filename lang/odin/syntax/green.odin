@@ -4,12 +4,6 @@ import "core:mem"
 import "core:mem/virtual"
 import "core:strings"
 
-// The kind of a syntax node. The parser adds the rest.
-Syntax_Kind :: enum u16 {
-    Root,
-    Error, // tokens no rule absorbs
-}
-
 // A leaf of the green tree: one token and its text.
 Green_Token :: struct {
     kind:  Token_Kind,
@@ -82,6 +76,40 @@ builder_destroy :: proc(b: ^Green_Builder) {
 
 builder_start_node :: proc(b: ^Green_Builder, kind: Syntax_Kind) {
     append(&b.stack, Builder_Frame{kind, len(b.children)})
+}
+
+// A point among the open node's children that a later node can start at.
+builder_checkpoint :: #force_inline proc "contextless" (b: ^Green_Builder) -> int {
+    return len(b.children)
+}
+
+// Opens a node whose first child is the one added at `checkpoint`.
+builder_start_node_at :: proc(b: ^Green_Builder, checkpoint: int, kind: Syntax_Kind) {
+    assert(checkpoint <= len(b.children))
+    assert(len(b.stack) == 0 || checkpoint >= b.stack[len(b.stack) - 1].first)
+    append(&b.stack, Builder_Frame{kind, checkpoint})
+}
+
+// Puts the children in [first, end) of the open node into one new node of `kind`.
+builder_wrap :: proc(b: ^Green_Builder, first, end: int, kind: Syntax_Kind) -> mem.Allocator_Error {
+    assert(first <= end && end <= len(b.children))
+    assert(len(b.stack) == 0 || first >= b.stack[len(b.stack) - 1].first)
+    alloc := tree_allocator(b.tree)
+    node := new(Green_Node, alloc) or_return
+    node.kind = kind
+    node.children = make([]Green_Element, end - first, alloc) or_return
+    copy(node.children, b.children[first:end])
+    for child in node.children {
+        node.text_len += element_len(child)
+    }
+    if first == end {
+        inject_at(&b.children, first, node) or_return
+        return nil
+    }
+    b.children[first] = node
+    n := copy(b.children[first + 1:], b.children[end:])
+    resize(&b.children, first + 1 + n)
+    return nil
 }
 
 // Adds a token to the open node. Text with a fixed spelling is not copied.
