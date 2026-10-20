@@ -1,5 +1,11 @@
 # Language intelligence — status & what's missing
 
+> **Branch `odin_analyzer`:** the tree-sitter Odin engine is removed. `lang/odin`
+> answers only formatting and `odin check` diagnostics. The `lang/odin` sections
+> below describe the removed engine. They are the feature list the new engine
+> (`odin-analyzer-plan.md`, see **Next engine** at the end) must reach again.
+> The seam, `lang/lsp` and the host sections are current.
+
 Thor's "LSP alternative": full LSP-style features served **in-client** by native
 analyzers running on worker threads, with a subprocess LSP client kept as an
 *optional* fallback behind the same seam. In-client is the primary path because

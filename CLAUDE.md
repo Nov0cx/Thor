@@ -342,13 +342,11 @@ subprocess LSP client as an optional second backend behind the same seam.
   every dispatch goes through `manager_request_latest` (immediate, cancels the older same-kind
   request) or `manager_request_debounced` (for triggers that fire while typing). A cancelled result
   is freed without reaching the handler, so `ok == false` always means "found nothing".
-- `lang/odin` is the in-client Odin analyzer, split by concern: `engine.odin` (lifetime + seam),
-  `resolve.odin` (entry point every request funnels through, lexical scope), `index.odin` (resident
-  stat-invalidated symbol index), `infer.odin`/`typeref.odin`/`decl.odin` (type inference),
-  `container.odin` (array swizzles + `#soa` per-field arrays), `using.odin` (the `using` statement
-  and parameter), `completion.odin`, `signature.odin`, `symbols.odin` (outline/references/rename), `semantic.odin`,
-  `check.odin` (compiler diagnostics), `actions.odin`, `packagedoc.odin`, `builtins.odin` (the
-  implicit scope, read off the toolchain), `config.odin`.
+- `lang/odin` is the in-client Odin analyzer. This branch is rebuilding it
+  (`odin-analyzer-plan.md`): the tree-sitter engine is removed, and only `engine.odin` (lifetime +
+  seam), `check.odin` (`odin check` diagnostics), `formatter.odin` + `format/` (the printer),
+  `config.odin` and `path_*.odin` remain. `supports` declines every other kind until the new engine
+  (`lang/odin/syntax`, then `sema`) serves it.
 - The `language_intelligence` setting gates the whole seam: `manager_set_enabled` /
   `manager_set_features` make `manager_request` refuse a kind (and cancel its in-flight work), so no
   dispatch path can forget the check. `manager_allows(ext, kind)` is the per-kind question a caller
@@ -396,9 +394,9 @@ subprocess LSP client as an optional second backend behind the same seam.
 - **`lang/ROADMAP.md` is the living source of truth** for what works and what is missing. Read it
   before adding a feature here, and update it after.
 
-Grammar shapes are the usual source of bugs — tree-sitter-odin's node names often do not match
-intuition (`x := v` is `assignment_statement`, `p: Point` is `var_declaration`, a container literal
-drops its `[]` from the named children). The repo's technique for settling such a question: drop a
+Tree-sitter grammar shapes (used by highlighting) are a usual source of bugs: node names often do
+not match intuition (in tree-sitter-odin, `x := v` is `assignment_statement`, `p: Point` is
+`var_declaration`). The repo's technique for settling such a question: drop a
 throwaway `z*_test.odin` that recursively prints `ts.node_type` / `node_is_named` / `node_text` for
 **all** children (not `ts.node_string`, which hides the anonymous tokens that matter), run it with
 `-define:ODIN_TEST_NAMES=`, then delete it. The `ts-probe` skill carries that probe ready to run.

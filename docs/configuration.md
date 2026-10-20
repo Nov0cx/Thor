@@ -82,8 +82,10 @@ macOS. An empty string unbinds an action.
 
 ## `lsp.json`
 
-The language servers Thor may start. Odin is served in the editor itself and
-needs no server; every other language gets its features — hover, go to
+The language servers Thor may start. Odin formatting and diagnostics are
+served in the editor itself and need no server. Odin navigation, hover and
+completion need a server (such as `ols`) with `"override": true` until the
+built-in support is rebuilt. Every other language gets its features — hover, go to
 definition, find references, document symbols, workspace symbols, signature
 help, completion, diagnostics, semantic colors, rename, code actions, and
 document/selection/on-type formatting — from the server named here.
