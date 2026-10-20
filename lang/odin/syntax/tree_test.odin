@@ -1,6 +1,53 @@
 package odinsyntax
 
+import "core:fmt"
+import "core:strings"
 import "core:testing"
+
+// Why the tree's tokens are not `toks` one for one, or "" when they are.
+tree_token_error :: proc(tree: ^Green_Tree, toks: []Token) -> string {
+    Walk :: struct {
+        toks: []Token,
+        next: int,
+        msg:  string,
+    }
+    walk :: proc(w: ^Walk, node: ^Green_Node, offset: u32) {
+        pos := offset
+        for child in green_children(node) {
+            if w.msg != "" {
+                return
+            }
+            if n, is_node := element_node(child); is_node {
+                walk(w, n, pos)
+            } else {
+                tok, _ := element_token(child)
+                if w.next >= len(w.toks) {
+                    w.msg = fmt.tprintf("extra token %v@%d", tok.kind, pos)
+                    return
+                }
+                want := w.toks[w.next]
+                if tok.kind != want.kind || tok.flags != want.flags || tok.len != want.len || pos != want.offset {
+                    w.msg = fmt.tprintf("token %d is %v@%d+%d, lexer has %v@%d+%d", w.next, tok.kind, pos, tok.len, want.kind, want.offset, want.len)
+                    return
+                }
+                w.next += 1
+            }
+            pos += element_len(child)
+        }
+    }
+    if tree.root == nil {
+        return "no root"
+    }
+    if int(tree.root.text_len) != len(tree.text) {
+        return fmt.tprintf("root covers %d bytes of %d", tree.root.text_len, len(tree.text))
+    }
+    w := Walk{toks = toks}
+    walk(&w, tree.root, 0)
+    if w.msg == "" && w.next != len(toks) {
+        w.msg = fmt.tprintf("%d tokens missing", len(toks) - w.next)
+    }
+    return w.msg
+}
 
 @(test)
 test_dump_flat :: proc(t: ^testing.T) {
@@ -20,7 +67,7 @@ test_dump_flat :: proc(t: ^testing.T) {
   Newline@6..7 "\n" {Implicit_Semi}
   EOF@7..7 ""
 `
-    got := debug_dump(tree.root, context.temp_allocator)
+    got := debug_dump(tree, context.temp_allocator)
     testing.expect_value(t, got, want)
 }
 
@@ -28,7 +75,7 @@ test_dump_flat :: proc(t: ^testing.T) {
 test_builder_nesting :: proc(t: ^testing.T) {
     src := "a b c"
     toks := lex_all(src, context.temp_allocator)
-    tree, err := tree_create()
+    tree, err := tree_create(src)
     if !testing.expect_value(t, err, nil) {
         return
     }
@@ -41,7 +88,7 @@ test_builder_nesting :: proc(t: ^testing.T) {
         if i == 2 {
             builder_start_node(&b, .Error)
         }
-        testing.expect_value(t, builder_token(&b, tok.kind, tok.flags, token_text(src, tok)), nil)
+        builder_token(&b, tok.kind, tok.flags, tok.len)
         if i == 2 {
             testing.expect_value(t, builder_finish_node(&b), nil)
         }
@@ -49,8 +96,8 @@ test_builder_nesting :: proc(t: ^testing.T) {
     testing.expect_value(t, builder_finish_node(&b), nil)
 
     testing.expect_value(t, tree.root.text_len, 5)
-    testing.expect_value(t, green_text(tree.root, context.temp_allocator), src)
-    inner, is_node := tree.root.children[2].(^Green_Node)
+    testing.expect_value(t, tree_token_error(tree, toks), "")
+    inner, is_node := element_node(green_children(tree.root)[2])
     if testing.expect(t, is_node) {
         testing.expect_value(t, inner.kind, Syntax_Kind.Error)
         testing.expect_value(t, inner.text_len, 1)
@@ -59,7 +106,7 @@ test_builder_nesting :: proc(t: ^testing.T) {
     root := node_root(tree)
     tok, found := node_token_at(root, 2, context.temp_allocator)
     if testing.expect(t, found) {
-        testing.expect_value(t, tok.green.text, "b")
+        testing.expect_value(t, syntax_token_text(tok), "b")
         testing.expect_value(t, tok.offset, 2)
         testing.expect(t, tok.parent != nil && tok.parent.green.kind == .Error)
         testing.expect(t, tok.parent.parent != nil && tok.parent.parent.green.kind == .Root)
@@ -67,7 +114,7 @@ test_builder_nesting :: proc(t: ^testing.T) {
     cover, covered := node_covering(root, 2, 3, context.temp_allocator)
     if testing.expect(t, covered) {
         ct, is_tok := cover.(Syntax_Token)
-        testing.expect(t, is_tok && ct.green.text == "b")
+        testing.expect(t, is_tok && syntax_token_text(ct) == "b")
     }
     wide, wide_ok := node_covering(root, 1, 4, context.temp_allocator)
     if testing.expect(t, wide_ok) {
@@ -80,7 +127,7 @@ test_builder_nesting :: proc(t: ^testing.T) {
 test_builder_checkpoint_and_wrap :: proc(t: ^testing.T) {
     src := "a+b c"
     toks := lex_all(src, context.temp_allocator)
-    tree, err := tree_create()
+    tree, err := tree_create(src)
     if !testing.expect_value(t, err, nil) {
         return
     }
@@ -91,12 +138,12 @@ test_builder_checkpoint_and_wrap :: proc(t: ^testing.T) {
     builder_start_node(&b, .Root)
     cp := builder_checkpoint(&b)
     for tok in toks[:3] {
-        testing.expect_value(t, builder_token(&b, tok.kind, tok.flags, token_text(src, tok)), nil)
+        builder_token(&b, tok.kind, tok.flags, tok.len)
     }
     builder_start_node_at(&b, cp, .Binary_Expr)
     testing.expect_value(t, builder_finish_node(&b), nil)
     for tok in toks[3:] {
-        testing.expect_value(t, builder_token(&b, tok.kind, tok.flags, token_text(src, tok)), nil)
+        builder_token(&b, tok.kind, tok.flags, tok.len)
     }
     testing.expect_value(t, builder_wrap(&b, 2, 3, .Ident), nil)
     testing.expect_value(t, builder_wrap(&b, 0, 0, .Error), nil)
@@ -113,8 +160,8 @@ test_builder_checkpoint_and_wrap :: proc(t: ^testing.T) {
     Ident@4..5 "c"
   EOF@5..5 "" {Implicit_Semi}
 `
-    testing.expect_value(t, debug_dump(tree.root, context.temp_allocator), want)
-    testing.expect_value(t, green_text(tree.root, context.temp_allocator), src)
+    testing.expect_value(t, debug_dump(tree, context.temp_allocator), want)
+    testing.expect_value(t, tree_token_error(tree, toks), "")
 }
 
 @(test)
@@ -163,4 +210,29 @@ test_children_positions :: proc(t: ^testing.T) {
         s, _ := element_range(kid)
         testing.expect_value(t, s, u32(min(i, 3)))
     }
+}
+
+@(test)
+test_node_with_many_children :: proc(t: ^testing.T) {
+    src := strings.repeat("x;", 40_000, context.temp_allocator)
+    toks := lex_all(src, context.temp_allocator)
+    tree, err := build_flat(src, toks)
+    if !testing.expect_value(t, err, nil) {
+        return
+    }
+    defer tree_destroy(tree)
+    testing.expect_value(t, len(green_children(tree.root)), len(toks))
+    testing.expect_value(t, tree_token_error(tree, toks), "")
+    last, found := node_token_at(node_root(tree), u32(len(src) - 1), context.temp_allocator)
+    testing.expect(t, found && last.green.kind == .Semicolon && last.offset == u32(len(src) - 1))
+}
+
+@(test)
+test_token_element_round_trip :: proc(t: ^testing.T) {
+    e := token_element(.Block_Comment, {.Unterminated, .Implicit_Semi}, max(u32))
+    tok, is_tok := element_token(e)
+    _, is_node := element_node(e)
+    testing.expect(t, is_tok && !is_node)
+    testing.expect_value(t, tok, Green_Token{.Block_Comment, {.Unterminated, .Implicit_Semi}, max(u32)})
+    testing.expect_value(t, element_len(e), max(u32))
 }

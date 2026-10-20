@@ -216,8 +216,8 @@ test_corpus_lossless_and_matches_reference :: proc(t: ^testing.T) {
         }
         tree, err := build_flat(f.src, toks)
         if testing.expectf(t, err == nil, "%s: tree build failed: %v", f.path, err) {
-            text := green_text(tree.root, context.temp_allocator)
-            if !testing.expectf(t, text == f.src, "%s: tree text differs from source", f.path) {
+            if msg := tree_token_error(tree, toks); msg != "" {
+                testing.expectf(t, false, "%s: %s", f.path, msg)
                 failures += 1
             }
             tree_destroy(tree)
@@ -314,24 +314,22 @@ shape_less :: proc(a, b: Shape) -> bool {
 // Where a node starts when the directives of a leading Tag_Expr are left out, as core:odin/parser places it.
 @(private = "file")
 after_tags :: proc(node: ^Green_Node, offset: u32) -> u32 {
-    if len(node.children) == 0 {
+    kids := green_children(node)
+    if len(kids) == 0 {
         return offset
     }
-    tag, is_tag := node.children[0].(^Green_Node)
+    tag, is_tag := element_node(kids[0])
     if !is_tag || tag.kind != .Tag_Expr {
         return offset
     }
     pos := offset
-    for child in tag.children {
-        switch c in child {
-        case ^Green_Node:
+    for child in green_children(tag) {
+        if c, is_node := element_node(child); is_node {
             if c.kind != .Directive {
                 return after_tags(c, pos)
             }
-        case ^Green_Token:
-            if !token_is_trivia(c.kind) {
-                return pos
-            }
+        } else if tok, _ := element_token(child); !token_is_trivia(tok.kind) {
+            return pos
         }
         pos += element_len(child)
     }
@@ -350,8 +348,8 @@ our_shapes :: proc(root: ^Green_Node) -> []Shape {
             append(out, Shape{.Ternary_If_Expr, int(after_tags(node, offset))})
         }
         pos := offset
-        for child in node.children {
-            if n, ok := child.(^Green_Node); ok {
+        for child in green_children(node) {
+            if n, ok := element_node(child); ok {
                 walk(n, pos, out)
             }
             pos += element_len(child)
@@ -398,22 +396,22 @@ reference_parse :: proc(path, src: string) -> (decls: []Top_Decl, shapes: []Shap
 
 @(private = "file")
 our_decls :: proc(root: ^Green_Node) -> []Top_Decl {
-    out := make([dynamic]Top_Decl, 0, len(root.children), context.temp_allocator)
+    out := make([dynamic]Top_Decl, 0, len(green_children(root)), context.temp_allocator)
     pos: u32
-    for child in root.children {
+    for child in green_children(root) {
         defer pos += element_len(child)
-        node, is_node := child.(^Green_Node)
+        node, is_node := element_node(child)
         if !is_node {
             continue
         }
         #partial switch node.kind {
         case .Value_Decl:
             off := pos
-            for c in node.children {
-                if n, ok := c.(^Green_Node); ok && n.kind == .Name_List {
+            for c in green_children(node) {
+                if n, ok := element_node(c); ok && n.kind == .Name_List {
                     noff := off
-                    for nc in n.children {
-                        if nn, nok := nc.(^Green_Node); nok && (nn.kind == .Ident || nn.kind == .Poly_Type) {
+                    for nc in green_children(n) {
+                        if nn, nok := element_node(nc); nok && (nn.kind == .Ident || nn.kind == .Poly_Type) {
                             append(&out, Top_Decl{.Ident, int(noff)})
                         }
                         noff += element_len(nc)
@@ -429,8 +427,8 @@ our_decls :: proc(root: ^Green_Node) -> []Top_Decl {
             case .When_Stmt:                           want = .When
             }
             off := pos
-            for c in node.children {
-                if tok, ok := c.(^Green_Token); ok && tok.kind == want {
+            for c in green_children(node) {
+                if tok, ok := element_token(c); ok && tok.kind == want {
                     append(&out, Top_Decl{want, int(off)})
                     break
                 }
@@ -468,7 +466,8 @@ test_corpus_parse :: proc(t: ^testing.T) {
             continue
         }
         defer parse_destroy(&result)
-        if !testing.expectf(t, green_text(result.tree.root, context.temp_allocator) == f.src, "%s: tree text differs from source", f.path) {
+        if msg := tree_token_error(result.tree, lex_all(f.src, context.temp_allocator)); msg != "" {
+            testing.expectf(t, false, "%s: %s", f.path, msg)
             failures += 1
             continue
         }
@@ -561,7 +560,7 @@ parses_losslessly :: proc(t: ^testing.T, src: string) -> bool {
         return false
     }
     defer parse_destroy(&result)
-    return green_text(result.tree.root, context.temp_allocator) == src
+    return tree_token_error(result.tree, lex_all(src, context.temp_allocator)) == ""
 }
 
 // Rounds of `test_fuzz_edits`; raise it with -define:SYNTAX_FUZZ_ROUNDS=n for a long run.

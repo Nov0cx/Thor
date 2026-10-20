@@ -39,7 +39,7 @@ Parse :: struct {
 
 // Parses `src`. Never fails on bad input; the error is an allocation failure only.
 parse :: proc(src: string, allocator := context.allocator) -> (result: Parse, err: mem.Allocator_Error) {
-    tree := tree_create(allocator) or_return
+    tree := tree_create(src, allocator) or_return
     toks := lex_all(src, context.temp_allocator)
     p: Parser
     parser_init(&p, src, toks, tree)
@@ -117,8 +117,6 @@ FUEL :: 4096
 Parser :: struct {
     src:           string,
     toks:          []Token,
-    text:          string,        // the source, copied into the tree arena
-    pool:          []Green_Token, // one green token per token, in the tree arena
     b:             Green_Builder,
     errors:        [dynamic]Syntax_Error, // owned
     alloc_err:     mem.Allocator_Error,
@@ -144,11 +142,6 @@ parser_init :: proc(p: ^Parser, src: string, toks: []Token, tree: ^Green_Tree) {
     p.src = src
     p.toks = toks
     builder_init(&p.b, tree)
-    alloc := tree_allocator(tree)
-    p.text, p.alloc_err = strings.clone(src, alloc)
-    if p.alloc_err == nil {
-        p.pool, p.alloc_err = make([]Green_Token, len(toks), alloc)
-    }
     p.errors = make([dynamic]Syntax_Error, 0, 16)
     p.cur = -1
     p.fuel = FUEL
@@ -252,9 +245,7 @@ emit :: proc(p: ^Parser, i: int) {
         code := Error_Code.Unterminated if .Unterminated in tok.flags else .Malformed
         error_at(p, tok.offset, token_end(tok), code, found = tok.kind)
     }
-    g := &p.pool[i]
-    g^ = {tok.kind, tok.flags, token_text(p.text, tok)}
-    builder_add_token(&p.b, g)
+    builder_token(&p.b, tok.kind, tok.flags, tok.len)
 }
 
 // Puts the trivia before the current token into the open node.

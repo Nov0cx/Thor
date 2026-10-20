@@ -33,7 +33,7 @@ snapshot :: proc(src: string) -> (string, bool) {
     }
     defer parse_destroy(&result)
     sb := strings.builder_make(context.temp_allocator)
-    strings.write_string(&sb, debug_dump(result.tree.root, context.temp_allocator, trivia = false))
+    strings.write_string(&sb, debug_dump(result.tree, context.temp_allocator, trivia = false))
     for e in result.errors {
         fmt.sbprintf(&sb, "error@%d..%d %s\n", e.offset, e.end, error_message(e, context.temp_allocator))
     }

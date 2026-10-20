@@ -20,7 +20,7 @@ outline :: proc(t: ^testing.T, src: string, loc := #caller_location) -> Outline 
         return {}
     }
     defer parse_destroy(&result)
-    testing.expect_value(t, green_text(result.tree.root, context.temp_allocator), src, loc)
+    testing.expect_value(t, tree_token_error(result.tree, lex_all(src, context.temp_allocator)), "", loc)
     out: Outline
     out.top = node_kinds(result.tree.root)
     if block := find_kind(result.tree.root, .Block); block != nil {
@@ -37,9 +37,9 @@ outline :: proc(t: ^testing.T, src: string, loc := #caller_location) -> Outline 
 
 @(private = "file")
 node_kinds :: proc(node: ^Green_Node) -> []Syntax_Kind {
-    out := make([dynamic]Syntax_Kind, 0, len(node.children), context.temp_allocator)
-    for child in node.children {
-        if n, ok := child.(^Green_Node); ok {
+    out := make([dynamic]Syntax_Kind, 0, len(green_children(node)), context.temp_allocator)
+    for child in green_children(node) {
+        if n, ok := element_node(child); ok {
             append(&out, n.kind)
         }
     }
@@ -51,8 +51,8 @@ find_kind :: proc(node: ^Green_Node, kind: Syntax_Kind) -> ^Green_Node {
     if node.kind == kind {
         return node
     }
-    for child in node.children {
-        if n, ok := child.(^Green_Node); ok {
+    for child in green_children(node) {
+        if n, ok := element_node(child); ok {
             if found := find_kind(n, kind); found != nil {
                 return found
             }
@@ -221,10 +221,9 @@ test_trivia_stays_outside_nodes :: proc(t: ^testing.T) {
         if !is_node {
             continue
         }
-        first := node.green.children[0]
-        last := node.green.children[len(node.green.children) - 1]
-        for e in ([]Green_Element{first, last}) {
-            if tok, is_tok := e.(^Green_Token); is_tok {
+        kids := green_children(node.green)
+        for e in ([]Green_Element{kids[0], kids[len(kids) - 1]}) {
+            if tok, is_tok := element_token(e); is_tok {
                 testing.expectf(t, !token_is_trivia(tok.kind), "%v starts or ends with trivia %v", node.green.kind, tok.kind)
             }
         }
@@ -232,6 +231,6 @@ test_trivia_stays_outside_nodes :: proc(t: ^testing.T) {
     decl, found := node_covering(root, 18, 19, context.temp_allocator)
     if testing.expect(t, found) {
         tok, is_tok := decl.(Syntax_Token)
-        testing.expect(t, is_tok && tok.green.text == "x" && tok.parent.green.kind == .Ident)
+        testing.expect(t, is_tok && syntax_token_text(tok) == "x" && tok.parent.green.kind == .Ident)
     }
 }

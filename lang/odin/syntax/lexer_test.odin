@@ -57,8 +57,8 @@ expect_single :: proc(t: ^testing.T, src: string, kind: Token_Kind, flags: Token
 @(test)
 test_token_size :: proc(t: ^testing.T) {
     testing.expect_value(t, size_of(Token), 12)
-    testing.expect(t, size_of(Green_Token) <= 24)
-    testing.expect(t, size_of(Green_Node) <= 32)
+    testing.expect_value(t, size_of(Green_Element), 8)
+    testing.expect_value(t, size_of(Green_Node), 8)
 }
 
 @(test)
