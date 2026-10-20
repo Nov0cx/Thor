@@ -24,6 +24,7 @@ Git_Status_Job :: struct {
     dir:         string, // owned copy of workspace_dir
     output:      string, // owned porcelain output, parsed and freed on the main thread
     diff_output: string, // owned `git diff HEAD` output, parsed and freed on the main thread
+    branch:      string, // owned, read from HEAD; "" when it could not be read
     status_code: int,
     status_ok:   bool, // git status ran and exited 0
     diff_ok:     bool, // git diff ran and exited 0
@@ -113,6 +114,10 @@ git_status_worker :: proc(job: ^Git_Status_Job) {
     diff_code: int
     job.diff_output, diff_code, ran = shell.run_status(job.diff_cmd, job.dir)
     job.diff_ok = ran && diff_code == 0
+    // A checkout outside the editor moves HEAD; the watcher sees it and asks for this refresh.
+    if _, git_dir, ok := thor_find_git_repo(job.dir); ok {
+        job.branch = thor_read_git_branch(git_dir)
+    }
 
     sync.lock(&job.owner.io_mutex)
     append(&job.owner.finished_git, job)
@@ -146,6 +151,13 @@ thor_apply_git_status :: proc(thor: ^Thor, job: ^Git_Status_Job) {
         log.warnf("git status failed in %q (exit %d): %s", job.dir, job.status_code, strings.trim_space(job.output))
     }
 
+    if job.branch != "" && job.branch != thor.git_branch && thor.git_prefix != "" && thor_same_path(job.dir, thor.workspace_dir) {
+        delete(thor.git_branch)
+        thor.git_branch = job.branch
+        job.branch = ""
+    }
+
+    delete(job.branch)
     delete(job.diff_cmd)
     delete(job.dir)
     delete(job.output)
