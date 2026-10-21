@@ -116,6 +116,11 @@ Open_File :: struct {
     // buffer still matches that revision (an edit clears them until re-checked).
     diagnostics:        [dynamic]editview.Diagnostic,
     diagnostics_revision: u64,
+    // Live syntax errors and the revision they were parsed at. Shown when the
+    // compiler diagnostics are stale.
+    syntax_diagnostics: [dynamic]editview.Diagnostic, // owned
+    syntax_revision:    u64,
+    syntax_ready:       bool,
     // Line-level git diff vs HEAD, refreshed alongside git status. Index i
     // (0-based) holds line i's status; drives the editor's gutter diff bar.
     diff_lines:         [dynamic]editview.Diff_Line_Kind,
@@ -803,6 +808,7 @@ thor_invalidate_file_derived :: proc(file: ^Open_File) {
     file.indent_revision = 0
     thor_clear_file_diagnostics(file)
     file.diagnostics_revision = 0
+    thor_clear_file_syntax_diagnostics(file)
     thor_clear_file_semantic(file)
 }
 
@@ -1214,6 +1220,10 @@ thor_update_files :: proc(thor: ^Thor) {
         delete(thor.semantic_source)
         thor.semantic_source = ""
     }
+    if thor.syntax_request_id != 0 &&
+       !lang.manager_has_request(&thor.lang_manager, thor.syntax_request_id) {
+        thor.syntax_request_id = 0
+    }
 
     autosave_delay := time.Duration(setting.autosave_delay_ms(&thor.config)) * time.Millisecond
     for file in thor.open_files {
@@ -1244,8 +1254,10 @@ thor_update_files :: proc(thor: ^Thor) {
 
     // Push (or clear, when the buffer moved past the checked revision) each
     // visible pane's diagnostics.
+    thor_request_pane_syntax_diagnostics(thor, 0)
     thor_sync_pane_diagnostics(thor, 0)
     if thor.split_visible && thor.pane_file[1] != thor.pane_file[0] {
+        thor_request_pane_syntax_diagnostics(thor, 1)
         thor_sync_pane_diagnostics(thor, 1)
     }
 
@@ -1538,6 +1550,8 @@ thor_free_open_file :: proc(file: ^Open_File, thor: ^Thor = nil) {
     delete(file.semantic_source)
     thor_clear_file_diagnostics(file)
     delete(file.diagnostics)
+    thor_clear_file_syntax_diagnostics(file)
+    delete(file.syntax_diagnostics)
     delete(file.diff_lines)
     delete(file.tab_label)
     delete(file.path)

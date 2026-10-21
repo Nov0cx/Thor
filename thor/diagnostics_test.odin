@@ -4,6 +4,7 @@ import "core:testing"
 
 import "../lang"
 import "../textedit"
+import "../editview"
 
 // The editor's half of the diagnostics path: mapping a compiler position onto a
 // span of the live buffer, and deciding which reports describe it. The `odin
@@ -50,6 +51,8 @@ diag_file :: proc(path, text: string) -> ^Open_File {
 diag_file_destroy :: proc(file: ^Open_File) {
     thor_clear_file_diagnostics(file)
     delete(file.diagnostics)
+    thor_clear_file_syntax_diagnostics(file)
+    delete(file.syntax_diagnostics)
     textedit.destroy(&file.state)
     free(file)
 }
@@ -147,4 +150,64 @@ test_file_scoped_report_clears_only_its_file :: proc(t: ^testing.T) {
     thor_apply_diagnostics(&thor, &clean)
     testing.expectf(t, len(a.diagnostics) == 0, "the scoped file's diagnostics should be retired (got %d)", len(a.diagnostics))
     testing.expectf(t, len(b.diagnostics) == 1, "another file's diagnostics must survive (got %d)", len(b.diagnostics))
+}
+
+// A live syntax report lands on its file only for the revision it was parsed at,
+// and only while its request still holds the slot.
+@(test)
+test_syntax_report_applies_to_current_revision :: proc(t: ^testing.T) {
+    thor: Thor
+    thor.open_files = make([dynamic]^Open_File)
+    defer delete(thor.open_files)
+
+    file := diag_file("w/pkg/a.odin", "foo := bar\n")
+    defer diag_file_destroy(file)
+    append(&thor.open_files, file)
+
+    thor.syntax_request_id = 7
+    res := lang.Result{id = 7, kind = .Syntax_Diagnostics, ok = true, revision = file.state.revision}
+    res.report.scope = file.path
+    res.report.items = make([dynamic]lang.Diagnostic)
+    defer delete(res.report.items)
+    append(&res.report.items, lang.Diagnostic{path = file.path, line = 1, col = 8, message = "bad"})
+
+    thor_apply_syntax_diagnostics(&thor, &res)
+    testing.expect_value(t, thor.syntax_request_id, u64(0))
+    testing.expect_value(t, len(file.syntax_diagnostics), 1)
+    testing.expect(t, file.syntax_ready, "an applied report marks the file checked")
+    testing.expect_value(t, file.syntax_diagnostics[0].start, 7)
+
+    // A report for an older revision is dropped.
+    stale := res.revision
+    textedit.insert_text(&file.state, "x")
+    thor_clear_file_syntax_diagnostics(file)
+    thor.syntax_request_id = 8
+    old := lang.Result{id = 8, kind = .Syntax_Diagnostics, ok = true, revision = stale}
+    old.report.scope = file.path
+    thor_apply_syntax_diagnostics(&thor, &old)
+    testing.expect(t, !file.syntax_ready, "a stale report must not mark the file checked")
+}
+
+// The compiler's diagnostics win while current; the live syntax errors show
+// otherwise, and nothing shows once both are stale.
+@(test)
+test_live_diagnostics_precedence :: proc(t: ^testing.T) {
+    file := diag_file("w/pkg/a.odin", "foo := bar\n")
+    defer diag_file_destroy(file)
+
+    append(&file.diagnostics, editview.Diagnostic{start = 0, end = 3})
+    append(&file.syntax_diagnostics, editview.Diagnostic{start = 4, end = 6})
+    file.diagnostics_revision = file.state.revision
+    file.syntax_revision = file.state.revision
+    file.syntax_ready = true
+
+    diags := thor_file_live_diagnostics(file)
+    testing.expect(t, len(diags) == 1 && diags[0].start == 0, "current compiler diagnostics must win")
+
+    file.diagnostics_revision = 0
+    diags = thor_file_live_diagnostics(file)
+    testing.expect(t, len(diags) == 1 && diags[0].start == 4, "stale compiler diagnostics yield to syntax errors")
+
+    textedit.insert_text(&file.state, "x")
+    testing.expect_value(t, len(thor_file_live_diagnostics(file)), 0)
 }

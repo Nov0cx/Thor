@@ -93,19 +93,102 @@ thor_apply_diagnostic :: proc(thor: ^Thor, d: lang.Diagnostic, revision: u64) {
     if !report_matches_file(file, revision) {
         return
     }
+    append(&file.diagnostics, editor_diagnostic(file, d))
+    file.diagnostics_revision = file.state.revision
+}
+
+// `d` mapped onto `file`'s live buffer, with its message cloned.
+@(private = "file")
+editor_diagnostic :: proc(file: ^Open_File, d: lang.Diagnostic) -> editview.Diagnostic {
     text := textedit.text(&file.state)
     line0 := d.line - 1
     start := textedit.state_line_start(&file.state, line0) + (d.col - 1)
     start = clamp(start, 0, len(text))
-    end := diagnostic_token_end(text, start)
-    append(&file.diagnostics, editview.Diagnostic {
+    return editview.Diagnostic {
         start    = start,
-        end      = end,
+        end      = diagnostic_token_end(text, start),
         line     = line0,
         severity = editor_severity(d.severity),
         message  = strings.clone(d.message),
-    })
-    file.diagnostics_revision = file.state.revision
+    }
+}
+
+// Queues a live syntax check of the file a pane shows. Called every frame; one
+// request at a time for every file, and none while the file's errors are current.
+thor_request_pane_syntax_diagnostics :: proc(thor: ^Thor, pane: int) {
+    if thor.syntax_request_id != 0 {
+        return
+    }
+    index := thor.pane_file[pane]
+    if index < 0 || index >= len(thor.open_files) {
+        return
+    }
+    file := thor.open_files[index]
+    if !file.loaded || (file.syntax_ready && file.syntax_revision == file.state.revision) {
+        return
+    }
+    ext := thor_lang_key(thor, file.name)
+    if !lang.manager_allows(&thor.lang_manager, ext, .Syntax_Diagnostics) {
+        return
+    }
+    thor.syntax_request_id = lang.manager_request_debounced(
+        &thor.lang_manager,
+        .Syntax_Diagnostics,
+        file.path,
+        ext,
+        textedit.text(&file.state),
+        0,
+        file.state.revision,
+        thor.workspace_dir,
+        delay = lang.DEBOUNCE_HOVER,
+    )
+}
+
+// Stores a live syntax check on its file. A result for an older revision is
+// dropped; the next frame asks again for the current one.
+thor_apply_syntax_diagnostics :: proc(thor: ^Thor, res: ^lang.Result) {
+    if res.id != thor.syntax_request_id {
+        return
+    }
+    thor.syntax_request_id = 0
+    if !res.ok {
+        return
+    }
+    file, _ := thor_find_open_file(thor, res.report.scope)
+    if file == nil || !file.loaded || res.revision != file.state.revision {
+        return
+    }
+    thor_clear_file_syntax_diagnostics(file)
+    for d in res.report.items {
+        append(&file.syntax_diagnostics, editor_diagnostic(file, d))
+    }
+    file.syntax_revision = res.revision
+    file.syntax_ready = true
+}
+
+// Frees a file's live syntax errors and marks them stale.
+thor_clear_file_syntax_diagnostics :: proc(file: ^Open_File) {
+    for d in file.syntax_diagnostics {
+        delete(d.message)
+    }
+    clear(&file.syntax_diagnostics)
+    file.syntax_revision = 0
+    file.syntax_ready = false
+}
+
+// The diagnostics to show for `file` at its current revision: the compiler's
+// when current, else the live syntax errors, else none.
+thor_file_live_diagnostics :: proc(file: ^Open_File) -> []editview.Diagnostic {
+    if !file.loaded {
+        return nil
+    }
+    if file.diagnostics_revision == file.state.revision {
+        return file.diagnostics[:]
+    }
+    if file.syntax_ready && file.syntax_revision == file.state.revision {
+        return file.syntax_diagnostics[:]
+    }
+    return nil
 }
 
 // The seam's severity as the editor's. Both carry the same two levels; the split

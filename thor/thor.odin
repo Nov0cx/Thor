@@ -500,6 +500,8 @@ Thor :: struct {
     // looked up by path, not held by pointer). One at a time, which throttles a
     // whole-file classification to its own round trip.
     semantic_request_id: u64,
+    // In-flight live syntax check; one at a time for every file.
+    syntax_request_id: u64,
     semantic_path: string,
     // The buffer snapshot that request carries (owned). It becomes the file's
     // semantic_source when the result lands, so the tokens can be rebased onto

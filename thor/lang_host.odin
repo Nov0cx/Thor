@@ -110,6 +110,11 @@ thor_apply_language_settings :: proc(thor: ^Thor) {
             file.diagnostics_revision = 0
         }
     }
+    if .Syntax_Diagnostics not_in after {
+        for file in thor.open_files {
+            thor_clear_file_syntax_diagnostics(file)
+        }
+    }
     if .Semantic_Tokens not_in after {
         for file in thor.open_files {
             // Re-merged by the per-frame highlight pass, now without the overlay.
@@ -223,6 +228,7 @@ thor_remirror_open_files :: proc(thor: ^Thor) {
         file.lang_revision = 0
         thor_clear_file_diagnostics(file)
         file.diagnostics_revision = 0
+        thor_clear_file_syntax_diagnostics(file)
         thor_clear_file_semantic(file)
         thor_lang_notify(thor, file, .Opened)
     }
@@ -1965,6 +1971,8 @@ thor_on_lang_result :: proc(user: rawptr, res: ^lang.Result) {
         thor_apply_rename(thor, res)
     case .Diagnostics:
         thor_apply_diagnostics(thor, res)
+    case .Syntax_Diagnostics:
+        thor_apply_syntax_diagnostics(thor, res)
     case .Code_Actions:
         thor_show_code_actions(thor, res)
     case .Semantic_Tokens:

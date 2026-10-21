@@ -143,12 +143,8 @@ thor_sync_pane_diagnostics :: proc(thor: ^Thor, pane: int) {
         editview.editor_set_diagnostics(editor, nil)
         return
     }
-    file := thor.open_files[index]
-    if file.loaded && file.diagnostics_revision == file.state.revision && len(file.diagnostics) > 0 {
-        editview.editor_set_diagnostics(editor, file.diagnostics[:])
-    } else {
-        editview.editor_set_diagnostics(editor, nil)
-    }
+    diags := thor_file_live_diagnostics(thor.open_files[index])
+    editview.editor_set_diagnostics(editor, len(diags) > 0 ? diags : nil)
 }
 
 // Pushes a pane's git diff lines to its editor. Called every frame alongside
@@ -336,19 +332,19 @@ thor_status_info :: proc(data: rawptr) -> Status_Info {
 
         // With no transient notice up, show the diagnostic on the caret's line
         // (an error outranks a warning) so its message is readable without a hover.
-        if info.message == "" && file.diagnostics_revision == file.state.revision {
+        if diags := thor_file_live_diagnostics(file); info.message == "" && len(diags) > 0 {
             best := -1
-            for d, i in file.diagnostics {
+            for d, i in diags {
                 if d.line != caret_line || d.message == "" {
                     continue
                 }
-                if best < 0 || (d.severity == .Error && file.diagnostics[best].severity != .Error) {
+                if best < 0 || (d.severity == .Error && diags[best].severity != .Error) {
                     best = i
                 }
             }
             if best >= 0 {
-                info.message = file.diagnostics[best].message
-                info.is_error = file.diagnostics[best].severity == .Error
+                info.message = diags[best].message
+                info.is_error = diags[best].severity == .Error
             }
         }
     }

@@ -66,11 +66,8 @@ thor_code_actions :: proc(thor: ^Thor) {
 // check the gutter itself makes.
 @(private = "file")
 overlapping_diagnostics :: proc(file: ^Open_File, lo, hi: int) -> []lang.Diagnostic_Ref {
-    if file.diagnostics_revision != file.state.revision {
-        return nil
-    }
     out := make([dynamic]lang.Diagnostic_Ref, context.temp_allocator)
-    for d in file.diagnostics {
+    for d in thor_file_live_diagnostics(file) {
         if d.start > hi || d.end < lo {
             continue
         }
