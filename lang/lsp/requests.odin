@@ -38,6 +38,7 @@ METHODS := [lang.Request_Kind]string {
     .Package_Doc       = "textDocument/hover",
     .Rename            = "textDocument/rename",
     .Diagnostics       = "textDocument/diagnostic",
+    .Syntax_Diagnostics = "", // in-client only
     .Code_Actions      = "textDocument/codeAction",
     .Semantic_Tokens   = "textDocument/semanticTokens/full",
     .Format            = "textDocument/formatting",

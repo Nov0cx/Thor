@@ -20,6 +20,7 @@ FEATURE_NAMES := [Request_Kind]string {
     .Package_Doc        = "package_doc",
     .Rename             = "rename",
     .Diagnostics        = "diagnostics",
+    .Syntax_Diagnostics = "syntax_diagnostics",
     .Code_Actions       = "code_actions",
     .Semantic_Tokens    = "semantic_tokens",
     .Format             = "formatting",

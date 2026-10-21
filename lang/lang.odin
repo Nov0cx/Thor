@@ -24,6 +24,9 @@ Request_Kind :: enum {
     Package_Doc,
     Rename,
     Diagnostics,
+    // Syntax errors of the live buffer, debounced while typing. Answers `report`
+    // with `scope` set to the file.
+    Syntax_Diagnostics,
     Code_Actions,
     Semantic_Tokens,
     Format,

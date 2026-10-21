@@ -462,6 +462,7 @@ LANGUAGE_FEATURE_LABELS := [lang.Request_Kind]string {
     .Package_Doc        = "Package Documentation",
     .Rename             = "Rename Symbol",
     .Diagnostics        = "Diagnostics",
+    .Syntax_Diagnostics = "Live Syntax Errors",
     .Code_Actions       = "Code Actions",
     .Semantic_Tokens    = "Semantic Highlighting",
     .Format             = "Format Document",

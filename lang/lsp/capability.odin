@@ -27,6 +27,7 @@ PROVIDER_KEYS := [lang.Request_Kind]string {
     .Package_Doc       = "hoverProvider",
     .Rename            = "renameProvider",
     .Diagnostics       = "diagnosticProvider",
+    .Syntax_Diagnostics = "", // in-client only; no server claims it
     .Code_Actions      = "codeActionProvider",
     .Semantic_Tokens   = "semanticTokensProvider",
     .Format            = "documentFormattingProvider",
