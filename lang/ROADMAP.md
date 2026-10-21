@@ -2044,6 +2044,11 @@ not a status, so this section stays the source of truth for what is built.
     the one hand-written accessor (`field_type`). The corpus test runs every
     accessor on every node, and requires each `!` child in files the compiler
     accepts.
-  - **Not yet:** incremental reparse (M2), the formatter port, live syntax
-    errors through the engine. Some compiler-only checks are not reported (`do` procedure bodies, unknown struct tags,
+  - **Live syntax errors:** `Syntax_Diagnostics` parses the buffer of the
+    pane on screen (`lang/odin/syntax_check.odin`), debounced while typing,
+    and answers a report for that file. The host keeps it apart from the
+    compiler's report (`Open_File.syntax_diagnostics`) and shows it only
+    while the `odin check` diagnostics are stale (`thor_file_live_diagnostics`).
+    The feature key is `syntax_diagnostics`.
+  - **Not yet:** incremental reparse (M2), the formatter port. Some compiler-only checks are not reported (`do` procedure bodies, unknown struct tags,
     `#+` tags after `package`).

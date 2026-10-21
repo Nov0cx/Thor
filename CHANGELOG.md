@@ -1,3 +1,7 @@
+# 2026.10.8
+
+- Odin: syntax errors are marked while typing. After a save, the `odin check` diagnostics replace them. The `syntax_diagnostics` feature (Settings > "Live Syntax Errors") turns them off.
+
 # 2026.10.7
 
 - Rename refuses a builtin, an import name, a named argument or a label. It renamed every identifier of that name in the workspace.

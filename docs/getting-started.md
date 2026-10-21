@@ -133,7 +133,10 @@ Rest the cursor on a control to see what it does: the title bar buttons, a tab,
 a status bar segment and an explorer row all explain themselves, with the chord
 they are bound to under the text. The `tooltips` setting turns this off.
 
-For Odin, the built-in support formats code and shows `odin check` diagnostics.
+For Odin, the built-in support formats code and shows `odin check` diagnostics
+when you save. While you type, it marks syntax errors; after a save, the
+compiler's diagnostics replace them. The `syntax_diagnostics` feature of
+`language_intelligence` turns the live marks off.
 Its own navigation, hover and completion are being rebuilt. Until they are
 back, give `.odin` to a language server such as `ols` with `"override": true`
 in `lsp.json` (see [configuration](configuration.md)). Then hover a symbol with
