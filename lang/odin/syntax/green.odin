@@ -26,9 +26,11 @@ Green_Element :: distinct u64
 // A green tree, the arena its nodes live in, and the source text its tokens read.
 // A subtree shared with another tree reads the same text there, as both trees hold their whole source.
 Green_Tree :: struct {
-    arena: virtual.Arena,
-    root:  ^Green_Node,
-    text:  string, // in the arena
+    arena:      virtual.Arena,
+    root:       ^Green_Node,
+    text:       string,       // in the arena
+    base:       ^Green_Tree, // owned; the older tree whose nodes this one shares, nil when none
+    generation: u16,         // length of the base chain
 }
 
 // Builds a green tree bottom up: start_node, token, finish_node.
@@ -67,12 +69,22 @@ tree_create :: proc(text := "", allocator := context.allocator) -> (tree: ^Green
     return tree, nil
 }
 
+// Frees the tree and its base chain.
 tree_destroy :: proc(tree: ^Green_Tree, allocator := context.allocator) {
-    if tree == nil {
-        return
+    for cur := tree; cur != nil; {
+        next := cur.base
+        virtual.arena_destroy(&cur.arena)
+        free(cur, allocator)
+        cur = next
     }
-    virtual.arena_destroy(&tree.arena)
-    free(tree, allocator)
+}
+
+// Makes a tree for `text` that shares the nodes of `base` and owns it.
+tree_create_on :: proc(base: ^Green_Tree, text: string, allocator := context.allocator) -> (tree: ^Green_Tree, err: mem.Allocator_Error) {
+    tree = tree_create(text, allocator) or_return
+    tree.base = base
+    tree.generation = base.generation + 1
+    return tree, nil
 }
 
 tree_allocator :: #force_inline proc(tree: ^Green_Tree) -> mem.Allocator {
@@ -204,6 +216,36 @@ builder_finish_node :: proc(b: ^Green_Builder) -> mem.Allocator_Error {
         append(&b.children, node_element(node))
     }
     return nil
+}
+
+// One step of a path down a green tree: child `index` of `node`.
+Spine_Step :: struct {
+    node:  ^Green_Node,
+    index: int,
+}
+
+// A copy of `node` whose child `index` is `child`.
+builder_replace_child :: proc(b: ^Green_Builder, node: ^Green_Node, index: int, child: Green_Element) -> (out: ^Green_Node, err: mem.Allocator_Error) {
+    kids := green_children(node)
+    assert(index >= 0 && index < len(kids))
+    resize(&b.children, len(kids)) or_return
+    copy(b.children[:], kids)
+    b.children[index] = child
+    out, err = make_node(b, node.kind, b.children[:])
+    clear(&b.children)
+    return
+}
+
+// The root of a tree that equals the one `path` walks down, with the child the last step names
+// replaced by `child`. Nodes off the path are shared, not copied.
+builder_splice :: proc(b: ^Green_Builder, path: []Spine_Step, child: Green_Element) -> (root: ^Green_Node, err: mem.Allocator_Error) {
+    assert(len(path) > 0 && len(b.stack) == 0 && len(b.children) == 0)
+    elem := child
+    #reverse for step in path {
+        root = builder_replace_child(b, step.node, step.index, elem) or_return
+        elem = node_element(root)
+    }
+    return root, nil
 }
 
 // Builds a tree with every token directly under one Root node.
