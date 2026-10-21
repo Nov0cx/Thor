@@ -533,11 +533,15 @@ parse_foreign_decl :: proc(p: ^Parser, start: int) -> Syntax_Kind {
 }
 
 // `{ statements }`. A missing '{' parses no statements, so one typo cannot take the file.
+// A body parses the same in any context but `in_proc`, which lets `reparse` parse one alone.
 @(private)
 parse_body :: proc(p: ^Parser, start := -1) -> Syntax_Kind {
-    prev_level := p.expr_level
+    prev_level, prev_range, prev_in, prev_type := p.expr_level, p.allow_range, p.allow_in_expr, p.allow_type
     p.expr_level = 0
-    defer p.expr_level = prev_level
+    p.allow_range, p.allow_in_expr, p.allow_type = false, false, false
+    defer {
+        p.expr_level, p.allow_range, p.allow_in_expr, p.allow_type = prev_level, prev_range, prev_in, prev_type
+    }
     cp := start if start >= 0 else mark(p)
     if expect(p, .Open_Brace) {
         parse_stmt_list(p)
