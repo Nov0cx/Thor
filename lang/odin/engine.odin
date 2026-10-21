@@ -1,5 +1,6 @@
 // In-client Odin analyzer: a lang.Backend that runs on the Manager's worker threads.
-// It formats with the native printer and reports `odin check` diagnostics.
+// It formats with the native printer, reports `odin check` diagnostics and the
+// live syntax errors of the new parser.
 // Navigation, completion and the other kinds return with the new engine
 // (`odin-analyzer-plan.md`); until then the engine declines them.
 package odin
@@ -19,7 +20,7 @@ Engine :: struct {
 }
 
 // The kinds the engine answers.
-IMPLEMENTED :: bit_set[lang.Request_Kind]{.Diagnostics, .Format, .Format_Range, .Format_On_Type}
+IMPLEMENTED :: bit_set[lang.Request_Kind]{.Diagnostics, .Syntax_Diagnostics, .Format, .Format_Range, .Format_On_Type}
 
 engine_create :: proc() -> ^Engine {
     e := new(Engine)
@@ -80,6 +81,8 @@ resolve :: proc(data: rawptr, req: ^lang.Request, res: ^lang.Result) {
     #partial switch req.kind {
     case .Diagnostics:
         check_package(e, req, res)
+    case .Syntax_Diagnostics:
+        syntax_diagnostics(req, res)
     case .Format:
         format_document(e, req, res, 0, len(req.source))
     case .Format_Range:
