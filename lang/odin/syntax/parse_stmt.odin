@@ -551,6 +551,23 @@ parse_body :: proc(p: ^Parser, start := -1) -> Syntax_Kind {
     return .Block
 }
 
+// Parses the tokens as one body alone, for `reparse`; false when they are not one whole body.
+// Leaves the builder empty.
+@(private)
+parse_block_only :: proc(p: ^Parser, in_proc: bool) -> (block: Green_Element, ok: bool) {
+    p.in_proc = 1 if in_proc else 0
+    // An open frame, as in parse_file, so the nodes inside the body go to their parents.
+    builder_start_node(&p.b, .Root)
+    parse_body(p)
+    ok = p.alloc_err == nil && len(p.b.stack) == 1 && len(p.b.children) == 1
+    if ok {
+        block = p.b.children[0]
+    }
+    clear(&p.b.stack)
+    clear(&p.b.children)
+    return
+}
+
 @(private)
 parse_block_stmt :: proc(p: ^Parser, is_when: bool) {
     skip_newline_for_literal(p)
