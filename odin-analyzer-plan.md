@@ -4,7 +4,8 @@
 "resolve what the caret names" navigator into a real static analyzer with its own type model,
 live diagnostics and lints.
 **Baseline:** `Nov0cx/Thor` at `29192c6` (release 2026.10.7).
-**Status:** M1 (lexer, parser, compact tree, typed views) and live syntax errors landed;
+**Status:** M1 (lexer, parser, compact tree, typed views), live syntax errors and the incremental
+reparse of M2 landed; the formatter port is next;
 `lang/ROADMAP.md` ("Next engine") tracks the rest. Section 11 lists the feature questions whose answers change the plan.
 
 ---

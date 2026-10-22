@@ -2050,5 +2050,20 @@ not a status, so this section stays the source of truth for what is built.
     compiler's report (`Open_File.syntax_diagnostics`) and shows it only
     while the `odin check` diagnostics are stale (`thor_file_live_diagnostics`).
     The feature key is `syntax_diagnostics`.
-  - **Not yet:** incremental reparse (M2), the formatter port. Some compiler-only checks are not reported (`do` procedure bodies, unknown struct tags,
+  - **Incremental reparse:** `reparse(&old, src)` gives the parse `parse(src)`
+    would give, from the last parse of the buffer. One token that changes only
+    its length (an identifier, a literal, a comment or whitespace with no
+    newline, never a directive name) is patched in place; else the smallest
+    `{ }` block around the edit is lexed and parsed alone, when its braces
+    stay open until its own `}` before and after the edit; else the whole text
+    is parsed. Untouched subtrees are shared: the new tree owns the old one as
+    its `base`, and after `MAX_GENERATIONS` (32) a full parse ends the chain.
+    `Syntax_Diagnostics` keeps the last parse of eight buffers
+    (`lang/odin/parse_cache.odin`). Checked against a cold parse after every
+    step of a typing session and of random edits. Cost (`-o:speed`): one
+    keystroke in `editview/editor.odin` takes about 0.12 ms, p95 0.15 ms
+    (plan: 0.5 ms).
+  - **Toolchain:** `dev-2026-10` adds `"""…"""` and ```` ```…``` ```` strings
+    over lines; the lexer reads both.
+  - **Not yet:** the formatter port (rest of M2). Some compiler-only checks are not reported (`do` procedure bodies, unknown struct tags,
     `#+` tags after `package`).

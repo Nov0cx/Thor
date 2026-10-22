@@ -155,7 +155,8 @@ be tested headlessly.
   front end (`odin-analyzer-plan.md`): the lexer, the error-resilient parser (`parse`) and the
   lossless green tree. It imports only `core:`. A token is inline in an 8-byte child slot and holds
   no text — read it through the red layer (`syntax_token_text`, `node_text`) — and a node is known
-  by its position, not its green pointer. `debug_dump` prints its tree, trivia optional;
+  by its position, not its green pointer. `reparse` consumes the old `Parse`: the new tree owns it
+  as its `base` and shares its nodes, so free only the newest. `debug_dump` prints its tree, trivia optional;
   `testdata/*.dump` are its snapshots (`-define:SYNTAX_BLESS=true` rewrites them). Node kinds and
   the typed views (`as_value_decl`, `value_decl_names(&v)`, …) are generated from `syntax.schema`
   by `build.odin -- gen_syntax` (`lang/odin/syntax/gen`, package `syntaxgen`); edit the schema, never
