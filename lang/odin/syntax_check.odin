@@ -8,15 +8,15 @@ import odinsyntax "syntax"
 
 // Reports the syntax errors of the request's buffer as a file-scoped report.
 @(private)
-syntax_diagnostics :: proc(req: ^lang.Request, res: ^lang.Result) {
+syntax_diagnostics :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
     if req.path == "" {
         return
     }
-    parsed, err := odinsyntax.parse(req.source, context.temp_allocator)
-    if err != nil {
+    parsed, ok := parse_cache_get(&e.parses, req.path, req.source)
+    if !ok {
         return
     }
-    defer odinsyntax.parse_destroy(&parsed, context.temp_allocator)
+    defer parse_cache_put(&e.parses, req.path, parsed)
     if lang.request_cancelled(req) {
         return
     }

@@ -12,6 +12,7 @@ import lang ".."
 Engine :: struct {
     config:        Config_Cache,
     format_config: Format_Config_Cache,
+    parses:        Parse_Cache,
     // One compiler run at a time (see check_package).
     check_mutex:   sync.Mutex,
     // Settings-driven admin gate; main thread only.
@@ -28,6 +29,8 @@ engine_create :: proc() -> ^Engine {
     e.admin_features = lang.FEATURES_ALL
     e.config.alloc = context.allocator
     e.format_config.alloc = context.allocator
+    e.parses.alloc = context.allocator
+    e.parses.entries = make([dynamic]Parse_Entry, 0, PARSE_CACHE_SLOTS + 1)
     return e
 }
 
@@ -82,7 +85,7 @@ resolve :: proc(data: rawptr, req: ^lang.Request, res: ^lang.Result) {
     case .Diagnostics:
         check_package(e, req, res)
     case .Syntax_Diagnostics:
-        syntax_diagnostics(req, res)
+        syntax_diagnostics(e, req, res)
     case .Format:
         format_document(e, req, res, 0, len(req.source))
     case .Format_Range:
@@ -98,5 +101,6 @@ engine_destroy :: proc(data: rawptr) {
     e := cast(^Engine)data
     config_clear(e)
     format_config_clear(e)
+    parse_cache_clear(&e.parses)
     free(e)
 }
