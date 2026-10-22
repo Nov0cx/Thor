@@ -373,8 +373,27 @@ scan_identifier :: proc(l: ^Lexer) {
     }
 }
 
+// Scans a string after its opening '"': one line, or `"""` to the next `"""` over lines.
 @(private)
 scan_string :: proc "contextless" (l: ^Lexer, flags: ^Token_Flags) {
+    if peek(l, 0) == '"' && peek(l, 1) == '"' {
+        l.pos += 2
+        for {
+            if l.pos >= len(l.src) {
+                flags^ += {.Unterminated}
+                return
+            }
+            b := l.src[l.pos]
+            l.pos += 1
+            if b == '"' && peek(l, 0) == '"' && peek(l, 1) == '"' {
+                l.pos += 2
+                return
+            }
+            if b == '\\' && !scan_escape(l) {
+                flags^ += {.Malformed}
+            }
+        }
+    }
     for {
         if l.pos >= len(l.src) || l.src[l.pos] == '\n' {
             flags^ += {.Unterminated}
@@ -391,12 +410,24 @@ scan_string :: proc "contextless" (l: ^Lexer, flags: ^Token_Flags) {
     }
 }
 
+// Scans a raw string after its opening '`', or after "```" to the next "```".
 @(private)
 scan_raw_string :: proc "contextless" (l: ^Lexer, flags: ^Token_Flags) {
+    triple := peek(l, 0) == '`' && peek(l, 1) == '`'
+    if triple {
+        l.pos += 2
+    }
     for l.pos < len(l.src) {
         b := l.src[l.pos]
         l.pos += 1
-        if b == '`' {
+        if b != '`' {
+            continue
+        }
+        if !triple {
+            return
+        }
+        if peek(l, 0) == '`' && peek(l, 1) == '`' {
+            l.pos += 2
             return
         }
     }
