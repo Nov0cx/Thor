@@ -127,7 +127,7 @@ Parser :: struct {
     prev_kind:     Token_Kind, // kind of the last significant token taken
     last_stmt_end: int,        // child index after the last statement node
     eof_semi:      bool,       // the implicit ';' at EOF is taken
-    open_braces:   int,        // '{' taken minus '}' taken
+    open_braces:   int,        // '{' taken minus '}' taken, never below 0
     fuel:          int,        // peeks left before the parser counts as stuck
     depth:         int,        // nesting and chain links, against MAX_DEPTH
     expr_level:    int,        // >= 0 in an expression, < 0 in a control clause
@@ -276,7 +276,7 @@ bump :: proc(p: ^Parser) {
     p.emitted = p.cur + 1
     #partial switch tok.kind {
     case .Open_Brace:  p.open_braces += 1
-    case .Close_Brace: p.open_braces -= 1
+    case .Close_Brace: p.open_braces = max(p.open_braces - 1, 0) // a stray '}' opens no block below 0
     }
     p.prev_end = token_end(tok)
     p.prev_kind = p.kind
