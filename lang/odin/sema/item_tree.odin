@@ -90,7 +90,7 @@ Item_Tree :: struct {
 @(private = "file")
 ITEM_ARENA_BLOCK :: 8 * mem.Kilobyte
 
-@(private = "file")
+@(private)
 Builder :: struct {
     tree:   ^Item_Tree,
     alloc:  mem.Allocator,
@@ -101,7 +101,7 @@ Builder :: struct {
 }
 
 // The scope a declaration is found in.
-@(private = "file")
+@(private)
 Decl_Context :: struct {
     guard:      int,
     in_foreign: bool,
@@ -305,7 +305,7 @@ push_guard :: proc(b: ^Builder, guard: When_Guard) -> int {
     return len(b.guards) - 1
 }
 
-@(private = "file")
+@(private)
 add_value_decl :: proc(b: ^Builder, n: ^odinsyntax.Syntax_Node, ctx: Decl_Context, out: ^[dynamic]Item) {
     v, _ := odinsyntax.as_value_decl(n^)
     start, end := odinsyntax.node_range(n^)
