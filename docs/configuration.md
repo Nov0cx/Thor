@@ -271,8 +271,9 @@ its root, layered on top of the global settings above. This repository's own
   }
   ```
 
-  Tasks run in the console panel, exactly like typing the command at the
-  prompt. The dropdown next to the run button lists them, and can add, remove
+  Each task runs in its own console tab, named after the task, on the default
+  shell; the shell you type in is left alone. Running a task again restarts its
+  tab, which stops a run that is still going. The dropdown next to the run button lists them, and can add, remove
   or open this file for editing.
 
 - **`odin-analyzer.json`** — per-workspace settings for the Odin language

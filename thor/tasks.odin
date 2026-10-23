@@ -159,17 +159,17 @@ thor_find_task :: proc(thor: ^Thor, name: string) -> ^Task {
     return nil
 }
 
-// Runs `task` in the console, revealing the panel first.
+// Runs `task` in its own terminal tab, revealing the panel first.
 thor_run_task :: proc(thor: ^Thor, task: ^Task) {
     if !signal_get(&thor.console_visible) {
         signal_set(&thor.console_visible, true)
     }
-    if thor_active_console(thor) == nil {
-        thor_flash_status(thor, "No terminal is open", true)
+    if len(thor.shell_profiles) == 0 {
+        thor_flash_status(thor, "No shell was found", true)
         return
     }
-    if !thor_console_run_command(thor_active_console(thor), task.command) {
-        thor_flash_status(thor, "The terminal has no shell running", true)
+    if !thor_terminal_run_task(thor, task.name, task.command) {
+        thor_flash_status(thor, "The task shell did not start", true)
     }
 }
 

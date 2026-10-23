@@ -92,6 +92,28 @@ test_shell_profiles_apply_after_init :: proc(t: ^testing.T) {
     testing.expect_value(t, thor.inflight_jobs, 0)
 }
 
+// A task tab is labelled with its task and is not counted in the numbering of
+// the user tabs on the same shell.
+@(test)
+test_terminal_tab_info_task_label :: proc(t: ^testing.T) {
+    profile := shell.Profile{id = "pwsh", name = "PowerShell"}
+    user_a := Terminal{profile = profile}
+    task := Terminal{profile = profile, task = "build"}
+    user_b := Terminal{profile = profile}
+
+    thor: Thor
+    thor.terminals = make([dynamic]^Terminal)
+    defer delete(thor.terminals)
+    append(&thor.terminals, &user_a, &task, &user_b)
+
+    testing.expect_value(t, thor_terminal_tab_info(&thor, 0).name, "PowerShell 1")
+    testing.expect_value(t, thor_terminal_tab_info(&thor, 1).name, "build")
+    testing.expect_value(t, thor_terminal_tab_info(&thor, 2).name, "PowerShell 2")
+
+    ordered_remove(&thor.terminals, 2)
+    testing.expect_value(t, thor_terminal_tab_info(&thor, 0).name, "PowerShell")
+}
+
 // A detection that lands after shutdown has no console to fill: it frees the
 // profiles and leaves the shell list empty.
 @(test)

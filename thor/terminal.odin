@@ -20,6 +20,7 @@ Terminal :: struct {
     owner:     ^Thor,
     console:   Console,        // owned; declared by the console panel while this tab is active
     profile:   shell.Profile,  // borrowed from owner.shell_profiles
+    task:      string,         // owned; the task this tab runs, "" for a user shell
     pty:       ^shell.Pty,     // owned; nil once the shell is gone
     reader:    ^thread.Thread, // owned
     allocator: runtime.Allocator,
@@ -332,6 +333,7 @@ thor_terminal_release :: proc(term: ^Terminal) {
     delete(term.pending)
     delete(term.outbox)
     delete(term.sending)
+    delete(term.task)
     free(term)
 }
 
@@ -429,6 +431,35 @@ thor_terminal_open :: proc(thor: ^Thor, profile: shell.Profile, focus := true) {
         thor_console_append(&term.console, strings.to_string(thor.console_backlog))
         strings.builder_reset(&thor.console_backlog)
     }
+}
+
+// Runs `command` in the tab of the task `name` and selects that tab without
+// focus. A tab of the task restarts first, which kills a run that still goes;
+// else a new tab opens on the default shell. The profile init commands are
+// queued first, so the command runs after them. False when the shell does not
+// start. The caller checks that a shell profile exists.
+thor_terminal_run_task :: proc(thor: ^Thor, name, command: string) -> bool {
+    index := -1
+    for term, i in thor.terminals {
+        if term.task == name {
+            index = i
+            break
+        }
+    }
+    if index >= 0 {
+        thor_terminal_restart(thor.terminals[index])
+    } else {
+        thor_terminal_open(thor, thor_terminal_default_profile(thor), focus = false)
+        index = len(thor.terminals) - 1
+        thor.terminals[index].task = strings.clone(name)
+    }
+    thor_terminal_select(thor, index, focus = false)
+
+    term := thor.terminals[index]
+    if term.dead || term.pty == nil {
+        return false
+    }
+    return thor_console_run_command(&term.console, command)
 }
 
 // Makes the terminal at `index` the one the console panel declares. An
@@ -566,28 +597,31 @@ thor_terminal_tab_count :: proc(thor: ^Thor) -> int {
     return len(thor.terminals)
 }
 
-// The shell's name, numbered when several tabs run the same shell. The tooltip
-// carries whatever title the shell set for itself.
+// The task name for a task tab, else the shell's name, numbered when several
+// user tabs run the same shell. The tooltip carries whatever title the shell set
+// for itself.
 thor_terminal_tab_info :: proc(thor: ^Thor, index: int) -> Tab_Info {
     if index < 0 || index >= len(thor.terminals) {
         return {}
     }
     term := thor.terminals[index]
 
-    ordinal, total := 0, 0
-    for other, i in thor.terminals {
-        if other.profile.id != term.profile.id {
-            continue
+    name := term.task
+    if name == "" {
+        ordinal, total := 0, 0
+        for other, i in thor.terminals {
+            if other.task != "" || other.profile.id != term.profile.id {
+                continue
+            }
+            total += 1
+            if i <= index {
+                ordinal = total
+            }
         }
-        total += 1
-        if i <= index {
-            ordinal = total
+        name = term.profile.name
+        if total > 1 {
+            name = fmt.tprintf("%s %d", name, ordinal)
         }
-    }
-
-    name := term.profile.name
-    if total > 1 {
-        name = fmt.tprintf("%s %d", name, ordinal)
     }
     tooltip := term.profile.name
     switch {

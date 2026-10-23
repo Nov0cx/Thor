@@ -360,8 +360,9 @@ The variables: `TM_SELECTED_TEXT`, `TM_CURRENT_LINE`, `TM_LINE_NUMBER`,
 
 Left of the window controls sit three task buttons: **+** adds a task, the
 **selector** names the active one, and **▶** runs it. Tasks are named shell
-commands (build, test, run, ...) and run in the console panel, exactly like
-typing them at the prompt.
+commands (build, test, run, ...). Each runs in its own console tab, named
+after the task; running it again restarts that tab and stops a run that is
+still going. Keyboard focus stays in the editor.
 
 | Control | Action |
 | --- | --- |
