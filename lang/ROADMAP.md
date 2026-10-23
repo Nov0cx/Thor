@@ -2113,6 +2113,21 @@ not a status, so this section stays the source of truth for what is built.
     from the item tree. The workspace walk keeps one item tree per file,
     refreshed by modification time and size, and skips files out of the
     configured build.
+  - **Definition** (`lang/odin/definition.odin`): locals through
+    `scope_map`; a declaration (top-level, field, enum member) names itself;
+    a bare name reaches the buffer's own items, then the other files of its
+    package directory in the build (never another directory; a file-private
+    item of another file is out of reach). Several active candidates give a
+    picker, inactive `when` ones last; files out of the build count only when
+    nothing else declares the name. `pkg.name` goes through `file_imports`
+    (public items only); the package name or an import line jumps to
+    `<pkg>.odin` or the closest file name. `Color.Red` and `pkg.Color.Red`
+    reach the member. A procedure group offers its members. The Odin root
+    comes from `ODIN_ROOT`, `odin root`, or the compile-time root, once per
+    engine. `package_cache.odin` keeps 16 package directories (item trees,
+    line starts, scope), refreshed by stat. Not yet: `v.field` on a value,
+    `.Member`, field names in literals and named arguments (need types),
+    builtins (the universe scope), the overload by arguments, `using`.
   - **Not yet:** the query DB, `using` expansion (recorded, not resolved),
     redeclaration and visibility errors, procs nested in procs in the outline,
     inactive `when` items in workspace symbols are not marked. `Foo ::
