@@ -1,6 +1,9 @@
 # 2026.10.8
 
 - Odin: syntax errors are marked while typing. After a save, the `odin check` diagnostics replace them. The `syntax_diagnostics` feature (Settings > "Live Syntax Errors") turns them off.
+- A right click on empty space in the explorer, or in an empty folder, opens the workspace root's context menu (New File, New Folder, Refresh).
+- Thor no longer holds `.git/index.lock` while idle. Its git status ran in a loop and made `git commit` fail.
+- A task from the titlebar runs in its own terminal tab, named after the task, not in the shell in use. Running it again restarts that tab.
 
 # 2026.10.7
 
