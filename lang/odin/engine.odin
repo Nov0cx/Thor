@@ -1,8 +1,8 @@
 // In-client Odin analyzer: a lang.Backend that runs on the Manager's worker threads.
 // It formats with the native printer, reports `odin check` diagnostics and the
-// live syntax errors of the new parser, and lists document and workspace symbols
-// from the item trees of package odinsema.
-// Navigation, completion and the other kinds return with the new engine
+// live syntax errors of the new parser, lists document and workspace symbols
+// from the item trees of package odinsema and goes to definitions through its scopes.
+// Completion and the other kinds return with the new engine
 // (`odin-analyzer-plan.md`); until then the engine declines them.
 package odin
 
@@ -15,6 +15,8 @@ Engine :: struct {
     format_config: Format_Config_Cache,
     parses:        Parse_Cache,
     index:         Symbol_Index,
+    packages:      Package_Cache,
+    root:          Odin_Root,
     // One compiler run at a time (see check_package).
     check_mutex:   sync.Mutex,
     // Settings-driven admin gate; main thread only.
@@ -31,6 +33,7 @@ IMPLEMENTED :: bit_set[lang.Request_Kind]{
     .Format_On_Type,
     .Document_Symbols,
     .Workspace_Symbols,
+    .Definition,
 }
 
 engine_create :: proc() -> ^Engine {
@@ -42,6 +45,9 @@ engine_create :: proc() -> ^Engine {
     e.parses.alloc = context.allocator
     e.parses.entries = make([dynamic]Parse_Entry, 0, PARSE_CACHE_SLOTS + 1)
     e.index.alloc = context.allocator
+    e.packages.alloc = context.allocator
+    e.packages.entries = make([dynamic]^Package_Entry, 0, PACKAGE_CACHE_SLOTS + 1)
+    e.root.alloc = context.allocator
     return e
 }
 
@@ -112,6 +118,10 @@ resolve :: proc(data: rawptr, req: ^lang.Request, res: ^lang.Result) {
         if config_allows(e, req.workspace, req.kind) {
             workspace_symbols(e, req, res)
         }
+    case .Definition:
+        if config_allows(e, req.workspace, req.kind) {
+            definition(e, req, res)
+        }
     }
 }
 
@@ -122,5 +132,7 @@ engine_destroy :: proc(data: rawptr) {
     format_config_clear(e)
     parse_cache_clear(&e.parses)
     index_clear(&e.index)
+    package_cache_clear(&e.packages)
+    odin_root_clear(&e.root)
     free(e)
 }

@@ -169,7 +169,7 @@ append_symbol :: proc(res: ^lang.Result, item: ^odinsema.Item, path: string, lin
 
 // `path` spelled for comparison: absolute, forward slashes, and lower case where the file system
 // ignores case. Temp-allocated.
-@(private = "file")
+@(private)
 path_key :: proc(path: string) -> string {
     abs, err := os.get_absolute_path(path, context.temp_allocator)
     if err != nil {
