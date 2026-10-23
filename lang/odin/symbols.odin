@@ -182,19 +182,9 @@ append_symbol_to :: proc(out: ^[dynamic]lang.Symbol, item: ^odinsema.Item, path:
     })
 }
 
-// `path` spelled for comparison: absolute, forward slashes, and lower case where the file system
-// ignores case. Temp-allocated.
 @(private)
 path_key :: proc(path: string) -> string {
-    abs, err := os.get_absolute_path(path, context.temp_allocator)
-    if err != nil {
-        abs = path
-    }
-    key, _ := strings.replace_all(abs, "\\", "/", context.temp_allocator)
-    when ODIN_OS == .Windows || ODIN_OS == .Darwin {
-        key = strings.to_lower(key, context.temp_allocator)
-    }
-    return key
+    return odinsema.path_key(path)
 }
 
 // Brings the index in step with req.workspace on disk: a changed file is read again, a gone one dropped.

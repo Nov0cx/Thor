@@ -60,6 +60,32 @@ target_define :: proc(target: Target, name: string) -> (value: Define_Value, fou
     return nil, false
 }
 
+// A string that is equal for two targets exactly when they select the same files and branches.
+target_key :: proc(target: Target, allocator := context.temp_allocator) -> string {
+    sb := strings.builder_make(allocator)
+    strings.write_string(&sb, target_os_name(target.os))
+    strings.write_byte(&sb, '/')
+    strings.write_string(&sb, target_arch_name(target.arch))
+    strings.write_string(&sb, target.tests ? "/t" : "/-")
+    strings.write_string(&sb, target.debug ? "d" : "-")
+    for d in target.defines {
+        strings.write_byte(&sb, '\x00')
+        strings.write_string(&sb, d.name)
+        strings.write_byte(&sb, '=')
+        switch v in d.value {
+        case bool:
+            strings.write_string(&sb, v ? "b1" : "b0")
+        case i64:
+            strings.write_byte(&sb, 'i')
+            strings.write_i64(&sb, v)
+        case string:
+            strings.write_byte(&sb, 's')
+            strings.write_string(&sb, v)
+        }
+    }
+    return strings.to_string(sb)
+}
+
 // The lower-case name of an OS, as ODIN_OS_STRING and a file suffix spell it; "" for .Unknown.
 target_os_name :: proc(os: Target_OS) -> string {
     return OS_NAMES[os]

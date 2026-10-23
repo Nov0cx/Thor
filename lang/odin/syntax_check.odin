@@ -4,6 +4,7 @@ import "core:slice"
 import "core:strings"
 
 import lang ".."
+import odinsema "sema"
 import odinsyntax "syntax"
 
 // Reports the syntax errors of the request's buffer as a file-scoped report.
@@ -40,17 +41,9 @@ syntax_diagnostics :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
     res.ok = true
 }
 
-// Byte offset of each line start in `source`. Scratch-allocated.
 @(private)
 line_starts :: proc(source: string) -> []int {
-    starts := make([dynamic]int, 0, 64, context.temp_allocator)
-    append(&starts, 0)
-    for i in 0 ..< len(source) {
-        if source[i] == '\n' {
-            append(&starts, i + 1)
-        }
-    }
-    return starts[:]
+    return odinsema.line_starts(source)
 }
 
 // 1-based line and byte column of `offset`.

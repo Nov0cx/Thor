@@ -234,31 +234,9 @@ package_entry_free :: proc(c: ^Package_Cache, entry: ^Package_Entry) {
     free(entry, c.alloc)
 }
 
-// A string that is equal for two targets exactly when they select the same files and branches. Temp-allocated.
 @(private = "file")
 target_key :: proc(target: odinsema.Target) -> string {
-    sb := strings.builder_make(context.temp_allocator)
-    strings.write_string(&sb, odinsema.target_os_name(target.os))
-    strings.write_byte(&sb, '/')
-    strings.write_string(&sb, odinsema.target_arch_name(target.arch))
-    strings.write_string(&sb, target.tests ? "/t" : "/-")
-    strings.write_string(&sb, target.debug ? "d" : "-")
-    for d in target.defines {
-        strings.write_byte(&sb, '\x00')
-        strings.write_string(&sb, d.name)
-        strings.write_byte(&sb, '=')
-        switch v in d.value {
-        case bool:
-            strings.write_string(&sb, v ? "b1" : "b0")
-        case i64:
-            strings.write_byte(&sb, 'i')
-            strings.write_i64(&sb, v)
-        case string:
-            strings.write_byte(&sb, 's')
-            strings.write_string(&sb, v)
-        }
-    }
-    return strings.to_string(sb)
+    return odinsema.target_key(target)
 }
 
 @(private)
