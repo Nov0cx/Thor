@@ -75,7 +75,7 @@ Item_Tree :: struct {
 }
 
 @(private = "file")
-ITEM_ARENA_BLOCK :: 32 * mem.Kilobyte
+ITEM_ARENA_BLOCK :: 8 * mem.Kilobyte
 
 @(private = "file")
 Builder :: struct {

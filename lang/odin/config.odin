@@ -270,7 +270,7 @@ config_collections :: proc(e: ^Engine, workspace: string) -> []Collection {
 @(private)
 config_allows :: proc(e: ^Engine, workspace: string, kind: lang.Request_Kind) -> bool {
     #partial switch kind {
-    case .Hover, .Document_Symbols, .References, .Rename:
+    case .Hover, .Document_Symbols, .Workspace_Symbols, .References, .Rename:
     case:
         return true
     }
@@ -284,7 +284,7 @@ config_allows :: proc(e: ^Engine, workspace: string, kind: lang.Request_Kind) ->
     #partial switch kind {
     case .Hover:
         return cache.cfg.enable_hover
-    case .Document_Symbols:
+    case .Document_Symbols, .Workspace_Symbols:
         return cache.cfg.enable_document_symbols
     case .References:
         return cache.cfg.enable_references

@@ -41,7 +41,7 @@ syntax_diagnostics :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
 }
 
 // Byte offset of each line start in `source`. Scratch-allocated.
-@(private = "file")
+@(private)
 line_starts :: proc(source: string) -> []int {
     starts := make([dynamic]int, 0, 64, context.temp_allocator)
     append(&starts, 0)
@@ -54,7 +54,7 @@ line_starts :: proc(source: string) -> []int {
 }
 
 // 1-based line and byte column of `offset`.
-@(private = "file")
+@(private)
 offset_line_col :: proc(starts: []int, offset: int) -> (line, col: int) {
     i, found := slice.binary_search(starts, offset)
     if !found {
