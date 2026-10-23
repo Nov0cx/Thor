@@ -98,21 +98,22 @@ document_symbols :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
 }
 
 // Fills `res` with the top-level declarations of the workspace whose name matches req.query,
-// sorted by name and then path. The live buffer counts in place of its file on disk,
-// and a disk file counts when it is in the build of the workspace target (config_target).
+// sorted by name and then path; those a known-false `when` drops for the workspace target
+// (config_target) come last, marked " (inactive)". The live buffer counts in place of its file
+// on disk, and a disk file counts when it is in the build of that target.
 @(private)
 workspace_symbols :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
+    inactive := make([dynamic]lang.Symbol, context.temp_allocator)
+    target := config_target(e, req.workspace)
     live_key := ""
     if req.path != "" {
-        live_key = path_key(req.path)
-        if tree := request_item_tree(e, req); tree != nil {
-            lines := line_starts(req.source)
-            for &item in tree.items {
-                if symbol_kind(item.kind) != "" && lang.symbol_matches(req.query, item.name) {
-                    append_symbol(res, &item, req.path, lines)
-                }
-            }
-            odinsema.item_tree_destroy(tree)
+        ctx: Request_Context
+        if request_open(e, req, &ctx) {
+            live_key = ctx.live.key
+            append_matches(res, &inactive, req.query, ctx.live.tree, req.path, ctx.live.lines, ctx.target)
+            request_close(&ctx)
+        } else {
+            live_key = path_key(req.path)
         }
     }
     if req.workspace != "" {
@@ -122,59 +123,59 @@ workspace_symbols :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
         index_sync(e, req)
         for path, &entry in idx.files {
             if lang.request_cancelled(req) {
+                append(&res.symbols, ..inactive[:])
                 return
             }
             if !entry.in_build || entry.items == nil || (live_key != "" && entry.key == live_key) {
                 continue
             }
-            for &item in entry.items.items {
-                if symbol_kind(item.kind) != "" && lang.symbol_matches(req.query, item.name) {
-                    append_symbol(res, &item, path, entry.lines)
-                }
-            }
+            append_matches(res, &inactive, req.query, entry.items, path, entry.lines, target)
         }
     }
-    slice.sort_by(res.symbols[:], proc(a, b: lang.Symbol) -> bool {
-        if a.name != b.name {
-            return a.name < b.name
-        }
-        return a.path < b.path
-    })
+    slice.sort_by(res.symbols[:], symbol_less)
+    slice.sort_by(inactive[:], symbol_less)
+    append(&res.symbols, ..inactive[:])
     res.ok = true
 }
 
-// The item tree of the request's buffer, through the parse cache when it has a path; nil on failure.
 @(private = "file")
-request_item_tree :: proc(e: ^Engine, req: ^lang.Request) -> ^odinsema.Item_Tree {
-    parsed: odinsyntax.Parse
-    if req.path != "" {
-        ok: bool
-        parsed, ok = parse_cache_get(&e.parses, req.path, req.source)
-        if !ok {
-            return nil
+symbol_less :: proc(a, b: lang.Symbol) -> bool {
+    if a.name != b.name {
+        return a.name < b.name
+    }
+    return a.path < b.path
+}
+
+// Appends the items of `tree` whose name matches `query`: to `res`, or to `inactive` with
+// " (inactive)" after the signature when a known-false guard drops the item for `target`.
+@(private = "file")
+append_matches :: proc(res: ^lang.Result, inactive: ^[dynamic]lang.Symbol, query: string, tree: ^odinsema.Item_Tree, path: string, lines: []int, target: odinsema.Target) {
+    for &item in tree.items {
+        if symbol_kind(item.kind) == "" || !lang.symbol_matches(query, item.name) {
+            continue
         }
-        defer parse_cache_put(&e.parses, req.path, parsed)
-        tree, err := odinsema.item_tree(parsed)
-        return err == nil ? tree : nil
+        if odinsema.guard_active(tree, item.guard, target) {
+            append_symbol(res, &item, path, lines)
+            continue
+        }
+        signature := strings.concatenate({item.signature, " (inactive)"}, context.temp_allocator)
+        append_symbol_to(inactive, &item, path, lines, signature)
     }
-    err: runtime.Allocator_Error
-    parsed, err = odinsyntax.parse(req.source)
-    if err != nil {
-        return nil
-    }
-    defer odinsyntax.parse_destroy(&parsed)
-    tree, terr := odinsema.item_tree(parsed)
-    return terr == nil ? tree : nil
 }
 
 // Appends one item as a symbol; every string is cloned into context.allocator (the Manager's).
 @(private = "file")
 append_symbol :: proc(res: ^lang.Result, item: ^odinsema.Item, path: string, lines: []int) {
+    append_symbol_to(&res.symbols, item, path, lines, item.signature)
+}
+
+@(private = "file")
+append_symbol_to :: proc(out: ^[dynamic]lang.Symbol, item: ^odinsema.Item, path: string, lines: []int, signature: string) {
     line, _ := offset_line_col(lines, item.name_offset)
-    append(&res.symbols, lang.Symbol {
+    append(out, lang.Symbol {
         name      = strings.clone(item.name),
         kind      = strings.clone(symbol_kind(item.kind)),
-        signature = strings.clone(item.signature),
+        signature = strings.clone(signature),
         path      = strings.clone(path),
         line      = line,
         offset    = item.name_offset,

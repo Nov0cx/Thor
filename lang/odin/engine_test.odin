@@ -176,6 +176,45 @@ last :: proc() {}
     testing.expect_value(t, res.symbols[4].line, 8)
 }
 
+// Workspace symbols: a declaration under a known-false `when` comes last and is marked inactive.
+@(test)
+test_workspace_symbols_inactive :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    root := "thor_lang_ws_inactive"
+    _ = os.remove_all(root)
+    defer os.remove_all(root)
+    testing.expect_value(t, os.make_directory(root), nil)
+    host_os := ODIN_OS == .Windows ? "Windows" : ODIN_OS == .Darwin ? "Darwin" : "Linux"
+    other_os := ODIN_OS == .Windows ? "Linux" : "Windows"
+    disk := strings.concatenate({"package app\n\nwhen ODIN_OS == .", other_os, " {\n\tapple :: proc() {}\n}\n\nzebra :: proc() {}\n"}, context.temp_allocator)
+    disk_path := strings.concatenate({root, "/disk.odin"}, context.temp_allocator)
+    testing.expect_value(t, os.write_entire_file(disk_path, transmute([]byte)disk), nil)
+
+    req := lang.Request {
+        kind      = .Workspace_Symbols,
+        path      = strings.concatenate({root, "/live.odin"}, context.temp_allocator),
+        ext       = ".odin",
+        source    = strings.concatenate({"package app\n\nwhen ODIN_OS == .", host_os, " {\n\tbanana :: 1\n} else {\n\tcherry :: 2\n}\n"}, context.temp_allocator),
+        workspace = root,
+    }
+    res := lang.Result{kind = .Workspace_Symbols}
+    resolve(e, &req, &res)
+    defer free_symbols(&res)
+    testing.expect(t, res.ok, "expected a workspace symbols result")
+    names := symbol_names(&res)
+    want := []string{"banana", "zebra", "apple", "cherry"}
+    testing.expectf(t, slice.equal(names, want), "got %v, want %v", names, want)
+    if len(names) != len(want) {
+        return
+    }
+    testing.expect_value(t, res.symbols[0].signature, "banana :: 1")
+    testing.expect_value(t, res.symbols[1].signature, "zebra :: proc()")
+    testing.expect_value(t, res.symbols[2].signature, "apple :: proc() (inactive)")
+    testing.expect_value(t, res.symbols[3].signature, "cherry :: 2 (inactive)")
+}
+
 // Workspace symbols: the live buffer, the files on disk in the host build, filtered by the query.
 @(test)
 test_workspace_symbols :: proc(t: ^testing.T) {
