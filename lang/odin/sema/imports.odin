@@ -72,7 +72,7 @@ file_imports :: proc(tree: ^Item_Tree, file_dir: string, collections: ^Collectio
             path        = item.path,
             item        = index,
             name_offset = item.name_offset,
-            path_offset = -1,
+            path_offset = item.path_offset,
         }
         if item.kind == .Foreign_Import {
             imp.is_foreign = true
@@ -80,7 +80,7 @@ file_imports :: proc(tree: ^Item_Tree, file_dir: string, collections: ^Collectio
             append(&out, imp) or_return
             continue
         }
-        imp.explicit, imp.path_offset = import_offsets(&item)
+        imp.explicit = item.path_offset >= 0 && item.name_offset != item.path_offset
         imp.alias_valid = imp.explicit || imp.alias_valid
         imp.dir, imp.collection, imp.problem = import_dir(item.path, file_dir, collections, allocator) or_return
         if imp.problem == .None {
@@ -219,33 +219,4 @@ is_identifier :: proc(name: string) -> bool {
         return false
     }
     return true
-}
-
-// Whether an import has an alias in the source, and the offset of its path.
-// The item tree keeps no path offset, so it is read from the signature: the path is its last token.
-@(private = "file")
-import_offsets :: proc(item: ^Item) -> (explicit: bool, path_offset: int) {
-    path_offset = -1
-    sig := strings.trim_space(item.signature)
-    after := strings.trim_left_space(strings.trim_prefix(sig, "import"))
-    explicit = after != "" && after[0] != '"' && after[0] != '`'
-    if !explicit {
-        return false, item.name_offset
-    }
-    if len(sig) < 2 {
-        return
-    }
-    quote := sig[len(sig) - 1]
-    if quote != '"' && quote != '`' {
-        return
-    }
-    open := strings.last_index_byte(sig[:len(sig) - 1], quote)
-    if open < 0 {
-        return
-    }
-    path_offset = item.end - (len(sig) - open)
-    if path_offset < item.start {
-        path_offset = -1
-    }
-    return
 }

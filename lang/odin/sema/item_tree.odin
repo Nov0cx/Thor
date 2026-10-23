@@ -61,6 +61,7 @@ Item :: struct {
     guard:       int,  // innermost When_Guard; -1 when none
     in_foreign:  bool, // declared in a foreign block
     path:        string, // Import and Foreign_Import: the unquoted path
+    path_offset: int,    // Import and Foreign_Import: the opening quote of the path; -1 when none
     children:    []Item, // struct and bit_field fields, enum members
 }
 
@@ -378,16 +379,18 @@ add_import :: proc(b: ^Builder, n: ^odinsyntax.Syntax_Node, ctx: Decl_Context, o
     imp, _ := odinsyntax.as_import_decl(n^)
     start, end := odinsyntax.node_range(n^)
     item := Item {
-        kind       = .Import,
-        visibility = .File,
-        start      = int(start),
-        end        = int(end),
-        guard      = ctx.guard,
-        signature  = token_text(b, n^, start, end),
+        kind        = .Import,
+        visibility  = .File,
+        start       = int(start),
+        end         = int(end),
+        guard       = ctx.guard,
+        signature   = token_text(b, n^, start, end),
+        path_offset = -1,
     }
     path_tok, has_path := odinsyntax.import_decl_path(&imp)
     if has_path {
         item.path = clone(b, unquote(odinsyntax.syntax_token_text(path_tok)))
+        item.path_offset = int(path_tok.offset)
         item.name_offset = int(path_tok.offset)
         item.name = clone(b, import_name(unquote(odinsyntax.syntax_token_text(path_tok))))
     }
@@ -420,13 +423,17 @@ add_foreign_import :: proc(b: ^Builder, n: ^odinsyntax.Syntax_Node, ctx: Decl_Co
         end         = int(end),
         guard       = ctx.guard,
         signature   = token_text(b, n^, start, end),
+        path_offset = -1,
     }
     if tok, tok_ok := odinsyntax.foreign_import_decl_path(&imp); tok_ok {
         item.path = clone(b, unquote(odinsyntax.syntax_token_text(tok)))
+        item.path_offset = int(tok.offset)
     } else {
         paths := odinsyntax.foreign_import_decl_paths(&imp)
         if first, first_ok := odinsyntax.child_iter_next(&paths); first_ok {
             item.path = clone(b, unquote(strings.trim_space(odinsyntax.node_text(first))))
+            first_start, _ := odinsyntax.node_range(first)
+            item.path_offset = int(first_start)
         }
     }
     if _, err := append(out, item); err != nil && b.err == nil {
