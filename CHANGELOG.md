@@ -4,6 +4,9 @@
 - A right click on empty space in the explorer, or in an empty folder, opens the workspace root's context menu (New File, New Folder, Refresh).
 - Thor no longer holds `.git/index.lock` while idle. Its git status ran in a loop and made `git commit` fail.
 - A task from the titlebar runs in its own terminal tab, named after the task, not in the shell in use. Running it again restarts that tab.
+- Odin: go to symbol (`ctrl+shift+o`) and workspace symbol search (`ctrl+q`) work again. They list procedures, types, constants, variables, struct fields and enum members.
+- Odin: workspace symbol search skips files that are not built for the current OS.
+- Odin formatter: a block comment between `->` and a single result type stays there.
 
 # 2026.10.7
 
