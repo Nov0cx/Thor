@@ -181,7 +181,7 @@ git_op_worker :: proc(job: ^Git_Op_Job) {
 // hash (only when detached), aux[2] = upstream ahead/behind counts.
 @(private = "file")
 git_run_snapshot :: proc(job: ^Git_Op_Job) {
-    job.output, job.code, job.ok = shell.run_status("git status --porcelain -z", job.cwd, GIT_LOCAL_TIMEOUT)
+    job.output, job.code, job.ok = shell.run_status("git --no-optional-locks status --porcelain -z", job.cwd, GIT_LOCAL_TIMEOUT)
     job.aux[0], job.aux_codes[0], _ = shell.run_status("git rev-parse --abbrev-ref HEAD", job.cwd, GIT_LOCAL_TIMEOUT)
     if strings.trim_space(job.aux[0]) == "HEAD" {
         job.aux[1], job.aux_codes[1], _ = shell.run_status("git rev-parse --short HEAD", job.cwd, GIT_LOCAL_TIMEOUT)
@@ -234,7 +234,7 @@ git_run_diff_file :: proc(job: ^Git_Op_Job) {
         return
     }
     cached := job.flag ? "--cached " : ""
-    cmd := strings.concatenate({"git diff ", cached, "--no-color -- ", quoted}, context.temp_allocator)
+    cmd := strings.concatenate({"git --no-optional-locks diff ", cached, "--no-color -- ", quoted}, context.temp_allocator)
     job.output, job.code, job.ok = shell.run_status(cmd, job.cwd, GIT_LOCAL_TIMEOUT)
 }
 

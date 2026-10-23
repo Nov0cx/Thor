@@ -473,14 +473,14 @@ thor_active_terminal :: proc(thor: ^Thor) -> ^Terminal {
 }
 
 // Moves every terminal's output into its emulator. A finished command may have
-// touched the working tree, so the git status is refreshed once for the frame.
+// touched the working tree, so a rate-limited git refresh is requested.
 thor_process_terminals :: proc(thor: ^Thor) {
     finished := false
     for term in thor.terminals {
         finished |= thor_terminal_pump(term)
     }
     if finished {
-        thor_refresh_git_status(thor)
+        thor.watch_git_dirty = true
     }
 }
 
