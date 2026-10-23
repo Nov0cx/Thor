@@ -1,6 +1,6 @@
 // References and rename from the scopes of package odinsema: locals, import aliases, file-scope
-// declarations of a package with their qualified uses in other packages, and the members of a
-// file-scope type. A member reached through a value counts by its name until types (M4) prove it
+// declarations of a package with their qualified uses in other packages, the names of the universe
+// scope, and the members of a file-scope type. A member reached through a value counts by its name until types (M4) prove it
 // names another type.
 package odin
 
@@ -23,6 +23,7 @@ Ref_Scan :: struct {
     dir_key:   string, // path_key of target.dir
     decl_key:  string, // path_key of target.path; "" for a buffer with no file
     hits:      [dynamic]lang.Symbol, // owned; strings in context.allocator
+    bound:     map[string]bool,      // owned; Builtin: whether the package of a directory key binds the name
 }
 
 // One file a scan reads. Strings and `imports` are temp-allocated or borrowed.
@@ -116,6 +117,9 @@ rename_allowed :: proc(ctx: ^Request_Context, target: Ref_Target) -> bool {
     if target.kind == .Import_Alias {
         return target.explicit
     }
+    if target.kind == .Builtin {
+        return false
+    }
     if target.path == ctx.req.path && ctx.req.workspace == "" {
         return true
     }
@@ -157,6 +161,10 @@ scan :: proc(s: ^Ref_Scan) -> bool {
         scan_file(s, &live)
     case .Package_Item, .Member:
         if !scan_package(s, &live) {
+            return false
+        }
+    case .Builtin:
+        if !scan_workspace(s, &live) {
             return false
         }
     }
@@ -221,6 +229,51 @@ scan_package :: proc(s: ^Ref_Scan, live: ^Scan_File) -> bool {
         scan_disk_file(s, path)
     }
     return !lang.request_cancelled(req)
+}
+
+// Scans the buffer and every file of the workspace.
+@(private = "file")
+scan_workspace :: proc(s: ^Ref_Scan, live: ^Scan_File) -> bool {
+    ctx := s.ctx
+    req := ctx.req
+    // Outside the temp allocator: scan_disk_file rewinds it after each file.
+    s.bound = make(map[string]bool)
+    defer {
+        for key in s.bound {
+            delete(key)
+        }
+        delete(s.bound)
+        s.bound = nil
+    }
+    scan_file(s, live)
+    if req.workspace == "" {
+        return !lang.request_cancelled(req)
+    }
+    for path in workspace_files(s) {
+        if lang.request_cancelled(req) {
+            return false
+        }
+        scan_disk_file(s, path)
+    }
+    return !lang.request_cancelled(req)
+}
+
+// The workspace files other than the buffer, sorted. Temp-allocated.
+@(private = "file")
+workspace_files :: proc(s: ^Ref_Scan) -> []string {
+    ctx := s.ctx
+    out := make([dynamic]string, context.temp_allocator)
+    idx := &ctx.e.index
+    sync.lock(&idx.mutex)
+    defer sync.unlock(&idx.mutex)
+    index_sync(ctx.e, ctx.req)
+    for path, &entry in idx.files {
+        if entry.key != ctx.live.key {
+            append(&out, strings.clone(path, context.temp_allocator))
+        }
+    }
+    slice.sort(out[:])
+    return out[:]
 }
 
 // The workspace files outside the target's package that import it, sorted. Temp-allocated.
@@ -348,6 +401,10 @@ classify :: proc(s: ^Ref_Scan, f: ^Scan_File, m: ^odinsema.Scope_Map, ref: odins
             imp, found := file_import(s, f, ref.operand)
             return found && imp.exists && path_key(imp.dir) == s.dir_key, false
         }
+    case .Builtin:
+        if ref.kind == .Free {
+            return !package_binds(s, f), false
+        }
     case .Member:
         #partial switch ref.kind {
         case .Member_Decl:
@@ -382,6 +439,34 @@ shadowed :: proc(s: ^Ref_Scan, f: ^Scan_File) -> bool {
         }
     }
     return false
+}
+
+// True when the file or its package binds the target's name, which hides the universe scope.
+@(private = "file")
+package_binds :: proc(s: ^Ref_Scan, f: ^Scan_File) -> bool {
+    for item in f.tree.items {
+        if item.name == s.target.name {
+            return true
+        }
+    }
+    if bound, known := s.bound[f.dir_key]; known {
+        return bound
+    }
+    cands := make([dynamic]Def_Candidate, context.temp_allocator)
+    package_candidates(s.ctx, f.dir, s.target.name, "", true, &cands)
+    bound := len(cands) > 0
+    key, err := strings.clone(f.dir_key)
+    if err != nil {
+        return bound
+    }
+    _, value, inserted, merr := map_entry(&s.bound, key)
+    if merr != nil || !inserted {
+        delete(key)
+    }
+    if value != nil {
+        value^ = bound
+    }
+    return bound
 }
 
 // The import of `f` that binds `alias`.

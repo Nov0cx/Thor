@@ -1,5 +1,5 @@
 // Go to definition from the scopes of package odinsema: locals, the package scope, imports,
-// enum members and procedure groups. A selector on a value, an implicit selector and a field
+// the universe scope, enum members and procedure groups. A selector on a value, an implicit selector and a field
 // name need the type of an expression, which the engine does not compute yet.
 package odin
 
@@ -112,6 +112,9 @@ definition :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
             return
         }
         package_candidates(&ctx, own_dir, ref.name, "", true, &cands)
+        if len(cands) == 0 {
+            builtin_candidates(&ctx, ref.name, &cands)
+        }
     case .Package_Qualified:
         if dir, is_import := import_alias_dir(&ctx, ref.operand); is_import {
             if dir != "" {

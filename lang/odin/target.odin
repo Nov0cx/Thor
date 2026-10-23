@@ -36,9 +36,10 @@ Request_Context :: struct {
 // What a reference search looks for.
 @(private)
 Ref_Target_Kind :: enum u8 {
-    Unbound,      // a builtin, an import path, a named argument, or a name the scopes do not bind
+    Unbound,      // an import path, a named argument, or a name the scopes do not bind
     Local,        // a local of the buffer
     Package_Item, // a file-scope declaration of a package
+    Builtin,      // a declaration of the universe scope
     Member,       // a field or enum member of a file-scope type
     Import_Alias, // the name an import of the buffer binds
 }
@@ -50,7 +51,7 @@ Ref_Target :: struct {
     name:       string, // the name every reference spells
     path:       string, // the file of the declaration
     decl:       int,    // the name offset of the declaration; -1 when not known
-    dir:        string, // Package_Item and Member: the package directory
+    dir:        string, // Package_Item, Member and Builtin: the package directory
     owner:      string, // Member: the type that declares it; "" when it is not a file-scope type
     visibility: odinsema.Visibility, // Package_Item: of the item; Member: of its type
     explicit:   bool,   // Import_Alias: the alias is written in the source
@@ -176,7 +177,10 @@ ref_target :: proc(ctx: ^Request_Context) -> Ref_Target {
         if alias, is_alias := alias_target(ctx, name); is_alias {
             return alias
         }
-        return candidate_target(ctx, own_dir, name, "", true)
+        if t := candidate_target(ctx, own_dir, name, "", true); t.kind != .Unbound {
+            return t
+        }
+        return builtin_target(ctx, name)
     case .Package_Qualified:
         if dir, is_import := import_alias_dir(ctx, ref.operand); is_import {
             if dir == "" {
@@ -230,16 +234,7 @@ candidate_target :: proc(ctx: ^Request_Context, dir, name, member: string, own: 
     if len(cands) == 0 {
         return Ref_Target{decl = -1}
     }
-    slice.sort_by(cands[:], proc(a, b: Def_Candidate) -> bool {
-        if a.inactive != b.inactive {
-            return !a.inactive
-        }
-        if a.path != b.path {
-            return a.path < b.path
-        }
-        return a.offset < b.offset
-    })
-    c := cands[0]
+    c := first_candidate(cands[:])
     t := Ref_Target {
         kind       = .Package_Item,
         name       = c.name,
@@ -253,6 +248,33 @@ candidate_target :: proc(ctx: ^Request_Context, dir, name, member: string, own: 
         t.owner = name
     }
     return t
+}
+
+// The target of the universe-scope declaration of `name`: the first active candidate, else the first one.
+@(private = "file")
+builtin_target :: proc(ctx: ^Request_Context, name: string) -> Ref_Target {
+    cands := make([dynamic]Def_Candidate, context.temp_allocator)
+    dir := builtin_candidates(ctx, name, &cands)
+    if len(cands) == 0 {
+        return Ref_Target{decl = -1}
+    }
+    c := first_candidate(cands[:])
+    return Ref_Target{kind = .Builtin, name = c.name, path = c.path, decl = c.offset, dir = dir, visibility = .Public}
+}
+
+// The first active candidate by path and offset, else the first one. Sorts `cands`.
+@(private = "file")
+first_candidate :: proc(cands: []Def_Candidate) -> Def_Candidate {
+    slice.sort_by(cands, proc(a, b: Def_Candidate) -> bool {
+        if a.inactive != b.inactive {
+            return !a.inactive
+        }
+        if a.path != b.path {
+            return a.path < b.path
+        }
+        return a.offset < b.offset
+    })
+    return cands[0]
 }
 
 // The names of an operand `pkg.Type` whose `pkg` is a free name.
