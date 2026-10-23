@@ -2065,5 +2065,30 @@ not a status, so this section stays the source of truth for what is built.
     (plan: 0.5 ms).
   - **Toolchain:** `dev-2026-10` adds `"""…"""` and ```` ```…``` ```` strings
     over lines; the lexer reads both.
-  - **Not yet:** the formatter port (rest of M2). Some compiler-only checks are not reported (`do` procedure bodies, unknown struct tags,
-    `#+` tags after `package`).
+- `lang/odin/sema` (package `odinsema`, M3 start): imports only `odinsyntax`
+  and `core:`.
+  - **Item tree** (`item_tree`): the top-level declarations of one file with
+    kind, visibility (`@(private)`, `#+private [file]`), attributes, name
+    offset, range and a one-line signature; struct and bit_field fields and
+    enum members as children; `when` branches recorded as guards, not
+    evaluated. It owns its strings, so it outlives the parse.
+  - **Target** (`file_in_build`): the compiler's file-name suffix rules and
+    `#+build` expressions (`,` or, space and, `!` not, `ignore`). The target is
+    always the host.
+  - **Package scope** (`package_scope`): name → items over the files in the
+    build, with conflicts recorded; file-private and `when`-guarded ones do not
+    clash.
+  - **Document_Symbols / Workspace_Symbols** (`lang/odin/symbols.odin`) come
+    from the item tree. The workspace walk keeps one item tree per file,
+    refreshed by modification time and size, and skips files out of the host
+    build.
+  - **Not yet:** the query DB, `when` evaluation, file imports, name
+    resolution, a target override in `.thor/odin-analyzer.json`, procs nested
+    in procs. `Foo :: pkg.Bar` lists as a constant until types resolve.
+- **Formatter** (`lang/odin/format`, M2 end): prints from the `odinsyntax`
+  tree; `core:odin/parser` is used only by tests. `tree.odin` builds the line
+  index and the comment groups in one walk. Over every `.odin` file in the
+  repo under four option sets, the output equals the old printer's except a
+  block comment between `->` and a single result type, which now stays there.
+- **Not yet (syntax):** some compiler-only checks are not reported (`do`
+  procedure bodies, unknown struct tags, `#+` tags after `package`).

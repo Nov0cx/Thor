@@ -162,6 +162,11 @@ be tested headlessly.
   by `build.odin -- gen_syntax` (`lang/odin/syntax/gen`, package `syntaxgen`); edit the schema, never
   `kind.odin`/`views.odin`, and regenerate — a test fails when they are stale, and the corpus test
   checks each view against the parser.
+  `lang/odin/sema` (package `odinsema`) is the next engine's analysis layer: `item_tree` (the
+  top-level declarations of one file; owns its strings), `file_in_build` (suffix rules and
+  `#+build` for a `Target`) and `package_scope`. It imports only `odinsyntax` and `core:`.
+  The formatter (`lang/odin/format`, package `odinfmt`) prints from the `odinsyntax` tree too;
+  `core:odin/parser` is a test oracle only.
 - `setting`, `watch`, `shell` — JSON settings/keybinds, the async recursive file-system watcher,
   process execution and the pseudo-terminal a shell runs on.
 - `vt` — the terminal emulator: the escape parser, the cell grid, the scrollback and the key, paste
@@ -354,8 +359,9 @@ subprocess LSP client as an optional second backend behind the same seam.
 - `lang/odin` is the in-client Odin analyzer. This branch is rebuilding it
   (`odin-analyzer-plan.md`): the tree-sitter engine is removed, and only `engine.odin` (lifetime +
   seam), `check.odin` (`odin check` diagnostics), `formatter.odin` + `format/` (the printer),
-  `config.odin` and `path_*.odin` remain. `supports` declines every other kind until the new engine
-  (`lang/odin/syntax`, then `sema`) serves it.
+  `syntax_check.odin` + `parse_cache.odin` (live syntax errors), `symbols.odin` (document and
+  workspace symbols from the item tree), `config.odin` and `path_*.odin` remain. `supports`
+  declines every other kind until the new engine (`lang/odin/syntax`, then `sema`) serves it.
 - The `language_intelligence` setting gates the whole seam: `manager_set_enabled` /
   `manager_set_features` make `manager_request` refuse a kind (and cancel its in-flight work), so no
   dispatch path can forget the check. `manager_allows(ext, kind)` is the per-kind question a caller
