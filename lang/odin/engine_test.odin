@@ -133,6 +133,49 @@ add :: proc(a: int, b: int) -> int {
     testing.expect_value(t, res.symbols[7].line, 17)
 }
 
+// The outline lists the procedures and types declared in a procedure body after that procedure.
+@(test)
+test_document_symbols_nested :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package demo
+
+outer :: proc() {
+	Local :: struct {
+		a: int,
+	}
+	inner :: proc() {
+		deepest :: proc() -> int {
+			return 1
+		}
+	}
+	x := 1
+}
+
+last :: proc() {}
+`
+    req := lang.Request{kind = .Document_Symbols, path = "buffer.odin", ext = ".odin", source = src}
+    res := lang.Result{kind = .Document_Symbols}
+    resolve(e, &req, &res)
+    defer free_symbols(&res)
+
+    testing.expect(t, res.ok, "expected a document symbols result")
+    names := symbol_names(&res)
+    want := []string{"outer", "Local", "a", "inner", "deepest", "last"}
+    kinds := []string{"function", "type", "field", "function", "function", "function"}
+    testing.expectf(t, slice.equal(names, want), "got %v, want %v", names, want)
+    if len(names) != len(want) {
+        return
+    }
+    for sym, i in res.symbols {
+        testing.expect_value(t, sym.kind, kinds[i])
+        testing.expectf(t, strings.has_prefix(src[sym.offset:], sym.name), "%q offset %d misses its name", sym.name, sym.offset)
+    }
+    testing.expect_value(t, res.symbols[4].signature, "deepest :: proc() -> int")
+    testing.expect_value(t, res.symbols[4].line, 8)
+}
+
 // Workspace symbols: the live buffer, the files on disk in the host build, filtered by the query.
 @(test)
 test_workspace_symbols :: proc(t: ^testing.T) {

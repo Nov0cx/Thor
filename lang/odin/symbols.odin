@@ -61,23 +61,37 @@ symbol_kind :: proc(kind: odinsema.Item_Kind) -> string {
     return ""
 }
 
-// Fills `res` with the outline of the request's buffer in source order: each declaration,
-// then its fields or members.
+// Fills `res` with the outline of the request's buffer in source order: each declaration, then its
+// fields or members, then the procedures and types declared in its body.
 @(private)
 document_symbols :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
-    tree := request_item_tree(e, req)
-    if tree == nil {
+    ctx: Request_Context
+    if !request_open(e, req, &ctx) {
         return
     }
-    defer odinsema.item_tree_destroy(tree)
-    lines := line_starts(req.source)
-    for &item in tree.items {
+    defer request_close(&ctx)
+    runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
+    lines := ctx.live.lines
+    for &item in ctx.live.tree.items {
         if symbol_kind(item.kind) == "" {
             continue
         }
         append_symbol(res, &item, req.path, lines)
         for &child in item.children {
             append_symbol(res, &child, req.path, lines)
+        }
+        if item.kind != .Proc {
+            continue
+        }
+        nested, err := odinsema.nested_decls(ctx.parsed, &item, context.temp_allocator)
+        if err != nil {
+            continue
+        }
+        for &decl in nested {
+            append_symbol(res, &decl.item, req.path, lines)
+            for &child in decl.item.children {
+                append_symbol(res, &child, req.path, lines)
+            }
         }
     }
     res.ok = true
