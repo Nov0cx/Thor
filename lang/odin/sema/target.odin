@@ -28,11 +28,46 @@ Target_Arch :: enum u8 {
     riscv64,
 }
 
-// The build configuration that decides which files of a package are compiled.
+// The value of a `-define:NAME=value`.
+Define_Value :: union {
+    bool,
+    i64,
+    string,
+}
+
+// One `-define`. A name that starts with `ODIN_` sets that build constant.
+Target_Define :: struct {
+    name:  string,
+    value: Define_Value,
+}
+
+// The build configuration that decides which files of a package are compiled and which `when` branches hold.
 Target :: struct {
-    os:    Target_OS,
-    arch:  Target_Arch,
-    tests: bool, // `_test.odin` files count, as under `odin test`
+    os:      Target_OS,
+    arch:    Target_Arch,
+    tests:   bool,            // `_test.odin` files count, as under `odin test`
+    debug:   bool,            // ODIN_DEBUG
+    defines: []Target_Define, // borrowed; the last define of a name wins
+}
+
+// The define named `name` in `target`; the last one wins.
+target_define :: proc(target: Target, name: string) -> (value: Define_Value, found: bool) {
+    #reverse for d in target.defines {
+        if d.name == name {
+            return d.value, true
+        }
+    }
+    return nil, false
+}
+
+// The lower-case name of an OS, as ODIN_OS_STRING and a file suffix spell it; "" for .Unknown.
+target_os_name :: proc(os: Target_OS) -> string {
+    return OS_NAMES[os]
+}
+
+// The name of an architecture, as ODIN_ARCH_STRING and a file suffix spell it; "" for .Unknown.
+target_arch_name :: proc(arch: Target_Arch) -> string {
+    return ARCH_NAMES[arch]
 }
 
 @(private = "file")

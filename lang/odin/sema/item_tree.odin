@@ -38,9 +38,10 @@ Item_Attribute :: struct {
     value: string,
 }
 
-// One branch of a `when` chain. It is not evaluated.
+// One branch of a `when` chain. guard_state evaluates it for a target.
 When_Guard :: struct {
     cond:     string, // the condition text; "" for a final `else`
+    expr:     int,    // the compiled condition in Item_Tree.conds; -1 for a final `else`
     start:    int,    // the branch range: the condition (or `else` body) to the end of its body
     end:      int,
     previous: int,    // the earlier branch of the chain, whose condition is false here; -1 when none
@@ -72,6 +73,7 @@ Item_Tree :: struct {
     private:        Visibility, // from `#+private` / `#+private file`
     items:          []Item,
     guards:         []When_Guard,
+    conds:          []Cond_Expr, // the compiled `when` conditions
 }
 
 @(private = "file")
@@ -83,6 +85,7 @@ Builder :: struct {
     alloc:  mem.Allocator,
     text:   string,
     guards: [dynamic]When_Guard,
+    conds:  [dynamic]Cond_Expr,
     err:    mem.Allocator_Error,
 }
 
@@ -111,6 +114,7 @@ item_tree :: proc(parsed: odinsyntax.Parse, allocator := context.allocator) -> (
         text  = parsed.tree.text,
     }
     b.guards = make([dynamic]When_Guard, b.alloc)
+    b.conds = make([dynamic]Cond_Expr, b.alloc)
     items := make([dynamic]Item, b.alloc)
 
     root_node := odinsyntax.node_root(parsed.tree)
@@ -123,6 +127,7 @@ item_tree :: proc(parsed: odinsyntax.Parse, allocator := context.allocator) -> (
     }
     tree.items = items[:]
     tree.guards = b.guards[:]
+    tree.conds = b.conds[:]
     if b.err != nil {
         item_tree_destroy(tree, allocator)
         return nil, b.err
@@ -245,11 +250,12 @@ walk_block :: proc(b: ^Builder, n: odinsyntax.Syntax_Node, ctx: Decl_Context, ou
 @(private = "file")
 walk_when :: proc(b: ^Builder, n: odinsyntax.Syntax_Node, ctx: Decl_Context, previous: int, out: ^[dynamic]Item) {
     w, _ := odinsyntax.as_when_stmt(n)
-    guard := When_Guard{previous = previous, parent = ctx.guard}
+    guard := When_Guard{expr = -1, previous = previous, parent = ctx.guard}
     guard.start = int(n.offset)
     guard.end = guard.start
     if cond, ok := odinsyntax.when_stmt_cond(&w); ok {
         guard.cond = clone(b, odinsyntax.node_text(cond))
+        guard.expr = cond_compile(cond, b.alloc, &b.conds, &b.err)
         guard.start = int(cond.offset)
     }
     body, has_body := odinsyntax.when_stmt_body(&w)
@@ -272,7 +278,7 @@ walk_when :: proc(b: ^Builder, n: odinsyntax.Syntax_Node, ctx: Decl_Context, pre
         return
     }
     start, end := odinsyntax.node_range(other)
-    inner.guard = push_guard(b, When_Guard{start = int(start), end = int(end), previous = index, parent = ctx.guard})
+    inner.guard = push_guard(b, When_Guard{start = int(start), end = int(end), expr = -1, previous = index, parent = ctx.guard})
     walk_block(b, other, inner, out)
 }
 
