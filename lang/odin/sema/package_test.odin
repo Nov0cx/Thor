@@ -171,3 +171,20 @@ flag :: 3
     }
     testing.expect_value(t, active, 1)
 }
+
+// The scope owns its names, so it outlives the item trees it was built from.
+@(test)
+test_package_scope_owns_names :: proc(t: ^testing.T) {
+    p: Test_Package
+    add_file(t, &p, "pkg/a.odin", "package pkg\n\nrun :: proc() {}\nrun :: proc() {}\n")
+    scope, err := package_scope(p.files[:], Target{os = .Windows, arch = .amd64})
+    destroy_package(&p)
+    testing.expect_value(t, err, nil)
+    defer package_scope_destroy(&scope)
+    testing.expect_value(t, scope.name, "pkg")
+    testing.expect_value(t, len(package_scope_lookup(&scope, "run")), 2)
+    testing.expect_value(t, len(scope.conflicts), 1)
+    if len(scope.conflicts) == 1 {
+        testing.expect_value(t, scope.conflicts[0].name, "run")
+    }
+}

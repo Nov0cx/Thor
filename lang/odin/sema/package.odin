@@ -1,6 +1,7 @@
 package odinsema
 
 import "core:mem"
+import "core:strings"
 
 // One file of a package and its item tree. The scope borrows both.
 Package_File :: struct {
@@ -16,7 +17,7 @@ Item_Ref :: struct {
 
 // Declarations of one name that the compiler rejects as a redeclaration.
 Conflict :: struct {
-    name: string,
+    name: string,     // borrowed from the scope
     refs: []Item_Ref, // owned
 }
 
@@ -24,15 +25,16 @@ Conflict :: struct {
 // A declaration under a `when` that is false for the target stays in `names` for navigation, is in
 // `inactive` and never conflicts. One under a `when` the evaluator cannot decide is active but never conflicts.
 Package_Scope :: struct {
-    name:      string,                      // the package name of the first file in the build
+    name:      string,                      // owned; the package name of the first file in the build
     files:     [dynamic]int,                // owned; the files in the build
-    names:     map[string][dynamic]Item_Ref, // owned; keys borrowed from the item trees
+    names:     map[string][dynamic]Item_Ref, // owned, keys included
     inactive:  map[Item_Ref]struct{},        // owned; the items under a false `when`
     conflicts: [dynamic]Conflict,            // owned
     allocator: mem.Allocator,
 }
 
-// The scope of the package that `files` make up for `target`. The item trees must outlive it.
+// The scope of the package that `files` make up for `target`. It keeps no reference to `files`;
+// an Item_Ref indexes them, so a lookup needs the same files or files whose item trees have the same shape.
 package_scope :: proc(files: []Package_File, target: Target, allocator := context.allocator) -> (scope: Package_Scope, err: mem.Allocator_Error) {
     scope.allocator = allocator
     scope.files = make([dynamic]int, allocator) or_return
@@ -48,8 +50,8 @@ package_scope :: proc(files: []Package_File, target: Target, allocator := contex
             continue
         }
         append(&scope.files, fi) or_return
-        if scope.name == "" {
-            scope.name = file.items.package_name
+        if scope.name == "" && file.items.package_name != "" {
+            scope.name = strings.clone(file.items.package_name, allocator) or_return
         }
         for item, ii in file.items.items {
             if item.kind == .Import || item.kind == .Foreign_Import || item.name == "_" {
@@ -57,8 +59,20 @@ package_scope :: proc(files: []Package_File, target: Target, allocator := contex
             }
             refs, found := &scope.names[item.name]
             if !found {
-                scope.names[item.name] = make([dynamic]Item_Ref, scope.allocator) or_return
-                refs = &scope.names[item.name]
+                key := strings.clone(item.name, allocator) or_return
+                list, lerr := make([dynamic]Item_Ref, scope.allocator)
+                if lerr != nil {
+                    delete(key, allocator)
+                    return scope, lerr
+                }
+                _, value, _, merr := map_entry(&scope.names, key)
+                if merr != nil {
+                    delete(list)
+                    delete(key, allocator)
+                    return scope, merr
+                }
+                value^ = list
+                refs = value
             }
             append(refs, Item_Ref{fi, ii}) or_return
             if !guard_active(file.items, item.guard, target) {
@@ -94,8 +108,9 @@ package_scope :: proc(files: []Package_File, target: Target, allocator := contex
 }
 
 package_scope_destroy :: proc(scope: ^Package_Scope) {
-    for _, refs in scope.names {
+    for name, refs in scope.names {
         delete(refs)
+        delete(name, scope.allocator)
     }
     delete(scope.names)
     delete(scope.inactive)
@@ -104,6 +119,7 @@ package_scope_destroy :: proc(scope: ^Package_Scope) {
     }
     delete(scope.conflicts)
     delete(scope.files)
+    delete(scope.name, scope.allocator)
     scope^ = {}
 }
 
