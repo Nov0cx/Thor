@@ -144,6 +144,14 @@ test_scope_type_switch :: proc(t: ^testing.T) {
     expect_local(t, "package p\nf :: proc(»u: U) {\n    switch v in «u {\n    }\n}", .Param)
     expect_ref(t, "package p\nf :: proc(u: U) {\n    switch v in u {\n    }\n    _ = «v\n}", .Free)
 
+    m := strip_marks(src)
+    parsed, err := odinsyntax.parse(m.src)
+    testing.expect_value(t, err, nil)
+    defer odinsyntax.parse_destroy(&parsed)
+    refs, rerr := local_references(parsed, m.decl)
+    testing.expect_value(t, rerr, nil)
+    defer delete(refs)
+    testing.expect_value(t, len(refs), 3)
 }
 
 @(test)
@@ -258,6 +266,31 @@ test_scope_using_and_blank :: proc(t: ^testing.T) {
     if len(m.usings) == 1 {
         testing.expect_value(t, src[m.usings[0].start:m.usings[0].end], "s")
     }
+}
+
+@(test)
+test_scope_local_references :: proc(t: ^testing.T) {
+    src := "package p\nf :: proc(x: int) {\n    »y := x\n    {\n        y := y + 1\n        _ = y\n    }\n    _ = y * y\n    g :: proc() { _ = y }\n}"
+    m := strip_marks(src)
+    parsed, err := odinsyntax.parse(m.src)
+    testing.expect_value(t, err, nil)
+    defer odinsyntax.parse_destroy(&parsed)
+    refs, rerr := local_references(parsed, m.decl)
+    testing.expect_value(t, rerr, nil)
+    defer delete(refs)
+    // The declaration, `y + 1` (read before the inner `y` exists), and `y * y`.
+    want := []int{m.decl, strings.index(m.src, "y + 1"), strings.index(m.src, "y * y"), strings.index(m.src, "* y") + 2}
+    testing.expect_value(t, len(refs), len(want))
+    if len(refs) == len(want) {
+        for w, i in want {
+            testing.expect_value(t, refs[i], w)
+        }
+    }
+
+    none, nerr := local_references(parsed, strings.index(m.src, "f ::"))
+    testing.expect_value(t, nerr, nil)
+    defer delete(none)
+    testing.expect_value(t, len(none), 0)
 }
 
 @(test)
