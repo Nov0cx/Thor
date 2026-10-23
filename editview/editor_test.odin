@@ -157,6 +157,50 @@ test_completion_click_in_text_dismisses :: proc(t: ^testing.T) {
     testing.expect(t, textedit.length(&state) > before_len, "the Tab was typed")
 }
 
+@(private = "file")
+editor_test_menu_hits: int
+
+@(private = "file")
+editor_test_count_menu :: proc(data: rawptr, position: ui.Vec2) {
+    editor_test_menu_hits += 1
+}
+
+// A right-click outside every selection moves the caret; one inside a selection keeps it.
+@(test)
+test_right_click_places_caret_outside_selection :: proc(t: ^testing.T) {
+    state: textedit.State
+    textedit.init(&state)
+    defer textedit.destroy(&state)
+
+    editor: Editor
+    defer delete(editor.visual_rows)
+    defer delete(editor.completion_rows)
+
+    editor_test_completion_setup(&editor, &state, "alpha beta\ngamma\n")
+    editor_set_on_context_menu(&editor, editor_test_count_menu, nil)
+    editor_test_menu_hits = 0
+
+    point := ui.Vec2 {500, 30}
+    at, hit := editor_pos_at(&editor, point)
+    testing.expect(t, hit, "the point is on a row")
+    testing.expect(t, at >= 11, "the point is on the second line")
+
+    textedit.select_range(&state, 0, 5)
+    testing.expect(t, editor_press(&editor, point, .Right, {}, 1))
+    cursor := textedit.primary_cursor(&state)
+    testing.expect_value(t, len(state.cursors), 1)
+    testing.expect_value(t, cursor.caret, at)
+    testing.expect_value(t, cursor.anchor, at)
+    testing.expect_value(t, editor_test_menu_hits, 1)
+
+    textedit.select_range(&state, 11, at)
+    testing.expect(t, editor_press(&editor, point, .Right, {}, 1))
+    lo, hi := textedit.selection_range(textedit.primary_cursor(&state))
+    testing.expect_value(t, lo, 11)
+    testing.expect_value(t, hi, at)
+    testing.expect_value(t, editor_test_menu_hits, 2)
+}
+
 @(test)
 test_swatch_needs_a_word_end :: proc(t: ^testing.T) {
     swatches: [4]Row_Swatch

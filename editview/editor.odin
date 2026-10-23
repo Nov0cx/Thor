@@ -2647,6 +2647,17 @@ editor_place_caret_at :: proc(editor: ^Editor, position: ui.Vec2) {
     }
 }
 
+// Reports whether byte offset `at` is inside a non-empty selection.
+editor_in_selection :: proc(editor: ^Editor, at: int) -> bool {
+    for cursor in editor.state.cursors {
+        lo, hi := textedit.selection_range(cursor)
+        if lo < hi && at >= lo && at <= hi {
+            return true
+        }
+    }
+    return false
+}
+
 // Drag / shift-click: extends the selection to the position, keeping the anchor.
 editor_select_to :: proc(editor: ^Editor, position: ui.Vec2) {
     if pos, ok := editor_pos_at(editor, position); ok {
@@ -2841,6 +2852,10 @@ editor_press :: proc(
     editor_cancel_jump(editor)
 
     if button == .Right {
+        // A click outside every selection moves the caret, so the menu acts on the clicked word.
+        if at, ok := editor_pos_at(editor, pos); ok && !editor_in_selection(editor, at) {
+            textedit.set_single_cursor(editor.state, at)
+        }
         if editor.on_context_menu != nil {
             editor.on_context_menu(editor.context_menu_data, pos)
         }
