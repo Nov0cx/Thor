@@ -509,3 +509,49 @@ test_rename_keeps_platform_files_in_step :: proc(t: ^testing.T) {
     testing.expectf(t, count_in(&res, "x_linux.odin") == 2, "edits in x_linux.odin: got %d", count_in(&res, "x_linux.odin"))
     testing.expectf(t, len(res.edits) == 4, "edit count: got %d", len(res.edits))
 }
+
+// The uses of a builtin span the workspace; a package that declares the name binds its own.
+@(test)
+test_references_builtin :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    if odin_root(&e.root) == "" {
+        testing.fail_now(t, "no Odin root: ODIN_ROOT, `odin root` and the build root all failed")
+    }
+    root := fixture(t, "refs_builtin", {
+        {"app/size.odin", "package app\n\nsize :: proc(s: string) -> int {\n\treturn len(s)\n}\n"},
+        {"lib/lib.odin", "package lib\n\ncount :: proc(xs: []int) -> int {\n\treturn len(xs) + len(xs)\n}\n"},
+        {"own/own.odin", "package own\n\nlen :: proc(xs: []int) -> int {\n\treturn 0\n}\n"},
+        {"own/own_use.odin", "package own\n\nuse :: proc(xs: []int) -> int {\n\treturn len(xs)\n}\n"},
+    })
+    defer os.remove_all(root)
+
+    src := "package app\n\nmain :: proc() {\n\ts := \"ab\"\n\t_ = len(s)\n}\n"
+    res := refs_at(e, src, "len(s)", root, fixture_path(root, "app/main.odin"))
+    defer free_refs(&res)
+    testing.expect(t, res.ok, "expected references to the builtin len")
+    testing.expectf(t, count_in(&res, "main.odin") == 1, "refs in the buffer: got %d", count_in(&res, "main.odin"))
+    testing.expectf(t, count_in(&res, "size.odin") == 1, "refs in size.odin: got %d", count_in(&res, "size.odin"))
+    testing.expectf(t, count_in(&res, "lib.odin") == 2, "refs in lib.odin: got %d", count_in(&res, "lib.odin"))
+    testing.expectf(t, count_in(&res, "own.odin") == 0 && count_in(&res, "own_use.odin") == 0, "package own binds its own len")
+    testing.expectf(t, len(res.symbols) == 4, "ref count: got %d", len(res.symbols))
+}
+
+// A builtin is declared outside the workspace and has no declaration to rename.
+@(test)
+test_rename_refuses_a_builtin :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    if odin_root(&e.root) == "" {
+        testing.fail_now(t, "no Odin root: ODIN_ROOT, `odin root` and the build root all failed")
+    }
+    root := fixture(t, "rename_builtin", {{"use.odin", "package app\n\nsize :: proc(s: string) -> int {\n\treturn len(s)\n}\n"}})
+    defer os.remove_all(root)
+
+    src := "package app\n\nmain :: proc() {\n\ts := \"ab\"\n\t_ = len(s)\n}\n"
+    res := rename_at(e, src, "len(s)", "length", root, fixture_path(root, "main.odin"))
+    defer free_edits(&res)
+    testing.expectf(t, !res.ok && len(res.edits) == 0, "rename of len: got %d edits", len(res.edits))
+}

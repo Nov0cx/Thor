@@ -676,3 +676,119 @@ test_definition_package_enum_member :: proc(t: ^testing.T) {
     testing.expect(t, !res.ok, "a selector on a local must not reach the package")
     free_definition(&res)
 }
+
+// The source of the file at `path` from `offset` on; "" when it cannot be read. Temp-allocated.
+@(private = "file")
+text_from :: proc(path: string, offset: int) -> string {
+    source, ok := lang.source_read(path)
+    if !ok || offset < 0 || offset > len(source) {
+        return ""
+    }
+    return source[offset:]
+}
+
+// A bare builtin jumps into base:builtin.
+@(test)
+test_definition_builtin_bare :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    if odin_root(&e.root) == "" {
+        testing.fail_now(t, "no Odin root: ODIN_ROOT, `odin root` and the build root all failed")
+    }
+    src := "package app\n\ncount :: proc(xs: []int) -> int {\n\treturn len(xs)\n}\n"
+    res := definition_at(e, src, "len(")
+    defer free_definition(&res)
+    testing.expect(t, res.ok, "expected the builtin len to resolve")
+    testing.expectf(t, len(res.symbols) == 0, "expected a jump, got %d candidates", len(res.symbols))
+    testing.expectf(t, strings.has_suffix(res.location.path, "builtin.odin"), "path: got %q", res.location.path)
+    testing.expect(t, strings.has_prefix(text_from(res.location.path, res.location.start), "len"), "expected the jump to land on the declaration")
+}
+
+// A builtin type resolves into base:builtin; a package of the workspace that does not bind it is not read.
+@(test)
+test_definition_builtin_type :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    if odin_root(&e.root) == "" {
+        testing.fail_now(t, "no Odin root: ODIN_ROOT, `odin root` and the build root all failed")
+    }
+    root := fixture(t, "def_builtin_type", {
+        {"vt/vtable.odin", "package vt\n\nTransport :: struct {\n\twrite: proc(data: rawptr) -> bool,\n\tread:  proc(data: rawptr) -> int,\n}\n"},
+    })
+    defer os.remove_all(root)
+
+    src := "package app\n\nmain :: proc() {\n\tx: int\n\t_ = x\n}\n"
+    res := definition_at(e, src, "int", root, fixture_path(root, "app/main.odin"))
+    defer free_definition(&res)
+    testing.expect(t, res.ok, "expected the builtin int to resolve")
+    testing.expectf(t, len(res.symbols) == 0, "expected a jump, got %d candidates", len(res.symbols))
+    testing.expectf(t, strings.has_suffix(res.location.path, "builtin.odin"), "path: got %q", res.location.path)
+}
+
+// A builtin procedure group offers its members from base:runtime.
+@(test)
+test_definition_builtin_group :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    if odin_root(&e.root) == "" {
+        testing.fail_now(t, "no Odin root: ODIN_ROOT, `odin root` and the build root all failed")
+    }
+    src := "package app\n\nadd :: proc(xs: ^[dynamic]int) {\n\tappend(xs, 1)\n}\n"
+    res := definition_at(e, src, "append(")
+    defer free_definition(&res)
+    testing.expect(t, res.ok, "expected the builtin append to resolve")
+    found := false
+    for sym in res.symbols {
+        if sym.name != "append_elem" {
+            continue
+        }
+        found = true
+        testing.expectf(t, strings.has_suffix(sym.path, "core_builtin.odin"), "path: got %q", sym.path)
+        testing.expect(t, sym.line > 0, "expected a line for the member")
+        testing.expect(t, strings.has_prefix(text_from(sym.path, sym.offset), "append_elem"), "expected the member offset to land on its declaration")
+    }
+    testing.expectf(t, found, "expected append_elem among %d candidates", len(res.symbols))
+}
+
+// A name the package declares hides the builtin of that name, in the buffer or in another file.
+@(test)
+test_definition_builtin_shadowed :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := "package app\n\nlen :: proc(xs: []int) -> int {\n\treturn 0\n}\n\nuse :: proc(xs: []int) -> int {\n\treturn len(xs)\n}\n"
+    res := definition_at(e, src, "len(xs)\n}")
+    expect_jump(t, &res, "buffer.odin", strings.index(src, "len ::"))
+    free_definition(&res)
+
+    other_src := "package app\n\nmake :: proc() -> int {\n\treturn 1\n}\n"
+    root := fixture(t, "def_builtin_shadowed", {{"other.odin", other_src}})
+    defer os.remove_all(root)
+    main_src := "package app\n\nmain :: proc() {\n\t_ = make()\n}\n"
+    res = definition_at(e, main_src, "make()", root, fixture_path(root, "main.odin"))
+    expect_jump(t, &res, "other.odin", strings.index(other_src, "make ::"))
+    free_definition(&res)
+}
+
+// A name of base:runtime with no `builtin` attribute needs an import.
+@(test)
+test_definition_runtime_needs_import :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    if odin_root(&e.root) == "" {
+        testing.fail_now(t, "no Odin root: ODIN_ROOT, `odin root` and the build root all failed")
+    }
+    src := "package app\n\nmain :: proc() {\n\tx: Raw_Dynamic_Array\n\t_ = x\n}\n"
+    res := definition_at(e, src, "Raw_Dynamic_Array")
+    defer free_definition(&res)
+    testing.expectf(t, !res.ok, "expected no definition, got %q", res.location.path)
+
+    qualified := "package app\n\nimport \"base:runtime\"\n\nmain :: proc() {\n\tx: runtime.Raw_Dynamic_Array\n\t_ = x\n}\n"
+    res2 := definition_at(e, qualified, "Raw_Dynamic_Array")
+    defer free_definition(&res2)
+    testing.expect(t, res2.ok, "expected runtime.Raw_Dynamic_Array to resolve")
+}
