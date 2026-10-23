@@ -168,7 +168,16 @@ definition :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
             // `Color.Red`: a member of a type of the package.
             package_candidates(&ctx, own_dir, ref.operand, ref.name, true, &cands)
         }
-    case .Field_Or_Member, .Implicit_Selector, .Field_Name:
+    case .Field_Or_Member:
+        // `pkg.Type.Member`; another operand needs the type of an expression (M4).
+        pkg, type_name, qualified := qualified_type_operand(req.source, m, ref)
+        if !qualified {
+            return
+        }
+        if dir, is_import := import_alias_dir(&ctx, pkg); is_import && dir != "" {
+            package_candidates(&ctx, dir, type_name, ref.name, false, &cands)
+        }
+    case .Implicit_Selector, .Field_Name:
         // These need the type of an expression (M4).
         return
     }
@@ -176,6 +185,29 @@ definition :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
         return
     }
     answer(&ctx, cands[:], res)
+}
+
+// The names of an operand `pkg.Type` whose `pkg` is a free name.
+@(private = "file")
+qualified_type_operand :: proc(source: string, m: ^odinsema.Scope_Map, ref: odinsema.Name_Ref) -> (pkg, type_name: string, ok: bool) {
+    if ref.operand_start < 0 || ref.operand_end > len(source) || ref.operand_start >= ref.operand_end {
+        return
+    }
+    text := source[ref.operand_start:ref.operand_end]
+    dot := strings.index_byte(text, '.')
+    if dot < 0 {
+        return
+    }
+    pkg = strings.trim_space(text[:dot])
+    type_name = strings.trim_space(text[dot + 1:])
+    if !odinsema.is_identifier(pkg) || !odinsema.is_identifier(type_name) {
+        return "", "", false
+    }
+    head, found := odinsema.ref_at(m, ref.operand_start)
+    if !found || head.kind != .Free {
+        return "", "", false
+    }
+    return pkg, type_name, true
 }
 
 // The parse of the request's buffer, through the parse cache when it has a path.

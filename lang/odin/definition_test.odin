@@ -650,3 +650,29 @@ test_definition_enum_member_cross_file :: proc(t: ^testing.T) {
     expect_jump(t, &res, "color.odin", strings.index(color_src, "Red"))
     free_definition(&res)
 }
+
+// `pkg.Color.Red` lands on the member in the imported package.
+@(test)
+test_definition_package_enum_member :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    color_src := "package lib\n\nColor :: enum {\n\tRed,\n\tGreen,\n}\n"
+    root := fixture(t, "def_package_enum_member", {{"lib/color.odin", color_src}})
+    defer os.remove_all(root)
+
+    main_src := "package app\n\nimport \"lib\"\n\nmain :: proc() {\n\t_ = lib.Color.Green\n\tlib := 1\n\t_ = lib.Color.Red\n}\n"
+    main_path := fixture_path(root, "main.odin")
+    res := definition_at(e, main_src, "Green\n", root, main_path)
+    expect_jump(t, &res, "color.odin", strings.index(color_src, "Green"))
+    free_definition(&res)
+
+    res = definition_at(e, main_src, "Color.Green", root, main_path)
+    expect_jump(t, &res, "color.odin", strings.index(color_src, "Color ::"))
+    free_definition(&res)
+
+    // A local that shadows the import is a value, whose type is not known yet.
+    res = definition_at(e, main_src, "Red\n", root, main_path)
+    testing.expect(t, !res.ok, "a selector on a local must not reach the package")
+    free_definition(&res)
+}
