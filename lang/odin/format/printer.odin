@@ -1,29 +1,16 @@
-// The formatter's entry point: parse with the compiler's own front end
-// (core:odin/parser), refuse on any syntax error so a broken file is never
-// mangled, then print a Doc from the AST and render it.
+// The formatter's entry point: parse with Thor's lossless parser
+// (lang/odin/syntax), refuse on any syntax error so a broken file is never
+// mangled, then print a Doc from the tree and render it.
 package odinfmt
 
-import "base:runtime"
+import "core:mem"
 import "core:mem/virtual"
-import "core:odin/ast"
-import "core:odin/parser"
-import "core:odin/tokenizer"
 import "core:strings"
 
-// core:odin/tokenizer fills its keyword table on the first tokenizer.init, under a
-// double-checked lock that does not re-check: a second thread that arrives while the
-// first fills asserts with the table spinlock held, and every later parse then spins
-// on it forever. The table is filled here, before any thread runs.
-@(init)
-warm_keyword_table :: proc "contextless" () {
-    context = runtime.default_context()
-    t: tokenizer.Tokenizer
-    tokenizer.init(&t, "", "<warm>", silent_handler)
-}
+import syn "../syntax"
 
-// The nesting budget of a source the formatter takes. The parser recurses per
-// bracket, a `(` or `[` costs it about two and a half times what a `{` costs,
-// and a worker thread's stack holds about 65 parentheses in a debug build.
+// The nesting budget of a source the formatter takes, kept from the
+// recursive-descent parser it used before: a `(` or `[` costs five, a `{` two.
 @(private)
 MAX_NESTING :: 200
 @(private)
@@ -43,46 +30,26 @@ BOM :: "\xef\xbb\xbf"
 // and returns its canonical layout under `opts`. ok is false when the source
 // has a syntax error; out is then empty and must not be used.
 format :: proc(source: string, opts: Options, allocator := context.allocator) -> (out: string, ok: bool) {
-    // The AST and the Doc tree are scratch, and core:odin/ast has no destructor:
-    // one arena holds both and drops them together, so only the rendered string
-    // reaches the caller.
+    // The tree, the indexes and the Doc tree are scratch: one arena holds them
+    // and drops them together, so only the rendered string reaches the caller.
     arena: virtual.Arena
     if virtual.arena_init_growing(&arena) != nil {
         return "", false
     }
     defer virtual.arena_destroy(&arena)
     context.allocator = virtual.arena_allocator(&arena)
-
-    file: ast.File
-    file.src = source
-    file.fullpath = "<format>"
-
-    p := parser.default_parser({.Optional_Semicolons})
-    p.err = silent_handler
-    p.warn = silent_handler
-
-    if !nesting_ok(source) {
-        return "", false
-    }
-    if !parser.parse_file(&p, &file) {
-        return "", false
-    }
-    if file.syntax_error_count > 0 {
-        return "", false
-    }
+    context.temp_allocator = context.allocator
 
     pr: Printer
-    pr.opts = opts
-    pr.src = source
-    pr.comments = file.comments[:]
-    pr.align_ids = make(map[rawptr]Align_Cell) // arena-backed, dropped with the AST
+    parsed, root := parse_source(&pr, source, opts) or_return
+    defer syn.parse_destroy(&parsed)
 
-    doc := print_file(&pr, &file)
+    doc := print_file(&pr, root)
     if pr.too_deep {
         return "", false
     }
     rendered := render(doc, &pr.opts, allocator)
-    // The parser skips a byte order mark, so it is put back.
+    // The printer drops a byte order mark, so it is put back.
     if strings.has_prefix(source, BOM) {
         with_bom := strings.concatenate({BOM, rendered}, allocator)
         delete(rendered, allocator)
@@ -102,32 +69,16 @@ format_window :: proc(source: string, lo, hi: int, opts: Options, allocator := c
     }
     defer virtual.arena_destroy(&arena)
     context.allocator = virtual.arena_allocator(&arena)
-
-    file: ast.File
-    file.src = source
-    file.fullpath = "<format>"
-
-    p := parser.default_parser({.Optional_Semicolons})
-    p.err = silent_handler
-    p.warn = silent_handler
-
-    if !nesting_ok(source) || !parser.parse_file(&p, &file) || file.syntax_error_count > 0 {
-        return "", false
-    }
+    context.temp_allocator = context.allocator
 
     pr: Printer
-    pr.opts = opts
-    pr.src = source
-    pr.comments = file.comments[:]
-    pr.align_ids = make(map[rawptr]Align_Cell)
+    parsed, root := parse_source(&pr, source, opts) or_return
+    defer syn.parse_destroy(&parsed)
 
-    decls := file.decls[:]
+    decls := stmt_kids(kids(root))
     first, last := -1, -1
     for d, i in decls {
-        if d == nil {
-            continue
-        }
-        if stmt_start_offset(d) < hi && d.end.offset > lo {
+        if d.start < hi && d.end > lo {
             if first < 0 {
                 first = i
             }
@@ -148,9 +99,9 @@ format_window :: proc(source: string, lo, hi: int, opts: Options, allocator := c
     }
     clear(&pr.align_ids)
 
-    start := stmt_start_offset(decls[first])
-    end := decls[last].end.offset
-    for pr.comment_idx < len(pr.comments) && pr.comments[pr.comment_idx].pos.offset < start {
+    start := decls[first].start
+    end := decls[last].end
+    for pr.comment_idx < len(pr.comments) && pr.comments[pr.comment_idx].start < start {
         pr.comment_idx += 1
     }
 
@@ -163,50 +114,45 @@ format_window :: proc(source: string, lo, hi: int, opts: Options, allocator := c
     return strings.concatenate({source[:start], rendered, source[end:]}, allocator), true
 }
 
+// Parses `source` into the printer's indexes. False on a syntax error or a
+// nesting deeper than MAX_NESTING. The caller destroys `parsed` when ok.
+@(private)
+parse_source :: proc(pr: ^Printer, source: string, opts: Options) -> (parsed: syn.Parse, root: Node, ok: bool) {
+    if !nesting_ok(source) {
+        return {}, {}, false
+    }
+    err: mem.Allocator_Error
+    parsed, err = syn.parse(source)
+    if err != nil {
+        return {}, {}, false
+    }
+    if len(parsed.errors) > 0 || parsed.tree.root == nil {
+        syn.parse_destroy(&parsed)
+        return {}, {}, false
+    }
+    pr.opts = opts
+    pr.src = source
+    pr.align_ids = make(map[u64]Align_Cell)
+    index_source(pr, parsed.tree)
+    return parsed, node_from_root(parsed.tree), true
+}
+
 // Whether two neighbouring declarations sit in one alignment run.
 @(private)
-same_run :: proc(pr: ^Printer, a, b: ^ast.Stmt) -> bool {
-    if a == nil || b == nil {
-        return false
-    }
-    ca, aok := pr.align_ids[rawptr(a.derived_stmt.(^ast.Value_Decl) or_else nil)]
-    cb, bok := pr.align_ids[rawptr(b.derived_stmt.(^ast.Value_Decl) or_else nil)]
+same_run :: proc(pr: ^Printer, a, b: Node) -> bool {
+    ca, aok := pr.align_ids[align_key(a)]
+    cb, bok := pr.align_ids[align_key(b)]
     return aok && bok && ca.head == cb.head
-}
-
-// The offset a declaration starts at, its attributes included.
-@(private)
-stmt_start_offset :: proc(stmt: ^ast.Stmt) -> int {
-    attrs: [dynamic]^ast.Attribute
-    #partial switch s in stmt.derived_stmt {
-    case ^ast.Value_Decl:
-        attrs = s.attributes
-    case ^ast.Import_Decl:
-        attrs = s.attributes
-    case ^ast.Foreign_Block_Decl:
-        attrs = s.attributes
-    case ^ast.Foreign_Import_Decl:
-        attrs = s.attributes
-    }
-    offset := stmt.pos.offset
-    for a in attrs {
-        offset = min(offset, a.pos.offset)
-    }
-    return offset
-}
-
-@(private)
-silent_handler :: proc(pos: tokenizer.Pos, msg: string, args: ..any) {
 }
 
 // Whether the brackets in `source` stay inside MAX_NESTING.
 @(private)
 nesting_ok :: proc(source: string) -> bool {
-    t: tokenizer.Tokenizer
-    tokenizer.init(&t, source, "<format>", silent_handler)
+    l: syn.Lexer
+    syn.lexer_init(&l, source)
     depth := 0
     for {
-        tok := tokenizer.scan(&t)
+        tok := syn.lex_next(&l)
         #partial switch tok.kind {
         case .EOF:
             return true

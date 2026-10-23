@@ -1,14 +1,14 @@
-// Expression printing: literals, operators and the Expr-derived type syntax
+// Expression printing: literals, operators and the type syntax
 // (proc/struct/union/enum/pointer/array/... — Odin folds type expressions
-// into Any_Expr, so this file covers both).
+// into expressions, so this file covers both).
 package odinfmt
 
-import "core:odin/ast"
-import "core:odin/tokenizer"
 import "core:strings"
 
-print_expr :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: ^ast.Expr) {
-    if expr == nil || pr.too_deep {
+import syn "../syntax"
+
+print_expr :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
+    if !is_node(expr) || pr.too_deep {
         return
     }
     pr.depth += 1
@@ -17,402 +17,252 @@ print_expr :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: ^ast.Expr) {
         pr.too_deep = true
         return
     }
-    print_state_flags(out, expr.state_flags)
-    switch e in expr.derived_expr {
-    case ^ast.Bad_Expr:
-    // Unreachable: format() refuses any source with a parse error.
+    #partial switch expr.kind {
+    case .Ident, .Literal, .Context_Expr, .Undef_Expr:
+        append(out, text(leaf_text(pr, expr)))
 
-    case ^ast.Ident:
-        append(out, text(e.name))
+    case .Directive:
+        print_directive_node(pr, out, expr)
 
-    case ^ast.Implicit:
-        append(out, text(e.tok.text))
+    case .Proc_Lit:
+        print_proc_lit(pr, out, expr)
 
-    case ^ast.Undef:
-        append(out, text(tokenizer.to_string(e.tok)))
+    case .Comp_Lit:
+        print_comp_lit_node(pr, out, expr)
 
-    case ^ast.Basic_Lit:
-        append(out, text(e.tok.text))
+    case .Tag_Expr, .Helper_Type:
+        print_tag_expr_node(pr, out, expr)
 
-    case ^ast.Basic_Directive:
-        append(out, text("#"))
-        append(out, text(e.name))
+    case .Unary_Expr:
+        print_unary_expr_node(pr, out, expr)
 
-    case ^ast.Ellipsis:
-        append(out, text(tokenizer.to_string(e.tok)))
-        if e.expr != nil {
-            print_expr(pr, out, e.expr)
-        }
+    case .Binary_Expr:
+        print_binary_expr_node(pr, out, expr)
 
-    case ^ast.Proc_Lit:
-        print_proc_lit(pr, out, e)
+    case .Ternary_Expr, .Ternary_If_Expr, .Ternary_When_Expr, .Or_Else_Expr, .Or_Return_Expr, .Or_Branch_Expr:
+        print_spaced_node(pr, out, expr)
 
-    case ^ast.Comp_Lit:
-        if e.tag != nil {
-            print_expr(pr, out, e.tag)
-            append(out, text(" "))
-        }
-        if e.type != nil {
-            print_expr(pr, out, e.type)
-        }
-        print_comp_lit_body(pr, out, e)
+    case .Paren_Expr:
+        print_paren_expr_node(pr, out, expr)
 
-    case ^ast.Tag_Expr:
-        append(out, text("#"))
-        append(out, text(e.name))
-        append(out, text(" "))
-        print_expr(pr, out, e.expr)
+    case .Selector_Expr, .Implicit_Selector:
+        // Operand, `.` or `->`, and the field, with nothing between.
+        print_tight(pr, out, kids(expr))
 
-    case ^ast.Unary_Expr:
-        append(out, text(e.op.text))
-        if e.expr != nil {
-            // `--`, `++` and `&&` are one token each.
-            if inner, ok := e.expr.derived_expr.(^ast.Unary_Expr); ok && inner.op.kind == e.op.kind {
-                #partial switch e.op.kind {
-                case .Sub, .Add, .And:
-                    append(out, text(" "))
-                }
-            }
-            print_expr(pr, out, e.expr)
-        }
+    case .Selector_Call_Expr:
+        print_selector_call_expr_node(pr, out, expr)
 
-    case ^ast.Binary_Expr:
-        if !comment_before(pr, e.right.pos.offset) {
-            print_binary_chain(pr, out, e)
-            return
-        }
-        print_expr(pr, out, e.left)
-        append(out, text(" "))
-        append(out, text(e.op.text))
-        print_binary_comments(pr, out, e)
+    case .Index_Expr, .Matrix_Index_Expr, .Slice_Expr:
+        print_index_node(pr, out, expr)
 
-    case ^ast.Paren_Expr:
-        append(out, text("("))
-        print_expr(pr, out, e.expr)
-        append(out, text(")"))
+    case .Deref_Expr:
+        print_deref_expr_node(pr, out, expr)
 
-    case ^ast.Selector_Expr:
-        print_expr(pr, out, e.expr)
-        append(out, text(e.op.text))
-        print_expr(pr, out, e.field)
+    case .Call_Expr:
+        print_call_expr_node(pr, out, expr)
 
-    case ^ast.Implicit_Selector_Expr:
-        append(out, text("."))
-        print_expr(pr, out, e.field)
+    case .Spread_Expr:
+        print_spread_expr_node(pr, out, expr)
 
-    case ^ast.Selector_Call_Expr:
-        print_expr(pr, out, e.call)
+    case .Field_Value:
+        print_field_value_node(pr, out, expr)
 
-    case ^ast.Index_Expr:
-        print_expr(pr, out, e.expr)
-        append(out, text("["))
-        print_expr(pr, out, e.index)
-        append(out, text("]"))
+    case .Type_Assertion:
+        print_type_assertion_node(pr, out, expr)
 
-    case ^ast.Deref_Expr:
-        print_expr(pr, out, e.expr)
-        append(out, text(e.op.text))
+    case .Cast_Expr:
+        print_cast_expr_node(pr, out, expr)
 
-    case ^ast.Slice_Expr:
-        print_expr(pr, out, e.expr)
-        append(out, text("["))
-        if e.low != nil {
-            print_expr(pr, out, e.low)
-        }
-        append(out, text(e.interval.text))
-        if e.high != nil {
-            print_expr(pr, out, e.high)
-        }
-        append(out, text("]"))
+    case .Auto_Cast_Expr:
+        print_auto_cast_expr_node(pr, out, expr)
 
-    case ^ast.Matrix_Index_Expr:
-        print_expr(pr, out, e.expr)
-        append(out, text("["))
-        print_expr(pr, out, e.row_index)
-        append(out, text(", "))
-        print_expr(pr, out, e.column_index)
-        append(out, text("]"))
+    case .Proc_Group:
+        print_proc_group_node(pr, out, expr)
 
-    case ^ast.Call_Expr:
-        print_call_expr(pr, out, e)
+    case .Typeid_Type, .Poly_Type:
+        // `typeid/T`, `$T/U`.
+        print_tight(pr, out, kids(expr))
 
-    case ^ast.Field_Value:
-        if cell := align_cell(pr, rawptr(expr)); cell.head != 0 {
-            field_doc: [dynamic]Doc
-            print_expr(pr, &field_doc, e.field)
-            append(out, align(cell.head, field_doc[:]))
-        } else {
-            print_expr(pr, out, e.field)
-        }
-        append(out, text(" = "))
-        print_expr(pr, out, e.value)
+    case .Distinct_Type:
+        print_distinct_type_node(pr, out, expr)
 
-    case ^ast.Ternary_If_Expr:
-        // Two distinct surface forms share this node: `cond ? x : y` puts the
-        // condition first (op1.kind == .Question); `x if cond else y` puts the
-        // true branch first. The field roles swap between them — .x/.cond are
-        // not interchangeable with "first operand"/"second operand" here.
-        if e.op1.kind == .Question {
-            print_expr(pr, out, e.cond)
-            append(out, text(" "))
-            append(out, text(e.op1.text))
-            append(out, text(" "))
-            print_expr(pr, out, e.x)
-            append(out, text(" "))
-            append(out, text(e.op2.text))
-            append(out, text(" "))
-            print_expr(pr, out, e.y)
-        } else {
-            print_expr(pr, out, e.x)
-            append(out, text(" "))
-            append(out, text(e.op1.text))
-            append(out, text(" "))
-            print_expr(pr, out, e.cond)
-            append(out, text(" "))
-            append(out, text(e.op2.text))
-            append(out, text(" "))
-            print_expr(pr, out, e.y)
-        }
+    case .Ellipsis_Type:
+        print_ellipsis_type_node(pr, out, expr)
 
-    case ^ast.Ternary_When_Expr:
-        print_expr(pr, out, e.x)
-        append(out, text(" "))
-        append(out, text(e.op1.text))
-        append(out, text(" "))
-        print_expr(pr, out, e.cond)
-        append(out, text(" "))
-        append(out, text(e.op2.text))
-        append(out, text(" "))
-        print_expr(pr, out, e.y)
+    case .Proc_Type:
+        print_proc_type_head(pr, out, expr)
+        print_proc_tags(pr, out, kids(expr))
 
-    case ^ast.Or_Else_Expr:
-        print_expr(pr, out, e.x)
-        append(out, text(" "))
-        append(out, text(e.token.text))
-        append(out, text(" "))
-        print_expr(pr, out, e.y)
+    case .Pointer_Type:
+        print_pointer_type_node(pr, out, expr)
 
-    case ^ast.Or_Return_Expr:
-        print_expr(pr, out, e.expr)
-        append(out, text(" "))
-        append(out, text(e.token.text))
+    case .Multi_Pointer_Type:
+        print_multi_pointer_type_node(pr, out, expr)
 
-    case ^ast.Or_Branch_Expr:
-        print_expr(pr, out, e.expr)
-        append(out, text(" "))
-        append(out, text(e.token.text))
-        if e.label != nil {
-            append(out, text(" "))
-            print_expr(pr, out, e.label)
-        }
+    case .Array_Type:
+        print_array_type_node(pr, out, expr)
 
-    case ^ast.Type_Assertion:
-        print_expr(pr, out, e.expr)
-        append(out, text("."))
-        if is_maybe_assertion(e) {
-            append(out, text("?"))
-        } else if e.type != nil {
-            append(out, text("("))
-            print_expr(pr, out, e.type)
-            append(out, text(")"))
-        }
+    case .Dynamic_Array_Type:
+        print_dynamic_array_type_node(pr, out, expr)
 
-    case ^ast.Type_Cast:
-        append(out, text(e.tok.text))
-        append(out, text("("))
-        print_expr(pr, out, e.type)
-        append(out, text(")"))
-        print_expr(pr, out, e.expr)
+    case .Struct_Type:
+        print_struct_type(pr, out, expr)
 
-    case ^ast.Auto_Cast:
-        append(out, text(e.op.text))
-        append(out, text(" "))
-        print_expr(pr, out, e.expr)
+    case .Union_Type:
+        print_union_type(pr, out, expr)
 
-    case ^ast.Asm_Template:
-        print_asm_template(pr, out, e)
+    case .Enum_Type:
+        print_enum_type(pr, out, expr)
 
-    case ^ast.Asm_Register:
-        print_asm_register(pr, out, e)
+    case .Bit_Set_Type:
+        print_bit_set_type_node(pr, out, expr)
 
-    case ^ast.Asm_Label:
-        print_asm_label(pr, out, e)
+    case .Map_Type:
+        print_map_type_node(pr, out, expr)
 
-    case ^ast.Asm_Memory_Operand:
-        print_asm_memory_operand(pr, out, e)
+    case .Matrix_Type:
+        print_matrix_type_node(pr, out, expr)
 
-    case ^ast.Asm_Register_Group:
-        print_asm_register_group(pr, out, e)
+    case .Bit_Field_Type:
+        print_bit_field_type(pr, out, expr)
 
-    case ^ast.Proc_Group:
-        append(out, text("proc"))
-        append(out, text("{"))
-        print_expr_list(pr, out, e.args)
-        append(out, text("}"))
+    case .Asm_Template:
+        print_asm_template(pr, out, expr)
 
-    case ^ast.Typeid_Type:
-        append(out, text("typeid"))
-        if e.specialization != nil {
-            append(out, text("/"))
-            print_expr(pr, out, e.specialization)
-        }
+    case .Asm_Register, .Asm_Label:
+        print_tight(pr, out, kids(expr))
 
-    case ^ast.Helper_Type:
-        append(out, text("#type "))
-        print_expr(pr, out, e.type)
+    case .Asm_Memory_Operand:
+        print_asm_memory_operand(pr, out, expr)
 
-    case ^ast.Distinct_Type:
-        append(out, text("distinct "))
-        print_expr(pr, out, e.type)
+    case .Asm_Register_Group:
+        print_asm_register_group(pr, out, expr)
 
-    case ^ast.Poly_Type:
-        append(out, text("$"))
-        print_expr(pr, out, e.type)
-        if e.specialization != nil {
-            append(out, text("/"))
-            print_expr(pr, out, e.specialization)
-        }
-
-    case ^ast.Proc_Type:
-        print_proc_type_head(pr, out, e)
-        print_proc_tags(pr, out, e.tags)
-
-    case ^ast.Pointer_Type:
-        if e.tag != nil {
-            print_expr(pr, out, e.tag)
-            append(out, text(" "))
-        }
-        append(out, text("^"))
-        print_expr(pr, out, e.elem)
-
-    case ^ast.Multi_Pointer_Type:
-        append(out, text("[^]"))
-        print_expr(pr, out, e.elem)
-
-    case ^ast.Array_Type:
-        if e.tag != nil {
-            print_expr(pr, out, e.tag)
-            append(out, text(" "))
-        }
-        append(out, text("["))
-        if e.len != nil {
-            print_expr(pr, out, e.len)
-        }
-        append(out, text("]"))
-        print_expr(pr, out, e.elem)
-
-    case ^ast.Dynamic_Array_Type:
-        if e.tag != nil {
-            print_expr(pr, out, e.tag)
-            append(out, text(" "))
-        }
-        append(out, text("[dynamic]"))
-        print_expr(pr, out, e.elem)
-
-    case ^ast.Fixed_Capacity_Dynamic_Array_Type:
-        if e.tag != nil {
-            print_expr(pr, out, e.tag)
-            append(out, text(" "))
-        }
-        append(out, text("[dynamic; "))
-        print_expr(pr, out, e.capacity)
-        append(out, text("]"))
-        print_expr(pr, out, e.elem)
-
-    case ^ast.Struct_Type:
-        print_struct_type(pr, out, e)
-
-    case ^ast.Union_Type:
-        print_union_type(pr, out, e)
-
-    case ^ast.Enum_Type:
-        print_enum_type(pr, out, e)
-
-    case ^ast.Bit_Set_Type:
-        append(out, text("bit_set["))
-        print_expr(pr, out, e.elem)
-        if e.underlying != nil {
-            append(out, text("; "))
-            print_expr(pr, out, e.underlying)
-        }
-        append(out, text("]"))
-
-    case ^ast.Map_Type:
-        append(out, text("map["))
-        print_expr(pr, out, e.key)
-        append(out, text("]"))
-        print_expr(pr, out, e.value)
-
-    case ^ast.Relative_Type:
-        append(out, text("#relative("))
-        print_expr(pr, out, e.tag)
-        append(out, text(") "))
-        print_expr(pr, out, e.type)
-
-    case ^ast.Matrix_Type:
-        append(out, text("matrix["))
-        print_expr(pr, out, e.row_count)
-        append(out, text(", "))
-        print_expr(pr, out, e.column_count)
-        append(out, text("]"))
-        print_expr(pr, out, e.elem)
-
-    case ^ast.Bit_Field_Type:
-        print_bit_field_type(pr, out, e)
+    case:
+        append(out, text(strings.trim_space(node_text(pr, expr))))
     }
+}
+
+// The text of a node that holds one token.
+@(private)
+leaf_text :: proc(pr: ^Printer, n: Node) -> string {
+    for k in kids(n) {
+        if !is_node(k) {
+            return node_text(pr, k)
+        }
+    }
+    return strings.trim_space(node_text(pr, n))
+}
+
+// The first node in `ks`.
+@(private)
+first_node :: proc(ks: []Node) -> (Node, bool) {
+    for k in ks {
+        if is_node(k) {
+            return k, true
+        }
+    }
+    return {}, false
+}
+
+// The nodes in `ks`.
+@(private)
+node_kids :: proc(ks: []Node) -> []Node {
+    out := make([dynamic]Node, 0, len(ks))
+    for k in ks {
+        if is_node(k) {
+            append(&out, k)
+        }
+    }
+    return out[:]
+}
+
+// The children of `ks` with nothing between them.
+@(private)
+print_tight :: proc(pr: ^Printer, out: ^[dynamic]Doc, ks: []Node) {
+    for k in ks {
+        if is_node(k) {
+            print_expr(pr, out, k)
+        } else {
+            append(out, text(node_text(pr, k)))
+        }
+    }
+}
+
+// The operands and the operator of a binary expression.
+@(private)
+binary_parts :: proc(pr: ^Printer, n: Node) -> (lhs, rhs: Node, op: syn.Token_Kind, op_text: string) {
+    ks := kids(n)
+    at := -1
+    for k, i in ks {
+        if !is_node(k) {
+            at = i
+            break
+        }
+    }
+    if at < 0 {
+        lhs, _ = first_node(ks)
+        return
+    }
+    op = ks[at].tok
+    op_text = node_text(pr, ks[at])
+    lhs, _ = first_node(ks[:at])
+    rhs, _ = first_node(ks[at + 1:])
+    return
 }
 
 // A run of one operator (`a && b && c`) as a group: on one line when it fits
 // character_width, else broken after each operator with the operands one indent
 // in. A newline after an operator ends no statement in Odin.
 @(private)
-print_binary_chain :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: ^ast.Binary_Expr) {
-    first := e.left
-    rights := make([dynamic]^ast.Expr, context.temp_allocator)
-    append(&rights, e.right)
-    for {
-        inner, ok := first.derived_expr.(^ast.Binary_Expr)
-        if !ok || inner.op.kind != e.op.kind {
+print_binary_chain :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: Node) {
+    first, right, op, op_text := binary_parts(pr, e)
+    rights := make([dynamic]Node, context.temp_allocator)
+    append(&rights, right)
+    for first.kind == .Binary_Expr {
+        inner_left, inner_right, inner_op, _ := binary_parts(pr, first)
+        if inner_op != op {
             break
         }
-        append(&rights, inner.right)
-        first = inner.left
+        append(&rights, inner_right)
+        first = inner_left
     }
     head: [dynamic]Doc
     print_expr(pr, &head, first)
     body: [dynamic]Doc
-    #reverse for right in rights {
+    #reverse for r in rights {
         append(&body, text(" "))
-        append(&body, text(e.op.text))
+        append(&body, text(op_text))
         append(&body, line())
-        print_expr(pr, &body, right)
+        print_expr(pr, &body, r)
     }
     append(&head, indent(body[:]))
     append(out, group(head[:]))
 }
 
-// The right operand of `e` after the comments written before it. A block
-// comment on the operand's line stays inline; any other comment ends the line
-// after the operator, and the operand goes on the next line, one indent in.
+// The right operand after the comments written before it. A block comment on
+// the operand's line stays inline; any other comment ends the line after the
+// operator, and the operand goes on the next line, one indent in.
 @(private)
-print_binary_comments :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: ^ast.Binary_Expr) {
+print_binary_comments :: proc(pr: ^Printer, out: ^[dynamic]Doc, right: Node) {
     inline := true
-    for i := pr.comment_idx; i < len(pr.comments) && pr.comments[i].pos.offset < e.right.pos.offset; i += 1 {
+    right_line := start_line(pr, right)
+    for i := pr.comment_idx; i < len(pr.comments) && pr.comments[i].start < right.start; i += 1 {
         cg := pr.comments[i]
         for tok in cg.list {
-            if !strings.has_prefix(tok.text, "/*") || comment_end_line(tok) != e.right.pos.line || tok.pos.line != e.right.pos.line {
+            if !strings.has_prefix(tok.text, "/*") || comment_end_line(tok) != right_line || tok.line != right_line {
                 inline = false
             }
         }
     }
-    comments := take_comments_before(pr, e.right.pos.offset)
+    comments := take_comments_before(pr, right.start)
     if inline {
         for c in comments {
             append(out, text(" "))
             append(out, c)
         }
         append(out, text(" "))
-        print_expr(pr, out, e.right)
+        print_expr(pr, out, right)
         return
     }
     body: [dynamic]Doc
@@ -421,27 +271,28 @@ print_binary_comments :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: ^ast.Binary_E
         append(&body, c)
     }
     append(&body, hard_line(0))
-    print_expr(pr, &body, e.right)
+    print_expr(pr, &body, right)
     append(out, indent(body[:]))
 }
 
-// `x.?`: the parser stores the `?` as an operand-less unary expression.
+// The `{...}` of a composite literal; `ks` are the children of the literal.
 @(private)
-is_maybe_assertion :: proc(e: ^ast.Type_Assertion) -> bool {
-    if e.type == nil {
-        return false
-    }
-    u, ok := e.type.derived_expr.(^ast.Unary_Expr)
-    return ok && u.op.kind == .Question && u.expr == nil
-}
-
-@(private)
-print_comp_lit_body ::proc(pr: ^Printer, out: ^[dynamic]Doc, e: ^ast.Comp_Lit) {
-    if len(e.elems) == 0 {
+print_comp_lit_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, ks: []Node) {
+    open := tok_index(ks, .Open_Brace)
+    close := tok_index(ks, .Close_Brace)
+    if open < 0 || close < 0 {
         append(out, text("{}"))
         return
     }
-    multiline := pr.opts.exp_multiline_composite_literals && e.open.line != e.close.line
+    elems := expr_kids(ks[open + 1:close])
+    if len(elems) == 0 {
+        append(out, text("{}"))
+        return
+    }
+    open_line := start_line(pr, ks[open])
+    close_line := start_line(pr, ks[close])
+    close_offset := ks[close].start
+    multiline := pr.opts.exp_multiline_composite_literals && open_line != close_line
     if !multiline {
         // The group is off when exp_multiline_composite_literals is on: it
         // would break a literal the source wrote on one line, and the second
@@ -449,157 +300,118 @@ print_comp_lit_body ::proc(pr: ^Printer, out: ^[dynamic]Doc, e: ^ast.Comp_Lit) {
         // branch instead — the same input rendering two ways.
         if pr.opts.exp_multiline_composite_literals {
             append(out, text("{"))
-            print_expr_list(pr, out, e.elems)
+            print_expr_list(pr, out, elems)
             append(out, text("}"))
             return
         }
-        items := make([dynamic]List_Item, 0, len(e.elems))
-        for el, i in e.elems {
-            item := List_Item {leading = take_comments_before(pr, el.pos.offset)}
+        items := make([dynamic]List_Item, 0, len(elems))
+        for el, i in elems {
+            item := List_Item {leading = take_comments_before(pr, el.start)}
             elem: [dynamic]Doc
             print_expr(pr, &elem, el)
             item.doc = concat(elem[:])
-            next := i + 1 < len(e.elems) ? e.elems[i + 1].pos.offset : e.close.offset
-            item.trailing = take_trailing(pr, el.end.line, next)
+            next := i + 1 < len(elems) ? elems[i + 1].start : close_offset
+            item.trailing = take_trailing(pr, end_line(pr, el), next)
             append(&items, item)
         }
-        append_list_group(pr, out, "{", "}", items[:], take_comments_before(pr, e.close.offset))
+        append_list_group(pr, out, "{", "}", items[:], take_comments_before(pr, close_offset))
         return
     }
     append(out, text("{"))
-    assign_field_value_align_ids(pr, e.elems)
+    assign_field_value_align_ids(pr, elems)
     body: [dynamic]Doc
-    prev_line := e.open.line
+    prev_line := open_line
     has_prev := true
-    for el in e.elems {
-        separator(pr, &body, prev_line, has_prev, el.pos.line, true)
+    for el in elems {
+        separator(pr, &body, prev_line, has_prev, start_line(pr, el), true)
         elem_doc: [dynamic]Doc
         print_expr(pr, &elem_doc, el)
         for d in elem_doc {
             append(&body, d)
         }
         append(&body, text(","))
-        prev_line = el.end.line
+        prev_line = end_line(pr, el)
         has_prev = true
     }
-    flush_before(pr, &body, prev_line, has_prev, e.close.line, true)
+    flush_before(pr, &body, prev_line, has_prev, close_line, true)
     append(out, indent(body[:]))
     append(out, hard_line(0))
     append(out, text("}"))
 }
 
-// The check directives a statement or an expression carries, each with a
-// space after it.
+// The `(...)` of a call.
 @(private)
-print_state_flags :: proc(out: ^[dynamic]Doc, flags: ast.Node_State_Flags) {
-    if flags == {} {
-        return
+print_arg_list :: proc(pr: ^Printer, out: ^[dynamic]Doc, list: Node) {
+    ks := kids(list)
+    args := expr_kids(ks)
+    close_offset := list.end
+    if i := tok_index(ks, .Close_Paren); i >= 0 {
+        close_offset = ks[i].start
     }
-    if .Bounds_Check in flags {
-        append(out, text("#bounds_check "))
-    }
-    if .No_Bounds_Check in flags {
-        append(out, text("#no_bounds_check "))
-    }
-    if .Type_Assert in flags {
-        append(out, text("#type_assert "))
-    }
-    if .No_Type_Assert in flags {
-        append(out, text("#no_type_assert "))
-    }
-}
-
-// The inlining directive of a call or a procedure literal.
-@(private)
-print_inlining :: proc(out: ^[dynamic]Doc, inlining: ast.Proc_Inlining) {
-    switch inlining {
-    case .None:
-    case .Inline:
-        append(out, text("#force_inline "))
-    case .No_Inline:
-        append(out, text("#force_no_inline "))
-    }
-}
-
-@(private)
-print_call_expr ::proc(pr: ^Printer, out: ^[dynamic]Doc, e: ^ast.Call_Expr) {
-    print_inlining(out, e.inlining)
-    if e.tailing == .Must_Tail {
-        append(out, text("#must_tail "))
-    }
-    print_expr(pr, out, e.expr)
-    has_ellipsis := e.ellipsis.pos.line != 0
-    ellipsis_arg := -1
-    if has_ellipsis {
-        best := max(int)
-        for a, i in e.args {
-            if a.pos.offset > e.ellipsis.pos.offset {
-                d := a.pos.offset - e.ellipsis.pos.offset
-                if d < best {
-                    best = d
-                    ellipsis_arg = i
-                }
-            }
-        }
-    }
-    items := make([dynamic]List_Item, 0, len(e.args))
-    for a, i in e.args {
-        item := List_Item {leading = take_comments_before(pr, a.pos.offset)}
+    items := make([dynamic]List_Item, 0, len(args))
+    for a, i in args {
+        item := List_Item {leading = take_comments_before(pr, a.start)}
         arg: [dynamic]Doc
-        if i == ellipsis_arg {
-            append(&arg, text(".."))
-        }
         print_expr(pr, &arg, a)
         item.doc = concat(arg[:])
-        next := i + 1 < len(e.args) ? e.args[i + 1].pos.offset : e.close.offset
-        item.trailing = take_trailing(pr, a.end.line, next)
+        next := i + 1 < len(args) ? args[i + 1].start : close_offset
+        item.trailing = take_trailing(pr, end_line(pr, a), next)
         append(&items, item)
     }
-    append_list_group(pr, out, "(", ")", items[:], take_comments_before(pr, e.close.offset))
+    append_list_group(pr, out, "(", ")", items[:], take_comments_before(pr, close_offset))
 }
 
+// The directives of a procedure type or literal, each with a space before it.
 @(private)
-print_proc_tags :: proc(pr: ^Printer, out: ^[dynamic]Doc, tags: ast.Proc_Tags) {
-    if .Bounds_Check in tags {
-        append(out, text(" #bounds_check"))
-    }
-    if .No_Bounds_Check in tags {
-        append(out, text(" #no_bounds_check"))
-    }
-    if .Optional_Ok in tags {
-        append(out, text(" #optional_ok"))
-    }
-    if .Optional_Allocator_Error in tags {
-        append(out, text(" #optional_allocator_error"))
+print_proc_tags :: proc(pr: ^Printer, out: ^[dynamic]Doc, ks: []Node) {
+    for k in ks {
+        if k.kind == .Directive {
+            append(out, text(" "))
+            print_expr(pr, out, k)
+        }
     }
 }
 
 // The signature only — params, results, calling convention — with no tags.
-// Standalone Proc_Type prints tags itself right after; Proc_Lit prints the
-// where-clause and its own tags copy instead (the parser duplicates one
-// parsed tag set onto both nodes, so only one side may print it).
 @(private)
-print_proc_type_head :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: ^ast.Proc_Type) {
+print_proc_type_head :: proc(pr: ^Printer, out: ^[dynamic]Doc, pt: Node) {
+    ks := kids(pt)
     append(out, text("proc"))
-    // core:odin/parser's string_to_calling_convention returns the calling
-    // convention token's raw text as-is — quotes included — so it prints
-    // verbatim; wrapping it in another pair of quotes double-quotes it.
-    if cc, ok := e.calling_convention.(string); ok && cc != "" {
+    if i := tok_index(ks, .String); i >= 0 {
         append(out, text(" "))
-        append(out, text(cc))
+        append(out, text(node_text(pr, ks[i])))
     }
-    append_field_list_group(pr, out, "(", ")", e.params, params_end(e))
-    print_signature_results(pr, out, e)
+    params, _ := find_kind(ks, .Param_List)
+    print_param_list(pr, out, params)
+    results, _ := find_kind(ks, .Result_List)
+    print_signature_results(pr, out, results)
 }
 
-// The offset the parameter list of `e` ends by. The parser leaves
-// Field_List.close unset, so it is the first result, or the end of the type.
+// `(field, field)` of a parameter list, a group that wraps one per line.
 @(private)
-params_end :: proc(e: ^ast.Proc_Type) -> int {
-    if e.results != nil && len(e.results.list) > 0 {
-        return e.results.list[0].pos.offset
+print_param_list :: proc(pr: ^Printer, out: ^[dynamic]Doc, params: Node) {
+    if !is_node(params) {
+        append(out, text("()"))
+        return
     }
-    return e.end.offset
+    ks := kids(params)
+    close_offset := params.end
+    if i := tok_index(ks, .Close_Paren); i >= 0 {
+        close_offset = ks[i].start
+    }
+    append_field_list_group(pr, out, "(", ")", field_kids(ks), close_offset)
+}
+
+// The Field nodes in `ks`.
+@(private)
+field_kids :: proc(ks: []Node) -> []Node {
+    out := make([dynamic]Node, 0, len(ks))
+    for k in ks {
+        if k.kind == .Field {
+            append(&out, k)
+        }
+    }
+    return out[:]
 }
 
 // The `-> ...` half of a signature, shared with the `asm` template — a lone
@@ -608,141 +420,531 @@ params_end :: proc(e: ^ast.Proc_Type) -> int {
 // `asm` template that carries a specification list: `-> int [` re-parses as a
 // slice of the result type, `-> (int) [` does not.
 @(private)
-print_signature_results :: proc(
-    pr: ^Printer,
-    out: ^[dynamic]Doc,
-    e: ^ast.Proc_Type,
-    parenthesise_single := false,
-) {
-    if e.diverging {
+print_signature_results :: proc(pr: ^Printer, out: ^[dynamic]Doc, results: Node, parenthesise_single := false) {
+    if !is_node(results) {
+        return
+    }
+    ks := kids(results)
+    if has_tok(ks, .Not) {
         append(out, text(" -> !"))
         return
     }
-    if e.results == nil || len(e.results.list) == 0 {
+    fields := field_kids(ks)
+    if len(fields) == 0 {
         return
     }
     append(out, text(" -> "))
-    single_unnamed := len(e.results.list) == 1 && len(e.results.list[0].names) == 0
+    single_unnamed := len(fields) == 1 && !field_has_names(fields[0])
     if single_unnamed && !parenthesise_single {
-        print_field(pr, out, e.results.list[0])
+        // A block comment between `->` and the type stays there.
+        if inline_comments_before(pr, fields[0].start) {
+            for c in take_comments_before(pr, fields[0].start) {
+                append(out, c)
+                append(out, text(" "))
+            }
+        }
+        print_field(pr, out, fields[0])
         return
     }
-    append_field_list_group(pr, out, "(", ")", e.results, e.end.offset)
+    close_offset := results.end
+    if i := tok_index(ks, .Close_Paren); i >= 0 {
+        close_offset = ks[i].start
+    }
+    append_field_list_group(pr, out, "(", ")", fields, close_offset)
 }
 
 @(private)
-print_proc_lit :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: ^ast.Proc_Lit) {
-    print_inlining(out, e.inlining)
-    print_proc_type_head(pr, out, e.type)
-    print_where(pr, out, e.where_clauses)
-    print_proc_tags(pr, out, e.tags)
-    if e.body == nil {
+print_proc_lit :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: Node) {
+    ks := kids(e)
+    pt, _ := find_kind(ks, .Proc_Type)
+    print_proc_type_head(pr, out, pt)
+    if wc, ok := find_kind(ks, .Where_Clause); ok {
+        print_where(pr, out, wc)
+    }
+    print_proc_tags(pr, out, kids(pt))
+    print_proc_tags(pr, out, ks)
+    if has_tok(ks, .Undef) {
         append(out, text(" ---"))
         return
     }
-    block, ok := e.body.derived_stmt.(^ast.Block_Stmt)
+    for k in ks {
+        if k.kind == .Block || k.kind == .Do_Body {
+            print_body(pr, out, k, true)
+            return
+        }
+    }
+}
+
+// The directives of a struct or union, each with its argument: ` #align(16)`.
+@(private)
+print_type_directives :: proc(pr: ^Printer, out: ^[dynamic]Doc, ks: []Node) {
+    for k, i in ks {
+        if k.kind != .Directive {
+            continue
+        }
+        append(out, text(" "))
+        print_expr(pr, out, k)
+        if i + 1 >= len(ks) {
+            continue
+        }
+        arg := ks[i + 1]
+        if !is_expr(arg) || arg.kind == .Directive {
+            continue
+        }
+        append(out, text("("))
+        if arg.kind == .Paren_Expr {
+            if inner, ok := first_node(kids(arg)); ok {
+                print_expr(pr, out, inner)
+            }
+        } else {
+            print_expr(pr, out, arg)
+        }
+        append(out, text(")"))
+    }
+}
+
+// The `(...)` parameters of a polymorphic struct or union.
+@(private)
+print_poly_params :: proc(pr: ^Printer, out: ^[dynamic]Doc, ks: []Node) {
+    params, ok := find_kind(ks, .Param_List)
     if !ok {
         return
     }
-    if block.uses_do && !pr.opts.convert_do {
-        append(out, text(" do "))
-        if len(block.stmts) > 0 {
-            print_stmt(pr, out, block.stmts[0])
-        }
-        return
+    append(out, text("("))
+    print_field_list(pr, out, field_kids(kids(params)))
+    append(out, text(")"))
+}
+
+// The lines of the `{` and `}` in `ks`.
+@(private)
+brace_lines :: proc(pr: ^Printer, ks: []Node, fallback: Node) -> (open_line, close_line: int) {
+    open_line = start_line(pr, fallback)
+    close_line = end_line(pr, fallback)
+    if i := tok_index(ks, .Open_Brace); i >= 0 {
+        open_line = start_line(pr, ks[i])
     }
-    print_block(pr, out, block, true)
+    if i := tok_index(ks, .Close_Brace); i >= 0 {
+        close_line = start_line(pr, ks[i])
+    }
+    return
 }
 
 @(private)
-print_struct_type :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: ^ast.Struct_Type) {
+print_struct_type :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: Node) {
+    ks := kids(e)
     append(out, text("struct"))
-    if e.poly_params != nil {
-        append(out, text("("))
-        print_field_list(pr, out, e.poly_params)
-        append(out, text(")"))
+    print_poly_params(pr, out, ks)
+    print_type_directives(pr, out, ks)
+    if wc, ok := find_kind(ks, .Where_Clause); ok {
+        print_where(pr, out, wc)
     }
-    if e.align != nil {
-        append(out, text(" #align("))
-        print_expr(pr, out, e.align)
-        append(out, text(")"))
-    }
-    if e.min_field_align != nil {
-        append(out, text(" #min_field_align("))
-        print_expr(pr, out, e.min_field_align)
-        append(out, text(")"))
-    }
-    if e.max_field_align != nil {
-        append(out, text(" #max_field_align("))
-        print_expr(pr, out, e.max_field_align)
-        append(out, text(")"))
-    }
-    if e.is_packed {
-        append(out, text(" #packed"))
-    }
-    if e.is_raw_union {
-        append(out, text(" #raw_union"))
-    }
-    if e.is_no_copy {
-        append(out, text(" #no_copy"))
-    }
-    if e.is_all_or_none {
-        append(out, text(" #all_or_none"))
-    }
-    if e.is_simple {
-        append(out, text(" #simple"))
-    }
-    print_where(pr, out, e.where_clauses)
-    if e.fields == nil {
+    list, ok := find_kind(ks, .Field_List)
+    if !ok {
         append(out, text(" {}"))
         return
     }
-    print_brace_lead(pr, out, false, len(e.fields.list) == 0)
-    print_field_brace_body(pr, out, e.end.line, e.fields.list)
+    lks := kids(list)
+    fields := field_kids(lks)
+    open_line, close_line := brace_lines(pr, lks, list)
+    print_brace_lead(pr, out, false, len(fields) == 0)
+    print_field_brace_body(pr, out, open_line, close_line, fields)
 }
 
 @(private)
-print_union_type :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: ^ast.Union_Type) {
+print_union_type :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: Node) {
+    ks := kids(e)
     append(out, text("union"))
-    if e.poly_params != nil {
-        append(out, text("("))
-        print_field_list(pr, out, e.poly_params)
-        append(out, text(")"))
+    print_poly_params(pr, out, ks)
+    print_type_directives(pr, out, ks)
+    if wc, ok := find_kind(ks, .Where_Clause); ok {
+        print_where(pr, out, wc)
     }
-    if e.align != nil {
-        append(out, text(" #align("))
-        print_expr(pr, out, e.align)
-        append(out, text(")"))
-    }
-    switch e.kind {
-    case .Normal:
-    case .maybe:
-        append(out, text(" #maybe"))
-    case .no_nil:
-        append(out, text(" #no_nil"))
-    case .shared_nil:
-        append(out, text(" #shared_nil"))
-    }
-    print_where(pr, out, e.where_clauses)
-    print_brace_lead(pr, out, false, len(e.variants) == 0)
-    print_expr_brace_body(pr, out, e.end.line, e.variants)
+    open := tok_index(ks, .Open_Brace)
+    variants := expr_kids(ks[open + 1:]) if open >= 0 else []Node{}
+    _, close_line := brace_lines(pr, ks, e)
+    print_brace_lead(pr, out, false, len(variants) == 0)
+    print_expr_brace_body(pr, out, close_line, variants)
 }
 
 @(private)
-print_enum_type :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: ^ast.Enum_Type) {
+print_enum_type :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: Node) {
+    ks := kids(e)
     append(out, text("enum"))
-    if e.base_type != nil {
+    open := tok_index(ks, .Open_Brace)
+    if backing, ok := expr_in(ks, 0, open < 0 ? len(ks) : open); ok {
         append(out, text(" "))
-        print_expr(pr, out, e.base_type)
+        print_expr(pr, out, backing)
     }
-    print_brace_lead(pr, out, false, len(e.fields) == 0)
-    print_expr_brace_body(pr, out, e.close.line, e.fields)
+    members := expr_kids(ks[open + 1:]) if open >= 0 else []Node{}
+    _, close_line := brace_lines(pr, ks, e)
+    print_brace_lead(pr, out, false, len(members) == 0)
+    print_expr_brace_body(pr, out, close_line, members)
 }
 
 @(private)
-print_bit_field_type :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: ^ast.Bit_Field_Type) {
+print_bit_field_type :: proc(pr: ^Printer, out: ^[dynamic]Doc, e: Node) {
+    ks := kids(e)
     append(out, text("bit_field "))
-    print_expr(pr, out, e.backing_type)
-    print_brace_lead(pr, out, false, len(e.fields) == 0)
-    print_bit_field_brace_body(pr, out, e.close.line, e.fields)
+    open := tok_index(ks, .Open_Brace)
+    if backing, ok := expr_in(ks, 0, open < 0 ? len(ks) : open); ok {
+        print_expr(pr, out, backing)
+    }
+    fields := make([dynamic]Node, 0, len(ks))
+    for k in ks {
+        if k.kind == .Bit_Field_Field {
+            append(&fields, k)
+        }
+    }
+    _, close_line := brace_lines(pr, ks, e)
+    print_brace_lead(pr, out, false, len(fields) == 0)
+    print_bit_field_brace_body(pr, out, close_line, fields[:])
+}
+
+@(private)
+print_directive_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
+    append(out, text("#"))
+    ks := kids(expr)
+    if i := tok_index(ks, .Ident); i >= 0 {
+        append(out, text(node_text(pr, ks[i])))
+    }
+}
+
+@(private)
+print_comp_lit_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
+    ks := kids(expr)
+    open := tok_index(ks, .Open_Brace)
+    if t, ok := expr_in(ks, 0, open < 0 ? len(ks) : open); ok {
+        print_expr(pr, out, t)
+    }
+    print_comp_lit_body(pr, out, ks)
+}
+
+@(private)
+print_tag_expr_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
+    ks := kids(expr)
+    nodes := node_kids(ks)
+    for n, i in nodes {
+        if i > 0 {
+            append(out, text(" "))
+        }
+        print_expr(pr, out, n)
+    }
+}
+
+@(private)
+print_unary_expr_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
+    ks := kids(expr)
+    op: Node
+    for k in ks {
+        if !is_node(k) {
+            op = k
+            break
+        }
+    }
+    append(out, text(node_text(pr, op)))
+    if operand, ok := first_node(ks); ok {
+        // `--`, `++` and `&&` are one token each.
+        if operand.kind == .Unary_Expr {
+            inner_op: Node
+            for k in kids(operand) {
+                if !is_node(k) {
+                    inner_op = k
+                    break
+                }
+            }
+            if inner_op.tok == op.tok {
+                #partial switch op.tok {
+                case .Sub, .Add, .And:
+                    append(out, text(" "))
+                }
+            }
+        }
+        print_expr(pr, out, operand)
+    }
+}
+
+@(private)
+print_binary_expr_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
+    lhs, rhs, _, op_text := binary_parts(pr, expr)
+    if !comment_before(pr, rhs.start) {
+        print_binary_chain(pr, out, expr)
+        return
+    }
+    print_expr(pr, out, lhs)
+    append(out, text(" "))
+    append(out, text(op_text))
+    print_binary_comments(pr, out, rhs)
+}
+
+// Operands and keywords, one space between each.
+@(private)
+print_spaced_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
+    for k, i in kids(expr) {
+        if i > 0 {
+            append(out, text(" "))
+        }
+        if is_node(k) {
+            print_expr(pr, out, k)
+        } else {
+            append(out, text(node_text(pr, k)))
+        }
+    }
+}
+
+@(private)
+print_paren_expr_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
+    append(out, text("("))
+    if inner, ok := first_node(kids(expr)); ok {
+        print_expr(pr, out, inner)
+    }
+    append(out, text(")"))
+}
+
+@(private)
+print_selector_call_expr_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
+    if call, ok := first_node(kids(expr)); ok {
+        print_expr(pr, out, call)
+    }
+}
+
+// `x[i]`, `m[r, c]`, `s[lo:hi]`.
+@(private)
+print_index_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
+    for k in kids(expr) {
+        if is_node(k) {
+            print_expr(pr, out, k)
+        } else if k.tok == .Comma {
+            append(out, text(", "))
+        } else {
+            append(out, text(node_text(pr, k)))
+        }
+    }
+}
+
+@(private)
+print_deref_expr_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
+    if operand, ok := first_node(kids(expr)); ok {
+        print_expr(pr, out, operand)
+    }
+    append(out, text("^"))
+}
+
+@(private)
+print_call_expr_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
+    ks := kids(expr)
+    if callee, ok := first_node(ks); ok && callee.kind != .Arg_List {
+        print_expr(pr, out, callee)
+    }
+    if args, ok := find_kind(ks, .Arg_List); ok {
+        print_arg_list(pr, out, args)
+    }
+}
+
+@(private)
+print_spread_expr_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
+    append(out, text(".."))
+    if operand, ok := first_node(kids(expr)); ok {
+        print_expr(pr, out, operand)
+    }
+}
+
+@(private)
+print_field_value_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
+    ks := kids(expr)
+    eq := tok_index(ks, .Eq)
+    name, _ := expr_in(ks, 0, eq < 0 ? len(ks) : eq)
+    if cell := align_cell(pr, expr); cell.head != 0 {
+        field_doc: [dynamic]Doc
+        print_expr(pr, &field_doc, name)
+        append(out, align(cell.head, field_doc[:]))
+    } else {
+        print_expr(pr, out, name)
+    }
+    append(out, text(" = "))
+    if eq >= 0 {
+        if value, ok := expr_in(ks, eq + 1, len(ks)); ok {
+            print_expr(pr, out, value)
+        }
+    }
+}
+
+@(private)
+print_type_assertion_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
+    ks := kids(expr)
+    dot := tok_index(ks, .Period)
+    if operand, ok := expr_in(ks, 0, dot < 0 ? len(ks) : dot); ok {
+        print_expr(pr, out, operand)
+    }
+    append(out, text("."))
+    if has_tok(ks, .Question) {
+        append(out, text("?"))
+    } else if t, ok := expr_in(ks, dot + 1, len(ks)); ok {
+        append(out, text("("))
+        print_expr(pr, out, t)
+        append(out, text(")"))
+    }
+}
+
+@(private)
+print_cast_expr_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
+    ks := kids(expr)
+    for k in ks {
+        if is_tok(k, .Cast) || is_tok(k, .Transmute) {
+            append(out, text(node_text(pr, k)))
+        }
+    }
+    close := tok_index(ks, .Close_Paren)
+    append(out, text("("))
+    if t, ok := expr_in(ks, 0, close < 0 ? len(ks) : close); ok {
+        print_expr(pr, out, t)
+    }
+    append(out, text(")"))
+    if close >= 0 {
+        if operand, ok := expr_in(ks, close + 1, len(ks)); ok {
+            print_expr(pr, out, operand)
+        }
+    }
+}
+
+@(private)
+print_auto_cast_expr_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
+    append(out, text("auto_cast "))
+    if operand, ok := first_node(kids(expr)); ok {
+        print_expr(pr, out, operand)
+    }
+}
+
+@(private)
+print_proc_group_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
+    append(out, text("proc{"))
+    print_expr_list(pr, out, expr_kids(kids(expr)))
+    append(out, text("}"))
+}
+
+@(private)
+print_distinct_type_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
+    append(out, text("distinct "))
+    if t, ok := first_node(kids(expr)); ok {
+        print_expr(pr, out, t)
+    }
+}
+
+@(private)
+print_ellipsis_type_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
+    append(out, text(".."))
+    if t, ok := first_node(kids(expr)); ok {
+        print_expr(pr, out, t)
+    }
+}
+
+@(private)
+print_pointer_type_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
+    append(out, text("^"))
+    if t, ok := first_node(kids(expr)); ok {
+        print_expr(pr, out, t)
+    }
+}
+
+@(private)
+print_multi_pointer_type_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
+    append(out, text("[^]"))
+    if t, ok := first_node(kids(expr)); ok {
+        print_expr(pr, out, t)
+    }
+}
+
+@(private)
+print_array_type_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
+    ks := kids(expr)
+    close := tok_index(ks, .Close_Bracket)
+    append(out, text("["))
+    if has_tok(ks[:max(close, 0)], .Question) {
+        append(out, text("?"))
+    } else if n, ok := expr_in(ks, 0, close); ok {
+        print_expr(pr, out, n)
+    }
+    append(out, text("]"))
+    if elem, ok := expr_in(ks, close + 1, len(ks)); ok {
+        print_expr(pr, out, elem)
+    }
+}
+
+@(private)
+print_dynamic_array_type_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
+    ks := kids(expr)
+    close := tok_index(ks, .Close_Bracket)
+    append(out, text("[dynamic"))
+    if capacity, ok := expr_in(ks, 0, close); ok {
+        append(out, text("; "))
+        print_expr(pr, out, capacity)
+    }
+    append(out, text("]"))
+    if elem, ok := expr_in(ks, close + 1, len(ks)); ok {
+        print_expr(pr, out, elem)
+    }
+}
+
+@(private)
+print_bit_set_type_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
+    ks := kids(expr)
+    semi := tok_index(ks, .Semicolon)
+    append(out, text("bit_set["))
+    if elem, ok := expr_in(ks, 0, semi < 0 ? len(ks) : semi); ok {
+        print_expr(pr, out, elem)
+    }
+    if semi >= 0 {
+        if backing, ok := expr_in(ks, semi + 1, len(ks)); ok {
+            append(out, text("; "))
+            print_expr(pr, out, backing)
+        }
+    }
+    append(out, text("]"))
+}
+
+@(private)
+print_map_type_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
+    ks := kids(expr)
+    close := tok_index(ks, .Close_Bracket)
+    append(out, text("map["))
+    if key, ok := expr_in(ks, 0, close); ok {
+        print_expr(pr, out, key)
+    }
+    append(out, text("]"))
+    if value, ok := expr_in(ks, close + 1, len(ks)); ok {
+        print_expr(pr, out, value)
+    }
+}
+
+@(private)
+print_matrix_type_node :: proc(pr: ^Printer, out: ^[dynamic]Doc, expr: Node) {
+    ks := kids(expr)
+    close := tok_index(ks, .Close_Bracket)
+    comma := tok_index(ks, .Comma)
+    append(out, text("matrix["))
+    if rows, ok := expr_in(ks, 0, comma); ok {
+        print_expr(pr, out, rows)
+    }
+    append(out, text(", "))
+    if columns, ok := expr_in(ks, comma + 1, close); ok {
+        print_expr(pr, out, columns)
+    }
+    append(out, text("]"))
+    if elem, ok := expr_in(ks, close + 1, len(ks)); ok {
+        print_expr(pr, out, elem)
+    }
+}
+
+// Whether the pending comments before `offset` are all one-line block comments.
+@(private)
+inline_comments_before :: proc(pr: ^Printer, offset: int) -> bool {
+    found := false
+    for i := pr.comment_idx; i < len(pr.comments) && pr.comments[i].start < offset; i += 1 {
+        for c in pr.comments[i].list {
+            if !strings.has_prefix(c.text, "/*") || strings.contains(c.text, "\n") {
+                return false
+            }
+            found = true
+        }
+    }
+    return found
 }

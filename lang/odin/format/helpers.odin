@@ -3,10 +3,8 @@
 // that decide how a block attaches to the construct in front of it.
 package odinfmt
 
-import "core:odin/ast"
-
 @(private)
-print_expr_list :: proc(pr: ^Printer, out: ^[dynamic]Doc, exprs: []^ast.Expr) {
+print_expr_list :: proc(pr: ^Printer, out: ^[dynamic]Doc, exprs: []Node) {
     for e, i in exprs {
         if i > 0 {
             append(out, text(", "))
@@ -106,25 +104,51 @@ append_list_group :: proc(pr: ^Printer, out: ^[dynamic]Doc, open, close: string,
     append(out, group(grouped[:]))
 }
 
+// `@(elem, elem)`; `@name` takes the parentheses too.
 @(private)
-print_attribute :: proc(pr: ^Printer, out: ^[dynamic]Doc, a: ^ast.Attribute) {
-    append(out, text("@"))
-    if a.tok == .Ident && len(a.elems) == 1 {
-        print_expr(pr, out, a.elems[0])
-        return
-    }
-    append(out, text("("))
-    print_expr_list(pr, out, a.elems)
+print_attribute :: proc(pr: ^Printer, out: ^[dynamic]Doc, a: Node) {
+    ks := kids(a)
+    elems := expr_kids(ks)
+    append(out, text("@("))
+    print_expr_list(pr, out, elems)
     append(out, text(")"))
 }
 
-// The parser stores stacked attributes innermost first, so they print in reverse.
+// The attributes, check directives and label in front of a statement, in source
+// order. Returns the children after them; after_label is true when the label was
+// printed last and the statement owes it the space after its colon.
 @(private)
-print_attributes :: proc(pr: ^Printer, out: ^[dynamic]Doc, attrs: [dynamic]^ast.Attribute) {
-    #reverse for a in attrs {
-        print_attribute(pr, out, a)
-        append(out, hard_line(0))
+print_stmt_prefix :: proc(pr: ^Printer, out: ^[dynamic]Doc, ks: []Node) -> (rest: []Node, after_label: bool) {
+    for k, i in ks {
+        #partial switch k.kind {
+        case .Attribute:
+            print_attribute(pr, out, k)
+            append(out, hard_line(0))
+        case .Directive:
+            if after_label {
+                append(out, text(" "))
+                after_label = false
+            }
+            print_expr(pr, out, k)
+            append(out, text(" "))
+        case .Arg_List:
+            // The arguments of `#unroll(...)`, which hug the directive.
+            if len(out) > 0 {
+                pop(out)
+            }
+            print_arg_list(pr, out, k)
+            append(out, text(" "))
+        case .Label:
+            if name, ok := find_kind(kids(k), .Ident); ok {
+                print_expr(pr, out, name)
+            }
+            append(out, text(":"))
+            after_label = true
+        case:
+            return ks[i:], after_label
+        }
     }
+    return nil, after_label
 }
 
 // Whether a block's opening brace sits on its own line: Allman always does,

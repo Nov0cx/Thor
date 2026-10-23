@@ -1,32 +1,59 @@
-// Field, Field_List, Attribute and Bit_Field_Field printing, plus the
-// brace-delimited-list builders for the three item shapes structs, unions
-// (and enums), and bit_fields hand the visitor: fields, bare expressions, and
-// bit-field fields respectively. Mirrors print_brace_body in visit_stmt.odin,
-// which does the same for statement lists — Odin has no shared "has a
-// position" interface across these pointer types, so the three stay separate.
+// Field and bit-field field printing, plus the brace-delimited-list builders
+// for the three item shapes structs, unions (and enums), and bit_fields hand
+// the visitor: fields, bare expressions, and bit-field fields respectively.
+// Mirrors print_brace_body in visit_stmt.odin, which does the same for
+// statement lists.
 package odinfmt
 
-import "core:odin/ast"
+// The parts of a field.
+@(private)
+Field_Parts :: struct {
+    using_:     bool,
+    directives: []Node,
+    names:      []Node,
+    type:       Node,
+    default:    Node,
+    tag:        string,
+}
 
 @(private)
-FIELD_DIRECTIVE_FLAGS := []ast.Field_Flag{.No_Alias, .C_Vararg, .Const, .Any_Int, .Subtype, .By_Ptr, .No_Broadcast, .No_Capture}
+field_parts :: proc(pr: ^Printer, f: Node) -> (p: Field_Parts) {
+    ks := kids(f)
+    directives := make([dynamic]Node, 0, 1)
+    colon := tok_index(ks, .Colon)
+    eq := tok_index(ks, .Eq)
+    // A directive before the name or the type is a flag; after them it is a value.
+    flags_done := false
+    for k, i in ks {
+        switch {
+        case is_tok(k, .Colon), is_tok(k, .Eq):
+            flags_done = true
+        case is_tok(k, .Using):
+            p.using_ = true
+        case is_tok(k, .String):
+            p.tag = node_text(pr, k)
+        case k.kind == .Directive && !flags_done:
+            append(&directives, k)
+        case k.kind == .Name_List:
+            flags_done = true
+            p.names = expr_kids(kids(k))
+        case is_expr(k):
+            flags_done = true
+            if eq >= 0 && i > eq {
+                p.default = k
+            } else if colon < 0 || i > colon {
+                p.type = k
+            }
+        }
+    }
+    p.directives = directives[:]
+    return
+}
 
-// A param/result written with no name at all (`proc(int, string)`, `-> (T,
-// U)`) still gets one synthetic `_` ast.Ident per field — core:odin/parser's
-// parse_field_list stamps it at the type's own position rather than leaving
-// names empty. A real `_: T` field has its `_` positioned before the type,
-// at the identifier's own source location — that's the distinguishing
-// signal, since both cases otherwise look identical on the Field struct.
 @(private)
-field_name_is_synthetic :: proc(f: ^ast.Field) -> bool {
-    if len(f.names) != 1 || f.type == nil {
-        return false
-    }
-    ident, ok := f.names[0].derived_expr.(^ast.Ident)
-    if !ok || ident.name != "_" {
-        return false
-    }
-    return f.names[0].pos == f.type.pos
+field_has_names :: proc(f: Node) -> bool {
+    _, ok := find_kind(kids(f), .Name_List)
+    return ok
 }
 
 // A field. With a head cell from the pre-pass the name side is padded so the
@@ -34,33 +61,33 @@ field_name_is_synthetic :: proc(f: ^ast.Field) -> bool {
 // `#no_alias` prefixes belong inside the cell: one that starts past the indent
 // column is padded relative to the wrong place.
 @(private)
-print_field :: proc(pr: ^Printer, out: ^[dynamic]Doc, f: ^ast.Field) {
-    cell := align_cell(pr, rawptr(f))
+print_field :: proc(pr: ^Printer, out: ^[dynamic]Doc, f: Node) {
+    cell := align_cell(pr, f)
+    p := field_parts(pr, f)
 
     head: [dynamic]Doc
-    if .Using in f.flags {
+    if p.using_ {
         append(&head, text("using "))
     }
-    for flag in FIELD_DIRECTIVE_FLAGS {
-        if flag in f.flags {
-            append(&head, text(ast.field_flag_strings[flag]))
-            append(&head, text(" "))
-        }
+    for d in p.directives {
+        print_expr(pr, &head, d)
+        append(&head, text(" "))
     }
-    has_names := len(f.names) > 0 && !field_name_is_synthetic(f)
+    has_names := len(p.names) > 0
     if has_names {
-        print_expr_list(pr, &head, f.names)
+        print_expr_list(pr, &head, p.names)
     }
 
     in_cell, after_cell := colon_split(pr)
-    has_colon := has_names && f.type != nil
+    has_type := is_node(p.type)
+    has_colon := has_names && has_type
     if has_colon {
         append(&head, text(in_cell))
     }
 
     type_doc: [dynamic]Doc
-    if f.type != nil {
-        print_expr(pr, &type_doc, f.type)
+    if has_type {
+        print_expr(pr, &type_doc, p.type)
     }
 
     if cell.head != 0 {
@@ -73,49 +100,41 @@ print_field :: proc(pr: ^Printer, out: ^[dynamic]Doc, f: ^ast.Field) {
     }
     append(out, ..type_doc[:])
 
-    if f.default_value != nil {
-        if f.type != nil {
+    if is_node(p.default) {
+        if has_type {
             append(out, text(" = "))
         } else {
             append(out, text(" := "))
         }
-        print_expr(pr, out, f.default_value)
+        print_expr(pr, out, p.default)
     }
-    if f.tag.text != "" {
+    if p.tag != "" {
         append(out, text(" "))
-        append(out, text(f.tag.text))
+        append(out, text(p.tag))
     }
 }
 
-// print_field_list as a wrappable group — the parameter-list shape, where a
-// signature too long for character_width takes one parameter per line.
-// `close_offset` is where the list ends: a comment before it is in the list.
+// The fields as a wrappable group — the parameter-list shape, where a signature
+// too long for character_width takes one parameter per line. `close_offset` is
+// where the list ends: a comment before it is in the list.
 @(private)
-append_field_list_group :: proc(pr: ^Printer, out: ^[dynamic]Doc, open, close: string, fl: ^ast.Field_List, close_offset: int) {
-    if fl == nil {
-        append(out, text(open))
-        append(out, text(close))
-        return
-    }
-    items := make([dynamic]List_Item, 0, len(fl.list))
-    for f, i in fl.list {
-        item := List_Item {leading = take_comments_before(pr, f.pos.offset)}
+append_field_list_group :: proc(pr: ^Printer, out: ^[dynamic]Doc, open, close: string, fields: []Node, close_offset: int) {
+    items := make([dynamic]List_Item, 0, len(fields))
+    for f, i in fields {
+        item := List_Item {leading = take_comments_before(pr, f.start)}
         field: [dynamic]Doc
         print_field(pr, &field, f)
         item.doc = concat(field[:])
-        next := i + 1 < len(fl.list) ? fl.list[i + 1].pos.offset : close_offset
-        item.trailing = take_trailing(pr, f.end.line, next)
+        next := i + 1 < len(fields) ? fields[i + 1].start : close_offset
+        item.trailing = take_trailing(pr, end_line(pr, f), next)
         append(&items, item)
     }
     append_list_group(pr, out, open, close, items[:], take_comments_before(pr, close_offset))
 }
 
 @(private)
-print_field_list :: proc(pr: ^Printer, out: ^[dynamic]Doc, fl: ^ast.Field_List) {
-    if fl == nil {
-        return
-    }
-    for f, i in fl.list {
+print_field_list :: proc(pr: ^Printer, out: ^[dynamic]Doc, fields: []Node) {
+    for f, i in fields {
         if i > 0 {
             append(out, text(", "))
         }
@@ -123,16 +142,13 @@ print_field_list :: proc(pr: ^Printer, out: ^[dynamic]Doc, fl: ^ast.Field_List) 
     }
 }
 
-// One field per line, comma-terminated — the struct/bit_field-poly-params
-// body shape. `close_line` is the enclosing type node's own end line (never
-// the Field_List's — the parser leaves Field_List.open/close at their zero
-// value, so relying on those miscomputes every blank-line gap in the body).
 // Whether a field has the `name: type` shape a head cell needs. A bare embedded
-// type (`using Foo`), a synthetic `_` name and a missing type all have no colon
+// type (`using Foo`), a field with no name and one with no type have no colon
 // to align to.
 @(private)
-field_alignable :: proc(f: ^ast.Field) -> bool {
-    return f.type != nil && len(f.names) > 0 && !field_name_is_synthetic(f)
+field_alignable :: proc(pr: ^Printer, f: Node) -> bool {
+    p := field_parts(pr, f)
+    return is_node(p.type) && len(p.names) > 0
 }
 
 // One head id per maximal run of two or more alignable fields on adjacent
@@ -140,35 +156,36 @@ field_alignable :: proc(f: ^ast.Field) -> bool {
 // separator that later appends a comment cannot change one mid-flight; a lone
 // field gets no id, since padding a cell to its own width does nothing.
 @(private)
-assign_field_align_ids :: proc(pr: ^Printer, fields: []^ast.Field) {
+assign_field_align_ids :: proc(pr: ^Printer, fields: []Node) {
     if !pr.opts.align_struct_fields {
         return
     }
     for i := 0; i < len(fields); {
-        if !field_alignable(fields[i]) {
+        if !field_alignable(pr, fields[i]) {
             i += 1
             continue
         }
         end := i + 1
         for end < len(fields) &&
-            field_alignable(fields[end]) &&
-            same_align_run(pr, fields[end - 1].end.line, fields[end].pos.line) {
+            field_alignable(pr, fields[end]) &&
+            same_align_run(pr, end_line(pr, fields[end - 1]), start_line(pr, fields[end])) {
             end += 1
         }
         if end - i >= 2 {
             id := next_align(pr)
             for f in fields[i:end] {
-                cell := pr.align_ids[rawptr(f)]
+                cell := pr.align_ids[align_key(f)]
                 cell.head = id
-                pr.align_ids[rawptr(f)] = cell
+                pr.align_ids[align_key(f)] = cell
             }
         }
         i = end
     }
 }
 
+// One field per line, comma-terminated — the struct body shape.
 @(private)
-print_field_brace_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, close_line: int, fields: []^ast.Field) {
+print_field_brace_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, open_line, close_line: int, fields: []Node) {
     assign_field_align_ids(pr, fields)
     append(out, text("{"))
     if len(fields) == 0 {
@@ -178,12 +195,12 @@ print_field_brace_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, close_line: int
         return
     }
     body: [dynamic]Doc
-    open_line := open_brace_line(pr, fields[0].pos.offset, fields[0].pos.line)
-    prev_line, has_prev := flush_before(pr, &body, open_line, true, fields[0].pos.line, true)
+    first_line := start_line(pr, fields[0])
+    prev_line, has_prev := flush_before(pr, &body, open_line, true, first_line, true)
     append(&body, hard_line(0))
     for f, i in fields {
         if i > 0 {
-            separator(pr, &body, prev_line, has_prev, f.pos.line, true)
+            separator(pr, &body, prev_line, has_prev, start_line(pr, f), true)
         }
         field_doc: [dynamic]Doc
         print_field(pr, &field_doc, f)
@@ -191,7 +208,7 @@ print_field_brace_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, close_line: int
             append(&body, d)
         }
         append(&body, text(","))
-        prev_line = f.end.line
+        prev_line = end_line(pr, f)
         has_prev = true
     }
     flush_before(pr, &body, prev_line, has_prev, close_line, true)
@@ -202,27 +219,27 @@ print_field_brace_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, close_line: int
 // so their `=` line up. Bare enum members and union variants have no field to
 // pad and end a run. Shared by enum bodies and multi-line composite literals.
 @(private)
-assign_field_value_align_ids :: proc(pr: ^Printer, exprs: []^ast.Expr) {
+assign_field_value_align_ids :: proc(pr: ^Printer, exprs: []Node) {
     if !pr.opts.align_struct_values {
         return
     }
     for i := 0; i < len(exprs); {
-        if !is_flat_field_value(exprs[i]) {
+        if !is_flat_field_value(pr, exprs[i]) {
             i += 1
             continue
         }
         end := i + 1
         for end < len(exprs) &&
-            is_flat_field_value(exprs[end]) &&
-            same_align_run(pr, exprs[end - 1].end.line, exprs[end].pos.line) {
+            is_flat_field_value(pr, exprs[end]) &&
+            same_align_run(pr, end_line(pr, exprs[end - 1]), start_line(pr, exprs[end])) {
             end += 1
         }
         if end - i >= 2 {
             id := next_align(pr)
             for ex in exprs[i:end] {
-                cell := pr.align_ids[rawptr(ex)]
+                cell := pr.align_ids[align_key(ex)]
                 cell.head = id
-                pr.align_ids[rawptr(ex)] = cell
+                pr.align_ids[align_key(ex)] = cell
             }
         }
         i = end
@@ -232,18 +249,20 @@ assign_field_value_align_ids :: proc(pr: ^Printer, exprs: []^ast.Expr) {
 // A `name = value` element whose name stays on one line, so its cell is
 // paddable.
 @(private)
-is_flat_field_value :: proc(ex: ^ast.Expr) -> bool {
-    fv, ok := ex.derived_expr.(^ast.Field_Value)
-    if !ok || fv.field == nil {
+is_flat_field_value :: proc(pr: ^Printer, ex: Node) -> bool {
+    if ex.kind != .Field_Value {
         return false
     }
-    return fv.field.pos.line == fv.field.end.line
+    ks := kids(ex)
+    eq := tok_index(ks, .Eq)
+    name, ok := expr_in(ks, 0, eq < 0 ? len(ks) : eq)
+    return ok && start_line(pr, name) == end_line(pr, name)
 }
 
 // One bare expression per line, comma-terminated — union variants and enum
 // fields.
 @(private)
-print_expr_brace_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, close_line: int, exprs: []^ast.Expr) {
+print_expr_brace_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, close_line: int, exprs: []Node) {
     assign_field_value_align_ids(pr, exprs)
     append(out, text("{"))
     if len(exprs) == 0 {
@@ -253,11 +272,11 @@ print_expr_brace_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, close_line: int,
         return
     }
     body: [dynamic]Doc
-    prev_line, has_prev := flush_before(pr, &body, 0, false, exprs[0].pos.line, true)
+    prev_line, has_prev := flush_before(pr, &body, 0, false, start_line(pr, exprs[0]), true)
     append(&body, hard_line(0))
     for ex, i in exprs {
         if i > 0 {
-            separator(pr, &body, prev_line, has_prev, ex.pos.line, true)
+            separator(pr, &body, prev_line, has_prev, start_line(pr, ex), true)
         }
         elem_doc: [dynamic]Doc
         print_expr(pr, &elem_doc, ex)
@@ -265,7 +284,7 @@ print_expr_brace_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, close_line: int,
             append(&body, d)
         }
         append(&body, text(","))
-        prev_line = ex.end.line
+        prev_line = end_line(pr, ex)
         has_prev = true
     }
     flush_before(pr, &body, prev_line, has_prev, close_line, true)
@@ -287,12 +306,17 @@ append_brace_close :: proc(out: ^[dynamic]Doc, body: []Doc) {
 }
 
 @(private)
-print_bit_field_field :: proc(pr: ^Printer, out: ^[dynamic]Doc, f: ^ast.Bit_Field_Field) {
-    cell := align_cell(pr, rawptr(f))
+print_bit_field_field :: proc(pr: ^Printer, out: ^[dynamic]Doc, f: Node) {
+    cell := align_cell(pr, f)
     in_cell, after_cell := colon_split(pr)
+    ks := kids(f)
+    colon := tok_index(ks, .Colon)
+    bar := tok_index(ks, .Or)
 
     head: [dynamic]Doc
-    print_expr(pr, &head, f.name)
+    if name, ok := expr_in(ks, 0, colon < 0 ? len(ks) : colon); ok {
+        print_expr(pr, &head, name)
+    }
     append(&head, text(in_cell))
     if cell.head != 0 {
         append(out, align(cell.head, head[:]))
@@ -302,7 +326,9 @@ print_bit_field_field :: proc(pr: ^Printer, out: ^[dynamic]Doc, f: ^ast.Bit_Fiel
     append(out, text(after_cell))
 
     type_doc: [dynamic]Doc
-    print_expr(pr, &type_doc, f.type)
+    if t, ok := expr_in(ks, colon + 1, bar < 0 ? len(ks) : bar); ok {
+        print_expr(pr, &type_doc, t)
+    }
     if cell.value != 0 {
         append(out, align(cell.value, type_doc[:]))
     } else {
@@ -310,31 +336,34 @@ print_bit_field_field :: proc(pr: ^Printer, out: ^[dynamic]Doc, f: ^ast.Bit_Fiel
     }
 
     append(out, text(" | "))
-    print_expr(pr, out, f.bit_size)
-    if f.tag.text != "" {
+    if bar >= 0 {
+        if bits, ok := expr_in(ks, bar + 1, len(ks)); ok {
+            print_expr(pr, out, bits)
+        }
+    }
+    if i := tok_index(ks, .String); i >= 0 {
         append(out, text(" "))
-        append(out, text(f.tag.text))
+        append(out, text(node_text(pr, ks[i])))
     }
 }
 
 // A bit-field field is always `name: type | bits`, so every member of a run is
 // alignable: the head cell lines up the types, the value cell the `|`.
 @(private)
-assign_bit_field_align_ids :: proc(pr: ^Printer, fields: []^ast.Bit_Field_Field) {
+assign_bit_field_align_ids :: proc(pr: ^Printer, fields: []Node) {
     if !pr.opts.align_struct_fields && !pr.opts.align_struct_values {
         return
     }
     for i := 0; i < len(fields); {
         end := i + 1
-        for end < len(fields) &&
-            same_align_run(pr, fields[end - 1].end.line, fields[end].pos.line) {
+        for end < len(fields) && same_align_run(pr, end_line(pr, fields[end - 1]), start_line(pr, fields[end])) {
             end += 1
         }
         if end - i >= 2 {
             head_id := pr.opts.align_struct_fields ? next_align(pr) : 0
             value_id := pr.opts.align_struct_values ? next_align(pr) : 0
             for f in fields[i:end] {
-                pr.align_ids[rawptr(f)] = Align_Cell{head = head_id, value = value_id}
+                pr.align_ids[align_key(f)] = Align_Cell{head = head_id, value = value_id}
             }
         }
         i = end
@@ -342,7 +371,7 @@ assign_bit_field_align_ids :: proc(pr: ^Printer, fields: []^ast.Bit_Field_Field)
 }
 
 @(private)
-print_bit_field_brace_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, close_line: int, fields: []^ast.Bit_Field_Field) {
+print_bit_field_brace_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, close_line: int, fields: []Node) {
     assign_bit_field_align_ids(pr, fields)
     append(out, text("{"))
     if len(fields) == 0 {
@@ -352,11 +381,11 @@ print_bit_field_brace_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, close_line:
         return
     }
     body: [dynamic]Doc
-    prev_line, has_prev := flush_before(pr, &body, 0, false, fields[0].pos.line, true)
+    prev_line, has_prev := flush_before(pr, &body, 0, false, start_line(pr, fields[0]), true)
     append(&body, hard_line(0))
     for f, i in fields {
         if i > 0 {
-            separator(pr, &body, prev_line, has_prev, f.pos.line, true)
+            separator(pr, &body, prev_line, has_prev, start_line(pr, f), true)
         }
         field_doc: [dynamic]Doc
         print_bit_field_field(pr, &field_doc, f)
@@ -364,7 +393,7 @@ print_bit_field_brace_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, close_line:
             append(&body, d)
         }
         append(&body, text(","))
-        prev_line = f.end.line
+        prev_line = end_line(pr, f)
         has_prev = true
     }
     flush_before(pr, &body, prev_line, has_prev, close_line, true)
@@ -372,10 +401,11 @@ print_bit_field_brace_body :: proc(pr: ^Printer, out: ^[dynamic]Doc, close_line:
 }
 
 @(private)
-print_where :: proc(pr: ^Printer, out: ^[dynamic]Doc, clauses: []^ast.Expr) {
-    if len(clauses) == 0 {
+print_where :: proc(pr: ^Printer, out: ^[dynamic]Doc, clause: Node) {
+    constraints := expr_kids(kids(clause))
+    if len(constraints) == 0 {
         return
     }
     append(out, text(" where "))
-    print_expr_list(pr, out, clauses)
+    print_expr_list(pr, out, constraints)
 }

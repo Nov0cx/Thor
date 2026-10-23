@@ -1,9 +1,7 @@
-// Comment interleaving: one cursor over ast.File.comments, in source order, that
-// the visitor moves up to each position it prints. Node .docs/.comment are not read.
+// Comment interleaving: one cursor over the comment groups of the file, in
+// source order, that the visitor moves up to each position it prints.
 package odinfmt
 
-import "core:odin/ast"
-import "core:odin/tokenizer"
 import "core:strings"
 
 // The alignment ids one node was given, filled by a per-body pre-pass and read
@@ -19,10 +17,11 @@ Align_Cell :: struct {
 Printer :: struct {
     opts:          Options,
     src:           string,
-    comments:      []^ast.Comment_Group,
+    line_starts:   []int, // the offset each line starts at
+    comments:      []Comment_Group,
     comment_idx:   int,
     next_align_id: int,
-    align_ids:     map[rawptr]Align_Cell,
+    align_ids:     map[u64]Align_Cell,
     depth:         int,
     too_deep:      bool, // the printer went past MAX_DEPTH; the output is not used
 }
@@ -33,10 +32,16 @@ next_align :: proc(pr: ^Printer) -> int {
     return pr.next_align_id
 }
 
-// The cell ids for `node`, or the zero value when it is in no run.
+// The key of `n` in Printer.align_ids.
 @(private)
-align_cell :: proc(pr: ^Printer, node: rawptr) -> Align_Cell {
-    return pr.align_ids[node]
+align_key :: #force_inline proc(n: Node) -> u64 {
+    return u64(n.start) << 16 | u64(n.kind)
+}
+
+// The cell ids for `n`, or the zero value when it is in no run.
+@(private)
+align_cell :: proc(pr: ^Printer, n: Node) -> Align_Cell {
+    return pr.align_ids[align_key(n)]
 }
 
 // Whether two consecutive body items may share one alignment run: every line
@@ -53,14 +58,14 @@ same_align_run :: proc(pr: ^Printer, prev_end_line, next_start_line: int) -> boo
     expect := prev_end_line + 1
     for i := pr.comment_idx; i < len(pr.comments); i += 1 {
         cg := pr.comments[i]
-        if cg.pos.line <= prev_end_line {
+        if cg.line <= prev_end_line {
             continue
         }
-        if cg.pos.line >= next_start_line {
+        if cg.line >= next_start_line {
             break
         }
         for tok in cg.list {
-            if tok.pos.line != expect {
+            if tok.line != expect {
                 return false
             }
             expect = comment_end_line(tok) + 1
@@ -82,10 +87,10 @@ blanks_between :: proc(prev_line, next_line: int) -> int {
 }
 
 @(private)
-comment_group_text :: proc(pr: ^Printer, cg: ^ast.Comment_Group, out: ^[dynamic]Doc) {
+comment_group_text :: proc(pr: ^Printer, cg: Comment_Group, out: ^[dynamic]Doc) {
     for tok, i in cg.list {
         if i > 0 {
-            blanks := blanks_between(comment_end_line(cg.list[i - 1]), tok.pos.line)
+            blanks := blanks_between(comment_end_line(cg.list[i - 1]), tok.line)
             append(out, hard_line(blanks))
         }
         trimmed := strings.trim_right_space(tok.text)
@@ -107,7 +112,7 @@ flush_trailing :: proc(pr: ^Printer, out: ^[dynamic]Doc, line: int) -> int {
     last_line := line
     for pr.comment_idx < len(pr.comments) {
         cg := pr.comments[pr.comment_idx]
-        if cg.pos.line != last_line {
+        if cg.line != last_line {
             break
         }
         append(out, text("  "))
@@ -136,11 +141,11 @@ flush_before :: proc(pr: ^Printer, out: ^[dynamic]Doc, prev_line: int, has_prev:
 
     for pr.comment_idx < len(pr.comments) {
         cg := pr.comments[pr.comment_idx]
-        if has_next && cg.pos.line >= next_line {
+        if has_next && cg.line >= next_line {
             break
         }
         if had_content || len(out^) > 0 {
-            append(out, hard_line(blanks_between(last_line, cg.pos.line)))
+            append(out, hard_line(blanks_between(last_line, cg.line)))
         }
         comment_group_text(pr, cg, out)
         last_line = comment_end_line(cg.list[len(cg.list) - 1])
@@ -170,33 +175,10 @@ flush_remaining :: proc(pr: ^Printer, out: ^[dynamic]Doc, prev_line: int, has_pr
     separator(pr, out, prev_line, has_prev, 0, false)
 }
 
-// The line of the code before `offset`: the white space and the unprinted
-// comments between are skipped. The AST keeps no position for an open brace.
-@(private)
-open_brace_line :: proc(pr: ^Printer, offset, line: int) -> int {
-    at, at_line := offset, line
-    if pr.comment_idx < len(pr.comments) {
-        cg := pr.comments[pr.comment_idx]
-        if cg.pos.offset < at {
-            at, at_line = cg.pos.offset, cg.pos.line
-        }
-    }
-    for i := at - 1; i >= 0 && i < len(pr.src); i -= 1 {
-        switch pr.src[i] {
-        case '\n':
-            at_line -= 1
-        case ' ', '\t', '\r':
-        case:
-            return at_line
-        }
-    }
-    return at_line
-}
-
 // The line a comment ends on: a `/* */` can span several.
 @(private)
-comment_end_line :: proc(tok: tokenizer.Token) -> int {
-    return tok.pos.line + strings.count(tok.text, "\n")
+comment_end_line :: proc(tok: Comment) -> int {
+    return tok.line + strings.count(tok.text, "\n")
 }
 
 // The pending comment groups that start before `offset`, one Doc each.
@@ -205,7 +187,7 @@ take_comments_before :: proc(pr: ^Printer, offset: int) -> []Doc {
     out := make([dynamic]Doc)
     for pr.comment_idx < len(pr.comments) {
         cg := pr.comments[pr.comment_idx]
-        if cg.pos.offset >= offset {
+        if cg.start >= offset {
             break
         }
         group_doc: [dynamic]Doc
@@ -223,7 +205,7 @@ take_trailing :: proc(pr: ^Printer, line, offset: int) -> []Doc {
     out := make([dynamic]Doc)
     for pr.comment_idx < len(pr.comments) {
         cg := pr.comments[pr.comment_idx]
-        if cg.pos.offset >= offset || cg.pos.line != line {
+        if cg.start >= offset || cg.line != line {
             break
         }
         group_doc: [dynamic]Doc
@@ -237,5 +219,5 @@ take_trailing :: proc(pr: ^Printer, line, offset: int) -> []Doc {
 // Whether a pending comment group starts before `offset`.
 @(private)
 comment_before :: proc(pr: ^Printer, offset: int) -> bool {
-    return pr.comment_idx < len(pr.comments) && pr.comments[pr.comment_idx].pos.offset < offset
+    return pr.comment_idx < len(pr.comments) && pr.comments[pr.comment_idx].start < offset
 }
