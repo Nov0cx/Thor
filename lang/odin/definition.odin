@@ -34,7 +34,7 @@ ODIN_ROOT_TIMEOUT :: 10 * time.Second
 Live_File :: struct {
     path:     string, // "" for a buffer with no file
     key:      string, // path_key of the path; "" when no path
-    dir_key:  string, // path_key of the directory; "" when no path
+    dir_key:  string, // path_key of the directory, "." for a buffer with no file
     tree:     ^odinsema.Item_Tree,
     lines:    []int,
     in_build: bool,
@@ -103,9 +103,10 @@ definition :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
     }
     if req.path != "" {
         ctx.live.key = path_key(req.path)
-        ctx.live.dir_key = path_key(filepath.dir(req.path))
         ctx.live.in_build = odinsema.file_in_build(req.path, tree.tags, ctx.target)
     }
+
+    ctx.live.dir_key = path_key(live_dir(&ctx))
 
     if dir, on_import := import_under_caret(&ctx, req.offset); on_import {
         if dir != "" {
@@ -125,7 +126,7 @@ definition :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
     }
 
     cands := make([dynamic]Def_Candidate, context.temp_allocator)
-    own_dir := req.path != "" ? filepath.dir(req.path) : ""
+    own_dir := live_dir(&ctx)
     switch ref.kind {
     case .None:
         return
@@ -268,12 +269,7 @@ expand_group :: proc(ctx: ^Def_Context, group: Def_Candidate, out: ^[dynamic]Def
 @(private = "file")
 package_candidates :: proc(ctx: ^Def_Context, dir, name, member: string, own: bool, out: ^[dynamic]Def_Candidate) {
     live := &ctx.live
-    replace := false
-    if dir == "" {
-        replace = live.path == ""
-    } else {
-        replace = live.dir_key != "" && path_key(dir) == live.dir_key
-    }
+    replace := path_key(dir) == live.dir_key
     start := len(out)
     if replace {
         for &item in live.tree.items {
@@ -284,8 +280,8 @@ package_candidates :: proc(ctx: ^Def_Context, dir, name, member: string, own: bo
             emit_candidate(ctx, out, &item, live.path, live.tree, live.lines, inactive, member)
         }
     }
-    // A buffer outside a workspace stands alone: its directory may be anything.
-    if dir == "" || (replace && ctx.req.workspace == "") {
+    // A buffer with no file or outside a workspace stands alone: its directory may be anything.
+    if replace && (live.path == "" || ctx.req.workspace == "") {
         return
     }
 
@@ -376,7 +372,7 @@ emit_candidate :: proc(
 @(private = "file")
 group_members :: proc(ctx: ^Def_Context, item: ^odinsema.Item, path: string, tree: ^odinsema.Item_Tree) -> []Def_Member {
     out := make([dynamic]Def_Member, context.temp_allocator)
-    file_dir := path == "" ? "" : filepath.dir(path)
+    file_dir := path == ctx.live.path ? live_dir(ctx) : filepath.dir(path)
     imports: []odinsema.File_Import
     has_imports := false
     for m in item.members {
@@ -386,7 +382,7 @@ group_members :: proc(ctx: ^Def_Context, item: ^odinsema.Item, path: string, tre
         }
         if !has_imports {
             has_imports = true
-            imports, _ = odinsema.file_imports(tree, path == "" ? "." : file_dir, def_collections(ctx), context.temp_allocator)
+            imports, _ = odinsema.file_imports(tree, file_dir, def_collections(ctx), context.temp_allocator)
         }
         imp, found := odinsema.lookup_import(imports, m.operand)
         if !found || !imp.exists {
@@ -465,13 +461,14 @@ import_under_caret :: proc(ctx: ^Def_Context, offset: int) -> (dir: string, on_i
     return "", true
 }
 
-// The directory relative imports of the buffer resolve against.
+// The directory of the buffer; "." when it has no file or the path names no directory.
 @(private = "file")
 live_dir :: proc(ctx: ^Def_Context) -> string {
     if ctx.live.path == "" {
         return "."
     }
-    return filepath.dir(ctx.live.path)
+    dir := filepath.dir(ctx.live.path)
+    return dir == "" ? "." : dir
 }
 
 // Fills `res` with the head of the file of the package at `dir` that is named like the package, else
