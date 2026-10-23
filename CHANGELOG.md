@@ -7,8 +7,12 @@
 - Odin: go to symbol (`ctrl+shift+o`) and workspace symbol search (`ctrl+q`) work again. They list procedures, types, constants, variables, struct fields and enum members.
 - Odin: workspace symbol search skips files that are not built for the current OS.
 - Odin: go to definition works again for locals, parameters, loop variables, labels, names of the same package, `pkg.name` through imports, enum members (`Color.Red`) and procedure groups. Fields of a value, `.Member` and builtins do not resolve yet.
+- Odin: find references and rename work again. They follow the package and its importers, and a rename also edits the other platform files of the package (`_windows.odin`, `_posix.odin`).
+- Odin: rename refuses a builtin, an implicit import name and a declaration outside the workspace, such as one in `core:`.
 - Odin: `.thor/odin-analyzer.json` takes `target` (`os`, `arch`) and `defines`. They select the files and `when` branches the analyzer reads.
 - Odin formatter: a block comment between `->` and a single result type stays there.
+- The editor context menu has Go to Definition, Find References, Rename Symbol, Code Actions, Signature Help, Format Document, Format Selection, Go to Symbol in File and Package Documentation. An item is greyed out when the language of the file does not serve it.
+- A right click outside the selection moves the caret to the click. A right click inside the selection keeps it.
 
 # 2026.10.7
 
