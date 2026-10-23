@@ -256,6 +256,58 @@ test_item_tree_legacy_tags_and_broken_source :: proc(t: ^testing.T) {
     testing.expect_value(t, empty.package_offset, -1)
 }
 
+@(test)
+test_item_tree_doc_comments :: proc(t: ^testing.T) {
+    src := "//+build linux\n// Package demo pings.\n//\n//   Indented.\npackage demo\n\n" +
+        "// Pings the server.\n//Returns the round-trip.\nping :: proc() -> int { return 1 }\n\n" +
+        "// Not the doc of pong.\n\npong :: 1\n" +
+        "x :: 1 // trailing\ny :: 2\n" +
+        "/* block */\nz :: 3\n" +
+        "// Above the attribute.\n@(private)\nhidden :: 4\n\n" +
+        "// Imports fmt.\nimport \"core:fmt\"\n\n" +
+        "// A point.\nPoint :: struct {\n    // Horizontal.\n    x, y: f32, // tail\n    z: f32,\n}\n\n" +
+        "Color :: enum {\n    // The first.\n    Red,\n\n    Green,\n}\n\n" +
+        "when ODIN_OS == .Linux {\n    // Inside when.\n    W :: 1\n}\r\n// Carriage.\r\nCR :: 5\n"
+    tree := build_tree(t, src)
+    defer item_tree_destroy(tree)
+
+    testing.expect_value(t, tree.package_doc, "Package demo pings.\n\n  Indented.")
+    Want :: struct {
+        name: string,
+        doc:  string,
+    }
+    wants := []Want {
+        {"ping", "Pings the server.\nReturns the round-trip."},
+        {"pong", ""},
+        {"x", ""},
+        {"y", ""},
+        {"z", ""},
+        {"hidden", "Above the attribute."},
+        {"fmt", "Imports fmt."},
+        {"Point", "A point."},
+        {"W", "Inside when."},
+        {"CR", "Carriage."},
+    }
+    for w in wants {
+        item, found := find_item(tree, w.name)
+        testing.expectf(t, found, "%s: not found", w.name)
+        testing.expectf(t, item.doc == w.doc, "%s: doc %q, want %q", w.name, item.doc, w.doc)
+    }
+    point, _ := find_item(tree, "Point")
+    testing.expect_value(t, len(point.children), 3)
+    if len(point.children) == 3 {
+        testing.expect_value(t, point.children[0].doc, "Horizontal.")
+        testing.expect_value(t, point.children[1].doc, "Horizontal.")
+        testing.expect_value(t, point.children[2].doc, "")
+    }
+    color, _ := find_item(tree, "Color")
+    testing.expect_value(t, len(color.children), 2)
+    if len(color.children) == 2 {
+        testing.expect_value(t, color.children[0].doc, "The first.")
+        testing.expect_value(t, color.children[1].doc, "")
+    }
+}
+
 // Every .odin file of the repository gives an item tree. Run from the repository root.
 @(test)
 test_item_tree_repository :: proc(t: ^testing.T) {

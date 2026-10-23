@@ -64,6 +64,7 @@ Item :: struct {
     start:       int, // the declaration range, attributes included
     end:         int,
     signature:   string, // the declaration head on one line, from the name: "add :: proc(a, b: int) -> int"
+    doc:         string, // the `//` lines directly above the declaration, markers stripped; "" when none
     attributes:  []Item_Attribute,
     guard:       int,  // innermost When_Guard; -1 when none
     in_foreign:  bool, // declared in a foreign block
@@ -78,6 +79,7 @@ Item_Tree :: struct {
     arena:          virtual.Arena,
     package_name:   string,
     package_offset: int, // -1 when the file has no package clause
+    package_doc:    string, // the `//` lines directly above the package clause, markers stripped
     tags:           []string, // file tags as `#+build ...`; the legacy `//+` form is rewritten to `#+`
     private:        Visibility, // from `#+private` / `#+private file`
     items:          []Item,
@@ -162,6 +164,7 @@ read_header :: proc(b: ^Builder, root: ^odinsyntax.Root) {
             b.tree.package_name = clone(b, odinsyntax.node_text(odinsyntax.Syntax_Node(name)))
             b.tree.package_offset = int(start)
         }
+        b.tree.package_doc = doc_above(b, (^odinsyntax.Syntax_Node)(root), pkg.offset)
     }
     offset := root.offset
     for child in odinsyntax.green_children(root.green) {
@@ -306,6 +309,7 @@ push_guard :: proc(b: ^Builder, guard: When_Guard) -> int {
 add_value_decl :: proc(b: ^Builder, n: ^odinsyntax.Syntax_Node, ctx: Decl_Context, out: ^[dynamic]Item) {
     v, _ := odinsyntax.as_value_decl(n^)
     start, end := odinsyntax.node_range(n^)
+    doc := doc_above(b, n.parent, n.offset)
 
     vis := ctx.visibility
     attrs := make([dynamic]Item_Attribute, b.alloc)
@@ -361,6 +365,7 @@ add_value_decl :: proc(b: ^Builder, n: ^odinsyntax.Syntax_Node, ctx: Decl_Contex
             name_offset = int(name.offset),
             start       = int(start),
             end         = int(end),
+            doc         = doc,
             attributes  = attrs[:],
             guard       = ctx.guard,
             in_foreign  = ctx.in_foreign,
@@ -396,6 +401,7 @@ add_import :: proc(b: ^Builder, n: ^odinsyntax.Syntax_Node, ctx: Decl_Context, o
         end         = int(end),
         guard       = ctx.guard,
         signature   = token_text(b, n^, start, end),
+        doc         = doc_above(b, n.parent, n.offset),
         path_offset = -1,
     }
     path_tok, has_path := odinsyntax.import_decl_path(&imp)
@@ -434,6 +440,7 @@ add_foreign_import :: proc(b: ^Builder, n: ^odinsyntax.Syntax_Node, ctx: Decl_Co
         end         = int(end),
         guard       = ctx.guard,
         signature   = token_text(b, n^, start, end),
+        doc         = doc_above(b, n.parent, n.offset),
         path_offset = -1,
     }
     if tok, tok_ok := odinsyntax.foreign_import_decl_path(&imp); tok_ok {
@@ -727,10 +734,92 @@ push_child :: proc(b: ^Builder, out: ^[dynamic]Item, kind: Item_Kind, decl, name
         end         = int(end),
         guard       = -1,
         signature   = token_text(b, decl, name.offset, end),
+        doc         = doc_above(b, decl.parent, decl.offset),
     }
     if _, err := append(out, item); err != nil && b.err == nil {
         b.err = err
     }
+}
+
+// The run of `//` lines directly above the child of `parent` at `offset`, read from the trivia of
+// `parent`: `//` and one space stripped, lines joined with "\n". A blank line, a trailing comment
+// or a `//+` tag ends the run.
+@(private = "file")
+doc_above :: proc(b: ^Builder, parent: ^odinsyntax.Syntax_Node, offset: u32) -> string {
+    if parent == nil || parent.green == nil {
+        return ""
+    }
+    kids := odinsyntax.green_children(parent.green)
+    index := -1
+    pos := parent.offset
+    for child, i in kids {
+        if _, is_node := odinsyntax.element_node(child); is_node && pos == offset {
+            index = i
+            break
+        }
+        pos += odinsyntax.element_len(child)
+        if pos > offset {
+            break
+        }
+    }
+    if index < 0 {
+        return ""
+    }
+    lines := make([dynamic]string, context.temp_allocator)
+    newlines := 0
+    end := offset
+    scan: for i := index - 1; i >= 0; i -= 1 {
+        tok, is_token := odinsyntax.element_token(kids[i])
+        if !is_token {
+            break
+        }
+        start := end - tok.len
+        #partial switch tok.kind {
+        case .Whitespace:
+        case .Newline:
+            newlines += 1
+            if newlines > 1 {
+                break scan
+            }
+        case .Line_Comment:
+            text := b.text[start:end]
+            if newlines != 1 || !strings.has_prefix(text, "//") || strings.has_prefix(text, "//+") || !starts_line(b.text, int(start)) {
+                break scan
+            }
+            append(&lines, text)
+            newlines = 0
+        case:
+            break scan
+        }
+        end = start
+    }
+    if len(lines) == 0 {
+        return ""
+    }
+    sb := strings.builder_make(context.temp_allocator)
+    for i := len(lines) - 1; i >= 0; i -= 1 {
+        line := strings.trim_prefix(lines[i][2:], " ")
+        strings.write_string(&sb, strings.trim_right(line, "\r"))
+        if i > 0 {
+            strings.write_byte(&sb, '\n')
+        }
+    }
+    return clone(b, strings.to_string(sb))
+}
+
+// True when only spaces and tabs come before `offset` on its line.
+@(private = "file")
+starts_line :: proc(text: string, offset: int) -> bool {
+    for i := offset - 1; i >= 0; i -= 1 {
+        switch text[i] {
+        case ' ', '\t':
+        case '\n':
+            return true
+        case:
+            return false
+        }
+    }
+    return true
 }
 
 // The tokens of `n` in [lo, hi) on one line: comments dropped, each run of trivia one space.
