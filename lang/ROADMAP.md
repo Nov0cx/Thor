@@ -2074,17 +2074,49 @@ not a status, so this section stays the source of truth for what is built.
     evaluated. It owns its strings, so it outlives the parse.
   - **Target** (`file_in_build`): the compiler's file-name suffix rules and
     `#+build` expressions (`,` or, space and, `!` not, `ignore`). The target is
-    always the host.
+    the host, overlaid by `"target"` and `"defines"` in
+    `.thor/odin-analyzer.json` (`config_target`).
+  - **`when` evaluation** (`when.odin`): each file-scope condition is compiled
+    from the tree into a small expression when the item tree is built, so the
+    tree stays target-independent; `guard_state` evaluates it to true, false or
+    unknown. It reads `ODIN_OS`/`ODIN_ARCH` (and their `_STRING` forms),
+    `ODIN_DEBUG`, `ODIN_ENDIAN`, `ODIN_WORD_SIZE`, the other build flags,
+    `#config`, `#defined`, `size_of` of basic types, `!`, `&&`, `||`,
+    comparisons and `in`/`not_in` over `{.A, .B}`. Unknown counts as active.
+    `ODIN_TEST` is unknown unless a define sets it. Package constants
+    (`when LIB != ""`) stay unknown until names resolve. 1225 of 1257 guards
+    in `core:os` and `core:sys` give a known answer.
   - **Package scope** (`package_scope`): name → items over the files in the
-    build, with conflicts recorded; file-private and `when`-guarded ones do not
-    clash.
+    build, with conflicts recorded. An item under a false `when` stays in the
+    names for navigation, marked inactive (`package_ref_active`), and never
+    conflicts; two items conflict only when both guards are known true and
+    neither is file-private to another file.
+  - **File imports** (`imports.odin`): `file_imports` gives each import its
+    alias (explicit, or the last path element; `_` binds nothing), its
+    collection and its package directory. `base`/`core`/`vendor`/`shared`
+    resolve under the Odin root, other collections come from the config, a
+    relative path joins the file's directory. A missing directory or an unknown
+    collection is recorded as a problem. Foreign imports are kept, flagged,
+    and not resolved. `package_dir_files` lists a package's `.odin` files.
+  - **Names in bodies** (`scope.odin`, `resolve.odin`): `scope_map` walks one
+    file-scope declaration and gives every identifier a `Name_Ref`: a local
+    (variable, constant, parameter, named result, loop and type-switch
+    variable, label, `$T`/`$N`), a top-level or member declaration naming
+    itself, a selector or implicit selector or field name (left for types), a
+    `pkg.name`, or a free name for the package scope. `:=` is visible after its
+    statement (`x := x` reads the outer one), `::` in a block is
+    order-independent, init statements scope into their statement, a nested
+    procedure sees outer constants, types and `$T` but no outer variables.
+    `local_references` gives every use of a local. Over 207,000 identifiers of
+    Thor's own sources no `.Local` points at a different name.
   - **Document_Symbols / Workspace_Symbols** (`lang/odin/symbols.odin`) come
     from the item tree. The workspace walk keeps one item tree per file,
-    refreshed by modification time and size, and skips files out of the host
-    build.
-  - **Not yet:** the query DB, `when` evaluation, file imports, name
-    resolution, a target override in `.thor/odin-analyzer.json`, procs nested
-    in procs. `Foo :: pkg.Bar` lists as a constant until types resolve.
+    refreshed by modification time and size, and skips files out of the
+    configured build.
+  - **Not yet:** the query DB, `using` expansion (recorded, not resolved),
+    redeclaration and visibility errors, procs nested in procs in the outline,
+    inactive `when` items in workspace symbols are not marked. `Foo ::
+    pkg.Bar` lists as a constant until types resolve.
 - **Formatter** (`lang/odin/format`, M2 end): prints from the `odinsyntax`
   tree; `core:odin/parser` is used only by tests. `tree.odin` builds the line
   index and the comment groups in one walk. Over every `.odin` file in the

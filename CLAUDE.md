@@ -164,7 +164,10 @@ be tested headlessly.
   checks each view against the parser.
   `lang/odin/sema` (package `odinsema`) is the next engine's analysis layer: `item_tree` (the
   top-level declarations of one file; owns its strings), `file_in_build` (suffix rules and
-  `#+build` for a `Target`) and `package_scope`. It imports only `odinsyntax` and `core:`.
+  `#+build` for a `Target`), `when` evaluation (`guard_state`; conditions are compiled into the
+  item tree, so it stays target-independent), `package_scope`, `file_imports` (alias → package
+  directory) and `scope_map`/`resolve_at` (what each identifier in a body names lexically). It
+  imports only `odinsyntax` and `core:`.
   The formatter (`lang/odin/format`, package `odinfmt`) prints from the `odinsyntax` tree too;
   `core:odin/parser` is a test oracle only.
 - `setting`, `watch`, `shell` — JSON settings/keybinds, the async recursive file-system watcher,
