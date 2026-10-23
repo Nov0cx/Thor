@@ -6,8 +6,8 @@ live diagnostics and lints.
 **Baseline:** `Nov0cx/Thor` at `29192c6` (release 2026.10.7).
 **Status:** M1 (lexer, parser, compact tree, typed views) and M2 (incremental reparse, formatter
 on the new tree) landed, plus live syntax errors. M3 started: `lang/odin/sema` has item trees,
-build file selection and package scopes, and serves document/workspace symbols; the query DB and
-name resolution are next;
+build file selection, package scopes and lexical name resolution, and serves document/workspace
+symbols, definition, references and rename; the query DB and types (M4) are next;
 `lang/ROADMAP.md` ("Next engine") tracks the rest. Section 11 lists the feature questions whose answers change the plan.
 
 ---

@@ -2128,6 +2128,22 @@ not a status, so this section stays the source of truth for what is built.
     line starts, scope), refreshed by stat. Not yet: `v.field` on a value,
     `.Member`, field names in literals and named arguments (need types),
     builtins (the universe scope), the overload by arguments, `using`.
+  - **References / Rename** (`lang/odin/references.odin`, the caret target in
+    `target.odin`, shared with definition): a local through
+    `local_references`; an import alias in its own file; a file-scope item in
+    the files of its package (the buffer replaces its disk copy) where the bare
+    name is not an import alias or a file-private item of another file, plus
+    `alias.name` in the workspace files that import the package (public items
+    only). A member: its declaration, `Type.Member`, `pkg.Type.Member`, and
+    until types every `.Member`, field name and `v.member` of that name in the
+    same files, unless the operand names another type or procedure. Files out
+    of the build count too, so a rename also renames the twin declaration and
+    the uses in the other platform files of the package. References
+    leave out the declaration; rename keeps it and refuses a name that is not
+    an identifier or is a keyword, a target the scopes do not bind (builtins,
+    import paths, named arguments, `.Member` and `v.field` at the caret), an
+    implicit import alias, and a declaration outside the workspace. Not yet:
+    the field of a value at the caret, a member through `using` (need types).
   - **Not yet:** the query DB, `using` expansion (recorded, not resolved),
     redeclaration and visibility errors, procs nested in procs in the outline,
     inactive `when` items in workspace symbols are not marked. `Foo ::
