@@ -52,7 +52,7 @@ add :: proc(a: int, // left
             b: int) -> int {
     return a + b
 }
-sizes :: proc{add, sub}
+sizes :: proc{add, fmt.sub}
 Generic :: struct($T: typeid) where size_of(T) > 0 { items: []T }
 `
     tree := build_tree(t, src)
@@ -80,7 +80,7 @@ Generic :: struct($T: typeid) where size_of(T) > 0 { items: []T }
         {"counter", .Var, "counter: int"},
         {"ready", .Var, "ready := true"},
         {"add", .Proc, "add :: proc(a: int, b: int) -> int"},
-        {"sizes", .Proc_Group, "sizes :: proc{add, sub}"},
+        {"sizes", .Proc_Group, "sizes :: proc{add, fmt.sub}"},
         {"Generic", .Struct, "Generic :: struct($T: typeid) where size_of(T) > 0"},
     }
     testing.expect_value(t, len(tree.items), len(wants))
@@ -122,6 +122,16 @@ Generic :: struct($T: typeid) where size_of(T) > 0 { items: []T }
     }
     bits, _ := find_item(tree, "Bits")
     testing.expect_value(t, len(bits.children), 1)
+    sizes, _ := find_item(tree, "sizes")
+    testing.expect_value(t, len(sizes.members), 2)
+    if len(sizes.members) == 2 {
+        testing.expect_value(t, sizes.members[0].name, "add")
+        testing.expect_value(t, sizes.members[0].operand, "")
+        testing.expect_value(t, sizes.members[0].offset, strings.index(src, "add, fmt"))
+        testing.expect_value(t, sizes.members[1].name, "sub")
+        testing.expect_value(t, sizes.members[1].operand, "fmt")
+        testing.expect_value(t, sizes.members[1].offset, strings.index(src, "sub}"))
+    }
 }
 
 @(test)

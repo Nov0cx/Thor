@@ -48,6 +48,13 @@ When_Guard :: struct {
     parent:   int,    // the enclosing guard; -1 at file scope
 }
 
+// A member of a procedure group: `name`, or `operand.name` when it is qualified.
+Group_Member :: struct {
+    operand: string, // "" for a bare name
+    name:    string,
+    offset:  int, // the name
+}
+
 // One declaration of a file, or a field or member of one.
 Item :: struct {
     name:        string,
@@ -63,6 +70,7 @@ Item :: struct {
     path:        string, // Import and Foreign_Import: the unquoted path
     path_offset: int,    // Import and Foreign_Import: the opening quote of the path; -1 when none
     children:    []Item, // struct and bit_field fields, enum members
+    members:     []Group_Member, // Proc_Group: the members that are a name or `operand.name`
 }
 
 // The declarations of one file. Proc bodies are not read. Every string is a copy in `arena`.
@@ -363,6 +371,9 @@ add_value_decl :: proc(b: ^Builder, n: ^odinsyntax.Syntax_Node, ctx: Decl_Contex
             if constant {
                 item.kind = classify(value)
                 item.children = read_children(b, value)
+                if item.kind == .Proc_Group {
+                    item.members = read_members(b, value)
+                }
             }
         } else if constant {
             item.kind = .Const
@@ -666,6 +677,40 @@ read_children :: proc(b: ^Builder, value: odinsyntax.Syntax_Node) -> []Item {
                     push_child(b, &out, .Enum_Member, member, name, end)
                 }
             }
+        }
+    }
+    return out[:]
+}
+
+// The members of a procedure group that are a name or `operand.name`; other expressions are skipped.
+@(private = "file")
+read_members :: proc(b: ^Builder, value: odinsyntax.Syntax_Node) -> []Group_Member {
+    out := make([dynamic]Group_Member, b.alloc)
+    group, ok := odinsyntax.as_proc_group(value)
+    if !ok {
+        return out[:]
+    }
+    it := odinsyntax.proc_group_members(&group)
+    for member in odinsyntax.child_iter_next(&it) {
+        m := Group_Member{offset = int(member.offset)}
+        #partial switch member.green.kind {
+        case .Ident:
+            m.name = clone(b, odinsyntax.node_text(member))
+        case .Selector_Expr:
+            sel, _ := odinsyntax.as_selector_expr(member)
+            operand, has_operand := odinsyntax.selector_expr_operand(&sel)
+            field, has_field := odinsyntax.selector_expr_field(&sel)
+            if !has_operand || !has_field || operand.green.kind != .Ident {
+                continue
+            }
+            m.operand = clone(b, odinsyntax.node_text(operand))
+            m.name = clone(b, odinsyntax.node_text(odinsyntax.Syntax_Node(field)))
+            m.offset = int(field.offset)
+        case:
+            continue
+        }
+        if _, err := append(&out, m); err != nil && b.err == nil {
+            b.err = err
         }
     }
     return out[:]
