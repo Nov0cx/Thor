@@ -184,7 +184,7 @@ path_key :: proc(path: string) -> string {
 
 // Brings the index in step with req.workspace on disk: a changed file is read again, a gone one dropped.
 // A cancelled walk leaves the index stale and does not prune. The caller holds the index mutex.
-@(private = "file")
+@(private)
 index_sync :: proc(e: ^Engine, req: ^lang.Request) {
     idx := &e.index
     if idx.root != req.workspace {
