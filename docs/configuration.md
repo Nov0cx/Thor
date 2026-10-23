@@ -283,6 +283,24 @@ its root, layered on top of the global settings above. This repository's own
   `name` must be an identifier (letters, digits and `_`, not starting with a
   digit); any other name is dropped.
 
+  The analyzer reads the workspace for the machine Thor runs on. `target`
+  picks another platform, and `defines` gives the values `#config(NAME, ...)`
+  reads. Both decide which files and which `when` branches count:
+
+  ```json
+  {
+      "target": { "os": "linux", "arch": "amd64" },
+      "defines": { "MY_FEATURE": true, "LOG_LEVEL": 2, "BACKEND": "gl" }
+  }
+  ```
+
+  `os` is one of `windows`, `darwin`, `linux`, `freebsd`, `openbsd`, `netbsd`,
+  `haiku`, `wasi`, `js`, `orca`, `freestanding`; `arch` one of `amd64`, `i386`,
+  `arm32`, `arm64`, `wasm32`, `wasm64p32`, `riscv64`. A define value is a
+  boolean, an integer or a string. A define named like a build constant
+  (`ODIN_TEST`, `ODIN_DEBUG`) sets that constant. A bad value is logged and
+  ignored.
+
 - **`odin-formatter.json`** — per-workspace options for formatting `.odin`
   files — "Edit: Format Document", "Edit: Format Selection", `format_on_save`
   and `format_on_type` all read it — mirroring the odinfmt (OLS) schema. An
