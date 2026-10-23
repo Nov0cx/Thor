@@ -176,8 +176,15 @@ cursor between them; typing over the closing character steps past it, and
 backspace on an empty pair deletes both. Selecting text and typing a bracket or
 quote wraps the selection.
 
-Undo and Redo also sit at the top of the **Edit** menu and the editor's
-right-click menu, greyed out when there is nothing to move. A rename or code
+The editor's right-click menu starts with the language features — go to
+definition, find references, rename, code actions, signature help, format
+document and selection, go to symbol and package documentation — greyed out
+when the file's language does not serve them. A right-click outside the
+selection first moves the caret to the click, so the menu acts on the word
+under the mouse.
+
+Undo and Redo also sit at the top of the **Edit** menu and below the language
+items in the editor's right-click menu, greyed out when there is nothing to move. A rename or code
 action that changed several files moves as one step, files that were never open
 included; once any of them has moved on, undo and redo fall back to the focused
 buffer alone.

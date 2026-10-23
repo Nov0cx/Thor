@@ -8,6 +8,8 @@ import rl "vendor:raylib"
 
 import ui "../vendor/loom/loom"
 import "../editview"
+import "../lang"
+import "../textedit"
 // Points both editor panes at the shared context menu. Called once at startup;
 // every other menu is opened straight from the view that owns the click.
 thor_wire_menus :: proc(thor: ^Thor) {
@@ -27,9 +29,28 @@ thor_editor_context_menu :: proc(data: rawptr, position: ui.Vec2) {
     // The right-click focused its pane before this callback, but menu_open takes
     // focus next, so the frame's own thor_sync_active_pane would never see it.
     thor_sync_active_pane(thor)
-    has_file := thor_active_open_file(thor) != nil
+    file := thor_active_open_file(thor)
+    has_file := file != nil
+
+    // Format Selection formats the whole document when there is no selection.
+    format_selection := thor_menu_lang_allows(thor, .Format)
+    if file != nil && textedit.has_selection(textedit.primary_cursor(&file.state)) {
+        format_selection = thor_menu_lang_allows(thor, .Format_Range)
+    }
 
     thor_menu_clear(thor)
+    thor_menu_add(thor, "Go to Definition", thor_cmd_goto_definition, thor, thor_menu_lang_allows(thor, .Definition), action = "goto_definition")
+    thor_menu_add(thor, "Find References", thor_cmd_find_references, thor, thor_menu_lang_allows(thor, .References), action = "find_references")
+    thor_menu_add(thor, "Rename Symbol", thor_cmd_rename_symbol, thor, thor_menu_lang_allows(thor, .Rename), action = "replace")
+    thor_menu_add(thor, "Code Actions", thor_cmd_code_actions, thor, thor_menu_lang_allows(thor, .Code_Actions), action = "code_actions")
+    thor_menu_add(thor, "Signature Help", thor_cmd_signature_help, thor, thor_menu_lang_allows(thor, .Signature_Help), action = "signature_help")
+    thor_menu_add_separator(thor)
+    thor_menu_add(thor, "Format Document", thor_cmd_format_document, thor, thor_menu_lang_allows(thor, .Format), action = "format_document")
+    thor_menu_add(thor, "Format Selection", thor_cmd_format_selection, thor, format_selection, action = "format_selection")
+    thor_menu_add_separator(thor)
+    thor_menu_add(thor, "Go to Symbol in File", thor_cmd_goto_symbol, thor, thor_menu_lang_allows(thor, .Document_Symbols), action = "goto_symbol")
+    thor_menu_add(thor, "Package Documentation", thor_cmd_package_doc, thor, thor_menu_lang_allows(thor, .Package_Doc), action = "package_doc")
+    thor_menu_add_separator(thor)
     thor_menu_add(thor, "Undo", thor_cmd_undo, thor, thor_can_undo(thor), action = "undo")
     thor_menu_add(thor, "Redo", thor_cmd_redo, thor, thor_can_redo(thor), action = "redo")
     thor_menu_add_separator(thor)
@@ -39,6 +60,15 @@ thor_editor_context_menu :: proc(data: rawptr, position: ui.Vec2) {
     thor_menu_add_separator(thor)
     thor_menu_add(thor, "Select All", thor_cmd_select_all, thor, has_file, action = "select_all")
     thor_menu_open(thor, position)
+}
+
+// Reports whether a backend serves `kind` for the active file. False with no file open.
+thor_menu_lang_allows :: proc(thor: ^Thor, kind: lang.Request_Kind) -> bool {
+    file := thor_active_open_file(thor)
+    if file == nil || !file.loaded {
+        return false
+    }
+    return lang.manager_allows(&thor.lang_manager, thor_lang_key(thor, file.name), kind)
 }
 
 thor_console_context_menu :: proc(data: rawptr, position: ui.Vec2) {

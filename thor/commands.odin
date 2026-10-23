@@ -589,6 +589,7 @@ thor_cmd_goto_symbol :: proc(data: rawptr) {thor_goto_symbol(cast(^Thor) data)}
 thor_cmd_goto_workspace_symbol :: proc(data: rawptr) {thor_goto_workspace_symbol(cast(^Thor) data)}
 thor_cmd_jump_back :: proc(data: rawptr) {thor_jump_back(cast(^Thor) data)}
 thor_cmd_jump_forward :: proc(data: rawptr) {thor_jump_forward(cast(^Thor) data)}
+thor_cmd_goto_definition :: proc(data: rawptr) {thor_goto_definition(cast(^Thor) data)}
 thor_cmd_find_references :: proc(data: rawptr) {thor_find_references(cast(^Thor) data)}
 thor_cmd_signature_help :: proc(data: rawptr) {thor_signature_help(cast(^Thor) data)}
 thor_cmd_package_doc :: proc(data: rawptr) {thor_package_doc(cast(^Thor) data)}
