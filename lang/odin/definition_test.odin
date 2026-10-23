@@ -52,7 +52,7 @@ expect_jump :: proc(t: ^testing.T, res: ^lang.Result, file: string, want: int, l
 }
 
 // A fresh fixture directory under bin/test with `files` (paths relative to it) written.
-@(private = "file")
+@(private)
 fixture :: proc(t: ^testing.T, name: string, files: [][2]string) -> string {
     root := strings.concatenate({"bin/test/", name}, context.temp_allocator)
     _ = os.remove_all(root)
@@ -71,7 +71,7 @@ fixture :: proc(t: ^testing.T, name: string, files: [][2]string) -> string {
     return root
 }
 
-@(private = "file")
+@(private)
 fixture_path :: proc(root, rel: string) -> string {
     return strings.concatenate({root, "/", rel}, context.temp_allocator)
 }

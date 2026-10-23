@@ -14,7 +14,6 @@ import "core:time"
 import lang ".."
 import "../../shell"
 import odinsema "sema"
-import odinsyntax "syntax"
 
 // The root of the Odin toolchain, found once per engine.
 @(private)
@@ -29,43 +28,22 @@ Odin_Root :: struct {
 @(private)
 ODIN_ROOT_TIMEOUT :: 10 * time.Second
 
-// The buffer of the request, which replaces its file on disk.
-@(private = "file")
-Live_File :: struct {
-    path:     string, // "" for a buffer with no file
-    key:      string, // path_key of the path; "" when no path
-    dir_key:  string, // path_key of the directory, "." for a buffer with no file
-    tree:     ^odinsema.Item_Tree,
-    lines:    []int,
-    in_build: bool,
-}
-
-// The state of one definition request.
-@(private = "file")
-Def_Context :: struct {
-    e:           ^Engine,
-    req:         ^lang.Request,
-    target:      odinsema.Target,
-    live:        Live_File,
-    collections: odinsema.Collections,
-    has_colls:   bool,
-}
-
 // A declaration a definition can land on. Strings are temp-allocated.
-@(private = "file")
+@(private)
 Def_Candidate :: struct {
-    path:      string,
-    name:      string,
-    kind:      odinsema.Item_Kind,
-    signature: string,
-    offset:    int,
-    line:      int,
-    inactive:  bool, // under a false `when`, or in a file out of the build
-    members:   []Def_Member, // Proc_Group
+    path:       string,
+    name:       string,
+    kind:       odinsema.Item_Kind,
+    signature:  string,
+    offset:     int,
+    line:       int,
+    inactive:   bool, // under a false `when`, or in a file out of the build
+    visibility: odinsema.Visibility, // of the declaration, or of the type that holds the member
+    members:    []Def_Member, // Proc_Group
 }
 
 // Where a member of a procedure group is declared.
-@(private = "file")
+@(private)
 Def_Member :: struct {
     dir:  string, // the package directory
     name: string,
@@ -76,36 +54,12 @@ Def_Member :: struct {
 // res.symbols for several, active ones first.
 @(private)
 definition :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
-    parsed, ok := definition_parse(e, req)
-    if !ok {
+    ctx: Request_Context
+    if !request_open(e, req, &ctx) {
         return
     }
-    defer if req.path != "" {
-        parse_cache_put(&e.parses, req.path, parsed)
-    } else {
-        odinsyntax.parse_destroy(&parsed, e.parses.alloc)
-    }
-    tree, terr := odinsema.item_tree(parsed)
-    if terr != nil {
-        return
-    }
-    defer odinsema.item_tree_destroy(tree)
-
-    ctx := Def_Context {
-        e      = e,
-        req    = req,
-        target = config_target(e, req.workspace),
-    }
-    ctx.live = Live_File {
-        path  = req.path,
-        tree  = tree,
-        lines = line_starts(req.source),
-    }
-    if req.path != "" {
-        ctx.live.key = path_key(req.path)
-        ctx.live.in_build = odinsema.file_in_build(req.path, tree.tags, ctx.target)
-    }
-    ctx.live.dir_key = path_key(live_dir(&ctx))
+    defer request_close(&ctx)
+    tree := ctx.live.tree
 
     if dir, on_import := import_under_caret(&ctx, req.offset); on_import {
         if dir != "" {
@@ -114,7 +68,7 @@ definition :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
         return
     }
 
-    m, merr := odinsema.scope_map_range(parsed, req.offset, req.offset)
+    m, merr := odinsema.scope_map_range(ctx.parsed, req.offset, req.offset)
     if merr != nil {
         return
     }
@@ -186,43 +140,10 @@ definition :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
     answer(&ctx, cands[:], res)
 }
 
-// The names of an operand `pkg.Type` whose `pkg` is a free name.
-@(private = "file")
-qualified_type_operand :: proc(source: string, m: ^odinsema.Scope_Map, ref: odinsema.Name_Ref) -> (pkg, type_name: string, ok: bool) {
-    if ref.operand_start < 0 || ref.operand_end > len(source) || ref.operand_start >= ref.operand_end {
-        return
-    }
-    text := source[ref.operand_start:ref.operand_end]
-    dot := strings.index_byte(text, '.')
-    if dot < 0 {
-        return
-    }
-    pkg = strings.trim_space(text[:dot])
-    type_name = strings.trim_space(text[dot + 1:])
-    if !odinsema.is_identifier(pkg) || !odinsema.is_identifier(type_name) {
-        return "", "", false
-    }
-    head, found := odinsema.ref_at(m, ref.operand_start)
-    if !found || head.kind != .Free {
-        return "", "", false
-    }
-    return pkg, type_name, true
-}
-
-// The parse of the request's buffer, through the parse cache when it has a path.
-@(private = "file")
-definition_parse :: proc(e: ^Engine, req: ^lang.Request) -> (odinsyntax.Parse, bool) {
-    if req.path != "" {
-        return parse_cache_get(&e.parses, req.path, req.source)
-    }
-    parsed, err := odinsyntax.parse(req.source, e.parses.alloc)
-    return parsed, err == nil
-}
-
 // Sorts the candidates and fills `res`: one active candidate, or one candidate only, is a jump;
 // a lone procedure group is a jump to its members, or a list of them.
 @(private = "file")
-answer :: proc(ctx: ^Def_Context, cands: []Def_Candidate, res: ^lang.Result) {
+answer :: proc(ctx: ^Request_Context, cands: []Def_Candidate, res: ^lang.Result) {
     slice.sort_by(cands, proc(a, b: Def_Candidate) -> bool {
         if a.inactive != b.inactive {
             return !a.inactive
@@ -272,7 +193,7 @@ answer :: proc(ctx: ^Def_Context, cands: []Def_Candidate, res: ^lang.Result) {
 
 // Appends the declaration of each member of a procedure group that resolves: the first active one of its name.
 @(private = "file")
-expand_group :: proc(ctx: ^Def_Context, group: Def_Candidate, out: ^[dynamic]Def_Candidate) {
+expand_group :: proc(ctx: ^Request_Context, group: Def_Candidate, out: ^[dynamic]Def_Candidate) {
     for m in group.members {
         if lang.request_cancelled(ctx.req) {
             return
@@ -297,8 +218,8 @@ expand_group :: proc(ctx: ^Def_Context, group: Def_Candidate, out: ^[dynamic]Def
 // or member of that name. `own` is a lookup from inside the package, which reaches its package-private
 // declarations; else only public ones count. The live buffer replaces its file. Files out of the build
 // are read only when nothing else declares the name, and their candidates are inactive.
-@(private = "file")
-package_candidates :: proc(ctx: ^Def_Context, dir, name, member: string, own: bool, out: ^[dynamic]Def_Candidate) {
+@(private)
+package_candidates :: proc(ctx: ^Request_Context, dir, name, member: string, own: bool, out: ^[dynamic]Def_Candidate) {
     live := &ctx.live
     replace := path_key(dir) == live.dir_key
     start := len(out)
@@ -350,17 +271,10 @@ package_candidates :: proc(ctx: ^Def_Context, dir, name, member: string, own: bo
     }
 }
 
-// True when a declaration of another file can be named: from the same package unless file-private,
-// from another package only when public.
-@(private = "file")
-item_reaches :: proc(item: ^odinsema.Item, own: bool) -> bool {
-    return own ? item.visibility != .File : item.visibility == .Public
-}
-
 // Appends `item`, or with `member` set its field or member of that name, as a candidate.
-@(private = "file")
+@(private)
 emit_candidate :: proc(
-    ctx: ^Def_Context,
+    ctx: ^Request_Context,
     out: ^[dynamic]Def_Candidate,
     item: ^odinsema.Item,
     path: string,
@@ -384,13 +298,14 @@ emit_candidate :: proc(
     }
     line, _ := offset_line_col(lines, target.name_offset)
     cand := Def_Candidate {
-        path      = strings.clone(path, context.temp_allocator),
-        name      = strings.clone(target.name, context.temp_allocator),
-        kind      = target.kind,
-        signature = strings.clone(target.signature, context.temp_allocator),
-        offset    = target.name_offset,
-        line      = line,
-        inactive  = inactive,
+        path       = strings.clone(path, context.temp_allocator),
+        name       = strings.clone(target.name, context.temp_allocator),
+        kind       = target.kind,
+        signature  = strings.clone(target.signature, context.temp_allocator),
+        offset     = target.name_offset,
+        line       = line,
+        inactive   = inactive,
+        visibility = item.visibility,
     }
     if target.kind == .Proc_Group {
         cand.members = group_members(ctx, target, cand.path, tree)
@@ -401,7 +316,7 @@ emit_candidate :: proc(
 // The package directory and name of each member of a group declared in the file at `path`.
 // A qualified member whose import does not resolve is left out.
 @(private = "file")
-group_members :: proc(ctx: ^Def_Context, item: ^odinsema.Item, path: string, tree: ^odinsema.Item_Tree) -> []Def_Member {
+group_members :: proc(ctx: ^Request_Context, item: ^odinsema.Item, path: string, tree: ^odinsema.Item_Tree) -> []Def_Member {
     out := make([dynamic]Def_Member, context.temp_allocator)
     file_dir := path == ctx.live.path ? live_dir(ctx) : filepath.dir(path)
     imports: []odinsema.File_Import
@@ -413,7 +328,7 @@ group_members :: proc(ctx: ^Def_Context, item: ^odinsema.Item, path: string, tre
         }
         if !has_imports {
             has_imports = true
-            imports, _ = odinsema.file_imports(tree, file_dir, def_collections(ctx), context.temp_allocator)
+            imports, _ = odinsema.file_imports(tree, file_dir, request_collections(ctx), context.temp_allocator)
         }
         imp, found := odinsema.lookup_import(imports, m.operand)
         if !found || !imp.exists {
@@ -422,84 +337,6 @@ group_members :: proc(ctx: ^Def_Context, item: ^odinsema.Item, path: string, tre
         append(&out, Def_Member{dir = imp.dir, name = strings.clone(m.name, context.temp_allocator), own = false})
     }
     return out[:]
-}
-
-// The roots the imports of the request resolve against: the Odin root and the configured collections.
-@(private = "file")
-def_collections :: proc(ctx: ^Def_Context) -> ^odinsema.Collections {
-    if ctx.has_colls {
-        return &ctx.collections
-    }
-    ctx.has_colls = true
-    ctx.collections.odin_root = odin_root(&ctx.e.root)
-    configured := config_collections(ctx.e, ctx.req.workspace)
-    custom := make([]odinsema.Collection, len(configured), context.temp_allocator)
-    for c, i in configured {
-        custom[i] = {name = c.name, root = c.dir}
-    }
-    ctx.collections.custom = custom
-    return &ctx.collections
-}
-
-// The package directory of the import of the buffer that binds `alias`. `is_import` is false when no
-// import binds it; `dir` is "" when the import does not resolve to a directory that exists.
-@(private = "file")
-import_alias_dir :: proc(ctx: ^Def_Context, alias: string) -> (dir: string, is_import: bool) {
-    bound := false
-    for item in ctx.live.tree.items {
-        if item.kind == .Import && item.name == alias {
-            bound = true
-            break
-        }
-    }
-    if !bound {
-        return "", false
-    }
-    imports, err := odinsema.file_imports(ctx.live.tree, live_dir(ctx), def_collections(ctx), context.temp_allocator)
-    if err != nil {
-        return "", true
-    }
-    imp, found := odinsema.lookup_import(imports, alias)
-    if !found || !imp.exists {
-        return "", found
-    }
-    return imp.dir, true
-}
-
-// The package directory of the import declaration under the caret. `on_import` is false when the caret
-// is not on a package import.
-@(private = "file")
-import_under_caret :: proc(ctx: ^Def_Context, offset: int) -> (dir: string, on_import: bool) {
-    index := -1
-    for item, i in ctx.live.tree.items {
-        if item.kind == .Import && item.start <= offset && offset <= item.end {
-            index = i
-            break
-        }
-    }
-    if index < 0 {
-        return "", false
-    }
-    imports, err := odinsema.file_imports(ctx.live.tree, live_dir(ctx), def_collections(ctx), context.temp_allocator)
-    if err != nil {
-        return "", true
-    }
-    for imp in imports {
-        if imp.item == index && imp.exists {
-            return imp.dir, true
-        }
-    }
-    return "", true
-}
-
-// The directory of the buffer; "." when it has no file or the path names no directory.
-@(private = "file")
-live_dir :: proc(ctx: ^Def_Context) -> string {
-    if ctx.live.path == "" {
-        return "."
-    }
-    dir := filepath.dir(ctx.live.path)
-    return dir == "" ? "." : dir
 }
 
 // Fills `res` with the head of the file of the package at `dir` that is named like the package, else
