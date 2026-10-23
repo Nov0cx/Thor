@@ -488,6 +488,9 @@ thor_explorer_view :: proc(thor: ^Thor) {
             "No files",
             {key = "empty", props = {pad = ui.xy(12, 8), color = thor.theme.disabled}},
         )
+        if panel.right_clicked {
+            explorer_right_click_root(thor)
+        }
         return
     }
 
@@ -527,6 +530,10 @@ thor_explorer_view :: proc(thor: ^Thor) {
                 explorer_click(thor, row.node)
             }
         }
+    }
+
+    if panel.right_clicked {
+        explorer_right_click_root(thor)
     }
 
     e.panel_rect = panel.rect
@@ -711,6 +718,13 @@ explorer_right_click :: proc(thor: ^Thor, node: ^Explorer_Node) {
         explorer_select_single(e, node.path)
     }
     thor_explorer_context_menu(thor, node.path, ui.mouse_pos())
+}
+
+// Opens the context menu of the workspace root, for a right click outside the rows.
+@(private = "file")
+explorer_right_click_root :: proc(thor: ^Thor) {
+    explorer_clear_selection(&thor.explorer)
+    thor_explorer_context_menu(thor, "", ui.mouse_pos())
 }
 
 // Tracks the live drag: the target folder while the pointer is inside the panel,
