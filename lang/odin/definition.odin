@@ -105,7 +105,6 @@ definition :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
         ctx.live.key = path_key(req.path)
         ctx.live.in_build = odinsema.file_in_build(req.path, tree.tags, ctx.target)
     }
-
     ctx.live.dir_key = path_key(live_dir(&ctx))
 
     if dir, on_import := import_under_caret(&ctx, req.offset); on_import {
