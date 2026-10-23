@@ -11,6 +11,7 @@ import "core:strings"
 import "core:sync"
 
 import lang ".."
+import odinsema "sema"
 
 // Per-workspace language-backend config, read from `<workspace>/.thor/` — the
 // same workspace config folder Thor keeps its `settings.json` in. Thor's own
@@ -24,11 +25,14 @@ ANALYZER_CONFIG :: "odin-analyzer.json"
 // Language-backend settings for one workspace, read from
 // `<workspace>/.thor/odin-analyzer.json`. Only the settings the in-client engine
 // can act on are kept: import collections (a name → its root directory, so `import
-// "shared:foo"` resolves) and the feature-enable toggles. Absent keys take the
-// defaults — no collections, every feature on.
+// "shared:foo"` resolves), the feature-enable toggles, the target and the defines.
+// Absent keys take the defaults — no collections, every feature on, the host target.
 @(private)
 Config :: struct {
     collections:             map[string]string, // name → resolved absolute dir
+    target_os:               odinsema.Target_OS,   // .Unknown when not set
+    target_arch:             odinsema.Target_Arch, // .Unknown when not set
+    defines:                 [dynamic]odinsema.Target_Define, // owned names and string values
     enable_hover:            bool,
     enable_document_symbols: bool,
     enable_references:       bool,
@@ -100,6 +104,7 @@ config_ensure :: proc(cache: ^Config_Cache, workspace: string) {
 config_defaults :: proc() -> Config {
     return Config {
         collections             = make(map[string]string),
+        defines                 = make([dynamic]odinsema.Target_Define),
         enable_hover            = true,
         enable_document_symbols = true,
         enable_references       = true,
@@ -140,6 +145,8 @@ config_parse :: proc(cache: ^Config_Cache, workspace, path: string) {
         cache.cfg.enable_rename = bool(b)
     }
 
+    config_parse_target(cache, obj)
+
     arr, aok := obj["collections"].(json.Array)
     if !aok {
         return
@@ -176,6 +183,105 @@ config_parse :: proc(cache: ^Config_Cache, workspace, path: string) {
             cache.cfg.collections[strings.clone(name)] = dir
         }
     }
+}
+
+// Reads `"target": {"os": "linux", "arch": "amd64"}` and `"defines": {"NAME": value}`, where a value is
+// a boolean, an integer or a string. context.allocator is the engine allocator.
+@(private)
+config_parse_target :: proc(cache: ^Config_Cache, obj: json.Object) {
+    if raw, has := obj["target"]; has {
+        target, tok := raw.(json.Object)
+        if !tok {
+            log.warnf("odin-analyzer.json: \"target\" is not an object and was ignored")
+        }
+        if os_name, ok := target["os"].(json.String); tok && ok {
+            cache.cfg.target_os = odinsema.target_os_from_string(os_name)
+            if cache.cfg.target_os == .Unknown {
+                log.warnf("odin-analyzer.json: target os %q is unknown and was ignored", os_name)
+            }
+        } else if tok && "os" in target {
+            log.warnf("odin-analyzer.json: target os is not a string and was ignored")
+        }
+        if arch_name, ok := target["arch"].(json.String); tok && ok {
+            cache.cfg.target_arch = odinsema.target_arch_from_string(arch_name)
+            if cache.cfg.target_arch == .Unknown {
+                log.warnf("odin-analyzer.json: target arch %q is unknown and was ignored", arch_name)
+            }
+        } else if tok && "arch" in target {
+            log.warnf("odin-analyzer.json: target arch is not a string and was ignored")
+        }
+    }
+
+    raw, has := obj["defines"]
+    if !has {
+        return
+    }
+    defines, dok := raw.(json.Object)
+    if !dok {
+        log.warnf("odin-analyzer.json: \"defines\" is not an object and was ignored")
+        return
+    }
+    for name, value in defines {
+        if !is_collection_name(name) {
+            log.warnf("odin-analyzer.json: define name %q is not an identifier and was dropped", name)
+            continue
+        }
+        d: odinsema.Define_Value
+        #partial switch v in value {
+        case json.Boolean:
+            d = bool(v)
+        case json.Integer:
+            d = i64(v)
+        case json.Float:
+            if f64(i64(v)) != f64(v) {
+                log.warnf("odin-analyzer.json: define %q is not an integer and was dropped", name)
+                continue
+            }
+            d = i64(v)
+        case json.String:
+            d = strings.clone(v)
+        case:
+            log.warnf("odin-analyzer.json: define %q is not a boolean, integer or string and was dropped", name)
+            continue
+        }
+        append(&cache.cfg.defines, odinsema.Target_Define{name = strings.clone(name), value = d})
+    }
+}
+
+// The target a workspace is analyzed for: the host, overlaid by the os, arch and defines of its config.
+// The defines are cloned into context.temp_allocator, so the target outlives the lock.
+@(private)
+config_target :: proc(e: ^Engine, workspace: string) -> odinsema.Target {
+    target := odinsema.target_host()
+    if workspace == "" {
+        return target
+    }
+    cache := &e.config
+    sync.lock(&cache.mutex)
+    defer sync.unlock(&cache.mutex)
+    config_ensure(cache, workspace)
+    if cache.cfg.target_os != .Unknown {
+        target.os = cache.cfg.target_os
+    }
+    if cache.cfg.target_arch != .Unknown {
+        target.arch = cache.cfg.target_arch
+    }
+    if len(cache.cfg.defines) == 0 {
+        return target
+    }
+    defines, err := make([]odinsema.Target_Define, len(cache.cfg.defines), context.temp_allocator)
+    if err != nil {
+        return target
+    }
+    for d, i in cache.cfg.defines {
+        value := d.value
+        if s, is_string := value.(string); is_string {
+            value = strings.clone(s, context.temp_allocator)
+        }
+        defines[i] = {name = strings.clone(d.name, context.temp_allocator), value = value}
+    }
+    target.defines = defines
+    return target
 }
 
 // True for a name the compiler takes as a collection: an identifier. The name
@@ -305,6 +411,14 @@ config_free :: proc(cache: ^Config_Cache) {
     }
     delete(cache.cfg.collections)
     cache.cfg.collections = nil
+    for d in cache.cfg.defines {
+        delete(d.name, cache.alloc)
+        if s, ok := d.value.(string); ok {
+            delete(s, cache.alloc)
+        }
+    }
+    delete(cache.cfg.defines)
+    cache.cfg.defines = nil
 }
 
 // Tears the whole config cache down on destroy: its collections and the stored

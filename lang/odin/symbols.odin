@@ -85,7 +85,7 @@ document_symbols :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
 
 // Fills `res` with the top-level declarations of the workspace whose name matches req.query,
 // sorted by name and then path. The live buffer counts in place of its file on disk,
-// and a disk file counts when it is in the build of the host target.
+// and a disk file counts when it is in the build of the workspace target (config_target).
 @(private)
 workspace_symbols :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
     live_key := ""
@@ -196,7 +196,7 @@ index_sync :: proc(e: ^Engine, req: ^lang.Request) {
         entry.seen = false
     }
     count := 0
-    target := odinsema.target_host()
+    target := config_target(e, req.workspace)
     index_sync_dir(idx, req, req.workspace, target, &count, 0)
     if lang.request_cancelled(req) {
         return
@@ -246,6 +246,7 @@ index_sync_dir :: proc(idx: ^Symbol_Index, req: ^lang.Request, dir: string, targ
         mt := info.modification_time._nsec
         if entry, ok := &idx.files[info.fullpath]; ok && entry.modtime == mt && entry.size == info.size {
             entry.seen = true
+            entry.in_build = entry.items != nil && odinsema.file_in_build(info.fullpath, entry.items.tags, target)
             continue
         }
         index_read_file(idx, info.fullpath, mt, info.size, target)
