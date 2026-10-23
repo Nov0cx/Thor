@@ -6,6 +6,8 @@
 - A task from the titlebar runs in its own terminal tab, named after the task, not in the shell in use. Running it again restarts that tab.
 - Odin: go to symbol (`ctrl+shift+o`) and workspace symbol search (`ctrl+q`) work again. They list procedures, types, constants, variables, struct fields and enum members.
 - Odin: workspace symbol search skips files that are not built for the current OS.
+- Odin: go to definition works again for locals, parameters, loop variables, labels, names of the same package, `pkg.name` through imports, enum members (`Color.Red`) and procedure groups. Fields of a value, `.Member` and builtins do not resolve yet.
+- Odin: `.thor/odin-analyzer.json` takes `target` (`os`, `arch`) and `defines`. They select the files and `when` branches the analyzer reads.
 - Odin formatter: a block comment between `->` and a single result type stays there.
 
 # 2026.10.7
