@@ -71,7 +71,7 @@ dup :: 1
 guarded :: 1
 @(private = "file")
 helper :: proc() {}
-when ODIN_OS == .Windows {
+when ODIN_OS == .Linux {
     guarded :: 2
 }
 _ :: 3
@@ -93,7 +93,81 @@ _ :: 4
         testing.expect_value(t, c.name, "dup")
         testing.expect_value(t, len(c.refs), 2)
     }
-    testing.expect_value(t, len(package_scope_lookup(&scope, "guarded")), 2)
+    guarded := package_scope_lookup(&scope, "guarded")
+    testing.expect_value(t, len(guarded), 2)
+    for ref in guarded {
+        testing.expect(t, package_ref_active(&scope, ref) == (package_item(p.files[:], ref).guard < 0))
+    }
     testing.expect_value(t, len(package_scope_lookup(&scope, "helper")), 2)
     testing.expect_value(t, len(package_scope_lookup(&scope, "_")), 0)
+}
+
+@(test)
+test_package_scope_when_conflicts :: proc(t: ^testing.T) {
+    p: Test_Package
+    defer destroy_package(&p)
+    add_file(t, &p, "pkg/a.odin", `package pkg
+
+when ODIN_OS == .Windows {
+    open :: proc() {}
+    @(private = "file")
+    local :: 1
+} else {
+    open :: proc() {}
+}
+when MAYBE_FLAG {
+    flag :: 1
+} else {
+    flag :: 2
+}
+`)
+    add_file(t, &p, "pkg/b.odin", `package pkg
+
+when ODIN_OS == .Windows {
+    open :: proc() {}
+    local :: 2
+}
+flag :: 3
+`)
+    win := Target{os = .Windows, arch = .amd64}
+    scope, err := package_scope(p.files[:], win)
+    testing.expect_value(t, err, nil)
+    defer package_scope_destroy(&scope)
+
+    testing.expect_value(t, len(scope.conflicts), 1)
+    if len(scope.conflicts) == 1 {
+        c := scope.conflicts[0]
+        testing.expect_value(t, c.name, "open")
+        testing.expect_value(t, len(c.refs), 2)
+        for ref in c.refs {
+            testing.expect(t, package_ref_active(&scope, ref))
+        }
+    }
+    opens := package_scope_lookup(&scope, "open")
+    testing.expect_value(t, len(opens), 3)
+    inactive := 0
+    for ref in opens {
+        if !package_ref_active(&scope, ref) {
+            inactive += 1
+            testing.expect_value(t, ref.file, 0)
+        }
+    }
+    testing.expect_value(t, inactive, 1)
+    testing.expect_value(t, len(package_scope_lookup(&scope, "local")), 2)
+    for ref in package_scope_lookup(&scope, "flag") {
+        testing.expect(t, package_ref_active(&scope, ref), "an unknown guard is active")
+    }
+
+    lin := Target{os = .Linux, arch = .amd64}
+    lscope, lerr := package_scope(p.files[:], lin)
+    testing.expect_value(t, lerr, nil)
+    defer package_scope_destroy(&lscope)
+    testing.expect_value(t, len(lscope.conflicts), 0)
+    active := 0
+    for ref in package_scope_lookup(&lscope, "open") {
+        if package_ref_active(&lscope, ref) {
+            active += 1
+        }
+    }
+    testing.expect_value(t, active, 1)
 }

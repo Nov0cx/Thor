@@ -21,11 +21,13 @@ Conflict :: struct {
 }
 
 // The package-level names of the files in the build. Imports are file scoped and are not in it.
-// A declaration under a `when` stays in `names` but never conflicts, as guards are not evaluated.
+// A declaration under a `when` that is false for the target stays in `names` for navigation, is in
+// `inactive` and never conflicts. One under a `when` the evaluator cannot decide is active but never conflicts.
 Package_Scope :: struct {
     name:      string,                      // the package name of the first file in the build
     files:     [dynamic]int,                // owned; the files in the build
     names:     map[string][dynamic]Item_Ref, // owned; keys borrowed from the item trees
+    inactive:  map[Item_Ref]struct{},        // owned; the items under a false `when`
     conflicts: [dynamic]Conflict,            // owned
     allocator: mem.Allocator,
 }
@@ -35,6 +37,7 @@ package_scope :: proc(files: []Package_File, target: Target, allocator := contex
     scope.allocator = allocator
     scope.files = make([dynamic]int, allocator) or_return
     scope.names = make(map[string][dynamic]Item_Ref, allocator)
+    scope.inactive = make(map[Item_Ref]struct{}, allocator)
     scope.conflicts = make([dynamic]Conflict, allocator) or_return
     defer if err != nil {
         package_scope_destroy(&scope)
@@ -58,6 +61,9 @@ package_scope :: proc(files: []Package_File, target: Target, allocator := contex
                 refs = &scope.names[item.name]
             }
             append(refs, Item_Ref{fi, ii}) or_return
+            if !guard_active(file.items, item.guard, target) {
+                _, _, _ = map_entry(&scope.inactive, Item_Ref{fi, ii}) or_return
+            }
         }
     }
 
@@ -68,7 +74,7 @@ package_scope :: proc(files: []Package_File, target: Target, allocator := contex
         clash := make([dynamic]Item_Ref, allocator) or_return
         for a, i in refs {
             for b in refs[i + 1:] {
-                if !refs_conflict(files, a, b) {
+                if !refs_conflict(files, a, b, target) {
                     continue
                 }
                 add_unique(&clash, a) or_return
@@ -92,6 +98,7 @@ package_scope_destroy :: proc(scope: ^Package_Scope) {
         delete(refs)
     }
     delete(scope.names)
+    delete(scope.inactive)
     for c in scope.conflicts {
         delete(c.refs, scope.allocator)
     }
@@ -108,17 +115,22 @@ package_scope_lookup :: proc(scope: ^Package_Scope, name: string) -> []Item_Ref 
     return nil
 }
 
+// True when the item `ref` names exists for the scope's target.
+package_ref_active :: proc(scope: ^Package_Scope, ref: Item_Ref) -> bool {
+    return ref not_in scope.inactive
+}
+
 // The item a reference names.
 package_item :: proc(files: []Package_File, ref: Item_Ref) -> ^Item {
     return &files[ref.file].items.items[ref.item]
 }
 
-// True when two declarations of one name are both active and both seen from one file.
+// True when two declarations of one name are both known to be active and both seen from one file.
 @(private = "file")
-refs_conflict :: proc(files: []Package_File, a, b: Item_Ref) -> bool {
+refs_conflict :: proc(files: []Package_File, a, b: Item_Ref, target: Target) -> bool {
     ia := package_item(files, a)
     ib := package_item(files, b)
-    if ia.guard >= 0 || ib.guard >= 0 {
+    if guard_state(files[a.file].items, ia.guard, target) != .True || guard_state(files[b.file].items, ib.guard, target) != .True {
         return false
     }
     if a.file != b.file && (ia.visibility == .File || ib.visibility == .File) {
