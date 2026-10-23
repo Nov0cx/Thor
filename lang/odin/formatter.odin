@@ -229,8 +229,7 @@ line_bounds :: proc(source: string, offset: int) -> (lo, hi: int) {
 }
 
 // The formatting request handler: parses req.source with the format package
-// (core:odin/parser under it, not the tree-sitter grammar this engine uses
-// everywhere else), diffs against the original, and answers with the
+// (the lossless lang/odin/syntax parser under it), diffs against the original, and answers with the
 // minimal Text_Edit set — never a whole-buffer replace, which would drag
 // every cursor in the file to wherever the edit ends.
 //
