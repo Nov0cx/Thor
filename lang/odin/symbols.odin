@@ -224,6 +224,7 @@ index_sync_dir :: proc(idx: ^Symbol_Index, req: ^lang.Request, dir: string, targ
         return
     }
     defer os.close(handle)
+    runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
     infos, read_err := os.read_dir(handle, -1, context.temp_allocator)
     if read_err != nil {
         return
@@ -254,6 +255,7 @@ index_sync_dir :: proc(idx: ^Symbol_Index, req: ^lang.Request, dir: string, targ
 // Reads one file into its index entry. A file that cannot be read keeps an empty entry.
 @(private = "file")
 index_read_file :: proc(idx: ^Symbol_Index, path: string, modtime, size: i64, target: odinsema.Target) {
+    runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
     entry := Index_File{modtime = modtime, size = size, seen = true}
     entry.key = strings.clone(path_key(path), idx.alloc)
     if source, ok := lang.source_read(path); ok {
