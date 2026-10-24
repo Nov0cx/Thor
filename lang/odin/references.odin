@@ -8,7 +8,6 @@ import "base:runtime"
 import "core:path/filepath"
 import "core:slice"
 import "core:strings"
-import "core:sync"
 
 import lang ".."
 import odinsema "sema"
@@ -222,12 +221,11 @@ scan_package :: proc(s: ^Ref_Scan, live: ^Scan_File) -> bool {
     if s.target.visibility != .Public || req.workspace == "" {
         return !lang.request_cancelled(req)
     }
-    importers := workspace_importers(s)
-    for path in importers {
+    for id in workspace_importers(s) {
         if lang.request_cancelled(req) {
             return false
         }
-        scan_disk_file(s, path)
+        scan_disk_file(s, odinsema.db_file_path(&ctx.snap, id))
     }
     return !lang.request_cancelled(req)
 }
@@ -250,65 +248,52 @@ scan_workspace :: proc(s: ^Ref_Scan, live: ^Scan_File) -> bool {
     if req.workspace == "" {
         return !lang.request_cancelled(req)
     }
-    for path in workspace_files(s) {
+    for id in workspace_files(s) {
         if lang.request_cancelled(req) {
             return false
         }
-        scan_disk_file(s, path)
+        scan_disk_file(s, odinsema.db_file_path(&ctx.snap, id))
     }
     return !lang.request_cancelled(req)
 }
 
-// The workspace files other than the buffer, sorted. Temp-allocated.
+// The workspace files other than the buffer, sorted by path.
 @(private = "file")
-workspace_files :: proc(s: ^Ref_Scan) -> []string {
+workspace_files :: proc(s: ^Ref_Scan) -> []odinsema.File_Id {
     ctx := s.ctx
-    out := make([dynamic]string, context.temp_allocator)
-    idx := &ctx.e.index
-    sync.lock(&idx.mutex)
-    defer sync.unlock(&idx.mutex)
-    index_sync(ctx.e, ctx.req)
-    for path, &entry in idx.files {
-        if entry.key != ctx.live.key {
-            append(&out, strings.clone(path, context.temp_allocator))
+    out := make([dynamic]odinsema.File_Id, context.temp_allocator)
+    for id in odinsema.db_workspace(&ctx.snap, ctx.req.workspace) {
+        if id != ctx.live.id {
+            append(&out, id)
         }
     }
-    slice.sort(out[:])
     return out[:]
 }
 
-// The workspace files outside the target's package that import it, sorted. Temp-allocated.
+// The workspace files outside the target's package that import it, sorted by path.
 @(private = "file")
-workspace_importers :: proc(s: ^Ref_Scan) -> []string {
+workspace_importers :: proc(s: ^Ref_Scan) -> []odinsema.File_Id {
     ctx := s.ctx
-    out := make([dynamic]string, context.temp_allocator)
-    idx := &ctx.e.index
-    sync.lock(&idx.mutex)
-    defer sync.unlock(&idx.mutex)
-    index_sync(ctx.e, ctx.req)
-    for path, &entry in idx.files {
+    snap := &ctx.snap
+    out := make([dynamic]odinsema.File_Id, context.temp_allocator)
+    for id in odinsema.db_workspace(snap, ctx.req.workspace) {
         if lang.request_cancelled(ctx.req) {
             break
         }
-        if entry.items == nil || entry.key == ctx.live.key {
+        if id == ctx.live.id {
             continue
         }
-        dir := filepath.dir(path)
-        if path_key(dir) == s.dir_key || !imports_package(entry.items) {
+        data := odinsema.db_file(snap, id)
+        if data == nil || path_key(filepath.dir(odinsema.db_file_path(snap, id))) == s.dir_key || !imports_package(data.tree) {
             continue
         }
-        imports, err := odinsema.file_imports(entry.items, dir, request_collections(ctx), context.temp_allocator)
-        if err != nil {
-            continue
-        }
-        for imp in imports {
+        for imp in odinsema.db_imports(snap, id) {
             if imp.exists && path_key(imp.dir) == s.dir_key {
-                append(&out, strings.clone(path, context.temp_allocator))
+                append(&out, id)
                 break
             }
         }
     }
-    slice.sort(out[:])
     return out[:]
 }
 
