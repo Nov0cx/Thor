@@ -48,7 +48,7 @@ Cond_Expr :: struct {
 }
 
 // A value met while a condition is evaluated.
-@(private = "file")
+@(private)
 Cond_Value_Kind :: enum u8 {
     Unknown,
     Bool,
@@ -58,7 +58,7 @@ Cond_Value_Kind :: enum u8 {
     Set,
 }
 
-@(private = "file")
+@(private)
 Cond_Value :: struct {
     kind: Cond_Value_Kind,
     i:    i64,    // Bool: 0 or 1
@@ -498,7 +498,7 @@ define_value :: proc(d: Define_Value) -> Cond_Value {
 
 // The value of a build constant for `target`. A define of an `ODIN_` name overrides it.
 // ODIN_TEST is unknown unless defined: the editor shows test and non-test code.
-@(private = "file")
+@(private)
 constant_value :: proc(name: string, target: Target) -> Cond_Value {
     if !strings.has_prefix(name, "ODIN_") {
         return UNKNOWN_VALUE
