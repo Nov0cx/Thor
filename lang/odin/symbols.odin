@@ -66,10 +66,11 @@ symbol_kind :: proc(kind: odinsema.Item_Kind) -> string {
 @(private)
 document_symbols :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
     ctx: Request_Context
-    if !request_open(e, req, &ctx) {
+    opened := request_open(e, req, &ctx)
+    defer request_close(&ctx)
+    if !opened {
         return
     }
-    defer request_close(&ctx)
     runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
     lines := ctx.live.lines
     for &item in ctx.live.tree.items {
@@ -111,10 +112,10 @@ workspace_symbols :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
         if request_open(e, req, &ctx) {
             live_key = ctx.live.key
             append_matches(res, &inactive, req.query, ctx.live.tree, req.path, ctx.live.lines, ctx.target)
-            request_close(&ctx)
         } else {
             live_key = path_key(req.path)
         }
+        request_close(&ctx)
     }
     if req.workspace != "" {
         idx := &e.index

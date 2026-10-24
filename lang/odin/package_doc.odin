@@ -30,10 +30,11 @@ DOC_SECTION_RULE :: "\n---\n\n"
 @(private)
 package_doc :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
     ctx: Request_Context
-    if !request_open(e, req, &ctx) {
+    opened := request_open(e, req, &ctx)
+    defer request_close(&ctx)
+    if !opened {
         return
     }
-    defer request_close(&ctx)
     dir := package_dir_under_caret(&ctx)
     if dir == "" {
         if req.path == "" {

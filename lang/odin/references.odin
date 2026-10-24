@@ -46,10 +46,11 @@ Scan_File :: struct {
 @(private)
 references :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
     ctx: Request_Context
-    if !request_open(e, req, &ctx) {
+    opened := request_open(e, req, &ctx)
+    defer request_close(&ctx)
+    if !opened {
         return
     }
-    defer request_close(&ctx)
     target := ref_target(&ctx)
     if target.kind == .Unbound {
         return
@@ -74,10 +75,11 @@ rename :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
         return
     }
     ctx: Request_Context
-    if !request_open(e, req, &ctx) {
+    opened := request_open(e, req, &ctx)
+    defer request_close(&ctx)
+    if !opened {
         return
     }
-    defer request_close(&ctx)
     target := ref_target(&ctx)
     if target.kind == .Unbound || target.name == req.new_name || !rename_allowed(&ctx, target) {
         return

@@ -10,11 +10,12 @@ package odin
 import "core:sync"
 
 import lang ".."
+import odinsema "sema"
 
 Engine :: struct {
     config:        Config_Cache,
     format_config: Format_Config_Cache,
-    parses:        Parse_Cache,
+    db:            odinsema.Db, // owned
     index:         Symbol_Index,
     packages:      Package_Cache,
     root:          Odin_Root,
@@ -46,8 +47,7 @@ engine_create :: proc() -> ^Engine {
     e.admin_features = lang.FEATURES_ALL
     e.config.alloc = context.allocator
     e.format_config.alloc = context.allocator
-    e.parses.alloc = context.allocator
-    e.parses.entries = make([dynamic]Parse_Entry, 0, PARSE_CACHE_SLOTS + 1)
+    odinsema.db_init(&e.db, lang.source_read)
     e.index.alloc = context.allocator
     e.packages.alloc = context.allocator
     e.packages.entries = make([dynamic]^Package_Entry, 0, PACKAGE_CACHE_SLOTS + 1)
@@ -146,7 +146,7 @@ engine_destroy :: proc(data: rawptr) {
     e := cast(^Engine)data
     config_clear(e)
     format_config_clear(e)
-    parse_cache_clear(&e.parses)
+    odinsema.db_destroy(&e.db)
     index_clear(&e.index)
     package_cache_clear(&e.packages)
     odin_root_clear(&e.root)

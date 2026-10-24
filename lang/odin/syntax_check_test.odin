@@ -1,12 +1,14 @@
 package odin
 
 import "core:fmt"
+import "core:sync"
 import "core:testing"
 
 import lang ".."
+import odinsema "sema"
 
 @(private = "file")
-run_syntax_check :: proc(source: string, e: ^Engine = nil) -> lang.Result {
+run_syntax_check :: proc(source: string, e: ^Engine = nil, path := "pkg/file.odin") -> lang.Result {
     e := e
     own := e == nil
     if own {
@@ -17,7 +19,7 @@ run_syntax_check :: proc(source: string, e: ^Engine = nil) -> lang.Result {
     }
     req := lang.Request {
         kind   = .Syntax_Diagnostics,
-        path   = "pkg/file.odin",
+        path   = path,
         ext    = ".odin",
         source = source,
     }
@@ -87,28 +89,43 @@ test_syntax_check_reuses_the_parse :: proc(t: ^testing.T) {
         free_report(&res)
         free_report(&cold)
     }
-    testing.expect_value(t, len(e.parses.entries), 1)
-    if len(e.parses.entries) == 1 {
-        testing.expect_value(t, e.parses.entries[0].parse.tree.text, sources[len(sources) - 1])
-        testing.expect(t, e.parses.entries[0].parse.tree.generation > 0, "the later requests must reparse, not parse cold")
-    }
+    s := db_stats(e)
+    testing.expect_value(t, s.parses, 1)
+    testing.expect_value(t, s.reparses, len(sources) - 1)
 }
 
-// The cache keeps the PARSE_CACHE_SLOTS buffers used last.
+// The database keeps the last parse of the odinsema.LIVE_SLOTS buffers used last.
 @(test)
-test_parse_cache_evicts_the_oldest :: proc(t: ^testing.T) {
+test_syntax_check_evicts_the_oldest :: proc(t: ^testing.T) {
+    base :: "package p\n\nmain :: proc() {\n    x := 1\n}\n"
+    edit :: "package p\n\nmain :: proc() {\n    x := 12\n}\n"
     e := engine_create()
     defer engine_destroy(e)
-    for i in 0 ..< PARSE_CACHE_SLOTS + 2 {
-        path := fmt.tprintf("pkg/f%d.odin", i)
-        parsed, ok := parse_cache_get(&e.parses, path, "package p\n")
-        if !testing.expect(t, ok) {
-            return
-        }
-        parse_cache_put(&e.parses, path, parsed)
+    for i in 0 ..< odinsema.LIVE_SLOTS + 2 {
+        res := run_syntax_check(base, e, fmt.tprintf("pkg/f%d.odin", i))
+        free_report(&res)
     }
-    testing.expect_value(t, len(e.parses.entries), PARSE_CACHE_SLOTS)
-    testing.expect_value(t, e.parses.entries[0].path, "pkg/f2.odin")
+    testing.expect_value(t, db_stats(e).parses, odinsema.LIVE_SLOTS + 2)
+    res := run_syntax_check(edit, e, fmt.tprintf("pkg/f%d.odin", odinsema.LIVE_SLOTS + 1))
+    free_report(&res)
+    testing.expect_value(t, db_stats(e).reparses, 1)
+    res = run_syntax_check(edit, e, "pkg/f0.odin")
+    free_report(&res)
+    s := db_stats(e)
+    testing.expect_value(t, s.reparses, 1)
+    testing.expect_value(t, s.parses, odinsema.LIVE_SLOTS + 3)
+}
+
+@(private = "file")
+db_stats :: proc(e: ^Engine) -> odinsema.Db_Stats {
+    return odinsema.Db_Stats {
+        reads        = sync.atomic_load(&e.db.stats.reads),
+        parses       = sync.atomic_load(&e.db.stats.parses),
+        reparses     = sync.atomic_load(&e.db.stats.reparses),
+        trees        = sync.atomic_load(&e.db.stats.trees),
+        scopes       = sync.atomic_load(&e.db.stats.scopes),
+        local_scopes = sync.atomic_load(&e.db.stats.local_scopes),
+    }
 }
 
 @(test)

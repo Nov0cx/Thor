@@ -16,18 +16,20 @@ Live_File :: struct {
     path:     string, // "" for a buffer with no file
     key:      string, // path_key of the path; "" when no path
     dir_key:  string, // path_key of the directory, "." for a buffer with no file
+    id:       odinsema.File_Id, // ANON_FILE for a buffer with no file
     tree:     ^odinsema.Item_Tree,
     lines:    []int,
     in_build: bool,
 }
 
-// The state of one request on the buffer.
+// The state of one request on the buffer. Do not move it after request_open: `snap` holds its own arena.
 @(private)
 Request_Context :: struct {
     e:           ^Engine,
     req:         ^lang.Request,
     target:      odinsema.Target,
-    parsed:      odinsyntax.Parse, // owned; given back by request_close
+    snap:        odinsema.Snapshot, // owned; ended by request_close
+    parsed:      odinsyntax.Parse,  // borrowed from `snap`
     live:        Live_File,
     collections: odinsema.Collections,
     has_colls:   bool,
@@ -57,32 +59,41 @@ Ref_Target :: struct {
     explicit:   bool,   // Import_Alias: the alias is written in the source
 }
 
-// Parses the request's buffer and fills `ctx`. Give it back with request_close.
+// Opens a snapshot on the request's buffer and fills `ctx`. Close it with request_close, also on false.
 @(private)
 request_open :: proc(e: ^Engine, req: ^lang.Request, ctx: ^Request_Context) -> bool {
-    parsed, ok := request_parse(e, req)
-    if !ok {
-        return false
-    }
-    tree, terr := odinsema.item_tree(parsed)
-    if terr != nil {
-        request_release(e, req, &parsed)
-        return false
-    }
     ctx^ = Request_Context {
         e      = e,
         req    = req,
         target = config_target(e, req.workspace),
-        parsed = parsed,
     }
+    input := odinsema.Snapshot_Input {
+        target      = ctx.target,
+        collections = request_collections(ctx),
+        has_live    = true,
+        live_path   = req.path,
+        live_text   = req.source,
+        cancel      = req.cancel,
+    }
+    if !odinsema.snapshot_begin(&e.db, &ctx.snap, input) {
+        return false
+    }
+    id := odinsema.snapshot_live_file(&ctx.snap)
+    data := odinsema.db_file(&ctx.snap, id)
+    parsed := odinsema.db_parse(&ctx.snap, id)
+    if data == nil || parsed == nil {
+        return false
+    }
+    ctx.parsed = parsed^
     ctx.live = Live_File {
         path  = req.path,
-        tree  = tree,
-        lines = line_starts(req.source),
+        id    = id,
+        tree  = data.tree,
+        lines = data.lines,
     }
     if req.path != "" {
         ctx.live.key = path_key(req.path)
-        ctx.live.in_build = odinsema.file_in_build(req.path, tree.tags, ctx.target)
+        ctx.live.in_build = odinsema.db_in_build(&ctx.snap, id)
     }
     ctx.live.dir_key = path_key(live_dir(ctx))
     return true
@@ -90,29 +101,10 @@ request_open :: proc(e: ^Engine, req: ^lang.Request, ctx: ^Request_Context) -> b
 
 @(private)
 request_close :: proc(ctx: ^Request_Context) {
-    odinsema.item_tree_destroy(ctx.live.tree)
+    odinsema.snapshot_end(&ctx.snap)
+    ctx.parsed = {}
     ctx.live.tree = nil
-    request_release(ctx.e, ctx.req, &ctx.parsed)
-}
-
-// The parse of the request's buffer, through the parse cache when it has a path.
-@(private = "file")
-request_parse :: proc(e: ^Engine, req: ^lang.Request) -> (odinsyntax.Parse, bool) {
-    if req.path != "" {
-        return parse_cache_get(&e.parses, req.path, req.source)
-    }
-    parsed, err := odinsyntax.parse(req.source, e.parses.alloc)
-    return parsed, err == nil
-}
-
-@(private = "file")
-request_release :: proc(e: ^Engine, req: ^lang.Request, parsed: ^odinsyntax.Parse) {
-    if req.path != "" {
-        parse_cache_put(&e.parses, req.path, parsed^)
-        parsed^ = {}
-    } else {
-        odinsyntax.parse_destroy(parsed, e.parses.alloc)
-    }
+    ctx.live.lines = nil
 }
 
 // The declaration the identifier at req.offset names.

@@ -13,20 +13,30 @@ syntax_diagnostics :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
     if req.path == "" {
         return
     }
-    parsed, ok := parse_cache_get(&e.parses, req.path, req.source)
-    if !ok {
+    snap: odinsema.Snapshot
+    input := odinsema.Snapshot_Input {
+        target    = odinsema.target_host(),
+        has_live  = true,
+        live_path = req.path,
+        live_text = req.source,
+        cancel    = req.cancel,
+    }
+    opened := odinsema.snapshot_begin(&e.db, &snap, input)
+    defer odinsema.snapshot_end(&snap)
+    if !opened {
         return
     }
-    defer parse_cache_put(&e.parses, req.path, parsed)
-    if lang.request_cancelled(req) {
+    id := odinsema.snapshot_live_file(&snap)
+    parsed := odinsema.db_parse(&snap, id)
+    data := odinsema.db_file(&snap, id)
+    if parsed == nil || data == nil || lang.request_cancelled(req) {
         return
     }
 
-    starts := line_starts(req.source)
     res.report.scope = strings.clone(req.path)
     res.report.items = make([dynamic]lang.Diagnostic, 0, len(parsed.errors))
     for e in parsed.errors {
-        line, col := offset_line_col(starts, int(e.offset))
+        line, col := offset_line_col(data.lines, int(e.offset))
         append(
             &res.report.items,
             lang.Diagnostic {

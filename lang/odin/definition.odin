@@ -55,10 +55,11 @@ Def_Member :: struct {
 @(private)
 definition :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
     ctx: Request_Context
-    if !request_open(e, req, &ctx) {
+    opened := request_open(e, req, &ctx)
+    defer request_close(&ctx)
+    if !opened {
         return
     }
-    defer request_close(&ctx)
     tree := ctx.live.tree
 
     if dir, on_import := import_under_caret(&ctx, req.offset); on_import {
