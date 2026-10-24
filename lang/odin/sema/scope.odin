@@ -48,14 +48,37 @@ Name_Ref :: struct {
     operand:       string, // Package_Qualified: the package name
 }
 
+// How a local takes its value from `value_offset`.
+Local_Source :: enum u8 {
+    Value,       // the value, or result `value_index` of a multi-value value
+    Range,       // an element of the iterated value; `value_index` is the position of the name in the variables
+    Type_Switch, // the subject, narrowed to the type of each case clause
+}
+
 // A name declared in a procedure, a signature or a record.
 Local :: struct {
-    name:        string,
-    kind:        Decl_Kind,
-    name_offset: int,
-    scope:       int,
-    is_using:    bool,
+    name:         string,
+    kind:         Decl_Kind,
+    name_offset:  int,
+    scope:        int,
+    is_using:     bool,
+    type_offset:  int, // the type expression; -1 when absent
+    value_offset: int, // the value expression or default; -1 when absent
+    value_index:  int, // see Local_Source; -1 when the value is the name's own
+    source:       Local_Source,
 }
+
+// The type and value a declaration gives a local.
+@(private = "file")
+Local_Value :: struct {
+    type_offset:  int,
+    value_offset: int,
+    value_index:  int,
+    source:       Local_Source,
+}
+
+@(private = "file")
+NO_VALUE :: Local_Value{-1, -1, -1, .Value}
 
 // A lexical scope. A procedure literal, a procedure type and a record open a new procedure level:
 // the variables, parameters and labels of a lower level are not visible in it.
@@ -213,7 +236,7 @@ add_ref :: proc(w: ^Walker, ref: Name_Ref) {
 // Declares the identifier `n` in the current scope and records its name as a reference to itself.
 // With `push` false the local stays out of reach until the caller pushes it.
 @(private = "file")
-declare :: proc(w: ^Walker, n: odinsyntax.Syntax_Node, kind: Decl_Kind, is_using := false, push := true) -> int {
+declare :: proc(w: ^Walker, n: odinsyntax.Syntax_Node, kind: Decl_Kind, is_using := false, push := true, value := NO_VALUE) -> int {
     ref := base_ref(n)
     if ref.name == "_" {
         add_ref(w, ref)
@@ -229,7 +252,18 @@ declare :: proc(w: ^Walker, n: odinsyntax.Syntax_Node, kind: Decl_Kind, is_using
         return -1
     }
     ref.kind = .Local
-    if _, err := append(&w.locals, Local{ref.name, kind, ref.start, w.cur, is_using}); err != nil {
+    local := Local {
+        name         = ref.name,
+        kind         = kind,
+        name_offset  = ref.start,
+        scope        = w.cur,
+        is_using     = is_using,
+        type_offset  = value.type_offset,
+        value_offset = value.value_offset,
+        value_index  = value.value_index,
+        source       = value.source,
+    }
+    if _, err := append(&w.locals, local); err != nil {
         note_err(w, err)
         return -1
     }
@@ -635,8 +669,24 @@ walk_value_decl :: proc(w: ^Walker, n: odinsyntax.Syntax_Node) {
         if w.cur >= 0 && predeclared(w, int(name.offset)) {
             continue
         }
-        declare(w, name, name_kind(d, i, constant), is_using)
+        declare(w, name, name_kind(d, i, constant), is_using, value = decl_local_value(n, name))
     }
+}
+
+// The type and value Value_Decl `n` gives the name `name`.
+@(private = "file")
+decl_local_value :: proc(n, name: odinsyntax.Syntax_Node) -> Local_Value {
+    n := n
+    out := NO_VALUE
+    v, _ := odinsyntax.as_value_decl(n)
+    if type, ok := odinsyntax.value_decl_type(&v); ok {
+        out.type_offset = int(type.offset)
+    }
+    if value, result, ok := decl_value(&n, int(name.offset)); ok {
+        out.value_offset = int(value.offset)
+        out.value_index = result
+    }
+    return out
 }
 
 // Declares the constants of a statement list ahead of it: `::` is order-independent in its block.
@@ -657,7 +707,7 @@ hoist :: proc(w: ^Walker, n: odinsyntax.Syntax_Node) {
         d := decl_names(w, &v)
         for name, i in d.names {
             if name.green.kind == .Ident {
-                declare(w, name, name_kind(d, i, true))
+                declare(w, name, name_kind(d, i, true), value = decl_local_value(child, name))
             }
         }
     }
@@ -747,17 +797,20 @@ walk_range :: proc(w: ^Walker, n: odinsyntax.Syntax_Node) {
     if args, ok := odinsyntax.range_stmt_unroll_args(&r); ok {
         walk(w, odinsyntax.Syntax_Node(args))
     }
+    value := Local_Value{-1, -1, 0, .Range}
     if expr, ok := odinsyntax.range_stmt_expr(&r); ok {
         walk(w, expr)
+        value.value_offset = int(expr.offset)
     }
     if vars, ok := odinsyntax.range_stmt_vars(&r); ok {
         it := odinsyntax.expr_list_items(&vars)
         for item in odinsyntax.child_iter_next(&it) {
             if ident, iok := var_ident(item); iok {
-                declare(w, ident, .Loop_Var)
+                declare(w, ident, .Loop_Var, value = value)
             } else {
                 walk(w, item)
             }
+            value.value_index += 1
         }
     }
     if body, ok := odinsyntax.range_stmt_body(&r); ok {
@@ -774,8 +827,10 @@ walk_type_switch :: proc(w: ^Walker, n: odinsyntax.Syntax_Node) {
     if lbl, ok := odinsyntax.type_switch_stmt_label(&ts); ok {
         walk(w, odinsyntax.Syntax_Node(lbl))
     }
+    value := Local_Value{-1, -1, -1, .Type_Switch}
     if subject, ok := odinsyntax.type_switch_stmt_subject(&ts); ok {
         walk(w, subject)
+        value.value_offset = int(subject.offset)
     }
     vars := make([dynamic]int, context.temp_allocator)
     if list, ok := odinsyntax.type_switch_stmt_vars(&ts); ok {
@@ -786,7 +841,7 @@ walk_type_switch :: proc(w: ^Walker, n: odinsyntax.Syntax_Node) {
                 walk(w, item)
                 continue
             }
-            if index := declare(w, ident, .Switch_Var, push = false); index >= 0 {
+            if index := declare(w, ident, .Switch_Var, push = false, value = value); index >= 0 {
                 _, err := append(&vars, index)
                 note_err(w, err)
             }
@@ -883,6 +938,13 @@ walk_fields :: proc(w: ^Walker, list: odinsyntax.Syntax_Node, kind: Decl_Kind, m
             continue
         }
         _, is_using := odinsyntax.field_using(&f)
+        value := NO_VALUE
+        if type, ok := odinsyntax.field_type(&f); ok {
+            value.type_offset = int(type.offset)
+        }
+        if default, ok := odinsyntax.field_default(&f); ok {
+            value.value_offset = int(default.offset)
+        }
         nit := odinsyntax.name_list_names(&names)
         for name in odinsyntax.child_iter_next(&nit) {
             switch {
@@ -894,7 +956,7 @@ walk_fields :: proc(w: ^Walker, list: odinsyntax.Syntax_Node, kind: Decl_Kind, m
                 ref.is_using = is_using
                 add_ref(w, ref)
             case:
-                declare(w, name, kind, is_using)
+                declare(w, name, kind, is_using, value = value)
             }
         }
     }

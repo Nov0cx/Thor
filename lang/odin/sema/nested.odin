@@ -26,7 +26,7 @@ nested_decls :: proc(parsed: odinsyntax.Parse, item: ^Item, allocator: mem.Alloc
     if !is_node || decl.green.kind != .Value_Decl {
         return nil, nil
     }
-    value, has_value := decl_value(&decl, item.name_offset)
+    value, _, has_value := decl_value(&decl, item.name_offset)
     if !has_value {
         return nil, nil
     }
@@ -42,9 +42,10 @@ nested_decls :: proc(parsed: odinsyntax.Parse, item: ^Item, allocator: mem.Alloc
     return out[:], nil
 }
 
-// The value bound to the name at `name_offset` in Value_Decl `n`. Its parent chain is not kept.
-@(private = "file")
-decl_value :: proc(n: ^odinsyntax.Syntax_Node, name_offset: int) -> (value: odinsyntax.Syntax_Node, ok: bool) {
+// The value bound to the name at `name_offset` in Value_Decl `n`, and the result of it the name takes:
+// `result` is -1 when the value is the name's own. Its parent chain is not kept.
+@(private)
+decl_value :: proc(n: ^odinsyntax.Syntax_Node, name_offset: int) -> (value: odinsyntax.Syntax_Node, result: int, ok: bool) {
     v, _ := odinsyntax.as_value_decl(n^)
     index, count := -1, 0
     if name_list, has_names := odinsyntax.value_decl_names(&v); has_names {
@@ -58,7 +59,7 @@ decl_value :: proc(n: ^odinsyntax.Syntax_Node, name_offset: int) -> (value: odin
     }
     value_list, has_values := odinsyntax.value_decl_values(&v)
     if index < 0 || !has_values {
-        return {}, false
+        return {}, -1, false
     }
     values := 0
     it := odinsyntax.expr_list_items(&value_list)
@@ -69,7 +70,11 @@ decl_value :: proc(n: ^odinsyntax.Syntax_Node, name_offset: int) -> (value: odin
         values += 1
     }
     if values != count && values != 1 {
-        return {}, false
+        return {}, -1, false
+    }
+    result = -1
+    if values == 1 && count > 1 {
+        result = index
     }
     value.parent = nil
     return
@@ -117,7 +122,7 @@ add_nested :: proc(b: ^Builder, n: ^odinsyntax.Syntax_Node, parent: int, out: ^[
     add_value_decl(b, n, Decl_Context{guard = -1, visibility = .File}, &items)
     walked := -1
     for item in items {
-        value, has_value := decl_value(n, item.name_offset)
+        value, _, has_value := decl_value(n, item.name_offset)
         #partial switch item.kind {
         case .Const, .Var:
             if has_value && int(value.offset) != walked {

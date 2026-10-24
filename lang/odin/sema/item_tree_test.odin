@@ -361,3 +361,72 @@ walk_repository :: proc(t: ^testing.T, dir: string, count: ^int) {
         count^ += 1
     }
 }
+
+// Whether the source at `offset` starts with `want`; "" wants -1.
+@(private = "file")
+starts_with :: proc(src: string, offset: int, want: string) -> bool {
+    if want == "" {
+        return offset == -1
+    }
+    return offset >= 0 && offset < len(src) && strings.has_prefix(src[offset:], want)
+}
+
+@(test)
+test_item_tree_type_and_value_offsets :: proc(t: ^testing.T) {
+    src := "package demo\n" +
+        "x: int = 5\n" +
+        "y := 7\n" +
+        "a, b := f()\n" +
+        "c, d := 1, 2\n" +
+        "f :: proc() -> (int, int) { return 1, 2 }\n" +
+        "P :: struct { u, v: f32, w: ^P }\n" +
+        "E :: enum { A, B = 4 }\n" +
+        "Bf :: bit_field u8 { lo: u8 | 4 }\n" +
+        "import \"core:fmt\"\n"
+    tree := build_tree(t, src)
+    defer item_tree_destroy(tree)
+
+    Want :: struct {
+        name:  string,
+        type:  string,
+        value: string,
+        index: int,
+    }
+    cases := []Want {
+        {"x", "int", "5", -1},
+        {"y", "", "7", -1},
+        {"a", "", "f(", 0},
+        {"b", "", "f(", 1},
+        {"c", "", "1", -1},
+        {"d", "", "2", -1},
+        {"f", "", "proc(", -1},
+        {"fmt", "", "", -1},
+    }
+    for c in cases {
+        item, ok := find_item(tree, c.name)
+        if !testing.expectf(t, ok, "%s missing", c.name) {
+            continue
+        }
+        testing.expectf(t, starts_with(src, item.type_offset, c.type), "%s type: %d", c.name, item.type_offset)
+        testing.expectf(t, starts_with(src, item.value_offset, c.value), "%s value: %d", c.name, item.value_offset)
+        testing.expectf(t, item.value_index == c.index, "%s index: %d", c.name, item.value_index)
+    }
+
+    p, pok := find_item(tree, "P")
+    if testing.expect(t, pok) && testing.expect_value(t, len(p.children), 3) {
+        testing.expect(t, starts_with(src, p.children[0].type_offset, "f32"))
+        testing.expect(t, starts_with(src, p.children[1].type_offset, "f32"))
+        testing.expect(t, starts_with(src, p.children[2].type_offset, "^P"))
+        testing.expect_value(t, p.children[0].value_offset, -1)
+    }
+    e, eok := find_item(tree, "E")
+    if testing.expect(t, eok) && testing.expect_value(t, len(e.children), 2) {
+        testing.expect_value(t, e.children[0].value_offset, -1)
+        testing.expect(t, starts_with(src, e.children[1].value_offset, "4"))
+        testing.expect_value(t, e.children[1].type_offset, -1)
+    }
+    bf, bok := find_item(tree, "Bf")
+    if testing.expect(t, bok) && testing.expect_value(t, len(bf.children), 1) {
+        testing.expect(t, starts_with(src, bf.children[0].type_offset, "u8 |"))
+    }
+}

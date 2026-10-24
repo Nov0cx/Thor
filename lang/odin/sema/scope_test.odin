@@ -347,3 +347,73 @@ test_scope_smoke_repo_files :: proc(t: ^testing.T) {
         }
     }
 }
+
+// Whether the source at `offset` starts with `want`; "" wants -1.
+@(private = "file")
+starts_with :: proc(src: string, offset: int, want: string) -> bool {
+    if want == "" {
+        return offset == -1
+    }
+    return offset >= 0 && offset < len(src) && strings.has_prefix(src[offset:], want)
+}
+
+@(test)
+test_scope_local_type_and_value_offsets :: proc(t: ^testing.T) {
+    src := "package p\n" +
+        "f :: proc(a: int, b := 2, c: f32 = 1.5) -> (r: bool) {\n" +
+        "    x: u8 = 3\n" +
+        "    y, z := g()\n" +
+        "    K :: 9\n" +
+        "    for v, i in xs {\n" +
+        "    }\n" +
+        "    for e in 0..<4 {\n" +
+        "    }\n" +
+        "    switch s in u {\n" +
+        "    case int:\n" +
+        "    }\n" +
+        "}\n"
+    parsed, err := odinsyntax.parse(src)
+    testing.expect_value(t, err, nil)
+    defer odinsyntax.parse_destroy(&parsed)
+    m, merr := scope_map(parsed)
+    if !testing.expect_value(t, merr, nil) {
+        return
+    }
+    defer scope_map_destroy(m)
+
+    Want :: struct {
+        name:   string,
+        type:   string,
+        value:  string,
+        index:  int,
+        source: Local_Source,
+    }
+    cases := []Want {
+        {"a", "int", "", -1, .Value},
+        {"b", "", "2", -1, .Value},
+        {"c", "f32", "1.5", -1, .Value},
+        {"r", "bool", "", -1, .Value},
+        {"x", "u8", "3", -1, .Value},
+        {"y", "", "g(", 0, .Value},
+        {"z", "", "g(", 1, .Value},
+        {"K", "", "9", -1, .Value},
+        {"v", "", "xs", 0, .Range},
+        {"i", "", "xs", 1, .Range},
+        {"e", "", "0..<4", 0, .Range},
+        {"s", "", "u", -1, .Type_Switch},
+    }
+    for c in cases {
+        found := false
+        for l in m.locals {
+            if l.name != c.name {
+                continue
+            }
+            found = true
+            testing.expectf(t, starts_with(src, l.type_offset, c.type), "%s type: %d", c.name, l.type_offset)
+            testing.expectf(t, starts_with(src, l.value_offset, c.value), "%s value: %d", c.name, l.value_offset)
+            testing.expectf(t, l.value_index == c.index, "%s index: %d", c.name, l.value_index)
+            testing.expectf(t, l.source == c.source, "%s source: %v", c.name, l.source)
+        }
+        testing.expectf(t, found, "%s missing", c.name)
+    }
+}
