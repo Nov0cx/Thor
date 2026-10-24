@@ -574,7 +574,7 @@ OS_ENUM_NAMES := [Target_OS]string {
 }
 
 // The size of a basic type for `target`; 0 when not known.
-@(private = "file")
+@(private)
 type_size :: proc(name: string, target: Target) -> i64 {
     switch name {
     case "bool", "b8", "i8", "u8":
