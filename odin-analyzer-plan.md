@@ -686,6 +686,10 @@ These are the decisions that change scope, order or design. Each has my default 
    only the parser) even before the rest is ported? **Yes: live syntax errors after M1, inlay hints
    after M4.**
 
+## 12. Formatter
+
+1. Add option to align vertically nicely like definitions in a struct (default enabled)
+
 ---
 
 ## Appendix — files touched (current repo)
