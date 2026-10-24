@@ -96,7 +96,7 @@ definition :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
         for &item in tree.items {
             if item.name_offset == ref.start && item.kind != .Import && item.kind != .Foreign_Import {
                 inactive := ctx.live.in_build && !odinsema.guard_active(tree, item.guard, ctx.target)
-                emit_candidate(&ctx, &cands, &item, req.path, tree, ctx.live.lines, inactive, "")
+                emit_candidate(&ctx, &cands, &item, req.path, ctx.live.lines, inactive, "")
                 break
             }
         }
@@ -225,7 +225,7 @@ expand_group :: proc(ctx: ^Request_Context, group: Def_Candidate, out: ^[dynamic
 @(private)
 package_candidates :: proc(ctx: ^Request_Context, dir, name, member: string, own: bool, out: ^[dynamic]Def_Candidate) {
     live := &ctx.live
-    replace := path_key(dir) == live.dir_key
+    replace := odinsema.path_key(dir) == live.dir_key
     start := len(out)
     if replace {
         for &item in live.tree.items {
@@ -233,7 +233,7 @@ package_candidates :: proc(ctx: ^Request_Context, dir, name, member: string, own
                 continue
             }
             inactive := live.in_build && !odinsema.guard_active(live.tree, item.guard, ctx.target)
-            emit_candidate(ctx, out, &item, live.path, live.tree, live.lines, inactive, member)
+            emit_candidate(ctx, out, &item, live.path, live.lines, inactive, member)
         }
     }
     // A buffer with no file or outside a workspace stands alone: its directory may be anything.
@@ -255,7 +255,7 @@ package_candidates :: proc(ctx: ^Request_Context, dir, name, member: string, own
         }
         data := view.datas[ref.file]
         inactive := !odinsema.package_ref_active(view.scope, ref)
-        emit_candidate(ctx, out, item, view.sema_files[ref.file].path, data.tree, data.lines, inactive, member)
+        emit_candidate(ctx, out, item, view.sema_files[ref.file].path, data.lines, inactive, member)
     }
     if len(out) > start {
         return
@@ -267,7 +267,7 @@ package_candidates :: proc(ctx: ^Request_Context, dir, name, member: string, own
         }
         for &item in data.tree.items {
             if item.name == name && item.kind != .Import && item.kind != .Foreign_Import && item_reaches(&item, own) {
-                emit_candidate(ctx, out, &item, view.sema_files[i].path, data.tree, data.lines, true, member)
+                emit_candidate(ctx, out, &item, view.sema_files[i].path, data.lines, true, member)
             }
         }
     }
@@ -293,7 +293,6 @@ emit_candidate :: proc(
     out: ^[dynamic]Def_Candidate,
     item: ^odinsema.Item,
     path: string,
-    tree: ^odinsema.Item_Tree,
     lines: []int,
     inactive: bool,
     member: string,
@@ -323,7 +322,7 @@ emit_candidate :: proc(
         visibility = item.visibility,
     }
     if target.kind == .Proc_Group {
-        cand.members = group_members(ctx, target, cand.path, tree)
+        cand.members = group_members(ctx, target, cand.path)
     }
     append(out, cand)
 }
@@ -331,9 +330,10 @@ emit_candidate :: proc(
 // The package directory and name of each member of a group declared in the file at `path`.
 // A qualified member whose import does not resolve is left out.
 @(private = "file")
-group_members :: proc(ctx: ^Request_Context, item: ^odinsema.Item, path: string, tree: ^odinsema.Item_Tree) -> []Def_Member {
+group_members :: proc(ctx: ^Request_Context, item: ^odinsema.Item, path: string) -> []Def_Member {
     out := make([dynamic]Def_Member, context.temp_allocator)
-    file_dir := path == ctx.live.path ? live_dir(ctx) : filepath.dir(path)
+    is_live := path == ctx.live.path
+    file_dir := is_live ? live_dir(ctx) : filepath.dir(path)
     imports: []odinsema.File_Import
     has_imports := false
     for m in item.members {
@@ -343,7 +343,7 @@ group_members :: proc(ctx: ^Request_Context, item: ^odinsema.Item, path: string,
         }
         if !has_imports {
             has_imports = true
-            imports, _ = odinsema.file_imports(tree, file_dir, request_collections(ctx), context.temp_allocator)
+            imports = odinsema.db_imports(&ctx.snap, is_live ? ctx.live.id : odinsema.db_file_id(&ctx.snap, path))
         }
         imp, found := odinsema.lookup_import(imports, m.operand)
         if !found || !imp.exists {

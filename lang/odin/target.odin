@@ -31,8 +31,6 @@ Request_Context :: struct {
     snap:        odinsema.Snapshot, // owned; ended by request_close
     parsed:      odinsyntax.Parse,  // borrowed from `snap`
     live:        Live_File,
-    collections: odinsema.Collections,
-    has_colls:   bool,
 }
 
 // What a reference search looks for.
@@ -67,9 +65,10 @@ request_open :: proc(e: ^Engine, req: ^lang.Request, ctx: ^Request_Context) -> b
         req    = req,
         target = config_target(e, req.workspace),
     }
+    collections := workspace_collections(e, req.workspace)
     input := odinsema.Snapshot_Input {
         target      = ctx.target,
-        collections = request_collections(ctx),
+        collections = &collections,
         has_live    = true,
         live_path   = req.path,
         live_text   = req.source,
@@ -92,10 +91,10 @@ request_open :: proc(e: ^Engine, req: ^lang.Request, ctx: ^Request_Context) -> b
         lines = data.lines,
     }
     if req.path != "" {
-        ctx.live.key = path_key(req.path)
+        ctx.live.key = odinsema.path_key(req.path)
         ctx.live.in_build = odinsema.db_in_build(&ctx.snap, id)
     }
-    ctx.live.dir_key = path_key(live_dir(ctx))
+    ctx.live.dir_key = odinsema.path_key(live_dir(ctx))
     return true
 }
 
@@ -203,8 +202,8 @@ alias_target :: proc(ctx: ^Request_Context, name: string) -> (Ref_Target, bool) 
             continue
         }
         t := Ref_Target{kind = .Import_Alias, name = name, path = ctx.req.path, decl = -1}
-        imports, err := odinsema.file_imports(ctx.live.tree, live_dir(ctx), request_collections(ctx), context.temp_allocator)
-        if err == nil {
+        imports := odinsema.db_imports(&ctx.snap, ctx.live.id)
+        if imports != nil {
             if imp, found := odinsema.lookup_import(imports, name); found {
                 t.explicit = imp.explicit
                 if imp.explicit {
@@ -299,21 +298,16 @@ item_reaches :: proc(item: ^odinsema.Item, own: bool) -> bool {
     return own ? item.visibility != .File : item.visibility == .Public
 }
 
-// The roots the imports of the request resolve against: the Odin root and the configured collections.
-@(private)
-request_collections :: proc(ctx: ^Request_Context) -> ^odinsema.Collections {
-    if ctx.has_colls {
-        return &ctx.collections
-    }
-    ctx.has_colls = true
-    ctx.collections.odin_root = odin_root(&ctx.e.root)
-    configured := config_collections(ctx.e, ctx.req.workspace)
+// The roots the imports of a workspace resolve against: the Odin root and the configured collections.
+// Temp-allocated.
+@(private = "file")
+workspace_collections :: proc(e: ^Engine, workspace: string) -> odinsema.Collections {
+    configured := config_collections(e, workspace)
     custom := make([]odinsema.Collection, len(configured), context.temp_allocator)
     for c, i in configured {
         custom[i] = {name = c.name, root = c.dir}
     }
-    ctx.collections.custom = custom
-    return &ctx.collections
+    return odinsema.Collections{odin_root = odin_root(&e.root), custom = custom}
 }
 
 // The package directory of the import of the buffer that binds `alias`. `is_import` is false when no
@@ -330,8 +324,8 @@ import_alias_dir :: proc(ctx: ^Request_Context, alias: string) -> (dir: string, 
     if !bound {
         return "", false
     }
-    imports, err := odinsema.file_imports(ctx.live.tree, live_dir(ctx), request_collections(ctx), context.temp_allocator)
-    if err != nil {
+    imports := odinsema.db_imports(&ctx.snap, ctx.live.id)
+    if imports == nil {
         return "", true
     }
     imp, found := odinsema.lookup_import(imports, alias)
@@ -355,8 +349,8 @@ import_under_caret :: proc(ctx: ^Request_Context, offset: int) -> (dir: string, 
     if index < 0 {
         return "", false
     }
-    imports, err := odinsema.file_imports(ctx.live.tree, live_dir(ctx), request_collections(ctx), context.temp_allocator)
-    if err != nil {
+    imports := odinsema.db_imports(&ctx.snap, ctx.live.id)
+    if imports == nil {
         return "", true
     }
     for imp in imports {

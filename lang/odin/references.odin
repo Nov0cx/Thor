@@ -128,8 +128,8 @@ rename_allowed :: proc(ctx: ^Request_Context, target: Ref_Target) -> bool {
     if ctx.req.workspace == "" || target.path == "" {
         return false
     }
-    root := strings.trim_right(path_key(ctx.req.workspace), "/")
-    key := path_key(target.path)
+    root := strings.trim_right(odinsema.path_key(ctx.req.workspace), "/")
+    key := odinsema.path_key(target.path)
     return key == root || strings.has_prefix(key, strings.concatenate({root, "/"}, context.temp_allocator))
 }
 
@@ -138,9 +138,9 @@ rename_allowed :: proc(ctx: ^Request_Context, target: Ref_Target) -> bool {
 scan :: proc(s: ^Ref_Scan) -> bool {
     ctx := s.ctx
     s.hits = make([dynamic]lang.Symbol)
-    s.decl_key = s.target.path != "" ? path_key(s.target.path) : ""
+    s.decl_key = s.target.path != "" ? odinsema.path_key(s.target.path) : ""
     if s.target.dir != "" {
-        s.dir_key = path_key(s.target.dir)
+        s.dir_key = odinsema.path_key(s.target.dir)
     }
     live := live_scan_file(ctx)
 
@@ -285,11 +285,11 @@ workspace_importers :: proc(s: ^Ref_Scan) -> []odinsema.File_Id {
             continue
         }
         data := odinsema.db_file(snap, id)
-        if data == nil || path_key(filepath.dir(odinsema.db_file_path(snap, id))) == s.dir_key || !imports_package(data.tree) {
+        if data == nil || !imports_package(data.tree) || odinsema.path_key(filepath.dir(odinsema.db_file_path(snap, id))) == s.dir_key {
             continue
         }
         for imp in odinsema.db_imports(snap, id) {
-            if imp.exists && path_key(imp.dir) == s.dir_key {
+            if imp.exists && odinsema.path_key(imp.dir) == s.dir_key {
                 append(&out, id)
                 break
             }
@@ -332,7 +332,7 @@ scan_disk_file :: proc(s: ^Ref_Scan, id: odinsema.File_Id) {
         path    = path,
         key     = odinsema.db_file_key(snap, id),
         dir     = dir,
-        dir_key = path_key(dir),
+        dir_key = odinsema.path_key(dir),
         source  = parsed.tree.text,
         parsed  = parsed^,
         tree    = data.tree,
@@ -386,7 +386,7 @@ classify :: proc(s: ^Ref_Scan, f: ^Scan_File, m: ^odinsema.Scope_Map, ref: odins
                 return false, false
             }
             imp, found := file_import(s, f, ref.operand)
-            return found && imp.exists && path_key(imp.dir) == s.dir_key, false
+            return found && imp.exists && odinsema.path_key(imp.dir) == s.dir_key, false
         }
     case .Builtin:
         if ref.kind == .Free {
@@ -482,7 +482,7 @@ operand_names_other :: proc(s: ^Ref_Scan, f: ^Scan_File, m: ^odinsema.Scope_Map,
         if !found || !imp.exists {
             return false
         }
-        return path_key(imp.dir) != s.dir_key || type_name != s.target.owner
+        return odinsema.path_key(imp.dir) != s.dir_key || type_name != s.target.owner
     }
     text := strings.trim_space(f.source[ref.operand_start:ref.operand_end])
     if !odinsema.is_identifier(text) {

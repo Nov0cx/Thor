@@ -52,7 +52,7 @@ builtin_package_candidates :: proc(ctx: ^Request_Context, dir, name: string, all
         }
         data := view.datas[ref.file]
         inactive := !odinsema.package_ref_active(view.scope, ref)
-        emit_candidate(ctx, out, item, view.sema_files[ref.file].path, data.tree, data.lines, inactive, "")
+        emit_candidate(ctx, out, item, view.sema_files[ref.file].path, data.lines, inactive, "")
     }
     return len(out) > start
 }

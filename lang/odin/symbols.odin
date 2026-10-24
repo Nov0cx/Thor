@@ -150,8 +150,3 @@ append_symbol_to :: proc(out: ^[dynamic]lang.Symbol, item: ^odinsema.Item, path:
         offset    = item.name_offset,
     })
 }
-
-@(private)
-path_key :: proc(path: string) -> string {
-    return odinsema.path_key(path)
-}

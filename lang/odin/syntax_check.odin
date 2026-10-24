@@ -51,11 +51,6 @@ syntax_diagnostics :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
     res.ok = true
 }
 
-@(private)
-line_starts :: proc(source: string) -> []int {
-    return odinsema.line_starts(source)
-}
-
 // 1-based line and byte column of `offset`.
 @(private)
 offset_line_col :: proc(starts: []int, offset: int) -> (line, col: int) {
