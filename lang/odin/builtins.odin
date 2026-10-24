@@ -3,7 +3,6 @@
 package odin
 
 import "core:path/filepath"
-import "core:sync"
 
 import odinsema "sema"
 
@@ -41,22 +40,19 @@ builtin_candidates :: proc(ctx: ^Request_Context, name: string, out: ^[dynamic]D
 // with a `builtin` attribute. True when one was appended.
 @(private = "file")
 builtin_package_candidates :: proc(ctx: ^Request_Context, dir, name: string, all: bool, out: ^[dynamic]Def_Candidate) -> bool {
-    c := &ctx.e.packages
-    sync.lock(&c.mutex)
-    defer sync.unlock(&c.mutex)
-    entry := package_cache_ensure(c, dir, ctx.target, ctx.req)
-    if entry == nil {
+    view := request_package(ctx, dir)
+    if view == nil {
         return false
     }
     start := len(out)
-    for ref in odinsema.package_scope_lookup(&entry.scope, name) {
-        item := odinsema.package_item(entry.sema_files[:], ref)
+    for ref in odinsema.package_scope_lookup(view.scope, name) {
+        item := odinsema.package_item(view.sema_files, ref)
         if item.visibility != .Public || (!all && !has_builtin_attribute(item)) {
             continue
         }
-        f := &entry.files[ref.file]
-        inactive := !odinsema.package_ref_active(&entry.scope, ref)
-        emit_candidate(ctx, out, item, f.path, f.items, f.lines, inactive, "")
+        data := view.datas[ref.file]
+        inactive := !odinsema.package_ref_active(view.scope, ref)
+        emit_candidate(ctx, out, item, view.sema_files[ref.file].path, data.tree, data.lines, inactive, "")
     }
     return len(out) > start
 }

@@ -17,7 +17,6 @@ Engine :: struct {
     format_config: Format_Config_Cache,
     db:            odinsema.Db, // owned
     index:         Symbol_Index,
-    packages:      Package_Cache,
     root:          Odin_Root,
     // One compiler run at a time (see check_package).
     check_mutex:   sync.Mutex,
@@ -49,8 +48,6 @@ engine_create :: proc() -> ^Engine {
     e.format_config.alloc = context.allocator
     odinsema.db_init(&e.db, lang.source_read)
     e.index.alloc = context.allocator
-    e.packages.alloc = context.allocator
-    e.packages.entries = make([dynamic]^Package_Entry, 0, PACKAGE_CACHE_SLOTS + 1)
     e.root.alloc = context.allocator
     return e
 }
@@ -148,7 +145,6 @@ engine_destroy :: proc(data: rawptr) {
     format_config_clear(e)
     odinsema.db_destroy(&e.db)
     index_clear(&e.index)
-    package_cache_clear(&e.packages)
     odin_root_clear(&e.root)
     free(e)
 }

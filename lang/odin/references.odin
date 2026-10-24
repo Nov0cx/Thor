@@ -209,14 +209,13 @@ scan_package :: proc(s: ^Ref_Scan, live: ^Scan_File) -> bool {
     if live.dir_key == s.dir_key && (ctx.live.path == "" || req.workspace == "") {
         return true
     }
-    files, err := odinsema.package_dir_files(s.target.dir, context.temp_allocator)
-    if err == nil {
-        for path in files {
+    if view := request_package(ctx, s.target.dir); view != nil {
+        for id, i in view.files {
             if lang.request_cancelled(req) {
                 return false
             }
-            if path_key(path) != live.key {
-                scan_disk_file(s, path)
+            if id != ctx.live.id {
+                scan_disk_file(s, view.sema_files[i].path)
             }
         }
     }

@@ -5,7 +5,6 @@ import "core:fmt"
 import "core:path/filepath"
 import "core:slice"
 import "core:strings"
-import "core:sync"
 
 import lang ".."
 import odinsema "sema"
@@ -77,32 +76,22 @@ package_dir_under_caret :: proc(ctx: ^Request_Context) -> string {
 render_package_doc :: proc(ctx: ^Request_Context, dir: string, res: ^lang.Result) {
     entries := make([dynamic]Doc_Entry, context.temp_allocator)
     pkg_name, pkg_doc := "", ""
-    live := &ctx.live
-    replace := live.path != "" && path_key(dir) == live.dir_key
-    if replace && live.in_build && !is_test_file(live.path) {
-        pkg_name = strings.clone(live.tree.package_name, context.temp_allocator)
-        pkg_doc = strings.clone(live.tree.package_doc, context.temp_allocator)
-        collect_entries(live.tree, ctx.target, &entries)
-    }
-
-    c := &ctx.e.packages
-    sync.lock(&c.mutex)
-    entry := package_cache_ensure(c, dir, ctx.target, ctx.req)
-    if entry != nil {
-        for &f in entry.files {
-            if !f.in_build || f.items == nil || is_test_file(f.path) || (replace && f.key == live.key) {
+    if view := request_package(ctx, dir); view != nil {
+        for id, i in view.files {
+            data := view.datas[i]
+            path := view.sema_files[i].path
+            if data == nil || is_test_file(path) || !odinsema.db_in_build(&ctx.snap, id) {
                 continue
             }
             if pkg_name == "" {
-                pkg_name = strings.clone(f.items.package_name, context.temp_allocator)
+                pkg_name = strings.clone(data.tree.package_name, context.temp_allocator)
             }
             if pkg_doc == "" {
-                pkg_doc = strings.clone(f.items.package_doc, context.temp_allocator)
+                pkg_doc = strings.clone(data.tree.package_doc, context.temp_allocator)
             }
-            collect_entries(f.items, ctx.target, &entries)
+            collect_entries(data.tree, ctx.target, &entries)
         }
     }
-    sync.unlock(&c.mutex)
     if lang.request_cancelled(ctx.req) || len(entries) == 0 {
         return
     }

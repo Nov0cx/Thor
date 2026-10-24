@@ -241,38 +241,49 @@ package_candidates :: proc(ctx: ^Request_Context, dir, name, member: string, own
         return
     }
 
-    c := &ctx.e.packages
-    sync.lock(&c.mutex)
-    defer sync.unlock(&c.mutex)
-    entry := package_cache_ensure(c, dir, ctx.target, ctx.req)
-    if entry == nil {
+    view := request_package(ctx, dir)
+    if view == nil {
         return
     }
-    for ref in odinsema.package_scope_lookup(&entry.scope, name) {
-        f := &entry.files[ref.file]
-        if replace && f.key == live.key {
+    for ref in odinsema.package_scope_lookup(view.scope, name) {
+        if replace && view.files[ref.file] == live.id {
             continue
         }
-        item := odinsema.package_item(entry.sema_files[:], ref)
+        item := odinsema.package_item(view.sema_files, ref)
         if !item_reaches(item, own) {
             continue
         }
-        inactive := !odinsema.package_ref_active(&entry.scope, ref)
-        emit_candidate(ctx, out, item, f.path, f.items, f.lines, inactive, member)
+        data := view.datas[ref.file]
+        inactive := !odinsema.package_ref_active(view.scope, ref)
+        emit_candidate(ctx, out, item, view.sema_files[ref.file].path, data.tree, data.lines, inactive, member)
     }
     if len(out) > start {
         return
     }
-    for &f in entry.files {
-        if f.in_build || f.items == nil || (replace && f.key == live.key) {
+    for id, i in view.files {
+        data := view.datas[i]
+        if data == nil || (replace && id == live.id) || odinsema.db_in_build(&ctx.snap, id) {
             continue
         }
-        for &item in f.items.items {
+        for &item in data.tree.items {
             if item.name == name && item.kind != .Import && item.kind != .Foreign_Import && item_reaches(&item, own) {
-                emit_candidate(ctx, out, &item, f.path, f.items, f.lines, true, member)
+                emit_candidate(ctx, out, &item, view.sema_files[i].path, data.tree, data.lines, true, member)
             }
         }
     }
+}
+
+// The package at `dir` in the request's snapshot; nil when it cannot be read or the request is cancelled.
+@(private)
+request_package :: proc(ctx: ^Request_Context, dir: string) -> ^odinsema.Package_View {
+    if dir == "" {
+        return nil
+    }
+    pkg := odinsema.db_package_id(&ctx.snap, dir)
+    if pkg == odinsema.NO_PACKAGE {
+        return nil
+    }
+    return odinsema.db_package(&ctx.snap, pkg)
 }
 
 // Appends `item`, or with `member` set its field or member of that name, as a candidate.
