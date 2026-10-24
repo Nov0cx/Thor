@@ -25,9 +25,10 @@ Ref_Scan :: struct {
     bound:     map[string]bool,      // owned; Builtin: whether the package of a directory key binds the name
 }
 
-// One file a scan reads. Strings and `imports` are temp-allocated or borrowed.
+// One file a scan reads. Strings are temp-allocated or borrowed from the snapshot.
 @(private = "file")
 Scan_File :: struct {
+    id:          odinsema.File_Id,
     path:        string,
     key:         string,
     dir:         string,
@@ -35,7 +36,7 @@ Scan_File :: struct {
     source:      string,
     parsed:      odinsyntax.Parse,
     tree:        ^odinsema.Item_Tree,
-    lines:       []int, // nil until the first hit
+    lines:       []int,
     imports:     []odinsema.File_Import,
     has_imports: bool,
 }
@@ -137,8 +138,6 @@ rename_allowed :: proc(ctx: ^Request_Context, target: Ref_Target) -> bool {
 scan :: proc(s: ^Ref_Scan) -> bool {
     ctx := s.ctx
     s.hits = make([dynamic]lang.Symbol)
-    // The first call caches the collections in the temp allocator, outside every per-file guard.
-    request_collections(ctx)
     s.decl_key = s.target.path != "" ? path_key(s.target.path) : ""
     if s.target.dir != "" {
         s.dir_key = path_key(s.target.dir)
@@ -178,6 +177,7 @@ scan :: proc(s: ^Ref_Scan) -> bool {
 live_scan_file :: proc(ctx: ^Request_Context) -> Scan_File {
     dir := live_dir(ctx)
     return Scan_File {
+        id      = ctx.live.id,
         path    = ctx.req.path,
         key     = ctx.live.key,
         dir     = dir,
@@ -185,6 +185,7 @@ live_scan_file :: proc(ctx: ^Request_Context) -> Scan_File {
         source  = ctx.req.source,
         parsed  = ctx.parsed,
         tree    = ctx.live.tree,
+        lines   = ctx.live.lines,
     }
 }
 
@@ -199,7 +200,7 @@ scan_package :: proc(s: ^Ref_Scan, live: ^Scan_File) -> bool {
         if s.decl_key == ctx.live.key {
             scan_file(s, live)
         } else {
-            scan_disk_file(s, s.target.path)
+            scan_disk_file(s, odinsema.db_file_id(&ctx.snap, s.target.path))
         }
         return !lang.request_cancelled(req)
     }
@@ -209,12 +210,12 @@ scan_package :: proc(s: ^Ref_Scan, live: ^Scan_File) -> bool {
         return true
     }
     if view := request_package(ctx, s.target.dir); view != nil {
-        for id, i in view.files {
+        for id in view.files {
             if lang.request_cancelled(req) {
                 return false
             }
             if id != ctx.live.id {
-                scan_disk_file(s, view.sema_files[i].path)
+                scan_disk_file(s, id)
             }
         }
     }
@@ -225,7 +226,7 @@ scan_package :: proc(s: ^Ref_Scan, live: ^Scan_File) -> bool {
         if lang.request_cancelled(req) {
             return false
         }
-        scan_disk_file(s, odinsema.db_file_path(&ctx.snap, id))
+        scan_disk_file(s, id)
     }
     return !lang.request_cancelled(req)
 }
@@ -252,7 +253,7 @@ scan_workspace :: proc(s: ^Ref_Scan, live: ^Scan_File) -> bool {
         if lang.request_cancelled(req) {
             return false
         }
-        scan_disk_file(s, odinsema.db_file_path(&ctx.snap, id))
+        scan_disk_file(s, id)
     }
     return !lang.request_cancelled(req)
 }
@@ -308,34 +309,34 @@ imports_package :: proc(tree: ^odinsema.Item_Tree) -> bool {
     return false
 }
 
-// Reads, parses and scans one file on disk when it names the target. Files out of the build count too.
+// Scans one file on disk when it names the target. Files out of the build count too.
 @(private = "file")
-scan_disk_file :: proc(s: ^Ref_Scan, path: string) {
+scan_disk_file :: proc(s: ^Ref_Scan, id: odinsema.File_Id) {
+    if id == odinsema.NO_FILE {
+        return
+    }
     runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
-    source, ok := lang.source_read(path)
-    if !ok || !strings.contains(source, s.target.name) {
+    snap := &s.ctx.snap
+    parsed := odinsema.db_parse(snap, id)
+    if parsed == nil || parsed.tree == nil || !strings.contains(parsed.tree.text, s.target.name) {
         return
     }
-    parsed, perr := odinsyntax.parse(source)
-    if perr != nil {
+    data := odinsema.db_file(snap, id)
+    if data == nil {
         return
     }
-    defer odinsyntax.parse_destroy(&parsed)
-    tree, terr := odinsema.item_tree(parsed)
-    if terr != nil {
-        return
-    }
-    defer odinsema.item_tree_destroy(tree)
-    key := path_key(path)
+    path := odinsema.db_file_path(snap, id)
     dir := filepath.dir(path)
     f := Scan_File {
+        id      = id,
         path    = path,
-        key     = key,
+        key     = odinsema.db_file_key(snap, id),
         dir     = dir,
         dir_key = path_key(dir),
-        source  = source,
-        parsed  = parsed,
-        tree    = tree,
+        source  = parsed.tree.text,
+        parsed  = parsed^,
+        tree    = data.tree,
+        lines   = data.lines,
     }
     scan_file(s, &f)
 }
@@ -460,7 +461,7 @@ package_binds :: proc(s: ^Ref_Scan, f: ^Scan_File) -> bool {
 file_import :: proc(s: ^Ref_Scan, f: ^Scan_File, alias: string) -> (odinsema.File_Import, bool) {
     if !f.has_imports {
         f.has_imports = true
-        f.imports, _ = odinsema.file_imports(f.tree, f.dir, request_collections(s.ctx), context.temp_allocator)
+        f.imports = odinsema.db_imports(&s.ctx.snap, f.id)
     }
     imp, found := odinsema.lookup_import(f.imports, alias)
     if !found {
@@ -508,9 +509,6 @@ operand_names_other :: proc(s: ^Ref_Scan, f: ^Scan_File, m: ^odinsema.Scope_Map,
 // Appends the identifier at `offset` of `f` as a reference row.
 @(private = "file")
 add_hit :: proc(s: ^Ref_Scan, f: ^Scan_File, offset: int) {
-    if f.lines == nil {
-        f.lines = line_starts(f.source)
-    }
     line, _ := offset_line_col(f.lines, offset)
     start := f.lines[line - 1]
     end := strings.index_byte(f.source[start:], '\n')

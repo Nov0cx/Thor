@@ -241,6 +241,32 @@ test_references_cross_file :: proc(t: ^testing.T) {
     testing.expectf(t, len(res2.symbols) == 3, "ref count from a use: got %d", len(res2.symbols))
 }
 
+// A second search reads the files of the package from the query database, not from disk.
+@(test)
+test_references_reuse_the_parses :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    use_src := "package demo\n\nrun :: proc() {\n\t_ = helper()\n}\n"
+    root := fixture(t, "refs_reuse", {{"use.odin", use_src}})
+    defer os.remove_all(root)
+
+    main_src := "package demo\n\nhelper :: proc() -> int {\n\treturn 42\n}\n"
+    main_path := fixture_path(root, "main.odin")
+    res := refs_at(e, main_src, "helper ::", root, main_path)
+    defer free_refs(&res)
+    testing.expectf(t, len(res.symbols) == 1, "ref count: got %d", len(res.symbols))
+    first := db_stats(e)
+
+    res2 := refs_at(e, main_src, "helper ::", root, main_path)
+    defer free_refs(&res2)
+    testing.expectf(t, len(res2.symbols) == 1, "ref count again: got %d", len(res2.symbols))
+    second := db_stats(e)
+    testing.expect_value(t, second.reads, first.reads)
+    testing.expect_value(t, second.parses, first.parses)
+    testing.expect_value(t, second.reparses, first.reparses)
+}
+
 // A sibling written after the first request counts in the next one.
 @(test)
 test_references_sibling_added_later :: proc(t: ^testing.T) {

@@ -116,7 +116,7 @@ test_syntax_check_evicts_the_oldest :: proc(t: ^testing.T) {
     testing.expect_value(t, s.parses, odinsema.LIVE_SLOTS + 3)
 }
 
-@(private = "file")
+@(private)
 db_stats :: proc(e: ^Engine) -> odinsema.Db_Stats {
     return odinsema.Db_Stats {
         reads        = sync.atomic_load(&e.db.stats.reads),
