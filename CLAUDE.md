@@ -166,8 +166,11 @@ be tested headlessly.
   top-level declarations of one file; owns its strings), `file_in_build` (suffix rules and
   `#+build` for a `Target`), `when` evaluation (`guard_state`; conditions are compiled into the
   item tree, so it stays target-independent), `package_scope`, `file_imports` (alias → package
-  directory) and `scope_map`/`resolve_at` (what each identifier in a body names lexically). It
-  imports only `odinsyntax` and `core:`.
+  directory), `scope_map`/`resolve_at` (what each identifier in a body names lexically) and the
+  query DB (`db*.odin`). A request reads through a `Snapshot` (`snapshot_begin`/`snapshot_end`):
+  `db_file`, `db_parse`, `db_package`, `db_workspace` give refcounted values pinned until
+  `snapshot_end` (`db_parse_release` drops one parse early). Lock order: workspace slot, package
+  slot, file slot, then `Db.lock` or `Db.lru_mutex`. It imports only `odinsyntax` and `core:`.
   The formatter (`lang/odin/format`, package `odinfmt`) prints from the `odinsyntax` tree too;
   `core:odin/parser` is a test oracle only.
 - `setting`, `watch`, `shell` — JSON settings/keybinds, the async recursive file-system watcher,
@@ -362,8 +365,11 @@ subprocess LSP client as an optional second backend behind the same seam.
 - `lang/odin` is the in-client Odin analyzer. This branch is rebuilding it
   (`odin-analyzer-plan.md`): the tree-sitter engine is removed, and only `engine.odin` (lifetime +
   seam), `check.odin` (`odin check` diagnostics), `formatter.odin` + `format/` (the printer),
-  `syntax_check.odin` + `parse_cache.odin` (live syntax errors), `symbols.odin` (document and
-  workspace symbols from the item tree), `config.odin` and `path_*.odin` remain. `supports`
+  `syntax_check.odin` (live syntax errors), `symbols.odin` (document and workspace symbols),
+  `target.odin` + `definition.odin` + `references.odin` (the caret target, definition, references
+  and rename), `builtins.odin` (the universe scope), `package_doc.odin`, `config.odin` and
+  `path_*.odin` remain. Every file and package read goes through the sema query DB;
+  `parse_cache.odin` and `package_cache.odin` are gone. `supports`
   declines every other kind until the new engine (`lang/odin/syntax`, then `sema`) serves it.
 - The `language_intelligence` setting gates the whole seam: `manager_set_enabled` /
   `manager_set_features` make `manager_request` refuse a kind (and cancel its in-flight work), so no
