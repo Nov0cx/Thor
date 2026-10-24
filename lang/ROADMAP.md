@@ -2058,20 +2058,47 @@ not a status, so this section stays the source of truth for what is built.
     stay open until its own `}` before and after the edit; else the whole text
     is parsed. Untouched subtrees are shared: the new tree owns the old one as
     its `base`, and after `MAX_GENERATIONS` (32) a full parse ends the chain.
-    `Syntax_Diagnostics` keeps the last parse of eight buffers
-    (`lang/odin/parse_cache.odin`). Checked against a cold parse after every
+    The query database keeps the last parse of eight buffers (`LIVE_SLOTS`,
+    `sema/db_file.odin`). Checked against a cold parse after every
     step of a typing session and of random edits. Cost (`-o:speed`): one
     keystroke in `editview/editor.odin` takes about 0.12 ms, p95 0.15 ms
     (plan: 0.5 ms).
   - **Toolchain:** `dev-2026-10` adds `"""…"""` and ```` ```…``` ```` strings
     over lines; the lexer reads both.
-- `lang/odin/sema` (package `odinsema`, M3 start): imports only `odinsyntax`
-  and `core:`.
+- `lang/odin/sema` (package `odinsema`, M3): imports only `odinsyntax` and
+  `core:`.
   - **Item tree** (`item_tree`): the top-level declarations of one file with
     kind, visibility (`@(private)`, `#+private [file]`), attributes, name
     offset, range and a one-line signature; struct and bit_field fields and
     enum members as children; `when` branches recorded as guards, not
     evaluated. It owns its strings, so it outlives the parse.
+  - **Doc comments:** an item's `doc` is the `//` lines directly above it,
+    markers stripped; the tree's `package_doc` is the lines above the
+    `package` clause. Doc comments do not count in the shape hash.
+  - **Nested declarations** (`nested.odin`): `nested_decls` gives the
+    procedures and types declared in a procedure body, at any depth, in
+    source order, each with its enclosing declaration. Local constants and
+    variables are left out.
+  - **Query database** (`db.odin`, `db_file.odin`, `db_package.odin`,
+    `db_workspace.odin`): one `Db` per engine, shared by every worker. Files
+    and package directories are interned by `path_key` as `File_Id` and
+    `Package_Id`; an id is never reused. A request opens a `Snapshot`
+    (`snapshot_begin`) and reads `db_file` (item tree and line starts),
+    `db_parse`, `db_in_build`, `db_imports`, `db_package` (files, data and
+    scope as a `Package_View`) and `db_workspace`. Memos are refreshed by stat
+    once per snapshot. A package memo records the `shape_changed_at` of each
+    file (`item_tree_shape_hash`), so an edit inside a body keeps the scope
+    (early cutoff). The request's buffer is a live overlay: it replaces its
+    file, or joins its directory's package; a package scope is built for the
+    snapshot only when the buffer changes the shape. Live parses are
+    incremental (`reparse`) from the last parse of the file. Every value is
+    immutable and refcounted; a snapshot pins what it reads until
+    `snapshot_end`, and `db_parse_release` drops one parse pin early (the
+    references scan does it for each file). Lock order: workspace slot,
+    package slot, file slot, then `Db.lock` or `Db.lru_mutex` (leaves). LRUs
+    cap the memos: disk parses by bytes (`BODY_BUDGET`, 64 MB), 8 live
+    parses, 64 package memos, 64 loose files; a workspace walk stops at 4000
+    files and 12 levels.
   - **Target** (`file_in_build`): the compiler's file-name suffix rules and
     `#+build` expressions (`,` or, space and, `!` not, `ignore`). The target is
     the host, overlaid by `"target"` and `"defines"` in
@@ -2110,9 +2137,21 @@ not a status, so this section stays the source of truth for what is built.
     `local_references` gives every use of a local. Over 207,000 identifiers of
     Thor's own sources no `.Local` points at a different name.
   - **Document_Symbols / Workspace_Symbols** (`lang/odin/symbols.odin`) come
-    from the item tree. The workspace walk keeps one item tree per file,
-    refreshed by modification time and size, and skips files out of the
-    configured build.
+    from the item tree. The outline also lists the procedures and types
+    declared in procedure bodies (`nested_decls`). Workspace symbols read
+    `db_workspace` and skip files out of the configured build; an item a
+    known-false `when` drops sorts last, with " (inactive)" after its
+    signature.
+  - **Builtins** (`lang/odin/builtins.odin`): the universe scope is every
+    public item of `base:builtin` and the items of `base:runtime` with a
+    `builtin` attribute. A bare name that no package item binds reaches it for
+    definition. References scan the whole workspace and skip a file whose
+    package binds the name. Rename of a builtin is refused.
+  - **Package_Doc** (`lang/odin/package_doc.odin`): a Markdown page of the
+    package the caret names (an import, `alias.name`, a bare alias), else of
+    the buffer's package: the package doc comment, then the public items in
+    the build, sorted by name, each with its signature and doc comment. The
+    buffer replaces its file; test files are left out.
   - **Definition** (`lang/odin/definition.odin`): locals through
     `scope_map`; a declaration (top-level, field, enum member) names itself;
     a bare name reaches the buffer's own items, then the other files of its
@@ -2124,10 +2163,9 @@ not a status, so this section stays the source of truth for what is built.
     `<pkg>.odin` or the closest file name. `Color.Red` and `pkg.Color.Red`
     reach the member. A procedure group offers its members. The Odin root
     comes from `ODIN_ROOT`, `odin root`, or the compile-time root, once per
-    engine. `package_cache.odin` keeps 16 package directories (item trees,
-    line starts, scope), refreshed by stat. Not yet: `v.field` on a value,
-    `.Member`, field names in literals and named arguments (need types),
-    builtins (the universe scope), the overload by arguments, `using`.
+    engine. Packages come from `db_package`. Not yet: `v.field` on a value,
+    `.Member`, field names in literals and named arguments (need types), the
+    overload by arguments, `using`.
   - **References / Rename** (`lang/odin/references.odin`, the caret target in
     `target.odin`, shared with definition): a local through
     `local_references`; an import alias in its own file; a file-scope item in
@@ -2144,9 +2182,8 @@ not a status, so this section stays the source of truth for what is built.
     import paths, named arguments, `.Member` and `v.field` at the caret), an
     implicit import alias, and a declaration outside the workspace. Not yet:
     the field of a value at the caret, a member through `using` (need types).
-  - **Not yet:** the query DB, `using` expansion (recorded, not resolved),
-    redeclaration and visibility errors, procs nested in procs in the outline,
-    inactive `when` items in workspace symbols are not marked. `Foo ::
+  - **Not yet:** `using` expansion (recorded, not resolved), redeclaration
+    and visibility errors, the stdlib disk cache (plan §5.10). `Foo ::
     pkg.Bar` lists as a constant until types resolve.
 - **Formatter** (`lang/odin/format`, M2 end): prints from the `odinsyntax`
   tree; `core:odin/parser` is used only by tests. `tree.odin` builds the line

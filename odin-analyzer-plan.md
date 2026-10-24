@@ -5,10 +5,11 @@
 live diagnostics and lints.
 **Baseline:** `Nov0cx/Thor` at `29192c6` (release 2026.10.7).
 **Status:** M1 (lexer, parser, compact tree, typed views) and M2 (incremental reparse, formatter
-on the new tree) landed, plus live syntax errors. M3 started: `lang/odin/sema` has item trees,
-build file selection, package scopes and lexical name resolution, and serves document/workspace
-symbols, definition, references and rename; the query DB and types (M4) are next;
-`lang/ROADMAP.md` ("Next engine") tracks the rest. Section 11 lists the feature questions whose answers change the plan.
+on the new tree) landed, plus live syntax errors. M3 is done except the stdlib disk cache (§5.10)
+and redeclaration/visibility diagnostics: `lang/odin/sema` has item trees with doc comments, build
+file selection, package scopes, lexical name resolution, the universe scope and the query DB, and
+serves document/workspace symbols, definition, references, rename and package docs. M4 (types,
+`decl_type`) is next; `lang/ROADMAP.md` ("Next engine") tracks the rest. Section 11 lists the feature questions whose answers change the plan.
 
 ---
 
