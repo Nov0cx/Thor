@@ -42,6 +42,23 @@ db_parse :: proc(snap: ^Snapshot, id: File_Id) -> ^odinsyntax.Parse {
     return body != nil ? &body.parse : nil
 }
 
+// Drops the pin of one db_parse call before snapshot_end, so a scan does not hold every parse.
+// The parse is invalid after the call unless another pin holds it. The live buffer's parse stays.
+db_parse_release :: proc(snap: ^Snapshot, parse: ^odinsyntax.Parse) {
+    if parse == nil || snap.live.body != nil && parse == &snap.live.body.parse {
+        return
+    }
+    for i := len(snap.pins) - 1; i >= 0; i -= 1 {
+        v := snap.pins[i]
+        if v.kind == .File_Body && &(^File_Body)(v).parse == parse {
+            unordered_remove(&snap.pins, i)
+            value_release(snap.db, v)
+            break
+        }
+    }
+    db_trim(snap.db)
+}
+
 // True when the file is compiled for the snapshot's target. A buffer with no file is in no build.
 db_in_build :: proc(snap: ^Snapshot, id: File_Id) -> bool {
     if snap.live.has && id == snap.live.id {

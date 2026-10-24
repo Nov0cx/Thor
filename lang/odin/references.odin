@@ -318,6 +318,7 @@ scan_disk_file :: proc(s: ^Ref_Scan, id: odinsema.File_Id) {
     runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
     snap := &s.ctx.snap
     parsed := odinsema.db_parse(snap, id)
+    defer odinsema.db_parse_release(snap, parsed)
     if parsed == nil || parsed.tree == nil || !strings.contains(parsed.tree.text, s.target.name) {
         return
     }

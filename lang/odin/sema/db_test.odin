@@ -569,3 +569,53 @@ contains_dot_dir :: proc(path: string) -> bool {
     }
     return false
 }
+
+@(private = "file")
+body_pins :: proc(snap: ^Snapshot) -> int {
+    n := 0
+    for v in snap.pins {
+        if v.kind == .File_Body {
+            n += 1
+        }
+    }
+    return n
+}
+
+@(test)
+test_db_parse_release :: proc(t: ^testing.T) {
+    dir, ok := fixture(t, "release")
+    if !ok {
+        return
+    }
+    defer os.remove_all(dir)
+    a := put(t, dir, "a.odin", "package p\n\nrun :: proc() {}\n")
+    db: Db
+    db_init(&db, read_plain)
+    defer db_destroy(&db)
+
+    snap: Snapshot
+    if !begin(t, &db, &snap) {
+        return
+    }
+    defer snapshot_end(&snap)
+    aid := db_file_id(&snap, a)
+    first := db_parse(&snap, aid)
+    second := db_parse(&snap, aid)
+    testing.expect(t, first != nil && first == second, "a cached parse is shared")
+    testing.expect_value(t, body_pins(&snap), 2)
+    db_parse_release(&snap, second)
+    testing.expect_value(t, body_pins(&snap), 1)
+    testing.expect(t, first.tree.text == "package p\n\nrun :: proc() {}\n", "the other pin keeps the parse")
+    db_parse_release(&snap, first)
+    testing.expect_value(t, body_pins(&snap), 0)
+    testing.expect(t, db.files[aid].body != nil, "a parse in the budget stays cached")
+    db_parse_release(&snap, first)
+    testing.expect(t, db.files[aid].body != nil && db.files[aid].body.refs == 1, "a second release is a no-op")
+
+    db.body_budget = 1
+    held := db_parse(&snap, aid)
+    testing.expect(t, held != nil && db.files[aid].body == nil, "past the budget only the pin holds the parse")
+    testing.expect_value(t, body_pins(&snap), 1)
+    db_parse_release(&snap, held)
+    testing.expect_value(t, body_pins(&snap), 0)
+}
