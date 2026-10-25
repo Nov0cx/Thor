@@ -173,9 +173,9 @@ is_word_byte :: proc(b: u8) -> bool {
     return b == '_' || (b >= '0' && b <= '9') || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || b >= 0x80
 }
 
-// True when the caret at `off` is inside a comment, a string, a rune or a number literal.
-@(private = "file")
-in_literal :: proc(ctx: ^Request_Context, off: int) -> bool {
+// True when the caret at `off` is inside a comment, a string, a rune or, with `numbers`, a number literal.
+@(private)
+in_literal :: proc(ctx: ^Request_Context, off: int, numbers := true) -> bool {
     if off == 0 || ctx.parsed.tree == nil || ctx.parsed.tree.root == nil {
         return false
     }
@@ -186,8 +186,10 @@ in_literal :: proc(ctx: ^Request_Context, off: int) -> bool {
     _, end := odinsyntax.token_range(tok)
     text := odinsyntax.syntax_token_text(tok)
     #partial switch tok.green.kind {
-    case .Line_Comment, .File_Tag, .Integer, .Float, .Imag:
+    case .Line_Comment, .File_Tag:
         return true
+    case .Integer, .Float, .Imag:
+        return numbers
     case .Block_Comment:
         return off < int(end) || len(text) < 4 || !strings.has_suffix(text, "*/")
     case .String, .Rune:
