@@ -17,6 +17,7 @@
 - Odin: Package Documentation (`f3`) works again. Each declaration shows its doc comment under it.
 - Odin: go to symbol lists the procedures and types declared inside a procedure.
 - Odin: in workspace symbol search, a symbol in a `when` branch that is false for the target comes last and reads "(inactive)".
+- `ctrl+shift+delete` (`delete_to_line_end`) deletes from the caret to the end of the line. At the line end it joins the next line. Also in the palette as "Edit: Delete to Line End".
 
 # 2026.10.7
 
