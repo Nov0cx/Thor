@@ -1,5 +1,6 @@
 package odinsema
 
+import "core:strconv"
 import "core:strings"
 
 import odinsyntax "../syntax"
@@ -242,7 +243,10 @@ proc_result :: proc(c: ^Checker, p: Proc_Type, pid: Type_Id) -> Operand {
     }
     temp := scratch_begin(c)
     defer scratch_end(temp)
-    types := make([]Type_Id, len(p.results), c.tmp)
+    types, terr := make([]Type_Id, len(p.results), c.tmp)
+    if !note_alloc(c, terr) {
+        return {}
+    }
     for r, i in p.results {
         types[i] = r.type
     }
@@ -275,7 +279,10 @@ generic_result :: proc(c: ^Checker, p: Proc_Type, env: []Binding) -> Operand {
     case 1:
         return {mode = .Value, type = params[0].type}
     }
-    types := make([]Type_Id, len(params), c.tmp)
+    types, err := make([]Type_Id, len(params), c.tmp)
+    if !note_alloc(c, err) {
+        return {}
+    }
     for r, i in params {
         types[i] = r.type
     }
@@ -285,8 +292,11 @@ generic_result :: proc(c: ^Checker, p: Proc_Type, env: []Binding) -> Operand {
 // The parameter each argument goes to; false when the arguments do not fit the parameters.
 @(private)
 match_args :: proc(c: ^Checker, p: Proc_Type, args: []Call_Arg) -> ([]int, bool) {
-    slots := make([]int, len(args), c.tmp)
-    covered := make([]bool, len(p.params), c.tmp)
+    slots, serr := make([]int, len(args), c.tmp)
+    covered, cerr := make([]bool, len(p.params), c.tmp)
+    if !note_alloc(c, serr) || !note_alloc(c, cerr) {
+        return nil, false
+    }
     pos := 0
     for a, i in args {
         k := -1
@@ -861,7 +871,10 @@ instantiate :: proc(c: ^Checker, generic: Type_Id, args: []Call_Arg) -> Operand 
     case:
         return {mode = .Type, type = generic}
     }
-    ops := make([]Operand, len(params), c.tmp)
+    ops, oerr := make([]Operand, len(params), c.tmp)
+    if !note_alloc(c, oerr) {
+        return {}
+    }
     bindings := make([dynamic]Binding, c.tmp)
     pos := 0
     for a in args {
@@ -895,18 +908,11 @@ instantiate :: proc(c: ^Checker, generic: Type_Id, args: []Call_Arg) -> Operand 
             }
         }
     }
-    key := strings.builder_make(c.tmp)
-    strings.write_int(&key, int(named.symbol.file))
-    strings.write_byte(&key, ':')
-    strings.write_int(&key, int(named.symbol.item))
-    strings.write_byte(&key, ':')
-    strings.write_int(&key, int(named.symbol.child))
-    for op in ops {
-        strings.write_byte(&key, op.mode == .Type ? 't' : 'c')
-        strings.write_int(&key, int(op.type))
-        write_const(&key, op.value)
+    key, key_ok := instance_key(c, named.symbol, ops)
+    if !key_ok {
+        return {}
     }
-    if id, ok := c.inst_cache[strings.to_string(key)]; ok {
+    if id, ok := c.inst_cache[key]; ok {
         return {mode = .Type, type = id}
     }
     name := strings.builder_make(c.tmp)
@@ -930,7 +936,7 @@ instantiate :: proc(c: ^Checker, generic: Type_Id, args: []Call_Arg) -> Operand 
     if inst == INVALID_TYPE {
         return {}
     }
-    stored_key, kerr := strings.clone(strings.to_string(key), c.alloc)
+    stored_key, kerr := strings.clone(key, c.alloc)
     stored_args, aerr := make([]Operand, len(ops), c.alloc)
     if !note_alloc(c, kerr) || !note_alloc(c, aerr) {
         return {}
@@ -958,6 +964,41 @@ instantiate :: proc(c: ^Checker, generic: Type_Id, args: []Call_Arg) -> Operand 
         type_set_underlying(&c.table, inst, underlying)
     }
     return {mode = .Type, type = inst}
+}
+
+// The cache key of a record instance in c.tmp; false when an append fails.
+@(private)
+instance_key :: proc(c: ^Checker, sym: Symbol, ops: []Operand) -> (string, bool) {
+    buf := make([dynamic]byte, c.tmp)
+    put_int :: proc(c: ^Checker, buf: ^[dynamic]byte, tag: byte, v: i64) -> bool {
+        digits: [24]byte
+        s := strconv.write_int(digits[:], v, 10)
+        _, terr := append(buf, tag)
+        _, err := append(buf, s)
+        return note_alloc(c, terr) && note_alloc(c, err)
+    }
+    if !put_int(c, &buf, 'f', i64(sym.file)) || !put_int(c, &buf, 'i', i64(sym.item)) || !put_int(c, &buf, 'c', i64(sym.child)) {
+        return "", false
+    }
+    for op in ops {
+        if !put_int(c, &buf, op.mode == .Type ? 't' : 'v', i64(op.type)) {
+            return "", false
+        }
+        ok := true
+        switch x in op.value {
+        case i64:    ok = put_int(c, &buf, 'I', x)
+        case f64:    ok = put_int(c, &buf, 'F', transmute(i64)x)
+        case bool:   ok = put_int(c, &buf, 'B', x ? 1 : 0)
+        case rune:   ok = put_int(c, &buf, 'R', i64(x))
+        case string:
+            _, err := append(&buf, x)
+            ok = put_int(c, &buf, 'S', i64(len(x))) && note_alloc(c, err)
+        }
+        if !ok {
+            return "", false
+        }
+    }
+    return string(buf[:]), true
 }
 
 @(private)

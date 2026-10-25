@@ -12,7 +12,7 @@ Member_Kind :: enum u8 {
     Proc,           // a procedure or procedure group of a package
 }
 
-// A name that can follow `x.`. `name` borrows the type table or the item tree.
+// A name that can follow `x.`. `name` borrows the checker or the snapshot; end neither while it is used.
 Member :: struct {
     name:       string,
     type:       Type_Id,
@@ -62,7 +62,7 @@ symbol_range :: proc(c: ^Checker, sym: Symbol) -> (file: File_Id, start, end: in
 }
 
 // The members `x.` gives for an operand: a package's exported declarations, an enum type's members,
-// or the fields of a value. The slice is in `allocator`; names borrow the checker.
+// or the fields of a value. The slice is in `allocator`; names borrow as in Member.
 operand_members :: proc(c: ^Checker, op: Operand, allocator := context.allocator) -> []Member {
     #partial switch op.mode {
     case .Package:

@@ -294,8 +294,11 @@ checker_package :: proc(c: ^Checker, dir: string) -> ^Package_View {
     key, known := c.dir_keys[dir]
     if !known {
         key = path_key(dir, c.alloc)
-        if _, value, _, err := map_entry(&c.dir_keys, dir); note_alloc(c, err) {
-            value^ = key
+        stored, cerr := strings.clone(dir, c.alloc)
+        if note_alloc(c, cerr) {
+            if _, value, _, err := map_entry(&c.dir_keys, stored); note_alloc(c, err) {
+                value^ = key
+            }
         }
     }
     if view, ok := c.packages[key]; ok {

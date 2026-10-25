@@ -242,6 +242,10 @@ component_of :: proc(c: ^Checker, t: Type_Id) -> Type_Id {
     return INVALID_TYPE
 }
 
+// The most array elements `expand_values` gives.
+@(private)
+MAX_EXPAND :: 256
+
 // `expand_values(x)`: the fields of a struct or the elements of an array, as a Tuple.
 @(private)
 expand_values :: proc(c: ^Checker, t: Type_Id) -> Operand {
@@ -251,11 +255,18 @@ expand_values :: proc(c: ^Checker, t: Type_Id) -> Operand {
     #partial switch v in type_get(&c.table, type_base(&c.table, t)) {
     case Struct_Type:
         for f in v.fields {
-            append(&types, f.type)
+            if _, err := append(&types, f.type); !note_alloc(c, err) {
+                return {}
+            }
         }
     case Array_Type:
-        for _ in 0 ..< max(v.len, 0) {
-            append(&types, v.elem)
+        if v.len < 0 || v.len > MAX_EXPAND {
+            return {}
+        }
+        for _ in 0 ..< v.len {
+            if _, err := append(&types, v.elem); !note_alloc(c, err) {
+                return {}
+            }
         }
     case:
         return {}
@@ -309,7 +320,10 @@ soa_unzip :: proc(c: ^Checker, t: Type_Id) -> Operand {
     }
     temp := scratch_begin(c)
     defer scratch_end(temp)
-    types := make([]Type_Id, len(s.fields), c.tmp)
+    types, err := make([]Type_Id, len(s.fields), c.tmp)
+    if !note_alloc(c, err) {
+        return {}
+    }
     for f, i in s.fields {
         types[i] = type_slice(&c.table, f.type)
     }
