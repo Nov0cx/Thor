@@ -792,3 +792,170 @@ test_definition_runtime_needs_import :: proc(t: ^testing.T) {
     defer free_definition(&res2)
     testing.expect(t, res2.ok, "expected runtime.Raw_Dynamic_Array to resolve")
 }
+
+// The offset of `needle` at or after the first `after` in `src`; -1 when not found.
+@(private)
+offset_after :: proc(src, needle, after: string) -> int {
+    base := strings.index(src, after)
+    if base < 0 {
+        return -1
+    }
+    i := strings.index(src[base:], needle)
+    return i < 0 ? -1 : base + i
+}
+
+// A name a definition is asked for, and the declaration it lands on.
+@(private = "file")
+Typed_Case :: struct {
+    at:         string,
+    after:      string,
+    decl:       string,
+    decl_after: string,
+}
+
+@(private = "file")
+TYPED_SRC :: `package demo
+
+Color :: enum {
+	Red,
+	Green,
+	Blue,
+}
+
+Colors :: bit_set[Color]
+
+Point :: struct {
+	x, y: int,
+	c:    Color,
+}
+
+Base :: struct {
+	id:   int,
+	name: string,
+}
+
+Entity :: struct {
+	using base: Base,
+	pos:        Point,
+	next:       ^Entity,
+}
+
+paint :: proc(color: Color, at: Point = {}) {}
+
+pick :: proc() -> Color {
+	return .Blue
+}
+
+main :: proc() {
+	e: Entity
+	_ = e.pos
+	_ = e.id
+	_ = e.pos.x
+	pe := &e
+	_ = pe.name
+	_ = pe.next.pos.y
+	c: Color = .Green
+	c = .Red
+	if c == .Blue {}
+	paint(.Green)
+	paint(color = .Red, at = {x = 1})
+	switch c {
+	case .Blue:
+	}
+	flags := Colors{.Green, .Blue}
+	_ = flags
+	q := Point{x = 1, c = .Red}
+	_ = q
+	ok := .Red in flags
+	_ = ok
+}
+`
+
+// A selector on a value, an implicit selector, a field name and a named argument land on their declarations.
+@(test)
+test_definition_typed_names :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    cases := [?]Typed_Case {
+        {"pos", "_ = e.", "pos:", "Entity ::"},
+        {"id", "_ = e.", "id:", "Base ::"},
+        {"x", "_ = e.pos.", "x, y", "Point ::"},
+        {"name", "_ = pe.", "name:", "Base ::"},
+        {"y", "_ = pe.next.pos.", "y: int", "Point ::"},
+        {"pos", "_ = pe.next.", "pos:", "Entity ::"},
+        {"Green", "c: Color = .", "Green", "Color ::"},
+        {"Red", "c = .", "Red", "Color ::"},
+        {"Blue", "if c == .", "Blue", "Color ::"},
+        {"Green", "paint(.", "Green", "Color ::"},
+        {"color", "paint(color", "color:", "paint ::"},
+        {"at", "paint(color = .Red, ", "at:", "paint ::"},
+        {"x", "at = {", "x, y", "Point ::"},
+        {"Blue", "case .", "Blue", "Color ::"},
+        {"Blue", "return .", "Blue", "Color ::"},
+        {"Green", "Colors{.", "Green", "Color ::"},
+        {"Blue", "Colors{.Green, .", "Blue", "Color ::"},
+        {"x", "q := Point{", "x, y", "Point ::"},
+        {"c", "q := Point{x = 1, ", "c:", "Point ::"},
+        {"Red", "Point{x = 1, c = .", "Red", "Color ::"},
+        {"Red", "ok := .", "Red", "Color ::"},
+    }
+    for k in cases {
+        at := offset_after(TYPED_SRC, k.at, k.after)
+        want := offset_after(TYPED_SRC, k.decl, k.decl_after)
+        if !testing.expectf(t, at >= 0 && want >= 0, "%q after %q: not in the source", k.at, k.after) {
+            continue
+        }
+        res := definition_offset(e, TYPED_SRC, at)
+        testing.expectf(t, res.ok && len(res.symbols) == 0 && res.location.start == want,
+            "%q after %q: got ok=%v start=%d, want %d", k.at, k.after, res.ok, res.location.start, want)
+        free_definition(&res)
+    }
+}
+
+// A field of a type declared in another file, and of a type of an imported package.
+@(test)
+test_definition_typed_cross_package :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    shape_src := "package app\n\nShape :: struct {\n\twidth: int,\n\tkind:  lib.Kind,\n}\n\nimport \"lib\"\n"
+    lib_src := "package lib\n\nKind :: enum {\n\tSquare,\n\tRound,\n}\n\nVec :: struct {\n\tlen: f32,\n}\n\norigin :: proc() -> Vec {\n\treturn {}\n}\n"
+    root := fixture(t, "def_typed_cross_package", {{"shape.odin", shape_src}, {"lib/lib.odin", lib_src}})
+    defer os.remove_all(root)
+
+    main_src := "package app\n\nimport \"lib\"\n\nmain :: proc() {\n\ts: Shape\n\t_ = s.width\n\ts.kind = .Round\n\tv := lib.origin()\n\t_ = v.len\n\t_ = lib.Vec{len = 1}\n}\n"
+    main_path := fixture_path(root, "main.odin")
+
+    res := definition_at(e, main_src, "width\n", root, main_path)
+    expect_jump(t, &res, "shape.odin", strings.index(shape_src, "width"))
+    free_definition(&res)
+
+    res = definition_at(e, main_src, "Round", root, main_path)
+    expect_jump(t, &res, "lib.odin", strings.index(lib_src, "Round"))
+    free_definition(&res)
+
+    res = definition_at(e, main_src, "len\n", root, main_path)
+    expect_jump(t, &res, "lib.odin", strings.index(lib_src, "len:"))
+    free_definition(&res)
+
+    res = definition_at(e, main_src, "len = 1", root, main_path)
+    expect_jump(t, &res, "lib.odin", strings.index(lib_src, "len:"))
+    free_definition(&res)
+}
+
+// A record declared in a procedure body.
+@(test)
+test_definition_typed_local_record :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := "package demo\n\nmain :: proc() {\n\tPair :: struct {\n\t\tleft, right: int,\n\t}\n\tp := Pair{right = 2}\n\t_ = p.left\n}\n"
+    res := definition_at(e, src, "left\n")
+    expect_jump(t, &res, "buffer.odin", strings.index(src, "left,"))
+    free_definition(&res)
+
+    res = definition_at(e, src, "right = 2")
+    expect_jump(t, &res, "buffer.odin", strings.index(src, "right:"))
+    free_definition(&res)
+}

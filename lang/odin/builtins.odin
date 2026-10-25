@@ -2,6 +2,7 @@
 // base:builtin and from the declarations of base:runtime with a `builtin` attribute.
 package odin
 
+import "base:runtime"
 import "core:path/filepath"
 
 import odinsema "sema"
@@ -66,4 +67,26 @@ has_builtin_attribute :: proc(item: ^odinsema.Item) -> bool {
         }
     }
     return false
+}
+
+// Fills `out` with the universe packages of the Odin root, directories in `allocator`, and gives their count.
+@(private)
+universe_packages :: proc(ctx: ^Request_Context, out: []odinsema.Universe_Package, allocator: runtime.Allocator) -> int {
+    root := odin_root(&ctx.e.root)
+    if root == "" {
+        return 0
+    }
+    n := 0
+    for pkg in BUILTIN_PACKAGES {
+        if n >= len(out) {
+            break
+        }
+        dir, err := filepath.join({root, "base", pkg.name}, allocator)
+        if err != nil {
+            break
+        }
+        out[n] = odinsema.Universe_Package{dir = dir, all = pkg.all}
+        n += 1
+    }
+    return n
 }

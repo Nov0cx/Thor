@@ -581,3 +581,199 @@ test_rename_refuses_a_builtin :: proc(t: ^testing.T) {
     defer free_edits(&res)
     testing.expectf(t, !res.ok && len(res.edits) == 0, "rename of len: got %d edits", len(res.edits))
 }
+
+// The offsets of `needle` in `src`, in order, each moved by `skip`. Temp-allocated.
+@(private = "file")
+all_offsets :: proc(src, needle: string, skip := 0) -> []int {
+    out := make([dynamic]int, context.temp_allocator)
+    from := 0
+    for {
+        i := strings.index(src[from:], needle)
+        if i < 0 {
+            break
+        }
+        append(&out, from + i + skip)
+        from += i + len(needle)
+    }
+    return out[:]
+}
+
+@(private = "file")
+FIELD_SRC :: `package demo
+
+Base :: struct {
+	id: int,
+}
+
+Entity :: struct {
+	using base: Base,
+	next:       ^Entity,
+}
+
+Other :: struct {
+	id: int,
+}
+
+main :: proc() {
+	e: Entity
+	_ = e.id
+	pe := &e
+	_ = pe.next.id
+	_ = e.base.id
+	b := Base{id = 1}
+	_ = b
+	o: Other
+	_ = o.id
+	_ = Other{id = 2}
+}
+`
+
+// A field is used through a value, a pointer, `using`, a chain and a composite literal; a field
+// of the same name in another type is not.
+@(test)
+test_references_typed_field :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    want := []int {
+        strings.index(FIELD_SRC, "e.id") + 2,
+        strings.index(FIELD_SRC, "pe.next.id") + len("pe.next."),
+        strings.index(FIELD_SRC, "e.base.id") + len("e.base."),
+        strings.index(FIELD_SRC, "Base{id") + len("Base{"),
+    }
+    res := refs_at(e, FIELD_SRC, "id: int")
+    expect_offsets(t, &res, want)
+    free_refs(&res)
+
+    // From a use: the same set.
+    res = refs_at(e, FIELD_SRC, "pe.next.id", skip = len("pe.next."))
+    expect_offsets(t, &res, want)
+    free_refs(&res)
+
+    // The other type's field.
+    res = refs_at(e, FIELD_SRC, "o.id", skip = 2)
+    expect_offsets(t, &res, {strings.index(FIELD_SRC, "o.id") + 2, strings.index(FIELD_SRC, "Other{id") + len("Other{")})
+    free_refs(&res)
+}
+
+// An enum member from its declaration: every implicit selector whose expected type is the enum.
+@(test)
+test_references_typed_implicit_selectors :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package demo
+
+Color :: enum {
+	Red,
+	Green,
+}
+
+Shade :: enum {
+	Red,
+}
+
+Colors :: bit_set[Color]
+
+paint :: proc(c: Color) {}
+
+pick :: proc() -> Color {
+	return .Red
+}
+
+main :: proc() {
+	c: Color = .Red
+	c = .Red
+	if c == .Red {}
+	paint(.Red)
+	switch c {
+	case .Red:
+	}
+	_ = Colors{.Red}
+	s: Shade = .Red
+	_ = s
+	_ = Color.Red
+}
+`
+    want := make([dynamic]int, context.temp_allocator)
+    for off in all_offsets(src, ".Red", 1) {
+        if off != strings.index(src, "Shade = .Red") + len("Shade = .") {
+            append(&want, off)
+        }
+    }
+    res := refs_at(e, src, "Red,")
+    expect_offsets(t, &res, want[:])
+    free_refs(&res)
+}
+
+// A parameter: its uses in the body and its named arguments in other files of the package and in importing packages.
+@(test)
+test_references_typed_param :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    lib_src := "package lib\n\ngrow :: proc(size: int, step := 1) -> int {\n\treturn size + step\n}\n\nuse :: proc() {\n\t_ = grow(size = 2)\n}\n"
+    other_src := "package lib\n\nagain :: proc() {\n\t_ = grow(size = 3, step = 2)\n\tsize := 1\n\t_ = size\n}\n"
+    main_src := "package app\n\nimport \"lib\"\n\nmain :: proc() {\n\t_ = lib.grow(size = 4)\n}\n"
+    root := fixture(t, "refs_typed_param", {{"lib/lib.odin", lib_src}, {"lib/other.odin", other_src}, {"main.odin", main_src}})
+    defer os.remove_all(root)
+    lib_path := fixture_path(root, "lib/lib.odin")
+
+    res := refs_at(e, lib_src, "size:", root, lib_path)
+    testing.expectf(t, count_in(&res, "lib.odin") == 2, "refs in lib.odin: got %d", count_in(&res, "lib.odin"))
+    testing.expectf(t, count_in(&res, "other.odin") == 1, "refs in other.odin: got %d", count_in(&res, "other.odin"))
+    testing.expectf(t, count_in(&res, "main.odin") == 1, "refs in main.odin: got %d", count_in(&res, "main.odin"))
+    free_refs(&res)
+
+    // From a named argument in the importing package.
+    res = refs_at(e, main_src, "size = 4", root, fixture_path(root, "main.odin"))
+    testing.expectf(t, len(res.symbols) == 4, "refs from a named argument: got %d", len(res.symbols))
+    free_refs(&res)
+
+    // Rename from a named argument renames the declaration too.
+    res = rename_at(e, other_src, "size = 3", "count", root, fixture_path(root, "lib/other.odin"))
+    testing.expectf(t, len(res.edits) == 5, "rename edits: got %d", len(res.edits))
+    testing.expectf(t, count_in(&res, "other.odin") == 1, "edits in other.odin: got %d", count_in(&res, "other.odin"))
+    free_edits(&res)
+}
+
+// A field of an imported type: its uses in the package and in importing packages, renamed together.
+@(test)
+test_references_typed_field_cross_package :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    lib_src := "package lib\n\nVec :: struct {\n\tlen: f32,\n}\n\norigin :: proc() -> ^Vec {\n\treturn nil\n}\n"
+    more_src := "package lib\n\nscale :: proc(v: Vec) -> f32 {\n\treturn v.len\n}\n"
+    main_src := "package app\n\nimport \"../lib\"\n\nWrap :: struct {\n\tv: lib.Vec,\n}\n\nmain :: proc() {\n\tw: Wrap\n\t_ = w.v.len\n\t_ = lib.origin().len\n\t_ = lib.Vec{len = 1}\n\ts := \"x\"\n\t_ = len(s)\n}\n"
+    root := fixture(t, "refs_typed_field_package", {{"lib/lib.odin", lib_src}, {"lib/more.odin", more_src}, {"app/main.odin", main_src}})
+    defer os.remove_all(root)
+    main_path := fixture_path(root, "app/main.odin")
+
+    res := refs_at(e, main_src, "len\n", root, main_path)
+    testing.expectf(t, count_in(&res, "more.odin") == 1, "refs in more.odin: got %d", count_in(&res, "more.odin"))
+    testing.expectf(t, count_in(&res, "main.odin") == 3, "refs in main.odin: got %d", count_in(&res, "main.odin"))
+    testing.expectf(t, count_in(&res, "lib.odin") == 0, "refs in lib.odin: got %d", count_in(&res, "lib.odin"))
+    free_refs(&res)
+
+    res = rename_at(e, main_src, "len = 1", "length", root, main_path)
+    testing.expectf(t, len(res.edits) == 5, "rename edits: got %d", len(res.edits))
+    testing.expectf(t, count_in(&res, "lib.odin") == 1, "edits in lib.odin: got %d", count_in(&res, "lib.odin"))
+    for edit in res.edits {
+        testing.expect_value(t, edit.old_text, "len")
+        testing.expect_value(t, edit.new_text, "length")
+    }
+    free_edits(&res)
+}
+
+// A field of a record declared in a procedure body: its selector and field-name uses.
+@(test)
+test_references_typed_local_record :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := "package demo\n\nmain :: proc() {\n\tPair :: struct {\n\t\tleft, right: int,\n\t}\n\tp := Pair{left = 1}\n\t_ = p.left\n\tleft := 2\n\t_ = left\n}\n"
+    res := refs_at(e, src, "left,")
+    expect_offsets(t, &res, {strings.index(src, "left = 1"), strings.index(src, "p.left") + 2})
+    free_refs(&res)
+}

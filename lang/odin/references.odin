@@ -1,7 +1,7 @@
 // References and rename from the scopes of package odinsema: locals, import aliases, file-scope
 // declarations of a package with their qualified uses in other packages, the names of the universe
-// scope, and the members of a file-scope type. A member reached through a value counts by its name until types (M4) prove it
-// names another type.
+// scope, fields, enum members and parameters. A use of a field, a member or a parameter through a
+// selector, an implicit selector, a field name or a named argument counts when the checker gives its declaration.
 package odin
 
 import "base:runtime"
@@ -21,6 +21,7 @@ Ref_Scan :: struct {
     with_decl: bool,
     dir_key:   string, // path_key of target.dir
     decl_key:  string, // path_key of target.path; "" for a buffer with no file
+    checker:   ^odinsema.Checker,    // borrowed from the request; nil when it does not start
     hits:      [dynamic]lang.Symbol, // owned; strings in context.allocator
     bound:     map[string]bool,      // owned; Builtin: whether the package of a directory key binds the name
 }
@@ -143,6 +144,9 @@ scan :: proc(s: ^Ref_Scan) -> bool {
         s.dir_key = odinsema.path_key(s.target.dir)
     }
     live := live_scan_file(ctx)
+    if s.target.typed {
+        s.checker = request_checker(ctx)
+    }
 
     switch s.target.kind {
     case .Unbound:
@@ -159,7 +163,7 @@ scan :: proc(s: ^Ref_Scan) -> bool {
         }
     case .Import_Alias:
         scan_file(s, &live)
-    case .Package_Item, .Member:
+    case .Package_Item, .Member, .Param:
         if !scan_package(s, &live) {
             return false
         }
@@ -393,7 +397,28 @@ classify :: proc(s: ^Ref_Scan, f: ^Scan_File, m: ^odinsema.Scope_Map, ref: odins
         if ref.kind == .Free {
             return !package_binds(s, f), false
         }
+    case .Param:
+        #partial switch ref.kind {
+        case .Local:
+            return f.key == s.decl_key && ref.decl == t.decl, ref.start == t.decl
+        case .Field_Name:
+            return names_symbol(s, f, ref), false
+        }
     case .Member:
+        if s.checker != nil {
+            #partial switch ref.kind {
+            case .Member_Decl:
+                return f.key == s.decl_key && ref.start == t.decl, true
+            case .Package_Qualified:
+                if _, is_import := file_import(s, f, ref.operand); is_import {
+                    return false, false
+                }
+                return names_symbol(s, f, ref), false
+            case .Field_Or_Member, .Field_Name, .Implicit_Selector:
+                return names_symbol(s, f, ref), false
+            }
+            return false, false
+        }
         #partial switch ref.kind {
         case .Member_Decl:
             return f.key == s.decl_key && ref.start == t.decl, true
@@ -409,6 +434,16 @@ classify :: proc(s: ^Ref_Scan, f: ^Scan_File, m: ^odinsema.Scope_Map, ref: odins
         }
     }
     return false, false
+}
+
+// True when the checker gives the target's declaration for the name of `ref`.
+@(private = "file")
+names_symbol :: proc(s: ^Ref_Scan, f: ^Scan_File, ref: odinsema.Name_Ref) -> bool {
+    if s.checker == nil {
+        return false
+    }
+    sym, ok := odinsema.selector_symbol(s.checker, f.id, ref.start)
+    return ok && sym == s.target.symbol
 }
 
 // True when a file of the package binds the target's name to something else: an import alias of

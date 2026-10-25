@@ -1,6 +1,6 @@
 // Go to definition from the scopes of package odinsema: locals, the package scope, imports,
-// the universe scope, enum members and procedure groups. A selector on a value, an implicit selector and a field
-// name need the type of an expression, which the engine does not compute yet.
+// the universe scope, enum members and procedure groups. A selector, an implicit selector, a field
+// name and a named argument go through the checker.
 package odin
 
 import "base:runtime"
@@ -122,11 +122,17 @@ definition :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
                 package_candidates(&ctx, dir, ref.name, "", false, &cands)
             }
         } else {
+            if typed_jump(&ctx, ref.start, res) {
+                return
+            }
             // `Color.Red`: a member of a type of the package.
             package_candidates(&ctx, own_dir, ref.operand, ref.name, true, &cands)
         }
     case .Field_Or_Member:
-        // `pkg.Type.Member`; another operand needs the type of an expression (M4).
+        if typed_jump(&ctx, ref.start, res) {
+            return
+        }
+        // `pkg.Type.Member` when the checker gives nothing.
         pkg, type_name, qualified := qualified_type_operand(req.source, m, ref)
         if !qualified {
             return
@@ -135,13 +141,29 @@ definition :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
             package_candidates(&ctx, dir, type_name, ref.name, false, &cands)
         }
     case .Implicit_Selector, .Field_Name:
-        // These need the type of an expression (M4).
+        typed_jump(&ctx, ref.start, res)
         return
     }
     if lang.request_cancelled(req) {
         return
     }
     answer(&ctx, cands[:], res)
+}
+
+// Fills `res` with the declaration the name at `offset` of the buffer refers to through a type. False when the checker finds none.
+@(private = "file")
+typed_jump :: proc(ctx: ^Request_Context, offset: int, res: ^lang.Result) -> bool {
+    sym, found := typed_symbol(ctx, offset)
+    if !found {
+        return false
+    }
+    file, start, end, ok := odinsema.symbol_range(request_checker(ctx), sym)
+    if !ok {
+        return false
+    }
+    res.location = lang.Location{path = strings.clone(snapshot_path(ctx, file)), start = start, end = end}
+    res.ok = true
+    return true
 }
 
 // Sorts the candidates and fills `res`: one active candidate, or one candidate only, is a jump;
