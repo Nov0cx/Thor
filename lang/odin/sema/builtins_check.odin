@@ -365,8 +365,12 @@ min_max_call :: proc(c: ^Checker, file: File_Id, greatest: bool, args: []odinsyn
         return {mode = .Const, type = first.type, value = greatest ? hi : lo}
     }
     best := first
+    typed := !type_is_untyped(&c.table, first.type) ? first.type : INVALID_TYPE
     for arg in args[1:] {
         op := expr_type(c, file, arg)
+        if typed == INVALID_TYPE && op.type != INVALID_TYPE && !type_is_untyped(&c.table, op.type) {
+            typed = op.type
+        }
         if op.mode != .Const || best.mode != .Const || op.value == nil || best.value == nil {
             best.mode = .Value
             best.value = nil
@@ -381,6 +385,9 @@ min_max_call :: proc(c: ^Checker, file: File_Id, greatest: bool, args: []odinsyn
         if less != greatest {
             best = op
         }
+    }
+    if typed != INVALID_TYPE {
+        best.type = typed
     }
     return best
 }
@@ -472,4 +479,78 @@ directive_call :: proc(c: ^Checker, file: File_Id, name: string, args: []odinsyn
         return {mode = .Const, type = type_untyped(.Bool)}
     }
     return {}
+}
+
+// A type the compiler declares for a build constant: an enum, or a bit_set of one.
+@(private)
+Compiler_Type :: struct {
+    constant: string,
+    name:     string, // the base:runtime declaration that names it; "" when none
+    backing:  Basic_Kind,
+    first:    i64, // the value of the first member
+    members:  []string, // "_" holds a value with no name
+    is_set:   bool, // a bit_set of the enum
+}
+
+@(private)
+COMPILER_TYPES := [?]Compiler_Type {
+    {"ODIN_OS", "Odin_OS_Type", .Int, 0, {"Unknown", "Windows", "Darwin", "Linux", "FreeBSD", "OpenBSD", "NetBSD", "WASI", "JS", "Orca", "Freestanding"}, false},
+    {"ODIN_ARCH", "Odin_Arch_Type", .Int, 0, {"Unknown", "amd64", "i386", "arm32", "arm64", "wasm32", "wasm64p32", "riscv64"}, false},
+    {"ODIN_BUILD_MODE", "Odin_Build_Mode_Type", .Int, 0, {"Executable", "Dynamic", "Static", "Object", "Assembly", "LLVM_IR"}, false},
+    {"ODIN_ENDIAN", "Odin_Endian_Type", .Int, 0, {"Little", "Big"}, false},
+    {"ODIN_PLATFORM_SUBTARGET", "Odin_Platform_Subtarget_Type", .Int, 0, {"Default", "iPhone", "iPhoneSimulator", "Android"}, false},
+    {"ODIN_OPTIMIZATION_MODE", "Odin_Optimization_Mode", .Int, -1, {"None", "Minimal", "Size", "Speed", "Aggressive"}, false},
+    {"ODIN_DEFAULT_CALLING_CONVENTION", "Calling_Convention", .U8, 0, {"Invalid", "Odin", "Contextless", "CDecl", "Std_Call", "Fast_Call", "None", "Naked", "_", "Win64", "SysV", "Preserve_None", "Preserve_Most", "Preserve_All"}, false},
+    {"ODIN_ERROR_POS_STYLE", "", .Int, 0, {"Default", "Unix"}, false},
+    {"ODIN_WINDOWS_SUBSYSTEM", "", .Int, 0, {"Unknown", "Console", "Windows"}, false},
+    {"ODIN_SANITIZER_FLAGS", "Odin_Sanitizer_Flags", .U32, 0, {"Address", "Memory", "Thread"}, true},
+}
+
+// The type of a build constant whose value the compiler types itself, made once per checker; INVALID_TYPE for another name.
+@(private)
+compiler_type :: proc(c: ^Checker, constant: string) -> Type_Id {
+    if t, ok := c.odin_types[constant]; ok {
+        return t
+    }
+    spec: ^Compiler_Type
+    for &k in COMPILER_TYPES {
+        if k.constant == constant {
+            spec = &k
+        }
+    }
+    if spec == nil {
+        return INVALID_TYPE
+    }
+    temp := scratch_begin(c)
+    defer scratch_end(temp)
+    members := make([dynamic]Enum_Member, c.tmp)
+    for name, i in spec.members {
+        if name == "_" {
+            continue
+        }
+        if _, err := append(&members, Enum_Member{name = name, value = spec.first + i64(i), name_offset = -1}); !note_alloc(c, err) {
+            return INVALID_TYPE
+        }
+    }
+    t := type_enum(&c.table, Enum_Type{backing = type_basic(spec.backing), members = members[:], file = NO_FILE})
+    if spec.is_set {
+        t = type_bit_set(&c.table, t, type_basic(spec.backing))
+    }
+    if spec.name != "" {
+        for u in c.universe {
+            if u.all {
+                continue
+            }
+            if sym, ok := member_lookup(c, u.dir, spec.name, NO_FILE, true); ok {
+                named := type_named(&c.table, sym, spec.name, qualifier(c, sym.file))
+                type_set_underlying(&c.table, named, t)
+                t = named
+                break
+            }
+        }
+    }
+    if _, entry, _, err := map_entry(&c.odin_types, constant); note_alloc(c, err) {
+        entry^ = t
+    }
+    return t
 }

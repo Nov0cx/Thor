@@ -302,7 +302,14 @@ unary_operand :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, exp
         if p, ok := type_get(&c.table, type_base(&c.table, expected)).(Pointer_Type); ok {
             elem = p.elem
         }
-        inner := expr_type(c, file, operand, elem)
+        inner := expr_values(c, file, operand, elem)
+        if inner.optional {
+            // `&m[key]` and `&u.(T)` give (pointer, bool).
+            if types := tuple_types(c, &inner.type); len(types) == 2 {
+                return with_ok(c, type_pointer(&c.table, types[0]))
+            }
+        }
+        inner = single_value(c, inner)
         if inner.mode == .Invalid || inner.mode == .Type {
             return {}
         }
@@ -509,27 +516,33 @@ builtin_operand :: proc(c: ^Checker, name: string) -> Operand {
     case .String:
         return {mode = .Const, type = type_untyped(.String), value = v.s}
     }
-    if t := runtime_type(c, odin_constant_type(name)); t != INVALID_TYPE {
-        return {mode = .Const, type = t}
+    t := compiler_type(c, name)
+    if t == INVALID_TYPE {
+        return {mode = .Const, type = build_constant_type(name)}
     }
-    return {mode = .Const}
+    if e, is_enum := type_get(&c.table, type_base(&c.table, t)).(Enum_Type); is_enum && v.kind == .Name {
+        for m in e.members {
+            if m.name == v.s {
+                return {mode = .Const, type = t, value = m.value}
+            }
+        }
+    }
+    return {mode = .Const, type = t}
 }
 
-// The base:runtime type of a build constant whose value is an enum member.
+// The untyped type of a build constant whose value is not known.
 @(private)
-odin_constant_type :: proc(name: string) -> string {
-    switch name {
-    case "ODIN_OS":                return "Odin_OS_Type"
-    case "ODIN_ARCH":              return "Odin_Arch_Type"
-    case "ODIN_BUILD_MODE":        return "Odin_Build_Mode_Type"
-    case "ODIN_ENDIAN":            return "Odin_Endian_Type"
-    case "ODIN_OPTIMIZATION_MODE": return "Odin_Optimization_Mode"
-    case "ODIN_PLATFORM_SUBTARGET": return "Odin_Platform_Subtarget_Type"
-    case "ODIN_SANITIZER_FLAGS":   return "Odin_Sanitizer_Flags"
-    case "ODIN_ERROR_POS_STYLE":   return "Odin_Error_Pos_Style_Type"
-    case "ODIN_WINDOWS_SUBSYSTEM": return "Odin_Windows_Subsystem_Type"
+build_constant_type :: proc(name: string) -> Type_Id {
+    if strings.has_suffix(name, "_STRING") {
+        return type_untyped(.String)
     }
-    return ""
+    switch name {
+    case "ODIN_ROOT", "ODIN_VENDOR", "ODIN_VERSION", "ODIN_VERSION_HASH", "ODIN_BUILD_PROJECT_NAME":
+        return type_untyped(.String)
+    case "ODIN_COMPILE_TIMESTAMP", "ODIN_MINIMUM_OS_VERSION", "ODIN_WORD_SIZE":
+        return type_untyped(.Int)
+    }
+    return type_untyped(.Bool)
 }
 
 // The operand a package-level declaration gives.
@@ -661,6 +674,15 @@ range_var_type :: proc(c: ^Checker, file: File_Id, l: Local) -> Type_Id {
         }
     }
     op := expr_values(c, file, n)
+    if op.optional {
+        op = single_value(c, op)
+    }
+    if op.mode == .Type {
+        if _, is_enum := type_get(&c.table, type_base(&c.table, op.type)).(Enum_Type); is_enum {
+            return index == 0 ? op.type : type_basic(.Int)
+        }
+        return INVALID_TYPE
+    }
     if tuple, is_tuple := type_get(&c.table, op.type).(Tuple_Type); is_tuple {
         // An iterator call: the values but the last bool.
         if index < len(tuple.types) - 1 {
@@ -767,6 +789,12 @@ find_field_at :: proc(c: ^Checker, t: Type_Id, name: string, depth: int) -> (Fie
             case "id":   return {type_basic(.Typeid), NO_FILE, -1, depth}, true
             }
         }
+    case Dynamic_Array_Type, Map_Type:
+        if name == "allocator" {
+            if a := runtime_type(c, "Allocator"); a != INVALID_TYPE {
+                return {a, NO_FILE, -1, depth}, true
+            }
+        }
     }
     return {}, false
 }
@@ -815,7 +843,7 @@ selector_operand :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) 
         if e, is_enum := type_get(&c.table, type_base(&c.table, op.type)).(Enum_Type); is_enum {
             for m in e.members {
                 if m.name == name {
-                    return {mode = .Const, type = op.type, value = m.value, symbol = local_symbol(e.file, m.name_offset), has_symbol = true}
+                    return member_operand(c, op.type, e.file, m)
                 }
             }
         }
@@ -823,7 +851,7 @@ selector_operand :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) 
         if hit, ok := find_field(c, op.type, name); ok {
             out := Operand{mode = .Value, type = hit.type}
             if hit.name_offset >= 0 {
-                out.symbol = local_symbol(hit.file, hit.name_offset)
+                out.symbol = field_symbol(c, hit.file, hit.name_offset)
                 out.has_symbol = true
             }
             return out
@@ -858,10 +886,20 @@ implicit_operand :: proc(c: ^Checker, name: string, expected: Type_Id) -> Operan
     }
     for m in e.members {
         if m.name == name {
-            return {mode = .Const, type = t, value = m.value, symbol = local_symbol(e.file, m.name_offset), has_symbol = true}
+            return member_operand(c, t, e.file, m)
         }
     }
     return {}
+}
+
+// The constant an enum member of type `t` gives; a member the compiler declares has no symbol.
+@(private)
+member_operand :: proc(c: ^Checker, t: Type_Id, file: File_Id, m: Enum_Member) -> Operand {
+    op := Operand{mode = .Const, type = t, value = m.value}
+    if m.name_offset >= 0 {
+        op.symbol, op.has_symbol = field_symbol(c, file, m.name_offset), true
+    }
+    return op
 }
 
 // The element `x[i]` gives for a value of type `t`; a map gives (value, bool).

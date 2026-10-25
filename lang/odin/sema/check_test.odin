@@ -16,14 +16,14 @@ read_file :: proc(path: string, allocator: mem.Allocator) -> (string, bool) {
 }
 
 // One snapshot and one checker over it. Do not copy after check_begin.
-@(private = "file")
+@(private)
 Check_Env :: struct {
     db:   Db,
     snap: Snapshot,
     c:    Checker,
 }
 
-@(private = "file")
+@(private)
 check_begin :: proc(t: ^testing.T, env: ^Check_Env, input: Snapshot_Input, universe: []Universe_Package = nil, home := NO_FILE) -> bool {
     input := input
     if input.target.os == .Unknown {
@@ -43,7 +43,7 @@ check_begin :: proc(t: ^testing.T, env: ^Check_Env, input: Snapshot_Input, unive
     return true
 }
 
-@(private = "file")
+@(private)
 check_end :: proc(env: ^Check_Env) {
     checker_destroy(&env.c)
     snapshot_end(&env.snap)
@@ -51,7 +51,7 @@ check_end :: proc(env: ^Check_Env) {
 }
 
 // The symbol of `name` in `file`: `Item` or `Item.child`.
-@(private = "file")
+@(private)
 find_symbol :: proc(c: ^Checker, file: File_Id, name: string) -> (Symbol, bool) {
     fc := file_cache(c, file)
     if fc == nil || fc.data == nil {
@@ -548,7 +548,7 @@ f :: proc($T: typeid, n: int, s := "x") {
 }
 
 // Makes a fresh fixture directory under bin/test.
-@(private = "file")
+@(private)
 check_fixture :: proc(t: ^testing.T, name: string) -> (string, bool) {
     dir := fmt.tprintf("bin/test/sema_check_%s", name)
     _ = os.remove_all(dir)
@@ -558,7 +558,7 @@ check_fixture :: proc(t: ^testing.T, name: string) -> (string, bool) {
     return dir, true
 }
 
-@(private = "file")
+@(private)
 put_file :: proc(t: ^testing.T, dir, name, text: string) -> string {
     path := fmt.tprintf("%s/%s", dir, name)
     testing.expect_value(t, os.make_directory_all(filepath.dir(path)), nil)
@@ -828,7 +828,7 @@ has_invalid :: proc(t: ^Type_Table, id: Type_Id, seen: ^map[Type_Id]bool) -> boo
     return bad
 }
 
-@(private = "file")
+@(private)
 collect_package_dirs :: proc(dir: string, out: ^[dynamic]string) {
     handle, err := os.open(dir)
     if err != nil {

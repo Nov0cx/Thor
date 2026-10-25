@@ -91,6 +91,7 @@ Checker :: struct {
     dir_keys:   map[string]string,    // path_key by directory as asked for
     pairs:      map[Type_Id]Type_Id,  // (value, bool) by value type
     results:    map[Type_Id]Type_Id,  // the result Tuple by procedure type
+    odin_types: map[string]Type_Id,   // the types of build constants, by constant name
     scratch:    virtual.Arena,        // temporary arrays, freed by scratch_end
     tmp:        mem.Allocator,        // of `scratch`
     err:        mem.Allocator_Error,
@@ -175,6 +176,7 @@ checker_init :: proc(c: ^Checker, snap: ^Snapshot, universe: []Universe_Package 
     c.dir_keys = make(map[string]string, c.alloc)
     c.pairs = make(map[Type_Id]Type_Id, c.alloc)
     c.results = make(map[Type_Id]Type_Id, c.alloc)
+    c.odin_types = make(map[string]Type_Id, c.alloc)
     home := home
     if home == NO_FILE {
         home = snapshot_live_file(snap)
