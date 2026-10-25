@@ -8,8 +8,13 @@ live diagnostics and lints.
 on the new tree) landed, plus live syntax errors. M3 is done except the stdlib disk cache (§5.10)
 and redeclaration/visibility diagnostics: `lang/odin/sema` has item trees with doc comments, build
 file selection, package scopes, lexical name resolution, the universe scope and the query DB, and
-serves document/workspace symbols, definition, references, rename and package docs. M4 (types,
-`decl_type`) is next; `lang/ROADMAP.md` ("Next engine") tracks the rest. Section 11 lists the feature questions whose answers change the plan.
+serves document/workspace symbols, definition, references, rename and package docs. M4's first
+slice landed: the type table, `decl_type`, constant evaluation and `expr_type` with calls, groups
+and minimal generics (every declaration and expression in Thor's sources gets a type), typed
+definition/references/rename for fields, members and named args, and hover, completion, signature
+help and semantic tokens. Left in M4: the full overload scoring, the layout engine, a type cache
+across requests (a request that types `^Thor` costs ~130 ms) and body diagnostics;
+`lang/ROADMAP.md` ("Next engine") tracks the rest. Section 11 lists the feature questions whose answers change the plan.
 
 ---
 
