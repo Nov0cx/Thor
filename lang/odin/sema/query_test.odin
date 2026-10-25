@@ -393,3 +393,66 @@ hidden :: 1
     }
     testing.expect_value(t, env.c.err, nil)
 }
+
+// A place in the source and the type of the expression expr_under finds there; "" for none.
+@(private = "file")
+Under_Case :: struct {
+    at:    string,
+    after: string,
+    want:  string,
+}
+
+@(test)
+test_query_expr_under :: proc(t: ^testing.T) {
+    src := `package p
+
+Point :: struct { x, y: f32 }
+twice :: proc(n: int) -> int { return n * 2 }
+
+main :: proc() {
+    a, b: int
+    p: Point
+    s := a + b // note
+    k := twice(a)
+    f := p.y
+    l := 42
+    v: [3]f32
+    w := v.xy
+}
+`
+    env: Check_Env
+    if !check_begin(t, &env, Snapshot_Input{has_live = true, live_text = src}) {
+        return
+    }
+    defer check_end(&env)
+    c := &env.c
+    cases := [?]Under_Case {
+        {"+", "s := a ", "int"},
+        {"a", "s := ", "int"},
+        {")", "twice(a", "int"},
+        {"(", "k := twice", "int"},
+        {"y", "f := p.", "f32"},
+        {"42", "l := ", "untyped int"},
+        {"xy", "w := v.", "[2]f32"},
+        {" ", "s := a", ""},
+        {"note", "// ", ""},
+        {"return", "{ ", ""},
+    }
+    for k in cases {
+        off := query_offset(t, src, k.at, k.after)
+        if off < 0 {
+            continue
+        }
+        n, ok := expr_under(c, ANON_FILE, off)
+        if k.want == "" {
+            testing.expectf(t, !ok, "%q after %q: want nothing", k.at, k.after)
+            continue
+        }
+        if !testing.expectf(t, ok, "%q after %q: no expression", k.at, k.after) {
+            continue
+        }
+        got := type_string(&c.table, expr_type(c, ANON_FILE, n).type, context.temp_allocator)
+        testing.expectf(t, got == k.want, "%q after %q: got %q, want %q", k.at, k.after, got, k.want)
+    }
+    testing.expect_value(t, env.c.err, nil)
+}

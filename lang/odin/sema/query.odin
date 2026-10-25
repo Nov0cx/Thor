@@ -830,3 +830,43 @@ selector_symbol :: proc(c: ^Checker, file: File_Id, offset: int) -> (Symbol, boo
     }
     return {}, false
 }
+
+// The innermost expression or type whose own token holds byte `offset` of `file`. A token of an
+// argument list gives the call; the field name of a selector gives the selector. False on trivia.
+expr_under :: proc(c: ^Checker, file: File_Id, offset: int) -> (odinsyntax.Syntax_Node, bool) {
+    path := node_path(c, file, offset)
+    if len(path) == 0 {
+        return {}, false
+    }
+    last := path[len(path) - 1]
+    pos := last.offset
+    on_token := false
+    for child in odinsyntax.green_children(last.green) {
+        child_len := odinsyntax.element_len(child)
+        if u32(offset) >= pos && u32(offset) < pos + child_len {
+            tok, is_token := odinsyntax.element_token(child)
+            on_token = is_token && !odinsyntax.token_is_trivia(tok.kind) && tok.kind != .EOF
+            break
+        }
+        pos += child_len
+    }
+    if !on_token {
+        return {}, false
+    }
+    i := len(path) - 1
+    #partial switch path[i].green.kind {
+    case .Arg_List:
+        i -= 1
+    case .Ident:
+        if i > 0 && path[i - 1].offset != path[i].offset {
+            #partial switch path[i - 1].green.kind {
+            case .Selector_Expr, .Implicit_Selector:
+                i -= 1
+            }
+        }
+    }
+    if i < 0 || path[i].green.kind not_in odinsyntax.KINDS_EXPR {
+        return {}, false
+    }
+    return path[i], true
+}
