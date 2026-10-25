@@ -2163,25 +2163,34 @@ not a status, so this section stays the source of truth for what is built.
     `<pkg>.odin` or the closest file name. `Color.Red` and `pkg.Color.Red`
     reach the member. A procedure group offers its members. The Odin root
     comes from `ODIN_ROOT`, `odin root`, or the compile-time root, once per
-    engine. Packages come from `db_package`. Not yet: `v.field` on a value,
-    `.Member`, field names in literals and named arguments (need types), the
-    overload by arguments, `using`.
+    engine. Packages come from `db_package`. A selector on a value
+    (`v.field`, through `using`, a pointer and a chain), `.Member` from the
+    expected type, a field name of a literal and a named argument go through
+    the checker (`selector_symbol`, one `Checker` per request); `Color.Red`
+    and `pkg.Type.Member` fall back to the syntactic lookup when it gives
+    nothing. Not yet: the overload by arguments.
   - **References / Rename** (`lang/odin/references.odin`, the caret target in
     `target.odin`, shared with definition): a local through
     `local_references`; an import alias in its own file; a file-scope item in
     the files of its package (the buffer replaces its disk copy) where the bare
     name is not an import alias or a file-private item of another file, plus
     `alias.name` in the workspace files that import the package (public items
-    only). A member: its declaration, `Type.Member`, `pkg.Type.Member`, and
-    until types every `.Member`, field name and `v.member` of that name in the
-    same files, unless the operand names another type or procedure. Files out
+    only). A field or enum member (also of a record in a body): its
+    declaration and every selector, `.Member`, literal field name and
+    `pkg.Type.Member` of that name in the same files for which the checker
+    gives that declaration. A parameter: its uses in the body and the named
+    arguments that name it in the files of its package and, for a public
+    procedure, the importing files. With no checker (no memory) a member falls
+    back to the name match unless the operand names another type. Files out
     of the build count too, so a rename also renames the twin declaration and
     the uses in the other platform files of the package. References
     leave out the declaration; rename keeps it and refuses a name that is not
-    an identifier or is a keyword, a target the scopes do not bind (builtins,
-    import paths, named arguments, `.Member` and `v.field` at the caret), an
-    implicit import alias, and a declaration outside the workspace. Not yet:
-    the field of a value at the caret, a member through `using` (need types).
+    an identifier or is a keyword, a target the scopes and the checker do not
+    bind (builtins, import paths), an implicit import alias, and a declaration
+    outside the workspace. Warm over this repo, a field named `name` of
+    `lang.Symbol` (40 uses) takes 0.7 s in a debug build, against 0.5 s for a
+    public procedure; most of it is the importer walk. Not yet: a bare field
+    name in a body that `using` brings into scope.
   - **Not yet:** `using` expansion (recorded, not resolved), redeclaration
     and visibility errors, the stdlib disk cache (plan §5.10). `Foo ::
     pkg.Bar` lists as a constant until types resolve.
