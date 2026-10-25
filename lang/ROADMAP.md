@@ -2236,6 +2236,29 @@ not a status, so this section stays the source of truth for what is built.
     `check.odin` 45 ms (22 ms). Not yet: union variants after `x.(`, the
     members after `x->`, a proc result type in the ranking, snippets, an
     explicit import of a package not imported yet.
+  - **Signature help** (`lang/odin/signature.odin`): the innermost call whose
+    parentheses hold the caret, found on the tree (an unclosed `f(a, ` is a
+    call with an open `Arg_List` that runs to its end). The callee is typed
+    with `expr_type`. A procedure gives one entry, labelled from the source of
+    its procedure type on one line (comments dropped, no trailing comma):
+    `add :: proc(a: int, b: string = "x") -> bool`, `on_click: proc(x: int) ->
+    bool` for a field or variable, from the checker's type when there is no
+    source. A group gives one entry per member that is a name or
+    `pkg.name` (at most 32); `active` is the member `call_group_member` (the
+    checker's `choose_member`) picks when it takes the written slots, else the
+    first whose arity fits them. Builtins come from their `base:builtin` or
+    `base:runtime` declaration (`len`, `make` as its members). The active
+    parameter is the comma count at depth 0 before the caret (the direct
+    commas of the `Arg_List`), plus one after `x->f(`; a named argument
+    `f(b = ` names its parameter; a variadic last one stays active past the
+    end, and past the parameters of another there is no active range. A field
+    `x, y: f32` gives `x`, then `y: f32`. Nothing outside a call, in a comment
+    or a string. No toggle, as before. The editor asks on `(` and `,` and while
+    the popup is up. Debug build, `thor/lang_host.odin` (2,400 lines):
+    `fmt.tprintf(` 13 ms warm (330 ms cold), `lang.manager_request_latest(`
+    44 ms warm (0.8 s with package `lang` cold). Not yet: group members
+    written with `where`, polymorphic record `List(` and conversion `int(`
+    calls, a local procedure group.
   - **Not yet:** `using` expansion (recorded, not resolved), redeclaration
     and visibility errors, the stdlib disk cache (plan §5.10). `Foo ::
     pkg.Bar` lists as a constant until types resolve.
