@@ -6,7 +6,7 @@
 - A task from the titlebar runs in its own terminal tab, named after the task, not in the shell in use. Running it again restarts that tab.
 - Odin: go to symbol (`ctrl+shift+o`) and workspace symbol search (`ctrl+q`) work again. They list procedures, types, constants, variables, struct fields and enum members.
 - Odin: workspace symbol search skips files that are not built for the current OS.
-- Odin: go to definition works again for locals, parameters, loop variables, labels, names of the same package, `pkg.name` through imports, enum members (`Color.Red`) and procedure groups. Fields of a value and `.Member` do not resolve yet.
+- Odin: go to definition works again for locals, parameters, loop variables, labels, names of the same package, `pkg.name` through imports, enum members (`Color.Red`) and procedure groups.
 - Odin: find references and rename work again. They follow the package and its importers, and a rename also edits the other platform files of the package (`_windows.odin`, `_posix.odin`).
 - Odin: rename refuses a builtin, an implicit import name and a declaration outside the workspace, such as one in `core:`.
 - Odin: `.thor/odin-analyzer.json` takes `target` (`os`, `arch`) and `defines`. They select the files and `when` branches the analyzer reads.
@@ -18,6 +18,12 @@
 - Odin: go to symbol lists the procedures and types declared inside a procedure.
 - Odin: in workspace symbol search, a symbol in a `when` branch that is false for the target comes last and reads "(inactive)".
 - `ctrl+shift+delete` (`delete_to_line_end`) deletes from the caret to the end of the line. At the line end it joins the next line. Also in the palette as "Edit: Delete to Line End".
+- Odin: hover shows the signature, type and constant value of a declaration, the value of an enum member and its doc comment.
+- Odin: completion offers the members after `x.`, the package members after `pkg.`, enum members (also an implicit `.Member`), names in scope ranked by the expected type, and the unset fields of a struct literal. `enable_completion` in `.thor/odin-analyzer.json` turns it off.
+- Odin: signature help marks the active parameter, also for named arguments, variadics, procedure groups and builtins.
+- Odin: semantic highlighting colours parameters, locals, fields, procedures, types, enum members, packages and undeclared names.
+- Odin: go to definition, find references and rename work for struct fields (also through `using` and pointers), enum members (also an implicit `.Member`), field names in a struct literal and named call arguments.
+- Odin: rename of a parameter also renames its named arguments.
 
 # 2026.10.7
 
