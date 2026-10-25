@@ -2191,6 +2191,23 @@ not a status, so this section stays the source of truth for what is built.
     `lang.Symbol` (40 uses) takes 0.7 s in a debug build, against 0.5 s for a
     public procedure; most of it is the importer walk. Not yet: a bare field
     name in a body that `using` brings into scope.
+  - **Hover** (`lang/odin/hover.odin`): the caret target of `target.odin`
+    gives the declaration, and the hover shows its signature from the item
+    tree, attributes first and its `//` doc comment after a blank line. A
+    procedure is its head (`scale :: proc(v: int, by: int) -> int`); a struct,
+    enum or bit_field lists its fields or members, one line each, at most 16;
+    a union lists its variants from the checker; a constant whose declaration
+    does not spell its value gets `// = 6`; a variable, local or parameter is
+    `name: T`; a field is `Owner.field: T`; an enum member `Color.Red = 0`; an
+    import alias or import path its import line. A type, constant or procedure
+    declared in a body prints from the checker (`Local :: struct {a: int}`).
+    A basic type is `int: builtin type, 8 bytes`, a compiler constant its
+    value, `context` its type. Off a name, `expr_under` gives the innermost
+    expression whose own token is under the caret (the call for its `(` `)`,
+    the selector for its field name) and the hover is its type (`int`,
+    `untyped int = 1`); trivia and statement keywords give nothing. Not yet:
+    the `/* */` doc comments of `base:builtin`, `using` on a field line, the
+    declaration of a field of a record in a body (only the name).
   - **Not yet:** `using` expansion (recorded, not resolved), redeclaration
     and visibility errors, the stdlib disk cache (plan §5.10). `Foo ::
     pkg.Bar` lists as a constant until types resolve.
