@@ -92,7 +92,9 @@ name_hover :: proc(ctx: ^Request_Context, ref: odinsema.Name_Ref) -> string {
         if t.kind != .Member {
             return ""
         }
-        // A field of a record declared in a procedure body.
+        if text, ok := body_field_hover(ctx, t); ok {
+            return text
+        }
         if c := request_checker(ctx); c != nil && t.typed {
             if type := odinsema.decl_type(c, t.symbol); type != odinsema.INVALID_TYPE {
                 return typed_line(c, name, type)
@@ -104,6 +106,108 @@ name_hover :: proc(ctx: ^Request_Context, ref: odinsema.Name_Ref) -> string {
         return name
     }
     return ""
+}
+
+// `Owner.field: T` for a field of a record declared in a procedure body, with `using` when the
+// field has it. False when `t` is not such a field.
+@(private = "file")
+body_field_hover :: proc(ctx: ^Request_Context, t: Ref_Target) -> (string, bool) {
+    if t.decl < 0 {
+        return "", false
+    }
+    parsed := &ctx.parsed
+    if t.path != ctx.req.path {
+        file := odinsema.db_file_id(&ctx.snap, t.path)
+        if file == odinsema.NO_FILE {
+            return "", false
+        }
+        parsed = odinsema.db_parse(&ctx.snap, file)
+    }
+    if parsed == nil || parsed.tree == nil || parsed.tree.root == nil {
+        return "", false
+    }
+    tok, found := odinsyntax.node_token_at(odinsyntax.node_root(parsed.tree), u32(t.decl), context.temp_allocator)
+    if !found {
+        return "", false
+    }
+    field := tok.parent
+    for field != nil && field.green.kind != .Field && field.green.kind != .Bit_Field_Field {
+        if field.green.kind != .Ident && field.green.kind != .Name_List {
+            return "", false
+        }
+        field = field.parent
+    }
+    if field == nil {
+        return "", false
+    }
+    owner, has_owner := record_owner(field)
+    if !has_owner {
+        return "", false
+    }
+    type_node: odinsyntax.Syntax_Node
+    has_type, has_using := false, false
+    if f, ok := odinsyntax.as_field(field^); ok {
+        type_node, has_type = odinsyntax.field_type(&f)
+        _, has_using = odinsyntax.field_using(&f)
+    } else if bf, bok := odinsyntax.as_bit_field_field(field^); bok {
+        type_node, has_type = odinsyntax.bit_field_field_type(&bf)
+    }
+    name := fmt.tprintf("%s%s.%s", has_using ? "using " : "", owner, t.name)
+    if c := request_checker(ctx); c != nil && t.typed {
+        if type := odinsema.decl_type(c, t.symbol); type != odinsema.INVALID_TYPE {
+            return typed_line(c, name, type), true
+        }
+    }
+    if has_type {
+        return fmt.tprintf("%s: %s", name, strings.trim_space(odinsyntax.node_text(type_node))), true
+    }
+    return name, true
+}
+
+// The name the value declaration that holds the record of `field` gives it. False when the record
+// is not the value of a declaration.
+@(private = "file")
+record_owner :: proc(field: ^odinsyntax.Syntax_Node) -> (string, bool) {
+    value: ^odinsyntax.Syntax_Node
+    p := field.parent
+    for p != nil {
+        #partial switch p.green.kind {
+        case .Field_List, .Struct_Type, .Bit_Field_Type, .Distinct_Type:
+            value = p
+            p = p.parent
+            continue
+        }
+        break
+    }
+    if p == nil || value == nil || p.green.kind != .Expr_List || p.parent == nil {
+        return "", false
+    }
+    decl, ok := odinsyntax.as_value_decl(p.parent^)
+    if !ok {
+        return "", false
+    }
+    list := odinsyntax.Expr_List(p^)
+    index := 0
+    values := odinsyntax.expr_list_items(&list)
+    for v in odinsyntax.child_iter_next(&values) {
+        if v.offset == value.offset {
+            break
+        }
+        index += 1
+    }
+    names, has_names := odinsyntax.value_decl_names(&decl)
+    if !has_names {
+        return "", false
+    }
+    it := odinsyntax.name_list_names(&names)
+    i := 0
+    for name in odinsyntax.child_iter_next(&it) {
+        if i == index {
+            return strings.clone(odinsyntax.node_text(name), context.temp_allocator), true
+        }
+        i += 1
+    }
+    return "", false
 }
 
 // The hover text of a basic type or a compiler constant `name` at `offset` of the buffer.
@@ -279,6 +383,9 @@ item_text :: proc(ctx: ^Request_Context, item, owner: ^odinsema.Item, sym: odins
     }
     switch item.kind {
     case .Field:
+        if strings.has_prefix(item.signature, "using ") {
+            strings.write_string(&sb, "using ")
+        }
         type := c != nil ? odinsema.decl_type(c, sym) : odinsema.INVALID_TYPE
         if type != odinsema.INVALID_TYPE {
             fmt.sbprintf(&sb, "%s.%s: %s", owner.name, item.name, odinsema.type_string(&c.table, type, context.temp_allocator))

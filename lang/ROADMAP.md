@@ -2193,21 +2193,24 @@ not a status, so this section stays the source of truth for what is built.
     name in a body that `using` brings into scope.
   - **Hover** (`lang/odin/hover.odin`): the caret target of `target.odin`
     gives the declaration, and the hover shows its signature from the item
-    tree, attributes first and its `//` doc comment after a blank line. A
+    tree, attributes first and its doc comment after a blank line: the `//`
+    lines or the one `/* */` comment directly above (`base:builtin` style;
+    markers, the common indent and a leading `*` stripped). A
     procedure is its head (`scale :: proc(v: int, by: int) -> int`); a struct,
     enum or bit_field lists its fields or members, one line each, at most 16;
     a union lists its variants from the checker; a constant whose declaration
     does not spell its value gets `// = 6`; a variable, local or parameter is
-    `name: T`; a field is `Owner.field: T`; an enum member `Color.Red = 0`; an
+    `name: T`; a field is `Owner.field: T` (`using Owner.pos: Vec2` with
+    `using`, also in the struct listing), a field of a record declared in a
+    body too (owner from the enclosing declaration, type from the checker or
+    the source); an enum member `Color.Red = 0`; an
     import alias or import path its import line. A type, constant or procedure
     declared in a body prints from the checker (`Local :: struct {a: int}`).
     A basic type is `int: builtin type, 8 bytes`, a compiler constant its
     value, `context` its type. Off a name, `expr_under` gives the innermost
     expression whose own token is under the caret (the call for its `(` `)`,
     the selector for its field name) and the hover is its type (`int`,
-    `untyped int = 1`); trivia and statement keywords give nothing. Not yet:
-    the `/* */` doc comments of `base:builtin`, `using` on a field line, the
-    declaration of a field of a record in a body (only the name).
+    `untyped int = 1`); trivia and statement keywords give nothing.
   - **Completion** (`lang/odin/completion.odin`): the word that ends at the
     caret is the prefix, and every list holds only the names that start with
     it. After `x.` (also `x.` with nothing after it, which parses as a

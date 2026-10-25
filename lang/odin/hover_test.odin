@@ -239,5 +239,51 @@ test_hover_big_and_local :: proc(t: ^testing.T) {
     expect_hover(t, e, src, "Big ::", strings.to_string(want), name = "Big")
     expect_hover(t, e, src, "Local\n", "Local :: struct {a: int}", name = "Local")
     expect_hover(t, e, src, "help(l", "help :: proc(n: int) -> bool", name = "help")
-    expect_hover(t, e, src, "a)", "a: int", name = "a")
+    expect_hover(t, e, src, "a)", "Local.a: int", name = "a")
+}
+
+// A field of a record declared in a body names its owner, and a `using` field keeps `using`.
+@(test)
+test_hover_body_fields_and_using :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package demo
+
+Vec2 :: struct {
+	x, y: f32,
+}
+
+Entity :: struct {
+	using pos: Vec2,
+	name: string,
+}
+
+main :: proc() {
+	Body :: struct {
+		using base: Vec2,
+		count: int,
+	}
+	b: Body
+	_ = b.count
+	_ = b.base
+	en: Entity
+	_ = en.pos
+}
+`
+    expect_hover(t, e, src, "count\n\t_ = b.base", "Body.count: int", name = "count")
+    expect_hover(t, e, src, "count: int", "Body.count: int", name = "count")
+    expect_hover(t, e, src, "base\n\ten", "using Body.base: Vec2", name = "base")
+    expect_hover(t, e, src, "pos\n}", "using Entity.pos: Vec2", name = "pos")
+    expect_hover(t, e, src, "Entity ::", "Entity :: struct {\n    using pos: Vec2,\n    name: string,\n}", name = "Entity")
+}
+
+// A `/* */` comment above a declaration is its doc.
+@(test)
+test_hover_block_doc :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := "package demo\n\n/*\n\tThe answer.\n\tAlways.\n*/\nANSWER :: 42\n\nmain :: proc() {\n\t_ = ANSWER\n}\n"
+    expect_hover(t, e, src, "ANSWER\n}", "ANSWER :: 42\n\nThe answer.\nAlways.", name = "ANSWER")
 }

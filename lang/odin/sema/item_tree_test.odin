@@ -281,7 +281,7 @@ test_item_tree_doc_comments :: proc(t: ^testing.T) {
         {"pong", ""},
         {"x", ""},
         {"y", ""},
-        {"z", ""},
+        {"z", "block"},
         {"hidden", "Above the attribute."},
         {"fmt", "Imports fmt."},
         {"Point", "A point."},
@@ -305,6 +305,59 @@ test_item_tree_doc_comments :: proc(t: ^testing.T) {
     if len(color.children) == 2 {
         testing.expect_value(t, color.children[0].doc, "The first.")
         testing.expect_value(t, color.children[1].doc, "")
+    }
+}
+
+@(test)
+test_item_tree_block_doc_comments :: proc(t: ^testing.T) {
+    src := "/*\n\tPackage demo.\n*/\npackage demo\n\n" +
+        "/*\n\tAn `enum` value.\n\tPossible values:\n\t\t`.A`, `.B`.\n*/\nARCH :: 1\n\n" +
+        "/*\n * Starred.\n *\n * Second.\n */\nstarred :: 2\n\n" +
+        "/* Opened.\n   Continued.\n*/\nopened :: 3\n\n" +
+        "/* Too far. */\n\nfar :: 4\n\n" +
+        "y :: 5 /* trailing */\nafter :: 6\n\n" +
+        "/* Not mixed. */\n// Line.\nmixed :: 7\n\r\n" +
+        "/*\r\n\tCarriage.\r\n*/\r\nCR :: 8\n\n" +
+        "Point :: struct {\n\t/* Horizontal. */\n\tx: f32,\n}\n"
+    tree := build_tree(t, src)
+    defer item_tree_destroy(tree)
+
+    testing.expect_value(t, tree.package_doc, "Package demo.")
+    Want :: struct {
+        name: string,
+        doc:  string,
+    }
+    wants := []Want {
+        {"ARCH", "An `enum` value.\nPossible values:\n\t`.A`, `.B`."},
+        {"starred", "Starred.\n\nSecond."},
+        {"opened", "Opened.\nContinued."},
+        {"far", ""},
+        {"after", ""},
+        {"mixed", "Line."},
+        {"CR", "Carriage."},
+    }
+    for w in wants {
+        item, found := find_item(tree, w.name)
+        testing.expectf(t, found, "%s: not found", w.name)
+        testing.expectf(t, item.doc == w.doc, "%s: doc %q, want %q", w.name, item.doc, w.doc)
+    }
+    point, _ := find_item(tree, "Point")
+    if testing.expect_value(t, len(point.children), 1) {
+        testing.expect_value(t, point.children[0].doc, "Horizontal.")
+    }
+}
+
+// A field declared with `using` keeps it in its signature.
+@(test)
+test_item_tree_using_field_signature :: proc(t: ^testing.T) {
+    tree := build_tree(t, "package demo\n\nEntity :: struct {\n\tusing pos: Vec2,\n\tname: string,\n}\n")
+    defer item_tree_destroy(tree)
+    entity, found := find_item(tree, "Entity")
+    testing.expect(t, found, "Entity: not found")
+    if testing.expect_value(t, len(entity.children), 2) {
+        testing.expect_value(t, entity.children[0].name, "pos")
+        testing.expect_value(t, entity.children[0].signature, "using pos: Vec2")
+        testing.expect_value(t, entity.children[1].signature, "name: string")
     }
 }
 

@@ -63,8 +63,8 @@ Item :: struct {
     name_offset:  int,
     start:        int, // the declaration range, attributes included
     end:          int,
-    signature:    string, // the declaration head on one line, from the name: "add :: proc(a, b: int) -> int"
-    doc:          string, // the `//` lines directly above the declaration, markers stripped; "" when none
+    signature:    string, // the declaration head on one line, from the name or `using`: "add :: proc(a, b: int) -> int"
+    doc:          string, // the `//` lines or the `/* */` comment directly above the declaration, markers stripped; "" when none
     attributes:   []Item_Attribute,
     guard:        int,  // innermost When_Guard; -1 when none
     in_foreign:   bool, // declared in a foreign block
@@ -82,7 +82,7 @@ Item_Tree :: struct {
     arena:          virtual.Arena,
     package_name:   string,
     package_offset: int, // -1 when the file has no package clause
-    package_doc:    string, // the `//` lines directly above the package clause, markers stripped
+    package_doc:    string, // the `//` lines or the `/* */` comment directly above the package clause, markers stripped
     tags:           []string, // file tags as `#+build ...`; the legacy `//+` form is rewritten to `#+`
     private:        Visibility, // from `#+private` / `#+private file`
     items:          []Item,
@@ -660,10 +660,14 @@ read_children :: proc(b: ^Builder, value: odinsyntax.Syntax_Node) -> []Item {
             if type, tok := odinsyntax.field_type(&f); tok {
                 type_offset = int(type.offset)
             }
+            using_offset := -1
+            if u, uok := odinsyntax.field_using(&f); uok {
+                using_offset = int(u.offset)
+            }
             it := odinsyntax.name_list_names(&names)
             for name in odinsyntax.child_iter_next(&it) {
                 if name.green.kind == .Ident {
-                    push_child(b, &out, .Field, field, name, end, type_offset, -1)
+                    push_child(b, &out, .Field, field, name, end, type_offset, -1, using_offset)
                 }
             }
         }
@@ -738,9 +742,11 @@ read_members :: proc(b: ^Builder, value: odinsyntax.Syntax_Node) -> []Group_Memb
     return out[:]
 }
 
+// Appends the field or member `name` of `decl`. Its signature starts at `using_offset` when that is not -1.
 @(private = "file")
-push_child :: proc(b: ^Builder, out: ^[dynamic]Item, kind: Item_Kind, decl, name: odinsyntax.Syntax_Node, end: u32, type_offset, value_offset: int) {
+push_child :: proc(b: ^Builder, out: ^[dynamic]Item, kind: Item_Kind, decl, name: odinsyntax.Syntax_Node, end: u32, type_offset, value_offset: int, using_offset := -1) {
     start, _ := odinsyntax.node_range(decl)
+    head := using_offset >= 0 ? u32(using_offset) : name.offset
     item := Item {
         name         = clone(b, odinsyntax.node_text(name)),
         kind         = kind,
@@ -748,7 +754,7 @@ push_child :: proc(b: ^Builder, out: ^[dynamic]Item, kind: Item_Kind, decl, name
         start        = int(start),
         end          = int(end),
         guard        = -1,
-        signature    = token_text(b, decl, name.offset, end),
+        signature    = token_text(b, decl, head, end),
         doc          = doc_above(b, decl.parent, decl.offset),
         type_offset  = type_offset,
         value_offset = value_offset,
@@ -759,9 +765,9 @@ push_child :: proc(b: ^Builder, out: ^[dynamic]Item, kind: Item_Kind, decl, name
     }
 }
 
-// The run of `//` lines directly above the child of `parent` at `offset`, read from the trivia of
-// `parent`: `//` and one space stripped, lines joined with "\n". A blank line, a trailing comment
-// or a `//+` tag ends the run.
+// The run of `//` lines or the one `/* */` comment directly above the child of `parent` at `offset`,
+// read from the trivia of `parent`: `//` and one space stripped, lines joined with "\n". A blank line,
+// a trailing comment or a `//+` tag ends the run.
 @(private = "file")
 doc_above :: proc(b: ^Builder, parent: ^odinsyntax.Syntax_Node, offset: u32) -> string {
     if parent == nil || parent.green == nil {
@@ -806,6 +812,11 @@ doc_above :: proc(b: ^Builder, parent: ^odinsyntax.Syntax_Node, offset: u32) -> 
             }
             append(&lines, text)
             newlines = 0
+        case .Block_Comment:
+            if newlines != 1 || len(lines) > 0 || !starts_line(b.text, int(start)) {
+                break scan
+            }
+            return clone(b, block_doc(b.text[start:end]))
         case:
             break scan
         }
@@ -823,6 +834,58 @@ doc_above :: proc(b: ^Builder, parent: ^odinsyntax.Syntax_Node, offset: u32) -> 
         }
     }
     return clone(b, strings.to_string(sb))
+}
+
+// The text of a `/* */` comment, temp-allocated: the markers, a common indent and a leading `*` on
+// each line stripped, blank lines at the start and the end dropped.
+@(private = "file")
+block_doc :: proc(text: string) -> string {
+    body := strings.trim_prefix(text, "/*")
+    body = strings.trim_suffix(body, "*/")
+    lines, err := strings.split_lines(body, context.temp_allocator)
+    if err != nil || len(lines) == 0 {
+        return ""
+    }
+    for &line in lines {
+        line = strings.trim_right(line, " \t\r")
+    }
+    lines[0] = strings.trim_space(lines[0])
+    rest := lines[1:]
+    starred := true
+    indent := max(int)
+    for line in rest {
+        trimmed := strings.trim_left(line, " \t")
+        if trimmed == "" {
+            continue
+        }
+        if trimmed[0] != '*' {
+            starred = false
+        }
+        indent = min(indent, len(line) - len(trimmed))
+    }
+    for &line in rest {
+        if starred {
+            line = strings.trim_left(line, " \t")
+            line = strings.trim_prefix(line, "*")
+            line = strings.trim_prefix(line, " ")
+        } else if len(line) >= indent {
+            line = line[indent:]
+        } else {
+            line = ""
+        }
+    }
+    first, last := 0, len(lines)
+    for first < last && lines[first] == "" {
+        first += 1
+    }
+    for last > first && lines[last - 1] == "" {
+        last -= 1
+    }
+    joined, jerr := strings.join(lines[first:last], "\n", context.temp_allocator)
+    if jerr != nil {
+        return ""
+    }
+    return joined
 }
 
 // True when only spaces and tabs come before `offset` on its line.
