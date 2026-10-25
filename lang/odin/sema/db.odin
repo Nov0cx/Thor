@@ -6,6 +6,7 @@ import "core:path/filepath"
 import "core:slice"
 import "core:strings"
 import "core:sync"
+import "core:time"
 
 import odinsyntax "../syntax"
 
@@ -24,6 +25,12 @@ NO_PACKAGE :: Package_Id(max(u32))
 
 // Reads a whole file. The engine sets lang.source_read, which collapses CRLF to LF.
 Read_Proc :: #type proc(path: string, allocator: mem.Allocator) -> (string, bool)
+
+// Gives the current time in nanoseconds. Tests set Db.clock to step time by hand.
+Clock_Proc :: #type proc() -> i64
+
+// Longest time a file or directory under the Odin root goes without a stat or a listing.
+STABLE_INTERVAL :: 5 * time.Second
 
 // Number of live buffers whose last parse the database keeps.
 LIVE_SLOTS :: 8
@@ -44,6 +51,8 @@ WORKSPACE_DEPTH_LIMIT :: 12
 // Counters for tests. Read them with sync.atomic_load.
 Db_Stats :: struct {
     reads:        int, // files read from disk
+    stats:        int, // file stamps read from disk
+    listings:     int, // package directories listed
     parses:       int, // full parses
     reparses:     int, // incremental parses
     trees:        int, // item trees built
@@ -60,6 +69,8 @@ Db :: struct {
     read:            Read_Proc,
     body_budget:     int,
     workspace_limit: int,
+    clock:           Clock_Proc,
+    stable_interval: i64, // nanoseconds; see STABLE_INTERVAL
     lock:            sync.RW_Mutex, // guards the intern maps, the slot arrays and `configs`
     files:           [dynamic]^File_Slot,        // owned
     file_ids:        map[string]File_Id,         // owned; keys borrowed from the slots
@@ -118,6 +129,7 @@ Imports_Value :: struct {
     data:        ^File_Data, // one reference; `list` borrows its strings
     config:      u32,
     epoch:       u64, // the snapshot that last checked `exists`
+    checked_at:  i64, // the time of that check
     list:        []File_Import, // owned
 }
 
@@ -158,6 +170,8 @@ Snapshot :: struct {
     db:          ^Db,
     epoch:       u64,
     config:      u32,
+    now:         i64,    // the time the snapshot began
+    stable_key:  string, // in the arena; path_key of the Odin root with a trailing "/"; "" when none
     target:      Target,
     collections: Collections,
     cancel:      ^bool,
@@ -196,6 +210,7 @@ File_Slot :: struct {
     key:              string, // owned; path_key of path
     dir_key:          string, // owned; path_key of the directory
     stat_epoch:       u64,    // the snapshot that last checked the stamp
+    stat_time:        i64,    // the time of that check
     stamped:          bool,   // modtime, size and exists describe the disk
     exists:           bool,
     modtime:          i64,
@@ -223,6 +238,7 @@ Package_Slot :: struct {
     dir:          string, // owned; as first given
     key:          string, // owned; path_key of dir
     listed_epoch: u64,
+    listed_time:  i64, // the time of that listing
     listing:      []File_Id, // owned; sorted by path; valid when listed_epoch != 0
     memo:         ^Package_Memo, // one reference
 }
@@ -242,6 +258,7 @@ db_init :: proc(db: ^Db, read: Read_Proc, allocator := context.allocator) {
     db.read = read
     db.body_budget = BODY_BUDGET
     db.workspace_limit = WORKSPACE_FILE_LIMIT
+    db.stable_interval = i64(STABLE_INTERVAL)
     db.file_ids = make(map[string]File_Id, allocator)
     db.package_ids = make(map[string]Package_Id, allocator)
     db.configs = make(map[string]u32, allocator)
@@ -302,6 +319,11 @@ snapshot_begin :: proc(db: ^Db, snap: ^Snapshot, input: Snapshot_Input) -> bool 
     snap.alloc = virtual.arena_allocator(&snap.arena)
     snap.open = true
     snap.epoch = sync.atomic_add(&db.epoch, 1) + 1
+    snap.now = db_now(db)
+    if root := snap.collections.odin_root; root != "" {
+        key := path_key(root, snap.alloc)
+        snap.stable_key = strings.has_suffix(key, "/") ? key : strings.concatenate({key, "/"}, snap.alloc)
+    }
     snap.pins = make([dynamic]^Value, 0, 16, db.allocator)
     snap.views = make(map[Package_Id]^Package_View, snap.alloc)
     config, ok := config_intern(db, snap)
@@ -538,6 +560,26 @@ config_intern :: proc(db: ^Db, snap: ^Snapshot) -> (u32, bool) {
     }
     db.configs[owned] = n
     return n, true
+}
+
+@(private)
+db_now :: proc(db: ^Db) -> i64 {
+    if db.clock != nil {
+        return db.clock()
+    }
+    return time.now()._nsec
+}
+
+// True when `key`, a path_key, is under the Odin root of the snapshot.
+@(private)
+key_stable :: proc(snap: ^Snapshot, key: string) -> bool {
+    return snap.stable_key != "" && (strings.has_prefix(key, snap.stable_key) || key == snap.stable_key[:len(snap.stable_key) - 1])
+}
+
+// True when a stable check made at `at` is still fresh for the snapshot.
+@(private)
+check_fresh :: proc(snap: ^Snapshot, at: i64) -> bool {
+    return at != 0 && snap.now - at < snap.db.stable_interval
 }
 
 @(private)

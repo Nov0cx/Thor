@@ -128,13 +128,14 @@ Refresh_State :: enum u8 {
     Cancelled,
 }
 
-// Lists the directory once per snapshot, refreshes every file and builds the memo again when the
+// Lists the directory once per snapshot, and at most once per Db.stable_interval for a directory
+// under the Odin root, refreshes every file and builds the memo again when the
 // file set, a file's shape or the configuration changed. Gives the pinned data of each file.
 // A cancelled refresh keeps the old memo. The caller holds the slot.
 @(private = "file")
 package_refresh :: proc(snap: ^Snapshot, slot: ^Package_Slot) -> (datas: []^File_Data, state: Refresh_State) {
     db := snap.db
-    if slot.listed_epoch != snap.epoch {
+    if slot.listed_epoch != snap.epoch && !(slot.listed_epoch != 0 && key_stable(snap, slot.key) && check_fresh(snap, slot.listed_time)) {
         listing, lstate := package_list(snap, slot.dir)
         switch lstate {
         case .Cancelled:
@@ -150,6 +151,7 @@ package_refresh :: proc(snap: ^Snapshot, slot: ^Package_Slot) -> (datas: []^File
         delete(slot.listing, db.allocator)
         slot.listing = listing
         slot.listed_epoch = snap.epoch
+        slot.listed_time = snap.now
     }
     ids := slot.listing
     datas = make([]^File_Data, len(ids), snap.alloc)
@@ -218,6 +220,7 @@ package_memo_new :: proc(snap: ^Snapshot, ids: []File_Id, datas: []^File_Data) -
 @(private = "file")
 package_list :: proc(snap: ^Snapshot, dir: string) -> ([]File_Id, Refresh_State) {
     db := snap.db
+    stat_add(&db.stats.listings)
     handle, open_err := os.open(dir)
     if open_err != nil {
         return nil, .No_Dir

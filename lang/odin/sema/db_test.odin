@@ -6,6 +6,7 @@ import "core:os"
 import "core:sync"
 import "core:testing"
 import "core:thread"
+import "core:time"
 
 @(private = "file")
 read_plain :: proc(path: string, allocator: mem.Allocator) -> (string, bool) {
@@ -127,6 +128,76 @@ test_db_stat_refresh :: proc(t: ^testing.T) {
     testing.expect(t, has_name(view, "three"))
     testing.expect(t, !has_name(view, "two"))
     testing.expect_value(t, stats_of(&db).trees, 3)
+}
+
+@(private = "file")
+fake_now: i64
+
+@(private = "file")
+fake_clock :: proc() -> i64 {
+    return sync.atomic_load(&fake_now)
+}
+
+// A package under the Odin root is listed and stated once per interval; a workspace file once per snapshot.
+@(test)
+test_db_stable_throttle :: proc(t: ^testing.T) {
+    root, ok := fixture(t, "stable_root")
+    if !ok {
+        return
+    }
+    defer os.remove_all(root)
+    ws, wok := fixture(t, "stable_ws")
+    if !wok {
+        return
+    }
+    defer os.remove_all(ws)
+    pkg := fmt.tprintf("%s/core/p", root)
+    testing.expect_value(t, os.make_directory_all(pkg), nil)
+    put(t, pkg, "a.odin", "package p\n\none :: 1\n")
+    w := put(t, ws, "w.odin", "package w\n\nx :: 1\n")
+    db: Db
+    db_init(&db, read_plain)
+    defer db_destroy(&db)
+    db.clock = fake_clock
+    sync.atomic_store(&fake_now, i64(1_000_000_000))
+    colls := Collections{odin_root = root}
+
+    look :: proc(t: ^testing.T, db: ^Db, colls: ^Collections, pkg, w: string) -> (files: int, has_two: bool) {
+        snap: Snapshot
+        if !begin(t, db, &snap, Snapshot_Input{collections = colls}) {
+            return
+        }
+        defer snapshot_end(&snap)
+        testing.expect(t, db_file(&snap, db_file_id(&snap, w)) != nil)
+        view := db_package(&snap, db_package_id(&snap, pkg))
+        if !testing.expect(t, view != nil) {
+            return
+        }
+        return len(view.files), has_name(view, "two")
+    }
+
+    files, two := look(t, &db, &colls, pkg, w)
+    testing.expect_value(t, files, 1)
+    stats := sync.atomic_load(&db.stats.stats)
+    listings := sync.atomic_load(&db.stats.listings)
+
+    sync.atomic_add(&fake_now, i64(time.Second))
+    look(t, &db, &colls, pkg, w)
+    testing.expect_value(t, sync.atomic_load(&db.stats.listings), listings)
+    testing.expect_value(t, sync.atomic_load(&db.stats.stats), stats + 1)
+
+    put(t, pkg, "a.odin", "package p\n\none :: 1\ntwo :: 2\n")
+    put(t, pkg, "b.odin", "package p\n\nthree :: 3\n")
+    sync.atomic_add(&fake_now, i64(time.Second))
+    files, two = look(t, &db, &colls, pkg, w)
+    testing.expect_value(t, files, 1)
+    testing.expect(t, !two)
+
+    sync.atomic_add(&fake_now, i64(STABLE_INTERVAL))
+    files, two = look(t, &db, &colls, pkg, w)
+    testing.expect_value(t, files, 2)
+    testing.expect(t, two)
+    testing.expect_value(t, sync.atomic_load(&db.stats.listings), listings + 1)
 }
 
 // A body edit keeps the package scope; a signature edit and a new file build it again.
