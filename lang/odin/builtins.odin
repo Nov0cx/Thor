@@ -59,7 +59,7 @@ builtin_package_candidates :: proc(ctx: ^Request_Context, dir, name: string, all
 }
 
 // True when the item has a `builtin` attribute: `@builtin` or `@(builtin, ...)`.
-@(private = "file")
+@(private)
 has_builtin_attribute :: proc(item: ^odinsema.Item) -> bool {
     for a in item.attributes {
         if a.name == "builtin" {
