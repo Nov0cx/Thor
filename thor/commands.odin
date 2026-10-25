@@ -346,6 +346,9 @@ thor_register_commands :: proc(thor: ^Thor) {
     thor_palette_add(thor, "Edit: Select All", thor_cmd_select_all, thor, action = "select_all")
     thor_palette_add(thor, "Edit: Duplicate Line", thor_cmd_duplicate_line, thor, action = "duplicate_line_down")
     thor_palette_add(thor, "Edit: Delete Line", thor_cmd_delete_line, thor, action = "delete_line")
+    thor_palette_add(
+        thor, "Edit: Delete to Line End", thor_cmd_delete_to_line_end, thor, action = "delete_to_line_end",
+    )
     thor_palette_add(thor, "Edit: Join Lines", thor_cmd_join_lines, thor, action = "join_lines")
     thor_palette_add(thor, "Edit: Move Line Up", thor_cmd_move_line_up, thor, action = "move_line_up")
     thor_palette_add(thor, "Edit: Move Line Down", thor_cmd_move_line_down, thor, action = "move_line_down")
@@ -579,6 +582,7 @@ thor_can_redo :: proc(thor: ^Thor) -> bool {
 thor_cmd_select_all :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.select_all(s)}}
 thor_cmd_duplicate_line :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.duplicate_lines(s, 1)}}
 thor_cmd_delete_line :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.delete_lines(s)}}
+thor_cmd_delete_to_line_end :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.delete_to_line_end(s)}}
 thor_cmd_move_line_up :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.move_lines(s, -1)}}
 thor_cmd_move_line_down :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.move_lines(s, 1)}}
 thor_cmd_trim_whitespace :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.trim_trailing_whitespace(s)}}

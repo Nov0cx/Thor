@@ -199,6 +199,18 @@ delete_word_forward :: proc(state: ^State) {
     delete_forward(state)
 }
 
+// Deletes from each caret to the end of its line. At the line end it joins the next line.
+delete_to_line_end :: proc(state: ^State) {
+    txt := text(state)
+    for &cursor in state.cursors {
+        if !has_selection(cursor) {
+            cursor.anchor = line_end(txt, cursor.caret)
+        }
+    }
+    normalize_cursors(state)
+    delete_forward(state)
+}
+
 // Deletes the whole line(s) covered by each cursor (Ctrl+Shift+K).
 delete_lines :: proc(state: ^State) {
     select_line(state)
