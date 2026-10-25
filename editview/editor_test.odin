@@ -1345,3 +1345,47 @@ test_snippet_takes_the_line_indent :: proc(t: ^testing.T) {
     testing.expect_value(t, textedit.text(&state), "  if {\n      \n  }\n")
     testing.expect_value(t, textedit.primary_cursor(&state).caret, len("  if {\n      "))
 }
+
+@(private = "file")
+editor_test_count_completion :: proc(data: rawptr, editor: ^Editor, state: ^textedit.State, offset: int) -> bool {
+    (^int)(data)^ += 1
+    return true
+}
+
+// `x.(` and `x->` ask the owner for candidates at once; a call paren and a lone `>` do not.
+@(test)
+test_completion_triggers_after_assertion_and_arrow :: proc(t: ^testing.T) {
+    state: textedit.State
+    textedit.init(&state)
+    defer textedit.destroy(&state)
+
+    editor: Editor
+    defer delete(editor.visual_rows)
+    defer delete(editor.completion_rows)
+    defer editor_test_free_completions(&editor)
+
+    asked := 0
+    editor_test_completion_setup(&editor, &state, "x\n")
+    textedit.select_range(&state, 1, 1)
+    editor_set_on_completion(&editor, editor_test_count_completion, &asked)
+    editor_set_completion_semantic(&editor, true)
+
+    editor_text(&editor, '-', {})
+    testing.expect_value(t, asked, 0)
+    editor_text(&editor, '>', {})
+    testing.expect_value(t, asked, 1)
+
+    editor_text(&editor, ' ', {})
+    editor_text(&editor, 'y', {})
+    before := asked
+    editor_text(&editor, '.', {})
+    editor_text(&editor, '(', {})
+    testing.expect_value(t, asked, before + 2)
+
+    editor_text(&editor, ' ', {})
+    editor_text(&editor, 'f', {})
+    before = asked
+    editor_text(&editor, '(', {})
+    editor_text(&editor, '>', {})
+    testing.expect_value(t, asked, before)
+}

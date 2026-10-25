@@ -324,16 +324,34 @@ editor_request_signature :: proc(editor: ^Editor) {
 
 // The identifier run ending at `caret` and whether it is a selector: the word is
 // preceded by a `.` (`pkg.<word>`, `value.<word>`, or a leading `.<word>` implicit
-// enum selector). A selector completes with no minimum prefix, so typing the `.`
-// immediately lists candidates; a plain word waits for COMPLETION_MIN_PREFIX bytes.
+// enum selector), a `.(` type assertion or a `->` call. A selector completes with no
+// minimum prefix, so typing the `.` immediately lists candidates; a plain word waits
+// for COMPLETION_MIN_PREFIX bytes.
 @(private = "file")
 editor_completion_word :: proc(txt: string, caret: int) -> (start: int, member: bool) {
     start = caret
     for start > 0 && editor_is_word_byte(txt[start - 1]) {
         start -= 1
     }
-    member = start > 0 && txt[start - 1] == '.'
+    member = start > 0 && editor_is_selector_end(txt, start)
     return
+}
+
+// True when the text before `end` is `.`, `.(` or `->`.
+@(private = "file")
+editor_is_selector_end :: proc(txt: string, end: int) -> bool {
+    if end < 1 {
+        return false
+    }
+    switch txt[end - 1] {
+    case '.':
+        return true
+    case '(':
+        return end >= 2 && txt[end - 2] == '.'
+    case '>':
+        return end >= 2 && txt[end - 2] == '-'
+    }
+    return false
 }
 
 // Requests semantic completion for the word being typed, gated to a single
@@ -3032,8 +3050,9 @@ editor_text :: proc(editor: ^Editor, codepoint: rune, mods: ui.Mod_Set) -> bool 
         if !(editor.completion_semantic && editor_request_completion(editor)) {
             editor_update_completion(editor)
         }
-    } else if editor.completion_semantic && codepoint == '.' {
-        // Member access: `pkg.` lists the package's symbols right away.
+    } else if editor.completion_semantic && (codepoint == '.' || codepoint == '(' || codepoint == '>') &&
+       editor_is_selector_end(textedit.text(editor.state), textedit.primary_cursor(editor.state).caret) {
+        // Member access: `pkg.`, `x.(` and `x->` list their candidates right away.
         editor_request_completion(editor)
     } else {
         editor_dismiss_completion(editor)
