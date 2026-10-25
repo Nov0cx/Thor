@@ -2259,6 +2259,35 @@ not a status, so this section stays the source of truth for what is built.
     44 ms warm (0.8 s with package `lang` cold). Not yet: group members
     written with `where`, polymorphic record `List(` and conversion `int(`
     calls, a local procedure group.
+  - **Semantic tokens** (`lang/odin/semantic.odin`): one `scope_map` of the
+    whole buffer (or of `[offset, end)` when the request has a range) gives
+    every identifier; each becomes a token by what it names. A parameter or
+    named result is `Parameter`, a variable, loop or switch variable `Local`,
+    a procedure, procedure group, constant of procedure type, procedure field
+    and `pkg.proc` `Procedure`, a type, type alias, `$T` and `pkg.Type`
+    `Type`, a field (also a comp-literal field name) `Field`, an enum member
+    (also `.Member`, `Color.Red`) `Enum_Member`, an import alias `Package`, a
+    named argument `Parameter`. Declaration names get their kind too. A
+    constant value, a package variable, a builtin, a basic type and a label
+    get no token, as with the old engine. Free names go through `lookup_name`
+    once per name; `pkg.name` through the package scope (no typing, except
+    for a constant); `x.f`, `.Member`, field names and named arguments
+    through `selector_symbol`, memoized per head declaration and name chain
+    (`a.b.c`); a field declaration's procedure type is read from the syntax.
+    `Unresolved` only for a free name that `lookup_name`, every file of the
+    package (also out of the build) and the universe scope leave unbound, in
+    a buffer with a path and a workspace, outside a declaration with a
+    `using`, a directive call (`#config(X, …)`) or `offset_of`. The tokens are
+    sorted and an overlap is dropped. No toggle, as with the old engine. Over
+    `sema/check.odin`, `thor/view.odin`, `editview/editor.odin` and
+    `thor/lang_host.odin` no name is marked `Unresolved`. Debug build, warm
+    (cold ≈ 1.2 s): `sema/check.odin` 80 ms, `editview/editor.odin` (3,069
+    lines) 80 ms, `thor/view.odin` 190 ms, `thor/lang_host.odin` 185 ms,
+    against a 50 ms target. The rest is not the walk: a new checker per
+    request types `^Thor` again (about 130 ms, 45 packages, 1,434 types),
+    and a snapshot lists and stats every package it reads again. Not yet:
+    `using` expansion (a declaration with a `using` marks nothing), a type
+    cache across requests.
   - **Not yet:** `using` expansion (recorded, not resolved), redeclaration
     and visibility errors, the stdlib disk cache (plan §5.10). `Foo ::
     pkg.Bar` lists as a constant until types resolve.
