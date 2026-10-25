@@ -54,6 +54,7 @@ test_engine_declines_unimplemented :: proc(t: ^testing.T) {
 
     testing.expect(t, supports(e, ".odin", .Format_Range))
     testing.expect(t, supports(e, ".odin", .Format_On_Type))
+    testing.expect(t, supports(e, ".odin", .Hover))
     for kind in lang.Request_Kind {
         if kind not_in IMPLEMENTED {
             testing.expectf(t, !supports(e, ".odin", kind), "%v must be declined", kind)

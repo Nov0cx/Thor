@@ -2,7 +2,7 @@
 // It formats with the native printer, reports `odin check` diagnostics and the
 // live syntax errors of the new parser, lists document and workspace symbols
 // from the item trees of package odinsema, renders package documentation, and goes to
-// definitions, finds references and renames through its scopes.
+// definitions, finds references and renames through its scopes, and hovers through the checker.
 // Completion and the other kinds return with the new engine
 // (`odin-analyzer-plan.md`); until then the engine declines them.
 package odin
@@ -37,6 +37,7 @@ IMPLEMENTED :: bit_set[lang.Request_Kind]{
     .References,
     .Rename,
     .Package_Doc,
+    .Hover,
 }
 
 engine_create :: proc() -> ^Engine {
@@ -132,6 +133,10 @@ resolve :: proc(data: rawptr, req: ^lang.Request, res: ^lang.Result) {
     case .Package_Doc:
         if config_allows(e, req.workspace, req.kind) {
             package_doc(e, req, res)
+        }
+    case .Hover:
+        if config_allows(e, req.workspace, req.kind) {
+            hover(e, req, res)
         }
     }
 }
