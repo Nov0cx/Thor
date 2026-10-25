@@ -171,6 +171,12 @@ be tested headlessly.
   `db_file`, `db_parse`, `db_package`, `db_workspace` give refcounted values pinned until
   `snapshot_end` (`db_parse_release` drops one parse early). Lock order: workspace slot, package
   slot, file slot, then `Db.lock` or `Db.lru_mutex`. It imports only `odinsyntax` and `core:`.
+  The type layer: `types.odin` (the `Type_Table`; structural types are interned, a named type is
+  unique by its `Symbol`), `check.odin` (`Checker`, `decl_type`, `type_expr`, `lookup_name`),
+  `const.odin`, `expr.odin` + `call.odin` + `builtins_check.odin` (`expr_type`, calls, groups,
+  generics) and `query.odin` (`expected_type_at`, `type_members`, `selector_symbol`,
+  `symbol_range`, `expr_under`). A `Checker` owns its arena, borrows a `Snapshot` and must be
+  destroyed before `snapshot_end`; it caches nothing across requests.
   The formatter (`lang/odin/format`, package `odinfmt`) prints from the `odinsyntax` tree too;
   `core:odin/parser` is a test oracle only.
 - `setting`, `watch`, `shell` — JSON settings/keybinds, the async recursive file-system watcher,
@@ -367,10 +373,12 @@ subprocess LSP client as an optional second backend behind the same seam.
   seam), `check.odin` (`odin check` diagnostics), `formatter.odin` + `format/` (the printer),
   `syntax_check.odin` (live syntax errors), `symbols.odin` (document and workspace symbols),
   `target.odin` + `definition.odin` + `references.odin` (the caret target, definition, references
-  and rename), `builtins.odin` (the universe scope), `package_doc.odin`, `config.odin` and
-  `path_*.odin` remain. Every file and package read goes through the sema query DB;
-  `parse_cache.odin` and `package_cache.odin` are gone. `supports`
-  declines every other kind until the new engine (`lang/odin/syntax`, then `sema`) serves it.
+  and rename), `hover.odin`, `completion.odin`, `signature.odin`, `semantic.odin`,
+  `builtins.odin` (the universe scope), `package_doc.odin`, `config.odin` and `path_*.odin`
+  remain. Every file and package read goes through the sema query DB;
+  `parse_cache.odin` and `package_cache.odin` are gone. A request that needs types takes the
+  lazy checker of its `Request_Context` (`request_checker`), which `request_close` ends before the
+  snapshot. `supports` declines every kind outside `IMPLEMENTED` (`engine.odin`).
 - The `language_intelligence` setting gates the whole seam: `manager_set_enabled` /
   `manager_set_features` make `manager_request` refuse a kind (and cancel its in-flight work), so no
   dispatch path can forget the check. `manager_allows(ext, kind)` is the per-kind question a caller
