@@ -156,7 +156,7 @@ const_to_f64 :: proc(v: Const_Value) -> (f64, bool) {
 }
 
 // The value of a literal token.
-@(private = "file")
+@(private)
 literal_value :: proc(c: ^Checker, n: odinsyntax.Syntax_Node) -> (Const_Value, bool) {
     lit, _ := odinsyntax.as_literal(n)
     tok, ok := odinsyntax.literal_token(&lit)
@@ -236,7 +236,7 @@ parse_integer :: proc(text: string) -> (i64, bool) {
     return i64(value), digits > 0
 }
 
-@(private = "file")
+@(private)
 const_unary :: proc(op: odinsyntax.Token_Kind, v: Const_Value) -> (Const_Value, bool) {
     #partial switch op {
     case .Add:

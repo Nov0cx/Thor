@@ -198,6 +198,7 @@ Bit_Field_Entry :: struct {
 Bit_Field_Type :: struct {
     backing: Type_Id,
     fields:  []Bit_Field_Entry,
+    file:    File_Id, // the file of the field names
 }
 
 Matrix_Type :: struct {
@@ -243,7 +244,9 @@ Struct_Type :: struct {
     fields: []Struct_Field,
     params: []Proc_Param, // the polymorphic parameters
     flags:  bit_set[Struct_Flag],
-    align:  i64, // `#align(N)`; 0 when none
+    align:  i64,     // `#align(N)`; 0 when none
+    file:   File_Id, // the file of the declaration
+    offset: int,     // the Struct_Type node
 }
 
 Union_Flag :: enum u8 {
@@ -255,7 +258,9 @@ Union_Type :: struct {
     variants: []Type_Id,
     params:   []Proc_Param, // the polymorphic parameters
     flags:    bit_set[Union_Flag],
-    align:    i64, // `#align(N)`; 0 when none
+    align:    i64,     // `#align(N)`; 0 when none
+    file:     File_Id, // the file of the declaration
+    offset:   int,     // the Union_Type node
 }
 
 Enum_Member :: struct {
@@ -267,6 +272,7 @@ Enum_Member :: struct {
 Enum_Type :: struct {
     backing: Type_Id, // INVALID_TYPE when none
     members: []Enum_Member,
+    file:    File_Id, // the file of the member names
 }
 
 Param_Flag :: enum u8 {
@@ -290,11 +296,21 @@ Proc_Param :: struct {
     name_offset: int, // -1 when unnamed
 }
 
+// A directive after the results that changes how a call is used.
+Proc_Tag :: enum u8 {
+    Optional_Ok,              // `#optional_ok`: the last result may be dropped
+    Optional_Allocator_Error, // `#optional_allocator_error`: the last result may be dropped
+}
+
 Proc_Type :: struct {
     params:     []Proc_Param,
     results:    []Proc_Param,
     convention: string, // the calling convention without quotes; "" when none
     diverging:  bool,   // `-> !`
+    tags:       bit_set[Proc_Tag],
+    generic:    bool,    // a parameter is polymorphic
+    file:       File_Id, // generic: the file of the declaration
+    offset:     int,     // generic: the Proc_Type node
 }
 
 // The values of a call to a procedure with more than one result.
@@ -320,6 +336,7 @@ Distinct_Type :: struct {
 Poly_Param_Type :: struct {
     name:           string,
     specialization: Type_Id, // INVALID_TYPE when none
+    symbol:         Symbol,  // the local that declares it
 }
 
 Proc_Group_Type :: struct {
@@ -691,8 +708,8 @@ type_proc_group :: proc(t: ^Type_Table, members: []Type_Id) -> Type_Id {
     return checked_push(t, Proc_Group_Type{clone_slice(t, members)})
 }
 
-type_poly_param :: proc(t: ^Type_Table, name: string, specialization := INVALID_TYPE) -> Type_Id {
-    return checked_push(t, Poly_Param_Type{clone_string(t, name), specialization})
+type_poly_param :: proc(t: ^Type_Table, name: string, specialization := INVALID_TYPE, symbol := Symbol{}) -> Type_Id {
+    return checked_push(t, Poly_Param_Type{clone_string(t, name), specialization, symbol})
 }
 
 // Pushes `entry` when every copy it holds was made; frees it otherwise.
@@ -721,6 +738,11 @@ type_named :: proc(t: ^Type_Table, symbol: Symbol, name: string, qualifier := ""
     }
     value^ = id
     return id
+}
+
+// A named type for an instance of a polymorphic record: `List(int)`. It is not unique by its symbol.
+type_named_instance :: proc(t: ^Type_Table, symbol: Symbol, name: string, qualifier := "") -> Type_Id {
+    return checked_push(t, Named_Type{symbol = symbol, name = clone_string(t, name), qualifier = clone_string(t, qualifier)})
 }
 
 type_set_underlying :: proc(t: ^Type_Table, named, underlying: Type_Id) {
@@ -1218,9 +1240,15 @@ write_proc :: proc(sb: ^strings.Builder, t: ^Type_Table, p: Proc_Type) {
     strings.write_string(sb, " -> ")
     if len(p.results) == 1 && p.results[0].name == "" {
         write_type(sb, t, p.results[0].type)
-        return
+    } else {
+        strings.write_byte(sb, '(')
+        write_params(sb, t, p.results)
+        strings.write_byte(sb, ')')
     }
-    strings.write_byte(sb, '(')
-    write_params(sb, t, p.results)
-    strings.write_byte(sb, ')')
+    if .Optional_Ok in p.tags {
+        strings.write_string(sb, " #optional_ok")
+    }
+    if .Optional_Allocator_Error in p.tags {
+        strings.write_string(sb, " #optional_allocator_error")
+    }
 }

@@ -48,11 +48,13 @@ Operand_Mode :: enum u8 {
 }
 
 Operand :: struct {
-    mode:   Operand_Mode,
-    type:   Type_Id,
-    value:  Const_Value, // Const: nil when the value is not known
-    dir:    string,      // Package: the package directory
-    symbol: Symbol,      // Builtin: the declaration; `item` is LOCAL_ITEM when there is none
+    mode:       Operand_Mode,
+    type:       Type_Id,
+    value:      Const_Value, // Const: nil when the value is not known
+    dir:        string,      // Package: the package directory
+    symbol:     Symbol,      // the declaration named when `has_symbol`; Builtin: `item` is LOCAL_ITEM when there is none
+    has_symbol: bool,
+    optional:   bool, // `type` is a Tuple whose last value a single-value use drops
 }
 
 // The `item` of the Symbol of a local; `child` is then the name offset of the local.
@@ -82,7 +84,28 @@ Checker :: struct {
     scope_list: [dynamic]^Scope_Map, // owned
     path:       [dynamic]odinsyntax.Syntax_Node, // scratch of node_path
     enum_env:   []Enum_Member, // the members before the enum value being evaluated
+    env:        []Binding,     // the polymorphic parameters bound for the type being read
+    depth:      int,           // the nesting of expr_type
+    instances:  map[Type_Id]Instance, // the instances of polymorphic records
+    inst_cache: map[string]Type_Id,   // by instance key
+    dir_keys:   map[string]string,    // path_key by directory as asked for
+    pairs:      map[Type_Id]Type_Id,  // (value, bool) by value type
+    results:    map[Type_Id]Type_Id,  // the result Tuple by procedure type
+    scratch:    virtual.Arena,        // temporary arrays, freed by scratch_end
+    tmp:        mem.Allocator,        // of `scratch`
     err:        mem.Allocator_Error,
+}
+
+// A polymorphic parameter and what it is bound to: a Type or a Const operand.
+Binding :: struct {
+    symbol: Symbol,
+    op:     Operand,
+}
+
+// The polymorphic record and the arguments an instance was made from.
+Instance :: struct {
+    generic: Type_Id, // the named type of the record
+    args:    []Operand,
 }
 
 @(private)
@@ -115,7 +138,7 @@ File_Cache :: struct {
     has_imports: bool,
 }
 
-@(private = "file")
+@(private)
 CHECKER_ARENA_BLOCK :: 64 * mem.Kilobyte
 
 // Starts a checker on `snap`. Types print unqualified in the package of `home`; the snapshot's
@@ -123,10 +146,17 @@ CHECKER_ARENA_BLOCK :: 64 * mem.Kilobyte
 checker_init :: proc(c: ^Checker, snap: ^Snapshot, universe: []Universe_Package = nil, home := NO_FILE) -> mem.Allocator_Error {
     c^ = {}
     virtual.arena_init_growing(&c.arena, CHECKER_ARENA_BLOCK) or_return
+    if err := virtual.arena_init_growing(&c.scratch, CHECKER_ARENA_BLOCK); err != nil {
+        virtual.arena_destroy(&c.arena)
+        c^ = {}
+        return err
+    }
     c.snap = snap
     c.alloc = virtual.arena_allocator(&c.arena)
+    c.tmp = virtual.arena_allocator(&c.scratch)
     c.universe = universe
     if err := type_table_init(&c.table, c.alloc); err != nil {
+        virtual.arena_destroy(&c.scratch)
         virtual.arena_destroy(&c.arena)
         c^ = {}
         return err
@@ -140,6 +170,11 @@ checker_init :: proc(c: ^Checker, snap: ^Snapshot, universe: []Universe_Package 
     c.scopes = make(map[Scope_Key]^Scope_Map, c.alloc)
     c.scope_list = make([dynamic]^Scope_Map, c.alloc)
     c.path = make([dynamic]odinsyntax.Syntax_Node, c.alloc)
+    c.instances = make(map[Type_Id]Instance, c.alloc)
+    c.inst_cache = make(map[string]Type_Id, c.alloc)
+    c.dir_keys = make(map[string]string, c.alloc)
+    c.pairs = make(map[Type_Id]Type_Id, c.alloc)
+    c.results = make(map[Type_Id]Type_Id, c.alloc)
     home := home
     if home == NO_FILE {
         home = snapshot_live_file(snap)
@@ -156,11 +191,36 @@ checker_destroy :: proc(c: ^Checker) {
     for m in c.scope_list {
         scope_map_destroy(m, c.alloc)
     }
+    if c.tmp.procedure != nil {
+        virtual.arena_destroy(&c.scratch)
+    }
     virtual.arena_destroy(&c.arena)
     c^ = {}
 }
 
-@(private = "file")
+// Starts a region of `c.tmp` that scratch_end frees. Regions nest.
+@(private)
+scratch_begin :: proc(c: ^Checker) -> virtual.Arena_Temp {
+    return virtual.arena_temp_begin(&c.scratch)
+}
+
+@(private)
+scratch_end :: proc(temp: virtual.Arena_Temp) {
+    virtual.arena_temp_end(temp)
+}
+
+// The operand bound to a polymorphic parameter; false when it is not bound.
+@(private)
+env_lookup :: proc(c: ^Checker, sym: Symbol) -> (Operand, bool) {
+    #reverse for b in c.env {
+        if b.symbol == sym {
+            return b.op, true
+        }
+    }
+    return {}, false
+}
+
+@(private)
 note_alloc :: proc(c: ^Checker, err: mem.Allocator_Error) -> bool {
     if err != nil {
         if c.err == nil {
@@ -210,7 +270,7 @@ checker_parse :: proc(c: ^Checker, id: File_Id) -> ^odinsyntax.Parse {
     return fc.parse
 }
 
-@(private = "file")
+@(private)
 checker_imports :: proc(c: ^Checker, id: File_Id) -> []File_Import {
     fc := file_cache(c, id)
     if fc == nil {
@@ -224,12 +284,18 @@ checker_imports :: proc(c: ^Checker, id: File_Id) -> []File_Import {
 }
 
 // The package at `dir`; nil when it cannot be read.
-@(private = "file")
+@(private)
 checker_package :: proc(c: ^Checker, dir: string) -> ^Package_View {
     if dir == "" {
         return nil
     }
-    key := path_key(dir, c.alloc)
+    key, known := c.dir_keys[dir]
+    if !known {
+        key = path_key(dir, c.alloc)
+        if _, value, _, err := map_entry(&c.dir_keys, dir); note_alloc(c, err) {
+            value^ = key
+        }
+    }
     if view, ok := c.packages[key]; ok {
         return view
     }
@@ -265,7 +331,7 @@ checker_item :: proc(c: ^Checker, sym: Symbol) -> ^Item {
 
 // The nodes from the root down to the innermost node that holds byte `offset`. The slice is reused
 // by the next call; parent pointers are not set.
-@(private = "file")
+@(private)
 node_path :: proc(c: ^Checker, file: File_Id, offset: int) -> []odinsyntax.Syntax_Node {
     clear(&c.path)
     parsed := checker_parse(c, file)
@@ -309,7 +375,7 @@ node_at :: proc(c: ^Checker, file: File_Id, offset: int) -> (odinsyntax.Syntax_N
 }
 
 // The scope map of the file-scope declaration that holds `offset`; nil when there is none.
-@(private = "file")
+@(private)
 scope_map_at :: proc(c: ^Checker, file: File_Id, offset: int) -> ^Scope_Map {
     parsed := checker_parse(c, file)
     if parsed == nil || parsed.tree == nil || parsed.tree.root == nil {
@@ -365,7 +431,7 @@ local_at :: proc(c: ^Checker, file: File_Id, name_offset: int) -> (Local, bool) 
 }
 
 // The innermost local named `name` in reach at `offset`, for an offset that is not on an identifier.
-@(private = "file")
+@(private)
 visible_local :: proc(m: ^Scope_Map, name: string, offset: int) -> (Local, bool) {
     inner := -1
     for s, i in m.scopes {
@@ -398,7 +464,7 @@ visible_local :: proc(m: ^Scope_Map, name: string, offset: int) -> (Local, bool)
     return {}, false
 }
 
-@(private = "file")
+@(private)
 hoisted :: proc(kind: Decl_Kind) -> bool {
     #partial switch kind {
     case .Const, .Type, .Proc, .Poly:
@@ -441,7 +507,7 @@ lookup_name :: proc(c: ^Checker, file: File_Id, name: string, offset: int) -> Re
 }
 
 // The declaration of `name` in the package of `file`. A file that is not in the build sees its own declarations first.
-@(private = "file")
+@(private)
 package_lookup :: proc(c: ^Checker, file: File_Id, name: string) -> (Symbol, bool) {
     fc := file_cache(c, file)
     if fc == nil {
@@ -461,7 +527,7 @@ package_lookup :: proc(c: ^Checker, file: File_Id, name: string) -> (Symbol, boo
     return own_lookup(c, file, name)
 }
 
-@(private = "file")
+@(private)
 own_lookup :: proc(c: ^Checker, file: File_Id, name: string) -> (Symbol, bool) {
     fc := file_cache(c, file)
     if fc == nil || fc.data == nil {
@@ -526,7 +592,7 @@ member_lookup :: proc(c: ^Checker, dir, name: string, from: File_Id, external: b
 }
 
 // A name the compiler declares: a basic type, `byte`, `true`, `false`, `nil` or an `ODIN_` constant.
-@(private = "file")
+@(private)
 universe_name :: proc(c: ^Checker, name: string) -> Resolved {
     if kind, ok := basic_from_name(name); ok {
         return Resolved{kind = .Basic, name = name, basic = kind}
@@ -543,7 +609,7 @@ universe_name :: proc(c: ^Checker, name: string) -> Resolved {
     return {}
 }
 
-@(private = "file")
+@(private)
 universe_lookup :: proc(c: ^Checker, name: string) -> Resolved {
     if r := universe_name(c, name); r.kind != .None {
         return r
@@ -561,7 +627,7 @@ universe_lookup :: proc(c: ^Checker, name: string) -> Resolved {
     return {}
 }
 
-@(private = "file")
+@(private)
 has_attribute :: proc(item: ^Item, name: string) -> bool {
     if item == nil {
         return false
@@ -575,7 +641,7 @@ has_attribute :: proc(item: ^Item, name: string) -> bool {
 }
 
 // A public type of a universe package that gives only its `builtin` items: base:runtime's `Context`.
-@(private = "file")
+@(private)
 runtime_type :: proc(c: ^Checker, name: string) -> Type_Id {
     for u in c.universe {
         if u.all {
@@ -589,7 +655,7 @@ runtime_type :: proc(c: ^Checker, name: string) -> Type_Id {
 }
 
 // The package qualifier a named type of `file` prints with: "" in the home package.
-@(private = "file")
+@(private)
 qualifier :: proc(c: ^Checker, file: File_Id) -> string {
     fc := file_cache(c, file)
     if c.home_key == "" || fc == nil || fc.data == nil || fc.dir_key == c.home_key {
@@ -630,7 +696,7 @@ decl_info :: proc(c: ^Checker, sym: Symbol) -> Decl_Info {
     return info
 }
 
-@(private = "file")
+@(private)
 decl_info_uncached :: proc(c: ^Checker, sym: Symbol) -> Decl_Info {
     if sym.item == LOCAL_ITEM {
         l, ok := local_at(c, sym.file, int(sym.child))
@@ -653,7 +719,7 @@ decl_info_uncached :: proc(c: ^Checker, sym: Symbol) -> Decl_Info {
     return binding_info(c, sym, item.name, item.kind != .Var, item.type_offset, item.value_offset, item.value_index)
 }
 
-@(private = "file")
+@(private)
 local_info :: proc(c: ^Checker, sym: Symbol, l: Local) -> Decl_Info {
     #partial switch l.kind {
     case .Poly:
@@ -665,12 +731,20 @@ local_info :: proc(c: ^Checker, sym: Symbol, l: Local) -> Decl_Info {
             return {}
         }
         return binding_info(c, sym, l.name, false, l.type_offset, l.value_offset, l.value_index)
+    case .Loop_Var:
+        return {type = range_var_type(c, sym.file, l)}
+    case .Switch_Var:
+        subject, ok := node_at(c, sym.file, l.value_offset)
+        if !ok {
+            return {}
+        }
+        return {type = type_default(&c.table, expr_type(c, sym.file, subject).type)}
     }
     return {}
 }
 
 // The type of a field or an enum member, from the type of its parent.
-@(private = "file")
+@(private)
 child_type :: proc(c: ^Checker, sym: Symbol, child: ^Item) -> Type_Id {
     parent := decl_type(c, Symbol{sym.file, sym.item, -1})
     if child.kind == .Enum_Member {
@@ -697,7 +771,7 @@ child_type :: proc(c: ^Checker, sym: Symbol, child: ^Item) -> Type_Id {
 }
 
 // The type a declaration gives one name, from its type expression or its value.
-@(private = "file")
+@(private)
 binding_info :: proc(c: ^Checker, sym: Symbol, name: string, constant: bool, type_offset, value_offset, value_index: int) -> Decl_Info {
     if type_offset >= 0 {
         n, ok := node_at(c, sym.file, type_offset)
@@ -710,7 +784,7 @@ binding_info :: proc(c: ^Checker, sym: Symbol, name: string, constant: bool, typ
     if constant && value_index < 0 && is_type_literal(value) {
         return {type = named_decl(c, sym, name, value), is_type = true}
     }
-    op := expr_type(c, sym.file, value)
+    op := value_index >= 0 ? expr_values(c, sym.file, value) : expr_type(c, sym.file, value)
     if op.mode == .Type {
         if constant {
             return {type = op.type, is_type = true}
@@ -729,7 +803,7 @@ binding_info :: proc(c: ^Checker, sym: Symbol, name: string, constant: bool, typ
 }
 
 // True when a constant declaration with this value declares a named type rather than an alias.
-@(private = "file")
+@(private)
 is_type_literal :: proc(n: odinsyntax.Syntax_Node) -> bool {
     n := n
     #partial switch n.green.kind {
@@ -746,7 +820,7 @@ is_type_literal :: proc(n: odinsyntax.Syntax_Node) -> bool {
 
 // Makes the named type of a type declaration. The named type is known before its underlying type
 // is read, so the declaration can refer to itself through a pointer.
-@(private = "file")
+@(private)
 named_decl :: proc(c: ^Checker, sym: Symbol, name: string, value: odinsyntax.Syntax_Node) -> Type_Id {
     value := value
     qual := sym.item == LOCAL_ITEM ? "" : qualifier(c, sym.file)
@@ -772,7 +846,7 @@ named_decl :: proc(c: ^Checker, sym: Symbol, name: string, value: odinsyntax.Syn
 }
 
 // The type of `$T`, or the value type of `$N: int`.
-@(private = "file")
+@(private)
 poly_info :: proc(c: ^Checker, sym: Symbol) -> Decl_Info {
     offset := int(sym.child)
     path := node_path(c, sym.file, offset)
@@ -810,7 +884,7 @@ poly_info :: proc(c: ^Checker, sym: Symbol) -> Decl_Info {
     if ident, ok := odinsyntax.poly_type_name(&pt); ok {
         name = odinsyntax.node_text(odinsyntax.Syntax_Node(ident))
     }
-    return {type = type_poly_param(&c.table, name, spec), is_type = true}
+    return {type = type_poly_param(&c.table, name, spec, sym), is_type = true}
 }
 
 // The type a type expression denotes; INVALID_TYPE when it denotes none.
@@ -846,7 +920,7 @@ type_expr :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> Type
     case .Bit_Field_Type:
         return bit_field_type(c, file, n)
     case .Proc_Type:
-        return proc_type(c, file, n)
+        return proc_type(c, file, n, {})
     case .Distinct_Type:
         d, _ := odinsyntax.as_distinct_type(n)
         base := elem_type(c, file, odinsyntax.distinct_type_type(&d))
@@ -865,7 +939,13 @@ type_expr :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> Type
         if !ok {
             return INVALID_TYPE
         }
-        return decl_type(c, local_symbol(file, int(ident.offset)))
+        sym := local_symbol(file, int(ident.offset))
+        if len(c.env) > 0 {
+            if bound, bok := env_lookup(c, sym); bok {
+                return bound.mode == .Type ? bound.type : INVALID_TYPE
+            }
+        }
+        return decl_type(c, sym)
     case .Paren_Expr:
         p, _ := odinsyntax.as_paren_expr(n)
         return elem_type(c, file, odinsyntax.paren_expr_expr(&p))
@@ -884,13 +964,13 @@ type_expr :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> Type
 }
 
 // The type of an optional child type expression.
-@(private = "file")
+@(private)
 elem_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, ok: bool) -> Type_Id {
     return ok ? type_expr(c, file, n) : INVALID_TYPE
 }
 
 // The value of a constant length; -1 when it is not known.
-@(private = "file")
+@(private)
 length_of :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, ok: bool) -> i64 {
     if !ok {
         return -1
@@ -909,7 +989,7 @@ length_of :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, ok: boo
 }
 
 // `[]T`, `[?]T`, `[N]T` or `[Enum]T`.
-@(private = "file")
+@(private)
 array_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> Type_Id {
     a, _ := odinsyntax.as_array_type(n)
     elem := elem_type(c, file, odinsyntax.array_type_elem(&a))
@@ -926,7 +1006,7 @@ array_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> Typ
     return type_array(&c.table, length_of(c, file, len_node, true), elem)
 }
 
-@(private = "file")
+@(private)
 matrix_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, row_major: bool) -> Type_Id {
     m, _ := odinsyntax.as_matrix_type(n)
     rows := length_of(c, file, odinsyntax.matrix_type_rows(&m))
@@ -935,7 +1015,7 @@ matrix_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, row_m
 }
 
 // A type under a directive: `#soa`, `#simd`, `#row_major`; another directive keeps the type.
-@(private = "file")
+@(private)
 tag_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> Type_Id {
     tag, _ := odinsyntax.as_tag_expr(n)
     inner, ok := odinsyntax.tag_expr_expr(&tag)
@@ -980,7 +1060,7 @@ tag_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> Type_
     return type_expr(c, file, inner)
 }
 
-@(private = "file")
+@(private)
 bit_set_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> Type_Id {
     b, _ := odinsyntax.as_bit_set_type(n)
     backing := elem_type(c, file, odinsyntax.bit_set_type_backing(&b))
@@ -1010,7 +1090,7 @@ bit_set_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> T
     return type_bit_set(&c.table, type_expr(c, file, elem), backing)
 }
 
-@(private = "file")
+@(private)
 child_const :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, ok: bool) -> (Const_Value, bool) {
     if !ok {
         return nil, false
@@ -1019,10 +1099,10 @@ child_const :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, ok: b
 }
 
 // The parameters of a Param_List or Result_List, `$T` names included.
-@(private = "file")
+@(private)
 read_params :: proc(c: ^Checker, file: File_Id, list: odinsyntax.Syntax_Node) -> []Proc_Param {
     list := list
-    out := make([dynamic]Proc_Param, c.alloc)
+    out := make([dynamic]Proc_Param, c.tmp)
     it := odinsyntax.child_iter(&list, {kinds = {.Field}})
     for field in odinsyntax.child_iter_next(&it) {
         field := field
@@ -1080,7 +1160,7 @@ read_params :: proc(c: ^Checker, file: File_Id, list: odinsyntax.Syntax_Node) ->
             case .Poly_Type:
                 pt, _ := odinsyntax.as_poly_type(name)
                 if ident, ok := odinsyntax.poly_type_name(&pt); ok {
-                    q.name = strings.concatenate({"$", odinsyntax.node_text(odinsyntax.Syntax_Node(ident))}, c.alloc)
+                    q.name = strings.concatenate({"$", odinsyntax.node_text(odinsyntax.Syntax_Node(ident))}, c.tmp)
                     q.name_offset = int(ident.offset)
                 }
             case:
@@ -1094,15 +1174,19 @@ read_params :: proc(c: ^Checker, file: File_Id, list: odinsyntax.Syntax_Node) ->
     return out[:]
 }
 
-@(private = "file")
-proc_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> Type_Id {
+// A procedure type; `tags` are those of the procedure literal around it.
+@(private)
+proc_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, tags: bit_set[Proc_Tag]) -> Type_Id {
     pt, _ := odinsyntax.as_proc_type(n)
-    p: Proc_Type
+    temp := scratch_begin(c)
+    defer scratch_end(temp)
+    p := Proc_Type{tags = tags + directive_tags(odinsyntax.proc_type_tags(&pt)), file = file, offset = int(n.offset)}
     if cc, ok := odinsyntax.proc_type_calling_convention(&pt); ok {
         p.convention = unquote(odinsyntax.syntax_token_text(cc))
     }
     if params, ok := odinsyntax.proc_type_params(&pt); ok {
         p.params = read_params(c, file, odinsyntax.Syntax_Node(params))
+        p.generic = strings.contains_rune(odinsyntax.node_text(odinsyntax.Syntax_Node(params)), '$')
     }
     if results, ok := odinsyntax.proc_type_results(&pt); ok {
         p.results = read_params(c, file, odinsyntax.Syntax_Node(results))
@@ -1111,11 +1195,30 @@ proc_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> Type
     return type_proc(&c.table, p)
 }
 
+// The `#optional_ok` and `#optional_allocator_error` among directives.
+@(private)
+directive_tags :: proc(it: odinsyntax.Child_Iter) -> bit_set[Proc_Tag] {
+    it := it
+    tags: bit_set[Proc_Tag]
+    for d in odinsyntax.child_iter_next(&it) {
+        dir, _ := odinsyntax.as_directive(d)
+        tok, ok := odinsyntax.directive_name(&dir)
+        if !ok {
+            continue
+        }
+        switch odinsyntax.syntax_token_text(tok) {
+        case "optional_ok":              tags += {.Optional_Ok}
+        case "optional_allocator_error": tags += {.Optional_Allocator_Error}
+        }
+    }
+    return tags
+}
+
 // The directives of a struct or union: `#packed`, `#align(N)`, ... `align` is 0 when none.
-@(private = "file")
+@(private)
 record_directives :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> (names: [dynamic]string, align: i64) {
     n := n
-    names = make([dynamic]string, c.alloc)
+    names = make([dynamic]string, c.tmp)
     after_align := false
     it := odinsyntax.child_iter(&n, {kinds = {.Directive, .Paren_Expr}})
     for child in odinsyntax.child_iter_next(&it) {
@@ -1142,10 +1245,12 @@ record_directives :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node)
     return
 }
 
-@(private = "file")
+@(private)
 struct_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> Type_Id {
     s, _ := odinsyntax.as_struct_type(n)
-    st: Struct_Type
+    temp := scratch_begin(c)
+    defer scratch_end(temp)
+    st := Struct_Type{file = file, offset = int(n.offset)}
     if params, ok := odinsyntax.struct_type_params(&s); ok {
         st.params = read_params(c, file, odinsyntax.Syntax_Node(params))
     }
@@ -1158,7 +1263,7 @@ struct_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> Ty
         case "no_copy":   st.flags += {.No_Copy}
         }
     }
-    fields := make([dynamic]Struct_Field, c.alloc)
+    fields := make([dynamic]Struct_Field, c.tmp)
     if list, ok := odinsyntax.struct_type_fields(&s); ok {
         it := odinsyntax.field_list_fields(&list)
         for field in odinsyntax.child_iter_next(&it) {
@@ -1191,10 +1296,12 @@ struct_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> Ty
     return type_struct(&c.table, st)
 }
 
-@(private = "file")
+@(private)
 union_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> Type_Id {
     u, _ := odinsyntax.as_union_type(n)
-    ut: Union_Type
+    temp := scratch_begin(c)
+    defer scratch_end(temp)
+    ut := Union_Type{file = file, offset = int(n.offset)}
     if params, ok := odinsyntax.union_type_params(&u); ok {
         ut.params = read_params(c, file, odinsyntax.Syntax_Node(params))
     }
@@ -1206,7 +1313,7 @@ union_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> Typ
         case "shared_nil": ut.flags += {.Shared_Nil}
         }
     }
-    variants := make([dynamic]Type_Id, c.alloc)
+    variants := make([dynamic]Type_Id, c.tmp)
     it := odinsyntax.union_type_variants(&u)
     for v in odinsyntax.child_iter_next(&it) {
         if _, err := append(&variants, type_expr(c, file, v)); !note_alloc(c, err) {
@@ -1218,11 +1325,13 @@ union_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> Typ
 }
 
 // An enum type. A member with no value is the one before plus one; a value may name earlier members.
-@(private = "file")
+@(private)
 enum_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> Type_Id {
     e, _ := odinsyntax.as_enum_type(n)
-    et := Enum_Type{backing = elem_type(c, file, odinsyntax.enum_type_backing(&e))}
-    members := make([dynamic]Enum_Member, c.alloc)
+    et := Enum_Type{backing = elem_type(c, file, odinsyntax.enum_type_backing(&e)), file = file}
+    temp := scratch_begin(c)
+    defer scratch_end(temp)
+    members := make([dynamic]Enum_Member, c.tmp)
     saved := c.enum_env
     defer c.enum_env = saved
     next: i64 = 0
@@ -1260,11 +1369,14 @@ enum_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> Type
     return type_enum(&c.table, et)
 }
 
-@(private = "file")
+@(private)
 bit_field_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> Type_Id {
     b, _ := odinsyntax.as_bit_field_type(n)
-    bt := Bit_Field_Type{backing = elem_type(c, file, odinsyntax.bit_field_type_backing(&b))}
-    fields := make([dynamic]Bit_Field_Entry, c.alloc)
+    bt := Bit_Field_Type{backing = elem_type(c, file, odinsyntax.bit_field_type_backing(&b)), file = file}
+    temp := scratch_begin(c)
+    defer scratch_end(temp)
+    fields := make([dynamic]Bit_Field_Entry, c.tmp)
+
     it := odinsyntax.bit_field_type_fields(&b)
     for field in odinsyntax.child_iter_next(&it) {
         f, _ := odinsyntax.as_bit_field_field(field)
@@ -1284,668 +1396,4 @@ bit_field_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) ->
     }
     bt.fields = fields[:]
     return type_bit_field(&c.table, bt)
-}
-
-// The operand an expression gives: its mode, its type and, for a constant, its value.
-// This covers literals, names, `pkg.Name`, `Enum.Member`, conversions, casts, calls, composite
-// literals and constant arithmetic; any other expression gives an Invalid operand.
-expr_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, expected := INVALID_TYPE) -> Operand {
-    n := n
-    kind := n.green.kind
-    if kind in odinsyntax.KINDS_TYPE && kind != .Ellipsis_Type {
-        return {mode = .Type, type = type_expr(c, file, n)}
-    }
-    #partial switch kind {
-    case .Ident:
-        return ident_operand(c, file, n)
-    case .Literal, .Unary_Expr, .Binary_Expr, .Ternary_Expr, .Ternary_If_Expr, .Ternary_When_Expr:
-        return computed_operand(c, file, n)
-    case .Paren_Expr:
-        p, _ := odinsyntax.as_paren_expr(n)
-        inner, ok := odinsyntax.paren_expr_expr(&p)
-        return ok ? expr_type(c, file, inner, expected) : {}
-    case .Selector_Expr:
-        return selector_operand(c, file, n)
-    case .Call_Expr:
-        return call_operand(c, file, n)
-    case .Comp_Lit:
-        cl, _ := odinsyntax.as_comp_lit(n)
-        if type, ok := odinsyntax.comp_lit_type(&cl); ok {
-            return {mode = .Value, type = type_expr(c, file, type)}
-        }
-        return {mode = .Value, type = expected}
-    case .Cast_Expr:
-        ce, _ := odinsyntax.as_cast_expr(n)
-        return {mode = .Value, type = elem_type(c, file, odinsyntax.cast_expr_type(&ce))}
-    case .Proc_Lit:
-        p, _ := odinsyntax.as_proc_lit(n)
-        pt, ok := odinsyntax.proc_lit_type(&p)
-        return {mode = .Value, type = ok ? proc_type(c, file, odinsyntax.Syntax_Node(pt)) : INVALID_TYPE}
-    case .Proc_Group:
-        return {mode = .Value, type = proc_group_type(c, file, n)}
-    case .Tag_Expr:
-        tag, _ := odinsyntax.as_tag_expr(n)
-        inner, ok := odinsyntax.tag_expr_expr(&tag)
-        if !ok {
-            return {}
-        }
-        if inner.green.kind in odinsyntax.KINDS_TYPE {
-            return {mode = .Type, type = tag_type(c, file, n)}
-        }
-        return expr_type(c, file, inner, expected)
-    case .Undef_Expr:
-        return {mode = .Value, type = type_untyped(.Uninit)}
-    case .Context_Expr:
-        return {mode = .Value, type = runtime_type(c, "Context")}
-    case .Directive:
-        d, _ := odinsyntax.as_directive(n)
-        if tok, ok := odinsyntax.directive_name(&d); ok {
-            switch odinsyntax.syntax_token_text(tok) {
-            case "caller_location":
-                return {mode = .Value, type = runtime_type(c, "Source_Code_Location")}
-            case "file", "procedure", "directory":
-                return {mode = .Const, type = type_untyped(.String)}
-            case "line":
-                return {mode = .Const, type = type_untyped(.Int)}
-            }
-        }
-    }
-    return {}
-}
-
-@(private = "file")
-proc_group_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> Type_Id {
-    g, _ := odinsyntax.as_proc_group(n)
-    members := make([dynamic]Type_Id, c.alloc)
-    it := odinsyntax.proc_group_members(&g)
-    for m in odinsyntax.child_iter_next(&it) {
-        if _, err := append(&members, expr_type(c, file, m).type); !note_alloc(c, err) {
-            return INVALID_TYPE
-        }
-    }
-    return type_proc_group(&c.table, members[:])
-}
-
-// The untyped type of a constant value.
-@(private = "file")
-untyped_of :: proc(v: Const_Value) -> Type_Id {
-    switch _ in v {
-    case i64:    return type_untyped(.Int)
-    case f64:    return type_untyped(.Float)
-    case string: return type_untyped(.String)
-    case bool:   return type_untyped(.Bool)
-    case rune:   return type_untyped(.Rune)
-    }
-    return INVALID_TYPE
-}
-
-// A literal, a unary, binary or ternary expression: a constant when const_eval knows it.
-@(private = "file")
-computed_operand :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> Operand {
-    n := n
-    v, ok := const_eval(c, file, n)
-    #partial switch n.green.kind {
-    case .Literal:
-        if ok {
-            return {mode = .Const, type = untyped_of(v), value = v}
-        }
-        lit, _ := odinsyntax.as_literal(n)
-        if tok, tok_ok := odinsyntax.literal_token(&lit); tok_ok {
-            #partial switch tok.green.kind {
-            case .Integer: return {mode = .Const, type = type_untyped(.Int)}
-            case .Float:   return {mode = .Const, type = type_untyped(.Float)}
-            case .Imag:    return {mode = .Const, type = type_untyped(.Complex)}
-            case .Rune:    return {mode = .Const, type = type_untyped(.Rune)}
-            case .String:  return {mode = .Const, type = type_untyped(.String)}
-            }
-        }
-        return {}
-    case .Unary_Expr:
-        u, _ := odinsyntax.as_unary_expr(n)
-        op, _ := odinsyntax.unary_expr_op(&u)
-        operand, has_operand := odinsyntax.unary_expr_operand(&u)
-        if !has_operand {
-            return {}
-        }
-        inner := expr_type(c, file, operand)
-        #partial switch op.green.kind {
-        case .And:
-            return {mode = .Value, type = type_pointer(&c.table, inner.type)}
-        case .Not:
-            if ok {
-                return {mode = .Const, type = inner.type, value = v}
-            }
-            return {mode = .Value, type = inner.type}
-        }
-        if ok {
-            return {mode = .Const, type = inner.type, value = v}
-        }
-        return {mode = inner.mode == .Const ? .Const : .Value, type = inner.type}
-    case .Binary_Expr:
-        b, _ := odinsyntax.as_binary_expr(n)
-        op, _ := odinsyntax.binary_expr_op(&b)
-        lhs := elem_operand(c, file, odinsyntax.binary_expr_lhs(&b))
-        rhs := elem_operand(c, file, odinsyntax.binary_expr_rhs(&b))
-        mode: Operand_Mode = lhs.mode == .Const && rhs.mode == .Const ? .Const : .Value
-        #partial switch op.green.kind {
-        case .Cmp_Eq, .Not_Eq, .Lt, .Gt, .Lt_Eq, .Gt_Eq, .Cmp_And, .Cmp_Or, .In, .Not_In:
-            return {mode = ok ? .Const : mode, type = type_untyped(.Bool), value = v}
-        }
-        type := lhs.type
-        if type_is_untyped(&c.table, type) && !type_is_untyped(&c.table, rhs.type) && rhs.type != INVALID_TYPE {
-            type = rhs.type
-        } else if type_is_untyped(&c.table, type) && type_is_untyped(&c.table, rhs.type) && ok {
-            type = untyped_of(v)
-        }
-        return {mode = ok ? .Const : mode, type = type, value = v}
-    case .Ternary_Expr:
-        te, _ := odinsyntax.as_ternary_expr(n)
-        return branch_operand(c, file, v, ok, odinsyntax.ternary_expr_then(&te))
-    case .Ternary_If_Expr:
-        te, _ := odinsyntax.as_ternary_if_expr(n)
-        return branch_operand(c, file, v, ok, odinsyntax.ternary_if_expr_then(&te))
-    case .Ternary_When_Expr:
-        te, _ := odinsyntax.as_ternary_when_expr(n)
-        return branch_operand(c, file, v, ok, odinsyntax.ternary_when_expr_then(&te))
-    }
-    return {}
-}
-
-// A ternary expression: a constant when const_eval knows it, else typed by its first branch.
-@(private = "file")
-branch_operand :: proc(c: ^Checker, file: File_Id, v: Const_Value, ok: bool, then: odinsyntax.Syntax_Node, has_then: bool) -> Operand {
-    if !has_then {
-        return {}
-    }
-    op := expr_type(c, file, then)
-    if ok {
-        op.mode = .Const
-        op.value = v
-        if type_is_untyped(&c.table, op.type) {
-            op.type = untyped_of(v)
-        }
-        return op
-    }
-    if op.mode == .Const {
-        op.value = nil
-    }
-    return op
-}
-
-@(private = "file")
-elem_operand :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, ok: bool) -> Operand {
-    return ok ? expr_type(c, file, n) : {}
-}
-
-@(private = "file")
-ident_operand :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> Operand {
-    name := odinsyntax.node_text(n)
-    r := lookup_name(c, file, name, int(n.offset))
-    switch r.kind {
-    case .None:
-        if is_builtin_proc(name) {
-            return {mode = .Builtin, symbol = {item = LOCAL_ITEM, child = -1}}
-        }
-        return {}
-    case .Basic:
-        return {mode = .Type, type = type_basic(r.basic)}
-    case .Builtin:
-        return builtin_operand(c, name)
-    case .Import:
-        return {mode = .Package, dir = r.dir}
-    case .Item:
-        if r.symbol in c.pending {
-            // `i32 :: i32` in base:builtin: the declaration stands for the universe name.
-            if u := universe_name(c, name); u.kind == .Basic || u.kind == .Builtin {
-                return u.kind == .Basic ? {mode = .Type, type = type_basic(u.basic)} : builtin_operand(c, name)
-            }
-        }
-        return item_operand(c, r.symbol, r.builtin)
-    case .Local:
-        return local_operand(c, r)
-    }
-    return {}
-}
-
-@(private = "file")
-builtin_operand :: proc(c: ^Checker, name: string) -> Operand {
-    switch name {
-    case "true":
-        return {mode = .Const, type = type_untyped(.Bool), value = true}
-    case "false":
-        return {mode = .Const, type = type_untyped(.Bool), value = false}
-    case "nil":
-        return {mode = .Value, type = type_untyped(.Nil)}
-    }
-    v := constant_value(name, c.snap.target)
-    #partial switch v.kind {
-    case .Bool:
-        return {mode = .Const, type = type_untyped(.Bool), value = v.i != 0}
-    case .Int:
-        return {mode = .Const, type = type_untyped(.Int), value = v.i}
-    case .String:
-        return {mode = .Const, type = type_untyped(.String), value = v.s}
-    }
-    return {mode = .Const}
-}
-
-// The operand a package-level declaration gives.
-item_operand :: proc(c: ^Checker, sym: Symbol, builtin := false) -> Operand {
-    item := checker_item(c, sym)
-    if item == nil {
-        return {}
-    }
-    #partial switch item.kind {
-    case .Import, .Foreign_Import:
-        return {}
-    case .Proc:
-        if builtin {
-            return {mode = .Builtin, type = decl_type(c, sym), symbol = sym}
-        }
-        return {mode = .Value, type = decl_type(c, sym)}
-    case .Proc_Group, .Var:
-        return {mode = .Value, type = decl_type(c, sym)}
-    case .Field, .Enum_Member:
-        return {mode = .Value, type = decl_type(c, sym)}
-    }
-    info := decl_info(c, sym)
-    if info.is_type {
-        return {mode = .Type, type = info.type}
-    }
-    v, _ := symbol_const(c, sym, sym.file, item.value_offset, item.value_index)
-    return {mode = .Const, type = info.type, value = v}
-}
-
-@(private = "file")
-local_operand :: proc(c: ^Checker, r: Resolved) -> Operand {
-    l := r.local
-    info := decl_info(c, r.symbol)
-    #partial switch l.kind {
-    case .Type:
-        return {mode = .Type, type = info.type}
-    case .Poly:
-        if info.is_type {
-            return {mode = .Type, type = info.type}
-        }
-        return {mode = .Const, type = info.type}
-    case .Const:
-        if info.is_type {
-            return {mode = .Type, type = info.type}
-        }
-        v, _ := symbol_const(c, r.symbol, r.file, l.value_offset, l.value_index)
-        return {mode = .Const, type = info.type, value = v}
-    case .Proc, .Var, .Param, .Result, .Loop_Var, .Switch_Var:
-        return {mode = .Value, type = info.type}
-    }
-    return {}
-}
-
-// The value of a constant declaration, read once per checker.
-@(private = "file")
-symbol_const :: proc(c: ^Checker, sym: Symbol, file: File_Id, value_offset, value_index: int) -> (Const_Value, bool) {
-    if info, ok := c.consts[sym]; ok {
-        return info.value, info.ok
-    }
-    if value_index >= 0 || sym in c.evaluating {
-        return nil, false
-    }
-    value, ok := node_at(c, file, value_offset)
-    if !ok {
-        return nil, false
-    }
-    _, _, _, eerr := map_entry(&c.evaluating, sym)
-    if !note_alloc(c, eerr) {
-        return nil, false
-    }
-    saved := c.enum_env
-    c.enum_env = nil
-    v, vok := const_eval(c, file, value)
-    c.enum_env = saved
-    delete_key(&c.evaluating, sym)
-    _, entry, _, err := map_entry(&c.consts, sym)
-    if note_alloc(c, err) {
-        entry^ = Const_Info{v, vok}
-    }
-    return v, vok
-}
-
-@(private = "file")
-selector_operand :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> Operand {
-    sel, _ := odinsyntax.as_selector_expr(n)
-    if _, is_arrow := odinsyntax.selector_expr_arrow(&sel); is_arrow {
-        return {}
-    }
-    operand, has_operand := odinsyntax.selector_expr_operand(&sel)
-    field, has_field := odinsyntax.selector_expr_field(&sel)
-    if !has_operand || !has_field {
-        return {}
-    }
-    name := odinsyntax.node_text(odinsyntax.Syntax_Node(field))
-    op := expr_type(c, file, operand)
-    #partial switch op.mode {
-    case .Package:
-        sym, ok := member_lookup(c, op.dir, name, NO_FILE, true, true)
-        if !ok {
-            return {}
-        }
-        return item_operand(c, sym)
-    case .Type:
-        if e, is_enum := type_get(&c.table, type_base(&c.table, op.type)).(Enum_Type); is_enum {
-            for m in e.members {
-                if m.name == name {
-                    return {mode = .Const, type = op.type, value = m.value}
-                }
-            }
-        }
-    case .Value, .Const:
-        if t, ok := field_type(c, op.type, name, 0); ok {
-            return {mode = .Value, type = t}
-        }
-    }
-    return {}
-}
-
-@(private = "file")
-USING_DEPTH :: 8
-
-// The type of field `name` of a struct, bit_field or pointer to one, through `using` fields.
-@(private = "file")
-field_type :: proc(c: ^Checker, t: Type_Id, name: string, depth: int) -> (Type_Id, bool) {
-    if depth > USING_DEPTH {
-        return INVALID_TYPE, false
-    }
-    base := type_base(&c.table, t)
-    if p, is_pointer := type_get(&c.table, base).(Pointer_Type); is_pointer {
-        base = type_base(&c.table, p.elem)
-    }
-    #partial switch v in type_get(&c.table, base) {
-    case Struct_Type:
-        for f in v.fields {
-            if f.name == name {
-                return f.type, true
-            }
-        }
-        for f in v.fields {
-            if f.is_using {
-                if ft, ok := field_type(c, f.type, name, depth + 1); ok {
-                    return ft, true
-                }
-            }
-        }
-    case Bit_Field_Type:
-        for f in v.fields {
-            if f.name == name {
-                return f.type, true
-            }
-        }
-    }
-    return INVALID_TYPE, false
-}
-
-@(private = "file")
-call_operand :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> Operand {
-    call, _ := odinsyntax.as_call_expr(n)
-    callee, has_callee := odinsyntax.call_expr_callee(&call)
-    if !has_callee {
-        return {}
-    }
-    args := make([dynamic]odinsyntax.Syntax_Node, c.alloc)
-    if list, ok := odinsyntax.call_expr_args(&call); ok {
-        it := odinsyntax.arg_list_args(&list)
-        for arg in odinsyntax.child_iter_next(&it) {
-            if _, err := append(&args, arg); !note_alloc(c, err) {
-                return {}
-            }
-        }
-    }
-    if d, is_directive := odinsyntax.as_directive(callee); is_directive {
-        tok, _ := odinsyntax.directive_name(&d)
-        return directive_call(c, file, odinsyntax.syntax_token_text(tok), args[:])
-    }
-    fn := expr_type(c, file, callee)
-    #partial switch fn.mode {
-    case .Type:
-        base := type_base(&c.table, fn.type)
-        #partial switch v in type_get(&c.table, base) {
-        case Struct_Type:
-            if len(v.params) > 0 {
-                return {mode = .Type, type = fn.type}
-            }
-        case Union_Type:
-            if len(v.params) > 0 {
-                return {mode = .Type, type = fn.type}
-            }
-        }
-        if len(args) != 1 {
-            return {mode = .Value, type = fn.type}
-        }
-        if v, ok := const_eval(c, file, args[0]); ok {
-            if converted, cok := const_convert(c, fn.type, v); cok {
-                return {mode = .Const, type = fn.type, value = converted}
-            }
-        }
-        return {mode = .Value, type = fn.type}
-    case .Builtin:
-        if item := checker_item(c, fn.symbol); item != nil {
-            return builtin_call(c, file, item.name, fn.type, args[:])
-        }
-        return builtin_call(c, file, odinsyntax.node_text(callee), fn.type, args[:])
-    case .Value:
-        return call_result(c, fn.type)
-    }
-    return {}
-}
-
-// The result of calling a value of type `callee`: its one result, a tuple of several, or no value.
-@(private = "file")
-call_result :: proc(c: ^Checker, callee: Type_Id) -> Operand {
-    #partial switch v in type_get(&c.table, type_base(&c.table, callee)) {
-    case Proc_Type:
-        return proc_result(c, v)
-    case Proc_Group_Type:
-        // Without overload choice the group gives a result only when its members agree.
-        result := Operand{}
-        for m, i in v.members {
-            p, ok := type_get(&c.table, type_base(&c.table, m)).(Proc_Type)
-            if !ok {
-                return {}
-            }
-            r := proc_result(c, p)
-            if i == 0 {
-                result = r
-            } else if r.mode != result.mode || r.type != result.type {
-                return {}
-            }
-        }
-        return result
-    }
-    return {}
-}
-
-@(private = "file")
-proc_result :: proc(c: ^Checker, p: Proc_Type) -> Operand {
-    switch len(p.results) {
-    case 0:
-        return {mode = .No_Value}
-    case 1:
-        return {mode = .Value, type = p.results[0].type}
-    }
-    types := make([]Type_Id, len(p.results), c.alloc)
-    for r, i in p.results {
-        types[i] = r.type
-    }
-    return {mode = .Value, type = type_tuple(&c.table, types)}
-}
-
-// True for the builtin procedures whose result builtin_call knows with no declaration from base:builtin.
-@(private = "file")
-is_builtin_proc :: proc(name: string) -> bool {
-    switch name {
-    case "len", "cap", "size_of", "align_of", "offset_of", "type_of", "typeid_of", "min", "max":
-        return true
-    }
-    return false
-}
-
-// A call of a procedure of base:builtin. The constant ones give their value; the rest their declared result.
-@(private = "file")
-builtin_call :: proc(c: ^Checker, file: File_Id, name: string, callee: Type_Id, args: []odinsyntax.Syntax_Node) -> Operand {
-    target := c.snap.target
-    switch name {
-    case "len", "cap":
-        if len(args) == 1 {
-            if v, ok := const_eval(c, file, args[0]); ok {
-                if s, is_string := v.(string); is_string && name == "len" {
-                    return {mode = .Const, type = type_untyped(.Int), value = i64(len(s))}
-                }
-            }
-        }
-        return {mode = .Value, type = type_basic(.Int)}
-    case "size_of", "align_of":
-        if len(args) == 1 {
-            t := type_expr(c, file, args[0])
-            if t == INVALID_TYPE {
-                t = type_default(&c.table, expr_type(c, file, args[0]).type)
-            }
-            if size := type_layout(c, t, name == "align_of", target); size > 0 {
-                return {mode = .Const, type = type_untyped(.Int), value = size}
-            }
-        }
-        return {mode = .Const, type = type_untyped(.Int)}
-    case "offset_of":
-        return {mode = .Const, type = type_basic(.Uintptr)}
-    case "type_of":
-        if len(args) == 1 {
-            return {mode = .Type, type = type_default(&c.table, expr_type(c, file, args[0]).type)}
-        }
-        return {}
-    case "typeid_of":
-        return {mode = .Value, type = type_basic(.Typeid)}
-    case "min", "max":
-        return min_max_call(c, file, name == "max", args)
-    }
-    return call_result(c, callee)
-}
-
-// `min(T)`, `max(T)` of an integer type, or the least or greatest of constant arguments.
-@(private = "file")
-min_max_call :: proc(c: ^Checker, file: File_Id, greatest: bool, args: []odinsyntax.Syntax_Node) -> Operand {
-    if len(args) == 0 {
-        return {}
-    }
-    first := expr_type(c, file, args[0])
-    if first.mode == .Type {
-        if len(args) != 1 {
-            return {}
-        }
-        lo, hi, ok := integer_bounds(c, first.type)
-        if !ok {
-            return {mode = .Const, type = first.type}
-        }
-        return {mode = .Const, type = first.type, value = greatest ? hi : lo}
-    }
-    best := first
-    for arg in args[1:] {
-        op := expr_type(c, file, arg)
-        if op.mode != .Const || best.mode != .Const || op.value == nil || best.value == nil {
-            best.mode = .Value
-            best.value = nil
-            continue
-        }
-        cmp, cok := const_binary(c, .Lt, op.value, best.value)
-        less, is_bool := cmp.(bool)
-        if !cok || !is_bool {
-            best.value = nil
-            continue
-        }
-        if less != greatest {
-            best = op
-        }
-    }
-    return best
-}
-
-// The least and greatest value of an integer type; false when they do not fit i64.
-@(private = "file")
-integer_bounds :: proc(c: ^Checker, t: Type_Id) -> (lo, hi: i64, ok: bool) {
-    b, is_basic := type_get(&c.table, type_base(&c.table, t)).(Basic_Type)
-    if !is_basic || !type_is_integer(&c.table, t) {
-        return 0, 0, false
-    }
-    bits := 8 * basic_size(b.kind, c.snap.target)
-    if bits <= 0 || bits > 64 {
-        return 0, 0, false
-    }
-    #partial switch b.kind {
-    case .Uint, .U8, .U16, .U32, .U64, .U128, .Uintptr, .U16le, .U32le, .U64le, .U128le, .U16be, .U32be, .U64be, .U128be:
-        if bits == 64 {
-            return 0, 0, false
-        }
-        return 0, (i64(1) << u64(bits)) - 1, true
-    }
-    if bits == 64 {
-        return min(i64), max(i64), true
-    }
-    return -(i64(1) << u64(bits - 1)), (i64(1) << u64(bits - 1)) - 1, true
-}
-
-// The size, or the alignment, of a type whose layout needs no record layout; 0 when not known.
-@(private = "file")
-type_layout :: proc(c: ^Checker, t: Type_Id, align: bool, target: Target) -> i64 {
-    #partial switch v in type_get(&c.table, type_base(&c.table, t)) {
-    case Basic_Type:
-        return align ? basic_align(v.kind, target) : basic_size(v.kind, target)
-    case Pointer_Type, Multi_Pointer_Type, Proc_Type:
-        return type_size("rawptr", target)
-    case Slice_Type:
-        ptr := type_size("rawptr", target)
-        return align ? ptr : 2 * ptr
-    case Array_Type:
-        if align {
-            return type_layout(c, v.elem, true, target)
-        }
-        if v.len < 0 {
-            return 0
-        }
-        return v.len * type_layout(c, v.elem, false, target)
-    case Enum_Type:
-        if v.backing == INVALID_TYPE {
-            return type_size("int", target)
-        }
-        return type_layout(c, v.backing, align, target)
-    }
-    return 0
-}
-
-// `#config(NAME, default)`, `#defined(name)`, `#load(path)` and the other directive calls.
-@(private = "file")
-directive_call :: proc(c: ^Checker, file: File_Id, name: string, args: []odinsyntax.Syntax_Node) -> Operand {
-    switch name {
-    case "config":
-        if len(args) != 2 {
-            return {}
-        }
-        if d, ok := target_define(c.snap.target, odinsyntax.node_text(args[0])); ok {
-            switch v in d {
-            case bool:   return {mode = .Const, type = type_untyped(.Bool), value = v}
-            case i64:    return {mode = .Const, type = type_untyped(.Int), value = v}
-            case string: return {mode = .Const, type = type_untyped(.String), value = v}
-            }
-        }
-        return expr_type(c, file, args[1])
-    case "defined":
-        return {mode = .Const, type = type_untyped(.Bool)}
-    case "load":
-        if len(args) == 2 {
-            return {mode = .Value, type = type_expr(c, file, args[1])}
-        }
-        return {mode = .Value, type = type_slice(&c.table, type_basic(.U8))}
-    case "location", "caller_location":
-        return {mode = .Value, type = runtime_type(c, "Source_Code_Location")}
-    case "file", "procedure", "directory":
-        return {mode = .Const, type = type_untyped(.String)}
-    case "line":
-        return {mode = .Const, type = type_untyped(.Int)}
-    }
-    return {}
 }

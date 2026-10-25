@@ -35,6 +35,7 @@ check_begin :: proc(t: ^testing.T, env: ^Check_Env, input: Snapshot_Input, unive
         return false
     }
     if !testing.expect_value(t, checker_init(&env.c, &env.snap, universe, home), nil) {
+        checker_destroy(&env.c)
         snapshot_end(&env.snap)
         db_destroy(&env.db)
         return false
