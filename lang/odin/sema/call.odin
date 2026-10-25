@@ -705,6 +705,12 @@ unify :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, arg: Type_I
         elem, eok := odinsyntax.multi_pointer_type_elem(&p)
         return ok && (!eok || unify(c, file, elem, v.elem, env))
     case .Dynamic_Array_Type:
+        // `[dynamic; N]T` has a fixed capacity, which no checked type has.
+        for child in odinsyntax.green_children(n.green) {
+            if tok, is_token := odinsyntax.element_token(child); is_token && tok.kind == .Semicolon {
+                return false
+            }
+        }
         v, ok := type_get(t, base).(Dynamic_Array_Type)
         d, _ := odinsyntax.as_dynamic_array_type(n)
         elem, eok := odinsyntax.dynamic_array_type_elem(&d)

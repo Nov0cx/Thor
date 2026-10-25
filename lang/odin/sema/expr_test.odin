@@ -698,3 +698,26 @@ test_expr_repository_sweep :: proc(t: ^testing.T) {
         log.infof("%6d  %s  e.g. %s", f.count, f.key, f.sample)
     }
 }
+
+// `append` of a string to `[dynamic]byte` picks append_elem_string, not the fixed-capacity member.
+@(test)
+test_expr_append_string_to_bytes :: proc(t: ^testing.T) {
+    src := `package p
+
+f :: proc(buf: ^[dynamic]byte, s: string) {
+    _, err := append(buf, s)
+    _ = err
+}
+`
+    builtin_dir, _ := filepath.join({ODIN_ROOT, "base", "builtin"}, context.temp_allocator)
+    runtime_dir, _ := filepath.join({ODIN_ROOT, "base", "runtime"}, context.temp_allocator)
+    universe := [?]Universe_Package{{builtin_dir, true}, {runtime_dir, false}}
+    collections := Collections{odin_root = ODIN_ROOT}
+    env: Check_Env
+    if !check_begin(t, &env, Snapshot_Input{has_live = true, live_text = src, collections = &collections}, universe[:]) {
+        return
+    }
+    defer check_end(&env)
+    k := Expr_Case{"err", "runtime.Allocator_Error", "_ = "}
+    expect_expr(t, &env.c, ANON_FILE, src, k)
+}
