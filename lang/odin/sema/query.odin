@@ -569,19 +569,11 @@ called_proc :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node, sk
         return
     }
     args = call_args(c, file, odinsyntax.Syntax_Node(list), skip)
-    if sel, is_sel := odinsyntax.as_selector_expr(callee); is_sel {
-        if _, is_arrow := odinsyntax.selector_expr_arrow(&sel); is_arrow {
-            if operand, oke := odinsyntax.selector_expr_operand(&sel); oke {
-                with, err := make([]Call_Arg, len(args) + 1, c.tmp)
-                if !note_alloc(c, err) {
-                    return
-                }
-                with[0] = Call_Arg{op = expr_type(c, file, operand)}
-                copy(with[1:], args)
-                args = with
-            }
-        }
+    with, wok := with_receiver(c, file, callee, args)
+    if !wok {
+        return
     }
+    args = with
     base := type_base(&c.table, fn.type)
     #partial switch v in type_get(&c.table, base) {
     case Proc_Type:
@@ -595,6 +587,58 @@ called_proc :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node, sk
         return
     }
     return
+}
+
+// The arguments of a call with the receiver of an `x->f` callee first; false when the copy fails.
+@(private)
+with_receiver :: proc(c: ^Checker, file: File_Id, callee: odinsyntax.Syntax_Node, args: []Call_Arg) -> ([]Call_Arg, bool) {
+    sel, is_sel := odinsyntax.as_selector_expr(callee)
+    if !is_sel {
+        return args, true
+    }
+    if _, is_arrow := odinsyntax.selector_expr_arrow(&sel); !is_arrow {
+        return args, true
+    }
+    operand, ok := odinsyntax.selector_expr_operand(&sel)
+    if !ok {
+        return args, true
+    }
+    with, err := make([]Call_Arg, len(args) + 1, c.tmp)
+    if !note_alloc(c, err) {
+        return nil, false
+    }
+    with[0] = Call_Arg{op = expr_type(c, file, operand)}
+    copy(with[1:], args)
+    return with, true
+}
+
+// The member of the procedure group a call picks for the arguments it has. INVALID_TYPE when the
+// callee is not a group or no member takes the arguments.
+call_group_member :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node) -> Type_Id {
+    ce, is_call := odinsyntax.as_call_expr(call)
+    if !is_call {
+        return INVALID_TYPE
+    }
+    callee, has_callee := odinsyntax.call_expr_callee(&ce)
+    list, has_list := odinsyntax.call_expr_args(&ce)
+    if !has_callee || !has_list {
+        return INVALID_TYPE
+    }
+    fn := expr_type(c, file, callee)
+    if fn.mode != .Value && fn.mode != .Const {
+        return INVALID_TYPE
+    }
+    g, is_group := type_get(&c.table, type_base(&c.table, fn.type)).(Proc_Group_Type)
+    if !is_group {
+        return INVALID_TYPE
+    }
+    temp := scratch_begin(c)
+    defer scratch_end(temp)
+    args, ok := with_receiver(c, file, callee, call_args(c, file, odinsyntax.Syntax_Node(list), {}))
+    if !ok {
+        return INVALID_TYPE
+    }
+    return choose_member(c, g, args)
 }
 
 // The parameter type argument `arg` of `call` is expected to have. `name` is the name of a named argument.
