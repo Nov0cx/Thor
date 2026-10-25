@@ -278,7 +278,8 @@ its root, layered on top of the global settings above. This repository's own
 
 - **`odin-analyzer.json`** — per-workspace settings for the Odin language
   intelligence: which analyzer collections to load and which features
-  (`enable_hover`, `enable_document_symbols`, `enable_references`, ...) are on
+  (`enable_hover`, `enable_document_symbols`, `enable_references`,
+  `enable_completion`, ...) are on
   for this workspace. This is Thor's own file, not `ols.json`. A collection
   `name` must be an identifier (letters, digits and `_`, not starting with a
   digit); any other name is dropped.

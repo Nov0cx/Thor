@@ -37,6 +37,7 @@ Config :: struct {
     enable_document_symbols: bool,
     enable_references:       bool,
     enable_rename:           bool,
+    enable_completion:       bool,
 }
 
 // The engine's cached view of one workspace's config file, guarded by its own
@@ -109,6 +110,7 @@ config_defaults :: proc() -> Config {
         enable_document_symbols = true,
         enable_references       = true,
         enable_rename           = true,
+        enable_completion       = true,
     }
 }
 
@@ -143,6 +145,9 @@ config_parse :: proc(cache: ^Config_Cache, workspace, path: string) {
     }
     if b, ok := obj["enable_rename"].(json.Boolean); ok {
         cache.cfg.enable_rename = bool(b)
+    }
+    if b, ok := obj["enable_completion"].(json.Boolean); ok {
+        cache.cfg.enable_completion = bool(b)
     }
 
     config_parse_target(cache, obj)
@@ -370,13 +375,13 @@ config_collections :: proc(e: ^Engine, workspace: string) -> []Collection {
 }
 
 // True when the workspace config permits the feature the request `kind` serves.
-// Kinds with no toggle (definition, workspace symbols, signature help,
-// completion) are always on; the four gated ones — hover, document symbols,
-// references, rename — honor the config, defaulting to on when unset.
+// Kinds with no toggle (definition, signature help) are always on; the gated
+// ones — hover, document symbols, references, rename, completion — honor the
+// config, defaulting to on when unset.
 @(private)
 config_allows :: proc(e: ^Engine, workspace: string, kind: lang.Request_Kind) -> bool {
     #partial switch kind {
-    case .Hover, .Document_Symbols, .Workspace_Symbols, .References, .Rename:
+    case .Hover, .Document_Symbols, .Workspace_Symbols, .References, .Rename, .Completion:
     case:
         return true
     }
@@ -396,6 +401,8 @@ config_allows :: proc(e: ^Engine, workspace: string, kind: lang.Request_Kind) ->
         return cache.cfg.enable_references
     case .Rename:
         return cache.cfg.enable_rename
+    case .Completion:
+        return cache.cfg.enable_completion
     }
     return true
 }
