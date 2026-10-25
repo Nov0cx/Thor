@@ -546,7 +546,7 @@ lowest latency.
   `collections` array of `{name, path}`; a relative path resolves against the
   workspace, an absolute one is used as-is) so `import "shared:foo"` resolves, and
   **feature toggles** (`enable_hover`, `enable_document_symbols`,
-  `enable_references`, `enable_rename`) that gate those request kinds — a disabled feature answers
+  `enable_references`, `enable_rename`, `enable_completion`) that gate those request kinds — a disabled feature answers
   nothing. Absent keys take the defaults (no collections, every feature on), so a
   project with no config behaves exactly as before. The parsed view is cached on
   the engine and stat-invalidated like the symbol index (re-read only when the
@@ -2208,6 +2208,34 @@ not a status, so this section stays the source of truth for what is built.
     `untyped int = 1`); trivia and statement keywords give nothing. Not yet:
     the `/* */` doc comments of `base:builtin`, `using` on a field line, the
     declaration of a field of a record in a body (only the name).
+  - **Completion** (`lang/odin/completion.odin`): the word that ends at the
+    caret is the prefix, and every list holds only the names that start with
+    it. After `x.` (also `x.` with nothing after it, which parses as a
+    `Selector_Expr` with no field) the operand is typed with `expr_type`:
+    a value gives its fields in declaration order, through a pointer and
+    `using` (`type_members`), an enum type its members, an import alias the
+    public items of the package in the build. An implicit `.` gives the
+    members of the enum `expected_type_at` gives, also through a bit_set, a
+    pointer and the enum variants of a union. A bare prefix gives the locals in
+    reach (innermost first, never one declared later or in an outer
+    procedure), the fields a `using` local or statement brings in, the items
+    of the buffer's package (not a file-private item of another file), the
+    import aliases, the keywords and basic types, and the universe scope. In a
+    struct literal the fields it does not set yet come first, with ` = ` in
+    the insert. A name whose type is the expected one comes first and the
+    first one is preselected; package values are typed for that only while
+    the expected type is known (at most 64), procedures never. Detail: the
+    type for fields, members and typed locals, the declared type text for
+    other locals, the signature line for package items. Nothing in a
+    comment, a string, a rune or a number. `enable_completion` turns it off.
+    The engine names no trigger characters: the editor asks on `.` and on
+    word characters, and the list is complete for its prefix. Warm, debug
+    build: a bare prefix in `thor/view.odin` 26 ms (`-o:speed` 17 ms), in
+    `sema/check.odin` 15 ms (8 ms); `thor.` 200 ms (80 ms), all of it the
+    checker typing `^Thor` (hover on `thor` costs the same); `c.` in
+    `check.odin` 45 ms (22 ms). Not yet: union variants after `x.(`, the
+    members after `x->`, a proc result type in the ranking, snippets, an
+    explicit import of a package not imported yet.
   - **Not yet:** `using` expansion (recorded, not resolved), redeclaration
     and visibility errors, the stdlib disk cache (plan §5.10). `Foo ::
     pkg.Bar` lists as a constant until types resolve.
