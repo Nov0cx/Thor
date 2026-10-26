@@ -10,7 +10,6 @@ import "core:strings"
 import "core:sync"
 
 import "../../atomicfile"
-import "../../shell"
 import odinsema "sema"
 
 // Number of new trees after which a request writes the tree cache.
@@ -25,7 +24,7 @@ Tree_Cache_File :: struct {
     alloc:   runtime.Allocator,
     dir:     string, // owned; "" when the cache is off
     known:   bool,   // `key` and `path` were found and the blob was loaded
-    key:     string, // owned; the Odin root and `odin version`
+    key:     string, // owned; the Odin root and the stamp of its compiler
     path:    string, // owned; "" when the cache is off
 }
 
@@ -62,13 +61,7 @@ tree_cache_ensure :: proc(e: ^Engine) {
     if root == "" {
         return
     }
-    version := "unknown"
-    output, code, ran := shell.exec_status("odin", {"version"}, "", ODIN_ROOT_TIMEOUT)
-    defer delete(output)
-    if ran && code == 0 && strings.trim_space(output) != "" {
-        version = strings.trim_space(output)
-    }
-    key := strings.concatenate({root, "\n", version}, context.temp_allocator)
+    key := fmt.tprintf("%s\n%s", root, compiler_stamp(root))
     name := fmt.tprintf("items-%16x.bin", hash.fnv64a(transmute([]byte)key))
     path, jerr := filepath.join({c.dir, name}, context.temp_allocator)
     if jerr != nil {
@@ -84,6 +77,21 @@ tree_cache_ensure :: proc(e: ^Engine) {
     if !odinsema.db_cache_load(&e.db, blob, c.key) {
         log.debugf("odin: tree cache %s does not match; it is built again", path)
     }
+}
+
+// The modtime and size of the compiler under `root`; "none" when it is missing. Temp-allocated.
+@(private = "file")
+compiler_stamp :: proc(root: string) -> string {
+    exe := ODIN_OS == .Windows ? "odin.exe" : "odin"
+    path, jerr := filepath.join({root, exe}, context.temp_allocator)
+    if jerr != nil {
+        return "none"
+    }
+    info, err := os.stat(path, context.temp_allocator)
+    if err != nil {
+        return "none"
+    }
+    return fmt.tprintf("%d:%d", info.modification_time._nsec, info.size)
 }
 
 // Writes the tree cache when `force` and a tree was added, else when a batch of trees was added.
