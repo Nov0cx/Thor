@@ -1219,21 +1219,27 @@ directive_tags :: proc(it: odinsyntax.Child_Iter) -> bit_set[Proc_Tag] {
     return tags
 }
 
-// The directives of a struct or union: `#packed`, `#align(N)`, ... `align` is 0 when none.
+// The directives of a struct or union: `#packed`, `#align(N)`, ... An alignment is 0 when none.
+// `#field_align(N)` is the old name of `#min_field_align(N)`.
 @(private)
-record_directives :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> (names: [dynamic]string, align: i64) {
+record_directives :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> (names: [dynamic]string, align, min_field_align, max_field_align: i64) {
     n := n
     names = make([dynamic]string, c.tmp)
-    after_align := false
+    after := ""
     it := odinsyntax.child_iter(&n, {kinds = {.Directive, .Paren_Expr}})
     for child in odinsyntax.child_iter_next(&it) {
         child := child
         if child.green.kind == .Paren_Expr {
-            if after_align {
-                p, _ := odinsyntax.as_paren_expr(child)
+            p, _ := odinsyntax.as_paren_expr(child)
+            switch after {
+            case "align":
                 align = max(length_of(c, file, odinsyntax.paren_expr_expr(&p)), 0)
+            case "min_field_align", "field_align":
+                min_field_align = max(length_of(c, file, odinsyntax.paren_expr_expr(&p)), 0)
+            case "max_field_align":
+                max_field_align = max(length_of(c, file, odinsyntax.paren_expr_expr(&p)), 0)
             }
-            after_align = false
+            after = ""
             continue
         }
         d, _ := odinsyntax.as_directive(child)
@@ -1242,7 +1248,7 @@ record_directives :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node)
             continue
         }
         name := odinsyntax.syntax_token_text(tok)
-        after_align = name == "align"
+        after = name
         if _, err := append(&names, name); !note_alloc(c, err) {
             return
         }
@@ -1259,8 +1265,10 @@ struct_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> Ty
     if params, ok := odinsyntax.struct_type_params(&s); ok {
         st.params = read_params(c, file, odinsyntax.Syntax_Node(params))
     }
-    names, align := record_directives(c, file, n)
+    names, align, min_field_align, max_field_align := record_directives(c, file, n)
     st.align = align
+    st.min_field_align = min_field_align
+    st.max_field_align = max_field_align
     for name in names {
         switch name {
         case "packed":    st.flags += {.Packed}
@@ -1310,7 +1318,7 @@ union_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> Typ
     if params, ok := odinsyntax.union_type_params(&u); ok {
         ut.params = read_params(c, file, odinsyntax.Syntax_Node(params))
     }
-    names, align := record_directives(c, file, n)
+    names, align, _, _ := record_directives(c, file, n)
     ut.align = align
     for name in names {
         switch name {

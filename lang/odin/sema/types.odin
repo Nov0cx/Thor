@@ -243,10 +243,12 @@ Struct_Flag :: enum u8 {
 Struct_Type :: struct {
     fields: []Struct_Field,
     params: []Proc_Param, // the polymorphic parameters
-    flags:  bit_set[Struct_Flag],
-    align:  i64,     // `#align(N)`; 0 when none
-    file:   File_Id, // the file of the declaration
-    offset: int,     // the Struct_Type node
+    flags:           bit_set[Struct_Flag],
+    align:           i64,     // `#align(N)`; 0 when none
+    min_field_align: i64,     // `#min_field_align(N)`; 0 when none
+    max_field_align: i64,     // `#max_field_align(N)`; 0 when none
+    file:            File_Id, // the file of the declaration
+    offset:          int,     // the Struct_Type node
 }
 
 Union_Flag :: enum u8 {
@@ -1034,6 +1036,12 @@ write_type :: proc(sb: ^strings.Builder, t: ^Type_Table, id: Type_Id) {
         }
         if v.align > 0 {
             write_len(sb, " #align(", v.align, ")")
+        }
+        if v.min_field_align > 0 {
+            write_len(sb, " #min_field_align(", v.min_field_align, ")")
+        }
+        if v.max_field_align > 0 {
+            write_len(sb, " #max_field_align(", v.max_field_align, ")")
         }
         strings.write_string(sb, " {")
         for f, i in v.fields {
