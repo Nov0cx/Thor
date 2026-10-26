@@ -2144,6 +2144,20 @@ not a status, so this section stays the source of truth for what is built.
     scope the last `using` before the name; a local of a nearer scope shadows
     it, and it shadows the package scope. `expr_type` types such a name, and
     `using_symbol` gives its declaration.
+  - **Layout** (`layout.odin`): `layout_of` gives the size and alignment of
+    every type for the snapshot's target (amd64, i386, arm32/64, riscv64,
+    wasm32/64p32) by the compiler's rules, checked against `odin check`:
+    basic and endian types, string, any, typeid, slices, dynamic arrays,
+    maps, structs (`#packed`, `#raw_union`, `#align`, `#min_field_align` /
+    `#max_field_align`, `using` fields), unions (tag sized by variant count
+    and alignment, `#no_nil`, `#shared_nil`, `#align`, no tag for one
+    pointer-like variant), bit_set, bit_field, enumerated arrays, matrix,
+    `#simd`, `#soa`, distinct and named types and instantiated generics.
+    `size_of`/`align_of` fold for all of them, and `offset_of`,
+    `offset_of_member`, `offset_of(x.f)` and `offset_of_by_string` fold to
+    constants (`field_offset`, `field_offset_by_name`, also through `using`).
+    A type that holds itself by value and a polymorphic record have no
+    layout. Not yet: `#soa` of a non-struct element.
   - **Document_Symbols / Workspace_Symbols** (`lang/odin/symbols.odin`) come
     from the item tree. The outline also lists the procedures and types
     declared in procedure bodies (`nested_decls`). Workspace symbols read
@@ -2217,6 +2231,10 @@ not a status, so this section stays the source of truth for what is built.
     the source); an enum member `Color.Red = 0`; an
     import alias or import path its import line. A type, constant or procedure
     declared in a body prints from the checker (`Local :: struct {a: int}`).
+    A type declaration ends with `// size 16, align 8`, and a field with
+    `// offset 8, size 4` (`// offset 5 in Body, size 4` when a selector
+    reads it through a `using` field of another struct); nothing when the
+    layout is not known.
     A basic type is `int: builtin type, 8 bytes`, a compiler constant its
     value, `context` its type. Off a name, `expr_under` gives the innermost
     expression whose own token is under the caret (the call for its `(` `)`,
