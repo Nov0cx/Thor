@@ -40,8 +40,24 @@ completions_free :: proc(res: ^lang.Result) {
         delete(item.insert)
         delete(item.filter)
         delete(item.sort)
+        for edit in item.extra_edits {
+            delete(edit.path)
+            delete(edit.old_text)
+            delete(edit.new_text)
+        }
+        delete(item.extra_edits)
     }
     delete(res.completions)
+}
+
+// The source with the one extra edit of `item` applied; "" when it has not exactly one.
+@(private = "file")
+apply_extra_edit :: proc(source: string, item: ^lang.Completion_Item) -> string {
+    if item == nil || len(item.extra_edits) != 1 {
+        return ""
+    }
+    edit := item.extra_edits[0]
+    return strings.concatenate({source[:edit.start], edit.new_text, source[edit.end:]}, context.temp_allocator)
 }
 
 // The candidate labelled `label`; nil when there is none.
@@ -597,5 +613,63 @@ test_completion_signature_snippet :: proc(t: ^testing.T) {
     }
     for c in cases {
         testing.expect_value(t, signature_snippet(c[0], c[1]), c[2])
+    }
+}
+
+// A package the buffer does not import is offered with the import it needs, and `alias.` of an
+// unbound alias lists the public names of the one package of that name.
+@(test)
+test_completion_auto_import :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    config := `{"collections": [{"name": "shared", "path": "shared"}]}`
+    mathx := "package mathx\n\nclamp_to :: proc(v, hi: int) -> int {\n\treturn min(v, hi)\n}\n\n@(private)\nclamp_hidden :: 1\n"
+    root := fixture(t, "completion_auto_import", {
+        {".thor/odin-analyzer.json", config},
+        {"shared/mathx/mathx.odin", mathx},
+        {"shared/mathx/tests/tests.odin", "package tests\n"},
+        {"app/other.odin", "package app\n"},
+    })
+    defer os.remove_all(root)
+    main_path := fixture_path(root, "app/main.odin")
+
+    bare := "package app\n\nmain :: proc() {\n\t_ = math\n\t_ = tes\n\t_ = ap\n}\n"
+    res := complete_at(e, bare, "_ = math", workspace = root, path = main_path)
+    item := find_item(&res, "mathx")
+    if testing.expect(t, item != nil, "missing mathx") {
+        testing.expect_value(t, item.kind, "namespace")
+        testing.expect_value(t, apply_extra_edit(bare, item), "package app\n\nimport \"shared:mathx\"\n\nmain :: proc() {\n\t_ = math\n\t_ = tes\n\t_ = ap\n}\n")
+    }
+    completions_free(&res)
+
+    res = complete_at(e, bare, "_ = tes", workspace = root, path = main_path)
+    expect_labels(t, &res, nil, {"tests"})
+    completions_free(&res)
+
+    res = complete_at(e, bare, "_ = ap", workspace = root, path = main_path)
+    expect_labels(t, &res, nil, {"app"})
+    completions_free(&res)
+
+    imported := "package app\n\nimport \"core:fmt\"\n\nmain :: proc() {\n\t_ = mathx.cl\n\tfmt.println()\n}\n"
+    res = complete_at(e, imported, "mathx.cl", workspace = root, path = main_path)
+    expect_labels(t, &res, {"clamp_to"}, {"clamp_hidden"})
+    want := "package app\n\nimport \"core:fmt\"\nimport \"shared:mathx\"\n\nmain :: proc() {\n\t_ = mathx.cl\n\tfmt.println()\n}\n"
+    testing.expect_value(t, apply_extra_edit(imported, find_item(&res, "clamp_to")), want)
+    completions_free(&res)
+
+    done := "package app\n\nimport \"shared:mathx\"\n\nmain :: proc() {\n\t_ = math\n}\n"
+    res = complete_at(e, done, "_ = math", workspace = root, path = main_path)
+    if item = find_item(&res, "mathx"); testing.expect(t, item != nil, "missing the imported mathx") {
+        testing.expect(t, len(item.extra_edits) == 0, "an imported package needs no import")
+    }
+    completions_free(&res)
+
+    if odin_root(&e.root) != "" {
+        res = complete_at(e, bare, "_ = math", workspace = root, path = main_path)
+        if item = find_item(&res, "math"); testing.expect(t, item != nil, "missing core:math") {
+            testing.expect_value(t, item.detail, "import \"core:math\"")
+        }
+        completions_free(&res)
     }
 }

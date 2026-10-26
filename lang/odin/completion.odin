@@ -42,31 +42,34 @@ Tier :: enum u8 {
     Package,
     Import,
     Universe,
+    Auto_Import, // a package the buffer does not import yet
 }
 
 // One candidate. Strings are temp-allocated or borrow the checker or the snapshot.
 @(private = "file")
 Candidate :: struct {
-    label:  string,
-    kind:   string,
-    detail: string,
-    insert:  string,
-    snippet: string, // a snippet template that replaces `insert`; "" when none
-    tier:    Tier,
-    order:   int, // the declaration order of a member; 0 for the others
+    label:       string,
+    kind:        string,
+    detail:      string,
+    insert:      string,
+    snippet:     string, // a snippet template that replaces `insert`; "" when none
+    import_path: string, // the import the candidate adds to the buffer; "" when none
+    tier:        Tier,
+    order:       int, // the declaration order of a member; 0 for the others
 }
 
 @(private = "file")
 Completer :: struct {
-    ctx:      ^Request_Context,
-    c:        ^odinsema.Checker, // nil when the checker cannot start
-    prefix:   string,
-    expected: odinsema.Type_Id,
-    items:    [dynamic]Candidate,
-    seen:     map[string]struct{},
-    typed:    int, // the declarations typed for the expected type
-    snippets: bool, // a procedure candidate inserts a call snippet
-    arrow:    bool, // the members of `x->`: procedures only, the receiver is implicit
+    ctx:       ^Request_Context,
+    c:         ^odinsema.Checker, // nil when the checker cannot start
+    prefix:    string,
+    expected:  odinsema.Type_Id,
+    items:     [dynamic]Candidate,
+    seen:      map[string]struct{},
+    typed:     int, // the declarations typed for the expected type
+    snippets:  bool, // a procedure candidate inserts a call snippet
+    arrow:     bool, // the members of `x->`: procedures only, the receiver is implicit
+    importing: string, // the import every candidate added now carries; "" when none
 }
 
 // Fills res.completions with the candidates for the word that ends at req.offset.
@@ -121,6 +124,9 @@ emit :: proc(cm: ^Completer, res: ^lang.Result) {
             item.insert, ok[3] = clone_ok(cand.snippet)
             item.snippet = true
         }
+        if cand.import_path != "" && !slice.contains(ok[:], false) {
+            ok[0] = add_import_edit(cm, &item, cand.import_path)
+        }
         if slice.contains(ok[:], false) {
             completion_item_free(item)
             break
@@ -150,6 +156,50 @@ completion_item_free :: proc(item: lang.Completion_Item) {
     delete(item.detail)
     delete(item.insert)
     delete(item.sort)
+    for edit in item.extra_edits {
+        delete(edit.path)
+        delete(edit.old_text)
+        delete(edit.new_text)
+    }
+    delete(item.extra_edits)
+}
+
+// Gives `item` the edit that adds `import "<path>"` to the buffer: after its last import, else
+// after its package clause with a blank line. False when it cannot allocate.
+@(private = "file")
+add_import_edit :: proc(cm: ^Completer, item: ^lang.Completion_Item, import_path: string) -> bool {
+    src := cm.ctx.req.source
+    at := -1
+    text: string
+    for imp in cm.ctx.live.tree.items {
+        if imp.kind == .Import && imp.end > at {
+            at = imp.end
+        }
+    }
+    if at >= 0 {
+        text = fmt.tprintf("\nimport \"%s\"", import_path)
+    } else {
+        at = len(src)
+        if p := cm.ctx.live.tree.package_offset; p >= 0 {
+            if nl := strings.index_byte(src[min(p, len(src)):], '\n'); nl >= 0 {
+                at = p + nl
+            }
+        }
+        text = fmt.tprintf("\n\nimport \"%s\"", import_path)
+    }
+    at = clamp(at, 0, len(src))
+    path, pok := clone_ok(cm.ctx.req.path)
+    new_text, tok := clone_ok(text)
+    edits, merr := make([dynamic]lang.Text_Edit, 0, 1)
+    if !pok || !tok || merr != nil {
+        delete(path)
+        delete(new_text)
+        delete(edits)
+        return false
+    }
+    append(&edits, lang.Text_Edit{path = path, start = at, end = at, new_text = new_text})
+    item.extra_edits = edits
+    return true
 }
 
 // Collects the candidates for the context of the caret.
@@ -231,7 +281,7 @@ add :: proc(cm: ^Completer, label, kind, detail: string, tier: Tier, order := 0,
     if type != odinsema.INVALID_TYPE && type == cm.expected {
         t = .Expected
     }
-    append(&cm.items, Candidate{label = label, kind = kind, detail = detail, insert = insert, snippet = snippet, tier = t, order = order})
+    append(&cm.items, Candidate{label = label, kind = kind, detail = detail, insert = insert, snippet = snippet, import_path = cm.importing, tier = t, order = order})
 }
 
 // The type a candidate shows; "" when it is not known.
@@ -282,11 +332,82 @@ dot_completions :: proc(cm: ^Completer, dot: int) {
             }
             return
         }
+        if op.mode == .Invalid && !cm.arrow && operand.green.kind == .Ident {
+            unbound_alias_names(cm, odinsyntax.node_text(operand), int(operand.offset))
+            return
+        }
         add_members(cm, odinsema.operand_members(c, op, context.temp_allocator))
     case .Implicit_Selector:
         if !cm.arrow {
             add_enum_choices(cm, odinsema.expected_type_at(c, file, dot), 0)
         }
+    }
+}
+
+// The public names of the one known package called `alias` when nothing binds `alias` at `offset`.
+// Each carries the import that binds it.
+@(private = "file")
+unbound_alias_names :: proc(cm: ^Completer, alias: string, offset: int) {
+    if odinsema.lookup_name(cm.c, cm.ctx.live.id, alias, offset).kind != .None {
+        return
+    }
+    // Two packages of the best rank leave the choice open; core still wins over vendor.
+    match: Known_Package
+    ties := 0
+    for p in importable_packages(cm) {
+        if p.name != alias {
+            continue
+        }
+        if ties == 0 || p.rank < match.rank {
+            match, ties = p, 1
+        } else if p.rank == match.rank {
+            ties += 1
+        }
+    }
+    if ties != 1 {
+        return
+    }
+    cm.importing = match.import_path
+    defer cm.importing = ""
+    add_package_names(cm, match.dir, false, .Member)
+}
+
+// The known packages the buffer does not import yet, without its own package.
+@(private = "file")
+importable_packages :: proc(cm: ^Completer) -> []Known_Package {
+    ctx := cm.ctx
+    all := known_packages(ctx.e, ctx.req.workspace)
+    imports := odinsema.db_imports(&ctx.snap, ctx.live.id)
+    own := ctx.live.path != "" ? live_dir(ctx) : ""
+    out := make([dynamic]Known_Package, 0, len(all), context.temp_allocator)
+    next: for p in all {
+        if own != "" && same_dir(p.dir, own) {
+            continue
+        }
+        for imp in imports {
+            if imp.path == p.import_path || (imp.dir != "" && same_dir(imp.dir, p.dir)) {
+                continue next
+            }
+        }
+        append(&out, p)
+    }
+    return out[:]
+}
+
+// Adds the packages the buffer does not import yet whose name starts with the prefix, each with
+// the import it needs. The first package of a name wins: core before vendor.
+@(private = "file")
+add_auto_imports :: proc(cm: ^Completer) {
+    if cm.prefix == "" {
+        return
+    }
+    for p in importable_packages(cm) {
+        if !strings.has_prefix(p.name, cm.prefix) || p.name in cm.seen {
+            continue
+        }
+        cm.importing = p.import_path
+        add(cm, p.name, "namespace", fmt.tprintf("import \"%s\"", p.import_path), .Auto_Import)
+        cm.importing = ""
     }
 }
 
@@ -411,6 +532,9 @@ bare_completions :: proc(cm: ^Completer, start: int) {
     n := universe_packages(ctx, universe[:], context.temp_allocator)
     for u in universe[:n] {
         add_package_names(cm, u.dir, false, .Universe, builtin_only = !u.all)
+    }
+    if !lang.request_cancelled(ctx.req) {
+        add_auto_imports(cm)
     }
 }
 

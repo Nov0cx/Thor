@@ -18,6 +18,7 @@ Engine :: struct {
     db:            odinsema.Db, // owned
     root:          Odin_Root,
     tree_cache:    Tree_Cache_File,
+    packages:      Package_Index, // the packages completion offers to import
     // One compiler run at a time (see check_package).
     check_mutex:   sync.Mutex,
     // Settings-driven admin gate; main thread only.
@@ -53,6 +54,7 @@ engine_create :: proc() -> ^Engine {
     odinsema.db_init(&e.db, lang.source_read)
     e.root.alloc = context.allocator
     e.tree_cache.alloc = context.allocator
+    e.packages.alloc = context.allocator
     return e
 }
 
@@ -163,5 +165,6 @@ engine_destroy :: proc(data: rawptr) {
     tree_cache_clear(&e.tree_cache)
     odinsema.db_destroy(&e.db)
     odin_root_clear(&e.root)
+    package_index_destroy(&e.packages)
     free(e)
 }
