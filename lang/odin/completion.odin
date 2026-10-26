@@ -50,9 +50,10 @@ Candidate :: struct {
     label:  string,
     kind:   string,
     detail: string,
-    insert: string,
-    tier:   Tier,
-    order:  int, // the declaration order of a member; 0 for the others
+    insert:  string,
+    snippet: string, // a snippet template that replaces `insert`; "" when none
+    tier:    Tier,
+    order:   int, // the declaration order of a member; 0 for the others
 }
 
 @(private = "file")
@@ -64,6 +65,7 @@ Completer :: struct {
     items:    [dynamic]Candidate,
     seen:     map[string]struct{},
     typed:    int, // the declarations typed for the expected type
+    snippets: bool, // a procedure candidate inserts a call snippet
     arrow:    bool, // the members of `x->`: procedures only, the receiver is implicit
 }
 
@@ -114,6 +116,11 @@ emit :: proc(cm: ^Completer, res: ^lang.Result) {
         item.detail, ok[2] = clone_ok(cand.detail)
         item.insert, ok[3] = clone_ok(cand.insert)
         item.sort, ok[4] = clone_ok(fmt.tprintf("%05d", i))
+        if cand.snippet != "" && ok[3] {
+            delete(item.insert)
+            item.insert, ok[3] = clone_ok(cand.snippet)
+            item.snippet = true
+        }
         if slice.contains(ok[:], false) {
             completion_item_free(item)
             break
@@ -162,6 +169,11 @@ collect :: proc(cm: ^Completer) {
     }
     cm.prefix = src[start:off]
     cm.c = request_checker(cm.ctx)
+    end := off
+    for end < len(src) && is_word_byte(src[end]) {
+        end += 1
+    }
+    cm.snippets = (end >= len(src) || src[end] != '(') && config_snippets(cm.ctx.e, cm.ctx.req.workspace)
     if start >= 2 && src[start - 1] == '(' && src[start - 2] == '.' {
         assertion_completions(cm, start - 1)
         return
@@ -210,7 +222,7 @@ in_literal :: proc(ctx: ^Request_Context, off: int, numbers := true) -> bool {
 
 // Adds a candidate that starts with the prefix and has a name not added yet.
 @(private = "file")
-add :: proc(cm: ^Completer, label, kind, detail: string, tier: Tier, order := 0, type := odinsema.INVALID_TYPE, insert := "") {
+add :: proc(cm: ^Completer, label, kind, detail: string, tier: Tier, order := 0, type := odinsema.INVALID_TYPE, insert := "", snippet := "") {
     if label == "" || label == "_" || !strings.has_prefix(label, cm.prefix) || label in cm.seen {
         return
     }
@@ -219,7 +231,7 @@ add :: proc(cm: ^Completer, label, kind, detail: string, tier: Tier, order := 0,
     if type != odinsema.INVALID_TYPE && type == cm.expected {
         t = .Expected
     }
-    append(&cm.items, Candidate{label = label, kind = kind, detail = detail, insert = insert, tier = t, order = order})
+    append(&cm.items, Candidate{label = label, kind = kind, detail = detail, insert = insert, snippet = snippet, tier = t, order = order})
 }
 
 // The type a candidate shows; "" when it is not known.
@@ -315,9 +327,13 @@ add_members :: proc(cm: ^Completer, members: []odinsema.Member) {
     for m, i in members {
         kind := "field"
         detail := type_detail(cm, m.type)
-        _, is_proc := proc_type_of(cm, m.type)
+        p, is_proc := proc_type_of(cm, m.type)
         if cm.arrow && !is_proc {
             continue
+        }
+        snip := ""
+        if is_proc && cm.snippets {
+            snip = proc_snippet(cm, m.name, p, skip_first = cm.arrow)
         }
         switch m.kind {
         case .Field:
@@ -334,7 +350,7 @@ add_members :: proc(cm: ^Completer, members: []odinsema.Member) {
                 }
             }
         }
-        add(cm, m.name, kind, detail, .Member, order = i)
+        add(cm, m.name, kind, detail, .Member, order = i, snippet = snip)
     }
 }
 
@@ -435,16 +451,6 @@ add_package_names :: proc(cm: ^Completer, dir: string, own: bool, tier: Tier, bu
     }
 }
 
-// The procedure type `t` is, through named and distinct types.
-@(private = "file")
-proc_type_of :: proc(cm: ^Completer, t: odinsema.Type_Id) -> (odinsema.Proc_Type, bool) {
-    if cm.c == nil || t == odinsema.INVALID_TYPE {
-        return {}, false
-    }
-    p, ok := odinsema.type_get(&cm.c.table, odinsema.type_base(&cm.c.table, t)).(odinsema.Proc_Type)
-    return p, ok
-}
-
 // Adds a package-level declaration. A variable, constant or procedure is typed while the expected
 // type is known; a procedure ranks by its one result.
 @(private = "file")
@@ -458,10 +464,24 @@ add_item :: proc(cm: ^Completer, item: ^odinsema.Item, sym: odinsema.Symbol, tie
         cm.typed += 1
         type = odinsema.decl_type(cm.c, sym)
     }
+    snip := ""
+    if is_proc && cm.snippets && (type == odinsema.INVALID_TYPE || type != cm.expected) {
+        snip = item.kind == .Proc ? signature_snippet(item.name, item.signature) : group_snippet(item.name)
+    }
     if is_proc {
         type = proc_rank_type(cm, type)
     }
-    add(cm, item.name, item_kind_name(item.kind), item.signature, tier, type = type)
+    add(cm, item.name, item_kind_name(item.kind), item.signature, tier, type = type, snippet = snip)
+}
+
+// The procedure type `t` is, through named and distinct types.
+@(private = "file")
+proc_type_of :: proc(cm: ^Completer, t: odinsema.Type_Id) -> (odinsema.Proc_Type, bool) {
+    if cm.c == nil || t == odinsema.INVALID_TYPE {
+        return {}, false
+    }
+    p, ok := odinsema.type_get(&cm.c.table, odinsema.type_base(&cm.c.table, t)).(odinsema.Proc_Type)
+    return p, ok
 }
 
 // The type a procedure of type `t` ranks by: `t` when the caret expects it, else its one result.
@@ -474,6 +494,190 @@ proc_rank_type :: proc(cm: ^Completer, t: odinsema.Type_Id) -> odinsema.Type_Id 
         return p.results[0].type
     }
     return odinsema.INVALID_TYPE
+}
+
+// Writes `s` into a snippet template with `$`, `}` and `\` escaped.
+@(private = "file")
+write_snippet_text :: proc(sb: ^strings.Builder, s: string) {
+    for i in 0 ..< len(s) {
+        if s[i] == '$' || s[i] == '}' || s[i] == '\\' {
+            strings.write_byte(sb, '\\')
+        }
+        strings.write_byte(sb, s[i])
+    }
+}
+
+// The call snippet `name(${1:a}, ${2:b})$0` for the placeholders `params`. With none it is
+// `name()$0`, or `name($0)` when the procedure takes optional parameters.
+@(private = "file")
+call_snippet :: proc(name: string, params: []string, optional: bool) -> string {
+    sb := strings.builder_make(context.temp_allocator)
+    write_snippet_text(&sb, name)
+    if len(params) == 0 {
+        strings.write_string(&sb, optional ? "($0)" : "()$0")
+        return strings.to_string(sb)
+    }
+    strings.write_byte(&sb, '(')
+    for p, i in params {
+        if i > 0 {
+            strings.write_string(&sb, ", ")
+        }
+        fmt.sbprintf(&sb, "${{%d:", i + 1)
+        write_snippet_text(&sb, p)
+        strings.write_byte(&sb, '}')
+    }
+    strings.write_string(&sb, ")$0")
+    return strings.to_string(sb)
+}
+
+// The call snippet of a procedure group, whose parameters depend on the member a call picks.
+@(private = "file")
+group_snippet :: proc(name: string) -> string {
+    return call_snippet(name, nil, true)
+}
+
+// The call snippet for the procedure type `p`; `skip_first` drops the receiver of `x->`.
+// Parameters with a default value get no stop.
+@(private = "file")
+proc_snippet :: proc(cm: ^Completer, name: string, p: odinsema.Proc_Type, skip_first := false) -> string {
+    params := make([dynamic]string, 0, len(p.params), context.temp_allocator)
+    optional := false
+    for param, i in p.params {
+        if skip_first && i == 0 {
+            continue
+        }
+        if param.has_default {
+            optional = true
+            continue
+        }
+        label := strings.trim_prefix(param.name, "$")
+        if label == "" {
+            label = type_detail(cm, param.type)
+        }
+        append(&params, label)
+    }
+    return call_snippet(name, params[:], optional)
+}
+
+// The call snippet read from a declaration head like `add :: proc(a, b: int, c := 1) -> int`; ""
+// when the head is not a procedure literal.
+@(private)
+signature_snippet :: proc(name, signature: string) -> string {
+    sep := strings.index(signature, "::")
+    if sep < 0 {
+        return ""
+    }
+    rest := signature[sep + 2:]
+    at := strings.index(rest, "proc")
+    if at < 0 {
+        return ""
+    }
+    rest = rest[at + 4:]
+    open := strings.index_byte(rest, '(')
+    if open < 0 {
+        return ""
+    }
+    // Only a calling convention may stand between `proc` and its parameters.
+    if between := strings.trim_space(rest[:open]); between != "" && (len(between) < 2 || between[0] != '"' || between[len(between) - 1] != '"') {
+        return ""
+    }
+    pieces := make([dynamic]string, context.temp_allocator)
+    depth := 0
+    piece_start := open + 1
+    close := -1
+    in_string: u8 = 0
+    scan: for i := open + 1; i < len(rest); i += 1 {
+        ch := rest[i]
+        if in_string != 0 {
+            if ch == '\\' && in_string == '"' {
+                i += 1
+            } else if ch == in_string {
+                in_string = 0
+            }
+            continue
+        }
+        switch ch {
+        case '"', '`', '\'':
+            in_string = ch
+        case '(', '[', '{':
+            depth += 1
+        case ')', ']', '}':
+            if depth == 0 {
+                close = i
+                break scan
+            }
+            depth -= 1
+        case ',':
+            if depth == 0 {
+                append(&pieces, strings.trim_space(rest[piece_start:i]))
+                piece_start = i + 1
+            }
+        }
+    }
+    if close < 0 {
+        return ""
+    }
+    if last := strings.trim_space(rest[piece_start:close]); last != "" {
+        append(&pieces, last)
+    }
+    named := false
+    for piece in pieces {
+        if top_level_byte(piece, ':') >= 0 {
+            named = true
+            break
+        }
+    }
+    params := make([dynamic]string, 0, len(pieces), context.temp_allocator)
+    optional := false
+    for piece, i in pieces {
+        if !named {
+            append(&params, piece)
+            continue
+        }
+        // A name without a type shares the type and the default of the next named field.
+        field := piece
+        colon := top_level_byte(field, ':')
+        for k := i + 1; colon < 0 && k < len(pieces); k += 1 {
+            field = pieces[k]
+            colon = top_level_byte(field, ':')
+        }
+        if colon >= 0 && top_level_byte(field[colon:], '=') >= 0 {
+            optional = true
+            continue
+        }
+        head := piece
+        if c := top_level_byte(piece, ':'); c >= 0 {
+            head = piece[:c]
+        }
+        head = strings.trim_space(head)
+        if space := strings.last_index_any(head, " \t"); space >= 0 {
+            head = head[space + 1:]
+        }
+        head = strings.trim_prefix(head, "$")
+        if head != "" {
+            append(&params, head)
+        }
+    }
+    return call_snippet(name, params[:], optional)
+}
+
+// The index of the first `b` in `s` outside brackets; -1 when there is none.
+@(private = "file")
+top_level_byte :: proc(s: string, b: u8) -> int {
+    depth := 0
+    for i in 0 ..< len(s) {
+        switch s[i] {
+        case '(', '[', '{':
+            depth += 1
+        case ')', ']', '}':
+            depth -= 1
+        case:
+            if s[i] == b && depth == 0 {
+                return i
+            }
+        }
+    }
+    return -1
 }
 
 // The kind name the editor colors a declaration by.
@@ -575,10 +779,14 @@ add_locals :: proc(cm: ^Completer, start: int) {
             }
             name := strings.clone(l.name, context.temp_allocator)
             rank := type
+            snip := ""
             if is_proc {
                 rank = proc_rank_type(cm, type)
+                if p, ok := proc_type_of(cm, type); ok && cm.snippets && type != cm.expected {
+                    snip = proc_snippet(cm, name, p)
+                }
             }
-            add(cm, name, kind, detail, .Local, type = rank)
+            add(cm, name, kind, detail, .Local, type = rank, snippet = snip)
             if l.is_using && cm.c != nil {
                 add_using_fields(cm, odinsema.type_members(cm.c, type, context.temp_allocator))
             }

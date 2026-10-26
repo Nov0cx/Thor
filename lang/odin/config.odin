@@ -38,6 +38,7 @@ Config :: struct {
     enable_references:       bool,
     enable_rename:           bool,
     enable_completion:       bool,
+    enable_snippets:         bool, // completion inserts a procedure call with its parameters as stops
 }
 
 // The engine's cached view of one workspace's config file, guarded by its own
@@ -111,6 +112,7 @@ config_defaults :: proc() -> Config {
         enable_references       = true,
         enable_rename           = true,
         enable_completion       = true,
+        enable_snippets         = true,
     }
 }
 
@@ -148,6 +150,9 @@ config_parse :: proc(cache: ^Config_Cache, workspace, path: string) {
     }
     if b, ok := obj["enable_completion"].(json.Boolean); ok {
         cache.cfg.enable_completion = bool(b)
+    }
+    if b, ok := obj["enable_snippets"].(json.Boolean); ok {
+        cache.cfg.enable_snippets = bool(b)
     }
 
     config_parse_target(cache, obj)
@@ -405,6 +410,19 @@ config_allows :: proc(e: ^Engine, workspace: string, kind: lang.Request_Kind) ->
         return cache.cfg.enable_completion
     }
     return true
+}
+
+// True when completion inserts procedure snippets; on when the workspace has no config.
+@(private)
+config_snippets :: proc(e: ^Engine, workspace: string) -> bool {
+    if workspace == "" {
+        return true
+    }
+    cache := &e.config
+    sync.lock(&cache.mutex)
+    defer sync.unlock(&cache.mutex)
+    config_ensure(cache, workspace)
+    return cache.cfg.enable_snippets
 }
 
 // Frees the cached config's owned collection strings and the map itself. Element

@@ -472,7 +472,7 @@ test_completion_union_variants :: proc(t: ^testing.T) {
     completions_free(&res)
 }
 
-// `x->` lists only the procedure members.
+// `x->` lists only the procedure members, and the call snippet leaves out the receiver.
 @(test)
 test_completion_arrow :: proc(t: ^testing.T) {
     e := engine_create()
@@ -482,6 +482,13 @@ test_completion_arrow :: proc(t: ^testing.T) {
     res := complete_at(e, src, "o->")
     defer completions_free(&res)
     expect_labels(t, &res, {"add", "clear"}, {"count", "main"})
+    if item := find_item(&res, "add"); item != nil {
+        testing.expect(t, item.snippet, "a procedure member is a snippet")
+        testing.expect_value(t, item.insert, "add(${1:n})$0")
+    }
+    if item := find_item(&res, "clear"); item != nil {
+        testing.expect_value(t, item.insert, "clear()$0")
+    }
 }
 
 // A procedure whose one result is the expected type ranks with the expected values.
@@ -518,4 +525,77 @@ main :: proc() {
     testing.expectf(t, name >= 0 && name < count && name < pair, "make_name ranks first: %d, %d, %d", name, count, pair)
     testing.expectf(t, local >= 0 && local < count && local < pair, "make_local ranks first: %d, %d, %d", local, count, pair)
     testing.expect(t, len(res.completions) > 0 && res.completions[0].preselect, "the first expected match is preselected")
+}
+
+// A procedure candidate inserts a call snippet with its required parameters as stops.
+@(test)
+test_completion_proc_snippets :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package demo
+
+scale :: proc(v: int, by: int) -> int {
+	return v * by
+}
+
+scale_opt :: proc(a, b: int, c := 1) {}
+
+scale_none :: proc() {}
+
+main :: proc() {
+	scale_local :: proc(x: $T) {}
+	_ = sca
+	scale(1, 2)
+}
+`
+    res := complete_at(e, src, "_ = sca")
+    want := [?][2]string {
+        {"scale", "scale(${1:v}, ${2:by})$0"},
+        {"scale_opt", "scale_opt(${1:a}, ${2:b})$0"},
+        {"scale_none", "scale_none()$0"},
+        {"scale_local", "scale_local(${1:x})$0"},
+    }
+    for w in want {
+        item := find_item(&res, w[0])
+        if !testing.expectf(t, item != nil, "missing %q", w[0]) {
+            continue
+        }
+        testing.expectf(t, item.snippet, "%q is a snippet", w[0])
+        testing.expect_value(t, item.insert, w[1])
+    }
+    completions_free(&res)
+
+    res = complete_at(e, src, "\tsca|le(1, 2)")
+    if item := find_item(&res, "scale"); testing.expect(t, item != nil, "missing scale before a paren") {
+        testing.expect(t, !item.snippet && item.insert == "", "no snippet before an existing paren")
+    }
+    completions_free(&res)
+
+    root := fixture(t, "completion_snippets_off", {{".thor/odin-analyzer.json", `{"enable_snippets": false}`}})
+    defer os.remove_all(root)
+    res = complete_at(e, src, "_ = sca", workspace = root, path = fixture_path(root, "main.odin"))
+    if item := find_item(&res, "scale"); testing.expect(t, item != nil, "missing scale with snippets off") {
+        testing.expect(t, !item.snippet && item.insert == "", "the config turns snippets off")
+    }
+    completions_free(&res)
+}
+
+// A declaration head gives the call snippet; snippet syntax in it is escaped.
+@(test)
+test_completion_signature_snippet :: proc(t: ^testing.T) {
+    cases := [?][3]string {
+        {"f", "f :: proc(a, b: int) -> int", "f(${1:a}, ${2:b})$0"},
+        {"f", "f :: proc(int, string)", "f(${1:int}, ${2:string})$0"},
+        {"f", "f :: proc \"c\" (x: i32)", "f(${1:x})$0"},
+        {"f", "f :: proc(m: map[string]int, cb: proc(a, b: int), opt := 2)", "f(${1:m}, ${2:cb})$0"},
+        {"f", "f :: proc(using p: ^P, $T: typeid, #any_int n: int)", "f(${1:p}, ${2:T}, ${3:n})$0"},
+        {"f", "f :: proc(s: struct{})", "f(${1:s})$0"},
+        {"f", "f :: proc(struct{x: int})", "f(${1:struct{x: int\\}})$0"},
+        {"f", "f :: proc(a := 1)", "f($0)"},
+        {"f", "f :: proc_alias", ""},
+    }
+    for c in cases {
+        testing.expect_value(t, signature_snippet(c[0], c[1]), c[2])
+    }
 }
