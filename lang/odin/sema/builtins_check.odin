@@ -31,7 +31,6 @@ is_builtin_proc :: proc(name: string) -> bool {
 // gives the result of its declaration.
 @(private)
 builtin_call :: proc(c: ^Checker, file: File_Id, name: string, callee: Type_Id, args: []odinsyntax.Syntax_Node, expected: Type_Id) -> Operand {
-    target := c.snap.target
     t := &c.table
     switch name {
     case "len", "cap":
@@ -53,12 +52,15 @@ builtin_call :: proc(c: ^Checker, file: File_Id, name: string, callee: Type_Id, 
             if ty == INVALID_TYPE {
                 ty = type_default(t, expr_type(c, file, args[0]).type)
             }
-            if size := type_layout(c, ty, name == "align_of", target); size > 0 {
-                return {mode = .Const, type = type_untyped(.Int), value = size}
+            if l, ok := layout_of(c, ty); ok {
+                return {mode = .Const, type = type_untyped(.Int), value = name == "align_of" ? l.align : l.size}
             }
         }
         return {mode = .Const, type = type_untyped(.Int)}
     case "offset_of", "offset_of_selector", "offset_of_member", "offset_of_by_string":
+        if offset, ok := offset_of_call(c, file, name, args); ok {
+            return {mode = .Const, type = type_basic(.Uintptr), value = offset}
+        }
         return {mode = .Const, type = type_basic(.Uintptr)}
     case "type_of":
         if len(args) == 1 {
@@ -430,32 +432,37 @@ integer_bounds :: proc(c: ^Checker, t: Type_Id) -> (lo, hi: i64, ok: bool) {
     return -(i64(1) << u64(bits - 1)), (i64(1) << u64(bits - 1)) - 1, true
 }
 
-// The size, or the alignment, of a type whose layout needs no record layout; 0 when not known.
+// The field offset `offset_of(T, f)`, `offset_of(x.f)` or `offset_of_by_string(T, "f")` names.
 @(private)
-type_layout :: proc(c: ^Checker, t: Type_Id, align: bool, target: Target) -> i64 {
-    #partial switch v in type_get(&c.table, type_base(&c.table, t)) {
-    case Basic_Type:
-        return align ? basic_align(v.kind, target) : basic_size(v.kind, target)
-    case Pointer_Type, Multi_Pointer_Type, Proc_Type:
-        return type_size("rawptr", target)
-    case Slice_Type:
-        ptr := type_size("rawptr", target)
-        return align ? ptr : 2 * ptr
-    case Array_Type:
-        if align {
-            return type_layout(c, v.elem, true, target)
+offset_of_call :: proc(c: ^Checker, file: File_Id, name: string, args: []odinsyntax.Syntax_Node) -> (i64, bool) {
+    switch len(args) {
+    case 1:
+        sel, ok := odinsyntax.as_selector_expr(args[0])
+        if !ok {
+            return 0, false
         }
-        if v.len < 0 {
-            return 0
+        lhs, has_lhs := odinsyntax.selector_expr_operand(&sel)
+        field, has_field := odinsyntax.selector_expr_field(&sel)
+        if !has_lhs || !has_field {
+            return 0, false
         }
-        return v.len * type_layout(c, v.elem, false, target)
-    case Enum_Type:
-        if v.backing == INVALID_TYPE {
-            return type_size("int", target)
+        return field_offset_by_name(c, deref_base(c, expr_type(c, file, lhs).type), odinsyntax.node_text(odinsyntax.Syntax_Node(field)))
+    case 2:
+        ty := type_expr(c, file, args[0])
+        if ty == INVALID_TYPE {
+            return 0, false
         }
-        return type_layout(c, v.backing, align, target)
+        if name == "offset_of_by_string" {
+            v, ok := const_eval(c, file, args[1])
+            field, is_string := v.(string)
+            if !ok || !is_string {
+                return 0, false
+            }
+            return field_offset_by_name(c, ty, field)
+        }
+        return field_offset_by_name(c, ty, odinsyntax.node_text(args[1]))
     }
-    return 0
+    return 0, false
 }
 
 // `#config(NAME, default)`, `#defined(name)`, `#load(path)` and the other directive calls.

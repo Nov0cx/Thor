@@ -92,6 +92,8 @@ Checker :: struct {
     pairs:      map[Type_Id]Type_Id,  // (value, bool) by value type
     results:    map[Type_Id]Type_Id,  // the result Tuple by procedure type
     odin_types: map[string]Type_Id,   // the types of build constants, by constant name
+    layouts:    map[Type_Id]Layout,   // the known layouts, by base type
+    laying_out: map[Type_Id]struct{}, // the base types whose layout is in progress
     scratch:    virtual.Arena,        // temporary arrays, freed by scratch_end
     tmp:        mem.Allocator,        // of `scratch`
     err:        mem.Allocator_Error,
@@ -177,6 +179,8 @@ checker_init :: proc(c: ^Checker, snap: ^Snapshot, universe: []Universe_Package 
     c.pairs = make(map[Type_Id]Type_Id, c.alloc)
     c.results = make(map[Type_Id]Type_Id, c.alloc)
     c.odin_types = make(map[string]Type_Id, c.alloc)
+    c.layouts = make(map[Type_Id]Layout, c.alloc)
+    c.laying_out = make(map[Type_Id]struct{}, c.alloc)
     home := home
     if home == NO_FILE {
         home = snapshot_live_file(snap)

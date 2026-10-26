@@ -901,33 +901,14 @@ type_default :: proc(t: ^Type_Table, id: Type_Id) -> Type_Id {
 
 // The size of a basic type for `target`; 0 when not known.
 basic_size :: proc(kind: Basic_Kind, target: Target) -> i64 {
-    #partial switch kind {
-    case .String, .String16:
-        return 2 * type_size("rawptr", target)
-    case .Cstring16:
-        return type_size("rawptr", target)
-    case .Any:
-        if ptr := type_size("rawptr", target); ptr > 0 {
-            return ptr + type_size("typeid", target)
-        }
-        return 0
-    }
-    return type_size(BASIC_NAMES[kind], target)
+    l, _ := basic_layout(kind, target)
+    return l.size
 }
 
 // The alignment of a basic type for `target`; 0 when not known.
 basic_align :: proc(kind: Basic_Kind, target: Target) -> i64 {
-    #partial switch kind {
-    case .String, .String16, .Cstring16:
-        return type_size("rawptr", target)
-    case .Any:
-        return max(type_size("rawptr", target), type_size("typeid", target))
-    case .Complex32 ..= .Complex128:
-        return basic_size(kind, target) / 2
-    case .Quaternion64 ..= .Quaternion256:
-        return basic_size(kind, target) / 4
-    }
-    return basic_size(kind, target)
+    l, _ := basic_layout(kind, target)
+    return l.align
 }
 
 @(private = "file")
