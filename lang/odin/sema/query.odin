@@ -579,7 +579,10 @@ called_proc :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node, sk
     case Proc_Type:
         return v, args, true
     case Proc_Group_Type:
-        chosen := choose_member(c, v, args)
+        chosen, first_fit := choose_member(c, file, v, args)
+        if chosen == INVALID_TYPE {
+            chosen = first_fit
+        }
         if chosen == INVALID_TYPE && len(v.members) > 0 {
             chosen = v.members[0]
         }
@@ -613,7 +616,7 @@ with_receiver :: proc(c: ^Checker, file: File_Id, callee: odinsyntax.Syntax_Node
 }
 
 // The member of the procedure group a call picks for the arguments it has. INVALID_TYPE when the
-// callee is not a group or no member takes the arguments.
+// callee is not a group, no member takes the arguments or the call is ambiguous.
 call_group_member :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node) -> Type_Id {
     ce, is_call := odinsyntax.as_call_expr(call)
     if !is_call {
@@ -638,7 +641,8 @@ call_group_member :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_No
     if !ok {
         return INVALID_TYPE
     }
-    return choose_member(c, g, args)
+    chosen, _ := choose_member(c, file, g, args)
+    return chosen
 }
 
 // The parameter type argument `arg` of `call` is expected to have. `name` is the name of a named argument.

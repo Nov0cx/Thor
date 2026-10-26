@@ -75,12 +75,12 @@ call_operand :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, expe
         #partial switch v in type_get(&c.table, type_base(&c.table, fn.type)) {
         case Struct_Type:
             if len(v.params) > 0 {
-                eval_args(c, file, args[:], INVALID_TYPE)
+                eval_args(c, file, args[:], INVALID_TYPE, 0)
                 return instantiate(c, fn.type, args[:])
             }
         case Union_Type:
             if len(v.params) > 0 {
-                eval_args(c, file, args[:], INVALID_TYPE)
+                eval_args(c, file, args[:], INVALID_TYPE, 0)
                 return instantiate(c, fn.type, args[:])
             }
         }
@@ -111,50 +111,82 @@ call_operand :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, expe
             if _, err := inject_at(&args, 0, Call_Arg{op = r}); !note_alloc(c, err) {
                 return {}
             }
-            eval_args(c, file, args[1:], fn.type)
+            eval_args(c, file, args[1:], fn.type, 1)
         } else {
-            eval_args(c, file, args[:], fn.type)
+            eval_args(c, file, args[:], fn.type, 0)
         }
-        return call_value(c, fn.type, args[:])
+        return call_value(c, file, fn.type, args[:])
     }
     return {}
 }
 
-// Reads the operand of each argument. A procedure callee gives a positional argument the parameter type as expected.
+// Reads the operand of each argument. `first` is the parameter the first argument goes to. A positional
+// argument expects the parameter type of a procedure, or of a group when every member agrees on it.
 @(private)
-eval_args :: proc(c: ^Checker, file: File_Id, args: []Call_Arg, callee: Type_Id) {
-    p, is_proc := type_get(&c.table, type_base(&c.table, callee)).(Proc_Type)
+eval_args :: proc(c: ^Checker, file: File_Id, args: []Call_Arg, callee: Type_Id, first: int) {
+    base := type_base(&c.table, callee)
+    p, is_proc := type_get(&c.table, base).(Proc_Type)
+    g, is_group := type_get(&c.table, base).(Proc_Group_Type)
     for &a, i in args {
         expected := INVALID_TYPE
-        if is_proc && a.name == "" && !a.spread && i < len(p.params) {
-            expected = p.params[i].type
+        if a.name == "" && !a.spread {
+            k := first + i
+            if is_proc && k < len(p.params) {
+                expected = p.params[k].type
+            } else if is_group {
+                expected = group_slot_type(c, g, k)
+            }
         }
         a.op = expr_type(c, file, a.node, expected)
     }
 }
 
+// The type every member of a group with a parameter at `slot` takes there; INVALID_TYPE when they differ.
+@(private)
+group_slot_type :: proc(c: ^Checker, g: Proc_Group_Type, slot: int) -> Type_Id {
+    agreed := INVALID_TYPE
+    for m in g.members {
+        p, ok := type_get(&c.table, type_base(&c.table, m)).(Proc_Type)
+        if !ok {
+            return INVALID_TYPE
+        }
+        if slot >= len(p.params) {
+            continue
+        }
+        t := p.params[slot].type
+        if t == INVALID_TYPE || has_poly(c, t, 0) || (agreed != INVALID_TYPE && t != agreed) {
+            return INVALID_TYPE
+        }
+        agreed = t
+    }
+    return agreed
+}
+
 // The result of calling a value of type `callee`; no arguments when `args` is nil.
 @(private)
 call_result :: proc(c: ^Checker, callee: Type_Id) -> Operand {
-    return call_value(c, callee, nil)
+    return call_value(c, NO_FILE, callee, nil)
 }
 
 @(private)
-call_value :: proc(c: ^Checker, callee: Type_Id, args: []Call_Arg) -> Operand {
+call_value :: proc(c: ^Checker, file: File_Id, callee: Type_Id, args: []Call_Arg) -> Operand {
     base := type_base(&c.table, callee)
     #partial switch v in type_get(&c.table, base) {
     case Proc_Type:
         return proc_call(c, v, base, args)
     case Proc_Group_Type:
-        chosen := choose_member(c, v, args)
+        chosen, first_fit := choose_member(c, file, v, args)
         if chosen == INVALID_TYPE {
             if r, ok := group_result(c, v); ok {
                 return r
             }
-            if len(v.members) == 0 {
+            if first_fit != INVALID_TYPE {
+                chosen = first_fit
+            } else if len(v.members) > 0 {
+                chosen = v.members[0]
+            } else {
                 return {}
             }
-            chosen = v.members[0]
         }
         p, ok := type_get(&c.table, type_base(&c.table, chosen)).(Proc_Type)
         if !ok {
@@ -165,12 +197,15 @@ call_value :: proc(c: ^Checker, callee: Type_Id, args: []Call_Arg) -> Operand {
     return {}
 }
 
-// The member of a procedure group a call picks: one that takes the arguments, the best match first.
-// A member that takes them all but matches none exactly is kept as the first that fits.
+// The member of a procedure group a call picks: the one with the highest score_call. `chosen` is
+// INVALID_TYPE when no member takes the arguments or the best score is shared (an ambiguous call).
+// `first_fit` is the first member whose parameters take the arguments, whatever their types.
+// `file` is where the arguments are; an argument with no operand is read again per member with the
+// parameter type as expected, unless `file` is NO_FILE.
 @(private)
-choose_member :: proc(c: ^Checker, g: Proc_Group_Type, args: []Call_Arg) -> Type_Id {
-    best, first_fit := INVALID_TYPE, INVALID_TYPE
+choose_member :: proc(c: ^Checker, file: File_Id, g: Proc_Group_Type, args: []Call_Arg) -> (chosen, first_fit: Type_Id) {
     best_score := -1
+    tied := false
     for m in g.members {
         p, ok := type_get(&c.table, type_base(&c.table, m)).(Proc_Type)
         if !ok {
@@ -183,11 +218,19 @@ choose_member :: proc(c: ^Checker, g: Proc_Group_Type, args: []Call_Arg) -> Type
         if first_fit == INVALID_TYPE {
             first_fit = m
         }
-        if s := score_call(c, p, args, slots); s > best_score {
-            best, best_score = m, s
+        s := score_call(c, file, p, args, slots)
+        switch {
+        case s < 0:
+        case s > best_score:
+            chosen, best_score, tied = m, s, false
+        case s == best_score && m != chosen:
+            tied = true
         }
     }
-    return best != INVALID_TYPE ? best : first_fit
+    if tied {
+        chosen = INVALID_TYPE
+    }
+    return
 }
 
 // The result the members of a group agree on; false when they differ.
@@ -329,28 +372,88 @@ match_args :: proc(c: ^Checker, p: Proc_Type, args: []Call_Arg) -> ([]int, bool)
     return slots, true
 }
 
-// How well arguments match the parameters they go to; -1 when one cannot be passed.
+// The distance of an argument from the type of its parameter, as the compiler's
+// check_distance_between_types measures it: lower is a closer match.
 @(private)
-score_call :: proc(c: ^Checker, p: Proc_Type, args: []Call_Arg, slots: []int) -> int {
+Distance :: enum i64 {
+    Exact   = 0, // the same type
+    Default = 1, // an untyped constant into its default type, or a type into typeid
+    Poly    = 2, // a polymorphic parameter
+    Convert = 3, // the same underlying type, a union variant, rawptr, an embedded struct, #any_int
+    Untyped = 4, // an untyped constant into another type that holds it
+    Unknown = 5, // the operand is not known
+    Any     = 8, // into `any`
+    Max     = 10,
+}
+
+// How well arguments match the parameters they go to; -1 when one cannot be passed.
+// Each argument adds C*C - d*d for its distance d with C = 3*Distance.Max, as the compiler's
+// assign_score_function does, so one far argument costs more than several near ones gain.
+// A variadic parameter adds one to the distance.
+@(private)
+score_call :: proc(c: ^Checker, file: File_Id, p: Proc_Type, args: []Call_Arg, slots: []int) -> int {
+    bound: []Proc_Param
     if p.generic {
-        if _, ok := bind_generic(c, p, args, slots); !ok {
+        env, ok := bind_generic(c, p, args, slots)
+        if !ok || !where_holds(c, p, env) {
             return -1
         }
+        bound = bound_params(c, p, env)
     }
-    score := 0
+    scale := 3 * i64(Distance.Max)
+    score: i64
     for a, i in args {
         param := p.params[slots[i]]
+        d: i64
         if p.generic && has_poly(c, param.type, 0) {
-            score += 1
-            continue
+            d = i64(Distance.Poly)
+            if slots[i] < len(bound) {
+                if t := bound[slots[i]].type; t != INVALID_TYPE && !has_poly(c, t, 0) {
+                    bd := assign_distance(c, t, a.op, .Any_Int in param.flags, a.spread)
+                    if bd < 0 {
+                        return -1
+                    }
+                    d = max(d, bd)
+                }
+            }
+        } else {
+            op := a.op
+            if op.mode == .Invalid && file != NO_FILE && a.node.green != nil && !a.spread {
+                op = expr_type(c, file, a.node, param.type)
+                if op.mode == .Invalid && a.node.green.kind == .Implicit_Selector {
+                    return -1
+                }
+            }
+            d = assign_distance(c, param.type, op, .Any_Int in param.flags, a.spread)
+            if d < 0 {
+                return -1
+            }
         }
-        s := assign_score(c, param.type, a.op, .Any_Int in param.flags, a.spread)
-        if s < 0 {
-            return -1
+        if .Variadic in param.flags || .C_Vararg in param.flags {
+            d += 1
         }
-        score += s
+        score += scale * scale - d * d
     }
-    return score
+    return int(score)
+}
+
+// The parameters of a polymorphic procedure read again with `env` bound; nil when they cannot be read.
+@(private)
+bound_params :: proc(c: ^Checker, p: Proc_Type, env: []Binding) -> []Proc_Param {
+    node, ok := node_of_kind(c, p.file, p.offset, .Proc_Type)
+    if !ok {
+        return nil
+    }
+    pt, _ := odinsyntax.as_proc_type(node)
+    params, has_params := odinsyntax.proc_type_params(&pt)
+    if !has_params {
+        return nil
+    }
+    saved := c.env
+    c.env = env
+    defer c.env = saved
+    out := read_params(c, p.file, odinsyntax.Syntax_Node(params))
+    return len(out) == len(p.params) ? out : nil
 }
 
 // True when a type has a polymorphic parameter in it.
@@ -395,105 +498,149 @@ spread_elem :: proc(c: ^Checker, t: Type_Id) -> Type_Id {
     return INVALID_TYPE
 }
 
-// How well an operand can be passed to a parameter of type `to`: 3 for the same type, 2 for an
-// untyped constant or the same underlying type, 1 for a conversion Odin does for a call, -1 for none.
+// The Distance of an operand from a parameter of type `to`; -1 when it cannot be passed.
 @(private)
-assign_score :: proc(c: ^Checker, to: Type_Id, op: Operand, any_int, spread: bool) -> int {
+assign_distance :: proc(c: ^Checker, to: Type_Id, op: Operand, any_int, spread: bool) -> i64 {
     t := &c.table
     from := op.type
     if spread {
         from = spread_elem(c, from)
     }
     if to == INVALID_TYPE || op.mode == .Invalid {
-        return 1
+        return i64(Distance.Unknown)
     }
     tb := type_base(t, to)
-    if op.mode == .Type {
-        if b, ok := type_get(t, tb).(Basic_Type); ok && b.kind == .Typeid {
-            return 2
+    to_any := false
+    if b, ok := type_get(t, tb).(Basic_Type); ok {
+        to_any = b.kind == .Any
+        if op.mode == .Type {
+            return b.kind == .Typeid ? i64(Distance.Default) : -1
         }
+    } else if op.mode == .Type {
         return -1
     }
     if from == INVALID_TYPE {
-        return 1
+        return i64(Distance.Unknown)
     }
     if from == to {
-        return 3
+        return i64(Distance.Exact)
     }
     fb := type_base(t, from)
     if u, ok := type_get(t, from).(Untyped_Type); ok {
-        switch u.kind {
-        case .Int, .Rune:
-            if type_is_numeric(t, to) {
-                return 2
-            }
-        case .Float:
-            if type_is_float(t, to) || type_is_complex(t, to) || type_is_quaternion(t, to) {
-                return 2
-            }
-        case .Complex, .Quaternion:
-            if type_is_complex(t, to) || type_is_quaternion(t, to) {
-                return 2
-            }
-        case .String:
-            if type_is_string(t, to) {
-                return 2
-            }
-        case .Bool:
-            if type_is_boolean(t, to) {
-                return 2
-            }
-        case .Nil:
-            #partial switch v in type_get(t, tb) {
-            case Pointer_Type, Multi_Pointer_Type, Slice_Type, Dynamic_Array_Type, Map_Type, Proc_Type, Union_Type:
-                return 2
-            case Basic_Type:
-                #partial switch v.kind {
-                case .Rawptr, .Cstring, .Cstring16, .Any, .Typeid:
-                    return 2
-                }
-            }
-        case .Uninit:
-            return 2
+        if untyped_holds(c, u.kind, to, op.value) {
+            return to == type_default(t, from) ? i64(Distance.Default) : i64(Distance.Untyped)
         }
-        if b, is_basic := type_get(t, tb).(Basic_Type); is_basic && b.kind == .Any {
-            return 1
-        }
-        return -1
+        return to_any ? i64(Distance.Any) : -1
     }
     if type_underlying(t, to) == type_underlying(t, from) {
-        return 2
+        return i64(Distance.Convert)
     }
     if any_int && type_is_integer(t, to) && type_is_integer(t, from) {
-        return 1
+        return i64(Distance.Convert)
+    }
+    if to_any {
+        return i64(Distance.Any)
     }
     #partial switch v in type_get(t, tb) {
     case Basic_Type:
-        #partial switch v.kind {
-        case .Any:
-            return 1
-        case .Rawptr:
+        if v.kind == .Rawptr {
             #partial switch _ in type_get(t, fb) {
             case Pointer_Type, Multi_Pointer_Type:
-                return 1
+                return i64(Distance.Convert)
             }
         }
     case Union_Type:
         for variant in v.variants {
             if variant == from || type_underlying(t, variant) == type_underlying(t, from) {
-                return 1
+                return i64(Distance.Convert)
             }
         }
     case Proc_Type:
         if _, ok := type_get(t, fb).(Proc_Type); ok {
-            return 1
+            return i64(Distance.Convert)
         }
     case Pointer_Type:
         if f, ok := type_get(t, fb).(Pointer_Type); ok && embeds(c, f.elem, v.elem, 0) {
-            return 1
+            return i64(Distance.Convert)
         }
     }
     return -1
+}
+
+// True when an untyped constant of `kind` with `value` can be passed as type `to`. An integer
+// target must hold the value; a float constant goes into an integer only when it is integral.
+@(private)
+untyped_holds :: proc(c: ^Checker, kind: Untyped_Kind, to: Type_Id, value: Const_Value) -> bool {
+    t := &c.table
+    switch kind {
+    case .Int, .Rune:
+        if type_is_integer(t, to) {
+            return integer_holds(c, to, value)
+        }
+        return type_is_numeric(t, to)
+    case .Float:
+        if type_is_integer(t, to) {
+            f, is_float := value.(f64)
+            if !is_float {
+                return value == nil || integer_holds(c, to, value)
+            }
+            if f < -9.2e18 || f > 9.2e18 || f64(i64(f)) != f {
+                return false
+            }
+            return integer_holds(c, to, i64(f))
+        }
+        return type_is_float(t, to) || type_is_complex(t, to) || type_is_quaternion(t, to)
+    case .Complex, .Quaternion:
+        return type_is_complex(t, to) || type_is_quaternion(t, to)
+    case .String:
+        return type_is_string(t, to)
+    case .Bool:
+        return type_is_boolean(t, to)
+    case .Nil:
+        #partial switch v in type_get(t, type_base(t, to)) {
+        case Pointer_Type, Multi_Pointer_Type, Slice_Type, Dynamic_Array_Type, Map_Type, Proc_Type, Union_Type:
+            return true
+        case Basic_Type:
+            #partial switch v.kind {
+            case .Rawptr, .Cstring, .Cstring16, .Any, .Typeid:
+                return true
+            }
+        }
+        return false
+    case .Uninit:
+        return true
+    }
+    return false
+}
+
+// True when the integer type `to` holds the constant `value`; a value or a bound that is not known holds.
+@(private)
+integer_holds :: proc(c: ^Checker, to: Type_Id, value: Const_Value) -> bool {
+    v: i64
+    #partial switch x in value {
+    case i64:  v = x
+    case rune: v = i64(x)
+    case:      return true
+    }
+    lo, hi, ok := integer_bounds(c, to)
+    if !ok {
+        return v >= 0 || !basic_unsigned(c, to)
+    }
+    return v >= lo && v <= hi
+}
+
+// True when `t` is an unsigned integer type.
+@(private)
+basic_unsigned :: proc(c: ^Checker, t: Type_Id) -> bool {
+    b, ok := type_get(&c.table, type_base(&c.table, t)).(Basic_Type)
+    if !ok {
+        return false
+    }
+    #partial switch b.kind {
+    case .Uint, .U8, .U16, .U32, .U64, .U128, .Uintptr, .U16le, .U32le, .U64le, .U128le, .U16be, .U32be, .U64be, .U128be:
+        return true
+    }
+    return false
 }
 
 // True when a struct embeds `inner` through `using` fields.
@@ -624,6 +771,172 @@ bind_generic :: proc(c: ^Checker, p: Proc_Type, args: []Call_Arg, slots: []int) 
         }
     }
     return env[:], true
+}
+
+// False when a `where` constraint of the polymorphic procedure `p` is false with `env` bound.
+// A constraint that cannot be evaluated holds.
+@(private)
+where_holds :: proc(c: ^Checker, p: Proc_Type, env: []Binding) -> bool {
+    node, ok := node_of_kind(c, p.file, p.offset, .Proc_Lit)
+    if !ok {
+        return true
+    }
+    lit, _ := odinsyntax.as_proc_lit(node)
+    clause, has_clause := odinsyntax.proc_lit_where_clause(&lit)
+    if !has_clause {
+        return true
+    }
+    saved := c.env
+    c.env = env
+    defer c.env = saved
+    it := odinsyntax.where_clause_constraints(&clause)
+    for constraint in odinsyntax.child_iter_next(&it) {
+        if v, known := where_value(c, p.file, constraint); known && !v {
+            return false
+        }
+    }
+    return true
+}
+
+// The value of a `where` constraint: a constant, `!`, `&&`, `||`, `==` or `!=` of two types, or a
+// `type_is_*` intrinsic. False `known` when it cannot be evaluated.
+@(private)
+where_value :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> (value, known: bool) {
+    if c.depth >= EXPR_DEPTH {
+        return false, false
+    }
+    c.depth += 1
+    defer c.depth -= 1
+    n := n
+    #partial switch n.green.kind {
+    case .Paren_Expr:
+        pe, _ := odinsyntax.as_paren_expr(n)
+        inner, ok := odinsyntax.paren_expr_expr(&pe)
+        if !ok {
+            return false, false
+        }
+        return where_value(c, file, inner)
+    case .Unary_Expr:
+        u, _ := odinsyntax.as_unary_expr(n)
+        op, has_op := odinsyntax.unary_expr_op(&u)
+        operand, has_operand := odinsyntax.unary_expr_operand(&u)
+        if has_op && has_operand && op.green.kind == .Not {
+            v, ok := where_value(c, file, operand)
+            return !v, ok
+        }
+    case .Binary_Expr:
+        b, _ := odinsyntax.as_binary_expr(n)
+        op, has_op := odinsyntax.binary_expr_op(&b)
+        lhs, has_lhs := odinsyntax.binary_expr_lhs(&b)
+        rhs, has_rhs := odinsyntax.binary_expr_rhs(&b)
+        if !has_op || !has_lhs || !has_rhs {
+            return false, false
+        }
+        #partial switch op.green.kind {
+        case .Cmp_And:
+            l, lok := where_value(c, file, lhs)
+            if lok && !l {
+                return false, true
+            }
+            r, rok := where_value(c, file, rhs)
+            if rok && !r {
+                return false, true
+            }
+            return true, lok && rok
+        case .Cmp_Or:
+            l, lok := where_value(c, file, lhs)
+            if lok && l {
+                return true, true
+            }
+            r, rok := where_value(c, file, rhs)
+            if rok && r {
+                return true, true
+            }
+            return false, lok && rok
+        case .Cmp_Eq, .Not_Eq:
+            lt := expr_type(c, file, lhs)
+            rt := expr_type(c, file, rhs)
+            if lt.mode == .Type && rt.mode == .Type {
+                if lt.type == INVALID_TYPE || rt.type == INVALID_TYPE {
+                    return false, false
+                }
+                equal := same_type(c, lt.type, rt.type)
+                return op.green.kind == .Cmp_Eq ? equal : !equal, true
+            }
+        }
+    case .Call_Expr:
+        if v, ok := type_predicate(c, file, n); ok {
+            return v, true
+        }
+    }
+    v, ok := const_eval(c, file, n)
+    if !ok {
+        return false, false
+    }
+    b, is_bool := v.(bool)
+    return b, is_bool
+}
+
+// The value of `intrinsics.type_is_*(T)` for the predicates the checker knows; false `known` for others.
+@(private)
+type_predicate :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> (value, known: bool) {
+    call, _ := odinsyntax.as_call_expr(n)
+    callee, has_callee := odinsyntax.call_expr_callee(&call)
+    list, has_list := odinsyntax.call_expr_args(&call)
+    if !has_callee || !has_list {
+        return false, false
+    }
+    name := strings.trim_space(odinsyntax.node_text(callee))
+    if dot := strings.last_index_byte(name, '.'); dot >= 0 {
+        name = name[dot + 1:]
+    }
+    if !strings.has_prefix(name, "type_is_") {
+        return false, false
+    }
+    it := odinsyntax.arg_list_args(&list)
+    arg, has_arg := odinsyntax.child_iter_next(&it)
+    if !has_arg {
+        return false, false
+    }
+    op := expr_type(c, file, arg)
+    if op.mode != .Type || op.type == INVALID_TYPE {
+        return false, false
+    }
+    t := &c.table
+    base := type_base(t, op.type)
+    shape := type_get(t, base)
+    basic, is_basic := shape.(Basic_Type)
+    switch name[len("type_is_"):] {
+    case "integer":          return type_is_integer(t, base), true
+    case "unsigned":         return basic_unsigned(c, base), true
+    case "float":            return type_is_float(t, base), true
+    case "complex":          return type_is_complex(t, base), true
+    case "quaternion":       return type_is_quaternion(t, base), true
+    case "numeric":          return type_is_numeric(t, base), true
+    case "string":           return type_is_string(t, base), true
+    case "boolean":          return type_is_boolean(t, base), true
+    case "cstring":          return is_basic && (basic.kind == .Cstring || basic.kind == .Cstring16), true
+    case "rune":             return is_basic && basic.kind == .Rune, true
+    case "rawptr":           return is_basic && basic.kind == .Rawptr, true
+    case "any":              return is_basic && basic.kind == .Any, true
+    case "typeid":           return is_basic && basic.kind == .Typeid, true
+    case "named":            return op.type != base, true
+    case "pointer":          _, ok := shape.(Pointer_Type); return ok, true
+    case "multi_pointer":    _, ok := shape.(Multi_Pointer_Type); return ok, true
+    case "slice":            _, ok := shape.(Slice_Type); return ok, true
+    case "dynamic_array":    _, ok := shape.(Dynamic_Array_Type); return ok, true
+    case "array":            _, ok := shape.(Array_Type); return ok, true
+    case "enumerated_array": _, ok := shape.(Enumerated_Array_Type); return ok, true
+    case "map":              _, ok := shape.(Map_Type); return ok, true
+    case "struct":           _, ok := shape.(Struct_Type); return ok, true
+    case "union":            _, ok := shape.(Union_Type); return ok, true
+    case "enum":             _, ok := shape.(Enum_Type); return ok, true
+    case "bit_set":          _, ok := shape.(Bit_Set_Type); return ok, true
+    case "proc":             _, ok := shape.(Proc_Type); return ok, true
+    case "matrix":           _, ok := shape.(Matrix_Type); return ok, true
+    case "simd_vector":      _, ok := shape.(Simd_Type); return ok, true
+    }
+    return false, false
 }
 
 // The type after `/` in `typeid/T`.
@@ -803,6 +1116,11 @@ unify :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, arg: Type_I
             }
             elem, eok := odinsyntax.array_type_elem(&a)
             return !eok || unify(c, file, elem, v.elem, env)
+        }
+        if d, has_directive := odinsyntax.tag_expr_directive(&tag); has_directive {
+            if name := strings.trim_space(odinsyntax.node_text(d)); name == "#soa" || name == "#simd" {
+                return false
+            }
         }
         return unify(c, file, inner, arg, env)
     case .Call_Expr:

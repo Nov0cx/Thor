@@ -419,8 +419,7 @@ integer_bounds :: proc(c: ^Checker, t: Type_Id) -> (lo, hi: i64, ok: bool) {
     if bits <= 0 || bits > 64 {
         return 0, 0, false
     }
-    #partial switch b.kind {
-    case .Uint, .U8, .U16, .U32, .U64, .U128, .Uintptr, .U16le, .U32le, .U64le, .U128le, .U16be, .U32be, .U64be, .U128be:
+    if basic_unsigned(c, t) {
         if bits == 64 {
             return 0, 0, false
         }
