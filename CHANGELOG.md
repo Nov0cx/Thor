@@ -24,6 +24,17 @@
 - Odin: semantic highlighting colours parameters, locals, fields, procedures, types, enum members, packages and undeclared names.
 - Odin: go to definition, find references and rename work for struct fields (also through `using` and pointers), enum members (also an implicit `.Member`), field names in a struct literal and named call arguments.
 - Odin: rename of a parameter also renames its named arguments.
+- Odin: hover shows the size and alignment of a type and the offset of each struct field.
+- Odin: hover shows `/* */` doc comments (as in `base:builtin`), `using` on a field, and `Owner.field: T` for a field of a record declared inside a procedure.
+- Odin: names that `using` brings into scope resolve in hover, go to definition, find references, rename and semantic highlighting.
+- Odin: completion offers union variants after `x.(` and procedure members after `x->`.
+- Odin: completion ranks procedures by their result type against the expected type.
+- Odin: completion of a procedure inserts the call with its parameters as snippet stops. `enable_snippets` in `.thor/odin-analyzer.json` turns it off.
+- Odin: completion offers packages not yet imported and adds the `import` line.
+- Odin: signature help works for polymorphic record calls (`List(`), conversions (`int(`) and procedure groups declared inside a procedure.
+- Odin: go to definition on a procedure group call jumps to the member its arguments pick, with the compiler's overload scoring and `where` clauses.
+- Odin: go to symbol shows an alias such as `Foo :: pkg.Bar` as a type or a procedure.
+- Odin: requests that read the standard library are faster. Its declarations are cached in `user/cache/odin/`, and its files are checked for changes at most every 5 s.
 
 # 2026.10.7
 
