@@ -410,7 +410,7 @@ test_definition_stdlib :: proc(t: ^testing.T) {
     testing.expectf(t, strings.contains(res.location.path, "fmt"), "path: got %q", res.location.path)
 }
 
-// A call of a procedure group offers its members.
+// An ambiguous call of a procedure group offers its members.
 @(test)
 test_definition_overload_offers_members :: proc(t: ^testing.T) {
     e := engine_create()
@@ -429,10 +429,10 @@ sized_two :: proc(a: [dynamic]int) -> int {
 sizes :: proc{sized_one, sized_two}
 
 main :: proc(xs: []int) {
-	_ = sizes(xs)
+	_ = sizes(nil)
 }
 `
-    res := definition_at(e, src, "sizes(xs)")
+    res := definition_at(e, src, "sizes(nil)")
     defer free_definition(&res)
     testing.expect(t, res.ok, "expected go-to-definition on a procedure group")
     testing.expectf(t, len(res.symbols) == 2, "expected one candidate per member: got %d", len(res.symbols))
@@ -443,6 +443,54 @@ main :: proc(xs: []int) {
         testing.expect_value(t, res.symbols[1].signature, "sized_two :: proc(a: [dynamic]int) -> int")
         testing.expect_value(t, res.symbols[1].line, 7)
     }
+}
+
+// A call of a procedure group jumps to the member its arguments pick.
+@(test)
+test_definition_overload_picks_by_args :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package demo
+
+sized_one :: proc(a: []int) -> int {
+	return len(a)
+}
+
+sized_two :: proc(a: [dynamic]int) -> int {
+	return len(a)
+}
+
+sized_u8 :: proc(a: u8, b: u8) -> int {
+	return 0
+}
+
+sized_i64 :: proc(a: i64, b: i64) -> int {
+	return 0
+}
+
+sizes :: proc{sized_one, sized_two, sized_u8, sized_i64}
+
+main :: proc(xs: []int, ds: [dynamic]int) {
+	_ = sizes(xs)
+	_ = sizes(ds)
+	_ = sizes(300, 1)
+	_ = sizes(3, 1)
+}
+`
+    res := definition_at(e, src, "sizes(xs)")
+    expect_jump(t, &res, "buffer.odin", strings.index(src, "sized_one ::"))
+    free_definition(&res)
+    res = definition_at(e, src, "sizes(ds)")
+    expect_jump(t, &res, "buffer.odin", strings.index(src, "sized_two ::"))
+    free_definition(&res)
+    res = definition_at(e, src, "sizes(300")
+    expect_jump(t, &res, "buffer.odin", strings.index(src, "sized_i64 ::"))
+    free_definition(&res)
+    res = definition_at(e, src, "sizes(3,")
+    testing.expect(t, res.ok, "expected the members of an ambiguous call")
+    testing.expectf(t, len(res.symbols) == 4, "ambiguous call: got %d candidates, want 4", len(res.symbols))
+    free_definition(&res)
 }
 
 @(test)
@@ -528,8 +576,19 @@ test_definition_overload_package_qualified :: proc(t: ^testing.T) {
     })
     defer os.remove_all(root)
 
-    main_src := "package app\n\nimport \"lib\"\n\nmain :: proc() {\n\t_ = lib.sizes(1)\n}\n"
-    res := definition_at(e, main_src, "sizes(1)", root, fixture_path(root, "main.odin"))
+    main_src := "package app\n\nimport \"lib\"\n\nmain :: proc() {\n\t_ = lib.sizes(missing)\n\t_ = lib.sizes(1)\n\t_ = lib.sizes(1, 2)\n\t_ = lib.sizes(1.5)\n}\n"
+    main_path := fixture_path(root, "main.odin")
+    picked := definition_at(e, main_src, "sizes(1)", root, main_path)
+    expect_jump(t, &picked, "one.odin", strings.index(one_src, "sized_one ::"))
+    free_definition(&picked)
+    picked = definition_at(e, main_src, "sizes(1, 2)", root, main_path)
+    expect_jump(t, &picked, "two.odin", strings.index("package lib\n\nsized_two", "sized_two"))
+    free_definition(&picked)
+    picked = definition_at(e, main_src, "sizes(1.5)", root, main_path)
+    expect_jump(t, &picked, "extra.odin", strings.index(three_src, "sized_three ::"))
+    free_definition(&picked)
+
+    res := definition_at(e, main_src, "sizes(missing)", root, main_path)
     defer free_definition(&res)
     testing.expect(t, res.ok, "expected the members of lib.sizes")
     testing.expectf(t, len(res.symbols) == 3, "members: got %d, want 3", len(res.symbols))
@@ -727,7 +786,8 @@ test_definition_builtin_type :: proc(t: ^testing.T) {
     testing.expectf(t, strings.has_suffix(res.location.path, "builtin.odin"), "path: got %q", res.location.path)
 }
 
-// A builtin procedure group offers its members from base:runtime.
+// A builtin procedure group offers its members from base:runtime; a call of it jumps to the member
+// its arguments pick.
 @(test)
 test_definition_builtin_group :: proc(t: ^testing.T) {
     e := engine_create()
@@ -736,8 +796,15 @@ test_definition_builtin_group :: proc(t: ^testing.T) {
     if odin_root(&e.root) == "" {
         testing.fail_now(t, "no Odin root: ODIN_ROOT, `odin root` and the build root all failed")
     }
-    src := "package app\n\nadd :: proc(xs: ^[dynamic]int) {\n\tappend(xs, 1)\n}\n"
-    res := definition_at(e, src, "append(")
+    src := "package app\n\nadd :: proc(xs: ^[dynamic]int) {\n\tappend(xs, 1)\n\t_ = append\n}\n"
+    call := definition_at(e, src, "append(")
+    testing.expect(t, call.ok, "expected the call of append to resolve")
+    testing.expectf(t, len(call.symbols) == 0, "expected a jump, got %d candidates", len(call.symbols))
+    testing.expectf(t, strings.has_suffix(call.location.path, "core_builtin.odin"), "path: got %q", call.location.path)
+    testing.expect(t, strings.has_prefix(text_from(call.location.path, call.location.start), "append_elem ::"), "expected the jump to land on append_elem")
+    free_definition(&call)
+
+    res := definition_at(e, src, "append\n")
     defer free_definition(&res)
     testing.expect(t, res.ok, "expected the builtin append to resolve")
     found := false

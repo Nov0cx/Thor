@@ -150,7 +150,7 @@ definition :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
     if lang.request_cancelled(req) {
         return
     }
-    answer(&ctx, cands[:], res)
+    answer(&ctx, cands[:], ref.start, res)
 }
 
 // Fills `res` with the declaration the name at `offset` of the buffer refers to through a type. False when the checker finds none.
@@ -170,9 +170,10 @@ typed_jump :: proc(ctx: ^Request_Context, offset: int, res: ^lang.Result) -> boo
 }
 
 // Sorts the candidates and fills `res`: one active candidate, or one candidate only, is a jump;
-// a lone procedure group is a jump to its members, or a list of them.
+// a lone procedure group is a jump to its members, or a list of them. When the name at `name_offset`
+// is the callee of a call, the group gives only the member the arguments pick.
 @(private = "file")
-answer :: proc(ctx: ^Request_Context, cands: []Def_Candidate, res: ^lang.Result) {
+answer :: proc(ctx: ^Request_Context, cands: []Def_Candidate, name_offset: int, res: ^lang.Result) {
     slice.sort_by(cands, proc(a, b: Def_Candidate) -> bool {
         if a.inactive != b.inactive {
             return !a.inactive
@@ -198,6 +199,11 @@ answer :: proc(ctx: ^Request_Context, cands: []Def_Candidate, res: ^lang.Result)
         if len(members) > 0 {
             list = members[:]
         }
+        if len(list) > 1 {
+            if i, picked := called_member(ctx, name_offset, list); picked {
+                list = list[i:i + 1]
+            }
+        }
     }
     switch len(list) {
     case 0:
@@ -218,6 +224,36 @@ answer :: proc(ctx: ^Request_Context, cands: []Def_Candidate, res: ^lang.Result)
         }
     }
     res.ok = true
+}
+
+// The index of the member a call of the group named at `name_offset` picks by its arguments. False
+// when the name is not a callee, the call is ambiguous or no member or more than one has the picked type.
+@(private = "file")
+called_member :: proc(ctx: ^Request_Context, name_offset: int, members: []Def_Candidate) -> (int, bool) {
+    c := request_checker(ctx)
+    if c == nil || name_offset < 0 {
+        return -1, false
+    }
+    call, is_callee := odinsema.callee_call(c, ctx.live.id, name_offset)
+    if !is_callee {
+        return -1, false
+    }
+    chosen := odinsema.call_group_member(c, ctx.live.id, call)
+    if chosen == odinsema.INVALID_TYPE {
+        return -1, false
+    }
+    found := -1
+    for m, i in members {
+        sym, ok := decl_symbol(ctx, m.path, m.offset)
+        if !ok || odinsema.decl_type(c, sym) != chosen {
+            continue
+        }
+        if found >= 0 {
+            return -1, false
+        }
+        found = i
+    }
+    return found, found >= 0
 }
 
 // Appends the declaration of each member of a procedure group that resolves: the first active one of its name.
