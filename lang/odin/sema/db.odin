@@ -53,6 +53,7 @@ Db_Stats :: struct {
     reads:        int, // files read from disk
     stats:        int, // file stamps read from disk
     listings:     int, // package directories listed
+    cache_hits:   int, // item trees taken from the tree cache
     parses:       int, // full parses
     reparses:     int, // incremental parses
     trees:        int, // item trees built
@@ -71,6 +72,7 @@ Db :: struct {
     workspace_limit: int,
     clock:           Clock_Proc,
     stable_interval: i64, // nanoseconds; see STABLE_INTERVAL
+    cache:           Tree_Cache,
     lock:            sync.RW_Mutex, // guards the intern maps, the slot arrays and `configs`
     files:           [dynamic]^File_Slot,        // owned
     file_ids:        map[string]File_Id,         // owned; keys borrowed from the slots
@@ -259,6 +261,7 @@ db_init :: proc(db: ^Db, read: Read_Proc, allocator := context.allocator) {
     db.body_budget = BODY_BUDGET
     db.workspace_limit = WORKSPACE_FILE_LIMIT
     db.stable_interval = i64(STABLE_INTERVAL)
+    cache_init(db)
     db.file_ids = make(map[string]File_Id, allocator)
     db.package_ids = make(map[string]Package_Id, allocator)
     db.configs = make(map[string]u32, allocator)
@@ -290,6 +293,7 @@ db_destroy :: proc(db: ^Db) {
     }
     delete(db.workspace.files, db.allocator)
     delete(db.workspace.key, db.allocator)
+    cache_destroy(db)
     for key in db.configs {
         delete(key, db.allocator)
     }
@@ -652,27 +656,34 @@ pin_owned :: proc(snap: ^Snapshot, v: ^Value) -> bool {
 
 @(private)
 file_data_new :: proc(db: ^Db, parsed: odinsyntax.Parse) -> ^File_Data {
-    d, err := new(File_Data, db.allocator)
-    if err != nil {
-        return nil
-    }
-    d.kind = .File_Data
-    d.refs = 1
-    terr: mem.Allocator_Error
-    d.tree, terr = item_tree(parsed, db.allocator)
+    tree, terr := item_tree(parsed, db.allocator)
     if terr != nil {
-        free(d, db.allocator)
         return nil
     }
     stat_add(&db.stats.trees)
     text := parsed.tree != nil ? parsed.tree.text : ""
-    d.lines = line_starts(text, db.allocator)
-    if d.lines == nil {
-        item_tree_destroy(d.tree, db.allocator)
-        free(d, db.allocator)
+    lines := line_starts(text, db.allocator)
+    if lines == nil {
+        item_tree_destroy(tree, db.allocator)
         return nil
     }
-    d.shape = item_tree_shape_hash(d.tree)
+    return file_data_wrap(db, tree, lines)
+}
+
+// A File_Data that owns `tree` and `lines`. On nil both are freed.
+@(private)
+file_data_wrap :: proc(db: ^Db, tree: ^Item_Tree, lines: []int) -> ^File_Data {
+    d, err := new(File_Data, db.allocator)
+    if err != nil {
+        item_tree_destroy(tree, db.allocator)
+        delete(lines, db.allocator)
+        return nil
+    }
+    d.kind = .File_Data
+    d.refs = 1
+    d.tree = tree
+    d.lines = lines
+    d.shape = item_tree_shape_hash(tree)
     return d
 }
 

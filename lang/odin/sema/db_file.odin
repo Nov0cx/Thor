@@ -189,7 +189,7 @@ file_refresh :: proc(snap: ^Snapshot, slot: ^File_Slot) {
         slot.stat_epoch = snap.epoch
         return
     }
-    file_load(snap, slot)
+    file_load(snap, slot, modtime, size)
     slot.stamped = true
     slot.exists = true
     slot.modtime = modtime
@@ -197,12 +197,26 @@ file_refresh :: proc(snap: ^Snapshot, slot: ^File_Slot) {
     slot.stat_epoch = snap.epoch
 }
 
-// Reads and parses a file into new disk memos. A file that cannot be read keeps none.
+// Reads and parses a file into new disk memos. A file under the Odin root takes its tree from the
+// tree cache when the stamp matches, and leaves the parse to db_parse. A file that cannot be read keeps none.
 @(private = "file")
-file_load :: proc(snap: ^Snapshot, slot: ^File_Slot) {
+file_load :: proc(snap: ^Snapshot, slot: ^File_Slot, modtime, size: i64) {
     db := snap.db
     file_slot_drop_disk(db, slot)
     rev := next_revision(db)
+    stable := key_stable(snap, slot.key)
+    if stable {
+        if tree, lines, hit := cache_take(db, slot.key, modtime, size); hit {
+            if data := file_data_wrap(db, tree, lines); data != nil {
+                stat_add(&db.stats.cache_hits)
+                file_set_disk(slot, data, rev)
+                if sync.atomic_load(&slot.holders) == 0 {
+                    lru_touch_locked(db, &db.loose, u32(slot.id))
+                }
+                return
+            }
+        }
+    }
     text, ok := db.read(slot.path, db.allocator)
     if !ok {
         return
@@ -219,14 +233,10 @@ file_load :: proc(snap: ^Snapshot, slot: ^File_Slot) {
         odinsyntax.parse_destroy(&parsed, db.allocator)
         return
     }
-    if !slot.has_shape || slot.shape != data.shape {
-        slot.has_shape = true
-        slot.shape = data.shape
-        slot.shape_changed_at = rev
+    file_set_disk(slot, data, rev)
+    if stable {
+        cache_put(db, slot.key, modtime, size, data.tree, data.lines)
     }
-    data.shape_changed_at = slot.shape_changed_at
-    data.changed_at = rev
-    slot.disk = data
     if body := file_body_new(db, parsed); body != nil {
         slot.body = body
         lru_touch_locked(db, &db.bodies, u32(slot.id), body.bytes)
@@ -236,6 +246,19 @@ file_load :: proc(snap: ^Snapshot, slot: ^File_Slot) {
     if sync.atomic_load(&slot.holders) == 0 {
         lru_touch_locked(db, &db.loose, u32(slot.id))
     }
+}
+
+// Makes `data` the disk data of a slot read at revision `rev`. The caller holds the slot.
+@(private = "file")
+file_set_disk :: proc(slot: ^File_Slot, data: ^File_Data, rev: u64) {
+    if !slot.has_shape || slot.shape != data.shape {
+        slot.has_shape = true
+        slot.shape = data.shape
+        slot.shape_changed_at = rev
+    }
+    data.shape_changed_at = slot.shape_changed_at
+    data.changed_at = rev
+    slot.disk = data
 }
 
 // Parses the disk text again for a body the budget dropped. A file whose stamp moved is read whole
