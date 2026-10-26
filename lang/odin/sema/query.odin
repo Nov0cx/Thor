@@ -645,6 +645,29 @@ call_group_member :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_No
     return chosen
 }
 
+// The call whose callee is the name at byte `offset` of `file`: `f` of `f(x)` or of `pkg.f(x)`.
+// False when the name is not the callee of a call.
+callee_call :: proc(c: ^Checker, file: File_Id, offset: int) -> (odinsyntax.Syntax_Node, bool) {
+    path := node_path(c, file, offset)
+    i := len(path) - 1
+    if i < 1 || path[i].green.kind != .Ident {
+        return {}, false
+    }
+    if path[i - 1].green.kind == .Selector_Expr && path[i - 1].offset != path[i].offset {
+        i -= 1
+    }
+    if i < 1 || path[i - 1].green.kind != .Call_Expr {
+        return {}, false
+    }
+    call := path[i - 1]
+    ce, _ := odinsyntax.as_call_expr(call)
+    callee, ok := odinsyntax.call_expr_callee(&ce)
+    if !ok || callee.offset != path[i].offset || callee.green != path[i].green {
+        return {}, false
+    }
+    return call, true
+}
+
 // The parameter type argument `arg` of `call` is expected to have. `name` is the name of a named argument.
 @(private)
 arg_expected :: proc(c: ^Checker, file: File_Id, call, arg: odinsyntax.Syntax_Node, name: string) -> Type_Id {
