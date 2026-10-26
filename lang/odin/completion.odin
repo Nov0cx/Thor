@@ -445,18 +445,35 @@ proc_type_of :: proc(cm: ^Completer, t: odinsema.Type_Id) -> (odinsema.Proc_Type
     return p, ok
 }
 
-// Adds a package-level declaration. A variable or constant is typed while the expected type is known.
+// Adds a package-level declaration. A variable, constant or procedure is typed while the expected
+// type is known; a procedure ranks by its one result.
 @(private = "file")
 add_item :: proc(cm: ^Completer, item: ^odinsema.Item, sym: odinsema.Symbol, tier: Tier) {
     if !strings.has_prefix(item.name, cm.prefix) || item.name in cm.seen {
         return
     }
+    is_proc := item.kind == .Proc || item.kind == .Proc_Group
     type := odinsema.INVALID_TYPE
-    if cm.c != nil && cm.expected != odinsema.INVALID_TYPE && (item.kind == .Var || item.kind == .Const) && cm.typed < EXPECTED_TYPED_MAX {
+    if cm.c != nil && cm.expected != odinsema.INVALID_TYPE && (item.kind == .Var || item.kind == .Const || is_proc) && cm.typed < EXPECTED_TYPED_MAX {
         cm.typed += 1
         type = odinsema.decl_type(cm.c, sym)
     }
+    if is_proc {
+        type = proc_rank_type(cm, type)
+    }
     add(cm, item.name, item_kind_name(item.kind), item.signature, tier, type = type)
+}
+
+// The type a procedure of type `t` ranks by: `t` when the caret expects it, else its one result.
+@(private = "file")
+proc_rank_type :: proc(cm: ^Completer, t: odinsema.Type_Id) -> odinsema.Type_Id {
+    if t == odinsema.INVALID_TYPE || t == cm.expected {
+        return t
+    }
+    if p, ok := proc_type_of(cm, t); ok && len(p.results) == 1 {
+        return p.results[0].type
+    }
+    return odinsema.INVALID_TYPE
 }
 
 // The kind name the editor colors a declaration by.
@@ -547,7 +564,8 @@ add_locals :: proc(cm: ^Completer, start: int) {
                 continue
             }
             type := odinsema.INVALID_TYPE
-            if cm.c != nil && (l.is_using || (cm.expected != odinsema.INVALID_TYPE && cm.typed < EXPECTED_TYPED_MAX)) {
+            is_proc := l.kind == .Proc
+            if cm.c != nil && (l.is_using || is_proc || (cm.expected != odinsema.INVALID_TYPE && cm.typed < EXPECTED_TYPED_MAX)) {
                 cm.typed += 1
                 type = odinsema.decl_type(cm.c, odinsema.local_symbol(file, l.name_offset))
             }
@@ -556,7 +574,11 @@ add_locals :: proc(cm: ^Completer, start: int) {
                 detail = type_text(cm, l.type_offset)
             }
             name := strings.clone(l.name, context.temp_allocator)
-            add(cm, name, kind, detail, .Local, type = type)
+            rank := type
+            if is_proc {
+                rank = proc_rank_type(cm, type)
+            }
+            add(cm, name, kind, detail, .Local, type = rank)
             if l.is_using && cm.c != nil {
                 add_using_fields(cm, odinsema.type_members(cm.c, type, context.temp_allocator))
             }

@@ -483,3 +483,39 @@ test_completion_arrow :: proc(t: ^testing.T) {
     defer completions_free(&res)
     expect_labels(t, &res, {"add", "clear"}, {"count", "main"})
 }
+
+// A procedure whose one result is the expected type ranks with the expected values.
+@(test)
+test_completion_proc_result_rank :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package demo
+
+make_count :: proc() -> int {
+	return 0
+}
+
+make_name :: proc() -> string {
+	return ""
+}
+
+main :: proc() {
+	make_pair :: proc() -> (string, int) {
+		return "", 0
+	}
+	make_local :: proc() -> string {
+		return ""
+	}
+	s: string = make
+	_ = s
+}
+`
+    res := complete_at(e, src, "s: string = make")
+    defer completions_free(&res)
+    expect_labels(t, &res, {"make_count", "make_name", "make_pair", "make_local"})
+    name, local, count, pair := label_index(&res, "make_name"), label_index(&res, "make_local"), label_index(&res, "make_count"), label_index(&res, "make_pair")
+    testing.expectf(t, name >= 0 && name < count && name < pair, "make_name ranks first: %d, %d, %d", name, count, pair)
+    testing.expectf(t, local >= 0 && local < count && local < pair, "make_local ranks first: %d, %d, %d", local, count, pair)
+    testing.expect(t, len(res.completions) > 0 && res.completions[0].preselect, "the first expected match is preselected")
+}
