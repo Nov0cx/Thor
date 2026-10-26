@@ -148,6 +148,39 @@ request_checker :: proc(ctx: ^Request_Context) -> ^odinsema.Checker {
     return &ctx.checker
 }
 
+// The symbol of the declaration, field or member whose name is at `decl` of the file at `path`.
+@(private)
+decl_symbol :: proc(ctx: ^Request_Context, path: string, decl: int) -> (odinsema.Symbol, bool) {
+    if decl < 0 {
+        return {}, false
+    }
+    file := ctx.live.id
+    if path != ctx.req.path {
+        file = odinsema.db_file_id(&ctx.snap, path)
+        if file == odinsema.NO_FILE {
+            return {}, false
+        }
+    }
+    data := odinsema.db_file(&ctx.snap, file)
+    if data == nil {
+        return {}, false
+    }
+    for item, i in data.tree.items {
+        if item.name_offset == decl {
+            return odinsema.Symbol{file = file, item = i32(i), child = -1}, true
+        }
+        if decl < item.start || decl >= item.end {
+            continue
+        }
+        for child, j in item.children {
+            if child.name_offset == decl {
+                return odinsema.Symbol{file = file, item = i32(i), child = i32(j)}, true
+            }
+        }
+    }
+    return {}, false
+}
+
 // The path of a file of the snapshot; the request's path for the buffer.
 @(private)
 snapshot_path :: proc(ctx: ^Request_Context, file: odinsema.File_Id) -> string {
