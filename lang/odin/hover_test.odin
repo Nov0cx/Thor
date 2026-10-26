@@ -107,9 +107,9 @@ test_hover_types :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
 
-    expect_hover(t, e, HOVER_SRC, "Point :: struct", "@(private)\nPoint :: struct {\n    x, y: int,\n    label: string,\n}", name = "Point")
-    expect_hover(t, e, HOVER_SRC, "Shape ::", "Shape :: union {\n    Point,\n    int,\n}", name = "Shape")
-    expect_hover(t, e, HOVER_SRC, "Color ::", "Color :: enum {\n    Red,\n    Green = 5,\n    Blue,\n}", name = "Color")
+    expect_hover(t, e, HOVER_SRC, "Point :: struct", "@(private)\nPoint :: struct {\n    x, y: int,\n    label: string,\n}\n// size 32, align 8", name = "Point")
+    expect_hover(t, e, HOVER_SRC, "Shape ::", "Shape :: union {\n    Point,\n    int,\n}\n// size 40, align 8", name = "Shape")
+    expect_hover(t, e, HOVER_SRC, "Color ::", "Color :: enum {\n    Red,\n    Green = 5,\n    Blue,\n}\n// size 8, align 8", name = "Color")
 }
 
 // A field through a selector, and enum members implicit and qualified, name their owner.
@@ -118,11 +118,11 @@ test_hover_members :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
 
-    expect_hover(t, e, HOVER_SRC, "p.label", "Point.label: string", skip = 2, name = "label")
+    expect_hover(t, e, HOVER_SRC, "p.label", "Point.label: string // offset 16, size 16", skip = 2, name = "label")
     expect_hover(t, e, HOVER_SRC, ".Green\n", "Color.Green = 5", skip = 1, name = "Green")
     expect_hover(t, e, HOVER_SRC, "Color.Blue", "Color.Blue = 6", skip = len("Color."), name = "Blue")
     expect_hover(t, e, HOVER_SRC, "\tRed,", "Color.Red = 0", skip = 1, name = "Red")
-    expect_hover(t, e, HOVER_SRC, "x, y: int", "Point.x: int", name = "x")
+    expect_hover(t, e, HOVER_SRC, "x, y: int", "Point.x: int // offset 0, size 8", name = "x")
 }
 
 // A constant shows its declaration, and its value when the declaration does not spell it.
@@ -232,7 +232,7 @@ test_hover_big_and_local :: proc(t: ^testing.T) {
             strings.write_string(&want, ",\n")
         }
     }
-    strings.write_string(&want, "    ...\n}")
+    strings.write_string(&want, "    ...\n}\n// size 160, align 8")
     strings.write_string(&sb, "}\n\nmain :: proc() {\n\tLocal :: struct { a: int }\n\thelp :: proc(n: int) -> bool { return n > 0 }\n\tl: Local\n\t_ = help(l.a)\n}\n")
     src := strings.to_string(sb)
 
@@ -274,8 +274,8 @@ main :: proc() {
     expect_hover(t, e, src, "count\n\t_ = b.base", "Body.count: int", name = "count")
     expect_hover(t, e, src, "count: int", "Body.count: int", name = "count")
     expect_hover(t, e, src, "base\n\ten", "using Body.base: Vec2", name = "base")
-    expect_hover(t, e, src, "pos\n}", "using Entity.pos: Vec2", name = "pos")
-    expect_hover(t, e, src, "Entity ::", "Entity :: struct {\n    using pos: Vec2,\n    name: string,\n}", name = "Entity")
+    expect_hover(t, e, src, "pos\n}", "using Entity.pos: Vec2 // offset 0, size 8", name = "pos")
+    expect_hover(t, e, src, "Entity ::", "Entity :: struct {\n    using pos: Vec2,\n    name: string,\n}\n// size 24, align 8", name = "Entity")
 }
 
 // A `/* */` comment above a declaration is its doc.
@@ -294,5 +294,47 @@ test_hover_using_bare_name :: proc(t: ^testing.T) {
     defer engine_destroy(e)
 
     src := "package demo\n\nBase :: struct {\n\tid: int,\n}\n\nEntity :: struct {\n\tusing base: Base,\n}\n\nmove :: proc(e: Entity) -> int {\n\tusing e\n\treturn id\n}\n"
-    expect_hover(t, e, src, "id\n}", "Base.id: int", name = "id")
+    expect_hover(t, e, src, "id\n}", "Base.id: int // offset 0, size 8", name = "id")
+}
+
+// A type shows its size and alignment, a field its offset and size, also through a `using` field.
+@(test)
+test_hover_layout :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package demo
+
+Vec :: struct {
+	x, y: f32,
+}
+
+Body :: struct #packed {
+	id: u8,
+	using pos: Vec,
+}
+
+Flags :: bit_set[0..<12]
+Id :: distinct u16
+List :: struct($T: typeid) {
+	items: []T,
+}
+Loop :: struct {
+	next: Loop,
+}
+
+main :: proc() {
+	b: Body
+	_ = b.y
+	pb := &b
+	_ = pb.id
+}
+`
+    expect_hover(t, e, src, "Body ::", "Body :: struct #packed {\n    id: u8,\n    using pos: Vec,\n}\n// size 9, align 1", name = "Body")
+    expect_hover(t, e, src, "Flags ::", "Flags :: bit_set[0..<12]\n// size 2, align 2", name = "Flags")
+    expect_hover(t, e, src, "Id ::", "Id :: distinct u16\n// size 2, align 2", name = "Id")
+    expect_hover(t, e, src, "List ::", "List :: struct($T: typeid) {\n    items: []T,\n}", name = "List")
+    expect_hover(t, e, src, "Loop ::", "Loop :: struct {\n    next: Loop,\n}", name = "Loop")
+    expect_hover(t, e, src, "b.y", "Vec.y: f32 // offset 5 in Body, size 4", skip = 2, name = "y")
+    expect_hover(t, e, src, "pb.id", "Body.id: u8 // offset 0, size 1", skip = 3, name = "id")
 }

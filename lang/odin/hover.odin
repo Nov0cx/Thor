@@ -87,7 +87,8 @@ name_hover :: proc(ctx: ^Request_Context, ref: odinsema.Name_Ref) -> string {
         }
     case .Package_Item, .Builtin, .Member:
         if sym, ok := decl_symbol(ctx, t.path, t.decl); ok {
-            return symbol_hover(ctx, sym)
+            via := ref.kind == .Field_Or_Member ? selector_operand_type(ctx, ref.start) : odinsema.INVALID_TYPE
+            return symbol_hover(ctx, sym, via)
         }
         if t.kind != .Member {
             return ""
@@ -320,9 +321,41 @@ typed_line :: proc(c: ^odinsema.Checker, name: string, type: odinsema.Type_Id) -
     return fmt.tprintf("%s: %s", name, odinsema.type_string(&c.table, type, context.temp_allocator))
 }
 
-// The hover text of a file-scope declaration, field or enum member.
+// The type of the operand of the selector whose field name is at `offset`, through one pointer;
+// INVALID_TYPE when not known.
 @(private = "file")
-symbol_hover :: proc(ctx: ^Request_Context, sym: odinsema.Symbol) -> string {
+selector_operand_type :: proc(ctx: ^Request_Context, offset: int) -> odinsema.Type_Id {
+    c := request_checker(ctx)
+    if c == nil {
+        return odinsema.INVALID_TYPE
+    }
+    n, ok := odinsema.expr_under(c, ctx.live.id, offset)
+    if !ok {
+        return odinsema.INVALID_TYPE
+    }
+    sel, is_selector := odinsyntax.as_selector_expr(n)
+    if !is_selector {
+        return odinsema.INVALID_TYPE
+    }
+    operand, has_operand := odinsyntax.selector_expr_operand(&sel)
+    if !has_operand {
+        return odinsema.INVALID_TYPE
+    }
+    op := odinsema.expr_type(c, ctx.live.id, operand)
+    if op.mode != .Value && op.mode != .Const {
+        return odinsema.INVALID_TYPE
+    }
+    type := op.type
+    if p, is_pointer := odinsema.type_get(&c.table, odinsema.type_base(&c.table, type)).(odinsema.Pointer_Type); is_pointer {
+        type = p.elem
+    }
+    return type
+}
+
+// The hover text of a file-scope declaration, field or enum member. `via` is the type a selector
+// reads a field through; INVALID_TYPE when none.
+@(private = "file")
+symbol_hover :: proc(ctx: ^Request_Context, sym: odinsema.Symbol, via := odinsema.INVALID_TYPE) -> string {
     data := odinsema.db_file(&ctx.snap, sym.file)
     if data == nil || int(sym.item) >= len(data.tree.items) {
         return ""
@@ -334,12 +367,13 @@ symbol_hover :: proc(ctx: ^Request_Context, sym: odinsema.Symbol) -> string {
     if int(sym.child) >= len(item.children) {
         return ""
     }
-    return item_text(ctx, &item.children[sym.child], item, sym, true)
+    return item_text(ctx, &item.children[sym.child], item, sym, true, via)
 }
 
-// The signature of `item` and its doc comment. `owner` is the declaration of a field or member.
+// The signature of `item` and its doc comment. `owner` is the declaration of a field or member;
+// `via` the type a selector reads the field through.
 @(private = "file")
-item_text :: proc(ctx: ^Request_Context, item, owner: ^odinsema.Item, sym: odinsema.Symbol, has_sym: bool) -> string {
+item_text :: proc(ctx: ^Request_Context, item, owner: ^odinsema.Item, sym: odinsema.Symbol, has_sym: bool, via := odinsema.INVALID_TYPE) -> string {
     c: ^odinsema.Checker
     if has_sym {
         c = request_checker(ctx)
@@ -356,6 +390,7 @@ item_text :: proc(ctx: ^Request_Context, item, owner: ^odinsema.Item, sym: odins
         type := c != nil ? odinsema.decl_type(c, sym) : odinsema.INVALID_TYPE
         if type != odinsema.INVALID_TYPE {
             fmt.sbprintf(&sb, "%s.%s: %s", owner.name, item.name, odinsema.type_string(&c.table, type, context.temp_allocator))
+            write_field_layout(&sb, c, sym, item.name, type, via)
         } else {
             fmt.sbprintf(&sb, "%s.%s%s", owner.name, item.name, signature_tail(item))
         }
@@ -387,10 +422,15 @@ item_text :: proc(ctx: ^Request_Context, item, owner: ^odinsema.Item, sym: odins
     case .Struct, .Enum, .Bit_Field:
         strings.write_string(&sb, item.signature)
         write_children(&sb, item.children)
+        write_type_layout(&sb, c, sym)
     case .Union:
         strings.write_string(&sb, item.signature)
         write_variants(&sb, c, sym)
-    case .Proc, .Proc_Group, .Bit_Set, .Type, .Import, .Foreign_Import:
+        write_type_layout(&sb, c, sym)
+    case .Bit_Set, .Type:
+        strings.write_string(&sb, item.signature)
+        write_type_layout(&sb, c, sym)
+    case .Proc, .Proc_Group, .Import, .Foreign_Import:
         strings.write_string(&sb, item.signature)
     }
     if item.doc != "" {
@@ -398,6 +438,37 @@ item_text :: proc(ctx: ^Request_Context, item, owner: ^odinsema.Item, sym: odins
         strings.write_string(&sb, item.doc)
     }
     return strings.to_string(sb)
+}
+
+// A line `// size 16, align 8` for the type `sym` declares; nothing when its layout is not known.
+@(private = "file")
+write_type_layout :: proc(sb: ^strings.Builder, c: ^odinsema.Checker, sym: odinsema.Symbol) {
+    if c == nil || !odinsema.decl_is_type(c, sym) {
+        return
+    }
+    if l, ok := odinsema.layout_of(c, odinsema.decl_type(c, sym)); ok {
+        fmt.sbprintf(sb, "\n// size %d, align %d", l.size, l.align)
+    }
+}
+
+// ` // offset 8, size 4` for the field `name` of type `type`; ` // offset 8 in Body, size 4` when a
+// selector reads it through another struct `via`. Nothing when the offset is not known.
+@(private = "file")
+write_field_layout :: proc(sb: ^strings.Builder, c: ^odinsema.Checker, sym: odinsema.Symbol, name: string, type, via: odinsema.Type_Id) {
+    owner := odinsema.decl_type(c, odinsema.Symbol{file = sym.file, item = sym.item, child = -1})
+    l, known := odinsema.layout_of(c, type)
+    if !known {
+        return
+    }
+    if via != odinsema.INVALID_TYPE && odinsema.type_base(&c.table, via) != odinsema.type_base(&c.table, owner) {
+        if offset, ok := odinsema.field_offset_by_name(c, via, name); ok {
+            fmt.sbprintf(sb, " // offset %d in %s, size %d", offset, odinsema.type_string(&c.table, via, context.temp_allocator), l.size)
+            return
+        }
+    }
+    if offset, ok := odinsema.field_offset_by_name(c, owner, name); ok {
+        fmt.sbprintf(sb, " // offset %d, size %d", offset, l.size)
+    }
 }
 
 // The signature of a field or member after its name: `: int`, ` = 3`.
