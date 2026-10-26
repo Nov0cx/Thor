@@ -316,6 +316,12 @@ In a language served by a language server, a candidate may bring more than its
 own name: the import line it needs is added at the top of the file, and a
 function may arrive as a snippet with its arguments already in place.
 
+The built-in Odin support does the same: a procedure arrives as a call snippet
+(`enable_snippets` in `.thor/odin-analyzer.json` turns this off, see
+[Configuration](configuration.md)), and a package the file does not import yet
+brings its `import` line. After `x.(` the list holds the variants of the union
+`x`, and after `x->` the procedure members of `x`.
+
 ### Snippets
 
 When an accepted candidate is a snippet, its first placeholder is selected and

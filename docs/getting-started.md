@@ -137,11 +137,18 @@ For Odin, the built-in support formats code and shows `odin check` diagnostics
 when you save. While you type, it marks syntax errors; after a save, the
 compiler's diagnostics replace them. The `syntax_diagnostics` feature of
 `language_intelligence` turns the live marks off.
-Its own navigation, hover and completion are being rebuilt. Until they are
-back, give `.odin` to a language server such as `ols` with `"override": true`
-in `lsp.json` (see [configuration](configuration.md)). Then hover a symbol with
-`ctrl` held to see its declaration, `alt + enter` (or `ctrl + click`) to jump
-to its definition, and `ctrl + shift + u` for the code actions at the caret.
+It also serves navigation, hover, completion and signature help. Hover a
+symbol with `ctrl` held to see its declaration and doc comment (`//` or
+`/* */`) — for a type also its size, alignment, field offsets and the fields
+`using` brings in — and `alt + enter` (or `ctrl + click`) to jump to
+its definition; on a call to a procedure group, the jump goes to the member the
+arguments pick. Completion offers the members after `x.`, the union variants
+after `x.(`, the procedure members after `x->`, and packages the file does not
+import yet, with the import line added. Signature help also covers a
+polymorphic record (`List(`) and a conversion (`int(`). The built-in support
+has no code actions; to use a server such as `ols` instead, give it `.odin`
+with `"override": true` in `lsp.json` (see [configuration](configuration.md)),
+then `ctrl + shift + u` shows the code actions at the caret.
 
 Every other language gets these features from a language server.
 **Settings > Language Servers** (or **Help > Language Servers**) lists the ones

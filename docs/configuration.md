@@ -82,10 +82,10 @@ macOS. An empty string unbinds an action.
 
 ## `lsp.json`
 
-The language servers Thor may start. Odin formatting and diagnostics are
-served in the editor itself and need no server. Odin navigation, hover and
-completion need a server (such as `ols`) with `"override": true` until the
-built-in support is rebuilt. Every other language gets its features — hover, go to
+The language servers Thor may start. Odin formatting, diagnostics,
+navigation, hover, completion and signature help are served in the editor
+itself and need no server; Odin code actions need a server (such as `ols`) with
+`"override": true`. Every other language gets its features — hover, go to
 definition, find references, document symbols, workspace symbols, signature
 help, completion, diagnostics, semantic colors, rename, code actions, and
 document/selection/on-type formatting — from the server named here.
@@ -283,6 +283,18 @@ its root, layered on top of the global settings above. This repository's own
   for this workspace. This is Thor's own file, not `ols.json`. A collection
   `name` must be an identifier (letters, digits and `_`, not starting with a
   digit); any other name is dropped.
+
+  `enable_snippets` (default `true`) makes a procedure completion insert a
+  call with its parameters as stops; `false` inserts only the name:
+
+  ```json
+  { "enable_snippets": false }
+  ```
+
+  The analyzer keeps a cache of the Odin standard library's declarations in
+  `user/cache/odin/` beside the binary, so a new session does not parse it
+  again. Deleting the folder is safe; it is rebuilt automatically. A change to
+  a file under the Odin root can take up to 5 seconds to show.
 
   The analyzer reads the workspace for the machine Thor runs on. `target`
   picks another platform, and `defines` gives the values `#config(NAME, ...)`
