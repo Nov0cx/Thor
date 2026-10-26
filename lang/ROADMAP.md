@@ -2158,6 +2158,25 @@ not a status, so this section stays the source of truth for what is built.
     constants (`field_offset`, `field_offset_by_name`, also through `using`).
     A type that holds itself by value and a polymorphic record have no
     layout. Not yet: `#soa` of a non-struct element.
+  - **Overloads** (`call.odin`): `choose_member` scores each member of a
+    procedure group by the compiler's distance per argument (exact, untyped
+    default type, polymorphic, implicit conversion, untyped, unknown, `any`;
+    C²−d² per argument, a variadic slot one farther). An untyped constant
+    must fit an integer parameter (`300` is no `u8`), a float constant must be
+    integral. A tie is ambiguous and picks no member. A polymorphic member is
+    checked against its bound parameters and its `where` clause (constants,
+    `!`/`&&`/`||`, type `==`/`!=`, the `type_is_*` intrinsics; a clause it
+    cannot read holds). An argument gets the type all members agree on for
+    its slot, and `.Member` is read again per member. Not yet: the other
+    intrinsics in `where`, expected types for named arguments of a group.
+  - **Stdlib cache** (plan §5.10): files and package directories under the
+    Odin root are stated and listed at most every 5 s
+    (`STABLE_INTERVAL`), not every snapshot. Their item trees and line starts
+    persist across sessions in `user/cache/odin/items-<hash>.bin`
+    (`tree_codec.odin`, `lang/odin/tree_cache.odin`), keyed by the root, the
+    compiler's modtime and size, the format and a schema hash of the item
+    tree types, and checked against each file's modtime and size. Parses stay
+    lazy. Not yet: entries of deleted files are not pruned.
   - **Document_Symbols / Workspace_Symbols** (`lang/odin/symbols.odin`) come
     from the item tree. The outline also lists the procedures and types
     declared in procedure bodies (`nested_decls`). Workspace symbols read
@@ -2192,7 +2211,9 @@ not a status, so this section stays the source of truth for what is built.
     expected type, a field name of a literal and a named argument go through
     the checker (`selector_symbol`, one `Checker` per request); `Color.Red`
     and `pkg.Type.Member` fall back to the syntactic lookup when it gives
-    nothing. Not yet: the overload by arguments.
+    nothing. On the callee of a group call it jumps to the member the
+    arguments pick (`callee_call`, `call_group_member`); the picker shows all
+    members only when the call is ambiguous or no member fits.
   - **References / Rename** (`lang/odin/references.odin`, the caret target in
     `target.odin`, shared with definition): a local through
     `local_references`; an import alias in its own file; a file-scope item in
@@ -2293,7 +2314,7 @@ not a status, so this section stays the source of truth for what is built.
     source of its parameter list (from the checker's parameters when there is
     no source), another type the conversion `int(value)`. A local procedure
     group signs its members from the group literal. Not yet: group members
-    written with `where`.
+    with a `where` clause the evaluator cannot read.
   - **Semantic tokens** (`lang/odin/semantic.odin`): one `scope_map` of the
     whole buffer (or of `[offset, end)` when the request has a range) gives
     every identifier; each becomes a token by what it names. A parameter or
@@ -2325,8 +2346,7 @@ not a status, so this section stays the source of truth for what is built.
     request types `^Thor` again (about 130 ms, 45 packages, 1,434 types),
     and a snapshot lists and stats every package it reads again. Not yet: a
     type cache across requests.
-  - **Not yet:** redeclaration and visibility errors, the stdlib disk cache
-    (plan §5.10).
+  - **Not yet:** redeclaration and visibility errors.
 - **Formatter** (`lang/odin/format`, M2 end): prints from the `odinsyntax`
   tree; `core:odin/parser` is used only by tests. `tree.odin` builds the line
   index and the comment groups in one walk. Over every `.odin` file in the
