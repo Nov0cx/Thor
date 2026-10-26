@@ -44,11 +44,15 @@ document_symbols :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
     }
     runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
     lines := ctx.live.lines
-    for &item in ctx.live.tree.items {
+    for &item, i in ctx.live.tree.items {
         if symbol_kind(item.kind) == "" {
             continue
         }
-        append_symbol(res, &item, req.path, lines)
+        if kind := alias_symbol_kind(&ctx, &item, i); kind != "" {
+            append_symbol_to(&res.symbols, &item, req.path, lines, item.signature, kind)
+        } else {
+            append_symbol(res, &item, req.path, lines)
+        }
         for &child in item.children {
             append_symbol(res, &child, req.path, lines)
         }
@@ -67,6 +71,39 @@ document_symbols :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
         }
     }
     res.ok = true
+}
+
+// The symbol kind the checker gives a constant whose value is a name, `Foo :: pkg.Bar`: "type",
+// "enum" or "function". "" when the item is no such constant or the checker gives no other kind.
+@(private = "file")
+alias_symbol_kind :: proc(ctx: ^Request_Context, item: ^odinsema.Item, index: int) -> string {
+    if item.kind != .Const || item.value_offset < 0 {
+        return ""
+    }
+    c := request_checker(ctx)
+    if c == nil {
+        return ""
+    }
+    value, ok := odinsema.node_at(c, ctx.live.id, item.value_offset)
+    if !ok || (value.green.kind != .Ident && value.green.kind != .Selector_Expr) {
+        return ""
+    }
+    op := odinsema.item_operand(c, odinsema.Symbol{file = ctx.live.id, item = i32(index), child = -1})
+    #partial switch op.mode {
+    case .Type:
+        if odinsema.type_kind(&c.table, odinsema.type_base(&c.table, op.type)) == .Enum {
+            return "enum"
+        }
+        return "type"
+    case .Builtin:
+        return "function"
+    case .Value, .Const:
+        #partial switch odinsema.type_kind(&c.table, odinsema.type_base(&c.table, op.type)) {
+        case .Proc, .Proc_Group:
+            return "function"
+        }
+    }
+    return ""
 }
 
 // Fills `res` with the top-level declarations of the workspace whose name matches req.query,
@@ -139,11 +176,11 @@ append_symbol :: proc(res: ^lang.Result, item: ^odinsema.Item, path: string, lin
 }
 
 @(private = "file")
-append_symbol_to :: proc(out: ^[dynamic]lang.Symbol, item: ^odinsema.Item, path: string, lines: []int, signature: string) {
+append_symbol_to :: proc(out: ^[dynamic]lang.Symbol, item: ^odinsema.Item, path: string, lines: []int, signature: string, kind := "") {
     line, _ := offset_line_col(lines, item.name_offset)
     append(out, lang.Symbol {
         name      = strings.clone(item.name),
-        kind      = strings.clone(symbol_kind(item.kind)),
+        kind      = strings.clone(kind != "" ? kind : symbol_kind(item.kind)),
         signature = strings.clone(signature),
         path      = strings.clone(path),
         line      = line,

@@ -180,6 +180,42 @@ last :: proc() {}
     testing.expect_value(t, res.symbols[4].line, 8)
 }
 
+// A constant whose value is a name takes the kind of what the name names.
+@(test)
+test_document_symbols_alias_kinds :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package demo
+
+Color :: enum { Red }
+Point :: struct { x: int }
+MAX :: 10
+add :: proc(a, b: int) -> int { return a + b }
+Alias :: Point
+Hue :: Color
+run :: add
+N :: MAX
+Word :: int
+`
+    req := lang.Request{kind = .Document_Symbols, path = "buffer.odin", ext = ".odin", source = src}
+    res := lang.Result{kind = .Document_Symbols}
+    resolve(e, &req, &res)
+    defer free_symbols(&res)
+
+    testing.expect(t, res.ok, "expected a document symbols result")
+    names := symbol_names(&res)
+    want := []string{"Color", "Red", "Point", "x", "MAX", "add", "Alias", "Hue", "run", "N", "Word"}
+    kinds := []string{"enum", "enum_member", "type", "field", "constant", "function", "type", "enum", "function", "constant", "type"}
+    testing.expectf(t, slice.equal(names, want), "got %v, want %v", names, want)
+    if len(names) != len(want) {
+        return
+    }
+    for sym, i in res.symbols {
+        testing.expectf(t, sym.kind == kinds[i], "%s: got %q, want %q", sym.name, sym.kind, kinds[i])
+    }
+}
+
 // Workspace symbols: a declaration under a known-false `when` comes last and is marked inactive.
 @(test)
 test_workspace_symbols_inactive :: proc(t: ^testing.T) {
