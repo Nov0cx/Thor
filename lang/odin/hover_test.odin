@@ -287,3 +287,12 @@ test_hover_block_doc :: proc(t: ^testing.T) {
     src := "package demo\n\n/*\n\tThe answer.\n\tAlways.\n*/\nANSWER :: 42\n\nmain :: proc() {\n\t_ = ANSWER\n}\n"
     expect_hover(t, e, src, "ANSWER\n}", "ANSWER :: 42\n\nThe answer.\nAlways.", name = "ANSWER")
 }
+
+@(test)
+test_hover_using_bare_name :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := "package demo\n\nBase :: struct {\n\tid: int,\n}\n\nEntity :: struct {\n\tusing base: Base,\n}\n\nmove :: proc(e: Entity) -> int {\n\tusing e\n\treturn id\n}\n"
+    expect_hover(t, e, src, "id\n}", "Base.id: int", name = "id")
+}

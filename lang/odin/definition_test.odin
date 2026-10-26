@@ -959,3 +959,19 @@ test_definition_typed_local_record :: proc(t: ^testing.T) {
     expect_jump(t, &res, "buffer.odin", strings.index(src, "right:"))
     free_definition(&res)
 }
+
+// A bare name a `using` brings in jumps to its field, also over a package name it shadows.
+@(test)
+test_definition_using_bare_name :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := "package demo\n\nBase :: struct {\n\tid: int,\n}\n\nEntity :: struct {\n\tusing base: Base,\n\tpos: int,\n}\n\nmove :: proc(using e: ^Entity) -> int {\n\treturn id + pos\n}\n\nid :: proc() {}\n"
+    res := definition_at(e, src, "id + pos")
+    expect_jump(t, &res, "buffer.odin", strings.index(src, "id: int"))
+    free_definition(&res)
+
+    res = definition_at(e, src, "pos\n}")
+    expect_jump(t, &res, "buffer.odin", strings.index(src, "pos: int"))
+    free_definition(&res)
+}

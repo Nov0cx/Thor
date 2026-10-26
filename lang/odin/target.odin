@@ -153,14 +153,17 @@ snapshot_path :: proc(ctx: ^Request_Context, file: odinsema.File_Id) -> string {
     return odinsema.db_file_path(&ctx.snap, file)
 }
 
-// The declaration a selector name, an implicit selector, a field name or a named argument at `offset` of the buffer refers to.
+// The declaration a selector name, an implicit selector, a field name, a named argument or a bare name a `using` brings in at `offset` of the buffer refers to.
 @(private)
 typed_symbol :: proc(ctx: ^Request_Context, offset: int) -> (odinsema.Symbol, bool) {
     c := request_checker(ctx)
     if c == nil {
         return {}, false
     }
-    return odinsema.selector_symbol(c, ctx.live.id, offset)
+    if sym, ok := odinsema.selector_symbol(c, ctx.live.id, offset); ok {
+        return sym, true
+    }
+    return odinsema.using_symbol(c, ctx.live.id, offset)
 }
 
 // The declaration the identifier at req.offset names.
@@ -225,6 +228,11 @@ ref_target :: proc(ctx: ^Request_Context) -> Ref_Target {
         }
         return t
     case .Free:
+        if m.has_using {
+            if t, ok := typed_target(ctx, ref.start, name); ok {
+                return t
+            }
+        }
         if alias, is_alias := alias_target(ctx, name); is_alias {
             return alias
         }

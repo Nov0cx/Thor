@@ -40,6 +40,7 @@ Semantic_Ctx :: struct {
     items:       map[int]int, // item index by name offset of the buffer's declarations
     free_memo:   map[string]Name_Class, // a free name names the same declaration in the whole file
     sel_memo:    map[string]Name_Class, // by operand declaration and field name
+    using_memo:  map[string]Name_Class, // by scope, `using`s in reach and name; undeclared when no `using` gives the name
     decls:       [dynamic]Decl_Range,
     path:        [dynamic]odinsyntax.Syntax_Node,
     tokens:      [dynamic]lang.Semantic_Token,
@@ -66,17 +67,18 @@ semantic_tokens :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
     defer odinsema.scope_map_destroy(m, context.temp_allocator)
 
     ctx := Semantic_Ctx {
-        rc        = &rc,
-        c         = request_checker(&rc),
-        m         = m,
-        lo        = lo,
-        hi        = hi,
-        items     = make(map[int]int, len(rc.live.tree.items), context.temp_allocator),
-        free_memo = make(map[string]Name_Class, 256, context.temp_allocator),
-        sel_memo  = make(map[string]Name_Class, 256, context.temp_allocator),
-        decls     = make([dynamic]Decl_Range, context.temp_allocator),
-        path      = make([dynamic]odinsyntax.Syntax_Node, context.temp_allocator),
-        tokens    = make([dynamic]lang.Semantic_Token, 0, len(m.refs), context.temp_allocator),
+        rc         = &rc,
+        c          = request_checker(&rc),
+        m          = m,
+        lo         = lo,
+        hi         = hi,
+        items      = make(map[int]int, len(rc.live.tree.items), context.temp_allocator),
+        free_memo  = make(map[string]Name_Class, 256, context.temp_allocator),
+        sel_memo   = make(map[string]Name_Class, 256, context.temp_allocator),
+        using_memo = make(map[string]Name_Class, 16, context.temp_allocator),
+        decls      = make([dynamic]Decl_Range, context.temp_allocator),
+        path       = make([dynamic]odinsyntax.Syntax_Node, context.temp_allocator),
+        tokens     = make([dynamic]lang.Semantic_Token, 0, len(m.refs), context.temp_allocator),
     }
     for item, i in rc.live.tree.items {
         ctx.items[item.name_offset] = i
@@ -131,6 +133,9 @@ classify_ref :: proc(ctx: ^Semantic_Ctx, i: int) -> Name_Class {
     case .Member_Decl:
         return member_decl_class(ctx, ref.start)
     case .Free:
+        if class, ok := using_class(ctx, ref); ok {
+            return class
+        }
         class := free_class(ctx, ref.name)
         if class.undeclared {
             if ctx.undeclared && undeclared_at(ctx, ref.start, ref.name) {
@@ -159,6 +164,52 @@ classify_ref :: proc(ctx: ^Semantic_Ctx, i: int) -> Name_Class {
         return typed_class(ctx, ref.start)
     }
     return {}
+}
+
+// The class of the free name `ref` when a `using` in reach brings it in.
+@(private = "file")
+using_class :: proc(ctx: ^Semantic_Ctx, ref: odinsema.Name_Ref) -> (Name_Class, bool) {
+    if ctx.c == nil || !ctx.m.has_using {
+        return {}, false
+    }
+    if d := decl_at(ctx, ref.start); d == nil || !d.has_using {
+        return {}, false
+    }
+    key := using_key(ctx, ref)
+    if class, ok := ctx.using_memo[key]; ok {
+        return class, !class.undeclared
+    }
+    class := Name_Class{undeclared = true}
+    if sym, ok := odinsema.using_symbol(ctx.c, ctx.rc.live.id, ref.start); ok {
+        class = symbol_class(ctx, sym)
+    }
+    ctx.using_memo[key] = class
+    return class, !class.undeclared
+}
+
+// The memo key of a free name: its innermost scope and how many `using`s of that scope are in
+// reach. Each outer `using` is before or after the whole scope, so the key fixes what it names.
+@(private = "file")
+using_key :: proc(ctx: ^Semantic_Ctx, ref: odinsema.Name_Ref) -> string {
+    m := ctx.m
+    inner := -1
+    for s, i in m.scopes {
+        if s.start <= ref.start && ref.start < s.end && (inner < 0 || s.start >= m.scopes[inner].start) {
+            inner = i
+        }
+    }
+    step := 0
+    for u in m.usings {
+        if u.scope == inner && u.end <= ref.start {
+            step += 1
+        }
+    }
+    for l in m.locals {
+        if l.scope == inner && l.is_using && l.name_offset < ref.start {
+            step += 1
+        }
+    }
+    return fmt.tprintf("%d|%d|%s", inner, step, ref.name)
 }
 
 // The memo key of the selector name at ref `i` when its operand is a chain of names `a.b.c` whose

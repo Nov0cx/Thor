@@ -106,6 +106,9 @@ definition :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
             return
         }
     case .Free:
+        if m.has_using && typed_jump(&ctx, ref.start, res) {
+            return
+        }
         if dir, is_import := import_alias_dir(&ctx, ref.name); is_import {
             if dir != "" {
                 package_jump(dir, res)

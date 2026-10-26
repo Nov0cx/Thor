@@ -465,6 +465,9 @@ ternary_operand :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, e
 @(private)
 ident_operand :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> Operand {
     name := odinsyntax.node_text(n)
+    if op, ok := using_lookup(c, file, name, int(n.offset)); ok {
+        return op
+    }
     r := lookup_name(c, file, name, int(n.offset))
     switch r.kind {
     case .None:

@@ -89,7 +89,7 @@ Scope :: struct {
     proc_depth: int,
 }
 
-// A `using` statement operand. The lexical pass does not expand it.
+// A `using` statement operand. The lexical pass does not expand it; using_lookup does.
 Using_Entry :: struct {
     start: int,
     end:   int,
@@ -99,11 +99,12 @@ Using_Entry :: struct {
 // The scopes, local declarations and identifier references of a parsed file, or of its declarations
 // that touch a range. Everything is in `arena`; strings borrow the text of the parse.
 Scope_Map :: struct {
-    arena:  virtual.Arena,
-    scopes: []Scope,
-    locals: []Local,
-    refs:   []Name_Ref, // one per identifier, in walk order
-    usings: []Using_Entry,
+    arena:     virtual.Arena,
+    scopes:    []Scope,
+    locals:    []Local,
+    refs:      []Name_Ref, // one per identifier, in walk order
+    usings:    []Using_Entry,
+    has_using: bool, // a `using` statement or a `using` local is in the map
 }
 
 @(private = "file")
@@ -173,6 +174,13 @@ scope_map_range :: proc(parsed: odinsyntax.Parse, start, end: int, allocator := 
     m.locals = w.locals[:]
     m.refs = w.refs[:]
     m.usings = w.usings[:]
+    m.has_using = len(w.usings) > 0
+    for l in w.locals {
+        if l.is_using {
+            m.has_using = true
+            break
+        }
+    }
     return m, nil
 }
 

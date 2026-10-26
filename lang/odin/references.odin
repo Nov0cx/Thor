@@ -1,7 +1,8 @@
 // References and rename from the scopes of package odinsema: locals, import aliases, file-scope
 // declarations of a package with their qualified uses in other packages, the names of the universe
 // scope, fields, enum members and parameters. A use of a field, a member or a parameter through a
-// selector, an implicit selector, a field name or a named argument counts when the checker gives its declaration.
+// selector, an implicit selector, a field name, a named argument or a bare name a `using` brings in counts
+// when the checker gives its declaration.
 package odin
 
 import "base:runtime"
@@ -416,6 +417,8 @@ classify :: proc(s: ^Ref_Scan, f: ^Scan_File, m: ^odinsema.Scope_Map, ref: odins
                 return names_symbol(s, f, ref), false
             case .Field_Or_Member, .Field_Name, .Implicit_Selector:
                 return names_symbol(s, f, ref), false
+            case .Free, .Local:
+                return names_using_symbol(s, f, m, ref), false
             }
             return false, false
         }
@@ -443,6 +446,16 @@ names_symbol :: proc(s: ^Ref_Scan, f: ^Scan_File, ref: odinsema.Name_Ref) -> boo
         return false
     }
     sym, ok := odinsema.selector_symbol(s.checker, f.id, ref.start)
+    return ok && sym == s.target.symbol
+}
+
+// True when the checker gives the target's declaration for the bare name of `ref` through a `using`.
+@(private = "file")
+names_using_symbol :: proc(s: ^Ref_Scan, f: ^Scan_File, m: ^odinsema.Scope_Map, ref: odinsema.Name_Ref) -> bool {
+    if s.checker == nil || !m.has_using || ref.is_decl {
+        return false
+    }
+    sym, ok := odinsema.using_symbol(s.checker, f.id, ref.start)
     return ok && sym == s.target.symbol
 }
 

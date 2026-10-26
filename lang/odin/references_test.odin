@@ -777,3 +777,24 @@ test_references_typed_local_record :: proc(t: ^testing.T) {
     expect_offsets(t, &res, {strings.index(src, "left = 1"), strings.index(src, "p.left") + 2})
     free_refs(&res)
 }
+
+// A bare name a `using` brings in is a use of its field.
+@(test)
+test_references_using_bare_name :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := "package demo\n\nBase :: struct {\n\tid: int,\n}\n\nEntity :: struct {\n\tusing base: Base,\n}\n\nmove :: proc(using e: ^Entity, b: Base) -> int {\n\tid += 1\n\t_ = b.id\n\treturn id\n}\n\nid :: proc() {}\n"
+    uses := []int{strings.index(src, "id += 1"), strings.index(src, "b.id") + 2, strings.index(src, "return id") + 7}
+    res := refs_at(e, src, "id: int")
+    expect_offsets(t, &res, uses)
+    free_refs(&res)
+
+    res = refs_at(e, src, "id += 1")
+    expect_offsets(t, &res, uses)
+    free_refs(&res)
+
+    renamed := rename_at(e, src, "return id", "key", skip = 7)
+    testing.expectf(t, renamed.ok && len(renamed.edits) == 4, "rename: got %d edits, want 4", len(renamed.edits))
+    free_edits(&renamed)
+}

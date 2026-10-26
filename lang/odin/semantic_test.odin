@@ -205,8 +205,8 @@ walk :: proc(n: ^Node, using b: ^Base) -> int {
     expect_kind(t, &res, src, "id\n", .Field, after = "return n.")
     expect_kind(t, &res, src, "Leaf {", .Enum_Member, after = "== .")
     expect_kind(t, &res, src, "b: ^Base", .Parameter)
-    // A name a `using` parameter brings in is not a free name of the package.
-    expect_none(t, &res, src, "id\n", after = "+ n.base.id + ")
+    // A name a `using` parameter brings in is its field.
+    expect_kind(t, &res, src, "id\n", .Field, after = "+ n.base.id + ")
 }
 
 @(test)
@@ -407,4 +407,33 @@ test_semantic_real_files :: proc(t: ^testing.T) {
             }
         }
     }
+}
+
+@(test)
+test_semantic_using_bare_names :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package demo
+
+Vec :: struct { x, y: f32 }
+Shade :: enum { Dark, Light }
+
+paint :: proc(v: Vec) -> f32 {
+	using v
+	using Shade
+	s := Light
+	{
+		x := 2
+		return x + y
+	}
+}
+`
+    res := semantic_at(e, src)
+    defer delete(res.tokens)
+    expect_ordered(t, &res, src)
+
+    expect_kind(t, &res, src, "y\n", .Field, after = "return x + ")
+    expect_kind(t, &res, src, "Light\n", .Enum_Member, after = "s := ")
+    expect_kind(t, &res, src, "x + y", .Local)
 }

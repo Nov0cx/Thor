@@ -2136,12 +2136,22 @@ not a status, so this section stays the source of truth for what is built.
     procedure sees outer constants, types and `$T` but no outer variables.
     `local_references` gives every use of a local. Over 207,000 identifiers of
     Thor's own sources no `.Local` points at a different name.
+  - **`using` expansion** (`using.odin`): `using_lookup` gives what a bare
+    name names through a `using` in reach: a field of a `using` local or
+    parameter or of a `using` statement operand (through pointers and nested
+    `using` fields), a member of an enum type a `using` statement names, or a
+    declaration of a package it names. The nearest scope wins, and in one
+    scope the last `using` before the name; a local of a nearer scope shadows
+    it, and it shadows the package scope. `expr_type` types such a name, and
+    `using_symbol` gives its declaration.
   - **Document_Symbols / Workspace_Symbols** (`lang/odin/symbols.odin`) come
     from the item tree. The outline also lists the procedures and types
     declared in procedure bodies (`nested_decls`). Workspace symbols read
     `db_workspace` and skip files out of the configured build; an item a
     known-false `when` drops sorts last, with " (inactive)" after its
-    signature.
+    signature. In the outline a constant whose value is a name
+    (`Foo :: pkg.Bar`) takes the kind the checker gives it: type, enum or
+    function. Workspace symbols stay syntactic.
   - **Builtins** (`lang/odin/builtins.odin`): the universe scope is every
     public item of `base:builtin` and the items of `base:runtime` with a
     `builtin` attribute. A bare name that no package item binds reaches it for
@@ -2189,8 +2199,9 @@ not a status, so this section stays the source of truth for what is built.
     bind (builtins, import paths), an implicit import alias, and a declaration
     outside the workspace. Warm over this repo, a field named `name` of
     `lang.Symbol` (40 uses) takes 0.7 s in a debug build, against 0.5 s for a
-    public procedure; most of it is the importer walk. Not yet: a bare field
-    name in a body that `using` brings into scope.
+    public procedure; most of it is the importer walk. A bare name that a
+    `using` brings in is a use of its field or member (definition, hover,
+    references and rename).
   - **Hover** (`lang/odin/hover.odin`): the caret target of `target.odin`
     gives the declaration, and the hover shows its signature from the item
     tree, attributes first and its doc comment after a blank line: the `//`
@@ -2277,10 +2288,13 @@ not a status, so this section stays the source of truth for what is built.
     for a constant); `x.f`, `.Member`, field names and named arguments
     through `selector_symbol`, memoized per head declaration and name chain
     (`a.b.c`); a field declaration's procedure type is read from the syntax.
+    A free name in a declaration with a `using` goes through `using_symbol`
+    first, memoized per scope, `using`s in reach and name.
     `Unresolved` only for a free name that `lookup_name`, every file of the
     package (also out of the build) and the universe scope leave unbound, in
     a buffer with a path and a workspace, outside a declaration with a
-    `using`, a directive call (`#config(X, …)`) or `offset_of`. The tokens are
+    `using` (when `using_symbol` gives nothing), a directive call
+    (`#config(X, …)`) or `offset_of`. The tokens are
     sorted and an overlap is dropped. No toggle, as with the old engine. Over
     `sema/check.odin`, `thor/view.odin`, `editview/editor.odin` and
     `thor/lang_host.odin` no name is marked `Unresolved`. Debug build, warm
@@ -2288,12 +2302,10 @@ not a status, so this section stays the source of truth for what is built.
     lines) 80 ms, `thor/view.odin` 190 ms, `thor/lang_host.odin` 185 ms,
     against a 50 ms target. The rest is not the walk: a new checker per
     request types `^Thor` again (about 130 ms, 45 packages, 1,434 types),
-    and a snapshot lists and stats every package it reads again. Not yet:
-    `using` expansion (a declaration with a `using` marks nothing), a type
-    cache across requests.
-  - **Not yet:** `using` expansion (recorded, not resolved), redeclaration
-    and visibility errors, the stdlib disk cache (plan §5.10). `Foo ::
-    pkg.Bar` lists as a constant until types resolve.
+    and a snapshot lists and stats every package it reads again. Not yet: a
+    type cache across requests.
+  - **Not yet:** redeclaration and visibility errors, the stdlib disk cache
+    (plan §5.10).
 - **Formatter** (`lang/odin/format`, M2 end): prints from the `odinsyntax`
   tree; `core:odin/parser` is used only by tests. `tree.odin` builds the line
   index and the comment groups in one walk. Over every `.odin` file in the
