@@ -17,6 +17,7 @@ Engine :: struct {
     format_config: Format_Config_Cache,
     db:            odinsema.Db, // owned
     root:          Odin_Root,
+    tree_cache:    Tree_Cache_File,
     // One compiler run at a time (see check_package).
     check_mutex:   sync.Mutex,
     // Settings-driven admin gate; main thread only.
@@ -51,6 +52,7 @@ engine_create :: proc() -> ^Engine {
     e.format_config.alloc = context.allocator
     odinsema.db_init(&e.db, lang.source_read)
     e.root.alloc = context.allocator
+    e.tree_cache.alloc = context.allocator
     return e
 }
 
@@ -157,6 +159,8 @@ engine_destroy :: proc(data: rawptr) {
     e := cast(^Engine)data
     config_clear(e)
     format_config_clear(e)
+    tree_cache_write(e, true)
+    tree_cache_clear(&e.tree_cache)
     odinsema.db_destroy(&e.db)
     odin_root_clear(&e.root)
     free(e)

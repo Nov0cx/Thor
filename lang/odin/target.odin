@@ -80,6 +80,7 @@ request_open :: proc(e: ^Engine, req: ^lang.Request, ctx: ^Request_Context) -> b
         target = config_target(e, req.workspace),
     }
     collections := workspace_collections(e, req.workspace)
+    tree_cache_ensure(e)
     input := odinsema.Snapshot_Input {
         target      = ctx.target,
         collections = &collections,
@@ -119,6 +120,9 @@ request_close :: proc(ctx: ^Request_Context) {
     }
     ctx.checker_state = .None
     odinsema.snapshot_end(&ctx.snap)
+    if ctx.e != nil {
+        tree_cache_write(ctx.e, false)
+    }
     ctx.parsed = {}
     ctx.live.tree = nil
     ctx.live.lines = nil

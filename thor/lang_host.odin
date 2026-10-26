@@ -16,6 +16,23 @@ import "../lang/odin"
 import "../setting"
 import "../textedit"
 import "../editview"
+
+// The directory of the Odin analyzer's tree cache: user/cache/odin beside the binary. Temp-allocated.
+thor_odin_cache_dir :: proc() -> string {
+    dir := setting.USER_DIR
+    if exe, err := os.get_executable_path(context.temp_allocator); err == nil {
+        if joined, jerr := filepath.join({os.dir(exe), setting.USER_DIR}, context.temp_allocator); jerr == nil {
+            dir = joined
+        }
+    }
+    path, jerr := filepath.join({dir, "cache", "odin"}, context.temp_allocator)
+    if jerr != nil {
+        return setting.USER_DIR + "/cache/odin"
+    }
+    abs, aerr := filepath.abs(path, context.temp_allocator)
+    return aerr == nil ? abs : path
+}
+
 // Points both editor panes at the handlers that answer them. Called once at
 // startup: the panes are values on Thor and outlive every frame's tree.
 thor_wire_editors :: proc(thor: ^Thor) {
