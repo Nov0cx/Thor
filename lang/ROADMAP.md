@@ -2286,9 +2286,20 @@ not a status, so this section stays the source of truth for what is built.
     build: a bare prefix in `thor/view.odin` 26 ms (`-o:speed` 17 ms), in
     `sema/check.odin` 15 ms (8 ms); `thor.` 200 ms (80 ms), all of it the
     checker typing `^Thor` (hover on `thor` costs the same); `c.` in
-    `check.odin` 45 ms (22 ms). Not yet: union variants after `x.(`, the
-    members after `x->`, a proc result type in the ranking, snippets, an
-    explicit import of a package not imported yet.
+    `check.odin` 45 ms (22 ms). After `x.(` the variants of the operand's
+    union, in declaration order; after `x->` only the members of procedure
+    type. A procedure ranks as expected when its type is the expected one or
+    its single result is. A procedure inserts a call snippet
+    `name(${1:a}, ${2:b})$0` (parameters with a default get no stop, the
+    receiver after `x->` is dropped); none when `(` follows or a procedure
+    value is expected; `enable_snippets` turns them off. Auto-import
+    (`auto_import.odin`): the packages under `base`/`core`/`vendor` and the
+    configured collections, indexed once per root set; a bare prefix offers
+    the ones the buffer does not import, last, with an `import` line as an
+    extra edit; `alias.` on an unbound alias lists the public names of the one
+    package of that name, with the same edit. The editor also asks after
+    `x.(` and `x->`. Not yet: `alias.` when two packages of the same rank
+    share the name, new packages before the roots change.
   - **Signature help** (`lang/odin/signature.odin`): the innermost call whose
     parentheses hold the caret, found on the tree (an unclosed `f(a, ` is a
     call with an open `Arg_List` that runs to its end). The callee is typed
