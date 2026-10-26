@@ -64,6 +64,7 @@ Completer :: struct {
     items:    [dynamic]Candidate,
     seen:     map[string]struct{},
     typed:    int, // the declarations typed for the expected type
+    arrow:    bool, // the members of `x->`: procedures only, the receiver is implicit
 }
 
 // Fills res.completions with the candidates for the word that ends at req.offset.
@@ -161,6 +162,15 @@ collect :: proc(cm: ^Completer) {
     }
     cm.prefix = src[start:off]
     cm.c = request_checker(cm.ctx)
+    if start >= 2 && src[start - 1] == '(' && src[start - 2] == '.' {
+        assertion_completions(cm, start - 1)
+        return
+    }
+    if start >= 2 && src[start - 1] == '>' && src[start - 2] == '-' {
+        cm.arrow = true
+        dot_completions(cm, start - 2)
+        return
+    }
     if start > 0 && src[start - 1] == '.' && (start < 2 || src[start - 2] != '.') {
         dot_completions(cm, start - 1)
         return
@@ -255,21 +265,60 @@ dot_completions :: proc(cm: ^Completer, dot: int) {
         }
         op := odinsema.expr_type(c, file, operand)
         if op.mode == .Package {
-            add_package_names(cm, op.dir, false, .Member)
+            if !cm.arrow {
+                add_package_names(cm, op.dir, false, .Member)
+            }
             return
         }
         add_members(cm, odinsema.operand_members(c, op, context.temp_allocator))
     case .Implicit_Selector:
-        add_enum_choices(cm, odinsema.expected_type_at(c, file, dot), 0)
+        if !cm.arrow {
+            add_enum_choices(cm, odinsema.expected_type_at(c, file, dot), 0)
+        }
     }
 }
 
-// Adds members that `x.` gives, in declaration order.
+// The variants of the union a type assertion `x.(` at `paren` tests.
+@(private = "file")
+assertion_completions :: proc(cm: ^Completer, paren: int) {
+    c := cm.c
+    if c == nil {
+        return
+    }
+    file := cm.ctx.live.id
+    n, ok := odinsema.expr_under(c, file, paren)
+    if !ok || n.green.kind != .Type_Assertion {
+        return
+    }
+    ta, _ := odinsyntax.as_type_assertion(n)
+    operand, has_operand := odinsyntax.type_assertion_operand(&ta)
+    if !has_operand {
+        return
+    }
+    op := odinsema.expr_type(c, file, operand)
+    if op.mode != .Value && op.mode != .Const {
+        return
+    }
+    u, is_union := odinsema.type_get(&c.table, odinsema.type_base(&c.table, op.type)).(odinsema.Union_Type)
+    if !is_union {
+        return
+    }
+    detail := type_detail(cm, op.type)
+    for variant, i in u.variants {
+        add(cm, type_detail(cm, variant), "type", detail, .Member, order = i)
+    }
+}
+
+// Adds members that `x.` gives, in declaration order. After `x->` only the procedures.
 @(private = "file")
 add_members :: proc(cm: ^Completer, members: []odinsema.Member) {
     for m, i in members {
         kind := "field"
         detail := type_detail(cm, m.type)
+        _, is_proc := proc_type_of(cm, m.type)
+        if cm.arrow && !is_proc {
+            continue
+        }
         switch m.kind {
         case .Field:
         case .Enum_Member:
@@ -384,6 +433,16 @@ add_package_names :: proc(cm: ^Completer, dir: string, own: bool, tier: Tier, bu
             add_item(cm, best, sym, tier)
         }
     }
+}
+
+// The procedure type `t` is, through named and distinct types.
+@(private = "file")
+proc_type_of :: proc(cm: ^Completer, t: odinsema.Type_Id) -> (odinsema.Proc_Type, bool) {
+    if cm.c == nil || t == odinsema.INVALID_TYPE {
+        return {}, false
+    }
+    p, ok := odinsema.type_get(&cm.c.table, odinsema.type_base(&cm.c.table, t)).(odinsema.Proc_Type)
+    return p, ok
 }
 
 // Adds a package-level declaration. A variable or constant is typed while the expected type is known.

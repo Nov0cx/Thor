@@ -452,3 +452,34 @@ test_completion_disabled :: proc(t: ^testing.T) {
     defer completions_free(&res)
     testing.expect(t, !res.ok && len(res.completions) == 0, "a disabled completion must answer nothing")
 }
+
+// `x.(` lists the variants of the union the operand is.
+@(test)
+test_completion_union_variants :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := "package demo\n\nPoint :: struct {\n\tx: int,\n}\n\nShape :: union {\n\tPoint,\n\tint,\n\t^Point,\n}\n\nmain :: proc() {\n\ts: Shape\n\t_ = s.(\n}\n"
+    res := complete_at(e, src, "s.(")
+    expect_labels(t, &res, {"Point", "int", "^Point"}, {"x", "main"})
+    expect_item(t, &res, "Point", "type", "Shape")
+    testing.expect(t, label_index(&res, "Point") < label_index(&res, "int"), "variants keep declaration order")
+    completions_free(&res)
+
+    typed := "package demo\n\nPoint :: struct {\n\tx: int,\n}\n\nShape :: union {\n\tPoint,\n\tint,\n}\n\nmain :: proc() {\n\ts: Shape\n\tp := s.(Po\n\ty := 1\n}\n"
+    res = complete_at(e, typed, "s.(Po")
+    expect_labels(t, &res, {"Point"}, {"int"})
+    completions_free(&res)
+}
+
+// `x->` lists only the procedure members.
+@(test)
+test_completion_arrow :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := "package demo\n\nObj :: struct {\n\tadd:   proc(self: ^Obj, n: int) -> int,\n\tclear: proc(self: ^Obj),\n\tcount: int,\n}\n\nmain :: proc() {\n\to: ^Obj\n\to->\n}\n"
+    res := complete_at(e, src, "o->")
+    defer completions_free(&res)
+    expect_labels(t, &res, {"add", "clear"}, {"count", "main"})
+}
