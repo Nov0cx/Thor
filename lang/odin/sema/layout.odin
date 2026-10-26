@@ -272,10 +272,13 @@ soa_layout :: proc(c: ^Checker, s: Soa_Type, word: i64, allocator: Layout) -> (l
     return layout_seq(..fields[:])
 }
 
-// The layout of a struct. `offsets`, when not nil, gets the offset of each field and must have one
-// slot per field.
+// The layout of a struct; false for a polymorphic one. `offsets`, when not nil, gets the offset
+// of each field and must have one slot per field.
 @(private = "file")
 struct_layout :: proc(c: ^Checker, s: Struct_Type, offsets: []i64) -> (layout: Layout, ok: bool) {
+    if len(s.params) > 0 {
+        return {}, false
+    }
     end, align := i64(0), i64(1)
     for f, i in s.fields {
         l := layout_of(c, f.type) or_return
@@ -320,9 +323,13 @@ pointer_like :: proc(c: ^Checker, t: Type_Id) -> bool {
     return false
 }
 
-// A union holds its largest variant, then a tag. A union of one pointer-like variant has no tag.
+// A union holds its largest variant, then a tag. A union of one pointer-like variant has no tag;
+// a polymorphic one has no layout.
 @(private = "file")
 union_layout :: proc(c: ^Checker, u: Union_Type) -> (layout: Layout, ok: bool) {
+    if len(u.params) > 0 {
+        return {}, false
+    }
     if len(u.variants) == 0 {
         return {0, u.align > 0 ? u.align : 1}, true
     }
