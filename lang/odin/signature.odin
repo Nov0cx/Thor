@@ -215,7 +215,89 @@ collect_entries :: proc(ctx: ^Request_Context, c: ^odinsema.Checker, site: Call_
         case odinsema.Proc_Group_Type:
             group_entries(c, fn, g, out)
         }
+    case .Type:
+        type_entry(c, fn, strings.trim_space(odinsyntax.node_text(site.callee)), out)
     }
+}
+
+// Adds the entry of a call of the type `fn`: `List($T: typeid, $N: int)` for a polymorphic record,
+// else the conversion `T(value)`.
+@(private = "file")
+type_entry :: proc(c: ^odinsema.Checker, fn: odinsema.Operand, name: string, out: ^[dynamic]Sig_Entry) {
+    if fn.type == odinsema.INVALID_TYPE || name == "" {
+        return
+    }
+    entry := Sig_Entry{params = make([dynamic]Sig_Param, context.temp_allocator), type = fn.type}
+    sb := strings.builder_make(context.temp_allocator)
+    strings.write_string(&sb, name)
+    params: []odinsema.Proc_Param
+    file: odinsema.File_Id
+    offset := -1
+    #partial switch r in odinsema.type_get(&c.table, odinsema.type_base(&c.table, fn.type)) {
+    case odinsema.Struct_Type:
+        params, file, offset = r.params, r.file, r.offset
+    case odinsema.Union_Type:
+        params, file, offset = r.params, r.file, r.offset
+    }
+    if len(params) == 0 {
+        strings.write_string(&sb, "(")
+        start := strings.builder_len(sb)
+        strings.write_string(&sb, "value")
+        append(&entry.params, Sig_Param{name = "value", start = start, end = strings.builder_len(sb)})
+        strings.write_string(&sb, ")")
+        entry.label = strings.to_string(sb)
+        append(out, entry)
+        return
+    }
+    if list, found := record_params_at(c, file, offset); found {
+        toks := make([dynamic]Label_Token, context.temp_allocator)
+        write_label_tokens(&sb, odinsyntax.Syntax_Node(list), &toks)
+        list_params(list, toks[:], &entry)
+        if len(entry.params) == len(params) {
+            entry.label = strings.to_string(sb)
+            append(out, entry)
+            return
+        }
+        clear(&entry.params)
+        strings.builder_reset(&sb)
+        strings.write_string(&sb, name)
+    }
+    strings.write_byte(&sb, '(')
+    for param, i in params {
+        if i > 0 {
+            strings.write_string(&sb, ", ")
+        }
+        start := strings.builder_len(sb)
+        write_param(&sb, c, param, false)
+        append(&entry.params, Sig_Param{
+            name        = strings.trim_prefix(param.name, "$"),
+            start       = start,
+            end         = strings.builder_len(sb),
+            has_default = param.has_default,
+        })
+    }
+    strings.write_byte(&sb, ')')
+    entry.label = strings.to_string(sb)
+    append(out, entry)
+}
+
+// The polymorphic parameter list of the struct or union type node at `offset` of `file`.
+@(private = "file")
+record_params_at :: proc(c: ^odinsema.Checker, file: odinsema.File_Id, offset: int) -> (odinsyntax.Param_List, bool) {
+    if offset < 0 {
+        return {}, false
+    }
+    n, ok := odinsema.node_at(c, file, offset)
+    if !ok {
+        return {}, false
+    }
+    if st, is_struct := odinsyntax.as_struct_type(n); is_struct {
+        return odinsyntax.struct_type_params(&st)
+    }
+    if ut, is_union := odinsyntax.as_union_type(n); is_union {
+        return odinsyntax.union_type_params(&ut)
+    }
+    return {}, false
 }
 
 // The name a callee is written with: the identifier, or the field of a selector. "" for another expression.
@@ -258,11 +340,44 @@ group_entries :: proc(c: ^odinsema.Checker, fn: odinsema.Operand, g: odinsema.Pr
             return
         }
     }
+    if fn.has_symbol && fn.symbol.item == odinsema.LOCAL_ITEM {
+        local_group_entries(c, fn.symbol, out)
+        if len(out) > 0 {
+            return
+        }
+    }
     for m in g.members {
         if len(out) == SIGNATURE_MEMBERS_MAX {
             break
         }
         add_entry(c, odinsema.Operand{mode = .Value, type = m}, "", out)
+    }
+}
+
+// One entry per member of the procedure group the local `sym` declares.
+@(private = "file")
+local_group_entries :: proc(c: ^odinsema.Checker, sym: odinsema.Symbol, out: ^[dynamic]Sig_Entry) {
+    l, ok := odinsema.local_at(c, sym.file, int(sym.child))
+    if !ok || l.value_offset < 0 {
+        return
+    }
+    n, found := odinsema.node_at(c, sym.file, l.value_offset)
+    if !found {
+        return
+    }
+    group, is_group := odinsyntax.as_proc_group(n)
+    if !is_group {
+        return
+    }
+    it := odinsyntax.proc_group_members(&group)
+    for m in odinsyntax.child_iter_next(&it) {
+        if len(out) == SIGNATURE_MEMBERS_MAX {
+            break
+        }
+        op := odinsema.expr_type(c, sym.file, m)
+        if _, is_proc := odinsema.type_get(&c.table, odinsema.type_base(&c.table, op.type)).(odinsema.Proc_Type); is_proc {
+            add_entry(c, op, callee_name(m), out)
+        }
     }
 }
 
@@ -424,15 +539,21 @@ label_range :: proc(toks: []Label_Token, start, end: int) -> (lo, hi: int, ok: b
     return lo, hi, lo >= 0
 }
 
-// Reads the parameters of the procedure type node `pt` into `entry`. A field with several names
-// gives one parameter per name; the last name also covers the type.
+// Reads the parameters of the procedure type node `pt` into `entry`.
 @(private = "file")
 source_params :: proc(pt: odinsyntax.Syntax_Node, toks: []Label_Token, entry: ^Sig_Entry) {
     ptv, _ := odinsyntax.as_proc_type(pt)
     list, ok := odinsyntax.proc_type_params(&ptv)
-    if !ok {
-        return
+    if ok {
+        list_params(list, toks, entry)
     }
+}
+
+// Reads the fields of the parameter list `list` into `entry`. A field with several names gives one
+// parameter per name; the last name also covers the type.
+@(private = "file")
+list_params :: proc(list: odinsyntax.Param_List, toks: []Label_Token, entry: ^Sig_Entry) {
+    list := list
     it := odinsyntax.param_list_fields(&list)
     for fnode in odinsyntax.child_iter_next(&it) {
         field, _ := odinsyntax.as_field(fnode)

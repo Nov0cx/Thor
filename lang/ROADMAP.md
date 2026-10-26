@@ -2270,9 +2270,12 @@ not a status, so this section stays the source of truth for what is built.
     or a string. No toggle, as before. The editor asks on `(` and `,` and while
     the popup is up. Debug build, `thor/lang_host.odin` (2,400 lines):
     `fmt.tprintf(` 13 ms warm (330 ms cold), `lang.manager_request_latest(`
-    44 ms warm (0.8 s with package `lang` cold). Not yet: group members
-    written with `where`, polymorphic record `List(` and conversion `int(`
-    calls, a local procedure group.
+    44 ms warm (0.8 s with package `lang` cold). A call of a type: a
+    polymorphic struct or union gives `List($T: typeid, $N: int)` from the
+    source of its parameter list (from the checker's parameters when there is
+    no source), another type the conversion `int(value)`. A local procedure
+    group signs its members from the group literal. Not yet: group members
+    written with `where`.
   - **Semantic tokens** (`lang/odin/semantic.odin`): one `scope_map` of the
     whole buffer (or of `[offset, end)` when the request has a range) gives
     every identifier; each becomes a token by what it names. A parameter or

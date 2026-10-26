@@ -287,3 +287,59 @@ test_signature_none :: proc(t: ^testing.T) {
     expect_no_sig(t, e, SIG_SRC, "w: Widget", 0)
     expect_no_sig(t, e, SIG_SRC, "\"s\")", 1)
 }
+
+@(private = "file")
+SIG_TYPE_SRC :: `package demo
+
+List :: struct($T: typeid, $N: int) {
+	items: [N]T,
+}
+
+Maybe :: union($T: typeid) {
+	T,
+}
+
+Vec :: struct {
+	x, y: f32,
+}
+
+Meters :: distinct f64
+
+main :: proc() {
+	l: List(int, 4)
+	m: Maybe(string)
+	_ = int(3.5)
+	v: Vec
+	_ = Vec(v)
+	_ = Meters(2)
+	_, _ = l, m
+}
+`
+
+@(test)
+test_signature_record_params :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+    expect_sig(t, e, SIG_TYPE_SRC, "List(int, 4)", len("List("), "List($T: typeid, $N: int)", "$T: typeid")
+    expect_sig(t, e, SIG_TYPE_SRC, "List(int, 4)", len("List(int, "), "List($T: typeid, $N: int)", "$N: int")
+    expect_sig(t, e, SIG_TYPE_SRC, "Maybe(string)", len("Maybe("), "Maybe($T: typeid)", "$T: typeid")
+}
+
+@(test)
+test_signature_conversion :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+    expect_sig(t, e, SIG_TYPE_SRC, "int(3.5)", len("int("), "int(value)", "value")
+    // A struct without parameters converts.
+    expect_sig(t, e, SIG_TYPE_SRC, "Vec(v)", len("Vec("), "Vec(value)", "value")
+    expect_sig(t, e, SIG_TYPE_SRC, "Meters(2)", len("Meters("), "Meters(value)", "value")
+}
+
+@(test)
+test_signature_local_group :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+    src := "package demo\n\nmain :: proc() {\n\tone :: proc(a: int) {}\n\ttwo :: proc(a: int, b: string) {}\n\tboth :: proc{one, two}\n\tboth(1, \"s\")\n\tboth(1)\n}\n"
+    expect_sig(t, e, src, "both(1, ", len("both(1, "), "two :: proc(a: int, b: string)", "b: string", entries = 2)
+    expect_sig(t, e, src, "both(1)", len("both("), "one :: proc(a: int)", "a: int", entries = 2)
+}
