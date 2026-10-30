@@ -141,6 +141,9 @@ package_refresh :: proc(snap: ^Snapshot, slot: ^Package_Slot) -> (datas: []^File
         case .Cancelled:
             return nil, .Cancelled
         case .No_Dir:
+            if key_stable(snap, slot.key) {
+                cache_prune_dir(db, slot.key, nil)
+            }
             package_slot_drop_memo(db, slot)
             delete(slot.listing, db.allocator)
             slot.listing = nil
@@ -152,6 +155,9 @@ package_refresh :: proc(snap: ^Snapshot, slot: ^Package_Slot) -> (datas: []^File
         slot.listing = listing
         slot.listed_epoch = snap.epoch
         slot.listed_time = snap.now
+        if key_stable(snap, slot.key) {
+            cache_prune_listing(snap, slot)
+        }
     }
     ids := slot.listing
     datas = make([]^File_Data, len(ids), snap.alloc)
@@ -181,6 +187,18 @@ package_refresh :: proc(snap: ^Snapshot, slot: ^Package_Slot) -> (datas: []^File
     package_slot_drop_memo(db, slot)
     slot.memo = memo
     return datas, .Ready
+}
+
+// Drops the tree cache entries of files of the directory that its listing no longer holds.
+@(private = "file")
+cache_prune_listing :: proc(snap: ^Snapshot, slot: ^Package_Slot) {
+    present := make([]string, len(slot.listing), snap.alloc)
+    for id, i in slot.listing {
+        if f := file_slot(snap.db, id); f != nil {
+            present[i] = f.key
+        }
+    }
+    cache_prune_dir(snap.db, slot.key, present)
 }
 
 @(private = "file")

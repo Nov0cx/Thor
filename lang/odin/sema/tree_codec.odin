@@ -554,6 +554,54 @@ cache_insert :: proc(db: ^Db, path: string, modtime, size: i64, data: []byte) ->
     return true
 }
 
+// Removes the entry of the file at `key`, so the next encode leaves it out.
+@(private)
+cache_drop :: proc(db: ^Db, key: string) {
+    c := &db.cache
+    sync.guard(&c.mutex)
+    cache_remove(db, key)
+}
+
+// Removes the entries of the files directly in the directory `dir_key` whose keys `present` does not hold.
+@(private)
+cache_prune_dir :: proc(db: ^Db, dir_key: string, present: []string) {
+    c := &db.cache
+    sync.guard(&c.mutex)
+    gone := make([dynamic]string, context.temp_allocator)
+    next: for key in c.entries {
+        if len(key) <= len(dir_key) || !strings.has_prefix(key, dir_key) || key[len(dir_key)] != '/' {
+            continue
+        }
+        if strings.index_byte(key[len(dir_key) + 1:], '/') >= 0 {
+            continue
+        }
+        for p in present {
+            if p == key {
+                continue next
+            }
+        }
+        if _, err := append(&gone, key); err != nil {
+            return
+        }
+    }
+    for key in gone {
+        cache_remove(db, key)
+    }
+}
+
+// Removes one entry. The caller holds the cache.
+@(private = "file")
+cache_remove :: proc(db: ^Db, key: string) {
+    c := &db.cache
+    if key not_in c.entries {
+        return
+    }
+    stored, e := delete_key(&c.entries, key)
+    delete(e.data, db.allocator)
+    delete(stored, db.allocator)
+    c.added += 1
+}
+
 // The cached tree and lines of the file at `key` when its stamp matches.
 @(private)
 cache_take :: proc(db: ^Db, key: string, modtime, size: i64) -> (tree: ^Item_Tree, lines: []int, ok: bool) {

@@ -168,6 +168,9 @@ file_refresh :: proc(snap: ^Snapshot, slot: ^File_Slot) {
         if slot.disk != nil || slot.exists {
             next_revision(db)
         }
+        if key_stable(snap, slot.key) {
+            cache_drop(db, slot.key)
+        }
         file_slot_drop_disk(db, slot)
         slot.stamped = true
         slot.exists = false

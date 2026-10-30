@@ -220,3 +220,54 @@ test_tree_cache_db :: proc(t: ^testing.T) {
         testing.expect_value(t, db_cache_added(&db), 1)
     }
 }
+
+// A file deleted from a package under the Odin root, or its whole directory, leaves the tree cache.
+@(test)
+test_tree_cache_prune :: proc(t: ^testing.T) {
+    root, ok := fixture_dir(t, "prune")
+    if !ok {
+        return
+    }
+    defer os.remove_all(root)
+    pkg := fmt.tprintf("%s/core/p", root)
+    other := fmt.tprintf("%s/core/q", root)
+    testing.expect_value(t, os.make_directory_all(pkg), nil)
+    testing.expect_value(t, os.make_directory_all(other), nil)
+    a, _ := filepath.join({pkg, "a.odin"}, context.temp_allocator)
+    b, _ := filepath.join({pkg, "b.odin"}, context.temp_allocator)
+    q, _ := filepath.join({other, "q.odin"}, context.temp_allocator)
+    testing.expect_value(t, os.write_entire_file(a, "package p\n\none :: 1\n"), nil)
+    testing.expect_value(t, os.write_entire_file(b, "package p\n\ntwo :: 2\n"), nil)
+    testing.expect_value(t, os.write_entire_file(q, "package q\n\nthree :: 3\n"), nil)
+    colls := Collections{odin_root = root}
+    input := Snapshot_Input{target = target_host(), collections = &colls}
+
+    db: Db
+    db_init(&db, read_plain)
+    defer db_destroy(&db)
+    db.stable_interval = 0
+    read_packages :: proc(t: ^testing.T, db: ^Db, input: Snapshot_Input, dirs: ..string) {
+        snap: Snapshot
+        if !testing.expect(t, snapshot_begin(db, &snap, input)) {
+            return
+        }
+        defer snapshot_end(&snap)
+        for dir in dirs {
+            _ = db_package(&snap, db_package_id(&snap, dir))
+        }
+    }
+    read_packages(t, &db, input, pkg, other)
+    testing.expect_value(t, len(db.cache.entries), 3)
+    _, eok := db_cache_encode(&db, "key", context.temp_allocator)
+    testing.expect(t, eok)
+
+    testing.expect_value(t, os.remove(b), nil)
+    read_packages(t, &db, input, pkg, other)
+    testing.expect_value(t, len(db.cache.entries), 2)
+    testing.expect_value(t, db_cache_added(&db), 1)
+
+    testing.expect_value(t, os.remove(q), nil)
+    testing.expect_value(t, os.remove(other), nil)
+    read_packages(t, &db, input, pkg, other)
+    testing.expect_value(t, len(db.cache.entries), 1)
+}
