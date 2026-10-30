@@ -493,3 +493,22 @@ main :: proc() {
         testing.expect_value(t, res.report.items[3].severity, lang.Diagnostic_Severity.Warning)
     }
 }
+
+@(test)
+test_live_import_cycles :: proc(t: ^testing.T) {
+    root := fixture(t, "live_import_cycles", {
+        {"app/b/b.odin", "package b\n\nimport \"../c\"\n\nf :: proc() { c.g() }\n"},
+        {"app/c/c.odin", "package c\n\nimport app \"..\"\n\ng :: proc() { app.main() }\n"},
+        {"app/d/d.odin", "package d\n\nh :: proc() {}\n"},
+    })
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := "package app\n\nimport \"b\"\nimport \"d\"\n\nmain :: proc() {\n\tb.f()\n\td.h()\n}\n"
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {{"import \"b\"", "Cyclic importation of 'b'", 0}})
+    for d in res.report.items {
+        testing.expect(t, d.code == CODE_CYCLE, "a cycle carries the cycle id")
+    }
+}

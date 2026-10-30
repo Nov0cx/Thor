@@ -23,6 +23,7 @@ name_diagnostics :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Report) 
         return a.line < b.line || (a.line == b.line && a.col < b.col)
     })
     import_problems(rc, report)
+    import_cycles(rc, report)
     package_redeclarations(rc, report)
     import_redeclarations(rc, report)
     m, err := odinsema.scope_map(rc.parsed, context.temp_allocator)
@@ -325,6 +326,27 @@ import_problems :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Report) {
             report_error(rc, report, offset, CODE_IMPORT, fmt.aprintf("Unknown library collection: '%s'", imp.collection))
         case .Missing_Dir:
             report_error(rc, report, offset, CODE_IMPORT, fmt.aprintf("Path does not exist: %s", imp.path))
+        }
+    }
+}
+
+// Reports each import of the buffer whose package imports the buffer's package back.
+@(private = "file")
+import_cycles :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Report) {
+    if rc.live.path == "" || !rc.live.in_build {
+        return
+    }
+    imports := odinsema.db_imports(&rc.snap, rc.live.id)
+    dirs := make([]string, len(imports), context.temp_allocator)
+    for imp, i in imports {
+        if !imp.is_foreign && imp.exists && imp.problem == .None && imp.collection != "base" && imp.collection != "core" && imp.collection != "vendor" {
+            dirs[i] = imp.dir
+        }
+    }
+    cyclic := odinsema.import_cycles(&rc.snap, odinsema.db_package_id(&rc.snap, live_dir(rc)), dirs)
+    for imp, i in imports {
+        if cyclic[i] {
+            report_error(rc, report, rc.live.tree.items[imp.item].start, CODE_CYCLE, fmt.aprintf("Cyclic importation of '%s'", imp.alias))
         }
     }
 }

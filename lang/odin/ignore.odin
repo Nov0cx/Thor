@@ -13,6 +13,7 @@ CODE_REDECLARED :: "name/redeclared"
 CODE_UNDECLARED :: "name/undeclared"
 CODE_PRIVATE    :: "name/private"
 CODE_IMPORT     :: "import/unresolved"
+CODE_CYCLE      :: "import/cycle"
 CODE_ARITY      :: "call/arity"
 CODE_NAMED      :: "call/named"
 CODE_NO_MEMBER  :: "type/no-member"
@@ -28,7 +29,7 @@ CODE_COUNT      :: "assign/count"
 
 // Every id the engine reports.
 @(private = "file")
-KNOWN_CODES := [?]string{CODE_SYNTAX, CODE_REDECLARED, CODE_UNDECLARED, CODE_PRIVATE, CODE_IMPORT, CODE_ARITY, CODE_NAMED, CODE_NO_MEMBER, CODE_SWITCH, CODE_ASSERT, CODE_MISMATCH, CODE_OVERLOAD, CODE_OVERFLOW, CODE_RETURN, CODE_OR_RETURN, CODE_WHERE, CODE_COUNT}
+KNOWN_CODES := [?]string{CODE_SYNTAX, CODE_REDECLARED, CODE_UNDECLARED, CODE_PRIVATE, CODE_IMPORT, CODE_ARITY, CODE_NAMED, CODE_NO_MEMBER, CODE_SWITCH, CODE_ASSERT, CODE_MISMATCH, CODE_OVERLOAD, CODE_OVERFLOW, CODE_RETURN, CODE_OR_RETURN, CODE_WHERE, CODE_COUNT, CODE_CYCLE}
 
 // The ids one `thor:ignore` comment names, and the line it applies to. No ids means every id.
 @(private = "file")
