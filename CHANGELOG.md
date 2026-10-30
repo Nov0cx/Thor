@@ -2,6 +2,7 @@
 
 - A double click selects the word under the pointer. Dragging after it extends the selection by whole words.
 - Odin: syntax errors are marked while typing. After a save, the `odin check` diagnostics replace them. The `syntax_diagnostics` feature (Settings > "Live Syntax Errors") turns them off.
+- Odin: in a file with no syntax errors, name errors are also marked while typing: a redeclared name, an undeclared name, a `pkg.name` that is private or missing, and an import path that names no directory.
 - A right click on empty space in the explorer, or in an empty folder, opens the workspace root's context menu (New File, New Folder, Refresh).
 - Thor no longer holds `.git/index.lock` while idle. Its git status ran in a loop and made `git commit` fail.
 - A task from the titlebar runs in its own terminal tab, named after the task, not in the shell in use. Running it again restarts that tab.
