@@ -347,3 +347,137 @@ test_static_assert_fails :: proc(t: ^testing.T) {
     }
     testing.expect_value(t, c.err, nil)
 }
+
+@(private = "file")
+MISMATCH_SRC :: `package p
+
+I :: distinct int
+E :: enum { A, B }
+U :: union { int, string }
+Base :: struct { n: int }
+Derived :: struct { using base: Base }
+Box :: struct($T: typeid) { item: T }
+
+take :: proc(a: int, s: string) {}
+rest :: proc(xs: ..int) {}
+loose :: proc(a: any, #any_int b: int) {}
+poly :: proc(x: $T, y: T) {}
+two :: proc() -> (int, string) { s: string; return s, 1 }
+one :: proc() -> int { return "x" }
+fine :: proc() -> (I, E) { return 1, .A }
+base_of :: proc(b: ^Base) {}
+
+work :: proc() {
+    s: string
+    i: int
+    d: I
+    u8v: u8
+    f: f32
+    take(s, "a")
+    take(1, 2)
+    take(s = "a", a = s)
+    rest(1, s)
+    loose(s, u8v)
+    poly(1, 2)
+    i = s
+    i = "a"
+    d = i
+    d = 3
+    x: int = s
+    y: [3]f32 = 0
+    z: [3]f32 = f
+    w: b8 = true
+    c: u8 = 300
+    e: E = .B
+    un: U = s
+    p: ^Derived
+    base_of(p)
+    q: rawptr = p
+    m: [^]Derived = p
+    bx: Box(int)
+    bx.item = s
+    v: string = nil
+    _ = s
+}
+`
+
+// The outermost node of `kind` that starts at `offset`.
+@(private = "file")
+node_kind_at :: proc(c: ^Checker, offset: int, kind: odinsyntax.Syntax_Kind) -> (odinsyntax.Syntax_Node, bool) {
+    for n in node_path(c, ANON_FILE, offset) {
+        if int(n.offset) == offset && n.green.kind == kind {
+            return n, true
+        }
+    }
+    return {}, false
+}
+
+@(test)
+test_type_mismatches :: proc(t: ^testing.T) {
+    env: Check_Env
+    if !check_begin(t, &env, Snapshot_Input{has_live = true, live_text = MISMATCH_SRC}) {
+        return
+    }
+    defer check_end(&env)
+    c := &env.c
+    Mismatch_Case :: struct {
+        text:  string,
+        kind:  odinsyntax.Syntax_Kind,
+        wants: []string, // "value -> type" per problem
+    }
+    cases := []Mismatch_Case {
+        {"take(s, \"a\")", .Call_Expr, {"s -> int"}},
+        {"take(1, 2)", .Call_Expr, {"2 -> string"}},
+        {"take(s = \"a\", a = s)", .Call_Expr, {"s -> int"}},
+        {"rest(1, s)", .Call_Expr, {"s -> int"}},
+        {"loose(s, u8v)", .Call_Expr, {}},
+        {"poly(1, 2)", .Call_Expr, {}},
+        {"base_of(p)", .Call_Expr, {}},
+        {"return s, 1", .Return_Stmt, {"s -> int", "1 -> string"}},
+        {"return \"x\"", .Return_Stmt, {"\"x\" -> int"}},
+        {"return 1, .A", .Return_Stmt, {}},
+        {"i = s", .Assign_Stmt, {"s -> int"}},
+        {"i = \"a\"", .Assign_Stmt, {"\"a\" -> int"}},
+        {"d = i", .Assign_Stmt, {"i -> I"}},
+        {"d = 3", .Assign_Stmt, {}},
+        {"x: int = s", .Value_Decl, {"s -> int"}},
+        {"y: [3]f32 = 0", .Value_Decl, {}},
+        {"z: [3]f32 = f", .Value_Decl, {}},
+        {"w: b8 = true", .Value_Decl, {}},
+        {"c: u8 = 300", .Value_Decl, {}},
+        {"e: E = .B", .Value_Decl, {}},
+        {"un: U = s", .Value_Decl, {}},
+        {"q: rawptr = p", .Value_Decl, {}},
+        {"m: [^]Derived = p", .Value_Decl, {}},
+        {"bx.item = s", .Assign_Stmt, {"s -> int"}},
+        {"v: string = nil", .Value_Decl, {"nil -> string"}},
+        {"_ = s", .Assign_Stmt, {}},
+    }
+    for k in cases {
+        at := strings.index(MISMATCH_SRC, k.text)
+        if !testing.expectf(t, at >= 0, "%q: not in the source", k.text) {
+            continue
+        }
+        n, ok := node_kind_at(c, at, k.kind)
+        if !testing.expectf(t, ok, "%q: no %v node", k.text, k.kind) {
+            continue
+        }
+        problems: []Type_Problem
+        #partial switch k.kind {
+        case .Call_Expr:   problems = argument_mismatches(c, ANON_FILE, n, context.temp_allocator)
+        case .Return_Stmt: problems = return_mismatches(c, ANON_FILE, n, context.temp_allocator)
+        case:              problems = assign_mismatches(c, ANON_FILE, n, context.temp_allocator)
+        }
+        got := make([dynamic]string, context.temp_allocator)
+        for p in problems {
+            append(&got, strings.concatenate({odinsyntax.node_text(p.value), " -> ", type_string(&c.table, p.to, context.temp_allocator)}, context.temp_allocator))
+        }
+        testing.expectf(t, len(got) == len(k.wants), "%q: got %v, want %v", k.text, got[:], k.wants)
+        for g, i in got {
+            if i < len(k.wants) {
+                testing.expectf(t, g == k.wants[i], "%q: got %q, want %q", k.text, g, k.wants[i])
+            }
+        }
+    }
+    testing.expect_value(t, c.err, nil)
+}

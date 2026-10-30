@@ -398,3 +398,271 @@ static_assert_fails :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_
     fails = is_bool && !b
     return
 }
+
+// Whether a value can be assigned to a type.
+Assignable :: enum u8 {
+    Yes,
+    No,
+    Unknown, // a type is not known, or a rule the checker does not model may apply
+}
+
+// Whether `op` can be assigned to a value of type `to`, by the compiler's rules. No only for types
+// whose rules are modelled in full; an untyped number into a number is left to the constant checks.
+assignable :: proc(c: ^Checker, to: Type_Id, op: Operand, any_int := false) -> Assignable {
+    t := &c.table
+    if to == INVALID_TYPE || op.type == INVALID_TYPE || (op.mode != .Value && op.mode != .Const) {
+        return .Unknown
+    }
+    if _, is_tuple := type_get(t, op.type).(Tuple_Type); is_tuple {
+        return .Unknown
+    }
+    if has_poly(c, to, 0) || has_poly(c, op.type, 0) {
+        return .Unknown
+    }
+    if assign_distance(c, to, op, any_int, false) >= 0 {
+        return .Yes
+    }
+    if !plain_type(c, to) || !plain_type(c, op.type) {
+        return .Unknown
+    }
+    tb := type_get(t, type_base(t, to))
+    fb := type_get(t, type_base(t, op.type))
+    if u, is_untyped := fb.(Untyped_Type); is_untyped {
+        #partial switch u.kind {
+        case .Int, .Float, .Rune, .Complex, .Quaternion:
+            if type_is_numeric(t, to) {
+                return .Unknown
+            }
+        case .Uninit:
+            return .Unknown
+        }
+    }
+    #partial switch _ in tb {
+    case Array_Type, Enumerated_Array_Type:
+        return .Unknown
+    case Pointer_Type:
+        if _, ok := fb.(Multi_Pointer_Type); ok {
+            return .Unknown
+        }
+    case Multi_Pointer_Type:
+        if _, ok := fb.(Pointer_Type); ok {
+            return .Unknown
+        }
+    }
+    return .No
+}
+
+// True when the assignment rules of `t` are modelled in full: a basic, untyped, pointer, slice,
+// array, dynamic array, map, bit_set, enum, or a struct or union with no parameters.
+@(private = "file")
+plain_type :: proc(c: ^Checker, t: Type_Id) -> bool {
+    #partial switch v in type_get(&c.table, type_base(&c.table, t)) {
+    case Basic_Type, Untyped_Type, Pointer_Type, Multi_Pointer_Type, Slice_Type, Enumerated_Array_Type,
+         Dynamic_Array_Type, Map_Type, Bit_Set_Type, Enum_Type:
+        return true
+    case Array_Type:
+        return v.len >= 0
+    case Struct_Type:
+        return len(v.params) == 0
+    case Union_Type:
+        return len(v.params) == 0
+    }
+    return false
+}
+
+// A value that cannot be assigned to the type its place takes.
+Type_Problem :: struct {
+    value: odinsyntax.Syntax_Node,
+    op:    Operand, // the value as typed against `to`
+    to:    Type_Id,
+}
+
+// The arguments of `call` that its one procedure cannot take. Nil for the calls call_problem leaves
+// out, and for polymorphic procedures and C variadic parameters. The list is in `allocator`.
+argument_mismatches :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node, allocator := context.allocator) -> []Type_Problem {
+    ce, is_call := odinsyntax.as_call_expr(call)
+    if !is_call {
+        return nil
+    }
+    callee, has_callee := odinsyntax.call_expr_callee(&ce)
+    list, has_list := odinsyntax.call_expr_args(&ce)
+    if !has_callee || !has_list {
+        return nil
+    }
+    if _, is_directive := odinsyntax.as_directive(callee); is_directive {
+        return nil
+    }
+    fn := expr_type(c, file, callee)
+    if fn.mode != .Value && fn.mode != .Const {
+        return nil
+    }
+    p, is_proc := type_get(&c.table, type_base(&c.table, fn.type)).(Proc_Type)
+    if !is_proc || p.generic {
+        return nil
+    }
+    temp := scratch_begin(c)
+    defer scratch_end(temp)
+    args := call_args(c, file, odinsyntax.Syntax_Node(list), {})
+    if len(args) == 0 {
+        return nil
+    }
+    for a in args {
+        if a.name == "" && !a.spread && may_give_values(c, a) {
+            return nil
+        }
+    }
+    with, ok := with_receiver(c, file, callee, args)
+    if !ok {
+        return nil
+    }
+    first := len(with) - len(args)
+    slots, miss := match_slots(c, p, with)
+    if miss.kind != .None {
+        return nil
+    }
+    out := make([dynamic]Type_Problem, allocator)
+    for a, i in with {
+        if i < first || a.spread || a.node.green == nil {
+            continue
+        }
+        param := p.params[slots[i]]
+        if .C_Vararg in param.flags {
+            continue
+        }
+        to := param.type
+        op := expr_type(c, file, a.node, to)
+        if assignable(c, to, op, .Any_Int in param.flags) == .No {
+            append(&out, Type_Problem{a.node, op, to})
+        }
+    }
+    return out[:]
+}
+
+// The values of an `=` assignment or a variable declaration with a type that cannot be assigned to
+// their places. Nil when the counts differ. The list is in `allocator`.
+assign_mismatches :: proc(c: ^Checker, file: File_Id, stmt: odinsyntax.Syntax_Node, allocator := context.allocator) -> []Type_Problem {
+    temp := scratch_begin(c)
+    defer scratch_end(temp)
+    places := make([dynamic]Type_Id, c.tmp)
+    values: odinsyntax.Expr_List
+    #partial switch stmt.green.kind {
+    case .Assign_Stmt:
+        as, _ := odinsyntax.as_assign_stmt(stmt)
+        op, has_op := odinsyntax.assign_stmt_op(&as)
+        lhs, has_lhs := odinsyntax.assign_stmt_lhs(&as)
+        rhs, has_rhs := odinsyntax.assign_stmt_rhs(&as)
+        if !has_op || !has_lhs || !has_rhs || op.green.kind != .Eq {
+            return nil
+        }
+        it := odinsyntax.expr_list_items(&lhs)
+        for place in odinsyntax.child_iter_next(&it) {
+            to := INVALID_TYPE
+            if !(place.green.kind == .Ident && odinsyntax.node_text(place) == "_") {
+                if lop := expr_type(c, file, place); lop.mode == .Value {
+                    to = lop.type
+                }
+            }
+            if _, err := append(&places, to); !note_alloc(c, err) {
+                return nil
+            }
+        }
+        values = rhs
+    case .Value_Decl:
+        if is_constant_decl(stmt) {
+            return nil
+        }
+        vd, _ := odinsyntax.as_value_decl(stmt)
+        type_node, has_type := odinsyntax.value_decl_type(&vd)
+        names, has_names := odinsyntax.value_decl_names(&vd)
+        list, has_values := odinsyntax.value_decl_values(&vd)
+        if !has_type || !has_names || !has_values {
+            return nil
+        }
+        to := type_expr(c, file, type_node)
+        it := odinsyntax.name_list_names(&names)
+        for _ in odinsyntax.child_iter_next(&it) {
+            if _, err := append(&places, to); !note_alloc(c, err) {
+                return nil
+            }
+        }
+        values = list
+    case:
+        return nil
+    }
+    return value_mismatches(c, file, places[:], values, allocator)
+}
+
+// The values of `return` that the results of the innermost procedure around it cannot take. Nil
+// when the counts differ. The list is in `allocator`.
+return_mismatches :: proc(c: ^Checker, file: File_Id, ret: odinsyntax.Syntax_Node, allocator := context.allocator) -> []Type_Problem {
+    rs, is_return := odinsyntax.as_return_stmt(ret)
+    if !is_return {
+        return nil
+    }
+    values, has_values := odinsyntax.return_stmt_values(&rs)
+    if !has_values {
+        return nil
+    }
+    lit: odinsyntax.Syntax_Node
+    found := false
+    path := node_path(c, file, int(ret.offset))
+    #reverse for n in path {
+        if n.green.kind == .Proc_Lit {
+            lit, found = n, true
+            break
+        }
+    }
+    if !found {
+        return nil
+    }
+    pl, _ := odinsyntax.as_proc_lit(lit)
+    pt, has_type := odinsyntax.proc_lit_type(&pl)
+    if !has_type {
+        return nil
+    }
+    p, is_proc := type_get(&c.table, type_base(&c.table, type_expr(c, file, odinsyntax.Syntax_Node(pt)))).(Proc_Type)
+    if !is_proc || p.generic || p.diverging {
+        return nil
+    }
+    temp := scratch_begin(c)
+    defer scratch_end(temp)
+    places, err := make([]Type_Id, len(p.results), c.tmp)
+    if !note_alloc(c, err) {
+        return nil
+    }
+    for r, i in p.results {
+        places[i] = r.type
+    }
+    return value_mismatches(c, file, places, values, allocator)
+}
+
+// The values of `list` that cannot be assigned to the place of the same index.
+@(private = "file")
+value_mismatches :: proc(c: ^Checker, file: File_Id, places: []Type_Id, list: odinsyntax.Expr_List, allocator: mem.Allocator) -> []Type_Problem {
+    list := list
+    nodes := make([dynamic]odinsyntax.Syntax_Node, c.tmp)
+    it := odinsyntax.expr_list_items(&list)
+    for v in odinsyntax.child_iter_next(&it) {
+        if v.green.kind == .Field_Value {
+            return nil
+        }
+        if _, err := append(&nodes, v); !note_alloc(c, err) {
+            return nil
+        }
+    }
+    if len(nodes) != len(places) {
+        return nil
+    }
+    out := make([dynamic]Type_Problem, allocator)
+    for v, i in nodes {
+        to := places[i]
+        if to == INVALID_TYPE {
+            continue
+        }
+        op := expr_type(c, file, v, to)
+        if assignable(c, to, op) == .No {
+            append(&out, Type_Problem{v, op, to})
+        }
+    }
+    return out[:]
+}
