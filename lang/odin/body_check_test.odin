@@ -284,3 +284,53 @@ pair :: proc() -> (int, string) { return two() }
         {"1\n}", "Cannot convert '1' to 'string' from 'untyped integer', got 1", 0},
     })
 }
+
+@(test)
+test_live_group_no_match :: proc(t: ^testing.T) {
+    root := fixture(t, "live_group_no_match", {
+        {".thor/odin-analyzer.json", `{"target": {"os": "windows", "arch": "amd64"}}`},
+        {"app/q/q.odin", "package q\n\nfa :: proc(a: i32) {}\nfb :: proc(a: string) {}\ngrp :: proc{fa, fb}\n"},
+    })
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+import "q"
+
+fi :: proc(a: int) {}
+fs :: proc(a: string) {}
+g :: proc{fi, fs}
+f2 :: proc(a: int, b: int) {}
+g2 :: proc{fi, f2}
+pi :: proc(a: $T) {}
+gp :: proc{fs, pi}
+va :: proc(a: any) {}
+ga :: proc{fs, va}
+
+main :: proc() {
+	x: f32
+	g(x)
+	g2(1, 2, 3)
+	g2()
+	q.grp(x)
+	g(1)
+	g("a")
+	g2(1, b = 2)
+	gp(x)
+	ga(x)
+	g(true)
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"g(x)", "No procedures or ambiguous call for procedure group 'g' that match with the given arguments", 0},
+        {"g2(1, 2, 3)", "No procedures or ambiguous call for procedure group 'g2' that match with the given arguments", 0},
+        {"g2()", "No procedures or ambiguous call for procedure group 'g2' that match with the given arguments", 0},
+        {"q.grp(x)", "No procedures or ambiguous call for procedure group 'q.grp' that match with the given arguments", 0},
+    })
+    for d in res.report.items {
+        testing.expect(t, d.code == CODE_OVERLOAD, "a group error carries the overload id")
+    }
+}

@@ -30,6 +30,7 @@ walk_body :: proc(rc: ^Request_Context, c: ^odinsema.Checker, whens: []Branch, n
     #partial switch n.green.kind {
     case .Call_Expr:
         call_errors(rc, c, n, report)
+        group_errors(rc, c, n, report)
         assert_errors(rc, c, n, report)
         mismatch_errors(rc, c, odinsema.argument_mismatches(c, rc.live.id, n, context.temp_allocator), "a procedure argument", report)
     case .Selector_Expr:
@@ -77,6 +78,18 @@ call_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, call: odinsyntax
     case .Positional_After_Named:
         report_error(rc, report, p.offset, CODE_NAMED, strings.clone("Non-named parameter is not allowed to follow named parameter i.e. 'field = value' in a procedure call"))
     }
+}
+
+// Reports a call of a procedure group that no member takes.
+@(private = "file")
+group_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, call: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
+    if !odinsema.group_no_match(c, rc.live.id, call) {
+        return
+    }
+    ce, _ := odinsyntax.as_call_expr(call)
+    callee, _ := odinsyntax.call_expr_callee(&ce)
+    name := strings.join(strings.fields(odinsyntax.node_text(callee), context.temp_allocator), "", context.temp_allocator)
+    report_error(rc, report, int(call.offset), CODE_OVERLOAD, fmt.aprintf("No procedures or ambiguous call for procedure group '%s' that match with the given arguments", name))
 }
 
 // Reports a selector that names no field or member of its operand.
