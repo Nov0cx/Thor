@@ -31,7 +31,7 @@ name_diagnostics :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Report) 
     }
     defer odinsema.scope_map_destroy(m, context.temp_allocator)
     whens := make([dynamic]Branch, context.temp_allocator)
-    collect_whens(odinsyntax.node_root(rc.parsed.tree), rc.target, &whens)
+    collect_whens(odinsyntax.node_root(rc.parsed.tree), rc, &whens)
     local_redeclarations(rc, m, whens[:], report)
     member_redeclarations(rc, m, report)
     qualified_names(rc, m, report)
@@ -151,6 +151,8 @@ in_spans :: proc(spans: []Span, offset: int) -> bool {
 }
 
 // Reports each package-scope declaration of the buffer that another one of the package redeclares.
+// Two declarations conflict when both are surely active for the target, also under a `when` on a
+// package constant, and neither is private to another file.
 @(private = "file")
 package_redeclarations :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Report) {
     if !rc.live.in_build {
@@ -170,11 +172,31 @@ package_redeclarations :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Re
     if live < 0 {
         return
     }
+    guards := Guard_Ctx{rc = rc, view = view, states = make(map[odinsema.Item_Ref]odinsema.Tri, 16, context.temp_allocator)}
+    done := make(map[string]struct{}, 16, context.temp_allocator)
+    clash := make([dynamic]odinsema.Item_Ref, context.temp_allocator)
     offsets := make([dynamic]int, context.temp_allocator)
-    for c in view.scope.conflicts {
+    for item in rc.live.tree.items {
+        if item.kind == .Import || item.kind == .Foreign_Import || item.name == "_" || item.name in done {
+            continue
+        }
+        done[item.name] = {}
+        refs := odinsema.package_scope_lookup(view.scope, item.name)
+        if len(refs) < 2 {
+            continue
+        }
+        clear(&clash)
+        for a, i in refs {
+            for b in refs[i + 1:] {
+                if (a.file == live || b.file == live) && refs_clash(&guards, a, b) {
+                    add_ref(&clash, a)
+                    add_ref(&clash, b)
+                }
+            }
+        }
         clear(&offsets)
         elsewhere := false
-        for ref in c.refs {
+        for ref in clash {
             if ref.file != live {
                 elsewhere = true
                 continue
@@ -185,7 +207,98 @@ package_redeclarations :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Re
         // In one file the compiler names the later declarations; across files, each file names its own.
         first := elsewhere ? 0 : 1
         for offset in offsets[min(first, len(offsets)):] {
-            report_error(rc, report, offset, CODE_REDECLARED, fmt.aprintf("Redeclaration of '%s' in this scope", c.name))
+            report_error(rc, report, offset, CODE_REDECLARED, fmt.aprintf("Redeclaration of '%s' in this scope", item.name))
+        }
+    }
+}
+
+@(private = "file")
+add_ref :: proc(list: ^[dynamic]odinsema.Item_Ref, ref: odinsema.Item_Ref) {
+    for r in list {
+        if r == ref {
+            return
+        }
+    }
+    append(list, ref)
+}
+
+// The guard states of the items of one package, with conditions on package constants read by the checker.
+@(private = "file")
+Guard_Ctx :: struct {
+    rc:     ^Request_Context,
+    view:   ^odinsema.Package_View,
+    file:   int, // the file of the guard being resolved
+    states: map[odinsema.Item_Ref]odinsema.Tri, // by item
+}
+
+@(private = "file")
+refs_clash :: proc(g: ^Guard_Ctx, a, b: odinsema.Item_Ref) -> bool {
+    files := g.view.sema_files
+    ia := odinsema.package_item(files, a)
+    ib := odinsema.package_item(files, b)
+    if a.file != b.file && (ia.visibility == .File || ib.visibility == .File) {
+        return false
+    }
+    return item_state(g, a) == .True && item_state(g, b) == .True
+}
+
+@(private = "file")
+item_state :: proc(g: ^Guard_Ctx, ref: odinsema.Item_Ref) -> odinsema.Tri {
+    if state, ok := g.states[ref]; ok {
+        return state
+    }
+    tree := g.view.sema_files[ref.file].items
+    g.file = ref.file
+    resolver := odinsema.Guard_Resolver{resolve_guard, g}
+    state := odinsema.guard_state(tree, tree.items[ref.item].guard, g.rc.target, &resolver)
+    g.states[ref] = state
+    return state
+}
+
+// The condition of guard `guard` of the file being resolved, read from its parse by the checker.
+@(private = "file")
+resolve_guard :: proc(data: rawptr, tree: ^odinsema.Item_Tree, guard: int) -> odinsema.Tri {
+    g := cast(^Guard_Ctx)data
+    rc := g.rc
+    id := g.view.files[g.file]
+    parsed: ^odinsyntax.Parse
+    if id == rc.live.id {
+        parsed = &rc.parsed
+    } else {
+        parsed = odinsema.db_parse(&rc.snap, id)
+    }
+    if parsed == nil || parsed.tree == nil || parsed.tree.root == nil {
+        return .Unknown
+    }
+    cond, ok := when_cond_at(odinsyntax.node_root(parsed.tree), tree.guards[guard].start)
+    if !ok {
+        return .Unknown
+    }
+    return when_state(rc, cond, id)
+}
+
+// The condition that starts at `offset` of the `when` statement that holds it.
+@(private = "file")
+when_cond_at :: proc(root: odinsyntax.Syntax_Node, offset: int) -> (odinsyntax.Syntax_Node, bool) {
+    n := root
+    for {
+        if n.green.kind == .When_Stmt {
+            ws, _ := odinsyntax.as_when_stmt(n)
+            if cond, ok := odinsyntax.when_stmt_cond(&ws); ok && int(cond.offset) == offset {
+                return cond, true
+            }
+        }
+        next_found := false
+        it := odinsyntax.child_iter(&n, {kinds = ~odinsyntax.Kind_Set{}})
+        for child in odinsyntax.child_iter_next(&it) {
+            start, end := odinsyntax.node_range(child)
+            if int(start) <= offset && offset < int(end) {
+                n, next_found = child, true
+                break
+            }
+        }
+        if !next_found {
+            return {}, false
         }
     }
 }
@@ -421,30 +534,52 @@ in_untaken_branch :: proc(whens: []Branch, offset: int) -> bool {
 
 // Appends the branches of every `when` statement under `n`.
 @(private = "file")
-collect_whens :: proc(n: odinsyntax.Syntax_Node, target: odinsema.Target, out: ^[dynamic]Branch) {
+collect_whens :: proc(n: odinsyntax.Syntax_Node, rc: ^Request_Context, out: ^[dynamic]Branch) {
     n := n
     if n.green.kind == .When_Stmt {
-        collect_when_chain(n, .True, target, out)
+        collect_when_chain(n, .True, rc, out)
         return
     }
     it := odinsyntax.child_iter(&n, {kinds = ~odinsyntax.Kind_Set{}})
     for child in odinsyntax.child_iter_next(&it) {
-        collect_whens(child, target, out)
+        collect_whens(child, rc, out)
     }
+}
+
+// What the `when` condition `cond` gives for the request's target. The build constants are read
+// directly; a condition on a constant of the package or the body goes through the checker.
+@(private = "file")
+when_state :: proc(rc: ^Request_Context, cond: odinsyntax.Syntax_Node, file: odinsema.File_Id) -> odinsema.Tri {
+    if state := odinsema.when_condition(cond, rc.target); state != .Unknown {
+        return state
+    }
+    c := request_checker(rc)
+    if c == nil {
+        return .Unknown
+    }
+    v, ok := odinsema.const_eval(c, file, cond)
+    if !ok {
+        return .Unknown
+    }
+    b, is_bool := v.(bool)
+    if !is_bool {
+        return .Unknown
+    }
+    return b ? .True : .False
 }
 
 // Appends the branches of the `when` chain at `n`; `reached` tells whether the earlier branches all fail.
 @(private = "file")
-collect_when_chain :: proc(n: odinsyntax.Syntax_Node, reached: odinsema.Tri, target: odinsema.Target, out: ^[dynamic]Branch) {
+collect_when_chain :: proc(n: odinsyntax.Syntax_Node, reached: odinsema.Tri, rc: ^Request_Context, out: ^[dynamic]Branch) {
     ws, _ := odinsyntax.as_when_stmt(n)
     cond := odinsema.Tri.Unknown
     if c, ok := odinsyntax.when_stmt_cond(&ws); ok {
-        cond = odinsema.when_condition(c, target)
+        cond = when_state(rc, c, rc.live.id)
     }
     if body, ok := odinsyntax.when_stmt_body(&ws); ok {
         start, end := odinsyntax.node_range(odinsyntax.Syntax_Node(body))
         append(out, Branch{int(start), int(end), odinsema.tri_and(reached, cond)})
-        collect_whens(odinsyntax.Syntax_Node(body), target, out)
+        collect_whens(odinsyntax.Syntax_Node(body), rc, out)
     }
     other, ok := odinsyntax.when_stmt_else_branch(&ws)
     if !ok {
@@ -452,12 +587,12 @@ collect_when_chain :: proc(n: odinsyntax.Syntax_Node, reached: odinsema.Tri, tar
     }
     rest := odinsema.tri_and(reached, odinsema.tri_not(cond))
     if other.green.kind == .When_Stmt {
-        collect_when_chain(other, rest, target, out)
+        collect_when_chain(other, rest, rc, out)
         return
     }
     start, end := odinsyntax.node_range(other)
     append(out, Branch{int(start), int(end), rest})
-    collect_whens(other, target, out)
+    collect_whens(other, rc, out)
 }
 
 // Sorts local indices by the offset of their names.

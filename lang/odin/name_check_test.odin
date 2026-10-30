@@ -83,6 +83,7 @@ test_live_redeclared_in_package :: proc(t: ^testing.T) {
         {"app/other.odin", "package app\n\nshared :: proc() {}\n"},
         {"app/other_linux.odin", "package app\n\nposix_only :: 1\n"},
         {"app/hidden.odin", "#+private file\npackage app\n\nhidden :: 1\n"},
+        {"app/flags.odin", "package app\n\nOTHER :: true\n\nwhen OTHER {\n\tcross :: 1\n}\n"},
     })
     e := engine_create()
     defer engine_destroy(e)
@@ -100,6 +101,20 @@ when ODIN_OS == .Windows {
 	twin :: 2
 }
 
+FLAG :: true
+
+when FLAG {
+	flagged :: 1
+}
+flagged :: 2
+
+when !FLAG {
+	quiet :: 1
+}
+quiet :: 2
+
+cross :: 2
+
 main :: proc() {}
 `
     res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
@@ -107,6 +122,8 @@ main :: proc() {}
     expect_errors(t, &res, src, {
         {"g ::", "Redeclaration of 'g' in this scope", 1},
         {"shared ::", "Redeclaration of 'shared' in this scope", 0},
+        {"flagged :: 2", "Redeclaration of 'flagged' in this scope", 0},
+        {"cross ::", "Redeclaration of 'cross' in this scope", 0},
     })
 }
 
@@ -391,6 +408,25 @@ f :: proc() {
 	}
 	u := 2
 	_ = u
+	OFF :: !FLAG
+	when OFF {
+		k := 1
+		_ = k
+	}
+	k := 2
+	_ = k
+	when FLAG && ODIN_OS == .Linux {
+		h := 1
+		_ = h
+	}
+	h := 2
+	_ = h
+	when FLAG && ODIN_OS == .Windows {
+		j := 1
+		_ = j
+	}
+	j := 2
+	_ = j
 }
 
 main :: proc() {}
@@ -400,6 +436,8 @@ main :: proc() {}
     expect_errors(t, &res, src, {
         {"w := 3", "Redeclaration of 'w' in this scope", 0},
         {"r := 4", "Redeclaration of 'r' in this scope", 0},
+        {"u := 2", "Redeclaration of 'u' in this scope", 0},
+        {"j := 2", "Redeclaration of 'j' in this scope", 0},
     })
 }
 
