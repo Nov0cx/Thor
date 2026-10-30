@@ -114,7 +114,7 @@ db_imports :: proc(snap: ^Snapshot, id: File_Id) -> []File_Import {
     if v != nil && (v.data != slot.disk || v.config != snap.config) {
         v = nil
     }
-    if v != nil && v.epoch != snap.epoch && !(key_stable(snap, slot.key) && check_fresh(snap, v.checked_at)) {
+    if v != nil && v.epoch != snap.epoch && !key_fresh(snap, slot.key, v.checked_at) {
         if imports_exist_same(v.list) {
             v.epoch = snap.epoch
             v.checked_at = snap.now
@@ -154,15 +154,15 @@ file_data_pinned :: proc(snap: ^Snapshot, id: File_Id) -> ^File_Data {
 }
 
 // Brings the disk memos of a file in step with its stamp, once per snapshot, and at most once per
-// Db.stable_interval for a file under the Odin root. The caller holds the slot.
+// Db.stable_interval under the Odin root or Db.workspace_interval elsewhere. The caller holds the slot.
 @(private)
 file_refresh :: proc(snap: ^Snapshot, slot: ^File_Slot) {
-    if slot.stamped && (slot.stat_epoch == snap.epoch || key_stable(snap, slot.key) && check_fresh(snap, slot.stat_time)) {
+    if slot.stamped && (slot.stat_epoch == snap.epoch || key_fresh(snap, slot.key, sync.atomic_load(&slot.stat_time))) {
         return
     }
     db := snap.db
     stat_add(&db.stats.stats)
-    slot.stat_time = snap.now
+    sync.atomic_store(&slot.stat_time, snap.now)
     info, err := os.stat(slot.path, db.allocator)
     if err != nil {
         if slot.disk != nil || slot.exists {
@@ -277,7 +277,7 @@ file_reload_body :: proc(snap: ^Snapshot, slot: ^File_Slot) {
     os.file_info_delete(info, db.allocator)
     if moved {
         slot.stat_epoch = 0
-        slot.stat_time = 0
+        sync.atomic_store(&slot.stat_time, 0)
         file_refresh(snap, slot)
         return
     }

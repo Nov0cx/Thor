@@ -32,6 +32,10 @@ Clock_Proc :: #type proc() -> i64
 // Longest time a file or directory under the Odin root goes without a stat or a listing.
 STABLE_INTERVAL :: 5 * time.Second
 
+// Longest time a file or directory outside the Odin root goes without a stat or a listing, for a
+// database that sets Db.workspace_interval to it. db_touch makes one file current at once.
+WORKSPACE_INTERVAL :: 1 * time.Second
+
 // Number of live buffers whose last parse the database keeps.
 LIVE_SLOTS :: 8
 
@@ -74,6 +78,7 @@ Db :: struct {
     workspace_limit: int,
     clock:           Clock_Proc,
     stable_interval: i64, // nanoseconds; see STABLE_INTERVAL
+    workspace_interval: i64, // nanoseconds; 0 checks once per snapshot. See WORKSPACE_INTERVAL
     cache:           Tree_Cache,
     lock:            sync.RW_Mutex, // guards the intern maps, the slot arrays and `configs`
     files:           [dynamic]^File_Slot,        // owned
@@ -217,7 +222,7 @@ File_Slot :: struct {
     key:              string, // owned; path_key of path
     dir_key:          string, // owned; path_key of the directory
     stat_epoch:       u64,    // the snapshot that last checked the stamp
-    stat_time:        i64,    // the time of that check
+    stat_time:        i64,    // atomic; the time of that check
     stamped:          bool,   // modtime, size and exists describe the disk
     exists:           bool,
     modtime:          i64,
@@ -245,7 +250,7 @@ Package_Slot :: struct {
     dir:          string, // owned; as first given
     key:          string, // owned; path_key of dir
     listed_epoch: u64,
-    listed_time:  i64, // the time of that listing
+    listed_time:  i64, // atomic; the time of that listing
     listing:      []File_Id, // owned; sorted by path; valid when listed_epoch != 0
     memo:         ^Package_Memo, // one reference
 }
@@ -582,16 +587,43 @@ db_now :: proc(db: ^Db) -> i64 {
     return time.now()._nsec
 }
 
+// Makes the next snapshot stat the file at `path` and list its directory again, whatever the
+// intervals say. Call it when the file is known to have changed on disk. Takes no slot lock, so
+// the main thread can call it while a worker parses.
+db_touch :: proc(db: ^Db, path: string) {
+    key := path_key(path)
+    dir_key := path_key(filepath.dir(path))
+    file: ^File_Slot
+    pkg: ^Package_Slot
+    {
+        sync.shared_guard(&db.lock)
+        if id, ok := db.file_ids[key]; ok {
+            file = db.files[id]
+        }
+        if id, ok := db.package_ids[dir_key]; ok {
+            pkg = db.packages[id]
+        }
+    }
+    if pkg != nil {
+        sync.atomic_store(&pkg.listed_time, 0)
+    }
+    if file != nil {
+        sync.atomic_store(&file.stat_time, 0)
+    }
+}
+
 // True when `key`, a path_key, is under the Odin root of the snapshot.
 @(private)
 key_stable :: proc(snap: ^Snapshot, key: string) -> bool {
     return snap.stable_key != "" && (strings.has_prefix(key, snap.stable_key) || key == snap.stable_key[:len(snap.stable_key) - 1])
 }
 
-// True when a stable check made at `at` is still fresh for the snapshot.
+// True when a check of `key` made at `at` is still fresh for the snapshot: within
+// Db.stable_interval under the Odin root, else within Db.workspace_interval.
 @(private)
-check_fresh :: proc(snap: ^Snapshot, at: i64) -> bool {
-    return at != 0 && snap.now - at < snap.db.stable_interval
+key_fresh :: proc(snap: ^Snapshot, key: string, at: i64) -> bool {
+    interval := key_stable(snap, key) ? snap.db.stable_interval : snap.db.workspace_interval
+    return at != 0 && snap.now - at < interval
 }
 
 @(private)

@@ -690,3 +690,67 @@ test_db_parse_release :: proc(t: ^testing.T) {
     db_parse_release(&snap, held)
     testing.expect_value(t, body_pins(&snap), 0)
 }
+
+@(private = "file")
+workspace_now: i64
+
+@(private = "file")
+workspace_clock :: proc() -> i64 {
+    return sync.atomic_load(&workspace_now)
+}
+
+// A workspace file and directory are checked at most once per workspace interval; a touch makes the
+// next snapshot check them at once.
+@(test)
+test_db_workspace_throttle :: proc(t: ^testing.T) {
+    dir, ok := fixture(t, "workspace_throttle")
+    if !ok {
+        return
+    }
+    defer os.remove_all(dir)
+    a := put(t, dir, "a.odin", "package p\n\none :: 1\n")
+    db: Db
+    db_init(&db, read_plain)
+    defer db_destroy(&db)
+    db.clock = workspace_clock
+    db.workspace_interval = i64(WORKSPACE_INTERVAL)
+    sync.atomic_store(&workspace_now, i64(1_000_000_000))
+
+    look :: proc(t: ^testing.T, db: ^Db, dir: string) -> (files: int, has_two: bool) {
+        snap: Snapshot
+        if !begin(t, db, &snap) {
+            return
+        }
+        defer snapshot_end(&snap)
+        view := db_package(&snap, db_package_id(&snap, dir))
+        if !testing.expect(t, view != nil) {
+            return
+        }
+        return len(view.files), has_name(view, "two")
+    }
+
+    files, two := look(t, &db, dir)
+    testing.expect_value(t, files, 1)
+    stats := sync.atomic_load(&db.stats.stats)
+    listings := sync.atomic_load(&db.stats.listings)
+
+    put(t, dir, "a.odin", "package p\n\none :: 1\ntwo :: 2\n")
+    put(t, dir, "b.odin", "package p\n\nthree :: 3\n")
+    sync.atomic_add(&workspace_now, i64(WORKSPACE_INTERVAL / 2))
+    files, two = look(t, &db, dir)
+    testing.expect_value(t, files, 1)
+    testing.expect(t, !two)
+    testing.expect_value(t, sync.atomic_load(&db.stats.stats), stats)
+    testing.expect_value(t, sync.atomic_load(&db.stats.listings), listings)
+
+    db_touch(&db, a)
+    files, two = look(t, &db, dir)
+    testing.expect_value(t, files, 2)
+    testing.expect(t, two)
+
+    put(t, dir, "b.odin", "package p\n\nthree :: 3\nfour :: 4\n")
+    sync.atomic_add(&workspace_now, i64(WORKSPACE_INTERVAL))
+    stats = sync.atomic_load(&db.stats.stats)
+    look(t, &db, dir)
+    testing.expect(t, sync.atomic_load(&db.stats.stats) > stats)
+}
