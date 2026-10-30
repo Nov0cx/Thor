@@ -8,8 +8,12 @@ import "core:path/filepath"
 import "core:slice"
 import "core:strings"
 import "core:sync"
+import "core:time"
 
 import odinsema "sema"
+
+// Longest time the known packages go without a walk, so a package made since then is found.
+PACKAGE_INDEX_TTL :: 30 * time.Second
 
 // Deepest directory level the package walk reads below a collection root.
 @(private = "file")
@@ -31,11 +35,14 @@ Package_Index :: struct {
     alloc:    runtime.Allocator,
     key:      string, // owned; the roots the list was built for
     built:    bool,
+    built_at: time.Tick,
+    ttl:      time.Duration, // PACKAGE_INDEX_TTL; 0 walks on every call
     packages: [dynamic]Known_Package, // owned, with their strings
 }
 
 // The known packages for the Odin root and the collections of `workspace`, sorted by rank, then by
-// depth and path. Built on the first call for a set of roots. Temp-allocated copies.
+// depth and path. Built on the first call for a set of roots, and again once it is older than
+// `ttl`. Temp-allocated copies.
 @(private)
 known_packages :: proc(e: ^Engine, workspace: string) -> []Known_Package {
     root := odin_root(&e.root)
@@ -56,9 +63,10 @@ known_packages :: proc(e: ^Engine, workspace: string) -> []Known_Package {
     index := &e.packages
     sync.lock(&index.mutex)
     defer sync.unlock(&index.mutex)
-    if !index.built || index.key != key {
+    if !index.built || index.key != key || time.tick_since(index.built_at) >= index.ttl {
         package_index_clear(index)
         index.built = true
+        index.built_at = time.tick_now()
         cloned, err := strings.clone(key, index.alloc)
         if err == nil {
             index.key = cloned

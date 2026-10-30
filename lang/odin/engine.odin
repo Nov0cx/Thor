@@ -55,6 +55,7 @@ engine_create :: proc() -> ^Engine {
     e.root.alloc = context.allocator
     e.tree_cache.alloc = context.allocator
     e.packages.alloc = context.allocator
+    e.packages.ttl = PACKAGE_INDEX_TTL
     return e
 }
 

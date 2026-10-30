@@ -703,3 +703,36 @@ test_completion_auto_import_same_name :: proc(t: ^testing.T) {
     testing.expect_value(t, apply_extra_edit(src, find_item(&res, "beta")), with_import("shared:b/util"))
     testing.expect_value(t, apply_extra_edit(src, find_item(&res, "both")), with_import("shared:a/util"))
 }
+
+// A package made after the first request is offered once the index is older than its ttl.
+@(test)
+test_completion_auto_import_new_package :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    config := `{"collections": [{"name": "shared", "path": "shared"}]}`
+    root := fixture(t, "completion_auto_import_new_package", {
+        {".thor/odin-analyzer.json", config},
+        {"shared/old/old.odin", "package old\n"},
+        {"app/other.odin", "package app\n"},
+    })
+    defer os.remove_all(root)
+    main_path := fixture_path(root, "app/main.odin")
+    src := "package app\n\nmain :: proc() {\n\t_ = fres\n}\n"
+
+    res := complete_at(e, src, "_ = fres", workspace = root, path = main_path)
+    expect_labels(t, &res, nil, {"freshpkg"})
+    completions_free(&res)
+
+    fresh := fixture_path(root, "shared/freshpkg")
+    testing.expect_value(t, os.make_directory_all(fresh), nil)
+    testing.expect_value(t, os.write_entire_file(fixture_path(root, "shared/freshpkg/fresh.odin"), "package freshpkg\n"), nil)
+    res = complete_at(e, src, "_ = fres", workspace = root, path = main_path)
+    expect_labels(t, &res, nil, {"freshpkg"})
+    completions_free(&res)
+
+    e.packages.ttl = 0
+    res = complete_at(e, src, "_ = fres", workspace = root, path = main_path)
+    expect_labels(t, &res, {"freshpkg"})
+    completions_free(&res)
+}
