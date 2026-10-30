@@ -32,6 +32,7 @@ walk_body :: proc(rc: ^Request_Context, c: ^odinsema.Checker, whens: []Branch, n
         call_errors(rc, c, n, report)
         group_errors(rc, c, n, report)
         conversion_errors(rc, c, n, report)
+        where_errors(rc, c, n, report)
         assert_errors(rc, c, n, report)
         mismatch_errors(rc, c, odinsema.argument_mismatches(c, rc.live.id, n, context.temp_allocator), "a procedure argument", report)
     case .Selector_Expr:
@@ -182,6 +183,17 @@ or_return_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, n: odinsynt
         to := odinsema.type_string(&c.table, p.to, context.temp_allocator)
         report_error(rc, report, at, CODE_OR_RETURN, fmt.aprintf("Cannot assign end value of type '%s' to '%s' in 'or_return'", end, to))
     }
+}
+
+// Reports a call of a polymorphic procedure whose `where` clause is false for its arguments.
+@(private = "file")
+where_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, call: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
+    constraint, fails := odinsema.where_problem(c, rc.live.id, call)
+    if !fails {
+        return
+    }
+    text := strings.join(strings.fields(constraint, context.temp_allocator), " ", context.temp_allocator)
+    report_error(rc, report, int(call.offset), CODE_WHERE, fmt.aprintf("'where' clause evaluated to false: %s", text))
 }
 
 // Reports a `#assert` whose condition is false.

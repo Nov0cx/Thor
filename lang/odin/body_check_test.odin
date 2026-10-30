@@ -578,3 +578,37 @@ h :: proc() -> Err {
         testing.expect(t, d.code == CODE_OR_RETURN, "an or_return error carries its id")
     }
 }
+
+@(test)
+test_live_where_clauses :: proc(t: ^testing.T) {
+    root := fixture(t, "live_where_clauses", {{".thor/odin-analyzer.json", `{"target": {"os": "windows", "arch": "amd64"}}`}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+import "base:intrinsics"
+
+num :: proc(x: $T) -> T where intrinsics.type_is_numeric(T) { return x }
+two :: proc(a: $A, b: $B) where A == B, size_of(A) == 8 {}
+
+main :: proc() {
+	_ = num("s")
+	_ = num(1)
+	two(1, 2)
+	x: i32
+	two(x, x)
+	two(x, "a")
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"num(\"s\")", "'where' clause evaluated to false: intrinsics.type_is_numeric(T)", 0},
+        {"two(x, x)", "'where' clause evaluated to false: size_of(A) == 8", 0},
+        {"two(x, \"a\")", "'where' clause evaluated to false: A == B", 0},
+    })
+    for d in res.report.items {
+        testing.expect(t, d.code == CODE_WHERE, "a where error carries its id")
+    }
+}
