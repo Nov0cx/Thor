@@ -18,12 +18,131 @@ Span :: struct {
 // Appends the name errors of the request's buffer to `report`.
 @(private)
 name_diagnostics :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Report) {
+    first := len(report.items)
+    defer slice.sort_by(report.items[first:], proc(a, b: lang.Diagnostic) -> bool {
+        return a.line < b.line || (a.line == b.line && a.col < b.col)
+    })
     package_redeclarations(rc, report)
     import_redeclarations(rc, report)
+    m, err := odinsema.scope_map(rc.parsed, context.temp_allocator)
+    if err != nil || lang.request_cancelled(rc.req) {
+        return
+    }
+    defer odinsema.scope_map_destroy(m, context.temp_allocator)
+    local_redeclarations(rc, m, report)
+    qualified_names(rc, m, report)
     if lang.request_cancelled(rc.req) {
         return
     }
-    local_redeclarations(rc, report)
+    undeclared_names(rc, report)
+}
+
+// Reports each free name that no scope declares.
+@(private = "file")
+undeclared_names :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Report) {
+    tokens, ok := semantic_classify(rc, 0, len(rc.req.source))
+    if !ok {
+        return
+    }
+    for tok in tokens {
+        if tok.kind == .Unresolved {
+            report_error(rc, report, tok.start, fmt.aprintf("Undeclared name: %s", rc.req.source[tok.start:tok.end]))
+        }
+    }
+}
+
+// Reports each `alias.name` whose package declares no public `name`.
+@(private = "file")
+qualified_names :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, report: ^lang.Diagnostic_Report) {
+    using_items := make([dynamic]Span, context.temp_allocator)
+    if m.has_using {
+        using_spans(rc, m, &using_items)
+    }
+    for ref in m.refs {
+        if ref.kind != .Package_Qualified || in_spans(using_items[:], ref.start) {
+            continue
+        }
+        switch qualified_state(rc, ref.operand, ref.name) {
+        case .Public:
+        case .Private:
+            report_error(rc, report, ref.operand_start, fmt.aprintf("'%s' is not exported by '%s'", ref.name, ref.operand))
+        case .Missing:
+            report_error(rc, report, ref.operand_start, fmt.aprintf("'%s' is not declared by '%s'", ref.name, ref.operand))
+        }
+    }
+}
+
+// What a package gives for `alias.name`.
+@(private = "file")
+Qualified_State :: enum u8 {
+    Public,  // a public item, or nothing the check can prove
+    Private, // only `@(private)` items
+    Missing, // no item, or only items private to their file
+}
+
+@(private = "file")
+qualified_state :: proc(rc: ^Request_Context, alias, name: string) -> Qualified_State {
+    dir, is_import := import_alias_dir(rc, alias)
+    if !is_import || dir == "" {
+        return .Public
+    }
+    view := request_package(rc, dir)
+    if view == nil || view.scope == nil || len(view.scope.files) == 0 {
+        return .Public
+    }
+    // Every file of the directory counts, in the build or not: the target may not be the user's.
+    state := Qualified_State.Missing
+    for file in view.sema_files {
+        if file.items == nil {
+            return .Public
+        }
+        for item in file.items.items {
+            if item.name != name || item.kind == .Import || item.kind == .Foreign_Import {
+                continue
+            }
+            switch item.visibility {
+            case .Public:
+                return .Public
+            case .Package:
+                state = .Private
+            case .File:
+            }
+        }
+    }
+    return state
+}
+
+// Appends the ranges of the file-scope declarations of the buffer that hold a `using`.
+@(private = "file")
+using_spans :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, out: ^[dynamic]Span) {
+    for item in rc.live.tree.items {
+        held := false
+        for u in m.usings {
+            if item.start <= u.start && u.start < item.end {
+                held = true
+                break
+            }
+        }
+        for l in m.locals {
+            if held {
+                break
+            }
+            held = l.is_using && item.start <= l.name_offset && l.name_offset < item.end
+        }
+        if held {
+            append(out, Span{item.start, item.end})
+        }
+    }
+}
+
+@(private = "file")
+in_spans :: proc(spans: []Span, offset: int) -> bool {
+    for s in spans {
+        if s.start <= offset && offset < s.end {
+            return true
+        }
+    }
+    return false
 }
 
 // Reports each package-scope declaration of the buffer that another one of the package redeclares.
@@ -94,12 +213,7 @@ Local_Key :: struct {
 // Reports each local that a declaration of the same scope already binds, a local that redeclares
 // the variable of its type-switch case, and a local of a body that shadows a named result.
 @(private = "file")
-local_redeclarations :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Report) {
-    m, err := odinsema.scope_map(rc.parsed, context.temp_allocator)
-    if err != nil {
-        return
-    }
-    defer odinsema.scope_map_destroy(m, context.temp_allocator)
+local_redeclarations :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, report: ^lang.Diagnostic_Report) {
     if len(m.locals) == 0 {
         return
     }

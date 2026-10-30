@@ -219,3 +219,42 @@ test_live_syntax_errors_first :: proc(t: ^testing.T) {
         testing.expectf(t, !strings.has_prefix(d.message, "Redeclaration"), "a broken file must report syntax errors only, got %q", d.message)
     }
 }
+
+@(test)
+test_live_undeclared_names :: proc(t: ^testing.T) {
+    root := fixture(t, "live_undeclared", {
+        {"app/other.odin", "package app\n\nsibling :: proc() -> int { return 1 }\n"},
+        {"app/other_linux.odin", "package app\n\nposix_only :: 1\n"},
+        {"app/q/q.odin", "package q\n\nopen :: proc() {}\n@(private) hidden :: proc() {}\n@(private = \"file\") secret :: proc() {}\n"},
+        {"app/q/q_private.odin", "#+private\npackage q\n\ntagged :: proc() {}\n"},
+    })
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+import "q"
+
+Point :: struct { x: int }
+
+main :: proc() {
+	_ = zork
+	_ = sibling() + posix_only + len("a")
+	_ = offset_of(Point, x)
+	q.open()
+	q.hidden()
+	q.secret()
+	q.tagged()
+	q.missing()
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"zork", "Undeclared name: zork", 0},
+        {"q.hidden", "'hidden' is not exported by 'q'", 0},
+        {"q.secret", "'secret' is not declared by 'q'", 0},
+        {"q.tagged", "'tagged' is not exported by 'q'", 0},
+        {"q.missing", "'missing' is not declared by 'q'", 0},
+    })
+}
