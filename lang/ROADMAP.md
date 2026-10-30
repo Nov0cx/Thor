@@ -2086,7 +2086,12 @@ not a status, so this section stays the source of truth for what is built.
     (`snapshot_begin`) and reads `db_file` (item tree and line starts),
     `db_parse`, `db_in_build`, `db_imports`, `db_package` (files, data and
     scope as a `Package_View`) and `db_workspace`. Memos are refreshed by stat
-    once per snapshot. A package memo records the `shape_changed_at` of each
+    once per snapshot, and the engine's at most once a second outside the
+    Odin root (`WORKSPACE_INTERVAL`): a save in the editor reaches the engine's
+    `notify`, whose `db_touch` makes that file and its directory current at
+    once; a change from outside the editor shows within the second. A warm
+    request then reads no file stamp (it was ~400 stats and 27 listings, about
+    30 ms, for a request in `thor/view.odin`). A package memo records the `shape_changed_at` of each
     file (`item_tree_shape_hash`), so an edit inside a body keeps the scope
     (early cutoff). The request's buffer is a live overlay: it replaces its
     file, or joins its directory's package; a package scope is built for the
@@ -2152,23 +2157,31 @@ not a status, so this section stays the source of truth for what is built.
     `#max_field_align`, `using` fields), unions (tag sized by variant count
     and alignment, `#no_nil`, `#shared_nil`, `#align`, no tag for one
     pointer-like variant), bit_set, bit_field, enumerated arrays, matrix,
-    `#simd`, `#soa`, distinct and named types and instantiated generics.
+    `#simd`, `#soa` (of a struct, or of an array of at most four elements,
+    whose fields are `x`, `y`, `z`, `w`), distinct and named types and
+    instantiated generics.
     `size_of`/`align_of` fold for all of them, and `offset_of`,
     `offset_of_member`, `offset_of(x.f)` and `offset_of_by_string` fold to
     constants (`field_offset`, `field_offset_by_name`, also through `using`).
     A type that holds itself by value and a polymorphic record have no
-    layout. Not yet: `#soa` of a non-struct element.
+    layout.
   - **Overloads** (`call.odin`): `choose_member` scores each member of a
     procedure group by the compiler's distance per argument (exact, untyped
     default type, polymorphic, implicit conversion, untyped, unknown, `any`;
     C²−d² per argument, a variadic slot one farther). An untyped constant
     must fit an integer parameter (`300` is no `u8`), a float constant must be
     integral. A tie is ambiguous and picks no member. A polymorphic member is
-    checked against its bound parameters and its `where` clause (constants,
-    `!`/`&&`/`||`, type `==`/`!=`, the `type_is_*` intrinsics; a clause it
-    cannot read holds). An argument gets the type all members agree on for
-    its slot, and `.Member` is read again per member. Not yet: the other
-    intrinsics in `where`, expected types for named arguments of a group.
+    checked against its bound parameters and its `where` clause (`where.odin`:
+    constants, `!`/`&&`/`||`, type `==`/`!=`, the `type_is_*` intrinsics
+    including `comparable`, `ordered`, `ordered_numeric`, `simple_compare`,
+    `valid_map_key`, `sliceable`, `indexable` and the endian ones,
+    `type_is_subtype_of`, `type_is_variant_of`, `type_is_specialization_of`,
+    `type_has_field`, and the types `type_elem_type`, `type_base_type`,
+    `type_core_type`, `type_bit_set_elem_type`,
+    `type_bit_set_underlying_type` and `type_field_type` give; a clause it
+    cannot read holds). An argument, positional or named, gets the type of its
+    parameter, or for a group the type all members agree on for that slot or
+    name, and `.Member` is read again per member.
   - **Type cache** (`type_cache.odin`): `checker_destroy` freezes the
     checker's types and its declaration, constant, instance and layout memos
     into a `Type_State` of the Db (four slots, keyed by configuration, home
@@ -2178,8 +2191,11 @@ not a status, so this section stays the source of truth for what is built.
     an entry that reads the buffer's file, itself or through the entries it
     uses, is not frozen, so a body edit of the buffer keeps the state and a
     record of the buffer is read again. A state that grows past twice its
-    first size starts afresh. Not yet: entries that read the buffer, and a
-    cheaper check than one stat per file of every package viewed.
+    first size starts afresh. The check reads the stamps the workspace
+    interval keeps, so it stats nothing on a warm request. Entries that read
+    the buffer stay out: `thor.` in `thor/thor.odin`, which declares `Thor`,
+    takes 3.8 ms after a body edit against 1.5 ms in `thor/view.odin`
+    (`-o:speed`), too little to pay for freezing them per item.
   - **Stdlib cache** (plan §5.10): files and package directories under the
     Odin root are stated and listed at most every 5 s
     (`STABLE_INTERVAL`), not every snapshot. Their item trees and line starts
@@ -2187,7 +2203,9 @@ not a status, so this section stays the source of truth for what is built.
     (`tree_codec.odin`, `lang/odin/tree_cache.odin`), keyed by the root, the
     compiler's modtime and size, the format and a schema hash of the item
     tree types, and checked against each file's modtime and size. Parses stay
-    lazy. Not yet: entries of deleted files are not pruned.
+    lazy. A file whose stat fails, or that its directory's listing no longer
+    holds, leaves the cache, and a write removes the `items-*.bin` another
+    root or compiler wrote.
   - **Document_Symbols / Workspace_Symbols** (`lang/odin/symbols.odin`) come
     from the item tree. The outline also lists the procedures and types
     declared in procedure bodies (`nested_decls`). Workspace symbols read
@@ -2297,9 +2315,11 @@ not a status, so this section stays the source of truth for what is built.
     build: a bare prefix in `thor/view.odin` 26 ms (`-o:speed` 17 ms), in
     `sema/check.odin` 15 ms (8 ms); `thor.` 46 ms (35 ms; 97 ms and 52 ms
     before the type cache), also after a body edit of the buffer, hover on
-    `thor` 43 ms (34 ms). Of that, ~40 ms (~30 ms) is the snapshot's stat
+    `thor` 43 ms (34 ms), of which ~40 ms (~30 ms) was the snapshot's stat
     and listing of the 45 packages the type cache checks; `c.` in
-    `check.odin` 45 ms (22 ms). After `x.(` the variants of the operand's
+    `check.odin` 45 ms (22 ms). With the workspace interval, `thor.` after a
+    body edit takes 1.5 ms in `thor/view.odin` and 3.8 ms in `thor/thor.odin`
+    (`-o:speed`). After `x.(` the variants of the operand's
     union, in declaration order; after `x->` only the members of procedure
     type. A procedure ranks as expected when its type is the expected one or
     its single result is. A procedure inserts a call snippet
@@ -2307,12 +2327,14 @@ not a status, so this section stays the source of truth for what is built.
     receiver after `x->` is dropped); none when `(` follows or a procedure
     value is expected; `enable_snippets` turns them off. Auto-import
     (`auto_import.odin`): the packages under `base`/`core`/`vendor` and the
-    configured collections, indexed once per root set; a bare prefix offers
-    the ones the buffer does not import, last, with an `import` line as an
-    extra edit; `alias.` on an unbound alias lists the public names of the one
-    package of that name, with the same edit. The editor also asks after
-    `x.(` and `x->`. Not yet: `alias.` when two packages of the same rank
-    share the name, new packages before the roots change.
+    configured collections, indexed per root set and walked again once the
+    index is 30 s old (`PACKAGE_INDEX_TTL`), so a new package shows; a bare
+    prefix offers the ones the buffer does not import, last, with an `import`
+    line as an extra edit; `alias.` on an unbound alias lists the public names
+    of the packages of that name of the best rank (core, base, the configured
+    collections, vendor), each with the import of its own package; a name two
+    of them declare comes from the shallower one. The editor also asks after
+    `x.(` and `x->`.
   - **Signature help** (`lang/odin/signature.odin`): the innermost call whose
     parentheses hold the caret, found on the tree (an unclosed `f(a, ` is a
     call with an open `Arg_List` that runs to its end). The callee is typed
@@ -2337,8 +2359,8 @@ not a status, so this section stays the source of truth for what is built.
     polymorphic struct or union gives `List($T: typeid, $N: int)` from the
     source of its parameter list (from the checker's parameters when there is
     no source), another type the conversion `int(value)`. A local procedure
-    group signs its members from the group literal. Not yet: group members
-    with a `where` clause the evaluator cannot read.
+    group signs its members from the group literal. A member whose `where`
+    clause the evaluator cannot read counts as one that fits.
   - **Semantic tokens** (`lang/odin/semantic.odin`): one `scope_map` of the
     whole buffer (or of `[offset, end)` when the request has a range) gives
     every identifier; each becomes a token by what it names. A parameter or
@@ -2369,10 +2391,14 @@ not a status, so this section stays the source of truth for what is built.
     (90 ms, `-o:speed` 55 ms, in a fresh engine; 144 ms and 63 ms before
     the type cache; 93 ms and 50 ms after a body edit), against a 50 ms
     target. The type cache (`sema/type_cache.odin`) keeps the types of
-    `^Thor` across requests; what is left besides the walk is the stat
-    and listing of every package a snapshot reads again (~40 ms for the 45
-    packages of `^Thor`). Not yet: a declaration of the buffer itself (a
-    request in `thor/thor.odin` types `Thor` again each time).
+    `^Thor` across requests, and the workspace interval removed the stat and
+    listing of every package a snapshot read again (~40 ms for the 45
+    packages of `^Thor`): warm now `sema/check.odin` 33 ms,
+    `editview/editor.odin` 74 ms, `thor/view.odin` 35 ms,
+    `thor/lang_host.odin` 53 ms (`-o:speed`: `thor/view.odin` 7 ms,
+    `thor/thor.odin` 4 ms, `thor/lang_host.odin` 12 ms). A request in
+    `thor/thor.odin` still types `Thor` again, since entries that read the
+    buffer are not frozen.
   - **Live name errors** (`lang/odin/name_check.odin`): the
     `Syntax_Diagnostics` report of a buffer with no syntax errors, in a
     workspace, also holds the name errors of plan §5.7, worded as the compiler

@@ -9,9 +9,9 @@ on the new tree) landed, plus live syntax errors. M3 is done: `lang/odin/sema` h
 selection, package scopes, lexical name resolution with `using` expansion, the universe scope, the
 query DB and the stdlib cache (§5.10: Odin root files refreshed at most every 5 s, item trees kept
 in `user/cache/odin/`), and serves document/workspace symbols, definition, references, rename and
-package docs. M4 landed except body diagnostics: the type table, `decl_type`, constant evaluation,
+package docs. M4 is done: the type table, `decl_type`, constant evaluation,
 `expr_type` with calls, groups and generics, overload resolution by the compiler's distance scoring
-with `where` clauses, the layout engine (size, align, offsets per target), a type cache across
+with `where` clauses and their intrinsics, the layout engine (size, align, offsets per target), a type cache across
 requests (`type_cache.odin`), and hover (with layout), completion (snippets, auto-import, `x.(`,
 `x->`), signature help and semantic tokens. M5 started: the live report holds the Tier 1 name
 errors (redeclaration, undeclared, private, unresolved import) and the first body errors (argument
