@@ -427,6 +427,72 @@ type_table_destroy :: proc(t: ^Type_Table) {
     t^ = {}
 }
 
+// Makes `dst` a copy of `src` in `allocator`. A shallow copy shares the slices and strings of
+// the types with `src`; a deep copy copies them too.
+@(private)
+type_table_copy :: proc(dst, src: ^Type_Table, allocator: mem.Allocator, deep: bool) -> mem.Allocator_Error {
+    dst^ = Type_Table {
+        allocator = allocator,
+        interned  = make(map[Type_Key]Type_Id, allocator),
+        named     = make(map[Symbol]Type_Id, allocator),
+        distincts = make(map[Symbol]Type_Id, allocator),
+    }
+    dst.types = make([dynamic]Type, len(src.types), allocator) or_return
+    copy(dst.types[:], src.types[:])
+    if deep {
+        for &entry in dst.types {
+            copy_type(dst, &entry)
+        }
+        if dst.err != nil {
+            return dst.err
+        }
+    }
+    map_copy(&dst.interned, src.interned) or_return
+    map_copy(&dst.named, src.named) or_return
+    map_copy(&dst.distincts, src.distincts) or_return
+    return nil
+}
+
+// Copies every slice and string `entry` holds into the allocator of `t`.
+@(private = "file")
+copy_type :: proc(t: ^Type_Table, entry: ^Type) {
+    #partial switch &v in entry {
+    case Bit_Field_Type:
+        v.fields = clone_slice(t, v.fields)
+        for &f in v.fields {
+            f.name = clone_string(t, f.name)
+        }
+    case Struct_Type:
+        v.fields = clone_slice(t, v.fields)
+        for &f in v.fields {
+            f.name = clone_string(t, f.name)
+            f.tag = clone_string(t, f.tag)
+        }
+        v.params = clone_params(t, v.params)
+    case Union_Type:
+        v.variants = clone_slice(t, v.variants)
+        v.params = clone_params(t, v.params)
+    case Enum_Type:
+        v.members = clone_slice(t, v.members)
+        for &m in v.members {
+            m.name = clone_string(t, m.name)
+        }
+    case Proc_Type:
+        v.params = clone_params(t, v.params)
+        v.results = clone_params(t, v.results)
+        v.convention = clone_string(t, v.convention)
+    case Tuple_Type:
+        v.types = clone_slice(t, v.types)
+    case Named_Type:
+        v.name = clone_string(t, v.name)
+        v.qualifier = clone_string(t, v.qualifier)
+    case Poly_Param_Type:
+        v.name = clone_string(t, v.name)
+    case Proc_Group_Type:
+        v.members = clone_slice(t, v.members)
+    }
+}
+
 @(private = "file")
 free_type :: proc(t: ^Type_Table, entry: ^Type) {
     a := t.allocator
@@ -771,6 +837,11 @@ type_distinct :: proc(t: ^Type_Table, symbol: Symbol, base: Type_Id) -> Type_Id 
     }
     value^ = id
     return id
+}
+
+// A new distinct type of `symbol` over `base`, not unique by its symbol.
+type_distinct_new :: proc(t: ^Type_Table, symbol: Symbol, base: Type_Id) -> Type_Id {
+    return push(t, Distinct_Type{symbol, base})
 }
 
 @(private = "file")

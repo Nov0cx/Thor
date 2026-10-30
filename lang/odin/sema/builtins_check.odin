@@ -529,8 +529,9 @@ COMPILER_TYPES := [?]Compiler_Type {
 // The type of a build constant whose value the compiler types itself, made once per checker; INVALID_TYPE for another name.
 @(private)
 compiler_type :: proc(c: ^Checker, constant: string) -> Type_Id {
-    if t, ok := c.odin_types[constant]; ok {
-        return t
+    if memo, ok := c.odin_types[constant]; ok {
+        dep_use(c, memo.node)
+        return memo.type
     }
     spec: ^Compiler_Type
     for &k in COMPILER_TYPES {
@@ -541,6 +542,8 @@ compiler_type :: proc(c: ^Checker, constant: string) -> Type_Id {
     if spec == nil {
         return INVALID_TYPE
     }
+    node, saved := dep_enter(c)
+    defer dep_leave(c, saved)
     temp := scratch_begin(c)
     defer scratch_end(temp)
     members := make([dynamic]Enum_Member, c.tmp)
@@ -570,7 +573,7 @@ compiler_type :: proc(c: ^Checker, constant: string) -> Type_Id {
         }
     }
     if _, entry, _, err := map_entry(&c.odin_types, constant); note_alloc(c, err) {
-        entry^ = t
+        entry^ = Memo_Type{t, node}
     }
     return t
 }

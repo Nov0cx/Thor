@@ -482,7 +482,8 @@ ident_operand :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> 
     case .Import:
         return {mode = .Package, dir = r.dir}
     case .Item:
-        if r.symbol in c.pending {
+        if node, pending := c.pending[r.symbol]; pending {
+            dep_use(c, node)
             // `i32 :: i32` in base:builtin: the declaration stands for the universe name.
             if u := universe_name(c, name); u.kind == .Basic || u.kind == .Builtin {
                 return u.kind == .Basic ? {mode = .Type, type = type_basic(u.basic)} : builtin_operand(c, name)
@@ -1003,19 +1004,27 @@ comp_lit_operand :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, 
 @(private)
 symbol_const :: proc(c: ^Checker, sym: Symbol, file: File_Id, value_offset, value_index: int) -> (Const_Value, bool) {
     if info, ok := c.consts[sym]; ok {
+        dep_use(c, info.node)
         return info.value, info.ok
     }
-    if value_index >= 0 || sym in c.evaluating {
+    if value_index >= 0 {
         return nil, false
     }
+    if node, ok := c.evaluating[sym]; ok {
+        dep_use(c, node)
+        return nil, false
+    }
+    node, saved_frame := dep_enter(c)
+    defer dep_leave(c, saved_frame)
     value, ok := node_at(c, file, value_offset)
     if !ok {
         return nil, false
     }
-    _, _, _, eerr := map_entry(&c.evaluating, sym)
+    _, enode, _, eerr := map_entry(&c.evaluating, sym)
     if !note_alloc(c, eerr) {
         return nil, false
     }
+    enode^ = node
     saved := c.enum_env
     c.enum_env = nil
     v, vok := const_eval(c, file, value)
@@ -1023,7 +1032,7 @@ symbol_const :: proc(c: ^Checker, sym: Symbol, file: File_Id, value_offset, valu
     delete_key(&c.evaluating, sym)
     _, entry, _, err := map_entry(&c.consts, sym)
     if note_alloc(c, err) {
-        entry^ = Const_Info{v, vok}
+        entry^ = Const_Info{v, vok, node}
     }
     return v, vok
 }

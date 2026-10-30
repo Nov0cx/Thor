@@ -65,8 +65,10 @@ local_symbol :: proc(file: File_Id, name_offset: int) -> Symbol {
     return Symbol{file = file, item = LOCAL_ITEM, child = i32(name_offset)}
 }
 
-// The analysis of one snapshot: the types made and the declarations checked so far. It holds
-// pointers into itself, so it must not be copied after checker_init. It must end before the snapshot.
+// The analysis of one snapshot: the types made and the declarations checked so far. It starts
+// from a frozen state of an earlier checker when the snapshot still agrees with it, and
+// checker_destroy freezes what it adds (type_cache.odin). It holds pointers into itself, so it
+// must not be copied after checker_init. It must end before the snapshot.
 Checker :: struct {
     snap:       ^Snapshot,
     table:      Type_Table,
@@ -75,9 +77,9 @@ Checker :: struct {
     universe:   []Universe_Package, // borrowed
     home_key:   string, // path_key of the package whose types print with no qualifier; "" when none
     decls:      map[Symbol]Decl_Info,
-    pending:    map[Symbol]struct{}, // the declarations whose type is in progress
+    pending:    map[Symbol]i32, // the declarations whose type is in progress, with their dependency node
     consts:     map[Symbol]Const_Info,
-    evaluating: map[Symbol]struct{}, // the constants whose value is in progress
+    evaluating: map[Symbol]i32, // the constants whose value is in progress, with their dependency node
     files:      map[File_Id]^File_Cache,
     packages:   map[string]^Package_View, // by path_key of the directory; nil when it cannot be read
     scopes:     map[Scope_Key]^Scope_Map,
@@ -86,17 +88,35 @@ Checker :: struct {
     enum_env:   []Enum_Member, // the members before the enum value being evaluated
     env:        []Binding,     // the polymorphic parameters bound for the type being read
     depth:      int,           // the nesting of expr_type
-    instances:  map[Type_Id]Instance, // the instances of polymorphic records
-    inst_cache: map[string]Type_Id,   // by instance key
-    dir_keys:   map[string]string,    // path_key by directory as asked for
-    pairs:      map[Type_Id]Type_Id,  // (value, bool) by value type
-    results:    map[Type_Id]Type_Id,  // the result Tuple by procedure type
-    odin_types: map[string]Type_Id,   // the types of build constants, by constant name
-    layouts:    map[Type_Id]Layout,   // the known layouts, by base type
-    laying_out: map[Type_Id]struct{}, // the base types whose layout is in progress
+    instances:  map[Type_Id]Instance,  // the instances of polymorphic records
+    inst_cache: map[string]Memo_Type,  // by instance key
+    dir_keys:   map[string]string,     // path_key by directory as asked for
+    pairs:      map[Type_Id]Type_Id,   // (value, bool) by value type
+    results:    map[Type_Id]Type_Id,   // the result Tuple by procedure type
+    odin_types: map[string]Memo_Type,  // the types of build constants, by constant name
+    layouts:    map[Type_Id]Layout,    // the known layouts, by base type
+    laying_out: map[Type_Id]struct{},  // the base types whose layout is in progress
+    base:       ^Type_State, // one reference; the frozen state the tables started from; nil when none
+    exclude:    File_Id,     // the request's buffer: no frozen state holds what depends on its text
+    frame:      i32,         // the dependency node being computed; NO_NODE when none
+    nodes:      [dynamic]bool,   // per dependency node: it read `exclude`
+    edges:      [dynamic][2]i32, // (user, used) pairs of dependency nodes
+    distinct_nodes: map[Symbol]i32,              // the node of each anonymous distinct type made here
+    stamps:         map[File_Id]u64,             // the changed_at of each file read; 0 when it cannot be read
+    package_stamps: map[Package_Id]Package_Stamp, // each package viewed
     scratch:    virtual.Arena,        // temporary arrays, freed by scratch_end
     tmp:        mem.Allocator,        // of `scratch`
     err:        mem.Allocator_Error,
+}
+
+// The dependency node of a memo entry from a frozen state, or of no entry.
+NO_NODE :: i32(-1)
+
+// A memoized type with its dependency node.
+@(private)
+Memo_Type :: struct {
+    type: Type_Id,
+    node: i32,
 }
 
 // A polymorphic parameter and what it is bound to: a Type or a Const operand.
@@ -115,12 +135,14 @@ Instance :: struct {
 Decl_Info :: struct {
     type:    Type_Id,
     is_type: bool, // the declaration names a type; `type` is that type
+    node:    i32,
 }
 
 @(private)
 Const_Info :: struct {
     value: Const_Value,
     ok:    bool,
+    node:  i32,
 }
 
 @(private)
@@ -165,22 +187,29 @@ checker_init :: proc(c: ^Checker, snap: ^Snapshot, universe: []Universe_Package 
         return err
     }
     c.decls = make(map[Symbol]Decl_Info, c.alloc)
-    c.pending = make(map[Symbol]struct{}, c.alloc)
+    c.pending = make(map[Symbol]i32, c.alloc)
     c.consts = make(map[Symbol]Const_Info, c.alloc)
-    c.evaluating = make(map[Symbol]struct{}, c.alloc)
+    c.evaluating = make(map[Symbol]i32, c.alloc)
     c.files = make(map[File_Id]^File_Cache, c.alloc)
     c.packages = make(map[string]^Package_View, c.alloc)
     c.scopes = make(map[Scope_Key]^Scope_Map, c.alloc)
     c.scope_list = make([dynamic]^Scope_Map, c.alloc)
     c.path = make([dynamic]odinsyntax.Syntax_Node, c.alloc)
     c.instances = make(map[Type_Id]Instance, c.alloc)
-    c.inst_cache = make(map[string]Type_Id, c.alloc)
+    c.inst_cache = make(map[string]Memo_Type, c.alloc)
     c.dir_keys = make(map[string]string, c.alloc)
     c.pairs = make(map[Type_Id]Type_Id, c.alloc)
     c.results = make(map[Type_Id]Type_Id, c.alloc)
-    c.odin_types = make(map[string]Type_Id, c.alloc)
+    c.odin_types = make(map[string]Memo_Type, c.alloc)
     c.layouts = make(map[Type_Id]Layout, c.alloc)
     c.laying_out = make(map[Type_Id]struct{}, c.alloc)
+    c.exclude = snapshot_live_file(snap)
+    c.frame = NO_NODE
+    c.nodes = make([dynamic]bool, c.alloc)
+    c.edges = make([dynamic][2]i32, c.alloc)
+    c.distinct_nodes = make(map[Symbol]i32, c.alloc)
+    c.stamps = make(map[File_Id]u64, c.alloc)
+    c.package_stamps = make(map[Package_Id]Package_Stamp, c.alloc)
     home := home
     if home == NO_FILE {
         home = snapshot_live_file(snap)
@@ -190,10 +219,20 @@ checker_init :: proc(c: ^Checker, snap: ^Snapshot, universe: []Universe_Package 
             c.home_key = fc.dir_key
         }
     }
+    if c.err == nil {
+        type_state_adopt(c)
+    }
     return c.err
 }
 
+// Freezes what the checker adds for later checkers, then frees it.
 checker_destroy :: proc(c: ^Checker) {
+    if c.snap != nil && c.alloc.procedure != nil {
+        type_state_publish(c)
+    }
+    if c.base != nil {
+        type_state_release(c.snap.db, c.base)
+    }
     for m in c.scope_list {
         scope_map_destroy(m, c.alloc)
     }
@@ -240,6 +279,9 @@ note_alloc :: proc(c: ^Checker, err: mem.Allocator_Error) -> bool {
 // The declarations, directory and build state of a file, read once per checker. Nil when memory runs out.
 @(private)
 file_cache :: proc(c: ^Checker, id: File_Id) -> ^File_Cache {
+    if id == c.exclude {
+        dep_taint(c)
+    }
     if fc, ok := c.files[id]; ok {
         return fc
     }
@@ -248,6 +290,13 @@ file_cache :: proc(c: ^Checker, id: File_Id) -> ^File_Cache {
         return nil
     }
     fc.data = db_file(c.snap, id)
+    if id != c.exclude && id != ANON_FILE && id not_in c.stamps {
+        _, stamp, _, serr := map_entry(&c.stamps, id)
+        if !note_alloc(c, serr) {
+            return nil
+        }
+        stamp^ = fc.data != nil ? fc.data.changed_at : 0
+    }
     if id == ANON_FILE {
         fc.dir = c.snap.live.dir
     } else {
@@ -311,6 +360,7 @@ checker_package :: proc(c: ^Checker, dir: string) -> ^Package_View {
     view: ^Package_View
     if pkg := db_package_id(c.snap, dir); pkg != NO_PACKAGE {
         view = db_package(c.snap, pkg)
+        package_stamp_note(c, pkg, view)
     }
     _, value, _, err := map_entry(&c.packages, key)
     if note_alloc(c, err) {
@@ -687,16 +737,22 @@ decl_is_type :: proc(c: ^Checker, sym: Symbol) -> bool {
 @(private)
 decl_info :: proc(c: ^Checker, sym: Symbol) -> Decl_Info {
     if info, ok := c.decls[sym]; ok {
+        dep_use(c, info.node)
         return info
     }
-    if sym in c.pending {
+    if node, ok := c.pending[sym]; ok {
+        dep_use(c, node)
         return {}
     }
-    _, _, _, perr := map_entry(&c.pending, sym)
+    node, saved := dep_enter(c)
+    defer dep_leave(c, saved)
+    _, pnode, _, perr := map_entry(&c.pending, sym)
     if !note_alloc(c, perr) {
         return {}
     }
+    pnode^ = node
     info := decl_info_uncached(c, sym)
+    info.node = node
     delete_key(&c.pending, sym)
     _, value, _, err := map_entry(&c.decls, sym)
     if note_alloc(c, err) {
@@ -841,7 +897,7 @@ named_decl :: proc(c: ^Checker, sym: Symbol, name: string, value: odinsyntax.Syn
     if !note_alloc(c, err) {
         return INVALID_TYPE
     }
-    entry^ = Decl_Info{named, true}
+    entry^ = Decl_Info{named, true, c.frame}
     underlying := INVALID_TYPE
     if d, is_distinct := odinsyntax.as_distinct_type(value); is_distinct {
         if inner, ok := odinsyntax.distinct_type_type(&d); ok {
@@ -931,9 +987,24 @@ type_expr :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> Type
     case .Proc_Type:
         return proc_type(c, file, n, {})
     case .Distinct_Type:
+        sym := Symbol{file, LOCAL_ITEM, i32(n.offset)}
+        if len(c.env) > 0 {
+            // The base depends on the bindings, which the position does not name.
+            d, _ := odinsyntax.as_distinct_type(n)
+            return type_distinct_new(t, sym, elem_type(c, file, odinsyntax.distinct_type_type(&d)))
+        }
+        if id, ok := t.distincts[sym]; ok {
+            dep_use(c, c.distinct_nodes[sym] or_else NO_NODE)
+            return id
+        }
+        node, saved := dep_enter(c)
         d, _ := odinsyntax.as_distinct_type(n)
         base := elem_type(c, file, odinsyntax.distinct_type_type(&d))
-        return type_distinct(t, Symbol{file, LOCAL_ITEM, i32(n.offset)}, base)
+        dep_leave(c, saved)
+        if _, entry, _, err := map_entry(&c.distinct_nodes, sym); note_alloc(c, err) {
+            entry^ = node
+        }
+        return type_distinct(t, sym, base)
     case .Typeid_Type:
         return type_basic(.Typeid)
     case .Helper_Type:

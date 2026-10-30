@@ -2169,6 +2169,17 @@ not a status, so this section stays the source of truth for what is built.
     cannot read holds). An argument gets the type all members agree on for
     its slot, and `.Member` is read again per member. Not yet: the other
     intrinsics in `where`, expected types for named arguments of a group.
+  - **Type cache** (`type_cache.odin`): `checker_destroy` freezes the
+    checker's types and its declaration, constant, instance and layout memos
+    into a `Type_State` of the Db (four slots, keyed by configuration, home
+    package and the request's buffer); the next `checker_init` copies them
+    when every file it read has the same `changed_at` and every package it
+    viewed the same files and shapes. Each memo entry is a dependency node;
+    an entry that reads the buffer's file, itself or through the entries it
+    uses, is not frozen, so a body edit of the buffer keeps the state and a
+    record of the buffer is read again. A state that grows past twice its
+    first size starts afresh. Not yet: entries that read the buffer, and a
+    cheaper check than one stat per file of every package viewed.
   - **Stdlib cache** (plan §5.10): files and package directories under the
     Odin root are stated and listed at most every 5 s
     (`STABLE_INTERVAL`), not every snapshot. Their item trees and line starts
@@ -2284,8 +2295,10 @@ not a status, so this section stays the source of truth for what is built.
     The engine names no trigger characters: the editor asks on `.` and on
     word characters, and the list is complete for its prefix. Warm, debug
     build: a bare prefix in `thor/view.odin` 26 ms (`-o:speed` 17 ms), in
-    `sema/check.odin` 15 ms (8 ms); `thor.` 200 ms (80 ms), all of it the
-    checker typing `^Thor` (hover on `thor` costs the same); `c.` in
+    `sema/check.odin` 15 ms (8 ms); `thor.` 46 ms (35 ms; 97 ms and 52 ms
+    before the type cache), also after a body edit of the buffer, hover on
+    `thor` 43 ms (34 ms). Of that, ~40 ms (~30 ms) is the snapshot's stat
+    and listing of the 45 packages the type cache checks; `c.` in
     `check.odin` 45 ms (22 ms). After `x.(` the variants of the operand's
     union, in declaration order; after `x->` only the members of procedure
     type. A procedure ranks as expected when its type is the expected one or
@@ -2351,12 +2364,15 @@ not a status, so this section stays the source of truth for what is built.
     sorted and an overlap is dropped. No toggle, as with the old engine. Over
     `sema/check.odin`, `thor/view.odin`, `editview/editor.odin` and
     `thor/lang_host.odin` no name is marked `Unresolved`. Debug build, warm
-    (cold ≈ 1.2 s): `sema/check.odin` 80 ms, `editview/editor.odin` (3,069
-    lines) 80 ms, `thor/view.odin` 190 ms, `thor/lang_host.odin` 185 ms,
-    against a 50 ms target. The rest is not the walk: a new checker per
-    request types `^Thor` again (about 130 ms, 45 packages, 1,434 types),
-    and a snapshot lists and stats every package it reads again. Not yet: a
-    type cache across requests.
+    (cold ≈ 1.1 s): `sema/check.odin` 46 ms, `editview/editor.odin` (3,069
+    lines) 77 ms, `thor/view.odin` 81 ms, `thor/lang_host.odin` 105 ms
+    (90 ms, `-o:speed` 55 ms, in a fresh engine; 144 ms and 63 ms before
+    the type cache; 93 ms and 50 ms after a body edit), against a 50 ms
+    target. The type cache (`sema/type_cache.odin`) keeps the types of
+    `^Thor` across requests; what is left besides the walk is the stat
+    and listing of every package a snapshot reads again (~40 ms for the 45
+    packages of `^Thor`). Not yet: a declaration of the buffer itself (a
+    request in `thor/thor.odin` types `Thor` again each time).
   - **Not yet:** redeclaration and visibility errors.
 - **Formatter** (`lang/odin/format`, M2 end): prints from the `odinsyntax`
   tree; `core:odin/parser` is used only by tests. `tree.odin` builds the line

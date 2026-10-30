@@ -59,12 +59,14 @@ Db_Stats :: struct {
     trees:        int, // item trees built
     scopes:       int, // package scopes built for a memo
     local_scopes: int, // package scopes built for one snapshot
+    type_hits:    int, // checkers started from a frozen state
+    type_states:  int, // frozen states published
 }
 
 // The query database: memoized file data, parses, build selection, imports and package scopes,
 // refreshed by stat and shared by every snapshot.
-// Lock order: workspace slot, package slot, file slot, then Db.lock or Db.lru_mutex. Db.lock and
-// Db.lru_mutex are leaves; a file slot never takes a package slot.
+// Lock order: workspace slot, package slot, file slot, then Db.lock, Db.lru_mutex or
+// Db.type_mutex. The three are leaves; a file slot never takes a package slot.
 Db :: struct {
     allocator:       mem.Allocator, // must be safe to use from every worker thread
     read:            Read_Proc,
@@ -85,6 +87,9 @@ Db :: struct {
     lives:           Lru, // files with a live parse
     scopes:          Lru, // packages with a memo
     loose:           Lru, // files with disk data that nothing holds
+    type_mutex:      sync.Mutex, // guards `type_states` and Type_State.used
+    type_states:     [TYPE_STATE_SLOTS]^Type_State, // one reference each; nil when empty
+    type_clock:      u64, // the last Type_State.used given
     revision:        u64, // atomic; bumped by every input change
     epoch:           u64, // atomic; one per snapshot
     stats:           Db_Stats,
@@ -290,6 +295,9 @@ db_destroy :: proc(db: ^Db) {
         delete(slot.dir, db.allocator)
         delete(slot.key, db.allocator)
         free(slot, db.allocator)
+    }
+    for s in db.type_states {
+        type_state_release(db, s)
     }
     delete(db.workspace.files, db.allocator)
     delete(db.workspace.key, db.allocator)

@@ -1236,9 +1236,12 @@ instantiate :: proc(c: ^Checker, generic: Type_Id, args: []Call_Arg) -> Operand 
     if !key_ok {
         return {}
     }
-    if id, ok := c.inst_cache[key]; ok {
-        return {mode = .Type, type = id}
+    if memo, ok := c.inst_cache[key]; ok {
+        dep_use(c, memo.node)
+        return {mode = .Type, type = memo.type}
     }
+    node, saved_frame := dep_enter(c)
+    defer dep_leave(c, saved_frame)
     name := strings.builder_make(c.tmp)
     strings.write_string(&name, named.name)
     strings.write_byte(&name, '(')
@@ -1267,7 +1270,7 @@ instantiate :: proc(c: ^Checker, generic: Type_Id, args: []Call_Arg) -> Operand 
     }
     copy(stored_args, ops)
     if _, entry, _, err := map_entry(&c.inst_cache, stored_key); note_alloc(c, err) {
-        entry^ = inst
+        entry^ = Memo_Type{inst, node}
     }
     if _, entry, _, err := map_entry(&c.instances, inst); note_alloc(c, err) {
         entry^ = Instance{generic, stored_args}

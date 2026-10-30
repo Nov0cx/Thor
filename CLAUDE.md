@@ -170,13 +170,18 @@ be tested headlessly.
   query DB (`db*.odin`). A request reads through a `Snapshot` (`snapshot_begin`/`snapshot_end`):
   `db_file`, `db_parse`, `db_package`, `db_workspace` give refcounted values pinned until
   `snapshot_end` (`db_parse_release` drops one parse early). Lock order: workspace slot, package
-  slot, file slot, then `Db.lock` or `Db.lru_mutex`. It imports only `odinsyntax` and `core:`.
+  slot, file slot, then `Db.lock`, `Db.lru_mutex` or `Db.type_mutex`. It imports only
+  `odinsyntax` and `core:`.
   The type layer: `types.odin` (the `Type_Table`; structural types are interned, a named type is
   unique by its `Symbol`), `check.odin` (`Checker`, `decl_type`, `type_expr`, `lookup_name`),
   `const.odin`, `expr.odin` + `call.odin` + `builtins_check.odin` (`expr_type`, calls, groups,
   generics) and `query.odin` (`expected_type_at`, `type_members`, `selector_symbol`,
   `symbol_range`, `expr_under`). A `Checker` owns its arena, borrows a `Snapshot` and must be
-  destroyed before `snapshot_end`; it caches nothing across requests.
+  destroyed before `snapshot_end`. `checker_destroy` freezes what it typed into a Db-held
+  `Type_State` (`type_cache.odin`) and `checker_init` copies the state of its key (configuration,
+  home package, buffer) when the files and packages it read are unchanged; an entry that reads the
+  request's buffer, directly or through another entry, is never frozen. A frozen state is
+  immutable after publish.
   The formatter (`lang/odin/format`, package `odinfmt`) prints from the `odinsyntax` tree too;
   `core:odin/parser` is a test oracle only.
 - `setting`, `watch`, `shell` — JSON settings/keybinds, the async recursive file-system watcher,
