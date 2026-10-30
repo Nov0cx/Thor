@@ -435,6 +435,13 @@ assignable :: proc(c: ^Checker, to: Type_Id, op: Operand, any_int := false) -> A
             }
         case .Uninit:
             return .Unknown
+        case .Nil:
+            if _, is_basic := tb.(Basic_Type); !is_basic {
+                return .Unknown
+            }
+        }
+        if _, is_union := tb.(Union_Type); is_union {
+            return .Unknown
         }
     }
     #partial switch _ in tb {
