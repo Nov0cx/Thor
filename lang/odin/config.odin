@@ -1,5 +1,5 @@
 // Per-workspace analyzer configuration, read from
-// `<workspace>/.thor/odin-analyzer.json` and cached on the engine.
+// `<workspace>/.thor/odin-analyzer.lua` and cached on the engine.
 package odin
 
 import "base:runtime"
@@ -11,19 +11,20 @@ import "core:strings"
 import "core:sync"
 
 import lang ".."
+import "../../luaconf"
 import odinsema "sema"
 
 // Per-workspace language-backend config, read from `<workspace>/.thor/` — the
-// same workspace config folder Thor keeps its `settings.json` in. Thor's own
+// same workspace config folder Thor keeps its `settings.lua` in. Thor's own
 // file (not `ols.json`), though the shape — a `collections` array, `enable_*`
 // toggles — is deliberately familiar.
 @(private)
 WORKSPACE_CONFIG_DIR :: ".thor"
 @(private)
-ANALYZER_CONFIG :: "odin-analyzer.json"
+ANALYZER_CONFIG :: "odin-analyzer.lua"
 
 // Language-backend settings for one workspace, read from
-// `<workspace>/.thor/odin-analyzer.json`. Only the settings the in-client engine
+// `<workspace>/.thor/odin-analyzer.lua`. Only the settings the in-client engine
 // can act on are kept: import collections (a name → its root directory, so `import
 // "shared:foo"` resolves), the feature-enable toggles, the target, the defines and the
 // severity of each live diagnostic id. Absent keys take the defaults — no collections,
@@ -68,7 +69,7 @@ Config_Cache :: struct {
     cfg:       Config,
 }
 
-// Ensures the cache reflects `<workspace>/.thor/odin-analyzer.json` on disk. Rebuilds when the
+// Ensures the cache reflects `<workspace>/.thor/odin-analyzer.lua` on disk. Rebuilds when the
 // workspace changed or the file's stat moved; otherwise leaves the parsed view
 // in place. All owned storage lands in the engine allocator (context set
 // locally, so callees inherit it). Caller holds cache.mutex.
@@ -134,16 +135,12 @@ config_defaults :: proc() -> Config {
 // act on. context.allocator is the engine allocator (set by config_ensure).
 @(private)
 config_parse :: proc(cache: ^Config_Cache, workspace, path: string) {
-    data, rerr := os.read_entire_file(path, context.temp_allocator)
-    if rerr != nil {
-        return
-    }
-    value, perr := json.parse(data, allocator = context.temp_allocator)
-    if perr != .None {
-        return
+    value, status, message := luaconf.eval_file(path)
+    if status == .Failed {
+        log.warnf("odin-analyzer.lua: %s", message)
     }
     obj, ook := value.(json.Object)
-    if !ook {
+    if status != .Ok || !ook {
         return
     }
 
@@ -169,7 +166,7 @@ config_parse :: proc(cache: ^Config_Cache, workspace, path: string) {
     config_parse_target(cache, obj)
     config_parse_diagnostics(cache, obj)
 
-    arr, aok := obj["collections"].(json.Array)
+    arr, aok := luaconf.as_array(obj["collections"])
     if !aok {
         return
     }
@@ -184,7 +181,7 @@ config_parse :: proc(cache: ^Config_Cache, workspace, path: string) {
             continue
         }
         if !is_collection_name(name) {
-            log.warnf("odin-analyzer.json: collection name %q is not an identifier and was dropped", name)
+            log.warnf("odin-analyzer.lua: collection name %q is not an identifier and was dropped", name)
             continue
         }
         dir: string
@@ -217,12 +214,12 @@ config_parse_diagnostics :: proc(cache: ^Config_Cache, obj: json.Object) {
     }
     entries, ok := raw.(json.Object)
     if !ok {
-        log.warnf("odin-analyzer.json: \"diagnostics\" is not an object and was ignored")
+        log.warnf("odin-analyzer.lua: \"diagnostics\" is not an object and was ignored")
         return
     }
     for id, value in entries {
         if !known_code(id) {
-            log.warnf("odin-analyzer.json: diagnostic id %q is unknown and was dropped", id)
+            log.warnf("odin-analyzer.lua: diagnostic id %q is unknown and was dropped", id)
             continue
         }
         text, is_string := value.(json.String)
@@ -235,7 +232,7 @@ config_parse_diagnostics :: proc(cache: ^Config_Cache, obj: json.Object) {
         case is_string && text == "error":
             setting = .Error
         case:
-            log.warnf("odin-analyzer.json: severity of %q is not \"off\", \"warning\" or \"error\" and was dropped", id)
+            log.warnf("odin-analyzer.lua: severity of %q is not \"off\", \"warning\" or \"error\" and was dropped", id)
             continue
         }
         if _, exists := cache.cfg.severities[id]; exists {
@@ -253,23 +250,23 @@ config_parse_target :: proc(cache: ^Config_Cache, obj: json.Object) {
     if raw, has := obj["target"]; has {
         target, tok := raw.(json.Object)
         if !tok {
-            log.warnf("odin-analyzer.json: \"target\" is not an object and was ignored")
+            log.warnf("odin-analyzer.lua: \"target\" is not an object and was ignored")
         }
         if os_name, ok := target["os"].(json.String); tok && ok {
             cache.cfg.target_os = odinsema.target_os_from_string(os_name)
             if cache.cfg.target_os == .Unknown {
-                log.warnf("odin-analyzer.json: target os %q is unknown and was ignored", os_name)
+                log.warnf("odin-analyzer.lua: target os %q is unknown and was ignored", os_name)
             }
         } else if tok && "os" in target {
-            log.warnf("odin-analyzer.json: target os is not a string and was ignored")
+            log.warnf("odin-analyzer.lua: target os is not a string and was ignored")
         }
         if arch_name, ok := target["arch"].(json.String); tok && ok {
             cache.cfg.target_arch = odinsema.target_arch_from_string(arch_name)
             if cache.cfg.target_arch == .Unknown {
-                log.warnf("odin-analyzer.json: target arch %q is unknown and was ignored", arch_name)
+                log.warnf("odin-analyzer.lua: target arch %q is unknown and was ignored", arch_name)
             }
         } else if tok && "arch" in target {
-            log.warnf("odin-analyzer.json: target arch is not a string and was ignored")
+            log.warnf("odin-analyzer.lua: target arch is not a string and was ignored")
         }
     }
 
@@ -279,12 +276,12 @@ config_parse_target :: proc(cache: ^Config_Cache, obj: json.Object) {
     }
     defines, dok := raw.(json.Object)
     if !dok {
-        log.warnf("odin-analyzer.json: \"defines\" is not an object and was ignored")
+        log.warnf("odin-analyzer.lua: \"defines\" is not an object and was ignored")
         return
     }
     for name, value in defines {
         if !is_collection_name(name) {
-            log.warnf("odin-analyzer.json: define name %q is not an identifier and was dropped", name)
+            log.warnf("odin-analyzer.lua: define name %q is not an identifier and was dropped", name)
             continue
         }
         d: odinsema.Define_Value
@@ -295,14 +292,14 @@ config_parse_target :: proc(cache: ^Config_Cache, obj: json.Object) {
             d = i64(v)
         case json.Float:
             if f64(i64(v)) != f64(v) {
-                log.warnf("odin-analyzer.json: define %q is not an integer and was dropped", name)
+                log.warnf("odin-analyzer.lua: define %q is not an integer and was dropped", name)
                 continue
             }
             d = i64(v)
         case json.String:
             d = strings.clone(v)
         case:
-            log.warnf("odin-analyzer.json: define %q is not a boolean, integer or string and was dropped", name)
+            log.warnf("odin-analyzer.lua: define %q is not a boolean, integer or string and was dropped", name)
             continue
         }
         append(&cache.cfg.defines, odinsema.Target_Define{name = strings.clone(name), value = d})

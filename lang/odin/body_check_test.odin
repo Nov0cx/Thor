@@ -7,7 +7,7 @@ import lang ".."
 @(test)
 test_live_call_arguments :: proc(t: ^testing.T) {
     root := fixture(t, "live_call_arguments", {
-        {".thor/odin-analyzer.json", `{"target": {"os": "windows", "arch": "amd64"}}`},
+        {".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`},
         {"app/q/q.odin", "package q\n\nclone :: proc(s: string, n := 1, m := 2) -> string { return s }\n"},
     })
     e := engine_create()
@@ -72,7 +72,7 @@ test_live_body_after_names :: proc(t: ^testing.T) {
 
 @(test)
 test_live_missing_members :: proc(t: ^testing.T) {
-    root := fixture(t, "live_missing_members", {{".thor/odin-analyzer.json", `{"target": {"os": "windows", "arch": "amd64"}}`}})
+    root := fixture(t, "live_missing_members", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
     e := engine_create()
     defer engine_destroy(e)
 
@@ -107,7 +107,7 @@ main :: proc() {
 
 @(test)
 test_live_switch_cases :: proc(t: ^testing.T) {
-    root := fixture(t, "live_switch_cases", {{".thor/odin-analyzer.json", `{"target": {"os": "windows", "arch": "amd64"}}`}})
+    root := fixture(t, "live_switch_cases", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
     e := engine_create()
     defer engine_destroy(e)
 
@@ -143,7 +143,7 @@ main :: proc() {
 
 @(test)
 test_live_static_asserts :: proc(t: ^testing.T) {
-    root := fixture(t, "live_static_asserts", {{".thor/odin-analyzer.json", `{"target": {"os": "windows", "arch": "amd64"}}`}})
+    root := fixture(t, "live_static_asserts", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
     e := engine_create()
     defer engine_destroy(e)
 
@@ -170,7 +170,7 @@ main :: proc() {
 
 @(test)
 test_live_argument_mismatches :: proc(t: ^testing.T) {
-    root := fixture(t, "live_argument_mismatches", {{".thor/odin-analyzer.json", `{"target": {"os": "windows", "arch": "amd64"}}`}})
+    root := fixture(t, "live_argument_mismatches", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
     e := engine_create()
     defer engine_destroy(e)
 
@@ -213,7 +213,7 @@ main :: proc() {
 
 @(test)
 test_live_assign_mismatches :: proc(t: ^testing.T) {
-    root := fixture(t, "live_assign_mismatches", {{".thor/odin-analyzer.json", `{"target": {"os": "windows", "arch": "amd64"}}`}})
+    root := fixture(t, "live_assign_mismatches", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
     e := engine_create()
     defer engine_destroy(e)
 
@@ -258,7 +258,7 @@ main :: proc() {
 
 @(test)
 test_live_return_mismatches :: proc(t: ^testing.T) {
-    root := fixture(t, "live_return_mismatches", {{".thor/odin-analyzer.json", `{"target": {"os": "windows", "arch": "amd64"}}`}})
+    root := fixture(t, "live_return_mismatches", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
     e := engine_create()
     defer engine_destroy(e)
 
@@ -291,7 +291,7 @@ pair :: proc() -> (int, string) { return two() }
 @(test)
 test_live_group_no_match :: proc(t: ^testing.T) {
     root := fixture(t, "live_group_no_match", {
-        {".thor/odin-analyzer.json", `{"target": {"os": "windows", "arch": "amd64"}}`},
+        {".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`},
         {"app/q/q.odin", "package q\n\nfa :: proc(a: i32) {}\nfb :: proc(a: string) {}\ngrp :: proc{fa, fb}\n"},
     })
     e := engine_create()
@@ -340,7 +340,7 @@ main :: proc() {
 
 @(test)
 test_live_constant_overflow :: proc(t: ^testing.T) {
-    root := fixture(t, "live_constant_overflow", {{".thor/odin-analyzer.json", `{"target": {"os": "windows", "arch": "amd64"}}`}})
+    root := fixture(t, "live_constant_overflow", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
     e := engine_create()
     defer engine_destroy(e)
 
@@ -389,7 +389,7 @@ main :: proc() {
 
 @(test)
 test_live_missing_returns :: proc(t: ^testing.T) {
-    root := fixture(t, "live_missing_returns", {{".thor/odin-analyzer.json", `{"target": {"os": "windows", "arch": "amd64"}}`}})
+    root := fixture(t, "live_missing_returns", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
     e := engine_create()
     defer engine_destroy(e)
 
@@ -521,7 +521,7 @@ lb2 :: proc(a: int) -> int {
 
 @(test)
 test_live_or_return :: proc(t: ^testing.T) {
-    root := fixture(t, "live_or_return", {{".thor/odin-analyzer.json", `{"target": {"os": "windows", "arch": "amd64"}}`}})
+    root := fixture(t, "live_or_return", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
     e := engine_create()
     defer engine_destroy(e)
 
@@ -583,7 +583,7 @@ h :: proc() -> Err {
 
 @(test)
 test_live_where_clauses :: proc(t: ^testing.T) {
-    root := fixture(t, "live_where_clauses", {{".thor/odin-analyzer.json", `{"target": {"os": "windows", "arch": "amd64"}}`}})
+    root := fixture(t, "live_where_clauses", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
     e := engine_create()
     defer engine_destroy(e)
 
@@ -617,7 +617,7 @@ main :: proc() {
 
 @(test)
 test_live_assignment_counts :: proc(t: ^testing.T) {
-    root := fixture(t, "live_assignment_counts", {{".thor/odin-analyzer.json", `{"target": {"os": "windows", "arch": "amd64"}}`}})
+    root := fixture(t, "live_assignment_counts", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
     e := engine_create()
     defer engine_destroy(e)
 
@@ -658,7 +658,7 @@ main :: proc() {
 @(test)
 test_live_severities :: proc(t: ^testing.T) {
     root := fixture(t, "live_severities", {
-        {".thor/odin-analyzer.json", `{"diagnostics": {"call/arity": "off", "call/named": "warning", "zork/none": "off", "type/mismatch": "hint"}}`},
+        {".thor/odin-analyzer.lua", `return { diagnostics = { ["call/arity"] = "off", ["call/named"] = "warning", ["zork/none"] = "off", ["type/mismatch"] = "hint" } }`},
     })
     e := engine_create()
     defer engine_destroy(e)

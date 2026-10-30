@@ -463,7 +463,7 @@ test_completion_disabled :: proc(t: ^testing.T) {
     defer engine_destroy(e)
 
     src := "package app\n\nvalue :: 3\n\nmain :: proc() {\n\t_ = val\n}\n"
-    root := fixture(t, "completion_disabled", {{".thor/odin-analyzer.json", `{"enable_completion": false}`}})
+    root := fixture(t, "completion_disabled", {{".thor/odin-analyzer.lua", `return { enable_completion = false }`}})
     defer os.remove_all(root)
     res := complete_at(e, src, "_ = val", workspace = root, path = fixture_path(root, "main.odin"))
     defer completions_free(&res)
@@ -589,7 +589,7 @@ main :: proc() {
     }
     completions_free(&res)
 
-    root := fixture(t, "completion_snippets_off", {{".thor/odin-analyzer.json", `{"enable_snippets": false}`}})
+    root := fixture(t, "completion_snippets_off", {{".thor/odin-analyzer.lua", `return { enable_snippets = false }`}})
     defer os.remove_all(root)
     res = complete_at(e, src, "_ = sca", workspace = root, path = fixture_path(root, "main.odin"))
     if item := find_item(&res, "scale"); testing.expect(t, item != nil, "missing scale with snippets off") {
@@ -624,10 +624,10 @@ test_completion_auto_import :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
 
-    config := `{"collections": [{"name": "shared", "path": "shared"}]}`
+    config := `return { collections = { { name = "shared", path = "shared" } } }`
     mathx := "package mathx\n\nclamp_to :: proc(v, hi: int) -> int {\n\treturn min(v, hi)\n}\n\n@(private)\nclamp_hidden :: 1\n"
     root := fixture(t, "completion_auto_import", {
-        {".thor/odin-analyzer.json", config},
+        {".thor/odin-analyzer.lua", config},
         {"shared/mathx/mathx.odin", mathx},
         {"shared/mathx/tests/tests.odin", "package tests\n"},
         {"app/other.odin", "package app\n"},
@@ -682,9 +682,9 @@ test_completion_auto_import_same_name :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
 
-    config := `{"collections": [{"name": "shared", "path": "shared"}]}`
+    config := `return { collections = { { name = "shared", path = "shared" } } }`
     root := fixture(t, "completion_auto_import_same_name", {
-        {".thor/odin-analyzer.json", config},
+        {".thor/odin-analyzer.lua", config},
         {"shared/a/util/util.odin", "package util\n\nalpha :: 1\nboth :: 1\n"},
         {"shared/b/util/util.odin", "package util\n\nbeta :: 2\nboth :: 2\n"},
         {"app/other.odin", "package app\n"},
@@ -710,9 +710,9 @@ test_completion_auto_import_new_package :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
 
-    config := `{"collections": [{"name": "shared", "path": "shared"}]}`
+    config := `return { collections = { { name = "shared", path = "shared" } } }`
     root := fixture(t, "completion_auto_import_new_package", {
-        {".thor/odin-analyzer.json", config},
+        {".thor/odin-analyzer.lua", config},
         {"shared/old/old.odin", "package old\n"},
         {"app/other.odin", "package app\n"},
     })

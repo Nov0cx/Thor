@@ -165,7 +165,7 @@ test_check_passes_config_collections :: proc(t: ^testing.T) {
     defer os.remove(app)
 
     foo_path, _ := filepath.join({foo, "foo.odin"}, context.temp_allocator)
-    cfg_path, _ := filepath.join({cfg_dir, "odin-analyzer.json"}, context.temp_allocator)
+    cfg_path, _ := filepath.join({cfg_dir, "odin-analyzer.lua"}, context.temp_allocator)
     app_path, _ := filepath.join({app, "app.odin"}, context.temp_allocator)
     defer os.remove(foo_path)
     defer os.remove(cfg_path)
@@ -176,7 +176,7 @@ test_check_passes_config_collections :: proc(t: ^testing.T) {
         src:  string,
     } {
         {foo_path, "package foo\n\nbar :: proc() -> int {\n\treturn 1\n}\n"},
-        {cfg_path, "{ \"collections\": [ { \"name\": \"shared\", \"path\": \"libs\" } ] }\n"},
+        {cfg_path, "return { collections = { { name = \"shared\", path = \"libs\" } } }\n"},
         {app_path, "package app\n\nimport \"shared:foo\"\n\nuse :: proc() -> int {\n\treturn foo.bar()\n}\n"},
     }
     for f in files {

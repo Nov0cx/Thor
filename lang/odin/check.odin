@@ -98,7 +98,7 @@ check_package :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
 }
 
 // `-collection:<name>=<dir>` for every collection the workspace config declares.
-// The compiler reads no `.thor/odin-analyzer.json`.
+// The compiler reads no `.thor/odin-analyzer.lua`.
 // Each flag is one argument — a collection root can hold spaces. An entry the
 // compiler would reject (a reserved name, a path that is not a directory) aborts
 // the run before it checks anything, so such entries are dropped instead.

@@ -1,4 +1,4 @@
-// The formatter's option schema, read from `<workspace>/.thor/odin-formatter.json`
+// The formatter's option schema, read from `<workspace>/.thor/odin-formatter.lua`
 // (parsing lives in lang/odin/formatter.odin — this package stays JSON-free).
 package odinfmt
 

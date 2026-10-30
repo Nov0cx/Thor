@@ -394,7 +394,7 @@ Result :: struct {
     // one pass. Sparse by design: an identifier the backend could not classify
     // is simply absent, and keeps whatever color the grammar gave it.
     tokens:    [dynamic]Semantic_Token,
-    // Format only. Set from the workspace's odin-formatter.json newline_style
+    // Format only. Set from the workspace's odin-formatter.lua newline_style
     // key, and only when that key is actually present — an absent key must
     // never flip a repo's line endings on the first format. Unspecified means
     // the applier leaves the file's line ending untouched.

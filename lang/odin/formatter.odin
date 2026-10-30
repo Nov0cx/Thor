@@ -1,5 +1,5 @@
 // Per-workspace formatter configuration, read from
-// `<workspace>/.thor/odin-formatter.json`, and the .Format request handler
+// `<workspace>/.thor/odin-formatter.lua`, and the .Format request handler
 // that layers it onto the odinfmt package. Mirrors config.odin's cache
 // exactly — same stat-invalidation, same allocator discipline — since the
 // two config files sit side by side in the same `.thor/` folder.
@@ -15,12 +15,13 @@ import "core:strings"
 import "core:sync"
 
 import lang ".."
+import "../../luaconf"
 import "format"
 
 @(private)
-FORMATTER_CONFIG :: "odin-formatter.json"
+FORMATTER_CONFIG :: "odin-formatter.lua"
 
-// The engine's cached view of one workspace's `.thor/odin-formatter.json`,
+// The engine's cached view of one workspace's `.thor/odin-formatter.lua`,
 // stat-invalidated exactly like Config_Cache: re-read only when the
 // workspace changes or the file's modtime/size moves. `newline_present`
 // tracks whether the file names `newline_style` at all — see
@@ -41,7 +42,7 @@ Format_Config_Cache :: struct {
 
 @(private)
 format_config_ensure :: proc(cache: ^Format_Config_Cache, workspace: string) {
-    // No workspace means no .thor/odin-formatter.json to read, so the shipped
+    // No workspace means no .thor/odin-formatter.lua to read, so the shipped
     // defaults apply — not the cache's zero value, which is a zero-column width
     // and no indent at all.
     if workspace == "" {
@@ -88,19 +89,18 @@ format_config_ensure :: proc(cache: ^Format_Config_Cache, workspace: string) {
 // wrong type and a value out of range are logged and keep the default.
 @(private)
 format_config_parse :: proc(cache: ^Format_Config_Cache, path: string) {
-    data, rerr := os.read_entire_file(path, context.temp_allocator)
-    if rerr != nil {
-        log.warnf("odin-formatter.json: cannot read %q: %v", path, rerr)
+    value, status, message := luaconf.eval_file(path)
+    switch status {
+    case .Missing:
         return
-    }
-    value, perr := json.parse(data, allocator = context.temp_allocator)
-    if perr != .None {
-        log.warnf("odin-formatter.json: cannot parse %q: %v", path, perr)
+    case .Failed:
+        log.warnf("odin-formatter.lua: %s", message)
         return
+    case .Ok:
     }
     obj, ook := value.(json.Object)
     if !ook {
-        log.warnf("odin-formatter.json: %q is not an object", path)
+        log.warnf("odin-formatter.lua: %q does not return a table of keys", path)
         return
     }
 
@@ -109,7 +109,7 @@ format_config_parse :: proc(cache: ^Format_Config_Cache, path: string) {
         is_bool := slice.contains(FORMAT_BOOL_KEYS, key)
         is_string := slice.contains(FORMAT_STRING_KEYS, key)
         if !is_int && !is_bool && !is_string {
-            log.warnf("odin-formatter.json: unknown key %q", key)
+            log.warnf("odin-formatter.lua: unknown key %q", key)
             continue
         }
         right := false
@@ -122,7 +122,7 @@ format_config_parse :: proc(cache: ^Format_Config_Cache, path: string) {
             right = is_string
         }
         if !right {
-            log.warnf("odin-formatter.json: %q has a value of the wrong type and keeps its default", key)
+            log.warnf("odin-formatter.lua: %q has a value of the wrong type and keeps its default", key)
         }
     }
 
@@ -174,7 +174,7 @@ format_config_parse :: proc(cache: ^Format_Config_Cache, path: string) {
         case "Stroustrup": cache.opts.brace_style = .Stroustrup
         case "K_And_R":    cache.opts.brace_style = .K_And_R
         case:
-            log.warnf("odin-formatter.json: brace_style %q is not _1TBS, Allman, Stroustrup or K_And_R", s)
+            log.warnf("odin-formatter.lua: brace_style %q is not _1TBS, Allman, Stroustrup or K_And_R", s)
         }
     }
     if s, ok := obj["newline_style"].(json.String); ok {
@@ -186,16 +186,16 @@ format_config_parse :: proc(cache: ^Format_Config_Cache, path: string) {
             cache.newline_present = true
             cache.opts.newline_style = .CRLF
         case:
-            log.warnf("odin-formatter.json: newline_style %q is not LF or CRLF", s)
+            log.warnf("odin-formatter.lua: newline_style %q is not LF or CRLF", s)
         }
     }
 
     for key in format.validate_options(&cache.opts, context.temp_allocator) {
-        log.warnf("odin-formatter.json: %q is out of range and keeps its default", key)
+        log.warnf("odin-formatter.lua: %q is out of range and keeps its default", key)
     }
 }
 
-// The keys of odin-formatter.json, by the type of their value.
+// The keys of odin-formatter.lua, by the type of their value.
 @(private)
 FORMAT_INT_KEYS := []string{"character_width", "spaces", "newline_limit", "tabs_width"}
 @(private)

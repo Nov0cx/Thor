@@ -14,7 +14,7 @@ write_config :: proc(t: ^testing.T, name, json: string) -> (root, cfg_path: stri
     }
     root, _ = filepath.join({cwd, name}, context.temp_allocator)
     cfg_dir, _ := filepath.join({root, ".thor"}, context.temp_allocator)
-    cfg_path, _ = filepath.join({cfg_dir, "odin-analyzer.json"}, context.temp_allocator)
+    cfg_path, _ = filepath.join({cfg_dir, "odin-analyzer.lua"}, context.temp_allocator)
     _ = os.make_directory(root)
     _ = os.make_directory(cfg_dir)
     if werr := os.write_entire_file(cfg_path, transmute([]byte)json); werr != nil {
@@ -34,10 +34,7 @@ remove_config :: proc(root, cfg_path: string) {
 
 @(test)
 test_config_target_override :: proc(t: ^testing.T) {
-    root, cfg_path, ok := write_config(t, "thor_lang_target_ws", `{
-    "target": {"os": "linux", "arch": "arm64"},
-    "defines": {"FAST": true, "LEVEL": 3, "NAME": "thor", "bad name": 1, "LIST": [1]}
-}`)
+    root, cfg_path, ok := write_config(t, "thor_lang_target_ws", `return { target = { os = "linux", arch = "arm64" }, defines = { FAST = true, LEVEL = 3, NAME = "thor", ["bad name"] = 1, LIST = { 1 } } }`)
     if !ok {
         return
     }
@@ -70,7 +67,7 @@ test_config_target_override :: proc(t: ^testing.T) {
 
 @(test)
 test_config_target_bad_values :: proc(t: ^testing.T) {
-    root, cfg_path, ok := write_config(t, "thor_lang_badtarget_ws", `{"target": {"os": "plan9", "arch": 64}, "defines": 5}`)
+    root, cfg_path, ok := write_config(t, "thor_lang_badtarget_ws", `return { target = { os = "plan9", arch = 64 }, defines = 5 }`)
     if !ok {
         return
     }

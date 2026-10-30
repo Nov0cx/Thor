@@ -204,7 +204,7 @@ test_hover_disabled :: proc(t: ^testing.T) {
     defer engine_destroy(e)
 
     src := "package app\n\nN :: 3\n"
-    root := fixture(t, "hover_disabled", {{".thor/odin-analyzer.json", `{"enable_hover": false}`}})
+    root := fixture(t, "hover_disabled", {{".thor/odin-analyzer.lua", `return { enable_hover = false }`}})
     defer os.remove_all(root)
     res := hover_at(e, src, "N ::", workspace = root, path = fixture_path(root, "main.odin"))
     defer delete(res.hover.text)
