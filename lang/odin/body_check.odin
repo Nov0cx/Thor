@@ -31,6 +31,7 @@ walk_body :: proc(rc: ^Request_Context, c: ^odinsema.Checker, whens: []Branch, n
     case .Call_Expr:
         call_errors(rc, c, n, report)
         group_errors(rc, c, n, report)
+        conversion_errors(rc, c, n, report)
         assert_errors(rc, c, n, report)
         mismatch_errors(rc, c, odinsema.argument_mismatches(c, rc.live.id, n, context.temp_allocator), "a procedure argument", report)
     case .Selector_Expr:
@@ -90,6 +91,19 @@ group_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, call: odinsynta
     callee, _ := odinsyntax.call_expr_callee(&ce)
     name := strings.join(strings.fields(odinsyntax.node_text(callee), context.temp_allocator), "", context.temp_allocator)
     report_error(rc, report, int(call.offset), CODE_OVERLOAD, fmt.aprintf("No procedures or ambiguous call for procedure group '%s' that match with the given arguments", name))
+}
+
+// Reports a conversion `T(x)` of an integer constant that `T` cannot hold.
+@(private = "file")
+conversion_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, call: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
+    p, ok := odinsema.conversion_overflow(c, rc.live.id, call)
+    if !ok {
+        return
+    }
+    value := strings.join(strings.fields(odinsyntax.node_text(p.value), context.temp_allocator), " ", context.temp_allocator)
+    to := odinsema.type_string(&c.table, p.to, context.temp_allocator)
+    from := untyped_name(odinsema.type_string(&c.table, p.op.type, context.temp_allocator))
+    report_error(rc, report, int(p.value.offset), CODE_OVERFLOW, fmt.aprintf("Cannot cast '%s' as '%s' from '%s'", value, to, from))
 }
 
 // Reports a selector that names no field or member of its operand.
@@ -153,6 +167,11 @@ mismatch_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, problems: []
         value := strings.join(strings.fields(odinsyntax.node_text(p.value), context.temp_allocator), " ", context.temp_allocator)
         to := odinsema.type_string(&c.table, p.to, context.temp_allocator)
         from := odinsema.type_string(&c.table, p.op.type, context.temp_allocator)
+        if p.overflow {
+            got, _ := const_text(p.op.value)
+            report_error(rc, report, int(p.value.offset), CODE_OVERFLOW, fmt.aprintf("Cannot convert numeric value '%s' from '%s' to '%s' from '%s'", got, value, to, untyped_name(from)))
+            continue
+        }
         if !odinsema.type_is_untyped(&c.table, p.op.type) {
             report_error(rc, report, int(p.value.offset), CODE_MISMATCH, fmt.aprintf("Cannot assign value '%s' of type '%s' to '%s' in %s", value, from, to, place))
             continue

@@ -250,6 +250,7 @@ main :: proc() {
         {"i\n\tk: E", "Cannot assign value 'i' of type 'int' to 'f32' in a variable declaration", 0},
         {"1\n\tr:", "Cannot convert untyped value '1' to 'E' from 'untyped integer'", 0},
         {"'a'", "Cannot convert ''a'' to 'string' from 'untyped rune', got 97", 0},
+        {"300", "Cannot convert numeric value '300' from '300' to 'u8' from 'untyped integer'", 0},
     })
 }
 
@@ -332,5 +333,54 @@ main :: proc() {
     })
     for d in res.report.items {
         testing.expect(t, d.code == CODE_OVERLOAD, "a group error carries the overload id")
+    }
+}
+
+@(test)
+test_live_constant_overflow :: proc(t: ^testing.T) {
+    root := fixture(t, "live_constant_overflow", {{".thor/odin-analyzer.json", `{"target": {"os": "windows", "arch": "amd64"}}`}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+N :: 300
+I :: distinct i8
+X :: u8(N)
+Z : u8 : 999
+
+f :: proc(a: u8) {}
+r :: proc() -> i16 { return 40000 }
+
+main :: proc() {
+	a: u8 = 200 + 100
+	b: u8 = N
+	c: u8 = 'Ā'
+	d: u64 = -1
+	k: I = -129
+	f(256)
+	g := i8(-129)
+	h: u8 = 255
+	i: u64 = 0x7fff_ffff_ffff_ffff
+	j: u32 = 'a'
+	_, _, _, _, _, _, _, _, _, _ = a, b, c, d, k, g, h, i, j, Z
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"N)", "Cannot cast 'N' as 'u8' from 'untyped integer'", 0},
+        {"999", "Cannot convert numeric value '999' from '999' to 'u8' from 'untyped integer'", 0},
+        {"40000", "Cannot convert numeric value '40000' from '40000' to 'i16' from 'untyped integer'", 0},
+        {"200 + 100", "Cannot convert numeric value '300' from '200 + 100' to 'u8' from 'untyped integer'", 0},
+        {"N\n", "Cannot convert numeric value '300' from 'N' to 'u8' from 'untyped integer'", 0},
+        {"'Ā'", "Cannot convert numeric value '256' from ''Ā'' to 'u8' from 'untyped rune'", 0},
+        {"-1", "Cannot convert numeric value '-1' from '-1' to 'u64' from 'untyped integer'", 0},
+        {"-129", "Cannot convert numeric value '-129' from '-129' to 'I' from 'untyped integer'", 0},
+        {"256", "Cannot convert numeric value '256' from '256' to 'u8' from 'untyped integer'", 0},
+        {"-129)", "Cannot cast '-129' as 'i8' from 'untyped integer'", 0},
+    })
+    for d in res.report.items {
+        testing.expect(t, d.code == CODE_OVERFLOW, "an overflow carries the overflow id")
     }
 }
