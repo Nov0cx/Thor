@@ -138,3 +138,30 @@ main :: proc() {
         {"switch v", "Unhandled switch cases: string, f32", 0},
     })
 }
+
+@(test)
+test_live_static_asserts :: proc(t: ^testing.T) {
+    root := fixture(t, "live_static_asserts", {{".thor/odin-analyzer.json", `{"target": {"os": "windows", "arch": "amd64"}}`}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+N :: 3
+#assert(N == 4)
+#assert(N > 4, "N is too small")
+#assert(N == 3)
+
+main :: proc() {
+	#assert(size_of(int) == 4)
+	#assert(size_of(int) == 8)
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"#assert(N == 4)", "Compile time assertion: N == 4", 0},
+        {"#assert(N > 4", `Compile time assertion: N > 4 ("N is too small")`, 0},
+        {"#assert(size_of(int) == 4)", "Compile time assertion: size_of(int) == 4", 0},
+    })
+}

@@ -293,3 +293,57 @@ switch_node_at :: proc(c: ^Checker, offset: int) -> (odinsyntax.Syntax_Node, boo
     }
     return {}, false
 }
+
+@(private = "file")
+ASSERT_SRC :: `package p
+
+N :: 3
+
+#assert(N == 4)
+#assert(N > 4, "too small")
+#assert(N == 3)
+#assert(size_of(i32) == 4)
+
+work :: proc($T: typeid) {
+    #assert(size_of(T) == 4)
+    #assert(size_of(u8) == 2)
+}
+`
+
+@(test)
+test_static_assert_fails :: proc(t: ^testing.T) {
+    env: Check_Env
+    if !check_begin(t, &env, Snapshot_Input{has_live = true, live_text = ASSERT_SRC}) {
+        return
+    }
+    defer check_end(&env)
+    c := &env.c
+    Assert_Case :: struct {
+        text:    string,
+        fails:   bool,
+        message: string,
+    }
+    cases := []Assert_Case {
+        {"#assert(N == 4)", true, ""},
+        {`#assert(N > 4, "too small")`, true, `"too small"`},
+        {"#assert(N == 3)", false, ""},
+        {"#assert(size_of(i32) == 4)", false, ""},
+        {"#assert(size_of(T) == 4)", false, ""},
+        {"#assert(size_of(u8) == 2)", true, ""},
+    }
+    for k in cases {
+        at := strings.index(ASSERT_SRC, k.text)
+        if !testing.expectf(t, at >= 0, "%q: not in the source", k.text) {
+            continue
+        }
+        call, ok := call_node_at(c, at)
+        if !testing.expectf(t, ok, "%q: no call node", k.text) {
+            continue
+        }
+        _, message, has_message, fails := static_assert_fails(c, ANON_FILE, call)
+        testing.expectf(t, fails == k.fails, "%q: fails %v, want %v", k.text, fails, k.fails)
+        got := has_message ? odinsyntax.node_text(message) : ""
+        testing.expectf(t, got == k.message, "%q: message %q, want %q", k.text, got, k.message)
+    }
+    testing.expect_value(t, c.err, nil)
+}

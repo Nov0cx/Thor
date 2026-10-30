@@ -363,3 +363,38 @@ union_missing :: proc(c: ^Checker, file: File_Id, t: Type_Id, body: odinsyntax.S
     }
     return missing[:]
 }
+
+// Whether `call` is `#assert(cond)` or `#assert(cond, message)` with a condition the checker
+// evaluates to false. `cond` is the condition; `message` the message argument when there is one.
+static_assert_fails :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node) -> (cond, message: odinsyntax.Syntax_Node, has_message, fails: bool) {
+    ce, is_call := odinsyntax.as_call_expr(call)
+    if !is_call {
+        return
+    }
+    callee, has_callee := odinsyntax.call_expr_callee(&ce)
+    list, has_list := odinsyntax.call_expr_args(&ce)
+    if !has_callee || !has_list {
+        return
+    }
+    d, is_directive := odinsyntax.as_directive(callee)
+    if !is_directive {
+        return
+    }
+    name, has_name := odinsyntax.directive_name(&d)
+    if !has_name || odinsyntax.syntax_token_text(name) != "assert" {
+        return
+    }
+    it := odinsyntax.arg_list_args(&list)
+    has_cond: bool
+    if cond, has_cond = odinsyntax.child_iter_next(&it); !has_cond {
+        return
+    }
+    message, has_message = odinsyntax.child_iter_next(&it)
+    v, ok := const_eval(c, file, cond)
+    if !ok {
+        return
+    }
+    b, is_bool := v.(bool)
+    fails = is_bool && !b
+    return
+}

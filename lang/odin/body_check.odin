@@ -30,6 +30,7 @@ walk_body :: proc(rc: ^Request_Context, c: ^odinsema.Checker, whens: []Branch, n
     #partial switch n.green.kind {
     case .Call_Expr:
         call_errors(rc, c, n, report)
+        assert_errors(rc, c, n, report)
     case .Selector_Expr:
         member_errors(rc, c, n, report)
     case .Switch_Stmt, .Type_Switch_Stmt:
@@ -108,4 +109,19 @@ switch_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, sw: odinsyntax
         return
     }
     report_error(rc, report, offset, CODE_SWITCH, fmt.aprintf("Unhandled switch cases: %s", strings.join(missing, ", ", context.temp_allocator)))
+}
+
+// Reports a `#assert` whose condition is false.
+@(private = "file")
+assert_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, call: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
+    cond, message, has_message, fails := odinsema.static_assert_fails(c, rc.live.id, call)
+    if !fails {
+        return
+    }
+    text := strings.join(strings.fields(odinsyntax.node_text(cond), context.temp_allocator), " ", context.temp_allocator)
+    if has_message {
+        report_error(rc, report, int(call.offset), CODE_ASSERT, fmt.aprintf("Compile time assertion: %s (%s)", text, odinsyntax.node_text(message)))
+        return
+    }
+    report_error(rc, report, int(call.offset), CODE_ASSERT, fmt.aprintf("Compile time assertion: %s", text))
 }
