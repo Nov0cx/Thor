@@ -305,6 +305,39 @@ branch_state :: proc(tree: ^Item_Tree, guard: int, target: Target) -> Tri {
     return state
 }
 
+// What the `when` condition `n`, from any scope, gives for `target`. Names of the package stay unknown.
+when_condition :: proc(n: odinsyntax.Syntax_Node, target: Target) -> Tri {
+    conds := make([dynamic]Cond_Expr, context.temp_allocator)
+    err: mem.Allocator_Error
+    root := cond_compile(n, context.temp_allocator, &conds, &err)
+    if err != nil {
+        return .Unknown
+    }
+    tree := Item_Tree{conds = conds[:]}
+    return cond_eval(&tree, root, target)
+}
+
+// The conjunction of two answers: .False when one is false, .True when both are true.
+tri_and :: proc(a, b: Tri) -> Tri {
+    if a == .False || b == .False {
+        return .False
+    }
+    if a == .True && b == .True {
+        return .True
+    }
+    return .Unknown
+}
+
+// The negation of an answer.
+tri_not :: proc(a: Tri) -> Tri {
+    switch a {
+    case .True:    return .False
+    case .False:   return .True
+    case .Unknown:
+    }
+    return .Unknown
+}
+
 // What the compiled condition at `expr` gives for `target`.
 cond_eval :: proc(tree: ^Item_Tree, expr: int, target: Target) -> Tri {
     v := eval(tree, expr, target)

@@ -329,3 +329,65 @@ test_live_clean_sources :: proc(t: ^testing.T) {
         testing.expect_value(t, res.report.items[0].message, "Undeclared name: zz_not_declared")
     }
 }
+
+// A local in a `when` branch counts when the configured target surely takes the branch.
+@(test)
+test_live_redeclared_under_when :: proc(t: ^testing.T) {
+    root := fixture(t, "live_redeclared_when", {
+        {".thor/odin-analyzer.json", `{"target": {"os": "windows", "arch": "amd64"}}`},
+        {"app/a.odin", "package app\n"},
+    })
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+FLAG :: true
+
+f :: proc() {
+	when ODIN_OS == .Windows {
+		w := 1
+		_ = w
+	}
+	w := 3
+	_ = w
+	when ODIN_OS == .Linux {
+		z := 1
+		_ = z
+	}
+	z := 3
+	_ = z
+	when ODIN_OS == .Windows {
+		q := 1
+	} else {
+		q := 2
+	}
+	when ODIN_OS == .Linux {
+		r := 1
+		_ = r
+	} else when ODIN_OS == .Darwin {
+		r := 2
+		_ = r
+	} else {
+		r := 3
+		_ = r
+	}
+	r := 4
+	_ = r
+	when FLAG {
+		u := 1
+		_ = u
+	}
+	u := 2
+	_ = u
+}
+
+main :: proc() {}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"w := 3", "Redeclaration of 'w' in this scope", 0},
+        {"r := 4", "Redeclaration of 'r' in this scope", 0},
+    })
+}

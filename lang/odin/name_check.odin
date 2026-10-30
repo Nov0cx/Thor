@@ -239,8 +239,8 @@ local_redeclarations :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, repor
     if len(m.locals) == 0 {
         return
     }
-    whens := make([dynamic]Span, context.temp_allocator)
-    collect_when_bodies(odinsyntax.node_root(rc.parsed.tree), &whens)
+    whens := make([dynamic]Branch, context.temp_allocator)
+    collect_whens(odinsyntax.node_root(rc.parsed.tree), rc.target, &whens)
 
     // Source order: a hoisted constant is declared ahead of the statements before it.
     locals := m.locals
@@ -302,38 +302,66 @@ outer_binding :: proc(m: ^odinsema.Scope_Map, first: map[Local_Key]int, l: ^odin
     return .None
 }
 
-// True when the local is declared in a `when` body of its own scope. A `when` body opens no
-// scope, and the compiler checks only the branch that holds.
+// A `when` body or `else` branch and whether the target takes it.
 @(private = "file")
-under_when :: proc(m: ^odinsema.Scope_Map, l: ^odinsema.Local, whens: []Span) -> bool {
+Branch :: struct {
+    start: int,
+    end:   int,
+    state: odinsema.Tri,
+}
+
+// True when the local is declared in a `when` branch of its own scope that the target does not
+// surely take. A `when` body opens no scope, and the compiler checks only the branch that holds.
+@(private = "file")
+under_when :: proc(m: ^odinsema.Scope_Map, l: ^odinsema.Local, whens: []Branch) -> bool {
     scope := m.scopes[l.scope]
     for w in whens {
-        if w.start <= l.name_offset && l.name_offset < w.end && w.start >= scope.start && w.end <= scope.end {
+        if w.state != .True && w.start <= l.name_offset && l.name_offset < w.end && w.start >= scope.start && w.end <= scope.end {
             return true
         }
     }
     return false
 }
 
-// Appends the bodies and `else` branches of every `when` statement under `n`.
+// Appends the branches of every `when` statement under `n`.
 @(private = "file")
-collect_when_bodies :: proc(n: odinsyntax.Syntax_Node, out: ^[dynamic]Span) {
+collect_whens :: proc(n: odinsyntax.Syntax_Node, target: odinsema.Target, out: ^[dynamic]Branch) {
     n := n
     if n.green.kind == .When_Stmt {
-        ws, _ := odinsyntax.as_when_stmt(n)
-        if body, ok := odinsyntax.when_stmt_body(&ws); ok {
-            start, end := odinsyntax.node_range(odinsyntax.Syntax_Node(body))
-            append(out, Span{int(start), int(end)})
-        }
-        if other, ok := odinsyntax.when_stmt_else_branch(&ws); ok && other.green.kind != .When_Stmt {
-            start, end := odinsyntax.node_range(other)
-            append(out, Span{int(start), int(end)})
-        }
+        collect_when_chain(n, .True, target, out)
+        return
     }
     it := odinsyntax.child_iter(&n, {kinds = ~odinsyntax.Kind_Set{}})
     for child in odinsyntax.child_iter_next(&it) {
-        collect_when_bodies(child, out)
+        collect_whens(child, target, out)
     }
+}
+
+// Appends the branches of the `when` chain at `n`; `reached` tells whether the earlier branches all fail.
+@(private = "file")
+collect_when_chain :: proc(n: odinsyntax.Syntax_Node, reached: odinsema.Tri, target: odinsema.Target, out: ^[dynamic]Branch) {
+    ws, _ := odinsyntax.as_when_stmt(n)
+    cond := odinsema.Tri.Unknown
+    if c, ok := odinsyntax.when_stmt_cond(&ws); ok {
+        cond = odinsema.when_condition(c, target)
+    }
+    if body, ok := odinsyntax.when_stmt_body(&ws); ok {
+        start, end := odinsyntax.node_range(odinsyntax.Syntax_Node(body))
+        append(out, Branch{int(start), int(end), odinsema.tri_and(reached, cond)})
+        collect_whens(odinsyntax.Syntax_Node(body), target, out)
+    }
+    other, ok := odinsyntax.when_stmt_else_branch(&ws)
+    if !ok {
+        return
+    }
+    rest := odinsema.tri_and(reached, odinsema.tri_not(cond))
+    if other.green.kind == .When_Stmt {
+        collect_when_chain(other, rest, target, out)
+        return
+    }
+    start, end := odinsyntax.node_range(other)
+    append(out, Branch{int(start), int(end), rest})
+    collect_whens(other, target, out)
 }
 
 // Sorts local indices by the offset of their names.

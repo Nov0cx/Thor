@@ -313,3 +313,43 @@ smoke_dir :: proc(t: ^testing.T, dir: string, total, known: ^int, depth: int) {
         item_tree_destroy(tree)
     }
 }
+
+// A `when` in a body gives the same answer as one at file scope.
+@(test)
+test_when_condition_in_body :: proc(t: ^testing.T) {
+    src := "package p\n\nf :: proc() {\n    when ODIN_OS == .Windows && !ODIN_DEBUG {\n        x := 1\n    }\n}\n"
+    parsed, err := odinsyntax.parse(src)
+    testing.expect_value(t, err, nil)
+    defer odinsyntax.parse_destroy(&parsed)
+    at := strings.index(src, "ODIN_OS")
+    n := odinsyntax.node_root(parsed.tree)
+    cond: odinsyntax.Syntax_Node
+    found := false
+    for !found {
+        it := odinsyntax.child_iter(&n, {kinds = ~odinsyntax.Kind_Set{}})
+        next_found := false
+        for child in odinsyntax.child_iter_next(&it) {
+            start, end := odinsyntax.node_range(child)
+            if int(start) == at && child.green.kind == .Binary_Expr {
+                cond, found = child, true
+                break
+            }
+            if int(start) <= at && at < int(end) {
+                n, next_found = child, true
+                break
+            }
+        }
+        if !found && !next_found {
+            break
+        }
+    }
+    if !testing.expect(t, found, "the condition must be found") {
+        return
+    }
+    testing.expect_value(t, when_condition(cond, Target{os = .Windows}), Tri.True)
+    testing.expect_value(t, when_condition(cond, Target{os = .Windows, debug = true}), Tri.False)
+    testing.expect_value(t, when_condition(cond, Target{os = .Linux}), Tri.False)
+    testing.expect_value(t, tri_and(.True, .Unknown), Tri.Unknown)
+    testing.expect_value(t, tri_and(.Unknown, .False), Tri.False)
+    testing.expect_value(t, tri_not(.Unknown), Tri.Unknown)
+}
