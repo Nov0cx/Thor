@@ -1141,7 +1141,7 @@ thor_editor_intents :: proc(thor: ^Thor, editor: ^editview.Editor, it: ui.Intera
         editview.editor_wheel_x(editor, -it.wheel.x)
     }
     if it.pressed {
-        editview.editor_press(editor, ui.mouse_pos(), .Left, ui.mods(), max(it.click_count, 1))
+        editview.editor_press(editor, ui.mouse_pos(), .Left, ui.mods(), max(it.press_count, 1))
     }
     if it.right_clicked {
         editview.editor_press(editor, ui.mouse_pos(), .Right, ui.mods(), 1)
