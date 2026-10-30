@@ -5,6 +5,7 @@ import "core:strings"
 import "core:testing"
 
 import lang ".."
+import odinsema "sema"
 
 // The live report of `source` as the buffer of `path` in `workspace`.
 @(private = "file")
@@ -282,4 +283,49 @@ main :: proc() {}
         {"import \"core:fmt/", "Path does not exist: core:fmt/nothere", 0},
         {"import \"nope", "Unknown library collection: 'nope'", 0},
     })
+}
+
+// No live error over packages that compile clean.
+@(test)
+test_live_clean_sources :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    checked := 0
+    for dir in ([]string{"lang/odin/sema", "editview", "thor"}) {
+        files, err := odinsema.package_dir_files(dir)
+        if !testing.expectf(t, err == nil, "%s: could not list", dir) {
+            continue
+        }
+        defer odinsema.package_dir_files_destroy(files)
+        for path in files {
+            src, ok := lang.source_read(path, context.allocator)
+            if !testing.expectf(t, ok, "%s: could not read", path) {
+                continue
+            }
+            defer delete(src)
+            res := live_check(e, src, ".", path)
+            defer free_live(&res)
+            testing.expectf(t, res.ok, "%s: no answer", path)
+            for d in res.report.items {
+                testing.expectf(t, false, "%s:%d:%d: %s", path, d.line, d.col, d.message)
+            }
+            checked += 1
+        }
+    }
+    testing.expect(t, checked > 100, "too few files checked")
+
+    // The same check finds an undeclared name in a real file.
+    src, ok := lang.source_read("thor/view.odin", context.allocator)
+    if !testing.expect(t, ok, "thor/view.odin: could not read") {
+        return
+    }
+    defer delete(src)
+    probe := strings.concatenate({src, "\nzz_probe :: proc() { _ = zz_not_declared }\n"}, context.temp_allocator)
+    res := live_check(e, probe, ".", "thor/view.odin")
+    defer free_live(&res)
+    testing.expect_value(t, len(res.report.items), 1)
+    if len(res.report.items) == 1 {
+        testing.expect_value(t, res.report.items[0].message, "Undeclared name: zz_not_declared")
+    }
 }
