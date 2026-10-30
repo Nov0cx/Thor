@@ -1,11 +1,13 @@
 package lsp
 
+import "core:encoding/json"
 import "core:fmt"
 import "core:os"
 import "core:strings"
 import "core:testing"
 
 import lang ".."
+import "../../luaconf"
 
 // Run from the repository root: odin test lang/lsp
 
@@ -25,10 +27,20 @@ merge_in :: proc(workspace: string, texts: ..string) -> Config {
         allocator = context.allocator,
     }
     for text in texts {
-        config_merge_text(&cfg, text, "test.json")
+        config_merge_text(&cfg, lua_of(text), "test.lua")
     }
     config_finish(&cfg)
     return cfg
+}
+
+// A JSON fixture as the Lua config it converts to; any other text unchanged.
+@(private = "file")
+lua_of :: proc(text: string) -> string {
+    value, err := json.parse(transmute([]u8) text, parse_integers = true, allocator = context.temp_allocator)
+    if err != .None {
+        return text
+    }
+    return luaconf.encode(value)
 }
 
 // True when some problem's message holds `needle`.
@@ -66,7 +78,7 @@ test_config_gates_the_workspace_file :: proc(t: ^testing.T) {
 
     text := `{"servers": [{"id": "thor-test-evil", "extensions": [".md"], "command": ["evil", "--stdio"],
         "cwd": "sub", "env": {"B": "2", "A": "1"}}]}`
-    testing.expect(t, os.write_entire_file(path, transmute([]byte)text) == nil, "wrote the workspace file")
+    testing.expect(t, os.write_entire_file(path, transmute([]byte)lua_of(text)) == nil, "wrote the workspace file")
 
     closed := config_load(root, false)
     defer config_destroy(&closed)
@@ -327,7 +339,7 @@ test_config_filenames_must_be_an_array :: proc(t: ^testing.T) {
     cfg := merge(`{"servers": [{"id": "s", "filenames": "Makefile", "command": ["s"]}]}`)
     defer config_destroy(&cfg)
 
-    testing.expect(t, reports(&cfg, `"filenames" must be an array of strings`), "a bad type went unreported")
+    testing.expect(t, reports(&cfg, `"filenames" must be a list of strings`), "a bad type went unreported")
 }
 
 // The lookup a request makes, and the case a path can arrive in.
@@ -377,12 +389,12 @@ test_config_reports_broken_files :: proc(t: ^testing.T) {
         text:   string,
         needle: string,
     } {
-        {"not json at all", "not valid JSON"},
-        {`[]`, "must be a JSON object"},
-        {`{"other": 1}`, `no "servers" array`},
-        {`{"servers": {}}`, `"servers" must be an array`},
-        {`{"servers": [1]}`, "entry #1 is not an object"},
-        {`{"servers": [{"command": ["x"]}]}`, `entry #1 has no "id"`},
+        {"not lua at all", "test.lua:1"},
+        {"return 1", "must return a table"},
+        {`return { other = 1 }`, `no "servers" list`},
+        {`return { servers = "x" }`, `"servers" must be a list`},
+        {`return { servers = { 1 } }`, "entry #1 is not a table"},
+        {`return { servers = { { command = { "x" } } } }`, `entry #1 has no "id"`},
     }
     for c in cases {
         cfg := merge(c.text)
@@ -403,7 +415,7 @@ test_config_reports_unknown_and_mistyped_keys :: proc(t: ^testing.T) {
 
     testing.expect_value(t, len(cfg.servers), 1)
     testing.expect(t, reports(&cfg, `unknown key "init_optionz"`), "the misspelled key is named")
-    testing.expect(t, reports(&cfg, `"root_markers" must be an array`), "the wrong type is named")
+    testing.expect(t, reports(&cfg, `"root_markers" must be a list`), "the wrong type is named")
 }
 
 // An entry that names no command cannot start anything, and says why it went.
@@ -525,11 +537,11 @@ test_config_expands_environment :: proc(t: ^testing.T) {
 
 // The shipped table itself: it must parse with nothing to report, and every
 // entry in it must be one a server can be started from. Merged on its own, so a
-// developer's own user/lsp.json cannot fail the build.
+// developer's own user/lsp.lua cannot fail the build.
 @(test)
 test_config_shipped_table :: proc(t: ^testing.T) {
     data, rerr := os.read_entire_file(GLOBAL_CONFIG, context.temp_allocator)
-    testing.expect(t, rerr == nil, "settings/lsp.json must be readable from the repository root")
+    testing.expect(t, rerr == nil, "settings/lsp.lua must be readable from the repository root")
     if rerr != nil {
         return
     }
@@ -538,7 +550,7 @@ test_config_shipped_table :: proc(t: ^testing.T) {
 
     testing.expect(t, len(cfg.servers) > 0)
     for problem in cfg.problems {
-        testing.expectf(t, false, "settings/lsp.json: %s", config_problem_text(problem, context.temp_allocator))
+        testing.expectf(t, false, "settings/lsp.lua: %s", config_problem_text(problem, context.temp_allocator))
     }
     for server in cfg.servers {
         testing.expectf(t, server.id != "", "an entry has no id")

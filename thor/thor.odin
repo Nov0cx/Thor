@@ -212,7 +212,7 @@ Thor :: struct {
     // Plugin whose permission row opened the picker (see settings_ui.odin).
     plugin_setting_target: string,  // owned
     plugin_setting_source: Plugin_Source,
-    // Backend id ("odin", or an lsp.json server id) whose on/off picker is open;
+    // Backend id ("odin", or an lsp.lua server id) whose on/off picker is open;
     // see thor_cmd_change_language_backend. Shared with
     // thor_cmd_change_language_backend_feature, which additionally sets
     // language_backend_feature_kind — the two never have a picker open at once.
@@ -393,19 +393,19 @@ Thor :: struct {
     // prompt the palette borrows while it is open; owned.
     lsp_install_command: string,
     lsp_install_prompt: string,
-    // Set when an lsp.json layer changed or the user asked for a restart. Acted
+    // Set when an lsp.lua layer changed or the user asked for a restart. Acted
     // on at the head of the run loop, never inside an event: thor_reload_lang
     // destroys the backend a dispatch may be standing on.
     lang_reload_pending: bool,
     // The one server a row or the palette asked to restart, acted on at the same
     // point and for the same reason. Owned; "" when none is owed.
     lang_restart_id: string,
-    // The workspace's lsp.json waits on an answer (see lsp_trust.odin). The key
+    // The workspace's lsp.lua waits on an answer (see lsp_trust.odin). The key
     // is the workspace and file digest the question is about; owned.
     lsp_trust_pending: bool,
     lsp_trust_declined: bool,
     lsp_trust_key: string,
-    // Signature of the three lsp.json layers, and the per-server states the
+    // Signature of the three lsp.lua layers, and the per-server states the
     // health poll last saw. Both owned; see thor/settings_watch.odin.
     lsp_sig: i64,
     lsp_health: [dynamic]Lsp_Health,

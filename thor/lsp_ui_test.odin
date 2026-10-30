@@ -6,9 +6,10 @@ import "core:strings"
 import "core:testing"
 
 import "../lang/lsp"
+import "../luaconf"
 
 // The editor's half of the language-server panel: the rule that decides which
-// state change is worth a notice, and the lsp.json writer behind "Add a
+// state change is worth a notice, and the lsp.lua writer behind "Add a
 // Server...". Run from the repository root: odin test thor
 
 // The log lands beside the binary, in the directory Thor writes to — not in the
@@ -80,7 +81,7 @@ test_lsp_append_server_writes_and_dedupes :: proc(t: ^testing.T) {
     first, rerr := os.read_entire_file(PATH, context.temp_allocator)
     testing.expect(t, rerr == nil, "the file was not written")
     testing.expect(t, strings.contains(string(first), `"ruff"`), "the id did not land")
-    testing.expect(t, strings.contains(string(first), `"servers"`), "the servers array is missing")
+    testing.expect(t, strings.contains(string(first), `servers =`), "the servers list is missing")
 
     testing.expect(t, thor_lsp_append_server(PATH, "gopls"), "the second write failed")
     second, _ := os.read_entire_file(PATH, context.temp_allocator)
@@ -99,7 +100,7 @@ test_lsp_append_server_keeps_a_broken_file :: proc(t: ^testing.T) {
     PATH :: "thor_lsp_broken.tmp"
     defer os.remove(PATH)
 
-    BROKEN :: `{"servers": [`
+    BROKEN :: `return { servers = {`
     testing.expect(t, os.write_entire_file(PATH, transmute([]u8) string(BROKEN)) == nil, "the fixture was not written")
     testing.expect(t, !thor_lsp_append_server(PATH, "ruff"), "a broken file must not be written to")
 
@@ -118,16 +119,16 @@ test_lsp_append_server_writes_a_skeleton :: proc(t: ^testing.T) {
     testing.expect(t, rerr == nil)
 
     text := string(data)
-    for key in ([?]string{`"id"`, `"extensions"`, `"command"`, `"root_markers"`, `"enabled"`}) {
+    for key in ([?]string{`id =`, `extensions =`, `command =`, `root_markers =`, `enabled =`}) {
         testing.expectf(t, strings.contains(text, key), "the skeleton has no %s", key)
     }
 
-    value, perr := json.parse(data, spec = .JSON, allocator = context.temp_allocator)
-    testing.expectf(t, perr == .None, "the written file does not parse: %v", perr)
+    value, status, message := luaconf.eval_text(text, PATH)
+    testing.expectf(t, status == .Ok, "the written file does not evaluate: %s", message)
     root, ok := value.(json.Object)
-    testing.expect(t, ok, "the written file is not a JSON object")
+    testing.expect(t, ok, "the written file is not a table")
     if ok {
         _, has_servers := root["servers"].(json.Array)
-        testing.expect(t, has_servers, `the written file has no "servers" array`)
+        testing.expect(t, has_servers, `the written file has no "servers" list`)
     }
 }

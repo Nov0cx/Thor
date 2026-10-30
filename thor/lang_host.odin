@@ -147,7 +147,7 @@ thor_apply_language_settings :: proc(thor: ^Thor) {
 
 // One backend's effective admin gate: what the config layers state, and the
 // backend's own default for every key none of them states. An LSP server takes
-// its default from its lsp.json entry, so a server turned off there reads as off
+// its default from its lsp.lua entry, so a server turned off there reads as off
 // in Settings and can be turned back on; the Odin engine has no such file and
 // defaults to fully on. Shared by thor_apply_language_settings and the Settings
 // rows, so what the modal shows is what the seam enforces.
@@ -210,7 +210,7 @@ thor_reload_lang :: proc(thor: ^Thor) {
     odin_backend := odin.engine_backend(thor.odin_engine)
     // Registration order is precedence (lang.manager_register's contract) —
     // re-decided here exactly as thor_init decides it the first time, since
-    // the new workspace's .thor/lsp.json can flip "override" for .odin.
+    // the new workspace's .thor/lsp.lua can flip "override" for .odin.
     if lsp.client_overrides(thor.lsp_client, ".odin") {
         lang.manager_set_backends(&thor.lang_manager, lsp_backend, odin_backend)
     } else {
@@ -264,7 +264,7 @@ thor_drain_lang_manager :: proc(thor: ^Thor) {
     lang.manager_dispatch(&thor.lang_manager, nil, nil)
 }
 
-// Run-loop head: rebuilds the LSP client when an lsp.json layer changed or the
+// Run-loop head: rebuilds the LSP client when an lsp.lua layer changed or the
 // user asked for a restart, and restarts one server when a row or the palette
 // asked for that. Never inline in an event — both drain the manager and stop a
 // pump a dispatch would be standing on, the same reason thor_reload_plugins is

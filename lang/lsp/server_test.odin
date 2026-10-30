@@ -757,7 +757,7 @@ test_server_publishes_diagnostics :: proc(t: ^testing.T) {
 
 // Declining diagnostics for this server declines its pushes too: the poll
 // channel must not walk around the gate a request goes through. The gate is the
-// admin one the settings own, not the lsp.json seed, so turning the feature off
+// admin one the settings own, not the lsp.lua seed, so turning the feature off
 // in Settings stops the pushes without a restart.
 @(test)
 test_server_push_obeys_the_admin_gate :: proc(t: ^testing.T) {

@@ -388,7 +388,7 @@ thor_on_off_label :: proc(on: bool) -> string {
 ODIN_ANALYZER_GROUP :: "language.odin"
 
 // The in-client Odin analyzer's id in the per-backend admin gate
-// (setting.LANGUAGE_BACKENDS_SETTING) — no lsp.json server is expected to use
+// (setting.LANGUAGE_BACKENDS_SETTING) — no lsp.lua server is expected to use
 // this id, so it can't collide with a configured server's own id.
 ODIN_BACKEND_ID :: "odin"
 
@@ -725,7 +725,7 @@ thor_persist_bool_setting :: proc(thor: ^Thor, key: string, on: bool) {
     thor_reload_settings(thor)
 }
 
-// Settings row: turn one backend (the Odin analyzer, or an lsp.json server) on
+// Settings row: turn one backend (the Odin analyzer, or an lsp.lua server) on
 // or off. Nothing to preview — the gate only shows in what the next request
 // does; an already-running LSP server process is left running idle rather than
 // stopped, same as blocking a running plugin waits for a restart.

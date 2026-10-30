@@ -3,21 +3,16 @@ package thor
 import "core:encoding/json"
 import "core:fmt"
 import "core:log"
-import "core:os"
-import "core:path/filepath"
 import "core:strings"
 
-import "../atomicfile"
+import "../luaconf"
 
-
-// Writing lsp.json. The package that parses that file (lang/lsp) deliberately
-// never writes it — it reads its config with core:encoding/json because
-// `setting`, which owns every other write, imports `lang`. `thor` imports both,
-// so the writer belongs here.
+// Writing lsp.lua. The package that parses that file (lang/lsp) never writes
+// it, so the writer lives with the rest of the GUI's config writes.
 
 // Asks for an id, then writes a skeleton entry and opens the file. The whole
 // entry is not asked for a field at a time: a form for `command`, `args` and
-// `env` would be a worse JSON editor than the one Thor already is.
+// `env` would be a worse editor than the one Thor already is.
 thor_lsp_prompt_new_server :: proc(thor: ^Thor) {
     thor_palette_prompt(
         thor,
@@ -43,77 +38,38 @@ thor_lsp_new_server_submit :: proc(data: rawptr, text: string) {
     thor_flash_status(thor, "Fill in extensions and command, then save")
 }
 
-// Appends `{"id": id, ...}` to the file's "servers" array, keeping every entry
-// already in it. An id the file already names is left alone and reports true —
-// the caller opens the file either way, which is what the user asked for.
-// A file that will not parse reports false rather than being overwritten.
+// Appends `{ id = id, ... }` to the file's `servers` list, keeping the rest of
+// the file as written. An id the file already names is left alone and reports
+// true — the caller opens the file either way. A file that does not evaluate,
+// or builds its list in code, reports false rather than being overwritten.
 thor_lsp_append_server :: proc(path, id: string) -> bool {
-    // json.Object and json.Array are a map and a dynamic array, so every literal
-    // here allocates. None of it outlives the write.
-    context.allocator = context.temp_allocator
-
-    root := json.Object{}
-    servers := json.Array{}
-
-    if data, rerr := os.read_entire_file(path, context.temp_allocator); rerr == nil {
-        if strings.trim_space(string(data)) != "" {
-            value, perr := json.parse(data, spec = .JSON, parse_integers = true, allocator = context.temp_allocator)
-            if perr != .None {
-                log.warnf("Cannot add a server to %q: it is not valid JSON (%v)", path, perr)
-                return false
-            }
-            object, ok := value.(json.Object)
-            if !ok {
-                log.warnf("Cannot add a server to %q: it is not a JSON object", path)
-                return false
-            }
-            root = object
-            if list, has_list := root["servers"].(json.Array); has_list {
-                servers = list
-            } else if _, stated := root["servers"]; stated {
-                log.warnf("Cannot add a server to %q: \"servers\" is not an array", path)
-                return false
-            }
-        }
-    }
-
-    for item in servers {
-        entry, ok := item.(json.Object)
-        if !ok {
-            continue
-        }
-        if existing, has_id := entry["id"].(json.String); has_id && string(existing) == id {
-            return true
-        }
-    }
-
-    markers := json.Array{}
-    append(&markers, json.String(".git"))
-
-    entry := json.Object{}
-    entry["id"] = json.String(id)
-    entry["extensions"] = json.Array{}
-    entry["command"] = json.Array{}
-    entry["root_markers"] = markers
-    entry["enabled"] = json.Boolean(true)
-    append(&servers, entry)
-    root["servers"] = servers
-
-    data, merr := json.marshal(root, {pretty = true, use_spaces = true, spaces = 4}, context.temp_allocator)
-    if merr != nil {
-        log.errorf("Cannot marshal %q: %v", path, merr)
+    root, status, message := luaconf.eval_file(path)
+    if status == .Failed {
+        log.warnf("Cannot add a server: %s", message)
         return false
     }
-    // user/ and .thor/ may not exist until the first write to them.
-    dir := filepath.dir(path) // borrowed substring of path
-    if dir != "" && !os.is_dir(dir) {
-        if err := os.make_directory(dir); err != nil && !os.is_dir(dir) {
-            log.errorf("Cannot create %q: %v", dir, err)
-            return false
+    if servers, ok := luaconf.as_array(luaconf.lookup(root, {"servers"})); ok {
+        for item in servers {
+            entry, is_obj := item.(json.Object)
+            if !is_obj {
+                continue
+            }
+            if existing, has_id := entry["id"].(json.String); has_id && string(existing) == id {
+                return true
+            }
         }
     }
-    if err := atomicfile.write(path, data); err != nil {
-        log.errorf("Cannot write %q: %v", path, err)
+
+    markers := make(json.Array, 0, 1, context.temp_allocator)
+    append(&markers, json.String(".git"))
+    entry := make(json.Object, 5, context.temp_allocator)
+    entry["id"] = json.String(id)
+    entry["extensions"] = make(json.Array, context.temp_allocator)
+    entry["command"] = make(json.Array, context.temp_allocator)
+    entry["root_markers"] = markers
+    entry["enabled"] = json.Boolean(true)
+    if err := luaconf.append_entry(path, {"servers"}, entry); err != .None {
+        log.warnf("Cannot add a server to %q: %v", path, err)
         return false
     }
     return true

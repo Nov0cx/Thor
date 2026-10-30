@@ -1,5 +1,5 @@
-// The server table: `settings/lsp.json` beside the binary, overlaid by
-// `user/lsp.json`, overlaid by `<workspace>/.thor/lsp.json`. Read here with `core:encoding/json` and not
+// The server table: `settings/lsp.lua` beside the binary, overlaid by
+// `user/lsp.lua`, overlaid by `<workspace>/.thor/lsp.lua`. Read here with `luaconf` and not
 // through `setting`, which imports `lang` and would close a cycle.
 package lsp
 
@@ -13,19 +13,20 @@ import "core:slice"
 import "core:strings"
 
 import lang ".."
+import "../../luaconf"
 
 // Beside the binary, staged by build.odin with the rest of `settings/`. Thor
 // moves its working directory to the executable at startup, so the path is
 // relative.
-GLOBAL_CONFIG :: "settings/lsp.json"
+GLOBAL_CONFIG :: "settings/lsp.lua"
 
 // The user layer, beside the shipped one. A build and an update replace
 // `settings/` wholesale and leave `user/` alone, so this is where a change the
 // user makes belongs.
-USER_CONFIG :: "user/lsp.json"
+USER_CONFIG :: "user/lsp.lua"
 
 WORKSPACE_CONFIG_DIR :: ".thor"
-WORKSPACE_CONFIG :: "lsp.json"
+WORKSPACE_CONFIG :: "lsp.lua"
 
 // One configured language server. Every string and slice is owned by the Config
 // that holds it.
@@ -86,7 +87,7 @@ config_workspace_path :: proc(workspace: string, allocator := context.allocator)
     return path, jerr == nil
 }
 
-// The entries of `<workspace>/.thor/lsp.json` alone, unexpanded. Empty when the
+// The entries of `<workspace>/.thor/lsp.lua` alone, unexpanded. Empty when the
 // file is absent, malformed or names no entry, so there is nothing to allow.
 config_workspace_commands :: proc(workspace: string, allocator := context.allocator) -> []Workspace_Command {
     path, ok := config_workspace_path(workspace, context.temp_allocator)
@@ -118,7 +119,7 @@ config_workspace_commands :: proc(workspace: string, allocator := context.alloca
         if server.cwd != "" {
             fmt.sbprintf(&b, "  (in %s)", server.cwd)
         }
-        // A JSON object is a map, so the order is made stable here.
+        // A table is a map, so the order is made stable here.
         slice.sort(server.env)
         for entry in server.env {
             fmt.sbprintf(&b, "  %s", entry)
@@ -238,18 +239,19 @@ server_claims :: proc(server: ^Server_Config, key: string) -> bool {
     return false
 }
 
+// A file that is not there is the normal case: only the shipped table must
+// exist. The file runs in the luaconf sandbox, which has no I/O, so an untrusted
+// workspace file can be read to list its commands.
 @(private)
 config_merge_file :: proc(cfg: ^Config, path: string) {
-    data, rerr := os.read_entire_file(path, context.temp_allocator)
-    if rerr != nil {
-        // A file that is not there is the normal case — only the shipped table
-        // must exist. One that is there and will not open is worth a word.
-        if os.exists(path) {
-            config_report(cfg, path, "", fmt.tprintf("could not be read (%v)", rerr))
-        }
-        return
+    value, status, message := luaconf.eval_file(path)
+    switch status {
+    case .Missing:
+    case .Failed:
+        config_report(cfg, path, "", message)
+    case .Ok:
+        config_merge_value(cfg, value, path)
     }
-    config_merge_text(cfg, string(data), path)
 }
 
 // Merges the `servers` array of one file into the table, keyed on `id`: a known
@@ -262,31 +264,37 @@ config_merge_text :: proc(cfg: ^Config, text: string, path := "") {
     if strings.trim_space(text) == "" {
         return
     }
-    value, perr := json.parse(transmute([]u8)text, spec = .JSON, parse_integers = true, allocator = context.temp_allocator)
-    if perr != .None {
-        config_report(cfg, path, "", fmt.tprintf("is not valid JSON (%v)", perr))
+    value, status, message := luaconf.eval_text(text, path)
+    if status != .Ok {
+        config_report(cfg, path, "", message)
         return
     }
+    config_merge_value(cfg, value, path)
+}
+
+// Merges an evaluated file. See config_merge_text.
+@(private)
+config_merge_value :: proc(cfg: ^Config, value: json.Value, path := "") {
     root, rok := value.(json.Object)
     if !rok {
-        config_report(cfg, path, "", "must be a JSON object")
+        config_report(cfg, path, "", "must return a table of keys")
         return
     }
     entries, has_key := root["servers"]
     if !has_key {
-        config_report(cfg, path, "", `has no "servers" array`)
+        config_report(cfg, path, "", `has no "servers" list`)
         return
     }
-    list, lok := entries.(json.Array)
+    list, lok := luaconf.as_array(entries)
     if !lok {
-        config_report(cfg, path, "", `"servers" must be an array`)
+        config_report(cfg, path, "", `"servers" must be a list`)
         return
     }
 
     for item, index in list {
         entry, eok := item.(json.Object)
         if !eok {
-            config_report(cfg, path, "", fmt.tprintf("entry #%d is not an object", index + 1))
+            config_report(cfg, path, "", fmt.tprintf("entry #%d is not a table", index + 1))
             continue
         }
         id, iok := entry["id"].(json.String)
@@ -477,35 +485,35 @@ server_overlay :: proc(cfg: ^Config, server: ^Server_Config, entry: json.Object,
         }
     }
     if value, has := entry["extensions"]; has {
-        if arr, ok := value.(json.Array); ok {
+        if arr, ok := luaconf.as_array(value); ok {
             strings_free(server.extensions, alloc)
             server.extensions = extension_list(arr, alloc)
         } else {
-            config_report(cfg, path, id, `"extensions" must be an array of strings`)
+            config_report(cfg, path, id, `"extensions" must be a list of strings`)
         }
     }
     if value, has := entry["filenames"]; has {
-        if arr, ok := value.(json.Array); ok {
+        if arr, ok := luaconf.as_array(value); ok {
             strings_free(server.filenames, alloc)
             server.filenames = string_list(arr, alloc)
         } else {
-            config_report(cfg, path, id, `"filenames" must be an array of strings`)
+            config_report(cfg, path, id, `"filenames" must be a list of strings`)
         }
     }
     if value, has := entry["command"]; has {
-        if arr, ok := value.(json.Array); ok {
+        if arr, ok := luaconf.as_array(value); ok {
             strings_free(server.command, alloc)
             server.command = string_list(arr, alloc)
         } else {
-            config_report(cfg, path, id, `"command" must be an array of strings`)
+            config_report(cfg, path, id, `"command" must be a list of strings`)
         }
     }
     if value, has := entry["root_markers"]; has {
-        if arr, ok := value.(json.Array); ok {
+        if arr, ok := luaconf.as_array(value); ok {
             strings_free(server.root_markers, alloc)
             server.root_markers = string_list(arr, alloc)
         } else {
-            config_report(cfg, path, id, `"root_markers" must be an array of strings`)
+            config_report(cfg, path, id, `"root_markers" must be a list of strings`)
         }
     }
     if value, has := entry["env"]; has {
@@ -513,7 +521,7 @@ server_overlay :: proc(cfg: ^Config, server: ^Server_Config, entry: json.Object,
             strings_free(server.env, alloc)
             server.env = env_list(obj, alloc)
         } else {
-            config_report(cfg, path, id, `"env" must be an object of strings`)
+            config_report(cfg, path, id, `"env" must be a table of strings`)
         }
     }
     if value, has := entry["cwd"]; has {
@@ -545,7 +553,7 @@ server_overlay :: proc(cfg: ^Config, server: ^Server_Config, entry: json.Object,
             delete(server.install, alloc)
             server.install = install_command(obj, alloc)
         } else {
-            config_report(cfg, path, id, `"install" must be an object keyed by platform`)
+            config_report(cfg, path, id, `"install" must be a table keyed by platform`)
         }
     }
     // `init_options` is the spelling the documentation carried for a while; both
@@ -563,7 +571,7 @@ server_overlay :: proc(cfg: ^Config, server: ^Server_Config, entry: json.Object,
     if value, has := entry["features"]; has {
         obj, ok := value.(json.Object)
         if !ok {
-            config_report(cfg, path, id, `"features" must be an object of booleans`)
+            config_report(cfg, path, id, `"features" must be a table of booleans`)
         }
         for name, allowed_value in obj {
             allowed, bok := allowed_value.(json.Boolean)
@@ -634,7 +642,7 @@ server_config_destroy :: proc(server: ^Server_Config, alloc: runtime.Allocator) 
     server^ = {}
 }
 
-// Every string of a JSON array, the entries that are not strings dropped.
+// Every string of a list, the entries that are not strings dropped.
 @(private)
 string_list :: proc(arr: json.Array, alloc: runtime.Allocator) -> []string {
     count := 0
