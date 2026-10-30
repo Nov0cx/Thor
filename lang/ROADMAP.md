@@ -2396,9 +2396,27 @@ not a status, so this section stays the source of truth for what is built.
     or under a false `when` does not count, and a name in a branch the target
     may not take is not reported. Over `lang/odin/sema`, `editview` and `thor`
     there is none.
+  - **Live body errors** (`lang/odin/body_check.odin`, `sema/diagnose.odin`):
+    when the names of the buffer resolve, one walk of its tree outside the
+    `when` branches the target may not take reports what the checker can
+    prove, worded as the compiler words it: a call of one procedure with a
+    missing parameter, too many arguments (`expected 1..=3` with defaults), an
+    unknown or duplicate named argument or a positional one after a named one
+    (`call_problem`; a group, a builtin, a type and an argument that may give
+    several values are left out); `x.y` on a struct or bit_field value
+    (through one pointer and its `using` fields) or an enum type that has no
+    such field or member (`member_problem`; silent for a polymorphic record);
+    a switch without `#partial` or `case:` that leaves out enum members (ranges
+    count) or union variants, also of an instantiated union
+    (`switch_missing`); and a `#assert` the checker folds to false. Several
+    missing cases are joined on one line. Over every package of the repository
+    there is none. Not yet: type mismatches, overloads, constant overflow,
+    missing returns, `or_return`, `where` clauses and import cycles.
   - **Diagnostic ids** (`lang/odin/ignore.odin`): every live diagnostic
     carries a `lang.Diagnostic.code` (`syntax/error`, `name/redeclared`,
-    `name/undeclared`, `name/private`, `import/unresolved`), shown after the
+    `name/undeclared`, `name/private`, `import/unresolved`, `call/arity`,
+    `call/named`, `type/no-member`, `switch/non-exhaustive`, `assert/static`),
+    shown after the
     message in the hover. `// thor:ignore <id>...` drops those ids on the next
     line (on its own line when it follows code), with no id every id;
     `// thor:ignore-file <id>...` drops them in the whole file. An unknown id

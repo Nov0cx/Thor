@@ -14,7 +14,9 @@ package docs. M4 landed except body diagnostics: the type table, `decl_type`, co
 with `where` clauses, the layout engine (size, align, offsets per target), a type cache across
 requests (`type_cache.odin`), and hover (with layout), completion (snippets, auto-import, `x.(`,
 `x->`), signature help and semantic tokens. M5 started: the live report holds the Tier 1 name
-errors (redeclaration, undeclared, private, unresolved import); body errors are next.
+errors (redeclaration, undeclared, private, unresolved import) and the first body errors (argument
+count and names, missing members, non-exhaustive switches, `#assert`); type mismatches, overloads,
+constant overflow and missing returns are next.
 `lang/ROADMAP.md` ("Next engine") tracks the rest. Section 11 lists the
 feature questions whose answers change the plan.
 

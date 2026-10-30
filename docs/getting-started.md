@@ -136,7 +136,12 @@ they are bound to under the text. The `tooltips` setting turns this off.
 For Odin, the built-in support formats code and shows `odin check` diagnostics
 when you save. While you type, it marks syntax errors and, in a file that
 parses, name errors: a redeclared name, an undeclared name, a private or
-missing `pkg.name` and an import path that names no directory. After a save,
+missing `pkg.name` and an import path that names no directory. When the names
+resolve, it also marks a call with a missing parameter, too many arguments or a
+wrong named argument (`call/arity`, `call/named`), a field or enum member that
+does not exist (`type/no-member`), a switch that leaves out enum members or
+union variants without `#partial` (`switch/non-exhaustive`) and a `#assert`
+that fails (`assert/static`). After a save,
 the compiler's diagnostics replace them. The hover over a mark shows its id
 (`[name/undeclared]`); a `// thor:ignore name/undeclared` comment hides that id
 on the next line (or on its own line after code), and
