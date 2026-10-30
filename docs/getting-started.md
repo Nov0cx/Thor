@@ -141,12 +141,20 @@ resolve, it also marks a call with a missing parameter, too many arguments or a
 wrong named argument (`call/arity`, `call/named`), a field or enum member that
 does not exist (`type/no-member`), a switch that leaves out enum members or
 union variants without `#partial` (`switch/non-exhaustive`), a `#assert`
-that fails (`assert/static`) and a value of the wrong type in an argument, an
-assignment, a variable declaration or a `return` (`type/mismatch`). After a save,
+that fails (`assert/static`), a value of the wrong type in an argument, an
+assignment, a variable declaration or a `return` (`type/mismatch`), a call of a
+procedure group that no member takes (`call/overload`), an integer constant its
+type cannot hold (`const/overflow`), a procedure that can end with no `return`
+(`flow/missing-return`), an `or_return` that does not fit its procedure
+(`or_return/mismatch`), a `where` clause a call breaks (`poly/where`), an
+assignment with more or fewer values than places (`assign/count`) and an
+import that leads back to its own package (`import/cycle`). After a save,
 the compiler's diagnostics replace them. The hover over a mark shows its id
 (`[name/undeclared]`); a `// thor:ignore name/undeclared` comment hides that id
 on the next line (or on its own line after code), and
-`// thor:ignore-file <id>` hides it in the whole file. The `syntax_diagnostics` feature of
+`// thor:ignore-file <id>` hides it in the whole file. `"diagnostics"` in
+`.thor/odin-analyzer.json` turns an id off or makes it a warning for the whole
+workspace (see [Configuration](configuration.md)). The `syntax_diagnostics` feature of
 `language_intelligence` turns the live marks off.
 It also serves navigation, hover, completion and signature help. Hover a
 symbol with `ctrl` held to see its declaration and doc comment (`//` or

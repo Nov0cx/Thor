@@ -314,6 +314,22 @@ its root, layered on top of the global settings above. This repository's own
   (`ODIN_TEST`, `ODIN_DEBUG`) sets that constant. A bad value is logged and
   ignored.
 
+  `diagnostics` sets what each live diagnostic id is in this workspace:
+  `"off"` hides it, `"warning"` and `"error"` set its severity. Ids not named
+  stay errors:
+
+  ```json
+  { "diagnostics": { "flow/missing-return": "warning", "import/cycle": "off" } }
+  ```
+
+  The ids are `syntax/error`, `name/redeclared`, `name/undeclared`,
+  `name/private`, `import/unresolved`, `import/cycle`, `call/arity`,
+  `call/named`, `call/overload`, `type/no-member`, `type/mismatch`,
+  `const/overflow`, `switch/non-exhaustive`, `assert/static`,
+  `flow/missing-return`, `or_return/mismatch`, `poly/where` and
+  `assign/count`. An unknown id or value is logged and ignored. The diagnostics
+  `odin check` gives after a save are not affected.
+
 - **`odin-formatter.json`** — per-workspace options for formatting `.odin`
   files — "Edit: Format Document", "Edit: Format Selection", `format_on_save`
   and `format_on_type` all read it — mirroring the odinfmt (OLS) schema. An

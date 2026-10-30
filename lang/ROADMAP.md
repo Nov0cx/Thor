@@ -2444,21 +2444,47 @@ not a status, so this section stays the source of truth for what is built.
     struct and union types; an untyped number into a number (left to the
     overflow check), a broadcast into an array, `^T` into `[^]T`, `nil` into
     a type that is not basic, an untyped constant into a union, a builtin
-    call's result and two types that print the same stay silent. Over the ten
-    packages `test_live_clean_sources` reads there is none. Not yet: overloads, constant
-    overflow, missing returns, `or_return`, `where` clauses, `:=` with several
-    values and import cycles.
+    call's result and two types that print the same stay silent. An untyped
+    integer or rune constant that its integer place cannot hold, also in a
+    typed constant declaration and a conversion `u8(300)`
+    (`const_overflows`, `conversion_overflow`); a float that would be
+    truncated stays silent. A call of a procedure group that no member takes
+    (`group_no_match`): every member gets the wrong number of arguments, or,
+    with every argument typed and not untyped, an argument it cannot take;
+    a polymorphic member and an argument of unknown type keep it silent. An
+    ambiguous call is not reported: the compiler breaks most ties itself. A
+    procedure with results whose body can end with no `return` (`sema/flow.odin`,
+    `missing_return`: the compiler's terminating rules for `return`, a call of
+    a `-> !` procedure, blocks, `if` with `else`, `for` with no condition and
+    no `break`, `switch` with `case:`, `fallthrough`, and `when` by the
+    target; a call whose callee type is not known counts as ending). An
+    `or_return` in a procedure with no results, with several unnamed results,
+    on one number or string, or whose last value cannot go into the last
+    result (`or_return_problem`). A call of one polymorphic procedure whose
+    `where` constraint is false for its arguments, reported at the call
+    (`where_problem`, `where_failing`). An `=` or a variable declaration whose
+    places and values differ in count (`assign_count`; a value that may give
+    one or two values stays silent). An import whose package imports the
+    buffer's package back, through any packages outside `base`, `core` and
+    `vendor` (`sema/cycle.odin`, `import_cycles`: one walk per request, at
+    most 512 packages). Over the ten packages `test_live_clean_sources` reads
+    there is none. Not yet: an ambiguous group call, float truncation and
+    overflow, constant arithmetic of typed constants, and a call with no value
+    used as a value.
   - **Diagnostic ids** (`lang/odin/ignore.odin`): every live diagnostic
     carries a `lang.Diagnostic.code` (`syntax/error`, `name/redeclared`,
     `name/undeclared`, `name/private`, `import/unresolved`, `call/arity`,
-    `call/named`, `type/no-member`, `type/mismatch`, `switch/non-exhaustive`,
-    `assert/static`),
-    shown after the
-    message in the hover. `// thor:ignore <id>...` drops those ids on the next
+    `call/named`, `call/overload`, `type/no-member`, `type/mismatch`,
+    `const/overflow`, `switch/non-exhaustive`, `assert/static`,
+    `flow/missing-return`, `or_return/mismatch`, `poly/where`,
+    `assign/count`, `import/cycle`), shown after the message in the hover.
+    `// thor:ignore <id>...` drops those ids on the next
     line (on its own line when it follows code), with no id every id;
     `// thor:ignore-file <id>...` drops them in the whole file. An unknown id
-    is a warning. Not yet: `"diagnostics"` severities in
-    `.thor/odin-analyzer.json`.
+    is a warning. `"diagnostics": {"<id>": "off" | "warning" | "error"}` in
+    `.thor/odin-analyzer.json` turns an id off or sets its severity; an
+    unknown id or value is dropped with a log warning. Not yet: a `"hint"`
+    severity (the seam has errors and warnings only).
 - **Formatter** (`lang/odin/format`, M2 end): prints from the `odinsyntax`
   tree; `core:odin/parser` is used only by tests. `tree.odin` builds the line
   index and the comment groups in one walk. Over every `.odin` file in the

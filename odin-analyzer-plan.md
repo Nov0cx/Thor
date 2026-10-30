@@ -16,7 +16,10 @@ requests (`type_cache.odin`), and hover (with layout), completion (snippets, aut
 `x->`), signature help and semantic tokens. M5 started: the live report holds the Tier 1 name
 errors (redeclaration, undeclared, private, unresolved import) and the first body errors (argument
 count and names, missing members, non-exhaustive switches, `#assert`, type mismatches in arguments,
-assignments, declarations and returns); overloads, constant overflow and missing returns are next.
+assignments, declarations and returns, group calls no member takes, constant overflow, missing
+returns, `or_return`, false `where` clauses, assignment counts and import cycles), with per-id
+severities in `.thor/odin-analyzer.json`; the M5 corpus bar (seeded-error suite against the
+compiler) is next.
 `lang/ROADMAP.md` ("Next engine") tracks the rest. Section 11 lists the
 feature questions whose answers change the plan.
 
