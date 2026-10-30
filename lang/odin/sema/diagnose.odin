@@ -822,3 +822,107 @@ builtin_call :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> b
     callee, ok := odinsyntax.call_expr_callee(&ce)
     return ok && expr_type(c, file, callee).mode == .Builtin
 }
+
+// Why an `x or_return` does not fit the procedure around it.
+Or_Return_Kind :: enum u8 {
+    None,
+    No_Results,      // the procedure has no results
+    Unnamed_Results, // the procedure has more than one result and they have no names
+    Single_Value,    // `x` gives one value; `end` is its type
+    End_Mismatch,    // the last value of `x`, of type `end`, cannot go into the last result `to`
+}
+
+Or_Return_Problem :: struct {
+    kind: Or_Return_Kind,
+    end:  Type_Id,
+    to:   Type_Id,
+}
+
+// The first reason the `or_return` expression `n` does not fit the innermost procedure around it.
+// Kind None when it fits or a type is not known.
+or_return_problem :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> Or_Return_Problem {
+    oe, is_or := odinsyntax.as_or_return_expr(n)
+    if !is_or {
+        return {}
+    }
+    operand, has_operand := odinsyntax.or_return_expr_operand(&oe)
+    if !has_operand {
+        return {}
+    }
+    lit: odinsyntax.Syntax_Node
+    found := false
+    path := node_path(c, file, int(n.offset))
+    #reverse for p in path {
+        if p.green.kind == .Proc_Lit {
+            lit, found = p, true
+            break
+        }
+    }
+    if !found {
+        return {}
+    }
+    pl, _ := odinsyntax.as_proc_lit(lit)
+    pt, has_type := odinsyntax.proc_lit_type(&pl)
+    if !has_type {
+        return {}
+    }
+    p, is_proc := type_get(&c.table, type_base(&c.table, type_expr(c, file, odinsyntax.Syntax_Node(pt)))).(Proc_Type)
+    if !is_proc || p.diverging {
+        return {}
+    }
+    if len(p.results) == 0 {
+        return {kind = .No_Results}
+    }
+    if len(p.results) > 1 && p.results[0].name == "" {
+        return {kind = .Unnamed_Results}
+    }
+    to := p.results[len(p.results) - 1].type
+    op := expr_values(c, file, operand, INVALID_TYPE)
+    if op.mode != .Value || op.type == INVALID_TYPE {
+        return {}
+    }
+    tuple, is_tuple := type_get(&c.table, op.type).(Tuple_Type)
+    if !is_tuple {
+        if single_result_call(c, file, operand) && never_nil(c, op.type) {
+            return {kind = .Single_Value, end = op.type, to = to}
+        }
+        return {}
+    }
+    if p.generic || len(tuple.types) < 2 {
+        return {}
+    }
+    end := tuple.types[len(tuple.types) - 1]
+    if assignable(c, to, {mode = .Value, type = end}) == .No {
+        return {kind = .End_Mismatch, end = end, to = to}
+    }
+    return {}
+}
+
+// True when `t` is a number or a string: no boolean and no value that compares against `nil`.
+@(private = "file")
+never_nil :: proc(c: ^Checker, t: Type_Id) -> bool {
+    if type_is_numeric(&c.table, t) {
+        return true
+    }
+    b, is_basic := type_get(&c.table, type_base(&c.table, t)).(Basic_Type)
+    return is_basic && (b.kind == .String || b.kind == .String16)
+}
+
+// True when `n` calls one procedure that has one result and no `#optional_ok` tag.
+@(private = "file")
+single_result_call :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> bool {
+    ce, is_call := odinsyntax.as_call_expr(n)
+    if !is_call {
+        return false
+    }
+    callee, ok := odinsyntax.call_expr_callee(&ce)
+    if !ok {
+        return false
+    }
+    fn := expr_type(c, file, callee)
+    if fn.mode != .Value && fn.mode != .Const {
+        return false
+    }
+    p, is_proc := type_get(&c.table, type_base(&c.table, fn.type)).(Proc_Type)
+    return is_proc && !p.generic && !p.diverging && len(p.results) == 1 && p.tags == {}
+}
