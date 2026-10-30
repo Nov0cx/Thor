@@ -2,7 +2,7 @@ package thor
 
 import "core:testing"
 
-// Tasks survive a write/read of tasks.json unchanged, in order.
+// Tasks survive a write/read of tasks.lua unchanged, in order.
 // Run from the repository root: odin test thor
 @(test)
 test_tasks_round_trip :: proc(t: ^testing.T) {
@@ -33,11 +33,11 @@ test_tasks_round_trip :: proc(t: ^testing.T) {
 // than shown as dead menu rows.
 @(test)
 test_tasks_decode_skips_incomplete :: proc(t: ^testing.T) {
-    source := `{"tasks": [
-        {"name": "", "command": "echo nameless"},
-        {"name": "no command", "command": "   "},
-        {"name": "  run  ", "command": "  echo hi  "}
-    ]}`
+    source := `return { tasks = {
+        { name = "", command = "echo nameless" },
+        { name = "no command", command = "   " },
+        { name = "  run  ", command = "  echo hi  " },
+    } }`
 
     tasks := tasks_decode(nil, transmute([]u8) source)
     defer {
@@ -65,7 +65,7 @@ test_task_selection_resolves_by_name :: proc(t: ^testing.T) {
         delete(thor.active_task_name)
     }
     thor.tasks = tasks_decode(&thor, transmute([]u8) string(
-        `{"tasks": [{"name": "build", "command": "b"}, {"name": "test", "command": "t"}]}`,
+        `return { tasks = { { name = "build", command = "b" }, { name = "test", command = "t" } } }`,
     ))
 
     thor_select_task(&thor, "test")
@@ -82,10 +82,30 @@ test_task_selection_resolves_by_name :: proc(t: ^testing.T) {
     testing.expect(t, thor_active_task(&thor) == nil, "no tasks means no active task")
 }
 
-// Malformed JSON leaves the workspace with no tasks instead of failing the load.
+// A file that does not evaluate leaves the workspace with no tasks instead of failing the load.
 @(test)
 test_tasks_decode_malformed :: proc(t: ^testing.T) {
-    tasks := tasks_decode(nil, transmute([]u8) string("not json"))
+    tasks := tasks_decode(nil, transmute([]u8) string("not lua"))
     defer delete(tasks)
     testing.expect_value(t, len(tasks), 0)
+}
+
+// The shape the compile-commands plugin writes is the shape Thor reads, and the
+// shape Thor writes is the one the plugin can read back.
+@(test)
+test_tasks_decode_plugin_shape :: proc(t: ^testing.T) {
+    source := "return {\n    tasks = {\n        {\n            name = \"cmake\",\n            command = \"cmake -S . -B build\",\n        },\n    },\n}\n"
+    tasks := tasks_decode(nil, transmute([]u8) string(source))
+    defer {
+        for task in tasks {
+            delete(task.name)
+            delete(task.command)
+            free(task)
+        }
+        delete(tasks)
+    }
+    testing.expect_value(t, len(tasks), 1)
+
+    data, _ := tasks_encode(tasks[:])
+    testing.expect_value(t, string(data), source)
 }

@@ -1,0 +1,12 @@
+return {
+    tasks = {
+        {
+            name = "run",
+            command = "odin run build.odin -file -- run",
+        },
+        {
+            name = "run release",
+            command = "odin run build.odin -file -- run -release",
+        },
+    },
+}

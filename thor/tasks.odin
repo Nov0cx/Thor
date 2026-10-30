@@ -1,6 +1,6 @@
 package thor
 
-// Workspace tasks: named shell commands kept in <workspace>/.thor/tasks.json and
+// Workspace tasks: named shell commands kept in <workspace>/.thor/tasks.lua and
 // run in the console from the titlebar task controls or the command palette. The
 // committable counterpart to the console prompt: what a workspace builds, tests
 // and runs with, shared with everyone who opens the folder.
@@ -14,7 +14,7 @@ import "core:log"
 import "core:os"
 import "core:strings"
 
-import "../atomicfile"
+import "../luaconf"
 
 // Selector geometry: the button tracks the width of its label between these
 // bounds, leaving room for the padding and the caret. The icon size matches the
@@ -33,37 +33,32 @@ Task :: struct {
     command: string, // owned
 }
 
-// On-disk shape of tasks.json. Field names are the JSON keys.
-@(private = "file")
-Task_File :: struct {
-    tasks: []Task_Entry,
-}
-
-@(private = "file")
-Task_Entry :: struct {
-    name:    string,
-    command: string,
-}
-
-// Task file for a workspace: <workspace>/.thor/tasks.json.
+// Task file for a workspace: <workspace>/.thor/tasks.lua.
 thor_tasks_file :: proc(workspace_dir: string, allocator := context.temp_allocator) -> string {
-    return strings.concatenate({thor_workspace_config_dir(workspace_dir), "/tasks.json"}, allocator)
+    return strings.concatenate({thor_workspace_config_dir(workspace_dir), "/tasks.lua"}, allocator)
 }
 
-// Parses tasks.json into owned tasks, stamping `thor` on each. Entries missing a
-// name or a command are dropped; malformed JSON yields none.
+// Evaluates tasks.lua (`return { tasks = { { name = ..., command = ... } } }`)
+// into owned tasks, stamping `thor` on each. Entries missing a name or a command
+// are dropped; a file that does not evaluate yields none.
 tasks_decode :: proc(thor: ^Thor, data: []u8, allocator := context.allocator) -> [dynamic]^Task {
     tasks := make([dynamic]^Task, allocator)
 
-    file: Task_File
-    if err := json.unmarshal(data, &file, allocator = context.temp_allocator); err != nil {
-        log.warnf("Ignoring malformed tasks file: %v", err)
+    root, status, message := luaconf.eval_text(string(data), "tasks.lua")
+    if status != .Ok {
+        log.warnf("Ignoring malformed tasks file: %s", message)
         return tasks
     }
-
-    for entry in file.tasks {
-        name := strings.trim_space(entry.name)
-        command := strings.trim_space(entry.command)
+    entries, _ := luaconf.as_array(luaconf.lookup(root, {"tasks"}))
+    for value in entries {
+        entry, is_obj := value.(json.Object)
+        if !is_obj {
+            continue
+        }
+        raw_name, _ := entry["name"].(json.String)
+        raw_command, _ := entry["command"].(json.String)
+        name := strings.trim_space(string(raw_name))
+        command := strings.trim_space(string(raw_command))
         if name == "" || command == "" {
             continue
         }
@@ -76,14 +71,24 @@ tasks_decode :: proc(thor: ^Thor, data: []u8, allocator := context.allocator) ->
     return tasks
 }
 
-// Serializes `tasks` as the contents of tasks.json.
-tasks_encode :: proc(tasks: []^Task, allocator := context.temp_allocator) -> ([]u8, bool) {
-    entries := make([]Task_Entry, len(tasks), context.temp_allocator)
-    for task, index in tasks {
-        entries[index] = Task_Entry {name = task.name, command = task.command}
+// The `tasks` list as a value, in order.
+@(private = "file")
+tasks_value :: proc(tasks: []^Task) -> json.Array {
+    list := make(json.Array, 0, len(tasks), context.temp_allocator)
+    for task in tasks {
+        entry := make(json.Object, 2, context.temp_allocator)
+        entry["name"] = json.String(task.name)
+        entry["command"] = json.String(task.command)
+        append(&list, entry)
     }
-    data, err := json.marshal(Task_File {tasks = entries}, {pretty = true}, allocator)
-    return data, err == nil
+    return list
+}
+
+// Serializes `tasks` as a whole tasks.lua.
+tasks_encode :: proc(tasks: []^Task, allocator := context.temp_allocator) -> ([]u8, bool) {
+    root := make(json.Object, 1, context.temp_allocator)
+    root["tasks"] = tasks_value(tasks)
+    return transmute([]u8) luaconf.encode(root, allocator), true
 }
 
 // Replaces the in-memory tasks with the workspace's. Missing file: none.
@@ -120,7 +125,8 @@ thor_free_task :: proc(task: ^Task) {
     free(task)
 }
 
-// Writes the tasks to the workspace's tasks.json, creating .thor/ when needed.
+// Writes the tasks to the workspace's tasks.lua, creating .thor/ when needed.
+// Only the `tasks` list is replaced, so the rest of the file stays as written.
 // Rebaselines the config watcher so our own write does not read as an edit.
 thor_save_tasks :: proc(thor: ^Thor) {
     cfg_dir := thor_workspace_config_dir(thor.workspace_dir)
@@ -134,15 +140,9 @@ thor_save_tasks :: proc(thor: ^Thor) {
         thor.workspace_initialized = true
     }
 
-    data, ok := tasks_encode(thor.tasks[:])
-    if !ok {
-        log.error("Could not serialize tasks")
-        return
-    }
     path := thor_tasks_file(thor.workspace_dir)
-    if err := atomicfile.write(path, data); err != nil {
-        log.errorf("Could not write %q: %v", path, err)
-        thor_flash_status(thor, "Could not save tasks", true)
+    if err := luaconf.patch(path, {"tasks"}, tasks_value(thor.tasks[:])); err != .None {
+        thor_settings_save_failed(thor, path, err)
         return
     }
     thor_settings_mark_clean(thor)
@@ -345,7 +345,7 @@ thor_pick_remove_task :: proc(data: rawptr, name: string) {
     }
 }
 
-// Opens the workspace's tasks.json in a tab, writing it first when it is absent
+// Opens the workspace's tasks.lua in a tab, writing it first when it is absent
 // so there is always a file to edit. The config poll picks up manual edits.
 thor_cmd_edit_tasks :: proc(data: rawptr) {
     thor := cast(^Thor) data
