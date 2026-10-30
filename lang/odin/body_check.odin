@@ -30,6 +30,8 @@ walk_body :: proc(rc: ^Request_Context, c: ^odinsema.Checker, whens: []Branch, n
     #partial switch n.green.kind {
     case .Call_Expr:
         call_errors(rc, c, n, report)
+    case .Selector_Expr:
+        member_errors(rc, c, n, report)
     }
     it := odinsyntax.child_iter(&n, {kinds = ~odinsyntax.Kind_Set{}})
     for child in odinsyntax.child_iter_next(&it) {
@@ -65,4 +67,24 @@ call_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, call: odinsyntax
     case .Positional_After_Named:
         report_error(rc, report, p.offset, CODE_NAMED, strings.clone("Non-named parameter is not allowed to follow named parameter i.e. 'field = value' in a procedure call"))
     }
+}
+
+// Reports a selector that names no field or member of its operand.
+@(private = "file")
+member_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, selector: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
+    p := odinsema.member_problem(c, rc.live.id, selector)
+    if !p.missing {
+        return
+    }
+    sel, _ := odinsyntax.as_selector_expr(selector)
+    operand, _ := odinsyntax.selector_expr_operand(&sel)
+    field, _ := odinsyntax.selector_expr_field(&sel)
+    name := odinsyntax.node_text(odinsyntax.Syntax_Node(field))
+    owner := odinsema.type_string(&c.table, p.owner, context.temp_allocator)
+    if p.is_type {
+        report_error(rc, report, int(selector.offset), CODE_NO_MEMBER, fmt.aprintf("Type '%s' has no field '%s'", owner, name))
+        return
+    }
+    text := strings.join(strings.fields(odinsyntax.node_text(operand), context.temp_allocator), "", context.temp_allocator)
+    report_error(rc, report, int(selector.offset), CODE_NO_MEMBER, fmt.aprintf("'%s' of type '%s' has no field '%s'", text, owner, name))
 }

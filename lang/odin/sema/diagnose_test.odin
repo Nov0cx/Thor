@@ -122,3 +122,82 @@ test_call_problem :: proc(t: ^testing.T) {
     }
     testing.expect_value(t, c.err, nil)
 }
+
+@(private = "file")
+MEMBER_SRC :: `package p
+
+Inner :: struct { deep: int }
+Point :: struct { x: int, using inner: Inner }
+Flags :: bit_field u8 { lo: u8 | 4 }
+Color :: enum { Red, Green }
+Box :: struct($T: typeid) { item: T }
+Vec :: [3]f32
+
+work :: proc(p: Point, pp: ^Point, f: Flags, b: Box(int), v: Vec, a: any, m: map[int]int) {
+    _ = p.y
+    _ = pp.z
+    _ = f.hi
+    _ = Color.Blue
+    _ = p.x
+    _ = p.deep
+    _ = pp.inner
+    _ = f.lo
+    _ = Color.Red
+    _ = b.item
+    _ = v.xy
+    _ = a.id
+    _ = m.allocator
+    _ = unknown.field
+}
+`
+
+@(private = "file")
+Member_Case :: struct {
+    text:    string,
+    missing: bool,
+    is_type: bool,
+    owner:   string,
+}
+
+@(test)
+test_member_problem :: proc(t: ^testing.T) {
+    env: Check_Env
+    if !check_begin(t, &env, Snapshot_Input{has_live = true, live_text = MEMBER_SRC}) {
+        return
+    }
+    defer check_end(&env)
+    c := &env.c
+    cases := []Member_Case {
+        {"p.y", true, false, "Point"},
+        {"pp.z", true, false, "^Point"},
+        {"f.hi", true, false, "Flags"},
+        {"Color.Blue", true, true, "Color"},
+        {"p.x", false, false, ""},
+        {"p.deep", false, false, ""},
+        {"pp.inner", false, false, ""},
+        {"f.lo", false, false, ""},
+        {"Color.Red", false, false, ""},
+        {"b.item", false, false, ""},
+        {"v.xy", false, false, ""},
+        {"a.id", false, false, ""},
+        {"m.allocator", false, false, ""},
+        {"unknown.field", false, false, ""},
+    }
+    for k in cases {
+        at := strings.index(MEMBER_SRC, k.text)
+        if !testing.expectf(t, at >= 0, "%q: not in the source", k.text) {
+            continue
+        }
+        sel, ok := expr_node_at(c, ANON_FILE, at, k.text)
+        if !testing.expectf(t, ok && sel.green.kind == .Selector_Expr, "%q: no selector node", k.text) {
+            continue
+        }
+        got := member_problem(c, ANON_FILE, sel)
+        testing.expectf(t, got.missing == k.missing && got.is_type == k.is_type, "%q: missing %v type %v, want %v %v", k.text, got.missing, got.is_type, k.missing, k.is_type)
+        if k.missing && got.missing {
+            owner := type_string(&c.table, got.owner, context.temp_allocator)
+            testing.expectf(t, owner == k.owner, "%q: owner %q, want %q", k.text, owner, k.owner)
+        }
+    }
+    testing.expect_value(t, c.err, nil)
+}

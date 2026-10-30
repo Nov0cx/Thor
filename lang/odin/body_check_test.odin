@@ -67,3 +67,38 @@ test_live_body_after_names :: proc(t: ^testing.T) {
     defer free_live(&res)
     expect_errors(t, &res, src, {{"zork", "Undeclared name: zork", 0}})
 }
+
+@(test)
+test_live_missing_members :: proc(t: ^testing.T) {
+    root := fixture(t, "live_missing_members", {{".thor/odin-analyzer.json", `{"target": {"os": "windows", "arch": "amd64"}}`}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+P :: struct { x: int }
+Q :: struct { p: P }
+E :: enum { A, B }
+B :: bit_field u8 { lo: u8 | 4 }
+
+main :: proc() {
+	p: ^P
+	_ = p.y
+	q: Q
+	_ = q.p.z
+	_ = E.D
+	bb: B
+	_ = bb.hi
+	_ = q.p.x + p.x
+	_ = E.A
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"p.y", "'p' of type '^P' has no field 'y'", 0},
+        {"q.p.z", "'q.p' of type 'P' has no field 'z'", 0},
+        {"E.D", "Type 'E' has no field 'D'", 0},
+        {"bb.hi", "'bb' of type 'B' has no field 'hi'", 0},
+    })
+}

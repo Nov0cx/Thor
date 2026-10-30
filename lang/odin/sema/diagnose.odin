@@ -109,3 +109,75 @@ may_give_values :: proc(c: ^Checker, a: Call_Arg) -> bool {
     _, is_tuple := type_get(&c.table, a.op.type).(Tuple_Type)
     return is_tuple
 }
+
+// What a selector names no member of.
+Member_Problem :: struct {
+    missing: bool,
+    is_type: bool,    // the operand is an enum type, not a value
+    owner:   Type_Id, // the type of the operand
+}
+
+// Whether `x.y` names no field of the value `x` (a struct or bit_field, through one pointer) and no
+// member of the enum type `x`. False when the operand type is not known in full.
+member_problem :: proc(c: ^Checker, file: File_Id, selector: odinsyntax.Syntax_Node) -> Member_Problem {
+    sel, is_sel := odinsyntax.as_selector_expr(selector)
+    if !is_sel {
+        return {}
+    }
+    if _, is_arrow := odinsyntax.selector_expr_arrow(&sel); is_arrow {
+        return {}
+    }
+    operand, has_operand := odinsyntax.selector_expr_operand(&sel)
+    field, has_field := odinsyntax.selector_expr_field(&sel)
+    if !has_operand || !has_field {
+        return {}
+    }
+    name := odinsyntax.node_text(odinsyntax.Syntax_Node(field))
+    op := expr_type(c, file, operand)
+    #partial switch op.mode {
+    case .Type:
+        e, is_enum := type_get(&c.table, type_base(&c.table, op.type)).(Enum_Type)
+        if !is_enum {
+            return {}
+        }
+        for m in e.members {
+            if m.name == name {
+                return {}
+            }
+        }
+        return {missing = true, is_type = true, owner = op.type}
+    case .Value, .Const:
+        if !fields_known(c, op.type, 0) {
+            return {}
+        }
+        if _, ok := find_field(c, op.type, name); ok {
+            return {}
+        }
+        return {missing = true, owner = op.type}
+    }
+    return {}
+}
+
+// True when `t` is a struct or bit_field, through one pointer, whose fields are all known: not
+// polymorphic, and every `using` field is such a record too.
+@(private = "file")
+fields_known :: proc(c: ^Checker, t: Type_Id, depth: int) -> bool {
+    if t == INVALID_TYPE || depth > USING_DEPTH {
+        return false
+    }
+    #partial switch v in type_get(&c.table, deref_base(c, t)) {
+    case Struct_Type:
+        if len(v.params) > 0 {
+            return false
+        }
+        for f in v.fields {
+            if f.is_using && !fields_known(c, f.type, depth + 1) {
+                return false
+            }
+        }
+        return true
+    case Bit_Field_Type:
+        return true
+    }
+    return false
+}
