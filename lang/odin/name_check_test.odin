@@ -391,3 +391,69 @@ main :: proc() {}
         {"r := 4", "Redeclaration of 'r' in this scope", 0},
     })
 }
+
+@(test)
+test_live_duplicate_labels_and_members :: proc(t: ^testing.T) {
+    root := fixture(t, "live_duplicate_members", {{"app/a.odin", "package app\n"}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+S :: struct {
+	x: int,
+	y: int,
+	inner: struct {
+		x: int,
+	},
+	x: f32,
+}
+E :: enum {
+	A,
+	B,
+	A,
+}
+U :: struct($T: typeid, $T: typeid) {}
+B :: bit_field u8 {
+	a: u8 | 2,
+	a: u8 | 2,
+}
+
+f :: proc() {
+	L: for {
+		{
+			L: for {
+				break L
+			}
+		}
+		break
+	}
+	g := proc() {
+		L: for {
+			break L
+		}
+	}
+	_ = g
+	M: {
+		break M
+	}
+	M: {
+		break M
+	}
+}
+
+main :: proc() {
+	f()
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"x: f32", "Redeclaration of 'x' in this scope", 0},
+        {"A,", "'A' is already declared in this enumeration", 1},
+        {"T: typeid) {}", "Redeclaration of 'T' in this scope", 0},
+        {"a: u8", "'a' is already declared in this bit_field", 1},
+        {"L: for", "Duplicate label with the name 'L'", 1},
+        {"M: {", "Duplicate label with the name 'M'", 1},
+    })
+}

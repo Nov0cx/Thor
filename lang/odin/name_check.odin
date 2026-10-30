@@ -31,6 +31,7 @@ name_diagnostics :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Report) 
     }
     defer odinsema.scope_map_destroy(m, context.temp_allocator)
     local_redeclarations(rc, m, report)
+    member_redeclarations(rc, m, report)
     qualified_names(rc, m, report)
     if lang.request_cancelled(rc.req) {
         return
@@ -256,9 +257,17 @@ local_redeclarations :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, repor
         if under_when(m, l, whens[:]) {
             continue
         }
-        key := Local_Key{l.scope, l.name, l.kind == .Label}
+        // A label is unique in its whole procedure.
+        key := Local_Key{l.scope, l.name, false}
+        if l.kind == .Label {
+            key = Local_Key{proc_scope(m, l.scope), l.name, true}
+        }
         if _, found := first[key]; found {
-            report_error(rc, report, l.name_offset, fmt.aprintf("Redeclaration of '%s' in this scope", l.name))
+            if l.kind == .Label {
+                report_error(rc, report, l.name_offset, fmt.aprintf("Duplicate label with the name '%s'", l.name))
+            } else {
+                report_error(rc, report, l.name_offset, fmt.aprintf("Redeclaration of '%s' in this scope", l.name))
+            }
             continue
         }
         first[key] = index
@@ -272,6 +281,82 @@ local_redeclarations :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, repor
         case .Result:
             report_error(rc, report, l.name_offset, fmt.aprintf("Direct shadowing of the named return value '%s' in this scope", l.name))
         }
+    }
+}
+
+// The outermost scope of the procedure that holds scope `scope`.
+@(private = "file")
+proc_scope :: proc(m: ^odinsema.Scope_Map, scope: int) -> int {
+    s := scope
+    for m.scopes[s].parent >= 0 && m.scopes[m.scopes[s].parent].proc_depth == m.scopes[s].proc_depth {
+        s = m.scopes[s].parent
+    }
+    return s
+}
+
+// A struct, enum or bit_field type of the buffer.
+@(private = "file")
+Record :: struct {
+    start: int,
+    end:   int,
+    kind:  odinsyntax.Syntax_Kind,
+}
+
+// Reports each field or enum member that an earlier one of the same type declares.
+@(private = "file")
+member_redeclarations :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, report: ^lang.Diagnostic_Report) {
+    records := make([dynamic]Record, context.temp_allocator)
+    collect_records(odinsyntax.node_root(rc.parsed.tree), &records)
+    if len(records) == 0 {
+        return
+    }
+    Member_Key :: struct {
+        record: int,
+        name:   string,
+    }
+    seen := make(map[Member_Key]struct{}, 64, context.temp_allocator)
+    for ref in m.refs {
+        if ref.kind != .Member_Decl || ref.name == "_" {
+            continue
+        }
+        // Records nest in field types, after the field name, so the innermost one that holds the name owns it.
+        owner := -1
+        for r, i in records {
+            if r.start <= ref.start && ref.start < r.end && (owner < 0 || r.start >= records[owner].start) {
+                owner = i
+            }
+        }
+        if owner < 0 {
+            continue
+        }
+        key := Member_Key{owner, ref.name}
+        if key not_in seen {
+            seen[key] = {}
+            continue
+        }
+        #partial switch records[owner].kind {
+        case .Enum_Type:
+            report_error(rc, report, ref.start, fmt.aprintf("'%s' is already declared in this enumeration", ref.name))
+        case .Bit_Field_Type:
+            report_error(rc, report, ref.start, fmt.aprintf("'%s' is already declared in this bit_field", ref.name))
+        case:
+            report_error(rc, report, ref.start, fmt.aprintf("Redeclaration of '%s' in this scope", ref.name))
+        }
+    }
+}
+
+// Appends every struct, enum and bit_field type under `n`, outer ones first.
+@(private = "file")
+collect_records :: proc(n: odinsyntax.Syntax_Node, out: ^[dynamic]Record) {
+    n := n
+    #partial switch n.green.kind {
+    case .Struct_Type, .Enum_Type, .Bit_Field_Type:
+        start, end := odinsyntax.node_range(n)
+        append(out, Record{int(start), int(end), n.green.kind})
+    }
+    it := odinsyntax.child_iter(&n, {kinds = ~odinsyntax.Kind_Set{}})
+    for child in odinsyntax.child_iter_next(&it) {
+        collect_records(child, out)
     }
 }
 
