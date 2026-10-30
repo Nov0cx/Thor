@@ -449,7 +449,7 @@ test_type_mismatches :: proc(t: ^testing.T) {
         {"y: [3]f32 = 0", .Value_Decl, {}},
         {"z: [3]f32 = f", .Value_Decl, {}},
         {"w: b8 = true", .Value_Decl, {}},
-        {"c: u8 = 300", .Value_Decl, {}},
+        {"c: u8 = 300", .Value_Decl, {"300 -> u8 (overflow)"}},
         {"e: E = .B", .Value_Decl, {}},
         {"un: U = s", .Value_Decl, {}},
         {"q: rawptr = p", .Value_Decl, {}},
@@ -479,7 +479,7 @@ test_type_mismatches :: proc(t: ^testing.T) {
         }
         got := make([dynamic]string, context.temp_allocator)
         for p in problems {
-            append(&got, strings.concatenate({odinsyntax.node_text(p.value), " -> ", type_string(&c.table, p.to, context.temp_allocator)}, context.temp_allocator))
+            append(&got, strings.concatenate({odinsyntax.node_text(p.value), " -> ", type_string(&c.table, p.to, context.temp_allocator), p.overflow ? " (overflow)" : ""}, context.temp_allocator))
         }
         testing.expectf(t, len(got) == len(k.wants), "%q: got %v, want %v", k.text, got[:], k.wants)
         for g, i in got {
