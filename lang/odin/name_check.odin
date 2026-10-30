@@ -22,6 +22,7 @@ name_diagnostics :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Report) 
     defer slice.sort_by(report.items[first:], proc(a, b: lang.Diagnostic) -> bool {
         return a.line < b.line || (a.line == b.line && a.col < b.col)
     })
+    import_problems(rc, report)
     package_redeclarations(rc, report)
     import_redeclarations(rc, report)
     m, err := odinsema.scope_map(rc.parsed, context.temp_allocator)
@@ -185,13 +186,34 @@ package_redeclarations :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Re
     }
 }
 
+// Reports each import of the buffer whose path names no directory. With no Odin root known, a
+// root collection is not checked.
+@(private = "file")
+import_problems :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Report) {
+    for imp in odinsema.db_imports(&rc.snap, rc.live.id) {
+        if imp.is_foreign {
+            continue
+        }
+        offset := rc.live.tree.items[imp.item].start
+        switch imp.problem {
+        case .None, .No_Odin_Root:
+        case .Empty_Path:
+            report_error(rc, report, offset, fmt.aprintf("Invalid import path: '%s'", imp.path))
+        case .Unknown_Collection:
+            report_error(rc, report, offset, fmt.aprintf("Unknown library collection: '%s'", imp.collection))
+        case .Missing_Dir:
+            report_error(rc, report, offset, fmt.aprintf("Path does not exist: %s", imp.path))
+        }
+    }
+}
+
 // Reports each import of the buffer whose alias an earlier import of the buffer binds.
 @(private = "file")
 import_redeclarations :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Report) {
     imports := odinsema.db_imports(&rc.snap, rc.live.id)
     seen := make(map[string]struct{}, len(imports), context.temp_allocator)
     for imp in imports {
-        if imp.is_foreign || !imp.alias_valid || imp.alias == "_" {
+        if imp.is_foreign || !imp.alias_valid || imp.alias == "_" || (imp.problem != .None && imp.problem != .No_Odin_Root) {
             continue
         }
         if imp.alias in seen {

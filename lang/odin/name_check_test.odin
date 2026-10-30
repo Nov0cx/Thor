@@ -258,3 +258,28 @@ main :: proc() {
         {"q.missing", "'missing' is not declared by 'q'", 0},
     })
 }
+
+@(test)
+test_live_unresolved_imports :: proc(t: ^testing.T) {
+    root := fixture(t, "live_imports", {{"app/q/q.odin", "package q\n"}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+import "q"
+import "nothere"
+import "core:fmt/nothere"
+import "nope:x"
+import "core:fmt"
+
+main :: proc() {}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"import \"nothere\"", "Path does not exist: nothere", 0},
+        {"import \"core:fmt/", "Path does not exist: core:fmt/nothere", 0},
+        {"import \"nope", "Unknown library collection: 'nope'", 0},
+    })
+}
