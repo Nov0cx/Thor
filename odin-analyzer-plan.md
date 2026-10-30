@@ -5,16 +5,18 @@
 live diagnostics and lints.
 **Baseline:** `Nov0cx/Thor` at `29192c6` (release 2026.10.7).
 **Status:** M1 (lexer, parser, compact tree, typed views) and M2 (incremental reparse, formatter
-on the new tree) landed, plus live syntax errors. M3 is done except the stdlib disk cache (§5.10)
-and redeclaration/visibility diagnostics: `lang/odin/sema` has item trees with doc comments, build
-file selection, package scopes, lexical name resolution, the universe scope and the query DB, and
-serves document/workspace symbols, definition, references, rename and package docs. M4's first
-slice landed: the type table, `decl_type`, constant evaluation and `expr_type` with calls, groups
-and minimal generics (every declaration and expression in Thor's sources gets a type), typed
-definition/references/rename for fields, members and named args, and hover, completion, signature
-help and semantic tokens. Left in M4: the full overload scoring, the layout engine, a type cache
-across requests (a request that types `^Thor` costs ~130 ms) and body diagnostics;
-`lang/ROADMAP.md` ("Next engine") tracks the rest. Section 11 lists the feature questions whose answers change the plan.
+on the new tree) landed, plus live syntax errors. M3 is done except redeclaration/visibility
+diagnostics: `lang/odin/sema` has item trees with doc comments (`//` and `/* */`), build file
+selection, package scopes, lexical name resolution with `using` expansion, the universe scope, the
+query DB and the stdlib cache (§5.10: Odin root files refreshed at most every 5 s, item trees kept
+in `user/cache/odin/`), and serves document/workspace symbols, definition, references, rename and
+package docs. M4 landed except body diagnostics: the type table, `decl_type`, constant evaluation,
+`expr_type` with calls, groups and generics, overload resolution by the compiler's distance scoring
+with `where` clauses, the layout engine (size, align, offsets per target), a type cache across
+requests (`type_cache.odin`), and hover (with layout), completion (snippets, auto-import, `x.(`,
+`x->`), signature help and semantic tokens. Diagnostics (redeclaration, visibility, body errors)
+move with Tier 1 to M5; `lang/ROADMAP.md` ("Next engine") tracks the rest. Section 11 lists the
+feature questions whose answers change the plan.
 
 ---
 
