@@ -344,32 +344,24 @@ dot_completions :: proc(cm: ^Completer, dot: int) {
     }
 }
 
-// The public names of the one known package called `alias` when nothing binds `alias` at `offset`.
-// Each carries the import that binds it.
+// The public names of the known packages called `alias` of the best rank when nothing binds `alias`
+// at `offset`, shallowest first; a name two of them declare comes from the first. Each carries the
+// import that binds it.
 @(private = "file")
 unbound_alias_names :: proc(cm: ^Completer, alias: string, offset: int) {
     if odinsema.lookup_name(cm.c, cm.ctx.live.id, alias, offset).kind != .None {
         return
     }
-    // Two packages of the best rank leave the choice open; core still wins over vendor.
-    match: Known_Package
-    ties := 0
+    best := -1
     for p in importable_packages(cm) {
-        if p.name != alias {
+        if p.name != alias || (best >= 0 && p.rank != best) {
             continue
         }
-        if ties == 0 || p.rank < match.rank {
-            match, ties = p, 1
-        } else if p.rank == match.rank {
-            ties += 1
-        }
+        best = p.rank
+        cm.importing = p.import_path
+        add_package_names(cm, p.dir, false, .Member)
     }
-    if ties != 1 {
-        return
-    }
-    cm.importing = match.import_path
-    defer cm.importing = ""
-    add_package_names(cm, match.dir, false, .Member)
+    cm.importing = ""
 }
 
 // The known packages the buffer does not import yet, without its own package.

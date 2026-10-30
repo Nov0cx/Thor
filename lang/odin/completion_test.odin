@@ -1,5 +1,6 @@
 package odin
 
+import "core:fmt"
 import "core:os"
 import "core:strings"
 import "core:testing"
@@ -672,4 +673,33 @@ test_completion_auto_import :: proc(t: ^testing.T) {
         }
         completions_free(&res)
     }
+}
+
+// `alias.` of an unbound alias that two packages of one rank are named lists the names of both, each
+// with its own import; a name both declare comes from the shallower one.
+@(test)
+test_completion_auto_import_same_name :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    config := `{"collections": [{"name": "shared", "path": "shared"}]}`
+    root := fixture(t, "completion_auto_import_same_name", {
+        {".thor/odin-analyzer.json", config},
+        {"shared/a/util/util.odin", "package util\n\nalpha :: 1\nboth :: 1\n"},
+        {"shared/b/util/util.odin", "package util\n\nbeta :: 2\nboth :: 2\n"},
+        {"app/other.odin", "package app\n"},
+    })
+    defer os.remove_all(root)
+    main_path := fixture_path(root, "app/main.odin")
+
+    src := "package app\n\nmain :: proc() {\n\t_ = util.\n}\n"
+    res := complete_at(e, src, "util.", workspace = root, path = main_path)
+    defer completions_free(&res)
+    expect_labels(t, &res, {"alpha", "beta", "both"})
+    with_import :: proc(path: string) -> string {
+        return fmt.tprintf("package app\n\nimport \"%s\"\n\nmain :: proc() {{\n\t_ = util.\n}}\n", path)
+    }
+    testing.expect_value(t, apply_extra_edit(src, find_item(&res, "alpha")), with_import("shared:a/util"))
+    testing.expect_value(t, apply_extra_edit(src, find_item(&res, "beta")), with_import("shared:b/util"))
+    testing.expect_value(t, apply_extra_edit(src, find_item(&res, "both")), with_import("shared:a/util"))
 }
