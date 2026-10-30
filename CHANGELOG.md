@@ -35,6 +35,7 @@
 - Odin: go to definition on a procedure group call jumps to the member its arguments pick, with the compiler's overload scoring and `where` clauses.
 - Odin: go to symbol shows an alias such as `Foo :: pkg.Bar` as a type or a procedure.
 - Odin: requests that read the standard library are faster. Its declarations are cached in `user/cache/odin/`, and its files are checked for changes at most every 5 s.
+- Odin: hover, completion and highlighting reuse the types of unchanged files between requests, so they answer about twice as fast in a large workspace.
 
 # 2026.10.7
 
