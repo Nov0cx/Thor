@@ -210,6 +210,8 @@ test_convert_json :: proc(t: ^testing.T) {
     v, status, _ := eval_file(lua_path)
     testing.expect_value(t, status, Status.Ok)
     testing.expect(t, values_equal(lookup(v, {"theme"}), json.String("jogo")))
+    _, is_int := lookup(v, {"tab_width"}).(json.Integer)
+    testing.expect(t, is_int)
 
     // An existing Lua file is never written over.
     testing.expect(t, os.write_entire_file(json_path, `{"tab_width": 9}`) == nil)

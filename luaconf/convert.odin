@@ -18,7 +18,7 @@ convert_json :: proc(json_path, lua_path: string) -> bool {
         log.warnf("Cannot read %q: %v", json_path, err)
         return false
     }
-    value, perr := json.parse(data, allocator = context.temp_allocator)
+    value, perr := json.parse(data, parse_integers = true, allocator = context.temp_allocator)
     if perr != .None {
         log.warnf("Cannot convert %q: it is not valid JSON (%v)", json_path, perr)
         return false

@@ -164,7 +164,7 @@ write_value :: proc(b: ^strings.Builder, value: json.Value, indent: int) {
             }
             append(&keys, key)
         }
-        slice.sort(keys[:])
+        slice.sort_by(keys[:], key_less)
         strings.write_string(b, "{\n")
         for key in keys {
             write_indent(b, indent + 1)
@@ -178,6 +178,27 @@ write_value :: proc(b: ^strings.Builder, value: json.Value, indent: int) {
     case:
         strings.write_string(b, "nil")
     }
+}
+
+// Keys that name an entry come first, the rest in byte order.
+@(private)
+LEADING_KEYS := []string {"id", "name", "title"}
+
+@(private)
+key_less :: proc(a, b: string) -> bool {
+    ra, rb := len(LEADING_KEYS), len(LEADING_KEYS)
+    for k, i in LEADING_KEYS {
+        if a == k {
+            ra = i
+        }
+        if b == k {
+            rb = i
+        }
+    }
+    if ra != rb {
+        return ra < rb
+    }
+    return a < b
 }
 
 // A float that reads back as a float: "1.0", not "1".

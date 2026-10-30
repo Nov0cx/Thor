@@ -294,3 +294,17 @@ table_value :: proc(L: ^lua.State, at: c.int, path: ^[dynamic]string, allocator:
     }
     return obj, ""
 }
+
+// `v` as a list. An empty table reads as an empty object, so it counts as an
+// empty list here.
+as_array :: proc(v: json.Value) -> (json.Array, bool) {
+    #partial switch x in v {
+    case json.Array:
+        return x, true
+    case json.Object:
+        if len(x) == 0 {
+            return nil, true
+        }
+    }
+    return nil, false
+}
