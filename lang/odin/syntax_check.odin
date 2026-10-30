@@ -7,7 +7,7 @@ import lang ".."
 import odinsyntax "syntax"
 
 // Reports the live errors of the request's buffer as a file-scoped report: its syntax errors, or
-// its name errors when it parses clean.
+// its name errors when it parses clean in a workspace.
 @(private)
 syntax_diagnostics :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
     if req.path == "" {
@@ -25,7 +25,7 @@ syntax_diagnostics :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
     for err in rc.parsed.errors {
         report_error(&rc, &res.report, int(err.offset), odinsyntax.error_message(err))
     }
-    if len(rc.parsed.errors) == 0 {
+    if len(rc.parsed.errors) == 0 && req.workspace != "" {
         name_diagnostics(&rc, &res.report)
     }
     if lang.request_cancelled(req) {
