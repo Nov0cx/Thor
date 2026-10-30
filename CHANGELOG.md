@@ -46,6 +46,11 @@
 - Odin: go to symbol shows an alias such as `Foo :: pkg.Bar` as a type or a procedure.
 - Odin: requests that read the standard library are faster. Its declarations are cached in `user/cache/odin/`, and its files are checked for changes at most every 5 s.
 - Odin: hover, completion and highlighting reuse the types of unchanged files between requests, so they answer about twice as fast in a large workspace.
+- Odin: requests are faster again. Workspace files are checked for changes at most once a second, and a file saved in Thor at once.
+- Odin: completion after `util.` with no `util` import lists the names of every package called `util` of the same collection rank, each with its own import line.
+- Odin: completion offers to import a package made after the first completion of the session.
+- Odin: overload resolution reads more `where` clauses: `type_is_comparable`, `type_is_ordered`, `type_is_subtype_of`, `type_has_field`, `type_elem_type` and others.
+- Odin: hover shows the size of `#soa` over a small array (`#soa[4][3]f32`), and completion lists its `x`, `y`, `z`, `w` fields.
 
 # 2026.10.7
 
