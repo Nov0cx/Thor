@@ -114,3 +114,147 @@ test_overload_resolution :: proc(t: ^testing.T) {
     }
     testing.expect_value(t, c.err, nil)
 }
+
+@(private = "file")
+WHERE_SRC :: `package p
+
+Point :: struct { x, y: f32 }
+Base :: struct { id: int }
+IPoint :: struct { x: int }
+Derived :: struct { using base: Base, name: string }
+Shape :: union { int, string }
+Color :: enum { Red, Green }
+Small :: enum u8 { A }
+List :: struct($T: typeid) { items: []T }
+
+cmp_y :: proc(x: $T) -> int where intrinsics.type_is_comparable(T) { return 0 }
+cmp_n :: proc(x: $T) -> string where !intrinsics.type_is_comparable(T) { return "" }
+ord_y :: proc(x: $T) -> int where intrinsics.type_is_ordered(T) { return 0 }
+ord_n :: proc(x: $T) -> string where !intrinsics.type_is_ordered(T) { return "" }
+num_y :: proc(x: $T) -> int where intrinsics.type_is_ordered_numeric(T) { return 0 }
+num_n :: proc(x: $T) -> string where !intrinsics.type_is_ordered_numeric(T) { return "" }
+sim_y :: proc(x: $T) -> int where intrinsics.type_is_simple_compare(T) { return 0 }
+sim_n :: proc(x: $T) -> string where !intrinsics.type_is_simple_compare(T) { return "" }
+key_y :: proc(x: $T) -> int where intrinsics.type_is_valid_map_key(T) { return 0 }
+key_n :: proc(x: $T) -> string where !intrinsics.type_is_valid_map_key(T) { return "" }
+sli_y :: proc(x: $T) -> int where intrinsics.type_is_sliceable(T) { return 0 }
+sli_n :: proc(x: $T) -> string where !intrinsics.type_is_sliceable(T) { return "" }
+idx_y :: proc(x: $T) -> int where intrinsics.type_is_indexable(T) { return 0 }
+idx_n :: proc(x: $T) -> string where !intrinsics.type_is_indexable(T) { return "" }
+big_y :: proc(x: $T) -> int where intrinsics.type_is_endian_big(T) { return 0 }
+big_n :: proc(x: $T) -> string where !intrinsics.type_is_endian_big(T) { return "" }
+sub_y :: proc(x: $T) -> int where intrinsics.type_is_subtype_of(T, Base) { return 0 }
+sub_n :: proc(x: $T) -> string where !intrinsics.type_is_subtype_of(T, Base) { return "" }
+fld_y :: proc(x: $T) -> int where intrinsics.type_has_field(T, "x") { return 0 }
+fld_n :: proc(x: $T) -> string where !intrinsics.type_has_field(T, "x") { return "" }
+var_y :: proc(x: $T) -> int where intrinsics.type_is_variant_of(Shape, T) { return 0 }
+var_n :: proc(x: $T) -> string where !intrinsics.type_is_variant_of(Shape, T) { return "" }
+spe_y :: proc(x: $T) -> int where intrinsics.type_is_specialization_of(T, List) { return 0 }
+spe_n :: proc(x: $T) -> string where !intrinsics.type_is_specialization_of(T, List) { return "" }
+elm_y :: proc(x: $T) -> int where intrinsics.type_elem_type(T) == f32 { return 0 }
+elm_n :: proc(x: $T) -> string where intrinsics.type_elem_type(T) != f32 { return "" }
+cor_y :: proc(x: $T) -> int where intrinsics.type_core_type(T) == int { return 0 }
+cor_n :: proc(x: $T) -> string where intrinsics.type_core_type(T) != int { return "" }
+bse_y :: proc(x: $T) -> int where intrinsics.type_bit_set_elem_type(T) == Color { return 0 }
+bse_n :: proc(x: $T) -> string where intrinsics.type_bit_set_elem_type(T) != Color { return "" }
+fty_y :: proc(x: $T) -> int where intrinsics.type_field_type(T, "x") == f32 { return 0 }
+fty_n :: proc(x: $T) -> string where intrinsics.type_field_type(T, "x") != f32 { return "" }
+
+cmp :: proc{cmp_y, cmp_n}
+ord :: proc{ord_y, ord_n}
+num :: proc{num_y, num_n}
+sim :: proc{sim_y, sim_n}
+key :: proc{key_y, key_n}
+sli :: proc{sli_y, sli_n}
+idx :: proc{idx_y, idx_n}
+big :: proc{big_y, big_n}
+sub :: proc{sub_y, sub_n}
+fld :: proc{fld_y, fld_n}
+var :: proc{var_y, var_n}
+spe :: proc{spe_y, spe_n}
+elm :: proc{elm_y, elm_n}
+cor :: proc{cor_y, cor_n}
+bse :: proc{bse_y, bse_n}
+fty :: proc{fty_y, fty_n}
+
+work :: proc(i: int, f: f32, s: []int, fs: []f32, m: map[int]int, p: Point, d: Derived, be: u32be, l: List(int), c: Color, sm: Small, cs: bit_set[Color], ds: bit_set[Small], ip: IPoint) {
+    _ = cmp(i)
+    _ = cmp(s)
+    _ = ord(f)
+    _ = ord(p)
+    _ = num(c)
+    _ = num("s")
+    _ = sim(i)
+    _ = sim(f)
+    _ = key("s")
+    _ = key(m)
+    _ = sli(s)
+    _ = sli(i)
+    _ = idx(m)
+    _ = idx(f)
+    _ = big(be)
+    _ = big(i)
+    _ = sub(d)
+    _ = sub(p)
+    _ = fld(p)
+    _ = fld(d)
+    _ = var(i)
+    _ = var(f)
+    _ = spe(l)
+    _ = spe(i)
+    _ = elm(fs)
+    _ = elm(s)
+    _ = cor(c)
+    _ = cor(sm)
+    _ = bse(cs)
+    _ = bse(ds)
+    _ = fty(p)
+    _ = fty(ip)
+}
+`
+
+@(test)
+test_overload_where_intrinsics :: proc(t: ^testing.T) {
+    env: Check_Env
+    if !check_begin(t, &env, Snapshot_Input{has_live = true, live_text = WHERE_SRC}) {
+        return
+    }
+    defer check_end(&env)
+    c := &env.c
+    Where_Case :: struct {
+        text: string,
+        want: string,
+    }
+    cases := []Where_Case {
+        {"cmp(i)", "int"}, {"cmp(s)", "string"},
+        {"ord(f)", "int"}, {"ord(p)", "string"},
+        {"num(c)", "int"}, {`num("s")`, "string"},
+        {"sim(i)", "int"}, {"sim(f)", "string"},
+        {`key("s")`, "int"}, {"key(m)", "string"},
+        {"sli(s)", "int"}, {"sli(i)", "string"},
+        {"idx(m)", "int"}, {"idx(f)", "string"},
+        {"big(be)", "int"}, {"big(i)", "string"},
+        {"sub(d)", "int"}, {"sub(p)", "string"},
+        {"fld(p)", "int"}, {"fld(d)", "string"},
+        {"var(i)", "int"}, {"var(f)", "string"},
+        {"spe(l)", "int"}, {"spe(i)", "string"},
+        {"elm(fs)", "int"}, {"elm(s)", "string"},
+        {"cor(c)", "int"}, {"cor(sm)", "string"},
+        {"bse(cs)", "int"}, {"bse(ds)", "string"},
+        {"fty(p)", "int"}, {"fty(ip)", "string"},
+    }
+    for k in cases {
+        at := strings.index(WHERE_SRC, k.text)
+        if !testing.expectf(t, at >= 0, "%q: not in the source", k.text) {
+            continue
+        }
+        n, ok := expr_node_at(c, ANON_FILE, at, k.text)
+        if !testing.expectf(t, ok, "%q: no call node", k.text) {
+            continue
+        }
+        op := expr_type(c, ANON_FILE, n)
+        got := op.mode == .Invalid ? "<invalid>" : type_string(&c.table, op.type, context.temp_allocator)
+        testing.expectf(t, got == k.want, "%q: got %q, want %q", k.text, got, k.want)
+    }
+    testing.expect_value(t, c.err, nil)
+}
