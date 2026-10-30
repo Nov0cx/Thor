@@ -307,8 +307,9 @@ test_workspace_symbols :: proc(t: ^testing.T) {
     testing.expectf(t, slice.equal(names, []string{"thing"}), "query tg: got %v", names)
     free_symbols(&res)
 
-    // A changed file is read again.
+    // A saved file is read again.
     testing.expect_value(t, os.write_entire_file(files[0][0], transmute([]byte)string("package lib\n\nthing_two :: proc() {}\n")), nil)
+    notify(e, .Saved, files[0][0], ".odin", "", 0)
     req.query = "thing"
     res = lang.Result{kind = .Workspace_Symbols}
     resolve(e, &req, &res)

@@ -52,6 +52,7 @@ engine_create :: proc() -> ^Engine {
     e.config.alloc = context.allocator
     e.format_config.alloc = context.allocator
     odinsema.db_init(&e.db, lang.source_read)
+    e.db.workspace_interval = i64(odinsema.WORKSPACE_INTERVAL)
     e.root.alloc = context.allocator
     e.tree_cache.alloc = context.allocator
     e.packages.alloc = context.allocator
@@ -68,7 +69,16 @@ engine_backend :: proc(e: ^Engine) -> lang.Backend {
         resolve         = resolve,
         destroy         = engine_destroy,
         supports        = supports,
+        notify          = notify,
         on_type_trigger = on_type_trigger,
+    }
+}
+
+// A saved buffer is read again at the next request, not after the workspace interval.
+@(private)
+notify :: proc(data: rawptr, event: lang.Doc_Event, path, ext, source: string, revision: u64) {
+    if event == .Saved && path != "" {
+        odinsema.db_touch(&(cast(^Engine)data).db, path)
     }
 }
 

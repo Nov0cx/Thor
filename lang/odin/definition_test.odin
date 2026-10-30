@@ -212,7 +212,7 @@ main :: proc() {
     free_definition(&res)
 }
 
-// A name declared in another file of the package; the cache reads a changed file again.
+// A name declared in another file of the package; the cache reads a saved file again.
 @(test)
 test_definition_cross_file :: proc(t: ^testing.T) {
     e := engine_create()
@@ -230,6 +230,7 @@ test_definition_cross_file :: proc(t: ^testing.T) {
 
     moved := "package demo\n\n// moved\nhelper :: proc() -> int {\n\treturn 42\n}\n"
     testing.expect_value(t, os.write_entire_file(fixture_path(root, "helper.odin"), transmute([]byte)moved), nil)
+    notify(e, .Saved, fixture_path(root, "helper.odin"), ".odin", "", 0)
     res = definition_at(e, main_src, "helper()", root, main_path)
     expect_jump(t, &res, "helper.odin", strings.index(moved, "helper ::"))
     free_definition(&res)

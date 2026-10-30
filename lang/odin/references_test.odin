@@ -286,6 +286,7 @@ test_references_sibling_added_later :: proc(t: ^testing.T) {
     if err := os.write_entire_file(fixture_path(root, "use.odin"), transmute([]byte)use_src); err != nil {
         testing.fail_now(t, "could not write the sibling")
     }
+    notify(e, .Saved, fixture_path(root, "use.odin"), ".odin", "", 0)
     res2 := refs_at(e, main_src, "helper ::", root, main_path)
     defer free_refs(&res2)
     testing.expectf(t, len(res2.symbols) == 3, "ref count after: got %d", len(res2.symbols))
