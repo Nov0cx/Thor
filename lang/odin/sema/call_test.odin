@@ -258,3 +258,62 @@ test_overload_where_intrinsics :: proc(t: ^testing.T) {
     }
     testing.expect_value(t, c.err, nil)
 }
+
+@(private = "file")
+NAMED_SRC :: `package p
+
+Mode :: enum { Slow, Fast }
+Point :: struct { x, y: int }
+
+run :: proc(n: int, mode: Mode = .Slow) {}
+run_a :: proc(n: int, mode: Mode) {}
+run_b :: proc(s: string, mode: Mode) {}
+place_a :: proc(n: int, at: Point) {}
+place_b :: proc(s: string, at: [2]int) {}
+runs :: proc{run_a, run_b}
+places :: proc{place_a, place_b}
+
+work :: proc() {
+    run(1, mode = .Fast)
+    runs(1, mode = .Fast)
+    places(1, at = {1, 2})
+}
+`
+
+@(test)
+test_named_argument_expected :: proc(t: ^testing.T) {
+    env: Check_Env
+    if !check_begin(t, &env, Snapshot_Input{has_live = true, live_text = NAMED_SRC}) {
+        return
+    }
+    defer check_end(&env)
+    c := &env.c
+    Named_Case :: struct {
+        callee: string,
+        value:  string, // the text of the named value, after `callee`
+        want:   string,
+    }
+    cases := []Named_Case {
+        {"run(1,", ".Fast", "Mode"},
+        {"runs(1,", ".Fast", "Mode"},
+        {"places(1,", "{1, 2}", "<invalid>"},
+    }
+    src := NAMED_SRC
+    for k in cases {
+        call_at := strings.index(src, k.callee)
+        value_at := call_at + strings.index(src[call_at:], k.value)
+        name := k.callee[:strings.index_byte(k.callee, '(')]
+        callee, cok := expr_node_at(c, ANON_FILE, call_at, name)
+        value, vok := expr_node_at(c, ANON_FILE, value_at, k.value)
+        if !testing.expectf(t, cok && vok, "%q: no nodes", k.callee) {
+            continue
+        }
+        fn := expr_type(c, ANON_FILE, callee)
+        arg_name := k.value == "{1, 2}" ? "at" : "mode"
+        args := []Call_Arg{{node = value, name = arg_name}}
+        eval_args(c, ANON_FILE, args, fn.type, 1)
+        got := args[0].op.type == INVALID_TYPE ? "<invalid>" : type_string(&c.table, args[0].op.type, context.temp_allocator)
+        testing.expectf(t, got == k.want, "%q: got %q, want %q", k.callee, got, k.want)
+    }
+    testing.expect_value(t, c.err, nil)
+}

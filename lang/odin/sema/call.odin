@@ -120,8 +120,9 @@ call_operand :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, expe
     return {}
 }
 
-// Reads the operand of each argument. `first` is the parameter the first argument goes to. A positional
-// argument expects the parameter type of a procedure, or of a group when every member agrees on it.
+// Reads the operand of each argument. `first` is the parameter the first argument goes to. An
+// argument expects the type of its parameter, by position or by name, of a procedure, or of a group
+// when every member agrees on it.
 @(private)
 eval_args :: proc(c: ^Checker, file: File_Id, args: []Call_Arg, callee: Type_Id, first: int) {
     base := type_base(&c.table, callee)
@@ -129,7 +130,15 @@ eval_args :: proc(c: ^Checker, file: File_Id, args: []Call_Arg, callee: Type_Id,
     g, is_group := type_get(&c.table, base).(Proc_Group_Type)
     for &a, i in args {
         expected := INVALID_TYPE
-        if a.name == "" && !a.spread {
+        if a.name != "" {
+            if is_proc {
+                if k := param_named(p, a.name); k >= 0 && !has_poly(c, p.params[k].type, 0) {
+                    expected = p.params[k].type
+                }
+            } else if is_group {
+                expected = group_named_type(c, g, a.name)
+            }
+        } else if !a.spread {
             k := first + i
             if is_proc && k < len(p.params) {
                 expected = p.params[k].type
@@ -154,6 +163,28 @@ group_slot_type :: proc(c: ^Checker, g: Proc_Group_Type, slot: int) -> Type_Id {
             continue
         }
         t := p.params[slot].type
+        if t == INVALID_TYPE || has_poly(c, t, 0) || (agreed != INVALID_TYPE && t != agreed) {
+            return INVALID_TYPE
+        }
+        agreed = t
+    }
+    return agreed
+}
+
+// The type every member of a group with a parameter named `name` takes there; INVALID_TYPE when they differ.
+@(private)
+group_named_type :: proc(c: ^Checker, g: Proc_Group_Type, name: string) -> Type_Id {
+    agreed := INVALID_TYPE
+    for m in g.members {
+        p, ok := type_get(&c.table, type_base(&c.table, m)).(Proc_Type)
+        if !ok {
+            return INVALID_TYPE
+        }
+        k := param_named(p, name)
+        if k < 0 {
+            continue
+        }
+        t := p.params[k].type
         if t == INVALID_TYPE || has_poly(c, t, 0) || (agreed != INVALID_TYPE && t != agreed) {
             return INVALID_TYPE
         }
