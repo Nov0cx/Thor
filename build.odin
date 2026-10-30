@@ -53,7 +53,7 @@ STAMP :: "thor.stamp"
 // third-party bindings under vendor/, which this repository cannot correct.
 // Add a package here when it is new.
 VET_PACKAGES ::
-    "main,thor,atomicfile,editview,font,input,lang,lsp,odin,odinfmt,odinsema,odinsyntax,syntaxgen,markdown,msvc,piecetable," +
+    "main,thor,atomicfile,editview,font,input,lang,lsp,luaconf,odin,odinfmt,odinsema,odinsyntax,syntaxgen,markdown,msvc,piecetable," +
     "plugin,render,search,setting,shell,snippet,syntax,textedit,theme,treecache," +
     "update,vt,watch"
 
@@ -189,6 +189,7 @@ run_tests :: proc() -> bool {
         "lang/odin/format",
         "lang/odin/sema",
         "lang/odin/syntax",
+        "luaconf",
         "markdown",
         "msvc",
         "piecetable",
