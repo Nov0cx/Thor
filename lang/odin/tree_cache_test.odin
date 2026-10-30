@@ -52,12 +52,16 @@ cache_files :: proc(dir: string) -> int {
     return n
 }
 
-// An engine writes the trees of the Odin root at destroy; the next engine answers from them.
+// An engine writes the trees of the Odin root at destroy and removes the cache another compiler
+// wrote; the next engine answers from them.
 @(test)
 test_tree_cache_across_engines :: proc(t: ^testing.T) {
-    dir := "bin/test/odin_tree_cache"
+    DIR :: "bin/test/odin_tree_cache"
+    dir := DIR
     _ = os.remove_all(dir)
     defer os.remove_all(dir)
+    testing.expect_value(t, os.make_directory_all(dir), nil)
+    testing.expect_value(t, os.write_entire_file(DIR + "/items-0000000000000000.bin", "old"), nil)
 
     first := engine_create()
     engine_set_cache_dir(first, dir)

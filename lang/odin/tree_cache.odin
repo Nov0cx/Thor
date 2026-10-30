@@ -129,5 +129,25 @@ tree_cache_write :: proc(e: ^Engine, force: bool) {
     }
     if err := atomicfile.write(path, blob); err != nil {
         log.warnf("odin: cannot write the tree cache %s: %v", path, err)
+        return
+    }
+    remove_old_caches(path)
+}
+
+// Removes the tree caches beside `path` that another Odin root or compiler wrote.
+@(private = "file")
+remove_old_caches :: proc(path: string) {
+    dir, name := filepath.split(path)
+    infos, err := os.read_directory_by_path(dir, -1, context.temp_allocator)
+    if err != nil {
+        return
+    }
+    for info in infos {
+        if info.type == .Directory || info.name == name || !strings.has_prefix(info.name, "items-") || !strings.has_suffix(info.name, ".bin") {
+            continue
+        }
+        if rerr := os.remove(info.fullpath); rerr != nil {
+            log.debugf("odin: cannot remove the old tree cache %s: %v", info.fullpath, rerr)
+        }
     }
 }
