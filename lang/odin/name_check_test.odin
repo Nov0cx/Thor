@@ -224,6 +224,7 @@ test_live_syntax_errors_first :: proc(t: ^testing.T) {
 @(test)
 test_live_undeclared_names :: proc(t: ^testing.T) {
     root := fixture(t, "live_undeclared", {
+        {".thor/odin-analyzer.json", `{"target": {"os": "windows", "arch": "amd64"}}`},
         {"app/other.odin", "package app\n\nsibling :: proc() -> int { return 1 }\n"},
         {"app/other_linux.odin", "package app\n\nposix_only :: 1\n"},
         {"app/q/q.odin", "package q\n\nopen :: proc() {}\n@(private) hidden :: proc() {}\n@(private = \"file\") secret :: proc() {}\n"},
@@ -247,17 +248,27 @@ main :: proc() {
 	q.secret()
 	q.tagged()
 	q.missing()
+	when ODIN_OS == .Linux {
+		_ = posix_only
+	}
 }
 `
     res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
     defer free_live(&res)
     expect_errors(t, &res, src, {
         {"zork", "Undeclared name: zork", 0},
+        {"posix_only +", "Undeclared name: posix_only", 0},
         {"q.hidden", "'hidden' is not exported by 'q'", 0},
         {"q.secret", "'secret' is not declared by 'q'", 0},
         {"q.tagged", "'tagged' is not exported by 'q'", 0},
         {"q.missing", "'missing' is not declared by 'q'", 0},
     })
+
+    // A file out of the build sees the other files out of the build.
+    linux := "package app\n\nuse_posix :: proc() -> int { return posix_only }\n"
+    lres := live_check(e, linux, root, fixture_path(root, "app/use_linux.odin"))
+    defer free_live(&lres)
+    expect_errors(t, &lres, linux, {})
 }
 
 @(test)

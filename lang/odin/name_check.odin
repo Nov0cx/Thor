@@ -30,24 +30,27 @@ name_diagnostics :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Report) 
         return
     }
     defer odinsema.scope_map_destroy(m, context.temp_allocator)
-    local_redeclarations(rc, m, report)
+    whens := make([dynamic]Branch, context.temp_allocator)
+    collect_whens(odinsyntax.node_root(rc.parsed.tree), rc.target, &whens)
+    local_redeclarations(rc, m, whens[:], report)
     member_redeclarations(rc, m, report)
     qualified_names(rc, m, report)
     if lang.request_cancelled(rc.req) {
         return
     }
-    undeclared_names(rc, report)
+    undeclared_names(rc, whens[:], report)
 }
 
-// Reports each free name that no scope declares.
+// Reports each free name that no scope declares for the target, outside `when` branches the
+// target may not take.
 @(private = "file")
-undeclared_names :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Report) {
-    tokens, ok := semantic_classify(rc, 0, len(rc.req.source))
+undeclared_names :: proc(rc: ^Request_Context, whens: []Branch, report: ^lang.Diagnostic_Report) {
+    tokens, ok := semantic_classify(rc, 0, len(rc.req.source), strict = true)
     if !ok {
         return
     }
     for tok in tokens {
-        if tok.kind == .Unresolved {
+        if tok.kind == .Unresolved && !in_untaken_branch(whens, tok.start) {
             report_error(rc, report, tok.start, fmt.aprintf("Undeclared name: %s", rc.req.source[tok.start:tok.end]))
         }
     }
@@ -236,13 +239,10 @@ Local_Key :: struct {
 // Reports each local that a declaration of the same scope already binds, a local that redeclares
 // the variable of its type-switch case, and a local of a body that shadows a named result.
 @(private = "file")
-local_redeclarations :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, report: ^lang.Diagnostic_Report) {
+local_redeclarations :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, whens: []Branch, report: ^lang.Diagnostic_Report) {
     if len(m.locals) == 0 {
         return
     }
-    whens := make([dynamic]Branch, context.temp_allocator)
-    collect_whens(odinsyntax.node_root(rc.parsed.tree), rc.target, &whens)
-
     // Source order: a hoisted constant is declared ahead of the statements before it.
     locals := m.locals
     order := make([]int, len(locals), context.temp_allocator)
@@ -254,7 +254,7 @@ local_redeclarations :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, repor
     first := make(map[Local_Key]int, len(locals), context.temp_allocator)
     for index in order {
         l := &locals[index]
-        if under_when(m, l, whens[:]) {
+        if under_when(m, l, whens) {
             continue
         }
         // A label is unique in its whole procedure.
@@ -402,6 +402,17 @@ under_when :: proc(m: ^odinsema.Scope_Map, l: ^odinsema.Local, whens: []Branch) 
     scope := m.scopes[l.scope]
     for w in whens {
         if w.state != .True && w.start <= l.name_offset && l.name_offset < w.end && w.start >= scope.start && w.end <= scope.end {
+            return true
+        }
+    }
+    return false
+}
+
+// True when `offset` is in a `when` branch that the target does not surely take.
+@(private = "file")
+in_untaken_branch :: proc(whens: []Branch, offset: int) -> bool {
+    for w in whens {
+        if w.state != .True && w.start <= offset && offset < w.end {
             return true
         }
     }

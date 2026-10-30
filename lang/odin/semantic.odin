@@ -45,6 +45,7 @@ Semantic_Ctx :: struct {
     path:        [dynamic]odinsyntax.Syntax_Node,
     tokens:      [dynamic]lang.Semantic_Token,
     undeclared:  bool, // an undeclared name can be marked
+    strict:      bool, // a buffer in the build sees only the declarations active for the target
 }
 
 // Fills res.tokens with the classified identifiers of the buffer, or of [req.offset, req.end) when the request has a range.
@@ -70,8 +71,9 @@ semantic_tokens :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
 }
 
 // The classified identifiers of [lo, hi) of the request's buffer, sorted, with no overlap. Temp-allocated.
+// With `strict`, a name that only an inactive declaration binds is undeclared, as the compiler sees it.
 @(private)
-semantic_classify :: proc(rc: ^Request_Context, lo, hi: int) -> (tokens: []lang.Semantic_Token, ok: bool) {
+semantic_classify :: proc(rc: ^Request_Context, lo, hi: int, strict := false) -> (tokens: []lang.Semantic_Token, ok: bool) {
     req := rc.req
     if rc.parsed.tree == nil || rc.parsed.tree.root == nil {
         return nil, false
@@ -101,6 +103,7 @@ semantic_classify :: proc(rc: ^Request_Context, lo, hi: int) -> (tokens: []lang.
     }
     collect_decls(&ctx)
     ctx.undeclared = undeclared_allowed(&ctx)
+    ctx.strict = strict && rc.live.in_build
 
     for ref, i in m.refs {
         if i % SEMANTIC_CANCEL_STEP == 0 && lang.request_cancelled(req) {
@@ -637,8 +640,10 @@ undeclared_at :: proc(ctx: ^Semantic_Ctx, offset: int, name: string) -> bool {
     rc := ctx.rc
     cands := make([dynamic]Def_Candidate, context.temp_allocator)
     package_candidates(rc, live_dir(rc), name, "", true, &cands)
-    if len(cands) > 0 {
-        return false
+    for c in cands {
+        if !ctx.strict || !c.inactive {
+            return false
+        }
     }
     return builtin_candidates(rc, name, &cands) == ""
 }
