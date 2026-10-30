@@ -516,3 +516,65 @@ lb2 :: proc(a: int) -> int {
         testing.expect(t, d.code == CODE_RETURN, "a missing return carries its id")
     }
 }
+
+@(test)
+test_live_or_return :: proc(t: ^testing.T) {
+    root := fixture(t, "live_or_return", {{".thor/odin-analyzer.json", `{"target": {"os": "windows", "arch": "amd64"}}`}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+Err :: enum { None, Bad }
+Other :: enum { None, X }
+
+ok :: proc() -> (int, bool) { return 1, true }
+er :: proc() -> (int, Err) { return 1, .None }
+one :: proc() -> int { return 1 }
+
+a :: proc() {
+	_ = ok() or_return
+}
+b :: proc() -> int {
+	_ = ok() or_return
+	return 1
+}
+c :: proc() -> (n: int, e: Other) {
+	_ = er() or_return
+	return
+}
+d :: proc() -> (int, Err) {
+	_ = er() or_return
+	return 1, .None
+}
+e :: proc() -> bool {
+	_ = one() or_return
+	return true
+}
+f :: proc() -> (n: int, ok2: bool) {
+	_ = ok() or_return
+	return
+}
+g :: proc() -> (int, bool) {
+	_ = ok() or_return
+	return 1, true
+}
+h :: proc() -> Err {
+	_ = er() or_return
+	return .None
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"ok() or_return", "'or_return' requires the current procedure to have at least one return value", 0},
+        {"ok() or_return", "Cannot assign end value of type 'bool' to 'int' in 'or_return'", 1},
+        {"er() or_return", "Cannot assign end value of type 'Err' to 'Other' in 'or_return'", 0},
+        {"er() or_return", "'or_return' within a procedure with more than 1 return value requires that the return values are named, allowing for early return", 1},
+        {"one() or_return", "'or_return' expects an \"optional ok\" like value, or an n-valued expression where the last value is either a boolean or can be compared against 'nil', got int", 0},
+        {"ok() or_return", "'or_return' within a procedure with more than 1 return value requires that the return values are named, allowing for early return", 3},
+    })
+    for d in res.report.items {
+        testing.expect(t, d.code == CODE_OR_RETURN, "an or_return error carries its id")
+    }
+}

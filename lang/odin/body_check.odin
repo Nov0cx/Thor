@@ -46,6 +46,8 @@ walk_body :: proc(rc: ^Request_Context, c: ^odinsema.Checker, whens: []Branch, n
         switch_errors(rc, c, n, report)
     case .Proc_Lit:
         return_errors(rc, c, n, report)
+    case .Or_Return_Expr:
+        or_return_errors(rc, c, n, report)
     }
     it := odinsyntax.child_iter(&n, {kinds = ~odinsyntax.Kind_Set{}})
     for child in odinsyntax.child_iter_next(&it) {
@@ -159,6 +161,27 @@ return_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, lit: odinsynta
         return
     }
     report_error(rc, report, at, CODE_RETURN, fmt.aprintf("Missing return statement at the end of the procedure '%s'", name))
+}
+
+// Reports an `or_return` that does not fit the procedure around it.
+@(private = "file")
+or_return_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, n: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
+    p := odinsema.or_return_problem(c, rc.live.id, n)
+    at := int(n.offset)
+    switch p.kind {
+    case .None:
+    case .No_Results:
+        report_error(rc, report, at, CODE_OR_RETURN, strings.clone("'or_return' requires the current procedure to have at least one return value"))
+    case .Unnamed_Results:
+        report_error(rc, report, at, CODE_OR_RETURN, strings.clone("'or_return' within a procedure with more than 1 return value requires that the return values are named, allowing for early return"))
+    case .Single_Value:
+        end := odinsema.type_string(&c.table, p.end, context.temp_allocator)
+        report_error(rc, report, at, CODE_OR_RETURN, fmt.aprintf("'or_return' expects an \"optional ok\" like value, or an n-valued expression where the last value is either a boolean or can be compared against 'nil', got %s", end))
+    case .End_Mismatch:
+        end := odinsema.type_string(&c.table, p.end, context.temp_allocator)
+        to := odinsema.type_string(&c.table, p.to, context.temp_allocator)
+        report_error(rc, report, at, CODE_OR_RETURN, fmt.aprintf("Cannot assign end value of type '%s' to '%s' in 'or_return'", end, to))
+    }
 }
 
 // Reports a `#assert` whose condition is false.
