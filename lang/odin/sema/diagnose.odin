@@ -8,6 +8,7 @@ Call_Problem :: struct {
     offset: int,     // where the compiler reports it: the call, or the argument at fault
     name:   string,  // Missing: the parameter; Unknown_Name, Duplicate_Name: the argument name. Borrows the type table or the parse
     type:   Type_Id, // Missing: the type of the parameter
+    least:  int,     // Too_Many: the parameters with no default
     want:   int,     // Too_Many: the parameter count
     got:    int,     // Too_Many: the argument count
 }
@@ -76,6 +77,11 @@ call_problem :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node) -
         out.type = param.type
     case .Too_Many:
         out.want, out.got = len(p.params), len(with)
+        for param in p.params {
+            if !param.has_default {
+                out.least += 1
+            }
+        }
     case .Unknown_Name, .Duplicate_Name, .Positional_After_Named:
         if miss.arg < first {
             return {}

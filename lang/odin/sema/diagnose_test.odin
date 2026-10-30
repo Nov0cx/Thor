@@ -34,6 +34,7 @@ work :: proc(o: ^Obj, cb: proc(n: int)) {
     two_ints(maybe(), 1)
     two_ints(1, 2)
     with_default(1)
+    with_default(1, 2, 3)
     with_default(b = 3, a = 1)
     rest(1, 2, 3, 4)
     group(1)
@@ -55,13 +56,14 @@ call_node_at :: proc(c: ^Checker, offset: int) -> (odinsyntax.Syntax_Node, bool)
 
 @(private = "file")
 Call_Case :: struct {
-    text: string,
-    kind: Call_Problem_Kind,
-    at:   string, // the text the problem is reported at; "" for the call
-    name: string,
-    type: string,
-    want: int,
-    got:  int,
+    text:  string,
+    kind:  Call_Problem_Kind,
+    at:    string, // the text the problem is reported at; "" for the call
+    name:  string,
+    type:  string,
+    least: int,
+    want:  int,
+    got:   int,
 }
 
 @(test)
@@ -74,7 +76,8 @@ test_call_problem :: proc(t: ^testing.T) {
     c := &env.c
     cases := []Call_Case {
         {text = "two_ints(1)\n", kind = .Missing, name = "b", type = "int"},
-        {text = "two_ints(1, 2, 3)", kind = .Too_Many, want = 2, got = 3},
+        {text = "two_ints(1, 2, 3)", kind = .Too_Many, least = 2, want = 2, got = 3},
+        {text = "with_default(1, 2, 3)", kind = .Too_Many, least = 1, want = 2, got = 3},
         {text = "with_default(1, c = 3)", kind = .Unknown_Name, at = "c = 3", name = "c"},
         {text = "with_default(a = 1, a = 2)", kind = .Duplicate_Name, at = "a = 2", name = "a"},
         {text = "with_default(a = 1, 2)", kind = .Positional_After_Named, at = "2)"},
@@ -115,7 +118,7 @@ test_call_problem :: proc(t: ^testing.T) {
             typ := type_string(&c.table, got.type, context.temp_allocator)
             testing.expectf(t, typ == k.type, "%q: type %q, want %q", k.text, typ, k.type)
         }
-        testing.expectf(t, got.want == k.want && got.got == k.got, "%q: want/got %d/%d, want %d/%d", k.text, got.want, got.got, k.want, k.got)
+        testing.expectf(t, got.least == k.least && got.want == k.want && got.got == k.got, "%q: counts %d/%d/%d, want %d/%d/%d", k.text, got.least, got.want, got.got, k.least, k.want, k.got)
     }
     testing.expect_value(t, c.err, nil)
 }

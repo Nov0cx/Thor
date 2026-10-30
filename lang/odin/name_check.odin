@@ -39,6 +39,10 @@ name_diagnostics :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Report) 
         return
     }
     undeclared_names(rc, whens[:], report)
+    // An unresolved name leaves the types of a body unknown.
+    if len(report.items) == first && !lang.request_cancelled(rc.req) {
+        body_diagnostics(rc, whens[:], report)
+    }
 }
 
 // Reports each free name that no scope declares for the target, outside `when` branches the
@@ -502,7 +506,7 @@ outer_binding :: proc(m: ^odinsema.Scope_Map, first: map[Local_Key]int, l: ^odin
 }
 
 // A `when` body or `else` branch and whether the target takes it.
-@(private = "file")
+@(private)
 Branch :: struct {
     start: int,
     end:   int,
@@ -523,7 +527,7 @@ under_when :: proc(m: ^odinsema.Scope_Map, l: ^odinsema.Local, whens: []Branch) 
 }
 
 // True when `offset` is in a `when` branch that the target does not surely take.
-@(private = "file")
+@(private)
 in_untaken_branch :: proc(whens: []Branch, offset: int) -> bool {
     for w in whens {
         if w.state != .True && w.start <= offset && offset < w.end {
