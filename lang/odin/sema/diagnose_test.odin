@@ -397,6 +397,9 @@ work :: proc() {
     bx: Box(int)
     bx.item = s
     v: string = nil
+    set: map[int]struct{}
+    set = make(map[int]struct{})
+    sz: uint = len(s)
     _ = s
 }
 `
@@ -452,6 +455,8 @@ test_type_mismatches :: proc(t: ^testing.T) {
         {"bx.item = s", .Assign_Stmt, {"s -> int"}},
         {"v: string = nil", .Value_Decl, {"nil -> string"}},
         {"_ = s", .Assign_Stmt, {}},
+        {"set = make", .Assign_Stmt, {}},
+        {"sz: uint = len(s)", .Value_Decl, {}},
     }
     for k in cases {
         at := strings.index(MISMATCH_SRC, k.text)

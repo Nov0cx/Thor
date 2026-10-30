@@ -449,6 +449,12 @@ assignable :: proc(c: ^Checker, to: Type_Id, op: Operand, any_int := false) -> A
             return .Unknown
         }
     }
+    // An unnamed record is unique by position here, the compiler compares it by structure.
+    temp := scratch_begin(c)
+    defer scratch_end(temp)
+    if type_string(t, to, c.tmp) == type_string(t, op.type, c.tmp) {
+        return .Unknown
+    }
     return .No
 }
 
@@ -527,6 +533,9 @@ argument_mismatches :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_
         }
         param := p.params[slots[i]]
         if .C_Vararg in param.flags {
+            continue
+        }
+        if builtin_call(c, file, a.node) {
             continue
         }
         to := param.type
@@ -656,7 +665,7 @@ value_mismatches :: proc(c: ^Checker, file: File_Id, places: []Type_Id, list: od
     out := make([dynamic]Type_Problem, allocator)
     for v, i in nodes {
         to := places[i]
-        if to == INVALID_TYPE {
+        if to == INVALID_TYPE || builtin_call(c, file, v) {
             continue
         }
         op := expr_type(c, file, v, to)
@@ -665,4 +674,16 @@ value_mismatches :: proc(c: ^Checker, file: File_Id, places: []Type_Id, list: od
         }
     }
     return out[:]
+}
+
+// True when `n` calls a builtin procedure, whose result the compiler converts by rules of its own
+// (`len(s)` goes into a `uint`).
+@(private = "file")
+builtin_call :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> bool {
+    ce, is_call := odinsyntax.as_call_expr(n)
+    if !is_call {
+        return false
+    }
+    callee, ok := odinsyntax.call_expr_callee(&ce)
+    return ok && expr_type(c, file, callee).mode == .Builtin
 }
