@@ -353,3 +353,28 @@ test_when_condition_in_body :: proc(t: ^testing.T) {
     testing.expect_value(t, tri_and(.Unknown, .False), Tri.False)
     testing.expect_value(t, tri_not(.Unknown), Tri.Unknown)
 }
+
+// A resolver answers the conditions the evaluator leaves unknown, and only those.
+@(test)
+test_guard_state_resolver :: proc(t: ^testing.T) {
+    tree := when_tree(t, "package p\n\nwhen FLAG {\n    A :: 1\n} else when ODIN_OS == .Linux {\n    B :: 1\n} else {\n    C :: 1\n}\n")
+    defer item_tree_destroy(tree)
+    answer := Tri.True
+    resolver := Guard_Resolver{
+        resolve = proc(data: rawptr, tree: ^Item_Tree, guard: int) -> Tri {
+            return (cast(^Tri)data)^
+        },
+        data = &answer,
+    }
+    target := Target{os = .Linux}
+    a, b, c := item_named(tree, "A"), item_named(tree, "B"), item_named(tree, "C")
+    if !testing.expect(t, a != nil && b != nil && c != nil) {
+        return
+    }
+    testing.expect_value(t, guard_state(tree, a.guard, target), Tri.Unknown)
+    testing.expect_value(t, guard_state(tree, a.guard, target, &resolver), Tri.True)
+    testing.expect_value(t, guard_state(tree, b.guard, target, &resolver), Tri.False)
+    answer = .False
+    testing.expect_value(t, guard_state(tree, b.guard, target, &resolver), Tri.True)
+    testing.expect_value(t, guard_state(tree, c.guard, target, &resolver), Tri.False)
+}

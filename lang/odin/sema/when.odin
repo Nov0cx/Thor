@@ -257,15 +257,22 @@ guard_condition :: proc(tree: ^Item_Tree, guard: int, target: Target) -> Tri {
     return cond_eval(tree, g.expr, target)
 }
 
+// Answers a guard condition the evaluator leaves unknown, such as one on a package constant.
+Guard_Resolver :: struct {
+    resolve: proc(data: rawptr, tree: ^Item_Tree, guard: int) -> Tri,
+    data:    rawptr,
+}
+
 // Whether guard `guard` holds for `target`: its own condition, every earlier branch of its chain and its parent.
 // .True when all are known, .False when one decides it, else .Unknown. A guard of -1 gives .True.
-guard_state :: proc(tree: ^Item_Tree, guard: int, target: Target) -> Tri {
+// `resolver`, when set, answers the conditions the evaluator cannot read.
+guard_state :: proc(tree: ^Item_Tree, guard: int, target: Target, resolver: ^Guard_Resolver = nil) -> Tri {
     if tree == nil || guard < 0 || guard >= len(tree.guards) {
         return .True
     }
     state := Tri.True
     for g := guard; g >= 0 && g < len(tree.guards); g = tree.guards[g].parent {
-        switch branch_state(tree, g, target) {
+        switch branch_state(tree, g, target, resolver) {
         case .False:
             return .False
         case .Unknown:
@@ -288,19 +295,28 @@ item_active :: proc(tree: ^Item_Tree, item: ^Item, target: Target) -> bool {
 
 // The state of one branch of a chain, its parent not counted.
 @(private = "file")
-branch_state :: proc(tree: ^Item_Tree, guard: int, target: Target) -> Tri {
-    state := guard_condition(tree, guard, target)
+branch_state :: proc(tree: ^Item_Tree, guard: int, target: Target, resolver: ^Guard_Resolver) -> Tri {
+    state := resolved_condition(tree, guard, target, resolver)
     if state == .False {
         return .False
     }
     for p := tree.guards[guard].previous; p >= 0 && p < len(tree.guards); p = tree.guards[p].previous {
-        switch guard_condition(tree, p, target) {
+        switch resolved_condition(tree, p, target, resolver) {
         case .True:
             return .False
         case .Unknown:
             state = .Unknown
         case .False:
         }
+    }
+    return state
+}
+
+@(private = "file")
+resolved_condition :: proc(tree: ^Item_Tree, guard: int, target: Target, resolver: ^Guard_Resolver) -> Tri {
+    state := guard_condition(tree, guard, target)
+    if state == .Unknown && resolver != nil && resolver.resolve != nil {
+        state = resolver.resolve(resolver.data, tree, guard)
     }
     return state
 }
