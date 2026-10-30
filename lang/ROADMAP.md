@@ -2386,7 +2386,11 @@ not a status, so this section stays the source of truth for what is built.
     declared"), counting every file of the package also out of the build, and
     an import path that names no directory or an unknown collection. A `when`
     body opens no scope: a local in it counts only when `when_condition`
-    (`sema/when.odin`) proves the target takes the branch. A free name is
+    (`sema/when.odin`) proves the target takes the branch, or, for a condition
+    on a constant of the package or the body, the checker's `const_eval` does.
+    At file scope the same holds through `guard_state` with a
+    `Guard_Resolver`, which reads each condition the item tree leaves unknown
+    from the file's parse. A free name is
     undeclared by the semantic tokens' test, made strict for a buffer in the
     build (`semantic_classify(strict = true)`): a declaration out of the build
     or under a false `when` does not count, and a name in a branch the target
@@ -2398,8 +2402,8 @@ not a status, so this section stays the source of truth for what is built.
     message in the hover. `// thor:ignore <id>...` drops those ids on the next
     line (on its own line when it follows code), with no id every id;
     `// thor:ignore-file <id>...` drops them in the whole file. An unknown id
-    is a warning. Not yet: a `when` on a package constant (it stays unknown),
-    `"diagnostics"` severities in `.thor/odin-analyzer.json`.
+    is a warning. Not yet: `"diagnostics"` severities in
+    `.thor/odin-analyzer.json`.
 - **Formatter** (`lang/odin/format`, M2 end): prints from the `odinsyntax`
   tree; `core:odin/parser` is used only by tests. `tree.odin` builds the line
   index and the comment groups in one walk. Over every `.odin` file in the
