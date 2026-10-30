@@ -9,6 +9,7 @@
 - Odin: a field or enum member that does not exist (`p.y`, `Color.Blue`) is marked while typing (`type/no-member`).
 - Odin: a `switch` without `#partial` that leaves out enum members or union variants is marked while typing (`switch/non-exhaustive`).
 - Odin: a `#assert` whose condition is false is marked while typing (`assert/static`).
+- Odin: a value of the wrong type in an argument, an `=` assignment, a typed variable declaration or a `return` is marked while typing (`type/mismatch`).
 - Odin: a `@(private="file")` declaration no longer counts as a redeclaration of a package declaration of the same name.
 - A right click on empty space in the explorer, or in an empty folder, opens the workspace root's context menu (New File, New Folder, Refresh).
 - Thor no longer holds `.git/index.lock` while idle. Its git status ran in a loop and made `git commit` fail.
