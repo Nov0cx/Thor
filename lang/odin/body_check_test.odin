@@ -252,3 +252,35 @@ main :: proc() {
         {"'a'", "Cannot convert ''a'' to 'string' from 'untyped rune', got 97", 0},
     })
 }
+
+@(test)
+test_live_return_mismatches :: proc(t: ^testing.T) {
+    root := fixture(t, "live_return_mismatches", {{".thor/odin-analyzer.json", `{"target": {"os": "windows", "arch": "amd64"}}`}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+E :: enum { A, B }
+
+one :: proc() -> int { return "x" }
+two :: proc() -> (int, string) {
+	s: string
+	return s, 1
+}
+fine :: proc() -> (E, bool) { return .A, true }
+named :: proc() -> (n: int) {
+	inner := proc() -> string { return "ok" }
+	_ = inner
+	return
+}
+pair :: proc() -> (int, string) { return two() }
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"\"x\"", "Cannot convert '\"x\"' to 'int' from 'untyped string', got \"x\"", 0},
+        {"s, 1", "Cannot assign value 's' of type 'string' to 'int' in return statement", 0},
+        {"1\n}", "Cannot convert '1' to 'string' from 'untyped integer', got 1", 0},
+    })
+}
