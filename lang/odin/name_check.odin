@@ -236,7 +236,8 @@ refs_clash :: proc(g: ^Guard_Ctx, a, b: odinsema.Item_Ref) -> bool {
     files := g.view.sema_files
     ia := odinsema.package_item(files, a)
     ib := odinsema.package_item(files, b)
-    if a.file != b.file && (ia.visibility == .File || ib.visibility == .File) {
+    // A file-private declaration is in the file's own scope, so only another file-private one of that file meets it.
+    if (a.file != b.file && (ia.visibility == .File || ib.visibility == .File)) || (ia.visibility == .File) != (ib.visibility == .File) {
         return false
     }
     return item_state(g, a) == .True && item_state(g, b) == .True

@@ -115,6 +115,15 @@ quiet :: 2
 
 cross :: 2
 
+@(private = "file")
+own := true
+own :: proc() -> bool { return own }
+
+@(private = "file")
+both := 1
+@(private = "file")
+both :: proc() {}
+
 main :: proc() {}
 `
     res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
@@ -124,6 +133,7 @@ main :: proc() {}
         {"shared ::", "Redeclaration of 'shared' in this scope", 0},
         {"flagged :: 2", "Redeclaration of 'flagged' in this scope", 0},
         {"cross ::", "Redeclaration of 'cross' in this scope", 0},
+        {"both ::", "Redeclaration of 'both' in this scope", 0},
     })
 }
 
