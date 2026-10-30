@@ -5,6 +5,11 @@
 - Odin: in a file with no syntax errors, name errors are also marked while typing: a redeclared name, an undeclared name, a `pkg.name` that is private or missing, and an import path that names no directory.
 - Odin: duplicate labels, struct fields, enum members and bit_field fields are marked while typing. A redeclaration inside a `when` branch counts when the branch holds for the target, also for a `when` on a constant of the package.
 - Odin: the hover over a live mark shows its id, such as `[name/undeclared]`. `// thor:ignore <id>` hides that id on the next line, `// thor:ignore-file <id>` in the whole file.
+- Odin: when the names of a file resolve, call errors are marked while typing: a missing parameter, too many arguments, an unknown or duplicate named argument (`call/arity`, `call/named`).
+- Odin: a field or enum member that does not exist (`p.y`, `Color.Blue`) is marked while typing (`type/no-member`).
+- Odin: a `switch` without `#partial` that leaves out enum members or union variants is marked while typing (`switch/non-exhaustive`).
+- Odin: a `#assert` whose condition is false is marked while typing (`assert/static`).
+- Odin: a `@(private="file")` declaration no longer counts as a redeclaration of a package declaration of the same name.
 - A right click on empty space in the explorer, or in an empty folder, opens the workspace root's context menu (New File, New Folder, Refresh).
 - Thor no longer holds `.git/index.lock` while idle. Its git status ran in a loop and made `git commit` fail.
 - A task from the titlebar runs in its own terminal tab, named after the task, not in the shell in use. Running it again restarts that tab.
