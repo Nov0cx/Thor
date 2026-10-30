@@ -25,6 +25,12 @@ syntax_diagnostics :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
     for err in rc.parsed.errors {
         report_error(&rc, &res.report, int(err.offset), odinsyntax.error_message(err))
     }
+    if len(rc.parsed.errors) == 0 {
+        name_diagnostics(&rc, &res.report)
+    }
+    if lang.request_cancelled(req) {
+        return
+    }
     res.ok = true
 }
 
