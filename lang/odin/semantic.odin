@@ -53,22 +53,38 @@ semantic_tokens :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
     rc: Request_Context
     opened := request_open(e, req, &rc)
     defer request_close(&rc)
-    if !opened || rc.parsed.tree == nil || rc.parsed.tree.root == nil {
+    if !opened {
         return
     }
     lo, hi := 0, len(req.source)
     if req.end > req.offset {
         lo, hi = clamp(req.offset, 0, len(req.source)), clamp(req.end, 0, len(req.source))
     }
+    tokens, ok := semantic_classify(&rc, lo, hi)
+    if !ok {
+        return
+    }
+    res.tokens = make([dynamic]lang.Semantic_Token, 0, len(tokens))
+    append(&res.tokens, ..tokens)
+    res.ok = len(res.tokens) > 0
+}
+
+// The classified identifiers of [lo, hi) of the request's buffer, sorted, with no overlap. Temp-allocated.
+@(private)
+semantic_classify :: proc(rc: ^Request_Context, lo, hi: int) -> (tokens: []lang.Semantic_Token, ok: bool) {
+    req := rc.req
+    if rc.parsed.tree == nil || rc.parsed.tree.root == nil {
+        return nil, false
+    }
     m, merr := odinsema.scope_map_range(rc.parsed, lo, hi, context.temp_allocator)
     if merr != nil {
-        return
+        return nil, false
     }
     defer odinsema.scope_map_destroy(m, context.temp_allocator)
 
     ctx := Semantic_Ctx {
-        rc         = &rc,
-        c          = request_checker(&rc),
+        rc         = rc,
+        c          = request_checker(rc),
         m          = m,
         lo         = lo,
         hi         = hi,
@@ -88,7 +104,7 @@ semantic_tokens :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
 
     for ref, i in m.refs {
         if i % SEMANTIC_CANCEL_STEP == 0 && lang.request_cancelled(req) {
-            return
+            return nil, false
         }
         if ref.end <= lo || ref.start >= hi || ref.kind == .None {
             continue
@@ -98,23 +114,24 @@ semantic_tokens :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
         }
     }
     if lang.request_cancelled(req) {
-        return
+        return nil, false
     }
 
     // The walk declares a name after its type and value, so the order is not by offset.
     slice.sort_by(ctx.tokens[:], proc(a, b: lang.Semantic_Token) -> bool {
         return a.start < b.start
     })
-    res.tokens = make([dynamic]lang.Semantic_Token, 0, len(ctx.tokens))
+    out := 0
     cut := 0
     for tok in ctx.tokens {
         if tok.start < cut {
             continue
         }
-        append(&res.tokens, tok)
+        ctx.tokens[out] = tok
+        out += 1
         cut = tok.end
     }
-    res.ok = len(res.tokens) > 0
+    return ctx.tokens[:out], true
 }
 
 // The class of reference `i` of the scope map.
