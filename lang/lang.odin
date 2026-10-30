@@ -259,6 +259,7 @@ Diagnostic :: struct {
     col:      int,    // 1-based
     severity: Diagnostic_Severity,
     message:  string, // owned
+    code:     string, // static; the diagnostic id, as `name/undeclared`; "" when none
 }
 
 // A check's full answer for one scope. `items` is exhaustive for `scope`, so a

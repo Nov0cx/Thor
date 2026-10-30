@@ -110,6 +110,7 @@ editor_diagnostic :: proc(file: ^Open_File, d: lang.Diagnostic) -> editview.Diag
         line     = line0,
         severity = editor_severity(d.severity),
         message  = strings.clone(d.message),
+        code     = d.code,
     }
 }
 

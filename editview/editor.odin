@@ -90,6 +90,7 @@ Diagnostic :: struct {
     line:     int,
     severity: Diagnostic_Severity,
     message:  string,
+    code:     string, // static; the diagnostic id; "" when none
 }
 
 // Right-click handler the application supplies, given the screen position the
@@ -2304,7 +2305,11 @@ editor_handle_hover :: proc(editor: ^Editor, mouse: ui.Vec2, mod: bool, now: f64
     }
     if d, has := editor_hover_diagnostic(editor, pos, whole_line = in_gutter); has {
         color := d.severity == .Error ? editor.diagnostic_error_color : editor.diagnostic_warn_color
-        editor_show_hover(editor, d.message, d.start, d.end, color)
+        text := d.message
+        if d.code != "" {
+            text = strings.concatenate({d.message, " [", d.code, "]"}, context.temp_allocator)
+        }
+        editor_show_hover(editor, text, d.start, d.end, color)
     }
 }
 
