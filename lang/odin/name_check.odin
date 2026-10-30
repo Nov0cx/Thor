@@ -51,7 +51,7 @@ undeclared_names :: proc(rc: ^Request_Context, whens: []Branch, report: ^lang.Di
     }
     for tok in tokens {
         if tok.kind == .Unresolved && !in_untaken_branch(whens, tok.start) {
-            report_error(rc, report, tok.start, fmt.aprintf("Undeclared name: %s", rc.req.source[tok.start:tok.end]))
+            report_error(rc, report, tok.start, CODE_UNDECLARED, fmt.aprintf("Undeclared name: %s", rc.req.source[tok.start:tok.end]))
         }
     }
 }
@@ -70,9 +70,9 @@ qualified_names :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, report: ^l
         switch qualified_state(rc, ref.operand, ref.name) {
         case .Public:
         case .Private:
-            report_error(rc, report, ref.operand_start, fmt.aprintf("'%s' is not exported by '%s'", ref.name, ref.operand))
+            report_error(rc, report, ref.operand_start, CODE_PRIVATE, fmt.aprintf("'%s' is not exported by '%s'", ref.name, ref.operand))
         case .Missing:
-            report_error(rc, report, ref.operand_start, fmt.aprintf("'%s' is not declared by '%s'", ref.name, ref.operand))
+            report_error(rc, report, ref.operand_start, CODE_UNDECLARED, fmt.aprintf("'%s' is not declared by '%s'", ref.name, ref.operand))
         }
     }
 }
@@ -185,7 +185,7 @@ package_redeclarations :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Re
         // In one file the compiler names the later declarations; across files, each file names its own.
         first := elsewhere ? 0 : 1
         for offset in offsets[min(first, len(offsets)):] {
-            report_error(rc, report, offset, fmt.aprintf("Redeclaration of '%s' in this scope", c.name))
+            report_error(rc, report, offset, CODE_REDECLARED, fmt.aprintf("Redeclaration of '%s' in this scope", c.name))
         }
     }
 }
@@ -202,11 +202,11 @@ import_problems :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Report) {
         switch imp.problem {
         case .None, .No_Odin_Root:
         case .Empty_Path:
-            report_error(rc, report, offset, fmt.aprintf("Invalid import path: '%s'", imp.path))
+            report_error(rc, report, offset, CODE_IMPORT, fmt.aprintf("Invalid import path: '%s'", imp.path))
         case .Unknown_Collection:
-            report_error(rc, report, offset, fmt.aprintf("Unknown library collection: '%s'", imp.collection))
+            report_error(rc, report, offset, CODE_IMPORT, fmt.aprintf("Unknown library collection: '%s'", imp.collection))
         case .Missing_Dir:
-            report_error(rc, report, offset, fmt.aprintf("Path does not exist: %s", imp.path))
+            report_error(rc, report, offset, CODE_IMPORT, fmt.aprintf("Path does not exist: %s", imp.path))
         }
     }
 }
@@ -221,7 +221,7 @@ import_redeclarations :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Rep
             continue
         }
         if imp.alias in seen {
-            report_error(rc, report, imp.name_offset, fmt.aprintf("Redeclaration of '%s' in this scope", imp.alias))
+            report_error(rc, report, imp.name_offset, CODE_REDECLARED, fmt.aprintf("Redeclaration of '%s' in this scope", imp.alias))
             continue
         }
         seen[imp.alias] = {}
@@ -264,9 +264,9 @@ local_redeclarations :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, whens
         }
         if _, found := first[key]; found {
             if l.kind == .Label {
-                report_error(rc, report, l.name_offset, fmt.aprintf("Duplicate label with the name '%s'", l.name))
+                report_error(rc, report, l.name_offset, CODE_REDECLARED, fmt.aprintf("Duplicate label with the name '%s'", l.name))
             } else {
-                report_error(rc, report, l.name_offset, fmt.aprintf("Redeclaration of '%s' in this scope", l.name))
+                report_error(rc, report, l.name_offset, CODE_REDECLARED, fmt.aprintf("Redeclaration of '%s' in this scope", l.name))
             }
             continue
         }
@@ -277,9 +277,9 @@ local_redeclarations :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, whens
         switch outer_binding(m, first, l) {
         case .None:
         case .Switch_Var:
-            report_error(rc, report, l.name_offset, fmt.aprintf("Redeclaration of '%s' in this scope", l.name))
+            report_error(rc, report, l.name_offset, CODE_REDECLARED, fmt.aprintf("Redeclaration of '%s' in this scope", l.name))
         case .Result:
-            report_error(rc, report, l.name_offset, fmt.aprintf("Direct shadowing of the named return value '%s' in this scope", l.name))
+            report_error(rc, report, l.name_offset, CODE_REDECLARED, fmt.aprintf("Direct shadowing of the named return value '%s' in this scope", l.name))
         }
     }
 }
@@ -336,11 +336,11 @@ member_redeclarations :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, repo
         }
         #partial switch records[owner].kind {
         case .Enum_Type:
-            report_error(rc, report, ref.start, fmt.aprintf("'%s' is already declared in this enumeration", ref.name))
+            report_error(rc, report, ref.start, CODE_REDECLARED, fmt.aprintf("'%s' is already declared in this enumeration", ref.name))
         case .Bit_Field_Type:
-            report_error(rc, report, ref.start, fmt.aprintf("'%s' is already declared in this bit_field", ref.name))
+            report_error(rc, report, ref.start, CODE_REDECLARED, fmt.aprintf("'%s' is already declared in this bit_field", ref.name))
         case:
-            report_error(rc, report, ref.start, fmt.aprintf("Redeclaration of '%s' in this scope", ref.name))
+            report_error(rc, report, ref.start, CODE_REDECLARED, fmt.aprintf("Redeclaration of '%s' in this scope", ref.name))
         }
     }
 }

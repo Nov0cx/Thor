@@ -468,3 +468,51 @@ main :: proc() {
         {"M: {", "Duplicate label with the name 'M'", 1},
     })
 }
+
+@(test)
+test_live_codes_and_ignores :: proc(t: ^testing.T) {
+    root := fixture(t, "live_ignores", {{"app/q/q.odin", "package q\n\n@(private) hidden :: 1\n"}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+import "q"
+import "nothere"
+// thor:ignore-file import/unresolved
+
+g :: proc() {}
+g :: proc() {}
+
+main :: proc() {
+	_ = zork
+	// thor:ignore name/undeclared
+	_ = zork_two
+	_ = zork_three // thor:ignore
+	_ = q.hidden // thor:ignore name/undeclared
+	// thor:ignore name/bogus
+	_ = zork_four
+	// thor:ignored is not a marker
+	_ = zork_five
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"g ::", "Redeclaration of 'g' in this scope", 1},
+        {"zork", "Undeclared name: zork", 0},
+        {"q.hidden", "'hidden' is not exported by 'q'", 0},
+        {"name/bogus", "Unknown diagnostic id 'name/bogus'", 0},
+        {"zork_four", "Undeclared name: zork_four", 0},
+        {"zork_five", "Undeclared name: zork_five", 0},
+    })
+    codes := []string{"name/redeclared", "name/undeclared", "name/private", "", "name/undeclared", "name/undeclared"}
+    for d, i in res.report.items {
+        if i < len(codes) {
+            testing.expectf(t, d.code == codes[i], "item %d: code %q, want %q", i, d.code, codes[i])
+        }
+    }
+    if len(res.report.items) > 3 {
+        testing.expect_value(t, res.report.items[3].severity, lang.Diagnostic_Severity.Warning)
+    }
+}
