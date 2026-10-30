@@ -977,3 +977,75 @@ where_problem :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node) 
     }
     return odinsyntax.node_text(constraint), true
 }
+
+// Whether the places and the values of an `=` assignment or a variable declaration differ in count.
+// `at` is the first place. False when a value count is not known, or a value may give one or two
+// values (`m[k]`, `x.(T)`, `#optional_ok`).
+assign_count :: proc(c: ^Checker, file: File_Id, stmt: odinsyntax.Syntax_Node) -> (at, places, values: int, mismatch: bool) {
+    list: odinsyntax.Expr_List
+    #partial switch stmt.green.kind {
+    case .Assign_Stmt:
+        as, _ := odinsyntax.as_assign_stmt(stmt)
+        op, has_op := odinsyntax.assign_stmt_op(&as)
+        lhs, has_lhs := odinsyntax.assign_stmt_lhs(&as)
+        rhs, has_rhs := odinsyntax.assign_stmt_rhs(&as)
+        if !has_op || !has_lhs || !has_rhs || op.green.kind != .Eq {
+            return
+        }
+        at = int(lhs.offset)
+        it := odinsyntax.expr_list_items(&lhs)
+        for _ in odinsyntax.child_iter_next(&it) {
+            places += 1
+        }
+        list = rhs
+    case .Value_Decl:
+        if is_constant_decl(stmt) {
+            return
+        }
+        vd, _ := odinsyntax.as_value_decl(stmt)
+        names, has_names := odinsyntax.value_decl_names(&vd)
+        rhs, has_values := odinsyntax.value_decl_values(&vd)
+        if !has_names || !has_values {
+            return
+        }
+        at = int(names.offset)
+        it := odinsyntax.name_list_names(&names)
+        for _ in odinsyntax.child_iter_next(&it) {
+            places += 1
+        }
+        list = rhs
+    case:
+        return
+    }
+    temp := scratch_begin(c)
+    defer scratch_end(temp)
+    nodes := make([dynamic]odinsyntax.Syntax_Node, c.tmp)
+    it := odinsyntax.expr_list_items(&list)
+    for v in odinsyntax.child_iter_next(&it) {
+        if v.green.kind == .Field_Value {
+            return
+        }
+        if _, err := append(&nodes, v); !note_alloc(c, err) {
+            return
+        }
+    }
+    if len(nodes) == 0 || places == 0 {
+        return
+    }
+    for v in nodes {
+        op := expr_values(c, file, v, INVALID_TYPE)
+        if (op.mode != .Value && op.mode != .Const) || op.type == INVALID_TYPE || op.optional {
+            return
+        }
+        _, is_tuple := type_get(&c.table, op.type).(Tuple_Type)
+        if is_tuple && len(nodes) > 1 {
+            return
+        }
+        if is_tuple {
+            values = len(tuple_types(c, &op.type))
+        } else {
+            values += 1
+        }
+    }
+    return at, places, values, places != values
+}
