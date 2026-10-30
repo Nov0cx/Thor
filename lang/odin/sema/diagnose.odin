@@ -560,9 +560,57 @@ plain_type :: proc(c: ^Checker, t: Type_Id) -> bool {
 
 // A value that cannot be assigned to the type its place takes.
 Type_Problem :: struct {
-    value: odinsyntax.Syntax_Node,
-    op:    Operand, // the value as typed against `to`
-    to:    Type_Id,
+    value:    odinsyntax.Syntax_Node,
+    op:       Operand, // the value as typed against `to`
+    to:       Type_Id,
+    overflow: bool,    // an untyped integer constant the integer type `to` cannot hold
+}
+
+// True when `op` is an untyped integer or rune constant that the integer type `to` cannot hold.
+const_overflows :: proc(c: ^Checker, to: Type_Id, op: Operand) -> bool {
+    t := &c.table
+    if op.mode != .Const || to == INVALID_TYPE {
+        return false
+    }
+    u, is_untyped := type_get(t, op.type).(Untyped_Type)
+    if !is_untyped || (u.kind != .Int && u.kind != .Rune) {
+        return false
+    }
+    if _, is_basic := type_get(t, type_base(t, to)).(Basic_Type); !is_basic || !type_is_integer(t, to) {
+        return false
+    }
+    #partial switch _ in op.value {
+    case i64, rune:
+        return !integer_holds(c, to, op.value)
+    }
+    return false
+}
+
+// The untyped integer constant of a conversion `T(x)` that the integer type `T` cannot hold.
+conversion_overflow :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node) -> (Type_Problem, bool) {
+    ce, is_call := odinsyntax.as_call_expr(call)
+    if !is_call {
+        return {}, false
+    }
+    callee, has_callee := odinsyntax.call_expr_callee(&ce)
+    list, has_list := odinsyntax.call_expr_args(&ce)
+    if !has_callee || !has_list {
+        return {}, false
+    }
+    it := odinsyntax.arg_list_args(&list)
+    arg, has_arg := odinsyntax.child_iter_next(&it)
+    if _, more := odinsyntax.child_iter_next(&it); !has_arg || more || arg.green.kind == .Field_Value || arg.green.kind == .Spread_Expr {
+        return {}, false
+    }
+    fn := expr_type(c, file, callee)
+    if fn.mode != .Type {
+        return {}, false
+    }
+    op := expr_type(c, file, arg)
+    if !const_overflows(c, fn.type, op) {
+        return {}, false
+    }
+    return {value = arg, op = op, to = fn.type, overflow = true}, true
 }
 
 // The arguments of `call` that its one procedure cannot take. Nil for the calls call_problem leaves
@@ -623,19 +671,23 @@ argument_mismatches :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_
         to := param.type
         op := expr_type(c, file, a.node, to)
         if assignable(c, to, op, .Any_Int in param.flags) == .No {
-            append(&out, Type_Problem{a.node, op, to})
+            append(&out, Type_Problem{a.node, op, to, false})
+        } else if const_overflows(c, to, op) {
+            append(&out, Type_Problem{a.node, op, to, true})
         }
     }
     return out[:]
 }
 
 // The values of an `=` assignment or a variable declaration with a type that cannot be assigned to
-// their places. Nil when the counts differ. The list is in `allocator`.
+// their places, and the integer constants a constant declaration with a type cannot hold. Nil when
+// the counts differ. The list is in `allocator`.
 assign_mismatches :: proc(c: ^Checker, file: File_Id, stmt: odinsyntax.Syntax_Node, allocator := context.allocator) -> []Type_Problem {
     temp := scratch_begin(c)
     defer scratch_end(temp)
     places := make([dynamic]Type_Id, c.tmp)
     values: odinsyntax.Expr_List
+    overflow_only := false
     #partial switch stmt.green.kind {
     case .Assign_Stmt:
         as, _ := odinsyntax.as_assign_stmt(stmt)
@@ -659,9 +711,7 @@ assign_mismatches :: proc(c: ^Checker, file: File_Id, stmt: odinsyntax.Syntax_No
         }
         values = rhs
     case .Value_Decl:
-        if is_constant_decl(stmt) {
-            return nil
-        }
+        overflow_only = is_constant_decl(stmt)
         vd, _ := odinsyntax.as_value_decl(stmt)
         type_node, has_type := odinsyntax.value_decl_type(&vd)
         names, has_names := odinsyntax.value_decl_names(&vd)
@@ -680,7 +730,7 @@ assign_mismatches :: proc(c: ^Checker, file: File_Id, stmt: odinsyntax.Syntax_No
     case:
         return nil
     }
-    return value_mismatches(c, file, places[:], values, allocator)
+    return value_mismatches(c, file, places[:], values, overflow_only, allocator)
 }
 
 // The values of `return` that the results of the innermost procedure around it cannot take. Nil
@@ -724,12 +774,13 @@ return_mismatches :: proc(c: ^Checker, file: File_Id, ret: odinsyntax.Syntax_Nod
     for r, i in p.results {
         places[i] = r.type
     }
-    return value_mismatches(c, file, places, values, allocator)
+    return value_mismatches(c, file, places, values, false, allocator)
 }
 
-// The values of `list` that cannot be assigned to the place of the same index.
+// The values of `list` that cannot be assigned to the place of the same index; with
+// `overflow_only` only the integer constants their places cannot hold.
 @(private = "file")
-value_mismatches :: proc(c: ^Checker, file: File_Id, places: []Type_Id, list: odinsyntax.Expr_List, allocator: mem.Allocator) -> []Type_Problem {
+value_mismatches :: proc(c: ^Checker, file: File_Id, places: []Type_Id, list: odinsyntax.Expr_List, overflow_only: bool, allocator: mem.Allocator) -> []Type_Problem {
     list := list
     nodes := make([dynamic]odinsyntax.Syntax_Node, c.tmp)
     it := odinsyntax.expr_list_items(&list)
@@ -751,8 +802,10 @@ value_mismatches :: proc(c: ^Checker, file: File_Id, places: []Type_Id, list: od
             continue
         }
         op := expr_type(c, file, v, to)
-        if assignable(c, to, op) == .No {
-            append(&out, Type_Problem{v, op, to})
+        if !overflow_only && assignable(c, to, op) == .No {
+            append(&out, Type_Problem{v, op, to, false})
+        } else if const_overflows(c, to, op) {
+            append(&out, Type_Problem{v, op, to, true})
         }
     }
     return out[:]
