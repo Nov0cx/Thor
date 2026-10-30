@@ -2,6 +2,8 @@ package odin
 
 import "core:testing"
 
+import lang ".."
+
 @(test)
 test_live_call_arguments :: proc(t: ^testing.T) {
     root := fixture(t, "live_call_arguments", {
@@ -650,5 +652,26 @@ main :: proc() {
     })
     for d in res.report.items {
         testing.expect(t, d.code == CODE_COUNT, "a count error carries its id")
+    }
+}
+
+@(test)
+test_live_severities :: proc(t: ^testing.T) {
+    root := fixture(t, "live_severities", {
+        {".thor/odin-analyzer.json", `{"diagnostics": {"call/arity": "off", "call/named": "warning", "zork/none": "off", "type/mismatch": "hint"}}`},
+    })
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := "package app\n\nf :: proc(a: int, b: int) {}\n\nmain :: proc() {\n\tf(1)\n\tf(1, c = 2)\n\tx: int = \"s\"\n\t_ = x\n}\n"
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"c = 2", "No parameter named 'c' for this procedure type", 0},
+        {"\"s\"", "Cannot convert '\"s\"' to 'int' from 'untyped string', got \"s\"", 0},
+    })
+    if testing.expect_value(t, len(res.report.items), 2) {
+        testing.expect_value(t, res.report.items[0].severity, lang.Diagnostic_Severity.Warning)
+        testing.expect_value(t, res.report.items[1].severity, lang.Diagnostic_Severity.Error)
     }
 }

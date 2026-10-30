@@ -31,6 +31,41 @@ CODE_COUNT      :: "assign/count"
 @(private = "file")
 KNOWN_CODES := [?]string{CODE_SYNTAX, CODE_REDECLARED, CODE_UNDECLARED, CODE_PRIVATE, CODE_IMPORT, CODE_ARITY, CODE_NAMED, CODE_NO_MEMBER, CODE_SWITCH, CODE_ASSERT, CODE_MISMATCH, CODE_OVERLOAD, CODE_OVERFLOW, CODE_RETURN, CODE_OR_RETURN, CODE_WHERE, CODE_COUNT, CODE_CYCLE}
 
+// True for an id the engine reports.
+@(private)
+known_code :: proc(id: string) -> bool {
+    return slice.contains(KNOWN_CODES[:], id)
+}
+
+// Drops the items of `report` whose id the workspace config turns off, and gives the others the
+// severity it sets.
+@(private)
+apply_severities :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Report) {
+    severities := config_severities(rc.e, rc.req.workspace)
+    if len(severities) == 0 {
+        return
+    }
+    kept := 0
+    for d in report.items {
+        d := d
+        if setting, ok := severities[d.code]; ok {
+            switch setting {
+            case .Off:
+                delete(d.path)
+                delete(d.message)
+                continue
+            case .Warning:
+                d.severity = .Warning
+            case .Error:
+                d.severity = .Error
+            }
+        }
+        report.items[kept] = d
+        kept += 1
+    }
+    resize(&report.items, kept)
+}
+
 // The ids one `thor:ignore` comment names, and the line it applies to. No ids means every id.
 @(private = "file")
 Ignore :: struct {
@@ -111,7 +146,7 @@ read_ignore :: proc(rc: ^Request_Context, start, end: int, out: ^[dynamic]Ignore
             n += 1
         }
         id := rest[:n]
-        if slice.contains(KNOWN_CODES[:], id) {
+        if known_code(id) {
             append(&ids, id)
         } else {
             append(unknown, end - len(rest))

@@ -32,6 +32,7 @@ syntax_diagnostics :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
         return
     }
     apply_ignores(&rc, &res.report)
+    apply_severities(&rc, &res.report)
     res.ok = true
 }
 

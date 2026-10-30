@@ -25,10 +25,12 @@ ANALYZER_CONFIG :: "odin-analyzer.json"
 // Language-backend settings for one workspace, read from
 // `<workspace>/.thor/odin-analyzer.json`. Only the settings the in-client engine
 // can act on are kept: import collections (a name → its root directory, so `import
-// "shared:foo"` resolves), the feature-enable toggles, the target and the defines.
-// Absent keys take the defaults — no collections, every feature on, the host target.
+// "shared:foo"` resolves), the feature-enable toggles, the target, the defines and the
+// severity of each live diagnostic id. Absent keys take the defaults — no collections,
+// every feature on, the host target, every diagnostic an error.
 @(private)
 Config :: struct {
+    severities:              map[string]Severity_Setting, // owned ids from `"diagnostics"`
     collections:             map[string]string, // name → resolved absolute dir
     target_os:               odinsema.Target_OS,   // .Unknown when not set
     target_arch:             odinsema.Target_Arch, // .Unknown when not set
@@ -39,6 +41,14 @@ Config :: struct {
     enable_rename:           bool,
     enable_completion:       bool,
     enable_snippets:         bool, // completion inserts a procedure call with its parameters as stops
+}
+
+// What `"diagnostics": {"<id>": ...}` sets for the live diagnostics of one id.
+@(private)
+Severity_Setting :: enum u8 {
+    Off,
+    Warning,
+    Error,
 }
 
 // The engine's cached view of one workspace's config file, guarded by its own
@@ -106,6 +116,7 @@ config_ensure :: proc(cache: ^Config_Cache, workspace: string) {
 config_defaults :: proc() -> Config {
     return Config {
         collections             = make(map[string]string),
+        severities              = make(map[string]Severity_Setting),
         defines                 = make([dynamic]odinsema.Target_Define),
         enable_hover            = true,
         enable_document_symbols = true,
@@ -156,6 +167,7 @@ config_parse :: proc(cache: ^Config_Cache, workspace, path: string) {
     }
 
     config_parse_target(cache, obj)
+    config_parse_diagnostics(cache, obj)
 
     arr, aok := obj["collections"].(json.Array)
     if !aok {
@@ -191,6 +203,45 @@ config_parse :: proc(cache: ^Config_Cache, workspace, path: string) {
             cache.cfg.collections[name] = dir
         } else {
             cache.cfg.collections[strings.clone(name)] = dir
+        }
+    }
+}
+
+// Reads `"diagnostics": {"<id>": "off" | "warning" | "error"}`. An unknown id or value is dropped
+// with a warning. context.allocator is the engine allocator.
+@(private = "file")
+config_parse_diagnostics :: proc(cache: ^Config_Cache, obj: json.Object) {
+    raw, has := obj["diagnostics"]
+    if !has {
+        return
+    }
+    entries, ok := raw.(json.Object)
+    if !ok {
+        log.warnf("odin-analyzer.json: \"diagnostics\" is not an object and was ignored")
+        return
+    }
+    for id, value in entries {
+        if !known_code(id) {
+            log.warnf("odin-analyzer.json: diagnostic id %q is unknown and was dropped", id)
+            continue
+        }
+        text, is_string := value.(json.String)
+        setting: Severity_Setting
+        switch {
+        case is_string && text == "off":
+            setting = .Off
+        case is_string && text == "warning":
+            setting = .Warning
+        case is_string && text == "error":
+            setting = .Error
+        case:
+            log.warnf("odin-analyzer.json: severity of %q is not \"off\", \"warning\" or \"error\" and was dropped", id)
+            continue
+        }
+        if _, exists := cache.cfg.severities[id]; exists {
+            cache.cfg.severities[id] = setting
+        } else {
+            cache.cfg.severities[strings.clone(id)] = setting
         }
     }
 }
@@ -412,6 +463,24 @@ config_allows :: proc(e: ^Engine, workspace: string, kind: lang.Request_Kind) ->
     return true
 }
 
+// The severity the workspace config sets for each diagnostic id, cloned into context.temp_allocator
+// so it outlives the lock. Empty when the workspace has no config.
+@(private)
+config_severities :: proc(e: ^Engine, workspace: string) -> map[string]Severity_Setting {
+    out := make(map[string]Severity_Setting, context.temp_allocator)
+    if workspace == "" {
+        return out
+    }
+    cache := &e.config
+    sync.lock(&cache.mutex)
+    defer sync.unlock(&cache.mutex)
+    config_ensure(cache, workspace)
+    for id, setting in cache.cfg.severities {
+        out[strings.clone(id, context.temp_allocator)] = setting
+    }
+    return out
+}
+
 // True when completion inserts procedure snippets; on when the workspace has no config.
 @(private)
 config_snippets :: proc(e: ^Engine, workspace: string) -> bool {
@@ -444,6 +513,11 @@ config_free :: proc(cache: ^Config_Cache) {
     }
     delete(cache.cfg.defines)
     cache.cfg.defines = nil
+    for id in cache.cfg.severities {
+        delete(id, cache.alloc)
+    }
+    delete(cache.cfg.severities)
+    cache.cfg.severities = nil
 }
 
 // Tears the whole config cache down on destroy: its collections and the stored
