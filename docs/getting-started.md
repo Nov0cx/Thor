@@ -134,8 +134,10 @@ a status bar segment and an explorer row all explain themselves, with the chord
 they are bound to under the text. The `tooltips` setting turns this off.
 
 For Odin, the built-in support formats code and shows `odin check` diagnostics
-when you save. While you type, it marks syntax errors; after a save, the
-compiler's diagnostics replace them. The `syntax_diagnostics` feature of
+when you save. While you type, it marks syntax errors and, in a file that
+parses, name errors: a redeclared name, an undeclared name, a private or
+missing `pkg.name` and an import path that names no directory. After a save,
+the compiler's diagnostics replace them. The `syntax_diagnostics` feature of
 `language_intelligence` turns the live marks off.
 It also serves navigation, hover, completion and signature help. Hover a
 symbol with `ctrl` held to see its declaration and doc comment (`//` or

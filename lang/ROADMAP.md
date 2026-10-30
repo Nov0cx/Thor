@@ -2373,7 +2373,21 @@ not a status, so this section stays the source of truth for what is built.
     and listing of every package a snapshot reads again (~40 ms for the 45
     packages of `^Thor`). Not yet: a declaration of the buffer itself (a
     request in `thor/thor.odin` types `Thor` again each time).
-  - **Not yet:** redeclaration and visibility errors.
+  - **Live name errors** (`lang/odin/name_check.odin`): the
+    `Syntax_Diagnostics` report of a buffer with no syntax errors, in a
+    workspace, also holds the name errors of plan §5.7, worded as the compiler
+    words them: a package-scope redeclaration (`Package_Scope.conflicts`; in
+    one file the later declaration, across files the buffer's own), a
+    duplicate import alias, a local that its scope already binds (a `when`
+    body is left out, since it opens no scope), a type-switch case variable
+    redeclared in its case, a named result shadowed in the body, an undeclared
+    free name (the `Unresolved` test of the semantic tokens), `pkg.name` that
+    is `@(private)` ("not exported") or missing or file-private ("not
+    declared"), counting every file of the package also out of the build, and
+    an import path that names no directory or an unknown collection. Over
+    `lang/odin/sema`, `editview` and `thor` there is none. Not yet: diagnostic
+    ids and `thor:ignore`, duplicate labels and fields, a redeclaration with
+    a `when` whose branch is known.
 - **Formatter** (`lang/odin/format`, M2 end): prints from the `odinsyntax`
   tree; `core:odin/parser` is used only by tests. `tree.odin` builds the line
   index and the comment groups in one walk. Over every `.odin` file in the

@@ -5,8 +5,7 @@
 live diagnostics and lints.
 **Baseline:** `Nov0cx/Thor` at `29192c6` (release 2026.10.7).
 **Status:** M1 (lexer, parser, compact tree, typed views) and M2 (incremental reparse, formatter
-on the new tree) landed, plus live syntax errors. M3 is done except redeclaration/visibility
-diagnostics: `lang/odin/sema` has item trees with doc comments (`//` and `/* */`), build file
+on the new tree) landed, plus live syntax errors. M3 is done: `lang/odin/sema` has item trees with doc comments (`//` and `/* */`), build file
 selection, package scopes, lexical name resolution with `using` expansion, the universe scope, the
 query DB and the stdlib cache (§5.10: Odin root files refreshed at most every 5 s, item trees kept
 in `user/cache/odin/`), and serves document/workspace symbols, definition, references, rename and
@@ -14,8 +13,9 @@ package docs. M4 landed except body diagnostics: the type table, `decl_type`, co
 `expr_type` with calls, groups and generics, overload resolution by the compiler's distance scoring
 with `where` clauses, the layout engine (size, align, offsets per target), a type cache across
 requests (`type_cache.odin`), and hover (with layout), completion (snippets, auto-import, `x.(`,
-`x->`), signature help and semantic tokens. Diagnostics (redeclaration, visibility, body errors)
-move with Tier 1 to M5; `lang/ROADMAP.md` ("Next engine") tracks the rest. Section 11 lists the
+`x->`), signature help and semantic tokens. M5 started: the live report holds the Tier 1 name
+errors (redeclaration, undeclared, private, unresolved import); body errors are next.
+`lang/ROADMAP.md` ("Next engine") tracks the rest. Section 11 lists the
 feature questions whose answers change the plan.
 
 ---
