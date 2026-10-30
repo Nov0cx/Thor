@@ -335,21 +335,56 @@ generic_result :: proc(c: ^Checker, p: Proc_Type, env: []Binding) -> Operand {
 // The parameter each argument goes to; false when the arguments do not fit the parameters.
 @(private)
 match_args :: proc(c: ^Checker, p: Proc_Type, args: []Call_Arg) -> ([]int, bool) {
+    slots, miss := match_slots(c, p, args)
+    return slots, miss.kind == .None
+}
+
+// Why arguments do not fit the parameters of a procedure.
+Call_Problem_Kind :: enum u8 {
+    None,
+    Missing,                // a parameter with no default gets no argument
+    Too_Many,               // a positional argument past the last parameter
+    Unknown_Name,           // a named argument that names no parameter
+    Duplicate_Name,         // an argument for a parameter that an earlier one fills
+    Positional_After_Named, // a positional argument after a named one
+}
+
+// The first reason the arguments of a call do not fit.
+@(private)
+Slot_Miss :: struct {
+    kind:  Call_Problem_Kind,
+    arg:   int, // the argument; -1 for Missing
+    param: int, // Missing: the parameter
+}
+
+// The parameter each argument goes to, or the first reason the arguments do not fit.
+@(private)
+match_slots :: proc(c: ^Checker, p: Proc_Type, args: []Call_Arg) -> ([]int, Slot_Miss) {
     slots, serr := make([]int, len(args), c.tmp)
     covered, cerr := make([]bool, len(p.params), c.tmp)
     if !note_alloc(c, serr) || !note_alloc(c, cerr) {
-        return nil, false
+        return nil, {kind = .Too_Many, arg = -1}
     }
     pos := 0
+    named := false
     for a, i in args {
         k := -1
         if a.name != "" {
+            named = true
             for param, j in p.params {
                 if param.name == a.name || (len(param.name) == len(a.name) + 1 && param.name[0] == '$' && param.name[1:] == a.name) {
                     k = j
                     break
                 }
             }
+            if k < 0 {
+                return nil, {kind = .Unknown_Name, arg = i}
+            }
+            if covered[k] && .Variadic not_in p.params[k].flags {
+                return nil, {kind = .Duplicate_Name, arg = i}
+            }
+        } else if named {
+            return nil, {kind = .Positional_After_Named, arg = i}
         } else if pos < len(p.params) {
             k = pos
             if .Variadic not_in p.params[pos].flags {
@@ -359,17 +394,17 @@ match_args :: proc(c: ^Checker, p: Proc_Type, args: []Call_Arg) -> ([]int, bool)
             k = len(p.params) - 1
         }
         if k < 0 {
-            return nil, false
+            return nil, {kind = .Too_Many, arg = i}
         }
         slots[i] = k
         covered[k] = true
     }
     for param, j in p.params {
         if !covered[j] && !param.has_default && .Variadic not_in param.flags && .C_Vararg not_in param.flags {
-            return nil, false
+            return nil, {kind = .Missing, arg = -1, param = j}
         }
     }
-    return slots, true
+    return slots, {}
 }
 
 // The distance of an argument from the type of its parameter, as the compiler's
