@@ -1,5 +1,6 @@
 package odinsema
 
+import "core:slice"
 import "core:strings"
 
 import odinsyntax "../syntax"
@@ -776,7 +777,17 @@ find_field_at :: proc(c: ^Checker, t: Type_Id, name: string, depth: int) -> (Fie
             }
         }
     case Soa_Type:
-        hit, ok := find_field_at(c, v.elem, name, depth)
+        hit: Field_Hit
+        ok: bool
+        if a, is_array := soa_array(c, v.elem); is_array {
+            i := slice.linear_search(SOA_ARRAY_FIELDS[:], name) or_else -1
+            if i < 0 || i64(i) >= a.len {
+                return {}, false
+            }
+            hit, ok = Field_Hit{a.elem, NO_FILE, -1, depth}, true
+        } else {
+            hit, ok = find_field_at(c, v.elem, name, depth)
+        }
         if !ok {
             return {}, false
         }
@@ -801,6 +812,17 @@ find_field_at :: proc(c: ^Checker, t: Type_Id, name: string, depth: int) -> (Fie
         }
     }
     return {}, false
+}
+
+// The names of the fields of `#soa` over an array, one per element.
+@(private)
+SOA_ARRAY_FIELDS := [4]string{"x", "y", "z", "w"}
+
+// The array a `#soa` type is over when its element is an array the compiler accepts there: four elements at most.
+@(private)
+soa_array :: proc(c: ^Checker, elem: Type_Id) -> (Array_Type, bool) {
+    a, ok := type_get(&c.table, type_base(&c.table, elem)).(Array_Type)
+    return a, ok && a.len >= 1 && a.len <= len(SOA_ARRAY_FIELDS)
 }
 
 // The type of a swizzle of an array of up to four elements: `v.x`, `v.xy`, `c.rgba`.

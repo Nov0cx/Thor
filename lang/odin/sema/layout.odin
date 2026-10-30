@@ -231,20 +231,41 @@ bit_set_layout :: proc(c: ^Checker, b: Bit_Set_Type) -> (l: Layout, ok: bool) {
     return {}, false
 }
 
-// A `#soa` type is a struct with one field per field of its element: an array of it, or a pointer
-// to it followed by `len`, then `cap` and `allocator` for `#soa[dynamic]`.
+// A `#soa` type is a struct with one field per field of its element, or per element of an array
+// element: an array of it, or a pointer to it followed by `len`, then `cap` and `allocator` for
+// `#soa[dynamic]`.
 @(private = "file")
 soa_layout :: proc(c: ^Checker, s: Soa_Type, word: i64, allocator: Layout) -> (layout: Layout, ok: bool) {
-    st, is_struct := type_get(&c.table, type_base(&c.table, s.elem)).(Struct_Type)
-    if !is_struct {
-        return {}, false
-    }
-    ptr := type_size("rawptr", c.snap.target)
     temp := scratch_begin(c)
     defer scratch_end(temp)
-    fields := make([dynamic]Layout, 0, len(st.fields) + 4, c.tmp)
-    for f in st.fields {
-        l := layout_of(c, f.type) or_return
+    types: []Type_Id
+    if a, is_array := soa_array(c, s.elem); is_array {
+        elems, err := make([]Type_Id, a.len, c.tmp)
+        if !note_alloc(c, err) {
+            return {}, false
+        }
+        for &e in elems {
+            e = a.elem
+        }
+        types = elems
+    } else {
+        st, is_struct := type_get(&c.table, type_base(&c.table, s.elem)).(Struct_Type)
+        if !is_struct {
+            return {}, false
+        }
+        elems, err := make([]Type_Id, len(st.fields), c.tmp)
+        if !note_alloc(c, err) {
+            return {}, false
+        }
+        for f, i in st.fields {
+            elems[i] = f.type
+        }
+        types = elems
+    }
+    ptr := type_size("rawptr", c.snap.target)
+    fields := make([dynamic]Layout, 0, len(types) + 4, c.tmp)
+    for type in types {
+        l := layout_of(c, type) or_return
         switch s.kind {
         case .Array:
             if s.len < 0 {

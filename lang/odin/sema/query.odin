@@ -167,7 +167,13 @@ collect_fields :: proc(c: ^Checker, t: Type_Id, depth: int, out: ^[dynamic]Membe
         }
     case Soa_Type:
         start := len(out)
-        collect_fields(c, v.elem, depth, out)
+        if a, is_array := soa_array(c, v.elem); is_array {
+            for i in 0 ..< int(a.len) {
+                add_field(c, out, SOA_ARRAY_FIELDS[i], a.elem, NO_FILE, -1, depth)
+            }
+        } else {
+            collect_fields(c, v.elem, depth, out)
+        }
         for &m in out[start:] {
             if v.kind == .Array {
                 m.type = type_array(&c.table, v.len, m.type)

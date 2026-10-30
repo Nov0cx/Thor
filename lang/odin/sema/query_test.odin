@@ -185,12 +185,15 @@ Color :: enum { Red, Green }
 Packed :: bit_field u16 { lo: u8 | 4, hi: u8 | 4 }
 Soa_Points :: #soa[4]Point
 Soa_Slice :: #soa[]Point
+Soa_Vecs :: #soa[4][3]f32
 Shape :: union { Point }
 v_entity: Entity
 v_ptr: ^Entity
 v_packed: Packed
 v_soa: Soa_Points
 v_soa_slice: Soa_Slice
+v_soa_vecs: Soa_Vecs
+v_soa_pairs: #soa[][2]f64
 v_any: any
 v_shape: Shape
 v_vec: [3]f32
@@ -211,6 +214,8 @@ v_vec: [3]f32
         {"v_packed", "lo: u8, hi: u8"},
         {"v_soa", "x: [4]f32, y: [4]f32"},
         {"v_soa_slice", "x: [^]f32, y: [^]f32"},
+        {"v_soa_vecs", "x: [4]f32, y: [4]f32, z: [4]f32"},
+        {"v_soa_pairs", "x: [^]f64, y: [^]f64"},
         {"v_any", "data: rawptr, id: typeid"},
         {"v_shape", ""},
         {"v_vec", ""},
@@ -223,6 +228,13 @@ v_vec: [3]f32
         members := type_members(c, decl_type(c, sym), context.temp_allocator)
         got := members_text(c, members)
         testing.expectf(t, got == k.want, "%s: got %q, want %q", k.name, got, k.want)
+    }
+    if sym, ok := find_symbol(c, ANON_FILE, "v_soa_vecs"); testing.expect(t, ok) {
+        vecs := decl_type(c, sym)
+        hit, found := find_field(c, vecs, "z")
+        testing.expect(t, found && type_string(&c.table, hit.type, context.temp_allocator) == "[4]f32")
+        _, found = find_field(c, vecs, "w")
+        testing.expect(t, !found)
     }
     if sym, ok := find_symbol(c, ANON_FILE, "v_entity"); testing.expect(t, ok) {
         members := type_members(c, decl_type(c, sym), context.temp_allocator)
