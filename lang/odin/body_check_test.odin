@@ -102,3 +102,39 @@ main :: proc() {
         {"bb.hi", "'bb' of type 'B' has no field 'hi'", 0},
     })
 }
+
+@(test)
+test_live_switch_cases :: proc(t: ^testing.T) {
+    root := fixture(t, "live_switch_cases", {{".thor/odin-analyzer.json", `{"target": {"os": "windows", "arch": "amd64"}}`}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+E :: enum { A, B, C }
+U :: union { int, string, f32 }
+
+main :: proc() {
+	e: E
+	u: U
+	switch e {
+	case .A, .B:
+	}
+	outer: switch v in u {
+	case int:
+	}
+	#partial switch e {
+	case .A:
+	}
+	switch e {
+	case .A ..= .C:
+	}
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"switch e", "Unhandled switch case: C", 0},
+        {"switch v", "Unhandled switch cases: string, f32", 0},
+    })
+}

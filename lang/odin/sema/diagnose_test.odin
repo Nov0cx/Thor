@@ -201,3 +201,95 @@ test_member_problem :: proc(t: ^testing.T) {
     }
     testing.expect_value(t, c.err, nil)
 }
+
+@(private = "file")
+SWITCH_SRC :: `package p
+
+E :: enum { A, B, C }
+U :: union { int, string, f32 }
+G :: union($T: typeid) { T, bool }
+
+work :: proc(e: E, u: U, g: G(int), x: int) {
+    switch e {
+    case .A, .B:
+    }
+    switch v in u {
+    case int:
+    }
+    switch e {
+    case .A ..= .B:
+    }
+    switch e {
+    case .A ..< .C:
+    }
+    switch e {
+    case .A, .B, .C:
+    }
+    #partial switch e {
+    case .A:
+    }
+    switch e {
+    case .A:
+    case:
+    }
+    switch v in u {
+    case nil, int, string, f32:
+    }
+    switch x {
+    case 1:
+    }
+    switch v in g {
+    case bool:
+    }
+}
+`
+
+@(test)
+test_switch_missing :: proc(t: ^testing.T) {
+    env: Check_Env
+    if !check_begin(t, &env, Snapshot_Input{has_live = true, live_text = SWITCH_SRC}) {
+        return
+    }
+    defer check_end(&env)
+    c := &env.c
+    wants := [][]string{{"C"}, {"string", "f32"}, {"C"}, {"C"}, {}, {}, {}, {}, {}, {"int"}}
+    src := SWITCH_SRC
+    found := 0
+    from := 0
+    for {
+        i := strings.index(src[from:], "switch ")
+        if i < 0 {
+            break
+        }
+        at := from + i
+        from = at + 1
+        sw, ok := switch_node_at(c, at)
+        if !testing.expectf(t, ok, "switch %d: no statement", found) || found >= len(wants) {
+            found += 1
+            continue
+        }
+        got := switch_missing(c, ANON_FILE, sw, context.temp_allocator)
+        want := wants[found]
+        testing.expectf(t, len(got) == len(want), "switch %d: got %v, want %v", found, got, want)
+        for g, k in got {
+            if k < len(want) {
+                testing.expectf(t, g == want[k], "switch %d: got %v, want %v", found, got, want)
+            }
+        }
+        found += 1
+    }
+    testing.expect_value(t, found, len(wants))
+    testing.expect_value(t, c.err, nil)
+}
+
+// The switch statement whose `switch` keyword is at `offset`.
+@(private = "file")
+switch_node_at :: proc(c: ^Checker, offset: int) -> (odinsyntax.Syntax_Node, bool) {
+    path := node_path(c, ANON_FILE, offset)
+    for k := len(path) - 1; k >= 0; k -= 1 {
+        if path[k].green.kind == .Switch_Stmt || path[k].green.kind == .Type_Switch_Stmt {
+            return path[k], true
+        }
+    }
+    return {}, false
+}

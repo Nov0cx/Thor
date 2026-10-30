@@ -32,6 +32,8 @@ walk_body :: proc(rc: ^Request_Context, c: ^odinsema.Checker, whens: []Branch, n
         call_errors(rc, c, n, report)
     case .Selector_Expr:
         member_errors(rc, c, n, report)
+    case .Switch_Stmt, .Type_Switch_Stmt:
+        switch_errors(rc, c, n, report)
     }
     it := odinsyntax.child_iter(&n, {kinds = ~odinsyntax.Kind_Set{}})
     for child in odinsyntax.child_iter_next(&it) {
@@ -87,4 +89,23 @@ member_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, selector: odin
     }
     text := strings.join(strings.fields(odinsyntax.node_text(operand), context.temp_allocator), "", context.temp_allocator)
     report_error(rc, report, int(selector.offset), CODE_NO_MEMBER, fmt.aprintf("'%s' of type '%s' has no field '%s'", text, owner, name))
+}
+
+// Reports the enum members or union variants a switch without `#partial` leaves out.
+@(private = "file")
+switch_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, sw: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
+    missing := odinsema.switch_missing(c, rc.live.id, sw, context.temp_allocator)
+    if len(missing) == 0 {
+        return
+    }
+    sw := sw
+    offset := int(sw.offset)
+    if kw, ok := odinsyntax.find_child_token(&sw, {tokens = {.Switch}}); ok {
+        offset = int(kw.offset)
+    }
+    if len(missing) == 1 {
+        report_error(rc, report, offset, CODE_SWITCH, fmt.aprintf("Unhandled switch case: %s", missing[0]))
+        return
+    }
+    report_error(rc, report, offset, CODE_SWITCH, fmt.aprintf("Unhandled switch cases: %s", strings.join(missing, ", ", context.temp_allocator)))
 }

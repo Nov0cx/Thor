@@ -1,5 +1,7 @@
 package odinsema
 
+import "core:mem"
+
 import odinsyntax "../syntax"
 
 // Why the arguments of a call do not fit its procedure.
@@ -180,4 +182,184 @@ fields_known :: proc(c: ^Checker, t: Type_Id, depth: int) -> bool {
         return true
     }
     return false
+}
+
+// The cases a switch without `#partial` leaves out: the members of the enum a value switch reads, or
+// the variants of the union a type switch reads. Nil when it covers them all, has a `case:`, or a
+// case or the subject is not known. The list and variant names are in `allocator`; member names
+// borrow the type table.
+switch_missing :: proc(c: ^Checker, file: File_Id, sw: odinsyntax.Syntax_Node, allocator := context.allocator) -> []string {
+    sw := sw
+    it := odinsyntax.child_iter(&sw, {kinds = {.Directive}})
+    for d in odinsyntax.child_iter_next(&it) {
+        dv, _ := odinsyntax.as_directive(d)
+        if name, ok := odinsyntax.directive_name(&dv); ok && odinsyntax.syntax_token_text(name) == "partial" {
+            return nil
+        }
+    }
+    temp := scratch_begin(c)
+    defer scratch_end(temp)
+    #partial switch sw.green.kind {
+    case .Switch_Stmt:
+        s, _ := odinsyntax.as_switch_stmt(sw)
+        tag, has_tag := odinsyntax.switch_stmt_tag(&s)
+        body, has_body := odinsyntax.switch_stmt_body(&s)
+        if !has_tag || !has_body {
+            return nil
+        }
+        return enum_missing(c, file, expr_type(c, file, tag).type, odinsyntax.Syntax_Node(body), allocator)
+    case .Type_Switch_Stmt:
+        s, _ := odinsyntax.as_type_switch_stmt(sw)
+        subject, has_subject := odinsyntax.type_switch_stmt_subject(&s)
+        body, has_body := odinsyntax.type_switch_stmt_body(&s)
+        if !has_subject || !has_body {
+            return nil
+        }
+        return union_missing(c, file, expr_type(c, file, subject).type, odinsyntax.Syntax_Node(body), allocator)
+    }
+    return nil
+}
+
+// The case value lists of a switch body; false when a clause is `case:`.
+@(private = "file")
+case_lists :: proc(c: ^Checker, body: odinsyntax.Syntax_Node) -> ([]odinsyntax.Syntax_Node, bool) {
+    body := body
+    lists := make([dynamic]odinsyntax.Syntax_Node, c.tmp)
+    it := odinsyntax.child_iter(&body, {kinds = {.Case_Clause}})
+    for clause in odinsyntax.child_iter_next(&it) {
+        cc, _ := odinsyntax.as_case_clause(clause)
+        values, ok := odinsyntax.case_clause_values(&cc)
+        if !ok {
+            return nil, false
+        }
+        if _, err := append(&lists, odinsyntax.Syntax_Node(values)); !note_alloc(c, err) {
+            return nil, false
+        }
+    }
+    return lists[:], true
+}
+
+@(private = "file")
+enum_missing :: proc(c: ^Checker, file: File_Id, t: Type_Id, body: odinsyntax.Syntax_Node, allocator: mem.Allocator) -> []string {
+    e, is_enum := type_get(&c.table, type_base(&c.table, t)).(Enum_Type)
+    if !is_enum || len(e.members) == 0 {
+        return nil
+    }
+    lists, ok := case_lists(c, body)
+    if !ok {
+        return nil
+    }
+    covered, err := make([]bool, len(e.members), c.tmp)
+    if !note_alloc(c, err) {
+        return nil
+    }
+    for list in lists {
+        list := list
+        el, _ := odinsyntax.as_expr_list(list)
+        items := odinsyntax.expr_list_items(&el)
+        for v in odinsyntax.child_iter_next(&items) {
+            lo, hi: i64
+            if b, is_binary := odinsyntax.as_binary_expr(v); is_binary {
+                op, _ := odinsyntax.binary_expr_op(&b)
+                lhs, has_lhs := odinsyntax.binary_expr_lhs(&b)
+                rhs, has_rhs := odinsyntax.binary_expr_rhs(&b)
+                if op.green.kind != .Range_Full && op.green.kind != .Range_Half {
+                    return nil
+                }
+                l, lok := enum_value(c, file, lhs, has_lhs, t)
+                r, rok := enum_value(c, file, rhs, has_rhs, t)
+                if !lok || !rok {
+                    return nil
+                }
+                lo, hi = l, op.green.kind == .Range_Full ? r : r - 1
+            } else {
+                value, vok := enum_value(c, file, v, true, t)
+                if !vok {
+                    return nil
+                }
+                lo, hi = value, value
+            }
+            for m, i in e.members {
+                if lo <= m.value && m.value <= hi {
+                    covered[i] = true
+                }
+            }
+        }
+    }
+    missing := make([dynamic]string, allocator)
+    for m, i in e.members {
+        if !covered[i] {
+            append(&missing, m.name)
+        }
+    }
+    if len(missing) == 0 {
+        delete(missing)
+        return nil
+    }
+    return missing[:]
+}
+
+// The value of a case of an enum switch; false when it is not a known constant.
+@(private = "file")
+enum_value :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, has: bool, t: Type_Id) -> (i64, bool) {
+    if !has {
+        return 0, false
+    }
+    op := expr_type(c, file, n, t)
+    if op.mode != .Const {
+        return 0, false
+    }
+    v, ok := op.value.(i64)
+    return v, ok
+}
+
+@(private = "file")
+union_missing :: proc(c: ^Checker, file: File_Id, t: Type_Id, body: odinsyntax.Syntax_Node, allocator: mem.Allocator) -> []string {
+    u, is_union := type_get(&c.table, type_base(&c.table, t)).(Union_Type)
+    if !is_union || len(u.params) > 0 || len(u.variants) == 0 {
+        return nil
+    }
+    lists, ok := case_lists(c, body)
+    if !ok {
+        return nil
+    }
+    covered, err := make([]bool, len(u.variants), c.tmp)
+    if !note_alloc(c, err) {
+        return nil
+    }
+    for list in lists {
+        list := list
+        el, _ := odinsyntax.as_expr_list(list)
+        items := odinsyntax.expr_list_items(&el)
+        for v in odinsyntax.child_iter_next(&items) {
+            if v.green.kind == .Ident && odinsyntax.node_text(v) == "nil" {
+                continue
+            }
+            ct := type_expr(c, file, v)
+            if ct == INVALID_TYPE {
+                return nil
+            }
+            hit := false
+            for variant, i in u.variants {
+                if variant == ct {
+                    covered[i] = true
+                    hit = true
+                }
+            }
+            if !hit {
+                return nil
+            }
+        }
+    }
+    missing := make([dynamic]string, allocator)
+    for variant, i in u.variants {
+        if !covered[i] {
+            append(&missing, type_string(&c.table, variant, allocator))
+        }
+    }
+    if len(missing) == 0 {
+        delete(missing)
+        return nil
+    }
+    return missing[:]
 }
