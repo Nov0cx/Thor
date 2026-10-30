@@ -74,7 +74,7 @@ test_live_redeclared_import :: proc(t: ^testing.T) {
 
     src := `package app
 
-
+import "core:fmt"
 import fmt "core:strings"
 import _ "core:mem"
 import _ "core:os"
@@ -239,7 +239,7 @@ import "q"
 import "nothere"
 import "core:fmt/nothere"
 import "nope:x"
-
+import "core:fmt"
 
 main :: proc() {}
 `
