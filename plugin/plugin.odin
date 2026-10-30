@@ -3,7 +3,7 @@
 // grammar or a pure-Lua lexer. Highlighting resolves to color roles.
 //
 // Each plugin runs sandboxed (see sandbox.odin): its own `_ENV`, a trimmed
-// standard library, and a `thor` table holding only what its plugin.json grants.
+// standard library, and a `thor` table holding only what its manifest.lua grants.
 package plugin
 
 import "base:runtime"
@@ -461,7 +461,7 @@ manager_load_plugin :: proc(m: ^Manager, id, dir: string, perms: Permissions) ->
     return load_chunk(m, index, path, nil)
 }
 
-// Loads every plugin matching `pattern` with the permissions its plugin.json
+// Loads every plugin matching `pattern` with the permissions its manifest.lua
 // asks for. For a host that grants without asking, and for tests.
 manager_load :: proc(m: ^Manager, pattern := "plugins/*/plugin.lua") {
     for p in manager_scan(m, pattern) {

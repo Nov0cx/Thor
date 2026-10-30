@@ -1,5 +1,0 @@
-{
-    "name": "Git LFS",
-    "description": "Git LFS commands in a top-bar dropdown, when git-lfs is installed.",
-    "permissions": ["exec", "ui"]
-}

@@ -1,6 +1,6 @@
 package thor
 
-// Permission prompts for plugins. A plugin whose plugin.json asks for a
+// Permission prompts for plugins. A plugin whose manifest.lua asks for a
 // capability (exec, read, write, ui, keys) does not run until the user allows
 // it. The answer is remembered under <exe>/sessions/, so the question is asked
 // once per machine, and every plugin still waiting is asked in one prompt.

@@ -1,6 +1,6 @@
 // Per-plugin sandbox. Every plugin runs in its own `_ENV` table holding a
 // curated standard library and a `thor` API trimmed to the permissions its
-// plugin.json grants. The VM stays shared, so this contains buggy and rogue
+// manifest.lua grants. The VM stays shared, so this contains buggy and rogue
 // plugins — it is not a boundary against native code.
 package plugin
 
@@ -15,7 +15,9 @@ import "core:time"
 
 import lua "vendor:lua/5.4"
 
-// A capability a plugin must list in plugin.json to reach the matching host
+import "../luaconf"
+
+// A capability a plugin must list in manifest.lua to reach the matching host
 // service. What is not listed here is always granted: register_language, print,
 // on_command, theme, workspace, active_path, keybind, refresh_git, permissions
 // and the thor.ts bindings — every one of them waits to be called.
@@ -566,7 +568,7 @@ is_module_name :: proc(name: string) -> bool {
     return true
 }
 
-// The name a permission goes by in plugin.json and in the console.
+// The name a permission goes by in manifest.lua and in the console.
 permission_name :: proc(perm: Permission) -> string {
     switch perm {
     case .Exec:  return "exec"
@@ -611,27 +613,28 @@ permissions_from_names :: proc(names: []string) -> Permissions {
     return perms
 }
 
-// Reads plugin.json beside plugin.lua. A missing or malformed file grants
-// nothing, which is all a syntax-only plugin needs.
+// The manifest file beside plugin.lua.
+MANIFEST_FILE :: "manifest.lua"
+
+// Reads manifest.lua beside plugin.lua. It runs in the luaconf sandbox, apart
+// from the plugin VM, so the permissions are known before any plugin code runs.
+// A missing or malformed file grants nothing, which is all a syntax-only plugin
+// needs.
 manifest_permissions :: proc(dir: string) -> Permissions {
-    path, jerr := filepath.join({dir, "plugin.json"}, context.temp_allocator)
+    path, jerr := filepath.join({dir, MANIFEST_FILE}, context.temp_allocator)
     if jerr != nil {
         return {}
     }
-    data, read_err := os.read_entire_file(path, context.temp_allocator)
-    if read_err != nil {
-        return {}
-    }
-    parsed, err := json.parse(data, allocator = context.temp_allocator)
-    if err != nil {
-        log.warnf("plugin %q: plugin.json is malformed, granting no permissions", dir)
+    parsed, status, message := luaconf.eval_file(path)
+    if status == .Failed {
+        log.warnf("plugin %q: %s; granting no permissions", dir, message)
         return {}
     }
     root, is_object := parsed.(json.Object)
-    if !is_object {
+    if status != .Ok || !is_object {
         return {}
     }
-    list, has_list := root["permissions"].(json.Array)
+    list, has_list := luaconf.as_array(root["permissions"])
     if !has_list {
         return {}
     }
