@@ -94,6 +94,81 @@ call_problem :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node) -
     return out
 }
 
+// Whether no member of the procedure group the callee of `call` names takes its arguments: every
+// member gets too few or too many of them, or, for a known argument type, one that it cannot take.
+// False when the callee is not a group, a member is polymorphic or an argument type is not known.
+group_no_match :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node) -> bool {
+    ce, is_call := odinsyntax.as_call_expr(call)
+    if !is_call {
+        return false
+    }
+    callee, has_callee := odinsyntax.call_expr_callee(&ce)
+    list, has_list := odinsyntax.call_expr_args(&ce)
+    if !has_callee || !has_list {
+        return false
+    }
+    fn := expr_type(c, file, callee)
+    if fn.mode != .Value && fn.mode != .Const {
+        return false
+    }
+    g, is_group := type_get(&c.table, type_base(&c.table, fn.type)).(Proc_Group_Type)
+    if !is_group || len(g.members) == 0 {
+        return false
+    }
+    temp := scratch_begin(c)
+    defer scratch_end(temp)
+    args := call_args(c, file, odinsyntax.Syntax_Node(list), {})
+    if args == nil && odinsyntax.node_text(odinsyntax.Syntax_Node(list)) != "()" {
+        return false
+    }
+    for a in args {
+        if a.spread || (a.name == "" && may_give_values(c, a)) {
+            return false
+        }
+    }
+    with, ok := with_receiver(c, file, callee, args)
+    if !ok {
+        return false
+    }
+    typed := true
+    for a in with {
+        if (a.op.mode != .Value && a.op.mode != .Const) || a.op.type == INVALID_TYPE || type_is_untyped(&c.table, a.op.type) {
+            typed = false
+        }
+    }
+    for m in g.members {
+        p, is_proc := type_get(&c.table, type_base(&c.table, m)).(Proc_Type)
+        if !is_proc {
+            return false
+        }
+        slots, miss := match_slots(c, p, with)
+        if miss.kind != .None {
+            continue
+        }
+        if p.generic || !typed {
+            return false
+        }
+        rejected := false
+        for a, i in with {
+            param := p.params[slots[i]]
+            if .C_Vararg in param.flags {
+                return false
+            }
+            switch assignable(c, param.type, a.op, .Any_Int in param.flags) {
+            case .Yes:
+            case .No:
+                rejected = true
+            case .Unknown:
+                return false
+            }
+        }
+        if !rejected {
+            return false
+        }
+    }
+    return true
+}
+
 // True when a positional argument may give more than one value: a call or an `or_*` whose type is
 // a tuple or is not known.
 @(private = "file")
