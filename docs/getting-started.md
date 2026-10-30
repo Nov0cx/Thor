@@ -137,7 +137,10 @@ For Odin, the built-in support formats code and shows `odin check` diagnostics
 when you save. While you type, it marks syntax errors and, in a file that
 parses, name errors: a redeclared name, an undeclared name, a private or
 missing `pkg.name` and an import path that names no directory. After a save,
-the compiler's diagnostics replace them. The `syntax_diagnostics` feature of
+the compiler's diagnostics replace them. The hover over a mark shows its id
+(`[name/undeclared]`); a `// thor:ignore name/undeclared` comment hides that id
+on the next line (or on its own line after code), and
+`// thor:ignore-file <id>` hides it in the whole file. The `syntax_diagnostics` feature of
 `language_intelligence` turns the live marks off.
 It also serves navigation, hover, completion and signature help. Hover a
 symbol with `ctrl` held to see its declaration and doc comment (`//` or
