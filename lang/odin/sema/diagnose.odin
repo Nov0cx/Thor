@@ -926,3 +926,54 @@ single_result_call :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node
     p, is_proc := type_get(&c.table, type_base(&c.table, fn.type)).(Proc_Type)
     return is_proc && !p.generic && !p.diverging && len(p.results) == 1 && p.tags == {}
 }
+
+// The text of the first `where` constraint that is false for the arguments of `call`, a call of one
+// polymorphic procedure. It borrows the parse of the procedure's file. False when every constraint
+// holds or cannot be evaluated.
+where_problem :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node) -> (string, bool) {
+    ce, is_call := odinsyntax.as_call_expr(call)
+    if !is_call {
+        return "", false
+    }
+    callee, has_callee := odinsyntax.call_expr_callee(&ce)
+    list, has_list := odinsyntax.call_expr_args(&ce)
+    if !has_callee || !has_list {
+        return "", false
+    }
+    if _, is_directive := odinsyntax.as_directive(callee); is_directive {
+        return "", false
+    }
+    fn := expr_type(c, file, callee)
+    if fn.mode != .Value && fn.mode != .Const {
+        return "", false
+    }
+    p, is_proc := type_get(&c.table, type_base(&c.table, fn.type)).(Proc_Type)
+    if !is_proc || !p.generic {
+        return "", false
+    }
+    temp := scratch_begin(c)
+    defer scratch_end(temp)
+    args := call_args(c, file, odinsyntax.Syntax_Node(list), {})
+    for a in args {
+        if a.name == "" && !a.spread && may_give_values(c, a) {
+            return "", false
+        }
+    }
+    with, ok := with_receiver(c, file, callee, args)
+    if !ok {
+        return "", false
+    }
+    slots, miss := match_slots(c, p, with)
+    if miss.kind != .None {
+        return "", false
+    }
+    env, bound := bind_generic(c, p, with, slots)
+    if !bound || len(env) == 0 {
+        return "", false
+    }
+    constraint, fails := where_failing(c, p, env)
+    if !fails {
+        return "", false
+    }
+    return odinsyntax.node_text(constraint), true
+}

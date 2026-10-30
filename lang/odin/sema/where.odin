@@ -8,14 +8,22 @@ import odinsyntax "../syntax"
 // A constraint that cannot be evaluated holds.
 @(private)
 where_holds :: proc(c: ^Checker, p: Proc_Type, env: []Binding) -> bool {
+    _, fails := where_failing(c, p, env)
+    return !fails
+}
+
+// The first `where` constraint of the polymorphic procedure `p` that is false with `env` bound, in
+// the parse of `p.file`. A constraint that cannot be evaluated holds.
+@(private)
+where_failing :: proc(c: ^Checker, p: Proc_Type, env: []Binding) -> (odinsyntax.Syntax_Node, bool) {
     node, ok := node_of_kind(c, p.file, p.offset, .Proc_Lit)
     if !ok {
-        return true
+        return {}, false
     }
     lit, _ := odinsyntax.as_proc_lit(node)
     clause, has_clause := odinsyntax.proc_lit_where_clause(&lit)
     if !has_clause {
-        return true
+        return {}, false
     }
     saved := c.env
     c.env = env
@@ -23,10 +31,10 @@ where_holds :: proc(c: ^Checker, p: Proc_Type, env: []Binding) -> bool {
     it := odinsyntax.where_clause_constraints(&clause)
     for constraint in odinsyntax.child_iter_next(&it) {
         if v, known := where_value(c, p.file, constraint); known && !v {
-            return false
+            return constraint, true
         }
     }
-    return true
+    return {}, false
 }
 
 // The value of a `where` constraint: a constant, `!`, `&&`, `||`, `==` or `!=` of two types, or a
