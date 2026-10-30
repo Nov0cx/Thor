@@ -2409,13 +2409,24 @@ not a status, so this section stays the source of truth for what is built.
     a switch without `#partial` or `case:` that leaves out enum members (ranges
     count) or union variants, also of an instantiated union
     (`switch_missing`); and a `#assert` the checker folds to false. Several
-    missing cases are joined on one line. Over every package of the repository
-    there is none. Not yet: type mismatches, overloads, constant overflow,
-    missing returns, `or_return`, `where` clauses and import cycles.
+    missing cases are joined on one line. A value that cannot go into its
+    place: an argument of one procedure that is not polymorphic, an `=`
+    assignment, a variable declaration with a type and a `return` value
+    against the results of the procedure around it (`assignable`,
+    `argument_mismatches`, `assign_mismatches`, `return_mismatches`). It says
+    no only for basic, pointer, slice, array, map, bit_set, enum and plain
+    struct and union types; an untyped number into a number (left to the
+    overflow check), a broadcast into an array, `^T` into `[^]T`, `nil` into
+    a type that is not basic, an untyped constant into a union, a builtin
+    call's result and two types that print the same stay silent. Over the ten
+    packages `test_live_clean_sources` reads there is none. Not yet: overloads, constant
+    overflow, missing returns, `or_return`, `where` clauses, `:=` with several
+    values and import cycles.
   - **Diagnostic ids** (`lang/odin/ignore.odin`): every live diagnostic
     carries a `lang.Diagnostic.code` (`syntax/error`, `name/redeclared`,
     `name/undeclared`, `name/private`, `import/unresolved`, `call/arity`,
-    `call/named`, `type/no-member`, `switch/non-exhaustive`, `assert/static`),
+    `call/named`, `type/no-member`, `type/mismatch`, `switch/non-exhaustive`,
+    `assert/static`),
     shown after the
     message in the hover. `// thor:ignore <id>...` drops those ids on the next
     line (on its own line when it follows code), with no id every id;

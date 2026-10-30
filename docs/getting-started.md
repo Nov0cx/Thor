@@ -140,8 +140,9 @@ missing `pkg.name` and an import path that names no directory. When the names
 resolve, it also marks a call with a missing parameter, too many arguments or a
 wrong named argument (`call/arity`, `call/named`), a field or enum member that
 does not exist (`type/no-member`), a switch that leaves out enum members or
-union variants without `#partial` (`switch/non-exhaustive`) and a `#assert`
-that fails (`assert/static`). After a save,
+union variants without `#partial` (`switch/non-exhaustive`), a `#assert`
+that fails (`assert/static`) and a value of the wrong type in an argument, an
+assignment, a variable declaration or a `return` (`type/mismatch`). After a save,
 the compiler's diagnostics replace them. The hover over a mark shows its id
 (`[name/undeclared]`); a `// thor:ignore name/undeclared` comment hides that id
 on the next line (or on its own line after code), and
