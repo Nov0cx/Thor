@@ -24,10 +24,11 @@ CODE_OVERFLOW   :: "const/overflow"
 CODE_RETURN     :: "flow/missing-return"
 CODE_OR_RETURN  :: "or_return/mismatch"
 CODE_WHERE      :: "poly/where"
+CODE_COUNT      :: "assign/count"
 
 // Every id the engine reports.
 @(private = "file")
-KNOWN_CODES := [?]string{CODE_SYNTAX, CODE_REDECLARED, CODE_UNDECLARED, CODE_PRIVATE, CODE_IMPORT, CODE_ARITY, CODE_NAMED, CODE_NO_MEMBER, CODE_SWITCH, CODE_ASSERT, CODE_MISMATCH, CODE_OVERLOAD, CODE_OVERFLOW, CODE_RETURN, CODE_OR_RETURN, CODE_WHERE}
+KNOWN_CODES := [?]string{CODE_SYNTAX, CODE_REDECLARED, CODE_UNDECLARED, CODE_PRIVATE, CODE_IMPORT, CODE_ARITY, CODE_NAMED, CODE_NO_MEMBER, CODE_SWITCH, CODE_ASSERT, CODE_MISMATCH, CODE_OVERLOAD, CODE_OVERFLOW, CODE_RETURN, CODE_OR_RETURN, CODE_WHERE, CODE_COUNT}
 
 // The ids one `thor:ignore` comment names, and the line it applies to. No ids means every id.
 @(private = "file")

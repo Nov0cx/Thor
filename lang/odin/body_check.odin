@@ -38,8 +38,10 @@ walk_body :: proc(rc: ^Request_Context, c: ^odinsema.Checker, whens: []Branch, n
     case .Selector_Expr:
         member_errors(rc, c, n, report)
     case .Assign_Stmt:
+        count_errors(rc, c, n, report)
         mismatch_errors(rc, c, odinsema.assign_mismatches(c, rc.live.id, n, context.temp_allocator), "assignment", report)
     case .Value_Decl:
+        count_errors(rc, c, n, report)
         mismatch_errors(rc, c, odinsema.assign_mismatches(c, rc.live.id, n, context.temp_allocator), "a variable declaration", report)
     case .Return_Stmt:
         mismatch_errors(rc, c, odinsema.return_mismatches(c, rc.live.id, n, context.temp_allocator), "return statement", report)
@@ -194,6 +196,15 @@ where_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, call: odinsynta
     }
     text := strings.join(strings.fields(constraint, context.temp_allocator), " ", context.temp_allocator)
     report_error(rc, report, int(call.offset), CODE_WHERE, fmt.aprintf("'where' clause evaluated to false: %s", text))
+}
+
+// Reports an assignment or declaration whose places and values differ in count.
+@(private = "file")
+count_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, stmt: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
+    at, places, values, mismatch := odinsema.assign_count(c, rc.live.id, stmt)
+    if mismatch {
+        report_error(rc, report, at, CODE_COUNT, fmt.aprintf("Assignment count mismatch '%d' = '%d'", places, values))
+    }
 }
 
 // Reports a `#assert` whose condition is false.

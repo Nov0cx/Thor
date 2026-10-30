@@ -612,3 +612,43 @@ main :: proc() {
         testing.expect(t, d.code == CODE_WHERE, "a where error carries its id")
     }
 }
+
+@(test)
+test_live_assignment_counts :: proc(t: ^testing.T) {
+    root := fixture(t, "live_assignment_counts", {{".thor/odin-analyzer.json", `{"target": {"os": "windows", "arch": "amd64"}}`}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+two :: proc() -> (int, int) { return 1, 2 }
+one :: proc() -> int { return 1 }
+
+main :: proc() {
+	a, b := one()
+	f := two()
+	m, n: int
+	m, n = one()
+	m = two()
+	p, q := two()
+	m, n = 1, 2, 3
+	mp: map[int]int
+	s, t := mp[1]
+	u := mp[1]
+	v, w := 1, "x"
+	_, _, _, _, _, _, _, _, _, _ = a, b, f, p, q, s, t, u, v, w
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"a, b := one()", "Assignment count mismatch '2' = '1'", 0},
+        {"f := two()", "Assignment count mismatch '1' = '2'", 0},
+        {"m, n = one()", "Assignment count mismatch '2' = '1'", 0},
+        {"m = two()", "Assignment count mismatch '1' = '2'", 0},
+        {"m, n = 1, 2, 3", "Assignment count mismatch '2' = '3'", 0},
+    })
+    for d in res.report.items {
+        testing.expect(t, d.code == CODE_COUNT, "a count error carries its id")
+    }
+}
