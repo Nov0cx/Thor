@@ -534,7 +534,7 @@ edit_text :: proc(src: string, keys: []string, value: json.Value, mode: Edit_Mod
     if replace_start >= 0 {
         depth := indent_level(src, tokens[replace_start].start)
         strings.write_string(&b, src[:tokens[replace_start].start])
-        strings.write_string(&b, encode_value(value, depth, context.temp_allocator))
+        strings.write_string(&b, match_newlines(src, encode_value(value, depth, context.temp_allocator)))
         strings.write_string(&b, src[tokens[replace_end].end:])
     } else {
         // Build what is missing from keys[level:] inward, then insert it into
@@ -570,7 +570,7 @@ edit_text :: proc(src: string, keys: []string, value: json.Value, mode: Edit_Mod
         }
         at, text := insertion(src, tokens[:], fields[:], close, entry)
         strings.write_string(&b, src[:at])
-        strings.write_string(&b, text)
+        strings.write_string(&b, match_newlines(src, text))
         strings.write_string(&b, src[at:])
     }
     out := strings.to_string(b)
@@ -677,4 +677,14 @@ values_equal :: proc(a, b: json.Value) -> bool {
         return n == len(y)
     }
     return b == nil
+}
+
+// `text` with the line ends `src` uses, so an edit keeps a CRLF file CRLF.
+@(private)
+match_newlines :: proc(src, text: string) -> string {
+    if !strings.contains(src, "\r\n") {
+        return text
+    }
+    out, _ := strings.replace_all(text, "\n", "\r\n", context.temp_allocator)
+    return out
 }

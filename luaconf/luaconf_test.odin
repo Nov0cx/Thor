@@ -216,3 +216,10 @@ test_convert_json :: proc(t: ^testing.T) {
     testing.expect(t, !convert_json(json_path, lua_path))
     testing.expect(t, os.exists(json_path))
 }
+
+@(test)
+test_patch_keeps_crlf :: proc(t: ^testing.T) {
+    out, err := patch_text("return {\r\n    a = 1,\r\n}\r\n", {"b"}, json.Integer(2))
+    testing.expect_value(t, err, Patch_Error.None)
+    testing.expect_value(t, out, "return {\r\n    a = 1,\r\n    b = 2,\r\n}\r\n")
+}
