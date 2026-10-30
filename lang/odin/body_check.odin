@@ -44,6 +44,8 @@ walk_body :: proc(rc: ^Request_Context, c: ^odinsema.Checker, whens: []Branch, n
         mismatch_errors(rc, c, odinsema.return_mismatches(c, rc.live.id, n, context.temp_allocator), "return statement", report)
     case .Switch_Stmt, .Type_Switch_Stmt:
         switch_errors(rc, c, n, report)
+    case .Proc_Lit:
+        return_errors(rc, c, n, report)
     }
     it := odinsyntax.child_iter(&n, {kinds = ~odinsyntax.Kind_Set{}})
     for child in odinsyntax.child_iter_next(&it) {
@@ -143,6 +145,20 @@ switch_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, sw: odinsyntax
         return
     }
     report_error(rc, report, offset, CODE_SWITCH, fmt.aprintf("Unhandled switch cases: %s", strings.join(missing, ", ", context.temp_allocator)))
+}
+
+// Reports a procedure with results whose body can end with no `return`.
+@(private = "file")
+return_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, lit: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
+    name, at, missing := odinsema.missing_return(c, rc.live.id, lit)
+    if !missing {
+        return
+    }
+    if name == "" {
+        report_error(rc, report, at, CODE_RETURN, strings.clone("Missing return statement at the end of the procedure"))
+        return
+    }
+    report_error(rc, report, at, CODE_RETURN, fmt.aprintf("Missing return statement at the end of the procedure '%s'", name))
 }
 
 // Reports a `#assert` whose condition is false.

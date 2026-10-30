@@ -384,3 +384,135 @@ main :: proc() {
         testing.expect(t, d.code == CODE_OVERFLOW, "an overflow carries the overflow id")
     }
 }
+
+@(test)
+test_live_missing_returns :: proc(t: ^testing.T) {
+    root := fixture(t, "live_missing_returns", {{".thor/odin-analyzer.json", `{"target": {"os": "windows", "arch": "amd64"}}`}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+import "core:os"
+
+w1 :: proc() -> int {
+	when ODIN_OS == .Windows {
+		return 1
+	}
+}
+w2 :: proc() -> int {
+	when ODIN_OS == .Windows {
+		return 1
+	} else {
+		return 2
+	}
+}
+p1 :: proc() -> int { panic("x") }
+p2 :: proc() -> int { os.exit(1) }
+p3 :: proc() -> int { unreachable() }
+f1 :: proc(a: int) -> int {
+	for {
+		if a > 0 { break }
+	}
+}
+f2 :: proc(a: int) -> int {
+	outer: for {
+		for { break outer }
+	}
+}
+f3 :: proc(a: int) -> int {
+	for {
+		for { break }
+	}
+}
+s1 :: proc(a: int) -> int {
+	switch a {
+	case 1: return 1
+	case: return 2
+	}
+}
+s2 :: proc(a: int) -> int {
+	switch a {
+	case 1: fallthrough
+	case: return 2
+	}
+}
+s3 :: proc(a: int) -> int {
+	switch a {
+	case 1: return 1
+	}
+}
+s4 :: proc(a: int) -> int {
+	switch a {
+	case 1:
+		if a > 0 { break }
+		return 1
+	case: return 2
+	}
+}
+E :: enum {A, B}
+s5 :: proc(e: E) -> int {
+	switch e {
+	case .A: return 1
+	case .B: return 2
+	}
+}
+b1 :: proc() -> int {
+	{
+		return 1
+	}
+}
+l1 :: proc() -> int {
+	inner := proc() -> int {
+	}
+	return inner()
+}
+r1 :: proc() -> int {
+	for i in 0..<3 { return i }
+}
+d1 :: proc() -> int {
+	return 1
+	;
+}
+i1 :: proc(a: int) -> int {
+	if a > 0 { return 1 } else if a < 0 { return 2 } else { return 3 }
+}
+t1 :: proc() -> int {
+	intrinsics_trap()
+}
+intrinsics_trap :: proc() -> ! { for {} }
+fs :: proc(a: int) -> int {
+	for a > 0 {}
+}
+x1 :: proc() -> int {
+	defer {}
+	return 1
+}
+lb :: proc() -> int {
+	blk: {
+		return 1
+	}
+}
+lb2 :: proc(a: int) -> int {
+	blk: {
+		if a > 0 { break blk }
+		return 1
+	}
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"}\nf2 ::", "Missing return statement at the end of the procedure 'f1'", 0},
+        {"}\nf3 ::", "Missing return statement at the end of the procedure 'f2'", 0},
+        {"}\ns4 ::", "Missing return statement at the end of the procedure 's3'", 0},
+        {"}\nE ::", "Missing return statement at the end of the procedure 's4'", 0},
+        {"}\nb1 ::", "Missing return statement at the end of the procedure 's5'", 0},
+        {"}\n\treturn inner()", "Missing return statement at the end of the procedure", 0},
+        {"}\nd1 ::", "Missing return statement at the end of the procedure 'r1'", 0},
+        {"}\nx1 ::", "Missing return statement at the end of the procedure 'fs'", 0},
+    })
+    for d in res.report.items {
+        testing.expect(t, d.code == CODE_RETURN, "a missing return carries its id")
+    }
+}
