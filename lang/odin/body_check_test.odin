@@ -208,3 +208,47 @@ main :: proc() {
         testing.expect_value(t, d.code, CODE_MISMATCH)
     }
 }
+
+@(test)
+test_live_assign_mismatches :: proc(t: ^testing.T) {
+    root := fixture(t, "live_assign_mismatches", {{".thor/odin-analyzer.json", `{"target": {"os": "windows", "arch": "amd64"}}`}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+I :: distinct int
+E :: enum { A, B }
+
+g: int = "top"
+
+main :: proc() {
+	s: string
+	i: int
+	d: I
+	i = s
+	i = "a"
+	d = i
+	x: int = s
+	e: f32 = i
+	k: E = 1
+	r: string = 'a'
+	ok: u8 = 300
+	v: [3]f32 = 0
+	d = 3
+	_, _, _, _, _, _ = x, e, k, r, ok, v
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"\"top\"", "Cannot convert '\"top\"' to 'int' from 'untyped string', got \"top\"", 0},
+        {"s\n\ti = \"a\"", "Cannot assign value 's' of type 'string' to 'int' in assignment", 0},
+        {"\"a\"", "Cannot convert '\"a\"' to 'int' from 'untyped string', got \"a\"", 0},
+        {"i\n\tx: int", "Cannot assign value 'i' of type 'int' to 'I' in assignment", 0},
+        {"s\n\te: f32", "Cannot assign value 's' of type 'string' to 'int' in a variable declaration", 0},
+        {"i\n\tk: E", "Cannot assign value 'i' of type 'int' to 'f32' in a variable declaration", 0},
+        {"1\n\tr:", "Cannot convert untyped value '1' to 'E' from 'untyped integer'", 0},
+        {"'a'", "Cannot convert ''a'' to 'string' from 'untyped rune', got 97", 0},
+    })
+}

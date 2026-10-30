@@ -34,6 +34,10 @@ walk_body :: proc(rc: ^Request_Context, c: ^odinsema.Checker, whens: []Branch, n
         mismatch_errors(rc, c, odinsema.argument_mismatches(c, rc.live.id, n, context.temp_allocator), "a procedure argument", report)
     case .Selector_Expr:
         member_errors(rc, c, n, report)
+    case .Assign_Stmt:
+        mismatch_errors(rc, c, odinsema.assign_mismatches(c, rc.live.id, n, context.temp_allocator), "assignment", report)
+    case .Value_Decl:
+        mismatch_errors(rc, c, odinsema.assign_mismatches(c, rc.live.id, n, context.temp_allocator), "a variable declaration", report)
     case .Switch_Stmt, .Type_Switch_Stmt:
         switch_errors(rc, c, n, report)
     }

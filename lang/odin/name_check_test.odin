@@ -259,7 +259,7 @@ test_live_clean_sources :: proc(t: ^testing.T) {
     defer engine_destroy(e)
 
     checked := 0
-    for dir in ([]string{"lang/odin/sema", "lang/odin", "editview", "thor", "font", "vt"}) {
+    for dir in ([]string{"lang/odin/sema", "lang/odin", "lang/odin/syntax", "lang/lsp", "editview", "textedit", "plugin", "thor", "font", "vt"}) {
         files, err := odinsema.package_dir_files(dir)
         if !testing.expectf(t, err == nil, "%s: could not list", dir) {
             continue
