@@ -31,6 +31,7 @@ walk_body :: proc(rc: ^Request_Context, c: ^odinsema.Checker, whens: []Branch, n
     case .Call_Expr:
         call_errors(rc, c, n, report)
         assert_errors(rc, c, n, report)
+        mismatch_errors(rc, c, odinsema.argument_mismatches(c, rc.live.id, n, context.temp_allocator), "a procedure argument", report)
     case .Selector_Expr:
         member_errors(rc, c, n, report)
     case .Switch_Stmt, .Type_Switch_Stmt:
@@ -124,4 +125,43 @@ assert_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, call: odinsynt
         return
     }
     report_error(rc, report, int(call.offset), CODE_ASSERT, fmt.aprintf("Compile time assertion: %s", text))
+}
+
+// Reports each value that cannot be assigned to its place; `place` names the place as the compiler does.
+@(private = "file")
+mismatch_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, problems: []odinsema.Type_Problem, place: string, report: ^lang.Diagnostic_Report) {
+    for p in problems {
+        value := strings.join(strings.fields(odinsyntax.node_text(p.value), context.temp_allocator), " ", context.temp_allocator)
+        to := odinsema.type_string(&c.table, p.to, context.temp_allocator)
+        from := odinsema.type_string(&c.table, p.op.type, context.temp_allocator)
+        if !odinsema.type_is_untyped(&c.table, p.op.type) {
+            report_error(rc, report, int(p.value.offset), CODE_MISMATCH, fmt.aprintf("Cannot assign value '%s' of type '%s' to '%s' in %s", value, from, to, place))
+            continue
+        }
+        from = untyped_name(from)
+        _, to_basic := odinsema.type_get(&c.table, odinsema.type_base(&c.table, p.to)).(odinsema.Basic_Type)
+        if got, ok := const_text(p.op.value); to_basic && p.op.mode == .Const && ok {
+            report_error(rc, report, int(p.value.offset), CODE_MISMATCH, fmt.aprintf("Cannot convert '%s' to '%s' from '%s', got %s", value, to, from, got))
+            continue
+        }
+        report_error(rc, report, int(p.value.offset), CODE_MISMATCH, fmt.aprintf("Cannot convert untyped value '%s' to '%s' from '%s'", value, to, from))
+    }
+}
+
+// The compiler's name of an untyped type.
+@(private = "file")
+untyped_name :: proc(name: string) -> string {
+    return name == "untyped int" ? "untyped integer" : name
+}
+
+// A constant as the compiler prints it after "got"; false for a float or no value.
+@(private = "file")
+const_text :: proc(v: odinsema.Const_Value) -> (string, bool) {
+    #partial switch x in v {
+    case i64:    return fmt.tprint(x), true
+    case rune:   return fmt.tprint(i64(x)), true
+    case bool:   return x ? "true" : "false", true
+    case string: return fmt.tprintf("%q", x), true
+    }
+    return "", false
 }

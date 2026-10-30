@@ -165,3 +165,46 @@ main :: proc() {
         {"#assert(size_of(int) == 4)", "Compile time assertion: size_of(int) == 4", 0},
     })
 }
+
+@(test)
+test_live_argument_mismatches :: proc(t: ^testing.T) {
+    root := fixture(t, "live_argument_mismatches", {{".thor/odin-analyzer.json", `{"target": {"os": "windows", "arch": "amd64"}}`}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+I :: distinct int
+
+take :: proc(a: int, s: string) {}
+rest :: proc(xs: ..int) {}
+want_i :: proc(d: I) {}
+
+main :: proc() {
+	s: string
+	i: int
+	take(s, "a")
+	take(1, 2)
+	take(1, nil)
+	rest(1, s)
+	want_i(i)
+	want_i(3)
+	take(1, s)
+	when ODIN_OS == .Linux {
+		take(s, s)
+	}
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"s, \"a\"", "Cannot assign value 's' of type 'string' to 'int' in a procedure argument", 0},
+        {"2)", "Cannot convert '2' to 'string' from 'untyped integer', got 2", 0},
+        {"nil)", "Cannot convert untyped value 'nil' to 'string' from 'untyped nil'", 0},
+        {"s)\n\twant_i", "Cannot assign value 's' of type 'string' to 'int' in a procedure argument", 0},
+        {"i)\n\twant_i(3)", "Cannot assign value 'i' of type 'int' to 'I' in a procedure argument", 0},
+    })
+    for d in res.report.items {
+        testing.expect_value(t, d.code, CODE_MISMATCH)
+    }
+}
