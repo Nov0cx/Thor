@@ -37,7 +37,7 @@ UPDATE_BUTTON_MIN_WIDTH :: 40
 UPDATE_BUTTON_MAX_WIDTH :: 180
 
 // Where the throttle and the dismissal live. Machine state, not a preference,
-// so it sits beside the other session records and not in settings.json.
+// so it sits beside the other session records and not in settings.lua.
 @(private = "file")
 UPDATE_FILE :: "sessions/update.json"
 

@@ -1,12 +1,12 @@
 package thor
 
-// The tip of the day. The tips themselves come from the layered tips.json
+// The tip of the day. The tips themselves come from the layered tips.lua
 // (setting.Settings.tips); this side only picks which one to show and when the
 // pick moves on.
 //
 // Which day it last showed and where in the list it stopped go to
 // sessions/tips.json — machine state, not a preference, so they sit beside the
-// other session records instead of in settings.json.
+// other session records instead of in settings.lua.
 
 import "core:encoding/json"
 import "core:fmt"
@@ -160,16 +160,16 @@ thor_tip_popup_due :: proc(popup_day, day: i64) -> bool {
 }
 
 // The card's close box, and the line that turns tips off for good. That answer
-// is the user's own, not the workspace's, so it goes to user/settings.json and
+// is the user's own, not the workspace's, so it goes to user/settings.lua and
 // not to whichever file the Settings modal is on.
 thor_tip_card_close :: proc(thor: ^Thor, never_again: bool) {
     thor.tip_open = false
     if !never_again {
         return
     }
-    path := strings.concatenate({setting.USER_DIR, "/settings.json"}, context.temp_allocator)
-    if !setting.persist_bool(path, "tip_of_the_day", false) {
-        thor_flash_status(thor, SETTINGS_SAVE_FAILED, is_error = true)
+    path := setting.USER_SETTINGS
+    if err := setting.persist_bool(path, "tip_of_the_day", false); err != .None {
+        thor_settings_save_failed(thor, path, err)
         return
     }
     thor_reload_settings(thor)

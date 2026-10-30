@@ -12,6 +12,7 @@ import "core:unicode/utf8"
 import rl "vendor:raylib"
 
 import "../lang/lsp"
+import "../luaconf"
 import "../setting"
 import "../textedit"
 import ui "../vendor/loom/loom"
@@ -21,7 +22,7 @@ import "../editview"
 // Applies the configurable settings to the live widgets. Called at startup and
 // on reload, so both paths stay in sync.
 thor_apply_settings :: proc(thor: ^Thor) {
-    // The editing keys: the built-in chord unless a keybinds.json names one. An
+    // The editing keys: the built-in chord unless a keybinds.lua names one. An
     // empty chord in a file takes the key away.
     editview.keymap_reset()
     for action in editview.Action {
@@ -29,7 +30,7 @@ thor_apply_settings :: proc(thor: ^Thor) {
             editview.keymap_bind(action, {kb.key, kb.mods})
         }
     }
-    // The app keys: the built-in chord unless a keybinds.json names one.
+    // The app keys: the built-in chord unless a keybinds.lua names one.
     app_keys := [?]struct {
         name:    string,
         key:     ^setting.Keybind,
@@ -159,17 +160,32 @@ thor_workspace_config_dir :: proc(workspace_dir: string, allocator := context.te
 // loses without a word.
 SETTINGS_SAVE_FAILED :: "Could not save settings. Check the file for errors"
 
+// Reports a settings write that did not land. A key the file sets in code
+// cannot be patched, so that file opens for hand editing.
+thor_settings_save_failed :: proc(thor: ^Thor, path: string, err: luaconf.Patch_Error) {
+    #partial switch err {
+    case .Computed:
+        thor_flash_status(thor, "This setting is set by code in the file. Edit it by hand", is_error = true)
+        thor_open_file(thor, path)
+    case .Invalid:
+        thor_flash_status(thor, "The settings file has an error. Fix it, then try again", is_error = true)
+        thor_open_file(thor, path)
+    case:
+        thor_flash_status(thor, SETTINGS_SAVE_FAILED, is_error = true)
+    }
+}
+
 // Path a GUI-driven change writes to. While the Settings modal is open, its
 // General/Workspace tab picks the file explicitly; otherwise (a command bound
 // directly to a shortcut or the palette) the workspace .thor/ overlay wins
 // when initialized, since it is what actually takes effect, else the user/
 // layer. Never settings/, which a build and an update replace wholesale.
 thor_active_settings_path :: proc(thor: ^Thor) -> string {
-    return thor_active_config_path(thor, "settings.json")
+    return thor_active_config_path(thor, setting.SETTINGS_FILE)
 }
 
 thor_active_keybinds_path :: proc(thor: ^Thor) -> string {
-    return thor_active_config_path(thor, "keybinds.json")
+    return thor_active_config_path(thor, setting.KEYBINDS_FILE)
 }
 
 thor_active_lsp_path :: proc(thor: ^Thor) -> string {
@@ -203,13 +219,13 @@ thor_load_config :: proc(thor: ^Thor, workspace_dir: string) {
     }
 }
 
-// Starter contents for a new .thor/settings.json: the current defaults, so the
+// Starter contents for a new .thor/settings.lua: the current defaults, so the
 // file is a ready-to-edit template.
 @(private = "file")
-WORKSPACE_SETTINGS_TEMPLATE :: "{\n    \"tab_width\": 4,\n    \"font_size\": 18,\n    \"autosave_delay_ms\": 1500\n}\n"
+WORKSPACE_SETTINGS_TEMPLATE :: "-- Settings for this folder. They overlay user/settings.lua.\nreturn {\n    tab_width = 4,\n    font_size = 18,\n    autosave_delay_ms = 1500,\n}\n"
 
 // Promotes the current folder to a workspace: creates <workspace>/.thor/ with a
-// starter settings.json and reloads so the overlay applies immediately.
+// starter settings.lua and reloads so the overlay applies immediately.
 thor_cmd_init_workspace :: proc(data: rawptr) {
     thor := cast(^Thor) data
     cfg_dir := thor_workspace_config_dir(thor.workspace_dir)
@@ -219,7 +235,7 @@ thor_cmd_init_workspace :: proc(data: rawptr) {
             return
         }
     }
-    settings_path := strings.concatenate({cfg_dir, "/settings.json"}, context.temp_allocator)
+    settings_path := strings.concatenate({cfg_dir, "/", setting.SETTINGS_FILE}, context.temp_allocator)
     if !os.exists(settings_path) {
         if err := os.write_entire_file(settings_path, transmute([]u8) string(WORKSPACE_SETTINGS_TEMPLATE)); err != nil {
             log.errorf("Could not write %q: %v", settings_path, err)
@@ -260,7 +276,7 @@ App_Bind :: struct {
 }
 
 // Registers a palette command that can also be bound to a key. `action` is the
-// keybinds.json name; most ship empty, so they stay unbound until the user sets
+// keybinds.lua name; most ship empty, so they stay unbound until the user sets
 // a chord.
 @(private = "file")
 thor_add_bindable_command :: proc(thor: ^Thor, title, action: string, run: proc(data: rawptr), data: rawptr) {
@@ -733,7 +749,7 @@ thor_cmd_new_theme :: proc(data: rawptr) {
 
 // Opens a config file for hand editing: the same layer a GUI change writes to,
 // so what the palette opens is what actually takes effect. An absent file opens
-// as an empty object rather than not at all — the user layer starts empty.
+// as an empty table rather than not at all — the user layer starts empty.
 @(private = "file")
 thor_open_config_file :: proc(thor: ^Thor, name: string) {
     path := thor_active_config_path(thor, name)
@@ -746,9 +762,9 @@ thor_open_config_file :: proc(thor: ^Thor, name: string) {
     thor_open_file(thor, path)
 }
 
-thor_cmd_open_keybinds :: proc(data: rawptr) {thor_open_config_file(cast(^Thor) data, "keybinds.json")}
-thor_cmd_open_comments :: proc(data: rawptr) {thor_open_config_file(cast(^Thor) data, "comments.json")}
-thor_cmd_open_settings :: proc(data: rawptr) {thor_open_config_file(cast(^Thor) data, "settings.json")}
+thor_cmd_open_keybinds :: proc(data: rawptr) {thor_open_config_file(cast(^Thor) data, setting.KEYBINDS_FILE)}
+thor_cmd_open_comments :: proc(data: rawptr) {thor_open_config_file(cast(^Thor) data, setting.COMMENTS_FILE)}
+thor_cmd_open_settings :: proc(data: rawptr) {thor_open_config_file(cast(^Thor) data, setting.SETTINGS_FILE)}
 thor_cmd_reload_settings :: proc(data: rawptr) {thor_reload_settings(cast(^Thor) data)}
 
 // The cached index once it has been warmed (thor_refresh_file_index); a

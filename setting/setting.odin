@@ -1,7 +1,7 @@
 package setting
 
-// Loads Thor's config from a directory of comments.json, keybinds.json and
-// settings.json. Missing or malformed files degrade to empty lookups.
+// Loads Thor's config from a directory of comments.lua, keybinds.lua,
+// settings.lua and tips.lua. Missing or malformed files degrade to empty lookups.
 //
 // Three layers, each overlaying the last per key: GLOBAL_DIR holds the shipped
 // defaults, USER_DIR what the GUI writes, and a workspace's .thor/ its own
@@ -10,14 +10,13 @@ package setting
 
 import "core:encoding/json"
 import "core:log"
-import "core:os"
 import "core:strings"
 
-import "../atomicfile"
 import ui "../vendor/loom/loom"
 
 import "../input"
 import "../lang"
+import "../luaconf"
 
 // A parsed key chord, e.g. "ctrl+shift+k" -> {key = .K, mods = {.Ctrl, .Shift}}.
 Keybind :: struct {
@@ -25,7 +24,7 @@ Keybind :: struct {
     mods: input.Modifiers,
 }
 
-// General editor preferences, overridable via settings.json.
+// General editor preferences, overridable via settings.lua.
 General :: struct {
     tab_width:         int,
     font_size:         int,
@@ -75,7 +74,7 @@ General :: struct {
 // One backend's admin gate: mirrors General's own language_enabled/
 // language_features pair, scoped to a single backend id. The *_set fields say
 // which keys a config layer actually stated; a key no layer states falls back to
-// the backend's own default (an lsp.json entry's `enabled`/`features`) rather
+// the backend's own default (an lsp.lua entry's `enabled`/`features`) rather
 // than to this struct's.
 Backend_Setting :: struct {
     enabled:      bool,
@@ -84,14 +83,14 @@ Backend_Setting :: struct {
     features_set: bit_set[lang.Request_Kind],
 }
 
-// settings.json key holding the language-intelligence gate: either a boolean
+// settings.lua key holding the language-intelligence gate: either a boolean
 // (the master switch alone) or an object of "enabled" plus one key per feature.
 LANGUAGE_SETTING :: "language_intelligence"
 
 // The key of the master switch inside that object.
 LANGUAGE_ENABLED_KEY :: "enabled"
 
-// settings.json key holding the per-backend admin gate: an object of backend
+// settings.lua key holding the per-backend admin gate: an object of backend
 // id -> either a bare bool (that backend's master switch alone) or an object
 // shaped exactly like language_intelligence's own ("enabled" plus one key per
 // feature). Layered the same way: only the ids, and within an id only the
@@ -105,6 +104,15 @@ GLOBAL_DIR :: "settings"
 // What the GUI writes, beside the binary and beside GLOBAL_DIR. Never staged
 // and never swapped, so a build or an update keeps it.
 USER_DIR :: "user"
+
+// The config file names of one layer.
+SETTINGS_FILE :: "settings.lua"
+KEYBINDS_FILE :: "keybinds.lua"
+COMMENTS_FILE :: "comments.lua"
+TIPS_FILE :: "tips.lua"
+
+// The settings.lua a GUI change writes when no workspace is set up.
+USER_SETTINGS :: USER_DIR + "/" + SETTINGS_FILE
 
 // The range each integer setting is held to, in a file and in the settings panel.
 TAB_WIDTH_MIN :: 1
@@ -128,11 +136,11 @@ Right_Alt :: enum {
     Alt,
 }
 
-// One entry of tips.json: a short lesson the welcome page shows, one a day.
+// One entry of tips.lua: a short lesson the welcome page shows, one a day.
 Tip :: struct {
     title:  string, // owned
     body:   string, // owned
-    // The keybinds.json action the tip is about ("command_palette"), never a
+    // The keybinds.lua action the tip is about ("command_palette"), never a
     // chord: the reader resolves it against the keybinds in force, so a rebind
     // shows the new chord. Owned; "" for a tip with no action of its own.
     action: string,
@@ -198,10 +206,10 @@ load_overlay :: proc(s: ^Settings, dir: string) {
 
 @(private)
 load_dir :: proc(s: ^Settings, dir: string) {
-    load_comments(s, strings.concatenate({dir, "/comments.json"}, context.temp_allocator))
-    load_keybinds(s, strings.concatenate({dir, "/keybinds.json"}, context.temp_allocator))
-    load_general(s, strings.concatenate({dir, "/settings.json"}, context.temp_allocator))
-    load_tips(s, strings.concatenate({dir, "/tips.json"}, context.temp_allocator))
+    load_comments(s, strings.concatenate({dir, "/", COMMENTS_FILE}, context.temp_allocator))
+    load_keybinds(s, strings.concatenate({dir, "/", KEYBINDS_FILE}, context.temp_allocator))
+    load_general(s, strings.concatenate({dir, "/", SETTINGS_FILE}, context.temp_allocator))
+    load_tips(s, strings.concatenate({dir, "/", TIPS_FILE}, context.temp_allocator))
 }
 
 destroy :: proc(s: ^Settings) {
@@ -352,7 +360,7 @@ tooltips :: proc(s: ^Settings) -> bool {
 }
 
 // Whether the tip of the day is shown. Off hides the welcome page card and
-// keeps the card over the editor closed; tips.json is still read.
+// keeps the card over the editor closed; tips.lua is still read.
 tip_of_the_day :: proc(s: ^Settings) -> bool {
     return s.general.tip_of_the_day
 }
@@ -431,7 +439,7 @@ parse_open_folder_in :: proc(value: string) -> Open_Folder_In {
     return .Ask
 }
 
-// The settings.json spelling of a choice, for persisting it back.
+// The settings.lua spelling of a choice, for persisting it back.
 open_folder_in_value :: proc(choice: Open_Folder_In) -> string {
     switch choice {
     case .Same:
@@ -460,7 +468,7 @@ parse_right_alt :: proc(value: string) -> Right_Alt {
     return .Auto
 }
 
-// The settings.json spelling of a choice, for persisting it back.
+// The settings.lua spelling of a choice, for persisting it back.
 right_alt_value :: proc(choice: Right_Alt) -> string {
     switch choice {
     case .Alt_Gr:
@@ -473,152 +481,82 @@ right_alt_value :: proc(choice: Right_Alt) -> string {
     return "auto"
 }
 
-// Rewrites `path` (a settings JSON object) with key set to value, preserving
-// every other key. Used to persist a UI-chosen theme/font back into
-// settings.json. A missing file starts a fresh object; a malformed one is left
-// alone and the call returns false.
-persist_string :: proc(path, key, value: string) -> bool {
-    root := load_root_object(path) or_return
-    root[key] = json.String(value)
-    return write_object(path, root)
+// Sets `key` in the settings file at `path`, keeping the rest of the file as
+// written. A missing file starts empty.
+persist_string :: proc(path, key, value: string) -> luaconf.Patch_Error {
+    return luaconf.patch(path, {key}, json.String(value))
 }
 
-// Creates `path` as an empty settings object when it does not exist, keeping an
+// Creates `path` as an empty config file when it does not exist, keeping an
 // existing file as it is. Lets a layer the user has never written be opened for
 // hand editing.
 persist_object :: proc(path: string) -> bool {
-    root := load_root_object(path) or_return
-    return write_object(path, root)
+    return luaconf.ensure_file(path)
 }
 
-// Like persist_string but for an integer field (tab_width, font_size, ...).
-persist_int :: proc(path, key: string, value: int) -> bool {
-    root := load_root_object(path) or_return
-    root[key] = json.Integer(value)
-    return write_object(path, root)
+persist_int :: proc(path, key: string, value: int) -> luaconf.Patch_Error {
+    return luaconf.patch(path, {key}, json.Integer(value))
 }
 
-// Like persist_string but for a boolean field (ligatures, ...).
-persist_bool :: proc(path, key: string, value: bool) -> bool {
-    root := load_root_object(path) or_return
-    root[key] = json.Boolean(value)
-    return write_object(path, root)
+persist_bool :: proc(path, key: string, value: bool) -> luaconf.Patch_Error {
+    return luaconf.patch(path, {key}, json.Boolean(value))
 }
 
-// Like persist_bool but one level down, in the object under `group` — the
-// language-intelligence gate's shape. The rest of the group is preserved; a
-// group that is missing, or holds anything but an object (the boolean shorthand
-// of "language_intelligence"), is replaced by a fresh one.
-persist_nested_bool :: proc(path, group, key: string, value: bool) -> bool {
-    root := load_root_object(path) or_return
-    obj, ok := root[group].(json.Object)
-    if !ok {
-        obj = make(json.Object, allocator = context.temp_allocator)
+// Sets `root[group][key]`. A group that holds the boolean shorthand of
+// "language_intelligence" is replaced by a table.
+persist_nested_bool :: proc(path, group, key: string, value: bool) -> luaconf.Patch_Error {
+    if err := luaconf.patch(path, {group, key}, json.Boolean(value)); err != .Computed {
+        return err
     }
+    root, status, _ := luaconf.eval_file(path)
+    if status != .Ok {
+        return .Invalid
+    }
+    if _, is_bool := luaconf.lookup(root, {group}).(json.Boolean); !is_bool {
+        return .Computed
+    }
+    obj := make(json.Object, 1, context.temp_allocator)
     obj[key] = json.Boolean(value)
-    root[group] = obj
-    return write_object(path, root)
+    return luaconf.patch(path, {group}, obj)
 }
 
-// Like persist_nested_bool but two levels down: `root[group][subgroup][key] =
-// value`. The per-backend admin gate's shape — subgroup is a backend id, key is
-// either LANGUAGE_ENABLED_KEY or a feature name. Every other id and key is
-// preserved; a level that is missing, or holds anything but an object (a bare
-// bool at that level), is replaced by a fresh one.
-persist_double_nested_bool :: proc(path, group, subgroup, key: string, value: bool) -> bool {
-    root := load_root_object(path) or_return
-    outer, outer_ok := root[group].(json.Object)
-    if !outer_ok {
-        outer = make(json.Object, allocator = context.temp_allocator)
+// Sets `root[group][subgroup][key]`: the per-backend admin gate, where
+// subgroup is a backend id and key is LANGUAGE_ENABLED_KEY or a feature name. A
+// backend that holds a bare bool is replaced by a table.
+persist_double_nested_bool :: proc(path, group, subgroup, key: string, value: bool) -> luaconf.Patch_Error {
+    if err := luaconf.patch(path, {group, subgroup, key}, json.Boolean(value)); err != .Computed {
+        return err
     }
-    inner, inner_ok := outer[subgroup].(json.Object)
-    if !inner_ok {
-        inner = make(json.Object, allocator = context.temp_allocator)
+    root, status, _ := luaconf.eval_file(path)
+    if status != .Ok {
+        return .Invalid
     }
-    inner[key] = json.Boolean(value)
-    outer[subgroup] = inner
-    root[group] = outer
-    return write_object(path, root)
+    if _, is_bool := luaconf.lookup(root, {group, subgroup}).(json.Boolean); !is_bool {
+        return .Computed
+    }
+    obj := make(json.Object, 1, context.temp_allocator)
+    obj[key] = json.Boolean(value)
+    return luaconf.patch(path, {group, subgroup}, obj)
 }
 
-// Rewrites keybinds.json with `action` bound to `spec`, updating it in whichever
-// group already holds it and preserving every other binding. An action not yet
-// present lands in a "custom" group. An empty spec persists as an explicit unbind.
-persist_keybind :: proc(path, action, spec: string) -> bool {
-    root := load_root_object(path) or_return
-
-    updated := false
-    for _, group_value in root {
-        group, ok := group_value.(json.Object)
-        if !ok {
-            continue
-        }
-        if _, has := group[action]; has {
-            group[action] = json.String(spec)
-            updated = true
-            break
+// Binds `action` to `spec` in keybinds.lua, in whichever group already holds
+// it. An action not yet present lands in a "custom" group. An empty spec
+// persists as an explicit unbind.
+persist_keybind :: proc(path, action, spec: string) -> luaconf.Patch_Error {
+    group := "custom"
+    root, status, _ := luaconf.eval_file(path)
+    if status == .Failed {
+        return .Invalid
+    }
+    if obj, ok := root.(json.Object); ok {
+        for name, value in obj {
+            if members, is_obj := value.(json.Object); is_obj && action in members {
+                group = name
+                break
+            }
         }
     }
-    if !updated {
-        group: json.Object
-        if existing, ok := root["custom"].(json.Object); ok {
-            group = existing
-        } else {
-            group = make(json.Object, allocator = context.temp_allocator)
-        }
-        group[action] = json.String(spec)
-        root["custom"] = group
-    }
-    return write_object(path, root)
-}
-
-// Parses `path` as a JSON object, or a fresh temp-allocated one when it is
-// missing. False when the file is there but cannot be read or parsed, so a
-// persist does not write over it. The result is only valid until the temp
-// allocator resets.
-@(private)
-load_root_object :: proc(path: string) -> (json.Object, bool) {
-    if existing, ok := parse_object(path); ok {
-        return existing, true
-    }
-    if os.exists(path) {
-        log.warnf("Settings %q do not parse; not writing over them", path)
-        return nil, false
-    }
-    return make(json.Object, allocator = context.temp_allocator), true
-}
-
-// The directory part of a config path, empty when it names none. Both
-// separators count: a workspace path carries whatever the platform gave it.
-@(private)
-parent_dir :: proc(path: string) -> string {
-    cut := strings.last_index_any(path, "/\\")
-    if cut <= 0 {
-        return ""
-    }
-    return path[:cut]
-}
-
-@(private)
-write_object :: proc(path: string, root: json.Object) -> bool {
-    data, err := json.marshal(root, {pretty = true, use_spaces = true, spaces = 4}, context.temp_allocator)
-    if err != nil {
-        log.errorf("Cannot marshal settings %q: %v", path, err)
-        return false
-    }
-    // USER_DIR does not exist until the first write to it.
-    dir := parent_dir(path)
-    if dir != "" && dir != "." && !os.is_dir(dir) {
-        if derr := os.make_directory(dir); derr != nil {
-            log.errorf("Cannot create settings directory %q: %v", dir, derr)
-            return false
-        }
-    }
-    if werr := atomicfile.write(path, data); werr != nil {
-        log.errorf("Cannot write settings %q: %v", path, werr)
-        return false
-    }
-    return true
+    return luaconf.patch(path, {group, action}, json.String(spec))
 }
 
 // True when an incoming key event exactly matches the chord (modifiers must
@@ -822,28 +760,22 @@ key_from_name :: proc(name: string) -> (ui.Key, bool) {
     return .None, false
 }
 
+// Evaluates a config file as an object. An absent file is a supported state (a
+// first run has none), so only a real failure is worth a warning.
 @(private)
 parse_object :: proc(path: string) -> (json.Object, bool) {
-    // An absent file is a supported state (a first run has none), so only a
-    // real read failure is worth a warning.
-    if !os.exists(path) {
+    root, status, message := luaconf.eval_file(path)
+    switch status {
+    case .Missing:
         return nil, false
-    }
-    data, read_err := os.read_entire_file_from_path(path, context.temp_allocator)
-    if read_err != nil {
-        log.warnf("Cannot read settings %q: %v", path, read_err)
+    case .Failed:
+        log.warnf("Cannot load settings: %s", message)
         return nil, false
+    case .Ok:
     }
-
-    root, parse_err := json.parse(data, allocator = context.temp_allocator)
-    if parse_err != .None {
-        log.warnf("Cannot parse settings %q: %v", path, parse_err)
-        return nil, false
-    }
-
     obj, ok := root.(json.Object)
     if !ok {
-        log.warnf("Settings %q: root is not an object", path)
+        log.warnf("Settings %q: the file does not return a table of keys", path)
         return nil, false
     }
     return obj, true
@@ -865,7 +797,7 @@ load_comments :: proc(s: ^Settings, path: string) {
         if line, line_ok := entry["line"].(json.String); line_ok {
             style.line = string(line)
         }
-        if block, block_ok := entry["block"].(json.Array); block_ok && len(block) == 2 {
+        if block, block_ok := luaconf.as_array(entry["block"]); block_ok && len(block) == 2 {
             open, open_ok := block[0].(json.String)
             close, close_ok := block[1].(json.String)
             if open_ok && close_ok {
@@ -878,7 +810,7 @@ load_comments :: proc(s: ^Settings, path: string) {
         if style.line == "" && style.block_open == "" {
             continue
         }
-        extensions, ext_ok := entry["extensions"].(json.Array)
+        extensions, ext_ok := luaconf.as_array(entry["extensions"])
         if !ext_ok {
             log.warnf("Settings %q: language %q has no \"extensions\" array", path, language)
             continue
@@ -893,7 +825,7 @@ load_comments :: proc(s: ^Settings, path: string) {
     }
 }
 
-// Reads tips.json: {"tips": [{"title": ..., "body": ..., "action": ...}]}.
+// Reads tips.lua: { tips = { { title = ..., body = ..., action = ... } } }.
 // Appends, so the shipped tips come first and a user/ or workspace file adds to
 // them. An entry with no title or no body is skipped; a half tip would show as
 // a blank card.
@@ -909,7 +841,7 @@ load_tips :: proc(s: ^Settings, path: string) {
 // The tips of one already-parsed file. `path` only names the file in a warning.
 @(private)
 read_tips :: proc(s: ^Settings, root: json.Object, path: string) {
-    entries, entries_ok := root["tips"].(json.Array)
+    entries, entries_ok := luaconf.as_array(root["tips"])
     if !entries_ok {
         log.warnf("Settings %q: no \"tips\" array", path)
         return
@@ -1117,7 +1049,7 @@ load_keybinds :: proc(s: ^Settings, path: string) {
         return
     }
 
-    // keybinds.json groups bindings (e.g. "editor", "global"); action names
+    // keybinds.lua groups bindings (e.g. "editor", "global"); action names
     // share one flat namespace regardless of group.
     for group_name, group_value in root {
         group, group_ok := group_value.(json.Object)

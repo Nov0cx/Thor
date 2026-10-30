@@ -729,8 +729,8 @@ thor_shell_commit :: proc(data: rawptr, choice: string) {
     if !ok {
         return
     }
-    if !setting.persist_string(thor_active_settings_path(thor), "default_shell", choice) {
-        thor_flash_status(thor, SETTINGS_SAVE_FAILED, is_error = true)
+    if err := setting.persist_string(thor_active_settings_path(thor), "default_shell", choice); err != .None {
+        thor_settings_save_failed(thor, thor_active_settings_path(thor), err)
         return
     }
     thor_reload_settings(thor)

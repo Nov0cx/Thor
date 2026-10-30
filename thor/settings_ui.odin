@@ -184,8 +184,8 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
 // applies live (and refreshes the modal's rows).
 thor_on_setting_number :: proc(data: rawptr, id: string, value: int) {
     thor := cast(^Thor) data
-    if !setting.persist_int(thor_active_settings_path(thor), id, value) {
-        thor_flash_status(thor, SETTINGS_SAVE_FAILED, is_error = true)
+    if err := setting.persist_int(thor_active_settings_path(thor), id, value); err != .None {
+        thor_settings_save_failed(thor, thor_active_settings_path(thor), err)
         return
     }
     thor_reload_settings(thor)
@@ -360,9 +360,9 @@ thor_right_alt_commit :: proc(data: rawptr, choice: string) {
         }
     }
     value := setting.right_alt_value(picked)
-    path := strings.concatenate({setting.USER_DIR, "/settings.json"}, context.temp_allocator)
-    if !setting.persist_string(path, "right_alt", value) {
-        thor_flash_status(thor, SETTINGS_SAVE_FAILED, is_error = true)
+    path := setting.USER_SETTINGS
+    if err := setting.persist_string(path, "right_alt", value); err != .None {
+        thor_settings_save_failed(thor, path, err)
         return
     }
     delete(thor.config.general.right_alt)
@@ -502,8 +502,8 @@ thor_language_master_preview :: proc(_: rawptr, _: string) {}
 thor_language_master_commit :: proc(data: rawptr, choice: string) {
     thor := cast(^Thor) data
     on := choice == ON_OFF_LABELS[0]
-    if !setting.persist_nested_bool(thor_active_settings_path(thor), setting.LANGUAGE_SETTING, setting.LANGUAGE_ENABLED_KEY, on) {
-        thor_flash_status(thor, SETTINGS_SAVE_FAILED, is_error = true)
+    if err := setting.persist_nested_bool(thor_active_settings_path(thor), setting.LANGUAGE_SETTING, setting.LANGUAGE_ENABLED_KEY, on); err != .None {
+        thor_settings_save_failed(thor, thor_active_settings_path(thor), err)
         return
     }
     thor_reload_settings(thor)
@@ -718,8 +718,8 @@ thor_format_on_type_commit :: proc(data: rawptr, choice: string) {
 // and changes nothing, so the row keeps reading what is actually on disk.
 @(private = "file")
 thor_persist_bool_setting :: proc(thor: ^Thor, key: string, on: bool) {
-    if !setting.persist_bool(thor_active_settings_path(thor), key, on) {
-        thor_flash_status(thor, SETTINGS_SAVE_FAILED, is_error = true)
+    if err := setting.persist_bool(thor_active_settings_path(thor), key, on); err != .None {
+        thor_settings_save_failed(thor, thor_active_settings_path(thor), err)
         return
     }
     thor_reload_settings(thor)
@@ -797,12 +797,12 @@ thor_language_backend_feature_commit :: proc(data: rawptr, choice: string) {
 // the two share a shape, and both need the reload to reach the seam.
 @(private = "file")
 thor_persist_backend_key :: proc(thor: ^Thor, key: string, on: bool) {
-    ok := setting.persist_double_nested_bool(
-        thor_active_settings_path(thor), setting.LANGUAGE_BACKENDS_SETTING,
-        thor.language_backend_target, key, on,
+    path := thor_active_settings_path(thor)
+    err := setting.persist_double_nested_bool(
+        path, setting.LANGUAGE_BACKENDS_SETTING, thor.language_backend_target, key, on,
     )
-    if !ok {
-        thor_flash_status(thor, SETTINGS_SAVE_FAILED, is_error = true)
+    if err != .None {
+        thor_settings_save_failed(thor, path, err)
         return
     }
     thor_reload_settings(thor)
@@ -880,14 +880,14 @@ thor_plugin_permission_commit :: proc(data: rawptr, choice: string) {
     }
 }
 
-// Persists a captured (or cleared) chord to keybinds.json, then reloads so the
+// Persists a captured (or cleared) chord to keybinds.lua, then reloads so the
 // binding takes effect immediately.
 thor_on_setting_keybind :: proc(data: rawptr, id: string, key: ui.Key, mods: input.Modifiers) {
     thor := cast(^Thor) data
     kb := setting.Keybind {key = key, mods = mods}
     spec := setting.keybind_spec(kb, context.temp_allocator)
-    if !setting.persist_keybind(thor_active_keybinds_path(thor), id, spec) {
-        thor_flash_status(thor, SETTINGS_SAVE_FAILED, is_error = true)
+    if err := setting.persist_keybind(thor_active_keybinds_path(thor), id, spec); err != .None {
+        thor_settings_save_failed(thor, thor_active_keybinds_path(thor), err)
         return
     }
     thor_reload_settings(thor)

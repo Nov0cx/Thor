@@ -20,16 +20,17 @@ SETTINGS_POLL_INTERVAL :: 0.4
 // paths for the overlay). settings/ and user/ are relative to the exe dir (the CWD).
 @(private = "file")
 thor_settings_files :: proc(thor: ^Thor, out: ^[dynamic]string) {
+    names := []string{setting.SETTINGS_FILE, setting.KEYBINDS_FILE, setting.COMMENTS_FILE, setting.TIPS_FILE}
     for dir in ([]string{setting.GLOBAL_DIR, setting.USER_DIR}) {
-        for name in ([]string{"/settings.json", "/keybinds.json", "/comments.json"}) {
-            append(out, strings.concatenate({dir, name}, context.temp_allocator))
+        for name in names {
+            append(out, strings.concatenate({dir, "/", name}, context.temp_allocator))
         }
     }
     if thor.workspace_initialized {
         dir := thor_workspace_config_dir(thor.workspace_dir)
-        append(out, strings.concatenate({dir, "/settings.json"}, context.temp_allocator))
-        append(out, strings.concatenate({dir, "/keybinds.json"}, context.temp_allocator))
-        append(out, strings.concatenate({dir, "/comments.json"}, context.temp_allocator))
+        for name in names {
+            append(out, strings.concatenate({dir, "/", name}, context.temp_allocator))
+        }
     }
     // Unconditional: a tasks file written into a not-yet-initialized workspace
     // still has to reload.
@@ -68,7 +69,7 @@ thor_lsp_files :: proc(thor: ^Thor, out: ^[dynamic]string) {
     append(out, lsp.GLOBAL_CONFIG)
     append(out, lsp.USER_CONFIG)
     // Unconditional, like the tasks file: a folder can carry .thor/lsp.json with
-    // no settings.json of its own.
+    // no settings.lua of its own.
     if thor.workspace_dir != "" {
         dir := thor_workspace_config_dir(thor.workspace_dir)
         append(out, strings.concatenate({dir, "/", lsp.WORKSPACE_CONFIG}, context.temp_allocator))

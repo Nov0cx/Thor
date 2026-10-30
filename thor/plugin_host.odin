@@ -98,7 +98,7 @@ thor_plugin_print :: proc(host: rawptr, text: string) {
     }
 }
 
-// thor.keybind(action): the chord currently bound to `action` in keybinds.json,
+// thor.keybind(action): the chord currently bound to `action` in keybinds.lua,
 // formatted for display, so plugins present the user's real shortcuts.
 thor_plugin_keybind :: proc(host: rawptr, action: string) -> (string, bool) {
     thor := cast(^Thor) host

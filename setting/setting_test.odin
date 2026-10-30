@@ -6,6 +6,7 @@ import "core:strings"
 import "core:testing"
 
 import "../lang"
+import "../luaconf"
 import ui "../vendor/loom/loom"
 
 // Run from the repository root: odin test setting
@@ -66,15 +67,15 @@ language_defaults :: proc() -> Settings {
     return s
 }
 
-// Layers one settings.json body's language entry onto `s`.
+// Layers one settings.lua body's language entry onto `s`.
 @(private = "file")
 apply_language_json :: proc(t: ^testing.T, s: ^Settings, body: string) {
-    value, err := json.parse(transmute([]u8) body, allocator = context.temp_allocator)
-    if !testing.expectf(t, err == .None, "test JSON did not parse: %v", err) {
+    value, err := parse_test_lua(body)
+    if !testing.expectf(t, err == .None, "test Lua did not evaluate: %v", err) {
         return
     }
     root, ok := value.(json.Object)
-    if !testing.expect(t, ok, "test JSON is not an object") {
+    if !testing.expect(t, ok, "test Lua is not a table") {
         return
     }
     read_language(s, root)
@@ -99,7 +100,7 @@ test_language_defaults_on :: proc(t: ^testing.T) {
 @(test)
 test_language_boolean_shorthand :: proc(t: ^testing.T) {
     s := language_defaults()
-    apply_language_json(t, &s, `{"language_intelligence": false}`)
+    apply_language_json(t, &s, `return { language_intelligence = false }`)
 
     testing.expect(t, !language_enabled(&s), "the shorthand must turn the master switch off")
     testing.expect_value(t, language_features(&s), lang.FEATURES_ALL)
@@ -113,7 +114,7 @@ test_language_boolean_shorthand :: proc(t: ^testing.T) {
 @(test)
 test_language_feature_keys :: proc(t: ^testing.T) {
     s := language_defaults()
-    apply_language_json(t, &s, `{"language_intelligence": {"hover": false, "diagnostics": false}}`)
+    apply_language_json(t, &s, `return { language_intelligence = { hover = false, diagnostics = false } }`)
 
     testing.expect(t, language_enabled(&s), "an object without \"enabled\" leaves the master switch on")
     testing.expect(t, !language_feature_enabled(&s, .Hover), "hover should be off")
@@ -122,7 +123,7 @@ test_language_feature_keys :: proc(t: ^testing.T) {
 
     // A second layer (the workspace overlay) turns one back on and leaves the
     // other where the first put it.
-    apply_language_json(t, &s, `{"language_intelligence": {"hover": true, "unknown_feature": false}}`)
+    apply_language_json(t, &s, `return { language_intelligence = { hover = true, unknown_feature = false } }`)
     testing.expect(t, language_feature_enabled(&s, .Hover), "the overlay should turn hover back on")
     testing.expect(t, !language_feature_enabled(&s, .Diagnostics), "the overlay must not reset an unnamed feature")
 }
@@ -131,7 +132,7 @@ test_language_feature_keys :: proc(t: ^testing.T) {
 @(test)
 test_language_object_enabled_key :: proc(t: ^testing.T) {
     s := language_defaults()
-    apply_language_json(t, &s, `{"language_intelligence": {"enabled": false, "hover": false}}`)
+    apply_language_json(t, &s, `return { language_intelligence = { enabled = false, hover = false } }`)
 
     testing.expect(t, !language_enabled(&s), "\"enabled\" must gate the whole seam")
     testing.expect(t, !(.Hover in language_features(&s)), "the per-feature key must still be read")
@@ -160,7 +161,7 @@ test_read_backend_toggles_layers :: proc(t: ^testing.T) {
         delete(s.general.language_backends)
     }
 
-    value, err := json.parse(transmute([]u8) string(`{"language_backends": {"clangd": false, "odin": true}}`), allocator = context.temp_allocator)
+    value, err := parse_test_lua(`return { language_backends = { clangd = false, odin = true } }`)
     testing.expect_value(t, err, json.Error.None)
     root, ok := value.(json.Object)
     testing.expect(t, ok)
@@ -172,7 +173,7 @@ test_read_backend_toggles_layers :: proc(t: ^testing.T) {
 
     // A later layer (the workspace overlay) restating only one id must not
     // reset the other.
-    value2, err2 := json.parse(transmute([]u8) string(`{"language_backends": {"odin": false}}`), allocator = context.temp_allocator)
+    value2, err2 := parse_test_lua(`return { language_backends = { odin = false } }`)
     testing.expect_value(t, err2, json.Error.None)
     root2, ok2 := value2.(json.Object)
     testing.expect(t, ok2)
@@ -186,10 +187,10 @@ test_read_backend_toggles_layers :: proc(t: ^testing.T) {
 // backend_enabled exactly as it was written.
 @(test)
 test_backend_toggle_persist_round_trip :: proc(t: ^testing.T) {
-    path := "thor_lang_backends_test.json"
+    path := "thor_lang_backends_test.lua"
     defer os.remove(path)
 
-    testing.expect(t, persist_nested_bool(path, LANGUAGE_BACKENDS_SETTING, "clangd", false))
+    testing.expect_value(t, persist_nested_bool(path, LANGUAGE_BACKENDS_SETTING, "clangd", false), luaconf.Patch_Error.None)
 
     s := load_from_dir_for_test(path)
     defer destroy(&s)
@@ -200,26 +201,26 @@ test_backend_toggle_persist_round_trip :: proc(t: ^testing.T) {
 // A file that does not parse is not written over; a missing one is created.
 @(test)
 test_persist_keeps_a_malformed_file :: proc(t: ^testing.T) {
-    path := "thor_malformed_settings_test.json"
+    path := "thor_malformed_settings_test.lua"
     defer os.remove(path)
-    BROKEN :: `{ "theme": `
+    BROKEN :: `return { theme = `
 
     testing.expect_value(t, os.write_entire_file(path, transmute([]byte) string(BROKEN)), nil)
-    testing.expect(t, !persist_string(path, "theme", "dark"), "a persist onto a malformed file must fail")
-    testing.expect(t, !persist_keybind(path, "save", "ctrl+s"), "a keybind persist onto a malformed file must fail")
+    testing.expect(t, persist_string(path, "theme", "dark") != .None, "a persist onto a malformed file must fail")
+    testing.expect(t, persist_keybind(path, "save", "ctrl+s") != .None, "a keybind persist onto a malformed file must fail")
     data, err := os.read_entire_file(path, context.temp_allocator)
     testing.expect_value(t, err, nil)
     testing.expect_value(t, string(data), BROKEN)
 
     testing.expect_value(t, os.remove(path), nil)
-    testing.expect(t, persist_string(path, "theme", "dark"), "a missing file must be created")
+    testing.expect_value(t, persist_string(path, "theme", "dark"), luaconf.Patch_Error.None)
     s := load_from_dir_for_test(path)
     defer destroy(&s)
     testing.expect_value(t, s.general.theme, "dark")
 }
 
-// Reads settings.json at an arbitrary path the way load_general does, for a
-// test that persists to a bare file rather than a dir/settings.json layout.
+// Reads settings.lua at an arbitrary path the way load_general does, for a
+// test that persists to a bare file rather than a dir/settings.lua layout.
 @(private = "file")
 load_from_dir_for_test :: proc(path: string) -> Settings {
     s: Settings
@@ -247,10 +248,7 @@ test_backend_features_object_form :: proc(t: ^testing.T) {
     testing.expect_value(t, backend_features(&s, "clangd"), lang.FEATURES_ALL)
     testing.expect(t, backend_feature_enabled(&s, "clangd", .Hover), "an unmentioned backend must allow every feature")
 
-    value, err := json.parse(
-        transmute([]u8) string(`{"language_backends": {"clangd": {"hover": false, "rename": false}}}`),
-        allocator = context.temp_allocator,
-    )
+    value, err := parse_test_lua(`return { language_backends = { clangd = { hover = false, rename = false } } }`)
     testing.expect_value(t, err, json.Error.None)
     root, ok := value.(json.Object)
     testing.expect(t, ok)
@@ -265,10 +263,7 @@ test_backend_features_object_form :: proc(t: ^testing.T) {
     // A second layer turns one feature back on and leaves the other where the
     // first layer put it — same overlay behavior read_language gives the
     // top-level entry.
-    value2, err2 := json.parse(
-        transmute([]u8) string(`{"language_backends": {"clangd": {"hover": true}}}`),
-        allocator = context.temp_allocator,
-    )
+    value2, err2 := parse_test_lua(`return { language_backends = { clangd = { hover = true } } }`)
     testing.expect_value(t, err2, json.Error.None)
     root2, ok2 := value2.(json.Object)
     testing.expect(t, ok2)
@@ -283,11 +278,11 @@ test_backend_features_object_form :: proc(t: ^testing.T) {
 // disturbing that backend's own enabled switch or another backend's gate.
 @(test)
 test_backend_feature_persist_round_trip :: proc(t: ^testing.T) {
-    path := "thor_lang_backend_features_test.json"
+    path := "thor_lang_backend_features_test.lua"
     defer os.remove(path)
 
-    testing.expect(t, persist_double_nested_bool(path, LANGUAGE_BACKENDS_SETTING, "clangd", "hover", false))
-    testing.expect(t, persist_double_nested_bool(path, LANGUAGE_BACKENDS_SETTING, "clangd", LANGUAGE_ENABLED_KEY, true))
+    testing.expect_value(t, persist_double_nested_bool(path, LANGUAGE_BACKENDS_SETTING, "clangd", "hover", false), luaconf.Patch_Error.None)
+    testing.expect_value(t, persist_double_nested_bool(path, LANGUAGE_BACKENDS_SETTING, "clangd", LANGUAGE_ENABLED_KEY, true), luaconf.Patch_Error.None)
 
     s := load_from_dir_for_test(path)
     defer destroy(&s)
@@ -301,10 +296,10 @@ test_backend_feature_persist_round_trip :: proc(t: ^testing.T) {
 // value from this struct's default and fall back to the backend's own.
 @(test)
 test_backend_state_records_what_a_layer_stated :: proc(t: ^testing.T) {
-    path := "thor_backend_state_test.json"
+    path := "thor_backend_state_test.lua"
     defer os.remove(path)
 
-    testing.expect(t, persist_double_nested_bool(path, LANGUAGE_BACKENDS_SETTING, "clangd", lang.feature_name(.Format), false))
+    testing.expect_value(t, persist_double_nested_bool(path, LANGUAGE_BACKENDS_SETTING, "clangd", lang.feature_name(.Format), false), luaconf.Patch_Error.None)
 
     s := load_from_dir_for_test(path)
     defer destroy(&s)
@@ -322,10 +317,10 @@ test_backend_state_records_what_a_layer_stated :: proc(t: ^testing.T) {
 // The bare-bool form states the enabled switch and nothing else.
 @(test)
 test_backend_state_bare_bool_form :: proc(t: ^testing.T) {
-    path := "thor_backend_state_bool_test.json"
+    path := "thor_backend_state_bool_test.lua"
     defer os.remove(path)
 
-    testing.expect(t, persist_nested_bool(path, LANGUAGE_BACKENDS_SETTING, "clangd", false))
+    testing.expect_value(t, persist_nested_bool(path, LANGUAGE_BACKENDS_SETTING, "clangd", false), luaconf.Patch_Error.None)
 
     s := load_from_dir_for_test(path)
     defer destroy(&s)
@@ -346,14 +341,14 @@ test_load_overlay_layers_in_order :: proc(t: ^testing.T) {
     user := "thor_layer_user.tmp"
     workspace := "thor_layer_workspace.tmp"
     defer for dir in ([]string{global, user, workspace}) {
-        os.remove(concat_for_test(dir, "/settings.json"))
+        os.remove(concat_for_test(dir, "/settings.lua"))
         os.remove(dir)
     }
 
-    testing.expect(t, persist_int(concat_for_test(global, "/settings.json"), "tab_width", 2))
-    testing.expect(t, persist_int(concat_for_test(global, "/settings.json"), "font_size", 12))
-    testing.expect(t, persist_int(concat_for_test(user, "/settings.json"), "font_size", 20))
-    testing.expect(t, persist_int(concat_for_test(workspace, "/settings.json"), "tab_width", 8))
+    testing.expect_value(t, persist_int(concat_for_test(global, "/settings.lua"), "tab_width", 2), luaconf.Patch_Error.None)
+    testing.expect_value(t, persist_int(concat_for_test(global, "/settings.lua"), "font_size", 12), luaconf.Patch_Error.None)
+    testing.expect_value(t, persist_int(concat_for_test(user, "/settings.lua"), "font_size", 20), luaconf.Patch_Error.None)
+    testing.expect_value(t, persist_int(concat_for_test(workspace, "/settings.lua"), "tab_width", 8), luaconf.Patch_Error.None)
 
     s := load(global)
     defer destroy(&s)
@@ -369,15 +364,15 @@ test_load_overlay_layers_in_order :: proc(t: ^testing.T) {
 @(test)
 test_load_clamps_integers :: proc(t: ^testing.T) {
     dir := "thor_clamp.tmp"
-    path := concat_for_test(dir, "/settings.json")
+    path := concat_for_test(dir, "/settings.lua")
     defer {
         os.remove(path)
         os.remove(dir)
     }
 
-    testing.expect(t, persist_int(path, "font_size", -4))
-    testing.expect(t, persist_int(path, "tab_width", 0))
-    testing.expect(t, persist_int(path, "autosave_delay_ms", 99999999))
+    testing.expect_value(t, persist_int(path, "font_size", -4), luaconf.Patch_Error.None)
+    testing.expect_value(t, persist_int(path, "tab_width", 0), luaconf.Patch_Error.None)
+    testing.expect_value(t, persist_int(path, "autosave_delay_ms", 99999999), luaconf.Patch_Error.None)
 
     low := load(dir)
     defer destroy(&low)
@@ -385,8 +380,8 @@ test_load_clamps_integers :: proc(t: ^testing.T) {
     testing.expect_value(t, tab_width(&low), TAB_WIDTH_MIN)
     testing.expect_value(t, autosave_delay_ms(&low), AUTOSAVE_DELAY_MAX)
 
-    testing.expect(t, persist_int(path, "font_size", 500))
-    testing.expect(t, persist_int(path, "tab_width", 8))
+    testing.expect_value(t, persist_int(path, "font_size", 500), luaconf.Patch_Error.None)
+    testing.expect_value(t, persist_int(path, "tab_width", 8), luaconf.Patch_Error.None)
 
     high := load(dir)
     defer destroy(&high)
@@ -449,18 +444,18 @@ test_parse_keybind_refuses_an_unknown_token :: proc(t: ^testing.T) {
     testing.expect(t, unbind.key == .None, "an unbind must leave the key unset")
 }
 
-// Layers one tips.json body onto `s`, the way load_dir does per config layer.
+// Layers one tips.lua body onto `s`, the way load_dir does per config layer.
 @(private = "file")
 apply_tips_json :: proc(t: ^testing.T, s: ^Settings, body: string) {
-    value, err := json.parse(transmute([]u8) body, allocator = context.temp_allocator)
-    if !testing.expectf(t, err == .None, "test JSON did not parse: %v", err) {
+    value, err := parse_test_lua(body)
+    if !testing.expectf(t, err == .None, "test Lua did not evaluate: %v", err) {
         return
     }
     root, ok := value.(json.Object)
-    if !testing.expect(t, ok, "test JSON is not an object") {
+    if !testing.expect(t, ok, "test Lua is not a table") {
         return
     }
-    read_tips(s, root, "tips.json")
+    read_tips(s, root, "tips.lua")
 }
 
 // Tips append across the config layers instead of overlaying: a workspace adds
@@ -471,8 +466,8 @@ test_tips_append_across_layers :: proc(t: ^testing.T) {
     s.tips = make([dynamic]Tip)
     defer destroy(&s)
 
-    apply_tips_json(t, &s, `{"tips": [{"title": "Shipped", "body": "One", "action": "command_palette"}]}`)
-    apply_tips_json(t, &s, `{"tips": [{"title": "Workspace", "body": "Two"}]}`)
+    apply_tips_json(t, &s, `return { tips = { { title = "Shipped", body = "One", action = "command_palette" } } }`)
+    apply_tips_json(t, &s, `return { tips = { { title = "Workspace", body = "Two" } } }`)
 
     testing.expect_value(t, len(s.tips), 2)
     if len(s.tips) == 2 {
@@ -493,30 +488,30 @@ test_tips_skip_incomplete_entries :: proc(t: ^testing.T) {
     s.tips = make([dynamic]Tip)
     defer destroy(&s)
 
-    apply_tips_json(t, &s, `{"tips": [
-        {"title": "No body"},
-        {"body": "No title"},
-        {"title": "", "body": "Empty title"},
-        {"title": "Empty body", "body": ""},
+    apply_tips_json(t, &s, `return { tips = {
+        { title = "No body" },
+        { body = "No title" },
+        { title = "", body = "Empty title" },
+        { title = "Empty body", body = "" },
         "not an object",
-        {"title": "Good", "body": "Kept"}
-    ]}`)
+        { title = "Good", body = "Kept" },
+    } }`)
     testing.expect_value(t, len(s.tips), 1)
     if len(s.tips) == 1 {
         testing.expect_value(t, s.tips[0].title, "Good")
     }
 
-    apply_tips_json(t, &s, `{"font_size": 18}`)
+    apply_tips_json(t, &s, `return { font_size = 18 }`)
     testing.expect_value(t, len(s.tips), 1)
 }
 
-// Both display switches default on and are read from settings.json under the
+// Both display switches default on and are read from settings.lua under the
 // names the file uses, so an "off" in a layer actually turns one off.
 @(test)
 test_display_switches_default_on_and_layer :: proc(t: ^testing.T) {
     dir := "thor_display_layer.tmp"
     defer {
-        os.remove(concat_for_test(dir, "/settings.json"))
+        os.remove(concat_for_test(dir, "/settings.lua"))
         os.remove(dir)
     }
 
@@ -525,8 +520,8 @@ test_display_switches_default_on_and_layer :: proc(t: ^testing.T) {
     testing.expect(t, indent_guides(&s), "indent guides are on until a file says otherwise")
     testing.expect(t, relative_line_numbers(&s), "so is relative numbering")
 
-    testing.expect(t, persist_bool(concat_for_test(dir, "/settings.json"), "indent_guides", false))
-    testing.expect(t, persist_bool(concat_for_test(dir, "/settings.json"), "relative_line_numbers", false))
+    testing.expect_value(t, persist_bool(concat_for_test(dir, "/settings.lua"), "indent_guides", false), luaconf.Patch_Error.None)
+    testing.expect_value(t, persist_bool(concat_for_test(dir, "/settings.lua"), "relative_line_numbers", false), luaconf.Patch_Error.None)
     load_overlay(&s, dir)
     testing.expect(t, !indent_guides(&s), "the layer turns the guides off")
     testing.expect(t, !relative_line_numbers(&s), "and the numbering absolute")
@@ -544,4 +539,14 @@ test_every_key_has_a_token :: proc(t: ^testing.T) {
         back, ok := parse_keybind(spec)
         testing.expectf(t, ok && back.key == key, "%v wrote %q", key, spec)
     }
+}
+
+// Evaluates a Lua config body the way load_dir does.
+@(private = "file")
+parse_test_lua :: proc(body: string) -> (json.Value, json.Error) {
+    value, status, _ := luaconf.eval_text(body, "test.lua")
+    if status != .Ok {
+        return nil, .Out_Of_Memory
+    }
+    return value, .None
 }

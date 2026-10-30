@@ -210,9 +210,9 @@ thor_open_folder_in_new_window :: proc(thor: ^Thor, dir: string) {
 // to open a folder, which reloads anyway.
 thor_persist_open_folder_in :: proc(thor: ^Thor, choice: setting.Open_Folder_In) {
     value := setting.open_folder_in_value(choice)
-    path := strings.concatenate({setting.USER_DIR, "/settings.json"}, context.temp_allocator)
-    if !setting.persist_string(path, "open_folder_in", value) {
-        thor_flash_status(thor, SETTINGS_SAVE_FAILED, is_error = true)
+    path := setting.USER_SETTINGS
+    if err := setting.persist_string(path, "open_folder_in", value); err != .None {
+        thor_settings_save_failed(thor, path, err)
         return
     }
     delete(thor.config.general.open_folder_in)

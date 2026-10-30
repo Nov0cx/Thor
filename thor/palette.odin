@@ -14,7 +14,7 @@ import ui "../vendor/loom/loom"
 Palette_Command :: struct {
     title:    string, // borrowed; owned by the registrar
     shortcut: string, // owned; "" when the command has no keybind
-    action:   string, // borrowed static keybinds.json name; "" when it has none
+    action:   string, // borrowed static keybinds.lua name; "" when it has none
     run:      proc(data: rawptr),
     data:     rawptr,
 }
