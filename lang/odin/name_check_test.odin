@@ -261,14 +261,19 @@ main :: proc() {}
     })
 }
 
-// No live error over packages that compile clean.
+// No live error over the packages of the repository, which compile clean.
 @(test)
 test_live_clean_sources :: proc(t: ^testing.T) {
     e := engine_create()
     defer engine_destroy(e)
 
     checked := 0
-    for dir in ([]string{"lang/odin/sema", "lang/odin", "lang/odin/syntax", "lang/lsp", "editview", "textedit", "plugin", "thor", "font", "vt"}) {
+    for dir in ([]string {
+            "atomicfile", "editview", "font", "input", "lang", "lang/lsp", "lang/odin", "lang/odin/format",
+            "lang/odin/sema", "lang/odin/syntax", "lang/odin/syntax/gen", "lockfree", "luaconf", "main", "markdown",
+            "msvc", "piecetable", "plugin", "render", "search", "setting", "shell", "snippet", "syntax", "textedit",
+            "theme", "thor", "treecache", "update", "vt", "watch",
+        }) {
         files, err := odinsema.package_dir_files(dir)
         if !testing.expectf(t, err == nil, "%s: could not list", dir) {
             continue
