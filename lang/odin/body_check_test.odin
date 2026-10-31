@@ -281,6 +281,13 @@ main :: proc() {
 	ok: u8 = 300
 	v: [3]f32 = 0
 	d = 3
+	i += "zq"
+	i <<= "zq"
+	i <<= 2
+	b := true
+	b &&= 1
+	s += "ok"
+	e += 1
 	_, _, _, _, _, _ = x, e, k, r, ok, v
 }
 `
@@ -296,6 +303,9 @@ main :: proc() {
         {"1\n\tr:", "Cannot convert untyped value '1' to 'E' from 'untyped integer'", 0},
         {"'a'", "Cannot convert ''a'' to 'string' from 'untyped rune', got 97", 0},
         {"300", "Cannot convert numeric value '300' from '300' to 'u8' from 'untyped integer'", 0},
+        {"\"zq\"", "Cannot convert '\"zq\"' to 'int' from 'untyped string', got \"zq\"", 0},
+        {"\"zq\"", "Cannot convert untyped value '\"zq\"' to 'untyped integer' from 'untyped string'", 1},
+        {"1\n\ts +=", "Cannot convert '1' to 'bool' from 'untyped integer', got 1", 0},
     })
 }
 
@@ -668,8 +678,15 @@ test_live_assignment_counts :: proc(t: ^testing.T) {
 
 two :: proc() -> (int, int) { return 1, 2 }
 one :: proc() -> int { return 1 }
+K :: enum { A, B }
 
 main :: proc() {
+	k: K
+	k = .A, 0
+	arr: [2]int
+	arr = {}, 0
+	g, h, j := two(), 3
+	_, _, _ = g, h, j
 	a, b := one()
 	f := two()
 	m, n: int
@@ -687,6 +704,8 @@ main :: proc() {
     res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
     defer free_live(&res)
     expect_errors(t, &res, src, {
+        {"k = .A", "Assignment count mismatch '1' = '2'", 0},
+        {"arr = {}", "Assignment count mismatch '1' = '2'", 0},
         {"a, b := one()", "Assignment count mismatch '2' = '1'", 0},
         {"f := two()", "Assignment count mismatch '1' = '2'", 0},
         {"m, n = one()", "Assignment count mismatch '2' = '1'", 0},

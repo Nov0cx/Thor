@@ -809,8 +809,11 @@ assign_mismatches :: proc(c: ^Checker, file: File_Id, stmt: odinsyntax.Syntax_No
         op, has_op := odinsyntax.assign_stmt_op(&as)
         lhs, has_lhs := odinsyntax.assign_stmt_lhs(&as)
         rhs, has_rhs := odinsyntax.assign_stmt_rhs(&as)
-        if !has_op || !has_lhs || !has_rhs || op.green.kind != .Eq {
+        if !has_op || !has_lhs || !has_rhs {
             return nil
+        }
+        if op.green.kind != .Eq {
+            return op_assign_mismatches(c, file, op.green.kind, lhs, rhs, allocator)
         }
         it := odinsyntax.expr_list_items(&lhs)
         for place in odinsyntax.child_iter_next(&it) {
@@ -846,6 +849,61 @@ assign_mismatches :: proc(c: ^Checker, file: File_Id, stmt: odinsyntax.Syntax_No
         return nil
     }
     return value_mismatches(c, file, places[:], values, overflow_only, allocator)
+}
+
+// The untyped constant of `x op= v` that a basic `x` cannot take; a shift takes an integer.
+@(private = "file")
+op_assign_mismatches :: proc(c: ^Checker, file: File_Id, op: odinsyntax.Token_Kind, lhs, rhs: odinsyntax.Expr_List, allocator: mem.Allocator) -> []Type_Problem {
+    lhs, rhs := lhs, rhs
+    place, value: odinsyntax.Syntax_Node
+    count := 0
+    it := odinsyntax.expr_list_items(&lhs)
+    for n in odinsyntax.child_iter_next(&it) {
+        place = n
+        count += 1
+    }
+    it = odinsyntax.expr_list_items(&rhs)
+    for n in odinsyntax.child_iter_next(&it) {
+        value = n
+        count += 1
+    }
+    if count != 2 {
+        return nil
+    }
+    lop := expr_type(c, file, place)
+    if lop.mode != .Value {
+        return nil
+    }
+    basic, is_basic := type_get(&c.table, type_base(&c.table, lop.type)).(Basic_Type)
+    if !is_basic {
+        return nil
+    }
+    #partial switch basic.kind {
+    case .String, .Cstring, .String16, .Cstring16, .Rawptr, .Typeid, .Any:
+        return nil
+    }
+    vop := expr_type(c, file, value, lop.type)
+    u, is_untyped := type_get(&c.table, vop.type).(Untyped_Type)
+    if vop.mode != .Const || !is_untyped {
+        return nil
+    }
+    #partial switch op {
+    case .Shl_Eq, .Shr_Eq:
+        if u.kind != .String && u.kind != .Bool {
+            return nil
+        }
+        out := make([]Type_Problem, 1, allocator)
+        out[0] = {value, vop, type_untyped(.Int), false}
+        return out
+    case .Add_Eq, .Sub_Eq, .Mul_Eq, .Quo_Eq, .Mod_Eq, .Mod_Mod_Eq, .And_Eq, .Or_Eq, .Xor_Eq, .And_Not_Eq, .Cmp_And_Eq, .Cmp_Or_Eq:
+        if assignable(c, lop.type, vop) != .No {
+            return nil
+        }
+        out := make([]Type_Problem, 1, allocator)
+        out[0] = {value, vop, lop.type, false}
+        return out
+    }
+    return nil
 }
 
 // The values of `return` that the results of the innermost procedure around it cannot take. Nil
@@ -1093,6 +1151,30 @@ where_problem :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node) 
     return odinsyntax.node_text(constraint), true
 }
 
+// True when `v` gives one value whatever its type: a literal, `.Member`, an operator or a call of a
+// builtin or a conversion.
+@(private = "file")
+one_value :: proc(c: ^Checker, file: File_Id, v: odinsyntax.Syntax_Node) -> bool {
+    #partial switch v.green.kind {
+    case .Literal, .Comp_Lit, .Implicit_Selector, .Binary_Expr, .Ternary_Expr, .Ternary_If_Expr,
+         .Ternary_When_Expr, .Proc_Lit, .Cast_Expr, .Auto_Cast_Expr:
+        return true
+    case .Call_Expr:
+        ce, _ := odinsyntax.as_call_expr(v)
+        callee, ok := odinsyntax.call_expr_callee(&ce)
+        if !ok {
+            return false
+        }
+        fn := expr_type(c, file, callee)
+        if fn.mode == .Type {
+            return true
+        }
+        name := odinsyntax.node_text(callee)
+        return fn.mode == .Builtin && callee.green.kind == .Ident && name != "soa_unzip" && name != "expand_values"
+    }
+    return false
+}
+
 // Whether the places and the values of an `=` assignment or a variable declaration differ in count.
 // `at` is the first place. False when a value count is not known, or a value may give one or two
 // values (`m[k]`, `x.(T)`, `#optional_ok`).
@@ -1149,7 +1231,14 @@ assign_count :: proc(c: ^Checker, file: File_Id, stmt: odinsyntax.Syntax_Node) -
     }
     for v in nodes {
         op := expr_values(c, file, v, INVALID_TYPE)
-        if (op.mode != .Value && op.mode != .Const) || op.type == INVALID_TYPE || op.optional {
+        if (op.mode != .Value && op.mode != .Const) || op.type == INVALID_TYPE {
+            if !one_value(c, file, v) {
+                return
+            }
+            values += 1
+            continue
+        }
+        if op.optional {
             return
         }
         _, is_tuple := type_get(&c.table, op.type).(Tuple_Type)

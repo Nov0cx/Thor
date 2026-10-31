@@ -249,7 +249,7 @@ assert_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, call: odinsynt
 mismatch_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, problems: []odinsema.Type_Problem, place: string, report: ^lang.Diagnostic_Report) {
     for p in problems {
         value := strings.join(strings.fields(odinsyntax.node_text(p.value), context.temp_allocator), " ", context.temp_allocator)
-        to := odinsema.type_string(&c.table, p.to, context.temp_allocator)
+        to := untyped_name(odinsema.type_string(&c.table, p.to, context.temp_allocator))
         from := odinsema.type_string(&c.table, p.op.type, context.temp_allocator)
         if p.overflow {
             got, _ := const_text(p.op.value)
