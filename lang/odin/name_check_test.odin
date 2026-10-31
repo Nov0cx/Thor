@@ -318,7 +318,10 @@ test_live_redeclared_under_when :: proc(t: ^testing.T) {
 
     src := `package app
 
+import "base:intrinsics"
+
 FLAG :: true
+SIMD :: false when ODIN_ARCH == .amd64 && !intrinsics.has_target_feature("sse2") else false when ODIN_ARCH == .arm64 && !intrinsics.has_target_feature("neon") else true
 
 f :: proc() {
 	when ODIN_OS == .Windows {
@@ -381,6 +384,10 @@ f :: proc() {
 			n := 2
 			_ = n
 		}
+	}	when SIMD {
+		v := 1
+		v := 2
+		_ = v
 	}
 }
 
@@ -393,6 +400,7 @@ main :: proc() {}
         {"r := 4", "Redeclaration of 'r' in this scope", 0},
         {"u := 2", "Redeclaration of 'u' in this scope", 0},
         {"j := 2", "Redeclaration of 'j' in this scope", 0},
+        {"v := 2", "Redeclaration of 'v' in this scope", 0},
     })
 }
 

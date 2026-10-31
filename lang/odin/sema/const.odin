@@ -62,6 +62,10 @@ const_eval :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> (Co
         if !lok {
             return nil, false
         }
+        // `&&` and `||` stop at a left side that decides them.
+        if b, is_bool := l.(bool); is_bool && (op.green.kind == .Cmp_And && !b || op.green.kind == .Cmp_Or && b) {
+            return b, true
+        }
         r, rok := const_eval(c, file, rhs)
         if !rok {
             return nil, false
@@ -76,7 +80,11 @@ const_eval :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> (Co
     case .Ternary_When_Expr:
         t, _ := odinsyntax.as_ternary_when_expr(n)
         return const_choose(c, file, odinsyntax.ternary_when_expr_cond(&t), odinsyntax.ternary_when_expr_then(&t), odinsyntax.ternary_when_expr_else_value(&t))
-    case .Selector_Expr, .Call_Expr:
+    case .Call_Expr:
+        if v, ok := feature_call(c, file, n); ok {
+            return v, true
+        }
+    case .Selector_Expr:
     case:
         return nil, false
     }
@@ -85,6 +93,51 @@ const_eval :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> (Co
         return nil, false
     }
     return op.value, true
+}
+
+// `intrinsics.has_target_feature("f")` for the snapshot's target.
+@(private = "file")
+feature_call :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> (Const_Value, bool) {
+    ce, _ := odinsyntax.as_call_expr(n)
+    callee, has_callee := odinsyntax.call_expr_callee(&ce)
+    list, has_list := odinsyntax.call_expr_args(&ce)
+    if !has_callee || !has_list {
+        return nil, false
+    }
+    sel, is_sel := odinsyntax.as_selector_expr(callee)
+    if !is_sel {
+        return nil, false
+    }
+    field, has_field := odinsyntax.selector_expr_field(&sel)
+    operand, has_operand := odinsyntax.selector_expr_operand(&sel)
+    if !has_field || !has_operand || odinsyntax.node_text(odinsyntax.Syntax_Node(field)) != "has_target_feature" {
+        return nil, false
+    }
+    pkg := expr_type(c, file, operand)
+    if pkg.mode != .Package {
+        return nil, false
+    }
+    dir, _ := strings.replace_all(pkg.dir, "\\", "/", context.temp_allocator)
+    if !strings.has_suffix(strings.trim_right(dir, "/"), "base/intrinsics") {
+        return nil, false
+    }
+    it := odinsyntax.arg_list_args(&list)
+    arg, has_arg := odinsyntax.child_iter_next(&it)
+    if _, more := odinsyntax.child_iter_next(&it); !has_arg || more {
+        return nil, false
+    }
+    v, ok := const_eval(c, file, arg)
+    features, is_string := v.(string)
+    if !ok || !is_string {
+        return nil, false
+    }
+    #partial switch target_has_features(features, c.snap.target) {
+    case .True:
+        return true, true
+    case .False:
+        return false, true
+    }
+    return nil, false
 }
 
 // `ODIN_OS == .Windows`: a build constant whose value is an enum member, against an implicit selector.
