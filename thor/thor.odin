@@ -85,6 +85,9 @@ Thor :: struct {
     theme_files: []string, // owned
     theme_stamp: i64, // newest modification time the cache was built from
     theme_file_sig: i64, // size and modification time of the loaded theme file
+    // Lua files this start converted from JSON, and the card that says so.
+    lua_converted: [dynamic]string, // owned
+    lua_notice_open: bool,
     // Generator seeds of the theme window's Generate tab.
     theme_seed_background: ui.Color,
     theme_seed_accent: ui.Color,
@@ -628,6 +631,7 @@ init :: proc() -> ^Thor {
     // icon packs the startup atlases must cover.
     thor := new(Thor)
     thor.launch_dropped_held = held == .Drop
+    thor_migrate_startup(thor, workspace_dir)
     thor_load_config(thor, workspace_dir)
     lap(&phase, "load config")
 
@@ -1082,6 +1086,7 @@ shutdown :: proc(thor: ^Thor) {
     thor_menu_destroy(thor)
     thor_settings_destroy(thor)
     thor_theme_editor_destroy(thor)
+    thor_free_lua_converted(thor)
     thor_color_picker_destroy(thor)
     thor_permission_destroy(thor)
     thor_find_destroy(thor)

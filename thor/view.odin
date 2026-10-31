@@ -140,6 +140,7 @@ thor_overlays :: proc(thor: ^Thor) {
     thor_palette_view(thor)
     thor_menu_view(thor)
     thor_tip_card_view(thor)
+    thor_lua_notice_view(thor)
 }
 
 // An icon is a glyph of an icon family, so it draws as ordinary text and needs

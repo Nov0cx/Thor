@@ -282,6 +282,12 @@ thor_open_folder :: proc(thor: ^Thor, dir: string) {
     thor.workspace_prefix = strings.concatenate({thor.workspace_dir, filepath.SEPARATOR_STRING})
     thor_apply_git_repo(thor, thor.workspace_dir)
 
+    // A folder an older version set up still holds JSON config.
+    converted := len(thor.lua_converted)
+    thor_migrate_json_config(thor_workspace_config_dir(thor.workspace_dir), &thor.lua_converted)
+    if len(thor.lua_converted) > converted {
+        thor_lua_notice_check(thor, thor.workspace_dir)
+    }
     // The new folder's .thor/ overlay can change theme, font and keybinds.
     thor_reload_settings(thor)
     // ... and .thor/plugins/ carries plugins of its own. Reloaded before the

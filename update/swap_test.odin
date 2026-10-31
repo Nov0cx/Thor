@@ -337,4 +337,11 @@ test_migrate_json_files :: proc(t: ^testing.T) {
     carried, migrated = migrate_json_files(from, to)
     testing.expect(t, !migrated, "a target that holds settings is left alone")
     testing.expect_value(t, carried, 0)
+
+    // A target already converted to Lua is left alone too.
+    lua_to := at(root, "user-lua")
+    write(t, lua_to, "settings.lua", "return {}")
+    carried, migrated = migrate_json_files(from, lua_to)
+    testing.expect(t, !migrated, "a target that holds Lua settings is left alone")
+    testing.expect_value(t, carried, 0)
 }
