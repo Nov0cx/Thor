@@ -83,6 +83,7 @@
 - A tab or explorer rows dragged onto a pane open there. Each tab shows the numbers of the panes it is in.
 - `pane_layout` setting (Settings > Windows): the layout a folder opens with, or `"remember"` for its saved one.
 - A file reloaded after a change on disk keeps each pane on the same text again.
+- `tab` indents in the focused pane and `ctrl+tab` opens quick open without moving the focus to the next pane.
 
 # 2026.10.7
 
