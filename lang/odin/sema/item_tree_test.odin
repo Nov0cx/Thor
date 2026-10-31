@@ -179,6 +179,9 @@ test_item_tree_when_and_foreign :: proc(t: ^testing.T) {
     src := `package demo
 
 foreign import libc "system:c"
+foreign import "system:Comdlg32.lib"
+foreign import "system:libfoo.so.1"
+foreign import { "system:a.lib", "system:b.lib" }
 
 @(private)
 foreign libc {
@@ -201,6 +204,16 @@ when ODIN_OS == .Windows {
     libc, _ := find_item(tree, "libc")
     testing.expect_value(t, libc.kind, Item_Kind.Foreign_Import)
     testing.expect_value(t, libc.path, "system:c")
+    comdlg, has_comdlg := find_item(tree, "Comdlg32")
+    testing.expect(t, has_comdlg, "a foreign import with no name binds its file name")
+    testing.expect_value(t, comdlg.kind, Item_Kind.Foreign_Import)
+    foreign_count := 0
+    for item in tree.items {
+        if item.kind == .Foreign_Import {
+            foreign_count += 1
+        }
+    }
+    testing.expect_value(t, foreign_count, 2)
 
     puts, _ := find_item(tree, "puts")
     testing.expect_value(t, puts.kind, Item_Kind.Proc)

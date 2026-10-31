@@ -427,15 +427,9 @@ add_import :: proc(b: ^Builder, n: ^odinsyntax.Syntax_Node, ctx: Decl_Context, o
 add_foreign_import :: proc(b: ^Builder, n: ^odinsyntax.Syntax_Node, ctx: Decl_Context, out: ^[dynamic]Item) {
     imp, _ := odinsyntax.as_foreign_import_decl(n^)
     start, end := odinsyntax.node_range(n^)
-    name, ok := odinsyntax.foreign_import_decl_name(&imp)
-    if !ok {
-        return
-    }
     item := Item {
-        name         = clone(b, odinsyntax.node_text(odinsyntax.Syntax_Node(name))),
         kind         = .Foreign_Import,
         visibility   = .File,
-        name_offset  = int(name.offset),
         start        = int(start),
         end          = int(end),
         guard        = ctx.guard,
@@ -446,9 +440,19 @@ add_foreign_import :: proc(b: ^Builder, n: ^odinsyntax.Syntax_Node, ctx: Decl_Co
         value_offset = -1,
         value_index  = -1,
     }
+    name, has_name := odinsyntax.foreign_import_decl_name(&imp)
+    if has_name {
+        item.name = clone(b, odinsyntax.node_text(odinsyntax.Syntax_Node(name)))
+        item.name_offset = int(name.offset)
+    }
     if tok, tok_ok := odinsyntax.foreign_import_decl_path(&imp); tok_ok {
         item.path = clone(b, unquote(odinsyntax.syntax_token_text(tok)))
         item.path_offset = int(tok.offset)
+        // `foreign import "system:Comdlg32.lib"` binds `Comdlg32`.
+        if !has_name {
+            item.name = clone(b, foreign_import_name(item.path))
+            item.name_offset = int(tok.offset)
+        }
     } else {
         paths := odinsyntax.foreign_import_decl_paths(&imp)
         if first, first_ok := odinsyntax.child_iter_next(&paths); first_ok {
@@ -456,6 +460,9 @@ add_foreign_import :: proc(b: ^Builder, n: ^odinsyntax.Syntax_Node, ctx: Decl_Co
             first_start, _ := odinsyntax.node_range(first)
             item.path_offset = int(first_start)
         }
+    }
+    if item.name == "" {
+        return
     }
     if _, err := append(out, item); err != nil && b.err == nil {
         b.err = err
@@ -954,6 +961,24 @@ import_name :: proc(path: string) -> string {
     name = strings.trim_right(name, "/\\")
     if i := strings.last_index_any(name, "/\\"); i >= 0 {
         name = name[i + 1:]
+    }
+    return name
+}
+
+// The name a foreign import with no name binds: the file name of its path up to its last `.`, when
+// that is an identifier.
+foreign_import_name :: proc(path: string) -> string {
+    name := import_name(path)
+    if i := strings.last_index_byte(name, '.'); i >= 0 {
+        name = name[:i]
+    }
+    if name == "" || name == "_" || name[0] >= '0' && name[0] <= '9' {
+        return ""
+    }
+    for ch in name {
+        if !(ch == '_' || ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z' || ch >= '0' && ch <= '9' || ch >= 0x80) {
+            return ""
+        }
     }
     return name
 }
