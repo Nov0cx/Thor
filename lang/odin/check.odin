@@ -66,11 +66,17 @@ check_package :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
     res.report.scope = strings.clone(dir)
     res.report.items = make([dynamic]lang.Diagnostic)
     it := output
+    previous := ""
     for line in strings.split_lines_iterator(&it) {
         p, ok := parse_diagnostic_line(line)
         if !ok {
             continue
         }
+        // The call site of a failed `where` clause takes the message of the clause.
+        if p.message == "at caller location" && previous != "" {
+            p.message = previous
+        }
+        previous = p.message
         append(
             &res.report.items,
             lang.Diagnostic {
