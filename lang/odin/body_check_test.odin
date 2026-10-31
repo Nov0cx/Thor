@@ -383,6 +383,12 @@ pi :: proc(a: $T) {}
 gp :: proc{fs, pi}
 va :: proc(a: any) {}
 ga :: proc{fs, va}
+t1 :: proc(x: [dynamic]$E, ys: ..E) {}
+t2 :: proc(x: []int, ys: ..int) {}
+tt :: proc{t1, t2}
+p1 :: proc(x: $T/[]$E, ys: ..E) {}
+p2 :: proc(x: string, ys: ..int) {}
+pp :: proc{p1, p2}
 
 main :: proc() {
 	x: f32
@@ -396,6 +402,16 @@ main :: proc() {
 	gp(x)
 	ga(x)
 	g(true)
+	str: string
+	delete(str, 0)
+	arr: [dynamic]int
+	append(&arr, "x")
+	append(&arr, 1, 2)
+	delete(arr)
+	append(&arr)
+	tt(arr)
+	tt(arr, 1)
+	pp(str)
 }
 `
     res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
@@ -405,6 +421,11 @@ main :: proc() {
         {"g2(1, 2, 3)", "No procedures or ambiguous call for procedure group 'g2' that match with the given arguments", 0},
         {"g2()", "No procedures or ambiguous call for procedure group 'g2' that match with the given arguments", 0},
         {"q.grp(x)", "No procedures or ambiguous call for procedure group 'q.grp' that match with the given arguments", 0},
+        {"g(true)", "No procedures or ambiguous call for procedure group 'g' that match with the given arguments", 0},
+        {"delete(str, 0)", "No procedures or ambiguous call for procedure group 'delete' that match with the given arguments", 0},
+        {"append(&arr, \"x\")", "No procedures or ambiguous call for procedure group 'append' that match with the given arguments", 0},
+        {"append(&arr)", "No procedures or ambiguous call for procedure group 'append' that match with the given arguments", 0},
+        {"tt(arr)", "No procedures or ambiguous call for procedure group 'tt' that match with the given arguments", 0},
     })
     for d in res.report.items {
         testing.expect(t, d.code == CODE_OVERLOAD, "a group error carries the overload id")

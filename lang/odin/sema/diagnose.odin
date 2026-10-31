@@ -96,8 +96,8 @@ call_problem :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node) -
 }
 
 // Whether no member of the procedure group the callee of `call` names takes its arguments: every
-// member gets too few or too many of them, or, for a known argument type, one that it cannot take.
-// False when the callee is not a group, a member is polymorphic or an argument type is not known.
+// member gets too few or too many of them, a `$` parameter no argument fits, or an argument that it
+// cannot take. False when the callee is not a group or an argument type is not known.
 group_no_match :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node) -> bool {
     ce, is_call := odinsyntax.as_call_expr(call)
     if !is_call {
@@ -131,10 +131,9 @@ group_no_match :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node)
     if !ok {
         return false
     }
-    typed := true
     for a in with {
-        if (a.op.mode != .Value && a.op.mode != .Const) || a.op.type == INVALID_TYPE || type_is_untyped(&c.table, a.op.type) {
-            typed = false
+        if (a.op.mode != .Value && a.op.mode != .Const) || a.op.type == INVALID_TYPE || has_poly(c, a.op.type, 0) {
+            return false
         }
     }
     for m in g.members {
@@ -146,13 +145,31 @@ group_no_match :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node)
         if miss.kind != .None {
             continue
         }
-        if p.generic || !typed {
-            return false
+        if len(g.members) > 1 && p.generic && empty_poly_variadic(c, p, slots) {
+            continue
+        }
+        params := p.params
+        declares: []bool
+        if p.generic {
+            // A `$` parameter that no argument fits rejects the member.
+            if _, bound := bind_generic(c, p, with, slots); !bound {
+                continue
+            }
+            params, declares = generic_params(c, p, with, slots)
+            if params == nil {
+                return false
+            }
         }
         rejected := false
         for a, i in with {
-            param := p.params[slots[i]]
+            param := params[slots[i]]
             if .C_Vararg in param.flags {
+                return false
+            }
+            if declares != nil && declares[slots[i]] {
+                continue
+            }
+            if p.generic && (param.type == INVALID_TYPE || has_poly(c, param.type, 0)) {
                 return false
             }
             switch assignable(c, param.type, a.op, .Any_Int in param.flags) {
@@ -168,6 +185,24 @@ group_no_match :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node)
         }
     }
     return true
+}
+
+// True when the polymorphic procedure `p` has a variadic parameter of a `$` element type that no
+// argument goes to. The compiler never picks such a member of a group of several (`append(&a)`).
+@(private = "file")
+empty_poly_variadic :: proc(c: ^Checker, p: Proc_Type, slots: []int) -> bool {
+    for param, k in p.params {
+        if .Variadic not_in param.flags || !has_poly(c, param.type, 0) {
+            continue
+        }
+        for s in slots {
+            if s == k {
+                return false
+            }
+        }
+        return true
+    }
+    return false
 }
 
 // The builtins of base:builtin that take a fixed number of arguments.
