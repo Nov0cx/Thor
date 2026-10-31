@@ -72,6 +72,7 @@
 - The Generate tab builds a palette from a background and an accent seed with a live preview. "Use as Draft" makes it the draft, and Save asks for a name.
 - A hand edit of the active theme file applies at once.
 - Every theme action is a palette command under "Theme:" (`theme_save`, `theme_revert`, `theme_editor`, …). None has a key; bind them in the `theme` group of `keybinds.lua`.
+- Commands of plugins are in the command palette as "Plugin: <name> (<plugin>)" and take a key as `plugin.<name>` in `keybinds.lua` or in Settings > Keybindings.
 - "Edit: Delete to Line Start" (`delete_to_line_start`) deletes from the start of the line to the caret. It has no key.
 - The name prompt of a generated theme shows above the theme window. It was hidden under it.
 

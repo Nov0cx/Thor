@@ -410,7 +410,10 @@ in the list. "Go to File" and "Go to Line" switch it into file / line input
 modes. Three "Language:" actions ship unbound and take chords in `keybinds.lua`
 as `open_language_servers` (Settings' Language Servers page),
 `restart_language_servers` and `restart_one_language_server` (pick one server
-from a list). All bindings above live in `keybinds.lua`; comment markers in
+from a list). Each command a plugin registers is listed as "Plugin: <name>
+(<plugin>)" and takes a chord as `plugin.<name>`, for example
+`["plugin.git-lfs-pull"] = "ctrl+alt+p"` in any group of `keybinds.lua`; Settings
+> Keybindings lists them too. All bindings above live in `keybinds.lua`; comment markers in
 `comments.lua`; tab width, font size and autosave delay in `settings.lua` —
 see [Configuration](configuration.md) for the three directories those are
 layered from.

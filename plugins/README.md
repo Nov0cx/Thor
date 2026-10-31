@@ -177,6 +177,9 @@ returns `true`.
 
 `thor.on_command(name, fn)` names a command. A name another plugin registered
 first stays with that plugin, and the second registration is logged and ignored.
+Each command is also in the command palette as "Plugin: <name> (<plugin id>)",
+and the user can bind it in `keybinds.lua` as `["plugin.<name>"] = "ctrl+..."`.
+A name a built-in command already has (`tutorial`) is not listed twice.
 
 ## Files
 
