@@ -814,6 +814,11 @@ bind_generic :: proc(c: ^Checker, p: Proc_Type, args: []Call_Arg, slots: []int) 
                         return nil, false
                     }
                 }
+            } else if info.has_type && strings.contains_rune(odinsyntax.node_text(info.type), '$') {
+                // `$x: $T` binds `T` to the default type of the constant.
+                if !unify(c, p.file, info.type, type_default(&c.table, a.op.type), &env) {
+                    return nil, false
+                }
             }
             continue
         }

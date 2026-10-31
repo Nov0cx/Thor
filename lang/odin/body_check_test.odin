@@ -646,8 +646,11 @@ import "base:intrinsics"
 
 num :: proc(x: $T) -> T where intrinsics.type_is_numeric(T) { return x }
 two :: proc(a: $A, b: $B) where A == B, size_of(A) == 8 {}
+feature :: proc($test: $T) -> bool where intrinsics.type_is_string(T) { return true }
 
 main :: proc() {
+	_ = feature("avx2")
+	_ = feature(1)
 	_ = num("s")
 	_ = num(1)
 	two(1, 2)
@@ -659,6 +662,7 @@ main :: proc() {
     res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
     defer free_live(&res)
     expect_errors(t, &res, src, {
+        {"feature(1)", "'where' clause evaluated to false: intrinsics.type_is_string(T)", 0},
         {"num(\"s\")", "'where' clause evaluated to false: intrinsics.type_is_numeric(T)", 0},
         {"two(x, x)", "'where' clause evaluated to false: size_of(A) == 8", 0},
         {"two(x, \"a\")", "'where' clause evaluated to false: A == B", 0},
