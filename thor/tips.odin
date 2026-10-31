@@ -12,7 +12,6 @@ import "core:encoding/json"
 import "core:fmt"
 import "core:log"
 import "core:os"
-import "core:strings"
 import "core:time"
 
 import "../atomicfile"
