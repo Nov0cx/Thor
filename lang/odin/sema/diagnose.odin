@@ -288,7 +288,7 @@ arity_problem :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node) 
             if got == 0 {
                 return {kind = .Too_Few, offset = close, name = name, want = 1}
             }
-            first_type := expr_type(c, file, args[0]).mode == .Type
+            _, first_type := where_type(c, file, args[0])
             if got == 1 && !first_type {
                 return {kind = .Two_Or_More, offset = int(call.offset), name = base}
             }

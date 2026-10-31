@@ -932,8 +932,8 @@ poly_info :: proc(c: ^Checker, sym: Symbol) -> Decl_Info {
     poly: odinsyntax.Syntax_Node
     has_poly := false
     field: odinsyntax.Syntax_Node
-    has_field, in_names := false, false
-    for n in path {
+    has_field, in_names, is_length := false, false, false
+    for n, i in path {
         #partial switch n.green.kind {
         case .Field:
             field, has_field, in_names = n, true, false
@@ -942,11 +942,15 @@ poly_info :: proc(c: ^Checker, sym: Symbol) -> Decl_Info {
         case .Poly_Type:
             if int(n.offset) + 1 == offset {
                 poly, has_poly = n, true
+                is_length = i > 0 && poly_is_length(path[i - 1], n)
             }
         }
     }
     if !has_poly {
         return {}
+    }
+    if is_length {
+        return {type = type_basic(.Int)}
     }
     if has_field && in_names {
         f, _ := odinsyntax.as_field(field)
@@ -964,6 +968,28 @@ poly_info :: proc(c: ^Checker, sym: Symbol) -> Decl_Info {
         name = odinsyntax.node_text(odinsyntax.Syntax_Node(ident))
     }
     return {type = type_poly_param(&c.table, name, spec, sym), is_type = true}
+}
+
+// True when `poly` is a length of the array, `#simd`, matrix or fixed-capacity dynamic array type `parent`.
+@(private = "file")
+poly_is_length :: proc(parent, poly: odinsyntax.Syntax_Node) -> bool {
+    parent := parent
+    elem: odinsyntax.Syntax_Node
+    ok := false
+    #partial switch parent.green.kind {
+    case .Array_Type:
+        a, _ := odinsyntax.as_array_type(parent)
+        elem, ok = odinsyntax.array_type_elem(&a)
+    case .Dynamic_Array_Type:
+        d, _ := odinsyntax.as_dynamic_array_type(parent)
+        elem, ok = odinsyntax.dynamic_array_type_elem(&d)
+    case .Matrix_Type:
+        m, _ := odinsyntax.as_matrix_type(parent)
+        elem, ok = odinsyntax.matrix_type_elem(&m)
+    case:
+        return false
+    }
+    return !ok || elem.offset != poly.offset
 }
 
 // The type a type expression denotes; INVALID_TYPE when it denotes none.

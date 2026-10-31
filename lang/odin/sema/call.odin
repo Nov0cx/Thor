@@ -915,6 +915,10 @@ unify :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, arg: Type_I
         return want == INVALID_TYPE || has_poly(c, want, 0) || same_type(c, want, arg)
     }
     base := type_base(t, arg)
+    // A `$T` of the body around the call matches by its specialization.
+    if pp, is_poly := type_get(t, base).(Poly_Param_Type); is_poly && n.green.kind != .Poly_Type && n.green.kind != .Paren_Expr {
+        return pp.specialization == INVALID_TYPE || unify(c, file, n, pp.specialization, env)
+    }
     #partial switch n.green.kind {
     case .Poly_Type:
         pt, _ := odinsyntax.as_poly_type(n)
@@ -965,9 +969,16 @@ unify :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, arg: Type_I
             if !has_len {
                 return false
             }
-            if lp, is_poly := odinsyntax.as_poly_type(len_node); is_poly && v.len >= 0 {
-                if ident, iok := odinsyntax.poly_type_name(&lp); iok {
+            if lp, is_poly := odinsyntax.as_poly_type(len_node); is_poly {
+                if ident, iok := odinsyntax.poly_type_name(&lp); iok && v.len >= 0 {
                     if !bind_poly(c, file, odinsyntax.Syntax_Node(ident), {mode = .Const, type = type_basic(.Int), value = v.len}, env) {
+                        return false
+                    }
+                }
+            } else if v.len >= 0 && !strings.contains_rune(odinsyntax.node_text(len_node), '$') {
+                c.env = env[:]
+                if want, known := const_eval(c, file, len_node); known {
+                    if n, is_int := want.(i64); is_int && n != v.len {
                         return false
                     }
                 }
@@ -1025,6 +1036,13 @@ unify :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, arg: Type_I
             case .Array_Type:
                 a, _ := odinsyntax.as_array_type(inner)
                 elem, eok := odinsyntax.array_type_elem(&a)
+                len_node, has_len := odinsyntax.array_type_len(&a)
+                if has_len ? v.kind != .Array : v.kind != .Slice {
+                    return false
+                }
+                if has_len {
+                    bind_length(c, file, len_node, v.len, env)
+                }
                 return !eok || unify(c, file, elem, v.elem, env)
             case .Dynamic_Array_Type:
                 d, _ := odinsyntax.as_dynamic_array_type(inner)
@@ -1049,6 +1067,21 @@ unify :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, arg: Type_I
             }
         }
         return unify(c, file, inner, arg, env)
+    case .Proc_Type:
+        v, ok := type_get(t, base).(Proc_Type)
+        if !ok {
+            return false
+        }
+        pt, _ := odinsyntax.as_proc_type(n)
+        if params, has_params := odinsyntax.proc_type_params(&pt); has_params {
+            if !unify_fields(c, file, odinsyntax.Syntax_Node(params), v.params, env) {
+                return false
+            }
+        }
+        if results, has_results := odinsyntax.proc_type_results(&pt); has_results {
+            return unify_fields(c, file, odinsyntax.Syntax_Node(results), v.results, env)
+        }
+        return true
     case .Call_Expr:
         inst, ok := c.instances[arg]
         if !ok {
@@ -1086,6 +1119,25 @@ unify :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, arg: Type_I
             }
         }
         return true
+    }
+    return true
+}
+
+// Matches the fields of a parameter or result list against the checked parameters of a procedure
+// type. A list of another length binds nothing and fits.
+@(private = "file")
+unify_fields :: proc(c: ^Checker, file: File_Id, list: odinsyntax.Syntax_Node, params: []Proc_Param, env: ^[dynamic]Binding) -> bool {
+    infos := param_infos(c, list)
+    if len(infos) != len(params) {
+        return true
+    }
+    for info, i in infos {
+        if !info.has_type || !strings.contains_rune(odinsyntax.node_text(info.type), '$') {
+            continue
+        }
+        if !unify(c, file, info.type, params[i].type, env) {
+            return false
+        }
     }
     return true
 }

@@ -1025,3 +1025,113 @@ test_live_severities :: proc(t: ^testing.T) {
         testing.expect_value(t, res.report.items[1].severity, lang.Diagnostic_Severity.Error)
     }
 }
+
+// A `$K` bound by the result of a procedure literal, and a `where` on a private constant of the callee's package.
+@(test)
+test_live_where_through_bindings :: proc(t: ^testing.T) {
+    root := fixture(t, "live_where_bindings", {{"app/a.odin", "package app\n"}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+import "core:math/linalg"
+import "core:slice"
+
+Vector2 :: [2]f32
+
+cross2 :: proc "c" (a, b: Vector2) -> f32 {
+	return linalg.cross(a, b)
+}
+
+cross3 :: proc "c" (a, b: [3]f32) -> f32 {
+	return linalg.cross(a, b)
+}
+
+f :: proc() {
+	Pair :: struct { key: u64, idx: u16 }
+	rebuild :: proc(all: []Pair) {
+		s := make([dynamic]Pair, 0, len(all))
+		defer delete(s)
+		slice.sort_by_key(s[:], proc(p: Pair) -> u64 { return p.key })
+	}
+	rebuild(nil)
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"linalg.cross(a, b)", "Cannot assign value 'linalg.cross(a, b)' of type '[3]f32' to 'f32' in return statement", 1},
+    })
+}
+
+// Builtin calls in a ternary, `append` with a spread, `$N` of a fixed-capacity array, a type from an intrinsic and an `#soa` group.
+@(test)
+test_live_builtin_corners :: proc(t: ^testing.T) {
+    root := fixture(t, "live_builtin_corners", {{"app/a.odin", "package app\n"}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+import "base:intrinsics"
+import "base:runtime"
+import "core:slice"
+
+H :: struct { idx, gen: u32 }
+
+Foot_S :: struct { len: int }
+Foot_D :: struct { len, cap: int }
+foot_s :: proc(a: ^$T/#soa[]$E) -> ^Foot_S { return nil }
+foot_d :: proc(a: ^$T/#soa[dynamic]$E) -> ^Foot_D { return nil }
+foot :: proc{foot_s, foot_d}
+
+P :: struct { x: int }
+
+grow :: proc(a: ^$T/#soa[dynamic]$E) -> int {
+	return foot(a).cap
+}
+
+grow_p :: proc(a: ^#soa[dynamic]P) -> int {
+	return foot(a).cap
+}
+
+add :: proc(array: ^$T/[dynamic]$E/u8, args: ..string, loc := #caller_location) -> (n: int, err: runtime.Allocator_Error) {
+	for arg in args {
+		k: int
+		k, err = append(array, ..transmute([]E)(arg), loc=loc)
+		n += k
+	}
+	return
+}
+
+fixed :: proc(array: ^$T/[dynamic; $N]$E, length: int) -> int {
+	return min(N, length)
+}
+
+Map :: struct($N: uint, $Handle: typeid) where N < uint(max(intrinsics.type_field_type(Handle, "idx"))) {
+	n: [N]Handle,
+}
+
+f :: proc(c: bool, s: string) {
+	buf: [dynamic]u8
+	k: int
+	err: runtime.Allocator_Error
+	k, err = append(&buf, ..transmute([]u8)(s), loc=#caller_location)
+	top := max(intrinsics.type_field_type(H, "idx"))
+	x := c ? max(int, 0) : 1
+	_, _, _ = k, top, x
+	stops: []H
+	slice.stable_sort_by(stops, proc(a, b: H) -> bool {
+		key := a.idx == 0 ? max(u32, 0) : a.idx
+		return key < b.idx
+	})
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"max(int, 0)", "If 'max' gets a type, only 1 arguments is allowed, got 2", 0},
+        {"max(u32, 0)", "If 'max' gets a type, only 1 arguments is allowed, got 2", 0},
+    })
+}

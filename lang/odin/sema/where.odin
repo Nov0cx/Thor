@@ -120,10 +120,9 @@ where_value :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> (v
 // False when it is no type; INVALID_TYPE when it is a type that cannot be read.
 @(private)
 where_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> (Type_Id, bool) {
-    if name, args, is_call := intrinsic_call(c, file, n); is_call {
-        if t, known := type_intrinsic(c, file, name, args); known {
-            return t, true
-        }
+    if name, args, is_call := intrinsic_call(c, file, n); is_call && type_valued_intrinsic(name) {
+        t, _ := type_intrinsic(c, file, name, args)
+        return t, true
     }
     op := expr_type(c, file, n)
     return op.type, op.mode == .Type
@@ -166,15 +165,23 @@ intrinsic_call :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) ->
     return name, out[:], true
 }
 
+// True for an intrinsic whose call is a type.
+@(private = "file")
+type_valued_intrinsic :: proc(name: string) -> bool {
+    switch name {
+    case "type_elem_type", "type_base_type", "type_core_type", "type_bit_set_elem_type", "type_bit_set_underlying_type", "type_field_type":
+        return true
+    }
+    return false
+}
+
 // The type a type-valued intrinsic gives; false `known` when it is not one or cannot be read.
 @(private = "file")
 type_intrinsic :: proc(c: ^Checker, file: File_Id, name: string, args: []odinsyntax.Syntax_Node) -> (type: Type_Id, known: bool) {
     if len(args) == 0 {
         return INVALID_TYPE, false
     }
-    switch name {
-    case "type_elem_type", "type_base_type", "type_core_type", "type_bit_set_elem_type", "type_bit_set_underlying_type", "type_field_type":
-    case:
+    if !type_valued_intrinsic(name) {
         return INVALID_TYPE, false
     }
     arg, is_type := where_type(c, file, args[0])
@@ -271,6 +278,9 @@ type_predicate :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) ->
     }
     arg, is_type := where_type(c, file, args[0])
     if !is_type || arg == INVALID_TYPE {
+        return false, false
+    }
+    if _, unbound := type_get(&c.table, arg).(Poly_Param_Type); unbound {
         return false, false
     }
     t := &c.table
