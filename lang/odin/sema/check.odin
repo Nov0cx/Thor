@@ -1192,6 +1192,26 @@ child_const :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, ok: b
     return const_eval(c, file, n)
 }
 
+// Adds the flags of the parameter tags that are children of `n`.
+@(private = "file")
+param_tags :: proc(n: ^odinsyntax.Syntax_Node, flags: ^bit_set[Param_Flag]) {
+    dirs := odinsyntax.child_iter(n, {kinds = {.Directive}})
+    for d in odinsyntax.child_iter_next(&dirs) {
+        dir, _ := odinsyntax.as_directive(d)
+        tok, ok := odinsyntax.directive_name(&dir)
+        if !ok {
+            continue
+        }
+        switch odinsyntax.syntax_token_text(tok) {
+        case "any_int":  flags^ += {.Any_Int}
+        case "c_vararg": flags^ += {.C_Vararg}
+        case "by_ptr":   flags^ += {.By_Ptr}
+        case "no_alias": flags^ += {.No_Alias}
+        case "const":    flags^ += {.Const}
+        }
+    }
+}
+
 // The parameters of a Param_List or Result_List, `$T` names included.
 @(private)
 read_params :: proc(c: ^Checker, file: File_Id, list: odinsyntax.Syntax_Node) -> []Proc_Param {
@@ -1202,20 +1222,10 @@ read_params :: proc(c: ^Checker, file: File_Id, list: odinsyntax.Syntax_Node) ->
         field := field
         f, _ := odinsyntax.as_field(field)
         p := Proc_Param{name_offset = -1}
-        dirs := odinsyntax.child_iter(&field, {kinds = {.Directive}})
-        for d in odinsyntax.child_iter_next(&dirs) {
-            dir, _ := odinsyntax.as_directive(d)
-            tok, ok := odinsyntax.directive_name(&dir)
-            if !ok {
-                continue
-            }
-            switch odinsyntax.syntax_token_text(tok) {
-            case "any_int":  p.flags += {.Any_Int}
-            case "c_vararg": p.flags += {.C_Vararg}
-            case "by_ptr":   p.flags += {.By_Ptr}
-            case "no_alias": p.flags += {.No_Alias}
-            case "const":    p.flags += {.Const}
-            }
+        param_tags(&field, &p.flags)
+        // `#any_int a, #any_int b: i64`: a tag before a later name sits in the name list.
+        if names, has_names := odinsyntax.field_names(&f); has_names {
+            param_tags((^odinsyntax.Syntax_Node)(&names), &p.flags)
         }
         if _, is_using := odinsyntax.field_using(&f); is_using {
             p.flags += {.Using}

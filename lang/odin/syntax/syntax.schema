@@ -48,7 +48,7 @@ Value_Decl : stmt decl simple
 Attribute
     elems = nodes Ident Field_Value
 Name_List
-    names! = nodes expr
+    names! = nodes Ident Poly_Type
 Expr_List
     items! = nodes expr Field_Value
 

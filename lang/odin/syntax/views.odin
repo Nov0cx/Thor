@@ -137,7 +137,7 @@ as_name_list :: #force_inline proc "contextless" (n: Syntax_Node) -> (Name_List,
 }
 
 name_list_names :: proc "contextless" (n: ^Name_List) -> Child_Iter {
-    return child_iter((^Syntax_Node)(n), {kinds = KINDS_EXPR})
+    return child_iter((^Syntax_Node)(n), {kinds = Kind_Set{.Ident, .Poly_Type}})
 }
 
 Expr_List :: distinct Syntax_Node

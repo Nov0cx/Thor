@@ -812,10 +812,16 @@ find_field_at :: proc(c: ^Checker, t: Type_Id, name: string, depth: int) -> (Fie
         }
         return hit, true
     case Basic_Type:
-        if v.kind == .Any {
+        #partial switch v.kind {
+        case .Any:
             switch name {
             case "data": return {type_basic(.Rawptr), NO_FILE, -1, depth}, true
             case "id":   return {type_basic(.Typeid), NO_FILE, -1, depth}, true
+            }
+        case .Quaternion64, .Quaternion128, .Quaternion256:
+            // A quaternion has the components `x`, `y`, `z` and `w`.
+            if slice.contains(SOA_ARRAY_FIELDS[:], name) {
+                return {component_of(c, deref_base(c, t)), NO_FILE, -1, depth}, true
             }
         }
     case Dynamic_Array_Type, Map_Type:

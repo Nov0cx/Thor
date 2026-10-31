@@ -145,6 +145,36 @@ f :: proc(x: f32, h: f16, p: rawptr, n: uint) {
     })
 }
 
+// A tag before each name of a parameter list, and the components of a quaternion.
+@(test)
+test_live_tagged_names_and_quaternions :: proc(t: ^testing.T) {
+    root := fixture(t, "live_tagged_names", {{"app/a.odin", "package app\n"}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+import "core:math"
+
+v1 :: proc "contextless" (#any_int year, #any_int month, #any_int day: i64) -> int { return 0 }
+v2 :: proc "contextless" (s: string) -> int { return 0 }
+vv :: proc{v1, v2}
+
+f :: proc(q: quaternion64, year, month, day: i64, m: int) {
+	t1 := 1 - q.w*q.w
+	_ = math.sqrt(t1)
+	_ = vv(year, month, day)
+	_ = v1(m, m, m)
+	_ = v1(m, m)
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"v1(m, m)", "Parameter 'day' of type 'i64' is missing in procedure call", 0},
+    })
+}
+
 // An undeclared name leaves the body errors out.
 @(test)
 test_live_body_after_names :: proc(t: ^testing.T) {
