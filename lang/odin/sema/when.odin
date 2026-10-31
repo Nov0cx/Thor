@@ -1,6 +1,7 @@
 package odinsema
 
 import "core:mem"
+import "core:slice"
 import "core:strconv"
 import "core:strings"
 
@@ -37,13 +38,14 @@ Cond_Op :: enum u8 {
     Config,    // `#config(text, args[0])`
     Defined,   // `#defined(text)`
     Size_Of,   // `size_of(text)`
+    Feature,   // `intrinsics.has_target_feature(text)`
 }
 
 // One node of a compiled `when` condition. It holds no target data, so the item tree stays target-independent.
 Cond_Expr :: struct {
     op:    Cond_Op,
     value: i64,    // Bool: 0 or 1; Int: the value
-    text:  string, // String, Enum_Name, Ident, Config, Defined, Size_Of: the name or the unquoted text
+    text:  string, // String, Enum_Name, Ident, Config, Defined, Size_Of, Feature: the name or the unquoted text
     args:  []int,  // indices into Item_Tree.conds
 }
 
@@ -180,7 +182,8 @@ cond_compile :: proc(n: odinsyntax.Syntax_Node, alloc: mem.Allocator, out: ^[dyn
     return len(out) - 1
 }
 
-// `#config(NAME, default)`, `#defined(NAME)` and `size_of(T)`; anything else is unknown.
+// `#config(NAME, default)`, `#defined(NAME)`, `size_of(T)` and `intrinsics.has_target_feature("f")`;
+// anything else is unknown.
 @(private = "file")
 compile_call :: proc(n: odinsyntax.Syntax_Node, alloc: mem.Allocator, out: ^[dynamic]Cond_Expr, err: ^mem.Allocator_Error) -> Cond_Expr {
     call, _ := odinsyntax.as_call_expr(n)
@@ -207,6 +210,10 @@ compile_call :: proc(n: odinsyntax.Syntax_Node, alloc: mem.Allocator, out: ^[dyn
         name = strings.concatenate({"#", odinsyntax.syntax_token_text(tok)}, context.temp_allocator)
     } else if callee.green.kind == .Ident {
         name = odinsyntax.node_text(callee)
+    } else if sel, is_sel := odinsyntax.as_selector_expr(callee); is_sel {
+        if field, fok := odinsyntax.selector_expr_field(&sel); fok && odinsyntax.node_text(odinsyntax.Syntax_Node(field)) == "has_target_feature" {
+            name = "has_target_feature"
+        }
     }
     switch {
     case name == "#config" && count == 2 && args[0].green.kind == .Ident:
@@ -216,6 +223,11 @@ compile_call :: proc(n: odinsyntax.Syntax_Node, alloc: mem.Allocator, out: ^[dyn
         return {op = .Defined, text = cond_clone(odinsyntax.node_text(args[0]), alloc, err)}
     case name == "size_of" && count == 1 && args[0].green.kind == .Ident:
         return {op = .Size_Of, text = cond_clone(odinsyntax.node_text(args[0]), alloc, err)}
+    case name == "has_target_feature" && count == 1 && args[0].green.kind == .Literal:
+        text := odinsyntax.node_text(args[0])
+        if len(text) >= 2 && text[0] == '"' && strings.index_byte(text, '\\') < 0 {
+            return {op = .Feature, text = cond_clone(unquote(text), alloc, err)}
+        }
     }
     return {}
 }
@@ -488,8 +500,32 @@ eval :: proc(tree: ^Item_Tree, expr: int, target: Target) -> Cond_Value {
             return {kind = .Int, i = size}
         }
         return UNKNOWN_VALUE
+    case .Feature:
+        return tri_value(target_has_features(e.text, target))
     }
     return UNKNOWN_VALUE
+}
+
+// The features of the compiler's default amd64 micro-architecture (x86-64-v2).
+@(private = "file", rodata)
+AMD64_FEATURES := [?]string {
+    "64bit", "cmov", "cx8", "cx16", "fxsr", "mmx", "x87", "sahf", "crc32", "popcnt",
+    "sse", "sse2", "sse3", "ssse3", "sse4.1", "sse4.2",
+}
+
+// Whether the target has every feature of the comma-separated list. Known for amd64 on Windows and
+// Linux with no micro-architecture set; unknown elsewhere.
+target_has_features :: proc(list: string, target: Target) -> Tri {
+    if target.arch != .amd64 || target.os != .Windows && target.os != .Linux {
+        return .Unknown
+    }
+    rest := list
+    for feature in strings.split_iterator(&rest, ",") {
+        if !slice.contains(AMD64_FEATURES[:], strings.trim_space(feature)) {
+            return .False
+        }
+    }
+    return .True
 }
 
 @(private = "file")

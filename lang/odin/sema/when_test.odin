@@ -103,6 +103,12 @@ test_when_conditions :: proc(t: ^testing.T) {
     testing.expect_value(t, cond_state(t, "ODIN_OS == .Windows", Target{}), Tri.Unknown)
     testing.expect_value(t, cond_state(t, "size_of(int) == 8", Target{arch = .wasm64p32}), Tri.True)
     testing.expect_value(t, cond_state(t, "size_of(uintptr) == 4", Target{arch = .wasm64p32}), Tri.True)
+
+    // The default amd64 micro-architecture is x86-64-v2.
+    testing.expect_value(t, cond_state(t, `intrinsics.has_target_feature("sse4.2")`, win), Tri.True)
+    testing.expect_value(t, cond_state(t, `ODIN_ARCH == .amd64 && intrinsics.has_target_feature("avx2")`, win), Tri.False)
+    testing.expect_value(t, cond_state(t, `intrinsics.has_target_feature("popcnt,avx")`, win), Tri.False)
+    testing.expect_value(t, cond_state(t, `intrinsics.has_target_feature("sse2")`, lin), Tri.Unknown)
 }
 
 @(test)
