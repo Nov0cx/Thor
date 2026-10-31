@@ -511,6 +511,19 @@ free_class_uncached :: proc(ctx: ^Semantic_Ctx, name: string) -> Name_Class {
             return {kind = .Package, emit = true}
         }
     }
+    // A `foreign import` binds its name in the whole package.
+    if view := request_package(ctx.rc, live_dir(ctx.rc)); view != nil {
+        for file in view.sema_files {
+            if file.items == nil {
+                continue
+            }
+            for item in file.items.items {
+                if item.name == name && item.kind == .Foreign_Import {
+                    return {kind = .Package, emit = true}
+                }
+            }
+        }
+    }
     c := ctx.c
     if c == nil {
         for &item in ctx.rc.live.tree.items {

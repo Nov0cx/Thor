@@ -185,6 +185,7 @@ test_live_undeclared_names :: proc(t: ^testing.T) {
         {"app/other_linux.odin", "package app\n\nposix_only :: 1\n"},
         {"app/q/q.odin", "package q\n\nopen :: proc() {}\n@(private) hidden :: proc() {}\n@(private = \"file\") secret :: proc() {}\n"},
         {"app/q/q_private.odin", "#+private\npackage q\n\ntagged :: proc() {}\n"},
+        {"app/lib.odin", "package app\n\nforeign import syslib \"system:foo\"\n"},
     })
     e := engine_create()
     defer engine_destroy(e)
@@ -196,6 +197,10 @@ import "base:intrinsics"
 
 Point :: struct { x: int }
 Mode :: enum { A, B = A, C = B + 1 }
+
+foreign syslib {
+	ext :: proc() ---
+}
 
 main :: proc() {
 	_ = zork
