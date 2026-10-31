@@ -30,6 +30,7 @@ walk_body :: proc(rc: ^Request_Context, c: ^odinsema.Checker, whens: []Branch, n
     #partial switch n.green.kind {
     case .Call_Expr:
         call_errors(rc, c, n, report)
+        arity_errors(rc, c, n, report)
         group_errors(rc, c, n, report)
         conversion_errors(rc, c, n, report)
         where_errors(rc, c, n, report)
@@ -85,6 +86,27 @@ call_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, call: odinsyntax
         report_error(rc, report, p.offset, CODE_NAMED, fmt.aprintf("Duplicate parameter '%s' in procedure call", p.name))
     case .Positional_After_Named:
         report_error(rc, report, p.offset, CODE_NAMED, strings.clone("Non-named parameter is not allowed to follow named parameter i.e. 'field = value' in a procedure call"))
+    }
+}
+
+// Reports a call of a builtin or a conversion with the wrong number of arguments.
+@(private = "file")
+arity_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, call: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
+    p := odinsema.arity_problem(c, rc.live.id, call)
+    switch p.kind {
+    case .None:
+    case .Too_Few:
+        report_error(rc, report, p.offset, CODE_ARITY, fmt.aprintf("Too few arguments for '%s', expected %d, got %d", p.name, p.want, p.got))
+    case .Too_Many:
+        report_error(rc, report, p.offset, CODE_ARITY, fmt.aprintf("Too many arguments for '%s', expected %d, got %d", p.name, p.want, p.got))
+    case .Two_Or_More:
+        report_error(rc, report, p.offset, CODE_ARITY, fmt.aprintf("Too few arguments for '%s', two or more are required", p.name))
+    case .Conversion_Missing:
+        type := odinsema.type_string(&c.table, p.type, context.temp_allocator)
+        report_error(rc, report, p.offset, CODE_ARITY, fmt.aprintf("Missing argument in conversion to '%s'", type))
+    case .Conversion_Too_Many:
+        type := odinsema.type_string(&c.table, p.type, context.temp_allocator)
+        report_error(rc, report, p.offset, CODE_ARITY, fmt.aprintf("Too many arguments in conversion to '%s'", type))
     }
 }
 

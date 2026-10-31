@@ -57,6 +57,49 @@ main :: proc() {
     }
 }
 
+// A builtin or a conversion with the wrong number of arguments, worded as the compiler words it.
+@(test)
+test_live_builtin_arity :: proc(t: ^testing.T) {
+    root := fixture(t, "live_builtin_arity", {{"app/a.odin", "package app\n"}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+Point :: struct { x: int }
+List :: struct($T: typeid) { v: T }
+
+f :: proc(s: []int, x: int) {
+	_ = len()
+	_ = len(s, 0)
+	_ = clamp(x, 0)
+	_ = min(x)
+	_ = max()
+	_ = int()
+	_ = int(x, 1)
+	_ = Point()
+	_ = min(int)
+	_ = min(x, 1)
+	_ = clamp(x, 0, 1)
+	_ = len(..s)
+	l: List(int)
+	_ = l
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {")\n\t_ = len(s, 0)", "Too few arguments for 'len', expected 1, got 0", 0},
+        {"0)\n\t_ = clamp", "Too many arguments for 'len', expected 1, got 2", 0},
+        {")\n\t_ = min(x)", "Too few arguments for 'clamp', expected 3, got 2", 0},
+        {"min(x)", "Too few arguments for 'min', two or more are required", 0},
+        {")\n\t_ = int()", "Too few arguments for 'max', expected 1, got 0", 0},
+        {"int()", "Missing argument in conversion to 'int'", 0},
+        {"int(x, 1)", "Too many arguments in conversion to 'int'", 0},
+        {"Point()", "Missing argument in conversion to 'Point'", 0},
+    })
+}
+
 // An undeclared name leaves the body errors out.
 @(test)
 test_live_body_after_names :: proc(t: ^testing.T) {

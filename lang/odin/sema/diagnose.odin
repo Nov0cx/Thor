@@ -1,6 +1,7 @@
 package odinsema
 
 import "core:mem"
+import "core:strings"
 
 import odinsyntax "../syntax"
 
@@ -167,6 +168,120 @@ group_no_match :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node)
         }
     }
     return true
+}
+
+// The builtins of base:builtin that take a fixed number of arguments.
+@(private = "file", rodata)
+BUILTIN_ARITY := [?]struct {
+    name: string,
+    n:    int,
+} {
+    {"len", 1}, {"cap", 1}, {"size_of", 1}, {"align_of", 1}, {"type_of", 1}, {"typeid_of", 1},
+    {"type_info_of", 1}, {"real", 1}, {"imag", 1}, {"jmag", 1}, {"kmag", 1}, {"conj", 1}, {"abs", 1},
+    {"clamp", 3}, {"expand_values", 1}, {"transpose", 1}, {"matrix_flatten", 1}, {"outer_product", 2},
+    {"hadamard_product", 2},
+}
+
+Arity_Kind :: enum u8 {
+    None,
+    Too_Few,             // a builtin: `want` arguments, `got` given
+    Too_Many,            // a builtin: `want` arguments, `got` given
+    Two_Or_More,         // `min` or `max` with one value
+    Conversion_Missing,  // `T()`
+    Conversion_Too_Many, // `T(a, b)`
+}
+
+// A call of a builtin or a conversion with the wrong number of arguments.
+Arity_Problem :: struct {
+    kind:   Arity_Kind,
+    offset: int,     // where the compiler reports it: the call, its `)` or the first extra argument
+    name:   string,  // the builtin; borrows the parse
+    type:   Type_Id, // a conversion: the type
+    want:   int,
+    got:    int,
+}
+
+// The argument count problem of a call of a builtin procedure or of a conversion `T(x)`. Kind None
+// when the count fits, the callee is something else, or an argument is named or spread.
+arity_problem :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node) -> Arity_Problem {
+    ce, is_call := odinsyntax.as_call_expr(call)
+    if !is_call {
+        return {}
+    }
+    callee, has_callee := odinsyntax.call_expr_callee(&ce)
+    list, has_list := odinsyntax.call_expr_args(&ce)
+    if !has_callee || !has_list || !strings.has_suffix(odinsyntax.node_text(odinsyntax.Syntax_Node(list)), ")") {
+        return {}
+    }
+    got := 0
+    extra := -1
+    al, _ := odinsyntax.as_arg_list(odinsyntax.Syntax_Node(list))
+    it := odinsyntax.arg_list_args(&al)
+    args: [2]odinsyntax.Syntax_Node
+    for arg in odinsyntax.child_iter_next(&it) {
+        if arg.green.kind == .Field_Value || arg.green.kind == .Spread_Expr {
+            return {}
+        }
+        if got < len(args) {
+            args[got] = arg
+        }
+        got += 1
+    }
+    _, list_end := odinsyntax.node_range(odinsyntax.Syntax_Node(list))
+    close := int(list_end) - 1
+    fn := expr_type(c, file, callee)
+    #partial switch fn.mode {
+    case .Type:
+        if fn.type == INVALID_TYPE || !plain_type(c, fn.type) {
+            return {}
+        }
+        if got == 0 {
+            return {kind = .Conversion_Missing, offset = int(call.offset), type = fn.type}
+        }
+        if got > 1 {
+            return {kind = .Conversion_Too_Many, offset = int(call.offset), type = fn.type, got = got}
+        }
+    case .Builtin:
+        if callee.green.kind != .Ident {
+            return {}
+        }
+        name := odinsyntax.node_text(callee)
+        if name == "min" || name == "max" {
+            if got == 0 {
+                return {kind = .Too_Few, offset = close, name = name, want = 1}
+            }
+            if got == 1 && expr_type(c, file, args[0]).mode != .Type {
+                return {kind = .Two_Or_More, offset = int(call.offset), name = name}
+            }
+            return {}
+        }
+        for b in BUILTIN_ARITY {
+            if b.name != name {
+                continue
+            }
+            if got < b.n {
+                return {kind = .Too_Few, offset = close, name = name, want = b.n, got = got}
+            }
+            if got > b.n {
+                extra = b.n
+                break
+            }
+            return {}
+        }
+        if extra < 0 {
+            return {}
+        }
+        // The first argument past the count.
+        it = odinsyntax.arg_list_args(&al)
+        i := 0
+        for arg in odinsyntax.child_iter_next(&it) {
+            if i == extra {
+                return {kind = .Too_Many, offset = int(arg.offset), name = name, want = extra, got = got}
+            }
+            i += 1
+        }
+    }
+    return {}
 }
 
 // True when a positional argument may give more than one value: a call or an `or_*` whose type is
