@@ -550,6 +550,12 @@ build_constant_type :: proc(name: string) -> Type_Id {
     return type_untyped(.Bool)
 }
 
+// True for the directory of base:builtin.
+builtin_dir :: proc(dir: string) -> bool {
+    clean, _ := strings.replace_all(dir, "\\", "/", context.temp_allocator)
+    return strings.has_suffix(strings.trim_right(clean, "/"), "base/builtin")
+}
+
 // The operand a package-level declaration gives.
 item_operand :: proc(c: ^Checker, sym: Symbol, builtin := false) -> Operand {
     item := checker_item(c, sym)
@@ -570,6 +576,14 @@ item_operand :: proc(c: ^Checker, sym: Symbol, builtin := false) -> Operand {
     case .Enum_Member:
         out = {mode = .Const, type = decl_type(c, sym)}
     case:
+        // `abs :: builtin.abs` stands for the builtin.
+        if item.kind == .Const && item.type_offset < 0 && item.value_index < 0 {
+            if value, ok := node_at(c, sym.file, item.value_offset); ok && (value.green.kind == .Ident || value.green.kind == .Selector_Expr) {
+                if op := expr_type(c, sym.file, value); op.mode == .Builtin {
+                    return op
+                }
+            }
+        }
         info := decl_info(c, sym)
         if info.is_type {
             out = {mode = .Type, type = info.type}
@@ -864,7 +878,7 @@ selector_operand :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) 
         if !ok {
             return {}
         }
-        return item_operand(c, sym)
+        return item_operand(c, sym, builtin_dir(op.dir))
     case .Type:
         if e, is_enum := type_get(&c.table, type_base(&c.table, op.type)).(Enum_Type); is_enum {
             for m in e.members {

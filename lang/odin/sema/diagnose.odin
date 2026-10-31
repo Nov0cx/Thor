@@ -209,6 +209,18 @@ empty_poly_variadic :: proc(c: ^Checker, p: Proc_Type, slots: []int) -> bool {
     return false
 }
 
+// True when `p` is declared in base:intrinsics, whose signatures only document what the compiler
+// takes (`mem_zero` takes any integer length).
+@(private = "file")
+intrinsic_proc :: proc(c: ^Checker, p: Proc_Type) -> bool {
+    fc := file_cache(c, p.file)
+    if fc == nil {
+        return false
+    }
+    dir, _ := strings.replace_all(fc.dir, "\\", "/", context.temp_allocator)
+    return strings.has_suffix(strings.trim_right(dir, "/"), "base/intrinsics")
+}
+
 // The builtins of base:builtin that take a fixed number of arguments.
 @(private = "file", rodata)
 BUILTIN_ARITY := [?]struct {
@@ -1006,7 +1018,7 @@ argument_mismatches :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_
         return nil
     }
     p, is_proc := type_get(&c.table, type_base(&c.table, fn.type)).(Proc_Type)
-    if !is_proc {
+    if !is_proc || intrinsic_proc(c, p) {
         return nil
     }
     temp := scratch_begin(c)
@@ -1435,7 +1447,7 @@ where_problem :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node) 
         return "", false
     }
     p, is_proc := type_get(&c.table, type_base(&c.table, fn.type)).(Proc_Type)
-    if !is_proc || !p.generic {
+    if !is_proc || !p.generic || intrinsic_proc(c, p) {
         return "", false
     }
     temp := scratch_begin(c)
@@ -1453,6 +1465,12 @@ where_problem :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node) 
     slots, miss := match_slots(c, p, with)
     if miss.kind != .None {
         return "", false
+    }
+    // In a polymorphic body an argument of a `$` type holds for some instances only.
+    for a in with {
+        if has_poly(c, a.op.type, 0) {
+            return "", false
+        }
     }
     env, bound := bind_generic(c, p, with, slots)
     if !bound || len(env) == 0 {

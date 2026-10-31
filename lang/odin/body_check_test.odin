@@ -110,6 +110,41 @@ f :: proc(s: []int, x: int) {
     })
 }
 
+// A constant naming a builtin types as the builtin, an intrinsic takes what the compiler takes, and
+// a `where` call with arguments of a `$` type holds for some instances.
+@(test)
+test_live_builtin_aliases_and_intrinsics :: proc(t: ^testing.T) {
+    root := fixture(t, "live_builtin_aliases", {{"app/a.odin", "package app\n"}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+import "base:builtin"
+import "base:intrinsics"
+
+my_abs :: builtin.abs
+rem16 :: proc(x: f16) -> f16 { return x }
+rem32 :: proc(x: f32) -> f32 { return x }
+rem :: proc{rem16, rem32}
+
+num :: proc(x: $T) -> T where intrinsics.type_is_numeric(T) { return x }
+twice :: proc(x: $T) -> T { return num(x) }
+
+f :: proc(x: f32, h: f16, p: rawptr, n: uint) {
+	a: f32 = rem(my_abs(x))
+	b: f32 = rem(my_abs(h))
+	intrinsics.mem_zero(p, n)
+	_, _ = a, b
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"rem(my_abs(h))", "Cannot assign value 'rem(my_abs(h))' of type 'f16' to 'f32' in a variable declaration", 0},
+    })
+}
+
 // An undeclared name leaves the body errors out.
 @(test)
 test_live_body_after_names :: proc(t: ^testing.T) {
