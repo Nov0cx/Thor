@@ -626,9 +626,22 @@ assign_distance :: proc(c: ^Checker, to: Type_Id, op: Operand, any_int, spread: 
             return i64(Distance.Convert)
         }
     case Pointer_Type:
-        if f, ok := type_get(t, fb).(Pointer_Type); ok && embeds(c, f.elem, v.elem, 0) {
+        // `^[6]f32` is `^Matrix` when `Matrix :: [6]f32` is not distinct.
+        if f, ok := type_get(t, fb).(Pointer_Type); ok && (embeds(c, f.elem, v.elem, 0) || type_underlying(t, f.elem) == type_underlying(t, v.elem)) {
             return i64(Distance.Convert)
         }
+    case Multi_Pointer_Type:
+        if f, ok := type_get(t, fb).(Multi_Pointer_Type); ok && type_underlying(t, f.elem) == type_underlying(t, v.elem) {
+            return i64(Distance.Convert)
+        }
+    case Slice_Type:
+        if f, ok := type_get(t, fb).(Slice_Type); ok && type_underlying(t, f.elem) == type_underlying(t, v.elem) {
+            return i64(Distance.Convert)
+        }
+    }
+    // A struct with a `using` field of type `to` converts to it.
+    if _, is_struct := type_get(t, fb).(Struct_Type); is_struct && embeds(c, from, to, 0) {
+        return i64(Distance.Convert)
     }
     return -1
 }

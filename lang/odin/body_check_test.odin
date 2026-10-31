@@ -175,6 +175,42 @@ f :: proc(q: quaternion64, year, month, day: i64, m: int) {
     })
 }
 
+// A struct converts to the type of its `using` field, and a type that is not distinct is its own
+// definition behind a pointer or a slice.
+@(test)
+test_live_subtypes_and_aliases :: proc(t: ^testing.T) {
+    root := fixture(t, "live_subtypes", {{"app/a.odin", "package app\n"}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+Base :: struct { x: int }
+Outer :: struct { using b: Base, y: int }
+Matrix :: [6]f32
+D :: distinct [6]f32
+take_base :: proc(b: Base) {}
+take_m :: proc(m: ^Matrix) {}
+take_d :: proc(m: ^D) {}
+take_s :: proc(m: []Matrix) {}
+
+f :: proc() {
+	o: Outer
+	take_base(o)
+	a: [6]f32
+	take_m(&a)
+	take_d(&a)
+	s: [][6]f32
+	take_s(s)
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"&a)\n\ts:", "Cannot assign value '&a' of type '^[6]f32' to '^D' in a procedure argument", 0},
+    })
+}
+
 // An undeclared name leaves the body errors out.
 @(test)
 test_live_body_after_names :: proc(t: ^testing.T) {
