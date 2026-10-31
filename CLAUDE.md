@@ -113,6 +113,13 @@ be tested headlessly.
 - `atomicfile` — `atomicfile.write` replaces a file through a temp file beside it and a rename, so a
   crash mid-write leaves the old file whole. Every write that overwrites user or session data goes
   through it. A leaf: imports only `core:`.
+- `luaconf` — config files are Lua. `eval_file` runs one in a fresh sandboxed Lua state (string,
+  table, math, utf8, a trimmed base library, a read-only `thor` table with `os`/`arch`/`env`; a
+  time and a memory budget) and returns the table as a `core:encoding/json` Value tree, so a loader
+  walks it as it walked JSON. `patch`/`append_entry` edit one `key = value` in the source and keep
+  comments; a key set by code is `.Computed`, and the caller asks the user to edit by hand.
+  `convert_json` writes a `.json` as `.lua` and keeps the old file as `.json.bak`. A leaf: imports
+  only `core:`, `base:runtime`, `vendor:lua/5.4` and `atomicfile`.
 - `piecetable` — the buffer representation. Pure data structure. Keeps the contents materialized as
   one snapshot, rebuilt by `piecetable_view` on the first read after an edit.
 - `textedit` — UI-independent editing core: cursors, selection, movement, edits, undo/redo with
@@ -131,7 +138,8 @@ be tested headlessly.
   atlas lacks is rasterized on demand from the family's own file, then a system face
   (`font/fallback.odin`), onto per-size pages that grow.
 - `theme` — the named roles, `role_color` (public plugin API, do not rename), the contrast helpers
-  and the generator. Colours are `ui.Color`.
+  and the generator. Colours are `ui.Color`. A theme file is Lua keyed by role id (`COLORS[i].role`);
+  `load_json` reads the old shape for the converter only.
 - `snippet`, `search`, `markdown` — leaves: the LSP snippet grammar, the find engine (case folding,
   whole word, regex), and the markdown parse and layout. The host answers three callbacks: text width, line height and image size.
 - `editview` — the editor's state and behaviour with no drawing: folding, soft-wrap visual rows,
@@ -149,7 +157,7 @@ be tested headlessly.
 - `plugin` — the Lua 5.4 VM, the language registry plugins fill at load, and the mapping from
   tree-sitter captures to theme *roles*.
 - `lang` + `lang/odin` + `lang/lsp` — language intelligence (see below). `lang/lsp` may import only
-  `core:*`, `base:runtime`, `lang`, `shell` and `treecache` (for `source_edit`, the byte diff an
+  `core:*`, `base:runtime`, `lang`, `luaconf`, `shell` and `treecache` (for `source_edit`, the byte diff an
   incremental `didChange` needs) — never `setting`, which imports `lang`.
   `lang/odin/syntax` (package `odinsyntax`, not `syntax`, which is taken) is the next engine's
   front end (`odin-analyzer-plan.md`): the lexer, the error-resilient parser (`parse`) and the
@@ -389,10 +397,10 @@ subprocess LSP client as an optional second backend behind the same seam.
   dispatch path can forget the check. `manager_allows(ext, kind)` is the per-kind question a caller
   with a fallback asks; `thor_apply_language_settings` pushes the setting onto the manager.
 - `lang/lsp` is the subprocess LSP backend, one `Server` per entry of the merged server table
-  (`settings/lsp.json` overlaid by `user/lsp.json` overlaid by `<workspace>/.thor/lsp.json`). An
+  (`settings/lsp.lua` overlaid by `user/lsp.lua` overlaid by `<workspace>/.thor/lsp.lua`). An
   entry's `enabled`/`features` **seed** that server's `admin_enabled`/`admin_features` at
   `server_create` and state nothing after — `language_backends` owns the keys it names, so a server
-  turned off in `lsp.json` still lists in Settings and can be turned back on, and it stops claiming
+  turned off in `lsp.lua` still lists in Settings and can be turned back on, and it stops claiming
   its extensions so a later entry can take the language over. An entry claims routing keys through
   `extensions` (each force-given its leading dot) and `filenames` (whole names, kept verbatim and
   matched first). `lang/LSP_PLAN.md` is its design.
@@ -415,7 +423,7 @@ subprocess LSP client as an optional second backend behind the same seam.
   `${workspace}`/`${userHome}`/`${env:NAME}`; `client_server_status` is the snapshot the settings
   panel reads, behind `status_mutex` — a leaf lock over `root`/`restarts`/`last_error`, since a
   status read must never take `conn_lock`, which is held shared for a whole round trip. All three
-  `lsp.json` layers are watched (`thor/settings_watch.odin`) and rebuild the client through
+  `lsp.lua` layers are watched (`thor/settings_watch.odin`) and rebuild the client through
   `thor.lang_reload_pending` at the head of the run loop, never inside an event. One server alone is
   restarted with `server_restart` (`client_restart_server` by id) — the one place the `stopping`
   latch is released; it keeps the documents (`server_launch` re-opens them) and `caps` (read with no
@@ -460,7 +468,7 @@ compile is reported with its offset instead of silently uncoloring the language.
 
 Each plugin runs sandboxed (`plugin/sandbox.odin`): its own `_ENV`, a trimmed standard library (no
 io/package/debug/`load`), path-confined file access, a two-second wall-clock budget per call, and a
-`thor` table holding only what `plugins/<id>/plugin.json` grants
+`thor` table holding only what `plugins/<id>/manifest.lua` grants
 (`exec`/`read`/`write`/`ui`/`keys`/`tick`).
 A plugin that wants a permission stays unloaded until the user allows it: `thor_load_plugins`
 (`thor/plugin_trust.odin`) scans first, runs the permission-free plugins at once, and holds the rest
@@ -499,17 +507,20 @@ Thor moves its working directory to the executable at startup, so `assets/`, `pl
 build, and the updater swaps all four. The folder Thor opens still comes from the directory it was
 launched in.
 
-Configuration is layered in three: the shipped `settings/*.json` (settings, keybinds, comment
-prefixes, and `lsp.json`, the language-server table), overlaid by `user/*.json`, overlaid by a
+Configuration is layered in three: the shipped `settings/*.lua` (settings, keybinds, comment
+prefixes, tips, and `lsp.lua`, the language-server table), overlaid by `user/*.lua`, overlaid by a
 workspace's `.thor/` directory. `settings/` is **read-only to the running editor** — a build and an
 update replace it wholesale, so anything Thor writes goes to `user/` (`setting.USER_DIR`,
 `thor_active_settings_path`) or to `.thor/`, never there; `user/` is gitignored, never staged and
 never swapped. `update_swap.odin` carries a pre-split install's `settings/*.json` into `user/` once,
-on its first update. `.thor/` also
-holds `tasks.json` (named shell commands surfaced in the titlebar), `odin-analyzer.json`
+on its first update, and `thor/migrate_lua.odin` converts the JSON it finds in `user/` and `.thor/`
+to Lua before the config loads (the card about it shows only in `LUA_CONFIG_NOTICE_VERSION`).
+`assets/fonts/fonts.json`, `user/fonts.json`, `assets/icons/icons.json` and `sessions/*.json`
+stay JSON. `.thor/` also
+holds `tasks.lua` (named shell commands surfaced in the titlebar), `odin-analyzer.lua`
 (per-workspace analyzer collections and feature toggles — deliberately Thor's own file, not
-`ols.json`), `lsp.json` (server entries merged onto the shipped ones by `id`; `"enabled": false`
-switches one off) and `plugins/` (the workspace's own Lua plugins). This repo has its own `.thor/`, so
+`ols.json`), `odin-formatter.lua`, `lsp.lua` (server entries merged onto the shipped ones by `id`;
+`enabled = false` switches one off) and `plugins/` (the workspace's own Lua plugins). This repo has its own `.thor/`, so
 those files serve as working examples.
 
 ## User documentation
