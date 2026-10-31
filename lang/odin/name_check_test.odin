@@ -368,6 +368,13 @@ f :: proc() {
 	}
 	j := 2
 	_ = j
+	when ODIN_OS == .Linux {
+		for {
+			n := 1
+			n := 2
+			_ = n
+		}
+	}
 }
 
 main :: proc() {}

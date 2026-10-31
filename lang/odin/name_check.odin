@@ -394,7 +394,7 @@ local_redeclarations :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, whens
     first := make(map[Local_Key]int, len(locals), context.temp_allocator)
     for index in order {
         l := &locals[index]
-        if under_when(m, l, whens) {
+        if in_untaken_branch(whens, l.name_offset) {
             continue
         }
         // A label is unique in its whole procedure.
@@ -533,19 +533,6 @@ Branch :: struct {
     start: int,
     end:   int,
     state: odinsema.Tri,
-}
-
-// True when the local is declared in a `when` branch of its own scope that the target does not
-// surely take. A `when` body opens no scope, and the compiler checks only the branch that holds.
-@(private = "file")
-under_when :: proc(m: ^odinsema.Scope_Map, l: ^odinsema.Local, whens: []Branch) -> bool {
-    scope := m.scopes[l.scope]
-    for w in whens {
-        if w.state != .True && w.start <= l.name_offset && l.name_offset < w.end && w.start >= scope.start && w.end <= scope.end {
-            return true
-        }
-    }
-    return false
 }
 
 // True when `offset` is in a `when` branch that the target does not surely take.
