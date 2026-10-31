@@ -26,14 +26,13 @@ test_async_file_roundtrip :: proc(t: ^testing.T) {
 
     thor := new(Thor)
     defer free(thor)
-    defer editview.editor_destroy(&thor.editor)
-    defer editview.editor_destroy(&thor.editor2)
+    defer for &editor in thor.editors {editview.editor_destroy(&editor)}
     thor.active_file = make_signal(-1)
     thor.open_files = make([dynamic]^Open_File)
     thor.zombie_files = make([dynamic]^Open_File)
     thor.finished_loads = make([dynamic]^Load_Job)
     thor.finished_saves = make([dynamic]^Save_Job)
-    thor.pane_file = {-1, -1}
+    thor.pane_file = -1
     // thor_update_files picks the view for the active file, so the image, model
     // and markdown views have to exist even though nothing draws them here.
     // thor_update_editor_view also swaps the welcome page in when there is no
@@ -50,7 +49,7 @@ test_async_file_roundtrip :: proc(t: ^testing.T) {
     testing.expect_value(t, len(thor.open_files), 1)
     file := thor.open_files[0]
     testing.expect_value(t, file.name, "thor_roundtrip.tmp")
-    testing.expect(t, thor.editor.state == nil, "editor must not borrow a still-loading buffer")
+    testing.expect(t, thor.editors[0].state == nil, "editor must not borrow a still-loading buffer")
 
     for _ in 0 ..< 500 {
         thor_update_files(thor)
@@ -62,7 +61,7 @@ test_async_file_roundtrip :: proc(t: ^testing.T) {
     testing.expect(t, file.loaded, "load did not complete")
     testing.expect(t, !file.load_failed, "load failed")
     testing.expect_value(t, textedit.text(&file.state), ORIGINAL)
-    testing.expect(t, thor.editor.state == &file.state, "editor not pointed at loaded buffer")
+    testing.expect(t, thor.editors[0].state == &file.state, "editor not pointed at loaded buffer")
 
     // Edit and save explicitly (the autosave path shares thor_save_file).
     textedit.insert_text(&file.state, "edit: ")
@@ -86,7 +85,7 @@ test_async_file_roundtrip :: proc(t: ^testing.T) {
     thor_close_file(thor, 0)
     testing.expect_value(t, len(thor.open_files), 0)
     testing.expect_value(t, len(thor.zombie_files), 0)
-    testing.expect(t, thor.editor.state == nil, "editor still borrows a closed buffer")
+    testing.expect(t, thor.editors[0].state == nil, "editor still borrows a closed buffer")
     testing.expect_value(t, signal_get(&thor.active_file), -1)
 }
 
@@ -122,14 +121,13 @@ test_async_load_prepares_crlf_text :: proc(t: ^testing.T) {
 
     thor := new(Thor)
     defer free(thor)
-    defer editview.editor_destroy(&thor.editor)
-    defer editview.editor_destroy(&thor.editor2)
+    defer for &editor in thor.editors {editview.editor_destroy(&editor)}
     thor.active_file = make_signal(-1)
     thor.open_files = make([dynamic]^Open_File)
     thor.zombie_files = make([dynamic]^Open_File)
     thor.finished_loads = make([dynamic]^Load_Job)
     thor.finished_saves = make([dynamic]^Save_Job)
-    thor.pane_file = {-1, -1}
+    thor.pane_file = -1
     defer {
         delete(thor.open_files)
         delete(thor.zombie_files)
@@ -162,8 +160,7 @@ test_async_load_prepares_crlf_text :: proc(t: ^testing.T) {
 test_image_tab_is_not_stuck_loading :: proc(t: ^testing.T) {
     thor := new(Thor)
     defer free(thor)
-    defer editview.editor_destroy(&thor.editor)
-    defer editview.editor_destroy(&thor.editor2)
+    defer for &editor in thor.editors {editview.editor_destroy(&editor)}
     thor.open_files = make([dynamic]^Open_File)
     defer delete(thor.open_files)
 
@@ -305,7 +302,7 @@ test_reload_keeps_cursor_and_view :: proc(t: ^testing.T) {
 
     // "beta" selected, from its line start to its line end.
     textedit.select_range(&file.state, 6, 10)
-    thor.editor.scroll_y = 120
+    thor.editors[0].scroll_y = 120
 
     rewrite_err := os.write_entire_file(TEST_PATH, transmute([]u8) string("inserted\nalpha\nbeta\ngamma\n"))
     testing.expect(t, rewrite_err == nil, "could not rewrite test file")
@@ -320,7 +317,7 @@ test_reload_keeps_cursor_and_view :: proc(t: ^testing.T) {
     cursor := textedit.primary_cursor(&file.state)
     testing.expect_value(t, cursor.anchor, 15)
     testing.expect_value(t, cursor.caret, 19)
-    testing.expect_value(t, thor.editor.scroll_y, 120)
+    testing.expect_value(t, thor.editors[0].scroll_y, 120)
     // A reload leaves the buffer clean.
     testing.expect_value(t, file.saved_revision, file.state.revision)
 
@@ -698,8 +695,7 @@ test_async_file_ops :: proc(t: ^testing.T) {
 test_tab_labels_disambiguate :: proc(t: ^testing.T) {
     thor := new(Thor)
     defer free(thor)
-    defer editview.editor_destroy(&thor.editor)
-    defer editview.editor_destroy(&thor.editor2)
+    defer for &editor in thor.editors {editview.editor_destroy(&editor)}
     thor.open_files = make([dynamic]^Open_File)
     defer delete(thor.open_files)
 
@@ -795,7 +791,7 @@ test_make_thor :: proc() -> ^Thor {
     thor.finished_loads = make([dynamic]^Load_Job)
     thor.finished_saves = make([dynamic]^Save_Job)
     thor.finished_file_ops = make([dynamic]^File_Op_Job)
-    thor.pane_file = {-1, -1}
+    thor.pane_file = -1
     // thor_update_editor_view also swaps the welcome page in when there is no
     // workspace, which this headless Thor never sets.
     // The disk-conflict prompt runs through the palette; creating it only allocates.
@@ -804,8 +800,7 @@ test_make_thor :: proc() -> ^Thor {
 
 @(private = "file")
 test_free_thor :: proc(thor: ^Thor) {
-    editview.editor_destroy(&thor.editor)
-    editview.editor_destroy(&thor.editor2)
+    for &editor in thor.editors {editview.editor_destroy(&editor)}
     delete(thor.status_message)
     delete(thor.conflict_prompt)
     delete(thor.open_files)

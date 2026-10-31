@@ -24,9 +24,6 @@ TERMINAL_STRIP_TAB_HEIGHT :: 22
 TERMINAL_STRIP_NAME_MAX :: 140
 // Width of the bar between two dock panels, which is also its drag area.
 DOCK_SPLITTER_WIDTH :: 3
-SPLIT_HANDLE_WIDTH :: f32(3)
-SPLIT_MIN_RATIO :: f32(0.15)
-SPLIT_MAX_RATIO :: f32(0.85)
 
 // What the status bar shows. A field left zero hides its segment.
 Status_Info :: struct {
@@ -720,56 +717,75 @@ thor_editor_column :: proc(thor: ^Thor, view: Workspace_View) {
     thor_tabbar(thor)
 
     panes := ui.scope({key = "panes", props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Row}})
-    if !view.split {
-        thor_workspace_pane(thor, view, 0, "pane0")
-        return
-    }
-
-    // The rect is from the last frame. The first frame of a split has none, so
-    // the two panes share the row.
-    avail := panes.rect.w - SPLIT_HANDLE_WIDTH
-    first: ui.Size = ui.Grow(1)
-    if avail > 0 {
-        first = ui.Px(math.round(avail * clamp(thor.split_ratio, SPLIT_MIN_RATIO, SPLIT_MAX_RATIO)))
-    }
-    {
-        ui.scope({key = "slot0", props = {w = first, h = ui.Grow(1)}})
-        thor_workspace_pane(thor, view, 0, "pane0")
-    }
-    thor_split_handle(thor, avail)
-    {
-        ui.scope({key = "slot1", props = {w = ui.Grow(1), h = ui.Grow(1)}})
-        thor_workspace_pane(thor, view, 1, "pane1")
+    thor.panes_area = panes.rect
+    thor.pane_rect = {}
+    layout := thor.layout
+    cols := layout_columns(layout)
+    // The rects are from the last frame. The first frame has none, so the
+    // slots share the row by Grow.
+    col_w := thor_pane_sizes(thor.col_weight[:], cols, panes.rect.w - f32(cols - 1) * PANE_HANDLE_WIDTH)
+    for col in 0 ..< cols {
+        ui.push_id_int(i64(col))
+        defer ui.pop_id()
+        if col > 0 {
+            thor_pane_handle(thor, "col_handle", .Row, thor.col_weight[:cols], col - 1, panes.rect.w)
+        }
+        w: ui.Size = ui.Grow(1)
+        if panes.rect.w > 0 && col < cols - 1 {
+            w = ui.Px(col_w[col])
+        }
+        stack := ui.scope({key = "column", props = {w = w, h = ui.Grow(1), dir = .Column}})
+        rows := LAYOUT_ROWS[layout][col]
+        row_h := thor_pane_sizes(thor.row_weight[col][:], rows, stack.rect.h - f32(rows - 1) * PANE_HANDLE_WIDTH)
+        first := layout_first_pane(layout, col)
+        for row in 0 ..< rows {
+            ui.push_id_int(i64(row))
+            defer ui.pop_id()
+            if row > 0 {
+                thor_pane_handle(thor, "row_handle", .Column, thor.row_weight[col][:rows], row - 1, stack.rect.h)
+            }
+            h: ui.Size = ui.Grow(1)
+            if stack.rect.h > 0 && row < rows - 1 {
+                h = ui.Px(row_h[row])
+            }
+            pane := first + row
+            slot := ui.scope({key = "slot", props = {w = ui.Grow(1), h = h}})
+            thor.pane_rect[pane] = slot.rect
+            thor_workspace_pane(thor, view, pane, thor_pane_key(pane))
+        }
     }
 }
 
-// The bar between the two panes. A drag moves split_ratio, a double click
-// centers it. avail is the row width the two panes share.
+// A bar between two slots. A drag moves the boundary after weights[i], a double
+// click evens the group. along is the axis of the slots, avail their shared length.
 @(private = "file")
-thor_split_handle :: proc(thor: ^Thor, avail: f32) {
+thor_pane_handle :: proc(thor: ^Thor, key: string, along: ui.Direction, weights: []f32, i: int, avail: f32) {
+    row := along == .Row
     it := ui.leaf(
         {
-            key = "split",
+            key = key,
             flags = {.Clickable, .Draggable},
             props = {
-                w = ui.Px(SPLIT_HANDLE_WIDTH),
-                h = ui.Grow(1),
+                w = row ? ui.Px(PANE_HANDLE_WIDTH) : ui.Grow(1),
+                h = row ? ui.Grow(1) : ui.Px(PANE_HANDLE_WIDTH),
                 bg = thor.theme.border,
-                cursor = .Resize_H,
+                cursor = row ? .Resize_H : .Resize_V,
             },
             hover = {bg = thor.theme.accent_color},
         },
     )
     if it.double_clicked {
-        thor.split_ratio = 0.5
+        for &w in weights {
+            w = 1
+        }
         return
     }
     if it.pressed {
-        thor.split_grab = thor.split_ratio
+        thor.pane_grab = {weights[i], weights[i + 1]}
     }
     if it.dragging && avail > 0 {
-        moved := ui.mouse_pos().x - it.drag_start.x
-        thor.split_ratio = clamp(thor.split_grab + moved / avail, SPLIT_MIN_RATIO, SPLIT_MAX_RATIO)
+        moved := row ? ui.mouse_pos().x - it.drag_start.x : ui.mouse_pos().y - it.drag_start.y
+        thor_pane_drag_weights(weights, i, thor.pane_grab, moved, avail)
     }
 }
 

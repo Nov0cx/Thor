@@ -5,7 +5,6 @@ import rl "vendor:raylib"
 import "../plugin"
 import "../setting"
 import ui "../vendor/loom/loom"
-import "../editview"
 thor_minimize_window :: proc() {
     rl.MinimizeWindow()
 }
@@ -168,6 +167,9 @@ thor_global_key :: proc(thor: ^Thor, event: ui.Key_Event) -> bool {
         thor_toggle_split(thor)
         return true
     }
+    if thor_pane_global_key(thor, event) {
+        return true
+    }
 
     // While an overlay is open it owns the keyboard (dispatched via focus),
     // so app shortcuts below are suppressed.
@@ -316,9 +318,16 @@ thor_terminal_owns_key :: proc(thor: ^Thor, event: ui.Key_Event) -> bool {
         thor.focus_editor_key,
         thor.focus_explorer_key,
         thor.fullscreen_key,
+        thor.focus_next_pane_key,
+        thor.focus_previous_pane_key,
     }
     for bind in escapes {
         if setting.keybind_matches(bind, event.key, event.mods) {
+            return false
+        }
+    }
+    for bind in thor.focus_pane_keys {
+        if thor_digit_bind_matches(bind, event) {
             return false
         }
     }
@@ -328,7 +337,7 @@ thor_terminal_owns_key :: proc(thor: ^Thor, event: ui.Key_Event) -> bool {
 // Moves keyboard focus to the editor. The editor pane is always present, so no
 // panel needs opening.
 thor_focus_editor :: proc(thor: ^Thor) {
-    thor.focus_request = "pane0"
+    thor.focus_request = thor_pane_key(thor.active_pane)
 }
 
 // Reveals the explorer panel if collapsed, then focuses the file tree so it can
@@ -362,48 +371,4 @@ thor_toggle_explorer :: proc(data: rawptr) {
 thor_toggle_console :: proc(data: rawptr) {
     thor := cast(^Thor) data
     signal_set(&thor.console_visible, !signal_get(&thor.console_visible))
-}
-
-// Called after split_visible or split_ratio moves. The view sizes both panes
-// from split_ratio; the one thing that cannot wait for it is pane 2's zoom.
-thor_apply_split :: proc(thor: ^Thor) {
-    if thor.split_visible {
-        // Match pane 2's zoom to pane 1 when the split opens; afterwards each
-        // pane zooms independently (ctrl+scroll targets the hovered pane).
-        editview.editor_set_font_size(&thor.editor2, thor.editor.font_size)
-    }
-}
-
-thor_toggle_split :: proc(thor: ^Thor) {
-    thor.split_visible = !thor.split_visible
-    if thor.split_visible {
-        // Start pane 2 on a distinct file when possible (the ctrl+e target),
-        // else mirror pane 1 so there is always something to show.
-        if thor.pane_file[1] < 0 || thor.pane_file[1] >= len(thor.open_files) {
-            thor.pane_file[1] = thor_second_pane_default(thor)
-        }
-        thor_apply_split(thor)
-        thor_bind_pane(thor, 1)
-        thor.active_pane = 1
-        thor.focus_request = "pane1"
-    } else {
-        thor_apply_split(thor)
-        thor.active_pane = 0
-        thor.focus_request = "pane0"
-    }
-    thor_sync_active_signal(thor)
-}
-
-// Index the split pane opens on: the previously active file if it is still open
-// and not already in pane 1, otherwise whatever pane 1 shows.
-@(private = "file")
-thor_second_pane_default :: proc(thor: ^Thor) -> int {
-    if thor.last_active_file != nil {
-        for file, index in thor.open_files {
-            if file == thor.last_active_file && index != thor.pane_file[0] {
-                return index
-            }
-        }
-    }
-    return thor.pane_file[0]
 }

@@ -13,8 +13,9 @@ import "../textedit"
 // Points both editor panes at the shared context menu. Called once at startup;
 // every other menu is opened straight from the view that owns the click.
 thor_wire_menus :: proc(thor: ^Thor) {
-    editview.editor_set_on_context_menu(&thor.editor, thor_editor_context_menu, thor)
-    editview.editor_set_on_context_menu(&thor.editor2, thor_editor_context_menu, thor)
+    for &editor in thor.editors {
+        editview.editor_set_on_context_menu(&editor, thor_editor_context_menu, thor)
+    }
 }
 
 // Remembers the directory a New File/Folder prompt will create into.

@@ -4,7 +4,6 @@ import "core:fmt"
 import "core:slice"
 import "core:strings"
 
-import "../editview"
 import "../input"
 import "../lang"
 import "../plugin"
@@ -552,7 +551,7 @@ thor_cmd_change_indent_guides :: proc(thor: ^Thor) {
 @(private = "file")
 thor_indent_guides_preview :: proc(data: rawptr, choice: string) {
     thor := cast(^Thor) data
-    for editor in ([2]^editview.Editor{&thor.editor, &thor.editor2}) {
+    for &editor in thor.editors {
         editor.indent_guides = choice == ON_OFF_LABELS[0]
     }
 }
@@ -582,7 +581,7 @@ thor_cmd_change_relative_line_numbers :: proc(thor: ^Thor) {
 @(private = "file")
 thor_relative_lines_preview :: proc(data: rawptr, choice: string) {
     thor := cast(^Thor) data
-    for editor in ([2]^editview.Editor{&thor.editor, &thor.editor2}) {
+    for &editor in thor.editors {
         editor.relative_lines = choice == ON_OFF_LABELS[0]
     }
 }

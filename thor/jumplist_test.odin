@@ -17,7 +17,7 @@ make_test_thor :: proc() -> ^Thor {
     thor.zombie_files = make([dynamic]^Open_File)
     thor.finished_loads = make([dynamic]^Load_Job)
     thor.finished_saves = make([dynamic]^Save_Job)
-    thor.pane_file = {-1, -1}
+    thor.pane_file = -1
     // thor_update_editor_view also swaps the welcome page in when there is no
     // workspace, which this headless Thor never sets.
     return thor
@@ -31,8 +31,7 @@ destroy_test_thor :: proc(thor: ^Thor) {
     thor_drain_io(thor)
     // After the closes: closing the last file rebinds the panes, which sets the
     // snippet variables again.
-    editview.editor_destroy(&thor.editor)
-    editview.editor_destroy(&thor.editor2)
+    for &editor in thor.editors {editview.editor_destroy(&editor)}
     thor_clear_jump_list(thor)
     delete(thor.jump_back)
     delete(thor.jump_forward)

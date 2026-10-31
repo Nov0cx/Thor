@@ -25,10 +25,10 @@ thor_on_visibility_changed :: proc(data: rawptr, value: bool) {
     thor_apply_layout_state(cast(^Thor) data)
 }
 
-// Widget for a pane index (0 = primary, 1 = split).
+// Widget for a pane index.
 @(private)
 thor_pane_editor :: proc(thor: ^Thor, pane: int) -> ^editview.Editor {
-    return pane == 0 ? &thor.editor : &thor.editor2
+    return &thor.editors[pane]
 }
 
 // Widget of the pane the user is in, the target of every command that acts on
@@ -181,16 +181,16 @@ Pane_Content :: enum {
 Workspace_View :: struct {
     file:    ^Open_File, // borrowed, the active file; nil when none is
     welcome: bool,
-    split:   bool,
-    pane:    [2]Pane_Content,
-    // The file each pane shows, which is not the active one for the other pane
-    // of a split. nil where the pane has none.
-    files:   [2]^Open_File, // borrowed
+    count:   int, // panes shown
+    pane:    [MAX_PANES]Pane_Content,
+    // The file each pane shows, which is not the active one for the other
+    // panes. nil where the pane has none.
+    files:   [MAX_PANES]^Open_File, // borrowed
 }
 
 // Decides what each pane shows: the image view for an image, the model view for
-// a 3D model, and the markdown preview in whichever pane is not focused when the
-// active file is markdown and preview is on. The focused pane keeps the source,
+// a 3D model, and the markdown preview in the pane beside the focused one when
+// the active file is markdown and preview is on. The focused pane keeps the source,
 // like opening the preview to the side. Called once a frame, so it tracks tab
 // switches, splits, toggles and closes without each having to poke it.
 thor_workspace_view :: proc(thor: ^Thor) -> Workspace_View {
@@ -198,7 +198,7 @@ thor_workspace_view :: proc(thor: ^Thor) -> Workspace_View {
     out := Workspace_View{file = file}
     out.welcome = thor.workspace_dir == ""
 
-    for pane in 0 ..< 2 {
+    for pane in 0 ..< thor_pane_count(thor) {
         index := thor.pane_file[pane]
         if index < 0 || index >= len(thor.open_files) {
             continue
@@ -212,14 +212,18 @@ thor_workspace_view :: proc(thor: ^Thor) -> Workspace_View {
 
     // The preview needs a second pane to sit beside the source; open the split
     // first if it is not already on, without moving focus off the source.
-    if show_md && !thor.split_visible {
-        thor.split_visible = true
-        thor_apply_split(thor)
+    if show_md && thor_pane_count(thor) == 1 && thor_ensure_pane(thor, 1) {
+        for pane in 1 ..< thor_pane_count(thor) {
+            if index := thor.pane_file[pane]; index >= 0 && index < len(thor.open_files) {
+                out.files[pane] = thor.open_files[index]
+                out.pane[pane] = thor_pane_content(out.files[pane])
+            }
+        }
     }
-    out.split = thor.split_visible
+    out.count = thor_pane_count(thor)
 
-    if show_md {
-        other := 1 - thor.active_pane
+    if show_md && out.count > 1 {
+        other := (thor.active_pane + 1) % out.count
         out.pane[other] = .Markdown
         out.files[other] = file
     }
@@ -260,12 +264,11 @@ thor_sync_active_pane :: proc(thor: ^Thor) {
     // name the menu.
     named := thor.focus_request != "" ? thor.focus_request : thor.focus_owner
     pane := thor.active_pane
-    if !thor.split_visible {
+    if p := thor_pane_of_key(named); p >= 0 {
+        pane = p
+    }
+    if pane >= thor_pane_count(thor) {
         pane = 0
-    } else if named == "pane0" {
-        pane = 0
-    } else if named == "pane1" {
-        pane = 1
     }
     if pane != thor.active_pane {
         thor.active_pane = pane
@@ -315,7 +318,7 @@ thor_status_info :: proc(data: rawptr) -> Status_Info {
     if file.indent.style == .Spaces && file.indent.width > 0 {
         info.indent_width = file.indent.width
     }
-    info.zoom = int(thor.editor.font_size) * 100 / max(setting.font_size(&thor.config), 1)
+    info.zoom = int(thor_active_editor(thor).font_size) * 100 / max(setting.font_size(&thor.config), 1)
     info.saving = file.saving
     info.modified = file.loaded && file.state.revision != file.saved_revision
     if file.loaded {

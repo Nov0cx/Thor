@@ -940,12 +940,12 @@ thor_rebind_reloaded_panes :: proc(thor: ^Thor, file: ^Open_File, old_text, new_
         if index < 0 || index >= len(thor.open_files) || thor.open_files[index] != file {
             continue
         }
-        editor := pane == 0 ? thor.editor : thor.editor2
-        top := editview.editor_top_offset(&editor)
+        editor := thor_pane_editor(thor, pane)
+        top := editview.editor_top_offset(editor)
         moved := thor_remap_offset(old_text, new_text, top, prefix, suffix)
         shift := textedit.line_index(new_text, moved) - textedit.line_index(old_text, top)
         thor_bind_pane(thor, pane, keep_view = true)
-        editview.editor_scroll_lines(&editor, shift)
+        editview.editor_scroll_lines(editor, shift)
     }
 }
 
@@ -1102,7 +1102,7 @@ thor_close_file :: proc(thor: ^Thor, index: int) {
     ordered_remove(&thor.open_files, index)
     thor_update_tab_labels(thor)
 
-    // Fix up both panes for the shift: the closed slot falls back to its
+    // Fix up every pane for the shift: the closed slot falls back to its
     // neighbour (or none), later slots shift down one.
     for &pane_index in thor.pane_file {
         if pane_index == index {
@@ -1254,17 +1254,11 @@ thor_update_files :: proc(thor: ^Thor) {
 
     // Push (or clear, when the buffer moved past the checked revision) each
     // visible pane's diagnostics.
-    thor_request_pane_syntax_diagnostics(thor, 0)
-    thor_sync_pane_diagnostics(thor, 0)
-    if thor.split_visible && thor.pane_file[1] != thor.pane_file[0] {
-        thor_request_pane_syntax_diagnostics(thor, 1)
-        thor_sync_pane_diagnostics(thor, 1)
-    }
-
-    // Push each visible pane's git diff lines for the gutter bar.
-    thor_sync_pane_diff(thor, 0)
-    if thor.split_visible && thor.pane_file[1] != thor.pane_file[0] {
-        thor_sync_pane_diff(thor, 1)
+    for pane in 0 ..< thor_pane_count(thor) {
+        thor_request_pane_syntax_diagnostics(thor, pane)
+        thor_sync_pane_diagnostics(thor, pane)
+        // Each visible pane's git diff lines for the gutter bar.
+        thor_sync_pane_diff(thor, pane)
     }
 }
 

@@ -306,10 +306,7 @@ thor_open_folder :: proc(thor: ^Thor, dir: string) {
 
     thor_restore_session(thor)
     thor_apply_layout_state(thor)
-    thor_apply_split(thor)
-    if thor.split_visible {
-        thor_bind_pane(thor, 1)
-    }
+    thor_bind_extra_panes(thor)
     thor_refresh_git_status(thor)
     thor_refresh_file_index(thor)
     thor_init_watcher(thor)

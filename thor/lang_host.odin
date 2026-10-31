@@ -36,7 +36,8 @@ thor_odin_cache_dir :: proc() -> string {
 // Points both editor panes at the handlers that answer them. Called once at
 // startup: the panes are values on Thor and outlive every frame's tree.
 thor_wire_editors :: proc(thor: ^Thor) {
-    for editor in ([2]^editview.Editor{&thor.editor, &thor.editor2}) {
+    for &pane_editor in thor.editors {
+        editor := &pane_editor
         editview.editor_set_on_save(editor, thor_request_save, thor)
         editview.editor_set_on_goto_definition(editor, thor_editor_goto_definition, thor)
         editview.editor_set_on_hover(editor, thor_editor_hover, thor)
@@ -1471,8 +1472,8 @@ thor_show_package_doc :: proc(thor: ^Thor, res: ^lang.Result) {
         return
     }
 
-    // The doc goes in the pane the user is not editing in.
-    thor_render_doc_in_pane(thor, path, res.doc.text, 1 - thor.active_pane)
+    // The doc goes in the pane beside the one the user is editing in.
+    thor_render_doc_in_pane(thor, path, res.doc.text, thor_side_pane(thor))
 }
 
 // The per-session directory package-doc pages are written to: a `thor-docs`
@@ -1520,8 +1521,8 @@ thor_doc_file_stem :: proc(name: string) -> string {
     return strings.to_string(b)
 }
 
-// Writes `text` to `path` and shows it in editor pane `pane`, opening the split
-// when the target is the second pane. An already-open doc buffer is refreshed in
+// Writes `text` to `path` and shows it in editor pane `pane`, which must exist.
+// An already-open doc buffer is refreshed in
 // place (and kept clean so autosave never fires); a new one is opened into the
 // pane without moving keyboard focus off the user's code.
 @(private = "file")
@@ -1532,11 +1533,6 @@ thor_render_doc_in_pane :: proc(thor: ^Thor, path, text: string, pane: int) {
         return
     }
     canonical := thor_abs_path(path)
-
-    if pane == 1 && !thor.split_visible {
-        thor.split_visible = true
-        thor_apply_split(thor)
-    }
 
     if file, index := thor_find_open_file(thor, canonical); file != nil {
         if file.loaded {

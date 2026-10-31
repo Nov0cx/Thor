@@ -29,10 +29,9 @@ SLOW_WINDOW_WARN_SECS :: 2.0
 Thor :: struct {
     ui_context: ui.Context,
     backend: render.Backend,
-    // The two editor panes. Owned here: undo history and cursors outlive any
-    // one frame's tree.
-    editor: editview.Editor,
-    editor2: editview.Editor,
+    // The editor panes, all MAX_PANES of them; the layout shows the first few.
+    // Owned here: undo history and cursors outlive any one frame's tree.
+    editors: [MAX_PANES]editview.Editor,
     // Font handles the views style with.
     font_ui: ui.Font,
     font_mono: ui.Font,
@@ -95,8 +94,8 @@ Thor :: struct {
     // Zoom and pan of the image view, and the orbit camera and render target of
     // the model view. One per editor pane: a split can show two of either, and
     // each keeps its own camera.
-    image_view: [2]Image_View,
-    model_view: [2]Model_View,
+    image_view: [MAX_PANES]Image_View,
+    model_view: [MAX_PANES]Model_View,
     // Rendered markdown preview, shown in place of whichever pane is not
     // focused while preview is on and the active file is markdown. Toggled by
     // "View: Toggle Markdown Preview".
@@ -143,6 +142,11 @@ Thor :: struct {
     toggle_explorer_key: setting.Keybind,
     // Toggles the editor split: the "toggle_split" chord, f1 by default.
     split_key: setting.Keybind,
+    focus_pane_keys: [MAX_PANES]setting.Keybind,
+    file_to_pane_keys: [MAX_PANES]setting.Keybind,
+    focus_next_pane_key: setting.Keybind,
+    focus_previous_pane_key: setting.Keybind,
+    next_layout_key: setting.Keybind,
     active_file: Signal(int),
     // Most-recently-active file before the current one, for the ctrl+e flip.
     // Cleared when that file is closed so the pointer never dangles.
@@ -222,15 +226,22 @@ Thor :: struct {
     window_maximized: bool,
     explorer_width: f32,
     console_height: f32,
-    split_visible: bool,
-    split_ratio: f32,
-    split_grab: f32, // split_ratio at the press that started a handle drag
+    layout: Pane_Layout,
+    last_multi_layout: Pane_Layout, // what toggle_split returns to
+    // Share of each column, and of each row inside a column.
+    col_weight: [LAYOUT_MAX_COLUMNS]f32,
+    row_weight: [LAYOUT_MAX_COLUMNS][LAYOUT_MAX_ROWS]f32,
+    pane_grab: [2]f32, // the two weights at the press that started a handle drag
+    // Last frame's rect of each pane and of the area they share.
+    pane_rect: [MAX_PANES]ui.Rect,
+    panes_area: ui.Rect,
+    pane_pick: Pane_Pick,
     // Each pane's open-files index (-1 = none); the two panes can show different
     // files. active_pane is the focused one, whose file the tabbar, status bar
     // and file commands act on (mirrored into the active_file signal).
-    pane_file: [2]int,
+    pane_file: [MAX_PANES]int,
     // The scroll each pane pushed to Loom last frame.
-    pane_scroll: [2]ui.Vec2,
+    pane_scroll: [MAX_PANES]ui.Vec2,
     active_pane: int,
     // App/file/view commands that ship without a keybinding. Each carries its
     // config action name and resolved chord; unbound ones (KEY_NULL) never fire.
@@ -710,8 +721,9 @@ init :: proc() -> ^Thor {
     signal_set_listener(&thor.console_visible, thor_on_visibility_changed, thor)
     thor.explorer_width = 250
     thor.console_height = 190
-    thor.split_ratio = 0.5
-    thor.pane_file = {-1, -1}
+    thor.last_multi_layout = .Columns2
+    thor_pane_reset_weights(thor)
+    thor.pane_file = -1
     thor.workspace_dir = workspace_dir
     if workspace_dir != "" {
         thor.workspace_prefix = strings.concatenate({workspace_dir, filepath.SEPARATOR_STRING})
@@ -794,10 +806,7 @@ init :: proc() -> ^Thor {
         delete(path)
     }
     thor_apply_layout_state(thor)
-    thor_apply_split(thor)
-    if thor.split_visible {
-        thor_bind_pane(thor, 1)
-    }
+    thor_bind_extra_panes(thor)
     lap(&phase, "restore session")
     thor_refresh_git_status(thor)
     thor_refresh_file_index(thor)
@@ -1098,8 +1107,10 @@ shutdown :: proc(thor: ^Thor) {
     thor_find_destroy(thor)
     thor_git_view_destroy(thor)
     thor_explorer_destroy(thor)
-    editview.editor_destroy(&thor.editor)
-    editview.editor_destroy(&thor.editor2)
+    for &editor in thor.editors {
+        editview.editor_destroy(&editor)
+    }
+    thor_pane_pick_cancel(thor)
     ui.destroy(&thor.ui_context)
     render.destroy(&thor.backend)
     font.shutdown()

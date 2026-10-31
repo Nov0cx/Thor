@@ -141,7 +141,7 @@ thor_plugin_doc :: proc(host: rawptr, path: string, text: string, focus: bool) {
         }
         if focus {
             thor_set_active_file(thor, index)
-            thor.focus_request = "pane0"
+            thor.focus_request = thor_pane_key(thor.active_pane)
         }
         return
     }

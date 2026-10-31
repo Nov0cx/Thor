@@ -14,24 +14,23 @@ test_active_pane_follows_focus :: proc(t: ^testing.T) {
     thor := new(Thor)
     defer free(thor)
     thor.active_file = make_signal(-1)
-    thor.pane_file = {-1, -1}
-    defer editview.editor_destroy(&thor.editor)
-    defer editview.editor_destroy(&thor.editor2)
+    thor.pane_file = -1
+    defer for &editor in thor.editors {editview.editor_destroy(&editor)}
 
     thor.focus_request = "pane1"
     thor_sync_active_pane(thor)
     testing.expect_value(t, thor.active_pane, 0)
-    testing.expect_value(t, thor_active_editor(thor), &thor.editor)
+    testing.expect_value(t, thor_active_editor(thor), &thor.editors[0])
 
-    thor.split_visible = true
+    thor.layout = .Columns2
     thor_sync_active_pane(thor)
     testing.expect_value(t, thor.active_pane, 1)
-    testing.expect_value(t, thor_active_editor(thor), &thor.editor2)
+    testing.expect_value(t, thor_active_editor(thor), &thor.editors[1])
 
     thor.focus_request = "pane0"
     thor_sync_active_pane(thor)
     testing.expect_value(t, thor.active_pane, 0)
-    testing.expect_value(t, thor_active_editor(thor), &thor.editor)
+    testing.expect_value(t, thor_active_editor(thor), &thor.editors[0])
 }
 
 // An Open_File over `src`, loaded and saved. The caller destroys it.

@@ -63,6 +63,21 @@ thor_apply_settings :: proc(thor: ^Thor) {
         {"jump_forward",             &thor.jump_forward_key,          {key = .Right, mods = {.Ctrl, .Alt}}},
         {"last_file",                &thor.last_file_key,             {key = .E, mods = {.Ctrl}}},
         {"toggle_split",             &thor.split_key,                 {}},
+        {"focus_pane_1",             &thor.focus_pane_keys[0],        {key = .Num_1, mods = {.Ctrl}}},
+        {"focus_pane_2",             &thor.focus_pane_keys[1],        {key = .Num_2, mods = {.Ctrl}}},
+        {"focus_pane_3",             &thor.focus_pane_keys[2],        {key = .Num_3, mods = {.Ctrl}}},
+        {"focus_pane_4",             &thor.focus_pane_keys[3],        {key = .Num_4, mods = {.Ctrl}}},
+        {"focus_pane_5",             &thor.focus_pane_keys[4],        {key = .Num_5, mods = {.Ctrl}}},
+        {"focus_pane_6",             &thor.focus_pane_keys[5],        {key = .Num_6, mods = {.Ctrl}}},
+        {"file_to_pane_1",           &thor.file_to_pane_keys[0],      {key = .Num_1, mods = {.Ctrl, .Shift}}},
+        {"file_to_pane_2",           &thor.file_to_pane_keys[1],      {key = .Num_2, mods = {.Ctrl, .Shift}}},
+        {"file_to_pane_3",           &thor.file_to_pane_keys[2],      {key = .Num_3, mods = {.Ctrl, .Shift}}},
+        {"file_to_pane_4",           &thor.file_to_pane_keys[3],      {key = .Num_4, mods = {.Ctrl, .Shift}}},
+        {"file_to_pane_5",           &thor.file_to_pane_keys[4],      {key = .Num_5, mods = {.Ctrl, .Shift}}},
+        {"file_to_pane_6",           &thor.file_to_pane_keys[5],      {key = .Num_6, mods = {.Ctrl, .Shift}}},
+        {"focus_next_pane",          &thor.focus_next_pane_key,       {key = .F6}},
+        {"focus_previous_pane",      &thor.focus_previous_pane_key,   {key = .F6, mods = {.Shift}}},
+        {"next_layout",              &thor.next_layout_key,           {key = .F1, mods = {.Ctrl}}},
         {"close_tab",                &thor.close_tab_key,             {key = .W, mods = {.Ctrl}}},
         {"next_tab",                 &thor.next_tab_key,              {key = .Page_Down, mods = {.Ctrl}}},
         {"previous_tab",             &thor.previous_tab_key,          {key = .Page_Up, mods = {.Ctrl}}},
@@ -83,9 +98,8 @@ thor_apply_settings :: proc(thor: ^Thor) {
         }
     }
 
-    editview.editor_set_font_size(&thor.editor, cast(i32) setting.font_size(&thor.config))
-    editview.editor_set_font_size(&thor.editor2, cast(i32) setting.font_size(&thor.config))
-    for editor in ([2]^editview.Editor{&thor.editor, &thor.editor2}) {
+    for &editor in thor.editors {
+        editview.editor_set_font_size(&editor, cast(i32) setting.font_size(&thor.config))
         editor.indent_guides = setting.indent_guides(&thor.config)
         editor.relative_lines = setting.relative_line_numbers(&thor.config)
     }
@@ -462,8 +476,9 @@ thor_cmd_toggle_wrap :: proc(data: rawptr) {editview.editor_toggle_wrap(thor_act
 // the other not.
 thor_cmd_toggle_whitespace :: proc(data: rawptr) {
     thor := cast(^Thor) data
-    editview.editor_toggle_whitespace(&thor.editor)
-    editview.editor_toggle_whitespace(&thor.editor2)
+    for &editor in thor.editors {
+        editview.editor_toggle_whitespace(&editor)
+    }
 }
 thor_cmd_toggle_split :: proc(data: rawptr) {thor_toggle_split(cast(^Thor) data)}
 
@@ -518,19 +533,22 @@ thor_cmd_show_indentation :: proc(data: rawptr) {
 // sync (ctrl+scroll still zooms only the hovered pane).
 thor_cmd_zoom_in :: proc(data: rawptr) {
     thor := cast(^Thor) data
-    editview.editor_zoom(&thor.editor, 1)
-    editview.editor_zoom(&thor.editor2, 1)
+    for &editor in thor.editors {
+        editview.editor_zoom(&editor, 1)
+    }
 }
 thor_cmd_zoom_out :: proc(data: rawptr) {
     thor := cast(^Thor) data
-    editview.editor_zoom(&thor.editor, -1)
-    editview.editor_zoom(&thor.editor2, -1)
+    for &editor in thor.editors {
+        editview.editor_zoom(&editor, -1)
+    }
 }
 
 thor_cmd_zoom_reset :: proc(data: rawptr) {
     thor := cast(^Thor) data
-    editview.editor_set_font_size(&thor.editor, cast(i32) setting.font_size(&thor.config))
-    editview.editor_set_font_size(&thor.editor2, cast(i32) setting.font_size(&thor.config))
+    for &editor in thor.editors {
+        editview.editor_set_font_size(&editor, cast(i32) setting.font_size(&thor.config))
+    }
 }
 
 thor_cmd_close_tab :: proc(data: rawptr) {

@@ -18,8 +18,7 @@ test_plugin_doc_opens_and_refreshes :: proc(t: ^testing.T) {
 
     thor := new(Thor)
     defer free(thor)
-    defer editview.editor_destroy(&thor.editor)
-    defer editview.editor_destroy(&thor.editor2)
+    defer for &editor in thor.editors {editview.editor_destroy(&editor)}
     thor.config = setting.load("settings")
     defer setting.destroy(&thor.config)
     thor.active_file = make_signal(-1)
@@ -27,7 +26,7 @@ test_plugin_doc_opens_and_refreshes :: proc(t: ^testing.T) {
     thor.zombie_files = make([dynamic]^Open_File)
     thor.finished_loads = make([dynamic]^Load_Job)
     thor.finished_saves = make([dynamic]^Save_Job)
-    thor.pane_file = {-1, -1}
+    thor.pane_file = -1
     // thor_update_files runs the per-frame view swap, which sets these three
     // every call, so a partial Thor still needs them.
     // thor_update_editor_view also swaps the welcome page in when there is no

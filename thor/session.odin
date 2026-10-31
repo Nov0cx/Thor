@@ -26,11 +26,19 @@ Session :: struct {
     explorer_width:   f32,
     console_height:   f32,
     window_maximized:  bool,
-    split_visible:     bool,
-    split_ratio:       f32,
-    split_second_file: int,
-    // Pane that had focus, 0 or 1. An absent field reads as 0, so a session
-    // written before this field restores focus to the first pane.
+    // Pane layout name; absent in a session written before layouts, which
+    // the split_* fields describe.
+    layout:            string,
+    // Tab position each pane shows, pane 1 first.
+    pane_files:        []int,
+    col_weight:        [LAYOUT_MAX_COLUMNS]f32,
+    row_weight:        [LAYOUT_MAX_COLUMNS][LAYOUT_MAX_ROWS]f32,
+    // Read only, from a session written before layouts.
+    split_visible:     bool `json:",omitempty"`,
+    split_ratio:       f32 `json:",omitempty"`,
+    split_second_file: int `json:",omitempty"`,
+    // Pane that had focus. An absent field reads as 0, so a session written
+    // before this field restores focus to the first pane.
     active_pane:       int,
     // Name of the task the titlebar selector shows; the tasks themselves are
     // committed with the workspace, which one you last picked is not.
@@ -259,9 +267,10 @@ thor_save_session :: proc(thor: ^Thor) {
         explorer_width   = thor.explorer_width,
         console_height   = thor.console_height,
         window_maximized  = thor.window_maximized,
-        split_visible     = thor.split_visible,
-        split_ratio       = thor.split_ratio,
-        split_second_file = thor.pane_file[1],
+        layout            = LAYOUT_NAMES[thor.layout],
+        pane_files        = thor.pane_file[:thor_pane_count(thor)],
+        col_weight        = thor.col_weight,
+        row_weight        = thor.row_weight,
         active_pane       = thor.active_pane,
         active_task       = thor.active_task_name,
         dock_layout       = thor_dock_layout(thor),
@@ -320,6 +329,13 @@ thor_restore_session :: proc(thor: ^Thor) {
     delete(thor.dock_layout)
     thor.dock_layout = ""
     thor.dock_seeded = false
+    // The panes belong to the workspace too. The files open later, so this
+    // only names the layout; thor_bind_extra_panes fills the panes.
+    configured, forced := thor_configured_layout(thor)
+    thor.layout = forced ? configured : .Single
+    thor_pane_reset_weights(thor)
+    thor.pane_file = -1
+    thor.active_pane = 0
 
     thor_migrate_legacy_session(thor.workspace_dir)
     path := thor_session_file(thor.workspace_dir)
@@ -349,9 +365,26 @@ thor_restore_session :: proc(thor: ^Thor) {
     }
     signal_set(&thor.explorer_visible, session.explorer_visible)
     signal_set(&thor.console_visible, session.console_visible)
-    thor.split_visible = session.split_visible
-    if session.split_ratio > 0 {
-        thor.split_ratio = clamp(session.split_ratio, SPLIT_MIN_RATIO, SPLIT_MAX_RATIO)
+    // The pane_layout setting, when it names one, wins over the session.
+    saved_files := session.pane_files
+    old_second := [2]int{session.active_file, session.split_second_file}
+    if session.layout != "" {
+        if layout, ok := layout_from_name(session.layout); ok && !forced {
+            thor.layout = layout
+        }
+        thor_restore_weights(thor, session.col_weight, session.row_weight)
+    } else if session.split_visible {
+        if !forced {
+            thor.layout = .Columns2
+        }
+        if session.split_ratio > 0 && session.split_ratio < 1 {
+            thor.col_weight[0] = session.split_ratio
+            thor.col_weight[1] = 1 - session.split_ratio
+        }
+        saved_files = old_second[:]
+    }
+    if thor.layout != .Single {
+        thor.last_multi_layout = thor.layout
     }
     if session.window_maximized {
         rl.MaximizeWindow()
@@ -376,7 +409,6 @@ thor_restore_session :: proc(thor: ^Thor) {
         append(&kept, p)
     }
     active := thor_session_index(remap, session.active_file)
-    second := thor_session_index(remap, session.split_second_file)
 
     // Reopen in saved order; each open sets itself active, so the saved active
     // tab is applied last.
@@ -386,16 +418,22 @@ thor_restore_session :: proc(thor: ^Thor) {
     if active >= 0 && active < len(thor.open_files) {
         thor_set_active_file(thor, active)
     }
-    // Pane 2's file (bound after the UI is up, in init). thor_toggle_split fills
-    // it in later if it was left unset.
-    if second >= 0 && second < len(thor.open_files) {
-        thor.pane_file[1] = second
+    // The other panes' files, bound after the UI is up by thor_bind_extra_panes,
+    // which also fills the ones left unset.
+    count := thor_pane_count(thor)
+    for saved, pane in saved_files {
+        if pane == 0 || pane >= count {
+            continue
+        }
+        if index := thor_session_index(remap, saved); index >= 0 && index < len(thor.open_files) {
+            thor.pane_file[pane] = index
+        }
     }
     // The focus must move with it: thor_sync_active_pane re-reads the pane off
     // ui_context every frame and would snap back to pane 0.
-    if session.split_visible && session.active_pane == 1 {
-        thor.active_pane = 1
-        thor.focus_request = "pane1"
+    if session.active_pane > 0 && session.active_pane < count {
+        thor.active_pane = session.active_pane
+        thor.focus_request = thor_pane_key(session.active_pane)
         thor_sync_active_signal(thor)
     }
 }

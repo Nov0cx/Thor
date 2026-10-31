@@ -129,14 +129,13 @@ test_restore_drops_a_directory :: proc(t: ^testing.T) {
 
     thor := new(Thor)
     defer free(thor)
-    defer editview.editor_destroy(&thor.editor)
-    defer editview.editor_destroy(&thor.editor2)
+    defer for &editor in thor.editors {editview.editor_destroy(&editor)}
     thor.active_file = make_signal(-1)
     thor.open_files = make([dynamic]^Open_File)
     thor.zombie_files = make([dynamic]^Open_File)
     thor.finished_loads = make([dynamic]^Load_Job)
     thor.finished_saves = make([dynamic]^Save_Job)
-    thor.pane_file = {-1, -1}
+    thor.pane_file = -1
     thor.workspace_dir = WORKSPACE
     defer {
         delete(thor.status_message)
@@ -196,14 +195,13 @@ n0.tabs = Explorer
 
     thor := new(Thor)
     defer free(thor)
-    defer editview.editor_destroy(&thor.editor)
-    defer editview.editor_destroy(&thor.editor2)
+    defer for &editor in thor.editors {editview.editor_destroy(&editor)}
     thor.active_file = make_signal(-1)
     thor.open_files = make([dynamic]^Open_File)
     thor.zombie_files = make([dynamic]^Open_File)
     thor.finished_loads = make([dynamic]^Load_Job)
     thor.finished_saves = make([dynamic]^Save_Job)
-    thor.pane_file = {-1, -1}
+    thor.pane_file = -1
     thor.workspace_dir = WORKSPACE
     defer {
         delete(thor.dock_layout)
