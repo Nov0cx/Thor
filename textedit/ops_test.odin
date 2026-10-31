@@ -532,6 +532,27 @@ test_delete_to_line_end :: proc(t: ^testing.T) {
     testing.expect_value(t, text(&state), "he\nne")
 }
 
+@(test)
+test_delete_to_line_start :: proc(t: ^testing.T) {
+    state := ops_state("first\nhello world", 11)
+    defer destroy(&state)
+
+    delete_to_line_start(&state)
+    testing.expect_value(t, text(&state), "first\n world")
+    testing.expect_value(t, primary_cursor(&state).caret, 6)
+
+    delete_to_line_start(&state)
+    testing.expect_value(t, text(&state), "first world")
+
+    undo(&state)
+    undo(&state)
+    testing.expect_value(t, text(&state), "first\nhello world")
+
+    set_cursors(&state, []Cursor {{caret = 3, anchor = 3}, {caret = 11, anchor = 11}})
+    delete_to_line_start(&state)
+    testing.expect_value(t, text(&state), "st\n world")
+}
+
 // Two carets in one word grow onto the same boundary. Before they were merged,
 // the second range started behind the first delete and the running offset made a
 // negative edit position: wrong bytes removed, a corrupt undo entry, then a panic.

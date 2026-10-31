@@ -12,6 +12,7 @@ return {
         capitalize = "alt+c",
         delete_line = "ctrl+shift+k",
         delete_to_line_end = "ctrl+shift+delete",
+        delete_to_line_start = "",
         delete_word_left = "ctrl+backspace",
         delete_word_right = "ctrl+delete",
         duplicate_line_down = "shift+alt+down",

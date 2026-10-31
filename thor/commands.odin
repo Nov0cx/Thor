@@ -367,6 +367,9 @@ thor_register_commands :: proc(thor: ^Thor) {
     )
     thor_palette_add(thor, "Edit: Join Lines", thor_cmd_join_lines, thor, action = "join_lines")
     thor_palette_add(thor, "Edit: Move Line Up", thor_cmd_move_line_up, thor, action = "move_line_up")
+    thor_palette_add(
+        thor, "Edit: Delete to Line Start", thor_cmd_delete_to_line_start, thor, action = "delete_to_line_start",
+    )
     thor_palette_add(thor, "Edit: Move Line Down", thor_cmd_move_line_down, thor, action = "move_line_down")
     thor_palette_add(thor, "Edit: Uppercase", thor_cmd_uppercase, thor, action = "uppercase")
     thor_palette_add(thor, "Edit: Lowercase", thor_cmd_lowercase, thor, action = "lowercase")
@@ -617,6 +620,7 @@ thor_cmd_rename_symbol :: proc(data: rawptr) {_ = thor_rename_symbol(cast(^Thor)
 thor_cmd_code_actions :: proc(data: rawptr) {thor_code_actions(cast(^Thor) data)}
 thor_cmd_join_lines :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.join_lines(s)}}
 thor_cmd_uppercase :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.transform_case(s, .Upper)}}
+thor_cmd_delete_to_line_start :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.delete_to_line_start(s)}}
 thor_cmd_lowercase :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.transform_case(s, .Lower)}}
 thor_cmd_capitalize :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.transform_case(s, .Title)}}
 // Prompts for a character, then aligns the first occurrence of it on each

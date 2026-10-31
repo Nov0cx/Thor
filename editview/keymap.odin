@@ -20,6 +20,7 @@ Action :: enum {
     Delete_Word_Left,
     Delete_Word_Right,
     Delete_To_Line_End,
+    Delete_To_Line_Start,
     Indent,
     Outdent,
     Insert_Line_Above,
@@ -83,6 +84,7 @@ ACTIONS := [Action]Action_Info {
     .Delete_Word_Left           = {"delete_word_left", {.Backspace, {.Ctrl}}, false},
     .Delete_Word_Right          = {"delete_word_right", {.Delete, {.Ctrl}}, false},
     .Delete_To_Line_End         = {"delete_to_line_end", {.Delete, {.Ctrl, .Shift}}, false},
+    .Delete_To_Line_Start       = {"delete_to_line_start", {}, false},
     .Indent                     = {"indent", {.Tab, {}}, false},
     .Outdent                    = {"outdent", {.Tab, {.Shift}}, false},
     .Insert_Line_Above          = {"insert_line_above", {.Enter, {.Ctrl, .Shift}}, false},
@@ -207,6 +209,10 @@ editor_run_action :: proc(editor: ^Editor, action: Action, extend: bool) -> bool
         editor_refresh_signature(editor)
     case .Delete_To_Line_End:
         textedit.delete_to_line_end(state)
+        editor_dismiss_completion(editor)
+        editor_refresh_signature(editor)
+    case .Delete_To_Line_Start:
+        textedit.delete_to_line_start(state)
         editor_dismiss_completion(editor)
         editor_refresh_signature(editor)
     case .Indent:
