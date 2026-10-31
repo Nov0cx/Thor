@@ -613,6 +613,26 @@ undeclared_allowed :: proc(ctx: ^Semantic_Ctx) -> bool {
     return true
 }
 
+// True when the enum type `n` has a member `name`, which its member values may read.
+@(private = "file")
+enum_declares :: proc(n: odinsyntax.Syntax_Node, name: string) -> bool {
+    e, _ := odinsyntax.as_enum_type(n)
+    members := odinsyntax.enum_type_members(&e)
+    for m in odinsyntax.child_iter_next(&members) {
+        member := m
+        if fv, ok := odinsyntax.as_field_value(m); ok {
+            member, ok = odinsyntax.field_value_name(&fv)
+            if !ok {
+                continue
+            }
+        }
+        if member.green.kind == .Ident && odinsyntax.node_text(member) == name {
+            return true
+        }
+    }
+    return false
+}
+
 // True when the free name at `offset` is undeclared at that position: no `using` can bring it in,
 // no directive or `offset_of` reads it as a name, and no file of the package declares it.
 @(private = "file")
@@ -633,6 +653,10 @@ undeclared_at :: proc(ctx: ^Semantic_Ctx, offset: int, name: string) -> bool {
                 return false
             }
             if callee.green.kind == .Directive || strings.has_prefix(odinsyntax.node_text(callee), "offset_of") {
+                return false
+            }
+        case .Enum_Type:
+            if enum_declares(n, name) {
                 return false
             }
         }

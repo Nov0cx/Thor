@@ -194,6 +194,7 @@ test_live_undeclared_names :: proc(t: ^testing.T) {
 import "q"
 
 Point :: struct { x: int }
+Mode :: enum { A, B = A, C = B + 1 }
 
 main :: proc() {
 	_ = zork
