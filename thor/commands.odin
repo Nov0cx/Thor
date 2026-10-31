@@ -120,9 +120,15 @@ thor_reload_settings :: proc(thor: ^Thor) {
     setting.destroy(&thor.config)
     thor_load_config(thor, thor.workspace_dir)
 
-    if thor.config.general.theme != old_theme {
+    // A hand edit of the theme file reloads it too, unless the theme window holds
+    // unsaved changes.
+    theme_edited := thor_theme_file_sig(thor_theme_configured_name(thor)) != thor.theme_file_sig
+    if thor.config.general.theme != old_theme || (theme_edited && !(thor.theme_editor_open && thor_theme_dirty(thor))) {
         thor_load_active_theme(thor)
         thor_apply_theme(thor)
+        if thor.theme_editor_open {
+            thor_theme_editor_rebaseline(thor)
+        }
     }
     if thor.config.general.font != old_font && thor.config.general.font != "" {
         if !font.set_default_family(thor.config.general.font) {

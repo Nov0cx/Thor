@@ -32,6 +32,10 @@ thor_settings_files :: proc(thor: ^Thor, out: ^[dynamic]string) {
             append(out, strings.concatenate({dir, "/", name}, context.temp_allocator))
         }
     }
+    // The active theme, so a hand edit of it applies live.
+    name := thor_theme_configured_name(thor)
+    append(out, thor_user_theme_path(name))
+    append(out, strings.concatenate({SHIPPED_THEME_DIR, "/", name, THEME_EXT}, context.temp_allocator))
     // Unconditional: a tasks file written into a not-yet-initialized workspace
     // still has to reload.
     append(out, thor_tasks_file(thor.workspace_dir))

@@ -60,7 +60,17 @@ thor_load_theme_by_name :: proc(thor: ^Thor, name: string) {
 
     theme.destroy(&thor.theme)
     thor.theme = loaded
+    thor.theme_file_sig = thor_theme_file_sig(name)
     log.infof("Loaded theme: %s", thor.theme.name)
+}
+
+// Size and modification time of the file `name` resolves to; 0 when it is missing.
+thor_theme_file_sig :: proc(name: string) -> i64 {
+    info, err := os.stat(thor_theme_path(name), context.temp_allocator)
+    if err != nil {
+        return 0
+    }
+    return info.modification_time._nsec * 31 + info.size
 }
 
 // Theme names available in both theme directories (base names, no extension),

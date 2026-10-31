@@ -84,6 +84,7 @@ Thor :: struct {
     theme_labels: []string, // owned
     theme_files: []string, // owned
     theme_stamp: i64, // newest modification time the cache was built from
+    theme_file_sig: i64, // size and modification time of the loaded theme file
     // Generator seeds of the theme window's Generate tab.
     theme_seed_background: ui.Color,
     theme_seed_accent: ui.Color,
