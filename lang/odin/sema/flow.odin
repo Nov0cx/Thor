@@ -231,9 +231,18 @@ diverges :: proc(c: ^Checker, file: File_Id, expr: odinsyntax.Syntax_Node) -> bo
         case Proc_Type:
             return v.diverging
         case Proc_Group_Type:
-            return true
+            for m in v.members {
+                p, is_proc := type_get(&c.table, type_base(&c.table, m)).(Proc_Type)
+                if !is_proc || p.diverging {
+                    return true
+                }
+            }
+            return len(v.members) == 0
         }
-        return fn.mode == .Builtin || fn.type == INVALID_TYPE
+        if fn.mode == .Builtin && fn.type == INVALID_TYPE {
+            return odinsyntax.node_text(callee) == "unreachable"
+        }
+        return fn.type == INVALID_TYPE
     case .Type:
         return false
     }

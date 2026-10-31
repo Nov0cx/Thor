@@ -606,6 +606,10 @@ lb2 :: proc(a: int) -> int {
 		return 1
 	}
 }
+g1 :: proc(d: ^[dynamic]int) -> bool {
+	resize(d, 0)
+}
+g2 :: proc() {}
 `
     res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
     defer free_live(&res)
@@ -618,6 +622,7 @@ lb2 :: proc(a: int) -> int {
         {"}\n\treturn inner()", "Missing return statement at the end of the procedure", 0},
         {"}\nd1 ::", "Missing return statement at the end of the procedure 'r1'", 0},
         {"}\nx1 ::", "Missing return statement at the end of the procedure 'fs'", 0},
+        {"}\ng2 ::", "Missing return statement at the end of the procedure 'g1'", 0},
     })
     for d in res.report.items {
         testing.expect(t, d.code == CODE_RETURN, "a missing return carries its id")
