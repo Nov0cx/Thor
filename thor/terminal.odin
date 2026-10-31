@@ -25,10 +25,12 @@ Terminal :: struct {
     pty:       ^shell.Pty,     // owned; nil once the shell is gone
     reader:    ^thread.Thread, // owned
     allocator: runtime.Allocator,
-    // Raw shell output the reader has not handed over. Guarded by owner.io_mutex.
-    pending:   [dynamic]u8,
-    // The reader reached the end of the stream. Guarded by owner.io_mutex.
+    // Raw shell output the reader has not handed over. The reader writes, the main thread reads.
+    output:    lockfree.Byte_Ring, // owned
+    // The reader reached the end of the stream. Atomic; set after its last write to `output`.
     ended:     bool,
+    // The session closes; a reader that waits for room in `output` gives up. Atomic.
+    closing:   bool,
     // The shell exited and was reported; the tab keeps its scrollback.
     dead:      bool,
     // Bytes for the shell, written by `writer`. Guarded by out_mutex.
@@ -68,7 +70,6 @@ thor_terminal_create :: proc(thor: ^Thor, profile: shell.Profile) -> ^Terminal {
     term.owner = thor
     term.profile = profile
     term.allocator = context.allocator
-    term.pending = make([dynamic]u8)
     term.outbox = make([dynamic]u8)
     term.sending = make([dynamic]u8)
 
@@ -82,6 +83,11 @@ thor_terminal_create :: proc(thor: ^Thor, profile: shell.Profile) -> ^Terminal {
         term,
     )
 
+    if !lockfree.ring_init(&term.output, TERMINAL_RING_SIZE) {
+        thor_console_append(&term.console, fmt.tprintf("Could not start %s.\n", profile.name))
+        term.dead = true
+        return term
+    }
     if !thor_terminal_open_session(term) {
         thor_console_append(&term.console, fmt.tprintf("Could not start %s.\n", profile.name))
         term.dead = true
@@ -103,7 +109,8 @@ thor_terminal_open_session :: proc(term: ^Terminal) -> bool {
         return false
     }
     term.pty = pty
-    term.ended = false
+    sync.atomic_store(&term.ended, false)
+    sync.atomic_store(&term.closing, false)
     term.dead = false
     term.write_failed = false
     sync.atomic_store(&term.write_error, false)
@@ -155,13 +162,18 @@ thor_terminal_reader :: proc(term: ^Terminal) {
         if read <= 0 {
             break
         }
-        sync.lock(&term.owner.io_mutex)
-        append(&term.pending, ..buf[:read])
-        sync.unlock(&term.owner.io_mutex)
+        // A full ring waits for the main thread, so a flood blocks the shell on its write.
+        rest := buf[:read]
+        for len(rest) > 0 && !sync.atomic_load(&term.closing) {
+            gen := lockfree.ring_space_gen(&term.output)
+            wrote := lockfree.ring_write(&term.output, rest)
+            rest = rest[wrote:]
+            if wrote == 0 && !sync.atomic_load(&term.closing) {
+                lockfree.ring_wait_space(&term.output, gen)
+            }
+        }
     }
-    sync.lock(&term.owner.io_mutex)
-    term.ended = true
-    sync.unlock(&term.owner.io_mutex)
+    sync.atomic_store(&term.ended, true)
 }
 
 // Console_Write_Proc: everything the user types, and every answer the emulator
@@ -231,6 +243,8 @@ thor_terminal_close_session :: proc(term: ^Terminal) {
     term.out_stop = true
     sync.unlock(&term.out_mutex)
     sync.signal(&term.out_cond)
+    sync.atomic_store(&term.closing, true)
+    lockfree.ring_wake(&term.output)
     // Also ends a write the writer blocks in.
     shell.pty_terminate(term.pty)
     if term.reader != nil {
@@ -245,14 +259,16 @@ thor_terminal_close_session :: proc(term: ^Terminal) {
     }
     shell.pty_destroy(term.pty)
     term.pty = nil
-    sync.lock(&term.owner.io_mutex)
-    clear(&term.pending)
-    term.ended = false
-    sync.unlock(&term.owner.io_mutex)
+    lockfree.ring_reset(&term.output)
+    sync.atomic_store(&term.ended, false)
 }
 
 // Most shell output fed to the emulator in one frame, so a flood does not stall the frame.
 TERMINAL_FEED_MAX :: 256 * 1024
+
+// Bytes of shell output that may wait for the main thread. Past it the reader blocks.
+@(private = "file")
+TERMINAL_RING_SIZE :: 1024 * 1024
 
 // Moves one frame of shell output into the emulator and writes back whatever it
 // answers. Returns whether a command finished, which is when the working tree
@@ -261,18 +277,15 @@ thor_terminal_pump :: proc(term: ^Terminal) -> bool {
     if term.console.term == nil {
         return false
     }
-    sync.lock(&term.owner.io_mutex)
+    // Loaded first: every byte written before the end is then in the ring.
+    reader_done := sync.atomic_load(&term.ended)
     chunk: []u8
-    if len(term.pending) > 0 {
-        take := min(len(term.pending), TERMINAL_FEED_MAX)
-        data := make([]u8, take, context.temp_allocator)
-        copy(data, term.pending[:take])
-        remove_range(&term.pending, 0, take)
-        chunk = data
+    if waiting := lockfree.ring_len(&term.output); waiting > 0 {
+        data := make([]u8, min(waiting, TERMINAL_FEED_MAX), context.temp_allocator)
+        chunk = data[:lockfree.ring_read(&term.output, data)]
     }
     // The shell is over only once its last output is fed.
-    ended := term.ended && len(term.pending) == 0
-    sync.unlock(&term.owner.io_mutex)
+    ended := reader_done && lockfree.ring_len(&term.output) == 0
 
     now := rl.GetTime()
     if len(chunk) > 0 {
@@ -331,7 +344,7 @@ thor_terminal_drain_replies :: proc(term: ^Terminal) {
 thor_terminal_release :: proc(term: ^Terminal) {
     thor_terminal_close_session(term)
     thor_console_destroy(&term.console)
-    delete(term.pending)
+    lockfree.ring_destroy(&term.output)
     delete(term.outbox)
     delete(term.sending)
     delete(term.task)

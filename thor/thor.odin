@@ -5,7 +5,6 @@ import "core:os"
 import "core:path/filepath"
 import "core:slice"
 import "core:strings"
-import "core:sync"
 import "core:time"
 import rl "vendor:raylib"
 
@@ -299,8 +298,6 @@ Thor :: struct {
     pending_task_name: string,
     open_files: [dynamic]^Open_File,
     zombie_files: [dynamic]^Open_File,
-    // Guards Terminal.pending and Terminal.ended.
-    io_mutex: sync.Mutex,
     // Worker threads push finished jobs here; drained on the main thread every frame.
     finished_loads: lockfree.Stack(Load_Job),
     finished_saves: lockfree.Stack(Save_Job),
