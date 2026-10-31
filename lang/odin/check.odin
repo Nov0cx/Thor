@@ -185,7 +185,16 @@ parse_diagnostic_line :: proc(raw: string) -> (Parsed_Diagnostic, bool) {
     }
     sev, ok := level_severity(level)
     if !ok {
-        return {}, false
+        // An error with no level word (`Unhandled switch case: C`); a snippet or `at` line is indented.
+        if rest == "" || line[0] == ' ' || line[0] == '\t' {
+            return {}, false
+        }
+        p.message = rest
+        if tab := strings.index_byte(rest, '\t'); tab >= 0 {
+            p.message = strings.trim_space(rest[:tab])
+        }
+        p.severity = .Error
+        return p, true
     }
     p.severity = sev
     return p, true
