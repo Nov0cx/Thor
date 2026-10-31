@@ -722,7 +722,7 @@ test_oracle_clean_corpus :: proc(t: ^testing.T) {
     defer engine_destroy(e)
     target := odinsema.target_host()
     target.tests = false
-    packages, files_checked, skipped, found := 0, 0, 0, 0
+    packages, files_checked, skipped, found, in_poly := 0, 0, 0, 0, 0
     by_message := make(map[string]int, keep)
     for dir in dirs {
         if !oracle_only(dir) {
@@ -764,7 +764,14 @@ test_oracle_clean_corpus :: proc(t: ^testing.T) {
             res := live_check(e, src, root, path)
             defer free_live(&res)
             files_checked += 1
+            poly := poly_ranges(src)
             for d in res.report.items {
+                // The compiler checks a polymorphic body only per instance, so it is silent there.
+                if in_ranges(poly, d.line) {
+                    in_poly += 1
+                    note("POLY %s:%d:%d: %s", path, d.line, d.col, d.message)
+                    continue
+                }
                 found += 1
                 note("%s:%d:%d: %s", path, d.line, d.col, d.message)
                 key := d.message
@@ -781,7 +788,7 @@ test_oracle_clean_corpus :: proc(t: ^testing.T) {
     for msg, n in by_message {
         note("%4d x %s", n, msg)
     }
-    note("corpus: %d packages clean under odin check (%d skipped), %d files checked, %d live errors", packages, skipped, files_checked, found)
+    note("corpus: %d packages clean under odin check (%d skipped), %d files checked, %d live errors, %d in polymorphic bodies", packages, skipped, files_checked, found, in_poly)
     report_flush("bin/test/oracle_corpus.txt")
     testing.expect(t, packages > 0, "no package checked")
     testing.expect_value(t, found, 0)
