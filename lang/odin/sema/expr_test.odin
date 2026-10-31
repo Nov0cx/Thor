@@ -202,7 +202,7 @@ test_expr_operands :: proc(t: ^testing.T) {
         {"b && true", "untyped bool", ""},
         {"i << 2", "int", ""},
         {"-i", "int", ""},
-        {"!b", "bool", ""},
+        {"!b", "untyped bool", ""},
         {"b", "bool", "!"},
         {"e.pos", "Point", ""},
         {"e.id", "int", ""},
