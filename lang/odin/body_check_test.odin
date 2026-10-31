@@ -66,6 +66,8 @@ test_live_builtin_arity :: proc(t: ^testing.T) {
 
     src := `package app
 
+import "base:builtin"
+
 Point :: struct { x: int }
 List :: struct($T: typeid) { v: T }
 
@@ -82,6 +84,9 @@ f :: proc(s: []int, x: int) {
 	_ = min(x, 1)
 	_ = clamp(x, 0, 1)
 	_ = len(..s)
+	_ = raw_data()
+	_ = builtin.min(x)
+	_ = builtin.len(s, 1)
 	l: List(int)
 	_ = l
 }
@@ -97,6 +102,9 @@ f :: proc(s: []int, x: int) {
         {"int()", "Missing argument in conversion to 'int'", 0},
         {"int(x, 1)", "Too many arguments in conversion to 'int'", 0},
         {"Point()", "Missing argument in conversion to 'Point'", 0},
+        {")\n\t_ = builtin.min", "Too few arguments for 'raw_data', expected 1, got 0", 0},
+        {"builtin.min(x)", "Too few arguments for 'min', two or more are required", 0},
+        {"1)\n\tl:", "Too many arguments for 'builtin.len', expected 1, got 2", 0},
     })
 }
 
@@ -502,6 +510,13 @@ main :: proc() {
 	_ = int(true)
 	_ = cstring("ok")
 	_ = f32(1)
+	str: string
+	cs: cstring
+	n: int
+	_ = i8(str)
+	_ = rawptr(cs)
+	_ = uintptr(cs)
+	_ = string(n)
 }
 `
     res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
@@ -512,6 +527,9 @@ main :: proc() {
         {"true)\n\t_ = string(65)", "Cannot cast 'true' as 'string' from 'untyped bool'", 0},
         {"65", "Cannot cast '65' as 'string' from 'untyped integer'", 0},
         {"1)\n\t_ = int", "Cannot cast '1' as 'bool' from 'untyped integer'", 0},
+        {"str)", "Cannot cast 'str' as 'i8' from 'string'", 0},
+        {"cs)\n\t_ = string", "Cannot cast 'cs' as 'uintptr' from 'cstring'", 0},
+        {"n)", "Cannot cast 'n' as 'string' from 'int'", 0},
     })
     for d in res.report.items {
         testing.expect_value(t, d.code, CODE_MISMATCH)
@@ -781,6 +799,10 @@ main :: proc() {
 	o1, o2 := mm[1], 0
 	_, _ = o1, o2
 	o1 = mm[1], 0
+	for r, off in ps {
+		o2 = off, 0
+		_ = r
+	}
 	a, b := one()
 	f := two()
 	m, n: int
@@ -802,6 +824,7 @@ main :: proc() {
         {"arr = {}", "Assignment count mismatch '1' = '2'", 0},
         {"str = ps", "Assignment count mismatch '1' = '2'", 0},
         {"o1 = mm", "Assignment count mismatch '1' = '2'", 0},
+        {"o2 = off", "Assignment count mismatch '1' = '2'", 0},
         {"a, b := one()", "Assignment count mismatch '2' = '1'", 0},
         {"f := two()", "Assignment count mismatch '1' = '2'", 0},
         {"m, n = one()", "Assignment count mismatch '2' = '1'", 0},

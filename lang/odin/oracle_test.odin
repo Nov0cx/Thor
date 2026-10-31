@@ -47,8 +47,8 @@ LIVE_ORACLE_ONLY :: #config(LIVE_ORACLE_ONLY, "")
 ORACLE_ROOT :: "bin/test/oracle"
 ORACLE_TIMEOUT :: 2 * time.Minute
 // Most mutants per operator in one source directory.
-ORACLE_PER_OP :: 8
-ORACLE_SEED :: 0x5eed_0d1
+ORACLE_PER_OP :: #config(LIVE_ORACLE_PER_OP, 8)
+ORACLE_SEED :: #config(LIVE_ORACLE_SEED, 0x5eed_0d1)
 
 @(private = "file")
 Oracle_Op :: enum {

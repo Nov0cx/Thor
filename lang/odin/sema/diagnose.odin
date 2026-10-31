@@ -32,6 +32,10 @@ call_problem :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node) -
     if _, is_directive := odinsyntax.as_directive(callee); is_directive {
         return {}
     }
+    // A base:builtin procedure is checked by its own rules (arity_problem).
+    if _, is_builtin := builtin_callee(c, file, callee); is_builtin {
+        return {}
+    }
     fn := expr_type(c, file, callee)
     if fn.mode != .Value && fn.mode != .Const {
         return {}
@@ -132,7 +136,7 @@ group_no_match :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node)
         return false
     }
     for a in with {
-        if (a.op.mode != .Value && a.op.mode != .Const) || a.op.type == INVALID_TYPE || has_poly(c, a.op.type, 0) {
+        if (a.op.mode != .Value && a.op.mode != .Const && a.op.mode != .Type) || a.op.type == INVALID_TYPE || has_poly(c, a.op.type, 0) {
             return false
         }
     }
@@ -214,7 +218,7 @@ BUILTIN_ARITY := [?]struct {
     {"len", 1}, {"cap", 1}, {"size_of", 1}, {"align_of", 1}, {"type_of", 1}, {"typeid_of", 1},
     {"type_info_of", 1}, {"real", 1}, {"imag", 1}, {"jmag", 1}, {"kmag", 1}, {"conj", 1}, {"abs", 1},
     {"clamp", 3}, {"expand_values", 1}, {"transpose", 1}, {"matrix_flatten", 1}, {"outer_product", 2},
-    {"hadamard_product", 2},
+    {"hadamard_product", 2}, {"raw_data", 1}, {"complex", 2}, {"soa_unzip", 1}, {"unreachable", 0},
 }
 
 Arity_Kind :: enum u8 {
@@ -264,34 +268,20 @@ arity_problem :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node) 
     }
     _, list_end := odinsyntax.node_range(odinsyntax.Syntax_Node(list))
     close := int(list_end) - 1
-    fn := expr_type(c, file, callee)
-    #partial switch fn.mode {
-    case .Type:
-        if fn.type == INVALID_TYPE || !plain_type(c, fn.type) {
-            return {}
-        }
-        if got == 0 {
-            return {kind = .Conversion_Missing, offset = int(call.offset), type = fn.type}
-        }
-        if got > 1 {
-            return {kind = .Conversion_Too_Many, offset = int(call.offset), type = fn.type, got = got}
-        }
-    case .Builtin:
-        if callee.green.kind != .Ident {
-            return {}
-        }
+    // `builtin.len` is named as written, `builtin.min` by its own name.
+    if base, is_builtin := builtin_callee(c, file, callee); is_builtin {
         name := odinsyntax.node_text(callee)
-        if name == "min" || name == "max" {
+        if base == "min" || base == "max" {
             if got == 0 {
                 return {kind = .Too_Few, offset = close, name = name, want = 1}
             }
             if got == 1 && expr_type(c, file, args[0]).mode != .Type {
-                return {kind = .Two_Or_More, offset = int(call.offset), name = name}
+                return {kind = .Two_Or_More, offset = int(call.offset), name = base}
             }
             return {}
         }
         for b in BUILTIN_ARITY {
-            if b.name != name {
+            if b.name != base {
                 continue
             }
             if got < b.n {
@@ -315,8 +305,49 @@ arity_problem :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node) 
             }
             i += 1
         }
+        return {}
+    }
+    fn := expr_type(c, file, callee)
+    if fn.mode != .Type || fn.type == INVALID_TYPE || !plain_type(c, fn.type) {
+        return {}
+    }
+    if got == 0 {
+        return {kind = .Conversion_Missing, offset = int(call.offset), type = fn.type}
+    }
+    if got > 1 {
+        return {kind = .Conversion_Too_Many, offset = int(call.offset), type = fn.type, got = got}
     }
     return {}
+}
+
+// The name of the base:builtin procedure `callee` names, bare or as `builtin.name`.
+builtin_callee :: proc(c: ^Checker, file: File_Id, callee: odinsyntax.Syntax_Node) -> (string, bool) {
+    if callee.green.kind == .Ident {
+        name := odinsyntax.node_text(callee)
+        r := lookup_name(c, file, name, int(callee.offset))
+        if r.kind == .Item && r.builtin || r.kind == .None && is_builtin_proc(name) {
+            return name, true
+        }
+        return "", false
+    }
+    sel, is_sel := odinsyntax.as_selector_expr(callee)
+    if !is_sel {
+        return "", false
+    }
+    operand, has_operand := odinsyntax.selector_expr_operand(&sel)
+    field, has_field := odinsyntax.selector_expr_field(&sel)
+    if !has_operand || !has_field {
+        return "", false
+    }
+    pkg := expr_type(c, file, operand)
+    if pkg.mode != .Package {
+        return "", false
+    }
+    dir, _ := strings.replace_all(pkg.dir, "\\", "/", context.temp_allocator)
+    if !strings.has_suffix(strings.trim_right(dir, "/"), "base/builtin") {
+        return "", false
+    }
+    return odinsyntax.node_text(odinsyntax.Syntax_Node(field)), true
 }
 
 // True when a positional argument may give more than one value: a call or an `or_*` whose type is
@@ -764,10 +795,44 @@ conversion_problem :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_N
     if const_overflows(c, fn.type, op) {
         return {value = arg, op = op, to = fn.type, overflow = true}, true
     }
-    if op.mode == .Const && cast_refused(c, fn.type, op.type) {
+    if op.mode == .Const && cast_refused(c, fn.type, op.type) || op.mode == .Value && typed_cast_refused(c, fn.type, op.type) {
         return {value = arg, op = op, to = fn.type}, true
     }
     return {}, false
+}
+
+// True when no value of the basic type `from` converts to `to`: a string to a number, bool, rune,
+// enum or cstring, a cstring to a number, an integer or bool to a string.
+@(private = "file")
+typed_cast_refused :: proc(c: ^Checker, to, from: Type_Id) -> bool {
+    fb, from_basic := type_get(&c.table, type_base(&c.table, from)).(Basic_Type)
+    if !from_basic {
+        return false
+    }
+    to_kind: Basic_Kind
+    #partial switch v in type_get(&c.table, type_base(&c.table, to)) {
+    case Basic_Type:
+        to_kind = v.kind
+    case Enum_Type:
+        return fb.kind == .String
+    case:
+        return false
+    }
+    to_number := to_kind >= .Int && to_kind <= .F64be
+    #partial switch fb.kind {
+    case .String:
+        #partial switch to_kind {
+        case .String, .String16, .Cstring16, .Any, .Rawptr, .Typeid:
+            return false
+        }
+        return true
+    case .Cstring:
+        return to_number
+    case .Rune, .String16, .Cstring16, .Rawptr, .Typeid, .Any:
+        return false
+    }
+    // An integer, float, complex, quaternion or bool.
+    return to_kind == .String && fb.kind <= .U128be
 }
 
 // True when no constant of the untyped type `from` converts to `to`.
@@ -1474,6 +1539,15 @@ assign_count :: proc(c: ^Checker, file: File_Id, stmt: odinsyntax.Syntax_Node) -
         return
     }
     for v in nodes {
+        // Beside other values only a call, also under `or_*` or parentheses, can give more than one.
+        #partial switch v.green.kind {
+        case .Call_Expr, .Or_Return_Expr, .Or_Else_Expr, .Or_Branch_Expr, .Paren_Expr:
+        case:
+            if len(nodes) > 1 {
+                values += 1
+                continue
+            }
+        }
         op := expr_values(c, file, v, INVALID_TYPE)
         if (op.mode != .Value && op.mode != .Const) || op.type == INVALID_TYPE {
             if !one_value(c, file, v) {

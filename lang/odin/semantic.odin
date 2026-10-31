@@ -652,7 +652,11 @@ undeclared_at :: proc(ctx: ^Semantic_Ctx, offset: int, name: string) -> bool {
             if !ok {
                 return false
             }
-            if callee.green.kind == .Directive || strings.has_prefix(odinsyntax.node_text(callee), "offset_of") {
+            switch odinsyntax.node_text(callee) {
+            case "offset_of", "offset_of_selector", "offset_of_member", "offset_of_by_string":
+                return false
+            }
+            if callee.green.kind == .Directive {
                 return false
             }
         case .Enum_Type:
