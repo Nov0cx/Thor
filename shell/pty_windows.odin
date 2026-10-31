@@ -14,14 +14,6 @@ HPCON :: distinct rawptr
 @(private = "file")
 PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE :: win32.DWORD_PTR(0x00020016)
 
-// STARTUPINFOW with the attribute list behind it. The first field is the plain
-// record, so a pointer to this is what CreateProcessW takes.
-@(private = "file")
-STARTUPINFOEXW :: struct {
-    StartupInfo:   win32.STARTUPINFOW,
-    lpAttributeList: rawptr,
-}
-
 foreign import kernel32 "system:Kernel32.lib"
 
 @(private = "file")
@@ -30,9 +22,6 @@ foreign kernel32 {
     CreatePseudoConsole :: proc(size: win32.COORD, hInput, hOutput: win32.HANDLE, dwFlags: win32.DWORD, phPC: ^HPCON) -> win32.HRESULT ---
     ResizePseudoConsole :: proc(hPC: HPCON, size: win32.COORD) -> win32.HRESULT ---
     ClosePseudoConsole :: proc(hPC: HPCON) ---
-    InitializeProcThreadAttributeList :: proc(lpAttributeList: rawptr, dwAttributeCount, dwFlags: win32.DWORD, lpSize: ^win32.SIZE_T) -> win32.BOOL ---
-    UpdateProcThreadAttribute :: proc(lpAttributeList: rawptr, dwFlags: win32.DWORD, Attribute: win32.DWORD_PTR, lpValue: rawptr, cbSize: win32.SIZE_T, lpPreviousValue: rawptr, lpReturnSize: ^win32.SIZE_T) -> win32.BOOL ---
-    DeleteProcThreadAttributeList :: proc(lpAttributeList: rawptr) ---
 }
 
 Pty :: struct {
@@ -151,32 +140,16 @@ pty_start :: proc(profile: Profile, cwd: string, cols, rows: int) -> (^Pty, bool
     return pty, true
 }
 
-// The attribute list that names the pseudo-console to the new process. Its size
-// is asked for first, which is why the call is expected to fail once. The
+// The attribute list that names the pseudo-console to the new process. The
 // pseudo-console attribute is the handle itself, not a pointer to it.
 @(private = "file")
 attribute_list :: proc(console: HPCON) -> ([]u8, bool) {
-    size: win32.SIZE_T
-    InitializeProcThreadAttributeList(nil, 1, 0, &size)
-    if size == 0 {
+    buffer, ok := attribute_list_make()
+    if !ok {
         return nil, false
     }
-    buffer := make([]u8, int(size))
-    if !InitializeProcThreadAttributeList(raw_data(buffer), 1, 0, &size) {
-        delete(buffer)
-        return nil, false
-    }
-    if !UpdateProcThreadAttribute(
-        raw_data(buffer),
-        0,
-        PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE,
-        rawptr(console),
-        size_of(HPCON),
-        nil,
-        nil,
-    ) {
-        DeleteProcThreadAttributeList(raw_data(buffer))
-        delete(buffer)
+    if !attribute_list_set(buffer, PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, rawptr(console), size_of(HPCON)) {
+        attribute_list_free(buffer)
         return nil, false
     }
     return buffer, true

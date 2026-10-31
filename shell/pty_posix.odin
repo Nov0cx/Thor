@@ -74,12 +74,7 @@ pty_start :: proc(profile: Profile, cwd: string, cols, rows: int) -> (^Pty, bool
         return nil, false
     }
 
-    sync.mutex_lock(&spawn_mutex)
-    locked := true
-    defer if locked {
-        sync.mutex_unlock(&spawn_mutex)
-    }
-
+    limit := fd_limit()
     master := posix.posix_openpt({.RDWR, .NOCTTY})
     if master < 0 {
         return nil, false
@@ -98,7 +93,7 @@ pty_start :: proc(profile: Profile, cwd: string, cols, rows: int) -> (^Pty, bool
     slave_path := strings.clone_to_cstring(string(slave_name), context.temp_allocator)
 
     wake: [2]posix.FD
-    if posix.pipe(&wake) != .OK {
+    if !pipe_cloexec(&wake) {
         posix.close(master)
         return nil, false
     }
@@ -154,6 +149,8 @@ pty_start :: proc(profile: Profile, cwd: string, cols, rows: int) -> (^Pty, bool
             posix.close(slave)
         }
         posix.close(master)
+        // What another thread opened meanwhile stays out of the shell.
+        close_inherited(-1, limit)
         // The parent ignores it so a write after the shell exits fails cleanly;
         // an exec preserves that disposition, so the shell must not inherit it.
         posix.signal(.SIGPIPE, auto_cast posix.SIG_DFL)
@@ -163,8 +160,6 @@ pty_start :: proc(profile: Profile, cwd: string, cols, rows: int) -> (^Pty, bool
         posix.execve(argv[0], raw_data(argv[:]), raw_data(envp))
         posix._exit(1) // execve only returns when it failed
     }
-    sync.mutex_unlock(&spawn_mutex)
-    locked = false
 
     pty := new(Pty)
     pty.pid = pid
