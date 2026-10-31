@@ -52,14 +52,18 @@ This contains buggy and rogue plugins. It is not a boundary against native code.
 
 ## Permissions
 
-A plugin declares what it needs in `plugin.json` beside `plugin.lua`:
+A plugin declares what it needs in `manifest.lua` beside `plugin.lua`:
 
-```json
-{
-    "name": "Git LFS",
-    "permissions": ["exec", "ui"]
+```lua
+return {
+    name = "Git LFS",
+    permissions = { "exec", "ui" },
 }
 ```
+
+The manifest runs in the config sandbox (see `docs/configuration.md`), apart
+from the plugin, so its permissions are known before any plugin code runs. A
+`plugin.json` from an older version is converted to `manifest.lua` at start.
 
 | Permission | Grants |
 | ---------- | ------ |

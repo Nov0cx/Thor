@@ -8,7 +8,7 @@ physical position.
 A held key repeats, except for the shortcuts that open or toggle something —
 those act once per press.
 
-Every binding below is a default and can be changed in `keybinds.json`
+Every binding below is a default and can be changed in `keybinds.lua`
 — see [Configuration](configuration.md) for the chord format, including the
 `cmd` token that reaches the Command key on macOS.
 
@@ -147,6 +147,8 @@ Add `shift` to any movement to extend the selection.
 | ctrl + y | redo |
 | ctrl + backspace / delete | delete word left / right |
 | ctrl + shift + k | delete line |
+| ctrl + shift + delete | delete from the caret to the line end; at the line end, join the next line |
+| (unbound) | `delete_to_line_start`: delete from the line start to the caret; at the line start, join the previous line |
 | ctrl + j | join the line below onto the current one (selection joins all covered lines) |
 | alt + up / down | move line up / down |
 | shift + alt + up / down | duplicate line up / down |
@@ -296,7 +298,7 @@ program redraws.
 
 The five "Terminal:" palette actions — New Terminal, Close Terminal, Next
 Terminal, Restart Shell, Select Default Shell — ship unbound; give them chords in
-the `terminal` group of `keybinds.json`. Which shell new terminals open
+the `terminal` group of `keybinds.lua`. Which shell new terminals open
 with is the `default_shell` setting (Settings > Terminal > Default Shell);
 empty means the best shell found on the machine.
 
@@ -317,7 +319,7 @@ own name: the import line it needs is added at the top of the file, and a
 function may arrive as a snippet with its arguments already in place.
 
 The built-in Odin support does the same: a procedure arrives as a call snippet
-(`enable_snippets` in `.thor/odin-analyzer.json` turns this off, see
+(`enable_snippets` in `.thor/odin-analyzer.lua` turns this off, see
 [Configuration](configuration.md)), and a package the file does not import yet
 brings its `import` line. After `x.(` the list holds the variants of the union
 `x`, and after `x->` the procedure members of `x`.
@@ -384,19 +386,19 @@ still going. Keyboard focus stays in the editor.
 | ▶ | run the selected task |
 
 The dropdown also carries "Run Task...", "Add Task...", "Remove Task..." and
-"Edit Tasks (JSON)", which opens the file the tasks live in,
-`<workspace>/.thor/tasks.json`. That file is committable and reloads as soon as
+"Edit Tasks", which opens the file the tasks live in,
+`<workspace>/.thor/tasks.lua`. That file is committable and reloads as soon as
 it is saved. Which task is selected is personal, so it stays in the session
 rather than the file. The same actions are in the command palette under "Tasks:"
-and can be given chords in `keybinds.json` — "Tasks: Run Selected Task"
+and can be given chords in `keybinds.lua` — "Tasks: Run Selected Task"
 is the one worth binding.
 
-```json
-{
-    "tasks": [
-        { "name": "build", "command": "odin run build.odin -file" },
-        { "name": "test",  "command": "odin test thor" }
-    ]
+```lua
+return {
+    tasks = {
+        { name = "build", command = "odin run build.odin -file" },
+        { name = "test", command = "odin test thor" },
+    },
 }
 ```
 
@@ -405,13 +407,33 @@ is the one worth binding.
 `ctrl + .` opens the command palette. Type to fuzzy-filter, arrows/enter to run,
 escape to dismiss. Commands that have a keybinding show the chord right-aligned
 in the list. "Go to File" and "Go to Line" switch it into file / line input
-modes. Three "Language:" actions ship unbound and take chords in `keybinds.json`
+modes. Three "Language:" actions ship unbound and take chords in `keybinds.lua`
 as `open_language_servers` (Settings' Language Servers page),
 `restart_language_servers` and `restart_one_language_server` (pick one server
-from a list). All bindings above live in `keybinds.json`; comment markers in
-`comments.json`; tab width, font size and autosave delay in `settings.json` —
+from a list). All bindings above live in `keybinds.lua`; comment markers in
+`comments.lua`; tab width, font size and autosave delay in `settings.lua` —
 see [Configuration](configuration.md) for the three directories those are
 layered from.
+
+## Theme window
+
+"Theme: Edit Colors" (or Settings > Appearance > Theme Colors) opens the theme
+window. Inside it:
+
+| Key | Action |
+| --- | --- |
+| up / down | select a color |
+| enter | edit the selected color |
+| ctrl + c / ctrl + v | copy / paste the hex of the selected color |
+| delete | reset the selected color to its saved value |
+| ctrl + s | save the theme |
+| ctrl + f | go to the filter field |
+| escape | clear the filter, else close the window |
+
+Every action of the window is also a palette command under "Theme:". None has a
+chord; bind one in the `theme` group of `keybinds.lua` (`theme_save`,
+`theme_revert`, `theme_editor`, ...). A chord bound to one works while the
+window is open too. See [Configuration](configuration.md#themes-fonts-and-icons).
 
 ## Help
 
@@ -425,4 +447,4 @@ The **Help** menu opens this manual without leaving the editor:
 
 The pages ship beside the binary, so they are readable offline. The same three
 actions are in the command palette under "Help:" and take chords in
-`keybinds.json` as `docs`, `docs_page` and `docs_browser`.
+`keybinds.lua` as `docs`, `docs_page` and `docs_browser`.

@@ -11,7 +11,7 @@ manual: how to get it running and how to use it. For the codebase itself, see
   project, first tour.
 - [Building from Source](building.md) — dependencies, platform setup,
   `build.odin`, running the tests.
-- [Configuration](configuration.md) — `settings.json`, themes, fonts, icon
+- [Configuration](configuration.md) — `settings.lua` and the other Lua config files, themes, fonts, icon
   packs, per-workspace `.thor/` files, tasks.
 - [Keybindings](keybindings.md) — every default shortcut, by area.
 - [Git](git.md) — the built-in Git UI: changes, history, branches, config

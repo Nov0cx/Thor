@@ -79,7 +79,7 @@ day, `Open Folder`, `Open File` and a list of recently opened workspaces. `File
 comes back to the welcome page too.
 
 The tip card carries one tip a day, with the chord it is about read from your
-own keybindings. The arrows on it step through the rest, and `tips.json` holds
+own keybindings. The arrows on it step through the rest, and `tips.lua` holds
 them (see [Configuration](configuration.md)).
 
 With a folder open there is no welcome page, so the same card floats in the
@@ -153,7 +153,7 @@ the compiler's diagnostics replace them. The hover over a mark shows its id
 (`[name/undeclared]`); a `// thor:ignore name/undeclared` comment hides that id
 on the next line (or on its own line after code), and
 `// thor:ignore-file <id>` hides it in the whole file. `"diagnostics"` in
-`.thor/odin-analyzer.json` turns an id off or makes it a warning for the whole
+`.thor/odin-analyzer.lua` turns an id off or makes it a warning for the whole
 workspace (see [Configuration](configuration.md)). The `syntax_diagnostics` feature of
 `language_intelligence` turns the live marks off.
 It also serves navigation, hover, completion and signature help. Hover a
@@ -167,7 +167,7 @@ import yet, with the import line added. Signature help also covers a
 polymorphic record (`List(`) and a conversion (`int(`). A file you save in
 Thor counts at once; a file changed by another program counts within a second. The built-in support
 has no code actions; to use a server such as `ols` instead, give it `.odin`
-with `"override": true` in `lsp.json` (see [configuration](configuration.md)),
+with `override = true` in `lsp.lua` (see [configuration](configuration.md)),
 then `ctrl + shift + u` shows the code actions at the caret.
 
 Every other language gets these features from a language server.
