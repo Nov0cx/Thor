@@ -1,4 +1,4 @@
-# 2026.10.8
+# 2026.11.0
 
 - A double click selects the word under the pointer. Dragging after it extends the selection by whole words.
 - Odin: syntax errors are marked while typing. After a save, the `odin check` diagnostics replace them. The `syntax_diagnostics` feature (Settings > "Live Syntax Errors") turns them off.
@@ -17,7 +17,7 @@
 - Odin: a call whose arguments make a `where` clause false is marked while typing (`poly/where`).
 - Odin: an assignment or declaration with more or fewer values than names is marked while typing (`assign/count`).
 - Odin: an import whose package imports the file's package back is marked while typing (`import/cycle`).
-- Odin: `"diagnostics"` in `.thor/odin-analyzer.json` sets each live diagnostic id to `"off"`, `"warning"` or `"error"`.
+- Odin: `"diagnostics"` in `.thor/odin-analyzer.lua` sets each live diagnostic id to `"off"`, `"warning"` or `"error"`.
 - Odin: a `@(private="file")` declaration no longer counts as a redeclaration of a package declaration of the same name.
 - A right click on empty space in the explorer, or in an empty folder, opens the workspace root's context menu (New File, New Folder, Refresh).
 - Thor no longer holds `.git/index.lock` while idle. Its git status ran in a loop and made `git commit` fail.
@@ -27,7 +27,7 @@
 - Odin: go to definition works again for locals, parameters, loop variables, labels, names of the same package, `pkg.name` through imports, enum members (`Color.Red`) and procedure groups.
 - Odin: find references and rename work again. They follow the package and its importers, and a rename also edits the other platform files of the package (`_windows.odin`, `_posix.odin`).
 - Odin: rename refuses a builtin, an implicit import name and a declaration outside the workspace, such as one in `core:`.
-- Odin: `.thor/odin-analyzer.json` takes `target` (`os`, `arch`) and `defines`. They select the files and `when` branches the analyzer reads.
+- Odin: `.thor/odin-analyzer.lua` takes `target` (`os`, `arch`) and `defines`. They select the files and `when` branches the analyzer reads.
 - Odin formatter: a block comment between `->` and a single result type stays there.
 - The editor context menu has Go to Definition, Find References, Rename Symbol, Code Actions, Signature Help, Format Document, Format Selection, Go to Symbol in File and Package Documentation. An item is greyed out when the language of the file does not serve it.
 - A right click outside the selection moves the caret to the click. A right click inside the selection keeps it.
@@ -37,7 +37,7 @@
 - Odin: in workspace symbol search, a symbol in a `when` branch that is false for the target comes last and reads "(inactive)".
 - `ctrl+shift+delete` (`delete_to_line_end`) deletes from the caret to the end of the line. At the line end it joins the next line. Also in the palette as "Edit: Delete to Line End".
 - Odin: hover shows the signature, type and constant value of a declaration, the value of an enum member and its doc comment.
-- Odin: completion offers the members after `x.`, the package members after `pkg.`, enum members (also an implicit `.Member`), names in scope ranked by the expected type, and the unset fields of a struct literal. `enable_completion` in `.thor/odin-analyzer.json` turns it off.
+- Odin: completion offers the members after `x.`, the package members after `pkg.`, enum members (also an implicit `.Member`), names in scope ranked by the expected type, and the unset fields of a struct literal. `enable_completion` in `.thor/odin-analyzer.lua` turns it off.
 - Odin: signature help marks the active parameter, also for named arguments, variadics, procedure groups and builtins.
 - Odin: semantic highlighting colours parameters, locals, fields, procedures, types, enum members, packages and undeclared names.
 - Odin: go to definition, find references and rename work for struct fields (also through `using` and pointers), enum members (also an implicit `.Member`), field names in a struct literal and named call arguments.
@@ -47,7 +47,7 @@
 - Odin: names that `using` brings into scope resolve in hover, go to definition, find references, rename and semantic highlighting.
 - Odin: completion offers union variants after `x.(` and procedure members after `x->`.
 - Odin: completion ranks procedures by their result type against the expected type.
-- Odin: completion of a procedure inserts the call with its parameters as snippet stops. `enable_snippets` in `.thor/odin-analyzer.json` turns it off.
+- Odin: completion of a procedure inserts the call with its parameters as snippet stops. `enable_snippets` in `.thor/odin-analyzer.lua` turns it off.
 - Odin: completion offers packages not yet imported and adds the `import` line.
 - Odin: signature help works for polymorphic record calls (`List(`), conversions (`int(`) and procedure groups declared inside a procedure.
 - Odin: go to definition on a procedure group call jumps to the member its arguments pick, with the compiler's overload scoring and `where` clauses.
@@ -59,6 +59,21 @@
 - Odin: completion offers to import a package made after the first completion of the session.
 - Odin: overload resolution reads more `where` clauses: `type_is_comparable`, `type_is_ordered`, `type_is_subtype_of`, `type_has_field`, `type_elem_type` and others.
 - Odin: hover shows the size of `#soa` over a small array (`#soa[4][3]f32`), and completion lists its `x`, `y`, `z`, `w` fields.
+- Configuration is Lua instead of JSON: `settings.lua`, `keybinds.lua`, `comments.lua`, `tips.lua`, `lsp.lua`, `.thor/tasks.lua`, `.thor/odin-analyzer.lua`, `.thor/odin-formatter.lua`, the themes and each plugin's `manifest.lua`. A file returns a table and can hold comments, locals and conditions such as `if thor.os == "windows"`.
+- A config file runs in a sandbox: no `io`, `os`, `load` or `require`, and a time and memory limit. `thor.os`, `thor.arch` and `thor.env(name)` are available.
+- A change from the Settings window edits the value in place in the Lua file. Comments and the rest of the file stay.
+- At start, Thor converts the old `.json` config in `user/` and `.thor/` to Lua and keeps the old file as `.json.bak`. A card says so once.
+- Themes are keyed by role id (`keywords = "#FF7B7B"`). The old names such as `"Keywords Color"` still load.
+- The theme window has a draft: an edit shows at once and writes nothing until Save. Revert puts the saved colors back. Close asks to save or discard unsaved changes.
+- The theme window has Save As, Duplicate, Delete (own themes), Reset to Shipped (changed shipped themes) and Open Theme File. The theme name in its header switches to another theme.
+- The theme window shows a live preview of code, tabs, the file tree, status colors and buttons. A click on a part selects its color.
+- The theme window has a filter by name, role or hex, a contrast badge on text and syntax colors, a reset button on changed colors and a tooltip that says what each color paints.
+- Theme window keys: Up/Down select a color, Enter edits it, `ctrl+c`/`ctrl+v` copy and paste its hex, Delete resets it, `ctrl+s` saves, `ctrl+f` goes to the filter.
+- The Generate tab builds a palette from a background and an accent seed with a live preview. "Use as Draft" makes it the draft, and Save asks for a name.
+- A hand edit of the active theme file applies at once.
+- Every theme action is a palette command under "Theme:" (`theme_save`, `theme_revert`, `theme_editor`, …). None has a key; bind them in the `theme` group of `keybinds.lua`.
+- "Edit: Delete to Line Start" (`delete_to_line_start`) deletes from the start of the line to the caret. It has no key.
+- The name prompt of a generated theme shows above the theme window. It was hidden under it.
 
 # 2026.10.7
 
