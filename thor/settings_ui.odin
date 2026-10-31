@@ -106,6 +106,7 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
 
     thor_settings_begin_category(view, "windows", "Windows", "window")
     thor_settings_add_choice(view, "open_folder_in", "Open Folder In", thor_open_folder_in_label(config))
+    thor_settings_add_choice(view, "pane_layout", "Editor Pane Layout", thor_pane_layout_label(config))
 
     thor_settings_begin_category(view, "terminal", "Terminal", "terminal-2")
     thor_settings_add_choice(view, "default_shell", "Default Shell", thor_default_shell_label(thor, config))
@@ -255,6 +256,11 @@ thor_on_setting_choice :: proc(data: rawptr, id: string) {
         thor_cmd_change_format_on_type(thor)
     case "open_folder_in":
         thor_cmd_change_open_folder_in(thor)
+    case "pane_layout":
+        thor_select_open(
+            thor, "Editor Pane Layout", PANE_LAYOUT_LABELS[:], thor_pane_layout_label(&thor.config),
+            thor_no_preview, thor_pane_layout_commit, thor,
+        )
     case "right_alt":
         thor_cmd_change_right_alt(thor)
     case "terminal_clipboard":
@@ -316,6 +322,54 @@ thor_open_folder_in_commit :: proc(data: rawptr, choice: string) {
         }
     }
     thor_persist_open_folder_in(thor, picked)
+    if thor_settings_is_open(thor) {
+        thor_populate_settings_view(thor)
+    }
+}
+
+// Picker rows for pane_layout: remember, then Pane_Layout order.
+@(private = "file")
+PANE_LAYOUT_LABELS := [1 + len(Pane_Layout)]string {
+    "Remember per Folder",
+    LAYOUT_TITLES[.Single],
+    LAYOUT_TITLES[.Columns2],
+    LAYOUT_TITLES[.Columns3],
+    LAYOUT_TITLES[.Rows2],
+    LAYOUT_TITLES[.Main_Stack],
+    LAYOUT_TITLES[.Grid4],
+    LAYOUT_TITLES[.Grid6],
+}
+
+// The current pane_layout setting as its picker row. An unknown name reads as remember.
+thor_pane_layout_label :: proc(config: ^setting.Settings) -> string {
+    if layout, ok := layout_from_name(setting.pane_layout(config)); ok {
+        return LAYOUT_TITLES[layout]
+    }
+    return PANE_LAYOUT_LABELS[0]
+}
+
+// Saves the picked layout and, unless it is remember, switches to it now.
+thor_pane_layout_commit :: proc(data: rawptr, choice: string) {
+    thor := cast(^Thor) data
+    value := "remember"
+    picked: Maybe(Pane_Layout)
+    for title, layout in LAYOUT_TITLES {
+        if title == choice {
+            value = LAYOUT_NAMES[layout]
+            picked = layout
+        }
+    }
+    path := setting.USER_SETTINGS
+    if err := setting.persist_string(path, "pane_layout", value); err != .None {
+        thor_settings_save_failed(thor, path, err)
+        return
+    }
+    delete(thor.config.general.pane_layout)
+    thor.config.general.pane_layout = strings.clone(value)
+    thor_settings_mark_clean(thor)
+    if layout, ok := picked.?; ok {
+        thor_set_layout(thor, layout)
+    }
     if thor_settings_is_open(thor) {
         thor_populate_settings_view(thor)
     }

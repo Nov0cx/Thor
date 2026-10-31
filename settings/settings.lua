@@ -16,6 +16,7 @@ return {
     language_intelligence = true,
     ligatures = true,
     open_folder_in = "ask",
+    pane_layout = "remember",
     relative_line_numbers = true,
     right_alt = "auto",
     tab_width = 4,

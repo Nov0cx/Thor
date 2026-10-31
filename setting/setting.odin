@@ -37,6 +37,9 @@ General :: struct {
     file_icon_pack:    string,
     // What opening a folder does: "ask" (default), "same" or "new" window. Owned.
     open_folder_in:    string,
+    // Editor pane layout a workspace opens with: "remember" (default, from the
+    // session) or a layout name ("single", "columns2", "grid4", ...). Owned.
+    pane_layout:       string,
     // What Right Alt is: "auto" (default, from the layout), "altgr" or "alt". Owned.
     right_alt:         string,
     // The profile id a new terminal starts ("pwsh", "git-bash", ...); empty picks the best one. Owned.
@@ -229,6 +232,7 @@ destroy :: proc(s: ^Settings) {
     delete(s.general.icon_pack)
     delete(s.general.file_icon_pack)
     delete(s.general.open_folder_in)
+    delete(s.general.pane_layout)
     delete(s.general.right_alt)
     delete(s.general.default_shell)
 
@@ -450,6 +454,14 @@ open_folder_in_value :: proc(choice: Open_Folder_In) -> string {
         return "ask"
     }
     return "ask"
+}
+
+// Layout name a workspace opens with. "" means remember the session's.
+pane_layout :: proc(s: ^Settings) -> string {
+    if s.general.pane_layout == "remember" {
+        return ""
+    }
+    return s.general.pane_layout
 }
 
 // What Right Alt is. Unset or unrecognized means Auto.
@@ -918,6 +930,7 @@ load_general :: proc(s: ^Settings, path: string) {
     read_bool(root, "tip_of_the_day", &s.general.tip_of_the_day)
     read_bool(root, "terminal_clipboard", &s.general.terminal_clipboard)
     read_string(root, "open_folder_in", &s.general.open_folder_in)
+    read_string(root, "pane_layout", &s.general.pane_layout)
     read_string(root, "right_alt", &s.general.right_alt)
     read_string(root, "default_shell", &s.general.default_shell)
     read_language(s, root)
