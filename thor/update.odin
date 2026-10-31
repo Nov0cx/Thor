@@ -21,6 +21,7 @@ import "core:time"
 import "../atomicfile"
 import "../setting"
 import "../update"
+import "../lockfree"
 
 import rl "vendor:raylib"
 // The titlebar button's metrics, matching the task selector beside it.
@@ -67,8 +68,9 @@ Update_Kind :: enum {
 }
 
 // Async update work. The worker fills the out_ fields and appends itself to
-// thor.finished_updates under io_mutex; the main thread applies and frees.
+// thor.finished_updates; the main thread applies and frees.
 Update_Job :: struct {
+    queue_next: ^Update_Job, // link in Thor.finished_updates
     owner:        ^Thor,
     allocator:    runtime.Allocator,
     worker:       ^thread.Thread,
@@ -197,9 +199,7 @@ update_check_worker :: proc(job: ^Update_Job) {
     job.out_size = result.size
     job.out_installable = result.installable
 
-    sync.lock(&job.owner.io_mutex)
-    append(&job.owner.finished_updates, job)
-    sync.unlock(&job.owner.io_mutex)
+    lockfree.stack_push(&job.owner.finished_updates, job)
 }
 
 @(private = "file")
@@ -219,9 +219,7 @@ update_install_worker :: proc(job: ^Update_Job) {
     job.status = result.status
     job.out_root = result.root
 
-    sync.lock(&job.owner.io_mutex)
-    append(&job.owner.finished_updates, job)
-    sync.unlock(&job.owner.io_mutex)
+    lockfree.stack_push(&job.owner.finished_updates, job)
 }
 
 // Applies a finished job (called from thor_process_io). The swap itself is

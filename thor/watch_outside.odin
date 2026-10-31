@@ -7,9 +7,10 @@ package thor
 import "base:runtime"
 import "core:os"
 import "core:strings"
-import "core:sync"
 import "core:thread"
 import "core:time"
+
+import "../lockfree"
 
 @(private = "file")
 OUTSIDE_POLL_INTERVAL :: 1 * time.Second
@@ -28,6 +29,7 @@ Outside_Entry :: struct {
 }
 
 Outside_Stat_Job :: struct {
+    queue_next: ^Outside_Stat_Job, // link in Thor.finished_outside_stats
     owner:     ^Thor,
     allocator: runtime.Allocator,
     worker:    ^thread.Thread,
@@ -88,9 +90,7 @@ outside_stat_worker :: proc(job: ^Outside_Stat_Job) {
         entry.stamp = {time = info.modification_time, size = info.size, known = true}
     }
 
-    sync.lock(&job.owner.io_mutex)
-    append(&job.owner.finished_outside_stats, job)
-    sync.unlock(&job.owner.io_mutex)
+    lockfree.stack_push(&job.owner.finished_outside_stats, job)
 }
 
 // Drains a finished look (called from thor_process_io): a file whose stamp moved

@@ -20,6 +20,7 @@ import "../watch"
 import "../font"
 import "../theme"
 import "../editview"
+import "../lockfree"
 import "../render"
 import ui "../vendor/loom/loom"
 // A window creation slower than this is a machine fault, not normal work, and
@@ -298,21 +299,21 @@ Thor :: struct {
     pending_task_name: string,
     open_files: [dynamic]^Open_File,
     zombie_files: [dynamic]^Open_File,
-    // Worker threads append finished jobs here under io_mutex; drained on the
-    // main thread every frame.
+    // Guards Terminal.pending and Terminal.ended.
     io_mutex: sync.Mutex,
-    finished_loads: [dynamic]^Load_Job,
-    finished_saves: [dynamic]^Save_Job,
-    finished_git: [dynamic]^Git_Status_Job,
-    finished_git_ops: [dynamic]^Git_Op_Job,
-    finished_file_ops: [dynamic]^File_Op_Job,
-    finished_shells: [dynamic]^Shell_Detect_Job,
-    finished_file_index: [dynamic]^File_Index_Job,
-    finished_file_searches: [dynamic]^File_Search_Job,
-    finished_updates: [dynamic]^Update_Job,
-    finished_outside_stats: [dynamic]^Outside_Stat_Job,
-    finished_md_images: [dynamic]^Md_Image_Job,
-    finished_plugin_execs: [dynamic]^Plugin_Exec_Job,
+    // Worker threads push finished jobs here; drained on the main thread every frame.
+    finished_loads: lockfree.Stack(Load_Job),
+    finished_saves: lockfree.Stack(Save_Job),
+    finished_git: lockfree.Stack(Git_Status_Job),
+    finished_git_ops: lockfree.Stack(Git_Op_Job),
+    finished_file_ops: lockfree.Stack(File_Op_Job),
+    finished_shells: lockfree.Stack(Shell_Detect_Job),
+    finished_file_index: lockfree.Stack(File_Index_Job),
+    finished_file_searches: lockfree.Stack(File_Search_Job),
+    finished_updates: lockfree.Stack(Update_Job),
+    finished_outside_stats: lockfree.Stack(Outside_Stat_Job),
+    finished_md_images: lockfree.Stack(Md_Image_Job),
+    finished_plugin_execs: lockfree.Stack(Plugin_Exec_Job),
     // Reaped thor.exec results waiting for the run loop to call their plugin. Owned.
     plugin_exec_results: [dynamic]^Plugin_Exec_Job,
     // The id the last thor.exec with a callback got; unique for the process.
@@ -737,18 +738,6 @@ init :: proc() -> ^Thor {
     thor.zombie_files = make([dynamic]^Open_File)
     thor.lsp_probes = make(map[string]Lsp_Probe)
     thor.lsp_health = make([dynamic]Lsp_Health)
-    thor.finished_loads = make([dynamic]^Load_Job)
-    thor.finished_saves = make([dynamic]^Save_Job)
-    thor.finished_git = make([dynamic]^Git_Status_Job)
-    thor.finished_git_ops = make([dynamic]^Git_Op_Job)
-    thor.finished_plugin_execs = make([dynamic]^Plugin_Exec_Job)
-    thor.finished_file_ops = make([dynamic]^File_Op_Job)
-    thor.finished_shells = make([dynamic]^Shell_Detect_Job)
-    thor.finished_file_index = make([dynamic]^File_Index_Job)
-    thor.finished_file_searches = make([dynamic]^File_Search_Job)
-    thor.finished_updates = make([dynamic]^Update_Job)
-    thor.finished_outside_stats = make([dynamic]^Outside_Stat_Job)
-    thor.finished_md_images = make([dynamic]^Md_Image_Job)
     thor.file_index = make([dynamic]string)
     strings.builder_init(&thor.console_backlog)
 
@@ -1011,18 +1000,7 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.open_files)
     thor_welcome_recent_free(thor)
     delete(thor.zombie_files)
-    delete(thor.finished_loads)
-    delete(thor.finished_saves)
-    delete(thor.finished_git)
-    delete(thor.finished_git_ops)
-    delete(thor.finished_file_ops)
-    delete(thor.finished_shells)
-    delete(thor.finished_file_index)
-    delete(thor.finished_file_searches)
     thor_file_search_destroy(thor)
-    delete(thor.finished_updates)
-    delete(thor.finished_outside_stats)
-    delete(thor.finished_md_images)
     thor_clear_update(thor)
     thor_clear_file_index(thor)
     thor_free_theme_choices(thor)

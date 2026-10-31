@@ -24,8 +24,6 @@ test_plugin_doc_opens_and_refreshes :: proc(t: ^testing.T) {
     thor.active_file = make_signal(-1)
     thor.open_files = make([dynamic]^Open_File)
     thor.zombie_files = make([dynamic]^Open_File)
-    thor.finished_loads = make([dynamic]^Load_Job)
-    thor.finished_saves = make([dynamic]^Save_Job)
     thor.pane_file = -1
     // thor_update_files runs the per-frame view swap, which sets these three
     // every call, so a partial Thor still needs them.
@@ -37,8 +35,6 @@ test_plugin_doc_opens_and_refreshes :: proc(t: ^testing.T) {
         }
         delete(thor.open_files)
         delete(thor.zombie_files)
-        delete(thor.finished_loads)
-        delete(thor.finished_saves)
     }
     defer os.remove(PATH)
 

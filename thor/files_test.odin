@@ -30,8 +30,6 @@ test_async_file_roundtrip :: proc(t: ^testing.T) {
     thor.active_file = make_signal(-1)
     thor.open_files = make([dynamic]^Open_File)
     thor.zombie_files = make([dynamic]^Open_File)
-    thor.finished_loads = make([dynamic]^Load_Job)
-    thor.finished_saves = make([dynamic]^Save_Job)
     thor.pane_file = -1
     // thor_update_files picks the view for the active file, so the image, model
     // and markdown views have to exist even though nothing draws them here.
@@ -40,8 +38,6 @@ test_async_file_roundtrip :: proc(t: ^testing.T) {
     defer {
         delete(thor.open_files)
         delete(thor.zombie_files)
-        delete(thor.finished_loads)
-        delete(thor.finished_saves)
     }
 
     // Open: spawns the mmap loader thread and activates the tab.
@@ -125,14 +121,10 @@ test_async_load_prepares_crlf_text :: proc(t: ^testing.T) {
     thor.active_file = make_signal(-1)
     thor.open_files = make([dynamic]^Open_File)
     thor.zombie_files = make([dynamic]^Open_File)
-    thor.finished_loads = make([dynamic]^Load_Job)
-    thor.finished_saves = make([dynamic]^Save_Job)
     thor.pane_file = -1
     defer {
         delete(thor.open_files)
         delete(thor.zombie_files)
-        delete(thor.finished_loads)
-        delete(thor.finished_saves)
     }
 
     thor_open_file(thor, TEST_PATH)
@@ -788,9 +780,6 @@ test_make_thor :: proc() -> ^Thor {
     thor.active_file = make_signal(-1)
     thor.open_files = make([dynamic]^Open_File)
     thor.zombie_files = make([dynamic]^Open_File)
-    thor.finished_loads = make([dynamic]^Load_Job)
-    thor.finished_saves = make([dynamic]^Save_Job)
-    thor.finished_file_ops = make([dynamic]^File_Op_Job)
     thor.pane_file = -1
     // thor_update_editor_view also swaps the welcome page in when there is no
     // workspace, which this headless Thor never sets.
@@ -805,9 +794,6 @@ test_free_thor :: proc(thor: ^Thor) {
     delete(thor.conflict_prompt)
     delete(thor.open_files)
     delete(thor.zombie_files)
-    delete(thor.finished_loads)
-    delete(thor.finished_saves)
-    delete(thor.finished_file_ops)
     free(thor)
 }
 

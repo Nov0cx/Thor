@@ -5,7 +5,6 @@ import "core:log"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
-import "core:sync"
 import "core:thread"
 import "core:time"
 
@@ -14,6 +13,7 @@ import "../plugin"
 import "../setting"
 import "../shell"
 import "../textedit"
+import "../lockfree"
 
 // One row of a plugin dropdown (see thor.menu). A separator carries no command.
 Plugin_Menu_Item :: struct {
@@ -162,6 +162,7 @@ PLUGIN_EXEC_TIMEOUT :: 120 * time.Second
 
 // A thor.exec with a callback, run on a worker thread.
 Plugin_Exec_Job :: struct {
+    queue_next: ^Plugin_Exec_Job, // link in Thor.finished_plugin_execs
     owner:     ^Thor,
     allocator: runtime.Allocator,
     worker:    ^thread.Thread,
@@ -197,9 +198,7 @@ plugin_exec_worker :: proc(job: ^Plugin_Exec_Job) {
     if !ok && job.code == 0 {
         job.code = -1
     }
-    sync.lock(&job.owner.io_mutex)
-    append(&job.owner.finished_plugin_execs, job)
-    sync.unlock(&job.owner.io_mutex)
+    lockfree.stack_push(&job.owner.finished_plugin_execs, job)
 }
 
 // Joins finished thor.exec workers and queues them for thor_dispatch_plugin_execs.
@@ -237,8 +236,6 @@ thor_free_plugin_execs :: proc(thor: ^Thor) {
     }
     delete(thor.plugin_exec_results)
     thor.plugin_exec_results = nil
-    delete(thor.finished_plugin_execs)
-    thor.finished_plugin_execs = nil
 }
 
 @(private = "file")

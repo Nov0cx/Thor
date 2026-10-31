@@ -133,16 +133,12 @@ test_restore_drops_a_directory :: proc(t: ^testing.T) {
     thor.active_file = make_signal(-1)
     thor.open_files = make([dynamic]^Open_File)
     thor.zombie_files = make([dynamic]^Open_File)
-    thor.finished_loads = make([dynamic]^Load_Job)
-    thor.finished_saves = make([dynamic]^Save_Job)
     thor.pane_file = -1
     thor.workspace_dir = WORKSPACE
     defer {
         delete(thor.status_message)
         delete(thor.open_files)
         delete(thor.zombie_files)
-        delete(thor.finished_loads)
-        delete(thor.finished_saves)
     }
 
     thor_restore_session(thor)
@@ -199,8 +195,6 @@ n0.tabs = Explorer
     thor.active_file = make_signal(-1)
     thor.open_files = make([dynamic]^Open_File)
     thor.zombie_files = make([dynamic]^Open_File)
-    thor.finished_loads = make([dynamic]^Load_Job)
-    thor.finished_saves = make([dynamic]^Save_Job)
     thor.pane_file = -1
     thor.workspace_dir = WORKSPACE
     defer {
@@ -208,8 +202,6 @@ n0.tabs = Explorer
         delete(thor.status_message)
         delete(thor.open_files)
         delete(thor.zombie_files)
-        delete(thor.finished_loads)
-        delete(thor.finished_saves)
     }
 
     // What a workspace arranged earlier in the run leaves behind.

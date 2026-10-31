@@ -15,8 +15,6 @@ make_test_thor :: proc() -> ^Thor {
     thor.active_file = make_signal(-1)
     thor.open_files = make([dynamic]^Open_File)
     thor.zombie_files = make([dynamic]^Open_File)
-    thor.finished_loads = make([dynamic]^Load_Job)
-    thor.finished_saves = make([dynamic]^Save_Job)
     thor.pane_file = -1
     // thor_update_editor_view also swaps the welcome page in when there is no
     // workspace, which this headless Thor never sets.
@@ -37,8 +35,6 @@ destroy_test_thor :: proc(thor: ^Thor) {
     delete(thor.jump_forward)
     delete(thor.open_files)
     delete(thor.zombie_files)
-    delete(thor.finished_loads)
-    delete(thor.finished_saves)
     free(thor)
 }
 

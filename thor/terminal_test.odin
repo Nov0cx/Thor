@@ -2,11 +2,11 @@ package thor
 
 import "core:fmt"
 import "core:strings"
-import "core:sync"
 import "core:testing"
 import "core:thread"
 import "core:time"
 
+import "../lockfree"
 import "../shell"
 
 // The shell detection lands long after startup, so thor_apply_shell_profiles has
@@ -48,10 +48,7 @@ shell_profiles_stub :: proc(count: int) -> []shell.Profile {
 @(private = "file")
 shell_detect_job_wait :: proc(thor: ^Thor) -> ^Shell_Detect_Job {
     for {
-        sync.lock(&thor.io_mutex)
-        job, ok := pop_safe(&thor.finished_shells)
-        sync.unlock(&thor.io_mutex)
-        if ok {
+        if job := lockfree.stack_take(&thor.finished_shells); job != nil {
             return job
         }
         time.sleep(time.Millisecond)
@@ -64,8 +61,6 @@ shell_detect_job_wait :: proc(thor: ^Thor) -> ^Shell_Detect_Job {
 @(test)
 test_shell_profiles_apply_after_init :: proc(t: ^testing.T) {
     thor: Thor
-    thor.finished_shells = make([dynamic]^Shell_Detect_Job)
-    defer delete(thor.finished_shells)
 
     thor_terminals_init(&thor)
     testing.expect(t, thor.terminals_live, "init must mark the terminal list live")

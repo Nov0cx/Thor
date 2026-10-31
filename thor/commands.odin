@@ -5,7 +5,6 @@ import "core:fmt"
 import "core:log"
 import "core:os"
 import "core:strings"
-import "core:sync"
 import "core:thread"
 import "core:time"
 import "core:unicode/utf8"
@@ -19,6 +18,7 @@ import ui "../vendor/loom/loom"
 import "../font"
 import "../theme"
 import "../editview"
+import "../lockfree"
 // Applies the configurable settings to the live widgets. Called at startup and
 // on reload, so both paths stay in sync.
 thor_apply_settings :: proc(thor: ^Thor) {
@@ -896,6 +896,7 @@ thor_collect_files :: proc(dir: string, files: ^[dynamic]string, depth: int, lim
 // same shape as Git_Status_Job. file_index_inflight/dirty coalesce a burst of
 // watcher activity into one more walk instead of one per event.
 File_Index_Job :: struct {
+    queue_next: ^File_Index_Job, // link in Thor.finished_file_index
     owner:     ^Thor,
     allocator: runtime.Allocator,
     worker:    ^thread.Thread,
@@ -937,9 +938,7 @@ file_index_worker :: proc(job: ^File_Index_Job) {
 
     job.files = thor_walk_workspace_files(job.root, job.allocator)
 
-    sync.lock(&job.owner.io_mutex)
-    append(&job.owner.finished_file_index, job)
-    sync.unlock(&job.owner.io_mutex)
+    lockfree.stack_push(&job.owner.finished_file_index, job)
 }
 
 // Drains a finished walk (called from thor_process_io). A workspace switch

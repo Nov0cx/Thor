@@ -11,6 +11,7 @@ import rl "vendor:raylib"
 import "../setting"
 import "../shell"
 import "../vt"
+import "../lockfree"
 
 // One console bound to one shell on a pseudo-terminal. The shell outlives the
 // commands run in it, so a `cd` sticks and a developer environment loaded once
@@ -346,6 +347,7 @@ Shell_Choice :: struct {
 // Async shell detection: the scan runs vswhere, reads the registry and walks
 // PATH, which is too slow for the frame that starts the editor.
 Shell_Detect_Job :: struct {
+    queue_next: ^Shell_Detect_Job, // link in Thor.finished_shells
     owner:     ^Thor,
     allocator: runtime.Allocator,
     worker:    ^thread.Thread,
@@ -375,9 +377,7 @@ shell_detect_worker :: proc(job: ^Shell_Detect_Job) {
 
     job.profiles = shell.profiles_detect()
 
-    sync.lock(&job.owner.io_mutex)
-    append(&job.owner.finished_shells, job)
-    sync.unlock(&job.owner.io_mutex)
+    lockfree.stack_push(&job.owner.finished_shells, job)
 }
 
 // Drains a finished detection (called from thor_process_io): takes over the

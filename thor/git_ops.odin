@@ -6,11 +6,11 @@ import "core:os"
 import "core:path/filepath"
 import "core:strconv"
 import "core:strings"
-import "core:sync"
 import "core:thread"
 import "core:time"
 
 import "../shell"
+import "../lockfree"
 
 // Async git commands for the git view: one Git_Op_Job per operation, run on a
 // worker thread and drained by thor_process_io. The parsers are pure and take
@@ -64,6 +64,7 @@ GIT_CLONE_TIMEOUT :: 120 * time.Second
 // worker never reads Thor state; generation and serial let the main thread
 // drop results the view no longer wants.
 Git_Op_Job :: struct {
+    queue_next: ^Git_Op_Job, // link in Thor.finished_git_ops
     owner:      ^Thor,
     allocator:  runtime.Allocator,
     worker:     ^thread.Thread,
@@ -172,9 +173,7 @@ git_op_worker :: proc(job: ^Git_Op_Job) {
         git_run_simple(job)
     }
 
-    sync.lock(&job.owner.io_mutex)
-    append(&job.owner.finished_git_ops, job)
-    sync.unlock(&job.owner.io_mutex)
+    lockfree.stack_push(&job.owner.finished_git_ops, job)
 }
 
 // Snapshot slots: aux[0] = rev-parse --abbrev-ref HEAD, aux[1] = short HEAD

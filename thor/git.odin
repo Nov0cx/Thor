@@ -6,17 +6,18 @@ import "core:os"
 import "core:path/filepath"
 import "core:strconv"
 import "core:strings"
-import "core:sync"
 import "core:thread"
 import "core:time"
 
 import "../shell"
 import "../textedit"
 import "../editview"
+import "../lockfree"
 // Async `git status --porcelain`: a worker captures the output, the main thread
 // parses it into an absolute-path -> status map. Every ancestor directory of a
 // change is marked too, so folders containing changes get tinted.
 Git_Status_Job :: struct {
+    queue_next: ^Git_Status_Job, // link in Thor.finished_git
     owner:       ^Thor,
     allocator:   runtime.Allocator,
     worker:      ^thread.Thread,
@@ -114,9 +115,7 @@ git_status_worker :: proc(job: ^Git_Status_Job) {
     job.diff_output, diff_code, ran = shell.run_status(job.diff_cmd, job.dir)
     job.diff_ok = ran && diff_code == 0
 
-    sync.lock(&job.owner.io_mutex)
-    append(&job.owner.finished_git, job)
-    sync.unlock(&job.owner.io_mutex)
+    lockfree.stack_push(&job.owner.finished_git, job)
 }
 
 // Drains a finished status job (called from thor_process_io): parses the output

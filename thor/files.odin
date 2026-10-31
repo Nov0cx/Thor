@@ -20,6 +20,7 @@ import "../setting"
 import "../textedit"
 import ui "../vendor/loom/loom"
 import "../editview"
+import "../lockfree"
 // Line terminator a file uses on disk. The buffer holds LF, so a CRLF file is
 // collapsed on load and expanded again on save; the editing core and every byte
 // offset downstream never see a CR. A file that mixes the two is Mixed: its
@@ -142,6 +143,7 @@ Open_File :: struct {
 // it. A live mapping stops the process that owns the file from truncating it, so
 // it must not outlive the read.
 Load_Job :: struct {
+    queue_next: ^Load_Job, // link in Thor.finished_loads
     owner:   ^Thor,
     file:    ^Open_File,
     path:    string, // borrowed from file; valid while pending_jobs > 0
@@ -182,6 +184,7 @@ Load_Job :: struct {
 }
 
 Save_Job :: struct {
+    queue_next: ^Save_Job, // link in Thor.finished_saves
     owner:     ^Thor,
     file:      ^Open_File,
     path:      string, // borrowed from file; valid while pending_jobs > 0
@@ -223,6 +226,7 @@ File_Op_Entry :: struct {
 // closes the tabs of deleted files before the job starts, so the worker only
 // touches the disk.
 File_Op_Job :: struct {
+    queue_next: ^File_Op_Job, // link in Thor.finished_file_ops
     owner:      ^Thor,
     allocator:  mem.Allocator,
     worker:     ^thread.Thread,
@@ -286,9 +290,7 @@ thor_to_disk_text :: proc(text: string, ending: Line_Ending, allocator := contex
 load_worker :: proc(job: ^Load_Job) {
     defer {
         free_all(context.temp_allocator)
-        sync.lock(&job.owner.io_mutex)
-        append(&job.owner.finished_loads, job)
-        sync.unlock(&job.owner.io_mutex)
+        lockfree.stack_push(&job.owner.finished_loads, job)
     }
 
     bytes, ok := file_map_open(&job.mapping, job.path)
@@ -380,9 +382,7 @@ save_worker :: proc(job: ^Save_Job) {
     }
     free_all(context.temp_allocator)
 
-    sync.lock(&job.owner.io_mutex)
-    append(&job.owner.finished_saves, job)
-    sync.unlock(&job.owner.io_mutex)
+    lockfree.stack_push(&job.owner.finished_saves, job)
 }
 
 @(private = "file")
@@ -409,9 +409,7 @@ file_op_worker :: proc(job: ^File_Op_Job) {
         }
     }
 
-    sync.lock(&job.owner.io_mutex)
-    append(&job.owner.finished_file_ops, job)
-    sync.unlock(&job.owner.io_mutex)
+    lockfree.stack_push(&job.owner.finished_file_ops, job)
 }
 
 // Starts `entries` on a worker thread and takes ownership of them. `dest_label`
@@ -1289,6 +1287,14 @@ thor_highlight_pane_file :: proc(thor: ^Thor, pane: int) {
     }
 }
 
+// Appends every job on `stack` to `out`, oldest first.
+@(private = "file")
+thor_take_jobs :: proc(stack: ^lockfree.Stack($T), out: ^[dynamic]^T) {
+    for job := lockfree.stack_take(stack); job != nil; job = job.queue_next {
+        append(out, job)
+    }
+}
+
 thor_process_io :: proc(thor: ^Thor) {
     thor_file_search_tick(thor)
     file_searches := make([dynamic]^File_Search_Job, context.temp_allocator)
@@ -1304,56 +1310,18 @@ thor_process_io :: proc(thor: ^Thor) {
     md_images := make([dynamic]^Md_Image_Job, context.temp_allocator)
     plugin_execs := make([dynamic]^Plugin_Exec_Job, context.temp_allocator)
 
-    sync.lock(&thor.io_mutex)
-    for job in thor.finished_md_images {
-        append(&md_images, job)
-    }
-    clear(&thor.finished_md_images)
-    for job in thor.finished_plugin_execs {
-        append(&plugin_execs, job)
-    }
-    clear(&thor.finished_plugin_execs)
-    for job in thor.finished_loads {
-        append(&loads, job)
-    }
-    for job in thor.finished_saves {
-        append(&saves, job)
-    }
-    for job in thor.finished_git {
-        append(&git, job)
-    }
-    for job in thor.finished_git_ops {
-        append(&git_ops, job)
-    }
-    for job in thor.finished_file_ops {
-        append(&ops, job)
-    }
-    for job in thor.finished_shells {
-        append(&shells, job)
-    }
-    for job in thor.finished_file_index {
-        append(&file_index, job)
-    }
-    for job in thor.finished_file_searches {
-        append(&file_searches, job)
-    }
-    for job in thor.finished_outside_stats {
-        append(&outside_stats, job)
-    }
-    clear(&thor.finished_outside_stats)
-    for job in thor.finished_updates {
-        append(&updates, job)
-    }
-    clear(&thor.finished_loads)
-    clear(&thor.finished_saves)
-    clear(&thor.finished_git)
-    clear(&thor.finished_git_ops)
-    clear(&thor.finished_file_ops)
-    clear(&thor.finished_shells)
-    clear(&thor.finished_file_index)
-    clear(&thor.finished_file_searches)
-    clear(&thor.finished_updates)
-    sync.unlock(&thor.io_mutex)
+    thor_take_jobs(&thor.finished_md_images, &md_images)
+    thor_take_jobs(&thor.finished_plugin_execs, &plugin_execs)
+    thor_take_jobs(&thor.finished_loads, &loads)
+    thor_take_jobs(&thor.finished_saves, &saves)
+    thor_take_jobs(&thor.finished_git, &git)
+    thor_take_jobs(&thor.finished_git_ops, &git_ops)
+    thor_take_jobs(&thor.finished_file_ops, &ops)
+    thor_take_jobs(&thor.finished_shells, &shells)
+    thor_take_jobs(&thor.finished_file_index, &file_index)
+    thor_take_jobs(&thor.finished_file_searches, &file_searches)
+    thor_take_jobs(&thor.finished_outside_stats, &outside_stats)
+    thor_take_jobs(&thor.finished_updates, &updates)
 
     for job in shells {
         thor_apply_shell_profiles(thor, job)
@@ -2115,6 +2083,7 @@ Md_Image :: struct {
 }
 
 Md_Image_Job :: struct {
+    queue_next: ^Md_Image_Job, // link in Thor.finished_md_images
     owner:     ^Thor,
     allocator: mem.Allocator,
     worker:    ^thread.Thread,
@@ -2138,9 +2107,7 @@ md_image_worker :: proc(job: ^Md_Image_Job) {
     context.allocator = job.allocator
     defer {
         free_all(context.temp_allocator)
-        sync.lock(&job.owner.io_mutex)
-        append(&job.owner.finished_md_images, job)
-        sync.unlock(&job.owner.io_mutex)
+        lockfree.stack_push(&job.owner.finished_md_images, job)
     }
 
     data, err := os.read_entire_file(job.path, context.allocator)
