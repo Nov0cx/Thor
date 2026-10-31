@@ -82,6 +82,7 @@ Oracle_Error :: struct {
 @(private = "file")
 Op_Count :: struct {
     seeded, matched, silent: int,
+    instance:                int, // every compiler error is in a polymorphic body, checked per instance
 }
 
 // A source directory and the directories it needs beside it, all relative to the repo root.
@@ -559,6 +560,17 @@ run_mutant :: proc(t: ^testing.T, e: ^Engine, dest, path, src: string, m: Mutati
         counts[m.op].silent += 1
         return
     }
+    in_instance := true
+    for line in lines {
+        if !in_ranges(poly, line) {
+            in_instance = false
+        }
+    }
+    if in_instance {
+        counts[m.op].instance += 1
+        note("INSTANCE %v %s:%d (edit on %d) `%s`: %s", m.op, path, first, line_of(mutated, m.start), line_text(mutated, first), lines[first])
+        return
+    }
     counts[m.op].seeded += 1
     for d in res.report.items {
         if d.line in lines {
@@ -674,7 +686,7 @@ test_oracle_seeded :: proc(t: ^testing.T) {
     for c, op in counts {
         seeded += c.seeded
         matched += c.matched
-        note("%-15v seeded %3d matched %3d (%5.1f%%) compiler silent %3d", op, c.seeded, c.matched, 100 * f64(c.matched) / f64(max(c.seeded, 1)), c.silent)
+        note("%-15v seeded %3d matched %3d (%5.1f%%) compiler silent %3d, in an instance %d", op, c.seeded, c.matched, 100 * f64(c.matched) / f64(max(c.seeded, 1)), c.silent, c.instance)
     }
     rate := 100 * f64(matched) / f64(max(seeded, 1))
     note("total: seeded %d matched %d (%.1f%%), false errors %d", seeded, matched, rate, false_errors)
