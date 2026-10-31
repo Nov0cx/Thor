@@ -7,6 +7,7 @@ import "core:strings"
 import "core:testing"
 import "core:thread"
 
+import "../plugin"
 import "../setting"
 
 // Twelve files across two directory levels, walked with a cap of 5, must stop
@@ -100,4 +101,39 @@ test_every_command_is_bindable :: proc(t: ^testing.T) {
         testing.expectf(t, command.action != "", "%q has no action name", command.title)
         testing.expectf(t, command.action in shipped.keybinds, "%q (%s) is not in settings/keybinds.lua", command.title, command.action)
     }
+}
+
+// A plugin command lands in the palette and the app binds with a plugin.<name>
+// action, a name a built-in already has is left out, and a clear removes them.
+@(test)
+test_plugin_commands_are_bindable :: proc(t: ^testing.T) {
+    thor: Thor
+    thor_palette_init(&thor)
+    plugin.manager_init(&thor.plugins)
+    defer {
+        thor_clear_plugin_commands(&thor)
+        delete(thor.plugin_commands)
+        plugin.manager_destroy(&thor.plugins)
+        thor_palette_destroy(&thor)
+        delete(thor.app_binds)
+    }
+    thor_register_commands(&thor)
+    builtin := len(thor.palette.commands)
+
+    source := `thor.on_command("lfs-pull", function() end) thor.on_command("tutorial", function() end)`
+    testing.expect(t, plugin.manager_load_source(&thor.plugins, "git", "plugins/git", source, {}))
+    thor_sync_plugin_commands(&thor)
+
+    testing.expect_value(t, len(thor.palette.commands), builtin + 1)
+    last := thor.palette.commands[len(thor.palette.commands) - 1]
+    testing.expect_value(t, last.title, "Plugin: lfs-pull (git)")
+    testing.expect_value(t, last.action, "plugin.lfs-pull")
+    found := false
+    for bind in thor.app_binds {
+        found ||= bind.action == "plugin.lfs-pull"
+    }
+    testing.expect(t, found, "the command is an app bind")
+
+    thor_clear_plugin_commands(&thor)
+    testing.expect_value(t, len(thor.palette.commands), builtin)
 }

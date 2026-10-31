@@ -116,6 +116,7 @@ thor_reload_plugins :: proc(thor: ^Thor) {
     thor_clear_plugin_panels(thor)
     thor_clear_plugin_requests(thor)
     thor.plugin_prompt_shown = false
+    thor_clear_plugin_commands(thor)
 
     plugin.manager_destroy(&thor.plugins)
     plugin.manager_init(&thor.plugins)

@@ -799,3 +799,19 @@ test_command_name_is_not_taken_over :: proc(t: ^testing.T) {
     testing.expect_value(t, lua.tointeger(m.state, -1), 1)
     lua.pop(m.state, 2)
 }
+
+// The command list is sorted by name and names the plugin of each command.
+@(test)
+test_manager_commands_lists_owners :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+
+    testing.expect(t, manager_load_source(&m, "one", "plugins/one", `thor.on_command("zeta", function() end)`, {}))
+    testing.expect(t, manager_load_source(&m, "two", "plugins/two", `thor.on_command("alpha", function() end)`, {}))
+    list := manager_commands(&m)
+    testing.expect_value(t, len(list), 2)
+    testing.expect_value(t, manager_command_count(&m), 2)
+    testing.expect(t, list[0].name == "alpha" && list[0].plugin_id == "two", "alpha is first and belongs to two")
+    testing.expect(t, list[1].name == "zeta" && list[1].plugin_id == "one", "zeta belongs to one")
+}

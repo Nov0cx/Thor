@@ -236,6 +236,9 @@ Thor :: struct {
     // config action name and resolved chord; unbound ones (KEY_NULL) never fire.
     // Dispatched globally, so only commands with no editor-local key belong here.
     app_binds: [dynamic]App_Bind,
+    // Palette entries of the plugins' thor.on_command names; see plugin_commands.odin.
+    plugin_commands: [dynamic]^Plugin_Command, // owned
+    plugin_commands_synced: int, // command count at the last sync, -1 to force one
     workspace_dir: string,
     workspace_prefix: string,  // workspace_dir + separator, for palette display
     // True when workspace_dir has a .thor/ directory: its config overlays the
@@ -950,6 +953,7 @@ run :: proc(thor: ^Thor) {
         font.pump_async()
         thor_dispatch_plugin_execs(thor)
         plugin.manager_dispatch_tick(&thor.plugins)
+        thor_sync_plugin_commands(thor)
         thor_sync_active_pane(thor)
 
         // Loom builds the tree from the state above and hands back a draw list;
@@ -1016,6 +1020,8 @@ shutdown :: proc(thor: ^Thor) {
     }
     thor_markdown_view_destroy(thor, &thor.markdown_view)
     strings.builder_destroy(&thor.console_backlog)
+    thor_clear_plugin_commands(thor)
+    delete(thor.plugin_commands)
     delete(thor.app_binds)
     thor_clear_git_status(thor)
     delete(thor.workspace_dir)

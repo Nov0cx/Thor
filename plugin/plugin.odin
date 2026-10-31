@@ -1209,6 +1209,29 @@ api_on_command :: proc "c" (L: ^lua.State) -> c.int {
     return 0
 }
 
+// A named command and the id of the plugin that registered it. Both borrowed
+// from the manager until the next registration or manager_destroy.
+Command_Info :: struct {
+    name:      string,
+    plugin_id: string,
+}
+
+// The registered commands, sorted by name.
+manager_commands :: proc(m: ^Manager, allocator := context.temp_allocator) -> []Command_Info {
+    out := make([dynamic]Command_Info, 0, len(m.commands), allocator)
+    for name, cb in m.commands {
+        id := cb.owner >= 0 && cb.owner < len(m.plugins) ? m.plugins[cb.owner].id : ""
+        append(&out, Command_Info {name, id})
+    }
+    slice.sort_by(out[:], proc(a, b: Command_Info) -> bool {return a.name < b.name})
+    return out[:]
+}
+
+// How many commands are registered.
+manager_command_count :: proc(m: ^Manager) -> int {
+    return len(m.commands)
+}
+
 // Runs the plugin command registered under `name`. Returns whether it existed
 // and ran without error.
 manager_run_command :: proc(m: ^Manager, name: string) -> bool {

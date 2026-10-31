@@ -172,9 +172,15 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
     for action in config.keybinds {
         append(&actions, action)
     }
+    // Plugin commands have no shipped entry, so they list unbound until set.
+    for action in thor_plugin_command_actions(thor) {
+        if action not_in config.keybinds {
+            append(&actions, action)
+        }
+    }
     slice.sort(actions[:])
     for action in actions {
-        kb := config.keybinds[action]
+        kb := config.keybinds[action] or_else {}
         chord := setting.keybind_to_string(kb, context.temp_allocator)
         thor_settings_add_keybind(view, action, action, chord)
     }
