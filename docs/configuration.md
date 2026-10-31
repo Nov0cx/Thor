@@ -82,6 +82,7 @@ General editor preferences.
 | `file_icon_pack` | File-icon pack, same set as `icon_pack` | built-in default |
 | `check_for_updates` | Ask GitHub for a newer release shortly after start, at most once a day. **Help > Check for Updates** asks whatever this holds | `true` |
 | `open_folder_in` | What opening a folder does: `"ask"`, `"same"` (replace this window's workspace), or `"new"` (open a window) | `"ask"` |
+| `pane_layout` | The editor pane layout a folder opens with: `"remember"` (the folder's saved layout), or `"single"`, `"columns2"`, `"columns3"`, `"rows2"`, `"main_stack"`, `"grid4"`, `"grid6"` — see [Editor panes](keybindings.md#editor-panes) | `"remember"` |
 | `right_alt` | What the right Alt key is: `"auto"` (AltGr when the keyboard layout types characters with it, else Alt; Linux and macOS cannot ask the layout and take AltGr), `"altgr"` (types characters, never part of a shortcut), or `"alt"` (a shortcut modifier like the left one) | `"auto"` |
 | `default_shell` | Shell new terminals start with, by profile id (`"pwsh"`, `"git-bash"`, `"msvc"`, ...); empty picks the best one installed | `""` |
 | `terminal_clipboard` | Let a program in a terminal set the clipboard (OSC 52) | `true` |

@@ -200,17 +200,21 @@ buffer alone.
 | ctrl + shift + j | recenter the view on the caret (repeat cycles center / top / bottom) |
 | f4 | toggle the rendered markdown preview (markdown files only) — see [Previews](#previews) |
 | f12 | toggle borderless fullscreen |
-| f1 | toggle the editor split — see below |
+| f1 | toggle between one pane and the last multi-pane layout — see [Editor panes](#editor-panes) |
+| ctrl + f1 | next pane layout |
+| ctrl + 1 … ctrl + 6 | focus pane 1 … 6 |
+| ctrl + shift + 1 … ctrl + shift + 6 | show the active file in pane 1 … 6 (the layout grows to have it) |
+| f6 / shift + f6 | focus the next / previous pane |
 
 ## Previews
 
 Three file kinds open in a view of their own instead of the text editor. Each is
 a tab like any other, in the pane its tab owns, so the explorer, the terminal and
-the tab strip stay where they are, and a split can show two at once.
+the tab strip stay where they are, and several panes can show several at once.
 
 **Markdown** (`f4`, markdown files only) renders the file beside its source: the
-focused pane keeps the text, the other shows the page, and the split opens if it
-was closed. A link in it is clickable — a URL opens in the browser, a relative
+focused pane keeps the text, the next pane shows the page, and a second pane opens
+if there is only one. A link in it is clickable — a URL opens in the browser, a relative
 path opens as a tab.
 
 The page shows headings (`#` and the underlined form), paragraphs with hard line
@@ -252,14 +256,45 @@ Everything else in the modal works with the mouse.
 
 See [Git](git.md) for the full tour.
 
-## Editor split
+## Editor panes
 
-"View: Toggle Split Editor" (command palette, or the View menu) shows a second
-editor pane beside the first. The two panes hold **independent files**: focus a
-pane and pick a tab or open a file to change what it shows; the tabbar and
-status bar follow whichever pane has focus. Drag the divider to resize, and each
-pane scrolls and zooms (ctrl + scroll) on its own. Opening the split puts the
-previously active file in the new pane when there is one.
+The editor area shows up to six panes, arranged by a layout:
+
+| Layout | Panes |
+| --- | --- |
+| Single | 1 |
+| 2 Columns, 2 Rows | 2 |
+| 3 Columns, Main + Stack (one tall pane, two stacked beside it) | 3 |
+| 2x2 Grid | 4 |
+| 3x2 Grid | 6 |
+
+Panes are numbered down each column, then across, so pane 1 is always top left.
+Pick a layout with "View: Pane Layout..." (palette or View menu), step through
+them with ctrl + f1, or set the one a folder opens with in
+[`pane_layout`](configuration.md). A layout that would make a pane smaller than
+240 × 120 px is skipped. Each folder remembers its layout, pane files and sizes.
+
+The panes hold **independent files** and share one tab strip: focus a pane and
+pick a tab or open a file to change what it shows; the status bar follows the
+focused pane. A tab shows small numbers for the panes it is in, the focused
+pane's in the accent colour. Drag a divider to resize, double click it to even
+the panes it splits; each pane scrolls and zooms (ctrl + scroll) on its own.
+
+To open a file in a given pane:
+
+| Where | Binding | Action |
+| --- | --- | --- |
+| quick open | ctrl + enter | open in the next pane ("to the side") |
+| quick open | shift + enter | pick the pane: press 1 … 6 or click it, escape cancels |
+| explorer | alt + click, ctrl + enter | open to the side |
+| explorer | shift + enter, or right click > "Open in Pane..." | pick the pane |
+| anywhere | drag a tab or explorer rows onto a pane | open there (the pane is outlined while dragging) |
+| anywhere | ctrl + shift + 1 … 6 | show the active file in that pane |
+
+From a single pane, "to the side" opens the last multi-pane layout first. The
+palette actions "View: Open Active File to the Side" (`open_to_side`),
+"View: Show Active File in Pane..." (`pick_pane`) and "View: Pane Layout..."
+(`pick_layout`) ship unbound.
 
 ## Terminal
 

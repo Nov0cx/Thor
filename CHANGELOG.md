@@ -75,6 +75,14 @@
 - Commands of plugins are in the command palette as "Plugin: <name> (<plugin>)" and take a key as `plugin.<name>` in `keybinds.lua` or in Settings > Keybindings.
 - "Edit: Delete to Line Start" (`delete_to_line_start`) deletes from the start of the line to the caret. It has no key.
 - The name prompt of a generated theme shows above the theme window. It was hidden under it.
+- The editor shows up to six panes. Layouts: single, 2 or 3 columns, 2 rows, main + stack, 2x2 and 3x2 grids. The dividers resize, a double click evens them.
+- View > "Pane Layout..." picks a layout, `ctrl+f1` steps through them, `f1` toggles one pane and the last layout.
+- `ctrl+1` … `ctrl+6` focus a pane, `f6` / `shift+f6` the next or previous one. `ctrl+shift+1` … `ctrl+shift+6` show the active file in that pane.
+- Quick open: `ctrl+enter` opens the file to the side, `shift+enter` asks for the pane (press its number or click it).
+- Explorer: `alt+click` and `ctrl+enter` open to the side, `shift+enter` and the "Open in Pane..." menu entry ask for the pane.
+- A tab or explorer rows dragged onto a pane open there. Each tab shows the numbers of the panes it is in.
+- `pane_layout` setting (Settings > Windows): the layout a folder opens with, or `"remember"` for its saved one.
+- A file reloaded after a change on disk keeps each pane on the same text again.
 
 # 2026.10.7
 

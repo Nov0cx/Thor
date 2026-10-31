@@ -214,10 +214,13 @@ temp allocator.
 
 Each view is state on `Thor` plus a `thor_*_view` procedure that declares its nodes every frame.
 
-- `Thor` holds no node or widget pointers. `editor` and `editor2` are `editview.Editor` values.
+- `Thor` holds no node or widget pointers. `editors: [MAX_PANES]editview.Editor` are values; the
+  `layout` preset (`thor/panes.odin`) shows the first `thor_pane_count` of them, numbered down each
+  column, then across. A layout change goes through `thor_set_layout`, a file into a given pane
+  through `thor_show_file_in_pane` / `thor_open_file_in_pane`, which grow the layout first.
 - Focus is a node id, so a command cannot assign it. `thor.focus_request` names the pane the next
-  frame focuses; `thor.focus_owner` is the pane the view saw last frame. Pane keys are `"pane0"`,
-  `"pane1"`, `"explorer"`, `"console"`.
+  frame focuses; `thor.focus_owner` is the pane the view saw last frame. Pane keys are `"pane0"` …
+  `"pane5"` (`thor_pane_key`), `"explorer"`, `"console"`.
 - Modal state is a bool on `Thor` (`settings_open`, `git_open`, `find_open`, `palette_open`, …).
 - The theme is pushed once: `thor_push_theme` maps Thor's roles onto Loom's slots and calls
   `ui.set_theme`. Do not add per-node colour setters.
