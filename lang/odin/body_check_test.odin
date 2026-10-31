@@ -691,6 +691,13 @@ main :: proc() {
 	arr = {}, 0
 	g, h, j := two(), 3
 	_, _, _ = g, h, j
+	ps: ^string
+	str: string
+	str = ps[1:], 0
+	mm: map[int]int
+	o1, o2 := mm[1], 0
+	_, _ = o1, o2
+	o1 = mm[1], 0
 	a, b := one()
 	f := two()
 	m, n: int
@@ -710,6 +717,8 @@ main :: proc() {
     expect_errors(t, &res, src, {
         {"k = .A", "Assignment count mismatch '1' = '2'", 0},
         {"arr = {}", "Assignment count mismatch '1' = '2'", 0},
+        {"str = ps", "Assignment count mismatch '1' = '2'", 0},
+        {"o1 = mm", "Assignment count mismatch '1' = '2'", 0},
         {"a, b := one()", "Assignment count mismatch '2' = '1'", 0},
         {"f := two()", "Assignment count mismatch '1' = '2'", 0},
         {"m, n = one()", "Assignment count mismatch '2' = '1'", 0},

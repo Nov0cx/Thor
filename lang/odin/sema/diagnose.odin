@@ -1157,7 +1157,7 @@ where_problem :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node) 
 one_value :: proc(c: ^Checker, file: File_Id, v: odinsyntax.Syntax_Node) -> bool {
     #partial switch v.green.kind {
     case .Literal, .Comp_Lit, .Implicit_Selector, .Binary_Expr, .Ternary_Expr, .Ternary_If_Expr,
-         .Ternary_When_Expr, .Proc_Lit, .Cast_Expr, .Auto_Cast_Expr:
+         .Ternary_When_Expr, .Proc_Lit, .Cast_Expr, .Auto_Cast_Expr, .Slice_Expr:
         return true
     case .Call_Expr:
         ce, _ := odinsyntax.as_call_expr(v)
@@ -1238,8 +1238,13 @@ assign_count :: proc(c: ^Checker, file: File_Id, stmt: odinsyntax.Syntax_Node) -
             values += 1
             continue
         }
+        // An optional value gives one value beside others, one or two alone.
         if op.optional {
-            return
+            if len(nodes) == 1 {
+                return
+            }
+            values += 1
+            continue
         }
         _, is_tuple := type_get(&c.table, op.type).(Tuple_Type)
         if is_tuple && len(nodes) > 1 {
