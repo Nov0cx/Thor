@@ -2112,9 +2112,13 @@ not a status, so this section stays the source of truth for what is built.
     from the tree into a small expression when the item tree is built, so the
     tree stays target-independent; `guard_state` evaluates it to true, false or
     unknown. It reads `ODIN_OS`/`ODIN_ARCH` (and their `_STRING` forms),
-    `ODIN_DEBUG`, `ODIN_ENDIAN`, `ODIN_WORD_SIZE`, the other build flags,
-    `#config`, `#defined`, `size_of` of basic types, `!`, `&&`, `||`,
-    comparisons and `in`/`not_in` over `{.A, .B}`. Unknown counts as active.
+    `ODIN_DEBUG`, `ODIN_ENDIAN`, the other build flags, `#config`,
+    `#defined`, `size_of` of basic types,
+    `intrinsics.has_target_feature("f")` (amd64 on Windows and Linux: the
+    compiler's default x86-64-v2 features; unknown elsewhere), `!`, `&&`,
+    `||`, comparisons and `in`/`not_in` over `{.A, .B}`. Unknown counts as
+    active. Only the `ODIN_` constants the compiler declares resolve
+    (`ODIN_CONSTANTS`, `sema/check.odin`); `ODIN_WORD_SIZE` is not one.
     `ODIN_TEST` is unknown unless a define sets it. Package constants
     (`when LIB != ""`) stay unknown until names resolve. 1225 of 1257 guards
     in `core:os` and `core:sys` give a known answer.
@@ -2420,8 +2424,13 @@ not a status, so this section stays the source of truth for what is built.
     undeclared by the semantic tokens' test, made strict for a buffer in the
     build (`semantic_classify(strict = true)`): a declaration out of the build
     or under a false `when` does not count, and a name in a branch the target
-    may not take is not reported. Over `lang/odin/sema`, `editview` and `thor`
-    there is none.
+    may not take is not reported. Neither is a redeclared local or an
+    `alias.name` anywhere in such a branch, nested blocks included: the
+    compiler checks only the branch it takes. An enum member value may name
+    another member (`B = A`). `intrinsics.name` is checked against the
+    listing of `base:intrinsics`, whose one file is out of every build. A
+    range `for` with an init statement (`for x := 1; k in m`) scopes the init
+    into the loop. Over every package of the repository there is none.
   - **Live body errors** (`lang/odin/body_check.odin`, `sema/diagnose.odin`):
     when the names of the buffer resolve, one walk of its tree outside the
     `when` branches the target may not take reports what the checker can
@@ -2467,10 +2476,28 @@ not a status, so this section stays the source of truth for what is built.
     one or two values stays silent). An import whose package imports the
     buffer's package back, through any packages outside `base`, `core` and
     `vendor` (`sema/cycle.odin`, `import_cycles`: one walk per request, at
-    most 512 packages). Over the ten packages `test_live_clean_sources` reads
-    there is none. Not yet: an ambiguous group call, float truncation and
-    overflow, constant arithmetic of typed constants, and a call with no value
-    used as a value.
+    most 512 packages). A base:builtin procedure (found by its declaration,
+    bare or as `builtin.name`) with the wrong argument count, `min`/`max` with
+    one value or with a type and more, and a conversion `T()` or `T(a, b)`
+    (`arity_problem`). An untyped string or bool constant that `x op= v` or a
+    shift cannot take (`op_assign_mismatches`). A string argument of
+    `min`/`max`/`clamp` against the type of the first typed one, and a bool
+    one (`min_max_mismatches`, `min_max_order_problem`). A constant or typed
+    conversion the compiler refuses: a string to a number, bool, rune, enum or
+    cstring, a cstring to a number, a number or bool to a string
+    (`conversion_problem`). `x.y` on an `any` that is not `data` or `id`. An
+    argument of a polymorphic procedure past its last `$` parameter, typed
+    with the names the arguments bind (`generic_params`; a binding from an
+    untyped argument keeps it silent). A group call whose polymorphic members
+    no argument fits; a member with an empty variadic of a `$` element type is
+    never picked from a group of several, as the compiler does (`append(&a)`).
+    An assignment count counts a literal, `.Member`, an operator, a slice and
+    a builtin or conversion call as one value, and every value but a call as
+    one beside others. Over every package of the repository
+    `test_live_clean_sources` finds none. Not yet: an error inside a
+    polymorphic body for one instance, an ambiguous group call, float
+    truncation and overflow, constant arithmetic of typed constants, and a
+    call with no value used as a value.
   - **Diagnostic ids** (`lang/odin/ignore.odin`): every live diagnostic
     carries a `lang.Diagnostic.code` (`syntax/error`, `name/redeclared`,
     `name/undeclared`, `name/private`, `import/unresolved`, `call/arity`,
