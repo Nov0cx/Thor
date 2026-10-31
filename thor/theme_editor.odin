@@ -307,7 +307,7 @@ theme_editor_header :: proc(thor: ^Thor) {
     thor_icon_label(thor, "palette", thor.theme.accent_color, key = "logo")
     ui.label("Theme", {key = "title", props = {color = thor.theme.foreground, text_wrap = .None}})
 
-    switcher := ui.scope(
+    switcher := ui.begin(
         {
             key = "switch",
             flags = {.Clickable},
@@ -351,7 +351,7 @@ theme_editor_header :: proc(thor: ^Thor) {
     }
     ui.label(state, {key = "state", props = {w = ui.Grow(1), color = thor.theme.muted_color, text_wrap = .Ellipsis}})
 
-    close := ui.scope(
+    close := ui.begin(
         {
             key = "close",
             flags = {.Clickable},
@@ -433,7 +433,7 @@ theme_editor_toolbar :: proc(thor: ^Thor) {
 // A tab of the toolbar; true when clicked.
 @(private = "file")
 theme_tab :: proc(thor: ^Thor, key, label: string, active: bool) -> bool {
-    it := ui.scope(
+    it := ui.begin(
         {
             key = key,
             flags = {.Clickable},
@@ -470,7 +470,7 @@ theme_button :: proc(
     if !enabled {
         fg = thor.theme.disabled
     }
-    it := ui.scope(
+    it := ui.begin(
         {
             key = key,
             flags = enabled ? {.Clickable} : {},
@@ -586,7 +586,7 @@ theme_editor_colors :: proc(thor: ^Thor) {
 theme_group_row :: proc(thor: ^Thor, group: theme.Color_Group, count, changed: int, filtering: bool) {
     e := &thor.theme_editor
     open := filtering || !e.collapsed[group]
-    it := ui.scope(
+    it := ui.begin(
         {
             key = "group",
             flags = {.Clickable},
@@ -626,7 +626,7 @@ theme_color_row :: proc(thor: ^Thor, index: int) {
     changed := !e.generated && color != saved
     selected := e.selected == index
 
-    it := ui.scope(
+    it := ui.begin(
         {
             key = "row",
             flags = {.Clickable},
@@ -663,7 +663,7 @@ theme_color_row :: proc(thor: ^Thor, index: int) {
     }
     ui.label(theme.to_hex(color), {key = "hex", props = {w = ui.Px(86), color = thor.theme.muted_color, text_wrap = .None}})
     if changed {
-        reset := ui.scope(
+        reset := ui.begin(
             {
                 key = "reset",
                 flags = {.Clickable},
@@ -778,7 +778,7 @@ theme_editor_generate :: proc(thor: ^Thor) {
 // A generator seed: swatch, name and hex. True when clicked.
 @(private = "file")
 theme_seed_row :: proc(thor: ^Thor, key, label: string, color: ui.Color) -> bool {
-    it := ui.scope(
+    it := ui.begin(
         {
             key = key,
             flags = {.Clickable},
@@ -891,7 +891,7 @@ theme_preview :: proc(thor: ^Thor, p: ^theme.Theme) {
 
     // Tab strip.
     {
-        strip := ui.scope({key = "tabs", flags = {.Clickable}, props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, bg = p.second_background, radius = {8, 8, 0, 0}}})
+        strip := ui.begin({key = "tabs", flags = {.Clickable}, props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, bg = p.second_background, radius = {8, 8, 0, 0}}})
         if preview_part(thor, "tab-active", "main.odin", p.foreground, p.background, "background") {}
         if preview_part(thor, "tab-other", "util.odin", p.muted_color, p.buttons, "buttons") {}
         ui.end()
@@ -902,11 +902,11 @@ theme_preview :: proc(thor: ^Thor, p: ^theme.Theme) {
 
     // Code.
     {
-        code := ui.scope({key = "code", flags = {.Clickable}, props = {w = ui.Grow(1), h = ui.FIT, dir = .Column, pad = ui.xy(0, 6), bg = p.background}})
+        code := ui.begin({key = "code", flags = {.Clickable}, props = {w = ui.Grow(1), h = ui.FIT, dir = .Column, pad = ui.xy(0, 6), bg = p.background}})
         for line, n in PREVIEW_CODE {
             ui.push_id_int(i64(n))
             current := n == PREVIEW_CURRENT_LINE
-            row := ui.scope(
+            row := ui.begin(
                 {
                     key = "line",
                     flags = current ? {.Clickable} : {},
@@ -937,7 +937,7 @@ theme_preview :: proc(thor: ^Thor, p: ^theme.Theme) {
 
     // File tree.
     {
-        tree := ui.scope(
+        tree := ui.begin(
             {
                 key = "tree",
                 flags = {.Clickable},
