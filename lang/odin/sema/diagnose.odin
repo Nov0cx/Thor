@@ -766,6 +766,120 @@ cast_refused :: proc(c: ^Checker, to, from: Type_Id) -> bool {
     return false
 }
 
+// The string constant arguments of `min`, `max` or `clamp` that the numeric type of its first typed
+// argument cannot take. The list is in `allocator`.
+min_max_mismatches :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node, allocator := context.allocator) -> []Type_Problem {
+    ce, is_call := odinsyntax.as_call_expr(call)
+    if !is_call {
+        return nil
+    }
+    callee, has_callee := odinsyntax.call_expr_callee(&ce)
+    list, has_list := odinsyntax.call_expr_args(&ce)
+    if !has_callee || !has_list || callee.green.kind != .Ident {
+        return nil
+    }
+    switch odinsyntax.node_text(callee) {
+    case "min", "max", "clamp":
+    case:
+        return nil
+    }
+    if expr_type(c, file, callee).mode != .Builtin {
+        return nil
+    }
+    temp := scratch_begin(c)
+    defer scratch_end(temp)
+    args := make([dynamic]odinsyntax.Syntax_Node, c.tmp)
+    to := INVALID_TYPE
+    it := odinsyntax.arg_list_args(&list)
+    for arg in odinsyntax.child_iter_next(&it) {
+        if arg.green.kind == .Field_Value || arg.green.kind == .Spread_Expr {
+            return nil
+        }
+        if _, err := append(&args, arg); !note_alloc(c, err) {
+            return nil
+        }
+        op := expr_type(c, file, arg)
+        if op.mode == .Type {
+            return nil
+        }
+        if to == INVALID_TYPE && op.mode == .Value && op.type != INVALID_TYPE && !type_is_untyped(&c.table, op.type) {
+            to = op.type
+        }
+    }
+    if to == INVALID_TYPE || !type_is_numeric(&c.table, to) {
+        return nil
+    }
+    out := make([dynamic]Type_Problem, allocator)
+    for arg in args {
+        op := expr_type(c, file, arg, to)
+        u, is_untyped := type_get(&c.table, op.type).(Untyped_Type)
+        if op.mode == .Const && is_untyped && u.kind == .String {
+            append(&out, Type_Problem{arg, op, to, false})
+        }
+    }
+    return out[:]
+}
+
+// A boolean argument of `min`, `max` or `clamp`, which take ordered types only. `offset` is where the
+// compiler reports it: the argument, or the call for the first argument and for `clamp`.
+Order_Problem :: struct {
+    offset: int,
+    name:   string,  // the builtin; borrows the parse
+    type:   Type_Id, // the type of the argument
+}
+
+min_max_order_problem :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node) -> (Order_Problem, bool) {
+    ce, is_call := odinsyntax.as_call_expr(call)
+    if !is_call {
+        return {}, false
+    }
+    callee, has_callee := odinsyntax.call_expr_callee(&ce)
+    list, has_list := odinsyntax.call_expr_args(&ce)
+    if !has_callee || !has_list || callee.green.kind != .Ident {
+        return {}, false
+    }
+    name := odinsyntax.node_text(callee)
+    switch name {
+    case "min", "max", "clamp":
+    case:
+        return {}, false
+    }
+    if expr_type(c, file, callee).mode != .Builtin {
+        return {}, false
+    }
+    i := 0
+    it := odinsyntax.arg_list_args(&list)
+    for arg in odinsyntax.child_iter_next(&it) {
+        if arg.green.kind == .Field_Value || arg.green.kind == .Spread_Expr {
+            return {}, false
+        }
+        op := expr_type(c, file, arg)
+        if (op.mode == .Value || op.mode == .Const) && type_is_boolean(c, op.type) {
+            offset := int(arg.offset)
+            if i == 0 || name == "clamp" {
+                offset = int(call.offset)
+            }
+            return {offset, name, op.type}, true
+        }
+        i += 1
+    }
+    return {}, false
+}
+
+@(private = "file")
+type_is_boolean :: proc(c: ^Checker, t: Type_Id) -> bool {
+    #partial switch v in type_get(&c.table, type_base(&c.table, t)) {
+    case Untyped_Type:
+        return v.kind == .Bool
+    case Basic_Type:
+        #partial switch v.kind {
+        case .Bool, .B8, .B16, .B32, .B64:
+            return true
+        }
+    }
+    return false
+}
+
 // The arguments of `call` that its one procedure cannot take. Nil for the calls call_problem leaves
 // out, and for polymorphic procedures and C variadic parameters. The list is in `allocator`.
 argument_mismatches :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node, allocator := context.allocator) -> []Type_Problem {

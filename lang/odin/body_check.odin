@@ -36,6 +36,8 @@ walk_body :: proc(rc: ^Request_Context, c: ^odinsema.Checker, whens: []Branch, n
         where_errors(rc, c, n, report)
         assert_errors(rc, c, n, report)
         mismatch_errors(rc, c, odinsema.argument_mismatches(c, rc.live.id, n, context.temp_allocator), "a procedure argument", report)
+        order_errors(rc, c, n, report)
+        mismatch_errors(rc, c, odinsema.min_max_mismatches(c, rc.live.id, n, context.temp_allocator), "a procedure argument", report)
     case .Selector_Expr:
         member_errors(rc, c, n, report)
     case .Assign_Stmt:
@@ -108,6 +110,18 @@ arity_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, call: odinsynta
         type := odinsema.type_string(&c.table, p.type, context.temp_allocator)
         report_error(rc, report, p.offset, CODE_ARITY, fmt.aprintf("Too many arguments in conversion to '%s'", type))
     }
+}
+
+// Reports a boolean argument of `min`, `max` or `clamp`.
+@(private = "file")
+order_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, call: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
+    p, ok := odinsema.min_max_order_problem(c, rc.live.id, call)
+    if !ok {
+        return
+    }
+    type := odinsema.type_string(&c.table, p.type, context.temp_allocator)
+    kinds := "ordered numeric or string" if p.name == "clamp" else "ordered numeric"
+    report_error(rc, report, p.offset, CODE_MISMATCH, fmt.aprintf("Expected an %s type to '%s', got '%s'", kinds, p.name, type))
 }
 
 // Reports a call of a procedure group that no member takes.

@@ -243,6 +243,12 @@ main :: proc() {
 	when ODIN_OS == .Linux {
 		take(s, s)
 	}
+	_ = max(i, "zq")
+	_ = clamp(i, true, 3)
+	_ = max(i, true)
+	_ = min(true, i)
+	_ = min(1, 2)
+	_ = max(i, 2)
 }
 `
     res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
@@ -253,6 +259,10 @@ main :: proc() {
         {"nil)", "Cannot convert untyped value 'nil' to 'string' from 'untyped nil'", 0},
         {"s)\n\twant_i", "Cannot assign value 's' of type 'string' to 'int' in a procedure argument", 0},
         {"i)\n\twant_i(3)", "Cannot assign value 'i' of type 'int' to 'I' in a procedure argument", 0},
+        {"\"zq\"", "Cannot convert '\"zq\"' to 'int' from 'untyped string', got \"zq\"", 0},
+        {"clamp(i, true", "Expected an ordered numeric or string type to 'clamp', got 'untyped bool'", 0},
+        {"true)", "Expected an ordered numeric type to 'max', got 'untyped bool'", 0},
+        {"min(true", "Expected an ordered numeric type to 'min', got 'untyped bool'", 0},
     })
     for d in res.report.items {
         testing.expect_value(t, d.code, CODE_MISMATCH)
