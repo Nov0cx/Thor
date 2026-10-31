@@ -113,6 +113,10 @@ be tested headlessly.
 - `atomicfile` — `atomicfile.write` replaces a file through a temp file beside it and a rename, so a
   crash mid-write leaves the old file whole. Every write that overwrites user or session data goes
   through it. A leaf: imports only `core:`.
+- `lockfree` — the lock-free hand-offs between threads: `Stack` (intrusive multi-producer stack, the
+  consumer takes every node at once, oldest first; `T` holds `queue_next: ^T`), `Byte_Ring`
+  (single-producer byte ring, a full producer waits on `ring_wait_space`) and `Mpmc` (bounded
+  Vyukov ring). A leaf: imports only `core:` and `base:`.
 - `luaconf` — config files are Lua. `eval_file` runs one in a fresh sandboxed Lua state (string,
   table, math, utf8, a trimmed base library, a read-only `thor` table with `os`/`arch`/`env`; a
   time and a memory budget) and returns the table as a `core:encoding/json` Value tree, so a loader
@@ -157,7 +161,7 @@ be tested headlessly.
 - `plugin` — the Lua 5.4 VM, the language registry plugins fill at load, and the mapping from
   tree-sitter captures to theme *roles*.
 - `lang` + `lang/odin` + `lang/lsp` — language intelligence (see below). `lang/lsp` may import only
-  `core:*`, `base:runtime`, `lang`, `luaconf`, `shell` and `treecache` (for `source_edit`, the byte diff an
+  `core:*`, `base:runtime`, `lang`, `lockfree`, `luaconf`, `shell` and `treecache` (for `source_edit`, the byte diff an
   incremental `didChange` needs) — never `setting`, which imports `lang`.
   `lang/odin/syntax` (package `odinsyntax`, not `syntax`, which is taken) is the next engine's
   front end (`odin-analyzer-plan.md`): the lexer, the error-resilient parser (`parse`) and the
@@ -353,10 +357,11 @@ the JSON-RPC parser permanently, and a server has no use for a terminal.
 ## Async work
 
 There is one pattern for all off-thread work and it is worth matching exactly: a worker thread does
-its job, then appends the job struct to a `[dynamic]^Job` on `Thor` under `io_mutex`; the main thread
-drains that queue once per frame and applies the result. File loads/saves (`thor/files.odin`),
-terminal output, git status and the whole `lang` seam all use it. Workers never touch UI state and
-never allocate from the main allocator without care.
+its job, then pushes the job struct onto a `lockfree.Stack(X_Job)` on `Thor` (`finished_*`; the job
+holds `queue_next`); the main thread takes each stack once per frame and applies the result. No lock
+is on that path. File loads/saves (`thor/files.odin`), git status, the watcher and the whole `lang`
+seam use it; terminal output goes through a `lockfree.Byte_Ring` per terminal. Workers never touch
+UI state and never allocate from the main allocator without care.
 
 `Backend.poll` is the one exception: an LSP server can volunteer a result (pushed diagnostics)
 between requests, so a backend owns its own push queue and `manager_dispatch` pulls from it once a
