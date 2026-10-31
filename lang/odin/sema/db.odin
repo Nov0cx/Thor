@@ -80,10 +80,10 @@ Db :: struct {
     stable_interval: i64, // nanoseconds; see STABLE_INTERVAL
     workspace_interval: i64, // nanoseconds; 0 checks once per snapshot. See WORKSPACE_INTERVAL
     cache:           Tree_Cache,
-    lock:            sync.RW_Mutex, // guards the intern maps, the slot arrays and `configs`
-    files:           [dynamic]^File_Slot,        // owned
+    lock:            sync.RW_Mutex, // guards the intern maps, `configs` and appends to the slot tables
+    files:           Slot_Table(File_Slot),      // owned; read with no lock
     file_ids:        map[string]File_Id,         // owned; keys borrowed from the slots
-    packages:        [dynamic]^Package_Slot,     // owned
+    packages:        Slot_Table(Package_Slot),   // owned; read with no lock
     package_ids:     map[string]Package_Id,      // owned; keys borrowed from the slots
     configs:         map[string]u32,             // owned, keys included
     workspace:       Workspace_Slot,
@@ -275,8 +275,6 @@ db_init :: proc(db: ^Db, read: Read_Proc, allocator := context.allocator) {
     db.file_ids = make(map[string]File_Id, allocator)
     db.package_ids = make(map[string]Package_Id, allocator)
     db.configs = make(map[string]u32, allocator)
-    db.files = make([dynamic]^File_Slot, allocator)
-    db.packages = make([dynamic]^Package_Slot, allocator)
     for l in ([]^Lru{&db.bodies, &db.lives, &db.scopes, &db.loose}) {
         lru_init(l, allocator)
     }
@@ -284,7 +282,8 @@ db_init :: proc(db: ^Db, read: Read_Proc, allocator := context.allocator) {
 
 // Frees every memo. No snapshot may be open.
 db_destroy :: proc(db: ^Db) {
-    for slot in db.files {
+    for id in 0 ..< slot_count(&db.files) {
+        slot := slot_get(&db.files, id)
         file_slot_drop_disk(db, slot)
         file_slot_drop_live(db, slot)
         delete(slot.path, db.allocator)
@@ -292,7 +291,8 @@ db_destroy :: proc(db: ^Db) {
         delete(slot.dir_key, db.allocator)
         free(slot, db.allocator)
     }
-    for slot in db.packages {
+    for id in 0 ..< slot_count(&db.packages) {
+        slot := slot_get(&db.packages, id)
         if slot.memo != nil {
             value_release(db, slot.memo)
         }
@@ -311,8 +311,8 @@ db_destroy :: proc(db: ^Db) {
         delete(key, db.allocator)
     }
     delete(db.configs)
-    delete(db.files)
-    delete(db.packages)
+    slot_table_destroy(&db.files, db.allocator)
+    slot_table_destroy(&db.packages, db.allocator)
     delete(db.file_ids)
     delete(db.package_ids)
     for l in ([]^Lru{&db.bodies, &db.lives, &db.scopes, &db.loose}) {
@@ -432,20 +432,12 @@ db_file_key :: proc(snap: ^Snapshot, id: File_Id) -> string {
 
 @(private)
 file_slot :: proc(db: ^Db, id: File_Id) -> ^File_Slot {
-    sync.shared_guard(&db.lock)
-    if int(id) >= len(db.files) {
-        return nil
-    }
-    return db.files[id]
+    return slot_get(&db.files, u32(id))
 }
 
 @(private)
 package_slot :: proc(db: ^Db, id: Package_Id) -> ^Package_Slot {
-    sync.shared_guard(&db.lock)
-    if int(id) >= len(db.packages) {
-        return nil
-    }
-    return db.packages[id]
+    return slot_get(&db.packages, u32(id))
 }
 
 @(private)
@@ -467,7 +459,7 @@ file_intern :: proc(db: ^Db, path: string) -> File_Id {
     if err != nil {
         return NO_FILE
     }
-    slot.id = File_Id(len(db.files))
+    slot.id = File_Id(slot_count(&db.files))
     slot.path, _ = strings.clone(path, db.allocator)
     slot.key, _ = strings.clone(key, db.allocator)
     slot.dir_key, _ = strings.clone(dir_key, db.allocator)
@@ -475,12 +467,12 @@ file_intern :: proc(db: ^Db, path: string) -> File_Id {
         file_slot_free_strings(db, slot)
         return NO_FILE
     }
-    if _, aerr := append(&db.files, slot); aerr != nil {
+    if _, _, _, merr := map_entry(&db.file_ids, slot.key); merr != nil {
         file_slot_free_strings(db, slot)
         return NO_FILE
     }
-    if _, _, _, merr := map_entry(&db.file_ids, slot.key); merr != nil {
-        pop(&db.files)
+    if _, ok := slot_append(&db.files, slot, db.allocator); !ok {
+        delete_key(&db.file_ids, slot.key)
         file_slot_free_strings(db, slot)
         return NO_FILE
     }
@@ -513,17 +505,17 @@ package_intern :: proc(db: ^Db, dir: string) -> Package_Id {
     if err != nil {
         return NO_PACKAGE
     }
-    slot.id = Package_Id(len(db.packages))
+    slot.id = Package_Id(slot_count(&db.packages))
     slot.dir, _ = strings.clone(dir, db.allocator)
     slot.key, _ = strings.clone(key, db.allocator)
     ok := slot.dir != "" && slot.key != ""
     if ok {
-        _, aerr := append(&db.packages, slot)
-        ok = aerr == nil
+        _, _, _, merr := map_entry(&db.package_ids, slot.key)
+        ok = merr == nil
     }
     if ok {
-        if _, _, _, merr := map_entry(&db.package_ids, slot.key); merr != nil {
-            pop(&db.packages)
+        if _, appended := slot_append(&db.packages, slot, db.allocator); !appended {
+            delete_key(&db.package_ids, slot.key)
             ok = false
         }
     }
@@ -598,10 +590,10 @@ db_touch :: proc(db: ^Db, path: string) {
     {
         sync.shared_guard(&db.lock)
         if id, ok := db.file_ids[key]; ok {
-            file = db.files[id]
+            file = file_slot(db, id)
         }
         if id, ok := db.package_ids[dir_key]; ok {
-            pkg = db.packages[id]
+            pkg = package_slot(db, id)
         }
     }
     if pkg != nil {

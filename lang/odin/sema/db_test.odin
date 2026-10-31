@@ -482,7 +482,7 @@ test_db_cancel :: proc(t: ^testing.T) {
     testing.expect(t, db_package(&snap, pkg) == nil)
     testing.expect(t, db_workspace(&snap, dir) == nil)
     snapshot_end(&snap)
-    testing.expect(t, db.packages[pkg].memo != nil, "a cancelled request must keep the old memo")
+    testing.expect(t, package_slot(&db, pkg).memo != nil, "a cancelled request must keep the old memo")
     testing.expect_value(t, len(db.workspace.files), 1)
     testing.expect_value(t, stats_of(&db).scopes, 1)
 
@@ -569,12 +569,12 @@ test_db_body_budget :: proc(t: ^testing.T) {
     aid := db_file_id(&snap, a)
     bid := db_file_id(&snap, b)
     testing.expect(t, db_file(&snap, bid) != nil)
-    testing.expect(t, db.files[bid].body == nil, "an unpinned parse past the budget must be freed")
-    testing.expect(t, db.files[bid].disk != nil, "the declarations stay")
+    testing.expect(t, file_slot(&db, bid).body == nil, "an unpinned parse past the budget must be freed")
+    testing.expect(t, file_slot(&db, bid).disk != nil, "the declarations stay")
 
     held := db_parse(&snap, aid)
     testing.expect(t, held != nil)
-    testing.expect(t, db.files[aid].body == nil, "the database must drop its own reference")
+    testing.expect(t, file_slot(&db, aid).body == nil, "the database must drop its own reference")
     testing.expect(t, held != nil && held.tree.text == "package p\n\nrun :: proc() {}\n", "a pinned parse lives until snapshot_end")
     snapshot_end(&snap)
 
@@ -619,7 +619,7 @@ test_db_workspace_walk :: proc(t: ^testing.T) {
     }
     testing.expect(t, len(files) == 3 && db_file_path(&snap, files[0]) < db_file_path(&snap, files[1]), "the files must be sorted")
     for id in files {
-        testing.expect_value(t, sync.atomic_load(&db.files[id].holders), 1)
+        testing.expect_value(t, sync.atomic_load(&file_slot(&db, id).holders), 1)
     }
     snapshot_end(&snap)
 
@@ -679,13 +679,13 @@ test_db_parse_release :: proc(t: ^testing.T) {
     testing.expect(t, first.tree.text == "package p\n\nrun :: proc() {}\n", "the other pin keeps the parse")
     db_parse_release(&snap, first)
     testing.expect_value(t, body_pins(&snap), 0)
-    testing.expect(t, db.files[aid].body != nil, "a parse in the budget stays cached")
+    testing.expect(t, file_slot(&db, aid).body != nil, "a parse in the budget stays cached")
     db_parse_release(&snap, first)
-    testing.expect(t, db.files[aid].body != nil && db.files[aid].body.refs == 1, "a second release is a no-op")
+    testing.expect(t, file_slot(&db, aid).body != nil && file_slot(&db, aid).body.refs == 1, "a second release is a no-op")
 
     db.body_budget = 1
     held := db_parse(&snap, aid)
-    testing.expect(t, held != nil && db.files[aid].body == nil, "past the budget only the pin holds the parse")
+    testing.expect(t, held != nil && file_slot(&db, aid).body == nil, "past the budget only the pin holds the parse")
     testing.expect_value(t, body_pins(&snap), 1)
     db_parse_release(&snap, held)
     testing.expect_value(t, body_pins(&snap), 0)
@@ -753,4 +753,59 @@ test_db_workspace_throttle :: proc(t: ^testing.T) {
     stats = sync.atomic_load(&db.stats.stats)
     look(t, &db, dir)
     testing.expect(t, sync.atomic_load(&db.stats.stats) > stats)
+}
+
+@(private = "file")
+INTERN_THREADS :: 8
+
+@(private = "file")
+INTERN_PER_THREAD :: 600
+
+@(private = "file")
+Intern_Run :: struct {
+    db:     ^Db,
+    worker: int,
+    bad:    int, // atomic
+}
+
+// Workers intern paths while every slot already published is read with no lock.
+@(test)
+test_db_slots_grow_under_readers :: proc(t: ^testing.T) {
+    db: Db
+    db_init(&db, read_plain)
+    defer db_destroy(&db)
+
+    runs: [INTERN_THREADS]Intern_Run
+    threads: [INTERN_THREADS]^thread.Thread
+    for i in 0 ..< INTERN_THREADS {
+        runs[i] = {db = &db, worker = i}
+        threads[i] = thread.create_and_start_with_poly_data(&runs[i], proc(run: ^Intern_Run) {
+            for n in 0 ..< INTERN_PER_THREAD {
+                id := file_intern(run.db, fmt.tprintf("w%d/f%d.odin", run.worker, n))
+                if id == NO_FILE {
+                    sync.atomic_add(&run.bad, 1)
+                    continue
+                }
+                count := slot_count(&run.db.files)
+                for other in 0 ..< count {
+                    slot := file_slot(run.db, File_Id(other))
+                    if slot == nil || slot.id != File_Id(other) {
+                        sync.atomic_add(&run.bad, 1)
+                    }
+                }
+            }
+            free_all(context.temp_allocator)
+        })
+    }
+    for th in threads {
+        thread.join(th)
+        thread.destroy(th)
+    }
+    bad := 0
+    for &run in runs {
+        bad += sync.atomic_load(&run.bad)
+    }
+    testing.expect_value(t, bad, 0)
+    testing.expect_value(t, int(slot_count(&db.files)), INTERN_THREADS * INTERN_PER_THREAD)
+    testing.expect(t, file_slot(&db, File_Id(INTERN_THREADS * INTERN_PER_THREAD)) == nil, "an id past the end has no slot")
 }
