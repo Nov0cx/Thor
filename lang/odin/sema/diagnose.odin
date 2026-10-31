@@ -1004,9 +1004,11 @@ argument_mismatches :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_
         return nil
     }
     p, is_proc := type_get(&c.table, type_base(&c.table, fn.type)).(Proc_Type)
-    if !is_proc || intrinsic_proc(c, p) {
+    if !is_proc {
         return nil
     }
+    // An intrinsic takes more than its signature says; only a string or bool constant for a number is wrong.
+    intrinsic := intrinsic_proc(c, p)
     temp := scratch_begin(c)
     defer scratch_end(temp)
     args := call_args(c, file, odinsyntax.Syntax_Node(list), {})
@@ -1052,6 +1054,12 @@ argument_mismatches :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_
             continue
         }
         op := expr_type(c, file, a.node, to)
+        if intrinsic {
+            u, untyped := type_get(&c.table, op.type).(Untyped_Type)
+            if !untyped || u.kind != .String && u.kind != .Bool || !type_is_numeric(&c.table, to) {
+                continue
+            }
+        }
         if assignable(c, to, op, .Any_Int in param.flags) == .No {
             append(&out, Type_Problem{a.node, op, to, false})
         } else if const_overflows(c, to, op) {

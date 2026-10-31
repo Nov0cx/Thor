@@ -1135,3 +1135,38 @@ f :: proc(c: bool, s: string) {
         {"max(u32, 0)", "If 'max' gets a type, only 1 arguments is allowed, got 2", 0},
     })
 }
+
+// An intrinsic takes no string or bool constant for a number, and takes anything else its signature does not name.
+@(test)
+test_live_intrinsic_arguments :: proc(t: ^testing.T) {
+    root := fixture(t, "live_intrinsic_arguments", {{"app/a.odin", "package app\n"}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+import "base:intrinsics"
+import "core:sync"
+
+Futex :: distinct u32
+
+f :: proc(n: u16) {
+	tail: uint
+	space: Futex
+	sync.atomic_store(&tail, "zq")
+	sync.atomic_add_explicit(&space, "zq", .Release)
+	sync.atomic_store(&tail, 1)
+	sync.atomic_add_explicit(&space, 1, .Release)
+	p := intrinsics.alloca(n, true)
+	q := intrinsics.alloca(n, 8)
+	_, _ = p, q
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {`"zq"`, `Cannot convert '"zq"' to 'uint' from 'untyped string', got "zq"`, 0},
+        {`"zq"`, `Cannot convert '"zq"' to 'Futex' from 'untyped string', got "zq"`, 1},
+        {"true", "Cannot convert 'true' to 'int' from 'untyped bool', got true", 0},
+    })
+}
