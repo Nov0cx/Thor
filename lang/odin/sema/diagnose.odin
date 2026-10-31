@@ -881,7 +881,8 @@ type_is_boolean :: proc(c: ^Checker, t: Type_Id) -> bool {
 }
 
 // The arguments of `call` that its one procedure cannot take. Nil for the calls call_problem leaves
-// out, and for polymorphic procedures and C variadic parameters. The list is in `allocator`.
+// out and for C variadic parameters; of a polymorphic procedure only the parameters that declare no
+// `$` name count, typed with the names the others bind. The list is in `allocator`.
 argument_mismatches :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node, allocator := context.allocator) -> []Type_Problem {
     ce, is_call := odinsyntax.as_call_expr(call)
     if !is_call {
@@ -900,7 +901,7 @@ argument_mismatches :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_
         return nil
     }
     p, is_proc := type_get(&c.table, type_base(&c.table, fn.type)).(Proc_Type)
-    if !is_proc || p.generic {
+    if !is_proc {
         return nil
     }
     temp := scratch_begin(c)
@@ -923,19 +924,30 @@ argument_mismatches :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_
     if miss.kind != .None {
         return nil
     }
+    params := p.params
+    declares: []bool // a polymorphic procedure: the parameters up to the last that declares a `$` name
+    if p.generic {
+        params, declares = generic_params(c, p, with, slots)
+        if params == nil {
+            return nil
+        }
+    }
     out := make([dynamic]Type_Problem, allocator)
     for a, i in with {
         if i < first || a.spread || a.node.green == nil {
             continue
         }
-        param := p.params[slots[i]]
-        if .C_Vararg in param.flags {
+        param := params[slots[i]]
+        if .C_Vararg in param.flags || declares != nil && declares[slots[i]] {
             continue
         }
         if builtin_call(c, file, a.node) {
             continue
         }
         to := param.type
+        if p.generic && (to == INVALID_TYPE || has_poly(c, to, 0)) {
+            continue
+        }
         op := expr_type(c, file, a.node, to)
         if assignable(c, to, op, .Any_Int in param.flags) == .No {
             append(&out, Type_Problem{a.node, op, to, false})
@@ -944,6 +956,51 @@ argument_mismatches :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_
         }
     }
     return out[:]
+}
+
+// The parameters of the polymorphic procedure `p` read with the names `with` binds, and for each
+// whether it is left out: it declares a `$` name or comes before one that does. Nil when a binding cannot be read or comes from an untyped
+// argument, whose default type the compiler may not take.
+@(private = "file")
+generic_params :: proc(c: ^Checker, p: Proc_Type, with: []Call_Arg, slots: []int) -> ([]Proc_Param, []bool) {
+    node, ok := node_of_kind(c, p.file, p.offset, .Proc_Type)
+    if !ok {
+        return nil, nil
+    }
+    pt, _ := odinsyntax.as_proc_type(node)
+    list, has_params := odinsyntax.proc_type_params(&pt)
+    if !has_params {
+        return nil, nil
+    }
+    infos := param_infos(c, odinsyntax.Syntax_Node(list))
+    if len(infos) != len(p.params) {
+        return nil, nil
+    }
+    // A parameter before the last `$` declaration may name a type the `$` name shadows only later.
+    declares := make([]bool, len(infos), c.tmp)
+    last := -1
+    for info, k in infos {
+        if info.poly_name || info.has_type && strings.contains_rune(odinsyntax.node_text(info.type), '$') {
+            last = k
+        }
+    }
+    for k in 0 ..= last {
+        declares[k] = true
+    }
+    for a, i in with {
+        if declares[slots[i]] && (a.op.mode != .Value && a.op.mode != .Const && a.op.mode != .Type || type_is_untyped(&c.table, a.op.type)) {
+            return nil, nil
+        }
+    }
+    env, bound := bind_generic(c, p, with, slots)
+    if !bound || len(env) == 0 {
+        return nil, nil
+    }
+    params := bound_params(c, p, env)
+    if params == nil {
+        return nil, nil
+    }
+    return params, declares
 }
 
 // The values of an `=` assignment or a variable declaration with a type that cannot be assigned to

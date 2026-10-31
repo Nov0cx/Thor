@@ -229,6 +229,7 @@ I :: distinct int
 take :: proc(a: int, s: string) {}
 rest :: proc(xs: ..int) {}
 want_i :: proc(d: I) {}
+store :: proc(dst: ^$T, val: T) {}
 
 main :: proc() {
 	s: string
@@ -247,6 +248,9 @@ main :: proc() {
 	_ = clamp(i, true, 3)
 	_ = max(i, true)
 	_ = min(true, i)
+	u: uint
+	store(&u, "zq")
+	store(&u, 3)
 	_ = min(1, 2)
 	_ = max(i, 2)
 }
@@ -263,6 +267,7 @@ main :: proc() {
         {"clamp(i, true", "Expected an ordered numeric or string type to 'clamp', got 'untyped bool'", 0},
         {"true)", "Expected an ordered numeric type to 'max', got 'untyped bool'", 0},
         {"min(true", "Expected an ordered numeric type to 'min', got 'untyped bool'", 0},
+        {"\"zq\")\n\tstore(&u, 3)", "Cannot convert '\"zq\"' to 'uint' from 'untyped string', got \"zq\"", 0},
     })
     for d in res.report.items {
         testing.expect_value(t, d.code, CODE_MISMATCH)
