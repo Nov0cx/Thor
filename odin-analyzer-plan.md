@@ -18,8 +18,11 @@ errors (redeclaration, undeclared, private, unresolved import) and the first bod
 count and names, missing members, non-exhaustive switches, `#assert`, type mismatches in arguments,
 assignments, declarations and returns, group calls no member takes, constant overflow, missing
 returns, `or_return`, false `where` clauses, assignment counts and import cycles), with per-id
-severities in `.thor/odin-analyzer.json`; the M5 corpus bar (seeded-error suite against the
-compiler) is next.
+severities in `.thor/odin-analyzer.json`. The M5 corpus bar is met (`lang/odin/oracle_test.odin`):
+no live error on the 1268 files of the 310 `base`/`core`/`vendor` packages `odin check` accepts,
+and every one of 998 seeded errors (10 mutation kinds) matched to the compiler with no false error. M6 needs no engine switch (§11.6: the
+rebuild lives on its own branch), so it is the merge of this branch; M7 (CFG, Tier 2 vet, quick
+fixes) is next.
 `lang/ROADMAP.md` ("Next engine") tracks the rest. Section 11 lists the
 feature questions whose answers change the plan.
 

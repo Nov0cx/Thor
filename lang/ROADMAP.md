@@ -2493,11 +2493,33 @@ not a status, so this section stays the source of truth for what is built.
     never picked from a group of several, as the compiler does (`append(&a)`).
     An assignment count counts a literal, `.Member`, an operator, a slice and
     a builtin or conversion call as one value, and every value but a call as
-    one beside others. Over every package of the repository
+    one beside others. A string or bool constant for a number parameter of
+    an intrinsic (`sync.atomic_store(&n, "x")`); other intrinsic arguments
+    are not checked. Binding reads a procedure-type parameter
+    (`proc(E) -> $K` binds `K`), a fixed array length (`[3]$E` takes no
+    `[2]f32`), the `#soa` kind and, in a polymorphic body, the
+    specialization of a `$T` argument; a `where` on a `$T` left unbound
+    holds. `$N` in a length or capacity is a constant, and a type-valued
+    intrinsic (`type_field_type`) is a type. Over every package of the repository
     `test_live_clean_sources` finds none. Not yet: an error inside a
     polymorphic body for one instance, an ambiguous group call, float
     truncation and overflow, constant arithmetic of typed constants, and a
     call with no value used as a value.
+  - **Compiler oracle** (`lang/odin/oracle_test.odin`, run with
+    `-define:LIVE_ORACLE=true`; plan §8 M5 bar): `test_oracle_clean_corpus`
+    runs the live check on every file of the 310 `base`/`core`/`vendor`
+    packages that `odin check` accepts and requires no live error (0 over
+    1268 files). Errors in polymorphic bodies that nothing instantiates are
+    listed apart, since the compiler does not check them: the 9 left are
+    real errors of the Odin sources (`IMM4` in `simd/x86/avx.odin`, a
+    missing `intrinsics` import in `darwin/Metal`, two `WebGL` self-calls,
+    `pt_rescale(&tmp)` in `crypto/_weierstrass`). `test_oracle_seeded`
+    seeds one error per site (rename, dropped import, misspelled field,
+    extra or dropped argument, wrong literal, dropped case, return or
+    value, duplicate declaration) into repo and Odin root packages and
+    requires each one the compiler reports to be matched on its line, with
+    no false error. Reports land in `bin/test/oracle_corpus.txt` and
+    `bin/test/oracle_seeded.txt`.
   - **Diagnostic ids** (`lang/odin/ignore.odin`): every live diagnostic
     carries a `lang.Diagnostic.code` (`syntax/error`, `name/redeclared`,
     `name/undeclared`, `name/private`, `import/unresolved`, `call/arity`,
