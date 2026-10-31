@@ -339,6 +339,9 @@ member_problem :: proc(c: ^Checker, file: File_Id, selector: odinsyntax.Syntax_N
         }
         return {missing = true, is_type = true, owner = op.type}
     case .Value, .Const:
+        if b, is_basic := type_get(&c.table, type_base(&c.table, op.type)).(Basic_Type); is_basic && b.kind == .Any {
+            return {missing = name != "data" && name != "id", owner = op.type}
+        }
         if !fields_known(c, op.type, 0) {
             return {}
         }

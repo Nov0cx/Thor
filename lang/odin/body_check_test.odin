@@ -136,6 +136,10 @@ main :: proc() {
 	_ = bb.hi
 	_ = q.p.x + p.x
 	_ = E.A
+	a: any
+	_ = a.data
+	_ = a.id
+	_ = a.size
 }
 `
     res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
@@ -145,6 +149,7 @@ main :: proc() {
         {"q.p.z", "'q.p' of type 'P' has no field 'z'", 0},
         {"E.D", "Type 'E' has no field 'D'", 0},
         {"bb.hi", "'bb' of type 'B' has no field 'hi'", 0},
+        {"a.size", "'a' of type 'any' has no field 'size'", 0},
     })
 }
 
