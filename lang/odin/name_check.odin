@@ -73,7 +73,17 @@ qualified_names :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, whens: []B
         if ref.kind != .Package_Qualified || in_spans(using_items[:], ref.start) || in_untaken_branch(whens, ref.start) {
             continue
         }
-        switch qualified_state(rc, ref.operand, ref.name) {
+        state := qualified_state(rc, ref.operand, ref.name)
+        // `builtin.new`: the builtin package also gives the `@(builtin)` procedures of base:runtime.
+        if state != .Public {
+            if dir, is_import := import_alias_dir(rc, ref.operand); is_import && builtin_package_dir(dir) {
+                cands := make([dynamic]Def_Candidate, context.temp_allocator)
+                if builtin_candidates(rc, ref.name, &cands) != "" {
+                    state = .Public
+                }
+            }
+        }
+        switch state {
         case .Public:
         case .Private:
             report_error(rc, report, ref.operand_start, CODE_PRIVATE, fmt.aprintf("'%s' is not exported by '%s'", ref.name, ref.operand))
@@ -102,6 +112,9 @@ qualified_state :: proc(rc: ^Request_Context, alias, name: string) -> Qualified_
     if view == nil || view.scope == nil || len(view.scope.files) == 0 && !intrinsics_dir(dir) {
         return .Public
     }
+    if intrinsics_dir(dir) && slice.contains(INTRINSICS_UNLISTED[:], name) {
+        return .Public
+    }
     // Every file of the directory counts, in the build or not: the target may not be the user's.
     state := Qualified_State.Missing
     for file in view.sema_files {
@@ -124,10 +137,20 @@ qualified_state :: proc(rc: ^Request_Context, alias, name: string) -> Qualified_
     return state
 }
 
+// The intrinsics the compiler has that the listing of base:intrinsics leaves out.
+@(private = "file", rodata)
+INTRINSICS_UNLISTED := [?]string{"objc_send", "Fast_Math_Flag", "Fast_Math_Flags", "simd_x86__MM_SHUFFLE"}
+
 @(private = "file")
 intrinsics_dir :: proc(dir: string) -> bool {
     clean, _ := strings.replace_all(dir, "\\", "/", context.temp_allocator)
     return strings.has_suffix(strings.trim_right(clean, "/"), "base/intrinsics")
+}
+
+@(private = "file")
+builtin_package_dir :: proc(dir: string) -> bool {
+    clean, _ := strings.replace_all(dir, "\\", "/", context.temp_allocator)
+    return strings.has_suffix(strings.trim_right(clean, "/"), "base/builtin")
 }
 
 // Appends the ranges of the file-scope declarations of the buffer that hold a `using`.

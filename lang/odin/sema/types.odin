@@ -230,6 +230,7 @@ Struct_Field :: struct {
     name:        string,
     type:        Type_Id,
     is_using:    bool,
+    is_subtype:  bool, // `#subtype`: converts like `using`, brings no names into reach
     tag:         string, // with its quotes; "" when none
     name_offset: int,
 }

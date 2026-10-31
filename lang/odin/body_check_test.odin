@@ -211,6 +211,57 @@ f :: proc() {
     })
 }
 
+// Conversions the compiler allows: a distinct rawptr to rawptr, an enum to `#any_int`, `!` of a
+// distinct bool, `len` in arithmetic to another integer, a `#subtype` field, a record parameter
+// default, `builtin.new` and an intrinsic the listing leaves out.
+@(test)
+test_live_compiler_conversions :: proc(t: ^testing.T) {
+    root := fixture(t, "live_compiler_conversions", {{"app/a.odin", "package app\n"}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+import "base:builtin"
+import "base:intrinsics"
+
+HANDLE :: distinct rawptr
+BOOL :: distinct b32
+E :: enum u32 { A, B }
+Raw :: struct { n: int }
+Wrap :: struct($T: typeid, $D: int = 2) {
+	#subtype impl: ^Raw,
+}
+W :: Wrap(int)
+
+take_raw :: proc(r: ^Raw) {}
+take_any :: proc(#any_int x: int) {}
+take_bool :: proc(b: bool) {}
+take_uint :: proc(u: uint) {}
+take_w :: proc(w: ^Wrap(int, 2)) {}
+
+f :: proc(h: HANDLE, b: BOOL, s: []int, w: W) {
+	p: rawptr = h
+	take_any(E.B)
+	take_bool(!b)
+	take_uint(len(s) + 1)
+	take_raw(w)
+	ww := w
+	take_w(&ww)
+	q := builtin.new(int)
+	_ = q
+	_ = intrinsics.Fast_Math_Flags{}
+	_ = p
+	take_uint(s[0])
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"s[0])", "Cannot assign value 's[0]' of type 'int' to 'uint' in a procedure argument", 0},
+    })
+}
+
 // An undeclared name leaves the body errors out.
 @(test)
 test_live_body_after_names :: proc(t: ^testing.T) {

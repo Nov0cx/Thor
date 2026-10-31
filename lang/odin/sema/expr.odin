@@ -328,6 +328,10 @@ unary_operand :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, exp
         }
         return {mode = .Const, type = inner.type}
     }
+    // `!x` of a typed boolean is an untyped bool.
+    if op.green.kind == .Not && type_is_boolean(&c.table, inner.type) {
+        return {mode = .Value, type = type_untyped(.Bool)}
+    }
     return {mode = .Value, type = inner.type}
 }
 

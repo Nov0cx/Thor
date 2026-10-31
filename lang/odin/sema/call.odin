@@ -601,8 +601,11 @@ assign_distance :: proc(c: ^Checker, to: Type_Id, op: Operand, any_int, spread: 
     if type_underlying(t, to) == type_underlying(t, from) {
         return i64(Distance.Convert)
     }
-    if any_int && type_is_integer(t, to) && type_is_integer(t, from) {
-        return i64(Distance.Convert)
+    if any_int && type_is_integer(t, to) {
+        // `#any_int` takes any integer and any enum.
+        if _, is_enum := type_get(t, fb).(Enum_Type); is_enum || type_is_integer(t, from) {
+            return i64(Distance.Convert)
+        }
     }
     if to_any {
         return i64(Distance.Any)
@@ -610,9 +613,14 @@ assign_distance :: proc(c: ^Checker, to: Type_Id, op: Operand, any_int, spread: 
     #partial switch v in type_get(t, tb) {
     case Basic_Type:
         if v.kind == .Rawptr {
-            #partial switch _ in type_get(t, fb) {
+            #partial switch f in type_get(t, fb) {
             case Pointer_Type, Multi_Pointer_Type:
                 return i64(Distance.Convert)
+            case Basic_Type:
+                // A distinct `rawptr` (`HANDLE`).
+                if f.kind == .Rawptr {
+                    return i64(Distance.Convert)
+                }
             }
         }
     case Union_Type:
@@ -733,7 +741,7 @@ embeds :: proc(c: ^Checker, outer, inner: Type_Id, depth: int) -> bool {
         return false
     }
     for f in s.fields {
-        if !f.is_using {
+        if !f.is_using && !f.is_subtype {
             continue
         }
         if f.type == inner || type_underlying(&c.table, f.type) == type_underlying(&c.table, inner) {
@@ -1095,6 +1103,48 @@ bind_length :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, value
 }
 
 // `List(int)`: the instance of a polymorphic record, made once per checker for each list of arguments.
+// The default value of each parameter of a polymorphic record, one entry per name; a node with no
+// green when a parameter has none. Nil when the parameters cannot be read.
+@(private = "file")
+record_param_defaults :: proc(c: ^Checker, file: File_Id, offset: int, kind: odinsyntax.Syntax_Kind, count: int) -> []odinsyntax.Syntax_Node {
+    record, ok := node_of_kind(c, file, offset, kind)
+    if !ok {
+        return nil
+    }
+    list: odinsyntax.Param_List
+    has_list := false
+    if kind == .Struct_Type {
+        st, _ := odinsyntax.as_struct_type(record)
+        list, has_list = odinsyntax.struct_type_params(&st)
+    } else {
+        ut, _ := odinsyntax.as_union_type(record)
+        list, has_list = odinsyntax.union_type_params(&ut)
+    }
+    if !has_list {
+        return nil
+    }
+    out := make([dynamic]odinsyntax.Syntax_Node, c.tmp)
+    fields := odinsyntax.param_list_fields(&list)
+    for field in odinsyntax.child_iter_next(&fields) {
+        f, _ := odinsyntax.as_field(field)
+        def, _ := odinsyntax.field_default(&f)
+        n := 1
+        if names, has_names := odinsyntax.field_names(&f); has_names {
+            n = 0
+            it := odinsyntax.name_list_names(&names)
+            for _ in odinsyntax.child_iter_next(&it) {
+                n += 1
+            }
+        }
+        for _ in 0 ..< n {
+            if _, err := append(&out, def); !note_alloc(c, err) {
+                return nil
+            }
+        }
+    }
+    return len(out) == count ? out[:] : nil
+}
+
 @(private)
 instantiate :: proc(c: ^Checker, generic: Type_Id, args: []Call_Arg) -> Operand {
     named, is_named := type_get(&c.table, generic).(Named_Type)
@@ -1147,6 +1197,31 @@ instantiate :: proc(c: ^Checker, generic: Type_Id, args: []Call_Arg) -> Operand 
         if params[k].name_offset >= 0 {
             if _, err := append(&bindings, Binding{local_symbol(record_file, params[k].name_offset), op}); !note_alloc(c, err) {
                 return {}
+            }
+        }
+    }
+    // A parameter no argument sets takes its default (`Chan(T)` is `Chan(T, .Both)`).
+    if defaults := record_param_defaults(c, record_file, record_offset, kind, len(params)); defaults != nil {
+        for &op, k in ops {
+            if op.mode != .Invalid || defaults[k].green == nil {
+                continue
+            }
+            saved := c.env
+            c.env = bindings[:]
+            dop := expr_type(c, record_file, defaults[k], params[k].type)
+            c.env = saved
+            #partial switch dop.mode {
+            case .Type:
+                op = {mode = .Type, type = dop.type}
+            case .Const:
+                op = {mode = .Const, type = params[k].type != INVALID_TYPE ? params[k].type : dop.type, value = dop.value}
+            case:
+                continue
+            }
+            if params[k].name_offset >= 0 {
+                if _, err := append(&bindings, Binding{local_symbol(record_file, params[k].name_offset), op}); !note_alloc(c, err) {
+                    return {}
+                }
             }
         }
     }

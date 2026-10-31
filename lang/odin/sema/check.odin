@@ -1393,6 +1393,13 @@ struct_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> Ty
                 sf.tag = odinsyntax.syntax_token_text(tag)
             }
             _, sf.is_using = odinsyntax.field_using(&f)
+            dirs := odinsyntax.child_iter(&field, {kinds = {.Directive}})
+            for d in odinsyntax.child_iter_next(&dirs) {
+                dir, _ := odinsyntax.as_directive(d)
+                if tok, tok_ok := odinsyntax.directive_name(&dir); tok_ok && odinsyntax.syntax_token_text(tok) == "subtype" {
+                    sf.is_subtype = true
+                }
+            }
             nit := odinsyntax.name_list_names(&names_list)
             for name in odinsyntax.child_iter_next(&nit) {
                 entry := sf

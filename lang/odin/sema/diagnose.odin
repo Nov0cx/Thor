@@ -971,7 +971,7 @@ min_max_order_problem :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Synta
             return {}, false
         }
         op := expr_type(c, file, arg)
-        if (op.mode == .Value || op.mode == .Const) && type_is_boolean(c, op.type) {
+        if (op.mode == .Value || op.mode == .Const) && type_is_boolean(&c.table, op.type) {
             offset := int(arg.offset)
             if i == 0 || name == "clamp" {
                 offset = int(call.offset)
@@ -981,20 +981,6 @@ min_max_order_problem :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Synta
         i += 1
     }
     return {}, false
-}
-
-@(private = "file")
-type_is_boolean :: proc(c: ^Checker, t: Type_Id) -> bool {
-    #partial switch v in type_get(&c.table, type_base(&c.table, t)) {
-    case Untyped_Type:
-        return v.kind == .Bool
-    case Basic_Type:
-        #partial switch v.kind {
-        case .Bool, .B8, .B16, .B32, .B64:
-            return true
-        }
-    }
-    return false
 }
 
 // The arguments of `call` that its one procedure cannot take. Nil for the calls call_problem leaves
@@ -1310,16 +1296,34 @@ value_mismatches :: proc(c: ^Checker, file: File_Id, places: []Type_Id, list: od
     return out[:]
 }
 
-// True when `n` calls a builtin procedure, whose result the compiler converts by rules of its own
-// (`len(s)` goes into a `uint`).
+// True when `n` calls a builtin procedure or an intrinsic, also as an operand of an operator, whose
+// result the compiler converts by rules of its own (`len(s) + 1` goes into a `uint`).
 @(private = "file")
 builtin_call :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> bool {
-    ce, is_call := odinsyntax.as_call_expr(n)
-    if !is_call {
-        return false
+    n := n
+    #partial switch n.green.kind {
+    case .Call_Expr:
+        ce, _ := odinsyntax.as_call_expr(n)
+        callee, ok := odinsyntax.call_expr_callee(&ce)
+        if !ok {
+            return false
+        }
+        fn := expr_type(c, file, callee)
+        if fn.mode == .Builtin {
+            return true
+        }
+        // An intrinsic's declared result only documents it (`win32.L` gives a cstring16).
+        p, is_proc := type_get(&c.table, type_base(&c.table, fn.type)).(Proc_Type)
+        return is_proc && intrinsic_proc(c, p)
+    case .Paren_Expr, .Unary_Expr, .Binary_Expr:
+        it := odinsyntax.child_iter(&n, {kinds = odinsyntax.KINDS_EXPR})
+        for operand in odinsyntax.child_iter_next(&it) {
+            if builtin_call(c, file, operand) {
+                return true
+            }
+        }
     }
-    callee, ok := odinsyntax.call_expr_callee(&ce)
-    return ok && expr_type(c, file, callee).mode == .Builtin
+    return false
 }
 
 // Why an `x or_return` does not fit the procedure around it.
