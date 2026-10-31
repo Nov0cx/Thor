@@ -13,6 +13,8 @@ import "core:sync"
 import "core:thread"
 import "core:time"
 
+import "../lockfree"
+
 Request_Kind :: enum {
     Definition,
     Hover,
@@ -483,7 +485,12 @@ Job :: struct {
     request:   Request,
     result:    Result,
     cancelled: bool, // written by the main thread, read atomically by the worker
+    queue_next: ^Job, // link in Manager.finished
 }
+
+// Most jobs that wait for a worker. A request past it is answered as found nothing.
+@(private)
+QUEUE_SLOTS :: 1024
 
 // A request waiting out its debounce delay. One slot per kind, overwritten by a
 // newer request of that kind, so a burst of keystrokes costs one dispatch. The
@@ -515,16 +522,16 @@ Manager :: struct {
     backends:  [dynamic]Backend,
     next_id:   u64,
     allocator: runtime.Allocator,
-    mutex:     sync.Mutex, // guards `finished`, `active`, `inflight`, `queue` and `shutdown`
-    finished:  [dynamic]^Job,
-    active:    map[u64]^Job, // every dispatched job not yet freed, so it can be cancelled by id
-    inflight:  int,
+    finished:  lockfree.Stack(Job), // pushed by the workers, taken by manager_dispatch
+    // Every dispatched job not yet freed, so it can be cancelled by id. Main-thread only.
+    active:    map[u64]^Job,
+    inflight:  int, // main-thread only
     // The worker pool: dispatched jobs wait in `queue` (FIFO) until one of the
     // `workers` picks them up, woken by one `work` post per enqueued job.
-    queue:     [dynamic]^Job,
+    queue:     lockfree.Mpmc(^Job, QUEUE_SLOTS),
     workers:   []^thread.Thread,
     work:      sync.Sema,
-    shutdown:  bool, // set by pool_destroy; a worker that wakes to an empty queue then exits
+    shutdown:  bool, // atomic; set by pool_destroy; a worker that wakes to an empty queue then exits
     // Debounce slots, one per kind. Main-thread only (filled by
     // manager_request_debounced, emptied by manager_flush_debounced and the
     // cancels), so unlike `active` they need no lock.
@@ -544,9 +551,8 @@ manager_init :: proc(m: ^Manager, allocator := context.allocator) {
     m.enabled = true
     m.features = FEATURES_ALL
     m.backends = make([dynamic]Backend, allocator)
-    m.finished = make([dynamic]^Job, allocator)
     m.active = make(map[u64]^Job, 0, allocator)
-    m.queue = make([dynamic]^Job, allocator)
+    lockfree.mpmc_init(&m.queue)
     m.failed = make([dynamic]Result, allocator)
     m.next_id = 1
 
@@ -859,11 +865,16 @@ dispatch_owned :: proc(
     job.result.kind = kind
     job.result.revision = revision
 
-    sync.lock(&m.mutex)
     m.inflight += 1
     m.active[id] = job
-    append(&m.queue, job)
-    sync.unlock(&m.mutex)
+    if !lockfree.mpmc_push(&m.queue, job) {
+        // Every slot waits for a worker. The caller keys a result slot on the
+        // id, so it is answered as found nothing.
+        failed := Result{id = id, kind = kind, revision = revision, undispatched = true}
+        job_free(m, job)
+        append(&m.failed, failed)
+        return id
+    }
 
     sync.sema_post(&m.work) // exactly one post per queued job; see pool_worker
     return id
@@ -883,8 +894,6 @@ manager_cancel :: proc(m: ^Manager, id: u64) -> bool {
         }
     }
 
-    sync.lock(&m.mutex)
-    defer sync.unlock(&m.mutex)
     job, ok := m.active[id]
     if !ok {
         return false
@@ -904,10 +913,8 @@ manager_cancel_kind :: proc(m: ^Manager, kind: Request_Kind) -> int {
     if pending_clear(m, kind) {
         n += 1
     }
-    sync.lock(&m.mutex)
-    defer sync.unlock(&m.mutex)
     for _, job in m.active {
-        if job.request.kind == kind && !job.cancelled {
+        if job.request.kind == kind && !sync.atomic_load(&job.cancelled) {
             sync.atomic_store(&job.cancelled, true)
             n += 1
         }
@@ -926,10 +933,8 @@ manager_cancel_all :: proc(m: ^Manager) -> int {
             n += 1
         }
     }
-    sync.lock(&m.mutex)
-    defer sync.unlock(&m.mutex)
     for _, job in m.active {
-        if !job.cancelled {
+        if !sync.atomic_load(&job.cancelled) {
             sync.atomic_store(&job.cancelled, true)
             n += 1
         }
@@ -956,8 +961,6 @@ manager_has_request :: proc(m: ^Manager, id: u64) -> bool {
             return true
         }
     }
-    sync.lock(&m.mutex)
-    defer sync.unlock(&m.mutex)
     _, live := m.active[id]
     return live
 }
@@ -1119,8 +1122,6 @@ manager_flush_debounced :: proc(m: ^Manager, force := false) -> int {
 // already inside an uninterruptible step holds its resources until it returns.
 @(private)
 kind_inflight :: proc(m: ^Manager, kind: Request_Kind) -> bool {
-    sync.lock(&m.mutex)
-    defer sync.unlock(&m.mutex)
     for _, job in m.active {
         if job.request.kind == kind {
             return true
@@ -1164,17 +1165,9 @@ pool_worker :: proc(m: ^Manager) {
     for {
         sync.sema_wait(&m.work)
 
-        sync.lock(&m.mutex)
-        job: ^Job
-        if len(m.queue) > 0 {
-            job = m.queue[0]
-            ordered_remove(&m.queue, 0) // FIFO; the queue is a handful of entries
-        }
-        stop := m.shutdown
-        sync.unlock(&m.mutex)
-
-        if job == nil {
-            if stop {
+        job, ok := lockfree.mpmc_pop(&m.queue)
+        if !ok {
+            if sync.atomic_load(&m.shutdown) {
                 return
             }
             continue
@@ -1201,9 +1194,7 @@ job_run :: proc(job: ^Job) {
     // and the main thread must not hand that to the editor.
     job.result.cancelled = request_cancelled(&job.request)
 
-    sync.lock(&m.mutex)
-    append(&m.finished, job)
-    sync.unlock(&m.mutex)
+    lockfree.stack_push(&m.finished, job)
 }
 
 // Drains finished jobs on the main thread: invokes `handler(user, ^Result)`,
@@ -1214,19 +1205,14 @@ job_run :: proc(job: ^Job) {
 manager_dispatch :: proc(m: ^Manager, user: rawptr, handler: proc(user: rawptr, res: ^Result)) {
     manager_flush_debounced(m)
 
-    reaped := make([dynamic]^Job, context.temp_allocator)
-    sync.lock(&m.mutex)
-    for job in m.finished {
-        append(&reaped, job)
-    }
-    clear(&m.finished)
-    sync.unlock(&m.mutex)
-
-    for job in reaped {
+    job := lockfree.stack_take(&m.finished)
+    for job != nil {
+        next := job.queue_next
         if handler != nil && !job.result.cancelled {
             handler(user, &job.result)
         }
         job_free(m, job)
+        job = next
     }
 
     // Reserved ids no job was ever built for. Answered like any other empty
@@ -1285,10 +1271,8 @@ job_free :: proc(m: ^Manager, job: ^Job) {
     id := job.request.id
     free(job)
 
-    sync.lock(&m.mutex)
     delete_key(&m.active, id) // no longer cancellable; the pointer is dead
     m.inflight -= 1
-    sync.unlock(&m.mutex)
 }
 
 // Frees every owned field of a Result. The Manager's allocator owns them, so
@@ -1373,8 +1357,6 @@ result_free :: proc(m: ^Manager, res: ^Result) {
 // True while any request is still being worked. Used by manager_destroy and
 // available to the editor for a "busy" indicator.
 manager_busy :: proc(m: ^Manager) -> bool {
-    sync.lock(&m.mutex)
-    defer sync.unlock(&m.mutex)
     return m.inflight > 0
 }
 
@@ -1383,8 +1365,6 @@ manager_busy :: proc(m: ^Manager) -> bool {
 // way to being dropped, and nothing waits for it. Debounced requests are not
 // counted either — they have not been dispatched yet.
 manager_busy_kinds :: proc(m: ^Manager) -> (kinds: bit_set[Request_Kind]) {
-    sync.lock(&m.mutex)
-    defer sync.unlock(&m.mutex)
     for _, job in m.active {
         if request_cancelled(&job.request) {
             continue
@@ -1415,24 +1395,16 @@ manager_destroy :: proc(m: ^Manager) {
         }
     }
     delete(m.backends)
-    delete(m.finished)
     delete(m.active)
-    delete(m.queue)
     delete(m.failed)
 }
 
 // Retires the pool: one wake per worker so each sees `shutdown` and returns,
-// then joins them. Called after the drain, so the queue is empty — the extra
-// posts for whatever it still holds are belt-and-braces, keeping the "one wake
-// per worker" guarantee even if a job somehow outlived the drain.
+// then joins them. Called after the drain, so the queue is empty.
 @(private)
 pool_destroy :: proc(m: ^Manager) {
-    sync.lock(&m.mutex)
-    m.shutdown = true
-    wakes := len(m.workers) + len(m.queue)
-    sync.unlock(&m.mutex)
-
-    sync.sema_post(&m.work, wakes)
+    sync.atomic_store(&m.shutdown, true)
+    sync.sema_post(&m.work, len(m.workers))
     for w in m.workers {
         thread.join(w)
         thread.destroy(w)
