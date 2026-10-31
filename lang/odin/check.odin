@@ -40,10 +40,10 @@ check_package :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
         return
     }
 
-    if !sync.mutex_try_lock(&e.check_mutex) {
+    if _, ok := sync.atomic_compare_exchange_strong(&e.checking, false, true); !ok {
         return
     }
-    defer sync.unlock(&e.check_mutex)
+    defer sync.atomic_store(&e.checking, false)
     if lang.request_cancelled(req) {
         return
     }

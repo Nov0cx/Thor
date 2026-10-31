@@ -20,7 +20,7 @@ TREE_CACHE_BATCH :: 128
 @(private)
 Tree_Cache_File :: struct {
     mutex:   sync.Mutex,
-    writing: sync.Mutex,
+    writing: bool, // atomic; one write at a time
     alloc:   runtime.Allocator,
     dir:     string, // owned; "" when the cache is off
     known:   bool,   // `key` and `path` were found and the blob was loaded
@@ -103,10 +103,10 @@ tree_cache_write :: proc(e: ^Engine, force: bool) {
     if added == 0 || !force && added < TREE_CACHE_BATCH {
         return
     }
-    if !sync.mutex_try_lock(&c.writing) {
+    if _, ok := sync.atomic_compare_exchange_strong(&c.writing, false, true); !ok {
         return
     }
-    defer sync.mutex_unlock(&c.writing)
+    defer sync.atomic_store(&c.writing, false)
     path, key: string
     {
         sync.guard(&c.mutex)

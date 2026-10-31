@@ -7,7 +7,6 @@
 // new engine (`odin-analyzer-plan.md`); until then the engine declines them.
 package odin
 
-import "core:sync"
 
 import lang ".."
 import odinsema "sema"
@@ -19,8 +18,8 @@ Engine :: struct {
     root:          Odin_Root,
     tree_cache:    Tree_Cache_File,
     packages:      Package_Index, // the packages completion offers to import
-    // One compiler run at a time (see check_package).
-    check_mutex:   sync.Mutex,
+    // One compiler run at a time (see check_package). Atomic.
+    checking:      bool,
     // Settings-driven admin gate; main thread only.
     admin_enabled:  bool,
     admin_features: bit_set[lang.Request_Kind],

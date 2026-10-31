@@ -18,11 +18,17 @@ import odinsema "sema"
 // The root of the Odin toolchain, found once per engine.
 @(private)
 Odin_Root :: struct {
-    mutex: sync.Mutex,
+    state: sync.Futex, // ROOT_UNKNOWN, ROOT_FINDING or ROOT_KNOWN
     alloc: runtime.Allocator,
-    path:  string, // owned; "" when not found
-    known: bool,
+    path:  string, // owned; "" when not found. Read only after state is ROOT_KNOWN
 }
+
+@(private)
+ROOT_UNKNOWN :: 0
+@(private)
+ROOT_FINDING :: 1
+@(private)
+ROOT_KNOWN :: 2
 
 // Longest `odin root` may run.
 @(private)
@@ -495,13 +501,21 @@ ascii_lower :: proc(c: u8) -> u8 {
 // engine was built with. "" when none is a directory. Temp-allocated.
 @(private)
 odin_root :: proc(r: ^Odin_Root) -> string {
-    sync.lock(&r.mutex)
-    defer sync.unlock(&r.mutex)
-    if !r.known {
-        r.known = true
-        r.path = strings.clone(odin_root_find(), r.alloc)
+    for {
+        state := u32(sync.atomic_load_explicit(&r.state, .Acquire))
+        switch state {
+        case ROOT_KNOWN:
+            return strings.clone(r.path, context.temp_allocator)
+        case ROOT_FINDING:
+            sync.futex_wait(&r.state, ROOT_FINDING)
+        case:
+            if _, won := sync.atomic_compare_exchange_strong(&r.state, ROOT_UNKNOWN, ROOT_FINDING); won {
+                r.path = strings.clone(odin_root_find(), r.alloc)
+                sync.atomic_store_explicit(&r.state, ROOT_KNOWN, .Release)
+                sync.futex_broadcast(&r.state)
+            }
+        }
     }
-    return strings.clone(r.path, context.temp_allocator)
 }
 
 @(private = "file")
@@ -534,5 +548,5 @@ root_trim :: proc(path: string) -> string {
 odin_root_clear :: proc(r: ^Odin_Root) {
     delete(r.path, r.alloc)
     r.path = ""
-    r.known = false
+    sync.atomic_store(&r.state, ROOT_UNKNOWN)
 }

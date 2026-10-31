@@ -594,8 +594,7 @@ Apply_Wait :: struct {
     done:      sync.Sema,
     applied:   bool,
     allocator: runtime.Allocator,
-    mutex:     sync.Mutex, // guards `refs`
-    refs:      int,
+    refs:      int, // atomic
     // Atomic: APPLY_OPEN, then APPLY_TAKEN by the main thread or APPLY_EXPIRED by the reader.
     claim:     int,
 }
@@ -609,11 +608,7 @@ APPLY_EXPIRED :: 2
 
 @(private)
 apply_wait_release :: proc(wait: ^Apply_Wait) {
-    sync.lock(&wait.mutex)
-    wait.refs -= 1
-    last := wait.refs == 0
-    sync.unlock(&wait.mutex)
-    if last {
+    if sync.atomic_sub(&wait.refs, 1) == 1 {
         free(wait, wait.allocator)
     }
 }
