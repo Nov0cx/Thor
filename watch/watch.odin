@@ -2,8 +2,9 @@ package watch
 
 import "base:runtime"
 import "core:strings"
-import "core:sync"
 import "core:thread"
+
+import "../lockfree"
 
 // What happened to a path on disk. A rename surfaces as a Deleted of the old
 // name and a Created of the new one, so consumers never have to correlate a pair.
@@ -25,6 +26,13 @@ Change :: struct {
 // opaque pointer supplied at subscribe time.
 Callback :: #type proc(data: rawptr, change: Change)
 
+// A queued Change.
+@(private)
+Change_Node :: struct {
+    queue_next: ^Change_Node,
+    change:     Change, // path owned by Watcher.allocator
+}
+
 @(private)
 Subscriber :: struct {
     callback: Callback,
@@ -40,10 +48,10 @@ Watcher :: struct {
     root:        string, // owned, absolute directory watched recursively
     allocator:   runtime.Allocator,
     subscribers: [dynamic]Subscriber,
-    // Worker -> main hand-off. The worker appends under `mutex`; the main thread
-    // drains `pending` each poll. Change paths are allocator-owned and freed
-    // after they are dispatched.
-    mutex:       sync.Mutex,
+    // Worker -> main hand-off. The worker pushes onto `incoming`; each poll moves
+    // it into `pending`, which only the main thread touches. Change paths are
+    // allocator-owned and freed after they are dispatched.
+    incoming:    lockfree.Stack(Change_Node),
     pending:     [dynamic]Change,
     head:        int, // first undispatched entry of `pending`; entries before it are freed
     platform:    Platform, // what the platform's worker needs
@@ -110,8 +118,15 @@ watcher_poll :: proc(w: ^Watcher) {
         return
     }
 
+    node := lockfree.stack_take(&w.incoming)
+    for node != nil {
+        next := node.queue_next
+        append(&w.pending, node.change)
+        free(node, w.allocator)
+        node = next
+    }
+
     changes := make([dynamic]Change, context.temp_allocator)
-    sync.lock(&w.mutex)
     count := min(len(w.pending) - w.head, WATCH_DRAIN_MAX)
     append(&changes, ..w.pending[w.head:][:count])
     w.head += count
@@ -127,7 +142,6 @@ watcher_poll :: proc(w: ^Watcher) {
         resize(&w.pending, remaining)
         w.head = 0
     }
-    sync.unlock(&w.mutex)
 
     for change in changes {
         for sub in w.subscribers {
@@ -153,6 +167,13 @@ watcher_destroy :: proc(w: ^Watcher) {
     for change in w.pending[w.head:] {
         delete(change.path, w.allocator)
     }
+    node := lockfree.stack_take(&w.incoming)
+    for node != nil {
+        next := node.queue_next
+        delete(node.change.path, w.allocator)
+        free(node, w.allocator)
+        node = next
+    }
     delete(w.pending)
     delete(w.subscribers)
     delete(w.root)
@@ -162,8 +183,10 @@ watcher_destroy :: proc(w: ^Watcher) {
 // Clones `path` into watcher-owned memory and queues the change for the main thread.
 @(private)
 watch_emit :: proc(w: ^Watcher, kind: Change_Kind, path: string) {
-    change := Change {kind = kind, path = strings.clone(path, w.allocator)}
-    sync.lock(&w.mutex)
-    append(&w.pending, change)
-    sync.unlock(&w.mutex)
+    node, err := new(Change_Node, w.allocator)
+    if err != nil {
+        return
+    }
+    node.change = Change {kind = kind, path = strings.clone(path, w.allocator)}
+    lockfree.stack_push(&w.incoming, node)
 }
