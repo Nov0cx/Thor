@@ -724,6 +724,23 @@ palette_keep_digits :: proc(buf: ^[dynamic]u8) {
     resize(buf, keep)
 }
 
+// Opens the selected quick-open file to the side, or through the pane picker.
+@(private = "file")
+palette_open_file_in :: proc(thor: ^Thor, pick: bool) {
+    p := &thor.palette
+    if p.selected < 0 || p.selected >= len(p.matches) {
+        return
+    }
+    // Copy: closing the palette may free the list.
+    path := strings.clone(p.files[p.matches[p.selected].index], context.temp_allocator)
+    thor_palette_close(thor)
+    if pick {
+        thor_pane_pick_begin(thor, path)
+    } else {
+        thor_open_file_in_pane(thor, path, thor_side_pane(thor))
+    }
+}
+
 @(private = "file")
 palette_keys :: proc(thor: ^Thor) {
     if ui.take_key(.Escape) {
@@ -733,6 +750,17 @@ palette_keys :: proc(thor: ^Thor) {
     if ui.take_key(.Enter) || ui.take_key(.Pad_Enter) {
         palette_activate(thor)
         return
+    }
+    // Quick open: ctrl+enter opens the file to the side, shift+enter asks for the pane.
+    if thor.palette.mode == .Files {
+        if ui.take_key(.Enter, {.Ctrl}) || ui.take_key(.Pad_Enter, {.Ctrl}) {
+            palette_open_file_in(thor, false)
+            return
+        }
+        if ui.take_key(.Enter, {.Shift}) || ui.take_key(.Pad_Enter, {.Shift}) {
+            palette_open_file_in(thor, true)
+            return
+        }
     }
     if ui.take_key(.Up) {
         palette_move(thor, -1)

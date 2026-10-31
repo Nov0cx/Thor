@@ -27,6 +27,11 @@ thor_toggle_fullscreen :: proc(_: ^Thor) {
 // App-level shortcuts, read from the key stream before the tree is built, so
 // they work no matter what holds the focus.
 thor_global_key :: proc(thor: ^Thor, event: ui.Key_Event) -> bool {
+    // The pane picker owns the keyboard until a pane is picked.
+    if thor.pane_pick.open {
+        thor_pane_pick_key(thor, event)
+        return true
+    }
 
     // While the Settings modal is open it owns the keyboard (Escape closes it,
     // and a keybinding row may be capturing a chord), so no global shortcut fires.

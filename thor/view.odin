@@ -603,7 +603,7 @@ thor_terminal_strip :: proc(thor: ^Thor) {
         it := ui.begin(
             {
                 key = "tab",
-                flags = {.Clickable, .Group},
+                flags = {.Clickable, .Draggable, .Group},
                 props = {
                     h = ui.Px(TERMINAL_STRIP_TAB_HEIGHT),
                     dir = .Row,
@@ -754,6 +754,69 @@ thor_editor_column :: proc(thor: ^Thor, view: Workspace_View) {
             thor_workspace_pane(thor, view, pane, thor_pane_key(pane))
         }
     }
+    thor_pane_overlays(thor)
+}
+
+// The pane picker's numbers, or the outline of the pane a drag would drop into.
+@(private = "file")
+thor_pane_overlays :: proc(thor: ^Thor) {
+    picking := thor.pane_pick.open
+    target := -1
+    if thor.tab_drag >= 0 || (thor.explorer.dragging && thor.explorer.drag_target == "") {
+        target = thor_pane_at(thor, ui.mouse_pos())
+    }
+    if !picking && target < 0 {
+        return
+    }
+    for pane in 0 ..< thor_pane_count(thor) {
+        r := thor.pane_rect[pane]
+        if r.w <= 0 || (!picking && pane != target) {
+            continue
+        }
+        ui.push_id_int(i64(pane))
+        defer ui.pop_id()
+        flags: ui.Flags = {.Floating, .Pass_Through}
+        if picking {
+            flags = {.Floating, .Clickable}
+        }
+        it := ui.begin(
+            {
+                key = "pane_overlay",
+                flags = flags,
+                props = {
+                    position = .Fixed,
+                    inset = {l = r.x, t = r.y},
+                    w = ui.Px(r.w),
+                    h = ui.Px(r.h),
+                    justify = .Center,
+                    align = .Center,
+                    bg = ui.Color{thor.theme.contrast.r, thor.theme.contrast.g, thor.theme.contrast.b, 70},
+                    border = {width = ui.all(2), color = thor.theme.accent_color},
+                    cursor = picking ? .Pointer : .Default,
+                },
+            },
+        )
+        ui.label(
+            PANE_NUMBERS[pane],
+            {
+                key = "number",
+                props = {
+                    w = ui.Px(64),
+                    h = ui.Px(64),
+                    radius = ui.rad(8),
+                    bg = thor.theme.accent_color,
+                    color = thor.theme.background,
+                    font_size = 36,
+                    text_align = .Center,
+                    text_align_v = .Center,
+                },
+            },
+        )
+        ui.end()
+        if picking && it.clicked {
+            thor_pane_pick_finish(thor, pane)
+        }
+    }
 }
 
 // A bar between two slots. A drag moves the boundary after weights[i], a double
@@ -825,6 +888,7 @@ thor_tabbar :: proc(thor: ^Thor) {
     select_index := -1
     close_index := -1
     menu_index := -1
+    drop_index, drop_pane := -1, -1
 
     for i in 0 ..< len(thor.open_files) {
         info := thor_tab_info(thor, i)
@@ -856,6 +920,7 @@ thor_tabbar :: proc(thor: ^Thor) {
         // Ellipsis, not None: a full strip squeezes every tab, and a label that
         // cannot shrink runs under its own close button.
         ui.label(info.name, {props = {color = text, text_wrap = .Ellipsis}})
+        thor_tab_pane_badges(thor, i)
         if info.modified {
             ui.leaf(
                 {
@@ -894,6 +959,18 @@ thor_tabbar :: proc(thor: ^Thor) {
         }
         ui.pop_id()
 
+        // A tab dragged onto a pane opens there.
+        if it.dragging {
+            thor.tab_drag = i
+        }
+        if it.released && thor.tab_drag == i {
+            thor.tab_drag = -1
+            if pane := thor_pane_at(thor, ui.mouse_pos()); pane >= 0 {
+                drop_index, drop_pane = i, pane
+            }
+            continue
+        }
+
         // The list is rebuilt below, so a close waits until the loop is done.
         if close.clicked || it.middle_clicked {
             close_index = i
@@ -904,12 +981,46 @@ thor_tabbar :: proc(thor: ^Thor) {
         }
     }
 
-    if close_index >= 0 {
+    if drop_index >= 0 {
+        thor_show_file_in_pane(thor, drop_index, drop_pane)
+    } else if close_index >= 0 {
         thor_request_close_file(thor, close_index)
     } else if menu_index >= 0 {
         thor_tab_context_menu(thor, menu_index, ui.mouse_pos())
     } else if select_index >= 0 {
         thor_set_active_file(thor, select_index)
+    }
+}
+
+// The numbers of the panes that show tab `index`, when there is more than one pane.
+@(private = "file")
+thor_tab_pane_badges :: proc(thor: ^Thor, index: int) {
+    count := thor_pane_count(thor)
+    if count < 2 {
+        return
+    }
+    for pane in 0 ..< count {
+        if thor.pane_file[pane] != index {
+            continue
+        }
+        on := pane == thor.active_pane
+        ui.push_id_int(i64(pane))
+        ui.label(
+            PANE_NUMBERS[pane],
+            {
+                key = "pane",
+                props = {
+                    w = ui.Px(14),
+                    h = ui.Px(14),
+                    radius = ui.rad(3),
+                    bg = on ? thor.theme.accent_color : thor.theme.buttons,
+                    color = on ? thor.theme.background : thor.theme.muted_color,
+                    font_size = 10,
+                    text_align = .Center,
+                },
+            },
+        )
+        ui.pop_id()
     }
 }
 

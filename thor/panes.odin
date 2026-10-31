@@ -61,6 +61,8 @@ LAYOUT_TITLES := [Pane_Layout]string {
     .Grid6      = "3x2 Grid",
 }
 
+PANE_NUMBERS := [MAX_PANES]string{"1", "2", "3", "4", "5", "6"}
+
 // Focus key of each pane.
 PANE_KEYS := [MAX_PANES]string{"pane0", "pane1", "pane2", "pane3", "pane4", "pane5"}
 
@@ -498,5 +500,70 @@ thor_restore_weights :: proc(thor: ^Thor, cols: [LAYOUT_MAX_COLUMNS]f32, rows: [
             }
         }
         return true
+    }
+}
+
+thor_cmd_next_layout :: proc(data: rawptr) {thor_cycle_layout(cast(^Thor) data, 1)}
+thor_cmd_focus_next_pane :: proc(data: rawptr) {thor_focus_next_pane(cast(^Thor) data, 1)}
+thor_cmd_focus_previous_pane :: proc(data: rawptr) {thor_focus_next_pane(cast(^Thor) data, -1)}
+thor_cmd_pick_pane :: proc(data: rawptr) {thor_pane_pick_begin(cast(^Thor) data, "")}
+
+thor_cmd_open_to_side :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    thor_file_to_pane(thor, thor_side_pane(thor))
+}
+
+// Lists the layouts. No live preview: a layout passed over would drop the
+// files of the panes it cuts.
+thor_cmd_pick_layout :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    titles: [len(Pane_Layout)]string
+    for title, layout in LAYOUT_TITLES {
+        titles[int(layout)] = title
+    }
+    thor_select_open(
+        thor,
+        "Pane Layout",
+        titles[:],
+        LAYOUT_TITLES[thor.layout],
+        thor_pick_layout_preview,
+        thor_pick_layout_commit,
+        thor,
+    )
+}
+
+@(private = "file")
+thor_layout_of_title :: proc(title: string) -> (Pane_Layout, bool) {
+    for t, layout in LAYOUT_TITLES {
+        if t == title {
+            return layout, true
+        }
+    }
+    return .Single, false
+}
+
+@(private = "file")
+thor_pick_layout_preview :: proc(_: rawptr, _: string) {}
+
+@(private = "file")
+thor_pick_layout_commit :: proc(data: rawptr, choice: string) {
+    thor := cast(^Thor) data
+    if layout, ok := thor_layout_of_title(choice); ok {
+        thor_set_layout(thor, layout)
+    }
+}
+
+// A key while the pane picker is up: a pane number picks, Escape cancels, and
+// every other key is dropped.
+thor_pane_pick_key :: proc(thor: ^Thor, event: ui.Key_Event) {
+    if event.action != .Press {
+        return
+    }
+    if event.key == .Escape {
+        thor_pane_pick_cancel(thor)
+        return
+    }
+    if digit, ok := thor_key_digit(event.key); ok && event.mods == {} && digit >= 1 && digit <= thor_pane_count(thor) {
+        thor_pane_pick_finish(thor, digit - 1)
     }
 }

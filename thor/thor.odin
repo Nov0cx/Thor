@@ -236,6 +236,7 @@ Thor :: struct {
     pane_rect: [MAX_PANES]ui.Rect,
     panes_area: ui.Rect,
     pane_pick: Pane_Pick,
+    tab_drag: int, // tab being dragged, -1 when none
     // Each pane's open-files index (-1 = none); the two panes can show different
     // files. active_pane is the focused one, whose file the tabbar, status bar
     // and file commands act on (mirrored into the active_file signal).
@@ -724,6 +725,7 @@ init :: proc() -> ^Thor {
     thor.last_multi_layout = .Columns2
     thor_pane_reset_weights(thor)
     thor.pane_file = -1
+    thor.tab_drag = -1
     thor.workspace_dir = workspace_dir
     if workspace_dir != "" {
         thor.workspace_prefix = strings.concatenate({workspace_dir, filepath.SEPARATOR_STRING})

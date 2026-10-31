@@ -708,6 +708,11 @@ explorer_click :: proc(thor: ^Thor, node: ^Explorer_Node) {
         explorer_set_expanded(e, node, !node.expanded)
         return
     }
+    // Alt+click opens the file to the side.
+    if .Alt in ui.mods() {
+        thor_open_file_in_pane(thor, node.path, thor_side_pane(thor))
+        return
+    }
     thor_tree_open(thor, node.path)
 }
 
@@ -822,6 +827,13 @@ explorer_keys :: proc(thor: ^Thor) {
         } else {
             thor_tree_open(thor, node.path)
         }
+    }
+    // ctrl+enter opens the file to the side, shift+enter asks for the pane.
+    if (ui.take_key(.Enter, {.Ctrl}) || ui.take_key(.Pad_Enter, {.Ctrl})) && index >= 0 && !rows[index].node.is_dir {
+        thor_open_file_in_pane(thor, rows[index].node.path, thor_side_pane(thor))
+    }
+    if (ui.take_key(.Enter, {.Shift}) || ui.take_key(.Pad_Enter, {.Shift})) && index >= 0 && !rows[index].node.is_dir {
+        thor_pane_pick_begin(thor, rows[index].node.path)
     }
     // Folders included: the confirmation sits in front of the removal, and
     // silently ignoring the key reads as a broken Delete.

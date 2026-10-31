@@ -1828,11 +1828,15 @@ thor_tree_move :: proc(data: rawptr, src_path: string, dst_dir: string) {
 }
 
 // Rows were dragged out of the explorer and released at `position`. Dropping on
-// the editor column opens the files as tabs; anywhere else (title bar, status
+// the editor column opens the files as tabs, in the pane under the pointer; anywhere else (title bar, status
 // bar, off-window) the drag is abandoned.
 thor_tree_drag_out :: proc(thor: ^Thor, paths: []string, position: ui.Vec2) {
     if !ui.rect_contains(thor.editor_rect, position) {
         return
+    }
+    // Dropped on a pane: the files open there.
+    if pane := thor_pane_at(thor, position); pane >= 0 {
+        thor_focus_pane(thor, pane)
     }
     opened := 0
     for path in paths {

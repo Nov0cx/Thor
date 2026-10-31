@@ -335,6 +335,12 @@ thor_register_commands :: proc(thor: ^Thor) {
     thor_add_bindable_command(thor, "View: Toggle Word Wrap", "toggle_word_wrap", thor_cmd_toggle_wrap, thor)
     thor_add_bindable_command(thor, "View: Toggle Whitespace", "toggle_whitespace", thor_cmd_toggle_whitespace, thor)
     thor_palette_add(thor, "View: Toggle Split Editor", thor_cmd_toggle_split, thor, action = "toggle_split")
+    thor_add_bindable_command(thor, "View: Pane Layout...", "pick_layout", thor_cmd_pick_layout, thor)
+    thor_palette_add(thor, "View: Next Pane Layout", thor_cmd_next_layout, thor, action = "next_layout")
+    thor_palette_add(thor, "View: Focus Next Pane", thor_cmd_focus_next_pane, thor, action = "focus_next_pane")
+    thor_palette_add(thor, "View: Focus Previous Pane", thor_cmd_focus_previous_pane, thor, action = "focus_previous_pane")
+    thor_add_bindable_command(thor, "View: Open Active File to the Side", "open_to_side", thor_cmd_open_to_side, thor)
+    thor_add_bindable_command(thor, "View: Show Active File in Pane...", "pick_pane", thor_cmd_pick_pane, thor)
     thor_add_bindable_command(thor, "View: Toggle Markdown Preview", "toggle_markdown_preview", thor_cmd_toggle_markdown_preview, thor)
     thor_palette_add(thor, "View: Recenter", thor_cmd_recenter, thor, action = "recenter")
 
