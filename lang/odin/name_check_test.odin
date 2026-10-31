@@ -206,6 +206,7 @@ main :: proc() {
 	q.missing()
 	when ODIN_OS == .Linux {
 		_ = posix_only
+		q.gone()
 	}
 }
 `

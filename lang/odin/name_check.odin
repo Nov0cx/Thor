@@ -35,7 +35,7 @@ name_diagnostics :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Report) 
     collect_whens(odinsyntax.node_root(rc.parsed.tree), rc, &whens)
     local_redeclarations(rc, m, whens[:], report)
     member_redeclarations(rc, m, report)
-    qualified_names(rc, m, report)
+    qualified_names(rc, m, whens[:], report)
     if lang.request_cancelled(rc.req) {
         return
     }
@@ -61,15 +61,15 @@ undeclared_names :: proc(rc: ^Request_Context, whens: []Branch, report: ^lang.Di
     }
 }
 
-// Reports each `alias.name` whose package declares no public `name`.
+// Reports each `alias.name` whose package declares no public `name`, outside the branches the target may not take.
 @(private = "file")
-qualified_names :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, report: ^lang.Diagnostic_Report) {
+qualified_names :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, whens: []Branch, report: ^lang.Diagnostic_Report) {
     using_items := make([dynamic]Span, context.temp_allocator)
     if m.has_using {
         using_spans(rc, m, &using_items)
     }
     for ref in m.refs {
-        if ref.kind != .Package_Qualified || in_spans(using_items[:], ref.start) {
+        if ref.kind != .Package_Qualified || in_spans(using_items[:], ref.start) || in_untaken_branch(whens, ref.start) {
             continue
         }
         switch qualified_state(rc, ref.operand, ref.name) {
