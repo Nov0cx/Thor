@@ -289,6 +289,10 @@ range_stmt_unroll_args :: proc "contextless" (n: ^Range_Stmt) -> (Arg_List, bool
     return Arg_List(c), ok
 }
 
+range_stmt_init :: proc "contextless" (n: ^Range_Stmt) -> (Syntax_Node, bool) {
+    return find_child_node((^Syntax_Node)(n), {kinds = KINDS_SIMPLE, after = {.For}, before = {.Semicolon}})
+}
+
 range_stmt_vars :: proc "contextless" (n: ^Range_Stmt) -> (Expr_List, bool) {
     c, ok := find_child_node((^Syntax_Node)(n), {kinds = Kind_Set{.Expr_List}, after = {.For}, before = {.In}})
     return Expr_List(c), ok

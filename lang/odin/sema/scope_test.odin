@@ -132,6 +132,9 @@ test_scope_range :: proc(t: ^testing.T) {
     // The range expression is read before the variables exist.
     expect_local(t, "package p\nf :: proc(»x: []int) {\n    for x in «x {\n    }\n}", .Param)
     expect_ref(t, "package p\nf :: proc(xs: []int) {\n    for x in xs {\n    }\n    _ = «x\n}", .Free)
+    // An init statement before the range clause scopes into the loop.
+    expect_local(t, "package p\nf :: proc(m: map[int]int) {\n    for »first := true; k in m {\n        _ = «first\n    }\n}", .Var)
+    expect_ref(t, "package p\nf :: proc(m: map[int]int) {\n    for first := true; k in m {\n    }\n    _ = «first\n}", .Free)
 }
 
 @(test)

@@ -805,6 +805,9 @@ walk_range :: proc(w: ^Walker, n: odinsyntax.Syntax_Node) {
     if args, ok := odinsyntax.range_stmt_unroll_args(&r); ok {
         walk(w, odinsyntax.Syntax_Node(args))
     }
+    if init, ok := odinsyntax.range_stmt_init(&r); ok {
+        walk(w, init)
+    }
     value := Local_Value{-1, -1, 0, .Range}
     if expr, ok := odinsyntax.range_stmt_expr(&r); ok {
         walk(w, expr)

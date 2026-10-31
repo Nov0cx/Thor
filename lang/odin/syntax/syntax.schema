@@ -81,6 +81,7 @@ For_Stmt : stmt
 Range_Stmt : stmt
     label = node Label
     unroll_args = node Arg_List before For
+    init = node simple after For before Semicolon
     vars = node Expr_List after For before In
     expr! = node expr after In
     body! = node Block Do_Body

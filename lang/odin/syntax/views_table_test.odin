@@ -52,6 +52,7 @@ VIEW_ACCESSORS := [?]View_Accessor{
     {.For_Stmt, "body", true, acc_for_stmt_body},
     {.Range_Stmt, "label", false, acc_range_stmt_label},
     {.Range_Stmt, "unroll_args", false, acc_range_stmt_unroll_args},
+    {.Range_Stmt, "init", false, acc_range_stmt_init},
     {.Range_Stmt, "vars", false, acc_range_stmt_vars},
     {.Range_Stmt, "expr", true, acc_range_stmt_expr},
     {.Range_Stmt, "body", true, acc_range_stmt_body},
@@ -435,6 +436,12 @@ acc_range_stmt_label :: proc(n: ^Syntax_Node) -> (Syntax_Element, bool) {
 acc_range_stmt_unroll_args :: proc(n: ^Syntax_Node) -> (Syntax_Element, bool) {
     c, ok := range_stmt_unroll_args((^Range_Stmt)(n))
     return (Syntax_Node(c) if ok else nil), ok
+}
+
+@(private = "file")
+acc_range_stmt_init :: proc(n: ^Syntax_Node) -> (Syntax_Element, bool) {
+    c, ok := range_stmt_init((^Range_Stmt)(n))
+    return (c if ok else nil), ok
 }
 
 @(private = "file")
