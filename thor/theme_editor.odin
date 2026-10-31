@@ -260,6 +260,7 @@ theme_editor_box :: proc(thor: ^Thor) {
                     flags = {.Clip, .Scroll_Y},
                     props = {
                         w = ui.Px(THEME_PREVIEW_WIDTH),
+                        min_w = THEME_PREVIEW_WIDTH,
                         h = ui.Grow(1),
                         dir = .Column,
                         gap = {0, 8},
@@ -849,12 +850,11 @@ PREVIEW_CODE := [?][]Preview_Token {
     {{"@(private)", "attributes"}},
     {
         {"greet", "functions"}, {" :: ", "operators"}, {"proc", "keywords"}, {"(", "operators"},
-        {"name", "parameters"}, {": ", "operators"}, {"string", "tags"}, {", ", "operators"},
-        {"times", "parameters"}, {": ", "operators"}, {"int", "tags"}, {") {", "operators"},
+        {"name", "parameters"}, {": ", "operators"}, {"string", "tags"}, {") {", "operators"},
     },
     {
         {"    ", "text"}, {"for", "keywords"}, {" ", "text"}, {"i", "variables"}, {" in ", "keywords"},
-        {"0", "numbers"}, {" ..< ", "operators"}, {"times", "parameters"}, {" {", "operators"},
+        {"0", "numbers"}, {" ..< ", "operators"}, {"3", "numbers"}, {" {", "operators"},
     },
     {
         {"        ", "text"}, {"fmt", "variables"}, {".", "operators"}, {"println", "functions"},
@@ -877,26 +877,32 @@ theme_preview :: proc(thor: ^Thor, p: ^theme.Theme) {
     ui.scope(
         {
             key = "mock",
+            flags = {.Clip},
             props = {
                 w = ui.Grow(1),
                 h = ui.FIT,
                 dir = .Column,
                 radius = ui.rad(8),
-                bg = p.contrast,
+                bg = p.background,
                 border = {width = ui.all(1), color = p.border},
-                pad = ui.all(1),
             },
         },
     )
 
     // Tab strip.
     {
-        strip := ui.begin({key = "tabs", flags = {.Clickable}, props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, bg = p.second_background, radius = {8, 8, 0, 0}}})
-        if preview_part(thor, "tab-active", "main.odin", p.foreground, p.background, "background") {}
-        if preview_part(thor, "tab-other", "util.odin", p.muted_color, p.buttons, "buttons") {}
+        strip := ui.begin(
+            {
+                key = "tabs",
+                flags = {.Clickable},
+                props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, gap = {2, 0}, pad = {l = 6, t = 6}, bg = p.contrast, radius = {8, 8, 0, 0}},
+            },
+        )
+        preview_part(thor, "tab-active", "main.odin", p.foreground, p.background, "background", pad = 12, top_radius = true)
+        preview_part(thor, "tab-other", "util.odin", p.muted_color, p.buttons, "buttons", pad = 12, top_radius = true)
         ui.end()
         if strip.clicked {
-            theme_editor_reveal(thor, theme.color_index("second_background"))
+            theme_editor_reveal(thor, theme.color_index("contrast"))
         }
     }
 
@@ -913,7 +919,8 @@ theme_preview :: proc(thor: ^Thor, p: ^theme.Theme) {
                     props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, pad = {r = 8}, bg = current ? p.highlight : {}},
                 },
             )
-            preview_part(thor, "number", fmt.tprintf("%3d  ", n + 1), p.disabled, {}, "disabled")
+            preview_part(thor, "number", fmt.tprintf("%d", n + 1), p.disabled, {}, "disabled", w = 34, align_end = true)
+            ui.spacer(ui.Px(12), {key = "gutter", props = {h = ui.Px(1)}})
             for token, k in line {
                 ui.push_id_int(i64(k))
                 bg := ui.Color {}
@@ -941,77 +948,91 @@ theme_preview :: proc(thor: ^Thor, p: ^theme.Theme) {
             {
                 key = "tree",
                 flags = {.Clickable},
-                props = {w = ui.Grow(1), h = ui.FIT, dir = .Column, pad = ui.xy(8, 6), gap = {0, 2}, bg = p.second_background, border = {width = {t = 1}, color = p.border}},
+                props = {w = ui.Grow(1), h = ui.FIT, dir = .Column, pad = ui.xy(10, 4), gap = {0, 1}, bg = p.second_background, border = {width = {t = 1, b = 1}, color = p.border}},
             },
         )
         preview_part(thor, "folder", "src", p.foreground, {}, "foreground")
         {
             ui.scope({key = "files", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, gap = {8, 0}, pad = {l = 6}}})
-            preview_part(thor, "guide", " ", {}, p.tree, "tree", w = 2)
+            preview_part(thor, "guide", "", {}, p.tree, "tree", w = 2, grow_h = true)
             {
                 ui.scope({key = "names", props = {w = ui.Grow(1), h = ui.FIT, dir = .Column, gap = {0, 2}}})
                 preview_part(thor, "file", "main.odin", p.primary_text_color, {}, "primary_text")
                 preview_part(thor, "changed", "util.odin  M", p.warning_color, {}, "warning")
-                preview_part(thor, "added", "new.odin  A", p.success_color, {}, "success")
             }
         }
-        preview_part(thor, "ignored", "build", p.excluded_files_color, {}, "excluded_files")
+        {
+            ui.scope({key = "more", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, gap = {14, 0}}})
+            preview_part(thor, "submodule", "vendor  S", p.submodule_color, {}, "submodule")
+            preview_part(thor, "ignored", "build", p.excluded_files_color, {}, "excluded_files")
+        }
         ui.end()
         if tree.clicked {
             theme_editor_reveal(thor, theme.color_index("second_background"))
         }
     }
 
-    // Status chips, links and muted text.
+    // Status chips and text.
     {
-        ui.scope({key = "chips", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, gap = {6, 0}, pad = ui.xy(8, 8), bg = p.background}})
-        preview_chip(thor, "info", "Info", p.info_color, p, "info")
-        preview_chip(thor, "error", "1 error", p.error_color, p, "error")
-        preview_chip(thor, "danger", "Danger", p.danger_color, p, "danger")
-        preview_chip(thor, "conflict", "Conflict", p.conflict_color, p, "conflict")
-        preview_chip(thor, "submodule", "Sub", p.submodule_color, p, "submodule")
+        ui.scope({key = "chips", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, gap = {6, 0}, pad = {l = 10, r = 10, t = 8}}})
+        preview_chip(thor, "info", "Info", p.info_color, "info")
+        preview_chip(thor, "error", "1 error", p.error_color, "error")
+        preview_chip(thor, "conflict", "Conflict", p.conflict_color, "conflict")
+        preview_chip(thor, "success", "Passed", p.success_color, "success")
     }
     {
-        ui.scope({key = "texts", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, gap = {10, 0}, pad = {l = 8, r = 8, b = 8}, bg = p.background}})
-        preview_part(thor, "link", "docs", p.links_color, {}, "links")
-        preview_part(thor, "muted", "3 matches", p.muted_color, {}, "muted")
-        preview_part(thor, "disabled", "Disabled", p.disabled, {}, "disabled")
+        ui.scope({key = "texts", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, gap = {12, 0}, pad = ui.xy(10, 8)}})
         preview_part(thor, "body", "Text", p.text, {}, "text")
-    }
-
-    // Buttons and a toast.
-    {
-        ui.scope({key = "buttons", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, gap = {6, 0}, align = .Center, pad = ui.xy(8, 8), bg = p.background, radius = {0, 0, 8, 8}, border = {width = {t = 1}, color = p.border}}})
-        preview_part(thor, "cancel", "Cancel", p.foreground, p.buttons, "buttons", pad = 10)
-        preview_part(thor, "active", "Active", p.foreground, p.active, "active", pad = 10)
-        preview_part(thor, "ok", "OK", theme.color_on(p.accent_color), p.accent_color, "accent", pad = 10)
-        preview_part(thor, "mark", "●", p.accent_secondary_color, {}, "accent_secondary")
+        preview_part(thor, "muted", "3 matches", p.muted_color, {}, "muted")
+        preview_part(thor, "link", "docs", p.links_color, {}, "links")
+        preview_part(thor, "disabled", "Off", p.disabled, {}, "disabled")
         ui.spacer(ui.Grow(1), {key = "gap"})
         preview_part(thor, "toast", "Saved", p.foreground, p.notifications, "notifications", pad = 10)
     }
+
+    // Buttons.
     {
-        ui.scope({key = "selection", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, pad = ui.xy(8, 8), bg = p.contrast}})
-        preview_part(thor, "palette-row", "Selected palette row", p.selection_foreground, p.accent_color, "selection_foreground", pad = 8)
+        ui.scope({key = "buttons", props = {w = ui.Grow(1), h = ui.FIT, dir = .Row, gap = {6, 0}, align = .Center, pad = ui.xy(10, 8), border = {width = {t = 1}, color = p.border}}})
+        preview_part(thor, "cancel", "Cancel", p.foreground, p.buttons, "buttons", pad = 10)
+        preview_part(thor, "delete", "Delete", theme.color_on(p.danger_color), p.danger_color, "danger", pad = 10)
+        preview_part(thor, "ok", "OK", theme.color_on(p.accent_color), p.accent_color, "accent", pad = 10)
+        ui.spacer(ui.Grow(1), {key = "gap"})
+        preview_part(thor, "mark", "●", p.accent_secondary_color, {}, "accent_secondary")
     }
 }
 
-// A clickable piece of the preview that selects `role`. `w` fixes a width for
-// a part with no text.
+// A clickable piece of the preview that selects `role`. A `w` fixes its width.
 @(private = "file")
-preview_part :: proc(thor: ^Thor, key, text: string, fg, bg: ui.Color, role: string, pad: f32 = 0, w: f32 = 0) -> bool {
+preview_part :: proc(
+    thor: ^Thor,
+    key, text: string,
+    fg, bg: ui.Color,
+    role: string,
+    pad: f32 = 0,
+    w: f32 = 0,
+    align_end := false,
+    grow_h := false,
+    top_radius := false,
+) -> bool {
+    // A label is measured without its trailing spaces, so they are made
+    // non-breaking.
+    shown, _ := strings.replace_all(text, " ", " ", context.temp_allocator)
     props := ui.Props {
         color = fg,
         bg = bg,
         text_wrap = .None,
         cursor = .Pointer,
-        pad = ui.xy(pad, pad > 0 ? 3 : 0),
-        radius = ui.rad(bg != {} ? 4 : 0),
+        pad = ui.xy(pad, pad > 0 ? 4 : 0),
+        radius = top_radius ? {6, 6, 0, 0} : ui.rad(bg != {} ? 4 : 0),
+        text_align = align_end ? .End : .Start,
     }
     if w > 0 {
         props.w = ui.Px(w)
+    }
+    if grow_h {
         props.h = ui.Grow(1)
     }
-    it := ui.label(text, {key = key, flags = {.Clickable}, props = props})
+    it := ui.label(shown, {key = key, flags = {.Clickable}, props = props})
     index := theme.color_index(role)
     if index >= 0 {
         thor_tip(thor, it.id, theme.COLORS[index].key)
@@ -1024,7 +1045,7 @@ preview_part :: proc(thor: ^Thor, key, text: string, fg, bg: ui.Color, role: str
 
 // A status chip: tinted text on a faint fill of its own color.
 @(private = "file")
-preview_chip :: proc(thor: ^Thor, key, text: string, color: ui.Color, p: ^theme.Theme, role: string) {
+preview_chip :: proc(thor: ^Thor, key, text: string, color: ui.Color, role: string) {
     fill := color
     fill.a = 40
     preview_part(thor, key, text, color, fill, role, pad = 8)
