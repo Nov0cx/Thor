@@ -168,6 +168,13 @@ test_scope_labels :: proc(t: ^testing.T) {
     expect_ref(t, "package p\nf :: proc() {\n    outer := 1\n    for {\n        break «outer\n    }\n}", .Free)
 }
 
+// A foreign block in a body declares into the scope around it.
+@(test)
+test_scope_local_foreign_block :: proc(t: ^testing.T) {
+    expect_local(t, "package p\nf :: proc() {\n    foreign lib {\n        »ext :: proc() ---\n    }\n    «ext()\n}", .Proc)
+    expect_local(t, "package p\nf :: proc() {\n    «ext()\n    foreign lib {\n        »ext :: proc() ---\n    }\n}", .Proc)
+}
+
 @(test)
 test_scope_nested_proc_literals :: proc(t: ^testing.T) {
     // Procedures do not capture variables or parameters.

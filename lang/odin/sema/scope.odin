@@ -702,10 +702,17 @@ decl_local_value :: proc(n, name: odinsyntax.Syntax_Node) -> Local_Value {
 @(private = "file")
 hoist :: proc(w: ^Walker, n: odinsyntax.Syntax_Node) {
     n := n
-    it := odinsyntax.child_iter(&n, {kinds = {.Value_Decl, .When_Stmt}})
+    it := odinsyntax.child_iter(&n, {kinds = {.Value_Decl, .When_Stmt, .Foreign_Block}})
     for child in odinsyntax.child_iter_next(&it) {
         if child.green.kind == .When_Stmt {
             hoist_when(w, child)
+            continue
+        }
+        if child.green.kind == .Foreign_Block {
+            fb, _ := odinsyntax.as_foreign_block(child)
+            if body, ok := odinsyntax.foreign_block_body(&fb); ok {
+                hoist(w, odinsyntax.Syntax_Node(body))
+            }
             continue
         }
         if !is_constant_decl(child) {
@@ -769,11 +776,8 @@ walk_foreign_block :: proc(w: ^Walker, n: odinsyntax.Syntax_Node) {
     if !ok {
         return
     }
-    if w.cur < 0 {
-        walk_children(w, odinsyntax.Syntax_Node(body))
-    } else {
-        walk(w, odinsyntax.Syntax_Node(body))
-    }
+    // A foreign block opens no scope: in a body `hoist` declared its names into the enclosing one.
+    walk_children(w, odinsyntax.Syntax_Node(body))
 }
 
 // The identifier a loop or switch variable names: `v` or `&v`.
