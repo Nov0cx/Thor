@@ -120,7 +120,7 @@ where_value :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> (v
 // False when it is no type; INVALID_TYPE when it is a type that cannot be read.
 @(private)
 where_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> (Type_Id, bool) {
-    if name, args, is_call := intrinsic_call(c, n); is_call {
+    if name, args, is_call := intrinsic_call(c, file, n); is_call {
         if t, known := type_intrinsic(c, file, name, args); known {
             return t, true
         }
@@ -129,10 +129,11 @@ where_type :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> (Ty
     return op.type, op.mode == .Type
 }
 
-// The name and arguments of a call `intrinsics.name(...)` or `name(...)`; false when `n` is no call.
-// The arguments are in `c.tmp`.
+// The name and arguments of a call `intrinsics.name(...)` or `name(...)`, through a constant that
+// names it (`IS_FLOAT :: intrinsics.type_is_float`); false when `n` is no call. The arguments are
+// in `c.tmp`.
 @(private = "file")
-intrinsic_call :: proc(c: ^Checker, n: odinsyntax.Syntax_Node) -> (name: string, args: []odinsyntax.Syntax_Node, ok: bool) {
+intrinsic_call :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> (name: string, args: []odinsyntax.Syntax_Node, ok: bool) {
     call, is_call := odinsyntax.as_call_expr(n)
     if !is_call {
         return
@@ -143,6 +144,15 @@ intrinsic_call :: proc(c: ^Checker, n: odinsyntax.Syntax_Node) -> (name: string,
         return
     }
     name = strings.trim_space(odinsyntax.node_text(callee))
+    if callee.green.kind == .Ident {
+        if r := lookup_name(c, file, name, int(callee.offset)); r.kind == .Item {
+            if item := checker_item(c, r.symbol); item != nil && item.kind == .Const && item.value_index < 0 {
+                if value, vok := node_at(c, r.symbol.file, item.value_offset); vok && (value.green.kind == .Selector_Expr || value.green.kind == .Ident) {
+                    name = strings.trim_space(odinsyntax.node_text(value))
+                }
+            }
+        }
+    }
     if dot := strings.last_index_byte(name, '.'); dot >= 0 {
         name = name[dot + 1:]
     }
@@ -255,7 +265,7 @@ core_type :: proc(c: ^Checker, t: Type_Id) -> Type_Id {
 type_predicate :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node) -> (value, known: bool) {
     temp := scratch_begin(c)
     defer scratch_end(temp)
-    name, args, is_call := intrinsic_call(c, n)
+    name, args, is_call := intrinsic_call(c, file, n)
     if !is_call || len(args) == 0 || !strings.has_prefix(name, "type_") {
         return false, false
     }

@@ -75,7 +75,12 @@ builtin_call :: proc(c: ^Checker, file: File_Id, name: string, callee: Type_Id, 
         return min_max_call(c, file, name == "max", args)
     case "abs", "conj":
         if len(args) == 1 {
-            return value_of(expr_type(c, file, args[0], expected))
+            op := value_of(expr_type(c, file, args[0], expected))
+            // `abs` of a complex or quaternion is its magnitude, a float.
+            if name == "abs" && (type_is_complex(t, op.type) || type_is_quaternion(t, op.type)) && !type_is_untyped(t, op.type) {
+                return {mode = .Value, type = component_of(c, op.type)}
+            }
+            return op
         }
     case "clamp":
         return first_typed(c, file, args, expected)

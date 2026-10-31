@@ -131,11 +131,12 @@ rem :: proc{rem16, rem32}
 num :: proc(x: $T) -> T where intrinsics.type_is_numeric(T) { return x }
 twice :: proc(x: $T) -> T { return num(x) }
 
-f :: proc(x: f32, h: f16, p: rawptr, n: uint) {
+f :: proc(x: f32, h: f16, p: rawptr, n: uint, cx: complex64) {
 	a: f32 = rem(my_abs(x))
 	b: f32 = rem(my_abs(h))
 	intrinsics.mem_zero(p, n)
-	_, _ = a, b
+	m: f32 = rem(abs(cx))
+	_, _, _ = a, b, m
 }
 `
     res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
@@ -808,6 +809,11 @@ g1 :: proc(d: ^[dynamic]int) -> bool {
 	resize(d, 0)
 }
 g2 :: proc() {}
+n1 :: proc() -> int {
+	return helper()
+
+	helper :: proc() -> int { return 1 }
+}
 `
     res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
     defer free_live(&res)
@@ -902,10 +908,18 @@ import "base:intrinsics"
 num :: proc(x: $T) -> T where intrinsics.type_is_numeric(T) { return x }
 two :: proc(a: $A, b: $B) where A == B, size_of(A) == 8 {}
 feature :: proc($test: $T) -> bool where intrinsics.type_is_string(T) { return true }
+IS_FLOAT :: intrinsics.type_is_float
+sd :: proc(a: $T) -> T where IS_FLOAT(T) { return a }
+vd :: proc(a: $T/[$N]$E) -> E { return a[0] }
+dot :: proc{sd, vd}
 
 main :: proc() {
 	_ = feature("avx2")
 	_ = feature(1)
+	v: [2]f32
+	dx: f32 = dot(v)
+	_ = dx
+	_ = sd(v)
 	_ = num("s")
 	_ = num(1)
 	two(1, 2)
@@ -918,6 +932,7 @@ main :: proc() {
     defer free_live(&res)
     expect_errors(t, &res, src, {
         {"feature(1)", "'where' clause evaluated to false: intrinsics.type_is_string(T)", 0},
+        {"sd(v)", "'where' clause evaluated to false: IS_FLOAT(T)", 0},
         {"num(\"s\")", "'where' clause evaluated to false: intrinsics.type_is_numeric(T)", 0},
         {"two(x, x)", "'where' clause evaluated to false: size_of(A) == 8", 0},
         {"two(x, \"a\")", "'where' clause evaluated to false: A == B", 0},

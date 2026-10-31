@@ -141,6 +141,10 @@ list_terminates :: proc(c: ^Checker, file: File_Id, stmts: odinsyntax.Child_Iter
     last: odinsyntax.Syntax_Node
     found := false
     for s in odinsyntax.child_iter_next(&stmts) {
+        // A `::` declaration after the last statement (a nested procedure) is no statement.
+        if s.green.kind == .Value_Decl && is_constant_decl(s) {
+            continue
+        }
         last, found = s, true
     }
     return found && terminates(c, file, last)
