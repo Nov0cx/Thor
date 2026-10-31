@@ -460,7 +460,7 @@ Color :: enum {Red, Green, Blue}
 @(test)
 test_check_odin_constants :: proc(t: ^testing.T) {
     src := `package p
-WORD :: ODIN_WORD_SIZE * 8
+WORD :: size_of(uintptr) * 8
 DEBUG :: ODIN_DEBUG
 IS_WINDOWS :: ODIN_OS == .Windows
 RETRIES :: 10 when ODIN_OS == .Windows else 1

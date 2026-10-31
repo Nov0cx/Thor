@@ -597,10 +597,6 @@ constant_value :: proc(name: string, target: Target) -> Cond_Value {
             return UNKNOWN_VALUE
         }
         return bool_value(false)
-    case "ODIN_WORD_SIZE":
-        if size := type_size("int", target); size > 0 {
-            return {kind = .Int, i = size}
-        }
     }
     return UNKNOWN_VALUE
 }

@@ -544,7 +544,7 @@ build_constant_type :: proc(name: string) -> Type_Id {
     switch name {
     case "ODIN_ROOT", "ODIN_VENDOR", "ODIN_VERSION", "ODIN_VERSION_HASH", "ODIN_BUILD_PROJECT_NAME":
         return type_untyped(.String)
-    case "ODIN_COMPILE_TIMESTAMP", "ODIN_MINIMUM_OS_VERSION", "ODIN_WORD_SIZE":
+    case "ODIN_COMPILE_TIMESTAMP", "ODIN_MINIMUM_OS_VERSION":
         return type_untyped(.Int)
     }
     return type_untyped(.Bool)

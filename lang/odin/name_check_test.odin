@@ -208,6 +208,8 @@ main :: proc() {
 	q.missing()
 	_ = intrinsics.count_ones(1)
 	_ = intrinsics.nope_zq(1)
+	when ODIN_NOPE {
+	}
 	when ODIN_OS == .Linux {
 		_ = posix_only
 		q.gone()
@@ -224,6 +226,7 @@ main :: proc() {
         {"q.tagged", "'tagged' is not exported by 'q'", 0},
         {"q.missing", "'missing' is not declared by 'q'", 0},
         {"intrinsics.nope_zq", "'nope_zq' is not declared by 'intrinsics'", 0},
+        {"ODIN_NOPE", "Undeclared name: ODIN_NOPE", 0},
     })
 
     // A file out of the build sees the other files out of the build.

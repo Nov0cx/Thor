@@ -3,6 +3,7 @@ package odinsema
 import "core:mem"
 import "core:mem/virtual"
 import "core:path/filepath"
+import "core:slice"
 import "core:strings"
 
 import odinsyntax "../syntax"
@@ -662,10 +663,23 @@ universe_name :: proc(c: ^Checker, name: string) -> Resolved {
     case "true", "false", "nil":
         return Resolved{kind = .Builtin, name = name}
     }
-    if strings.has_prefix(name, "ODIN_") {
+    if strings.has_prefix(name, "ODIN_") && slice.contains(ODIN_CONSTANTS[:], name) {
         return Resolved{kind = .Builtin, name = name}
     }
     return {}
+}
+
+// The constants the compiler declares.
+@(private, rodata)
+ODIN_CONSTANTS := [?]string {
+    "ODIN_ARCH", "ODIN_ARCH_STRING", "ODIN_BEDROCK", "ODIN_BUILD_MODE", "ODIN_BUILD_PROJECT_NAME", "ODIN_COMPILE_TIMESTAMP",
+    "ODIN_DEBUG", "ODIN_DEFAULT_CALLING_CONVENTION", "ODIN_DEFAULT_TO_NIL_ALLOCATOR", "ODIN_DEFAULT_TO_PANIC_ALLOCATOR", "ODIN_DISABLE_ASSERT",
+    "ODIN_ENDIAN", "ODIN_ENDIAN_STRING", "ODIN_ERROR_POS_STYLE", "ODIN_FOREIGN_ERROR_PROCEDURES",
+    "ODIN_MICROARCH_STRING", "ODIN_MINIMUM_OS_VERSION", "ODIN_NO_BOUNDS_CHECK", "ODIN_NO_CRT",
+    "ODIN_NO_ENTRY_POINT", "ODIN_NO_RTTI", "ODIN_NO_TYPE_ASSERT", "ODIN_OPTIMIZATION_MODE", "ODIN_OS",
+    "ODIN_OS_STRING", "ODIN_PLATFORM_SUBTARGET", "ODIN_PLATFORM_SUBTARGET_IOS", "ODIN_ROOT", "ODIN_SANITIZER_FLAGS", "ODIN_TEST",
+    "ODIN_USE_SEPARATE_MODULES", "ODIN_VALGRIND_SUPPORT", "ODIN_VENDOR", "ODIN_VERSION", "ODIN_VERSION_HASH",
+    "ODIN_WINDOWS_SUBSYSTEM", "ODIN_WINDOWS_SUBSYSTEM_STRING",
 }
 
 @(private)
