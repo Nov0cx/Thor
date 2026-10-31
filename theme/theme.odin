@@ -443,3 +443,24 @@ theme_make_dirs :: proc(path: string) -> bool {
     }
     return true
 }
+
+// A copy of `theme` with its own name. Pairs with destroy.
+clone :: proc(theme: Theme) -> Theme {
+    out := theme
+    out.name = strings.clone(theme.name)
+    return out
+}
+
+// Whether two themes have the same name and the same color for every role.
+equal :: proc(a, b: Theme) -> bool {
+    a, b := a, b
+    if a.name != b.name {
+        return false
+    }
+    for _, i in COLORS {
+        if color_at(&a, i)^ != color_at(&b, i)^ {
+            return false
+        }
+    }
+    return true
+}

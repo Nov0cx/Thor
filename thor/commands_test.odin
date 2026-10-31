@@ -7,6 +7,8 @@ import "core:strings"
 import "core:testing"
 import "core:thread"
 
+import "../setting"
+
 // Twelve files across two directory levels, walked with a cap of 5, must stop
 // at exactly 5 and report that the walk was cut short.
 @(test)
@@ -75,4 +77,27 @@ test_file_index_refresh_coalesces :: proc(t: ^testing.T) {
 
     testing.expect(t, thor.file_index_dirty, "a refresh while one is running must coalesce into a dirty flag")
     testing.expect_value(t, thor.inflight_jobs, 0)
+}
+
+// Every palette command names a keybinds.lua action, and the shipped keybinds
+// list each one, so the Settings keybinding list can bind any command.
+@(test)
+test_every_command_is_bindable :: proc(t: ^testing.T) {
+    thor: Thor
+    thor_palette_init(&thor)
+    defer {
+        thor_palette_clear_commands(&thor)
+        thor_palette_destroy(&thor)
+        delete(thor.app_binds)
+    }
+    thor_register_commands(&thor)
+
+    shipped := setting.load(setting.GLOBAL_DIR)
+    defer setting.destroy(&shipped)
+
+    testing.expect(t, len(thor.palette.commands) > 0, "commands register")
+    for command in thor.palette.commands {
+        testing.expectf(t, command.action != "", "%q has no action name", command.title)
+        testing.expectf(t, command.action in shipped.keybinds, "%q (%s) is not in settings/keybinds.lua", command.title, command.action)
+    }
 }

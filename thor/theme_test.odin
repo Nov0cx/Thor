@@ -25,28 +25,51 @@ test_theme_choices_are_cached_and_aligned :: proc(t: ^testing.T) {
     testing.expect(t, raw_data(again_files) == raw_data(files), "a second open reuses the cache")
 }
 
-// The two row-id spaces have to stay apart: one Choice handler tells them from
-// each other, and from the plugin and language-backend ids, by prefix alone.
+// The draft: an edit marks it dirty, Revert and a per-role reset clean it, and a
+// generated palette stays dirty until it is saved under a name.
 @(test)
-test_theme_row_ids_roundtrip :: proc(t: ^testing.T) {
-    for entry in theme.COLORS {
-        id := thor_theme_color_id(entry.key)
-        key, ok := thor_theme_color_key(id)
-        testing.expectf(t, ok && key == entry.key, "%q does not survive its id", entry.key)
-        _, is_action := thor_theme_action_name(id)
-        testing.expectf(t, !is_action, "%q reads as an action id", id)
+test_theme_draft_lifecycle :: proc(t: ^testing.T) {
+    thor: Thor
+    thor.theme = theme.clone(theme.mjolnir())
+    thor_theme_editor_init(&thor)
+    defer {
+        thor_theme_editor_destroy(&thor)
+        theme.destroy(&thor.theme)
+        delete(thor.status_message)
     }
 
-    action := thor_theme_action_id("generate")
-    name, ok := thor_theme_action_name(action)
-    testing.expect(t, ok && name == "generate", "an action id round-trips")
-    _, is_color := thor_theme_color_key(action)
-    testing.expect(t, !is_color, "an action id does not read as a color")
+    thor_open_theme_editor(&thor)
+    testing.expect(t, thor.theme_editor_open, "the window opens")
+    testing.expect_value(t, thor.theme_editor.file, DEFAULT_THEME)
+    testing.expect(t, !thor_theme_dirty(&thor), "a fresh draft is clean")
 
-    for id in ([]string {"theme", "plugin:git", "language_backend:odin"}) {
-        _, color_ok := thor_theme_color_key(id)
-        _, action_ok := thor_theme_action_name(id)
-        testing.expectf(t, !color_ok && !action_ok, "%q is not a theme row", id)
+    keywords := theme.color_index("keywords")
+    thor_theme_set_color(&thor, keywords, ui.Color {1, 2, 3, 255})
+    testing.expect(t, thor_theme_dirty(&thor), "an edit marks the draft dirty")
+    thor_theme_reset_color(&thor, keywords)
+    testing.expect(t, !thor_theme_dirty(&thor), "a per-role reset cleans it")
+
+    thor_theme_set_color(&thor, keywords, ui.Color {1, 2, 3, 255})
+    thor_theme_revert(&thor)
+    testing.expect(t, !thor_theme_dirty(&thor), "Revert cleans it")
+    testing.expect_value(t, thor.theme.keywords_color, theme.mjolnir().keywords_color)
+
+    thor_theme_use_generated(&thor)
+    testing.expect(t, thor.theme_editor.generated && thor_theme_dirty(&thor), "a generated draft is dirty")
+    thor_theme_revert(&thor)
+    testing.expect(t, !thor.theme_editor.generated && !thor_theme_dirty(&thor), "Revert drops the generated draft")
+}
+
+// A pasted color may leave out its "#".
+@(test)
+test_theme_parse_color :: proc(t: ^testing.T) {
+    for text in ([]string {"#112233", "112233", "11223344"}) {
+        _, ok := thor_theme_parse_color(text)
+        testing.expectf(t, ok, "%q parses", text)
+    }
+    for text in ([]string {"", "#12", "xyzxyz", "##112233"}) {
+        _, ok := thor_theme_parse_color(text)
+        testing.expectf(t, !ok, "%q does not parse", text)
     }
 }
 

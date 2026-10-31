@@ -60,8 +60,6 @@ thor_load_theme_by_name :: proc(thor: ^Thor, name: string) {
 
     theme.destroy(&thor.theme)
     thor.theme = loaded
-    // A palette read from disk, so any generated preview is gone.
-    thor.theme_preview_generated = false
     log.infof("Loaded theme: %s", thor.theme.name)
 }
 

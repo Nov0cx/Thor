@@ -39,8 +39,13 @@ thor_global_key :: proc(thor: ^Thor, event: ui.Key_Event) -> bool {
         return false
     }
     // So do the theme window and the color picker over it (Escape closes them,
-    // and the picker's hex field is typed in).
+    // and the picker's hex field is typed in). A bound theme command still runs
+    // in the window.
     if thor.theme_editor_open || thor.color_picker_open {
+        if thor.theme_editor_open && !thor.color_picker_open && !thor.palette_open && !thor.select_open &&
+           event.action != .Release {
+            return thor_dispatch_app_bind(thor, event, "theme_")
+        }
         return false
     }
 

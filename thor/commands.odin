@@ -286,10 +286,12 @@ thor_add_bindable_command :: proc(thor: ^Thor, title, action: string, run: proc(
 
 // Runs the app command bound to this chord, if any. Called from thor_global_key
 // after the built-in binds, so a user-set chord invokes an otherwise key-less
-// command. Unbound entries (KEY_NULL) never match a real press.
-thor_dispatch_app_bind :: proc(thor: ^Thor, event: ui.Key_Event) -> bool {
+// command. Unbound entries (KEY_NULL) never match a real press. A `prefix`
+// limits the match to the actions it starts.
+thor_dispatch_app_bind :: proc(thor: ^Thor, event: ui.Key_Event, prefix := "") -> bool {
     for bind in thor.app_binds {
         if bind.key.key != .None &&
+           strings.has_prefix(bind.action, prefix) &&
            setting.keybind_matches(bind.key, event.key, event.mods) {
             if bind.run != nil {
                 bind.run(bind.data)
@@ -365,11 +367,11 @@ thor_register_commands :: proc(thor: ^Thor) {
     thor_palette_add(
         thor, "Edit: Delete to Line End", thor_cmd_delete_to_line_end, thor, action = "delete_to_line_end",
     )
-    thor_palette_add(thor, "Edit: Join Lines", thor_cmd_join_lines, thor, action = "join_lines")
-    thor_palette_add(thor, "Edit: Move Line Up", thor_cmd_move_line_up, thor, action = "move_line_up")
     thor_palette_add(
         thor, "Edit: Delete to Line Start", thor_cmd_delete_to_line_start, thor, action = "delete_to_line_start",
     )
+    thor_palette_add(thor, "Edit: Join Lines", thor_cmd_join_lines, thor, action = "join_lines")
+    thor_palette_add(thor, "Edit: Move Line Up", thor_cmd_move_line_up, thor, action = "move_line_up")
     thor_palette_add(thor, "Edit: Move Line Down", thor_cmd_move_line_down, thor, action = "move_line_down")
     thor_palette_add(thor, "Edit: Uppercase", thor_cmd_uppercase, thor, action = "uppercase")
     thor_palette_add(thor, "Edit: Lowercase", thor_cmd_lowercase, thor, action = "lowercase")
@@ -400,7 +402,7 @@ thor_register_commands :: proc(thor: ^Thor) {
     thor_add_bindable_command(thor, "Tasks: Run Task", "run_task", thor_cmd_run_task, thor)
     thor_add_bindable_command(thor, "Tasks: Add Task", "add_task", thor_cmd_add_task, thor)
     thor_add_bindable_command(thor, "Tasks: Remove Task", "remove_task", thor_cmd_remove_task, thor)
-    thor_add_bindable_command(thor, "Tasks: Edit Tasks (JSON)", "edit_tasks", thor_cmd_edit_tasks, thor)
+    thor_add_bindable_command(thor, "Tasks: Edit Tasks", "edit_tasks", thor_cmd_edit_tasks, thor)
 
     thor_add_bindable_command(thor, "Help: Tutorial", "tutorial", thor_cmd_tutorial, thor)
     thor_add_bindable_command(thor, "Help: Documentation", "docs", thor_cmd_docs, thor)
@@ -426,6 +428,22 @@ thor_register_commands :: proc(thor: ^Thor) {
     thor_add_bindable_command(thor, "Preferences: Change Icon Pack", "change_icon_pack", thor_cmd_change_icon_pack, thor)
     thor_add_bindable_command(thor, "Preferences: Change File Icon Pack", "change_file_icon_pack", thor_cmd_change_file_icon_pack, thor)
     thor_add_bindable_command(thor, "Preferences: Ligatures", "change_ligatures", thor_cmd_change_ligatures, thor)
+
+    thor_add_bindable_command(thor, "Theme: Edit Colors", "theme_editor", thor_cmd_theme_editor, thor)
+    thor_add_bindable_command(thor, "Theme: Edit Another Theme", "theme_switch", thor_cmd_theme_switch, thor)
+    thor_add_bindable_command(thor, "Theme: Save", "theme_save", thor_cmd_theme_save, thor)
+    thor_add_bindable_command(thor, "Theme: Save As", "theme_save_as", thor_cmd_theme_save_as, thor)
+    thor_add_bindable_command(thor, "Theme: Duplicate", "theme_duplicate", thor_cmd_theme_duplicate, thor)
+    thor_add_bindable_command(thor, "Theme: Revert Changes", "theme_revert", thor_cmd_theme_revert, thor)
+    thor_add_bindable_command(thor, "Theme: Delete", "theme_delete", thor_cmd_theme_delete, thor)
+    thor_add_bindable_command(thor, "Theme: Reset to Shipped", "theme_reset", thor_cmd_theme_reset, thor)
+    thor_add_bindable_command(thor, "Theme: Open Theme File", "theme_open_file", thor_cmd_theme_open_file, thor)
+    thor_add_bindable_command(thor, "Theme: Generate From Colors", "theme_generate", thor_cmd_theme_generate, thor)
+    thor_add_bindable_command(thor, "Theme: Use Generated Palette", "theme_use_generated", thor_cmd_theme_use_generated, thor)
+    thor_add_bindable_command(thor, "Theme: Edit Selected Color", "theme_edit_color", thor_cmd_theme_edit_color, thor)
+    thor_add_bindable_command(thor, "Theme: Reset Selected Color", "theme_reset_color", thor_cmd_theme_reset_color, thor)
+    thor_add_bindable_command(thor, "Theme: Copy Selected Color", "theme_copy_color", thor_cmd_theme_copy_color, thor)
+    thor_add_bindable_command(thor, "Theme: Paste Selected Color", "theme_paste_color", thor_cmd_theme_paste_color, thor)
 }
 
 thor_cmd_toggle_explorer :: proc(data: rawptr) {thor_toggle_explorer(cast(^Thor) data)}
@@ -602,6 +620,7 @@ thor_cmd_select_all :: proc(data: rawptr) {if s := thor_edit_state(data); s != n
 thor_cmd_duplicate_line :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.duplicate_lines(s, 1)}}
 thor_cmd_delete_line :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.delete_lines(s)}}
 thor_cmd_delete_to_line_end :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.delete_to_line_end(s)}}
+thor_cmd_delete_to_line_start :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.delete_to_line_start(s)}}
 thor_cmd_move_line_up :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.move_lines(s, -1)}}
 thor_cmd_move_line_down :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.move_lines(s, 1)}}
 thor_cmd_trim_whitespace :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.trim_trailing_whitespace(s)}}
@@ -620,7 +639,6 @@ thor_cmd_rename_symbol :: proc(data: rawptr) {_ = thor_rename_symbol(cast(^Thor)
 thor_cmd_code_actions :: proc(data: rawptr) {thor_code_actions(cast(^Thor) data)}
 thor_cmd_join_lines :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.join_lines(s)}}
 thor_cmd_uppercase :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.transform_case(s, .Upper)}}
-thor_cmd_delete_to_line_start :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.delete_to_line_start(s)}}
 thor_cmd_lowercase :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.transform_case(s, .Lower)}}
 thor_cmd_capitalize :: proc(data: rawptr) {if s := thor_edit_state(data); s != nil {textedit.transform_case(s, .Title)}}
 // Prompts for a character, then aligns the first occurrence of it on each

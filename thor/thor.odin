@@ -84,17 +84,10 @@ Thor :: struct {
     theme_labels: []string, // owned
     theme_files: []string, // owned
     theme_stamp: i64, // newest modification time the cache was built from
-    // The color role the picker is editing and the value it had when it opened,
-    // so a cancel puts it back. Owned; "" when no picker is up.
-    theme_edit_key: string, // owned
-    theme_edit_original: ui.Color,
-    // Generator seeds, kept between the rows that set them and the Generate row.
+    // Generator seeds of the theme window's Generate tab.
     theme_seed_background: ui.Color,
     theme_seed_accent: ui.Color,
     theme_seed_dark: bool,
-    // True while thor.theme holds a generated preview rather than the configured
-    // palette, so an edit cannot write the preview over a saved theme.
-    theme_preview_generated: bool,
     // Zoom and pan of the image view, and the orbit camera and render target of
     // the model view. One per editor pane: a split can show two of either, and
     // each keeps its own camera.
@@ -1078,7 +1071,6 @@ shutdown :: proc(thor: ^Thor) {
     thor_clear_plugin_requests(thor)
     delete(thor.plugin_requests)
     delete(thor.plugin_setting_target)
-    delete(thor.theme_edit_key)
     delete(thor.language_backend_target)
     setting.destroy(&thor.config)
     plugin.manager_destroy(&thor.plugins)

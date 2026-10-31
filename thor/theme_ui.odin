@@ -1,410 +1,478 @@
+// The theme window's behaviour: the draft, its save paths, the generator and the
+// theme commands. thor/theme_editor.odin declares the window.
+//
+// An edit changes thor.theme, the draft, and the whole editor shows it at once.
+// Nothing is written until Save; Revert puts back `saved`, the palette on disk.
+// Every write goes to user/themes — assets/themes is replaced by every build and
+// by every update.
 package thor
 
 import "core:os"
 import "core:strings"
+import rl "vendor:raylib"
 
 import "../setting"
-import ui "../vendor/loom/loom"
 import "../theme"
-// Fills and answers the Theme window opened by the "Theme Colors" row of the
-// Settings modal: one row per color role of the active palette, each opening the
-// color picker, plus the rows that generate a whole palette from two seeds.
-// The picker previews onto the running editor and only writes on OK, always into
-// user/themes — assets/themes is replaced by every build and by every update.
+import ui "../vendor/loom/loom"
 
 // The Appearance row that opens the window.
 THEME_EDITOR_SETTING :: "theme_editor"
 
-// One color role's row. Prefixed like the plugin and backend rows, so one Choice
-// handler tells them apart.
-@(private = "file")
-THEME_COLOR_PREFIX :: "theme_color:"
-// A row that acts instead of naming a role (the generator's seeds and its button).
-@(private = "file")
-THEME_ACTION_PREFIX :: "theme_action:"
-
-@(private)
-thor_theme_color_id :: proc(key: string) -> string {
-    return strings.concatenate({THEME_COLOR_PREFIX, key}, context.temp_allocator)
-}
-
-@(private)
-thor_theme_color_key :: proc(id: string) -> (string, bool) {
-    if !strings.has_prefix(id, THEME_COLOR_PREFIX) {
-        return "", false
-    }
-    return id[len(THEME_COLOR_PREFIX):], true
-}
-
-@(private)
-thor_theme_action_id :: proc(name: string) -> string {
-    return strings.concatenate({THEME_ACTION_PREFIX, name}, context.temp_allocator)
-}
-
-@(private)
-thor_theme_action_name :: proc(id: string) -> (string, bool) {
-    if !strings.has_prefix(id, THEME_ACTION_PREFIX) {
-        return "", false
-    }
-    return id[len(THEME_ACTION_PREFIX):], true
-}
-
-// Fold group per color group. Stable, since it keys the view's collapsed map.
-@(private = "file")
-THEME_GROUP_IDS := [theme.Color_Group]string {
-    .Surfaces = "theme.surfaces",
-    .Text     = "theme.text",
-    .Status   = "theme.status",
-    .Syntax   = "theme.syntax",
-}
-
-@(private = "file")
 THEME_MODE_LABELS := [?]string {"Dark", "Light"}
 
+// The answers to the unsaved-changes question.
+@(private = "file")
+THEME_UNSAVED_CHOICES := [?]string {"Save", "Discard", "Cancel"}
+
+// What runs once the unsaved-changes question is answered.
+Theme_Pending :: enum {
+    None,
+    Close,
+    Switch,
+    Open_File,
+}
+
 // Puts the generator seeds back on the active theme. Called at startup and after a
-// theme switch, so the Generate rows always open on something sensible.
+// theme switch, so the Generate tab always opens on something sensible.
 thor_reset_theme_seeds :: proc(thor: ^Thor) {
     thor.theme_seed_background = thor.theme.background
     thor.theme_seed_accent = thor.theme.accent_color
     thor.theme_seed_dark = theme.color_on(thor.theme.background) == theme.COLOR_ON_LIGHT
 }
 
-// Fills the window: the generator first, then every color role under a fold group
-// of its own. Driven by theme.COLORS, so it needs no key list.
-thor_populate_theme_editor :: proc(thor: ^Thor) {
-    editor := &thor.theme_editor
-    thor_theme_editor_clear(editor)
-    thor_theme_editor_set_title(editor, thor.theme.name)
+// The theme the settings name, or the default.
+thor_theme_configured_name :: proc(thor: ^Thor) -> string {
+    name := setting.theme_name(&thor.config)
+    return name == "" ? DEFAULT_THEME : name
+}
 
-    thor_theme_editor_begin_group(editor, "theme.generate", "Generate From Colors", collapsed = true)
-    thor_theme_editor_add_action(editor, "mode", "Mode", THEME_MODE_LABELS[thor.theme_seed_dark ? 0 : 1])
-    thor_theme_editor_add_color(
-        editor, "seed_background", "Background Seed",
-        theme.to_hex(thor.theme_seed_background), thor.theme_seed_background,
-    )
-    thor_theme_editor_add_color(
-        editor, "seed_accent", "Accent Seed", theme.to_hex(thor.theme_seed_accent), thor.theme_seed_accent,
-    )
-    thor_theme_editor_add_action(editor, "generate", "Save Generated Theme", "Name it...")
-    thor_theme_editor_end_group(editor)
+// Makes the configured theme and the palette on screen the clean state of the draft.
+thor_theme_editor_rebaseline :: proc(thor: ^Thor) {
+    e := &thor.theme_editor
+    file := strings.clone(thor_theme_configured_name(thor))
+    delete(e.file)
+    e.file = file
+    theme.destroy(&e.saved)
+    e.saved = theme.clone(thor.theme)
+    e.generated = false
+}
 
-    group := theme.Color_Group.Surfaces
-    open_group := false
-    for entry, i in theme.COLORS {
-        if i == 0 || entry.group != group {
-            if open_group {
-                thor_theme_editor_end_group(editor)
-            }
-            group = entry.group
-            thor_theme_editor_begin_group(
-                editor, THEME_GROUP_IDS[group], theme.GROUP_LABELS[group], collapsed = group != .Surfaces,
-            )
-            open_group = true
-        }
-        color := theme.color_at(&thor.theme, i)^
-        thor_theme_editor_add_color(editor, entry.key, entry.key, theme.to_hex(color), color)
+// Whether the draft differs from the file it came from.
+thor_theme_dirty :: proc(thor: ^Thor) -> bool {
+    e := &thor.theme_editor
+    return e.generated || !theme.equal(thor.theme, e.saved)
+}
+
+// Follows a theme switch made while the window is open (the theme picker, Save
+// As, Delete). A generated draft and an open picker keep their state.
+thor_theme_editor_sync :: proc(thor: ^Thor) {
+    e := &thor.theme_editor
+    if e.generated || thor.select_open {
+        return
     }
-    if open_group {
-        thor_theme_editor_end_group(editor)
+    if e.file != thor_theme_configured_name(thor) {
+        thor_theme_editor_rebaseline(thor)
+        thor_reset_theme_seeds(thor)
+        thor_theme_generate_refresh(thor)
     }
 }
 
-// Settings > Appearance > Theme Colors: opens the window over the modal.
+// Shows a message in the window footer and in the status bar.
+thor_theme_note :: proc(thor: ^Thor, message: string, is_error := false) {
+    e := &thor.theme_editor
+    text := strings.clone(message)
+    delete(e.note)
+    e.note = text
+    e.note_error = is_error
+    thor_flash_status(thor, message, is_error)
+}
+
+// Opens the window on the configured theme. Opening an open window changes nothing.
 thor_open_theme_editor :: proc(thor: ^Thor) {
-    thor_populate_theme_editor(thor)
-    thor_theme_editor_open(thor)
-}
-
-// Rebuilds the rows when the window is up, so a committed color refreshes its
-// swatch and hex.
-@(private = "file")
-thor_refresh_theme_editor :: proc(thor: ^Thor) {
-    if thor_theme_editor_is_open(thor) {
-        thor_populate_theme_editor(thor)
-    }
-}
-
-// The seed rows the generator owns; every other row names a color role.
-@(private = "file")
-thor_is_theme_seed :: proc(key: string) -> bool {
-    return key == "seed_background" || key == "seed_accent"
-}
-
-// A color row of the window was clicked: the generator's seeds go to the seed
-// callbacks, every other row edits that role of the palette.
-thor_on_theme_editor_color :: proc(data: rawptr, key: string) {
-    thor := cast(^Thor) data
-    if thor_is_theme_seed(key) {
-        seed := key == "seed_background" ? thor.theme_seed_background : thor.theme_seed_accent
-        label := key == "seed_background" ? "Background Seed" : "Accent Seed"
-        thor_color_picker_open(
-            thor, label, thor_theme_action_id(key), seed,
-            thor_theme_seed_preview, thor_theme_seed_commit, thor_theme_seed_cancel, thor,
-        )
-        return
-    }
-    thor_open_theme_color(thor, key)
-}
-
-// An action row of the window was clicked.
-thor_on_theme_editor_action :: proc(data: rawptr, action: string) {
-    thor_run_theme_action(cast(^Thor) data, action)
-}
-
-// Opens the picker over one color role, remembering the value it had so a cancel
-// can put it back.
-@(private = "file")
-thor_open_theme_color :: proc(thor: ^Thor, key: string) {
-    field := theme.color_ptr(&thor.theme, key)
-    if field == nil {
-        return
-    }
-    delete(thor.theme_edit_key)
-    thor.theme_edit_key = strings.clone(key)
-    thor.theme_edit_original = field^
-    thor_color_picker_open(
-        thor, key, thor_theme_color_id(key), field^,
-        thor_theme_color_preview, thor_theme_color_commit, thor_theme_color_cancel, thor,
-    )
-}
-
-// Writes `color` into the palette. A syntax role also marks the open files
-// stale, since its color is baked into their spans; every other role reaches the
-// screen through the pushed theme, and re-highlighting every buffer per drag
-// frame would not pay for itself.
-@(private = "file")
-thor_theme_color_apply :: proc(thor: ^Thor, key: string, color: ui.Color) {
-    field := theme.color_ptr(&thor.theme, key)
-    if field == nil {
-        return
-    }
-    field^ = color
-    if thor_theme_color_group(key) == .Syntax {
-        for file in thor.open_files {
-            file.highlighted = false
+    e := &thor.theme_editor
+    if !thor.theme_editor_open {
+        e.return_focus = thor.focus_owner
+        e.pending = .None
+        delete(e.note)
+        e.note = ""
+        thor_theme_editor_rebaseline(thor)
+        thor_theme_generate_refresh(thor)
+        if e.selected < 0 || e.selected >= len(theme.COLORS) {
+            e.selected = 0
         }
     }
+    thor.theme_editor_open = true
+}
+
+thor_theme_editor_is_open :: proc(thor: ^Thor) -> bool {
+    return thor.theme_editor_open
+}
+
+// Closes the window at once; the caller has settled the draft.
+@(private = "file")
+thor_theme_editor_close :: proc(thor: ^Thor) {
+    thor.theme_editor_open = false
+    if thor.theme_editor.return_focus != "" {
+        thor.focus_request = thor.theme_editor.return_focus
+    }
+}
+
+// Closes the window, asking first when the draft has unsaved changes.
+thor_theme_request_close :: proc(thor: ^Thor) {
+    thor_theme_resolve_then(thor, .Close)
+}
+
+// Runs `next` now when the draft is clean, else after the user saves or discards.
+thor_theme_resolve_then :: proc(thor: ^Thor, next: Theme_Pending) {
+    thor.theme_editor.pending = next
+    if !thor_theme_dirty(thor) {
+        thor_theme_run_pending(thor)
+        return
+    }
+    thor_palette_pick(thor, "Unsaved theme changes", THEME_UNSAVED_CHOICES[:], thor_theme_unsaved_answer, thor)
 }
 
 @(private = "file")
-thor_theme_color_group :: proc(key: string) -> theme.Color_Group {
-    for entry in theme.COLORS {
-        if entry.key == key {
-            return entry.group
+thor_theme_unsaved_answer :: proc(data: rawptr, choice: string) {
+    thor := cast(^Thor) data
+    switch choice {
+    case "Save":
+        // A generated draft asks for a name first; its prompt runs the pending step.
+        if thor_theme_save(thor) {
+            thor_theme_run_pending(thor)
         }
+    case "Discard":
+        thor_theme_discard(thor)
+        thor_theme_run_pending(thor)
+    case:
+        thor.theme_editor.pending = .None
     }
-    return .Surfaces
 }
 
-thor_theme_color_preview :: proc(data: rawptr, id: string, color: ui.Color) {
-    thor := cast(^Thor) data
-    key, ok := thor_theme_color_key(id)
-    if !ok {
-        return
+@(private = "file")
+thor_theme_run_pending :: proc(thor: ^Thor) {
+    next := thor.theme_editor.pending
+    thor.theme_editor.pending = .None
+    switch next {
+    case .None:
+    case .Close:
+        thor_theme_editor_close(thor)
+    case .Switch:
+        thor_cmd_change_theme(thor)
+    case .Open_File:
+        thor_theme_open_file_now(thor)
     }
-    thor_theme_color_apply(thor, key, color)
 }
 
-// OK: persists the whole palette into user/themes, then applies it in full so the
-// syntax spans recolor.
-//
-// thor_reload_settings is deliberately not on this path: it only re-applies a
-// theme when the theme *name* changed, and editing the active theme changes no
-// settings key at all.
-thor_theme_color_commit :: proc(data: rawptr, id: string, color: ui.Color) {
-    thor := cast(^Thor) data
-    key, ok := thor_theme_color_key(id)
-    if !ok {
-        return
-    }
-
-    path := thor_theme_ensure_writable(thor)
-    if path == "" {
-        thor_theme_color_cancel(thor, id)
-        return
-    }
-
-    thor_theme_color_apply(thor, key, color)
-    if !theme.save(thor.theme, path) {
-        thor_flash_status(thor, SETTINGS_SAVE_FAILED, is_error = true)
-        thor_theme_color_cancel(thor, id)
-        return
-    }
-
+// Drops the draft and loads the configured theme again.
+thor_theme_discard :: proc(thor: ^Thor) {
+    thor_load_theme_by_name(thor, thor_theme_configured_name(thor))
     thor_apply_theme(thor)
-    thor_settings_mark_clean(thor)
-    thor_refresh_theme_editor(thor)
+    thor_theme_editor_rebaseline(thor)
 }
 
-thor_theme_color_cancel :: proc(data: rawptr, id: string) {
-    thor := cast(^Thor) data
-    key, ok := thor_theme_color_key(id)
-    if !ok {
+// Puts the saved palette back on screen.
+thor_theme_revert :: proc(thor: ^Thor) {
+    e := &thor.theme_editor
+    if !thor_theme_dirty(thor) {
+        thor_theme_note(thor, "No unsaved theme changes")
         return
     }
-    thor_theme_color_apply(thor, key, thor.theme_edit_original)
-    thor_apply_theme(thor)
-    thor_refresh_theme_editor(thor)
-}
-
-// Where an edit to the active theme goes. A shipped theme is copied into
-// user/themes on the first edit: assets/themes is replaced by every build and by
-// every update, and the user layer shadows it by base name, so the copy takes over
-// with no change to the `theme` setting. Returns the path, or "" when the copy
-// failed.
-@(private = "file")
-thor_theme_ensure_writable :: proc(thor: ^Thor) -> string {
-    // A generated preview belongs to no file yet, and writing it under the
-    // configured name would replace a theme the user never meant to touch.
-    if thor.theme_preview_generated {
-        thor_flash_status(thor, "Save the generated theme before editing its colors", is_error = true)
-        return ""
-    }
-    name := setting.theme_name(&thor.config)
-    if name == "" {
-        name = DEFAULT_THEME
-    }
-    path := thor_user_theme_path(name)
-    if os.exists(path) {
-        return path
-    }
-    if !theme.save(thor.theme, path) {
-        thor_flash_status(thor, SETTINGS_SAVE_FAILED, is_error = true)
-        return ""
-    }
-    thor_flash_status(thor, "Saved an editable copy to user/themes")
-    return path
-}
-
-// A generator row was clicked.
-@(private = "file")
-thor_run_theme_action :: proc(thor: ^Thor, action: string) {
-    switch action {
-    case "mode":
-        thor_select_open(
-        thor,
-        "Generator Mode",
-        THEME_MODE_LABELS[:],
-        THEME_MODE_LABELS[thor.theme_seed_dark ? 0 : 1],
-        thor_theme_mode_preview,
-        thor_theme_mode_commit,
-        thor,
-    )
-    case "generate":
-        thor_palette_prompt(
-        thor,
-        "Theme name",
-        thor_confirm_generate_theme,
-        thor,
-        "My Theme",
-    )
-    }
-}
-
-// Rebuilds the palette from the current seeds and applies it live, writing
-// nothing. The generator is arithmetic alone, so a drag can run it per frame.
-@(private = "file")
-thor_theme_generate_preview :: proc(thor: ^Thor) {
-    generated := theme.generate("Generated", thor.theme_seed_background, thor.theme_seed_accent, thor.theme_seed_dark)
     theme.destroy(&thor.theme)
-    thor.theme = generated
-    thor.theme_preview_generated = true
+    thor.theme = theme.clone(e.saved)
+    e.generated = false
     thor_apply_theme(thor)
+    thor_theme_note(thor, "Reverted to the saved theme")
 }
 
-// Puts the configured theme back on screen, dropping the generated preview.
-@(private = "file")
-thor_theme_restore_configured :: proc(thor: ^Thor) {
-    name := setting.theme_name(&thor.config)
-    if name == "" {
-        name = DEFAULT_THEME
+// Writes the draft to user/themes under its file name. A generated draft has no
+// file yet, so it opens the name prompt and returns false.
+thor_theme_save :: proc(thor: ^Thor) -> bool {
+    e := &thor.theme_editor
+    if e.generated {
+        thor_theme_save_as_prompt(thor, thor.theme.name)
+        return false
     }
-    thor_load_theme_by_name(thor, name)
-    thor_apply_theme(thor)
-}
-
-@(private = "file")
-thor_theme_mode_preview :: proc(data: rawptr, choice: string) {
-    thor := cast(^Thor) data
-    thor.theme_seed_dark = choice == THEME_MODE_LABELS[0]
-    thor_theme_generate_preview(thor)
-}
-
-@(private = "file")
-thor_theme_mode_commit :: proc(data: rawptr, choice: string) {
-    thor := cast(^Thor) data
-    thor_theme_mode_preview(thor, choice)
-    thor_refresh_theme_editor(thor)
-}
-
-@(private = "file")
-thor_theme_seed_preview :: proc(data: rawptr, id: string, color: ui.Color) {
-    thor := cast(^Thor) data
-    thor_theme_set_seed(thor, id, color)
-    thor_theme_generate_preview(thor)
-}
-
-@(private = "file")
-thor_theme_seed_commit :: proc(data: rawptr, id: string, color: ui.Color) {
-    thor := cast(^Thor) data
-    thor_theme_seed_preview(thor, id, color)
-    // The palette on screen is the generated one; it is saved by the Generate row,
-    // not here, so only the rows need refreshing.
-    thor_refresh_theme_editor(thor)
-}
-
-@(private = "file")
-thor_theme_seed_cancel :: proc(data: rawptr, _: string) {
-    thor := cast(^Thor) data
-    thor_theme_restore_configured(thor)
-    thor_refresh_theme_editor(thor)
-}
-
-@(private = "file")
-thor_theme_set_seed :: proc(thor: ^Thor, id: string, color: ui.Color) {
-    action, ok := thor_theme_action_name(id)
-    if !ok {
-        return
+    path := thor_user_theme_path(e.file)
+    shadows := !os.exists(path) && thor_theme_is_shipped(e.file)
+    if !theme.save(thor.theme, path) {
+        thor_theme_note(thor, "Could not write the theme file", is_error = true)
+        return false
     }
-    switch action {
-    case "seed_background":
-        thor.theme_seed_background = color
-    case "seed_accent":
-        thor.theme_seed_accent = color
+    theme.destroy(&e.saved)
+    e.saved = theme.clone(thor.theme)
+    if shadows {
+        thor_theme_note(thor, strings.concatenate({"Saved ", path, ". It overrides the shipped theme"}, context.temp_allocator))
+    } else {
+        thor_theme_note(thor, strings.concatenate({"Saved ", path}, context.temp_allocator))
     }
+    return true
 }
 
-// Name prompt accepted: writes the generated palette to user/themes and makes it
-// the configured theme.
-thor_confirm_generate_theme :: proc(data: rawptr, name: string) {
+// Asks for a theme name; the draft is saved under it as a new user theme.
+thor_theme_save_as_prompt :: proc(thor: ^Thor, initial: string) {
+    thor_palette_prompt(thor, "Theme name", thor_theme_save_as_confirm, thor, initial)
+}
+
+// Name prompt accepted: writes the draft as a new theme and makes it the
+// configured one.
+thor_theme_save_as_confirm :: proc(data: rawptr, name: string) {
     thor := cast(^Thor) data
+    e := &thor.theme_editor
     trimmed := strings.trim_space(name)
     if trimmed == "" {
         return
     }
     file := thor_theme_slug(trimmed)
     if file == "" {
-        thor_flash_status(thor, "That theme name has no usable characters", is_error = true)
+        thor_theme_note(thor, "That theme name has no usable characters", is_error = true)
         return
     }
-
     path := thor_user_theme_path(file)
-    if os.exists(path) {
-        thor_flash_status(thor, "A theme with that name already exists", is_error = true)
+    if os.exists(path) || thor_theme_is_shipped(file) {
+        thor_theme_note(thor, "A theme with that name already exists", is_error = true)
         return
     }
 
-    generated := theme.generate(trimmed, thor.theme_seed_background, thor.theme_seed_accent, thor.theme_seed_dark)
-    defer theme.destroy(&generated)
-    if !theme.save(generated, path) {
-        thor_flash_status(thor, SETTINGS_SAVE_FAILED, is_error = true)
+    renamed := strings.clone(trimmed)
+    delete(thor.theme.name)
+    thor.theme.name = renamed
+    if !theme.save(thor.theme, path) {
+        thor_theme_note(thor, "Could not write the theme file", is_error = true)
         return
     }
-
-    // The one theme path where thor_reload_settings does re-apply: the theme name
-    // changed, which is what it compares.
+    e.generated = false
+    // The theme name changed, so the reload loads the new file.
     thor_persist_string_setting(thor, "theme", file)
-    thor_refresh_theme_editor(thor)
+    if thor_theme_configured_name(thor) != file {
+        // The setting did not land; the new file stays, the screen goes back.
+        thor_theme_discard(thor)
+        return
+    }
+    thor_theme_editor_rebaseline(thor)
+    thor_theme_note(thor, strings.concatenate({"Saved ", path}, context.temp_allocator))
+    thor_theme_run_pending(thor)
+}
+
+// Whether assets/themes ships a theme of this file name.
+thor_theme_is_shipped :: proc(file: string) -> bool {
+    return os.exists(strings.concatenate({SHIPPED_THEME_DIR, "/", file, THEME_EXT}, context.temp_allocator))
+}
+
+// Whether user/themes holds a theme of this file name.
+thor_theme_is_user :: proc(file: string) -> bool {
+    return os.exists(thor_user_theme_path(file))
+}
+
+// Removes a theme the user made and switches to the default theme.
+thor_theme_delete :: proc(thor: ^Thor) {
+    file := thor.theme_editor.file
+    if !thor_theme_is_user(file) || thor_theme_is_shipped(file) {
+        thor_theme_note(thor, "Only a theme you made can be deleted", is_error = true)
+        return
+    }
+    message := strings.concatenate({"Delete the theme \"", thor.theme_editor.saved.name, "\"?"}, context.temp_allocator)
+    thor_palette_confirm(thor, message, thor_theme_delete_confirm, thor)
+}
+
+@(private = "file")
+thor_theme_delete_confirm :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    path := thor_user_theme_path(thor.theme_editor.file)
+    if err := os.remove(path); err != nil {
+        thor_theme_note(thor, "Could not delete the theme file", is_error = true)
+        return
+    }
+    thor.theme_editor.generated = false
+    thor_persist_string_setting(thor, "theme", DEFAULT_THEME)
+    thor_theme_discard(thor)
+    thor_theme_note(thor, strings.concatenate({"Deleted ", path}, context.temp_allocator))
+}
+
+// Removes the user copy of a shipped theme, so the shipped colors come back.
+thor_theme_reset_shipped :: proc(thor: ^Thor) {
+    file := thor.theme_editor.file
+    if !thor_theme_is_user(file) || !thor_theme_is_shipped(file) {
+        thor_theme_note(thor, "This theme has no changes to the shipped one", is_error = true)
+        return
+    }
+    message := strings.concatenate({"Reset \"", thor.theme_editor.saved.name, "\" to the shipped colors?"}, context.temp_allocator)
+    thor_palette_confirm(thor, message, thor_theme_reset_confirm, thor)
+}
+
+@(private = "file")
+thor_theme_reset_confirm :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    if err := os.remove(thor_user_theme_path(thor.theme_editor.file)); err != nil {
+        thor_theme_note(thor, "Could not remove the theme copy", is_error = true)
+        return
+    }
+    thor.theme_editor.generated = false
+    thor_theme_discard(thor)
+    thor_theme_note(thor, "Reset to the shipped theme")
+}
+
+// Opens the theme's file in the editor for hand editing. A shipped theme is
+// copied to user/themes first, since assets/themes is replaced by every update.
+thor_theme_open_file_now :: proc(thor: ^Thor) {
+    file := thor.theme_editor_open ? thor.theme_editor.file : thor_theme_configured_name(thor)
+    path := thor_user_theme_path(file)
+    if !os.exists(path) {
+        palette := thor.theme_editor_open ? thor.theme_editor.saved : thor.theme
+        if !theme.save(palette, path) {
+            thor_theme_note(thor, "Could not write the theme file", is_error = true)
+            return
+        }
+    }
+    if thor.theme_editor_open {
+        thor_theme_editor_close(thor)
+    }
+    thor_open_file(thor, path)
+}
+
+// Writes `color` into role `index` of the draft. A syntax role also marks the
+// open files stale, since its color is baked into their spans.
+thor_theme_set_color :: proc(thor: ^Thor, index: int, color: ui.Color) {
+    if index < 0 || index >= len(theme.COLORS) {
+        return
+    }
+    theme.color_at(&thor.theme, index)^ = color
+    if theme.COLORS[index].group == .Syntax {
+        for file in thor.open_files {
+            file.highlighted = false
+        }
+    }
+}
+
+// Opens the color picker over role `index` of the draft.
+thor_theme_edit_color :: proc(thor: ^Thor, index: int) {
+    if index < 0 || index >= len(theme.COLORS) {
+        return
+    }
+    e := &thor.theme_editor
+    e.selected = index
+    e.edit_index = index
+    e.edit_original = theme.color_at(&thor.theme, index)^
+    entry := theme.COLORS[index]
+    thor_color_picker_open(
+        thor, entry.key, entry.role, e.edit_original,
+        thor_theme_color_preview, thor_theme_color_commit, thor_theme_color_cancel, thor,
+    )
+}
+
+@(private = "file")
+thor_theme_color_preview :: proc(data: rawptr, _: string, color: ui.Color) {
+    thor := cast(^Thor) data
+    thor_theme_set_color(thor, thor.theme_editor.edit_index, color)
+}
+
+@(private = "file")
+thor_theme_color_commit :: proc(data: rawptr, _: string, color: ui.Color) {
+    thor := cast(^Thor) data
+    thor_theme_set_color(thor, thor.theme_editor.edit_index, color)
+    thor_apply_theme(thor)
+}
+
+@(private = "file")
+thor_theme_color_cancel :: proc(data: rawptr, _: string) {
+    thor := cast(^Thor) data
+    thor_theme_set_color(thor, thor.theme_editor.edit_index, thor.theme_editor.edit_original)
+    thor_apply_theme(thor)
+}
+
+// Puts role `index` back to its saved color.
+thor_theme_reset_color :: proc(thor: ^Thor, index: int) {
+    if index < 0 || index >= len(theme.COLORS) {
+        return
+    }
+    thor_theme_set_color(thor, index, theme.color_at(&thor.theme_editor.saved, index)^)
+    thor_apply_theme(thor)
+}
+
+// Copies the hex of role `index` to the clipboard.
+thor_theme_copy_color :: proc(thor: ^Thor, index: int) {
+    if index < 0 || index >= len(theme.COLORS) {
+        return
+    }
+    hex := theme.to_hex(theme.color_at(&thor.theme, index)^)
+    rl.SetClipboardText(strings.clone_to_cstring(hex, context.temp_allocator))
+    thor_theme_note(thor, strings.concatenate({"Copied ", hex}, context.temp_allocator))
+}
+
+// Sets role `index` from a hex color on the clipboard. The "#" is optional.
+thor_theme_paste_color :: proc(thor: ^Thor, index: int) {
+    if index < 0 || index >= len(theme.COLORS) {
+        return
+    }
+    text := strings.trim_space(string(rl.GetClipboardText()))
+    color, ok := thor_theme_parse_color(text)
+    if !ok {
+        thor_theme_note(thor, "The clipboard holds no #RRGGBB or #RRGGBBAA color", is_error = true)
+        return
+    }
+    thor_theme_set_color(thor, index, color)
+    thor_apply_theme(thor)
+    thor_theme_note(thor, strings.concatenate({"Pasted ", theme.to_hex(color), " into ", theme.COLORS[index].key}, context.temp_allocator))
+}
+
+// A hex color with or without its "#".
+thor_theme_parse_color :: proc(text: string) -> (ui.Color, bool) {
+    if strings.has_prefix(text, "#") {
+        return theme.parse_hex(text)
+    }
+    return theme.parse_hex(strings.concatenate({"#", text}, context.temp_allocator))
+}
+
+// Builds the generator's palette from the seeds; the Generate tab previews it.
+thor_theme_generate_refresh :: proc(thor: ^Thor) {
+    e := &thor.theme_editor
+    theme.destroy(&e.generated_theme)
+    e.generated_theme = theme.generate("Generated Theme", thor.theme_seed_background, thor.theme_seed_accent, thor.theme_seed_dark)
+}
+
+// Sets the generator mode.
+thor_theme_set_mode :: proc(thor: ^Thor, dark: bool) {
+    thor.theme_seed_dark = dark
+    thor_theme_generate_refresh(thor)
+}
+
+// Makes the generated palette the draft. It has no file, so Save asks for a name.
+thor_theme_use_generated :: proc(thor: ^Thor) {
+    e := &thor.theme_editor
+    theme.destroy(&thor.theme)
+    thor.theme = theme.clone(e.generated_theme)
+    e.generated = true
+    e.tab = .Colors
+    thor_apply_theme(thor)
+    thor_theme_note(thor, "The generated palette is the draft. Save it under a new name to keep it")
+}
+
+// Opens the color picker over one generator seed.
+thor_theme_edit_seed :: proc(thor: ^Thor, accent: bool) {
+    e := &thor.theme_editor
+    e.seed_accent = accent
+    e.seed_original = accent ? thor.theme_seed_accent : thor.theme_seed_background
+    thor_color_picker_open(
+        thor, accent ? "Accent Seed" : "Background Seed", "seed", e.seed_original,
+        thor_theme_seed_preview, thor_theme_seed_preview, thor_theme_seed_cancel, thor,
+    )
+}
+
+@(private = "file")
+thor_theme_seed_preview :: proc(data: rawptr, _: string, color: ui.Color) {
+    thor := cast(^Thor) data
+    if thor.theme_editor.seed_accent {
+        thor.theme_seed_accent = color
+    } else {
+        thor.theme_seed_background = color
+    }
+    thor_theme_generate_refresh(thor)
+}
+
+@(private = "file")
+thor_theme_seed_cancel :: proc(data: rawptr, id: string) {
+    thor := cast(^Thor) data
+    thor_theme_seed_preview(thor, id, thor.theme_editor.seed_original)
 }
 
 // A theme name as its file base: lowercase, dashes for spaces, and nothing that
@@ -426,4 +494,102 @@ thor_theme_slug :: proc(name: string, allocator := context.temp_allocator) -> st
         }
     }
     return strings.trim_suffix(strings.to_string(builder), "-")
+}
+
+thor_cmd_theme_editor :: proc(data: rawptr) {
+    thor_open_theme_editor(cast(^Thor) data)
+}
+
+thor_cmd_theme_save :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    thor_open_theme_editor(thor)
+    thor.theme_editor.pending = .None
+    if thor_theme_dirty(thor) {
+        thor_theme_save(thor)
+    } else {
+        thor_theme_note(thor, "No unsaved theme changes")
+    }
+}
+
+thor_cmd_theme_save_as :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    thor_open_theme_editor(thor)
+    thor.theme_editor.pending = .None
+    thor_theme_save_as_prompt(thor, thor.theme.name)
+}
+
+thor_cmd_theme_duplicate :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    thor_open_theme_editor(thor)
+    thor.theme_editor.pending = .None
+    thor_theme_save_as_prompt(thor, strings.concatenate({thor.theme.name, " Copy"}, context.temp_allocator))
+}
+
+thor_cmd_theme_revert :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    thor_open_theme_editor(thor)
+    thor_theme_revert(thor)
+}
+
+thor_cmd_theme_delete :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    thor_open_theme_editor(thor)
+    thor_theme_delete(thor)
+}
+
+thor_cmd_theme_reset :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    thor_open_theme_editor(thor)
+    thor_theme_reset_shipped(thor)
+}
+
+thor_cmd_theme_open_file :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    if thor.theme_editor_open {
+        thor_theme_resolve_then(thor, .Open_File)
+    } else {
+        thor_theme_open_file_now(thor)
+    }
+}
+
+thor_cmd_theme_switch :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    thor_open_theme_editor(thor)
+    thor_theme_resolve_then(thor, .Switch)
+}
+
+thor_cmd_theme_generate :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    thor_open_theme_editor(thor)
+    thor.theme_editor.tab = .Generate
+}
+
+thor_cmd_theme_use_generated :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    thor_open_theme_editor(thor)
+    thor_theme_use_generated(thor)
+}
+
+thor_cmd_theme_edit_color :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    thor_open_theme_editor(thor)
+    thor_theme_edit_color(thor, thor.theme_editor.selected)
+}
+
+thor_cmd_theme_reset_color :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    thor_open_theme_editor(thor)
+    thor_theme_reset_color(thor, thor.theme_editor.selected)
+}
+
+thor_cmd_theme_copy_color :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    thor_open_theme_editor(thor)
+    thor_theme_copy_color(thor, thor.theme_editor.selected)
+}
+
+thor_cmd_theme_paste_color :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    thor_open_theme_editor(thor)
+    thor_theme_paste_color(thor, thor.theme_editor.selected)
 }

@@ -637,7 +637,7 @@ thor_palette_view :: proc(thor: ^Thor) {
                 h = ui.Grow(1),
                 dir = .Column,
                 align = .Center,
-                z = 400,
+                z = 460,
                 bg = ui.Color{0, 0, 0, 120},
             },
         },
