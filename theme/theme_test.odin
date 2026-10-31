@@ -1,13 +1,16 @@
 package theme
 
+import "core:encoding/json"
 import "core:os"
+import "core:path/filepath"
 import "core:testing"
 
+import "../luaconf"
 import ui "../vendor/loom/loom"
 
 @(test)
 test_theme_load :: proc(t: ^testing.T) {
-    theme, ok := load("assets/themes/material-deep-ocean.json")
+    theme, ok := load("assets/themes/material-deep-ocean.lua")
     defer destroy(&theme)
     testing.expect(t, ok, "theme should load")
     testing.expect(t, theme.name == "Material Deep Ocean", "name from file")
@@ -85,7 +88,7 @@ test_color_to_hex :: proc(t: ^testing.T) {
 
 @(test)
 test_theme_save_roundtrip :: proc(t: ^testing.T) {
-    path := "bin/test/theme-roundtrip.json"
+    path := "bin/test/theme-roundtrip.lua"
     defer os.remove(path)
 
     saved := mjolnir()
@@ -102,7 +105,7 @@ test_theme_save_roundtrip :: proc(t: ^testing.T) {
 
 @(test)
 test_theme_load_missing_falls_back :: proc(t: ^testing.T) {
-    theme, ok := load("assets/themes/does-not-exist.json")
+    theme, ok := load("assets/themes/does-not-exist.lua")
     defer destroy(&theme)
     testing.expect(t, !ok, "missing file reports failure")
     // Compared against the built-in itself, so renaming or recoloring the
@@ -129,4 +132,43 @@ test_role_color_covers_every_color :: proc(t: ^testing.T) {
     }
     testing.expect_value(t, len(seen), 37)
     testing.expect_value(t, role_color(th, "no such role"), th.foreground)
+}
+
+// Every shipped theme evaluates and names every role by its role id.
+@(test)
+test_shipped_themes_load :: proc(t: ^testing.T) {
+    matches, err := filepath.glob("assets/themes/*.lua", context.temp_allocator)
+    testing.expect(t, err == nil && len(matches) > 0, "assets/themes ships themes")
+    for path in matches {
+        root, status, message := luaconf.eval_file(path, context.temp_allocator)
+        testing.expectf(t, status == .Ok, "%s: %s", path, message)
+        colors, _ := root.(json.Object)["colors"].(json.Object)
+        testing.expectf(t, len(colors) == len(COLORS), "%s names every role", path)
+        for key in colors {
+            i := color_index(key)
+            testing.expectf(t, i >= 0 && COLORS[i].role == key, "%s: %q is not a role id", path, key)
+        }
+    }
+}
+
+// A theme file may still name a role by its old display label.
+@(test)
+test_theme_accepts_display_keys :: proc(t: ^testing.T) {
+    path := "bin/test/theme-labels.lua"
+    defer os.remove(path)
+    text := "return { name = 'Old \"keys\"', colors = { [\"Keywords Color\"] = \"#112233\", strings = \"#445566\" } }"
+    testing.expect(t, os.write_entire_file(path, transmute([]u8)text) == nil)
+
+    loaded, ok := load(path)
+    defer destroy(&loaded)
+    testing.expect(t, ok, "the theme loads")
+    testing.expect_value(t, loaded.name, "Old \"keys\"")
+    testing.expect_value(t, loaded.keywords_color, ui.Color {0x11, 0x22, 0x33, 0xFF})
+    testing.expect_value(t, loaded.strings_color, ui.Color {0x44, 0x55, 0x66, 0xFF})
+
+    // The quote in the name survives a save.
+    testing.expect(t, save(loaded, path))
+    again, again_ok := load(path)
+    defer destroy(&again)
+    testing.expect(t, again_ok && again.name == loaded.name, "the name round-trips")
 }

@@ -18,6 +18,8 @@ SHIPPED_THEME_DIR :: "assets/themes"
 // User themes: what the theme editor writes, beside setting.USER_DIR. Gitignored,
 // never staged, never swapped by an update.
 USER_THEME_DIR :: "user/themes"
+// File extension of a theme.
+THEME_EXT :: ".lua"
 
 // The file `name` resolves to: the user copy shadows the shipped one. Falls back
 // to the shipped path when neither exists, so a failure names the shipped file.
@@ -26,12 +28,12 @@ thor_theme_path :: proc(name: string, allocator := context.temp_allocator) -> st
     if os.exists(user) {
         return user
     }
-    return strings.concatenate({SHIPPED_THEME_DIR, "/", name, ".json"}, allocator)
+    return strings.concatenate({SHIPPED_THEME_DIR, "/", name, THEME_EXT}, allocator)
 }
 
 // Where an edit to `name` is written: always the user layer.
 thor_user_theme_path :: proc(name: string, allocator := context.temp_allocator) -> string {
-    return strings.concatenate({USER_THEME_DIR, "/", name, ".json"}, allocator)
+    return strings.concatenate({USER_THEME_DIR, "/", name, THEME_EXT}, allocator)
 }
 
 // Loads the theme named in settings (falling back to the default) into
@@ -70,14 +72,14 @@ thor_available_themes :: proc(allocator := context.temp_allocator) -> []string {
     names := make([dynamic]string, allocator)
     seen := make(map[string]bool, 16, context.temp_allocator)
     for dir in ([]string {USER_THEME_DIR, SHIPPED_THEME_DIR}) {
-        pattern := strings.concatenate({dir, "/*.json"}, context.temp_allocator)
+        pattern := strings.concatenate({dir, "/*", THEME_EXT}, context.temp_allocator)
         // A fresh install has no user/themes; that is not a failure of the listing.
         matches, err := filepath.glob(pattern, context.temp_allocator)
         if err != nil {
             continue
         }
         for path in matches {
-            name := strings.trim_suffix(filepath.base(path), ".json")
+            name := strings.trim_suffix(filepath.base(path), THEME_EXT)
             if name in seen {
                 continue
             }

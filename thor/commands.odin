@@ -729,7 +729,7 @@ thor_cmd_add_font :: proc(data: rawptr) {
     thor_open_file(thor, USER_FONTS_PATH)
 }
 
-// File > New Theme: copies the active palette into user/themes/custom.json and
+// File > New Theme: copies the active palette into user/themes/custom.lua and
 // opens it. assets/themes is replaced by every build and by every update, so a
 // hand-edited theme only survives in the user layer.
 thor_cmd_new_theme :: proc(data: rawptr) {
