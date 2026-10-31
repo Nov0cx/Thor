@@ -81,6 +81,7 @@ f :: proc(s: []int, x: int) {
 	_ = int(x, 1)
 	_ = Point()
 	_ = min(int)
+	_ = max(int, 0)
 	_ = min(x, 1)
 	_ = clamp(x, 0, 1)
 	_ = len(..s)
@@ -102,6 +103,7 @@ f :: proc(s: []int, x: int) {
         {"int()", "Missing argument in conversion to 'int'", 0},
         {"int(x, 1)", "Too many arguments in conversion to 'int'", 0},
         {"Point()", "Missing argument in conversion to 'Point'", 0},
+        {"max(int, 0)", "If 'max' gets a type, only 1 arguments is allowed, got 2", 0},
         {")\n\t_ = builtin.min", "Too few arguments for 'raw_data', expected 1, got 0", 0},
         {"builtin.min(x)", "Too few arguments for 'min', two or more are required", 0},
         {"1)\n\tl:", "Too many arguments for 'builtin.len', expected 1, got 2", 0},

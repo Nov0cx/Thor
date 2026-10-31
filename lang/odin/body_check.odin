@@ -103,6 +103,8 @@ arity_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, call: odinsynta
         report_error(rc, report, p.offset, CODE_ARITY, fmt.aprintf("Too many arguments for '%s', expected %d, got %d", p.name, p.want, p.got))
     case .Two_Or_More:
         report_error(rc, report, p.offset, CODE_ARITY, fmt.aprintf("Too few arguments for '%s', two or more are required", p.name))
+    case .Type_Only:
+        report_error(rc, report, p.offset, CODE_ARITY, fmt.aprintf("If '%s' gets a type, only 1 arguments is allowed, got %d", p.name, p.got))
     case .Conversion_Missing:
         type := odinsema.type_string(&c.table, p.type, context.temp_allocator)
         report_error(rc, report, p.offset, CODE_ARITY, fmt.aprintf("Missing argument in conversion to '%s'", type))

@@ -226,6 +226,7 @@ Arity_Kind :: enum u8 {
     Too_Few,             // a builtin: `want` arguments, `got` given
     Too_Many,            // a builtin: `want` arguments, `got` given
     Two_Or_More,         // `min` or `max` with one value
+    Type_Only,           // `min` or `max` with a type and `got - 1` more arguments
     Conversion_Missing,  // `T()`
     Conversion_Too_Many, // `T(a, b)`
 }
@@ -275,8 +276,12 @@ arity_problem :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node) 
             if got == 0 {
                 return {kind = .Too_Few, offset = close, name = name, want = 1}
             }
-            if got == 1 && expr_type(c, file, args[0]).mode != .Type {
+            first_type := expr_type(c, file, args[0]).mode == .Type
+            if got == 1 && !first_type {
                 return {kind = .Two_Or_More, offset = int(call.offset), name = base}
+            }
+            if got > 1 && first_type {
+                return {kind = .Type_Only, offset = int(call.offset), name = base, got = got}
             }
             return {}
         }
