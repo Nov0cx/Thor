@@ -3,6 +3,7 @@ package odin
 
 import "core:fmt"
 import "core:slice"
+import "core:strings"
 
 import lang ".."
 import odinsema "sema"
@@ -97,7 +98,8 @@ qualified_state :: proc(rc: ^Request_Context, alias, name: string) -> Qualified_
         return .Public
     }
     view := request_package(rc, dir)
-    if view == nil || view.scope == nil || len(view.scope.files) == 0 {
+    // base:intrinsics is built into the compiler; its one file, out of every build, lists the names.
+    if view == nil || view.scope == nil || len(view.scope.files) == 0 && !intrinsics_dir(dir) {
         return .Public
     }
     // Every file of the directory counts, in the build or not: the target may not be the user's.
@@ -120,6 +122,12 @@ qualified_state :: proc(rc: ^Request_Context, alias, name: string) -> Qualified_
         }
     }
     return state
+}
+
+@(private = "file")
+intrinsics_dir :: proc(dir: string) -> bool {
+    clean, _ := strings.replace_all(dir, "\\", "/", context.temp_allocator)
+    return strings.has_suffix(strings.trim_right(clean, "/"), "base/intrinsics")
 }
 
 // Appends the ranges of the file-scope declarations of the buffer that hold a `using`.
