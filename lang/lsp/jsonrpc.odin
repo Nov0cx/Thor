@@ -12,6 +12,8 @@ import "core:sync"
 import "core:thread"
 import "core:time"
 
+import "../../lockfree"
+
 // How much of a stream one read takes.
 READ_CHUNK :: 16 * 1024
 
@@ -57,6 +59,20 @@ Notification :: struct {
     params: json.Value, // owned by conn.allocator; nil when the message had none
 }
 
+// A queued Notification.
+@(private)
+Note_Node :: struct {
+    queue_next: ^Note_Node,
+    note:       Notification, // owned
+}
+
+// One framed message for the writer.
+@(private)
+Frame :: struct {
+    queue_next: ^Frame,
+    bytes:      [dynamic]u8, // owned
+}
+
 // What the reader thread answers the two requests a server makes of its client
 // with, as JSON text. Both are borrowed for the connection's whole life and read
 // with no lock, so the owner sets them before the connection starts and never
@@ -83,16 +99,15 @@ Conn :: struct {
     draining:      ^thread.Thread, // owned; stderr
     writer:        ^thread.Thread, // owned
     stopped:       bool,           // main thread only; conn_close has run
-    write_mutex:   sync.Mutex,
-    outgoing:      [dynamic][dynamic]u8, // owned; framed messages in send order; guarded by write_mutex
-    outgoing_size: int,                  // bytes in outgoing; guarded by write_mutex
-    write_ready:   sync.Sema,            // posted for every message and for the finish
+    outgoing:      lockfree.Stack(Frame), // owned; pushed by any thread, taken by the writer
+    outgoing_size: int,                   // atomic; bytes queued and not yet written
+    write_ready:   sync.Sema,             // posted for every message and for the finish
     write_finish:  bool,                 // atomic; the writer leaves once outgoing is empty
     pending_mutex: sync.Mutex,
     pending:       map[i64]^Pending, // owned
     next_id:       i64,
-    notify_mutex:  sync.Mutex,
-    notifications: [dynamic]Notification, // owned
+    notifications: lockfree.Stack(Note_Node), // owned; pushed by the reader
+    inbox:         ^Note_Node, // owned; taken from `notifications`, oldest first; consumer only
     stderr_mutex:  sync.Mutex,
     stderr_tail:   [dynamic]u8, // owned
     state:         Conn_State,   // atomic
@@ -105,9 +120,7 @@ conn_start :: proc(transport: Transport, allocator := context.allocator, answers
     c.allocator = allocator
     c.answers = answers
     c.pending = make(map[i64]^Pending, allocator = allocator)
-    c.notifications = make([dynamic]Notification, allocator)
     c.stderr_tail = make([dynamic]u8, allocator)
-    c.outgoing = make([dynamic][dynamic]u8, allocator)
     c.state = .Open
     c.writer = thread.create_and_start_with_poly_data(c, conn_writer)
     c.reader = thread.create_and_start_with_poly_data(c, conn_reader)
@@ -198,13 +211,18 @@ conn_notify :: proc(c: ^Conn, method: string, params: string) -> bool {
 
 // Takes the oldest message the server pushed. The caller frees it with
 // conn_free_notification.
+// One consumer only.
 conn_take_notification :: proc(c: ^Conn) -> (Notification, bool) {
-    sync.guard(&c.notify_mutex)
-    if len(c.notifications) == 0 {
-        return {}, false
+    if c.inbox == nil {
+        c.inbox = lockfree.stack_take(&c.notifications)
+        if c.inbox == nil {
+            return {}, false
+        }
     }
-    note := c.notifications[0]
-    ordered_remove(&c.notifications, 0)
+    node := c.inbox
+    c.inbox = node.queue_next
+    note := node.note
+    free(node, c.allocator)
     return note, true
 }
 
@@ -266,14 +284,20 @@ conn_destroy :: proc(c: ^Conn) {
     thread.destroy(c.draining)
     thread.destroy(c.writer)
     c.transport.destroy(c.transport.data)
-    for frame in c.outgoing {
-        delete(frame)
+    frame := lockfree.stack_take(&c.outgoing)
+    for frame != nil {
+        next := frame.queue_next
+        delete(frame.bytes)
+        free(frame, c.allocator)
+        frame = next
     }
-    delete(c.outgoing)
-    for note in c.notifications {
+    for {
+        note, ok := conn_take_notification(c)
+        if !ok {
+            break
+        }
         conn_free_notification(c, note)
     }
-    delete(c.notifications)
     delete(c.pending)
     delete(c.stderr_tail)
     free(c, c.allocator)
@@ -387,19 +411,22 @@ conn_write :: proc(c: ^Conn, body: []u8) -> bool {
     if conn_state(c) == .Closed {
         return false
     }
-    out := make([dynamic]u8, c.allocator)
-    frame_write(&out, body)
+    frame, err := new(Frame, c.allocator)
+    if err != nil {
+        return false
+    }
+    frame.bytes = make([dynamic]u8, c.allocator)
+    frame_write(&frame.bytes, body)
 
-    sync.lock(&c.write_mutex)
-    if c.outgoing_size + len(out) > WRITE_LIMIT {
-        sync.unlock(&c.write_mutex)
-        delete(out)
+    size := len(frame.bytes)
+    if sync.atomic_add(&c.outgoing_size, size) + size > WRITE_LIMIT {
+        sync.atomic_sub(&c.outgoing_size, size)
+        delete(frame.bytes)
+        free(frame, c.allocator)
         conn_fail(c)
         return false
     }
-    append(&c.outgoing, out)
-    c.outgoing_size += len(out)
-    sync.unlock(&c.write_mutex)
+    lockfree.stack_push(&c.outgoing, frame)
     sync.sema_post(&c.write_ready)
     return true
 }
@@ -410,20 +437,21 @@ conn_write :: proc(c: ^Conn, body: []u8) -> bool {
 conn_writer :: proc(c: ^Conn) {
     for {
         sync.sema_wait(&c.write_ready)
-        for {
-            sync.lock(&c.write_mutex)
-            if len(c.outgoing) == 0 {
-                sync.unlock(&c.write_mutex)
-                break
-            }
-            frame := c.outgoing[0]
-            ordered_remove(&c.outgoing, 0)
-            c.outgoing_size -= len(frame)
-            sync.unlock(&c.write_mutex)
-
-            written := c.transport.write(c.transport.data, frame[:])
-            delete(frame)
+        frame := lockfree.stack_take(&c.outgoing)
+        for frame != nil {
+            next := frame.queue_next
+            sync.atomic_sub(&c.outgoing_size, len(frame.bytes))
+            written := c.transport.write(c.transport.data, frame.bytes[:])
+            delete(frame.bytes)
+            free(frame, c.allocator)
+            frame = next
             if !written {
+                // The rest goes back, so conn_destroy frees it.
+                for frame != nil {
+                    next = frame.queue_next
+                    lockfree.stack_push(&c.outgoing, frame)
+                    frame = next
+                }
                 conn_fail(c)
                 return
             }
@@ -594,8 +622,13 @@ conn_push :: proc(c: ^Conn, object: ^json.Object) {
     }
     object["method"] = nil
     object["params"] = nil
-    sync.guard(&c.notify_mutex)
-    append(&c.notifications, note)
+    node, err := new(Note_Node, c.allocator)
+    if err != nil {
+        conn_free_notification(c, note)
+        return
+    }
+    node.note = note
+    lockfree.stack_push(&c.notifications, node)
 }
 
 // A request the server waits on, answered on the reader thread. A server blocks
