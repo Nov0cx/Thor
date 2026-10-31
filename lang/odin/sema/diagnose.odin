@@ -704,8 +704,9 @@ const_overflows :: proc(c: ^Checker, to: Type_Id, op: Operand) -> bool {
     return false
 }
 
-// The untyped integer constant of a conversion `T(x)` that the integer type `T` cannot hold.
-conversion_overflow :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node) -> (Type_Problem, bool) {
+// The untyped constant of a conversion `T(x)` that `T` cannot take: an integer `T` cannot hold, a
+// string into a type that is no string, or a number or bool into a string, or a number into a bool.
+conversion_problem :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node) -> (Type_Problem, bool) {
     ce, is_call := odinsyntax.as_call_expr(call)
     if !is_call {
         return {}, false
@@ -725,10 +726,44 @@ conversion_overflow :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_
         return {}, false
     }
     op := expr_type(c, file, arg)
-    if !const_overflows(c, fn.type, op) {
-        return {}, false
+    if const_overflows(c, fn.type, op) {
+        return {value = arg, op = op, to = fn.type, overflow = true}, true
     }
-    return {value = arg, op = op, to = fn.type, overflow = true}, true
+    if op.mode == .Const && cast_refused(c, fn.type, op.type) {
+        return {value = arg, op = op, to = fn.type}, true
+    }
+    return {}, false
+}
+
+// True when no constant of the untyped type `from` converts to `to`.
+@(private = "file")
+cast_refused :: proc(c: ^Checker, to, from: Type_Id) -> bool {
+    u, is_untyped := type_get(&c.table, from).(Untyped_Type)
+    if !is_untyped {
+        return false
+    }
+    kind: Basic_Kind
+    #partial switch v in type_get(&c.table, type_base(&c.table, to)) {
+    case Basic_Type:
+        kind = v.kind
+    case Enum_Type:
+        return u.kind == .String
+    case:
+        return false
+    }
+    #partial switch u.kind {
+    case .String:
+        #partial switch kind {
+        case .String, .Cstring, .String16, .Cstring16, .Any:
+            return false
+        }
+        return true
+    case .Int, .Float, .Rune:
+        return kind == .String || kind == .Bool
+    case .Bool:
+        return kind == .String
+    }
+    return false
 }
 
 // The arguments of `call` that its one procedure cannot take. Nil for the calls call_problem leaves

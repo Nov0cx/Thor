@@ -445,6 +445,43 @@ main :: proc() {
     }
 }
 
+// A constant conversion the compiler refuses: a string into a type that is no string, a number or
+// bool into a string, a number into a bool.
+@(test)
+test_live_cast_refused :: proc(t: ^testing.T) {
+    root := fixture(t, "live_cast_refused", {{"app/a.odin", "package app\n"}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+E :: enum u8 { A }
+
+main :: proc() {
+	_ = u8("zq")
+	_ = E("x")
+	_ = string(true)
+	_ = string(65)
+	_ = bool(1)
+	_ = int(true)
+	_ = cstring("ok")
+	_ = f32(1)
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"\"zq\"", "Cannot cast '\"zq\"' as 'u8' from 'untyped string'", 0},
+        {"\"x\"", "Cannot cast '\"x\"' as 'E' from 'untyped string'", 0},
+        {"true)\n\t_ = string(65)", "Cannot cast 'true' as 'string' from 'untyped bool'", 0},
+        {"65", "Cannot cast '65' as 'string' from 'untyped integer'", 0},
+        {"1)\n\t_ = int", "Cannot cast '1' as 'bool' from 'untyped integer'", 0},
+    })
+    for d in res.report.items {
+        testing.expect_value(t, d.code, CODE_MISMATCH)
+    }
+}
+
 @(test)
 test_live_missing_returns :: proc(t: ^testing.T) {
     root := fixture(t, "live_missing_returns", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})

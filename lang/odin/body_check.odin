@@ -122,17 +122,17 @@ group_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, call: odinsynta
     report_error(rc, report, int(call.offset), CODE_OVERLOAD, fmt.aprintf("No procedures or ambiguous call for procedure group '%s' that match with the given arguments", name))
 }
 
-// Reports a conversion `T(x)` of an integer constant that `T` cannot hold.
+// Reports a conversion `T(x)` of a constant that `T` cannot take.
 @(private = "file")
 conversion_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, call: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
-    p, ok := odinsema.conversion_overflow(c, rc.live.id, call)
+    p, ok := odinsema.conversion_problem(c, rc.live.id, call)
     if !ok {
         return
     }
     value := strings.join(strings.fields(odinsyntax.node_text(p.value), context.temp_allocator), " ", context.temp_allocator)
     to := odinsema.type_string(&c.table, p.to, context.temp_allocator)
     from := untyped_name(odinsema.type_string(&c.table, p.op.type, context.temp_allocator))
-    report_error(rc, report, int(p.value.offset), CODE_OVERFLOW, fmt.aprintf("Cannot cast '%s' as '%s' from '%s'", value, to, from))
+    report_error(rc, report, int(p.value.offset), CODE_OVERFLOW if p.overflow else CODE_MISMATCH, fmt.aprintf("Cannot cast '%s' as '%s' from '%s'", value, to, from))
 }
 
 // Reports a selector that names no field or member of its operand.
