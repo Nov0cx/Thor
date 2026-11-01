@@ -38,7 +38,7 @@ syntax_diagnostics :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
 
 // Appends an error with the id `code` at byte `offset` of the buffer. Takes ownership of `message`.
 @(private)
-report_error :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Report, offset: int, code: string, message: string, severity := lang.Diagnostic_Severity.Error) {
+report_error :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Report, offset: int, code: string, message: string, severity := lang.Diagnostic_Severity.Error, lint := false) {
     line, col := offset_line_col(rc.live.lines, offset)
     append(
         &report.items,
@@ -49,6 +49,7 @@ report_error :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Report, offs
             severity = severity,
             message  = message,
             code     = code,
+            lint     = lint,
         },
     )
 }

@@ -62,6 +62,7 @@ Oracle_Op :: enum {
     Drop_Return,
     Duplicate_Decl,
     Extra_Value,
+    Dead_Stmt,
 }
 
 // One text edit of a valid file.
@@ -262,6 +263,10 @@ sites_walk :: proc(n: odinsyntax.Syntax_Node, out: ^[dynamic]Mutation) {
         }
     case .Assign_Stmt:
         assign_site(n, out)
+    case .Return_Stmt:
+        if n.parent != nil && n.parent.green.kind == .Block {
+            append(out, Mutation{op = .Dead_Stmt, start = int(end), end = int(end), text = "; _ = 0"})
+        }
     }
     it := odinsyntax.child_iter(&n, {kinds = ~odinsyntax.Kind_Set{}})
     for child in odinsyntax.child_iter_next(&it) {
@@ -550,6 +555,9 @@ run_mutant :: proc(t: ^testing.T, e: ^Engine, dest, path, src: string, m: Mutati
     }
     poly := poly_ranges(mutated)
     for d in res.report.items {
+        if d.lint {
+            continue
+        }
         // The compiler skips an expression whose operand an earlier error made invalid.
         if d.line not_in lines && d.message not_in messages && !in_ranges(poly, d.line) {
             false_errors^ += 1
@@ -573,7 +581,7 @@ run_mutant :: proc(t: ^testing.T, e: ^Engine, dest, path, src: string, m: Mutati
     }
     counts[m.op].seeded += 1
     for d in res.report.items {
-        if d.line in lines {
+        if !d.lint && d.line in lines {
             counts[m.op].matched += 1
             return
         }
@@ -633,7 +641,7 @@ test_oracle_seeded :: proc(t: ^testing.T) {
             res := live_check(e, src, ORACLE_ROOT, path)
             poly := poly_ranges(src)
             for d in res.report.items {
-                if !in_ranges(poly, d.line) {
+                if !d.lint && !in_ranges(poly, d.line) {
                     false_errors += 1
                     note("FALSE baseline %s:%d `%s`: %s", path, d.line, line_text(src, d.line), d.message)
                 }
@@ -722,7 +730,7 @@ test_oracle_clean_corpus :: proc(t: ^testing.T) {
     defer engine_destroy(e)
     target := odinsema.target_host()
     target.tests = false
-    packages, files_checked, skipped, found, in_poly := 0, 0, 0, 0, 0
+    packages, files_checked, skipped, found, in_poly, lints, lines := 0, 0, 0, 0, 0, 0, 0
     by_message := make(map[string]int, keep)
     for dir in dirs {
         if !oracle_only(dir) {
@@ -764,8 +772,15 @@ test_oracle_clean_corpus :: proc(t: ^testing.T) {
             res := live_check(e, src, root, path)
             defer free_live(&res)
             files_checked += 1
+            lines += strings.count(src, "\n")
             poly := poly_ranges(src)
             for d in res.report.items {
+                // A lint the compiler does not make: counted for the false-positive audit.
+                if d.lint {
+                    lints += 1
+                    note("LINT %s:%d:%d: %s", path, d.line, d.col, d.message)
+                    continue
+                }
                 // The compiler checks a polymorphic body only per instance, so it is silent there.
                 if in_ranges(poly, d.line) {
                     in_poly += 1
@@ -789,6 +804,7 @@ test_oracle_clean_corpus :: proc(t: ^testing.T) {
         note("%4d x %s", n, msg)
     }
     note("corpus: %d packages clean under odin check (%d skipped), %d files checked, %d live errors, %d in polymorphic bodies", packages, skipped, files_checked, found, in_poly)
+    note("lints: %d over %d lines", lints, lines)
     report_flush("bin/test/oracle_corpus.txt")
     testing.expect(t, packages > 0, "no package checked")
     testing.expect_value(t, found, 0)

@@ -1,5 +1,6 @@
 package odin
 
+import "core:strings"
 import "core:testing"
 
 import lang ".."
@@ -1169,4 +1170,74 @@ f :: proc(n: u16) {
         {`"zq"`, `Cannot convert '"zq"' to 'Futex' from 'untyped string', got "zq"`, 1},
         {"true", "Cannot convert 'true' to 'int' from 'untyped bool', got true", 0},
     })
+}
+
+@(test)
+test_live_unreachable :: proc(t: ^testing.T) {
+    root := fixture(t, "live_unreachable", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+import "core:os"
+
+g :: proc() {}
+
+r1 :: proc() {
+	return
+	g()
+}
+r2 :: proc() {
+	for {
+		break
+		g()
+	}
+}
+r3 :: proc() {
+	panic("x")
+	g()
+}
+r4 :: proc() {
+	os.exit(1)
+	g()
+}
+r5 :: proc() {
+	for {}
+	g()
+	g()
+}
+r6 :: proc(x: int) -> int {
+	if x > 0 { return 1 } else { return 2 }
+	// thor:ignore flow/unreachable
+	g()
+	return 0
+}
+d1 :: proc() {
+	defer g()
+	os.exit(1)
+}
+ok1 :: proc() {
+	when ODIN_OS == .Windows {
+		return
+	}
+	g()
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"return\n\tg()", "Statements after this 'return' are never executed", 0},
+        {"break\n", "Statements after this 'break' are never executed", 0},
+        {"panic(", "Statements after a diverging procedure call are never executed", 0},
+        {"os.exit(1)\n\tg()", "Statements after a diverging procedure call are never executed", 0},
+        {"g()\n\tg()\n}", "Unreachable code", 0},
+        {"defer g()", "Unreachable defer statement due to diverging procedure call at the end of the current scope", 0},
+    })
+    for d in res.report.items {
+        dead := d.message == "Unreachable code"
+        testing.expect(t, d.code == (CODE_UNREACHABLE_DEFER if strings.has_prefix(d.message, "Unreachable defer") else CODE_UNREACHABLE), "an unreachable item carries its id")
+        testing.expect_value(t, d.severity, lang.Diagnostic_Severity.Warning if dead else lang.Diagnostic_Severity.Error)
+        testing.expect_value(t, d.lint, dead)
+    }
 }

@@ -52,6 +52,7 @@ walk_body :: proc(rc: ^Request_Context, c: ^odinsema.Checker, whens: []Branch, n
         switch_errors(rc, c, n, report)
     case .Proc_Lit:
         return_errors(rc, c, n, report)
+        unreachable_errors(rc, c, n, report)
     case .Or_Return_Expr:
         or_return_errors(rc, c, n, report)
     }
@@ -202,6 +203,33 @@ return_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, lit: odinsynta
         return
     }
     report_error(rc, report, at, CODE_RETURN, fmt.aprintf("Missing return statement at the end of the procedure '%s'", name))
+}
+
+// Reports the code of a procedure that control cannot reach: as the compiler does a statement after
+// a terminator in the same list and a `defer` before a diverging call that ends its scope, as a lint
+// the rest the control-flow graph finds.
+@(private = "file")
+unreachable_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, lit: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
+    r, err := odinsema.unreachable_code(c, rc.live.id, lit, context.temp_allocator)
+    if err != nil {
+        return
+    }
+    for n in r.never_executed {
+        message: string
+        switch n.kind {
+        case .Return:    message = "Statements after this 'return' are never executed"
+        case .Break:     message = "Statements after this 'break' are never executed"
+        case .Continue:  message = "Statements after this 'continue' are never executed"
+        case .Diverging: message = "Statements after a diverging procedure call are never executed"
+        }
+        report_error(rc, report, n.offset, CODE_UNREACHABLE, strings.clone(message))
+    }
+    for at in r.defers {
+        report_error(rc, report, at, CODE_UNREACHABLE_DEFER, strings.clone("Unreachable defer statement due to diverging procedure call at the end of the current scope"))
+    }
+    for at in r.dead {
+        report_error(rc, report, at, CODE_UNREACHABLE, strings.clone("Unreachable code"), .Warning, lint = true)
+    }
 }
 
 // Reports an `or_return` that does not fit the procedure around it.
