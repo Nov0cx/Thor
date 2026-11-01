@@ -2583,14 +2583,27 @@ not a status, so this section stays the source of truth for what is built.
     compiler vets the imported packages too); `vet_item` gives its vet lines
     the ids, the warning severity or the configured one, and drops a line a
     `thor:ignore` comment of its file names. So the vet items carry no
-    `lint`: a current compiler report replaces them. Not yet: the shadowing
-    of a variable by a field a `using` local brings in ("Declaration of 'x'
-    from 'using' shadows ..."), an import used only in a polymorphic body
-    nothing instantiates (the compiler counts it unused), and the vet flags
-    outside the `-vet` set (`-vet-cast`, `-vet-style`, ...). Over the clean
+    `lint`: a current compiler report replaces them. A field that a `using`
+    local or a `using` statement in a nested block brings in shadows a
+    variable ("Declaration of 'x' from 'using' shadows declaration at line
+    N", `vet/shadowing`) when an enclosing scope of the procedure or an
+    earlier package variable of the file declares it with the same type.
+    The report is at the variable the `using` names. There is one report per
+    `using`, as the compiler drops the others at that position: the lowest
+    shadowed line wins, then the first field. A `using` in the top scope of
+    a procedure is a collision, not shadowing. An import used only in a
+    polymorphic body that the package does not instantiate is unused, as
+    the compiler checks such a body per instance only
+    (`sema/poly_reach.odin`). The parameters, defaults and results stay
+    checked. A body is instantiated when its name is used outside every
+    polymorphic body, or in a body that is instantiated, in any file of the
+    package. The match is by name, so it can miss a report but cannot give
+    a false one. The package walk runs only when the buffer has an import
+    that only its polymorphic bodies use. Not yet: the vet flags outside the
+    `-vet` set (`-vet-cast`, `-vet-style`, ...). Over the clean
     corpus `test_oracle_clean_corpus` compares the live vet items with
-    `odin check -vet`: 85 matched, none false, 4 missed (three imports used
-    only in polymorphic bodies, one `-vet-cast` line a `#+vet` tag asks for).
+    `odin check -vet`: 88 matched, none false, 1 missed (a `-vet-cast` line
+    a `#+vet` tag asks for).
   - **Quick fixes** (`lang/odin/actions.odin`, plan §6, M7): `Code_Actions`
     answers from sema, for the caret or the lines of the selection. A switch
     around the caret that `switch_missing` reports gets its missing cases

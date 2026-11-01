@@ -33,9 +33,10 @@ flags with `-vet-packages`, its vet lines mapped to the same ids. Quick fixes se
 missing import, `thor:ignore` comments, struct literal fields, `or_return` and create a declaration.
 The section 6 refactorings are done: inline variable, `if` chain to `switch` and back, extract variable
 and procedure, change signature and move declaration (to another file or package). The four that
-need a name or a path ask for it through `Code_Action.prompt` and `Resolve_Action`. Next: the M7 exit
-(vet parity: the `using` shadowing, imports used only in polymorphic bodies), then M8, which also
-holds peek definition (section 6).
+need a name or a path ask for it through `Code_Action.prompt` and `Resolve_Action`. The M7 exit is
+met for the `-vet` set: the `using` shadowing and the imports used only in uninstantiated
+polymorphic bodies are live. The only line `test_oracle_clean_corpus` misses is a `-vet-cast` line
+that a `#+vet` tag asks for. Next: M8, which also holds peek definition (section 6).
 `lang/ROADMAP.md` ("Next engine") tracks the rest. Section 11 lists the
 feature questions whose answers change the plan.
 

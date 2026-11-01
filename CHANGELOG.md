@@ -21,6 +21,8 @@
 - Odin: other code that can never run, such as code after `for {}` or after an `if`/`else` whose branches both return, gets a warning (`flow/unreachable`). The compiler does not report it, so the warning stays after a save, next to the `odin check` diagnostics.
 - Odin: a variable that nothing uses gets a warning while typing, as `odin check -vet-unused-variables` reports it (`vet/unused-variable`).
 - Odin: the other `-vet` checks are warnings while typing too: an unused import (`vet/unused-import`), a variable that shadows an earlier one of the same type (`vet/shadowing`) and a declaration in a file-scope `when` that shadows a builtin (`vet/when-shadowing`). `#+vet` file tags turn them on or off.
+- Odin: a field that a `using` brings in and that shadows a variable of the same type gets a `vet/shadowing` warning while typing.
+- Odin: an import used only in a polymorphic procedure or record that nothing in the package instantiates gets a `vet/unused-import` warning, as `odin check` reports it.
 - Odin: a save runs `odin check` with the `-vet-*` flags of the vet ids that are not `"off"`. Its vet lines are warnings with the same ids, and `thor:ignore` hides them.
 - Odin: `ctrl + shift + u` offers quick fixes with no language server: add the missing `switch` cases or `#partial`, remove unused imports, make an unused variable `_`, import the package a qualifier names, and add a `thor:ignore` comment for a diagnostic.
 - Odin: more quick fixes: add the fields a struct literal leaves out, add `or_return` to a call, and declare a name no scope binds (a procedure, a struct, `:=` or a variable).
