@@ -26,8 +26,9 @@ rebuild lives on its own branch), so it is the merge of this branch. M7 started:
 "never executed" and unreachable-`defer` errors and the `flow/unreachable` lint, which the editor
 keeps beside a current `odin check` report. Liveness (`sema/liveness.odin`) serves
 `vet/unused-variable` (the compiler's `-vet-unused-variables` rule) and the `flow/dead-store` lint.
-Next in M7: the Tier 2 vet family, on by default as warnings (the `-vet` set), with the matching
-`-vet-*` flags passed to the on-save `odin check`; then quick fixes.
+The rest of the `-vet` set is live too (`sema/vet.odin`: unused imports, shadowing, `when`
+shadowing, `#+vet` tags), as warnings, and the on-save `odin check` passes the matching `-vet-*`
+flags with `-vet-packages`, its vet lines mapped to the same ids. Next in M7: quick fixes.
 `lang/ROADMAP.md` ("Next engine") tracks the rest. Section 11 lists the
 feature questions whose answers change the plan.
 

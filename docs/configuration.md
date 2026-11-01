@@ -383,8 +383,11 @@ its root, layered on top of the global settings above. This repository's own
   `const/overflow`, `switch/non-exhaustive`, `assert/static`,
   `flow/missing-return`, `or_return/mismatch`, `poly/where`,
   `assign/count`, `flow/unreachable`, `flow/unreachable-defer`,
-  `vet/unused-variable` and `flow/dead-store`. An unknown id or value is logged and ignored. The diagnostics
-  `odin check` gives after a save are not affected.
+  `vet/unused-variable`, `vet/unused-import`, `vet/shadowing`,
+  `vet/using-stmt`, `vet/when-shadowing` and `flow/dead-store`. An unknown id or value is logged and
+  ignored. The diagnostics `odin check` gives after a save are not affected, except the `vet/*` ids:
+  the save passes `odin check` one `-vet-*` flag for each of them that is not `"off"`, and gives the
+  lines it reports for them the same id and severity.
 
 - **`odin-formatter.lua`** — per-workspace options for formatting `.odin`
   files — "Edit: Format Document", "Edit: Format Selection", `format_on_save`

@@ -2555,12 +2555,43 @@ not a status, so this section stays the source of truth for what is built.
     x`, `using`), with attributes (`@(static)`), declared twice in one scope,
     read only in dead code or used outside the graph (an untaken `when`) is
     left out, and the stores of a statement with `or_return`, `or_break` or
-    `or_continue` neither kill nor report. Both are warnings with `lint` set
-    until the on-save `odin check` passes the `-vet` flags. Over the clean
+    `or_continue` neither kill nor report. Both are warnings; the dead store
+    carries `lint`. Over the clean
     corpus 31 dead stores, all real (a lost error in
     `os/process_windows.odin`, a typo in `crypto/rsa`); 7 in the repo are
     fixed. The scope map marks the places of a plain `=` (`Name_Ref.is_store`).
-    Next: the Tier 2 vet family.
+  - **Vet** (`sema/vet.odin`, `lang/odin/vet_check.odin`, plan §5.7 Tier 2,
+    M7): the checks of the compiler's `-vet` set are live warnings. An
+    unused import (`vet/unused-import`, "'x' declared but not used" at the
+    alias or path): a use in a `when` branch the target does not take does
+    not count, one in a branch it may take does; `_`, `@(require)`, foreign
+    and unresolved imports, `base:intrinsics` and `base:builtin` are never
+    reported. A variable that shadows the nearest declaration of its name
+    in an enclosing scope of its procedure, or an earlier package variable
+    of its file (`vet/shadowing`, "Declaration of 'x' shadows declaration at
+    line N"), as the compiler counts it: only when both have one type (a
+    type-switch variable has the type of each case clause), never for
+    `x := x`, `x := &x` or a parameter, never across procedures, and never
+    over a constant or a procedure. A declaration in a file-scope `when`
+    branch the target takes whose name is a builtin
+    (`vet/when-shadowing`). `-vet-using-stmt` adds nothing live: a `using`
+    statement is an error without `#+feature using-stmt` and the flag does
+    not report one with it. `#+vet` tags add and `!name` removes checks per
+    file as the compiler does (`file_vet_flags`), and a vet id set `"off"`
+    turns its check off. The on-save `odin check` passes `-vet-*` for each
+    check not turned off and `-vet-packages:<package>` (without it the
+    compiler vets the imported packages too); `vet_item` gives its vet lines
+    the ids, the warning severity or the configured one, and drops a line a
+    `thor:ignore` comment of its file names. So the vet items carry no
+    `lint`: a current compiler report replaces them. Not yet: the shadowing
+    of a variable by a field a `using` local brings in ("Declaration of 'x'
+    from 'using' shadows ..."), an import used only in a polymorphic body
+    nothing instantiates (the compiler counts it unused), and the vet flags
+    outside the `-vet` set (`-vet-cast`, `-vet-style`, ...). Over the clean
+    corpus `test_oracle_clean_corpus` compares the live vet items with
+    `odin check -vet`: 85 matched, none false, 4 missed (three imports used
+    only in polymorphic bodies, one `-vet-cast` line a `#+vet` tag asks for).
+    Next: quick fixes.
   - **Compiler oracle** (`lang/odin/oracle_test.odin`, run with
     `-define:LIVE_ORACLE=true`; plan §8 M5 bar): `test_oracle_clean_corpus`
     runs the live check on every file of the 310 `base`/`core`/`vendor`
@@ -2573,8 +2604,9 @@ not a status, so this section stays the source of truth for what is built.
     seeds one error per site (rename, dropped import, misspelled field,
     extra or dropped argument, wrong literal, dropped case, return or
     value, duplicate declaration, a statement after a `return`, an unused
-    variable checked with `-vet-unused-variables`) into repo and Odin root
-    packages (1254 seeded, all matched) and
+    variable, a shadowing variable and an unused import, each checked with
+    its `-vet-*` flag) into repo and Odin root packages (1335 seeded, all
+    matched) and
     requires each one the compiler reports to be matched on its line, with
     no false error. Reports land in `bin/test/oracle_corpus.txt` and
     `bin/test/oracle_seeded.txt`.
@@ -2585,7 +2617,9 @@ not a status, so this section stays the source of truth for what is built.
     `const/overflow`, `switch/non-exhaustive`, `assert/static`,
     `flow/missing-return`, `or_return/mismatch`, `poly/where`,
     `assign/count`, `import/cycle`, `flow/unreachable`,
-    `flow/unreachable-defer`, `vet/unused-variable`, `flow/dead-store`), shown after the message in the hover.
+    `flow/unreachable-defer`, `vet/unused-variable`, `vet/unused-import`,
+    `vet/shadowing`, `vet/using-stmt`, `vet/when-shadowing`,
+    `flow/dead-store`), shown after the message in the hover.
     `// thor:ignore <id>...` drops those ids on the next
     line (on its own line when it follows code), with no id every id;
     `// thor:ignore-file <id>...` drops them in the whole file. An unknown id

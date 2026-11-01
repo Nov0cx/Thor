@@ -154,9 +154,15 @@ return (`flow/unreachable`) and a `defer` that a diverging call at the end of
 its scope skips (`flow/unreachable-defer`). After a save, the compiler's
 diagnostics replace them. Other code that can never run, such as code after
 `for {}`, gets a warning the compiler does not give (`flow/unreachable`); it
-stays after a save. So do the warnings for a variable that nothing uses
-(`vet/unused-variable`, as `odin check -vet-unused-variables` reports it) and
-for a value stored in a variable that nothing reads (`flow/dead-store`). The hover over a mark shows its id
+stays after a save. So does the warning for a value stored in a variable that
+nothing reads (`flow/dead-store`). The checks of `odin check -vet` are warnings
+while typing: a variable that nothing uses (`vet/unused-variable`), an import
+that nothing uses (`vet/unused-import`), a variable that shadows an earlier one
+of the same type (`vet/shadowing`) and a declaration in a file-scope `when`
+that shadows a builtin (`vet/when-shadowing`). A `#+vet` file tag turns them on
+or off for its file as it does for the compiler. A save runs `odin check` with
+the matching `-vet-*` flags, and its vet lines show as warnings with the same
+ids. The hover over a mark shows its id
 (`[name/undeclared]`); a `// thor:ignore name/undeclared` comment hides that id
 on the next line (or on its own line after code), and
 `// thor:ignore-file <id>` hides it in the whole file. `"diagnostics"` in

@@ -20,6 +20,8 @@
 - Odin: a `return`, `break`, `continue` or call of a `-> !` procedure followed by more statements is marked while typing (`flow/unreachable`). So is a `defer` before a diverging call that ends its scope (`flow/unreachable-defer`).
 - Odin: other code that can never run, such as code after `for {}` or after an `if`/`else` whose branches both return, gets a warning (`flow/unreachable`). The compiler does not report it, so the warning stays after a save, next to the `odin check` diagnostics.
 - Odin: a variable that nothing uses gets a warning while typing, as `odin check -vet-unused-variables` reports it (`vet/unused-variable`).
+- Odin: the other `-vet` checks are warnings while typing too: an unused import (`vet/unused-import`), a variable that shadows an earlier one of the same type (`vet/shadowing`) and a declaration in a file-scope `when` that shadows a builtin (`vet/when-shadowing`). `#+vet` file tags turn them on or off.
+- Odin: a save runs `odin check` with the `-vet-*` flags of the vet ids that are not `"off"`. Its vet lines are warnings with the same ids, and `thor:ignore` hides them.
 - Odin: a value stored in a variable and never read gets a warning while typing, such as `x = 1` followed by `x = 2` (`flow/dead-store`).
 - Odin: `"diagnostics"` in `.thor/odin-analyzer.lua` sets each live diagnostic id to `"off"`, `"warning"` or `"error"`.
 - Odin: a `@(private="file")` declaration no longer counts as a redeclaration of a package declaration of the same name.
