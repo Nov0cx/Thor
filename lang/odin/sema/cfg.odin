@@ -23,6 +23,7 @@ NO_BLOCK :: Block_Id(-1)
 Cfg_Step_Kind :: enum u8 {
     Stmt,
     Defer_Run, // the statement of a `defer`, run where its scope is left
+    Expr,      // a condition, tag, iterated value or case value of a compound statement
 }
 
 // One statement a block runs. `node.parent` is nil.
@@ -214,6 +215,15 @@ jump :: proc(b: ^Cfg_Builder, to: Block_Id, depth: int) {
     b.cur = from
 }
 
+// Goes on in a new block after a jump from the middle of a statement, so the steps after it are not
+// on the path that left.
+@(private = "file")
+split :: proc(b: ^Cfg_Builder) {
+    from := b.cur
+    b.cur = new_block(b)
+    edge(b, from, b.cur)
+}
+
 @(private = "file")
 label_of :: proc(n: odinsyntax.Syntax_Node) -> string {
     n := n
@@ -379,6 +389,7 @@ build_if :: proc(b: ^Cfg_Builder, n: odinsyntax.Syntax_Node) {
         build_stmt(b, init)
     }
     if cond, ok := odinsyntax.if_stmt_cond(&is); ok {
+        step(b, cond, .Expr)
         flow_expr(b, cond)
     }
     head := b.cur
@@ -466,6 +477,7 @@ build_for :: proc(b: ^Cfg_Builder, n: odinsyntax.Syntax_Node) {
     post := new_block(b)
     after := new_block(b)
     if cond, ok := odinsyntax.for_stmt_cond(&fs); ok {
+        step(b, cond, .Expr)
         flow_expr(b, cond)
         edge(b, b.cur, after)
     }
@@ -494,6 +506,7 @@ build_range :: proc(b: ^Cfg_Builder, n: odinsyntax.Syntax_Node) {
         build_stmt(b, init)
     }
     if expr, ok := odinsyntax.range_stmt_expr(&rs); ok {
+        step(b, expr, .Expr)
         flow_expr(b, expr)
     }
     head := new_block(b)
@@ -524,12 +537,14 @@ build_switch :: proc(b: ^Cfg_Builder, n: odinsyntax.Syntax_Node) {
             build_stmt(b, init)
         }
         if tag, ok := odinsyntax.switch_stmt_tag(&ss); ok {
+            step(b, tag, .Expr)
             flow_expr(b, tag)
         }
         body, has_body = odinsyntax.switch_stmt_body(&ss)
     } else {
         ts, _ := odinsyntax.as_type_switch_stmt(n)
         if subject, ok := odinsyntax.type_switch_stmt_subject(&ts); ok {
+            step(b, subject, .Expr)
             flow_expr(b, subject)
         }
         body, has_body = odinsyntax.type_switch_stmt_body(&ts)
@@ -543,6 +558,10 @@ build_switch :: proc(b: ^Cfg_Builder, n: odinsyntax.Syntax_Node) {
         it := odinsyntax.child_iter((^odinsyntax.Syntax_Node)(&body), {kinds = {.Case_Clause}})
         for clause in odinsyntax.child_iter_next(&it) {
             append(&clauses, clause)
+            cc, _ := odinsyntax.as_case_clause(clause)
+            if values, has_values := odinsyntax.case_clause_values(&cc); has_values {
+                step(b, odinsyntax.Syntax_Node(values), .Expr)
+            }
         }
         starts := make([]Block_Id, len(clauses), context.temp_allocator)
         for &s in starts {
@@ -592,6 +611,7 @@ flow_expr :: proc(b: ^Cfg_Builder, n: odinsyntax.Syntax_Node) {
     case .Or_Return_Expr:
         flow_children(b, n)
         jump(b, b.g.exit, 0)
+        split(b)
         return
     case .Or_Branch_Expr:
         flow_children(b, n)
@@ -605,6 +625,7 @@ flow_expr :: proc(b: ^Cfg_Builder, n: odinsyntax.Syntax_Node) {
             label = odinsyntax.node_text(odinsyntax.Syntax_Node(l))
         }
         branch(b, label, kw.green.kind == .Or_Continue)
+        split(b)
         return
     }
     flow_children(b, n)

@@ -43,6 +43,7 @@ Name_Ref :: struct {
     decl_kind:     Decl_Kind,
     is_decl:       bool, // the identifier is the name of its declaration
     is_using:      bool, // Local: the declaration has `using`
+    is_store:      bool, // Local: a place of a plain `=`
     operand_start: int, // Field_Or_Member and Package_Qualified: the operand; Field_Name: the literal type or callee; -1 when none
     operand_end:   int,
     operand:       string, // Package_Qualified: the package name
@@ -365,6 +366,8 @@ walk :: proc(w: ^Walker, n: odinsyntax.Syntax_Node) {
         }
     case .Value_Decl:
         walk_value_decl(w, n)
+    case .Assign_Stmt:
+        walk_assign(w, n)
     case .Import_Decl:
         imp, _ := odinsyntax.as_import_decl(n)
         if alias, ok := odinsyntax.import_decl_alias(&imp); ok {
@@ -650,6 +653,29 @@ has_using :: proc(n: odinsyntax.Syntax_Node) -> bool {
         }
     }
     return false
+}
+
+// Walks an assignment. A name on the left of a plain `=` is a store.
+@(private = "file")
+walk_assign :: proc(w: ^Walker, n: odinsyntax.Syntax_Node) {
+    a, _ := odinsyntax.as_assign_stmt(n)
+    op, has_op := odinsyntax.assign_stmt_op(&a)
+    plain := has_op && op.green.kind == .Eq
+    if lhs, ok := odinsyntax.assign_stmt_lhs(&a); ok {
+        it := odinsyntax.expr_list_items(&lhs)
+        for item in odinsyntax.child_iter_next(&it) {
+            walk(w, item)
+            if plain && item.green.kind == .Ident && len(w.refs) > 0 {
+                last := &w.refs[len(w.refs) - 1]
+                if last.kind == .Local && last.start == int(item.offset) {
+                    last.is_store = true
+                }
+            }
+        }
+    }
+    if rhs, ok := odinsyntax.assign_stmt_rhs(&a); ok {
+        walk(w, odinsyntax.Syntax_Node(rhs))
+    }
 }
 
 // Walks a Value_Decl. A variable is declared after its type and values, so `x := x` reads the outer `x`.
