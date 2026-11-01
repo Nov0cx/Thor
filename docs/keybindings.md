@@ -41,7 +41,7 @@ Every binding below is a default and can be changed in `keybinds.lua`
 | f2 | rename the file of the active tab |
 | f9 | run the selected task |
 | ctrl + hover | show the declaration of the symbol under the mouse |
-| ctrl + shift + u | code actions: the fixes available at the caret, in a picker (scoped to the selection instead, on a language-server-backed file) |
+| ctrl + shift + u | code actions: the fixes available at the caret, in a picker (on the lines of the selection for Odin, scoped to the selection on a language-server-backed file) |
 | ctrl + f | find |
 | ctrl + shift + f | find in files |
 | ctrl + r | rename the symbol under the caret across every file that uses it; falls back to find & replace when the caret is not on a renameable symbol |

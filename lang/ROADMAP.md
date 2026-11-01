@@ -2591,7 +2591,24 @@ not a status, so this section stays the source of truth for what is built.
     corpus `test_oracle_clean_corpus` compares the live vet items with
     `odin check -vet`: 85 matched, none false, 4 missed (three imports used
     only in polymorphic bodies, one `-vet-cast` line a `#+vet` tag asks for).
-    Next: quick fixes.
+  - **Quick fixes** (`lang/odin/actions.odin`, plan §6, M7): `Code_Actions`
+    answers from sema, for the caret or the lines of the selection. A switch
+    around the caret that `switch_missing` reports gets its missing cases
+    (`case .A:` for an enum, `case T:` for a union, before the closing brace,
+    indented like the other cases) and `#partial`. An unused import on the
+    caret's lines is removed with its line; "Remove N unused imports" takes
+    all of them from anywhere in the file. An unused variable is renamed to
+    `_` while its declaration keeps another name (a loop variable always),
+    else the declaration becomes `_ = value` (the compiler refuses `_ :=`),
+    else it is removed. A qualifier no scope binds (`fmt.` with no import)
+    gets an `import` per known package of that name, at most 4, inserted
+    where auto-import completion inserts one (`import_insert`). Each id of
+    the live report on the caret's lines gets "Ignore <id> on this line" (a
+    `// thor:ignore` line above, or the id appended to one already there) and
+    "Ignore <id> in this file" (after the package clause). With a syntax
+    error only the ignore fixes are offered. `req.diagnostics` is not read:
+    the engine finds its own. Not yet: struct literal fields, `or_return`,
+    create a declaration, fixes for the compiler's own lines.
   - **Compiler oracle** (`lang/odin/oracle_test.odin`, run with
     `-define:LIVE_ORACLE=true`; plan §8 M5 bar): `test_oracle_clean_corpus`
     runs the live check on every file of the 310 `base`/`core`/`vendor`

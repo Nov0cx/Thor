@@ -178,10 +178,12 @@ arguments pick. Completion offers the members after `x.`, the union variants
 after `x.(`, the procedure members after `x->`, and packages the file does not
 import yet, with the import line added. Signature help also covers a
 polymorphic record (`List(`) and a conversion (`int(`). A file you save in
-Thor counts at once; a file changed by another program counts within a second. The built-in support
-has no code actions; to use a server such as `ols` instead, give it `.odin`
-with `override = true` in `lsp.lua` (see [configuration](configuration.md)),
-then `ctrl + shift + u` shows the code actions at the caret.
+Thor counts at once; a file changed by another program counts within a second.
+`ctrl + shift + u` shows the quick fixes at the caret: the missing cases of a
+`switch` (or `#partial`), the removal of an unused import (one, or all of
+them), an unused variable made `_`, the import of a package a qualifier names
+(`fmt.` with no `import "core:fmt"`), and a `thor:ignore` comment for each id on
+the caret's line, for the line or for the file.
 
 Every other language gets these features from a language server.
 **Settings > Language Servers** (or **Help > Language Servers**) lists the ones

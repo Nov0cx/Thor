@@ -394,7 +394,7 @@ subprocess LSP client as an optional second backend behind the same seam.
   seam), `check.odin` (`odin check` diagnostics), `formatter.odin` + `format/` (the printer),
   `syntax_check.odin` (live syntax errors), `symbols.odin` (document and workspace symbols),
   `target.odin` + `definition.odin` + `references.odin` (the caret target, definition, references
-  and rename), `hover.odin`, `completion.odin`, `signature.odin`, `semantic.odin`,
+  and rename), `hover.odin`, `completion.odin`, `signature.odin`, `semantic.odin`, `actions.odin` (quick fixes),
   `builtins.odin` (the universe scope), `package_doc.odin`, `config.odin` and `path_*.odin`
   remain. Every file and package read goes through the sema query DB;
   `parse_cache.odin` and `package_cache.odin` are gone. A request that needs types takes the

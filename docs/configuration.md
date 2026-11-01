@@ -134,9 +134,8 @@ macOS. An empty string unbinds an action.
 ## `lsp.lua`
 
 The language servers Thor may start. Odin formatting, diagnostics,
-navigation, hover, completion and signature help are served in the editor
-itself and need no server; Odin code actions need a server (such as `ols`) with
-`"override": true`. Every other language gets its features — hover, go to
+navigation, hover, completion, signature help and quick fixes are served in
+the editor itself and need no server. Every other language gets its features — hover, go to
 definition, find references, document symbols, workspace symbols, signature
 help, completion, diagnostics, semantic colors, rename, code actions, and
 document/selection/on-type formatting — from the server named here.

@@ -28,7 +28,10 @@ keeps beside a current `odin check` report. Liveness (`sema/liveness.odin`) serv
 `vet/unused-variable` (the compiler's `-vet-unused-variables` rule) and the `flow/dead-store` lint.
 The rest of the `-vet` set is live too (`sema/vet.odin`: unused imports, shadowing, `when`
 shadowing, `#+vet` tags), as warnings, and the on-save `odin check` passes the matching `-vet-*`
-flags with `-vet-packages`, its vet lines mapped to the same ids. Next in M7: quick fixes.
+flags with `-vet-packages`, its vet lines mapped to the same ids. Quick fixes serve
+`Code_Actions` (`actions.odin`): switch cases and `#partial`, unused imports and variables, a
+missing import, `thor:ignore` comments. Next in M7: the rest of the section 6 fixes (struct literal
+fields, `or_return`, create a declaration) and the refactorings.
 `lang/ROADMAP.md` ("Next engine") tracks the rest. Section 11 lists the
 feature questions whose answers change the plan.
 
