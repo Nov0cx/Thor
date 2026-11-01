@@ -2493,7 +2493,9 @@ not a status, so this section stays the source of truth for what is built.
     never picked from a group of several, as the compiler does (`append(&a)`).
     Too many values for one procedure, counting the values of a multi-value
     call among other arguments as the compiler does (`f(pair(), 3)`;
-    `too_many_values`). An assignment count counts a literal, `.Member`, an operator, a slice and
+    `too_many_values`). More values than places in an assignment is a count
+    error whatever a call among them gives, and a missing parameter with no
+    name is named `_`, as the compiler does. An assignment count counts a literal, `.Member`, an operator, a slice and
     a builtin or conversion call as one value, and every value but a call as
     one beside others. A string or bool constant for a number parameter of
     an intrinsic (`sync.atomic_store(&n, "x")`); other intrinsic arguments
@@ -2533,8 +2535,32 @@ not a status, so this section stays the source of truth for what is built.
     diagnostic the compiler does not make carries `lint`
     (`lang.Diagnostic.lint`), and the editor shows the lint items of the live
     report beside a current `odin check` report
-    (`thor_file_live_diagnostics`), so a save does not hide them. Next on the
-    graph: liveness (unused variables, dead stores).
+    (`thor_file_live_diagnostics`), so a save does not hide them.
+  - **Liveness** (`sema/liveness.odin`, plan §5.6, M7): `liveness` gives the
+    unused variables and dead stores of one procedure body. A variable or
+    loop variable is unused as `-vet-unused-variables` counts it ("'x'
+    declared but not used", `vet/unused-variable`): a plain `=` is a use,
+    `op=` and `&x` too, and a use in a `when` branch the target does not take
+    is not; a type-switch variable, a parameter, a named result, a `using`
+    local and a declaration with attributes are never reported, and a name
+    the branches of a `when` declare twice in one scope counts as used for
+    both. Over the clean corpus it reports the 78 the compiler reports, in
+    the same packages. A dead store (`flow/dead-store`, lint, "Value assigned
+    to 'x' is never used") is a plain `=`, or a declaration value that holds
+    a call (a conversion or a constant call does not count), that no path of
+    the graph reads: backward liveness over `cfg_build`, with the condition,
+    tag, iterated value and case values of a compound statement as `.Expr`
+    steps, a `defer` read on every exit edge and the named results live at
+    the exit. A local whose address is taken (`&x`, `x[:]`, `x->`, `for &e in
+    x`, `using`), with attributes (`@(static)`), declared twice in one scope,
+    read only in dead code or used outside the graph (an untaken `when`) is
+    left out, and the stores of a statement with `or_return`, `or_break` or
+    `or_continue` neither kill nor report. Both are warnings with `lint` set
+    until the on-save `odin check` passes the `-vet` flags. Over the clean
+    corpus 31 dead stores, all real (a lost error in
+    `os/process_windows.odin`, a typo in `crypto/rsa`); 7 in the repo are
+    fixed. The scope map marks the places of a plain `=` (`Name_Ref.is_store`).
+    Next: the Tier 2 vet family.
   - **Compiler oracle** (`lang/odin/oracle_test.odin`, run with
     `-define:LIVE_ORACLE=true`; plan §8 M5 bar): `test_oracle_clean_corpus`
     runs the live check on every file of the 310 `base`/`core`/`vendor`
@@ -2546,8 +2572,9 @@ not a status, so this section stays the source of truth for what is built.
     `pt_rescale(&tmp)` in `crypto/_weierstrass`). `test_oracle_seeded`
     seeds one error per site (rename, dropped import, misspelled field,
     extra or dropped argument, wrong literal, dropped case, return or
-    value, duplicate declaration, a statement after a `return`) into repo
-    and Odin root packages (1138 seeded, all matched) and
+    value, duplicate declaration, a statement after a `return`, an unused
+    variable checked with `-vet-unused-variables`) into repo and Odin root
+    packages (1254 seeded, all matched) and
     requires each one the compiler reports to be matched on its line, with
     no false error. Reports land in `bin/test/oracle_corpus.txt` and
     `bin/test/oracle_seeded.txt`.
@@ -2558,7 +2585,7 @@ not a status, so this section stays the source of truth for what is built.
     `const/overflow`, `switch/non-exhaustive`, `assert/static`,
     `flow/missing-return`, `or_return/mismatch`, `poly/where`,
     `assign/count`, `import/cycle`, `flow/unreachable`,
-    `flow/unreachable-defer`), shown after the message in the hover.
+    `flow/unreachable-defer`, `vet/unused-variable`, `flow/dead-store`), shown after the message in the hover.
     `// thor:ignore <id>...` drops those ids on the next
     line (on its own line when it follows code), with no id every id;
     `// thor:ignore-file <id>...` drops them in the whole file. An unknown id

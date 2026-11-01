@@ -382,7 +382,8 @@ its root, layered on top of the global settings above. This repository's own
   `call/named`, `call/overload`, `type/no-member`, `type/mismatch`,
   `const/overflow`, `switch/non-exhaustive`, `assert/static`,
   `flow/missing-return`, `or_return/mismatch`, `poly/where`,
-  `assign/count`, `flow/unreachable` and `flow/unreachable-defer`. An unknown id or value is logged and ignored. The diagnostics
+  `assign/count`, `flow/unreachable`, `flow/unreachable-defer`,
+  `vet/unused-variable` and `flow/dead-store`. An unknown id or value is logged and ignored. The diagnostics
   `odin check` gives after a save are not affected.
 
 - **`odin-formatter.lua`** — per-workspace options for formatting `.odin`

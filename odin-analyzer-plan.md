@@ -20,12 +20,13 @@ assignments, declarations and returns, group calls no member takes, constant ove
 returns, `or_return`, false `where` clauses, assignment counts and import cycles), with per-id
 severities in `.thor/odin-analyzer.json`. The M5 corpus bar is met (`lang/odin/oracle_test.odin`):
 no live error on the 1268 files of the 310 `base`/`core`/`vendor` packages `odin check` accepts,
-and every one of 1138 seeded errors (11 mutation kinds) matched to the compiler with no false error. M6 needs no engine switch (§11.6: the
+and every one of 1254 seeded errors (12 mutation kinds) matched to the compiler with no false error. M6 needs no engine switch (§11.6: the
 rebuild lives on its own branch), so it is the merge of this branch. M7 started: the CFG
 (`sema/cfg.odin`, §5.6) with `defer` unwinding and labelled branches serves the compiler's
 "never executed" and unreachable-`defer` errors and the `flow/unreachable` lint, which the editor
-keeps beside a current `odin check` report. Next in M7: liveness (unused variables, dead stores),
-then the Tier 2 vet family, on by default as warnings (the `-vet` set), with the matching
+keeps beside a current `odin check` report. Liveness (`sema/liveness.odin`) serves
+`vet/unused-variable` (the compiler's `-vet-unused-variables` rule) and the `flow/dead-store` lint.
+Next in M7: the Tier 2 vet family, on by default as warnings (the `-vet` set), with the matching
 `-vet-*` flags passed to the on-save `odin check`; then quick fixes.
 `lang/ROADMAP.md` ("Next engine") tracks the rest. Section 11 lists the
 feature questions whose answers change the plan.

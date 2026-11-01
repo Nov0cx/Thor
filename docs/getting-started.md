@@ -154,7 +154,9 @@ return (`flow/unreachable`) and a `defer` that a diverging call at the end of
 its scope skips (`flow/unreachable-defer`). After a save, the compiler's
 diagnostics replace them. Other code that can never run, such as code after
 `for {}`, gets a warning the compiler does not give (`flow/unreachable`); it
-stays after a save. The hover over a mark shows its id
+stays after a save. So do the warnings for a variable that nothing uses
+(`vet/unused-variable`, as `odin check -vet-unused-variables` reports it) and
+for a value stored in a variable that nothing reads (`flow/dead-store`). The hover over a mark shows its id
 (`[name/undeclared]`); a `// thor:ignore name/undeclared` comment hides that id
 on the next line (or on its own line after code), and
 `// thor:ignore-file <id>` hides it in the whole file. `"diagnostics"` in
