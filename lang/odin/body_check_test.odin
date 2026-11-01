@@ -1002,7 +1002,7 @@ main :: proc() {
         {"m, n = 1, 2, 3", "Assignment count mismatch '2' = '3'", 0},
     })
     for d in res.report.items {
-        testing.expect(t, d.code == CODE_COUNT, "a count error carries its id")
+        testing.expect(t, d.lint || d.code == CODE_COUNT, "a count error carries its id")
     }
 }
 
@@ -1240,4 +1240,70 @@ ok1 :: proc() {
         testing.expect_value(t, d.severity, lang.Diagnostic_Severity.Warning if dead else lang.Diagnostic_Severity.Error)
         testing.expect_value(t, d.lint, dead)
     }
+}
+
+@(test)
+test_live_liveness :: proc(t: ^testing.T) {
+    root := fixture(t, "live_liveness", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+g :: proc() -> int { return 1 }
+h :: proc(args: ..any) {}
+
+u1 :: proc() {
+	a := 1
+	for x in 0 ..< 3 {}
+}
+s1 :: proc() {
+	b := g()
+	b = 2
+	h(b)
+	// thor:ignore flow/dead-store
+	c := g()
+	c = 3
+	h(c)
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"a := 1", "'a' declared but not used", 0},
+        {"x in 0", "'x' declared but not used", 0},
+        {"b := g()", "Value assigned to 'b' is never used", 0},
+    })
+    for d in res.report.items {
+        testing.expect(t, d.code == CODE_UNUSED_VAR || d.code == CODE_DEAD_STORE, "a liveness item carries its id")
+        testing.expect_value(t, d.severity, lang.Diagnostic_Severity.Warning)
+        testing.expect(t, d.lint, "a liveness item is a lint")
+    }
+}
+
+@(test)
+test_live_unnamed_param_and_extra_values :: proc(t: ^testing.T) {
+    root := fixture(t, "live_unnamed_param", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+import "base:intrinsics"
+
+f :: proc(p: proc(rune) -> bool) -> bool {
+	return p()
+}
+g :: proc(v: #simd[4]u32) -> u32 {
+	x: u32
+	x = intrinsics.simd_reduce_or(v), 0
+	return x
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"p()", "Parameter '_' of type 'rune' is missing in procedure call", 0},
+        {"x = intrinsics", "Assignment count mismatch '1' = '2'", 0},
+    })
 }

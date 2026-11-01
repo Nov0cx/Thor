@@ -63,6 +63,7 @@ Oracle_Op :: enum {
     Duplicate_Decl,
     Extra_Value,
     Dead_Stmt,
+    Unused_Var, // checked with -vet-unused-variables
 }
 
 // One text edit of a valid file.
@@ -184,9 +185,13 @@ copy_package :: proc(src, dst: string) -> bool {
 
 // The errors `odin check` gives for the package in `dir`, and whether the compiler ran.
 @(private = "file")
-compiler_errors :: proc(dir: string, allocator := context.temp_allocator) -> (errs: []Oracle_Error_At, ran: bool) {
-    args := []string{"check", dir, "-no-entry-point", "-max-error-count:10000", "-terse-errors"}
-    output, code, ok := shell.exec_status("odin", args, ".", ORACLE_TIMEOUT)
+compiler_errors :: proc(dir: string, vet_unused := false, allocator := context.temp_allocator) -> (errs: []Oracle_Error_At, ran: bool) {
+    args := make([dynamic]string, context.temp_allocator)
+    append(&args, "check", dir, "-no-entry-point", "-max-error-count:10000", "-terse-errors")
+    if vet_unused {
+        append(&args, "-vet-unused-variables")
+    }
+    output, code, ok := shell.exec_status("odin", args[:], ".", ORACLE_TIMEOUT)
     defer delete(output)
     if !ok {
         return nil, false
@@ -266,6 +271,7 @@ sites_walk :: proc(n: odinsyntax.Syntax_Node, out: ^[dynamic]Mutation) {
     case .Return_Stmt:
         if n.parent != nil && n.parent.green.kind == .Block {
             append(out, Mutation{op = .Dead_Stmt, start = int(end), end = int(end), text = "; _ = 0"})
+            append(out, Mutation{op = .Unused_Var, start = int(start), end = int(start), text = "zz_unused := 0; "})
         }
     }
     it := odinsyntax.child_iter(&n, {kinds = ~odinsyntax.Kind_Set{}})
@@ -527,7 +533,7 @@ run_mutant :: proc(t: ^testing.T, e: ^Engine, dest, path, src: string, m: Mutati
         testing.expectf(t, false, "%s: could not write", path)
         return
     }
-    errs, ran := compiler_errors(dest)
+    errs, ran := compiler_errors(dest, m.op == .Unused_Var)
     res := live_check(e, mutated, ORACLE_ROOT, path)
     defer free_live(&res)
     if os.write_entire_file(path, src) != nil {
@@ -581,7 +587,7 @@ run_mutant :: proc(t: ^testing.T, e: ^Engine, dest, path, src: string, m: Mutati
     }
     counts[m.op].seeded += 1
     for d in res.report.items {
-        if !d.lint && d.line in lines {
+        if (!d.lint || m.op == .Unused_Var && d.code == CODE_UNUSED_VAR) && d.line in lines {
             counts[m.op].matched += 1
             return
         }

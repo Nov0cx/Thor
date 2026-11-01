@@ -43,7 +43,7 @@ name_diagnostics :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Report) 
     undeclared_names(rc, whens[:], report)
     // An unresolved name leaves the types of a body unknown.
     if len(report.items) == first && !lang.request_cancelled(rc.req) {
-        body_diagnostics(rc, whens[:], report)
+        body_diagnostics(rc, m, whens[:], report)
     }
 }
 

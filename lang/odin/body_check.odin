@@ -10,7 +10,7 @@ import odinsyntax "syntax"
 
 // Appends the body errors of the request's buffer to `report`. Silent where a type is not known.
 @(private)
-body_diagnostics :: proc(rc: ^Request_Context, whens: []Branch, report: ^lang.Diagnostic_Report) {
+body_diagnostics :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, whens: []Branch, report: ^lang.Diagnostic_Report) {
     if !rc.live.in_build {
         return
     }
@@ -18,11 +18,11 @@ body_diagnostics :: proc(rc: ^Request_Context, whens: []Branch, report: ^lang.Di
     if c == nil {
         return
     }
-    walk_body(rc, c, whens, odinsyntax.node_root(rc.parsed.tree), report)
+    walk_body(rc, c, m, whens, odinsyntax.node_root(rc.parsed.tree), report)
 }
 
 @(private = "file")
-walk_body :: proc(rc: ^Request_Context, c: ^odinsema.Checker, whens: []Branch, n: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
+walk_body :: proc(rc: ^Request_Context, c: ^odinsema.Checker, m: ^odinsema.Scope_Map, whens: []Branch, n: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
     if lang.request_cancelled(rc.req) || in_untaken_branch(whens, int(n.offset)) {
         return
     }
@@ -53,12 +53,13 @@ walk_body :: proc(rc: ^Request_Context, c: ^odinsema.Checker, whens: []Branch, n
     case .Proc_Lit:
         return_errors(rc, c, n, report)
         unreachable_errors(rc, c, n, report)
+        liveness_errors(rc, c, m, n, report)
     case .Or_Return_Expr:
         or_return_errors(rc, c, n, report)
     }
     it := odinsyntax.child_iter(&n, {kinds = ~odinsyntax.Kind_Set{}})
     for child in odinsyntax.child_iter_next(&it) {
-        walk_body(rc, c, whens, child, report)
+        walk_body(rc, c, m, whens, child, report)
     }
 }
 
@@ -69,11 +70,13 @@ call_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, call: odinsyntax
     switch p.kind {
     case .None:
     case .Missing:
-        if p.type == odinsema.INVALID_TYPE || p.name == "" {
+        if p.type == odinsema.INVALID_TYPE {
             return
         }
+        // The compiler names a parameter with no name `_`.
+        name := p.name == "" ? "_" : p.name
         type := odinsema.type_string(&c.table, p.type, context.temp_allocator)
-        report_error(rc, report, p.offset, CODE_ARITY, fmt.aprintf("Parameter '%s' of type '%s' is missing in procedure call", p.name, type))
+        report_error(rc, report, p.offset, CODE_ARITY, fmt.aprintf("Parameter '%s' of type '%s' is missing in procedure call", name, type))
     case .Too_Many:
         ce, _ := odinsyntax.as_call_expr(call)
         callee, _ := odinsyntax.call_expr_callee(&ce)
@@ -229,6 +232,22 @@ unreachable_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, lit: odin
     }
     for at in r.dead {
         report_error(rc, report, at, CODE_UNREACHABLE, strings.clone("Unreachable code"), .Warning, lint = true)
+    }
+}
+
+// Reports the unused variables of a procedure, as `-vet-unused-variables` does, and as a lint the
+// stores whose value no path reads.
+@(private = "file")
+liveness_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, m: ^odinsema.Scope_Map, lit: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
+    r, err := odinsema.liveness(c, rc.live.id, m, lit, context.temp_allocator)
+    if err != nil {
+        return
+    }
+    for u in r.unused {
+        report_error(rc, report, u.offset, CODE_UNUSED_VAR, fmt.aprintf("'%s' declared but not used", u.name), .Warning, lint = true)
+    }
+    for d in r.dead_stores {
+        report_error(rc, report, d.offset, CODE_DEAD_STORE, fmt.aprintf("Value assigned to '%s' is never used", d.name), .Warning, lint = true)
     }
 }
 

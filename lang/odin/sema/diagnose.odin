@@ -1561,7 +1561,7 @@ one_value :: proc(c: ^Checker, file: File_Id, v: odinsyntax.Syntax_Node) -> bool
 
 // Whether the places and the values of an `=` assignment or a variable declaration differ in count.
 // `at` is the first place. False when a value count is not known, or a value may give one or two
-// values (`m[k]`, `x.(T)`, `#optional_ok`).
+// values (`m[k]`, `x.(T)`, `#optional_ok`), unless there are more values than places.
 assign_count :: proc(c: ^Checker, file: File_Id, stmt: odinsyntax.Syntax_Node) -> (at, places, values: int, mismatch: bool) {
     list: odinsyntax.Expr_List
     #partial switch stmt.green.kind {
@@ -1612,6 +1612,10 @@ assign_count :: proc(c: ^Checker, file: File_Id, stmt: odinsyntax.Syntax_Node) -
     }
     if len(nodes) == 0 || places == 0 {
         return
+    }
+    // More values than places is an error whatever a call among them gives.
+    if len(nodes) > 1 && len(nodes) > places {
+        return at, places, len(nodes), true
     }
     for v in nodes {
         // Beside other values only a call, also under `or_*` or parentheses, can give more than one.

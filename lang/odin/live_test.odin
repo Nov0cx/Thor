@@ -43,8 +43,16 @@ Want :: struct {
 @(private)
 expect_errors :: proc(t: ^testing.T, res: ^lang.Result, source: string, wants: []Want, loc := #caller_location) {
     testing.expect(t, res.ok, "the live check must answer", loc = loc)
+    // A liveness lint is compared only when a want names one.
+    liveness := false
+    for w in wants {
+        liveness ||= strings.has_suffix(w.message, "declared but not used") || strings.has_suffix(w.message, "is never used")
+    }
     got := make([dynamic]string, context.temp_allocator)
     for d in res.report.items {
+        if !liveness && (d.code == CODE_UNUSED_VAR || d.code == CODE_DEAD_STORE) {
+            continue
+        }
         append(&got, fmt.tprintf("%d:%d %s", d.line, d.col, d.message))
     }
     want := make([dynamic]string, context.temp_allocator)
