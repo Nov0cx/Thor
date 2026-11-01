@@ -46,6 +46,8 @@ General :: struct {
     default_shell:     string,
     // Let a program in a terminal set the clipboard (OSC 52). On by default.
     terminal_clipboard: bool,
+    // Keep the clipboard history between sessions. Text that looks like a secret is never saved.
+    clipboard_history_save: bool,
     // Draw the font's programming ligatures ("->" as one glyph). On by default.
     ligatures:         bool,
     // Draw a guide at every indentation stop of a line's indent. On by default.
@@ -192,6 +194,7 @@ load :: proc(dir: string) -> Settings {
         tooltips          = true,
         tip_of_the_day    = true,
         terminal_clipboard = true,
+        clipboard_history_save = true,
         language_enabled  = true,
         language_features = lang.FEATURES_ALL,
         language_backends = make(map[string]Backend_Setting),
@@ -367,6 +370,11 @@ tooltips :: proc(s: ^Settings) -> bool {
 // keeps the card over the editor closed; tips.lua is still read.
 tip_of_the_day :: proc(s: ^Settings) -> bool {
     return s.general.tip_of_the_day
+}
+
+// Whether the clipboard history is kept between sessions.
+clipboard_history_save :: proc(s: ^Settings) -> bool {
+    return s.general.clipboard_history_save
 }
 
 // Whether a program in a terminal can set the clipboard.
@@ -929,6 +937,7 @@ load_general :: proc(s: ^Settings, path: string) {
     read_bool(root, "tooltips", &s.general.tooltips)
     read_bool(root, "tip_of_the_day", &s.general.tip_of_the_day)
     read_bool(root, "terminal_clipboard", &s.general.terminal_clipboard)
+    read_bool(root, "clipboard_history_save", &s.general.clipboard_history_save)
     read_string(root, "open_folder_in", &s.general.open_folder_in)
     read_string(root, "pane_layout", &s.general.pane_layout)
     read_string(root, "right_alt", &s.general.right_alt)

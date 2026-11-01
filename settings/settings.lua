@@ -6,6 +6,7 @@
 return {
     autosave_delay_ms = 1500,
     check_for_updates = true,
+    clipboard_history_save = true,
     default_shell = "",
     detect_indentation = true,
     font_size = 18,

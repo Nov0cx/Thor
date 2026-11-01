@@ -98,7 +98,7 @@ read, and the list stops at 1000 matches.
 | ctrl + c | copy selection (no selection: copy whole line) |
 | ctrl + x | cut selection (no selection: cut whole line) |
 | ctrl + v | paste |
-| ctrl + shift + v | clipboard history: pick an earlier copy, cut or paste and paste it again (also the "Edit: Clipboard History..." command) |
+| ctrl + shift + v | clipboard history: pick an earlier copy, cut or paste and paste it again (also the "Edit: Clipboard History..." command); kept between sessions in `sessions/clipboard.txt` (see `clipboard_history_save` in [Configuration](configuration.md)); "Edit: Clear Clipboard History" empties it |
 
 ## Movement
 

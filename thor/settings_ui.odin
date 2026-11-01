@@ -107,6 +107,7 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
     thor_settings_begin_category(view, "windows", "Windows", "window")
     thor_settings_add_choice(view, "open_folder_in", "Open Folder In", thor_open_folder_in_label(config))
     thor_settings_add_choice(view, "pane_layout", "Editor Pane Layout", thor_pane_layout_label(config))
+    thor_settings_add_choice(view, "clipboard_history_save", "Save Clipboard History", thor_on_off_label(setting.clipboard_history_save(config)))
 
     thor_settings_begin_category(view, "terminal", "Terminal", "terminal-2")
     thor_settings_add_choice(view, "default_shell", "Default Shell", thor_default_shell_label(thor, config))
@@ -263,6 +264,11 @@ thor_on_setting_choice :: proc(data: rawptr, id: string) {
         )
     case "right_alt":
         thor_cmd_change_right_alt(thor)
+    case "clipboard_history_save":
+        thor_select_open(
+            thor, "Save Clipboard History", ON_OFF_LABELS[:], thor_on_off_label(setting.clipboard_history_save(&thor.config)),
+            thor_no_preview, thor_clipboard_history_save_commit, thor,
+        )
     case "terminal_clipboard":
         thor_select_open(
             thor, "Programs Set Clipboard", ON_OFF_LABELS[:], thor_on_off_label(setting.terminal_clipboard(&thor.config)),
@@ -581,6 +587,11 @@ thor_insert_spaces_commit :: proc(data: rawptr, choice: string) {
 @(private = "file")
 thor_detect_indentation_commit :: proc(data: rawptr, choice: string) {
     thor_persist_bool_setting(cast(^Thor) data, "detect_indentation", choice == ON_OFF_LABELS[0])
+}
+
+@(private = "file")
+thor_clipboard_history_save_commit :: proc(data: rawptr, choice: string) {
+    thor_persist_bool_setting(cast(^Thor) data, "clipboard_history_save", choice == ON_OFF_LABELS[0])
 }
 
 @(private = "file")

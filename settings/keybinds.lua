@@ -3,6 +3,7 @@
 
 return {
     clipboard = {
+        clear_clipboard_history = "",
         clipboard_history = "ctrl+shift+v",
         copy = "ctrl+c",
         cut = "ctrl+x",
