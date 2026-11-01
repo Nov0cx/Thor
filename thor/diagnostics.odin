@@ -59,6 +59,11 @@ thor_apply_diagnostics :: proc(thor: ^Thor, res: ^lang.Result) {
     for d in res.report.items {
         thor_apply_diagnostic(thor, d, res.revision)
     }
+    for file in thor.open_files {
+        if file.loaded && !file.closed {
+            thor_merge_file_diagnostics(file)
+        }
+    }
 }
 
 // True when `revision` (the report's) still describes `file`'s buffer: either it
@@ -77,6 +82,7 @@ thor_clear_file_diagnostics :: proc(file: ^Open_File) {
         delete(d.message)
     }
     clear(&file.diagnostics)
+    thor_merge_file_diagnostics(file)
 }
 
 // Adds one diagnostic to its matching open file, converting line:col to a byte
@@ -111,6 +117,7 @@ editor_diagnostic :: proc(file: ^Open_File, d: lang.Diagnostic) -> editview.Diag
         severity = editor_severity(d.severity),
         message  = strings.clone(d.message),
         code     = d.code,
+        lint     = d.lint,
     }
 }
 
@@ -165,6 +172,7 @@ thor_apply_syntax_diagnostics :: proc(thor: ^Thor, res: ^lang.Result) {
     }
     file.syntax_revision = res.revision
     file.syntax_ready = true
+    thor_merge_file_diagnostics(file)
 }
 
 // Frees a file's live syntax errors and marks them stale.
@@ -175,15 +183,44 @@ thor_clear_file_syntax_diagnostics :: proc(file: ^Open_File) {
     clear(&file.syntax_diagnostics)
     file.syntax_revision = 0
     file.syntax_ready = false
+    thor_merge_file_diagnostics(file)
+}
+
+// Rebuilds `merged_diagnostics`: the compiler's items and the lint items of the live check,
+// empty when the live check has none.
+@(private = "file")
+thor_merge_file_diagnostics :: proc(file: ^Open_File) {
+    clear(&file.merged_diagnostics)
+    lints := 0
+    for d in file.syntax_diagnostics {
+        if d.lint {
+            lints += 1
+        }
+    }
+    if lints == 0 {
+        return
+    }
+    reserve(&file.merged_diagnostics, len(file.diagnostics) + lints)
+    append(&file.merged_diagnostics, ..file.diagnostics[:])
+    for d in file.syntax_diagnostics {
+        if d.lint {
+            append(&file.merged_diagnostics, d)
+        }
+    }
 }
 
 // The diagnostics to show for `file` at its current revision: the compiler's
-// when current, else the live syntax errors, else none.
+// when current, with the live lint items when those are current too, else the
+// live diagnostics, else none.
 thor_file_live_diagnostics :: proc(file: ^Open_File) -> []editview.Diagnostic {
     if !file.loaded {
         return nil
     }
+    live := file.syntax_ready && file.syntax_revision == file.state.revision
     if file.diagnostics_revision == file.state.revision {
+        if live && len(file.merged_diagnostics) > 0 {
+            return file.merged_diagnostics[:]
+        }
         return file.diagnostics[:]
     }
     if file.syntax_ready && file.syntax_revision == file.state.revision {

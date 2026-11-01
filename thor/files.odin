@@ -122,6 +122,9 @@ Open_File :: struct {
     syntax_diagnostics: [dynamic]editview.Diagnostic, // owned
     syntax_revision:    u64,
     syntax_ready:       bool,
+    // The compiler diagnostics and the lint items of the live check, shown when both are
+    // current. Messages are borrowed from the two lists above.
+    merged_diagnostics: [dynamic]editview.Diagnostic,
     // Line-level git diff vs HEAD, refreshed alongside git status. Index i
     // (0-based) holds line i's status; drives the editor's gutter diff bar.
     diff_lines:         [dynamic]editview.Diff_Line_Kind,
@@ -1514,6 +1517,7 @@ thor_free_open_file :: proc(file: ^Open_File, thor: ^Thor = nil) {
     delete(file.diagnostics)
     thor_clear_file_syntax_diagnostics(file)
     delete(file.syntax_diagnostics)
+    delete(file.merged_diagnostics)
     delete(file.diff_lines)
     delete(file.tab_label)
     delete(file.path)

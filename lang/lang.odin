@@ -262,6 +262,7 @@ Diagnostic :: struct {
     severity: Diagnostic_Severity,
     message:  string, // owned
     code:     string, // static; the diagnostic id, as `name/undeclared`; "" when none
+    lint:     bool,   // a check the compiler does not make; shown beside the compiler's report
 }
 
 // A check's full answer for one scope. `items` is exhaustive for `scope`, so a

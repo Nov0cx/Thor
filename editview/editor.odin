@@ -91,6 +91,7 @@ Diagnostic :: struct {
     severity: Diagnostic_Severity,
     message:  string,
     code:     string, // static; the diagnostic id; "" when none
+    lint:     bool,   // a check the compiler does not make
 }
 
 // Right-click handler the application supplies, given the screen position the

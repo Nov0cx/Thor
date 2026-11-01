@@ -1,5 +1,6 @@
 package thor
 
+import "core:strings"
 import "core:testing"
 
 import "../lang"
@@ -53,6 +54,7 @@ diag_file_destroy :: proc(file: ^Open_File) {
     delete(file.diagnostics)
     thor_clear_file_syntax_diagnostics(file)
     delete(file.syntax_diagnostics)
+    delete(file.merged_diagnostics)
     textedit.destroy(&file.state)
     free(file)
 }
@@ -210,4 +212,47 @@ test_live_diagnostics_precedence :: proc(t: ^testing.T) {
 
     textedit.insert_text(&file.state, "x")
     testing.expect_value(t, len(thor_file_live_diagnostics(file)), 0)
+}
+
+// A lint item of the live report shows beside current compiler diagnostics; a live error does not.
+@(test)
+test_live_lints_join_compiler_diagnostics :: proc(t: ^testing.T) {
+    thor: Thor
+    thor.open_files = make([dynamic]^Open_File)
+    defer delete(thor.open_files)
+
+    file := diag_file("w/pkg/a.odin", "foo := bar\nbaz()\n")
+    defer diag_file_destroy(file)
+    append(&thor.open_files, file)
+    append(&file.diagnostics, editview.Diagnostic{start = 0, end = 3, message = strings.clone("compiler")})
+    file.diagnostics_revision = file.state.revision
+
+    thor.syntax_request_id = 9
+    res := lang.Result{id = 9, kind = .Syntax_Diagnostics, ok = true, revision = file.state.revision}
+    res.report.scope = file.path
+    res.report.items = make([dynamic]lang.Diagnostic)
+    defer delete(res.report.items)
+    append(&res.report.items, lang.Diagnostic{path = file.path, line = 1, col = 8, message = "live error"})
+    append(&res.report.items, lang.Diagnostic{path = file.path, line = 2, col = 1, message = "lint", severity = .Warning, lint = true})
+    thor_apply_syntax_diagnostics(&thor, &res)
+
+    diags := thor_file_live_diagnostics(file)
+    if testing.expect_value(t, len(diags), 2) {
+        testing.expect_value(t, diags[0].message, "compiler")
+        testing.expect_value(t, diags[1].message, "lint")
+        testing.expect(t, diags[1].lint, "the lint item keeps its flag")
+    }
+
+    // Once the compiler report is stale, the whole live report shows.
+    file.diagnostics_revision = 0
+    testing.expect_value(t, len(thor_file_live_diagnostics(file)), 2)
+    testing.expect_value(t, thor_file_live_diagnostics(file)[0].message, "live error")
+
+    // A clean compiler report keeps the lint item.
+    file.diagnostics_revision = file.state.revision
+    thor_clear_file_diagnostics(file)
+    diags = thor_file_live_diagnostics(file)
+    if testing.expect_value(t, len(diags), 1) {
+        testing.expect_value(t, diags[0].message, "lint")
+    }
 }
