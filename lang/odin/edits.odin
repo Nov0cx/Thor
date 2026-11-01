@@ -107,6 +107,17 @@ indent_unit :: proc(req: ^lang.Request) -> string {
     return strings.repeat(" ", least, context.temp_allocator)
 }
 
+// The end of the top-level declaration that holds `offset`; the end of the buffer when none does.
+@(private)
+item_end_at :: proc(rc: ^Request_Context, offset: int) -> int {
+    for item in rc.live.tree.items {
+        if item.start <= offset && offset < item.end {
+            return item.end
+        }
+    }
+    return len(rc.req.source)
+}
+
 // Deletes [start, end) with its whole line when nothing else is on the line.
 @(private)
 line_deletion :: proc(src: string, start, end: int) -> Edit_Spec {

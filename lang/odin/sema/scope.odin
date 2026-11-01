@@ -571,7 +571,6 @@ walk_attribute :: proc(w: ^Walker, n: odinsyntax.Syntax_Node) {
 }
 
 // Whether a Value_Decl declares constants: `::` or `: T :`.
-@(private)
 is_constant_decl :: proc(n: odinsyntax.Syntax_Node) -> bool {
     colons := 0
     for child in odinsyntax.green_children(n.green) {

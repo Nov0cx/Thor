@@ -7,7 +7,7 @@ import lang ".."
 import odinsema "sema"
 import odinsyntax "syntax"
 
-@(private = "file")
+@(private)
 ALL_NODES :: ~odinsyntax.Kind_Set{}
 
 // Appends the refactorings that apply at the caret.
@@ -18,6 +18,7 @@ refactor_actions :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, caret: Ca
         return
     }
     inline_variable(rc, m, caret, res)
+    extract_actions(rc, m, caret, res)
     for n := tok.parent; n != nil; n = n.parent {
         if n.green.kind == .Proc_Lit {
             break
@@ -37,12 +38,12 @@ refactor_actions :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, caret: Ca
     }
 }
 
-@(private = "file")
+@(private)
 same_node :: proc(a, b: odinsyntax.Syntax_Node) -> bool {
     return a.green == b.green && a.offset == b.offset
 }
 
-@(private = "file")
+@(private)
 node_at :: proc(rc: ^Request_Context, offset: int) -> (^odinsyntax.Syntax_Node, bool) {
     tok, ok := odinsyntax.node_token_at(odinsyntax.node_root(rc.parsed.tree), u32(offset), context.temp_allocator)
     if !ok || tok.parent == nil {
@@ -52,7 +53,7 @@ node_at :: proc(rc: ^Request_Context, offset: int) -> (^odinsyntax.Syntax_Node, 
 }
 
 // True when `n` or a node under it is of a kind in `kinds`.
-@(private = "file")
+@(private)
 holds_kind :: proc(n: odinsyntax.Syntax_Node, kinds: odinsyntax.Kind_Set) -> bool {
     if n.green.kind in kinds {
         return true
@@ -242,7 +243,7 @@ inline_variable :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, caret: Car
     push_kind_action(res, rc.req, "refactor", strings.concatenate({"Inline ", what, " '", local.name, "'"}, context.temp_allocator), ..specs[:])
 }
 
-@(private = "file")
+@(private)
 count_children :: proc(n: odinsyntax.Syntax_Node) -> int {
     n := n
     count := 0
@@ -254,7 +255,7 @@ count_children :: proc(n: odinsyntax.Syntax_Node) -> int {
 }
 
 // True when the identifier at `offset` is only read: no assignment place, address, slice or `->` operand.
-@(private = "file")
+@(private)
 plain_read :: proc(rc: ^Request_Context, offset: int) -> bool {
     ident, ok := node_at(rc, offset)
     if !ok {

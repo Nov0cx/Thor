@@ -4,6 +4,7 @@ package odin
 import "core:strings"
 
 import lang ".."
+import odinsema "sema"
 
 @(private)
 ACTION_EXTRACT_VARIABLE :: "odin.extract_variable"
@@ -50,12 +51,38 @@ resolve_action :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
         resolve_fail(res, "the file has syntax errors")
         return
     }
+    if !rc.live.in_build {
+        resolve_fail(res, "the file is not in the build")
+        return
+    }
+    m, err := odinsema.scope_map(rc.parsed, context.temp_allocator)
+    if err != nil {
+        resolve_fail(res, "out of memory")
+        return
+    }
+    defer odinsema.scope_map_destroy(m, context.temp_allocator)
+    src := req.source
+    lo := clamp(req.offset, 0, len(src))
+    hi := req.end < 0 ? lo : clamp(req.end, lo, len(src))
+    name := strings.trim_space(req.new_name)
+    edits: []File_Edit
+    ops: []lang.Resource_Op
     reason := "unknown action"
     switch req.command {
-    case ACTION_EXTRACT_VARIABLE, ACTION_EXTRACT_PROCEDURE, ACTION_CHANGE_SIGNATURE, ACTION_MOVE_DECLARATION:
+    case ACTION_EXTRACT_VARIABLE:
+        lo, hi = trimmed_selection(src, lo, hi)
+        edits, reason = extract_variable_edits(&rc, m, lo, hi, name)
+    case ACTION_EXTRACT_PROCEDURE:
+        lo, hi = trimmed_selection(src, lo, hi)
+        edits, reason = extract_procedure_edits(&rc, m, lo, hi, name)
+    case ACTION_CHANGE_SIGNATURE, ACTION_MOVE_DECLARATION:
         reason = "not available"
     }
-    resolve_fail(res, reason)
+    if reason != "" {
+        resolve_fail(res, reason)
+        return
+    }
+    resolve_done(res, edits, ops)
 }
 
 // Ends a Resolve_Action with no edits and `reason` for the user.

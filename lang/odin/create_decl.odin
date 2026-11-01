@@ -140,17 +140,6 @@ is_single_store :: proc(list, ident: odinsyntax.Syntax_Node) -> bool {
     return count == 1
 }
 
-// The end of the top-level declaration that holds `offset`; the end of the buffer when none does.
-@(private = "file")
-item_end_at :: proc(rc: ^Request_Context, offset: int) -> int {
-    for item in rc.live.tree.items {
-        if item.start <= offset && offset < item.end {
-            return item.end
-        }
-    }
-    return len(rc.req.source)
-}
-
 // Declares a procedure that takes the arguments of the call `parent`.
 @(private = "file")
 create_proc :: proc(rc: ^Request_Context, c: ^odinsema.Checker, name: string, call: odinsyntax.Syntax_Node, res: ^lang.Result) {

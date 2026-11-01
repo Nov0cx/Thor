@@ -185,3 +185,120 @@ test_resolve_unknown_action :: proc(t: ^testing.T) {
     testing.expect(t, !res.ok, "an unknown action resolves to nothing")
     testing.expect_value(t, res.message.text, "unknown action")
 }
+
+// The quick fixes for `source` with [`marker`, `marker` + `select`) selected.
+@(private = "file")
+selection_actions :: proc(t: ^testing.T, e: ^Engine, root, source, marker: string, select: int) -> lang.Result {
+    at := strings.index(source, marker)
+    if at < 0 {
+        testing.fail_now(t, "marker not found")
+    }
+    req := lang.Request {
+        kind      = .Code_Actions,
+        path      = fixture_path(root, "app/main.odin"),
+        ext       = ".odin",
+        source    = source,
+        workspace = root,
+        offset    = at,
+        end       = at + select,
+    }
+    res: lang.Result
+    code_actions(e, &req, &res)
+    return res
+}
+
+@(private = "file")
+prompt_of :: proc(res: ^lang.Result, title: string) -> (lang.Code_Action, bool) {
+    for a in res.actions {
+        if a.title == title {
+            return a, true
+        }
+    }
+    return {}, false
+}
+
+@(test)
+test_refactor_extract_variable :: proc(t: ^testing.T) {
+    SRC :: `package app
+
+f :: proc(a, b: int, ok: bool) -> int {
+    x := a * b + 1
+    value := 2
+    if ok && a + b > 0 {
+        return x
+    }
+    return x + value
+}
+`
+    root := fixture(t, "refactor_extract_variable", {{".thor/odin-analyzer.lua", ACTION_CONFIG}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    offer := selection_actions(t, e, root, SRC, "a * b", len("a * b"))
+    defer free_actions(&offer)
+    action, found := prompt_of(&offer, "Extract variable")
+    testing.expect(t, found, "extract variable is offered")
+    testing.expect_value(t, action.prompt, "Variable name")
+    testing.expect_value(t, action.prompt_default, "value2")
+    testing.expect_value(t, len(action.edits), 0)
+
+    res := resolve_at(t, e, root, SRC, "a * b", ACTION_EXTRACT_VARIABLE, "product", select = len("a * b"))
+    defer free_resolved(&res)
+    got := resolved(t, &res, SRC)
+    testing.expect(t, strings.contains(got, "    product := a * b\n    x := product + 1\n"), got)
+
+    rhs := selection_actions(t, e, root, SRC, "a + b > 0", len("a + b > 0"))
+    defer free_actions(&rhs)
+    _, offered := prompt_of(&rhs, "Extract variable")
+    testing.expect(t, !offered, "the right side of && is not evaluated every time")
+
+    taken := resolve_at(t, e, root, SRC, "a * b", ACTION_EXTRACT_VARIABLE, "value", select = len("a * b"))
+    defer free_resolved(&taken)
+    testing.expect(t, !taken.ok, "a name in reach is refused")
+}
+
+@(test)
+test_refactor_extract_procedure :: proc(t: ^testing.T) {
+    SRC :: `package app
+
+f :: proc(xs: []int) -> int {
+    total := 0
+    count := 0
+    for x in xs {
+        total += x
+    }
+    scale := 2
+    doubled := total * scale
+    return doubled + count
+}
+
+g :: proc(xs: []int) {
+    for x in xs {
+        if x > 0 {
+            return
+        }
+    }
+}
+`
+    root := fixture(t, "refactor_extract_procedure", {{".thor/odin-analyzer.lua", ACTION_CONFIG}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    BODY :: "for x in xs {\n        total += x\n    }\n    scale := 2\n    doubled := total * scale"
+    offer := selection_actions(t, e, root, SRC, BODY, len(BODY))
+    defer free_actions(&offer)
+    _, found := prompt_of(&offer, "Extract procedure")
+    testing.expect(t, found, "extract procedure is offered")
+
+    res := resolve_at(t, e, root, SRC, BODY, ACTION_EXTRACT_PROCEDURE, "sum_scaled", select = len(BODY))
+    defer free_resolved(&res)
+    got := resolved(t, &res, SRC)
+    testing.expect(t, strings.contains(got, "    count := 0\n    doubled := sum_scaled(xs, &total)\n    return doubled + count\n"), got)
+    testing.expect(t, strings.contains(got, "sum_scaled :: proc(xs: []int, total: ^int) -> int {\n    for x in xs {\n        total^ += x\n    }\n    scale := 2\n    doubled := total^ * scale\n    return doubled\n}\n\ng ::"), got)
+
+    RET :: "for x in xs {\n        if x > 0 {\n            return\n        }\n    }"
+    ret := selection_actions(t, e, root, SRC, RET, len(RET))
+    defer free_actions(&ret)
+    _, offered := prompt_of(&ret, "Extract procedure")
+    testing.expect(t, !offered, "a return in the selection is refused")
+}
