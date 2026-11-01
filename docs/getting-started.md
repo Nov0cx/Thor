@@ -182,8 +182,14 @@ Thor counts at once; a file changed by another program counts within a second.
 `ctrl + shift + u` shows the quick fixes at the caret: the missing cases of a
 `switch` (or `#partial`), the removal of an unused import (one, or all of
 them), an unused variable made `_`, the import of a package a qualifier names
-(`fmt.` with no `import "core:fmt"`), and a `thor:ignore` comment for each id on
-the caret's line, for the line or for the file.
+(`fmt.` with no `import "core:fmt"`), the fields a struct literal leaves out,
+`or_return` on a call, a declaration for a name nothing declares, and a
+`thor:ignore` comment for each id on the caret's line, for the line or for the
+file. The same picker holds the refactorings: inline variable, `if` chain to
+`switch` and back, extract variable and extract procedure (select first),
+change signature (a new parameter list, with every call rewritten) and move
+declaration (to another file of the package, or to another package). Those
+that need a name, a parameter list or a file ask for it in the palette first.
 
 Every other language gets these features from a language server.
 **Settings > Language Servers** (or **Help > Language Servers**) lists the ones

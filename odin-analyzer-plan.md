@@ -30,8 +30,12 @@ The rest of the `-vet` set is live too (`sema/vet.odin`: unused imports, shadowi
 shadowing, `#+vet` tags), as warnings, and the on-save `odin check` passes the matching `-vet-*`
 flags with `-vet-packages`, its vet lines mapped to the same ids. Quick fixes serve
 `Code_Actions` (`actions.odin`): switch cases and `#partial`, unused imports and variables, a
-missing import, `thor:ignore` comments. Next in M7: the rest of the section 6 fixes (struct literal
-fields, `or_return`, create a declaration) and the refactorings.
+missing import, `thor:ignore` comments, struct literal fields, `or_return` and create a declaration.
+The section 6 refactorings are done: inline variable, `if` chain to `switch` and back, extract variable
+and procedure, change signature and move declaration (to another file or package). The four that
+need a name or a path ask for it through `Code_Action.prompt` and `Resolve_Action`. Next: the M7 exit
+(vet parity: the `using` shadowing, imports used only in polymorphic bodies), then M8, which also
+holds peek definition (section 6).
 `lang/ROADMAP.md` ("Next engine") tracks the rest. Section 11 lists the
 feature questions whose answers change the plan.
 
@@ -553,6 +557,25 @@ New request kinds this unlocks (seam additions, all optional — Q6): inlay hint
 variants), find implementations of a proc type, selection range expansion, document highlight,
 "go to type definition".
 
+**Peek definition** (inline definition preview, M8). It needs no new request kind and works for
+every backend. The host shows the `.Definition` result inline, under the caret's line in the
+current pane, so a definition can be read and edited without a file switch. The Odin engine and
+every LSP server get it with no seam or backend change.
+
+- `editview` gets inline zones: `Zone{after_line, rows}` adds empty visual rows to the folding and
+  soft-wrap row mapping. Caret, click and wheel skip them, and `editor_zone_rect` gives the host the
+  rect where it declares its nodes. This is tested headlessly.
+- `thor/peek.odin`: a `peek_definition` command (default bind `alt+f12`) and a menu entry dispatch
+  `.Definition` with their own `peek_request_id`. A stale result is dropped.
+- When the target file is open, the peek embeds a second `editview.Editor` that borrows its
+  `Open_File.state`, so edits, undo and save go to the real buffer. Otherwise a `Peek_Load_Job` reads
+  the file off-thread on the `lockfree.Stack` pattern, CRLF collapsed, into a read-only state. The
+  first edit opens it as a background tab and moves the peek onto that buffer.
+- The view has a header with the file name, line, Open (Enter) and close (Esc), and about 12 rows
+  (setting `peek_height`) with the definition range highlighted and the syntax colours. With several
+  candidates, a list beside it switches the preview.
+- Esc, or moving the outer caret, closes it. Closing the borrowed tab closes the peek first.
+
 ---
 
 ## 7. Part D — performance and concurrency
@@ -597,6 +620,7 @@ Strategy: strangler fig. Both engines exist side by side behind `"engine"` in th
 | **M6 — Switch default** (1–2 wk) | `next` default; `legacy` still selectable | One release cycle with no regression reports; then delete `legacy` (`resolve.odin`, `infer.odin`, `typeref.odin`, `decl.odin`, `generics.odin`, `using.odin`, `container.odin`, LOCALS query use, `treecache` dependency in `lang/odin`) |
 | **M7 — CFG, Tier 2 vet, quick fixes** (3–4 wk) | 5.6 reachability/liveness, vet family, fixes in section 6 | Vet output matches `odin check -vet` on the corpus |
 | **M8 — Tier 3 lints + new request kinds** (ongoing) | Ownership dataflow, API lints, inlay hints etc. per answers in section 11 | Each lint ships with a false-positive audit on the corpus (≤ 1 FP per 10k lines before default-on) |
+| **M8 — Peek definition** | Inline zones in `editview`, `thor/peek.odin` over the `.Definition` result (section 6) | The same peek for the Odin engine and an LSP server; zone and stale-result tests pass headlessly |
 
 Rough total to M6: **~6 months for one person** working steadily; M1 and M4 are the long poles.
 
@@ -685,6 +709,8 @@ These are the decisions that change scope, order or design. Each has my default 
    names), call hierarchy, type hierarchy, find implementations, document highlight, selection
    range, go to type definition, code lens (reference counts)? **Inlay hints → document highlight →
    go to type definition → call hierarchy → rest.**
+   Answer: also **peek definition** (inline preview, section 6), as a host feature over the
+   `.Definition` result so LSP servers get it too.
 2. **Refactorings** beyond rename: extract procedure/variable, inline variable, change signature
    (update all call sites), move declaration to another file/package, generate `switch` cases,
    generate struct literal fields, convert `if` chain ↔ `switch`. Which ones? **all**

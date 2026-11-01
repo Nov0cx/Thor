@@ -2607,8 +2607,61 @@ not a status, so this section stays the source of truth for what is built.
     `// thor:ignore` line above, or the id appended to one already there) and
     "Ignore <id> in this file" (after the package clause). With a syntax
     error only the ignore fixes are offered. `req.diagnostics` is not read:
-    the engine finds its own. Not yet: struct literal fields, `or_return`,
-    create a declaration, fixes for the compiler's own lines.
+    the engine finds its own. A struct literal around the caret gets the
+    fields it does not name (`fixes.odin`). A call on the caret's lines
+    whose last value has no place gets `or_return` when the procedure
+    around it can return that value. An identifier no scope binds gets a
+    declaration (`create_decl.odin`): a procedure that takes the call's
+    arguments for a callee, a struct for a type (fields from a literal of
+    it), `:=` for the place of a plain `=`, else a variable of the type its
+    place expects. Not yet: fixes for the compiler's own lines.
+  - **Refactorings** (`refactor.odin`, `extract.odin`,
+    `change_signature.odin`, `move_decl.odin`, plan §6, M7): offered as
+    `Code_Actions` of kind `refactor`. Inline variable puts the value of
+    the local at the caret into each use, with parentheses where needed,
+    and removes its declaration. It refuses a local that is assigned,
+    addressed or sliced. An `if` chain `s == a || s == b` becomes a
+    `switch s`, and a value `switch` becomes an `if` chain. Both refuse a
+    `break` that leaves the statement and a `fallthrough`. Four actions ask
+    for a value through `Code_Action.prompt`, and `Resolve_Action`
+    computes their edits:
+    - Extract variable puts the selected expression in a variable above its
+      statement. The expression must be evaluated once, before the
+      statement, and must not be a place, a callee or an address operand.
+    - Extract procedure moves the selected statements into a procedure.
+      Locals the statements read become parameters, and a local they change
+      is passed by pointer. A local they declare and a later statement
+      reads becomes a result. It refuses `return`, `defer`, `context`,
+      `using`, `or_return` and a branch out of the selection.
+    - Change signature takes a new parameter list for a file-scope
+      procedure of the buffer. Parameters match by name, and every call in
+      the workspace is rewritten in the new order, through the reference
+      scan:
+      - a named argument stays named, and the ones after it are written
+        `name = value`;
+      - a left-out parameter takes its old default;
+      - a new parameter takes its default, else a zero value from its type
+        text;
+      - trailing defaults are dropped.
+
+      It refuses a removed parameter the body uses, a procedure used as a
+      value, a call that spreads a multi-value call, and a second
+      declaration.
+    - Move declaration moves a file-scope declaration, with its doc
+      comment, to a file of its package or of another package. A missing
+      file is created with a `Resource_Op` and the package name of its
+      folder. The moved text takes the imports it uses, and an import of
+      the buffer that only the moved text used is removed. Across packages:
+      - a bare use in the old package becomes `alias.name` and gets the
+        import;
+      - `old.name` elsewhere becomes `new.name`;
+      - in the new package it becomes `name`.
+
+      Across packages it refuses a declaration that uses another
+      declaration of its package, a name the new package declares, a
+      private declaration still used outside it, an import cycle and an
+      alias taken in a file. The reference scan hands each file to a
+      visitor while its parse is pinned (`visit_references`).
   - **Compiler oracle** (`lang/odin/oracle_test.odin`, run with
     `-define:LIVE_ORACLE=true`; plan §8 M5 bar): `test_oracle_clean_corpus`
     runs the live check on every file of the 310 `base`/`core`/`vendor`

@@ -23,6 +23,11 @@
 - Odin: the other `-vet` checks are warnings while typing too: an unused import (`vet/unused-import`), a variable that shadows an earlier one of the same type (`vet/shadowing`) and a declaration in a file-scope `when` that shadows a builtin (`vet/when-shadowing`). `#+vet` file tags turn them on or off.
 - Odin: a save runs `odin check` with the `-vet-*` flags of the vet ids that are not `"off"`. Its vet lines are warnings with the same ids, and `thor:ignore` hides them.
 - Odin: `ctrl + shift + u` offers quick fixes with no language server: add the missing `switch` cases or `#partial`, remove unused imports, make an unused variable `_`, import the package a qualifier names, and add a `thor:ignore` comment for a diagnostic.
+- Odin: more quick fixes: add the fields a struct literal leaves out, add `or_return` to a call, and declare a name no scope binds (a procedure, a struct, `:=` or a variable).
+- Odin: refactorings in `ctrl + shift + u`: inline variable, `if` chain to `switch` and back, extract variable and extract procedure.
+- Odin: "Change signature" takes a new parameter list for a procedure and rewrites every call to match.
+- Odin: "Move declaration" moves a declaration to another file of its package or to another package, and rewrites its imports and qualified uses.
+- An action that needs a name or a path asks for it in the palette before it applies.
 - Odin: a value stored in a variable and never read gets a warning while typing, such as `x = 1` followed by `x = 2` (`flow/dead-store`).
 - Odin: `"diagnostics"` in `.thor/odin-analyzer.lua` sets each live diagnostic id to `"off"`, `"warning"` or `"error"`.
 - Odin: a `@(private="file")` declaration no longer counts as a redeclaration of a package declaration of the same name.
