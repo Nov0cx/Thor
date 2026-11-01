@@ -212,3 +212,78 @@ sig :: proc(a: mem.Allocator, v: $T) {}
         {"\"core:strings\"", "'strings' declared but not used", 0},
     })
 }
+
+// A field a `using` brings in shadows a variable as the compiler reports it: at the variable the
+// `using` names, once per `using`, the lowest shadowed line first.
+@(test)
+test_live_vet_using_shadowing :: proc(t: ^testing.T) {
+    src := `#+feature using-stmt
+package app
+
+Point :: struct {
+	a: int,
+	b: int,
+	s: f32,
+	using inner: Inner,
+}
+Inner :: struct { z: int }
+
+g := 1
+
+two :: proc() {
+	b := 1
+	a := 1
+	{
+		using p: Point
+		_ = p
+	}
+	_ = a; _ = b
+}
+
+nested_field :: proc() {
+	z := 1
+	{
+		pp: ^Point
+		using pp
+	}
+	_ = z
+}
+
+param :: proc(a: int) {
+	for i in 0..<1 {
+		using q: Point
+		_ = q
+		_ = i
+	}
+}
+
+no_report :: proc() {
+	s := 1
+	{
+		using r: Point
+		_ = r
+	}
+	k := 1
+	_ = k; _ = s
+}
+
+global :: proc() {
+	{
+		using w: struct { g: int }
+		_ = w
+	}
+}
+`
+    root := fixture(t, "live_vet_using", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"p: Point", "Declaration of 'b' from 'using' shadows declaration at line 15", 0},
+        {"pp: ^Point", "Declaration of 'z' from 'using' shadows declaration at line 25", 0},
+        {"q: Point", "Declaration of 'a' from 'using' shadows declaration at line 33", 0},
+        {"w: struct", "Declaration of 'g' from 'using' shadows declaration at line 12", 0},
+    })
+}

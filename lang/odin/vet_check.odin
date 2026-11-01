@@ -156,6 +156,14 @@ shadowing :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, whens: []Branch,
         line, _ := offset_line_col(rc.live.lines, s.shadowed)
         report_error(rc, report, s.offset, CODE_SHADOWING, fmt.aprintf("Declaration of '%s' shadows declaration at line %d", s.name, line), .Warning)
     }
+    usings, uerr := odinsema.vet_using_shadowing(c, rc.live.id, m, rc.parsed, rc.live.tree, branch_spans(whens, true), context.temp_allocator)
+    if uerr != nil {
+        return
+    }
+    for s in usings {
+        line, _ := offset_line_col(rc.live.lines, s.shadowed)
+        report_error(rc, report, s.offset, CODE_SHADOWING, fmt.aprintf("Declaration of '%s' from 'using' shadows declaration at line %d", s.field, line), .Warning)
+    }
 }
 
 // True when the shadowing variable has the type of the one it shadows, the one case the compiler

@@ -302,3 +302,152 @@ switch_var_types :: proc(c: ^Checker, file: File_Id, var_offset, at: int, alloca
     }
     return out[:]
 }
+
+// A field a `using` brings in that shadows a variable of an enclosing scope.
+Vet_Using_Shadow :: struct {
+    offset:   int, // the name of the variable the `using` names
+    field:    string,
+    shadowed: int, // the name of the shadowed declaration
+}
+
+// The `using` locals and `using` statements of the file of `m`, in a block nested in a procedure,
+// whose fields shadow an earlier variable of an enclosing scope, or an earlier package variable of
+// the file, of the identical type. The compiler reports one field per `using`: the one whose
+// shadowed declaration has the lowest line, then the first field. A `using` in `skip` is left out.
+vet_using_shadowing :: proc(c: ^Checker, file: File_Id, m: ^Scope_Map, parsed: odinsyntax.Parse, tree: ^Item_Tree, skip: []Offset_Span, allocator := context.allocator) -> (out: [dynamic]Vet_Using_Shadow, err: mem.Allocator_Error) {
+    out = make([dynamic]Vet_Using_Shadow, allocator) or_return
+    if c == nil || m == nil || !m.has_using || parsed.tree == nil {
+        return
+    }
+    // The variable each `using` names and the scope it is in.
+    Source :: struct {
+        local: int,
+        scope: int,
+        at:    int,
+    }
+    sources := make([dynamic]Source, context.temp_allocator) or_return
+    for l, i in m.locals {
+        if l.is_using && (l.kind == .Var || l.kind == .Loop_Var) {
+            append(&sources, Source{i, l.scope, l.name_offset}) or_return
+        }
+    }
+    for u in m.usings {
+        ref, found := ref_at(m, u.start)
+        if !found || ref.kind != .Local || ref.start != u.start || ref.end != u.end {
+            continue
+        }
+        for l, i in m.locals {
+            if l.name_offset == ref.decl && (l.kind == .Var || l.kind == .Loop_Var) {
+                append(&sources, Source{i, u.scope, u.start}) or_return
+                break
+            }
+        }
+    }
+    text := parsed.tree.text
+    for src in sources {
+        l := m.locals[src.local]
+        if in_offset_spans(skip, src.at) || proc_top_scope(m, src.scope) {
+            continue
+        }
+        fields := type_members(c, decl_type(c, local_symbol(file, l.name_offset)), context.temp_allocator)
+        best := Vet_Using_Shadow{offset = -1}
+        best_line := max(int)
+        for f in fields {
+            if f.kind != .Field || f.name == "_" || f.type == INVALID_TYPE {
+                continue
+            }
+            shadowed, item, kind, found := enclosing_var(m, tree, f.name, src.scope, src.at)
+            if !found {
+                continue
+            }
+            if !shadow_type_matches(c, file, f.type, shadowed, item, kind, src.at) {
+                continue
+            }
+            line := strings.count(text[:shadowed], "\n")
+            if line < best_line {
+                best_line = line
+                best = Vet_Using_Shadow{l.name_offset, f.name, shadowed}
+            }
+        }
+        if best.offset >= 0 {
+            append(&out, best) or_return
+        }
+    }
+    slice.sort_by(out[:], proc(a, b: Vet_Using_Shadow) -> bool {return a.offset < b.offset})
+    return
+}
+
+// True when `s` is the scope of a procedure's parameters or of its body, where a `using` collides
+// with the other names instead of shadowing them.
+@(private = "file")
+proc_top_scope :: proc(m: ^Scope_Map, s: int) -> bool {
+    opens_proc :: proc(m: ^Scope_Map, s: int) -> bool {
+        p := m.scopes[s].parent
+        return p < 0 || m.scopes[p].proc_depth < m.scopes[s].proc_depth
+    }
+    if m.scopes[s].proc_depth == 0 || opens_proc(m, s) {
+        return true
+    }
+    return opens_proc(m, m.scopes[s].parent)
+}
+
+// The variable named `name` that the scopes enclosing `scope` give at `before`: a local of the same
+// procedure, or else a package variable of the file. False when the nearest declaration is not a
+// variable.
+@(private = "file")
+enclosing_var :: proc(m: ^Scope_Map, tree: ^Item_Tree, name: string, scope, before: int) -> (shadowed, item: int, kind: Decl_Kind, found: bool) {
+    depth := m.scopes[scope].proc_depth
+    for s := m.scopes[scope].parent; s >= 0 && m.scopes[s].proc_depth == depth; s = m.scopes[s].parent {
+        best := -1
+        for other, i in m.locals {
+            if other.scope != s || other.name != name || other.kind == .Label {
+                continue
+            }
+            if var_like(other.kind) && other.name_offset >= before {
+                continue
+            }
+            if best < 0 || other.name_offset > m.locals[best].name_offset {
+                best = i
+            }
+        }
+        if best < 0 {
+            continue
+        }
+        other := m.locals[best]
+        if !var_like(other.kind) {
+            return -1, -1, .Var, false
+        }
+        return other.name_offset, -1, other.kind, true
+    }
+    if tree == nil {
+        return -1, -1, .Var, false
+    }
+    for it, i in tree.items {
+        if it.name != name {
+            continue
+        }
+        if it.kind != .Var || it.name_offset >= before {
+            return -1, -1, .Var, false
+        }
+        return it.name_offset, i, .Var, true
+    }
+    return -1, -1, .Var, false
+}
+
+// True when the shadowed declaration has type `t`. A type-switch variable has the type of the case
+// clause that holds `at`.
+@(private = "file")
+shadow_type_matches :: proc(c: ^Checker, file: File_Id, t: Type_Id, shadowed, item: int, kind: Decl_Kind, at: int) -> bool {
+    if item >= 0 {
+        return decl_type(c, Symbol{file = file, item = i32(item), child = -1}) == t
+    }
+    if kind == .Switch_Var {
+        for other in switch_var_types(c, file, shadowed, at, context.temp_allocator) {
+            if other == t {
+                return true
+            }
+        }
+        return false
+    }
+    return decl_type(c, local_symbol(file, shadowed)) == t
+}
