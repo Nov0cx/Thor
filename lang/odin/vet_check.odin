@@ -138,7 +138,7 @@ when_shadowing :: proc(rc: ^Request_Context, whens: []Branch, report: ^lang.Diag
 
 // The ranges of the `when` branches the target surely does not take, or with `unsure` also the ones
 // it may not take.
-@(private = "file")
+@(private)
 branch_spans :: proc(whens: []Branch, unsure: bool) -> []odinsema.Offset_Span {
     out := make([dynamic]odinsema.Offset_Span, context.temp_allocator)
     for w in whens {

@@ -42,6 +42,7 @@ IMPLEMENTED :: bit_set[lang.Request_Kind]{
     .Completion,
     .Signature_Help,
     .Semantic_Tokens,
+    .Code_Actions,
 }
 
 engine_create :: proc() -> ^Engine {
@@ -120,6 +121,8 @@ resolve :: proc(data: rawptr, req: ^lang.Request, res: ^lang.Result) {
         check_package(e, req, res)
     case .Syntax_Diagnostics:
         syntax_diagnostics(e, req, res)
+    case .Code_Actions:
+        code_actions(e, req, res)
     case .Format:
         format_document(e, req, res, 0, len(req.source))
     case .Format_Range:

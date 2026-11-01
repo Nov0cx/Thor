@@ -581,7 +581,7 @@ in_untaken_branch :: proc(whens: []Branch, offset: int) -> bool {
 }
 
 // Appends the branches of every `when` statement under `n`.
-@(private = "file")
+@(private)
 collect_whens :: proc(n: odinsyntax.Syntax_Node, rc: ^Request_Context, out: ^[dynamic]Branch) {
     n := n
     if n.green.kind == .When_Stmt {

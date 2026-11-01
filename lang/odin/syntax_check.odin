@@ -21,19 +21,26 @@ syntax_diagnostics :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
     }
 
     res.report.scope = strings.clone(req.path)
-    res.report.items = make([dynamic]lang.Diagnostic, 0, len(rc.parsed.errors))
+    res.ok = live_report(&rc, &res.report)
+}
+
+// Fills `report` with the live diagnostics of the request's buffer, less the ones its ignore
+// comments and the workspace config drop. False when the request was cancelled.
+@(private)
+live_report :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Report) -> bool {
+    report.items = make([dynamic]lang.Diagnostic, 0, len(rc.parsed.errors))
     for err in rc.parsed.errors {
-        report_error(&rc, &res.report, int(err.offset), CODE_SYNTAX, odinsyntax.error_message(err))
+        report_error(rc, report, int(err.offset), CODE_SYNTAX, odinsyntax.error_message(err))
     }
-    if len(rc.parsed.errors) == 0 && req.workspace != "" {
-        name_diagnostics(&rc, &res.report)
+    if len(rc.parsed.errors) == 0 && rc.req.workspace != "" {
+        name_diagnostics(rc, report)
     }
-    if lang.request_cancelled(req) {
-        return
+    if lang.request_cancelled(rc.req) {
+        return false
     }
-    apply_ignores(&rc, &res.report)
-    apply_severities(&rc, &res.report)
-    res.ok = true
+    apply_ignores(rc, report)
+    apply_severities(rc, report)
+    return true
 }
 
 // Appends an error with the id `code` at byte `offset` of the buffer. Takes ownership of `message`.
