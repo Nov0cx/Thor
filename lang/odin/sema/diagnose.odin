@@ -1400,9 +1400,23 @@ or_return_problem :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node)
     if !has_operand {
         return {}
     }
+    problem, _ := or_return_check(c, file, operand)
+    return problem
+}
+
+// True when `operand or_return` fits the innermost procedure around `operand`: it gives two or more
+// values and the procedure's last result takes the last one.
+or_return_fits :: proc(c: ^Checker, file: File_Id, operand: odinsyntax.Syntax_Node) -> bool {
+    problem, multi := or_return_check(c, file, operand)
+    return multi && problem.kind == .None
+}
+
+// The problem of `operand or_return`, and whether `operand` gives two or more values of known types.
+@(private = "file")
+or_return_check :: proc(c: ^Checker, file: File_Id, operand: odinsyntax.Syntax_Node) -> (Or_Return_Problem, bool) {
     lit: odinsyntax.Syntax_Node
     found := false
-    path := node_path(c, file, int(n.offset))
+    path := node_path(c, file, int(operand.offset))
     #reverse for p in path {
         if p.green.kind == .Proc_Lit {
             lit, found = p, true
@@ -1410,43 +1424,43 @@ or_return_problem :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node)
         }
     }
     if !found {
-        return {}
+        return {}, false
     }
     pl, _ := odinsyntax.as_proc_lit(lit)
     pt, has_type := odinsyntax.proc_lit_type(&pl)
     if !has_type {
-        return {}
+        return {}, false
     }
     p, is_proc := type_get(&c.table, type_base(&c.table, type_expr(c, file, odinsyntax.Syntax_Node(pt)))).(Proc_Type)
     if !is_proc || p.diverging {
-        return {}
+        return {}, false
     }
     if len(p.results) == 0 {
-        return {kind = .No_Results}
+        return {kind = .No_Results}, false
     }
     if len(p.results) > 1 && p.results[0].name == "" {
-        return {kind = .Unnamed_Results}
+        return {kind = .Unnamed_Results}, false
     }
     to := p.results[len(p.results) - 1].type
     op := expr_values(c, file, operand, INVALID_TYPE)
     if op.mode != .Value || op.type == INVALID_TYPE {
-        return {}
+        return {}, false
     }
     tuple, is_tuple := type_get(&c.table, op.type).(Tuple_Type)
     if !is_tuple {
         if single_result_call(c, file, operand) && never_nil(c, op.type) {
-            return {kind = .Single_Value, end = op.type, to = to}
+            return {kind = .Single_Value, end = op.type, to = to}, false
         }
-        return {}
+        return {}, false
     }
     if p.generic || len(tuple.types) < 2 {
-        return {}
+        return {}, false
     }
     end := tuple.types[len(tuple.types) - 1]
     if assignable(c, to, {mode = .Value, type = end}) == .No {
-        return {kind = .End_Mismatch, end = end, to = to}
+        return {kind = .End_Mismatch, end = end, to = to}, true
     }
-    return {}
+    return {}, true
 }
 
 // True when `t` is a number or a string: no boolean and no value that compares against `nil`.

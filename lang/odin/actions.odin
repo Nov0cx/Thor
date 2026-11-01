@@ -13,24 +13,6 @@ import odinsyntax "syntax"
 @(private = "file")
 MAX_IMPORT_FIXES :: 4
 
-// One replacement of [start, end) of the request's buffer.
-@(private = "file")
-Edit_Spec :: struct {
-    start: int,
-    end:   int,
-    text:  string,
-}
-
-// The caret or selection of a request, widened to whole lines.
-@(private = "file")
-Caret :: struct {
-    offset:     int, // the caret, clamped to the buffer
-    line_start: int,
-    line_end:   int, // the newline of the last line, or the end of the buffer
-    first:      int, // 1-based line of line_start
-    last:       int, // 1-based line of line_end
-}
-
 // Answers the quick fixes for the caret: fixes first, suppressions last.
 @(private)
 code_actions :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
@@ -62,107 +44,6 @@ code_actions :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
         ignore_fixes(&rc, caret, res)
     }
     res.ok = len(res.actions) > 0
-}
-
-@(private = "file")
-request_caret :: proc(rc: ^Request_Context) -> Caret {
-    src := rc.req.source
-    lo := clamp(rc.req.offset, 0, len(src))
-    hi := rc.req.end < 0 ? lo : clamp(rc.req.end, lo, len(src))
-    c := Caret{offset = lo, line_start = line_start(src, lo), line_end = line_end(src, hi)}
-    c.first, _ = offset_line_col(rc.live.lines, c.line_start)
-    c.last, _ = offset_line_col(rc.live.lines, c.line_end)
-    return c
-}
-
-// True when [start, end] touches a line of the caret.
-@(private = "file")
-caret_hits :: proc(c: Caret, start, end: int) -> bool {
-    return start <= c.line_end && end >= c.line_start
-}
-
-@(private = "file")
-line_start :: proc(src: string, offset: int) -> int {
-    return strings.last_index_byte(src[:offset], '\n') + 1
-}
-
-@(private = "file")
-line_end :: proc(src: string, offset: int) -> int {
-    if nl := strings.index_byte(src[offset:], '\n'); nl >= 0 {
-        return offset + nl
-    }
-    return len(src)
-}
-
-// The leading spaces and tabs of the line that holds `offset`.
-@(private = "file")
-line_indent :: proc(src: string, offset: int) -> string {
-    ls := line_start(src, offset)
-    i := ls
-    for i < len(src) && (src[i] == ' ' || src[i] == '\t') {
-        i += 1
-    }
-    return src[ls:i]
-}
-
-// Deletes [start, end) with its whole line when nothing else is on the line.
-@(private = "file")
-line_deletion :: proc(src: string, start, end: int) -> Edit_Spec {
-    ls, le := line_start(src, start), line_end(src, end)
-    if strings.trim_space(src[ls:start]) != "" || strings.trim_space(src[end:le]) != "" {
-        return {start, end, ""}
-    }
-    return {ls, min(le + 1, len(src)), ""}
-}
-
-// Appends a quick fix whose edits replace ranges of the request's buffer. Drops it when it cannot allocate.
-@(private = "file")
-push_action :: proc(res: ^lang.Result, req: ^lang.Request, title: string, specs: ..Edit_Spec) {
-    sorted := slice.clone(specs, context.temp_allocator)
-    slice.sort_by(sorted, proc(a, b: Edit_Spec) -> bool {
-        return a.start < b.start
-    })
-    t, e1 := strings.clone(title)
-    k, e2 := strings.clone("quickfix")
-    edits, e3 := make([dynamic]lang.Text_Edit, 0, len(sorted))
-    action := lang.Code_Action{title = t, kind = k, edits = edits}
-    failed := e1 != nil || e2 != nil || e3 != nil
-    for s in sorted {
-        if failed {
-            break
-        }
-        path, p1 := strings.clone(req.path)
-        old, p2 := strings.clone(req.source[s.start:s.end])
-        text, p3 := strings.clone(s.text)
-        edit := lang.Text_Edit{path = path, start = s.start, end = s.end, old_text = old, new_text = text}
-        if p1 != nil || p2 != nil || p3 != nil {
-            free_edit(edit)
-            failed = true
-            break
-        }
-        if _, aerr := append(&action.edits, edit); aerr != nil {
-            free_edit(edit)
-            failed = true
-        }
-    }
-    if !failed {
-        if _, aerr := append(&res.actions, action); aerr == nil {
-            return
-        }
-    }
-    for edit in action.edits {
-        free_edit(edit)
-    }
-    delete(action.edits)
-    delete(action.title)
-    delete(action.kind)
-}
-
-@(private = "file")
-free_edit :: proc(edit: lang.Text_Edit) {
-    delete(edit.path)
-    delete(edit.old_text)
-    delete(edit.new_text)
 }
 
 // The missing cases of the innermost switch around the caret that leaves some out, and `#partial`.
