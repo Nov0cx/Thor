@@ -532,7 +532,14 @@ Thor :: struct {
     code_action_request_id: u64,
     code_action_path: string,
     code_action_revision: u64,
+    code_action_lo: int, // the caret or selection the offer was made at
+    code_action_hi: int,
     code_actions: [dynamic]Pending_Action,
+    // The action whose prompt is open, by index into code_actions; -1 when none.
+    // Its Resolve_Action in flight, and the title to report when it answers.
+    code_action_prompted: int,
+    resolve_action_request_id: u64,
+    resolve_action_title: string, // owned
     // In-flight Execute_Command, and the title to report when it answers: a
     // command-only fix runs on the server, so the pick only reports whether it
     // was accepted — the changes arrive later as a pushed Apply_Edit.
@@ -1043,6 +1050,7 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.rename_path)
     delete(thor.code_action_path)
     delete(thor.execute_command_title)
+    delete(thor.resolve_action_title)
     thor_completion_clear(thor)
     delete(thor.semantic_path)
     delete(thor.semantic_source)

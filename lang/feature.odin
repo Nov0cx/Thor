@@ -28,6 +28,7 @@ FEATURE_NAMES := [Request_Kind]string {
     .Format_On_Type     = "on_type_formatting",
     .Execute_Command    = "execute_command",
     .Resolve_Completion = "resolve_completion",
+    .Resolve_Action     = "resolve_action",
     .Progress           = "progress",
     .Apply_Edit         = "apply_edit",
     .Message            = "messages",

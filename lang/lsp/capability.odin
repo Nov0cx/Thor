@@ -35,6 +35,7 @@ PROVIDER_KEYS := [lang.Request_Kind]string {
     .Format_On_Type    = "documentOnTypeFormattingProvider",
     .Execute_Command   = "executeCommandProvider",
     .Resolve_Completion = "completionProvider",
+    .Resolve_Action    = "", // in-client only; a server resolves its own actions
     .Progress          = "", // unsolicited push; no capability gate, same as Package_Doc
     .Apply_Edit        = "", // unsolicited push; no capability gate, same as Package_Doc
     .Message           = "", // unsolicited push; no capability gate

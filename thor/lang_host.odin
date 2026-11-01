@@ -84,6 +84,8 @@ thor_lang_busy_label :: proc(kinds: bit_set[lang.Request_Kind]) -> string {
     switch {
     case .Rename in kinds:
         return "Renaming..."
+    case .Resolve_Action in kinds:
+        return "Refactoring..."
     case .References in kinds:
         return "Finding references..."
     case .Workspace_Symbols in kinds:
@@ -1998,6 +2000,8 @@ thor_on_lang_result :: proc(user: rawptr, res: ^lang.Result) {
         thor_apply_on_type_format(thor, res)
     case .Execute_Command:
         thor_apply_execute_command(thor, res)
+    case .Resolve_Action:
+        thor_apply_resolved_action(thor, res)
     case .Progress:
         thor_apply_progress(thor, res)
     case .Apply_Edit:

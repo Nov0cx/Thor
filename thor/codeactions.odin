@@ -21,6 +21,8 @@ Pending_Action :: struct {
     resource_ops: [dynamic]lang.Resource_Op, // owned
     command:      string, // owned; "" unless the server runs this fix itself
     arguments:    string, // owned; the command's arguments as raw JSON array text
+    prompt:         string, // owned; the label of the value the action asks for, "" when none
+    prompt_default: string, // owned
 }
 
 // ctrl+shift+u: ask the engine what it can fix at the caret. Async; thor_show_code_actions
@@ -50,12 +52,15 @@ thor_code_actions :: proc(thor: ^Thor) {
         thor.workspace_dir,
         end = hi,
         diagnostics = overlapping_diagnostics(file, lo, hi),
+        tab_size = textedit.tab_width(&file.state),
+        use_tabs = textedit.uses_tabs(&file.state),
     )
     if id == 0 {
         return
     }
     thor.code_action_request_id = id
     thor.code_action_revision = file.state.revision
+    thor.code_action_lo, thor.code_action_hi = lo, hi
     delete(thor.code_action_path)
     thor.code_action_path = strings.clone(file.path)
 }
@@ -108,6 +113,8 @@ thor_show_code_actions :: proc(thor: ^Thor, res: ^lang.Result) {
             title     = strings.clone(action.title),
             command   = strings.clone(action.command),
             arguments = strings.clone(action.arguments),
+            prompt         = strings.clone(action.prompt),
+            prompt_default = strings.clone(action.prompt_default),
         }
         for edit in action.edits {
             append(&pending.edits, lang.Text_Edit {
@@ -159,6 +166,11 @@ thor_pick_code_action :: proc(data: rawptr, index: int) {
         return
     }
     action := thor.code_actions[index]
+    if action.prompt != "" {
+        thor.code_action_prompted = index
+        thor_palette_prompt(thor, action.prompt, thor_confirm_action_prompt, thor, action.prompt_default)
+        return
+    }
     if len(action.edits) > 0 || len(action.resource_ops) > 0 {
         applied, _, ok, reason := thor_apply_edits(
             thor,
@@ -177,6 +189,71 @@ thor_pick_code_action :: proc(data: rawptr, index: int) {
         return
     }
     thor_flash_status(thor, action.title)
+}
+
+// Dispatches the Resolve_Action of the prompted action once the user confirms a value.
+// The buffer must still be at the revision the offer was made at.
+@(private = "file")
+thor_confirm_action_prompt :: proc(data: rawptr, input: string) {
+    thor := cast(^Thor) data
+    index := thor.code_action_prompted
+    thor.code_action_prompted = -1
+    answer := strings.trim_space(input)
+    if answer == "" || index < 0 || index >= len(thor.code_actions) {
+        return
+    }
+    action := thor.code_actions[index]
+    file := thor_active_open_file(thor)
+    if file == nil || !file.loaded || !thor_same_path(file.path, thor.code_action_path) {
+        return
+    }
+    if file.state.revision != thor.code_action_revision {
+        thor_flash_status(thor, fmt.tprintf("%s aborted: the buffer changed", action.title), is_error = true)
+        return
+    }
+    id := lang.manager_request_latest(
+        &thor.lang_manager,
+        .Resolve_Action,
+        file.path,
+        thor_lang_key(thor, file.name),
+        textedit.text(&file.state),
+        thor.code_action_lo,
+        file.state.revision,
+        thor.workspace_dir,
+        answer,
+        end = thor.code_action_hi,
+        tab_size = textedit.tab_width(&file.state),
+        use_tabs = textedit.uses_tabs(&file.state),
+        command = action.command,
+    )
+    if id == 0 {
+        thor_flash_status(thor, fmt.tprintf("%s is not available", action.title), is_error = true)
+        return
+    }
+    thor.resolve_action_request_id = id
+    delete(thor.resolve_action_title)
+    thor.resolve_action_title = strings.clone(action.title)
+}
+
+// Applies the edits of a Resolve_Action once they land, or reports why there are none.
+thor_apply_resolved_action :: proc(thor: ^Thor, res: ^lang.Result) {
+    if res.id != thor.resolve_action_request_id {
+        return
+    }
+    thor.resolve_action_request_id = 0
+    title := thor.resolve_action_title
+    if !res.ok || (len(res.edits) == 0 && len(res.resource_ops) == 0) {
+        reason := res.message.text if res.message.text != "" else "nothing to change"
+        thor_flash_status(thor, fmt.tprintf("%s: %s", title, reason), is_error = true)
+        return
+    }
+    applied, _, ok, reason := thor_apply_edits(thor, res.edits[:], thor.code_action_path, res.revision, res.resource_ops[:])
+    if !ok {
+        verb := applied > 0 ? "incomplete" : "aborted"
+        thor_flash_status(thor, fmt.tprintf("%s %s: %s", title, verb, reason), is_error = true)
+        return
+    }
+    thor_flash_status(thor, title)
 }
 
 // Dispatches a code action's command. Returns whether it went out — false means
@@ -274,6 +351,8 @@ thor_clear_code_actions :: proc(thor: ^Thor) {
         delete(action.title)
         delete(action.command)
         delete(action.arguments)
+        delete(action.prompt)
+        delete(action.prompt_default)
         for edit in action.edits {
             delete(edit.path)
             delete(edit.old_text)
@@ -287,4 +366,5 @@ thor_clear_code_actions :: proc(thor: ^Thor) {
         delete(action.resource_ops)
     }
     clear(&thor.code_actions)
+    thor.code_action_prompted = -1
 }

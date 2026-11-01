@@ -46,6 +46,7 @@ METHODS := [lang.Request_Kind]string {
     .Format_On_Type    = "textDocument/onTypeFormatting",
     .Execute_Command   = "workspace/executeCommand",
     .Resolve_Completion = "completionItem/resolve",
+    .Resolve_Action    = "", // in-client only
     .Progress          = "", // unsolicited push, never sent as an outgoing request
     .Apply_Edit        = "", // unsolicited push, never sent as an outgoing request
     .Message           = "", // unsolicited push, never sent as an outgoing request

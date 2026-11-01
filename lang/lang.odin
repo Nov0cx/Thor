@@ -49,6 +49,12 @@ Request_Kind :: enum {
     // candidate back verbatim in Request.item. Only a backend that defers
     // answers it; an in-client analyzer computes everything up front.
     Resolve_Completion,
+    // Computes the edits of a Code_Action that asked the user for a value
+    // (Code_Action.prompt). Request.command names the action, Request.new_name
+    // carries the answer, and offset/end are the caret or selection the offer was
+    // made at. The result answers `edits` and `resource_ops` like Rename, and
+    // `message.text` the reason when `ok` is false.
+    Resolve_Action,
     // Push-only: never dispatched through manager_request*, only produced by
     // Backend.poll (a server's unsolicited $/progress notification).
     Progress,
@@ -200,6 +206,11 @@ Code_Action :: struct {
     // edits first, then runs it.
     command:       string, // owned; "" when the action carries its own edits
     arguments:     string, // owned; the command's arguments as raw JSON array text
+    // An action that needs a value from the user first: the host asks for it with
+    // `prompt` as the label and `prompt_default` filled in, then dispatches
+    // Resolve_Action with `command` and the answer. Its edits are empty.
+    prompt:         string, // owned; "" when the action needs no input
+    prompt_default: string, // owned
 }
 
 // What a classified identifier turned out to be — what the analyzer proved, not
@@ -333,7 +344,7 @@ Request :: struct {
     // "" when the request was not driven by one. A backend uses it to tell an
     // explicitly opened list from one a character asked for.
     trigger:  string,
-    // Execute_Command only; owned. The command identifier, and its arguments as
+    // Execute_Command and Resolve_Action; owned. The command identifier, and its arguments as
     // the raw JSON array text the offer carried — kept verbatim rather than
     // decoded, since the seam never reads them and the server round-trips its
     // own shapes.
@@ -728,7 +739,8 @@ manager_on_type_trigger :: proc(m: ^Manager, ext, char: string) -> bool {
 // the extension; the result arrives via manager_dispatch on a later frame. The
 // per-kind arguments — `new_name` (Rename), `query` (Workspace_Symbols), `end`,
 // `diagnostics` (Code_Actions, a negative `end` collapsing to `offset`),
-// `command`/`command_args` (Execute_Command) and `item` (Resolve_Completion) —
+// `command`/`command_args` (Execute_Command), `command`/`new_name`
+// (Resolve_Action) and `item` (Resolve_Completion) —
 // are ignored by every other kind.
 manager_request :: proc(
     m: ^Manager,
@@ -1331,6 +1343,8 @@ result_free :: proc(m: ^Manager, res: ^Result) {
         delete(action.kind)
         delete(action.command)
         delete(action.arguments)
+        delete(action.prompt)
+        delete(action.prompt_default)
         for edit in action.edits {
             delete(edit.path)
             delete(edit.old_text)

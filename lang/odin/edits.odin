@@ -148,13 +148,7 @@ push_file_action :: proc(res: ^lang.Result, kind, title: string, specs: []File_E
 // An owned action with the edits sorted by path and start.
 @(private)
 make_action :: proc(kind, title: string, specs: []File_Edit, ops: []lang.Resource_Op = nil) -> (action: lang.Code_Action, ok: bool) {
-    sorted := slice.clone(specs, context.temp_allocator)
-    slice.sort_by(sorted, proc(a, b: File_Edit) -> bool {
-        if a.path != b.path {
-            return a.path < b.path
-        }
-        return a.start < b.start
-    })
+    sorted := sort_file_edits(specs)
     t, e1 := strings.clone(title)
     k, e2 := strings.clone(kind)
     edits, e3 := make([dynamic]lang.Text_Edit, 0, len(sorted))
@@ -168,6 +162,19 @@ make_action :: proc(kind, title: string, specs: []File_Edit, ops: []lang.Resourc
         return {}, false
     }
     return action, true
+}
+
+// A copy of `specs` in the temp allocator, sorted by path and start.
+@(private)
+sort_file_edits :: proc(specs: []File_Edit) -> []File_Edit {
+    sorted := slice.clone(specs, context.temp_allocator)
+    slice.sort_by(sorted, proc(a, b: File_Edit) -> bool {
+        if a.path != b.path {
+            return a.path < b.path
+        }
+        return a.start < b.start
+    })
+    return sorted
 }
 
 // Appends owned copies of `specs` to `out`.
@@ -227,6 +234,8 @@ free_action :: proc(action: lang.Code_Action) {
     delete(action.kind)
     delete(action.command)
     delete(action.arguments)
+    delete(action.prompt)
+    delete(action.prompt_default)
 }
 
 @(private)

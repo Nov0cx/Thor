@@ -4,6 +4,8 @@ import "core:slice"
 import "core:strings"
 import "core:testing"
 
+import lang ".."
+
 @(test)
 test_refactor_inline_variable :: proc(t: ^testing.T) {
     SRC :: `package app
@@ -111,4 +113,75 @@ h :: proc(xs: []E) {
     loop := actions_at(t, e, root, SRC, "break")
     defer free_actions(&loop)
     testing.expect(t, !slice.contains(titles(&loop), "Convert to switch"), "a break out of the loop keeps the if chain")
+}
+
+// The Resolve_Action result of `command` with `answer`, the caret on the `skip`th `marker` and the
+// selection `select` bytes long.
+@(private)
+resolve_at :: proc(t: ^testing.T, e: ^Engine, root, source, marker, command, answer: string, select := 0, skip := 0) -> lang.Result {
+    at := -1
+    from := 0
+    for _ in 0 ..= skip {
+        i := strings.index(source[from:], marker)
+        if i < 0 {
+            testing.fail_now(t, "marker not found")
+        }
+        at = from + i
+        from = at + 1
+    }
+    req := lang.Request {
+        kind      = .Resolve_Action,
+        path      = fixture_path(root, "app/main.odin"),
+        ext       = ".odin",
+        source    = source,
+        workspace = root,
+        offset    = at,
+        end       = at + select,
+        command   = command,
+        new_name  = answer,
+    }
+    res: lang.Result
+    resolve_action(e, &req, &res)
+    return res
+}
+
+// `source` after the edits of a Resolve_Action result on the request's own file.
+@(private)
+resolved :: proc(t: ^testing.T, res: ^lang.Result, source: string, loc := #caller_location) -> string {
+    testing.expectf(t, res.ok, "resolve failed: %s", res.message.text, loc = loc)
+    out := source
+    #reverse for edit in res.edits {
+        if !strings.has_suffix(edit.path, "main.odin") {
+            continue
+        }
+        testing.expectf(t, out[edit.start:edit.end] == edit.old_text, "old text %q does not match", edit.old_text, loc = loc)
+        out = strings.concatenate({out[:edit.start], edit.new_text, out[edit.end:]}, context.temp_allocator)
+    }
+    return out
+}
+
+@(private)
+free_resolved :: proc(res: ^lang.Result) {
+    for edit in res.edits {
+        free_edit(edit)
+    }
+    delete(res.edits)
+    for op in res.resource_ops {
+        delete(op.path)
+        delete(op.new_path)
+    }
+    delete(res.resource_ops)
+    delete(res.message.text)
+}
+
+@(test)
+test_resolve_unknown_action :: proc(t: ^testing.T) {
+    SRC :: "package app\n\nf :: proc() {}\n"
+    root := fixture(t, "resolve_unknown", {{".thor/odin-analyzer.lua", ACTION_CONFIG}})
+    e := engine_create()
+    defer engine_destroy(e)
+    res := resolve_at(t, e, root, SRC, "f ::", "odin.nothing", "x")
+    defer free_resolved(&res)
+    testing.expect(t, !res.ok, "an unknown action resolves to nothing")
+    testing.expect_value(t, res.message.text, "unknown action")
 }

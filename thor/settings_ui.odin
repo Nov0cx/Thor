@@ -529,6 +529,7 @@ LANGUAGE_FEATURE_LABELS := [lang.Request_Kind]string {
     .Format_On_Type     = "Format On Type",
     .Execute_Command    = "Server Commands",
     .Resolve_Completion = "Completion Follow-Up Edits",
+    .Resolve_Action     = "Refactorings That Ask",
     .Progress           = "Progress Notifications",
     .Apply_Edit         = "Server-Applied Edits",
     .Message            = "Server Messages",
