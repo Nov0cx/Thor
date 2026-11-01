@@ -495,8 +495,8 @@ zero_text :: proc(type_text: string) -> string {
 
 // True for the sized integer, float, complex and quaternion type names, endian forms included.
 @(private = "file")
-is_number_type :: proc(t: string) -> bool {
-    t := strings.trim_suffix(strings.trim_suffix(t, "le"), "be")
+is_number_type :: proc(name: string) -> bool {
+    t := strings.trim_suffix(strings.trim_suffix(name, "le"), "be")
     for prefix in ([]string{"complex", "quaternion", "i", "u", "f"}) {
         if !strings.has_prefix(t, prefix) || len(t) == len(prefix) {
             continue
