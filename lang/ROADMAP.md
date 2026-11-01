@@ -2491,7 +2491,9 @@ not a status, so this section stays the source of truth for what is built.
     untyped argument keeps it silent). A group call whose polymorphic members
     no argument fits; a member with an empty variadic of a `$` element type is
     never picked from a group of several, as the compiler does (`append(&a)`).
-    An assignment count counts a literal, `.Member`, an operator, a slice and
+    Too many values for one procedure, counting the values of a multi-value
+    call among other arguments as the compiler does (`f(pair(), 3)`;
+    `too_many_values`). An assignment count counts a literal, `.Member`, an operator, a slice and
     a builtin or conversion call as one value, and every value but a call as
     one beside others. A string or bool constant for a number parameter of
     an intrinsic (`sync.atomic_store(&n, "x")`); other intrinsic arguments
@@ -2505,6 +2507,34 @@ not a status, so this section stays the source of truth for what is built.
     polymorphic body for one instance, an ambiguous group call, float
     truncation and overflow, constant arithmetic of typed constants, and a
     call with no value used as a value.
+  - **Control flow** (`sema/cfg.odin`, plan §5.6, M7): `cfg_build` gives the
+    graph of one procedure body: basic blocks of statements, an edge per
+    jump. A `defer` runs as a `Defer_Run` step on every edge that leaves its
+    scope (`return`, `break`/`continue` with or without a label, `or_return`,
+    `or_break`, `or_continue`, the end of the block), last first. `for` with
+    no condition leaves only through `break`; a `switch` with no `case:`
+    also goes past its clauses; `fallthrough` goes to the next clause; a
+    call ends its block only when its type says it does not return (`-> !`,
+    `panic`, `unreachable()`), so a callee of unknown type never makes code
+    dead. A `when` branch the target does not take is not in the graph, and
+    the code after a `when` stays reachable whatever its branches do (another
+    target or define takes another branch). `unreachable_code` walks the
+    statement lists: as the compiler does, a `return`, `break`, `continue`
+    or diverging call followed in its list by a statement that is not a `::`
+    declaration ("Statements after this 'return' are never executed", at the
+    terminator), and a `defer` in a list whose last statement is a diverging
+    call ("Unreachable defer statement ...", `flow/unreachable-defer`); as a
+    warning the compiler does not give ("Unreachable code"), the first
+    statement of each other run the graph does not reach, such as code after
+    `for {}` or after an `if`/`else` whose branches both return. A run that
+    is only the last `return` or diverging call of its list (a guard after a
+    loop that never ends) is not reported. Over the 617,000 lines of the
+    clean corpus the lint finds 2 runs, both real dead code. A
+    diagnostic the compiler does not make carries `lint`
+    (`lang.Diagnostic.lint`), and the editor shows the lint items of the live
+    report beside a current `odin check` report
+    (`thor_file_live_diagnostics`), so a save does not hide them. Next on the
+    graph: liveness (unused variables, dead stores).
   - **Compiler oracle** (`lang/odin/oracle_test.odin`, run with
     `-define:LIVE_ORACLE=true`; plan §8 M5 bar): `test_oracle_clean_corpus`
     runs the live check on every file of the 310 `base`/`core`/`vendor`
@@ -2516,7 +2546,8 @@ not a status, so this section stays the source of truth for what is built.
     `pt_rescale(&tmp)` in `crypto/_weierstrass`). `test_oracle_seeded`
     seeds one error per site (rename, dropped import, misspelled field,
     extra or dropped argument, wrong literal, dropped case, return or
-    value, duplicate declaration) into repo and Odin root packages and
+    value, duplicate declaration, a statement after a `return`) into repo
+    and Odin root packages (1138 seeded, all matched) and
     requires each one the compiler reports to be matched on its line, with
     no false error. Reports land in `bin/test/oracle_corpus.txt` and
     `bin/test/oracle_seeded.txt`.
@@ -2526,7 +2557,8 @@ not a status, so this section stays the source of truth for what is built.
     `call/named`, `call/overload`, `type/no-member`, `type/mismatch`,
     `const/overflow`, `switch/non-exhaustive`, `assert/static`,
     `flow/missing-return`, `or_return/mismatch`, `poly/where`,
-    `assign/count`, `import/cycle`), shown after the message in the hover.
+    `assign/count`, `import/cycle`, `flow/unreachable`,
+    `flow/unreachable-defer`), shown after the message in the hover.
     `// thor:ignore <id>...` drops those ids on the next
     line (on its own line when it follows code), with no id every id;
     `// thor:ignore-file <id>...` drops them in the whole file. An unknown id

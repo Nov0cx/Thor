@@ -148,8 +148,13 @@ type cannot hold (`const/overflow`), a procedure that can end with no `return`
 (`flow/missing-return`), an `or_return` that does not fit its procedure
 (`or_return/mismatch`), a `where` clause a call breaks (`poly/where`), an
 assignment with more or fewer values than places (`assign/count`) and an
-import that leads back to its own package (`import/cycle`). After a save,
-the compiler's diagnostics replace them. The hover over a mark shows its id
+import that leads back to its own package (`import/cycle`). It marks
+statements after a `return`, `break`, `continue` or a call that does not
+return (`flow/unreachable`) and a `defer` that a diverging call at the end of
+its scope skips (`flow/unreachable-defer`). After a save, the compiler's
+diagnostics replace them. Other code that can never run, such as code after
+`for {}`, gets a warning the compiler does not give (`flow/unreachable`); it
+stays after a save. The hover over a mark shows its id
 (`[name/undeclared]`); a `// thor:ignore name/undeclared` comment hides that id
 on the next line (or on its own line after code), and
 `// thor:ignore-file <id>` hides it in the whole file. `"diagnostics"` in

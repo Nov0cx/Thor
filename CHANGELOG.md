@@ -17,6 +17,8 @@
 - Odin: a call whose arguments make a `where` clause false is marked while typing (`poly/where`).
 - Odin: an assignment or declaration with more or fewer values than names is marked while typing (`assign/count`).
 - Odin: an import whose package imports the file's package back is marked while typing (`import/cycle`).
+- Odin: a `return`, `break`, `continue` or call of a `-> !` procedure followed by more statements is marked while typing (`flow/unreachable`). So is a `defer` before a diverging call that ends its scope (`flow/unreachable-defer`).
+- Odin: other code that can never run, such as code after `for {}` or after an `if`/`else` whose branches both return, gets a warning (`flow/unreachable`). The compiler does not report it, so the warning stays after a save, next to the `odin check` diagnostics.
 - Odin: `"diagnostics"` in `.thor/odin-analyzer.lua` sets each live diagnostic id to `"off"`, `"warning"` or `"error"`.
 - Odin: a `@(private="file")` declaration no longer counts as a redeclaration of a package declaration of the same name.
 - A right click on empty space in the explorer, or in an empty folder, opens the workspace root's context menu (New File, New Folder, Refresh).
