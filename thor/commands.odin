@@ -387,6 +387,7 @@ thor_register_commands :: proc(thor: ^Thor) {
     thor_palette_add(
         thor, "Edit: Toggle Block Comment", thor_cmd_toggle_block_comment, thor, action = "toggle_block_comment",
     )
+    thor_add_bindable_command(thor, "Edit: Clipboard History...", "clipboard_history", thor_cmd_clipboard_history, thor)
     thor_palette_add(thor, "Edit: Select All", thor_cmd_select_all, thor, action = "select_all")
     thor_palette_add(thor, "Edit: Duplicate Line", thor_cmd_duplicate_line, thor, action = "duplicate_line_down")
     thor_palette_add(thor, "Edit: Delete Line", thor_cmd_delete_line, thor, action = "delete_line")

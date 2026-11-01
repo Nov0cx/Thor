@@ -56,6 +56,8 @@ Thor :: struct {
     select_open: bool,
     // The select dialog's own state (title, options, live preview).
     select: Select_Dialog,
+    // Copied, cut and pasted texts, newest first.
+    clipboard_history: [dynamic]string, // owned
     find_open: bool,
     find_replace_mode: bool,
     // The find bar's query, matches and modifiers; see find.odin.
@@ -1083,6 +1085,7 @@ shutdown :: proc(thor: ^Thor) {
     theme.destroy(&thor.theme)
     thor_palette_destroy(thor)
     thor_select_destroy(thor)
+    thor_clipboard_history_destroy(thor)
     thor_menu_destroy(thor)
     thor_settings_destroy(thor)
     thor_theme_editor_destroy(thor)

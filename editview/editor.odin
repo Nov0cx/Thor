@@ -36,6 +36,9 @@ Completion_Accept_Proc :: #type proc(data: rawptr, editor: ^Editor, state: ^text
 // On-type formatting request after `char` (UTF-8) is typed. The owner decides if it is a trigger.
 On_Type_Proc :: #type proc(data: rawptr, editor: ^Editor, state: ^textedit.State, offset: int, char: string)
 
+// Text the editor copied, cut or pasted. Borrowed for the call.
+Clipboard_Proc :: #type proc(data: rawptr, text: string)
+
 // One completion candidate. `insert` and `filter` fall back to `text` when empty.
 // `owner_id` zero is the editor's own buffer word; the fields after it apply only to an owner row.
 Completion_Item :: struct {
@@ -199,6 +202,8 @@ Editor :: struct {
     on_type:             On_Type_Proc,
     on_type_data:        rawptr,
     on_type_enabled:     bool,
+    on_clipboard:        Clipboard_Proc,
+    clipboard_data:      rawptr,
     // Hover dwell: where and when the cursor settled, the offset last asked
     // about (-1 = none) and last frame's modifier state.
     hover_probe_pos:     ui.Vec2,
@@ -298,6 +303,11 @@ editor_set_snippet_vars :: proc(editor: ^Editor, filename, directory: string, wo
 // built-in buffer-word completion. Set per file when a pane is bound.
 editor_set_completion_semantic :: proc(editor: ^Editor, semantic: bool) {
     editor.completion_semantic = semantic
+}
+
+editor_set_on_clipboard :: proc(editor: ^Editor, on_clipboard: Clipboard_Proc, data: rawptr) {
+    editor.on_clipboard = on_clipboard
+    editor.clipboard_data = data
 }
 
 editor_set_on_type :: proc(editor: ^Editor, on_type: On_Type_Proc, data: rawptr) {
@@ -1523,6 +1533,14 @@ editor_copy :: proc(editor: ^Editor) {
     payload, _ := textedit.copy_payload(editor.state, context.temp_allocator)
     if payload != "" {
         ui.set_clipboard_text(payload)
+        editor_note_clipboard(editor, payload)
+    }
+}
+
+@(private = "file")
+editor_note_clipboard :: proc(editor: ^Editor, text: string) {
+    if editor.on_clipboard != nil {
+        editor.on_clipboard(editor.clipboard_data, text)
     }
 }
 
@@ -1535,6 +1553,7 @@ editor_cut :: proc(editor: ^Editor) {
         return
     }
     ui.set_clipboard_text(payload)
+    editor_note_clipboard(editor, payload)
     if !had_selection {
         textedit.select_line(editor.state)
     }
@@ -1553,6 +1572,7 @@ editor_paste :: proc(editor: ^Editor) {
     normalized, _ := strings.replace_all(clip, "\r\n", "\n", context.temp_allocator)
     normalized, _ = strings.replace_all(normalized, "\r", "\n", context.temp_allocator)
     if normalized != "" {
+        editor_note_clipboard(editor, normalized)
         textedit.insert_text(editor.state, normalized)
     }
 }

@@ -98,6 +98,7 @@ read, and the list stops at 1000 matches.
 | ctrl + c | copy selection (no selection: copy whole line) |
 | ctrl + x | cut selection (no selection: cut whole line) |
 | ctrl + v | paste |
+| ctrl + shift + v | clipboard history: pick an earlier copy, cut or paste and paste it again (also the "Edit: Clipboard History..." command) |
 
 ## Movement
 
