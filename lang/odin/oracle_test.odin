@@ -63,7 +63,27 @@ Oracle_Op :: enum {
     Duplicate_Decl,
     Extra_Value,
     Dead_Stmt,
-    Unused_Var, // checked with -vet-unused-variables
+    Unused_Var,    // checked with -vet-unused-variables
+    Shadow_Var,    // checked with -vet-shadowing
+    Unused_Import, // checked with -vet-unused-imports
+}
+
+// The vet flag the compiler checks an operator with, and the id of the live item it gives.
+@(private = "file")
+op_vet :: proc(op: Oracle_Op) -> (flag: string, code: string) {
+    #partial switch op {
+    case .Unused_Var:    return "-vet-unused-variables", CODE_UNUSED_VAR
+    case .Shadow_Var:    return "-vet-shadowing", CODE_SHADOWING
+    case .Unused_Import: return "-vet-unused-imports", CODE_UNUSED_IMPORT
+    }
+    return "", ""
+}
+
+// True for a live item that is not an error of a compiler run with the flag of `op` alone.
+@(private = "file")
+not_compared :: proc(d: lang.Diagnostic, op: Oracle_Op) -> bool {
+    _, code := op_vet(op)
+    return d.lint || is_vet_code(d.code) && d.code != code
 }
 
 // One text edit of a valid file.
@@ -185,11 +205,13 @@ copy_package :: proc(src, dst: string) -> bool {
 
 // The errors `odin check` gives for the package in `dir`, and whether the compiler ran.
 @(private = "file")
-compiler_errors :: proc(dir: string, vet_unused := false, allocator := context.temp_allocator) -> (errs: []Oracle_Error_At, ran: bool) {
+compiler_errors :: proc(dir: string, flags: ..string, allocator := context.temp_allocator) -> (errs: []Oracle_Error_At, ran: bool) {
     args := make([dynamic]string, context.temp_allocator)
     append(&args, "check", dir, "-no-entry-point", "-max-error-count:10000", "-terse-errors")
-    if vet_unused {
-        append(&args, "-vet-unused-variables")
+    for f in flags {
+        if f != "" {
+            append(&args, f)
+        }
     }
     output, code, ok := shell.exec_status("odin", args[:], ".", ORACLE_TIMEOUT)
     defer delete(output)
@@ -228,6 +250,25 @@ mutation_sites :: proc(src: string, out: ^[dynamic]Mutation) {
     sites_walk(odinsyntax.node_root(parsed.tree), out)
 }
 
+// A block at the head of the body of `for v in x` that declares `v` again.
+@(private = "file")
+shadow_site :: proc(n: odinsyntax.Syntax_Node, out: ^[dynamic]Mutation) {
+    r, _ := odinsyntax.as_range_stmt(n)
+    vars, has_vars := odinsyntax.range_stmt_vars(&r)
+    body, has_body := odinsyntax.range_stmt_body(&r)
+    if !has_vars || !has_body || body.green.kind != .Block {
+        return
+    }
+    it := odinsyntax.expr_list_items(&vars)
+    first, ok := odinsyntax.child_iter_next(&it)
+    if !ok || first.green.kind != .Ident || odinsyntax.node_text(first) == "_" {
+        return
+    }
+    name := odinsyntax.node_text(first)
+    at := int(body.offset) + 1
+    append(out, Mutation{op = .Shadow_Var, start = at, end = at, text = fmt.tprintf(" {{ %s := 0; _ = %s }}; ", name, name)})
+}
+
 @(private = "file")
 // Sites in a polymorphic procedure are left out: the compiler checks its body only per instance.
 sites_walk :: proc(n: odinsyntax.Syntax_Node, out: ^[dynamic]Mutation) {
@@ -237,10 +278,14 @@ sites_walk :: proc(n: odinsyntax.Syntax_Node, out: ^[dynamic]Mutation) {
     }
     start, end := odinsyntax.node_range(n)
     #partial switch n.green.kind {
+    case .Package_Decl:
+        append(out, Mutation{op = .Unused_Import, start = int(end), end = int(end), text = "\nimport zz_imp \"base:runtime\""})
     case .Import_Decl:
         if n.parent != nil && n.parent.green.kind == .Root {
             append(out, Mutation{op = .Drop_Import, start = int(start), end = int(end)})
         }
+    case .Range_Stmt:
+        shadow_site(n, out)
     case .Ident:
         if rename_site(n) {
             append(out, Mutation{op = .Rename, start = int(end), end = int(end), text = "_zq"})
@@ -533,7 +578,8 @@ run_mutant :: proc(t: ^testing.T, e: ^Engine, dest, path, src: string, m: Mutati
         testing.expectf(t, false, "%s: could not write", path)
         return
     }
-    errs, ran := compiler_errors(dest, m.op == .Unused_Var)
+    flag, _ := op_vet(m.op)
+    errs, ran := compiler_errors(dest, flag)
     res := live_check(e, mutated, ORACLE_ROOT, path)
     defer free_live(&res)
     if os.write_entire_file(path, src) != nil {
@@ -561,7 +607,7 @@ run_mutant :: proc(t: ^testing.T, e: ^Engine, dest, path, src: string, m: Mutati
     }
     poly := poly_ranges(mutated)
     for d in res.report.items {
-        if d.lint {
+        if not_compared(d, m.op) {
             continue
         }
         // The compiler skips an expression whose operand an earlier error made invalid.
@@ -587,7 +633,7 @@ run_mutant :: proc(t: ^testing.T, e: ^Engine, dest, path, src: string, m: Mutati
     }
     counts[m.op].seeded += 1
     for d in res.report.items {
-        if (!d.lint || m.op == .Unused_Var && d.code == CODE_UNUSED_VAR) && d.line in lines {
+        if !not_compared(d, m.op) && d.line in lines {
             counts[m.op].matched += 1
             return
         }
@@ -647,7 +693,7 @@ test_oracle_seeded :: proc(t: ^testing.T) {
             res := live_check(e, src, ORACLE_ROOT, path)
             poly := poly_ranges(src)
             for d in res.report.items {
-                if !d.lint && !in_ranges(poly, d.line) {
+                if !d.lint && !is_vet_code(d.code) && !in_ranges(poly, d.line) {
                     false_errors += 1
                     note("FALSE baseline %s:%d `%s`: %s", path, d.line, line_text(src, d.line), d.message)
                 }
@@ -737,6 +783,7 @@ test_oracle_clean_corpus :: proc(t: ^testing.T) {
     target := odinsema.target_host()
     target.tests = false
     packages, files_checked, skipped, found, in_poly, lints, lines := 0, 0, 0, 0, 0, 0, 0
+    vet_matched, vet_false, vet_missed := 0, 0, 0
     by_message := make(map[string]int, keep)
     for dir in dirs {
         if !oracle_only(dir) {
@@ -749,6 +796,16 @@ test_oracle_clean_corpus :: proc(t: ^testing.T) {
             continue
         }
         packages += 1
+        // What `-vet` adds to a clean package is its vet output, by file and line.
+        vet_errs, vet_ran := compiler_errors(dir, "-vet", allocator = keep)
+        vet_lines := make(map[Vet_Key]string, keep)
+        if vet_ran {
+            for x in vet_errs {
+                vet_lines[Vet_Key{x.file, x.line}] = x.message
+            }
+        }
+        vet_seen := make(map[Vet_Key]bool, keep)
+        vet_dirs := make(map[string]string, keep) // file name -> path
         files, err := odinsema.package_dir_files(dir, keep)
         if err != nil {
             continue
@@ -781,6 +838,17 @@ test_oracle_clean_corpus :: proc(t: ^testing.T) {
             lines += strings.count(src, "\n")
             poly := poly_ranges(src)
             for d in res.report.items {
+                if is_vet_code(d.code) && d.code != CODE_DEAD_STORE {
+                    key := Vet_Key{strings.clone(filepath.base(path), keep), d.line}
+                    if key in vet_lines {
+                        vet_matched += 1
+                        vet_seen[key] = true
+                    } else {
+                        vet_false += 1
+                        note("VET FALSE %s:%d:%d: %s", path, d.line, d.col, d.message)
+                    }
+                    continue
+                }
                 // A lint the compiler does not make: counted for the false-positive audit.
                 if d.lint {
                     lints += 1
@@ -804,6 +872,15 @@ test_oracle_clean_corpus :: proc(t: ^testing.T) {
                 }
                 by_message[key] += 1
             }
+            vet_dirs[strings.clone(filepath.base(path), keep)] = strings.clone(path, keep)
+        }
+        for key, message in vet_lines {
+            // A file out of the build is not checked live.
+            if vet_seen[key] || key.file not_in vet_dirs {
+                continue
+            }
+            vet_missed += 1
+            note("VET MISS %s:%d: %s", vet_dirs[key.file], key.line, message)
         }
     }
     for msg, n in by_message {
@@ -811,9 +888,18 @@ test_oracle_clean_corpus :: proc(t: ^testing.T) {
     }
     note("corpus: %d packages clean under odin check (%d skipped), %d files checked, %d live errors, %d in polymorphic bodies", packages, skipped, files_checked, found, in_poly)
     note("lints: %d over %d lines", lints, lines)
+    note("vet: %d matched, %d false, %d missed", vet_matched, vet_false, vet_missed)
     report_flush("bin/test/oracle_corpus.txt")
     testing.expect(t, packages > 0, "no package checked")
     testing.expect_value(t, found, 0)
+    testing.expect_value(t, vet_false, 0)
+}
+
+// A compiler line by file name and line.
+@(private = "file")
+Vet_Key :: struct {
+    file: string,
+    line: int,
 }
 
 // Appends every directory under `dir` that holds an `.odin` file.
