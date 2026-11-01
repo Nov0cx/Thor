@@ -25,6 +25,34 @@ Ref_Scan :: struct {
     checker:   ^odinsema.Checker,    // borrowed from the request; nil when it does not start
     hits:      [dynamic]lang.Symbol, // owned; strings in context.allocator
     bound:     map[string]bool,      // owned; Builtin: whether the package of a directory key binds the name
+    visit:     Ref_Visit,            // nil when no caller reads the files
+    visit_data: rawptr,
+    stopped:   bool,                 // `visit` gave false
+}
+
+// One file of a reference search with the offsets of its hits. Valid only during the call.
+@(private)
+Ref_File :: struct {
+    path:   string,
+    source: string,
+    parsed: odinsyntax.Parse,
+    tree:   ^odinsema.Item_Tree,
+    lines:  []int,
+    hits:   []int,
+}
+
+// Called once per file that holds a hit, while its parse is pinned. False stops the search.
+@(private)
+Ref_Visit :: #type proc(data: rawptr, f: Ref_File) -> bool
+
+// Calls `visit` for each file with a hit of `target`. False when the request is cancelled or `visit` stops it.
+@(private)
+visit_references :: proc(ctx: ^Request_Context, target: Ref_Target, with_decl: bool, visit: Ref_Visit, data: rawptr) -> bool {
+    s := Ref_Scan{ctx = ctx, target = target, with_decl = with_decl, visit = visit, visit_data = data}
+    ok := scan(&s)
+    hits_free(s.hits[:])
+    delete(s.hits)
+    return ok && !s.stopped
 }
 
 // One file a scan reads. Strings are temp-allocated or borrowed from the snapshot.
@@ -116,7 +144,7 @@ rename :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
 
 // True when the declaration of `target` can be renamed: an implicit import alias cannot, and a
 // declaration outside the workspace (or, with no workspace, outside the buffer) is not the user's.
-@(private = "file")
+@(private)
 rename_allowed :: proc(ctx: ^Request_Context, target: Ref_Target) -> bool {
     if target.kind == .Import_Alias {
         return target.explicit
@@ -216,7 +244,7 @@ scan_package :: proc(s: ^Ref_Scan, live: ^Scan_File) -> bool {
     }
     if view := request_package(ctx, s.target.dir); view != nil {
         for id in view.files {
-            if lang.request_cancelled(req) {
+            if s.stopped || lang.request_cancelled(req) {
                 return false
             }
             if id != ctx.live.id {
@@ -228,7 +256,7 @@ scan_package :: proc(s: ^Ref_Scan, live: ^Scan_File) -> bool {
         return !lang.request_cancelled(req)
     }
     for id in workspace_importers(s) {
-        if lang.request_cancelled(req) {
+        if s.stopped || lang.request_cancelled(req) {
             return false
         }
         scan_disk_file(s, id)
@@ -255,7 +283,7 @@ scan_workspace :: proc(s: ^Ref_Scan, live: ^Scan_File) -> bool {
         return !lang.request_cancelled(req)
     }
     for id in workspace_files(s) {
-        if lang.request_cancelled(req) {
+        if s.stopped || lang.request_cancelled(req) {
             return false
         }
         scan_disk_file(s, id)
@@ -355,6 +383,7 @@ scan_file :: proc(s: ^Ref_Scan, f: ^Scan_File) {
         return
     }
     defer odinsema.scope_map_destroy(m)
+    offsets := make([dynamic]int, context.temp_allocator)
     for ref in m.refs {
         if ref.name != s.target.name {
             continue
@@ -362,7 +391,21 @@ scan_file :: proc(s: ^Ref_Scan, f: ^Scan_File) {
         hit, is_decl := classify(s, f, m, ref)
         if hit && (!is_decl || s.with_decl) {
             add_hit(s, f, ref.start)
+            append(&offsets, ref.start)
         }
+    }
+    visit_file(s, f, offsets[:])
+}
+
+// Hands the hits of one file to `s.visit`.
+@(private = "file")
+visit_file :: proc(s: ^Ref_Scan, f: ^Scan_File, offsets: []int) {
+    if s.visit == nil || s.stopped || len(offsets) == 0 {
+        return
+    }
+    rf := Ref_File{path = f.path, source = f.source, parsed = f.parsed, tree = f.tree, lines = f.lines, hits = offsets}
+    if !s.visit(s.visit_data, rf) {
+        s.stopped = true
     }
 }
 

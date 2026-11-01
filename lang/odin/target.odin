@@ -509,7 +509,7 @@ item_reaches :: proc(item: ^odinsema.Item, own: bool) -> bool {
 
 // The roots the imports of a workspace resolve against: the Odin root and the configured collections.
 // Temp-allocated.
-@(private = "file")
+@(private)
 workspace_collections :: proc(e: ^Engine, workspace: string) -> odinsema.Collections {
     configured := config_collections(e, workspace)
     custom := make([]odinsema.Collection, len(configured), context.temp_allocator)

@@ -228,23 +228,29 @@ same_dir :: proc(a, b: string) -> bool {
 // import, else after its package clause with a blank line. The text is temp-allocated.
 @(private)
 import_insert :: proc(rc: ^Request_Context, import_path: string) -> (at: int, text: string) {
-    src := rc.req.source
+    return import_insert_in(rc.req.source, rc.live.tree, fmt.tprintf("import \"%s\"", import_path))
+}
+
+// Where the import declaration `line` goes in `src`, whose item tree is `tree`, and the text to insert
+// there. The text is temp-allocated.
+@(private)
+import_insert_in :: proc(src: string, tree: ^odinsema.Item_Tree, line: string) -> (at: int, text: string) {
     at = -1
-    for imp in rc.live.tree.items {
+    for imp in tree.items {
         if imp.kind == .Import && imp.end > at {
             at = imp.end
         }
     }
     if at >= 0 {
-        text = fmt.tprintf("\nimport \"%s\"", import_path)
+        text = strings.concatenate({"\n", line}, context.temp_allocator)
     } else {
         at = len(src)
-        if p := rc.live.tree.package_offset; p >= 0 {
+        if p := tree.package_offset; p >= 0 {
             if nl := strings.index_byte(src[min(p, len(src)):], '\n'); nl >= 0 {
                 at = p + nl
             }
         }
-        text = fmt.tprintf("\n\nimport \"%s\"", import_path)
+        text = strings.concatenate({"\n\n", line}, context.temp_allocator)
     }
     return clamp(at, 0, len(src)), text
 }

@@ -1,6 +1,7 @@
 // Resolve_Action: the edits of a refactoring once the user gave the value it asked for.
 package odin
 
+import "core:mem/virtual"
 import "core:strings"
 
 import lang ".."
@@ -65,6 +66,13 @@ resolve_action :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
     lo := clamp(req.offset, 0, len(src))
     hi := req.end < 0 ? lo : clamp(req.end, lo, len(src))
     name := strings.trim_space(req.new_name)
+    // Holds what a reference visitor keeps past the temp guard of each file it reads.
+    arena: virtual.Arena
+    if virtual.arena_init_growing(&arena) != nil {
+        resolve_fail(res, "out of memory")
+        return
+    }
+    defer virtual.arena_destroy(&arena)
     edits: []File_Edit
     ops: []lang.Resource_Op
     reason := "unknown action"
@@ -75,8 +83,10 @@ resolve_action :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
     case ACTION_EXTRACT_PROCEDURE:
         lo, hi = trimmed_selection(src, lo, hi)
         edits, reason = extract_procedure_edits(&rc, m, lo, hi, name)
-    case ACTION_CHANGE_SIGNATURE, ACTION_MOVE_DECLARATION:
-        reason = "not available"
+    case ACTION_CHANGE_SIGNATURE:
+        edits, reason = change_signature_edits(&rc, req.new_name, virtual.arena_allocator(&arena))
+    case ACTION_MOVE_DECLARATION:
+        edits, ops, reason = move_decl_edits(&rc, m, req.new_name, virtual.arena_allocator(&arena))
     }
     if reason != "" {
         resolve_fail(res, reason)

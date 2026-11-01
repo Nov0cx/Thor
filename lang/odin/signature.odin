@@ -42,7 +42,7 @@ Call_Site :: struct {
 }
 
 // A non-trivia token of a label source and where it lands in the label.
-@(private = "file")
+@(private)
 Label_Token :: struct {
     src_start, src_end: int,
     out_start, out_end: int,
@@ -469,7 +469,7 @@ proc_type_at :: proc(c: ^odinsema.Checker, file: odinsema.File_Id, offset: int) 
 }
 
 // A non-trivia token of a label source.
-@(private = "file")
+@(private)
 Raw_Token :: struct {
     kind:  odinsyntax.Token_Kind,
     start: int,
@@ -478,7 +478,7 @@ Raw_Token :: struct {
 }
 
 // Appends the non-trivia tokens of `g`, which starts at `offset`.
-@(private = "file")
+@(private)
 collect_tokens :: proc(g: ^odinsyntax.Green_Node, offset: int, raw: ^[dynamic]Raw_Token, space: ^bool) {
     pos := offset
     for child in odinsyntax.green_children(g) {
@@ -503,7 +503,7 @@ collect_tokens :: proc(g: ^odinsyntax.Green_Node, offset: int, raw: ^[dynamic]Ra
 
 // Writes the tokens of `n` on one line: comments dropped, each run of trivia one space, no space
 // inside parentheses and no comma before a closing one.
-@(private = "file")
+@(private)
 write_label_tokens :: proc(sb: ^strings.Builder, n: odinsyntax.Syntax_Node, out: ^[dynamic]Label_Token) {
     raw := make([dynamic]Raw_Token, context.temp_allocator)
     space := false

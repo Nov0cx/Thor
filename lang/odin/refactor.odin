@@ -19,6 +19,10 @@ refactor_actions :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, caret: Ca
     }
     inline_variable(rc, m, caret, res)
     extract_actions(rc, m, caret, res)
+    if caret.sel_end <= caret.offset {
+        change_signature_offer(rc, res)
+    }
+    move_decl_offer(rc, caret, res)
     for n := tok.parent; n != nil; n = n.parent {
         if n.green.kind == .Proc_Lit {
             break
