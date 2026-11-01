@@ -123,6 +123,7 @@ test_type_cache_reuse_and_invalidate :: proc(t: ^testing.T) {
     hits, _ = cache_stats(&db)
     testing.expect_value(t, hits, 2)
     v, _ = cache_request(t, &db, f, text)
+    testing.expect_value(t, v, "struct {x: f64, y: int}")
     hits, _ = cache_stats(&db)
     testing.expect_value(t, hits, 3)
 }

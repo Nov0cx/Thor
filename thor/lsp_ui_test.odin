@@ -65,7 +65,7 @@ test_lsp_health_flash_reports_failures :: proc(t: ^testing.T) {
     testing.expect(t, say && is_error, "giving up must be reported")
     testing.expect(t, strings.contains(message, "not be started again"), "giving up says so")
 
-    message, is_error, say = thor_lsp_health_flash(.Crashed, .Ready)
+    _, is_error, say = thor_lsp_health_flash(.Crashed, .Ready)
     testing.expect(t, say, "coming back must be reported")
     testing.expect(t, !is_error, "coming back is not an error")
 }

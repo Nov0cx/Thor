@@ -401,7 +401,7 @@ completion_edit :: proc(ask: ^Ask, value: json.Value) -> (text: string, start, e
         span, has_span = object["replace"]
     }
     if !has_span {
-        span, has_span = object["insert"]
+        span = object["insert"]
     }
     start_line, start_char, end_line, end_char, has_range := range_of(span)
     if !has_range {

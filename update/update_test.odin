@@ -134,7 +134,7 @@ test_checksums_find :: proc(t: ^testing.T) {
     testing.expect(t, ok, "the binary-mode form is read")
     testing.expect_value(t, digest, "2222222222222222222222222222222222222222222222222222222222222222")
 
-    digest, ok = checksums_find(sums, "thor-2026.09.0-macos-arm64.tar.gz")
+    _, ok = checksums_find(sums, "thor-2026.09.0-macos-arm64.tar.gz")
     testing.expect(t, ok, "a ./ on the name is dropped")
 
     // A truncated digest is not a digest, so the line does not count.

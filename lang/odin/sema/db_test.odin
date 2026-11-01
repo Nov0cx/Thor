@@ -178,6 +178,7 @@ test_db_stable_throttle :: proc(t: ^testing.T) {
 
     files, two := look(t, &db, &colls, pkg, w)
     testing.expect_value(t, files, 1)
+    testing.expect(t, !two)
     stats := sync.atomic_load(&db.stats.stats)
     listings := sync.atomic_load(&db.stats.listings)
 
@@ -731,6 +732,7 @@ test_db_workspace_throttle :: proc(t: ^testing.T) {
 
     files, two := look(t, &db, dir)
     testing.expect_value(t, files, 1)
+    testing.expect(t, !two)
     stats := sync.atomic_load(&db.stats.stats)
     listings := sync.atomic_load(&db.stats.listings)
 

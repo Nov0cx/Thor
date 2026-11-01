@@ -604,7 +604,7 @@ test_lua_pattern_matches :: proc(t: ^testing.T) {
     testing.expect(t, !matched && valid)
     matched, valid = lua_pattern_matches(&h, "lua-match?", "abc", "x*")
     testing.expect(t, matched && valid, "an empty match is a match")
-    matched, valid = lua_pattern_matches(&h, "lua-match?", "abc", "(a")
+    _, valid = lua_pattern_matches(&h, "lua-match?", "abc", "(a")
     testing.expect(t, !valid, "an unfinished capture is malformed")
     testing.expect(t, "lua-match?" in h.reported, "the malformed pattern was not reported")
 }

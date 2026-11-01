@@ -355,7 +355,7 @@ binary_operand :: proc(c: ^Checker, file: File_Id, n: odinsyntax.Syntax_Node, ex
         if bs, ok := type_get(&c.table, type_base(&c.table, rhs.type)).(Bit_Set_Type); ok {
             elem = bs.elem
         }
-        lhs = expr_type(c, file, lhs_n, elem)
+        _ = expr_type(c, file, lhs_n, elem)
         return {mode = .Value, type = type_untyped(.Bool)}
     }
     if lhs_n.green.kind == .Implicit_Selector {
