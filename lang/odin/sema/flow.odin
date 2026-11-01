@@ -255,7 +255,7 @@ diverges :: proc(c: ^Checker, file: File_Id, expr: odinsyntax.Syntax_Node) -> bo
 
 // What the `when` condition `cond` gives for the snapshot's target; a condition on a constant goes
 // through const_eval.
-@(private = "file")
+@(private)
 when_state :: proc(c: ^Checker, file: File_Id, cond: odinsyntax.Syntax_Node) -> Tri {
     if state := when_condition(cond, c.snap.target); state != .Unknown {
         return state
