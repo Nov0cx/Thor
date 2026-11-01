@@ -418,6 +418,13 @@ add_import :: proc(b: ^Builder, n: ^odinsyntax.Syntax_Node, ctx: Decl_Context, o
     if item.name == "" {
         return
     }
+    attrs := make([dynamic]Item_Attribute, b.alloc)
+    attr_iter := odinsyntax.child_iter(n, {kinds = {.Attribute}})
+    for attr in odinsyntax.child_iter_next(&attr_iter) {
+        attr := attr
+        read_attributes(b, &attr, &attrs)
+    }
+    item.attributes = attrs[:]
     if _, err := append(out, item); err != nil && b.err == nil {
         b.err = err
     }

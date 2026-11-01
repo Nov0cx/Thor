@@ -9,7 +9,7 @@ import "core:sync"
 
 // Layout version of the tree cache blob. Change it when the blob layout changes; a change of
 // Item_Tree changes tree_schema_hash by itself.
-TREE_CACHE_FORMAT :: 1
+TREE_CACHE_FORMAT :: 2
 
 @(private = "file")
 TREE_CACHE_MAGIC :: "THORITC\x00"

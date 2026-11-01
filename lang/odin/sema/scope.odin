@@ -296,7 +296,7 @@ predeclared :: proc(w: ^Walker, offset: int) -> bool {
     return false
 }
 
-@(private = "file")
+@(private)
 var_like :: proc(kind: Decl_Kind) -> bool {
     #partial switch kind {
     case .Var, .Param, .Result, .Loop_Var, .Switch_Var, .Label:
