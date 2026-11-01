@@ -39,18 +39,28 @@ Want :: struct {
     skip:    int,
 }
 
+// True for the id of a vet or liveness warning.
+@(private)
+is_vet_code :: proc(code: string) -> bool {
+    switch code {
+    case CODE_UNUSED_VAR, CODE_DEAD_STORE, CODE_UNUSED_IMPORT, CODE_SHADOWING, CODE_WHEN_SHADOWING:
+        return true
+    }
+    return false
+}
+
 // Expects the report to hold exactly `wants`, in order.
 @(private)
 expect_errors :: proc(t: ^testing.T, res: ^lang.Result, source: string, wants: []Want, loc := #caller_location) {
     testing.expect(t, res.ok, "the live check must answer", loc = loc)
-    // A liveness lint is compared only when a want names one.
-    liveness := false
+    // Vet and liveness warnings are compared only when a want names one.
+    vet := false
     for w in wants {
-        liveness ||= strings.has_suffix(w.message, "declared but not used") || strings.has_suffix(w.message, "is never used")
+        vet ||= strings.has_suffix(w.message, "declared but not used") || strings.has_suffix(w.message, "is never used") || strings.contains(w.message, " shadows ")
     }
     got := make([dynamic]string, context.temp_allocator)
     for d in res.report.items {
-        if !liveness && (d.code == CODE_UNUSED_VAR || d.code == CODE_DEAD_STORE) {
+        if !vet && is_vet_code(d.code) {
             continue
         }
         append(&got, fmt.tprintf("%d:%d %s", d.line, d.col, d.message))

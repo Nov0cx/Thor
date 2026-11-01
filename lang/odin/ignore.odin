@@ -30,10 +30,14 @@ CODE_UNREACHABLE       :: "flow/unreachable"
 CODE_UNREACHABLE_DEFER :: "flow/unreachable-defer"
 CODE_UNUSED_VAR        :: "vet/unused-variable"
 CODE_DEAD_STORE        :: "flow/dead-store"
+CODE_UNUSED_IMPORT     :: "vet/unused-import"
+CODE_SHADOWING         :: "vet/shadowing"
+CODE_USING_STMT        :: "vet/using-stmt"
+CODE_WHEN_SHADOWING    :: "vet/when-shadowing"
 
 // Every id the engine reports.
 @(private = "file")
-KNOWN_CODES := [?]string{CODE_SYNTAX, CODE_REDECLARED, CODE_UNDECLARED, CODE_PRIVATE, CODE_IMPORT, CODE_ARITY, CODE_NAMED, CODE_NO_MEMBER, CODE_SWITCH, CODE_ASSERT, CODE_MISMATCH, CODE_OVERLOAD, CODE_OVERFLOW, CODE_RETURN, CODE_OR_RETURN, CODE_WHERE, CODE_COUNT, CODE_CYCLE, CODE_UNREACHABLE, CODE_UNREACHABLE_DEFER, CODE_UNUSED_VAR, CODE_DEAD_STORE}
+KNOWN_CODES := [?]string{CODE_SYNTAX, CODE_REDECLARED, CODE_UNDECLARED, CODE_PRIVATE, CODE_IMPORT, CODE_ARITY, CODE_NAMED, CODE_NO_MEMBER, CODE_SWITCH, CODE_ASSERT, CODE_MISMATCH, CODE_OVERLOAD, CODE_OVERFLOW, CODE_RETURN, CODE_OR_RETURN, CODE_WHERE, CODE_COUNT, CODE_CYCLE, CODE_UNREACHABLE, CODE_UNREACHABLE_DEFER, CODE_UNUSED_VAR, CODE_DEAD_STORE, CODE_UNUSED_IMPORT, CODE_SHADOWING, CODE_USING_STMT, CODE_WHEN_SHADOWING}
 
 // True for an id the engine reports.
 @(private)
@@ -71,7 +75,7 @@ apply_severities :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Report) 
 }
 
 // The ids one `thor:ignore` comment names, and the line it applies to. No ids means every id.
-@(private = "file")
+@(private)
 Ignore :: struct {
     line: int, // 1-based; 0 for the whole file
     ids:  []string,
@@ -83,20 +87,13 @@ Ignore :: struct {
 @(private)
 apply_ignores :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Report) {
     src := rc.req.source
-    if !strings.contains(src, "thor:ignore") {
+    ignores, unknown := file_ignores(src)
+    if len(ignores) == 0 && len(unknown) == 0 {
         return
     }
-    ignores := make([dynamic]Ignore, context.temp_allocator)
-    unknown := make([dynamic]int, context.temp_allocator)
-    for tok in odinsyntax.lex_all(src, context.temp_allocator) {
-        if tok.kind == .Line_Comment {
-            read_ignore(rc, int(tok.offset), int(tok.offset + tok.len), &ignores, &unknown)
-        }
-    }
-
     kept := 0
     for d in report.items {
-        if ignored(ignores[:], d) {
+        if ignored(ignores, d) {
             delete(d.path)
             delete(d.message)
             continue
@@ -118,10 +115,25 @@ apply_ignores :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Report) {
     })
 }
 
+// The `thor:ignore` comments of `src`, and the offsets of the unknown ids they name. Temp-allocated.
+@(private)
+file_ignores :: proc(src: string) -> (ignores: []Ignore, unknown: []int) {
+    if !strings.contains(src, "thor:ignore") {
+        return
+    }
+    out := make([dynamic]Ignore, context.temp_allocator)
+    bad := make([dynamic]int, context.temp_allocator)
+    for tok in odinsyntax.lex_all(src, context.temp_allocator) {
+        if tok.kind == .Line_Comment {
+            read_ignore(src, int(tok.offset), int(tok.offset + tok.len), &out, &bad)
+        }
+    }
+    return out[:], bad[:]
+}
+
 // Reads the comment at [start, end) as a `thor:ignore` comment when it is one.
 @(private = "file")
-read_ignore :: proc(rc: ^Request_Context, start, end: int, out: ^[dynamic]Ignore, unknown: ^[dynamic]int) {
-    src := rc.req.source
+read_ignore :: proc(src: string, start, end: int, out: ^[dynamic]Ignore, unknown: ^[dynamic]int) {
     text := src[start + 2:end]
     body := strings.trim_left_space(text)
     file := false
@@ -163,8 +175,7 @@ read_ignore :: proc(rc: ^Request_Context, start, end: int, out: ^[dynamic]Ignore
     }
     line := 0
     if !file {
-        l, _ := offset_line_col(rc.live.lines, start)
-        line = l
+        line = strings.count(src[:start], "\n") + 1
         if alone_on_line(src, start) {
             line += 1
         }
@@ -183,7 +194,8 @@ alone_on_line :: proc(src: string, offset: int) -> bool {
     return true
 }
 
-@(private = "file")
+// True when an ignore comment drops `d`.
+@(private)
 ignored :: proc(ignores: []Ignore, d: lang.Diagnostic) -> bool {
     for ig in ignores {
         if ig.line != 0 && ig.line != d.line {

@@ -14,6 +14,7 @@ import "core:time"
 
 import lang ".."
 import "../../shell"
+import odinsyntax "syntax"
 
 // Longest an `odin check` may run. A compiler that hangs holds the check lock.
 CHECK_TIMEOUT :: 2 * time.Minute
@@ -55,6 +56,7 @@ check_package :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
     args := make([dynamic]string, context.temp_allocator)
     append(&args, "check", dir, "-no-entry-point")
     collection_flags(e, req.workspace, &args)
+    vet_flag_args(e, req.workspace, req.path, &args)
     // An argument list, not a shell line: the directory and the collection
     // roots come from the workspace.
     output, code, ran := shell.exec_status("odin", args[:], cwd, CHECK_TIMEOUT)
@@ -65,6 +67,7 @@ check_package :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
 
     res.report.scope = strings.clone(dir)
     res.report.items = make([dynamic]lang.Diagnostic)
+    vet := Vet_Context{severities = config_severities(e, req.workspace), files = make(map[string]Vet_File, context.temp_allocator)}
     it := output
     previous := ""
     for line in strings.split_lines_iterator(&it) {
@@ -77,16 +80,18 @@ check_package :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
             p.message = previous
         }
         previous = p.message
-        append(
-            &res.report.items,
-            lang.Diagnostic {
-                path     = absolute_path(p.path, cwd),
-                line     = p.line,
-                col      = p.col,
-                severity = p.severity,
-                message  = strings.clone(p.message),
-            },
-        )
+        d := lang.Diagnostic {
+            path     = absolute_path(p.path, cwd),
+            line     = p.line,
+            col      = p.col,
+            severity = p.severity,
+        }
+        if !vet_item(&vet, &d, p.message) {
+            delete(d.path)
+            continue
+        }
+        d.message = strings.clone(p.message)
+        append(&res.report.items, d)
     }
     // A failed exit with nothing parsed means the compiler never ran: it is
     // absent from PATH, or it rejected a flag. An empty report would read as
@@ -120,6 +125,133 @@ collection_flags :: proc(e: ^Engine, workspace: string, args: ^[dynamic]string) 
         }
         append(args, fmt.tprintf("-collection:%s=%s", c.name, c.dir))
     }
+}
+
+// One `-vet-*` argument for each check of the `-vet` set the workspace config does not turn off, and
+// `-vet-packages` with the package of `path`, since the compiler vets the imported packages too.
+@(private = "file")
+vet_flag_args :: proc(e: ^Engine, workspace, path: string, args: ^[dynamic]string) {
+    flags := workspace_vet_flags(e, workspace)
+    name, ok := file_package_name(path)
+    if !ok || flags == {} {
+        return
+    }
+    append(args, fmt.tprintf("-vet-packages:%s", name))
+    for flag in flags {
+        switch flag {
+        case .Unused_Variables: append(args, "-vet-unused-variables")
+        case .Unused_Imports:   append(args, "-vet-unused-imports")
+        case .Shadowing:        append(args, "-vet-shadowing")
+        case .Using_Stmt:       append(args, "-vet-using-stmt")
+        case .When_Shadowing:   append(args, "-vet-when-shadowing")
+        }
+    }
+}
+
+// The name of the package clause of the file at `path`.
+@(private = "file")
+file_package_name :: proc(path: string) -> (string, bool) {
+    src, ok := lang.source_read(path, context.temp_allocator)
+    if !ok {
+        return "", false
+    }
+    seen_package := false
+    for tok in odinsyntax.lex_all(src, context.temp_allocator) {
+        #partial switch tok.kind {
+        case .Package:
+            seen_package = true
+        case .Ident:
+            if seen_package {
+                return src[tok.offset:tok.offset + tok.len], true
+            }
+            return "", false
+        case .Whitespace, .Newline, .Line_Comment, .Block_Comment, .File_Tag:
+        case:
+            if seen_package {
+                return "", false
+            }
+        }
+    }
+    return "", false
+}
+
+// What the vet lines of one report read from the config and the files.
+@(private = "file")
+Vet_Context :: struct {
+    severities: map[string]Severity_Setting,
+    files:      map[string]Vet_File, // by path
+}
+
+// The source and the `thor:ignore` comments of a file a vet line names.
+@(private = "file")
+Vet_File :: struct {
+    src:     string,
+    ignores: []Ignore,
+    ok:      bool,
+}
+
+// Gives a vet line of the compiler its id and severity. False when the config or a `thor:ignore`
+// comment drops it. Any other line is kept as it is.
+@(private = "file")
+vet_item :: proc(vet: ^Vet_Context, d: ^lang.Diagnostic, message: string) -> bool {
+    if d.severity != .Error {
+        return true
+    }
+    code, ok := vet_code(message)
+    if !ok {
+        return true
+    }
+    file, cached := vet.files[d.path]
+    if !cached {
+        src, read := lang.source_read(d.path, context.temp_allocator)
+        file = Vet_File{src = src, ok = read}
+        if read {
+            file.ignores, _ = file_ignores(src)
+        }
+        vet.files[d.path] = file
+    }
+    if code == CODE_UNUSED_VAR && file.ok && strings.has_prefix(strings.trim_left_space(line_text(file.src, d.line)), "import") {
+        code = CODE_UNUSED_IMPORT
+    }
+    d.code = code
+    d.severity = .Warning
+    if setting, set := vet.severities[code]; set {
+        switch setting {
+        case .Off:     return false
+        case .Warning:
+        case .Error:   d.severity = .Error
+        }
+    }
+    return !ignored(file.ignores, d^)
+}
+
+// The id of a vet message of the compiler. An unused import reads like an unused variable.
+@(private)
+vet_code :: proc(message: string) -> (string, bool) {
+    m := strings.trim_space(message)
+    switch {
+    case strings.has_suffix(m, "declared but not used"):
+        return CODE_UNUSED_VAR, true
+    case strings.contains(m, "within a global 'when' shadows the builtin"):
+        return CODE_WHEN_SHADOWING, true
+    case strings.has_prefix(m, "Declaration of '") && strings.contains(m, " shadows declaration at line "):
+        return CODE_SHADOWING, true
+    }
+    return "", false
+}
+
+// The text of 1-based line `line` of `src`; "" past its end.
+@(private = "file")
+line_text :: proc(src: string, line: int) -> string {
+    rest := src
+    n := 1
+    for l in strings.split_lines_iterator(&rest) {
+        if n == line {
+            return l
+        }
+        n += 1
+    }
+    return ""
 }
 
 // A parsed diagnostic line: the decoded fields, with `path` and `message` still

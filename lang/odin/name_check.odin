@@ -45,6 +45,9 @@ name_diagnostics :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Report) 
     if len(report.items) == first && !lang.request_cancelled(rc.req) {
         body_diagnostics(rc, m, whens[:], report)
     }
+    if !lang.request_cancelled(rc.req) {
+        vet_diagnostics(rc, m, whens[:], report)
+    }
 }
 
 // Reports each free name that no scope declares for the target, outside `when` branches the

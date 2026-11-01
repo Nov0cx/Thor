@@ -1277,7 +1277,7 @@ s1 :: proc() {
     for d in res.report.items {
         testing.expect(t, d.code == CODE_UNUSED_VAR || d.code == CODE_DEAD_STORE, "a liveness item carries its id")
         testing.expect_value(t, d.severity, lang.Diagnostic_Severity.Warning)
-        testing.expect(t, d.lint, "a liveness item is a lint")
+        testing.expect_value(t, d.lint, d.code == CODE_DEAD_STORE)
     }
 }
 

@@ -243,8 +243,10 @@ liveness_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, m: ^odinsema
     if err != nil {
         return
     }
-    for u in r.unused {
-        report_error(rc, report, u.offset, CODE_UNUSED_VAR, fmt.aprintf("'%s' declared but not used", u.name), .Warning, lint = true)
+    if .Unused_Variables in live_vet_flags(rc) {
+        for u in r.unused {
+            report_error(rc, report, u.offset, CODE_UNUSED_VAR, fmt.aprintf("'%s' declared but not used", u.name), .Warning)
+        }
     }
     for d in r.dead_stores {
         report_error(rc, report, d.offset, CODE_DEAD_STORE, fmt.aprintf("Value assigned to '%s' is never used", d.name), .Warning, lint = true)

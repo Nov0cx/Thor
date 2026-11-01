@@ -269,7 +269,7 @@ temp_package :: proc(t: ^testing.T, name: string) -> (string, bool) {
 
 // True when `odin` runs from `cwd`. A missing compiler leaves the shell to
 // report it, which is a failed exit rather than a failed run.
-@(private = "file")
+@(private)
 odin_on_path :: proc(cwd: string) -> bool {
     out, code, ran := shell.run_status("odin version", cwd)
     defer delete(out)
