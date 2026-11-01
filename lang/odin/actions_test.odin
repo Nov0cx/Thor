@@ -290,3 +290,122 @@ f :: proc() {
     want, _ := strings.replace(SRC, "    x := )", "    // thor:ignore syntax/error\n    x := )", 1, context.temp_allocator)
     testing.expect_value(t, applied(t, &res, SRC, "Ignore syntax/error on this line"), want)
 }
+
+@(test)
+test_action_struct_fields :: proc(t: ^testing.T) {
+    SRC :: `package app
+
+E :: enum { A, B }
+S :: struct { a: int, b: string, e: E, p: ^S }
+
+f :: proc() {
+    one := S{b = "x"}
+    empty := S{}
+    many := S{
+        a = 1,
+    }
+    typed: S = {}
+    _, _, _, _ = one, empty, many, typed
+}
+`
+    root := fixture(t, "action_struct_fields", {{".thor/odin-analyzer.lua", ACTION_CONFIG}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    one := actions_at(t, e, root, SRC, `b = "x"`)
+    defer free_actions(&one)
+    got := applied(t, &one, SRC, "Add 3 missing fields")
+    testing.expect(t, strings.contains(got, `one := S{b = "x", a = 0, e = .A, p = nil}`), got)
+
+    empty := actions_at(t, e, root, SRC, "S{}")
+    defer free_actions(&empty)
+    got = applied(t, &empty, SRC, "Add 4 missing fields")
+    testing.expect(t, strings.contains(got, `empty := S{a = 0, b = "", e = .A, p = nil}`), got)
+
+    many := actions_at(t, e, root, SRC, "a = 1")
+    defer free_actions(&many)
+    got = applied(t, &many, SRC, "Add 3 missing fields")
+    testing.expect(t, strings.contains(got, "many := S{\n        a = 1,\n        b = \"\",\n        e = .A,\n        p = nil,\n    }"), got)
+
+    typed := actions_at(t, e, root, SRC, "{}", 1)
+    defer free_actions(&typed)
+    got = applied(t, &typed, SRC, "Add 4 missing fields")
+    testing.expectf(t, strings.contains(got, `typed: S = {a = 0, b = "", e = .A, p = nil}`), "%s", got)
+}
+
+@(test)
+test_action_or_return :: proc(t: ^testing.T) {
+    SRC :: `package app
+
+Error :: enum { None, Bad }
+two :: proc() -> (int, Error) { return 1, .None }
+
+f :: proc() -> Error {
+    x := two()
+    _ = x
+    return .None
+}
+g :: proc() -> bool {
+    y := two()
+    _ = y
+    return true
+}
+`
+    root := fixture(t, "action_or_return", {{".thor/odin-analyzer.lua", ACTION_CONFIG}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    res := actions_at(t, e, root, SRC, "x := two")
+    defer free_actions(&res)
+    got := applied(t, &res, SRC, "Add or_return")
+    testing.expect(t, strings.contains(got, "x := two() or_return\n"), got)
+
+    wrong := actions_at(t, e, root, SRC, "y := two")
+    defer free_actions(&wrong)
+    testing.expect(t, !slice.contains(titles(&wrong), "Add or_return"), "no or_return when the result cannot take the error")
+}
+
+@(test)
+test_action_create_decl :: proc(t: ^testing.T) {
+    SRC :: `package app
+
+import "../lib"
+
+f :: proc(count: int, name: string, h: lib.Handle) {
+    ok: bool = check(count, name, h, 2.5)
+    p := Point{x = 1, label = "a"}
+    total = count
+    _ = ok
+    _ = p
+    take(missing)
+}
+
+take :: proc(s: string) {}
+`
+    root := fixture(t, "action_create_decl", {
+        {".thor/odin-analyzer.lua", ACTION_CONFIG},
+        {"lib/lib.odin", "package lib\n\nHandle :: distinct int\n"},
+    })
+    e := engine_create()
+    defer engine_destroy(e)
+
+    call := actions_at(t, e, root, SRC, "check(")
+    defer free_actions(&call)
+    got := applied(t, &call, SRC, "Create procedure 'check'")
+    testing.expect(t, strings.contains(got, "\n}\n\ncheck :: proc(count: int, name: string, h: lib.Handle, p4: f64) -> bool {\n\tunimplemented()\n}\n\ntake ::"), got)
+
+    lit := actions_at(t, e, root, SRC, "Point{")
+    defer free_actions(&lit)
+    got = applied(t, &lit, SRC, "Create struct 'Point'")
+    testing.expect(t, strings.contains(got, "\n}\n\nPoint :: struct {\n\tx: int,\n\tlabel: string,\n}\n\ntake ::"), got)
+
+    store := actions_at(t, e, root, SRC, "total")
+    defer free_actions(&store)
+    got = applied(t, &store, SRC, "Declare 'total' with :=")
+    testing.expect(t, strings.contains(got, "    total := count\n"), got)
+
+    variable := actions_at(t, e, root, SRC, "missing")
+    defer free_actions(&variable)
+    got = applied(t, &variable, SRC, "Create variable 'missing'")
+    testing.expect(t, strings.contains(got, "    missing: string\n    take(missing)\n"), got)
+}

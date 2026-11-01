@@ -33,6 +33,9 @@ code_actions :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
             whens := make([dynamic]Branch, context.temp_allocator)
             collect_whens(odinsyntax.node_root(rc.parsed.tree), &rc, &whens)
             switch_fixes(&rc, caret, res)
+            struct_field_fixes(&rc, caret, res)
+            or_return_fixes(&rc, caret, res)
+            create_decl_fixes(&rc, caret, res)
             unused_variable_fixes(&rc, m, caret, res)
             unused_import_fixes(&rc, m, whens[:], caret, res)
         }

@@ -947,3 +947,16 @@ expr_under :: proc(c: ^Checker, file: File_Id, offset: int) -> (odinsyntax.Synta
     }
     return path[i], true
 }
+
+// The type of the composite literal `lit`: its own type, else the one its place expects.
+literal_type :: proc(c: ^Checker, file: File_Id, lit: odinsyntax.Syntax_Node) -> Type_Id {
+    temp := scratch_begin(c)
+    defer scratch_end(temp)
+    path := path_copy(c, file, int(lit.offset))
+    for n, j in path {
+        if same_node(n, lit) {
+            return lit_type(c, file, path, j)
+        }
+    }
+    return INVALID_TYPE
+}
