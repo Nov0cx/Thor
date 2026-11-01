@@ -1620,7 +1620,7 @@ thor_paint_selections :: proc(
                     text_x + x0,
                     f32(index) * line_h - editor.scroll_y,
                     max(x1 - x0, 2),
-                    f32(editor.font_size),
+                    line_h,
                 },
                 thor.theme.selection_background,
             )
