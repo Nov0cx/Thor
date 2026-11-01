@@ -5,6 +5,7 @@ import "core:fmt"
 
 import lang ".."
 import odinsema "sema"
+import odinsyntax "syntax"
 
 // The vet ids by check.
 @(private, rodata)
@@ -57,14 +58,85 @@ vet_diagnostics :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, whens: []B
 @(private = "file")
 unused_imports :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, whens: []Branch, report: ^lang.Diagnostic_Report) {
     imports := odinsema.db_imports(&rc.snap, rc.live.id)
-    unused, err := odinsema.vet_unused_imports(rc.live.tree, imports, m, branch_spans(whens, false), context.temp_allocator)
+    dead := branch_spans(whens, false)
+    unused, err := odinsema.vet_unused_imports(rc.live.tree, imports, m, dead, context.temp_allocator)
     if err != nil {
         return
     }
+    unused = poly_unused_imports(rc, m, imports, dead, unused)
     for i in unused {
         imp := imports[i]
         report_error(rc, report, imp.name_offset, CODE_UNUSED_IMPORT, fmt.aprintf("'%s' declared but not used", imp.alias), .Warning)
     }
+}
+
+// The unused imports when the polymorphic bodies the package does not instantiate are left out,
+// as the compiler checks such a body only per instance. `unused` when no import is used only there.
+@(private = "file")
+poly_unused_imports :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, imports: []odinsema.File_Import, dead: []odinsema.Offset_Span, unused: [dynamic]int) -> [dynamic]int {
+    own, err := odinsema.poly_file(rc.parsed, context.temp_allocator)
+    if err != nil || len(own.bodies) == 0 {
+        return unused
+    }
+    all := make([dynamic]odinsema.Offset_Span, context.temp_allocator)
+    append(&all, ..dead)
+    for b in own.bodies {
+        append(&all, b.span)
+    }
+    most, merr := odinsema.vet_unused_imports(rc.live.tree, imports, m, all[:], context.temp_allocator)
+    if merr != nil || len(most) == len(unused) {
+        return unused
+    }
+    view := request_package(rc, live_dir(rc))
+    if view == nil {
+        return unused
+    }
+    files := make([dynamic]odinsema.Poly_File, context.temp_allocator)
+    // The names of a Poly_File borrow its parse, so each parse stays pinned to the end.
+    pinned := make([dynamic]^odinsyntax.Parse, context.temp_allocator)
+    defer for p in pinned {
+        odinsema.db_parse_release(&rc.snap, p)
+    }
+    live := -1
+    for id in view.files {
+        if odinsema.snapshot_cancelled(&rc.snap) {
+            return unused
+        }
+        if id == rc.live.id {
+            live = len(files)
+            append(&files, own)
+            continue
+        }
+        if !odinsema.db_in_build(&rc.snap, id) {
+            continue
+        }
+        parsed := odinsema.db_parse(&rc.snap, id)
+        if parsed == nil {
+            // A file that cannot be read may hold the instance.
+            return unused
+        }
+        append(&pinned, parsed)
+        f, ferr := odinsema.poly_file(parsed^, context.temp_allocator)
+        if ferr != nil {
+            return unused
+        }
+        append(&files, f)
+    }
+    if live < 0 {
+        live = len(files)
+        append(&files, own)
+    }
+    spans, serr := odinsema.poly_uninstantiated(files[:], context.temp_allocator)
+    if serr != nil || len(spans[live]) == 0 {
+        return unused
+    }
+    resize(&all, len(dead))
+    append(&all, ..spans[live])
+    out, oerr := odinsema.vet_unused_imports(rc.live.tree, imports, m, all[:], context.temp_allocator)
+    if oerr != nil {
+        return unused
+    }
+    return out
 }
 
 @(private = "file")

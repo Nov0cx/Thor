@@ -178,3 +178,37 @@ f :: proc() {
         testing.expect_value(t, d.severity, w.severity)
     }
 }
+
+// An import used only in a polymorphic body counts when another file of the package instantiates
+// the body, and is unused when nothing does. A use in the signature always counts.
+@(test)
+test_live_vet_poly_imports :: proc(t: ^testing.T) {
+    src := `package app
+
+import "core:fmt"
+import "core:strings"
+import "core:mem"
+
+called :: proc(v: $T) {
+	fmt.println(v)
+}
+
+never :: proc(v: $T) {
+	_ = strings.to_upper("")
+}
+
+sig :: proc(a: mem.Allocator, v: $T) {}
+`
+    root := fixture(t, "live_vet_poly", {
+        {".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`},
+        {"app/other.odin", "package app\n\nuse :: proc() {\n\tcalled(1)\n}\n"},
+    })
+    e := engine_create()
+    defer engine_destroy(e)
+
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"\"core:strings\"", "'strings' declared but not used", 0},
+    })
+}

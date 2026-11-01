@@ -217,3 +217,66 @@ test_file_vet_flags :: proc(t: ^testing.T) {
         item_tree_destroy(tree, context.temp_allocator)
     }
 }
+
+@(private = "file")
+POLY_SRC_A :: `package p
+
+inner :: proc(v: $T) { _ = INNER_USE }
+outer :: proc(v: $T) { inner(v) }
+in2 :: proc(v: $T) { _ = IN2_USE }
+out2 :: proc(v: $T) { in2(v) }
+sig :: proc(a: SIG_USE, v: $T, b := DEFAULT_USE) -> RESULT_USE where WHERE_USE { return {} }
+np :: proc(v: $T) {
+    f :: proc() { _ = NESTED_USE }
+    f()
+}
+Box :: struct($T: typeid) { a: BOX_USE }
+Un :: struct($T: typeid) where UN_WHERE { a: UN_USE }
+anon := proc(v: $T) { _ = ANON_USE }
+`
+
+@(private = "file")
+POLY_SRC_B :: `package p
+
+main :: proc() {
+    outer(1)
+    B :: Box(int)
+}
+`
+
+// The bodies no use reaches, over two files: a chain nothing calls, a nested procedure, a `where`
+// clause and an uninstantiated record are out; a call from another file, a type use, the signature
+// and an anonymous literal are in.
+@(test)
+test_poly_uninstantiated :: proc(t: ^testing.T) {
+    srcs := [2]string{POLY_SRC_A, POLY_SRC_B}
+    files: [2]Poly_File
+    for src, i in srcs {
+        parsed, err := odinsyntax.parse(src, context.temp_allocator)
+        testing.expect_value(t, err, nil)
+        f, ferr := poly_file(parsed, context.temp_allocator)
+        testing.expect_value(t, ferr, nil)
+        files[i] = f
+    }
+    spans, err := poly_uninstantiated(files[:], context.temp_allocator)
+    testing.expect_value(t, err, nil)
+    testing.expect_value(t, len(spans[1]), 0)
+
+    dead :: proc(spans: []Offset_Span, name: string) -> bool {
+        at := strings.index(POLY_SRC_A, name)
+        for s in spans {
+            if s.start <= at && at < s.end {
+                return true
+            }
+        }
+        return false
+    }
+    out := []string{"IN2_USE", "WHERE_USE", "NESTED_USE", "UN_WHERE", "UN_USE"}
+    in_ := []string{"INNER_USE", "SIG_USE", "DEFAULT_USE", "RESULT_USE", "BOX_USE", "ANON_USE", "inner(v)"}
+    for name in out {
+        testing.expectf(t, dead(spans[0], name), "%s should be in an uninstantiated body", name)
+    }
+    for name in in_ {
+        testing.expectf(t, !dead(spans[0], name), "%s should be checked", name)
+    }
+}
