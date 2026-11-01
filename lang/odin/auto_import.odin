@@ -3,6 +3,7 @@
 package odin
 
 import "base:runtime"
+import "core:fmt"
 import "core:os"
 import "core:path/filepath"
 import "core:slice"
@@ -221,4 +222,29 @@ same_dir :: proc(a, b: string) -> bool {
     } else {
         return ca == cb
     }
+}
+
+// Where `import "<path>"` goes in the request's buffer and the text to insert there: after its last
+// import, else after its package clause with a blank line. The text is temp-allocated.
+@(private)
+import_insert :: proc(rc: ^Request_Context, import_path: string) -> (at: int, text: string) {
+    src := rc.req.source
+    at = -1
+    for imp in rc.live.tree.items {
+        if imp.kind == .Import && imp.end > at {
+            at = imp.end
+        }
+    }
+    if at >= 0 {
+        text = fmt.tprintf("\nimport \"%s\"", import_path)
+    } else {
+        at = len(src)
+        if p := rc.live.tree.package_offset; p >= 0 {
+            if nl := strings.index_byte(src[min(p, len(src)):], '\n'); nl >= 0 {
+                at = p + nl
+            }
+        }
+        text = fmt.tprintf("\n\nimport \"%s\"", import_path)
+    }
+    return clamp(at, 0, len(src)), text
 }

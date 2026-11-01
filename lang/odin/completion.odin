@@ -164,30 +164,10 @@ completion_item_free :: proc(item: lang.Completion_Item) {
     delete(item.extra_edits)
 }
 
-// Gives `item` the edit that adds `import "<path>"` to the buffer: after its last import, else
-// after its package clause with a blank line. False when it cannot allocate.
+// Gives `item` the edit that adds `import "<path>"` to the buffer. False when it cannot allocate.
 @(private = "file")
 add_import_edit :: proc(cm: ^Completer, item: ^lang.Completion_Item, import_path: string) -> bool {
-    src := cm.ctx.req.source
-    at := -1
-    text: string
-    for imp in cm.ctx.live.tree.items {
-        if imp.kind == .Import && imp.end > at {
-            at = imp.end
-        }
-    }
-    if at >= 0 {
-        text = fmt.tprintf("\nimport \"%s\"", import_path)
-    } else {
-        at = len(src)
-        if p := cm.ctx.live.tree.package_offset; p >= 0 {
-            if nl := strings.index_byte(src[min(p, len(src)):], '\n'); nl >= 0 {
-                at = p + nl
-            }
-        }
-        text = fmt.tprintf("\n\nimport \"%s\"", import_path)
-    }
-    at = clamp(at, 0, len(src))
+    at, text := import_insert(cm.ctx, import_path)
     path, pok := clone_ok(cm.ctx.req.path)
     new_text, tok := clone_ok(text)
     edits, merr := make([dynamic]lang.Text_Edit, 0, 1)
@@ -240,7 +220,7 @@ collect :: proc(cm: ^Completer) {
     bare_completions(cm, start)
 }
 
-@(private = "file")
+@(private)
 is_word_byte :: proc(b: u8) -> bool {
     return b == '_' || (b >= '0' && b <= '9') || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || b >= 0x80
 }
