@@ -491,7 +491,6 @@ local_at :: proc(c: ^Checker, file: File_Id, name_offset: int) -> (Local, bool) 
 }
 
 // The innermost local named `name` in reach at `offset`, for an offset that is not on an identifier.
-@(private)
 visible_local :: proc(m: ^Scope_Map, name: string, offset: int) -> (Local, bool) {
     inner := -1
     for s, i in m.scopes {

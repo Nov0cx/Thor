@@ -1,4 +1,4 @@
-// Quick fixes: the edits that fix or suppress a live diagnostic at the caret.
+// Code actions: the quick fixes that fix or suppress a live diagnostic at the caret, and the refactorings.
 package odin
 
 import "core:fmt"
@@ -36,6 +36,7 @@ code_actions :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
             struct_field_fixes(&rc, caret, res)
             or_return_fixes(&rc, caret, res)
             create_decl_fixes(&rc, caret, res)
+            refactor_actions(&rc, m, caret, res)
             unused_variable_fixes(&rc, m, caret, res)
             unused_import_fixes(&rc, m, whens[:], caret, res)
         }

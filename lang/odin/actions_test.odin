@@ -6,11 +6,11 @@ import "core:testing"
 
 import lang ".."
 
-@(private = "file")
+@(private)
 ACTION_CONFIG :: `return { target = { os = "windows", arch = "amd64" } }`
 
 // The quick fixes for `source` with the caret at the `skip`th occurrence of `marker`.
-@(private = "file")
+@(private)
 actions_at :: proc(t: ^testing.T, e: ^Engine, root, source, marker: string, skip := 0) -> lang.Result {
     at := -1
     from := 0
@@ -36,22 +36,15 @@ actions_at :: proc(t: ^testing.T, e: ^Engine, root, source, marker: string, skip
     return res
 }
 
-@(private = "file")
+@(private)
 free_actions :: proc(res: ^lang.Result) {
     for a in res.actions {
-        for edit in a.edits {
-            delete(edit.path)
-            delete(edit.old_text)
-            delete(edit.new_text)
-        }
-        delete(a.edits)
-        delete(a.title)
-        delete(a.kind)
+        free_action(a)
     }
     delete(res.actions)
 }
 
-@(private = "file")
+@(private)
 titles :: proc(res: ^lang.Result) -> []string {
     out := make([]string, len(res.actions), context.temp_allocator)
     for a, i in res.actions {
@@ -61,7 +54,7 @@ titles :: proc(res: ^lang.Result) -> []string {
 }
 
 // `source` after the action titled `title`; "" when there is none.
-@(private = "file")
+@(private)
 applied :: proc(t: ^testing.T, res: ^lang.Result, source, title: string, loc := #caller_location) -> string {
     for a in res.actions {
         if a.title != title {
@@ -392,12 +385,12 @@ take :: proc(s: string) {}
     call := actions_at(t, e, root, SRC, "check(")
     defer free_actions(&call)
     got := applied(t, &call, SRC, "Create procedure 'check'")
-    testing.expect(t, strings.contains(got, "\n}\n\ncheck :: proc(count: int, name: string, h: lib.Handle, p4: f64) -> bool {\n\tunimplemented()\n}\n\ntake ::"), got)
+    testing.expect(t, strings.contains(got, "\n}\n\ncheck :: proc(count: int, name: string, h: lib.Handle, p4: f64) -> bool {\n    unimplemented()\n}\n\ntake ::"), got)
 
     lit := actions_at(t, e, root, SRC, "Point{")
     defer free_actions(&lit)
     got = applied(t, &lit, SRC, "Create struct 'Point'")
-    testing.expect(t, strings.contains(got, "\n}\n\nPoint :: struct {\n\tx: int,\n\tlabel: string,\n}\n\ntake ::"), got)
+    testing.expect(t, strings.contains(got, "\n}\n\nPoint :: struct {\n    x: int,\n    label: string,\n}\n\ntake ::"), got)
 
     store := actions_at(t, e, root, SRC, "total")
     defer free_actions(&store)

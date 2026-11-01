@@ -76,13 +76,35 @@ line_indent :: proc(src: string, offset: int) -> string {
     return src[ls:i]
 }
 
-// One level of indent: a tab, or the request's tab size in spaces.
+// One level of indent: the request's, else the smallest indent of the buffer, else a tab.
 @(private)
 indent_unit :: proc(req: ^lang.Request) -> string {
-    if req.use_tabs || req.tab_size <= 0 {
+    if req.tab_size > 0 {
+        return "\t" if req.use_tabs else strings.repeat(" ", req.tab_size, context.temp_allocator)
+    }
+    src := req.source
+    least := 0
+    for i := 0; i < len(src); {
+        if src[i] == '\t' {
+            return "\t"
+        }
+        n := 0
+        for i + n < len(src) && src[i + n] == ' ' {
+            n += 1
+        }
+        if n > 0 && i + n < len(src) && src[i + n] != '\n' && (least == 0 || n < least) {
+            least = n
+        }
+        nl := strings.index_byte(src[i:], '\n')
+        if nl < 0 {
+            break
+        }
+        i += nl + 1
+    }
+    if least == 0 {
         return "\t"
     }
-    return strings.repeat(" ", req.tab_size, context.temp_allocator)
+    return strings.repeat(" ", least, context.temp_allocator)
 }
 
 // Deletes [start, end) with its whole line when nothing else is on the line.
