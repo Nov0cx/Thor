@@ -31,6 +31,7 @@ work :: proc(o: ^Obj, cb: proc(n: int)) {
     poly(1)
     cb()
     two_ints(pair())
+    two_ints(pair(), 3)
     two_ints(maybe(), 1)
     two_ints(1, 2)
     with_default(1)
@@ -85,6 +86,7 @@ test_call_problem :: proc(t: ^testing.T) {
         {text = "poly(1)", kind = .Missing, name = "y"},
         {text = "cb()", kind = .Missing, name = "n", type = "int"},
         {text = "two_ints(pair())", kind = .None},
+        {text = "two_ints(pair(), 3)", kind = .Too_Many, least = 2, want = 2, got = 3},
         {text = "two_ints(maybe(), 1)", kind = .None},
         {text = "two_ints(1, 2)", kind = .None},
         {text = "with_default(1)\n", kind = .None},

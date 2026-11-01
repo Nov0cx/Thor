@@ -63,7 +63,7 @@ call_problem :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node) -
     }
     for a in args {
         if a.name == "" && !a.spread && may_give_values(c, a) {
-            return {}
+            return too_many_values(c, p, args, int(call.offset))
         }
     }
     with, ok := with_receiver(c, file, callee, args)
@@ -365,6 +365,46 @@ builtin_callee :: proc(c: ^Checker, file: File_Id, callee: odinsyntax.Syntax_Nod
         return "", false
     }
     return odinsyntax.node_text(odinsyntax.Syntax_Node(field)), true
+}
+
+// Too_Many when positional arguments, a multi-value call among them, give more values than `p` has
+// parameters, as the compiler counts them; None when a value count is not known, an argument is
+// named or spread, or `p` is variadic.
+@(private = "file")
+too_many_values :: proc(c: ^Checker, p: Proc_Type, args: []Call_Arg, offset: int) -> Call_Problem {
+    if len(args) < 2 {
+        return {}
+    }
+    for param in p.params {
+        if .Variadic in param.flags || .C_Vararg in param.flags {
+            return {}
+        }
+    }
+    got := 0
+    for a in args {
+        if a.name != "" || a.spread {
+            return {}
+        }
+        if !may_give_values(c, a) {
+            got += 1
+            continue
+        }
+        tuple, is_tuple := type_get(&c.table, a.op.type).(Tuple_Type)
+        if a.op.mode == .Invalid || !is_tuple {
+            return {}
+        }
+        got += len(tuple.types)
+    }
+    if got <= len(p.params) {
+        return {}
+    }
+    out := Call_Problem{kind = .Too_Many, offset = offset, want = len(p.params), got = got}
+    for param in p.params {
+        if !param.has_default {
+            out.least += 1
+        }
+    }
+    return out
 }
 
 // True when a positional argument may give more than one value: a call or an `or_*` whose type is
