@@ -30,6 +30,7 @@ General :: struct {
     tab_width:         int,
     font_size:         int,
     autosave_delay_ms: int,
+    peek_height:       int, // rows of the peek definition editor
     // Theme (assets/themes/ name), font family (fonts.json) and icon packs
     // (icons.json). Empty is the built-in default. Owned.
     theme:             string,
@@ -135,6 +136,8 @@ FONT_SIZE_MIN :: 8
 FONT_SIZE_MAX :: 48
 AUTOSAVE_DELAY_MIN :: 0
 AUTOSAVE_DELAY_MAX :: 10000
+PEEK_HEIGHT_MIN :: 4
+PEEK_HEIGHT_MAX :: 40
 
 // Where an opened folder goes. Parsed from the open_folder_in setting.
 Open_Folder_In :: enum {
@@ -192,6 +195,7 @@ load :: proc(dir: string) -> Settings {
         tab_width         = 4,
         font_size         = 18,
         autosave_delay_ms = 1500,
+        peek_height       = 12,
         ligatures         = true,
         indent_guides     = true,
         insert_spaces     = true,
@@ -308,6 +312,10 @@ font_size :: proc(s: ^Settings) -> int {
 
 autosave_delay_ms :: proc(s: ^Settings) -> int {
     return s.general.autosave_delay_ms
+}
+
+peek_height :: proc(s: ^Settings) -> int {
+    return s.general.peek_height
 }
 
 // Active theme name, or "" when unset (caller falls back to its built-in default).
@@ -1009,6 +1017,7 @@ load_general :: proc(s: ^Settings, path: string) {
     read_int(root, "tab_width", &s.general.tab_width, TAB_WIDTH_MIN, TAB_WIDTH_MAX)
     read_int(root, "font_size", &s.general.font_size, FONT_SIZE_MIN, FONT_SIZE_MAX)
     read_int(root, "autosave_delay_ms", &s.general.autosave_delay_ms, AUTOSAVE_DELAY_MIN, AUTOSAVE_DELAY_MAX)
+    read_int(root, "peek_height", &s.general.peek_height, PEEK_HEIGHT_MIN, PEEK_HEIGHT_MAX)
     read_string(root, "theme", &s.general.theme)
     read_string(root, "font", &s.general.font)
     read_string(root, "icon_pack", &s.general.icon_pack)
