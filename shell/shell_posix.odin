@@ -166,7 +166,6 @@ run_argv :: proc(argv: []cstring, search_path: bool, cwd: string, timeout: time.
         if status, waited := wait_until(pid, left); waited {
             return strings.to_string(builder), exit_status(status), true
         }
-        timed_out = true
     }
     // The whole group, so a command that left a child in the background dies with
     // it. `pid` is the group and never the editor's own; a group that never formed
