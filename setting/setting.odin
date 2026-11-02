@@ -65,6 +65,7 @@ General :: struct {
     format_on_type:    bool,
     // Check for a newer release after start, at most once a day. On by default.
     check_for_updates: bool,
+    check_for_plugin_updates: bool,
     // Show the hover explanation of a control after a short dwell. On by default.
     tooltips:          bool,
     // Show the tip of the day on the welcome page and at the first start of a day. On by default.
@@ -199,6 +200,7 @@ load :: proc(dir: string) -> Settings {
         format_on_save    = false,
         format_on_type    = false,
         check_for_updates = true,
+        check_for_plugin_updates = true,
         tooltips          = true,
         tip_of_the_day    = true,
         terminal_clipboard = true,
@@ -374,6 +376,11 @@ format_on_type :: proc(s: ^Settings) -> bool {
 // Whether Thor asks GitHub for a newer release in the background.
 check_for_updates :: proc(s: ^Settings) -> bool {
     return s.general.check_for_updates
+}
+
+// Whether plugins and themes are checked for updates in the background.
+check_for_plugin_updates :: proc(s: ^Settings) -> bool {
+    return s.general.check_for_plugin_updates
 }
 
 // Whether a control explains itself when the cursor rests on it.
@@ -1014,6 +1021,7 @@ load_general :: proc(s: ^Settings, path: string) {
     read_bool(root, "format_on_save", &s.general.format_on_save)
     read_bool(root, "format_on_type", &s.general.format_on_type)
     read_bool(root, "check_for_updates", &s.general.check_for_updates)
+    read_bool(root, "check_for_plugin_updates", &s.general.check_for_plugin_updates)
     read_bool(root, "tooltips", &s.general.tooltips)
     read_bool(root, "tip_of_the_day", &s.general.tip_of_the_day)
     read_bool(root, "terminal_clipboard", &s.general.terminal_clipboard)

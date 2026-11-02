@@ -141,7 +141,6 @@ thor_poll_plugin_reload :: proc(thor: ^Thor) {
 }
 
 // The plugins the open workspace carries, or nothing when it has none.
-@(private = "file")
 thor_scan_workspace_plugins :: proc(thor: ^Thor, allocator := context.temp_allocator) -> []plugin.Pending_Plugin {
     if thor.workspace_dir == "" {
         return nil

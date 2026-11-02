@@ -653,6 +653,27 @@ manifest_permissions :: proc(dir: string) -> Permissions {
     return perms
 }
 
+// The optional `version` and `source` ("owner/repo") of manifest.lua, in the
+// temp allocator. Both are empty when the manifest does not set them.
+manifest_info :: proc(dir: string) -> (version: string, source: string) {
+    path, jerr := filepath.join({dir, MANIFEST_FILE}, context.temp_allocator)
+    if jerr != nil {
+        return "", ""
+    }
+    parsed, status, _ := luaconf.eval_file(path)
+    root, is_object := parsed.(json.Object)
+    if status != .Ok || !is_object {
+        return "", ""
+    }
+    if v, ok := root["version"].(json.String); ok {
+        version = v
+    }
+    if s, ok := root["source"].(json.String); ok {
+        source = s
+    }
+    return version, source
+}
+
 // The plugin's own data directory under the host's data root, for state that
 // must outlive a workspace switch. Empty when the host names no root. The
 // result uses the temp allocator.

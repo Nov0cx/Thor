@@ -60,6 +60,10 @@ thor_swap_and_relaunch :: proc(thor: ^Thor) {
     if carried, ok := update.migrate_json_files(setting.GLOBAL_DIR, setting.USER_DIR); ok {
         log.infof("Carried %d settings files of an older install into %q", carried, setting.USER_DIR)
     }
+    // A held bundled plugin or shipped theme keeps its local copy.
+    if failed := update.carry_held(install, root, thor_ext_held_bundled()); failed > 0 {
+        log.warnf("%d held plugins or themes could not be kept and take the new copy", failed)
+    }
     if _, failed := update.swap_dirs(install, root, update.SWAPPED_DIRS[:]); failed > 0 {
         log.warnf("%d resource directories were not replaced; the next start puts them back", failed)
     }

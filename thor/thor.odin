@@ -212,6 +212,14 @@ Thor :: struct {
     // the flag and not the root is what says a swap is due.
     update_swap_root: string,
     update_swap_pending: bool,
+    // Plugins and themes the update rows list (ext_update.odin). Owned.
+    ext_updates: [dynamic]Ext_Update,
+    ext_started: bool,
+    ext_inflight: bool,
+    // The running plugin or theme job, borrowed, so a quit can ask it to stop.
+    ext_job: ^Ext_Job,
+    // Hold key of the item whose row opened the picker.
+    ext_setting_target: string, // owned
     // Plugin whose permission row opened the picker (see settings_ui.odin).
     plugin_setting_target: string,  // owned
     plugin_setting_source: Plugin_Source,
@@ -310,6 +318,7 @@ Thor :: struct {
     finished_file_index: lockfree.Stack(File_Index_Job),
     finished_file_searches: lockfree.Stack(File_Search_Job),
     finished_updates: lockfree.Stack(Update_Job),
+    finished_ext_updates: lockfree.Stack(Ext_Job),
     finished_outside_stats: lockfree.Stack(Outside_Stat_Job),
     finished_md_images: lockfree.Stack(Md_Image_Job),
     finished_plugin_execs: lockfree.Stack(Plugin_Exec_Job),

@@ -463,6 +463,7 @@ thor_open_help_menu :: proc(data: rawptr) {
     thor_menu_add(thor, "Documentation in Browser", thor_cmd_docs_browser, thor, action = "docs_browser")
     thor_menu_add_separator(thor)
     thor_menu_add(thor, "Check for Updates", thor_cmd_check_for_updates, thor, action = "check_for_updates")
+    thor_menu_add(thor, "Check for Plugin and Theme Updates", thor_cmd_check_for_plugin_updates, thor, action = "check_for_plugin_updates")
     thor_menu_add_separator(thor)
     thor_menu_add(thor, "Settings", thor_cmd_open_settings_gui, thor, action = "open_settings_gui")
     thor_menu_add(thor, "Language Servers", thor_cmd_open_language_servers, thor, action = "open_language_servers")

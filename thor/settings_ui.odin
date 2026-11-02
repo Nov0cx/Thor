@@ -115,6 +115,9 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
 
     thor_settings_begin_category(view, "updates", "Updates", "download")
     thor_settings_add_choice(view, "check_for_updates", "Check for Updates", thor_on_off_label(setting.check_for_updates(config)))
+    if scope == .General {
+        thor_populate_ext_category(thor, config)
+    }
 
     // The Odin analyzer's rows, only while the master switch is on: off, none of
     // them does anything, and a screenful of dead rows reads as a screenful of
@@ -212,6 +215,9 @@ thor_on_setting_choice :: proc(data: rawptr, id: string) {
     }
     if backend_id, is_backend := thor_language_backend_name(id); is_backend {
         thor_cmd_change_language_backend(thor, backend_id)
+        return
+    }
+    if thor_ext_on_setting_choice(thor, id) {
         return
     }
     if id == THEME_EDITOR_SETTING {
@@ -440,7 +446,6 @@ thor_right_alt_commit :: proc(data: rawptr, choice: string) {
 }
 
 // Picker rows for every on/off setting in the modal.
-@(private = "file")
 ON_OFF_LABELS := [?]string {"On", "Off"}
 
 thor_on_off_label :: proc(on: bool) -> string {
@@ -576,7 +581,6 @@ thor_language_master_commit :: proc(data: rawptr, choice: string) {
 }
 
 // Preview of a setting that shows nothing until it is committed.
-@(private = "file")
 thor_no_preview :: proc(_: rawptr, _: string) {}
 
 @(private = "file")

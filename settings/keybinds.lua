@@ -38,6 +38,7 @@ return {
         uppercase = "alt+u",
     },
     files_app = {
+        check_for_plugin_updates = "",
         check_for_updates = "",
         close_all_tabs = "",
         close_tab = "ctrl+w",

@@ -1310,6 +1310,7 @@ thor_process_io :: proc(thor: ^Thor) {
     shells := make([dynamic]^Shell_Detect_Job, context.temp_allocator)
     file_index := make([dynamic]^File_Index_Job, context.temp_allocator)
     updates := make([dynamic]^Update_Job, context.temp_allocator)
+    ext_updates := make([dynamic]^Ext_Job, context.temp_allocator)
     md_images := make([dynamic]^Md_Image_Job, context.temp_allocator)
     plugin_execs := make([dynamic]^Plugin_Exec_Job, context.temp_allocator)
 
@@ -1325,6 +1326,7 @@ thor_process_io :: proc(thor: ^Thor) {
     thor_take_jobs(&thor.finished_file_searches, &file_searches)
     thor_take_jobs(&thor.finished_outside_stats, &outside_stats)
     thor_take_jobs(&thor.finished_updates, &updates)
+    thor_take_jobs(&thor.finished_ext_updates, &ext_updates)
 
     for job in shells {
         thor_apply_shell_profiles(thor, job)
@@ -1484,6 +1486,9 @@ thor_process_io :: proc(thor: ^Thor) {
 
     for job in updates {
         thor_apply_update_job(thor, job)
+    }
+    for job in ext_updates {
+        thor_apply_ext_job(thor, job)
     }
     for job in md_images {
         thor_apply_md_image(thor, job)

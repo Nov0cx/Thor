@@ -178,10 +178,14 @@ thor_cmd_change_theme :: proc(data: rawptr) {
     if current == "" {
         current = DEFAULT_THEME
     }
+    shown := make([]string, len(labels), context.temp_allocator)
+    for label, i in labels {
+        shown[i] = thor_ext_theme_pending(thor, files[i]) ? strings.concatenate({label, " — update available"}, context.temp_allocator) : label
+    }
     thor_select_open(
         thor,
         "Change Theme",
-        labels,
+        shown,
         current,
         thor_theme_preview,
         thor_theme_commit,

@@ -265,6 +265,7 @@ thor_titlebar :: proc(thor: ^Thor) {
     ui.spacer()
     thor_task_controls(thor)
     thor_update_button(thor)
+    thor_ext_update_button(thor)
 
     if thor_titlebar_button(thor, "minus", "min", tip = "Minimize") {
         thor_minimize_window()
@@ -392,6 +393,38 @@ thor_update_button :: proc(thor: ^Thor) {
     thor_tip(thor, it.id, "A new version is available. Click to install it")
     if it.clicked {
         thor_click_update(thor)
+    }
+}
+
+// Shown only while a plugin or theme update is waiting.
+@(private = "file")
+thor_ext_update_button :: proc(thor: ^Thor) {
+    pending := thor_ext_pending_count(thor)
+    if pending == 0 {
+        return
+    }
+    it := ui.begin(
+        {
+            key = "ext_update",
+            flags = {.Clickable},
+            props = {
+                h = ui.Px(28),
+                dir = .Row,
+                align = .Center,
+                gap = {6, 0},
+                pad = ui.xy(10, 0),
+                radius = ui.rad(4),
+                bg = thor.theme.buttons,
+            },
+            hover = {bg = thor.theme.active},
+        },
+    )
+    thor_icon_label(thor, "puzzle", thor.theme.accent_color, 14)
+    ui.label(fmt.tprintf("%d", pending), {key = "text", props = {color = thor.theme.foreground, text_wrap = .None}})
+    ui.end()
+    thor_tip(thor, it.id, "Plugin or theme updates are available. Click to see them")
+    if it.clicked {
+        thor_click_ext_updates(thor)
     }
 }
 
