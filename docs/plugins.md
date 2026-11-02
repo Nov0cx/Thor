@@ -9,10 +9,17 @@ writing one.
 ## Syntax highlighting
 
 Thor ships plugins for Odin, Lua, C, C++, Go, Jai, JavaScript/JSX, TypeScript,
-TSX, Rust, Python, Ruby, Java, Kotlin, Zig, C#, PHP, Haskell, OCaml, and
-config/markup formats such as JSON, Markdown, shell and batch. Nothing to
+TSX, Rust, Python, Ruby, Java, Kotlin, Zig, C#, PHP, Haskell, OCaml, assembly,
+and config/markup formats such as JSON, Markdown, shell and batch. Nothing to
 configure — a file's extension (or, for extensionless names like `Makefile`,
 its basename) picks the plugin.
+
+Assembly covers GAS (x86 AT&T and Intel, ARM, AArch64, RISC-V, MIPS), NASM,
+YASM, MASM and the 8-bit assemblers in `.asm`, `.s`, `.S` and related files.
+FASM and fasm2 have their own lexer, which colors macro names and their
+parameters inside the macro body. It is used for `.fasm`, `.fasmg`, `.fasm2`
+and `.ash`, and for a `.asm` file that starts like FASM: `format`, `entry`,
+`include '…'`, `macro`, `end macro` or `calminstruction`.
 
 Code folds by the parse tree for a grammar language. A language with a pure-Lua
 lexer folds by indentation: a line folds over the deeper-indented lines after

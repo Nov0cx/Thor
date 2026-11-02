@@ -1,6 +1,8 @@
 # 2026.11.0
 
 - Clipboard history: ctrl + shift + v or "Edit: Clipboard History..." lists the last 30 texts copied, cut or pasted in the editor. Pick one to paste it again. The history is kept between sessions in `sessions/clipboard.txt`, encrypted with a per-user key (DPAPI on Windows), except text that looks like a secret (a key, a token, a password-like word, a copy from `.env` or `id_rsa`). `clipboard_history_save = false` turns saving off. "Edit: Clear Clipboard History" empties it and overwrites the file with zeros.
+- Syntax highlighting for assembly: GAS (x86, ARM, AArch64, RISC-V, MIPS), NASM, YASM, MASM and 8-bit assemblers in `.asm`, `.s`, `.S` and related files.
+- FASM and fasm2 have their own highlighting: macro names, and macro parameters inside the macro body, have their own colours. It applies to `.fasm`, `.fasmg`, `.fasm2`, `.ash` and to a `.asm` file that starts like FASM.
 - The selection background covers the full line height, centred on the text.
 - A double click selects the word under the pointer. Dragging after it extends the selection by whole words.
 - Odin: syntax errors are marked while typing. After a save, the `odin check` diagnostics replace them. The `syntax_diagnostics` feature (Settings > "Live Syntax Errors") turns them off.
