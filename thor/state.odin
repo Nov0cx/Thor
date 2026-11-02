@@ -72,6 +72,7 @@ thor_bind_pane :: proc(thor: ^Thor, pane: int, keep_view := false) {
     // The rebind dropped the previous buffer's borrowed spans; push this file's
     // now, so the gutter is right for the rest of the frame.
     thor_sync_pane_diagnostics(thor, pane)
+    thor_sync_pane_inlays(thor, pane)
     thor_sync_pane_diff(thor, pane)
 }
 

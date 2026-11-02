@@ -1232,6 +1232,7 @@ thor_editor_pane :: proc(thor: ^Thor, editor: ^editview.Editor, pane: int, key: 
             thor_paint_swatch(editor, swatch.color, gap_end, row_y)
         }
 
+        thor_paint_row_inlays(thor, editor, text, row, swatches, spans, text_x, row_y)
         if editor.show_whitespace {
             thor_paint_row_whitespace(thor, editor, text, row, spans, text_x, row_y)
         }
@@ -1345,9 +1346,9 @@ thor_first_span_after :: proc(spans: []editview.Highlight_Span, offset: int) -> 
 }
 
 // The syntax spans that fall inside one row, rebased to the row's first byte,
-// with a hex literal's swatch gap merged in as a span `lead`. A highlight that
-// covers an anchor is split there, and an anchor no highlight covers rides on a
-// zero-length span, so the run builder stops at every gap.
+// with the gaps of hex swatches and inlay hints merged in as a span `lead`. A
+// highlight that covers an anchor is split there, and an anchor no highlight
+// covers rides on a zero-length span, so the run builder stops at every gap.
 thor_row_spans :: proc(
     editor: ^editview.Editor,
     row_text: string,
@@ -1357,14 +1358,14 @@ thor_row_spans :: proc(
     if end <= start {
         return nil
     }
-    gap := editview.editor_swatch_span(editor)
+    gaps := thor_row_gaps(editor, start, end, swatches)
     out := make([dynamic]ui.Text_Span, 0, 16, context.temp_allocator)
 
     at := 0
-    take_lead :: proc(swatches: []editview.Row_Swatch, at: ^int, anchor: int, gap: f32) -> f32 {
-        if at^ < len(swatches) && swatches[at^].anchor == anchor {
+    take_lead :: proc(gaps: []Row_Gap, at: ^int, anchor: int) -> f32 {
+        if at^ < len(gaps) && gaps[at^].anchor == anchor {
             at^ += 1
-            return gap
+            return gaps[at^ - 1].width
         }
         return 0
     }
@@ -1377,29 +1378,127 @@ thor_row_spans :: proc(
         hi := min(h.end, end) - start
 
         // Anchors before this highlight carry their gap on their own.
-        for at < len(swatches) && swatches[at].anchor < lo {
-            append(&out, ui.Text_Span{start = swatches[at].anchor, end = swatches[at].anchor, lead = gap})
+        for at < len(gaps) && gaps[at].anchor < lo {
+            append(&out, ui.Text_Span{start = gaps[at].anchor, end = gaps[at].anchor, lead = gaps[at].width})
             at += 1
         }
 
         piece := lo
-        lead := take_lead(swatches, &at, lo, gap)
-        for at < len(swatches) && swatches[at].anchor < hi {
-            append(&out, ui.Text_Span{start = piece, end = swatches[at].anchor, color = h.color, lead = lead})
-            piece = swatches[at].anchor
-            lead = gap
+        lead := take_lead(gaps, &at, lo)
+        for at < len(gaps) && gaps[at].anchor < hi {
+            append(&out, ui.Text_Span{start = piece, end = gaps[at].anchor, color = h.color, lead = lead})
+            piece = gaps[at].anchor
+            lead = gaps[at].width
             at += 1
         }
         append(&out, ui.Text_Span{start = piece, end = hi, color = h.color, lead = lead})
     }
 
-    for ; at < len(swatches); at += 1 {
-        append(&out, ui.Text_Span{start = swatches[at].anchor, end = swatches[at].anchor, lead = gap})
+    for ; at < len(gaps); at += 1 {
+        append(&out, ui.Text_Span{start = gaps[at].anchor, end = gaps[at].anchor, lead = gaps[at].width})
     }
     if len(out) == 0 {
         return nil
     }
     return out[:]
+}
+
+// A gap in a row's laid-out text, at a row-relative byte.
+Row_Gap :: struct {
+    anchor: int,
+    width:  f32,
+}
+
+// The swatch and inlay gaps of the row [start, end), one per anchor, ascending. Temp-allocated.
+@(private)
+thor_row_gaps :: proc(editor: ^editview.Editor, start, end: int, swatches: []editview.Row_Swatch) -> []Row_Gap {
+    inlays: []editview.Inlay
+    if len(editor.inlays) > 0 && editor.state != nil {
+        inlays = editview.editor_row_inlays(editor, textedit.text(editor.state), start, end)
+    }
+    if len(swatches) == 0 && len(inlays) == 0 {
+        return nil
+    }
+    gaps := make([dynamic]Row_Gap, 0, len(swatches) + len(inlays), context.temp_allocator)
+    span := editview.editor_swatch_span(editor)
+    i, j := 0, 0
+    for i < len(swatches) || j < len(inlays) {
+        gap: Row_Gap
+        if j >= len(inlays) || i < len(swatches) && swatches[i].anchor <= inlays[j].offset - start {
+            gap = {swatches[i].anchor, span}
+            i += 1
+        } else {
+            gap = {inlays[j].offset - start, editview.editor_inlay_width(editor, inlays[j])}
+            j += 1
+        }
+        if n := len(gaps); n > 0 && gaps[n - 1].anchor == gap.anchor {
+            gaps[n - 1].width += gap.width
+        } else {
+            append(&gaps, gap)
+        }
+    }
+    return gaps[:]
+}
+
+// Paints the inlay hints of one row: a pill with its label at the left of its gap.
+@(private = "file")
+thor_paint_row_inlays :: proc(
+    thor: ^Thor,
+    editor: ^editview.Editor,
+    text: string,
+    row: editview.Visual_Row,
+    swatches: []editview.Row_Swatch,
+    spans: []ui.Text_Span,
+    text_x, row_y: f32,
+) {
+    inlays := editview.editor_row_inlays(editor, text, row.start, row.end)
+    if len(inlays) == 0 {
+        return
+    }
+    size := f32(editview.editor_inlay_font_size(editor))
+    line_h := f32(font.line_height(editor.font_size))
+    i := 0
+    for i < len(inlays) {
+        anchor := inlays[i].offset
+        // The gap closes at the anchor; the swatch sits at its right end, the inlays before it.
+        total: f32
+        for k := i; k < len(inlays) && inlays[k].offset == anchor; k += 1 {
+            total += editview.editor_inlay_width(editor, inlays[k])
+        }
+        for swatch in swatches {
+            if row.start + swatch.anchor == anchor {
+                total += editview.editor_swatch_span(editor)
+            }
+        }
+        x := text_x + thor_row_x(editor, text, row.start, row.end, anchor, spans) - total
+        for ; i < len(inlays) && inlays[i].offset == anchor; i += 1 {
+            inlay := inlays[i]
+            width := editview.editor_inlay_width(editor, inlay)
+            left := x + (inlay.pad_left ? editview.INLAY_MARGIN : 0)
+            pill := width - (inlay.pad_left ? editview.INLAY_MARGIN : 0) - (inlay.pad_right ? editview.INLAY_MARGIN : 0)
+            top := row_y + (line_h - size - 4) * 0.5
+            ui.paint_rect({left, top, pill, size + 4}, thor.theme.second_background, ui.rad(3), true)
+            ui.push_id_int(i64(inlay.offset) * 4 + i64(i % 4))
+            ui.leaf(
+                {
+                    key = "inlay",
+                    text = inlay.label,
+                    props = {
+                        position = .Absolute,
+                        inset = {left + editview.INLAY_PAD, row_y, 0, 0},
+                        w = ui.FIT,
+                        h = ui.Px(line_h),
+                        color = thor.theme.comments_color,
+                        font = thor.font_mono,
+                        font_size = size,
+                        text_wrap = .None,
+                    },
+                },
+            )
+            ui.pop_id()
+            x += width
+        }
+    }
 }
 
 // The swatches of one row, scanned into `out` and returned as the prefix used.
@@ -1719,6 +1818,9 @@ thor_row_x :: proc(
                 lead += editview.editor_swatch_span(editor)
             }
         }
+    }
+    if spans == nil && row_end <= len(text) {
+        lead += editview.editor_inlay_lead(editor, text, row_start, row_end, at)
     }
     if at <= row_start || row_start >= len(text) || at > len(text) {
         return lead

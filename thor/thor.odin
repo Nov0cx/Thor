@@ -529,6 +529,13 @@ Thor :: struct {
     // later text; a request that never lands frees it instead, since tokens the
     // file already holds were classified over something else.
     semantic_source: string,
+    // In-flight inlay hints: one at a time for every file, over the window [inlay_start, inlay_end)
+    // of `inlay_path` (owned), computed over `inlay_source` (owned).
+    inlay_request_id: u64,
+    inlay_path:       string,
+    inlay_source:     string,
+    inlay_start:      int,
+    inlay_end:        int,
     // In-flight rename: its request id and the path of the buffer it was computed
     // against (owned), so its edits can be told apart from the ones landing in
     // other files — that buffer is validated against the snapshotted revision,
@@ -1066,6 +1073,8 @@ shutdown :: proc(thor: ^Thor) {
     thor_completion_clear(thor)
     delete(thor.semantic_path)
     delete(thor.semantic_source)
+    delete(thor.inlay_path)
+    delete(thor.inlay_source)
     delete(thor.format_path)
     delete(thor.format_range_path)
     delete(thor.on_type_path)

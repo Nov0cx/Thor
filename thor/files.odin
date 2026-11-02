@@ -107,6 +107,17 @@ Open_File :: struct {
     // result lands. thor_rebase_semantic diffs it against the live text to move
     // the tokens onto it.
     semantic_source:    string,
+    // Inlay hints over [inlay_start, inlay_end) of `inlay_source` (owned, as are the labels).
+    // `inlay_view` holds them rebased onto the live text, labels borrowed.
+    inlays:              [dynamic]editview.Inlay,
+    inlay_source:        string,
+    inlay_revision:      u64,
+    inlay_start:         int,
+    inlay_end:           int,
+    inlay_ready:         bool,
+    inlay_view:          [dynamic]editview.Inlay,
+    inlay_view_revision: u64,
+    inlay_view_valid:    bool,
     // Document sync for a backend that mirrors the editor's buffers.
     // `lang_open` marks the mirror as started, `lang_revision` the buffer
     // revision it last received. See thor_lang_notify.
@@ -811,6 +822,7 @@ thor_invalidate_file_derived :: proc(file: ^Open_File) {
     file.diagnostics_revision = 0
     thor_clear_file_syntax_diagnostics(file)
     thor_clear_file_semantic(file)
+    thor_clear_file_inlays(file)
 }
 
 // Applies a reload job's freshly mapped bytes to its open buffer, if they differ
@@ -1221,6 +1233,7 @@ thor_update_files :: proc(thor: ^Thor) {
         delete(thor.semantic_source)
         thor.semantic_source = ""
     }
+    thor_recover_inlay_slot(thor)
     if thor.syntax_request_id != 0 &&
        !lang.manager_has_request(&thor.lang_manager, thor.syntax_request_id) {
         thor.syntax_request_id = 0
@@ -1258,6 +1271,7 @@ thor_update_files :: proc(thor: ^Thor) {
     for pane in 0 ..< thor_pane_count(thor) {
         thor_request_pane_syntax_diagnostics(thor, pane)
         thor_sync_pane_diagnostics(thor, pane)
+        thor_sync_pane_inlays(thor, pane)
         // Each visible pane's git diff lines for the gutter bar.
         thor_sync_pane_diff(thor, pane)
     }
@@ -1518,6 +1532,9 @@ thor_free_open_file :: proc(file: ^Open_File, thor: ^Thor = nil) {
     delete(file.folds)
     delete(file.semantic)
     delete(file.semantic_source)
+    thor_clear_file_inlays(file)
+    delete(file.inlays)
+    delete(file.inlay_view)
     thor_clear_file_diagnostics(file)
     delete(file.diagnostics)
     thor_clear_file_syntax_diagnostics(file)
