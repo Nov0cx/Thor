@@ -42,6 +42,8 @@ Config :: struct {
     enable_rename:           bool,
     enable_completion:       bool,
     enable_snippets:         bool, // completion inserts a procedure call with its parameters as stops
+    inlay_types:             bool, // inlay hints show the type of a `:=` name
+    inlay_parameters:        bool, // inlay hints show the parameter name of an argument
 }
 
 // What `"diagnostics": {"<id>": ...}` sets for the live diagnostics of one id.
@@ -125,6 +127,8 @@ config_defaults :: proc() -> Config {
         enable_rename           = true,
         enable_completion       = true,
         enable_snippets         = true,
+        inlay_types             = true,
+        inlay_parameters        = true,
     }
 }
 
@@ -161,6 +165,12 @@ config_parse :: proc(cache: ^Config_Cache, workspace, path: string) {
     }
     if b, ok := obj["enable_snippets"].(json.Boolean); ok {
         cache.cfg.enable_snippets = bool(b)
+    }
+    if b, ok := obj["inlay_types"].(json.Boolean); ok {
+        cache.cfg.inlay_types = bool(b)
+    }
+    if b, ok := obj["inlay_parameters"].(json.Boolean); ok {
+        cache.cfg.inlay_parameters = bool(b)
     }
 
     config_parse_target(cache, obj)
@@ -489,6 +499,19 @@ config_snippets :: proc(e: ^Engine, workspace: string) -> bool {
     defer sync.unlock(&cache.mutex)
     config_ensure(cache, workspace)
     return cache.cfg.enable_snippets
+}
+
+// Which inlay hints the workspace config turns on; both when the workspace has no config.
+@(private)
+config_inlays :: proc(e: ^Engine, workspace: string) -> (types, parameters: bool) {
+    if workspace == "" {
+        return true, true
+    }
+    cache := &e.config
+    sync.lock(&cache.mutex)
+    defer sync.unlock(&cache.mutex)
+    config_ensure(cache, workspace)
+    return cache.cfg.inlay_types, cache.cfg.inlay_parameters
 }
 
 // Frees the cached config's owned collection strings and the map itself. Element

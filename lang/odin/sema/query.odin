@@ -1,6 +1,7 @@
 package odinsema
 
 import "core:slice"
+import "core:strings"
 
 import odinsyntax "../syntax"
 
@@ -959,4 +960,76 @@ literal_type :: proc(c: ^Checker, file: File_Id, lit: odinsyntax.Syntax_Node) ->
         }
     }
     return INVALID_TYPE
+}
+
+// The parameter a positional argument of a call fills.
+Arg_Param :: struct {
+    offset: int,    // the first byte of the argument
+    name:   string, // owned by the caller's allocator
+    first:  bool,   // the first argument of its parameter; a variadic one takes several
+}
+
+// The parameters the positional arguments of `call` fill, `$` parameters left out. Empty for a builtin,
+// a directive, a type, a group with no single best member, and arguments that do not fit.
+call_arg_params :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node, allocator := context.allocator) -> []Arg_Param {
+    ce, is_call := odinsyntax.as_call_expr(call)
+    if !is_call {
+        return nil
+    }
+    callee, has_callee := odinsyntax.call_expr_callee(&ce)
+    list, has_list := odinsyntax.call_expr_args(&ce)
+    if !has_callee || !has_list {
+        return nil
+    }
+    if _, is_directive := odinsyntax.as_directive(callee); is_directive {
+        return nil
+    }
+    if _, is_builtin := builtin_callee(c, file, callee); is_builtin {
+        return nil
+    }
+    fn := expr_type(c, file, callee)
+    if fn.mode != .Value && fn.mode != .Const {
+        return nil
+    }
+    temp := scratch_begin(c)
+    defer scratch_end(temp)
+    args, ok := with_receiver(c, file, callee, call_args(c, file, odinsyntax.Syntax_Node(list), {}))
+    if !ok || len(args) == 0 {
+        return nil
+    }
+    p: Proc_Type
+    #partial switch v in type_get(&c.table, type_base(&c.table, fn.type)) {
+    case Proc_Type:
+        p = v
+    case Proc_Group_Type:
+        chosen, _ := choose_member(c, file, v, args)
+        if chosen == INVALID_TYPE {
+            return nil
+        }
+        p, ok = type_get(&c.table, type_base(&c.table, chosen)).(Proc_Type)
+        if !ok {
+            return nil
+        }
+    case:
+        return nil
+    }
+    slots, miss := match_slots(c, p, args)
+    if miss.kind != .None {
+        return nil
+    }
+    out := make([dynamic]Arg_Param, 0, len(args), allocator)
+    last := -1
+    for a, i in args {
+        k := slots[i]
+        if a.name != "" || a.spread || a.node.green == nil || k < 0 || k >= len(p.params) {
+            last = k
+            continue
+        }
+        name := p.params[k].name
+        if name != "" && name[0] != '$' {
+            append(&out, Arg_Param{offset = int(a.node.offset), name = strings.clone(name, allocator), first = k != last})
+        }
+        last = k
+    }
+    return out[:]
 }

@@ -42,6 +42,7 @@ IMPLEMENTED :: bit_set[lang.Request_Kind]{
     .Completion,
     .Signature_Help,
     .Semantic_Tokens,
+    .Inlay_Hints,
     .Code_Actions,
     .Resolve_Action,
 }
@@ -169,6 +170,8 @@ resolve :: proc(data: rawptr, req: ^lang.Request, res: ^lang.Result) {
         signature_help(e, req, res)
     case .Semantic_Tokens:
         semantic_tokens(e, req, res)
+    case .Inlay_Hints:
+        inlay_hints(e, req, res)
     }
 }
 
