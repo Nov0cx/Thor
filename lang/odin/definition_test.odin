@@ -61,7 +61,7 @@ fixture :: proc(t: ^testing.T, name: string, files: [][2]string) -> string {
     }
     for f in files {
         path := strings.concatenate({root, "/", f[0]}, context.temp_allocator)
-        if err := os.make_directory_all(filepath.dir(path)); err != nil {
+        if err := os.make_directory_all(filepath.dir(path)); err != nil && err != .Exist {
             testing.fail_now(t, "could not create a fixture directory")
         }
         if err := os.write_entire_file(path, transmute([]byte)f[1]); err != nil {

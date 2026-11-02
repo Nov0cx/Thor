@@ -561,7 +561,9 @@ check_fixture :: proc(t: ^testing.T, name: string) -> (string, bool) {
 @(private)
 put_file :: proc(t: ^testing.T, dir, name, text: string) -> string {
     path := fmt.tprintf("%s/%s", dir, name)
-    testing.expect_value(t, os.make_directory_all(filepath.dir(path)), nil)
+    if err := os.make_directory_all(filepath.dir(path)); err != .Exist {
+        testing.expect_value(t, err, nil)
+    }
     testing.expect_value(t, os.write_entire_file(path, text), nil)
     return path
 }
