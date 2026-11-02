@@ -74,6 +74,7 @@ return {
         open_git_gui = "",
         open_git_history = "",
         package_doc = "f3",
+        peek_definition = "alt+f12",
         previous_tab = "ctrl+page_up",
         quick_open = "ctrl+tab",
         reload_from_disk = "",

@@ -440,6 +440,7 @@ Thor :: struct {
     explorer_refresh_at: time.Tick, // when the watcher last rebuilt the tree
     watch_git_dirty: bool,
     goto_def_key: setting.Keybind,
+    peek_def_key: setting.Keybind,
     goto_symbol_key: setting.Keybind,
     goto_workspace_symbol_key: setting.Keybind,
     find_references_key: setting.Keybind,
@@ -531,6 +532,8 @@ Thor :: struct {
     semantic_source: string,
     // In-flight inlay hints: one at a time for every file, over the window [inlay_start, inlay_end)
     // of `inlay_path` (owned), computed over `inlay_source` (owned).
+    // Peek definition: the request for one, then the open peek and its editor.
+    peek:             Peek,
     inlay_request_id: u64,
     inlay_path:       string,
     inlay_source:     string,
@@ -1118,6 +1121,7 @@ shutdown :: proc(thor: ^Thor) {
     for &editor in thor.editors {
         editview.editor_destroy(&editor)
     }
+    thor_peek_destroy(thor)
     thor_pane_pick_cancel(thor)
     ui.destroy(&thor.ui_context)
     render.destroy(&thor.backend)

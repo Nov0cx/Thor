@@ -685,6 +685,12 @@ thor_active_open_file :: proc(thor: ^Thor) -> ^Open_File {
 }
 
 thor_open_file :: proc(thor: ^Thor, path: string) {
+    thor_open_file_tab(thor, path, activate = true)
+}
+
+// Opens `path` in a tab, or finds its tab, and gives its buffer; nil for a folder. `activate`
+// shows it in the active pane.
+thor_open_file_tab :: proc(thor: ^Thor, path: string, activate: bool) -> ^Open_File {
     // Canonicalize so the same file opened via different path spellings (a
     // relative command path vs. the explorer's) resolves to one tab.
     canonical := path
@@ -692,9 +698,11 @@ thor_open_file :: proc(thor: ^Thor, path: string) {
         canonical = abs
     }
 
-    if _, index := thor_find_open_file(thor, canonical); index >= 0 {
-        thor_set_active_file(thor, index)
-        return
+    if open, index := thor_find_open_file(thor, canonical); index >= 0 {
+        if activate {
+            thor_set_active_file(thor, index)
+        }
+        return open
     }
 
     // A folder has no buffer. Callers that take a path from a language server,
@@ -703,7 +711,7 @@ thor_open_file :: proc(thor: ^Thor, path: string) {
     if os.is_dir(canonical) {
         log.warnf("Refusing to open directory %q", canonical)
         thor_flash_status(thor, "Only files can be opened in the editor", is_error = true)
-        return
+        return nil
     }
 
     file := new(Open_File)
@@ -726,7 +734,10 @@ thor_open_file :: proc(thor: ^Thor, path: string) {
     }
 
     thor_update_tab_labels(thor)
-    thor_set_active_file(thor, len(thor.open_files) - 1)
+    if activate {
+        thor_set_active_file(thor, len(thor.open_files) - 1)
+    }
+    return file
 }
 
 // Bookkeeping and dispatch shared by every load worker launch: marks the file
@@ -1234,6 +1245,7 @@ thor_update_files :: proc(thor: ^Thor) {
         thor.semantic_source = ""
     }
     thor_recover_inlay_slot(thor)
+    thor_peek_tick(thor)
     if thor.syntax_request_id != 0 &&
        !lang.manager_has_request(&thor.lang_manager, thor.syntax_request_id) {
         thor.syntax_request_id = 0
@@ -1281,12 +1293,7 @@ thor_update_files :: proc(thor: ^Thor) {
 // longer cover what the pane displays — the spans span a window around the view,
 // so scrolling out of it needs a fresh one just as an edit does.
 @(private = "package")
-thor_highlight_pane_file :: proc(thor: ^Thor, pane: int) {
-    index := thor.pane_file[pane]
-    if index < 0 || index >= len(thor.open_files) {
-        return
-    }
-    file := thor.open_files[index]
+thor_highlight_editor_file :: proc(thor: ^Thor, file: ^Open_File, editor: ^editview.Editor) {
     if !file.loaded {
         return
     }
@@ -1297,7 +1304,6 @@ thor_highlight_pane_file :: proc(thor: ^Thor, pane: int) {
         thor_update_highlights(thor, file)
         return
     }
-    editor := thor_pane_editor(thor, pane)
     visible_start, visible_end, ok := editview.editor_visible_byte_range(editor)
     if ok && (visible_start < file.highlight_start || visible_end > file.highlight_end) {
         thor_update_highlights(thor, file)

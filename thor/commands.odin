@@ -51,6 +51,7 @@ thor_apply_settings :: proc(thor: ^Thor) {
         {"align_at_char",            &thor.align_char_key,            {key = .A, mods = {.Ctrl, .Shift}}},
         {"goto_line",                &thor.goto_line_key,             {key = .G, mods = {.Ctrl}}},
         {"goto_definition",          &thor.goto_def_key,              {key = .Enter, mods = {.Alt}}},
+        {"peek_definition",          &thor.peek_def_key,              {key = .F12, mods = {.Alt}}},
         {"goto_symbol",              &thor.goto_symbol_key,           {key = .O, mods = {.Ctrl, .Shift}}},
         {"goto_workspace_symbol",    &thor.goto_workspace_symbol_key, {key = .Q, mods = {.Ctrl}}},
         {"find_references",          &thor.find_references_key,       {key = .F10}},
@@ -418,6 +419,7 @@ thor_register_commands :: proc(thor: ^Thor) {
     thor_palette_add(thor, "Selection: Add Cursor Above", thor_cmd_add_cursor_above, thor, action = "add_cursor_above")
     thor_palette_add(thor, "Selection: Add Cursor Below", thor_cmd_add_cursor_below, thor, action = "add_cursor_below")
     thor_palette_add(thor, "Go to Matching Bracket", thor_cmd_matching_bracket, thor, action = "matching_bracket")
+    thor_palette_add(thor, "Peek Definition", thor_cmd_peek_definition, thor, action = "peek_definition")
     thor_palette_add(thor, "Go to Symbol in File", thor_cmd_goto_symbol, thor, action = "goto_symbol")
     thor_palette_add(thor, "Go to Symbol in Workspace", thor_cmd_goto_workspace_symbol, thor, action = "goto_workspace_symbol")
     thor_palette_add(thor, "Go Back", thor_cmd_jump_back, thor, action = "jump_back")
@@ -673,6 +675,7 @@ thor_cmd_goto_workspace_symbol :: proc(data: rawptr) {thor_goto_workspace_symbol
 thor_cmd_jump_back :: proc(data: rawptr) {thor_jump_back(cast(^Thor) data)}
 thor_cmd_jump_forward :: proc(data: rawptr) {thor_jump_forward(cast(^Thor) data)}
 thor_cmd_goto_definition :: proc(data: rawptr) {thor_goto_definition(cast(^Thor) data)}
+thor_cmd_peek_definition :: proc(data: rawptr) {thor_peek_definition(cast(^Thor) data)}
 thor_cmd_find_references :: proc(data: rawptr) {thor_find_references(cast(^Thor) data)}
 thor_cmd_signature_help :: proc(data: rawptr) {thor_signature_help(cast(^Thor) data)}
 thor_cmd_package_doc :: proc(data: rawptr) {thor_package_doc(cast(^Thor) data)}

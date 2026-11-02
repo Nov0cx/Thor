@@ -37,7 +37,13 @@ thor_odin_cache_dir :: proc() -> string {
 // startup: the panes are values on Thor and outlive every frame's tree.
 thor_wire_editors :: proc(thor: ^Thor) {
     for &pane_editor in thor.editors {
-        editor := &pane_editor
+        thor_wire_editor(thor, &pane_editor)
+    }
+}
+
+// Points one editor at the handlers that answer it.
+thor_wire_editor :: proc(thor: ^Thor, editor: ^editview.Editor) {
+    {
         editview.editor_set_on_save(editor, thor_request_save, thor)
         editview.editor_set_on_goto_definition(editor, thor_editor_goto_definition, thor)
         editview.editor_set_on_hover(editor, thor_editor_hover, thor)
@@ -473,8 +479,16 @@ thor_sync_lang_documents :: proc(thor: ^Thor) {
     }
 }
 
-// Alt+Enter: resolve the symbol under the caret in the active file.
+// Alt+Enter: resolve the symbol under the caret in the active file, or in the peek when it has the focus.
 thor_goto_definition :: proc(thor: ^Thor) {
+    if thor.peek.open && thor.focus_owner == PEEK_KEY && thor.peek.file != nil && thor.peek.file.loaded {
+        file := thor.peek.file
+        caret := textedit.primary_cursor(&file.state).caret
+        thor_peek_close(thor)
+        thor_focus_pane(thor, thor.peek.pane)
+        thor_dispatch_goto(thor, file, caret)
+        return
+    }
     file := thor_active_open_file(thor)
     if file == nil || !file.loaded {
         return
@@ -1956,6 +1970,9 @@ thor_on_lang_result :: proc(user: rawptr, res: ^lang.Result) {
     thor := cast(^Thor) user
     #partial switch res.kind {
     case .Definition:
+        if thor_peek_take_result(thor, res) {
+            return
+        }
         if !res.ok {
             thor_flash_status(thor, "No definition found", is_error = true)
         } else if len(res.symbols) > 1 {
@@ -2287,7 +2304,7 @@ thor_flash_status :: proc(thor: ^Thor, message: string, is_error := false) {
 
 // Jumps to `offset` in the file at `path`, opening it if needed. When the target
 // is still loading, the jump is deferred to thor_apply_pending_goto.
-@(private = "file")
+@(private)
 thor_goto_location :: proc(thor: ^Thor, path: string, offset: int) {
     thor_jump_record(thor)
     canonical := thor_abs_path(path)

@@ -1413,6 +1413,14 @@ editor_type_rune :: proc(editor: ^Editor, r: rune) {
     }
 }
 
+// Whether Escape has something to close in the editor: a popup, a snippet session or extra cursors.
+editor_has_popup :: proc(editor: ^Editor) -> bool {
+    if editor.completion_active || editor.signature_active || editor.hover_active || editor.snippet_active {
+        return true
+    }
+    return editor.state != nil && len(editor.state.cursors) > 1
+}
+
 editor_handle_key :: proc(editor: ^Editor, event: ui.Key_Event) -> bool {
     state := editor.state
     alt_only := (.Alt in event.mods) && !(.Ctrl in event.mods)

@@ -130,6 +130,9 @@ thor_apply_file_highlights :: proc(thor: ^Thor, file: ^Open_File) {
             editview.editor_set_folds(editor, file.folds[:])
         }
     }
+    if thor.peek.open && thor.peek.editor.state == &file.state {
+        editview.editor_set_highlights(&thor.peek.editor, file.highlights[:])
+    }
 }
 
 // Pushes a pane's diagnostics to its editor, or clears them when the buffer has

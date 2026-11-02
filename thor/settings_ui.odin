@@ -70,6 +70,10 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
         view, "autosave_delay_ms", "Autosave Delay (ms)", setting.autosave_delay_ms(config),
         setting.AUTOSAVE_DELAY_MIN, setting.AUTOSAVE_DELAY_MAX, 250,
     )
+    thor_settings_add_number(
+        view, "peek_height", "Peek Definition Height (rows)", setting.peek_height(config),
+        setting.PEEK_HEIGHT_MIN, setting.PEEK_HEIGHT_MAX, 1,
+    )
     thor_settings_add_choice(view, "insert_spaces", "Insert Spaces", thor_on_off_label(setting.insert_spaces(config)))
     thor_settings_add_choice(
         view, "detect_indentation", "Detect Indentation", thor_on_off_label(setting.detect_indentation(config)),

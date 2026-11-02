@@ -1088,6 +1088,16 @@ thor_pane_scroll_push :: proc(node: ^ui.Node, editor: ^editview.Editor, pushed: 
 
 @(private = "file")
 thor_editor_pane :: proc(thor: ^Thor, editor: ^editview.Editor, pane: int, key: string) {
+    index := thor.pane_file[pane]
+    file: ^Open_File
+    if index >= 0 && index < len(thor.open_files) {
+        file = thor.open_files[index]
+    }
+    thor_editor_view(thor, editor, file, &thor.pane_scroll[pane], key, pane)
+}
+
+// Declares an editor over `file` with its own scroll slot. `pane` is the pane it is, -1 for the peek.
+thor_editor_view :: proc(thor: ^Thor, editor: ^editview.Editor, file: ^Open_File, pushed: ^ui.Vec2, key: string, pane: int) {
     // .Scroll_X and .Scroll_Y are for the scrollbars alone. .Wheel gives the pane
     // the raw delta and moves no offset itself: editview owns the scroll, and it
     // needs the wheel even at the end of the file, for zoom and for the
@@ -1113,7 +1123,6 @@ thor_editor_pane :: proc(thor: ^Thor, editor: ^editview.Editor, pane: int, key: 
 
     // A scroll the pane did not push is a drag of the thumb or a click on the
     // track; the editor adopts it before it reads scroll_y again.
-    pushed := &thor.pane_scroll[pane]
     editor.scroll_y = thor_pane_scroll_adopt(it.node.scroll.y, pushed.y, editor.scroll_y)
     editor.scroll_x = thor_pane_scroll_adopt(it.node.scroll.x, pushed.x, editor.scroll_x)
     defer thor_pane_scroll_push(it.node, editor, pushed)
@@ -1142,7 +1151,9 @@ thor_editor_pane :: proc(thor: ^Thor, editor: ^editview.Editor, pane: int, key: 
     editview.editor_ensure_visual_rows(editor)
     // Here, not in thor_update_files: the rows this frame's keystrokes rebuilt
     // are what the window is scoped to, and the spans are read a few lines below.
-    thor_highlight_pane_file(thor, pane)
+    if file != nil {
+        thor_highlight_editor_file(thor, file, editor)
+    }
 
     line_h := f32(font.line_height(editor.font_size))
     if line_h <= 0 || len(editor.visual_rows) == 0 {
@@ -1257,6 +1268,9 @@ thor_editor_pane :: proc(thor: ^Thor, editor: ^editview.Editor, pane: int, key: 
 
     thor_paint_carets(thor, editor, text, rows, first, last, line_h, text_x)
     ui.end()
+    if pane >= 0 && thor.peek.open && thor.peek.pane == pane {
+        thor_peek_view(thor, editor, it.rect)
+    }
     thor_editor_overlays(thor, editor)
 }
 

@@ -123,6 +123,15 @@ thor_global_key :: proc(thor: ^Thor, event: ui.Key_Event) -> bool {
         thor_goto_definition(thor)
         return true
     }
+    if setting.keybind_matches(thor.peek_def_key, event.key, event.mods) {
+        thor_peek_definition(thor)
+        return true
+    }
+    // Escape closes a peek its own editor or its pane has the focus of, once no popup is up.
+    if event.key == .Escape && event.mods == {} && thor_peek_takes_escape(thor) {
+        thor_peek_close(thor)
+        return true
+    }
     // Go to symbol (Ctrl+Shift+O) lists the active file's top-level symbols.
     if setting.keybind_matches(thor.goto_symbol_key, event.key, event.mods) {
         thor_goto_symbol(thor)

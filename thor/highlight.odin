@@ -13,19 +13,24 @@ import "../editview"
 // ok is false when no pane shows the file, or its rows are not built yet.
 @(private = "file")
 thor_highlight_window :: proc(thor: ^Thor, file: ^Open_File) -> (start, end: int, ok: bool) {
-    for index, pane in thor.pane_file {
-        if index < 0 || index >= len(thor.open_files) || thor.open_files[index] != file {
-            continue
-        }
-        editor := thor_pane_editor(thor, pane)
+    take :: proc(editor: ^editview.Editor, start, end: ^int, ok: ^bool) {
         margin := max(editview.editor_visible_row_count(editor), 1)
-        // A pane whose rows are not built yet answers nothing; the other pane
-        // showing the same file may already have them.
+        // An editor whose rows are not built yet answers nothing.
         if s, e, got := editview.editor_visible_byte_range(editor, margin); got {
-            return s, e, true
+            start^ = ok^ ? min(start^, s) : s
+            end^ = ok^ ? max(end^, e) : e
+            ok^ = true
         }
     }
-    return 0, 0, false
+    for index, pane in thor.pane_file {
+        if index >= 0 && index < len(thor.open_files) && thor.open_files[index] == file {
+            take(thor_pane_editor(thor, pane), &start, &end, &ok)
+        }
+    }
+    if thor.peek.open && thor.peek.editor.state == &file.state {
+        take(&thor.peek.editor, &start, &end, &ok)
+    }
+    return
 }
 
 // Rebuilds `file`'s highlight spans (resolved to theme colors) over the window
