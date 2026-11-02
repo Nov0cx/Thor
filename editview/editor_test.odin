@@ -1419,3 +1419,64 @@ test_inlay_gap_moves_caret_and_hit_test :: proc(t: ^testing.T) {
     testing.expect(t, hit)
     testing.expect_value(t, at, 1)
 }
+
+// A zone adds empty rows below its line that no offset maps to, that Down steps over and that
+// a click resolves to the end of the line above.
+@(test)
+test_zone_rows :: proc(t: ^testing.T) {
+    state: textedit.State
+    defer textedit.destroy(&state)
+    editor: Editor
+    editor_test_overlay_setup(&editor, &state, "ab\ncd\nef")
+    defer delete(editor.visual_rows)
+
+    editor_set_zone(&editor, 0, 3)
+    editor_ensure_visual_rows(&editor)
+    testing.expect_value(t, len(editor.visual_rows), 6)
+    testing.expect(t, editor.visual_rows[1].spacer && editor.visual_rows[3].spacer)
+    testing.expect_value(t, editor_visual_row_index(&editor, 2), 0)
+    testing.expect_value(t, editor_visual_row_index(&editor, 3), 4)
+    testing.expect(t, !editor_row_continues(&editor, 0), "a spacer does not continue its line")
+
+    rect, has := editor_zone_rect(&editor)
+    lh := cast(f32) font.line_height(editor.font_size)
+    testing.expect(t, has)
+    testing.expect_value(t, rect.y, editor.view.y + lh)
+    testing.expect_value(t, rect.h, 3 * lh)
+
+    textedit.set_single_cursor(&state, 1)
+    editor_move_visual(&editor, 1, false)
+    testing.expect_value(t, textedit.primary_cursor(&state).caret, 4)
+    editor_move_visual(&editor, -1, false)
+    testing.expect_value(t, textedit.primary_cursor(&state).caret, 1)
+
+    at, hit := editor_pos_at(&editor, editor_test_row_point(&editor, 2))
+    testing.expect(t, hit)
+    testing.expect_value(t, at, 2)
+
+    editor_clear_zone(&editor)
+    editor_ensure_visual_rows(&editor)
+    testing.expect_value(t, len(editor.visual_rows), 3)
+}
+
+// The zone follows an edit above its line, and goes when its line is deleted.
+@(test)
+test_zone_follows_edits :: proc(t: ^testing.T) {
+    state: textedit.State
+    defer textedit.destroy(&state)
+    editor: Editor
+    editor_test_overlay_setup(&editor, &state, "ab\ncd\nef")
+    defer delete(editor.visual_rows)
+
+    editor_set_zone(&editor, 1, 2)
+    textedit.set_single_cursor(&state, 0)
+    textedit.insert_text(&state, "x\n")
+    line, ok := editor_zone_line(&editor)
+    testing.expect(t, ok)
+    testing.expect_value(t, line, 2)
+
+    textedit.select_range(&state, 4, 7)
+    textedit.delete_backward(&state)
+    _, ok = editor_zone_line(&editor)
+    testing.expect(t, !ok, "deleting the line drops the zone")
+}

@@ -59,6 +59,7 @@ Visual_Row :: struct {
     end:   int, // byte offset one past its last character (before any newline)
     line:  int, // logical line index the row belongs to
     first: bool, // true for the first visual row of the logical line
+    spacer: bool, // an empty row of the zone below `line`; start == end == the line's end
 }
 
 // A colored byte range for syntax highlighting; ascending and non-overlapping.
@@ -163,6 +164,11 @@ Editor :: struct {
     highlights:         []Highlight_Span,
     // Inlay hints for the current buffer, ascending by offset. Borrowed.
     inlays:             []Inlay,
+    // The zone: `zone_rows` empty rows below the line that holds `zone_offset` at
+    // `zone_revision`. No zone when zone_rows is 0.
+    zone_offset:        int,
+    zone_rows:          int,
+    zone_revision:      u64,
     // Diagnostics for the current buffer, drawn as squiggles and gutter markers. Borrowed.
     diagnostics:            []Diagnostic,
     diagnostic_error_color: ui.Color,
@@ -576,6 +582,7 @@ editor_set_state :: proc(editor: ^Editor, state: ^textedit.State) {
     clear(&editor.foldable)
     clear(&editor.folded)
     editor.folds_revision = state != nil ? state.revision : 0
+    editor.zone_rows = 0
     editor_dismiss_completion(editor)
     editor_clear_hover(editor)
     editor_clear_signature(editor)
@@ -1033,6 +1040,7 @@ editor_ensure_visual_rows :: proc(editor: ^Editor) -> bool {
         return false
     }
     editor_remap_folds(editor)
+    editor_remap_zone(editor)
     if editor_rows_fresh(editor) {
         return false
     }
@@ -1093,6 +1101,7 @@ editor_rebuild_visual_rows :: proc(editor: ^Editor) {
     line_start := 0
     line_index := 0
     hidden_until := -1 // lines <= this are collapsed under a fold above; skip them
+    zone_line := editor.zone_rows > 0 ? textedit.state_line_index(editor.state, editor.zone_offset) : -1
     for {
         line_end := textedit.line_end(text, line_start)
         if !editor.wrap {
@@ -1100,6 +1109,11 @@ editor_rebuild_visual_rows :: proc(editor: ^Editor) {
         }
         if line_index > hidden_until {
             editor_wrap_line(&editor.visual_rows, text, line_start, line_end, cols, line_index, tab_width)
+            if editor.zone_rows > 0 && line_index == zone_line && editor_folded_end(editor, line_index) < 0 {
+                for _ in 0 ..< editor.zone_rows {
+                    append(&editor.visual_rows, Visual_Row{start = line_end, end = line_end, line = line_index, spacer = true})
+                }
+            }
             // A collapsed fold starting here hides everything down to its end.
             if end := editor_folded_end(editor, line_index); end > hidden_until {
                 hidden_until = end
@@ -1120,7 +1134,7 @@ editor_rebuild_visual_rows :: proc(editor: ^Editor) {
 @(private)
 editor_patch_visual_rows :: proc(editor: ^Editor) -> bool {
     state := editor.state
-    if editor.rows_stale || len(editor.folded) > 0 || len(editor.visual_rows) == 0 || editor.rows_wrap != editor.wrap {
+    if editor.rows_stale || len(editor.folded) > 0 || editor.zone_rows > 0 || len(editor.visual_rows) == 0 || editor.rows_wrap != editor.wrap {
         return false
     }
     if editor.rows_tab_width != textedit.tab_width(state) {
@@ -1212,7 +1226,11 @@ editor_last_row_from :: proc(rows: []Visual_Row, pos: int) -> int {
             hi = mid
         }
     }
-    return max(lo - 1, 0)
+    index := max(lo - 1, 0)
+    for index > 0 && rows[index].spacer {
+        index -= 1
+    }
+    return index
 }
 
 // Takes the line into rows_max_cols when it is the longest so far. A line is
@@ -1278,7 +1296,7 @@ editor_wrap_line :: proc(rows: ^[dynamic]Visual_Row, text: string, line_start, l
     // With wrapping off cols is max(int), so the walk below can never break the
     // line — skip it rather than decoding every rune in the buffer per rebuild.
     if line_start == line_end || cols == max(int) {
-        append(rows, Visual_Row {line_start, line_end, line_index, true})
+        append(rows, Visual_Row {line_start, line_end, line_index, true, false})
         return
     }
 
@@ -1292,7 +1310,7 @@ editor_wrap_line :: proc(rows: ^[dynamic]Visual_Row, text: string, line_start, l
         // One cluster always fits an empty row, or a 1-column pane would loop.
         if col + cells > cols && i > seg_start {
             brk := last_break > seg_start ? last_break : i
-            append(rows, Visual_Row {seg_start, brk, line_index, first})
+            append(rows, Visual_Row {seg_start, brk, line_index, first, false})
             first = false
             seg_start = brk
             col = 0
@@ -1306,13 +1324,13 @@ editor_wrap_line :: proc(rows: ^[dynamic]Visual_Row, text: string, line_start, l
         }
         i = next
     }
-    append(rows, Visual_Row {seg_start, line_end, line_index, first})
+    append(rows, Visual_Row {seg_start, line_end, line_index, first, false})
 }
 
 // Index of the earliest visual row that owns byte offset `pos`; the last row
 // when no row owns it (a collapsed fold hides it) and 0 when empty. Row extents
 // ascend, so this is a binary search for the first row ending at or after `pos`.
-@(private = "file")
+@(private)
 editor_visual_row_index :: proc(editor: ^Editor, pos: int) -> int {
     rows := editor.visual_rows[:]
     low, high := 0, len(rows)
@@ -1336,7 +1354,7 @@ editor_visual_row_index :: proc(editor: ^Editor, pos: int) -> int {
 
 // Whether the row after `index` continues the same line past a soft wrap.
 editor_row_continues :: proc(editor: ^Editor, index: int) -> bool {
-    return index + 1 < len(editor.visual_rows) && !editor.visual_rows[index + 1].first
+    return index + 1 < len(editor.visual_rows) && !editor.visual_rows[index + 1].first && !editor.visual_rows[index + 1].spacer
 }
 
 // `pos` in row `index`, moved off the row's end when that end is a wrap point
@@ -2613,6 +2631,88 @@ editor_swatch_offset_scanned :: proc(swatches: []Row_Swatch, span: f32, rel: int
     return total
 }
 
+// Opens `rows` empty rows below `line` for the owner's nodes. One zone at a time.
+editor_set_zone :: proc(editor: ^Editor, line, rows: int) {
+    if editor.state == nil || rows <= 0 {
+        editor_clear_zone(editor)
+        return
+    }
+    editor.zone_offset = textedit.state_line_start(editor.state, line)
+    editor.zone_rows = rows
+    editor.zone_revision = editor.state.revision
+    editor.rows_stale = true
+}
+
+editor_clear_zone :: proc(editor: ^Editor) {
+    if editor.zone_rows > 0 {
+        editor.rows_stale = true
+    }
+    editor.zone_rows = 0
+}
+
+// The line the zone follows; false when there is none, or an edit removed its line.
+editor_zone_line :: proc(editor: ^Editor) -> (int, bool) {
+    editor_remap_zone(editor)
+    if editor.zone_rows <= 0 || editor.state == nil {
+        return 0, false
+    }
+    return textedit.state_line_index(editor.state, editor.zone_offset), true
+}
+
+// The screen rect of the zone's rows; false when there is none or a fold hides it.
+editor_zone_rect :: proc(editor: ^Editor) -> (ui.Rect, bool) {
+    editor_ensure_visual_rows(editor)
+    for row, i in editor.visual_rows {
+        if row.spacer {
+            lh := cast(f32) font.line_height(editor.font_size)
+            return ui.Rect{editor.view.x, editor.view.y - editor.scroll_y + cast(f32) i * lh, editor.view.w, cast(f32) editor.zone_rows * lh}, true
+        }
+    }
+    return {}, false
+}
+
+// Moves the zone through the changes since `zone_revision`; a deleted line drops it.
+@(private = "file")
+editor_remap_zone :: proc(editor: ^Editor) {
+    state := editor.state
+    if state == nil || editor.zone_rows <= 0 || editor.zone_revision == state.revision {
+        return
+    }
+    offset := editor.zone_offset
+    for revision := editor.zone_revision + 1; revision <= state.revision; revision += 1 {
+        change, ok := textedit.change_at(state, revision)
+        if !ok || offset > change.lo && offset < change.old_hi {
+            editor_clear_zone(editor)
+            return
+        }
+        if offset >= change.old_hi && offset > change.lo {
+            offset += change.new_hi - change.old_hi
+        }
+    }
+    line := textedit.state_line_index(state, min(offset, len(textedit.text(state))))
+    editor.zone_offset = textedit.state_line_start(state, line)
+    editor.zone_revision = state.revision
+    editor.rows_stale = true
+}
+
+// The nearest row at or past `index` that is not a spacer, looking the way `delta` moves.
+@(private = "file")
+editor_content_row :: proc(editor: ^Editor, index, delta: int) -> int {
+    rows := editor.visual_rows[:]
+    step := delta < 0 ? -1 : 1
+    i := index
+    for i >= 0 && i < len(rows) && rows[i].spacer {
+        i += step
+    }
+    if i < 0 || i >= len(rows) {
+        i = index
+        for i >= 0 && i < len(rows) && rows[i].spacer {
+            i -= step
+        }
+    }
+    return clamp(i, 0, len(rows) - 1)
+}
+
 // Virtual text drawn before the byte at `offset`.
 Inlay :: struct {
     offset:    int,
@@ -2714,6 +2814,10 @@ editor_pos_at :: proc(editor: ^Editor, position: ui.Vec2) -> (int, bool) {
 
     target := cast(int) ((position.y - (inner_top - editor.scroll_y)) / line_height)
     target = clamp(target, 0, len(editor.visual_rows) - 1)
+    if editor.visual_rows[target].spacer {
+        target = editor_content_row(editor, target, -1)
+        return editor.visual_rows[target].end, true
+    }
     row := editor.visual_rows[target]
     target_x := position.x - text_x
 
@@ -2871,7 +2975,7 @@ editor_move_visual :: proc(editor: ^Editor, delta: int, extend: bool) {
             col = cursor.preferred_column
         }
 
-        target := clamp(row_index + delta, 0, len(editor.visual_rows) - 1)
+        target := editor_content_row(editor, clamp(row_index + delta, 0, len(editor.visual_rows) - 1), delta)
         trow := editor.visual_rows[target]
         cursor.caret = editor_clamp_to_row(editor, text, target, editor_byte_at_col(text, trow.start, trow.end, col, tab_width))
         cursor.preferred_column = col

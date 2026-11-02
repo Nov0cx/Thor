@@ -1196,6 +1196,9 @@ thor_editor_pane :: proc(thor: ^Thor, editor: ^editview.Editor, pane: int, key: 
     thor_paint_diagnostics(thor, editor, text, rows, first, last, line_h, text_x)
 
     for index in first ..< last {
+        if rows[index].spacer {
+            continue
+        }
         row := rows[index]
         if row.end > len(text) || row.start > row.end {
             break
@@ -1548,6 +1551,9 @@ thor_paint_indent_guides :: proc(
         return
     }
     for index in first ..< last {
+        if rows[index].spacer {
+            continue
+        }
         stops := editview.editor_indent_stops(editor, text, rows[index].line)
         y := f32(index) * line_h - editor.scroll_y
         for at in 0 ..< stops {
@@ -1580,6 +1586,9 @@ thor_paint_gutter :: proc(
         mouse.x >= pane.rect.x && mouse.x - pane.rect.x < editor.gutter_width
 
     for index in first ..< last {
+        if rows[index].spacer {
+            continue
+        }
         row := rows[index]
         y := f32(index) * line_h - editor.scroll_y
 
@@ -1681,6 +1690,9 @@ thor_paint_diagnostics :: proc(
         return
     }
     for index in first ..< last {
+        if rows[index].spacer {
+            continue
+        }
         row := rows[index]
         // Seated just under the glyph box, which sits half a leading down the row.
         y :=
@@ -1736,6 +1748,9 @@ thor_paint_selections :: proc(
             continue
         }
         for index in first ..< last {
+            if rows[index].spacer {
+                continue
+            }
             row := rows[index]
             a := max(lo, row.start)
             b := min(hi, row.end)
@@ -1771,6 +1786,9 @@ thor_paint_carets :: proc(
     }
     for cursor in editor.state.cursors {
         for index in first ..< last {
+            if rows[index].spacer {
+                continue
+            }
             row := rows[index]
             if cursor.caret < row.start || cursor.caret > row.end {
                 continue
