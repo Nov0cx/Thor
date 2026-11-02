@@ -393,6 +393,146 @@ test_batch_plugin_highlights :: proc(t: ^testing.T) {
     }
 }
 
+// Role of the span at `skip` bytes into the first `needle` of `source`.
+role_inside :: proc(spans: []Span, source, needle: string, skip: int) -> string {
+    at := strings.index(source, needle)
+    if at < 0 {
+        return ""
+    }
+    at += skip
+    for s in spans {
+        if s.start <= at && at < s.end {
+            return s.role
+        }
+    }
+    return ""
+}
+
+// Highlights `src` as `ext` with the real plugins/asm and checks each
+// {needle, skip, role} row and the span order.
+expect_asm_roles :: proc(t: ^testing.T, ext, src: string, rows: []struct {
+        needle: string,
+        skip:   int,
+        role:   string,
+    }) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+    manager_load(&m)
+    testing.expectf(t, supports(&m, ext), "%s registered", ext)
+
+    spans := highlight(&m, "", src, ext, context.allocator)
+    defer {
+        for s in spans {
+            delete(s.role)
+        }
+        delete(spans)
+    }
+    testing.expect(t, len(spans) > 0, "assembly spans produced")
+    for row in rows {
+        got := role_inside(spans, src, row.needle, row.skip)
+        testing.expectf(t, got == row.role, "%q+%d: role %q, want %q", row.needle, row.skip, got, row.role)
+    }
+    for i in 1 ..< len(spans) {
+        testing.expect(t, spans[i - 1].end <= spans[i].start, "spans overlap or unordered")
+    }
+}
+
+@(test)
+test_asm_plugin_highlights_nasm :: proc(t: ^testing.T) {
+    src := "section .text\nglobal _start\n_start:\n    mov rax, 60 ; exit\nmsg db \"hi\", 0x0A\nlen equ $ - msg\n%define N 4\n"
+    expect_asm_roles(t, ".asm", src, {
+        {"section", 0, "attributes"},
+        {"global", 0, "attributes"},
+        {"_start:", 0, "functions"},
+        {"mov", 0, "keywords"},
+        {"rax", 0, "variables"},
+        {"60", 0, "numbers"},
+        {"; exit", 0, "comments"},
+        {"msg db", 0, "variables"},
+        {"db", 0, "attributes"},
+        {"\"hi\"", 0, "strings"},
+        {"0x0A", 0, "numbers"},
+        {"len", 0, "variables"},
+        {"%define", 0, "attributes"},
+    })
+}
+
+@(test)
+test_asm_plugin_highlights_gas :: proc(t: ^testing.T) {
+    src := ".globl main\nmain:\n    movq $1, %rax # c1\n/* block\n   still */ ret\n    ldr r0, [sp, #4] @ c2\n    addi a0, zero, 1\n1:  jmp 1b\n#include <x.h>\n"
+    expect_asm_roles(t, ".S", src, {
+        {".globl", 0, "attributes"},
+        {"main:", 0, "functions"},
+        {"movq", 0, "keywords"},
+        {"$1", 0, "numbers"},
+        {"%rax", 0, "variables"},
+        {"# c1", 0, "comments"},
+        {"/* block", 0, "comments"},
+        {"still */", 0, "comments"},
+        {"ret", 0, "keywords"},
+        {"ldr", 0, "keywords"},
+        {"r0", 0, "variables"},
+        {"sp,", 0, "variables"},
+        {"#4", 0, "operators"},
+        {"#4", 1, "numbers"},
+        {"@ c2", 0, "comments"},
+        {"a0", 0, "variables"},
+        {"zero", 0, "variables"},
+        {"1:", 0, "functions"},
+        {"1b", 0, "numbers"},
+        {"#include", 0, "keywords"},
+    })
+}
+
+@(test)
+test_asm_plugin_highlights_fasm1 :: proc(t: ^testing.T) {
+    src := "format PE64 GUI\nmacro pushall [reg]\n{\n    forward\n    push reg\n}\nstart:\n@@: pushall rax, rbx\n    jmp @b\nmsg db 'it''s', 0\nmacro cat a, b { a#b }\nx dq ?\n"
+    expect_asm_roles(t, ".asm", src, {
+        {"format", 0, "attributes"},
+        {"PE64", 0, "attributes"},
+        {"macro pushall", 0, "keywords"},
+        {"pushall [", 0, "functions"},
+        {"[reg]", 1, "parameters"},
+        {"forward", 0, "keywords"},
+        {"push reg", 0, "keywords"},
+        {"push reg", 5, "parameters"},
+        {"start:", 0, "functions"},
+        {"@@:", 0, "functions"},
+        {"pushall rax", 0, "functions"},
+        {"@b", 0, "functions"},
+        {"'it''s'", 0, "strings"},
+        {"'it''s'", 6, "strings"},
+        {"{ a#b", 2, "parameters"},
+        {"{ a#b", 3, "operators"},
+        {"{ a#b", 4, "parameters"},
+        {"x dq", 0, "variables"},
+        {"?", 0, "variables"},
+    })
+}
+
+@(test)
+test_asm_plugin_highlights_fasm2 :: proc(t: ^testing.T) {
+    src := "macro mov? dest*, src:0\n    emit 1: dest\nend macro\ncalminstruction ld? a\n    compute a, a + 1\n    jyes done\ndone:\nend calminstruction\niterate r, rax, rbx\n    push r\nend iterate\n    push r\n"
+    expect_asm_roles(t, ".fasm", src, {
+        {"macro", 0, "keywords"},
+        {"mov?", 0, "functions"},
+        {"dest*", 0, "parameters"},
+        {"src:0", 0, "parameters"},
+        {"1: dest", 3, "parameters"},
+        {"end macro", 0, "keywords"},
+        {"ld?", 0, "functions"},
+        {"compute", 0, "keywords"},
+        {"compute a", 8, "parameters"},
+        {"jyes", 0, "keywords"},
+        {"done:", 0, "functions"},
+        {"end calminstruction", 0, "keywords"},
+        {"iterate r", 8, "parameters"},
+        {"push r\nend", 5, "parameters"},
+        {"end iterate\n    push r", 21, ""},
+    })
+}
+
 // Loads the real plugins/shell/plugin.lua and highlights a shell script through
 // its pure-Lua lexer, confirming comments, keywords, variables and function
 // definitions resolve to the expected roles.
