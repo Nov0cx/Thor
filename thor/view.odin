@@ -1875,14 +1875,18 @@ thor_statusbar :: proc(thor: ^Thor) {
         )
     }
     if info.language != "" {
-        thor_status_segment(
+        lang_seg := thor_status_segment(
             thor,
             "lang",
             "",
             info.language,
             text,
-            "Language of the file, and the syntax it colors with",
+            "Language of the file, and the syntax it colors with. Click to change it",
+            clickable = true,
         )
+        if lang_seg.clicked {
+            thor_cmd_change_language(thor)
+        }
     }
 }
 

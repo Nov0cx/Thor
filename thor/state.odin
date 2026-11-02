@@ -309,7 +309,7 @@ thor_status_info :: proc(data: rawptr) -> Status_Info {
     info.file_open = true
     info.file_name = file.name
     info.file_path = file.path
-    info.language = thor_language_name(thor, file.name)
+    info.language = thor_language_name(thor, file)
     thor_refresh_indent(file)
     // detect_indent reports no width for tabs, and a width of 0 hides the
     // segment, so a tab-indented file shows the column width one renders as.
@@ -432,8 +432,9 @@ thor_apply_lexical :: proc(thor: ^Thor, file: ^Open_File) {
 // name (Dockerfile, Makefile) resolves too; then the built-in table for formats
 // no plugin claims; then the bare extension.
 @(private = "file")
-thor_language_name :: proc(thor: ^Thor, name: string) -> string {
-    if id := plugin.language_name(&thor.plugins, thor_highlight_key(&thor.plugins, name)); id != "" {
+thor_language_name :: proc(thor: ^Thor, file: ^Open_File) -> string {
+    name := file.name
+    if id := plugin.language_name(&thor.plugins, thor_file_highlight_key(thor, file)); id != "" {
         return id
     }
     if label, ok := thor_builtin_language_name(name); ok {

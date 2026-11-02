@@ -170,6 +170,7 @@ return {
         select_shell = "",
     },
     view = {
+        change_language = "",
         file_to_pane_1 = "ctrl+shift+1",
         file_to_pane_2 = "ctrl+shift+2",
         file_to_pane_3 = "ctrl+shift+3",

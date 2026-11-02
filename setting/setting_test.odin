@@ -550,3 +550,43 @@ parse_test_lua :: proc(body: string) -> (json.Value, json.Error) {
     }
     return value, .None
 }
+
+// file_languages: an exact path beats a glob, a longer glob a shorter one, a
+// glob with no `/` matches the base name, and "" turns detection back on.
+@(test)
+test_file_language_lookup :: proc(t: ^testing.T) {
+    user := "thor_file_lang_user.tmp"
+    workspace := "thor_file_lang_ws.tmp"
+    defer for dir in ([]string{user, workspace}) {
+        os.remove(concat_for_test(dir, "/settings.lua"))
+        os.remove(dir)
+    }
+    user_file := concat_for_test(user, "/settings.lua")
+    ws_file := concat_for_test(workspace, "/settings.lua")
+
+    testing.expect_value(t, persist_file_language(user_file, "*.inc", "FASM"), luaconf.Patch_Error.None)
+    testing.expect_value(t, persist_file_language(user_file, "src/*.inc", "Pascal"), luaconf.Patch_Error.None)
+    testing.expect_value(t, persist_file_language(ws_file, "src/boot.inc", "Assembly"), luaconf.Patch_Error.None)
+    testing.expect_value(t, persist_file_language(ws_file, "lib/plain.inc", ""), luaconf.Patch_Error.None)
+
+    s := load(user)
+    defer destroy(&s)
+    load_overlay(&s, workspace)
+
+    testing.expect_value(t, file_language(&s, "src/boot.inc"), "Assembly")
+    testing.expect_value(t, file_language(&s, "src/other.inc"), "Pascal")
+    testing.expect_value(t, file_language(&s, "lib/deep/x.inc"), "FASM")
+    testing.expect_value(t, file_language(&s, "lib/plain.inc"), "")
+    testing.expect_value(t, file_language(&s, "main.odin"), "")
+    when ODIN_OS == .Windows {
+        testing.expect_value(t, file_language(&s, `SRC\Boot.INC`), "Assembly")
+    }
+
+    testing.expect_value(t, remove_file_language(ws_file, "src/boot.inc"), luaconf.Patch_Error.None)
+    testing.expect_value(t, remove_file_language(ws_file, "missing"), luaconf.Patch_Error.None)
+    r := load(user)
+    defer destroy(&r)
+    load_overlay(&r, workspace)
+    testing.expect_value(t, file_language(&r, "src/boot.inc"), "Pascal")
+    testing.expect_value(t, file_language(&r, "lib/plain.inc"), "")
+}

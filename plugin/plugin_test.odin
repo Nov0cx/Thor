@@ -955,3 +955,31 @@ test_manager_commands_lists_owners :: proc(t: ^testing.T) {
     testing.expect(t, list[0].name == "alpha" && list[0].plugin_id == "two", "alpha is first and belongs to two")
     testing.expect(t, list[1].name == "zeta" && list[1].plugin_id == "one", "zeta belongs to one")
 }
+
+// A language name resolves to an extension that routes back to it, case
+// ignored; an extension passes through; an unknown name gives "".
+@(test)
+test_language_key_by_name :: proc(t: ^testing.T) {
+    m: Manager
+    manager_init(&m)
+    defer manager_destroy(&m)
+    manager_load(&m)
+
+    key := language_key(&m, "fasm")
+    testing.expect(t, key != "", "FASM has a key")
+    testing.expect_value(t, language_name(&m, key), "FASM")
+    testing.expect_value(t, language_name(&m, language_key(&m, "Assembly")), "Assembly")
+    testing.expect_value(t, language_key(&m, ".odin"), ".odin")
+    testing.expect_value(t, language_key(&m, ".nothing"), "")
+    testing.expect_value(t, language_key(&m, "No Such Language"), "")
+
+    names := language_names(&m, context.temp_allocator)
+    has_fasm := false
+    for name, i in names {
+        has_fasm ||= name == "FASM"
+        if i > 0 {
+            testing.expect(t, strings.to_lower(names[i - 1], context.temp_allocator) < strings.to_lower(name, context.temp_allocator), "names sorted and unique")
+        }
+    }
+    testing.expect(t, has_fasm, "FASM listed")
+}

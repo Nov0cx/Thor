@@ -161,6 +161,11 @@ thor_reload_settings :: proc(thor: ^Thor) {
     }
 
     thor_apply_settings(thor)
+    // file_languages may have moved a file to another language.
+    for file in thor.open_files {
+        file.highlighted = false
+        file.folds_ready = false
+    }
     thor_load_tasks(thor)
     // The tips and the chords they name both came from the config just replaced.
     thor_refresh_tip_cards(thor)
@@ -336,6 +341,7 @@ thor_register_commands :: proc(thor: ^Thor) {
     thor_add_bindable_command(thor, "View: Toggle Whitespace", "toggle_whitespace", thor_cmd_toggle_whitespace, thor)
     thor_palette_add(thor, "View: Toggle Split Editor", thor_cmd_toggle_split, thor, action = "toggle_split")
     thor_add_bindable_command(thor, "View: Pane Layout...", "pick_layout", thor_cmd_pick_layout, thor)
+    thor_add_bindable_command(thor, "View: Change Language of File...", "change_language", thor_cmd_change_language, thor)
     thor_palette_add(thor, "View: Next Pane Layout", thor_cmd_next_layout, thor, action = "next_layout")
     thor_palette_add(thor, "View: Focus Next Pane", thor_cmd_focus_next_pane, thor, action = "focus_next_pane")
     thor_palette_add(thor, "View: Focus Previous Pane", thor_cmd_focus_previous_pane, thor, action = "focus_previous_pane")

@@ -32,7 +32,7 @@ thor_highlight_window :: proc(thor: ^Thor, file: ^Open_File) -> (start, end: int
 // the pane showing it displays. Only files shown in a pane are highlighted, so
 // this runs when their buffers change or their view scrolls off the window.
 thor_update_highlights :: proc(thor: ^Thor, file: ^Open_File) {
-    key := thor_highlight_key(&thor.plugins, file.name)
+    key := thor_file_highlight_key(thor, file)
 
     win_start, win_end, windowed := thor_highlight_window(thor, file)
     if !windowed {
@@ -100,7 +100,7 @@ thor_update_folds :: proc(thor: ^Thor, file: ^Open_File) {
     if time.tick_since(file.last_edit) < FOLD_IDLE_DELAY {
         return
     }
-    key := thor_highlight_key(&thor.plugins, file.name)
+    key := thor_file_highlight_key(thor, file)
     if !plugin.supports(&thor.plugins, key) {
         // A plugin reload can leave folds behind that the new language did not
         // derive, so drop them rather than keep another grammar's answer.

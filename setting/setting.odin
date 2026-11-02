@@ -10,6 +10,7 @@ package setting
 
 import "core:encoding/json"
 import "core:log"
+import "core:path/slashpath"
 import "core:strings"
 
 import ui "../vendor/loom/loom"
@@ -74,6 +75,8 @@ General :: struct {
     // "language_backends": a switch and features per backend id ("clangd", "odin").
     // An absent id is fully on; ANDs with language_features. Owned keys.
     language_backends: map[string]Backend_Setting,
+    // "file_languages": a workspace-relative path or glob -> language name. Owned keys and values.
+    file_languages:    map[string]string,
 }
 
 // One backend's admin gate: mirrors General's own language_enabled/
@@ -101,6 +104,11 @@ LANGUAGE_ENABLED_KEY :: "enabled"
 // feature). Layered the same way: only the ids, and within an id only the
 // keys, present in a given file overlay what's already there.
 LANGUAGE_BACKENDS_SETTING :: "language_backends"
+
+// settings.lua key holding the per-file language overrides: an object of path
+// or glob ("src/boot.inc", "*.inc") -> language name ("FASM"). An empty name
+// removes an entry a lower layer set.
+FILE_LANGUAGES_SETTING :: "file_languages"
 
 // The shipped defaults, staged beside the binary by a build and swapped by an
 // update. Read-only: nothing Thor writes lands here.
@@ -198,6 +206,7 @@ load :: proc(dir: string) -> Settings {
         language_enabled  = true,
         language_features = lang.FEATURES_ALL,
         language_backends = make(map[string]Backend_Setting),
+        file_languages    = make(map[string]string),
     }
 
     load_dir(&s, dir)
@@ -243,6 +252,12 @@ destroy :: proc(s: ^Settings) {
         delete(key)
     }
     delete(s.general.language_backends)
+
+    for key, value in s.general.file_languages {
+        delete(key)
+        delete(value)
+    }
+    delete(s.general.file_languages)
 
     for tip in s.tips {
         delete(tip.title)
@@ -432,6 +447,71 @@ backend_features :: proc(s: ^Settings, id: string) -> bit_set[lang.Request_Kind]
 // Manager already ANDs that in separately.
 backend_feature_enabled :: proc(s: ^Settings, id: string, kind: lang.Request_Kind) -> bool {
     return backend_enabled(s, id) && kind in backend_features(s, id)
+}
+
+// Language name file_languages sets for `rel`, a path relative to the workspace
+// (or an absolute one) with `/` separators. "" means detect from the name. An
+// exact path wins over a glob, a longer glob over a shorter one. A glob with no
+// `/` matches the base name.
+file_language :: proc(s: ^Settings, rel: string) -> string {
+    path := file_pattern_fold(rel)
+    base := path[strings.last_index_byte(path, '/') + 1:]
+    best, best_len := "", -1
+    for pattern, name in s.general.file_languages {
+        p := file_pattern_fold(pattern)
+        if p == path {
+            return name
+        }
+        if len(p) <= best_len || !strings.contains_any(p, "*?[") {
+            continue
+        }
+        subject := strings.contains_rune(p, '/') ? path : base
+        if matched, err := slashpath.match(p, subject); err == nil && matched {
+            best, best_len = name, len(p)
+        }
+    }
+    return best
+}
+
+// A file_languages key or path as compared: `\` folded to `/`, case folded on Windows.
+@(private)
+file_pattern_fold :: proc(path: string) -> string {
+    out, _ := strings.replace_all(path, "\\", "/", context.temp_allocator)
+    when ODIN_OS == .Windows {
+        out = strings.to_lower(out, context.temp_allocator)
+    }
+    return out
+}
+
+// Sets file_languages[key] = name in the settings file at `path`. An empty name
+// writes "", which turns detection back on for the key over every lower layer.
+persist_file_language :: proc(path, key, name: string) -> luaconf.Patch_Error {
+    return luaconf.patch(path, {FILE_LANGUAGES_SETTING, key}, json.String(name))
+}
+
+// Drops file_languages[key] from the settings file at `path`. A missing file or key is no error.
+remove_file_language :: proc(path, key: string) -> luaconf.Patch_Error {
+    root, status, message := luaconf.eval_file(path)
+    switch status {
+    case .Missing:
+        return .None
+    case .Failed:
+        log.warnf("Cannot read %q: %s", path, message)
+        return .Invalid
+    case .Ok:
+    }
+    obj, _ := root.(json.Object)
+    current, has := obj[FILE_LANGUAGES_SETTING].(json.Object)
+    if !has || key not_in current {
+        return .None
+    }
+    rest := make(json.Object, len(current), context.temp_allocator)
+    for k, v in current {
+        if k != key {
+            rest[k] = v
+        }
+    }
+    return luaconf.patch(path, {FILE_LANGUAGES_SETTING}, rest)
 }
 
 // Where an opened folder goes. Unset or unrecognized means Ask.
@@ -944,6 +1024,30 @@ load_general :: proc(s: ^Settings, path: string) {
     read_string(root, "default_shell", &s.general.default_shell)
     read_language(s, root)
     read_backend_toggles(s, root)
+    read_file_languages(s, root)
+}
+
+// Reads the per-file language overrides. Each entry overlays the one a lower
+// layer set for the same key.
+@(private)
+read_file_languages :: proc(s: ^Settings, root: json.Object) {
+    obj, ok := root[FILE_LANGUAGES_SETTING].(json.Object)
+    if !ok {
+        return
+    }
+    for key, value in obj {
+        name, is_string := value.(json.String)
+        if !is_string {
+            log.warnf("Settings %s.%s: the value is not a language name", FILE_LANGUAGES_SETTING, key)
+            continue
+        }
+        if key in s.general.file_languages {
+            old_key, old_value := delete_key(&s.general.file_languages, key)
+            delete(old_key)
+            delete(old_value)
+        }
+        s.general.file_languages[strings.clone(key)] = strings.clone(string(name))
+    }
 }
 
 // Reads the language-intelligence gate. A boolean is the master switch on its
