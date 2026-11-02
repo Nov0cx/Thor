@@ -249,8 +249,9 @@ outside Thor is reloaded into its view.
 ## Git
 
 The Git UI ("Git" in the top bar; the palette actions "Git: Open Git UI",
-"Git: History" and "Git: Branches" ship unbound — bindable as `open_git_gui`,
-`open_git_history`, `open_git_branches`). Inside the modal:
+"Git: History", "Git: Branches", "Git: Pull LFS Files" and "Git: Track LFS
+Pattern" ship unbound — bindable as `open_git_gui`, `open_git_history`,
+`open_git_branches`, `git_lfs_pull`, `git_lfs_track`). Inside the modal:
 
 | Binding | Action |
 | --- | --- |
@@ -452,7 +453,7 @@ as `open_language_servers` (Settings' Language Servers page),
 `restart_language_servers` and `restart_one_language_server` (pick one server
 from a list). Each command a plugin registers is listed as "Plugin: <name>
 (<plugin>)" and takes a chord as `plugin.<name>`, for example
-`["plugin.git-lfs-pull"] = "ctrl+alt+p"` in any group of `keybinds.lua`; Settings
+`["plugin.my-command"] = "ctrl+alt+p"` in any group of `keybinds.lua`; Settings
 > Keybindings lists them too. All bindings above live in `keybinds.lua`; comment markers in
 `comments.lua`; tab width, font size and autosave delay in `settings.lua` —
 see [Configuration](configuration.md) for the three directories those are

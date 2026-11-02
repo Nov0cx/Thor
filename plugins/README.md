@@ -56,8 +56,8 @@ A plugin declares what it needs in `manifest.lua` beside `plugin.lua`:
 
 ```lua
 return {
-    name = "Git LFS",
-    permissions = { "exec", "ui" },
+    name = "compile_commands.json",
+    permissions = { "exec", "read", "write", "ui" },
 }
 ```
 
