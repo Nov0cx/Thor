@@ -535,6 +535,7 @@ LANGUAGE_FEATURE_LABELS := [lang.Request_Kind]string {
     .Syntax_Diagnostics = "Live Syntax Errors",
     .Code_Actions       = "Code Actions",
     .Semantic_Tokens    = "Semantic Highlighting",
+    .Inlay_Hints        = "Inlay Hints",
     .Format             = "Format Document",
     .Format_Range       = "Format Selection",
     .Format_On_Type     = "Format On Type",

@@ -176,6 +176,10 @@ result_release :: proc(res: ^lang.Result) {
     }
     delete(res.completions)
     delete(res.tokens)
+    for hint in res.inlays {
+        delete(hint.label)
+    }
+    delete(res.inlays)
     delete(res.report.scope)
     for item in res.report.items {
         delete(item.path)
@@ -1764,4 +1768,50 @@ test_decode_format_overlapping_edits_refused :: proc(t: ^testing.T) {
 
     testing.expect(t, !res.ok)
     testing.expect_value(t, len(res.edits), 0)
+}
+
+// Inlay hints: a string label and a label of parts, the kind and the padding,
+// sorted by offset.
+@(test)
+test_decode_inlay_hints :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Inlay_Hints, SOURCE)
+
+    res := decode_reply(s, &req, `[
+        {"position":{"line":1,"character":6},"label":[{"value":"name"},{"value":":"}],"kind":2,"paddingRight":true},
+        {"position":{"line":0,"character":5},"label":": int","paddingLeft":false},
+        {"position":{"line":0,"character":1},"label":""}
+    ]`)
+    defer result_release(&res)
+
+    testing.expect(t, res.ok)
+    testing.expect_value(t, len(res.inlays), 2)
+    if len(res.inlays) != 2 {
+        return
+    }
+    testing.expect_value(t, res.inlays[0].offset, 5)
+    testing.expect_value(t, res.inlays[0].label, ": int")
+    testing.expect_value(t, res.inlays[0].kind, lang.Inlay_Kind.Type)
+    testing.expect_value(t, res.inlays[1].offset, 17)
+    testing.expect_value(t, res.inlays[1].label, "name:")
+    testing.expect_value(t, res.inlays[1].kind, lang.Inlay_Kind.Parameter)
+    testing.expect(t, res.inlays[1].pad_right)
+}
+
+// The hint request names the window as a range.
+@(test)
+test_inlay_hints_params :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Inlay_Hints, SOURCE, 0)
+    req.end = 16
+
+    ask := ask_for(s, &req)
+    params := request_params(&ask)
+    testing.expect_value(
+        t,
+        params,
+        `{"textDocument":{"uri":"` + FILE_URI + `"},"range":{"start":{"line":0,"character":0},"end":{"line":1,"character":5}}}`,
+    )
 }

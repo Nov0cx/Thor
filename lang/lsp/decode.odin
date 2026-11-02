@@ -39,6 +39,8 @@ request_decode :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
         decode_pull_diagnostics(ask, value, res)
     case .Semantic_Tokens:
         decode_semantic_tokens(ask, value, res)
+    case .Inlay_Hints:
+        decode_inlay_hints(ask, value, res)
     case .Rename:
         decode_rename(ask, value, res)
     case .Code_Actions:
@@ -723,6 +725,63 @@ decode_semantic_tokens :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) 
         append(&res.tokens, lang.Semantic_Token{start = start, end = end, kind = legend[entry].kind})
     }
     res.ok = len(res.tokens) > 0
+}
+
+// An InlayHint[] reply, sorted by offset. A label of parts is joined.
+@(private)
+decode_inlay_hints :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
+    hints, is_array := value.(json.Array)
+    if !is_array {
+        return
+    }
+    res.inlays = make([dynamic]lang.Inlay_Hint)
+    for entry in hints {
+        object, is_object := entry.(json.Object)
+        if !is_object {
+            continue
+        }
+        line, character, has_position := position_of(object["position"])
+        if !has_position {
+            continue
+        }
+        label := make([dynamic]u8, context.temp_allocator)
+        #partial switch text in object["label"] {
+        case json.String:
+            append(&label, string(text))
+        case json.Array:
+            for part in text {
+                part_object, is_part := part.(json.Object)
+                if !is_part {
+                    continue
+                }
+                if part_text, has_text := part_object["value"].(json.String); has_text {
+                    append(&label, string(part_text))
+                }
+            }
+        }
+        if len(label) == 0 {
+            continue
+        }
+        hint := lang.Inlay_Hint {
+            offset = offset_from_position(&ask.lines, line, character),
+            label  = strings.clone(string(label[:])),
+            kind   = .Type,
+        }
+        if kind, has_kind := number(object["kind"]); has_kind && kind == 2 {
+            hint.kind = .Parameter
+        }
+        if pad, has_pad := object["paddingLeft"].(json.Boolean); has_pad {
+            hint.pad_left = bool(pad)
+        }
+        if pad, has_pad := object["paddingRight"].(json.Boolean); has_pad {
+            hint.pad_right = bool(pad)
+        }
+        append(&res.inlays, hint)
+    }
+    slice.stable_sort_by(res.inlays[:], proc(a, b: lang.Inlay_Hint) -> bool {
+        return a.offset < b.offset
+    })
+    res.ok = len(res.inlays) > 0
 }
 
 // Reads a JSON array of whole numbers into an int64 slice; a non-number entry

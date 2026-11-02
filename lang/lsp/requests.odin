@@ -41,6 +41,7 @@ METHODS := [lang.Request_Kind]string {
     .Syntax_Diagnostics = "", // in-client only
     .Code_Actions      = "textDocument/codeAction",
     .Semantic_Tokens   = "textDocument/semanticTokens/full",
+    .Inlay_Hints       = "textDocument/inlayHint",
     .Format            = "textDocument/formatting",
     .Format_Range      = "textDocument/rangeFormatting",
     .Format_On_Type    = "textDocument/onTypeFormatting",
@@ -179,8 +180,8 @@ request_params :: proc(ask: ^Ask) -> string {
             append(&out, `,"previousResultId":`)
             write_quoted(&out, ask.semantic_previous_result_id)
         }
-    case .Format_Range:
-        // A selection, aligned to whole lines by the host before dispatch.
+    case .Format_Range, .Inlay_Hints:
+        // Format_Range: a selection aligned to whole lines; Inlay_Hints: the visible window.
         start_line, start_character := position_from_offset(&ask.lines, ask.req.offset)
         end_line, end_character := position_from_offset(&ask.lines, ask.req.end)
         append(&out, `,"range":{"start":{"line":`)

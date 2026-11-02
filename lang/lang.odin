@@ -31,6 +31,9 @@ Request_Kind :: enum {
     Syntax_Diagnostics,
     Code_Actions,
     Semantic_Tokens,
+    // Virtual text over [offset, end): inferred types and parameter names.
+    // Answers `inlays`.
+    Inlay_Hints,
     Format,
     // Whole-line range formatting over [offset, end) — a selection, aligned to
     // whole lines by the host before dispatch.
@@ -239,6 +242,21 @@ Semantic_Token :: struct {
     kind:  Token_Kind,
 }
 
+// What an inlay hint shows.
+Inlay_Kind :: enum {
+    Type,
+    Parameter,
+}
+
+// Virtual text the editor draws before the byte at `offset`.
+Inlay_Hint :: struct {
+    offset:    int,
+    label:     string, // owned
+    kind:      Inlay_Kind,
+    pad_left:  bool,
+    pad_right: bool,
+}
+
 // One step of a server's unsolicited work-progress report ($/progress). `done`
 // marks the "end" phase, which carries no message — the editor clears its
 // indicator on it rather than showing a blank one.
@@ -408,6 +426,8 @@ Result :: struct {
     // one pass. Sparse by design: an identifier the backend could not classify
     // is simply absent, and keeps whatever color the grammar gave it.
     tokens:    [dynamic]Semantic_Token,
+    // Inlay_Hints; owned, freed in job_free. Ascending by `offset`.
+    inlays:    [dynamic]Inlay_Hint,
     // Format only. Set from the workspace's odin-formatter.lua newline_style
     // key, and only when that key is actually present — an absent key must
     // never flip a repo's line endings on the first format. Unspecified means
@@ -1359,6 +1379,10 @@ result_free :: proc(m: ^Manager, res: ^Result) {
     }
     delete(res.actions)
     delete(res.tokens) // no owned strings on a token; the array is the whole allocation
+    for hint in res.inlays {
+        delete(hint.label)
+    }
+    delete(res.inlays)
     delete(res.report.scope)
     for d in res.report.items {
         delete(d.path)

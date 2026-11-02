@@ -30,6 +30,7 @@ PROVIDER_KEYS := [lang.Request_Kind]string {
     .Syntax_Diagnostics = "", // in-client only; no server claims it
     .Code_Actions      = "codeActionProvider",
     .Semantic_Tokens   = "semanticTokensProvider",
+    .Inlay_Hints       = "inlayHintProvider",
     .Format            = "documentFormattingProvider",
     .Format_Range      = "documentRangeFormattingProvider",
     .Format_On_Type    = "documentOnTypeFormattingProvider",

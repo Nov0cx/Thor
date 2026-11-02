@@ -23,6 +23,7 @@ FEATURE_NAMES := [Request_Kind]string {
     .Syntax_Diagnostics = "syntax_diagnostics",
     .Code_Actions       = "code_actions",
     .Semantic_Tokens    = "semantic_tokens",
+    .Inlay_Hints        = "inlay_hints",
     .Format             = "formatting",
     .Format_Range       = "range_formatting",
     .Format_On_Type     = "on_type_formatting",

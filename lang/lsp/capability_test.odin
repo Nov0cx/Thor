@@ -158,6 +158,7 @@ test_capabilities_real_reply :: proc(t: ^testing.T) {
             "renameProvider": {"prepareProvider": true},
             "codeActionProvider": {"codeActionKinds": ["quickfix"]},
             "semanticTokensProvider": {"full": true},
+            "inlayHintProvider": true,
             "executeCommandProvider": {"commands": ["clangd.applyFix"]}
         }, "serverInfo": {"name": "clangd", "version": "18"}}`,
     )
