@@ -80,6 +80,7 @@ General editor preferences.
 | `font` | Text font family, a name in `assets/fonts/fonts.json` or `user/fonts.json` | built-in default |
 | `icon_pack` | Primary icon pack, a family in `assets/icons/icons.json` | built-in default |
 | `file_icon_pack` | File-icon pack, same set as `icon_pack` | built-in default |
+| `check_for_plugin_updates` | Check plugins and themes that name a source (or are git clones) for updates shortly after start, at most once a day. **Help > Check for Plugin and Theme Updates** checks at any time. See [Plugins](plugins.md#updates) | `true` |
 | `check_for_updates` | Ask GitHub for a newer release shortly after start, at most once a day. **Help > Check for Updates** asks whatever this holds | `true` |
 | `open_folder_in` | What opening a folder does: `"ask"`, `"same"` (replace this window's workspace), or `"new"` (open a window) | `"ask"` |
 | `pane_layout` | The editor pane layout a folder opens with: `"remember"` (the folder's saved layout), or `"single"`, `"columns2"`, `"columns3"`, `"rows2"`, `"main_stack"`, `"grid4"`, `"grid6"` — see [Editor panes](keybindings.md#editor-panes) | `"remember"` |
@@ -477,6 +478,9 @@ its root, layered on top of the global settings above. This repository's own
   through Settings, which lists every theme found. A user theme shadows a
   shipped one of the same name.
 
+- A theme file can set `version` and `source = "owner/repo"`, so that Thor
+  checks it for updates. A `user/themes/` folder that is a git clone is checked
+  against its upstream branch. See [Plugins](plugins.md#updates).
 - A theme file names each color by its role id. A role the file leaves out
   keeps the Mjolnir color. The old names such as `["Keywords Color"]` still
   load:

@@ -52,6 +52,11 @@ A build from source, or one in a directory it cannot write (`/opt`,
 `curl` and `tar`, which Windows 10 1803 and later, macOS and most Linux
 distributions already ship.
 
+A bundled plugin or shipped theme takes the new copy with the update, unless
+you hold it in **Settings > Plugin & Theme Updates**. A held item keeps your
+local copy. Other plugins and themes have their own update check. See
+[Plugins](plugins.md#updates).
+
 If an update is interrupted part-way, the next start puts the old files back —
 they are kept beside the new ones with an `.old` suffix until then. In the one
 case it cannot repair, the binary itself is missing and `thor.exe.old` (or

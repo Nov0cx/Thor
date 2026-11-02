@@ -1,5 +1,9 @@
 # 2026.11.0
 
+- Plugins and themes are checked for updates. A `manifest.lua` or theme file with `version` and `source = "owner/repo"` updates from the latest GitHub release. A plugin folder or `user/themes/` that is a git clone updates from its upstream.
+- A puzzle button in the title bar shows how many plugin and theme updates are waiting. The theme picker marks a theme that has an update.
+- Settings > "Plugin & Theme Updates" lists each plugin and theme with its state, and offers Update Now, Hold Updates and Open Source Page. "Help: Check for Plugin and Theme Updates" checks at once. `check_for_plugin_updates = false` turns off the daily check.
+- A held bundled plugin or shipped theme keeps its local copy when Thor updates. Bundled plugins that are not held still update with Thor.
 - Clipboard history: ctrl + shift + v or "Edit: Clipboard History..." lists the last 30 texts copied, cut or pasted in the editor. Pick one to paste it again. The history is kept between sessions in `sessions/clipboard.txt`, encrypted with a per-user key (DPAPI on Windows), except text that looks like a secret (a key, a token, a password-like word, a copy from `.env` or `id_rsa`). `clipboard_history_save = false` turns saving off. "Edit: Clear Clipboard History" empties it and overwrites the file with zeros.
 - Syntax highlighting for assembly: GAS (x86, ARM, AArch64, RISC-V, MIPS), NASM, YASM, MASM and 8-bit assemblers in `.asm`, `.s`, `.S` and related files.
 - FASM and fasm2 have their own highlighting: macro names, and macro parameters inside the macro body, have their own colours. It applies to `.fasm`, `.fasmg`, `.fasm2`, `.ash` and to a `.asm` file that starts like FASM.

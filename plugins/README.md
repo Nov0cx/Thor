@@ -65,6 +65,12 @@ The manifest runs in the config sandbox (see `docs/configuration.md`), apart
 from the plugin, so its permissions are known before any plugin code runs. A
 `plugin.json` from an older version is converted to `manifest.lua` at start.
 
+Two optional keys let Thor check the plugin for updates (see `docs/plugins.md`):
+`version = "1.2.0"` and `source = "owner/repo"`, the GitHub repository whose
+latest release tag holds the newer version. Its source archive must have
+`plugin.lua` at its root. A plugin folder that is a git clone needs neither key,
+because Thor checks it against its upstream branch.
+
 | Permission | Grants |
 | ---------- | ------ |
 | `exec`     | `thor.exec` |

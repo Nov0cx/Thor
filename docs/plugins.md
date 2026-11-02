@@ -59,6 +59,33 @@ build output. Two differences from bundled plugins:
 A workspace plugin whose id matches a bundled one replaces it for that
 workspace.
 
+## Updates
+
+A bundled plugin or shipped theme updates with Thor: an app update replaces
+`plugins/` and `assets/themes/`. Any other plugin or theme is checked for
+updates when it names a source:
+
+- **A GitHub release.** The plugin's `manifest.lua` or the theme file sets
+  `version = "1.2.0"` and `source = "owner/repo"`. Thor compares `version` with
+  the tag of the latest release (`v1.3.0` or `1.3.0`). An update downloads the
+  source archive of that tag. For a plugin, the archive must hold `plugin.lua`
+  at its root. For a theme, it must hold a file with the same name as the theme.
+- **A git clone.** A plugin folder that is a clone, or a `user/themes/` folder
+  that is a clone, is checked against its upstream branch. An update is a
+  fast-forward `git pull`. A clone with local changes is not updated.
+
+Thor checks shortly after it starts, at most once a day
+(`check_for_plugin_updates`), and **Help > Check for Plugin and Theme Updates**
+checks at any time. When an update is found, a puzzle button with a count shows
+in the title bar, and the theme picker marks the theme. **Settings > Plugin &
+Theme Updates** lists every item and its state. Click an item to update it, to
+open its source page, or to hold it.
+
+**Hold Updates** stops all updates of that item. A held bundled plugin or
+shipped theme keeps your local copy when Thor updates. Use a hold to keep an
+edit to a bundled plugin, which the next update would otherwise overwrite. The
+holds are kept in `sessions/update-holds.json`.
+
 ## Where a plugin keeps its own files
 
 A plugin that must remember something writes it to `user/plugins/<id>/` beside
