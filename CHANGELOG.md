@@ -111,6 +111,9 @@
 - The git view, the popup menu, the plugin permission prompt, a palette confirmation and the color picker take the focus when they open. Keys no longer reach the editor under them.
 - A git config row opened for editing focuses its field.
 - The "Git LFS" top-bar dropdown and the bundled `git` plugin are removed. "Git: Pull LFS Files" and "Git: Track LFS Pattern" in the palette (`git_lfs_pull`, `git_lfs_track`) open the git Settings view and run the action there.
+- Inlay hints: the type of a `:=` or `::` declaration with no written type shows between its colons (`count : int = 3`), the type of a `for` variable after its name, and the parameter name before each argument of a call. Language servers that send inlay hints show them too.
+- `inlay_types = false` and `inlay_parameters = false` in `.thor/odin-analyzer.lua` turn off each kind of Odin hint. The `inlay_hints` feature of `language_intelligence` turns all hints off.
+- Peek definition: `alt + f12`, "Peek Definition" in the palette or the right-click menu opens the definition in an editor under the caret's line. An edit or `ctrl + s` there goes to that file. `escape` closes it; Open or `alt + enter` jumps there. `peek_height` sets its rows.
 
 # 2026.10.7
 
