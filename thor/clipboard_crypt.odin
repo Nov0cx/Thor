@@ -8,6 +8,7 @@
 package thor
 
 import "core:crypto"
+import "core:crypto/chacha20"
 import "core:crypto/chacha20poly1305"
 import "core:mem"
 import "core:strings"
@@ -16,6 +17,9 @@ Clipboard_Key :: [chacha20poly1305.KEY_SIZE]byte
 
 // First bytes of an encrypted history file. A file without them is the old plain text.
 CLIPBOARD_CRYPT_MAGIC :: "THORCLP1"
+// The Simd256 cipher faults at -o:none on Windows.
+@(private = "file")
+CLIPBOARD_CHACHA_IMPL :: chacha20.Implementation.Simd128
 @(private = "file")
 CLIPBOARD_CRYPT_HEADER :: len(CLIPBOARD_CRYPT_MAGIC) + chacha20poly1305.XIV_SIZE + chacha20poly1305.TAG_SIZE
 
@@ -32,7 +36,7 @@ clipboard_seal :: proc(key: ^Clipboard_Key, plain: []byte, allocator := context.
     crypto.rand_bytes(nonce)
 
     ctx: chacha20poly1305.Context
-    chacha20poly1305.init_xchacha(&ctx, key[:])
+    chacha20poly1305.init_xchacha(&ctx, key[:], CLIPBOARD_CHACHA_IMPL)
     defer chacha20poly1305.reset(&ctx)
     chacha20poly1305.seal(&ctx, out[CLIPBOARD_CRYPT_HEADER:], tag, nonce, transmute([]byte) string(CLIPBOARD_CRYPT_MAGIC), plain)
     return out
@@ -49,7 +53,7 @@ clipboard_open :: proc(key: ^Clipboard_Key, sealed: []byte, allocator := context
     plain = make([]byte, len(body), allocator)
 
     ctx: chacha20poly1305.Context
-    chacha20poly1305.init_xchacha(&ctx, key[:])
+    chacha20poly1305.init_xchacha(&ctx, key[:], CLIPBOARD_CHACHA_IMPL)
     defer chacha20poly1305.reset(&ctx)
     if !chacha20poly1305.open(&ctx, plain, nonce, transmute([]byte) string(CLIPBOARD_CRYPT_MAGIC), body, tag) {
         mem.zero_explicit(raw_data(plain), len(plain))
