@@ -26,14 +26,31 @@ thor_cmd_open_git_branches :: proc(data: rawptr) {
     thor_cmd_open_git_kind(data, .Branches)
 }
 
+// Opens the git Settings view and runs `git lfs pull` there.
+thor_cmd_git_lfs_pull :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    if thor_cmd_open_git_kind(data, .Settings) {
+        thor_on_git_lfs(thor, .Pull)
+    }
+}
+
+// Opens the git Settings view and asks for a pattern to `git lfs track`.
+thor_cmd_git_lfs_track :: proc(data: rawptr) {
+    thor := cast(^Thor) data
+    if thor_cmd_open_git_kind(data, .Settings) {
+        thor_on_git_lfs(thor, .Track)
+    }
+}
+
 @(private = "file")
-thor_cmd_open_git_kind :: proc(data: rawptr, kind: Git_View_Kind) {
+thor_cmd_open_git_kind :: proc(data: rawptr, kind: Git_View_Kind) -> bool {
     thor := cast(^Thor) data
     if thor.git_prefix == "" {
         thor_flash_status(thor, "Not a git repository", is_error = true)
-        return
+        return false
     }
     thor_open_git_view(thor, kind)
+    return true
 }
 
 // The history page size, and how much "Load more" adds.

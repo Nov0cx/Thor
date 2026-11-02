@@ -53,6 +53,8 @@ return {
         focus_editor = "ctrl+shift+e",
         focus_explorer = "ctrl+shift+b",
         focus_terminal = "ctrl+shift+t",
+        git_lfs_pull = "",
+        git_lfs_track = "",
         goto_definition = "alt+enter",
         goto_line = "ctrl+g",
         goto_symbol = "ctrl+shift+o",

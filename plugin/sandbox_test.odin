@@ -165,18 +165,18 @@ test_scan_reports_manifest_permissions :: proc(t: ^testing.T) {
     testing.expect(t, len(found) > 0, "plugins found")
     testing.expect(t, len(m.plugins) == 0, "scanning runs nothing")
 
-    seen_git, seen_language := false, false
+    seen_exec, seen_language := false, false
     for p in found {
         switch p.id {
-        case "git":
-            seen_git = true
-            testing.expectf(t, p.perms == {.Exec, .Ui}, "git asks for %v", p.perms)
+        case "compile-commands":
+            seen_exec = true
+            testing.expectf(t, p.perms == {.Exec, .Read, .Write, .Ui}, "compile-commands asks for %v", p.perms)
         case "odin":
             seen_language = true
             testing.expectf(t, p.perms == {}, "a language plugin asks for %v", p.perms)
         }
     }
-    testing.expect(t, seen_git, "the git plugin was scanned")
+    testing.expect(t, seen_exec, "the compile-commands plugin was scanned")
     testing.expect(t, seen_language, "the odin plugin was scanned")
 
     names := permission_names({.Exec, .Ui}, context.temp_allocator)

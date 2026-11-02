@@ -451,6 +451,8 @@ thor_register_commands :: proc(thor: ^Thor) {
     thor_add_bindable_command(thor, "Git: Open Git UI", "open_git_gui", thor_cmd_open_git_view, thor)
     thor_add_bindable_command(thor, "Git: History", "open_git_history", thor_cmd_open_git_history, thor)
     thor_add_bindable_command(thor, "Git: Branches", "open_git_branches", thor_cmd_open_git_branches, thor)
+    thor_add_bindable_command(thor, "Git: Pull LFS Files", "git_lfs_pull", thor_cmd_git_lfs_pull, thor)
+    thor_add_bindable_command(thor, "Git: Track LFS Pattern", "git_lfs_track", thor_cmd_git_lfs_track, thor)
     thor_add_bindable_command(thor, "Settings: Open Keybinds", "open_keybinds", thor_cmd_open_keybinds, thor)
     thor_add_bindable_command(thor, "Settings: Open Comments", "open_comments", thor_cmd_open_comments, thor)
     thor_add_bindable_command(thor, "Settings: Open General Settings", "open_settings", thor_cmd_open_settings, thor)
