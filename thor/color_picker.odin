@@ -41,6 +41,8 @@ Color_Picker :: struct {
     data:          rawptr,
     // Pane key the focus goes back to when the picker closes.
     return_focus:  string,
+    // The hex field takes the focus on the next frame.
+    focus_pending: bool,
 }
 
 thor_color_picker_init :: proc(thor: ^Thor) {
@@ -87,6 +89,7 @@ thor_color_picker_open :: proc(
     if !thor.color_picker_open {
         p.return_focus = thor.focus_owner
     }
+    p.focus_pending = true
     thor.color_picker_open = true
 }
 
@@ -401,6 +404,10 @@ color_picker_row :: proc(thor: ^Thor) {
         },
         "#RRGGBBAA",
     )
+    if p.focus_pending {
+        ui.set_focus(it.id)
+        p.focus_pending = false
+    }
     if it.changed {
         if color_picker_commit_hex(p) && p.preview != nil {
             p.preview(p.data, p.key, thor_color_picker_color(p))

@@ -163,6 +163,10 @@ Git_View :: struct {
     clone_dir:         [dynamic]u8, // owned
     // Pane key the focus goes back to when the modal closes.
     return_focus:      string,
+    // The box takes the focus on the next frame, so no pane reads keys under it.
+    focus_pending:     bool,
+    // The config edit field takes the focus on the next frame.
+    config_focus:      bool,
 }
 
 thor_git_view_init :: proc(thor: ^Thor) {
@@ -228,6 +232,7 @@ thor_git_view_open :: proc(thor: ^Thor, kind := Git_View_Kind.Changes) {
     v.kind = kind in v.views ? kind : .Changes
     if !thor.git_open {
         v.return_focus = thor.focus_owner
+        v.focus_pending = true
     }
     thor.git_open = true
 }
@@ -591,10 +596,11 @@ thor_git_panel_view :: proc(thor: ^Thor) {
 
 @(private = "file")
 git_view_box :: proc(thor: ^Thor) {
-    ui.scope(
+    v := &thor.git
+    box := ui.scope(
         {
             key = "git-box",
-            flags = {.Clickable},
+            flags = {.Clickable, .Focusable},
             props = {
                 w = ui.Px(GIT_VIEW_WIDTH),
                 max_w = ui.viewport().x - 80,
@@ -608,6 +614,10 @@ git_view_box :: proc(thor: ^Thor) {
             },
         },
     )
+    if v.focus_pending {
+        ui.set_focus(box.id)
+        v.focus_pending = false
+    }
 
     git_view_header(thor)
     {
@@ -1464,6 +1474,10 @@ git_view_config_row :: proc(thor: ^Thor, index: int) -> bool {
             },
             row.key,
         )
+        if v.config_focus {
+            ui.set_focus(field.id)
+            v.config_focus = false
+        }
         if ui.focus_within(field.node) && (ui.take_key(.Enter) || ui.take_key(.Pad_Enter)) {
             v.config_edit_index = -1
             thor_on_git_config_set(thor, row.global, row.key, string(v.config_edit[:]))
@@ -1485,6 +1499,7 @@ git_view_config_row :: proc(thor: ^Thor, index: int) -> bool {
     )
     if it.clicked {
         v.config_edit_index = index
+        v.config_focus = true
         clear(&v.config_edit)
         append(&v.config_edit, row.value)
         return true

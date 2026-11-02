@@ -653,10 +653,10 @@ thor_palette_view :: proc(thor: ^Thor) {
 palette_box :: proc(thor: ^Thor) {
     p := &thor.palette
 
-    ui.scope(
+    box := ui.scope(
         {
             key = "palette-box",
-            flags = {.Clickable},
+            flags = {.Clickable, .Focusable},
             props = {
                 w = ui.Px(PALETTE_WIDTH),
                 max_w = ui.viewport().x - 80,
@@ -674,6 +674,10 @@ palette_box :: proc(thor: ^Thor) {
     )
 
     if p.mode == .Confirm {
+        if p.focus_pending {
+            ui.set_focus(box.id)
+            p.focus_pending = false
+        }
         ui.label(
             p.prompt_label,
             {key = "msg", props = {pad = ui.xy(8, 10), color = thor.theme.foreground}},
