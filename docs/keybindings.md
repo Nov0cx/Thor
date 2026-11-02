@@ -33,6 +33,7 @@ Every binding below is a default and can be changed in `keybinds.lua`
 | ctrl + e | flip to the previously active file (press again to flip back) |
 | ctrl + g | go to line (opens the palette in line-number mode) |
 | alt + enter (or ctrl + click) | go to definition of the symbol under the caret |
+| alt + f12 | peek definition: show the definition in an editor under the caret's line |
 | ctrl + alt + left / right | jump back / forward through the places a jump left |
 | f10 | find all references to the symbol under the caret |
 | ctrl + shift + o | go to a symbol of the file |
@@ -180,7 +181,7 @@ backspace on an empty pair deletes both. Selecting text and typing a bracket or
 quote wraps the selection.
 
 The editor's right-click menu starts with the language features — go to
-definition, find references, rename, code actions, signature help, format
+definition, peek definition, find references, rename, code actions, signature help, format
 document and selection, go to symbol and package documentation — greyed out
 when the file's language does not serve them. A right-click outside the
 selection first moves the caret to the click, so the menu acts on the word

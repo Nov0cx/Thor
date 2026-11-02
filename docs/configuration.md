@@ -69,6 +69,7 @@ General editor preferences.
 | `insert_spaces` | Indent with spaces. `false` indents with a tab character | `true` |
 | `detect_indentation` | Take the indent style and width from the text of the file, so a tab-indented file gets tabs and a two-space file two spaces. A Makefile and a Go file get tabs with no text to read | `true` |
 | `autosave_delay_ms` | Delay after the last edit before autosave | `1500` |
+| `peek_height` | Rows of the peek definition editor, 4 to 40 | `12` |
 | `ligatures` | Draw programming ligatures (`->` as one glyph) | `true` |
 | `indent_guides` | Draw a vertical guide at every indentation stop inside a line's own indent | `true` |
 | `relative_line_numbers` | Number the gutter by distance from the caret line — the count `alt + <digit>` jumps by. Off numbers the lines from 1 | `true` |
@@ -153,8 +154,8 @@ The language servers Thor may start. Odin formatting, diagnostics,
 navigation, hover, completion, signature help and quick fixes are served in
 the editor itself and need no server. Every other language gets its features — hover, go to
 definition, find references, document symbols, workspace symbols, signature
-help, completion, diagnostics, semantic colors, rename, code actions, and
-document/selection/on-type formatting — from the server named here.
+help, completion, diagnostics, semantic colors, inlay hints, rename, code
+actions, and document/selection/on-type formatting — from the server named here.
 
 A server is started the first time you open a file it claims, never before, and
 is stopped when Thor exits.
@@ -359,6 +360,14 @@ its root, layered on top of the global settings above. This repository's own
 
   ```lua
   return { enable_snippets = false }
+  ```
+
+  `inlay_types` and `inlay_parameters` (both default `true`) turn off the type
+  hints and the parameter name hints; the `inlay_hints` feature of
+  `language_intelligence` turns all hints off, for every language:
+
+  ```lua
+  return { inlay_parameters = false }
   ```
 
   The analyzer keeps a cache of the Odin standard library's declarations in

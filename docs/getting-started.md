@@ -179,7 +179,12 @@ symbol with `ctrl` held to see its declaration and doc comment (`//` or
 `/* */`) — for a type also its size, alignment, field offsets and the fields
 `using` brings in — and `alt + enter` (or `ctrl + click`) to jump to
 its definition; on a call to a procedure group, the jump goes to the member the
-arguments pick. Completion offers the members after `x.`, the union variants
+arguments pick. `alt + f12` peeks the definition instead: an editor opens under
+the caret's line on the definition's file, where an edit or `ctrl + s` goes to
+that file. `escape` closes it, and **Open** (or `alt + enter` in it) jumps
+there. Inlay hints show the type of a declaration with no written type between
+its colons (`count : int = 3`), the type of a `for` variable after its name, and
+the parameter name before each argument of a call. Completion offers the members after `x.`, the union variants
 after `x.(`, the procedure members after `x->`, and packages the file does not
 import yet, with the import line added. Signature help also covers a
 polymorphic record (`List(`) and a conversion (`int(`). A file you save in
