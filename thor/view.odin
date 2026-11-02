@@ -17,7 +17,6 @@ import ui "../vendor/loom/loom"
 TITLEBAR_HEIGHT :: 44
 STATUSBAR_HEIGHT :: 28
 TAB_HEIGHT :: 38
-GUTTER_PAD :: 10
 // The terminal strip: shorter than the file tabs, since it sits inside a panel.
 TERMINAL_STRIP_HEIGHT :: 28
 TERMINAL_STRIP_TAB_HEIGHT :: 22
@@ -1532,9 +1531,8 @@ thor_paint_gutter :: proc(
                 text = label,
                 props = {
                     position = .Absolute,
-                    // Right-aligned before the fold column, so the digits never
-                    // run under a chevron.
-                    inset = {fold_x - GUTTER_PAD - width, y, 0, 0},
+                    // Right-aligned against the gutter's inner edge.
+                    inset = {editor.gutter_width - editview.GUTTER_PAD_RIGHT - width, y, 0, 0},
                     w = ui.FIT,
                     h = ui.Px(line_h),
                     color = on ? thor.theme.foreground : thor.theme.disabled,
