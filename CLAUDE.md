@@ -152,7 +152,10 @@ be tested headlessly.
   (`editor_press`, `editor_drag`, `editor_release`, `editor_hover`, `editor_leave`, `editor_wheel`,
   `editor_text`, `editor_key`), and each syncs the live snippet session first. It talks to the app
   through `#type proc` callbacks (`Goto_Definition_Proc`, `Hover_Proc`, `Completion_Proc`, …),
-  never by importing `thor`.
+  never by importing `thor`. Inlay hints (`editor_set_inlays`, borrowed) open a gap before their
+  byte that the caret x, the hit-test and the scroll count. A zone (`editor_set_zone`) adds spacer
+  `Visual_Row`s below a line for the host's nodes; no offset maps to a spacer, and the host
+  painters skip them.
 - `render` — the Loom backend: answers Loom's measure callbacks from `font`, replays the draw list
   through rlgl, and `poll_input` turns raylib input into Loom's event stream (AltGr suppression,
   layout remap, repeat and release synthesis).
@@ -444,6 +447,9 @@ subprocess LSP client as an optional second backend behind the same seam.
   goes through; a `WorkspaceEdit`'s resource ops (create/rename/delete) join its cross-file Ctrl+Z
   record as `Edit_Undo_File` kinds, and a target no string can restore (a directory) drops the record
   rather than leaving it half reversible.
+  Peek definition (`thor/peek.odin`) is the one second consumer of `.Definition`: it dispatches with
+  `manager_request` (not `_latest`, which would cancel a go-to) and `thor_on_lang_result` hands it
+  the result whose id is `thor.peek.request_id` before the go-to path sees it.
 - **`lang/ROADMAP.md` is the living source of truth** for what works and what is missing. Read it
   before adding a feature here, and update it after.
 

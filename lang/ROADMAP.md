@@ -2675,6 +2675,36 @@ not a status, so this section stays the source of truth for what is built.
       private declaration still used outside it, an import cycle and an
       alias taken in a file. The reference scan hands each file to a
       visitor while its parse is pinned (`visit_references`).
+  - **Inlay hints** (`lang/odin/inlay.odin`, plan §6, M8): the
+    `Inlay_Hints` kind answers virtual text for `[offset, end)`. A `:=` or
+    `::` declaration with no written type gets its type between the colons
+    (`x : int = 3`, `X : int : 4`; several names as `int, string`), and a
+    range variable gets its type after its name. There is no hint when the
+    value spells the type (a typed literal, a conversion, a cast, `new`,
+    `make`, a procedure literal), for an untyped constant, a type, a group
+    or a directive, and for `_`. A positional argument gets the name of the
+    parameter it fills (`call_arg_params`, `sema/query.odin`): not a named
+    argument, a `$` parameter, the later arguments of a variadic, an
+    argument that already reads as the name (`name`, `&name`, `x.name`), a
+    builtin, a conversion, or the one argument of a callee whose name holds
+    the parameter name. A group takes the member `choose_member` picks;
+    with no single best member there is no hint. `inlay_types` and
+    `inlay_parameters` in `.thor/odin-analyzer.lua` turn each kind off. The
+    LSP backend sends `textDocument/inlayHint`. The editor asks for the
+    window a pane shows (`thor/inlays.odin`), rebases the hints onto later
+    text, and draws each as a pill in a gap before its byte
+    (`editview.Inlay`); the caret, a click and the scroll count the gap.
+  - **Peek definition** (`thor/peek.odin`, plan §6, M8): `alt+f12`, the
+    palette and the context menu send `.Definition` with their own id, so a
+    go-to in flight is not cancelled, and the result opens an editor in a
+    zone under the caret's line (`editview` zones: spacer rows the caret,
+    a click and the page keys skip). The editor borrows the target's buffer,
+    so an edit, an undo and ctrl+s go to the file; a file that is not open
+    opens in a background tab, which closes again with the peek when it is
+    clean. Several candidates get `<` and `>`. Escape, a caret move off the
+    line, another file in the pane or a deleted line closes it; Open or
+    alt+enter in it jumps. `peek_height` sets its rows. It works for every
+    backend, the LSP servers too.
   - **Compiler oracle** (`lang/odin/oracle_test.odin`, run with
     `-define:LIVE_ORACLE=true`; plan §8 M5 bar): `test_oracle_clean_corpus`
     runs the live check on every file of the 310 `base`/`core`/`vendor`
