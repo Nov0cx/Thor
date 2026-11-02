@@ -1,5 +1,6 @@
 # 2026.11.0
 
+- The line number gutter is narrow again: it has room for 3 digits and widens only for a longer line count. The fold arrows sit in its left margin.
 - Plugins and themes are checked for updates. A `manifest.lua` or theme file with `version` and `source = "owner/repo"` updates from the latest GitHub release. A plugin folder or `user/themes/` that is a git clone updates from its upstream.
 - A puzzle button in the title bar shows how many plugin and theme updates are waiting. The theme picker marks a theme that has an update.
 - Settings > "Plugin & Theme Updates" lists each plugin and theme with its state, and offers Update Now, Hold Updates and Open Source Page. "Help: Check for Plugin and Theme Updates" checks at once. `check_for_plugin_updates = false` turns off the daily check.

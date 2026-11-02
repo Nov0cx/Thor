@@ -1476,8 +1476,7 @@ thor_paint_gutter :: proc(
 
     // An expanded region shows its chevron only while the gutter is hovered; a
     // collapsed one always shows one, so a fold is never invisible.
-    fold_col := editview.editor_fold_col_width(editor)
-    fold_x := editor.gutter_width - fold_col
+    fold_x, fold_col := editview.editor_fold_col(editor)
     mouse := ui.mouse_pos()
     gutter_hovered := pane.hovered && fold_col > 0 &&
         mouse.x >= pane.rect.x && mouse.x - pane.rect.x < editor.gutter_width

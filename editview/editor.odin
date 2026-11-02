@@ -877,16 +877,23 @@ GUTTER_PAD_RIGHT :: 12
 // gutter, thus it carries the editor background, not the gutter one.
 TEXT_PAD_LEFT :: 6
 
-// Width of the fold-chevron column on the gutter's inner edge, reserved only
-// when the buffer has foldable regions (so plain text keeps a tight gutter).
-editor_fold_col_width :: proc(editor: ^Editor) -> f32 {
+// Width of the diff bar and the diagnostic dot on the gutter's outer edge.
+GUTTER_MARK_WIDTH :: 9
+
+// The fold-chevron column inside the left pad, after the marks, as an x from
+// the gutter's left edge and a width. Zero width when the buffer has no
+// foldable regions.
+editor_fold_col :: proc(editor: ^Editor) -> (x, w: f32) {
     if len(editor.foldable) == 0 {
-        return 0
+        return GUTTER_MARK_WIDTH, 0
     }
-    return cast(f32) editor.font_size
+    return GUTTER_MARK_WIDTH, GUTTER_PAD_LEFT - GUTTER_MARK_WIDTH
 }
 
-// Sizes the gutter to fit the widest line number plus the fold column.
+// Line-number digits the gutter always has room for. A longer count widens it.
+GUTTER_MIN_DIGITS :: 3
+
+// Sizes the gutter to fit the widest line number.
 @(private = "file")
 editor_update_gutter :: proc(editor: ^Editor) {
     if editor.state == nil {
@@ -898,8 +905,7 @@ editor_update_gutter :: proc(editor: ^Editor) {
         digits += 1
     }
     char_width := cast(f32) font.measure("0", editor.font_size)
-    editor.gutter_width = GUTTER_PAD_LEFT + char_width * cast(f32) max(digits, 2) + GUTTER_PAD_RIGHT +
-        editor_fold_col_width(editor)
+    editor.gutter_width = GUTTER_PAD_LEFT + char_width * cast(f32) max(digits, GUTTER_MIN_DIGITS) + GUTTER_PAD_RIGHT
 }
 
 // How far a blank line looks for the block it sits in. A longer gap of empty
@@ -2922,9 +2928,9 @@ editor_press :: proc(
 
     // A click in the fold column toggles that line's fold instead of moving the
     // caret.
-    if fold_col := editor_fold_col_width(editor); fold_col > 0 &&
-       pos.x >= editor.view.x + editor.gutter_width - fold_col &&
-       pos.x < editor.view.x + editor.gutter_width {
+    if fold_x, fold_w := editor_fold_col(editor); fold_w > 0 &&
+       pos.x >= editor.view.x + fold_x &&
+       pos.x < editor.view.x + fold_x + fold_w {
         if at, ok := editor_pos_at(editor, pos); ok {
             editor_toggle_fold_line(editor, textedit.state_line_index(editor.state, at))
         }
