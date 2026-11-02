@@ -207,6 +207,10 @@ buffer alone.
 | ctrl + shift + 1 … ctrl + shift + 6 | show the active file in pane 1 … 6 (the layout grows to have it) |
 | f6 / shift + f6 | focus the next / previous pane |
 
+Click the language in the status bar, or run "View: Change Language of
+File..." (`change_language`, unbound), to colour the active file as another
+language. See `file_languages` in [Configuration](configuration.md).
+
 ## Previews
 
 Three file kinds open in a view of their own instead of the text editor. Each is

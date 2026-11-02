@@ -89,12 +89,26 @@ General editor preferences.
 | `terminal_clipboard` | Let a program in a terminal set the clipboard (OSC 52) | `true` |
 | `language_intelligence` | Master switch for language features (hover, goto, completion, ...), both the built-in Odin support and any configured language server; either a plain boolean or an object with an `"enabled"` key plus per-feature toggles | `true` |
 | `language_backends` | Per-backend switch, one level more precise than `language_intelligence`: an object keyed by backend id (`"odin"` for the built-in support, or an `lsp.lua` server's own `id`) whose value is the same shape as `language_intelligence` itself — a plain boolean, or an object with `"enabled"` plus per-feature toggles — scoped to that one backend | `{}` (every backend fully enabled) |
+| `file_languages` | The language a file is coloured as, over the one its name gives: an object keyed by a path relative to the workspace (`"src/boot.inc"`) or a glob (`"*.inc"`, `"src/*.s"`), whose value is a language name as the status bar shows it (`"FASM"`). A glob with no `/` matches the file name. An exact path wins over a glob, a longer glob over a shorter one, and `""` turns detection back on | `{}` |
 
 Thor saves by itself, `autosave_delay_ms` after the last edit. A tab that
 closes, a folder switch and a quit write every unsaved buffer first. When the
 disk refuses a file, its tab asks before it closes, and at exit the text goes
 to `sessions/backups/` beside the binary; the next open of that file puts the
 edits back as an unsaved buffer.
+
+Click the language in the status bar, or run "View: Change Language of File..."
+(`change_language`), to pick the language of the active file. The choice goes
+into `file_languages` of the workspace's `.thor/settings.lua` (created when
+missing), or of `user/settings.lua` for a file outside the workspace. "Auto
+Detect" removes it again.
+
+```lua
+file_languages = {
+    ["*.inc"] = "FASM",
+    ["src/legacy.inc"] = "Pascal",
+},
+```
 
 An unset key falls back to its default, so a `settings.lua` only needs the
 keys you want to change. Every key applies as soon as the file is written,
