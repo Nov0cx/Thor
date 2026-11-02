@@ -161,6 +161,8 @@ Editor :: struct {
     move_signature:     u64,
     // Syntax highlight spans for the current buffer; borrowed from the owner.
     highlights:         []Highlight_Span,
+    // Inlay hints for the current buffer, ascending by offset. Borrowed.
+    inlays:             []Inlay,
     // Diagnostics for the current buffer, drawn as squiggles and gutter markers. Borrowed.
     diagnostics:            []Diagnostic,
     diagnostic_error_color: ui.Color,
@@ -655,6 +657,11 @@ editor_visible_row_count :: proc(editor: ^Editor) -> int {
 // the plain text color.
 editor_set_highlights :: proc(editor: ^Editor, highlights: []Highlight_Span) {
     editor.highlights = highlights
+}
+
+// Replaces the inlay hints drawn for the current buffer (borrowed, not copied).
+editor_set_inlays :: proc(editor: ^Editor, inlays: []Inlay) {
+    editor.inlays = inlays
 }
 
 // Replaces the diagnostics drawn for the current buffer (borrowed, not copied).
@@ -2420,7 +2427,8 @@ editor_screen_at :: proc(editor: ^Editor, offset: int) -> (x, y, line_height: f3
     yy := inner_top - editor.scroll_y + cast(f32) row_index * lh
     col := clamp(offset, row.start, row.end)
     xx := text_x + cast(f32) font.measure(text[row.start:col], editor.font_size) +
-        editor_swatch_offset(editor, text[row.start:row.end], col - row.start)
+        editor_swatch_offset(editor, text[row.start:row.end], col - row.start) +
+        editor_inlay_lead(editor, text, row.start, row.end, col)
     return xx, yy, lh, true
 }
 
@@ -2605,6 +2613,69 @@ editor_swatch_offset_scanned :: proc(swatches: []Row_Swatch, span: f32, rel: int
     return total
 }
 
+// Virtual text drawn before the byte at `offset`.
+Inlay :: struct {
+    offset:    int,
+    label:     string, // borrowed
+    parameter: bool,   // a parameter name; else a type
+    pad_left:  bool,
+    pad_right: bool,
+}
+
+// Padding inside an inlay pill, and the space a padded side keeps to the text.
+INLAY_PAD :: 3
+INLAY_MARGIN :: 4
+
+// The font size inlay labels are drawn at.
+editor_inlay_font_size :: proc(editor: ^Editor) -> i32 {
+    return max(editor.font_size - 2, 8)
+}
+
+// The gap an inlay opens: its label, padding and margins.
+editor_inlay_width :: proc(editor: ^Editor, inlay: Inlay) -> f32 {
+    w := cast(f32) font.measure(inlay.label, editor_inlay_font_size(editor)) + 2 * INLAY_PAD
+    if inlay.pad_left {
+        w += INLAY_MARGIN
+    }
+    if inlay.pad_right {
+        w += INLAY_MARGIN
+    }
+    return w
+}
+
+// The inlays drawn on the visual row [row_start, row_end) of `text`. One at row_end belongs to the
+// row only when the row ends its line.
+editor_row_inlays :: proc(editor: ^Editor, text: string, row_start, row_end: int) -> []Inlay {
+    inlays := editor.inlays
+    lo, hi := 0, len(inlays)
+    for lo < hi {
+        mid := (lo + hi) / 2
+        if inlays[mid].offset < row_start {
+            lo = mid + 1
+        } else {
+            hi = mid
+        }
+    }
+    ends_line := row_end >= len(text) || text[row_end] == '\n'
+    end := lo
+    for end < len(inlays) && (inlays[end].offset < row_end || inlays[end].offset == row_end && ends_line) {
+        end += 1
+    }
+    return inlays[lo:end]
+}
+
+// The width the inlays of a row open at or before byte `at`.
+editor_inlay_lead :: proc(editor: ^Editor, text: string, row_start, row_end, at: int) -> f32 {
+    total: f32
+    for inlay in editor_row_inlays(editor, text, row_start, row_end) {
+        if inlay.offset > at {
+            break
+        }
+        total += editor_inlay_width(editor, inlay)
+    }
+    return total
+}
+
 // Highest-severity diagnostic on logical line `line`, if any. Errors outrank
 // warnings so the gutter dot reflects the worst issue on the line.
 editor_line_diagnostic :: proc(editor: ^Editor, line: int) -> (Diagnostic_Severity, bool) {
@@ -2627,7 +2698,8 @@ editor_line_diagnostic :: proc(editor: ^Editor, line: int) -> (Diagnostic_Severi
 @(private = "file")
 editor_row_width_at :: proc(editor: ^Editor, text: string, row: Visual_Row, swatches: []Row_Swatch, span: f32, pos: int) -> f32 {
     return cast(f32) font.measure(text[row.start:pos], editor.font_size) +
-        editor_swatch_offset_scanned(swatches, span, pos - row.start)
+        editor_swatch_offset_scanned(swatches, span, pos - row.start) +
+        editor_inlay_lead(editor, text, row.start, row.end, pos)
 }
 
 editor_pos_at :: proc(editor: ^Editor, position: ui.Vec2) -> (int, bool) {
@@ -2767,7 +2839,8 @@ editor_scroll_to_caret :: proc(editor: ^Editor) {
         text := textedit.text(editor.state)
         col := clamp(caret, row.start, row.end)
         caret_x := cast(f32) font.measure(text[row.start:col], editor.font_size) +
-            editor_swatch_offset(editor, text[row.start:row.end], col - row.start)
+            editor_swatch_offset(editor, text[row.start:row.end], col - row.start) +
+            editor_inlay_lead(editor, text, row.start, row.end, col)
         margin := min(cast(f32) font.measure("0", editor.font_size) * 2, text_width * 0.25)
         if caret_x - margin < editor.scroll_x {
             editor.scroll_x = caret_x - margin

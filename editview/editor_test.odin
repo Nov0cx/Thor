@@ -1389,3 +1389,33 @@ test_completion_triggers_after_assertion_and_arrow :: proc(t: ^testing.T) {
     editor_text(&editor, '>', {})
     testing.expect_value(t, asked, before)
 }
+
+// An inlay opens a gap before its byte: the caret there draws after it, and a click in its
+// left half lands before it. Clusters are zero wide with no font atlas, so the gap is all the width.
+@(test)
+test_inlay_gap_moves_caret_and_hit_test :: proc(t: ^testing.T) {
+    state: textedit.State
+    defer textedit.destroy(&state)
+    editor: Editor
+    editor_test_overlay_setup(&editor, &state, "abc")
+    defer delete(editor.visual_rows)
+    inlays := []Inlay{{offset = 1, label = "n:", parameter = true, pad_right = true}}
+    editor_set_inlays(&editor, inlays)
+    width := editor_inlay_width(&editor, inlays[0])
+    testing.expect(t, width > 0, "an inlay opens a gap")
+
+    left := editor.view.x + editor.gutter_width + TEXT_PAD_LEFT - editor.scroll_x
+    x0, _, _, ok0 := editor_screen_at(&editor, 0)
+    x1, _, _, ok1 := editor_screen_at(&editor, 1)
+    testing.expect(t, ok0 && ok1)
+    testing.expect_value(t, x0, left)
+    testing.expect_value(t, x1, left + width)
+
+    y := editor_test_row_point(&editor, 0).y
+    at, hit := editor_pos_at(&editor, {left + width * 0.25, y})
+    testing.expect(t, hit)
+    testing.expect_value(t, at, 0)
+    at, hit = editor_pos_at(&editor, {left + width * 0.75, y})
+    testing.expect(t, hit)
+    testing.expect_value(t, at, 1)
+}
