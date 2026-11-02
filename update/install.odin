@@ -278,7 +278,7 @@ stage_path :: proc(name: string, allocator := context.allocator) -> (path: strin
     return joined, true
 }
 
-@(private = "file")
+@(private)
 cancelled :: proc(cancel: ^bool) -> bool {
     return cancel != nil && sync.atomic_load(cancel)
 }
@@ -320,8 +320,10 @@ install_restore :: proc(install: string) {
 // there is no binary left to run this.
 install_cleanup_leftovers :: proc() {
     install_restore(".")
-    if err := os.remove_all(STAGE_DIR); err != nil && os.exists(STAGE_DIR) {
-        log.warnf("Could not clear %q: %v", STAGE_DIR, err)
+    for dir in ([?]string{STAGE_DIR, EXT_STAGE_DIR}) {
+        if err := os.remove_all(dir); err != nil && os.exists(dir) {
+            log.warnf("Could not clear %q: %v", dir, err)
+        }
     }
 }
 

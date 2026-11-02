@@ -3,16 +3,19 @@ package update
 // What the latest release is. Runs on a worker thread and touches nothing the
 // editor owns; the whole answer is one Check_Result the caller frees.
 
+import "core:fmt"
 import "core:log"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
+import "core:sync"
 
 // The check writes the API reply beside the executable only when it may also
 // install; otherwise it uses the system temporary directory, so a Thor in a
-// read-only directory still learns that an update exists.
+// read-only directory still learns that an update exists. The thread id keeps
+// the app check and a plugin check apart.
 @(private = "file")
-API_FILE :: "thor-update-api.json"
+API_FILE_FORMAT :: "thor-update-api-%d.json"
 
 // Asks GitHub what the latest release is and whether it is newer than
 // `current`. Every string of the result is owned by `allocator`.
@@ -38,53 +41,9 @@ check :: proc(current: string, allocator := context.allocator) -> (result: Check
     }
 
     agent := user_agent(current, context.temp_allocator)
-    scratch, has_scratch := scratch_dir(context.temp_allocator)
-    if !has_scratch {
-        result.status = .Not_Installable
-        return result
-    }
-    api_path, join_err := filepath.join({scratch, API_FILE}, context.temp_allocator)
-    if join_err != nil {
-        log.errorf("Could not build the api scratch path: %v", join_err)
-        result.status = .Not_Installable
-        return result
-    }
-    defer if err := os.remove(api_path); err != nil && os.exists(api_path) {
-        log.warnf("Could not remove %q: %v", api_path, err)
-    }
-
-    code, fetched := fetch_text(tools, API_URL, api_path, agent)
-    if !fetched {
-        result.status = .No_Network
-        return result
-    }
-    switch {
-    case code == 403 || code == 429:
-        result.status = .Rate_Limited
-        return result
-    case code == 404:
-        // /latest answers 404 for a repository that has published nothing yet,
-        // which is not an error and not an update either.
-        result.status = .Up_To_Date
-        return result
-    case code != 200:
-        log.warnf("The releases API answered %d", code)
-        result.status = .Bad_Response
-        return result
-    }
-
-    data, read_err := os.read_entire_file(api_path, context.temp_allocator)
-    if read_err != nil {
-        result.status = .Bad_Response
-        return result
-    }
-    release, decoded := release_decode(data, context.temp_allocator)
-    if !decoded {
-        result.status = .Bad_Response
-        return result
-    }
-    if release.draft || release.prerelease {
-        result.status = .Draft_Release
+    release, status := fetch_latest_release(tools, API_URL, agent, context.temp_allocator)
+    if status != .Ok {
+        result.status = status
         return result
     }
 
@@ -136,6 +95,53 @@ check :: proc(current: string, allocator := context.allocator) -> (result: Check
     result.size = asset.size
     result.installable, _ = installable()
     return result
+}
+
+// Reads the latest release of `url`, a releases API address. Up_To_Date is a
+// repository that has published nothing yet.
+fetch_latest_release :: proc(tools: Tools, url: string, agent: string, allocator := context.allocator) -> (release: Api_Release, status: Status) {
+    scratch, has_scratch := scratch_dir(context.temp_allocator)
+    if !has_scratch {
+        return {}, .Not_Installable
+    }
+    api_path, join_err := filepath.join({scratch, fmt.tprintf(API_FILE_FORMAT, sync.current_thread_id())}, context.temp_allocator)
+    if join_err != nil {
+        log.errorf("Could not build the api scratch path: %v", join_err)
+        return {}, .Not_Installable
+    }
+    defer if err := os.remove(api_path); err != nil && os.exists(api_path) {
+        log.warnf("Could not remove %q: %v", api_path, err)
+    }
+
+    code, fetched := fetch_text(tools, url, api_path, agent)
+    if !fetched {
+        return {}, .No_Network
+    }
+    switch {
+    case code == 403 || code == 429:
+        return {}, .Rate_Limited
+    case code == 404:
+        // /latest answers 404 for a repository that has published nothing yet,
+        // which is not an error and not an update either.
+        return {}, .Up_To_Date
+    case code != 200:
+        log.warnf("The releases API answered %d", code)
+        return {}, .Bad_Response
+    }
+
+    data, read_err := os.read_entire_file(api_path, context.temp_allocator)
+    if read_err != nil {
+        return {}, .Bad_Response
+    }
+    decoded: bool
+    release, decoded = release_decode(data, allocator)
+    if !decoded {
+        return {}, .Bad_Response
+    }
+    if release.draft || release.prerelease {
+        return {}, .Draft_Release
+    }
+    return release, .Ok
 }
 
 // Frees what a check owns.

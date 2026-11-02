@@ -330,3 +330,46 @@ test_http_code :: proc(t: ^testing.T) {
     testing.expect_value(t, http_code(""), 0)
     testing.expect_value(t, http_code("curl: (6) Could not resolve host: api.github.com"), 0)
 }
+
+@(test)
+test_source_valid :: proc(t: ^testing.T) {
+    testing.expect(t, source_valid("Nov0cx/thor-theme.jogo"), "an owner/repo is valid")
+    testing.expect(t, source_valid("a_b/c-d"), "underscore and dash are valid")
+    bad := [?]string{"", "owner", "/repo", "owner/", "a/b/c", "a/..", "a b/c", "a/c;rm", "a/\"c\"", "a/c$x", "https://github.com/a/b"}
+    for s in bad {
+        testing.expectf(t, !source_valid(s), "%q must be refused", s)
+    }
+}
+
+@(test)
+test_ext_version_from_tag :: proc(t: ^testing.T) {
+    v, ok := ext_version_from_tag("v1.2.3")
+    testing.expect(t, ok, "a v tag parses")
+    testing.expect_value(t, v, Version{1, 2, 3})
+    v, ok = ext_version_from_tag("0.4.0")
+    testing.expect(t, ok, "a bare version parses")
+    testing.expect_value(t, v, Version{0, 4, 0})
+    _, ok = ext_version_from_tag("v")
+    testing.expect(t, !ok, "a bare v is refused")
+    _, ok = ext_version_from_tag("1.2")
+    testing.expect(t, !ok, "two fields are refused")
+}
+
+@(test)
+test_ext_urls :: proc(t: ^testing.T) {
+    testing.expect_value(t, ext_api_url("a/b", context.temp_allocator), "https://api.github.com/repos/a/b/releases/latest")
+    testing.expect_value(t, ext_archive_url("a/b", "v1.0.0", .Zip, context.temp_allocator), "https://codeload.github.com/a/b/zip/refs/tags/v1.0.0")
+    testing.expect_value(t, ext_archive_url("a/b", "v1.0.0", .Tar_Gz, context.temp_allocator), "https://codeload.github.com/a/b/tar.gz/refs/tags/v1.0.0")
+}
+
+@(test)
+test_ext_parse_count :: proc(t: ^testing.T) {
+    n, ok := ext_parse_count("3\n")
+    testing.expect(t, ok && n == 3, "a count with a newline parses")
+    n, ok = ext_parse_count("0")
+    testing.expect(t, ok && n == 0, "zero parses")
+    _, ok = ext_parse_count("")
+    testing.expect(t, !ok, "no output is refused")
+    _, ok = ext_parse_count("fatal: no upstream")
+    testing.expect(t, !ok, "an error line is refused")
+}
