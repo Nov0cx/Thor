@@ -85,6 +85,10 @@ show_str :: proc(s: string) {}
 
 Box :: struct { add: proc(b: ^Box, amount: int) }
 
+LIMIT :: 10
+LIMIT_INT : int : 4
+DOUBLE :: LIMIT_INT * 2
+
 main :: proc() {
 	count := 3
 	ratio := scale(count, 4)
@@ -116,17 +120,22 @@ test_inlay_types :: proc(t: ^testing.T) {
     res := inlays_at(e, INLAY_SRC)
     defer inlays_free(&res)
 
-    expect_hint(t, &res, INLAY_SRC, "count", ": int", after = "main ::")
-    expect_hint(t, &res, INLAY_SRC, "ratio", ": f32", after = "main ::")
-    expect_hint(t, &res, INLAY_SRC, "n", ": int", after = "4)\n")
-    expect_hint(t, &res, INLAY_SRC, "label", ": string", after = "4)\n")
-    expect_hint(t, &res, INLAY_SRC, "item", ": int", after = "for ")
-    expect_hint(t, &res, INLAY_SRC, "key", ": string", after = "for key")
-    expect_hint(t, &res, INLAY_SRC, "val", ": f32", after = "for key")
-    expect_no_hint(t, &res, INLAY_SRC, "p", after = "label := pair()\n\t")
-    expect_no_hint(t, &res, INLAY_SRC, "q", after = "Point{1, 2}\n\t")
-    expect_no_hint(t, &res, INLAY_SRC, "r", after = "count\n\t")
-    expect_no_hint(t, &res, INLAY_SRC, "typed", after = "main ::")
+    // Between the colons of `:=` and `::`.
+    expect_hint(t, &res, INLAY_SRC, "=", "int", after = "\tcount :", at_start = true)
+    expect_hint(t, &res, INLAY_SRC, "=", "f32", after = "\tratio :", at_start = true)
+    expect_hint(t, &res, INLAY_SRC, "=", "int, string", after = "\tn, label :", at_start = true)
+    expect_hint(t, &res, INLAY_SRC, ": LIMIT_INT", "int", after = "DOUBLE :", at_start = true)
+    // After the name of a range variable.
+    expect_hint(t, &res, INLAY_SRC, "item", "int", after = "for ")
+    expect_hint(t, &res, INLAY_SRC, "key", "string", after = "for key")
+    expect_hint(t, &res, INLAY_SRC, "val", "f32", after = "for key")
+    // A spelled or written type, an untyped constant and a type declaration get none.
+    expect_no_hint(t, &res, INLAY_SRC, "=", after = "\tp :", at_start = true)
+    expect_no_hint(t, &res, INLAY_SRC, "=", after = "\tq :", at_start = true)
+    expect_no_hint(t, &res, INLAY_SRC, "=", after = "\tr :", at_start = true)
+    expect_no_hint(t, &res, INLAY_SRC, "=", after = "\ttyped: int ", at_start = true)
+    expect_no_hint(t, &res, INLAY_SRC, ": 10", after = "LIMIT :", at_start = true)
+    expect_no_hint(t, &res, INLAY_SRC, ": struct", after = "Point :", at_start = true)
 }
 
 // A positional argument gets its parameter name, unless it reads as one already.
@@ -167,8 +176,8 @@ test_inlay_range :: proc(t: ^testing.T) {
     res := inlays_at(e, INLAY_SRC, offset = lo, end = hi)
     defer inlays_free(&res)
 
-    expect_hint(t, &res, INLAY_SRC, "label", ": string", after = "4)\n")
-    expect_no_hint(t, &res, INLAY_SRC, "count", after = "main ::")
+    expect_hint(t, &res, INLAY_SRC, "=", "int, string", after = "\tn, label :", at_start = true)
+    expect_no_hint(t, &res, INLAY_SRC, "=", after = "\tcount :", at_start = true)
     for hint in res.inlays {
         testing.expectf(t, hint.offset >= lo && hint.offset <= hi, "hint %q at %d is outside the range", hint.label, hint.offset)
     }
@@ -184,6 +193,6 @@ test_inlay_config :: proc(t: ^testing.T) {
     res := inlays_at(e, INLAY_SRC, workspace = root, path = fixture_path(root, "main.odin"))
     defer inlays_free(&res)
 
-    expect_no_hint(t, &res, INLAY_SRC, "count", after = "main ::")
+    expect_no_hint(t, &res, INLAY_SRC, "=", after = "\tcount :", at_start = true)
     expect_hint(t, &res, INLAY_SRC, "count, 4", "value:", after = "ratio :=", at_start = true)
 }

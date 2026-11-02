@@ -1,4 +1,5 @@
-// Inlay hints: the type of a `:=` name and the parameter name of a positional argument.
+// Inlay hints: the type of a `:=` or `::` declaration between its colons, of a range variable after
+// its name, and the parameter name of a positional argument.
 package odin
 
 import "core:slice"
@@ -113,12 +114,9 @@ inlay_walk :: proc(ctx: ^Inlay_Ctx, n: odinsyntax.Syntax_Node) {
     }
 }
 
-// The type hints of a variable declaration with no written type.
+// The type hint of a declaration with no written type, between its colons.
 @(private = "file")
 value_decl_hints :: proc(ctx: ^Inlay_Ctx, n: odinsyntax.Syntax_Node) {
-    if odinsema.is_constant_decl(n) {
-        return
-    }
     vd, _ := odinsyntax.as_value_decl(n)
     if _, typed := odinsyntax.value_decl_type(&vd); typed {
         return
@@ -128,29 +126,60 @@ value_decl_hints :: proc(ctx: ^Inlay_Ctx, n: odinsyntax.Syntax_Node) {
     if !has_names || !has_values {
         return
     }
-    value_nodes := make([dynamic]odinsyntax.Syntax_Node, context.temp_allocator)
+    constant := odinsema.is_constant_decl(n)
     vit := odinsyntax.expr_list_items(&values)
     for v in odinsyntax.child_iter_next(&vit) {
-        append(&value_nodes, v)
+        if spells_type(ctx, v) || constant && names_no_value(ctx, v) {
+            return
+        }
     }
-    i := 0
+    // The hint goes between the colons: `x : int = v`, `X : int : v`.
+    colon := -1
+    n := n
+    for child in odinsyntax.node_children(&n, context.temp_allocator) {
+        if tok, is_token := child.(odinsyntax.Syntax_Token); is_token && tok.green.kind == .Colon {
+            colon = int(tok.offset)
+            break
+        }
+    }
+    if colon < 0 || colon + 1 < ctx.lo || colon + 1 > ctx.hi {
+        return
+    }
+    labels := make([dynamic]string, context.temp_allocator)
     nit := odinsyntax.name_list_names(&names)
     for name in odinsyntax.child_iter_next(&nit) {
-        defer i += 1
         if name.green.kind != .Ident {
-            continue
+            return
         }
-        if len(value_nodes) == 1 && i == 0 && spells_type(ctx, value_nodes[0]) {
-            continue
+        label, ok := decl_label(ctx, name)
+        if !ok || constant && strings.has_prefix(label, "untyped") {
+            return
         }
-        if len(value_nodes) > 1 && i < len(value_nodes) && spells_type(ctx, value_nodes[i]) {
-            continue
-        }
-        type_hint(ctx, name)
+        append(&labels, label)
     }
+    if len(labels) == 0 {
+        return
+    }
+    append(&ctx.hints, lang.Inlay_Hint{
+        offset    = colon + 1,
+        label     = strings.join(labels[:], ", ", context.temp_allocator),
+        kind      = .Type,
+        pad_left  = true,
+        pad_right = true,
+    })
 }
 
-// The type hints of the variables of a range `for`.
+// Whether a constant's value is no value to type: a type, a procedure group or a directive.
+@(private = "file")
+names_no_value :: proc(ctx: ^Inlay_Ctx, value: odinsyntax.Syntax_Node) -> bool {
+    #partial switch value.green.kind {
+    case .Proc_Group, .Directive, .Tag_Expr:
+        return true
+    }
+    return odinsema.expr_type(ctx.c, ctx.rc.live.id, value).mode == .Type
+}
+
+// The type hints of the variables of a range `for`, after each name.
 @(private = "file")
 range_hints :: proc(ctx: ^Inlay_Ctx, n: odinsyntax.Syntax_Node) {
     rs, _ := odinsyntax.as_range_stmt(n)
@@ -160,19 +189,24 @@ range_hints :: proc(ctx: ^Inlay_Ctx, n: odinsyntax.Syntax_Node) {
     }
     it := odinsyntax.expr_list_items(&vars)
     for v in odinsyntax.child_iter_next(&it) {
-        if v.green.kind == .Ident {
-            type_hint(ctx, v)
+        if v.green.kind != .Ident {
+            continue
+        }
+        _, end := odinsyntax.node_range(v)
+        if int(end) < ctx.lo || int(end) > ctx.hi {
+            continue
+        }
+        if label, has := decl_label(ctx, v); has {
+            append(&ctx.hints, lang.Inlay_Hint{offset = int(end), label = label, kind = .Type, pad_left = true})
         }
     }
 }
 
-// Appends `: T` after the name `name` declares.
+// The type the name `name` declares, printed and cut to INLAY_TYPE_MAX; false for `_` and an unknown type.
 @(private = "file")
-type_hint :: proc(ctx: ^Inlay_Ctx, name: odinsyntax.Syntax_Node) {
-    text := odinsyntax.node_text(name)
-    _, end := odinsyntax.node_range(name)
-    if text == "_" || int(end) < ctx.lo || int(end) > ctx.hi {
-        return
+decl_label :: proc(ctx: ^Inlay_Ctx, name: odinsyntax.Syntax_Node) -> (string, bool) {
+    if odinsyntax.node_text(name) == "_" {
+        return "", false
     }
     file := ctx.rc.live.id
     sym := odinsema.local_symbol(file, int(name.offset))
@@ -181,27 +215,22 @@ type_hint :: proc(ctx: ^Inlay_Ctx, name: odinsyntax.Syntax_Node) {
     }
     type := odinsema.decl_type(ctx.c, sym)
     if type == odinsema.INVALID_TYPE {
-        return
+        return "", false
     }
     label := odinsema.type_string(&ctx.c.table, type, context.temp_allocator)
     if label == "" || label == "invalid" {
-        return
+        return "", false
     }
     if strings.rune_count(label) > INLAY_TYPE_MAX {
         cut := 0
         for _, at in label {
             if cut == INLAY_TYPE_MAX - 1 {
-                label = strings.concatenate({label[:at], "…"}, context.temp_allocator)
-                break
+                return strings.concatenate({label[:at], "…"}, context.temp_allocator), true
             }
             cut += 1
         }
     }
-    append(&ctx.hints, lang.Inlay_Hint{
-        offset = int(end),
-        label  = strings.concatenate({": ", label}, context.temp_allocator),
-        kind   = .Type,
-    })
+    return label, true
 }
 
 // Whether a value already spells its type: a typed literal, a conversion, a cast, `new(T)`, `make(T)` or a procedure literal.
