@@ -108,6 +108,9 @@
 - `pane_layout` setting (Settings > Windows): the layout a folder opens with, or `"remember"` for its saved one.
 - A file reloaded after a change on disk keeps each pane on the same text again.
 - `tab` indents in the focused pane and `ctrl+tab` opens quick open without moving the focus to the next pane.
+- The git view, the popup menu, the plugin permission prompt, a palette confirmation and the color picker take the focus when they open. Keys no longer reach the editor under them.
+- A git config row opened for editing focuses its field.
+- The "Git LFS" top-bar dropdown and the bundled `git` plugin are removed. "Git: Pull LFS Files" and "Git: Track LFS Pattern" in the palette (`git_lfs_pull`, `git_lfs_track`) open the git Settings view and run the action there.
 
 # 2026.10.7
 
