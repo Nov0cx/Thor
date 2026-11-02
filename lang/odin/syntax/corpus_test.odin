@@ -45,6 +45,7 @@ read_source :: proc(path: string, allocator := context.temp_allocator) -> (strin
         return src, true
     }
     out, _ := strings.replace_all(src, "\r\n", "\n", allocator)
+    delete(data, allocator)
     return out, true
 }
 
@@ -629,11 +630,12 @@ test_fuzz_edits :: proc(t: ^testing.T) {
 // Every prefix of a file lexes and parses losslessly: the path of typing a file from the top.
 @(test)
 test_every_prefix :: proc(t: ^testing.T) {
-    src, ok := read_source("lang/odin/syntax/lexer.odin")
+    full, ok := read_source("lang/odin/syntax/lexer.odin", context.allocator)
     if !testing.expect(t, ok, "lexer.odin not readable") {
         return
     }
-    src = src[:min(len(src), 4000)]
+    defer delete(full)
+    src := full[:min(len(full), 4000)]
     for n in 0 ..= len(src) {
         toks := lex_all(src[:n], context.temp_allocator)
         if msg := lossless_error(src[:n], toks); msg != "" {
