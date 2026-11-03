@@ -20,18 +20,16 @@ thor_sync_pane_occurrences :: proc(thor: ^Thor, pane: int) {
         editview.editor_set_occurrences(editor, nil)
         return
     }
-    cursor := textedit.primary_cursor(&file.state)
-    if len(file.state.cursors) != 1 || cursor.anchor != cursor.caret {
-        editview.editor_set_occurrences(editor, nil)
-        return
-    }
     shown := thor.occurrence_path == file.path && thor.occurrence_revision == file.state.revision
-    if shown && thor_occurrences_cover(thor.occurrences[:], cursor.caret) {
+    if shown && thor_occurrences_cover_cursors(thor.occurrences[:], file.state.cursors[:]) {
         editview.editor_set_occurrences(editor, thor.occurrences[:])
         return
     }
     editview.editor_set_occurrences(editor, nil)
-    thor_request_occurrences(thor, file, cursor.caret)
+    cursor := textedit.primary_cursor(&file.state)
+    if len(file.state.cursors) == 1 && cursor.anchor == cursor.caret {
+        thor_request_occurrences(thor, file, cursor.caret)
+    }
 }
 
 // True when `caret` is inside one of `occurrences` or at one of its ends.
@@ -42,6 +40,27 @@ thor_occurrences_cover :: proc(occurrences: []editview.Occurrence, caret: int) -
         }
     }
     return false
+}
+
+// True when each cursor is a caret on a use or a selection of one whole use, as ctrl + d leaves them.
+thor_occurrences_cover_cursors :: proc(occurrences: []editview.Occurrence, cursors: []textedit.Cursor) -> bool {
+    if len(cursors) == 0 {
+        return false
+    }
+    for cursor in cursors {
+        lo, hi := textedit.selection_range(cursor)
+        covered := false
+        for occ in occurrences {
+            if lo == hi ? lo >= occ.start && lo <= occ.end : lo == occ.start && hi == occ.end {
+                covered = true
+                break
+            }
+        }
+        if !covered {
+            return false
+        }
+    }
+    return true
 }
 
 // Asks for the uses at `caret` once per caret, revision and file. A newer ask supersedes the older one.

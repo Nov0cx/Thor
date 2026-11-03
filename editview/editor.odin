@@ -689,6 +689,19 @@ editor_set_occurrences :: proc(editor: ^Editor, occurrences: []Occurrence) {
     editor.occurrences = occurrences
 }
 
+// Selects the use of the symbol at the caret, or adds a cursor on the next one. False when the
+// caret or the selection is not on a marked use.
+editor_select_occurrence :: proc(editor: ^Editor) -> bool {
+    if editor.state == nil || len(editor.occurrences) == 0 {
+        return false
+    }
+    ranges := make([][2]int, len(editor.occurrences), context.temp_allocator)
+    for occ, i in editor.occurrences {
+        ranges[i] = {occ.start, occ.end}
+    }
+    return textedit.select_range_or_next(editor.state, ranges)
+}
+
 // Replaces the diagnostics drawn for the current buffer (borrowed, not copied).
 // The owner clears them by passing nil once the buffer is edited past the
 // revision they were computed from, so squiggles never linger at stale offsets.

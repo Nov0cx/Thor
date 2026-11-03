@@ -52,3 +52,14 @@ test_occurrences_take_their_result :: proc(t: ^testing.T) {
         testing.expect_value(t, thor.occurrences[1], editview.Occurrence{start = 8, end = 10})
     }
 }
+
+// Carets on uses and selections of whole uses keep the marks; a partial selection does not.
+@(test)
+test_occurrences_cover_cursors :: proc(t: ^testing.T) {
+    occurrences := []editview.Occurrence{{start = 4, end = 9}, {start = 20, end = 25}}
+    testing.expect(t, thor_occurrences_cover_cursors(occurrences, {{anchor = 6, caret = 6}}))
+    testing.expect(t, thor_occurrences_cover_cursors(occurrences, {{anchor = 4, caret = 9}, {anchor = 25, caret = 20}}))
+    testing.expect(t, !thor_occurrences_cover_cursors(occurrences, {{anchor = 4, caret = 7}}))
+    testing.expect(t, !thor_occurrences_cover_cursors(occurrences, {{anchor = 4, caret = 9}, {anchor = 12, caret = 12}}))
+    testing.expect(t, !thor_occurrences_cover_cursors(occurrences, nil))
+}

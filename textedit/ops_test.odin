@@ -799,3 +799,28 @@ test_join_last_undo :: proc(t: ^testing.T) {
     redo(&state)
     testing.expect_value(t, text(&state), "ab = ab")
 }
+
+// The ranges, not the text, pick the next selection: the "x" at 6 is not one of them.
+@(test)
+test_select_range_or_next :: proc(t: ^testing.T) {
+    state := ops_state("x = 1; x; y = x", 1)
+    defer destroy(&state)
+    ranges := [][2]int{{0, 1}, {14, 15}}
+
+    testing.expect(t, select_range_or_next(&state, ranges))
+    lo, hi := selection_range(primary_cursor(&state))
+    testing.expect_value(t, lo, 0)
+    testing.expect_value(t, hi, 1)
+
+    testing.expect(t, select_range_or_next(&state, ranges))
+    testing.expect_value(t, len(state.cursors), 2)
+    lo, hi = selection_range(state.cursors[1])
+    testing.expect_value(t, lo, 14)
+
+    testing.expect(t, select_range_or_next(&state, ranges)) // every range taken: no growth
+    testing.expect_value(t, len(state.cursors), 2)
+
+    other := ops_state("x = 1; x; y = x", 7)
+    defer destroy(&other)
+    testing.expect(t, !select_range_or_next(&other, ranges)) // the caret is on no range
+}

@@ -175,6 +175,43 @@ select_word_or_next :: proc(state: ^State, whole_word: bool) {
     normalize_cursors(state)
 }
 
+// select_word_or_next over `ranges` (ascending [start, end) pairs) instead of a text search: with no
+// selection the primary selects the range it is in, else a cursor selects the next range not taken.
+// False when the primary is not in a range or its selection is not one.
+select_range_or_next :: proc(state: ^State, ranges: [][2]int) -> bool {
+    txt := text(state)
+    primary := primary_cursor(state)
+    lo, hi := selection_range(primary)
+    at := -1
+    for r, i in ranges {
+        if has_selection(primary) ? lo == r[0] && hi == r[1] : lo >= r[0] && lo <= r[1] {
+            at = i
+            break
+        }
+    }
+    if at < 0 {
+        return false
+    }
+    if !has_selection(primary) {
+        cursor := &state.cursors[len(state.cursors) - 1]
+        cursor.anchor = ranges[at][0]
+        cursor.caret = ranges[at][1]
+        cursor.preferred_column = cursor_column(state, txt, cursor.caret)
+        normalize_cursors(state)
+        return true
+    }
+    for step in 1 ..< len(ranges) {
+        r := ranges[(at + step) % len(ranges)]
+        if r[1] > len(txt) || r[0] >= r[1] || occurrence_taken(state, r[0], r[1] - r[0]) {
+            continue
+        }
+        append(&state.cursors, Cursor{anchor = r[0], caret = r[1], preferred_column = cursor_column(state, txt, r[1])})
+        normalize_cursors(state)
+        break
+    }
+    return true
+}
+
 delete_word_backward :: proc(state: ^State) {
     txt := text(state)
     for &cursor in state.cursors {

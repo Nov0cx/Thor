@@ -285,7 +285,9 @@ editor_run_action :: proc(editor: ^Editor, action: Action, extend: bool) -> bool
         textedit.clear_selections(state)
         return true
     case .Select_Word:
-        textedit.select_word_or_next(state, true)
+        if !editor_select_occurrence(editor) {
+            textedit.select_word_or_next(state, true)
+        }
     case .Select_Word_Substring:
         textedit.select_word_or_next(state, false)
     case .Select_Line:
