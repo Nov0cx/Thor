@@ -114,6 +114,13 @@
 - Inlay hints: the type of a `:=` or `::` declaration with no written type shows between its colons (`count : int = 3`), the type of a `for` variable after its name, and the parameter name before each argument of a call. Language servers that send inlay hints show them too.
 - `inlay_types = false` and `inlay_parameters = false` in `.thor/odin-analyzer.lua` turn off each kind of Odin hint. The `inlay_hints` feature of `language_intelligence` turns all hints off.
 - Peek definition: `alt + f12`, "Peek Definition" in the palette or the right-click menu opens the definition in an editor under the caret's line. An edit or `ctrl + s` there goes to that file. `escape` closes it; Open or `alt + enter` jumps there. `peek_height` sets its rows.
+- The markdown preview renders like GitHub: real bold and italic text, nested lists and quotes, task lists, `> [!NOTE]` alerts, `<details>`, `<kbd>`, footnotes and bare `https://` links.
+- Code blocks in the markdown preview are highlighted by the language of the fence and have a copy button.
+- The markdown preview selects text with the mouse, and `ctrl + c` copies it. A `#heading` link scrolls to the heading.
+- A font change applies to the UI, the terminal and the markdown preview at once.
+- Help > Tutorial is a guided tour of eleven chapters. A card beside the part of the window shows each step, and the step is done when the action runs by key, palette, menu or button. "Take the tour" on the welcome page starts it.
+- The tutorial keeps its progress in `sessions/tutorial.json`, and "Chapters" resumes a chapter where it stopped.
+- The tutorial lab opens a broken Odin file, `user/tutorial/playground.odin`, with eight repairs. "Show me" selects each defect, and the card shows the analyzer's message on it.
 
 # 2026.10.7
 
