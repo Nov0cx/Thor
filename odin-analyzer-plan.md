@@ -37,8 +37,9 @@ need a name or a path ask for it through `Code_Action.prompt` and `Resolve_Actio
 met for the `-vet` set: the `using` shadowing and the imports used only in uninstantiated
 polymorphic bodies are live. The only line `test_oracle_clean_corpus` misses is a `-vet-cast` line
 that a `#+vet` tag asks for. M8 started: inlay hints (types between the colons of `:=` and
-`::`, parameter names at calls, also from LSP servers) and peek definition (section 6) are done.
-Next in M8: document highlight, go to type definition, then the Tier 3 lints.
+`::`, parameter names at calls, also from LSP servers), peek definition (section 6) and document
+highlight (the uses of the symbol at the caret, writes apart from reads) are done.
+Next in M8: go to type definition, then the Tier 3 lints.
 `lang/ROADMAP.md` ("Next engine") tracks the rest. Section 11 lists the
 feature questions whose answers change the plan.
 

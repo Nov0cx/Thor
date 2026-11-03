@@ -2705,6 +2705,17 @@ not a status, so this section stays the source of truth for what is built.
     line, another file in the pane or a deleted line closes it; Open or
     alt+enter in it jumps. `peek_height` sets its rows. It works for every
     backend, the LSP servers too.
+  - **Document highlight** (`document_highlight` in
+    `lang/odin/references.odin`, plan §6, M8): the `Document_Highlight`
+    kind answers the uses of the symbol at the caret in the buffer, the
+    declaration included, from the reference scan of that file only. A
+    declaration and a local on the left of a plain `=` are writes, all
+    else reads; a store to a package variable or a field still reads as a
+    read (`Name_Ref.is_store` is set for locals only). The LSP backend
+    sends `textDocument/documentHighlight`. The editor asks when the caret
+    of the active pane stops outside the uses it shows
+    (`thor/occurrences.odin`), drops them at the next edit, and paints a
+    faint fill with an accent underline on a write (`editview.Occurrence`).
   - **Compiler oracle** (`lang/odin/oracle_test.odin`, run with
     `-define:LIVE_ORACLE=true`; plan §8 M5 bar): `test_oracle_clean_corpus`
     runs the live check on every file of the 310 `base`/`core`/`vendor`
