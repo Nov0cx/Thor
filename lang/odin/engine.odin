@@ -43,6 +43,7 @@ IMPLEMENTED :: bit_set[lang.Request_Kind]{
     .Signature_Help,
     .Semantic_Tokens,
     .Inlay_Hints,
+    .Document_Highlight,
     .Code_Actions,
     .Resolve_Action,
 }
@@ -172,6 +173,10 @@ resolve :: proc(data: rawptr, req: ^lang.Request, res: ^lang.Result) {
         semantic_tokens(e, req, res)
     case .Inlay_Hints:
         inlay_hints(e, req, res)
+    case .Document_Highlight:
+        if config_allows(e, req.workspace, req.kind) {
+            document_highlight(e, req, res)
+        }
     }
 }
 

@@ -142,6 +142,77 @@ rename :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
     res.ok = len(res.edits) > 0
 }
 
+// Fills `res.highlights` with the identifiers of the buffer that name the declaration under the
+// caret, the declaration included. A declaration or a place of a plain `=` is a write.
+@(private)
+document_highlight :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
+    ctx: Request_Context
+    opened := request_open(e, req, &ctx)
+    defer request_close(&ctx)
+    if !opened {
+        return
+    }
+    target := ref_target(&ctx)
+    if target.kind == .Unbound {
+        return
+    }
+    s := Ref_Scan{ctx = &ctx, target = target, with_decl = true}
+    s.decl_key = target.path != "" ? odinsema.path_key(target.path) : ""
+    if target.dir != "" {
+        s.dir_key = odinsema.path_key(target.dir)
+    }
+    if target.typed {
+        s.checker = request_checker(&ctx)
+    }
+    s.bound = make(map[string]bool)
+    defer {
+        for key in s.bound {
+            delete(key)
+        }
+        delete(s.bound)
+    }
+    live := live_scan_file(&ctx)
+    m, err := odinsema.scope_map(ctx.parsed)
+    if err != nil {
+        return
+    }
+    defer odinsema.scope_map_destroy(m)
+    res.highlights = make([dynamic]lang.Document_Highlight)
+    for ref in m.refs {
+        if ref.name != target.name {
+            continue
+        }
+        hit, is_decl: bool
+        if target.kind == .Local {
+            hit = ref.kind == .Local && ref.decl == target.decl
+        } else {
+            hit, is_decl = classify(&s, &live, m, ref)
+        }
+        if !hit {
+            continue
+        }
+        end := ref.end > ref.start ? ref.end : ref.start + len(ref.name)
+        append(&res.highlights, lang.Document_Highlight {
+            start = ref.start,
+            end   = end,
+            kind  = is_decl || ref.is_decl || ref.is_store ? .Write : .Read,
+        })
+    }
+    slice.sort_by(res.highlights[:], proc(a, b: lang.Document_Highlight) -> bool {
+        return a.start < b.start
+    })
+    kept := 0
+    for h in res.highlights {
+        if kept > 0 && res.highlights[kept - 1].start == h.start {
+            continue
+        }
+        res.highlights[kept] = h
+        kept += 1
+    }
+    resize(&res.highlights, kept)
+    res.ok = kept > 0
+}
+
 // True when the declaration of `target` can be renamed: an implicit import alias cannot, and a
 // declaration outside the workspace (or, with no workspace, outside the buffer) is not the user's.
 @(private)
