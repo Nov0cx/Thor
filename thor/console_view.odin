@@ -301,7 +301,7 @@ console_grid :: proc(thor: ^Thor, console: ^Console) {
     grid := ui.begin(
         {
             key = "grid",
-            flags = {.Clip, .Clickable, .Focusable, .Wheel},
+            flags = {.Clip, .Clickable, .Focusable, .Draggable, .Wheel},
             props = {
                 w = ui.Grow(1),
                 h = ui.Grow(1),
