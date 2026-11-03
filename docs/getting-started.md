@@ -184,7 +184,10 @@ the caret's line on the definition's file, where an edit or `ctrl + s` goes to
 that file. `escape` closes it, and **Open** (or `alt + enter` in it) jumps
 there. Inlay hints show the type of a declaration with no written type between
 its colons (`count : int = 3`), the type of a `for` variable after its name, and
-the parameter name before each argument of a call. Completion offers the members after `x.`, the union variants
+the parameter name before each argument of a call. When the caret stops on a
+name, every use of it in the file is marked; a declaration or an assignment is
+underlined. The `document_highlight` feature of `language_intelligence` turns
+this off. Completion offers the members after `x.`, the union variants
 after `x.(`, the procedure members after `x->`, and packages the file does not
 import yet, with the import line added. Signature help also covers a
 polymorphic record (`List(`) and a conversion (`int(`). A file you save in
