@@ -39,6 +39,9 @@ On_Type_Proc :: #type proc(data: rawptr, editor: ^Editor, state: ^textedit.State
 // Text the editor copied, cut or pasted. Borrowed for the call.
 Clipboard_Proc :: #type proc(data: rawptr, text: string)
 
+// A keymap action ran. `name` is its keybinds name (action_name).
+Action_Proc :: #type proc(data: rawptr, name: string)
+
 // One completion candidate. `insert` and `filter` fall back to `text` when empty.
 // `owner_id` zero is the editor's own buffer word; the fields after it apply only to an owner row.
 Completion_Item :: struct {
@@ -212,6 +215,8 @@ Editor :: struct {
     on_type_enabled:     bool,
     on_clipboard:        Clipboard_Proc,
     clipboard_data:      rawptr,
+    on_action:           Action_Proc,
+    action_data:         rawptr,
     // Hover dwell: where and when the cursor settled, the offset last asked
     // about (-1 = none) and last frame's modifier state.
     hover_probe_pos:     ui.Vec2,
@@ -316,6 +321,11 @@ editor_set_completion_semantic :: proc(editor: ^Editor, semantic: bool) {
 editor_set_on_clipboard :: proc(editor: ^Editor, on_clipboard: Clipboard_Proc, data: rawptr) {
     editor.on_clipboard = on_clipboard
     editor.clipboard_data = data
+}
+
+editor_set_on_action :: proc(editor: ^Editor, on_action: Action_Proc, data: rawptr) {
+    editor.on_action = on_action
+    editor.action_data = data
 }
 
 editor_set_on_type :: proc(editor: ^Editor, on_type: On_Type_Proc, data: rawptr) {
@@ -1510,6 +1520,9 @@ editor_handle_key :: proc(editor: ^Editor, event: ui.Key_Event) -> bool {
     // The chords keybinds.json can move come first; the keys below are fixed.
     if action, extend := keymap_lookup(event.key, event.mods); action != .None {
         if editor_run_action(editor, action, extend) {
+            if editor.on_action != nil {
+                editor.on_action(editor.action_data, action_name(action))
+            }
             return true
         }
     }
