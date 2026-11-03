@@ -726,13 +726,14 @@ fallback_line :: proc(
 // `text`, for a caller measuring one line in pieces. It applies to the first
 // line only, so pass single-line text with a non-zero origin.
 measure :: proc(text: string, font_size: i32, family := "", tab_origin: i32 = 0, style: Style = {}) -> i32 {
-    name := family
+    face, synthetic := resolve_style(family, style)
+    name := face
     if name == "" {
         name = default_family_name
     }
     fam := families[name]
 
-    font := get_font(font_size, family)
+    font := get_font(font_size, face)
     max_width: f32 = 0
     origin := cast(f32) tab_origin
     source := text
@@ -757,7 +758,7 @@ measure :: proc(text: string, font_size: i32, family := "", tab_origin: i32 = 0,
     }
 
     if max_width > 0 {
-        max_width += f32(style_extra(style, font_size))
+        max_width += f32(style_extra(synthetic, font_size))
     }
     return cast(i32) max_width
 }
@@ -774,14 +775,15 @@ draw :: proc(
     if text == "" {
         return
     }
+    face, synthetic := resolve_style(family, style)
 
-    name := family
+    name := face
     if name == "" {
         name = default_family_name
     }
     fam := families[name]
 
-    font := get_font(font_size, family)
+    font := get_font(font_size, face)
     source := text
     line_y := cast(f32) y
     origin := cast(f32) tab_origin
@@ -789,9 +791,9 @@ draw :: proc(
     for line in strings.split_lines_iterator(&source) {
         // Shaped path first (ligatures); falls back to raylib's codepoint path
         // for sizes without shaping data.
-        if !draw_line_shaped(fam, font, font_size, line, x, cast(i32) line_y, color, origin, style) {
+        if !draw_line_shaped(fam, font, font_size, line, x, cast(i32) line_y, color, origin, synthetic) {
             // The codepoint path has no glyph quads to shear, so it keeps bold only.
-            passes := .Bold in style ? bold_extra(font_size) : 0
+            passes := .Bold in synthetic ? bold_extra(font_size) : 0
             for pass in 0 ..= passes {
                 fallback_line(font, line, f32(x + pass), line_y, origin, font_size, color, true)
             }

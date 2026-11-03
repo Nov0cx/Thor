@@ -18,3 +18,6 @@ was 46k unreachable glyphs:
         --name-IDs="*" --glyph-names
 
 `calt` is kept, so the coding ligatures still shape.
+
+The Bold, Italic and BoldItalic files are the same release's `Iosevka-Bold.ttf`,
+`Iosevka-Italic.ttf` and `Iosevka-BoldItalic.ttf`, subset with the same command.

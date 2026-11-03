@@ -90,6 +90,44 @@ test_async_font_load :: proc(t: ^testing.T) {
     check_selective_preload(t)
     check_user_manifest(t)
     check_manifest_error_logged(t)
+    check_style_faces(t)
+}
+
+// A family's own bold and italic faces are drawn through it; a style it has no
+// face for stays synthetic. The faces are never listed.
+@(private = "file")
+check_style_faces :: proc(t: ^testing.T) {
+    preload_families := [1]string {"JetBrainsMono"}
+    begin_async_load("assets/fonts/fonts.json", "assets/icons/icons.json", Preload{families = preload_families[:]})
+    finish_async_load()
+    defer shutdown()
+
+    for name in family_names() {
+        testing.expect(t, !families[name].variant, "a style face is listed")
+    }
+    testing.expect(t, !set_default_family("JetBrainsMono:bold"), "a style face became the default")
+
+    face, rest := resolve_style("JetBrainsMono", {.Bold})
+    testing.expect_value(t, face, "JetBrainsMono:bold")
+    testing.expect_value(t, rest, Style{})
+    face, rest = resolve_style("", {.Bold, .Italic})
+    testing.expect_value(t, face, "JetBrainsMono:bold_italic")
+    testing.expect_value(t, rest, Style{})
+
+    // Fira Code ships a bold face and no italic one.
+    face, rest = resolve_style("FiraCode", {.Italic})
+    testing.expect_value(t, face, "FiraCode")
+    testing.expect_value(t, rest, Style{.Italic})
+    face, rest = resolve_style("FiraCode", {.Bold, .Italic})
+    testing.expect_value(t, face, "FiraCode:bold")
+    testing.expect_value(t, rest, Style{.Italic})
+
+    face, rest = resolve_style("DepartureMono", {.Bold})
+    testing.expect_value(t, face, "DepartureMono")
+    testing.expect_value(t, rest, Style{.Bold})
+
+    // A face is read on first use and measures like any family.
+    testing.expect(t, measure("bold", 16, "JetBrainsMono", 0, {.Bold}) > 0, "the bold face did not measure")
 }
 
 // Counts the errors logged from any thread.

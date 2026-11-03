@@ -3,39 +3,64 @@
     "fonts": {
         "JetBrainsMono": {
             "path": "JetBrainsMono/JetBrainsMono-Regular.ttf",
-            "preload_sizes": [14, 15, 16, 17, 18, 20]
+            "preload_sizes": [14, 15, 16, 17, 18, 20],
+            "bold": "JetBrainsMono/JetBrainsMono-Bold.ttf",
+            "italic": "JetBrainsMono/JetBrainsMono-Italic.ttf",
+            "bold_italic": "JetBrainsMono/JetBrainsMono-BoldItalic.ttf"
         },
         "Iosevka": {
             "path": "Iosevka/Iosevka-Regular.ttf",
-            "preload_sizes": [15, 17, 18, 20]
+            "preload_sizes": [15, 17, 18, 20],
+            "bold": "Iosevka/Iosevka-Bold.ttf",
+            "italic": "Iosevka/Iosevka-Italic.ttf",
+            "bold_italic": "Iosevka/Iosevka-BoldItalic.ttf"
         },
         "IosevkaNarrow": {
             "path": "IosevkaNarrow/Iosevka-Regular.ttf",
-            "preload_sizes": [15, 17, 18, 20]
+            "preload_sizes": [15, 17, 18, 20],
+            "bold": "IosevkaNarrow/Iosevka-Bold.ttf",
+            "italic": "IosevkaNarrow/Iosevka-Italic.ttf",
+            "bold_italic": "IosevkaNarrow/Iosevka-BoldItalic.ttf"
         },
         "FiraCode": {
             "path": "FiraCode/FiraCode-Regular.ttf",
-            "preload_sizes": [15, 17, 18, 20]
+            "preload_sizes": [15, 17, 18, 20],
+            "bold": "FiraCode/FiraCode-Bold.ttf"
         },
         "CascadiaCode": {
             "path": "CascadiaCode/CascadiaCode-Regular.ttf",
-            "preload_sizes": [15, 17, 18, 20]
+            "preload_sizes": [15, 17, 18, 20],
+            "bold": "CascadiaCode/CascadiaCode-Bold.ttf",
+            "italic": "CascadiaCode/CascadiaCode-Italic.ttf",
+            "bold_italic": "CascadiaCode/CascadiaCode-BoldItalic.ttf"
         },
         "IBMPlexMono": {
             "path": "IBMPlexMono/IBMPlexMono-Regular.ttf",
-            "preload_sizes": [15, 17, 18, 20]
+            "preload_sizes": [15, 17, 18, 20],
+            "bold": "IBMPlexMono/IBMPlexMono-Bold.ttf",
+            "italic": "IBMPlexMono/IBMPlexMono-Italic.ttf",
+            "bold_italic": "IBMPlexMono/IBMPlexMono-BoldItalic.ttf"
         },
         "Hack": {
             "path": "Hack/Hack-Regular.ttf",
-            "preload_sizes": [15, 17, 18, 20]
+            "preload_sizes": [15, 17, 18, 20],
+            "bold": "Hack/Hack-Bold.ttf",
+            "italic": "Hack/Hack-Italic.ttf",
+            "bold_italic": "Hack/Hack-BoldItalic.ttf"
         },
         "MonaspaceNeon": {
             "path": "MonaspaceNeon/MonaspaceNeon-Regular.otf",
-            "preload_sizes": [15, 17, 18, 20]
+            "preload_sizes": [15, 17, 18, 20],
+            "bold": "MonaspaceNeon/MonaspaceNeon-Bold.otf",
+            "italic": "MonaspaceNeon/MonaspaceNeon-Italic.otf",
+            "bold_italic": "MonaspaceNeon/MonaspaceNeon-BoldItalic.otf"
         },
         "RecursiveMono": {
             "path": "RecursiveMono/RecursiveMono-Regular.ttf",
-            "preload_sizes": [15, 17, 18, 20]
+            "preload_sizes": [15, 17, 18, 20],
+            "bold": "RecursiveMono/RecursiveMono-Bold.ttf",
+            "italic": "RecursiveMono/RecursiveMono-Italic.ttf",
+            "bold_italic": "RecursiveMono/RecursiveMono-BoldItalic.ttf"
         },
         "DepartureMono": {
             "path": "DepartureMono/DepartureMono-Regular.otf",
