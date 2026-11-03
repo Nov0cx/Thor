@@ -154,7 +154,7 @@ The language servers Thor may start. Odin formatting, diagnostics,
 navigation, hover, completion, signature help and quick fixes are served in
 the editor itself and need no server. Every other language gets its features — hover, go to
 definition, find references, document symbols, workspace symbols, signature
-help, completion, diagnostics, semantic colors, inlay hints, marked uses of
+help, completion, diagnostics, go to type definition, semantic colors, inlay hints, marked uses of
 the name at the caret (document highlight), rename, code
 actions, and document/selection/on-type formatting — from the server named here.
 

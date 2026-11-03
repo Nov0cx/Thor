@@ -179,7 +179,10 @@ symbol with `ctrl` held to see its declaration and doc comment (`//` or
 `/* */`) — for a type also its size, alignment, field offsets and the fields
 `using` brings in — and `alt + enter` (or `ctrl + click`) to jump to
 its definition; on a call to a procedure group, the jump goes to the member the
-arguments pick. `alt + f12` peeks the definition instead: an editor opens under
+arguments pick. `alt + shift + enter` jumps to the declaration of the type of
+the name or expression under the caret instead: from `p: ^Player` to `Player`,
+from a call to its result type. A `map` gives its key and value types to pick
+from. `alt + f12` peeks the definition instead: an editor opens under
 the caret's line on the definition's file, where an edit or `ctrl + s` goes to
 that file. `escape` closes it, and **Open** (or `alt + enter` in it) jumps
 there. Inlay hints show the type of a declaration with no written type between
