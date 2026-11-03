@@ -725,7 +725,7 @@ fallback_line :: proc(
 // `tab_origin` is the pixel distance from the line origin to the start of
 // `text`, for a caller measuring one line in pieces. It applies to the first
 // line only, so pass single-line text with a non-zero origin.
-measure :: proc(text: string, font_size: i32, family := "", tab_origin: i32 = 0) -> i32 {
+measure :: proc(text: string, font_size: i32, family := "", tab_origin: i32 = 0, style: Style = {}) -> i32 {
     name := family
     if name == "" {
         name = default_family_name
@@ -756,11 +756,21 @@ measure :: proc(text: string, font_size: i32, family := "", tab_origin: i32 = 0)
         max_width = size.x
     }
 
+    if max_width > 0 {
+        max_width += f32(style_extra(style, font_size))
+    }
     return cast(i32) max_width
 }
 
 // See measure for `tab_origin`.
-draw :: proc(text: string, x, y, font_size: i32, color: rl.Color, family := "", tab_origin: i32 = 0) {
+draw :: proc(
+    text: string,
+    x, y, font_size: i32,
+    color: rl.Color,
+    family := "",
+    tab_origin: i32 = 0,
+    style: Style = {},
+) {
     if text == "" {
         return
     }
@@ -779,8 +789,12 @@ draw :: proc(text: string, x, y, font_size: i32, color: rl.Color, family := "", 
     for line in strings.split_lines_iterator(&source) {
         // Shaped path first (ligatures); falls back to raylib's codepoint path
         // for sizes without shaping data.
-        if !draw_line_shaped(fam, font, font_size, line, x, cast(i32) line_y, color, origin) {
-            fallback_line(font, line, cast(f32) x, line_y, origin, font_size, color, true)
+        if !draw_line_shaped(fam, font, font_size, line, x, cast(i32) line_y, color, origin, style) {
+            // The codepoint path has no glyph quads to shear, so it keeps bold only.
+            passes := .Bold in style ? bold_extra(font_size) : 0
+            for pass in 0 ..= passes {
+                fallback_line(font, line, f32(x + pass), line_y, origin, font_size, color, true)
+            }
         }
         line_y += cast(f32) line_height(font_size)
         origin = 0

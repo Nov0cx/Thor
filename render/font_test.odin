@@ -54,6 +54,14 @@ test_a_family_handle_round_trips :: proc(t: ^testing.T) {
     // An unregistered handle falls back to the default family.
     testing.expect_value(t, family_of(&b, DEFAULT_FONT), "")
     testing.expect_value(t, family_of(&b, ui.Font(99)), "")
+
+    // A style is a handle of its own over the same family.
+    bold := register_family(&b, "mono", {.Bold})
+    testing.expect(t, bold != mono, "a bold handle is not the regular one")
+    testing.expect_value(t, family_of(&b, bold), "mono")
+    testing.expect_value(t, style_of(&b, bold), font.Style{.Bold})
+    testing.expect_value(t, style_of(&b, mono), font.Style{})
+    testing.expect_value(t, register_family(&b, "mono", {.Bold}), bold)
 }
 
 @(test)

@@ -305,6 +305,8 @@ draw_text :: proc(b: ^Backend, cmd: ui.Cmd_Text) {
         i32(cmd.size),
         raylib_color(cmd.color),
         family_of(b, cmd.font),
+        0,
+        style_of(b, cmd.font),
     )
 }
 

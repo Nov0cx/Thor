@@ -5,6 +5,7 @@ package render
 
 import rl "vendor:raylib"
 
+import "../font"
 import ui "../vendor/loom/loom"
 
 DEFAULT_ARC_SEGMENTS :: 6
@@ -23,9 +24,15 @@ Held_Key :: struct {
     mapped:   ui.Key,
 }
 
+// A family name and the synthetic style one font handle draws it in.
+Family_Handle :: struct {
+    name:  string, // borrowed
+    style: font.Style,
+}
+
 Backend :: struct {
     opts:     Options,
-    families: [dynamic]string, // borrowed, the font package owns the names
+    families: [dynamic]Family_Handle, // the font package owns the names
     textures: map[u32]rl.Texture2D,
     clip:     [dynamic]rl.Rectangle,
     path_a:   [dynamic]rl.Vector2,
@@ -46,7 +53,7 @@ init :: proc(b: ^Backend, opts: Options = {}) -> ui.Backend {
         b.opts.arc_segments = DEFAULT_ARC_SEGMENTS
     }
 
-    b.families = make([dynamic]string, 0, 4)
+    b.families = make([dynamic]Family_Handle, 0, 4)
     b.textures = make(map[u32]rl.Texture2D, 8)
     b.clip = make([dynamic]rl.Rectangle, 0, 16)
     b.path_a = make([dynamic]rl.Vector2, 0, 64)

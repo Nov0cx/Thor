@@ -431,12 +431,14 @@ draw_line_shaped :: proc(
     x, y: i32,
     color: rl.Color,
     origin: f32 = 0,
+    style: Style = {},
 ) -> bool {
     glyphs, ok := shape_place_line(family, font, size, line)
     if !ok {
         return false
     }
 
+    baseline := f32(y) + f32(size) * STYLE_ASCENT
     base := cast(f32) x - origin // virtual x of column 0
     pen := cast(f32) x
     for glyph in glyphs {
@@ -446,12 +448,12 @@ draw_line_shaped :: proc(
         }
         if glyph.rect.width > 0 {
             texture := glyph.page > 0 ? fallback_page(family, size, glyph.page) : font.texture
-            rl.DrawTextureRec(
-                texture,
-                glyph.rect,
-                rl.Vector2 {pen + cast(f32) glyph.offset_x, cast(f32) y + cast(f32) glyph.offset_y},
-                color,
-            )
+            at := rl.Vector2{pen + cast(f32) glyph.offset_x, cast(f32) y + cast(f32) glyph.offset_y}
+            if style == {} {
+                rl.DrawTextureRec(texture, glyph.rect, at, color)
+            } else {
+                draw_glyph_styled(texture, glyph.rect, at, color, style, size, baseline)
+            }
         }
         pen += cast(f32) glyph.advance
     }
