@@ -124,6 +124,7 @@
 - Help > Tutorial is a guided tour of eleven chapters. A card beside the part of the window shows each step, and the step is done when the action runs by key, palette, menu or button. "Take the tour" on the welcome page starts it.
 - The tutorial keeps its progress in `sessions/tutorial.json`, and "Chapters" resumes a chapter where it stopped.
 - The tutorial lab opens a broken Odin file, `user/tutorial/playground.odin`, with eight repairs. "Show me" selects each defect, and the card shows the analyzer's message on it.
+- A click, a focus change or a newly opened view shows in the same frame. Before, the UI showed it one frame late.
 
 # 2026.10.7
 
