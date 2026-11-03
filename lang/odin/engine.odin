@@ -35,6 +35,7 @@ IMPLEMENTED :: bit_set[lang.Request_Kind]{
     .Document_Symbols,
     .Workspace_Symbols,
     .Definition,
+    .Type_Definition,
     .References,
     .Rename,
     .Package_Doc,
@@ -177,6 +178,8 @@ resolve :: proc(data: rawptr, req: ^lang.Request, res: ^lang.Result) {
         if config_allows(e, req.workspace, req.kind) {
             document_highlight(e, req, res)
         }
+    case .Type_Definition:
+        type_definition(e, req, res)
     }
 }
 
