@@ -16,7 +16,7 @@ LINE :: f32(20)
 @(private = "file")
 fake_metrics :: proc() -> Metrics {
     return Metrics {
-        measure = proc(text: string, size: i32, user: rawptr) -> f32 {
+        measure = proc(text: string, size: i32, style: Style, user: rawptr) -> f32 {
             return f32(len(text)) * CELL
         },
         line_height = proc(size: i32, user: rawptr) -> f32 {
@@ -166,7 +166,7 @@ test_heading_steps_the_size_and_rules :: proc(t: ^testing.T) {
             text_size = item.size
         case .Rect:
             rules += 1
-        case .Image:
+        case .Image, .Copy, .Toggle:
         }
     }
     testing.expect_value(t, text_size, i32(16 + 13))
@@ -214,7 +214,7 @@ test_code_block_draws_verbatim :: proc(t: ^testing.T) {
             append(&texts, item.text)
         case .Rect:
             panels += 1
-        case .Image:
+        case .Image, .Copy, .Toggle:
         }
     }
     testing.expect_value(t, panels, 1)
@@ -250,8 +250,7 @@ test_content_column_is_capped_and_centred :: proc(t: ^testing.T) {
     testing.expect_value(t, content_left(4000, wide), (4000 - MAX_WIDTH) * 0.5)
 }
 
-// Emphasis and code carry the palette, which is how the page reads without a
-// second face to bold or slant with.
+// Strong and code carry the palette as well as their style.
 @(test)
 test_inline_styles_take_their_colors :: proc(t: ^testing.T) {
     page: Page
@@ -326,7 +325,7 @@ test_underscore_in_a_word_stays :: proc(t: ^testing.T) {
     items := texts(&page)
     testing.expect_value(t, items[0].text, "snake_case_name")
     testing.expect_value(t, items[len(items) - 1].text, "em")
-    testing.expect_value(t, items[len(items) - 1].color, test_palette().strong)
+    testing.expect_value(t, items[len(items) - 1].style, Style{.Italic})
 }
 
 // A lone `*` between spaces is not emphasis, and `_` inside a word is not one.
@@ -430,7 +429,8 @@ test_reference_link_resolves :: proc(t: ^testing.T) {
     urls: [dynamic]string
     defer delete(urls)
     for item in page.items {
-        if item.url != "" {
+        // A link of two words is two items with one target.
+        if item.url != "" && (len(urls) == 0 || urls[len(urls) - 1] != item.url) {
             append(&urls, item.url)
         }
         if item.kind == .Text {
@@ -688,4 +688,264 @@ test_linked_image_is_a_link :: proc(t: ^testing.T) {
     build, ok := text_named(&page, "build")
     testing.expect(t, ok)
     testing.expect_value(t, build.url, "https://example.org/ci")
+}
+
+// Bold, italic and both are styles; bold also takes the strong color.
+@(test)
+test_emphasis_takes_its_style :: proc(t: ^testing.T) {
+    page: Page
+    defer page_destroy(&page)
+    pal := test_palette()
+    lay(&page, "*it* **bo** ***both*** plain\n")
+
+    it, _ := text_named(&page, "it")
+    bo, _ := text_named(&page, "bo")
+    both, _ := text_named(&page, "both")
+    plain, _ := text_named(&page, "plain")
+    testing.expect_value(t, it.style, Style{.Italic})
+    testing.expect_value(t, it.color, pal.text)
+    testing.expect_value(t, bo.style, Style{.Bold})
+    testing.expect_value(t, bo.color, pal.strong)
+    testing.expect_value(t, both.style, Style{.Bold, .Italic})
+    testing.expect_value(t, plain.style, Style{})
+}
+
+// A heading is bold.
+@(test)
+test_heading_is_bold :: proc(t: ^testing.T) {
+    page: Page
+    defer page_destroy(&page)
+    lay(&page, "## Title\n")
+    title, _ := text_named(&page, "Title")
+    testing.expect_value(t, title.style, Style{.Bold})
+}
+
+// A code block and a quote nest inside a list item, at its content column.
+@(test)
+test_blocks_nest_in_a_list_item :: proc(t: ^testing.T) {
+    page: Page
+    defer page_destroy(&page)
+    lay(&page, "- item\n\n  ```\n  code\n  ```\n\n  > quoted\n- next\n")
+
+    item, _ := text_named(&page, "item")
+    code, ok := text_named(&page, "code")
+    testing.expect(t, ok, "the code line is drawn")
+    testing.expect_value(t, item.x, f32(24))
+    testing.expect_value(t, code.x, f32(24 + 8))
+    quoted, _ := text_named(&page, "quoted")
+    testing.expect_value(t, quoted.x, f32(24 + 18))
+    testing.expect_value(t, quoted.color, test_palette().quote)
+    next, _ := text_named(&page, "next")
+    testing.expect_value(t, next.x, f32(24))
+    testing.expect(t, next.y > quoted.y, "the next item is under the quote")
+}
+
+// A quote in a quote is indented again behind a second bar.
+@(test)
+test_quote_nests :: proc(t: ^testing.T) {
+    page: Page
+    defer page_destroy(&page)
+    lay(&page, "> outer\n>\n> > inner\n")
+
+    outer, _ := text_named(&page, "outer")
+    inner, _ := text_named(&page, "inner")
+    testing.expect_value(t, outer.x, f32(18))
+    testing.expect_value(t, inner.x, f32(36))
+    testing.expect_value(t, count_rects(&page), 2)
+}
+
+// A task item draws a box instead of a bullet, and the marker is not text.
+@(test)
+test_task_items :: proc(t: ^testing.T) {
+    page: Page
+    defer page_destroy(&page)
+    lay(&page, "- [ ] open\n- [x] done\n")
+
+    for item in texts(&page) {
+        testing.expect(t, !strings.contains(item.text, "["), "the marker is not drawn")
+    }
+    _, check := text_named(&page, "✓")
+    testing.expect(t, check, "a done task is checked")
+    open, _ := text_named(&page, "open")
+    testing.expect_value(t, open.x, f32(24))
+}
+
+// `> [!WARNING]` is an alert: a title in its color and no marker text.
+@(test)
+test_alert :: proc(t: ^testing.T) {
+    page: Page
+    defer page_destroy(&page)
+    pal := test_palette()
+    pal.alert[.Warning] = {42, 0, 0, 255}
+    layout(&page, "> [!WARNING]\n> Careful here.\n", 600, 16, pal, fake_metrics())
+
+    title, ok := text_named(&page, "Warning")
+    testing.expect(t, ok, "the alert has its title")
+    testing.expect_value(t, title.color, pal.alert[.Warning])
+    _, marker := text_named(&page, "[!WARNING]")
+    testing.expect(t, !marker, "the marker is not text")
+    careful, _ := text_named(&page, "Careful")
+    testing.expect(t, careful.y > title.y, "the body is under the title")
+}
+
+// A details block is closed until the reader opens it.
+@(test)
+test_details_toggle :: proc(t: ^testing.T) {
+    page: Page
+    defer page_destroy(&page)
+    source := "<details>\n<summary>More</summary>\n\nhidden text\n</details>\n\nafter\n"
+    lay(&page, source)
+
+    _, shown := text_named(&page, "hidden")
+    testing.expect(t, !shown, "closed by default")
+    toggle := -1
+    for item, i in page.items {
+        if item.kind == .Toggle {
+            toggle = i
+        }
+    }
+    testing.expect(t, toggle >= 0, "the summary is a toggle")
+    if toggle < 0 {
+        return
+    }
+    _, summary := text_named(&page, "More")
+    testing.expect(t, summary, "the summary is drawn")
+
+    page_toggle(&page, page.items[toggle].ref)
+    lay(&page, source)
+    _, shown = text_named(&page, "hidden")
+    testing.expect(t, shown, "open after the toggle")
+    _, after := text_named(&page, "after")
+    testing.expect(t, after, "the text after the block is drawn")
+}
+
+// Headings anchor at their GitHub slugs; a repeat takes a number.
+@(test)
+test_heading_anchors :: proc(t: ^testing.T) {
+    page: Page
+    defer page_destroy(&page)
+    lay(&page, "# Getting Started!\n\ntext\n\n## Getting started\n\n## The `code` [link](x.md)\n")
+
+    first, ok := page.anchors["getting-started"]
+    testing.expect(t, ok, "the first heading has its slug")
+    second, ok2 := page.anchors["getting-started-1"]
+    testing.expect(t, ok2, "the repeat takes -1")
+    testing.expect(t, second > first)
+    _, ok3 := page.anchors["the-code-link"]
+    testing.expect(t, ok3, "code and link markers are not part of the slug")
+}
+
+// A footnote reference links to its definition, which is drawn at the end.
+@(test)
+test_footnotes :: proc(t: ^testing.T) {
+    page: Page
+    defer page_destroy(&page)
+    lay(&page, "Claim[^1] here.\n\n[^1]: The source.\n\nLast paragraph.\n")
+
+    ref, ok := text_named(&page, "1")
+    testing.expect(t, ok, "the reference is drawn")
+    testing.expect_value(t, ref.url, "^1")
+    at, anchored := page.anchors["^1"]
+    testing.expect(t, anchored, "the definition is anchored")
+    last, _ := text_named(&page, "Last")
+    testing.expect(t, at > last.y, "the definitions follow the text")
+}
+
+// A bare address is a link without its trailing punctuation.
+@(test)
+test_extended_autolink :: proc(t: ^testing.T) {
+    page: Page
+    defer page_destroy(&page)
+    lay(&page, "see https://example.org/x. and www.example.com\n")
+
+    url, ok := text_named(&page, "https://example.org/x")
+    testing.expect(t, ok)
+    testing.expect_value(t, url.url, "https://example.org/x")
+    www, _ := text_named(&page, "www.example.com")
+    testing.expect_value(t, www.url, "www.example.com")
+}
+
+// Inline HTML: a key cap, bold, a link; other tags drop and keep their text.
+@(test)
+test_inline_html :: proc(t: ^testing.T) {
+    page: Page
+    defer page_destroy(&page)
+    lay(&page, "<kbd>Ctrl</kbd> <b>loud</b> <a href=\"x.md\">go</a> <span>kept</span> <!-- gone -->\n")
+
+    ctrl, ok := text_named(&page, "Ctrl")
+    testing.expect(t, ok, "the key cap is drawn")
+    testing.expect(t, ctrl.x > 0, "the key cap has room before its text")
+    loud, _ := text_named(&page, "loud")
+    testing.expect_value(t, loud.style, Style{.Bold})
+    go, _ := text_named(&page, "go")
+    testing.expect_value(t, go.url, "x.md")
+    _, kept := text_named(&page, "kept")
+    testing.expect(t, kept, "an unknown tag keeps its text")
+    for item in texts(&page) {
+        testing.expect(t, !strings.contains(item.text, "<") && item.text != "gone", "no tag is text")
+    }
+}
+
+// The host's highlighter cuts a code row where the color changes.
+@(test)
+test_code_block_highlight :: proc(t: ^testing.T) {
+    page: Page
+    defer page_destroy(&page)
+    m := fake_metrics()
+    m.highlight = proc(lang, code: string, user: rawptr) -> []Color_Span {
+        if lang != "odin" {
+            return nil
+        }
+        // "x := 1\ny": color "x" and "y".
+        spans := make([]Color_Span, 2, context.temp_allocator)
+        spans[0] = {0, 1, {77, 0, 0, 255}}
+        spans[1] = {7, 8, {78, 0, 0, 255}}
+        return spans
+    }
+    layout(&page, "```odin\nx := 1\ny\n```\n", 600, 16, test_palette(), m)
+
+    x, _ := text_named(&page, "x")
+    rest, ok := text_named(&page, " := 1")
+    y, _ := text_named(&page, "y")
+    testing.expect_value(t, x.color, ui.Color{77, 0, 0, 255})
+    testing.expect(t, ok, "the rest of the row is its own item")
+    testing.expect_value(t, rest.color, test_palette().code)
+    testing.expect_value(t, rest.x, x.x + CELL)
+    testing.expect_value(t, y.color, ui.Color{78, 0, 0, 255})
+
+    copy := -1
+    for item, i in page.items {
+        if item.kind == .Copy {
+            copy = i
+        }
+    }
+    testing.expect(t, copy >= 0, "the block has a copy area")
+    if copy >= 0 {
+        testing.expect_value(t, page.items[copy].text, "x := 1\ny")
+        testing.expect_value(t, page.items[copy].url, "odin")
+    }
+}
+
+// A point maps to a source offset, and a selection reads back as the page
+// shows it.
+@(test)
+test_selection_round_trip :: proc(t: ^testing.T) {
+    page: Page
+    defer page_destroy(&page)
+    source := "alpha **beta** gamma\n\nnext line\n"
+    lay(&page, source)
+
+    beta, _ := text_named(&page, "beta")
+    at := offset_at(&page, fake_metrics(), beta.x + 2 * CELL, beta.y + 1)
+    testing.expect_value(t, at, strings.index(source, "beta") + 2)
+
+    lo, hi := word_range(source, at)
+    testing.expect_value(t, source[lo:hi], "beta")
+
+    all_lo, all_hi := source_extent(&page)
+    text := selection_text(&page, all_lo, all_hi, context.temp_allocator)
+    testing.expect_value(t, text, "alpha beta gamma\nnext line")
+
+    part := selection_text(&page, strings.index(source, "pha"), strings.index(source, "gam") + 3, context.temp_allocator)
+    testing.expect_value(t, part, "pha beta gam")
 }
