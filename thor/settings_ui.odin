@@ -540,6 +540,7 @@ LANGUAGE_FEATURE_LABELS := [lang.Request_Kind]string {
     .Code_Actions       = "Code Actions",
     .Semantic_Tokens    = "Semantic Highlighting",
     .Inlay_Hints        = "Inlay Hints",
+    .Document_Highlight = "Highlight Uses",
     .Format             = "Format Document",
     .Format_Range       = "Format Selection",
     .Format_On_Type     = "Format On Type",

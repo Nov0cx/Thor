@@ -1799,6 +1799,61 @@ test_decode_inlay_hints :: proc(t: ^testing.T) {
     testing.expect(t, res.inlays[1].pad_right)
 }
 
+// Document highlights: the kinds, a missing kind as Text, sorted by start.
+@(test)
+test_decode_document_highlights :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Document_Highlight, SOURCE)
+
+    res := decode_reply(s, &req, `[
+        {"range":{"start":{"line":1,"character":6},"end":{"line":1,"character":11}},"kind":3},
+        {"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":5}},"kind":2},
+        {"range":{"start":{"line":0,"character":6},"end":{"line":0,"character":10}}},
+        {"kind":2}
+    ]`)
+    defer result_release(&res)
+
+    testing.expect(t, res.ok)
+    testing.expect_value(t, len(res.highlights), 3)
+    if len(res.highlights) != 3 {
+        return
+    }
+    testing.expect_value(t, res.highlights[0], lang.Document_Highlight{start = 0, end = 5, kind = .Read})
+    testing.expect_value(t, res.highlights[1], lang.Document_Highlight{start = 6, end = 10, kind = .Text})
+    testing.expect_value(t, res.highlights[2], lang.Document_Highlight{start = 17, end = 22, kind = .Write})
+}
+
+// A null reply is no highlight.
+@(test)
+test_decode_document_highlights_null :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Document_Highlight, SOURCE)
+
+    res := decode_reply(s, &req, `null`)
+    defer result_release(&res)
+
+    testing.expect(t, !res.ok)
+    testing.expect_value(t, len(res.highlights), 0)
+}
+
+// The highlight request names the caret as a position.
+@(test)
+test_document_highlight_params :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Document_Highlight, SOURCE, 12)
+
+    ask := ask_for(s, &req)
+    params := request_params(&ask)
+    testing.expect_value(
+        t,
+        params,
+        `{"textDocument":{"uri":"` + FILE_URI + `"},"position":{"line":1,"character":1}}`,
+    )
+}
+
 // The hint request names the window as a range.
 @(test)
 test_inlay_hints_params :: proc(t: ^testing.T) {

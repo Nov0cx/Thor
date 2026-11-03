@@ -42,6 +42,7 @@ METHODS := [lang.Request_Kind]string {
     .Code_Actions      = "textDocument/codeAction",
     .Semantic_Tokens   = "textDocument/semanticTokens/full",
     .Inlay_Hints       = "textDocument/inlayHint",
+    .Document_Highlight = "textDocument/documentHighlight",
     .Format            = "textDocument/formatting",
     .Format_Range      = "textDocument/rangeFormatting",
     .Format_On_Type    = "textDocument/onTypeFormatting",

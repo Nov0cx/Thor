@@ -31,6 +31,7 @@ PROVIDER_KEYS := [lang.Request_Kind]string {
     .Code_Actions      = "codeActionProvider",
     .Semantic_Tokens   = "semanticTokensProvider",
     .Inlay_Hints       = "inlayHintProvider",
+    .Document_Highlight = "documentHighlightProvider",
     .Format            = "documentFormattingProvider",
     .Format_Range      = "documentRangeFormattingProvider",
     .Format_On_Type    = "documentOnTypeFormattingProvider",

@@ -34,6 +34,8 @@ Request_Kind :: enum {
     // Virtual text over [offset, end): inferred types and parameter names.
     // Answers `inlays`.
     Inlay_Hints,
+    // The uses of the symbol at `offset` in the request's buffer. Answers `highlights`.
+    Document_Highlight,
     Format,
     // Whole-line range formatting over [offset, end) — a selection, aligned to
     // whole lines by the host before dispatch.
@@ -248,6 +250,20 @@ Inlay_Kind :: enum {
     Parameter,
 }
 
+// How a document highlight uses its symbol.
+Highlight_Kind :: enum {
+    Text,
+    Read,
+    Write,
+}
+
+// One use of the symbol at the caret, over [start, end) of the request's buffer.
+Document_Highlight :: struct {
+    start: int,
+    end:   int,
+    kind:  Highlight_Kind,
+}
+
 // Virtual text the editor draws before the byte at `offset`.
 Inlay_Hint :: struct {
     offset:    int,
@@ -428,6 +444,8 @@ Result :: struct {
     tokens:    [dynamic]Semantic_Token,
     // Inlay_Hints; owned, freed in job_free. Ascending by `offset`.
     inlays:    [dynamic]Inlay_Hint,
+    // Document_Highlight; owned, freed in job_free. Ascending by `start`.
+    highlights: [dynamic]Document_Highlight,
     // Format only. Set from the workspace's odin-formatter.lua newline_style
     // key, and only when that key is actually present — an absent key must
     // never flip a repo's line endings on the first format. Unspecified means
@@ -1383,6 +1401,7 @@ result_free :: proc(m: ^Manager, res: ^Result) {
         delete(hint.label)
     }
     delete(res.inlays)
+    delete(res.highlights)
     delete(res.report.scope)
     for d in res.report.items {
         delete(d.path)

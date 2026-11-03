@@ -41,6 +41,8 @@ request_decode :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
         decode_semantic_tokens(ask, value, res)
     case .Inlay_Hints:
         decode_inlay_hints(ask, value, res)
+    case .Document_Highlight:
+        decode_document_highlights(ask, value, res)
     case .Rename:
         decode_rename(ask, value, res)
     case .Code_Actions:
@@ -782,6 +784,46 @@ decode_inlay_hints :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
         return a.offset < b.offset
     })
     res.ok = len(res.inlays) > 0
+}
+
+// A DocumentHighlight[] reply, sorted by start. A missing kind is Text.
+@(private)
+decode_document_highlights :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
+    items, is_array := value.(json.Array)
+    if !is_array {
+        return
+    }
+    res.highlights = make([dynamic]lang.Document_Highlight)
+    for item in items {
+        object, is_object := item.(json.Object)
+        if !is_object {
+            continue
+        }
+        start_line, start_char, end_line, end_char, has_range := range_of(object["range"])
+        if !has_range {
+            continue
+        }
+        highlight := lang.Document_Highlight {
+            start = offset_from_position(&ask.lines, start_line, start_char),
+            end   = offset_from_position(&ask.lines, end_line, end_char),
+        }
+        if kind, has_kind := number(object["kind"]); has_kind {
+            switch kind {
+            case 2:
+                highlight.kind = .Read
+            case 3:
+                highlight.kind = .Write
+            }
+        }
+        if highlight.end < highlight.start {
+            continue
+        }
+        append(&res.highlights, highlight)
+    }
+    slice.stable_sort_by(res.highlights[:], proc(a, b: lang.Document_Highlight) -> bool {
+        return a.start < b.start
+    })
+    res.ok = len(res.highlights) > 0
 }
 
 // Reads a JSON array of whole numbers into an int64 slice; a non-number entry

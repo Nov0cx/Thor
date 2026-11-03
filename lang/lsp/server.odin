@@ -1359,6 +1359,7 @@ CLIENT_CAPABILITIES :: `{` +
 `"onTypeFormatting":{"dynamicRegistration":false},` +
 `"publishDiagnostics":{"relatedInformation":false,"versionSupport":true},` +
 `"inlayHint":{"dynamicRegistration":false},` +
+`"documentHighlight":{"dynamicRegistration":false},` +
 `"semanticTokens":{"dynamicRegistration":false,"requests":{"full":true},"formats":["relative"],` +
 `"tokenModifiers":[],` +
 `"tokenTypes":["namespace","type","class","enum","interface","struct","typeParameter","parameter",` +
