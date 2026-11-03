@@ -538,6 +538,7 @@ palette_activate :: proc(thor: ^Thor) {
             return
         }
         command := p.commands[p.matches[p.selected].index]
+        thor_note_action(thor, command.action != "" ? command.action : command.title)
         if command.run != nil {
             command.run(command.data)
         }

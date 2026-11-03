@@ -24,6 +24,15 @@ thor_toggle_fullscreen :: proc(_: ^Thor) {
     rl.ToggleBorderlessWindowed()
 }
 
+// Matches one global app chord and tells the tutorial its action ran.
+thor_app_key_hit :: proc(thor: ^Thor, bind: setting.Keybind, action: string, event: ui.Key_Event) -> bool {
+    if !setting.keybind_matches(bind, event.key, event.mods) {
+        return false
+    }
+    thor_note_action(thor, action)
+    return true
+}
+
 // App-level shortcuts, read from the key stream before the tree is built, so
 // they work no matter what holds the focus.
 thor_global_key :: proc(thor: ^Thor, event: ui.Key_Event) -> bool {
@@ -86,25 +95,25 @@ thor_global_key :: proc(thor: ^Thor, event: ui.Key_Event) -> bool {
     }
 
     // The command palette toggle works no matter what is focused.
-    if setting.keybind_matches(thor.command_palette_key, event.key, event.mods) {
+    if thor_app_key_hit(thor, thor.command_palette_key, "command_palette", event) {
         thor_toggle_command_palette(thor)
         return true
     }
     // Quick-open (file search) works no matter what is focused, and re-triggers
     // into file mode even if the palette is already open on the command list.
-    if setting.keybind_matches(thor.quick_open_key, event.key, event.mods) {
+    if thor_app_key_hit(thor, thor.quick_open_key, "quick_open", event) {
         thor_quick_open(thor)
         return true
     }
     // Find opens on ctrl+f (works regardless of focus).
-    if setting.keybind_matches(thor.find_key, event.key, event.mods) {
+    if thor_app_key_hit(thor, thor.find_key, "find", event) {
         thor_open_find(thor, false)
         return true
     }
     // Ctrl+R renames the symbol under the caret when the language backend can,
     // and opens find/replace otherwise. With an overlay open it always means
     // replace: ctrl+r in the find bar is how the replace field is revealed.
-    if setting.keybind_matches(thor.replace_key, event.key, event.mods) {
+    if thor_app_key_hit(thor, thor.replace_key, "replace", event) {
         overlay :=
             thor_palette_is_open(thor) ||
             thor.find_open
@@ -114,16 +123,16 @@ thor_global_key :: proc(thor: ^Thor, event: ui.Key_Event) -> bool {
         return true
     }
     // Go to line opens the palette in line mode regardless of focus.
-    if setting.keybind_matches(thor.goto_line_key, event.key, event.mods) {
+    if thor_app_key_hit(thor, thor.goto_line_key, "goto_line", event) {
         thor_palette_open_line(thor)
         return true
     }
     // Go to definition (Alt+Enter) resolves the symbol under the caret.
-    if setting.keybind_matches(thor.goto_def_key, event.key, event.mods) {
+    if thor_app_key_hit(thor, thor.goto_def_key, "goto_definition", event) {
         thor_goto_definition(thor)
         return true
     }
-    if setting.keybind_matches(thor.peek_def_key, event.key, event.mods) {
+    if thor_app_key_hit(thor, thor.peek_def_key, "peek_definition", event) {
         thor_peek_definition(thor)
         return true
     }
@@ -133,51 +142,51 @@ thor_global_key :: proc(thor: ^Thor, event: ui.Key_Event) -> bool {
         return true
     }
     // Go to symbol (Ctrl+Shift+O) lists the active file's top-level symbols.
-    if setting.keybind_matches(thor.goto_symbol_key, event.key, event.mods) {
+    if thor_app_key_hit(thor, thor.goto_symbol_key, "goto_symbol", event) {
         thor_goto_symbol(thor)
         return true
     }
     // Go to symbol in workspace (Ctrl+Q) lists every top-level symbol in the tree.
-    if setting.keybind_matches(thor.goto_workspace_symbol_key, event.key, event.mods) {
+    if thor_app_key_hit(thor, thor.goto_workspace_symbol_key, "goto_workspace_symbol", event) {
         thor_goto_workspace_symbol(thor)
         return true
     }
     // Go back / forward (Ctrl+Alt+Left / Ctrl+Alt+Right) walk the jump trail.
-    if setting.keybind_matches(thor.jump_back_key, event.key, event.mods) {
+    if thor_app_key_hit(thor, thor.jump_back_key, "jump_back", event) {
         thor_jump_back(thor)
         return true
     }
-    if setting.keybind_matches(thor.jump_forward_key, event.key, event.mods) {
+    if thor_app_key_hit(thor, thor.jump_forward_key, "jump_forward", event) {
         thor_jump_forward(thor)
         return true
     }
     // Find references (F10) lists every usage of the symbol under the caret.
-    if setting.keybind_matches(thor.find_references_key, event.key, event.mods) {
+    if thor_app_key_hit(thor, thor.find_references_key, "find_references", event) {
         thor_find_references(thor)
         return true
     }
     // Signature help (Ctrl+Shift+Space) flashes the signature of the enclosing call.
-    if setting.keybind_matches(thor.signature_help_key, event.key, event.mods) {
+    if thor_app_key_hit(thor, thor.signature_help_key, "signature_help", event) {
         thor_signature_help(thor)
         return true
     }
     // Package documentation (F3) renders the package under the caret in the other pane.
-    if setting.keybind_matches(thor.package_doc_key, event.key, event.mods) {
+    if thor_app_key_hit(thor, thor.package_doc_key, "package_doc", event) {
         thor_package_doc(thor)
         return true
     }
     // Code actions (ctrl+shift+u) offer the fixes available at the caret.
-    if setting.keybind_matches(thor.code_actions_key, event.key, event.mods) {
+    if thor_app_key_hit(thor, thor.code_actions_key, "code_actions", event) {
         thor_code_actions(thor)
         return true
     }
     // Flip to the previously active file (ctrl+e), like vim's Ctrl-^.
-    if setting.keybind_matches(thor.last_file_key, event.key, event.mods) {
+    if thor_app_key_hit(thor, thor.last_file_key, "last_file", event) {
         thor_flip_last_file(thor)
         return true
     }
     // Toggle the editor split. An empty "toggle_split" chord never matches a press.
-    if setting.keybind_matches(thor.split_key, event.key, event.mods) {
+    if thor_app_key_hit(thor, thor.split_key, "toggle_split", event) {
         thor_toggle_split(thor)
         return true
     }
@@ -204,58 +213,58 @@ thor_global_key :: proc(thor: ^Thor, event: ui.Key_Event) -> bool {
 
     // Fullscreen toggle is a bare key (no ctrl), so it is matched before the
     // ctrl-only guard below.
-    if setting.keybind_matches(thor.fullscreen_key, event.key, event.mods) {
+    if thor_app_key_hit(thor, thor.fullscreen_key, "toggle_fullscreen", event) {
         thor_toggle_fullscreen(thor)
         return true
     }
-    if setting.keybind_matches(thor.console_toggle_key, event.key, event.mods) {
+    if thor_app_key_hit(thor, thor.console_toggle_key, "toggle_console", event) {
         thor_toggle_console(thor)
         return true
     }
 
     // Focus shortcuts: open the target panel if it is collapsed, then move
     // keyboard focus to it.
-    if setting.keybind_matches(thor.focus_editor_key, event.key, event.mods) {
+    if thor_app_key_hit(thor, thor.focus_editor_key, "focus_editor", event) {
         thor_focus_editor(thor)
         return true
     }
-    if setting.keybind_matches(thor.focus_explorer_key, event.key, event.mods) {
+    if thor_app_key_hit(thor, thor.focus_explorer_key, "focus_explorer", event) {
         thor_focus_explorer(thor)
         return true
     }
-    if setting.keybind_matches(thor.focus_terminal_key, event.key, event.mods) {
+    if thor_app_key_hit(thor, thor.focus_terminal_key, "focus_terminal", event) {
         thor_focus_terminal(thor)
         return true
     }
-    if setting.keybind_matches(thor.trim_whitespace_key, event.key, event.mods) {
+    if thor_app_key_hit(thor, thor.trim_whitespace_key, "trim_trailing_whitespace", event) {
         thor_cmd_trim_whitespace(thor)
         return true
     }
-    if setting.keybind_matches(thor.format_key, event.key, event.mods) {
+    if thor_app_key_hit(thor, thor.format_key, "format_document", event) {
         thor_format_document(thor)
         return true
     }
-    if setting.keybind_matches(thor.format_selection_key, event.key, event.mods) {
+    if thor_app_key_hit(thor, thor.format_selection_key, "format_selection", event) {
         thor_format_selection_command(thor)
         return true
     }
-    if setting.keybind_matches(thor.align_char_key, event.key, event.mods) {
+    if thor_app_key_hit(thor, thor.align_char_key, "align_at_char", event) {
         thor_cmd_align_at_char(thor)
         return true
     }
-    if setting.keybind_matches(thor.close_tab_key, event.key, event.mods) {
+    if thor_app_key_hit(thor, thor.close_tab_key, "close_tab", event) {
         thor_request_close_file(thor, signal_get(&thor.active_file))
         return true
     }
-    if setting.keybind_matches(thor.next_tab_key, event.key, event.mods) {
+    if thor_app_key_hit(thor, thor.next_tab_key, "next_tab", event) {
         thor_cycle_tab(thor, 1)
         return true
     }
-    if setting.keybind_matches(thor.previous_tab_key, event.key, event.mods) {
+    if thor_app_key_hit(thor, thor.previous_tab_key, "previous_tab", event) {
         thor_cycle_tab(thor, -1)
         return true
     }
-    if setting.keybind_matches(thor.toggle_explorer_key, event.key, event.mods) {
+    if thor_app_key_hit(thor, thor.toggle_explorer_key, "toggle_explorer", event) {
         thor_toggle_explorer(thor)
         return true
     }

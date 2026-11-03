@@ -1175,7 +1175,7 @@ api_keybind :: proc "c" (L: ^lua.State) -> c.int {
 }
 
 // thor.on_command(name, fn): registers a named command the host invokes by name
-// (see manager_run_command), e.g. Help -> Tutorial.
+// (see manager_run_command).
 @(private)
 api_on_command :: proc "c" (L: ^lua.State) -> c.int {
     context = runtime.default_context()

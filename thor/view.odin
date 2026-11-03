@@ -94,6 +94,7 @@ thor_push_theme :: proc(thor: ^Thor) {
 
 thor_frame :: proc(thor: ^Thor) {
     thor_push_theme(thor)
+    thor.region_rects = {}
     // Before the tree: a global chord must win over whatever holds the focus.
     thor_frame_shortcuts(thor)
 
@@ -137,6 +138,7 @@ thor_overlays :: proc(thor: ^Thor) {
     thor_menu_view(thor)
     thor_tip_card_view(thor)
     thor_lua_notice_view(thor)
+    thor_tutorial_view(thor)
 }
 
 // An icon is a glyph of an icon family, so it draws as ordinary text and needs
@@ -212,7 +214,7 @@ MENU_LABELS := [?]string{"File", "Edit", "View", "Git", "Help"}
 
 @(private = "file")
 thor_titlebar :: proc(thor: ^Thor) {
-    ui.scope(
+    bar := ui.scope(
         {
             key = "titlebar",
             props = {
@@ -249,16 +251,20 @@ thor_titlebar :: proc(thor: ^Thor) {
         thor_cmd_open_settings_gui(thor)
     }
 
+    thor.region_rects[.Titlebar] = bar.rect
+    menu_bar: ui.Rect
     for label, i in MENU_LABELS {
         ui.push_id_int(i64(i))
         it := thor_text_button(thor, label, {key = "menu", props = {w = ui.Px(70)}})
         thor_menu_tip(thor, it.id, i)
         ui.pop_id()
+        menu_bar = i == 0 ? it.rect : thor_rect_union(menu_bar, it.rect)
         if it.clicked {
             thor.menu_anchor = {it.rect.x, it.rect.y + it.rect.h}
             thor_open_titlebar_menu(thor, i)
         }
     }
+    thor.region_rects[.Menu_Bar] = menu_bar
 
     thor_plugin_buttons(thor)
     ui.spacer()
@@ -359,6 +365,7 @@ thor_task_controls :: proc(thor: ^Thor) {
     ui.end()
     thor_tip(thor, run.id, "Run the selected task", thor_action_shortcut(thor, "run_selected_task"))
     if run.clicked {
+        thor_note_action(thor, "run_selected_task")
         thor_click_run_task(thor)
     }
 }
@@ -581,12 +588,13 @@ thor_seed_dock :: proc(thor: ^Thor, dock: ui.Dock_Id) {
 // is none yet.
 @(private = "file")
 thor_console_panel :: proc(thor: ^Thor) {
-    ui.scope(
+    panel := ui.scope(
         {
             key = "console-panel",
             props = {w = ui.Grow(1), h = ui.Grow(1), dir = .Column, bg = thor.theme.background},
         },
     )
+    thor.region_rects[.Console] = panel.rect
     thor_terminal_strip(thor)
 
     console := thor_active_console(thor)
@@ -902,7 +910,7 @@ thor_workspace_pane :: proc(thor: ^Thor, view: Workspace_View, pane: int, key: s
 
 @(private = "file")
 thor_tabbar :: proc(thor: ^Thor) {
-    ui.scope(
+    bar := ui.scope(
         {
             key = "tabbar",
             flags = {.Clip},
@@ -915,6 +923,7 @@ thor_tabbar :: proc(thor: ^Thor) {
             },
         },
     )
+    thor.region_rects[.Tabbar] = bar.rect
 
     active := signal_get(&thor.active_file)
     select_index := -1
@@ -1911,7 +1920,7 @@ thor_statusbar :: proc(thor: ^Thor) {
     text := thor.theme.foreground
     dim := thor.theme.muted_color
 
-    ui.scope(
+    bar := ui.scope(
         {
             key = "statusbar",
             flags = {.Clip},
@@ -1927,6 +1936,7 @@ thor_statusbar :: proc(thor: ^Thor) {
             },
         },
     )
+    thor.region_rects[.Statusbar] = bar.rect
 
     // The way back for a panel closed from its dock tab. The welcome page has no
     // dock, so it shows neither.

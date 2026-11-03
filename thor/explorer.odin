@@ -475,6 +475,7 @@ thor_explorer_view :: proc(thor: ^Thor) {
             },
         },
     )
+    thor.region_rects[.Explorer] = panel.rect
     if panel.focused {
         thor.focus_owner = "explorer"
     }

@@ -103,6 +103,9 @@ Thor :: struct {
     // "View: Toggle Markdown Preview".
     markdown_preview: bool,
     markdown_view: Markdown_View,
+    tutorial: Tutorial,
+    // Last frame's rect of each region a tutorial step can point at.
+    region_rects: [Tutorial_Region]ui.Rect,
     // Tip of the day, floating over the editor. Opened on the first start of a
     // day with a workspace open, where the welcome page is not shown; the
     // welcome page shows the same tip inline.
@@ -809,7 +812,7 @@ init :: proc() -> ^Thor {
     lap(&phase, "terminals + settings")
 
     // Now that the console and keybinds exist, expose the host services and load
-    // plugins (their load body may print or query keybinds, e.g. the tutorial).
+    // plugins (their load body may print or query keybinds).
     thor_set_plugin_host(thor)
     thor_load_plugins(thor)
     lap(&phase, "load plugins")
@@ -1034,6 +1037,7 @@ shutdown :: proc(thor: ^Thor) {
         thor_model_view_destroy(thor, &view)
     }
     thor_markdown_view_destroy(thor, &thor.markdown_view)
+    thor_tutorial_destroy(thor)
     strings.builder_destroy(&thor.console_backlog)
     thor_clear_plugin_commands(thor)
     delete(thor.plugin_commands)

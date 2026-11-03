@@ -447,11 +447,11 @@ thor_pane_global_key :: proc(thor: ^Thor, event: ui.Key_Event) -> bool {
         }
     }
     switch {
-    case setting.keybind_matches(thor.focus_next_pane_key, event.key, event.mods):
+    case thor_app_key_hit(thor, thor.focus_next_pane_key, "focus_next_pane", event):
         thor_focus_next_pane(thor, 1)
-    case setting.keybind_matches(thor.focus_previous_pane_key, event.key, event.mods):
+    case thor_app_key_hit(thor, thor.focus_previous_pane_key, "focus_previous_pane", event):
         thor_focus_next_pane(thor, -1)
-    case setting.keybind_matches(thor.next_layout_key, event.key, event.mods):
+    case thor_app_key_hit(thor, thor.next_layout_key, "next_layout", event):
         thor_cycle_layout(thor, 1)
     case:
         return false

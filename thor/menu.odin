@@ -173,6 +173,9 @@ thor_menu_view :: proc(thor: ^Thor) {
 
     if picked.run != nil {
         thor_menu_close(thor)
+        if picked.action != "" {
+            thor_note_action(thor, picked.action)
+        }
         picked.run(picked.data)
         return
     }

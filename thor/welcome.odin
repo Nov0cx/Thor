@@ -177,6 +177,10 @@ thor_welcome_view :: proc(thor: ^Thor) {
             thor_welcome_open_file(thor)
             return
         }
+        if welcome_button(thor, "tour", "Take the tour", "school", "Start the guided tutorial") {
+            thor_tutorial_start(thor, 0)
+            return
+        }
     }
 
     welcome_recent(thor)

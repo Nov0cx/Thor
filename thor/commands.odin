@@ -19,6 +19,69 @@ import "../font"
 import "../theme"
 import "../editview"
 import "../lockfree"
+// A global app chord: its keybinds.lua name, the live binding and the built-in default.
+App_Key :: struct {
+    name:    string,
+    key:     ^setting.Keybind,
+    default: setting.Keybind,
+}
+
+// The global app chords of thor_global_key. The slice is in the temp allocator.
+thor_app_keys :: proc(thor: ^Thor) -> []App_Key {
+    keys := [?]App_Key {
+    {"command_palette",          &thor.command_palette_key,       {key = .Period, mods = {.Ctrl}}},
+    {"quick_open",               &thor.quick_open_key,            {key = .Tab, mods = {.Ctrl}}},
+    {"toggle_fullscreen",        &thor.fullscreen_key,            {key = .F12}},
+    {"toggle_console",           &thor.console_toggle_key,        {key = .T, mods = {.Ctrl}}},
+    {"find",                     &thor.find_key,                  {key = .F, mods = {.Ctrl}}},
+    {"replace",                  &thor.replace_key,               {key = .R, mods = {.Ctrl}}},
+    {"focus_editor",             &thor.focus_editor_key,          {key = .E, mods = {.Ctrl, .Shift}}},
+    {"focus_explorer",           &thor.focus_explorer_key,        {key = .B, mods = {.Ctrl, .Shift}}},
+    {"focus_terminal",           &thor.focus_terminal_key,        {key = .T, mods = {.Ctrl, .Shift}}},
+    {"trim_trailing_whitespace", &thor.trim_whitespace_key,       {key = .W, mods = {.Ctrl, .Shift}}},
+    {"format_document",          &thor.format_key,                {key = .L, mods = {.Ctrl, .Alt}}},
+    {"format_selection",         &thor.format_selection_key,      {key = .L, mods = {.Ctrl, .Alt, .Shift}}},
+    {"align_at_char",            &thor.align_char_key,            {key = .A, mods = {.Ctrl, .Shift}}},
+    {"goto_line",                &thor.goto_line_key,             {key = .G, mods = {.Ctrl}}},
+    {"goto_definition",          &thor.goto_def_key,              {key = .Enter, mods = {.Alt}}},
+    {"peek_definition",          &thor.peek_def_key,              {key = .F12, mods = {.Alt}}},
+    {"goto_symbol",              &thor.goto_symbol_key,           {key = .O, mods = {.Ctrl, .Shift}}},
+    {"goto_workspace_symbol",    &thor.goto_workspace_symbol_key, {key = .Q, mods = {.Ctrl}}},
+    {"find_references",          &thor.find_references_key,       {key = .F10}},
+    {"signature_help",           &thor.signature_help_key,        {key = .Space, mods = {.Ctrl, .Shift}}},
+    {"package_doc",              &thor.package_doc_key,           {key = .F3}},
+    {"code_actions",             &thor.code_actions_key,          {key = .U, mods = {.Ctrl, .Shift}}},
+    // Ctrl+Alt+Left/Right, not the browsers' plain Alt+Left/Right: those two are
+    // already line_start / line_end.
+    {"jump_back",                &thor.jump_back_key,             {key = .Left, mods = {.Ctrl, .Alt}}},
+    {"jump_forward",             &thor.jump_forward_key,          {key = .Right, mods = {.Ctrl, .Alt}}},
+    {"last_file",                &thor.last_file_key,             {key = .E, mods = {.Ctrl}}},
+    {"toggle_split",             &thor.split_key,                 {}},
+    {"focus_pane_1",             &thor.focus_pane_keys[0],        {key = .Num_1, mods = {.Ctrl}}},
+    {"focus_pane_2",             &thor.focus_pane_keys[1],        {key = .Num_2, mods = {.Ctrl}}},
+    {"focus_pane_3",             &thor.focus_pane_keys[2],        {key = .Num_3, mods = {.Ctrl}}},
+    {"focus_pane_4",             &thor.focus_pane_keys[3],        {key = .Num_4, mods = {.Ctrl}}},
+    {"focus_pane_5",             &thor.focus_pane_keys[4],        {key = .Num_5, mods = {.Ctrl}}},
+    {"focus_pane_6",             &thor.focus_pane_keys[5],        {key = .Num_6, mods = {.Ctrl}}},
+    {"file_to_pane_1",           &thor.file_to_pane_keys[0],      {key = .Num_1, mods = {.Ctrl, .Shift}}},
+    {"file_to_pane_2",           &thor.file_to_pane_keys[1],      {key = .Num_2, mods = {.Ctrl, .Shift}}},
+    {"file_to_pane_3",           &thor.file_to_pane_keys[2],      {key = .Num_3, mods = {.Ctrl, .Shift}}},
+    {"file_to_pane_4",           &thor.file_to_pane_keys[3],      {key = .Num_4, mods = {.Ctrl, .Shift}}},
+    {"file_to_pane_5",           &thor.file_to_pane_keys[4],      {key = .Num_5, mods = {.Ctrl, .Shift}}},
+    {"file_to_pane_6",           &thor.file_to_pane_keys[5],      {key = .Num_6, mods = {.Ctrl, .Shift}}},
+    {"focus_next_pane",          &thor.focus_next_pane_key,       {key = .F6}},
+    {"focus_previous_pane",      &thor.focus_previous_pane_key,   {key = .F6, mods = {.Shift}}},
+    {"next_layout",              &thor.next_layout_key,           {key = .F1, mods = {.Ctrl}}},
+    {"close_tab",                &thor.close_tab_key,             {key = .W, mods = {.Ctrl}}},
+    {"next_tab",                 &thor.next_tab_key,              {key = .Page_Down, mods = {.Ctrl}}},
+    {"previous_tab",             &thor.previous_tab_key,          {key = .Page_Up, mods = {.Ctrl}}},
+    {"toggle_explorer",          &thor.toggle_explorer_key,       {key = .B, mods = {.Ctrl}}},
+    }
+    out := make([]App_Key, len(keys), context.temp_allocator)
+    copy(out, keys[:])
+    return out
+}
+
 // Applies the configurable settings to the live widgets. Called at startup and
 // on reload, so both paths stay in sync.
 thor_apply_settings :: proc(thor: ^Thor) {
@@ -31,59 +94,7 @@ thor_apply_settings :: proc(thor: ^Thor) {
         }
     }
     // The app keys: the built-in chord unless a keybinds.lua names one.
-    app_keys := [?]struct {
-        name:    string,
-        key:     ^setting.Keybind,
-        default: setting.Keybind,
-    } {
-        {"command_palette",          &thor.command_palette_key,       {key = .Period, mods = {.Ctrl}}},
-        {"quick_open",               &thor.quick_open_key,            {key = .Tab, mods = {.Ctrl}}},
-        {"toggle_fullscreen",        &thor.fullscreen_key,            {key = .F12}},
-        {"toggle_console",           &thor.console_toggle_key,        {key = .T, mods = {.Ctrl}}},
-        {"find",                     &thor.find_key,                  {key = .F, mods = {.Ctrl}}},
-        {"replace",                  &thor.replace_key,               {key = .R, mods = {.Ctrl}}},
-        {"focus_editor",             &thor.focus_editor_key,          {key = .E, mods = {.Ctrl, .Shift}}},
-        {"focus_explorer",           &thor.focus_explorer_key,        {key = .B, mods = {.Ctrl, .Shift}}},
-        {"focus_terminal",           &thor.focus_terminal_key,        {key = .T, mods = {.Ctrl, .Shift}}},
-        {"trim_trailing_whitespace", &thor.trim_whitespace_key,       {key = .W, mods = {.Ctrl, .Shift}}},
-        {"format_document",          &thor.format_key,                {key = .L, mods = {.Ctrl, .Alt}}},
-        {"format_selection",         &thor.format_selection_key,      {key = .L, mods = {.Ctrl, .Alt, .Shift}}},
-        {"align_at_char",            &thor.align_char_key,            {key = .A, mods = {.Ctrl, .Shift}}},
-        {"goto_line",                &thor.goto_line_key,             {key = .G, mods = {.Ctrl}}},
-        {"goto_definition",          &thor.goto_def_key,              {key = .Enter, mods = {.Alt}}},
-        {"peek_definition",          &thor.peek_def_key,              {key = .F12, mods = {.Alt}}},
-        {"goto_symbol",              &thor.goto_symbol_key,           {key = .O, mods = {.Ctrl, .Shift}}},
-        {"goto_workspace_symbol",    &thor.goto_workspace_symbol_key, {key = .Q, mods = {.Ctrl}}},
-        {"find_references",          &thor.find_references_key,       {key = .F10}},
-        {"signature_help",           &thor.signature_help_key,        {key = .Space, mods = {.Ctrl, .Shift}}},
-        {"package_doc",              &thor.package_doc_key,           {key = .F3}},
-        {"code_actions",             &thor.code_actions_key,          {key = .U, mods = {.Ctrl, .Shift}}},
-        // Ctrl+Alt+Left/Right, not the browsers' plain Alt+Left/Right: those two are
-        // already line_start / line_end.
-        {"jump_back",                &thor.jump_back_key,             {key = .Left, mods = {.Ctrl, .Alt}}},
-        {"jump_forward",             &thor.jump_forward_key,          {key = .Right, mods = {.Ctrl, .Alt}}},
-        {"last_file",                &thor.last_file_key,             {key = .E, mods = {.Ctrl}}},
-        {"toggle_split",             &thor.split_key,                 {}},
-        {"focus_pane_1",             &thor.focus_pane_keys[0],        {key = .Num_1, mods = {.Ctrl}}},
-        {"focus_pane_2",             &thor.focus_pane_keys[1],        {key = .Num_2, mods = {.Ctrl}}},
-        {"focus_pane_3",             &thor.focus_pane_keys[2],        {key = .Num_3, mods = {.Ctrl}}},
-        {"focus_pane_4",             &thor.focus_pane_keys[3],        {key = .Num_4, mods = {.Ctrl}}},
-        {"focus_pane_5",             &thor.focus_pane_keys[4],        {key = .Num_5, mods = {.Ctrl}}},
-        {"focus_pane_6",             &thor.focus_pane_keys[5],        {key = .Num_6, mods = {.Ctrl}}},
-        {"file_to_pane_1",           &thor.file_to_pane_keys[0],      {key = .Num_1, mods = {.Ctrl, .Shift}}},
-        {"file_to_pane_2",           &thor.file_to_pane_keys[1],      {key = .Num_2, mods = {.Ctrl, .Shift}}},
-        {"file_to_pane_3",           &thor.file_to_pane_keys[2],      {key = .Num_3, mods = {.Ctrl, .Shift}}},
-        {"file_to_pane_4",           &thor.file_to_pane_keys[3],      {key = .Num_4, mods = {.Ctrl, .Shift}}},
-        {"file_to_pane_5",           &thor.file_to_pane_keys[4],      {key = .Num_5, mods = {.Ctrl, .Shift}}},
-        {"file_to_pane_6",           &thor.file_to_pane_keys[5],      {key = .Num_6, mods = {.Ctrl, .Shift}}},
-        {"focus_next_pane",          &thor.focus_next_pane_key,       {key = .F6}},
-        {"focus_previous_pane",      &thor.focus_previous_pane_key,   {key = .F6, mods = {.Shift}}},
-        {"next_layout",              &thor.next_layout_key,           {key = .F1, mods = {.Ctrl}}},
-        {"close_tab",                &thor.close_tab_key,             {key = .W, mods = {.Ctrl}}},
-        {"next_tab",                 &thor.next_tab_key,              {key = .Page_Down, mods = {.Ctrl}}},
-        {"previous_tab",             &thor.previous_tab_key,          {key = .Page_Up, mods = {.Ctrl}}},
-        {"toggle_explorer",          &thor.toggle_explorer_key,       {key = .B, mods = {.Ctrl}}},
-    }
+    app_keys := thor_app_keys(thor)
     for entry in app_keys {
         kb, ok := setting.keybind(&thor.config, entry.name)
         entry.key^ = ok ? kb : entry.default
@@ -319,6 +330,7 @@ thor_dispatch_app_bind :: proc(thor: ^Thor, event: ui.Key_Event, prefix := "") -
         if bind.key.key != .None &&
            strings.has_prefix(bind.action, prefix) &&
            setting.keybind_matches(bind.key, event.key, event.mods) {
+            thor_note_action(thor, bind.action)
             if bind.run != nil {
                 bind.run(bind.data)
             }

@@ -454,12 +454,3 @@ thor_plugin_dialog_confirm :: proc(data: rawptr) {
     thor := cast(^Thor) data
     plugin.manager_dialog_confirm(&thor.plugins)
 }
-
-// Help -> Tutorial: starts the interactive tutorial plugin
-// (plugins/tutorial/plugin.lua).
-thor_cmd_tutorial :: proc(data: rawptr) {
-    thor := cast(^Thor) data
-    if !plugin.manager_run_command(&thor.plugins, "tutorial") {
-        thor_plugin_print(thor, "\nThe tutorial plugin is not installed (plugins/tutorial/plugin.lua).\n")
-    }
-}
