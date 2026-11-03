@@ -148,6 +148,9 @@ thor_apply_language_settings :: proc(thor: ^Thor) {
             thor_clear_file_inlays(file)
         }
     }
+    if .Document_Highlight not_in after {
+        thor_clear_occurrences(thor)
+    }
     if .Semantic_Tokens not_in after {
         for file in thor.open_files {
             // Re-merged by the per-frame highlight pass, now without the overlay.
@@ -2018,6 +2021,8 @@ thor_on_lang_result :: proc(user: rawptr, res: ^lang.Result) {
         thor_update_semantic(thor, res)
     case .Inlay_Hints:
         thor_update_inlays(thor, res)
+    case .Document_Highlight:
+        thor_update_occurrences(thor, res)
     case .Format:
         thor_apply_format(thor, res)
     case .Format_Range:

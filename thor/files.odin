@@ -1245,6 +1245,7 @@ thor_update_files :: proc(thor: ^Thor) {
         thor.semantic_source = ""
     }
     thor_recover_inlay_slot(thor)
+    thor_recover_occurrence_slot(thor)
     thor_peek_tick(thor)
     if thor.syntax_request_id != 0 &&
        !lang.manager_has_request(&thor.lang_manager, thor.syntax_request_id) {
@@ -1284,6 +1285,7 @@ thor_update_files :: proc(thor: ^Thor) {
         thor_request_pane_syntax_diagnostics(thor, pane)
         thor_sync_pane_diagnostics(thor, pane)
         thor_sync_pane_inlays(thor, pane)
+        thor_sync_pane_occurrences(thor, pane)
         // Each visible pane's git diff lines for the gutter bar.
         thor_sync_pane_diff(thor, pane)
     }

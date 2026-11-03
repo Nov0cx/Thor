@@ -542,6 +542,15 @@ Thor :: struct {
     inlay_source:     string,
     inlay_start:      int,
     inlay_end:        int,
+    // In-flight document highlight: its id, and the file (owned), revision and caret it asked about.
+    occurrence_request_id:   u64,
+    occurrence_ask_path:     string,
+    occurrence_ask_revision: u64,
+    occurrence_ask_caret:    int,
+    // The uses of the symbol at the caret in `occurrence_path` (owned) at `occurrence_revision`.
+    occurrences:             [dynamic]editview.Occurrence,
+    occurrence_path:         string,
+    occurrence_revision:     u64,
     // In-flight rename: its request id and the path of the buffer it was computed
     // against (owned), so its edits can be told apart from the ones landing in
     // other files — that buffer is validated against the snapshotted revision,
@@ -1082,6 +1091,8 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.semantic_source)
     delete(thor.inlay_path)
     delete(thor.inlay_source)
+    thor_clear_occurrences(thor)
+    delete(thor.occurrences)
     delete(thor.format_path)
     delete(thor.format_range_path)
     delete(thor.on_type_path)

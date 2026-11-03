@@ -73,6 +73,7 @@ thor_bind_pane :: proc(thor: ^Thor, pane: int, keep_view := false) {
     // now, so the gutter is right for the rest of the frame.
     thor_sync_pane_diagnostics(thor, pane)
     thor_sync_pane_inlays(thor, pane)
+    thor_sync_pane_occurrences(thor, pane)
     thor_sync_pane_diff(thor, pane)
 }
 

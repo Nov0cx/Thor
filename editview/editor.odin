@@ -167,6 +167,8 @@ Editor :: struct {
     highlights:         []Highlight_Span,
     // Inlay hints for the current buffer, ascending by offset. Borrowed.
     inlays:             []Inlay,
+    // The uses of the symbol at the caret, ascending by start. Borrowed.
+    occurrences:        []Occurrence,
     // The zone: `zone_rows` empty rows below the line that holds `zone_offset` at
     // `zone_revision`. No zone when zone_rows is 0.
     zone_offset:        int,
@@ -582,6 +584,7 @@ editor_set_state :: proc(editor: ^Editor, state: ^textedit.State) {
     // this rebind (a tab close). The owner pushes the new file's spans back.
     editor.diagnostics = nil
     editor.diff_lines = nil
+    editor.occurrences = nil
     editor.recenter_caret = -1
     // Rows were built from the previous buffer; drop them so layout/draw rebuild
     // against the new one. A bare revision check can miss the swap when the two
@@ -679,6 +682,11 @@ editor_set_highlights :: proc(editor: ^Editor, highlights: []Highlight_Span) {
 // Replaces the inlay hints drawn for the current buffer (borrowed, not copied).
 editor_set_inlays :: proc(editor: ^Editor, inlays: []Inlay) {
     editor.inlays = inlays
+}
+
+// Replaces the marked uses of the symbol at the caret (borrowed, not copied).
+editor_set_occurrences :: proc(editor: ^Editor, occurrences: []Occurrence) {
+    editor.occurrences = occurrences
 }
 
 // Replaces the diagnostics drawn for the current buffer (borrowed, not copied).
@@ -2732,6 +2740,13 @@ editor_content_row :: proc(editor: ^Editor, index, delta: int) -> int {
         }
     }
     return clamp(i, 0, len(rows) - 1)
+}
+
+// One use of the symbol at the caret, over [start, end).
+Occurrence :: struct {
+    start: int,
+    end:   int,
+    write: bool, // a declaration or a store
 }
 
 // Virtual text drawn before the byte at `offset`.

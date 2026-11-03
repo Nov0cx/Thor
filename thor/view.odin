@@ -1212,6 +1212,7 @@ thor_editor_view :: proc(thor: ^Thor, editor: ^editview.Editor, file: ^Open_File
     text_x := editview.TEXT_PAD_LEFT - editor.scroll_x
 
     thor_paint_indent_guides(thor, editor, text, rows, first, last, line_h, text_x)
+    thor_paint_occurrences(thor, editor, text, rows, first, last, line_h, text_x)
     thor_paint_selections(thor, editor, text, rows, first, last, line_h, text_x)
     thor_paint_diagnostics(thor, editor, text, rows, first, last, line_h, text_x)
 
@@ -1791,6 +1792,43 @@ thor_paint_selections :: proc(
                 },
                 thor.theme.selection_background,
             )
+        }
+    }
+}
+
+// Marks the uses of the symbol at the caret: a faint fill, and an accent underline on a write.
+@(private = "file")
+thor_paint_occurrences :: proc(
+    thor: ^Thor,
+    editor: ^editview.Editor,
+    text: string,
+    rows: []editview.Visual_Row,
+    first, last: int,
+    line_h, text_x: f32,
+) {
+    if len(editor.occurrences) == 0 {
+        return
+    }
+    fill := thor.theme.selection_background
+    fill.a /= 2
+    for occ in editor.occurrences {
+        for index in first ..< last {
+            if rows[index].spacer {
+                continue
+            }
+            row := rows[index]
+            a := max(occ.start, row.start)
+            b := min(occ.end, row.end)
+            if b <= a {
+                continue
+            }
+            x0 := thor_row_x(editor, text, row.start, row.end, a)
+            x1 := thor_row_x(editor, text, row.start, row.end, b)
+            y := f32(index) * line_h - editor.scroll_y
+            ui.paint_rect({text_x + x0, y, max(x1 - x0, 2), line_h}, fill)
+            if occ.write {
+                ui.paint_rect({text_x + x0, y + line_h - 1, max(x1 - x0, 2), 1}, thor.theme.accent_color)
+            }
         }
     }
 }
