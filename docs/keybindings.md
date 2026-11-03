@@ -135,7 +135,7 @@ Add `shift` to any movement to extend the selection.
 | Binding | Action |
 | --- | --- |
 | ctrl + a | select all |
-| ctrl + d | select word; press again: add cursor at next whole-word occurrence |
+| ctrl + d | select word; press again: add cursor at next whole-word occurrence. While the uses of the name at the caret are marked, it selects the next use instead, and skips the same text in comments, strings and other scopes |
 | ctrl + shift + d | same, matching substrings instead of whole words |
 | ctrl + l | select line; press again: extend one line |
 | ctrl + alt + up / down | add cursor above / below |

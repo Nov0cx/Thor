@@ -2716,6 +2716,8 @@ not a status, so this section stays the source of truth for what is built.
     of the active pane stops outside the uses it shows
     (`thor/occurrences.odin`), drops them at the next edit, and paints a
     faint fill with an accent underline on a write (`editview.Occurrence`).
+    While they show, `select_word` (ctrl + d) steps through them
+    (`textedit.select_range_or_next`) instead of the text matches.
   - **Compiler oracle** (`lang/odin/oracle_test.odin`, run with
     `-define:LIVE_ORACLE=true`; plan §8 M5 bar): `test_oracle_clean_corpus`
     runs the live check on every file of the 310 `base`/`core`/`vendor`

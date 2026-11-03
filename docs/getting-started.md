@@ -186,7 +186,7 @@ there. Inlay hints show the type of a declaration with no written type between
 its colons (`count : int = 3`), the type of a `for` variable after its name, and
 the parameter name before each argument of a call. When the caret stops on a
 name, every use of it in the file is marked; a declaration or an assignment is
-underlined. The `document_highlight` feature of `language_intelligence` turns
+underlined. `ctrl + d` then selects these uses one by one. The `document_highlight` feature of `language_intelligence` turns
 this off. Completion offers the members after `x.`, the union variants
 after `x.(`, the procedure members after `x->`, and packages the file does not
 import yet, with the import line added. Signature help also covers a
