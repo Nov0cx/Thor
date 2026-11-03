@@ -390,37 +390,11 @@ thor_tutorial_chooser :: proc(thor: ^Thor) {
             thor_icon_label(thor, "school", thor.theme.accent_color)
             ui.label("Tutorial", {key = "title", props = {w = ui.Grow(1), color = thor.theme.foreground, text_wrap = .None}})
         }
-        for c, i in TUTORIAL_CHAPTERS {
-            mark := t.marks[i]
+        for _, i in TUTORIAL_CHAPTERS {
             ui.push_id_int(i64(i))
-            row := ui.scope(
-                {
-                    key = "chapter",
-                    flags = {.Clickable},
-                    props = {w = ui.Grow(1), h = ui.Px(30), dir = .Row, align = .Center, gap = {8, 0}, pad = ui.xy(8, 0), radius = ui.rad(4), cursor = .Pointer},
-                    hover = {bg = thor.theme.buttons},
-                },
-            )
-            icon, color := "circle", thor.theme.disabled
-            if mark.done {
-                icon, color = "circle-check", thor.theme.success_color
-            } else if mark.step > 0 {
-                icon, color = "circle-half-2", thor.theme.accent_color
-            }
-            thor_icon_label(thor, icon, color, 14)
-            ui.label(
-                fmt.tprintf("%d. %s", i + 1, c.title),
-                {key = "name", props = {w = ui.Grow(1), color = thor.theme.foreground, text_wrap = .Ellipsis}},
-            )
-            state := ""
-            if mark.done {
-                state = "done"
-            } else if mark.step > 0 {
-                state = fmt.tprintf("resume at %d / %d", mark.step + 1, len(c.steps))
-            }
-            ui.label(state, {key = "state", props = {color = thor.theme.disabled, text_wrap = .None}})
+            clicked := tutorial_chapter_row(thor, i)
             ui.pop_id()
-            if row.clicked {
+            if clicked {
                 thor_tutorial_start(thor, i)
             }
         }
@@ -437,4 +411,38 @@ thor_tutorial_chooser :: proc(thor: ^Thor) {
     if backdrop.clicked || ui.take_key(.Escape) {
         t.chooser_open = false
     }
+}
+
+// One row of the chapter list. True when it was clicked.
+@(private = "file")
+tutorial_chapter_row :: proc(thor: ^Thor, i: int) -> bool {
+    c := TUTORIAL_CHAPTERS[i]
+    mark := thor.tutorial.marks[i]
+    row := ui.scope(
+        {
+            key = "chapter",
+            flags = {.Clickable},
+            props = {w = ui.Grow(1), h = ui.Px(30), dir = .Row, align = .Center, gap = {8, 0}, pad = ui.xy(8, 0), radius = ui.rad(4), cursor = .Pointer},
+            hover = {bg = thor.theme.buttons},
+        },
+    )
+    icon, color := "circle", thor.theme.disabled
+    if mark.done {
+        icon, color = "circle-check", thor.theme.success_color
+    } else if mark.step > 0 {
+        icon, color = "circle-half-2", thor.theme.accent_color
+    }
+    thor_icon_label(thor, icon, color, 14)
+    ui.label(
+        fmt.tprintf("%d. %s", i + 1, c.title),
+        {key = "name", props = {w = ui.Grow(1), color = thor.theme.foreground, text_wrap = .Ellipsis}},
+    )
+    state := ""
+    if mark.done {
+        state = "done"
+    } else if mark.step > 0 {
+        state = fmt.tprintf("resume at %d / %d", mark.step + 1, len(c.steps))
+    }
+    ui.label(state, {key = "state", props = {color = thor.theme.disabled, text_wrap = .None}})
+    return row.clicked
 }
