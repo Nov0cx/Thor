@@ -10,8 +10,8 @@ import "../textedit"
 
 // Verifies the thor.doc host service (thor_plugin_doc): the first call opens a
 // tab that loads the written text, and a second call refreshes the same tab's
-// buffer in place (no new tab, no unsaved churn) rather than reopening it. This
-// is what lets the tutorial tick challenges off live. Run from the repo root.
+// buffer in place (no new tab, no unsaved churn) rather than reopening it, so a
+// plugin can keep a live document. Run from the repo root.
 @(test)
 test_plugin_doc_opens_and_refreshes :: proc(t: ^testing.T) {
     PATH :: "thor_doc_host_test.md"
