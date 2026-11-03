@@ -816,6 +816,7 @@ test_select_range_or_next :: proc(t: ^testing.T) {
     testing.expect_value(t, len(state.cursors), 2)
     lo, hi = selection_range(state.cursors[1])
     testing.expect_value(t, lo, 14)
+    testing.expect_value(t, hi, 15)
 
     testing.expect(t, select_range_or_next(&state, ranges)) // every range taken: no growth
     testing.expect_value(t, len(state.cursors), 2)
