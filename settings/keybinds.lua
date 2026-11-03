@@ -56,6 +56,7 @@ return {
         git_lfs_pull = "",
         git_lfs_track = "",
         goto_definition = "alt+enter",
+        goto_type_definition = "alt+shift+enter",
         goto_line = "ctrl+g",
         goto_symbol = "ctrl+shift+o",
         goto_workspace_symbol = "ctrl+q",

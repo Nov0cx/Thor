@@ -443,6 +443,7 @@ Thor :: struct {
     explorer_refresh_at: time.Tick, // when the watcher last rebuilt the tree
     watch_git_dirty: bool,
     goto_def_key: setting.Keybind,
+    goto_type_def_key: setting.Keybind,
     peek_def_key: setting.Keybind,
     goto_symbol_key: setting.Keybind,
     goto_workspace_symbol_key: setting.Keybind,

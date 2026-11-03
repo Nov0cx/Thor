@@ -98,7 +98,7 @@ thor_lang_busy_label :: proc(kinds: bit_set[lang.Request_Kind]) -> string {
         return "Finding references..."
     case .Workspace_Symbols in kinds:
         return "Scanning workspace..."
-    case .Definition in kinds, .Document_Symbols in kinds, .Hover in kinds, .Package_Doc in kinds:
+    case .Definition in kinds, .Type_Definition in kinds, .Document_Symbols in kinds, .Hover in kinds, .Package_Doc in kinds:
         return "Resolving..."
     case .Code_Actions in kinds:
         return "Looking for fixes..."
@@ -500,6 +500,23 @@ thor_goto_definition :: proc(thor: ^Thor) {
     thor_dispatch_goto(thor, file, textedit.primary_cursor(&file.state).caret)
 }
 
+// Alt+Shift+Enter: the declaration of the type of the symbol under the caret, in the active file or the peek.
+thor_goto_type_definition :: proc(thor: ^Thor) {
+    if thor.peek.open && thor.focus_owner == PEEK_KEY && thor.peek.file != nil && thor.peek.file.loaded {
+        file := thor.peek.file
+        caret := textedit.primary_cursor(&file.state).caret
+        thor_peek_close(thor)
+        thor_focus_pane(thor, thor.peek.pane)
+        thor_dispatch_goto(thor, file, caret, .Type_Definition)
+        return
+    }
+    file := thor_active_open_file(thor)
+    if file == nil || !file.loaded {
+        return
+    }
+    thor_dispatch_goto(thor, file, textedit.primary_cursor(&file.state).caret, .Type_Definition)
+}
+
 // Ctrl+Click: the editor hands back the buffer it was clicked in and the byte
 // offset under the cursor. Match the buffer to its open file and dispatch.
 thor_editor_goto_definition :: proc(data: rawptr, state: ^textedit.State, offset: int) {
@@ -512,11 +529,11 @@ thor_editor_goto_definition :: proc(data: rawptr, state: ^textedit.State, offset
     }
 }
 
-// Sends a Definition request for `file` at `offset`. A snapshot of the buffer
+// Sends a Definition or Type_Definition request for `file` at `offset`. A snapshot of the buffer
 // goes with it, so the worker never races later edits; the manager clones the
 // strings, so the temp source is fine to hand over.
 @(private = "file")
-thor_dispatch_goto :: proc(thor: ^Thor, file: ^Open_File, offset: int) {
+thor_dispatch_goto :: proc(thor: ^Thor, file: ^Open_File, offset: int, kind := lang.Request_Kind.Definition) {
     if !file.loaded {
         return
     }
@@ -527,7 +544,7 @@ thor_dispatch_goto :: proc(thor: ^Thor, file: ^Open_File, offset: int) {
     source := textedit.text(&file.state)
     lang.manager_request_latest(
         &thor.lang_manager,
-        .Definition,
+        kind,
         file.path,
         ext,
         source,
@@ -1981,6 +1998,14 @@ thor_on_lang_result :: proc(user: rawptr, res: ^lang.Result) {
             thor_flash_status(thor, "No definition found", is_error = true)
         } else if len(res.symbols) > 1 {
             // Several workspace files declare the name; let the user pick.
+            thor_show_definition_candidates(thor, res)
+        } else {
+            thor_goto_location(thor, res.location.path, res.location.start)
+        }
+    case .Type_Definition:
+        if !res.ok {
+            thor_flash_status(thor, "No type definition found", is_error = true)
+        } else if len(res.symbols) > 1 {
             thor_show_definition_candidates(thor, res)
         } else {
             thor_goto_location(thor, res.location.path, res.location.start)

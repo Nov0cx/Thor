@@ -132,6 +132,10 @@ thor_global_key :: proc(thor: ^Thor, event: ui.Key_Event) -> bool {
         thor_goto_definition(thor)
         return true
     }
+    if thor_app_key_hit(thor, thor.goto_type_def_key, "goto_type_definition", event) {
+        thor_goto_type_definition(thor)
+        return true
+    }
     if thor_app_key_hit(thor, thor.peek_def_key, "peek_definition", event) {
         thor_peek_definition(thor)
         return true

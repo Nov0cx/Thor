@@ -6,7 +6,7 @@ import "../lang"
 import "../textedit"
 
 @(private = "file")
-MENU_STUB_KINDS :: bit_set[lang.Request_Kind]{.Definition, .References, .Format}
+MENU_STUB_KINDS :: bit_set[lang.Request_Kind]{.Definition, .Type_Definition, .References, .Format}
 
 @(private = "file")
 menu_stub_handles :: proc(data: rawptr, ext: string) -> bool {
@@ -76,6 +76,7 @@ test_editor_menu_language_items :: proc(t: ^testing.T) {
     thor_editor_context_menu(thor, {10, 10})
     testing.expect(t, thor.menu_open, "the menu opened")
     menu_expect(t, thor, "Go to Definition", true)
+    menu_expect(t, thor, "Go to Type Definition", true)
     menu_expect(t, thor, "Find References", true)
     menu_expect(t, thor, "Rename Symbol", false)
     menu_expect(t, thor, "Code Actions", false)
@@ -96,6 +97,7 @@ test_editor_menu_language_items :: proc(t: ^testing.T) {
     file.path = "notes.txt"
     thor_editor_context_menu(thor, {10, 10})
     menu_expect(t, thor, "Go to Definition", false)
+    menu_expect(t, thor, "Go to Type Definition", false)
     menu_expect(t, thor, "Find References", false)
     menu_expect(t, thor, "Format Document", false)
     menu_expect(t, thor, "Format Selection", false)
