@@ -74,6 +74,9 @@ Thor :: struct {
     // saw last frame, which is what a command asking "where am I" reads.
     focus_request: string,
     focus_owner: string,
+    // The build pass of the frame, 0 first. Loom runs the build up to `max_passes`
+    // times; work that advances with time runs only in pass 0.
+    frame_pass: int,
     config: setting.Settings,
     plugins: plugin.Manager,
     // Where a plugin's own data directory lives: user/plugins beside the binary,
@@ -997,9 +1000,14 @@ run :: proc(thor: ^Thor) {
 
         // Loom builds the tree from the state above and hands back a draw list;
         // the backend is the only thing below that knows about raylib.
-        ui.begin_frame(render.poll_input(&thor.backend))
-        thor_frame(thor)
-        list := ui.end_frame()
+        // Loom runs the build again while a pass changes what the last one laid out.
+        input := render.poll_input(&thor.backend)
+        thor.frame_pass = 0
+        for ui.frame(input) {
+            thor_frame(thor)
+            thor.frame_pass += 1
+        }
+        list := ui.draw_list()
 
         rl.BeginDrawing()
         rl.ClearBackground(render.raylib_color(thor.theme.contrast))

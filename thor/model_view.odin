@@ -256,7 +256,7 @@ thor_model_pan :: proc(view: ^Model_View, delta: ui.Vec2) {
 
 @(private = "file")
 thor_model_spin :: proc(thor: ^Thor, view: ^Model_View) {
-    if !view.spinning || view.drag != .None {
+    if thor.frame_pass > 0 || !view.spinning || view.drag != .None {
         return
     }
     // Wrapped, or a view left spinning drifts into f32 sizes where the angle
