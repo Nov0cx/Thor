@@ -43,6 +43,8 @@ LIGATURE_PROBES := [?]string {
     ";;",
     "$>",
     "www", "0x", "9x9", "===>", "==>", "-->",
+    // A contextual alternate keeps a URL's slashes apart in some faces.
+    "://", "http://", "https://", "file:///",
 }
 
 // Draw-time shaping buffer; main thread only, freed in shutdown.
