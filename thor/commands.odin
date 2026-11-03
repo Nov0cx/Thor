@@ -146,7 +146,7 @@ thor_reload_settings :: proc(thor: ^Thor) {
         }
     }
     if thor.config.general.font != old_font && thor.config.general.font != "" {
-        if !font.set_default_family(thor.config.general.font) {
+        if !thor_set_font(thor.config.general.font) {
             log.warnf("Configured font %q is not available; using the default", thor.config.general.font)
         }
     }

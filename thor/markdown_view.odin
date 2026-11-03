@@ -35,6 +35,7 @@ Markdown_View :: struct {
     built_rev:    u64,
     built_width:  f32,
     built_font:   i32,
+    built_family: string, // borrowed from the font package
     hovered:      int,
     // The folder of the document, which a relative image source is read against.
     dir:          string, // owned
@@ -251,13 +252,15 @@ thor_markdown_metrics :: proc(view: ^Markdown_View) -> markdown.Metrics {
     }
 }
 
-// Rebuilds the page when the source, the column, the font size or the theme has
+// Rebuilds the page when the source, the column, the font or the theme has
 // moved since the last build.
 thor_markdown_ensure :: proc(thor: ^Thor, view: ^Markdown_View, avail: f32, base: i32) {
     view.thor = thor
+    family := font.default_family()
     if view.built &&
        view.built_rev == view.source_rev &&
        view.built_font == base &&
+       view.built_family == family &&
        abs(view.built_width - avail) < 0.5 {
         return
     }
@@ -282,6 +285,7 @@ thor_markdown_ensure :: proc(thor: ^Thor, view: ^Markdown_View, avail: f32, base
     view.built_rev = view.source_rev
     view.built_width = avail
     view.built_font = base
+    view.built_family = family
 }
 
 // A recolour has to re-parse: the palette is baked into every item.

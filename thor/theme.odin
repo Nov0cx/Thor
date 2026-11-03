@@ -9,6 +9,7 @@ import "core:strings"
 import "../setting"
 import "../font"
 import "../theme"
+import ui "../vendor/loom/loom"
 // Built-in theme used when none is configured or the configured one fails to load.
 DEFAULT_THEME :: "mjolnir"
 
@@ -234,16 +235,26 @@ thor_cmd_change_font :: proc(data: rawptr) {
     )
 }
 
+// Makes `name` the default text family. The UI and editor handles name the
+// default family, so the switch shows next frame once Loom's cached widths
+// are dropped. False for an unknown family.
+thor_set_font :: proc(name: string) -> bool {
+    if !font.set_default_family(name) {
+        return false
+    }
+    ui.clear_text_cache()
+    return true
+}
+
 // Switches the default text font live (no persistence): the dialog's preview.
-// Text is drawn through the default family everywhere, so it shows next frame.
 thor_font_preview :: proc(_: rawptr, choice: string) {
-    font.set_default_family(choice)
+    thor_set_font(choice)
 }
 
 // Applies the chosen font and persists it as the new default.
 thor_font_commit :: proc(data: rawptr, choice: string) {
     thor := cast(^Thor) data
-    if !font.set_default_family(choice) {
+    if !thor_set_font(choice) {
         thor_plugin_print(thor, strings.concatenate({"\nFont ", choice, " is not available.\n"}, context.temp_allocator))
         return
     }

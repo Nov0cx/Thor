@@ -73,7 +73,7 @@ Console :: struct {
 
 thor_console_init :: proc(console: ^Console, font_size: i32) {
     console.font_size = max(font_size, 8)
-    console.family = font.default_family()
+    console.family = "" // the default family, so a font switch reaches the terminal
     console.cols, console.rows = 80, 24
     console.term = vt.term_make(console.cols, console.rows, CONSOLE_SCROLLBACK)
     console.focus_pending = true

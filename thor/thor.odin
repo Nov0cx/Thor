@@ -848,10 +848,10 @@ init :: proc() -> ^Thor {
     // of them must win explicitly rather than by map iteration order.
     thor_activate_icon_pack(PRIMARY_ICON_PACK_GROUP, setting.icon_pack_name(&thor.config), DEFAULT_ICON_PACK)
     thor_activate_icon_pack(FILE_ICON_PACK_GROUP, setting.file_icon_pack_name(&thor.config), DEFAULT_FILE_ICON_PACK)
-    // Font handles name a family the backend has registered; the families only
-    // exist once the load above finishes.
-    thor.font_ui = render.register_family(&thor.backend, font.default_family())
-    thor.font_mono = render.register_family(&thor.backend, font.default_family())
+    // Both handles name the default family (""), so a font switch reaches
+    // every node that draws with them.
+    thor.font_ui = render.register_family(&thor.backend, "")
+    thor.font_mono = render.register_family(&thor.backend, "")
     thor.font_icons = render.register_family(&thor.backend, font.ICON_FAMILY)
     lap(&phase, "text_finish_async_load")
 
