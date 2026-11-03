@@ -11,6 +11,7 @@ FEATURES_ALL :: ~bit_set[Request_Kind]{}
 @(private)
 FEATURE_NAMES := [Request_Kind]string {
     .Definition         = "definition",
+    .Type_Definition    = "type_definition",
     .Hover              = "hover",
     .Document_Symbols   = "document_symbols",
     .Workspace_Symbols  = "workspace_symbols",

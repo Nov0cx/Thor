@@ -160,6 +160,7 @@ test_capabilities_real_reply :: proc(t: ^testing.T) {
             "semanticTokensProvider": {"full": true},
             "inlayHintProvider": true,
             "documentHighlightProvider": true,
+            "typeDefinitionProvider": true,
             "executeCommandProvider": {"commands": ["clangd.applyFix"]}
         }, "serverInfo": {"name": "clangd", "version": "18"}}`,
     )

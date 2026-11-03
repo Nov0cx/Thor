@@ -17,6 +17,9 @@ import "../lockfree"
 
 Request_Kind :: enum {
     Definition,
+    // The declaration of the type of the name or expression at `offset`. Answers `location` or
+    // `symbols` like Definition.
+    Type_Definition,
     Hover,
     Document_Symbols,
     Workspace_Symbols,

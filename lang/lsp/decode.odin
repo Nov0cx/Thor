@@ -21,7 +21,7 @@ import lang ".."
 @(private)
 request_decode :: proc(ask: ^Ask, value: json.Value, res: ^lang.Result) {
     #partial switch ask.req.kind {
-    case .Definition:
+    case .Definition, .Type_Definition:
         decode_definition(ask, value, res)
     case .Hover:
         decode_hover(ask, value, res)

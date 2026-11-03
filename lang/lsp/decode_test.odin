@@ -180,6 +180,7 @@ result_release :: proc(res: ^lang.Result) {
         delete(hint.label)
     }
     delete(res.inlays)
+    delete(res.highlights)
     delete(res.report.scope)
     for item in res.report.items {
         delete(item.path)
@@ -290,6 +291,27 @@ test_decode_definition_candidates :: proc(t: ^testing.T) {
     testing.expect_value(t, res.symbols[1].signature, "gamma delta")
     testing.expect_value(t, res.symbols[1].offset, 11)
     testing.expect_value(t, res.symbols[1].line, 2)
+}
+
+// A type definition reply has the shape of a definition reply.
+@(test)
+test_decode_type_definition_location_array :: proc(t: ^testing.T) {
+    s := held_server()
+    defer held_destroy(s)
+    req := request_for(.Type_Definition, SOURCE, 0)
+
+    res := decode_reply(
+        s,
+        &req,
+        `[{"uri":"` + FILE_URI + `","range":{"start":{"line":1,"character":6},"end":{"line":1,"character":11}}}]`,
+    )
+    defer result_release(&res)
+
+    testing.expect(t, res.ok, "one location should resolve")
+    testing.expect_value(t, len(res.symbols), 0)
+    testing.expect_value(t, res.location.path, FILE)
+    testing.expect_value(t, res.location.start, 17)
+    testing.expect_value(t, res.location.end, 22)
 }
 
 // A URI that names no file leaves nothing, rather than a jump to the top of one.

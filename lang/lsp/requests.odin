@@ -29,6 +29,7 @@ DEADLINE_HEAVY :: 15 * time.Second
 @(private)
 METHODS := [lang.Request_Kind]string {
     .Definition        = "textDocument/definition",
+    .Type_Definition   = "textDocument/typeDefinition",
     .Hover             = "textDocument/hover",
     .Document_Symbols  = "textDocument/documentSymbol",
     .Workspace_Symbols = "workspace/symbol",

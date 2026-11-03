@@ -18,6 +18,7 @@ import lang ".."
 @(private)
 PROVIDER_KEYS := [lang.Request_Kind]string {
     .Definition        = "definitionProvider",
+    .Type_Definition   = "typeDefinitionProvider",
     .Hover             = "hoverProvider",
     .Document_Symbols  = "documentSymbolProvider",
     .Workspace_Symbols = "workspaceSymbolProvider",

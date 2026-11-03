@@ -527,6 +527,7 @@ thor_language_backend_feature_name :: proc(id: string) -> (backend_id: string, k
 // names of the commands each one serves, not the seam's kind names.
 LANGUAGE_FEATURE_LABELS := [lang.Request_Kind]string {
     .Definition         = "Go to Definition",
+    .Type_Definition    = "Go to Type Definition",
     .Hover              = "Hover",
     .Document_Symbols   = "Document Symbols",
     .Workspace_Symbols  = "Workspace Symbols",

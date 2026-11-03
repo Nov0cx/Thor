@@ -1348,6 +1348,7 @@ CLIENT_CAPABILITIES :: `{` +
 `"signatureHelp":{"dynamicRegistration":false,` +
 `"signatureInformation":{"documentationFormat":["plaintext"],"parameterInformation":{"labelOffsetSupport":true}}},` +
 `"definition":{"dynamicRegistration":false,"linkSupport":true},` +
+`"typeDefinition":{"dynamicRegistration":false,"linkSupport":true},` +
 `"references":{"dynamicRegistration":false},` +
 `"documentSymbol":{"dynamicRegistration":false,"hierarchicalDocumentSymbolSupport":true},` +
 `"codeAction":{"dynamicRegistration":false,` +
