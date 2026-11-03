@@ -2718,6 +2718,17 @@ not a status, so this section stays the source of truth for what is built.
     faint fill with an accent underline on a write (`editview.Occurrence`).
     While they show, `select_word` (ctrl + d) steps through them
     (`textedit.select_range_or_next`) instead of the text matches.
+  - **Go to type definition** (`lang/odin/type_definition.odin`, plan §6,
+    M8): the `Type_Definition` kind answers the declaration of the type of
+    the expression under the caret (`expr_under` + `expr_type`), else the
+    declared type of the name there (`ref_target` + `decl_type`). The walk
+    goes through pointers, slices, arrays, `#soa`, `#simd`, matrices,
+    bit_sets, map keys and values, tuples and proc results to each named,
+    distinct or `$T` type; several give a picker. A basic type jumps into
+    `base:builtin`, but only when no declared type was found. An anonymous
+    struct, union or enum gives nothing. The LSP backend sends
+    `textDocument/typeDefinition`. `alt+shift+enter`, the palette and the
+    context menu dispatch it (`thor_goto_type_definition`).
   - **Compiler oracle** (`lang/odin/oracle_test.odin`, run with
     `-define:LIVE_ORACLE=true`; plan §8 M5 bar): `test_oracle_clean_corpus`
     runs the live check on every file of the 310 `base`/`core`/`vendor`
