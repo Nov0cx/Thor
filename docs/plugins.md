@@ -89,7 +89,7 @@ holds are kept in `sessions/update-holds.json`.
 ## Where a plugin keeps its own files
 
 A plugin that must remember something writes it to `user/plugins/<id>/` beside
-the binary — the tutorial keeps its documents there, for instance. That folder
+the binary. That folder
 survives a workspace switch and an update, and it is never part of a project you
 open. Files a plugin writes for the project itself still go to the workspace,
 usually under its `.thor/`.

@@ -213,10 +213,22 @@ the server table and how to add one of your own. A language server also scopes
 `ctrl + shift + u` to the current selection instead of only the caret, and can
 apply its own edits directly in the editor.
 
-**Help > Tutorial** opens an interactive walkthrough of the shortcuts above,
-inside the editor itself. Its two documents are written beside the binary, in
-`user/plugins/tutorial/`, so working through it never changes the project you
-have open. **Help > Documentation** opens this manual in Thor's
+**Help > Tutorial** (or **Take the tour** on the welcome page) opens the
+guided tutorial. It has eleven chapters, from the basics to git, settings and
+plugins. Each step shows on a card beside the part of the window it is about,
+and it is done when you do the action — by key, from the command palette, from
+a menu or with a button. Back, Skip and Next move by hand, and **Chapters**
+lists every chapter with its state. Progress is kept in
+`sessions/tutorial.json`, so a chapter resumes where you stopped.
+
+The last chapter, the code intelligence lab, opens a broken Odin file,
+`user/tutorial/playground.odin` beside the binary, and takes you through eight
+repairs with Thor's own tools. A repair counts as soon as the buffer is right,
+before you save. **Show me** selects the defect, and the card shows the
+analyzer's message on it. An edited playground is reset only after you
+confirm.
+
+**Help > Documentation** opens this manual in Thor's
 Markdown preview, and **Help > Documentation in Browser** opens it outside the
 editor.
 
