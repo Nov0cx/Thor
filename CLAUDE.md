@@ -155,7 +155,8 @@ be tested headlessly.
   never by importing `thor`. Inlay hints (`editor_set_inlays`, borrowed) open a gap before their
   byte that the caret x, the hit-test and the scroll count. A zone (`editor_set_zone`) adds spacer
   `Visual_Row`s below a line for the host's nodes; no offset maps to a spacer, and the host
-  painters skip them.
+  painters skip them. `editor_set_on_action` reports each keymap action that ran, by its
+  keybinds name.
 - `render` — the Loom backend: answers Loom's measure callbacks from `font`, replays the draw list
   through rlgl, and `poll_input` turns raylib input into Loom's event stream (AltGr suppression,
   layout remap, repeat and release synthesis).
@@ -229,6 +230,13 @@ Each view is state on `Thor` plus a `thor_*_view` procedure that declares its no
   frame focuses; `thor.focus_owner` is the pane the view saw last frame. Pane keys are `"pane0"` …
   `"pane5"` (`thor_pane_key`), `"explorer"`, `"console"`.
 - Modal state is a bool on `Thor` (`settings_open`, `git_open`, `find_open`, `palette_open`, …).
+- The tutorial (`thor/tutorial*.odin`) is native: chapters of steps in `tutorial_chapters.odin`,
+  each done by a `Check_Action`, `Check_Proc`, `Check_Next` or `Check_Lab`. Every route that runs
+  an action calls `thor_note_action` — the palette, the menus, `thor_dispatch_app_bind`, the
+  global chords through `thor_app_key_hit` and the editor through `editor_set_on_action` — so a
+  new route to an action needs that call too. The spotlight reads `thor.region_rects`, filled
+  where each region's scope is declared and reset each frame. Progress is
+  `sessions/tutorial.json`, written only after it was read.
 - The theme is pushed once: `thor_push_theme` maps Thor's roles onto Loom's slots and calls
   `ui.set_theme`. Do not add per-node colour setters.
 - A tooltip is declared at its node (`ui.tooltip`); `thor/tooltips.odin` holds the helpers
