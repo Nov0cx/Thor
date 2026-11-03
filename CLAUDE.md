@@ -214,9 +214,15 @@ be tested headlessly.
 
 `Thor.run` is a plain per-frame loop: poll (dropped files, watcher, settings, IO) → reap async
 results → plugin ticks (`plugin.manager_dispatch_tick`, throttled to `TICK_INTERVAL`) →
-`ui.begin_frame(render.poll_input(...))` → `thor_frame` → `ui.end_frame` → `thor_render_models` →
+`render.poll_input` → `for ui.frame(input) { thor_frame }` → `ui.draw_list` → `thor_render_models` →
 `render.draw` → `free_all(context.temp_allocator)`. Anything allocated for one frame goes in the
 temp allocator.
+
+`ui.frame` runs the build up to three times a frame while a pass changes what the last one laid out
+(an input edge, a `changed` widget, a new node, `set_focus`, a new hovered node). Input edges and
+`dt` reach only the first pass, so code that reacts to input runs once; work that advances with time
+on its own (`rl.GetFrameTime`) must check `thor.frame_pass == 0`. Input is polled once, before the
+loop, since `poll_input` drains raylib's queues.
 
 ## UI (Loom)
 
@@ -243,8 +249,9 @@ Each view is state on `Thor` plus a `thor_*_view` procedure that declares its no
   (`thor_tip`, `thor_menu_tip`).
 - Loom has no key routing: call order is priority, so the global keymap runs before the tree is
   built.
-- Loom is one frame behind on interaction geometry. A new node has a zero rect and no hover until
-  frame two, so a test pumps 2–3 frames before it asserts.
+- `ui.begin_frame`/`ui.end_frame` run one pass and stay one frame behind on interaction geometry: a
+  new node has a zero rect and no hover until frame two, so a test that drives them pumps 2–3
+  frames before it asserts.
 - A duplicate node id in one frame panics under `ODIN_DEBUG`. A loop body needs `ui.push_id_int(i)`
   or an explicit `key`.
 - `render.draw` must call `rlgl.DrawRenderBatchActive()` before it restores GL state it set. rlgl
