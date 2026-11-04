@@ -21,6 +21,7 @@ import "core:flags"
 import "core:fmt"
 import "core:os"
 import "core:path/filepath"
+import "core:slice"
 import "core:strconv"
 import "core:strings"
 import "msvc"
@@ -165,6 +166,10 @@ check_all :: proc() -> bool {
     return exec(args[:])
 }
 
+// The test packages that link raylib, directly or through an import. A package
+// missing here fails to link its tests on Windows; an extra one gets a warning.
+RAYLIB_TEST_PACKAGES :: []string{"editview", "font", "render", "theme", "thor"}
+
 // Runs the tests of each package that has a _test.odin file. Add a package here
 // when it gets its first test file. The working directory stays the root of the
 // repository, so a test finds assets/, plugins/ and settings/.
@@ -174,7 +179,7 @@ run_tests :: proc() -> bool {
     }
     // The plugin tests start a Lua state, and Windows looks for lua54.dll beside
     // the test binary, not the working directory.
-    if !copy_lua_dll("bin/test") {
+    if !copy_lua_dll("bin/test") || !copy_raylib_dll("bin/test") {
         return false
     }
 
@@ -222,6 +227,13 @@ run_tests :: proc() -> bool {
         append_common_flags(&args)
         append_codegen_flags(&args)
         append_link_flags(&args)
+        // The test runner links the static CRT through core:c/libc, and the
+        // static raylib.lib wants the dynamic one; the DLL keeps them apart.
+        when ODIN_OS == .Windows {
+            if slice.contains(RAYLIB_TEST_PACKAGES, pkg) {
+                append(&args, "-define:RAYLIB_SHARED=true")
+            }
+        }
         if !exec_msvc(args[:]) {
             append(&failed, pkg)
         }
@@ -495,6 +507,22 @@ copy_lua_dll :: proc(dir := "") -> bool {
             return true
         }
         src := join(ODIN_ROOT, "vendor", "lua", "5.4", "windows", "lua54.dll")
+        if err := os.copy_file(dst, src); err != nil {
+            fmt.eprintfln("[build] a copy of %s failed: %v", src, err)
+            return false
+        }
+        return true
+    }
+}
+
+// Copies raylib.dll beside a binary built with RAYLIB_SHARED. Always copied: a
+// DLL left from an older Odin does not match the new import library.
+copy_raylib_dll :: proc(dir: string) -> bool {
+    when ODIN_OS != .Windows {
+        return true
+    } else {
+        dst := join(dir, "raylib.dll")
+        src := join(ODIN_ROOT, "vendor", "raylib", "windows", "raylib.dll")
         if err := os.copy_file(dst, src); err != nil {
             fmt.eprintfln("[build] a copy of %s failed: %v", src, err)
             return false
