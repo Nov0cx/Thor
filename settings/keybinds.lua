@@ -87,6 +87,7 @@ return {
         signature_help = "ctrl+shift+space",
         toggle_console = "ctrl+t",
         toggle_explorer = "ctrl+b",
+        whats_new = "",
     },
     folding = {
         fold_all = "",

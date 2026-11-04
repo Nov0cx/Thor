@@ -45,6 +45,10 @@ everything you changed in Settings, and `sessions/`, which holds your open tabs
 and layout. An install made before those two directories were split gets its
 `settings/` carried over into `user/` on the first update.
 
+The first start of a new version shows a short summary of what changed.
+**All changes** in it lists the full changelog of the version, and
+**Help > What's New** opens it again at any time.
+
 Thor updates itself only when it is a release build unpacked from an archive.
 A build from source, or one in a directory it cannot write (`/opt`,
 `C:\Program Files`), reports the new version and opens the

@@ -92,6 +92,8 @@ Thor :: struct {
     // Lua files this start converted from JSON, and the card that says so.
     lua_converted: [dynamic]string, // owned
     lua_notice_open: bool,
+    // The release notes card.
+    whats_new: Whats_New,
     // Generator seeds of the theme window's Generate tab.
     theme_seed_background: ui.Color,
     theme_seed_accent: ui.Color,
@@ -688,6 +690,7 @@ init :: proc() -> ^Thor {
     // icon packs the startup atlases must cover.
     thor := new(Thor)
     thor.launch_dropped_held = held == .Drop
+    thor_whats_new_check(thor)
     thor_migrate_startup(thor, workspace_dir)
     thor_load_config(thor, workspace_dir)
     lap(&phase, "load config")
@@ -1056,6 +1059,7 @@ shutdown :: proc(thor: ^Thor) {
     }
     thor_markdown_view_destroy(thor, &thor.markdown_view)
     thor_tutorial_destroy(thor)
+    thor_whats_new_destroy(thor)
     strings.builder_destroy(&thor.console_backlog)
     thor_clear_plugin_commands(thor)
     delete(thor.plugin_commands)
