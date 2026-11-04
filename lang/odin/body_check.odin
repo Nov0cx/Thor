@@ -57,6 +57,8 @@ walk_body :: proc(rc: ^Request_Context, c: ^odinsema.Checker, m: ^odinsema.Scope
         liveness_errors(rc, c, m, n, report)
     case .Or_Return_Expr:
         or_return_errors(rc, c, n, report)
+    case .Expr_Stmt:
+        ignored_errors(rc, c, n, report)
     }
     it := odinsyntax.child_iter(&n, {kinds = ~odinsyntax.Kind_Set{}})
     for child in odinsyntax.child_iter_next(&it) {
@@ -283,6 +285,16 @@ format_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, call: odinsynt
         }
         report_error(rc, report, p.offset, CODE_FMT_VERBS, message, .Hint, lint = true)
     }
+}
+
+// Reports, as a lint, a call statement that drops an error result.
+@(private = "file")
+ignored_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, stmt: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
+    at, type, ok := odinsema.ignored_error(c, rc.live.id, stmt)
+    if !ok {
+        return
+    }
+    report_error(rc, report, at, CODE_IGNORED_ERROR, fmt.aprintf("Error result of type '%s' is ignored", odinsema.type_string(&c.table, type, context.temp_allocator)), .Hint, lint = true)
 }
 
 // Reports an `or_return` that does not fit the procedure around it.

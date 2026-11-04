@@ -1379,3 +1379,62 @@ main :: proc() {
         testing.expect(t, d.lint, "a format problem is a lint")
     }
 }
+
+@(test)
+test_live_ignored_error :: proc(t: ^testing.T) {
+    root := fixture(t, "live_ignored_error", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+import "base:runtime"
+import "core:os"
+import "core:strings"
+
+Parse_Error :: enum { None, Bad }
+Error :: union { Parse_Error, runtime.Allocator_Error }
+
+parse :: proc() -> (int, Parse_Error) { return 0, .None }
+load :: proc() -> Error { return nil }
+alloc :: proc() -> runtime.Allocator_Error { return nil }
+@(require_results)
+must :: proc() -> Parse_Error { return .None }
+plain :: proc() -> int { return 1 }
+
+main :: proc() {
+	parse()
+	(load())
+	alloc()
+	plain()
+	defer load()
+	defer {
+		load()
+	}
+	_ = load()
+	n, _ := parse()
+	_ = n
+	x: [dynamic]int
+	append(&x, 1)
+	delete(x)
+	os.close(os.stdout)
+	b := strings.builder_make()
+	strings.write_rune(&b, 'x')
+	strings.builder_destroy(&b)
+	// thor:ignore api/ignored-error
+	load()
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"parse()\n", "Error result of type 'Parse_Error' is ignored", 0},
+        {"load())", "Error result of type 'Error' is ignored", 0},
+        {"os.close", "Error result of type 'os.Error' is ignored", 0},
+    })
+    for d in res.report.items {
+        testing.expect_value(t, d.code, CODE_IGNORED_ERROR)
+        testing.expect_value(t, d.severity, lang.Diagnostic_Severity.Hint)
+        testing.expect(t, d.lint, "an ignored error is a lint")
+    }
+}
