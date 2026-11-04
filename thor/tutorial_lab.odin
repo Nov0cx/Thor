@@ -524,7 +524,7 @@ lab_detail :: proc(st: ^Lab_State, task: int) -> string {
             "The cause is the per-item `fmt.printfln`: its `(` is never closed, so every line after it " +
             "belongs to an expression that does not end. Until the file parses, hover, go to definition " +
             "and code actions have nothing to read.\n\n" +
-            "Type the missing `)`. {key:matching_bracket} jumps between a pair of brackets, so you can see " +
+            "Type the missing `)`. {{key:matching_bracket} jumps between a pair of brackets, so you can see " +
             "which one has no partner.",
             at,
             st.parse_msg,
@@ -554,9 +554,9 @@ lab_detail :: proc(st: ^Lab_State, task: int) -> string {
         return fmt.tprintf(
             "The switch does not name %s. A switch over an enum must cover every member unless it is " +
             "`#partial switch`, so the compiler answers `Unhandled switch cases`.\n\n" +
-            "Put the caret in the switch and press {key:code_actions}: Thor adds the missing arms. Give " +
+            "Put the caret in the switch and press {{key:code_actions}: Thor adds the missing arms. Give " +
             "each one its `return`.\n\n" +
-            "{key:goto_definition} on `Shape` opens the enum, and {key:jump_back} comes back.",
+            "{{key:goto_definition} on `Shape` opens the enum, and {{key:jump_back} comes back.",
             list_of(missing[:]),
         )
     case 5:
@@ -571,17 +571,17 @@ lab_detail :: proc(st: ^Lab_State, task: int) -> string {
             append(w.have < w.want ? &shallow : &deep, w.line)
         }
         if len(shallow) > 0 {
-            fmt.sbprintf(&b, "\nSelect line %s and press {key:indent} to move it in one level.", line_numbers(shallow[:]))
+            fmt.sbprintf(&b, "\nSelect line %s and press {{key:indent} to move it in one level.", line_numbers(shallow[:]))
         }
         if len(deep) > 0 {
-            fmt.sbprintf(&b, "\nSelect line %s and press {key:outdent} to move it out one level.", line_numbers(deep[:]))
+            fmt.sbprintf(&b, "\nSelect line %s and press {{key:outdent} to move it out one level.", line_numbers(deep[:]))
         }
         return strings.to_string(b)
     case 6:
         return fmt.tprintf(
             "Line %s ends in whitespace you cannot see. It breaks nothing, but it shows in every diff " +
             "that touches the line.\n\n" +
-            "{key:trim_trailing_whitespace} trims every line of the file in one undo step.",
+            "{{key:trim_trailing_whitespace} trims every line of the file in one undo step.",
             line_numbers(trailing_lines(st)),
         )
     case 7:

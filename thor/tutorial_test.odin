@@ -136,6 +136,7 @@ test_tutorial_lab_checks :: proc(t: ^testing.T) {
         _, _, ok := lab_target(&broken, task)
         testing.expectf(t, ok, "task %d names no defect", task)
         testing.expectf(t, lab_detail(&broken, task) != "", "task %d has no explanation", task)
+        testing.expectf(t, !strings.contains(lab_detail(&broken, task), "%!"), "task %d: the explanation has a format error", task)
     }
 }
 

@@ -293,6 +293,9 @@ test_commands :: proc(t: ^testing.T) {
     api := api_command(.Curl, API_URL, ".update/api.json", agent, context.temp_allocator)
     testing.expect(t, strings.contains(api, "X-GitHub-Api-Version"), "the api version is pinned")
     testing.expect(t, strings.contains(api, "%{http_code}"), "the status code is printed")
+    shell_api := api_command(.Powershell, API_URL, ".update/api.json", agent, context.temp_allocator)
+    testing.expect(t, strings.contains(shell_api, "try { $r = ") && strings.contains(shell_api, "@{Accept=") && strings.contains(shell_api, "catch { Write"), "the braces reach powershell")
+    testing.expect(t, !strings.contains(shell_api, "%!"), "the format has no error")
 
     for extractor in ([?]Extractor{.Tar, .Expand_Archive}) {
         command := extract_command(extractor, ".update/thor.zip", ".update/x", context.temp_allocator)

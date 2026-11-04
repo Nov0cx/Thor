@@ -560,7 +560,7 @@ test_config_shipped_table :: proc(t: ^testing.T) {
         testing.expectf(t, !server.override, "%q overrides the in-client engine by default", server.id)
         for ext in server.extensions {
             testing.expectf(t, ext[0] == '.', "%q claims %q", server.id, ext)
-            testing.expectf(t, ext != ".odin", "%q claims .odin, which is served in-client")
+            testing.expectf(t, ext != ".odin", "%q claims .odin, which is served in-client", server.id)
         }
         // A root marker is stat-ed, never matched: a glob would simply never
         // find the root and the server would start at the workspace instead.
