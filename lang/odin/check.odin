@@ -218,6 +218,7 @@ vet_item :: proc(vet: ^Vet_Context, d: ^lang.Diagnostic, message: string) -> boo
     if setting, set := vet.severities[code]; set {
         switch setting {
         case .Off:     return false
+        case .Hint:    d.severity = .Hint
         case .Warning:
         case .Error:   d.severity = .Error
         }

@@ -229,11 +229,16 @@ thor_file_live_diagnostics :: proc(file: ^Open_File) -> []editview.Diagnostic {
     return nil
 }
 
-// The seam's severity as the editor's. Both carry the same two levels; the split
+// The seam's severity as the editor's. Both carry the same levels; the split
 // is what keeps the language layer free of widget types.
 @(private = "file")
 editor_severity :: proc(severity: lang.Diagnostic_Severity) -> editview.Diagnostic_Severity {
-    return severity == .Warning ? .Warning : .Error
+    switch severity {
+    case .Error:   return .Error
+    case .Warning: return .Warning
+    case .Hint:    return .Hint
+    }
+    return .Error
 }
 
 // End of the token to underline from `start`: the run of identifier characters,

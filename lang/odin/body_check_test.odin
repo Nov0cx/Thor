@@ -1023,7 +1023,7 @@ test_live_severities :: proc(t: ^testing.T) {
     })
     if testing.expect_value(t, len(res.report.items), 2) {
         testing.expect_value(t, res.report.items[0].severity, lang.Diagnostic_Severity.Warning)
-        testing.expect_value(t, res.report.items[1].severity, lang.Diagnostic_Severity.Error)
+        testing.expect_value(t, res.report.items[1].severity, lang.Diagnostic_Severity.Hint)
     }
 }
 

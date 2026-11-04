@@ -290,12 +290,12 @@ Progress_Info :: struct {
     done:    bool,
 }
 
-// Severity of a compiler diagnostic. Deliberately coarser than LSP's four
-// levels: everything a checker emits is either something that stops the build or
-// something that does not, and the editor colors exactly those two.
+// Severity of a diagnostic, worst first. Hint is a lint the editor shows faint;
+// LSP's Information and Hint both map to it.
 Diagnostic_Severity :: enum {
     Error,
     Warning,
+    Hint,
 }
 
 // One diagnostic, in the file it belongs to. Line and column rather than the

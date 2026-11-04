@@ -62,6 +62,8 @@ apply_severities :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Report) 
                 delete(d.path)
                 delete(d.message)
                 continue
+            case .Hint:
+                d.severity = .Hint
             case .Warning:
                 d.severity = .Warning
             case .Error:

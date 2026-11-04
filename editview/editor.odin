@@ -73,10 +73,11 @@ Highlight_Span :: struct {
     color: ui.Color,
 }
 
-// Diagnostic severity, drives the squiggle and gutter-marker color.
+// Diagnostic severity, worst first; drives the squiggle and gutter-marker color.
 Diagnostic_Severity :: enum {
     Error,
     Warning,
+    Hint,
 }
 
 // A line's status against git HEAD, drives the gutter diff bar's color.
@@ -178,6 +179,7 @@ Editor :: struct {
     diagnostics:            []Diagnostic,
     diagnostic_error_color: ui.Color,
     diagnostic_warn_color:  ui.Color,
+    diagnostic_hint_color:  ui.Color,
     // Git status per line against HEAD, borrowed from the open file. Deleted marks
     // the line after the removal.
     diff_lines:          []Diff_Line_Kind,
@@ -2398,7 +2400,7 @@ editor_handle_hover :: proc(editor: ^Editor, mouse: ui.Vec2, mod: bool, now: f64
         return
     }
     if d, has := editor_hover_diagnostic(editor, pos, whole_line = in_gutter); has {
-        color := d.severity == .Error ? editor.diagnostic_error_color : editor.diagnostic_warn_color
+        color := editor_severity_color(editor, d.severity)
         text := d.message
         if d.code != "" {
             text = strings.concatenate({d.message, " [", d.code, "]"}, context.temp_allocator)
@@ -2409,7 +2411,7 @@ editor_handle_hover :: proc(editor: ^Editor, mouse: ui.Vec2, mod: bool, now: f64
 
 // The diagnostic a plain dwell explains: the one covering `offset`, or, over the
 // gutter marker (which stands for the whole line), the worst one on that line.
-// An error outranks a warning either way.
+// A worse severity outranks either way.
 @(private)
 editor_hover_diagnostic :: proc(editor: ^Editor, offset: int, whole_line: bool) -> (Diagnostic, bool) {
     line := -1
@@ -2426,7 +2428,7 @@ editor_hover_diagnostic :: proc(editor: ^Editor, offset: int, whole_line: bool) 
         if !hit {
             continue
         }
-        if !found || (d.severity == .Error && best.severity != .Error) {
+        if !found || d.severity < best.severity {
             best = d
             found = true
         }
@@ -2825,13 +2827,13 @@ editor_inlay_lead :: proc(editor: ^Editor, text: string, row_start, row_end, at:
     return total
 }
 
-// Highest-severity diagnostic on logical line `line`, if any. Errors outrank
-// warnings so the gutter dot reflects the worst issue on the line.
+// Highest-severity diagnostic on logical line `line`, if any, for the gutter dot. A line with
+// only hints has none.
 editor_line_diagnostic :: proc(editor: ^Editor, line: int) -> (Diagnostic_Severity, bool) {
     found := false
     worst := Diagnostic_Severity.Warning
     for d in editor.diagnostics {
-        if d.line != line {
+        if d.line != line || d.severity == .Hint {
             continue
         }
         found = true
@@ -2840,6 +2842,16 @@ editor_line_diagnostic :: proc(editor: ^Editor, line: int) -> (Diagnostic_Severi
         }
     }
     return worst, found
+}
+
+// The squiggle and hover color of `severity`.
+editor_severity_color :: proc(editor: ^Editor, severity: Diagnostic_Severity) -> ui.Color {
+    switch severity {
+    case .Error:   return editor.diagnostic_error_color
+    case .Warning: return editor.diagnostic_warn_color
+    case .Hint:    return editor.diagnostic_hint_color
+    }
+    return editor.diagnostic_error_color
 }
 
 // Visual x-position of rune boundary `pos` (a byte offset at or past row.start):

@@ -1137,7 +1137,7 @@ test_decode_diagnostic_severities :: proc(t: ^testing.T) {
     defer result_release(&res)
 
     testing.expect(t, decoded)
-    want := [5]lang.Diagnostic_Severity{.Error, .Warning, .Warning, .Warning, .Error}
+    want := [5]lang.Diagnostic_Severity{.Error, .Warning, .Hint, .Hint, .Error}
     testing.expect_value(t, len(res.report.items), len(want))
     if len(res.report.items) != len(want) {
         return

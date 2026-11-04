@@ -50,6 +50,7 @@ Config :: struct {
 @(private)
 Severity_Setting :: enum u8 {
     Off,
+    Hint,
     Warning,
     Error,
 }
@@ -214,7 +215,7 @@ config_parse :: proc(cache: ^Config_Cache, workspace, path: string) {
     }
 }
 
-// Reads `"diagnostics": {"<id>": "off" | "warning" | "error"}`. An unknown id or value is dropped
+// Reads `"diagnostics": {"<id>": "off" | "hint" | "warning" | "error"}`. An unknown id or value is dropped
 // with a warning. context.allocator is the engine allocator.
 @(private = "file")
 config_parse_diagnostics :: proc(cache: ^Config_Cache, obj: json.Object) {
@@ -237,12 +238,14 @@ config_parse_diagnostics :: proc(cache: ^Config_Cache, obj: json.Object) {
         switch {
         case is_string && text == "off":
             setting = .Off
+        case is_string && text == "hint":
+            setting = .Hint
         case is_string && text == "warning":
             setting = .Warning
         case is_string && text == "error":
             setting = .Error
         case:
-            log.warnf("odin-analyzer.lua: severity of %q is not \"off\", \"warning\" or \"error\" and was dropped", id)
+            log.warnf("odin-analyzer.lua: severity of %q is not \"off\", \"hint\", \"warning\" or \"error\" and was dropped", id)
             continue
         }
         if _, exists := cache.cfg.severities[id]; exists {

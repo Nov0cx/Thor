@@ -86,11 +86,16 @@ overlapping_diagnostics :: proc(file: ^Open_File, lo, hi: int) -> []lang.Diagnos
     return out[:]
 }
 
-// The editor's severity as the seam's. Both carry the same two levels; the
+// The editor's severity as the seam's. Both carry the same levels; the
 // split is what keeps widgets free of the language layer's types.
 @(private = "file")
 lang_severity :: proc(severity: editview.Diagnostic_Severity) -> lang.Diagnostic_Severity {
-    return severity == .Warning ? .Warning : .Error
+    switch severity {
+    case .Error:   return .Error
+    case .Warning: return .Warning
+    case .Hint:    return .Hint
+    }
+    return .Error
 }
 
 // Opens the picker once the offers land. A superseded request (the caret moved

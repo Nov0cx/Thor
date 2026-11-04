@@ -339,14 +339,14 @@ thor_status_info :: proc(data: rawptr) -> Status_Info {
         info.column = textedit.column(text, caret, textedit.tab_width(&file.state)) + 1
 
         // With no transient notice up, show the diagnostic on the caret's line
-        // (an error outranks a warning) so its message is readable without a hover.
+        // (the worst severity wins) so its message is readable without a hover.
         if diags := thor_file_live_diagnostics(file); info.message == "" && len(diags) > 0 {
             best := -1
             for d, i in diags {
                 if d.line != caret_line || d.message == "" {
                     continue
                 }
-                if best < 0 || (d.severity == .Error && diags[best].severity != .Error) {
+                if best < 0 || d.severity < diags[best].severity {
                     best = i
                 }
             }

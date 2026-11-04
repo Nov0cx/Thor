@@ -1142,6 +1142,7 @@ thor_editor_view :: proc(thor: ^Thor, editor: ^editview.Editor, file: ^Open_File
     // theme switch reaches it.
     editor.diagnostic_error_color = thor.theme.error_color
     editor.diagnostic_warn_color = thor.theme.warning_color
+    editor.diagnostic_hint_color = thor.theme.info_color
     editview.editor_sync(editor)
     editview.editor_overlay_tick(editor)
 
@@ -1642,7 +1643,7 @@ thor_paint_gutter :: proc(
         }
 
         if severity, has := editview.editor_line_diagnostic(editor, row.line); has {
-            color := severity == .Error ? thor.theme.error_color : thor.theme.warning_color
+            color := editview.editor_severity_color(editor, severity)
             ui.paint_rect({3, y + line_h * 0.5 - 3, 6, 6}, color, ui.rad(3), true)
         }
 
@@ -1730,7 +1731,10 @@ thor_paint_diagnostics :: proc(
             }
             x0 := text_x + thor_row_x(editor, text, row.start, row.end, lo)
             x1 := text_x + thor_row_x(editor, text, row.start, row.end, hi)
-            color := d.severity == .Error ? thor.theme.error_color : thor.theme.warning_color
+            color := editview.editor_severity_color(editor, d.severity)
+            if d.severity == .Hint {
+                color.a /= 2
+            }
             thor_paint_squiggle(x0, x1, y, color)
         }
     }

@@ -283,6 +283,33 @@ test_hover_diagnostic_lookup :: proc(t: ^testing.T) {
     testing.expect(t, !ok, "an empty message is not a popup")
 }
 
+// A hint ranks below a warning in a hover, and a line with only hints has no gutter dot.
+@(test)
+test_hint_diagnostic_rank :: proc(t: ^testing.T) {
+    src := "package demo\n\nx := 1\n"
+    state: textedit.State
+    textedit.init(&state)
+    defer textedit.destroy(&state)
+    textedit.set_text(&state, src)
+
+    editor: Editor
+    editor.state = &state
+    editor.diagnostics = []Diagnostic {
+        {start = 14, end = 15, line = 2, severity = .Hint, message = "hint"},
+        {start = 19, end = 20, line = 2, severity = .Warning, message = "warning"},
+    }
+    d, ok := editor_hover_diagnostic(&editor, 14, whole_line = true)
+    testing.expect(t, ok && d.message == "warning", "the gutter takes the warning over the hint")
+    severity, has := editor_line_diagnostic(&editor, 2)
+    testing.expect(t, has && severity == .Warning, "the dot is the warning's")
+
+    editor.diagnostics = []Diagnostic{{start = 14, end = 15, line = 2, severity = .Hint, message = "hint"}}
+    _, has = editor_line_diagnostic(&editor, 2)
+    testing.expect(t, !has, "a line with only hints has no dot")
+    d, ok = editor_hover_diagnostic(&editor, 14, whole_line = false)
+    testing.expect(t, ok && d.message == "hint", "a dwell still explains a hint")
+}
+
 // A collapsed fold builds no row for the lines it hides, so a caret left on one
 // has no row that contains it. Rebuilding the rows pulls the caret onto the
 // fold's visible start line, and a lookup that still misses clamps into its row

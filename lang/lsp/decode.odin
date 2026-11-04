@@ -599,8 +599,8 @@ decode_progress :: proc(params: json.Value) -> (lang.Result, bool) {
 }
 
 // One `Diagnostic`, as the 1-based line and byte column the seam reports. The
-// protocol's four severities coarsen to two: only Error stays one, and a
-// diagnostic that named no severity is read as an error.
+// protocol's Information and Hint both become Hint, and a diagnostic that named
+// no severity is read as an error.
 @(private)
 decode_one_diagnostic :: proc(lines: ^Line_Index, path: string, value: json.Value) -> (lang.Diagnostic, bool) {
     object, is_object := value.(json.Object)
@@ -613,8 +613,11 @@ decode_one_diagnostic :: proc(lines: ^Line_Index, path: string, value: json.Valu
         return {}, false
     }
     severity := lang.Diagnostic_Severity.Error
-    if level, has_level := number(object["severity"]); has_level && level != 1 {
-        severity = .Warning
+    if level, has_level := number(object["severity"]); has_level {
+        switch level {
+        case 2:    severity = .Warning
+        case 3, 4: severity = .Hint
+        }
     }
 
     offset := offset_from_position(lines, start_line, start_char)
