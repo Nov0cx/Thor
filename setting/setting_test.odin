@@ -341,8 +341,8 @@ test_load_overlay_layers_in_order :: proc(t: ^testing.T) {
     user := "thor_layer_user.tmp"
     workspace := "thor_layer_workspace.tmp"
     defer for dir in ([]string{global, user, workspace}) {
-        os.remove(concat_for_test(dir, "/settings.lua"))
-        os.remove(dir)
+        _ = os.remove(concat_for_test(dir, "/settings.lua"))
+        _ = os.remove(dir)
     }
 
     testing.expect_value(t, persist_int(concat_for_test(global, "/settings.lua"), "tab_width", 2), luaconf.Patch_Error.None)
@@ -558,8 +558,8 @@ test_file_language_lookup :: proc(t: ^testing.T) {
     user := "thor_file_lang_user.tmp"
     workspace := "thor_file_lang_ws.tmp"
     defer for dir in ([]string{user, workspace}) {
-        os.remove(concat_for_test(dir, "/settings.lua"))
-        os.remove(dir)
+        _ = os.remove(concat_for_test(dir, "/settings.lua"))
+        _ = os.remove(dir)
     }
     user_file := concat_for_test(user, "/settings.lua")
     ws_file := concat_for_test(workspace, "/settings.lua")

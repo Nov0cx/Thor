@@ -355,7 +355,7 @@ test_reload_reads_file_held_by_a_writer :: proc(t: ^testing.T) {
     thor_drain_io(thor)
     testing.expect_value(t, textedit.text(&file.state), "six\nten\n")
 
-    os.close(handle)
+    _ = os.close(handle)
     thor_close_file(thor, 0)
 }
 
@@ -633,7 +633,7 @@ test_async_file_ops :: proc(t: ^testing.T) {
     DST :: ROOT + "/dst"
     COPIED :: DST + "/src"
 
-    os.remove_all(ROOT) // a previous run that died mid-test
+    _ = os.remove_all(ROOT) // a previous run that died mid-test
     defer os.remove_all(ROOT)
 
     testing.expect(t, os.make_directory(ROOT) == nil, "could not create test root")
@@ -732,7 +732,7 @@ test_delete_settles_an_inflight_save :: proc(t: ^testing.T) {
     NESTED :: ROOT + "/nested"
     TEST_PATH :: NESTED + "/doomed.txt"
 
-    os.remove_all(ROOT) // a previous run that died mid-test
+    _ = os.remove_all(ROOT) // a previous run that died mid-test
     defer os.remove_all(ROOT)
     testing.expect(t, os.make_directory(ROOT) == nil, "could not create test root")
     testing.expect(t, os.make_directory(NESTED) == nil, "could not create nested dir")

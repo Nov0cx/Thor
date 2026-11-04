@@ -27,7 +27,7 @@ test_recent_workspaces :: proc(t: ^testing.T) {
         if had_backup {
             _ = os.write_entire_file(RECENT_WORKSPACES_FILE, backup)
         } else {
-            os.remove(RECENT_WORKSPACES_FILE)
+            _ = os.remove(RECENT_WORKSPACES_FILE)
         }
     }
 
@@ -60,7 +60,7 @@ test_recent_workspaces :: proc(t: ^testing.T) {
     testing.expect_value(t, dup_count, 1)
 
     // A folder that no longer exists is dropped from the list.
-    os.remove(dir_b)
+    _ = os.remove(dir_b)
     pruned := thor_recent_workspaces(context.temp_allocator)
     for p in pruned {
         testing.expect(t, !strings.equal_fold(p, dir_b), "a deleted folder must not be listed")

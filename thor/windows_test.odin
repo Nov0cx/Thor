@@ -62,8 +62,8 @@ test_path_key_is_filename_safe :: proc(t: ^testing.T) {
 @(private = "file")
 write_test_record :: proc(t: ^testing.T, workspace: string, pid: int, hwnd: i64) -> string {
     if !os.is_dir("sessions/windows") {
-        os.make_directory("sessions")
-        os.make_directory("sessions/windows")
+        _ = os.make_directory("sessions")
+        _ = os.make_directory("sessions/windows")
     }
     path := strings.clone(thor_window_file(workspace))
     body := fmt.tprintf("{{\"workspace\":%q,\"pid\":%d,\"hwnd\":%d}}", workspace, pid, hwnd)

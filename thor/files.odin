@@ -1887,7 +1887,7 @@ thor_delete_tree :: proc(path: string) -> os.Error {
         return open_err
     }
     infos, dir_err := os.read_dir(handle, -1, context.allocator)
-    os.close(handle) // an open handle blocks the remove of the directory itself
+    _ = os.close(handle) // an open handle blocks the remove of the directory itself
     if dir_err != nil {
         return dir_err
     }

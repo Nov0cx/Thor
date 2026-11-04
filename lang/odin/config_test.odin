@@ -25,11 +25,11 @@ write_config :: proc(t: ^testing.T, name, json: string) -> (root, cfg_path: stri
 
 @(private = "file")
 remove_config :: proc(root, cfg_path: string) {
-    os.remove(cfg_path)
+    _ = os.remove(cfg_path)
     if cfg_dir, err := filepath.join({root, ".thor"}, context.temp_allocator); err == nil {
-        os.remove(cfg_dir)
+        _ = os.remove(cfg_dir)
     }
-    os.remove(root)
+    _ = os.remove(root)
 }
 
 @(test)

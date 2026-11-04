@@ -181,7 +181,7 @@ test_git_repo_discovery :: proc(t: ^testing.T) {
     ABSOLUTE :: ROOT + "/absolute"
     LINKED_GIT :: GIT + "/worktrees/linked"
 
-    os.remove_all(ROOT) // a previous run that died mid-test
+    _ = os.remove_all(ROOT) // a previous run that died mid-test
     defer os.remove_all(ROOT)
 
     for dir in ([]string{ROOT, GIT, ROOT + "/src", DEEP, LINKED, ABSOLUTE, GIT + "/worktrees", LINKED_GIT}) {
