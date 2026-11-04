@@ -517,6 +517,15 @@ case_map_offset :: proc(ranges: []Case_Range, pos: int) -> int {
     return pos + shift
 }
 
+// Upper case of one rune. ß has no simple upper case in Unicode, so it maps to ẞ here.
+@(private = "file")
+upper_rune :: proc(r: rune) -> rune {
+    if r == 'ß' {
+        return 'ẞ'
+    }
+    return unicode.to_upper(r)
+}
+
 @(private = "file")
 transform_case_string :: proc(s: string, mode: Case_Transform, allocator := context.temp_allocator) -> string {
     builder := strings.builder_make(0, len(s), allocator)
@@ -525,7 +534,7 @@ transform_case_string :: proc(s: string, mode: Case_Transform, allocator := cont
         word := is_word_rune(r)
         switch mode {
         case .Upper:
-            strings.write_rune(&builder, unicode.to_upper(r))
+            strings.write_rune(&builder, upper_rune(r))
         case .Lower:
             strings.write_rune(&builder, unicode.to_lower(r))
         case .Title:
@@ -533,7 +542,7 @@ transform_case_string :: proc(s: string, mode: Case_Transform, allocator := cont
             // and differs from to_upper only for a few digraphs.
             switch {
             case word && at_word_start:
-                strings.write_rune(&builder, unicode.to_upper(r))
+                strings.write_rune(&builder, upper_rune(r))
             case word:
                 strings.write_rune(&builder, unicode.to_lower(r))
             case:
