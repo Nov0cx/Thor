@@ -160,7 +160,12 @@ its scope skips (`flow/unreachable-defer`). After a save, the compiler's
 diagnostics replace them. Other code that can never run, such as code after
 `for {}`, gets a warning the compiler does not give (`flow/unreachable`); it
 stays after a save. So does the warning for a value stored in a variable that
-nothing reads (`flow/dead-store`). The checks of `odin check -vet` are warnings
+nothing reads (`flow/dead-store`). Two hints, drawn faint, stay too: a format
+string of a `fmt.printf`-style call that `core:fmt` would print as `%!(...)`,
+such as a verb the argument type does not take, a missing or extra argument, or
+a bare `{` that should be `{{` (`api/fmt-verbs`), and a call statement that
+drops an error result, such as `os.remove(path)` instead of
+`_ = os.remove(path)` (`api/ignored-error`). The checks of `odin check -vet` are warnings
 while typing: a variable that nothing uses (`vet/unused-variable`), an import
 that nothing uses (`vet/unused-import`), a variable that shadows an earlier one
 of the same type (`vet/shadowing`) and a declaration in a file-scope `when`
@@ -171,7 +176,7 @@ ids. The hover over a mark shows its id
 (`[name/undeclared]`); a `// thor:ignore name/undeclared` comment hides that id
 on the next line (or on its own line after code), and
 `// thor:ignore-file <id>` hides it in the whole file. `"diagnostics"` in
-`.thor/odin-analyzer.lua` turns an id off or makes it a warning for the whole
+`.thor/odin-analyzer.lua` turns an id off or sets its severity for the whole
 workspace (see [Configuration](configuration.md)). The `syntax_diagnostics` feature of
 `language_intelligence` turns the live marks off.
 It also serves navigation, hover, completion and signature help. Hover a

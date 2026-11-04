@@ -395,8 +395,9 @@ its root, layered on top of the global settings above. This repository's own
   ignored.
 
   `diagnostics` sets what each live diagnostic id is in this workspace:
-  `"off"` hides it, `"warning"` and `"error"` set its severity. Ids not named
-  stay errors:
+  `"off"` hides it, `"hint"`, `"warning"` and `"error"` set its severity. A
+  hint shows as a faint underline with no gutter mark. Ids not named keep
+  their default severity:
 
   ```lua
   return { diagnostics = { ["flow/missing-return"] = "warning", ["import/cycle"] = "off" } }
@@ -409,7 +410,8 @@ its root, layered on top of the global settings above. This repository's own
   `flow/missing-return`, `or_return/mismatch`, `poly/where`,
   `assign/count`, `flow/unreachable`, `flow/unreachable-defer`,
   `vet/unused-variable`, `vet/unused-import`, `vet/shadowing`,
-  `vet/using-stmt`, `vet/when-shadowing` and `flow/dead-store`. An unknown id or value is logged and
+  `vet/using-stmt`, `vet/when-shadowing`, `flow/dead-store`, `api/fmt-verbs`
+  and `api/ignored-error`. An unknown id or value is logged and
   ignored. The diagnostics `odin check` gives after a save are not affected, except the `vet/*` ids:
   the save passes `odin check` one `-vet-*` flag for each of them that is not `"off"`, and gives the
   lines it reports for them the same id and severity.

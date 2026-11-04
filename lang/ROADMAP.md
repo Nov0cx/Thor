@@ -2729,6 +2729,38 @@ not a status, so this section stays the source of truth for what is built.
     struct, union or enum gives nothing. The LSP backend sends
     `textDocument/typeDefinition`. `alt+shift+enter`, the palette and the
     context menu dispatch it (`thor_goto_type_definition`).
+  - **Tier 3 lints** (plan §5.7, M8): hints (`lang.Diagnostic_Severity.Hint`,
+    a faint underline with no gutter mark; LSP severities 3 and 4 map to it,
+    and `"hint"` is a value of `diagnostics`), each with `lint` set.
+    - `api/fmt-verbs` (`sema/fmt_verbs.odin`): a call whose string parameter
+      `fmt`, `format`, `fmt_str` or `_fmt` comes right before a `..any`
+      parameter has its constant format string read as `fmt.wprintf` reads it
+      (`format_steps`): flags, `*` and `[n]` widths and precisions, `[n]`
+      indexes, `{n:opts verb}`, `%%`, `{{` and `}}`, and a directive with no
+      index takes the lowest argument not yet taken. Reported: no argument
+      left, an index out of range, no verb, a `{` with no `}` (a literal `{`
+      must be `{{`), a `*` argument that is not a number, a verb the argument
+      type does not take, and the arguments no directive takes. The verb table
+      is `fmt`'s per type class; a struct, array, union, `any`, `$T` or unknown
+      type takes every verb, and so does `time.Duration`. The place is the
+      byte in the literal, through escapes and `+` of literals; a named
+      constant reports at the argument. Silent for a spread argument and a
+      format that is not constant. It found three real bugs in the repo (the
+      lab's `{key:...}` chords and the PowerShell updater command were printed
+      as `%!(MISSING CLOSE BRACE)`); over the clean corpus it finds 2, both
+      one real bug (`core:flags` passes `value` and `SUBTAG_MANIFOLD` in the
+      wrong order). Not yet: a user formatter
+      (`fmt.register_user_formatter`) that takes other verbs.
+    - `api/ignored-error` (`sema/ignored.odin`): a call statement that drops
+      every result when one is a named type `Error` or `*_Error`, or a union
+      with such a variant. `Allocator_Error` on its own, a builtin, a
+      `defer`, a `@(require_results)` callee (the compiler reports it) and a
+      write to a `^strings.Builder` or an `io` stream or writer (the stream
+      output idiom, 411 of the first 602 corpus hits) are left out;
+      `_ = f()` is the explicit drop. Over the clean corpus 191 hits, all
+      real drops (parser `advance_token`, `os.write_string`, `image`
+      errors); the 23 in the repo are now `_ =`. Not yet: a dropped `ok`
+      bool.
   - **Compiler oracle** (`lang/odin/oracle_test.odin`, run with
     `-define:LIVE_ORACLE=true`; plan §8 M5 bar): `test_oracle_clean_corpus`
     runs the live check on every file of the 310 `base`/`core`/`vendor`
@@ -2756,7 +2788,8 @@ not a status, so this section stays the source of truth for what is built.
     `assign/count`, `import/cycle`, `flow/unreachable`,
     `flow/unreachable-defer`, `vet/unused-variable`, `vet/unused-import`,
     `vet/shadowing`, `vet/using-stmt`, `vet/when-shadowing`,
-    `flow/dead-store`), shown after the message in the hover.
+    `flow/dead-store`, `api/fmt-verbs`, `api/ignored-error`), shown after the
+    message in the hover.
     `// thor:ignore <id>...` drops those ids on the next
     line (on its own line when it follows code), with no id every id;
     `// thor:ignore-file <id>...` drops them in the whole file. An unknown id
