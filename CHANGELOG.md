@@ -125,6 +125,11 @@
 - The tutorial keeps its progress in `sessions/tutorial.json`, and "Chapters" resumes a chapter where it stopped.
 - The tutorial lab opens a broken Odin file, `user/tutorial/playground.odin`, with eight repairs. "Show me" selects each defect, and the card shows the analyzer's message on it.
 - A click, a focus change or a newly opened view shows in the same frame. Before, the UI showed it one frame late.
+- Diagnostics have a hint severity: a faint underline with no gutter mark. `"hint"` is a value of `diagnostics` in `.thor/odin-analyzer.lua`, and a language server's Information and Hint diagnostics show as hints.
+- Odin: a `fmt.printf`-style format string that `core:fmt` would print as `%!(...)` is marked as a hint while typing: a verb the argument type does not take, a missing or extra argument, a bad index, and a bare `{` that must be `{{` (`api/fmt-verbs`).
+- Odin: a call statement that drops an error result, such as `os.remove(path)`, is marked as a hint (`api/ignored-error`). `_ = os.remove(path)` drops it explicitly.
+- Fixed: the tutorial lab explanations showed `%!(MISSING CLOSE BRACE)` instead of the key chords.
+- Fixed: the PowerShell fallback of the update check sent a broken command.
 
 # 2026.10.7
 
