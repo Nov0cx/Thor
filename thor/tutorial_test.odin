@@ -208,19 +208,18 @@ test_tutorial_chapters_name_real_actions :: proc(t: ^testing.T) {
 // node whose push_id was not popped inside it.
 @(test)
 test_tutorial_chooser_declares_cleanly :: proc(t: ^testing.T) {
-    ctx: ui.Context
-    ui.init(&ctx, ui.Config{backend = ui.noop_backend()})
-    defer ui.destroy(&ctx)
+    ctx := new(ui.Context)
+    defer free(ctx)
+    ui.init(ctx, ui.Config{backend = ui.noop_backend()})
+    defer ui.destroy(ctx)
     thor := new(Thor)
     defer free(thor)
     thor.tutorial.loaded = true
     thor.tutorial.marks[0] = {done = true}
     thor.tutorial.marks[1] = {step = 2}
     thor.tutorial.chooser_open = true
-    for _ in 0 ..< 3 {
-        ui.begin_frame(ui.Input{dt = 0.016, viewport = {1200, 800}})
+    for ui.frame(ui.Input{dt = 0.016, viewport = {1200, 800}}) {
         thor_tutorial_view(thor)
-        ui.end_frame()
     }
     testing.expect(t, thor.tutorial.chooser_open, "the chapter list stays open with no input")
 }
