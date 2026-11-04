@@ -785,6 +785,7 @@ test_oracle_clean_corpus :: proc(t: ^testing.T) {
     packages, files_checked, skipped, found, in_poly, lints, lines := 0, 0, 0, 0, 0, 0, 0
     vet_matched, vet_false, vet_missed := 0, 0, 0
     by_message := make(map[string]int, keep)
+    by_lint := make(map[string]int, keep)
     for dir in dirs {
         if !oracle_only(dir) {
             continue
@@ -852,7 +853,8 @@ test_oracle_clean_corpus :: proc(t: ^testing.T) {
                 // A lint the compiler does not make: counted for the false-positive audit.
                 if d.lint {
                     lints += 1
-                    note("LINT %s:%d:%d: %s", path, d.line, d.col, d.message)
+                    by_lint[d.code] += 1
+                    note("LINT %s:%d:%d: %s [%s]", path, d.line, d.col, d.message, d.code)
                     continue
                 }
                 // The compiler checks a polymorphic body only per instance, so it is silent there.
@@ -888,6 +890,9 @@ test_oracle_clean_corpus :: proc(t: ^testing.T) {
     }
     note("corpus: %d packages clean under odin check (%d skipped), %d files checked, %d live errors, %d in polymorphic bodies", packages, skipped, files_checked, found, in_poly)
     note("lints: %d over %d lines", lints, lines)
+    for code, n in by_lint {
+        note("%6d x %s", n, code)
+    }
     note("vet: %d matched, %d false, %d missed", vet_matched, vet_false, vet_missed)
     report_flush("bin/test/oracle_corpus.txt")
     testing.expect(t, packages > 0, "no package checked")
