@@ -1307,3 +1307,75 @@ g :: proc(v: #simd[4]u32) -> u32 {
         {"x = intrinsics", "Assignment count mismatch '1' = '2'", 0},
     })
 }
+
+@(test)
+test_live_fmt_verbs :: proc(t: ^testing.T) {
+    root := fixture(t, "live_fmt_verbs", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+import "core:fmt"
+
+E :: enum { A, B }
+P :: struct { x: int }
+
+printf :: proc(fmt: string, args: ..any) {}
+logf :: proc(level: int, fmt_str: string, args: ..any) {}
+not_format :: proc(msg: string, args: ..any) {}
+
+main :: proc() {
+	n := 3
+	s := "s"
+	f := 1.5
+	p := P{}
+	e := E.A
+	xs := []any{1, 2}
+	printf("%d %s %f %v %d %s", n, s, f, p, e, e)
+	printf("%s", n)
+	printf("%t %d", n, f)
+	printf("%d %d", n)
+	printf("%d", n, s, f)
+	printf("%*d", s, n)
+	printf("struct {x}", n)
+	printf("tab\t%s", n)
+	printf("%[3]d", n)
+	printf(` + "`raw %s`" + `, n)
+	printf("%d", ..xs)
+	printf("{} {:x}", n, n)
+	printf("cat %d " + "{y}", s)
+	logf(1, "%s", n)
+	not_format("%s", n)
+	fmt.printf("%d\n", s)
+	fmt.printfln("%v", p)
+	// thor:ignore api/fmt-verbs
+	printf("%s", n)
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"%s\", n)", "Verb 's' does not take an argument of type 'int'", 0},
+        {"%t %d", "Verb 't' does not take an argument of type 'int'", 0},
+        {"%d\", n, f)", "Verb 'd' does not take an argument of type 'f64'", 0},
+        {"%d\", n)", "No argument for verb 'd' in the format string", 0},
+        {"s, f)", "2 arguments more than the format string uses", 0},
+        {"%*d", "Width argument of type 'string' is not a number", 0},
+        {"{x}", "No '}' for '{' in the format string; write '{{' for a literal '{'", 0},
+        {"n)\n\tprintf(\"tab", "1 argument more than the format string uses", 0},
+        {"%s\", n)\n\tprintf(\"%[3]", "Verb 's' does not take an argument of type 'int'", 0},
+        {"%[3]d", "Argument index in the format string is out of range", 0},
+        {"n)\n\tprintf(`raw", "1 argument more than the format string uses", 0},
+        {"%s`", "Verb 's' does not take an argument of type 'int'", 0},
+        {"%d \" + ", "Verb 'd' does not take an argument of type 'string'", 0},
+        {"{y}", "No '}' for '{' in the format string; write '{{' for a literal '{'", 0},
+        {"%s\", n)\n\tnot_format", "Verb 's' does not take an argument of type 'int'", 0},
+        {"%d\\n", "Verb 'd' does not take an argument of type 'string'", 0},
+    })
+    for d in res.report.items {
+        testing.expect_value(t, d.code, CODE_FMT_VERBS)
+        testing.expect_value(t, d.severity, lang.Diagnostic_Severity.Hint)
+        testing.expect(t, d.lint, "a format problem is a lint")
+    }
+}

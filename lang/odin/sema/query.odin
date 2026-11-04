@@ -969,52 +969,64 @@ Arg_Param :: struct {
     first:  bool,   // the first argument of its parameter; a variadic one takes several
 }
 
-// The parameters the positional arguments of `call` fill, `$` parameters left out. Empty for a builtin,
-// a directive, a type, a group with no single best member, and arguments that do not fit.
-call_arg_params :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node, allocator := context.allocator) -> []Arg_Param {
+// The procedure type `call` takes, its arguments and the parameter each fills. False for a builtin,
+// a directive, a type, a group with no single best member, no arguments and arguments that do not
+// fit. `args` and `slots` are in the checker scratch, so the caller holds a scratch_begin.
+@(private)
+call_slots :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node) -> (p: Proc_Type, args: []Call_Arg, slots: []int, ok: bool) {
     ce, is_call := odinsyntax.as_call_expr(call)
     if !is_call {
-        return nil
+        return
     }
     callee, has_callee := odinsyntax.call_expr_callee(&ce)
     list, has_list := odinsyntax.call_expr_args(&ce)
     if !has_callee || !has_list {
-        return nil
+        return
     }
     if _, is_directive := odinsyntax.as_directive(callee); is_directive {
-        return nil
+        return
     }
     if _, is_builtin := builtin_callee(c, file, callee); is_builtin {
-        return nil
+        return
     }
     fn := expr_type(c, file, callee)
     if fn.mode != .Value && fn.mode != .Const {
-        return nil
+        return
     }
-    temp := scratch_begin(c)
-    defer scratch_end(temp)
-    args, ok := with_receiver(c, file, callee, call_args(c, file, odinsyntax.Syntax_Node(list), {}))
+    args, ok = with_receiver(c, file, callee, call_args(c, file, odinsyntax.Syntax_Node(list), {}))
     if !ok || len(args) == 0 {
-        return nil
+        return p, nil, nil, false
     }
-    p: Proc_Type
     #partial switch v in type_get(&c.table, type_base(&c.table, fn.type)) {
     case Proc_Type:
         p = v
     case Proc_Group_Type:
         chosen, _ := choose_member(c, file, v, args)
         if chosen == INVALID_TYPE {
-            return nil
+            return p, nil, nil, false
         }
         p, ok = type_get(&c.table, type_base(&c.table, chosen)).(Proc_Type)
         if !ok {
-            return nil
+            return p, nil, nil, false
         }
     case:
-        return nil
+        return p, nil, nil, false
     }
-    slots, miss := match_slots(c, p, args)
+    miss: Slot_Miss
+    slots, miss = match_slots(c, p, args)
     if miss.kind != .None {
+        return p, nil, nil, false
+    }
+    return p, args, slots, true
+}
+
+// The parameters the positional arguments of `call` fill, `$` parameters left out. Empty for a builtin,
+// a directive, a type, a group with no single best member, and arguments that do not fit.
+call_arg_params :: proc(c: ^Checker, file: File_Id, call: odinsyntax.Syntax_Node, allocator := context.allocator) -> []Arg_Param {
+    temp := scratch_begin(c)
+    defer scratch_end(temp)
+    p, args, slots, ok := call_slots(c, file, call)
+    if !ok {
         return nil
     }
     out := make([dynamic]Arg_Param, 0, len(args), allocator)

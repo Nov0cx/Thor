@@ -38,6 +38,7 @@ walk_body :: proc(rc: ^Request_Context, c: ^odinsema.Checker, m: ^odinsema.Scope
         mismatch_errors(rc, c, odinsema.argument_mismatches(c, rc.live.id, n, context.temp_allocator), "a procedure argument", report)
         order_errors(rc, c, n, report)
         mismatch_errors(rc, c, odinsema.min_max_mismatches(c, rc.live.id, n, context.temp_allocator), "a procedure argument", report)
+        format_errors(rc, c, n, report)
     case .Selector_Expr:
         member_errors(rc, c, n, report)
     case .Assign_Stmt:
@@ -250,6 +251,37 @@ liveness_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, m: ^odinsema
     }
     for d in r.dead_stores {
         report_error(rc, report, d.offset, CODE_DEAD_STORE, fmt.aprintf("Value assigned to '%s' is never used", d.name), .Warning, lint = true)
+    }
+}
+
+// Reports, as a lint, the directives of a format string that `fmt` prints as `%!(...)`.
+@(private = "file")
+format_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, call: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
+    for p in odinsema.format_problems(c, rc.live.id, call, context.temp_allocator) {
+        message: string
+        switch p.kind {
+        case .Missing:
+            if p.verb == '*' {
+                message = strings.clone("No argument for '*' in the format string")
+            } else {
+                message = fmt.aprintf("No argument for verb '%c' in the format string", p.verb)
+            }
+        case .Bad_Index:
+            message = strings.clone("Argument index in the format string is out of range")
+        case .No_Verb:
+            message = strings.clone("No verb after '%' in the format string")
+        case .Missing_Brace:
+            message = strings.clone("No '}' for '{' in the format string; write '{{' for a literal '{'")
+        case .Bad_Width:
+            message = fmt.aprintf("Width argument of type '%s' is not a number", odinsema.type_string(&c.table, p.type, context.temp_allocator))
+        case .Bad_Precision:
+            message = fmt.aprintf("Precision argument of type '%s' is not a number", odinsema.type_string(&c.table, p.type, context.temp_allocator))
+        case .Bad_Verb:
+            message = fmt.aprintf("Verb '%c' does not take an argument of type '%s'", p.verb, odinsema.type_string(&c.table, p.type, context.temp_allocator))
+        case .Extra:
+            message = p.count == 1 ? strings.clone("1 argument more than the format string uses") : fmt.aprintf("%d arguments more than the format string uses", p.count)
+        }
+        report_error(rc, report, p.offset, CODE_FMT_VERBS, message, .Hint, lint = true)
     }
 }
 
