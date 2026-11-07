@@ -187,7 +187,9 @@ bytes or more) on every iteration and only reads it is marked too, since
 `for &x` avoids the copy (`perf/range-copy`). An assignment of a place to itself, an `if` with the
 literal condition `true` or `false` and an `if` with the same text in both
 branches are marked too (`logic/self-assign`, `logic/const-condition`,
-`logic/identical-branches`). The checks of `odin check -vet` are warnings
+`logic/identical-branches`). A name that breaks the Odin naming style, such
+as a `camelCase` variable or a type without `Ada_Case`, is marked too
+(`style/naming`). The checks of `odin check -vet` are warnings
 while typing: a variable that nothing uses (`vet/unused-variable`), an import
 that nothing uses (`vet/unused-import`), a variable that shadows an earlier one
 of the same type (`vet/shadowing`) and a declaration in a file-scope `when`

@@ -42,7 +42,7 @@ highlight (the uses of the symbol at the caret, writes apart from reads) and go 
 (through pointers, containers and results to each declared type) are done.
 The Tier 3 lints started: diagnostics have a hint severity, and `api/fmt-verbs`
 and `api/ignored-error` are live as hints, and so are `mem/dangling-slice`, `mem/temp-escape` and
-`defer/in-loop`, `api/deprecated` and `perf/range-copy`, and `logic/*`. Next in M8: the
+`defer/in-loop`, `api/deprecated` and `perf/range-copy`, and `logic/*` and `style/naming`. Next in M8: the
 ownership dataflow.
 `lang/ROADMAP.md` ("Next engine") tracks the rest. Section 11 lists the
 feature questions whose answers change the plan.

@@ -2800,6 +2800,13 @@ not a status, so this section stays the source of truth for what is built.
       dereference; an `if` whose condition is the literal `true` or `false`;
       an `if`/`else` whose two blocks have the same text without white space.
       A constant expression such as `N > 4` is not read yet.
+    - `style/naming` (`sema/naming.odin`, rules `naming` in `odin-analyzer.lua`): types
+      `Ada_Case`, procedures and variables `snake_case` (a file-scope variable may be
+      `SCREAMING_SNAKE_CASE`), constants with a literal value and enum members take several
+      spellings. `foreign` blocks, `link_name`/`export` declarations, `_` names and one-letter
+      names are left out; an alias such as `a :: b` is not read. The audit over this repo gave
+      8 hits in 140k lines, all real; `base`/`core`/`vendor` give many, as C bindings keep
+      their names.
   - **Compiler oracle** (`lang/odin/oracle_test.odin`, run with
     `-define:LIVE_ORACLE=true`; plan §8 M5 bar): `test_oracle_clean_corpus`
     runs the live check on every file of the 310 `base`/`core`/`vendor`

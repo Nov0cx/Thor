@@ -412,10 +412,22 @@ its root, layered on top of the global settings above. This repository's own
   `vet/unused-variable`, `vet/unused-import`, `vet/shadowing`,
   `vet/using-stmt`, `vet/when-shadowing`, `flow/dead-store`, `api/fmt-verbs`,
   `api/ignored-error`, `mem/dangling-slice`, `mem/temp-escape`, `defer/in-loop`, `api/deprecated`, `perf/range-copy`, `logic/self-assign`,
-  `logic/const-condition` and `logic/identical-branches`. An unknown id or value is logged and
+  `logic/const-condition`, `logic/identical-branches` and `style/naming`. An unknown id or value is logged and
   ignored. The diagnostics `odin check` gives after a save are not affected, except the `vet/*` ids:
   the save passes `odin check` one `-vet-*` flag for each of them that is not `"off"`, and gives the
   lines it reports for them the same id and severity.
+
+  `naming` sets the spelling `style/naming` accepts for each kind of name:
+  `type` (default `"ada_case"`), `proc` (`"snake_case"`), `variable`
+  (`"snake_case"`; a file-scope variable may also be `SCREAMING_SNAKE_CASE`),
+  `constant` and `enum_member`. A value is `"ada_case"`, `"snake_case"`,
+  `"screaming_snake_case"` or `"any"`, which switches that rule off. A name
+  of one letter, a name that starts with `_`, a name in a `foreign` block and
+  a declaration with `link_name` or `export` are never marked:
+
+  ```lua
+  return { naming = { type = "ada_case", variable = "any" } }
+  ```
 
 - **`odin-formatter.lua`** — per-workspace options for formatting `.odin`
   files — "Edit: Format Document", "Edit: Format Selection", `format_on_save`
