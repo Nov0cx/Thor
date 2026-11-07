@@ -350,6 +350,7 @@ ask_source :: proc(ask: ^Ask, path: string) -> (string, bool) {
         return text, text != ""
     }
     if text, held := server_document_text(ask.server, path, context.temp_allocator); held {
+        // thor:ignore mem/temp-escape
         ask.texts[clone_temp(path)] = text
         return text, true
     }
@@ -373,6 +374,7 @@ ask_raw_index :: proc(ask: ^Ask, path: string) -> ^Line_Index {
     }
     index := new(Line_Index, context.temp_allocator)
     index^ = line_index_build(raw, ask.server.caps.encoding, context.temp_allocator)
+    // thor:ignore mem/temp-escape
     ask.raws[key] = index
     return index
 }

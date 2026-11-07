@@ -22,11 +22,13 @@ tree_token_error :: proc(tree: ^Green_Tree, toks: []Token) -> string {
             } else {
                 tok, _ := element_token(child)
                 if w.next >= len(w.toks) {
+                    // thor:ignore mem/temp-escape
                     w.msg = fmt.tprintf("extra token %v@%d", tok.kind, pos)
                     return
                 }
                 want := w.toks[w.next]
                 if tok.kind != want.kind || tok.flags != want.flags || tok.len != want.len || pos != want.offset {
+                    // thor:ignore mem/temp-escape
                     w.msg = fmt.tprintf("token %d is %v@%d+%d, lexer has %v@%d+%d", w.next, tok.kind, pos, tok.len, want.kind, want.offset, want.len)
                     return
                 }
