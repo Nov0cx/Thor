@@ -9,6 +9,7 @@
 //    odin run build.odin -file -- test           # run the package tests
 //    odin run build.odin -file -- test -release  # run them with the release flags
 //    odin run build.odin -file -- deps           # get and build HarfBuzz and tree-sitter
+//    odin run build.odin -file -- bench          # time parse, diagnostics and completion against the budgets
 //    odin run build.odin -file -- gen_syntax     # write the Odin syntax kinds and views from syntax.schema
 //    odin run build.odin -file -- -h             # list the flags
 //
@@ -74,6 +75,7 @@ Command :: enum {
     deps,
     clean,
     gen_syntax,
+    bench,
 }
 
 Options :: struct {
@@ -81,6 +83,7 @@ Options :: struct {
     release: bool `usage:"Build optimized, into bin/release. With test: use the release flags."`,
     vet:     bool `usage:"Add -vet for the packages of this repository."`,
     verbose: bool `usage:"Print each command before it runs."`,
+    strict:  bool `usage:"With bench: fail when a measure is over its budget."`,
 }
 
 opt: Options
@@ -100,6 +103,7 @@ main :: proc() {
     case .deps:  ok = build_deps()
     case .clean: ok = clean()
     case .gen_syntax: ok = gen_syntax()
+    case .bench: ok = run_bench()
     }
 
     if !ok {
@@ -241,6 +245,49 @@ run_tests :: proc() -> bool {
     if len(failed) > 0 {
         list := strings.join(failed[:], ", ", context.temp_allocator)
         fmt.eprintfln("[build] these test packages failed: %s", list)
+        return false
+    }
+    return true
+}
+
+// Packages with benchmarks and the tests that run in each. The budgets are in plan sections 4.8 and 7.
+BENCHES :: []struct {
+    package_dir: string,
+    tests:       string,
+} {
+    {"lang/odin/syntax", "odinsyntax.test_bench_parse,odinsyntax.test_bench_reparse"},
+    {"lang/odin", "odin.test_bench_diagnostics,odin.test_bench_completion"},
+}
+
+// Times parse, reparse, diagnostics and completion on Thor's own sources with the release flags, one
+// test at a time so the runs do not share the machine. A measure over its budget is a warning in
+// the log; with -strict it fails the run.
+run_bench :: proc() -> bool {
+    if !mkdir("bin/bench") {
+        return false
+    }
+    if !copy_lua_dll("bin/bench") {
+        return false
+    }
+    failed := make([dynamic]string, context.temp_allocator)
+    for b in BENCHES {
+        out, _ := strings.replace_all(b.package_dir, "/", "_", context.temp_allocator)
+        args := make([dynamic]string, context.temp_allocator)
+        append(&args, "odin", "test", b.package_dir)
+        append(&args, fmt.tprintf("-out:bin/bench/%s%s", out, EXE_EXT))
+        append(&args, "-o:speed", "-no-bounds-check", "-disable-assert")
+        append(&args, "-define:THOR_BENCH=true", "-define:ODIN_TEST_THREADS=1")
+        append(&args, fmt.tprintf("-define:ODIN_TEST_NAMES=%s", b.tests))
+        if opt.strict {
+            append(&args, "-define:THOR_BENCH_STRICT=true")
+        }
+        append_link_flags(&args)
+        if !exec_msvc(args[:]) {
+            append(&failed, b.package_dir)
+        }
+    }
+    if len(failed) > 0 {
+        fmt.eprintfln("[build] these benchmark packages failed: %s", strings.join(failed[:], ", ", context.temp_allocator))
         return false
     }
     return true
