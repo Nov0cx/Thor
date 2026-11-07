@@ -263,7 +263,7 @@ called_member :: proc(ctx: ^Request_Context, name_offset: int, members: []Def_Ca
 }
 
 // Appends the declaration of each member of a procedure group that resolves: the first active one of its name.
-@(private = "file")
+@(private)
 expand_group :: proc(ctx: ^Request_Context, group: Def_Candidate, out: ^[dynamic]Def_Candidate) {
     for m in group.members {
         if lang.request_cancelled(ctx.req) {

@@ -47,6 +47,11 @@ IMPLEMENTED :: bit_set[lang.Request_Kind]{
     .Document_Highlight,
     .Code_Actions,
     .Resolve_Action,
+    .Call_Hierarchy,
+    .Type_Hierarchy,
+    .Implementations,
+    .Selection_Range,
+    .Code_Lens,
 }
 
 engine_create :: proc() -> ^Engine {
@@ -180,6 +185,16 @@ resolve :: proc(data: rawptr, req: ^lang.Request, res: ^lang.Result) {
         }
     case .Type_Definition:
         type_definition(e, req, res)
+    case .Selection_Range:
+        selection_range(e, req, res)
+    case .Call_Hierarchy:
+        call_hierarchy(e, req, res)
+    case .Type_Hierarchy:
+        type_hierarchy(e, req, res)
+    case .Implementations:
+        implementations(e, req, res)
+    case .Code_Lens:
+        code_lens(e, req, res)
     }
 }
 

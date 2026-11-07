@@ -170,7 +170,7 @@ test_capabilities_real_reply :: proc(t: ^testing.T) {
     testing.expect_value(
         t,
         caps.kinds,
-        lang.FEATURES_ALL - {.Diagnostics, .Syntax_Diagnostics, .Progress, .Apply_Edit, .Message, .Format, .Format_Range, .Format_On_Type, .Resolve_Action},
+        lang.FEATURES_ALL - {.Diagnostics, .Syntax_Diagnostics, .Progress, .Apply_Edit, .Message, .Format, .Format_Range, .Format_On_Type, .Resolve_Action, .Call_Hierarchy, .Type_Hierarchy, .Implementations, .Selection_Range, .Code_Lens},
     )
 }
 

@@ -2064,6 +2064,12 @@ thor_on_lang_result :: proc(user: rawptr, res: ^lang.Result) {
         thor_apply_pushed_edit(thor, res)
     case .Message:
         thor_flash_status(thor, res.message.text, res.message.error)
+    case .Call_Hierarchy, .Type_Hierarchy, .Implementations:
+        thor_on_symbol_list(thor, res)
+    case .Selection_Range:
+        thor_on_selection_chain(thor, res)
+    case .Code_Lens:
+        thor_on_lens(thor, res)
     }
 }
 
@@ -2264,7 +2270,6 @@ thor_show_definition_candidates :: proc(thor: ^Thor, res: ^lang.Result) {
 // Rebuilds the picker's jump targets (doc_symbols) from a symbol result and
 // returns the matching rich rows in the same order, temp-allocated (the palette
 // deep-copies them). Shared by the document-symbol and workspace-symbol pickers.
-@(private = "file")
 thor_build_symbol_items :: proc(thor: ^Thor, res: ^lang.Result) -> []Pick_Item {
     thor_clear_doc_symbols(thor)
     items := make([dynamic]Pick_Item, context.temp_allocator)

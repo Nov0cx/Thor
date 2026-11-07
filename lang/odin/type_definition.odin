@@ -12,7 +12,7 @@ import odinsema "sema"
 TYPE_WALK_DEPTH :: 8
 
 // A type the walk found: a declared type by its symbol, or a basic type by its name.
-@(private = "file")
+@(private)
 Type_Found :: struct {
     symbol:  odinsema.Symbol,
     name:    string,
@@ -20,7 +20,7 @@ Type_Found :: struct {
 }
 
 // A place to jump to. Strings are temp-allocated.
-@(private = "file")
+@(private)
 Type_Jump :: struct {
     path:      string,
     name:      string,
@@ -134,7 +134,7 @@ caret_type :: proc(ctx: ^Request_Context, c: ^odinsema.Checker) -> odinsema.Type
 
 // Appends the declared types `type` is built from: itself when it is declared, else its element,
 // key, value or result types. A basic type is appended by name.
-@(private = "file")
+@(private)
 collect_type_symbols :: proc(c: ^odinsema.Checker, type: odinsema.Type_Id, out: ^[dynamic]Type_Found, depth: int) {
     if type == odinsema.INVALID_TYPE || depth > TYPE_WALK_DEPTH {
         return
@@ -195,7 +195,7 @@ add_found :: proc(out: ^[dynamic]Type_Found, f: Type_Found) {
 }
 
 // The jump to the declaration of the declared type `f`.
-@(private = "file")
+@(private)
 symbol_jump :: proc(ctx: ^Request_Context, c: ^odinsema.Checker, f: Type_Found) -> (Type_Jump, bool) {
     file, start, end, ok := odinsema.symbol_range(c, f.symbol)
     if !ok {
