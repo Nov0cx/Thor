@@ -214,6 +214,13 @@ thor_global_key :: proc(thor: ^Thor, event: ui.Key_Event) -> bool {
     if thor_dispatch_app_bind(thor, event) {
         return true
     }
+    when ODIN_OS == .Darwin {
+        if event.key == .Comma && event.mods == {.Super} {
+            thor_note_action(thor, "open_settings_gui")
+            thor_cmd_open_settings_gui(thor)
+            return true
+        }
+    }
 
     // Fullscreen toggle is a bare key (no ctrl), so it is matched before the
     // ctrl-only guard below.
@@ -332,7 +339,7 @@ thor_cycle_tab :: proc(thor: ^Thor, direction: int) {
 // Whether the terminal takes this chord instead of the editor. Only the binds
 // that move the focus back out of it still reach the editor, so a shell keeps
 // ctrl + c, ctrl + d and everything else it reads.
-@(private = "file")
+@(private)
 thor_terminal_owns_key :: proc(thor: ^Thor, event: ui.Key_Event) -> bool {
     if !thor.console_focused {
         return false
@@ -353,12 +360,30 @@ thor_terminal_owns_key :: proc(thor: ^Thor, event: ui.Key_Event) -> bool {
             return false
         }
     }
+    if thor_settings_chord(thor, event) {
+        return false
+    }
     for bind in thor.focus_pane_keys {
         if thor_digit_bind_matches(bind, event) {
             return false
         }
     }
     return true
+}
+
+// True for the chord that opens Settings: the `open_settings_gui` bind, and Cmd+, on macOS.
+thor_settings_chord :: proc(thor: ^Thor, event: ui.Key_Event) -> bool {
+    when ODIN_OS == .Darwin {
+        if event.key == .Comma && event.mods == {.Super} {
+            return true
+        }
+    }
+    for bind in thor.app_binds {
+        if bind.action == "open_settings_gui" {
+            return bind.key.key != .None && setting.keybind_matches(bind.key, event.key, event.mods)
+        }
+    }
+    return false
 }
 
 // Moves keyboard focus to the editor. The editor pane is always present, so no

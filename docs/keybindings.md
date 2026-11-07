@@ -333,8 +333,9 @@ selection, when there is one), "Copy All", "Paste", plus Clear and the
 terminal-tab actions.
 
 While the terminal holds the keyboard the editor's chords stay out of its way:
-only the command palette, quick open, and the binds that toggle or focus a panel
-still reach the editor. Everything else is the shell's.
+only the command palette, quick open, the Settings chord (`ctrl + comma`, and
+`cmd + comma` on macOS) and the binds that toggle or focus a panel still reach
+the editor. Everything else is the shell's.
 
 The grid follows the panel: resize it and the shell re-wraps, and a full-screen
 program redraws.

@@ -9,6 +9,7 @@ import "core:thread"
 
 import "../plugin"
 import "../setting"
+import ui "../vendor/loom/loom"
 
 // Twelve files across two directory levels, walked with a cap of 5, must stop
 // at exactly 5 and report that the walk was cut short.
@@ -136,4 +137,17 @@ test_plugin_commands_are_bindable :: proc(t: ^testing.T) {
 
     thor_clear_plugin_commands(&thor)
     testing.expect_value(t, len(thor.palette.commands), builtin)
+}
+
+// A focused terminal still lets the Open Settings chord through, and swallows other chords.
+@(test)
+test_terminal_lets_the_settings_chord_through :: proc(t: ^testing.T) {
+    thor: Thor
+    defer delete(thor.app_binds)
+    thor.console_focused = true
+    append(&thor.app_binds, App_Bind {action = "open_settings_gui", key = setting.Keybind {key = .Comma, mods = {.Ctrl}}})
+
+    testing.expect(t, !thor_terminal_owns_key(&thor, ui.Key_Event {key = .Comma, mods = {.Ctrl}}), "the settings chord reaches the app")
+    testing.expect(t, thor_terminal_owns_key(&thor, ui.Key_Event {key = .A, mods = {.Ctrl}}), "another chord belongs to the shell")
+    testing.expect(t, thor_terminal_owns_key(&thor, ui.Key_Event {key = .Comma}), "a bare comma belongs to the shell")
 }
