@@ -589,6 +589,9 @@ ownership_flow :: proc(w: ^Own_Walk, lit: odinsyntax.Syntax_Node, out: ^Ownershi
         }
     }
     preds := make([][dynamic]int, len(g.blocks), alloc)
+    for &list in preds {
+        list = make([dynamic]int, alloc)
+    }
     for blk, b in g.blocks {
         if !reach[b] {
             continue

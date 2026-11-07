@@ -9,36 +9,7 @@ import odinsyntax "../syntax"
 // statement is no call, or the call gives no error, is a builtin, is deferred or is
 // `@(require_results)`, which the compiler reports.
 ignored_error :: proc(c: ^Checker, file: File_Id, stmt: odinsyntax.Syntax_Node) -> (offset: int, type: Type_Id, ok: bool) {
-    es := odinsyntax.as_expr_stmt(stmt) or_return
-    call := odinsyntax.expr_stmt_expr(&es) or_return
-    for call.green.kind == .Paren_Expr {
-        p, _ := odinsyntax.as_paren_expr(call)
-        call = odinsyntax.paren_expr_expr(&p) or_return
-    }
-    ce := odinsyntax.as_call_expr(call) or_return
-    if deferred(stmt) {
-        return
-    }
-    callee := odinsyntax.call_expr_callee(&ce) or_return
-    if _, is_directive := odinsyntax.as_directive(callee); is_directive {
-        return
-    }
-    if _, is_builtin := builtin_callee(c, file, callee); is_builtin {
-        return
-    }
-    fn := expr_type(c, file, callee)
-    if fn.has_symbol {
-        if item := checker_item(c, fn.symbol); item != nil {
-            for a in item.attributes {
-                if a.name == "require_results" {
-                    return
-                }
-            }
-        }
-    }
-    if writes_sink(c, file, &ce) {
-        return
-    }
+    call, _, _, _ := ignored_call(c, file, stmt) or_return
     result := expr_type(c, file, call)
     if result.mode != .Value {
         return
@@ -55,6 +26,66 @@ ignored_error :: proc(c: ^Checker, file: File_Id, stmt: odinsyntax.Syntax_Node) 
         return int(call.offset), result.type, true
     }
     return
+}
+
+// The call of the expression statement `stmt` and the type of its callee, unless the call is deferred, a
+// builtin, a directive, `@(require_results)` or a write to a sink.
+@(private = "file")
+ignored_call :: proc(c: ^Checker, file: File_Id, stmt: odinsyntax.Syntax_Node) -> (call: odinsyntax.Syntax_Node, ce: odinsyntax.Call_Expr, callee: odinsyntax.Syntax_Node, fn: Operand, ok: bool) {
+    es := odinsyntax.as_expr_stmt(stmt) or_return
+    call = odinsyntax.expr_stmt_expr(&es) or_return
+    for call.green.kind == .Paren_Expr {
+        p, _ := odinsyntax.as_paren_expr(call)
+        call = odinsyntax.paren_expr_expr(&p) or_return
+    }
+    ce = odinsyntax.as_call_expr(call) or_return
+    if deferred(stmt) {
+        return
+    }
+    callee = odinsyntax.call_expr_callee(&ce) or_return
+    if _, is_directive := odinsyntax.as_directive(callee); is_directive {
+        return
+    }
+    if _, is_builtin := builtin_callee(c, file, callee); is_builtin {
+        return
+    }
+    fn = expr_type(c, file, callee)
+    if fn.has_symbol {
+        if item := checker_item(c, fn.symbol); item != nil {
+            for a in item.attributes {
+                if a.name == "require_results" {
+                    return
+                }
+            }
+        }
+    }
+    if writes_sink(c, file, &ce) {
+        return
+    }
+    return call, ce, callee, fn, true
+}
+
+// The call of the expression statement `stmt` when it drops a trailing `ok: bool` result, and the name
+// of the procedure. False when the statement is no call, the procedure has `#optional_ok` or the last
+// result is not a bool named `ok`.
+ignored_ok :: proc(c: ^Checker, file: File_Id, stmt: odinsyntax.Syntax_Node) -> (offset: int, name: string, ok: bool) {
+    call, _, callee, fn, found := ignored_call(c, file, stmt)
+    if !found || fn.mode != .Value {
+        return
+    }
+    p := type_get(&c.table, type_base(&c.table, fn.type)).(Proc_Type) or_return
+    if len(p.results) < 2 || .Optional_Ok in p.tags {
+        return
+    }
+    last := p.results[len(p.results) - 1]
+    if last.name != "ok" {
+        return
+    }
+    basic := type_get(&c.table, type_base(&c.table, last.type)).(Basic_Type) or_return
+    if basic.kind != .Bool {
+        return
+    }
+    return int(call.offset), strings.join(strings.fields(odinsyntax.node_text(callee), context.temp_allocator), "", context.temp_allocator), true
 }
 
 // True when the first argument of `ce` is a `^strings.Builder`, whose writes fail only when they

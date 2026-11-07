@@ -464,3 +464,47 @@ shadow_type_matches :: proc(c: ^Checker, file: File_Id, t: Type_Id, shadowed, it
     }
     return decl_type(c, local_symbol(file, shadowed)) == t
 }
+
+// The attributes that keep a procedure that nothing in its package names.
+@(private = "file")
+UNUSED_PROC_EXEMPT :: [?]string{"export", "require", "init", "fini", "test", "link_name", "entry_point_only", "builtin", "objc_name", "objc_type"}
+
+// The procedures declared at file scope that `-vet-unused-procedures` can report: not `main`, `_`, a
+// foreign procedure, one under a `when` or one with an attribute that keeps it. Indexes into
+// Item_Tree.items.
+vet_unused_candidates :: proc(tree: ^Item_Tree, allocator := context.allocator) -> (out: [dynamic]int, err: mem.Allocator_Error) {
+    out = make([dynamic]int, allocator) or_return
+    if tree == nil {
+        return
+    }
+    exempt := UNUSED_PROC_EXEMPT
+    items: for it, i in tree.items {
+        if it.kind != .Proc || it.in_foreign || it.guard >= 0 || it.name == "main" || it.name == "_" {
+            continue
+        }
+        for a in it.attributes {
+            if slice.contains(exempt[:], a.name) {
+                continue items
+            }
+        }
+        append(&out, i) or_return
+    }
+    return
+}
+
+// Adds to `used` every name of `names` that an identifier of `src` spells, other than the identifier at
+// `skip` (the declaration itself). A lexical match: a field or a local of the same name counts as a
+// use, so the check errs toward silence.
+vet_note_names :: proc(src: string, names: map[string]int, used: ^map[string]struct{}, skip: []int) -> mem.Allocator_Error {
+    for tok in odinsyntax.lex_all(src, context.temp_allocator) {
+        if tok.kind != .Ident {
+            continue
+        }
+        name := src[tok.offset:tok.offset + tok.len]
+        if name not_in names || slice.contains(skip, int(tok.offset)) {
+            continue
+        }
+        used[name] = {}
+    }
+    return nil
+}
