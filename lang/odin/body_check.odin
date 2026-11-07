@@ -61,6 +61,8 @@ walk_body :: proc(rc: ^Request_Context, c: ^odinsema.Checker, m: ^odinsema.Scope
         or_return_errors(rc, c, n, report)
     case .Expr_Stmt:
         ignored_errors(rc, c, n, report)
+    case .For_Stmt, .Range_Stmt:
+        defer_in_loop(rc, m, n, report)
     }
     it := odinsyntax.child_iter(&n, {kinds = ~odinsyntax.Kind_Set{}})
     for child in odinsyntax.child_iter_next(&it) {
@@ -297,6 +299,14 @@ ignored_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, stmt: odinsyn
         return
     }
     report_error(rc, report, at, CODE_IGNORED_ERROR, fmt.aprintf("Error result of type '%s' is ignored", odinsema.type_string(&c.table, type, context.temp_allocator)), .Hint, lint = true)
+}
+
+// Reports, as a lint, a `defer` in the body of the loop `loop` that releases an outer variable.
+@(private = "file")
+defer_in_loop :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, loop: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
+    for at in odinsema.loop_defers(m, loop, context.temp_allocator) {
+        report_error(rc, report, at, CODE_DEFER_IN_LOOP, strings.clone("A defer in a loop body releases a variable declared outside the loop on every iteration"), .Hint, lint = true)
+    }
 }
 
 // Reports, as a lint, a returned address or slice of a local.

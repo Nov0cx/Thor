@@ -1557,3 +1557,61 @@ temp_name :: proc(s: string) -> string {
         testing.expect(t, d.lint, "a temp escape is a lint")
     }
 }
+
+@(test)
+test_live_defer_in_loop :: proc(t: ^testing.T) {
+    root := fixture(t, "live_defer_in_loop", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+outer_free :: proc(buf: []int) {
+	for _ in 0 ..< 3 {
+		defer delete(buf)
+	}
+}
+nested_if :: proc(ok: bool, buf: []int) {
+	for ok {
+		if ok {
+			defer delete(buf)
+		}
+	}
+}
+fine_inner :: proc() {
+	for _ in 0 ..< 3 {
+		buf := make([]int, 4)
+		defer delete(buf)
+	}
+}
+fine_loop_var :: proc(items: [][]int) {
+	for item in items {
+		defer delete(item)
+	}
+}
+fine_outside :: proc(buf: []int) {
+	defer delete(buf)
+	for _ in 0 ..< 3 {
+	}
+}
+fine_proc_lit :: proc(buf: []int) {
+	for _ in 0 ..< 3 {
+		f := proc(b: []int) {
+			defer delete(b)
+		}
+		f(buf)
+	}
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"defer delete(buf)", "A defer in a loop body releases a variable declared outside the loop on every iteration", 0},
+        {"defer delete(buf)", "A defer in a loop body releases a variable declared outside the loop on every iteration", 1},
+    })
+    for d in res.report.items {
+        testing.expect_value(t, d.code, CODE_DEFER_IN_LOOP)
+        testing.expect_value(t, d.severity, lang.Diagnostic_Severity.Hint)
+        testing.expect(t, d.lint, "a defer in a loop is a lint")
+    }
+}
