@@ -503,6 +503,8 @@ Thor :: struct {
     // picker, the results picker opens immediately (loading) and is filled when
     // the matching scan lands; a superseded result is dropped.
     references_request_id: u64,
+    // Hierarchies, implementations, expand selection and reference counts.
+    nav: Nav_State,
     // In-flight signature-help request: the pane it came from and its request id,
     // so a superseded result (the caret moved on to another call, or a plain tab
     // switch with no new request) is dropped rather than routed to a stale pane.
@@ -1107,6 +1109,7 @@ shutdown :: proc(thor: ^Thor) {
     delete(thor.semantic_source)
     delete(thor.inlay_path)
     delete(thor.inlay_source)
+    thor_nav_destroy(thor)
     thor_clear_occurrences(thor)
     delete(thor.occurrences)
     delete(thor.format_path)

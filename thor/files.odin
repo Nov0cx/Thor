@@ -118,6 +118,7 @@ Open_File :: struct {
     inlay_view:          [dynamic]editview.Inlay,
     inlay_view_revision: u64,
     inlay_view_valid:    bool,
+    lens:                File_Lens, // reference counts after declaration names
     // Document sync for a backend that mirrors the editor's buffers.
     // `lang_open` marks the mirror as started, `lang_revision` the buffer
     // revision it last received. See thor_lang_notify.
@@ -834,6 +835,7 @@ thor_invalidate_file_derived :: proc(file: ^Open_File) {
     thor_clear_file_syntax_diagnostics(file)
     thor_clear_file_semantic(file)
     thor_clear_file_inlays(file)
+    thor_clear_file_lens(file)
 }
 
 // Applies a reload job's freshly mapped bytes to its open buffer, if they differ
@@ -1245,6 +1247,7 @@ thor_update_files :: proc(thor: ^Thor) {
         thor.semantic_source = ""
     }
     thor_recover_inlay_slot(thor)
+    thor_recover_lens_slot(thor)
     thor_recover_occurrence_slot(thor)
     thor_peek_tick(thor)
     if thor.syntax_request_id != 0 &&
@@ -1543,6 +1546,7 @@ thor_free_open_file :: proc(file: ^Open_File, thor: ^Thor = nil) {
     thor_clear_file_inlays(file)
     delete(file.inlays)
     delete(file.inlay_view)
+    thor_destroy_file_lens(file)
     thor_clear_file_diagnostics(file)
     delete(file.diagnostics)
     thor_clear_file_syntax_diagnostics(file)

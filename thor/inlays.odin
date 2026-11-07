@@ -22,7 +22,7 @@ thor_sync_pane_inlays :: proc(thor: ^Thor, pane: int) {
     }
     thor_request_inlays(thor, file, editor)
     thor_rebase_file_inlays(file)
-    editview.editor_set_inlays(editor, file.inlay_view[:])
+    editview.editor_set_inlays(editor, thor_lens_view(thor, file))
 }
 
 // Asks for the hints of the window `editor` shows when the file has none for its text or the
