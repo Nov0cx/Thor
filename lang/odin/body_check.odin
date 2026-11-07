@@ -66,8 +66,11 @@ walk_body :: proc(rc: ^Request_Context, c: ^odinsema.Checker, m: ^odinsema.Scope
         or_return_errors(rc, c, n, report)
     case .Expr_Stmt:
         ignored_errors(rc, c, n, report)
-    case .For_Stmt, .Range_Stmt:
+    case .For_Stmt:
         defer_in_loop(rc, m, n, report)
+    case .Range_Stmt:
+        defer_in_loop(rc, m, n, report)
+        range_copies(rc, c, m, n, report)
     }
     it := odinsyntax.child_iter(&n, {kinds = ~odinsyntax.Kind_Set{}})
     for child in odinsyntax.child_iter_next(&it) {
@@ -304,6 +307,16 @@ ignored_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, stmt: odinsyn
         return
     }
     report_error(rc, report, at, CODE_IGNORED_ERROR, fmt.aprintf("Error result of type '%s' is ignored", odinsema.type_string(&c.table, type, context.temp_allocator)), .Hint, lint = true)
+}
+
+// Reports, as a lint, a range loop that copies a large element on every iteration.
+@(private = "file")
+range_copies :: proc(rc: ^Request_Context, c: ^odinsema.Checker, m: ^odinsema.Scope_Map, loop: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
+    at, name, size, ok := odinsema.range_copy(c, m, rc.live.id, loop)
+    if !ok {
+        return
+    }
+    report_error(rc, report, at, CODE_RANGE_COPY, fmt.aprintf("'%s' copies %d bytes on every iteration; 'for &%s' avoids the copy", name, size, name), .Hint, lint = true)
 }
 
 // Reports, as a lint, a use of a declaration marked `@(deprecated)`.

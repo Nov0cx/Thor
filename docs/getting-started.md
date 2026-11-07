@@ -182,7 +182,9 @@ value from `context.temp_allocator` or `tprintf` that is stored there
 (`mem/temp-escape`). A `defer` in a loop that frees a variable declared before the
 loop, such as `defer delete(buf)`, is marked too, since it runs on every iteration
 (`defer/in-loop`). A use of a declaration marked `@(deprecated)` is marked too
-(`api/deprecated`). The checks of `odin check -vet` are warnings
+(`api/deprecated`). A `for x in items` loop that copies a large element (512
+bytes or more) on every iteration and only reads it is marked too, since
+`for &x` avoids the copy (`perf/range-copy`). The checks of `odin check -vet` are warnings
 while typing: a variable that nothing uses (`vet/unused-variable`), an import
 that nothing uses (`vet/unused-import`), a variable that shadows an earlier one
 of the same type (`vet/shadowing`) and a declaration in a file-scope `when`

@@ -1010,7 +1010,7 @@ manager_has_request :: proc(m: ^Manager, id: u64) -> bool {
             return true
         }
     }
-    for res in m.failed {
+    for &res in m.failed {
         if res.id == id {
             return true
         }

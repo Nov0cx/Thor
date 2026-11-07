@@ -2789,6 +2789,12 @@ not a status, so this section stays the source of truth for what is built.
       selector, that names a declaration with a `deprecated` attribute; the
       message is the attribute value. A deprecated proc-group member and a
       deprecated type used in a type position are not reported yet.
+    - `perf/range-copy` (`sema/range_copy.odin`): the value variable of a
+      range loop over a slice, array, dynamic array or enumerated array whose
+      element is 512 bytes or more (`RANGE_COPY_SIZE`), when no use takes its
+      address, slices it or assigns to it or a part of it. `for &x`, maps and
+      strings are left out. A 128-byte threshold gave about 70 hits in this
+      repo, all idiomatic; 512 gave one real copy (`Result` in `lang.odin`).
   - **Compiler oracle** (`lang/odin/oracle_test.odin`, run with
     `-define:LIVE_ORACLE=true`; plan §8 M5 bar): `test_oracle_clean_corpus`
     runs the live check on every file of the 310 `base`/`core`/`vendor`

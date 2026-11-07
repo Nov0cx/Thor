@@ -1474,6 +1474,59 @@ main :: proc() {
 }
 
 @(test)
+test_live_range_copy :: proc(t: ^testing.T) {
+    root := fixture(t, "live_range_copy", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+Big :: struct { data: [80]int, n: int }
+Small :: struct { a, b: int }
+
+main :: proc(bigs: []Big, smalls: []Small, arr: [4]Big) {
+	total := 0
+	for b in bigs {
+		total += b.n
+	}
+	for s in smalls {
+		total += s.a
+	}
+	for &b in bigs {
+		b.n = 1
+	}
+	for b in bigs {
+		p := &b
+		_ = p
+	}
+	for b in bigs {
+		b.n = 2
+	}
+	for b in arr {
+		total += b.data[1]
+	}
+	for _, i in bigs {
+		total += i
+	}
+	// thor:ignore perf/range-copy
+	for b in bigs {
+		total += b.n
+	}
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"b in bigs {\n\t\ttotal += b.n\n\t}\n\tfor s", "'b' copies 648 bytes on every iteration; 'for &b' avoids the copy", 0},
+        {"b in arr", "'b' copies 648 bytes on every iteration; 'for &b' avoids the copy", 0},
+    })
+    for d in res.report.items {
+        testing.expect_value(t, d.code, CODE_RANGE_COPY)
+        testing.expect_value(t, d.severity, lang.Diagnostic_Severity.Hint)
+    }
+}
+
+@(test)
 test_live_dangling_slice :: proc(t: ^testing.T) {
     root := fixture(t, "live_dangling_slice", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
     e := engine_create()
