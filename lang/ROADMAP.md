@@ -2778,6 +2778,13 @@ not a status, so this section stays the source of truth for what is built.
       on purpose (30 hits over the clean corpus, none a bug). A procedure with
       `temp` or `tprint` in its name is left out. Not yet: taint through a
       second assignment, a call or a field.
+    - `defer/in-loop` (`sema/defer_loop.odin`): a `defer` in a loop body whose
+      call has a release name (`delete`, `free`, `destroy`, `close`,
+      `release`) and names only locals declared before the loop. It runs on
+      every iteration, so the second run frees the variable again. A
+      per-iteration `defer delete(x)` on a loop-body variable is idiomatic and
+      not flagged (a plain "defer in a loop" check hit 52 correct sites in
+      the repo). A nested procedure literal and a nested loop are left out.
   - **Compiler oracle** (`lang/odin/oracle_test.odin`, run with
     `-define:LIVE_ORACLE=true`; plan §8 M5 bar): `test_oracle_clean_corpus`
     runs the live check on every file of the 310 `base`/`core`/`vendor`

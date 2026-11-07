@@ -41,8 +41,8 @@ that a `#+vet` tag asks for. M8 started: inlay hints (types between the colons o
 highlight (the uses of the symbol at the caret, writes apart from reads) and go to type definition
 (through pointers, containers and results to each declared type) are done.
 The Tier 3 lints started: diagnostics have a hint severity, and `api/fmt-verbs`
-and `api/ignored-error` are live as hints, and so are `mem/dangling-slice` and
-`mem/temp-escape`. Next in M8: `defer/in-loop`, `perf/range-copy`, `api/deprecated`
+and `api/ignored-error` are live as hints, and so are `mem/dangling-slice`, `mem/temp-escape` and
+`defer/in-loop`. Next in M8: `perf/range-copy`, `api/deprecated`
 and the ownership dataflow.
 `lang/ROADMAP.md` ("Next engine") tracks the rest. Section 11 lists the
 feature questions whose answers change the plan.
