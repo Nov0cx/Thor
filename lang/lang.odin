@@ -235,16 +235,28 @@ Token_Kind :: enum {
     Enum_Member,
     Package,
     Unresolved,
+    Inactive, // a range under a `when` the target makes false; no identifier inside is classified
 }
+
+// What else the analyzer proved about a classified identifier.
+Token_Modifier :: enum u8 {
+    Deprecated, // the declaration has a `deprecated` attribute
+    Distinct,   // a `distinct` type
+    Constant,   // a value declared with `::`
+    Mutable,    // declared with `:=`, or a field
+}
+
+Token_Modifiers :: bit_set[Token_Modifier;u8]
 
 // One classified identifier: a byte range and what the analyzer proved it to be.
 // Carries no owned strings, unlike every other payload here — a file is
 // thousands of rows, so a `string` kind would be a clone and a free per
 // identifier per keystroke. The editor maps the enum to a color itself.
 Semantic_Token :: struct {
-    start: int,
-    end:   int,
-    kind:  Token_Kind,
+    start:     int,
+    end:       int,
+    kind:      Token_Kind,
+    modifiers: Token_Modifiers,
 }
 
 // What an inlay hint shows.

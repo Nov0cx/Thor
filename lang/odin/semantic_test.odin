@@ -152,9 +152,9 @@ test_semantic_token_kinds :: proc(t: ^testing.T) {
     expect_kind(t, &res, src, "Horizontal\n", .Enum_Member, after = "= .")
     expect_kind(t, &res, src, "fmt.println", .Package)
 
-    // A constant value, a package variable, a builtin and a basic type keep the grammar's color.
-    expect_none(t, &res, src, "LIMIT ::")
-    expect_none(t, &res, src, "LIMIT, counter")
+    // A constant value is a Local with the Constant modifier. A package variable, a builtin and a basic type keep the grammar's color.
+    expect_kind(t, &res, src, "LIMIT ::", .Local)
+    expect_kind(t, &res, src, "LIMIT, counter", .Local)
     expect_none(t, &res, src, "counter: int")
     expect_none(t, &res, src, "counter, len")
     expect_none(t, &res, src, "len(")
@@ -292,7 +292,7 @@ main :: proc() {
     expect_kind(t, &res, main_src, "width +", .Field)
     expect_kind(t, &res, main_src, "Mode.", .Type)
     expect_kind(t, &res, main_src, "Slow", .Enum_Member)
-    expect_none(t, &res, main_src, "DEFAULT_WIDTH")
+    expect_kind(t, &res, main_src, "DEFAULT_WIDTH", .Local)
     expect_none(t, &res, main_src, "global_count")
     for tok in res.tokens {
         testing.expectf(t, tok.kind != .Unresolved, "unexpected Unresolved at %q", main_src[tok.start:tok.end])
@@ -436,4 +436,108 @@ paint :: proc(v: Vec) -> f32 {
     expect_kind(t, &res, src, "y\n", .Field, after = "return x + ")
     expect_kind(t, &res, src, "Light\n", .Enum_Member, after = "s := ")
     expect_kind(t, &res, src, "x + y", .Local)
+}
+
+// The token at the first `needle`, with its modifiers.
+@(private = "file")
+expect_mods :: proc(t: ^testing.T, res: ^lang.Result, src, needle: string, want: lang.Token_Modifiers, after := "", loc := #caller_location) {
+    tok, ok := token_at(res, src, needle, after)
+    if !testing.expectf(t, ok, "%q: expected a token", needle, loc = loc) {
+        return
+    }
+    testing.expectf(t, tok.modifiers == want, "%q: got %v, want %v", needle, tok.modifiers, want, loc = loc)
+}
+
+@(test)
+test_semantic_modifiers :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package demo
+
+Handle :: distinct int
+
+Plain :: struct {
+	x: int,
+}
+
+@(deprecated = "use fresh")
+old :: proc() {}
+
+fresh :: proc() {}
+
+LIMIT :: 4
+
+main :: proc(arg: int) {
+	count := 1
+	LOCAL :: 2
+	h: Handle
+	old()
+	fresh()
+	_ = count + LOCAL + LIMIT + arg
+	p: Plain
+	_ = p.x
+	_ = h
+}
+`
+    res := semantic_at(e, src)
+    defer delete(res.tokens)
+    expect_ordered(t, &res, src)
+
+    expect_mods(t, &res, src, "Handle :: ", {.Distinct})
+    expect_mods(t, &res, src, "Handle\n", {.Distinct}, after = "h: ")
+    expect_mods(t, &res, src, "Plain :: ", {})
+    expect_mods(t, &res, src, "old :: ", {.Deprecated})
+    expect_mods(t, &res, src, "old()", {.Deprecated})
+    expect_mods(t, &res, src, "fresh()", {})
+    expect_mods(t, &res, src, "count :=", {.Mutable})
+    expect_mods(t, &res, src, "count +", {.Mutable})
+    expect_mods(t, &res, src, "LOCAL +", {.Constant})
+    expect_mods(t, &res, src, "LIMIT +", {.Constant})
+    expect_mods(t, &res, src, "arg: int", {})
+    expect_mods(t, &res, src, "x\n", {.Mutable}, after = "p.")
+}
+
+// A `when` branch the target makes false is one Inactive range without identifier tokens inside.
+@(test)
+test_semantic_inactive_when :: proc(t: ^testing.T) {
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package demo
+
+when ODIN_OS == .Windows {
+	win_only :: proc() {}
+} else {
+	other_only :: proc() {}
+}
+
+main :: proc() {}
+`
+    res := semantic_at(e, src)
+    defer delete(res.tokens)
+    expect_ordered(t, &res, src)
+
+    inactive := 0
+    for tok in res.tokens {
+        if tok.kind != .Inactive {
+            continue
+        }
+        inactive += 1
+        text := src[tok.start:tok.end]
+        when ODIN_OS == .Windows {
+            testing.expect(t, strings.contains(text, "other_only"), "the else branch is inactive")
+        } else {
+            testing.expect(t, strings.contains(text, "win_only"), "the when branch is inactive")
+        }
+    }
+    testing.expect_value(t, inactive, 1)
+    when ODIN_OS == .Windows {
+        expect_kind(t, &res, src, "win_only", .Procedure)
+        expect_none(t, &res, src, "other_only")
+    } else {
+        expect_kind(t, &res, src, "other_only", .Procedure)
+        expect_none(t, &res, src, "win_only")
+    }
+    expect_kind(t, &res, src, "main", .Procedure)
 }

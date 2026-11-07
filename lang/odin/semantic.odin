@@ -18,6 +18,7 @@ SEMANTIC_CANCEL_STEP :: 512
 @(private = "file")
 Name_Class :: struct {
     kind:       lang.Token_Kind,
+    mods:       lang.Token_Modifiers,
     emit:       bool,
     undeclared: bool,
 }
@@ -65,6 +66,7 @@ semantic_tokens :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
     if !ok {
         return
     }
+    tokens = with_inactive(&rc, tokens, lo, hi)
     res.tokens = make([dynamic]lang.Semantic_Token, 0, len(tokens))
     append(&res.tokens, ..tokens)
     res.ok = len(res.tokens) > 0
@@ -113,7 +115,7 @@ semantic_classify :: proc(rc: ^Request_Context, lo, hi: int, strict := false) ->
             continue
         }
         if class := classify_ref(&ctx, i); class.emit {
-            append(&ctx.tokens, lang.Semantic_Token{ref.start, ref.end, class.kind})
+            append(&ctx.tokens, lang.Semantic_Token{ref.start, ref.end, class.kind, class.mods})
         }
     }
     if lang.request_cancelled(req) {
@@ -135,6 +137,57 @@ semantic_classify :: proc(rc: ^Request_Context, lo, hi: int, strict := false) ->
         cut = tok.end
     }
     return ctx.tokens[:out], true
+}
+
+// The tokens with the `when` branches that are false for the target added as `Inactive` ranges,
+// and the tokens inside them dropped. Only a buffer in the build has them.
+@(private = "file")
+with_inactive :: proc(rc: ^Request_Context, tokens: []lang.Semantic_Token, lo, hi: int) -> []lang.Semantic_Token {
+    tree := rc.live.tree
+    if !rc.live.in_build || tree == nil || len(tree.guards) == 0 {
+        return tokens
+    }
+    src := rc.req.source
+    regions := make([dynamic]lang.Semantic_Token, context.temp_allocator)
+    for g, i in tree.guards {
+        if g.start >= g.end || g.end > len(src) || g.end <= lo || g.start >= hi {
+            continue
+        }
+        if g.parent >= 0 && odinsema.guard_state(tree, g.parent, rc.target) == .False {
+            continue
+        }
+        if odinsema.guard_state(tree, i, rc.target) != .False {
+            continue
+        }
+        start := g.start
+        if brace := strings.index_byte(src[g.start:g.end], '{'); brace >= 0 {
+            start += brace + 1
+        }
+        if start < g.end {
+            append(&regions, lang.Semantic_Token{start, g.end, .Inactive, {}})
+        }
+    }
+    if len(regions) == 0 {
+        return tokens
+    }
+    slice.sort_by(regions[:], proc(a, b: lang.Semantic_Token) -> bool {
+        return a.start < b.start
+    })
+    out := make([dynamic]lang.Semantic_Token, 0, len(tokens) + len(regions), context.temp_allocator)
+    r := 0
+    for tok in tokens {
+        for r < len(regions) && regions[r].end <= tok.start {
+            append(&out, regions[r])
+            r += 1
+        }
+        if r < len(regions) && regions[r].start < tok.end {
+            continue
+        }
+        append(&out, tok)
+    }
+    append(&out, ..regions[r:])
+    // A branch inside a branch that is false too is skipped above; siblings do not overlap.
+    return out[:]
 }
 
 // The class of reference `i` of the scope map.
@@ -342,7 +395,7 @@ symbol_class :: proc(ctx: ^Semantic_Ctx, sym: odinsema.Symbol) -> Name_Class {
         if odinsema.type_kind(&c.table, odinsema.type_base(&c.table, type)) == .Enum {
             return {}
         }
-        return {kind = .Field, emit = true}
+        return {kind = .Field, mods = {.Mutable}, emit = true}
     }
     item := odinsema.checker_item(c, sym)
     if item == nil {
@@ -356,7 +409,7 @@ symbol_class :: proc(ctx: ^Semantic_Ctx, sym: odinsema.Symbol) -> Name_Class {
             if is_proc_type(c, odinsema.decl_type(c, sym)) {
                 return {kind = .Procedure, emit = true}
             }
-            return {kind = .Field, emit = true}
+            return {kind = .Field, mods = {.Mutable}, emit = true}
         }
         return {}
     }
@@ -380,7 +433,7 @@ member_decl_class :: proc(ctx: ^Semantic_Ctx, offset: int) -> Name_Class {
         }
         break
     }
-    return {kind = .Field, emit = true}
+    return {kind = .Field, mods = {.Mutable}, emit = true}
 }
 
 // True when a type expression is a procedure type, or names a type of the buffer declared as one.
@@ -416,18 +469,39 @@ is_proc_text :: proc(source: string) -> bool {
 // The class of a file-scope declaration. A variable and a constant value get none.
 @(private = "file")
 item_class :: proc(ctx: ^Semantic_Ctx, sym: odinsema.Symbol, item: ^odinsema.Item) -> Name_Class {
+    mods := item_modifiers(item)
     switch item.kind {
     case .Proc, .Proc_Group:
-        return {kind = .Procedure, emit = true}
+        return {kind = .Procedure, mods = mods, emit = true}
     case .Struct, .Enum, .Union, .Bit_Set, .Bit_Field, .Type:
-        return {kind = .Type, emit = true}
+        return {kind = .Type, mods = mods, emit = true}
     case .Import, .Foreign_Import:
         return {kind = .Package, emit = true}
     case .Const:
-        return const_class(ctx, sym)
+        class := const_class(ctx, sym)
+        class.mods += mods - {.Constant}
+        return class
     case .Var, .Field, .Enum_Member:
     }
     return {}
+}
+
+// The modifiers a file-scope declaration carries: `deprecated`, `distinct` and `::`.
+@(private = "file")
+item_modifiers :: proc(item: ^odinsema.Item) -> lang.Token_Modifiers {
+    mods: lang.Token_Modifiers
+    for a in item.attributes {
+        if a.name == "deprecated" {
+            mods += {.Deprecated}
+            break
+        }
+    }
+    if i := strings.index(item.signature, "::"); i >= 0 {
+        if strings.has_prefix(strings.trim_left_space(item.signature[i + 2:]), "distinct ") {
+            mods += {.Distinct}
+        }
+    }
+    return mods
 }
 
 // The class of a constant: a type, a procedure, or none for a value.
@@ -437,13 +511,22 @@ const_class :: proc(ctx: ^Semantic_Ctx, sym: odinsema.Symbol) -> Name_Class {
     if c == nil {
         return {}
     }
+    mods: lang.Token_Modifiers
+    if sym.item != odinsema.LOCAL_ITEM && sym.child < 0 {
+        if item := odinsema.checker_item(c, sym); item != nil {
+            mods = item_modifiers(item)
+        }
+    }
     if odinsema.decl_is_type(c, sym) {
-        return {kind = .Type, emit = true}
+        return {kind = .Type, mods = mods, emit = true}
     }
     if is_proc_type(c, odinsema.decl_type(c, sym)) {
-        return {kind = .Procedure, emit = true}
+        return {kind = .Procedure, mods = mods, emit = true}
     }
-    return {}
+    if odinsema.decl_type(c, sym) == odinsema.INVALID_TYPE {
+        return {}
+    }
+    return {kind = .Local, mods = mods + {.Constant}, emit = true}
 }
 
 // The class of a local declared as `kind`.
@@ -453,7 +536,7 @@ local_class :: proc(ctx: ^Semantic_Ctx, kind: odinsema.Decl_Kind, sym: odinsema.
     case .Param, .Result:
         return {kind = .Parameter, emit = true}
     case .Var, .Loop_Var, .Switch_Var:
-        return {kind = .Local, emit = true}
+        return {kind = .Local, mods = {.Mutable}, emit = true}
     case .Proc:
         return {kind = .Procedure, emit = true}
     case .Type:
@@ -476,11 +559,15 @@ local_class :: proc(ctx: ^Semantic_Ctx, kind: odinsema.Decl_Kind, sym: odinsema.
 // The class of the declaration name of a file-scope declaration.
 @(private = "file")
 top_level_class :: proc(ctx: ^Semantic_Ctx, ref: odinsema.Name_Ref) -> Name_Class {
+    mods: lang.Token_Modifiers
+    if index, ok := ctx.items[ref.start]; ok {
+        mods = item_modifiers(&ctx.rc.live.tree.items[index])
+    }
     #partial switch ref.decl_kind {
     case .Proc:
-        return {kind = .Procedure, emit = true}
+        return {kind = .Procedure, mods = mods, emit = true}
     case .Type:
-        return {kind = .Type, emit = true}
+        return {kind = .Type, mods = mods, emit = true}
     case .Import:
         return {kind = .Package, emit = true}
     case .Const:
