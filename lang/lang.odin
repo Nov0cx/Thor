@@ -320,6 +320,8 @@ Diagnostic :: struct {
 Diagnostic_Report :: struct {
     scope: string, // owned, absolute directory or file path
     items: [dynamic]Diagnostic,
+    // A file scope: the items also cover the other files of its directory, each by `path`.
+    package_wide: bool,
 }
 
 // A diagnostic already in byte-offset form, handed to a Code_Actions request by

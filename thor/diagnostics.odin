@@ -168,11 +168,40 @@ thor_apply_syntax_diagnostics :: proc(thor: ^Thor, res: ^lang.Result) {
     }
     thor_clear_file_syntax_diagnostics(file)
     for d in res.report.items {
-        append(&file.syntax_diagnostics, editor_diagnostic(file, d))
+        if thor_same_path(d.path, res.report.scope) {
+            append(&file.syntax_diagnostics, editor_diagnostic(file, d))
+        }
     }
     file.syntax_revision = res.revision
     file.syntax_ready = true
     thor_merge_file_diagnostics(file)
+    if res.report.package_wide {
+        thor_apply_package_syntax_diagnostics(thor, file, res)
+    }
+}
+
+// Stores the items of a package-wide live check on the other open, unmodified files of the
+// directory of `primary`; the report is read from disk, so a modified buffer keeps its own check.
+@(private = "file")
+thor_apply_package_syntax_diagnostics :: proc(thor: ^Thor, primary: ^Open_File, res: ^lang.Result) {
+    dir := filepath.dir(primary.path)
+    for other in thor.open_files {
+        if other == primary || other.closed || !other.loaded || thor_file_dirty(other) {
+            continue
+        }
+        if !thor_same_path(filepath.dir(other.path), dir) {
+            continue
+        }
+        thor_clear_file_syntax_diagnostics(other)
+        for d in res.report.items {
+            if thor_same_path(d.path, other.path) {
+                append(&other.syntax_diagnostics, editor_diagnostic(other, d))
+            }
+        }
+        other.syntax_revision = other.state.revision
+        other.syntax_ready = true
+        thor_merge_file_diagnostics(other)
+    }
 }
 
 // Frees a file's live syntax errors and marks them stale.
