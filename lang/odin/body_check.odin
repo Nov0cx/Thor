@@ -72,6 +72,7 @@ walk_body :: proc(rc: ^Request_Context, c: ^odinsema.Checker, m: ^odinsema.Scope
         return_errors(rc, c, n, report)
         unreachable_errors(rc, c, n, report)
         liveness_errors(rc, c, m, n, report)
+        ownership_errors(rc, c, m, n, report)
     case .Or_Return_Expr:
         or_return_errors(rc, c, n, report)
     case .Expr_Stmt:
@@ -525,4 +526,36 @@ const_text :: proc(v: odinsema.Const_Value) -> (string, bool) {
     case string: return fmt.tprintf("%q", x), true
     }
     return "", false
+}
+
+// Reports, as a lint, the allocations a path leaves unfreed and the frees and uses of a freed value.
+// Off until the workspace config sets one of the ids.
+@(private = "file")
+ownership_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, m: ^odinsema.Scope_Map, lit: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
+    severities := config_severities(rc.e, rc.req.workspace)
+    leak := severities[CODE_LEAK] != .Off && CODE_LEAK in severities
+    double := severities[CODE_DOUBLE_FREE] != .Off && CODE_DOUBLE_FREE in severities
+    after := severities[CODE_USE_AFTER_FREE] != .Off && CODE_USE_AFTER_FREE in severities
+    if !leak && !double && !after {
+        return
+    }
+    r, err := odinsema.ownership(c, rc.live.id, m, lit, context.temp_allocator)
+    if err != nil {
+        return
+    }
+    if leak {
+        for l in r.leaks {
+            report_error(rc, report, l.offset, CODE_LEAK, fmt.aprintf("'%s' is allocated and a path neither frees nor hands it on", l.name), .Hint, lint = true)
+        }
+    }
+    if double {
+        for d in r.double_frees {
+            report_error(rc, report, d.offset, CODE_DOUBLE_FREE, fmt.aprintf("'%s' is freed twice on every path to here", d.name), .Hint, lint = true)
+        }
+    }
+    if after {
+        for u in r.uses_after_free {
+            report_error(rc, report, u.offset, CODE_USE_AFTER_FREE, fmt.aprintf("'%s' is used after it is freed", u.name), .Hint, lint = true)
+        }
+    }
 }

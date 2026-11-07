@@ -396,7 +396,6 @@ has_call :: proc(w: ^Live_Walk, n: odinsyntax.Syntax_Node) -> bool {
 }
 
 // A compound statement whose parts are steps of their own.
-@(private = "file")
 is_compound :: proc(kind: odinsyntax.Syntax_Kind) -> bool {
     #partial switch kind {
     case .Block, .Do_Body, .If_Stmt, .When_Stmt, .For_Stmt, .Range_Stmt, .Switch_Stmt, .Type_Switch_Stmt, .Defer_Stmt, .Foreign_Block:
@@ -424,20 +423,16 @@ has_or_branch :: proc(n: odinsyntax.Syntax_Node) -> bool {
     return false
 }
 
-@(private = "file")
 Bits :: []u64
 
-@(private = "file")
 bits_has :: #force_inline proc(b: Bits, i: int) -> bool {
     return b[i >> 6] & (1 << uint(i & 63)) != 0
 }
 
-@(private = "file")
 bits_set :: #force_inline proc(b: Bits, i: int) {
     b[i >> 6] |= 1 << uint(i & 63)
 }
 
-@(private = "file")
 bits_clear :: #force_inline proc(b: Bits, i: int) {
     b[i >> 6] &~= 1 << uint(i & 63)
 }

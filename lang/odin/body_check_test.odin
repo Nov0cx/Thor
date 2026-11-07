@@ -1788,3 +1788,89 @@ fine_proc_lit :: proc(buf: []int) {
         testing.expect(t, d.lint, "a defer in a loop is a lint")
     }
 }
+
+@(test)
+test_live_ownership :: proc(t: ^testing.T) {
+    root := fixture(t, "live_ownership", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" }, diagnostics = { ["mem/leak"] = "hint", ["mem/double-free"] = "hint", ["mem/use-after-free"] = "hint" } }`}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+Holder :: struct {
+	items: []int,
+}
+
+consume :: proc(items: []int) {}
+
+leak_plain :: proc() {
+	leaked := new(int)
+	leaked^ = 1
+}
+leak_branch :: proc(ok: bool) {
+	partial := make([]int, 4)
+	if ok {
+		delete(partial)
+	}
+}
+double_free :: proc() {
+	twice := make([]int, 4)
+	delete(twice)
+	delete(twice)
+}
+use_after_free :: proc() {
+	gone := make([]int, 4)
+	delete(gone)
+	gone[0] = 1
+}
+fine_defer :: proc() {
+	kept := make([]int, 4)
+	defer delete(kept)
+	kept[0] = 1
+}
+fine_return :: proc() -> []int {
+	out := make([]int, 4)
+	return out
+}
+fine_store :: proc(h: ^Holder) {
+	stored := make([]int, 4)
+	h.items = stored
+}
+fine_call :: proc() {
+	passed := make([]int, 4)
+	consume(passed)
+}
+fine_temp :: proc() {
+	scratch := make([]int, 4, context.temp_allocator)
+	scratch[0] = 1
+}
+fine_both_branches :: proc(ok: bool) {
+	either := make([]int, 4)
+	if ok {
+		delete(either)
+	} else {
+		delete(either)
+		either = nil
+	}
+}
+fine_reassign :: proc() {
+	again := make([]int, 4)
+	delete(again)
+	again = make([]int, 4)
+	delete(again)
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"leaked := new(int)", "'leaked' is allocated and a path neither frees nor hands it on", 0},
+        {"partial := make", "'partial' is allocated and a path neither frees nor hands it on", 0},
+        {"twice)\n}", "'twice' is freed twice on every path to here", 0},
+        {"gone[0]", "'gone' is used after it is freed", 0},
+    })
+    for d in res.report.items {
+        if d.code == CODE_LEAK || d.code == CODE_DOUBLE_FREE || d.code == CODE_USE_AFTER_FREE {
+            testing.expect(t, d.lint && d.severity == .Hint, "an ownership finding is a hint lint")
+        }
+    }
+}
