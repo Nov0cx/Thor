@@ -184,7 +184,10 @@ loop, such as `defer delete(buf)`, is marked too, since it runs on every iterati
 (`defer/in-loop`). A use of a declaration marked `@(deprecated)` is marked too
 (`api/deprecated`). A `for x in items` loop that copies a large element (512
 bytes or more) on every iteration and only reads it is marked too, since
-`for &x` avoids the copy (`perf/range-copy`). The checks of `odin check -vet` are warnings
+`for &x` avoids the copy (`perf/range-copy`). An assignment of a place to itself, an `if` with the
+literal condition `true` or `false` and an `if` with the same text in both
+branches are marked too (`logic/self-assign`, `logic/const-condition`,
+`logic/identical-branches`). The checks of `odin check -vet` are warnings
 while typing: a variable that nothing uses (`vet/unused-variable`), an import
 that nothing uses (`vet/unused-import`), a variable that shadows an earlier one
 of the same type (`vet/shadowing`) and a declaration in a file-scope `when`

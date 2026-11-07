@@ -1474,6 +1474,51 @@ main :: proc() {
 }
 
 @(test)
+test_live_logic :: proc(t: ^testing.T) {
+    root := fixture(t, "live_logic", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+P :: struct { x, y: int }
+
+main :: proc(p: ^P, n: int) {
+	n := n
+	n = n
+	p.x = p.y
+	p.x = p.x
+	n += n
+	if true {
+		n = 1
+	}
+	if n > 0 {
+		n = 2
+	} else {
+		n  = 2
+	}
+	if n > 0 {
+		n = 2
+	} else {
+		n = 3
+	}
+	// thor:ignore logic/const-condition
+	if false {
+		n = 4
+	}
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"n = n", "A place is assigned to itself", 0},
+        {"p.x = p.x", "A place is assigned to itself", 0},
+        {"true {", "The condition is always true", 0},
+        {"{\n\t\tn  = 2", "Both branches of the if statement are the same", 0},
+    })
+}
+
+@(test)
 test_live_range_copy :: proc(t: ^testing.T) {
     root := fixture(t, "live_range_copy", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
     e := engine_create()

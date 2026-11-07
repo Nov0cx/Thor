@@ -50,6 +50,11 @@ walk_body :: proc(rc: ^Request_Context, c: ^odinsema.Checker, m: ^odinsema.Scope
         count_errors(rc, c, n, report)
         mismatch_errors(rc, c, odinsema.assign_mismatches(c, rc.live.id, n, context.temp_allocator), "assignment", report)
         dangling_stores(rc, c, n, report)
+        if odinsema.self_assign(n) {
+            report_error(rc, report, int(n.offset), CODE_SELF_ASSIGN, strings.clone("A place is assigned to itself"), .Hint, lint = true)
+        }
+    case .If_Stmt:
+        logic_errors(rc, n, report)
     case .Value_Decl:
         count_errors(rc, c, n, report)
         mismatch_errors(rc, c, odinsema.assign_mismatches(c, rc.live.id, n, context.temp_allocator), "a variable declaration", report)
@@ -307,6 +312,19 @@ ignored_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, stmt: odinsyn
         return
     }
     report_error(rc, report, at, CODE_IGNORED_ERROR, fmt.aprintf("Error result of type '%s' is ignored", odinsema.type_string(&c.table, type, context.temp_allocator)), .Hint, lint = true)
+}
+
+// Reports, as a lint, an `if` with a literal condition or the same text in both branches.
+@(private = "file")
+logic_errors :: proc(rc: ^Request_Context, stmt: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
+    identical, constant, value := odinsema.if_problems(stmt)
+    if constant >= 0 {
+        message := value ? "The condition is always true" : "The condition is always false"
+        report_error(rc, report, constant, CODE_CONST_CONDITION, strings.clone(message), .Hint, lint = true)
+    }
+    if identical >= 0 {
+        report_error(rc, report, identical, CODE_IDENTICAL_BRANCHES, strings.clone("Both branches of the if statement are the same"), .Hint, lint = true)
+    }
 }
 
 // Reports, as a lint, a range loop that copies a large element on every iteration.

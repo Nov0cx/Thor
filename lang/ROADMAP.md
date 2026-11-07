@@ -2795,6 +2795,11 @@ not a status, so this section stays the source of truth for what is built.
       address, slices it or assigns to it or a part of it. `for &x`, maps and
       strings are left out. A 128-byte threshold gave about 70 hits in this
       repo, all idiomatic; 512 gave one real copy (`Result` in `lang.odin`).
+    - `logic/self-assign`, `logic/const-condition`, `logic/identical-branches`
+      (`sema/logic.odin`): `place = place` for a name, selector chain or
+      dereference; an `if` whose condition is the literal `true` or `false`;
+      an `if`/`else` whose two blocks have the same text without white space.
+      A constant expression such as `N > 4` is not read yet.
   - **Compiler oracle** (`lang/odin/oracle_test.odin`, run with
     `-define:LIVE_ORACLE=true`; plan §8 M5 bar): `test_oracle_clean_corpus`
     runs the live check on every file of the 310 `base`/`core`/`vendor`

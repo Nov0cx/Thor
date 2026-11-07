@@ -411,7 +411,8 @@ its root, layered on top of the global settings above. This repository's own
   `assign/count`, `flow/unreachable`, `flow/unreachable-defer`,
   `vet/unused-variable`, `vet/unused-import`, `vet/shadowing`,
   `vet/using-stmt`, `vet/when-shadowing`, `flow/dead-store`, `api/fmt-verbs`,
-  `api/ignored-error`, `mem/dangling-slice`, `mem/temp-escape`, `defer/in-loop`, `api/deprecated` and `perf/range-copy`. An unknown id or value is logged and
+  `api/ignored-error`, `mem/dangling-slice`, `mem/temp-escape`, `defer/in-loop`, `api/deprecated`, `perf/range-copy`, `logic/self-assign`,
+  `logic/const-condition` and `logic/identical-branches`. An unknown id or value is logged and
   ignored. The diagnostics `odin check` gives after a save are not affected, except the `vet/*` ids:
   the save passes `odin check` one `-vet-*` flag for each of them that is not `"off"`, and gives the
   lines it reports for them the same id and severity.
