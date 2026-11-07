@@ -45,7 +45,7 @@ package_live_items :: proc(rc: ^Request_Context, report: ^lang.Diagnostic_Report
     read := 0
     for name in names {
         full, jerr := filepath.join({dir, name}, context.temp_allocator)
-        if jerr != nil || same_file_path(full, rc.req.path) {
+        if jerr != nil || paths_equal(full, rc.req.path) {
             continue
         }
         if read >= PACKAGE_LIVE_MAX_FILES || added >= PACKAGE_LIVE_MAX_ITEMS || lang.request_cancelled(rc.req) {
@@ -93,8 +93,8 @@ sibling_items :: proc(rc: ^Request_Context, path, src: string, report: ^lang.Dia
 }
 
 // True when two paths name the same file, ignoring the separator and the case on Windows.
-@(private = "file")
-same_file_path :: proc(a, b: string) -> bool {
+@(private)
+paths_equal :: proc(a, b: string) -> bool {
     when ODIN_OS == .Windows {
         return slashes_equal_fold(a, b)
     } else {

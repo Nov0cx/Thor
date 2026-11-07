@@ -106,6 +106,9 @@ check_package :: proc(e: ^Engine, req: ^lang.Request, res: ^lang.Result) {
     // The compiler ran, so `items` is the whole truth for `dir` — including the
     // empty case, which is how the editor learns a fixed file is clean again.
     res.ok = true
+    if req.workspace != "" && req.source != "" && config_telemetry(e, req.workspace) {
+        log_disagreements(e, req, res.report.items[:])
+    }
 }
 
 // `-collection:<name>=<dir>` for every collection the workspace config declares.
