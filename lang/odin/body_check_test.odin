@@ -54,7 +54,7 @@ main :: proc() {
         {"o->call", "Too many arguments for 'o->call', expected 2 arguments, got 3", 0},
     })
     for d in res.report.items {
-        testing.expect(t, d.code == CODE_ARITY || d.code == CODE_NAMED, "a call error carries a call id")
+        testing.expect(t, d.code == CODE_ARITY || d.code == CODE_NAMED || d.code == CODE_NIL_DEREF, "a call error carries a call id")
     }
 }
 

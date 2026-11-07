@@ -43,7 +43,7 @@ Want :: struct {
 @(private)
 is_vet_code :: proc(code: string) -> bool {
     switch code {
-    case CODE_UNUSED_VAR, CODE_DEAD_STORE, CODE_UNUSED_IMPORT, CODE_SHADOWING, CODE_WHEN_SHADOWING:
+    case CODE_UNUSED_VAR, CODE_DEAD_STORE, CODE_UNUSED_IMPORT, CODE_SHADOWING, CODE_WHEN_SHADOWING, CODE_CAST, CODE_UNUSED_PROC, CODE_STYLE, CODE_SEMICOLON, CODE_TABS:
         return true
     }
     return false
@@ -56,11 +56,16 @@ expect_errors :: proc(t: ^testing.T, res: ^lang.Result, source: string, wants: [
     // Vet and liveness warnings are compared only when a want names one.
     vet := false
     for w in wants {
-        vet ||= strings.has_suffix(w.message, "declared but not used") || strings.has_suffix(w.message, "is never used") || strings.contains(w.message, " shadows ")
+        vet ||= strings.has_suffix(w.message, "declared but not used") || strings.has_suffix(w.message, "is never used") || strings.contains(w.message, " shadows ") || strings.has_prefix(w.message, "Unneeded ") || w.message == "Found unneeded semicolon" || w.message == "Expected a comma, got a newline" || strings.has_prefix(w.message, "With '-vet-tabs'")
+    }
+    // A nil dereference is compared only when a want names one.
+    nil_wanted := false
+    for w in wants {
+        nil_wanted ||= strings.has_suffix(w.message, "which is always nil here")
     }
     got := make([dynamic]string, context.temp_allocator)
     for d in res.report.items {
-        if !vet && is_vet_code(d.code) {
+        if !vet && is_vet_code(d.code) || !nil_wanted && d.code == CODE_NIL_DEREF {
             continue
         }
         append(&got, fmt.tprintf("%d:%d %s", d.line, d.col, d.message))

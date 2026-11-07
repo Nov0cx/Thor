@@ -19,6 +19,7 @@ body_diagnostics :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, whens: []
         return
     }
     rc.naming = config_naming(rc.e, rc.req.workspace)
+    rc.vet = live_vet_flags(rc)
     walk_body(rc, c, m, whens, odinsyntax.node_root(rc.parsed.tree), report)
 }
 
@@ -73,8 +74,13 @@ walk_body :: proc(rc: ^Request_Context, c: ^odinsema.Checker, m: ^odinsema.Scope
         unreachable_errors(rc, c, n, report)
         liveness_errors(rc, c, m, n, report)
         ownership_errors(rc, c, m, n, report)
+        nil_errors(rc, c, m, whens, n, report)
     case .Or_Return_Expr:
         or_return_errors(rc, c, n, report)
+    case .Cast_Expr:
+        if .Cast in rc.vet {
+            cast_errors(rc, c, n, report)
+        }
     case .Expr_Stmt:
         ignored_errors(rc, c, n, report)
     case .For_Stmt:
@@ -269,7 +275,7 @@ liveness_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, m: ^odinsema
     if err != nil {
         return
     }
-    if .Unused_Variables in live_vet_flags(rc) {
+    if .Unused_Variables in rc.vet {
         for u in r.unused {
             report_error(rc, report, u.offset, CODE_UNUSED_VAR, fmt.aprintf("'%s' declared but not used", u.name), .Warning)
         }
@@ -313,6 +319,10 @@ format_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, call: odinsynt
 // Reports, as a lint, a call statement that drops an error result.
 @(private = "file")
 ignored_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, stmt: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
+    if at, name, dropped := odinsema.ignored_ok(c, rc.live.id, stmt); dropped {
+        report_error(rc, report, at, CODE_IGNORED_ERROR, fmt.aprintf("The 'ok' result of '%s' is ignored", name), .Hint, lint = true)
+        return
+    }
     at, type, ok := odinsema.ignored_error(c, rc.live.id, stmt)
     if !ok {
         return
@@ -447,6 +457,35 @@ or_return_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, n: odinsynt
         to := odinsema.type_string(&c.table, p.to, context.temp_allocator)
         report_error(rc, report, at, CODE_OR_RETURN, fmt.aprintf("Cannot assign end value of type '%s' to '%s' in 'or_return'", end, to))
     }
+}
+
+// Reports, as a lint, a pointer dereference or a procedure value call whose operand is nil on every
+// path to it.
+@(private = "file")
+nil_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, m: ^odinsema.Scope_Map, whens: []Branch, lit: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
+    uses, err := odinsema.nil_deref(c, rc.live.id, m, lit, context.temp_allocator)
+    if err != nil {
+        return
+    }
+    for u in uses {
+        if in_untaken_branch(whens, u.offset) {
+            continue
+        }
+        verb := u.is_call ? "Calling" : "Dereferencing"
+        report_error(rc, report, u.offset, CODE_NIL_DEREF, fmt.aprintf("%s '%s', which is always nil here", verb, u.name), .Hint, lint = true)
+    }
+}
+
+// Reports a `cast` or `transmute` to the type its operand already has.
+@(private = "file")
+cast_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, n: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
+    v, ok := odinsema.vet_cast(c, rc.live.id, n)
+    if !ok {
+        return
+    }
+    type := odinsema.type_string(&c.table, v.type, context.temp_allocator)
+    what := v.is_transmute ? "transmute" : "cast"
+    report_error(rc, report, v.offset, CODE_CAST, fmt.aprintf("Unneeded %s of '%s' to identical type '%s'", what, v.operand, type), .Warning)
 }
 
 // Reports a call of a polymorphic procedure whose `where` clause is false for its arguments.

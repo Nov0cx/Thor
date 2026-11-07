@@ -207,7 +207,9 @@ test_file_vet_flags :: proc(t: ^testing.T) {
         {"#+vet shadowing\n", {}, {.Shadowing}},
         {"#+vet unused shadowing\n", {}, {.Shadowing, .Unused_Variables, .Unused_Imports}},
         {"#+vet !shadowing\n", VET_DEFAULT, VET_DEFAULT - {.Shadowing}},
-        {"#+vet !unused style\n", VET_DEFAULT, VET_DEFAULT - {.Unused_Variables, .Unused_Imports}},
+        {"#+vet !unused unknown-name\n", VET_DEFAULT, VET_DEFAULT - {.Unused_Variables, .Unused_Imports}},
+        {"#+vet style semicolon\n", VET_DEFAULT, VET_DEFAULT + {.Style, .Semicolon}},
+        {"#+vet !cast\n", VET_DEFAULT, VET_DEFAULT - {.Cast}},
     }
     for c in cases {
         src := strings.concatenate({c.header, "package p\n"}, context.temp_allocator)

@@ -110,11 +110,30 @@ test_vet_code :: proc(t: ^testing.T) {
         {"Declaration of 'x' from 'using' shadows declaration at line 25", CODE_SHADOWING},
         {"Declaration of 'len' within a global 'when' shadows the builtin 'len'", CODE_WHEN_SHADOWING},
         {"Undeclared name: x", ""},
+        {"Unneeded cast of 'c' to identical type 'int' ", CODE_CAST},
+        {"Unneeded transmute of 'transmute(int)c' to identical type 'int' ", CODE_CAST},
+        {"Found unneeded semicolon ", CODE_SEMICOLON},
+        {"With '-vet-tabs', tabs must be used for indentation ", CODE_TABS},
+        {"Expected a comma, got a newline ", CODE_STYLE},
+        {"Dereferencing 'p', which is always nil here ", CODE_NIL_DEREF},
+        {"Calling 'fn', which is always nil here ", CODE_NIL_DEREF},
     }
     for c in cases {
         code, ok := vet_code(c.message)
         testing.expectf(t, code == c.code && ok == (c.code != ""), "%q: got %q", c.message, code)
     }
+}
+
+@(test)
+test_vet_line_helpers :: proc(t: ^testing.T) {
+    testing.expect(t, declares_procedure("unused :: proc() {", "'unused' declared but not used"))
+    testing.expect(t, declares_procedure("@(private) unused :: proc(a: int) {", "'unused' declared but not used"))
+    testing.expect(t, !declares_procedure("x := 1", "'x' declared but not used"))
+    testing.expect(t, !declares_procedure("x :: 1", "'x' declared but not used"))
+    testing.expect(t, closer_follows("a\n\n\t)\n", 1))
+    testing.expect(t, closer_follows("a\n}\n", 1))
+    testing.expect(t, !closer_follows("a\nb: int,\n", 1))
+    testing.expect(t, !closer_follows("a\n", 1))
 }
 
 // The on-save check passes the vet flags and gives each vet line its id and the warning severity; a

@@ -2,6 +2,8 @@
 package odin
 
 import "core:fmt"
+import "core:mem"
+import "core:strings"
 
 import lang ".."
 import odinsema "sema"
@@ -15,16 +17,26 @@ VET_CODES := [odinsema.Vet_Flag]string {
     .Shadowing        = CODE_SHADOWING,
     .Using_Stmt       = CODE_USING_STMT,
     .When_Shadowing   = CODE_WHEN_SHADOWING,
+    .Cast             = CODE_CAST,
+    .Unused_Procedures = CODE_UNUSED_PROC,
+    .Style            = CODE_STYLE,
+    .Semicolon        = CODE_SEMICOLON,
+    .Tabs             = CODE_TABS,
 }
 
-// The `-vet` set less the checks whose id the workspace config turns off.
+// The `-vet` set less the checks whose id the workspace config turns off, plus the opt-in checks whose
+// id it sets to anything but off.
 @(private)
 workspace_vet_flags :: proc(e: ^Engine, workspace: string) -> odinsema.Vet_Flags {
     flags := odinsema.VET_DEFAULT
     severities := config_severities(e, workspace)
     for code, flag in VET_CODES {
-        if setting, ok := severities[code]; ok && setting == .Off {
+        setting, ok := severities[code]
+        switch {
+        case ok && setting == .Off:
             flags -= {flag}
+        case ok && flag in odinsema.VET_OPT_IN:
+            flags += {flag}
         }
     }
     return flags
@@ -52,6 +64,85 @@ vet_diagnostics :: proc(rc: ^Request_Context, m: ^odinsema.Scope_Map, whens: []B
     }
     if .When_Shadowing in flags {
         when_shadowing(rc, whens, report)
+    }
+    syntax_vet(rc, flags, report)
+    if .Unused_Procedures in flags {
+        unused_procedures(rc, whens, report)
+    }
+}
+
+// Reports the file-scope procedures that no identifier of their package names.
+@(private = "file")
+unused_procedures :: proc(rc: ^Request_Context, whens: []Branch, report: ^lang.Diagnostic_Report) {
+    view := request_package(rc, live_dir(rc))
+    if view == nil || rc.live.tree == nil {
+        return
+    }
+    cands, err := odinsema.vet_unused_candidates(rc.live.tree, context.temp_allocator)
+    if err != nil || len(cands) == 0 {
+        return
+    }
+    names := make(map[string]int, len(cands), context.temp_allocator)
+    decls := make([dynamic]int, context.temp_allocator)
+    for i in cands {
+        item := rc.live.tree.items[i]
+        names[item.name] = i
+        append(&decls, item.name_offset)
+    }
+    used := make(map[string]struct{}, len(cands), context.temp_allocator)
+    if odinsema.vet_note_names(rc.parsed.tree.text, names, &used, decls[:]) != nil {
+        return
+    }
+    for id in view.files {
+        if id == rc.live.id {
+            continue
+        }
+        if odinsema.snapshot_cancelled(&rc.snap) {
+            return
+        }
+        parsed := odinsema.db_parse(&rc.snap, id)
+        if parsed == nil {
+            // A file that cannot be read may name the procedure.
+            return
+        }
+        failed := odinsema.vet_note_names(parsed.tree.text, names, &used, nil) != nil
+        odinsema.db_parse_release(&rc.snap, parsed)
+        if failed {
+            return
+        }
+    }
+    for i in cands {
+        item := rc.live.tree.items[i]
+        if item.name in used || in_untaken_branch(whens, item.name_offset) {
+            continue
+        }
+        report_error(rc, report, item.name_offset, CODE_UNUSED_PROC, fmt.aprintf("'%s' declared but not used", item.name), .Warning)
+    }
+}
+
+// Appends the vet warnings of the syntax: unneeded semicolons, indentation with spaces and a missing
+// trailing comma.
+@(private = "file")
+syntax_vet :: proc(rc: ^Request_Context, flags: odinsema.Vet_Flags, report: ^lang.Diagnostic_Report) {
+    if .Semicolon in flags {
+        report_offsets(rc, odinsema.vet_semicolons, CODE_SEMICOLON, "Found unneeded semicolon", report)
+    }
+    if .Tabs in flags {
+        report_offsets(rc, odinsema.vet_tabs, CODE_TABS, "With '-vet-tabs', tabs must be used for indentation", report)
+    }
+    if .Style in flags {
+        report_offsets(rc, odinsema.vet_style, CODE_STYLE, "Expected a comma, got a newline", report)
+    }
+}
+
+@(private = "file")
+report_offsets :: proc(rc: ^Request_Context, find: proc(parsed: odinsyntax.Parse, allocator := context.allocator) -> (out: [dynamic]int, err: mem.Allocator_Error), code, message: string, report: ^lang.Diagnostic_Report) {
+    offsets, err := find(rc.parsed, context.temp_allocator)
+    if err != nil {
+        return
+    }
+    for at in offsets {
+        report_error(rc, report, at, code, strings.clone(message), .Warning)
     }
 }
 
