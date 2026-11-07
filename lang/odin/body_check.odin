@@ -39,8 +39,13 @@ walk_body :: proc(rc: ^Request_Context, c: ^odinsema.Checker, m: ^odinsema.Scope
         order_errors(rc, c, n, report)
         mismatch_errors(rc, c, odinsema.min_max_mismatches(c, rc.live.id, n, context.temp_allocator), "a procedure argument", report)
         format_errors(rc, c, n, report)
+        ce, _ := odinsyntax.as_call_expr(n)
+        if callee, has := odinsyntax.call_expr_callee(&ce); has && callee.green.kind == .Ident {
+            deprecated_uses(rc, c, callee, report)
+        }
     case .Selector_Expr:
         member_errors(rc, c, n, report)
+        deprecated_uses(rc, c, n, report)
     case .Assign_Stmt:
         count_errors(rc, c, n, report)
         mismatch_errors(rc, c, odinsema.assign_mismatches(c, rc.live.id, n, context.temp_allocator), "assignment", report)
@@ -299,6 +304,20 @@ ignored_errors :: proc(rc: ^Request_Context, c: ^odinsema.Checker, stmt: odinsyn
         return
     }
     report_error(rc, report, at, CODE_IGNORED_ERROR, fmt.aprintf("Error result of type '%s' is ignored", odinsema.type_string(&c.table, type, context.temp_allocator)), .Hint, lint = true)
+}
+
+// Reports, as a lint, a use of a declaration marked `@(deprecated)`.
+@(private = "file")
+deprecated_uses :: proc(rc: ^Request_Context, c: ^odinsema.Checker, expr: odinsyntax.Syntax_Node, report: ^lang.Diagnostic_Report) {
+    at, name, message, ok := odinsema.deprecated_use(c, rc.live.id, expr)
+    if !ok {
+        return
+    }
+    if message == "" {
+        report_error(rc, report, at, CODE_DEPRECATED, fmt.aprintf("'%s' is deprecated", name), .Hint, lint = true)
+        return
+    }
+    report_error(rc, report, at, CODE_DEPRECATED, fmt.aprintf("'%s' is deprecated: %s", name, message), .Hint, lint = true)
 }
 
 // Reports, as a lint, a `defer` in the body of the loop `loop` that releases an outer variable.

@@ -1440,6 +1440,40 @@ main :: proc() {
 }
 
 @(test)
+test_live_deprecated :: proc(t: ^testing.T) {
+    root := fixture(t, "live_deprecated", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
+    e := engine_create()
+    defer engine_destroy(e)
+
+    src := `package app
+
+@(deprecated = "use fresh")
+old :: proc() {}
+@(deprecated)
+bare :: proc() {}
+fresh :: proc() {}
+
+main :: proc() {
+	old()
+	bare()
+	fresh()
+	// thor:ignore api/deprecated
+	old()
+}
+`
+    res := live_check(e, src, root, fixture_path(root, "app/main.odin"))
+    defer free_live(&res)
+    expect_errors(t, &res, src, {
+        {"old()\n\tbare", "'old' is deprecated: use fresh", 0},
+        {"bare()\n\tfresh", "'bare' is deprecated", 0},
+    })
+    for d in res.report.items {
+        testing.expect_value(t, d.code, CODE_DEPRECATED)
+        testing.expect_value(t, d.severity, lang.Diagnostic_Severity.Hint)
+    }
+}
+
+@(test)
 test_live_dangling_slice :: proc(t: ^testing.T) {
     root := fixture(t, "live_dangling_slice", {{".thor/odin-analyzer.lua", `return { target = { os = "windows", arch = "amd64" } }`}})
     e := engine_create()

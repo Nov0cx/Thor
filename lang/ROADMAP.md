@@ -2785,6 +2785,10 @@ not a status, so this section stays the source of truth for what is built.
       per-iteration `defer delete(x)` on a loop-body variable is idiomatic and
       not flagged (a plain "defer in a loop" check hit 52 correct sites in
       the repo). A nested procedure literal and a nested loop are left out.
+    - `api/deprecated` (`sema/deprecated.odin`): a call of a bare name, or a
+      selector, that names a declaration with a `deprecated` attribute; the
+      message is the attribute value. A deprecated proc-group member and a
+      deprecated type used in a type position are not reported yet.
   - **Compiler oracle** (`lang/odin/oracle_test.odin`, run with
     `-define:LIVE_ORACLE=true`; plan §8 M5 bar): `test_oracle_clean_corpus`
     runs the live check on every file of the 310 `base`/`core`/`vendor`

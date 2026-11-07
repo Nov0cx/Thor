@@ -131,6 +131,7 @@
 - Odin: returning or storing the address or slice of a local (`return &x`, `return arr[:]`, `global = &x`, `out^ = &x`) is marked as a hint, since the local is gone when the procedure returns (`mem/dangling-slice`).
 - Odin: storing a value made with `context.temp_allocator` or `tprintf` in a global or through a pointer parameter, such as `global = strings.clone(s, context.temp_allocator)`, is marked as a hint, since the next `free_all` frees it (`mem/temp-escape`). Returning one is not marked.
 - Odin: a `defer` in a loop that frees a variable declared before the loop, such as `defer delete(buf)`, is marked as a hint, since it runs on every iteration (`defer/in-loop`).
+- Odin: a use of a declaration marked `@(deprecated)` is marked as a hint with the message of the attribute (`api/deprecated`).
 - The Settings chord (`ctrl + comma`) works while a terminal has the keyboard. On macOS `cmd + comma` opens Settings too.
 - Windows: "Settings: Toggle File Manager Menu Entry" adds or removes "Open with Thor" in the Explorer right-click menu of files, folders and a folder background. It is the same as Settings > Windows > Explorer Menu Entry.
 - The update button in the title bar names the step: "Downloading 42%" with a small progress bar, then "Verifying..." and "Installing...". Its tooltip says Thor restarts when the install is done.
