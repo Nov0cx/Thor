@@ -2761,6 +2761,23 @@ not a status, so this section stays the source of truth for what is built.
       real drops (parser `advance_token`, `os.write_string`, `image`
       errors); the 23 in the repo are now `_ =`. Not yet: a dropped `ok`
       bool.
+    - `mem/dangling-slice` (`sema/escape.odin`): `&x`, `&x.f`, `&x[i]` or
+      `x[a:b]` of a by-value local (`Var` or named result; a fixed array for
+      the slice) that a `return` hands out, that is assigned to a named
+      result or a global, or that is stored through a pointer or slice
+      parameter. A `@(static)` local, a `for &v` variable, and a pointer,
+      slice, dynamic array or map local are left out, and so is a store that
+      a `defer` in the same block resets (`x.p = &b; defer x.p = nil`). Not
+      yet: a compound literal that holds the address, and a store through a
+      local pointer.
+    - `mem/temp-escape` (`sema/escape.odin`): a call given
+      `context.temp_allocator`, or a `tprint*` call, that is stored in a
+      global or through a pointer or slice parameter, directly or through a
+      local declared with it (one `:=`, slices of it included). A return and a
+      named result are not flagged: the standard library returns temp values
+      on purpose (30 hits over the clean corpus, none a bug). A procedure with
+      `temp` or `tprint` in its name is left out. Not yet: taint through a
+      second assignment, a call or a field.
   - **Compiler oracle** (`lang/odin/oracle_test.odin`, run with
     `-define:LIVE_ORACLE=true`; plan §8 M5 bar): `test_oracle_clean_corpus`
     runs the live check on every file of the 310 `base`/`core`/`vendor`
