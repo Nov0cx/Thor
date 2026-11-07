@@ -142,6 +142,7 @@ return {
         reload_settings = "",
         restart_language_servers = "",
         restart_one_language_server = "",
+        toggle_shell_menu = "",
         tutorial = "",
     },
     tasks = {

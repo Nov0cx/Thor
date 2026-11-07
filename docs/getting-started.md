@@ -105,6 +105,12 @@ Opening a second folder while one is already open asks whether to replace the
 current window's workspace or launch a new window — configurable via the
 `open_folder_in` setting (see [Configuration](configuration.md)).
 
+On Windows, "Settings: Toggle File Manager Menu Entry" (or Settings > Windows >
+Explorer Menu Entry) adds "Open with Thor" to the right-click menu of files,
+folders and the background of an open folder. It is written for your account only
+(`HKCU`) and needs no admin right. Run the command again to remove it. Moving
+Thor to another folder needs the entry added again.
+
 A folder that is already open in another window is never opened twice; that
 window is brought to the front instead. On Linux and macOS this needs a desktop
 helper — `xdotool` or `wmctrl` on X11, `osascript` on macOS — and the status bar

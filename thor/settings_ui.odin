@@ -112,6 +112,9 @@ thor_populate_settings_view :: proc(thor: ^Thor) {
     thor_settings_add_choice(view, "open_folder_in", "Open Folder In", thor_open_folder_in_label(config))
     thor_settings_add_choice(view, "pane_layout", "Editor Pane Layout", thor_pane_layout_label(config))
     thor_settings_add_choice(view, "clipboard_history_save", "Save Clipboard History", thor_on_off_label(setting.clipboard_history_save(config)))
+    if thor_shell_menu_supported() {
+        thor_settings_add_choice(view, "shell_menu", "Explorer Menu Entry", thor_on_off_label(thor_shell_menu_registered()))
+    }
 
     thor_settings_begin_category(view, "terminal", "Terminal", "terminal-2")
     thor_settings_add_choice(view, "default_shell", "Default Shell", thor_default_shell_label(thor, config))
@@ -288,6 +291,8 @@ thor_on_setting_choice :: proc(data: rawptr, id: string) {
         thor_cmd_select_shell(thor)
     case "check_for_updates":
         thor_cmd_change_check_for_updates(thor)
+    case "shell_menu":
+        thor_cmd_toggle_shell_menu(thor)
     }
 }
 

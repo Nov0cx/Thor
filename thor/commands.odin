@@ -459,6 +459,7 @@ thor_register_commands :: proc(thor: ^Thor) {
     thor_add_bindable_command(thor, "Help: Documentation Page", "docs_page", thor_cmd_docs_page, thor)
     thor_add_bindable_command(thor, "Help: Documentation in Browser", "docs_browser", thor_cmd_docs_browser, thor)
     thor_add_bindable_command(thor, "Help: What's New", "whats_new", thor_cmd_whats_new, thor)
+    thor_add_bindable_command(thor, "Settings: Toggle File Manager Menu Entry", "toggle_shell_menu", thor_cmd_toggle_shell_menu, thor)
     thor_add_bindable_command(thor, "Help: Check for Updates", "check_for_updates", thor_cmd_check_for_updates, thor)
     thor_add_bindable_command(thor, "Help: Check for Plugin and Theme Updates", "check_for_plugin_updates", thor_cmd_check_for_plugin_updates, thor)
     thor_add_bindable_command(thor, "Settings: Open Settings GUI", "open_settings_gui", thor_cmd_open_settings_gui, thor)
