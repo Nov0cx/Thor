@@ -144,6 +144,10 @@ vet_flag_args :: proc(e: ^Engine, workspace, path: string, args: ^[dynamic]strin
         case .Shadowing:        append(args, "-vet-shadowing")
         case .Using_Stmt:       append(args, "-vet-using-stmt")
         case .When_Shadowing:   append(args, "-vet-when-shadowing")
+        case .Cast:             append(args, "-vet-cast")
+        case .Unused_Procedures: append(args, "-vet-unused-procedures")
+        // A syntax-level vet error stops the compiler before it types the package, so these three are served live only.
+        case .Style, .Semicolon, .Tabs:
         }
     }
 }
@@ -210,11 +214,22 @@ vet_item :: proc(vet: ^Vet_Context, d: ^lang.Diagnostic, message: string) -> boo
         }
         vet.files[d.path] = file
     }
-    if code == CODE_UNUSED_VAR && file.ok && strings.has_prefix(strings.trim_left_space(line_text(file.src, d.line)), "import") {
-        code = CODE_UNUSED_IMPORT
+    text := file.ok ? line_text(file.src, d.line) : ""
+    switch code {
+    case CODE_UNUSED_VAR:
+        if file.ok && strings.has_prefix(strings.trim_left_space(text), "import") {
+            code = CODE_UNUSED_IMPORT
+        } else if file.ok && declares_procedure(text, message) {
+            code = CODE_UNUSED_PROC
+        }
+    case CODE_STYLE:
+        // Without `-vet-style` the same line is a real syntax error, unless a closer follows.
+        if !file.ok || !closer_follows(file.src, d.line) {
+            return true
+        }
     }
     d.code = code
-    d.severity = .Warning
+    d.severity = code == CODE_NIL_DEREF ? .Hint : .Warning
     if setting, set := vet.severities[code]; set {
         switch setting {
         case .Off:     return false
@@ -224,6 +239,41 @@ vet_item :: proc(vet: ^Vet_Context, d: ^lang.Diagnostic, message: string) -> boo
         }
     }
     return !ignored(file.ignores, d^)
+}
+
+// True when `text` is the line of a `name :: proc` declaration, `message` being `'name' declared but not used`.
+@(private)
+declares_procedure :: proc(text, message: string) -> bool {
+    open := strings.index_byte(message, '\'')
+    if open < 0 {
+        return false
+    }
+    rest := message[open + 1:]
+    name := rest[:max(strings.index_byte(rest, '\''), 0)]
+    at := strings.index(text, name)
+    if name == "" || at < 0 {
+        return false
+    }
+    after := strings.trim_left_space(text[at + len(name):])
+    return strings.has_prefix(after, "::") && strings.has_prefix(strings.trim_left_space(after[2:]), "proc")
+}
+
+// True when the first line after 1-based `line` that holds text starts with a closing bracket.
+@(private)
+closer_follows :: proc(src: string, line: int) -> bool {
+    rest := src
+    n := 1
+    for l in strings.split_lines_iterator(&rest) {
+        if n > line {
+            t := strings.trim_space(l)
+            if t == "" {
+                continue
+            }
+            return t[0] == ')' || t[0] == '}' || t[0] == ']'
+        }
+        n += 1
+    }
+    return false
 }
 
 // The id of a vet message of the compiler. An unused import reads like an unused variable.
@@ -237,6 +287,16 @@ vet_code :: proc(message: string) -> (string, bool) {
         return CODE_WHEN_SHADOWING, true
     case strings.has_prefix(m, "Declaration of '") && strings.contains(m, " shadows declaration at line "):
         return CODE_SHADOWING, true
+    case strings.has_prefix(m, "Unneeded cast of '") || strings.has_prefix(m, "Unneeded transmute of '"):
+        return CODE_CAST, true
+    case m == "Found unneeded semicolon":
+        return CODE_SEMICOLON, true
+    case strings.has_prefix(m, "With '-vet-tabs'"):
+        return CODE_TABS, true
+    case m == "Expected a comma, got a newline":
+        return CODE_STYLE, true
+    case strings.has_suffix(m, ", which is always nil here") && (strings.has_prefix(m, "Dereferencing '") || strings.has_prefix(m, "Calling '")):
+        return CODE_NIL_DEREF, true
     }
     return "", false
 }

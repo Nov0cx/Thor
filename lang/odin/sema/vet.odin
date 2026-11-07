@@ -13,12 +13,20 @@ Vet_Flag :: enum u8 {
     Shadowing,
     Using_Stmt,
     When_Shadowing,
+    Cast,
+    Unused_Procedures,
+    Style,
+    Semicolon,
+    Tabs,
 }
 
 Vet_Flags :: bit_set[Vet_Flag]
 
 // The checks `-vet` turns on.
-VET_DEFAULT :: Vet_Flags{.Unused_Variables, .Unused_Imports, .Shadowing, .Using_Stmt, .When_Shadowing}
+VET_DEFAULT :: Vet_Flags{.Unused_Variables, .Unused_Imports, .Shadowing, .Using_Stmt, .When_Shadowing, .Cast}
+
+// The checks outside `-vet`, on only when the config or a `#+vet` tag names them.
+VET_OPT_IN :: Vet_Flags{.Unused_Procedures, .Style, .Semicolon, .Tabs}
 
 // A byte range of a file.
 Offset_Span :: struct {
@@ -64,6 +72,11 @@ vet_tag_flags :: proc(name: string) -> Vet_Flags {
     case "shadowing":        return {.Shadowing}
     case "using-stmt":       return {.Using_Stmt}
     case "when-shadowing":   return {.When_Shadowing}
+    case "cast":             return {.Cast}
+    case "unused-procedures": return {.Unused_Procedures}
+    case "style":            return {.Style}
+    case "semicolon":        return {.Semicolon}
+    case "tabs":             return {.Tabs}
     }
     return {}
 }

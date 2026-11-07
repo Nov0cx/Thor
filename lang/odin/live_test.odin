@@ -43,7 +43,7 @@ Want :: struct {
 @(private)
 is_vet_code :: proc(code: string) -> bool {
     switch code {
-    case CODE_UNUSED_VAR, CODE_DEAD_STORE, CODE_UNUSED_IMPORT, CODE_SHADOWING, CODE_WHEN_SHADOWING:
+    case CODE_UNUSED_VAR, CODE_DEAD_STORE, CODE_UNUSED_IMPORT, CODE_SHADOWING, CODE_WHEN_SHADOWING, CODE_CAST, CODE_UNUSED_PROC, CODE_STYLE, CODE_SEMICOLON, CODE_TABS:
         return true
     }
     return false

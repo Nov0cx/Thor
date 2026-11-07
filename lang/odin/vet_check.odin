@@ -15,16 +15,26 @@ VET_CODES := [odinsema.Vet_Flag]string {
     .Shadowing        = CODE_SHADOWING,
     .Using_Stmt       = CODE_USING_STMT,
     .When_Shadowing   = CODE_WHEN_SHADOWING,
+    .Cast             = CODE_CAST,
+    .Unused_Procedures = CODE_UNUSED_PROC,
+    .Style            = CODE_STYLE,
+    .Semicolon        = CODE_SEMICOLON,
+    .Tabs             = CODE_TABS,
 }
 
-// The `-vet` set less the checks whose id the workspace config turns off.
+// The `-vet` set less the checks whose id the workspace config turns off, plus the opt-in checks whose
+// id it sets to anything but off.
 @(private)
 workspace_vet_flags :: proc(e: ^Engine, workspace: string) -> odinsema.Vet_Flags {
     flags := odinsema.VET_DEFAULT
     severities := config_severities(e, workspace)
     for code, flag in VET_CODES {
-        if setting, ok := severities[code]; ok && setting == .Off {
+        setting, ok := severities[code]
+        switch {
+        case ok && setting == .Off:
             flags -= {flag}
+        case ok && flag in odinsema.VET_OPT_IN:
+            flags += {flag}
         }
     }
     return flags
